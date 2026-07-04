@@ -18,160 +18,42 @@
       --border-color: #2c2c2e;
     }
     html, body {
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
-      background-color: var(--bg-color);
-      color: var(--text-color);
-      margin: 0; padding: 0;
-      width: 100%; height: 100%;
-      overflow-x: hidden;
-      overflow-y: auto;
-      box-sizing: border-box;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      background-color: var(--bg-color); color: var(--text-color);
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow-x: hidden; overflow-y: auto; box-sizing: border-box;
       -webkit-tap-highlight-color: transparent;
     }
-    .app {
-      padding: 16px;
-      padding-bottom: 40px;
-      max-width: 600px;
-      margin: 0 auto;
-      box-sizing: border-box;
-    }
-    .header-main {
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-      color: var(--text-color);
-      margin-bottom: 20px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .section-title {
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: var(--text-muted);
-      margin: 24px 0 8px 4px;
-    }
-    .card {
-      background-color: var(--card-bg);
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
-      border: 1px solid var(--border-color);
-      margin-bottom: 16px;
-    }
-    .form-group {
-      margin-bottom: 16px;
-    }
-    .form-group:last-child { margin-bottom: 0; }
-    label {
-      display: block;
-      font-size: 14px;
-      font-weight: 500;
-      margin-bottom: 6px;
-      color: #e5e5ea;
-    }
+    .app { padding: 16px; padding-bottom: 40px; max-width: 600px; margin: 0 auto; box-sizing: border-box; }
+    .header-main { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+    .section-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin: 24px 0 8px 4px; }
+    .card { background-color: var(--card-bg); border-radius: 12px; padding: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); border: 1px solid var(--border-color); margin-bottom: 16px; }
+    .form-group { margin-bottom: 16px; }
+    label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #e5e5ea; }
     select, input {
-      width: 100%;
-      height: 48px;
-      background-color: #2c2c2e;
-      border: 1px solid var(--border-color);
-      border-radius: 10px;
-      color: #fff;
-      font-size: 16px; /* Фиксация от зума на Айфонах */
-      padding: 0 14px;
-      box-sizing: border-box;
-      outline: none;
-      transition: border-color 0.15s ease;
+      width: 100%; height: 48px; background-color: #2c2c2e; border: 1px solid var(--border-color);
+      border-radius: 10px; color: #fff; font-size: 16px; padding: 0 14px; box-sizing: border-box; outline: none;
     }
-    select:focus, input:focus {
-      border-color: var(--accent-color);
-    }
-    .grid-buttons {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
-    .btn-action {
-      height: 46px;
-      border-radius: 10px;
-      border: none;
-      font-size: 15px;
-      font-weight: 600;
-      color: #fff;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      transition: background-color 0.1s ease;
-    }
-    .btn-blue { background-color: var(--accent-color); }
-    .btn-blue:active { background-color: var(--accent-active); }
-    .btn-green { background-color: var(--success-color); }
-    .btn-green:active { background-color: #24b34b; }
-    .btn-orange { background-color: #ff9500; }
-    .btn-orange:active { background-color: #e08500; }
-    .btn-purple { background-color: #af52de; }
-    .btn-purple:active { background-color: #963ec8; }
-    .btn-brown { background-color: #ac8e68; }
-    .btn-brown:active { background-color: #8d7454; }
-    
-    .btn-save {
-      height: 54px;
-      background-color: var(--success-color);
-      font-size: 16px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      box-shadow: 0 4px 12px rgba(48, 209, 88, 0.2);
-    }
+    select:focus, input:focus { border-color: var(--accent-color); }
+    .grid-buttons { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 20px; }
+    .btn-action { height: 46px; border-radius: 10px; border: none; font-size: 15px; font-weight: 600; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .btn-blue { background-color: var(--accent-color); } .btn-blue:active { background-color: var(--accent-active); }
+    .btn-green { background-color: var(--success-color); } .btn-green:active { background-color: #24b34b; }
+    .btn-orange { background-color: #ff9500; } .btn-orange:active { background-color: #e08500; }
+    .btn-purple { background-color: #af52de; } .btn-purple:active { background-color: #963ec8; }
+    .btn-brown { background-color: #ac8e68; } .btn-brown:active { background-color: #8d7454; }
+    .btn-save { height: 54px; background-color: var(--success-color); font-size: 16px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 4px 12px rgba(48, 209, 88, 0.2); }
     .btn-save:active { background-color: #24b34b; }
-
-    .basket-card {
-      background-color: #2c2c2e;
-      border-radius: 10px;
-      padding: 12px 14px;
-      margin-bottom: 12px;
-      border-left: 4px solid var(--accent-color);
-      position: relative;
-      animation: fadeIn 0.2s ease;
-    }
-    .basket-card.chew { border-left-color: #ff9500; }
-    .basket-card.other { border-left-color: #af52de; }
-    .basket-card.powder { border-left-color: #ac8e68; }
-    .basket-card.veg { border-left-color: var(--success-color); }
-    
-    .basket-info {
-      font-size: 15px;
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-    .basket-sub {
-      font-size: 13px;
-      color: var(--text-muted);
-    }
-    .btn-inline-del {
-      position: absolute;
-      right: 12px; top: 50%;
-      transform: translateY(-50%);
-      background: none; border: none;
-      color: var(--danger-color);
-      font-size: 14px; font-weight: 600;
-      cursor: pointer;
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(4px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
+    .basket-card { background-color: #2c2c2e; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; border-left: 4px solid var(--accent-color); position: relative; }
+    .basket-card.chew { border-left-color: #ff9500; } .basket-card.other { border-left-color: #af52de; } .basket-card.powder { border-left-color: #ac8e68; } .basket-card.veg { border-left-color: var(--success-color); }
+    .basket-info { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .basket-sub { font-size: 13px; color: var(--text-muted); }
+    .btn-inline-del { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--danger-color); font-size: 14px; font-weight: 600; cursor: pointer; }
   </style>
 </head>
 <body>
   <div class="app">
     <div class="header-main">🏭 Конвейер: Новый заказ</div>
-    
     <div class="card">
       <div class="form-group">
         <label>День отгрузки</label>
@@ -189,12 +71,8 @@
         <input type="text" id="client" placeholder="Например: Мария" autocomplete="off">
       </div>
     </div>
-
     <div class="section-title">🛒 Корзина заказа</div>
-    <div id="basketContainer">
-      <!-- Сюда складываются готовые плитки позиций -->
-    </div>
-
+    <div id="basketContainer"></div>
     <div class="section-title">➕ Добавить товар в чек</div>
     <div class="grid-buttons">
       <button class="btn-action btn-blue" onclick="openProductSelector('dressura')">🍖 Добавить Дрессуру</button>
@@ -203,35 +81,24 @@
       <button class="btn-action btn-brown" onclick="openProductSelector('powder')">✨ Добавить Присыпки</button>
       <button class="btn-action btn-green" onclick="openProductSelector('veg')">🍏 Добавить Овощи/Фрукты</button>
     </div>
-
-    <!-- ДИНАМИЧЕСКИЙ БЛОК ДЛЯ ВВОДА ПОЗИЦИИ (ВЫЕЗЖАЕТ ПО КЛИКУ) -->
-    <div class="card" id="selectorCard" style="display: none; animation: fadeIn 0.2s ease;">
+    <div class="card" id="selectorCard" style="display: none;">
       <h3 id="selectorTitle" style="margin-top:0; font-size:16px; color:var(--accent-color);">Выбор позиции</h3>
-      <div class="form-group">
-        <label id="mainLabel">Наименование</label>
-        <select id="mainSelect" onchange="onProductChange()"></select>
-      </div>
-      <div class="form-group" id="fractionGroup" style="display: none;">
-        <label>Фракция нарезки</label>
-        <select id="fractionSelect"></select>
-      </div>
-      <div class="form-group">
-        <label id="valueLabel">Объем (в граммах)</label>
-        <input type="number" id="volumeInput" placeholder="0" inputmode="numeric">
-      </div>
+      <div class="form-group"><label>Наименование</label><select id="mainSelect" onchange="onProductChange()"></select></div>
+      <div class="form-group" id="fractionGroup" style="display: none;"><label>Фракция нарезки</label><select id="fractionSelect"></select></div>
+      <div class="form-group"><label id="valueLabel">Объем</label><input type="number" id="volumeInput" placeholder="0" inputmode="numeric"></div>
       <button class="btn-action btn-blue" style="height:42px;" onclick="addItemToBasket()">✅ Подтвердить позицию</button>
     </div>
-
-    <div style="margin-top: 30px;">
-      <button class="btn-action btn-save" onclick="sendEntireOrder()">💾 Сохранить весь заказ</button>
-    </div>
+    <div style="margin-top: 30px;"><button class="btn-action btn-save" onclick="sendEntireOrder()">💾 Сохранить весь заказ</button></div>
   </div>
+
   <script>
     const tg = window.Telegram.WebApp;
     tg.expand();
     tg.ready();
 
-    // Полный, жестко структурированный каталог бойни по твоим правилам
+    // Сюда в кавычки жестко вставь URL твоего гугл-вебхука /exec, когда будем связывать с таблицей
+    const GOOGLE_WEBHOOK_URL = "";
+
     const catalog = {
       dressura: {
         title: "🍖 Новая Дрессура",
@@ -275,120 +142,70 @@
     let basket = [];
     let currentCategory = "";
 
-    // Открытие панели быстрого ввода товара
     function openProductSelector(catKey) {
       currentCategory = catKey;
       const cat = catalog[catKey];
-      
       document.getElementById('selectorTitle').innerText = cat.title;
       document.getElementById('selectorCard').style.display = "block";
-      
       let itemHtml = '<option value="">-- Выбрать из списка --</option>';
       cat.items.forEach(name => { itemHtml += `<option value="${name}">${name}</option>`; });
-      
       const mainSelect = document.getElementById('mainSelect');
       mainSelect.innerHTML = itemHtml;
-      
       document.getElementById('fractionGroup').style.display = "none";
       document.getElementById('volumeInput').value = "";
-      
-      // Переключаем текст единиц измерения на лету
       const valLabel = (catKey === 'chew' || mainSelect.value === "ПЕРЕПЁЛКИ шт.") ? "Количество (в шт.)" : "Вес (в граммах)";
       document.getElementById('valueLabel').innerText = valLabel;
-      
       if(tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
     }
 
-    // Авто-определение наличия фракций при выборе товара
     function onProductChange() {
       const mainVal = document.getElementById('mainSelect').value;
       const fracGroup = document.getElementById('fractionGroup');
       const fracSelect = document.getElementById('fractionSelect');
       const valLabel = document.getElementById('valueLabel');
       const cat = catalog[currentCategory];
-      
-      if (mainVal === "ПЕРЕПЁЛКИ шт." || currentCategory === 'chew') {
-        valLabel.innerText = "Количество (в шт.)";
-      } else {
-        valLabel.innerText = "Вес (в граммах)";
-      }
-
+      if (mainVal === "ПЕРЕПЁЛКИ шт." || currentCategory === 'chew') { valLabel.innerText = "Количество (в шт.)"; } 
+      else { valLabel.innerText = "Вес (в граммах)"; }
       if (cat.fractions && cat.fractions[mainVal]) {
         fracGroup.style.display = "block";
         let fracHtml = "";
         cat.fractions[mainVal].forEach(f => { fracHtml += `<option value="${f}">${f}</option>`; });
         fracSelect.innerHTML = fracHtml;
-      } else {
-        fracGroup.style.display = "none";
-        fracSelect.innerHTML = "";
-      }
+      } else { fracGroup.style.display = "none"; fracSelect.innerHTML = ""; }
     }
 
-    // Добавление сформированного товара в корзину (на чистых массивах!)
     function addItemToBasket() {
       const mainVal = document.getElementById('mainSelect').value;
       const fracVal = document.getElementById('fractionSelect').value;
       const inputVal = Number(document.getElementById('volumeInput').value) || 0;
-      
       if (!mainVal) { tg.showAlert("❌ Выберите наименование!"); return; }
       if (inputVal <= 0) { tg.showAlert("❌ Укажите количество/вес больше нуля!"); return; }
-      
-      // Создаем уникальный текстовый ID для легкого удаления плитки
       const uniqueId = Date.now();
-      
-      basket.push({
-        id: uniqueId,
-        cat: currentCategory,
-        main: mainVal,
-        sub: fracVal,
-        value: inputVal
-      });
-      
+      basket.push({ id: uniqueId, cat: currentCategory, main: mainVal, sub: fracVal, value: inputVal });
       renderBasket();
       document.getElementById('selectorCard').style.display = "none";
       if(tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
     }
 
-    // Визуальный рендеринг премиум-плиток в корзине
     function renderBasket() {
-      const container = document.getElementById('basketContainer');
-      container.innerHTML = "";
-      
-      if (basket.length === 0) {
-        container.innerHTML = `<p style="color:var(--text-muted); font-style:italic; margin:4px 0 0 4px;">Корзина пуста. Добавьте позиции ниже...</p>`;
-        return;
-      }
-      
+      const container = document.getElementById('basketContainer'); container.innerHTML = "";
+      if (basket.length === 0) { container.innerHTML = `<p style="color:var(--text-muted); font-style:italic; margin:4px 0 0 4px;">Корзина пуста. Добавьте позиции ниже...</p>`; return; }
       basket.forEach(item => {
-        let itemTitle = item.main;
-        let subText = "";
-        let unit = (item.cat === 'chew' || item.main === "ПЕРЕПЁЛКИ шт.") ? " шт." : " гр";
-        
-        if (item.cat === "dressura") {
-          subText = "Фракция: " + item.sub;
-        } else if (item.cat === "chew" && catalog.chew.fractions[item.main]) {
-          subText = "Тип нарезки: " + item.sub;
-        } else {
-          subText = "Категория: " + item.cat.toUpperCase();
-        }
-        
+        let itemTitle = item.main; let subText = ""; let unit = (item.cat === 'chew' || item.main === "ПЕРЕПЁЛКИ шт.") ? " шт." : " гр";
+        if (item.cat === "dressura") { subText = "Фракция: " + item.sub; } 
+        else if (item.cat === "chew" && catalog.chew.fractions[item.main]) { subText = "Тип нарезки: " + item.sub; } 
+        else { subText = "Категория: " + item.cat.toUpperCase(); }
         container.innerHTML += `
           <div class="basket-card ${item.cat}">
             <button class="btn-inline-del" onclick="deleteBasketItem(${item.id})">Удалить</button>
             <div class="basket-info">${itemTitle} → ${item.value}${unit}</div>
             <div class="basket-sub">${subText}</div>
-          </div>
-        `;
+          </div>`;
       });
     }
 
-    function deleteBasketItem(id) {
-      basket = basket.filter(item => item.id !== id);
-      renderBasket();
-      if(tg.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
-    }
+    function deleteBasketItem(id) { basket = basket.filter(item => item.id !== id); renderBasket(); if(tg.HapticFeedback) tg.HapticFeedback.impactOccurred("medium"); }
 
-    // СОХРАНЕНИЕ ВСЕГО ЧЕКА НА СЕРВЕР GOOGLE
     function sendEntireOrder() {
       const clientName = document.getElementById('client').value.trim();
       if (!clientName) { tg.showAlert("❌ Введите имя/ник клиента!"); return; }
@@ -396,37 +213,21 @@
       
       tg.showPopup({
         title: "Сохранение чека",
-        message: `Записать весь заказ (${basket.length} поз.) для клиента ${clientName} в базу?`,
+        message: "Записать весь заказ (" + basket.length + " поз.) для клиента " + clientName + " в базу?",
         buttons: [{type: "ok", text: "Да, записать"}, {type: "cancel", text: "Отмена"}]
       }, function(buttonId) {
         if (buttonId === "ok") {
-          tg.MainButton.setText("⏳ СОХРАНЕНИЕ В ТАБЛИЦУ...");
-          tg.MainButton.show();
-          
-          // Отсылаем пакет данных напрямую в функцию processFormFromWebApp нашего скрипта!
-          google.script.run.withSuccessHandler(function(response) {
-            tg.MainButton.hide();
-            const res = JSON.parse(response);
-            
-            if (res.status === "success") {
-              tg.showAlert("🎉 Заказ успешно зафиксирован! Склад и усушка пересчитаны.");
-              tg.close(); // Закрываем Mini App приложение
-            } else if (res.status === "client_not_found") {
-              tg.showAlert("❌ Ошибка: Клиент '" + clientName + "' не найден в шапке Менеджера на этот день!");
-            } else {
-              tg.showAlert("❌ Ошибка сервера Google Таблиц.");
-            }
-          }).processFormFromWebApp({
-            action: "saveOrder",
-            day: document.getElementById('day').value,
-            client: clientName,
-            basket: basket
+          fetch(GOOGLE_WEBHOOK_URL, {
+            method: "POST",
+            mode: "no-cors",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "saveOrder", day: document.getElementById('day').value, client: clientName, basket: basket })
           });
+          tg.showAlert("🎉 Весь заказ успешно отправлен в таблицу! Склад обновился.");
+          tg.close();
         }
       });
     }
-
-    // Инициализация пустой корзины при старте страницы
     renderBasket();
   </script>
 </body>
