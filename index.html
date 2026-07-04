@@ -7,15 +7,9 @@
   <script src="https://telegram.org"></script>
   <style>
     :root {
-      --bg-color: #121212;
-      --card-bg: #1c1c1e;
-      --text-color: #f5f5f7;
-      --text-muted: #8e8e93;
-      --accent-color: #248bf2;
-      --accent-active: #1472df;
-      --danger-color: #ff453a;
-      --success-color: #30d158;
-      --border-color: #2c2c2e;
+      --bg-color: #121212; --card-bg: #1c1c1e; --text-color: #f5f5f7;
+      --text-muted: #8e8e93; --accent-color: #248bf2; --accent-active: #1472df;
+      --danger-color: #ff453a; --success-color: #30d158; --border-color: #2c2c2e;
     }
     html, body {
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
@@ -27,7 +21,7 @@
     .app { padding: 16px; padding-bottom: 40px; max-width: 600px; margin: 0 auto; box-sizing: border-box; }
     .header-main { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
     .section-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin: 24px 0 8px 4px; }
-    .card { background-color: var(--card-bg); border-radius: 12px; padding: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); border: 1px solid var(--border-color); margin-bottom: 16px; }
+    .card { background-color: var(--card-bg); border-radius: 12px; padding: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); border: 1px solid var(--border-color); margin-bottom: 16px; box-sizing: border-box; width: 100%; }
     .form-group { margin-bottom: 16px; }
     label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #e5e5ea; }
     select, input {
@@ -36,7 +30,7 @@
     }
     select:focus, input:focus { border-color: var(--accent-color); }
     .grid-buttons { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 20px; }
-    .btn-action { height: 46px; border-radius: 10px; border: none; font-size: 15px; font-weight: 600; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .btn-action { height: 46px; border-radius: 10px; border: none; font-size: 15px; font-weight: 600; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box; width: 100%; }
     .btn-blue { background-color: var(--accent-color); } .btn-blue:active { background-color: var(--accent-active); }
     .btn-green { background-color: var(--success-color); } .btn-green:active { background-color: #24b34b; }
     .btn-orange { background-color: #ff9500; } .btn-orange:active { background-color: #e08500; }
@@ -44,7 +38,7 @@
     .btn-brown { background-color: #ac8e68; } .btn-brown:active { background-color: #8d7454; }
     .btn-save { height: 54px; background-color: var(--success-color); font-size: 16px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 4px 12px rgba(48, 209, 88, 0.2); }
     .btn-save:active { background-color: #24b34b; }
-    .basket-card { background-color: #2c2c2e; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; border-left: 4px solid var(--accent-color); position: relative; }
+    .basket-card { background-color: #2c2c2e; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; border-left: 4px solid var(--accent-color); position: relative; box-sizing: border-box; width: 100%; }
     .basket-card.chew { border-left-color: #ff9500; } .basket-card.other { border-left-color: #af52de; } .basket-card.powder { border-left-color: #ac8e68; } .basket-card.veg { border-left-color: var(--success-color); }
     .basket-info { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
     .basket-sub { font-size: 13px; color: var(--text-muted); }
@@ -75,7 +69,7 @@
     <div id="basketContainer"></div>
     <div class="section-title">➕ Добавить товар в чек</div>
     <div class="grid-buttons">
-      <button class="btn-action btn-blue" onclick="openProductSelector('dressura')">🍖 Добавить Дрессуру</button>
+      <button class="btn-action btn-blue" onclick="addBlock('dressura')">🍖 Добавить Дрессуру</button>
       <button class="btn-action btn-orange" onclick="openProductSelector('chew')">🦴 Добавить Жевалки</button>
       <button class="btn-action btn-purple" onclick="openProductSelector('other')">📦 Добавить Другое</button>
       <button class="btn-action btn-brown" onclick="openProductSelector('powder')">✨ Добавить Присыпки</button>
@@ -96,8 +90,8 @@
     tg.expand();
     tg.ready();
 
-    // Сюда в кавычки жестко вставь URL твоего гугл-вебхука /exec, когда будем связывать с таблицей
-    const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwplxLYmgHeAjIsefEJqVIZ-j8yMQGJbDRimIdpcmoKBuBzQQ4ScEYidMctN_QmMP4z/exec";
+    // ВСТАВЬ СВОЙ URL ВЕБХУКА ТАБЛИЦЫ ВНУТРЬ КАВЫЧЕК НИЖЕ:
+    const GOOGLE_WEBHOOK_URL = "";
 
     const catalog = {
       dressura: {
@@ -156,6 +150,11 @@
       const valLabel = (catKey === 'chew' || mainSelect.value === "ПЕРЕПЁЛКИ шт.") ? "Количество (в шт.)" : "Вес (в граммах)";
       document.getElementById('valueLabel').innerText = valLabel;
       if(tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+    }
+
+    // Дублируем функцию для кнопки Дрессуры, чтобы избежать любых ошибок вызова
+    function addBlock(catKey) {
+      openProductSelector(catKey);
     }
 
     function onProductChange() {
