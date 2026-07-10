@@ -48,13 +48,11 @@
     .basket-sub { font-size: 13px; color: var(--text-muted); }
     .btn-inline-del { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--danger-color); font-size: 14px; font-weight: 600; cursor: pointer; }
     
-    /* СТИЛЬНЫЕ ПЛИТКИ КЛИЕНТОВ С ИНДИКАТОРАМИ ЛОГИСТИКИ */
     .client-item-card { background-color: #2c2c2e; border-radius: 12px; padding: 14px; margin-bottom: 12px; border: 1px solid var(--border-color); cursor: pointer; box-sizing: border-box; }
     .client-main-row { display: flex; justify-content: space-between; align-items: center; }
     .client-title { font-size: 16px; font-weight: 700; color: #fff; }
     .client-badge { background-color: rgba(36, 139, 242, 0.15); color: var(--accent-color); font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 20px; }
     
-    /* СВЕТЯЩИЕСЯ НАПОМИНАЛКИ КУРЬЕРА ПО ВРЕМЕНИ И АДРЕСУ */
     .delivery-info-box { margin-top: 8px; font-size: 13px; font-weight: 500; display: flex; flex-direction: column; gap: 4px; }
     .delivery-line { display: flex; align-items: center; gap: 6px; }
     .delivery-line.time-alert { color: #ff9500; font-weight: 600; background-color: rgba(255, 149, 0, 0.1); padding: 4px 8px; border-radius: 6px; width: fit-content; border: 1px solid rgba(255, 149, 0, 0.2); }
@@ -77,7 +75,7 @@
       <button class="tab-link active" id="tabNewOrder" onclick="switchTab('orderScreen')">➕ Новый заказ</button>
       <button class="tab-link" id="tabViewClients" onclick="switchTab('clientsScreen')">📅 Записи на неделю</button>
     </div>
-    <!-- ЭКРАН №1: ПРИЕМ И ОФОРМЛЕНИЕ ЗАКАЗА -->
+    <!-- ЭКРАН №1: ОФОРМЛЕНИЕ ЗАКАЗА -->
     <div id="orderScreen">
       <div class="card">
         <div class="form-group">
@@ -95,8 +93,6 @@
           <label>Ник / Имя клиента в Telegram</label>
           <input type="text" id="client" placeholder="Например: Мария" autocomplete="off">
         </div>
-        
-        <!-- НОВЫЕ ПОЛЯ ЛОГИСТИКИ ДЛЯ МЕНЕДЖЕРА -->
         <div class="form-group">
           <label>🗺️ Адрес доставки</label>
           <input type="text" id="addressInput" placeholder="Улица, дом, квартира" autocomplete="off">
@@ -142,7 +138,7 @@
       </div>
     </div>
 
-    <!-- ЭКРАН №2: ПРОСМОТР СПИСКА КЛИЕНТОВ НА ДЕНЬ -->
+    <!-- ЭКРАН №2: СПИСОК ЗАПИСЕЙ НА НЕДЕЛЮ -->
     <div id="clientsScreen" style="display: none;">
       <div class="card">
         <div class="form-group">
@@ -163,14 +159,14 @@
       <div id="totalDaySummaryContainer"></div>
 
       <div class="section-title">👥 Записанные клиенты</div>
-      <div id="clientsContainer">
-        <p style="color:var(--text-muted); font-style:italic; margin:4px 0 0 4px;">Выберите день отгрузки выше для загрузки списка людей...</p>
+      <div class="card" id="clientsContainer">
+        <p style="color:var(--text-muted); font-style:italic; margin:0;">Выберите день отгрузки выше для загрузки списка людей...</p>
       </div>
     </div>
   </div>
   <script>
-    // ТВОЙ ЖИВОЙ АДРЕС ВЕБХУКА ТАБЛИЦЫ, КОТОРЫЙ ТЫ СКОПИРОВАЛ
-    const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwplxLYmgHeAjIsefEJqVIZ-j8yMQGJbDRimIdpcmoKBuBzQQ4ScEYidMctN_QmMP4z/exec";
+    // ТВОЙ СОБСТВЕННЫЙ АДРЕС ВЕБХУКА ТАБЛИЦЫ, КОТОРЫЙ ТЫ СКОПИРОВАЛ ИЗ APPS SCRIPT
+    const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwWMPuVD-KuObrI_PQzs3gonyWX4xdYI8P9QlITz3bJGklWu7MoXuqo8BIOCzMTHiIn/exec";
 
     const catalog = {
       dressura: {
@@ -241,6 +237,7 @@
       
       document.getElementById('valueLabel').innerText = (catKey === 'chew') ? "Количество (в шт.)" : "Вес (в граммах)";
     }
+
     function onProductChange() {
       const mainVal = document.getElementById('mainSelect').value;
       const fracGroup = document.getElementById('fractionGroup');
@@ -312,7 +309,6 @@
       renderBasket(); 
     }
 
-         // НАДЁЖНАЯ ПАКЕТНАЯ ОТПРАВКА С АДРЕСОМ И ПРИМЕЧАНИЕМ (БЕЗ confirm)
     function sendEntireOrder() {
       const clientName = document.getElementById('client').value.trim();
       const clientAddress = document.getElementById('addressInput').value.trim();
@@ -321,42 +317,29 @@
       if (!clientName) { alert("❌ Введите имя/ник клиента!"); return; }
       if (basket.length === 0) { alert("❌ Корзина пуста! Добавьте товары."); return; }
       
-      tg.showPopup({
-        title: "💾 Сохранение чека",
-        message: "Записать весь заказ (" + basket.length + " поз.) для клиента " + clientName + " в базу?",
-        buttons: [
-          { type: "ok", text: "Да, записать" },
-          { type: "cancel", text: "Отмена" }
-        ]
-      }, function(buttonId) {
-        if (buttonId === "ok") {
-          fetch(GOOGLE_WEBHOOK_URL, {
-            method: "POST",
-            mode: "no-cors",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-              action: "saveOrder", 
-              day: document.getElementById('day').value, 
-              client: clientName, 
-              address: clientAddress, 
-              note: clientNote,       
-              basket: basket 
-            })
-          });
-          
-          alert("🎉 Весь заказ успешно отправлен в таблицу! Склад обновился.");
-          basket = []; 
-          renderBasket(); 
-          document.getElementById('client').value = "";
-          document.getElementById('addressInput').value = "";
-          document.getElementById('noteInput').value = "";
-          
-          setTimeout(() => { tg.close(); }, 500);
-        }
-      });
+      if (confirm("Записать весь заказ (" + basket.length + " поз.) для клиента " + clientName + " в базу?")) {
+        fetch(GOOGLE_WEBHOOK_URL, {
+          method: "POST",
+          mode: "no-cors",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            action: "saveOrder", 
+            day: document.getElementById('day').value, 
+            client: clientName, 
+            address: clientAddress, 
+            note: clientNote,       
+            basket: basket 
+          })
+        });
+        alert("🎉 Весь заказ успешно отправлен в таблицу! Склад обновился.");
+        basket = []; 
+        renderBasket(); 
+        document.getElementById('client').value = "";
+        document.getElementById('addressInput').value = "";
+        document.getElementById('noteInput').value = "";
+      }
     }
 
-    // БЕЗОТКАЗНЫЙ И ЧИСТЫЙ МЕХАНИЗМ ВЫГРУЗКИ БАЗЫ С ОРАНЖЕВЫМИ НАПОМИНАЛКАМИ
     function loadClientsForDay() {
       const selectedDay = document.getElementById('viewDaySelect').value;
       const container = document.getElementById('clientsContainer');
@@ -376,7 +359,7 @@
       window[callbackName] = function(res) {
         if (res.status === "success" && res.clients && res.clients.length > 0) {
           container.innerHTML = "";
-          let totalClientsCount = res.clients.length;
+          let totalClientsCount = res.clients.length; // Считаем ОБЩЕЕ КОЛИЧЕСТВО КЛИЕНТОВ НА ДЕНЬ
 
           res.clients.forEach((client, index) => {
             let basketHtml = "";
@@ -392,10 +375,11 @@
               basketHtml = `<p style="color:var(--text-muted); font-style:italic; margin:0; font-size:13px;">В чеке пока нет активных позиций.</p>`;
             }
 
+            // Выводим блоки адреса и времени курьера только если они реально заполнены в ячейках
             let deliveryBoxHtml = "";
             if (client.address || client.note) {
               let addrLine = client.address ? `<div class="delivery-line addr-line">📍 Адрес: ${client.address}</div>` : "";
-              let noteLine = client.note ? `<div class="delivery-line time-alert">⏱️ Напоминалка: ${client.note}</div>` : "";
+              let noteLine = client.note ? `<div class="delivery-line time-alert">⏱️ Примечание: ${client.note}</div>` : "";
               deliveryBoxHtml = `<div class="delivery-info-box">${noteLine}${addrLine}</div>`;
             }
 
@@ -412,6 +396,7 @@
               </div>`;
           });
 
+          // ВЫВОДИМ ЖИРНЫЙ КОРРЕКТНЫЙ СЧЕТЧИК КЛИЕНТОВ НА ДЕНЬ В САМЫЙ ВЕРХ СТРАНИЦЫ
           summaryContainer.innerHTML = `
             <div class="total-summary-badge">
               📊 Всего клиентов на ${selectedDay}: <span style="color:var(--success-color); font-size:17px; font-weight:800;">${totalClientsCount} чел.</span>
