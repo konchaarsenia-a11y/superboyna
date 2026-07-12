@@ -24,7 +24,7 @@
     .tab-link.active { background-color: var(--accent-color); color: #fff; }
 
     .section-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin: 24px 0 8px 4px; }
-    .card { background-color: var(--card-bg); border-radius: 12px; padding: 16px; box-shadow: 0 4px 166px rgba(0,0,0,0.25); border: 1px solid var(--border-color); margin-bottom: 16px; box-sizing: border-box; width: 100%; }
+    .card { background-color: var(--card-bg); border-radius: 12px; padding: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); border: 1px solid var(--border-color); margin-bottom: 16px; box-sizing: border-box; width: 100%; }
     .form-group { margin-bottom: 16px; }
     label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #e5e5ea; }
     select, input {
@@ -121,6 +121,7 @@
         <button class="btn-action btn-brown" onclick="openProductSelector('powder')">✨ Добавить Присыпки</button>
         <button class="btn-action btn-green" onclick="openProductSelector('veg')">🍏 Добавить Овощи/Фрукты</button>
       </div>
+      <!-- ВЫЕЗЖАЮЩЕЕ ОКНО ВВОДА ВЕСА/ШТУК -->
       <div class="card" id="selectorCard" style="display: none;">
         <h3 id="selectorTitle" style="margin-top:0; font-size:16px; color:var(--accent-color);">Выбор позиции</h3>
         <div class="form-group">
@@ -171,10 +172,7 @@
 
   <script src="https://telegram.org"></script>
   <script>
-    const tg = window.Telegram.WebApp;
-    if (tg) { tg.expand(); tg.ready(); }
-
-    // СЮДА СТРОГО ВСТАВЬ СВОЙ URL ВЕБХУКА ТАБЛИЦЫ, КОТОРЫЙ ЗАКАНЧИВАЕТСЯ НА /exec
+    // ТВОЙ УНИКАЛЬНЫЙ ВЕБХУК: ОН ДОЛЖЕН ЗАКАНЧИВАТЬСЯ НА /exec
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwWMPuVD-KuObrI_PQzs3gonyWX4xdYI8P9QlITz3bJGklWu7MoXuqo8BIOCzMTHiIn/exec";
 
     const catalog = {
@@ -191,7 +189,7 @@
       },
       chew: {
         title: "🦴 Новая Жевалка",
-        items: ["БЫЧИЙ КОРЕНЬ", "ТРАХЕЯ", "АОРТА", "УХО Г", "НОСЫ шт.", "СТАНОВАЯ ЖИЛА", "КОЛЕНИ шт.", "КОПЫТО шт.", "П ПЕРЕПЁЛКИ шт.", "ЛОП ХРЯЩ шт.", "УТИНЫЕ ШЕИ шт.", "ГУБЫ шт.", "КНИЖКА"],
+        items: ["БЫЧИЙ КОРЕНЬ", "ТРАХЕЯ", "АОРТА", "УХО Г", "НОСЫ шт.", "СТАНОВАЯ ЖИЛА", "КОЛЕНИ шт.", "КОПЫТО шт.", "ПЕРЕПЁЛКИ шт.", "ЛОП ХРЯЩ шт.", "УТИНЫЕ ШЕИ шт.", "ГУБЫ шт.", "КНИЖКА"],
         fractions: {
           "БЫЧИЙ КОРЕНЬ": ["ОЧ МАЛ", "МАЛ", "СРЕД", "БОЛ", "ОГР"],
           "ТРАХЕЯ": ["МАЛ", "ПЛАСТ", "СРЕД", "БОЛ", "ОГР"],
