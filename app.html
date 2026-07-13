@@ -404,7 +404,7 @@
       }
     }
 
-    // CRM ФУНКЦИЯ №1: ОЖИВЛЕНИЕ КАРАНДАША (ИСПРАВЛЕНЫ ПЕРЕМЕННЫЕ)
+    // CRM ФУНКЦИЯ №1: КАРАНДАШ
     function crmEditClient(index, event) {
       event.stopPropagation();
       const client = loadedClientsRawData[index];
@@ -436,13 +436,12 @@
       switchTab('orderScreen');
     }
 
-    // CRM ФУНКЦИЯ №2: ПЕРЕНОС ЗАПИСИ (НАДЁЖНОЕ ОКНО-МЕНЮ И ИСПРАВЛЕННЫЙ ВЕБХУК)
+    // CRM ФУНКЦИЯ №2: ПЕРЕНОС ЗАПИСИ С ВЫБОРОМ МЕНЮ
     function crmMoveClient(index, event) {
       event.stopPropagation();
       const client = loadedClientsRawData[index];
       const oldDay = document.getElementById('viewDaySelect').value;
       
-      // Всплывающее меню выбора вместо текстовой клавиатуры
       let menuText = "🔄 Выберите день для переноса заказа клиента " + client.name + ":\n\n" +
                      "1 - Понедельник\n2 - Вторник\n3 - Среда\n4 - Четверг\n5 - Пятница\n6 - Будущая неделя";
       
@@ -474,7 +473,7 @@
       }
     }
 
-    // CRM ФУНКЦИЯ №3: ПОЛНОЕ УДАЛЕНИЕ КЛИЕНТА (ИСПРАВЛЕННЫЙ ВЕБХУК)
+    // CRM ФУНКЦИЯ №3: ПОЛНОЕ УДАЛЕНИЕ КЛИЕНТА
     function crmDeleteClient(index, event) {
       event.stopPropagation();
       const client = loadedClientsRawData[index];
