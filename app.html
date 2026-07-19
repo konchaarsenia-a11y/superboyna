@@ -185,11 +185,54 @@
       background: #3a3a3c; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;
     }
     .route-actions { display: grid; gap: 8px; margin-top: 10px; }
+    .field-hint { font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.35; }
+    .time-wheel-wrap {
+      position: relative; display: flex; height: 168px;
+      background: #2c2c2e; border: 1px solid var(--border-color); border-radius: 12px;
+      overflow: hidden; user-select: none;
+    }
+    .time-wheel-col {
+      flex: 1; height: 100%; overflow-y: auto; scroll-snap-type: y mandatory;
+      -webkit-overflow-scrolling: touch; text-align: center;
+      scrollbar-width: none;
+    }
+    .time-wheel-col::-webkit-scrollbar { display: none; }
+    .time-wheel-pad { height: 64px; pointer-events: none; }
+    .time-wheel-item {
+      height: 40px; line-height: 40px; scroll-snap-align: center;
+      font-size: 22px; font-weight: 600; color: #636366;
+      transition: color 0.12s, font-size 0.12s;
+    }
+    .time-wheel-item.is-active { color: #fff; font-size: 28px; }
+    .time-wheel-sep {
+      width: 18px; display: flex; align-items: center; justify-content: center;
+      font-size: 24px; font-weight: 700; color: #fff; pointer-events: none;
+    }
+    .time-wheel-glass {
+      pointer-events: none; position: absolute; inset: 0;
+      background: linear-gradient(to bottom,
+        rgba(44,44,46,0.92) 0%, rgba(44,44,46,0.35) 28%,
+        transparent 42%, transparent 58%,
+        rgba(44,44,46,0.35) 72%, rgba(44,44,46,0.92) 100%);
+    }
+    .time-wheel-line {
+      pointer-events: none; position: absolute; left: 10px; right: 10px; top: 50%;
+      height: 40px; margin-top: -20px; border-radius: 8px;
+      border-top: 1px solid rgba(255,255,255,0.12);
+      border-bottom: 1px solid rgba(255,255,255,0.12);
+      background: rgba(36,139,242,0.12);
+    }
+    .time-wheel-label {
+      display: flex; justify-content: space-between; padding: 0 8px 8px;
+      font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .time-wheel-label span { flex: 1; text-align: center; }
+    .time-wheel-label span:nth-child(2) { flex: 0 0 18px; }
   </style>
 </head>
 <body>
   <div class="app">
-    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v5.2</div>
+    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v5.4</div>
 
     <div class="nav-tabs">
       <button class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
@@ -299,8 +342,9 @@
           </select>
         </div>
         <div class="form-group">
-          <label>Точка выезда</label>
-          <input type="text" id="depotAddress" placeholder="Минск, ваш склад / дом" onchange="saveDepotAddress()">
+          <label>Точка выезда в Минске</label>
+          <input type="text" id="depotAddress" placeholder="улица и дом, напр. Куйбышева 15" autocomplete="street-address" onchange="saveDepotAddress()" onblur="saveDepotAddress()">
+          <div class="field-hint">Пишите просто улицу и дом — «Минск» подставится сам</div>
         </div>
         <div class="form-group">
           <label>Курьеров сегодня</label>
@@ -311,7 +355,15 @@
         </div>
         <div class="form-group">
           <label>Выезд примерно в</label>
-          <input type="text" id="departTime" placeholder="14:00" inputmode="numeric">
+          <div class="time-wheel-label"><span>Часы</span><span></span><span>Минуты</span></div>
+          <div class="time-wheel-wrap" id="departTimeWheel">
+            <div class="time-wheel-col" id="departHourCol"></div>
+            <div class="time-wheel-sep">:</div>
+            <div class="time-wheel-col" id="departMinCol"></div>
+            <div class="time-wheel-glass"></div>
+            <div class="time-wheel-line"></div>
+          </div>
+          <div class="field-hint" id="departTimeHint">Листайте как будильник на iPhone</div>
         </div>
         <button class="btn-action btn-green" type="button" onclick="buildRoutePlan()">Собрать маршруты</button>
         <button class="btn-action btn-blue" type="button" onclick="openYandexMaps()" style="margin-top:8px;">Адреса (Google / Яндекс)</button>
@@ -552,9 +604,13 @@
     };
 
     const DEPOT_LS_KEY = "superboyna_depot";
+    const DEPART_LS_KEY = "superboyna_depart";
     const ROAD_FACTOR = 1.45;
     const AVG_SPEED_KMH = 26;
     const STOP_MINUTES = 4;
+    const TIME_ITEM_H = 40;
+    let departHour = 14;
+    let departMinute = 0;
 
     function applyRoleTabs() {
       const allowed = ROLE_TABS[APP_ROLE] || ROLE_TABS.all;
@@ -571,7 +627,7 @@
       document.querySelectorAll(".tab-link").forEach(el => el.classList.toggle("active", el.dataset.screen === screenId));
       document.getElementById(screenId).classList.add("active");
       if (screenId === "orderScreen" && document.getElementById("isEditMode").value === "false") {
-        document.getElementById("appHeaderTitle").innerText = "Бойня-Конвейер v5.2";
+        document.getElementById("appHeaderTitle").innerText = "Бойня-Конвейер v5.4";
         document.getElementById("btnMainSave").innerText = "Сохранить заказ";
       }
     }
@@ -745,7 +801,7 @@
         document.getElementById("noteInput").value = "";
         basket = [];
         renderBasket();
-        document.getElementById("appHeaderTitle").innerText = "Бойня-Конвейер v5.2";
+        document.getElementById("appHeaderTitle").innerText = "Бойня-Конвейер v5.4";
       } catch (err) {
         await uiAlertAsync("Ошибка: " + (err.message || err));
       } finally {
@@ -1015,12 +1071,19 @@
 
     function getDepotAddress() {
       const el = document.getElementById("depotAddress");
-      const v = el ? String(el.value || "").trim() : "";
-      return v || DEFAULT_CITY;
+      let v = el ? String(el.value || "").trim() : "";
+      if (!v) return DEFAULT_CITY;
+      // Пользователь пишет улицу и дом — город добавляем сами
+      if (!/минск/i.test(v)) v = DEFAULT_CITY + ", " + v;
+      return v;
     }
 
     function saveDepotAddress() {
-      try { localStorage.setItem(DEPOT_LS_KEY, getDepotAddress()); } catch (e) {}
+      try {
+        const el = document.getElementById("depotAddress");
+        const raw = el ? String(el.value || "").trim() : "";
+        localStorage.setItem(DEPOT_LS_KEY, raw);
+      } catch (e) {}
     }
 
     function loadDepotAddress() {
@@ -1028,11 +1091,107 @@
       if (!el) return;
       try {
         const saved = localStorage.getItem(DEPOT_LS_KEY);
-        if (saved) el.value = saved;
-        else if (!el.value) el.value = DEFAULT_CITY;
-      } catch (e) {
-        if (!el.value) el.value = DEFAULT_CITY;
+        if (saved != null && saved !== "") {
+          // Если раньше сохранили с «Минск, …» — покажем только улицу
+          el.value = String(saved).replace(/^минск\s*,\s*/i, "");
+        }
+      } catch (e) {}
+    }
+
+    function pad2(n) {
+      return String(n).padStart(2, "0");
+    }
+
+    function updateDepartHint() {
+      const hint = document.getElementById("departTimeHint");
+      if (hint) hint.textContent = "Выбрано " + pad2(departHour) + ":" + pad2(departMinute) + " · листайте как будильник";
+    }
+
+    function saveDepartTime() {
+      try {
+        localStorage.setItem(DEPART_LS_KEY, pad2(departHour) + ":" + pad2(departMinute));
+      } catch (e) {}
+      updateDepartHint();
+    }
+
+    function highlightWheel(col, value) {
+      if (!col) return;
+      col.querySelectorAll(".time-wheel-item").forEach(function (el) {
+        el.classList.toggle("is-active", Number(el.getAttribute("data-val")) === value);
+      });
+    }
+
+    function snapWheelColumn(col, maxVal, onChange) {
+      if (!col) return;
+      const idx = Math.round(col.scrollTop / TIME_ITEM_H);
+      const clamped = Math.max(0, Math.min(maxVal, idx));
+      col.scrollTop = clamped * TIME_ITEM_H;
+      onChange(clamped);
+      highlightWheel(col, clamped);
+    }
+
+    function bindWheelColumn(col, maxVal, getVal, setVal) {
+      if (!col) return;
+      let settleTimer = null;
+      col.addEventListener("scroll", function () {
+        const approx = Math.round(col.scrollTop / TIME_ITEM_H);
+        highlightWheel(col, Math.max(0, Math.min(maxVal, approx)));
+        if (settleTimer) clearTimeout(settleTimer);
+        settleTimer = setTimeout(function () {
+          snapWheelColumn(col, maxVal, function (v) {
+            setVal(v);
+            saveDepartTime();
+          });
+        }, 80);
+      }, { passive: true });
+      // Первый скролл к сохранённому
+      requestAnimationFrame(function () {
+        col.scrollTop = getVal() * TIME_ITEM_H;
+        highlightWheel(col, getVal());
+      });
+    }
+
+    function buildTimeWheels() {
+      const hourCol = document.getElementById("departHourCol");
+      const minCol = document.getElementById("departMinCol");
+      if (!hourCol || !minCol) return;
+
+      try {
+        const saved = localStorage.getItem(DEPART_LS_KEY);
+        const m = saved && saved.match(/^(\d{1,2}):(\d{2})$/);
+        if (m) {
+          departHour = Math.min(23, Number(m[1]));
+          departMinute = Math.min(59, Number(m[2]));
+        } else {
+          const now = new Date();
+          departHour = now.getHours();
+          departMinute = Math.round(now.getMinutes() / 5) * 5 % 60;
+        }
+      } catch (e) {}
+
+      let hourHtml = '<div class="time-wheel-pad"></div>';
+      for (let h = 0; h < 24; h++) {
+        hourHtml += '<div class="time-wheel-item" data-val="' + h + '">' + pad2(h) + "</div>";
       }
+      hourHtml += '<div class="time-wheel-pad"></div>';
+      hourCol.innerHTML = hourHtml;
+
+      let minHtml = '<div class="time-wheel-pad"></div>';
+      for (let mi = 0; mi < 60; mi++) {
+        minHtml += '<div class="time-wheel-item" data-val="' + mi + '">' + pad2(mi) + "</div>";
+      }
+      minHtml += '<div class="time-wheel-pad"></div>';
+      minCol.innerHTML = minHtml;
+
+      bindWheelColumn(hourCol, 23, function () { return departHour; }, function (v) { departHour = v; });
+      bindWheelColumn(minCol, 59, function () { return departMinute; }, function (v) { departMinute = v; });
+      updateDepartHint();
+    }
+
+    function parseDepartTime() {
+      const d = new Date();
+      d.setHours(departHour, departMinute, 0, 0);
+      return d;
     }
 
     function setCourierCount(n) {
@@ -1142,18 +1301,6 @@
       const h = Math.floor(m / 60);
       const mm = m % 60;
       return "~" + h + " ч " + (mm ? mm + " мин" : "");
-    }
-
-    function parseDepartTime() {
-      const raw = String((document.getElementById("departTime") || {}).value || "").trim();
-      const m = raw.match(/^(\d{1,2})[:.](\d{2})$/);
-      if (!m) return null;
-      const h = Number(m[1]);
-      const min = Number(m[2]);
-      if (h > 23 || min > 59) return null;
-      const d = new Date();
-      d.setHours(h, min, 0, 0);
-      return d;
     }
 
     function etaLabelForStop(depot, stops, index, depart) {
@@ -1272,16 +1419,46 @@
       renderRoutePlan();
     }
 
-    function openRouteInGoogle(routeIndex) {
+    function openRouteInYandex(routeIndex) {
       const stops = routePlanState.routes[routeIndex] || [];
-      const addrs = stops.map(function (s) { return s.address; }).filter(Boolean);
-      if (!addrs.length) {
+      if (!stops.length) {
         showToast("В этом маршруте нет адресов");
         return;
       }
-      const depot = normalizeAddressForMaps(getDepotAddress());
-      openExternalLink(buildGoogleMapsDirUrl([depot].concat(addrs)));
-      showToast("Открываю Google Maps…");
+      // Уже оптимизирован (открытый маршрут): старт = выезд, конец не закреплён на «домой»
+      const depotGeo = routePlanState.depot;
+      const depotAddr = normalizeAddressForMaps(getDepotAddress());
+      const points = [];
+      if (depotGeo && depotGeo.lat != null) points.push(depotGeo.lat + "," + depotGeo.lon);
+      else points.push(depotAddr);
+      stops.forEach(function (s) {
+        if (s.lat != null && s.lon != null) points.push(s.lat + "," + s.lon);
+        else if (s.address) points.push(s.address);
+      });
+      openExternalLink(buildYandexRouteUrl(points));
+      showToast("Открываю Яндекс.Карты…");
+    }
+
+    function personNameForMsg(name) {
+      const n = String(name || "").trim();
+      if (!n) return "";
+      // @ник или короткое имя без лишнего
+      if (n.charAt(0) === "@") return n;
+      return n.split(/\s+/)[0];
+    }
+
+    function etaShortForMsg(depot, stops, index, depart) {
+      let t = 0;
+      let cur = depot;
+      for (let i = 0; i <= index; i++) {
+        t += driveMinutesBetween(cur, stops[i]);
+        if (i < index) t += STOP_MINUTES;
+        cur = stops[i];
+      }
+      const arrive = Math.round(t);
+      if (!depart) return "~" + arrive + " мин после выезда";
+      const a = new Date(depart.getTime() + arrive * 60000);
+      return String(a.getHours()).padStart(2, "0") + ":" + String(a.getMinutes()).padStart(2, "0");
     }
 
     function buildIgMessagesForRoute(routeIndex) {
@@ -1289,9 +1466,9 @@
       const stops = routePlanState.routes[routeIndex] || [];
       const depart = parseDepartTime();
       return stops.map(function (s, i) {
-        const eta = etaLabelForStop(depot, stops, i, depart);
-        return "Привет, " + s.name + "! Сегодня доставка. Ориентир: " + eta +
-          ". Адрес: " + s.address + ". Если что — напиши 🙂";
+        const who = personNameForMsg(s.name);
+        const eta = etaShortForMsg(depot, stops, i, depart);
+        return "Здравствуйте" + (who ? ", " + who : "") + "! Привезём сегодня около " + eta + ".";
       }).join("\n\n---\n\n");
     }
 
@@ -1355,7 +1532,7 @@
         }
 
         html += '<div class="route-actions">';
-        html += '<button class="btn-action btn-green" type="button" onclick="openRouteInGoogle(' + r + ')">Google Maps · курьер ' + (r + 1) + "</button>";
+        html += '<button class="btn-action btn-green" type="button" onclick="openRouteInYandex(' + r + ')">Яндекс.Карты · курьер ' + (r + 1) + "</button>";
         html += '<button class="btn-action" type="button" style="background:#3a3a3c;" onclick="copyIgMessages(' + r + ')">Тексты Instagram · курьер ' + (r + 1) + "</button>";
         html += "</div></div>";
       }
@@ -1370,12 +1547,12 @@
       box.innerHTML = html;
     }
 
-    function buildYandexRouteUrl(addrs) {
-      const u = new URL("https://yandex.ru/maps/");
-      u.searchParams.set("mode", "routes");
-      u.searchParams.set("rtt", "auto");
-      u.searchParams.set("rtext", addrs.join("~"));
-      return u.toString();
+    function buildYandexRouteUrl(points) {
+      // points: ["53.9,27.5", "Минск, …"] — порядок уже оптимизирован у нас
+      const parts = (points || []).map(function (p) { return String(p).trim(); }).filter(Boolean);
+      // Собираем вручную: searchParams кодирует ~ лишний раз на части телефонов
+      var rtext = parts.join("~");
+      return "https://yandex.ru/maps/?mode=routes&rtt=auto&rtext=" + encodeURIComponent(rtext).replace(/%2C/gi, ",").replace(/%7E/gi, "~");
     }
 
     function buildYandexPointUrl(addr) {
@@ -1384,14 +1561,16 @@
       return u.toString();
     }
 
-    /** Пачка адресов на iPhone надёжнее через Google Maps Dir API */
+    /** Запасной вариант, если Яндекс пачкой на устройстве пустой */
     function buildGoogleMapsDirUrl(addrs) {
       if (!addrs.length) return "";
       if (addrs.length === 1) {
         return "https://www.google.com/maps/dir/?api=1&destination=" + encodeURIComponent(addrs[0]) + "&travelmode=driving";
       }
+      // optimize:true — не закрепляем порядок серединных точек
       const destination = encodeURIComponent(addrs[addrs.length - 1]);
-      const waypoints = addrs.slice(0, -1).map(encodeURIComponent).join("%7C");
+      const mid = addrs.slice(0, -1);
+      const waypoints = "optimize:true|" + mid.map(encodeURIComponent).join("%7C");
       return "https://www.google.com/maps/dir/?api=1&destination=" + destination +
         "&waypoints=" + waypoints + "&travelmode=driving";
     }
@@ -1462,10 +1641,11 @@
       }).join("");
 
       const p = openModal(
-        '<div class="modal-title">Маршрут · v5.2</div>' +
-        '<div class="modal-text">Пачкой на iPhone используйте Google. Яндекс — только по одному адресу.</div>' +
+        '<div class="modal-title">Маршрут · v5.4</div>' +
+        '<div class="modal-text">Пачка в Яндекс — в оптимальном порядке (без возврата на склад). Если пусто — Google ниже.</div>' +
         '<div class="modal-actions" style="margin-bottom:12px;">' +
-          '<button class="btn-action btn-green" type="button" id="mapsGoogle">Открыть маршрут (Google Maps)</button>' +
+          '<button class="btn-action btn-green" type="button" id="mapsYandex">Открыть маршрут (Яндекс)</button>' +
+          '<button class="btn-action btn-blue" type="button" id="mapsGoogle">Запасной: Google Maps</button>' +
           '<button class="btn-action" type="button" id="mapsCopy" style="background:#3a3a3c;">Скопировать все адреса</button>' +
         "</div>" +
         '<div class="modal-text" style="margin-bottom:8px;font-size:12px;color:#8e8e93;">Точечно в Яндекс:</div>' +
@@ -1476,9 +1656,25 @@
       );
 
       setTimeout(function () {
+        const y = document.getElementById("mapsYandex");
         const g = document.getElementById("mapsGoogle");
         const copy = document.getElementById("mapsCopy");
         const cancel = document.getElementById("modalCancel");
+        if (y) {
+          y.onclick = function () {
+            // Если маршруты уже собраны — открываем оптимизированный порядок с координатами
+            if (routePlanState.routes[0] && routePlanState.routes[0].length) {
+              openRouteInYandex(0);
+              if (routePlanState.courierCount === 2 && routePlanState.routes[1].length) {
+                showToast("Открыт курьер 1 · для 2-го жмите кнопку в плане");
+              }
+              return;
+            }
+            const depot = normalizeAddressForMaps(getDepotAddress());
+            openExternalLink(buildYandexRouteUrl([depot].concat(addrs)));
+            showToast("Открываю Яндекс.Карты…");
+          };
+        }
         if (g) {
           g.onclick = function () {
             openExternalLink(buildGoogleMapsDirUrl(addrs));
@@ -1505,6 +1701,7 @@
     }
 
     loadDepotAddress();
+    buildTimeWheels();
     renderBasket();
     applyRoleTabs();
     applyTelegramSafeArea();
