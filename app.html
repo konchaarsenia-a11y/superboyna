@@ -147,12 +147,50 @@
     .cut-row, .courier-row {
       display: grid; gap: 8px; padding: 12px; margin-bottom: 10px;
       background: #1c1c1e; border: 1px solid var(--border-color); border-radius: 12px;
+      position: relative;
     }
     .cut-row.done { border-color: rgba(48,209,88,0.45); background: rgba(48,209,88,0.08); }
-    .cut-title { font-weight: 700; font-size: 15px; }
+    .cut-row.laid-only { border-color: rgba(10,132,255,0.45); background: rgba(10,132,255,0.08); }
+    .cut-row.out-next { box-shadow: inset 0 0 0 1px rgba(255,69,58,0.35); }
+    .cut-title { font-weight: 700; font-size: 15px; padding-right: 36px; }
     .cut-meta { font-size: 13px; color: var(--text-muted); line-height: 1.4; }
     .cut-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .cut-actions input[type="number"] { width: 110px; height: 40px; }
+    .cut-bang {
+      position: absolute; top: 8px; right: 8px; width: 32px; height: 32px;
+      border-radius: 10px; border: 1px solid var(--border-color);
+      background: #2c2c2e; color: #8e8e93; font-size: 18px; font-weight: 800;
+      cursor: pointer; line-height: 1;
+    }
+    .cut-bang.active { background: rgba(255,69,58,0.2); border-color: #ff453a; color: #ff453a; }
+    .cut-stats {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px;
+    }
+    .cut-stat {
+      background: #1c1c1e; border: 1px solid var(--border-color); border-radius: 12px;
+      padding: 10px 8px; text-align: center;
+    }
+    .cut-stat-num { font-size: 22px; font-weight: 800; line-height: 1.1; }
+    .cut-stat-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.25; }
+    .cut-stat.to-cut .cut-stat-num { color: #ff9f0a; }
+    .cut-stat.laid-only .cut-stat-num { color: #0a84ff; }
+    .cut-stat.both .cut-stat-num { color: #30d158; }
+    .cut-timer-box {
+      text-align: center; padding: 14px 12px; margin-bottom: 12px;
+      background: #1c1c1e; border: 1px solid var(--border-color); border-radius: 12px;
+    }
+    .cut-timer-value {
+      font-size: 34px; font-weight: 800; letter-spacing: 1px; font-variant-numeric: tabular-nums;
+      color: #fff;
+    }
+    .cut-timer-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+    .fx-tyan-time {
+      position: absolute; top: 6%; left: 50%; transform: translateX(-50%);
+      font-size: clamp(28px, 9vw, 44px); font-weight: 800; color: #fff;
+      text-shadow: 0 4px 28px rgba(255,80,160,0.9), 0 0 40px rgba(255,180,220,0.55);
+      animation: bannerPop 2.8s ease-out forwards;
+      letter-spacing: 1px; z-index: 2;
+    }
     .check-line { display: flex; align-items: center; gap: 8px; font-size: 14px; }
     .check-line input { width: 20px; height: 20px; }
     .muted { color: var(--text-muted); font-style: italic; }
@@ -292,9 +330,9 @@
       72% { transform: translateY(0) scale(1.08) rotate(0deg); opacity: 1; }
       100% { transform: translateY(8%) scale(1.12) rotate(0deg); opacity: 0; }
     }
-    .cut-row.done { opacity: 0.72; order: 2; }
+    .cut-row.done { opacity: 0.85; }
     #cuttingContainer { display: flex; flex-direction: column; gap: 10px; }
-    .cut-row { order: 1; }
+    .cut-row { order: unset; }
     .fx-tyan-banner {
       position: absolute; top: 14%; left: 50%; transform: translateX(-50%);
       font-size: clamp(22px, 7vw, 34px); font-weight: 800; color: #fff;
@@ -397,7 +435,7 @@
 </head>
 <body>
   <div class="app">
-    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v6.5</div>
+    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v6.6</div>
 
     <div class="nav-tabs">
       <button class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
@@ -514,6 +552,7 @@
         </div>
       </div>
       <div id="cuttingSummary"></div>
+      <div id="cuttingSessionBox"></div>
       <div id="cuttingContainer"><p class="muted">Выберите день...</p></div>
       <button class="btn-save" id="btnFinishCutting" style="display:none;margin-top:12px;" onclick="finishCutting()">Завершить нарезку</button>
     </div>
@@ -576,7 +615,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v6.5";
+    const APP_VERSION = "v6.6";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -620,6 +659,12 @@
     let addressSuggestTimer = null;
     let addressSuggestSeq = 0;
     let cuttingItemsCache = [];
+    let cuttingSession = {
+      active: false,
+      startedAt: 0,
+      timerId: null,
+      day: ""
+    };
 
     // Пока всем 4 вкладки. Позже: "manager" | "cutter" | "courier" | "all"
     const APP_ROLE = "all";
@@ -724,8 +769,9 @@
       showToast._t = setTimeout(function () { el.classList.remove("show"); }, 2200);
     }
 
-    function celebrateSuccess(kind) {
+    function celebrateSuccess(kind, opts) {
       try { if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); } catch (e) {}
+      opts = opts || {};
 
       if (kind === "save" || kind === "cut" || kind === "finish") {
         const old = document.getElementById("fxTyanOverlay");
@@ -735,6 +781,7 @@
         var img = "assets/celebrate-tyan.png";
         var banner = "Клиент записан!";
         var extraClass = "";
+        var timeHtml = "";
         if (kind === "cut") {
           img = "assets/celebrate-cut.png";
           banner = "Заготовлено!";
@@ -743,9 +790,14 @@
           img = "assets/celebrate-cut.png";
           banner = "Нарезка завершена!";
           extraClass = " fx-tyan--finish";
+          if (opts.elapsedLabel) {
+            timeHtml = '<div class="fx-tyan-time">' + escapeHtml(opts.elapsedLabel) + "</div>";
+            banner = "План закрыт за " + opts.elapsedLabel;
+          }
         }
         wrap.className = "fx-tyan" + extraClass;
         wrap.innerHTML =
+          timeHtml +
           '<div class="fx-tyan-banner">' + banner + "</div>" +
           '<img src="' + img + '" alt="" draggable="false">';
         for (let i = 0; i < 18; i++) {
@@ -764,7 +816,7 @@
           wrap.appendChild(sp);
         }
         document.body.appendChild(wrap);
-        setTimeout(function () { wrap.remove(); }, kind === "finish" ? 2900 : 2700);
+        setTimeout(function () { wrap.remove(); }, kind === "finish" ? 3200 : 2700);
         return;
       }
 
@@ -1383,75 +1435,241 @@
       const day = document.getElementById("cuttingDaySelect").value;
       const box = document.getElementById("cuttingContainer");
       const summary = document.getElementById("cuttingSummary");
+      const sessionBox = document.getElementById("cuttingSessionBox");
       const finishBtn = document.getElementById("btnFinishCutting");
       if (!day) {
         box.innerHTML = '<p class="muted">Выберите день...</p>';
         summary.innerHTML = "";
+        if (sessionBox) sessionBox.innerHTML = "";
         cuttingItemsCache = [];
+        stopCuttingTimer(false);
         if (finishBtn) finishBtn.style.display = "none";
         return;
       }
+      if (cuttingSession.day && cuttingSession.day !== day) stopCuttingTimer(false);
       box.innerHTML = '<p class="muted">Считаю нарезку...</p>';
       try {
         const res = await apiGet({ action: "getCutting", day: day });
         if (res.status !== "success" || !res.items || !res.items.length) {
           box.innerHTML = '<p class="muted">На этот день резать нечего</p>';
           summary.innerHTML = "";
+          if (sessionBox) sessionBox.innerHTML = "";
           cuttingItemsCache = [];
+          stopCuttingTimer(false);
           if (finishBtn) finishBtn.style.display = "none";
           return;
         }
         cuttingItemsCache = res.items.slice();
-        // ненарезанные сверху, готовые внизу
-        cuttingItemsCache.sort(function (a, b) {
-          if (!!a.done === !!b.done) return (a.row || 0) - (b.row || 0);
-          return a.done ? 1 : -1;
-        });
-        summary.innerHTML = `<div class="total-summary-badge">${escapeHtml(res.date || "")} · позиций: ${res.items.length}</div>`;
-        box.innerHTML = cuttingItemsCache.map(item => {
-          const dryLabel = item.unit === "шт" ? (item.dry + " шт") : (item.dry + " гр сухого");
-          const rawLabel = item.unit === "шт"
-            ? (item.raw + " шт")
-            : (Number(item.raw).toFixed(2) + " кг сырого");
-          return `<div class="cut-row ${item.done ? "done" : ""}" id="cut_${item.row}" data-row="${item.row}">
-            <div class="cut-title">${escapeHtml(item.name)}</div>
-            <div class="cut-meta">Нужно: <b>${dryLabel}</b><br>Сырьё: <b>${rawLabel}</b></div>
-            <div class="cut-actions">
-              <label class="check-line"><input type="checkbox" ${item.done ? "checked" : ""} onchange="toggleCutDone(${item.row}, this.checked)"> Нарезано</label>
-              <label>Излишек <input type="number" inputmode="decimal" id="surplus_${item.row}" value="${item.surplus || 0}" step="0.1"></label>
-              <button class="btn-action btn-blue" style="width:auto;padding:0 14px;height:40px;" onclick="saveCutSurplus(${item.row})">Сохранить излишек</button>
-            </div>
-          </div>`;
-        }).join("");
-        if (finishBtn) finishBtn.style.display = "block";
+        sortCuttingItems();
+        renderCuttingSummary();
+        renderCuttingSessionBox();
+        box.innerHTML = cuttingItemsCache.map(renderCutRowHtml).join("");
+        if (finishBtn) finishBtn.style.display = cuttingSession.active ? "block" : "none";
       } catch (err) {
         box.innerHTML = '<p class="muted">Ошибка: ' + escapeHtml(err.message || String(err)) + "</p>";
         if (finishBtn) finishBtn.style.display = "none";
       }
     }
 
-    function moveCutRowToBottom(row) {
+    function cutSortRank(item) {
+      if (item.done && item.laid) return 3;
+      if (item.done) return 2;
+      if (item.laid) return 1;
+      return 0;
+    }
+
+    function sortCuttingItems() {
+      cuttingItemsCache.sort(function (a, b) {
+        const ra = cutSortRank(a);
+        const rb = cutSortRank(b);
+        if (ra !== rb) return ra - rb;
+        return (a.row || 0) - (b.row || 0);
+      });
+    }
+
+    function cuttingCounters() {
+      var toCut = 0, laidOnly = 0, both = 0;
+      (cuttingItemsCache || []).forEach(function (it) {
+        if (it.done && it.laid) both++;
+        else if (it.laid && !it.done) laidOnly++;
+        if (!it.done) toCut++;
+      });
+      return { toCut: toCut, laidOnly: laidOnly, both: both };
+    }
+
+    function renderCuttingSummary() {
+      const summary = document.getElementById("cuttingSummary");
+      if (!summary) return;
+      const c = cuttingCounters();
+      summary.innerHTML =
+        '<div class="cut-stats">' +
+          '<div class="cut-stat to-cut"><div class="cut-stat-num" id="cutStatToCut">' + c.toCut + '</div><div class="cut-stat-label">осталось нарезать</div></div>' +
+          '<div class="cut-stat laid-only"><div class="cut-stat-num" id="cutStatLaid">' + c.laidOnly + '</div><div class="cut-stat-label">выложено, не нарезано</div></div>' +
+          '<div class="cut-stat both"><div class="cut-stat-num" id="cutStatBoth">' + c.both + '</div><div class="cut-stat-label">выложено и нарезано</div></div>' +
+        "</div>";
+    }
+
+    function updateCuttingCountersLive() {
+      const c = cuttingCounters();
+      const a = document.getElementById("cutStatToCut");
+      const b = document.getElementById("cutStatLaid");
+      const d = document.getElementById("cutStatBoth");
+      if (a) a.textContent = String(c.toCut);
+      if (b) b.textContent = String(c.laidOnly);
+      if (d) d.textContent = String(c.both);
+    }
+
+    function formatCutElapsed(ms) {
+      const totalSec = Math.max(0, Math.floor(ms / 1000));
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+      if (h > 0) return h + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+      return String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+    }
+
+    function renderCuttingSessionBox() {
+      const sessionBox = document.getElementById("cuttingSessionBox");
+      if (!sessionBox) return;
+      if (cuttingSession.active) {
+        const label = formatCutElapsed(Date.now() - cuttingSession.startedAt);
+        sessionBox.innerHTML =
+          '<div class="cut-timer-box">' +
+            '<div class="cut-timer-value" id="cutTimerValue">' + label + "</div>" +
+            '<div class="cut-timer-label">идёт нарезка</div>' +
+          "</div>";
+      } else {
+        sessionBox.innerHTML =
+          '<button class="btn-action btn-green" type="button" id="btnStartCutting" onclick="startCutting()">Начать нарезку</button>';
+      }
+    }
+
+    function tickCuttingTimer() {
+      const el = document.getElementById("cutTimerValue");
+      if (!el || !cuttingSession.active) return;
+      el.textContent = formatCutElapsed(Date.now() - cuttingSession.startedAt);
+    }
+
+    function startCutting() {
+      const day = document.getElementById("cuttingDaySelect").value;
+      if (!day) {
+        uiAlertAsync("Сначала выберите день");
+        return;
+      }
+      if (!cuttingItemsCache.length) {
+        uiAlertAsync("Нечего резать");
+        return;
+      }
+      cuttingSession.active = true;
+      cuttingSession.startedAt = Date.now();
+      cuttingSession.day = day;
+      if (cuttingSession.timerId) clearInterval(cuttingSession.timerId);
+      cuttingSession.timerId = setInterval(tickCuttingTimer, 1000);
+      renderCuttingSessionBox();
+      const finishBtn = document.getElementById("btnFinishCutting");
+      if (finishBtn) finishBtn.style.display = "block";
+      showToast("Нарезка началась");
+    }
+
+    function stopCuttingTimer(keepElapsed) {
+      if (cuttingSession.timerId) {
+        clearInterval(cuttingSession.timerId);
+        cuttingSession.timerId = null;
+      }
+      var elapsed = 0;
+      if (cuttingSession.active && cuttingSession.startedAt) {
+        elapsed = Date.now() - cuttingSession.startedAt;
+      }
+      cuttingSession.active = false;
+      cuttingSession.startedAt = 0;
+      cuttingSession.day = "";
+      if (!keepElapsed) {
+        const sessionBox = document.getElementById("cuttingSessionBox");
+        if (sessionBox && document.getElementById("cuttingDaySelect").value && cuttingItemsCache.length) {
+          renderCuttingSessionBox();
+        } else if (sessionBox) {
+          sessionBox.innerHTML = "";
+        }
+      }
+      return elapsed;
+    }
+
+    function cutRowClass(item) {
+      var cls = "cut-row";
+      if (item.done && item.laid) cls += " done";
+      else if (item.laid && !item.done) cls += " laid-only";
+      else if (item.done) cls += " done";
+      if (item.outNext) cls += " out-next";
+      return cls;
+    }
+
+    function renderCutRowHtml(item) {
+      const dryLabel = item.unit === "шт" ? (item.dry + " шт") : (item.dry + " гр сухого");
+      const rawLabel = item.unit === "шт"
+        ? (item.raw + " шт")
+        : (Number(item.raw).toFixed(2) + " кг сырого");
+      return `<div class="${cutRowClass(item)}" id="cut_${item.row}" data-row="${item.row}">
+        <button type="button" class="cut-bang${item.outNext ? " active" : ""}" title="Нет на следующую нарезку" onclick="toggleCutOutNext(${item.row})">!</button>
+        <div class="cut-title">${escapeHtml(item.name)}</div>
+        <div class="cut-meta">Нужно: <b>${dryLabel}</b><br>Сырьё: <b>${rawLabel}</b></div>
+        <div class="cut-actions">
+          <label class="check-line"><input type="checkbox" ${item.laid ? "checked" : ""} onchange="toggleCutLaid(${item.row}, this.checked)"> Выложено</label>
+          <label class="check-line"><input type="checkbox" ${item.done ? "checked" : ""} onchange="toggleCutDone(${item.row}, this.checked)"> Нарезано</label>
+          <label>Излишек <input type="number" inputmode="decimal" id="surplus_${item.row}" value="${item.surplus || 0}" step="0.1"></label>
+          <button class="btn-action btn-blue" style="width:auto;padding:0 14px;height:40px;" onclick="saveCutSurplus(${item.row})">Сохранить излишек</button>
+        </div>
+      </div>`;
+    }
+
+    function reorderCuttingDom() {
+      sortCuttingItems();
       const box = document.getElementById("cuttingContainer");
-      const el = document.getElementById("cut_" + row);
-      if (!box || !el) return;
-      el.classList.add("done");
-      box.appendChild(el);
+      if (!box) return;
+      cuttingItemsCache.forEach(function (it) {
+        const el = document.getElementById("cut_" + it.row);
+        if (el) {
+          el.className = cutRowClass(it);
+          box.appendChild(el);
+        }
+      });
+      updateCuttingCountersLive();
+    }
+
+    async function toggleCutLaid(row, laid) {
+      const day = document.getElementById("cuttingDaySelect").value;
+      await apiPost({ action: "updateCutting", day: day, row: row, laid: laid });
+      const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
+      if (cached) cached.laid = !!laid;
+      reorderCuttingDom();
     }
 
     async function toggleCutDone(row, done) {
       const day = document.getElementById("cuttingDaySelect").value;
       await apiPost({ action: "updateCutting", day: day, row: row, done: done });
-      const el = document.getElementById("cut_" + row);
-      if (el) el.classList.toggle("done", done);
       const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
       if (cached) cached.done = !!done;
-      if (done) {
-        moveCutRowToBottom(row);
-        celebrateSuccess("cut");
-      } else if (el) {
-        const box = document.getElementById("cuttingContainer");
-        if (box) box.insertBefore(el, box.firstChild);
+      reorderCuttingDom();
+      if (done) celebrateSuccess("cut");
+    }
+
+    async function toggleCutOutNext(row) {
+      const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
+      if (!cached) return;
+      const next = !cached.outNext;
+      const ok = next
+        ? await uiConfirmAsync("Пометить «" + cached.name + "»: на эту нарезку хватает, на следующую — уже нет?")
+        : await uiConfirmAsync("Снять пометку дефицита на следующую нарезку?");
+      if (!ok) return;
+      const day = document.getElementById("cuttingDaySelect").value;
+      await apiPost({ action: "updateCutting", day: day, row: row, outNext: next });
+      cached.outNext = next;
+      const el = document.getElementById("cut_" + row);
+      if (el) {
+        el.className = cutRowClass(cached);
+        const bang = el.querySelector(".cut-bang");
+        if (bang) bang.classList.toggle("active", next);
       }
+      showToast(next ? "Помечено: нет на следующую" : "Пометка снята");
     }
 
     async function saveCutSurplus(row) {
@@ -1465,12 +1683,20 @@
     async function finishCutting() {
       const day = document.getElementById("cuttingDaySelect").value;
       if (!day) { await uiAlertAsync("Выберите день"); return; }
+      if (!cuttingSession.active) {
+        await uiAlertAsync("Сначала нажмите «Начать нарезку».");
+        return;
+      }
       const pending = (cuttingItemsCache || []).filter(function (x) { return !x.done; });
       if (!pending.length) {
         const ok = await uiConfirmAsync("Все позиции уже отмечены. Завершить нарезку?");
         if (!ok) return;
-        celebrateSuccess("finish");
+        const elapsed = stopCuttingTimer(true);
+        celebrateSuccess("finish", { elapsedLabel: formatCutElapsed(elapsed) });
         showToast("Нарезка завершена");
+        renderCuttingSessionBox();
+        const finishBtn = document.getElementById("btnFinishCutting");
+        if (finishBtn) finishBtn.style.display = "none";
         return;
       }
       const ready = [];
@@ -1497,12 +1723,13 @@
       try {
         await apiPost({ action: "finishCutting", day: day, ready: ready, missing: missing });
         await new Promise(function (r) { setTimeout(r, 500); });
-        celebrateSuccess("finish");
+        const elapsed = stopCuttingTimer(true);
+        celebrateSuccess("finish", { elapsedLabel: formatCutElapsed(elapsed) });
         if (missing.length) {
-          showToast("Дефицит: " + missing.length + " поз. — пуши с утра");
-          await uiAlertAsync("По позициям без наличия завтра утром начнут приходить пуши всем, кто писал боту /start. Каждые 30 мин, пока кто-то не нажмёт «Куплено и заготовлено».");
+          showToast("Дефицит: пуш сейчас + с утра каждые 30 мин");
+          await uiAlertAsync("По позициям без наличия пуш ушёл сразу. С утра следующего дня — каждые 30 мин, пока кто-то не нажмёт «Куплено и заготовлено».");
         } else {
-          showToast("Нарезка завершена");
+          showToast("Нарезка завершена за " + formatCutElapsed(elapsed));
         }
         await loadCutting();
       } catch (err) {

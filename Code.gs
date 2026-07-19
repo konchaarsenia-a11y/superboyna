@@ -159,22 +159,45 @@ function recalculateCuttingForDate_(ss, dateText) {
 
 function restoreCuttingState_(cutting, memorySheet, dateText, tz) {
   cutting.getRange("C3:C60").clearContent();
+  cutting.getRange("E3:E60").setValue(false);
   cutting.getRange("F3:F60").setValue(false);
+  cutting.getRange("G3:G60").setValue(false);
   var saved = getMemoryJson_(memorySheet, dateText, tz);
   if (!saved || !saved.length) return;
   var surplus = [];
+  var laid = [];
   var done = [];
+  var outNext = [];
   for (var i = 0; i < 58; i++) {
     var row = saved[i] || [];
-    surplus.push([row[0] === undefined ? "" : row[0]]);
+    surplus.push([row[0] === undefined || row[0] === null ? "" : row[0]]);
+    // формат: [surplus, _, laid, done, outNext]; старый done всегда в [3]
+    laid.push([row[2] === true]);
     done.push([row[3] === true]);
+    outNext.push([row[4] === true]);
   }
   cutting.getRange("C3:C60").setValues(surplus);
+  cutting.getRange("E3:E60").setValues(laid);
   cutting.getRange("F3:F60").setValues(done);
+  cutting.getRange("G3:G60").setValues(outNext);
 }
 
 function saveCuttingState_(cutting, memorySheet, dateText, tz) {
-  saveMemoryJson_(memorySheet, dateText, cutting.getRange("C3:F60").getValues(), tz);
+  var c = cutting.getRange("C3:C60").getValues();
+  var e = cutting.getRange("E3:E60").getValues();
+  var f = cutting.getRange("F3:F60").getValues();
+  var g = cutting.getRange("G3:G60").getValues();
+  var packed = [];
+  for (var i = 0; i < 58; i++) {
+    packed.push([
+      c[i][0],
+      "",
+      e[i][0] === true,
+      f[i][0] === true,
+      g[i][0] === true
+    ]);
+  }
+  saveMemoryJson_(memorySheet, dateText, packed, tz);
 }
 
 // ===================== onEdit: Нарезка дата =====================
@@ -555,7 +578,7 @@ function handleGetCutting(dayName, callback) {
   var totals = recalculateCuttingForDate_(ss, dateText);
   var names = cutting.getRange("A3:A48").getValues();
   var plans = cutting.getRange("D3:D48").getValues();
-  var activeState = isActiveDate ? cutting.getRange("C3:F48").getValues() : null;
+  var activeState = isActiveDate ? cutting.getRange("C3:G48").getValues() : null;
   var savedState = isActiveDate ? null : getMemoryJson_(memory, dateText, tz);
   var items = [];
 
@@ -567,7 +590,11 @@ function handleGetCutting(dayName, callback) {
     var piece = /шт/i.test(name);
     var state = activeState ? activeState[i] : (savedState && savedState[i] ? savedState[i] : []);
     var surplus = Number(state[0]) || 0;
+    // active C3:G = [C,D,E,F,G] → laid=E[2], done=F[3], outNext=G[4]
+    // memory packed = [surplus,"",laid,done,outNext]
+    var laid = state[2] === true;
     var done = state[3] === true;
+    var outNext = state[4] === true;
     var raw;
     if (piece) {
       raw = dry;
@@ -579,7 +606,17 @@ function handleGetCutting(dayName, callback) {
       if (!coef) coef = 0.2;
       raw = (dry / 1000) / coef;
     }
-    items.push({ row: row, name: name, dry: dry, unit: piece ? "шт" : "гр", raw: raw, surplus: surplus, done: done });
+    items.push({
+      row: row,
+      name: name,
+      dry: dry,
+      unit: piece ? "шт" : "гр",
+      raw: raw,
+      surplus: surplus,
+      done: done,
+      laid: laid,
+      outNext: outNext
+    });
   }
   return jsonp(callback, { status: "success", date: dateText, day: dayName, items: items });
 }
@@ -607,6 +644,23 @@ function handleUpdateCutting(ss, json, callback) {
   if (json.done !== undefined && json.done !== null) {
     var done = json.done === true || String(json.done).toLowerCase() === "true";
     cutting.getRange("F" + row).setValue(done);
+  }
+  if (json.laid !== undefined && json.laid !== null) {
+    var laid = json.laid === true || String(json.laid).toLowerCase() === "true";
+    cutting.getRange("E" + row).setValue(laid);
+  }
+  if (json.outNext !== undefined && json.outNext !== null) {
+    var outNext = json.outNext === true || String(json.outNext).toLowerCase() === "true";
+    cutting.getRange("G" + row).setValue(outNext);
+    if (outNext) {
+      try {
+        notifyOutNextStock_({
+          day: json.day,
+          name: cutting.getRange("A" + row).getValue(),
+          row: row
+        });
+      } catch (eOut) {}
+    }
   }
   saveCuttingState_(cutting, memory, dateText, tz);
   return jsonpText(callback, { status: "success" });
@@ -1656,10 +1710,11 @@ function handleRegisterCuttingDeficit(ss, json, callback, fromPost) {
   var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
   var notifyFrom = nextMorningDate_(tz);
   var now = new Date();
+  var immediate = json.immediate !== false; // по умолчанию сразу + утром
   for (var i = 0; i < items.length; i++) {
     var it = items[i] || {};
     var id = String(Date.now()) + "_" + String(Math.floor(Math.random() * 1e5)) + "_" + i;
-    sh.appendRow([
+    var rowVals = [
       id,
       day,
       String(it.name || ""),
@@ -1668,7 +1723,14 @@ function handleRegisterCuttingDeficit(ss, json, callback, fromPost) {
       now,
       notifyFrom,
       ""
-    ]);
+    ];
+    sh.appendRow(rowVals);
+    if (immediate) {
+      try {
+        sendDeficitPushForRow_(rowVals);
+        sh.getRange(sh.getLastRow(), 8).setValue(now);
+      } catch (ePush) {}
+    }
   }
   ensureDeficitTrigger_();
   var ok = { status: "success", count: items.length };
@@ -1684,10 +1746,10 @@ function handleFinishCutting(ss, json, callback, fromPost) {
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
   for (var i = 0; i < ready.length; i++) {
-    handleUpdateCutting(ss, { day: day, row: ready[i].row, done: true }, "cb", true);
+    handleUpdateCutting(ss, { day: day, row: ready[i].row, done: true, laid: true }, "cb", true);
   }
   if (missing.length) {
-    handleRegisterCuttingDeficit(ss, { day: day, items: missing }, "cb", true);
+    handleRegisterCuttingDeficit(ss, { day: day, items: missing, immediate: true }, "cb", true);
   }
   var ok = { status: "success", ready: ready.length, missing: missing.length };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
@@ -1755,6 +1817,17 @@ function sendDeficitPushForRow_(rowValues) {
   var participants = listBotParticipants_();
   for (var i = 0; i < participants.length; i++) {
     telegramSendMarkup_(participants[i], text, markup);
+  }
+}
+
+function notifyOutNextStock_(info) {
+  var day = String((info && info.day) || "");
+  var item = String((info && info.name) || "");
+  var text = "❗ Заканчивается запас\nДень: " + day + "\nПозиция: " + item +
+    "\n\nНа текущую нарезку хватает, на следующую — уже нет. Закупите заранее.";
+  var participants = listBotParticipants_();
+  for (var i = 0; i < participants.length; i++) {
+    telegramSendMarkup_(participants[i], text, null);
   }
 }
 
