@@ -937,20 +937,17 @@
       return DEFAULT_CITY + ", " + a;
     }
 
-    function getAppBaseUrl() {
-      try {
-        const path = location.pathname.replace(/[^/]*$/, "");
-        return location.origin + path;
-      } catch (e) {
-        return "https://konchaarsenia-a11y.github.io/superboyna/";
-      }
-    }
-
     function buildYandexRouteUrl(addrs) {
       const u = new URL("https://yandex.ru/maps/");
       u.searchParams.set("mode", "routes");
       u.searchParams.set("rtt", "auto");
       u.searchParams.set("rtext", addrs.join("~"));
+      return u.toString();
+    }
+
+    function buildYandexPointUrl(addr) {
+      const u = new URL("https://yandex.ru/maps/");
+      u.searchParams.set("text", addr);
       return u.toString();
     }
 
@@ -980,6 +977,32 @@
       }
     }
 
+    async function copyText(text) {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+          return true;
+        }
+      } catch (e) {}
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+        return true;
+      } catch (e2) {
+        return false;
+      }
+    }
+
+    /**
+     * В Telegram второе окно (maps.html) часто НЕ открывается.
+     * Поэтому показываем адреса прямо в мини-аппе, а Яндекс открываем по кнопке.
+     */
     async function openYandexMaps() {
       const addrs = courierClientsCache.map(c => normalizeAddressForMaps(c.address)).filter(Boolean);
       if (!addrs.length) {
@@ -987,15 +1010,43 @@
         return;
       }
 
-      // На телефоне Яндекс.Приложение часто открывается «пустым» по deep link.
-      // Открываем промежуточную страницу maps.html — там кнопка строит маршрут с адресами.
-      const bridge = getAppBaseUrl() + "maps.html#" + encodeURIComponent(addrs.join("|"));
-      const ok = openExternalLink(bridge);
-      if (!ok) {
-        // запасной путь — прямая ссылка Яндекса
-        openExternalLink(buildYandexRouteUrl(addrs));
-      }
-      showToast("Откройте кнопку «Построить маршрут» на странице");
+      const listHtml = addrs.map(function (a, i) {
+        return '<div style="padding:8px 0;border-bottom:1px solid #2c2c2e;font-size:14px;">' +
+          (i + 1) + ". " + escapeHtml(a) + "</div>";
+      }).join("");
+
+      const p = openModal(
+        '<div class="modal-title">Адреса на маршрут</div>' +
+        '<div class="modal-text" style="max-height:40vh;overflow:auto;margin-bottom:12px;">' + listHtml + "</div>" +
+        '<div class="modal-actions">' +
+          '<button class="btn-action btn-green" type="button" id="mapsBuild">Построить маршрут в Яндекс</button>' +
+          '<button class="btn-action btn-blue" type="button" id="mapsCopy">Скопировать адреса</button>' +
+          '<button class="btn-action" type="button" id="modalCancel" style="background:#3a3a3c;">Закрыть</button>' +
+        "</div>"
+      );
+
+      setTimeout(function () {
+        const build = document.getElementById("mapsBuild");
+        const copy = document.getElementById("mapsCopy");
+        const cancel = document.getElementById("modalCancel");
+        if (build) {
+          build.onclick = function () {
+            // Важно: openLink вызываем сразу по нажатию кнопки (жест пользователя)
+            openExternalLink(buildYandexRouteUrl(addrs));
+            showToast("Открываю Яндекс.Карты…");
+          };
+        }
+        if (copy) {
+          copy.onclick = async function () {
+            const text = addrs.map(function (a, i) { return (i + 1) + ". " + a; }).join("\n");
+            const ok = await copyText(text);
+            showToast(ok ? "Адреса скопированы" : "Не удалось скопировать");
+          };
+        }
+        if (cancel) cancel.onclick = function () { closeModal(true); };
+      }, 0);
+
+      await p;
       recoverUiFocus();
     }
 
