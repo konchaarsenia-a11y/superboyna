@@ -315,10 +315,12 @@
       0% { box-shadow: 0 0 0 0 rgba(48,209,88,0.55); }
       100% { box-shadow: 0 0 0 18px rgba(48,209,88,0); }
     }
-    .courier-row.just-done {
-      animation: rowDone 0.55s ease;
+    .courier-row.is-delivered {
       border-color: rgba(48,209,88,0.55);
       background: rgba(48,209,88,0.12);
+    }
+    .courier-row.just-done {
+      animation: rowDone 0.55s ease;
     }
     @keyframes rowDone {
       0% { transform: scale(0.98); }
@@ -329,11 +331,26 @@
       display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px;
       border-radius: 6px; margin-top: 4px; background: rgba(255,149,0,0.15); color: #ff9500;
     }
+    .yandex-route-overlay {
+      position: fixed; inset: 0; z-index: 10050; background: #121212;
+      display: flex; flex-direction: column;
+    }
+    .yandex-route-top {
+      flex-shrink: 0; padding: 12px;
+      padding-top: calc(12px + var(--safe-top));
+      border-bottom: 1px solid var(--border-color);
+      display: grid; gap: 8px; background: #1c1c1e;
+    }
+    .yandex-route-top .yr-title { font-weight: 700; font-size: 16px; }
+    .yandex-route-top .yr-sub { font-size: 12px; color: var(--text-muted); }
+    .yandex-route-overlay iframe {
+      flex: 1; width: 100%; border: 0; background: #1c1c1e; min-height: 50vh;
+    }
   </style>
 </head>
 <body>
   <div class="app">
-    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v5.6</div>
+    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v5.9</div>
 
     <div class="nav-tabs">
       <button class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
@@ -481,7 +498,7 @@
           <div class="field-hint" id="departTimeHint">Листайте как будильник на iPhone</div>
         </div>
         <button class="btn-action btn-green" type="button" onclick="buildRoutePlan()">Собрать маршруты</button>
-        <button class="btn-action btn-blue" type="button" onclick="openYandexMaps()" style="margin-top:8px;">Адреса (Google / Яндекс)</button>
+        <button class="btn-action btn-blue" type="button" onclick="openYandexMaps()" style="margin-top:8px;">Адреса в Яндекс</button>
       </div>
       <div id="routePlanBox"></div>
       <div id="courierSummary"></div>
@@ -499,7 +516,8 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v5.6";
+    const APP_VERSION = "v5.9";
+    const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
     const DEPOT_PRESETS = ["Шаранговича 36", "Белецкого 10к2"];
@@ -605,6 +623,36 @@
         window.scrollTo(0, window.scrollY || 0);
       }, 50);
     }
+
+    function isEditableFocus() {
+      const a = document.activeElement;
+      if (!a) return false;
+      const tag = (a.tagName || "").toUpperCase();
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || a.isContentEditable;
+    }
+
+    function dismissKeyboard() {
+      if (!isEditableFocus()) return;
+      try { document.activeElement.blur(); } catch (e) {}
+    }
+
+    // Свайп / скролл — убираем клавиатуру (iOS Telegram часто её держит)
+    let _kbTouchY = null;
+    document.addEventListener("touchstart", function (e) {
+      _kbTouchY = e.touches && e.touches[0] ? e.touches[0].clientY : null;
+    }, { passive: true });
+    document.addEventListener("touchmove", function (e) {
+      if (!isEditableFocus() || _kbTouchY == null) return;
+      const y = e.touches && e.touches[0] ? e.touches[0].clientY : _kbTouchY;
+      if (Math.abs(y - _kbTouchY) > 12) dismissKeyboard();
+    }, { passive: true });
+    document.addEventListener("scroll", function () { dismissKeyboard(); }, true);
+    document.addEventListener("touchend", function (e) {
+      if (!isEditableFocus()) return;
+      const t = e.target;
+      if (t && (t.closest("input, textarea, select, button, .seg-btn, .modal-overlay, label"))) return;
+      dismissKeyboard();
+    }, { passive: true });
 
     function showToast(msg) {
       const el = document.getElementById("appToast");
@@ -840,6 +888,7 @@
     }
 
     function switchTab(screenId) {
+      dismissKeyboard();
       document.querySelectorAll(".screen").forEach(el => el.classList.remove("active"));
       document.querySelectorAll(".tab-link").forEach(el => el.classList.toggle("active", el.dataset.screen === screenId));
       document.getElementById(screenId).classList.add("active");
@@ -1277,7 +1326,7 @@
             const frac = g.sub ? " (" + g.sub + ")" : "";
             return `<div class="order-detail-line"><span>• ${escapeHtml(g.name)}${escapeHtml(frac)}</span><span class="order-detail-volume">${g.val} ${unit}</span></div>`;
           }).join("");
-          return `<div class="courier-row">
+          return `<div class="courier-row${c.delivered ? " is-delivered" : ""}">
             <label class="check-line">
               <input type="checkbox" ${c.delivered ? "checked" : ""} onchange="toggleDelivered(${idx}, this.checked)">
               <span class="cut-title">${idx + 1}. ${escapeHtml(c.name)}</span>
@@ -1311,13 +1360,17 @@
       if (!client) return;
       client.delivered = delivered;
       refreshCourierSummary();
-      if (delivered) {
-        celebrateSuccess("deliver");
-        const rows = document.querySelectorAll("#courierContainer .courier-row");
-        if (rows[index]) {
-          rows[index].classList.remove("just-done");
-          void rows[index].offsetWidth;
-          rows[index].classList.add("just-done");
+      const rows = document.querySelectorAll("#courierContainer .courier-row");
+      const row = rows[index];
+      if (row) {
+        row.classList.toggle("is-delivered", !!delivered);
+        if (delivered) {
+          celebrateSuccess("deliver");
+          row.classList.remove("just-done");
+          void row.offsetWidth;
+          row.classList.add("just-done");
+        } else {
+          row.classList.remove("just-done");
         }
       }
       try {
@@ -1325,6 +1378,7 @@
       } catch (e) {
         client.delivered = !delivered;
         refreshCourierSummary();
+        if (row) row.classList.toggle("is-delivered", !!client.delivered);
         showToast("Не удалось сохранить галочку");
       }
     }
@@ -1839,17 +1893,102 @@
       renderRoutePlan();
     }
 
-    function openRouteInYandex(routeIndex) {
+    function routePointsForYandex(routeIndex) {
       const stops = routePlanState.routes[routeIndex] || [];
-      if (!stops.length) {
+      const depotAddr = normalizeAddressForMaps(getDepotAddress());
+      const depotGeo = routePlanState.depot;
+      const points = [];
+      // Координаты, если есть — приложению Яндекс так надёжнее
+      if (depotGeo && depotGeo.lat != null) points.push(depotGeo.lat + "," + depotGeo.lon);
+      else points.push(depotAddr);
+      stops.forEach(function (s) {
+        if (s.lat != null && s.lon != null) points.push(s.lat + "," + s.lon);
+        else if (s.address) points.push(s.address);
+      });
+      return { stops: stops, points: points, depotAddr: depotAddr };
+    }
+
+    function buildYandexRouteUrl(points) {
+      const parts = (points || []).map(function (p) { return String(p).trim(); }).filter(Boolean);
+      const rtext = parts.join("~");
+      return "https://yandex.ru/maps/?mode=routes&rtt=auto&rtext=" +
+        encodeURIComponent(rtext).replace(/%2C/gi, ",").replace(/%7E/gi, "~");
+    }
+
+    function buildYandexMapsAppUrl(points) {
+      const parts = (points || []).map(function (p) { return String(p).trim(); }).filter(Boolean);
+      const rtext = parts.join("~");
+      return "yandexmaps://maps.yandex.ru/?rtt=auto&rtext=" +
+        encodeURIComponent(rtext).replace(/%2C/gi, ",").replace(/%7E/gi, "~");
+    }
+
+    function buildYandexWidgetUrl(points) {
+      const parts = (points || []).map(function (p) { return String(p).trim(); }).filter(Boolean);
+      const rtext = parts.join("~");
+      return "https://yandex.ru/map-widget/v1/?lang=ru_RU&mode=routes&rtt=auto&rtext=" +
+        encodeURIComponent(rtext).replace(/%2C/gi, ",").replace(/%7E/gi, "~");
+    }
+
+    function buildYandexPointUrl(addr) {
+      const u = new URL("https://yandex.ru/maps/");
+      u.searchParams.set("text", addr);
+      return u.toString();
+    }
+
+    function buildYandexBridgeUrl(points) {
+      const parts = (points || []).map(function (p) { return String(p).trim(); }).filter(Boolean);
+      const rtext = parts.join("~");
+      return YANDEX_ROUTE_PAGE + "?rtext=" +
+        encodeURIComponent(rtext).replace(/%2C/gi, ",").replace(/%7E/gi, "~");
+    }
+
+    /** Все адреса одним маршрутом в Яндекс: виджет внутри мини-аппа + приложение */
+    function openAllInYandex(points) {
+      const pts = (points || []).map(function (p) { return String(p).trim(); }).filter(Boolean);
+      if (pts.length < 1) {
+        showToast("Нет точек для маршрута");
+        return;
+      }
+
+      const old = document.getElementById("yandexRouteOverlay");
+      if (old) old.remove();
+
+      const wrap = document.createElement("div");
+      wrap.id = "yandexRouteOverlay";
+      wrap.className = "yandex-route-overlay";
+      wrap.innerHTML =
+        '<div class="yandex-route-top">' +
+          '<div class="yr-title">Яндекс · все ' + pts.length + " точек</div>" +
+          '<div class="yr-sub">Маршрут по всем адресам. Если карта пустая — жми «В приложение».</div>' +
+          '<button class="btn-action btn-green" type="button" id="yrOpenApp">Открыть все точки в приложении Яндекс</button>' +
+          '<button class="btn-action btn-blue" type="button" id="yrOpenPage">Открыть маршрут на весь экран</button>' +
+          '<button class="btn-action" type="button" id="yrClose" style="background:#3a3a3c;">Закрыть</button>' +
+        "</div>" +
+        '<iframe id="yrFrame" src="' + buildYandexWidgetUrl(pts).replace(/"/g, "&quot;") + '" allow="geolocation *; clipboard-write *"></iframe>';
+
+      document.body.appendChild(wrap);
+      dismissKeyboard();
+
+      document.getElementById("yrClose").onclick = function () { wrap.remove(); };
+      document.getElementById("yrOpenApp").onclick = function () {
+        try { window.location.href = buildYandexMapsAppUrl(pts); } catch (e) {
+          openExternalLink(buildYandexMapsAppUrl(pts));
+        }
+        showToast("Открываю приложение Яндекс…");
+      };
+      document.getElementById("yrOpenPage").onclick = function () {
+        openExternalLink(buildYandexBridgeUrl(pts));
+      };
+    }
+
+    async function openRouteInYandex(routeIndex) {
+      const info = routePointsForYandex(routeIndex);
+      if (!info.stops.length) {
         showToast("В этом маршруте нет адресов");
         return;
       }
-      const depotAddr = normalizeAddressForMaps(getDepotAddress());
-      // Яндекс стабильнее на текстовых адресах пачкой, чем на смеси lat,lon + текст
-      const points = [depotAddr].concat(stops.map(function (s) { return s.address; }).filter(Boolean));
-      openExternalLink(buildYandexRouteUrl(points));
-      showToast("Открываю Яндекс · курьер " + (routeIndex + 1));
+      // Все точки курьера разом в Яндекс
+      openAllInYandex(info.points);
     }
 
     function buildCourierShareText(routeIndex) {
@@ -1859,16 +1998,15 @@
       const mins = estimateRouteMinutes(depot, stops);
       let t = "Курьер " + (routeIndex + 1) + " · " + formatMinutes(mins) + "\n";
       t += "Выезд: " + normalizeAddressForMaps(getDepotAddress()) + "\n";
-      t += "Время выезда: " + pad2(departHour) + ":" + pad2(departMinute) + "\n\n";
+      t += "Время: " + pad2(departHour) + ":" + pad2(departMinute) + "\n\n";
       stops.forEach(function (s, i) {
         const eta = etaShortForMsg(depot, stops, i, depart);
         t += (i + 1) + ". " + s.name;
         if (s.deliveryLabel) t += " (" + s.deliveryLabel + ")";
-        t += "\n" + s.address;
-        if (s.clientAddress && s.deliveryLabel) t += "\nклиент: " + s.clientAddress;
-        t += "\nоколо " + eta + "\n\n";
+        t += "\n" + s.address + "\nоколо " + eta + "\n\n";
       });
-      t += "Яндекс: " + buildYandexRouteUrl([normalizeAddressForMaps(getDepotAddress())].concat(stops.map(function (s) { return s.address; })));
+      const info = routePointsForYandex(routeIndex);
+      t += "Яндекс (все точки):\n" + buildYandexBridgeUrl(info.points);
       return t.trim();
     }
 
@@ -1878,31 +2016,76 @@
         showToast("Сначала соберите маршруты");
         return;
       }
-      try {
-        if (tg && typeof tg.openTelegramLink === "function") {
-          tg.openTelegramLink("https://t.me/share/url?text=" + encodeURIComponent(text));
-          return;
+
+      const p = openModal(
+        '<div class="modal-title">Курьеру ' + (routeIndex + 1) + "</div>" +
+        '<div class="modal-text">Список адресов + ссылка на Яндекс со всеми точками.</div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-action btn-green" type="button" id="shareCopy">Скопировать</button>' +
+          '<button class="btn-action btn-blue" type="button" id="shareTg">В Telegram</button>' +
+          '<button class="btn-action" type="button" id="modalCancel" style="background:#3a3a3c;">Закрыть</button>' +
+        "</div>"
+      );
+
+      setTimeout(function () {
+        const copy = document.getElementById("shareCopy");
+        const tgBtn = document.getElementById("shareTg");
+        const cancel = document.getElementById("modalCancel");
+        if (copy) {
+          copy.onclick = async function () {
+            showToast((await copyText(text)) ? "Скопировано" : "Не скопировалось");
+          };
         }
-      } catch (e) {}
-      try {
-        if (navigator.share) {
-          await navigator.share({ text: text });
-          return;
+        if (tgBtn) {
+          tgBtn.onclick = function () {
+            try {
+              if (tg && typeof tg.openTelegramLink === "function") {
+                tg.openTelegramLink("https://t.me/share/url?text=" + encodeURIComponent(text));
+                return;
+              }
+            } catch (e) {}
+            copyText(text).then(function (ok) {
+              showToast(ok ? "Скопировано" : "Не скопировалось");
+            });
+          };
         }
-      } catch (e2) {}
-      showToast((await copyText(text)) ? "Маршрут скопирован — отправьте 2-му курьеру" : "Не скопировалось");
+        if (cancel) cancel.onclick = function () { closeModal(true); };
+      }, 0);
+
+      await p;
+      recoverUiFocus();
     }
 
     async function inviteSecondCourierPick() {
       const link = "https://konchaarsenia-a11y.github.io/superboyna/app.html";
-      const text = "Открой мини-апп Бойня → вкладка Курьер → выбери день и собери свой маршрут.\n" + link;
-      try {
-        if (tg && typeof tg.openTelegramLink === "function") {
-          tg.openTelegramLink("https://t.me/share/url?url=" + encodeURIComponent(link) + "&text=" + encodeURIComponent("Открой Курьер в Бойне и собери маршрут"));
-          return;
-        }
-      } catch (e) {}
-      showToast((await copyText(text)) ? "Ссылка скопирована" : "Не скопировалось");
+      const text = "Открой мини-апп Бойня → Курьер → день → собери маршрут.\n" + link;
+      const p = openModal(
+        '<div class="modal-title">2-й курьер</div>' +
+        '<div class="modal-text">Скинь ссылку на мини-апп или список через «Курьеру».</div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-action btn-green" type="button" id="inviteCopy">Скопировать ссылку</button>' +
+          '<button class="btn-action btn-blue" type="button" id="inviteTg">В Telegram</button>' +
+          '<button class="btn-action" type="button" id="modalCancel" style="background:#3a3a3c;">Закрыть</button>' +
+        "</div>"
+      );
+      setTimeout(function () {
+        const c = document.getElementById("inviteCopy");
+        const t = document.getElementById("inviteTg");
+        const cancel = document.getElementById("modalCancel");
+        if (c) c.onclick = async function () {
+          showToast((await copyText(text)) ? "Ссылка скопирована" : "Не скопировалось");
+        };
+        if (t) t.onclick = function () {
+          try {
+            if (tg && typeof tg.openTelegramLink === "function") {
+              tg.openTelegramLink("https://t.me/share/url?url=" + encodeURIComponent(link) + "&text=" + encodeURIComponent("Бойня → Курьер"));
+            }
+          } catch (e) {}
+        };
+        if (cancel) cancel.onclick = function () { closeModal(true); };
+      }, 0);
+      await p;
+      recoverUiFocus();
     }
 
     function personNameForMsg(name) {
@@ -2018,34 +2201,6 @@
       box.innerHTML = html;
     }
 
-    function buildYandexRouteUrl(points) {
-      // points: ["53.9,27.5", "Минск, …"] — порядок уже оптимизирован у нас
-      const parts = (points || []).map(function (p) { return String(p).trim(); }).filter(Boolean);
-      // Собираем вручную: searchParams кодирует ~ лишний раз на части телефонов
-      var rtext = parts.join("~");
-      return "https://yandex.ru/maps/?mode=routes&rtt=auto&rtext=" + encodeURIComponent(rtext).replace(/%2C/gi, ",").replace(/%7E/gi, "~");
-    }
-
-    function buildYandexPointUrl(addr) {
-      const u = new URL("https://yandex.ru/maps/");
-      u.searchParams.set("text", addr);
-      return u.toString();
-    }
-
-    /** Запасной вариант, если Яндекс пачкой на устройстве пустой */
-    function buildGoogleMapsDirUrl(addrs) {
-      if (!addrs.length) return "";
-      if (addrs.length === 1) {
-        return "https://www.google.com/maps/dir/?api=1&destination=" + encodeURIComponent(addrs[0]) + "&travelmode=driving";
-      }
-      // optimize:true — не закрепляем порядок серединных точек
-      const destination = encodeURIComponent(addrs[addrs.length - 1]);
-      const mid = addrs.slice(0, -1);
-      const waypoints = "optimize:true|" + mid.map(encodeURIComponent).join("%7C");
-      return "https://www.google.com/maps/dir/?api=1&destination=" + destination +
-        "&waypoints=" + waypoints + "&travelmode=driving";
-    }
-
     function openExternalLink(url) {
       try {
         if (tg && typeof tg.openLink === "function") {
@@ -2065,6 +2220,11 @@
         return true;
       } catch (e2) {}
       try {
+        // Для yandexmaps:// на iOS location часто лучше, чем openLink
+        if (String(url).indexOf("yandexmaps://") === 0 || String(url).indexOf("yandexnavi://") === 0) {
+          window.location.href = url;
+          return true;
+        }
         window.location.href = url;
         return true;
       } catch (e3) {
@@ -2094,81 +2254,29 @@
       }
     }
 
-    /**
-     * На iPhone: Яндекс пачкой = пустая страница. Google пачкой = ок. Яндекс по одному = ок.
-     * Окно всегда внутри мини-аппа (без maps.html).
-     */
+    /** Все адреса дня / собранного маршрута — одним маршрутом в Яндекс */
     async function openYandexMaps() {
-      const addrs = courierClientsCache.map(c => normalizeAddressForMaps(c.address)).filter(Boolean);
-      if (!addrs.length) {
+      const dayStops = courierClientsCache.filter(function (c) {
+        return String(c.address || "").trim();
+      });
+      if (!dayStops.length) {
         await uiAlertAsync("Нет адресов. Заполните адреса у клиентов на этот день.");
         return;
       }
 
-      const listHtml = addrs.map(function (a, i) {
-        return '<button type="button" class="modal-day-btn maps-one-addr" data-idx="' + i + '" style="text-align:left;height:auto;min-height:44px;padding:10px 12px;white-space:normal;">' +
-          (i + 1) + ". " + escapeHtml(a) +
-          '<br><span style="color:#8e8e93;font-size:12px;">Открыть точку в Яндекс</span></button>';
-      }).join("");
-
-      const p = openModal(
-        '<div class="modal-title">Маршрут · v5.6</div>' +
-        '<div class="modal-text">Пачка в Яндекс — в оптимальном порядке (без возврата на склад). Если пусто — Google ниже.</div>' +
-        '<div class="modal-actions" style="margin-bottom:12px;">' +
-          '<button class="btn-action btn-green" type="button" id="mapsYandex">Открыть маршрут (Яндекс)</button>' +
-          '<button class="btn-action btn-blue" type="button" id="mapsGoogle">Запасной: Google Maps</button>' +
-          '<button class="btn-action" type="button" id="mapsCopy" style="background:#3a3a3c;">Скопировать все адреса</button>' +
-        "</div>" +
-        '<div class="modal-text" style="margin-bottom:8px;font-size:12px;color:#8e8e93;">Точечно в Яндекс:</div>' +
-        '<div class="modal-actions" style="max-height:36vh;overflow:auto;margin-bottom:12px;">' + listHtml + "</div>" +
-        '<div class="modal-actions">' +
-          '<button class="btn-action" type="button" id="modalCancel" style="background:#3a3a3c;">Закрыть</button>' +
-        "</div>"
-      );
-
-      setTimeout(function () {
-        const y = document.getElementById("mapsYandex");
-        const g = document.getElementById("mapsGoogle");
-        const copy = document.getElementById("mapsCopy");
-        const cancel = document.getElementById("modalCancel");
-        if (y) {
-          y.onclick = function () {
-            // Если маршруты уже собраны — открываем оптимизированный порядок с координатами
-            if (routePlanState.routes[0] && routePlanState.routes[0].length) {
-              openRouteInYandex(0);
-              if (routePlanState.courierCount === 2 && routePlanState.routes[1].length) {
-                showToast("Открыт курьер 1 · для 2-го жмите кнопку в плане");
-              }
-              return;
-            }
-            const depot = normalizeAddressForMaps(getDepotAddress());
-            openExternalLink(buildYandexRouteUrl([depot].concat(addrs)));
-            showToast("Открываю Яндекс.Карты…");
-          };
+      let points = [];
+      const depotAddr = normalizeAddressForMaps(getDepotAddress());
+      if (routePlanState.routes[0] && routePlanState.routes[0].length) {
+        points = routePointsForYandex(0).points;
+        if (routePlanState.courierCount === 2 && routePlanState.routes[1] && routePlanState.routes[1].length) {
+          showToast("Открыт маршрут курьера 1 · для 2-го жми кнопку в плане");
         }
-        if (g) {
-          g.onclick = function () {
-            openExternalLink(buildGoogleMapsDirUrl(addrs));
-            showToast("Открываю Google Maps…");
-          };
-        }
-        if (copy) {
-          copy.onclick = async function () {
-            const text = addrs.map(function (a, i) { return (i + 1) + ". " + a; }).join("\n");
-            showToast((await copyText(text)) ? "Скопировано" : "Не скопировалось");
-          };
-        }
-        document.querySelectorAll(".maps-one-addr").forEach(function (btn) {
-          btn.onclick = function () {
-            const addr = addrs[Number(btn.getAttribute("data-idx"))];
-            if (addr) openExternalLink(buildYandexPointUrl(addr));
-          };
-        });
-        if (cancel) cancel.onclick = function () { closeModal(true); };
-      }, 0);
-
-      await p;
-      recoverUiFocus();
+      } else {
+        points = [depotAddr].concat(dayStops.map(function (c) {
+          return normalizeAddressForMaps(c.address);
+        }));
+      }
+      openAllInYandex(points);
     }
 
     loadDepotAddress();

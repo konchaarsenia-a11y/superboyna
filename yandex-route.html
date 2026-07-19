@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Маршрут · Яндекс</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #121212; color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    .bar {
+      position: fixed; left: 0; right: 0; top: 0; z-index: 5;
+      padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top));
+      background: rgba(18,18,18,0.94); border-bottom: 1px solid #2c2c2e;
+      display: grid; gap: 8px;
+    }
+    .title { font-weight: 700; font-size: 15px; }
+    .sub { font-size: 12px; color: #8e8e93; }
+    .btn {
+      height: 44px; border: none; border-radius: 10px; font-weight: 700; font-size: 14px; color: #fff;
+      background: #248bf2; width: 100%;
+    }
+    .btn.sec { background: #3a3a3c; }
+    #mapFrame {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      top: calc(118px + env(safe-area-inset-top, 0px));
+      width: 100%; border: 0; background: #1c1c1e;
+    }
+    #mapApi {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      top: calc(118px + env(safe-area-inset-top, 0px));
+      width: 100%; display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <div class="title" id="title">Маршрут в Яндекс</div>
+    <div class="sub" id="sub">Все точки одним маршрутом</div>
+    <button class="btn" type="button" id="openApp">Открыть в приложении Яндекс.Карты</button>
+  </div>
+  <iframe id="mapFrame" allow="geolocation *; clipboard-write *" referrerpolicy="no-referrer-when-downgrade"></iframe>
+  <div id="mapApi"></div>
+
+  <script>
+    function parsePoints() {
+      try {
+        var q = new URLSearchParams(location.search);
+        var r = q.get("rtext");
+        if (r) return r.split("~").map(function (s) { return s.trim(); }).filter(Boolean);
+        if (location.hash && location.hash.indexOf("#rtext=") === 0) {
+          return decodeURIComponent(location.hash.slice(7)).split("~").map(function (s) { return s.trim(); }).filter(Boolean);
+        }
+      } catch (e) {}
+      return [];
+    }
+
+    function buildWebUrl(points) {
+      var rtext = points.join("~");
+      return "https://yandex.ru/maps/?mode=routes&rtt=auto&rtext=" +
+        encodeURIComponent(rtext).replace(/%2C/gi, ",").replace(/%7E/gi, "~");
+    }
+
+    function buildAppUrl(points) {
+      var rtext = points.join("~");
+      return "yandexmaps://maps.yandex.ru/?rtt=auto&rtext=" +
+        encodeURIComponent(rtext).replace(/%2C/gi, ",").replace(/%7E/gi, "~");
+    }
+
+    function buildWidgetUrl(points) {
+      var rtext = points.join("~");
+      // Виджет Яндекса специально для встраивания — в Telegram/Safari пачка через него стабильнее
+      return "https://yandex.ru/map-widget/v1/?lang=ru_RU&mode=routes&rtt=auto&rtext=" +
+        encodeURIComponent(rtext).replace(/%2C/gi, ",").replace(/%7E/gi, "~");
+    }
+
+    var points = parsePoints();
+    var title = document.getElementById("title");
+    var sub = document.getElementById("sub");
+    var frame = document.getElementById("mapFrame");
+    var openApp = document.getElementById("openApp");
+
+    if (!points.length) {
+      title.textContent = "Нет точек";
+      sub.textContent = "Вернитесь в мини-апп и соберите маршрут";
+    } else {
+      title.textContent = "Маршрут · " + points.length + " точек";
+      sub.textContent = "Яндекс строит путь по всем адресам";
+      frame.src = buildWidgetUrl(points);
+
+      // Пробуем сразу открыть приложение с полной пачкой
+      setTimeout(function () {
+        try { window.location.href = buildAppUrl(points); } catch (e) {}
+      }, 400);
+    }
+
+    openApp.onclick = function () {
+      if (!points.length) return;
+      try { window.location.href = buildAppUrl(points); } catch (e) {}
+      setTimeout(function () {
+        window.open(buildWebUrl(points), "_blank");
+      }, 700);
+    };
+  </script>
+</body>
+</html>
