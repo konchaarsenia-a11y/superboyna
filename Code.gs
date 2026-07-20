@@ -508,6 +508,16 @@ function doGet(e) {
   if (action === "stopCuttingSession") {
     return handleStopCuttingSession({ day: e.parameter.day ? decodeURIComponent(e.parameter.day) : "" }, callback, false);
   }
+  if (action === "finishCutting") {
+    return handleFinishCutting(SpreadsheetApp.getActiveSpreadsheet(), {
+      day: e.parameter.day ? decodeURIComponent(e.parameter.day) : "",
+      ticket: e.parameter.ticket || "",
+      elapsed: e.parameter.elapsed || ""
+    }, callback, false);
+  }
+  if (action === "setupTelegramWebhook") {
+    return handleSetupTelegramWebhook(callback, false);
+  }
   if (action === "getCourier") {
     return handleGetCourier(payload.day, callback);
   }
@@ -581,6 +591,12 @@ function handleApiAction(json, callback, fromPost) {
   if (action === "finishCutting") {
     return handleFinishCutting(ss, json, callback, fromPost);
   }
+  if (action === "prepareFinishCutting") {
+    return handlePrepareFinishCutting(json, callback, fromPost);
+  }
+  if (action === "setupTelegramWebhook") {
+    return handleSetupTelegramWebhook(callback, fromPost);
+  }
   if (action === "registerCuttingDeficit") {
     return handleRegisterCuttingDeficit(ss, json, callback, fromPost);
   }
@@ -652,7 +668,8 @@ function handleGetCutting(dayName, callback) {
     date: dateText,
     day: dayName,
     items: items,
-    session: getCuttingSession_()
+    session: getCuttingSession_(),
+    completion: getCuttingCompletion_(dateText)
   });
 }
 
@@ -1847,22 +1864,224 @@ function handleRegisterCuttingDeficit(ss, json, callback, fromPost) {
 }
 
 function handleFinishCutting(ss, json, callback, fromPost) {
+  // Длинный payload: POST prepareFinishCutting → GET finishCutting?ticket=
+  if (json.ticket) {
+    try {
+      var cached = CacheService.getScriptCache().get("finish_" + String(json.ticket));
+      if (cached) json = JSON.parse(cached);
+    } catch (eCache) {}
+  }
   var day = String(json.day || "").trim();
   var ready = json.ready || [];
   var missing = json.missing || [];
+  var snapshot = json.items || [];
+  var elapsed = Number(json.elapsed) || 0;
   if (!day) {
     var bad = { status: "error", message: "need_day" };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
-  for (var i = 0; i < ready.length; i++) {
-    handleUpdateCutting(ss, { day: day, row: ready[i].row, done: true, laid: true }, "cb", true);
+
+  var lock = LockService.getDocumentLock();
+  try {
+    lock.waitLock(30000);
+  } catch (eLock) {
+    var busy = { status: "error", message: "busy_retry" };
+    return fromPost ? jsonpText(callback, busy) : jsonp(callback, busy);
   }
-  if (missing.length) {
-    handleRegisterCuttingDeficit(ss, { day: day, items: missing, immediate: true }, "cb", true);
+
+  try {
+    var cutting = ss.getSheetByName("Нарезка");
+    var memory = ss.getSheetByName("Память_Нарезки");
+    var tz = ss.getSpreadsheetTimeZone();
+    var dateValue = getDayDate_(ss, day);
+    if (!cutting || !dateValue) {
+      var badDay = { status: "error", message: "bad_day" };
+      return fromPost ? jsonpText(callback, badDay) : jsonp(callback, badDay);
+    }
+    var dateText = formatSheetDate(dateValue, tz);
+    var oldDate = formatSheetDate(cutting.getRange("A1").getValue(), tz);
+    if (oldDate !== dateText) {
+      if (oldDate) saveCuttingState_(cutting, memory, oldDate, tz);
+      cutting.getRange("A1").setValue(dateValue);
+      restoreCuttingState_(cutting, memory, dateText, tz);
+    }
+    recalculateCuttingForDate_(ss, dateText);
+
+    // Полный снимок с клиента — главный источник правды при завершении
+    var i;
+    if (snapshot.length) {
+      for (i = 0; i < snapshot.length; i++) {
+        var it = snapshot[i] || {};
+        var r = Number(it.row);
+        if (!(r >= 3 && r <= 48)) continue;
+        if (it.surplus !== undefined && it.surplus !== null) {
+          cutting.getRange("C" + r).setValue(Number(it.surplus) || 0);
+        }
+        if (it.laid !== undefined) cutting.getRange("E" + r).setValue(asBool_(it.laid));
+        if (it.done !== undefined) cutting.getRange("F" + r).setValue(asBool_(it.done));
+        if (it.outNext !== undefined) cutting.getRange("G" + r).setValue(asBool_(it.outNext));
+      }
+    }
+    for (i = 0; i < ready.length; i++) {
+      var rr = Number(ready[i].row);
+      if (rr >= 3 && rr <= 48) {
+        cutting.getRange("E" + rr).setValue(true);
+        cutting.getRange("F" + rr).setValue(true);
+      }
+    }
+    saveCuttingState_(cutting, memory, dateText, tz);
+
+    var names = cutting.getRange("A3:A48").getValues();
+    var stateEG = cutting.getRange("C3:G48").getValues();
+    var totals = recalculateCuttingForDate_(ss, dateText);
+    var summaryItems = [];
+    for (i = 0; i < 46; i++) {
+      var dry = Number(totals[i][0]) || 0;
+      if (dry <= 0) continue;
+      var rowNum = i + 3;
+      var st = stateEG[i] || [];
+      summaryItems.push({
+        row: rowNum,
+        name: names[i][0] == null ? "" : String(names[i][0]).trim(),
+        dry: dry,
+        done: asBool_(st[3]),
+        laid: asBool_(st[2]),
+        outNext: asBool_(st[4]),
+        surplus: Number(st[0]) || 0
+      });
+    }
+    saveCuttingCompletion_({
+      day: day,
+      dateText: dateText,
+      elapsedMs: elapsed,
+      finishedAt: new Date().toISOString(),
+      items: summaryItems
+    });
+
+    if (missing.length) {
+      handleRegisterCuttingDeficit(ss, { day: day, items: missing, immediate: true }, "cb", true);
+    }
+
+    PropertiesService.getScriptProperties().setProperty("CUTTING_SESSION", JSON.stringify({
+      active: false, day: "", startedAt: 0
+    }));
+
+    var ok = {
+      status: "success",
+      ready: ready.length,
+      missing: missing.length,
+      completion: getCuttingCompletion_(dateText),
+      session: getCuttingSession_()
+    };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } finally {
+    try { lock.releaseLock(); } catch (eRel) {}
   }
-  handleStopCuttingSession({ day: day }, "cb", true);
-  var ok = { status: "success", ready: ready.length, missing: missing.length, session: getCuttingSession_() };
+}
+
+function handlePrepareFinishCutting(json, callback, fromPost) {
+  var ticket = json.ticket ? String(json.ticket).replace(/[^a-zA-Z0-9_:-]/g, "").slice(0, 64) : "";
+  if (!ticket) ticket = "f" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
+  try {
+    var raw = JSON.stringify(json);
+    if (raw.length > 95000) {
+      // ужимаем: без имён в snapshot
+      var lean = {
+        day: json.day,
+        ready: json.ready || [],
+        missing: json.missing || [],
+        elapsed: json.elapsed || 0,
+        items: (json.items || []).map(function (it) {
+          return {
+            row: it.row,
+            done: !!it.done,
+            laid: !!it.laid,
+            outNext: !!it.outNext,
+            surplus: Number(it.surplus) || 0
+          };
+        })
+      };
+      raw = JSON.stringify(lean);
+    }
+    CacheService.getScriptCache().put("finish_" + ticket, raw, 300);
+  } catch (e) {
+    var err = { status: "error", message: "cache_failed" };
+    return fromPost ? jsonpText(callback, err) : jsonp(callback, err);
+  }
+  var ok = { status: "success", ticket: ticket };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function getCuttingCompletionSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("Итоги_Нарезки");
+  if (!sh) {
+    sh = ss.insertSheet("Итоги_Нарезки");
+    sh.getRange(1, 1, 1, 3).setValues([["date", "day", "json"]]);
+  }
+  return sh;
+}
+
+function saveCuttingCompletion_(info) {
+  var sh = getCuttingCompletionSheet_();
+  var dateText = String(info.dateText || "");
+  var data = sh.getDataRange().getValues();
+  var payload = JSON.stringify(info);
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === dateText) {
+      sh.getRange(i + 1, 2, 1, 2).setValues([[info.day || "", payload]]);
+      return;
+    }
+  }
+  sh.appendRow([dateText, info.day || "", payload]);
+}
+
+function getCuttingCompletion_(dateText) {
+  try {
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Итоги_Нарезки");
+    if (!sh) return null;
+    var data = sh.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === String(dateText)) {
+        try {
+          return JSON.parse(String(data[i][2] || ""));
+        } catch (e) {
+          return null;
+        }
+      }
+    }
+  } catch (e2) {}
+  return null;
+}
+
+function handleSetupTelegramWebhook(callback, fromPost) {
+  var token = getTelegramToken_();
+  if (!token) {
+    var no = { status: "error", message: "no_token", description: "Нет TELEGRAM_BOT_TOKEN" };
+    return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
+  }
+  var url = "";
+  try { url = ScriptApp.getService().getUrl(); } catch (e) {}
+  if (!url) {
+    var noUrl = { status: "error", message: "no_webapp_url", description: "Сначала Deploy веб-приложения" };
+    return fromPost ? jsonpText(callback, noUrl) : jsonp(callback, noUrl);
+  }
+  var res = UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/setWebhook", {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({ url: url, allowed_updates: ["message", "callback_query"] }),
+    muteHttpExceptions: true
+  });
+  var body;
+  try { body = JSON.parse(res.getContentText()); } catch (e2) { body = { ok: false, description: String(e2) }; }
+  var out = { status: body.ok ? "success" : "error", webhook: url, raw: body };
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+}
+
+/** Один раз из редактора: выполнить setupTelegramWebhookManual() после Deploy */
+function setupTelegramWebhookManual() {
+  var r = handleSetupTelegramWebhook("cb", true);
+  Logger.log(r.getContent());
 }
 
 function listBotParticipants_() {
@@ -1960,7 +2179,10 @@ function tickCuttingDeficit_() {
 function handleDeficitCallback_(cq) {
   var data = String((cq && cq.data) || "");
   var m = data.match(/^defdone:(.+)$/);
-  if (!m) return;
+  if (!m) {
+    telegramAnswerCallback_(cq.id, "Неизвестная кнопка");
+    return;
+  }
   var id = m[1];
   var sh = getDeficitSheet_();
   var rows = sh.getDataRange().getValues();
@@ -1973,11 +2195,26 @@ function handleDeficitCallback_(cq) {
       if (rowNum >= 3) {
         try {
           handleUpdateCutting(SpreadsheetApp.getActiveSpreadsheet(), {
-            day: day, row: rowNum, done: true
+            day: day, row: rowNum, done: true, laid: true
           }, "cb", true);
         } catch (e) {}
       }
-      telegramAnswerCallback_(cq.id, "Отмечено: " + item);
+      telegramAnswerCallback_(cq.id, "Куплено и заготовлено: " + item);
+      try {
+        var token = getTelegramToken_();
+        if (token && cq.message && cq.message.chat) {
+          UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/editMessageText", {
+            method: "post",
+            contentType: "application/json",
+            payload: JSON.stringify({
+              chat_id: cq.message.chat.id,
+              message_id: cq.message.message_id,
+              text: "✅ Куплено и заготовлено\n" + day + " · " + item
+            }),
+            muteHttpExceptions: true
+          });
+        }
+      } catch (eEdit) {}
       try {
         if (cq.from) {
           upsertCourier_(cq.from.id, [cq.from.first_name, cq.from.last_name].filter(Boolean).join(" "), cq.from.username || "");

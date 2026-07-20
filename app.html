@@ -267,6 +267,30 @@
       display: flex; justify-content: space-between; padding: 0 8px 8px;
       font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px;
     }
+    .time-wheel-wrap.is-locked {
+      opacity: 0.62;
+      pointer-events: none;
+      filter: grayscale(0.15);
+    }
+    .cut-done-summary {
+      background: #1c1c1e; border: 1px solid var(--border-color); border-radius: 14px;
+      padding: 16px; margin-bottom: 12px;
+    }
+    .cut-done-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+    .cut-done-meta { font-size: 13px; color: var(--text-muted); line-height: 1.45; margin-bottom: 12px; }
+    .cut-done-meta b { color: #fff; font-weight: 600; }
+    .cut-done-details {
+      display: none; margin-top: 12px; padding-top: 12px;
+      border-top: 1px solid var(--border-color);
+    }
+    .cut-done-details.open { display: block; }
+    .cut-done-item {
+      display: flex; justify-content: space-between; gap: 10px;
+      padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-size: 13px;
+    }
+    .cut-done-item:last-child { border-bottom: none; }
+    .cut-done-item .muted { color: var(--text-muted); font-size: 12px; }
     .time-wheel-label span { flex: 1; text-align: center; }
     .time-wheel-label span:nth-child(2) { flex: 0 0 18px; }
     .depot-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
@@ -438,7 +462,7 @@
 </head>
 <body>
   <div class="app">
-    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.0</div>
+    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.1</div>
 
     <div class="nav-tabs">
       <button class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
@@ -618,7 +642,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.0";
+    const APP_VERSION = "v7.1";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -662,6 +686,7 @@
     let addressSuggestTimer = null;
     let addressSuggestSeq = 0;
     let cuttingItemsCache = [];
+    let cuttingCompletionCache = null;
     let cuttingSession = {
       active: false,
       startedAt: 0,
@@ -681,6 +706,7 @@
       matrix: null,
       depot: null
     };
+    let departTimeLocked = false;
 
     // Пока всем 4 вкладки. Позже: "manager" | "cutter" | "courier" | "all"
     const APP_ROLE = "all";
@@ -1458,6 +1484,7 @@
         summary.innerHTML = "";
         if (sessionBox) sessionBox.innerHTML = "";
         cuttingItemsCache = [];
+        cuttingCompletionCache = null;
         applyRemoteCuttingSession({ active: false, day: "", startedAt: 0 });
         if (finishBtn) finishBtn.style.display = "none";
         stopCuttingPoll();
@@ -1466,6 +1493,16 @@
       if (!fromPoll) box.innerHTML = '<p class="muted">Считаю нарезку...</p>';
       try {
         const res = await apiGet({ action: "getCutting", day: day });
+        if (res && res.completion) {
+          cuttingCompletionCache = res.completion;
+          cuttingItemsCache = (res.items || []).slice();
+          applyRemoteCuttingSession({ active: false, day: "", startedAt: 0 });
+          if (finishBtn) finishBtn.style.display = "none";
+          renderFinishedCuttingDay(res.completion);
+          stopCuttingPoll();
+          return;
+        }
+        cuttingCompletionCache = null;
         if (res.status !== "success" || !res.items || !res.items.length) {
           if (!fromPoll) {
             box.innerHTML = '<p class="muted">На этот день резать нечего</p>';
@@ -1508,6 +1545,44 @@
           if (finishBtn) finishBtn.style.display = "none";
         }
       }
+    }
+
+    function renderFinishedCuttingDay(completion) {
+      const box = document.getElementById("cuttingContainer");
+      const summary = document.getElementById("cuttingSummary");
+      const sessionBox = document.getElementById("cuttingSessionBox");
+      const finishBtn = document.getElementById("btnFinishCutting");
+      if (finishBtn) finishBtn.style.display = "none";
+      if (sessionBox) sessionBox.innerHTML = "";
+      const items = (completion && completion.items) || cuttingItemsCache || [];
+      const doneCount = items.filter(function (it) { return it.done || it.laid; }).length;
+      const total = items.length;
+      const elapsed = formatCutElapsed(Number(completion && completion.elapsedMs) || 0);
+      if (summary) {
+        summary.innerHTML =
+          '<div class="cut-done-summary">' +
+            '<div class="cut-done-title">Нарезка завершена</div>' +
+            '<div class="cut-done-meta">Нарезано: <b>' + doneCount + '</b> из <b>' + total + '</b><br>Время: <b>' + escapeHtml(elapsed) + '</b></div>' +
+            '<button type="button" class="btn-action btn-blue" id="btnCutDoneDetails" onclick="toggleFinishedCuttingDetails()">Подробнее</button>' +
+            '<div class="cut-done-details" id="cutDoneDetails">' +
+              items.map(function (it) {
+                const dry = it.unit === "шт" ? ((it.dry || 0) + " шт") : ((it.dry || 0) + " гр");
+                const mark = (it.done && it.laid) ? "✓" : (it.done || it.laid ? "·" : "—");
+                return '<div class="cut-done-item"><span>' + escapeHtml(it.name || "") +
+                  '<div class="muted">' + escapeHtml(dry) + "</div></span><span>" + mark + "</span></div>";
+              }).join("") +
+            "</div>" +
+          "</div>";
+      }
+      if (box) box.innerHTML = '<p class="muted">День уже закрыт — сверху сводка. Можно открыть подробнее.</p>';
+    }
+
+    function toggleFinishedCuttingDetails() {
+      const el = document.getElementById("cutDoneDetails");
+      const btn = document.getElementById("btnCutDoneDetails");
+      if (!el) return;
+      const open = el.classList.toggle("open");
+      if (btn) btn.textContent = open ? "Скрыть" : "Подробнее";
     }
 
     function cuttingFlagScore(items) {
@@ -1839,6 +1914,63 @@
       recoverUiFocus();
     }
 
+    async function commitFinishCutting(day, ready, missing, elapsed) {
+      (ready || []).forEach(function (r) {
+        const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(r.row); });
+        if (cached) { cached.done = true; cached.laid = true; }
+      });
+      const items = (cuttingItemsCache || []).map(function (it) {
+        return {
+          row: it.row,
+          name: it.name,
+          done: !!it.done,
+          laid: !!it.laid,
+          outNext: !!it.outNext,
+          surplus: Number(it.surplus) || 0
+        };
+      });
+      const ticket = "f" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
+      try {
+        await apiPost({
+          action: "prepareFinishCutting",
+          ticket: ticket,
+          day: day,
+          ready: ready || [],
+          missing: missing || [],
+          items: items,
+          elapsed: elapsed || 0
+        });
+      } catch (ePrep) {}
+      await new Promise(function (r) { setTimeout(r, 450); });
+      let res = null;
+      try {
+        res = await apiGet({ action: "finishCutting", ticket: ticket, day: day, elapsed: elapsed || 0 });
+      } catch (e1) {}
+      if (!res || res.status !== "success") {
+        await new Promise(function (r) { setTimeout(r, 700); });
+        try {
+          res = await apiGet({ action: "finishCutting", ticket: ticket, day: day, elapsed: elapsed || 0 });
+        } catch (e2) {}
+      }
+      // запасной путь: галочки по одной + стоп сессии
+      if (!res || res.status !== "success") {
+        for (let i = 0; i < (ready || []).length; i++) {
+          const row = ready[i].row;
+          try {
+            await apiGet({ action: "updateCutting", day: day, row: row, done: true, laid: true });
+          } catch (eUp) {}
+        }
+        if ((missing || []).length) {
+          try {
+            await apiPost({ action: "registerCuttingDeficit", day: day, items: missing, immediate: true });
+          } catch (eDef) {}
+        }
+        try { await apiGet({ action: "stopCuttingSession", day: day }); } catch (eStop) {}
+        res = { status: "partial" };
+      }
+      return res;
+    }
+
     async function finishCutting() {
       const day = document.getElementById("cuttingDaySelect").value;
       if (!day) { await uiAlertAsync("Выберите день"); return; }
@@ -1847,46 +1979,38 @@
         return;
       }
       const pending = (cuttingItemsCache || []).filter(function (x) { return !x.done; });
-      if (!pending.length) {
-        const ok = await uiConfirmAsync("Все позиции уже отмечены. Завершить нарезку?");
-        if (!ok) return;
-        const elapsed = stopCuttingTimer(true);
-        try { await apiGet({ action: "stopCuttingSession", day: day }); } catch (e) {}
-        celebrateSuccess("finish", { elapsedLabel: formatCutElapsed(elapsed) });
-        showToast("Нарезка завершена");
-        renderCuttingSessionBox();
-        const finishBtn = document.getElementById("btnFinishCutting");
-        if (finishBtn) finishBtn.style.display = "none";
-        cuttingSession.fingerprint = "";
-        return;
-      }
       const ready = [];
       const missing = [];
-      for (let i = 0; i < pending.length; i++) {
-        const it = pending[i];
-        const ans = await uiChoiceAsync(
-          "Позиция: " + it.name,
-          "Есть в наличии и заготовлена?",
-          [
-            { label: "Да, заготовлена", value: "ready", cls: "btn-green" },
-            { label: "Нет в наличии", value: "missing", cls: "btn-orange" }
-          ]
-        );
-        if (ans == null) {
-          showToast("Отменено");
-          return;
+      if (pending.length) {
+        for (let i = 0; i < pending.length; i++) {
+          const it = pending[i];
+          const ans = await uiChoiceAsync(
+            "Позиция: " + it.name,
+            "Есть в наличии и заготовлена?",
+            [
+              { label: "Да, заготовлена", value: "ready", cls: "btn-green" },
+              { label: "Нет в наличии", value: "missing", cls: "btn-orange" }
+            ]
+          );
+          if (ans == null) {
+            showToast("Отменено");
+            return;
+          }
+          if (ans === "ready") ready.push({ row: it.row, name: it.name });
+          else missing.push({ row: it.row, name: it.name });
         }
-        if (ans === "ready") ready.push({ row: it.row, name: it.name });
-        else missing.push({ row: it.row, name: it.name });
+      } else {
+        const ok = await uiConfirmAsync("Все позиции уже отмечены. Завершить нарезку?");
+        if (!ok) return;
       }
       const btn = document.getElementById("btnFinishCutting");
       if (btn) { btn.disabled = true; btn.innerText = "Завершаю…"; }
       try {
         const elapsed = cuttingSession.active && cuttingSession.startedAt
           ? (Date.now() - cuttingSession.startedAt) : 0;
-        await apiPost({ action: "finishCutting", day: day, ready: ready, missing: missing });
-        await new Promise(function (r) { setTimeout(r, 500); });
+        const res = await commitFinishCutting(day, ready, missing, elapsed);
         stopCuttingTimer(true);
+        if (res && res.completion) cuttingCompletionCache = res.completion;
         celebrateSuccess("finish", { elapsedLabel: formatCutElapsed(elapsed) });
         if (missing.length) {
           showToast("Дефицит: пуш сейчас + с утра каждые 30 мин");
@@ -1907,6 +2031,7 @@
     async function loadCourier() {
       const day = document.getElementById("courierDaySelect").value;
       const box = document.getElementById("courierContainer");
+      setDepartTimeLocked(false);
       if (!day) {
         box.innerHTML = '<p class="muted">Выберите день...</p>';
         courierClientsCache = [];
@@ -2476,10 +2601,26 @@
 
     function updateDepartHint() {
       const hint = document.getElementById("departTimeHint");
-      if (hint) hint.textContent = "Выбрано " + pad2(departHour) + ":" + pad2(departMinute) + " · листайте как будильник";
+      if (!hint) return;
+      if (departTimeLocked) {
+        hint.textContent = "Зафиксировано " + pad2(departHour) + ":" + pad2(departMinute) + " · после сборки маршрута";
+      } else {
+        hint.textContent = "Выбрано " + pad2(departHour) + ":" + pad2(departMinute) + " · листайте как будильник";
+      }
+    }
+
+    function setDepartTimeLocked(locked) {
+      departTimeLocked = !!locked;
+      const wrap = document.getElementById("departTimeWheel");
+      if (wrap) wrap.classList.toggle("is-locked", departTimeLocked);
+      updateDepartHint();
     }
 
     function saveDepartTime() {
+      if (departTimeLocked) {
+        updateDepartHint();
+        return;
+      }
       try {
         localStorage.setItem(DEPART_LS_KEY, pad2(departHour) + ":" + pad2(departMinute));
       } catch (e) {}
@@ -2506,10 +2647,16 @@
       if (!col) return;
       let settleTimer = null;
       col.addEventListener("scroll", function () {
+        if (departTimeLocked) {
+          col.scrollTop = getVal() * TIME_ITEM_H;
+          highlightWheel(col, getVal());
+          return;
+        }
         const approx = Math.round(col.scrollTop / TIME_ITEM_H);
         highlightWheel(col, Math.max(0, Math.min(maxVal, approx)));
         if (settleTimer) clearTimeout(settleTimer);
         settleTimer = setTimeout(function () {
+          if (departTimeLocked) return;
           snapWheelColumn(col, maxVal, function (v) {
             setVal(v);
             saveDepartTime();
@@ -2935,6 +3082,7 @@
       await refreshDriveMatrix(routePlanState.depot, stops);
       autoSplitStops(stops);
       renderRoutePlan();
+      setDepartTimeLocked(true);
       celebrateSuccess("route");
       const t0 = estimateRouteMinutes(routePlanState.depot, routePlanState.routes[0]);
       const t1 = estimateRouteMinutes(routePlanState.depot, routePlanState.routes[1]);
