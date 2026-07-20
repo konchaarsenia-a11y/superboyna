@@ -628,6 +628,7 @@ function handleGetCutting(dayName, callback) {
   var plans = cutting.getRange("D3:D48").getValues();
   var activeState = isActiveDate ? cutting.getRange("C3:G48").getValues() : null;
   var savedState = isActiveDate ? null : getMemoryJson_(memory, dateText, tz);
+  var rowNotes = collectCuttingRowNotes_(ss, dayName);
   var items = [];
 
   for (var i = 0; i < 46; i++) {
@@ -654,6 +655,7 @@ function handleGetCutting(dayName, callback) {
       if (!coef) coef = 0.2;
       raw = (dry / 1000) / coef;
     }
+    var noteInfo = rowNotes[String(row)] || null;
     items.push({
       row: row,
       name: name,
@@ -663,7 +665,8 @@ function handleGetCutting(dayName, callback) {
       surplus: surplus,
       done: done,
       laid: laid,
-      outNext: outNext
+      outNext: outNext,
+      noteInfo: noteInfo
     });
   }
   return jsonp(callback, {
@@ -1771,6 +1774,86 @@ function collectDayRoleNotes_(ss, dayName, role) {
     var text = cleanNoteText_(raw);
     if (!text) continue;
     out.push({ client: clients[i].name || "", text: text });
+  }
+  return out;
+}
+
+/** monday-row (4..59) → cutting row (3..48) */
+function getProductRowToCuttingRowMap_() {
+  var itemMap = getCuttingItemMap_();
+  var rev = {};
+  for (var cRow in itemMap) {
+    if (!itemMap.hasOwnProperty(cRow)) continue;
+    var rows = itemMap[cRow];
+    for (var i = 0; i < rows.length; i++) rev[rows[i]] = Number(cRow);
+  }
+  return rev;
+}
+
+/**
+ * Для каждой позиции нарезки: сколько объёма от клиентов с примечанием нарезчику.
+ * Пример: всего 10 шт, у клиента 3 + «толстые» → noted=3, groups=[{text, qty, clients}].
+ */
+function collectCuttingRowNotes_(ss, dayName) {
+  var block = getDayBlock(dayName);
+  if (!block) return {};
+  var sheet = getTargetSheet(ss, block);
+  if (!sheet) return {};
+  var nickRow = block.nick;
+  var startRow = block.start;
+  var endRow = block.end;
+  var noteRow = block.note;
+  var totalCols = sheet.getLastColumn();
+  var cols = totalCols >= 3 ? Math.min(totalCols - 2, 15) : 1;
+  if (sheet.getLastRow() < noteRow) return {};
+
+  var nicks = sheet.getRange(nickRow, 3, 1, cols).getValues()[0];
+  var notes = sheet.getRange(noteRow, 3, 1, cols).getValues()[0];
+  var orders = sheet.getRange(startRow, 3, endRow - startRow + 1, cols).getValues();
+  var rev = getProductRowToCuttingRowMap_();
+  var byRow = {};
+
+  for (var col = 0; col < cols; col++) {
+    var nick = nicks[col] != null ? String(nicks[col]).trim() : "";
+    if (!nick || nick.length <= 1) continue;
+    var upper = nick.toUpperCase();
+    if (upper === "ИТОГО НА ДЕНЬ" || upper === "ИТОГО" || upper === "ФАКТ СНЯТОЕ") continue;
+    var rawNote = notes[col] != null ? String(notes[col]).trim() : "";
+    if (!noteVisibleForRole_(rawNote, "cut")) continue;
+    var text = cleanNoteText_(rawNote);
+    if (!text) continue;
+
+    for (var rIdx = 0; rIdx < orders.length; rIdx++) {
+      var val = Number(orders[rIdx][col]) || 0;
+      if (val <= 0) continue;
+      var mondayRow = 4 + rIdx;
+      var cutRow = rev[mondayRow];
+      if (!cutRow) continue;
+      var key = String(cutRow);
+      if (!byRow[key]) byRow[key] = [];
+      byRow[key].push({ client: nick, text: text, qty: val });
+    }
+  }
+
+  var out = {};
+  for (var cr in byRow) {
+    if (!byRow.hasOwnProperty(cr)) continue;
+    var list = byRow[cr];
+    var groupsMap = {};
+    var noted = 0;
+    for (var i = 0; i < list.length; i++) {
+      var n = list[i];
+      noted += n.qty;
+      var gk = n.text;
+      if (!groupsMap[gk]) groupsMap[gk] = { text: n.text, qty: 0, clients: [] };
+      groupsMap[gk].qty += n.qty;
+      if (groupsMap[gk].clients.indexOf(n.client) < 0) groupsMap[gk].clients.push(n.client);
+    }
+    var groups = [];
+    for (var g in groupsMap) {
+      if (groupsMap.hasOwnProperty(g)) groups.push(groupsMap[g]);
+    }
+    out[cr] = { noted: noted, groups: groups };
   }
   return out;
 }

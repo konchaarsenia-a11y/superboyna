@@ -383,6 +383,41 @@
     .cut-row.done { opacity: 0.85; }
     #cuttingContainer { display: flex; flex-direction: column; gap: 10px; }
     .cut-row { order: unset; }
+    .cut-note-hint {
+      margin-top: 8px; padding: 8px 10px; border-radius: 10px;
+      background: rgba(255,159,10,0.12); border: 1px solid rgba(255,159,10,0.35);
+      font-size: 12.5px; line-height: 1.4; color: #ffd60a;
+    }
+    .cut-note-hint b { color: #fff; font-weight: 700; }
+    .cut-note-hint .muted { color: rgba(255,255,255,0.55); font-size: 11.5px; }
+    .load-dance {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 28px 12px 36px; min-height: 220px; text-align: center;
+    }
+    .load-dance-stage {
+      width: min(58vw, 230px); height: min(58vw, 230px);
+      border-radius: 50%;
+      background: radial-gradient(circle at 50% 40%, rgba(255,140,200,0.35), rgba(0,0,0,0) 70%);
+      display: flex; align-items: flex-end; justify-content: center;
+      overflow: hidden; margin-bottom: 10px;
+    }
+    .load-dance-img {
+      width: 92%; height: auto; object-fit: contain; object-position: center bottom;
+      transform-origin: 50% 90%;
+      animation: loadDance 0.7s ease-in-out infinite alternate;
+      filter: drop-shadow(0 10px 18px rgba(255,100,170,0.4));
+      /* белый фон картинки на тёмном экране — светлое пятно, маска смягчает края */
+      -webkit-mask-image: radial-gradient(ellipse 70% 85% at 50% 55%, #000 55%, transparent 100%);
+      mask-image: radial-gradient(ellipse 70% 85% at 50% 55%, #000 55%, transparent 100%);
+    }
+    .load-dance-label {
+      font-size: 14px; font-weight: 600; color: #ff9f0a; letter-spacing: 0.2px;
+    }
+    .load-dance-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+    @keyframes loadDance {
+      0% { transform: translateY(4px) rotate(-7deg) scale(0.98); }
+      100% { transform: translateY(-10px) rotate(7deg) scale(1.05); }
+    }
     .fx-tyan-banner {
       position: absolute; top: 14%; left: 50%; transform: translateX(-50%);
       font-size: clamp(22px, 7vw, 34px); font-weight: 800; color: #fff;
@@ -485,7 +520,7 @@
 </head>
 <body>
   <div class="app">
-    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.4.4</div>
+    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.4.5</div>
 
     <div class="nav-tabs" id="navTabs">
       <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
@@ -671,7 +706,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.4.4";
+    const APP_VERSION = "v7.4.5";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1394,6 +1429,37 @@
       }
     }
 
+    function loadingDanceHtml(label) {
+      return '<div class="load-dance" aria-busy="true">' +
+        '<div class="load-dance-stage"><img class="load-dance-img" src="assets/loading-dance.png" alt="" draggable="false"></div>' +
+        '<div class="load-dance-label">' + escapeHtml(label || "Загружаю…") + "</div>" +
+        '<div class="load-dance-sub">танцует, пока считаем день</div></div>';
+    }
+
+    function renderCutNoteHint(item) {
+      const info = item && item.noteInfo;
+      if (!info || !info.noted || !info.groups || !info.groups.length) return "";
+      const unit = item.unit === "шт" ? "шт" : "гр";
+      const total = Number(item.dry) || 0;
+      const noted = Math.min(Number(info.noted) || 0, total);
+      const plain = Math.max(0, total - noted);
+      let html = '<div class="cut-note-hint">';
+      if (plain > 0 && noted > 0) {
+        html += "Обычных: <b>" + plain + " " + unit + "</b> · с примечанием: <b>" + noted + " " + unit + "</b>";
+      } else if (noted > 0) {
+        html += "Все с примечанием: <b>" + noted + " " + unit + "</b>";
+      }
+      html += info.groups.map(function (g) {
+        const who = (g.clients || []).slice(0, 3).join(", ") + ((g.clients || []).length > 3 ? "…" : "");
+        return '<div class="muted" style="margin-top:4px;">' +
+          escapeHtml(String(g.qty)) + " " + unit + " — «" + escapeHtml(g.text || "") + "»" +
+          (who ? (" · " + escapeHtml(who)) : "") +
+          "</div>";
+      }).join("");
+      html += "</div>";
+      return html;
+    }
+
     async function loadClientsForDay() {
       const day = document.getElementById("viewDaySelect").value;
       const box = document.getElementById("clientsContainer");
@@ -1403,7 +1469,8 @@
         summary.innerHTML = "";
         return;
       }
-      box.innerHTML = '<p class="muted">Загружаю...</p>';
+      summary.innerHTML = "";
+      box.innerHTML = loadingDanceHtml("Загружаю клиентов…");
       try {
         const res = await apiGet({ action: "getClients", day: day });
         if (res.status !== "success" || !res.clients || !res.clients.length) {
@@ -1604,7 +1671,15 @@
         stopCuttingPoll();
         return;
       }
-      if (!fromPoll) box.innerHTML = '<p class="muted">Считаю нарезку...</p>';
+      if (!fromPoll) {
+        cuttingItemsCache = [];
+        cuttingCompletionCache = null;
+        cuttingSession.fingerprint = "";
+        if (summary) summary.innerHTML = "";
+        if (sessionBox) sessionBox.innerHTML = "";
+        if (finishBtn) finishBtn.style.display = "none";
+        box.innerHTML = loadingDanceHtml("Считаю нарезку…");
+      }
       try {
         const res = await apiGet({ action: "getCutting", day: day });
         let completion = (res && res.completion) || null;
@@ -1653,8 +1728,7 @@
         sortCuttingItems();
         renderCuttingSummary();
         renderCuttingSessionBox();
-        const notesHtml = renderCutterNotesHtml(res.cutterNotes || []);
-        box.innerHTML = notesHtml + cuttingItemsCache.map(renderCutRowHtml).join("");
+        box.innerHTML = cuttingItemsCache.map(renderCutRowHtml).join("");
         if (finishBtn) finishBtn.style.display = cuttingSession.active ? "block" : "none";
         startCuttingPoll();
       } catch (err) {
@@ -1926,6 +2000,7 @@
         <button type="button" class="cut-bang${item.outNext ? " active" : ""}" title="Нет на следующую нарезку" onclick="toggleCutOutNext(${item.row})">!</button>
         <div class="cut-title">${escapeHtml(item.name)}</div>
         <div class="cut-meta">Нужно: <b>${dryLabel}</b><br>Сырьё: <b>${rawLabel}</b></div>
+        ${renderCutNoteHint(item)}
         <div class="cut-actions">
           <label class="check-line"><input type="checkbox" ${item.laid ? "checked" : ""} onchange="toggleCutLaid(${item.row}, this.checked)"> Выложено</label>
           <label class="check-line"><input type="checkbox" ${item.done ? "checked" : ""} onchange="toggleCutDone(${item.row}, this.checked)"> Нарезано</label>
@@ -2188,7 +2263,11 @@
         routePlanState.routes = [[], []];
         return;
       }
-      box.innerHTML = '<p class="muted">Загружаю маршрут...</p>';
+      courierClientsCache = [];
+      refreshCourierSummary();
+      document.getElementById("routePlanBox").innerHTML = "";
+      routePlanState.routes = [[], []];
+      box.innerHTML = loadingDanceHtml("Собираю маршрут…");
       try {
         const res = await apiGet({ action: "getCourier", day: day });
         if (res.status !== "success" || !res.clients || !res.clients.length) {
