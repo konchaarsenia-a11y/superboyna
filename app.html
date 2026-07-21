@@ -572,7 +572,22 @@
       align-items:center; justify-content:center; flex-direction:column;
     }
     .save-load-overlay.open { display:flex; }
-  </style>
+  
+    .bug-fab {
+      position: fixed; right: 14px; bottom: 18px; z-index: 1200;
+      width: 44px; height: 44px; border-radius: 50%;
+      border: 1px solid rgba(255,69,58,0.55); background: #2a1212; color: #ff453a;
+      font-size: 20px; font-weight: 800; cursor: pointer;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+    }
+    .week-banner {
+      margin: 10px 0 12px; padding: 14px; border-radius: 12px;
+      border: 1px solid rgba(255,159,10,0.45); background: rgba(255,159,10,0.12);
+    }
+    .week-banner h3 { margin: 0 0 8px; font-size: 16px; color: #ff9f0a; }
+    .week-banner .muted { font-size: 12px; margin-bottom: 10px; }
+    .subs-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+</style>
 </head>
 <body>
   <div class="access-gate" id="accessGate">
@@ -589,23 +604,37 @@
     </div>
   </div>
   <div class="app">
-    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.7.0</div>
+    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.8.0</div>
 
     <div class="nav-tabs" id="navTabs">
       <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
       <button type="button" class="tab-link" data-screen="cuttingScreen" onclick="switchTab('cuttingScreen')">Нарезка</button>
       <button type="button" class="tab-link" data-screen="courierScreen" onclick="switchTab('courierScreen')">Курьер</button>
       <button type="button" class="tab-link" data-screen="warehouseScreen" onclick="switchTab('warehouseScreen')">Склад</button>
-      <button type="button" class="tab-link" data-screen="subsScreen" onclick="switchTab('subsScreen')">Подписки</button>
     </div>
     <div class="order-flyout" id="orderFlyout">
-      <button type="button" class="order-flyout-btn" data-fly="clientsScreen">Просмотр</button>
-      <button type="button" class="order-flyout-btn" data-fly="priceScreen">Цена</button>
-      <button type="button" class="order-flyout-btn" data-fly="peopleScreen">Люди</button>
+      <button type="button" class="order-flyout-btn" data-fly="clientsScreen" data-fly-roles="manager,owner,all">Просмотр</button>
+      <button type="button" class="order-flyout-btn" data-fly="priceScreen" data-fly-roles="manager,owner,all">Цена</button>
+      <button type="button" class="order-flyout-btn" data-fly="subsScreen" data-fly-roles="owner,all">Подписки</button>
+      <button type="button" class="order-flyout-btn" data-fly="statsScreen" data-fly-roles="owner,all">Статистика</button>
+      <button type="button" class="order-flyout-btn" data-fly="peopleScreen" data-fly-roles="owner,all">Люди</button>
     </div>
+    <button type="button" class="bug-fab" id="bugFab" onclick="openBugReport()" title="Работает некорректно">!</button>
 
     <!-- МЕНЕДЖЕР: ПРИЁМ -->
     <div id="orderScreen" class="screen active">
+      <div id="finishWeekBanner" class="week-banner" style="display:none;">
+        <h3>Завершить неделю?</h3>
+        <div class="muted">Показывается вс вечером (или пн утром, если отказались). Логика закрытия — отдельно; сейчас только кнопка.</div>
+        <button type="button" class="btn-action btn-orange" onclick="onFinishWeekClick()">Завершить неделю</button>
+        <button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="refuseFinishWeek()">Позже</button>
+      </div>
+      <div id="pullWeekBanner" class="week-banner" style="display:none;">
+        <h3>Подтянуть из месяца</h3>
+        <div class="muted" id="pullWeekHint">Люди + контакты из месяцев. Состав — только из Заказа/брони (не из ПП/АФК/БП).</div>
+        <div id="pullWeekPreview" class="muted" style="margin-bottom:8px;"></div>
+        <button type="button" class="btn-action btn-blue" onclick="confirmPullWeekFromHome()">Подтянуть Пн–Пт</button>
+      </div>
       <div class="card">
         <input type="hidden" id="isEditMode" value="false">
         <div class="form-group">
@@ -725,10 +754,9 @@
         </div>
         <button type="button" class="btn-action btn-orange" onclick="loadClientsForDay()">Показать</button>
         <div class="batch-bar-row" style="margin-top:10px;">
-          <button type="button" class="btn-action btn-blue" style="flex:1;margin:0;padding:10px;" onclick="pullWeekFromMonth()">Подтянуть неделю из месяца</button>
           <button type="button" class="btn-action btn-purple" style="flex:1;margin:0;padding:10px;" onclick="topUpDayFromMonth()">Доукомплектовать день</button>
         </div>
-        <div class="field-hint" style="margin-top:8px;">Из листов месяцев (Июль…) + составы ПП/АФК/БП. Уже стоящих в неделе не затирает — только дописывает новых.</div>
+        <div class="field-hint" style="margin-top:8px;">Дописывает людей из месяца на выбранный день (без состава из ПП/АФК/БП). Полную неделю — с главной после закрытия.</div>
       </div>
       <div id="totalDaySummaryContainer"></div>
       <div class="section-title">Клиенты</div>
@@ -840,13 +868,31 @@
     <!-- ПОДПИСКИ -->
     <div id="subsScreen" class="screen">
       <div class="card">
-        <button class="btn-action btn-blue" type="button" onclick="loadSubscriptions()">Загрузить из CRM</button>
+        <div class="subs-tabs" id="subsTabs">
+          <button type="button" class="seg-btn active" data-seg="ПП" onclick="setSubsSegment('ПП')">ПП</button>
+          <button type="button" class="seg-btn" data-seg="АФК" onclick="setSubsSegment('АФК')">АФК</button>
+          <button type="button" class="seg-btn" data-seg="БП" onclick="setSubsSegment('БП')">БП</button>
+          <button type="button" class="seg-btn" data-seg="Опросник" onclick="setSubsSegment('Опросник')">Опросник</button>
+        </div>
+        <button class="btn-action btn-blue" type="button" onclick="loadSubscriptions()">Обновить</button>
         <div class="form-group" style="margin-top:12px;">
-          <label>Дата выгрузки</label>
+          <label>Дата выгрузки состава в брони (вручную)</label>
           <input type="date" id="subPushDate">
+          <div class="field-hint">Состав из ПП/БП — только по этой кнопке «В заказ», не при подтягивании недели.</div>
         </div>
       </div>
       <div id="subsContainer"><p class="muted">Загрузите список…</p></div>
+    </div>
+
+    <!-- СТАТИСТИКА -->
+    <div id="statsScreen" class="screen">
+      <div class="card">
+        <div class="section-title" style="margin-top:0;">Статистика (owner)</div>
+        <div class="field-hint">Календарный месяц, воронка БП, CAC, аудит, экспорт — каркас v7.8.</div>
+        <button class="btn-action btn-blue" type="button" onclick="loadStats()">Обновить</button>
+        <button class="btn-action btn-orange" type="button" style="margin-top:8px;" onclick="exportStatsMonth()">Экспорт месяца (бухгалтер)</button>
+      </div>
+      <div id="statsContainer"><p class="muted">—</p></div>
     </div>
 
     <!-- ЦЕНА -->
@@ -892,7 +938,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.7.0";
+    const APP_VERSION = "v7.8.0";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -967,9 +1013,9 @@
     let myTelegramId = "";
     let myAccessName = "";
     const ROLE_TABS = {
-      all: ["orderScreen", "clientsScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "subsScreen", "priceScreen"],
-      owner: ["orderScreen", "clientsScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "subsScreen", "priceScreen", "peopleScreen"],
-      manager: ["orderScreen", "clientsScreen", "subsScreen", "priceScreen"],
+      all: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "subsScreen", "statsScreen", "peopleScreen"],
+      owner: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "subsScreen", "statsScreen", "peopleScreen"],
+      manager: ["orderScreen", "clientsScreen", "priceScreen"],
       cutter: ["cuttingScreen"],
       courier: ["courierScreen"],
       logistics: ["warehouseScreen"],
@@ -977,12 +1023,13 @@
       pending: [],
       denied: []
     };
+    const MAIN_TABS = ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen"];
     /* priceMode set above */
     let courierSub = "route";
     let weekTabUnlocked = false;
     let packTypesEnabled = { light: true, bulk: true, chew: true, craft: true, other: true };
     let assemblyCache = null;
-    const FLYOUT_SCREENS = ["clientsScreen", "priceScreen", "peopleScreen"];
+    const FLYOUT_SCREENS = ["clientsScreen", "priceScreen", "subsScreen", "statsScreen", "peopleScreen"];
 
     let tg = null;
     try {
@@ -1323,22 +1370,28 @@
       const allowed = ROLE_TABS[APP_ROLE] || ROLE_TABS.all;
       document.querySelectorAll(".tab-link").forEach(btn => {
         const screen = btn.dataset.screen;
-        // Просмотр / Цена / Люди — только через long-press у Заказа
         if (FLYOUT_SCREENS.indexOf(screen) >= 0) {
           btn.style.display = "none";
           return;
         }
-        const ok = allowed.indexOf(screen) >= 0;
+        // manager: только Заказ на главной ленте
+        if (APP_ROLE === "manager" && screen !== "orderScreen") {
+          btn.style.display = "none";
+          return;
+        }
+        const ok = allowed.indexOf(screen) >= 0 && MAIN_TABS.indexOf(screen) >= 0;
         btn.style.display = ok ? "" : "none";
       });
-      // кнопки flyout по роли
       document.querySelectorAll("#orderFlyout .order-flyout-btn").forEach(function (b) {
         const scr = b.getAttribute("data-fly");
-        const ok = allowed.indexOf(scr) >= 0 || (APP_ROLE === "all" || APP_ROLE === "owner");
-        b.style.display = ok ? "" : "none";
+        const roles = String(b.getAttribute("data-fly-roles") || "owner,all").split(",");
+        const roleOk = roles.indexOf(APP_ROLE) >= 0 || APP_ROLE === "all";
+        const allowedOk = allowed.indexOf(scr) >= 0;
+        b.style.display = (roleOk && allowedOk) ? "" : "none";
       });
-      const first = allowed.filter(function (s) { return FLYOUT_SCREENS.indexOf(s) < 0; })[0];
+      const first = allowed.filter(function (s) { return MAIN_TABS.indexOf(s) >= 0; })[0] || "orderScreen";
       if (first) switchTab(first);
+      try { refreshWeekBanners(); } catch (e) {}
     }
 
     function toggleOrderFlyout(force) {
@@ -1619,6 +1672,8 @@
       try {
         if (screenId === "warehouseScreen") loadWarehouse();
         if (screenId === "subsScreen") loadSubscriptions();
+        if (screenId === "statsScreen") loadStats();
+        if (screenId === "orderScreen") try { refreshWeekBanners(); } catch (eO) {}
         if (screenId === "peopleScreen") loadPeople();
         if (screenId === "courierScreen") {
           // короткий тап = маршрут; сборку открывает long-press → setCourierSub после switchTab
@@ -1942,6 +1997,7 @@
         basket = [];
         renderBasket();
         document.getElementById("appHeaderTitle").innerText = "Бойня-Конвейер " + APP_VERSION;
+        try { logLearnEvent("saveOrder", { client: clientName, day: day, items: basket.length }); } catch (eL) {}
         await refreshDayViews(day);
       } catch (err) {
         await uiAlertAsync("Ошибка: " + (err.message || err));
@@ -4963,28 +5019,193 @@
       }
     }
 
-    const WEEK_PULL_LS = "superboyna_week_pull_";
 
-    async function maybeAskWeekPullFromMonth() {
-      if (!(APP_ROLE === "manager" || APP_ROLE === "owner" || APP_ROLE === "all")) return;
+    
+
+
+    /* === v7.8 D/E/F/I helpers === */
+    const WEEK_PULL_LS = "superboyna_week_pull_";
+    const FINISH_REFUSE_LS = "superboyna_finish_refuse_";
+    const FINISH_DONE_LS = "superboyna_finish_done_";
+    let subsSegment = "ПП";
+
+    function currentWeekKeyLocal() {
+      var d = new Date();
+      var day = d.getDay();
+      var diff = (day === 0 ? -6 : 1 - day);
+      var mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() + diff);
+      function pad(n) { return n < 10 ? "0" + n : "" + n; }
+      return mon.getFullYear() + "-" + pad(mon.getMonth() + 1) + "-" + pad(mon.getDate());
+    }
+
+    function isSundayEvening() {
+      var d = new Date();
+      return d.getDay() === 0 && d.getHours() >= 18;
+    }
+    function isMondayMorning() {
+      var d = new Date();
+      return d.getDay() === 1 && d.getHours() < 12;
+    }
+
+    function refreshWeekBanners() {
+      var fin = document.getElementById("finishWeekBanner");
+      var pull = document.getElementById("pullWeekBanner");
+      if (!fin || !pull) return;
+      var wk = currentWeekKeyLocal();
+      var canFinish = false;
+      if (APP_ROLE === "owner" || APP_ROLE === "all") {
+        if (isSundayEvening() && !localStorage.getItem(FINISH_DONE_LS + wk)) canFinish = true;
+        if (isMondayMorning() && localStorage.getItem(FINISH_REFUSE_LS + wk) === "1" && !localStorage.getItem(FINISH_DONE_LS + wk)) canFinish = true;
+      }
+      fin.style.display = canFinish ? "" : "none";
+      var showPull = false;
+      if ((APP_ROLE === "owner" || APP_ROLE === "manager" || APP_ROLE === "all") && localStorage.getItem(FINISH_DONE_LS + wk) === "1") {
+        if (localStorage.getItem(WEEK_PULL_LS + wk) !== "pulled") showPull = true;
+      }
+      pull.style.display = showPull ? "" : "none";
+      if (showPull) loadPullWeekPreview();
+    }
+
+    async function loadPullWeekPreview() {
+      var box = document.getElementById("pullWeekPreview");
+      if (!box) return;
       try {
-        const st = await apiGet({ action: "weekPullStatus" });
-        if (!st || st.status !== "success" || !st.weekKey) return;
-        const key = WEEK_PULL_LS + st.weekKey;
-        if (localStorage.getItem(key)) return;
-        if (!st.suggestPull && !(st.monthPeople > 0 && st.weekPeople === 0)) return;
-        const msg =
-          "На эту неделю в листах месяцев есть записи (" + (st.monthPeople || 0) +
-          "), в «Прием заказов» сейчас " + (st.weekPeople || 0) +
-          ".\n\nПодтянуть заказы из месяца на Пн–Пт? Уже стоящих клиентов не затрём — только допишем недостающих.";
-        const ok = await uiConfirmAsync(msg);
-        localStorage.setItem(key, ok ? "pulled" : "skipped");
-        if (!ok) {
-          showToast("Ок — позже можно в Просмотре");
+        var st = await apiGet({ action: "weekPullStatus" });
+        if (!st || st.status !== "success") { box.textContent = ""; return; }
+        var lines = (st.days || []).map(function (d) {
+          return d.day + ": месяц " + (d.inMonth || 0) + " → неделя " + (d.inWeek || 0) + (d.maybeMissing ? (" (ещё +" + d.maybeMissing + ")") : "");
+        });
+        box.innerHTML = "В месяце: <b>" + (st.monthPeople || 0) + "</b>, в неделе: <b>" + (st.weekPeople || 0) + "</b>. Дописать примерно: <b>" + (st.maybeMissing || 0) + "</b><br>" +
+          lines.map(function (l) { return '<div class="pack-line">' + escapeHtml(l) + "</div>"; }).join("");
+      } catch (e) { box.textContent = ""; }
+    }
+
+    async function onFinishWeekClick() {
+      var ok = await uiConfirmAsync(
+        "Завершить неделю?\n\nПолная логика (склад/даты/архив) ещё обсуждается — сейчас только отметим, что неделя закрыта, и откроем «Подтянуть из месяца»."
+      );
+      if (!ok) return;
+      var wk = currentWeekKeyLocal();
+      localStorage.setItem(FINISH_DONE_LS + wk, "1");
+      localStorage.removeItem(FINISH_REFUSE_LS + wk);
+      showToast("Неделя отмечена закрытой (логика finish — после обсуждения)");
+      try { logLearnEvent("finishWeekStub", { weekKey: wk }); } catch (e) {}
+      refreshWeekBanners();
+    }
+    function refuseFinishWeek() {
+      var wk = currentWeekKeyLocal();
+      localStorage.setItem(FINISH_REFUSE_LS + wk, "1");
+      document.getElementById("finishWeekBanner").style.display = "none";
+      showToast("Ок — напомним в понедельник утром");
+    }
+    window.onFinishWeekClick = onFinishWeekClick;
+    window.refuseFinishWeek = refuseFinishWeek;
+
+    async function confirmPullWeekFromHome() {
+      var st = null;
+      try { st = await apiGet({ action: "weekPullStatus" }); } catch (e) {}
+      var msg = "Подтянуть людей из месяцев на всю Пн–Пт?\nСостав из ПП/АФК/БП НЕ берём — только ники и контакты.\nУже стоящих не затираем.";
+      if (st && st.status === "success") {
+        msg += "\n\nМесяц: " + (st.monthPeople || 0) + ", неделя: " + (st.weekPeople || 0) + ", дописать ~" + (st.maybeMissing || 0);
+      }
+      var ok = await uiConfirmAsync(msg);
+      if (!ok) return;
+      await runMaterializeWeek(false);
+      refreshWeekBanners();
+    }
+    window.confirmPullWeekFromHome = confirmPullWeekFromHome;
+
+    function setSubsSegment(seg) {
+      subsSegment = seg;
+      document.querySelectorAll("#subsTabs .seg-btn").forEach(function (b) {
+        b.classList.toggle("active", b.getAttribute("data-seg") === seg);
+      });
+      loadSubscriptions();
+    }
+    window.setSubsSegment = setSubsSegment;
+
+    async function loadStats() {
+      var box = document.getElementById("statsContainer");
+      if (!box) return;
+      box.innerHTML = simpleLoadingHtml("Считаю…");
+      try {
+        var res = await apiGet({ action: "getStats", period: "month" });
+        if (!res || res.status !== "success") {
+          box.innerHTML = '<p class="muted">Статистика ещё настраивается. После деплоя Code.gs появится сводка.</p>';
           return;
         }
-        await runMaterializeWeek(true);
-      } catch (e) {}
+        box.innerHTML = '<div class="card"><b>' + escapeHtml(res.title || "Месяц") + '</b>' +
+          '<div class="pack-line">Доставок: ' + (res.deliveries || 0) + '</div>' +
+          '<div class="pack-line">ПП активных: ' + (res.ppActive || 0) + '</div>' +
+          '<div class="pack-line">БП в воронке: ' + (res.bpFunnel || 0) + '</div>' +
+          '<div class="pack-line">Выручка (оценка): ' + (res.revenue || "—") + ' BYN</div>' +
+          (res.note ? '<div class="muted" style="margin-top:8px;">' + escapeHtml(res.note) + '</div>' : '') +
+          '</div>';
+      } catch (e) {
+        box.innerHTML = '<p class="muted">Нет данных / нужен деплой бэкенда</p>';
+      }
+    }
+    window.loadStats = loadStats;
+
+    async function exportStatsMonth() {
+      try {
+        var res = await apiGet({ action: "exportStats", format: "accountant" });
+        if (res && res.status === "success") {
+          showToast(res.message || "Экспорт готов");
+          if (res.tsv) {
+            try { await navigator.clipboard.writeText(res.tsv); showToast("TSV скопирован"); } catch (e2) {}
+          }
+        } else {
+          showToast("Экспорт пока заглушка — после деплоя");
+        }
+      } catch (e) { showToast("Ошибка экспорта"); }
+    }
+    window.exportStatsMonth = exportStatsMonth;
+
+    function logLearnEvent(action, meta) {
+      var payload = {
+        action: "logEvent",
+        event: action,
+        screen: (document.querySelector(".screen.active") || {}).id || "",
+        role: APP_ROLE,
+        telegramId: myTelegramId || "",
+        meta: meta || {},
+        at: new Date().toISOString()
+      };
+      try { apiPost(payload); } catch (e) {}
+    }
+
+    async function openBugReport() {
+      var screen = (document.querySelector(".screen.active") || {}).id || "";
+      var what = prompt("Что работает некорректно? (кратко)", "");
+      if (what == null) return;
+      what = String(what || "").trim();
+      if (!what) { showToast("Пусто — не отправили"); return; }
+      var expect = prompt("Что ожидалось?", "") || "";
+      try {
+        await apiPost({
+          action: "reportBug",
+          screen: screen,
+          role: APP_ROLE,
+          telegramId: myTelegramId || "",
+          what: what,
+          expected: String(expect || "").trim(),
+          client: (document.getElementById("client") && document.getElementById("client").value) || "",
+          day: (document.getElementById("day") && document.getElementById("day").value) || "",
+          at: new Date().toISOString()
+        });
+        showToast("Репорт записан → агент подхватит в ТЗ");
+        logLearnEvent("bugReport", { screen: screen });
+      } catch (e) {
+        showToast("Не удалось отправить — проверьте деплой Code.gs");
+      }
+    }
+    window.openBugReport = openBugReport;
+
+
+    async function maybeAskWeekPullFromMonth() {
+      // v7.8: не спрашиваем на старте — баннер на главной после «Завершить неделю»
+      try { refreshWeekBanners(); } catch (e) {}
     }
 
     async function runMaterializeWeek(quiet) {
@@ -5004,11 +5225,7 @@
     }
 
     async function pullWeekFromMonth() {
-      const ok = await uiConfirmAsync(
-        "Подтянуть из листов месяцев всех, кого ещё нет в текущей неделе (Пн–Пт)?\nУже стоящих не затираем."
-      );
-      if (!ok) return;
-      await runMaterializeWeek(false);
+      await confirmPullWeekFromHome();
     }
     window.pullWeekFromMonth = pullWeekFromMonth;
 
@@ -5387,6 +5604,10 @@
 
     async function loadSubscriptions() {
       var box = document.getElementById("subsContainer");
+      if (subsSegment === "Опросник") {
+        box.innerHTML = '<p class="muted">Опросник: даты БП2/ПП1, +4/+6 — каркас. Лист подключим после деплоя полного F.</p>';
+        return;
+      }
       box.innerHTML = '<p class="muted">Загрузка CRM…</p>';
       try {
         var res = await apiGet({ action: "listSubscriptions" });
@@ -5394,7 +5615,9 @@
           box.innerHTML = '<p class="muted">CRM недоступна (нужен доступ Apps Script к таблице подписок)</p>';
           return;
         }
-        box.innerHTML = (res.subscriptions || []).map(function (s) {
+        box.innerHTML = (res.subscriptions || []).filter(function (s) {
+          return !subsSegment || s.sheet === subsSegment;
+        }).map(function (s) {
           var safeNick = String(s.nick || "").replace(/'/g, "\\'");
           return '<div class="card" style="margin-bottom:8px;">' +
             '<b>' + (s.nick || s.label) + '</b> <span class="muted">' + (s.subId || "") + ' · ' + (s.sheet || "") + '</span>' +
@@ -5403,7 +5626,7 @@
             '<button type="button" class="btn-action btn-orange" style="margin-top:8px;" onclick="pushSubToDay(\'' + safeNick + '\',\'' + (s.subId || "") + '\')">Выгрузить на дату</button>' +
             '<button type="button" class="btn-action btn-blue" style="margin-top:8px;" onclick="openSubInOrder(\'' + safeNick + '\')">В заказ</button>' +
             '</div>';
-        }).join("") || '<p class="muted">Пусто</p>';
+        }).join("") || '<p class="muted">Пусто в ' + escapeHtml(subsSegment) + '</p>';
       } catch (e) {
         box.innerHTML = '<p class="muted">Ошибка</p>';
       }
