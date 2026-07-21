@@ -604,7 +604,7 @@
     </div>
   </div>
   <div class="app">
-    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.8.0</div>
+    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.8.1</div>
 
     <div class="nav-tabs" id="navTabs">
       <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
@@ -938,7 +938,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.8.0";
+    const APP_VERSION = "v7.8.1";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1027,7 +1027,16 @@
     /* priceMode set above */
     let courierSub = "route";
     let weekTabUnlocked = false;
-    let packTypesEnabled = { light: true, bulk: true, chew: true, craft: true, other: true };
+    let packTypesEnabled = {
+      "маленький": true,
+      "средний": true,
+      "большой": true,
+      "целое": true,
+      "крафт": true,
+      "жевалки": true,
+      "сыпучее": true,
+      "other": true
+    };
     let assemblyCache = null;
     const FLYOUT_SCREENS = ["clientsScreen", "priceScreen", "subsScreen", "statsScreen", "peopleScreen"];
 
@@ -5300,6 +5309,24 @@
       }
     }
 
+
+    function packCounterKey(p) {
+      if (p && p.counterKey) return p.counterKey;
+      if (!p) return "other";
+      if (p.type === "light") {
+        var u = String(p.sub || "").toUpperCase();
+        if (/МЕЛК|МАЛ/.test(u) && !/ОЧ/.test(u)) return "маленький";
+        if (/СРЕД/.test(u)) return "средний";
+        if (/КРУПН|БОЛЬШ|БОЛ/.test(u)) return "большой";
+        if (/ЦЕЛ/.test(u)) return "целое";
+        return "средний";
+      }
+      if (p.type === "craft") return "крафт";
+      if (p.type === "chew") return "жевалки";
+      if (p.type === "bulk") return "сыпучее";
+      return "other";
+    }
+
     function togglePackType(key) {
       packTypesEnabled[key] = !packTypesEnabled[key];
       renderAssemblyView();
@@ -5310,79 +5337,129 @@
       var box = document.getElementById("assemblyContainer");
       var res = assemblyCache;
       if (!res) return;
-      var types = [
-        { key: "light", label: "Лёгкое" },
-        { key: "bulk", label: "Сыпуч." },
-        { key: "chew", label: "Жевал." },
-        { key: "craft", label: "Крафт" },
-        { key: "other", label: "Другое" }
-      ];
-      var totals = { light: 0, bulk: 0, chew: 0, craft: 0, other: 0 };
-      var lightFrac = {};
+
+      var COUNTER_ORDER = ["маленький", "средний", "большой", "целое", "крафт", "жевалки", "сыпучее", "other"];
+      var COUNTER_LABEL = {
+        "маленький": "маленький",
+        "средний": "средний",
+        "большой": "большой",
+        "целое": "целое",
+        "крафт": "крафт",
+        "жевалки": "жевалки",
+        "сыпучее": "сыпучее",
+        "other": "другое"
+      };
+
+      var totals = {};
+      COUNTER_ORDER.forEach(function (k) { totals[k] = 0; });
+      var lightFracGrams = {};
+      var lightGramsTotal = 0;
+
       (res.clients || []).forEach(function (c) {
         (c.packs || []).forEach(function (p) {
-          var t = p.type || "other";
-          totals[t] = (totals[t] || 0) + (Number(p.bags) || 0);
+          var key = packCounterKey(p);
+          if (!packTypesEnabled.hasOwnProperty(key)) packTypesEnabled[key] = true;
+          if (!packTypesEnabled[key]) return;
+          totals[key] = (totals[key] || 0) + (Number(p.bags) || 0);
         });
         (c.lightByFraction || []).forEach(function (lf) {
-          lightFrac[lf.sub || "без фракции"] = (lightFrac[lf.sub || "без фракции"] || 0) + (Number(lf.val) || 0);
+          var sub = lf.sub || "Среднее";
+          lightFracGrams[sub] = (lightFracGrams[sub] || 0) + (Number(lf.val) || 0);
+          lightGramsTotal += Number(lf.val) || 0;
         });
       });
-      // если бэкенд отдал сводку дня
-      if (res.typeTotals) {
-        totals = Object.assign(totals, res.typeTotals);
-      }
       if (res.lightByFraction && res.lightByFraction.length) {
-        lightFrac = {};
+        lightFracGrams = {};
+        lightGramsTotal = 0;
         res.lightByFraction.forEach(function (lf) {
-          lightFrac[lf.sub || "без фракции"] = Number(lf.val) || 0;
+          lightFracGrams[lf.sub || "Среднее"] = Number(lf.val) || 0;
+          lightGramsTotal += Number(lf.val) || 0;
         });
       }
 
       var enabledTotal = 0;
-      types.forEach(function (t) {
-        if (packTypesEnabled[t.key]) enabledTotal += totals[t.key] || 0;
-      });
+      COUNTER_ORDER.forEach(function (k) { enabledTotal += totals[k] || 0; });
 
-      var cells = types.map(function (t) {
-        var on = packTypesEnabled[t.key];
-        return '<div class="pack-type-cell' + (on ? "" : " off") + '" onclick="togglePackType(\'' + t.key + '\')">' +
-          '<span class="n">' + (totals[t.key] || 0) + '</span>' +
-          '<span class="l">' + t.label + '</span></div>';
+      var phraseParts = COUNTER_ORDER.filter(function (k) {
+        return (totals[k] || 0) > 0 && packTypesEnabled[k] !== false;
+      }).map(function (k) {
+        return (totals[k] || 0) + " " + COUNTER_LABEL[k];
+      });
+      var phrase = phraseParts.length ? phraseParts.join(" · ") : "нет пакетов (всё выключено?)";
+
+      var cells = COUNTER_ORDER.filter(function (k) {
+        var raw = 0;
+        (res.clients || []).forEach(function (c) {
+          (c.packs || []).forEach(function (p) {
+            if (packCounterKey(p) === k) raw += Number(p.bags) || 0;
+          });
+        });
+        return raw > 0 || packTypesEnabled[k] === false;
+      }).map(function (k) {
+        var on = packTypesEnabled[k] !== false;
+        var n = on ? (totals[k] || 0) : 0;
+        return '<div class="pack-type-cell' + (on ? "" : " off") + '" onclick="togglePackType(\'' + k + '\')">' +
+          '<span class="n">' + n + '</span>' +
+          '<span class="l">' + COUNTER_LABEL[k] + '</span></div>';
       }).join("");
 
-      var lightLines = Object.keys(lightFrac).map(function (k) {
-        return '<div class="pack-line">Лёгкое / ' + k + ': <b>' + lightFrac[k] + ' г</b></div>';
+      var lightOrder = ["Мелкое", "Среднее", "Крупное", "Большое", "Целое"];
+      var lightKeys = Object.keys(lightFracGrams).sort(function (a, b) {
+        var ia = lightOrder.indexOf(a); var ib = lightOrder.indexOf(b);
+        return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+      });
+      var lightLines = lightKeys.map(function (k) {
+        return '<div class="pack-line">' + escapeHtml(k) + ': <b>' + lightFracGrams[k] + ' г</b></div>';
       }).join("") || '<div class="muted">Нет лёгкого</div>';
 
       var clientsHtml = (res.clients || []).map(function (c) {
-        var byType = { light: 0, bulk: 0, chew: 0, craft: 0, other: 0 };
         var bags = 0;
+        var byCounter = {};
         (c.packs || []).forEach(function (p) {
-          var t = p.type || "other";
-          if (!packTypesEnabled[t]) return;
+          var key = packCounterKey(p);
+          if (packTypesEnabled[key] === false) return;
           var n = Number(p.bags) || 0;
-          byType[t] = (byType[t] || 0) + n;
+          byCounter[key] = (byCounter[key] || 0) + n;
           bags += n;
         });
-        var typeLabels = { light: "Лёгкое", bulk: "Сыпуч.", chew: "Жевал.", craft: "Крафт", other: "Другое" };
-        var lines = Object.keys(byType).filter(function (k) { return byType[k] > 0; }).map(function (k) {
-          return '<div class="pack-line">' + typeLabels[k] + ': <b>' + byType[k] + '</b></div>';
-        }).join("");
-        return '<div class="card" style="margin-bottom:10px;"><b>' + escapeHtml(c.name) + '</b>' +
-          ' <span class="muted">· ' + bags + ' пак.</span>' +
-          (c.address ? '<div class="muted" style="font-size:12px;margin-top:4px;">' + escapeHtml(c.address) + '</div>' : '') +
-          lines + '</div>';
+        var packSummary = COUNTER_ORDER.filter(function (k) { return byCounter[k] > 0; }).map(function (k) {
+          return byCounter[k] + " " + COUNTER_LABEL[k];
+        }).join(" · ") || "—";
+
+        var basket = c.basket && c.basket.length ? c.basket : (c.packs || []).map(function (p) {
+          return { name: p.name, sub: p.sub, val: p.val, unit: p.unit };
+        });
+        var composition = (basket || []).map(function (g) {
+          var unit = g.unit || (/шт/i.test(String(g.name || "")) ? "шт" : "гр");
+          var frac = g.sub ? ' <span class="muted">(' + escapeHtml(g.sub) + ")</span>" : "";
+          return '<div class="order-detail-line"><span>• ' + escapeHtml(g.name || g.main || "") + frac +
+            '</span><span class="order-detail-volume">' + (g.val != null ? g.val : g.value) + " " + unit + "</span></div>";
+        }).join("") || '<div class="muted">Пустой состав</div>';
+
+        return '<div class="card" style="margin-bottom:10px;">' +
+          "<b>" + escapeHtml(c.name) + '</b> <span class="muted">· ' + bags + " пак.</span>" +
+          (c.address ? '<div class="muted" style="font-size:12px;margin-top:4px;">' + escapeHtml(c.address) + "</div>" : "") +
+          '<div style="margin-top:8px;"><b>Состав</b></div>' + composition +
+          '<div class="pack-line" style="margin-top:8px;"><b>Пакеты:</b> ' + escapeHtml(packSummary) + "</div>" +
+          "</div>";
       }).join("") || '<p class="muted">Нет клиентов</p>';
 
       box.innerHTML =
-        '<div class="card"><b>Пакеты (нажми тип, чтобы выключить)</b>' +
-        '<div class="pack-type-row">' + cells + '</div>' +
-        '<div class="total-summary-badge">Итого пакетов: ' + enabledTotal + '</div>' +
-        '<div style="margin-top:10px;"><b>Лёгкое всего (для нарезки пачкой)</b>' + lightLines + '</div></div>' +
+        '<div class="card"><b>Счётчики пакетов</b>' +
+        '<div class="field-hint">Нажми тип, чтобы выключить — итог пересчитается</div>' +
+        '<div class="pack-type-row">' + cells + "</div>" +
+        '<div class="total-summary-badge">' + escapeHtml(phrase) + "</div>" +
+        '<div class="total-summary-badge" style="margin-top:6px;">Итого пакетов: ' + enabledTotal + "</div>" +
+        '<div style="margin-top:12px;"><b>Лёгкое для нарезки</b>' +
+        '<div class="field-hint">Полная картина по дню (все клиенты, граммы по фракциям)</div>' +
+        lightLines +
+        (lightGramsTotal ? '<div class="pack-line" style="margin-top:4px;">Всего лёгкого: <b>' + lightGramsTotal + " г</b></div>" : "") +
+        "</div></div>" +
+        '<div class="section-title">По клиентам</div>' +
         clientsHtml;
     }
     window.loadAssembly = loadAssembly;
+
 
     function buildIgKnownMap() {
       var known = {};

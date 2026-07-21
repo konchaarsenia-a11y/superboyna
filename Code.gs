@@ -4799,42 +4799,62 @@ function packCountForBulk_(grams) {
   return Math.ceil(g / 300) * 4;
 }
 
+/** Нормализация фракции лёгкого → ключ счётчика. */
+function lightFractionCounterKey_(sub) {
+  var u = String(sub || '').trim().toUpperCase();
+  if (!u || u.indexOf('БЕЗ') >= 0) return 'средний';
+  if (/МЕЛК|МАЛ/.test(u) && !/ОЧ/.test(u)) return 'маленький';
+  if (/СРЕД/.test(u)) return 'средний';
+  if (/КРУПН|БОЛЬШ|БОЛ/.test(u)) return 'большой';
+  if (/ЦЕЛ/.test(u)) return 'целое';
+  return 'средний';
+}
+
 function buildAssemblyForBasket_(basket) {
   var packs = [];
   var totalBags = 0;
   var typeCounts = { light: 0, bulk: 0, chew: 0, craft: 0, other: 0 };
   var lightMap = {};
+  var lightBagsByCounter = {};
   (basket || []).forEach(function (it) {
-    var name = String(it.name || it.main || "").trim();
-    var sub = String(it.sub || "").trim();
+    var name = String(it.name || it.main || '').trim();
+    var sub = String(it.sub || '').trim();
     var val = Number(it.val != null ? it.val : it.value) || 0;
-    var cat = String(it.cat || "").toLowerCase();
+    var cat = String(it.cat || '').toLowerCase();
+    var unit = String(it.unit || '').trim() || (/шт/i.test(name) ? 'шт' : 'гр');
     if (!name || val <= 0) return;
     var bags = 0;
-    var rule = "";
-    var type = "other";
+    var rule = '';
+    var type = 'other';
+    var counterKey = '';
     if (/л[её]гк/i.test(name)) {
       bags = packCountForLight_(val);
-      rule = "лёгкое";
-      type = "light";
-      var fk = sub || "без фракции";
+      rule = 'лёгкое';
+      type = 'light';
+      var fk = sub || 'Среднее';
       lightMap[fk] = (lightMap[fk] || 0) + val;
-    } else if (cat === "chew" || /шт/i.test(name) || /быч|трахе|аорт|ухо|нос|станова|колен|копыт|переп|губ|книжк/i.test(name)) {
+      counterKey = lightFractionCounterKey_(fk);
+      lightBagsByCounter[counterKey] = (lightBagsByCounter[counterKey] || 0) + bags;
+    } else if (cat === 'chew' || /шт/i.test(name) || /быч|трахе|аорт|ухо|нос|станова|колен|копыт|переп|губ|книжк/i.test(name)) {
       bags = Math.max(1, Math.ceil(val / 4));
-      rule = "жевалки×4";
-      type = "chew";
-    } else if (cat === "other" || /крафт|индейк|ломтик|вымя|семен|пикальн|печень|светл/i.test(name)) {
+      rule = 'жевалки×4';
+      type = 'chew';
+      counterKey = 'жевалки';
+    } else if (cat === 'other' || /крафт|индейк|ломтик|вымя|семен|пикальн|печень|светл/i.test(name)) {
       bags = Math.max(1, Math.ceil(val / 5)) + 1;
-      rule = "крафт×5+запас";
-      type = "craft";
-    } else if (cat === "dressura" || cat === "powder" || cat === "veg") {
+      rule = 'крафт×5+запас';
+      type = 'craft';
+      counterKey = 'крафт';
+    } else if (cat === 'dressura' || cat === 'powder' || cat === 'veg') {
       bags = packCountForBulk_(val);
-      rule = "сыпучее";
-      type = "bulk";
+      rule = 'сыпучее';
+      type = 'bulk';
+      counterKey = 'сыпучее';
     } else {
       bags = packCountForBulk_(val);
-      rule = "сыпучее";
-      type = "bulk";
+      rule = 'сыпучее';
+      type = 'bulk';
+      counterKey = 'сыпучее';
     }
     totalBags += bags;
     typeCounts[type] = (typeCounts[type] || 0) + bags;
@@ -4842,50 +4862,87 @@ function buildAssemblyForBasket_(basket) {
       name: name,
       sub: sub,
       val: val,
+      unit: unit,
       bags: bags,
       rule: rule,
       type: type,
-      label: name + (sub ? " / " + sub : "") + " → " + bags + " пак."
+      counterKey: counterKey,
+      label: name + (sub ? ' / ' + sub : '') + ' → ' + bags + ' пак.'
     });
   });
   var lightByFraction = [];
   for (var k in lightMap) {
     if (lightMap.hasOwnProperty(k)) lightByFraction.push({ sub: k, val: lightMap[k] });
   }
-  return { packs: packs, totalBags: totalBags, typeCounts: typeCounts, lightByFraction: lightByFraction };
+  return {
+    packs: packs,
+    totalBags: totalBags,
+    typeCounts: typeCounts,
+    lightByFraction: lightByFraction,
+    lightBagsByCounter: lightBagsByCounter
+  };
 }
 
 function handleGetAssembly(json, callback, fromPost) {
-  var day = json.day || "";
+  var day = json.day || '';
   var clientsData = getClientsData_(SpreadsheetApp.getActiveSpreadsheet(), day);
-  if (clientsData.status !== "success") {
-    var bad = { status: "error", message: clientsData.status || "bad_day" };
+  if (clientsData.status !== 'success') {
+    var bad = { status: 'error', message: clientsData.status || 'bad_day' };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
   var typeTotals = { light: 0, bulk: 0, chew: 0, craft: 0, other: 0 };
+  var counterTotals = {};
   var lightAll = {};
   var out = (clientsData.clients || []).map(function (c) {
     var plan = buildAssemblyForBasket_(c.basket || []);
     for (var t in plan.typeCounts) {
       if (plan.typeCounts.hasOwnProperty(t)) typeTotals[t] = (typeTotals[t] || 0) + plan.typeCounts[t];
     }
+    var lbc = plan.lightBagsByCounter || {};
+    for (var ck in lbc) {
+      if (lbc.hasOwnProperty(ck)) counterTotals[ck] = (counterTotals[ck] || 0) + lbc[ck];
+    }
+    (plan.packs || []).forEach(function (p) {
+      if (p.type === 'light') return;
+      var key = p.counterKey || p.type;
+      if (!key) return;
+      counterTotals[key] = (counterTotals[key] || 0) + (Number(p.bags) || 0);
+    });
     (plan.lightByFraction || []).forEach(function (lf) {
       lightAll[lf.sub] = (lightAll[lf.sub] || 0) + lf.val;
     });
     return {
       name: c.name,
-      address: c.address || "",
-      note: c.note || "",
+      address: c.address || '',
+      note: c.note || '',
+      basket: c.basket || [],
       packs: plan.packs,
       totalBags: plan.totalBags,
-      lightByFraction: plan.lightByFraction
+      lightByFraction: plan.lightByFraction,
+      lightBagsByCounter: plan.lightBagsByCounter || {}
     };
   });
   var lightByFraction = [];
+  var lightGramsTotal = 0;
   for (var lk in lightAll) {
-    if (lightAll.hasOwnProperty(lk)) lightByFraction.push({ sub: lk, val: lightAll[lk] });
+    if (!lightAll.hasOwnProperty(lk)) continue;
+    lightByFraction.push({ sub: lk, val: lightAll[lk] });
+    lightGramsTotal += Number(lightAll[lk]) || 0;
   }
-  var ok = { status: "success", day: day, clients: out, typeTotals: typeTotals, lightByFraction: lightByFraction };
+  lightByFraction.sort(function (a, b) {
+    var order = { 'Мелкое': 1, 'Среднее': 2, 'Крупное': 3, 'Большое': 3, 'Целое': 4 };
+    return (order[a.sub] || 9) - (order[b.sub] || 9) || String(a.sub).localeCompare(String(b.sub));
+  });
+  var ok = {
+    status: 'success',
+    day: day,
+    date: clientsData.date || '',
+    clients: out,
+    typeTotals: typeTotals,
+    counterTotals: counterTotals,
+    lightByFraction: lightByFraction,
+    lightGramsTotal: lightGramsTotal
+  };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
