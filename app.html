@@ -618,7 +618,7 @@
   </div>
   <div class="app">
     <div class="app-top" id="appTopBar">
-    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.9.3</div>
+    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.9.4</div>
 
     <div class="nav-tabs" id="navTabs">
       <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
@@ -663,8 +663,9 @@
           </div>
         </div>
         <div class="form-group" id="orderPriceGroup" style="display:none;">
-          <label>Цена (BYN)</label>
+          <label id="orderPriceLabel">Цена (BYN)</label>
           <input type="number" id="orderPriceInput" step="0.01" min="0" placeholder="0" inputmode="decimal">
+          <div class="field-hint" id="orderPriceLive" style="display:none;"></div>
         </div>
         <div class="form-group">
           <label>Дата доставки</label>
@@ -757,6 +758,13 @@
             <input type="number" id="volumeInput" placeholder="0" inputmode="numeric">
           </div>
           <button class="btn-action btn-blue" onclick="addItemToBasket()">В корзину</button>
+        </div>
+      </div>
+
+      <div class="card" id="orderTotalCard" style="display:none;margin-top:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+          <span class="muted">Итого розница</span>
+          <b id="orderRetailTotalText" style="font-size:18px;">0 BYN</b>
         </div>
       </div>
 
@@ -958,7 +966,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.9.3";
+    const APP_VERSION = "v7.9.4";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1764,19 +1772,57 @@
       });
       var pg = document.getElementById("orderPriceGroup");
       var inp = document.getElementById("orderPriceInput");
+      var lab = document.getElementById("orderPriceLabel");
+      var live = document.getElementById("orderPriceLive");
+      var totalCard = document.getElementById("orderTotalCard");
       if (t === "partner") {
         if (pg) pg.style.display = "";
+        if (inp) { inp.readOnly = false; inp.placeholder = "свой прайс"; }
+        if (lab) lab.textContent = "Цена партнёра (BYN)";
+        if (live) live.style.display = "none";
+        if (totalCard) totalCard.style.display = "none";
       } else if (t === "bp") {
         if (pg) pg.style.display = "";
-        if (inp) inp.value = "0";
+        if (inp) { inp.readOnly = true; inp.value = "0"; }
+        if (lab) lab.textContent = "Цена (BYN)";
+        if (live) live.style.display = "none";
+        if (totalCard) totalCard.style.display = "none";
       } else if (t === "pp") {
         if (pg) pg.style.display = "";
+        if (inp) { inp.readOnly = false; inp.placeholder = "ФАКТ СТОИМОСТЬ"; }
+        if (lab) lab.textContent = "Цена ПП (BYN)";
+        if (live) live.style.display = "none";
+        if (totalCard) totalCard.style.display = "none";
         try { refreshPpFactPrice(); } catch (e) {}
       } else {
-        if (pg) pg.style.display = "none";
+        // retail — считаем и показываем
+        if (pg) pg.style.display = "";
+        if (inp) { inp.readOnly = true; inp.placeholder = "авто"; }
+        if (lab) lab.textContent = "Цена розница (BYN)";
+        if (live) live.style.display = "";
+        if (totalCard) totalCard.style.display = "";
+        try { refreshRetailOrderPrice(); } catch (e2) {}
       }
     }
     window.setOrderType = setOrderType;
+
+    function refreshRetailOrderPrice() {
+      if (orderType !== "retail") return;
+      var local = calcRetailBasketTotal(basket);
+      var inp = document.getElementById("orderPriceInput");
+      if (inp) inp.value = String(local.total);
+      var live = document.getElementById("orderPriceLive");
+      if (live) {
+        var miss = (local.lines || []).filter(function (L) { return !L.found && L.val > 0; }).length;
+        live.textContent = miss
+          ? ("По прайсу · без цены: " + miss + " поз.")
+          : (basket.length ? "По прайсу витрины" : "Добавь позиции в корзину");
+      }
+      var t = document.getElementById("orderRetailTotalText");
+      if (t) t.textContent = local.total + " BYN";
+      return local;
+    }
+    window.refreshRetailOrderPrice = refreshRetailOrderPrice;
 
     async function refreshPpFactPrice() {
       if (orderType !== "pp") return;
@@ -2130,17 +2176,28 @@
       const box = document.getElementById("basketContainer");
       if (!basket.length) {
         box.innerHTML = '<p class="muted">Корзина пуста</p>';
+        try { if (orderType === "retail") refreshRetailOrderPrice(); } catch (e0) {}
         return;
       }
+      const showRetail = orderType === "retail";
       box.innerHTML = basket.map(item => {
         const unit = unitForItem(item.cat, item.main);
         const sub = item.sub ? ("Фракция: " + item.sub) : ("Категория: " + item.cat);
+        let priceHtml = "";
+        if (showRetail) {
+          const r = retailLineCost(item.main || item.name, item.sub || "", item.value != null ? item.value : item.val, item.cat);
+          priceHtml = r.found
+            ? ('<div class="basket-sub" style="color:#30d158;">' + r.cost + " BYN</div>")
+            : '<div class="basket-sub" style="color:#ff9f0a;">нет в прайсе</div>';
+        }
         return `<div class="basket-card ${item.cat}">
           <button class="btn-inline-del" onclick="deleteBasketItem(${item.id})">Удалить</button>
           <div class="basket-info">${item.main} → ${item.value} ${unit}</div>
           <div class="basket-sub">${sub}</div>
+          ${priceHtml}
         </div>`;
       }).join("");
+      try { if (showRetail) refreshRetailOrderPrice(); } catch (e1) {}
     }
 
     function deleteBasketItem(id) {
@@ -2226,7 +2283,7 @@
       var orderPrice = null;
       if (orderType === "bp") orderPrice = 0;
       else if (orderType === "retail") {
-        orderPrice = calcRetailBasketTotal(basket).total;
+        orderPrice = refreshRetailOrderPrice().total;
       } else if (orderType === "partner" || orderType === "pp") {
         var pv = document.getElementById("orderPriceInput") && document.getElementById("orderPriceInput").value;
         orderPrice = pv === "" || pv == null ? null : Number(pv);
@@ -2309,7 +2366,17 @@
       clientNote = (tagBits.join(" ") + (tagBits.length && noteBody ? " " : "") + noteBody).trim();
       var permanentNote = collectPermanentNotesText();
 
-      const okConfirm = await uiConfirmAsync(isEdit ? ("Обновить заказ " + clientName + "?") : ("Сохранить заказ " + clientName + "?"));
+      // цена в примечание — видно в Просмотре / курьеру / листе
+      clientNote = String(clientNote || "").replace(/\[ЦЕНА:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
+      if (orderPrice != null && !isNaN(Number(orderPrice))) {
+        clientNote = ("[ЦЕНА: " + Number(orderPrice) + " BYN]" + (clientNote ? " " + clientNote : "")).trim();
+      }
+
+      var confirmMsg = isEdit ? ("Обновить заказ " + clientName + "?") : ("Сохранить заказ " + clientName + "?");
+      if (orderPrice != null && !isNaN(Number(orderPrice))) {
+        confirmMsg += "\nЦена: " + Number(orderPrice) + " BYN";
+      }
+      const okConfirm = await uiConfirmAsync(confirmMsg);
       if (!okConfirm) return;
 
       const btn = document.getElementById("btnMainSave");
@@ -2354,7 +2421,8 @@
         address: clientAddress,
         phone: phone,
         note: clientNote,
-        source: "retail",
+        orderPrice: orderPrice,
+        source: orderType === "bp" ? "bp" : (orderType === "pp" ? "pp" : (orderType === "partner" ? "partner" : "retail")),
         basket: payload.basket,
         geo: payload.geo
       };
@@ -2370,7 +2438,9 @@
         const inWeek = found && found.basket && found.basket.length > 0;
         if (inWeek) {
           celebrateSuccess("save");
-          showToast((isEdit ? "Заказ обновлён" : "Заказ сохранён") + " (" + found.basket.length + " поз.)");
+          showToast((isEdit ? "Заказ обновлён" : "Заказ сохранён") +
+            " (" + found.basket.length + " поз.)" +
+            (orderPrice != null ? (" · " + orderPrice + " BYN") : ""));
         } else {
           showToast("Бронь на " + deliveryDate + " сохранена · в неделю — утром накануне");
         }

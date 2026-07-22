@@ -1268,6 +1268,12 @@ function handleSaveOrder(ss, json, callback) {
   if (json.address) targetSheet.getRange(block.addr, clientCol).setValue(json.address);
   // GEO/TEL не пишем в примечание — телефон только в профиле/поле phone
   var cleanNote = stripGeoTagsFromNote_(String(json.note || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim());
+  // цена заказа (розница/партнёр/ПП) — тег в примечании столбца
+  var op = json.orderPrice;
+  if (op != null && op !== "" && !isNaN(Number(op))) {
+    cleanNote = String(cleanNote || "").replace(/\[ЦЕНА:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
+    cleanNote = ("[ЦЕНА: " + Number(op) + " BYN]" + (cleanNote ? " " + cleanNote : "")).trim();
+  }
   if (cleanNote) targetSheet.getRange(block.note, clientCol).setValue(cleanNote);
 
   var geo = json.geo || null;
@@ -3041,6 +3047,10 @@ function handleSaveBooking(ss, json, callback, fromPost) {
   }
   var basket = json.basket || [];
   var note = stripGeoTagsFromNote_(json.note || "");
+  if (json.orderPrice != null && json.orderPrice !== "" && !isNaN(Number(json.orderPrice))) {
+    note = String(note || "").replace(/\[ЦЕНА:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
+    note = ("[ЦЕНА: " + Number(json.orderPrice) + " BYN]" + (note ? " " + note : "")).trim();
+  }
   if (json.phone) note = applyTelTag_(note, json.phone);
   if (json.subId) note = ("[SUB:" + String(json.subId).trim() + "] " + note).trim();
   var dayName = findDayNameForDate_(ss, deliveryDate) || "";
