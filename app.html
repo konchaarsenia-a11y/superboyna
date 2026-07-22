@@ -618,7 +618,7 @@
   </div>
   <div class="app">
     <div class="app-top" id="appTopBar">
-    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.9.5</div>
+    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.9.6</div>
 
     <div class="nav-tabs" id="navTabs">
       <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
@@ -966,7 +966,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.9.5";
+    const APP_VERSION = "v7.9.6";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -5991,21 +5991,24 @@
       var noteBits = [];
       var known = buildIgKnownMap();
       function mapChewFrac(token) {
-        var t = String(token || "").toUpperCase();
+        var t = String(token || "").toUpperCase().replace(/Ё/g, "Е");
         if (/ОЧ\s*МАЛ|ОЧЕНЬ\s*МАЛ/.test(t)) return "ОЧ МАЛ";
         if (/ПОЛОВИН/.test(t)) return "ПОЛОВИНКА";
         if (/ПАЛК|ПАЛОЧ/.test(t)) return "ПАЛК";
         if (/ПЛАСТ/.test(t)) return "ПЛАСТ";
         if (/ОГР|ОГРОМ/.test(t)) return "ОГР";
-        if (/\bМЕЛК|\bМАЛ\b|КУБИК/.test(t) && !/ОЧ/.test(t)) return "МАЛ";
+        // маленькие / маленький / маленькая — до короткого МАЛ
+        if (/МАЛЕНЬК/.test(t)) return "МАЛ";
+        if (/МЕЛК|МЕЛКИЙ|МЕЛКАЯ|МЕЛКИЕ|КУБИК/.test(t) && !/ОЧ/.test(t)) return "МАЛ";
+        if (/(^|[^А-ЯA-Z])МАЛ([^А-ЯA-Z]|$)/.test(t)) return "МАЛ";
         if (/СРЕДН|СРЕД/.test(t)) return "СРЕД";
-        if (/БОЛЬШ|БОЛ|КРУПН/.test(t)) return "БОЛ";
+        if (/БОЛЬШ|БОЛ([^А-ЯA-Z]|$)|КРУПН/.test(t)) return "БОЛ";
         if (/ЦЕЛ/.test(t)) return "Обычная";
         return "";
       }
       function mapDressFrac(token) {
-        var t = String(token || "").toUpperCase();
-        if (/МЕЛК|КУБИК/.test(t)) return "Мелкое";
+        var t = String(token || "").toUpperCase().replace(/Ё/g, "Е");
+        if (/МАЛЕНЬК|МЕЛК|КУБИК/.test(t)) return "Мелкое";
         if (/СРЕДН|СРЕД/.test(t)) return "Среднее";
         if (/КРУПН/.test(t)) return "Крупное";
         if (/БОЛЬШ/.test(t)) return "Большое";
@@ -6032,6 +6035,9 @@
           "ЛОП ХРЯЩ": "ЛОП ХРЯЩ шт.",
           "УТИНЫЕ ШЕИ": "УТИНЫЕ ШЕИ шт.",
           "УТИНАЯ ШЕЯ": "УТИНЫЕ ШЕИ шт.",
+          "ТРАХЕЯ": "ТРАХЕЯ",
+          "ТРАХЕИ": "ТРАХЕЯ",
+          "ТРАХЕЮ": "ТРАХЕЯ",
           "СТАНОВАЯ ЖИЛА": "СТАНОВАЯ ЖИЛА",
           "ИНДЕЙКА": "ИНДЕЙКА"
         };
@@ -6084,7 +6090,7 @@
         var up = namePart.toUpperCase().replace(/\s+/g, " ").trim();
         var frac = "";
         var fracSrc = paren || "";
-        var fracHit = up.match(/\b(ОЧ\s*МАЛ|МЕЛК\w*|СРЕДН\w*|СРЕД\w*|БОЛЬШ\w*|КРУПН\w*|ЦЕЛ\w*|МАЛ|БОЛ|ОГР|ПАЛК|ПЛАСТ|ПОЛОВИН\w*|КУБИК\w*|ЛОМТ\w*)\b/);
+        var fracHit = up.match(/(ОЧ\s*МАЛ|МАЛЕНЬК\w*|МЕЛК\w*|СРЕДН\w*|БОЛЬШ\w*|КРУПН\w*|ЦЕЛ\w*|СРЕД(?![А-ЯЁA-Z])|МАЛ(?![А-ЯЁA-Z])|БОЛ(?![А-ЯЁA-Z])|ОГР|ПАЛК|ПЛАСТ|ПОЛОВИН\w*|КУБИК\w*|ЛОМТ\w*)/);
         if (fracHit) {
           fracSrc = fracSrc || fracHit[0];
           up = up.replace(fracHit[0], "").replace(/\s+/g, " ").trim();
@@ -6100,9 +6106,11 @@
           frac = hit.cat === "chew" ? mapChewFrac(fracSrc) : mapDressFrac(fracSrc);
           if (hit.cat === "chew" && !frac) frac = mapDressFrac(fracSrc);
           if (hit.cat === "dressura" && frac === "Большое" && hit.fractions.indexOf("Большое") < 0 && hit.fractions.indexOf("Крупное") >= 0) frac = "Крупное";
-          if (hit.cat === "chew" && /СРЕДН/.test(String(fracSrc).toUpperCase())) frac = "СРЕД";
+          // не форсить СРЕД, если уже распознали МАЛ/БОЛ и т.п.
+          if (hit.cat === "chew" && !frac && /СРЕДН|СРЕД/.test(String(fracSrc).toUpperCase())) frac = "СРЕД";
           if (hit.name === "АОРТА" && /ЦЕЛ/.test(String(fracSrc).toUpperCase())) frac = "Обычная";
           if (hit.name === "УХО Г" && /ПОЛОВИН/.test(String(fracSrc).toUpperCase())) frac = "ПОЛОВИНКА";
+          if (hit.name === "УХО Г" && /ЦЕЛ|ОБЫЧН/.test(String(fracSrc).toUpperCase())) frac = "Обычное";
         }
         if (hit.fractions && hit.fractions.length) {
           if (!frac) {
