@@ -22,12 +22,13 @@
       background: var(--bg-color); color: var(--text-color);
       margin: 0; padding: 0; width: 100%; min-height: 100%;
       min-height: 100dvh;
-      overflow-x: hidden;
+      /* overflow-x:hidden ломает position:sticky — clip безопаснее */
+      overflow-x: clip;
       -webkit-tap-highlight-color: transparent;
     }
     .app {
       padding: 16px;
-      padding-top: calc(16px + var(--safe-top));
+      padding-top: 0;
       padding-bottom: calc(72px + var(--safe-bottom));
       max-width: 640px; margin: 0 auto;
     }
@@ -63,16 +64,34 @@
     }
     .toast.show { display: block; }
     .app-top {
-      position: sticky; top: 0; z-index: 80;
-      background: var(--bg-color);
-      padding-top: 2px; padding-bottom: 10px; margin-bottom: 6px;
-      border-bottom: 1px solid rgba(255,255,255,0.06);
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 200;
+      background: rgba(10, 10, 10, 0.96);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+      padding: calc(8px + var(--safe-top)) 16px 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+    }
+    .app-top-inner {
+      max-width: 640px;
+      margin: 0 auto;
+    }
+    .app-top-spacer {
+      width: 100%;
+      height: calc(108px + var(--safe-top));
+      flex-shrink: 0;
+      pointer-events: none;
     }
     .header-main { font-size: 20px; font-weight: 700; letter-spacing: -0.4px; margin-bottom: 10px; }
     .nav-tabs {
       display: flex; gap: 6px; margin-bottom: 0; background: #1c1c1e;
       padding: 4px; border-radius: 10px; border: 1px solid var(--border-color); overflow-x: auto;
       position: relative; z-index: 20;
+      -webkit-overflow-scrolling: touch;
     }
     .tab-link {
       flex: 1 0 auto; min-width: 72px; text-align: center; background: none; border: none;
@@ -618,15 +637,17 @@
   </div>
   <div class="app">
     <div class="app-top" id="appTopBar">
-    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.4</div>
-
-    <div class="nav-tabs" id="navTabs">
-      <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
-      <button type="button" class="tab-link" data-screen="cuttingScreen" onclick="switchTab('cuttingScreen')">Нарезка</button>
-      <button type="button" class="tab-link" data-screen="courierScreen" onclick="switchTab('courierScreen')">Курьер</button>
-      <button type="button" class="tab-link" data-screen="warehouseScreen" onclick="switchTab('warehouseScreen')">Склад</button>
+      <div class="app-top-inner">
+        <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.5</div>
+        <div class="nav-tabs" id="navTabs">
+          <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
+          <button type="button" class="tab-link" data-screen="cuttingScreen" onclick="switchTab('cuttingScreen')">Нарезка</button>
+          <button type="button" class="tab-link" data-screen="courierScreen" onclick="switchTab('courierScreen')">Курьер</button>
+          <button type="button" class="tab-link" data-screen="warehouseScreen" onclick="switchTab('warehouseScreen')">Склад</button>
+        </div>
+      </div>
     </div>
-    </div>
+    <div class="app-top-spacer" id="appTopSpacer" aria-hidden="true"></div>
     <div class="order-flyout" id="orderFlyout">
       <button type="button" class="order-flyout-btn" data-fly="clientsScreen" data-fly-roles="manager,owner,all">Просмотр</button>
       <button type="button" class="order-flyout-btn" data-fly="priceScreen" data-fly-roles="manager,owner,all">Цена</button>
@@ -1011,7 +1032,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.4";
+    const APP_VERSION = "v7.10.5";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1147,6 +1168,7 @@
       } catch (e) {}
       document.documentElement.style.setProperty("--safe-top", top + "px");
       document.documentElement.style.setProperty("--safe-bottom", bottom + "px");
+      try { if (typeof syncAppTopSpacer === "function") syncAppTopSpacer(); } catch (eSp) {}
     }
 
     applyTelegramSafeArea();
@@ -7003,6 +7025,15 @@
     }
     window.assignRole = assignRole;
 
+    function syncAppTopSpacer() {
+      var top = document.getElementById("appTopBar");
+      var sp = document.getElementById("appTopSpacer");
+      if (!top || !sp) return;
+      var h = Math.ceil(top.getBoundingClientRect().height || top.offsetHeight || 0);
+      if (h > 0) sp.style.height = h + "px";
+    }
+    window.syncAppTopSpacer = syncAppTopSpacer;
+
     try { loadDepotAddress(); } catch (e) {}
     try { registerMeAsCourier(); } catch (e) {}
     try { if (document.getElementById("departHourCol")) buildTimeWheels(); } catch (e) {}
@@ -7013,6 +7044,14 @@
     try { setOrderType(orderType || 'pp'); updateNotesSummary(); } catch (e) {}
     try { bootstrapAccess(); } catch (e) { try { applyRoleTabs(); } catch (e2) {} }
     try { applyTelegramSafeArea(); } catch (e) {}
+    try { syncAppTopSpacer(); } catch (e) {}
+    try {
+      window.addEventListener("resize", syncAppTopSpacer);
+      if (window.visualViewport) window.visualViewport.addEventListener("resize", syncAppTopSpacer);
+      setTimeout(syncAppTopSpacer, 50);
+      setTimeout(syncAppTopSpacer, 300);
+      setTimeout(syncAppTopSpacer, 1000);
+    } catch (eR) {}
     clearBlockingOverlays();
   </script>
 </body>
