@@ -1464,7 +1464,9 @@ function findSheetRowForItem(itemsInSheet, rawName, rawSub) {
     var score = 1;
     if (subNorm) {
       if (sheetFrac && sheetFrac === subNorm) score = 10;
-      else if (sheetFull.indexOf(subNorm) > -1) score = 8;
+      // разная фракция на строке — не матчить через indexOf («МАЛ» ⊂ «ОЧ МАЛ»)
+      else if (sheetFrac && sheetFrac !== subNorm) score = 0;
+      else if (!sheetFrac && sheetFull.indexOf(subNorm) > -1) score = 8;
       else if (!sheetFrac) score = 2;
       else score = 0;
     } else {
@@ -1502,13 +1504,14 @@ function normalizeProductAlias_(nameU) {
 
 function normalizeFraction(s) {
   if (!s) return "";
-  var u = String(s).trim().toUpperCase();
-  if (u === "МЕЛКОЕ" || u === "МАЛ") return "МАЛ";
-  if (u === "СРЕДНЕЕ" || u === "СРЕД") return "СРЕД";
-  if (u === "БОЛЬШОЕ" || u === "БОЛ") return "БОЛ";
+  var u = String(s).trim().toUpperCase().replace(/\s+/g, " ").replace(/Ё/g, "Е");
+  // сначала «очень мелкое» — иначе «МАЛ» внутри «ОЧ МАЛ» перехватит
+  if (u === "ОЧ МАЛ" || u === "ОЧЕНЬ МЕЛКОЕ" || /ОЧ\s*МАЛ|ОЧЕНЬ\s*(МАЛ|МЕЛК)|СУПЕР\s*(МАЛ|МЕЛК)/.test(u)) return "ОЧ МАЛ";
+  if (u === "МЕЛКОЕ" || u === "МАЛ" || u === "МАЛЕНЬКИЙ" || u === "МАЛЕНЬКОЕ" || u === "МЕЛКИЙ" || u === "МЕЛКАЯ") return "МАЛ";
+  if (u === "СРЕДНЕЕ" || u === "СРЕД" || u === "СРЕДНИЙ") return "СРЕД";
+  if (u === "БОЛЬШОЕ" || u === "БОЛ" || u === "БОЛЬШОЙ") return "БОЛ";
   if (u === "КРУПНОЕ") return "КРУПНОЕ";
   if (u === "ЦЕЛОЕ" || u === "ЦЕЛ") return "ЦЕЛОЕ";
-  if (u === "ОЧ МАЛ" || u === "ОЧЕНЬ МЕЛКОЕ") return "ОЧ МАЛ";
   if (u === "ПОЛОВИНКА") return "ПОЛОВИНКА";
   if (u === "ПАЛК") return "ПАЛК";
   if (u === "ПЛАСТ") return "ПЛАСТ";

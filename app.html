@@ -661,7 +661,7 @@
   <div class="app">
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
-        <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.7</div>
+        <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.8</div>
         <div class="nav-tabs" id="navTabs">
           <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
           <button type="button" class="tab-link" data-screen="cuttingScreen" onclick="switchTab('cuttingScreen')">Нарезка</button>
@@ -1055,7 +1055,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.7";
+    const APP_VERSION = "v7.10.8";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1511,7 +1511,7 @@
         title: "Жевалки",
         items: ["БЫЧИЙ КОРЕНЬ", "ТРАХЕЯ", "АОРТА", "УХО Г", "НОСЫ шт.", "СТАНОВАЯ ЖИЛА", "КОЛЕНИ шт.", "КОПЫТО шт.", "ПЕРЕПЁЛКИ шт.", "ЛОП ХРЯЩ шт.", "УТИНЫЕ ШЕИ шт.", "ГУБЫ шт.", "КНИЖКА"],
         fractions: {
-          "БЫЧИЙ КОРЕНЬ": ["ОЧ МАЛ", "МАЛ", "СРЕД", "БОЛ", "ОГР"],
+          "БЫЧИЙ КОРЕНЬ": ["МАЛ", "ОЧ МАЛ", "СРЕД", "БОЛ", "ОГР"],
           "ТРАХЕЯ": ["МАЛ", "ПЛАСТ", "СРЕД", "БОЛ", "ОГР"],
           "СТАНОВАЯ ЖИЛА": ["ПАЛК", "СРЕД", "БОЛ"],
           "УХО Г": ["Обычное", "ПОЛОВИНКА"],
@@ -6718,15 +6718,32 @@
               frac = "";
             }
           } else if (hit.fractions.indexOf(frac) < 0) {
-            // try fuzzy
+            // точное совпадение без регистра; «МАЛ» не должен цепляться к «ОЧ МАЛ»
             var found = "";
+            var wantF = String(frac).toUpperCase().replace(/\s+/g, " ").trim();
             for (var fi = 0; fi < hit.fractions.length; fi++) {
-              if (String(hit.fractions[fi]).toUpperCase().indexOf(String(frac).toUpperCase()) >= 0 ||
-                  String(frac).toUpperCase().indexOf(String(hit.fractions[fi]).toUpperCase()) >= 0) {
-                found = hit.fractions[fi]; break;
+              var fu = String(hit.fractions[fi]).toUpperCase().replace(/\s+/g, " ").trim();
+              if (fu === wantF) { found = hit.fractions[fi]; break; }
+            }
+            if (!found) {
+              for (var fi2 = 0; fi2 < hit.fractions.length; fi2++) {
+                var fu2 = String(hit.fractions[fi2]).toUpperCase().replace(/\s+/g, " ").trim();
+                var fTokens = fu2.split(/\s+/);
+                var wTokens = wantF.split(/\s+/);
+                // только если одинаковое число токенов и взаимное вхождение целиком
+                if (fTokens.length === wTokens.length && (fu2 === wantF ||
+                    (wantF.length >= 3 && fu2.indexOf(wantF) === 0))) {
+                  found = hit.fractions[fi2];
+                  break;
+                }
               }
             }
             if (found) frac = found;
+            else {
+              noteBits.push(hit.name + " " + val + " (" + fracSrc + ") — фракция?");
+              frac = "";
+            }
+          }
             else {
               noteBits.push(hit.name + " / " + frac + " — нет в каталоге");
               frac = "";
