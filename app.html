@@ -618,7 +618,7 @@
   </div>
   <div class="app">
     <div class="app-top" id="appTopBar">
-    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.9.6</div>
+    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.9.7</div>
 
     <div class="nav-tabs" id="navTabs">
       <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
@@ -966,7 +966,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.9.6";
+    const APP_VERSION = "v7.9.7";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -5992,28 +5992,31 @@
       var known = buildIgKnownMap();
       function mapChewFrac(token) {
         var t = String(token || "").toUpperCase().replace(/Ё/g, "Е");
-        if (/ОЧ\s*МАЛ|ОЧЕНЬ\s*МАЛ/.test(t)) return "ОЧ МАЛ";
-        if (/ПОЛОВИН/.test(t)) return "ПОЛОВИНКА";
+        // явно «очень мелкое» → ОЧ МАЛ (есть у корня)
+        if (/ОЧ\s*МАЛ|ОЧЕНЬ\s*(МАЛ|МЕЛК)|СУПЕР\s*(МАЛ|МЕЛК)/.test(t)) return "ОЧ МАЛ";
+        if (/ПОЛОВИН|ПОЛ\s*ШТ|1\/2/.test(t)) return "ПОЛОВИНКА";
         if (/ПАЛК|ПАЛОЧ/.test(t)) return "ПАЛК";
-        if (/ПЛАСТ/.test(t)) return "ПЛАСТ";
-        if (/ОГР|ОГРОМ/.test(t)) return "ОГР";
-        // маленькие / маленький / маленькая — до короткого МАЛ
-        if (/МАЛЕНЬК/.test(t)) return "МАЛ";
-        if (/МЕЛК|МЕЛКИЙ|МЕЛКАЯ|МЕЛКИЕ|КУБИК/.test(t) && !/ОЧ/.test(t)) return "МАЛ";
+        if (/ПЛАСТ|ПЛАСТИН/.test(t)) return "ПЛАСТ";
+        if (/ОГР|ОГРОМ|ГИГАНТ|РОГАЛИК/.test(t)) return "ОГР";
+        // мелкие / маленькие / малюсенькие / крошечные / мини → МАЛ
+        if (/МАЛЮСЕНЬК|МАХОНЬК|КРОШЕЧН|КРОХОТН|МИНИАТЮР|МАЛЕНЬК|МЕЛК|МЕЛКО|МИНИ(?![А-ЯA-Z])|КУБИК/.test(t)) return "МАЛ";
         if (/(^|[^А-ЯA-Z])МАЛ([^А-ЯA-Z]|$)/.test(t)) return "МАЛ";
-        if (/СРЕДН|СРЕД/.test(t)) return "СРЕД";
-        if (/БОЛЬШ|БОЛ([^А-ЯA-Z]|$)|КРУПН/.test(t)) return "БОЛ";
-        if (/ЦЕЛ/.test(t)) return "Обычная";
+        if (/СРЕДН|СРЕДНЕВАТ|СРЕД(?![А-ЯA-Z])|НОРМ(?![А-ЯA-Z])/.test(t)) return "СРЕД";
+        if (/БОЛЬШ|КРУПН|ЗДОРОВЕН|БОЛ([^А-ЯA-Z]|$)/.test(t)) return "БОЛ";
+        if (/ЦЕЛ|ЦЕЛИКОМ|ОБЫЧН/.test(t)) return "Обычная";
         return "";
       }
       function mapDressFrac(token) {
         var t = String(token || "").toUpperCase().replace(/Ё/g, "Е");
-        if (/МАЛЕНЬК|МЕЛК|КУБИК/.test(t)) return "Мелкое";
-        if (/СРЕДН|СРЕД/.test(t)) return "Среднее";
-        if (/КРУПН/.test(t)) return "Крупное";
-        if (/БОЛЬШ/.test(t)) return "Большое";
-        if (/ЦЕЛ/.test(t)) return "Целое";
+        if (/МАЛЮСЕНЬК|МАХОНЬК|КРОШЕЧН|КРОХОТН|МИНИАТЮР|МАЛЕНЬК|МЕЛК|МЕЛКО|КУБИК|МИНИ(?![А-ЯA-Z])/.test(t)) return "Мелкое";
+        if (/СРЕДН|СРЕДНЕВАТ|СРЕД(?![А-ЯA-Z])|НОРМ(?![А-ЯA-Z])/.test(t)) return "Среднее";
+        if (/КРУПН|ЗДОРОВЕНН|ОГРОМ|ГИГАНТ/.test(t)) return "Крупное";
+        if (/БОЛЬШ|ЗДОРОВ(?![А-ЯA-Z])/.test(t)) return "Большое";
+        if (/ЦЕЛ|ЦЕЛИКОМ/.test(t)) return "Целое";
         if (/ЛОМТ/.test(t)) return ""; // ломтики — не фракция каталога
+        if (/ПОЛОСК|ПОЛОС(?![А-ЯA-Z])/.test(t)) return "Большое"; // полоски ≈ крупнее ломтика
+        if (/КУСОЧК/.test(t)) return "Среднее";
+        if (/МЕЛК\w*\s*КУСОЧ|МЕЛК\w*\s*КУБ/.test(t)) return "Мелкое";
         return "";
       }
       function igAliasResolve(up) {
@@ -6090,7 +6093,7 @@
         var up = namePart.toUpperCase().replace(/\s+/g, " ").trim();
         var frac = "";
         var fracSrc = paren || "";
-        var fracHit = up.match(/(ОЧ\s*МАЛ|МАЛЕНЬК\w*|МЕЛК\w*|СРЕДН\w*|БОЛЬШ\w*|КРУПН\w*|ЦЕЛ\w*|СРЕД(?![А-ЯЁA-Z])|МАЛ(?![А-ЯЁA-Z])|БОЛ(?![А-ЯЁA-Z])|ОГР|ПАЛК|ПЛАСТ|ПОЛОВИН\w*|КУБИК\w*|ЛОМТ\w*)/);
+        var fracHit = up.match(/(ОЧ\s*МАЛ|ОЧЕНЬ\s*(?:МАЛ|МЕЛК)\w*|СУПЕР\s*(?:МАЛ|МЕЛК)\w*|МАЛЮСЕНЬК\w*|МАХОНЬК\w*|КРОШЕЧН\w*|КРОХОТН\w*|МИНИАТЮР\w*|МАЛЕНЬК\w*|МЕЛК\w*|СРЕДНЕВАТ\w*|СРЕДН\w*|БОЛЬШ\w*|КРУПН\w*|ЗДОРОВЕНН\w*|ОГРОМ\w*|ГИГАНТ\w*|ЦЕЛИКОМ|ЦЕЛ\w*|ПОЛОВИН\w*|ПАЛОЧ\w*|ПАЛК|ПЛАСТИН\w*|ПЛАСТ|КУБИК\w*|КУСОЧК\w*|ЛОМТ\w*|ПОЛОСК\w*|РОГАЛИК|СРЕД(?![А-ЯЁA-Z])|МАЛ(?![А-ЯЁA-Z])|БОЛ(?![А-ЯЁA-Z])|ОГР|МИНИ(?![А-ЯЁA-Z])|НОРМ(?![А-ЯЁA-Z]))/);
         if (fracHit) {
           fracSrc = fracSrc || fracHit[0];
           up = up.replace(fracHit[0], "").replace(/\s+/g, " ").trim();
