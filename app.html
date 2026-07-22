@@ -618,7 +618,7 @@
   </div>
   <div class="app">
     <div class="app-top" id="appTopBar">
-    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.9.8</div>
+    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.9.9</div>
 
     <div class="nav-tabs" id="navTabs">
       <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
@@ -943,8 +943,41 @@
             <button type="button" class="seg-btn" id="priceModeRet" onclick="setPriceMode('retail')">Розница</button>
           </div>
         </div>
-        <button class="btn-action btn-orange" type="button" onclick="calcPriceFromBasket()">Считать корзину заказа</button>
+        <button class="btn-action btn-orange" type="button" onclick="calcPriceFromBasket()">Считать</button>
       </div>
+
+      <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <span>Корзина цены</span>
+        <button type="button" class="btn-action" style="margin:0;padding:6px 12px;font-size:12px;background:#3a3a3c;" onclick="clearPriceBasket()">Очистить</button>
+      </div>
+      <div class="card" id="priceBasketContainer"><p class="muted">Пусто — ручной ввод или чеклист. Если пусто, «Считать» возьмёт корзину Заказа.</p></div>
+
+      <button type="button" class="btn-action btn-blue" id="btnPriceManualEntry" onclick="togglePriceManualEntry()">Ручной ввод</button>
+      <div id="priceManualEntryPanel" style="display:none;margin-top:10px;">
+        <div class="grid-buttons">
+          <button class="btn-action btn-blue" onclick="openPriceProductSelector('dressura')">Дрессура</button>
+          <button class="btn-action btn-orange" onclick="openPriceProductSelector('chew')">Жевалки</button>
+          <button class="btn-action btn-purple" onclick="openPriceProductSelector('other')">Другое</button>
+          <button class="btn-action btn-brown" onclick="openPriceProductSelector('powder')">Присыпки</button>
+          <button class="btn-action btn-green" onclick="openPriceProductSelector('veg')">Овощи/Фрукты</button>
+        </div>
+        <div class="card" id="priceSelectorCard" style="display:none;margin-top:10px;">
+          <div class="form-group">
+            <label id="priceSelectorTitle">Позиция</label>
+            <select id="priceMainSelect" onchange="onPriceProductChange()"></select>
+          </div>
+          <div class="form-group" id="priceFractionGroup" style="display:none;">
+            <label>Фракция / тип</label>
+            <select id="priceFractionSelect"></select>
+          </div>
+          <div class="form-group">
+            <label id="priceValueLabel">Объём</label>
+            <input type="number" id="priceVolumeInput" placeholder="0" inputmode="numeric">
+          </div>
+          <button class="btn-action btn-blue" onclick="addItemToPriceBasket()">В корзину цены</button>
+        </div>
+      </div>
+
       <div class="section-title">Чеклист Instagram</div>
       <div class="card">
         <textarea class="ig-paste" id="igPriceChecklistPaste" placeholder="Вставь чеклист — разберём в корзину цены…"></textarea>
@@ -975,7 +1008,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.9.8";
+    const APP_VERSION = "v7.9.9";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -6211,9 +6244,128 @@
         return { id: Date.now() + Math.random(), cat: it.cat, main: it.main, name: it.name, sub: it.sub, value: it.val, val: it.val };
       });
       if (parsed.noteBits.length) showToast("Часть позиций без фракции — проверь");
+      renderPriceBasket();
       calcPriceFromBasket(true);
     }
     window.parseIgChecklistIntoPrice = parseIgChecklistIntoPrice;
+
+    let priceManualCategory = "";
+    function togglePriceManualEntry() {
+      var panel = document.getElementById("priceManualEntryPanel");
+      var btn = document.getElementById("btnPriceManualEntry");
+      if (!panel) return;
+      var open = panel.style.display === "block";
+      panel.style.display = open ? "none" : "block";
+      if (open) {
+        var sel = document.getElementById("priceSelectorCard");
+        if (sel) sel.style.display = "none";
+      }
+      if (btn) btn.textContent = open ? "Ручной ввод" : "Скрыть ручной ввод";
+    }
+    window.togglePriceManualEntry = togglePriceManualEntry;
+
+    function openPriceProductSelector(catKey) {
+      priceManualCategory = catKey;
+      var cat = catalog[catKey];
+      document.getElementById("priceSelectorTitle").innerText = cat.title;
+      document.getElementById("priceSelectorCard").style.display = "block";
+      var html = '<option value="">-- Выбрать --</option>';
+      cat.items.forEach(function (n) { html += '<option value="' + n + '">' + n + "</option>"; });
+      document.getElementById("priceMainSelect").innerHTML = html;
+      document.getElementById("priceFractionGroup").style.display = "none";
+      document.getElementById("priceVolumeInput").value = "";
+      document.getElementById("priceValueLabel").innerText = catKey === "chew" ? "Количество (шт)" : "Вес (гр)";
+    }
+    window.openPriceProductSelector = openPriceProductSelector;
+
+    function onPriceProductChange() {
+      var mainVal = document.getElementById("priceMainSelect").value;
+      var cat = catalog[priceManualCategory];
+      document.getElementById("priceValueLabel").innerText =
+        unitForItem(priceManualCategory, mainVal) === "шт" ? "Количество (шт)" : "Вес (гр)";
+      if (cat.fractions && cat.fractions[mainVal]) {
+        document.getElementById("priceFractionGroup").style.display = "block";
+        document.getElementById("priceFractionSelect").innerHTML =
+          cat.fractions[mainVal].map(function (f) { return '<option value="' + f + '">' + f + "</option>"; }).join("");
+      } else {
+        document.getElementById("priceFractionGroup").style.display = "none";
+        document.getElementById("priceFractionSelect").innerHTML = "";
+      }
+    }
+    window.onPriceProductChange = onPriceProductChange;
+
+    async function addItemToPriceBasket() {
+      var mainVal = document.getElementById("priceMainSelect").value;
+      var fracVal = document.getElementById("priceFractionSelect").value || "";
+      var inputVal = Number(document.getElementById("priceVolumeInput").value) || 0;
+      if (!mainVal) { await uiAlertAsync("Выберите наименование"); return; }
+      if (inputVal <= 0) { await uiAlertAsync("Укажите количество больше нуля"); return; }
+      priceBasket.push({
+        id: Date.now() + Math.random(),
+        cat: priceManualCategory,
+        main: mainVal,
+        name: mainVal,
+        sub: fracVal,
+        value: inputVal,
+        val: inputVal
+      });
+      document.getElementById("priceSelectorCard").style.display = "none";
+      document.getElementById("priceVolumeInput").value = "";
+      renderPriceBasket();
+      calcPriceFromBasket(true);
+      showToast("Добавлено в корзину цены");
+    }
+    window.addItemToPriceBasket = addItemToPriceBasket;
+
+    function renderPriceBasket() {
+      var box = document.getElementById("priceBasketContainer");
+      if (!box) return;
+      if (!priceBasket.length) {
+        box.innerHTML = '<p class="muted">Пусто — ручной ввод или чеклист. Если пусто, «Считать» возьмёт корзину Заказа.</p>';
+        return;
+      }
+      box.innerHTML = priceBasket.map(function (item) {
+        var unit = unitForItem(item.cat, item.main);
+        var sub = item.sub ? ("Фракция: " + item.sub) : ("Категория: " + item.cat);
+        var priceHtml = "";
+        if (priceMode === "retail") {
+          var r = retailLineCost(item.main || item.name, item.sub || "", item.value != null ? item.value : item.val, item.cat);
+          priceHtml = r.found
+            ? ('<div class="basket-sub" style="color:#30d158;">' + r.cost + " BYN</div>")
+            : '<div class="basket-sub" style="color:#ff9f0a;">нет в прайсе</div>';
+        }
+        return '<div class="basket-card ' + item.cat + '">' +
+          '<button class="btn-inline-del" onclick="deletePriceBasketItem(' + item.id + ')">Удалить</button>' +
+          '<div class="basket-info">' + escapeHtml(item.main) + " → " + item.value + " " + unit + "</div>" +
+          '<div class="basket-sub">' + escapeHtml(sub) + "</div>" +
+          priceHtml +
+          "</div>";
+      }).join("");
+    }
+    window.renderPriceBasket = renderPriceBasket;
+
+    function deletePriceBasketItem(id) {
+      priceBasket = priceBasket.filter(function (x) { return x.id !== id; });
+      renderPriceBasket();
+      if (priceBasket.length) calcPriceFromBasket(true);
+      else {
+        var box = document.getElementById("priceResult");
+        if (box) box.innerHTML = '<p class="muted">—</p>';
+      }
+    }
+    window.deletePriceBasketItem = deletePriceBasketItem;
+
+    async function clearPriceBasket() {
+      if (!priceBasket.length) { showToast("Корзина цены уже пуста"); return; }
+      var ok = await uiConfirmAsync("Очистить корзину цены (" + priceBasket.length + " поз.)?");
+      if (!ok) return;
+      priceBasket = [];
+      renderPriceBasket();
+      var box = document.getElementById("priceResult");
+      if (box) box.innerHTML = '<p class="muted">—</p>';
+      showToast("Корзина цены очищена");
+    }
+    window.clearPriceBasket = clearPriceBasket;
 
 
     async function loadWarehouse() {
@@ -6349,16 +6501,21 @@
       if (pp) pp.classList.toggle("active", mode === "pp" || mode === "subscription");
       if (bp) bp.classList.toggle("active", mode === "bp");
       if (ret) ret.classList.toggle("active", mode === "retail");
+      try { renderPriceBasket(); } catch (e) {}
+      if (priceBasket && priceBasket.length) calcPriceFromBasket(true);
     }
     window.setPriceMode = setPriceMode;
 
     async function calcPriceFromBasket(usePriceBasket) {
-      var list = usePriceBasket && priceBasket && priceBasket.length ? priceBasket : basket;
+      var list = (usePriceBasket || (priceBasket && priceBasket.length)) && priceBasket && priceBasket.length
+        ? priceBasket
+        : basket;
       var box = document.getElementById("priceResult");
       if (!list || !list.length) {
         if (box) box.innerHTML = '<p class="muted">Корзина пуста</p>';
         return null;
       }
+      var srcLabel = (list === priceBasket) ? "корзина цены" : "корзина заказа";
       if (priceMode === "retail") {
         var local = calcRetailBasketTotal(list);
         if (box) {
@@ -6369,7 +6526,7 @@
               (L.found ? "" : " <span class=\"muted\">(нет в прайсе)</span>") +
               "</div>";
           }).join("");
-          box.innerHTML = '<div class="card"><b>Розница</b> · витрина IG<br><b style="font-size:18px;">' +
+          box.innerHTML = '<div class="card"><b>Розница</b> · ' + srcLabel + '<br><b style="font-size:18px;">' +
             local.total + " BYN</b></div>" + rows;
         }
         return local;
@@ -6386,7 +6543,7 @@
         }
         var modeLabel = priceMode === "bp" ? "БП" : "ПП";
         if (box) {
-          box.innerHTML = '<div class="card"><b>' + modeLabel + "</b> · " +
+          box.innerHTML = '<div class="card"><b>' + modeLabel + "</b> · " + srcLabel + " · " +
             ("себест. " + res.cost + " × " + res.markup + " (" + (res.sheet || "") + ")") +
             '<br><b style="font-size:18px;">' + res.total + " BYN</b></div>";
         }
