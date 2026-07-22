@@ -604,7 +604,7 @@
     </div>
   </div>
   <div class="app">
-    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.8.2</div>
+    <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.9.0</div>
 
     <div class="nav-tabs" id="navTabs">
       <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
@@ -638,6 +638,21 @@
       <div class="card">
         <input type="hidden" id="isEditMode" value="false">
         <div class="form-group">
+          <label>Тип заказа</label>
+          <div class="seg-row" id="orderTypeRow">
+            <button type="button" class="seg-btn active" id="otPp" onclick="setOrderType('pp')">ПП</button>
+            <button type="button" class="seg-btn" id="otBp" onclick="setOrderType('bp')">БП</button>
+            <button type="button" class="seg-btn" id="otRet" onclick="setOrderType('retail')">Розница</button>
+            <button type="button" class="seg-btn" id="otPart" onclick="setOrderType('partner')">Партнёр</button>
+          </div>
+          <div class="field-hint" id="orderTypeHint">ПП — цена с листа ФАКТ СТОИМОСТЬ · БП = 0 + опросник · Розница — авто · Партнёр — свой прайс</div>
+        </div>
+        <div class="form-group" id="orderPriceGroup" style="display:none;">
+          <label>Цена заказа (BYN)</label>
+          <input type="number" id="orderPriceInput" step="0.01" min="0" placeholder="Для партнёра — вручную" inputmode="decimal">
+          <div class="field-hint" id="orderPriceHint"></div>
+        </div>
+        <div class="form-group">
           <label>Дата доставки</label>
           <input type="date" id="deliveryDate" onchange="onDeliveryDateChange()">
           <div class="field-hint">Заказ бронируется на дату. В «Прием заказов» попадёт утром предыдущего дня (для нарезки).</div>
@@ -653,11 +668,13 @@
         <div class="form-group">
           <label>Ник / Имя клиента</label>
           <input type="text" id="client" placeholder="Например: Мария" autocomplete="off" oninput="onClientNameInput()">
-          <button type="button" class="btn-action btn-orange" id="clientMatchBtn" style="margin-top:8px;display:none;" onclick="applyClientMatch()"></button>
-          <button type="button" class="btn-action btn-orange" style="margin-top:8px;" onclick="prepareSecondDog()">2 собаки</button>
-          <div class="field-hint">Если клиент уже был — загорится «Есть совпадение» (адрес/телефон/заметка, без состава).</div>
+          <div class="batch-bar-row" style="margin-top:8px;">
+            <button type="button" class="btn-action btn-orange" id="clientMatchBtn" style="flex:1;margin:0;display:none;" onclick="applyClientMatch()"></button>
+            <button type="button" class="btn-action btn-blue" id="btnSecondDog" style="flex:1;margin:0;" onclick="prepareSecondDog()">2 собаки</button>
+          </div>
+          <div class="field-hint" id="secondDogHint">«2 собаки»: сначала контакты владельца и 1-й состав → сохрани → затем только состав 2-й.</div>
         </div>
-                <div class="form-group">
+        <div class="form-group">
           <label>Адрес доставки</label>
           <div class="addr-suggest-wrap">
             <input type="text" id="addressInput" placeholder="Начните вводить улицу и дом — выберите из списка" autocomplete="off" oninput="onAddressInput()" onblur="onAddressBlurDelayed()">
@@ -665,6 +682,11 @@
           </div>
           <div class="addr-picked" id="addressPickedHint">Адрес выбран — координаты сохранены</div>
           <div class="field-hint">Выберите вариант из подсказок (бесплатно) — тогда Яндекс откроет точку точно. Если не Минск / дальше 20 км — спросим почту.</div>
+        </div>
+        <div class="form-group">
+          <label>Подъезд / домофон (для курьера)</label>
+          <input type="text" id="entranceInput" placeholder="подъезд 3, домофон 45" autocomplete="off">
+          <div class="field-hint">Курьеру покажем короткий адрес + это. Полный текст из поиска не тащим в маршрут.</div>
         </div>
         <div class="form-group">
           <label>Телефон</label>
@@ -689,12 +711,12 @@
           <div class="field-hint">Введите адрес отделения, куда повезут заказ (не адрес клиента)</div>
         </div>
         <div class="form-group">
-          <label>Примечания</label>
-          <div id="notesList"></div>
-          <button type="button" class="btn-action btn-orange" style="margin-top:6px;" onclick="addOrderNote()">Добавить ещё</button>
-          <div class="field-hint">У каждого — роли и постоянное/разовое. Телефон — только в поле выше (нарезчику не показываем).</div>
+          <button type="button" class="btn-action btn-orange" id="btnOpenNotes" onclick="openNotesModal()">Примечание</button>
+          <div class="field-hint" id="notesSummary" style="margin-top:6px;">Нет примечаний</div>
+          <div id="notesList" style="display:none;"></div>
           <input type="hidden" id="noteInput" value="">
         </div>
+        <button type="button" class="btn-action btn-purple" id="btnSecondDogOrder" style="display:none;margin-top:8px;" onclick="startSecondDogOrder()">Внести заказ 2-й собаки</button>
       </div>
 
       <div class="section-title">Корзина</div>
@@ -938,7 +960,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.8.2";
+    const APP_VERSION = "v7.9.0";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1109,6 +1131,14 @@
       if (!isEditableFocus()) return;
       try { document.activeElement.blur(); } catch (e) {}
     }
+
+    document.addEventListener("click", function (e) {
+      var t = e.target;
+      if (!t) return;
+      if (t.closest && t.closest("input, textarea, select, .addr-suggest, .modal-overlay, .seg-btn, button, a, label")) return;
+      dismissKeyboard();
+    }, true);
+
 
 // Клавиатура: убираем только при явном свайпе вниз по странице, не при наборе
     let _kbTouchY = null;
@@ -1396,7 +1426,17 @@
         b.style.display = (roleOk && allowedOk) ? "" : "none";
       });
       const first = allowed.filter(function (s) { return MAIN_TABS.indexOf(s) >= 0; })[0] || "orderScreen";
-      if (first) switchTab(first);
+      var active = document.querySelector(".screen.active");
+      var cur = active && active.id;
+      // не откидывать на стартовую, если уже на разрешённой вкладке
+      if (cur && allowed.indexOf(cur) >= 0) {
+        document.querySelectorAll(".tab-link").forEach(function (el) {
+          el.classList.toggle("active", el.getAttribute("data-screen") === cur ||
+            (FLYOUT_SCREENS.indexOf(cur) >= 0 && el.getAttribute("data-screen") === "orderScreen"));
+        });
+      } else if (first) {
+        switchTab(first);
+      }
       try { refreshWeekBanners(); } catch (e) {}
     }
 
@@ -1525,23 +1565,169 @@
       });
     }
 
+
+    let orderType = "pp"; // pp | bp | retail | partner
+    let secondDogMode = false; // true = вводим только состав 2-й
+    let ownerContactSnapshot = null;
+
+    function setOrderType(t) {
+      orderType = t;
+      ["pp", "bp", "retail", "partner"].forEach(function (k) {
+        var map = { pp: "otPp", bp: "otBp", retail: "otRet", partner: "otPart" };
+        var el = document.getElementById(map[k]);
+        if (el) el.classList.toggle("active", k === t);
+      });
+      var pg = document.getElementById("orderPriceGroup");
+      var hint = document.getElementById("orderPriceHint");
+      var inp = document.getElementById("orderPriceInput");
+      if (t === "partner") {
+        if (pg) pg.style.display = "";
+        if (hint) hint.textContent = "Партнёр — свой прайс, укажи вручную";
+      } else if (t === "bp") {
+        if (pg) pg.style.display = "";
+        if (inp) inp.value = "0";
+        if (hint) hint.textContent = "БП бесплатно = 0; при сохранении спросим опросник";
+      } else if (t === "pp") {
+        if (pg) pg.style.display = "";
+        if (hint) hint.textContent = "Подтянем ФАКТ СТОИМОСТЬ с листа ПП (можно поправить)";
+        try { refreshPpFactPrice(); } catch (e) {}
+      } else {
+        // retail — авто, поле скрыто (посчитаем при сохранении/на вкладке Цена)
+        if (pg) pg.style.display = "none";
+      }
+    }
+    window.setOrderType = setOrderType;
+
+    async function refreshPpFactPrice() {
+      if (orderType !== "pp") return;
+      var nick = (document.getElementById("client") && document.getElementById("client").value || "").trim();
+      if (nick.length < 2) return;
+      try {
+        var res = await apiGet({ action: "getPpFactCost", nick: nick });
+        if (res && res.status === "success" && res.factCost != null) {
+          var inp = document.getElementById("orderPriceInput");
+          if (inp) inp.value = String(res.factCost);
+          var hint = document.getElementById("orderPriceHint");
+          if (hint) hint.textContent = "ФАКТ СТОИМОСТЬ с ПП: " + res.factCost + " BYN" +
+            (res.deliveries ? (" · N=" + res.deliveries) : "");
+        }
+      } catch (e) {}
+    }
+
+    function shortAddressForCourier(full, entrance) {
+      var s = String(full || "").trim();
+      // убрать страну/индекс/длинные хвосты геокодера
+      s = s.replace(/,\s*(Belarus|Беларусь|Минская область|Minsk Region).*$/i, "");
+      s = s.replace(/^\d{6},?\s*/g, "");
+      // оставить улица + дом (первые 2–3 значимых куска)
+      var parts = s.split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+      var keep = [];
+      for (var i = 0; i < parts.length; i++) {
+        var p = parts[i];
+        if (/^(Belarus|Беларусь|Минск|Minsk)$/i.test(p) && keep.length) continue;
+        keep.push(p);
+        if (keep.length >= 2 && /\d/.test(p)) break;
+        if (keep.length >= 3) break;
+      }
+      var short = keep.length ? keep.join(", ") : s;
+      var ent = String(entrance || "").trim();
+      if (ent) short = short + (short ? ", " : "") + ent;
+      return short;
+    }
+
+    function updateNotesSummary() {
+      var el = document.getElementById("notesSummary");
+      if (!el) return;
+      var n = (orderNotes || []).filter(function (x) { return String(x.text || "").trim(); }).length;
+      el.textContent = n ? ("Примечаний: " + n + " — нажми «Примечание» чтобы править") : "Нет примечаний";
+    }
+
+    async function openNotesModal() {
+      if (!orderNotes.length) orderNotes = [defaultOrderNote()];
+      renderOrderNotes();
+      var html = '<div class="modal-title">Примечания</div>' +
+        '<div id="notesModalBody"></div>' +
+        '<div class="modal-actions">' +
+        '<button type="button" class="btn-action btn-orange" id="notesAddMore">Добавить ещё</button>' +
+        '<button type="button" class="btn-action btn-green" id="notesDone">Готово</button>' +
+        '</div>';
+      openModal(html);
+      setTimeout(function () {
+        var body = document.getElementById("notesModalBody");
+        var list = document.getElementById("notesList");
+        if (body && list) {
+          body.appendChild(list);
+          list.style.display = "";
+        }
+        var add = document.getElementById("notesAddMore");
+        if (add) add.onclick = function () { addOrderNote(); };
+        var done = document.getElementById("notesDone");
+        if (done) done.onclick = function () {
+          var hidden = document.querySelector(".card #notesListHost") || document.getElementById("btnOpenNotes");
+          // вернуть список в скрытый хост
+          var host = document.getElementById("notesList");
+          if (host && host.parentElement && host.parentElement.id === "notesModalBody") {
+            var wrap = document.getElementById("btnOpenNotes");
+            if (wrap && wrap.parentElement) {
+              wrap.parentElement.appendChild(host);
+              host.style.display = "none";
+            }
+          }
+          updateNotesSummary();
+          closeModal(true);
+        };
+      }, 0);
+    }
+    window.openNotesModal = openNotesModal;
+
     function prepareSecondDog() {
       const el = document.getElementById("client");
       let name = (el.value || "").trim();
       if (!name) {
-        showToast("Сначала укажи имя первой собаки / клиента");
+        showToast("Сначала укажи имя / ник владельца");
         return;
       }
-      name = name.replace(/\s*[·•#]\s*2\s*$/i, "").trim();
-      el.value = name + " · 2";
-      el.readOnly = false;
-      document.getElementById("isEditMode").value = "false";
-      basket = [];
-      renderBasket();
-      document.getElementById("btnMainSave").innerText = "Сохранить 2-ю собаку";
-      showToast("Корзина для 2-й собаки. Адрес/телефон те же — наборы разные.");
+      // снимок контактов — для 2-й собаки
+      ownerContactSnapshot = {
+        client: name.replace(/\s*[·•#]\s*2\s*$/i, "").trim(),
+        address: (document.getElementById("addressInput") && document.getElementById("addressInput").value) || "",
+        entrance: (document.getElementById("entranceInput") && document.getElementById("entranceInput").value) || "",
+        phone: (document.getElementById("phoneInput") && document.getElementById("phoneInput").value) || "",
+        geo: selectedAddressGeo
+      };
+      var btn = document.getElementById("btnSecondDogOrder");
+      if (btn) btn.style.display = "";
+      showToast("Сохрани 1-й заказ, потом «Внести заказ 2-й собаки» — только состав");
     }
     window.prepareSecondDog = prepareSecondDog;
+
+    function startSecondDogOrder() {
+      var base = ownerContactSnapshot;
+      if (!base) {
+        prepareSecondDog();
+        base = ownerContactSnapshot;
+      }
+      if (!base) return;
+      secondDogMode = true;
+      document.getElementById("isEditMode").value = "false";
+      document.getElementById("client").value = base.client + " · 2";
+      document.getElementById("client").readOnly = false;
+      if (document.getElementById("addressInput")) document.getElementById("addressInput").value = base.address || "";
+      if (document.getElementById("entranceInput")) document.getElementById("entranceInput").value = base.entrance || "";
+      if (document.getElementById("phoneInput")) document.getElementById("phoneInput").value = base.phone || "";
+      selectedAddressGeo = base.geo || null;
+      setAddressPickedHint(!!selectedAddressGeo);
+      basket = [];
+      renderBasket();
+      clearOrderNotes();
+      document.getElementById("btnMainSave").innerText = "Сохранить 2-ю собаку";
+      var btn = document.getElementById("btnSecondDogOrder");
+      if (btn) btn.style.display = "none";
+      showToast("Контакты те же — внеси только состав 2-й собаки");
+    }
+    window.startSecondDogOrder = startSecondDogOrder;
+
+
 
     let clientMatchTimer = null;
     let clientMatchCache = null;
@@ -1553,6 +1739,10 @@
     function onClientNameInput() {
       const q = (document.getElementById("client").value || "").trim();
       hideClientMatchBtn();
+      if (orderType === "pp" && q.length >= 2) {
+        clearTimeout(onClientNameInput._ppT);
+        onClientNameInput._ppT = setTimeout(refreshPpFactPrice, 500);
+      }
       if (q.length < 2) return;
       clearTimeout(clientMatchTimer);
       clientMatchTimer = setTimeout(async function () {
@@ -1845,7 +2035,9 @@
 
     async function sendEntireOrder() {
       const clientName = document.getElementById("client").value.trim();
-      let clientAddress = document.getElementById("addressInput").value.trim();
+      let clientAddressFull = document.getElementById("addressInput").value.trim();
+      const entrance = (document.getElementById("entranceInput") && document.getElementById("entranceInput").value || "").trim();
+      let clientAddress = shortAddressForCourier(clientAddressFull, entrance);
       let clientNote = serializeOrderNotes(orderNotes).trim();
       const day = document.getElementById("day").value;
       const deliveryDate = (document.getElementById("deliveryDate") && document.getElementById("deliveryDate").value) || "";
@@ -1853,6 +2045,26 @@
       if (!clientName) { await uiAlertAsync("Введите имя клиента"); return; }
       if (!deliveryDate) { await uiAlertAsync("Укажите дату доставки"); return; }
       if (!basket.length) { await uiAlertAsync("Корзина пуста"); return; }
+      var orderPrice = null;
+      if (orderType === "bp") orderPrice = 0;
+      else if (orderType === "partner" || orderType === "pp") {
+        var pv = document.getElementById("orderPriceInput") && document.getElementById("orderPriceInput").value;
+        orderPrice = pv === "" || pv == null ? null : Number(pv);
+        if (orderType === "partner" && !(orderPrice >= 0)) {
+          await uiAlertAsync("Укажите цену партнёра (BYN)");
+          return;
+        }
+      }
+      var surveyMeta = null;
+      if (orderType === "bp" && !secondDogMode) {
+        var ask = await uiConfirmAsync("Это БП. Внести клиента в БП и Опросник?");
+        if (ask) {
+          var when = prompt("Дата отправки опросника (ГГГГ-ММ-ДД) или пусто = сегодня", "") || "";
+          surveyMeta = { needSurvey: true, surveyDate: when };
+        } else {
+          surveyMeta = { needSurvey: false };
+        }
+      }
       {
         var hasText = (orderNotes || []).some(function (n) { return String(n.text || "").trim(); });
         if (hasText) {
@@ -1933,6 +2145,11 @@
         phone: phone,
         note: clientNote,
         permanentNote: permanentNote,
+        orderType: orderType,
+        orderPrice: orderPrice,
+        addressFull: clientAddressFull,
+        entrance: entrance,
+        survey: surveyMeta,
         geo: selectedAddressGeo ? {
           lat: selectedAddressGeo.lat,
           lon: selectedAddressGeo.lon,
@@ -2003,7 +2220,15 @@
         basket = [];
         renderBasket();
         document.getElementById("appHeaderTitle").innerText = "Бойня-Конвейер " + APP_VERSION;
-        try { logLearnEvent("saveOrder", { client: clientName, day: day, items: basket.length }); } catch (eL) {}
+        try { logLearnEvent("saveOrder", { client: clientName, day: day, items: basket.length, orderType: orderType }); } catch (eL) {}
+        if (!secondDogMode && ownerContactSnapshot) {
+          var b2 = document.getElementById("btnSecondDogOrder");
+          if (b2) b2.style.display = "";
+        }
+        if (secondDogMode) {
+          secondDogMode = false;
+          document.getElementById("btnMainSave").innerText = "Сохранить заказ";
+        }
         await refreshDayViews(day);
       } catch (err) {
         await uiAlertAsync("Ошибка: " + (err.message || err));
@@ -3111,7 +3336,7 @@
               <input type="checkbox" ${c.delivered ? "checked" : ""} onchange="toggleDelivered(${idx}, this.checked)">
               <span class="cut-title">${idx + 1}. ${escapeHtml(c.name)}</span>
             </label>
-            <div class="cut-meta">${c.address ? ("Адрес: " + escapeHtml(c.address)) : "Адрес не указан"}
+            <div class="cut-meta">${c.address ? ("Адрес: " + escapeHtml(typeof shortAddressForCourier === "function" ? shortAddressForCourier(c.address, "") : c.address)) : "Адрес не указан"}
               ${formatTelHtml(c.phone || extractPhone(c.note || ""))}
               ${noteTextForRole(c.note || "", "cour") ? ("<br>Примечание: " + escapeHtml(noteTextForRole(c.note || "", "cour"))) : ""}
             </div>
@@ -3212,6 +3437,7 @@
           '</div></div>';
       }).join("");
       syncLegacyNoteInput();
+      try { updateNotesSummary(); } catch (e) {}
     }
     function onOrderNoteText(i, v) {
       if (!orderNotes[i]) return;
@@ -5481,8 +5707,13 @@
       if (aliases[up]) return aliases[up];
       return up;
     }
+
     function parseIgLinesToItems(raw) {
-      var lines = String(raw || "").split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+      var IGNORE_LINE = /^(дрессур|жевалк|фрукт|овощ|присып|вс[её]\s*подход|спасибо|заменил|второй\s*заказ|итоговая|цена\s|стоимость|будет\s*ли|вам\s*будет|давайте\s*под|удобно\s*получить|доставк)/i;
+      var IGNORE_HAS = /(рубл|цена\s*за|стоимость\s*этого|итоговая\s*стоимость|с\s*учётом\s*доставк|вс[её]\s*подходит)/i;
+      var lines = String(raw || "").split(/\r?\n/).map(function (l) {
+        return l.replace(/^[\s*•\-–—]+/, "").trim();
+      }).filter(Boolean);
       var added = [];
       var noteBits = [];
       var known = buildIgKnownMap();
@@ -5490,31 +5721,56 @@
         var t = String(token || "").toUpperCase();
         if (/ОЧ\s*МАЛ|ОЧЕНЬ\s*МАЛ/.test(t)) return "ОЧ МАЛ";
         if (/ПОЛОВИН/.test(t)) return "ПОЛОВИНКА";
-        if (/ПАЛК/.test(t)) return "ПАЛК";
+        if (/ПАЛК|ПАЛОЧ/.test(t)) return "ПАЛК";
         if (/ПЛАСТ/.test(t)) return "ПЛАСТ";
         if (/ОГР|ОГРОМ/.test(t)) return "ОГР";
-        if (/\bМЕЛК|\bМАЛ\b/.test(t) && !/ОЧ/.test(t)) return "МАЛ";
+        if (/\bМЕЛК|\bМАЛ\b|КУБИК/.test(t) && !/ОЧ/.test(t)) return "МАЛ";
         if (/СРЕДН|СРЕД/.test(t)) return "СРЕД";
         if (/БОЛЬШ|БОЛ|КРУПН/.test(t)) return "БОЛ";
+        if (/ЦЕЛ/.test(t)) return "Обычная";
         return "";
       }
       function mapDressFrac(token) {
         var t = String(token || "").toUpperCase();
-        if (/МЕЛК/.test(t)) return "Мелкое";
+        if (/МЕЛК|КУБИК/.test(t)) return "Мелкое";
         if (/СРЕДН|СРЕД/.test(t)) return "Среднее";
         if (/КРУПН/.test(t)) return "Крупное";
         if (/БОЛЬШ/.test(t)) return "Большое";
         if (/ЦЕЛ/.test(t)) return "Целое";
+        if (/ЛОМТ/.test(t)) return ""; // ломтики — не фракция каталога
         return "";
+      }
+      function igAliasResolve(up) {
+        var aliases = {
+          "РУБЕЦ": "РУБЕЦ Т",
+          "КОРЕНЬ": "БЫЧИЙ КОРЕНЬ",
+          "БЫЧИЙКОРЕНЬ": "БЫЧИЙ КОРЕНЬ",
+          "БЫЧИЙ КОРЕНЬ": "БЫЧИЙ КОРЕНЬ",
+          "ЛЕГКОЕ": "ЛЁГКОЕ",
+          "ЛЁГКОЕ": "ЛЁГКОЕ",
+          "БАРАНЬЕ ЛЕГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
+          "БАРАНЬЕ ЛЁГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
+          "ЯБЛОКО": "ЯБЛОКИ",
+          "ЯБЛОКИ": "ЯБЛОКИ",
+          "УШКО": "УХО Г",
+          "УШКО Г": "УХО Г",
+          "УХО": "УХО Г",
+          "ЛОПАТОЧНЫЙ ХРЯЩ": "ЛОП ХРЯЩ шт.",
+          "ЛОП ХРЯЩ": "ЛОП ХРЯЩ шт.",
+          "УТИНЫЕ ШЕИ": "УТИНЫЕ ШЕИ шт.",
+          "УТИНАЯ ШЕЯ": "УТИНЫЕ ШЕИ шт.",
+          "СТАНОВАЯ ЖИЛА": "СТАНОВАЯ ЖИЛА",
+          "ИНДЕЙКА": "ИНДЕЙКА"
+        };
+        if (aliases[up]) return aliases[up];
+        return up;
       }
       function matchKnown(upRaw) {
         var up = igAliasResolve(upRaw);
         var keys = Object.keys(known).sort(function (a, b) { return b.length - a.length; });
-        // exact
         for (var i = 0; i < keys.length; i++) {
           if (up === keys[i]) return known[keys[i]];
         }
-        // longest key contained in up OR up contained in key (only if up length >= 5)
         var best = null, bestLen = 0;
         for (var j = 0; j < keys.length; j++) {
           var k = keys[j];
@@ -5524,26 +5780,42 @@
         return best;
       }
       lines.forEach(function (line) {
-        var m = line.match(/^(.+?)\s*[—\-–:]\s*(\d+(?:[.,]\d+)?)\s*(г|гр|грамм|шт|кг)?/i) ||
+        if (IGNORE_LINE.test(line) || IGNORE_HAS.test(line)) return;
+        if (/^\d{1,2}([./-]\d{1,2})?\s*(июл|авг|сен|окт|ноя|дек|янв|фев|мар|апр|мая|июн)/i.test(line)) return;
+        if (/доставк/i.test(line) && /(удобн|числ|вторник|понедельник|дата)/i.test(line)) return;
+
+        var m = line.match(/^(.+?)\s*[—\-–:]\s*(\d+(?:[.,]\d+)?)\s*(г|гр|грамм|шт|кг)?(?:\s*[\(（]([^\)）]+)[\)）])?/i) ||
                 line.match(/^(\d+(?:[.,]\d+)?)\s*(г|гр|шт|кг)?\s+(.+)$/i);
-        var namePart = "", val = 0, unit = "";
+        var namePart = "", val = 0, unit = "", paren = "";
         if (m) {
           if (m[3] && /г|шт|кг/i.test(String(m[2] || ""))) {
             val = parseFloat(String(m[1]).replace(",", ".")); unit = m[2] || ""; namePart = m[3];
           } else {
             namePart = m[1]; val = parseFloat(String(m[2]).replace(",", ".")); unit = m[3] || "";
+            paren = m[4] || "";
           }
         } else {
-          var m2 = line.match(/(.+?)\s+(\d+(?:[.,]\d+)?)\s*(г|гр|шт|кг)?$/i);
+          var m2 = line.match(/(.+?)\s+(\d+(?:[.,]\d+)?)\s*(г|гр|шт|кг)?(?:\s*[\(（]([^\)）]+)[\)）])?$/i);
           if (!m2) return;
-          namePart = m2[1]; val = parseFloat(String(m2[2]).replace(",", ".")); unit = m2[3] || "";
+          namePart = m2[1]; val = parseFloat(String(m2[2]).replace(",", ".")); unit = m2[3] || ""; paren = m2[4] || "";
         }
+        namePart = String(namePart || "").replace(/[\(（][^\)）]+[\)）]/g, function (x) {
+          if (!paren) paren = x.replace(/[\(\)（）]/g, "");
+          return "";
+        }).trim();
         if (!namePart || !(val > 0)) return;
+        // отсев: чисто цена без продукта
+        if (/^(набор|состав|заказ|итого)/i.test(namePart)) return;
         if (/кг/i.test(unit)) val = Math.round(val * 1000);
+
         var up = namePart.toUpperCase().replace(/\s+/g, " ").trim();
         var frac = "";
-        var fracHit = up.match(/\b(ОЧ\s*МАЛ|МЕЛК\w*|СРЕДН\w*|СРЕД\w*|БОЛЬШ\w*|КРУПН\w*|ЦЕЛ\w*|МАЛ|БОЛ|ОГР|ПАЛК|ПЛАСТ|ПОЛОВИН\w*)\b/);
-        if (fracHit) up = up.replace(fracHit[0], "").replace(/\s+/g, " ").trim();
+        var fracSrc = paren || "";
+        var fracHit = up.match(/\b(ОЧ\s*МАЛ|МЕЛК\w*|СРЕДН\w*|СРЕД\w*|БОЛЬШ\w*|КРУПН\w*|ЦЕЛ\w*|МАЛ|БОЛ|ОГР|ПАЛК|ПЛАСТ|ПОЛОВИН\w*|КУБИК\w*|ЛОМТ\w*)\b/);
+        if (fracHit) {
+          fracSrc = fracSrc || fracHit[0];
+          up = up.replace(fracHit[0], "").replace(/\s+/g, " ").trim();
+        }
         up = igAliasResolve(up);
         var hit = matchKnown(up);
         if (!hit) {
@@ -5551,26 +5823,38 @@
           added.push({ cat: "other", main: namePart.trim(), name: namePart.trim(), sub: "", value: val, val: val });
           return;
         }
-        if (fracHit) {
-          frac = hit.cat === "chew" ? mapChewFrac(fracHit[0]) : mapDressFrac(fracHit[0]);
-          if (hit.cat === "chew" && !frac) frac = mapDressFrac(fracHit[0]);
+        if (fracSrc) {
+          frac = hit.cat === "chew" ? mapChewFrac(fracSrc) : mapDressFrac(fracSrc);
+          if (hit.cat === "chew" && !frac) frac = mapDressFrac(fracSrc);
           if (hit.cat === "dressura" && frac === "Большое" && hit.fractions.indexOf("Большое") < 0 && hit.fractions.indexOf("Крупное") >= 0) frac = "Крупное";
-          if (hit.cat === "chew" && /СРЕДН/.test(String(fracHit[0]).toUpperCase())) frac = "СРЕД";
+          if (hit.cat === "chew" && /СРЕДН/.test(String(fracSrc).toUpperCase())) frac = "СРЕД";
+          if (hit.name === "АОРТА" && /ЦЕЛ/.test(String(fracSrc).toUpperCase())) frac = "Обычная";
+          if (hit.name === "УХО Г" && /ПОЛОВИН/.test(String(fracSrc).toUpperCase())) frac = "ПОЛОВИНКА";
         }
         if (hit.fractions && hit.fractions.length) {
           if (!frac) {
-            if (hit.cat === "dressura" && hit.fractions.indexOf("Среднее") >= 0) {
-              frac = "Среднее";
-            } else if (hit.name === "БЫЧИЙ КОРЕНЬ") {
-              noteBits.push(hit.name + " " + val + " — нужна фракция (ОЧ МАЛ/МАЛ/СРЕД/БОЛ/ОГР)");
+            if (hit.cat === "dressura" && hit.fractions.indexOf("Среднее") >= 0) frac = "Среднее";
+            else if (hit.name === "БЫЧИЙ КОРЕНЬ") {
+              noteBits.push(hit.name + " " + val + " — нужна фракция");
               frac = "";
             } else {
-              noteBits.push(hit.name + " " + val + " — фракция не указана");
+              noteBits.push(hit.name + " " + val + (fracSrc ? " (" + fracSrc + ")" : "") + " — фракция?");
               frac = "";
             }
           } else if (hit.fractions.indexOf(frac) < 0) {
-            noteBits.push(hit.name + " / " + frac + " " + val + " — нет такой фракции");
-            frac = "";
+            // try fuzzy
+            var found = "";
+            for (var fi = 0; fi < hit.fractions.length; fi++) {
+              if (String(hit.fractions[fi]).toUpperCase().indexOf(String(frac).toUpperCase()) >= 0 ||
+                  String(frac).toUpperCase().indexOf(String(hit.fractions[fi]).toUpperCase()) >= 0) {
+                found = hit.fractions[fi]; break;
+              }
+            }
+            if (found) frac = found;
+            else {
+              noteBits.push(hit.name + " / " + frac + " — нет в каталоге");
+              frac = "";
+            }
           }
         } else {
           frac = "";
@@ -5579,6 +5863,8 @@
       });
       return { items: added, noteBits: noteBits };
     }
+
+
     function parseIgChecklistIntoBasket() {
       var raw = (document.getElementById("igChecklistPaste").value || "").trim();
       if (!raw) { showToast("Вставь текст чеклиста"); return; }
@@ -5833,6 +6119,7 @@
     try { bindOrderLongPress(); } catch (e) {}
     try { bindCourierLongPress(); } catch (e) {}
     try { renderOrderNotes(); } catch (e) {}
+    try { setOrderType(orderType || 'pp'); updateNotesSummary(); } catch (e) {}
     try { bootstrapAccess(); } catch (e) { try { applyRoleTabs(); } catch (e2) {} }
     try { applyTelegramSafeArea(); } catch (e) {}
     clearBlockingOverlays();

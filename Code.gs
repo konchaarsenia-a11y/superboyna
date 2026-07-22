@@ -598,6 +598,12 @@ function doGet(e) {
   if (action === "listSurvey") {
     return handleListSurvey({}, callback, false);
   }
+  if (action === "getPpFactCost") {
+    return handleGetPpFactCost({
+      nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
+      client: e.parameter.client ? decodeURIComponent(e.parameter.client) : ""
+    }, callback, false);
+  }
   if (action === "setupBookingTriggers") {
     return handleSetupBookingTriggers(callback, false);
   }
@@ -795,6 +801,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "listSurvey") {
     return handleListSurvey(json, callback, fromPost);
+  }
+  if (action === "getPpFactCost") {
+    return handleGetPpFactCost(json, callback, fromPost);
   }
   return fromPost ? jsonpText(callback, { status: "unknown_action" }) : jsonp(callback, { status: "unknown_action" });
 }
@@ -1289,6 +1298,7 @@ function handleSaveOrder(ss, json, callback) {
     upsertClientProfile_(ss, json.client, json.address, json.phone || extractPhoneFromNote_(cleanNote), profileNote, "saveOrder");
   } catch (eProf) {}
 
+  try { ensureBpAndSurveyFromOrder_(json); } catch (eBp) {}
   // Telegram-проверку склада не зовём на каждый save — сильно тормозит запись
   return jsonpText(callback, { status: "success" });
 }
@@ -5103,5 +5113,79 @@ function handleListSurvey(json, callback, fromPost) {
     note: "Опросник БП2/ПП1 — каркас; лист подключим в полном F"
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+
+
+function handleGetPpFactCost(json, callback, fromPost) {
+  var nick = String(json.nick || json.client || "").trim();
+  var out = { status: "success", nick: nick, factCost: null, deliveries: 0 };
+  try {
+    var crmSs = getCrmSpreadsheet_();
+    var sh = findSheetByBaseName_(crmSs, "ПП");
+    if (!sh || sh.getLastRow() < 2) {
+      return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+    }
+    var data = sh.getDataRange().getValues();
+    var headers = data[0].map(function (h) { return String(h || "").trim().toUpperCase(); });
+    var factCol = -1;
+    for (var c = 0; c < headers.length; c++) {
+      if (headers[c].indexOf("ФАКТ") >= 0 && headers[c].indexOf("СТОИМ") >= 0) { factCol = c; break; }
+    }
+    if (factCol < 0) {
+      for (var c2 = 0; c2 < headers.length; c2++) {
+        if (headers[c2].indexOf("ФАКТ СТОИМОСТЬ") >= 0 || headers[c2] === "ФАКТ СТОИМОСТЬ") { factCol = c2; break; }
+      }
+    }
+    var want = extractInstagramNick_(nick).toUpperCase();
+    for (var r = 2; r < data.length; r++) {
+      var cell = extractInstagramNick_(data[r][0]).toUpperCase();
+      if (cell && cell === want) {
+        out.deliveries = Number(data[r][2]) || 0;
+        if (factCol >= 0) {
+          var raw = data[r][factCol];
+          out.factCost = Number(String(raw != null ? raw : "").replace(",", ".").replace(/[^\d.]/g, "")) || 0;
+        }
+        break;
+      }
+    }
+  } catch (e) {
+    out.status = "error";
+    out.message = String(e);
+  }
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+}
+
+function ensureBpAndSurveyFromOrder_(json) {
+  if (String(json.orderType || "") !== "bp") return;
+  if (json.survey && json.survey.needSurvey === false) return;
+  var crmSs = getCrmSpreadsheet_();
+  var nick = String(json.client || "").trim();
+  if (!nick) return;
+  var bp = findSheetByBaseName_(crmSs, "БП");
+  if (bp) {
+    // append minimal row if not exists
+    var data = bp.getDataRange().getValues();
+    var want = extractInstagramNick_(nick).toUpperCase();
+    var found = false;
+    for (var r = 2; r < data.length; r++) {
+      if (extractInstagramNick_(data[r][0]).toUpperCase() === want) { found = true; break; }
+    }
+    if (!found) {
+      var basket = json.basket || [];
+      bp.appendRow([nick, "", 1, "БП1", "", JSON.stringify(basket)]);
+    }
+  }
+  var survey = findSheetByBaseName_(crmSs, "Опросник");
+  if (!survey) {
+    try {
+      survey = crmSs.insertSheet("Опросник");
+      survey.appendRow(["nick", "tag", "sentAt", "dueAt", "note", "status"]);
+    } catch (e2) {}
+  }
+  if (survey) {
+    var sent = json.survey && json.survey.surveyDate ? json.survey.surveyDate : Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+    survey.appendRow([nick, "БП2", sent, "", "from_order", "new"]);
+  }
 }
 
