@@ -912,11 +912,11 @@
         <div id="pricePpExtras">
           <div class="form-group">
             <label>Доставок в месяц (N)</label>
-            <input type="number" id="priceDeliveriesN" value="1" min="1" max="8" inputmode="numeric">
+            <input type="number" id="priceDeliveriesN" value="1" min="1" max="8" inputmode="numeric" oninput="schedulePriceLiveUpdate()">
           </div>
           <div class="form-group">
             <label>Коэффициент</label>
-            <input type="number" id="pricePpCoef" value="2.3" min="0.1" max="10" step="0.1" inputmode="decimal">
+            <input type="number" id="pricePpCoef" value="2.3" min="0.1" max="10" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
           </div>
           <div class="form-group">
             <label>Пакеты <span class="muted" id="pricePackTotalLabel">(0 BYN)</span></label>
@@ -952,25 +952,25 @@
             <div class="seg-row" style="gap:6px;flex-wrap:wrap;">
               <div style="flex:1;min-width:70px;">
                 <div class="muted" style="font-size:11px;margin-bottom:2px;">целое</div>
-                <input type="number" id="priceFracWhole" value="0" step="0.1" inputmode="decimal">
+                <input type="number" id="priceFracWhole" value="0" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
               </div>
               <div style="flex:1;min-width:70px;">
                 <div class="muted" style="font-size:11px;margin-bottom:2px;">крупный</div>
-                <input type="number" id="priceFracLarge" value="1" step="0.1" inputmode="decimal">
+                <input type="number" id="priceFracLarge" value="1" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
               </div>
               <div style="flex:1;min-width:70px;">
                 <div class="muted" style="font-size:11px;margin-bottom:2px;">средний</div>
-                <input type="number" id="priceFracMedium" value="2" step="0.1" inputmode="decimal">
+                <input type="number" id="priceFracMedium" value="2" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
               </div>
               <div style="flex:1;min-width:70px;">
                 <div class="muted" style="font-size:11px;margin-bottom:2px;">мелкий</div>
-                <input type="number" id="priceFracSmall" value="3" step="0.1" inputmode="decimal">
+                <input type="number" id="priceFracSmall" value="3" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
               </div>
             </div>
           </div>
           <div class="form-group">
             <label>Примечание для клиента (опционально)</label>
-            <textarea id="priceClientNote" rows="3" placeholder="Напр.: учли тонкую нарезку, заменили становую на трахею…"></textarea>
+            <textarea id="priceClientNote" rows="3" placeholder="Напр.: учли тонкую нарезку, заменили становую на трахею…" oninput="schedulePriceLiveUpdate()"></textarea>
           </div>
         </div>
         <button class="btn-action btn-orange" type="button" onclick="calcPriceFromBasket()">Собрать сообщение</button>
@@ -1039,7 +1039,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.22";
+    const APP_VERSION = "v7.10.23";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -6895,8 +6895,8 @@
       });
       if (parsed.noteBits.length) showToast("Часть позиций без фракции — проверь");
       renderPriceBasket();
-      if (priceMode === "retail") calcPriceFromBasket();
-      else showToast("Состав готов — нажми «Собрать сообщение»");
+      pricePpApiCache = null;
+      calcPriceFromBasket({ silent: true });
     }
     window.parseIgChecklistIntoPrice = parseIgChecklistIntoPrice;
 
@@ -6963,7 +6963,8 @@
       document.getElementById("priceSelectorCard").style.display = "none";
       document.getElementById("priceVolumeInput").value = "";
       renderPriceBasket();
-      if (priceMode === "retail") calcPriceFromBasket();
+      pricePpApiCache = null;
+      calcPriceFromBasket({ silent: true });
       showToast("Добавлено в состав");
     }
     window.addItemToPriceBasket = addItemToPriceBasket;
@@ -6998,8 +6999,9 @@
     function deletePriceBasketItem(id) {
       priceBasket = priceBasket.filter(function (x) { return x.id !== id; });
       renderPriceBasket();
-      if (priceMode === "retail" && priceBasket.length) calcPriceFromBasket();
-      else if (!priceBasket.length) {
+      pricePpApiCache = null;
+      if (priceBasket.length) calcPriceFromBasket({ silent: true });
+      else {
         var box = document.getElementById("priceResult");
         if (box) box.innerHTML = '<p class="muted">Набери состав и нажми «Собрать сообщение»</p>';
       }
@@ -7012,6 +7014,7 @@
       if (!ok) return;
       priceBasket = [];
       priceLastMessage = "";
+      pricePpApiCache = null;
       pricePackCounts = { small: 0, medium: 0, large: 0, legs: 0 };
       try { renderPricePackCounters(); } catch (e0) {}
       renderPriceBasket();
@@ -7142,6 +7145,8 @@
     window.openSubInOrder = openSubInOrder;
 
     var priceLastMessage = "";
+    var pricePpApiCache = null;
+    var priceLiveTimer = null;
     /** ПП: (сумма себест) × коэф + 11 + 6×N + пакеты + наценка фракций */
     var PRICE_PP_FIXED_BYN = 11;
     var PRICE_PP_DELIVERY_PER = 6;
@@ -7149,6 +7154,17 @@
     /** Цены пакетов (FINPLAN): У1/У2/У3 / крафт с ножками */
     var PRICE_PACK_UNIT = { small: 0.34, medium: 0.56, large: 0.80, legs: 1.40 };
     var pricePackCounts = { small: 0, medium: 0, large: 0, legs: 0 };
+
+    function priceBasketFingerprint(list) {
+      return (list || []).map(function (it) {
+        return [
+          it.cat || "",
+          it.main || it.name || "",
+          it.sub || "",
+          it.val != null ? it.val : it.value
+        ].join("|");
+      }).join(";");
+    }
 
     function getPricePpCoef() {
       var el = document.getElementById("pricePpCoef");
@@ -7180,6 +7196,7 @@
       if (next > 99) next = 99;
       pricePackCounts[kind] = next;
       renderPricePackCounters();
+      schedulePriceLiveUpdate();
     }
     window.bumpPricePack = bumpPricePack;
 
@@ -7198,6 +7215,68 @@
       if (pricePackCounts.large) parts.push("бол×" + pricePackCounts.large);
       if (pricePackCounts.legs) parts.push("ножк×" + pricePackCounts.legs);
       return parts.join(" ");
+    }
+
+    function schedulePriceLiveUpdate() {
+      clearTimeout(priceLiveTimer);
+      priceLiveTimer = setTimeout(function () {
+        refreshPriceLive();
+      }, 120);
+    }
+    window.schedulePriceLiveUpdate = schedulePriceLiveUpdate;
+
+    function refreshPriceLive() {
+      if (!priceBasket || !priceBasket.length) return;
+      if (priceMode === "retail") {
+        calcPriceFromBasket({ silent: true });
+        return;
+      }
+      var fp = priceBasketFingerprint(priceBasket);
+      if (pricePpApiCache && pricePpApiCache.fingerprint === fp && pricePpApiCache.res) {
+        renderPpResultFromApi(pricePpApiCache.res, priceBasket, pricePpApiCache.retail);
+        return;
+      }
+      calcPriceFromBasket({ silent: true });
+    }
+    window.refreshPriceLive = refreshPriceLive;
+
+    function renderPpResultFromApi(res, list, retailCached) {
+      var nEl = document.getElementById("priceDeliveriesN");
+      var deliveriesN = Math.max(1, Number(nEl && nEl.value) || 1);
+      var coef = getPricePpCoef();
+      var packagesByn = calcPricePacksByn();
+      var packHint = pricePacksSummary();
+      var noteEl = document.getElementById("priceClientNote");
+      var clientNote = noteEl ? noteEl.value : "";
+      var retail = retailCached || calcRetailBasketTotal(list);
+      var costSum = recalcPpCostSum(res, list);
+      var deliveryByn = PRICE_PP_DELIVERY_PER * deliveriesN;
+      var fracMark = calcDressuraFractionMarkup(list, getPriceFracRates());
+      var subTotal = costSum * coef + PRICE_PP_FIXED_BYN + deliveryByn +
+        packagesByn + fracMark.total;
+      var msg = composePpClientMessage(list, deliveriesN, clientNote, retail.total, subTotal);
+      pricePpApiCache = {
+        fingerprint: priceBasketFingerprint(list),
+        res: res,
+        retail: retail
+      };
+      renderPriceMessageBox(msg,
+        '<div class="card" style="margin-bottom:8px;font-size:13px;"><b>ПП</b><br>' +
+        "себест. " + costSum + " × " + coef +
+        " + " + PRICE_PP_FIXED_BYN +
+        " + 6×" + deliveriesN + "(" + deliveryByn + ")" +
+        (packagesByn ? (" + пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
+        (fracMark.total ? (" + фракции " + fracMark.total) : "") +
+        " → <b>" + roundRub(subTotal) + " BYN/мес</b>" +
+        (fracMark.details.length
+          ? ('<div class="muted" style="margin-top:4px;font-size:12px;">' +
+            escapeHtml(fracMark.details.join("; ")) + "</div>")
+          : "") +
+        "<br>розница <b>" + roundRub(retail.total) + " BYN</b></div>");
+      return {
+        pp: res, retail: retail, subTotal: subTotal, coef: coef,
+        costSum: costSum, fracMark: fracMark, packagesByn: packagesByn, message: msg
+      };
     }
 
     function getPriceFracRates() {
@@ -7435,22 +7514,22 @@
       if (ret) ret.classList.toggle("active", mode === "retail");
       if (extras) extras.style.display = mode === "retail" ? "none" : "";
       try { renderPriceBasket(); } catch (e) {}
-      if (mode === "retail" && priceBasket && priceBasket.length) calcPriceFromBasket();
+      if (priceBasket && priceBasket.length) refreshPriceLive();
       else {
         var box = document.getElementById("priceResult");
-        if (box && !(priceBasket && priceBasket.length && mode === "retail")) {
-          box.innerHTML = '<p class="muted">Набери состав и нажми «Собрать сообщение»</p>';
-        }
+        if (box) box.innerHTML = '<p class="muted">Набери состав и нажми «Собрать сообщение»</p>';
       }
     }
     window.setPriceMode = setPriceMode;
 
-    async function calcPriceFromBasket() {
+    async function calcPriceFromBasket(opts) {
+      opts = opts || {};
+      var silent = !!opts.silent;
       var list = priceBasket || [];
       var box = document.getElementById("priceResult");
       if (!list.length) {
         if (box) box.innerHTML = '<p class="muted">Состав пуст — добавь позиции</p>';
-        showToast("Сначала набери состав");
+        if (!silent) showToast("Сначала набери состав");
         return null;
       }
       if (priceMode === "retail") {
@@ -7474,13 +7553,6 @@
             cat: it.cat || ""
           };
         });
-        var nEl = document.getElementById("priceDeliveriesN");
-        var deliveriesN = Math.max(1, Number(nEl && nEl.value) || 1);
-        var coef = getPricePpCoef();
-        var packagesByn = calcPricePacksByn();
-        var packHint = pricePacksSummary();
-        var noteEl = document.getElementById("priceClientNote");
-        var clientNote = noteEl ? noteEl.value : "";
         var retail = calcRetailBasketTotal(list);
         var res = await apiGet({
           action: "calcPrice",
@@ -7491,31 +7563,7 @@
           if (box) box.innerHTML = '<p class="muted">Ошибка расчёта подписки</p>';
           return null;
         }
-        // себест × коэф + 11 + 6×N + пакеты + наценка фракций
-        var costSum = recalcPpCostSum(res, list);
-        var deliveryByn = PRICE_PP_DELIVERY_PER * deliveriesN;
-        var fracRates = getPriceFracRates();
-        var fracMark = calcDressuraFractionMarkup(list, fracRates);
-        var subTotal = costSum * coef + PRICE_PP_FIXED_BYN + deliveryByn +
-          packagesByn + fracMark.total;
-        var msg = composePpClientMessage(list, deliveriesN, clientNote, retail.total, subTotal);
-        renderPriceMessageBox(msg,
-          '<div class="card" style="margin-bottom:8px;font-size:13px;"><b>ПП</b><br>' +
-          "себест. " + costSum + " × " + coef +
-          " + " + PRICE_PP_FIXED_BYN +
-          " + 6×" + deliveriesN + "(" + deliveryByn + ")" +
-          (packagesByn ? (" + пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
-          (fracMark.total ? (" + фракции " + fracMark.total) : "") +
-          " → <b>" + roundRub(subTotal) + " BYN/мес</b>" +
-          (fracMark.details.length
-            ? ('<div class="muted" style="margin-top:4px;font-size:12px;">' +
-              escapeHtml(fracMark.details.join("; ")) + "</div>")
-            : "") +
-          "<br>розница <b>" + roundRub(retail.total) + " BYN</b></div>");
-        return {
-          pp: res, retail: retail, subTotal: subTotal, coef: coef,
-          costSum: costSum, fracMark: fracMark, packagesByn: packagesByn, message: msg
-        };
+        return renderPpResultFromApi(res, list, retail);
       } catch (e) {
         if (box) box.innerHTML = '<p class="muted">Ошибка сети</p>';
         return null;
