@@ -587,6 +587,12 @@ function doGet(e) {
   if (action === "weekPullStatus") {
     return handleWeekPullStatus({}, callback, false);
   }
+  if (action === "resolveDayForDate") {
+    return handleResolveDayForDate({
+      date: e.parameter.date ? decodeURIComponent(e.parameter.date) : "",
+      deliveryDate: e.parameter.deliveryDate ? decodeURIComponent(e.parameter.deliveryDate) : ""
+    }, callback, false);
+  }
   if (action === "getStats") {
     return handleGetStats({
       period: e.parameter.period || "month"
@@ -604,6 +610,14 @@ function doGet(e) {
     return handleGetPpFactCost({
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
       client: e.parameter.client ? decodeURIComponent(e.parameter.client) : ""
+    }, callback, false);
+  }
+  if (action === "getPpOrderSuggest") {
+    return handleGetPpOrderSuggest({
+      nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
+      client: e.parameter.client ? decodeURIComponent(e.parameter.client) : "",
+      day: e.parameter.day ? decodeURIComponent(e.parameter.day) : "",
+      date: e.parameter.date ? decodeURIComponent(e.parameter.date) : ""
     }, callback, false);
   }
   if (action === "setupBookingTriggers") {
@@ -701,6 +715,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "weekPullStatus") {
     return handleWeekPullStatus(json, callback, fromPost);
+  }
+  if (action === "resolveDayForDate") {
+    return handleResolveDayForDate(json, callback, fromPost);
   }
   if (action === "setupBookingTriggers") {
     return handleSetupBookingTriggers(callback, fromPost);
@@ -812,6 +829,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "getPpFactCost") {
     return handleGetPpFactCost(json, callback, fromPost);
+  }
+  if (action === "getPpOrderSuggest") {
+    return handleGetPpOrderSuggest(json, callback, fromPost);
   }
   return fromPost ? jsonpText(callback, { status: "unknown_action" }) : jsonp(callback, { status: "unknown_action" });
 }
@@ -1032,12 +1052,13 @@ function handleUpdateCutting(ss, json, callback, fromPost) {
 /** На листе «Доставки» ники клиентов в строке 3, галочки в строке 2. Столбец C часто «итого» — ищем ник по имени. */
 function findCourierClientCol_(courierSheet, clientName) {
   if (!courierSheet) return -1;
-  var want = normalizeClientKey_(clientName);
   var nicks = courierSheet.getRange(3, 3, 1, 16).getValues()[0];
   for (var i = 0; i < nicks.length; i++) {
-    var nick = normalizeClientKey_(nicks[i]);
-    if (!nick || nick === "ИТОГО НА ДЕНЬ" || nick === "ИТОГО" || nick === "ФАКТ СНЯТОЕ") continue;
-    if (nick === want) return i + 3; // 1-based column
+    var nick = String(nicks[i] || "").trim();
+    if (!nick) continue;
+    var up = nick.toUpperCase();
+    if (up === "ИТОГО НА ДЕНЬ" || up === "ИТОГО" || up === "ФАКТ СНЯТОЕ") continue;
+    if (nicksMatch_(nick, clientName)) return i + 3; // 1-based column
   }
   return -1;
 }
@@ -1067,26 +1088,51 @@ function handleGetCourier(dayName, callback) {
       if (Object.prototype.toString.call(memFlags) === "[object Array]") {
         delivered = memFlags[client.col] === true;
       } else {
-        delivered = normalizeMemDelivered_(memFlags[String(client.name).toUpperCase()]);
+        var mk = clientMatchKey_(client.name) || String(client.name).toUpperCase();
+        delivered = normalizeMemDelivered_(memFlags[mk]) ||
+          normalizeMemDelivered_(memFlags[String(client.name).toUpperCase()]);
       }
     }
     var deliveriesN = lookupPpDeliveries_(client.name);
     var paidCycle = null;
+    var deliverySlot = 1;
+    var ppHint = "";
     try {
-      var wKey = weekPaidKey_(dateValue, tz);
-      var wStore = getWeekPaidStore_(memory, wKey, tz);
-      var pe = wStore[String(client.name).toUpperCase()];
-      if (pe && typeof pe === "object") paidCycle = pe.paid || null;
-      else if (typeof pe === "string") paidCycle = pe;
-    } catch (ePaid) {}
-    var deliveredBefore = countDeliveredThisWeek_(ss, client.name, dateValue, tz);
-    // если уже отмечен сегодня — не считать этот день повторно для «какой по счёту»
-    var slot = delivered ? Math.max(1, deliveredBefore) : (deliveredBefore + 1);
+      var resolved = resolvePpDeliverySlot_(ss, client.name, dateValue, tz, delivered);
+      deliveriesN = resolved.deliveriesN || deliveriesN;
+      deliverySlot = resolved.slot || 1;
+      var cycle = resolved.cycle;
+      if (cycle && cycle.paid) paidCycle = cycle.paid;
+      if (!paidCycle) {
+        var wKey = weekPaidKey_(dateValue, tz);
+        var wStore = getWeekPaidStore_(memory, wKey, tz);
+        var mkPaid = clientMatchKey_(client.name) || String(client.name).toUpperCase();
+        var pe = wStore[mkPaid] || wStore[String(client.name).toUpperCase()];
+        if (pe && typeof pe === "object") paidCycle = pe.paid || null;
+        else if (typeof pe === "string") paidCycle = pe;
+      }
+      if (deliveriesN >= 2) {
+        ppHint = "ПП " + deliverySlot + "/" + deliveriesN + (deliverySlot >= 2 ? " · остаток" : "");
+      } else if (deliveriesN === 1) {
+        ppHint = "ПП N=1";
+      }
+    } catch (ePaid) {
+      // fallback на старую недельную логику
+      try {
+        var wKey2 = weekPaidKey_(dateValue, tz);
+        var wStore2 = getWeekPaidStore_(memory, wKey2, tz);
+        var pe2 = wStore2[String(client.name).toUpperCase()];
+        if (pe2 && typeof pe2 === "object") paidCycle = pe2.paid || null;
+        else if (typeof pe2 === "string") paidCycle = pe2;
+        var deliveredBefore = countDeliveredThisWeek_(ss, client.name, dateValue, tz);
+        deliverySlot = delivered ? Math.max(1, deliveredBefore) : (deliveredBefore + 1);
+      } catch (e2) {}
+    }
     var askPaid = false;
     if (deliveriesN >= 2) {
       if (paidCycle === "yes") askPaid = false;
-      else if (slot <= 1) askPaid = true;          // первая доставка
-      else if (paidCycle === "no") askPaid = true; // вторая, если на первой было нет
+      else if (deliverySlot <= 1) askPaid = true;
+      else if (paidCycle === "no") askPaid = true;
       else askPaid = true;
     }
     clients.push({
@@ -1101,7 +1147,8 @@ function handleGetCourier(dayName, callback) {
       courierCol: courierCol,
       deliveriesN: deliveriesN,
       paid: paidCycle,
-      deliverySlot: slot,
+      deliverySlot: deliverySlot,
+      ppHint: ppHint,
       askPaid: askPaid && !delivered
     });
   }
@@ -1117,11 +1164,11 @@ function handleSetDelivered(ss, json, callback) {
   var dateValue = getDayDate_(ss, json.day);
   if (!block || !targetSheet || !dateValue) return jsonpText(callback, { status: "bad_day" });
 
-  var want = String(json.client || "").trim().toUpperCase();
+  var want = String(json.client || "").trim();
   var nicks = targetSheet.getRange(block.nick, 3, 1, 15).getValues()[0];
   var mgrIdx = -1;
   for (var i = 0; i < nicks.length; i++) {
-    if (String(nicks[i] || "").trim().toUpperCase() === want) {
+    if (nicksMatch_(nicks[i], want)) {
       mgrIdx = i;
       break;
     }
@@ -1134,6 +1181,7 @@ function handleSetDelivered(ss, json, callback) {
   var paidRaw = json.paid != null ? String(json.paid).toLowerCase() : "";
   var paidVal = (paidRaw === "yes" || paidRaw === "true" || paidRaw === "1") ? "yes"
     : (paidRaw === "no" || paidRaw === "false" || paidRaw === "0") ? "no" : "";
+  var memKey = clientMatchKey_(want) || normalizeClientKey_(want);
 
   if (courier && formatSheetDate(courier.getRange("A1").getValue(), tz) === dateText && courierCol > 0) {
     courier.getRange(2, courierCol).setValue(delivered);
@@ -1143,14 +1191,20 @@ function handleSetDelivered(ss, json, callback) {
   if (!values || Object.prototype.toString.call(values) === "[object Array]") {
     values = {};
   }
-  values[want] = { delivered: delivered, paid: paidVal || null };
+  values[memKey] = { delivered: delivered, paid: paidVal || null };
   saveMemoryJson_(memory, dateText, values, tz);
 
   if (paidVal) {
     var wKey = weekPaidKey_(dateValue, tz);
     var wStore = getWeekPaidStore_(memory, wKey, tz);
-    wStore[want] = { paid: paidVal, updated: dateText };
+    wStore[memKey] = { paid: paidVal, updated: dateText };
     saveMemoryJson_(memory, wKey, wStore, tz);
+  }
+  // Месячный цикл ПП: слот 1/2 + снимок состава + оплата
+  if (delivered) {
+    try {
+      recordPpDeliveryCycle_(ss, json.day, json.client, dateValue, tz, paidVal || null);
+    } catch (eCycle) {}
   }
   return jsonpText(callback, { status: "success", paid: paidVal || null });
 }
@@ -1163,6 +1217,50 @@ function normalizeClientKey_(s) {
     .replace(/\s+/g, " ")
     .toUpperCase()
     .replace(/Ё/g, "Е");
+}
+
+/**
+ * Instagram/латиница из строки. Не обрезает кириллическое имя —
+ * для отображения используй raw/display, для сравнения — clientMatchKey_.
+ */
+function extractInstagramNick_(raw) {
+  var s = String(raw || "").replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  var at = s.match(/@([A-Za-z0-9._]{2,})/);
+  if (at) return at[1];
+  // убрать хвосты сегмента/мусор в скобках
+  s = s.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
+  var parts = s.split(/\s+/);
+  for (var i = parts.length - 1; i >= 0; i--) {
+    var p = parts[i].replace(/^[.,;:]+|[.,;:]+$/g, "");
+    if (/^[A-Za-z0-9._]{3,}$/.test(p) && /[A-Za-z]/.test(p)) return p;
+  }
+  return "";
+}
+
+/** Ключ личности клиента: @handle / латиница, иначе полное имя. */
+function clientMatchKey_(raw) {
+  var ex = extractInstagramNick_(raw);
+  var base = ex || String(raw || "").replace(/\s*\b(АФК|ПП|БП|Р)\b\s*/gi, " ").replace(/\s+/g, " ").trim();
+  return normalizeClientKey_(base);
+}
+
+function nicksMatch_(a, b) {
+  var ka = clientMatchKey_(a);
+  var kb = clientMatchKey_(b);
+  if (ka && kb && ka === kb) return true;
+  var na = normalizeClientKey_(a);
+  var nb = normalizeClientKey_(b);
+  return !!(na && nb && na === nb);
+}
+
+/** Ник для записи в лист/бронь: полная первая строка, не обрезанный handle. */
+function displayClientNick_(raw) {
+  var s = String(raw || "").replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  s = s.replace(/\s*\b(АФК|ПП|БП|Р)\b\s*$/i, "").trim();
+  s = s.replace(/\s{2,}/g, " ");
+  return s || extractInstagramNick_(raw) || String(raw || "").trim();
 }
 
 /** Пометить брони клиента на дату (или все даты дня) как cancelled. */
@@ -1339,15 +1437,12 @@ function handleSaveOrder(ss, json, callback) {
   if (!block) return jsonpText(callback, { status: "bad_day" });
   var targetSheet = getTargetSheet(ss, block);
   if (!targetSheet) return jsonpText(callback, { status: "error" });
-
-  var want = normalizeClientKey_(json.client);
-  if (!want) return jsonpText(callback, { status: "no_client" });
+  if (!String(json.client || "").trim()) return jsonpText(callback, { status: "no_client" });
 
   var clientCol = -1;
   var mgrNicks = targetSheet.getRange(block.nick, 3, 1, 15).getValues()[0];
   for (var i = 0; i < 15; i++) {
-    var mNick = normalizeClientKey_(mgrNicks[i]);
-    if (mNick && mNick === want) {
+    if (nicksMatch_(mgrNicks[i], json.client)) {
       clientCol = i + 3;
       break;
     }
@@ -1909,20 +2004,28 @@ function upsertCourier_(chatId, name, username) {
 }
 
 function handleTelegramUpdate_(update) {
-  if (update && update.callback_query) {
-    handleDeficitCallback_(update.callback_query);
-    return;
-  }
-  var msg = update.message || update.edited_message;
-  if (!msg || !msg.chat) return;
-  var chat = msg.chat;
-  if (chat.type !== "private") return;
-  var from = msg.from || {};
-  var name = [from.first_name, from.last_name].filter(Boolean).join(" ").trim();
-  upsertCourier_(chat.id, name, from.username || "");
-  var text = String(msg.text || "");
-  if (/^\/start/i.test(text)) {
-    telegramSendText_(chat.id, "Привет! Ты в списке курьеров Бойни. Когда сменщик пришлёт маршрут — придёт сюда.");
+  try {
+    if (update && update.callback_query) {
+      handleDeficitCallback_(update.callback_query);
+      return;
+    }
+    var msg = update.message || update.edited_message;
+    if (!msg || !msg.chat) return;
+    var chat = msg.chat;
+    if (chat.type !== "private") return;
+    var from = msg.from || {};
+    var name = [from.first_name, from.last_name].filter(Boolean).join(" ").trim();
+    upsertCourier_(chat.id, name, from.username || "");
+    var text = String(msg.text || "");
+    if (/^\/start/i.test(text)) {
+      telegramSendText_(chat.id, "Привет! Ты в списке курьеров Бойни. Когда сменщик пришлёт маршрут — придёт сюда.");
+    }
+  } catch (eTg) {
+    try {
+      if (update && update.callback_query && update.callback_query.id) {
+        telegramAnswerCallback_(update.callback_query.id, "Ошибка обработки");
+      }
+    } catch (eAns) {}
   }
 }
 
@@ -2468,6 +2571,43 @@ function nextMorningDate_(tz) {
   return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]) + 1, 8, 0, 0);
 }
 
+function newDeficitId_() {
+  // Короткий текстовый id — Sheets не превратит в число / scientific notation
+  return "d" + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+}
+
+function normalizeDeficitId_(v) {
+  return String(v == null ? "" : v).replace(/^\uFEFF/, "").trim();
+}
+
+function isOpenDeficitStatus_(status) {
+  var s = String(status || "").trim().toLowerCase();
+  return s === "open" || s === "открыт";
+}
+
+/** Если после Deploy URL /exec сменился — кнопки в Telegram молчат. Подтягиваем webhook сами. */
+function ensureTelegramWebhookUrl_() {
+  var token = getTelegramToken_();
+  if (!token) return;
+  var url = "";
+  try { url = ScriptApp.getService().getUrl(); } catch (e) { return; }
+  if (!url) return;
+  try {
+    var infoRes = UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/getWebhookInfo", {
+      muteHttpExceptions: true
+    });
+    var info = JSON.parse(infoRes.getContentText());
+    var current = info && info.result ? String(info.result.url || "") : "";
+    if (current === url) return;
+    UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/setWebhook", {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({ url: url, allowed_updates: ["message", "callback_query"] }),
+      muteHttpExceptions: true
+    });
+  } catch (e2) {}
+}
+
 function handleRegisterCuttingDeficit(ss, json, callback, fromPost) {
   var day = String(json.day || "").trim();
   var items = json.items || [];
@@ -2480,30 +2620,49 @@ function handleRegisterCuttingDeficit(ss, json, callback, fromPost) {
   var notifyFrom = nextMorningDate_(tz);
   var now = new Date();
   var immediate = json.immediate !== false; // по умолчанию сразу + утром
+  try { ensureTelegramWebhookUrl_(); } catch (eWh) {}
   for (var i = 0; i < items.length; i++) {
     var it = items[i] || {};
-    var id = String(Date.now()) + "_" + String(Math.floor(Math.random() * 1e5)) + "_" + i;
-    var rowVals = [
-      id,
-      day,
-      String(it.name || ""),
-      Number(it.row) || 0,
-      "open",
-      now,
-      notifyFrom,
-      ""
-    ];
-    sh.appendRow(rowVals);
+    var id = newDeficitId_();
+    var itemName = String(it.name || "");
+    var itemRow = Number(it.row) || 0;
+    // Не плодим дубли: если уже есть open по дню+строке/имени — обновляем, не append
+    var existing = findOpenDeficitRow_(sh, day, itemRow, itemName);
+    var rowVals = [id, day, itemName, itemRow, "open", now, notifyFrom, ""];
+    if (existing > 0) {
+      sh.getRange(existing, 1, 1, 8).setValues([rowVals]);
+      sh.getRange(existing, 1).setNumberFormat("@");
+    } else {
+      sh.appendRow(rowVals);
+      sh.getRange(sh.getLastRow(), 1).setNumberFormat("@");
+    }
     if (immediate) {
       try {
         sendDeficitPushForRow_(rowVals);
-        sh.getRange(sh.getLastRow(), 8).setValue(now);
+        sh.getRange(existing > 0 ? existing : sh.getLastRow(), 8).setValue(now);
       } catch (ePush) {}
     }
   }
+  SpreadsheetApp.flush();
   ensureDeficitTrigger_();
   var ok = { status: "success", count: items.length };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function findOpenDeficitRow_(sh, day, rowNum, itemName) {
+  var data = sh.getDataRange().getValues();
+  var wantDay = String(day || "").trim().toUpperCase();
+  var wantName = String(itemName || "").trim().toUpperCase();
+  var wantRow = Number(rowNum) || 0;
+  for (var i = 1; i < data.length; i++) {
+    if (!isOpenDeficitStatus_(data[i][4])) continue;
+    if (String(data[i][1] || "").trim().toUpperCase() !== wantDay) continue;
+    var r = Number(data[i][3]) || 0;
+    var n = String(data[i][2] || "").trim().toUpperCase();
+    if (wantRow >= 3 && r === wantRow) return i + 1;
+    if (wantName && n === wantName) return i + 1;
+  }
+  return 0;
 }
 
 function parseCuttingFlags_(flagsStr) {
@@ -2876,15 +3035,62 @@ function telegramAnswerCallback_(callbackId, text) {
     contentType: "application/json",
     payload: JSON.stringify({
       callback_query_id: callbackId,
-      text: text || "Ок",
+      text: String(text || "Ок").slice(0, 180),
       show_alert: false
     }),
     muteHttpExceptions: true
   });
 }
 
+function telegramEditDeficitDone_(cq, day, item) {
+  if (!cq || !cq.message || !cq.message.chat) return;
+  var token = getTelegramToken_();
+  if (!token) return;
+  var chatId = cq.message.chat.id;
+  var messageId = cq.message.message_id;
+  var doneText = "✅ Куплено и заготовлено\n" + day + " · " + item;
+  try {
+    var res = UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/editMessageText", {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        text: doneText,
+        reply_markup: { inline_keyboard: [] }
+      }),
+      muteHttpExceptions: true
+    });
+    var body = {};
+    try { body = JSON.parse(res.getContentText()); } catch (eP) {}
+    if (body && body.ok) return;
+  } catch (eEdit) {}
+  // fallback: хотя бы снять кнопку
+  try {
+    UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/editMessageReplyMarkup", {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        reply_markup: { inline_keyboard: [] }
+      }),
+      muteHttpExceptions: true
+    });
+  } catch (eMk) {}
+}
+
+function parseDeficitDate_(v) {
+  if (v == null || v === "") return null;
+  if (Object.prototype.toString.call(v) === "[object Date]" && !isNaN(v.getTime())) return v;
+  var d = new Date(v);
+  if (!isNaN(d.getTime())) return d;
+  return null;
+}
+
 function sendDeficitPushForRow_(rowValues) {
-  var id = String(rowValues[0] || "");
+  var id = normalizeDeficitId_(rowValues[0]);
+  if (!id) return;
   var day = String(rowValues[1] || "");
   var item = String(rowValues[2] || "");
   var text = "⚠️ Дефицит нарезки\nДень: " + day + "\nПозиция: " + item +
@@ -2910,69 +3116,147 @@ function notifyOutNextStock_(info) {
 }
 
 function tickCuttingDeficit_() {
+  try { ensureTelegramWebhookUrl_(); } catch (eWh) {}
   var sh = getDeficitSheet_();
   var data = sh.getDataRange().getValues();
   var now = new Date();
   for (var i = 1; i < data.length; i++) {
-    var status = String(data[i][4] || "");
-    if (status !== "open") continue;
-    var notifyFrom = data[i][6] ? new Date(data[i][6]) : null;
-    if (notifyFrom && now < notifyFrom) continue;
-    var last = data[i][7] ? new Date(data[i][7]) : null;
+    if (!isOpenDeficitStatus_(data[i][4])) continue;
+    var notifyFrom = parseDeficitDate_(data[i][6]);
+    if (notifyFrom && now.getTime() < notifyFrom.getTime()) continue;
+    var last = parseDeficitDate_(data[i][7]);
     if (last && (now.getTime() - last.getTime()) < 29 * 60 * 1000) continue;
+    // Старые строки без текстового id — перевыпустить короткий id, иначе кнопка может не матчиться
+    var id = normalizeDeficitId_(data[i][0]);
+    if (!id || !/^d[a-f0-9]{8,}$/i.test(id)) {
+      id = newDeficitId_();
+      sh.getRange(i + 1, 1).setNumberFormat("@").setValue(id);
+      data[i][0] = id;
+    }
     sendDeficitPushForRow_(data[i]);
     sh.getRange(i + 1, 8).setValue(now);
   }
+  SpreadsheetApp.flush();
+}
+
+function closeDeficitRowsById_(sh, id) {
+  var rows = sh.getDataRange().getValues();
+  var want = normalizeDeficitId_(id);
+  var closed = [];
+  for (var i = 1; i < rows.length; i++) {
+    if (normalizeDeficitId_(rows[i][0]) !== want) continue;
+    if (!isOpenDeficitStatus_(rows[i][4]) && String(rows[i][4] || "").trim().toLowerCase() === "closed") {
+      closed.push({
+        rowIndex: i + 1,
+        day: String(rows[i][1] || ""),
+        item: String(rows[i][2] || ""),
+        rowNum: Number(rows[i][3]) || 0,
+        already: true
+      });
+      continue;
+    }
+    sh.getRange(i + 1, 5).setValue("closed");
+    sh.getRange(i + 1, 8).setValue(new Date());
+    closed.push({
+      rowIndex: i + 1,
+      day: String(rows[i][1] || ""),
+      item: String(rows[i][2] || ""),
+      rowNum: Number(rows[i][3]) || 0,
+      already: false
+    });
+  }
+  return closed;
+}
+
+/** Закрыть все open с тем же днём+позицией (дубли от повторных finishCutting). */
+function closeSiblingOpenDeficits_(sh, day, item, rowNum) {
+  var rows = sh.getDataRange().getValues();
+  var wantDay = String(day || "").trim().toUpperCase();
+  var wantItem = String(item || "").trim().toUpperCase();
+  var wantRow = Number(rowNum) || 0;
+  for (var i = 1; i < rows.length; i++) {
+    if (!isOpenDeficitStatus_(rows[i][4])) continue;
+    if (String(rows[i][1] || "").trim().toUpperCase() !== wantDay) continue;
+    var r = Number(rows[i][3]) || 0;
+    var n = String(rows[i][2] || "").trim().toUpperCase();
+    var same = (wantRow >= 3 && r === wantRow) || (wantItem && n === wantItem);
+    if (!same) continue;
+    sh.getRange(i + 1, 5).setValue("closed");
+    sh.getRange(i + 1, 8).setValue(new Date());
+  }
+}
+
+function markCuttingDoneLight_(day, rowNum) {
+  if (!(rowNum >= 3 && rowNum <= 48)) return;
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var cutting = ss.getSheetByName("Нарезка");
+    if (!cutting) return;
+    var dateValue = getDayDate_(ss, day);
+    if (!dateValue) return;
+    var tz = ss.getSpreadsheetTimeZone();
+    var dateText = formatSheetDate(dateValue, tz);
+    var cur = formatSheetDate(cutting.getRange("A1").getValue(), tz);
+    // Только если на листе уже нужный день — не делаем тяжёлый restore под колбэк
+    if (cur === dateText) {
+      cutting.getRange("E" + rowNum).setValue(true);
+      cutting.getRange("F" + rowNum).setValue(true);
+      try {
+        var memory = getMemoryCuttingSheet_();
+        saveCuttingState_(cutting, memory, dateText, tz);
+      } catch (eMem) {}
+    }
+  } catch (eLight) {}
 }
 
 function handleDeficitCallback_(cq) {
   var data = String((cq && cq.data) || "");
   var m = data.match(/^defdone:(.+)$/);
   if (!m) {
-    telegramAnswerCallback_(cq.id, "Неизвестная кнопка");
+    telegramAnswerCallback_(cq && cq.id, "Неизвестная кнопка");
     return;
   }
-  var id = m[1];
+  var id = normalizeDeficitId_(m[1]);
+  var answerText = "Ок";
   var sh = getDeficitSheet_();
-  var rows = sh.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][0]) === id) {
-      sh.getRange(i + 1, 5).setValue("closed");
-      var item = String(rows[i][2] || "");
-      var day = String(rows[i][1] || "");
-      var rowNum = Number(rows[i][3]) || 0;
-      if (rowNum >= 3) {
-        try {
-          handleUpdateCutting(SpreadsheetApp.getActiveSpreadsheet(), {
-            day: day, row: rowNum, done: true, laid: true
-          }, "cb", true);
-        } catch (e) {}
-      }
-      telegramAnswerCallback_(cq.id, "Куплено и заготовлено: " + item);
-      try {
-        var token = getTelegramToken_();
-        if (token && cq.message && cq.message.chat) {
-          UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/editMessageText", {
-            method: "post",
-            contentType: "application/json",
-            payload: JSON.stringify({
-              chat_id: cq.message.chat.id,
-              message_id: cq.message.message_id,
-              text: "✅ Куплено и заготовлено\n" + day + " · " + item
-            }),
-            muteHttpExceptions: true
-          });
-        }
-      } catch (eEdit) {}
-      try {
-        if (cq.from) {
-          upsertCourier_(cq.from.id, [cq.from.first_name, cq.from.last_name].filter(Boolean).join(" "), cq.from.username || "");
-        }
-      } catch (e2) {}
-      return;
+  var closed = closeDeficitRowsById_(sh, id);
+  var hit = closed.length ? closed[0] : null;
+
+  if (!hit) {
+    // Попробуем вытащить день/позицию из текста сообщения и закрыть open-дубли
+    var fallbackDay = "";
+    var fallbackItem = "";
+    try {
+      var msgText = String((cq.message && cq.message.text) || "");
+      var dayM = msgText.match(/День:\s*(.+)/i);
+      var itemM = msgText.match(/Позиция:\s*(.+)/i);
+      if (dayM) fallbackDay = String(dayM[1] || "").trim();
+      if (itemM) fallbackItem = String(itemM[1] || "").trim();
+    } catch (eFb) {}
+    if (fallbackDay && fallbackItem) {
+      closeSiblingOpenDeficits_(sh, fallbackDay, fallbackItem, 0);
+      SpreadsheetApp.flush();
+      telegramEditDeficitDone_(cq, fallbackDay, fallbackItem);
+      answerText = "Закрыто: " + fallbackItem;
+    } else {
+      telegramEditDeficitDone_(cq, "—", "уже закрыто или не найдено");
+      answerText = "Уже закрыто или не найдено";
     }
+    telegramAnswerCallback_(cq.id, answerText);
+    return;
   }
-  telegramAnswerCallback_(cq.id, "Уже закрыто или не найдено");
+
+  // Сначала закрываем статус и снимаем кнопку — без тяжёлого updateCutting (он мог вешать колбэк)
+  closeSiblingOpenDeficits_(sh, hit.day, hit.item, hit.rowNum);
+  SpreadsheetApp.flush();
+  telegramEditDeficitDone_(cq, hit.day, hit.item);
+  telegramAnswerCallback_(cq.id, "Куплено и заготовлено: " + hit.item);
+  markCuttingDoneLight_(hit.day, hit.rowNum);
+  try {
+    if (cq.from) {
+      upsertCourier_(cq.from.id, [cq.from.first_name, cq.from.last_name].filter(Boolean).join(" "), cq.from.username || "");
+    }
+  } catch (e2) {}
 }
 
 
@@ -3161,11 +3445,10 @@ function handleSaveBooking(ss, json, callback, fromPost) {
   var all = readAllBookings_();
   var dateStr = dateKey_(deliveryDate, tz);
   var existing = null;
-  var wantClient = normalizeClientKey_(client);
   for (var i = 0; i < all.length; i++) {
     var bd = parseFlexibleDate_(all[i].date, tz);
     if (bd && dateKey_(bd, tz) === dateStr &&
-        normalizeClientKey_(all[i].client) === wantClient &&
+        nicksMatch_(all[i].client, client) &&
         String(all[i].status) !== "cancelled") {
       existing = all[i];
       break;
@@ -3235,38 +3518,100 @@ function handleSaveBooking(ss, json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
-function writeBasketToDayColumn_(ss, dayName, client, address, note, basket) {
+function writeBasketToDayColumn_(ss, dayName, client, address, note, basket, opts) {
+  opts = opts || {};
   var block = getDayBlock(dayName);
   if (!block) return { ok: false, message: "bad_day" };
   var targetSheet = getTargetSheet(ss, block);
   if (!targetSheet) return { ok: false, message: "no_sheet" };
-  var want = normalizeClientKey_(client);
-  if (!want) return { ok: false, message: "no_client" };
+  var displayNick = displayClientNick_(client) || String(client || "").trim();
+  if (!displayNick) return { ok: false, message: "no_client" };
 
   var clientCol = -1;
   var mgrNicks = targetSheet.getRange(block.nick, 3, 1, 15).getValues()[0];
   for (var i = 0; i < 15; i++) {
-    var mNick = normalizeClientKey_(mgrNicks[i]);
-    if (mNick === want) { clientCol = i + 3; break; }
+    if (nicksMatch_(mgrNicks[i], displayNick) || nicksMatch_(mgrNicks[i], client)) {
+      clientCol = i + 3;
+      break;
+    }
   }
+  var created = false;
   if (clientCol === -1) {
     for (var colIdx = 3; colIdx <= 17; colIdx++) {
       if (String(targetSheet.getRange(block.nick, colIdx).getValue() || "").trim() === "") {
         clientCol = colIdx;
-        targetSheet.getRange(block.nick, clientCol).setValue(client);
+        targetSheet.getRange(block.nick, clientCol).setValue(displayNick);
+        created = true;
         break;
       }
     }
   }
   if (clientCol === -1) return { ok: false, message: "no_free_columns" };
 
+  // уже стоящий ник — не переименовывать в короткий handle
+  if (!created) {
+    var curNick = String(targetSheet.getRange(block.nick, clientCol).getValue() || "").trim();
+    if (!curNick) targetSheet.getRange(block.nick, clientCol).setValue(displayNick);
+    else if (displayNick.length > curNick.length && nicksMatch_(curNick, displayNick)) {
+      // если из месяца пришло более полное имя — обновим
+      targetSheet.getRange(block.nick, clientCol).setValue(displayNick);
+    }
+  }
+
+  var hasQty = false;
+  try {
+    var qtyVals = targetSheet.getRange(block.start, clientCol, block.end - block.start + 1, 1).getValues();
+    for (var q = 0; q < qtyVals.length; q++) {
+      if (Number(qtyVals[q][0]) > 0) { hasQty = true; break; }
+    }
+  } catch (eQty) {}
+
+  var basketItems = (basket || []).filter(function (it) {
+    var v = Number(it && (it.val != null ? it.val : it.value)) || 0;
+    var n = String((it && (it.name || it.main)) || "").trim();
+    return n && v > 0;
+  });
+
+  // Пустая бронь + в дне уже есть состав → только адрес/телефон/note, состав НЕ трогаем
+  if (!basketItems.length && hasQty && !opts.forceClear) {
+    try {
+      var curAddr = String(targetSheet.getRange(block.addr, clientCol).getValue() || "").trim();
+      if (address && !curAddr) targetSheet.getRange(block.addr, clientCol).setValue(address);
+      else if (address && opts.overwriteMeta) targetSheet.getRange(block.addr, clientCol).setValue(address);
+      var cleanNote = stripGeoTagsFromNote_(note || "");
+      var curNote = String(targetSheet.getRange(block.note, clientCol).getValue() || "").trim();
+      if (cleanNote && !curNote) targetSheet.getRange(block.note, clientCol).setValue(cleanNote);
+      else if (cleanNote && opts.overwriteMeta) targetSheet.getRange(block.note, clientCol).setValue(cleanNote);
+    } catch (eMeta) {}
+    return { ok: true, col: clientCol, preserved: true, created: created };
+  }
+
+  // Пустая бронь + пустой день → оболочка (ник/адрес/note), без clear продуктов
+  if (!basketItems.length && !hasQty) {
+    if (address) targetSheet.getRange(block.addr, clientCol).setValue(address);
+    var shellNote = stripGeoTagsFromNote_(note || "");
+    if (shellNote) targetSheet.getRange(block.note, clientCol).setValue(shellNote);
+    return { ok: true, col: clientCol, shell: true, created: created };
+  }
+
+  // Есть состав в броне — пишем (не затираем чужой день при onlyMissing+уже есть qty)
+  if (basketItems.length && hasQty && opts.skipIfHasQty) {
+    return { ok: true, col: clientCol, skipped: true, created: false };
+  }
+
   targetSheet.getRange(block.start, clientCol, block.note - block.start + 1, 1).clearContent();
+  // ник мог стереться clear'ом — вернуть
+  targetSheet.getRange(block.nick, clientCol).setValue(
+    String(targetSheet.getRange(block.nick, clientCol).getValue() || "").trim() || displayNick
+  );
+  // clearContent выше чистит от start до note включительно — nick выше start, OK.
+  // Но addr/note внутри диапазона — пишем заново:
   if (address) targetSheet.getRange(block.addr, clientCol).setValue(address);
-  var cleanNote = stripGeoTagsFromNote_(note || "");
-  if (cleanNote) targetSheet.getRange(block.note, clientCol).setValue(cleanNote);
+  var cleanNote2 = stripGeoTagsFromNote_(note || "");
+  if (cleanNote2) targetSheet.getRange(block.note, clientCol).setValue(cleanNote2);
 
   var itemsInSheet = targetSheet.getRange(block.start, 1, block.end - block.start + 1, 1).getValues();
-  (basket || []).forEach(function (orderItem) {
+  basketItems.forEach(function (orderItem) {
     var rawName = String(orderItem.name || orderItem.main || "").trim();
     var rawSub = String(orderItem.sub || "").trim();
     var inputVal = Number(orderItem.val != null ? orderItem.val : orderItem.value) || 0;
@@ -3276,7 +3621,7 @@ function writeBasketToDayColumn_(ss, dayName, client, address, note, basket) {
       targetSheet.getRange(block.start + targetRowOffset, clientCol).setValue(inputVal);
     }
   });
-  return { ok: true, col: clientCol };
+  return { ok: true, col: clientCol, created: created, wrote: basketItems.length };
 }
 
 function materializeDeliveryDate_(ss, deliveryDate, opts) {
@@ -3297,15 +3642,22 @@ function materializeDeliveryDate_(ss, deliveryDate, opts) {
   var sh = getBookingsSheet_();
   var done = 0;
   var updated = 0;
-  var forceClient = opts.forceClient ? String(opts.forceClient).trim().toUpperCase() : "";
+  var preserved = 0;
+  var forceClient = opts.forceClient ? String(opts.forceClient).trim() : "";
   var onlyMissing = !!(opts.onlyMissing === true || opts.onlyMissing === "1" || opts.onlyMissing === 1 || opts.onlyMissing === "true");
   var alreadyInWeek = {};
   if (onlyMissing) {
     try {
       var weekData = getClientsData_(ss, dayName);
       (weekData.clients || []).forEach(function (cl) {
-        var n = String(cl.name || "").trim().toUpperCase();
-        if (n) alreadyInWeek[n] = true;
+        var k = clientMatchKey_(cl.name);
+        if (k) {
+          alreadyInWeek[k] = {
+            name: cl.name,
+            basketLen: (cl.basket || []).length,
+            col: cl.col
+          };
+        }
       });
     } catch (eMiss) {}
   }
@@ -3315,20 +3667,69 @@ function materializeDeliveryDate_(ss, deliveryDate, opts) {
     if (String(b.status) === "cancelled") continue;
     var bd = parseFlexibleDate_(b.date, tz);
     if (!bd || dateKey_(bd, tz) !== dateStr) continue;
-    if (forceClient && String(b.client).trim().toUpperCase() !== forceClient) continue;
-    if (onlyMissing && alreadyInWeek[String(b.client).trim().toUpperCase()]) continue;
+    if (forceClient && !nicksMatch_(b.client, forceClient)) continue;
 
-    var res = writeBasketToDayColumn_(ss, dayName, b.client, b.address, b.note, b.basket);
-    if (res.ok) {
+    var idKey = clientMatchKey_(b.client);
+    var existingDay = idKey ? alreadyInWeek[idKey] : null;
+    var bookingBasketLen = (b.basket || []).length;
+
+    // already on day: не плодим дубли; пустую броню не накатываем поверх состава
+    if (onlyMissing && existingDay) {
+      if (bookingBasketLen && !(existingDay.basketLen > 0)) {
+        var fillRes = writeBasketToDayColumn_(ss, dayName, existingDay.name || b.client, b.address, b.note, b.basket, {
+          skipIfHasQty: true
+        });
+        if (fillRes.ok && !fillRes.skipped) {
+          done++;
+          sh.getRange(b.rowIndex, 9).setValue("pulled");
+          sh.getRange(b.rowIndex, 10).setValue(dayName);
+          sh.getRange(b.rowIndex, 12).setValue(new Date());
+          alreadyInWeek[idKey] = {
+            name: existingDay.name || b.client,
+            basketLen: bookingBasketLen,
+            col: fillRes.col
+          };
+        }
+      } else {
+        // подтянуть только контакты, состав сохранить
+        var metaRes = writeBasketToDayColumn_(ss, dayName, existingDay.name || b.client, b.address, b.note, [], {});
+        if (metaRes.ok) preserved++;
+        sh.getRange(b.rowIndex, 9).setValue("pulled");
+        sh.getRange(b.rowIndex, 10).setValue(dayName);
+        sh.getRange(b.rowIndex, 12).setValue(new Date());
+      }
+      continue;
+    }
+
+    var res = writeBasketToDayColumn_(ss, dayName, b.client, b.address, b.note, b.basket, {
+      skipIfHasQty: onlyMissing
+    });
+    if (res.ok && !res.skipped) {
       done++;
+      if (res.preserved || res.shell) preserved++;
       if (String(b.status) === "pulled") updated++;
       sh.getRange(b.rowIndex, 9).setValue("pulled");
       sh.getRange(b.rowIndex, 10).setValue(dayName);
       sh.getRange(b.rowIndex, 12).setValue(new Date());
-      alreadyInWeek[String(b.client).trim().toUpperCase()] = true;
+      if (idKey) {
+        alreadyInWeek[idKey] = {
+          name: b.client,
+          basketLen: bookingBasketLen || (res.preserved ? 1 : 0),
+          col: res.col
+        };
+      }
     }
   }
-  return { ok: true, dayName: dayName, date: dateStr, count: done, updated: updated, onlyMissing: onlyMissing, crm: crmSync };
+  return {
+    ok: true,
+    dayName: dayName,
+    date: dateStr,
+    count: done,
+    updated: updated,
+    preserved: preserved,
+    onlyMissing: onlyMissing,
+    crm: crmSync
+  };
 }
 
 function handleEnsureDayMaterialized(json, callback, fromPost) {
@@ -3406,6 +3807,20 @@ function handleMaterializeWeek(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var result = materializeCurrentWeek_(ss, json || {});
   var out = { status: "success", result: result };
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+}
+
+function handleResolveDayForDate(json, callback, fromPost) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone();
+  var d = parseFlexibleDate_(json.date || json.deliveryDate, tz);
+  var dayName = d ? (findDayNameForDate_(ss, d) || "") : "";
+  var out = {
+    status: "success",
+    date: d ? dateKey_(d, tz) : "",
+    dayName: dayName,
+    onWeek: !!dayName
+  };
   return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }
 
@@ -3791,18 +4206,6 @@ function handleListClientProfiles(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
-function extractInstagramNick_(raw) {
-  var s = String(raw || "").replace(/\s+/g, " ").trim();
-  if (!s) return "";
-  var m = s.match(/@([A-Za-z0-9._]+)/);
-  if (m) return m[1];
-  var parts = s.split(/\s+/);
-  for (var i = parts.length - 1; i >= 0; i--) {
-    if (/^[A-Za-z0-9._]{3,}$/.test(parts[i]) && /[A-Za-z]/.test(parts[i])) return parts[i];
-  }
-  return s;
-}
-
 function parseCrmCalendarCell_(text) {
   var lines = String(text || "").split(/\r?\n/).map(function (x) {
     return String(x || "").trim();
@@ -3817,17 +4220,19 @@ function parseCrmCalendarCell_(text) {
     startIdx = 1;
     nickLine = lines[1];
   }
-  var nick = extractInstagramNick_(nickLine);
-  // если extract взял общий хвост — оставить полную строку ника
-  if (!nick || nick.length < 2) return null;
-  if (/^(варка|только|написать)$/i.test(nick) && lines.length > startIdx + 1) {
+  var extracted = extractInstagramNick_(nickLine);
+  var display = displayClientNick_(nickLine);
+  if ((!display || display.length < 2) && extracted) display = extracted;
+  if (!display || display.length < 2) return null;
+  if (/^(варка|только|написать)$/i.test(display) && lines.length > startIdx + 1) {
     nickLine = lines[startIdx + 1];
-    nick = extractInstagramNick_(nickLine) || nickLine;
+    extracted = extractInstagramNick_(nickLine);
+    display = displayClientNick_(nickLine) || extracted;
     startIdx++;
   }
-  // партнёры с припиской «варка» — сохраняем полное имя строки, чтобы не сливались
-  if (/\bварка\b/i.test(nickLine) && nick !== nickLine) {
-    nick = nickLine;
+  // партнёры с припиской «варка» — полное имя строки
+  if (/\bварка\b/i.test(nickLine) && display !== nickLine) {
+    display = displayClientNick_(nickLine) || nickLine;
   }
   var segment = "";
   var address = "";
@@ -3843,7 +4248,7 @@ function parseCrmCalendarCell_(text) {
       if (rest) noteBits.push(rest);
       continue;
     }
-    if (/^\+?\d[\d\s\-()]{6,}/.test(ln) || /^\d{9,}$/.test(ln.replace(/\D/g, "")) && ln.replace(/\D/g, "").length >= 9) {
+    if (/^\+?\d[\d\s\-()]{6,}/.test(ln) || (/^\d{9,}$/.test(ln.replace(/\D/g, "")) && ln.replace(/\D/g, "").length >= 9)) {
       phone = ln;
       continue;
     }
@@ -3854,7 +4259,8 @@ function parseCrmCalendarCell_(text) {
     noteBits.push(ln);
   }
   return {
-    client: nick,
+    client: display,
+    matchKey: clientMatchKey_(extracted || display),
     address: address,
     phone: phone,
     segment: segment || (/варка/i.test(lines[0]) ? "Р" : "ПП"),
@@ -3923,8 +4329,8 @@ function readCrmClientsForDate_(crmSs, deliveryDate) {
   for (var r = 0; r < values.length; r++) {
     var parsed = parseCrmCalendarCell_(values[r][0]);
     if (!parsed) continue;
-    var key = String(parsed.client).toUpperCase();
-    if (seen[key]) continue;
+    var key = parsed.matchKey || clientMatchKey_(parsed.client);
+    if (!key || seen[key]) continue;
     seen[key] = true;
     out.push(parsed);
   }
@@ -4155,24 +4561,26 @@ function findSubscriberBasket_(crmSs, nick, preferredSegment) {
   else if (seg === "БП" || seg === "BP") sheets = ["БП", "ПП", "АФК"];
   else sheets = ["ПП", "АФК", "БП"];
 
-  var want = extractInstagramNick_(nick).toUpperCase();
+  var wantKey = clientMatchKey_(nick);
+  if (!wantKey) return { basket: [], subId: "", wishes: "", sheet: "" };
   for (var s = 0; s < sheets.length; s++) {
     var sh = findSheetByBaseName_(crmSs, sheets[s]);
     if (!sh || sh.getLastRow() < 3) continue;
     var data = sh.getDataRange().getValues();
     var headers = data[0];
+    var best = null;
     for (var r = 2; r < data.length; r++) {
       var cell = String(data[r][0] || "");
       if (!cell.trim()) continue;
-      var nickCell = extractInstagramNick_(cell).toUpperCase();
-      if (!nickCell) continue;
-      if (nickCell === want || cell.toUpperCase().indexOf(want) >= 0 || want.indexOf(nickCell) >= 0) {
-        var basket = basketFromSubscriberRow_(headers, data[r]);
-        var subId = String(data[r][1] || "").trim();
-        var wishes = String(data[r][4] || "").trim();
-        return { basket: basket, subId: subId, wishes: wishes, sheet: sheets[s] };
-      }
+      if (!nicksMatch_(cell, nick)) continue;
+      var basket = basketFromSubscriberRow_(headers, data[r]);
+      var subId = String(data[r][1] || "").trim();
+      var wishes = String(data[r][4] || "").trim();
+      var cand = { basket: basket, subId: subId, wishes: wishes, sheet: sheets[s] };
+      if (clientMatchKey_(cell) === wantKey) return cand;
+      if (!best) best = cand;
     }
+    if (best) return best;
   }
   return { basket: [], subId: "", wishes: "", sheet: "" };
 }
@@ -4180,18 +4588,15 @@ function findSubscriberBasket_(crmSs, nick, preferredSegment) {
 function lookupContactAddress_(crmSs, nick) {
   var sh = findSheetByBaseName_(crmSs, "Контакты");
   if (!sh || sh.getLastRow() < 2) return { address: "", note: "", phone: "" };
-  var want = extractInstagramNick_(nick).toUpperCase();
   var data = sh.getDataRange().getValues();
   for (var r = 1; r < data.length; r++) {
     var cell = String(data[r][0] || "");
-    var nickCell = extractInstagramNick_(cell).toUpperCase();
-    if (nickCell === want || cell.toUpperCase().indexOf(want) >= 0) {
-      return {
-        address: String(data[r][3] || "").trim(),
-        phone: String(data[r][4] || "").trim(),
-        note: String(data[r][6] || "").trim()
-      };
-    }
+    if (!nicksMatch_(cell, nick)) continue;
+    return {
+      address: String(data[r][3] || data[r][1] || "").trim(),
+      phone: String(data[r][4] || data[r][2] || "").trim(),
+      note: String(data[r][6] || data[r][3] || "").trim()
+    };
   }
   return { address: "", note: "", phone: "" };
 }
@@ -4220,7 +4625,7 @@ function syncCrmIntoBookings_(ss, deliveryDate) {
     for (var j = 0; j < all.length; j++) {
       var bd = parseFlexibleDate_(all[j].date, tz);
       if (!bd || dateKey_(bd, tz) !== dateStr) continue;
-      if (normalizeClientKey_(all[j].client) !== normalizeClientKey_(c.client)) continue;
+      if (!nicksMatch_(all[j].client, c.client)) continue;
       if (String(all[j].status) === "cancelled") {
         wasCancelled = true;
         continue;
@@ -4242,27 +4647,29 @@ function syncCrmIntoBookings_(ss, deliveryDate) {
       continue;
     }
 
-    // v7.8 / TZ D2: месяц → неделя = люди + контакты. Состав НЕ из ПП/АФК/БП.
+    // Автосостав: ПП с учётом N и слота доставки; АФК/БП — полный ряд с листа
     var contact = lookupContactAddress_(crmSs, c.client);
-    var subId = "";
-    try {
-      var subMeta = findSubscriberBasket_(crmSs, c.client, c.segment);
-      if (subMeta && subMeta.subId) subId = subMeta.subId;
-    } catch (eSub) {}
     var address = c.address || contact.address || "";
     var phone = c.phone || contact.phone || "";
+    var filled = fillSubscriptionBasketForDate_(ss, crmSs, c.client, c.segment, deliveryDate);
+    var subId = filled.subId || "";
+    var basket = filled.basket || [];
     var noteParts = [];
     if (subId) noteParts.push("[SUB:" + subId + "]");
     if (c.segment) noteParts.push("[SEG:" + c.segment + "]");
-    if (phone) noteParts.push("[TEL:" + phone + "]"); // курьер; нарезчику strip
+    if (phone) noteParts.push("[TEL:" + phone + "]");
     if (c.note) noteParts.push(c.note);
     if (contact.note) noteParts.push(contact.note);
+    if (filled.hint) noteParts.push(filled.hint);
     var note = noteParts.join(" ").trim();
-    var basket = []; // состав только из Заказа / уже существующей брони
     var now = new Date();
     var id = existing ? existing.id : ("crm" + Date.now() + "_" + Math.floor(Math.random() * 1e5));
+    var clientName = displayClientNick_(c.client);
+    if (existing && existing.client && String(existing.client).trim().length >= clientName.length) {
+      clientName = String(existing.client).trim();
+    }
     var rowVals = [
-      id, dateStr, c.client, subId || "", address, note,
+      id, dateStr, clientName, subId || "", address, note,
       JSON.stringify(basket), "subscription",
       existing && String(existing.status) === "pulled" ? "pulled" : "planned",
       existing ? existing.dayName : "", now,
@@ -4276,6 +4683,47 @@ function syncCrmIntoBookings_(ss, deliveryDate) {
     }
   }
   return { ok: true, date: dateStr, fromCalendar: clients.length, added: added, skipped: skipped };
+}
+
+/**
+ * Состав для брони на дату: ПП → доля слота (N=1 целиком / N=2 половина или остаток);
+ * АФК/БП → полный состав с листа подписки.
+ */
+function fillSubscriptionBasketForDate_(ss, crmSs, client, segment, deliveryDate) {
+  var seg = String(segment || "").toUpperCase();
+  if (seg === "Р" || seg === "R" || seg === "RETAIL") {
+    return { basket: [], subId: "", hint: "" };
+  }
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var dateStr = deliveryDate ? dateKey_(deliveryDate, tz) : "";
+
+  // ПП (или сегмент не указан, но клиент есть в ПП)
+  if (!seg || seg === "ПП" || seg === "PP") {
+    try {
+      var sug = buildPpOrderSuggest_(ss, client, "", dateStr);
+      if (sug && sug.proposedBasket && sug.proposedBasket.length) {
+        return {
+          basket: sug.proposedBasket,
+          subId: sug.subId || "",
+          hint: sug.hint ? ("[" + sug.hint + "]") : ""
+        };
+      }
+      if (sug && sug.deliveriesN >= 1) {
+        return { basket: sug.monthlyBasket || [], subId: sug.subId || "", hint: sug.hint || "" };
+      }
+    } catch (ePp) {}
+  }
+
+  try {
+    var found = findSubscriberBasket_(crmSs || getCrmSpreadsheet_(), client, seg || "ПП");
+    return {
+      basket: clonePpBasket_(found.basket || []),
+      subId: found.subId || "",
+      hint: found.sheet ? ("[лист " + found.sheet + "]") : ""
+    };
+  } catch (e2) {
+    return { basket: [], subId: "", hint: "" };
+  }
 }
 
 /* ========== v7.6: Доступы / Склад / Подписки / Цена / Сборка ========== */
@@ -4766,23 +5214,399 @@ function handlePushSubscriptionToDay(json, callback, fromPost) {
     var bad = { status: "error", message: "need_date_and_nick" };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
-  var crmSs = getCrmSpreadsheet_();
-  var found = findSubscriberBasket_(crmSs, nick, json.segment || "ПП");
-  var contact = lookupContactAddress_(crmSs, nick);
+  var suggest = buildPpOrderSuggest_(ss, nick, "", dateStr);
+  var contact = suggest.address != null ? { address: suggest.address, note: suggest.note || "" }
+    : lookupContactAddress_(getCrmSpreadsheet_(), nick);
   return handleSaveBooking(ss, {
     date: dateStr,
     client: nick,
-    subId: found.subId || json.subId || "",
-    address: json.address || contact.address || "",
-    note: json.note || ([found.wishes, contact.note].filter(Boolean).join(" ")),
-    basket: found.basket || [],
+    subId: suggest.subId || json.subId || "",
+    address: json.address || contact.address || suggest.address || "",
+    note: json.note || ([suggest.wishes, contact.note || suggest.note].filter(Boolean).join(" ")),
+    basket: suggest.proposedBasket || suggest.monthlyBasket || [],
     source: "subscription",
     alsoSaveOrder: false
   }, callback, fromPost);
 }
 
 
-/* ----- Оплата N=2 (цикл недели) ----- */
+/* ----- ПП: месячный состав → доставки + оплата N=2 ----- */
+
+function ppBasketItemKey_(it) {
+  var cat = String((it && it.cat) || "").trim().toLowerCase();
+  var name = String((it && (it.main || it.name)) || "").trim().toUpperCase().replace(/Ё/g, "Е");
+  var sub = String((it && it.sub) || "").trim().toUpperCase().replace(/Ё/g, "Е");
+  return cat + "|" + name + "|" + sub;
+}
+
+function isPpChewItem_(it) {
+  var cat = String((it && it.cat) || "").toLowerCase();
+  if (cat === "chews" || cat === "chew") return true;
+  if (cat === "dressura") return false;
+  // шт / жевалки по имени
+  var name = String((it && (it.main || it.name)) || "");
+  return /шт\.?|колен|копыт|нос|ухо|уши|шея|хрящ|хвост|рога?|сустав/i.test(name);
+}
+
+function clonePpBasket_(list) {
+  var out = [];
+  for (var i = 0; i < (list || []).length; i++) {
+    var it = list[i] || {};
+    var v = Number(it.value != null ? it.value : it.val) || 0;
+    if (v <= 0) continue;
+    out.push({
+      cat: it.cat || (isPpChewItem_(it) ? "chews" : "dressura"),
+      main: it.main || it.name || "",
+      name: it.name || it.main || "",
+      sub: it.sub || "",
+      value: v,
+      val: v
+    });
+  }
+  return out;
+}
+
+/** Первая доля: дрессура floor(n/2), жевалки ceil(n/2). Вторая — остаток. */
+function splitQtyForPpSlot_(qty, isChew, slot) {
+  var v = Number(qty) || 0;
+  if (v <= 0) return 0;
+  var first = isChew ? Math.ceil(v / 2) : Math.floor(v / 2);
+  if (first <= 0 && v > 0) first = v; // 1г дрессуры → целиком в 1-ю
+  if (slot <= 1) return first;
+  return Math.max(0, v - first);
+}
+
+function proposePpSlotBasket_(monthly, slot, deliveriesN, slot1Basket) {
+  var full = clonePpBasket_(monthly);
+  if (!full.length) return [];
+  if (!(Number(deliveriesN) >= 2)) return full;
+  var s = Number(slot) || 1;
+  if (s >= 2 && slot1Basket && slot1Basket.length) {
+    return remainderPpBasket_(full, slot1Basket);
+  }
+  var out = [];
+  for (var i = 0; i < full.length; i++) {
+    var it = full[i];
+    var chew = isPpChewItem_(it);
+    var part = splitQtyForPpSlot_(it.value, chew, s <= 1 ? 1 : 2);
+    if (part <= 0) continue;
+    out.push({
+      cat: it.cat,
+      main: it.main,
+      name: it.name,
+      sub: it.sub,
+      value: part,
+      val: part
+    });
+  }
+  return out;
+}
+
+function remainderPpBasket_(monthly, delivered) {
+  var left = {};
+  var meta = {};
+  var i;
+  for (i = 0; i < (monthly || []).length; i++) {
+    var m = monthly[i] || {};
+    var k = ppBasketItemKey_(m);
+    var v = Number(m.value != null ? m.value : m.val) || 0;
+    left[k] = (left[k] || 0) + v;
+    if (!meta[k]) meta[k] = m;
+  }
+  for (i = 0; i < (delivered || []).length; i++) {
+    var d = delivered[i] || {};
+    var kd = ppBasketItemKey_(d);
+    var vd = Number(d.value != null ? d.value : d.val) || 0;
+    left[kd] = (left[kd] || 0) - vd;
+  }
+  var out = [];
+  for (var key in left) {
+    if (!left.hasOwnProperty(key)) continue;
+    var rem = left[key];
+    if (!(rem > 0)) continue;
+    var src = meta[key] || {};
+    out.push({
+      cat: src.cat || "dressura",
+      main: src.main || src.name || "",
+      name: src.name || src.main || "",
+      sub: src.sub || "",
+      value: rem,
+      val: rem
+    });
+  }
+  return out;
+}
+
+function ppMonthCycleKey_(dateValue, tz) {
+  return "PP_CYCLE:" + Utilities.formatDate(dateValue, tz || "Europe/Minsk", "yyyy-MM");
+}
+
+function getPpMonthCycleStore_(memory, monthKey, tz) {
+  var all = getMemoryJson_(memory, monthKey, tz);
+  if (!all || typeof all !== "object" || Object.prototype.toString.call(all) === "[object Array]") return {};
+  return all;
+}
+
+function getPpCycleEntry_(memory, dateValue, tz, clientName) {
+  var store = getPpMonthCycleStore_(memory, ppMonthCycleKey_(dateValue, tz), tz);
+  var want = clientMatchKey_(clientName) || String(clientName || "").trim().toUpperCase();
+  var e = store[want] || store[String(clientName || "").trim().toUpperCase()];
+  return e && typeof e === "object" ? e : null;
+}
+
+function savePpCycleEntry_(memory, dateValue, tz, clientName, entry) {
+  if (!memory) return;
+  var key = ppMonthCycleKey_(dateValue, tz);
+  var store = getPpMonthCycleStore_(memory, key, tz);
+  var id = clientMatchKey_(clientName) || String(clientName || "").trim().toUpperCase();
+  store[id] = entry;
+  saveMemoryJson_(memory, key, store, tz);
+}
+
+function parseMemoryDateLoose_(v, tz) {
+  if (v == null || v === "") return null;
+  if (Object.prototype.toString.call(v) === "[object Date]" && !isNaN(v.getTime())) return v;
+  try {
+    var s = String(v).trim();
+    var m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
+    if (m) {
+      var y = Number(m[3]);
+      if (y < 100) y += 2000;
+      return new Date(y, Number(m[2]) - 1, Number(m[1]));
+    }
+    var d = new Date(s);
+    if (!isNaN(d.getTime())) return d;
+  } catch (e) {}
+  return null;
+}
+
+/** Сколько раз клиент уже отмечен доставленным в этом календарном месяце (по Память_Доставок + лист Доставки). */
+function countPpDeliveredThisMonth_(ss, clientName, dateValue, tz, excludeDateText) {
+  var want = String(clientName || "").trim().toUpperCase();
+  if (!want || !dateValue) return 0;
+  var ym = Utilities.formatDate(dateValue, tz, "yyyy-MM");
+  var seen = {};
+  var n = 0;
+  var memory = getMemoryCourierSheet_();
+  if (memory && memory.getLastRow() >= 1) {
+    var data = memory.getDataRange().getValues();
+    for (var i = 0; i < data.length; i++) {
+      var rawKey = String(data[i][0] || "");
+      if (/^(PP_CYCLE:|WEEK_PAID:)/i.test(rawKey)) continue;
+      var dt = formatSheetDate(data[i][0], tz);
+      if (!dt || (excludeDateText && dt === excludeDateText)) continue;
+      var parsed = parseMemoryDateLoose_(data[i][0], tz);
+      if (!parsed) continue;
+      if (Utilities.formatDate(parsed, tz, "yyyy-MM") !== ym) continue;
+      var mem = null;
+      try { mem = JSON.parse(String(data[i][1] || "")); } catch (eJ) { mem = null; }
+      if (!mem || typeof mem !== "object" || Object.prototype.toString.call(mem) === "[object Array]") continue;
+      if (normalizeMemDelivered_(mem[want])) {
+        if (!seen[dt]) { seen[dt] = true; n++; }
+      }
+    }
+  }
+  // текущий лист «Доставки», если дата этого месяца
+  try {
+    var courier = ss.getSheetByName("Доставки");
+    if (courier) {
+      var curTxt = formatSheetDate(courier.getRange("A1").getValue(), tz);
+      var curParsed = parseMemoryDateLoose_(courier.getRange("A1").getValue(), tz);
+      if (curParsed && Utilities.formatDate(curParsed, tz, "yyyy-MM") === ym &&
+          (!excludeDateText || curTxt !== excludeDateText) && !seen[curTxt]) {
+        var col = findCourierClientCol_(courier, clientName);
+        if (col > 0 && courier.getRange(2, col).getValue() === true) {
+          seen[curTxt] = true;
+          n++;
+        }
+      }
+    }
+  } catch (eC) {}
+  return n;
+}
+
+function resolvePpDeliverySlot_(ss, clientName, dateValue, tz, deliveredToday) {
+  var memory = getMemoryCourierSheet_();
+  var cycle = getPpCycleEntry_(memory, dateValue, tz, clientName);
+  var deliveriesN = lookupPpDeliveries_(clientName);
+  if (!(deliveriesN >= 1)) deliveriesN = 0;
+  var dateText = formatSheetDate(dateValue, tz);
+  var before = countPpDeliveredThisMonth_(ss, clientName, dateValue, tz, deliveredToday ? null : dateText);
+  // если сегодня уже в счётчике — before включает сегодня
+  if (deliveredToday) {
+    var slotDone = Math.max(1, before);
+    if (cycle && cycle.slot1 && cycle.slot1.date === dateText) slotDone = 1;
+    else if (cycle && cycle.slot1) slotDone = Math.max(2, slotDone);
+    return { slot: Math.min(deliveriesN || slotDone, slotDone), deliveriesN: deliveriesN, cycle: cycle };
+  }
+  var slot = before + 1;
+  if (cycle && cycle.slot1 && cycle.slot1.date !== dateText) slot = Math.max(slot, 2);
+  if (cycle && !cycle.slot1) slot = Math.max(1, Math.min(slot, 1));
+  if (deliveriesN >= 2) slot = Math.min(Math.max(1, slot), deliveriesN);
+  else if (deliveriesN === 1) slot = 1;
+  return { slot: slot, deliveriesN: deliveriesN, cycle: cycle, deliveredBefore: before };
+}
+
+function buildPpOrderSuggest_(ss, nick, dayName, dateStr) {
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var dateValue = null;
+  if (dateStr) dateValue = parseFlexibleDate_(dateStr, tz) || parseMemoryDateLoose_(dateStr, tz);
+  if (!dateValue && dayName) dateValue = getDayDate_(ss, dayName);
+  if (!dateValue) dateValue = new Date();
+
+  var crmSs = getCrmSpreadsheet_();
+  var found = findSubscriberBasket_(crmSs, nick, "ПП");
+  var contact = lookupContactAddress_(crmSs, nick);
+  var deliveriesN = lookupPpDeliveries_(nick);
+  if (!(deliveriesN >= 1) && found.basket && found.basket.length) deliveriesN = 1;
+
+  var memory = getMemoryCourierSheet_();
+  var dateText = formatSheetDate(dateValue, tz);
+  var deliveredToday = false;
+  try {
+    var courier = ss.getSheetByName("Доставки");
+    if (courier && formatSheetDate(courier.getRange("A1").getValue(), tz) === dateText) {
+      var col = findCourierClientCol_(courier, nick);
+      if (col > 0) deliveredToday = courier.getRange(2, col).getValue() === true;
+    }
+  } catch (eD) {}
+
+  var resolved = resolvePpDeliverySlot_(ss, nick, dateValue, tz, deliveredToday);
+  var slot = resolved.slot || 1;
+  var cycle = resolved.cycle;
+  var slot1Basket = cycle && cycle.slot1 && cycle.slot1.basket ? cycle.slot1.basket : [];
+  var monthly = clonePpBasket_(found.basket || []);
+  var proposed = proposePpSlotBasket_(monthly, slot, deliveriesN, slot1Basket);
+  var remaining = (deliveriesN >= 2 && slot <= 1)
+    ? proposePpSlotBasket_(monthly, 2, deliveriesN, proposed)
+    : remainderPpBasket_(monthly, slot1Basket.length ? slot1Basket : (slot >= 2 ? proposed : []));
+
+  var paid = null;
+  if (cycle && cycle.paid) paid = cycle.paid;
+  else {
+    try {
+      var wStore = getWeekPaidStore_(memory, weekPaidKey_(dateValue, tz), tz);
+      var pe = wStore[String(nick).trim().toUpperCase()];
+      if (pe && typeof pe === "object") paid = pe.paid || null;
+      else if (typeof pe === "string") paid = pe;
+    } catch (eP) {}
+  }
+
+  var askPaid = false;
+  if (deliveriesN >= 2) {
+    if (paid === "yes") askPaid = false;
+    else if (slot <= 1) askPaid = true;
+    else if (paid === "no") askPaid = true;
+    else askPaid = true;
+  }
+
+  var factCost = null;
+  try {
+    var shPp = findSheetByBaseName_(crmSs, "ПП");
+    if (shPp && shPp.getLastRow() >= 2) {
+      var dataPp = shPp.getDataRange().getValues();
+      var headersPp = dataPp[0].map(function (h) { return String(h || "").trim().toUpperCase(); });
+      var factCol = -1;
+      for (var c = 0; c < headersPp.length; c++) {
+        if (headersPp[c].indexOf("ФАКТ") >= 0 && headersPp[c].indexOf("СТОИМ") >= 0) { factCol = c; break; }
+      }
+      var wantNick = String(nick || "");
+      for (var r = 2; r < dataPp.length; r++) {
+        if (nicksMatch_(dataPp[r][0], wantNick)) {
+          if (factCol >= 0) {
+            var rawF = dataPp[r][factCol];
+            factCost = Number(String(rawF != null ? rawF : "").replace(",", ".").replace(/[^\d.]/g, "")) || 0;
+          }
+          break;
+        }
+      }
+    }
+  } catch (eF) {}
+
+  return {
+    status: "success",
+    nick: nick,
+    subId: found.subId || "",
+    sheet: found.sheet || "ПП",
+    wishes: found.wishes || "",
+    address: contact.address || "",
+    note: contact.note || "",
+    phone: contact.phone || "",
+    date: dateText,
+    day: dayName || "",
+    deliveriesN: deliveriesN,
+    deliverySlot: slot,
+    paid: paid,
+    askPaid: askPaid,
+    factCost: factCost,
+    monthlyBasket: monthly,
+    proposedBasket: proposed,
+    slot1Basket: slot1Basket,
+    remainingBasket: remaining,
+    hint: deliveriesN >= 2
+      ? ("ПП N=" + deliveriesN + " · доставка " + slot + "/" + deliveriesN + (slot >= 2 ? " (остаток)" : " (доля)"))
+      : (deliveriesN === 1 ? "ПП N=1 · состав целиком" : "ПП: состав с листа")
+  };
+}
+
+function handleGetPpOrderSuggest(json, callback, fromPost) {
+  var nick = String(json.nick || json.client || "").trim();
+  if (!nick) {
+    var bad = { status: "error", message: "need_nick" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var out = buildPpOrderSuggest_(ss, nick, String(json.day || "").trim(), String(json.date || json.deliveryDate || "").trim());
+    return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+  } catch (e) {
+    var err = { status: "error", message: String(e) };
+    return fromPost ? jsonpText(callback, err) : jsonp(callback, err);
+  }
+}
+
+function findClientDayBasket_(ss, dayName, clientName) {
+  var data = getClientsData_(ss, dayName);
+  if (!data || data.status !== "success") return [];
+  var want = String(clientName || "").trim().toUpperCase();
+  for (var i = 0; i < data.clients.length; i++) {
+    if (String(data.clients[i].name || "").trim().toUpperCase() === want) {
+      return clonePpBasket_(data.clients[i].basket || []);
+    }
+  }
+  return [];
+}
+
+function recordPpDeliveryCycle_(ss, dayName, clientName, dateValue, tz, paidVal) {
+  var deliveriesN = lookupPpDeliveries_(clientName);
+  if (!(deliveriesN >= 1)) return;
+  var memory = getMemoryCourierSheet_();
+  if (!memory) return;
+  var dateText = formatSheetDate(dateValue, tz);
+  var cycle = getPpCycleEntry_(memory, dateValue, tz, clientName) || {
+    paid: null,
+    deliveriesN: deliveriesN,
+    slot1: null,
+    slot2: null
+  };
+  cycle.deliveriesN = deliveriesN;
+  if (paidVal) cycle.paid = paidVal;
+
+  var resolved = resolvePpDeliverySlot_(ss, clientName, dateValue, tz, true);
+  var slot = resolved.slot || 1;
+  // если slot1 ещё нет — это первая доставка месяца
+  if (!cycle.slot1) slot = 1;
+  else if (cycle.slot1.date !== dateText) slot = 2;
+
+  var dayBasket = findClientDayBasket_(ss, dayName, clientName);
+  if (slot <= 1) {
+    cycle.slot1 = { date: dateText, day: dayName, basket: dayBasket };
+  } else {
+    cycle.slot2 = { date: dateText, day: dayName, basket: dayBasket };
+  }
+  savePpCycleEntry_(memory, dateValue, tz, clientName, cycle);
+}
+
 function getWeekPaidStore_(memory, weekKey, tz) {
   var all = getMemoryJson_(memory, weekKey, tz);
   if (!all || typeof all !== "object" || Object.prototype.toString.call(all) === "[object Array]") return {};
@@ -4803,10 +5627,8 @@ function lookupPpDeliveries_(clientName) {
     var sh = findSheetByBaseName_(crmSs, "ПП");
     if (!sh || sh.getLastRow() < 3) return 0;
     var data = sh.getDataRange().getValues();
-    var want = extractInstagramNick_(clientName).toUpperCase();
     for (var r = 2; r < data.length; r++) {
-      var nick = extractInstagramNick_(data[r][0]).toUpperCase();
-      if (nick && nick === want) return Number(data[r][2]) || 0;
+      if (nicksMatch_(data[r][0], clientName)) return Number(data[r][2]) || 0;
     }
   } catch (e) {}
   return 0;
@@ -5430,10 +6252,9 @@ function handleGetPpFactCost(json, callback, fromPost) {
         if (headers[c2].indexOf("ФАКТ СТОИМОСТЬ") >= 0 || headers[c2] === "ФАКТ СТОИМОСТЬ") { factCol = c2; break; }
       }
     }
-    var want = extractInstagramNick_(nick).toUpperCase();
+    var wantNick = String(nick || "");
     for (var r = 2; r < data.length; r++) {
-      var cell = extractInstagramNick_(data[r][0]).toUpperCase();
-      if (cell && cell === want) {
+      if (nicksMatch_(data[r][0], wantNick)) {
         out.deliveries = Number(data[r][2]) || 0;
         if (factCol >= 0) {
           var raw = data[r][factCol];

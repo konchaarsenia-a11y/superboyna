@@ -266,13 +266,6 @@
       color: #fff;
     }
     .cut-timer-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
-    .fx-tyan-time {
-      position: absolute; top: 6%; left: 50%; transform: translateX(-50%);
-      font-size: clamp(28px, 9vw, 44px); font-weight: 800; color: #fff;
-      text-shadow: 0 4px 28px rgba(255,80,160,0.9), 0 0 40px rgba(255,180,220,0.55);
-      animation: bannerPop 2.8s ease-out forwards;
-      letter-spacing: 1px; z-index: 2;
-    }
     .check-line { display: flex; align-items: center; gap: 8px; font-size: 14px; min-width: 0; overflow: hidden; }
     .check-line input { width: 20px; height: 20px; flex-shrink: 0; }
     .check-line .cut-title {
@@ -414,46 +407,6 @@
       40% { transform: scale(1.15) rotate(0deg); opacity: 1; }
       100% { transform: scale(1) rotate(0deg); opacity: 0; }
     }
-    .fx-tyan {
-      position: fixed; inset: 0; z-index: 10002;
-      display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
-      background: radial-gradient(ellipse at center, rgba(255,120,180,0.35) 0%, rgba(0,0,0,0.88) 70%);
-      animation: tyanFade 2.6s ease-in-out forwards;
-      overflow: hidden;
-      pointer-events: none;
-    }
-    .fx-tyan-spark {
-      position: absolute; width: 8px; height: 8px; border-radius: 50%;
-      background: #fff; opacity: 0;
-      animation: sparkFly 1.4s ease-out forwards;
-      box-shadow: 0 0 12px #ffb6e0;
-    }
-    .fx-tyan img {
-      width: min(92vw, 420px); height: auto; max-height: 78vh;
-      object-fit: contain;
-      transform-origin: bottom center;
-      animation: tyanSlam 2.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-      filter: drop-shadow(0 20px 40px rgba(255, 80, 160, 0.45));
-    }
-    .fx-tyan.fx-tyan--cut img {
-      width: min(96vw, 480px); max-height: 82vh;
-    }
-    .fx-tyan.fx-tyan--finish {
-      background: radial-gradient(ellipse at center, rgba(255,60,120,0.45) 0%, rgba(0,0,0,0.9) 70%);
-    }
-    .fx-tyan.fx-tyan--finish img {
-      width: min(110vw, 560px); max-height: 92vh;
-      object-fit: cover; object-position: center 22%;
-      transform-origin: center center;
-      animation: tyanSlamHot 2.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    }
-    @keyframes tyanSlamHot {
-      0% { transform: translateY(110%) scale(0.85) rotate(-4deg); opacity: 0; }
-      16% { transform: translateY(0) scale(1.18) rotate(1deg); opacity: 1; }
-      30% { transform: translateY(0) scale(1.05) rotate(0deg); }
-      72% { transform: translateY(0) scale(1.08) rotate(0deg); opacity: 1; }
-      100% { transform: translateY(8%) scale(1.12) rotate(0deg); opacity: 0; }
-    }
     .cut-row.done { opacity: 0.85; }
     #cuttingContainer { display: flex; flex-direction: column; gap: 10px; }
     .cut-row { order: unset; }
@@ -485,41 +438,6 @@
     .note-block .note-text { width: 100%; margin-bottom: 8px; }
     .note-block .note-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     .note-perm-row { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
-    .fx-tyan-banner {
-      position: absolute; top: 14%; left: 50%; transform: translateX(-50%);
-      font-size: clamp(22px, 7vw, 34px); font-weight: 800; color: #fff;
-      text-align: center; letter-spacing: -0.3px;
-      text-shadow: 0 4px 24px rgba(255,80,160,0.8), 0 0 40px rgba(255,180,220,0.5);
-      animation: bannerPop 2.6s ease-out forwards;
-      white-space: nowrap;
-      padding: 0 12px;
-    }
-    @keyframes tyanSlam {
-      0% { transform: translateY(110%) scale(0.7) rotate(-6deg); opacity: 0; }
-      18% { transform: translateY(0) scale(1.08) rotate(2deg); opacity: 1; }
-      28% { transform: translateY(0) scale(0.96) rotate(-1deg); }
-      40% { transform: translateY(0) scale(1.02) rotate(0deg); }
-      75% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
-      100% { transform: translateY(18%) scale(0.92) rotate(0deg); opacity: 0; }
-    }
-    @keyframes tyanFade {
-      0% { opacity: 0; }
-      8% { opacity: 1; }
-      78% { opacity: 1; }
-      100% { opacity: 0; }
-    }
-    @keyframes bannerPop {
-      0% { opacity: 0; transform: translateX(-50%) scale(0.5) translateY(-20px); }
-      15% { opacity: 1; transform: translateX(-50%) scale(1.12) translateY(0); }
-      25% { transform: translateX(-50%) scale(0.96) translateY(0); }
-      70% { opacity: 1; transform: translateX(-50%) scale(1) translateY(0); }
-      100% { opacity: 0; transform: translateX(-50%) scale(1.05) translateY(-10px); }
-    }
-    @keyframes sparkFly {
-      0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
-      20% { opacity: 1; }
-      100% { transform: translate(var(--sx), var(--sy)) scale(0); opacity: 0; }
-    }
     .card.fx-success {
       animation: cardFlash 0.65s ease;
     }
@@ -661,7 +579,7 @@
   <div class="app">
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
-        <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.10</div>
+        <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.13</div>
         <div class="nav-tabs" id="navTabs">
           <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
           <button type="button" class="tab-link" data-screen="cuttingScreen" onclick="switchTab('cuttingScreen')">Нарезка</button>
@@ -695,7 +613,7 @@
       </div>
       <div id="pullWeekBanner" class="week-banner" style="display:none;">
         <h3>Подтянуть из месяца</h3>
-        <div class="muted" id="pullWeekHint">Люди + контакты. Состав — из Заказа/брони.</div>
+        <div class="muted" id="pullWeekHint">Люди + состав из ПП/АФК/БП (ПП — доля слота N=1/N=2). Уже стоящих с составом не затираем.</div>
         <div id="pullWeekPreview" class="muted" style="margin-bottom:8px;"></div>
         <button type="button" class="btn-action btn-blue" onclick="confirmPullWeekFromHome()">Подтянуть Пн–Пт</button>
       </div>
@@ -714,6 +632,8 @@
           <label id="orderPriceLabel">Цена (BYN)</label>
           <input type="number" id="orderPriceInput" step="0.01" min="0" placeholder="0" inputmode="decimal" oninput="onOrderPriceInput()">
           <div class="field-hint" id="orderPriceLive" style="display:none;"></div>
+          <div class="field-hint" id="ppSlotHint" style="display:none;margin-top:4px;"></div>
+          <button type="button" class="btn-action btn-blue" id="btnPpSuggest" style="display:none;margin-top:6px;" onclick="suggestPpBasketFromSheet()">Состав из листа ПП</button>
           <button type="button" class="btn-action" id="btnRetailPriceAuto" style="display:none;margin-top:6px;background:#3a3a3c;" onclick="resetRetailPriceToAuto()">По прайсу витрины</button>
         </div>
         <div class="form-group">
@@ -1055,7 +975,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.10";
+    const APP_VERSION = "v7.10.13";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1260,7 +1180,8 @@
       clientsScreen:
         "Просмотр\n" +
         "• Любая дата доставки.\n" +
-        "• «Доукомплектовать» — люди из месяца на день (без состава ПП/АФК/БП).\n" +
+        "• «Доукомплектовать» — люди из месяца уже с составом ПП/АФК/БП (ПП — доля 1-й/2-й).\n" +
+        "• Заказ на дату вперёд → бронь с составом; в неделю — когда день на листе / доукомплект.\n" +
         "• Галочки → перенос или удаление пачкой.",
       cuttingScreen: "Нарезка\n• Выбери день и отмечай нарезанное.",
       courierScreen:
@@ -1268,7 +1189,7 @@
         "• Точка выезда: склад или свой адрес.\n" +
         "• Сборка: long-press. Форматы пакетов можно выключить — «Итого» уменьшится.",
       warehouseScreen: "Склад\n• Сырое/сухое, коэффициенты, снабжение.",
-      subsScreen: "Подписки\n• Состав из ПП/БП — только кнопкой «В заказ», не при подтягивании недели.",
+      subsScreen: "Подписки\n• «В заказ» и доукомплект из месяца подставляют состав с листа (ПП — с учётом слота).",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
       priceScreen: "Цена\n• ПП/БП — себест.×коэф; розница — готовые цены.\n• Чеклист — тот же разбор, что в Заказе.",
       peopleScreen: "Люди\n• Роли назначают только владельцы."
@@ -1836,7 +1757,11 @@
       var live = document.getElementById("orderPriceLive");
       var totalCard = document.getElementById("orderTotalCard");
       var btnAuto = document.getElementById("btnRetailPriceAuto");
+      var btnPp = document.getElementById("btnPpSuggest");
+      var hintPp = document.getElementById("ppSlotHint");
       if (btnAuto) btnAuto.style.display = t === "retail" ? "" : "none";
+      if (btnPp) btnPp.style.display = t === "pp" ? "" : "none";
+      if (hintPp && t !== "pp") { hintPp.style.display = "none"; hintPp.textContent = ""; }
       if (t === "partner") {
         retailPriceManual = false;
         if (pg) pg.style.display = "";
@@ -1846,7 +1771,6 @@
         if (totalCard) totalCard.style.display = "none";
       } else if (t === "bp") {
         retailPriceManual = false;
-        // БП бесплатные — цену на экране не показываем; в статистике orderPrice=0
         if (pg) pg.style.display = "none";
         if (inp) { inp.readOnly = true; inp.value = "0"; }
         if (lab) lab.textContent = "Цена (BYN)";
@@ -1861,7 +1785,6 @@
         if (totalCard) totalCard.style.display = "none";
         try { refreshPpFactPrice(); } catch (e) {}
       } else {
-        // retail — авто по прайсу, можно править вручную
         retailPriceManual = false;
         if (pg) pg.style.display = "";
         if (inp) { inp.readOnly = false; inp.placeholder = "авто или своя"; }
@@ -1916,16 +1839,88 @@
     async function refreshPpFactPrice() {
       if (orderType !== "pp") return;
       var nick = (document.getElementById("client") && document.getElementById("client").value || "").trim();
-      if (nick.length < 2) return;
+      var hint = document.getElementById("ppSlotHint");
+      if (nick.length < 2) {
+        if (hint) { hint.style.display = "none"; hint.textContent = ""; }
+        return;
+      }
       try {
-        var res = await apiGet({ action: "getPpFactCost", nick: nick });
-        if (res && res.status === "success" && res.factCost != null) {
+        var day = (document.getElementById("day") && document.getElementById("day").value) || "";
+        var date = (document.getElementById("deliveryDate") && document.getElementById("deliveryDate").value) || "";
+        var res = await apiGet({ action: "getPpOrderSuggest", nick: nick, day: day, date: date });
+        if (res && res.status === "success") {
           var inp = document.getElementById("orderPriceInput");
-          if (inp) inp.value = String(res.factCost);
-          if (inp) inp.placeholder = "N=" + (res.deliveries || "?");
+          if (inp && res.factCost != null) inp.value = String(res.factCost);
+          if (inp) inp.placeholder = "N=" + (res.deliveriesN || "?");
+          if (hint) {
+            hint.textContent = res.hint || "";
+            hint.style.display = res.hint ? "block" : "none";
+          }
         }
       } catch (e) {}
     }
+
+    function mapApiBasketToLocal(list) {
+      return (list || []).map(function (x) {
+        return {
+          id: Date.now() + Math.random(),
+          cat: x.cat || "dressura",
+          main: x.main || x.name || "",
+          name: x.name || x.main || "",
+          sub: x.sub || "",
+          value: x.val != null ? x.val : x.value,
+          val: x.val != null ? x.val : x.value
+        };
+      }).filter(function (x) { return x.main && Number(x.value) > 0; });
+    }
+
+    async function suggestPpBasketFromSheet(opts) {
+      opts = opts || {};
+      if (orderType !== "pp") {
+        showToast("Сначала тип заказа: ПП");
+        return false;
+      }
+      var nick = (document.getElementById("client") && document.getElementById("client").value || "").trim();
+      if (nick.length < 2) {
+        showToast("Укажи ник клиента ПП");
+        return false;
+      }
+      var day = (document.getElementById("day") && document.getElementById("day").value) || "";
+      var date = (document.getElementById("deliveryDate") && document.getElementById("deliveryDate").value) || "";
+      try {
+        var res = await apiGet({ action: "getPpOrderSuggest", nick: nick, day: day, date: date });
+        if (!res || res.status !== "success") {
+          showToast("Не удалось прочитать лист ПП");
+          return false;
+        }
+        if (res.address && !String(document.getElementById("addressInput").value || "").trim()) {
+          document.getElementById("addressInput").value = res.address;
+        }
+        if (res.phone && !String(document.getElementById("phoneInput").value || "").trim()) {
+          document.getElementById("phoneInput").value = res.phone;
+        }
+        var proposed = mapApiBasketToLocal(res.proposedBasket || []);
+        if (!proposed.length) {
+          showToast("В листе ПП пустой состав");
+          return false;
+        }
+        var msg = (res.hint || "Состав с листа ПП") + "\nВставить " + proposed.length + " поз.?";
+        if (res.deliveriesN >= 2 && res.deliverySlot >= 2) {
+          msg += "\n(остаток после 1-й доставки)";
+        }
+        var ask = opts.force ? true : await uiConfirmAsync(msg);
+        if (!ask) return false;
+        basket = proposed;
+        renderBasket();
+        try { refreshPpFactPrice(); } catch (e0) {}
+        showToast(res.hint || ("Состав ПП · " + proposed.length + " поз."));
+        return true;
+      } catch (e) {
+        showToast("Ошибка состава ПП");
+        return false;
+      }
+    }
+    window.suggestPpBasketFromSheet = suggestPpBasketFromSheet;
 
     function shortAddressForCourier(full, entrance) {
       var short = formatStreetHouse(full);
@@ -2205,23 +2200,19 @@
         if (!hasAny) loadOrderNotesFromRaw(m.note);
       }
       try { if (orderType === "pp") refreshPpFactPrice(); } catch (e0) {}
+      // ПП: состав только с листа ПП (с учётом N и слота), не из памяти аппа
+      if (orderType === "pp") {
+        var inserted = await suggestPpBasketFromSheet({});
+        if (!inserted) showToast("Контакты подставлены");
+        return;
+      }
       var bask = Array.isArray(m.basket) ? m.basket : [];
       if (bask.length) {
         var ask = await uiConfirmAsync(
           "Клиент: " + m.nick + "\nВставить последний состав (" + bask.length + " поз.)?"
         );
         if (ask) {
-          basket = bask.map(function (x) {
-            return {
-              id: Date.now() + Math.random(),
-              cat: x.cat || "dressura",
-              main: x.main || x.name || "",
-              name: x.name || x.main || "",
-              sub: x.sub || "",
-              value: x.val != null ? x.val : x.value,
-              val: x.val != null ? x.val : x.value
-            };
-          }).filter(function (x) { return x.main && Number(x.value) > 0; });
+          basket = mapApiBasketToLocal(bask);
           renderBasket();
           showToast("Состав вставлен (" + basket.length + " поз.)");
         } else {
@@ -2553,6 +2544,7 @@
           break;
         }
       }
+      try { if (orderType === "pp") refreshPpFactPrice(); } catch (e) {}
     }
     window.onDeliveryDateChange = onDeliveryDateChange;
 
@@ -2821,15 +2813,23 @@
 
       try {
         await apiPost(bookingPayload);
-        // сразу в неделю дня — надёжнее, чем ждать материализации брони
-        if (day) {
+        // В лист недели — только если дата доставки уже на «Прием заказов» / «Будущая неделя».
+        // (apiPost не возвращает тело из‑за CORS — проверяем отдельным GET)
+        var dateOnWeek = false;
+        try {
+          var resolved = await apiGet({ action: "resolveDayForDate", date: deliveryDate });
+          dateOnWeek = !!(resolved && resolved.dayName);
+        } catch (eRes) {}
+        if (day && dateOnWeek) {
           try { await apiPost(payload); } catch (eWeek) {}
         }
         await new Promise(r => setTimeout(r, 500));
         let found = null;
         try {
-          const check = await apiGet({ action: "getClients", day: day });
-          found = (check.clients || []).find(c => String(c.name).toUpperCase() === clientName.toUpperCase());
+          if (day && dateOnWeek) {
+            const check = await apiGet({ action: "getClients", day: day });
+            found = (check.clients || []).find(c => String(c.name).toUpperCase() === clientName.toUpperCase());
+          }
         } catch (eCheck) {}
         const inWeek = found && found.basket && found.basket.length > 0;
         const savedItems = basket.length;
@@ -2855,13 +2855,14 @@
         // лоадер снять ДО тостов/очистки — иначе ошибка в cleanup держит кружок поверх модалки
         hideSaveLoading();
 
-        if (inWeek) {
+        if (dateOnWeek && inWeek) {
           celebrateSuccess("save");
           showToast((isEdit ? "Заказ обновлён" : "Заказ сохранён") +
             " (" + found.basket.length + " поз.)" +
             (orderPrice != null ? (" · " + orderPrice + " BYN") : ""));
         } else {
-          showToast("Бронь на " + deliveryDate + " сохранена · в неделю — утром накануне");
+          showToast("Бронь на " + deliveryDate +
+            " · состав " + savedItems + " поз. В нужный день — «Доукомплектовать»");
         }
         const card = document.querySelector("#orderScreen .card");
         if (card) {
@@ -3569,16 +3570,14 @@
       });
     }
 
-    /** Одна анимация на пачку галочек «Нарезано», а не на каждую */
+    /** Одна анимация на пачку галочек «Нарезано» — отключено (без тянки/оверлеев) */
     function queueCelebrateCut() {
-      cuttingSession.celebrateCutQueued++;
-      if (cuttingSession.celebrateCutTimer) clearTimeout(cuttingSession.celebrateCutTimer);
-      cuttingSession.celebrateCutTimer = setTimeout(function () {
+      cuttingSession.celebrateCutQueued = 0;
+      if (cuttingSession.celebrateCutTimer) {
+        clearTimeout(cuttingSession.celebrateCutTimer);
         cuttingSession.celebrateCutTimer = null;
-        const n = cuttingSession.celebrateCutQueued;
-        cuttingSession.celebrateCutQueued = 0;
-        if (n > 0) celebrateSuccess("cut");
-      }, 1100);
+      }
+      try { if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light"); } catch (e) {}
     }
 
     function cutSortRank(item) {
@@ -3770,7 +3769,9 @@
       const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
       if (cached) cached.done = !!done;
       reorderCuttingDom();
-      if (done) queueCelebrateCut();
+      if (done) {
+        try { if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light"); } catch (e) {}
+      }
       markCuttingWriteStart();
       try {
         await apiGet({ action: "updateCutting", day: day, row: row, done: done ? "true" : "false" });
@@ -3960,7 +3961,8 @@
           const dateKey = (res.completion && res.completion.dateText) || "";
           writeCutDoneLocal(day, dateKey, res.completion);
         }
-        celebrateSuccess("finish", { elapsedLabel: formatCutElapsed(elapsed) });
+        // нарезка — без оверлеев/тянки, только тост + лёгкий haptic
+        try { if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); } catch (eH) {}
         if (missing.length) {
           showToast("Дефицит: пуш сейчас + с утра каждые 30 мин");
           await uiAlertAsync("По позициям без наличия пуш ушёл сразу. С утра следующего дня — каждые 30 мин, пока кто-то не нажмёт «Куплено и заготовлено».");
@@ -4019,6 +4021,7 @@
             <label class="check-line">
               <input type="checkbox" ${c.delivered ? "checked" : ""} onchange="toggleDelivered(${idx}, this.checked)">
               <span class="cut-title">${idx + 1}. ${escapeHtml(c.name)}</span>
+              ${c.ppHint ? ('<span class="client-badge" style="margin-left:8px;background:rgba(10,132,255,0.25);color:#64d2ff;">' + escapeHtml(c.ppHint) + "</span>") : ""}
               ${extractOrderPrice(c.note || "") != null ? ('<span class="client-badge" style="margin-left:8px;background:rgba(48,209,88,0.2);color:#30d158;">' + extractOrderPrice(c.note) + " BYN</span>") : ""}
             </label>
             <div class="cut-meta">${c.address ? ("Адрес: " + escapeHtml(typeof shortAddressForCourier === "function" ? shortAddressForCourier(c.address, "") : c.address)) : "Адрес не указан"}
@@ -4052,9 +4055,12 @@
       if (!client) return;
       var paidAnswer = null;
       if (delivered && client.askPaid) {
+        var slotLabel = (client.deliveriesN >= 2)
+          ? (" доставка " + (client.deliverySlot || 1) + "/" + client.deliveriesN)
+          : "";
         var picked = await uiChoiceAsync(
           "Оплата",
-          "Клиент " + client.name + " (ПП, N=2). Оплачено?",
+          "Клиент " + client.name + " (ПП, N=" + (client.deliveriesN || 2) + slotLabel + "). Оплачено?",
           [
             { label: "Да, оплачено", value: "yes", cls: "btn-green" },
             { label: "Нет", value: "no", cls: "btn-orange" },
@@ -6154,7 +6160,7 @@
     async function confirmPullWeekFromHome() {
       var st = null;
       try { st = await apiGet({ action: "weekPullStatus" }); } catch (e) {}
-      var msg = "Подтянуть людей из месяцев на всю Пн–Пт?\nСостав из ПП/АФК/БП НЕ берём — только ники и контакты.\nУже стоящих не затираем.";
+      var msg = "Подтянуть людей из месяцев на всю Пн–Пт?\nСостав подставится с листов ПП/АФК/БП (ПП — с учётом 1-й/2-й доставки).\nУже стоящих с составом не затираем.";
       if (st && st.status === "success") {
         msg += "\n\nМесяц: " + (st.monthPeople || 0) + ", неделя: " + (st.weekPeople || 0) + ", дописать ~" + (st.maybeMissing || 0);
       }
@@ -6263,9 +6269,14 @@
         if (!quiet) showToast("Подтягиваю неделю из месяца…");
         const res = await apiGet({ action: "materializeWeek", onlyMissing: "1" });
         const added = res && res.result ? (res.result.totalAdded || 0) : 0;
+        const preserved = res && res.result && res.result.days
+          ? (res.result.days || []).reduce(function (s, d) { return s + (Number(d.preserved) || 0); }, 0)
+          : 0;
         const wk = res && res.result ? res.result.weekKey : "";
         if (wk) localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
-        showToast(added ? ("Добавлено позиций/клиентов: " + added) : "Новых не нашлось (уже всё на месте?)");
+        if (added) showToast("Добавлено: " + added + (preserved ? ("; контакты обновлены: " + preserved) : ""));
+        else if (preserved) showToast("Новых нет; у уже стоящих подтянуты контакты: " + preserved);
+        else showToast("Новых не нашлось (уже всё на месте?)");
         const day = document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value;
         if (day) await loadClientsForDay();
         return res;
@@ -6287,7 +6298,7 @@
         return;
       }
       const ok = await uiConfirmAsync(
-        "Доукомплектовать " + (day || dateStr) + " из месяца?\nДобавим только тех, кого ещё нет в этом дне."
+        "Доукомплектовать " + (day || dateStr) + " из месяца?\nДобавим тех, кого ещё нет — уже с составом с ПП/АФК/БП.\nУ стоящих состав не затираем."
       );
       if (!ok) return;
       try {
@@ -6957,24 +6968,18 @@
 
     async function openSubInOrder(nick) {
       try {
-        var res = await apiGet({ action: "getSubscription", nick: nick });
+        setOrderType("pp");
         document.getElementById("client").value = nick;
-        if (res.address) document.getElementById("addressInput").value = res.address;
-        if (res.wishes || res.note) loadOrderNotesFromRaw([res.wishes, res.note].filter(Boolean).join(" "));
-        basket = (res.basket || []).map(function (x) {
-          return {
-            id: Date.now() + Math.random(),
-            cat: x.cat || "dressura",
-            main: x.name || x.main,
-            name: x.name || x.main,
-            sub: x.sub || "",
-            value: x.val || x.value,
-            val: x.val || x.value
-          };
-        });
+        var day = (document.getElementById("day") && document.getElementById("day").value) || "";
+        var date = (document.getElementById("deliveryDate") && document.getElementById("deliveryDate").value) || "";
+        var res = await apiGet({ action: "getPpOrderSuggest", nick: nick, day: day, date: date });
+        if (res && res.address) document.getElementById("addressInput").value = res.address;
+        if (res && (res.wishes || res.note)) loadOrderNotesFromRaw([res.wishes, res.note].filter(Boolean).join(" "));
+        basket = mapApiBasketToLocal((res && res.proposedBasket) || []);
         renderBasket();
         switchTab("orderScreen");
-        showToast("Состав загружен в заказ");
+        try { refreshPpFactPrice(); } catch (e0) {}
+        showToast((res && res.hint) || "Состав загружен в заказ");
       } catch (e) {
         showToast("Не удалось открыть подписку");
       }
