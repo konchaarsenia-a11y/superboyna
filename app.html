@@ -579,7 +579,7 @@
   <div class="app">
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
-        <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.16</div>
+        <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.17</div>
         <div class="nav-tabs" id="navTabs">
           <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
           <button type="button" class="tab-link" data-screen="cuttingScreen" onclick="switchTab('cuttingScreen')">Нарезка</button>
@@ -916,7 +916,7 @@
         <span>Корзина цены</span>
         <button type="button" class="btn-action" style="margin:0;padding:6px 12px;font-size:12px;background:#3a3a3c;" onclick="clearPriceBasket()">Очистить</button>
       </div>
-      <div class="card" id="priceBasketContainer"><p class="muted">Пусто — ручной ввод или чеклист. Если пусто, «Считать» возьмёт корзину Заказа.</p></div>
+      <div class="card" id="priceBasketContainer"><p class="muted">Пусто — ручной ввод или чеклист Instagram.</p></div>
 
       <button type="button" class="btn-action btn-blue" id="btnPriceManualEntry" onclick="togglePriceManualEntry()">Ручной ввод</button>
       <div id="priceManualEntryPanel" style="display:none;margin-top:10px;">
@@ -974,7 +974,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.16";
+    const APP_VERSION = "v7.10.17";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -6830,7 +6830,7 @@
       });
       if (parsed.noteBits.length) showToast("Часть позиций без фракции — проверь");
       renderPriceBasket();
-      calcPriceFromBasket(true);
+      calcPriceFromBasket();
     }
     window.parseIgChecklistIntoPrice = parseIgChecklistIntoPrice;
 
@@ -6897,7 +6897,7 @@
       document.getElementById("priceSelectorCard").style.display = "none";
       document.getElementById("priceVolumeInput").value = "";
       renderPriceBasket();
-      calcPriceFromBasket(true);
+      calcPriceFromBasket();
       showToast("Добавлено в корзину цены");
     }
     window.addItemToPriceBasket = addItemToPriceBasket;
@@ -6932,7 +6932,7 @@
     function deletePriceBasketItem(id) {
       priceBasket = priceBasket.filter(function (x) { return x.id !== id; });
       renderPriceBasket();
-      if (priceBasket.length) calcPriceFromBasket(true);
+      if (priceBasket.length) calcPriceFromBasket();
       else {
         var box = document.getElementById("priceResult");
         if (box) box.innerHTML = '<p class="muted">—</p>';
@@ -7082,20 +7082,18 @@
       if (bp) bp.style.display = "none";
       if (ret) ret.classList.toggle("active", mode === "retail");
       try { renderPriceBasket(); } catch (e) {}
-      if (priceBasket && priceBasket.length) calcPriceFromBasket(true);
+      if (priceBasket && priceBasket.length) calcPriceFromBasket();
     }
     window.setPriceMode = setPriceMode;
 
-    async function calcPriceFromBasket(usePriceBasket) {
-      var list = (usePriceBasket || (priceBasket && priceBasket.length)) && priceBasket && priceBasket.length
-        ? priceBasket
-        : basket;
+    async function calcPriceFromBasket() {
+      var list = priceBasket || [];
       var box = document.getElementById("priceResult");
-      if (!list || !list.length) {
-        if (box) box.innerHTML = '<p class="muted">Корзина пуста</p>';
+      if (!list.length) {
+        if (box) box.innerHTML = '<p class="muted">Корзина цены пуста — добавь позиции здесь</p>';
+        showToast("Сначала набери корзину на вкладке Цена");
         return null;
       }
-      var srcLabel = (list === priceBasket) ? "корзина цены" : "корзина заказа";
       if (priceMode === "retail") {
         var local = calcRetailBasketTotal(list);
         if (box) {
@@ -7106,24 +7104,32 @@
               (L.found ? "" : " <span class=\"muted\">(нет в прайсе)</span>") +
               "</div>";
           }).join("");
-          box.innerHTML = '<div class="card"><b>Розница</b> · ' + srcLabel + '<br><b style="font-size:18px;">' +
+          box.innerHTML = '<div class="card"><b>Розница</b><br><b style="font-size:18px;">' +
             local.total + " BYN</b></div>" + rows;
         }
         return local;
       }
       try {
-        var res = await apiPost({
-          action: "calcPrice",
-          mode: priceMode,
-          basket: list
+        var slim = list.map(function (it) {
+          return {
+            name: it.name || it.main || "",
+            main: it.main || it.name || "",
+            sub: it.sub || "",
+            val: it.val != null ? it.val : it.value,
+            cat: it.cat || ""
+          };
         });
+        var res = await apiGet({
+          action: "calcPrice",
+          mode: "pp",
+          basket: JSON.stringify(slim)
+        }, { timeoutMs: 25000 });
         if (!res || res.status !== "success") {
           if (box) box.innerHTML = '<p class="muted">Ошибка расчёта</p>';
           return null;
         }
-        var modeLabel = priceMode === "bp" ? "БП" : "ПП";
         if (box) {
-          box.innerHTML = '<div class="card"><b>' + modeLabel + "</b> · " + srcLabel + " · " +
+          box.innerHTML = '<div class="card"><b>ПП</b> · ' +
             ("себест. " + res.cost + " × " + res.markup + " (" + (res.sheet || "") + ")") +
             '<br><b style="font-size:18px;">' + res.total + " BYN</b></div>";
         }
