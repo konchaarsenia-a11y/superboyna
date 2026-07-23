@@ -579,7 +579,7 @@
   <div class="app">
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
-        <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.15</div>
+        <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.16</div>
         <div class="nav-tabs" id="navTabs">
           <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
           <button type="button" class="tab-link" data-screen="cuttingScreen" onclick="switchTab('cuttingScreen')">Нарезка</button>
@@ -906,7 +906,6 @@
           <label>Режим</label>
           <div class="seg-row">
             <button type="button" class="seg-btn active" id="priceModePp" onclick="setPriceMode('pp')">ПП</button>
-            <button type="button" class="seg-btn" id="priceModeBp" onclick="setPriceMode('bp')">БП</button>
             <button type="button" class="seg-btn" id="priceModeRet" onclick="setPriceMode('retail')">Розница</button>
           </div>
         </div>
@@ -975,7 +974,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.15";
+    const APP_VERSION = "v7.10.16";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1191,7 +1190,7 @@
       warehouseScreen: "Склад\n• Сырое/сухое, коэффициенты, снабжение.",
       subsScreen: "Подписки\n• «В заказ» и доукомплект из месяца подставляют состав с листа (ПП — с учётом слота).",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
-      priceScreen: "Цена\n• ПП/БП — себест.×коэф; розница — готовые цены.\n• Чеклист — тот же разбор, что в Заказе.",
+      priceScreen: "Цена\n• ПП — себест.×коэф; розница — готовые цены витрины.\n• БП без цены (кнопки нет).\n• Чеклист — тот же разбор, что в Заказе.",
       peopleScreen: "Люди\n• Роли назначают только владельцы."
     };
 
@@ -4041,7 +4040,7 @@
       routePlanState.routes = [[], []];
       box.innerHTML = loadingDanceHtml("Собираю маршрут…");
       try {
-        const res = await apiGet({ action: "getCourier", day: day });
+        const res = await apiGet({ action: "getCourier", day: day }, { timeoutMs: 22000, cacheTtlMs: 12000 });
         if (res.status !== "success" || !res.clients || !res.clients.length) {
           box.innerHTML = '<p class="muted">Нет клиентов на день</p>';
           courierClientsCache = [];
@@ -4065,6 +4064,7 @@
             <label class="check-line">
               <input type="checkbox" ${c.delivered ? "checked" : ""} onchange="toggleDelivered(${idx}, this.checked)">
               <span class="cut-title">${idx + 1}. ${escapeHtml(c.name)}</span>
+              ${c.assembled ? ('<span class="client-badge" style="margin-left:8px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>') : ""}
               ${c.ppHint ? ('<span class="client-badge" style="margin-left:8px;background:rgba(10,132,255,0.25);color:#64d2ff;">' + escapeHtml(c.ppHint) + "</span>") : ""}
               ${extractOrderPrice(c.note || "") != null ? ('<span class="client-badge" style="margin-left:8px;background:rgba(48,209,88,0.2);color:#30d158;">' + extractOrderPrice(c.note) + " BYN</span>") : ""}
             </label>
@@ -4139,6 +4139,7 @@
         var body = { action: "setDelivered", day: day, client: client.name, delivered: delivered };
         if (paidAnswer) body.paid = paidAnswer;
         await apiPost(body);
+        try { _apiGetMem = Object.create(null); } catch (eClr) {}
       } catch (e) {
         client.delivered = !delivered;
         refreshCourierSummary();
@@ -6393,7 +6394,7 @@
       if (!day) { box.innerHTML = '<p class="muted">Выберите день…</p>'; return; }
       box.innerHTML = loadingDanceHtml("Считаю пакеты…");
       try {
-        var res = await apiGet({ action: "getAssembly", day: day });
+        var res = await apiGet({ action: "getAssembly", day: day }, { timeoutMs: 22000, cacheTtlMs: 8000 });
         if (!res || res.status !== "success") {
           box.innerHTML = '<p class="muted">Не удалось загрузить</p>';
           return;
@@ -6503,7 +6504,7 @@
         return '<div class="pack-line">' + escapeHtml(k) + ': <b>' + lightFracGrams[k] + ' г</b></div>';
       }).join("") || '<div class="muted">Нет лёгкого</div>';
 
-      var clientsHtml = (res.clients || []).map(function (c) {
+      var clientsHtml = (res.clients || []).map(function (c, idx) {
         var bags = 0;
         var byCounter = {};
         (c.packs || []).forEach(function (p) {
@@ -6528,27 +6529,59 @@
             '</span><span class="order-detail-volume">' + (g.val != null ? g.val : g.value) + " " + unit + "</span></div>";
         }).join("") || '<div class="muted">Пустой состав</div>';
 
-        return '<div class="card" style="margin-bottom:10px;">' +
-          "<b>" + escapeHtml(c.name) + '</b> <span class="muted">· ' + bags + " пак.</span>" +
+        return '<div class="card' + (c.assembled ? " is-delivered" : "") + '" style="margin-bottom:10px;" id="asmCard_' + idx + '">' +
+          '<label class="check-line" style="margin-bottom:6px;">' +
+          '<input type="checkbox" ' + (c.assembled ? "checked" : "") +
+          ' onchange="toggleAssembled(' + idx + ', this.checked)">' +
+          '<span class="cut-title">' + escapeHtml(c.name) + '</span>' +
+          ' <span class="muted">· ' + bags + " пак.</span>" +
+          (c.assembled ? ' <span class="client-badge" style="margin-left:6px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>' : "") +
+          "</label>" +
           (c.address ? '<div class="muted" style="font-size:12px;margin-top:4px;">' + escapeHtml(c.address) + "</div>" : "") +
           '<div style="margin-top:8px;"><b>Состав</b></div>' + composition +
           '<div class="pack-line" style="margin-top:8px;"><b>Пакеты:</b> ' + escapeHtml(packSummary) + "</div>" +
           "</div>";
       }).join("") || '<p class="muted">Нет клиентов</p>';
 
+      var doneAsm = (res.clients || []).filter(function (c) { return c.assembled; }).length;
+      var totalAsm = (res.clients || []).length;
+
       box.innerHTML =
         '<div class="card"><b>Форматы пакетов на день</b>' +
         '<div class="pack-type-row">' + cells + "</div>" +
         '<div class="total-summary-badge">' + escapeHtml(phrase) + "</div>" +
         '<div class="total-summary-badge" style="margin-top:6px;">Итого пакетов: ' + enabledTotal + "</div>" +
+        '<div class="total-summary-badge" style="margin-top:6px;">Собрано: <span style="color:var(--success-color)">' + doneAsm + "</span> / " + totalAsm + "</div>" +
         '<div style="margin-top:12px;"><b>Лёгкое для нарезки</b></div>' +
         lightLines +
         (lightGramsTotal ? '<div class="pack-line" style="margin-top:4px;">Всего лёгкого: <b>' + lightGramsTotal + " г</b></div>" : "") +
         "</div></div>" +
-        '<div class="section-title">По клиентам</div>' +
+        '<div class="section-title">По клиентам · отметь кого собрали</div>' +
         clientsHtml;
     }
     window.loadAssembly = loadAssembly;
+
+    async function toggleAssembled(index, assembled) {
+      var res = assemblyCache;
+      if (!res || !res.clients || !res.clients[index]) return;
+      var client = res.clients[index];
+      var day = document.getElementById("assemblyDaySelect").value || document.getElementById("courierDaySelect").value;
+      client.assembled = !!assembled;
+      try { _apiGetMem = Object.create(null); } catch (eClr) {}
+      var card = document.getElementById("asmCard_" + index);
+      if (card) card.classList.toggle("is-delivered", !!assembled);
+      try {
+        await apiPost({ action: "setAssembled", day: day, client: client.name, assembled: !!assembled });
+        showToast(assembled ? ("Собран: " + client.name) : ("Снято: " + client.name));
+      } catch (e) {
+        client.assembled = !assembled;
+        showToast("Не удалось сохранить");
+        renderAssemblyView();
+        return;
+      }
+      renderAssemblyView();
+    }
+    window.toggleAssembled = toggleAssembled;
 
 
     function buildIgKnownMap() {
@@ -7040,12 +7073,13 @@
     window.openSubInOrder = openSubInOrder;
 
     function setPriceMode(mode) {
+      if (mode === "bp") mode = "pp"; // БП без цены — кнопка убрана
       priceMode = mode;
       var pp = document.getElementById("priceModePp");
       var bp = document.getElementById("priceModeBp");
       var ret = document.getElementById("priceModeRet");
       if (pp) pp.classList.toggle("active", mode === "pp" || mode === "subscription");
-      if (bp) bp.classList.toggle("active", mode === "bp");
+      if (bp) bp.style.display = "none";
       if (ret) ret.classList.toggle("active", mode === "retail");
       try { renderPriceBasket(); } catch (e) {}
       if (priceBasket && priceBasket.length) calcPriceFromBasket(true);

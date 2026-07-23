@@ -782,6 +782,9 @@ function handleApiAction(json, callback, fromPost) {
   if (action === "setDelivered") {
     return handleSetDelivered(ss, json, callback);
   }
+  if (action === "setAssembled") {
+    return handleSetAssembled(ss, json, callback);
+  }
   if (action === "registerCourier") {
     return handleRegisterCourier(json, callback, fromPost);
   }
@@ -1117,12 +1120,25 @@ function findCourierClientCol_(courierSheet, clientName) {
   return -1;
 }
 
+function memFlagEntry_(memFlags, clientName) {
+  if (!memFlags || typeof memFlags !== "object") return null;
+  if (Object.prototype.toString.call(memFlags) === "[object Array]") return null;
+  var mk = clientMatchKey_(clientName) || String(clientName || "").toUpperCase();
+  var e = memFlags[mk] || memFlags[String(clientName || "").toUpperCase()];
+  if (e && typeof e === "object") return e;
+  return null;
+}
+
 function handleGetCourier(dayName, callback) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var courier = ss.getSheetByName("Доставки");
   var memory = getMemoryCourierSheet_();
   var tz = ss.getSpreadsheetTimeZone();
   var dateValue = getDayDate_(ss, dayName);
+  var cacheKey = "COUR:" + String(dayName || "").toUpperCase();
+  var cached = cacheGetJson_(cacheKey);
+  if (cached && cached.status === "success") return jsonp(callback, cached);
+
   var clientData = getClientsData_(ss, dayName);
   if (!dateValue || clientData.status !== "success") {
     return jsonp(callback, { status: "bad_day", clients: [] });
@@ -1131,63 +1147,81 @@ function handleGetCourier(dayName, callback) {
   var memFlags = getMemoryJson_(memory, dateText, tz) || {};
   var sheetActive = courier && formatSheetDate(courier.getRange("A1").getValue(), tz) === dateText;
 
+  // один read ников/галочек вместо N×getRange
+  var courierNicks = [];
+  var courierDone = [];
+  if (sheetActive) {
+    try {
+      courierNicks = courier.getRange(3, 3, 1, 16).getValues()[0] || [];
+      courierDone = courier.getRange(2, 3, 1, 16).getValues()[0] || [];
+    } catch (eR) {}
+  }
+  function courierColFor_(name) {
+    for (var i = 0; i < courierNicks.length; i++) {
+      var nick = String(courierNicks[i] || "").trim();
+      if (!nick) continue;
+      var up = nick.toUpperCase();
+      if (up === "ИТОГО НА ДЕНЬ" || up === "ИТОГО" || up === "ФАКТ СНЯТОЕ") continue;
+      if (nicksMatch_(nick, name)) return i;
+    }
+    return -1;
+  }
+
   var clients = [];
   for (var i = 0; i < clientData.clients.length; i++) {
     var client = clientData.clients[i];
     var delivered = false;
-    var courierCol = findCourierClientCol_(courier, client.name);
-    if (sheetActive && courierCol > 0) {
-      delivered = courier.getRange(2, courierCol).getValue() === true;
+    var ci = courierColFor_(client.name);
+    var courierCol = ci >= 0 ? ci + 3 : -1;
+    if (sheetActive && ci >= 0) {
+      delivered = courierDone[ci] === true;
     } else if (memFlags && typeof memFlags === "object") {
       if (Object.prototype.toString.call(memFlags) === "[object Array]") {
         delivered = memFlags[client.col] === true;
       } else {
-        var mk = clientMatchKey_(client.name) || String(client.name).toUpperCase();
-        delivered = normalizeMemDelivered_(memFlags[mk]) ||
+        delivered = normalizeMemDelivered_(memFlagEntry_(memFlags, client.name)) ||
+          normalizeMemDelivered_(memFlags[clientMatchKey_(client.name)]) ||
           normalizeMemDelivered_(memFlags[String(client.name).toUpperCase()]);
       }
     }
-    var deliveriesN = lookupPpDeliveries_(client.name);
+    var memE = memFlagEntry_(memFlags, client.name);
+    var assembled = !!(memE && memE.assembled);
+
+    var deliveriesN = 0;
     var paidCycle = null;
     var deliverySlot = 1;
     var ppHint = "";
-    try {
-      var resolved = resolvePpDeliverySlot_(ss, client.name, dateValue, tz, delivered);
-      deliveriesN = resolved.deliveriesN || deliveriesN;
-      deliverySlot = resolved.slot || 1;
-      var cycle = resolved.cycle;
-      if (cycle && cycle.paid) paidCycle = cycle.paid;
-      if (!paidCycle) {
-        var wKey = weekPaidKey_(dateValue, tz);
-        var wStore = getWeekPaidStore_(memory, wKey, tz);
-        var mkPaid = clientMatchKey_(client.name) || String(client.name).toUpperCase();
-        var pe = wStore[mkPaid] || wStore[String(client.name).toUpperCase()];
-        if (pe && typeof pe === "object") paidCycle = pe.paid || null;
-        else if (typeof pe === "string") paidCycle = pe;
-      }
-      if (deliveriesN >= 2) {
-        ppHint = "ПП " + deliverySlot + "/" + deliveriesN + (deliverySlot >= 2 ? " · остаток" : "");
-      } else if (deliveriesN === 1) {
-        ppHint = "ПП N=1";
-      }
-    } catch (ePaid) {
-      // fallback на старую недельную логику
-      try {
-        var wKey2 = weekPaidKey_(dateValue, tz);
-        var wStore2 = getWeekPaidStore_(memory, wKey2, tz);
-        var pe2 = wStore2[String(client.name).toUpperCase()];
-        if (pe2 && typeof pe2 === "object") paidCycle = pe2.paid || null;
-        else if (typeof pe2 === "string") paidCycle = pe2;
-        var deliveredBefore = countDeliveredThisWeek_(ss, client.name, dateValue, tz);
-        deliverySlot = delivered ? Math.max(1, deliveredBefore) : (deliveredBefore + 1);
-      } catch (e2) {}
-    }
     var askPaid = false;
-    if (deliveriesN >= 2) {
-      if (paidCycle === "yes") askPaid = false;
-      else if (deliverySlot <= 1) askPaid = true;
-      else if (paidCycle === "no") askPaid = true;
-      else askPaid = true;
+    try {
+      deliveriesN = lookupPpDeliveries_(client.name) || 0;
+    } catch (eN) {}
+    // тяжёлый resolve только для реальных ПП
+    if (deliveriesN >= 1) {
+      try {
+        var resolved = resolvePpDeliverySlot_(ss, client.name, dateValue, tz, delivered);
+        deliveriesN = resolved.deliveriesN || deliveriesN;
+        deliverySlot = resolved.slot || 1;
+        var cycle = resolved.cycle;
+        if (cycle && cycle.paid) paidCycle = cycle.paid;
+        if (!paidCycle) {
+          var wKey = weekPaidKey_(dateValue, tz);
+          var wStore = getWeekPaidStore_(memory, wKey, tz);
+          var mkPaid = clientMatchKey_(client.name) || String(client.name).toUpperCase();
+          var pe = wStore[mkPaid] || wStore[String(client.name).toUpperCase()];
+          if (pe && typeof pe === "object") paidCycle = pe.paid || null;
+          else if (typeof pe === "string") paidCycle = pe;
+        }
+        if (deliveriesN >= 2) {
+          ppHint = "ПП " + deliverySlot + "/" + deliveriesN + (deliverySlot >= 2 ? " · остаток" : "");
+        } else if (deliveriesN === 1) {
+          ppHint = "ПП N=1";
+        }
+        if (deliveriesN >= 2) {
+          if (paidCycle === "yes") askPaid = false;
+          else if (deliverySlot <= 1) askPaid = true;
+          else askPaid = true;
+        }
+      } catch (ePaid) {}
     }
     clients.push({
       name: client.name,
@@ -1197,6 +1231,7 @@ function handleGetCourier(dayName, callback) {
       geo: client.geo || null,
       basket: client.basket,
       delivered: delivered,
+      assembled: assembled,
       col: client.col,
       courierCol: courierCol,
       deliveriesN: deliveriesN,
@@ -1206,7 +1241,9 @@ function handleGetCourier(dayName, callback) {
       askPaid: askPaid && !delivered
     });
   }
-  return jsonp(callback, { status: "success", day: dayName, date: dateText, clients: clients });
+  var out = { status: "success", day: dayName, date: dateText, clients: clients };
+  cachePutJson_(cacheKey, out, 20);
+  return jsonp(callback, out);
 }
 
 function handleSetDelivered(ss, json, callback) {
@@ -1245,8 +1282,15 @@ function handleSetDelivered(ss, json, callback) {
   if (!values || Object.prototype.toString.call(values) === "[object Array]") {
     values = {};
   }
-  values[memKey] = { delivered: delivered, paid: paidVal || null };
+  var prevMem = memFlagEntry_(values, want) || values[memKey] || {};
+  if (typeof prevMem !== "object" || prevMem === null) prevMem = {};
+  values[memKey] = {
+    delivered: delivered,
+    paid: paidVal || prevMem.paid || null,
+    assembled: !!prevMem.assembled
+  };
   saveMemoryJson_(memory, dateText, values, tz);
+  try { CacheService.getScriptCache().remove("COUR:" + String(json.day || "").toUpperCase()); } catch (eC) {}
 
   if (paidVal) {
     var wKey = weekPaidKey_(dateValue, tz);
@@ -1261,6 +1305,35 @@ function handleSetDelivered(ss, json, callback) {
     } catch (eCycle) {}
   }
   return jsonpText(callback, { status: "success", paid: paidVal || null });
+}
+
+function handleSetAssembled(ss, json, callback) {
+  var memory = getMemoryCourierSheet_();
+  var tz = ss.getSpreadsheetTimeZone();
+  var dayName = String(json.day || "").trim();
+  var dateValue = getDayDate_(ss, dayName);
+  if (!dateValue) return jsonpText(callback, { status: "bad_day" });
+  var want = String(json.client || "").trim();
+  if (!want) return jsonpText(callback, { status: "no_client" });
+  var assembled = json.assembled === true || String(json.assembled).toLowerCase() === "true";
+  var dateText = formatSheetDate(dateValue, tz);
+  var memKey = clientMatchKey_(want) || normalizeClientKey_(want);
+  if (!memory) memory = getMemoryCourierSheet_() || ss.insertSheet("Память_Доставок");
+  var values = getMemoryJson_(memory, dateText, tz);
+  if (!values || Object.prototype.toString.call(values) === "[object Array]") values = {};
+  var prevMem = memFlagEntry_(values, want) || values[memKey] || {};
+  if (typeof prevMem !== "object" || prevMem === null) prevMem = {};
+  values[memKey] = {
+    delivered: !!prevMem.delivered,
+    paid: prevMem.paid || null,
+    assembled: assembled
+  };
+  saveMemoryJson_(memory, dateText, values, tz);
+  try {
+    CacheService.getScriptCache().remove("COUR:" + String(dayName || "").toUpperCase());
+    CacheService.getScriptCache().remove("ASM:" + String(dayName || "").toUpperCase());
+  } catch (eC) {}
+  return jsonpText(callback, { status: "success", assembled: assembled });
 }
 
 /** Нормализация ника для поиска: пробелы, ё/е, невидимые символы. */
@@ -6227,11 +6300,26 @@ function buildAssemblyForBasket_(basket) {
 
 function handleGetAssembly(json, callback, fromPost) {
   var day = json.day || '';
-  var clientsData = getClientsData_(SpreadsheetApp.getActiveSpreadsheet(), day);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var cacheKey = "ASM:" + String(day || "").toUpperCase();
+  var cached = cacheGetJson_(cacheKey);
+  if (cached && cached.status === "success") {
+    return fromPost ? jsonpText(callback, cached) : jsonp(callback, cached);
+  }
+  var clientsData = getClientsData_(ss, day);
   if (clientsData.status !== 'success') {
     var bad = { status: 'error', message: clientsData.status || 'bad_day' };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
+  var tz = ss.getSpreadsheetTimeZone();
+  var dateValue = getDayDate_(ss, day);
+  var dateText = dateValue ? formatSheetDate(dateValue, tz) : (clientsData.date || '');
+  var memFlags = {};
+  try {
+    var memory = getMemoryCourierSheet_();
+    if (memory && dateText) memFlags = getMemoryJson_(memory, dateText, tz) || {};
+  } catch (eM) {}
+
   var typeTotals = { light: 0, bulk: 0, chew: 0, craft: 0, other: 0 };
   var counterTotals = {};
   var lightAll = {};
@@ -6253,6 +6341,7 @@ function handleGetAssembly(json, callback, fromPost) {
     (plan.lightByFraction || []).forEach(function (lf) {
       lightAll[lf.sub] = (lightAll[lf.sub] || 0) + lf.val;
     });
+    var memE = memFlagEntry_(memFlags, c.name);
     return {
       name: c.name,
       address: c.address || '',
@@ -6261,7 +6350,8 @@ function handleGetAssembly(json, callback, fromPost) {
       packs: plan.packs,
       totalBags: plan.totalBags,
       lightByFraction: plan.lightByFraction,
-      lightBagsByCounter: plan.lightBagsByCounter || {}
+      lightBagsByCounter: plan.lightBagsByCounter || {},
+      assembled: !!(memE && memE.assembled)
     };
   });
   var lightByFraction = [];
@@ -6278,13 +6368,14 @@ function handleGetAssembly(json, callback, fromPost) {
   var ok = {
     status: 'success',
     day: day,
-    date: clientsData.date || '',
+    date: dateText || clientsData.date || '',
     clients: out,
     typeTotals: typeTotals,
     counterTotals: counterTotals,
     lightByFraction: lightByFraction,
     lightGramsTotal: lightGramsTotal
   };
+  cachePutJson_(cacheKey, ok, 20);
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
