@@ -909,6 +909,21 @@
             <button type="button" class="seg-btn" id="priceModeRet" onclick="setPriceMode('retail')">Розница</button>
           </div>
         </div>
+        <div class="form-group">
+          <label>Собаки</label>
+          <div class="seg-row">
+            <button type="button" class="seg-btn active" id="priceDogs1" onclick="setPriceDogCount(1)">1 собака</button>
+            <button type="button" class="seg-btn" id="priceDogs2" onclick="setPriceDogCount(2)">2 собаки</button>
+          </div>
+          <div class="muted" style="font-size:12px;margin-top:6px;">При 2 собаках в ПП свет (11) и доставки (6×N) — один раз на человека.</div>
+        </div>
+        <div id="priceDogSwitch" style="display:none;" class="form-group">
+          <label>Редактируем состав</label>
+          <div class="seg-row">
+            <button type="button" class="seg-btn active" id="priceDogTab1" onclick="setPriceActiveDog(1)">Собака 1</button>
+            <button type="button" class="seg-btn" id="priceDogTab2" onclick="setPriceActiveDog(2)">Собака 2</button>
+          </div>
+        </div>
         <div id="pricePpExtras">
           <div class="form-group">
             <label>Доставок в месяц (N)</label>
@@ -968,19 +983,19 @@
               </div>
             </div>
           </div>
-          <div class="form-group">
-            <label>Примечание для клиента (опционально)</label>
-            <textarea id="priceClientNote" rows="3" placeholder="Напр.: учли тонкую нарезку, заменили становую на трахею…" oninput="schedulePriceLiveUpdate()"></textarea>
-          </div>
+        </div>
+        <div class="form-group">
+          <label>Примечание для клиента (опционально)</label>
+          <textarea id="priceClientNote" rows="3" placeholder="Напр.: учли тонкую нарезку…" oninput="schedulePriceLiveUpdate()"></textarea>
         </div>
         <button class="btn-action btn-orange" type="button" onclick="calcPriceFromBasket()">Собрать сообщение</button>
       </div>
 
       <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-        <span>Состав</span>
+        <span id="priceBasketTitle">Состав</span>
         <button type="button" class="btn-action" style="margin:0;padding:6px 12px;font-size:12px;background:#3a3a3c;" onclick="clearPriceBasket()">Очистить</button>
       </div>
-      <div class="card" id="priceBasketContainer"><p class="muted">Пусто — ручной ввод или чеклист Instagram.</p></div>
+      <div class="card" id="priceBasketContainer"><p class="muted">Пусто — добавь позиции вручную.</p></div>
 
       <button type="button" class="btn-action btn-blue" id="btnPriceManualEntry" onclick="togglePriceManualEntry()">Ручной ввод</button>
       <div id="priceManualEntryPanel" style="display:none;margin-top:10px;">
@@ -1008,14 +1023,6 @@
         </div>
       </div>
 
-      <div class="section-title">Чеклист Instagram</div>
-      <div class="card">
-        <textarea class="ig-paste" id="igPriceChecklistPaste" placeholder="Вставь чеклист — разберём в состав…"></textarea>
-        <div class="batch-bar-row" style="margin-top:8px;">
-          <button class="btn-action btn-orange" type="button" style="flex:1;margin:0;" onclick="parseIgChecklistIntoPrice()">Разобрать</button>
-          <button class="btn-action" type="button" style="flex:0 0 auto;margin:0;padding:10px 12px;background:#3a3a3c;" onclick="clearIgPriceChecklist()">Очистить</button>
-        </div>
-      </div>
       <div class="section-title">Сообщение клиенту</div>
       <div id="priceResult"><p class="muted">Набери состав и нажми «Собрать сообщение»</p></div>
     </div>
@@ -1039,7 +1046,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.23";
+    const APP_VERSION = "v7.10.24";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1081,6 +1088,9 @@
     let noteRoles = { mgr: false, cut: false, cour: true };
     let orderNotes = [{ text: "", roles: { mgr: false, cut: false, cour: true }, permanent: false }];
     let priceBasket = [];
+    let priceBaskets = { 1: [], 2: [] };
+    let priceDogCount = 1;
+    let priceActiveDog = 1;
     let priceMode = "pp";
     let postOfficeSuggestTimer = null;
     let postOfficeSuggestSeq = 0;
@@ -1255,7 +1265,7 @@
       warehouseScreen: "Склад\n• Сырое/сухое, коэффициенты, снабжение.",
       subsScreen: "Подписки\n• «В заказ» и доукомплект из месяца подставляют состав с листа (ПП — с учётом слота).",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
-      priceScreen: "Расчёт\n• ПП: себест×коэф + 11 + 6×N + пакеты + наценка фракций.\n• Пакеты: маленький/средний/большой/с ножками (+/−).\n• Розница — готовое сообщение с суммой.",
+      priceScreen: "Расчёт\n• ПП: себест×коэф + 11 + 6×N + пакеты + фракции (свет/доставки на человека).\n• 2 собаки: два состава, 11 и 6×N один раз.\n• Розница — шаблон «Давайте подытожим…».",
       peopleScreen: "Люди\n• Роли назначают только владельцы."
     };
 
@@ -6886,17 +6896,78 @@
       showToast("Добавлено позиций: " + parsed.items.length);
     }
     window.parseIgChecklistIntoBasket = parseIgChecklistIntoBasket;
-    function parseIgChecklistIntoPrice() {
-      var raw = (document.getElementById("igPriceChecklistPaste").value || "").trim();
-      if (!raw) { showToast("Вставь текст чеклиста"); return; }
-      var parsed = parseIgLinesToItems(raw);
-      priceBasket = parsed.items.map(function (it) {
-        return { id: Date.now() + Math.random(), cat: it.cat, main: it.main, name: it.name, sub: it.sub, value: it.val, val: it.val };
+    function stashPriceActiveBasket() {
+      priceBaskets[priceActiveDog] = priceBasket || [];
+    }
+
+    function loadPriceActiveBasket() {
+      if (!priceBaskets[priceActiveDog]) priceBaskets[priceActiveDog] = [];
+      priceBasket = priceBaskets[priceActiveDog];
+    }
+
+    function allPriceItems() {
+      stashPriceActiveBasket();
+      var list = (priceBaskets[1] || []).map(function (it) {
+        return Object.assign({}, it, { dog: 1 });
       });
-      if (parsed.noteBits.length) showToast("Часть позиций без фракции — проверь");
+      if (priceDogCount >= 2) {
+        list = list.concat((priceBaskets[2] || []).map(function (it) {
+          return Object.assign({}, it, { dog: 2 });
+        }));
+      }
+      return list;
+    }
+
+    function updatePriceDogUi() {
+      var sw = document.getElementById("priceDogSwitch");
+      var d1 = document.getElementById("priceDogs1");
+      var d2 = document.getElementById("priceDogs2");
+      var t1 = document.getElementById("priceDogTab1");
+      var t2 = document.getElementById("priceDogTab2");
+      var title = document.getElementById("priceBasketTitle");
+      if (d1) d1.classList.toggle("active", priceDogCount === 1);
+      if (d2) d2.classList.toggle("active", priceDogCount === 2);
+      if (sw) sw.style.display = priceDogCount >= 2 ? "" : "none";
+      if (t1) t1.classList.toggle("active", priceActiveDog === 1);
+      if (t2) t2.classList.toggle("active", priceActiveDog === 2);
+      if (title) {
+        title.textContent = priceDogCount >= 2
+          ? ("Состав · собака " + priceActiveDog)
+          : "Состав";
+      }
+    }
+
+    function setPriceDogCount(n) {
+      n = Number(n) === 2 ? 2 : 1;
+      stashPriceActiveBasket();
+      priceDogCount = n;
+      if (n === 1) {
+        priceActiveDog = 1;
+        priceBaskets[2] = [];
+      } else if (!priceBaskets[2]) {
+        priceBaskets[2] = [];
+      }
+      loadPriceActiveBasket();
+      updatePriceDogUi();
       renderPriceBasket();
       pricePpApiCache = null;
-      calcPriceFromBasket({ silent: true });
+      schedulePriceLiveUpdate();
+    }
+    window.setPriceDogCount = setPriceDogCount;
+
+    function setPriceActiveDog(n) {
+      n = Number(n) === 2 ? 2 : 1;
+      if (priceDogCount < 2) n = 1;
+      stashPriceActiveBasket();
+      priceActiveDog = n;
+      loadPriceActiveBasket();
+      updatePriceDogUi();
+      renderPriceBasket();
+    }
+    window.setPriceActiveDog = setPriceActiveDog;
+
+    function parseIgChecklistIntoPrice() {
+      showToast("Чеклист в Расчёте отключён — вводи позиции вручную");
     }
     window.parseIgChecklistIntoPrice = parseIgChecklistIntoPrice;
 
@@ -6963,6 +7034,7 @@
       document.getElementById("priceSelectorCard").style.display = "none";
       document.getElementById("priceVolumeInput").value = "";
       renderPriceBasket();
+      stashPriceActiveBasket();
       pricePpApiCache = null;
       calcPriceFromBasket({ silent: true });
       showToast("Добавлено в состав");
@@ -6972,8 +7044,9 @@
     function renderPriceBasket() {
       var box = document.getElementById("priceBasketContainer");
       if (!box) return;
+      updatePriceDogUi();
       if (!priceBasket.length) {
-        box.innerHTML = '<p class="muted">Пусто — ручной ввод или чеклист Instagram.</p>';
+        box.innerHTML = '<p class="muted">Пусто — добавь позиции вручную.</p>';
         return;
       }
       box.innerHTML = priceBasket.map(function (item) {
@@ -6998,9 +7071,10 @@
 
     function deletePriceBasketItem(id) {
       priceBasket = priceBasket.filter(function (x) { return x.id !== id; });
+      stashPriceActiveBasket();
       renderPriceBasket();
       pricePpApiCache = null;
-      if (priceBasket.length) calcPriceFromBasket({ silent: true });
+      if (allPriceItems().length) calcPriceFromBasket({ silent: true });
       else {
         var box = document.getElementById("priceResult");
         if (box) box.innerHTML = '<p class="muted">Набери состав и нажми «Собрать сообщение»</p>';
@@ -7009,17 +7083,24 @@
     window.deletePriceBasketItem = deletePriceBasketItem;
 
     async function clearPriceBasket() {
-      if (!priceBasket.length) { showToast("Состав уже пуст"); return; }
-      var ok = await uiConfirmAsync("Очистить состав (" + priceBasket.length + " поз.)?");
+      var cur = priceBasket || [];
+      if (!cur.length) { showToast("Состав уже пуст"); return; }
+      var ok = await uiConfirmAsync(
+        priceDogCount >= 2
+          ? ("Очистить состав собаки " + priceActiveDog + " (" + cur.length + " поз.)?")
+          : ("Очистить состав (" + cur.length + " поз.)?")
+      );
       if (!ok) return;
       priceBasket = [];
+      stashPriceActiveBasket();
       priceLastMessage = "";
       pricePpApiCache = null;
-      pricePackCounts = { small: 0, medium: 0, large: 0, legs: 0 };
-      try { renderPricePackCounters(); } catch (e0) {}
       renderPriceBasket();
-      var box = document.getElementById("priceResult");
-      if (box) box.innerHTML = '<p class="muted">Набери состав и нажми «Собрать сообщение»</p>';
+      if (allPriceItems().length) calcPriceFromBasket({ silent: true });
+      else {
+        var box = document.getElementById("priceResult");
+        if (box) box.innerHTML = '<p class="muted">Набери состав и нажми «Собрать сообщение»</p>';
+      }
       showToast("Состав очищен");
     }
     window.clearPriceBasket = clearPriceBasket;
@@ -7158,6 +7239,7 @@
     function priceBasketFingerprint(list) {
       return (list || []).map(function (it) {
         return [
+          it.dog || 1,
           it.cat || "",
           it.main || it.name || "",
           it.sub || "",
@@ -7226,14 +7308,15 @@
     window.schedulePriceLiveUpdate = schedulePriceLiveUpdate;
 
     function refreshPriceLive() {
-      if (!priceBasket || !priceBasket.length) return;
+      var list = allPriceItems();
+      if (!list.length) return;
       if (priceMode === "retail") {
         calcPriceFromBasket({ silent: true });
         return;
       }
-      var fp = priceBasketFingerprint(priceBasket);
+      var fp = priceBasketFingerprint(list);
       if (pricePpApiCache && pricePpApiCache.fingerprint === fp && pricePpApiCache.res) {
-        renderPpResultFromApi(pricePpApiCache.res, priceBasket, pricePpApiCache.retail);
+        renderPpResultFromApi(pricePpApiCache.res, list, pricePpApiCache.retail);
         return;
       }
       calcPriceFromBasket({ silent: true });
@@ -7252,6 +7335,7 @@
       var costSum = recalcPpCostSum(res, list);
       var deliveryByn = PRICE_PP_DELIVERY_PER * deliveriesN;
       var fracMark = calcDressuraFractionMarkup(list, getPriceFracRates());
+      // свет + доставки один раз на человека (даже при 2 собаках)
       var subTotal = costSum * coef + PRICE_PP_FIXED_BYN + deliveryByn +
         packagesByn + fracMark.total;
       var msg = composePpClientMessage(list, deliveriesN, clientNote, retail.total, subTotal);
@@ -7260,8 +7344,9 @@
         res: res,
         retail: retail
       };
+      var dogsHint = priceDogCount >= 2 ? " · 2 собаки, свет/доставка×1" : "";
       renderPriceMessageBox(msg,
-        '<div class="card" style="margin-bottom:8px;font-size:13px;"><b>ПП</b><br>' +
+        '<div class="card" style="margin-bottom:8px;font-size:13px;"><b>ПП</b>' + dogsHint + '<br>' +
         "себест. " + costSum + " × " + coef +
         " + " + PRICE_PP_FIXED_BYN +
         " + 6×" + deliveriesN + "(" + deliveryByn + ")" +
@@ -7401,7 +7486,7 @@
       var m = String(main || "").toUpperCase();
       var fu = f.toUpperCase().replace(/\s+/g, " ");
       if (/Л[ЁЕ]ГК/.test(m) && /^МЕЛК/.test(fu)) return "мелкий кубик";
-      if (fu === "ПЛАСТ") return "крупные пластинки";
+      if (fu === "ПЛАСТ") return "пластинки";
       if (/ПОЛОВИН/.test(fu)) return "половинки";
       if (/ПАЛК/.test(fu)) return "палочки";
       if (/^ОЧ/.test(fu) || fu === "ОЧ МАЛ") return "очень маленькие";
@@ -7439,11 +7524,13 @@
         chew: "Жевалки",
         other: "Другое",
         powder: "Присыпки",
-        veg: "Овощи/Фрукты"
+        veg: "Овощи/фрукты"
       };
       var byCat = {};
       (list || []).forEach(function (it) {
         var c = it.cat || "other";
+        // в сообщении клиенту мясо из «Другое» (индейка и т.п.) — в блок Дрессура
+        if (c === "other") c = "dressura";
         if (!byCat[c]) byCat[c] = [];
         byCat[c].push(it);
       });
@@ -7460,13 +7547,24 @@
       return parts.join("\n\n");
     }
 
+    function buildPriceCompositionForMessage(list) {
+      var items = list || [];
+      if (priceDogCount < 2) return buildPriceCompositionBlocks(items);
+      var d1 = items.filter(function (it) { return Number(it.dog) !== 2; });
+      var d2 = items.filter(function (it) { return Number(it.dog) === 2; });
+      var parts = [];
+      if (d1.length) parts.push("Собака 1:\n\n" + buildPriceCompositionBlocks(d1));
+      if (d2.length) parts.push("Собака 2:\n\n" + buildPriceCompositionBlocks(d2));
+      return parts.join("\n\n");
+    }
+
     function roundRub(n) {
       return Math.round(Number(n) || 0);
     }
 
     function composePpClientMessage(list, deliveriesN, clientNote, retailTotal, subTotal) {
       var n = Math.max(1, Number(deliveriesN) || 1);
-      var blocks = buildPriceCompositionBlocks(list);
+      var blocks = buildPriceCompositionForMessage(list);
       var note = String(clientNote || "").trim();
       var msg = "Ваш состав на месяц получается\n\n" + blocks +
         "\n\nКоличество доставок в месяц - " + n;
@@ -7478,10 +7576,14 @@
       return msg;
     }
 
-    function composeRetailClientMessage(list, retailTotal) {
-      var blocks = buildPriceCompositionBlocks(list);
-      return "Ваш заказ:\n\n" + blocks +
-        "\n\nИтого - " + roundRub(retailTotal) + " рублей";
+    function composeRetailClientMessage(list, retailTotal, clientNote) {
+      var blocks = buildPriceCompositionForMessage(list);
+      var note = String(clientNote || "").trim();
+      var msg = "Давайте подытожим ваш заказ 📜\n\n" + blocks;
+      if (note) msg += "\n\n" + note;
+      msg += "\n\nЦена за этот набор составит - " + roundRub(retailTotal) + " рублей";
+      msg += "\n\nВсё подходит?)";
+      return msg;
     }
 
     function renderPriceMessageBox(text, metaHtml) {
@@ -7514,7 +7616,7 @@
       if (ret) ret.classList.toggle("active", mode === "retail");
       if (extras) extras.style.display = mode === "retail" ? "none" : "";
       try { renderPriceBasket(); } catch (e) {}
-      if (priceBasket && priceBasket.length) refreshPriceLive();
+      if (allPriceItems().length) refreshPriceLive();
       else {
         var box = document.getElementById("priceResult");
         if (box) box.innerHTML = '<p class="muted">Набери состав и нажми «Собрать сообщение»</p>';
@@ -7525,20 +7627,24 @@
     async function calcPriceFromBasket(opts) {
       opts = opts || {};
       var silent = !!opts.silent;
-      var list = priceBasket || [];
+      stashPriceActiveBasket();
+      var list = allPriceItems();
       var box = document.getElementById("priceResult");
       if (!list.length) {
         if (box) box.innerHTML = '<p class="muted">Состав пуст — добавь позиции</p>';
         if (!silent) showToast("Сначала набери состав");
         return null;
       }
+      var noteEl = document.getElementById("priceClientNote");
+      var clientNote = noteEl ? noteEl.value : "";
       if (priceMode === "retail") {
         var local = calcRetailBasketTotal(list);
-        var rMsg = composeRetailClientMessage(list, local.total);
+        var rMsg = composeRetailClientMessage(list, local.total, clientNote);
         var miss = (local.lines || []).filter(function (L) { return !L.found; }).length;
         renderPriceMessageBox(rMsg,
           '<div class="card" style="margin-bottom:8px;"><b>Розница</b> · ' +
           roundRub(local.total) + " BYN" +
+          (priceDogCount >= 2 ? " · 2 собаки" : "") +
           (miss ? ' · <span style="color:#ff9f0a;">без прайса: ' + miss + "</span>" : "") +
           "</div>");
         return local;
