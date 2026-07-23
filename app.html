@@ -918,14 +918,33 @@
             <label>Коэффициент</label>
             <input type="number" id="pricePpCoef" value="2.3" min="0.1" max="10" step="0.1" inputmode="decimal">
           </div>
-          <div class="seg-row" style="gap:8px;">
-            <div class="form-group" style="flex:1;margin:0;">
-              <label>Пакеты (BYN)</label>
-              <input type="number" id="pricePpPackages" value="0" min="0" step="0.01" inputmode="decimal" placeholder="0">
-            </div>
-            <div class="form-group" style="flex:1;margin:0;">
-              <label>Под них (BYN)</label>
-              <input type="number" id="pricePpUnder" value="0" min="0" step="0.01" inputmode="decimal" placeholder="0">
+          <div class="form-group">
+            <label>Пакеты <span class="muted" id="pricePackTotalLabel">(0 BYN)</span></label>
+            <div id="pricePackCounters" style="display:flex;flex-direction:column;gap:8px;">
+              <div class="seg-row" style="align-items:center;gap:8px;">
+                <span style="flex:1;font-size:14px;">маленький</span>
+                <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpPricePack('small',-1)">−</button>
+                <b id="pricePackSmall" style="min-width:28px;text-align:center;">0</b>
+                <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpPricePack('small',1)">+</button>
+              </div>
+              <div class="seg-row" style="align-items:center;gap:8px;">
+                <span style="flex:1;font-size:14px;">средний</span>
+                <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpPricePack('medium',-1)">−</button>
+                <b id="pricePackMedium" style="min-width:28px;text-align:center;">0</b>
+                <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpPricePack('medium',1)">+</button>
+              </div>
+              <div class="seg-row" style="align-items:center;gap:8px;">
+                <span style="flex:1;font-size:14px;">большой</span>
+                <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpPricePack('large',-1)">−</button>
+                <b id="pricePackLarge" style="min-width:28px;text-align:center;">0</b>
+                <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpPricePack('large',1)">+</button>
+              </div>
+              <div class="seg-row" style="align-items:center;gap:8px;">
+                <span style="flex:1;font-size:14px;">с ножками</span>
+                <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpPricePack('legs',-1)">−</button>
+                <b id="pricePackLegs" style="min-width:28px;text-align:center;">0</b>
+                <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpPricePack('legs',1)">+</button>
+              </div>
             </div>
           </div>
           <div class="form-group" style="margin-top:10px;">
@@ -1020,7 +1039,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.21";
+    const APP_VERSION = "v7.10.22";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1236,7 +1255,7 @@
       warehouseScreen: "Склад\n• Сырое/сухое, коэффициенты, снабжение.",
       subsScreen: "Подписки\n• «В заказ» и доукомплект из месяца подставляют состав с листа (ПП — с учётом слота).",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
-      priceScreen: "Расчёт\n• ПП: себест×коэф + 11 + 6×N + пакеты + под них + наценка фракций.\n• Фракции дрессуры: целое/крупный/средний/мелкий за 100г — правятся.\n• Розница — готовое сообщение с суммой.",
+      priceScreen: "Расчёт\n• ПП: себест×коэф + 11 + 6×N + пакеты + наценка фракций.\n• Пакеты: маленький/средний/большой/с ножками (+/−).\n• Розница — готовое сообщение с суммой.",
       peopleScreen: "Люди\n• Роли назначают только владельцы."
     };
 
@@ -6993,6 +7012,8 @@
       if (!ok) return;
       priceBasket = [];
       priceLastMessage = "";
+      pricePackCounts = { small: 0, medium: 0, large: 0, legs: 0 };
+      try { renderPricePackCounters(); } catch (e0) {}
       renderPriceBasket();
       var box = document.getElementById("priceResult");
       if (box) box.innerHTML = '<p class="muted">Набери состав и нажми «Собрать сообщение»</p>';
@@ -7121,10 +7142,13 @@
     window.openSubInOrder = openSubInOrder;
 
     var priceLastMessage = "";
-    /** ПП: (сумма себест) × коэф + 11 + 6×N + пакеты + под них + наценка фракций */
+    /** ПП: (сумма себест) × коэф + 11 + 6×N + пакеты + наценка фракций */
     var PRICE_PP_FIXED_BYN = 11;
     var PRICE_PP_DELIVERY_PER = 6;
     var PRICE_PP_COEF_DEFAULT = 2.3;
+    /** Цены пакетов (FINPLAN): У1/У2/У3 / крафт с ножками */
+    var PRICE_PACK_UNIT = { small: 0.34, medium: 0.56, large: 0.80, legs: 1.40 };
+    var pricePackCounts = { small: 0, medium: 0, large: 0, legs: 0 };
 
     function getPricePpCoef() {
       var el = document.getElementById("pricePpCoef");
@@ -7133,10 +7157,47 @@
       return v;
     }
 
-    function getPricePpExtraByn(id) {
-      var el = document.getElementById(id);
-      var v = el ? Number(el.value) : 0;
-      return isFinite(v) && v > 0 ? v : 0;
+    function renderPricePackCounters() {
+      var map = {
+        small: "pricePackSmall",
+        medium: "pricePackMedium",
+        large: "pricePackLarge",
+        legs: "pricePackLegs"
+      };
+      Object.keys(map).forEach(function (k) {
+        var el = document.getElementById(map[k]);
+        if (el) el.textContent = String(pricePackCounts[k] || 0);
+      });
+      var tot = calcPricePacksByn();
+      var lab = document.getElementById("pricePackTotalLabel");
+      if (lab) lab.textContent = "(" + (Math.round(tot * 100) / 100) + " BYN)";
+    }
+
+    function bumpPricePack(kind, delta) {
+      if (!pricePackCounts.hasOwnProperty(kind)) return;
+      var next = (Number(pricePackCounts[kind]) || 0) + (Number(delta) || 0);
+      if (next < 0) next = 0;
+      if (next > 99) next = 99;
+      pricePackCounts[kind] = next;
+      renderPricePackCounters();
+    }
+    window.bumpPricePack = bumpPricePack;
+
+    function calcPricePacksByn() {
+      var sum = 0;
+      Object.keys(PRICE_PACK_UNIT).forEach(function (k) {
+        sum += (Number(pricePackCounts[k]) || 0) * (Number(PRICE_PACK_UNIT[k]) || 0);
+      });
+      return Math.round(sum * 100) / 100;
+    }
+
+    function pricePacksSummary() {
+      var parts = [];
+      if (pricePackCounts.small) parts.push("мал×" + pricePackCounts.small);
+      if (pricePackCounts.medium) parts.push("ср×" + pricePackCounts.medium);
+      if (pricePackCounts.large) parts.push("бол×" + pricePackCounts.large);
+      if (pricePackCounts.legs) parts.push("ножк×" + pricePackCounts.legs);
+      return parts.join(" ");
     }
 
     function getPriceFracRates() {
@@ -7416,8 +7477,8 @@
         var nEl = document.getElementById("priceDeliveriesN");
         var deliveriesN = Math.max(1, Number(nEl && nEl.value) || 1);
         var coef = getPricePpCoef();
-        var packagesByn = getPricePpExtraByn("pricePpPackages");
-        var underByn = getPricePpExtraByn("pricePpUnder");
+        var packagesByn = calcPricePacksByn();
+        var packHint = pricePacksSummary();
         var noteEl = document.getElementById("priceClientNote");
         var clientNote = noteEl ? noteEl.value : "";
         var retail = calcRetailBasketTotal(list);
@@ -7430,21 +7491,20 @@
           if (box) box.innerHTML = '<p class="muted">Ошибка расчёта подписки</p>';
           return null;
         }
-        // себест × коэф + 11 + 6×N + пакеты + под них + наценка фракций
+        // себест × коэф + 11 + 6×N + пакеты + наценка фракций
         var costSum = recalcPpCostSum(res, list);
         var deliveryByn = PRICE_PP_DELIVERY_PER * deliveriesN;
         var fracRates = getPriceFracRates();
         var fracMark = calcDressuraFractionMarkup(list, fracRates);
         var subTotal = costSum * coef + PRICE_PP_FIXED_BYN + deliveryByn +
-          packagesByn + underByn + fracMark.total;
+          packagesByn + fracMark.total;
         var msg = composePpClientMessage(list, deliveriesN, clientNote, retail.total, subTotal);
         renderPriceMessageBox(msg,
           '<div class="card" style="margin-bottom:8px;font-size:13px;"><b>ПП</b><br>' +
           "себест. " + costSum + " × " + coef +
           " + " + PRICE_PP_FIXED_BYN +
           " + 6×" + deliveriesN + "(" + deliveryByn + ")" +
-          (packagesByn ? (" + пакеты " + packagesByn) : "") +
-          (underByn ? (" + под них " + underByn) : "") +
+          (packagesByn ? (" + пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
           (fracMark.total ? (" + фракции " + fracMark.total) : "") +
           " → <b>" + roundRub(subTotal) + " BYN/мес</b>" +
           (fracMark.details.length
@@ -7454,7 +7514,7 @@
           "<br>розница <b>" + roundRub(retail.total) + " BYN</b></div>");
         return {
           pp: res, retail: retail, subTotal: subTotal, coef: coef,
-          costSum: costSum, fracMark: fracMark, message: msg
+          costSum: costSum, fracMark: fracMark, packagesByn: packagesByn, message: msg
         };
       } catch (e) {
         if (box) box.innerHTML = '<p class="muted">Ошибка сети</p>';
