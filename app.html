@@ -179,6 +179,39 @@
       border: 1px solid var(--border-color);
     }
     .client-item-card.selected { border-color: var(--accent-color); background: #1a222c; }
+    .view-split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+      margin-top: 8px;
+    }
+    @media (max-width: 360px) {
+      .view-col-head b { font-size: 12px; }
+      .client-title { font-size: 13px; }
+      .crm-mini-btn { width: 28px; height: 28px; font-size: 12px; }
+    }
+    .view-col {
+      min-width: 0;
+      background: #101010;
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 8px;
+      max-height: min(72vh, 680px);
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .view-col-head {
+      position: sticky; top: 0; z-index: 2;
+      background: #101010;
+      padding: 4px 2px 10px;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 8px;
+    }
+    .view-col-head b { font-size: 13px; }
+    .view-col.is-month { border-color: rgba(175,82,222,0.4); }
+    .client-order-details.open { display: block !important; }
+    .view-tap-hint { font-size: 11px; color: var(--text-muted); }
     .client-main-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
     .client-title-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; overflow: hidden; }
     .client-check {
@@ -665,7 +698,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.34</div>
+          <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.35</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -864,32 +897,42 @@
           </select>
         </div>
         <div class="form-group">
-          <label>Или дата (из листа месяца / ячеек недели)</label>
+          <label>Или дата</label>
           <input type="date" id="viewDate" onchange="onViewDateChange()">
         </div>
-        <div class="muted" style="font-size:12px;">Списки обновляются сами. Слева — уже на неделе, справа — ещё только в календаре месяца (Июль…).</div>
+        <div class="muted" style="font-size:12px;">Слева — неделя, справа — месяц. Тап по имени — состав и детали. «→» — перенос на неделю.</div>
+        <div id="viewDeployHint" class="muted" style="display:none;font-size:12px;margin-top:8px;color:#ff9f0a;"></div>
       </div>
       <div id="totalDaySummaryContainer"></div>
 
-      <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-        <span>На неделе <span class="muted" id="viewWeekCount"></span></span>
-        <span class="batch-bar-row" style="margin:0;gap:6px;">
-          <button type="button" class="btn-action btn-blue" style="margin:0;padding:8px 10px;font-size:12px;" onclick="selectAllViewClients(true)">Все</button>
-          <button type="button" class="btn-action" style="margin:0;padding:8px 10px;font-size:12px;background:#3a3a3c;" onclick="selectAllViewClients(false)">Снять</button>
-        </span>
+      <div class="view-split">
+        <div class="view-col" id="viewWeekCol">
+          <div class="view-col-head">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+              <b>Неделя <span class="muted" id="viewWeekCount"></span></b>
+              <span class="batch-bar-row" style="margin:0;gap:4px;">
+                <button type="button" class="seg-btn" style="padding:6px 8px;font-size:11px;" onclick="selectAllViewClients(true)">Все</button>
+                <button type="button" class="seg-btn" style="padding:6px 8px;font-size:11px;" onclick="selectAllViewClients(false)">Снять</button>
+              </span>
+            </div>
+          </div>
+          <div id="clientsContainer"><p class="muted">Выберите день…</p></div>
+        </div>
+        <div class="view-col is-month" id="viewMonthCol">
+          <div class="view-col-head">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+              <b>Месяц <span class="muted" id="viewMonthCount"></span></b>
+              <button type="button" class="btn-action btn-purple" style="margin:0;padding:6px 10px;font-size:11px;" onclick="topUpDayFromMonth()">Все →</button>
+            </div>
+          </div>
+          <div id="monthClientsContainer"><p class="muted">—</p></div>
+        </div>
       </div>
-      <div id="clientsContainer"><p class="muted">Выберите день…</p></div>
-
-      <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:16px;">
-        <span>В месяце <span class="muted" id="viewMonthCount"></span></span>
-        <button type="button" class="btn-action btn-purple" style="margin:0;padding:8px 12px;font-size:12px;" onclick="topUpDayFromMonth()">Перенести всех →</button>
-      </div>
-      <div id="monthClientsContainer"><p class="muted">—</p></div>
 
       <div class="batch-bar" id="batchBar">
         <div class="batch-count" id="batchCount">Выбрано: 0</div>
         <div class="batch-bar-row">
-          <button type="button" class="btn-action btn-purple" onclick="crmBatchMove()">Перенести</button>
+          <button type="button" class="btn-action btn-purple" onclick="crmBatchMove()">Перенести день</button>
           <button type="button" class="btn-action btn-orange" style="background:#ff453a;" onclick="crmBatchDelete()">Удалить</button>
         </div>
       </div>
@@ -1198,7 +1241,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.34";
+    const APP_VERSION = "v7.10.35";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3327,12 +3370,20 @@
     }
     window.onViewDayChange = onViewDayChange;
 
-    function renderWeekClientCard(client, index) {
-      const lines = (client.basket || []).map(g => {
-        const unit = g.unit || unitForItem(g.cat, g.name);
-        const frac = g.sub ? " (" + g.sub + ")" : "";
-        return `<div class="order-detail-line"><span>• ${g.name}${frac}</span><span class="order-detail-volume">${g.val} ${unit}</span></div>`;
+    let monthClientsCache = [];
+
+    function basketLinesHtml(basket) {
+      return (basket || []).map(function (g) {
+        var unit = g.unit || unitForItem(g.cat, g.name || g.main);
+        var frac = g.sub ? " (" + g.sub + ")" : "";
+        var nm = g.name || g.main || "";
+        return '<div class="order-detail-line"><span>• ' + escapeHtml(nm) + escapeHtml(frac) +
+          '</span><span class="order-detail-volume">' + (g.val != null ? g.val : g.value) + " " + unit + "</span></div>";
       }).join("") || '<p class="muted">Нет позиций</p>';
+    }
+
+    function renderWeekClientCard(client, index) {
+      const lines = basketLinesHtml(client.basket);
       const addr = client.address ? `<div class="delivery-line addr-line">Адрес: ${escapeHtml(client.address)}</div>` : "";
       const priceHtml = formatOrderPriceHtml(client.note || "");
       const noteClean = noteTextForRole(client.note || "", "mgr");
@@ -3366,6 +3417,7 @@
         <div class="client-meta-row">
           ${priceBadge}
           <span class="client-badge">${client.orderCount || 0} поз.</span>
+          <span class="view-tap-hint">тап — состав</span>
         </div>
         ${(addr || note || deliv || priceHtml) ? `<div class="delivery-info-box">${priceHtml}${note}${roleHint}${deliv}${addr}${formatTelHtml(client.phone || extractPhone(client.note || ""))}</div>` : (formatTelHtml(client.phone || extractPhone(client.note || "")) ? `<div class="delivery-info-box">${formatTelHtml(client.phone || extractPhone(client.note || ""))}</div>` : "")}
         <div class="client-order-details" id="details_${index}">${lines}</div>
@@ -3377,15 +3429,17 @@
       var seg = client.segment ? ('<span class="client-badge">' + escapeHtml(client.segment) + "</span>") : "";
       var meta = [];
       if (client.address) meta.push(escapeHtml(client.address));
-      if (client.note) meta.push(escapeHtml(String(client.note).slice(0, 80)));
-      return '<div class="client-item-card" style="border-color:rgba(175,82,222,0.35);">' +
-        '<div class="client-main-row" style="align-items:center;">' +
+      if (client.phone) meta.push(escapeHtml(client.phone));
+      if (client.note) meta.push(escapeHtml(String(client.note).slice(0, 100)));
+      return '<div class="client-item-card" id="monthCard_' + index + '" style="border-color:rgba(175,82,222,0.35);">' +
+        '<div class="client-main-row" style="align-items:center;" onclick="toggleMonthDetail(' + index + ', event)">' +
         '<div class="client-title-wrap"><span class="client-title">' + escapeHtml(client.name) + "</span></div>" +
-        '<button type="button" class="btn-action btn-purple" style="margin:0;padding:8px 12px;font-size:12px;flex:0 0 auto;" ' +
-        'onclick="pullOneFromMonth(\'' + safe + '\')">→ на неделю</button>' +
+        '<button type="button" class="btn-action btn-purple" style="margin:0;padding:8px 10px;font-size:11px;flex:0 0 auto;" ' +
+        'onclick="event.stopPropagation();pullOneFromMonth(\'' + safe + '\')">→</button>' +
         "</div>" +
-        '<div class="client-meta-row">' + seg + "</div>" +
+        '<div class="client-meta-row">' + seg + ' <span class="view-tap-hint">тап — детали</span></div>' +
         (meta.length ? ('<div class="delivery-info-box muted" style="font-size:12px;">' + meta.join(" · ") + "</div>") : "") +
+        '<div class="client-order-details" id="monthDetails_' + index + '"><p class="muted">Загрузка состава…</p></div>' +
         "</div>";
     }
 
@@ -3398,74 +3452,166 @@
       const summary = document.getElementById("totalDaySummaryContainer");
       const weekCountEl = document.getElementById("viewWeekCount");
       const monthCountEl = document.getElementById("viewMonthCount");
+      const deployHint = document.getElementById("viewDeployHint");
       if (!day && !dateStr) {
         box.innerHTML = '<p class="muted">Выберите день…</p>';
         if (monthBox) monthBox.innerHTML = '<p class="muted">—</p>';
         if (summary) summary.innerHTML = "";
         loadedClientsRawData = [];
+        monthClientsCache = [];
         updateBatchBar();
         return;
       }
       if (summary) summary.innerHTML = "";
-      box.innerHTML = loadingDanceHtml("Сверяю неделю и месяц…");
-      if (monthBox) monthBox.innerHTML = '<p class="muted">…</p>';
+      if (deployHint) { deployHint.style.display = "none"; deployHint.textContent = ""; }
+      box.innerHTML = loadingDanceHtml("Неделя…");
+      if (monthBox) monthBox.innerHTML = '<p class="muted">Месяц…</p>';
       try {
-        const params = { action: "getViewCompare" };
-        if (dateStr) params.date = dateStr;
-        else params.day = day;
         try { _apiGetMem = Object.create(null); } catch (eClr) {}
-        const res = await apiGet(params, { timeoutMs: 25000, cacheTtlMs: 0 });
+
+        // Неделя всегда через getClients (работает на любом Deploy).
+        // Месяц — getViewCompare (нужен свежий Code.gs).
+        var weekParams = { action: "getClients" };
+        var compareParams = { action: "getViewCompare" };
+        if (dateStr) {
+          weekParams.date = dateStr;
+          compareParams.date = dateStr;
+        } else {
+          weekParams.day = day;
+          compareParams.day = day;
+        }
+
+        var pair = await Promise.all([
+          apiGet(weekParams, { timeoutMs: 22000, cacheTtlMs: 0 }).catch(function (eW) {
+            return { status: "error", message: eW.message || String(eW), clients: [] };
+          }),
+          apiGet(compareParams, { timeoutMs: 25000, cacheTtlMs: 0 }).catch(function () {
+            return null;
+          })
+        ]);
+        var weekRes = pair[0];
+        var compareRes = pair[1];
+
+        var needDeploy = !compareRes || compareRes.status !== "success" || !Array.isArray(compareRes.month);
+
+        var week = (weekRes && weekRes.status === "success" && Array.isArray(weekRes.clients))
+          ? weekRes.clients
+          : ((compareRes && Array.isArray(compareRes.week)) ? compareRes.week : []);
+        var month = (!needDeploy && compareRes && Array.isArray(compareRes.month)) ? compareRes.month : [];
+
         const daySel = document.getElementById("viewDaySelect");
-        if (res && res.day && daySel) {
+        var resolvedDay = (compareRes && compareRes.day) || (weekRes && weekRes.day) || day || "";
+        if (resolvedDay && daySel) {
           for (let i = 0; i < daySel.options.length; i++) {
-            if (daySel.options[i].value === res.day || daySel.options[i].text === res.day) {
+            if (daySel.options[i].value === resolvedDay || daySel.options[i].text === resolvedDay) {
               daySel.selectedIndex = i;
               break;
             }
           }
-        } else if (res && res.dateNotInWeek && daySel) {
+        } else if (compareRes && compareRes.dateNotInWeek && daySel) {
           daySel.selectedIndex = 0;
         }
 
-        const week = (res && res.week) || [];
-        const month = (res && res.month) || [];
         loadedClientsRawData = week;
+        monthClientsCache = month;
 
         if (weekCountEl) weekCountEl.textContent = "(" + week.length + ")";
         if (monthCountEl) {
           monthCountEl.textContent = "(" + month.length + ")" +
-            (res && res.monthSheet ? (" · " + res.monthSheet) : "");
+            (compareRes && compareRes.monthSheet ? (" · " + compareRes.monthSheet) : "");
         }
 
-        const dayLabel = res && res.day ? (" · " + res.day) : "";
-        const dateLabel = res && res.date ? (" · " + res.date) : "";
-        const warn = res && res.dateNotInWeek ? " · дата вне недели" : "";
+        const dayLabel = resolvedDay ? (" · " + resolvedDay) : "";
+        const dateLabel = (compareRes && compareRes.date) || (weekRes && weekRes.date) || dateStr
+          ? (" · " + ((compareRes && compareRes.date) || (weekRes && weekRes.date) || dateStr))
+          : "";
+        const warn = compareRes && compareRes.dateNotInWeek ? " · дата вне недели" : "";
         if (summary) {
-          summary.innerHTML = '<div class="total-summary-badge">На неделе: ' + week.length +
-            " · в месяце ещё: " + month.length + dayLabel + dateLabel + warn + "</div>";
+          summary.innerHTML = '<div class="total-summary-badge">Неделя: ' + week.length +
+            " · месяц: " + month.length + dayLabel + dateLabel + warn + "</div>";
+        }
+        if (deployHint && needDeploy) {
+          deployHint.style.display = "block";
+          deployHint.textContent = "Справа пусто: вставь свежий Code.gs → Deploy (getViewCompare). Слева уже getClients.";
         }
 
-        box.innerHTML = week.length
-          ? week.map(renderWeekClientCard).join("")
-          : '<div class="card"><p class="muted">На неделе пока пусто — перенеси из месяца ↓</p></div>';
+        if (weekRes && weekRes.status !== "success" && !week.length) {
+          box.innerHTML = '<p class="muted">Ошибка недели: ' +
+            escapeHtml((weekRes && weekRes.message) || "нет данных") + "</p>";
+        } else {
+          box.innerHTML = week.length
+            ? week.map(renderWeekClientCard).join("")
+            : '<p class="muted">На неделе пусто — бери справа →</p>';
+        }
 
         if (monthBox) {
-          if (res && res.dateNotInWeek && !month.length) {
-            monthBox.innerHTML = '<div class="card"><p class="muted">Дата не стоит в ячейках текущей недели — выбери Пн–Пт или дату из листа.</p></div>';
+          if (needDeploy) {
+            monthBox.innerHTML = '<p class="muted">Нужен Deploy Code.gs — иначе календарь месяца не читается.</p>';
+          } else if (compareRes && compareRes.dateNotInWeek && !month.length) {
+            monthBox.innerHTML = '<p class="muted">Дата вне недели — выбери Пн–Пт.</p>';
           } else {
             monthBox.innerHTML = month.length
               ? month.map(renderMonthClientCard).join("")
-              : '<div class="card"><p class="muted">Все из месяца уже на неделе (или в календаре никого).</p></div>';
+              : '<p class="muted">Все из месяца уже на неделе.</p>';
           }
         }
         updateBatchBar();
       } catch (err) {
         box.innerHTML = '<p class="muted">Ошибка: ' + escapeHtml(err.message || String(err)) + "</p>";
-        if (monthBox) monthBox.innerHTML = '<p class="muted">Нужен Deploy Code.gs (getViewCompare)</p>';
+        if (monthBox) monthBox.innerHTML = '<p class="muted">Сеть / Deploy</p>';
         updateBatchBar();
       }
     }
     window.loadClientsForDay = loadClientsForDay;
+
+    function toggleOrderDetail(index, event) {
+      if (event && (event.target.closest(".crm-mini-btn") || event.target.closest(".client-check") || event.target.closest("button"))) return;
+      const el = document.getElementById("details_" + index);
+      if (!el) return;
+      el.classList.toggle("open");
+      if (el.classList.contains("open")) el.style.display = "block";
+      else el.style.display = "none";
+    }
+
+    async function toggleMonthDetail(index, event) {
+      if (event && event.target.closest("button")) return;
+      var el = document.getElementById("monthDetails_" + index);
+      if (!el) return;
+      var opening = !el.classList.contains("open");
+      el.classList.toggle("open", opening);
+      el.style.display = opening ? "block" : "none";
+      if (!opening) return;
+      var client = monthClientsCache[index];
+      if (!client) { el.innerHTML = '<p class="muted">Нет данных</p>'; return; }
+      if (client._detailHtml) { el.innerHTML = client._detailHtml; return; }
+      el.innerHTML = '<p class="muted">Состав…</p>';
+      var html = "";
+      if (client.address) html += '<div class="delivery-line">Адрес: ' + escapeHtml(client.address) + "</div>";
+      if (client.phone) html += '<div class="delivery-line">' + formatTelHtml(client.phone) + "</div>";
+      if (client.note) html += '<div class="delivery-line">Примечание: ' + escapeHtml(client.note) + "</div>";
+      if (client.segment) html += '<div class="delivery-line">Сегмент: ' + escapeHtml(client.segment) + "</div>";
+      try {
+        var day = document.getElementById("viewDaySelect").value;
+        var dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "";
+        var sug = await apiGet({
+          action: "getPpOrderSuggest",
+          nick: client.name,
+          day: day || "",
+          date: dateStr || ""
+        }, { timeoutMs: 15000, cacheTtlMs: 20000 });
+        var basket = (sug && (sug.proposedBasket || sug.monthlyBasket)) || [];
+        html += '<div style="margin-top:8px;"><b>Состав</b></div>' + basketLinesHtml(basket);
+        if (sug && sug.hint) html += '<div class="muted" style="font-size:11px;margin-top:6px;">' + escapeHtml(sug.hint) + "</div>";
+      } catch (e) {
+        html += '<div class="muted" style="margin-top:8px;">Состав с листа не подтянулся</div>';
+      }
+      var safe = String(client.name || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      html += '<button type="button" class="btn-action btn-purple" style="margin-top:10px;" onclick="pullOneFromMonth(\'' +
+        safe + '\')">Перенести на неделю →</button>';
+      client._detailHtml = html;
+      el.innerHTML = html;
+    }
+    window.toggleMonthDetail = toggleMonthDetail;
 
     async function pullOneFromMonth(clientName) {
       var name = String(clientName || "").trim();
@@ -3511,13 +3657,6 @@
       if (cutDay && (!dayHint || cutDay === dayHint)) jobs.push(loadCutting());
       if (courDay && (!dayHint || courDay === dayHint)) jobs.push(loadCourier(true));
       if (jobs.length) await Promise.all(jobs);
-    }
-
-    function toggleOrderDetail(index, event) {
-      if (event.target.closest(".crm-mini-btn") || event.target.closest(".client-check")) return;
-      const el = document.getElementById("details_" + index);
-      if (!el) return;
-      el.style.display = (el.style.display === "block") ? "none" : "block";
     }
 
     function getSelectedClientIndexes() {
