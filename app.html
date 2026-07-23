@@ -593,7 +593,7 @@
   <div class="app">
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
-        <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.18</div>
+        <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.27</div>
         <div class="nav-tabs" id="navTabs">
           <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
           <button type="button" class="tab-link" data-screen="cuttingScreen" onclick="switchTab('cuttingScreen')">Нарезка</button>
@@ -1109,7 +1109,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.26";
+    const APP_VERSION = "v7.10.27";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -6618,6 +6618,26 @@
     }
     window.togglePackType = togglePackType;
 
+    function assemblyItemNameIs(name, needle) {
+      return String(name || "").toLowerCase().indexOf(String(needle || "").toLowerCase()) >= 0;
+    }
+
+    /** Граммы лёгкое/сердце/почки/рубец по корзине (крошку лёгкого не считаем). */
+    function sumAssemblyOrgansFromBasket(basket) {
+      var out = { light: 0, heart: 0, kidney: 0, rumen: 0 };
+      (basket || []).forEach(function (g) {
+        var n = String(g.name || g.main || "");
+        var v = Number(g.val != null ? g.val : g.value) || 0;
+        if (v <= 0) return;
+        if (assemblyItemNameIs(n, "крошка") && (assemblyItemNameIs(n, "лёгк") || assemblyItemNameIs(n, "легк"))) return;
+        if (assemblyItemNameIs(n, "лёгк") || assemblyItemNameIs(n, "легк")) out.light += v;
+        else if (assemblyItemNameIs(n, "сердц")) out.heart += v;
+        else if (assemblyItemNameIs(n, "почк")) out.kidney += v;
+        else if (assemblyItemNameIs(n, "рубец")) out.rumen += v;
+      });
+      return out;
+    }
+
     function renderAssemblyView() {
       var box = document.getElementById("assemblyContainer");
       var res = assemblyCache;
@@ -6632,12 +6652,22 @@
         "крафт": "крафт"
       };
 
+      // Собранные — вниз; итоги только по несобранным
+      var clientsSorted = (res.clients || []).slice().sort(function (a, b) {
+        var aa = a && a.assembled ? 1 : 0;
+        var bb = b && b.assembled ? 1 : 0;
+        if (aa !== bb) return aa - bb;
+        return String((a && a.name) || "").localeCompare(String((b && b.name) || ""), "ru");
+      });
+      var pending = clientsSorted.filter(function (c) { return !(c && c.assembled); });
+
       var rawTotals = {};
       COUNTER_ORDER.forEach(function (k) { rawTotals[k] = 0; });
       var lightFracGrams = {};
       var lightGramsTotal = 0;
+      var organs = { light: 0, heart: 0, kidney: 0, rumen: 0 };
 
-      (res.clients || []).forEach(function (c) {
+      pending.forEach(function (c) {
         (c.packs || []).forEach(function (p) {
           var key = packCounterKey(p);
           if (!key) return;
@@ -6649,15 +6679,14 @@
           lightFracGrams[sub] = (lightFracGrams[sub] || 0) + (Number(lf.val) || 0);
           lightGramsTotal += Number(lf.val) || 0;
         });
+        var og = sumAssemblyOrgansFromBasket(c.basket);
+        organs.light += og.light;
+        organs.heart += og.heart;
+        organs.kidney += og.kidney;
+        organs.rumen += og.rumen;
       });
-      if (res.lightByFraction && res.lightByFraction.length) {
-        lightFracGrams = {};
-        lightGramsTotal = 0;
-        res.lightByFraction.forEach(function (lf) {
-          lightFracGrams[lf.sub || "Среднее"] = Number(lf.val) || 0;
-          lightGramsTotal += Number(lf.val) || 0;
-        });
-      }
+      // если у клиентов нет lightByFraction — fallback на organs.light
+      if (!lightGramsTotal && organs.light) lightGramsTotal = organs.light;
 
       // фраза всегда полная; «Итого» — только включённые форматы
       var enabledTotal = 0;
@@ -6688,9 +6717,17 @@
       });
       var lightLines = lightKeys.map(function (k) {
         return '<div class="pack-line">' + escapeHtml(k) + ': <b>' + lightFracGrams[k] + ' г</b></div>';
-      }).join("") || '<div class="muted">Нет лёгкого</div>';
+      }).join("") || '<div class="muted">Нет лёгкого у несобранных</div>';
 
-      var clientsHtml = (res.clients || []).map(function (c, idx) {
+      var organCells =
+        '<div class="pack-type-row" style="margin-top:8px;">' +
+        '<div class="pack-type-cell"><span class="n">' + organs.light + '</span><span class="l">лёгкое г</span></div>' +
+        '<div class="pack-type-cell"><span class="n">' + organs.heart + '</span><span class="l">сердце г</span></div>' +
+        '<div class="pack-type-cell"><span class="n">' + organs.kidney + '</span><span class="l">почки г</span></div>' +
+        '<div class="pack-type-cell"><span class="n">' + organs.rumen + '</span><span class="l">рубец г</span></div>' +
+        "</div>";
+
+      var clientsHtml = clientsSorted.map(function (c, idx) {
         var bags = 0;
         var byCounter = {};
         (c.packs || []).forEach(function (p) {
@@ -6715,10 +6752,12 @@
             '</span><span class="order-detail-volume">' + (g.val != null ? g.val : g.value) + " " + unit + "</span></div>";
         }).join("") || '<div class="muted">Пустой состав</div>';
 
-        return '<div class="card' + (c.assembled ? " is-delivered" : "") + '" style="margin-bottom:10px;" id="asmCard_' + idx + '">' +
+        var safeName = String(c.name || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        return '<div class="card' + (c.assembled ? " is-delivered" : "") + '" style="margin-bottom:10px;' +
+          (c.assembled ? "opacity:.72;" : "") + '" id="asmCard_' + idx + '">' +
           '<label class="check-line" style="margin-bottom:6px;">' +
           '<input type="checkbox" ' + (c.assembled ? "checked" : "") +
-          ' onchange="toggleAssembled(' + idx + ', this.checked)">' +
+          ' onchange="toggleAssembledByName(\'' + safeName + '\', this.checked)">' +
           '<span class="cut-title">' + escapeHtml(c.name) + '</span>' +
           ' <span class="muted">· ' + bags + " пак.</span>" +
           (c.assembled ? ' <span class="client-badge" style="margin-left:6px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>' : "") +
@@ -6733,12 +6772,14 @@
       var totalAsm = (res.clients || []).length;
 
       box.innerHTML =
-        '<div class="card"><b>Форматы пакетов на день</b>' +
+        '<div class="card"><b>Форматы пакетов (несобранные)</b>' +
         '<div class="pack-type-row">' + cells + "</div>" +
         '<div class="total-summary-badge">' + escapeHtml(phrase) + "</div>" +
         '<div class="total-summary-badge" style="margin-top:6px;">Итого пакетов: ' + enabledTotal + "</div>" +
         '<div class="total-summary-badge" style="margin-top:6px;">Собрано: <span style="color:var(--success-color)">' + doneAsm + "</span> / " + totalAsm + "</div>" +
-        '<div style="margin-top:12px;"><b>Лёгкое для нарезки</b></div>' +
+        '<div style="margin-top:12px;"><b>Дрессура для нарезки (несобранные)</b></div>' +
+        organCells +
+        '<div style="margin-top:10px;"><b>Лёгкое по фракциям</b></div>' +
         lightLines +
         (lightGramsTotal ? '<div class="pack-line" style="margin-top:4px;">Всего лёгкого: <b>' + lightGramsTotal + " г</b></div>" : "") +
         "</div></div>" +
@@ -6747,27 +6788,46 @@
     }
     window.loadAssembly = loadAssembly;
 
-    async function toggleAssembled(index, assembled) {
+    async function toggleAssembledByName(clientName, assembled) {
       var res = assemblyCache;
-      if (!res || !res.clients || !res.clients[index]) return;
-      var client = res.clients[index];
+      if (!res || !res.clients) return;
+      var name = String(clientName || "");
+      var client = null;
+      for (var i = 0; i < res.clients.length; i++) {
+        if (String(res.clients[i].name || "") === name) { client = res.clients[i]; break; }
+      }
+      if (!client) return;
       var day = document.getElementById("assemblyDaySelect").value || document.getElementById("courierDaySelect").value;
-      client.assembled = !!assembled;
+      var next = assembled === undefined ? !client.assembled : !!assembled;
+      client.assembled = next;
+      renderAssemblyView();
       try { _apiGetMem = Object.create(null); } catch (eClr) {}
-      var card = document.getElementById("asmCard_" + index);
-      if (card) card.classList.toggle("is-delivered", !!assembled);
       try {
-        await apiPost({ action: "setAssembled", day: day, client: client.name, assembled: !!assembled });
-        showToast(assembled ? ("Собран: " + client.name) : ("Снято: " + client.name));
+        await apiPost({ action: "setAssembled", day: day, client: client.name, assembled: next });
+        showToast(next ? ("Собран: " + client.name) : ("Снято: " + client.name));
       } catch (e) {
-        client.assembled = !assembled;
+        client.assembled = !next;
         showToast("Не удалось сохранить");
         renderAssemblyView();
-        return;
       }
-      renderAssemblyView();
+    }
+
+    async function toggleAssembled(index, assembled) {
+      var res = assemblyCache;
+      if (!res || !res.clients) return;
+      var clientsSorted = (res.clients || []).slice().sort(function (a, b) {
+        var aa = a && a.assembled ? 1 : 0;
+        var bb = b && b.assembled ? 1 : 0;
+        if (aa !== bb) return aa - bb;
+        return String((a && a.name) || "").localeCompare(String((b && b.name) || ""), "ru");
+      });
+      var client = clientsSorted[index];
+      if (!client) return;
+      await toggleAssembledByName(client.name, assembled);
     }
     window.toggleAssembled = toggleAssembled;
+    window.toggleAssembledByName = toggleAssembledByName;
+
 
 
     function buildIgKnownMap() {
