@@ -725,6 +725,14 @@ function doGet(e) {
       initData: e.parameter.initData ? decodeURIComponent(e.parameter.initData) : ""
     }, callback, false);
   }
+  if (action === "getNativeLinkInfo") {
+    return handleGetNativeLinkInfo(callback, false);
+  }
+  if (action === "pollNativeAuth") {
+    return handlePollNativeAuth({
+      token: e.parameter.token ? decodeURIComponent(e.parameter.token) : ""
+    }, callback, false);
+  }
   if (action === "listAccess") {
     return handleListAccess({ telegramId: e.parameter.telegramId || "" }, callback, false);
   }
@@ -895,6 +903,12 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "getMyAccess") {
     return handleGetMyAccess(json, callback, fromPost);
+  }
+  if (action === "getNativeLinkInfo") {
+    return handleGetNativeLinkInfo(callback, fromPost);
+  }
+  if (action === "pollNativeAuth") {
+    return handlePollNativeAuth(json, callback, fromPost);
   }
   if (action === "requestAccess") {
     return handleRequestAccess(json, callback, fromPost);
@@ -2238,7 +2252,48 @@ function handleTelegramUpdate_(update) {
     var name = [from.first_name, from.last_name].filter(Boolean).join(" ").trim();
     upsertCourier_(chat.id, name, from.username || "");
     var text = String(msg.text || "");
-    if (/^\/start/i.test(text)) {
+    var startMatch = text.match(/^\/start(?:\s+(\S+))?/i);
+    if (startMatch) {
+      var payload = String(startMatch[1] || "");
+      // Вход из нативного GBI: /start gbi_<token>
+      if (/^gbi_/i.test(payload)) {
+        var linkToken = payload.replace(/^gbi_/i, "");
+        if (linkToken) {
+          try {
+            CacheService.getScriptCache().put(
+              "native_auth_" + linkToken,
+              JSON.stringify({
+                telegramId: String(from.id),
+                name: name,
+                username: String(from.username || "")
+              }),
+              600
+            );
+          } catch (eCache) {}
+          try {
+            var tid = String(from.id);
+            var existing = findAccessById_(tid);
+            var role = "pending";
+            var status = "pending";
+            if (isOwnerId_(tid)) {
+              role = "owner";
+              status = "active";
+            } else if (existing && existing.role) {
+              role = existing.role;
+              status = existing.status || "active";
+            }
+            upsertAccessRow_(tid, name, from.username || "", role, status);
+          } catch (eAcc) {}
+          telegramSendText_(
+            chat.id,
+            "✅ GBI: Telegram подключён.\n" +
+              "Имя: " + (name || "—") + "\n" +
+              "ID: " + from.id + "\n\n" +
+              "Вернись в приложение — вход подтянется сам."
+          );
+          return;
+        }
+      }
       telegramSendText_(chat.id, "Привет! Ты в списке курьеров Бойни. Когда сменщик пришлёт маршрут — придёт сюда.");
     }
   } catch (eTg) {
@@ -7610,4 +7665,67 @@ function handleEnrollDeferredToPp_(json, callback, fromPost) {
     deliveriesN: deliveriesN
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/* --- native GBI auth (from native/CODE_GS_NATIVE_AUTH.snippet.gs) --- */
+function getTelegramBotUsername_() {
+  var props = PropertiesService.getScriptProperties();
+  var cached = props.getProperty("TELEGRAM_BOT_USERNAME") || "";
+  if (cached) return cached;
+  var token = props.getProperty("TELEGRAM_BOT_TOKEN") || "";
+  if (!token) return "";
+  try {
+    var res = UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/getMe", {
+      muteHttpExceptions: true
+    });
+    var body = JSON.parse(res.getContentText() || "{}");
+    if (body && body.ok && body.result && body.result.username) {
+      props.setProperty("TELEGRAM_BOT_USERNAME", String(body.result.username));
+      return String(body.result.username);
+    }
+  } catch (e) {}
+  return "";
+}
+
+function handleGetNativeLinkInfo(callback, fromPost) {
+  var username = getTelegramBotUsername_();
+  var ok = {
+    status: username ? "success" : "error",
+    botUsername: username,
+    message: username ? "ok" : "no_bot_username"
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePollNativeAuth(json, callback, fromPost) {
+  var token = String((json && json.token) || "").trim();
+  if (!token || !/^[A-Za-z0-9_-]{6,40}$/.test(token)) {
+    var bad = { status: "error", message: "bad_token", linked: false };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var raw = "";
+  try {
+    raw = CacheService.getScriptCache().get("native_auth_" + token) || "";
+  } catch (e) {}
+  if (!raw) {
+    var wait = { status: "success", linked: false };
+    return fromPost ? jsonpText(callback, wait) : jsonp(callback, wait);
+  }
+  var data = {};
+  try {
+    data = JSON.parse(raw);
+  } catch (e2) {
+    data = {};
+  }
+  try {
+    CacheService.getScriptCache().remove("native_auth_" + token);
+  } catch (e3) {}
+  var done = {
+    status: "success",
+    linked: true,
+    telegramId: String(data.telegramId || ""),
+    name: String(data.name || ""),
+    username: String(data.username || "")
+  };
+  return fromPost ? jsonpText(callback, done) : jsonp(callback, done);
 }
