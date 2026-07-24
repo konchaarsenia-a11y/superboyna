@@ -20,6 +20,41 @@
 Тест: `scripts/test-api.ps1`, клиент `zzz_test`.  
 Не закрывать неделю без явного ОК владельца.
 
+---
+
+## ⚠️ Handoff: правки `Code.gs` от нативного агента (2026-07-24)
+
+Параллельно делается **натив GBI** (`native/`, см. [NATIVE.md](./NATIVE.md)).  
+Веб-агент (TG Mini App / `app.html` на **Windows**) — **source of truth** для `Code.gs` и `app.html`.
+
+### Не копировать весь Code.gs с Mac → Win
+
+Слияние только через патч:
+- **[MERGE_NATIVE_AUTH.md](./MERGE_NATIVE_AUTH.md)** — правила и порядок
+- **[native/CODE_GS_NATIVE_AUTH.snippet.gs](./native/CODE_GS_NATIVE_AUTH.snippet.gs)** — что влить
+
+### Что добавлено для натива (общий бэкенд)
+
+| Изменение | Зачем |
+|-----------|--------|
+| `/start gbi_<token>` в `handleTelegramUpdate_` | Вход из натива: ID+имя в CacheService |
+| `getNativeLinkInfo` | `botUsername` для `t.me/bot?start=gbi_…` |
+| `pollNativeAuth` | Натив поллит токен → `telegramId`, `name` |
+| upsert в лист **«Доступы»** при линке | Имя/роль для шапки |
+
+Обычный `/start` без `gbi_` — сохранить как у веб-агента.  
+Остальные actions не ломать.
+
+### Правила
+
+1. Веб-агент вливает сниппет в **свой** актуальный `Code.gs`, commit/push.  
+2. Натив-агент не просит «вставь мой Code.gs целиком».  
+3. Deploy Apps Script — владелец.  
+4. Натив не правит `app.html`.  
+5. Подробности: [NATIVE.md](./NATIVE.md), [MERGE_NATIVE_AUTH.md](./MERGE_NATIVE_AUTH.md).
+
+---
+
 **Пуш сам:** после рабочих правок `app.html` / `TZ.md` / связанных фронтовых файлов — **сразу commit + `git push origin main`** (Pages). Не ждать команды «пуш». `Code.gs` в git тоже пушить; Deploy Apps Script по-прежнему делает владелец.
 
 ---
