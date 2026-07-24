@@ -6226,6 +6226,15 @@ function readCrmSheetLiveNarrow_(crmSs, sheetName, maxCols) {
   return sh.getRange(1, 1, lastRow, cols).getValues();
 }
 
+/** ID подписки: пусто / #REF! / прочие ошибки формул — не ID. */
+function sanitizeSubId_(v) {
+  var s = String(v == null ? "" : v).trim();
+  if (!s) return "";
+  if (s.charAt(0) === "#") return "";
+  if (/^#(REF!|N\/A|VALUE!|NAME\?|DIV\/0!|NULL!|NUM!|ERROR!)$/i.test(s)) return "";
+  return s;
+}
+
 /* ----- Подписки CRM ----- */
 
 function handleListSubscriptions(json, callback, fromPost) {
@@ -6240,15 +6249,18 @@ function handleListSubscriptions(json, callback, fromPost) {
   for (var s = 0; s < sheets.length; s++) {
     var sheetName = sheets[s];
     var seenInSheet = {};
-    // live A–E: без CacheService, иначе после переноса список «то есть / то нет»
+    // live A–E: без CacheService
     var data = readCrmSheetLiveNarrow_(crmSs, sheetName, 5);
     if (!data || data.length < 3) continue;
     for (var r = 2; r < data.length; r++) {
       var nickRaw = String(data[r][0] || "").trim();
       if (!nickRaw) continue;
       var nick = extractInstagramNick_(nickRaw) || displayClientNick_(nickRaw) || nickRaw;
-      var subId = String(data[r][1] || "").trim();
-      var key = (subId ? ("id:" + subId) : ("n:" + (clientMatchKey_(nickRaw) || ("r" + r)))).toUpperCase();
+      var subId = sanitizeSubId_(data[r][1]);
+      // валидный unique subId — дедуп; #REF!/пусто — каждая строка отдельно (иначе ПП схлопывался в 1 чел.)
+      var key = subId
+        ? ("id:" + subId.toUpperCase())
+        : ("row:" + r + "|n:" + (clientMatchKey_(nickRaw) || nick || "").toUpperCase());
       if (seenInSheet[key]) continue;
       seenInSheet[key] = true;
       list.push({
@@ -6432,8 +6444,9 @@ function handleSaveSubscription(json, callback, fromPost) {
 function findSubscriptionRowIndex_(sh, nick, subId) {
   if (!sh || sh.getLastRow() < 3) return -1;
   var data = sh.getDataRange().getValues();
+  var wantId = sanitizeSubId_(subId);
   for (var r = 2; r < data.length; r++) {
-    if (subId && String(data[r][1] || "").trim() === String(subId).trim()) return r;
+    if (wantId && sanitizeSubId_(data[r][1]) === wantId) return r;
     if (nick && (nicksMatch_(data[r][0], nick) || String(data[r][0] || "").trim() === String(nick).trim())) return r;
   }
   return -1;
