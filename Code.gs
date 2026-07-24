@@ -8576,6 +8576,9 @@ function handleEnrollDeferredToPp_(json, callback, fromPost) {
   }
   if (!updated) {
     while (rowVals.length < headers.length) rowVals.push("");
+    if (!String(rowVals[1] || "").trim()) {
+      try { rowVals[1] = nextSubscriptionIdForSheet_(pp); } catch (eId) {}
+    }
     pp.appendRow(rowVals.slice(0, headers.length));
   }
 
