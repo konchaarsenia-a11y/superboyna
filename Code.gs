@@ -6202,21 +6202,28 @@ function handleWarehousePreview(json, callback, fromPost) {
 }
 
 function clearCrmSheetCache_(sheetName) {
-  var want = String(sheetName || "");
+  try { _memoCrmSheets_ = {}; } catch (eM) {}
   try {
-    Object.keys(_memoCrmSheets_).forEach(function (k) {
-      if (!want || k.indexOf(":" + want) >= 0) delete _memoCrmSheets_[k];
-    });
-  } catch (eM) {
-    try { _memoCrmSheets_ = {}; } catch (e2) {}
-  }
-  try {
-    if (want) {
-      var sid = "";
-      try { sid = getCrmSpreadsheet_().getId(); } catch (eId) { sid = "x"; }
-      CacheService.getScriptCache().remove("CRM:" + String(sid).slice(-10) + ":" + want);
+    var sid = "x";
+    try { sid = String(getCrmSpreadsheet_().getId()).slice(-10); } catch (eId) {}
+    var cache = CacheService.getScriptCache();
+    var names = sheetName
+      ? [String(sheetName)]
+      : ["ПП", "АФК", "БП", "Контакты", "Опросник"];
+    for (var i = 0; i < names.length; i++) {
+      try { cache.remove("CRM:" + sid + ":" + names[i]); } catch (eR) {}
     }
   } catch (eC) {}
+}
+
+/** Живое чтение CRM без кэша (список подписок после переноса). */
+function readCrmSheetLiveNarrow_(crmSs, sheetName, maxCols) {
+  var sh = findSheetByBaseName_(crmSs, sheetName);
+  if (!sh) return null;
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) return null;
+  var cols = Math.min(Math.max(1, maxCols || 5), Math.max(1, sh.getLastColumn()));
+  return sh.getRange(1, 1, lastRow, cols).getValues();
 }
 
 /* ----- Подписки CRM ----- */
@@ -6232,17 +6239,16 @@ function handleListSubscriptions(json, callback, fromPost) {
   var list = [];
   for (var s = 0; s < sheets.length; s++) {
     var sheetName = sheets[s];
-    // только свой лист — не прячем АФК/БП из‑за совпадения ника с ПП
     var seenInSheet = {};
-    var data = getCrmSheetValuesFast_(crmSs, sheetName);
+    // live A–E: без CacheService, иначе после переноса список «то есть / то нет»
+    var data = readCrmSheetLiveNarrow_(crmSs, sheetName, 5);
     if (!data || data.length < 3) continue;
     for (var r = 2; r < data.length; r++) {
       var nickRaw = String(data[r][0] || "").trim();
       if (!nickRaw) continue;
       var nick = extractInstagramNick_(nickRaw) || displayClientNick_(nickRaw) || nickRaw;
       var subId = String(data[r][1] || "").trim();
-      // ключ внутри листа; пустой nick/subId — не выкидываем (кириллица без @)
-      var key = (subId ? ("id:" + subId) : ("n:" + (clientMatchKey_(nickRaw) || nickRaw))).toUpperCase();
+      var key = (subId ? ("id:" + subId) : ("n:" + (clientMatchKey_(nickRaw) || ("r" + r)))).toUpperCase();
       if (seenInSheet[key]) continue;
       seenInSheet[key] = true;
       list.push({
@@ -6468,13 +6474,24 @@ function handleMoveSubscription(json, callback, fromPost) {
   while (vals.length < colsTo) vals.push("");
   toSh.appendRow(vals.slice(0, colsTo));
   fromSh.deleteRow(rowIdx + 1);
-  try { clearCrmSheetCache_(fromSheet); clearCrmSheetCache_(toSheet); } catch (eC) {}
+  try { SpreadsheetApp.flush(); } catch (eFl) {}
+  try {
+    clearCrmSheetCache_(fromSheet);
+    clearCrmSheetCache_(toSheet);
+    clearCrmSheetCache_();
+  } catch (eC) {}
+  var movedLabel = String(vals[0] || nick || "").trim();
+  var movedNick = extractInstagramNick_(movedLabel) || displayClientNick_(movedLabel) || nick;
   var ok = {
     status: "success",
-    nick: nick,
-    subId: subId,
+    nick: movedNick,
+    label: movedLabel,
+    subId: subId || String(vals[1] || "").trim(),
     fromSheet: fromSheet,
-    toSheet: toSheet
+    toSheet: toSheet,
+    deliveries: Number(vals[2]) || 0,
+    statusText: String(vals[3] || ""),
+    wishes: String(vals[4] || "")
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
@@ -6503,7 +6520,8 @@ function handleDeleteSubscription(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
   }
   sh.deleteRow(rowIdx + 1);
-  try { clearCrmSheetCache_(sheetName); } catch (eC) {}
+  try { SpreadsheetApp.flush(); } catch (eFl) {}
+  try { clearCrmSheetCache_(sheetName); clearCrmSheetCache_(); } catch (eC) {}
   var ok = { status: "success", nick: nick, subId: subId, sheet: sheetName, deletedRow: rowIdx + 1 };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }

@@ -891,7 +891,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.47</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.48</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1509,7 +1509,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.47";
+    const APP_VERSION = "v7.10.48";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -7658,11 +7658,13 @@
     }
     window.confirmPullWeekFromHome = confirmPullWeekFromHome;
 
-    function setSubsSegment(seg) {
+    function setSubsSegment(seg, opts) {
+      opts = opts || {};
       subsSegment = seg;
       document.querySelectorAll("#subsTabs .seg-btn").forEach(function (b) {
         b.classList.toggle("active", b.getAttribute("data-seg") === seg);
       });
+      if (opts.skipLoad) return;
       loadSubscriptions();
     }
     window.setSubsSegment = setSubsSegment;
@@ -8611,6 +8613,10 @@
       if (isSubsUnlocked()) {
         if (gate) gate.classList.remove("open");
         if (main) main.style.display = "";
+        if (window._subsSkipNextEnterLoad) {
+          window._subsSkipNextEnterLoad = false;
+          return;
+        }
         loadSubscriptions();
         return;
       }
@@ -8649,6 +8655,7 @@
     }
     window.lockSubsScreen = lockSubsScreen;
 
+    var _subsLoadSeq = 0;
     async function loadSubscriptions() {
       if (!isSubsUnlocked()) {
         enterSubsScreen();
@@ -8663,28 +8670,34 @@
         box.innerHTML = '<p class="muted">Опросник: даты БП2/ПП1, +4/+6 — каркас. Лист подключим после деплоя полного F.</p>';
         return;
       }
+      var seq = ++_subsLoadSeq;
+      var wantSheet = subsSegment;
       box.innerHTML = '<p class="muted">Загрузка…</p>';
       try {
+        try { _apiGetMem = Object.create(null); } catch (eMem) {}
         var res = await apiGet({
           action: "listSubscriptions",
-          sheet: subsSegment,
-          segment: subsSegment
-        }, { timeoutMs: 20000, cacheTtlMs: 8000 });
+          sheet: wantSheet,
+          segment: wantSheet,
+          _: String(Date.now())
+        }, { timeoutMs: 22000, cacheTtlMs: 0 });
+        if (seq !== _subsLoadSeq || wantSheet !== subsSegment) return;
         if (!res || res.status !== "success") {
           window._subsListFull = [];
           window._subsListCache = [];
-          box.innerHTML = '<p class="muted">CRM недоступна (нужен доступ Apps Script к таблице подписок)</p>';
+          box.innerHTML = '<p class="muted">CRM недоступна (нужен Deploy Code.gs)</p>';
           return;
         }
         var list = (res.subscriptions || []).filter(function (s) {
-          return !subsSegment || s.sheet === subsSegment;
+          return !wantSheet || s.sheet === wantSheet;
         });
         window._subsListFull = list;
         renderSubsList();
       } catch (e) {
+        if (seq !== _subsLoadSeq) return;
         window._subsListFull = [];
         window._subsListCache = [];
-        box.innerHTML = '<p class="muted">Ошибка</p>';
+        box.innerHTML = '<p class="muted">Ошибка загрузки</p>';
       }
     }
     window.loadSubscriptions = loadSubscriptions;
@@ -8824,6 +8837,7 @@
 
     async function moveSubDetailTo(toSheet) {
       var nick = (document.getElementById("subDetailNick").value || document.getElementById("subDetailLabel").value || "").trim();
+      var label = (document.getElementById("subDetailLabel").value || nick || "").trim();
       var subId = (document.getElementById("subDetailSubId").value || "").trim();
       var fromSheet = (document.getElementById("subDetailSheet").value || "").trim() || subsSegment || "ПП";
       if (!nick && !subId) {
@@ -8832,20 +8846,21 @@
       }
       var ok = await uiConfirmAsync(
         toSheet === "АФК"
-          ? ("Перенести «" + (nick || subId) + "» в АФК?")
-          : ("Вернуть «" + (nick || subId) + "» в ПП?")
+          ? ("Перенести «" + (label || nick || subId) + "» в АФК?")
+          : ("Вернуть «" + (label || nick || subId) + "» в ПП?")
       );
       if (!ok) return;
       try {
         showToast("Переношу…");
         var res = await apiGet({
           action: "moveSubscription",
-          nick: nick,
+          nick: label || nick,
           subId: subId,
           fromSheet: fromSheet,
           toSheet: toSheet,
-          sheet: fromSheet
-        }, { timeoutMs: 25000, cacheTtlMs: 0 });
+          sheet: fromSheet,
+          _: String(Date.now())
+        }, { timeoutMs: 30000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || "ошибка";
           if (msg === "unknown_action") {
@@ -8856,9 +8871,23 @@
           return;
         }
         try { _apiGetMem = Object.create(null); } catch (eClr) {}
-        showToast("Готово → " + toSheet);
-        setSubsSegment(toSheet);
+        // сразу показать во вкладке назначения (не ждать «пустого» кэша)
+        setSubsSegment(toSheet, { skipLoad: true });
+        window._subsListFull = [{
+          nick: res.nick || nick,
+          label: res.label || label || nick,
+          subId: res.subId || subId,
+          deliveries: res.deliveries || 0,
+          status: res.statusText || "",
+          wishes: res.wishes || "",
+          sheet: toSheet
+        }];
+        window._subsListCache = window._subsListFull.slice();
+        window._subsSkipNextEnterLoad = true;
         switchTab("subsScreen");
+        renderSubsList();
+        showToast("Готово → " + toSheet);
+        await loadSubscriptions();
       } catch (e) {
         showToast(e.message || "Ошибка");
       }
@@ -8882,8 +8911,9 @@
           nick: nick,
           subId: subId,
           sheet: sheet,
-          segment: sheet
-        }, { timeoutMs: 25000, cacheTtlMs: 0 });
+          segment: sheet,
+          _: String(Date.now())
+        }, { timeoutMs: 30000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || "ошибка";
           if (msg === "unknown_action") {
@@ -8896,7 +8926,7 @@
         try { _apiGetMem = Object.create(null); } catch (eClr) {}
         showToast("Удалено");
         switchTab("subsScreen");
-        loadSubscriptions();
+        await loadSubscriptions();
       } catch (e) {
         showToast(e.message || "Ошибка");
       }
