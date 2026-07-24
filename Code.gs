@@ -6683,7 +6683,7 @@ function handleSaveSubscription(json, callback, fromPost) {
     var miss = { status: "error", message: "not_found" };
     return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
   }
-  if (basket && basket.length) {
+  if (basket != null && Array.isArray(basket)) {
     var rowVals = writePpBasketToRowValues_(
       headers, basket, label, subId || String(data[rowIdx][1] || ""),
       deliveriesN || Number(data[rowIdx][2]) || 1,

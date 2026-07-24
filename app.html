@@ -353,7 +353,7 @@
     }
     .sub-row-chevron { display: none; }
     .sub-detail-basket {
-      margin-top: 8px; max-height: 40vh; overflow-y: auto;
+      margin-top: 8px; max-height: 45vh; overflow-y: auto;
       border-top: 1px dashed var(--border-color); padding-top: 8px;
     }
     .client-item-card.is-gap {
@@ -893,7 +893,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.58</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.59</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1307,8 +1307,36 @@
           <label>Факт стоимость</label>
           <input type="number" id="subDetailFact" step="0.01" inputmode="decimal">
         </div>
-        <div class="muted" style="font-size:12px;">Состав</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
+          <div class="muted" style="font-size:12px;">Состав (месяц)</div>
+          <button type="button" class="btn-action" style="margin:0;padding:6px 10px;font-size:12px;background:#3a3a3c;" onclick="clearSubDetailBasket()">Очистить</button>
+        </div>
         <div class="sub-detail-basket" id="subDetailBasket"><p class="muted">—</p></div>
+        <button type="button" class="btn-action btn-blue" id="btnSubManualEntry" style="margin-top:8px;" onclick="toggleSubDetailManualEntry()">Ручной ввод</button>
+        <div id="subDetailManualPanel" style="display:none;margin-top:10px;">
+          <div class="grid-buttons">
+            <button class="btn-action btn-blue" onclick="openSubDetailProductSelector('dressura')">Дрессура</button>
+            <button class="btn-action btn-orange" onclick="openSubDetailProductSelector('chew')">Жевалки</button>
+            <button class="btn-action btn-purple" onclick="openSubDetailProductSelector('other')">Другое</button>
+            <button class="btn-action btn-brown" onclick="openSubDetailProductSelector('powder')">Присыпки</button>
+            <button class="btn-action btn-green" onclick="openSubDetailProductSelector('veg')">Овощи/Фрукты</button>
+          </div>
+          <div class="card" id="subDetailSelectorCard" style="display:none;margin-top:10px;">
+            <div class="form-group">
+              <label id="subDetailSelectorTitle">Позиция</label>
+              <select id="subDetailMainSelect" onchange="onSubDetailProductChange()"></select>
+            </div>
+            <div class="form-group" id="subDetailFractionGroup" style="display:none;">
+              <label>Фракция / тип</label>
+              <select id="subDetailFractionSelect"></select>
+            </div>
+            <div class="form-group">
+              <label id="subDetailValueLabel">Объём</label>
+              <input type="number" id="subDetailVolumeInput" placeholder="0" inputmode="numeric">
+            </div>
+            <button class="btn-action btn-blue" type="button" onclick="addItemToSubDetailBasket()">В состав</button>
+          </div>
+        </div>
         <button class="btn-save" type="button" style="margin-top:12px;" onclick="saveSubDetail()">Сохранить</button>
         <div id="subDetailActions" style="display:grid;gap:8px;margin-top:10px;">
           <button type="button" class="btn-action btn-orange" id="subBtnToAfk" style="display:none;margin:0;" onclick="moveSubDetailTo('АФК')">Перенести в АФК</button>
@@ -1521,7 +1549,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.58";
+    const APP_VERSION = "v7.10.59";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1805,7 +1833,7 @@
         "• Точка выезда: склад или свой адрес.\n" +
         "• Сборка: long-press. Форматы пакетов можно выключить — «Итого» уменьшится.",
       warehouseScreen: "Склад\n• Сырое/сухое, коэффициенты, снабжение.",
-      subsScreen: "Подписки\n• Пароль на весь экран; Отмена → Заказ.\n• ПП: карточка → в АФК / удалить.\n• АФК: вернуть в ПП / удалить.\n• Список 2 колонки + поиск.",
+      subsScreen: "Подписки\n• Пароль; Отмена → Заказ.\n• Карточка: мета + состав (ручной ввод) → Сохранить.\n• ПП↔АФК / удалить.",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
       priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• «В отложенное» → задачи ☰ (Расчёт ПП).\n• 2 собаки: свет/доставки один раз.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
@@ -8836,6 +8864,145 @@
     window.onSubsSearchInput = onSubsSearchInput;
 
     var currentSubDetail = null;
+    var subDetailBasket = [];
+    var subDetailManualCategory = "dressura";
+
+    function renderSubDetailBasket() {
+      var box = document.getElementById("subDetailBasket");
+      if (!box) return;
+      if (!subDetailBasket.length) {
+        box.innerHTML = '<p class="muted">Состав пуст — добавь позиции вручную</p>';
+        return;
+      }
+      box.innerHTML = subDetailBasket.map(function (item, idx) {
+        var unit = unitForItem(item.cat, item.main || item.name);
+        var sub = item.sub ? ("Фракция: " + item.sub) : ("Категория: " + (item.cat || ""));
+        return '<div class="basket-card ' + escapeHtml(item.cat || "") + '">' +
+          '<button type="button" class="btn-inline-del" onclick="deleteSubDetailBasketItem(' + idx + ')">Удалить</button>' +
+          '<div class="basket-info">' + escapeHtml(item.main || item.name || "") + " → " +
+          (item.val != null ? item.val : item.value) + " " + unit + "</div>" +
+          '<div class="basket-sub">' + escapeHtml(sub) + "</div>" +
+          "</div>";
+      }).join("");
+    }
+    window.renderSubDetailBasket = renderSubDetailBasket;
+
+    function deleteSubDetailBasketItem(idx) {
+      idx = Number(idx);
+      if (isNaN(idx) || idx < 0 || idx >= subDetailBasket.length) return;
+      subDetailBasket.splice(idx, 1);
+      renderSubDetailBasket();
+    }
+    window.deleteSubDetailBasketItem = deleteSubDetailBasketItem;
+
+    async function clearSubDetailBasket() {
+      if (!subDetailBasket.length) { showToast("Уже пусто"); return; }
+      var ok = await uiConfirmAsync("Очистить состав (" + subDetailBasket.length + " поз.)?");
+      if (!ok) return;
+      subDetailBasket = [];
+      renderSubDetailBasket();
+    }
+    window.clearSubDetailBasket = clearSubDetailBasket;
+
+    function toggleSubDetailManualEntry() {
+      var panel = document.getElementById("subDetailManualPanel");
+      if (!panel) return;
+      var open = panel.style.display === "none" || !panel.style.display;
+      panel.style.display = open ? "block" : "none";
+      if (!open) {
+        var sel = document.getElementById("subDetailSelectorCard");
+        if (sel) sel.style.display = "none";
+      }
+    }
+    window.toggleSubDetailManualEntry = toggleSubDetailManualEntry;
+
+    function openSubDetailProductSelector(catKey) {
+      subDetailManualCategory = catKey;
+      var cat = catalog[catKey];
+      if (!cat) return;
+      document.getElementById("subDetailSelectorTitle").innerText = cat.title || catKey;
+      document.getElementById("subDetailMainSelect").innerHTML =
+        (cat.items || []).map(function (n) {
+          return '<option value="' + escapeHtml(n) + '">' + escapeHtml(n) + "</option>";
+        }).join("");
+      document.getElementById("subDetailSelectorCard").style.display = "block";
+      document.getElementById("subDetailVolumeInput").value = "";
+      onSubDetailProductChange();
+    }
+    window.openSubDetailProductSelector = openSubDetailProductSelector;
+
+    function onSubDetailProductChange() {
+      var mainVal = document.getElementById("subDetailMainSelect").value;
+      var cat = catalog[subDetailManualCategory];
+      document.getElementById("subDetailValueLabel").innerText =
+        unitForItem(subDetailManualCategory, mainVal) === "шт" ? "Количество (шт)" : "Вес (гр)";
+      if (cat && cat.fractions && cat.fractions[mainVal]) {
+        document.getElementById("subDetailFractionGroup").style.display = "block";
+        document.getElementById("subDetailFractionSelect").innerHTML =
+          cat.fractions[mainVal].map(function (f) {
+            return '<option value="' + escapeHtml(f) + '">' + escapeHtml(f) + "</option>";
+          }).join("");
+      } else {
+        document.getElementById("subDetailFractionGroup").style.display = "none";
+        document.getElementById("subDetailFractionSelect").innerHTML = "";
+      }
+    }
+    window.onSubDetailProductChange = onSubDetailProductChange;
+
+    async function addItemToSubDetailBasket() {
+      var mainVal = document.getElementById("subDetailMainSelect").value;
+      var fracVal = document.getElementById("subDetailFractionSelect").value || "";
+      var inputVal = Number(document.getElementById("subDetailVolumeInput").value) || 0;
+      if (!mainVal) { await uiAlertAsync("Выберите наименование"); return; }
+      if (inputVal <= 0) { await uiAlertAsync("Укажите количество больше нуля"); return; }
+      var cat = catalog[subDetailManualCategory];
+      var needFrac = cat && cat.fractions && cat.fractions[mainVal] && cat.fractions[mainVal].length;
+      if (needFrac && !fracVal) {
+        await uiAlertAsync("Выберите фракцию / тип");
+        return;
+      }
+      if (needFrac && cat.fractions[mainVal].indexOf(fracVal) < 0) {
+        await uiAlertAsync("Такой фракции нет для «" + mainVal + "»");
+        return;
+      }
+      subDetailBasket.push({
+        id: Date.now() + Math.random(),
+        cat: subDetailManualCategory,
+        main: mainVal,
+        name: mainVal,
+        sub: fracVal,
+        value: inputVal,
+        val: inputVal
+      });
+      document.getElementById("subDetailSelectorCard").style.display = "none";
+      document.getElementById("subDetailVolumeInput").value = "";
+      renderSubDetailBasket();
+      showToast("Добавлено");
+    }
+    window.addItemToSubDetailBasket = addItemToSubDetailBasket;
+
+    function subDetailBasketPayload_() {
+      return (subDetailBasket || []).map(function (x) {
+        return {
+          cat: x.cat,
+          main: x.main || x.name,
+          name: x.name || x.main,
+          sub: x.sub || "",
+          value: x.val != null ? x.val : x.value,
+          val: x.val != null ? x.val : x.value
+        };
+      });
+    }
+
+    function basketFingerprint_(list) {
+      return (list || []).map(function (it) {
+        return [
+          String(it.main || it.name || "").toUpperCase(),
+          String(it.sub || "").toUpperCase(),
+          Number(it.val != null ? it.val : it.value) || 0
+        ].join("|");
+      }).sort().join(";");
+    }
 
     async function openSubDetail(index) {
       if (!isSubsUnlocked()) {
@@ -8858,7 +9025,12 @@
       document.getElementById("subDetailAddress").value = "";
       document.getElementById("subDetailPhone").value = "";
       document.getElementById("subDetailFact").value = "";
-      document.getElementById("subDetailBasket").innerHTML = '<p class="muted">Состав…</p>';
+      subDetailBasket = [];
+      renderSubDetailBasket();
+      var panel = document.getElementById("subDetailManualPanel");
+      if (panel) panel.style.display = "none";
+      var selCard = document.getElementById("subDetailSelectorCard");
+      if (selCard) selCard.style.display = "none";
       syncSubDetailActions(sheet);
       currentSubDetail = { nick: s.nick, label: s.label, subId: s.subId, sheet: sheet, wishes: s.wishes || "" };
       try {
@@ -8868,7 +9040,7 @@
           subId: s.subId || "",
           segment: sheet,
           sheet: sheet
-        }, { timeoutMs: 18000, cacheTtlMs: 12000 });
+        }, { timeoutMs: 18000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
           document.getElementById("subDetailBasket").innerHTML = '<p class="muted">Состав не загрузился</p>';
           return;
@@ -8885,10 +9057,8 @@
         document.getElementById("subDetailAddress").value = res.address || "";
         document.getElementById("subDetailPhone").value = res.phone || "";
         document.getElementById("subDetailFact").value = res.factCost || "";
-        var basket = res.basket || [];
-        document.getElementById("subDetailBasket").innerHTML = basket.length
-          ? basketLinesHtml(basket)
-          : '<p class="muted">Состав пуст</p>';
+        subDetailBasket = mapApiBasketToLocal(res.basket || []);
+        renderSubDetailBasket();
         syncSubDetailActions(res.sheet || sheet);
       } catch (e) {
         document.getElementById("subDetailBasket").innerHTML = '<p class="muted">Ошибка состава</p>';
@@ -9007,6 +9177,7 @@
 
     function closeSubDetail() {
       currentSubDetail = null;
+      subDetailBasket = [];
       switchTab("subsScreen");
     }
     window.closeSubDetail = closeSubDetail;
@@ -9019,9 +9190,11 @@
         showToast("Нет ника");
         return;
       }
+      var basketPayload = subDetailBasketPayload_();
+      var wantFp = basketFingerprint_(basketPayload);
       try {
         showToast("Сохраняю…");
-        var payload = {
+        await apiPost({
           action: "saveSubscription",
           nick: nick || label,
           label: label || nick,
@@ -9034,20 +9207,38 @@
           address: (document.getElementById("subDetailAddress").value || "").trim(),
           phone: (document.getElementById("subDetailPhone").value || "").trim(),
           note: (document.getElementById("subDetailWishes").value || "").trim(),
-          factCost: document.getElementById("subDetailFact").value || ""
-        };
-        var res = await apiGet(payload, { timeoutMs: 30000, cacheTtlMs: 0 });
-        if (!res || res.status !== "success") {
-          var msg = (res && res.message) || "ошибка";
-          if (msg === "unknown_action") {
-            await uiAlertAsync("Нужен Deploy Code.gs (saveSubscription)");
-            return;
-          }
-          showToast("Не сохранилось: " + msg);
-          return;
-        }
-        showToast("Сохранено");
+          factCost: document.getElementById("subDetailFact").value || "",
+          basket: basketPayload
+        });
         try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        // POST часто opaque — проверяем getSubscription
+        var ok = false;
+        var last = null;
+        for (var attempt = 0; attempt < 4; attempt++) {
+          await new Promise(function (r) { setTimeout(r, attempt === 0 ? 900 : 700); });
+          try {
+            last = await apiGet({
+              action: "getSubscription",
+              nick: nick || label,
+              subId: (document.getElementById("subDetailSubId").value || "").trim(),
+              segment: sheet,
+              sheet: sheet,
+              _: String(Date.now())
+            }, { timeoutMs: 18000, cacheTtlMs: 0 });
+          } catch (eG) { last = null; }
+          if (last && last.status === "success") {
+            var gotFp = basketFingerprint_(last.basket || []);
+            if (gotFp === wantFp) { ok = true; break; }
+            // мета могла сохраниться раньше состава — ещё раз
+          }
+        }
+        if (ok) {
+          subDetailBasket = mapApiBasketToLocal((last && last.basket) || basketPayload);
+          renderSubDetailBasket();
+          showToast("Сохранено (" + subDetailBasket.length + " поз.)");
+        } else {
+          showToast("Отправлено. Если состав не обновился — Deploy Code.gs и обнови карточку");
+        }
       } catch (e) {
         showToast(e.message || "Ошибка");
       }
