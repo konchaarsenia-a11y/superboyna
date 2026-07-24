@@ -891,7 +891,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.46</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.47</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1300,7 +1300,11 @@
         <div class="muted" style="font-size:12px;">Состав</div>
         <div class="sub-detail-basket" id="subDetailBasket"><p class="muted">—</p></div>
         <button class="btn-save" type="button" style="margin-top:12px;" onclick="saveSubDetail()">Сохранить</button>
-        <button class="btn-action btn-blue" type="button" style="margin-top:8px;" onclick="openSubDetailInOrder()">В заказ</button>
+        <div id="subDetailActions" style="display:grid;gap:8px;margin-top:10px;">
+          <button type="button" class="btn-action btn-orange" id="subBtnToAfk" style="display:none;margin:0;" onclick="moveSubDetailTo('АФК')">Перенести в АФК</button>
+          <button type="button" class="btn-action btn-blue" id="subBtnToPp" style="display:none;margin:0;" onclick="moveSubDetailTo('ПП')">Вернуть в ПП</button>
+          <button type="button" class="btn-action" id="subBtnDelete" style="display:none;margin:0;background:#5a1a1a;color:#ff8a80;" onclick="deleteSubDetail()">Удалить</button>
+        </div>
       </div>
     </div>
 
@@ -1505,7 +1509,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.46";
+    const APP_VERSION = "v7.10.47";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1789,7 +1793,7 @@
         "• Точка выезда: склад или свой адрес.\n" +
         "• Сборка: long-press. Форматы пакетов можно выключить — «Итого» уменьшится.",
       warehouseScreen: "Склад\n• Сырое/сухое, коэффициенты, снабжение.",
-      subsScreen: "Подписки\n• Пароль на весь экран (каждый вход).\n• Список 2 колонки + поиск по нику.\n• Тап — карточка, правка, «В заказ».",
+      subsScreen: "Подписки\n• Пароль на весь экран.\n• ПП: карточка → в АФК / удалить.\n• АФК: вернуть в ПП / удалить.\n• Список 2 колонки + поиск.",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
       priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• «В отложенное» → задачи ☰ (Расчёт ПП).\n• 2 собаки: свет/доставки один раз.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
@@ -8661,7 +8665,11 @@
       }
       box.innerHTML = '<p class="muted">Загрузка…</p>';
       try {
-        var res = await apiGet({ action: "listSubscriptions" }, { timeoutMs: 25000, cacheTtlMs: 15000 });
+        var res = await apiGet({
+          action: "listSubscriptions",
+          sheet: subsSegment,
+          segment: subsSegment
+        }, { timeoutMs: 20000, cacheTtlMs: 8000 });
         if (!res || res.status !== "success") {
           window._subsListFull = [];
           window._subsListCache = [];
@@ -8753,9 +8761,10 @@
       var s = list[index];
       if (!s) return;
       switchTab("subDetailScreen");
-      document.getElementById("subDetailTitle").textContent = "Загрузка…";
+      var sheet = s.sheet || subsSegment || "ПП";
+      document.getElementById("subDetailTitle").textContent = (s.nick || s.label || "Подписка") + " · " + sheet;
       document.getElementById("subDetailNick").value = s.nick || "";
-      document.getElementById("subDetailSheet").value = s.sheet || subsSegment || "ПП";
+      document.getElementById("subDetailSheet").value = sheet;
       document.getElementById("subDetailLabel").value = s.label || s.nick || "";
       document.getElementById("subDetailSubId").value = s.subId || "";
       document.getElementById("subDetailDeliveries").value = s.deliveries || "";
@@ -8765,26 +8774,29 @@
       document.getElementById("subDetailPhone").value = "";
       document.getElementById("subDetailFact").value = "";
       document.getElementById("subDetailBasket").innerHTML = '<p class="muted">Состав…</p>';
+      syncSubDetailActions(sheet);
+      currentSubDetail = { nick: s.nick, label: s.label, subId: s.subId, sheet: sheet, wishes: s.wishes || "" };
       try {
         var res = await apiGet({
           action: "getSubscription",
           nick: s.nick || s.label || "",
           subId: s.subId || "",
-          segment: s.sheet || subsSegment || "ПП"
-        }, { timeoutMs: 22000, cacheTtlMs: 0 });
+          segment: sheet,
+          sheet: sheet
+        }, { timeoutMs: 18000, cacheTtlMs: 12000 });
         if (!res || res.status !== "success") {
-          showToast("Не удалось открыть карточку");
+          document.getElementById("subDetailBasket").innerHTML = '<p class="muted">Состав не загрузился</p>';
           return;
         }
         currentSubDetail = res;
-        document.getElementById("subDetailTitle").textContent = (res.nick || s.nick || "Подписка") + " · " + (res.sheet || "");
+        document.getElementById("subDetailTitle").textContent = (res.nick || s.nick || "Подписка") + " · " + (res.sheet || sheet);
         document.getElementById("subDetailNick").value = res.nick || s.nick || "";
-        document.getElementById("subDetailSheet").value = res.sheet || s.sheet || "";
+        document.getElementById("subDetailSheet").value = res.sheet || sheet;
         document.getElementById("subDetailLabel").value = res.label || res.nick || "";
         document.getElementById("subDetailSubId").value = res.subId || "";
         document.getElementById("subDetailDeliveries").value = res.deliveries || s.deliveries || "";
         document.getElementById("subDetailStatus").value = res.ppStatus || s.status || "";
-        document.getElementById("subDetailWishes").value = res.wishes || "";
+        document.getElementById("subDetailWishes").value = res.wishes || s.wishes || "";
         document.getElementById("subDetailAddress").value = res.address || "";
         document.getElementById("subDetailPhone").value = res.phone || "";
         document.getElementById("subDetailFact").value = res.factCost || "";
@@ -8792,11 +8804,104 @@
         document.getElementById("subDetailBasket").innerHTML = basket.length
           ? basketLinesHtml(basket)
           : '<p class="muted">Состав пуст</p>';
+        syncSubDetailActions(res.sheet || sheet);
       } catch (e) {
+        document.getElementById("subDetailBasket").innerHTML = '<p class="muted">Ошибка состава</p>';
         showToast(e.message || "Ошибка сети");
       }
     }
     window.openSubDetail = openSubDetail;
+
+    function syncSubDetailActions(sheet) {
+      var sh = String(sheet || "").trim();
+      var toAfk = document.getElementById("subBtnToAfk");
+      var toPp = document.getElementById("subBtnToPp");
+      var del = document.getElementById("subBtnDelete");
+      if (toAfk) toAfk.style.display = (sh === "ПП") ? "" : "none";
+      if (toPp) toPp.style.display = (sh === "АФК") ? "" : "none";
+      if (del) del.style.display = (sh === "ПП" || sh === "АФК" || sh === "БП") ? "" : "none";
+    }
+
+    async function moveSubDetailTo(toSheet) {
+      var nick = (document.getElementById("subDetailNick").value || document.getElementById("subDetailLabel").value || "").trim();
+      var subId = (document.getElementById("subDetailSubId").value || "").trim();
+      var fromSheet = (document.getElementById("subDetailSheet").value || "").trim() || subsSegment || "ПП";
+      if (!nick && !subId) {
+        showToast("Нет ника");
+        return;
+      }
+      var ok = await uiConfirmAsync(
+        toSheet === "АФК"
+          ? ("Перенести «" + (nick || subId) + "» в АФК?")
+          : ("Вернуть «" + (nick || subId) + "» в ПП?")
+      );
+      if (!ok) return;
+      try {
+        showToast("Переношу…");
+        var res = await apiGet({
+          action: "moveSubscription",
+          nick: nick,
+          subId: subId,
+          fromSheet: fromSheet,
+          toSheet: toSheet,
+          sheet: fromSheet
+        }, { timeoutMs: 25000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          var msg = (res && res.message) || "ошибка";
+          if (msg === "unknown_action") {
+            await uiAlertAsync("Нужен Deploy Code.gs (moveSubscription)");
+            return;
+          }
+          showToast("Не перенеслось: " + msg);
+          return;
+        }
+        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        showToast("Готово → " + toSheet);
+        setSubsSegment(toSheet);
+        switchTab("subsScreen");
+      } catch (e) {
+        showToast(e.message || "Ошибка");
+      }
+    }
+    window.moveSubDetailTo = moveSubDetailTo;
+
+    async function deleteSubDetail() {
+      var nick = (document.getElementById("subDetailNick").value || document.getElementById("subDetailLabel").value || "").trim();
+      var subId = (document.getElementById("subDetailSubId").value || "").trim();
+      var sheet = (document.getElementById("subDetailSheet").value || "").trim() || subsSegment || "ПП";
+      if (!nick && !subId) {
+        showToast("Нет ника");
+        return;
+      }
+      var ok = await uiConfirmAsync("Удалить «" + (nick || subId) + "» из " + sheet + "?\nСтрока в CRM будет удалена.");
+      if (!ok) return;
+      try {
+        showToast("Удаляю…");
+        var res = await apiGet({
+          action: "deleteSubscription",
+          nick: nick,
+          subId: subId,
+          sheet: sheet,
+          segment: sheet
+        }, { timeoutMs: 25000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          var msg = (res && res.message) || "ошибка";
+          if (msg === "unknown_action") {
+            await uiAlertAsync("Нужен Deploy Code.gs (deleteSubscription)");
+            return;
+          }
+          showToast("Не удалилось: " + msg);
+          return;
+        }
+        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        showToast("Удалено");
+        switchTab("subsScreen");
+        loadSubscriptions();
+      } catch (e) {
+        showToast(e.message || "Ошибка");
+      }
+    }
+    window.deleteSubDetail = deleteSubDetail;
 
     function closeSubDetail() {
       currentSubDetail = null;

@@ -743,7 +743,10 @@ function doGet(e) {
     return handleWarehousePreview({}, callback, false);
   }
   if (action === "listSubscriptions") {
-    return handleListSubscriptions({}, callback, false);
+    return handleListSubscriptions({
+      sheet: e.parameter.sheet ? decodeURIComponent(e.parameter.sheet) : "",
+      segment: e.parameter.segment ? decodeURIComponent(e.parameter.segment) : ""
+    }, callback, false);
   }
   if (action === "getSubscription") {
     return handleGetSubscription({
@@ -766,6 +769,23 @@ function doGet(e) {
       phone: e.parameter.phone ? decodeURIComponent(e.parameter.phone) : "",
       note: e.parameter.note ? decodeURIComponent(e.parameter.note) : "",
       factCost: e.parameter.factCost || ""
+    }, callback, false);
+  }
+  if (action === "moveSubscription") {
+    return handleMoveSubscription({
+      nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
+      subId: e.parameter.subId ? decodeURIComponent(e.parameter.subId) : "",
+      fromSheet: e.parameter.fromSheet ? decodeURIComponent(e.parameter.fromSheet) : "",
+      toSheet: e.parameter.toSheet ? decodeURIComponent(e.parameter.toSheet) : "",
+      sheet: e.parameter.sheet ? decodeURIComponent(e.parameter.sheet) : ""
+    }, callback, false);
+  }
+  if (action === "deleteSubscription") {
+    return handleDeleteSubscription({
+      nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
+      subId: e.parameter.subId ? decodeURIComponent(e.parameter.subId) : "",
+      sheet: e.parameter.sheet ? decodeURIComponent(e.parameter.sheet) : "",
+      segment: e.parameter.segment ? decodeURIComponent(e.parameter.segment) : ""
     }, callback, false);
   }
   if (action === "getAssembly") {
@@ -936,6 +956,12 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "saveSubscription") {
     return handleSaveSubscription(json, callback, fromPost);
+  }
+  if (action === "moveSubscription") {
+    return handleMoveSubscription(json, callback, fromPost);
+  }
+  if (action === "deleteSubscription") {
+    return handleDeleteSubscription(json, callback, fromPost);
   }
   if (action === "pushSubscriptionToDay") {
     return handlePushSubscriptionToDay(json, callback, fromPost);
@@ -6175,6 +6201,24 @@ function handleWarehousePreview(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
+function clearCrmSheetCache_(sheetName) {
+  var want = String(sheetName || "");
+  try {
+    Object.keys(_memoCrmSheets_).forEach(function (k) {
+      if (!want || k.indexOf(":" + want) >= 0) delete _memoCrmSheets_[k];
+    });
+  } catch (eM) {
+    try { _memoCrmSheets_ = {}; } catch (e2) {}
+  }
+  try {
+    if (want) {
+      var sid = "";
+      try { sid = getCrmSpreadsheet_().getId(); } catch (eId) { sid = "x"; }
+      CacheService.getScriptCache().remove("CRM:" + String(sid).slice(-10) + ":" + want);
+    }
+  } catch (eC) {}
+}
+
 /* ----- Подписки CRM ----- */
 
 function handleListSubscriptions(json, callback, fromPost) {
@@ -6183,21 +6227,24 @@ function handleListSubscriptions(json, callback, fromPost) {
     var bad = { status: "error", message: "crm_unavailable", detail: String(e) };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
-  var sheets = ["ПП", "АФК", "БП"];
+  var only = String((json && (json.sheet || json.segment)) || "").trim();
+  var sheets = only ? [only] : ["ПП", "АФК", "БП"];
   var list = [];
-  var seen = {};
   for (var s = 0; s < sheets.length; s++) {
-    var sh = findSheetByBaseName_(crmSs, sheets[s]);
-    if (!sh || sh.getLastRow() < 3) continue;
-    var data = sh.getDataRange().getValues();
+    var sheetName = sheets[s];
+    // только свой лист — не прячем АФК/БП из‑за совпадения ника с ПП
+    var seenInSheet = {};
+    var data = getCrmSheetValuesFast_(crmSs, sheetName);
+    if (!data || data.length < 3) continue;
     for (var r = 2; r < data.length; r++) {
       var nickRaw = String(data[r][0] || "").trim();
       if (!nickRaw) continue;
-      var nick = extractInstagramNick_(nickRaw);
+      var nick = extractInstagramNick_(nickRaw) || displayClientNick_(nickRaw) || nickRaw;
       var subId = String(data[r][1] || "").trim();
-      var key = (subId || nick).toUpperCase();
-      if (!key || seen[key]) continue;
-      seen[key] = true;
+      // ключ внутри листа; пустой nick/subId — не выкидываем (кириллица без @)
+      var key = (subId ? ("id:" + subId) : ("n:" + (clientMatchKey_(nickRaw) || nickRaw))).toUpperCase();
+      if (seenInSheet[key]) continue;
+      seenInSheet[key] = true;
       list.push({
         nick: nick,
         label: nickRaw.replace(/\s+/g, " ").trim().substring(0, 80),
@@ -6205,11 +6252,12 @@ function handleListSubscriptions(json, callback, fromPost) {
         deliveries: Number(data[r][2]) || 0,
         status: String(data[r][3] || ""),
         wishes: String(data[r][4] || ""),
-        sheet: sheets[s]
+        sheet: sheetName,
+        rowIndex: r + 1
       });
     }
   }
-  var ok = { status: "success", subscriptions: list };
+  var ok = { status: "success", subscriptions: list, sheet: only || "all", count: list.length };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
@@ -6371,6 +6419,92 @@ function handleSaveSubscription(json, callback, fromPost) {
     sheet: sheetName,
     row: rowIdx + 1
   };
+  try { clearCrmSheetCache_(sheetName); clearCrmSheetCache_("Контакты"); } catch (eClr) {}
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function findSubscriptionRowIndex_(sh, nick, subId) {
+  if (!sh || sh.getLastRow() < 3) return -1;
+  var data = sh.getDataRange().getValues();
+  for (var r = 2; r < data.length; r++) {
+    if (subId && String(data[r][1] || "").trim() === String(subId).trim()) return r;
+    if (nick && (nicksMatch_(data[r][0], nick) || String(data[r][0] || "").trim() === String(nick).trim())) return r;
+  }
+  return -1;
+}
+
+function handleMoveSubscription(json, callback, fromPost) {
+  var crmSs;
+  try { crmSs = getCrmSpreadsheet_(); } catch (e) {
+    var bad = { status: "error", message: "crm_unavailable", detail: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var fromSheet = String(json.fromSheet || json.sheet || "").trim();
+  var toSheet = String(json.toSheet || json.targetSheet || "").trim();
+  var nick = String(json.nick || json.client || "").trim();
+  var subId = String(json.subId || "").trim();
+  if (!fromSheet || !toSheet || (!nick && !subId)) {
+    var need = { status: "error", message: "need_from_to_nick" };
+    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+  }
+  if (fromSheet === toSheet) {
+    var same = { status: "success", message: "same_sheet", sheet: toSheet };
+    return fromPost ? jsonpText(callback, same) : jsonp(callback, same);
+  }
+  var fromSh = findSheetByBaseName_(crmSs, fromSheet);
+  var toSh = findSheetByBaseName_(crmSs, toSheet);
+  if (!fromSh || !toSh) {
+    var no = { status: "error", message: "sheet_missing", fromSheet: fromSheet, toSheet: toSheet };
+    return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
+  }
+  var rowIdx = findSubscriptionRowIndex_(fromSh, nick, subId);
+  if (rowIdx < 0) {
+    var miss = { status: "error", message: "not_found" };
+    return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+  }
+  var colsFrom = Math.max(fromSh.getLastColumn(), 1);
+  var colsTo = Math.max(toSh.getLastColumn(), 1);
+  var vals = fromSh.getRange(rowIdx + 1, 1, 1, colsFrom).getValues()[0];
+  while (vals.length < colsTo) vals.push("");
+  toSh.appendRow(vals.slice(0, colsTo));
+  fromSh.deleteRow(rowIdx + 1);
+  try { clearCrmSheetCache_(fromSheet); clearCrmSheetCache_(toSheet); } catch (eC) {}
+  var ok = {
+    status: "success",
+    nick: nick,
+    subId: subId,
+    fromSheet: fromSheet,
+    toSheet: toSheet
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handleDeleteSubscription(json, callback, fromPost) {
+  var crmSs;
+  try { crmSs = getCrmSpreadsheet_(); } catch (e) {
+    var bad = { status: "error", message: "crm_unavailable", detail: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var sheetName = String(json.sheet || json.segment || "").trim() || "ПП";
+  var nick = String(json.nick || json.client || "").trim();
+  var subId = String(json.subId || "").trim();
+  if (!nick && !subId) {
+    var need = { status: "error", message: "need_nick" };
+    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+  }
+  var sh = findSheetByBaseName_(crmSs, sheetName);
+  if (!sh) {
+    var no = { status: "error", message: "sheet_missing", sheet: sheetName };
+    return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
+  }
+  var rowIdx = findSubscriptionRowIndex_(sh, nick, subId);
+  if (rowIdx < 0) {
+    var miss = { status: "error", message: "not_found" };
+    return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+  }
+  sh.deleteRow(rowIdx + 1);
+  try { clearCrmSheetCache_(sheetName); } catch (eC) {}
+  var ok = { status: "success", nick: nick, subId: subId, sheet: sheetName, deletedRow: rowIdx + 1 };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
