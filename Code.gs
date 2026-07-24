@@ -8151,14 +8151,33 @@ function handleSaveDeferred_(json, callback, fromPost) {
   var sh = deferredSheet_();
   var id = String(json.id || "").trim() || deferredNewId_();
   var mode = String(json.mode || "pp").trim().toLowerCase();
-  if (mode !== "retail") mode = "pp";
+  if (mode !== "retail" && mode !== "remind") mode = "pp";
   var title = String(json.title || "").trim();
   var nick = String(json.clientNick || json.client || "").trim();
+  var payloadObj = null;
   var payload = json.payload;
   if (payload && typeof payload === "object") {
-    try { payload = JSON.stringify(payload); } catch (e) { payload = "{}"; }
+    payloadObj = payload;
+    try { payload = JSON.stringify(payload); } catch (e) { payload = "{}"; payloadObj = {}; }
   } else {
     payload = String(payload || "{}");
+    try { payloadObj = JSON.parse(payload); } catch (e2) { payloadObj = {}; }
+  }
+  if (mode === "remind") {
+    if (!title) {
+      var needTitle = { status: "error", message: "need_title" };
+      return fromPost ? jsonpText(callback, needTitle) : jsonp(callback, needTitle);
+    }
+    var when = parseDeferredRemindAt_(json.remindAt || (payloadObj && payloadObj.remindAt));
+    if (!when) {
+      var needAt = { status: "error", message: "need_remindAt" };
+      return fromPost ? jsonpText(callback, needAt) : jsonp(callback, needAt);
+    }
+    if (!payloadObj || typeof payloadObj !== "object") payloadObj = {};
+    payloadObj.remindAt = formatDeferredRemindAtIso_(when);
+    payloadObj.remindSent = false;
+    delete payloadObj.remindSentAt;
+    payload = JSON.stringify(payloadObj);
   }
   if (!title) {
     title = (mode === "retail" ? "Розница" : "ПП") + (nick ? (" · " + nick) : "");
@@ -8169,13 +8188,19 @@ function handleSaveDeferred_(json, callback, fromPost) {
     if (String(data[r][0]) === id && String(data[r][2]).trim() === tid) {
       sh.getRange(r + 1, 4, r + 1, 9).setValues([[mode, title, nick, "open", payload, now]]);
       bustDeferredCache_(tid);
-      var upd = { status: "success", id: id, updated: true };
+      if (mode === "remind") {
+        try { ensureDeferredRemindTrigger_(); } catch (eTr) {}
+      }
+      var upd = { status: "success", id: id, updated: true, mode: mode };
       return fromPost ? jsonpText(callback, upd) : jsonp(callback, upd);
     }
   }
   sh.appendRow([id, now, tid, mode, title, nick, "open", payload, now]);
   bustDeferredCache_(tid);
-  var ok = { status: "success", id: id, created: true };
+  if (mode === "remind") {
+    try { ensureDeferredRemindTrigger_(); } catch (eTr2) {}
+  }
+  var ok = { status: "success", id: id, created: true, mode: mode };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
@@ -8294,9 +8319,12 @@ function tickDeferredReminders_() {
     var tid = String(data[r][2] || "").trim();
     var title = String(data[r][4] || "Отложенное").trim();
     var nick = String(data[r][5] || "").trim();
-    var text = "⏰ Напоминание\n" + title +
-      (nick ? ("\nКлиент: " + nick) : "") +
-      "\nОткрой задачи ☰ в приложении.";
+    var mode = String(data[r][3] || "").trim().toLowerCase();
+    var text = mode === "remind"
+      ? ("⏰ Напоминание\n" + title)
+      : ("⏰ Напоминание\n" + title +
+        (nick ? ("\nКлиент: " + nick) : "") +
+        "\nОткрой задачи ☰ в приложении.");
     var sentOk = false;
     if (tid) {
       try {
