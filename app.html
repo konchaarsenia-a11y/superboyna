@@ -304,6 +304,29 @@
       font-size: 13px; font-weight: 700; color: var(--accent-color);
       margin: 8px 0 4px; text-align: center;
     }
+    /* Пароль подписок — на весь экран */
+    .subs-gate-full {
+      position: fixed;
+      left: 0; right: 0;
+      top: 0; bottom: 0;
+      z-index: 1700;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: calc(16px + var(--safe-top)) 20px calc(24px + var(--safe-bottom));
+      background: rgba(10, 10, 10, 0.97);
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+    }
+    .subs-gate-full.open { display: flex; }
+    .subs-gate-panel {
+      width: 100%; max-width: 360px;
+      background: #141414;
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 22px 18px;
+    }
+    .subs-gate-panel .section-title { margin-top: 0; text-align: center; }
     .subs-search-wrap { margin-top: 8px; }
     .subs-grid {
       display: grid;
@@ -868,7 +891,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.45</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.46</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1202,15 +1225,17 @@
 
     <!-- ПОДПИСКИ -->
     <div id="subsScreen" class="screen">
-      <div class="card" id="subsGateCard">
-        <div class="section-title" style="margin-top:0;">Подписки</div>
-        <div class="muted" style="font-size:12px;margin-bottom:10px;">Просмотр списка — по паролю.</div>
-        <div class="form-group">
-          <label>Пароль</label>
-          <input type="password" id="subsPasswordInput" placeholder="••••••" inputmode="numeric" autocomplete="off"
-            onkeydown="if(event.key==='Enter'){event.preventDefault();unlockSubsScreen();}">
+      <div class="subs-gate-full" id="subsGateCard">
+        <div class="subs-gate-panel">
+          <div class="section-title">Подписки</div>
+          <div class="muted" style="font-size:13px;margin-bottom:14px;text-align:center;">Введите пароль для просмотра списка</div>
+          <div class="form-group">
+            <label>Пароль</label>
+            <input type="password" id="subsPasswordInput" placeholder="••••••" inputmode="numeric" autocomplete="off"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();unlockSubsScreen();}">
+          </div>
+          <button class="btn-action btn-blue" type="button" onclick="unlockSubsScreen()">Открыть</button>
         </div>
-        <button class="btn-action btn-blue" type="button" onclick="unlockSubsScreen()">Открыть</button>
       </div>
       <div id="subsMainWrap" style="display:none;">
         <div class="card">
@@ -1480,7 +1505,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.45";
+    const APP_VERSION = "v7.10.46";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1764,7 +1789,7 @@
         "• Точка выезда: склад или свой адрес.\n" +
         "• Сборка: long-press. Форматы пакетов можно выключить — «Итого» уменьшится.",
       warehouseScreen: "Склад\n• Сырое/сухое, коэффициенты, снабжение.",
-      subsScreen: "Подписки\n• Список по паролю.\n• Тап по человеку — карточка, правка, «В заказ».",
+      subsScreen: "Подписки\n• Пароль на весь экран (каждый вход).\n• Список 2 колонки + поиск по нику.\n• Тап — карточка, правка, «В заказ».",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
       priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• «В отложенное» → задачи ☰ (Расчёт ПП).\n• 2 собаки: свет/доставки один раз.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
@@ -2967,6 +2992,10 @@
         try {
           if (typeof isSubsUnlocked === "function" && !isSubsUnlocked()) screenId = "subsScreen";
         } catch (eSub) { screenId = "subsScreen"; }
+      }
+      // уход с Подписок → снова пароль при следующем входе
+      if (screenId !== "subsScreen" && screenId !== "subDetailScreen") {
+        try { if (typeof lockSubsScreen === "function") lockSubsScreen(); } catch (eLock) {}
       }
       clearBlockingOverlays();
       var fly = document.getElementById("orderFlyout");
@@ -8563,32 +8592,30 @@
     const SUBS_VIEW_PASSWORD = "708080";
 
     function isSubsUnlocked() {
-      try { return sessionStorage.getItem("subsUnlocked") === "1"; } catch (e) { return !!window._subsUnlocked; }
+      return !!window._subsUnlocked;
     }
 
     function setSubsUnlocked(ok) {
       window._subsUnlocked = !!ok;
-      try {
-        if (ok) sessionStorage.setItem("subsUnlocked", "1");
-        else sessionStorage.removeItem("subsUnlocked");
-      } catch (e) {}
+      // не держим в sessionStorage — пароль каждый вход в Подписки
+      try { sessionStorage.removeItem("subsUnlocked"); } catch (e) {}
     }
 
     function enterSubsScreen() {
       var gate = document.getElementById("subsGateCard");
       var main = document.getElementById("subsMainWrap");
       if (isSubsUnlocked()) {
-        if (gate) gate.style.display = "none";
+        if (gate) gate.classList.remove("open");
         if (main) main.style.display = "";
         loadSubscriptions();
         return;
       }
-      if (gate) gate.style.display = "";
       if (main) main.style.display = "none";
+      if (gate) gate.classList.add("open");
       var inp = document.getElementById("subsPasswordInput");
       if (inp) {
         inp.value = "";
-        setTimeout(function () { try { inp.focus(); } catch (eF) {} }, 50);
+        setTimeout(function () { try { inp.focus(); } catch (eF) {} }, 80);
       }
     }
     window.enterSubsScreen = enterSubsScreen;
@@ -8606,6 +8633,17 @@
       showToast("Ок");
     }
     window.unlockSubsScreen = unlockSubsScreen;
+
+    function lockSubsScreen() {
+      setSubsUnlocked(false);
+      var gate = document.getElementById("subsGateCard");
+      var main = document.getElementById("subsMainWrap");
+      if (main) main.style.display = "none";
+      if (gate) gate.classList.remove("open");
+      var inp = document.getElementById("subsPasswordInput");
+      if (inp) inp.value = "";
+    }
+    window.lockSubsScreen = lockSubsScreen;
 
     async function loadSubscriptions() {
       if (!isSubsUnlocked()) {
