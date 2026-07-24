@@ -529,6 +529,8 @@
       background: #3a3a3c; color: #fff; font-size: 22px; font-weight: 700;
       box-shadow: 0 6px 18px rgba(0,0,0,0.35); cursor: pointer;
     }
+    body.tasks-open .help-fab,
+    body.tasks-open .bug-fab { display: none !important; }
     .help-fab:active { background: #48484a; }
     .time-wheel-wrap {
       position: relative; display: flex; height: 168px;
@@ -818,7 +820,7 @@
       50% { box-shadow: 0 0 0 2px #0a0a0a, 0 0 0 6px rgba(255,69,58,0); }
     }
     .tasks-drawer-overlay {
-      display: none; position: fixed; inset: 0; z-index: 1400;
+      display: none; position: fixed; inset: 0; z-index: 1800;
       background: rgba(0,0,0,0.55);
       pointer-events: none;
     }
@@ -827,7 +829,7 @@
       pointer-events: auto;
     }
     .tasks-drawer {
-      position: fixed; top: 0; right: 0; bottom: 0; z-index: 1410;
+      position: fixed; top: 0; right: 0; bottom: 0; z-index: 1810;
       width: min(360px, 88vw);
       background: #141414; border-left: 1px solid var(--border-color);
       transform: translateX(105%);
@@ -891,7 +893,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.51</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.56</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1482,12 +1484,12 @@
       <div id="priceResult"><p class="muted">Набери состав и нажми «Собрать сообщение»</p></div>
     </div>
 
-    <!-- ОТЛОЖЕННОЕ (legacy stub — список в боковом меню Задачи) -->
+    <!-- ОТЛОЖЕННОЕ / задачи — список в ☰; экран без плашки-заглушки -->
     <div id="deferredScreen" class="screen">
-      <div class="card">
-        <div class="muted">Список переехал в меню ☰ справа. Откройте задачи оттуда.</div>
-        <button class="btn-action btn-orange" type="button" style="margin-top:10px;" onclick="openTasksDrawer()">Открыть задачи</button>
+      <div class="card" style="margin-bottom:10px;">
+        <button class="btn-action btn-orange" type="button" style="margin:0;width:100%;" onclick="openTasksDrawer()">Открыть задачи ☰</button>
       </div>
+      <div id="deferredScreenList"><p class="muted">Загрузка…</p></div>
     </div>
 
     <!-- ЛЮДИ -->
@@ -1509,7 +1511,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.55";
+    const APP_VERSION = "v7.10.56";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -9621,6 +9623,7 @@
         dr.classList.remove("open");
         dr.setAttribute("aria-hidden", "true");
       }
+      try { document.body.classList.remove("tasks-open"); } catch (eBody) {}
     }
     window.closeTasksDrawer = closeTasksDrawer;
 
@@ -9637,6 +9640,7 @@
         dr.classList.add("open");
         dr.setAttribute("aria-hidden", "false");
       }
+      try { document.body.classList.add("tasks-open"); } catch (eBody2) {}
       // сразу из кэша, сеть — в фоне
       renderTasksDrawer(false);
       if (!deferredCache.length || (Date.now() - deferredCacheAt) > 12000) {
@@ -9770,37 +9774,164 @@
     }
     window.saveCurrentCalcToDeferred = saveCurrentCalcToDeferred;
 
+    function formatDeferredRemindAt_(iso) {
+      if (!iso) return "";
+      try {
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return String(iso).slice(0, 16);
+        return d.toLocaleString("ru-RU", {
+          day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"
+        });
+      } catch (e) { return ""; }
+    }
+
+    function deferredRemindAtOf_(it) {
+      if (!it) return "";
+      if (it.remindAt) return String(it.remindAt);
+      if (it.payload && it.payload.remindAt) return String(it.payload.remindAt);
+      return "";
+    }
+
+    function toLocalIsoMinutes_(d) {
+      function p(n) { return (n < 10 ? "0" : "") + n; }
+      return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
+        "T" + p(d.getHours()) + ":" + p(d.getMinutes()) + ":00";
+    }
+
     function renderTasksPpCards(items) {
-      var box = document.getElementById("tasksPpList");
-      if (!box) return;
+      var html;
       if (!items.length) {
-        box.innerHTML = '<p class="muted">Нет отложенных ПП. Из Расчёта — «В отложенное».</p>';
+        html = '<p class="muted">Нет отложенных ПП. Из Расчёта — «В отложенное».</p>';
+      } else {
+        html = items.map(function (it) {
+          var when = it.at ? String(it.at).slice(0, 19) : "";
+          var safeId = String(it.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+          var preview = (it.payload && it.payload.lastMessage)
+            ? String(it.payload.lastMessage).slice(0, 120)
+            : "";
+          var sum = (it.payload && it.payload.subTotal != null)
+            ? (Math.round(Number(it.payload.subTotal) * 100) / 100 + " BYN")
+            : "";
+          var rem = deferredRemindAtOf_(it);
+          var remTxt = rem ? ("⏰ " + formatDeferredRemindAt_(rem)) : "";
+          var remSent = !!(it.remindSent || (it.payload && it.payload.remindSent));
+          return '<div class="tasks-item is-hot">' +
+            '<div><b>' + escapeHtml(it.title || "ПП") + '</b>' +
+            '<div class="muted" style="font-size:12px;margin-top:4px;">' +
+            (it.clientNick ? escapeHtml(it.clientNick) : "без ника") +
+            (sum ? (" · " + sum) : "") +
+            (when ? (" · " + escapeHtml(when)) : "") + "</div>" +
+            (remTxt ? ('<div style="font-size:12px;margin-top:4px;color:#ffd60a;">' +
+              escapeHtml(remTxt) + (remSent ? " · отправлено" : "") + "</div>") : "") +
+            "</div>" +
+            (preview ? ('<div class="muted" style="white-space:pre-wrap;font-size:12px;margin-top:8px;max-height:56px;overflow:hidden;">' +
+              escapeHtml(preview) + (String(it.payload.lastMessage).length > 120 ? "…" : "") + "</div>") : "") +
+            '<div class="seg-row" style="margin-top:10px;flex-wrap:wrap;">' +
+            '<button type="button" class="seg-btn" onclick="editDeferredItem(\'' + safeId + '\')">Править</button>' +
+            '<button type="button" class="seg-btn" style="background:#30d158;border-color:#30d158;color:#111;" onclick="openDeferredEnroll(\'' + safeId + '\')">Внести</button>' +
+            '<button type="button" class="seg-btn" style="background:#ffd60a;border-color:#ffd60a;color:#111;" onclick="remindDeferredItem(\'' + safeId + '\')">Напоминалка</button>' +
+            '<button type="button" class="seg-btn" style="background:#3a3a3c;" onclick="cancelDeferredItem(\'' + safeId + '\')">Отменить</button>' +
+            "</div></div>";
+        }).join("");
+      }
+      var box = document.getElementById("tasksPpList");
+      if (box) box.innerHTML = html;
+      var screenBox = document.getElementById("deferredScreenList");
+      if (screenBox) screenBox.innerHTML = html;
+    }
+
+    async function uiDatetimeAsync(title, message, defLocal) {
+      var def = defLocal || "";
+      if (!def) {
+        var d0 = new Date();
+        d0.setMinutes(d0.getMinutes() + 60);
+        d0.setSeconds(0, 0);
+        def = toLocalIsoMinutes_(d0).slice(0, 16);
+      }
+      var p = openModal(
+        '<div class="modal-title">' + escapeHtml(title || "Когда") + "</div>" +
+        '<div class="modal-text">' + escapeHtml(String(message || "")) + "</div>" +
+        '<div class="form-group" style="margin-top:10px;">' +
+        '<input type="datetime-local" id="modalDtInput" value="' + escapeHtml(def) + '" style="width:100%;">' +
+        "</div>" +
+        '<div class="modal-actions row">' +
+          '<button class="btn-action" type="button" id="modalCancel" style="background:#3a3a3c;">Отмена</button>' +
+          '<button class="btn-action btn-blue" type="button" id="modalOk">OK</button>' +
+        "</div>"
+      );
+      setTimeout(function () {
+        var inp = document.getElementById("modalDtInput");
+        var ok = document.getElementById("modalOk");
+        var cancel = document.getElementById("modalCancel");
+        if (ok) ok.onclick = function () {
+          closeModal(inp ? inp.value : null);
+        };
+        if (cancel) cancel.onclick = function () { closeModal(null); };
+      }, 0);
+      var res = await p;
+      recoverUiFocus();
+      return res;
+    }
+
+    async function remindDeferredItem(id) {
+      var it = findDeferredCached(id);
+      if (!it) { showToast("Не найдено"); return; }
+      var choice = await uiChoiceAsync("Напоминалка", "Когда напомнить в Telegram?", [
+        { label: "Через 1 час", value: "1h", cls: "btn-blue" },
+        { label: "Через 3 часа", value: "3h", cls: "btn-blue" },
+        { label: "Завтра в 10:00", value: "tomorrow10", cls: "btn-blue" },
+        { label: "Указать время…", value: "custom", cls: "btn-orange" }
+      ]);
+      if (choice == null) return;
+      var when = null;
+      if (choice === "custom") {
+        var picked = await uiDatetimeAsync("Напоминалка", "Дата и время напоминания");
+        if (!picked) return;
+        when = new Date(picked);
+      } else if (choice === "1h") {
+        when = new Date();
+        when.setHours(when.getHours() + 1);
+      } else if (choice === "3h") {
+        when = new Date();
+        when.setHours(when.getHours() + 3);
+      } else if (choice === "tomorrow10") {
+        when = new Date();
+        when.setDate(when.getDate() + 1);
+        when.setHours(10, 0, 0, 0);
+      }
+      if (!when || isNaN(when.getTime())) {
+        showToast("Неверное время");
         return;
       }
-      box.innerHTML = items.map(function (it) {
-        var when = it.at ? String(it.at).slice(0, 19) : "";
-        var safeId = String(it.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-        var preview = (it.payload && it.payload.lastMessage)
-          ? String(it.payload.lastMessage).slice(0, 120)
-          : "";
-        var sum = (it.payload && it.payload.subTotal != null)
-          ? (Math.round(Number(it.payload.subTotal) * 100) / 100 + " BYN")
-          : "";
-        return '<div class="tasks-item is-hot">' +
-          '<div><b>' + escapeHtml(it.title || "ПП") + '</b>' +
-          '<div class="muted" style="font-size:12px;margin-top:4px;">' +
-          (it.clientNick ? escapeHtml(it.clientNick) : "без ника") +
-          (sum ? (" · " + sum) : "") +
-          (when ? (" · " + escapeHtml(when)) : "") + "</div></div>" +
-          (preview ? ('<div class="muted" style="white-space:pre-wrap;font-size:12px;margin-top:8px;max-height:56px;overflow:hidden;">' +
-            escapeHtml(preview) + (String(it.payload.lastMessage).length > 120 ? "…" : "") + "</div>") : "") +
-          '<div class="seg-row" style="margin-top:10px;flex-wrap:wrap;">' +
-          '<button type="button" class="seg-btn" onclick="editDeferredItem(\'' + safeId + '\')">Править</button>' +
-          '<button type="button" class="seg-btn" style="background:#30d158;border-color:#30d158;color:#111;" onclick="openDeferredEnroll(\'' + safeId + '\')">Внести</button>' +
-          '<button type="button" class="seg-btn" style="background:#3a3a3c;" onclick="cancelDeferredItem(\'' + safeId + '\')">Отменить</button>' +
-          "</div></div>";
-      }).join("");
+      if (when.getTime() < Date.now() - 30000) {
+        showToast("Время уже прошло");
+        return;
+      }
+      var tid = await ensureTelegramId();
+      if (!tid) return;
+      var remindAt = toLocalIsoMinutes_(when);
+      try {
+        await apiPost({
+          action: "setDeferredReminder",
+          telegramId: tid,
+          id: id,
+          remindAt: remindAt
+        });
+        if (it.payload) {
+          it.payload.remindAt = remindAt;
+          it.payload.remindSent = false;
+        }
+        it.remindAt = remindAt;
+        it.remindSent = false;
+        deferredCacheAt = 0;
+        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        showToast("Напомню: " + formatDeferredRemindAt_(remindAt));
+        await renderTasksDrawer(true);
+      } catch (e) {
+        showToast("Не удалось поставить напоминание");
+      }
     }
+    window.remindDeferredItem = remindDeferredItem;
 
     async function renderTasksDrawer(doFetch) {
       var box = document.getElementById("tasksPpList");
@@ -9816,6 +9947,8 @@
       paint();
       if (doFetch === false) return;
       if (box && !deferredCache.length) box.innerHTML = '<p class="muted">Загрузка…</p>';
+      var screenBox = document.getElementById("deferredScreenList");
+      if (screenBox && !deferredCache.length) screenBox.innerHTML = '<p class="muted">Загрузка…</p>';
       await refreshDeferredBadge(true);
       paint();
     }

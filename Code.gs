@@ -1016,7 +1016,7 @@ function handleApiAction(json, callback, fromPost) {
     return handleGetPpOrderSuggest(json, callback, fromPost);
   }
   if (action === "listDeferred" || action === "saveDeferred" || action === "updateDeferred" ||
-      action === "cancelDeferred" || action === "enrollDeferredToPp") {
+      action === "cancelDeferred" || action === "enrollDeferredToPp" || action === "setDeferredReminder") {
     return handleDeferredAction_(action, json, callback, fromPost);
   }
   return fromPost ? jsonpText(callback, { status: "unknown_action" }) : jsonp(callback, { status: "unknown_action" });
@@ -1810,14 +1810,10 @@ function findSheetRowForItem(itemsInSheet, rawName, rawSub) {
     }
     sheetBase = normalizeProductAlias_(sheetBase);
 
-    var nameMatch =
-      sheetBase === nameU ||
-      sheetBase.indexOf(nameU) === 0 ||
-      nameU.indexOf(sheetBase) === 0 ||
-      sheetFull.indexOf(nameU) === 0 ||
-      (nameU.length >= 4 && sheetBase.indexOf(nameU) > -1) ||
-      (sheetBase.length >= 4 && nameU.indexOf(sheetBase) > -1);
-    if (!nameMatch) continue;
+    // строго: не матчить «БАРАНЬЕ ЛЁГКОЕ» ↔ «ЛЁГКОЕ» через indexOf внутри строки
+    if (!productBasesMatch_(nameU, sheetBase) && !productBasesMatch_(nameU, sheetFull.split(" / ")[0])) {
+      continue;
+    }
 
     var score = 1;
     if (subNorm) {
@@ -1839,6 +1835,26 @@ function findSheetRowForItem(itemsInSheet, rawName, rawSub) {
   return bestScore > 0 ? bestIdx : -1;
 }
 
+/**
+ * Имена продуктов: точное совпадение или префикс до пробела/слэша.
+ * Запрещает «ЛЁГКОЕ» ⊂ «БАРАНЬЕ ЛЁГКОЕ».
+ */
+function productBasesMatch_(a, b) {
+  var x = String(a || "").trim().toUpperCase().replace(/Ё/g, "Е");
+  var y = String(b || "").trim().toUpperCase().replace(/Ё/g, "Е");
+  if (!x || !y) return false;
+  if (x === y) return true;
+  if (x.indexOf(y) === 0) {
+    var cx = x.charAt(y.length);
+    return !cx || cx === " " || cx === "/";
+  }
+  if (y.indexOf(x) === 0) {
+    var cy = y.charAt(x.length);
+    return !cy || cy === " " || cy === "/";
+  }
+  return false;
+}
+
 /** Опечатки / варианты написания в таблице */
 function normalizeProductAlias_(nameU) {
   var n = String(nameU || "").trim();
@@ -1854,9 +1870,15 @@ function normalizeProductAlias_(nameU) {
     "РУБЕЦ": "РУБЕЦ Т",
     "КОРЕНЬ": "БЫЧИЙ КОРЕНЬ",
     "БЫЧИЙКОРЕНЬ": "БЫЧИЙ КОРЕНЬ",
-    "ЛЕГКОЕ": "ЛЁГКОЕ"
+    "ЛЕГКОЕ": "ЛЁГКОЕ",
+    "БАРАНЬЕ ЛЕГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
+    "БАРАНЬЕЛЕГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
+    "БАРАНЬЕЛЁГКОЕ": "БАРАНЬЕ ЛЁГКОЕ"
   };
   if (aliases[n]) return aliases[n];
+  var n2 = n.replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  if (/^БАРАНЬ?Е?\s*ЛЕГК/.test(n2)) return "БАРАНЬЕ ЛЁГКОЕ";
+  if (n2 === "ЛЕГКОЕ") return "ЛЁГКОЕ";
   return n;
 }
 
@@ -4856,20 +4878,41 @@ var CRM_MONTH_NAMES_RU_ = [
 /**
  * Лист по каноническому имени или «Имя (копия)» — после Copy-to spreadsheet Google так называет вкладки.
  */
+function sheetLooksLikeCrmSubs_(sh) {
+  if (!sh || sh.getLastRow() < 1) return false;
+  try {
+    var h = String(sh.getRange(1, 1).getValue() || "").toUpperCase().replace(/ё/g, "Е");
+    if (/ЛЮДИ|ЛАКОМ|ПОДПИС|НИК/.test(h)) return true;
+    var h2 = String(sh.getRange(1, 2).getValue() || "").toUpperCase();
+    if (/ID|ПОДПИС/.test(h2)) return true;
+  } catch (eH) {}
+  return false;
+}
+
 function findSheetByBaseName_(ss, baseName) {
   if (!ss || !baseName) return null;
+  var candidates = [];
   var exact = ss.getSheetByName(baseName);
-  if (exact) return exact;
+  if (exact) candidates.push(exact);
   var copyRu = ss.getSheetByName(baseName + " (копия)");
-  if (copyRu) return copyRu;
+  if (copyRu) candidates.push(copyRu);
   var copyEn = ss.getSheetByName(baseName + " (copy)");
-  if (copyEn) return copyEn;
+  if (copyEn) candidates.push(copyEn);
   var want = String(baseName).toUpperCase().replace(/ё/g, "Е");
   var sheets = ss.getSheets();
   for (var i = 0; i < sheets.length; i++) {
     var n = String(sheets[i].getName() || "").toUpperCase().replace(/ё/g, "Е");
-    if (n === want || n === want + " (КОПИЯ)" || n === want + " (COPY)") return sheets[i];
+    if (n === want || n === want + " (КОПИЯ)" || n === want + " (COPY)") {
+      if (candidates.indexOf(sheets[i]) < 0) candidates.push(sheets[i]);
+    }
   }
+  var crmNames = { "ПП": 1, "АФК": 1, "БП": 1, "Контакты": 1, "Опросник": 1 };
+  if (crmNames[String(baseName)] && candidates.length > 1) {
+    for (var c = 0; c < candidates.length; c++) {
+      if (sheetLooksLikeCrmSubs_(candidates[c])) return candidates[c];
+    }
+  }
+  if (candidates.length) return candidates[0];
   return null;
 }
 
@@ -6235,13 +6278,90 @@ function clearCrmSheetCache_(sheetName) {
 }
 
 /** Живое чтение CRM без кэша (список подписок после переноса). */
+/** Последняя строка с ником в колонке A (сироты «под таблицей»). */
+function getCrmSheetScanLastRow_(sh) {
+  if (!sh) return 1;
+  var declared = Math.max(1, sh.getLastRow());
+  var maxScan = Math.min(Math.max(declared + 80, 120), Math.max(200, sh.getMaxRows()));
+  var colA = sh.getRange(1, 1, maxScan, 1).getValues();
+  var last = 1;
+  for (var i = 0; i < colA.length; i++) {
+    if (String(colA[i][0] || "").trim()) last = i + 1;
+  }
+  return Math.max(declared, last);
+}
+
 function readCrmSheetLiveNarrow_(crmSs, sheetName, maxCols) {
   var sh = findSheetByBaseName_(crmSs, sheetName);
   if (!sh) return null;
-  var lastRow = sh.getLastRow();
+  var lastRow = getCrmSheetScanLastRow_(sh);
   if (lastRow < 2) return null;
   var cols = Math.min(Math.max(1, maxCols || 5), Math.max(1, sh.getLastColumn()));
   return sh.getRange(1, 1, lastRow, cols).getValues();
+}
+
+/**
+ * Люди ниже «дыры» из 3+ пустых строк — подтянуть вверх.
+ */
+function rescueOrphanSubscriptionRows_(sh) {
+  if (!sh) return { moved: 0 };
+  var last = getCrmSheetScanLastRow_(sh);
+  if (last < 4) return { moved: 0 };
+  var width = Math.min(Math.max(5, sh.getLastColumn()), sh.getMaxColumns());
+  var data = sh.getRange(1, 1, last, width).getValues();
+  var gap = 0;
+  var seenGap = false;
+  var mainEnd = 2;
+  var emptySlots = [];
+  var orphans = [];
+  for (var r = 2; r < data.length; r++) {
+    var sheetRow = r + 1;
+    var nick = String(data[r][0] || "").trim();
+    if (!nick) {
+      gap++;
+      if (!seenGap) emptySlots.push(sheetRow);
+      if (gap >= 3) seenGap = true;
+      continue;
+    }
+    if (/^себестоим/i.test(nick) || /^стоимость\s*100/i.test(nick)) {
+      gap = 0;
+      continue;
+    }
+    if (seenGap) {
+      orphans.push({ row: sheetRow, vals: data[r].slice(0, width) });
+    } else {
+      mainEnd = sheetRow;
+      gap = 0;
+    }
+  }
+  if (!orphans.length) return { moved: 0 };
+  orphans.sort(function (a, b) { return b.row - a.row; });
+  var moved = 0;
+  for (var oi = 0; oi < orphans.length; oi++) {
+    var o = orphans[oi];
+    var target = -1;
+    while (emptySlots.length) {
+      var cand = emptySlots.shift();
+      if (cand >= o.row) continue;
+      if (!String(sh.getRange(cand, 1).getValue() || "").trim()) {
+        target = cand;
+        break;
+      }
+    }
+    if (target < 0) {
+      target = mainEnd + 1;
+      while (target < o.row && String(sh.getRange(target, 1).getValue() || "").trim()) target++;
+      if (target >= o.row) continue;
+    }
+    var vals = o.vals.slice();
+    while (vals.length < width) vals.push("");
+    sh.getRange(target, 1, 1, width).setValues([vals.slice(0, width)]);
+    sh.getRange(o.row, 1, 1, width).clearContent();
+    mainEnd = Math.max(mainEnd, target);
+    moved++;
+  }
+  try { SpreadsheetApp.flush(); } catch (eFl) {}
+  return { moved: moved };
 }
 
 /** ID подписки: пусто / #REF! / прочие ошибки формул — не ID. */
@@ -6266,14 +6386,16 @@ function sheetNeedsSubscriptionIdRepair_(data) {
 }
 
 /**
- * Колонка B = 1, 2, 3… по строкам с ником (как было раньше).
- * Пишет числа, не формулы — чтобы не было #REF!.
+ * Колонка B = 1, 2, 3… Числа, не формулы.
+ * Sheet.getRange(r,c,numRows,numColumns) — 3/4 = размер, не endRow.
  */
 function repairSheetSubscriptionIds_(crmSs, sheetName) {
   var sh = findSheetByBaseName_(crmSs, sheetName);
-  if (!sh || sh.getLastRow() < 3) return { repaired: 0, nextId: 1 };
-  var lastRow = sh.getLastRow();
-  var nickCol = sh.getRange(3, 1, lastRow, 1).getValues();
+  if (!sh || getCrmSheetScanLastRow_(sh) < 3) return { repaired: 0, nextId: 1 };
+  var lastRow = getCrmSheetScanLastRow_(sh);
+  var numRows = lastRow - 2;
+  if (numRows < 1) return { repaired: 0, nextId: 1 };
+  var nickCol = sh.getRange(3, 1, numRows, 1).getValues();
   var out = [];
   var n = 1;
   var repaired = 0;
@@ -6286,15 +6408,23 @@ function repairSheetSubscriptionIds_(crmSs, sheetName) {
       out.push([""]);
     }
   }
-  if (out.length) sh.getRange(3, 2, lastRow, 2).setValues(out);
+  if (out.length) {
+    var idRange = sh.getRange(3, 2, numRows, 1);
+    try { idRange.clearContent(); } catch (eClr) {}
+    idRange.setValues(out);
+    try { idRange.setNumberFormat("0"); } catch (eFmt) {}
+  }
   try { SpreadsheetApp.flush(); } catch (eFl) {}
   try { clearCrmSheetCache_(sheetName); } catch (eC) {}
   return { repaired: repaired, nextId: n };
 }
 
 function nextSubscriptionNumericId_(sh) {
-  if (!sh || sh.getLastRow() < 3) return 1;
-  var vals = sh.getRange(3, 2, sh.getLastRow(), 2).getValues();
+  if (!sh || getCrmSheetScanLastRow_(sh) < 3) return 1;
+  var lr = getCrmSheetScanLastRow_(sh);
+  var numRows = lr - 2;
+  if (numRows < 1) return 1;
+  var vals = sh.getRange(3, 2, numRows, 1).getValues();
   var max = 0;
   for (var i = 0; i < vals.length; i++) {
     var id = sanitizeSubId_(vals[i][0]);
@@ -6302,6 +6432,73 @@ function nextSubscriptionNumericId_(sh) {
     if (isFinite(num) && String(num) === id && num > max) max = num;
   }
   return max + 1;
+}
+
+/** Следующий ID: PS0001… если на листе уже PS*, иначе число. */
+function nextSubscriptionIdForSheet_(sh) {
+  if (!sh || getCrmSheetScanLastRow_(sh) < 3) return 1;
+  var lr = getCrmSheetScanLastRow_(sh);
+  var numRows = lr - 2;
+  if (numRows < 1) return 1;
+  var vals = sh.getRange(3, 2, numRows, 1).getValues();
+  var maxPs = 0;
+  var maxNum = 0;
+  var hasPs = false;
+  for (var i = 0; i < vals.length; i++) {
+    var id = sanitizeSubId_(vals[i][0]);
+    if (!id) continue;
+    var m = /^PS(\d+)$/i.exec(id);
+    if (m) {
+      hasPs = true;
+      var n = parseInt(m[1], 10);
+      if (isFinite(n) && n > maxPs) maxPs = n;
+    } else {
+      var num = parseInt(id, 10);
+      if (isFinite(num) && String(num) === id && num > maxNum) maxNum = num;
+    }
+  }
+  if (hasPs) {
+    var next = maxPs + 1;
+    var s = String(next);
+    while (s.length < 4) s = "0" + s;
+    return "PS" + s;
+  }
+  return maxNum + 1;
+}
+
+/** Первая пустая строка в основном блоке, не «под таблицей». */
+function findEmptySubscriptionRow_(sh) {
+  if (!sh) return 3;
+  var last = getCrmSheetScanLastRow_(sh);
+  var numRows = Math.max(1, last - 2);
+  var nicks = sh.getRange(3, 1, numRows, 1).getValues();
+  var gap = 0;
+  var lastNickRow = 2;
+  for (var i = 0; i < nicks.length; i++) {
+    var sheetRow = i + 3;
+    if (!String(nicks[i][0] || "").trim()) {
+      gap++;
+      if (gap === 1) return sheetRow;
+      if (gap >= 3) break;
+      continue;
+    }
+    gap = 0;
+    lastNickRow = sheetRow;
+  }
+  return lastNickRow + 1;
+}
+
+function writeSubscriptionRowValues_(sh, row, vals) {
+  var maxCols = Math.max(1, sh.getMaxColumns());
+  var need = Math.min(Math.max(vals.length, 5), maxCols);
+  var out = [];
+  for (var i = 0; i < need; i++) {
+    var v = i < vals.length ? vals[i] : "";
+    if (v === null || typeof v === "undefined") v = "";
+    out.push(v);
+  }
+  sh.getRange(row, 1, 1, need).setValues([out]);
+  return need;
 }
 
 /* ----- Подписки CRM ----- */
@@ -6320,18 +6517,25 @@ function handleListSubscriptions(json, callback, fromPost) {
   for (var s = 0; s < sheets.length; s++) {
     var sheetName = sheets[s];
     var seenInSheet = {};
+    try {
+      var shRescue = findSheetByBaseName_(crmSs, sheetName);
+      if (shRescue) rescueOrphanSubscriptionRows_(shRescue);
+    } catch (eRes) {}
     var data = readCrmSheetLiveNarrow_(crmSs, sheetName, 5);
     if (!data || data.length < 3) continue;
     // починить ID 1,2,3… если есть #REF!/пусто (особенно ПП)
     if (forceRepair || sheetNeedsSubscriptionIdRepair_(data)) {
-      repairSheetSubscriptionIds_(crmSs, sheetName);
-      repairedSheets.push(sheetName);
-      data = readCrmSheetLiveNarrow_(crmSs, sheetName, 5);
-      if (!data || data.length < 3) continue;
+      try {
+        repairSheetSubscriptionIds_(crmSs, sheetName);
+        repairedSheets.push(sheetName);
+        data = readCrmSheetLiveNarrow_(crmSs, sheetName, 5);
+        if (!data || data.length < 3) continue;
+      } catch (eRep) {}
     }
     for (var r = 2; r < data.length; r++) {
       var nickRaw = String(data[r][0] || "").trim();
       if (!nickRaw) continue;
+      if (/^себестоим/i.test(nickRaw) || /^стоимость\s*100/i.test(nickRaw)) continue;
       var nick = extractInstagramNick_(nickRaw) || displayClientNick_(nickRaw) || nickRaw;
       var subId = sanitizeSubId_(data[r][1]);
       var key = subId
@@ -6488,7 +6692,7 @@ function handleSaveSubscription(json, callback, fromPost) {
       factCost
     );
     while (rowVals.length < headers.length) rowVals.push("");
-    sh.getRange(rowIdx + 1, 1, rowIdx + 1, headers.length).setValues([rowVals.slice(0, headers.length)]);
+    sh.getRange(rowIdx + 1, 1, 1, headers.length).setValues([rowVals.slice(0, headers.length)]);
   } else {
     sh.getRange(rowIdx + 1, 1).setValue(label);
     if (headers.length > 1) sh.getRange(rowIdx + 1, 2).setValue(subId || String(data[rowIdx][1] || ""));
@@ -6583,37 +6787,36 @@ function handleMoveSubscription(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
   }
   var colsFrom = Math.max(fromSh.getLastColumn(), 1);
-  var colsTo = Math.max(toSh.getLastColumn(), 1);
   var vals = fromSh.getRange(rowIdx + 1, 1, 1, colsFrom).getValues()[0];
-  while (vals.length < colsTo) vals.push("");
-  // временный ID; после переноса обе таблицы перенумеруем 1..n
-  vals[1] = nextSubscriptionNumericId_(toSh);
-  toSh.appendRow(vals.slice(0, colsTo));
+  var movedLabel = String(vals[0] || nick || "").trim();
+  if (!movedLabel) {
+    var emptyNick = { status: "error", message: "empty_nick_row", row: rowIdx + 1 };
+    return fromPost ? jsonpText(callback, emptyNick) : jsonp(callback, emptyNick);
+  }
+  vals[1] = nextSubscriptionIdForSheet_(toSh);
+  var insertRow = findEmptySubscriptionRow_(toSh);
+  writeSubscriptionRowValues_(toSh, insertRow, vals);
+  try { SpreadsheetApp.flush(); } catch (eFl0) {}
+  var written = String(toSh.getRange(insertRow, 1).getValue() || "").trim();
+  if (!written) {
+    var failW = { status: "error", message: "write_failed", toSheet: toSheet, row: insertRow };
+    return fromPost ? jsonpText(callback, failW) : jsonp(callback, failW);
+  }
   fromSh.deleteRow(rowIdx + 1);
   try { SpreadsheetApp.flush(); } catch (eFl) {}
   try {
-    repairSheetSubscriptionIds_(crmSs, fromSheet);
-    repairSheetSubscriptionIds_(crmSs, toSheet);
+    var fromData = readCrmSheetLiveNarrow_(crmSs, fromSheet, 2);
+    if (sheetNeedsSubscriptionIdRepair_(fromData)) repairSheetSubscriptionIds_(crmSs, fromSheet);
+    var toDataFix = readCrmSheetLiveNarrow_(crmSs, toSheet, 2);
+    if (sheetNeedsSubscriptionIdRepair_(toDataFix)) repairSheetSubscriptionIds_(crmSs, toSheet);
   } catch (eRep) {}
   try {
     clearCrmSheetCache_(fromSheet);
     clearCrmSheetCache_(toSheet);
     clearCrmSheetCache_();
   } catch (eC) {}
-  var movedLabel = String(vals[0] || nick || "").trim();
   var movedNick = extractInstagramNick_(movedLabel) || displayClientNick_(movedLabel) || nick;
-  var movedId = "";
-  try {
-    var toData = readCrmSheetLiveNarrow_(crmSs, toSheet, 2);
-    if (toData) {
-      for (var tr = 2; tr < toData.length; tr++) {
-        if (nicksMatch_(toData[tr][0], movedLabel) || nicksMatch_(toData[tr][0], movedNick)) {
-          movedId = sanitizeSubId_(toData[tr][1]);
-          break;
-        }
-      }
-    }
-  } catch (eFind) {}
+  var movedId = sanitizeSubId_(toSh.getRange(insertRow, 2).getValue());
   var ok = {
     status: "success",
     nick: movedNick,
@@ -6621,6 +6824,7 @@ function handleMoveSubscription(json, callback, fromPost) {
     subId: movedId || String(vals[1] || ""),
     fromSheet: fromSheet,
     toSheet: toSheet,
+    row: insertRow,
     deliveries: Number(vals[2]) || 0,
     statusText: String(vals[3] || ""),
     wishes: String(vals[4] || "")
@@ -7479,7 +7683,7 @@ function buildAssemblyForBasket_(basket) {
     var rule = '';
     var type = 'other';
     var counterKey = '';
-    if (/л[её]гк/i.test(name)) {
+    if (/л[её]гк/i.test(name) && !/баран/i.test(name) && !/крошк/i.test(name)) {
       bags = packCountForLight_(val);
       rule = 'лёгкое';
       type = 'light';
@@ -7487,6 +7691,11 @@ function buildAssemblyForBasket_(basket) {
       lightMap[fk] = (lightMap[fk] || 0) + val;
       counterKey = lightFractionCounterKey_(fk);
       lightBagsByCounter[counterKey] = (lightBagsByCounter[counterKey] || 0) + bags;
+    } else if (/баран/i.test(name) && /л[её]гк/i.test(name)) {
+      bags = packCountForBulk_(val);
+      rule = 'баранье лёгкое';
+      type = 'bulk';
+      counterKey = '';
     } else if (cat === 'chew' || /шт/i.test(name) || /быч|трахе|аорт|ухо|нос|станова|колен|копыт|переп|губ|книжк/i.test(name)) {
       bags = Math.max(1, Math.ceil(val / 4));
       rule = 'жевалки×4';
@@ -7872,6 +8081,7 @@ function handleDeferredAction_(action, json, callback, fromPost) {
   if (action === "updateDeferred") return handleUpdateDeferred_(json, callback, fromPost);
   if (action === "cancelDeferred") return handleCancelDeferred_(json, callback, fromPost);
   if (action === "enrollDeferredToPp") return handleEnrollDeferredToPp_(json, callback, fromPost);
+  if (action === "setDeferredReminder") return handleSetDeferredReminder_(json, callback, fromPost);
   var bad = { status: "unknown_action" };
   return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
 }
@@ -7910,7 +8120,9 @@ function handleListDeferred_(json, callback, fromPost) {
         fracRates: payload.fracRates || null,
         subTotal: payload.subTotal,
         retailTotal: payload.retailTotal,
-        lastMessage: ""
+        lastMessage: "",
+        remindAt: payload.remindAt || "",
+        remindSent: !!payload.remindSent
       };
     }
     items.push({
@@ -7922,6 +8134,8 @@ function handleListDeferred_(json, callback, fromPost) {
       clientNick: String(data[r][5] || ""),
       status: st,
       payload: payload,
+      remindAt: (payload && payload.remindAt) ? String(payload.remindAt) : "",
+      remindSent: !!(payload && payload.remindSent),
       updatedAt: data[r][8],
       row: r + 1
     });
@@ -7996,6 +8210,115 @@ function handleUpdateDeferred_(json, callback, fromPost) {
 function handleCancelDeferred_(json, callback, fromPost) {
   json.status = "cancelled";
   return handleUpdateDeferred_(json, callback, fromPost);
+}
+
+function parseDeferredRemindAt_(v) {
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+  var s = String(v || "").trim();
+  if (!s) return null;
+  var m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(s);
+  if (m) {
+    return new Date(
+      Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+      Number(m[4]), Number(m[5]), Number(m[6] || 0), 0
+    );
+  }
+  var d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatDeferredRemindAtIso_(d) {
+  var tz = Session.getScriptTimeZone() || "Europe/Minsk";
+  return Utilities.formatDate(d, tz, "yyyy-MM-dd'T'HH:mm:ss");
+}
+
+function ensureDeferredRemindTrigger_() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "tickDeferredReminders_") return;
+  }
+  ScriptApp.newTrigger("tickDeferredReminders_").timeBased().everyMinutes(5).create();
+}
+
+function handleSetDeferredReminder_(json, callback, fromPost) {
+  var tid = String(json.telegramId || "").trim();
+  var id = String(json.id || "").trim();
+  if (!id) {
+    var bad = { status: "error", message: "need_id" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var when = parseDeferredRemindAt_(json.remindAt);
+  if (!when) {
+    var badAt = { status: "error", message: "need_remindAt" };
+    return fromPost ? jsonpText(callback, badAt) : jsonp(callback, badAt);
+  }
+  var sh = deferredSheet_();
+  var data = sh.getDataRange().getValues();
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][0]) !== id || String(data[r][2]).trim() !== tid) continue;
+    var st = String(data[r][6] || "open").trim().toLowerCase();
+    if (st !== "open") {
+      var closed = { status: "error", message: "not_open" };
+      return fromPost ? jsonpText(callback, closed) : jsonp(callback, closed);
+    }
+    var payload = {};
+    try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payload = {}; }
+    if (!payload || typeof payload !== "object") payload = {};
+    payload.remindAt = formatDeferredRemindAtIso_(when);
+    payload.remindSent = false;
+    delete payload.remindSentAt;
+    sh.getRange(r + 1, 8, r + 1, 9).setValues([[JSON.stringify(payload), new Date()]]);
+    bustDeferredCache_(tid);
+    try { ensureDeferredRemindTrigger_(); } catch (eTr) {}
+    var ok = { status: "success", id: id, remindAt: payload.remindAt };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  }
+  var miss = { status: "error", message: "not_found" };
+  return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+}
+
+/** Раз в ~5 мин: отправить TG-напоминания по отложенным задачам. */
+function tickDeferredReminders_() {
+  var sh = deferredSheet_();
+  var data = sh.getDataRange().getValues();
+  var now = new Date();
+  var changedTids = {};
+  for (var r = 1; r < data.length; r++) {
+    var st = String(data[r][6] || "open").trim().toLowerCase();
+    if (st !== "open") continue;
+    var payload = {};
+    try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payload = {}; }
+    if (!payload || !payload.remindAt || payload.remindSent) continue;
+    var when = parseDeferredRemindAt_(payload.remindAt);
+    if (!when || when.getTime() > now.getTime()) continue;
+    var tid = String(data[r][2] || "").trim();
+    var title = String(data[r][4] || "Отложенное").trim();
+    var nick = String(data[r][5] || "").trim();
+    var text = "⏰ Напоминание\n" + title +
+      (nick ? ("\nКлиент: " + nick) : "") +
+      "\nОткрой задачи ☰ в приложении.";
+    var sentOk = false;
+    if (tid) {
+      try {
+        var res = telegramSendText_(tid, text);
+        sentOk = !(res && res.ok === false);
+      } catch (eSend) {
+        sentOk = false;
+      }
+    }
+    payload.remindSent = true;
+    payload.remindSentAt = formatDeferredRemindAtIso_(now);
+    if (!sentOk) payload.remindSendError = true;
+    else delete payload.remindSendError;
+    try {
+      sh.getRange(r + 1, 8, r + 1, 9).setValues([[JSON.stringify(payload), now]]);
+      if (tid) changedTids[tid] = true;
+    } catch (eWrite) {}
+  }
+  var keys = Object.keys(changedTids);
+  for (var i = 0; i < keys.length; i++) {
+    try { bustDeferredCache_(keys[i]); } catch (eB) {}
+  }
 }
 
 function mergeBasketItemsForPp_(items) {
@@ -8115,7 +8438,7 @@ function handleEnrollDeferredToPp_(json, callback, fromPost) {
   for (var rr = 2; rr < dataPp.length; rr++) {
     if (nicksMatch_(dataPp[rr][0], nick)) {
       while (rowVals.length < headers.length) rowVals.push("");
-      pp.getRange(rr + 1, 1, rr + 1, headers.length).setValues([rowVals.slice(0, headers.length)]);
+      pp.getRange(rr + 1, 1, 1, headers.length).setValues([rowVals.slice(0, headers.length)]);
       updated = true;
       break;
     }
