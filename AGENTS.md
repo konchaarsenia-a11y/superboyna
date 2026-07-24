@@ -5,6 +5,8 @@
 1. [PROJECT.md](./PROJECT.md) — карта таблиц и API  
 2. [TZ.md](./TZ.md) — приоритеты, экраны и **чеклист с галочками**  
 3. Правило `.cursor/rules/superboyna.mdc`
+4. [NATIVE.md](./NATIVE.md) — нативка параллельно с вебом  
+5. **Handoff** ниже — если трогаешь `Code.gs`
 
 Рабочие файлы: `app.html` (фронт), `Code.gs` (бэкенд).
 
@@ -19,3 +21,29 @@
 Не закрывать неделю без явного ОК владельца.
 
 **Пуш сам:** после рабочих правок `app.html` / `TZ.md` / связанных фронтовых файлов — **сразу commit + `git push origin main`** (Pages). Не ждать команды «пуш». `Code.gs` в git тоже пушить; Deploy Apps Script по-прежнему делает владелец.
+
+---
+
+## Handoff: веб-агент ↔ нативный агент (GBI)
+
+Нативка и веб делят один `Code.gs` и лист **Доступы** (`getMyAccess` / `requestAccess` / …).
+
+### Не трогать / не откатывать
+
+| Что | Зачем |
+|-----|--------|
+| `/start gbi_<token>` в `handleTelegramUpdate_` | Линк Telegram ↔ нативное приложение |
+| actions `getNativeLinkInfo`, `pollNativeAuth` (+ связанные хелперы) | Deep-link / polling авторизации нативки |
+| Лист **Доступы** и контракт `getMyAccess` | Общий для Mini App и native |
+
+### Можно менять как раньше
+
+- `app.html` (веб Mini App / Pages)
+- Остальной `Code.gs` (заказы, нарезка, курьер, склад, подписки, просмотр…) — **не ломая** пункты выше
+- `TZ.md`, `PROJECT.md`
+
+### Deploy
+
+Владелец вставляет `Code.gs` → Deploy. Агент Deploy сам не делает.
+
+Подробности нативки: [NATIVE.md](./NATIVE.md).
