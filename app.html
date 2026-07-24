@@ -196,10 +196,14 @@
       background: #101010;
       border: 1px solid var(--border-color);
       border-radius: 12px;
-      padding: 8px;
+      padding: 6px;
       max-height: min(72vh, 680px);
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
+    }
+    .view-col .client-item-card {
+      padding: 10px 8px;
+      margin-bottom: 8px;
     }
     .view-col-head {
       position: sticky; top: 0; z-index: 2;
@@ -212,22 +216,32 @@
     .view-col.is-month { border-color: rgba(175,82,222,0.4); }
     .client-order-details.open { display: block !important; }
     .view-tap-hint { font-size: 11px; color: var(--text-muted); }
-    .client-main-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-    .client-title-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; overflow: hidden; }
+    .client-main-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
+    .client-title-wrap { display: flex; align-items: flex-start; gap: 8px; min-width: 0; flex: 1 1 auto; }
     .client-check {
-      width: 22px; height: 22px; accent-color: var(--accent-color); flex-shrink: 0; cursor: pointer;
+      width: 20px; height: 20px; margin-top: 2px; accent-color: var(--accent-color); flex-shrink: 0; cursor: pointer;
     }
     .client-title {
-      font-size: 15px; font-weight: 700;
-      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-size: 14px; font-weight: 700; line-height: 1.25;
+      min-width: 0; flex: 1 1 auto;
+      overflow-wrap: anywhere; word-break: break-word; white-space: normal;
+      color: #f2f2f7;
     }
-    .client-right-block { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .view-col .client-right-block {
+      display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+      width: 100%;
+      margin-top: 8px;
+      justify-content: flex-end;
+    }
+    .view-col .client-main-row { flex-wrap: wrap; }
+    .view-col .client-title-wrap { width: 100%; flex: 1 1 100%; }
     .client-meta-row {
       display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
-      margin-top: 8px; padding-top: 0;
+      margin-top: 6px; padding-top: 0;
     }
     .crm-mini-btn {
-      width: 34px; height: 34px; border-radius: 8px; border: none; cursor: pointer; font-size: 14px;
+      width: 32px; height: 32px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px;
+      flex-shrink: 0;
     }
     .crm-edit { background: rgba(255,149,0,0.15); color: #ff9500; }
     .crm-move { background: rgba(175,82,222,0.15); color: #af52de; }
@@ -698,7 +712,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.35</div>
+          <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.36</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1241,7 +1255,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.35";
+    const APP_VERSION = "v7.10.36";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3383,8 +3397,9 @@
     }
 
     function renderWeekClientCard(client, index) {
+      const nick = String(client.name || client.nick || "").trim() || ("#" + (index + 1));
       const lines = basketLinesHtml(client.basket);
-      const addr = client.address ? `<div class="delivery-line addr-line">Адрес: ${escapeHtml(client.address)}</div>` : "";
+      const addr = client.address ? `<div class="delivery-line addr-line">📍 ${escapeHtml(client.address)}</div>` : "";
       const priceHtml = formatOrderPriceHtml(client.note || "");
       const noteClean = noteTextForRole(client.note || "", "mgr");
       const office = parseOfficeAddress(client.note || "");
@@ -3397,18 +3412,21 @@
       const deliv = (dm === "euro" || dm === "bel")
         ? `<div class="delivery-line">${dm === "euro" ? "Европочта" : "Белпочта"}${office ? ": " + escapeHtml(office) : ""}</div>`
         : "";
+      const tel = formatTelHtml(client.phone || extractPhone(client.note || ""));
       const priceBadge = extractOrderPrice(client.note || "") != null
         ? `<span class="client-badge" style="background:rgba(48,209,88,0.2);color:#30d158;">${extractOrderPrice(client.note)} BYN</span>`
         : "";
+      const preview = [addr, tel].filter(Boolean).join("") ||
+        (client.address ? "" : '<div class="muted" style="font-size:11px;margin-top:4px;">адрес не указан</div>');
       return `<div class="client-item-card" id="clientCard_${index}">
         <div class="client-main-row" onclick="toggleOrderDetail(${index}, event)">
           <div class="client-title-wrap">
             <input type="checkbox" class="client-check" data-index="${index}"
               onclick="event.stopPropagation()" onchange="onClientCheckChange(${index})"
-              aria-label="Выбрать ${escapeHtml(client.name)}">
-            <span class="client-title">${index + 1}. ${escapeHtml(client.name)}</span>
+              aria-label="Выбрать ${escapeHtml(nick)}">
+            <span class="client-title">${index + 1}. ${escapeHtml(nick)}</span>
           </div>
-          <div class="client-right-block">
+          <div class="client-right-block" onclick="event.stopPropagation()">
             <button class="crm-mini-btn crm-edit" onclick="crmEditClient(${index}, event)">✏️</button>
             <button class="crm-mini-btn crm-move" onclick="crmMoveClient(${index}, event)">🔄</button>
             <button class="crm-mini-btn crm-delete" onclick="crmDeleteClient(${index}, event)">🗑️</button>
@@ -3416,29 +3434,31 @@
         </div>
         <div class="client-meta-row">
           ${priceBadge}
-          <span class="client-badge">${client.orderCount || 0} поз.</span>
+          <span class="client-badge">${client.orderCount || (client.basket || []).length || 0} поз.</span>
           <span class="view-tap-hint">тап — состав</span>
         </div>
-        ${(addr || note || deliv || priceHtml) ? `<div class="delivery-info-box">${priceHtml}${note}${roleHint}${deliv}${addr}${formatTelHtml(client.phone || extractPhone(client.note || ""))}</div>` : (formatTelHtml(client.phone || extractPhone(client.note || "")) ? `<div class="delivery-info-box">${formatTelHtml(client.phone || extractPhone(client.note || ""))}</div>` : "")}
+        <div class="delivery-info-box">${priceHtml}${note}${roleHint}${deliv}${preview}</div>
         <div class="client-order-details" id="details_${index}">${lines}</div>
       </div>`;
     }
 
     function renderMonthClientCard(client, index) {
-      var safe = String(client.name || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      var nick = String(client.name || client.nick || client.client || "").trim() || ("#" + (index + 1));
+      var safe = nick.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
       var seg = client.segment ? ('<span class="client-badge">' + escapeHtml(client.segment) + "</span>") : "";
-      var meta = [];
-      if (client.address) meta.push(escapeHtml(client.address));
-      if (client.phone) meta.push(escapeHtml(client.phone));
-      if (client.note) meta.push(escapeHtml(String(client.note).slice(0, 100)));
+      var bits = [];
+      if (client.address) bits.push("📍 " + escapeHtml(client.address));
+      if (client.phone) bits.push(escapeHtml(client.phone));
+      if (client.note) bits.push(escapeHtml(String(client.note).slice(0, 80)));
       return '<div class="client-item-card" id="monthCard_' + index + '" style="border-color:rgba(175,82,222,0.35);">' +
-        '<div class="client-main-row" style="align-items:center;" onclick="toggleMonthDetail(' + index + ', event)">' +
-        '<div class="client-title-wrap"><span class="client-title">' + escapeHtml(client.name) + "</span></div>" +
-        '<button type="button" class="btn-action btn-purple" style="margin:0;padding:8px 10px;font-size:11px;flex:0 0 auto;" ' +
-        'onclick="event.stopPropagation();pullOneFromMonth(\'' + safe + '\')">→</button>' +
+        '<div class="client-main-row" style="align-items:flex-start;" onclick="toggleMonthDetail(' + index + ', event)">' +
+        '<div class="client-title-wrap"><span class="client-title">' + escapeHtml(nick) + "</span></div>" +
+        '<div class="client-right-block" style="width:auto;margin-top:0;flex:0 0 auto;" onclick="event.stopPropagation()">' +
+        '<button type="button" class="btn-action btn-purple" style="margin:0;padding:8px 10px;font-size:11px;" ' +
+        'onclick="pullOneFromMonth(\'' + safe + '\')">→</button></div>' +
         "</div>" +
-        '<div class="client-meta-row">' + seg + ' <span class="view-tap-hint">тап — детали</span></div>' +
-        (meta.length ? ('<div class="delivery-info-box muted" style="font-size:12px;">' + meta.join(" · ") + "</div>") : "") +
+        '<div class="client-meta-row">' + seg + ' <span class="view-tap-hint">тап — состав</span></div>' +
+        (bits.length ? ('<div class="delivery-info-box muted" style="font-size:12px;">' + bits.join("<br>") + "</div>") : "") +
         '<div class="client-order-details" id="monthDetails_' + index + '"><p class="muted">Загрузка состава…</p></div>' +
         "</div>";
     }
