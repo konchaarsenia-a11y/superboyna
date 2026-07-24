@@ -1,6 +1,6 @@
 {
   "appId": "ru.boinya.konveyer",
-  "appName": "Бойня",
+  "appName": "GBI",
   "webDir": "www",
   "server": {
     "androidScheme": "https"

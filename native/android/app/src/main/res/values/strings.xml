@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Бойня</string>
-    <string name="title_activity_main">Бойня</string>
+    <string name="app_name">GBI</string>
+    <string name="title_activity_main">GBI</string>
     <string name="package_name">ru.boinya.konveyer</string>
     <string name="custom_url_scheme">ru.boinya.konveyer</string>
 </resources>

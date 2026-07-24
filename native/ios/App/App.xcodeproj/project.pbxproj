@@ -15,7 +15,39 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		A1B100010000000000000001 /* ManagerDayAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B100020000000000000001 /* ManagerDayAttributes.swift */; };
+		A1B100030000000000000001 /* BoinyaLiveActivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B100040000000000000001 /* BoinyaLiveActivityPlugin.swift */; };
+		A1B100050000000000000001 /* ManagerDayAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B100020000000000000001 /* ManagerDayAttributes.swift */; };
+		A1B100060000000000000001 /* BoinyaIslandBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B100070000000000000001 /* BoinyaIslandBundle.swift */; };
+		A1B100080000000000000001 /* ManagerDayLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B100090000000000000001 /* ManagerDayLiveActivity.swift */; };
+		A1B1000A0000000000000001 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1B1000B0000000000000001 /* WidgetKit.framework */; };
+		A1B1000C0000000000000001 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1B1000D0000000000000001 /* SwiftUI.framework */; };
+		A1B1000E0000000000000001 /* BoinyaIsland.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1B1000F0000000000000001 /* BoinyaIsland.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A1B100100000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1B100110000000000000001;
+			remoteInfo = BoinyaIsland;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A1B100120000000000000001 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A1B1000E0000000000000001 /* BoinyaIsland.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
@@ -28,6 +60,16 @@
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		A1B100020000000000000001 /* ManagerDayAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagerDayAttributes.swift; sourceTree = "<group>"; };
+		A1B100040000000000000001 /* BoinyaLiveActivityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoinyaLiveActivityPlugin.swift; sourceTree = "<group>"; };
+		A1B100070000000000000001 /* BoinyaIslandBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoinyaIslandBundle.swift; sourceTree = "<group>"; };
+		A1B100090000000000000001 /* ManagerDayLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagerDayLiveActivity.swift; sourceTree = "<group>"; };
+		A1B1000B0000000000000001 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		A1B1000D0000000000000001 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		A1B1000F0000000000000001 /* BoinyaIsland.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BoinyaIsland.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B100130000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1B100140000000000000001 /* BoinyaIsland.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BoinyaIsland.entitlements; sourceTree = "<group>"; };
+		A1B100150000000000000001 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -39,6 +81,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1B100160000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1B1000A0000000000000001 /* WidgetKit.framework in Frameworks */,
+				A1B1000C0000000000000001 /* SwiftUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -47,6 +98,9 @@
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
+				A1B100170000000000000001 /* BoinyaShared */,
+				A1B100180000000000000001 /* BoinyaIsland */,
+				A1B100190000000000000001 /* Frameworks */,
 				504EC3051FED79650016851F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -55,6 +109,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				A1B1000F0000000000000001 /* BoinyaIsland.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -64,6 +119,8 @@
 			children = (
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
+				A1B100040000000000000001 /* BoinyaLiveActivityPlugin.swift */,
+				A1B100150000000000000001 /* App.entitlements */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -72,6 +129,34 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		A1B100170000000000000001 /* BoinyaShared */ = {
+			isa = PBXGroup;
+			children = (
+				A1B100020000000000000001 /* ManagerDayAttributes.swift */,
+			);
+			path = BoinyaShared;
+			sourceTree = "<group>";
+		};
+		A1B100180000000000000001 /* BoinyaIsland */ = {
+			isa = PBXGroup;
+			children = (
+				A1B100070000000000000001 /* BoinyaIslandBundle.swift */,
+				A1B100090000000000000001 /* ManagerDayLiveActivity.swift */,
+				A1B100130000000000000001 /* Info.plist */,
+				A1B100140000000000000001 /* BoinyaIsland.entitlements */,
+			);
+			path = BoinyaIsland;
+			sourceTree = "<group>";
+		};
+		A1B100190000000000000001 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A1B1000B0000000000000001 /* WidgetKit.framework */,
+				A1B1000D0000000000000001 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -84,10 +169,12 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				A1B100120000000000000001 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A1B1001A0000000000000001 /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -97,18 +184,39 @@
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A1B100110000000000000001 /* BoinyaIsland */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1B1001B0000000000000001 /* Build configuration list for PBXNativeTarget "BoinyaIsland" */;
+			buildPhases = (
+				A1B1001C0000000000000001 /* Sources */,
+				A1B100160000000000000001 /* Frameworks */,
+				A1B1001D0000000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BoinyaIsland;
+			productName = BoinyaIsland;
+			productReference = A1B1000F0000000000000001 /* BoinyaIsland.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
 		504EC2FC1FED79650016851F /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastSwiftUpdateCheck = 0920;
+				LastSwiftUpdateCheck = 1600;
 				LastUpgradeCheck = 0920;
 				TargetAttributes = {
 					504EC3031FED79650016851F = {
 						CreatedOnToolsVersion = 9.2;
 						LastSwiftMigration = 1100;
+						ProvisioningStyle = Automatic;
+					};
+					A1B100110000000000000001 = {
+						CreatedOnToolsVersion = 16.0;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -130,6 +238,7 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				A1B100110000000000000001 /* BoinyaIsland */,
 			);
 		};
 /* End PBXProject section */
@@ -148,6 +257,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1B1001D0000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -156,10 +272,30 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				A1B100010000000000000001 /* ManagerDayAttributes.swift in Sources */,
+				A1B100030000000000000001 /* BoinyaLiveActivityPlugin.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B1001C0000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1B100050000000000000001 /* ManagerDayAttributes.swift in Sources */,
+				A1B100060000000000000001 /* BoinyaIslandBundle.swift in Sources */,
+				A1B100080000000000000001 /* ManagerDayLiveActivity.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A1B1001A0000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1B100110000000000000001 /* BoinyaIsland */;
+			targetProxy = A1B100100000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
@@ -295,10 +431,12 @@
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VG8AT95G3Z;
 				INFOPLIST_FILE = App/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -317,10 +455,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VG8AT95G3Z;
 				INFOPLIST_FILE = App/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -329,6 +469,56 @@
 				PRODUCT_BUNDLE_IDENTIFIER = ru.boinya.konveyer;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A1B1001E0000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BoinyaIsland/BoinyaIsland.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VG8AT95G3Z;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BoinyaIsland/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ru.boinya.konveyer.BoinyaIsland;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1B1001F0000000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BoinyaIsland/BoinyaIsland.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VG8AT95G3Z;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BoinyaIsland/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ru.boinya.konveyer.BoinyaIsland;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -351,6 +541,15 @@
 			buildConfigurations = (
 				504EC3171FED79650016851F /* Debug */,
 				504EC3181FED79650016851F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1B1001B0000000000000001 /* Build configuration list for PBXNativeTarget "BoinyaIsland" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B1001E0000000000000001 /* Debug */,
+				A1B1001F0000000000000001 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

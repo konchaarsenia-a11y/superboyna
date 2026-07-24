@@ -46,7 +46,7 @@
       "position:fixed;inset:0;z-index:99999;background:#0a0a0a;display:flex;" +
       "align-items:center;justify-content:center;transition:opacity .25s ease;" +
       "pointer-events:none;font:600 15px -apple-system,BlinkMacSystemFont,sans-serif;color:#f5f5f7;";
-    splash.textContent = "Бойня";
+    splash.textContent = "GBI";
     function mountSplash() {
       if (!document.body) return;
       document.body.appendChild(splash);

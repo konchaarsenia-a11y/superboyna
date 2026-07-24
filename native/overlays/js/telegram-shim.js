@@ -49,8 +49,9 @@
     viewportStableHeight: window.innerHeight || 800,
     headerColor: "#0a0a0a",
     backgroundColor: "#0a0a0a",
-    safeAreaInset: { top: 0, bottom: 0, left: 0, right: 0 },
-    contentSafeAreaInset: { top: 0, bottom: 0, left: 0, right: 0 },
+    // iPhone 16 / Dynamic Island — ненулевые insets, иначе app ставит --safe-top: 12px
+    safeAreaInset: { top: 59, bottom: 34, left: 0, right: 0 },
+    contentSafeAreaInset: { top: 59, bottom: 34, left: 0, right: 0 },
     ready: noop,
     expand: noop,
     close: noop,

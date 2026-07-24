@@ -10,8 +10,9 @@ native/
   capacitor.config.json     # appId: ru.boinya.konveyer
   overlays/                 # слой поверх sync-снимка (источник правды)
     css/ native-theme.css
-    js/  telegram-shim.js, boinya-native.js, native-perf.js, …
-    assets/
+    js/  telegram-shim.js, boinya-native.js, native-perf.js,
+         native-brand.js, native-manager-island.js, …
+    assets/                 # логотип → www/assets при sync
   www/                      # КОПИЯ веба (gitignore, собирается sync)
   ios/                      # Xcode, SPM (без CocoaPods)
   android/                  # каркас
@@ -50,15 +51,18 @@ cd native && npx cap sync
 
 Веб-агент **не откатывает и не удаляет** это. Лист **Доступы** и `getMyAccess` общие с Mini App.
 
-## Мост BoinyaNative
+## Мост BoinyaNative + Live Activity
 
-`window.BoinyaNative` — haptic / openUrl / notify / Live Activity.  
-iOS: ActivityKit + Widget Extension (Dynamic Island) в target Xcode.
+`window.BoinyaNative` — haptic / openUrl / notify / Live Activity.
 
-## iOS без CocoaPods
+«Пульс дня» на **Dynamic Island** (если есть) и на **экране блокировки** (iOS 16.1+):
 
-Проект на **Swift Package Manager** (`ios/App/CapApp-SPM`).  
-Если `npx cap add ios` ругается на CocoaPods — шаблон уже развёрнут; достаточно `npx cap sync ios`.
+- день, число клиентов, открытые задачи ☰
+- роли: manager / owner / all (когда видна кнопка задач)
+- оверлей: `native/overlays/js/native-manager-island.js`
+- Swift: `BoinyaLiveActivityPlugin` + Widget `BoinyaIsland`
+
+После sync: `npx cap sync ios` → собрать App (+ extension) на устройство.
 
 ## Не делать
 
@@ -69,7 +73,8 @@ iOS: ActivityKit + Widget Extension (Dynamic Island) в target Xcode.
 
 ## Что дальше (TZ §N)
 
-- [x] Signing на iPhone
-- [x] ActivityKit + Widget (Dynamic Island) — manager day
+- [x] Signing на iPhone (dev)
+- [x] ActivityKit менеджерский пульс (Island + Lock Screen)
+- [ ] Курьер / нарезка Live Activity
 - [ ] Push (APNs)
 - [ ] Полная Android-сборка

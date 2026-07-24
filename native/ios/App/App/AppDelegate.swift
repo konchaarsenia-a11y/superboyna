@@ -26,7 +26,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
-        // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+        // WKWebView иногда «замораживает» страницу после фона — будим JS-хилер
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            guard let vc = self.window?.rootViewController as? CAPBridgeViewController else { return }
+            vc.bridge?.webView?.evaluateJavaScript("window.__boinyaNativeResume && window.__boinyaNativeResume();", completionHandler: nil)
+            vc.bridge?.webView?.setNeedsLayout()
+            vc.bridge?.webView?.layoutIfNeeded()
+        }
     }
 
     func applicationWillTerminate(_ application: UIApplication) {

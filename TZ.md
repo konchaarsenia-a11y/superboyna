@@ -231,9 +231,9 @@
 
 - [x] Каркас Capacitor в `native/` + Android + **iOS (SPM)** + sync `app.html` → `www/` (`scripts/sync-native.sh`)
 - [x] Скорость: SWR-кэш API (`native-perf.js`), prefetch, splash, хаптик (оверлеи в `native/overlays/js/`)
-- [x] Мост телефона: `BoinyaNative` (notify / Live Activity API); Swift stub `BoinyaNativeStub.swift`
-- [ ] Сборка/установка на iPhone с Mac (Xcode Signing)
-- [ ] ActivityKit + Widget Extension (Dynamic Island UI) на Mac
+- [x] Мост телефона: `BoinyaNative` + плагин `BoinyaLiveActivity`
+- [x] Сборка/установка на iPhone с Mac (Xcode Signing, Personal Team)
+- [~] ActivityKit + Widget: **менеджер «пульс дня»** (Island + Lock Screen); курьер/нарезка — позже
 - [ ] Когда владелец скажет «веб готов / накати» — полный re-sync свежего веба (`bash scripts/sync-native.sh && cd native && npx cap sync`)
 - [ ] Push (APNs) — после Live Activities
 
