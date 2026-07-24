@@ -726,8 +726,9 @@
     .save-load-overlay {
       display:none; position:fixed; inset:0; z-index:10002; background:rgba(0,0,0,.82);
       align-items:center; justify-content:center; flex-direction:column;
+      pointer-events: none;
     }
-    .save-load-overlay.open { display:flex; }
+    .save-load-overlay.open { display:flex; pointer-events: auto; }
   
     .bug-fab {
       position: fixed; right: 14px; bottom: 18px; z-index: 1200;
@@ -779,8 +780,12 @@
     .tasks-drawer-overlay {
       display: none; position: fixed; inset: 0; z-index: 1400;
       background: rgba(0,0,0,0.55);
+      pointer-events: none;
     }
-    .tasks-drawer-overlay.open { display: block; }
+    .tasks-drawer-overlay.open {
+      display: block;
+      pointer-events: auto;
+    }
     .tasks-drawer {
       position: fixed; top: 0; right: 0; bottom: 0; z-index: 1410;
       width: min(360px, 88vw);
@@ -846,7 +851,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.41</div>
+          <div class="header-main" id="appHeaderTitle">Бойня-Конвейер v7.10.42</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1185,7 +1190,8 @@
         <div class="muted" style="font-size:12px;margin-bottom:10px;">Просмотр списка — по паролю.</div>
         <div class="form-group">
           <label>Пароль</label>
-          <input type="password" id="subsPasswordInput" placeholder="••••••" inputmode="numeric" autocomplete="off">
+          <input type="password" id="subsPasswordInput" placeholder="••••••" inputmode="numeric" autocomplete="off"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();unlockSubsScreen();}">
         </div>
         <button class="btn-action btn-blue" type="button" onclick="unlockSubsScreen()">Открыть</button>
       </div>
@@ -1453,7 +1459,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.41";
+    const APP_VERSION = "v7.10.42";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1737,7 +1743,7 @@
         "• Точка выезда: склад или свой адрес.\n" +
         "• Сборка: long-press. Форматы пакетов можно выключить — «Итого» уменьшится.",
       warehouseScreen: "Склад\n• Сырое/сухое, коэффициенты, снабжение.",
-      subsScreen: "Подписки\n• «В заказ» и доукомплект из месяца подставляют состав с листа (ПП — с учётом слота).",
+      subsScreen: "Подписки\n• Список по паролю.\n• Тап по человеку — карточка, правка, «В заказ».",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
       priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• «В отложенное» → задачи ☰ (Расчёт ПП).\n• 2 собаки: свет/доставки один раз.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
@@ -2894,6 +2900,18 @@
         document.querySelectorAll(".addr-suggest.open").forEach(function (el) {
           el.classList.remove("open");
         });
+        // ☰-drawer: иначе полупрозрачный слой z=1400 перекрывает шапку/вкладки (z=200)
+        try { closeTasksDrawer(); } catch (eDr) {
+          var tov = document.getElementById("tasksDrawerOverlay");
+          var tdr = document.getElementById("tasksDrawer");
+          if (tov) { tov.classList.remove("open"); tov.style.display = "none"; }
+          if (tdr) { tdr.classList.remove("open"); tdr.setAttribute("aria-hidden", "true"); }
+        }
+        var slo = document.getElementById("saveLoadOverlay");
+        if (slo && !slo.classList.contains("open")) {
+          slo.style.display = "none";
+          slo.style.pointerEvents = "none";
+        }
       } catch (e) {}
       try {
         document.body.style.pointerEvents = "auto";
@@ -2904,6 +2922,12 @@
     }
 
     function switchTab(screenId) {
+      // карточка подписки без пароля → список (без рекурсии mid-switch)
+      if (screenId === "subDetailScreen") {
+        try {
+          if (typeof isSubsUnlocked === "function" && !isSubsUnlocked()) screenId = "subsScreen";
+        } catch (eSub) { screenId = "subsScreen"; }
+      }
       clearBlockingOverlays();
       var fly = document.getElementById("orderFlyout");
       var flyOpen = fly && fly.classList.contains("open");
@@ -2958,10 +2982,6 @@
           enterSubsScreen();
         }
         if (screenId === "subDetailScreen") {
-          if (!isSubsUnlocked()) {
-            switchTab("subsScreen");
-            return;
-          }
           document.getElementById("appHeaderTitle").innerText = "Карточка · " + APP_VERSION;
         }
         if (screenId === "statsScreen") loadStats();
@@ -9239,11 +9259,30 @@
     // совместимость со старыми вызовами
     function updateDeferredPill() { updateTasksBadge(); }
 
+    function closeTasksDrawer() {
+      var ov = document.getElementById("tasksDrawerOverlay");
+      var dr = document.getElementById("tasksDrawer");
+      if (ov) {
+        ov.classList.remove("open");
+        ov.style.display = "none";
+        ov.style.pointerEvents = "none";
+      }
+      if (dr) {
+        dr.classList.remove("open");
+        dr.setAttribute("aria-hidden", "true");
+      }
+    }
+    window.closeTasksDrawer = closeTasksDrawer;
+
     function openTasksDrawer() {
       if (!canUseTasksMenu()) return;
       var ov = document.getElementById("tasksDrawerOverlay");
       var dr = document.getElementById("tasksDrawer");
-      if (ov) ov.classList.add("open");
+      if (ov) {
+        ov.style.display = "block";
+        ov.style.pointerEvents = "auto";
+        ov.classList.add("open");
+      }
       if (dr) {
         dr.classList.add("open");
         dr.setAttribute("aria-hidden", "false");
@@ -9255,17 +9294,6 @@
       }
     }
     window.openTasksDrawer = openTasksDrawer;
-
-    function closeTasksDrawer() {
-      var ov = document.getElementById("tasksDrawerOverlay");
-      var dr = document.getElementById("tasksDrawer");
-      if (ov) ov.classList.remove("open");
-      if (dr) {
-        dr.classList.remove("open");
-        dr.setAttribute("aria-hidden", "true");
-      }
-    }
-    window.closeTasksDrawer = closeTasksDrawer;
 
     function toggleTasksDrawer() {
       var dr = document.getElementById("tasksDrawer");
