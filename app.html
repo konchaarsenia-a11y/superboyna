@@ -893,7 +893,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.57</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.58</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1244,6 +1244,7 @@
               onkeydown="if(event.key==='Enter'){event.preventDefault();unlockSubsScreen();}">
           </div>
           <button class="btn-action btn-blue" type="button" onclick="unlockSubsScreen()">Открыть</button>
+          <button class="btn-action" type="button" style="margin-top:8px;background:#3a3a3c;" onclick="cancelSubsGate()">Отмена</button>
         </div>
       </div>
       <div id="subsMainWrap" style="display:none;">
@@ -1520,7 +1521,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.57";
+    const APP_VERSION = "v7.10.58";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1804,7 +1805,7 @@
         "• Точка выезда: склад или свой адрес.\n" +
         "• Сборка: long-press. Форматы пакетов можно выключить — «Итого» уменьшится.",
       warehouseScreen: "Склад\n• Сырое/сухое, коэффициенты, снабжение.",
-      subsScreen: "Подписки\n• Пароль на весь экран.\n• ПП: карточка → в АФК / удалить.\n• АФК: вернуть в ПП / удалить.\n• Список 2 колонки + поиск.",
+      subsScreen: "Подписки\n• Пароль на весь экран; Отмена → Заказ.\n• ПП: карточка → в АФК / удалить.\n• АФК: вернуть в ПП / удалить.\n• Список 2 колонки + поиск.",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
       priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• «В отложенное» → задачи ☰ (Расчёт ПП).\n• 2 собаки: свет/доставки один раз.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
@@ -8703,6 +8704,16 @@
       showToast("Ок");
     }
     window.unlockSubsScreen = unlockSubsScreen;
+
+    function cancelSubsGate() {
+      var inp = document.getElementById("subsPasswordInput");
+      if (inp) inp.value = "";
+      setSubsUnlocked(false);
+      var gate = document.getElementById("subsGateCard");
+      if (gate) gate.classList.remove("open");
+      switchTab("orderScreen");
+    }
+    window.cancelSubsGate = cancelSubsGate;
 
     function lockSubsScreen() {
       setSubsUnlocked(false);
