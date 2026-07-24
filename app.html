@@ -1509,7 +1509,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.51";
+    const APP_VERSION = "v7.10.55";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -2002,13 +2002,13 @@
     const catalog = {
       dressura: {
         title: "Дрессура",
-        items: ["ЛЁГКОЕ", "ПОЧКИ", "СЕРДЦЕ", "РУБЕЦ Т", "БАРАНЬЕ ЛЁГКОЕ"],
+        items: ["ЛЁГКОЕ", "СЕРДЦЕ", "ПОЧКИ", "РУБЕЦ Т", "БАРАНЬЕ ЛЁГКОЕ"],
         fractions: {
           "ЛЁГКОЕ": ["Мелкое", "Среднее", "Большое", "Целое"],
-          "СЕРДЦЕ": ["Мелкое", "Среднее", "Большое", "Целое"],
+          "СЕРДЦЕ": ["Мелкое", "Целое"],
           "ПОЧКИ": ["Мелкое", "Целое"],
           "РУБЕЦ Т": ["Мелкое", "Среднее", "Крупное", "Целое"],
-          "БАРАНЬЕ ЛЁГКОЕ": ["Мелкое", "Среднее", "Большое", "Целое"]
+          "БАРАНЬЕ ЛЁГКОЕ": ["Мелкое", "Среднее", "Целое"]
         }
       },
       chew: {
@@ -2016,7 +2016,7 @@
         items: ["БЫЧИЙ КОРЕНЬ", "ТРАХЕЯ", "АОРТА", "УХО Г", "НОСЫ шт.", "СТАНОВАЯ ЖИЛА", "КОЛЕНИ шт.", "КОПЫТО шт.", "ПЕРЕПЁЛКИ шт.", "ЛОП ХРЯЩ шт.", "УТИНЫЕ ШЕИ шт.", "ГУБЫ шт."],
         fractions: {
           "БЫЧИЙ КОРЕНЬ": ["ОЧ МАЛ", "МАЛ", "СРЕД", "БОЛ", "ОГР"],
-          "ТРАХЕЯ": ["ПЛАСТ", "МАЛ", "СРЕД", "БОЛ", "ОГР"],
+          "ТРАХЕЯ": ["МАЛ", "ПЛАСТ", "СРЕД", "БОЛ", "ОГР"],
           "СТАНОВАЯ ЖИЛА": ["ПАЛК", "СРЕД", "БОЛ"],
           "УХО Г": ["ПОЛОВИНКА", "Обычное"],
           "АОРТА": ["ПОЛОВИНКА", "Обычная"]
@@ -2024,20 +2024,17 @@
       },
       other: {
         title: "Другое",
-        items: ["ПЕЧЕНЬ", "СВЕТЛЫЙ РУБЕЦ", "КНИЖКА", "ИНДЕЙКА", "МЯСНЫЕ ЛОМТИКИ", "ВЫМЯ", "СЕМЕННИКИ", "ПИКАЛЬНОЕ МЯСО", "БАРАНЬЯ ПЕЧЕНЬ"],
-        fractions: {
-          "ИНДЕЙКА": ["Мелкое", "Среднее", "Целое"],
-          "БАРАНЬЯ ПЕЧЕНЬ": ["Мелкое", "Среднее", "Целое"]
-        }
+        items: ["ПЕЧЕНЬ", "СВЕТЛЫЙ РУБЕЦ", "ИНДЕЙКА", "МЯСНЫЕ ЛОМТИКИ", "КНИЖКА", "ВЫМЯ", "СЕМЕННИКИ", "ПИКАЛЬНОЕ МЯСО"],
+        fractions: {}
       },
       powder: {
         title: "Присыпки",
-        items: ["КРОШКА РУБЕЦ", "КРОШКА ЛЁГКОГО", "КРОШКА ПОЧЕК", "КРОШКА СЕРДЦА", "КРОШКА МИКС"],
+        items: ["КРОШКА ПОЧЕК", "КРОШКА ЛЁГКОГО", "КРОШКА РУБЕЦ"],
         fractions: {}
       },
       veg: {
         title: "Овощи/Фрукты",
-        items: ["БАНАНЫ", "ЯБЛОКИ", "ГРУШИ", "КЛУБНИКА", "МОРКОВЬ", "КАБАЧОК", "ТЫКВА", "СВЕКЛА", "БАТАТ"],
+        items: ["БАНАНЫ", "ЯБЛОКИ", "ГРУШЫ", "МОРКОВЬ", "ТЫКВА", "БАТАТ"],
         fractions: {}
       }
     };
@@ -2282,7 +2279,6 @@
       "ПОЧКИ": { per100: 10 },
       "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 15 },
       "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 14 },
-      "БАРАНЬЕ ЛЁГКОЕ|Большое": { per100: 13 },
       "БАРАНЬЕ ЛЁГКОЕ|Целое": { per100: 12 },
       "БАРАНЬЕ ЛЁГКОЕ": { per100: 14 },
       // мясо 100г
@@ -3187,6 +3183,16 @@
       const inputVal = Number(document.getElementById("volumeInput").value) || 0;
       if (!mainVal) { await uiAlertAsync("Выберите наименование"); return; }
       if (inputVal <= 0) { await uiAlertAsync("Укажите количество больше нуля"); return; }
+      const cat = catalog[currentCategory];
+      const needFrac = cat && cat.fractions && cat.fractions[mainVal] && cat.fractions[mainVal].length;
+      if (needFrac && !fracVal) {
+        await uiAlertAsync("Выберите фракцию / тип");
+        return;
+      }
+      if (needFrac && cat.fractions[mainVal].indexOf(fracVal) < 0) {
+        await uiAlertAsync("Такой фракции нет для «" + mainVal + "»");
+        return;
+      }
       basket.push({
         id: Date.now() + Math.random(),
         cat: currentCategory,
@@ -7907,6 +7913,8 @@
         if (v <= 0) return;
         if (assemblyItemNameIs(n, "крошка") && (assemblyItemNameIs(n, "лёгк") || assemblyItemNameIs(n, "легк"))) return;
         var key = "";
+        // баранье лёгкое — отдельная позиция нарезки, не обычное лёгкое
+        if (assemblyItemNameIs(n, "баран")) return;
         if (assemblyItemNameIs(n, "лёгк") || assemblyItemNameIs(n, "легк")) key = "light";
         else if (assemblyItemNameIs(n, "сердц")) key = "heart";
         else if (assemblyItemNameIs(n, "почк")) key = "kidney";
@@ -8292,6 +8300,7 @@
         if (hit.fractions && hit.fractions.length) {
           if (!frac) {
             if (hit.cat === "dressura" && hit.fractions.indexOf("Среднее") >= 0) frac = "Среднее";
+            else if (hit.cat === "dressura" && hit.fractions.indexOf("Мелкое") >= 0) frac = "Мелкое";
             else if (hit.name === "БЫЧИЙ КОРЕНЬ") {
               noteBits.push(hit.name + " " + val + " — нужна фракция");
               frac = "";
@@ -8481,6 +8490,16 @@
       var inputVal = Number(document.getElementById("priceVolumeInput").value) || 0;
       if (!mainVal) { await uiAlertAsync("Выберите наименование"); return; }
       if (inputVal <= 0) { await uiAlertAsync("Укажите количество больше нуля"); return; }
+      var cat = catalog[priceManualCategory];
+      var needFrac = cat && cat.fractions && cat.fractions[mainVal] && cat.fractions[mainVal].length;
+      if (needFrac && !fracVal) {
+        await uiAlertAsync("Выберите фракцию / тип");
+        return;
+      }
+      if (needFrac && cat.fractions[mainVal].indexOf(fracVal) < 0) {
+        await uiAlertAsync("Такой фракции нет для «" + mainVal + "»");
+        return;
+      }
       priceBasket.push({
         id: Date.now() + Math.random(),
         cat: priceManualCategory,
@@ -8715,7 +8734,8 @@
         if (!res || res.status !== "success") {
           window._subsListFull = [];
           window._subsListCache = [];
-          box.innerHTML = '<p class="muted">CRM недоступна (нужен Deploy Code.gs)</p>';
+          var why = (res && (res.message || res.detail)) ? String(res.message || res.detail) : "нет ответа";
+          box.innerHTML = '<p class="muted">CRM: ' + escapeHtml(why) + '. Нужен Deploy Code.gs (v7.10.52+)</p>';
           return;
         }
         var list = (res.subscriptions || []).filter(function (s) {
@@ -8727,7 +8747,7 @@
         if (seq !== _subsLoadSeq) return;
         window._subsListFull = [];
         window._subsListCache = [];
-        box.innerHTML = '<p class="muted">Ошибка загрузки</p>';
+        box.innerHTML = '<p class="muted">Ошибка загрузки подписок. Deploy Code.gs v7.10.52+</p>';
       }
     }
     window.loadSubscriptions = loadSubscriptions;
