@@ -893,7 +893,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.59</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.60</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1549,7 +1549,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.59";
+    const APP_VERSION = "v7.10.60";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -10122,6 +10122,7 @@
 
     function renderTasksRemindCards(items) {
       var html;
+      var myTid = String(myTelegramId || "").trim();
       if (!items.length) {
         html = '<p class="muted">Пока пусто. Кнопка «Напоминалка» сверху.</p>';
       } else {
@@ -10130,11 +10131,25 @@
           var rem = deferredRemindAtOf_(it);
           var remTxt = rem ? formatDeferredRemindAt_(rem) : "время не задано";
           var remSent = !!(it.remindSent || (it.payload && it.payload.remindSent));
+          var targetId = String(it.targetTelegramId || (it.payload && (it.payload.targetTelegramId || it.payload.forTelegramId)) || "").trim();
+          var targetName = String(it.targetName || (it.payload && it.payload.targetName) || "").trim();
+          var createdBy = String(it.createdBy || (it.payload && it.payload.createdBy) || it.telegramId || "").trim();
+          var createdByName = String(it.createdByName || (it.payload && it.payload.createdByName) || "").trim();
+          var whoLine = "";
+          if (targetId && targetId !== myTid) {
+            whoLine = "для: " + (targetName || targetId);
+          } else if (targetId && targetId === myTid && createdBy && createdBy !== myTid) {
+            whoLine = "от: " + (createdByName || createdBy);
+          } else if (!targetId || targetId === myTid) {
+            whoLine = "себе";
+          }
           return '<div class="tasks-item">' +
             '<div><b>⏰ ' + escapeHtml(it.title || "Напоминание") + '</b>' +
             '<div style="font-size:12px;margin-top:4px;color:#ffd60a;">' +
             escapeHtml(remTxt) + (remSent ? " · уже отправили" : "") +
-            "</div></div>" +
+            "</div>" +
+            (whoLine ? ('<div class="muted" style="font-size:12px;margin-top:2px;">' + escapeHtml(whoLine) + "</div>") : "") +
+            "</div>" +
             '<div class="seg-row" style="margin-top:10px;flex-wrap:wrap;">' +
             '<button type="button" class="seg-btn" style="background:#3a3a3c;" onclick="cancelDeferredItem(\'' + safeId + '\')">Готово</button>' +
             "</div></div>";
@@ -10146,6 +10161,52 @@
       if (screenBox) screenBox.innerHTML = html;
     }
 
+    var _reminderPeopleCache = null;
+    var _reminderPeopleCacheAt = 0;
+
+    async function loadReminderPeople_() {
+      if (_reminderPeopleCache && (Date.now() - _reminderPeopleCacheAt) < 60000) {
+        return _reminderPeopleCache;
+      }
+      var tid = await ensureTelegramId();
+      if (!tid) return [];
+      try {
+        var res = await apiGet({
+          action: "listReminderPeople",
+          telegramId: tid
+        }, { timeoutMs: 12000, cacheTtlMs: 30000 });
+        var list = (res && res.status === "success" && res.people) ? res.people : [];
+        _reminderPeopleCache = list;
+        _reminderPeopleCacheAt = Date.now();
+        return list;
+      } catch (e) {
+        return _reminderPeopleCache || [];
+      }
+    }
+
+    async function pickReminderTargetAsync_() {
+      var people = await loadReminderPeople_();
+      var myTid = String(myTelegramId || "").trim();
+      var nameById = Object.create(null);
+      var choices = [{ label: "Себе", value: "self", cls: "btn-blue" }];
+      for (var i = 0; i < people.length; i++) {
+        var p = people[i] || {};
+        var id = String(p.telegramId || "").trim();
+        if (!id || id === myTid) continue;
+        var label = (p.name || p.username || id);
+        if (p.role) label += " · " + p.role;
+        nameById[id] = p.name || p.username || id;
+        choices.push({ label: label, value: id, cls: "btn-orange" });
+      }
+      if (choices.length === 1) {
+        return { telegramId: myTid, name: "себе" };
+      }
+      var picked = await uiChoiceAsync("Кому напомнить?", "Уведомление уйдёт в Telegram выбранному", choices);
+      if (picked == null) return null;
+      if (picked === "self") return { telegramId: myTid, name: "себе" };
+      return { telegramId: String(picked), name: nameById[picked] || String(picked) };
+    }
+
     async function createStandaloneReminder() {
       var text = await uiPromptAsync("О чём напомнить? (написать кому / что сделать)", "");
       if (text === null) return;
@@ -10154,11 +10215,18 @@
         showToast("Нужен текст");
         return;
       }
+      var target = await pickReminderTargetAsync_();
+      if (!target) return;
       var when = await pickRemindWhenAsync_();
       if (!when) return;
       var tid = await ensureTelegramId();
       if (!tid) return;
       var remindAt = toLocalIsoMinutes_(when);
+      var myName = "";
+      try {
+        var u = (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user) || null;
+        if (u) myName = [u.first_name, u.last_name].filter(Boolean).join(" ") || u.username || "";
+      } catch (eN) {}
       try {
         await apiPost({
           action: "saveDeferred",
@@ -10166,11 +10234,22 @@
           mode: "remind",
           title: text,
           clientNick: "",
-          payload: { remindAt: remindAt, remindSent: false }
+          targetTelegramId: target.telegramId || tid,
+          targetName: target.name || "",
+          createdByName: myName,
+          payload: {
+            remindAt: remindAt,
+            remindSent: false,
+            targetTelegramId: target.telegramId || tid,
+            targetName: target.name || "",
+            createdBy: tid,
+            createdByName: myName
+          }
         });
         deferredCacheAt = 0;
         try { _apiGetMem = Object.create(null); } catch (eClr) {}
-        showToast("Напомню: " + formatDeferredRemindAt_(remindAt));
+        var whom = (String(target.telegramId) === String(tid)) ? "себе" : ("для " + (target.name || target.telegramId));
+        showToast("Напомню " + whom + ": " + formatDeferredRemindAt_(remindAt));
         await renderTasksDrawer(true);
       } catch (e) {
         showToast("Не удалось сохранить напоминание");

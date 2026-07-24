@@ -87,6 +87,8 @@ function bustDeferredCache_(telegramId) {
     for (var i = 0; i < statuses.length; i++) {
       cache.remove("DEF:" + tid + ":" + statuses[i]);
       cache.remove("DEF:" + tid + ":" + statuses[i] + ":L");
+      cache.remove("DEF:" + tid + ":" + statuses[i] + ":T2");
+      cache.remove("DEF:" + tid + ":" + statuses[i] + ":L:T2");
     }
   } catch (e) {}
 }
@@ -736,6 +738,9 @@ function doGet(e) {
   if (action === "listAccess") {
     return handleListAccess({ telegramId: e.parameter.telegramId || "" }, callback, false);
   }
+  if (action === "listReminderPeople") {
+    return handleListReminderPeople_({ telegramId: e.parameter.telegramId || "" }, callback, false);
+  }
   if (action === "getWarehouse") {
     return handleGetWarehouse({}, callback, false);
   }
@@ -942,6 +947,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "listAccess") {
     return handleListAccess(json, callback, fromPost);
+  }
+  if (action === "listReminderPeople") {
+    return handleListReminderPeople_(json, callback, fromPost);
   }
   if (action === "setAccessRole") {
     return handleSetAccessRole(json, callback, fromPost);
@@ -6101,6 +6109,51 @@ function handleListAccess(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
+/** Участники для назначения напоминалок — любой активный доступ (не только owner). */
+function handleListReminderPeople_(json, callback, fromPost) {
+  var actor = String(json.telegramId || "").trim();
+  if (!actor) {
+    var need = { status: "error", message: "need_telegramId" };
+    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+  }
+  var people = [];
+  var seen = {};
+  function pushPerson_(id, name, username, role) {
+    id = String(id || "").trim();
+    if (!id || seen[id]) return;
+    seen[id] = true;
+    people.push({
+      telegramId: id,
+      name: String(name || "").trim(),
+      username: String(username || "").trim(),
+      role: String(role || "").trim().toLowerCase()
+    });
+  }
+  var rows = readAccessRows_();
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var st = String(r.status || "").toLowerCase();
+    var role = String(r.role || "").toLowerCase();
+    if (st === "denied" || st === "pending") continue;
+    if (role === "denied" || role === "pending") continue;
+    if (!r.telegramId) continue;
+    pushPerson_(r.telegramId, r.name, r.username, role);
+  }
+  var owners = getOwnerTelegramIds_();
+  for (var o = 0; o < owners.length; o++) {
+    pushPerson_(owners[o], "", "", "owner");
+  }
+  people.sort(function (a, b) {
+    var an = (a.name || a.username || a.telegramId).toLowerCase();
+    var bn = (b.name || b.username || b.telegramId).toLowerCase();
+    if (an < bn) return -1;
+    if (an > bn) return 1;
+    return 0;
+  });
+  var ok = { status: "success", people: people };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
 function handleSetAccessRole(json, callback, fromPost) {
   var actor = String(json.actorId || json.telegramIdOwner || "").trim();
   if (actor && !isOwnerId_(actor)) {
@@ -8090,7 +8143,7 @@ function handleListDeferred_(json, callback, fromPost) {
   var tid = String(json.telegramId || "").trim();
   var wantStatus = String(json.status || "open").trim().toLowerCase();
   var light = !(json.light === false || json.light === "0" || json.light === 0);
-  var cacheKey = "DEF:" + tid + ":" + wantStatus + (light ? ":L" : "");
+  var cacheKey = "DEF:" + tid + ":" + wantStatus + (light ? ":L" : "") + ":T2";
   var cached = cacheGetJson_(cacheKey);
   if (cached && cached.status === "success") {
     return fromPost ? jsonpText(callback, cached) : jsonp(callback, cached);
@@ -8100,14 +8153,18 @@ function handleListDeferred_(json, callback, fromPost) {
   var items = [];
   var openN = 0;
   for (var r = 1; r < data.length; r++) {
-    if (String(data[r][2] || "").trim() !== tid) continue;
+    var ownerTid = String(data[r][2] || "").trim();
+    var payloadFull = {};
+    try { payloadFull = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payloadFull = {}; }
+    if (!payloadFull || typeof payloadFull !== "object") payloadFull = {};
+    var targetTid = String(payloadFull.targetTelegramId || payloadFull.forTelegramId || "").trim();
+    var visible = (ownerTid === tid) || (targetTid && targetTid === tid);
+    if (!visible) continue;
     var st = String(data[r][6] || "open").trim().toLowerCase();
     if (st === "open") openN++;
     if (wantStatus && wantStatus !== "all" && st !== wantStatus) continue;
-    var payload = {};
-    try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payload = {}; }
+    var payload = payloadFull;
     if (light && payload && typeof payload === "object") {
-      // без огромного текста сообщения — быстрее JSONP
       payload = {
         mode: payload.mode,
         baskets: payload.baskets || null,
@@ -8122,13 +8179,17 @@ function handleListDeferred_(json, callback, fromPost) {
         retailTotal: payload.retailTotal,
         lastMessage: "",
         remindAt: payload.remindAt || "",
-        remindSent: !!payload.remindSent
+        remindSent: !!payload.remindSent,
+        targetTelegramId: payload.targetTelegramId || payload.forTelegramId || "",
+        targetName: payload.targetName || "",
+        createdBy: payload.createdBy || ownerTid,
+        createdByName: payload.createdByName || ""
       };
     }
     items.push({
       id: String(data[r][0] || ""),
       at: data[r][1],
-      telegramId: tid,
+      telegramId: ownerTid,
       mode: String(data[r][3] || ""),
       title: String(data[r][4] || ""),
       clientNick: String(data[r][5] || ""),
@@ -8136,6 +8197,12 @@ function handleListDeferred_(json, callback, fromPost) {
       payload: payload,
       remindAt: (payload && payload.remindAt) ? String(payload.remindAt) : "",
       remindSent: !!(payload && payload.remindSent),
+      targetTelegramId: (payload && (payload.targetTelegramId || payload.forTelegramId))
+        ? String(payload.targetTelegramId || payload.forTelegramId)
+        : "",
+      targetName: (payload && payload.targetName) ? String(payload.targetName) : "",
+      createdBy: (payload && payload.createdBy) ? String(payload.createdBy) : ownerTid,
+      createdByName: (payload && payload.createdByName) ? String(payload.createdByName) : "",
       updatedAt: data[r][8],
       row: r + 1
     });
@@ -8177,6 +8244,19 @@ function handleSaveDeferred_(json, callback, fromPost) {
     payloadObj.remindAt = formatDeferredRemindAtIso_(when);
     payloadObj.remindSent = false;
     delete payloadObj.remindSentAt;
+    var targetTid = String(
+      json.targetTelegramId || json.forTelegramId ||
+      payloadObj.targetTelegramId || payloadObj.forTelegramId || tid
+    ).trim() || tid;
+    var targetName = String(
+      json.targetName || payloadObj.targetName || ""
+    ).trim();
+    var createdByName = String(json.createdByName || payloadObj.createdByName || "").trim();
+    payloadObj.targetTelegramId = targetTid;
+    payloadObj.forTelegramId = targetTid;
+    payloadObj.targetName = targetName;
+    payloadObj.createdBy = tid;
+    payloadObj.createdByName = createdByName;
     payload = JSON.stringify(payloadObj);
   }
   if (!title) {
@@ -8184,10 +8264,16 @@ function handleSaveDeferred_(json, callback, fromPost) {
   }
   var now = new Date();
   var data = sh.getDataRange().getValues();
+  var targetForCache = "";
+  try {
+    var po = JSON.parse(String(payload || "{}"));
+    targetForCache = String(po.targetTelegramId || po.forTelegramId || "").trim();
+  } catch (ePo) {}
   for (var r = 1; r < data.length; r++) {
     if (String(data[r][0]) === id && String(data[r][2]).trim() === tid) {
       sh.getRange(r + 1, 4, r + 1, 9).setValues([[mode, title, nick, "open", payload, now]]);
       bustDeferredCache_(tid);
+      if (targetForCache && targetForCache !== tid) bustDeferredCache_(targetForCache);
       if (mode === "remind") {
         try { ensureDeferredRemindTrigger_(); } catch (eTr) {}
       }
@@ -8197,6 +8283,7 @@ function handleSaveDeferred_(json, callback, fromPost) {
   }
   sh.appendRow([id, now, tid, mode, title, nick, "open", payload, now]);
   bustDeferredCache_(tid);
+  if (targetForCache && targetForCache !== tid) bustDeferredCache_(targetForCache);
   if (mode === "remind") {
     try { ensureDeferredRemindTrigger_(); } catch (eTr2) {}
   }
@@ -8214,7 +8301,12 @@ function handleUpdateDeferred_(json, callback, fromPost) {
   var sh = deferredSheet_();
   var data = sh.getDataRange().getValues();
   for (var r = 1; r < data.length; r++) {
-    if (String(data[r][0]) !== id || String(data[r][2]).trim() !== tid) continue;
+    if (String(data[r][0]) !== id) continue;
+    var ownerTid = String(data[r][2] || "").trim();
+    var payloadObj = {};
+    try { payloadObj = JSON.parse(String(data[r][7] || "{}")); } catch (eP) { payloadObj = {}; }
+    var targetTid = String((payloadObj && (payloadObj.targetTelegramId || payloadObj.forTelegramId)) || "").trim();
+    if (ownerTid !== tid && targetTid !== tid) continue;
     var mode = json.mode != null ? String(json.mode) : String(data[r][3] || "pp");
     var title = json.title != null ? String(json.title) : String(data[r][4] || "");
     var nick = json.clientNick != null ? String(json.clientNick) : String(data[r][5] || "");
@@ -8224,7 +8316,9 @@ function handleUpdateDeferred_(json, callback, fromPost) {
       payload = typeof json.payload === "object" ? JSON.stringify(json.payload) : String(json.payload);
     }
     sh.getRange(r + 1, 4, r + 1, 9).setValues([[mode, title, nick, st, payload, new Date()]]);
-    bustDeferredCache_(tid);
+    bustDeferredCache_(ownerTid);
+    if (targetTid && targetTid !== ownerTid) bustDeferredCache_(targetTid);
+    if (tid !== ownerTid && tid !== targetTid) bustDeferredCache_(tid);
     var ok = { status: "success", id: id };
     return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
   }
@@ -8316,19 +8410,27 @@ function tickDeferredReminders_() {
     if (!payload || !payload.remindAt || payload.remindSent) continue;
     var when = parseDeferredRemindAt_(payload.remindAt);
     if (!when || when.getTime() > now.getTime()) continue;
-    var tid = String(data[r][2] || "").trim();
+    var ownerTid = String(data[r][2] || "").trim();
     var title = String(data[r][4] || "Отложенное").trim();
     var nick = String(data[r][5] || "").trim();
     var mode = String(data[r][3] || "").trim().toLowerCase();
-    var text = mode === "remind"
-      ? ("⏰ Напоминание\n" + title)
-      : ("⏰ Напоминание\n" + title +
+    var notifyTid = String(payload.targetTelegramId || payload.forTelegramId || ownerTid).trim() || ownerTid;
+    var fromName = String(payload.createdByName || "").trim();
+    var text;
+    if (mode === "remind") {
+      text = "⏰ Напоминание\n" + title;
+      if (fromName && String(payload.createdBy || "") !== notifyTid) {
+        text += "\nОт: " + fromName;
+      }
+    } else {
+      text = "⏰ Напоминание\n" + title +
         (nick ? ("\nКлиент: " + nick) : "") +
-        "\nОткрой задачи ☰ в приложении.");
+        "\nОткрой задачи ☰ в приложении.";
+    }
     var sentOk = false;
-    if (tid) {
+    if (notifyTid) {
       try {
-        var res = telegramSendText_(tid, text);
+        var res = telegramSendText_(notifyTid, text);
         sentOk = !(res && res.ok === false);
       } catch (eSend) {
         sentOk = false;
@@ -8340,7 +8442,8 @@ function tickDeferredReminders_() {
     else delete payload.remindSendError;
     try {
       sh.getRange(r + 1, 8, r + 1, 9).setValues([[JSON.stringify(payload), now]]);
-      if (tid) changedTids[tid] = true;
+      if (ownerTid) changedTids[ownerTid] = true;
+      if (notifyTid) changedTids[notifyTid] = true;
     } catch (eWrite) {}
   }
   var keys = Object.keys(changedTids);
