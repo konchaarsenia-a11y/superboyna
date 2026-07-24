@@ -833,6 +833,13 @@ function doGet(e) {
       light: e.parameter.light || "1"
     }, callback, false);
   }
+  if (action === "cancelDeferred") {
+    return handleDeferredAction_("cancelDeferred", {
+      telegramId: e.parameter.telegramId ? decodeURIComponent(e.parameter.telegramId) : "",
+      id: e.parameter.id ? decodeURIComponent(e.parameter.id) : "",
+      status: "cancelled"
+    }, callback, false);
+  }
 
   // delete / move доступны и через GET (JSONP из mini-app)
   if (action === "deleteClient" || action === "moveClient") {
@@ -8179,6 +8186,7 @@ function handleListDeferred_(json, callback, fromPost) {
         retailTotal: payload.retailTotal,
         lastMessage: "",
         remindAt: payload.remindAt || "",
+        remindAtMs: payload.remindAtMs || "",
         remindSent: !!payload.remindSent,
         targetTelegramId: payload.targetTelegramId || payload.forTelegramId || "",
         targetName: payload.targetName || "",
@@ -8196,6 +8204,7 @@ function handleListDeferred_(json, callback, fromPost) {
       status: st,
       payload: payload,
       remindAt: (payload && payload.remindAt) ? String(payload.remindAt) : "",
+      remindAtMs: (payload && payload.remindAtMs) ? Number(payload.remindAtMs) : 0,
       remindSent: !!(payload && payload.remindSent),
       targetTelegramId: (payload && (payload.targetTelegramId || payload.forTelegramId))
         ? String(payload.targetTelegramId || payload.forTelegramId)
@@ -8235,15 +8244,24 @@ function handleSaveDeferred_(json, callback, fromPost) {
       var needTitle = { status: "error", message: "need_title" };
       return fromPost ? jsonpText(callback, needTitle) : jsonp(callback, needTitle);
     }
-    var when = parseDeferredRemindAt_(json.remindAt || (payloadObj && payloadObj.remindAt));
-    if (!when) {
+    if (!payloadObj || typeof payloadObj !== "object") payloadObj = {};
+    var msIn = Number(json.remindAtMs != null ? json.remindAtMs : payloadObj.remindAtMs);
+    var when = null;
+    if (isFinite(msIn) && msIn > 0) {
+      when = new Date(msIn);
+    } else {
+      when = parseDeferredRemindAt_(json.remindAt || payloadObj.remindAt);
+    }
+    if (!when || isNaN(when.getTime())) {
       var needAt = { status: "error", message: "need_remindAt" };
       return fromPost ? jsonpText(callback, needAt) : jsonp(callback, needAt);
     }
-    if (!payloadObj || typeof payloadObj !== "object") payloadObj = {};
-    payloadObj.remindAt = formatDeferredRemindAtIso_(when);
+    payloadObj.remindAtMs = when.getTime();
+    payloadObj.remindAt = Utilities.formatDate(when, "GMT", "yyyy-MM-dd'T'HH:mm:ss'Z'");
     payloadObj.remindSent = false;
     delete payloadObj.remindSentAt;
+    delete payloadObj.remindSendError;
+    delete payloadObj.remindFailCount;
     var targetTid = String(
       json.targetTelegramId || json.forTelegramId ||
       payloadObj.targetTelegramId || payloadObj.forTelegramId || tid
@@ -8258,6 +8276,17 @@ function handleSaveDeferred_(json, callback, fromPost) {
     payloadObj.createdBy = tid;
     payloadObj.createdByName = createdByName;
     payload = JSON.stringify(payloadObj);
+    // сразу подтверждаем в TG целевому (и создателю, если другой)
+    try {
+      var whenLabel = Utilities.formatDate(when, Session.getScriptTimeZone() || "Europe/Minsk", "dd.MM HH:mm") +
+        " (по времени таблицы / Минск)";
+      var ack = "⏰ Напоминание поставлено\n" + title + "\nКогда: " + whenLabel;
+      if (createdByName && targetTid !== tid) ack += "\nОт: " + createdByName;
+      telegramSendText_(targetTid, ack);
+      if (targetTid !== tid) {
+        telegramSendText_(tid, "⏰ Напоминание для " + (targetName || targetTid) + "\n" + title + "\nКогда: " + whenLabel);
+      }
+    } catch (eAck) {}
   }
   if (!title) {
     title = (mode === "retail" ? "Розница" : "ПП") + (nick ? (" · " + nick) : "");
@@ -8333,8 +8362,18 @@ function handleCancelDeferred_(json, callback, fromPost) {
 
 function parseDeferredRemindAt_(v) {
   if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+  if (typeof v === "number" && isFinite(v) && v > 0) {
+    var dn = new Date(v);
+    return isNaN(dn.getTime()) ? null : dn;
+  }
   var s = String(v || "").trim();
   if (!s) return null;
+  // абсолютное UTC / с offset
+  if (/Z$/i.test(s) || /[+-]\d{2}:?\d{2}$/.test(s)) {
+    var dAbs = new Date(s);
+    return isNaN(dAbs.getTime()) ? null : dAbs;
+  }
+  // naive: трактуем как время скрипта (старые записи)
   var m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(s);
   if (m) {
     return new Date(
@@ -8346,17 +8385,36 @@ function parseDeferredRemindAt_(v) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+function remindDueMs_(payload) {
+  if (!payload) return 0;
+  var ms = Number(payload.remindAtMs);
+  if (isFinite(ms) && ms > 0) return ms;
+  var when = parseDeferredRemindAt_(payload.remindAt);
+  return when ? when.getTime() : 0;
+}
+
 function formatDeferredRemindAtIso_(d) {
-  var tz = Session.getScriptTimeZone() || "Europe/Minsk";
-  return Utilities.formatDate(d, tz, "yyyy-MM-dd'T'HH:mm:ss");
+  return Utilities.formatDate(d, "GMT", "yyyy-MM-dd'T'HH:mm:ss'Z'");
 }
 
 function ensureDeferredRemindTrigger_() {
+  var props = PropertiesService.getScriptProperties();
+  var ver = "";
+  try { ver = String(props.getProperty("DEF_REMIND_TRIG_V") || ""); } catch (eP) {}
   var triggers = ScriptApp.getProjectTriggers();
-  for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === "tickDeferredReminders_") return;
+  var has = false;
+  var i;
+  for (i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "tickDeferredReminders_") has = true;
   }
-  ScriptApp.newTrigger("tickDeferredReminders_").timeBased().everyMinutes(5).create();
+  if (has && ver === "1m") return;
+  for (i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "tickDeferredReminders_") {
+      try { ScriptApp.deleteTrigger(triggers[i]); } catch (eDel) {}
+    }
+  }
+  ScriptApp.newTrigger("tickDeferredReminders_").timeBased().everyMinutes(1).create();
+  try { props.setProperty("DEF_REMIND_TRIG_V", "1m"); } catch (eS) {}
 }
 
 function handleSetDeferredReminder_(json, callback, fromPost) {
@@ -8366,50 +8424,61 @@ function handleSetDeferredReminder_(json, callback, fromPost) {
     var bad = { status: "error", message: "need_id" };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
-  var when = parseDeferredRemindAt_(json.remindAt);
-  if (!when) {
+  var msIn = Number(json.remindAtMs);
+  var when = (isFinite(msIn) && msIn > 0) ? new Date(msIn) : parseDeferredRemindAt_(json.remindAt);
+  if (!when || isNaN(when.getTime())) {
     var badAt = { status: "error", message: "need_remindAt" };
     return fromPost ? jsonpText(callback, badAt) : jsonp(callback, badAt);
   }
   var sh = deferredSheet_();
   var data = sh.getDataRange().getValues();
   for (var r = 1; r < data.length; r++) {
-    if (String(data[r][0]) !== id || String(data[r][2]).trim() !== tid) continue;
+    if (String(data[r][0]) !== id) continue;
+    var ownerTid = String(data[r][2] || "").trim();
+    var payload = {};
+    try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payload = {}; }
+    var targetTid = String((payload && (payload.targetTelegramId || payload.forTelegramId)) || "").trim();
+    if (ownerTid !== tid && targetTid !== tid) continue;
     var st = String(data[r][6] || "open").trim().toLowerCase();
     if (st !== "open") {
       var closed = { status: "error", message: "not_open" };
       return fromPost ? jsonpText(callback, closed) : jsonp(callback, closed);
     }
-    var payload = {};
-    try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payload = {}; }
     if (!payload || typeof payload !== "object") payload = {};
+    payload.remindAtMs = when.getTime();
     payload.remindAt = formatDeferredRemindAtIso_(when);
     payload.remindSent = false;
     delete payload.remindSentAt;
+    delete payload.remindSendError;
+    delete payload.remindFailCount;
     sh.getRange(r + 1, 8, r + 1, 9).setValues([[JSON.stringify(payload), new Date()]]);
-    bustDeferredCache_(tid);
+    bustDeferredCache_(ownerTid);
+    if (targetTid && targetTid !== ownerTid) bustDeferredCache_(targetTid);
     try { ensureDeferredRemindTrigger_(); } catch (eTr) {}
-    var ok = { status: "success", id: id, remindAt: payload.remindAt };
+    var ok = { status: "success", id: id, remindAt: payload.remindAt, remindAtMs: payload.remindAtMs };
     return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
   }
   var miss = { status: "error", message: "not_found" };
   return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
 }
 
-/** Раз в ~5 мин: отправить TG-напоминания по отложенным задачам. */
+/** Раз в ~1 мин: отправить TG-напоминания (абсолютное время remindAtMs). */
 function tickDeferredReminders_() {
   var sh = deferredSheet_();
   var data = sh.getDataRange().getValues();
-  var now = new Date();
+  var nowMs = Date.now();
   var changedTids = {};
   for (var r = 1; r < data.length; r++) {
     var st = String(data[r][6] || "open").trim().toLowerCase();
     if (st !== "open") continue;
     var payload = {};
     try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payload = {}; }
-    if (!payload || !payload.remindAt || payload.remindSent) continue;
-    var when = parseDeferredRemindAt_(payload.remindAt);
-    if (!when || when.getTime() > now.getTime()) continue;
+    if (!payload) continue;
+    var dueMs = remindDueMs_(payload);
+    if (!dueMs || dueMs > nowMs) continue;
+    if (payload.remindSent && !payload.remindSendError) continue;
+    var fails = Number(payload.remindFailCount) || 0;
+    if (fails >= 12) continue;
     var ownerTid = String(data[r][2] || "").trim();
     var title = String(data[r][4] || "Отложенное").trim();
     var nick = String(data[r][5] || "").trim();
@@ -8422,6 +8491,7 @@ function tickDeferredReminders_() {
       if (fromName && String(payload.createdBy || "") !== notifyTid) {
         text += "\nОт: " + fromName;
       }
+      text += "\nОткрой задачи ☰ в приложении.";
     } else {
       text = "⏰ Напоминание\n" + title +
         (nick ? ("\nКлиент: " + nick) : "") +
@@ -8431,17 +8501,23 @@ function tickDeferredReminders_() {
     if (notifyTid) {
       try {
         var res = telegramSendText_(notifyTid, text);
-        sentOk = !(res && res.ok === false);
+        sentOk = !!(res && res.ok);
       } catch (eSend) {
         sentOk = false;
       }
     }
-    payload.remindSent = true;
-    payload.remindSentAt = formatDeferredRemindAtIso_(now);
-    if (!sentOk) payload.remindSendError = true;
-    else delete payload.remindSendError;
+    if (sentOk) {
+      payload.remindSent = true;
+      payload.remindSentAt = formatDeferredRemindAtIso_(new Date());
+      delete payload.remindSendError;
+      delete payload.remindFailCount;
+    } else {
+      payload.remindFailCount = fails + 1;
+      payload.remindSendError = true;
+      // не помечаем remindSent — повторим на следующем тике
+    }
     try {
-      sh.getRange(r + 1, 8, r + 1, 9).setValues([[JSON.stringify(payload), now]]);
+      sh.getRange(r + 1, 8, r + 1, 9).setValues([[JSON.stringify(payload), new Date()]]);
       if (ownerTid) changedTids[ownerTid] = true;
       if (notifyTid) changedTids[notifyTid] = true;
     } catch (eWrite) {}

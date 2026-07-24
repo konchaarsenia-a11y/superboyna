@@ -893,7 +893,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.61</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.62</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1550,7 +1550,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.61";
+    const APP_VERSION = "v7.10.62";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -9858,6 +9858,7 @@
         dr.setAttribute("aria-hidden", "false");
       }
       try { document.body.classList.add("tasks-open"); } catch (eBody2) {}
+      try { loadReminderPeople_(); } catch (ePeop) {}
       // сразу из кэша, сеть — в фоне
       renderTasksDrawer(false);
       if (!deferredCache.length || (Date.now() - deferredCacheAt) > 12000) {
@@ -9993,11 +9994,12 @@
     }
     window.saveCurrentCalcToDeferred = saveCurrentCalcToDeferred;
 
-    function formatDeferredRemindAt_(iso) {
-      if (!iso) return "";
+    function formatDeferredRemindAt_(isoOrMs) {
       try {
-        var d = new Date(iso);
-        if (isNaN(d.getTime())) return String(iso).slice(0, 16);
+        var d = null;
+        if (typeof isoOrMs === "number" && isFinite(isoOrMs)) d = new Date(isoOrMs);
+        else if (isoOrMs) d = new Date(isoOrMs);
+        if (!d || isNaN(d.getTime())) return isoOrMs ? String(isoOrMs).slice(0, 16) : "";
         return d.toLocaleString("ru-RU", {
           day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"
         });
@@ -10006,15 +10008,15 @@
 
     function deferredRemindAtOf_(it) {
       if (!it) return "";
+      var ms = Number(it.remindAtMs || (it.payload && it.payload.remindAtMs) || 0);
+      if (ms > 0) return ms;
       if (it.remindAt) return String(it.remindAt);
       if (it.payload && it.payload.remindAt) return String(it.payload.remindAt);
       return "";
     }
 
-    function toLocalIsoMinutes_(d) {
-      function p(n) { return (n < 10 ? "0" : "") + n; }
-      return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
-        "T" + p(d.getHours()) + ":" + p(d.getMinutes()) + ":00";
+    function toUtcIso_(d) {
+      return new Date(d.getTime()).toISOString();
     }
 
     function isDeferredRemindMode_(it) {
@@ -10023,24 +10025,30 @@
 
     function pickRemindWhenAsync_() {
       return (async function () {
-        var choice = await uiChoiceAsync("Когда напомнить?", "Уведомление придёт в Telegram", [
-          { label: "Через 1 час", value: "1h", cls: "btn-blue" },
-          { label: "Через 3 часа", value: "3h", cls: "btn-blue" },
-          { label: "Завтра в 10:00", value: "tomorrow10", cls: "btn-blue" },
-          { label: "Указать время…", value: "custom", cls: "btn-orange" }
-        ]);
+        var choice = await uiChoiceAsync(
+          "Когда напомнить?",
+          "Время по твоим часам. Другим в других поясах придёт в тот же момент.",
+          [
+            { label: "Через 1 час", value: "1h", cls: "btn-blue" },
+            { label: "Через 3 часа", value: "3h", cls: "btn-blue" },
+            { label: "Завтра в 10:00", value: "tomorrow10", cls: "btn-blue" },
+            { label: "Указать время…", value: "custom", cls: "btn-orange" }
+          ]
+        );
         if (choice == null) return null;
         var when = null;
         if (choice === "custom") {
-          var picked = await uiDatetimeAsync("Напоминалка", "Дата и время");
+          var picked = await uiDatetimeAsync(
+            "Напоминалка",
+            "Дата и время по часам телефона. Если у тебя 13:00 — в Польше придёт в 12:00."
+          );
           if (!picked) return null;
+          // datetime-local = локальное время устройства
           when = new Date(picked);
         } else if (choice === "1h") {
-          when = new Date();
-          when.setHours(when.getHours() + 1);
+          when = new Date(Date.now() + 60 * 60 * 1000);
         } else if (choice === "3h") {
-          when = new Date();
-          when.setHours(when.getHours() + 3);
+          when = new Date(Date.now() + 3 * 60 * 60 * 1000);
         } else if (choice === "tomorrow10") {
           when = new Date();
           when.setDate(when.getDate() + 1);
@@ -10061,12 +10069,13 @@
     async function uiDatetimeAsync(title, message, defLocal) {
       var def = defLocal || "";
       if (!def) {
-        var d0 = new Date();
-        d0.setMinutes(d0.getMinutes() + 60);
+        var d0 = new Date(Date.now() + 60 * 60 * 1000);
         d0.setSeconds(0, 0);
-        def = toLocalIsoMinutes_(d0).slice(0, 16);
+        function p(n) { return (n < 10 ? "0" : "") + n; }
+        def = d0.getFullYear() + "-" + p(d0.getMonth() + 1) + "-" + p(d0.getDate()) +
+          "T" + p(d0.getHours()) + ":" + p(d0.getMinutes());
       }
-      var p = openModal(
+      var pModal = openModal(
         '<div class="modal-title">' + escapeHtml(title || "Когда") + "</div>" +
         '<div class="modal-text">' + escapeHtml(String(message || "")) + "</div>" +
         '<div class="form-group" style="margin-top:10px;">' +
@@ -10086,7 +10095,7 @@
         };
         if (cancel) cancel.onclick = function () { closeModal(null); };
       }, 0);
-      var res = await p;
+      var res = await pModal;
       recoverUiFocus();
       return res;
     }
@@ -10221,44 +10230,71 @@
         showToast("Нужен текст");
         return;
       }
+      // людей подгружаем заранее при открытии ☰
       var target = await pickReminderTargetAsync_();
       if (!target) return;
       var when = await pickRemindWhenAsync_();
       if (!when) return;
       var tid = await ensureTelegramId();
       if (!tid) return;
-      var remindAt = toLocalIsoMinutes_(when);
+      var remindAtMs = when.getTime();
+      var remindAt = toUtcIso_(when);
       var myName = "";
       try {
         var u = (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user) || null;
         if (u) myName = [u.first_name, u.last_name].filter(Boolean).join(" ") || u.username || "";
       } catch (eN) {}
+      var localId = "local_" + Date.now();
+      var optimistic = {
+        id: localId,
+        mode: "remind",
+        status: "open",
+        title: text,
+        telegramId: tid,
+        remindAt: remindAt,
+        remindAtMs: remindAtMs,
+        targetTelegramId: target.telegramId || tid,
+        targetName: target.name || "",
+        createdBy: tid,
+        createdByName: myName,
+        payload: {
+          remindAt: remindAt,
+          remindAtMs: remindAtMs,
+          remindSent: false,
+          targetTelegramId: target.telegramId || tid,
+          targetName: target.name || "",
+          createdBy: tid,
+          createdByName: myName
+        }
+      };
+      deferredCache = [optimistic].concat(deferredCache || []);
+      deferredCacheAt = Date.now();
+      try { renderTasksDrawer(false); } catch (ePaint) {}
+      var whom = (String(target.telegramId) === String(tid)) ? "себе" : ("для " + (target.name || target.telegramId));
+      showToast("Ставлю: " + whom + " · " + formatDeferredRemindAt_(remindAtMs));
       try {
-        await apiPost({
+        apiPost({
           action: "saveDeferred",
           telegramId: tid,
           mode: "remind",
           title: text,
           clientNick: "",
+          remindAt: remindAt,
+          remindAtMs: remindAtMs,
           targetTelegramId: target.telegramId || tid,
           targetName: target.name || "",
           createdByName: myName,
-          payload: {
-            remindAt: remindAt,
-            remindSent: false,
-            targetTelegramId: target.telegramId || tid,
-            targetName: target.name || "",
-            createdBy: tid,
-            createdByName: myName
-          }
+          payload: optimistic.payload
         });
-        deferredCacheAt = 0;
-        try { _apiGetMem = Object.create(null); } catch (eClr) {}
-        var whom = (String(target.telegramId) === String(tid)) ? "себе" : ("для " + (target.name || target.telegramId));
-        showToast("Напомню " + whom + ": " + formatDeferredRemindAt_(remindAt));
-        await renderTasksDrawer(true);
+        // подтверждение в TG приходит с сервера; список подтянем чуть позже
+        setTimeout(function () {
+          deferredCacheAt = 0;
+          try { _apiGetMem = Object.create(null); } catch (eClr) {}
+          renderTasksDrawer(true);
+        }, 1200);
       } catch (e) {
         showToast("Не удалось сохранить напоминание");
+        renderTasksDrawer(true);
       }
     }
     window.createStandaloneReminder = createStandaloneReminder;
@@ -10354,14 +10390,42 @@
       if (!ok) return;
       var tid = await ensureTelegramId();
       if (!tid) return;
+      // сразу убрать из UI
+      deferredCache = (deferredCache || []).filter(function (it) {
+        return String(it.id) !== String(id);
+      });
+      deferredCacheAt = Date.now();
+      try { renderTasksDrawer(false); } catch (e0) {}
+      showToast("Убираю…");
       try {
-        await apiPost({ action: "cancelDeferred", telegramId: tid, id: id, status: "cancelled" });
-        showToast("Отменено");
-        deferredCacheAt = 0;
+        // GET надёжнее opaque POST для мини-аппа
+        var res = await apiGet({
+          action: "cancelDeferred",
+          telegramId: tid,
+          id: id,
+          status: "cancelled",
+          _: String(Date.now())
+        }, { timeoutMs: 15000, cacheTtlMs: 0 });
+        if (res && res.status && res.status !== "success") {
+          showToast("Не удалилось: " + (res.message || res.status));
+          deferredCacheAt = 0;
+          await renderTasksDrawer(true);
+          return;
+        }
+        showToast("Убрано");
         try { _apiGetMem = Object.create(null); } catch (eClr) {}
-        await renderTasksDrawer(true);
+        setTimeout(function () { renderTasksDrawer(true); }, 800);
       } catch (e) {
-        showToast("Не удалось отменить");
+        // fallback POST
+        try {
+          await apiPost({ action: "cancelDeferred", telegramId: tid, id: id, status: "cancelled" });
+          showToast("Убрано");
+          setTimeout(function () { renderTasksDrawer(true); }, 1000);
+        } catch (e2) {
+          showToast("Не удалось отменить");
+          deferredCacheAt = 0;
+          await renderTasksDrawer(true);
+        }
       }
     }
     window.cancelDeferredItem = cancelDeferredItem;
@@ -10616,6 +10680,8 @@
     try { renderOrderNotes(); } catch (e) {}
     try { setOrderType(orderType || 'pp'); updateNotesSummary(); } catch (e) {}
     try { bootstrapAccess(); } catch (e) { try { applyRoleTabs(); } catch (e2) {} }
+    try { updateTasksBadge(); } catch (eTb0) {}
+    try { setTimeout(function () { try { updateTasksBadge(); refreshDeferredBadge(false); } catch (eTb1) {} }, 200); } catch (eTb2) {}
     try { applyTelegramSafeArea(); } catch (e) {}
     try { syncAppTopSpacer(); } catch (e) {}
     try {
