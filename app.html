@@ -891,7 +891,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.50</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.51</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1509,7 +1509,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.50";
+    const APP_VERSION = "v7.10.51";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -2058,7 +2058,10 @@
     let departHour = 14;
     let departMinute = 0;
 
-    function applyRoleTabs() {
+    const LAST_SCREEN_LS = "superboyna_last_screen";
+
+    function applyRoleTabs(opts) {
+      opts = opts || {};
       const allowed = ROLE_TABS[APP_ROLE] || ROLE_TABS.all;
       document.querySelectorAll(".tab-link").forEach(btn => {
         const screen = btn.dataset.screen;
@@ -2082,6 +2085,10 @@
         b.style.display = (roleOk && allowedOk) ? "" : "none";
       });
       try { updateTasksBadge(); } catch (eTb) {}
+      if (opts.skipSwitch) {
+        try { refreshWeekBanners(); } catch (e) {}
+        return;
+      }
       const first = allowed.filter(function (s) { return MAIN_TABS.indexOf(s) >= 0; })[0] || "orderScreen";
       var active = document.querySelector(".screen.active");
       var cur = active && active.id;
@@ -2096,6 +2103,24 @@
       }
       try { refreshWeekBanners(); } catch (e) {}
     }
+
+    function restoreLastScreen() {
+      var allowed = ROLE_TABS[APP_ROLE] || ROLE_TABS.all;
+      var saved = "";
+      try { saved = String(localStorage.getItem(LAST_SCREEN_LS) || "").trim(); } catch (e) {}
+      if (saved === "subDetailScreen") saved = "subsScreen";
+      if (saved === "deferredScreen") {
+        // задачи — drawer, не экран
+        saved = "orderScreen";
+      }
+      if (saved && allowed.indexOf(saved) >= 0) {
+        switchTab(saved);
+        return;
+      }
+      var first = allowed.filter(function (s) { return MAIN_TABS.indexOf(s) >= 0; })[0] || "orderScreen";
+      switchTab(first);
+    }
+    window.restoreLastScreen = restoreLastScreen;
 
     function toggleOrderFlyout(force) {
       const fly = document.getElementById("orderFlyout");
@@ -3033,6 +3058,7 @@
       }
       var screen = document.getElementById(screenId);
       if (screen) screen.classList.add("active");
+      try { localStorage.setItem(LAST_SCREEN_LS, screenId); } catch (eLs) {}
       try {
         if (screenId === "orderScreen" && document.getElementById("isEditMode").value === "false") {
           document.getElementById("appHeaderTitle").innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -7512,7 +7538,8 @@
         if (!myTelegramId) {
           APP_ROLE = "all";
           weekTabUnlocked = true;
-          applyRoleTabs();
+          applyRoleTabs({ skipSwitch: true });
+          restoreLastScreen();
           maybeAskWeekPullFromMonth();
           return;
         }
@@ -7525,7 +7552,8 @@
         if (!res || res.status !== "success") {
           APP_ROLE = "all";
           weekTabUnlocked = true;
-          applyRoleTabs();
+          applyRoleTabs({ skipSwitch: true });
+          restoreLastScreen();
           maybeAskWeekPullFromMonth();
           return;
         }
@@ -7541,22 +7569,24 @@
               ? ""
               : '<button class="btn-action btn-orange" type="button" onclick="doRequestAccess()">Запросить доступ</button>'
           );
-          applyRoleTabs();
+          applyRoleTabs({ skipSwitch: true });
           return;
         }
         if (APP_ROLE === "denied") {
           showAccessGate("Доступ закрыт", "Обратитесь к владельцу.", "");
-          applyRoleTabs();
+          applyRoleTabs({ skipSwitch: true });
           return;
         }
         hideAccessGate();
-        applyRoleTabs();
+        applyRoleTabs({ skipSwitch: true });
+        restoreLastScreen();
         try { refreshDeferredBadge(); } catch (eDef) {}
         maybeAskWeekPullFromMonth();
       } catch (e) {
         APP_ROLE = "all";
         weekTabUnlocked = true;
-        applyRoleTabs();
+        applyRoleTabs({ skipSwitch: true });
+        restoreLastScreen();
         try { refreshDeferredBadge(); } catch (eDef2) {}
         maybeAskWeekPullFromMonth();
       }

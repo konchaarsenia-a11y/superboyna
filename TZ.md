@@ -231,7 +231,7 @@
 См. **[NATIVE.md](./NATIVE.md)**. Пока веб дорабатывается в TG — нативка не трогает `app.html` / `Code.gs`.
 
 - [~] **Native auth в Code.gs:** `getNativeLinkInfo` / `pollNativeAuth` / `/start gbi_` — влит (`33d6eb8`), нужен **Deploy** владельцем
-- [~] **/start по роли:** работает; **ускорение отложено** (напомнить)
+- [~] **/start:** не спамить приветствием (раз в 24ч); экран после F5 сохраняется — **v7.10.51** (Deploy GS для /start)
 - [x] Каркас Capacitor в `native/` + Android + **iOS (SPM)** + sync `app.html` → `www/` (`scripts/sync-native.sh`)
 - [x] Скорость: SWR-кэш API (`native-perf.js`), prefetch, splash, хаптик (оверлеи в `native/overlays/js/`)
 - [x] Мост телефона: `BoinyaNative` + плагин `BoinyaLiveActivity`

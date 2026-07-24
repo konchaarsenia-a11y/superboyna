@@ -2340,7 +2340,16 @@ function handleTelegramUpdate_(update) {
           return;
         }
       }
-      // Обычный /start — сначала ответ в Telegram, без записи в таблицы
+      // Обычный /start — не спамить: одно приветствие на 24ч
+      try {
+        var startKey = "tg_start_once_" + String(chat.id);
+        var cacheStart = CacheService.getScriptCache();
+        if (cacheStart.get(startKey)) {
+          try { upsertCourier_(chat.id, name, from.username || ""); } catch (eUp0) {}
+          return;
+        }
+        cacheStart.put(startKey, "1", 86400);
+      } catch (eSkip) {}
       var greet;
       try {
         greet = buildStartGreeting_(from, name);
@@ -2361,7 +2370,6 @@ function handleTelegramUpdate_(update) {
       if (!sent || sent.ok === false) {
         try { telegramSendText_(chat.id, greet.text); } catch (eTx) {}
       }
-      // тяжёлое — после ответа (не блокирует пользователя)
       try { upsertCourier_(chat.id, name, from.username || ""); } catch (eUp) {}
       return;
     }
