@@ -745,6 +745,13 @@ function doGet(e) {
   if (action === "listSubscriptions") {
     return handleListSubscriptions({
       sheet: e.parameter.sheet ? decodeURIComponent(e.parameter.sheet) : "",
+      segment: e.parameter.segment ? decodeURIComponent(e.parameter.segment) : "",
+      repairIds: e.parameter.repairIds || ""
+    }, callback, false);
+  }
+  if (action === "repairSubscriptionIds") {
+    return handleRepairSubscriptionIds({
+      sheet: e.parameter.sheet ? decodeURIComponent(e.parameter.sheet) : "",
       segment: e.parameter.segment ? decodeURIComponent(e.parameter.segment) : ""
     }, callback, false);
   }
@@ -950,6 +957,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "listSubscriptions") {
     return handleListSubscriptions(json, callback, fromPost);
+  }
+  if (action === "repairSubscriptionIds") {
+    return handleRepairSubscriptionIds(json, callback, fromPost);
   }
   if (action === "getSubscription") {
     return handleGetSubscription(json, callback, fromPost);
@@ -6235,6 +6245,57 @@ function sanitizeSubId_(v) {
   return s;
 }
 
+function sheetNeedsSubscriptionIdRepair_(data) {
+  if (!data || data.length < 3) return false;
+  var withNick = 0;
+  var broken = 0;
+  for (var r = 2; r < data.length; r++) {
+    if (!String(data[r][0] || "").trim()) continue;
+    withNick++;
+    if (!sanitizeSubId_(data[r][1])) broken++;
+  }
+  return withNick > 0 && broken > 0;
+}
+
+/**
+ * Колонка B = 1, 2, 3… по строкам с ником (как было раньше).
+ * Пишет числа, не формулы — чтобы не было #REF!.
+ */
+function repairSheetSubscriptionIds_(crmSs, sheetName) {
+  var sh = findSheetByBaseName_(crmSs, sheetName);
+  if (!sh || sh.getLastRow() < 3) return { repaired: 0, nextId: 1 };
+  var lastRow = sh.getLastRow();
+  var nickCol = sh.getRange(3, 1, lastRow, 1).getValues();
+  var out = [];
+  var n = 1;
+  var repaired = 0;
+  for (var i = 0; i < nickCol.length; i++) {
+    if (String(nickCol[i][0] || "").trim()) {
+      out.push([n]);
+      n++;
+      repaired++;
+    } else {
+      out.push([""]);
+    }
+  }
+  if (out.length) sh.getRange(3, 2, lastRow, 2).setValues(out);
+  try { SpreadsheetApp.flush(); } catch (eFl) {}
+  try { clearCrmSheetCache_(sheetName); } catch (eC) {}
+  return { repaired: repaired, nextId: n };
+}
+
+function nextSubscriptionNumericId_(sh) {
+  if (!sh || sh.getLastRow() < 3) return 1;
+  var vals = sh.getRange(3, 2, sh.getLastRow(), 2).getValues();
+  var max = 0;
+  for (var i = 0; i < vals.length; i++) {
+    var id = sanitizeSubId_(vals[i][0]);
+    var num = parseInt(id, 10);
+    if (isFinite(num) && String(num) === id && num > max) max = num;
+  }
+  return max + 1;
+}
+
 /* ----- Подписки CRM ----- */
 
 function handleListSubscriptions(json, callback, fromPost) {
@@ -6244,20 +6305,27 @@ function handleListSubscriptions(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
   var only = String((json && (json.sheet || json.segment)) || "").trim();
+  var forceRepair = String((json && json.repairIds) || "") === "1" || json.repairIds === true;
   var sheets = only ? [only] : ["ПП", "АФК", "БП"];
   var list = [];
+  var repairedSheets = [];
   for (var s = 0; s < sheets.length; s++) {
     var sheetName = sheets[s];
     var seenInSheet = {};
-    // live A–E: без CacheService
     var data = readCrmSheetLiveNarrow_(crmSs, sheetName, 5);
     if (!data || data.length < 3) continue;
+    // починить ID 1,2,3… если есть #REF!/пусто (особенно ПП)
+    if (forceRepair || sheetNeedsSubscriptionIdRepair_(data)) {
+      repairSheetSubscriptionIds_(crmSs, sheetName);
+      repairedSheets.push(sheetName);
+      data = readCrmSheetLiveNarrow_(crmSs, sheetName, 5);
+      if (!data || data.length < 3) continue;
+    }
     for (var r = 2; r < data.length; r++) {
       var nickRaw = String(data[r][0] || "").trim();
       if (!nickRaw) continue;
       var nick = extractInstagramNick_(nickRaw) || displayClientNick_(nickRaw) || nickRaw;
       var subId = sanitizeSubId_(data[r][1]);
-      // валидный unique subId — дедуп; #REF!/пусто — каждая строка отдельно (иначе ПП схлопывался в 1 чел.)
       var key = subId
         ? ("id:" + subId.toUpperCase())
         : ("row:" + r + "|n:" + (clientMatchKey_(nickRaw) || nick || "").toUpperCase());
@@ -6275,7 +6343,32 @@ function handleListSubscriptions(json, callback, fromPost) {
       });
     }
   }
-  var ok = { status: "success", subscriptions: list, sheet: only || "all", count: list.length };
+  var ok = {
+    status: "success",
+    subscriptions: list,
+    sheet: only || "all",
+    count: list.length,
+    repairedIds: repairedSheets
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handleRepairSubscriptionIds(json, callback, fromPost) {
+  var crmSs;
+  try { crmSs = getCrmSpreadsheet_(); } catch (e) {
+    var bad = { status: "error", message: "crm_unavailable", detail: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var only = String((json && (json.sheet || json.segment)) || "").trim();
+  var sheets = only ? [only] : ["ПП", "АФК", "БП"];
+  var results = [];
+  for (var i = 0; i < sheets.length; i++) {
+    results.push({
+      sheet: sheets[i],
+      result: repairSheetSubscriptionIds_(crmSs, sheets[i])
+    });
+  }
+  var ok = { status: "success", sheets: results };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
@@ -6485,9 +6578,15 @@ function handleMoveSubscription(json, callback, fromPost) {
   var colsTo = Math.max(toSh.getLastColumn(), 1);
   var vals = fromSh.getRange(rowIdx + 1, 1, 1, colsFrom).getValues()[0];
   while (vals.length < colsTo) vals.push("");
+  // временный ID; после переноса обе таблицы перенумеруем 1..n
+  vals[1] = nextSubscriptionNumericId_(toSh);
   toSh.appendRow(vals.slice(0, colsTo));
   fromSh.deleteRow(rowIdx + 1);
   try { SpreadsheetApp.flush(); } catch (eFl) {}
+  try {
+    repairSheetSubscriptionIds_(crmSs, fromSheet);
+    repairSheetSubscriptionIds_(crmSs, toSheet);
+  } catch (eRep) {}
   try {
     clearCrmSheetCache_(fromSheet);
     clearCrmSheetCache_(toSheet);
@@ -6495,11 +6594,23 @@ function handleMoveSubscription(json, callback, fromPost) {
   } catch (eC) {}
   var movedLabel = String(vals[0] || nick || "").trim();
   var movedNick = extractInstagramNick_(movedLabel) || displayClientNick_(movedLabel) || nick;
+  var movedId = "";
+  try {
+    var toData = readCrmSheetLiveNarrow_(crmSs, toSheet, 2);
+    if (toData) {
+      for (var tr = 2; tr < toData.length; tr++) {
+        if (nicksMatch_(toData[tr][0], movedLabel) || nicksMatch_(toData[tr][0], movedNick)) {
+          movedId = sanitizeSubId_(toData[tr][1]);
+          break;
+        }
+      }
+    }
+  } catch (eFind) {}
   var ok = {
     status: "success",
     nick: movedNick,
     label: movedLabel,
-    subId: subId || String(vals[1] || "").trim(),
+    subId: movedId || String(vals[1] || ""),
     fromSheet: fromSheet,
     toSheet: toSheet,
     deliveries: Number(vals[2]) || 0,
@@ -6534,6 +6645,7 @@ function handleDeleteSubscription(json, callback, fromPost) {
   }
   sh.deleteRow(rowIdx + 1);
   try { SpreadsheetApp.flush(); } catch (eFl) {}
+  try { repairSheetSubscriptionIds_(crmSs, sheetName); } catch (eRep) {}
   try { clearCrmSheetCache_(sheetName); clearCrmSheetCache_(); } catch (eC) {}
   var ok = { status: "success", nick: nick, subId: subId, sheet: sheetName, deletedRow: rowIdx + 1 };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
