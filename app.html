@@ -893,7 +893,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.62</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.63</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1550,7 +1550,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.62";
+    const APP_VERSION = "v7.10.63";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -10386,43 +10386,53 @@
     window.editDeferredItem = editDeferredItem;
 
     async function cancelDeferredItem(id) {
+      id = String(id || "").trim();
+      if (!id) return;
       var ok = await uiConfirmAsync("Убрать из задач?");
       if (!ok) return;
       var tid = await ensureTelegramId();
       if (!tid) return;
       // сразу убрать из UI
       deferredCache = (deferredCache || []).filter(function (it) {
-        return String(it.id) !== String(id);
+        return String(it.id) !== id;
       });
       deferredCacheAt = Date.now();
       try { renderTasksDrawer(false); } catch (e0) {}
       showToast("Убираю…");
       try {
-        // GET надёжнее opaque POST для мини-аппа
         var res = await apiGet({
           action: "cancelDeferred",
           telegramId: tid,
           id: id,
-          status: "cancelled",
           _: String(Date.now())
-        }, { timeoutMs: 15000, cacheTtlMs: 0 });
+        }, { timeoutMs: 20000, cacheTtlMs: 0 });
+        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        if (res && res.status === "not_found") {
+          // уже нет — ок
+          showToast("Убрано");
+          return;
+        }
         if (res && res.status && res.status !== "success") {
-          showToast("Не удалилось: " + (res.message || res.status));
+          showToast("Не удалилось: " + (res.message || res.status) + " — нужен Deploy Code.gs");
           deferredCacheAt = 0;
           await renderTasksDrawer(true);
           return;
         }
         showToast("Убрано");
-        try { _apiGetMem = Object.create(null); } catch (eClr) {}
-        setTimeout(function () { renderTasksDrawer(true); }, 800);
+        // не тащим старый кэш сервера
+        deferredCacheAt = 0;
+        setTimeout(function () {
+          try { _apiGetMem = Object.create(null); } catch (e2) {}
+          renderTasksDrawer(true);
+        }, 500);
       } catch (e) {
-        // fallback POST
         try {
           await apiPost({ action: "cancelDeferred", telegramId: tid, id: id, status: "cancelled" });
-          showToast("Убрано");
-          setTimeout(function () { renderTasksDrawer(true); }, 1000);
+          showToast("Убрано (отправка)");
+          deferredCacheAt = 0;
+          setTimeout(function () { renderTasksDrawer(true); }, 1200);
         } catch (e2) {
-          showToast("Не удалось отменить");
+          showToast("Не удалось отменить — Deploy Code.gs");
           deferredCacheAt = 0;
           await renderTasksDrawer(true);
         }

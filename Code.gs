@@ -8300,7 +8300,8 @@ function handleSaveDeferred_(json, callback, fromPost) {
   } catch (ePo) {}
   for (var r = 1; r < data.length; r++) {
     if (String(data[r][0]) === id && String(data[r][2]).trim() === tid) {
-      sh.getRange(r + 1, 4, r + 1, 9).setValues([[mode, title, nick, "open", payload, now]]);
+      // getRange(row, col, numRows, numColumns) — НЕ endRow/endCol
+      sh.getRange(r + 1, 4, 1, 6).setValues([[mode, title, nick, "open", payload, now]]);
       bustDeferredCache_(tid);
       if (targetForCache && targetForCache !== tid) bustDeferredCache_(targetForCache);
       if (mode === "remind") {
@@ -8330,7 +8331,7 @@ function handleUpdateDeferred_(json, callback, fromPost) {
   var sh = deferredSheet_();
   var data = sh.getDataRange().getValues();
   for (var r = 1; r < data.length; r++) {
-    if (String(data[r][0]) !== id) continue;
+    if (String(data[r][0] || "").trim() !== id) continue;
     var ownerTid = String(data[r][2] || "").trim();
     var payloadObj = {};
     try { payloadObj = JSON.parse(String(data[r][7] || "{}")); } catch (eP) { payloadObj = {}; }
@@ -8344,7 +8345,8 @@ function handleUpdateDeferred_(json, callback, fromPost) {
     if (json.payload != null) {
       payload = typeof json.payload === "object" ? JSON.stringify(json.payload) : String(json.payload);
     }
-    sh.getRange(r + 1, 4, r + 1, 9).setValues([[mode, title, nick, st, payload, new Date()]]);
+    // getRange(row, col, numRows, numColumns)
+    sh.getRange(r + 1, 4, 1, 6).setValues([[mode, title, nick, st, payload, new Date()]]);
     bustDeferredCache_(ownerTid);
     if (targetTid && targetTid !== ownerTid) bustDeferredCache_(targetTid);
     if (tid !== ownerTid && tid !== targetTid) bustDeferredCache_(tid);
@@ -8355,9 +8357,48 @@ function handleUpdateDeferred_(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
 }
 
+/** Удалить строку отложенного / напоминалки (не просто status=cancelled). */
 function handleCancelDeferred_(json, callback, fromPost) {
-  json.status = "cancelled";
-  return handleUpdateDeferred_(json, callback, fromPost);
+  var tid = String(json.telegramId || "").trim();
+  var id = String(json.id || "").trim();
+  if (!id) {
+    var bad = { status: "error", message: "need_id" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  // локальный optimistic id с фронта — нечего удалять на сервере
+  if (id.indexOf("local_") === 0) {
+    var localOk = { status: "success", id: id, local: true };
+    return fromPost ? jsonpText(callback, localOk) : jsonp(callback, localOk);
+  }
+  var sh = deferredSheet_();
+  var data = sh.getDataRange().getValues();
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][0] || "").trim() !== id) continue;
+    var ownerTid = String(data[r][2] || "").trim();
+    var payloadObj = {};
+    try { payloadObj = JSON.parse(String(data[r][7] || "{}")); } catch (eP) { payloadObj = {}; }
+    var targetTid = String((payloadObj && (payloadObj.targetTelegramId || payloadObj.forTelegramId)) || "").trim();
+    if (ownerTid !== tid && targetTid !== tid) continue;
+    try {
+      sh.deleteRow(r + 1);
+    } catch (eDel) {
+      // fallback: пометить cancelled корректным getRange
+      try {
+        sh.getRange(r + 1, 7, 1, 1).setValue("cancelled");
+        sh.getRange(r + 1, 9, 1, 1).setValue(new Date());
+      } catch (eMark) {
+        var fail = { status: "error", message: "delete_failed", detail: String(eDel) };
+        return fromPost ? jsonpText(callback, fail) : jsonp(callback, fail);
+      }
+    }
+    bustDeferredCache_(ownerTid);
+    if (targetTid && targetTid !== ownerTid) bustDeferredCache_(targetTid);
+    bustDeferredCache_(tid);
+    var ok = { status: "success", id: id, deleted: true };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  }
+  var miss = { status: "error", message: "not_found" };
+  return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
 }
 
 function parseDeferredRemindAt_(v) {
