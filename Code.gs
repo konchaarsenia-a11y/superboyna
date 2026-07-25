@@ -4750,7 +4750,9 @@ function handleGetViewCompare(json, callback, fromPost) {
 
   var ok = {
     status: "success",
-    day: resolved.day || "",
+    // если «Будущая» на другой дате — day пустой, чтобы UI не подтянул чужих через getClients
+    day: showWeek ? (resolved.day || "") : "",
+    targetDay: resolved.day || "",
     date: resolved.date ? dateKey_(resolved.date, tz) : "",
     dateIso: resolved.date ? isoDateKey_(resolved.date, tz) : "",
     dateNotInWeek: !!resolved.dateNotInWeek,

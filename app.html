@@ -893,7 +893,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.67</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.68</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1551,7 +1551,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.67";
+    const APP_VERSION = "v7.10.68";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3800,6 +3800,7 @@
     let monthClientsCache = [];
     let viewTransferDraft = []; // черновик переноса: визуально слева, в таблицу после «Сохранить»
     let viewDateOnlyMonth = false; // дата вне текущей недели — только колонка месяца
+    let viewFutureWrongDate = false; // «Будущая неделя» сейчас на другой дате
 
     function viewLoadingSkeletonHtml() {
       var card = function () {
@@ -3910,6 +3911,8 @@
       if (box) {
         if (viewDateOnlyMonth) {
           box.innerHTML = '<div class="view-idle">Этой даты нет в Пн–Пт.<br>Перенос пойдёт на «Будущую неделю» — жми → справа.</div>';
+        } else if (viewFutureWrongDate) {
+          box.innerHTML = '<div class="view-idle">На «Будущей неделе» сейчас <b>другая дата</b> (Пн).<br>Справа — люди на выбранный день. «→» + «Сохранить» переключит слот на эту дату.</div>';
         } else {
           box.innerHTML = (weekHtml || draftHtml)
             ? (weekHtml + draftHtml)
@@ -4274,7 +4277,7 @@
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || (res && res.result && res.result.message) || "ошибка";
           if (msg === "date_not_in_week") {
-            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.67.");
+            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.68.");
             return;
           }
           if (msg === "unknown_action") {
@@ -4309,6 +4312,7 @@
       const summary = document.getElementById("totalDaySummaryContainer");
       const deployHint = document.getElementById("viewDeployHint");
       viewDateOnlyMonth = false;
+      viewFutureWrongDate = false;
       if (!day && !dateStr) {
         resetViewIdleIfEmpty();
         return;
@@ -4335,6 +4339,10 @@
         var needDeploy = !compareRes || compareRes.status !== "success" || !Array.isArray(compareRes.month);
         var dateNotInWeek = !!(compareRes && compareRes.dateNotInWeek);
         var futureSlot = !!(compareRes && (compareRes.futureSlot || compareRes.day === "Будущая неделя"));
+        var futureDateMatches = !(compareRes && compareRes.futureDateMatches === false);
+        // «Будущая неделя» занята другой датой (напр. Пн 27, а смотрим Вт 28) — не подмешивать чужих
+        var futureWrongDate = !!(futureSlot && compareRes && compareRes.futureDateMatches === false);
+        viewFutureWrongDate = futureWrongDate;
         // вне недели, но есть слот «Будущая неделя» — можно переносить
         if (dateStr && !futureSlot && (dateNotInWeek || (compareRes && compareRes.status === "success" && !compareRes.day))) {
           viewDateOnlyMonth = true;
@@ -4343,7 +4351,7 @@
 
         var week = [];
         var weekRes = null;
-        if (!viewDateOnlyMonth) {
+        if (!viewDateOnlyMonth && !futureWrongDate) {
           var weekParams = { action: "getClients" };
           if (dateStr && compareRes && compareRes.day) weekParams.day = compareRes.day;
           else if (day) weekParams.day = day;
@@ -4358,12 +4366,16 @@
           week = (weekRes && weekRes.status === "success" && Array.isArray(weekRes.clients))
             ? weekRes.clients
             : ((compareRes && Array.isArray(compareRes.week)) ? compareRes.week : []);
+        } else if (futureWrongDate && compareRes && Array.isArray(compareRes.week)) {
+          week = []; // явно пусто — дата не совпала с A1 «Будущей недели»
         }
 
         var month = (!needDeploy && compareRes && Array.isArray(compareRes.month)) ? compareRes.month : [];
 
         const daySel = document.getElementById("viewDaySelect");
         var resolvedDay = (compareRes && compareRes.day) || (weekRes && weekRes.day) || (!dateStr ? day : "") || "";
+        // не подставлять «Будущая неделя» в селект, если A1 на другой дате — путает с Пн
+        if (futureWrongDate) resolvedDay = "";
         if (viewDateOnlyMonth && daySel) {
           daySel.selectedIndex = 0;
         } else if (resolvedDay && daySel) {
@@ -4373,6 +4385,8 @@
               break;
             }
           }
+        } else if (futureWrongDate && daySel) {
+          daySel.selectedIndex = 0;
         }
 
         loadedClientsRawData = week.map(function (c) {
@@ -4412,11 +4426,25 @@
         } catch (eSyncD) {}
         if (summary) {
           var sheetHint = (compareRes && compareRes.monthSheet) ? (" · " + compareRes.monthSheet) : "";
-          var futHint = futureSlot ? " · → Будущая неделя" : "";
+          var wd = "";
+          try {
+            if (dateShow) {
+              var iso = String(dateShow).indexOf("-") > 0 ? dateShow : "";
+              if (!iso && compareRes && compareRes.dateIso) iso = compareRes.dateIso;
+              if (iso) {
+                var wdNames = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+                var dt = new Date(iso + "T12:00:00");
+                if (!isNaN(dt.getTime())) wd = " · " + wdNames[dt.getDay()];
+              }
+            }
+          } catch (eWd) {}
+          var futHint = "";
+          if (futureWrongDate) futHint = " · слот «Будущая» занят другой датой";
+          else if (futureSlot) futHint = " · → Будущая неделя";
           summary.innerHTML = '<div class="total-summary-badge">' +
             (viewDateOnlyMonth
-              ? ("Календарь: " + month.length + dateLabel + sheetHint + " · нет слота недели")
-              : ("Неделя: " + week.length + " · календарь: " + month.length + dayLabel + dateLabel + sheetHint + futHint)) +
+              ? ("Календарь: " + month.length + dateLabel + wd + sheetHint + " · нет слота недели")
+              : ("Неделя: " + week.length + " · календарь: " + month.length + dayLabel + dateLabel + wd + sheetHint + futHint)) +
             "</div>";
         }
         if (deployHint && needDeploy) {
