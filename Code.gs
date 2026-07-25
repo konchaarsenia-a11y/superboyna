@@ -5612,25 +5612,81 @@ function parseCrmCalendarCell_(text) {
   };
 }
 
-/** Сколько «живых» ячеек-ников на листе месяца (день в шапке). */
+/** Строка-шапка дней: много чисел 1–31 и почти нет ников. */
+function isCrmDayHeaderRow_(rowVals) {
+  var dayHits = 0;
+  var nickHits = 0;
+  for (var c = 0; c < rowVals.length; c++) {
+    var raw = rowVals[c];
+    var s = String(raw == null ? "" : raw).trim();
+    if (!s) continue;
+    var dn = headerDayNumber_(raw);
+    // чистый номер дня (не «28 июля» длинной строкой с адресом)
+    if (isFinite(dn) && dn >= 1 && dn <= 31 && s.length <= 5 && !/\n/.test(s)) {
+      dayHits++;
+      continue;
+    }
+    if (parseCrmCalendarCell_(raw)) nickHits++;
+  }
+  return dayHits >= 3 && dayHits >= nickHits;
+}
+
+/**
+ * Блоки календаря месяца: шапка дней + строки людей до следующей шапки.
+ * На «Июль (копия)» бывает 2 блока: сверху 1/3/6… и ниже 2/7/9…/28/30.
+ */
+function findCrmMonthDayBlocks_(data) {
+  var headerRows = [];
+  for (var r = 0; r < data.length; r++) {
+    if (isCrmDayHeaderRow_(data[r])) headerRows.push(r);
+  }
+  if (!headerRows.length && data.length) {
+    var anyDay = false;
+    for (var c0 = 0; c0 < data[0].length; c0++) {
+      var d0 = headerDayNumber_(data[0][c0]);
+      if (isFinite(d0) && d0 >= 1 && d0 <= 31) { anyDay = true; break; }
+    }
+    if (anyDay) headerRows = [0];
+  }
+  var blocks = [];
+  for (var i = 0; i < headerRows.length; i++) {
+    var hr = headerRows[i];
+    var dataEnd = (i + 1 < headerRows.length) ? (headerRows[i + 1] - 1) : (data.length - 1);
+    var dayToCol = {};
+    var row = data[hr] || [];
+    for (var c = 0; c < row.length; c++) {
+      var dn = headerDayNumber_(row[c]);
+      var s = String(row[c] == null ? "" : row[c]).trim();
+      if (isFinite(dn) && dn >= 1 && dn <= 31 && s.length <= 5) dayToCol[dn] = c;
+    }
+    blocks.push({
+      headerRow: hr,
+      dataStart: hr + 1,
+      dataEnd: dataEnd,
+      dayToCol: dayToCol
+    });
+  }
+  return blocks;
+}
+
+/** Сколько «живых» ячеек-ников на листе месяца (все блоки дней). */
 function scoreCrmMonthSheet_(sh) {
   if (!sh) return -1;
   try {
     var lastCol = Math.max(1, sh.getLastColumn());
     var lastRow = Math.max(1, sh.getLastRow());
     if (lastRow < 2 || lastCol < 1) return 0;
-    var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
-    var dayCols = [];
-    for (var c = 0; c < headers.length; c++) {
-      var dn = headerDayNumber_(headers[c]);
-      if (isFinite(dn) && dn >= 1 && dn <= 31) dayCols.push(c + 1);
-    }
-    if (!dayCols.length) return 0;
+    var data = sh.getRange(1, 1, lastRow, lastCol).getValues();
+    var blocks = findCrmMonthDayBlocks_(data);
     var nicks = 0;
-    for (var i = 0; i < dayCols.length; i++) {
-      var vals = sh.getRange(2, dayCols[i], lastRow, dayCols[i]).getValues();
-      for (var r = 0; r < vals.length; r++) {
-        if (parseCrmCalendarCell_(vals[r][0])) nicks++;
+    for (var b = 0; b < blocks.length; b++) {
+      var bl = blocks[b];
+      for (var day in bl.dayToCol) {
+        if (!bl.dayToCol.hasOwnProperty(day)) continue;
+        var col = bl.dayToCol[day];
+        for (var r = bl.dataStart; r <= bl.dataEnd; r++) {
+          if (parseCrmCalendarCell_((data[r] || [])[col])) nicks++;
+        }
       }
     }
     return nicks;
@@ -5679,42 +5735,46 @@ function resolveCrmMonthSheet_(crmSs, deliveryDate) {
   return best;
 }
 
-/** Быстрый перенос одного CRM-месяца → Календарь_Дат (без тяжёлого fill корзин). */
+/** Быстрый перенос одного CRM-месяца → Календарь_Дат (все блоки дней). */
 function migrateCrmMonthSheetBulk_(ss, crmSs, sh, year, monthIdx) {
   if (!sh) return { sheet: "", people: 0, days: 0 };
   var lastCol = Math.max(1, sh.getLastColumn());
   var lastRow = Math.max(1, sh.getLastRow());
   if (lastRow < 2) return { sheet: sh.getName(), people: 0, days: 0 };
   var data = sh.getRange(1, 1, lastRow, lastCol).getValues();
-  var headers = data[0];
+  var blocks = findCrmMonthDayBlocks_(data);
   var people = 0;
   var daysHit = {};
-  for (var c = 0; c < headers.length; c++) {
-    var dn = headerDayNumber_(headers[c]);
-    if (!isFinite(dn) || dn < 1 || dn > 31) continue;
-    var d = new Date(year, monthIdx, dn);
-    if (d.getMonth() !== monthIdx) continue;
-    for (var r = 1; r < data.length; r++) {
-      var parsed = parseCrmCalendarCell_(data[r][c]);
-      if (!parsed) continue;
-      upsertCalendarEntry_(ss, {
-        date: d,
-        client: displayClientNick_(parsed.client) || parsed.client,
-        matchKey: parsed.matchKey,
-        segment: parsed.segment || "",
-        address: parsed.address || "",
-        phone: parsed.phone || "",
-        note: parsed.note || "",
-        basket: [],
-        source: "crm",
-        status: "planned",
-        legacyRef: sh.getName() + ":" + dn
-      });
-      people++;
-      daysHit[dn] = true;
+  for (var b = 0; b < blocks.length; b++) {
+    var bl = blocks[b];
+    for (var dayStr in bl.dayToCol) {
+      if (!bl.dayToCol.hasOwnProperty(dayStr)) continue;
+      var dn = Number(dayStr);
+      var col = bl.dayToCol[dayStr];
+      var d = new Date(year, monthIdx, dn);
+      if (d.getMonth() !== monthIdx) continue;
+      for (var r = bl.dataStart; r <= bl.dataEnd; r++) {
+        var parsed = parseCrmCalendarCell_((data[r] || [])[col]);
+        if (!parsed) continue;
+        upsertCalendarEntry_(ss, {
+          date: d,
+          client: displayClientNick_(parsed.client) || parsed.client,
+          matchKey: parsed.matchKey,
+          segment: parsed.segment || "",
+          address: parsed.address || "",
+          phone: parsed.phone || "",
+          note: parsed.note || "",
+          basket: [],
+          source: "crm",
+          status: "planned",
+          legacyRef: sh.getName() + ":b" + bl.headerRow + ":" + dn
+        });
+        people++;
+        daysHit[dn] = true;
+      }
     }
   }
-  return { sheet: sh.getName(), people: people, days: Object.keys(daysHit).length };
+  return { sheet: sh.getName(), people: people, days: Object.keys(daysHit).length, blocks: blocks.length };
 }
 
 function headerDayNumber_(hv) {
@@ -5735,23 +5795,22 @@ function readCrmClientsForDate_(crmSs, deliveryDate) {
   var lastCol = Math.max(1, sh.getLastColumn());
   var lastRow = Math.max(1, sh.getLastRow());
   if (lastRow < 2) return [];
-  var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
-  var col = -1;
-  for (var c = 0; c < headers.length; c++) {
-    if (headerDayNumber_(headers[c]) === dayNum) { col = c + 1; break; }
-  }
-  if (col < 0) return [];
-  // важно: getRange(r1,c1,r2,c2) — до lastRow включительно, только нужный столбец
-  var values = sh.getRange(2, col, lastRow, col).getValues();
+  var data = sh.getRange(1, 1, lastRow, lastCol).getValues();
+  var blocks = findCrmMonthDayBlocks_(data);
   var out = [];
   var seen = {};
-  for (var r = 0; r < values.length; r++) {
-    var parsed = parseCrmCalendarCell_(values[r][0]);
-    if (!parsed) continue;
-    var key = parsed.matchKey || clientMatchKey_(parsed.client);
-    if (!key || seen[key]) continue;
-    seen[key] = true;
-    out.push(parsed);
+  for (var b = 0; b < blocks.length; b++) {
+    var bl = blocks[b];
+    if (!bl.dayToCol.hasOwnProperty(dayNum) && !bl.dayToCol.hasOwnProperty(String(dayNum))) continue;
+    var col = bl.dayToCol[dayNum] != null ? bl.dayToCol[dayNum] : bl.dayToCol[String(dayNum)];
+    for (var r = bl.dataStart; r <= bl.dataEnd; r++) {
+      var parsed = parseCrmCalendarCell_((data[r] || [])[col]);
+      if (!parsed) continue;
+      var key = parsed.matchKey || clientMatchKey_(parsed.client);
+      if (!key || seen[key]) continue;
+      seen[key] = true;
+      out.push(parsed);
+    }
   }
   return out;
 }
@@ -5781,20 +5840,24 @@ function handleCrmInventory(json, callback, fromPost) {
       if (!sh) return;
       var lastCol = Math.max(1, sh.getLastColumn());
       var lastRow = Math.max(1, sh.getLastRow());
-      var headers = lastCol ? sh.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+      var dataInv = (lastRow >= 1 && lastCol >= 1) ? sh.getRange(1, 1, lastRow, lastCol).getValues() : [];
+      var blocksInv = findCrmMonthDayBlocks_(dataInv);
       var days = [];
+      var daysSeen = {};
       var cellsWithNick = 0;
-      for (var c = 0; c < headers.length; c++) {
-        var dn = headerDayNumber_(headers[c]);
-        if (!isFinite(dn) || dn < 1 || dn > 31) continue;
-        days.push(dn);
-        if (lastRow >= 2) {
-          var colVals = sh.getRange(2, c + 1, lastRow, c + 1).getValues();
-          for (var r = 0; r < colVals.length; r++) {
-            if (parseCrmCalendarCell_(colVals[r][0])) cellsWithNick++;
+      for (var bi = 0; bi < blocksInv.length; bi++) {
+        var blI = blocksInv[bi];
+        for (var dayKey in blI.dayToCol) {
+          if (!blI.dayToCol.hasOwnProperty(dayKey)) continue;
+          var dnI = Number(dayKey);
+          if (!daysSeen[dnI]) { daysSeen[dnI] = true; days.push(dnI); }
+          var colI = blI.dayToCol[dayKey];
+          for (var rI = blI.dataStart; rI <= blI.dataEnd; rI++) {
+            if (parseCrmCalendarCell_((dataInv[rI] || [])[colI])) cellsWithNick++;
           }
         }
       }
+      days.sort(function (a, b) { return a - b; });
       months.push({
         sheet: name,
         month: base,
