@@ -121,9 +121,14 @@ function jsonpText(callback, obj) {
 }
 
 function formatSheetDate(val, tz) {
-  if (!val) return "";
-  if (val instanceof Date) return Utilities.formatDate(val, tz, "dd.MM.yyyy");
-  return val.toString();
+  if (!val && val !== 0) return "";
+  tz = tz || SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  if (val instanceof Date && !isNaN(val.getTime())) {
+    return Utilities.formatDate(val, tz, "dd.MM.yyyy");
+  }
+  var d = parseFlexibleDate_(val, tz);
+  if (d) return Utilities.formatDate(d, tz, "dd.MM.yyyy");
+  return String(val).trim();
 }
 
 function getCuttingItemMap_() {
@@ -689,6 +694,11 @@ function doGet(e) {
       deliveryDate: e.parameter.deliveryDate ? decodeURIComponent(e.parameter.deliveryDate) : ""
     }, callback, false);
   }
+  if (action === "migrateCalendar") {
+    return handleMigrateCalendar({
+      full: e.parameter.full || ""
+    }, callback, false);
+  }
   if (action === "getStats") {
     return handleGetStats({
       period: e.parameter.period || "month"
@@ -891,6 +901,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "resolveDayForDate") {
     return handleResolveDayForDate(json, callback, fromPost);
+  }
+  if (action === "migrateCalendar") {
+    return handleMigrateCalendar(json, callback, fromPost);
   }
   if (action === "setupBookingTriggers") {
     return handleSetupBookingTriggers(callback, fromPost);
@@ -3834,6 +3847,266 @@ function getBookingsSheet_() {
   return sh;
 }
 
+/* ========== Календарь_Дат — плоский список для мини-аппа (Просмотр / запись) ========== */
+
+var CALENDAR_HEADERS_ = [
+  "date", "dateIso", "client", "matchKey", "segment",
+  "address", "phone", "note", "basketJson", "subId",
+  "source", "status", "dayName", "updatedAt", "pulledAt", "legacyRef"
+];
+
+function getCalendarSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  return getOrCreateSheet_(ss, "Календарь_Дат", CALENDAR_HEADERS_);
+}
+
+function readAllCalendarRows_() {
+  var sh = getCalendarSheet_();
+  var data = sh.getDataRange().getValues();
+  if (data.length < 2) return [];
+  var out = [];
+  for (var r = 1; r < data.length; r++) {
+    var client = String(data[r][2] || "").trim();
+    if (!client) continue;
+    var basket = [];
+    try { basket = JSON.parse(String(data[r][8] || "[]")); } catch (e) { basket = []; }
+    out.push({
+      rowIndex: r + 1,
+      date: data[r][0],
+      dateIso: String(data[r][1] || ""),
+      client: client,
+      matchKey: String(data[r][3] || "") || clientMatchKey_(client),
+      segment: String(data[r][4] || ""),
+      address: String(data[r][5] || ""),
+      phone: String(data[r][6] || ""),
+      note: String(data[r][7] || ""),
+      basket: Array.isArray(basket) ? basket : [],
+      basketJson: String(data[r][8] || ""),
+      subId: String(data[r][9] || ""),
+      source: String(data[r][10] || ""),
+      status: String(data[r][11] || "planned"),
+      dayName: String(data[r][12] || ""),
+      updatedAt: data[r][13],
+      pulledAt: data[r][14],
+      legacyRef: String(data[r][15] || "")
+    });
+  }
+  return out;
+}
+
+function upsertCalendarEntry_(ss, opts) {
+  opts = opts || {};
+  var tz = ss.getSpreadsheetTimeZone();
+  var deliveryDate = opts.date instanceof Date ? opts.date : parseFlexibleDate_(opts.date || opts.dateIso, tz);
+  var client = String(opts.client || "").trim();
+  if (!deliveryDate || !client) return null;
+  var dateStr = dateKey_(deliveryDate, tz);
+  var dateIso = isoDateKey_(deliveryDate, tz);
+  var matchKey = String(opts.matchKey || "").trim() || clientMatchKey_(client);
+  var status = String(opts.status || "planned").trim() || "planned";
+  var sh = getCalendarSheet_();
+  var all = readAllCalendarRows_();
+  var existing = null;
+  for (var i = 0; i < all.length; i++) {
+    var bd = parseFlexibleDate_(all[i].date, tz) || parseFlexibleDate_(all[i].dateIso, tz);
+    if (!bd || dateKey_(bd, tz) !== dateStr) continue;
+    var st = String(all[i].status || "").toLowerCase();
+    if (st === "cancelled") continue;
+    if (matchKey && all[i].matchKey === matchKey) { existing = all[i]; break; }
+    if (nicksMatch_(all[i].client, client)) { existing = all[i]; break; }
+  }
+  var basket = opts.basket;
+  if (!basket && opts.basketJson) {
+    try { basket = JSON.parse(String(opts.basketJson)); } catch (eB) { basket = []; }
+  }
+  if (!Array.isArray(basket)) basket = existing ? (existing.basket || []) : [];
+  var now = new Date();
+  var rowVals = [
+    dateStr,
+    dateIso,
+    client,
+    matchKey,
+    String(opts.segment != null ? opts.segment : (existing && existing.segment) || ""),
+    String(opts.address != null ? opts.address : (existing && existing.address) || ""),
+    String(opts.phone != null ? opts.phone : (existing && existing.phone) || ""),
+    String(opts.note != null ? opts.note : (existing && existing.note) || ""),
+    JSON.stringify(basket),
+    String(opts.subId != null ? opts.subId : (existing && existing.subId) || ""),
+    String(opts.source != null ? opts.source : (existing && existing.source) || "manual"),
+    status,
+    String(opts.dayName != null ? opts.dayName : (existing && existing.dayName) || findDayNameForDate_(ss, deliveryDate) || ""),
+    now,
+    opts.pulledAt != null ? opts.pulledAt : (existing && existing.pulledAt) || "",
+    String(opts.legacyRef != null ? opts.legacyRef : (existing && existing.legacyRef) || "")
+  ];
+  if (existing) {
+    sh.getRange(existing.rowIndex, 1, 1, CALENDAR_HEADERS_.length).setValues([rowVals]);
+    return { updated: true, row: existing.rowIndex, date: dateStr, dateIso: dateIso, client: client };
+  }
+  sh.appendRow(rowVals);
+  return { created: true, date: dateStr, dateIso: dateIso, client: client };
+}
+
+function readCalendarForDate_(ss, deliveryDate) {
+  var tz = ss.getSpreadsheetTimeZone();
+  var want = dateKey_(deliveryDate, tz);
+  var wantIso = isoDateKey_(deliveryDate, tz);
+  var all = readAllCalendarRows_();
+  var out = [];
+  var seen = {};
+  for (var i = 0; i < all.length; i++) {
+    var st = String(all[i].status || "").toLowerCase();
+    if (st === "cancelled") continue;
+    var bd = parseFlexibleDate_(all[i].date, tz) || parseFlexibleDate_(all[i].dateIso, tz);
+    var keyD = bd ? dateKey_(bd, tz) : String(all[i].date || "");
+    var iso = String(all[i].dateIso || "");
+    if (keyD !== want && iso !== wantIso) continue;
+    var mk = all[i].matchKey || clientMatchKey_(all[i].client);
+    if (mk && seen[mk]) continue;
+    if (mk) seen[mk] = true;
+    out.push(all[i]);
+  }
+  return out;
+}
+
+/** Подтянуть в Календарь_Дат CRM-месяц + брони на дату (если в календаре пусто или force). */
+function seedCalendarForDate_(ss, deliveryDate, opts) {
+  opts = opts || {};
+  var tz = ss.getSpreadsheetTimeZone();
+  var existing = readCalendarForDate_(ss, deliveryDate);
+  if (existing.length && !opts.force) return { seeded: 0, existing: existing.length, from: "calendar" };
+
+  var added = 0;
+  // 1) из Брони_Заказов
+  try {
+    var bookings = readAllBookings_();
+    var want = dateKey_(deliveryDate, tz);
+    for (var b = 0; b < bookings.length; b++) {
+      var bd = parseFlexibleDate_(bookings[b].date, tz);
+      if (!bd || dateKey_(bd, tz) !== want) continue;
+      if (String(bookings[b].status) === "cancelled") continue;
+      upsertCalendarEntry_(ss, {
+        date: deliveryDate,
+        client: bookings[b].client,
+        address: bookings[b].address,
+        note: bookings[b].note,
+        phone: extractPhoneFromNote_(bookings[b].note || ""),
+        basket: bookings[b].basket,
+        subId: bookings[b].subId,
+        source: bookings[b].source || "booking",
+        status: bookings[b].status || "planned",
+        dayName: bookings[b].dayName || "",
+        pulledAt: bookings[b].pulledAt || "",
+        legacyRef: "booking:" + bookings[b].id
+      });
+      added++;
+    }
+  } catch (eB) {}
+
+  // 2) из CRM-месяца (сетка)
+  try {
+    var crmSs = getCrmSpreadsheet_();
+    var crmClients = readCrmClientsForDate_(crmSs, deliveryDate);
+    var shName = "";
+    try {
+      var msh = resolveCrmMonthSheet_(crmSs, deliveryDate);
+      shName = msh ? msh.getName() : "";
+    } catch (eN) {}
+    for (var i = 0; i < crmClients.length; i++) {
+      var cc = crmClients[i];
+      var basket = [];
+      try {
+        var filled = fillSubscriptionBasketForDate_(ss, crmSs, cc.client, cc.segment, deliveryDate);
+        basket = filled.basket || [];
+      } catch (eF) {}
+      upsertCalendarEntry_(ss, {
+        date: deliveryDate,
+        client: displayClientNick_(cc.client) || cc.client,
+        matchKey: cc.matchKey,
+        segment: cc.segment || "",
+        address: cc.address || "",
+        phone: cc.phone || "",
+        note: cc.note || "",
+        basket: basket,
+        source: "crm",
+        status: "planned",
+        legacyRef: shName ? (shName + ":" + deliveryDate.getDate()) : "crm"
+      });
+      added++;
+    }
+  } catch (eC) {}
+
+  return { seeded: added, existing: readCalendarForDate_(ss, deliveryDate).length, from: "seed" };
+}
+
+/** Разовая/по запросу миграция: все дни текущих CRM-месяцев + все брони → Календарь_Дат. */
+function handleMigrateCalendar(json, callback, fromPost) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone();
+  getCalendarSheet_();
+  var stats = { bookings: 0, crmDays: 0, crmPeople: 0, errors: [] };
+  // все брони
+  try {
+    var bookings = readAllBookings_();
+    for (var i = 0; i < bookings.length; i++) {
+      if (String(bookings[i].status) === "cancelled") continue;
+      var bd = parseFlexibleDate_(bookings[i].date, tz);
+      if (!bd) continue;
+      upsertCalendarEntry_(ss, {
+        date: bd,
+        client: bookings[i].client,
+        address: bookings[i].address,
+        note: bookings[i].note,
+        phone: extractPhoneFromNote_(bookings[i].note || ""),
+        basket: bookings[i].basket,
+        subId: bookings[i].subId,
+        source: bookings[i].source || "booking",
+        status: bookings[i].status || "planned",
+        dayName: bookings[i].dayName || "",
+        pulledAt: bookings[i].pulledAt || "",
+        legacyRef: "booking:" + bookings[i].id
+      });
+      stats.bookings++;
+    }
+  } catch (e1) {
+    stats.errors.push("bookings:" + String(e1));
+  }
+  // CRM: текущий и соседние месяцы (±1) или все если json.full
+  try {
+    var crmSs = getCrmSpreadsheet_();
+    var now = new Date();
+    var months = [];
+    if (json && (json.full === true || json.full === "1" || json.full === 1)) {
+      for (var m = 0; m < 12; m++) months.push(m);
+    } else {
+      var cur = now.getMonth();
+      months = [(cur + 11) % 12, cur, (cur + 1) % 12];
+    }
+    var year = now.getFullYear();
+    for (var mi = 0; mi < months.length; mi++) {
+      var monthIdx = months[mi];
+      var y = year;
+      if (monthIdx === 11 && now.getMonth() === 0 && !(json && json.full)) y = year - 1;
+      if (monthIdx === 0 && now.getMonth() === 11 && !(json && json.full)) y = year + 1;
+      var daysInMonth = new Date(y, monthIdx + 1, 0).getDate();
+      for (var day = 1; day <= daysInMonth; day++) {
+        var d = new Date(y, monthIdx, day);
+        var before = readCalendarForDate_(ss, d).length;
+        seedCalendarForDate_(ss, d, { force: false });
+        var after = readCalendarForDate_(ss, d).length;
+        if (after > before) {
+          stats.crmDays++;
+          stats.crmPeople += (after - before);
+        }
+      }
+    }
+  } catch (e2) {
+    stats.errors.push("crm:" + String(e2));
+  }
+  var ok = { status: "success", sheet: "Календарь_Дат", stats: stats };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
 function parseFlexibleDate_(val, tz) {
   if (!val) return null;
   if (Object.prototype.toString.call(val) === "[object Date]" && !isNaN(val.getTime())) {
@@ -4030,6 +4303,23 @@ function handleSaveBooking(ss, json, callback, fromPost) {
   } else {
     sh.appendRow(rowVals);
   }
+
+  try {
+    upsertCalendarEntry_(ss, {
+      date: deliveryDate,
+      client: client,
+      address: json.address != null ? json.address : (existing && existing.address) || "",
+      phone: json.phone || extractPhoneFromNote_(note),
+      note: note,
+      basket: basket,
+      subId: json.subId || (existing && existing.subId) || "",
+      source: json.source || (existing && existing.source) || "retail",
+      status: wasPulled ? "pulled" : "planned",
+      dayName: dayName,
+      pulledAt: wasPulled ? (existing.pulledAt || "") : "",
+      legacyRef: "booking:" + id
+    });
+  } catch (eCal) {}
 
   try {
     upsertClientProfile_(ss, client, json.address, json.phone || extractPhoneFromNote_(note), note, json.source || "retail");
@@ -4339,27 +4629,68 @@ function handleGetViewCompare(json, callback, fromPost) {
 
   var month = [];
   var monthSheet = "";
+  var calendarSeed = null;
   if (resolved.date) {
     try {
-      var crmSs = getCrmSpreadsheet_();
-      var sh = resolveCrmMonthSheet_(crmSs, resolved.date);
-      monthSheet = sh ? sh.getName() : "";
-      var crmClients = readCrmClientsForDate_(crmSs, resolved.date);
-      for (var i = 0; i < crmClients.length; i++) {
-        var cc = crmClients[i];
+      getCalendarSheet_();
+      calendarSeed = seedCalendarForDate_(ss, resolved.date, { force: false });
+      var calClients = readCalendarForDate_(ss, resolved.date);
+      monthSheet = "Календарь_Дат";
+      // если календарь пуст — последний шанс CRM напрямую
+      if (!calClients.length) {
+        try {
+          var crmSs0 = getCrmSpreadsheet_();
+          var sh0 = resolveCrmMonthSheet_(crmSs0, resolved.date);
+          monthSheet = sh0 ? sh0.getName() : "Календарь_Дат";
+          var crmDirect = readCrmClientsForDate_(crmSs0, resolved.date);
+          for (var cd = 0; cd < crmDirect.length; cd++) {
+            upsertCalendarEntry_(ss, {
+              date: resolved.date,
+              client: displayClientNick_(crmDirect[cd].client) || crmDirect[cd].client,
+              matchKey: crmDirect[cd].matchKey,
+              segment: crmDirect[cd].segment || "",
+              address: crmDirect[cd].address || "",
+              phone: crmDirect[cd].phone || "",
+              note: crmDirect[cd].note || "",
+              source: "crm",
+              status: "planned"
+            });
+          }
+          calClients = readCalendarForDate_(ss, resolved.date);
+        } catch (eDirect) {}
+      }
+      for (var i = 0; i < calClients.length; i++) {
+        var cc = calClients[i];
         var key = cc.matchKey || clientMatchKey_(cc.client);
         if (key && already[key]) continue;
         var display = displayClientNick_(cc.client) || String(cc.client || "");
         var gaps = [];
         if (!String(cc.address || "").trim()) gaps.push("address");
-        if (!String(cc.phone || "").trim()) gaps.push("phone");
-        var basketCount = 0;
+        if (!String(cc.phone || "").trim() && !extractPhoneFromNote_(cc.note || "")) gaps.push("phone");
+        var basketCount = (cc.basket || []).length;
         var basketHint = "";
-        try {
-          var filled = fillSubscriptionBasketForDate_(ss, crmSs, cc.client, cc.segment, resolved.date);
-          basketCount = (filled.basket || []).length;
-          basketHint = filled.hint || "";
-        } catch (eB) {}
+        if (!basketCount) {
+          try {
+            var crmSs = getCrmSpreadsheet_();
+            var filled = fillSubscriptionBasketForDate_(ss, crmSs, cc.client, cc.segment, resolved.date);
+            basketCount = (filled.basket || []).length;
+            basketHint = filled.hint || "";
+            if (basketCount) {
+              upsertCalendarEntry_(ss, {
+                date: resolved.date,
+                client: cc.client,
+                matchKey: key,
+                segment: cc.segment,
+                address: cc.address,
+                phone: cc.phone,
+                note: cc.note,
+                basket: filled.basket,
+                source: cc.source || "subscription",
+                status: cc.status || "planned"
+              });
+            }
+          } catch (eB) {}
+        }
         if (!basketCount) gaps.push("basket");
         month.push({
           name: display,
@@ -4367,14 +4698,16 @@ function handleGetViewCompare(json, callback, fromPost) {
           segment: cc.segment || "",
           note: cc.note || "",
           address: cc.address || "",
-          phone: cc.phone || "",
+          phone: cc.phone || extractPhoneFromNote_(cc.note || ""),
           basketCount: basketCount,
           basketHint: basketHint,
-          gaps: gaps
+          gaps: gaps,
+          source: cc.source || ""
         });
       }
     } catch (eM) {
       monthSheet = "";
+      month = [];
     }
   }
 
@@ -4382,8 +4715,11 @@ function handleGetViewCompare(json, callback, fromPost) {
     status: "success",
     day: resolved.day || "",
     date: resolved.date ? dateKey_(resolved.date, tz) : "",
+    dateIso: resolved.date ? isoDateKey_(resolved.date, tz) : "",
     dateNotInWeek: !!resolved.dateNotInWeek,
     monthSheet: monthSheet,
+    calendar: true,
+    calendarSeed: calendarSeed,
     week: week,
     month: month,
     weekCount: week.length,
