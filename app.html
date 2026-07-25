@@ -188,18 +188,6 @@
       border: 1px solid var(--border-color);
     }
     .client-item-card.selected { border-color: var(--accent-color); background: #1a222c; }
-    .view-split {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      gap: 8px;
-      align-items: start;
-      margin-top: 8px;
-    }
-    @media (max-width: 360px) {
-      .view-col-head b { font-size: 12px; }
-      .client-title { font-size: 13px; }
-      .crm-mini-btn { width: 28px; height: 28px; font-size: 12px; }
-    }
     .view-col {
       min-width: 0;
       background: #101010;
@@ -209,6 +197,22 @@
       max-height: min(72vh, 680px);
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      overscroll-behavior-y: contain;
+      touch-action: pan-y;
+    }
+    .view-split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+      margin-top: 8px;
+      overscroll-behavior: contain;
+    }
+    @media (max-width: 360px) {
+      .view-col-head b { font-size: 12px; }
+      .client-title { font-size: 13px; }
+      .crm-mini-btn { width: 28px; height: 28px; font-size: 12px; }
     }
     .view-col .client-item-card {
       padding: 10px 8px;
@@ -893,7 +897,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.68</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.69</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1551,7 +1555,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.68";
+    const APP_VERSION = "v7.10.69";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -1728,7 +1732,18 @@
         tg = window.Telegram.WebApp;
         tg.ready();
         tg.expand();
-        try { tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch (e) {}
+        function lockTgSwipes_() {
+          try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e1) {}
+          try { if (tg.enableClosingConfirmation) tg.enableClosingConfirmation(); } catch (e2) {}
+          try { if (tg.expand) tg.expand(); } catch (e3) {}
+        }
+        lockTgSwipes_();
+        try {
+          if (tg.onEvent) {
+            tg.onEvent("viewportChanged", lockTgSwipes_);
+            tg.onEvent("fullscreenChanged", lockTgSwipes_);
+          }
+        } catch (eEv) {}
         try {
           if (tg.setHeaderColor) tg.setHeaderColor("#0a0a0a");
           if (tg.setBackgroundColor) tg.setBackgroundColor("#0a0a0a");
@@ -1742,6 +1757,15 @@
         } catch (e) {}
       }
     } catch (e) {}
+
+    // Скролл внутри колонок Просмотра не должен уезжать в «свернуть» миниапп
+    try {
+      document.addEventListener("touchmove", function (ev) {
+        var t = ev.target;
+        if (!t || !t.closest) return;
+        if (t.closest(".view-col, #notesModalBody, .modal-sheet, .screen-scroll")) return;
+      }, { passive: true });
+    } catch (eTm) {}
 
     function applyTelegramSafeArea() {
       var top = 12;
@@ -4038,10 +4062,11 @@
       var stageBtn = viewDateOnlyMonth
         ? '<button type="button" class="btn-action btn-purple" style="margin:0;padding:8px 10px;font-size:11px;opacity:0.4;" disabled title="Дата вне недели">→</button>'
         : '<button type="button" class="btn-action btn-purple" style="margin:0;padding:8px 10px;font-size:11px;" onclick="stageMonthClient(' + index + ')">→</button>';
+      var remBtn = '<button type="button" class="seg-btn" style="margin:0;padding:8px 10px;font-size:11px;" title="Убрать из календаря" onclick="removeMonthClient(' + index + ',event)">✕</button>';
       return '<div class="client-item-card view-month-card' + gapClass + '" id="monthCard_' + index + '">' +
         '<div class="client-main-row" onclick="toggleMonthDetail(' + index + ', event)">' +
         '<div class="client-title-wrap"><span class="client-title">' + escapeHtml(nick) + "</span></div>" +
-        '<div class="client-right-block" onclick="event.stopPropagation()">' + stageBtn + "</div>" +
+        '<div class="client-right-block" onclick="event.stopPropagation()" style="display:flex;gap:4px;">' + remBtn + stageBtn + "</div>" +
         "</div>" +
         addrHtml +
         phoneHtml +
@@ -4049,6 +4074,42 @@
         '<div class="client-order-details" id="monthDetails_' + index + '"><p class="muted">Загрузка состава…</p></div>' +
         "</div>";
     }
+
+    async function removeMonthClient(index, event) {
+      if (event) event.stopPropagation();
+      var draftKeys = {};
+      viewTransferDraft.forEach(function (d) {
+        var k = d.matchKey || viewClientKey(d.name);
+        if (k) draftKeys[k] = true;
+      });
+      var visible = (monthClientsCache || []).filter(function (c) {
+        var k = c.matchKey || viewClientKey(c.name);
+        return !(k && draftKeys[k]);
+      });
+      var client = visible[index];
+      if (!client) return;
+      var dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "";
+      var ok = await uiConfirmAsync("Убрать «" + client.name + "» из Календарь_Дат на эту дату?\nС недели / Прием заказов не трогаем.");
+      if (!ok) return;
+      try {
+        var res = await apiGet({
+          action: "removeCalendarClient",
+          date: dateStr,
+          client: client.name,
+          matchKey: client.matchKey || "",
+          _: String(Date.now())
+        }, { timeoutMs: 30000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          showToast("Не вышло: " + ((res && res.message) || "Deploy?"));
+          return;
+        }
+        showToast("Убрано из календаря");
+        await loadClientsForDay();
+      } catch (e) {
+        showToast(e.message || "Ошибка");
+      }
+    }
+    window.removeMonthClient = removeMonthClient;
 
     function stageMonthClient(index) {
       if (viewDateOnlyMonth) {
@@ -4277,7 +4338,7 @@
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || (res && res.result && res.result.message) || "ошибка";
           if (msg === "date_not_in_week") {
-            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.68.");
+            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.69.");
             return;
           }
           if (msg === "unknown_action") {

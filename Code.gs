@@ -696,7 +696,16 @@ function doGet(e) {
   }
   if (action === "migrateCalendar") {
     return handleMigrateCalendar({
-      full: e.parameter.full || ""
+      full: e.parameter.full || "",
+      months: e.parameter.months || "",
+      year: e.parameter.year || ""
+    }, callback, false);
+  }
+  if (action === "removeCalendarClient") {
+    return handleRemoveCalendarClient({
+      date: e.parameter.date ? decodeURIComponent(e.parameter.date) : "",
+      client: e.parameter.client ? decodeURIComponent(e.parameter.client) : "",
+      matchKey: e.parameter.matchKey ? decodeURIComponent(e.parameter.matchKey) : ""
     }, callback, false);
   }
   if (action === "getStats") {
@@ -904,6 +913,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "migrateCalendar") {
     return handleMigrateCalendar(json, callback, fromPost);
+  }
+  if (action === "removeCalendarClient") {
+    return handleRemoveCalendarClient(json, callback, fromPost);
   }
   if (action === "setupBookingTriggers") {
     return handleSetupBookingTriggers(callback, fromPost);
@@ -2132,7 +2144,29 @@ function getClientsData_(ss, dayName) {
       }
     }
   }
-  return { status: "success", clients: clientsDataList };
+  // дедуп по matchKey — иначе дубли колонок (тест/оболочки) наслаиваются в UI
+  var deduped = [];
+  var seenKeys = {};
+  for (var di = 0; di < clientsDataList.length; di++) {
+    var cl = clientsDataList[di];
+    var mk = clientMatchKey_(cl.name);
+    if (!mk) {
+      deduped.push(cl);
+      continue;
+    }
+    if (!seenKeys.hasOwnProperty(mk)) {
+      seenKeys[mk] = deduped.length;
+      deduped.push(cl);
+      continue;
+    }
+    var prev = deduped[seenKeys[mk]];
+    var prevLen = (prev.basket || []).length;
+    var nextLen = (cl.basket || []).length;
+    if (nextLen > prevLen || (nextLen === prevLen && String(cl.name).length > String(prev.name).length)) {
+      deduped[seenKeys[mk]] = cl;
+    }
+  }
+  return { status: "success", clients: deduped };
 }
 
 /** Единый разбор имени строки листа → name/sub/cat/unit для mini-app. */
@@ -4124,6 +4158,42 @@ function handleMigrateCalendar(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
+/** Убрать человека с даты в Календарь_Дат (+ отменить бронь). Неделю не трогает. */
+function handleRemoveCalendarClient(json, callback, fromPost) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone();
+  var deliveryDate = parseFlexibleDate_((json && (json.date || json.deliveryDate)) || "", tz);
+  var client = String((json && (json.client || json.nick || json.name)) || "").trim();
+  if (!deliveryDate || !client) {
+    var bad = { status: "error", message: "need_date_and_client" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var matchKey = String((json && json.matchKey) || "").trim() || clientMatchKey_(client);
+  var all = readAllCalendarRows_();
+  var want = dateKey_(deliveryDate, tz);
+  var removed = 0;
+  var sh = getCalendarSheet_();
+  for (var i = all.length - 1; i >= 0; i--) {
+    var st = String(all[i].status || "").toLowerCase();
+    if (st === "cancelled") continue;
+    var bd = parseFlexibleDate_(all[i].date, tz) || parseFlexibleDate_(all[i].dateIso, tz);
+    if (!bd || dateKey_(bd, tz) !== want) continue;
+    var same = (matchKey && all[i].matchKey === matchKey) || nicksMatch_(all[i].client, client);
+    if (!same) continue;
+    sh.getRange(all[i].rowIndex, 12).setValue("cancelled");
+    removed++;
+  }
+  try { cancelBookingsForClient_(ss, client, deliveryDate); } catch (eB) {}
+  var out = {
+    status: removed ? "success" : "error",
+    message: removed ? "removed" : "not_found",
+    removed: removed,
+    date: want,
+    client: client
+  };
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+}
+
 function parseFlexibleDate_(val, tz) {
   if (!val) return null;
   if (Object.prototype.toString.call(val) === "[object Date]" && !isNaN(val.getTime())) {
@@ -4719,6 +4789,7 @@ function handleGetViewCompare(json, callback, fromPost) {
       }
       for (var i = 0; i < calClients.length; i++) {
         var cc = calClients[i];
+        if (String(cc.status || "").toLowerCase() === "pulled") continue;
         var key = cc.matchKey || clientMatchKey_(cc.client);
         if (key && already[key]) continue;
         var display = displayClientNick_(cc.client) || String(cc.client || "");
@@ -4919,13 +4990,24 @@ function pullCrmClientsToDay_(ss, deliveryDate, dayName, clients) {
     var key = clientMatchKey_(name);
     var onWeek = key && weekKeys[key] ? weekKeys[key] : null;
 
-    if (onWeek && onWeek.basketLen > 0 && !(req.basket && req.basket.length)) {
-      // уже на неделе с составом — только мета, если прислали
-      if (req.address || req.phone || req.note) {
-        writeBasketToDayColumn_(ss, dayName, onWeek.name || name, req.address, mergePullNote_(req), [], {});
+    if (onWeek) {
+      // уже на неделе (даже пустая оболочка) — НЕ открывать новый столбец
+      if (req.address || req.phone || req.note || (req.basket && req.basket.length)) {
+        writeBasketToDayColumn_(ss, dayName, onWeek.name || name, req.address, mergePullNote_(req), req.basket || [], {
+          overwriteMeta: false
+        });
       }
       already++;
       items.push({ client: name, outcome: "already_on_week", detail: onWeek.name });
+      try {
+        upsertCalendarEntry_(ss, {
+          date: deliveryDate,
+          client: onWeek.name || name,
+          matchKey: key,
+          status: "pulled",
+          source: "pull"
+        });
+      } catch (eCalA) {}
       continue;
     }
 
@@ -4977,6 +5059,18 @@ function pullCrmClientsToDay_(ss, deliveryDate, dayName, clients) {
       added += mat.count;
       if (key) weekKeys[key] = { name: name, basketLen: (basket && basket.length) || 1 };
       items.push({ client: name, outcome: "added", detail: "booking", count: mat.count });
+      try {
+        upsertCalendarEntry_(ss, {
+          date: deliveryDate,
+          client: name,
+          matchKey: key,
+          address: address,
+          note: note,
+          basket: basket || [],
+          status: "pulled",
+          source: "pull"
+        });
+      } catch (eCalM) {}
       continue;
     }
 
@@ -4993,23 +5087,27 @@ function pullCrmClientsToDay_(ss, deliveryDate, dayName, clients) {
         detail: write.shell ? "no_basket" : "direct",
         col: write.col
       });
+      try {
+        upsertCalendarEntry_(ss, {
+          date: deliveryDate,
+          client: name,
+          matchKey: key,
+          address: address,
+          note: note,
+          basket: basket || [],
+          status: "pulled",
+          source: "pull"
+        });
+      } catch (eCalW) {}
       continue;
     }
 
-    if (onWeek) {
-      already++;
-      items.push({ client: name, outcome: "already_on_week", detail: onWeek.name });
-    } else if (write && write.message === "no_free_columns") {
-      failed++;
-      items.push({ client: name, outcome: "no_free_columns" });
-    } else {
-      failed++;
-      items.push({
-        client: name,
-        outcome: "not_found",
-        detail: (write && write.message) || (mat && mat.message) || "no_booking_or_crm"
-      });
-    }
+    failed++;
+    items.push({
+      client: name,
+      outcome: (write && write.message === "no_free_columns") ? "no_free_columns" : "not_found",
+      detail: (write && write.message) || (mat && mat.message) || "no_booking_or_crm"
+    });
   }
 
   return {
