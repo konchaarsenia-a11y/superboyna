@@ -4039,66 +4039,83 @@ function seedCalendarForDate_(ss, deliveryDate, opts) {
   return { seeded: added, existing: readCalendarForDate_(ss, deliveryDate).length, from: "seed" };
 }
 
-/** Разовая/по запросу миграция: все дни текущих CRM-месяцев + все брони → Календарь_Дат. */
+/**
+ * Миграция → Календарь_Дат.
+ * json.months: "7,8" / "июль,август" (1–12) — по умолчанию июль+август текущего года.
+ * json.full=1 — все 12 месяцев. json.skipBookings=1 — только CRM.
+ */
 function handleMigrateCalendar(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = ss.getSpreadsheetTimeZone();
   getCalendarSheet_();
-  var stats = { bookings: 0, crmDays: 0, crmPeople: 0, errors: [] };
-  // все брони
-  try {
-    var bookings = readAllBookings_();
-    for (var i = 0; i < bookings.length; i++) {
-      if (String(bookings[i].status) === "cancelled") continue;
-      var bd = parseFlexibleDate_(bookings[i].date, tz);
-      if (!bd) continue;
-      upsertCalendarEntry_(ss, {
-        date: bd,
-        client: bookings[i].client,
-        address: bookings[i].address,
-        note: bookings[i].note,
-        phone: extractPhoneFromNote_(bookings[i].note || ""),
-        basket: bookings[i].basket,
-        subId: bookings[i].subId,
-        source: bookings[i].source || "booking",
-        status: bookings[i].status || "planned",
-        dayName: bookings[i].dayName || "",
-        pulledAt: bookings[i].pulledAt || "",
-        legacyRef: "booking:" + bookings[i].id
-      });
-      stats.bookings++;
+  var stats = { bookings: 0, crmDays: 0, crmPeople: 0, sheets: [], errors: [] };
+  json = json || {};
+  if (!(json.skipBookings === true || json.skipBookings === "1" || json.skipBookings === 1)) {
+    try {
+      var bookings = readAllBookings_();
+      for (var i = 0; i < bookings.length; i++) {
+        if (String(bookings[i].status) === "cancelled") continue;
+        var bd = parseFlexibleDate_(bookings[i].date, tz);
+        if (!bd) continue;
+        upsertCalendarEntry_(ss, {
+          date: bd,
+          client: bookings[i].client,
+          address: bookings[i].address,
+          note: bookings[i].note,
+          phone: extractPhoneFromNote_(bookings[i].note || ""),
+          basket: bookings[i].basket,
+          subId: bookings[i].subId,
+          source: bookings[i].source || "booking",
+          status: bookings[i].status || "planned",
+          dayName: bookings[i].dayName || "",
+          pulledAt: bookings[i].pulledAt || "",
+          legacyRef: "booking:" + bookings[i].id
+        });
+        stats.bookings++;
+      }
+    } catch (e1) {
+      stats.errors.push("bookings:" + String(e1));
     }
-  } catch (e1) {
-    stats.errors.push("bookings:" + String(e1));
   }
-  // CRM: текущий и соседние месяцы (±1) или все если json.full
   try {
     var crmSs = getCrmSpreadsheet_();
     var now = new Date();
+    var year = Number(json.year) || now.getFullYear();
     var months = [];
-    if (json && (json.full === true || json.full === "1" || json.full === 1)) {
+    if (json.full === true || json.full === "1" || json.full === 1) {
       for (var m = 0; m < 12; m++) months.push(m);
-    } else {
-      var cur = now.getMonth();
-      months = [(cur + 11) % 12, cur, (cur + 1) % 12];
-    }
-    var year = now.getFullYear();
-    for (var mi = 0; mi < months.length; mi++) {
-      var monthIdx = months[mi];
-      var y = year;
-      if (monthIdx === 11 && now.getMonth() === 0 && !(json && json.full)) y = year - 1;
-      if (monthIdx === 0 && now.getMonth() === 11 && !(json && json.full)) y = year + 1;
-      var daysInMonth = new Date(y, monthIdx + 1, 0).getDate();
-      for (var day = 1; day <= daysInMonth; day++) {
-        var d = new Date(y, monthIdx, day);
-        var before = readCalendarForDate_(ss, d).length;
-        seedCalendarForDate_(ss, d, { force: false });
-        var after = readCalendarForDate_(ss, d).length;
-        if (after > before) {
-          stats.crmDays++;
-          stats.crmPeople += (after - before);
+    } else if (json.months != null && String(json.months).trim() !== "") {
+      var parts = String(json.months).split(/[,;|\s]+/);
+      for (var pi = 0; pi < parts.length; pi++) {
+        var p = String(parts[pi] || "").trim().toLowerCase().replace(/ё/g, "е");
+        if (!p) continue;
+        var num = Number(p);
+        if (isFinite(num) && num >= 1 && num <= 12) {
+          months.push(num - 1);
+          continue;
+        }
+        for (var miName = 0; miName < CRM_MONTH_NAMES_RU_.length; miName++) {
+          if (CRM_MONTH_NAMES_RU_[miName].toLowerCase().replace(/ё/g, "е") === p) {
+            months.push(miName);
+            break;
+          }
         }
       }
+    } else {
+      // по умолчанию: июль + август (рабочие CRM-календари)
+      months = [6, 7];
+    }
+    var seenM = {};
+    for (var mi = 0; mi < months.length; mi++) {
+      var monthIdx = months[mi];
+      if (monthIdx < 0 || monthIdx > 11 || seenM[monthIdx]) continue;
+      seenM[monthIdx] = true;
+      var probe = new Date(year, monthIdx, 15);
+      var sh = resolveCrmMonthSheet_(crmSs, probe);
+      var bulk = migrateCrmMonthSheetBulk_(ss, crmSs, sh, year, monthIdx);
+      stats.sheets.push(bulk);
+      stats.crmDays += bulk.days || 0;
+      stats.crmPeople += bulk.people || 0;
     }
   } catch (e2) {
     stats.errors.push("crm:" + String(e2));
@@ -5564,34 +5581,109 @@ function parseCrmCalendarCell_(text) {
   };
 }
 
-/** Лист месяца: «Июль», «Июль 2026», «Июль (копия)» — без переименования существующих. */
+/** Сколько «живых» ячеек-ников на листе месяца (день в шапке). */
+function scoreCrmMonthSheet_(sh) {
+  if (!sh) return -1;
+  try {
+    var lastCol = Math.max(1, sh.getLastColumn());
+    var lastRow = Math.max(1, sh.getLastRow());
+    if (lastRow < 2 || lastCol < 1) return 0;
+    var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+    var dayCols = [];
+    for (var c = 0; c < headers.length; c++) {
+      var dn = headerDayNumber_(headers[c]);
+      if (isFinite(dn) && dn >= 1 && dn <= 31) dayCols.push(c + 1);
+    }
+    if (!dayCols.length) return 0;
+    var nicks = 0;
+    for (var i = 0; i < dayCols.length; i++) {
+      var vals = sh.getRange(2, dayCols[i], lastRow, dayCols[i]).getValues();
+      for (var r = 0; r < vals.length; r++) {
+        if (parseCrmCalendarCell_(vals[r][0])) nicks++;
+      }
+    }
+    return nicks;
+  } catch (e) {
+    return 0;
+  }
+}
+
+/**
+ * Лист месяца: предпочитаем тот, где реально стоят люди.
+ * Важно: «Июль» может быть битым/пустым, а «Июль (копия)» — рабочим календарём.
+ */
 function resolveCrmMonthSheet_(crmSs, deliveryDate) {
   if (!crmSs || !deliveryDate) return null;
   var monthName = CRM_MONTH_NAMES_RU_[deliveryDate.getMonth()];
   var year = deliveryDate.getFullYear();
-  var candidates = [
-    monthName + " " + year,
-    monthName + "_" + year,
-    monthName + "-" + year,
-    monthName
-  ];
-  for (var i = 0; i < candidates.length; i++) {
-    var sh = findSheetByBaseName_(crmSs, candidates[i]);
-    if (sh) return sh;
-  }
-  // регистронезависимый / «Июль 26»
-  var sheets = crmSs.getSheets();
   var wantBase = monthName.toUpperCase().replace(/ё/g, "Е");
   var yearShort = String(year).slice(-2);
-  var bestPlain = null;
+  var sheets = crmSs.getSheets();
+  var pool = [];
   for (var s = 0; s < sheets.length; s++) {
     var title = String(sheets[s].getName() || "").trim();
-    var tU = title.toUpperCase().replace(/ё/g, "Е").replace(/\s*\(КОПИЯ\)\s*$/, "").replace(/\s*\(COPY\)\s*$/, "");
-    if (tU === wantBase) { bestPlain = sheets[s]; continue; }
-    if (tU.indexOf(wantBase) !== 0) continue;
-    if (tU.indexOf(String(year)) >= 0 || tU.indexOf(yearShort) >= 0) return sheets[s];
+    var tU = title.toUpperCase().replace(/ё/g, "Е");
+    var tCore = tU.replace(/\s*\(КОПИЯ\)\s*$/, "").replace(/\s*\(COPY\)\s*$/, "").trim();
+    if (tCore === wantBase) {
+      pool.push(sheets[s]);
+      continue;
+    }
+    if (tCore.indexOf(wantBase) !== 0) continue;
+    if (tCore.indexOf(String(year)) >= 0 || tCore.indexOf(yearShort) >= 0 || tCore === wantBase) {
+      pool.push(sheets[s]);
+    }
   }
-  return bestPlain;
+  if (!pool.length) {
+    return findSheetByBaseName_(crmSs, monthName);
+  }
+  var best = pool[0];
+  var bestScore = scoreCrmMonthSheet_(best);
+  for (var p = 1; p < pool.length; p++) {
+    var sc = scoreCrmMonthSheet_(pool[p]);
+    if (sc > bestScore) {
+      best = pool[p];
+      bestScore = sc;
+    }
+  }
+  return best;
+}
+
+/** Быстрый перенос одного CRM-месяца → Календарь_Дат (без тяжёлого fill корзин). */
+function migrateCrmMonthSheetBulk_(ss, crmSs, sh, year, monthIdx) {
+  if (!sh) return { sheet: "", people: 0, days: 0 };
+  var lastCol = Math.max(1, sh.getLastColumn());
+  var lastRow = Math.max(1, sh.getLastRow());
+  if (lastRow < 2) return { sheet: sh.getName(), people: 0, days: 0 };
+  var data = sh.getRange(1, 1, lastRow, lastCol).getValues();
+  var headers = data[0];
+  var people = 0;
+  var daysHit = {};
+  for (var c = 0; c < headers.length; c++) {
+    var dn = headerDayNumber_(headers[c]);
+    if (!isFinite(dn) || dn < 1 || dn > 31) continue;
+    var d = new Date(year, monthIdx, dn);
+    if (d.getMonth() !== monthIdx) continue;
+    for (var r = 1; r < data.length; r++) {
+      var parsed = parseCrmCalendarCell_(data[r][c]);
+      if (!parsed) continue;
+      upsertCalendarEntry_(ss, {
+        date: d,
+        client: displayClientNick_(parsed.client) || parsed.client,
+        matchKey: parsed.matchKey,
+        segment: parsed.segment || "",
+        address: parsed.address || "",
+        phone: parsed.phone || "",
+        note: parsed.note || "",
+        basket: [],
+        source: "crm",
+        status: "planned",
+        legacyRef: sh.getName() + ":" + dn
+      });
+      people++;
+      daysHit[dn] = true;
+    }
+  }
+  return { sheet: sh.getName(), people: people, days: Object.keys(daysHit).length };
 }
 
 function headerDayNumber_(hv) {
