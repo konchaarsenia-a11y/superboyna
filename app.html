@@ -897,7 +897,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.70</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.78</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1555,7 +1555,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.70";
+    const APP_VERSION = "v7.10.78";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3278,6 +3278,7 @@
       if (!basket.length) {
         box.innerHTML = '<p class="muted">Корзина пуста</p>';
         try { if (orderType === "retail") refreshRetailOrderPrice(); } catch (e0) {}
+        try { syncEditBasketToViewPreview_(); } catch (eSync0) {}
         return;
       }
       const showRetail = orderType === "retail";
@@ -3299,6 +3300,60 @@
         </div>`;
       }).join("");
       try { if (showRetail) refreshRetailOrderPrice(); } catch (e1) {}
+      try { syncEditBasketToViewPreview_(); } catch (eSync1) {}
+    }
+
+    /** Пока правим заказ/черновик — в Просмотре сразу убрать «нет: состав», не дожидаясь Сохранить. */
+    function syncEditBasketToViewPreview_() {
+      var mapped = (basket || []).map(function (g) {
+        return {
+          cat: g.cat,
+          name: g.name || g.main,
+          main: g.main || g.name,
+          sub: g.sub || "",
+          val: g.val != null ? g.val : g.value
+        };
+      });
+      var draftIdx = window._viewDraftEditIndex;
+      if (draftIdx != null && viewTransferDraft[draftIdx]) {
+        viewTransferDraft[draftIdx].basket = mapped;
+        viewTransferDraft[draftIdx].basketCount = mapped.length;
+        viewTransferDraft[draftIdx].orderCount = mapped.length;
+        viewTransferDraft[draftIdx].gaps = clientGaps(viewTransferDraft[draftIdx]);
+        var scr0 = document.querySelector(".screen.active");
+        if (scr0 && scr0.id === "clientsScreen" && typeof renderViewLists === "function") renderViewLists();
+        return;
+      }
+      if (document.getElementById("isEditMode").value !== "true") return;
+      var name = (document.getElementById("client") && document.getElementById("client").value || "").trim();
+      if (!name) return;
+      var nameU = name.toUpperCase();
+      var hit = false;
+      for (var i = 0; i < (loadedClientsRawData || []).length; i++) {
+        var n = String(loadedClientsRawData[i].name || "").trim();
+        if (!n) continue;
+        if (n.toUpperCase() === nameU || nicksMatchClient_(n, name)) {
+          loadedClientsRawData[i].basket = mapped;
+          loadedClientsRawData[i].basketCount = mapped.length;
+          loadedClientsRawData[i].orderCount = mapped.length;
+          loadedClientsRawData[i].gaps = clientGaps(loadedClientsRawData[i]);
+          hit = true;
+          break;
+        }
+      }
+      var scr = document.querySelector(".screen.active");
+      if (hit && scr && scr.id === "clientsScreen" && typeof renderViewLists === "function") renderViewLists();
+    }
+
+    function nicksMatchClient_(a, b) {
+      try {
+        if (typeof viewClientKey === "function") {
+          var ka = viewClientKey(a);
+          var kb = viewClientKey(b);
+          return !!(ka && kb && ka === kb);
+        }
+      } catch (e) {}
+      return String(a || "").toUpperCase() === String(b || "").toUpperCase();
     }
 
     function deleteBasketItem(id) {
@@ -3398,16 +3453,40 @@
       if (!el || !el.value) return;
       const d = new Date(el.value + "T12:00:00");
       if (isNaN(d.getTime())) return;
-      const names = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
-      const wd = names[d.getDay()];
       const daySel = document.getElementById("day");
       if (!daySel) return;
+      // сначала weekday как fallback; потом уточним через webhook (Будущая неделя!)
+      const names = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
+      const wd = names[d.getDay()];
       for (let i = 0; i < daySel.options.length; i++) {
         if (daySel.options[i].text === wd || daySel.options[i].value === wd) {
           daySel.selectedIndex = i;
           break;
         }
       }
+      apiGet({ action: "resolveDayForDate", date: el.value }, { timeoutMs: 12000, cacheTtlMs: 30000 })
+        .then(function (res) {
+          var name = (res && res.dayName) || "";
+          if (!name && res && res.onWeek === false) name = "Будущая неделя";
+          if (!name) return;
+          for (let i = 0; i < daySel.options.length; i++) {
+            if (daySel.options[i].text === name || daySel.options[i].value === name) {
+              daySel.selectedIndex = i;
+              break;
+            }
+          }
+        })
+        .catch(function () {
+          // дата явно не из «текущих» weekday-опций Пн–Пт листа — оставим Будущую, если сб/вс или далеко
+          if (d.getDay() === 0 || d.getDay() === 6) {
+            for (let i = 0; i < daySel.options.length; i++) {
+              if (daySel.options[i].value === "Будущая неделя" || daySel.options[i].text === "Будущая неделя") {
+                daySel.selectedIndex = i;
+                break;
+              }
+            }
+          }
+        });
       try { if (orderType === "pp") refreshPpFactPrice(); } catch (e) {}
     }
     window.onDeliveryDateChange = onDeliveryDateChange;
@@ -3666,7 +3745,7 @@
       const bookingPayload = {
         action: "saveBooking",
         date: deliveryDate,
-        day: day,
+        day: day || editOriginalDay || "",
         alsoSaveOrder: false,
         client: clientName,
         address: clientAddress,
@@ -3679,23 +3758,150 @@
       };
 
       try {
-        await apiPost(bookingPayload);
-        // В лист недели — только если дата доставки уже на «Прием заказов» / «Будущая неделя».
+        // Куда писать лист недели:
+        // — edit с Просмотра: всегда в выбранный день (человек уже на листе)
+        // — новый заказ: только если дата реально на Пн–Пт / «Будущая» (день с сервера)
         var dateOnWeek = false;
+        var resolvedDayName = "";
         try {
           var resolved = await apiGet(
             { action: "resolveDayForDate", date: deliveryDate },
             { timeoutMs: 12000, cacheTtlMs: 60000 }
           );
-          dateOnWeek = !!(resolved && resolved.dayName);
+          resolvedDayName = (resolved && resolved.dayName) || "";
+          dateOnWeek = !!resolvedDayName;
+          // дата вне текущей Пн–Пт / A1 — цель «Будущая неделя» (менеджер после переноса из месяца)
+          if (!resolvedDayName && resolved && resolved.status === "success") {
+            resolvedDayName = "Будущая неделя";
+            dateOnWeek = true;
+          }
         } catch (eRes) {}
-        if (day && dateOnWeek) {
-          try { await apiPost(payload); } catch (eWeek) {}
+        var weekDayToSave = "";
+        // приоритет: куда человек УЖЕ стоит (edit) → resolve → Будущая → селект
+        if (isEdit && editOriginalDay) {
+          weekDayToSave = editOriginalDay;
+          dateOnWeek = true;
+        } else if (resolvedDayName) {
+          weekDayToSave = resolvedDayName;
+          dateOnWeek = true;
+        } else if (day === "Будущая неделя") {
+          weekDayToSave = day;
+          dateOnWeek = true;
+        } else if (day) {
+          weekDayToSave = day;
         }
+
+        // Состав: короткий — JSONP GET (есть wrote); длинный — POST (тело не режется URL) + проверка getClients
+        var basketJson = JSON.stringify(payload.basket || []);
+        var geoJson = payload.geo ? JSON.stringify(payload.geo) : "";
+        var useJsonpSave = basketJson.length < 1400;
+        var bookParams = {
+          action: "saveBooking",
+          date: deliveryDate,
+          day: weekDayToSave || day || editOriginalDay || "",
+          alsoSaveOrder: weekDayToSave ? "1" : "0",
+          client: clientName,
+          address: clientAddress,
+          phone: phone || "",
+          note: clientNote || "",
+          orderPrice: orderPrice != null ? String(orderPrice) : "",
+          source: orderType === "bp" ? "bp" : (orderType === "pp" ? "pp" : (orderType === "partner" ? "partner" : "retail")),
+          basket: basketJson
+        };
+        if (geoJson) bookParams.geo = geoJson;
+
+        var bookRes = null;
+        var saveRes = null;
+
+        async function verifyWeekBasket_() {
+          if (!weekDayToSave) return 0;
+          try {
+            var chk = await apiGet({ action: "getClients", day: weekDayToSave }, { timeoutMs: 22000, cacheTtlMs: 0 });
+            var list = (chk && chk.clients) || [];
+            for (var i = 0; i < list.length; i++) {
+              if (String(list[i].name || "").toUpperCase() === clientName.toUpperCase() ||
+                  String(list[i].name || "").toLowerCase().indexOf(clientName.toLowerCase()) >= 0) {
+                return (list[i].basket || []).length;
+              }
+            }
+          } catch (eV) {}
+          return -1;
+        }
+
+        if (useJsonpSave) {
+          try {
+            bookRes = await apiGet(bookParams, { timeoutMs: 60000, cacheTtlMs: 0 });
+          } catch (eBook) {
+            bookRes = { status: "error", message: eBook.message || String(eBook) };
+          }
+          if (weekDayToSave) {
+            var orderParams = {
+              action: "saveOrder",
+              day: weekDayToSave,
+              date: deliveryDate,
+              client: clientName,
+              address: clientAddress,
+              phone: phone || "",
+              note: clientNote || "",
+              permanentNote: permanentNote || "",
+              orderType: orderType || "",
+              orderPrice: orderPrice != null ? String(orderPrice) : "",
+              basket: basketJson
+            };
+            if (geoJson) orderParams.geo = geoJson;
+            if (surveyMeta) orderParams.survey = JSON.stringify(surveyMeta);
+            try {
+              saveRes = await apiGet(orderParams, { timeoutMs: 60000, cacheTtlMs: 0 });
+            } catch (eWeek) {
+              saveRes = { status: "error", message: eWeek.message || String(eWeek) };
+            }
+          }
+        }
+
+        // POST: длинный состав / GET не подтвердил запись позиций
+        var needPost = !useJsonpSave ||
+          (weekDayToSave && basket.length && (!saveRes || saveRes.status !== "success" || Number(saveRes.wrote || 0) === 0));
+        if (needPost) {
+          bookingPayload.day = weekDayToSave || day || editOriginalDay || "";
+          bookingPayload.alsoSaveOrder = !!weekDayToSave;
+          try { await apiPost(bookingPayload); } catch (ePostB) {}
+          if (weekDayToSave) {
+            payload.day = weekDayToSave;
+            payload.date = deliveryDate;
+            try { await apiPost(payload); } catch (ePost) {}
+            var verified = await verifyWeekBasket_();
+            if (verified > 0) {
+              saveRes = { status: "success", wrote: verified, basketLen: basket.length };
+            } else if (!saveRes || saveRes.status !== "success") {
+              saveRes = { status: verified === 0 ? "error" : "sent_opaque", wrote: Math.max(0, verified), message: verified === 0 ? "состав не появился на листе" : "" };
+            }
+          } else if (!bookRes || bookRes.status !== "success") {
+            bookRes = { status: "sent_opaque" };
+          }
+        }
+
+        if (weekDayToSave && saveRes && saveRes.status === "success" &&
+            Number(saveRes.wrote || 0) === 0 && basket.length > 0) {
+          hideSaveLoading();
+          await uiAlertAsync(
+            "Человек на листе есть, но состав не записался (" + basket.length + " поз.).\n" +
+            "Попробуй ещё раз или проверь названия продуктов.\n" +
+            ((saveRes.missed && saveRes.missed.length) ? saveRes.missed.join(", ") : "")
+          );
+        } else if (weekDayToSave && saveRes && saveRes.status &&
+            saveRes.status !== "success" && saveRes.status !== "sent" && saveRes.status !== "sent_opaque") {
+          hideSaveLoading();
+          await uiAlertAsync("Не удалось сохранить в лист недели: " + (saveRes.message || saveRes.status));
+          btn.disabled = false;
+          btn.innerText = isEdit ? "Обновить заказ" : "Сохранить заказ";
+          recoverUiFocus();
+          return;
+        }
+
         // без sleep + без повторного getClients — это главный тормоз после «Сохранить»
         try { _apiGetMem = Object.create(null); } catch (eClr) {}
-        const inWeek = !!(day && dateOnWeek && basket.length);
-        const savedItems = basket.length;
+        const inWeek = !!(weekDayToSave && basket.length);
+        const savedItems = (saveRes && saveRes.wrote != null) ? Number(saveRes.wrote) : basket.length;
         try {
           rememberClientProfile({
             nick: clientName,
@@ -3825,6 +4031,7 @@
     let viewTransferDraft = []; // черновик переноса: визуально слева, в таблицу после «Сохранить»
     let viewDateOnlyMonth = false; // дата вне текущей недели — только колонка месяца
     let viewFutureWrongDate = false; // «Будущая неделя» сейчас на другой дате
+    let lastViewDateIso = ""; // последняя дата Просмотра (для edit → Заказ)
 
     function viewLoadingSkeletonHtml() {
       var card = function () {
@@ -3881,11 +4088,11 @@
     }
 
     function clientGaps(client) {
-      var gaps = Array.isArray(client.gaps) ? client.gaps.slice() : [];
-      if (!String(client.address || "").trim() && gaps.indexOf("address") < 0) gaps.push("address");
-      if (!String(client.phone || "").trim() && !extractPhone(client.note || "") && gaps.indexOf("phone") < 0) gaps.push("phone");
-      var basketLen = (client.basket && client.basket.length) || Number(client.basketCount) || 0;
-      if (!basketLen && gaps.indexOf("basket") < 0) gaps.push("basket");
+      var gaps = [];
+      if (!String(client.address || "").trim()) gaps.push("address");
+      if (!String(client.phone || "").trim() && !extractPhone(client.note || "")) gaps.push("phone");
+      var basketLen = (client.basket && client.basket.length) || Number(client.basketCount) || Number(client.orderCount) || 0;
+      if (!basketLen) gaps.push("basket");
       return gaps;
     }
 
@@ -3936,7 +4143,10 @@
         if (viewDateOnlyMonth) {
           box.innerHTML = '<div class="view-idle">Этой даты нет в Пн–Пт.<br>Перенос пойдёт на «Будущую неделю» — жми → справа.</div>';
         } else if (viewFutureWrongDate) {
-          box.innerHTML = '<div class="view-idle">На «Будущей неделе» сейчас <b>другая дата</b> (Пн).<br>Справа — люди на выбранный день. «→» + «Сохранить» переключит слот на эту дату.</div>';
+          // чужих с другой даты A1 не показываем; черновик переноса — да
+          box.innerHTML = draftHtml
+            ? ('<div class="view-idle">Слот «Будущая» на <b>другой дате</b>. Черновик ниже — «Сохранить» переключит.</div>' + draftHtml)
+            : '<div class="view-idle">На «Будущей неделе» сейчас <b>другая дата</b> (Пн).<br>Справа — люди на выбранный день. «→» + «Сохранить» переключит слот.</div>';
         } else {
           box.innerHTML = (weekHtml || draftHtml)
             ? (weekHtml + draftHtml)
@@ -3981,13 +4191,13 @@
       const lines = basketLinesHtml(client.basket);
       const addr = client.address ? `<div class="delivery-line addr-line">📍 ${escapeHtml(client.address)}</div>` : "";
       const priceHtml = formatOrderPriceHtml(client.note || "");
-      const noteClean = noteTextForRole(client.note || "", "mgr");
+      const human = humanVisibleNote(client.note || "", "mgr");
+      const noteClean = human.text;
       const office = parseOfficeAddress(client.note || "");
       const dm = parseDeliveryMethod(client.note || "");
       const note = noteClean ? `<div class="delivery-line time-alert">Примечание: ${escapeHtml(noteClean)}</div>` : "";
-      const roles = parseNoteAudience(client.note || "");
-      const roleHint = noteClean
-        ? `<div class="delivery-line muted" style="font-size:11px;opacity:0.75;">для: ${escapeHtml(formatNoteRoles(roles))}</div>`
+      const roleHint = (human.fromBlocks && noteClean && human.roles && human.roles.length)
+        ? `<div class="delivery-line muted" style="font-size:11px;opacity:0.75;">для: ${escapeHtml(formatNoteRoles(human.roles))}</div>`
         : "";
       const deliv = (dm === "euro" || dm === "bel")
         ? `<div class="delivery-line">${dm === "euro" ? "Европочта" : "Белпочта"}${office ? ": " + escapeHtml(office) : ""}</div>`
@@ -4218,7 +4428,7 @@
         '<div class="form-group"><label>Телефон</label><input type="text" id="draftEditPhone" value="' +
         escapeHtml(client.phone || "") + '" inputmode="tel"></div>' +
         '<div class="form-group"><label>Примечание</label><input type="text" id="draftEditNote" value="' +
-        escapeHtml(client.note || "") + '"></div>' +
+        escapeHtml(humanVisibleNote(client.note || "", "mgr").text) + '"></div>' +
         '<div class="muted" style="font-size:12px;margin-bottom:8px;">Состав можно набрать в Заказе после сохранения переноса, либо оставить авто из ПП/АФК.</div>' +
         '<button type="button" class="btn-action btn-blue" id="draftEditSave">Ок</button>' +
         '<button type="button" class="btn-action btn-orange" id="draftEditOrder" style="margin-top:8px;">Набрать состав в Заказе</button>';
@@ -4338,7 +4548,7 @@
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || (res && res.result && res.result.message) || "ошибка";
           if (msg === "date_not_in_week") {
-            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.70.");
+            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.78.");
             return;
           }
           if (msg === "unknown_action") {
@@ -4484,6 +4694,8 @@
           } else if (viewDateEl && compareRes && compareRes.dateIso && dateStr && dateStr !== compareRes.dateIso) {
             // оставить выбор пользователя, но показать нормальную дату в summary
           }
+          if (compareRes && compareRes.dateIso) lastViewDateIso = compareRes.dateIso;
+          else if (dateStr) lastViewDateIso = dateStr;
         } catch (eSyncD) {}
         if (summary) {
           var sheetHint = (compareRes && compareRes.monthSheet) ? (" · " + compareRes.monthSheet) : "";
@@ -4560,7 +4772,8 @@
       var html = "";
       if (client.address) html += '<div class="delivery-line">Адрес: ' + escapeHtml(client.address) + "</div>";
       if (client.phone) html += '<div class="delivery-line">' + formatTelHtml(client.phone) + "</div>";
-      if (client.note) html += '<div class="delivery-line">Примечание: ' + escapeHtml(client.note) + "</div>";
+      var hn = humanVisibleNote(client.note || "", "mgr").text;
+      if (hn) html += '<div class="delivery-line">Примечание: ' + escapeHtml(hn) + "</div>";
       if (client.segment) html += '<div class="delivery-line">Сегмент: ' + escapeHtml(client.segment) + "</div>";
       try {
         var day = document.getElementById("viewDaySelect").value;
@@ -4800,13 +5013,13 @@
       event.stopPropagation();
       const client = loadedClientsRawData[index];
       const day = document.getElementById("viewDaySelect").value;
-      const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "";
+      const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
       document.getElementById("isEditMode").value = "true";
       editOriginalClient = client.name || "";
       editOriginalDay = day || "";
       document.getElementById("appHeaderTitle").innerText = "Изменение: " + client.name;
       document.getElementById("btnMainSave").innerText = "Обновить заказ";
-      document.getElementById("day").value = day;
+      if (day) document.getElementById("day").value = day;
       if (dateStr && document.getElementById("deliveryDate")) {
         document.getElementById("deliveryDate").value = dateStr;
       }
@@ -5898,12 +6111,46 @@
         .replace(/\[ЦЕНА:[^\]]*\]/gi, "")
         .replace(/\[GEO:[^\]]+\]/gi, "")
         .replace(/\[YMAPS:[^\]]+\]/gi, "")
+        .replace(/\[SEG:[^\]]*\]/gi, "")
+        .replace(/\[SUB:[^\]]*\]/gi, "")
+        .replace(/\[НЕ РЕЗАТЬ\]/gi, "")
+        .replace(/\[РЕЗАТЬ\]/gi, "")
+        .replace(/\|\|/g, " ")
         .replace(/\s{2,}/g, " ")
         .trim();
     }
 
     function stripMetaFromNote(note) {
       return stripDeliveryTags(note);
+    }
+
+    /** Только текст, который вносили люди ([NOTE:…] или свободный хвост без системных тегов). */
+    function humanVisibleNote(note, role) {
+      role = role || "mgr";
+      var raw = String(note || "");
+      var bits = [];
+      var re = /\[NOTE:([^\|\]]+)\|(perm|once)\]\s*([^]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
+      var m;
+      var anyBlock = false;
+      var matchedRoles = [];
+      while ((m = re.exec(raw))) {
+        anyBlock = true;
+        var rolesArr = String(m[1] || "").toLowerCase().split(/[,;\s]+/).filter(Boolean);
+        if (rolesArr.indexOf(role) < 0) continue;
+        var t = String(m[3] || "").replace(/\[TEL:[^\]]+\]/gi, "").trim();
+        t = stripMetaFromNote(t);
+        if (t) {
+          bits.push(t);
+          matchedRoles = rolesArr;
+        }
+      }
+      if (anyBlock) {
+        return { text: bits.join(" · "), fromBlocks: true, roles: matchedRoles };
+      }
+      var free = stripMetaFromNote(raw);
+      // выкинуть голые телефоны из «свободного» хвоста — телефон уже отдельным полем
+      free = free.replace(/\+?375[\d\s\-]{9,}/g, "").replace(/\s{2,}/g, " ").trim();
+      return { text: free, fromBlocks: false, roles: [] };
     }
 
     function parseNoteAudience(note) {
@@ -5921,24 +6168,7 @@
     }
 
     function noteTextForRole(note, role) {
-      const raw = String(note || "");
-      const bits = [];
-      const re = /\[NOTE:([^|\]]+)\|(perm|once)\]\s*([^]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
-      let m;
-      let any = false;
-      while ((m = re.exec(raw))) {
-        any = true;
-        const rolesArr = String(m[1] || "").toLowerCase().split(/[,;\s]+/).filter(Boolean);
-        if (rolesArr.indexOf(role) < 0) continue;
-        const t = String(m[3] || "").replace(/\[TEL:[^\]]+\]/gi, "").trim();
-        if (t) bits.push(t);
-      }
-      if (any) return bits.join(" · ");
-      const roles = parseNoteAudience(raw);
-      if (roles.indexOf(role) < 0) return "";
-      let t = stripMetaFromNote(raw);
-      if (role === "cut") t = t.replace(/\[TEL:[^\]]+\]/gi, "").replace(/\+?375[\d\s\-]{9,}/g, "").replace(/\s{2,}/g, " ").trim();
-      return t;
+      return humanVisibleNote(note, role).text;
     }
 
     function applyNoteAudience(note, roles) {

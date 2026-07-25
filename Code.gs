@@ -316,7 +316,6 @@ function finishFullWeekProduction() {
   var sheetCourier = ss.getSheetByName("Доставки");
   var sheetManager = ss.getSheetByName("Прием заказов");
   var sheetWarehouse = ss.getSheetByName("Склад");
-  var sheetArchive = ss.getSheetByName("Архив");
   var sheetFuture = ss.getSheetByName("Будущая неделя");
   var sheetCutting = ss.getSheetByName("Нарезка");
   var tz = ss.getSpreadsheetTimeZone();
@@ -333,7 +332,6 @@ function finishFullWeekProduction() {
   }
 
   var today = dateVal instanceof Date ? dateVal : new Date();
-  var formattedDate = Utilities.formatDate(today, tz, "dd.MM.yyyy");
   var weekDaysGeo = [
     { start: 4, end: 59 },
     { start: 65, end: 120 },
@@ -342,14 +340,9 @@ function finishFullWeekProduction() {
     { start: 248, end: 303 }
   ];
 
-  if (!sheetArchive) {
-    sheetArchive = ss.insertSheet("Архив");
-    sheetArchive.appendRow(["Дата закрытия", "Успешных клиентов", "Позиция товара", "Объём (гр / шт)"]);
-  }
+  // Итоги недели — вкладка «Статистика» (getStats / Календарь_Дат / CRM).
+  // Лист «Архив» больше не пишем и не создаём.
 
-  var weeklyDispatchedItems = {};
-  var successClientsCount = 0;
-  var sheetMemCourier = getMemoryCourierSheet_();
   var rawMap = {
     "3": "4,5,6,7",
     "4": "8,9",
@@ -403,43 +396,6 @@ function finishFullWeekProduction() {
     itemMap[key] = rawMap[key].split(",").map(Number);
   }
 
-  weekDaysGeo.forEach(function (day, index) {
-    var dayDateStr = sheetManager.getRange(MANAGER_DATE_CELLS[index]).getValue();
-    var currentDayStatuses = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
-    var dayDateCmp = formatSheetDate(dayDateStr, tz);
-
-    if (dayDateCmp == formattedDate) {
-      var deliveryStatusesMatrix = sheetCourier.getRange("C2:Q2").getValues();
-      if (deliveryStatusesMatrix.length > 0) currentDayStatuses = deliveryStatusesMatrix[0];
-    } else if (sheetMemCourier && sheetMemCourier.getLastRow() > 0) {
-      var memRowsC = sheetMemCourier.getLastRow();
-      var memDatesC = sheetMemCourier.getRange(1, 1, memRowsC, 1).getValues();
-      for (var m = 0; m < memDatesC.length; m++) {
-        if (formatSheetDate(memDatesC[m][0], tz) == dayDateCmp) {
-          var parsed = JSON.parse(sheetMemCourier.getRange(m + 1, 2).getValue());
-          if (parsed.length > 0) currentDayStatuses = parsed;
-          break;
-        }
-      }
-    }
-
-    var namesArray = sheetCourier.getRange(day.start, 1, day.end - day.start + 1, 1).getValues();
-    var ordersMatrix = sheetCourier.getRange(day.start, 3, day.end - day.start + 1, 15).getValues();
-    for (var c = 0; c < 15; c++) {
-      if (currentDayStatuses[c] === true) {
-        successClientsCount++;
-        for (var r = 0; r < ordersMatrix.length; r++) {
-          var itemVolume = Number(ordersMatrix[r][c]) || 0;
-          var itemName = namesArray[r] ? namesArray[r][0].toString().trim() : "";
-          if (itemVolume > 0 && itemName !== "") {
-            if (!weeklyDispatchedItems[itemName]) weeklyDispatchedItems[itemName] = 0;
-            weeklyDispatchedItems[itemName] += itemVolume;
-          }
-        }
-      }
-    }
-  });
-
   var cuttingSurplusValues = sheetCutting.getRange("C3:C60").getValues();
   for (var cRow = 3; cRow <= 48; cRow++) {
     var rowsToSum = itemMap[cRow.toString()];
@@ -474,13 +430,6 @@ function finishFullWeekProduction() {
   var pieceStockValues = sheetWarehouse.getRange("K15:K25").getValues();
   sheetWarehouse.getRange("F15:F25").setValues(pieceStockValues);
   sheetWarehouse.getRange("B15:B25").setValue(0);
-
-  var itemsKeys = Object.keys(weeklyDispatchedItems);
-  if (itemsKeys.length > 0) {
-    itemsKeys.forEach(function (pName) {
-      sheetArchive.appendRow([formattedDate, successClientsCount / 5 + " чел.", pName, weeklyDispatchedItems[pName]]);
-    });
-  }
 
   for (var k = 0; k < 5; k++) {
     var cellRef = MANAGER_DATE_CELLS[k];
@@ -860,10 +809,64 @@ function doGet(e) {
     }, callback, false);
   }
 
-  // delete / move доступны и через GET (JSONP из mini-app)
+  // delete / move / saveOrder / saveBooking — и через GET (JSONP из mini-app; POST в Telegram часто молчит)
   if (action === "deleteClient" || action === "moveClient") {
     payload.cutRaw = e.parameter.cutRaw;
     return handleApiAction(payload, callback, false);
+  }
+  if (action === "saveOrder") {
+    var basketOrd = [];
+    try {
+      basketOrd = e.parameter.basket ? JSON.parse(decodeURIComponent(e.parameter.basket)) : [];
+    } catch (eBo) { basketOrd = []; }
+    var geoOrd = null;
+    try {
+      geoOrd = e.parameter.geo ? JSON.parse(decodeURIComponent(e.parameter.geo)) : null;
+    } catch (eGo) { geoOrd = null; }
+    var surveyOrd = null;
+    try {
+      surveyOrd = e.parameter.survey ? JSON.parse(decodeURIComponent(e.parameter.survey)) : null;
+    } catch (eSu) { surveyOrd = null; }
+    return handleSaveOrder(SpreadsheetApp.getActiveSpreadsheet(), {
+      day: e.parameter.day ? decodeURIComponent(e.parameter.day) : "",
+      date: e.parameter.date ? decodeURIComponent(e.parameter.date) : "",
+      deliveryDate: e.parameter.deliveryDate ? decodeURIComponent(e.parameter.deliveryDate) : "",
+      client: e.parameter.client ? decodeURIComponent(e.parameter.client) : "",
+      address: e.parameter.address ? decodeURIComponent(e.parameter.address) : "",
+      phone: e.parameter.phone ? decodeURIComponent(e.parameter.phone) : "",
+      note: e.parameter.note ? decodeURIComponent(e.parameter.note) : "",
+      permanentNote: e.parameter.permanentNote ? decodeURIComponent(e.parameter.permanentNote) : "",
+      orderType: e.parameter.orderType ? decodeURIComponent(e.parameter.orderType) : "",
+      orderPrice: e.parameter.orderPrice,
+      basket: basketOrd,
+      geo: geoOrd,
+      survey: surveyOrd
+    }, callback, false);
+  }
+  if (action === "saveBooking") {
+    var basketBk = [];
+    try {
+      basketBk = e.parameter.basket ? JSON.parse(decodeURIComponent(e.parameter.basket)) : [];
+    } catch (eBb) { basketBk = []; }
+    var geoBk = null;
+    try {
+      geoBk = e.parameter.geo ? JSON.parse(decodeURIComponent(e.parameter.geo)) : null;
+    } catch (eGb) { geoBk = null; }
+    return handleSaveBooking(SpreadsheetApp.getActiveSpreadsheet(), {
+      date: e.parameter.date ? decodeURIComponent(e.parameter.date) : "",
+      deliveryDate: e.parameter.deliveryDate ? decodeURIComponent(e.parameter.deliveryDate) : "",
+      day: e.parameter.day ? decodeURIComponent(e.parameter.day) : "",
+      client: e.parameter.client ? decodeURIComponent(e.parameter.client) : "",
+      address: e.parameter.address ? decodeURIComponent(e.parameter.address) : "",
+      phone: e.parameter.phone ? decodeURIComponent(e.parameter.phone) : "",
+      note: e.parameter.note ? decodeURIComponent(e.parameter.note) : "",
+      orderPrice: e.parameter.orderPrice,
+      source: e.parameter.source ? decodeURIComponent(e.parameter.source) : "",
+      alsoSaveOrder: e.parameter.alsoSaveOrder,
+      basket: basketBk,
+      geo: geoBk,
+      subId: e.parameter.subId ? decodeURIComponent(e.parameter.subId) : ""
+    }, callback, false);
   }
 
   return jsonp(callback, { status: "unknown_action" });
@@ -882,7 +885,7 @@ function handleApiAction(json, callback, fromPost) {
     return handleMoveClient(ss, json, callback);
   }
   if (action === "saveOrder") {
-    return handleSaveOrder(ss, json, callback);
+    return handleSaveOrder(ss, json, callback, fromPost);
   }
   if (action === "saveBooking") {
     return handleSaveBooking(ss, json, callback, fromPost);
@@ -1745,15 +1748,79 @@ function handleMoveClient(ss, json, callback) {
 }
 
 /**
+ * Куда реально писать заказ:
+ * — дата совпала с Пн–Пт / A1 «Будущей» → этот день
+ * — клиент уже на «Будущей» → туда (не на «Вторник» текущей недели!)
+ * — дата вне текущей недели → «Будущая неделя»
+ * — иначе dayHint
+ */
+function clientNickOnDay_(ss, dayName, client) {
+  if (!dayName || !client) return false;
+  try {
+    var data = getClientsData_(ss, dayName);
+    for (var i = 0; i < (data.clients || []).length; i++) {
+      if (nicksMatch_(data.clients[i].name, client)) return true;
+    }
+  } catch (e) {}
+  // пустой тест мог быть вычищен getClientsData_ — смотрим ник в листе напрямую
+  try {
+    var block = getDayBlock(dayName);
+    var sh = block && getTargetSheet(ss, block);
+    if (!sh) return false;
+    var nicks = sh.getRange(block.nick, 3, 1, 15).getValues()[0];
+    for (var j = 0; j < 15; j++) {
+      if (nicksMatch_(nicks[j], client)) return true;
+    }
+  } catch (e2) {}
+  return false;
+}
+
+function resolveDayForOrderWrite_(ss, json) {
+  json = json || {};
+  var tz = ss.getSpreadsheetTimeZone();
+  var client = String(json.client || "").trim();
+  var dayHint = String(json.day || "").trim();
+  var d = parseFlexibleDate_(json.date || json.deliveryDate, tz);
+
+  if (d) {
+    var byDate = findDayNameForDate_(ss, d);
+    if (byDate) return byDate;
+  }
+
+  // человек уже стоит на Будущей — состав сюда, даже если UI подставил «Вторник»
+  if (client && clientNickOnDay_(ss, "Будущая неделя", client)) {
+    return "Будущая неделя";
+  }
+
+  if (dayHint === "Будущая неделя") return "Будущая неделя";
+
+  // дата не из текущей Пн–Пт и не A1 → слот будущей недели
+  if (d) {
+    return "Будущая неделя";
+  }
+
+  if (dayHint && getDayBlock(dayHint)) return dayHint;
+  return dayHint || "";
+}
+
+/**
  * Сохранение заказа с учётом фракции (sub).
  * orderItem: { name|main, sub, val|value, cat }
  */
-function handleSaveOrder(ss, json, callback) {
+function handleSaveOrder(ss, json, callback, fromPost) {
+  if (fromPost === undefined) fromPost = true;
+  var reply = function (obj) {
+    return fromPost ? jsonpText(callback, obj) : jsonp(callback, obj);
+  };
+  json = json || {};
+  var dayHintOrig = String(json.day || "").trim();
+  var writeDay = resolveDayForOrderWrite_(ss, json);
+  if (writeDay) json.day = writeDay;
   var block = getDayBlock(json.day);
-  if (!block) return jsonpText(callback, { status: "bad_day" });
+  if (!block) return reply({ status: "bad_day", day: json.day || "" });
   var targetSheet = getTargetSheet(ss, block);
-  if (!targetSheet) return jsonpText(callback, { status: "error" });
-  if (!String(json.client || "").trim()) return jsonpText(callback, { status: "no_client" });
+  if (!targetSheet) return reply({ status: "error" });
+  if (!String(json.client || "").trim()) return reply({ status: "no_client" });
 
   var clientCol = -1;
   var mgrNicks = targetSheet.getRange(block.nick, 3, 1, 15).getValues()[0];
@@ -1772,12 +1839,16 @@ function handleSaveOrder(ss, json, callback) {
       }
     }
   }
-  if (clientCol === -1) return jsonpText(callback, { status: "no_free_columns" });
+  if (clientCol === -1) return reply({ status: "no_free_columns" });
 
   // очистка товаров + адрес + примечание
   targetSheet.getRange(block.start, clientCol, block.note - block.start + 1, 1).clearContent();
+  // ник мог быть затронут только ниже start — вернём на всякий
+  var nickNow = String(targetSheet.getRange(block.nick, clientCol).getValue() || "").trim();
+  if (!nickNow) targetSheet.getRange(block.nick, clientCol).setValue(String(json.client || "").trim());
+
   if (json.address) targetSheet.getRange(block.addr, clientCol).setValue(json.address);
-  // GEO/TEL не пишем в примечание — телефон только в профиле/поле phone
+  // TEL в примечании столбца нужен Просмотру/курьеру; GEO по-прежнему не кладём
   var cleanNote = stripGeoTagsFromNote_(String(json.note || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim());
   // цена заказа (розница/партнёр/ПП) — тег в примечании столбца
   var op = json.orderPrice;
@@ -1785,9 +1856,15 @@ function handleSaveOrder(ss, json, callback) {
     cleanNote = String(cleanNote || "").replace(/\[ЦЕНА:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
     cleanNote = ("[ЦЕНА: " + Number(op) + " BYN]" + (cleanNote ? " " + cleanNote : "")).trim();
   }
+  var phoneSave = String(json.phone || "").trim();
+  if (!phoneSave) phoneSave = extractPhoneFromNote_(String(json.note || ""));
+  if (phoneSave) cleanNote = applyTelTag_(cleanNote, phoneSave);
   if (cleanNote) targetSheet.getRange(block.note, clientCol).setValue(cleanNote);
 
   var geo = json.geo || null;
+  if (typeof geo === "string" && geo) {
+    try { geo = JSON.parse(geo); } catch (eG) { geo = null; }
+  }
   if (geo && geo.lat != null && geo.lon != null) {
     upsertClientGeo_(ss, json.day, json.client, geo.lat, geo.lon, geo.yandexUrl || "");
   } else {
@@ -1795,8 +1872,10 @@ function handleSaveOrder(ss, json, callback) {
   }
 
   var itemsInSheet = targetSheet.getRange(block.start, 1, block.end - block.start + 1, 1).getValues();
-  var basket = json.basket || [];
+  var basket = normalizeBasketArg_(json.basket);
 
+  var wrote = 0;
+  var missed = [];
   basket.forEach(function (orderItem) {
     var rawName = String(orderItem.name || orderItem.main || "").trim();
     var rawSub = String(orderItem.sub || "").trim();
@@ -1806,6 +1885,9 @@ function handleSaveOrder(ss, json, callback) {
     var targetRowOffset = findSheetRowForItem(itemsInSheet, rawName, rawSub);
     if (targetRowOffset >= 0) {
       targetSheet.getRange(block.start + targetRowOffset, clientCol).setValue(inputVal);
+      wrote++;
+    } else {
+      missed.push(rawName + (rawSub ? (" / " + rawSub) : ""));
     }
   });
 
@@ -1813,13 +1895,21 @@ function handleSaveOrder(ss, json, callback) {
     var perm = String(json.permanentNote || "").trim();
     var profileNote = perm || ""; // постоянные — в Клиенты/Контакты; разовые не затирают профиль пустым
     var src = String(json.orderType || json.source || "saveOrder");
-    upsertClientProfile_(ss, json.client, json.address, json.phone || extractPhoneFromNote_(cleanNote), profileNote, src, json.basket || []);
+    upsertClientProfile_(ss, json.client, json.address, phoneSave || extractPhoneFromNote_(cleanNote), profileNote, src, basket);
   } catch (eProf) {}
 
   try { ensureBpAndSurveyFromOrder_(json); } catch (eBp) {}
   bustClientsCache_();
   // Telegram-проверку склада не зовём на каждый save — сильно тормозит запись
-  return jsonpText(callback, { status: "success" });
+  return reply({
+    status: "success",
+    wrote: wrote,
+    basketLen: basket.length,
+    missed: missed.slice(0, 8),
+    day: json.day,
+    client: String(json.client || "").trim(),
+    redirected: !!(writeDay && dayHintOrig && writeDay !== dayHintOrig)
+  });
 }
 
 /** Сопоставление позиции мини-аппа со строкой листа (с фракцией). */
@@ -2064,11 +2154,47 @@ function clientsFromBookings_(ss, deliveryDate) {
   return out;
 }
 
+function isTestClientNick_(name) {
+  var s = String(name || "").trim();
+  if (!s) return false;
+  // только явный тест — не трогаем живых ников
+  return /^zzz[_-]?test\b/i.test(s) || /^zzz_test\b/i.test(s);
+}
+
+/** Удалить пустые тестовые столбцы с блока дня (zzz_test без состава). */
+function purgeEmptyTestColumnsOnDay_(ss, dayName) {
+  var block = getDayBlock(dayName);
+  if (!block) return 0;
+  var sh = getTargetSheet(ss, block);
+  if (!sh) return 0;
+  var nicks = sh.getRange(block.nick, 3, 1, 15).getValues()[0];
+  var cleared = 0;
+  for (var i = 0; i < 15; i++) {
+    var nick = String(nicks[i] || "").trim();
+    if (!isTestClientNick_(nick)) continue;
+    var col = i + 3;
+    var hasQty = false;
+    try {
+      var vals = sh.getRange(block.start, col, block.end - block.start + 1, 1).getValues();
+      for (var r = 0; r < vals.length; r++) {
+        if (Number(vals[r][0]) > 0) { hasQty = true; break; }
+      }
+    } catch (eQ) {}
+    if (hasQty) continue;
+    sh.getRange(block.nick, col).setValue("");
+    sh.getRange(block.start, col, block.note - block.start + 1, 1).clearContent();
+    cleared++;
+  }
+  return cleared;
+}
+
 function getClientsData_(ss, dayName) {
   var block = getDayBlock(dayName);
   if (!block) return { status: "bad_day", clients: [] };
   var targetSheet = getTargetSheet(ss, block);
   if (!targetSheet) return { status: "error", clients: [] };
+
+  try { purgeEmptyTestColumnsOnDay_(ss, dayName); } catch (ePurge) {}
 
   var nickRow = block.nick;
   var startRow = block.start;
@@ -2086,6 +2212,8 @@ function getClientsData_(ss, dayName) {
   var addressesMatrix = totalSheetRows >= addressRow ? targetSheet.getRange(addressRow, 3, 1, colsToRead).getValues() : null;
   var notesMatrix = totalSheetRows >= noteRow ? targetSheet.getRange(noteRow, 3, 1, colsToRead).getValues() : null;
   var geoIndex = buildDayGeoIndex_(dayName);
+  var phoneIndex = {};
+  try { phoneIndex = buildClientPhoneIndex_(ss); } catch (ePhIdx) { phoneIndex = {}; }
 
   var clientsDataList = [];
   if (nicksMatrix && nicksMatrix.length > 0) {
@@ -2130,10 +2258,12 @@ function getClientsData_(ss, dayName) {
           }
         }
 
+        // пустой тест не показываем в неделе
+        if (isTestClientNick_(nameClean) && totalItemsInOrder === 0) continue;
+
         var rawAddr = addressesMatrix && addressesMatrix[0] ? addressesMatrix[0][colIdx] : "";
         var rawNote = notesMatrix && notesMatrix[0] ? notesMatrix[0][colIdx] : "";
         var noteStr = rawNote != null ? String(rawNote).trim() : "";
-        // Миграция: GEO из старых примечаний → лист Гео_Клиентов, из ячейки убираем
         var legacyGeo = parseGeoTagsFromNote_(noteStr);
         if (legacyGeo) noteStr = stripGeoTagsFromNote_(noteStr);
         var geoObj = geoIndex[nameClean.toUpperCase()] || legacyGeo || null;
@@ -2143,6 +2273,11 @@ function getClientsData_(ss, dayName) {
         if (!phone) {
           var phM = noteStr.match(/(\+?375[\s\-]?\d{2}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})/);
           if (phM) phone = phM[1].replace(/\s+/g, "");
+        }
+        // телефон из профиля «Клиенты», если в столбце дня его нет
+        if (!phone) {
+          var pk = clientMatchKey_(nameClean) || nameClean.toUpperCase();
+          phone = (pk && phoneIndex[pk]) || phoneIndex[nameClean.toUpperCase()] || "";
         }
         clientsDataList.push({
           name: nameClean,
@@ -2176,6 +2311,7 @@ function getClientsData_(ss, dayName) {
     var prev = deduped[seenKeys[mk]];
     var prevLen = (prev.basket || []).length;
     var nextLen = (cl.basket || []).length;
+    // пустую оболочку не предпочитаем полной
     if (nextLen > prevLen || (nextLen === prevLen && String(cl.name).length > String(prev.name).length)) {
       deduped[seenKeys[mk]] = cl;
     }
@@ -4359,6 +4495,20 @@ function handleListBookings(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
+function normalizeBasketArg_(basket) {
+  if (basket == null || basket === "") return [];
+  if (typeof basket === "string") {
+    try { basket = JSON.parse(basket); } catch (e) { return []; }
+  }
+  if (!Array.isArray(basket)) return [];
+  return basket.filter(function (it) {
+    if (!it || typeof it !== "object") return false;
+    var n = String(it.name || it.main || "").trim();
+    var v = Number(it.val != null ? it.val : it.value) || 0;
+    return !!(n && v > 0);
+  });
+}
+
 function handleSaveBooking(ss, json, callback, fromPost) {
   if (fromPost === undefined) fromPost = true;
   var tz = ss.getSpreadsheetTimeZone();
@@ -4368,7 +4518,7 @@ function handleSaveBooking(ss, json, callback, fromPost) {
     var bad = { status: "error", message: "need_date_and_client" };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
-  var basket = json.basket || [];
+  var basket = normalizeBasketArg_(json.basket);
   var note = stripGeoTagsFromNote_(json.note || "");
   if (json.orderPrice != null && json.orderPrice !== "" && !isNaN(Number(json.orderPrice))) {
     note = String(note || "").replace(/\[ЦЕНА:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
@@ -4450,20 +4600,63 @@ function handleSaveBooking(ss, json, callback, fromPost) {
     }
   }
 
-  if (json.alsoSaveOrder && (json.day || dayName)) {
+  // Правка уже перенесённого / стоящего на листе — обновить столбец даже до окна materialize
+  var targetDay = resolveDayForOrderWrite_(ss, {
+    day: json.day || dayName || "",
+    date: deliveryDate,
+    client: client
+  });
+  var alsoWeek = json.alsoSaveOrder === true || json.alsoSaveOrder === "1" || json.alsoSaveOrder === 1 || json.alsoSaveOrder === "true";
+  var shouldWriteWeek = !!(alsoWeek && targetDay);
+  if (!shouldWriteWeek && targetDay && basket && basket.length) {
+    if (wasPulled) shouldWriteWeek = true;
+    else if (clientNickOnDay_(ss, targetDay, client)) shouldWriteWeek = true;
+    else {
+      try {
+        var wdChk = getClientsData_(ss, targetDay);
+        for (var wi = 0; wi < (wdChk.clients || []).length; wi++) {
+          if (nicksMatch_(wdChk.clients[wi].name, client)) { shouldWriteWeek = true; break; }
+        }
+      } catch (eChk) {}
+    }
+  }
+  // дата вне недели + есть состав → всё равно писать на Будущую (менеджер добавил состав после переноса)
+  if (!shouldWriteWeek && targetDay && basket && basket.length) {
+    shouldWriteWeek = true;
+  }
+  var weekWrite = null;
+  if (shouldWriteWeek && targetDay) {
     try {
+      // полный путь saveOrder — надёжнее, чем только writeBasket
       handleSaveOrder(ss, {
-        day: json.day || dayName, client: client, address: json.address,
-        note: note, basket: basket, geo: json.geo || null
-      }, "cb");
-    } catch (eSave) {}
+        day: targetDay,
+        date: deliveryDate,
+        client: client,
+        address: json.address != null ? json.address : (existing && existing.address) || "",
+        phone: json.phone || "",
+        note: note,
+        basket: basket,
+        geo: json.geo || null,
+        orderPrice: json.orderPrice,
+        orderType: json.orderType || json.source || "",
+        permanentNote: json.permanentNote || ""
+      }, "cb", true);
+      weekWrite = { ok: true, day: targetDay };
+    } catch (eSaveW) {
+      try {
+        weekWrite = writeBasketToDayColumn_(ss, targetDay, client,
+          json.address != null ? json.address : (existing && existing.address) || "",
+          note, basket, { overwriteMeta: true });
+      } catch (eSaveW2) {}
+    }
   }
 
   var ok = {
     status: "success",
     bookingId: id,
     date: dateStr,
-    dayName: dayName,
+    dayName: dayName || targetDay || "",
+    weekWritten: !!(weekWrite && weekWrite.ok),
     materialized: !!(materializeResult && materializeResult.ok),
     lateNotify: notifyLines.length > 0 && isLateChangeForDelivery_(deliveryDate, now),
     delta: notifyLines
@@ -4810,9 +5003,10 @@ function handleGetViewCompare(json, callback, fromPost) {
       }
       for (var i = 0; i < calClients.length; i++) {
         var cc = calClients[i];
-        if (String(cc.status || "").toLowerCase() === "pulled") continue;
         var key = cc.matchKey || clientMatchKey_(cc.client);
+        // на неделе уже есть — не дублируем справа
         if (key && already[key]) continue;
+        // ложный pulled (пометили, а на лист не попал) — снова показываем справа
         var display = displayClientNick_(cc.client) || String(cc.client || "");
         var gaps = [];
         if (!String(cc.address || "").trim()) gaps.push("address");
@@ -5013,22 +5207,27 @@ function pullCrmClientsToDay_(ss, deliveryDate, dayName, clients) {
 
     if (onWeek) {
       // уже на неделе (даже пустая оболочка) — НЕ открывать новый столбец
+      var wroteMeta = false;
       if (req.address || req.phone || req.note || (req.basket && req.basket.length)) {
         writeBasketToDayColumn_(ss, dayName, onWeek.name || name, req.address, mergePullNote_(req), req.basket || [], {
           overwriteMeta: false
         });
+        wroteMeta = true;
       }
       already++;
       items.push({ client: name, outcome: "already_on_week", detail: onWeek.name });
-      try {
-        upsertCalendarEntry_(ss, {
-          date: deliveryDate,
-          client: onWeek.name || name,
-          matchKey: key,
-          status: "pulled",
-          source: "pull"
-        });
-      } catch (eCalA) {}
+      // pulled только если реально есть состав/данные на неделе — иначе человек пропадёт из месяца
+      if (wroteMeta || (onWeek.basketLen || 0) > 0) {
+        try {
+          upsertCalendarEntry_(ss, {
+            date: deliveryDate,
+            client: onWeek.name || name,
+            matchKey: key,
+            status: "pulled",
+            source: "pull"
+          });
+        } catch (eCalA) {}
+      }
       continue;
     }
 
@@ -5259,11 +5458,18 @@ function handleResolveDayForDate(json, callback, fromPost) {
   var tz = ss.getSpreadsheetTimeZone();
   var d = parseFlexibleDate_(json.date || json.deliveryDate, tz);
   var dayName = d ? (findDayNameForDate_(ss, d) || "") : "";
+  var futureTarget = false;
+  // вне текущей Пн–Пт / A1 — цель записи «Будущая неделя» (не пустой dayName)
+  if (d && !dayName) {
+    dayName = "Будущая неделя";
+    futureTarget = true;
+  }
   var out = {
     status: "success",
     date: d ? dateKey_(d, tz) : "",
     dayName: dayName,
-    onWeek: !!dayName
+    onWeek: !!(dayName && !futureTarget),
+    futureTarget: futureTarget
   };
   return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }
@@ -5572,6 +5778,43 @@ function applyTelTag_(note, phone) {
   phone = String(phone || "").trim();
   if (!phone) return clean;
   return (clean ? clean + " " : "") + "[TEL:" + phone + "]";
+}
+
+function lookupClientProfilePhone_(ss, nick) {
+  nick = String(nick || "").trim();
+  if (!nick) return "";
+  try {
+    var sh = getClientsProfilesSheet_();
+    var data = sh.getDataRange().getValues();
+    var wantKey = clientMatchKey_(nick) || nick.toUpperCase();
+    var wantU = nick.toUpperCase();
+    for (var i = 1; i < data.length; i++) {
+      var n = String(data[i][0] || "").trim();
+      if (!n) continue;
+      if (n.toUpperCase() === wantU || nicksMatch_(n, nick) ||
+          (wantKey && clientMatchKey_(n) === wantKey)) {
+        return String(data[i][2] || "").trim();
+      }
+    }
+  } catch (e) {}
+  return "";
+}
+
+function buildClientPhoneIndex_(ss) {
+  var idx = {};
+  try {
+    var sh = getClientsProfilesSheet_();
+    var data = sh.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var n = String(data[i][0] || "").trim();
+      var ph = String(data[i][2] || "").trim();
+      if (!n || !ph) continue;
+      var k = clientMatchKey_(n) || n.toUpperCase();
+      if (k) idx[k] = ph;
+      idx[n.toUpperCase()] = ph;
+    }
+  } catch (e) {}
+  return idx;
 }
 
 function handleFindClientMatch(json, callback, fromPost) {
@@ -8652,7 +8895,7 @@ function handleGetStats(json, callback, fromPost) {
     bpFunnel: bpFunnel,
     deliveries: deliveries,
     revenue: "—",
-    note: "Каркас: полный архив/воронка/CAC — наращиваем. Экспорт — exportStats."
+    note: "Сводка из CRM + текущей недели. Экспорт — exportStats. Лист «Архив» не используется."
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
