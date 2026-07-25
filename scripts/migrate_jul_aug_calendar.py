@@ -105,11 +105,14 @@ def main():
     try:
         d = post({"action": "migrateCalendar", "months": "7,8", "year": YEAR, "skipBookings": 0}, timeout=300)
         print("migrateCalendar:", json.dumps(d, ensure_ascii=False)[:500])
-        if d.get("status") == "success":
-            stats = d.get("stats") or {}
-            if (stats.get("crmPeople") or 0) > 0 or (stats.get("bookings") or 0) > 0:
-                print("OK server migrate")
-                return
+        stats = d.get("stats") or {}
+        sheets = stats.get("sheets") or []
+        crm_people = int(stats.get("crmPeople") or 0)
+        # новый Deploy отдаёт sheets[] с людьми с «Июль (копия)» и т.п.
+        if d.get("status") == "success" and (crm_people > 0 or any((s or {}).get("people") for s in sheets)):
+            print("OK server migrate")
+            return
+        print("server migrate without CRM people — fallback CSV→saveBooking")
     except Exception as e:
         print("migrateCalendar failed:", e)
 
