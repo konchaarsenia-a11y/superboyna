@@ -105,12 +105,12 @@
 
 `sub` обязателен для позиций с фракциями. `saveOrder` должен матчить строку листа с учётом фракции (сейчас баг: пишет в первую подходящую).
 
-## Функции только в таблице (не mini-app пока)
+## Функции закрытия недели / таблица
 
 | Функция | Когда |
 |---------|--------|
 | `onEdit` на «Нарезка»!A1 | Смена даты: память, пересчёт B, восстановление флагов |
-| `finishFullWeekProduction` | Кнопка «Завершить неделю»: склад, сдвиг дат, перенос с «Будущей недели» (**без** листа Архив) |
+| `finishFullWeekProduction` | mini-app action `finishFullWeek` (owner + confirm=1) → `finishFullWeekProduction`: склад, сдвиг дат, перенос с «Будущей недели» (**без** листа Архив) |
 
 ### Баг закрытия недели
 
@@ -183,7 +183,7 @@
    GET .../exec?action=getClients&day=Понедельник&callback=cb
    ```
 3. Проверка записи: POST `saveOrder` с `zzz_test` → GET `getClients` → сверка позиций → `deleteClient`.
-4. Не вызывать `finishFullWeekProduction` без явного ОК от владельца.
+4. Не вызывать `finishFullWeekProduction` / `finishFullWeek` без явного ОК от владельца (UI вызывает только с двойным confirm).
 5. Фронт: открыть `app.html` локально / через хостинг mini-app; Telegram SDK: `https://telegram.org/js/telegram-web-app.js`.
 
 ## v7.6 — роли / склад / подписки / цена / сборка
@@ -197,6 +197,7 @@
 | `crmInventory` / `seedCrmClients` | Инвентаризация CRM; заливка в «Клиенты» без потерь |
 | `calcPrice` | Калькулятор Подписка/Розница |
 | `getAssembly` | Пакеты сборки по клиентам дня |
+| `finishFullWeek` | Закрытие недели (owner, confirm=1): склад, даты+7, Future→Пн |
 
 Один раз в Script Editor: `setupOpsEcosystem()` + `setupBookingTriggersManual()`.
 

@@ -311,8 +311,10 @@ function onEdit(e) {
 
 // ===================== Завершить неделю =====================
 
-function finishFullWeekProduction() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+function finishFullWeekProduction(optSs, optOpts) {
+  var opts = optOpts || {};
+  var silent = !!opts.silent;
+  var ss = optSs || SpreadsheetApp.getActiveSpreadsheet();
   var sheetCourier = ss.getSheetByName("Доставки");
   var sheetManager = ss.getSheetByName("Прием заказов");
   var sheetWarehouse = ss.getSheetByName("Склад");
@@ -321,14 +323,20 @@ function finishFullWeekProduction() {
   var tz = ss.getSpreadsheetTimeZone();
 
   if (!sheetCourier || !sheetManager || !sheetWarehouse || !sheetCutting) {
-    Browser.msgBox("❌ Ошибка листов!");
-    return;
+    var errSheets = { status: "error", message: "missing_sheets" };
+    if (!silent) {
+      try { Browser.msgBox("❌ Ошибка листов!"); } catch (e0) {}
+    }
+    return errSheets;
   }
 
   var dateVal = sheetCourier.getRange("A1").getValue();
   if (!dateVal) {
-    Browser.msgBox("❌ Ошибка даты!");
-    return;
+    var errDate = { status: "error", message: "missing_date" };
+    if (!silent) {
+      try { Browser.msgBox("❌ Ошибка даты!"); } catch (e1) {}
+    }
+    return errDate;
   }
 
   var today = dateVal instanceof Date ? dateVal : new Date();
@@ -483,8 +491,53 @@ function finishFullWeekProduction() {
     sheetMemCourier2.getRange(1, 1, sheetMemCourier2.getLastRow(), 2).clearContent();
   }
 
-  sendTelegramSnabNotification();
-  Browser.msgBox("🎉 СМЕНА ЗАКРЫТА!");
+  try {
+    sendTelegramSnabNotification();
+  } catch (eSnab) {}
+  if (!silent) {
+    try { Browser.msgBox("🎉 СМЕНА ЗАКРЫТА!"); } catch (eOk) {}
+  }
+  return {
+    status: "success",
+    message: "week_closed",
+    mondayDate: String(newMondayDate || ""),
+    courierDate: Utilities.formatDate(nextCourierDate, tz, "dd.MM.yyyy")
+  };
+}
+
+function actorIsOwner_(telegramId) {
+  var tid = String(telegramId || "").trim();
+  if (!tid) return false;
+  if (isOwnerId_(tid)) return true;
+  var row = findAccessById_(tid);
+  return !!(row && String(row.role || "").toLowerCase() === "owner" && String(row.status || "").toLowerCase() !== "denied");
+}
+
+function handleFinishFullWeek(json, callback, fromPost) {
+  json = json || {};
+  var tid = String(json.telegramId || "").trim();
+  var confirm = String(json.confirm || "").trim();
+  if (confirm !== "1" && confirm !== "true" && json.confirm !== true) {
+    var need = { status: "error", message: "need_confirm" };
+    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+  }
+  if (!actorIsOwner_(tid)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var result = finishFullWeekProduction(ss, { silent: true });
+    try { bustClientsCache_(); } catch (eB) {}
+    if (!result || result.status !== "success") {
+      var bad = result || { status: "error", message: "finish_failed" };
+      return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+    }
+    return fromPost ? jsonpText(callback, result) : jsonp(callback, result);
+  } catch (err) {
+    var fail = { status: "error", message: String(err) };
+    return fromPost ? jsonpText(callback, fail) : jsonp(callback, fail);
+  }
 }
 
 // ===================== HTTP API =====================
@@ -869,6 +922,13 @@ function doGet(e) {
     }, callback, false);
   }
 
+  if (action === "finishFullWeek") {
+    return handleFinishFullWeek({
+      telegramId: e.parameter.telegramId || "",
+      confirm: e.parameter.confirm || ""
+    }, callback, false);
+  }
+
   return jsonp(callback, { status: "unknown_action" });
 }
 
@@ -949,6 +1009,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "telegramStatus") {
     return handleTelegramStatus(callback, fromPost);
+  }
+  if (action === "finishFullWeek") {
+    return handleFinishFullWeek(json, callback, fromPost);
   }
   if (action === "finishCutting") {
     return handleFinishCutting(ss, json, callback, fromPost);

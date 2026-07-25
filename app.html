@@ -897,7 +897,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.78</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.79</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -950,7 +950,7 @@
     <div id="orderScreen" class="screen active">
       <div id="finishWeekBanner" class="week-banner" style="display:none;">
         <h3>Завершить неделю?</h3>
-        <div class="muted">Вс вечером или пн утром, если отказались.</div>
+        <div class="muted">Склад (F/B), даты +7, очистка Пн–Пт, Будущая→Пн. Только владелец. Вс с 18:00 или пн до 12:00.</div>
         <button type="button" class="btn-action btn-orange" onclick="onFinishWeekClick()">Завершить неделю</button>
         <button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="refuseFinishWeek()">Позже</button>
       </div>
@@ -1555,7 +1555,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.78";
+    const APP_VERSION = "v7.10.79";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -4548,7 +4548,7 @@
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || (res && res.result && res.result.message) || "ошибка";
           if (msg === "date_not_in_week") {
-            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.78.");
+            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.79.");
             return;
           }
           if (msg === "unknown_action") {
@@ -8011,8 +8011,9 @@
       var wk = currentWeekKeyLocal();
       var canFinish = false;
       if (APP_ROLE === "owner" || APP_ROLE === "all") {
-        if (isSundayEvening() && !localStorage.getItem(FINISH_DONE_LS + wk)) canFinish = true;
-        if (isMondayMorning() && localStorage.getItem(FINISH_REFUSE_LS + wk) === "1" && !localStorage.getItem(FINISH_DONE_LS + wk)) canFinish = true;
+        if (!localStorage.getItem(FINISH_DONE_LS + wk)) {
+          if (isSundayEvening() || isMondayMorning()) canFinish = true;
+        }
       }
       fin.style.display = canFinish ? "" : "none";
       var showPull = false;
@@ -8038,17 +8039,63 @@
     }
 
     async function onFinishWeekClick() {
+      if (!(APP_ROLE === "owner" || APP_ROLE === "all")) {
+        await uiAlertAsync("Закрыть неделю может только владелец.");
+        return;
+      }
       var ok = await uiConfirmAsync(
-        "Завершить неделю?\n\nПолная логика (склад/даты/архив) ещё обсуждается — сейчас только отметим, что неделя закрыта, и откроем «Подтянуть из месяца»."
+        "ЗАКРЫТЬ НЕДЕЛЮ на живой таблице?\n\n" +
+        "• Склад: остаток F = F+B−расход, приход B=0\n" +
+        "• Даты Пн–Пт и Доставки +7 дней\n" +
+        "• Очистка заказов Пн–Пт (ники, состав, адрес, примечание)\n" +
+        "• «Будущая неделя» → блок Понедельника\n" +
+        "• Память нарезки/доставок очищается\n\n" +
+        "Сырьё (приходы) вноси после закрытия — на новую неделю.\n" +
+        "Отменить будет нельзя. Продолжить?"
       );
       if (!ok) return;
+      var ok2 = await uiConfirmAsync("Точно закрыть неделю сейчас?");
+      if (!ok2) return;
+      var tid = String(myTelegramId || "").trim();
+      if (!tid) {
+        try {
+          var tg = window.Telegram && Telegram.WebApp;
+          var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+          if (u && u.id) tid = String(u.id);
+        } catch (e0) {}
+      }
+      if (!tid) {
+        await uiAlertAsync("Нет Telegram ID — открой из бота под владельцем.");
+        return;
+      }
+      showToast("Закрываем неделю…");
+      var res = null;
+      try {
+        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        res = await apiGet(
+          { action: "finishFullWeek", telegramId: tid, confirm: "1" },
+          { timeoutMs: 120000, cacheTtlMs: 0 }
+        );
+      } catch (e1) {
+        await uiAlertAsync("Ошибка сети: " + (e1 && e1.message ? e1.message : e1));
+        return;
+      }
+      if (!res || res.status !== "success") {
+        var msg = (res && res.message) || "finish_failed";
+        if (msg === "owner_only") msg = "Только владелец (Deploy Code.gs + доступ owner).";
+        if (msg === "need_confirm") msg = "Нет подтверждения.";
+        if (msg === "unknown_action") msg = "Нужен Deploy Code.gs с action finishFullWeek.";
+        await uiAlertAsync("Не закрылось: " + msg);
+        return;
+      }
       var wk = currentWeekKeyLocal();
       localStorage.setItem(FINISH_DONE_LS + wk, "1");
       localStorage.removeItem(FINISH_REFUSE_LS + wk);
-      showToast("Неделя отмечена закрытой (логика finish — после обсуждения)");
-      try { logLearnEvent("finishWeekStub", { weekKey: wk }); } catch (e) {}
+      showToast("Неделя закрыта. Пн: " + (res.mondayDate || "ок"));
+      try { logLearnEvent("finishFullWeek", { weekKey: wk, mondayDate: res.mondayDate || "" }); } catch (e2) {}
       refreshWeekBanners();
     }
+
     function refuseFinishWeek() {
       var wk = currentWeekKeyLocal();
       localStorage.setItem(FINISH_REFUSE_LS + wk, "1");
