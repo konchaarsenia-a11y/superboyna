@@ -4594,22 +4594,60 @@ function materializeDeliveryDate_(ss, deliveryDate, opts) {
   };
 }
 
+/**
+ * Дата вне Пн–Пт текущей недели → слот «Будущая неделя».
+ * write=true: проставить A1 на эту дату (перед переносом людей).
+ */
+function ensureFutureWeekForDate_(ss, deliveryDate, write) {
+  if (!deliveryDate) return null;
+  var future = ss.getSheetByName("Будущая неделя");
+  if (!future) return null;
+  var tz = ss.getSpreadsheetTimeZone();
+  var want = dateKey_(deliveryDate, tz);
+  var cur = parseFlexibleDate_(future.getRange("A1").getValue(), tz);
+  var matches = !!(cur && dateKey_(cur, tz) === want);
+  if (write && !matches) {
+    future.getRange("A1").setValue(deliveryDate);
+    matches = true;
+  }
+  return {
+    day: "Будущая неделя",
+    date: deliveryDate,
+    dateNotInWeek: true,
+    futureSlot: true,
+    futureDateMatches: matches
+  };
+}
+
 function resolveViewDeliveryDate_(ss, json) {
   var tz = ss.getSpreadsheetTimeZone();
   var dayHint = String((json && json.day) || "").trim();
   var deliveryDate = parseFlexibleDate_((json && (json.deliveryDate || json.date)) || "", tz);
+  var writeFuture = !!(json && (json.ensureFuture === true || json.ensureFuture === "1" || json.ensureFuture === 1 ||
+    json.writeFuture === true || json.writeFuture === "1"));
   if (deliveryDate) {
     var byDate = findDayNameForDate_(ss, deliveryDate);
-    if (byDate) return { date: deliveryDate, day: byDate, dateNotInWeek: false };
-    if (dayHint) {
+    if (byDate) {
+      return {
+        date: deliveryDate,
+        day: byDate,
+        dateNotInWeek: byDate === "Будущая неделя",
+        futureSlot: byDate === "Будущая неделя",
+        futureDateMatches: byDate === "Будущая неделя" ? true : undefined
+      };
+    }
+    if (dayHint && dayHint !== "Будущая неделя") {
       var d2 = parseFlexibleDate_(getDayDate_(ss, dayHint), tz);
       if (d2) return { date: d2, day: dayHint, dateNotInWeek: false };
     }
+    // вне текущей недели — всегда цель «Будущая неделя» (не «нет такого дня»)
+    var fut = ensureFutureWeekForDate_(ss, deliveryDate, writeFuture);
+    if (fut) return fut;
     return { date: deliveryDate, day: "", dateNotInWeek: true };
   }
   if (dayHint) {
     var d3 = parseFlexibleDate_(getDayDate_(ss, dayHint), tz);
-    return { date: d3, day: dayHint, dateNotInWeek: false };
+    return { date: d3, day: dayHint, dateNotInWeek: dayHint === "Будущая неделя" };
   }
   return null;
 }
@@ -4626,7 +4664,10 @@ function handleGetViewCompare(json, callback, fromPost) {
 
   var week = [];
   var already = {};
-  if (resolved.day) {
+  // «Будущая неделя» с другой датой в A1 — не показывать чужих людей слева
+  var showWeek = !!resolved.day;
+  if (resolved.futureSlot && resolved.futureDateMatches === false) showWeek = false;
+  if (showWeek) {
     var data = getClientsData_(ss, resolved.day);
     (data.clients || []).forEach(function (c) {
       var name = String(c.name || "").trim();
@@ -4684,30 +4725,9 @@ function handleGetViewCompare(json, callback, fromPost) {
         var gaps = [];
         if (!String(cc.address || "").trim()) gaps.push("address");
         if (!String(cc.phone || "").trim() && !extractPhoneFromNote_(cc.note || "")) gaps.push("phone");
+        // В Просмотре не тянем состав из ПП на каждый клик — это тормозит.
+        // Состав подставится при «Сохранить переносы» / materialize.
         var basketCount = (cc.basket || []).length;
-        var basketHint = "";
-        if (!basketCount) {
-          try {
-            var crmSs = getCrmSpreadsheet_();
-            var filled = fillSubscriptionBasketForDate_(ss, crmSs, cc.client, cc.segment, resolved.date);
-            basketCount = (filled.basket || []).length;
-            basketHint = filled.hint || "";
-            if (basketCount) {
-              upsertCalendarEntry_(ss, {
-                date: resolved.date,
-                client: cc.client,
-                matchKey: key,
-                segment: cc.segment,
-                address: cc.address,
-                phone: cc.phone,
-                note: cc.note,
-                basket: filled.basket,
-                source: cc.source || "subscription",
-                status: cc.status || "planned"
-              });
-            }
-          } catch (eB) {}
-        }
         if (!basketCount) gaps.push("basket");
         month.push({
           name: display,
@@ -4717,7 +4737,7 @@ function handleGetViewCompare(json, callback, fromPost) {
           address: cc.address || "",
           phone: cc.phone || extractPhoneFromNote_(cc.note || ""),
           basketCount: basketCount,
-          basketHint: basketHint,
+          basketHint: "",
           gaps: gaps,
           source: cc.source || ""
         });
@@ -4734,6 +4754,8 @@ function handleGetViewCompare(json, callback, fromPost) {
     date: resolved.date ? dateKey_(resolved.date, tz) : "",
     dateIso: resolved.date ? isoDateKey_(resolved.date, tz) : "",
     dateNotInWeek: !!resolved.dateNotInWeek,
+    futureSlot: !!resolved.futureSlot,
+    futureDateMatches: resolved.futureDateMatches,
     monthSheet: monthSheet,
     calendar: true,
     calendarSeed: calendarSeed,
@@ -4755,10 +4777,15 @@ function handlePullClientFromMonth(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
   var resolved = resolveViewDeliveryDate_(ss, json || {});
+  // перенос: дату вне недели кладём на «Будущая неделя»
+  if (resolved && resolved.date && (!resolved.day || resolved.futureSlot)) {
+    var ensured = ensureFutureWeekForDate_(ss, resolved.date, true);
+    if (ensured) resolved = ensured;
+  }
   if (!resolved || !resolved.date || !resolved.day) {
     var no = {
       status: "error",
-      message: (resolved && resolved.dateNotInWeek) ? "date_not_in_week" : "need_day_or_date"
+      message: (resolved && resolved.dateNotInWeek && !resolved.day) ? "date_not_in_week" : "need_day_or_date"
     };
     return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
   }
@@ -4828,10 +4855,14 @@ function handlePullClientsFromMonth(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, bad2) : jsonp(callback, bad2);
   }
   var resolved = resolveViewDeliveryDate_(ss, json || {});
+  if (resolved && resolved.date && (!resolved.day || resolved.futureSlot)) {
+    var ensured2 = ensureFutureWeekForDate_(ss, resolved.date, true);
+    if (ensured2) resolved = ensured2;
+  }
   if (!resolved || !resolved.date || !resolved.day) {
     var no = {
       status: "error",
-      message: (resolved && resolved.dateNotInWeek) ? "date_not_in_week" : "need_day_or_date"
+      message: (resolved && resolved.dateNotInWeek && !resolved.day) ? "date_not_in_week" : "need_day_or_date"
     };
     return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
   }

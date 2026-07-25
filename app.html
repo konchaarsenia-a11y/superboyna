@@ -893,7 +893,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.65</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.66</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1102,9 +1102,9 @@
           <label>Или дата</label>
           <input type="date" id="viewDate" onchange="onViewDateChange()">
         </div>
-        <div class="muted" style="font-size:12px;">Выбери день или дату — слева неделя, справа <b>Календарь_Дат</b> (плоский список). «→» в черновик → «Сохранить переносы».</div>
+        <div class="muted" style="font-size:12px;">Выбери день или дату — слева неделя, справа <b>Календарь_Дат</b>. Дата вне текущей недели → на <b>Будущую неделю</b>. «→» → «Сохранить переносы».</div>
         <div id="viewDeployHint" class="muted" style="display:none;font-size:12px;margin-top:8px;color:#ff9f0a;"></div>
-        <button type="button" class="btn-action" id="btnMigrateCalendar" style="display:none;margin-top:8px;background:#3a3a3c;" onclick="migrateCalendarFromCrm()">Перенести CRM → Календарь_Дат</button>
+
       </div>
       <div id="totalDaySummaryContainer"></div>
 
@@ -1551,7 +1551,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.65";
+    const APP_VERSION = "v7.10.66";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3909,7 +3909,7 @@
       }).join("");
       if (box) {
         if (viewDateOnlyMonth) {
-          box.innerHTML = '<div class="view-idle">Этой даты нет в текущей неделе.<br>Смотри только месяц справа.</div>';
+          box.innerHTML = '<div class="view-idle">Этой даты нет в Пн–Пт.<br>Перенос пойдёт на «Будущую неделю» — жми → справа.</div>';
         } else {
           box.innerHTML = (weekHtml || draftHtml)
             ? (weekHtml + draftHtml)
@@ -3940,7 +3940,7 @@
       if (stageAllBtn) {
         stageAllBtn.disabled = !!viewDateOnlyMonth;
         stageAllBtn.style.opacity = viewDateOnlyMonth ? "0.4" : "";
-        stageAllBtn.title = viewDateOnlyMonth ? "Сначала выбери день текущей недели" : "";
+        stageAllBtn.title = viewDateOnlyMonth ? "Дата вне недели — открой дату или «Будущая неделя»" : "";
       }
       updateViewDraftBar();
       updateBatchBar();
@@ -4274,7 +4274,7 @@
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || (res && res.result && res.result.message) || "ошибка";
           if (msg === "date_not_in_week") {
-            await uiAlertAsync("Дата вне текущей недели. Выбери день Пн–Пт.");
+            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.66.");
             return;
           }
           if (msg === "unknown_action") {
@@ -4334,9 +4334,12 @@
 
         var needDeploy = !compareRes || compareRes.status !== "success" || !Array.isArray(compareRes.month);
         var dateNotInWeek = !!(compareRes && compareRes.dateNotInWeek);
-        if (dateStr && (dateNotInWeek || (compareRes && compareRes.status === "success" && !compareRes.day))) {
+        var futureSlot = !!(compareRes && (compareRes.futureSlot || compareRes.day === "Будущая неделя"));
+        // вне недели, но есть слот «Будущая неделя» — можно переносить
+        if (dateStr && !futureSlot && (dateNotInWeek || (compareRes && compareRes.status === "success" && !compareRes.day))) {
           viewDateOnlyMonth = true;
         }
+        if (futureSlot) viewDateOnlyMonth = false;
 
         var week = [];
         var weekRes = null;
@@ -4390,7 +4393,7 @@
           var k = d.matchKey || viewClientKey(d.name);
           return !(k && weekKeys[k]);
         });
-        if (viewDateOnlyMonth) viewTransferDraft = [];
+        if (viewDateOnlyMonth && !futureSlot) viewTransferDraft = [];
 
         const dayLabel = resolvedDay && !viewDateOnlyMonth ? (" · " + resolvedDay) : "";
         var dateShow = "";
@@ -4409,20 +4412,17 @@
         } catch (eSyncD) {}
         if (summary) {
           var sheetHint = (compareRes && compareRes.monthSheet) ? (" · " + compareRes.monthSheet) : "";
+          var futHint = futureSlot ? " · → Будущая неделя" : "";
           summary.innerHTML = '<div class="total-summary-badge">' +
             (viewDateOnlyMonth
-              ? ("Календарь: " + month.length + dateLabel + sheetHint + " · нет в текущей неделе")
-              : ("Неделя: " + week.length + " · календарь: " + month.length + dayLabel + dateLabel + sheetHint)) +
+              ? ("Календарь: " + month.length + dateLabel + sheetHint + " · нет слота недели")
+              : ("Неделя: " + week.length + " · календарь: " + month.length + dayLabel + dateLabel + sheetHint + futHint)) +
             "</div>";
         }
         if (deployHint && needDeploy) {
           deployHint.style.display = "block";
           deployHint.textContent = "Календарь: нужен Deploy Code.gs (getViewCompare + Календарь_Дат).";
         }
-        try {
-          var migBtn = document.getElementById("btnMigrateCalendar");
-          if (migBtn) migBtn.style.display = (APP_ROLE === "owner" || APP_ROLE === "all") ? "" : "none";
-        } catch (eMig) {}
 
         renderViewLists();
         if (needDeploy && monthBox) {
@@ -4437,31 +4437,6 @@
     }
 
     window.loadClientsForDay = loadClientsForDay;
-
-    async function migrateCalendarFromCrm() {
-      var ok = await uiConfirmAsync(
-        "Перенести людей из CRM-месяцев и броней в лист «Календарь_Дат»?\nЭто может занять минуту. Потом Просмотр читает плоский список."
-      );
-      if (!ok) return;
-      showToast("Переношу…");
-      try {
-        var res = await apiGet({
-          action: "migrateCalendar",
-          full: "0",
-          _: String(Date.now())
-        }, { timeoutMs: 120000, cacheTtlMs: 0 });
-        if (!res || res.status !== "success") {
-          showToast("Не вышло: " + ((res && res.message) || "Deploy?"));
-          return;
-        }
-        var st = res.stats || {};
-        showToast("Готово: брони " + (st.bookings || 0) + ", CRM +" + (st.crmPeople || 0));
-        await loadClientsForDay();
-      } catch (e) {
-        showToast(e.message || "Ошибка миграции");
-      }
-    }
-    window.migrateCalendarFromCrm = migrateCalendarFromCrm;
 
     function toggleOrderDetail(index, event) {
       if (event && (event.target.closest(".crm-mini-btn") || event.target.closest(".client-check") || event.target.closest("button"))) return;
