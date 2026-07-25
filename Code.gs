@@ -1534,13 +1534,27 @@ function extractInstagramNick_(raw) {
   return "";
 }
 
-/** Ключ личности клиента: @handle / латиница, иначе полное имя. */
+/** Ключ личности клиента: @handle / латиница, иначе полное имя.
+ *  Две собаки одного инста (Veta.foto Дэни / Veta.foto Пэни) — разные ключи.
+ */
 function clientMatchKey_(raw) {
   var ex = extractInstagramNick_(raw);
-  var base = ex || String(raw || "").replace(/\s*\b(АФК|ПП|БП|Р)\b\s*/gi, " ").replace(/\s+/g, " ").trim();
+  var display = String(raw || "").replace(/\s+/g, " ").trim();
+  var base = ex || display.replace(/\s*\b(АФК|ПП|БП|Р)\b\s*/gi, " ").replace(/\s+/g, " ").trim();
   // kinolog.vica ≡ Kinolog_vica — точки/подчёркивания в handle не различаем
   var key = normalizeClientKey_(base);
   if (ex || /^[A-Z0-9._]+$/i.test(base)) key = key.replace(/[._]/g, "");
+  if (ex && display) {
+    var esc = String(ex).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    var rest = display.replace(new RegExp("^@?" + esc, "i"), "").trim();
+    rest = rest.replace(/\s*\b(АФК|ПП|БП|Р)\b\s*/gi, " ").replace(/\s+/g, " ").trim();
+    // хвост-кличка собаки, не операционная пометка
+    if (rest && rest.length <= 24 &&
+        !/доставк|написа|уточн|втор(ая|ой)|через|европочт/i.test(rest) &&
+        /[а-яА-ЯёЁA-Za-z0-9]/.test(rest)) {
+      key = key + "|" + normalizeClientKey_(rest).replace(/[._\s]+/g, "");
+    }
+  }
   return key;
 }
 
@@ -3947,7 +3961,12 @@ function upsertCalendarEntry_(ss, opts) {
     var st = String(all[i].status || "").toLowerCase();
     if (st === "cancelled") continue;
     if (matchKey && all[i].matchKey === matchKey) { existing = all[i]; break; }
-    if (nicksMatch_(all[i].client, client)) { existing = all[i]; break; }
+    // старые строки без суффикса собаки: матч только если display совпадает
+    if (nicksMatch_(all[i].client, client)) {
+      var dOld = normalizeClientKey_(displayClientNick_(all[i].client) || all[i].client);
+      var dNew = normalizeClientKey_(displayClientNick_(client) || client);
+      if (dOld === dNew) { existing = all[i]; break; }
+    }
   }
   var basket = opts.basket;
   if (!basket && opts.basketJson) {
@@ -3995,9 +4014,11 @@ function readCalendarForDate_(ss, deliveryDate) {
     var keyD = bd ? dateKey_(bd, tz) : String(all[i].date || "");
     var iso = String(all[i].dateIso || "");
     if (keyD !== want && iso !== wantIso) continue;
-    var mk = all[i].matchKey || clientMatchKey_(all[i].client);
+    var mk = clientMatchKey_(all[i].client) || all[i].matchKey || "";
     if (mk && seen[mk]) continue;
     if (mk) seen[mk] = true;
+    // обновим matchKey в ответе на актуальный (две собаки)
+    all[i].matchKey = mk || all[i].matchKey;
     out.push(all[i]);
   }
   return out;
@@ -5704,7 +5725,8 @@ function parseCrmCalendarCell_(text) {
   }
   return {
     client: display,
-    matchKey: clientMatchKey_(extracted || display),
+    // важно: ключ от полного display (Veta.foto Дэни ≠ Veta.foto Пэни), не от голого @handle
+    matchKey: clientMatchKey_(display || nickLine),
     address: address,
     phone: phone,
     segment: segment || (/варка/i.test(lines[0]) ? "Р" : "ПП"),
