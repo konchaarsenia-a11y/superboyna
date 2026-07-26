@@ -11,7 +11,7 @@
     /* Telegram WebView кэширует app.html — форс-обновление по версии */
     (function () {
       try {
-        var want = "71093";
+        var want = "71094";
         var u = new URL(location.href);
         if (u.searchParams.get("v") === want) return;
         u.searchParams.set("v", want);
@@ -918,7 +918,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.93</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.94</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1642,7 +1642,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.93";
+    const APP_VERSION = "v7.10.94";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -8345,9 +8345,11 @@
             };
             try { maybeAnnounceWeekFinished_(st, wk); } catch (eAnn) {}
             // если у этого устройства уже отмечено, а на сервере ещё нет — догнать (после деплоя / старый localStorage)
+            var locFin = false;
+            var locPull = false;
             try {
-              var locFin = localStorage.getItem(FINISH_DONE_LS + wk) === "1";
-              var locPull = localStorage.getItem(WEEK_PULL_LS + wk) === "pulled";
+              locFin = localStorage.getItem(FINISH_DONE_LS + wk) === "1";
+              locPull = localStorage.getItem(WEEK_PULL_LS + wk) === "pulled";
               // legacy: подтягивали с weekKey dd.MM.yyyy — ищем любой ключ pull для этой недели
               if (!locPull) {
                 try {
@@ -8362,8 +8364,10 @@
                 try {
                   var ps = await apiGet({ action: "weekPullStatus", _: String(Date.now()) }, { timeoutMs: 12000, cacheTtlMs: 0 });
                   if (ps && ps.status === "success") {
-                    // уже есть люди на неделе и дописывать нечего / сервер не советует pull
-                    if ((Number(ps.weekPeople || 0) > 0 && Number(ps.maybeMissing || 0) === 0) || ps.suggestPull === false) {
+                    // итоги недели/месяца; посуточный maybeMissing больше не используем как критерий «уже подтянули»
+                    if ((Number(ps.weekPeople || 0) > 0 && ps.suggestPull === false) ||
+                        (Number(ps.weekPeople || 0) > 0 && Number(ps.monthPeople || 0) > 0 &&
+                          Number(ps.weekPeople) >= Number(ps.monthPeople))) {
                       locPull = true;
                       locFin = true;
                     }
@@ -8371,14 +8375,16 @@
                 } catch (ePs) {}
               }
               if ((locFin && !st.finished) || (locPull && !st.pulled)) {
-                await apiGet({
-                  action: "setWeekBannerState",
-                  weekKey: wk,
-                  finished: (locFin || st.finished) ? "1" : "",
-                  pulled: (locPull || st.pulled) ? "1" : "",
-                  telegramId: String(myTelegramId || ""),
-                  _: String(Date.now())
-                }, { timeoutMs: 12000, cacheTtlMs: 0 });
+                try {
+                  await apiGet({
+                    action: "setWeekBannerState",
+                    weekKey: wk,
+                    finished: (locFin || st.finished) ? "1" : "",
+                    pulled: (locPull || st.pulled) ? "1" : "",
+                    telegramId: String(myTelegramId || ""),
+                    _: String(Date.now())
+                  }, { timeoutMs: 12000, cacheTtlMs: 0 });
+                } catch (ePush) {}
                 if (locFin) _weekBannerState.finished = true;
                 if (locPull) _weekBannerState.pulled = true;
                 st.finished = _weekBannerState.finished;
@@ -8386,10 +8392,9 @@
               }
             } catch (eSync) {}
             try {
-              if (st.finished || _weekBannerState.finished) localStorage.setItem(FINISH_DONE_LS + wk, "1");
-              else localStorage.removeItem(FINISH_DONE_LS + wk);
-              if (st.pulled || _weekBannerState.pulled) localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
-              else localStorage.removeItem(WEEK_PULL_LS + wk);
+              if (st.finished || _weekBannerState.finished || locFin) localStorage.setItem(FINISH_DONE_LS + wk, "1");
+              // не стираем local «pulled», если сервер ещё false — иначе баннер вспыхивает снова
+              if (st.pulled || _weekBannerState.pulled || locPull) localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
               if (st.refused) localStorage.setItem(FINISH_REFUSE_LS + wk, "1");
               else localStorage.removeItem(FINISH_REFUSE_LS + wk);
             } catch (eLs) {}
@@ -8959,13 +8964,18 @@
     async function runMaterializeWeek(quiet) {
       try {
         if (!quiet) showToast("Подтягиваю неделю из месяца…");
-        const res = await apiGet({ action: "materializeWeek", onlyMissing: "1" });
+        const wk = currentWeekKeyLocal();
+        const res = await apiGet({
+          action: "materializeWeek",
+          onlyMissing: "1",
+          weekKey: wk,
+          _: String(Date.now())
+        }, { timeoutMs: 120000, cacheTtlMs: 0 });
         const added = res && res.result ? (res.result.totalAdded || 0) : 0;
         const preserved = res && res.result && res.result.days
           ? (res.result.days || []).reduce(function (s, d) { return s + (Number(d.preserved) || 0); }, 0)
           : 0;
         // всегда ISO понедельник — result.weekKey раньше был dd.MM.yyyy и баннер не скрывался
-        const wk = currentWeekKeyLocal();
         if (wk) {
           localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
           localStorage.setItem(FINISH_DONE_LS + wk, "1");

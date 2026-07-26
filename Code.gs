@@ -639,11 +639,11 @@ function currentWeekKeyServer_(optDate) {
 function handleGetWeekBannerState(json, callback, fromPost) {
   var wk = normalizeWeekBannerKey_((json && json.weekKey) || "");
   var st = readWeekBannerState_(wk);
-  // если уже подтягивали, а флаг не записался (старый weekKey / до Deploy) — спрятать баннер по факту недели
+  // если уже подтягивали, а флаг не записался — спрятать баннер по факту недели (не по посуточному maybeMissing)
   if (!st.pulled && st.finished) {
     try {
       var snap = weekPullSnapshot_();
-      if (snap && Number(snap.weekPeople || 0) > 0 && Number(snap.maybeMissing || 0) === 0) {
+      if (snap && (snap.suggestPull === false) && Number(snap.weekPeople || 0) > 0) {
         st = writeWeekBannerState_(wk, { pulled: true, pulledAt: new Date().toISOString(), finished: true });
       }
     } catch (eHeal) {}
@@ -6006,6 +6006,9 @@ function weekPullSnapshot_() {
       maybeMissing: miss
     });
   }
+  // Посуточный maybeMissing часто > 0 даже когда итоги равны (люди на других днях / CRM≠лист).
+  // Баннер «Подтянуть» — только если неделя пустая или по сумме в месяце явно больше, чем на неделе.
+  var suggestPull = !!(weekKey && monthPeople > 0 && (weekPeople === 0 || weekPeople < monthPeople));
   return {
     weekKey: currentWeekKeyServer_(),
     weekKeyLegacy: weekKey,
@@ -6013,7 +6016,7 @@ function weekPullSnapshot_() {
     weekPeople: weekPeople,
     monthPeople: monthPeople,
     maybeMissing: missingEstimate,
-    suggestPull: !!(weekKey && monthPeople > 0 && (weekPeople === 0 || missingEstimate > 0))
+    suggestPull: suggestPull
   };
 }
 
