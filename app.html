@@ -11,7 +11,7 @@
     /* Telegram WebView кэширует app.html — форс-обновление по версии */
     (function () {
       try {
-        var want = "71098";
+        var want = "71099";
         var u = new URL(location.href);
         if (u.searchParams.get("v") === want) return;
         u.searchParams.set("v", want);
@@ -98,15 +98,13 @@
       right: 0;
       z-index: 1600;
       pointer-events: auto;
-      /* Telegram-like liquid glass chrome */
-      background: rgba(18, 18, 20, 0.62);
-      -webkit-backdrop-filter: blur(28px) saturate(180%);
-      backdrop-filter: blur(28px) saturate(180%);
-      padding: calc(8px + var(--safe-top)) 16px 10px;
-      border-bottom: 1px solid rgba(255,255,255,0.12);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.14),
-        0 10px 28px rgba(0,0,0,0.28);
+      /* Apple-like thin material */
+      background: rgba(22, 22, 24, 0.72);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      backdrop-filter: saturate(180%) blur(20px);
+      padding: calc(6px + var(--safe-top)) 16px 8px;
+      border-bottom: 0.5px solid rgba(255,255,255,0.12);
+      box-shadow: none;
     }
     .app-top-inner {
       max-width: 640px;
@@ -114,47 +112,62 @@
     }
     .app-top-spacer {
       width: 100%;
-      height: calc(108px + var(--safe-top));
+      height: calc(100px + var(--safe-top));
       flex-shrink: 0;
       pointer-events: none;
     }
-    .header-main { font-size: 20px; font-weight: 700; letter-spacing: -0.4px; margin-bottom: 10px; }
+    .header-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      margin-bottom: 8px;
+    }
+    .header-row .header-main { margin-bottom: 0; flex: 1 1 auto; min-width: 0; }
+    .header-main {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.41px;
+      line-height: 1.2;
+      color: rgba(245,245,247,0.92);
+      margin-bottom: 8px;
+    }
     .nav-tabs {
-      display: flex; gap: 4px; margin-bottom: 0;
+      display: flex; gap: 0; margin-bottom: 0;
       position: relative; z-index: 20;
-      background: rgba(255,255,255,0.07);
-      -webkit-backdrop-filter: blur(24px) saturate(180%);
-      backdrop-filter: blur(24px) saturate(180%);
-      padding: 4px; border-radius: 16px;
-      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(118, 118, 128, 0.24);
+      padding: 2px;
+      border-radius: 9px;
+      border: none;
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.18);
+      box-shadow: none;
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
     }
     .nav-tabs-pill {
       position: absolute;
-      top: 4px;
-      bottom: 4px;
+      top: 2px;
+      bottom: 2px;
       left: 0;
       width: 72px;
-      border-radius: 12px;
+      border-radius: 7px;
       pointer-events: none;
       z-index: 0;
-      background: linear-gradient(180deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.10) 45%, rgba(255,122,0,0.55) 100%);
-      -webkit-backdrop-filter: blur(16px) saturate(160%);
-      backdrop-filter: blur(16px) saturate(160%);
-      border: 1px solid rgba(255,255,255,0.28);
+      background: rgba(99, 99, 102, 0.92);
+      border: none;
       box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.45),
-        0 6px 16px rgba(255,122,0,0.22);
-      transform: translateX(4px);
-      transition: transform 0.34s cubic-bezier(0.32, 0.72, 0, 1), width 0.34s cubic-bezier(0.32, 0.72, 0, 1);
+        0 1px 1px rgba(0,0,0,0.12),
+        0 2px 6px rgba(0,0,0,0.18),
+        inset 0 0.5px 0 rgba(255,255,255,0.18);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      transform: translateX(2px);
+      transition: transform 0.28s cubic-bezier(0.25, 0.1, 0.25, 1), width 0.28s cubic-bezier(0.25, 0.1, 0.25, 1);
       will-change: transform, width;
     }
     .tab-link {
-      flex: 1 0 auto; min-width: 72px; text-align: center; background: transparent; border: none;
-      color: rgba(245,245,247,0.62); padding: 10px 8px; font-size: 12px; font-weight: 600;
-      cursor: pointer; border-radius: 12px;
+      flex: 1 0 auto; min-width: 68px; text-align: center; background: transparent; border: none;
+      color: rgba(235,235,245,0.55); padding: 7px 8px; font-size: 13px; font-weight: 500;
+      letter-spacing: -0.08px;
+      cursor: pointer; border-radius: 7px;
       -webkit-user-select: none; user-select: none;
       touch-action: manipulation;
       pointer-events: auto !important;
@@ -165,7 +178,8 @@
       color: #fff;
       background: transparent;
       box-shadow: none;
-      text-shadow: 0 1px 1px rgba(0,0,0,0.25);
+      text-shadow: none;
+      font-weight: 600;
     }
     /* Страховка: кнопки всегда кликабельны даже если какой-то слой залип */
     button, .btn-action, .btn-save, .seg-btn, .crm-mini-btn, .route-mini, select, input {
@@ -962,7 +976,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.98</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.99</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1687,7 +1701,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.98";
+    const APP_VERSION = "v7.10.99";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
