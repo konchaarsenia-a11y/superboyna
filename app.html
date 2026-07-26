@@ -906,7 +906,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.90</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.91</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -962,6 +962,7 @@
         <div class="muted">Склад (F/B), даты +7, очистка Пн–Пт, Будущая→Пн. Только владелец. Вс с 18:00 или пн до 12:00.</div>
         <button type="button" class="btn-action btn-orange" onclick="onFinishWeekClick()">Завершить неделю</button>
         <button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="refuseFinishWeek()">Позже</button>
+        <button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="dismissFinishWeekBanner()">Уже завершили — скрыть</button>
       </div>
       <div id="pullWeekBanner" class="week-banner" style="display:none;">
         <h3>Подтянуть из месяца</h3>
@@ -1629,7 +1630,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.90";
+    const APP_VERSION = "v7.10.91";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -8371,9 +8372,11 @@
       }
       var finished = !!_weekBannerState.finished || localStorage.getItem(FINISH_DONE_LS + wk) === "1";
       var pulled = !!_weekBannerState.pulled || localStorage.getItem(WEEK_PULL_LS + wk) === "pulled";
+      var refused = !!_weekBannerState.refused || localStorage.getItem(FINISH_REFUSE_LS + wk) === "1";
       var canFinish = false;
       if (APP_ROLE === "owner" || APP_ROLE === "all") {
-        if (!finished && (isSundayEvening() || isMondayMorning())) canFinish = true;
+        // refused = «Позже»; finished = уже закрыли / «Уже завершили — скрыть»
+        if (!finished && !refused && (isSundayEvening() || isMondayMorning())) canFinish = true;
       }
       fin.style.display = canFinish ? "" : "none";
       var showPull = false;
@@ -8383,6 +8386,31 @@
       pull.style.display = showPull ? "" : "none";
       if (showPull) loadPullWeekPreview();
     }
+
+    async function dismissFinishWeekBanner() {
+      var wk = currentWeekKeyLocal();
+      try {
+        localStorage.setItem(FINISH_DONE_LS + wk, "1");
+        localStorage.removeItem(FINISH_REFUSE_LS + wk);
+      } catch (eLs) {}
+      _weekBannerState.finished = true;
+      _weekBannerState.refused = false;
+      _weekBannerState.weekKey = wk;
+      try {
+        await apiGet({
+          action: "setWeekBannerState",
+          weekKey: wk,
+          finished: "1",
+          telegramId: String(myTelegramId || ""),
+          _: String(Date.now())
+        }, { timeoutMs: 12000, cacheTtlMs: 0 });
+      } catch (eSet) {}
+      var fin = document.getElementById("finishWeekBanner");
+      if (fin) fin.style.display = "none";
+      try { refreshWeekBanners(); } catch (eR) {}
+      showToast("Баннер скрыт — неделю больше не предлагаем закрыть");
+    }
+    window.dismissFinishWeekBanner = dismissFinishWeekBanner;
 
     async function loadPullWeekPreview() {
       var box = document.getElementById("pullWeekPreview");
@@ -8471,6 +8499,7 @@
     async function refuseFinishWeek() {
       var wk = currentWeekKeyLocal();
       localStorage.setItem(FINISH_REFUSE_LS + wk, "1");
+      _weekBannerState.refused = true;
       document.getElementById("finishWeekBanner").style.display = "none";
       try {
         var tid = String(myTelegramId || "").trim();
@@ -8482,7 +8511,7 @@
           _: String(Date.now())
         }, { timeoutMs: 12000, cacheTtlMs: 0 });
       } catch (eR) {}
-      showToast("Ок — напомним в понедельник утром");
+      showToast("Ок — баннер скрыт на эту неделю");
     }
     window.onFinishWeekClick = onFinishWeekClick;
     window.refuseFinishWeek = refuseFinishWeek;
