@@ -11,7 +11,7 @@
     /* Telegram WebView кэширует app.html — форс-обновление по версии */
     (function () {
       try {
-        var want = "71099";
+        var want = "71100";
         var u = new URL(location.href);
         if (u.searchParams.get("v") === want) return;
         u.searchParams.set("v", want);
@@ -112,13 +112,13 @@
     }
     .app-top-spacer {
       width: 100%;
-      height: calc(100px + var(--safe-top));
+      height: calc(112px + var(--safe-top));
       flex-shrink: 0;
       pointer-events: none;
     }
     .header-row {
       display: flex; align-items: center; justify-content: space-between; gap: 10px;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
     .header-row .header-main { margin-bottom: 0; flex: 1 1 auto; min-width: 0; }
     .header-main {
@@ -132,42 +132,43 @@
     .nav-tabs {
       display: flex; gap: 0; margin-bottom: 0;
       position: relative; z-index: 20;
-      background: rgba(118, 118, 128, 0.24);
-      padding: 2px;
-      border-radius: 9px;
+      background: rgba(118, 118, 128, 0.22);
+      padding: 3px;
+      border-radius: 12px;
       border: none;
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
       box-shadow: none;
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
+      min-height: 44px;
     }
     .nav-tabs-pill {
       position: absolute;
-      top: 2px;
-      bottom: 2px;
+      top: 3px;
+      bottom: 3px;
       left: 0;
-      width: 72px;
-      border-radius: 7px;
+      width: 80px;
+      border-radius: 9px;
       pointer-events: none;
       z-index: 0;
-      background: rgba(99, 99, 102, 0.92);
+      background: var(--accent-color);
       border: none;
       box-shadow:
-        0 1px 1px rgba(0,0,0,0.12),
-        0 2px 6px rgba(0,0,0,0.18),
-        inset 0 0.5px 0 rgba(255,255,255,0.18);
+        0 1px 2px rgba(255,122,0,0.35),
+        0 4px 12px rgba(255,122,0,0.28),
+        inset 0 0.5px 0 rgba(255,255,255,0.28);
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
-      transform: translateX(2px);
+      transform: translateX(3px);
       transition: transform 0.28s cubic-bezier(0.25, 0.1, 0.25, 1), width 0.28s cubic-bezier(0.25, 0.1, 0.25, 1);
       will-change: transform, width;
     }
     .tab-link {
-      flex: 1 0 auto; min-width: 68px; text-align: center; background: transparent; border: none;
-      color: rgba(235,235,245,0.55); padding: 7px 8px; font-size: 13px; font-weight: 500;
-      letter-spacing: -0.08px;
-      cursor: pointer; border-radius: 7px;
+      flex: 1 0 auto; min-width: 78px; text-align: center; background: transparent; border: none;
+      color: rgba(235,235,245,0.58); padding: 11px 10px; font-size: 15px; font-weight: 600;
+      letter-spacing: -0.2px;
+      cursor: pointer; border-radius: 9px;
       -webkit-user-select: none; user-select: none;
       touch-action: manipulation;
       pointer-events: auto !important;
@@ -179,7 +180,7 @@
       background: transparent;
       box-shadow: none;
       text-shadow: none;
-      font-weight: 600;
+      font-weight: 700;
     }
     /* Страховка: кнопки всегда кликабельны даже если какой-то слой залип */
     button, .btn-action, .btn-save, .seg-btn, .crm-mini-btn, .route-mini, select, input {
@@ -971,7 +972,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.99</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.00</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1696,7 +1697,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.99";
+    const APP_VERSION = "v7.11.00";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
