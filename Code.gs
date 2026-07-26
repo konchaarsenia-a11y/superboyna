@@ -533,12 +533,104 @@ function handleFinishFullWeek(json, callback, fromPost) {
       var bad = result || { status: "error", message: "finish_failed" };
       return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
     }
+    try {
+      var wkFin = String(json.weekKey || "").trim() || currentWeekKeyServer_();
+      writeWeekBannerState_(wkFin, { finished: true, finishedAt: new Date().toISOString(), refused: false, by: tid });
+      result.weekKey = wkFin;
+      result.banner = readWeekBannerState_(wkFin);
+    } catch (eW) {}
     return fromPost ? jsonpText(callback, result) : jsonp(callback, result);
   } catch (err) {
     var fail = { status: "error", message: String(err) };
     return fromPost ? jsonpText(callback, fail) : jsonp(callback, fail);
   }
 }
+
+function weekBannerPropsKey_(weekKey) {
+  return "week_banner_" + String(weekKey || "").trim();
+}
+
+function readWeekBannerState_(weekKey) {
+  var key = weekBannerPropsKey_(weekKey);
+  var raw = "";
+  try { raw = PropertiesService.getScriptProperties().getProperty(key) || ""; } catch (e) {}
+  var st = { weekKey: String(weekKey || ""), finished: false, pulled: false, refused: false, finishedAt: "", pulledAt: "", refusedAt: "", by: "" };
+  if (!raw) return st;
+  try {
+    var o = JSON.parse(raw);
+    if (o && typeof o === "object") {
+      st.finished = !!o.finished;
+      st.pulled = !!o.pulled;
+      st.refused = !!o.refused;
+      st.finishedAt = String(o.finishedAt || "");
+      st.pulledAt = String(o.pulledAt || "");
+      st.refusedAt = String(o.refusedAt || "");
+      st.by = String(o.by || "");
+    }
+  } catch (e2) {}
+  return st;
+}
+
+function writeWeekBannerState_(weekKey, patch) {
+  var st = readWeekBannerState_(weekKey);
+  patch = patch || {};
+  if (patch.finished != null) st.finished = !!patch.finished;
+  if (patch.pulled != null) st.pulled = !!patch.pulled;
+  if (patch.refused != null) st.refused = !!patch.refused;
+  if (patch.finishedAt != null) st.finishedAt = String(patch.finishedAt || "");
+  if (patch.pulledAt != null) st.pulledAt = String(patch.pulledAt || "");
+  if (patch.refusedAt != null) st.refusedAt = String(patch.refusedAt || "");
+  if (patch.by != null) st.by = String(patch.by || "");
+  st.weekKey = String(weekKey || "");
+  try {
+    PropertiesService.getScriptProperties().setProperty(weekBannerPropsKey_(weekKey), JSON.stringify(st));
+  } catch (e) {}
+  return st;
+}
+
+/** weekKey = YYYY-MM-DD понедельника (как на клиенте). */
+function currentWeekKeyServer_(optDate) {
+  var d = optDate instanceof Date && !isNaN(optDate.getTime()) ? new Date(optDate.getTime()) : new Date();
+  var day = d.getDay();
+  var diff = (day === 0 ? -6 : 1 - day);
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() + diff);
+  return Utilities.formatDate(d, "Europe/Minsk", "yyyy-MM-dd");
+}
+
+function handleGetWeekBannerState(json, callback, fromPost) {
+  var wk = String((json && json.weekKey) || "").trim() || currentWeekKeyServer_();
+  var st = readWeekBannerState_(wk);
+  var ok = { status: "success", weekKey: wk, finished: st.finished, pulled: st.pulled, refused: st.refused, finishedAt: st.finishedAt, pulledAt: st.pulledAt, by: st.by };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handleSetWeekBannerState(json, callback, fromPost) {
+  var wk = String((json && json.weekKey) || "").trim() || currentWeekKeyServer_();
+  var patch = {};
+  var now = new Date().toISOString();
+  var tid = String((json && json.telegramId) || "").trim();
+  if (json.finished === true || json.finished === "1" || json.finished === 1) {
+    patch.finished = true;
+    patch.finishedAt = now;
+    patch.refused = false;
+    if (tid) patch.by = tid;
+  }
+  if (json.pulled === true || json.pulled === "1" || json.pulled === 1) {
+    patch.pulled = true;
+    patch.pulledAt = now;
+    if (tid) patch.by = tid;
+  }
+  if (json.refused === true || json.refused === "1" || json.refused === 1) {
+    patch.refused = true;
+    patch.refusedAt = now;
+  }
+  // allow explicit clear only for owner tests — skip
+  var st = writeWeekBannerState_(wk, patch);
+  var ok = { status: "success", weekKey: wk, finished: st.finished, pulled: st.pulled, refused: st.refused };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
 
 // ===================== HTTP API =====================
 
@@ -684,7 +776,8 @@ function doGet(e) {
   if (action === "materializeWeek") {
     return handleMaterializeWeek({
       onlyMissing: e.parameter.onlyMissing,
-      includeFuture: e.parameter.includeFuture
+      includeFuture: e.parameter.includeFuture,
+      weekKey: e.parameter.weekKey ? decodeURIComponent(e.parameter.weekKey) : ""
     }, callback, false);
   }
   if (action === "weekPullStatus") {
@@ -1003,7 +1096,22 @@ function doGet(e) {
   if (action === "finishFullWeek") {
     return handleFinishFullWeek({
       telegramId: e.parameter.telegramId || "",
-      confirm: e.parameter.confirm || ""
+      confirm: e.parameter.confirm || "",
+      weekKey: e.parameter.weekKey ? decodeURIComponent(e.parameter.weekKey) : ""
+    }, callback, false);
+  }
+  if (action === "getWeekBannerState") {
+    return handleGetWeekBannerState({
+      weekKey: e.parameter.weekKey ? decodeURIComponent(e.parameter.weekKey) : ""
+    }, callback, false);
+  }
+  if (action === "setWeekBannerState") {
+    return handleSetWeekBannerState({
+      weekKey: e.parameter.weekKey ? decodeURIComponent(e.parameter.weekKey) : "",
+      finished: e.parameter.finished,
+      pulled: e.parameter.pulled,
+      refused: e.parameter.refused,
+      telegramId: e.parameter.telegramId || ""
     }, callback, false);
   }
 
@@ -1090,6 +1198,12 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "finishFullWeek") {
     return handleFinishFullWeek(json, callback, fromPost);
+  }
+  if (action === "getWeekBannerState") {
+    return handleGetWeekBannerState(json, callback, fromPost);
+  }
+  if (action === "setWeekBannerState") {
+    return handleSetWeekBannerState(json, callback, fromPost);
   }
   if (action === "finishCutting") {
     return handleFinishCutting(ss, json, callback, fromPost);
@@ -5693,6 +5807,10 @@ function handleMaterializeWeek(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var result = materializeCurrentWeek_(ss, json || {});
   var out = { status: "success", result: result };
+  try {
+    var wkM = String((json && json.weekKey) || "").trim() || currentWeekKeyServer_();
+    writeWeekBannerState_(wkM, { pulled: true, pulledAt: new Date().toISOString(), finished: true });
+  } catch (eM) {}
   return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }
 

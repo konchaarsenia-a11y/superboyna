@@ -906,7 +906,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.84</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.85</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1628,7 +1628,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.84";
+    const APP_VERSION = "v7.10.85";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -4658,7 +4658,7 @@
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || (res && res.result && res.result.message) || "ошибка";
           if (msg === "date_not_in_week") {
-            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.84.");
+            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.85.");
             return;
           }
           if (msg === "unknown_action") {
@@ -8131,20 +8131,80 @@
     }
 
     function refreshWeekBanners() {
+      try { refreshWeekBannersAsync_(); } catch (e) {}
+    }
+
+    var _weekBannerState = { finished: false, pulled: false, refused: false, weekKey: "" };
+    var _weekBannerLoading = false;
+
+    async function refreshWeekBannersAsync_() {
       var fin = document.getElementById("finishWeekBanner");
       var pull = document.getElementById("pullWeekBanner");
       if (!fin || !pull) return;
       var wk = currentWeekKeyLocal();
+      if (!_weekBannerLoading) {
+        _weekBannerLoading = true;
+        try {
+          var st = await apiGet(
+            { action: "getWeekBannerState", weekKey: wk, _: String(Date.now()) },
+            { timeoutMs: 12000, cacheTtlMs: 0 }
+          );
+          if (st && st.status === "success") {
+            _weekBannerState = {
+              finished: !!st.finished,
+              pulled: !!st.pulled,
+              refused: !!st.refused,
+              weekKey: st.weekKey || wk
+            };
+            // если у этого устройства уже отмечено, а на сервере ещё нет — догнать (после деплоя / старый localStorage)
+            try {
+              var locFin = localStorage.getItem(FINISH_DONE_LS + wk) === "1";
+              var locPull = localStorage.getItem(WEEK_PULL_LS + wk) === "pulled";
+              if ((locFin && !st.finished) || (locPull && !st.pulled)) {
+                await apiGet({
+                  action: "setWeekBannerState",
+                  weekKey: wk,
+                  finished: locFin || st.finished ? "1" : "",
+                  pulled: locPull || st.pulled ? "1" : "",
+                  telegramId: String(myTelegramId || ""),
+                  _: String(Date.now())
+                }, { timeoutMs: 12000, cacheTtlMs: 0 });
+                if (locFin) _weekBannerState.finished = true;
+                if (locPull) _weekBannerState.pulled = true;
+                st.finished = _weekBannerState.finished;
+                st.pulled = _weekBannerState.pulled;
+              }
+            } catch (eSync) {}
+            try {
+              if (st.finished || _weekBannerState.finished) localStorage.setItem(FINISH_DONE_LS + wk, "1");
+              else localStorage.removeItem(FINISH_DONE_LS + wk);
+              if (st.pulled || _weekBannerState.pulled) localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
+              else localStorage.removeItem(WEEK_PULL_LS + wk);
+              if (st.refused) localStorage.setItem(FINISH_REFUSE_LS + wk, "1");
+              else localStorage.removeItem(FINISH_REFUSE_LS + wk);
+            } catch (eLs) {}
+          }
+        } catch (eGet) {
+          // fallback: localStorage если сервер ещё без Deploy
+          _weekBannerState = {
+            finished: localStorage.getItem(FINISH_DONE_LS + wk) === "1",
+            pulled: localStorage.getItem(WEEK_PULL_LS + wk) === "pulled",
+            refused: localStorage.getItem(FINISH_REFUSE_LS + wk) === "1",
+            weekKey: wk
+          };
+        }
+        _weekBannerLoading = false;
+      }
+      var finished = !!_weekBannerState.finished || localStorage.getItem(FINISH_DONE_LS + wk) === "1";
+      var pulled = !!_weekBannerState.pulled || localStorage.getItem(WEEK_PULL_LS + wk) === "pulled";
       var canFinish = false;
       if (APP_ROLE === "owner" || APP_ROLE === "all") {
-        if (!localStorage.getItem(FINISH_DONE_LS + wk)) {
-          if (isSundayEvening() || isMondayMorning()) canFinish = true;
-        }
+        if (!finished && (isSundayEvening() || isMondayMorning())) canFinish = true;
       }
       fin.style.display = canFinish ? "" : "none";
       var showPull = false;
-      if ((APP_ROLE === "owner" || APP_ROLE === "manager" || APP_ROLE === "all") && localStorage.getItem(FINISH_DONE_LS + wk) === "1") {
-        if (localStorage.getItem(WEEK_PULL_LS + wk) !== "pulled") showPull = true;
+      if ((APP_ROLE === "owner" || APP_ROLE === "manager" || APP_ROLE === "all") && finished && !pulled) {
+        showPull = true;
       }
       pull.style.display = showPull ? "" : "none";
       if (showPull) loadPullWeekPreview();
@@ -8217,15 +8277,37 @@
       var wk = currentWeekKeyLocal();
       localStorage.setItem(FINISH_DONE_LS + wk, "1");
       localStorage.removeItem(FINISH_REFUSE_LS + wk);
+      _weekBannerState.finished = true;
+      _weekBannerState.pulled = false;
+      _weekBannerState.weekKey = wk;
+      try {
+        await apiGet({
+          action: "setWeekBannerState",
+          weekKey: wk,
+          finished: "1",
+          telegramId: tid,
+          _: String(Date.now())
+        }, { timeoutMs: 15000, cacheTtlMs: 0 });
+      } catch (eSet) {}
       showToast("Неделя закрыта. Пн: " + (res.mondayDate || "ок"));
       try { logLearnEvent("finishFullWeek", { weekKey: wk, mondayDate: res.mondayDate || "" }); } catch (e2) {}
       refreshWeekBanners();
     }
 
-    function refuseFinishWeek() {
+    async function refuseFinishWeek() {
       var wk = currentWeekKeyLocal();
       localStorage.setItem(FINISH_REFUSE_LS + wk, "1");
       document.getElementById("finishWeekBanner").style.display = "none";
+      try {
+        var tid = String(myTelegramId || "").trim();
+        await apiGet({
+          action: "setWeekBannerState",
+          weekKey: wk,
+          refused: "1",
+          telegramId: tid,
+          _: String(Date.now())
+        }, { timeoutMs: 12000, cacheTtlMs: 0 });
+      } catch (eR) {}
       showToast("Ок — напомним в понедельник утром");
     }
     window.onFinishWeekClick = onFinishWeekClick;
@@ -8377,7 +8459,7 @@
           if (idx >= 0 && typeof openSubDetail === "function") openSubDetail(idx);
         } catch (eOpen) {}
       } catch (e) {
-        showToast("Ошибка создания БП — нужен Deploy Code.gs v7.10.84");
+        showToast("Ошибка создания БП — нужен Deploy Code.gs v7.10.85");
       }
     }
     window.openAddBpClientForm = openAddBpClientForm;
@@ -8631,11 +8713,28 @@
         const preserved = res && res.result && res.result.days
           ? (res.result.days || []).reduce(function (s, d) { return s + (Number(d.preserved) || 0); }, 0)
           : 0;
-        const wk = res && res.result ? res.result.weekKey : "";
-        if (wk) localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
+        const wk = (res && res.result && res.result.weekKey) || currentWeekKeyLocal();
+        if (wk) {
+          localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
+          localStorage.setItem(FINISH_DONE_LS + wk, "1");
+          _weekBannerState.pulled = true;
+          _weekBannerState.finished = true;
+          _weekBannerState.weekKey = wk;
+          try {
+            await apiGet({
+              action: "setWeekBannerState",
+              weekKey: wk,
+              pulled: "1",
+              finished: "1",
+              telegramId: String(myTelegramId || ""),
+              _: String(Date.now())
+            }, { timeoutMs: 15000, cacheTtlMs: 0 });
+          } catch (ePullFlag) {}
+        }
         if (added) showToast("Добавлено: " + added + (preserved ? ("; контакты обновлены: " + preserved) : ""));
         else if (preserved) showToast("Новых нет; у уже стоящих подтянуты контакты: " + preserved);
         else showToast("Новых не нашлось (уже всё на месте?)");
+        try { refreshWeekBanners(); } catch (eBan) {}
         const day = document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value;
         if (day) await loadClientsForDay();
         return res;
@@ -9583,7 +9682,7 @@
         }
         box.innerHTML = html;
       } catch (e) {
-        box.innerHTML = '<p class="muted">Ошибка listSurvey — нужен Deploy Code.gs v7.10.84</p>';
+        box.innerHTML = '<p class="muted">Ошибка listSurvey — нужен Deploy Code.gs v7.10.85</p>';
       }
     }
 
@@ -9636,7 +9735,7 @@
         closeAddSurveyForm();
         await loadSurveyTab_();
       } catch (e) {
-        showToast("Ошибка saveSurvey — Deploy Code.gs v7.10.84");
+        showToast("Ошибка saveSurvey — Deploy Code.gs v7.10.85");
       }
     }
 
