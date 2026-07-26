@@ -906,7 +906,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.83</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.84</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1628,7 +1628,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.83";
+    const APP_VERSION = "v7.10.84";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -4422,6 +4422,7 @@
           showToast("Не вышло: " + ((res && res.message) || "Deploy?"));
           return;
         }
+        try { _apiGetMem = Object.create(null); } catch (eMem) {}
         showToast("Убрано из календаря");
         await loadClientsForDay();
       } catch (e) {
@@ -4657,7 +4658,7 @@
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || (res && res.result && res.result.message) || "ошибка";
           if (msg === "date_not_in_week") {
-            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.83.");
+            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.84.");
             return;
           }
           if (msg === "unknown_action") {
@@ -5078,10 +5079,12 @@
     }
     window.crmBatchMove = crmBatchMove;
 
-    function deleteClientParams(clientName, day) {
+    function deleteClientParams(clientName, day, matchKey) {
       const params = { action: "deleteClient", client: clientName, day: day || "" };
       const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "";
       if (dateStr) params.date = dateStr;
+      if (matchKey) params.matchKey = matchKey;
+      params._ = String(Date.now());
       return params;
     }
 
@@ -5094,14 +5097,19 @@
         return;
       }
       const names = idxs.map(function (i) { return loadedClientsRawData[i].name; });
-      const okConfirm = await uiConfirmAsync("Удалить " + names.length + " клиент(ов)?\n\n" + names.slice(0, 8).join(", ") + (names.length > 8 ? "…" : ""));
+      const keys = idxs.map(function (i) {
+        return loadedClientsRawData[i].matchKey || viewClientKey(loadedClientsRawData[i].name) || "";
+      });
+      const okConfirm = await uiConfirmAsync("Удалить " + names.length + " клиент(ов)?\n\n" + names.slice(0, 8).join(", ") + (names.length > 8 ? "…" : "") +
+        "\n\nУйдёт у всех: неделя + Календарь_Дат + бронь на дату.");
       if (!okConfirm) return;
       let ok = 0;
       let fail = [];
       showToast("Удаляю " + names.length + "…");
+      try { _apiGetMem = Object.create(null); } catch (eMem) {}
       for (let i = 0; i < names.length; i++) {
         try {
-          const res = await apiGet(deleteClientParams(names[i], day));
+          const res = await apiGet(deleteClientParams(names[i], day, keys[i]), { timeoutMs: 45000, cacheTtlMs: 0 });
           if (res.status === "success") ok++;
           else fail.push(names[i] + " (" + (res.status || "?") + ")");
         } catch (e) {
@@ -5242,10 +5250,14 @@
       event.stopPropagation();
       const client = loadedClientsRawData[index];
       const day = document.getElementById("viewDaySelect").value;
-      const ok = await uiConfirmAsync("Удалить клиента " + client.name + "?");
+      const ok = await uiConfirmAsync("Удалить клиента " + client.name + "?\n\nУйдёт у всех: неделя + Календарь_Дат + бронь на дату.");
       if (!ok) return;
       try {
-        const res = await apiGet(deleteClientParams(client.name, day));
+        try { _apiGetMem = Object.create(null); } catch (eMem) {}
+        const res = await apiGet(
+          deleteClientParams(client.name, day, client.matchKey || viewClientKey(client.name) || ""),
+          { timeoutMs: 45000, cacheTtlMs: 0 }
+        );
         if (res.status !== "success") {
           await uiAlertAsync("Не удалось: " + (res.status || "ошибка"));
           return;
@@ -8365,7 +8377,7 @@
           if (idx >= 0 && typeof openSubDetail === "function") openSubDetail(idx);
         } catch (eOpen) {}
       } catch (e) {
-        showToast("Ошибка создания БП — нужен Deploy Code.gs v7.10.83");
+        showToast("Ошибка создания БП — нужен Deploy Code.gs v7.10.84");
       }
     }
     window.openAddBpClientForm = openAddBpClientForm;
@@ -9571,7 +9583,7 @@
         }
         box.innerHTML = html;
       } catch (e) {
-        box.innerHTML = '<p class="muted">Ошибка listSurvey — нужен Deploy Code.gs v7.10.83</p>';
+        box.innerHTML = '<p class="muted">Ошибка listSurvey — нужен Deploy Code.gs v7.10.84</p>';
       }
     }
 
@@ -9624,7 +9636,7 @@
         closeAddSurveyForm();
         await loadSurveyTab_();
       } catch (e) {
-        showToast("Ошибка saveSurvey — Deploy Code.gs v7.10.83");
+        showToast("Ошибка saveSurvey — Deploy Code.gs v7.10.84");
       }
     }
 

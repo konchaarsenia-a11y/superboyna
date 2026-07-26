@@ -942,6 +942,7 @@ function doGet(e) {
   // delete / move / saveOrder / saveBooking — и через GET (JSONP из mini-app; POST в Telegram часто молчит)
   if (action === "deleteClient" || action === "moveClient") {
     payload.cutRaw = e.parameter.cutRaw;
+    payload.matchKey = e.parameter.matchKey ? decodeURIComponent(e.parameter.matchKey) : "";
     return handleApiAction(payload, callback, false);
   }
   if (action === "saveOrder") {
@@ -1758,8 +1759,7 @@ function displayClientNick_(raw) {
 /** Пометить брони клиента на дату (или все даты дня) как cancelled. */
 function cancelBookingsForClient_(ss, clientName, deliveryDate) {
   var tz = ss.getSpreadsheetTimeZone();
-  var want = normalizeClientKey_(clientName);
-  if (!want) return { cancelled: 0 };
+  if (!String(clientName || "").trim()) return { cancelled: 0 };
   var dateStr = deliveryDate ? dateKey_(deliveryDate, tz) : "";
   var sh = getBookingsSheet_();
   var all = readAllBookings_();
@@ -1767,7 +1767,7 @@ function cancelBookingsForClient_(ss, clientName, deliveryDate) {
   for (var i = 0; i < all.length; i++) {
     var b = all[i];
     if (String(b.status) === "cancelled") continue;
-    if (normalizeClientKey_(b.client) !== want) continue;
+    if (!nicksMatch_(b.client, clientName)) continue;
     if (dateStr) {
       var bd = parseFlexibleDate_(b.date, tz);
       if (!bd || dateKey_(bd, tz) !== dateStr) continue;
@@ -1777,6 +1777,60 @@ function cancelBookingsForClient_(ss, clientName, deliveryDate) {
     n++;
   }
   return { cancelled: n };
+}
+
+/** Отменить строки Календарь_Дат на дату (все матчи ника / matchKey). */
+function cancelCalendarClientOnDate_(ss, clientName, deliveryDate, matchKeyOpt) {
+  var tz = ss.getSpreadsheetTimeZone();
+  var client = String(clientName || "").trim();
+  if (!deliveryDate || !client) return { removed: 0 };
+  var matchKey = String(matchKeyOpt || "").trim() || clientMatchKey_(client);
+  var all = readAllCalendarRows_();
+  var want = dateKey_(deliveryDate, tz);
+  var removed = 0;
+  var sh = getCalendarSheet_();
+  for (var i = all.length - 1; i >= 0; i--) {
+    var st = String(all[i].status || "").toLowerCase();
+    if (st === "cancelled") continue;
+    var bd = parseFlexibleDate_(all[i].date, tz) || parseFlexibleDate_(all[i].dateIso, tz);
+    if (!bd || dateKey_(bd, tz) !== want) continue;
+    var same = (matchKey && all[i].matchKey === matchKey) || nicksMatch_(all[i].client, client);
+    if (!same) continue;
+    sh.getRange(all[i].rowIndex, 12).setValue("cancelled");
+    sh.getRange(all[i].rowIndex, 14).setValue(new Date());
+    removed++;
+  }
+  return { removed: removed };
+}
+
+/** Ключи клиентов, уже отменённых в календаре на дату — чтобы seed из CRM их не воскрешал. */
+function cancelledCalendarKeysForDate_(ss, deliveryDate) {
+  var tz = ss.getSpreadsheetTimeZone();
+  var want = dateKey_(deliveryDate, tz);
+  var all = readAllCalendarRows_();
+  var keys = {};
+  for (var i = 0; i < all.length; i++) {
+    if (String(all[i].status || "").toLowerCase() !== "cancelled") continue;
+    var bd = parseFlexibleDate_(all[i].date, tz) || parseFlexibleDate_(all[i].dateIso, tz);
+    if (!bd || dateKey_(bd, tz) !== want) continue;
+    var mk = all[i].matchKey || clientMatchKey_(all[i].client) || "";
+    if (mk) keys[mk] = true;
+    var ig = extractInstagramNick_(all[i].client);
+    if (ig) keys[normalizeClientKey_(ig).replace(/[._]/g, "")] = true;
+  }
+  return keys;
+}
+
+function isCancelledCalendarKey_(keys, client, matchKeyOpt) {
+  keys = keys || {};
+  var mk = String(matchKeyOpt || "").trim() || clientMatchKey_(client) || "";
+  if (mk && keys[mk]) return true;
+  var ig = extractInstagramNick_(client);
+  if (ig) {
+    var ik = normalizeClientKey_(ig).replace(/[._]/g, "");
+    if (ik && keys[ik]) return true;
+  }
+  return false;
 }
 
 function handleDeleteClient(ss, json, callback) {
@@ -1796,30 +1850,31 @@ function handleDeleteClient(ss, json, callback) {
   var clearedWeek = false;
   var clearedCols = 0;
   var block = getDayBlock(dayName);
-  var want = normalizeClientKey_(json.client);
-  if (block && want) {
+  var clientRaw = String(json.client || "").trim();
+  if (block && clientRaw) {
     var targetSheet = getTargetSheet(ss, block);
     if (targetSheet) {
       var nicksRowValues = targetSheet.getRange(block.nick, 3, 1, 15).getValues()[0];
-      // все столбцы с этим ником (дубликаты тоже)
+      // все столбцы с этим ником (дубликаты тоже) — через nicksMatch_
       for (var i = 0; i < 15; i++) {
-        var currentNick = normalizeClientKey_(nicksRowValues[i]);
-        if (currentNick && currentNick === want) {
-          var targetCol = i + 3;
-          targetSheet.getRange(block.nick, targetCol).setValue("");
-          targetSheet.getRange(block.start, targetCol, block.note - block.start + 1, 1).clearContent();
-          clearedWeek = true;
-          clearedCols++;
-        }
+        if (!String(nicksRowValues[i] || "").trim()) continue;
+        if (!nicksMatch_(nicksRowValues[i], clientRaw)) continue;
+        var targetCol = i + 3;
+        targetSheet.getRange(block.nick, targetCol).setValue("");
+        targetSheet.getRange(block.start, targetCol, block.note - block.start + 1, 1).clearContent();
+        clearedWeek = true;
+        clearedCols++;
       }
     }
   }
 
   var bookRes = { cancelled: 0 };
+  var calRes = { removed: 0 };
   try {
     // только на дату дня — не трогаем брони других дат того же ника
     if (deliveryDate) {
-      bookRes = cancelBookingsForClient_(ss, json.client, deliveryDate);
+      bookRes = cancelBookingsForClient_(ss, clientRaw, deliveryDate);
+      calRes = cancelCalendarClientOnDate_(ss, clientRaw, deliveryDate, json.matchKey || "");
     }
   } catch (eBook) {}
 
@@ -1829,7 +1884,7 @@ function handleDeleteClient(ss, json, callback) {
     if (courier && deliveryDate) {
       var dateText = formatSheetDate(deliveryDate, tz);
       if (formatSheetDate(courier.getRange("A1").getValue(), tz) === dateText) {
-        var cCol = findCourierClientCol_(courier, json.client);
+        var cCol = findCourierClientCol_(courier, clientRaw);
         if (cCol > 0) {
           courier.getRange(2, cCol).setValue(false);
           courier.getRange(3, cCol).setValue("");
@@ -1842,13 +1897,14 @@ function handleDeleteClient(ss, json, callback) {
     try { checkLiveDeficitAndNotify(); } catch (eDef) {}
   }
 
-  if (clearedWeek || (bookRes && bookRes.cancelled > 0)) {
+  if (clearedWeek || (bookRes && bookRes.cancelled > 0) || (calRes && calRes.removed > 0)) {
     bustClientsCache_();
     return jsonp(callback, {
       status: "success",
       clearedWeek: clearedWeek,
       clearedCols: clearedCols,
       cancelledBookings: bookRes.cancelled || 0,
+      cancelledCalendar: calRes.removed || 0,
       day: dayName || ""
     });
   }
@@ -4353,6 +4409,13 @@ function seedCalendarForDate_(ss, deliveryDate, opts) {
   var existing = readCalendarForDate_(ss, deliveryDate);
   if (existing.length && !opts.force) return { seeded: 0, existing: existing.length, from: "calendar" };
 
+  // Не воскрешать тех, кого уже убрали (status=cancelled) на эту дату
+  var cancelledKeys = cancelledCalendarKeysForDate_(ss, deliveryDate);
+  // Если все записи на дату cancelled и не force — не заливать CRM заново
+  if (!existing.length && Object.keys(cancelledKeys).length && !opts.force && !opts.allowReseedCancelled) {
+    return { seeded: 0, existing: 0, from: "cancelled_guard", skippedCancelled: Object.keys(cancelledKeys).length };
+  }
+
   var added = 0;
   // 1) из Брони_Заказов
   try {
@@ -4362,6 +4425,7 @@ function seedCalendarForDate_(ss, deliveryDate, opts) {
       var bd = parseFlexibleDate_(bookings[b].date, tz);
       if (!bd || dateKey_(bd, tz) !== want) continue;
       if (String(bookings[b].status) === "cancelled") continue;
+      if (isCancelledCalendarKey_(cancelledKeys, bookings[b].client)) continue;
       upsertCalendarEntry_(ss, {
         date: deliveryDate,
         client: bookings[b].client,
@@ -4391,6 +4455,7 @@ function seedCalendarForDate_(ss, deliveryDate, opts) {
     } catch (eN) {}
     for (var i = 0; i < crmClients.length; i++) {
       var cc = crmClients[i];
+      if (isCancelledCalendarKey_(cancelledKeys, cc.client, cc.matchKey)) continue;
       var basket = [];
       try {
         var filled = fillSubscriptionBasketForDate_(ss, crmSs, cc.client, cc.segment, deliveryDate);
@@ -4512,26 +4577,14 @@ function handleRemoveCalendarClient(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
   var matchKey = String((json && json.matchKey) || "").trim() || clientMatchKey_(client);
-  var all = readAllCalendarRows_();
-  var want = dateKey_(deliveryDate, tz);
-  var removed = 0;
-  var sh = getCalendarSheet_();
-  for (var i = all.length - 1; i >= 0; i--) {
-    var st = String(all[i].status || "").toLowerCase();
-    if (st === "cancelled") continue;
-    var bd = parseFlexibleDate_(all[i].date, tz) || parseFlexibleDate_(all[i].dateIso, tz);
-    if (!bd || dateKey_(bd, tz) !== want) continue;
-    var same = (matchKey && all[i].matchKey === matchKey) || nicksMatch_(all[i].client, client);
-    if (!same) continue;
-    sh.getRange(all[i].rowIndex, 12).setValue("cancelled");
-    removed++;
-  }
+  var calRes = cancelCalendarClientOnDate_(ss, client, deliveryDate, matchKey);
   try { cancelBookingsForClient_(ss, client, deliveryDate); } catch (eB) {}
+  try { bustClientsCache_(); } catch (eC) {}
   var out = {
-    status: removed ? "success" : "error",
-    message: removed ? "removed" : "not_found",
-    removed: removed,
-    date: want,
+    status: calRes.removed ? "success" : "error",
+    message: calRes.removed ? "removed" : "not_found",
+    removed: calRes.removed || 0,
+    date: dateKey_(deliveryDate, tz),
     client: client
   };
   return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
@@ -5164,27 +5217,31 @@ function handleGetViewCompare(json, callback, fromPost) {
       calendarSeed = seedCalendarForDate_(ss, resolved.date, { force: false });
       var calClients = readCalendarForDate_(ss, resolved.date);
       monthSheet = "Календарь_Дат";
-      // если календарь пуст — последний шанс CRM напрямую
+      // если календарь пуст — последний шанс CRM напрямую (не воскрешая cancelled)
       if (!calClients.length) {
         try {
-          var crmSs0 = getCrmSpreadsheet_();
-          var sh0 = resolveCrmMonthSheet_(crmSs0, resolved.date);
-          monthSheet = sh0 ? sh0.getName() : "Календарь_Дат";
-          var crmDirect = readCrmClientsForDate_(crmSs0, resolved.date);
-          for (var cd = 0; cd < crmDirect.length; cd++) {
-            upsertCalendarEntry_(ss, {
-              date: resolved.date,
-              client: displayClientNick_(crmDirect[cd].client) || crmDirect[cd].client,
-              matchKey: crmDirect[cd].matchKey,
-              segment: crmDirect[cd].segment || "",
-              address: crmDirect[cd].address || "",
-              phone: crmDirect[cd].phone || "",
-              note: crmDirect[cd].note || "",
-              source: "crm",
-              status: "planned"
-            });
+          var cancelledGuard = cancelledCalendarKeysForDate_(ss, resolved.date);
+          if (!Object.keys(cancelledGuard).length) {
+            var crmSs0 = getCrmSpreadsheet_();
+            var sh0 = resolveCrmMonthSheet_(crmSs0, resolved.date);
+            monthSheet = sh0 ? sh0.getName() : "Календарь_Дат";
+            var crmDirect = readCrmClientsForDate_(crmSs0, resolved.date);
+            for (var cd = 0; cd < crmDirect.length; cd++) {
+              if (isCancelledCalendarKey_(cancelledGuard, crmDirect[cd].client, crmDirect[cd].matchKey)) continue;
+              upsertCalendarEntry_(ss, {
+                date: resolved.date,
+                client: displayClientNick_(crmDirect[cd].client) || crmDirect[cd].client,
+                matchKey: crmDirect[cd].matchKey,
+                segment: crmDirect[cd].segment || "",
+                address: crmDirect[cd].address || "",
+                phone: crmDirect[cd].phone || "",
+                note: crmDirect[cd].note || "",
+                source: "crm",
+                status: "planned"
+              });
+            }
+            calClients = readCalendarForDate_(ss, resolved.date);
           }
-          calClients = readCalendarForDate_(ss, resolved.date);
         } catch (eDirect) {}
       }
       for (var i = 0; i < calClients.length; i++) {
