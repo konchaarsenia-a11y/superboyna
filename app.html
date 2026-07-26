@@ -11,7 +11,7 @@
     /* Telegram WebView кэширует app.html — форс-обновление по версии */
     (function () {
       try {
-        var want = "71092";
+        var want = "71093";
         var u = new URL(location.href);
         if (u.searchParams.get("v") === want) return;
         u.searchParams.set("v", want);
@@ -918,7 +918,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.92</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.93</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1642,7 +1642,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.92";
+    const APP_VERSION = "v7.10.93";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -8299,7 +8299,27 @@
       try { refreshWeekBannersAsync_(); } catch (e) {}
     }
 
-    var _weekBannerState = { finished: false, pulled: false, refused: false, weekKey: "" };
+    var _weekBannerState = { finished: false, pulled: false, refused: false, weekKey: "", finishedAt: "", by: "" };
+    const FINISH_SEEN_LS = "superboyna_finish_seen_";
+
+    function maybeAnnounceWeekFinished_(st, wk) {
+      if (!st || !st.finished) return;
+      var at = String(st.finishedAt || "1");
+      var seenKey = FINISH_SEEN_LS + String(wk || "");
+      try {
+        if (localStorage.getItem(seenKey) === at) return;
+        localStorage.setItem(seenKey, at);
+      } catch (eS) {}
+      var me = String(myTelegramId || "").trim();
+      var by = String(st.by || "").trim();
+      if (by && me && by === me) return;
+      var msg = "Неделя уже завершена";
+      if (by) msg += " (кем: " + by + ")";
+      msg += ". Кнопка «Завершить» скрыта — дальше «Подтянуть из месяца».";
+      try { showToast(msg); } catch (eT) {}
+      try { uiAlertAsync(msg); } catch (eA) {}
+    }
+
     var _weekBannerLoading = false;
 
     async function refreshWeekBannersAsync_() {
@@ -8319,8 +8339,11 @@
               finished: !!st.finished,
               pulled: !!st.pulled,
               refused: !!st.refused,
-              weekKey: st.weekKey || wk
+              weekKey: st.weekKey || wk,
+              finishedAt: st.finishedAt || "",
+              by: st.by || ""
             };
+            try { maybeAnnounceWeekFinished_(st, wk); } catch (eAnn) {}
             // если у этого устройства уже отмечено, а на сервере ещё нет — догнать (после деплоя / старый localStorage)
             try {
               var locFin = localStorage.getItem(FINISH_DONE_LS + wk) === "1";
@@ -8382,9 +8405,11 @@
         }
         _weekBannerLoading = false;
       }
+      // сервер — источник правды: если кто-то закрыл неделю, у всех скрываем finish
       var finished = !!_weekBannerState.finished || localStorage.getItem(FINISH_DONE_LS + wk) === "1";
       var pulled = !!_weekBannerState.pulled || localStorage.getItem(WEEK_PULL_LS + wk) === "pulled";
       var refused = !!_weekBannerState.refused || localStorage.getItem(FINISH_REFUSE_LS + wk) === "1";
+      if (finished) refused = false;
       var canFinish = false;
       if (APP_ROLE === "owner" || APP_ROLE === "all") {
         // refused = «Позже»; finished = уже закрыли / «Уже завершили — скрыть»
@@ -8473,7 +8498,7 @@
       try {
         try { _apiGetMem = Object.create(null); } catch (eClr) {}
         res = await apiGet(
-          { action: "finishFullWeek", telegramId: tid, confirm: "1" },
+          { action: "finishFullWeek", telegramId: tid, confirm: "1", weekKey: currentWeekKeyLocal() },
           { timeoutMs: 120000, cacheTtlMs: 0 }
         );
       } catch (e1) {

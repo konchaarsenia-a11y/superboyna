@@ -534,11 +534,18 @@ function handleFinishFullWeek(json, callback, fromPost) {
       return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
     }
     try {
-      var wkFin = String(json.weekKey || "").trim() || currentWeekKeyServer_();
-      writeWeekBannerState_(wkFin, { finished: true, finishedAt: new Date().toISOString(), refused: false, by: tid });
+      var wkFin = normalizeWeekBannerKey_(String(json.weekKey || "").trim() || currentWeekKeyServer_());
+      writeWeekBannerState_(wkFin, {
+        finished: true,
+        finishedAt: new Date().toISOString(),
+        refused: false,
+        pulled: false,
+        by: tid
+      });
       result.weekKey = wkFin;
       result.banner = readWeekBannerState_(wkFin);
     } catch (eW) {}
+    try { notifyWeekFinished_(tid, result.weekKey || currentWeekKeyServer_(), result); } catch (eN) {}
     return fromPost ? jsonpText(callback, result) : jsonp(callback, result);
   } catch (err) {
     var fail = { status: "error", message: String(err) };
@@ -3108,6 +3115,65 @@ function buildStartGreeting_(from, name) {
       "\nНажми кнопку — отправим запрос владельцу.",
     markup: { inline_keyboard: [[{ text: "Запросить доступ", callback_data: "access_req" }]] }
   };
+}
+
+function collectStaffTelegramIds_(roles) {
+  roles = roles || ["owner", "manager", "all"];
+  var want = {};
+  for (var w = 0; w < roles.length; w++) want[String(roles[w]).toLowerCase()] = true;
+  var ids = {};
+  try {
+    var owners = getOwnerTelegramIds_();
+    for (var i = 0; i < owners.length; i++) {
+      if (owners[i]) ids[String(owners[i]).trim()] = true;
+    }
+  } catch (eO) {}
+  try {
+    var rows = readAccessRows_();
+    for (var r = 0; r < rows.length; r++) {
+      var role = String(rows[r].role || "").toLowerCase();
+      var st = String(rows[r].status || "").toLowerCase();
+      if (st === "denied") continue;
+      if (!want[role]) continue;
+      var id = String(rows[r].telegramId || "").trim();
+      if (id) ids[id] = true;
+    }
+  } catch (eR) {}
+  return Object.keys(ids);
+}
+
+/** Уведомить остальных owner/manager: неделю уже закрыли — баннер завершения не показывать. */
+function notifyWeekFinished_(actorTid, weekKey, result) {
+  var by = String(actorTid || "").trim();
+  var who = by || "владелец";
+  try {
+    var row = findAccessById_(by);
+    if (row) {
+      var nm = String(row.name || "").trim();
+      var un = String(row.username || "").trim();
+      who = (nm || ("@" + un) || by);
+      if (nm && un) who = nm + " @" + un;
+      if (by) who = who + " (" + by + ")";
+    }
+  } catch (eWho) {}
+  var text =
+    "✅ Неделя завершена\n" +
+    "Кто: " + who + "\n" +
+    "Ключ недели: " + String(weekKey || "") + "\n" +
+    "Новый Пн: " + String((result && result.mondayDate) || "") + "\n\n" +
+    "Кнопка «Завершить неделю» у всех скрыта.\n" +
+    "Дальше общий шаг — «Подтянуть из месяца».";
+  var ids = collectStaffTelegramIds_(["owner", "manager", "all"]);
+  for (var i = 0; i < ids.length; i++) {
+    if (by && String(ids[i]) === by) continue;
+    try { telegramSendText_(ids[i], text); } catch (e1) {}
+  }
+  try {
+    var chat = PropertiesService.getScriptProperties().getProperty("TELEGRAM_CHAT_ID");
+    if (chat && String(chat).trim() && String(chat).trim() !== by) {
+      try { telegramSendText_(chat, text); } catch (e2) {}
+    }
+  } catch (e3) {}
 }
 
 function notifyOwnersAccessRequest_(telegramId, name, username) {
