@@ -897,7 +897,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.79</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.80</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1555,7 +1555,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.79";
+    const APP_VERSION = "v7.10.80";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -2650,6 +2650,9 @@
           document.getElementById("phoneInput").value = res.phone;
         }
         var proposed = mapApiBasketToLocal(res.proposedBasket || []);
+        if (!proposed.length) {
+          proposed = mapApiBasketToLocal(res.monthlyBasket || res.remainingBasket || []);
+        }
         if (!proposed.length) {
           showToast("В листе ПП пустой состав");
           return false;
@@ -4548,7 +4551,7 @@
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || (res && res.result && res.result.message) || "ошибка";
           if (msg === "date_not_in_week") {
-            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.79.");
+            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.80.");
             return;
           }
           if (msg === "unknown_action") {

@@ -1612,13 +1612,15 @@ function clientMatchKey_(raw) {
   if (ex || /^[A-Z0-9._]+$/i.test(base)) key = key.replace(/[._]/g, "");
   if (ex && display) {
     var esc = String(ex).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    var rest = display.replace(new RegExp("^@?" + esc, "i"), "").trim();
-    rest = rest.replace(/\s*\b(АФК|ПП|БП|Р)\b\s*/gi, " ").replace(/\s+/g, " ").trim();
-    // хвост-кличка собаки, не операционная пометка
-    if (rest && rest.length <= 24 &&
-        !/доставк|написа|уточн|втор(ая|ой)|через|европочт/i.test(rest) &&
-        /[а-яА-ЯёЁA-Za-z0-9]/.test(rest)) {
-      key = key + "|" + normalizeClientKey_(rest).replace(/[._\s]+/g, "");
+    // Кличка собаки только ПОСЛЕ handle: «veta.foto Дэни».
+    // «ЕВГЕНИЯ es_furman» — ФИО перед handle, не кличка.
+    var mAfter = display.match(new RegExp("@?" + esc + "\\s+(.+)$", "i"));
+    var dog = mAfter ? String(mAfter[1] || "").trim() : "";
+    dog = dog.replace(/\s*\b(АФК|ПП|БП|Р)\b\s*/gi, " ").replace(/\s+/g, " ").trim();
+    if (dog && dog.length <= 24 &&
+        !/доставк|напис|уточн|втор(ая|ой)|через|европочт/i.test(dog) &&
+        /[а-яА-ЯёЁA-Za-z0-9]/.test(dog)) {
+      key = key + "|" + normalizeClientKey_(dog).replace(/[._\s]+/g, "");
     }
   }
   return key;
@@ -1628,6 +1630,17 @@ function nicksMatch_(a, b) {
   var ka = clientMatchKey_(a);
   var kb = clientMatchKey_(b);
   if (ka && kb && ka === kb) return true;
+  var ia = extractInstagramNick_(a);
+  var ib = extractInstagramNick_(b);
+  if (ia && ib) {
+    var ha = normalizeClientKey_(ia).replace(/[._]/g, "");
+    var hb = normalizeClientKey_(ib).replace(/[._]/g, "");
+    if (ha && ha === hb) {
+      // Оба с кличкой собаки — только точное равенство ключей (уже выше).
+      // Если у одной стороны нет суффикса — тот же человек (ПП «ИМЯ nick» ↔ nick).
+      if (ka.indexOf("|") < 0 || kb.indexOf("|") < 0) return true;
+    }
+  }
   var na = normalizeClientKey_(a);
   var nb = normalizeClientKey_(b);
   return !!(na && nb && na === nb);
@@ -5701,7 +5714,42 @@ function findSheetByBaseName_(ss, baseName) {
       if (sheetLooksLikeCrmSubs_(candidates[c])) return candidates[c];
     }
   }
-  if (candidates.length) return candidates[0];
+  if (candidates.length) if (crmNames[baseName] && candidates.length > 1) {
+    var best = null;
+    var bestCols = -1;
+    var bestArea = -1;
+    var k;
+    var anyCrm = false;
+    var crmBest = null;
+    var crmBestCols = -1;
+    var crmBestArea = -1;
+    for (k = 0; k < candidates.length; k++) {
+      var shCand = candidates[k];
+      var cols = 0;
+      var rows = 0;
+      try { cols = Number(shCand.getLastColumn()) || 0; } catch (eCols) { cols = 0; }
+      try { rows = Number(shCand.getLastRow()) || 0; } catch (eRows) { rows = 0; }
+      var area = rows * cols;
+      var looksCrm = false;
+      try { looksCrm = !!sheetLooksLikeCrmSubs_(shCand); } catch (eLook) { looksCrm = false; }
+      if (looksCrm) {
+        anyCrm = true;
+        if (cols > crmBestCols || (cols === crmBestCols && area > crmBestArea)) {
+          crmBestCols = cols;
+          crmBestArea = area;
+          crmBest = shCand;
+        }
+      }
+      if (cols > bestCols || (cols === bestCols && area > bestArea)) {
+        bestCols = cols;
+        bestArea = area;
+        best = shCand;
+      }
+    }
+    if (anyCrm && crmBest) return crmBest;
+    if (best) return best;
+  }
+  return candidates[0];
   return null;
 }
 
@@ -6417,7 +6465,7 @@ function mapCrmHeaderToItem_(header) {
   var h = String(header || "").replace(/\s+/g, " ").trim().toUpperCase().replace(/Ё/g, "Е");
   if (!h) return null;
   if (/^(ЛЮДИ|ID|КОЛИЧ|СТАТУС|ПОЖЕЛАН|ЗАМЕТК)/.test(h)) return null;
-  if (/СЕБЕСТОИМ|СУММА|ЦЕНА|ИТОГ|СКИДК|ВЫХЛОП|ФАКТ|КАРМАН|ФРАК|ГРЯЗН|^У[123]$|^УП4$/.test(h)) return null;
+  if (/СЕБЕСТОИМ|СТОИМОСТ|СУММА|ЦЕНА|ИТОГ|СКИДК|ВЫХЛОП|ФАКТ|КАРМАН|ФРАК|ГРЯЗН|^У[123]$|^УП4$|^С[123]$/.test(h)) return null;
 
   // --- присыпки ---
   if (/КРОШК/.test(h)) {
