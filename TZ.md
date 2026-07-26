@@ -320,6 +320,8 @@
 Утром по **«делай»** — с H.1; §I в порядке работ; **Завершить неделю** и Instagram — обсуждение.
 
 - [~] **FIX v7.10.85:** баннеры «Завершить неделю» / «Подтянуть из месяца» — общее состояние на сервере (Script Properties), не localStorage — **Deploy**
+- [~] **UI v7.10.96:** liquid glass на все кнопки (blur/sheen/tint) — **Pages**
+- [x] **Аудит 2026-07-27:** полный live API+Pages UI — 59/59 OK, v7.10.95; отчёт `scripts/full-live-audit-report.md` (finishFullWeek не жгли; materializeWeek дописал ~4)
 - [~] **FIX v7.10.95:** напоминалки — От/Кому из Доступов, без дубля (lock+claim, 1 триггер, ack только создателю) — **Deploy GS + Pages**
 - [~] **FIX v7.10.94:** баннер «Подтянуть» — heal по итогам недели/месяца (не посуточный maybeMissing) + не сбрасывать local pulled — **Deploy GS + Pages**
 - [~] **FIX v7.10.93:** завершение недели общее для всех (Script Properties) + TG уведомление owner/manager; баннер finish скрыт у остальных — **Deploy GS + Pages**
