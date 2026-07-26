@@ -11,7 +11,7 @@
     /* Telegram WebView кэширует app.html — форс-обновление по версии */
     (function () {
       try {
-        var want = "71097";
+        var want = "71098";
         var u = new URL(location.href);
         if (u.searchParams.get("v") === want) return;
         u.searchParams.set("v", want);
@@ -121,28 +121,51 @@
     .header-main { font-size: 20px; font-weight: 700; letter-spacing: -0.4px; margin-bottom: 10px; }
     .nav-tabs {
       display: flex; gap: 4px; margin-bottom: 0;
-      background: rgba(255,255,255,0.06);
-      -webkit-backdrop-filter: blur(20px) saturate(160%);
-      backdrop-filter: blur(20px) saturate(160%);
-      padding: 4px; border-radius: 14px;
+      position: relative; z-index: 20;
+      background: rgba(255,255,255,0.07);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      backdrop-filter: blur(24px) saturate(180%);
+      padding: 4px; border-radius: 16px;
       border: 1px solid rgba(255,255,255,0.14);
       overflow-x: auto;
-      position: relative; z-index: 20;
       -webkit-overflow-scrolling: touch;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.16);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.18);
+    }
+    .nav-tabs-pill {
+      position: absolute;
+      top: 4px;
+      bottom: 4px;
+      left: 0;
+      width: 72px;
+      border-radius: 12px;
+      pointer-events: none;
+      z-index: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.10) 45%, rgba(255,122,0,0.55) 100%);
+      -webkit-backdrop-filter: blur(16px) saturate(160%);
+      backdrop-filter: blur(16px) saturate(160%);
+      border: 1px solid rgba(255,255,255,0.28);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.45),
+        0 6px 16px rgba(255,122,0,0.22);
+      transform: translateX(4px);
+      transition: transform 0.34s cubic-bezier(0.32, 0.72, 0, 1), width 0.34s cubic-bezier(0.32, 0.72, 0, 1);
+      will-change: transform, width;
     }
     .tab-link {
-      flex: 1 0 auto; min-width: 72px; text-align: center; background: none; border: none;
-      color: var(--text-muted); padding: 10px 8px; font-size: 12px; font-weight: 600;
-      cursor: pointer; border-radius: 11px;
+      flex: 1 0 auto; min-width: 72px; text-align: center; background: transparent; border: none;
+      color: rgba(245,245,247,0.62); padding: 10px 8px; font-size: 12px; font-weight: 600;
+      cursor: pointer; border-radius: 12px;
       -webkit-user-select: none; user-select: none;
       touch-action: manipulation;
       pointer-events: auto !important;
+      position: relative;
+      z-index: 1;
     }
     .tab-link.active {
       color: #fff;
-      background: rgba(255, 122, 0, 0.92);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 4px 12px rgba(255,122,0,0.25);
+      background: transparent;
+      box-shadow: none;
+      text-shadow: 0 1px 1px rgba(0,0,0,0.25);
     }
     /* Страховка: кнопки всегда кликабельны даже если какой-то слой залип */
     button, .btn-action, .btn-save, .seg-btn, .crm-mini-btn, .route-mini, select, input {
@@ -939,13 +962,14 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.97</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.98</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
           </button>
         </div>
         <div class="nav-tabs" id="navTabs">
+          <div class="nav-tabs-pill" id="navTabsPill" aria-hidden="true"></div>
           <button type="button" class="tab-link active" data-screen="orderScreen" onclick="switchTab('orderScreen')">Заказ</button>
           <button type="button" class="tab-link" data-screen="cuttingScreen" onclick="switchTab('cuttingScreen')">Нарезка</button>
           <button type="button" class="tab-link" data-screen="courierScreen" onclick="switchTab('courierScreen')">Курьер</button>
@@ -1316,9 +1340,9 @@
 
         <div id="bpFilterRow" class="bp-filter-row" style="display:none;">
           <button type="button" class="bp-chip active" data-bp="all" onclick="setBpListFilter('all')">Все</button>
-          <button type="button" class="bp-chip" data-bp="green" onclick="setBpListFilter('green')">БП1 набор</button>
-          <button type="button" class="bp-chip" data-bp="orange" onclick="setBpListFilter('orange')">Опрос→БП2</button>
-          <button type="button" class="bp-chip" data-bp="red" onclick="setBpListFilter('red')">Финал→ПП</button>
+          <button type="button" class="bp-chip" data-bp="green" onclick="setBpListFilter('green')">БП1 · 1-я доставка</button>
+          <button type="button" class="bp-chip" data-bp="orange" onclick="setBpListFilter('orange')">БП2 · 2-я доставка</button>
+          <button type="button" class="bp-chip" data-bp="red" onclick="setBpListFilter('red')">Финал · опрос / думает</button>
           <button type="button" class="btn-action" style="padding:6px 10px;margin:0;background:#3a3a3c;" onclick="bpBatchDelete()">Удалить выбранных</button>
           <button type="button" class="btn-action btn-green" style="padding:6px 10px;margin:0;" onclick="openAddBpClientForm()">+ Клиент БП</button>
         </div>
@@ -1663,7 +1687,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.97";
+    const APP_VERSION = "v7.10.98";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3196,10 +3220,7 @@
           if (typeof isSubsUnlocked === "function" && !isSubsUnlocked()) screenId = "subsScreen";
         } catch (eSub) { screenId = "subsScreen"; }
       }
-      // уход с Подписок → снова пароль при следующем входе
-      if (screenId !== "subsScreen" && screenId !== "subDetailScreen") {
-        try { if (typeof lockSubsScreen === "function") lockSubsScreen(); } catch (eLock) {}
-      }
+      // уход с Подписок: пароль держим до конца сессии (sessionStorage), не лочим при смене вкладки
       clearBlockingOverlays();
       var fly = document.getElementById("orderFlyout");
       var flyOpen = fly && fly.classList.contains("open");
@@ -3230,6 +3251,7 @@
         var orderBtn = document.querySelector('.tab-link[data-screen="orderScreen"]');
         if (orderBtn) orderBtn.classList.add("active");
       }
+      try { syncNavTabsPill_(); } catch (ePill) {}
       var screen = document.getElementById(screenId);
       if (screen) screen.classList.add("active");
       try { localStorage.setItem(LAST_SCREEN_LS, screenId); } catch (eLs) {}
@@ -3284,6 +3306,31 @@
         return false;
       };
     });
+
+    function syncNavTabsPill_() {
+      var tabs = document.getElementById("navTabs");
+      var pill = document.getElementById("navTabsPill");
+      if (!tabs || !pill) return;
+      var active = tabs.querySelector(".tab-link.active");
+      if (!active) return;
+      var left = active.offsetLeft;
+      var width = active.offsetWidth;
+      pill.style.width = Math.max(40, width) + "px";
+      pill.style.transform = "translateX(" + left + "px)";
+      pill.style.opacity = "1";
+    }
+    window.syncNavTabsPill_ = syncNavTabsPill_;
+    try {
+      window.addEventListener("resize", function () {
+        try { syncNavTabsPill_(); } catch (eR) {}
+      });
+      var navEl = document.getElementById("navTabs");
+      if (navEl) navEl.addEventListener("scroll", function () {
+        try { syncNavTabsPill_(); } catch (eS) {}
+      }, { passive: true });
+      setTimeout(syncNavTabsPill_, 40);
+      setTimeout(syncNavTabsPill_, 280);
+    } catch (eNav) {}
 
     // Сразу снять возможные залипшие слои при загрузке скрипта
     clearBlockingOverlays();
@@ -8790,11 +8837,23 @@
     window.submitAddBpClient = submitAddBpClient;
 
     function bpStageColor_(s) {
+      // green = БП1 ждёт 1-ю доставку
+      // orange = БП2 ждёт 2-ю (или опросник после 1-й на пути к БП2)
+      // red = финал: опросник после 2-й / думает после него
       var st = String(s.status || s.stage || "").toUpperCase();
-      var finalDue = s.surveyFinalDue || "";
-      var bp2Due = s.surveyBp2Due || "";
-      if (/ФИНАЛ|ПП|FINAL/.test(st) || (/БП2/.test(st) && finalDue)) return "red";
-      if (/БП2/.test(st) || bp2Due) return "orange";
+      var finalDue = String(s.surveyFinalDue || "").trim();
+      var bp2Due = String(s.surveyBp2Due || "").trim();
+      var nDel = Number(s.deliveries != null ? s.deliveries : s.deliveriesN);
+      if (!isFinite(nDel)) nDel = -1;
+
+      if (/ФИНАЛ|FINAL|БП2_FINAL/.test(st) || finalDue) return "red";
+      if (/ДУМА/.test(st)) return "red";
+      if (nDel >= 2 && !/БП1/.test(st)) return "red";
+
+      if (/БП2/.test(st)) return "orange";
+      if (/SURVEY|ОПРОС|БП1_SURVEY/.test(st) || bp2Due) return "orange";
+      if (nDel === 1) return "orange";
+
       return "green";
     }
 
@@ -9918,15 +9977,25 @@
     window.loadWarehousePreview = loadWarehousePreview;
 
     const SUBS_VIEW_PASSWORD = "708080";
+    const SUBS_UNLOCK_SS = "superboyna_subs_unlocked_session";
 
     function isSubsUnlocked() {
-      return !!window._subsUnlocked;
+      if (window._subsUnlocked) return true;
+      try {
+        if (sessionStorage.getItem(SUBS_UNLOCK_SS) === "1") {
+          window._subsUnlocked = true;
+          return true;
+        }
+      } catch (e) {}
+      return false;
     }
 
     function setSubsUnlocked(ok) {
       window._subsUnlocked = !!ok;
-      // не держим в sessionStorage — пароль каждый вход в Подписки
-      try { sessionStorage.removeItem("subsUnlocked"); } catch (e) {}
+      try {
+        if (ok) sessionStorage.setItem(SUBS_UNLOCK_SS, "1");
+        else sessionStorage.removeItem(SUBS_UNLOCK_SS);
+      } catch (e) {}
     }
 
     function enterSubsScreen() {
