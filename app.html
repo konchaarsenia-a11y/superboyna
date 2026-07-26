@@ -968,6 +968,7 @@
         <div class="muted" id="pullWeekHint">Люди + состав из ПП/АФК/БП (ПП — доля слота N=1/N=2). Уже стоящих с составом не затираем.</div>
         <div id="pullWeekPreview" class="muted" style="margin-bottom:8px;"></div>
         <button type="button" class="btn-action btn-blue" onclick="confirmPullWeekFromHome()">Подтянуть Пн–Пт</button>
+        <button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="dismissPullWeekBanner()">Уже подтянули — скрыть</button>
       </div>
       <div class="card">
         <input type="hidden" id="isEditMode" value="false">
@@ -1628,7 +1629,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.85";
+    const APP_VERSION = "v7.10.89";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3765,6 +3766,12 @@
       clientNote = (tagBits.join(" ") + (tagBits.length && noteBody ? " " : "") + noteBody).trim();
       var permanentNote = collectPermanentNotesText();
 
+      // тип заказа — обязательный тег, иначе при следующем редактировании тип «угадывается» неверно
+      clientNote = String(clientNote || "").replace(/\[SEG:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
+      var segStamp = orderTypeToSegment_(orderType);
+      if (segStamp) {
+        clientNote = ("[SEG:" + segStamp + "]" + (clientNote ? " " + clientNote : "")).trim();
+      }
       // цена в примечание — видно в Просмотре / курьеру / листе (БП без цены на экране)
       clientNote = String(clientNote || "").replace(/\[ЦЕНА:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
       if (orderType !== "bp" && orderPrice != null && !isNaN(Number(orderPrice))) {
@@ -4196,8 +4203,74 @@
       return s.toUpperCase().replace(/Ё/g, "Е");
     }
 
+    function segmentToOrderType_(seg) {
+      var s = String(seg || "").trim().toUpperCase();
+      if (!s) return "";
+      if (s === "БП" || s === "BP") return "bp";
+      if (s === "ПП" || s === "PP" || s === "АФК" || s === "AFK" || s === "SUBSCRIPTION") return "pp";
+      if (s === "Р" || s === "R" || s === "RETAIL" || s === "РОЗНИЦА") return "retail";
+      if (s.indexOf("ПАРТ") === 0 || s === "PARTNER" || s === "ВАРКА") return "partner";
+      return "";
+    }
+
+    function orderTypeToSegment_(ot) {
+      if (ot === "bp") return "БП";
+      if (ot === "pp") return "ПП";
+      if (ot === "retail") return "Р";
+      if (ot === "partner") return "ПАРТНЁР";
+      return "";
+    }
+
+    /** Тип только из явных меток — цена [ЦЕНА:] сама по себе НЕ значит «розница». */
+    function resolveClientOrderType_(client) {
+      client = client || {};
+      var note = String(client.note || "");
+      var segTag = note.match(/\[SEG:([^\]]+)\]/i);
+      if (segTag) {
+        var t0 = segmentToOrderType_(segTag[1]);
+        if (t0) return t0;
+      }
+      var fromSeg = segmentToOrderType_(client.segment);
+      if (fromSeg) return fromSeg;
+      var src = String(client.source || client.orderType || "").toLowerCase();
+      if (src === "bp" || src === "бп") return "bp";
+      if (src === "pp" || src === "пп" || src === "subscription" || src === "afk") return "pp";
+      if (src === "partner" || src === "партнёр" || src === "партнер") return "partner";
+      if (src === "retail" || src === "розница") return "retail";
+      // системные хвосты из materialize / ПП suggest
+      if (/\[лист\s*БП\]/i.test(note) || /\bБП\s*[12]\b/i.test(note) || /\bБП1\b|\bБП2\b/i.test(note)) return "bp";
+      if (/\[лист\s*ПП\]/i.test(note) || /ПП\s*N\s*=/i.test(note) || /доставка\s*\d\/\d/i.test(note)) return "pp";
+      if (/\[лист\s*АФК\]/i.test(note)) return "pp";
+      if (/\bВАРКА\b/i.test(client.name || "") || /\bВАРКА\b/i.test(note)) return "partner";
+      return "";
+    }
+
+    async function guessOrderTypeFromCrm_(nick) {
+      nick = String(nick || "").trim();
+      if (!nick) return "";
+      try {
+        var bp = await apiGet(
+          { action: "getSubscription", nick: nick, segment: "БП", _: String(Date.now()) },
+          { timeoutMs: 10000, cacheTtlMs: 20000 }
+        );
+        if (bp && bp.status === "success" && String(bp.sheet || "").toUpperCase() === "БП") return "bp";
+      } catch (eBp) {}
+      try {
+        var pp = await apiGet(
+          { action: "getSubscription", nick: nick, segment: "ПП", _: String(Date.now()) },
+          { timeoutMs: 10000, cacheTtlMs: 20000 }
+        );
+        if (pp && pp.status === "success") {
+          var sh = String(pp.sheet || "").toUpperCase();
+          if (sh === "ПП" || sh === "АФК") return "pp";
+        }
+      } catch (ePp) {}
+      return "";
+    }
+
     function clientGaps(client) {
       var gaps = [];
+      if (!resolveClientOrderType_(client) && !String(client.segment || "").trim()) gaps.push("type");
       if (!String(client.address || "").trim()) gaps.push("address");
       if (!String(client.phone || "").trim() && !extractPhone(client.note || "")) gaps.push("phone");
       var basketLen = (client.basket && client.basket.length) || Number(client.basketCount) || Number(client.orderCount) || 0;
@@ -4207,6 +4280,7 @@
 
     function gapLabels(gaps) {
       return (gaps || []).map(function (g) {
+        if (g === "type") return "тип";
         if (g === "address") return "адрес";
         if (g === "phone") return "тел";
         if (g === "basket") return "состав";
@@ -4364,9 +4438,10 @@
       var nick = String(client.name || client.nick || client.client || "").trim() || ("#" + (index + 1));
       var gaps = clientGaps(client);
       var gapClass = gaps.length ? " is-gap" : "";
-      var seg = client.segment
-        ? ('<span class="client-badge">' + escapeHtml(client.segment) + "</span>")
-        : '<span class="client-badge">—</span>';
+      var segLabel = client.segment || orderTypeToSegment_(resolveClientOrderType_(client)) || "";
+      var seg = segLabel
+        ? ('<span class="client-badge">' + escapeHtml(segLabel) + "</span>")
+        : '<span class="client-badge" style="opacity:0.7;">тип?</span>';
       var gapBadge = gaps.length
         ? ('<span class="gap-badge">нет: ' + escapeHtml(gapLabels(gaps).join(", ")) + "</span>")
         : "";
@@ -4453,7 +4528,7 @@
         showToast("Уже в черновике");
         return;
       }
-      viewTransferDraft.push({
+      var staged = {
         name: client.name,
         matchKey: key,
         address: client.address || "",
@@ -4462,11 +4537,17 @@
         segment: client.segment || "",
         basket: client.basket || [],
         basketCount: client.basketCount || 0,
-        gaps: clientGaps(client),
+        gaps: [],
         _draft: true
-      });
+      };
+      staged.gaps = clientGaps(staged);
+      viewTransferDraft.push(staged);
       renderViewLists();
       showToast("В черновик: " + client.name);
+      // нет типа — сразу спросить вместе с данными/составом
+      if (!resolveClientOrderType_(staged)) {
+        try { editDraftClient(viewTransferDraft.length - 1); } catch (eEd) {}
+      }
     }
     window.stageMonthClient = stageMonthClient;
 
@@ -4531,34 +4612,72 @@
       if (event) event.stopPropagation();
       var client = viewTransferDraft[index];
       if (!client) return;
+      var curOt = resolveClientOrderType_(client) || "";
       var html =
         '<div class="modal-title">Дополнить: ' + escapeHtml(client.name) + "</div>" +
+        '<div class="form-group"><label>Тип заказа</label>' +
+        '<div class="seg-row" id="draftOrderTypeRow" style="margin-top:6px;">' +
+        '<button type="button" class="seg-btn' + (curOt === "pp" ? " active" : "") + '" data-ot="pp">ПП</button>' +
+        '<button type="button" class="seg-btn' + (curOt === "bp" ? " active" : "") + '" data-ot="bp">БП</button>' +
+        '<button type="button" class="seg-btn' + (curOt === "retail" ? " active" : "") + '" data-ot="retail">Розница</button>' +
+        '<button type="button" class="seg-btn' + (curOt === "partner" ? " active" : "") + '" data-ot="partner">Партнёр</button>' +
+        "</div>" +
+        (curOt ? "" : '<div class="muted" style="font-size:12px;margin-top:4px;color:#ff9f0a;">Тип не указан — выбери перед сохранением</div>') +
+        "</div>" +
         '<div class="form-group"><label>Адрес</label><input type="text" id="draftEditAddr" value="' +
         escapeHtml(client.address || "") + '"></div>' +
         '<div class="form-group"><label>Телефон</label><input type="text" id="draftEditPhone" value="' +
         escapeHtml(client.phone || "") + '" inputmode="tel"></div>' +
         '<div class="form-group"><label>Примечание</label><input type="text" id="draftEditNote" value="' +
         escapeHtml(humanVisibleNote(client.note || "", "mgr").text) + '"></div>' +
-        '<div class="muted" style="font-size:12px;margin-bottom:8px;">Состав можно набрать в Заказе после сохранения переноса, либо оставить авто из ПП/АФК.</div>' +
+        '<div class="muted" style="font-size:12px;margin-bottom:8px;">ПП/АФК/БП — состав с листа при сохранении (если тип известен). Розница/партнёр — набери состав вручную.</div>' +
         '<button type="button" class="btn-action btn-blue" id="draftEditSave">Ок</button>' +
         '<button type="button" class="btn-action btn-orange" id="draftEditOrder" style="margin-top:8px;">Набрать состав в Заказе</button>';
       openModal(html);
-      document.getElementById("draftEditSave").onclick = function () {
+      var draftOt = curOt;
+      var row = document.getElementById("draftOrderTypeRow");
+      if (row) {
+        row.querySelectorAll("[data-ot]").forEach(function (btn) {
+          btn.onclick = function () {
+            draftOt = btn.getAttribute("data-ot") || "";
+            row.querySelectorAll("[data-ot]").forEach(function (b) {
+              b.classList.toggle("active", b === btn);
+            });
+          };
+        });
+      }
+      function applyDraftFields_() {
         client.address = (document.getElementById("draftEditAddr").value || "").trim();
         client.phone = (document.getElementById("draftEditPhone").value || "").trim();
         client.note = (document.getElementById("draftEditNote").value || "").trim();
+        if (draftOt) {
+          var prevSeg = String(client.segment || '').toUpperCase();
+          // АФК оставляем АФК, если выбрали ПП (тот же ценовой режим)
+          if (!(draftOt === 'pp' && prevSeg === 'АФК')) {
+            client.segment = orderTypeToSegment_(draftOt);
+          }
+          client.orderType = draftOt;
+          client.source = draftOt;
+        }
         client.gaps = clientGaps(client);
+      }
+      document.getElementById("draftEditSave").onclick = function () {
+        applyDraftFields_();
+        if (!resolveClientOrderType_(client)) {
+          showToast("Выбери тип заказа");
+          return;
+        }
         closeModal();
         renderViewLists();
         showToast("Данные в черновике");
       };
       document.getElementById("draftEditOrder").onclick = function () {
-        client.address = (document.getElementById("draftEditAddr").value || "").trim();
-        client.phone = (document.getElementById("draftEditPhone").value || "").trim();
-        client.note = (document.getElementById("draftEditNote").value || "").trim();
-        client.gaps = clientGaps(client);
+        applyDraftFields_();
+        if (!resolveClientOrderType_(client)) {
+          showToast("Сначала выбери тип заказа");
+          return;
+        }
         closeModal();
-        // временная карточка в loadedClients для crmEdit-подобного потока
         var day = document.getElementById("viewDaySelect").value;
         var dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "";
         document.getElementById("isEditMode").value = "false";
@@ -4573,7 +4692,7 @@
         var phoneEl = document.getElementById("phoneInput");
         if (phoneEl) phoneEl.value = client.phone || "";
         loadOrderNotesFromRaw(client.note || "");
-        try { setOrderType(client.segment === "БП" ? "bp" : (client.segment === "ПП" || !client.segment ? "pp" : "retail")); } catch (eOt) {}
+        try { setOrderType(resolveClientOrderType_(client) || "retail"); } catch (eOt) {}
         basket = (client.basket || []).map(function (g) {
           return {
             id: Date.now() + Math.random(),
@@ -4605,6 +4724,11 @@
         return { cat: g.cat, name: g.name || g.main, main: g.main || g.name, sub: g.sub || "", val: g.val != null ? g.val : g.value };
       });
       client.basketCount = client.basket.length;
+      if (orderType) {
+        client.orderType = orderType;
+        client.source = orderType;
+        client.segment = orderTypeToSegment_(orderType) || client.segment || "";
+      }
       client.gaps = clientGaps(client);
       window._viewDraftEditIndex = null;
       document.getElementById("btnMainSave").innerText = "Сохранить заказ";
@@ -4627,10 +4751,19 @@
         await uiAlertAsync("Сначала выбери день");
         return;
       }
+      var noType = viewTransferDraft.filter(function (c) { return !resolveClientOrderType_(c); });
+      if (noType.length) {
+        await uiAlertAsync(
+          "У " + noType.length + " чел. не указан тип заказа (ПП / БП / Розница / Партнёр).\n" +
+          "Открой красную карточку (✏️) и выбери тип."
+        );
+        try { editDraftClient(viewTransferDraft.indexOf(noType[0])); } catch (eT) {}
+        return;
+      }
       var red = viewTransferDraft.filter(function (c) { return clientGaps(c).length; });
       if (red.length) {
         var okGaps = await uiConfirmAsync(
-          "У " + red.length + " чел. нет адреса/телефона/состава (красные).\nВсё равно сохранить? Состав для подписок подтянется с ПП/АФК при возможности."
+          "У " + red.length + " чел. нет адреса/телефона/состава (красные).\nВсё равно сохранить? Состав для ПП/АФК/БП подтянется с листа, если тип известен."
         );
         if (!okGaps) return;
       }
@@ -4771,6 +4904,14 @@
         }
 
         loadedClientsRawData = week.map(function (c) {
+          if (!c.segment) {
+            var sm = String(c.note || "").match(/\[SEG:([^\]]+)\]/i);
+            if (sm) c.segment = String(sm[1] || "").trim();
+          }
+          if (!c.source) {
+            var otW = resolveClientOrderType_(c);
+            if (otW) c.source = otW;
+          }
           c.gaps = clientGaps(c);
           return c;
         });
@@ -4886,20 +5027,29 @@
       if (hn) html += '<div class="delivery-line">Примечание: ' + escapeHtml(hn) + "</div>";
       if (client.segment) html += '<div class="delivery-line">Сегмент: ' + escapeHtml(client.segment) + "</div>";
       try {
-        var day = document.getElementById("viewDaySelect").value;
-        var dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "";
-        var sug = await apiGet({
-          action: "getPpOrderSuggest",
-          nick: client.name,
-          day: day || "",
-          date: dateStr || ""
-        }, { timeoutMs: 15000, cacheTtlMs: 20000 });
-        var basket = (sug && (sug.proposedBasket || sug.monthlyBasket)) || [];
-        client.basket = basket;
-        client.basketCount = basket.length;
-        client.gaps = clientGaps(client);
-        html += '<div style="margin-top:8px;"><b>Состав</b></div>' + basketLinesHtml(basket);
-        if (sug && sug.hint) html += '<div class="muted" style="font-size:11px;margin-top:6px;">' + escapeHtml(sug.hint) + "</div>";
+        var otM = resolveClientOrderType_(client);
+        if (otM === "pp" || String(client.segment || "").toUpperCase() === "АФК") {
+          var day = document.getElementById("viewDaySelect").value;
+          var dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "";
+          var sug = await apiGet({
+            action: "getPpOrderSuggest",
+            nick: client.name,
+            day: day || "",
+            date: dateStr || ""
+          }, { timeoutMs: 15000, cacheTtlMs: 20000 });
+          var basket = (sug && (sug.proposedBasket || sug.monthlyBasket)) || [];
+          client.basket = basket;
+          client.basketCount = basket.length;
+          client.gaps = clientGaps(client);
+          html += '<div style="margin-top:8px;"><b>Состав</b></div>' + basketLinesHtml(basket);
+          if (sug && sug.hint) html += '<div class="muted" style="font-size:11px;margin-top:6px;">' + escapeHtml(sug.hint) + "</div>";
+        } else if (otM === "bp") {
+          html += '<div class="muted" style="margin-top:8px;">Тип БП — состав наберёшь при переносе / в Заказе</div>';
+        } else if (otM === "retail" || otM === "partner") {
+          html += '<div class="muted" style="margin-top:8px;">Тип ' + (otM === "partner" ? "партнёр" : "розница") + " — состав вручную</div>";
+        } else {
+          html += '<div class="muted" style="margin-top:8px;color:#ff9f0a;">Тип не указан — при переносе спросим ПП/БП/Розница/Партнёр</div>';
+        }
       } catch (e) {
         html += '<div class="muted" style="margin-top:8px;">Состав с листа не подтянулся</div>';
       }
@@ -5126,7 +5276,7 @@
     let editOriginalClient = "";
     let editOriginalDay = "";
 
-    function crmEditClient(index, event) {
+    async function crmEditClient(index, event) {
       event.stopPropagation();
       const client = loadedClientsRawData[index];
       const day = document.getElementById("viewDaySelect").value;
@@ -5170,14 +5320,16 @@
         document.getElementById("deliveryMethodGroup").style.display = "none";
         document.getElementById("postOfficeGroup").style.display = "none";
       }
-      // тип заказа + цена из примечания / источника
-      var ot = "retail";
-      var noteU = String(rawNote || "").toUpperCase();
-      if (client.source === "bp" || /\[SEG:БП\]/i.test(rawNote) || /\bБП\b/.test(noteU)) ot = "bp";
-      else if (client.source === "pp" || client.source === "subscription" || /\[SEG:ПП\]/i.test(rawNote)) ot = "pp";
-      else if (client.source === "partner" || /\bВАРКА\b/i.test(client.name || "") || /партн/i.test(rawNote)) ot = "partner";
-      else if (extractOrderPrice(rawNote) != null) ot = "retail";
-      try { setOrderType(ot); } catch (eOt) {}
+      // тип: SEG/source → CRM (БП/ПП) → не угадывать розницу по цене
+      var ot = resolveClientOrderType_(client);
+      if (!ot) {
+        try { ot = await guessOrderTypeFromCrm_(client.name); } catch (eG) { ot = ""; }
+      }
+      if (ot) {
+        try { setOrderType(ot); } catch (eOt) {}
+      } else {
+        showToast("Тип заказа не найден — выбери ПП / БП / Розница / Партнёр");
+      }
       var priceVal = extractOrderPrice(rawNote);
       var priceInp = document.getElementById("orderPriceInput");
       if (priceInp && priceVal != null && ot !== "bp") {
@@ -8160,12 +8312,34 @@
             try {
               var locFin = localStorage.getItem(FINISH_DONE_LS + wk) === "1";
               var locPull = localStorage.getItem(WEEK_PULL_LS + wk) === "pulled";
+              // legacy: подтягивали с weekKey dd.MM.yyyy — ищем любой ключ pull для этой недели
+              if (!locPull) {
+                try {
+                  var parts = wk.split("-");
+                  if (parts.length === 3) {
+                    var legacyWk = parts[2] + "." + parts[1] + "." + parts[0];
+                    if (localStorage.getItem(WEEK_PULL_LS + legacyWk) === "pulled") locPull = true;
+                  }
+                } catch (eLeg) {}
+              }
+              if (!st.pulled && (st.finished || locFin)) {
+                try {
+                  var ps = await apiGet({ action: "weekPullStatus", _: String(Date.now()) }, { timeoutMs: 12000, cacheTtlMs: 0 });
+                  if (ps && ps.status === "success") {
+                    // уже есть люди на неделе и дописывать нечего / сервер не советует pull
+                    if ((Number(ps.weekPeople || 0) > 0 && Number(ps.maybeMissing || 0) === 0) || ps.suggestPull === false) {
+                      locPull = true;
+                      locFin = true;
+                    }
+                  }
+                } catch (ePs) {}
+              }
               if ((locFin && !st.finished) || (locPull && !st.pulled)) {
                 await apiGet({
                   action: "setWeekBannerState",
                   weekKey: wk,
-                  finished: locFin || st.finished ? "1" : "",
-                  pulled: locPull || st.pulled ? "1" : "",
+                  finished: (locFin || st.finished) ? "1" : "",
+                  pulled: (locPull || st.pulled) ? "1" : "",
                   telegramId: String(myTelegramId || ""),
                   _: String(Date.now())
                 }, { timeoutMs: 12000, cacheTtlMs: 0 });
@@ -8312,6 +8486,30 @@
     }
     window.onFinishWeekClick = onFinishWeekClick;
     window.refuseFinishWeek = refuseFinishWeek;
+
+    async function dismissPullWeekBanner() {
+      var wk = currentWeekKeyLocal();
+      try {
+        localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
+        localStorage.setItem(FINISH_DONE_LS + wk, "1");
+      } catch (eLs) {}
+      _weekBannerState.pulled = true;
+      _weekBannerState.finished = true;
+      _weekBannerState.weekKey = wk;
+      try {
+        await apiGet({
+          action: "setWeekBannerState",
+          weekKey: wk,
+          pulled: "1",
+          finished: "1",
+          telegramId: String(myTelegramId || ""),
+          _: String(Date.now())
+        }, { timeoutMs: 12000, cacheTtlMs: 0 });
+      } catch (eSet) {}
+      try { refreshWeekBanners(); } catch (eR) {}
+      showToast("Баннер скрыт");
+    }
+    window.dismissPullWeekBanner = dismissPullWeekBanner;
 
     async function confirmPullWeekFromHome() {
       var st = null;
@@ -8713,7 +8911,8 @@
         const preserved = res && res.result && res.result.days
           ? (res.result.days || []).reduce(function (s, d) { return s + (Number(d.preserved) || 0); }, 0)
           : 0;
-        const wk = (res && res.result && res.result.weekKey) || currentWeekKeyLocal();
+        // всегда ISO понедельник — result.weekKey раньше был dd.MM.yyyy и баннер не скрывался
+        const wk = currentWeekKeyLocal();
         if (wk) {
           localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
           localStorage.setItem(FINISH_DONE_LS + wk, "1");

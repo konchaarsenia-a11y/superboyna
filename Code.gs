@@ -550,11 +550,41 @@ function weekBannerPropsKey_(weekKey) {
   return "week_banner_" + String(weekKey || "").trim();
 }
 
+/** Canon for banners: YYYY-MM-DD. Also accepts dd.MM.yyyy (legacy dateKey_). */
+function normalizeWeekBannerKey_(weekKey) {
+  var raw = String(weekKey || "").trim();
+  if (!raw) return currentWeekKeyServer_();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  var m = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (m) {
+    var dd = ("0" + m[1]).slice(-2);
+    var mm = ("0" + m[2]).slice(-2);
+    return m[3] + "-" + mm + "-" + dd;
+  }
+  return raw;
+}
+
 function readWeekBannerState_(weekKey) {
-  var key = weekBannerPropsKey_(weekKey);
+  var wk = normalizeWeekBannerKey_(weekKey);
+  var props = null;
+  try { props = PropertiesService.getScriptProperties(); } catch (e0) {}
   var raw = "";
-  try { raw = PropertiesService.getScriptProperties().getProperty(key) || ""; } catch (e) {}
-  var st = { weekKey: String(weekKey || ""), finished: false, pulled: false, refused: false, finishedAt: "", pulledAt: "", refusedAt: "", by: "" };
+  try { if (props) raw = props.getProperty(weekBannerPropsKey_(wk)) || ""; } catch (e) {}
+  // migrate legacy key written as dd.MM.yyyy
+  if (!raw && props) {
+    try {
+      var parts = wk.split("-");
+      if (parts.length === 3) {
+        var legacy = parts[2] + "." + parts[1] + "." + parts[0];
+        raw = props.getProperty(weekBannerPropsKey_(legacy)) || "";
+        if (raw) {
+          try { props.setProperty(weekBannerPropsKey_(wk), raw); } catch (eMig) {}
+          try { props.deleteProperty(weekBannerPropsKey_(legacy)); } catch (eDel) {}
+        }
+      }
+    } catch (eL) {}
+  }
+  var st = { weekKey: wk, finished: false, pulled: false, refused: false, finishedAt: "", pulledAt: "", refusedAt: "", by: "" };
   if (!raw) return st;
   try {
     var o = JSON.parse(raw);
@@ -572,7 +602,8 @@ function readWeekBannerState_(weekKey) {
 }
 
 function writeWeekBannerState_(weekKey, patch) {
-  var st = readWeekBannerState_(weekKey);
+  var wk = normalizeWeekBannerKey_(weekKey);
+  var st = readWeekBannerState_(wk);
   patch = patch || {};
   if (patch.finished != null) st.finished = !!patch.finished;
   if (patch.pulled != null) st.pulled = !!patch.pulled;
@@ -581,9 +612,9 @@ function writeWeekBannerState_(weekKey, patch) {
   if (patch.pulledAt != null) st.pulledAt = String(patch.pulledAt || "");
   if (patch.refusedAt != null) st.refusedAt = String(patch.refusedAt || "");
   if (patch.by != null) st.by = String(patch.by || "");
-  st.weekKey = String(weekKey || "");
+  st.weekKey = wk;
   try {
-    PropertiesService.getScriptProperties().setProperty(weekBannerPropsKey_(weekKey), JSON.stringify(st));
+    PropertiesService.getScriptProperties().setProperty(weekBannerPropsKey_(wk), JSON.stringify(st));
   } catch (e) {}
   return st;
 }
@@ -599,14 +630,23 @@ function currentWeekKeyServer_(optDate) {
 }
 
 function handleGetWeekBannerState(json, callback, fromPost) {
-  var wk = String((json && json.weekKey) || "").trim() || currentWeekKeyServer_();
+  var wk = normalizeWeekBannerKey_((json && json.weekKey) || "");
   var st = readWeekBannerState_(wk);
+  // если уже подтягивали, а флаг не записался (старый weekKey / до Deploy) — спрятать баннер по факту недели
+  if (!st.pulled && st.finished) {
+    try {
+      var snap = weekPullSnapshot_();
+      if (snap && Number(snap.weekPeople || 0) > 0 && Number(snap.maybeMissing || 0) === 0) {
+        st = writeWeekBannerState_(wk, { pulled: true, pulledAt: new Date().toISOString(), finished: true });
+      }
+    } catch (eHeal) {}
+  }
   var ok = { status: "success", weekKey: wk, finished: st.finished, pulled: st.pulled, refused: st.refused, finishedAt: st.finishedAt, pulledAt: st.pulledAt, by: st.by };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
 function handleSetWeekBannerState(json, callback, fromPost) {
-  var wk = String((json && json.weekKey) || "").trim() || currentWeekKeyServer_();
+  var wk = normalizeWeekBannerKey_((json && json.weekKey) || "");
   var patch = {};
   var now = new Date().toISOString();
   var tid = String((json && json.telegramId) || "").trim();
@@ -2196,9 +2236,24 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   if (json.address) targetSheet.getRange(block.addr, clientCol).setValue(json.address);
   // TEL в примечании столбца нужен Просмотру/курьеру; GEO по-прежнему не кладём
   var cleanNote = stripGeoTagsFromNote_(String(json.note || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim());
-  // цена заказа (розница/партнёр/ПП) — тег в примечании столбца
+  // тип заказа — [SEG:…] чтобы при редактировании не путать БП с розницей
+  var otSave = String(json.orderType || json.source || "").trim().toLowerCase();
+  var segSave = "";
+  if (otSave === "bp" || otSave === "бп") segSave = "БП";
+  else if (otSave === "pp" || otSave === "пп" || otSave === "subscription" || otSave === "afk") segSave = "ПП";
+  else if (otSave === "partner" || otSave.indexOf("парт") === 0) segSave = "ПАРТНЁР";
+  else if (otSave === "retail" || otSave === "розница") segSave = "Р";
+  if (!segSave) {
+    var segIn = String(cleanNote || "").match(/\[SEG:([^\]]+)\]/i);
+    if (segIn) segSave = String(segIn[1] || "").trim().toUpperCase();
+  }
+  if (segSave) {
+    cleanNote = String(cleanNote || "").replace(/\[SEG:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
+    cleanNote = ("[SEG:" + segSave + "]" + (cleanNote ? " " + cleanNote : "")).trim();
+  }
+  // цена заказа (розница/партнёр/ПП) — тег в примечании столбца; БП без цены
   var op = json.orderPrice;
-  if (op != null && op !== "" && !isNaN(Number(op))) {
+  if (segSave !== "БП" && op != null && op !== "" && !isNaN(Number(op))) {
     cleanNote = String(cleanNote || "").replace(/\[ЦЕНА:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
     cleanNote = ("[ЦЕНА: " + Number(op) + " BYN]" + (cleanNote ? " " + cleanNote : "")).trim();
   }
@@ -2625,6 +2680,14 @@ function getClientsData_(ss, dayName) {
           var pk = clientMatchKey_(nameClean) || nameClean.toUpperCase();
           phone = (pk && phoneIndex[pk]) || phoneIndex[nameClean.toUpperCase()] || "";
         }
+        var segFromNote = "";
+        var segMatch = String(noteStr || "").match(/\[SEG:([^\]]+)\]/i);
+        if (segMatch) segFromNote = String(segMatch[1] || "").trim().toUpperCase();
+        var srcFromSeg = "";
+        if (segFromNote === "БП" || segFromNote === "BP") srcFromSeg = "bp";
+        else if (segFromNote === "ПП" || segFromNote === "PP" || segFromNote === "АФК") srcFromSeg = "pp";
+        else if (segFromNote.indexOf("ПАРТ") === 0) srcFromSeg = "partner";
+        else if (segFromNote === "Р" || segFromNote === "RETAIL") srcFromSeg = "retail";
         clientsDataList.push({
           name: nameClean,
           orderCount: totalItemsInOrder,
@@ -2634,6 +2697,8 @@ function getClientsData_(ss, dayName) {
           geo: geoObj || null,
           basket: clientBasket,
           col: colIdx,
+          segment: segFromNote,
+          source: srcFromSeg,
           noCut: /\[НЕ РЕЗАТЬ\]/i.test(noteStr)
         });
       }
@@ -5317,7 +5382,9 @@ function handleGetViewCompare(json, callback, fromPost) {
         note: c.note || "",
         phone: c.phone || extractPhoneFromNote_(c.note || ""),
         basket: c.basket || [],
-        orderCount: c.orderCount != null ? c.orderCount : ((c.basket || []).length)
+        orderCount: c.orderCount != null ? c.orderCount : ((c.basket || []).length),
+        segment: c.segment || "",
+        source: c.source || ""
       });
     });
   }
@@ -5619,9 +5686,12 @@ function pullCrmClientsToDay_(ss, deliveryDate, dayName, clients) {
               segment: segment
             });
           }
-          var filled = fillSubscriptionBasketForDate_(ss, crmSs, hit.client, segment || hit.segment, deliveryDate);
-          basket = filled.basket || [];
-          if (filled.hint) note = (note ? note + " " : "") + filled.hint;
+          var segFill = segment || hit.segment || "";
+          if ((!basket || !basket.length) && segFill) {
+            var filled = fillSubscriptionBasketForDate_(ss, crmSs, hit.client, segFill, deliveryDate);
+            basket = filled.basket || [];
+            if (filled.hint) note = (note ? note + " " : "") + filled.hint;
+          }
         }
       } catch (eFill) {}
     }
@@ -5800,7 +5870,8 @@ function materializeCurrentWeek_(ss, opts) {
       }
     }
   }
-  return { ok: true, weekKey: weekKey, totalAdded: total, onlyMissing: onlyMissing, days: results };
+  var isoWeek = currentWeekKeyServer_();
+  return { ok: true, weekKey: isoWeek, weekKeyLegacy: weekKey, totalAdded: total, onlyMissing: onlyMissing, days: results };
 }
 
 function handleMaterializeWeek(json, callback, fromPost) {
@@ -5808,8 +5879,9 @@ function handleMaterializeWeek(json, callback, fromPost) {
   var result = materializeCurrentWeek_(ss, json || {});
   var out = { status: "success", result: result };
   try {
-    var wkM = String((json && json.weekKey) || "").trim() || currentWeekKeyServer_();
+    var wkM = normalizeWeekBannerKey_((json && json.weekKey) || "") || currentWeekKeyServer_();
     writeWeekBannerState_(wkM, { pulled: true, pulledAt: new Date().toISOString(), finished: true });
+    if (result) result.weekKey = wkM;
   } catch (eM) {}
   return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }
@@ -5835,9 +5907,8 @@ function handleResolveDayForDate(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }
 
-function handleWeekPullStatus(json, callback, fromPost) {
+function weekPullSnapshot_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var tz = ss.getSpreadsheetTimeZone();
   var days = getWeekDayDates_(ss);
   var crmSs = null;
   try { crmSs = getCrmSpreadsheet_(); } catch (e) {}
@@ -5869,14 +5940,27 @@ function handleWeekPullStatus(json, callback, fromPost) {
       maybeMissing: miss
     });
   }
-  var ok = {
-    status: "success",
-    weekKey: weekKey,
+  return {
+    weekKey: currentWeekKeyServer_(),
+    weekKeyLegacy: weekKey,
     days: list,
     weekPeople: weekPeople,
     monthPeople: monthPeople,
     maybeMissing: missingEstimate,
     suggestPull: !!(weekKey && monthPeople > 0 && (weekPeople === 0 || missingEstimate > 0))
+  };
+}
+
+function handleWeekPullStatus(json, callback, fromPost) {
+  var snap = weekPullSnapshot_();
+  var ok = {
+    status: "success",
+    weekKey: snap.weekKey,
+    days: snap.days,
+    weekPeople: snap.weekPeople,
+    monthPeople: snap.monthPeople,
+    maybeMissing: snap.maybeMissing,
+    suggestPull: snap.suggestPull
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
@@ -6345,10 +6429,12 @@ function parseCrmCalendarCell_(text) {
   if (/^варка\b/i.test(lines[0])) noteBits.push("варка");
   for (var i = startIdx + 1; i < lines.length; i++) {
     var ln = lines[i];
-    var segM = ln.match(/\b(АФК|ПП|БП|Р)\b/i);
+    var segM = ln.match(/\b(АФК|ПП|БП|Р|ПАРТН[ЁЕ]?Р|PARTNER|РОЗНИЦА)\b/i);
     if (segM && !segment) {
       segment = segM[1].toUpperCase();
-      var rest = ln.replace(/\b(АФК|ПП|БП|Р)\b/i, "").trim();
+      if (segment.indexOf("ПАРТ") === 0 || segment === "PARTNER") segment = "ПАРТНЁР";
+      if (segment === "РОЗНИЦА") segment = "Р";
+      var rest = ln.replace(/\b(АФК|ПП|БП|Р|ПАРТН[ЁЕ]?Р|PARTNER|РОЗНИЦА)\b/i, "").trim();
       if (rest) noteBits.push(rest);
       continue;
     }
@@ -6362,13 +6448,17 @@ function parseCrmCalendarCell_(text) {
     }
     noteBits.push(ln);
   }
+  // варка / партнёр — отдельный тип; без метки сегмента НЕ угадываем ПП
+  if (!segment && (/варка/i.test(lines[0]) || /партн/i.test(noteBits.join(" ")))) {
+    segment = "ПАРТНЁР";
+  }
   return {
     client: display,
     // важно: ключ от полного display (Veta.foto Дэни ≠ Veta.foto Пэни), не от голого @handle
     matchKey: clientMatchKey_(display || nickLine),
     address: address,
     phone: phone,
-    segment: segment || (/варка/i.test(lines[0]) ? "Р" : "ПП"),
+    segment: segment,
     note: noteBits.join("; ")
   };
 }
@@ -7054,14 +7144,15 @@ function syncCrmIntoBookings_(ss, deliveryDate, opts) {
  */
 function fillSubscriptionBasketForDate_(ss, crmSs, client, segment, deliveryDate) {
   var seg = String(segment || "").toUpperCase();
-  if (seg === "Р" || seg === "R" || seg === "RETAIL") {
+  // розница / партнёр / неизвестный тип — состав не угадываем с листов ПП/АФК/БП
+  if (!seg || seg === "Р" || seg === "R" || seg === "RETAIL" || seg === "РОЗНИЦА" ||
+      seg.indexOf("ПАРТ") === 0 || seg === "PARTNER" || seg === "ВАРКА") {
     return { basket: [], subId: "", hint: "" };
   }
   var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
   var dateStr = deliveryDate ? dateKey_(deliveryDate, tz) : "";
 
-  // ПП (или сегмент не указан, но клиент есть в ПП)
-  if (!seg || seg === "ПП" || seg === "PP") {
+  if (seg === "ПП" || seg === "PP") {
     try {
       var sug = buildPpOrderSuggest_(ss, client, "", dateStr);
       if (sug && sug.proposedBasket && sug.proposedBasket.length) {
@@ -7078,7 +7169,7 @@ function fillSubscriptionBasketForDate_(ss, crmSs, client, segment, deliveryDate
   }
 
   try {
-    var found = findSubscriberBasket_(crmSs || getCrmSpreadsheet_(), client, seg || "ПП");
+    var found = findSubscriberBasket_(crmSs || getCrmSpreadsheet_(), client, seg);
     return {
       basket: clonePpBasket_(found.basket || []),
       subId: found.subId || "",
