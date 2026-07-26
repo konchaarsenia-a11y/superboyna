@@ -10010,7 +10010,15 @@ function writePpBasketToRowValues_(headers, basket, nick, subId, deliveriesN, st
       if (msub && isub && msub !== isub) continue;
       if (msub && !isub) continue;
       if (!msub && isub) continue;
-      row[c] = val;
+      // Корзина в граммах/шт; на листе ПП сыпучее: 1 = 100г
+      var sheetVal;
+      if (map.grams) {
+        sheetVal = Math.round((val / 100) * 1000) / 1000;
+        if (!(sheetVal > 0)) continue;
+      } else {
+        sheetVal = Math.round(val);
+      }
+      row[c] = sheetVal;
       break;
     }
   }
