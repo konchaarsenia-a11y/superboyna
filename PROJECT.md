@@ -198,6 +198,12 @@
 | `calcPrice` | Калькулятор Подписка/Розница |
 | `getAssembly` | Пакеты сборки по клиентам дня |
 | `finishFullWeek` | Закрытие недели (owner, confirm=1): склад, даты+7, Future→Пн |
+| `ensureBpFromOrder` | БП-карта из заказа: basket в doGet через try/catch → [] |
+| `listBpIdle` | БП без движения N дней |
+| `closeAllOpenDeficits` | Owner: закрыть все open в Дефицит_Нарезки |
+| `listTemplates` / `saveTemplate` | Шаблоны корзин (kind) |
+| *(ПП upsert)* | saveOrder/CRM ПП: первая пустая строка + packs |
+
 
 Один раз в Script Editor: `setupOpsEcosystem()` + `setupBookingTriggersManual()`.
 

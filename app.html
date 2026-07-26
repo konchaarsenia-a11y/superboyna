@@ -356,6 +356,15 @@
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .sub-row-chevron { display: none; }
+
+    .bp-filter-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+    .bp-chip { font-size:12px; padding:6px 10px; border-radius:8px; border:1px solid #3a3a3c; background:#2c2c2e; color:#eee; }
+    .bp-chip.active { outline:2px solid #0a84ff; }
+    .sub-row.bp-green { border-left:4px solid #30d158; }
+    .sub-row.bp-orange { border-left:4px solid #ff9f0a; }
+    .sub-row.bp-red { border-left:4px solid #ff453a; }
+    .sub-row.bp-select { display:flex; gap:8px; align-items:flex-start; }
+    .sub-row.bp-select input[type=checkbox] { margin-top:6px; }
     .sub-detail-basket {
       margin-top: 8px; max-height: 45vh; overflow-y: auto;
       border-top: 1px dashed var(--border-color); padding-top: 8px;
@@ -897,7 +906,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.80</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.81</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1229,6 +1238,7 @@
       <div class="card">
         <button class="btn-action btn-blue" type="button" onclick="loadWarehouse()">Обновить склад</button>
         <button class="btn-action btn-orange" type="button" style="margin-top:8px;" onclick="loadWarehousePreview()">Прогноз / дефицит</button>
+        <button class="btn-action" type="button" style="margin-top:8px;background:#3a3a3c;" onclick="closeAllOpenDeficitsUi()">Закрыть все открытые дефициты (TG спам)</button>
       </div>
       <div id="warehousePreviewBox"></div>
       <div class="section-title">Остатки</div>
@@ -1268,6 +1278,14 @@
             <input type="search" id="subsSearchInput" placeholder="Поиск по нику…" autocomplete="off"
               inputmode="search" oninput="onSubsSearchInput()">
           </div>
+
+        <div id="bpFilterRow" class="bp-filter-row" style="display:none;">
+          <button type="button" class="bp-chip active" data-bp="all" onclick="setBpListFilter('all')">Все</button>
+          <button type="button" class="bp-chip" data-bp="green" onclick="setBpListFilter('green')">БП1 набор</button>
+          <button type="button" class="bp-chip" data-bp="orange" onclick="setBpListFilter('orange')">Опрос→БП2</button>
+          <button type="button" class="bp-chip" data-bp="red" onclick="setBpListFilter('red')">Финал→ПП</button>
+          <button type="button" class="btn-action" style="padding:6px 10px;margin:0;background:#3a3a3c;" onclick="bpBatchDelete()">Удалить выбранных</button>
+        </div>
         </div>
         <div id="subsContainer"><p class="muted">Загрузите список…</p></div>
       </div>
@@ -1312,6 +1330,23 @@
           <label>Факт стоимость</label>
           <input type="number" id="subDetailFact" step="0.01" inputmode="decimal">
         </div>
+
+        <div id="subDetailBpMap" style="display:none;margin:10px 0;padding:10px;background:#1c1c1e;border-radius:10px;">
+          <div class="muted" style="font-size:12px;margin-bottom:6px;">Карта БП</div>
+          <div id="subDetailBpMapText" class="muted" style="font-size:13px;"></div>
+          <div class="form-group" style="margin-top:8px;">
+            <label>Опросник БП2 (дата)</label>
+            <input type="date" id="subDetailSurveyBp2">
+          </div>
+          <div class="form-group">
+            <label>Финальный опросник (дата)</label>
+            <input type="date" id="subDetailSurveyFinal">
+          </div>
+          <div class="seg-row" style="margin-top:8px;">
+            <button type="button" class="seg-btn active" id="bpBasketTab1" onclick="setBpBasketTab(1)">Состав БП1</button>
+            <button type="button" class="seg-btn" id="bpBasketTab2" onclick="setBpBasketTab(2)">Состав БП2</button>
+          </div>
+        </div>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
           <div class="muted" style="font-size:12px;">Состав (месяц)</div>
           <button type="button" class="btn-action" style="margin:0;padding:6px 10px;font-size:12px;background:#3a3a3c;" onclick="clearSubDetailBasket()">Очистить</button>
@@ -1347,6 +1382,9 @@
           <button type="button" class="btn-action btn-orange" id="subBtnToAfk" style="display:none;margin:0;" onclick="moveSubDetailTo('АФК')">Перенести в АФК</button>
           <button type="button" class="btn-action btn-blue" id="subBtnToPp" style="display:none;margin:0;" onclick="moveSubDetailTo('ПП')">Вернуть в ПП</button>
           <button type="button" class="btn-action" id="subBtnDelete" style="display:none;margin:0;background:#5a1a1a;color:#ff8a80;" onclick="deleteSubDetail()">Удалить</button>
+
+          <button class="btn-action btn-orange" type="button" id="btnBpToPp" style="display:none;" onclick="bpCardTransferToPp()">Переход → расчёт ПП</button>
+          <button class="btn-action" type="button" id="btnBpIdleNote" style="display:none;background:#3a3a3c;" onclick="bpCardMarkTouch()">Отметить контакт</button>
         </div>
       </div>
     </div>
@@ -1555,7 +1593,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.80";
+    const APP_VERSION = "v7.10.81";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3616,12 +3654,16 @@
       }
       var surveyMeta = null;
       if (orderType === "bp" && !secondDogMode) {
-        var ask = await uiConfirmAsync("Это БП. Внести клиента в БП и Опросник?");
-        if (ask) {
-          var when = prompt("Дата отправки опросника (ГГГГ-ММ-ДД) или пусто = сегодня", "") || "";
-          surveyMeta = { needSurvey: true, surveyDate: when };
-        } else {
-          surveyMeta = { needSurvey: false };
+        var createBp = await uiConfirmAsync("Этого человека ещё нет в БП?\nСоздать карточку БП1 с этим составом?");
+        surveyMeta = { createCard: !!createBp, needSurvey: false, surveyDate: "", surveyKind: "bp2" };
+        if (createBp) {
+          var needSur = await uiConfirmAsync("Запланировать опросник?");
+          if (needSur) {
+            var kindPick = await uiConfirmAsync("ОК = опросник на БП2\nОтмена = финальный (после БП2 → ПП)");
+            surveyMeta.surveyKind = kindPick ? "bp2" : "final";
+            surveyMeta.needSurvey = true;
+            surveyMeta.surveyDate = prompt("Дата опросника (ГГГГ-ММ-ДД), пусто = сегодня", "") || "";
+          }
         }
       }
       {
@@ -3936,6 +3978,35 @@
           showToast("Бронь на " + deliveryDate +
             " · состав " + savedItems + " поз. В нужный день — «Доукомплектовать»");
         }
+        if (orderType === "bp" && surveyMeta && surveyMeta.createCard) {
+          try {
+            var bpBasketMapped = basket.map(function(g){
+              return { cat:g.cat, main:g.main||g.name, name:g.name||g.main, sub:g.sub||"", val:g.val!=null?g.val:g.value, value:g.val!=null?g.val:g.value };
+            });
+            await apiGet({
+              action: "ensureBpFromOrder",
+              nick: clientName,
+              createCard: "1",
+              surveyDate: surveyMeta.surveyDate || "",
+              surveyKind: surveyMeta.surveyKind || "bp2",
+              wishes: clientNote || "",
+              basket: JSON.stringify(bpBasketMapped)
+            }, { timeoutMs: 60000, cacheTtlMs: 0 });
+            try {
+              await apiPost({
+                action: "ensureBpFromOrder",
+                nick: clientName,
+                createCard: true,
+                surveyDate: surveyMeta.surveyDate || "",
+                surveyKind: surveyMeta.surveyKind || "bp2",
+                wishes: clientNote || "",
+                basket: bpBasketMapped
+              });
+            } catch (ePostBp) {}
+            showToast("Карточка БП1 создана/обновлена");
+          } catch (eBp) { showToast("Заказ ок, БП-карточку проверь вручную"); }
+        }
+
         const card = document.querySelector("#orderScreen .card");
         if (card) {
           card.classList.remove("fx-success");
@@ -4551,7 +4622,7 @@
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || (res && res.result && res.result.message) || "ошибка";
           if (msg === "date_not_in_week") {
-            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.80.");
+            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.81.");
             return;
           }
           if (msg === "unknown_action") {
@@ -7988,6 +8059,11 @@
     const FINISH_REFUSE_LS = "superboyna_finish_refuse_";
     const FINISH_DONE_LS = "superboyna_finish_done_";
     let subsSegment = "ПП";
+    var bpListFilter = "all";
+    var bpBasketTab = 1;
+    var subDetailBasketBp1 = [];
+    var subDetailBasketBp2 = [];
+
 
     function currentWeekKeyLocal() {
       var d = new Date();
@@ -8121,6 +8197,160 @@
       refreshWeekBanners();
     }
     window.confirmPullWeekFromHome = confirmPullWeekFromHome;
+
+
+    function setBpListFilter(f) {
+      bpListFilter = f || "all";
+      document.querySelectorAll("#bpFilterRow .bp-chip").forEach(function (b) {
+        b.classList.toggle("active", b.getAttribute("data-bp") === bpListFilter);
+      });
+      renderSubsList();
+    }
+    window.setBpListFilter = setBpListFilter;
+
+    function bpStageColor_(s) {
+      var st = String(s.status || s.stage || "").toUpperCase();
+      var finalDue = s.surveyFinalDue || "";
+      var bp2Due = s.surveyBp2Due || "";
+      if (/ФИНАЛ|ПП|FINAL/.test(st) || (/БП2/.test(st) && finalDue)) return "red";
+      if (/БП2/.test(st) || bp2Due) return "orange";
+      return "green";
+    }
+
+    function groupBpSubscriptions_(list) {
+      var byNick = Object.create(null);
+      var order = [];
+      (list || []).forEach(function (s) {
+        var nick = String(s.nick || s.label || "").trim();
+        var key = nick.toUpperCase() || ("#" + (s.subId || Math.random()));
+        if (!byNick[key]) {
+          byNick[key] = Object.assign({}, s, {
+            basketBp1: s.basketBp1 || ((/БП1/.test(String(s.status || ""))) ? (s.basket || []) : []),
+            basketBp2: s.basketBp2 || ((/БП2/.test(String(s.status || ""))) ? (s.basket || []) : [])
+          });
+          order.push(key);
+        } else {
+          var cur = byNick[key];
+          var st = String(s.status || "");
+          if (/БП1/.test(st) && (s.basket || s.basketBp1)) cur.basketBp1 = s.basketBp1 || s.basket || cur.basketBp1;
+          if (/БП2/.test(st) && (s.basket || s.basketBp2)) cur.basketBp2 = s.basketBp2 || s.basket || cur.basketBp2;
+          if (s.surveyBp2Due) cur.surveyBp2Due = s.surveyBp2Due;
+          if (s.surveyFinalDue) cur.surveyFinalDue = s.surveyFinalDue;
+          if (s.wishes) cur.wishes = (cur.wishes ? cur.wishes + "\n" : "") + s.wishes;
+          if (st && (!cur.status || st.length >= String(cur.status).length)) cur.status = st;
+        }
+      });
+      return order.map(function (k) { return byNick[k]; });
+    }
+
+    function setBpBasketTab(n) {
+      syncBpBasketFromTab_();
+      bpBasketTab = n === 2 ? 2 : 1;
+      var t1 = document.getElementById("bpBasketTab1");
+      var t2 = document.getElementById("bpBasketTab2");
+      if (t1) t1.classList.toggle("active", bpBasketTab === 1);
+      if (t2) t2.classList.toggle("active", bpBasketTab === 2);
+      subDetailBasket = (bpBasketTab === 2 ? subDetailBasketBp2 : subDetailBasketBp1).slice();
+      renderSubDetailBasket();
+    }
+    window.setBpBasketTab = setBpBasketTab;
+
+    function syncBpBasketFromTab_() {
+      if (bpBasketTab === 2) subDetailBasketBp2 = (subDetailBasket || []).slice();
+      else subDetailBasketBp1 = (subDetailBasket || []).slice();
+    }
+
+    async function bpBatchDelete() {
+      var boxes = document.querySelectorAll("#subsContainer input.bp-sel:checked");
+      if (!boxes.length) { showToast("Никого не выбрано"); return; }
+      var nicks = [];
+      boxes.forEach(function (cb) { nicks.push(cb.getAttribute("data-nick") || ""); });
+      nicks = nicks.filter(Boolean);
+      var ok = await uiConfirmAsync("Удалить из БП: " + nicks.length + " чел.?");
+      if (!ok) return;
+      for (var i = 0; i < nicks.length; i++) {
+        try {
+          await apiGet({
+            action: "deleteSubscription",
+            nick: nicks[i],
+            sheet: "БП",
+            segment: "БП",
+            _: String(Date.now())
+          }, { timeoutMs: 30000, cacheTtlMs: 0 });
+        } catch (e) {}
+      }
+      showToast("Удалено");
+      await loadSubscriptions();
+    }
+    window.bpBatchDelete = bpBatchDelete;
+
+    async function closeAllOpenDeficitsUi() {
+      var ok = await uiConfirmAsync("Закрыть ВСЕ открытые дефициты нарезки?\nTG перестанет спамить каждые 30 мин.");
+      if (!ok) return;
+      var tid = String(myTelegramId || "").trim();
+      var res = await apiGet({ action: "closeAllOpenDeficits", telegramId: tid, confirm: "1" }, { timeoutMs: 30000, cacheTtlMs: 0 });
+      if (res && res.status === "success") showToast("Закрыто: " + (res.closed || 0));
+      else await uiAlertAsync("Не вышло: " + ((res && res.message) || "Deploy Code.gs"));
+    }
+    window.closeAllOpenDeficitsUi = closeAllOpenDeficitsUi;
+
+    async function bpCardTransferToPp() {
+      var nick = (document.getElementById("subDetailNick").value || document.getElementById("subDetailLabel").value || "").trim();
+      if (!nick) { showToast("Нет ника"); return; }
+      syncBpBasketFromTab_();
+      var ok = await uiConfirmAsync("Перейти к расчёту ПП для «" + nick + "»?");
+      if (!ok) return;
+      try {
+        setOrderType("pp");
+        switchTab("priceScreen");
+        var nameEl = document.getElementById("enrollDisplayName") || document.getElementById("client");
+        if (nameEl) nameEl.value = nick;
+        showToast("Открой расчёт ПП / зачисление");
+      } catch (e) { showToast(e.message || "Ошибка"); }
+    }
+    window.bpCardTransferToPp = bpCardTransferToPp;
+
+    async function bpCardMarkTouch() {
+      var nick = (document.getElementById("subDetailNick").value || document.getElementById("subDetailLabel").value || "").trim();
+      if (!nick) { showToast("Нет ника"); return; }
+      try {
+        await apiGet({
+          action: "markBpTouch",
+          nick: nick,
+          sheet: "БП",
+          _: String(Date.now())
+        }, { timeoutMs: 15000, cacheTtlMs: 0 });
+        showToast("Контакт отмечен");
+      } catch (e) {
+        showToast("Не вышло — Deploy Code.gs");
+      }
+    }
+    window.bpCardMarkTouch = bpCardMarkTouch;
+
+    async function loadBpIdleIntoDeferred_() {
+      try {
+        var res = await apiGet({ action: "listBpIdle", days: "7", _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
+        var items = (res && res.items) || [];
+        if (!items.length) return;
+        var existing = {};
+        (deferredCache || []).forEach(function (it) { existing[String(it.id)] = true; });
+        items.forEach(function (it) {
+          var id = "bpidle:" + String(it.nick || it.id || "");
+          if (existing[id]) return;
+          deferredCache.unshift({
+            id: id,
+            mode: "bp_idle",
+            title: "БП2 простой >7д",
+            nick: it.nick || "",
+            label: (it.nick || "") + " · БП2 простой >7д",
+            status: "open",
+            note: it.note || it.wishes || ""
+          });
+        });
+        updateTasksBadge();
+      } catch (e) { /* silent until Deploy */ }
+    }
+
 
     function setSubsSegment(seg, opts) {
       opts = opts || {};
@@ -9151,10 +9381,24 @@
       var box = document.getElementById("subsContainer");
       var countEl = document.getElementById("subsCount");
       if (countEl) countEl.textContent = "";
+      var fr = document.getElementById("bpFilterRow");
+      if (fr) fr.style.display = (subsSegment === "БП") ? "flex" : "none";
       if (subsSegment === "Опросник") {
         window._subsListFull = [];
         window._subsListCache = [];
-        box.innerHTML = '<p class="muted">Опросник: даты БП2/ПП1, +4/+6 — каркас. Лист подключим после деплоя полного F.</p>';
+        box.innerHTML = '<p class="muted">Опросник: шаблоны из листа + даты из карточек БП (surveyBp2Due / surveyFinalDue). Нужен Deploy Code.gs.</p>';
+        try {
+          (async function () {
+            var res = await apiGet({ action: "listSubscriptions", sheet: "БП", segment: "БП", _: String(Date.now()) }, { timeoutMs: 22000, cacheTtlMs: 0 });
+            var list = (res && res.subscriptions) || [];
+            var lines = list.filter(function (s) { return s.surveyBp2Due || s.surveyFinalDue; }).map(function (s) {
+              return escapeHtml(s.nick || s.label || "?") + ": БП2 " + escapeHtml(s.surveyBp2Due || "—") +
+                ", финал " + escapeHtml(s.surveyFinalDue || "—");
+            });
+            if (lines.length) box.innerHTML = '<div class="card"><b>Ближайшие опросники (БП)</b><div class="muted" style="margin-top:8px;">' +
+              lines.join("<br>") + '</div><div class="muted" style="margin-top:8px;">Шаблоны — лист Опросник после Deploy.</div></div>';
+          })();
+        } catch (eOp) {}
         return;
       }
       var seq = ++_subsLoadSeq;
@@ -9179,6 +9423,7 @@
         var list = (res.subscriptions || []).filter(function (s) {
           return !wantSheet || s.sheet === wantSheet;
         });
+        if (wantSheet === "БП") list = groupBpSubscriptions_(list);
         window._subsListFull = list;
         renderSubsList();
       } catch (e) {
@@ -9234,10 +9479,29 @@
         box.innerHTML = '<p class="muted">Никого по «' + escapeHtml((inp && inp.value) || "") + '»</p>';
         return;
       }
+      if (subsSegment === "БП" && bpListFilter && bpListFilter !== "all") {
+        list = list.filter(function (s) { return bpStageColor_(s) === bpListFilter; });
+        window._subsListCache = list;
+        if (countEl) {
+          countEl.textContent = qNorm
+            ? (list.length + " / " + full.length)
+            : (list.length + " / " + full.length + " чел.");
+        }
+        if (!list.length) {
+          box.innerHTML = '<p class="muted">Нет карточек в фильтре</p>';
+          return;
+        }
+      }
       box.innerHTML = '<div class="subs-grid">' + list.map(function (s, i) {
         var nick = s.nick || s.label || "";
         var meta = ["N=" + (s.deliveries || 0), s.status || ""].filter(Boolean).join(" · ");
-        return '<div class="sub-row" role="button" tabindex="0" onclick="openSubDetail(' + i + ')">' +
+        var color = (subsSegment === "БП") ? bpStageColor_(s) : "";
+        var rowClass = "sub-row" + (color ? (" bp-" + color + " bp-select") : "");
+        var check = (subsSegment === "БП")
+          ? ('<input type="checkbox" class="bp-sel" data-nick="' + escapeHtml(nick) + '" onclick="event.stopPropagation()">')
+          : "";
+        return '<div class="' + rowClass + '" role="button" tabindex="0" onclick="openSubDetail(' + i + ')">' +
+          check +
           '<div class="sub-row-main">' +
           '<div class="sub-row-nick">' + escapeHtml(nick) + "</div>" +
           (meta ? '<div class="sub-row-meta">' + escapeHtml(meta) + "</div>" : "") +
@@ -9414,7 +9678,12 @@
       document.getElementById("subDetailPhone").value = "";
       document.getElementById("subDetailFact").value = "";
       subDetailBasket = [];
+      subDetailBasketBp1 = [];
+      subDetailBasketBp2 = [];
+      bpBasketTab = 1;
       renderSubDetailBasket();
+      var bpMap0 = document.getElementById("subDetailBpMap");
+      if (bpMap0) bpMap0.style.display = (sheet === "БП") ? "block" : "none";
       var panel = document.getElementById("subDetailManualPanel");
       if (panel) panel.style.display = "none";
       var selCard = document.getElementById("subDetailSelectorCard");
@@ -9446,7 +9715,32 @@
         document.getElementById("subDetailPhone").value = res.phone || "";
         document.getElementById("subDetailFact").value = res.factCost || "";
         subDetailBasket = mapApiBasketToLocal(res.basket || []);
-        renderSubDetailBasket();
+        var isBp = String(res.sheet || sheet) === "БП";
+        var bpMap = document.getElementById("subDetailBpMap");
+        if (bpMap) bpMap.style.display = isBp ? "block" : "none";
+        if (isBp) {
+          subDetailBasketBp1 = mapApiBasketToLocal(res.basketBp1 || ((/БП1/.test(String(res.ppStatus || s.status || ""))) ? (res.basket || []) : []));
+          subDetailBasketBp2 = mapApiBasketToLocal(res.basketBp2 || ((/БП2/.test(String(res.ppStatus || s.status || ""))) ? (res.basket || []) : []));
+          if (!subDetailBasketBp1.length && !subDetailBasketBp2.length) {
+            subDetailBasketBp1 = subDetailBasket.slice();
+          }
+          var d2 = document.getElementById("subDetailSurveyBp2");
+          var df = document.getElementById("subDetailSurveyFinal");
+          if (d2) d2.value = (res.surveyBp2Due || s.surveyBp2Due || "").toString().slice(0, 10);
+          if (df) df.value = (res.surveyFinalDue || s.surveyFinalDue || "").toString().slice(0, 10);
+          var mapTxt = document.getElementById("subDetailBpMapText");
+          if (mapTxt) {
+            mapTxt.textContent = "Статус: " + (res.ppStatus || s.status || "—") +
+              " · БП1 поз: " + subDetailBasketBp1.length +
+              " · БП2 поз: " + subDetailBasketBp2.length;
+          }
+          bpBasketTab = /БП2/.test(String(res.ppStatus || s.status || "")) ? 2 : 1;
+          setBpBasketTab(bpBasketTab);
+        } else {
+          subDetailBasketBp1 = [];
+          subDetailBasketBp2 = [];
+          renderSubDetailBasket();
+        }
         syncSubDetailActions(res.sheet || sheet);
       } catch (e) {
         document.getElementById("subDetailBasket").innerHTML = '<p class="muted">Ошибка состава</p>';
@@ -9460,9 +9754,15 @@
       var toAfk = document.getElementById("subBtnToAfk");
       var toPp = document.getElementById("subBtnToPp");
       var del = document.getElementById("subBtnDelete");
+      var bpToPp = document.getElementById("btnBpToPp");
+      var bpIdle = document.getElementById("btnBpIdleNote");
       if (toAfk) toAfk.style.display = (sh === "ПП") ? "" : "none";
       if (toPp) toPp.style.display = (sh === "АФК") ? "" : "none";
       if (del) del.style.display = (sh === "ПП" || sh === "АФК" || sh === "БП") ? "" : "none";
+      if (bpToPp) bpToPp.style.display = (sh === "БП") ? "" : "none";
+      if (bpIdle) bpIdle.style.display = (sh === "БП") ? "" : "none";
+      var bpMap = document.getElementById("subDetailBpMap");
+      if (bpMap && sh !== "БП") bpMap.style.display = "none";
     }
 
     async function moveSubDetailTo(toSheet) {
@@ -9578,11 +9878,18 @@
         showToast("Нет ника");
         return;
       }
+      if (sheet === "БП") syncBpBasketFromTab_();
       var basketPayload = subDetailBasketPayload_();
       var wantFp = basketFingerprint_(basketPayload);
+      var ppStatusSave = (document.getElementById("subDetailStatus").value || "").trim();
+      if (sheet === "БП") {
+        if (!ppStatusSave) ppStatusSave = (bpBasketTab === 2) ? "БП2" : "БП1";
+        else if (bpBasketTab === 2 && !/БП2/.test(ppStatusSave)) ppStatusSave = "БП2";
+        else if (bpBasketTab === 1 && !/БП1|БП2|ФИНАЛ|ПП/.test(ppStatusSave)) ppStatusSave = "БП1";
+      }
       try {
         showToast("Сохраняю…");
-        await apiPost({
+        var saveBody = {
           action: "saveSubscription",
           nick: nick || label,
           label: label || nick,
@@ -9590,14 +9897,23 @@
           sheet: sheet,
           segment: sheet,
           deliveries: document.getElementById("subDetailDeliveries").value || "",
-          ppStatus: (document.getElementById("subDetailStatus").value || "").trim(),
+          ppStatus: ppStatusSave,
           wishes: (document.getElementById("subDetailWishes").value || "").trim(),
           address: (document.getElementById("subDetailAddress").value || "").trim(),
           phone: (document.getElementById("subDetailPhone").value || "").trim(),
           note: (document.getElementById("subDetailWishes").value || "").trim(),
           factCost: document.getElementById("subDetailFact").value || "",
           basket: basketPayload
-        });
+        };
+        if (sheet === "БП") {
+          var d2s = document.getElementById("subDetailSurveyBp2");
+          var dfs = document.getElementById("subDetailSurveyFinal");
+          saveBody.surveyBp2Due = d2s ? d2s.value : "";
+          saveBody.surveyFinalDue = dfs ? dfs.value : "";
+          saveBody.basketBp1 = subDetailBasketBp1;
+          saveBody.basketBp2 = subDetailBasketBp2;
+        }
+        await apiPost(saveBody);
         try { _apiGetMem = Object.create(null); } catch (eClr) {}
         // POST часто opaque — проверяем getSubscription
         var ok = false;
@@ -10284,6 +10600,7 @@
           }, { timeoutMs: 12000, cacheTtlMs: 15000 });
           deferredCache = (res && res.items) || [];
           deferredCacheAt = Date.now();
+          try { await loadBpIdleIntoDeferred_(); } catch (eBpIdle) {}
           var ppOpen = deferredCache.filter(function (it) {
             var m = String(it.mode || "pp").toLowerCase();
             return m !== "retail";
