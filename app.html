@@ -11,7 +11,7 @@
     /* Telegram WebView кэширует app.html — форс-обновление по версии */
     (function () {
       try {
-        var want = "71096";
+        var want = "71097";
         var u = new URL(location.href);
         if (u.searchParams.get("v") === want) return;
         u.searchParams.set("v", want);
@@ -27,21 +27,6 @@
       --danger-color: #ff453a; --success-color: #30d158; --border-color: #2a2a2a;
       --safe-top: max(12px, env(safe-area-inset-top, 0px), var(--tg-safe-area-inset-top, 0px), var(--tg-content-safe-area-inset-top, 0px));
       --safe-bottom: max(16px, env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px), var(--tg-content-safe-area-inset-bottom, 0px));
-      /* liquid glass */
-      --glass-blur: 18px;
-      --glass-sat: 165%;
-      --glass-border: rgba(255, 255, 255, 0.22);
-      --glass-border-strong: rgba(255, 255, 255, 0.34);
-      --glass-fill: rgba(48, 48, 52, 0.42);
-      --glass-sheen: linear-gradient(155deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.12) 26%, rgba(255,255,255,0.02) 48%, rgba(255,255,255,0.08) 100%);
-      --glass-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.38),
-        inset 0 -1px 0 rgba(0,0,0,0.22),
-        0 8px 22px rgba(0,0,0,0.34);
-      --glass-shadow-press:
-        inset 0 1px 0 rgba(255,255,255,0.2),
-        inset 0 6px 14px rgba(0,0,0,0.28),
-        0 2px 8px rgba(0,0,0,0.28);
     }
     * { box-sizing: border-box; }
     html, body {
@@ -49,7 +34,6 @@
       background: var(--bg-color); color: var(--text-color);
       margin: 0; padding: 0; width: 100%; min-height: 100%;
       min-height: 100dvh;
-      /* overflow-x:hidden ломает position:sticky — clip безопаснее */
       overflow-x: clip;
       -webkit-tap-highlight-color: transparent;
     }
@@ -112,15 +96,17 @@
       top: 0;
       left: 0;
       right: 0;
-      /* выше tasks-drawer (1400): иначе залипший оверлей ест клики по вкладкам */
       z-index: 1600;
       pointer-events: auto;
-      background: rgba(10, 10, 10, 0.96);
-      -webkit-backdrop-filter: blur(12px);
-      backdrop-filter: blur(12px);
+      /* Telegram-like liquid glass chrome */
+      background: rgba(18, 18, 20, 0.62);
+      -webkit-backdrop-filter: blur(28px) saturate(180%);
+      backdrop-filter: blur(28px) saturate(180%);
       padding: calc(8px + var(--safe-top)) 16px 10px;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-      box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+      border-bottom: 1px solid rgba(255,255,255,0.12);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.14),
+        0 10px 28px rgba(0,0,0,0.28);
     }
     .app-top-inner {
       max-width: 640px;
@@ -134,125 +120,34 @@
     }
     .header-main { font-size: 20px; font-weight: 700; letter-spacing: -0.4px; margin-bottom: 10px; }
     .nav-tabs {
-      display: flex; gap: 6px; margin-bottom: 0;
-      background: rgba(28, 28, 30, 0.55);
-      -webkit-backdrop-filter: blur(14px) saturate(140%);
-      backdrop-filter: blur(14px) saturate(140%);
-      padding: 4px; border-radius: 12px;
-      border: 1px solid rgba(255,255,255,0.12);
+      display: flex; gap: 4px; margin-bottom: 0;
+      background: rgba(255,255,255,0.06);
+      -webkit-backdrop-filter: blur(20px) saturate(160%);
+      backdrop-filter: blur(20px) saturate(160%);
+      padding: 4px; border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.14);
       overflow-x: auto;
       position: relative; z-index: 20;
       -webkit-overflow-scrolling: touch;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 6px 16px rgba(0,0,0,0.25);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.16);
     }
     .tab-link {
-      flex: 1 0 auto; min-width: 72px; text-align: center; border: none;
+      flex: 1 0 auto; min-width: 72px; text-align: center; background: none; border: none;
       color: var(--text-muted); padding: 10px 8px; font-size: 12px; font-weight: 600;
-      cursor: pointer; border-radius: 9px;
+      cursor: pointer; border-radius: 11px;
       -webkit-user-select: none; user-select: none;
       touch-action: manipulation;
       pointer-events: auto !important;
-      background: transparent;
     }
     .tab-link.active {
       color: #fff;
-      background-color: rgba(255, 122, 0, 0.58);
-      border: 1px solid rgba(255, 200, 140, 0.4);
-      box-shadow: var(--glass-shadow);
+      background: rgba(255, 122, 0, 0.92);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 4px 12px rgba(255,122,0,0.25);
     }
     /* Страховка: кнопки всегда кликабельны даже если какой-то слой залип */
     button, .btn-action, .btn-save, .seg-btn, .crm-mini-btn, .route-mini, select, input {
       pointer-events: auto !important;
       touch-action: manipulation;
-    }
-
-    /* ===== Liquid glass — все кнопки ===== */
-    button,
-    .btn-action,
-    .btn-save,
-    .seg-btn,
-    .tab-link,
-    .bp-chip,
-    .sub-tab,
-    .crm-mini-btn,
-    .route-mini,
-    .help-fab,
-    .bug-fab,
-    .tasks-menu-btn,
-    .order-flyout-btn,
-    .tasks-drawer-close,
-    .pack-type-cell,
-    .modal-day-btn,
-    .btn-inline-del {
-      position: relative;
-      overflow: hidden;
-      isolation: isolate;
-      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-      border: 1px solid var(--glass-border);
-      box-shadow: var(--glass-shadow);
-      transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease, background-color 0.12s ease;
-    }
-    button::before,
-    .btn-action::before,
-    .btn-save::before,
-    .seg-btn::before,
-    .tab-link::before,
-    .bp-chip::before,
-    .sub-tab::before,
-    .crm-mini-btn::before,
-    .route-mini::before,
-    .help-fab::before,
-    .bug-fab::before,
-    .tasks-menu-btn::before,
-    .order-flyout-btn::before,
-    .tasks-drawer-close::before,
-    .pack-type-cell::before,
-    .modal-day-btn::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      border-radius: inherit;
-      pointer-events: none;
-      z-index: 0;
-      background: var(--glass-sheen);
-      opacity: 0.9;
-      mix-blend-mode: soft-light;
-    }
-    button > *,
-    .btn-action > *,
-    .btn-save > *,
-    .seg-btn > *,
-    .help-fab > *,
-    .bug-fab > *,
-    .tasks-menu-btn > *,
-    .pack-type-cell > * {
-      position: relative;
-      z-index: 1;
-    }
-    button:active,
-    .btn-action:active,
-    .btn-save:active,
-    .seg-btn:active,
-    .tab-link:active,
-    .bp-chip:active,
-    .sub-tab:active,
-    .crm-mini-btn:active,
-    .route-mini:active,
-    .help-fab:active,
-    .bug-fab:active,
-    .tasks-menu-btn:active,
-    .order-flyout-btn:active,
-    .pack-type-cell:active {
-      transform: scale(0.985);
-      box-shadow: var(--glass-shadow-press);
-      filter: brightness(1.06);
-    }
-    @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-      button, .btn-action, .btn-save, .seg-btn, .bp-chip, .sub-tab, .crm-mini-btn, .route-mini,
-      .help-fab, .bug-fab, .tasks-menu-btn, .order-flyout-btn, .tasks-drawer-close, .pack-type-cell {
-        background-image: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.02));
-      }
     }
     .modal-overlay:not(.open),
     .toast:not(.show),
@@ -284,46 +179,28 @@
     select:focus, input:focus { border-color: var(--accent-color); }
     .grid-buttons { display: grid; gap: 8px; margin-bottom: 16px; }
     .btn-action {
-      height: 44px; border-radius: 12px; font-size: 14px; font-weight: 600;
+      height: 44px; border-radius: 10px; border: none; font-size: 14px; font-weight: 600;
       color: #fff; cursor: pointer; width: 100%;
-      background-color: var(--glass-fill);
-      text-shadow: 0 1px 1px rgba(0,0,0,0.25);
     }
-    .btn-blue {
-      background-color: rgba(255, 122, 0, 0.55);
-      border-color: rgba(255, 200, 140, 0.42);
-      color: #fff;
-    }
-    .btn-green {
-      background-color: rgba(48, 209, 88, 0.42);
-      border-color: rgba(120, 255, 160, 0.35);
-      color: #eaffef;
-    }
-    .btn-orange {
-      background-color: rgba(255, 149, 0, 0.52);
-      border-color: rgba(255, 210, 140, 0.4);
-      color: #fff;
-    }
-    .btn-purple {
-      background-color: rgba(175, 82, 222, 0.48);
-      border-color: rgba(220, 170, 255, 0.38);
-      color: #fff;
-    }
-    .btn-brown {
-      background-color: rgba(172, 142, 104, 0.5);
-      border-color: rgba(230, 200, 160, 0.35);
-      color: #fff;
-    }
+    .btn-blue { background: var(--accent-color); }
+    .btn-green { background: var(--success-color); color: #052e12; }
+    .btn-orange { background: #ff9500; }
+    .btn-purple { background: #af52de; }
+    .btn-brown { background: #ac8e68; }
     .btn-save {
-      height: 52px;
-      background-color: rgba(48, 209, 88, 0.48);
-      border-color: rgba(140, 255, 180, 0.4);
-      font-size: 15px; font-weight: 700;
-      text-transform: uppercase; width: 100%; border-radius: 12px;
-      color: #f2fff6; cursor: pointer;
-      text-shadow: 0 1px 1px rgba(0,0,0,0.28);
+      height: 52px; background: var(--success-color); font-size: 15px; font-weight: 700;
+      text-transform: uppercase; width: 100%; border: none; border-radius: 10px; color: #052e12; cursor: pointer;
     }
-    .btn-save:disabled { opacity: 0.55; cursor: wait; filter: grayscale(0.2); }
+    .btn-save:disabled { opacity: 0.55; cursor: wait; }
+
+    /* perf: неактивные экраны не участвуют в layout */
+    .screen:not(.active) {
+      content-visibility: hidden;
+      contain: layout style paint;
+    }
+    .screen.active {
+      content-visibility: visible;
+    }
     .basket-card {
       background: #2c2c2e; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px;
       border-left: 4px solid var(--accent-color); position: relative;
@@ -336,12 +213,8 @@
     .basket-sub { font-size: 13px; color: var(--text-muted); }
     .btn-inline-del {
       position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
-      background-color: rgba(255, 69, 58, 0.18); color: #ff8a80;
-      border-radius: 8px; padding: 4px 8px;
-      font-size: 13px; font-weight: 600; cursor: pointer;
-      box-shadow: none;
+      background: none; border: none; color: var(--danger-color); font-size: 13px; font-weight: 600; cursor: pointer;
     }
-    .btn-inline-del:active { transform: translateY(-50%) scale(0.97); }
     .client-item-card {
       background: #1c1c1e; border-radius: 12px; padding: 12px; margin-bottom: 10px;
       border: 1px solid var(--border-color);
@@ -517,16 +390,8 @@
     .sub-row-chevron { display: none; }
 
     .bp-filter-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
-    .bp-chip {
-      font-size:12px; padding:6px 10px; border-radius:10px;
-      background-color: rgba(44, 44, 46, 0.48); color:#eee;
-    }
-    .bp-chip.active {
-      outline: none;
-      border-color: rgba(10, 132, 255, 0.55);
-      background-color: rgba(10, 132, 255, 0.28);
-      box-shadow: var(--glass-shadow), 0 0 0 1px rgba(10,132,255,0.35);
-    }
+    .bp-chip { font-size:12px; padding:6px 10px; border-radius:8px; border:1px solid #3a3a3c; background:#2c2c2e; color:#eee; }
+    .bp-chip.active { outline:2px solid #0a84ff; }
     .sub-row.bp-green { border-left:4px solid #30d158; }
     .sub-row.bp-orange { border-left:4px solid #ff9f0a; }
     .sub-row.bp-red { border-left:4px solid #ff453a; }
@@ -594,13 +459,12 @@
       margin-top: 6px; padding-top: 0;
     }
     .crm-mini-btn {
-      width: 32px; height: 32px; border-radius: 10px; cursor: pointer; font-size: 13px;
+      width: 32px; height: 32px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px;
       flex-shrink: 0;
-      background-color: rgba(44, 44, 46, 0.4);
     }
-    .crm-edit { background-color: rgba(255,149,0,0.28); color: #ffb340; border-color: rgba(255,180,80,0.35); }
-    .crm-move { background-color: rgba(175,82,222,0.28); color: #d4a0ff; border-color: rgba(200,140,255,0.35); }
-    .crm-delete { background-color: rgba(255,69,58,0.28); color: #ff8a80; border-color: rgba(255,120,110,0.35); }
+    .crm-edit { background: rgba(255,149,0,0.15); color: #ff9500; }
+    .crm-move { background: rgba(175,82,222,0.15); color: #af52de; }
+    .crm-delete { background: rgba(255,69,58,0.15); color: #ff453a; }
     .batch-bar {
       display: none; position: sticky; bottom: calc(72px + env(safe-area-inset-bottom, 0px));
       z-index: 40; margin: 10px 0 4px; padding: 10px; border-radius: 12px;
@@ -678,15 +542,10 @@
     .screen.active { display: block; }
     .seg-row { display: flex; gap: 8px; }
     .seg-btn {
-      flex: 1; height: 42px; border-radius: 12px;
-      background-color: rgba(44, 44, 46, 0.48);
-      color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+      flex: 1; height: 42px; border-radius: 10px; border: 1px solid var(--border-color);
+      background: #2c2c2e; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
     }
-    .seg-btn.active {
-      background-color: rgba(255, 122, 0, 0.58);
-      border-color: rgba(255, 200, 140, 0.45);
-      color: #fff;
-    }
+    .seg-btn.active { background: var(--accent-color); border-color: var(--accent-color); }
     .route-card {
       background: #1c1c1e; border: 1px solid var(--border-color); border-radius: 12px;
       padding: 12px; margin-bottom: 12px;
@@ -704,22 +563,20 @@
     .route-stop-name { font-weight: 600; font-size: 14px; }
     .route-stop-addr { font-size: 12px; color: var(--text-muted); line-height: 1.35; }
     .route-mini {
-      flex-shrink: 0; height: 32px; padding: 0 10px; border-radius: 10px;
-      background-color: rgba(58, 58, 60, 0.5);
-      color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;
+      flex-shrink: 0; height: 32px; padding: 0 10px; border-radius: 8px; border: none;
+      background: #3a3a3c; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;
     }
     .route-actions { display: grid; gap: 8px; margin-top: 10px; }
     .field-hint { font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.35; }
     .help-fab {
       position: fixed; right: 14px; bottom: 72px; z-index: 1200;
-      width: 44px; height: 44px; border-radius: 50%;
-      background-color: rgba(58, 58, 60, 0.55);
-      color: #fff; font-size: 22px; font-weight: 700;
-      cursor: pointer;
+      width: 44px; height: 44px; border-radius: 50%; border: none;
+      background: #3a3a3c; color: #fff; font-size: 22px; font-weight: 700;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.35); cursor: pointer;
     }
     body.tasks-open .help-fab,
     body.tasks-open .bug-fab { display: none !important; }
-    .help-fab:active { background-color: rgba(72, 72, 74, 0.65); }
+    .help-fab:active { background: #48484a; }
     .time-wheel-wrap {
       position: relative; display: flex; height: 168px;
       background: #2c2c2e; border: 1px solid var(--border-color); border-radius: 12px;
@@ -914,15 +771,10 @@
     .addr-picked.show { display: block; }
     .sub-tabs { display:flex; gap:6px; margin-bottom:12px; }
     .sub-tab {
-      flex:1; height:36px; border-radius:10px;
-      background-color: rgba(26, 26, 26, 0.5);
-      color:var(--text-muted); font-size:13px; font-weight:600; cursor:pointer;
+      flex:1; height:36px; border-radius:8px; border:1px solid var(--border-color);
+      background:#1a1a1a; color:var(--text-muted); font-size:13px; font-weight:600; cursor:pointer;
     }
-    .sub-tab.active {
-      background-color: rgba(255, 122, 0, 0.58);
-      color:#fff;
-      border-color: rgba(255, 200, 140, 0.42);
-    }
+    .sub-tab.active { background:var(--accent-color); color:#fff; border-color:var(--accent-color); }
     .access-gate {
       display:none; position:fixed; inset:0; z-index:10001; background:rgba(0,0,0,.92);
       align-items:center; justify-content:center; padding:24px;
@@ -941,16 +793,15 @@
     }
     .order-flyout.open, .courier-flyout.open { display: flex; }
     .order-flyout-btn {
-      flex: 1 1 30%; min-width: 90px; height: 40px; border-radius: 10px;
-      background-color: rgba(28, 28, 30, 0.5); color: #fff;
+      flex: 1 1 30%; min-width: 90px; height: 40px; border-radius: 8px;
+      border: 1px solid var(--border-color); background: #1c1c1e; color: #fff;
       font-size: 13px; font-weight: 600; cursor: pointer;
     }
-    .order-flyout-btn:active { background-color: rgba(255, 122, 0, 0.55); }
+    .order-flyout-btn:active { background: var(--accent-color); }
     .pack-type-row { display:flex; gap:6px; margin:10px 0; flex-wrap:wrap; }
     .pack-type-cell {
       flex:1 1 18%; min-width:56px; text-align:center; padding:10px 4px;
-      border-radius:12px;
-      background-color: rgba(26, 26, 26, 0.5);
+      border-radius:10px; border:1px solid var(--border-color); background:#1a1a1a;
       cursor:pointer; user-select:none;
     }
     .pack-type-cell.off { opacity:0.35; text-decoration:line-through; }
@@ -969,10 +820,9 @@
     .bug-fab {
       position: fixed; right: 14px; bottom: 18px; z-index: 1200;
       width: 44px; height: 44px; border-radius: 50%;
-      border-color: rgba(255,69,58,0.45);
-      background-color: rgba(42, 18, 18, 0.55);
-      color: #ff8a80;
+      border: 1px solid rgba(255,69,58,0.55); background: #2a1212; color: #ff453a;
       font-size: 20px; font-weight: 800; cursor: pointer;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.45);
     }
     .header-row {
       display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
@@ -981,13 +831,13 @@
     .header-row .header-main { margin-bottom: 0; flex: 1 1 auto; min-width: 0; }
     .tasks-menu-btn {
       position: relative; flex: 0 0 auto;
-      width: 40px; height: 40px; border-radius: 12px;
-      background-color: rgba(28, 28, 30, 0.5); color: #fff;
+      width: 40px; height: 40px; border-radius: 10px;
+      border: 1px solid var(--border-color); background: #1c1c1e; color: #fff;
       display: none; align-items: center; justify-content: center;
       cursor: pointer; padding: 0;
     }
     .tasks-menu-btn.show { display: inline-flex; }
-    .tasks-menu-btn:active { background-color: rgba(44, 44, 46, 0.65); }
+    .tasks-menu-btn:active { background: #2c2c2e; }
     .tasks-burger {
       display: block; width: 18px; height: 12px; position: relative;
     }
@@ -1040,8 +890,8 @@
     }
     .tasks-drawer-head b { font-size: 17px; }
     .tasks-drawer-close {
-      width: 36px; height: 36px; border-radius: 10px;
-      background-color: rgba(44, 44, 46, 0.5); color: #fff; font-size: 18px; cursor: pointer;
+      width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--border-color);
+      background: #2c2c2e; color: #fff; font-size: 18px; cursor: pointer;
     }
     .tasks-drawer-body {
       flex: 1 1 auto; min-height: 0; overflow-y: auto;
@@ -1069,56 +919,6 @@
     .week-banner .muted { font-size: 12px; margin-bottom: 10px; }
     .subs-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 
-    /* inline background (модалки/серые кнопки) — glass рамка + блик всё равно */
-    button[style*="background"],
-    .btn-action[style*="background"],
-    .btn-save[style*="background"],
-    .seg-btn[style*="background"] {
-      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)) !important;
-      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)) !important;
-      border: 1px solid var(--glass-border) !important;
-      box-shadow: var(--glass-shadow) !important;
-    }
-    /* частые «серые»/жёлтые/красные inline — полупрозрачные тона */
-    button[style*="background:#3a3a3c"],
-    button[style*="background: #3a3a3c"],
-    .btn-action[style*="background:#3a3a3c"],
-    .btn-action[style*="background: #3a3a3c"] {
-      background-color: rgba(58, 58, 60, 0.48) !important;
-      background-image: none !important;
-      color: #fff !important;
-    }
-    button[style*="background:#ffd60a"],
-    button[style*="background: #ffd60a"],
-    .btn-action[style*="background:#ffd60a"],
-    .btn-action[style*="background: #ffd60a"] {
-      background-color: rgba(255, 214, 10, 0.42) !important;
-      color: #111 !important;
-      border-color: rgba(255, 230, 120, 0.5) !important;
-    }
-    button[style*="background:#ff453a"],
-    button[style*="background: #ff453a"],
-    .btn-action[style*="background:#ff453a"],
-    .btn-action[style*="background: #ff453a"] {
-      background-color: rgba(255, 69, 58, 0.48) !important;
-      color: #fff !important;
-      border-color: rgba(255, 140, 130, 0.45) !important;
-    }
-    button[style*="background:#30d158"],
-    button[style*="background: #30d158"],
-    .btn-action[style*="background:#30d158"],
-    .btn-action[style*="background: #30d158"] {
-      background-color: rgba(48, 209, 88, 0.45) !important;
-      color: #0a1f10 !important;
-      border-color: rgba(140, 255, 180, 0.4) !important;
-    }
-    button[style*="background:#5a1a1a"],
-    button[style*="background: #5a1a1a"],
-    .btn-action[style*="background:#5a1a1a"],
-    .btn-action[style*="background: #5a1a1a"] {
-      background-color: rgba(90, 26, 26, 0.55) !important;
-      border-color: rgba(255, 120, 110, 0.35) !important;
-    }
 </style>
 </head>
 <body>
@@ -1139,7 +939,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.96</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.97</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1863,7 +1663,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.96";
+    const APP_VERSION = "v7.10.97";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3307,7 +3107,7 @@
     window.onClientBlurDelayed = onClientBlurDelayed;
     window.applyClientMatch = applyClientMatch;
     loadClientMemory();
-    setTimeout(syncClientProfilesFromServer, 400);
+    setTimeout(syncClientProfilesFromServer, 2500);
 
     function formatWhNum(n) {
       var x = Number(n);
@@ -3697,12 +3497,55 @@
     }
     window.clearIgPriceChecklist = clearIgPriceChecklist;
 
-    /** JSONP GET */
+    /** JSONP GET — кэш по умолчанию для read-action (ускорение WebView) */
     var _apiGetMem = Object.create(null);
+    var _API_READ_TTL = {
+      getClients: 8000,
+      getCutting: 8000,
+      getCourier: 8000,
+      getAssembly: 8000,
+      getWarehouse: 15000,
+      warehousePreview: 15000,
+      getStats: 20000,
+      listSubscriptions: 20000,
+      listClientProfiles: 60000,
+      listBookings: 15000,
+      listAccess: 30000,
+      getMyAccess: 60000,
+      listReminderPeople: 60000,
+      listDeferred: 8000,
+      listTemplates: 60000,
+      listSurvey: 20000,
+      crmInventory: 60000,
+      getCouriers: 30000,
+      telegramStatus: 120000,
+      getWeekBannerState: 10000,
+      weekPullStatus: 12000,
+      getViewCompare: 10000,
+      calcPrice: 30000,
+      findClientMatch: 20000,
+      getPpFactCost: 20000,
+      getPpOrderSuggest: 15000,
+      resolveDayForDate: 60000,
+      suggestAddress: 30000
+    };
+    function apiCacheBustMem_(action) {
+      if (!action) { _apiGetMem = Object.create(null); return; }
+      try {
+        var prefix = "action=" + action;
+        Object.keys(_apiGetMem).forEach(function (k) {
+          if (k.indexOf(prefix) === 0 || k.indexOf("&" + prefix) >= 0 || k === prefix || k.indexOf(prefix + "&") === 0)
+            delete _apiGetMem[k];
+        });
+      } catch (eB) {}
+    }
     function apiGet(params, opts) {
       opts = opts || {};
-      var timeoutMs = opts.timeoutMs || 22000;
-      var cacheTtlMs = opts.cacheTtlMs || 0;
+      var timeoutMs = opts.timeoutMs || 18000;
+      var action = String((params && params.action) || "");
+      var cacheTtlMs = (opts.cacheTtlMs != null) ? opts.cacheTtlMs : (_API_READ_TTL[action] || 0);
+      // cache-busters in params disable cache
+      if (params && (params._ || params.nocache)) cacheTtlMs = 0;
       var cacheKey = "";
       if (cacheTtlMs > 0) {
         try {
@@ -3713,17 +3556,17 @@
           if (hit && hit.exp > Date.now()) return Promise.resolve(hit.res);
         } catch (eC) { cacheKey = ""; }
       }
-      return new Promise((resolve, reject) => {
-        const cb = "cb_" + Math.round(Math.random() * 1e9);
-        const timer = setTimeout(() => {
+      return new Promise(function (resolve, reject) {
+        var cb = "cb_" + Math.round(Math.random() * 1e9);
+        var timer = setTimeout(function () {
           cleanup();
           reject(new Error("Таймаут ответа сервера"));
         }, timeoutMs);
         function cleanup() {
           clearTimeout(timer);
-          delete window[cb];
-          const s = document.getElementById(cb);
-          if (s) s.remove();
+          try { delete window[cb]; } catch (e1) {}
+          var s = document.getElementById(cb);
+          if (s && s.parentNode) s.parentNode.removeChild(s);
         }
         window[cb] = function (res) {
           cleanup();
@@ -3732,15 +3575,18 @@
           }
           resolve(res);
         };
-        const q = Object.keys(params).map(k => k + "=" + encodeURIComponent(params[k])).join("&");
-        const script = document.createElement("script");
+        var q = Object.keys(params).map(function (k) {
+          return k + "=" + encodeURIComponent(params[k]);
+        }).join("&");
+        var script = document.createElement("script");
         script.id = cb;
+        script.async = true;
         script.src = GOOGLE_WEBHOOK_URL + "?" + q + "&callback=" + cb;
         script.onerror = function () {
           cleanup();
           reject(new Error("Ошибка сети"));
         };
-        document.body.appendChild(script);
+        (document.head || document.body).appendChild(script);
       });
     }
 
@@ -4220,7 +4066,7 @@
         }
 
         // без sleep + без повторного getClients — это главный тормоз после «Сохранить»
-        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        try { apiCacheBustMem_(); } catch (eClr) {}
         const inWeek = !!(weekDayToSave && basket.length);
         const savedItems = (saveRes && saveRes.wrote != null) ? Number(saveRes.wrote) : basket.length;
         try {
@@ -4731,7 +4577,7 @@
           showToast("Не вышло: " + ((res && res.message) || "Deploy?"));
           return;
         }
-        try { _apiGetMem = Object.create(null); } catch (eMem) {}
+        try { apiCacheBustMem_(); } catch (eMem) {}
         showToast("Убрано из календаря");
         await loadClientsForDay();
       } catch (e) {
@@ -5020,7 +4866,7 @@
         };
         if (day) payload.day = day;
         else payload.date = dateStr;
-        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        try { apiCacheBustMem_(); } catch (eClr) {}
         var res = await apiGet(payload, { timeoutMs: 60000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || (res && res.result && res.result.message) || "ошибка";
@@ -5071,7 +4917,7 @@
       box.innerHTML = skel;
       if (monthBox) monthBox.innerHTML = skel;
       try {
-        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        try { apiCacheBustMem_(); } catch (eClr) {}
 
         var compareParams = { action: "getViewCompare" };
         if (dateStr) compareParams.date = dateStr;
@@ -5490,7 +5336,7 @@
       let ok = 0;
       let fail = [];
       showToast("Удаляю " + names.length + "…");
-      try { _apiGetMem = Object.create(null); } catch (eMem) {}
+      try { apiCacheBustMem_(); } catch (eMem) {}
       for (let i = 0; i < names.length; i++) {
         try {
           const res = await apiGet(deleteClientParams(names[i], day, keys[i]), { timeoutMs: 45000, cacheTtlMs: 0 });
@@ -5639,7 +5485,7 @@
       const ok = await uiConfirmAsync("Удалить клиента " + client.name + "?\n\nУйдёт у всех: неделя + Календарь_Дат + бронь на дату.");
       if (!ok) return;
       try {
-        try { _apiGetMem = Object.create(null); } catch (eMem) {}
+        try { apiCacheBustMem_(); } catch (eMem) {}
         const res = await apiGet(
           deleteClientParams(client.name, day, client.matchKey || viewClientKey(client.name) || ""),
           { timeoutMs: 45000, cacheTtlMs: 0 }
@@ -6478,7 +6324,7 @@
         var body = { action: "setDelivered", day: day, client: client.name, delivered: delivered };
         if (paidAnswer) body.paid = paidAnswer;
         await apiPost(body);
-        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        try { apiCacheBustMem_(); } catch (eClr) {}
       } catch (e) {
         client.delivered = !delivered;
         refreshCourierSummary();
@@ -8722,7 +8568,7 @@
       showToast("Закрываем неделю…");
       var res = null;
       try {
-        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        try { apiCacheBustMem_(); } catch (eClr) {}
         res = await apiGet(
           { action: "finishFullWeek", telegramId: tid, confirm: "1", weekKey: currentWeekKeyLocal() },
           { timeoutMs: 120000, cacheTtlMs: 0 }
@@ -9513,7 +9359,7 @@
       var next = assembled === undefined ? !client.assembled : !!assembled;
       client.assembled = next;
       renderAssemblyView();
-      try { _apiGetMem = Object.create(null); } catch (eClr) {}
+      try { apiCacheBustMem_(); } catch (eClr) {}
       try {
         await apiPost({ action: "setAssembled", day: day, client: client.name, assembled: next });
         showToast(next ? ("Собран: " + client.name) : ("Снято: " + client.name));
@@ -10282,7 +10128,7 @@
       var wantSheet = subsSegment;
       box.innerHTML = '<p class="muted">Загрузка…</p>';
       try {
-        try { _apiGetMem = Object.create(null); } catch (eMem) {}
+        try { apiCacheBustMem_(); } catch (eMem) {}
         var res = await apiGet({
           action: "listSubscriptions",
           sheet: wantSheet,
@@ -10677,7 +10523,7 @@
           showToast("Не перенеслось: " + msg);
           return;
         }
-        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        try { apiCacheBustMem_(); } catch (eClr) {}
         // сразу показать во вкладке назначения (не ждать «пустого» кэша)
         setSubsSegment(toSheet, { skipLoad: true });
         window._subsListFull = [{
@@ -10730,7 +10576,7 @@
           showToast("Не удалилось: " + msg);
           return;
         }
-        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        try { apiCacheBustMem_(); } catch (eClr) {}
         showToast("Удалено");
         switchTab("subsScreen");
         await loadSubscriptions();
@@ -10791,7 +10637,7 @@
           saveBody.basketBp2 = subDetailBasketBp2;
         }
         await apiPost(saveBody);
-        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        try { apiCacheBustMem_(); } catch (eClr) {}
         // POST часто opaque — проверяем getSubscription
         var ok = false;
         var last = null;
@@ -11563,7 +11409,7 @@
         await apiPost(body);
         window._editingDeferredId = "";
         deferredCacheAt = 0;
-        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        try { apiCacheBustMem_(); } catch (eClr) {}
         showToast("В задачах (☰)");
         await refreshDeferredBadge(true);
         var dr = document.getElementById("tasksDrawer");
@@ -11872,7 +11718,7 @@
         // подтверждение в TG приходит с сервера; список подтянем чуть позже
         setTimeout(function () {
           deferredCacheAt = 0;
-          try { _apiGetMem = Object.create(null); } catch (eClr) {}
+          try { apiCacheBustMem_(); } catch (eClr) {}
           renderTasksDrawer(true);
         }, 1200);
       } catch (e) {
@@ -11989,7 +11835,7 @@
           id: id,
           _: String(Date.now())
         }, { timeoutMs: 20000, cacheTtlMs: 0 });
-        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        try { apiCacheBustMem_(); } catch (eClr) {}
         if (res && res.status === "not_found") {
           // уже нет — ок
           showToast("Убрано");
@@ -12205,7 +12051,7 @@
         showToast(id ? "Отправлено в ПП" : "Внесено в ПП");
         exitPriceEnrollMode();
         deferredCacheAt = 0;
-        try { _apiGetMem = Object.create(null); } catch (eClr) {}
+        try { apiCacheBustMem_(); } catch (eClr) {}
         setTimeout(function () { refreshDeferredBadge(true); }, 600);
       } catch (e) {
         showToast("Ошибка сети / Deploy");
