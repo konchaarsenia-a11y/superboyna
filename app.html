@@ -2298,6 +2298,7 @@
         switchTab(first);
       }
       try { refreshWeekBanners(); } catch (e) {}
+      try { setTimeout(syncNavTabsPill_, 30); } catch (eP) {}
     }
 
     function restoreLastScreen() {
