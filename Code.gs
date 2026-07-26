@@ -721,7 +721,34 @@ function doGet(e) {
     }, callback, false);
   }
   if (action === "listSurvey") {
-    return handleListSurvey({}, callback, false);
+    return handleListSurvey({
+      status: e.parameter.status ? decodeURIComponent(e.parameter.status) : "",
+      kind: e.parameter.kind ? decodeURIComponent(e.parameter.kind) : "",
+      nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : (e.parameter.client ? decodeURIComponent(e.parameter.client) : "")
+    }, callback, false);
+  }
+  if (action === "saveSurvey") {
+    return handleSaveSurvey({
+      id: e.parameter.id || "",
+      nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : (e.parameter.client ? decodeURIComponent(e.parameter.client) : ""),
+      stage: e.parameter.stage ? decodeURIComponent(e.parameter.stage) : "",
+      kind: e.parameter.kind || e.parameter.surveyKind || "bp2",
+      dueDate: e.parameter.dueDate || e.parameter.surveyDate || "",
+      sentAt: e.parameter.sentAt || "",
+      status: e.parameter.status || "planned",
+      templateId: e.parameter.templateId || "",
+      answer: e.parameter.answer ? decodeURIComponent(e.parameter.answer) : "",
+      note: e.parameter.note ? decodeURIComponent(e.parameter.note) : "",
+      linkedSubId: e.parameter.linkedSubId || e.parameter.subId || ""
+    }, callback, false);
+  }
+  if (action === "deleteSurvey") {
+    return handleDeleteSurvey({
+      id: e.parameter.id || "",
+      nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
+      kind: e.parameter.kind || "",
+      status: "cancelled"
+    }, callback, false);
   }
   if (action === "getPpFactCost") {
     return handleGetPpFactCost({
@@ -826,7 +853,11 @@ function doGet(e) {
       wishes: e.parameter.wishes ? decodeURIComponent(e.parameter.wishes) : "",
       subId: e.parameter.subId || "",
       status: e.parameter.status || e.parameter.stage || "",
-      deliveriesN: e.parameter.deliveriesN || e.parameter.deliveries || 1
+      deliveriesN: e.parameter.deliveriesN || e.parameter.deliveries || 1,
+      address: e.parameter.address ? decodeURIComponent(e.parameter.address) : "",
+      phone: e.parameter.phone ? decodeURIComponent(e.parameter.phone) : "",
+      displayName: e.parameter.displayName ? decodeURIComponent(e.parameter.displayName) : "",
+      note: e.parameter.note ? decodeURIComponent(e.parameter.note) : ""
     }, callback, false);
   }
   if (action === "listBpIdle") {
@@ -1177,6 +1208,12 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "listSurvey") {
     return handleListSurvey(json, callback, fromPost);
+  }
+  if (action === "saveSurvey") {
+    return handleSaveSurvey(json, callback, fromPost);
+  }
+  if (action === "deleteSurvey") {
+    return handleDeleteSurvey(json, callback, fromPost);
   }
   if (action === "getPpFactCost") {
     return handleGetPpFactCost(json, callback, fromPost);
@@ -9141,14 +9178,259 @@ function handleExportStats(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
-function handleListSurvey(json, callback, fromPost) {
-  var ok = {
-    status: "success",
-    items: [],
-    note: "Опросник БП2/ПП1 — каркас; лист подключим в полном F"
-  };
-  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+var SURVEY_HEADERS_ = [
+  "id", "nick", "stage", "kind", "dueDate", "sentAt",
+  "status", "templateId", "answer", "note", "linkedSubId", "updatedAt"
+];
+
+function ensureSurveySheet_(crmSs) {
+  var ss = crmSs || getCrmSpreadsheet_();
+  var sh = findSheetByBaseName_(ss, "Опросник");
+  if (!sh) {
+    try { sh = ss.insertSheet("Опросник"); } catch (eIns) { sh = null; }
+  }
+  if (!sh) return null;
+  var lastCol = Math.max(sh.getLastColumn(), 1);
+  var headers = sh.getRange(1, 1, 1, Math.max(lastCol, SURVEY_HEADERS_.length)).getValues()[0];
+  var h0 = String(headers[0] || "").trim().toLowerCase();
+  // migrate old nick/tag/sentAt/dueAt/note/status → new if first header is nick
+  if (h0 === "nick" || h0 === "ник") {
+    var old = sh.getDataRange().getValues();
+    sh.clear();
+    sh.getRange(1, 1, 1, SURVEY_HEADERS_.length).setValues([SURVEY_HEADERS_]);
+    for (var r = 1; r < old.length; r++) {
+      if (!String(old[r][0] || "").trim()) continue;
+      var tag = String(old[r][1] || "").toUpperCase();
+      var kind = /ФИНАЛ|ПП|FINAL/.test(tag) ? "final" : "bp2";
+      var id = "sv_m" + String(r) + "_" + String(Date.now()).slice(-6);
+      sh.appendRow([
+        id,
+        String(old[r][0] || "").trim(),
+        tag || (kind === "final" ? "ФИНАЛ" : "БП2"),
+        kind,
+        String(old[r][3] || old[r][2] || "").trim(), // dueAt or sentAt
+        String(old[r][2] || "").trim(),
+        String(old[r][5] || "planned").trim() || "planned",
+        kind === "final" ? "survey_final" : "survey_bp2",
+        "",
+        String(old[r][4] || "").trim(),
+        "",
+        new Date()
+      ]);
+    }
+    return sh;
+  }
+  if (h0 !== "id") {
+    sh.getRange(1, 1, 1, SURVEY_HEADERS_.length).setValues([SURVEY_HEADERS_]);
+  } else if (sh.getLastColumn() < SURVEY_HEADERS_.length) {
+    sh.getRange(1, 1, 1, SURVEY_HEADERS_.length).setValues([SURVEY_HEADERS_]);
+  }
+  return sh;
 }
+
+function newSurveyId_() {
+  return "sv_" + Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Minsk", "yyyyMMddHHmmss") +
+    "_" + String(Math.floor(Math.random() * 1e5));
+}
+
+function surveyRowToObj_(row, rowIndex1) {
+  return {
+    id: String(row[0] || "").trim(),
+    nick: String(row[1] || "").trim(),
+    stage: String(row[2] || "").trim(),
+    kind: String(row[3] || "").trim(),
+    dueDate: String(row[4] || "").trim(),
+    sentAt: String(row[5] || "").trim(),
+    status: String(row[6] || "").trim() || "planned",
+    templateId: String(row[7] || "").trim(),
+    answer: String(row[8] || "").trim(),
+    note: String(row[9] || "").trim(),
+    linkedSubId: String(row[10] || "").trim(),
+    updatedAt: row[11] || "",
+    rowIndex: rowIndex1
+  };
+}
+
+function normalizeSurveyKind_(k) {
+  var s = String(k || "").trim().toLowerCase();
+  if (s === "final" || s === "survey_final" || /финал|пп|final/.test(s)) return "final";
+  return "bp2";
+}
+
+function surveyStageForKind_(kind, stageHint) {
+  var st = String(stageHint || "").trim();
+  if (st) return st;
+  return kind === "final" ? "ФИНАЛ" : "БП2";
+}
+
+function surveyTemplateForKind_(kind) {
+  return kind === "final" ? "survey_final" : "survey_bp2";
+}
+
+/** Upsert open (planned/due) survey for nick+kind; updates dueDate/stage/meta. */
+function upsertOpenSurvey_(crmSs, opts) {
+  opts = opts || {};
+  var sh = ensureSurveySheet_(crmSs);
+  if (!sh) return null;
+  var nick = String(opts.nick || "").trim();
+  if (!nick) return null;
+  var kind = normalizeSurveyKind_(opts.kind);
+  var dueDate = String(opts.dueDate || "").trim();
+  var stage = surveyStageForKind_(kind, opts.stage);
+  var status = String(opts.status || "planned").trim() || "planned";
+  var templateId = String(opts.templateId || surveyTemplateForKind_(kind)).trim();
+  var note = String(opts.note || "").trim();
+  var linkedSubId = String(opts.linkedSubId || opts.subId || "").trim();
+  var sentAt = String(opts.sentAt || "").trim();
+  var answer = String(opts.answer || "").trim();
+  var data = sh.getDataRange().getValues();
+  var openRe = /^(planned|due)$/i;
+  for (var r = 1; r < data.length; r++) {
+    if (!nicksMatch_(data[r][1], nick)) continue;
+    if (normalizeSurveyKind_(data[r][3]) !== kind) continue;
+    var st0 = String(data[r][6] || "planned").trim() || "planned";
+    // Prefer updating open planned/due; for sent also update open row
+    if (!openRe.test(st0)) continue;
+    if (dueDate) sh.getRange(r + 1, 5).setValue(dueDate);
+    if (stage) sh.getRange(r + 1, 3).setValue(stage);
+    if (opts.status) sh.getRange(r + 1, 7).setValue(status);
+    if (sentAt) sh.getRange(r + 1, 6).setValue(sentAt);
+    if (templateId) sh.getRange(r + 1, 8).setValue(templateId);
+    if (answer) sh.getRange(r + 1, 9).setValue(answer);
+    if (note) sh.getRange(r + 1, 10).setValue(note);
+    if (linkedSubId) sh.getRange(r + 1, 11).setValue(linkedSubId);
+    sh.getRange(r + 1, 12).setValue(new Date());
+    var row = sh.getRange(r + 1, 1, r + 1, SURVEY_HEADERS_.length).getValues()[0];
+    return surveyRowToObj_(row, r + 1);
+  }
+  var id = newSurveyId_();
+  sh.appendRow([
+    id, nick, stage, kind, dueDate, sentAt,
+    status, templateId, answer, note, linkedSubId, new Date()
+  ]);
+  var last = sh.getLastRow();
+  var row2 = sh.getRange(last, 1, last, SURVEY_HEADERS_.length).getValues()[0];
+  return surveyRowToObj_(row2, last);
+}
+
+function handleListSurvey(json, callback, fromPost) {
+  json = json || {};
+  var out = { status: "success", items: [], headers: SURVEY_HEADERS_ };
+  try {
+    var sh = ensureSurveySheet_();
+    if (!sh || sh.getLastRow() < 2) {
+      return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+    }
+    var data = sh.getDataRange().getValues();
+    var filterStatus = String(json.status || "").trim().toLowerCase();
+    var filterKind = String(json.kind || "").trim();
+    var filterNick = String(json.nick || json.client || "").trim();
+    var wantKind = filterKind ? normalizeSurveyKind_(filterKind) : "";
+    for (var r = 1; r < data.length; r++) {
+      if (!String(data[r][0] || "").trim() && !String(data[r][1] || "").trim()) continue;
+      var obj = surveyRowToObj_(data[r], r + 1);
+      if (filterStatus && String(obj.status || "").toLowerCase() !== filterStatus) continue;
+      if (wantKind && normalizeSurveyKind_(obj.kind) !== wantKind) continue;
+      if (filterNick && !nicksMatch_(obj.nick, filterNick)) continue;
+      out.items.push(obj);
+    }
+  } catch (e) {
+    out.status = "error";
+    out.message = String(e);
+  }
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+}
+
+function handleSaveSurvey(json, callback, fromPost) {
+  json = json || {};
+  var nick = String(json.nick || json.client || "").trim();
+  if (!nick) {
+    var need = { status: "error", message: "need_nick" };
+    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+  }
+  try {
+    var sh = ensureSurveySheet_();
+    if (!sh) {
+      var nos = { status: "error", message: "survey_sheet_missing" };
+      return fromPost ? jsonpText(callback, nos) : jsonp(callback, nos);
+    }
+    var id = String(json.id || "").trim();
+    var kind = normalizeSurveyKind_(json.kind || json.surveyKind);
+    var stage = surveyStageForKind_(kind, json.stage || json.statusStage);
+    var dueDate = String(json.dueDate || json.surveyDate || "").trim();
+    var status = String(json.status || "planned").trim() || "planned";
+    var allowed = { planned: 1, due: 1, sent: 1, done: 1, cancelled: 1 };
+    if (!allowed[status]) status = "planned";
+    var templateId = String(json.templateId || surveyTemplateForKind_(kind)).trim();
+    var answer = String(json.answer || "").trim();
+    var note = String(json.note || "").trim();
+    var linkedSubId = String(json.linkedSubId || json.subId || "").trim();
+    var sentAt = String(json.sentAt || "").trim();
+    var data = sh.getDataRange().getValues();
+    var rowIndex = -1;
+    if (id) {
+      for (var r = 1; r < data.length; r++) {
+        if (String(data[r][0] || "").trim() === id) { rowIndex = r + 1; break; }
+      }
+    }
+    var saved;
+    if (rowIndex > 0) {
+      sh.getRange(rowIndex, 1, rowIndex, SURVEY_HEADERS_.length).setValues([[
+        id, nick, stage, kind, dueDate, sentAt,
+        status, templateId, answer, note, linkedSubId, new Date()
+      ]]);
+      saved = surveyRowToObj_(sh.getRange(rowIndex, 1, rowIndex, SURVEY_HEADERS_.length).getValues()[0], rowIndex);
+    } else {
+      id = newSurveyId_();
+      sh.appendRow([
+        id, nick, stage, kind, dueDate, sentAt,
+        status, templateId, answer, note, linkedSubId, new Date()
+      ]);
+      var last = sh.getLastRow();
+      saved = surveyRowToObj_(sh.getRange(last, 1, last, SURVEY_HEADERS_.length).getValues()[0], last);
+    }
+    var ok = { status: "success", item: saved };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (e) {
+    var bad = { status: "error", message: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+}
+
+function handleDeleteSurvey(json, callback, fromPost) {
+  json = json || {};
+  if (!json.id && !json.nick) {
+    var need = { status: "error", message: "need_id_or_nick" };
+    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+  }
+  if (json.id && !String(json.nick || "").trim()) {
+    try {
+      var sh = ensureSurveySheet_();
+      if (!sh) {
+        var nos = { status: "error", message: "survey_sheet_missing" };
+        return fromPost ? jsonpText(callback, nos) : jsonp(callback, nos);
+      }
+      var wantId = String(json.id || "").trim();
+      var data = sh.getDataRange().getValues();
+      for (var r = 1; r < data.length; r++) {
+        if (String(data[r][0] || "").trim() !== wantId) continue;
+        sh.getRange(r + 1, 7).setValue("cancelled");
+        sh.getRange(r + 1, 12).setValue(new Date());
+        var obj = surveyRowToObj_(sh.getRange(r + 1, 1, r + 1, SURVEY_HEADERS_.length).getValues()[0], r + 1);
+        var ok = { status: "success", item: obj };
+        return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+      }
+      var miss = { status: "error", message: "not_found" };
+      return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+    } catch (e) {
+      var bad = { status: "error", message: String(e) };
+      return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+    }
+  }
+  json.status = "cancelled";
+  return handleSaveSurvey(json, callback, fromPost);
+}
+
 
 
 
@@ -9247,6 +9529,19 @@ function tickBpSurveyReminders_() {
         try { telegramSendText_(participants[p], text); } catch (eS) {}
       }
       already[key] = 1;
+      try {
+        var svKind = (kind === "survey_final") ? "final" : "bp2";
+        upsertOpenSurvey_(crmSs, {
+          nick: nickRaw,
+          kind: svKind,
+          dueDate: due,
+          stage: status,
+          status: "sent",
+          sentAt: today,
+          templateId: kind,
+          note: "tick_reminder"
+        });
+      } catch (eUp) {}
     }
     props.setProperty(sentKey, JSON.stringify(already));
   } catch (e) {}
@@ -9377,8 +9672,10 @@ function handleEnsureBpFromOrder(json, callback, fromPost) {
   var basket = Array.isArray(json.basket) ? mergeBasketItemsForPp_(json.basket) : [];
   var createCard = json.createCard !== false && json.createCard !== "0";
   var surveyDate = String(json.surveyDate || "").trim();
-  var surveyKind = String(json.surveyKind || "bp2").trim().toLowerCase();
-  var wishes = String(json.wishes || json.note || "").trim();
+  var surveyKind = normalizeSurveyKind_(json.surveyKind || "bp2");
+  var wishes = String(json.wishes || "").trim();
+  var noteField = String(json.note || "").trim();
+  if (!wishes && noteField) wishes = noteField;
   var meta = {};
   if (surveyDate) {
     if (surveyKind === "final") meta.surveyFinalDue = surveyDate;
@@ -9386,6 +9683,7 @@ function handleEnsureBpFromOrder(json, callback, fromPost) {
   }
   meta.lastTouch = new Date().toISOString();
   wishes = stampBpMetaIntoWishes_(wishes, meta);
+  var status = String(json.ppStatus || json.status || json.stage || "БП1").trim() || "БП1";
   var up = { row: 0, created: false };
   if (createCard) {
     var headers = bp.getRange(1, 1, 1, bp.getLastColumn()).getValues()[0];
@@ -9393,11 +9691,52 @@ function handleEnsureBpFromOrder(json, callback, fromPost) {
     if (!subId) {
       try { subId = nextSubscriptionIdForSheet_(bp); } catch (eId) {}
     }
-    var status = String(json.ppStatus || json.status || json.stage || "БП1").trim() || "БП1";
+    // One BP row per nick is OK initially; status/stage from request (БП1/БП2).
+    // Empty basket still creates/updates the card with chosen stage.
     var createVals = writePpBasketToRowValues_(headers, basket, nick, subId, Number(json.deliveriesN || json.deliveries) || 1, status, wishes, json.factCost);
     up = upsertSubscriptionProductRow_(bp, headers, createVals, basket, nick);
   }
-  try { clearCrmSheetCache_("БП"); } catch (eClr) {}
+  var surveyItem = null;
+  if (surveyDate) {
+    try {
+      surveyItem = upsertOpenSurvey_(crmSs, {
+        nick: nick,
+        kind: surveyKind,
+        dueDate: surveyDate,
+        stage: status,
+        status: "planned",
+        templateId: surveyTemplateForKind_(surveyKind),
+        linkedSubId: String(json.subId || "").trim(),
+        note: noteField || "from_ensureBp"
+      });
+    } catch (eSv) {}
+  }
+  try {
+    var addr = String(json.address || "").trim();
+    var phone = String(json.phone || "").trim();
+    var displayName = String(json.displayName || "").trim();
+    var matchNick = extractInstagramNick_(nick) || nick;
+    if (addr || phone || noteField || displayName) {
+      var contacts = findSheetByBaseName_(crmSs, "Контакты");
+      if (contacts && contacts.getLastRow() >= 1) {
+        var cd = contacts.getDataRange().getValues();
+        var foundC = false;
+        for (var cr = 1; cr < cd.length; cr++) {
+          if (!nicksMatch_(cd[cr][0], matchNick) && !nicksMatch_(cd[cr][0], nick)) continue;
+          if (displayName) contacts.getRange(cr + 1, 2).setValue(displayName);
+          if (addr) contacts.getRange(cr + 1, 4).setValue(addr);
+          if (phone) contacts.getRange(cr + 1, 5).setValue(phone);
+          if (noteField || wishes) contacts.getRange(cr + 1, 7).setValue(noteField || wishes);
+          foundC = true;
+          break;
+        }
+        if (!foundC) {
+          contacts.appendRow([matchNick, displayName, "", addr, phone, "", noteField || wishes]);
+        }
+      }
+    }
+  } catch (eC) {}
+  try { clearCrmSheetCache_("БП"); clearCrmSheetCache_("Контакты"); } catch (eClr) {}
   var ok = {
     status: "success",
     nick: nick,
@@ -9406,7 +9745,8 @@ function handleEnsureBpFromOrder(json, callback, fromPost) {
     created: !!up.created,
     wishes: wishes,
     surveyKind: surveyKind,
-    surveyDate: surveyDate
+    surveyDate: surveyDate,
+    survey: surveyItem
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
@@ -9486,7 +9826,6 @@ function ensureBpAndSurveyFromOrder_(json) {
   if (!nick) return;
   var bp = findSheetByBaseName_(crmSs, "БП");
   if (bp) {
-    // append minimal row if not exists
     var data = bp.getDataRange().getValues();
     var want = extractInstagramNick_(nick).toUpperCase();
     var found = false;
@@ -9498,17 +9837,21 @@ function ensureBpAndSurveyFromOrder_(json) {
       bp.appendRow([nick, "", 1, "БП1", "", JSON.stringify(basket)]);
     }
   }
-  var survey = findSheetByBaseName_(crmSs, "Опросник");
-  if (!survey) {
-    try {
-      survey = crmSs.insertSheet("Опросник");
-      survey.appendRow(["nick", "tag", "sentAt", "dueAt", "note", "status"]);
-    } catch (e2) {}
-  }
-  if (survey) {
-    var sent = json.survey && json.survey.surveyDate ? json.survey.surveyDate : Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
-    survey.appendRow([nick, "БП2", sent, "", "from_order", "new"]);
-  }
+  var due = "";
+  if (json.survey && json.survey.surveyDate) due = String(json.survey.surveyDate).trim();
+  if (!due) due = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Minsk", "yyyy-MM-dd");
+  var kind = normalizeSurveyKind_((json.survey && json.survey.kind) || json.surveyKind || "bp2");
+  try {
+    upsertOpenSurvey_(crmSs, {
+      nick: nick,
+      kind: kind,
+      dueDate: due,
+      stage: surveyStageForKind_(kind, (json.survey && json.survey.stage) || ""),
+      status: "planned",
+      templateId: surveyTemplateForKind_(kind),
+      note: "from_order"
+    });
+  } catch (eSv) {}
 }
 
 /* ========== Отложенные расчёты (per telegramId) ========== */

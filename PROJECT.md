@@ -202,7 +202,12 @@
 | `listBpIdle` | БП без движения N дней |
 | `closeAllOpenDeficits` | Owner: закрыть все open в Дефицит_Нарезки |
 | `listTemplates` / `saveTemplate` | Шаблоны корзин (kind) |
+| `listSurvey` | Список записей листа «Опросник» |
+| `saveSurvey` | Создать/обновить опрос (id/nick/kind/dueDate/…) |
+| `deleteSurvey` | Удалить запись опросника по id |
 | *(ПП upsert)* | saveOrder/CRM ПП: первая пустая строка + packs |
+
+**Лист «Опросник» (канон `SURVEY_HEADERS_`):** `id`, `nick`, `stage`, `kind`, `dueDate`, `sentAt`, `status`, `templateId`, `answer`, `note`, `linkedSubId`, `updatedAt`. API: `listSurvey` / `saveSurvey` / `deleteSurvey`.
 
 
 Один раз в Script Editor: `setupOpsEcosystem()` + `setupBookingTriggersManual()`.

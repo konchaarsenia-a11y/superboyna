@@ -906,7 +906,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.82</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.83</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1285,6 +1285,41 @@
           <button type="button" class="bp-chip" data-bp="orange" onclick="setBpListFilter('orange')">Опрос→БП2</button>
           <button type="button" class="bp-chip" data-bp="red" onclick="setBpListFilter('red')">Финал→ПП</button>
           <button type="button" class="btn-action" style="padding:6px 10px;margin:0;background:#3a3a3c;" onclick="bpBatchDelete()">Удалить выбранных</button>
+          <button type="button" class="btn-action btn-green" style="padding:6px 10px;margin:0;" onclick="openAddBpClientForm()">+ Клиент БП</button>
+        </div>
+        <div id="bpAddCard" class="card" style="display:none;margin-top:8px;">
+          <div class="section-title" style="margin-top:0;">Новый клиент БП</div>
+          <div class="form-group">
+            <label>Ник / Instagram</label>
+            <input type="text" id="bpAddNick" placeholder="es_furman или Имя nick">
+          </div>
+          <div class="form-group">
+            <label>Этап</label>
+            <select id="bpAddStage">
+              <option value="БП1">БП1 — ждёт набор (зелёный)</option>
+              <option value="БП1_SURVEY">БП1 — ждёт опросник на БП2 (оранжевый)</option>
+              <option value="БП2">БП2 — набор / после пробника</option>
+              <option value="БП2_FINAL">БП2 — ждёт финальный опросник (красный)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Дата опросника (если этап с опросом)</label>
+            <input type="date" id="bpAddSurveyDate">
+          </div>
+          <div class="form-group">
+            <label>Адрес (необяз.)</label>
+            <input type="text" id="bpAddAddress">
+          </div>
+          <div class="form-group">
+            <label>Телефон (необяз.)</label>
+            <input type="text" id="bpAddPhone" inputmode="tel">
+          </div>
+          <div class="form-group">
+            <label>Пожелания</label>
+            <textarea id="bpAddWishes" rows="2"></textarea>
+          </div>
+          <button type="button" class="btn-action btn-blue" onclick="submitAddBpClient()">Создать</button>
+          <button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="closeAddBpClientForm()">Отмена</button>
         </div>
         </div>
         <div id="subsContainer"><p class="muted">Загрузите список…</p></div>
@@ -1593,7 +1628,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.82";
+    const APP_VERSION = "v7.10.83";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -4622,7 +4657,7 @@
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || (res && res.result && res.result.message) || "ошибка";
           if (msg === "date_not_in_week") {
-            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.82.");
+            await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.83.");
             return;
           }
           if (msg === "unknown_action") {
@@ -8208,6 +8243,135 @@
     }
     window.setBpListFilter = setBpListFilter;
 
+    function todayYmdLocal_() {
+      var d = new Date();
+      return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    }
+
+    function openAddBpClientForm() {
+      var card = document.getElementById("bpAddCard");
+      if (!card) return;
+      card.style.display = "block";
+      var nick = document.getElementById("bpAddNick");
+      if (nick) nick.focus();
+      var sd = document.getElementById("bpAddSurveyDate");
+      if (sd && !sd.value) sd.value = todayYmdLocal_();
+    }
+
+    function closeAddBpClientForm() {
+      var card = document.getElementById("bpAddCard");
+      if (card) card.style.display = "none";
+    }
+
+    async function submitAddBpClient() {
+      var nickEl = document.getElementById("bpAddNick");
+      var nick = nickEl ? String(nickEl.value || "").trim() : "";
+      if (!nick) {
+        showToast("Укажи ник");
+        return;
+      }
+      var stageEl = document.getElementById("bpAddStage");
+      var stageKey = stageEl ? String(stageEl.value || "БП1") : "БП1";
+      var surveyDateEl = document.getElementById("bpAddSurveyDate");
+      var surveyDate = surveyDateEl ? String(surveyDateEl.value || "").trim() : "";
+      var address = (document.getElementById("bpAddAddress") && document.getElementById("bpAddAddress").value) || "";
+      var phone = (document.getElementById("bpAddPhone") && document.getElementById("bpAddPhone").value) || "";
+      var wishes = (document.getElementById("bpAddWishes") && document.getElementById("bpAddWishes").value) || "";
+      var status = "БП1";
+      var surveyKind = "";
+      if (stageKey === "БП1") {
+        status = "БП1";
+        surveyKind = "";
+        surveyDate = "";
+      } else if (stageKey === "БП1_SURVEY") {
+        status = "БП1";
+        surveyKind = "bp2";
+        if (!surveyDate) surveyDate = todayYmdLocal_();
+      } else if (stageKey === "БП2") {
+        status = "БП2";
+        surveyKind = "";
+        surveyDate = "";
+      } else if (stageKey === "БП2_FINAL") {
+        status = "БП2";
+        surveyKind = "final";
+        if (!surveyDate) surveyDate = todayYmdLocal_();
+      }
+      var payload = {
+        action: "ensureBpFromOrder",
+        nick: nick,
+        createCard: true,
+        status: status,
+        surveyDate: surveyDate || "",
+        surveyKind: surveyKind || "",
+        wishes: String(wishes || "").trim(),
+        address: String(address || "").trim(),
+        phone: String(phone || "").trim(),
+        basket: []
+      };
+      try {
+        try {
+          await apiPost(payload);
+        } catch (ePost) {}
+        await apiGet({
+          action: "ensureBpFromOrder",
+          nick: nick,
+          createCard: "1",
+          status: status,
+          surveyDate: surveyDate || "",
+          surveyKind: surveyKind || "",
+          wishes: String(wishes || "").trim(),
+          address: String(address || "").trim(),
+          phone: String(phone || "").trim(),
+          basket: "[]"
+        }, { timeoutMs: 60000, cacheTtlMs: 0 });
+        if (surveyDate && surveyKind) {
+          var tplId = surveyKind === "final" ? "final" : "bp2";
+          try {
+            await apiPost({
+              action: "saveSurvey",
+              nick: nick,
+              kind: surveyKind,
+              dueDate: surveyDate,
+              stage: status,
+              status: "planned",
+              templateId: tplId
+            });
+          } catch (eSv) {
+            try {
+              await apiGet({
+                action: "saveSurvey",
+                nick: nick,
+                kind: surveyKind,
+                dueDate: surveyDate,
+                stage: status,
+                status: "planned",
+                templateId: tplId
+              }, { timeoutMs: 20000, cacheTtlMs: 0 });
+            } catch (eSv2) {}
+          }
+        }
+        showToast("Клиент БП создан");
+        closeAddBpClientForm();
+        if (nickEl) nickEl.value = "";
+        await loadSubscriptions();
+        try {
+          var list = window._subsListCache || window._subsListFull || [];
+          var idx = -1;
+          var want = nick.toLowerCase();
+          for (var i = 0; i < list.length; i++) {
+            var n = String((list[i] && (list[i].nick || list[i].label)) || "").toLowerCase();
+            if (n === want || n.indexOf(want) >= 0) { idx = i; break; }
+          }
+          if (idx >= 0 && typeof openSubDetail === "function") openSubDetail(idx);
+        } catch (eOpen) {}
+      } catch (e) {
+        showToast("Ошибка создания БП — нужен Deploy Code.gs v7.10.83");
+      }
+    }
+    window.openAddBpClientForm = openAddBpClientForm;
+    window.closeAddBpClientForm = closeAddBpClientForm;
+    window.submitAddBpClient = submitAddBpClient;
+
     function bpStageColor_(s) {
       var st = String(s.status || s.stage || "").toUpperCase();
       var finalDue = s.surveyFinalDue || "";
@@ -9373,7 +9537,125 @@
     window.lockSubsScreen = lockSubsScreen;
 
     var _subsLoadSeq = 0;
+    async function loadSurveyTab_() {
+      var box = document.getElementById("subsContainer");
+      box.innerHTML = '<p class="muted">Загрузка опросников…</p>';
+      try {
+        var res = await apiGet({ action: "listSurvey", _: String(Date.now()) }, { timeoutMs: 20000, cacheTtlMs: 0 });
+        var items = (res && res.items) || [];
+        window._surveyList = items;
+        var tpl = [];
+        try {
+          var tr = await apiGet({ action: "listTemplates", kind: "survey" }, { timeoutMs: 10000, cacheTtlMs: 30000 });
+          tpl = (tr && tr.templates) || (tr && tr.items) || [];
+        } catch (eT) {}
+        window._surveyTemplates = tpl;
+        var html = '<div style="margin-bottom:8px;"><button type="button" class="btn-action btn-green" onclick="openAddSurveyForm()">+ Опросник</button></div>';
+        html += '<div id="surveyAddCard" style="display:none;" class="card"></div>';
+        if (tpl.length) {
+          html += '<div class="muted" style="font-size:12px;margin-bottom:8px;">Шаблоны: ' +
+            tpl.map(function(t){ return escapeHtml(t.id || t.title || ""); }).join(", ") + '</div>';
+        }
+        if (!items.length) html += '<p class="muted">Пока пусто — лист «Опросник» создастся при первом сохранении (Deploy).</p>';
+        else {
+          html += items.map(function(it, i) {
+            return '<div class="sub-row" style="display:block;">' +
+              '<b>' + escapeHtml(it.nick || "?") + '</b> · ' + escapeHtml(it.kind || "") +
+              ' · due ' + escapeHtml(it.dueDate || "—") +
+              ' · <span class="client-badge">' + escapeHtml(it.status || "") + '</span>' +
+              '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">' +
+              '<button type="button" class="seg-btn" onclick="markSurveyStatus(' + i + ',\'done\')">Готово</button>' +
+              '<button type="button" class="seg-btn" onclick="markSurveyStatus(' + i + ',\'cancelled\')">Отмена</button>' +
+              '</div></div>';
+          }).join("");
+        }
+        box.innerHTML = html;
+      } catch (e) {
+        box.innerHTML = '<p class="muted">Ошибка listSurvey — нужен Deploy Code.gs v7.10.83</p>';
+      }
+    }
+
+    function openAddSurveyForm() {
+      var card = document.getElementById("surveyAddCard");
+      if (!card) return;
+      var tpl = window._surveyTemplates || [];
+      var opts = tpl.map(function (t) {
+        var id = t.id || t.title || "";
+        return '<option value="' + escapeHtml(id) + '">' + escapeHtml(t.title || id) + '</option>';
+      }).join("");
+      if (!opts) {
+        opts = '<option value="bp2">bp2</option><option value="final">final</option>';
+      }
+      card.innerHTML =
+        '<div class="section-title" style="margin-top:0;">Новый опросник</div>' +
+        '<div class="form-group"><label>Ник</label><input type="text" id="surveyAddNick"></div>' +
+        '<div class="form-group"><label>Kind</label><select id="surveyAddKind"><option value="bp2">bp2</option><option value="final">final</option></select></div>' +
+        '<div class="form-group"><label>Дата</label><input type="date" id="surveyAddDue" value="' + todayYmdLocal_() + '"></div>' +
+        '<div class="form-group"><label>Этап</label><input type="text" id="surveyAddStage" placeholder="БП1 / БП2"></div>' +
+        '<div class="form-group"><label>Шаблон</label><select id="surveyAddTemplate">' + opts + '</select></div>' +
+        '<button type="button" class="btn-action btn-blue" onclick="submitAddSurvey()">Сохранить</button>' +
+        '<button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="closeAddSurveyForm()">Отмена</button>';
+      card.style.display = "block";
+    }
+
+    function closeAddSurveyForm() {
+      var card = document.getElementById("surveyAddCard");
+      if (card) { card.style.display = "none"; card.innerHTML = ""; }
+    }
+
+    async function submitAddSurvey() {
+      var nick = (document.getElementById("surveyAddNick") && document.getElementById("surveyAddNick").value || "").trim();
+      if (!nick) { showToast("Укажи ник"); return; }
+      var kind = (document.getElementById("surveyAddKind") && document.getElementById("surveyAddKind").value) || "bp2";
+      var due = (document.getElementById("surveyAddDue") && document.getElementById("surveyAddDue").value) || todayYmdLocal_();
+      var stage = (document.getElementById("surveyAddStage") && document.getElementById("surveyAddStage").value) || "";
+      var templateId = (document.getElementById("surveyAddTemplate") && document.getElementById("surveyAddTemplate").value) || kind;
+      try {
+        await apiPost({
+          action: "saveSurvey",
+          nick: nick,
+          kind: kind,
+          dueDate: due,
+          stage: stage,
+          status: "planned",
+          templateId: templateId
+        });
+        showToast("Опросник сохранён");
+        closeAddSurveyForm();
+        await loadSurveyTab_();
+      } catch (e) {
+        showToast("Ошибка saveSurvey — Deploy Code.gs v7.10.83");
+      }
+    }
+
+    async function markSurveyStatus(index, status) {
+      var items = window._surveyList || [];
+      var it = items[index];
+      if (!it) return;
+      try {
+        await apiPost({
+          action: "saveSurvey",
+          nick: it.nick || "",
+          kind: it.kind || "",
+          dueDate: it.dueDate || "",
+          stage: it.stage || "",
+          status: status,
+          templateId: it.templateId || it.kind || ""
+        });
+        showToast(status === "done" ? "Готово" : "Отменено");
+        await loadSurveyTab_();
+      } catch (e) {
+        showToast("Ошибка saveSurvey");
+      }
+    }
+    window.loadSurveyTab_ = loadSurveyTab_;
+    window.openAddSurveyForm = openAddSurveyForm;
+    window.closeAddSurveyForm = closeAddSurveyForm;
+    window.submitAddSurvey = submitAddSurvey;
+    window.markSurveyStatus = markSurveyStatus;
+
     async function loadSubscriptions() {
+
       if (!isSubsUnlocked()) {
         enterSubsScreen();
         return;
@@ -9383,22 +9665,12 @@
       if (countEl) countEl.textContent = "";
       var fr = document.getElementById("bpFilterRow");
       if (fr) fr.style.display = (subsSegment === "БП") ? "flex" : "none";
+      var bpAdd = document.getElementById("bpAddCard");
+      if (bpAdd && subsSegment !== "БП") bpAdd.style.display = "none";
       if (subsSegment === "Опросник") {
         window._subsListFull = [];
         window._subsListCache = [];
-        box.innerHTML = '<p class="muted">Опросник: шаблоны из листа + даты из карточек БП (surveyBp2Due / surveyFinalDue). Нужен Deploy Code.gs.</p>';
-        try {
-          (async function () {
-            var res = await apiGet({ action: "listSubscriptions", sheet: "БП", segment: "БП", _: String(Date.now()) }, { timeoutMs: 22000, cacheTtlMs: 0 });
-            var list = (res && res.subscriptions) || [];
-            var lines = list.filter(function (s) { return s.surveyBp2Due || s.surveyFinalDue; }).map(function (s) {
-              return escapeHtml(s.nick || s.label || "?") + ": БП2 " + escapeHtml(s.surveyBp2Due || "—") +
-                ", финал " + escapeHtml(s.surveyFinalDue || "—");
-            });
-            if (lines.length) box.innerHTML = '<div class="card"><b>Ближайшие опросники (БП)</b><div class="muted" style="margin-top:8px;">' +
-              lines.join("<br>") + '</div><div class="muted" style="margin-top:8px;">Шаблоны — лист Опросник после Deploy.</div></div>';
-          })();
-        } catch (eOp) {}
+        await loadSurveyTab_();
         return;
       }
       var seq = ++_subsLoadSeq;
