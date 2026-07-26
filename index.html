@@ -18,8 +18,8 @@
   <script>
     // Постоянный URL для BotFather. Свежий app.html подтягивается при каждом открытии.
     (function () {
-      var bust = Date.now().toString(36);
-      location.replace("app.html?_=" + encodeURIComponent(bust));
+      var bust = "71092-" + Date.now().toString(36);
+      location.replace("app.html?v=71092&_=" + encodeURIComponent(bust));
     })();
   </script>
 </head>

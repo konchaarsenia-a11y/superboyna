@@ -7,6 +7,18 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>Конвейер Бойня</title>
+  <script>
+    /* Telegram WebView кэширует app.html — форс-обновление по версии */
+    (function () {
+      try {
+        var want = "71092";
+        var u = new URL(location.href);
+        if (u.searchParams.get("v") === want) return;
+        u.searchParams.set("v", want);
+        location.replace(u.toString());
+      } catch (e0) {}
+    })();
+  </script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     :root {
@@ -906,7 +918,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.91</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.92</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -960,9 +972,9 @@
       <div id="finishWeekBanner" class="week-banner" style="display:none;">
         <h3>Завершить неделю?</h3>
         <div class="muted">Склад (F/B), даты +7, очистка Пн–Пт, Будущая→Пн. Только владелец. Вс с 18:00 или пн до 12:00.</div>
-        <button type="button" class="btn-action btn-orange" onclick="onFinishWeekClick()">Завершить неделю</button>
+        <button type="button" class="btn-action btn-blue" onclick="dismissFinishWeekBanner()">Уже завершили — скрыть</button>
+        <button type="button" class="btn-action btn-orange" style="margin-top:8px;" onclick="onFinishWeekClick()">Завершить неделю</button>
         <button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="refuseFinishWeek()">Позже</button>
-        <button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="dismissFinishWeekBanner()">Уже завершили — скрыть</button>
       </div>
       <div id="pullWeekBanner" class="week-banner" style="display:none;">
         <h3>Подтянуть из месяца</h3>
@@ -1630,7 +1642,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.91";
+    const APP_VERSION = "v7.10.92";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -8497,21 +8509,8 @@
     }
 
     async function refuseFinishWeek() {
-      var wk = currentWeekKeyLocal();
-      localStorage.setItem(FINISH_REFUSE_LS + wk, "1");
-      _weekBannerState.refused = true;
-      document.getElementById("finishWeekBanner").style.display = "none";
-      try {
-        var tid = String(myTelegramId || "").trim();
-        await apiGet({
-          action: "setWeekBannerState",
-          weekKey: wk,
-          refused: "1",
-          telegramId: tid,
-          _: String(Date.now())
-        }, { timeoutMs: 12000, cacheTtlMs: 0 });
-      } catch (eR) {}
-      showToast("Ок — баннер скрыт на эту неделю");
+      // «Позже» = скрыть на эту неделю (как «Уже завершили»), без закрытия таблицы
+      await dismissFinishWeekBanner();
     }
     window.onFinishWeekClick = onFinishWeekClick;
     window.refuseFinishWeek = refuseFinishWeek;
