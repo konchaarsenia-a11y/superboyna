@@ -10343,22 +10343,26 @@ function handleSaveDeferred_(json, callback, fromPost) {
       json.targetName || payloadObj.targetName || ""
     ).trim();
     var createdByName = String(json.createdByName || payloadObj.createdByName || "").trim();
+    if (!createdByName) {
+      try { createdByName = remindPersonLabel_(tid, ""); } catch (eCb) {}
+    }
     payloadObj.targetTelegramId = targetTid;
     payloadObj.forTelegramId = targetTid;
-    payloadObj.targetName = targetName;
+    payloadObj.targetName = targetName || (targetTid === tid ? "себе" : remindPersonLabel_(targetTid, ""));
     payloadObj.createdBy = tid;
     payloadObj.createdByName = createdByName;
     payload = JSON.stringify(payloadObj);
-    // сразу подтверждаем в TG целевому (и создателю, если другой)
+    // подтверждение только создателю (цель получит одно сообщение в срок — без дубля «поставлено»)
     try {
       var whenLabel = Utilities.formatDate(when, Session.getScriptTimeZone() || "Europe/Minsk", "dd.MM HH:mm") +
         " (по времени таблицы / Минск)";
-      var ack = "⏰ Напоминание поставлено\n" + title + "\nКогда: " + whenLabel;
-      if (createdByName && targetTid !== tid) ack += "\nОт: " + createdByName;
-      telegramSendText_(targetTid, ack);
-      if (targetTid !== tid) {
-        telegramSendText_(tid, "⏰ Напоминание для " + (targetName || targetTid) + "\n" + title + "\nКогда: " + whenLabel);
-      }
+      var toLabelAck = remindPersonLabel_(targetTid, targetName);
+      var ack =
+        "⏰ Напоминание поставлено\n" +
+        title +
+        "\nКогда: " + whenLabel +
+        "\nКому: " + (targetTid === tid ? "себе" : toLabelAck);
+      telegramSendText_(tid, ack);
     } catch (eAck) {}
   }
   if (!title) {
@@ -10511,24 +10515,45 @@ function formatDeferredRemindAtIso_(d) {
   return Utilities.formatDate(d, "GMT", "yyyy-MM-dd'T'HH:mm:ss'Z'");
 }
 
+/** Имя для TG: лист Доступы → fallback из payload. */
+function remindPersonLabel_(tid, fallbackName) {
+  var id = String(tid || "").trim();
+  var fb = String(fallbackName || "").trim();
+  if (fb && (fb === "себе" || fb.toLowerCase() === "self")) fb = "";
+  try {
+    if (id) {
+      var row = findAccessById_(id);
+      if (row) {
+        var nm = String(row.name || "").trim();
+        var un = String(row.username || "").trim();
+        if (nm && un) return nm + " (@" + un + ")";
+        if (nm) return nm;
+        if (un) return "@" + un;
+      }
+    }
+  } catch (eLab) {}
+  return fb || id || "—";
+}
+
 function ensureDeferredRemindTrigger_() {
   var props = PropertiesService.getScriptProperties();
   var ver = "";
   try { ver = String(props.getProperty("DEF_REMIND_TRIG_V") || ""); } catch (eP) {}
   var triggers = ScriptApp.getProjectTriggers();
-  var has = false;
+  var remindTriggers = [];
   var i;
   for (i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === "tickDeferredReminders_") has = true;
-  }
-  if (has && ver === "1m") return;
-  for (i = 0; i < triggers.length; i++) {
     if (triggers[i].getHandlerFunction() === "tickDeferredReminders_") {
-      try { ScriptApp.deleteTrigger(triggers[i]); } catch (eDel) {}
+      remindTriggers.push(triggers[i]);
     }
   }
+  // ровно один триггер; лишние — причина двойных сообщений
+  if (remindTriggers.length === 1 && ver === "1m-v2") return;
+  for (i = 0; i < remindTriggers.length; i++) {
+    try { ScriptApp.deleteTrigger(remindTriggers[i]); } catch (eDel) {}
+  }
   ScriptApp.newTrigger("tickDeferredReminders_").timeBased().everyMinutes(1).create();
-  try { props.setProperty("DEF_REMIND_TRIG_V", "1m"); } catch (eS) {}
+  try { props.setProperty("DEF_REMIND_TRIG_V", "1m-v2"); } catch (eS) {}
 }
 
 function handleSetDeferredReminder_(json, callback, fromPost) {
@@ -10578,67 +10603,89 @@ function handleSetDeferredReminder_(json, callback, fromPost) {
 
 /** Раз в ~1 мин: отправить TG-напоминания (абсолютное время remindAtMs). */
 function tickDeferredReminders_() {
-  var sh = deferredSheet_();
-  var data = sh.getDataRange().getValues();
-  var nowMs = Date.now();
-  var changedTids = {};
-  for (var r = 1; r < data.length; r++) {
-    var st = String(data[r][6] || "open").trim().toLowerCase();
-    if (st !== "open") continue;
-    var payload = {};
-    try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payload = {}; }
-    if (!payload) continue;
-    var dueMs = remindDueMs_(payload);
-    if (!dueMs || dueMs > nowMs) continue;
-    if (payload.remindSent && !payload.remindSendError) continue;
-    var fails = Number(payload.remindFailCount) || 0;
-    if (fails >= 12) continue;
-    var ownerTid = String(data[r][2] || "").trim();
-    var title = String(data[r][4] || "Отложенное").trim();
-    var nick = String(data[r][5] || "").trim();
-    var mode = String(data[r][3] || "").trim().toLowerCase();
-    var notifyTid = String(payload.targetTelegramId || payload.forTelegramId || ownerTid).trim() || ownerTid;
-    var fromName = String(payload.createdByName || "").trim();
-    var text;
-    if (mode === "remind") {
-      text = "⏰ Напоминание\n" + title;
-      if (fromName && String(payload.createdBy || "") !== notifyTid) {
-        text += "\nОт: " + fromName;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(25000)) return;
+  try {
+    try { ensureDeferredRemindTrigger_(); } catch (eEns) {}
+    var sh = deferredSheet_();
+    var data = sh.getDataRange().getValues();
+    var nowMs = Date.now();
+    var changedTids = {};
+    for (var r = 1; r < data.length; r++) {
+      var st = String(data[r][6] || "open").trim().toLowerCase();
+      if (st !== "open") continue;
+      var payload = {};
+      try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payload = {}; }
+      if (!payload) continue;
+      var dueMs = remindDueMs_(payload);
+      if (!dueMs || dueMs > nowMs) continue;
+      if (payload.remindSent && !payload.remindSendError) continue;
+      var fails = Number(payload.remindFailCount) || 0;
+      if (fails >= 12) continue;
+      var ownerTid = String(data[r][2] || "").trim();
+      var title = String(data[r][4] || "Отложенное").trim();
+      var nick = String(data[r][5] || "").trim();
+      var mode = String(data[r][3] || "").trim().toLowerCase();
+      var fromTid = String(payload.createdBy || ownerTid).trim() || ownerTid;
+      var notifyTid = String(payload.targetTelegramId || payload.forTelegramId || ownerTid).trim() || ownerTid;
+      var fromLabel = remindPersonLabel_(fromTid, payload.createdByName);
+      var toLabel = remindPersonLabel_(notifyTid, payload.targetName);
+      var text;
+      if (mode === "remind") {
+        text = "⏰ Напоминание\n" + title;
+        if (fromTid && notifyTid && fromTid !== notifyTid) {
+          text += "\nОт: " + fromLabel + "\nКому: " + toLabel;
+        } else {
+          text += "\n(себе)";
+        }
+        text += "\nОткрой задачи ☰ в приложении.";
+      } else {
+        text = "⏰ Напоминание\n" + title +
+          (nick ? ("\nКлиент: " + nick) : "") +
+          "\nОткрой задачи ☰ в приложении.";
       }
-      text += "\nОткрой задачи ☰ в приложении.";
-    } else {
-      text = "⏰ Напоминание\n" + title +
-        (nick ? ("\nКлиент: " + nick) : "") +
-        "\nОткрой задачи ☰ в приложении.";
-    }
-    var sentOk = false;
-    if (notifyTid) {
-      try {
-        var res = telegramSendText_(notifyTid, text);
-        sentOk = !!(res && res.ok);
-      } catch (eSend) {
-        sentOk = false;
-      }
-    }
-    if (sentOk) {
+      // claim до отправки — иначе два триггера шлют одно и то же
       payload.remindSent = true;
       payload.remindSentAt = formatDeferredRemindAtIso_(new Date());
       delete payload.remindSendError;
-      delete payload.remindFailCount;
-    } else {
-      payload.remindFailCount = fails + 1;
-      payload.remindSendError = true;
-      // не помечаем remindSent — повторим на следующем тике
-    }
-    try {
-      sh.getRange(r + 1, 8, r + 1, 9).setValues([[JSON.stringify(payload), new Date()]]);
+      try {
+        sh.getRange(r + 1, 8, r + 1, 9).setValues([[JSON.stringify(payload), new Date()]]);
+        SpreadsheetApp.flush();
+      } catch (eClaim) {
+        continue;
+      }
+      var sentOk = false;
+      if (notifyTid) {
+        try {
+          var res = telegramSendText_(notifyTid, text);
+          sentOk = !!(res && res.ok);
+        } catch (eSend) {
+          sentOk = false;
+        }
+      }
+      if (!sentOk) {
+        payload.remindSent = false;
+        payload.remindFailCount = fails + 1;
+        payload.remindSendError = true;
+        delete payload.remindSentAt;
+        try {
+          sh.getRange(r + 1, 8, r + 1, 9).setValues([[JSON.stringify(payload), new Date()]]);
+        } catch (eWrite) {}
+      } else {
+        delete payload.remindFailCount;
+        try {
+          sh.getRange(r + 1, 8, r + 1, 9).setValues([[JSON.stringify(payload), new Date()]]);
+        } catch (eOk) {}
+      }
       if (ownerTid) changedTids[ownerTid] = true;
       if (notifyTid) changedTids[notifyTid] = true;
-    } catch (eWrite) {}
-  }
-  var keys = Object.keys(changedTids);
-  for (var i = 0; i < keys.length; i++) {
-    try { bustDeferredCache_(keys[i]); } catch (eB) {}
+    }
+    var keys = Object.keys(changedTids);
+    for (var i = 0; i < keys.length; i++) {
+      try { bustDeferredCache_(keys[i]); } catch (eB) {}
+    }
+  } finally {
+    try { lock.releaseLock(); } catch (eL) {}
   }
 }
 

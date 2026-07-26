@@ -11,7 +11,7 @@
     /* Telegram WebView кэширует app.html — форс-обновление по версии */
     (function () {
       try {
-        var want = "71094";
+        var want = "71095";
         var u = new URL(location.href);
         if (u.searchParams.get("v") === want) return;
         u.searchParams.set("v", want);
@@ -918,7 +918,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.94</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.10.95</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1642,7 +1642,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.10.94";
+    const APP_VERSION = "v7.10.95";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -11510,11 +11510,14 @@
           var createdBy = String(it.createdBy || (it.payload && it.payload.createdBy) || it.telegramId || "").trim();
           var createdByName = String(it.createdByName || (it.payload && it.payload.createdByName) || "").trim();
           var whoLine = "";
-          if (targetId && targetId !== myTid) {
-            whoLine = "для: " + (targetName || targetId);
-          } else if (targetId && targetId === myTid && createdBy && createdBy !== myTid) {
-            whoLine = "от: " + (createdByName || createdBy);
-          } else if (!targetId || targetId === myTid) {
+          var fromLab = createdByName || createdBy || "";
+          var toLab = targetName || targetId || "";
+          if (toLab === "себе") toLab = "себе";
+          if (targetId && createdBy && targetId !== createdBy) {
+            if (createdBy === myTid) whoLine = "от меня → " + (toLab || targetId);
+            else if (targetId === myTid) whoLine = "от " + (fromLab || createdBy) + " → мне";
+            else whoLine = "от " + (fromLab || createdBy) + " → " + (toLab || targetId);
+          } else {
             whoLine = "себе";
           }
           return '<div class="tasks-item">' +
