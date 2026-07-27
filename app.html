@@ -1017,7 +1017,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.19</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.20</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1497,7 +1497,7 @@
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <input type="number" id="subDetailCoef" value="2.3" min="0.1" max="10" step="0.1" inputmode="decimal"
                 style="flex:1;min-width:90px;"
-                oninput="scheduleSubDetailFactRecalc_()" onchange="scheduleSubDetailFactRecalc_()" onblur="scheduleSubDetailFactRecalc_()">
+                oninput="recalcSubDetailFactCost_()" onchange="recalcSubDetailFactCost_()" onblur="recalcSubDetailFactCost_()">
               <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2)">2.0</button>
               <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2.3)">2.3</button>
               <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2.5)">2.5</button>
@@ -1777,7 +1777,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.19";
+    const APP_VERSION = "v7.11.20";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -11021,11 +11021,13 @@
 
     var _subDetailFactTimer = null;
     var _subDetailFactSeq = 0;
+    var _subDetailCostCache = { fp: "", cost: null, packagesByn: 0 };
 
     function setSubDetailCoef_(v) {
       var el = document.getElementById("subDetailCoef");
       if (el) el.value = String(v);
-      scheduleSubDetailFactRecalc_();
+      // сразу, без debounce — коэф должен мгновенно менять цену
+      recalcSubDetailFactCost_();
     }
     window.setSubDetailCoef_ = setSubDetailCoef_;
 
@@ -11041,7 +11043,7 @@
       clearTimeout(_subDetailFactTimer);
       _subDetailFactTimer = setTimeout(function () {
         recalcSubDetailFactCost_();
-      }, 180);
+      }, 120);
     }
     window.scheduleSubDetailFactRecalc_ = scheduleSubDetailFactRecalc_;
 
@@ -11088,11 +11090,27 @@
       if (hint && hintText) hint.textContent = hintText;
     }
 
+    function applyLocalPpFact_(costSum, coef, n, packagesByn, fracTotal) {
+      costSum = Number(costSum) || 0;
+      coef = Number(coef) || 2.3;
+      n = Math.max(1, Number(n) || 1);
+      packagesByn = Number(packagesByn) || 0;
+      fracTotal = Number(fracTotal) || 0;
+      var total = Math.round((costSum * coef + 11 + 6 * n + packagesByn + fracTotal) * 100) / 100;
+      applySubDetailFact_(total,
+        "себест " + costSum + " ×" + coef + " +11 +6×" + n +
+        (packagesByn ? (" +пакеты " + packagesByn) : "") +
+        (fracTotal ? (" +фракт " + fracTotal) : "") +
+        " → " + total + " BYN");
+      return total;
+    }
+
     async function recalcSubDetailFactCost_() {
       var sheet = (document.getElementById("subDetailSheet") && document.getElementById("subDetailSheet").value) || "";
       if (sheet !== "ПП") return;
       var list = subDetailBasketPayload_();
       if (!list.length) {
+        _subDetailCostCache = { fp: "", cost: null, packagesByn: 0 };
         applySubDetailFact_("", "Состав пуст — стоимость 0");
         return;
       }
@@ -11100,7 +11118,18 @@
       var coef = subDetailCoefValue_();
       var seq = ++_subDetailFactSeq;
       var hint = document.getElementById("subDetailFactHint");
-      if (hint) hint.textContent = "Считаю… ×" + coef + " · N=" + n;
+      var frac = calcDressuraFractionMarkup(list, { whole: 0, large: 1, medium: 2, small: 3 });
+      var fracTotal = (frac && frac.total) || 0;
+      var fp = "";
+      try { fp = basketFingerprint_(list); } catch (eFp) { fp = String(list.length); }
+
+      // коэф/N меняем мгновенно, если себест по этому составу уже известна
+      if (_subDetailCostCache.fp === fp && _subDetailCostCache.cost != null) {
+        applyLocalPpFact_(_subDetailCostCache.cost, coef, n, _subDetailCostCache.packagesByn, fracTotal);
+        return;
+      }
+
+      if (hint) hint.textContent = "Считаю себест… ×" + coef + " · N=" + n;
       try {
         var slim = list.map(function (it) {
           return {
@@ -11112,79 +11141,52 @@
           };
         });
         var basketJson = JSON.stringify(slim);
-        var res = null;
+        var costSum = null;
+        var packagesByn = 0;
 
-        // 1) calcPrice + fullFact (короче и стабильнее, чем отдельный calcPpFact с длинным URL)
+        // calcPpFact умеет коэф на живом Deploy; но себест+локальный коэф надёжнее
+        var pr = null;
         try {
-          res = await apiGet({
+          pr = await apiGet({
             action: "calcPrice",
             mode: "pp",
-            fullFact: "1",
-            deliveriesN: String(n),
-            coef: String(coef),
-            basket: basketJson
+            basket: basketJson,
+            _: String(Date.now())
           }, { timeoutMs: 28000, cacheTtlMs: 0 });
-        } catch (e0) { res = null; }
+        } catch (e0) { pr = null; }
         if (seq !== _subDetailFactSeq) return;
 
-        if (res && res.status === "success" && res.factCost != null) {
-          applySubDetailFact_(res.factCost,
-            "себест " + (res.cost != null ? res.cost : "?") +
-            " ×" + ((res.coef != null) ? res.coef : coef) +
-            " +11 +6×" + n +
-            (res.packagesByn ? (" +пакеты " + res.packagesByn) : "") +
-            (res.fractionMarkup ? (" +фракт " + res.fractionMarkup) : "") +
-            " → " + res.factCost + " BYN");
-          return;
+        if (pr && pr.status === "success") {
+          costSum = (pr.cost != null) ? Number(pr.cost) : recalcPpCostSum(pr, list);
         }
 
-        // 2) calcPpFact (если Deploy есть)
+        // пакеты — из calcPpFact (если доступен), иначе 0
         if (basketJson.length < 1600) {
           try {
-            res = await apiGet({
+            var pf = await apiGet({
               action: "calcPpFact",
               deliveriesN: String(n),
               coef: String(coef),
-              basket: basketJson
-            }, { timeoutMs: 25000, cacheTtlMs: 0 });
-          } catch (e1) { res = null; }
-          if (seq !== _subDetailFactSeq) return;
-          if (res && res.status === "success" && res.factCost != null) {
-            applySubDetailFact_(res.factCost,
-              "себест " + (res.cost != null ? res.cost : "?") +
-              " ×" + ((res.coef != null) ? res.coef : coef) +
-              " +11 +6×" + n + " → " + res.factCost + " BYN");
-            return;
-          }
+              basket: basketJson,
+              _: String(Date.now())
+            }, { timeoutMs: 20000, cacheTtlMs: 0 });
+            if (seq !== _subDetailFactSeq) return;
+            if (pf && pf.status === "success") {
+              if (costSum == null && pf.cost != null) costSum = Number(pf.cost);
+              if (pf.packagesByn != null) packagesByn = Number(pf.packagesByn) || 0;
+              if (pf.fractionMarkup != null && !fracTotal) fracTotal = Number(pf.fractionMarkup) || 0;
+            }
+          } catch (e1) {}
         }
 
-        // 3) локально: себест из calcPrice × коэф + фикс
-        var pr = res;
-        if (!pr || pr.status !== "success") {
-          try {
-            pr = await apiGet({
-              action: "calcPrice",
-              mode: "pp",
-              basket: basketJson
-            }, { timeoutMs: 28000, cacheTtlMs: 0 });
-          } catch (e2) { pr = null; }
-        }
-        if (seq !== _subDetailFactSeq) return;
-        if (!pr || pr.status !== "success") {
-          if (hint) hint.textContent = "Не удалось посчитать — проверь сеть / Deploy Code.gs";
+        if (costSum == null || !isFinite(costSum)) {
+          if (hint) hint.textContent = "Не удалось посчитать себест — проверь сеть";
           return;
         }
-        var costSum = (pr.cost != null) ? Number(pr.cost) : recalcPpCostSum(pr, list);
-        if (!isFinite(costSum)) costSum = 0;
-        var frac = calcDressuraFractionMarkup(list, { whole: 0, large: 1, medium: 2, small: 3 });
-        var packagesByn = (pr.packagesByn != null) ? Number(pr.packagesByn) : 0;
-        if (!isFinite(packagesByn)) packagesByn = 0;
-        var total = Math.round((costSum * coef + 11 + 6 * n + packagesByn + (frac.total || 0)) * 100) / 100;
-        applySubDetailFact_(total,
-          "себест " + costSum + " ×" + coef + " +11 +6×" + n +
-          (packagesByn ? (" +пакеты " + packagesByn) : "") +
-          (frac.total ? (" +фракт " + frac.total) : "") +
-          " → " + total + " BYN");
+        _subDetailCostCache = { fp: fp, cost: costSum, packagesByn: packagesByn };
+        if (seq !== _subDetailFactSeq) return;
+        // всегда локально × текущий коэф (не доверяем factCost с сервера — там раньше терялся coef)
+        applyLocalPpFact_(costSum, coef, n, packagesByn, fracTotal);
       } catch (e) {
         if (seq !== _subDetailFactSeq) return;
         if (hint) hint.textContent = "Ошибка пересчёта: " + (e.message || e);

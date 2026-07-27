@@ -1092,7 +1092,9 @@ function doGet(e) {
       mode: e.parameter.mode || "subscription",
       basket: e.parameter.basket ? JSON.parse(decodeURIComponent(e.parameter.basket)) : [],
       deliveriesN: e.parameter.deliveriesN || e.parameter.deliveries || "",
-      fullFact: e.parameter.fullFact || ""
+      fullFact: e.parameter.fullFact || "",
+      coef: e.parameter.coef || e.parameter.markup || "",
+      markup: e.parameter.markup || e.parameter.coef || ""
     }, callback, false);
   }
   if (action === "calcPpFact") {
