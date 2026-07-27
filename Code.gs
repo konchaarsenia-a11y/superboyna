@@ -852,7 +852,9 @@ function doGet(e) {
   }
   if (action === "getStats") {
     return handleGetStats({
-      period: e.parameter.period || "month"
+      period: e.parameter.period || "month",
+      month: e.parameter.month || e.parameter.monthKey || "",
+      force: e.parameter.force || ""
     }, callback, false);
   }
   if (action === "exportStats") {
@@ -1065,6 +1067,19 @@ function doGet(e) {
       subId: e.parameter.subId ? decodeURIComponent(e.parameter.subId) : "",
       sheet: e.parameter.sheet ? decodeURIComponent(e.parameter.sheet) : "",
       segment: e.parameter.segment ? decodeURIComponent(e.parameter.segment) : ""
+    }, callback, false);
+  }
+  if (action === "deleteSubscriptionBatch") {
+    var batchItems = [];
+    try {
+      if (e.parameter.items) batchItems = JSON.parse(e.parameter.items);
+    } catch (eBi) {
+      try { batchItems = JSON.parse(decodeURIComponent(e.parameter.items || "[]")); } catch (eBi2) { batchItems = []; }
+    }
+    return handleDeleteSubscriptionBatch({
+      items: batchItems,
+      sheet: e.parameter.sheet || "",
+      segment: e.parameter.segment || ""
     }, callback, false);
   }
   if (action === "getAssembly") {
@@ -1377,6 +1392,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "deleteSubscription") {
     return handleDeleteSubscription(json, callback, fromPost);
+  }
+  if (action === "deleteSubscriptionBatch") {
+    return handleDeleteSubscriptionBatch(json, callback, fromPost);
   }
   if (action === "pushSubscriptionToDay") {
     return handlePushSubscriptionToDay(json, callback, fromPost);
@@ -8634,6 +8652,42 @@ function handleMoveSubscription(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
+/** Удалить строки подписки на листах-кандидатах. Без rescue/repair (дорого) — вызывающий чистит раз. */
+function deleteSubscriptionRowsFast_(crmSs, sheetName, nick, subId) {
+  var sheets = listCrmSheetCandidates_(crmSs, sheetName);
+  var deletedRows = [];
+  var deletedFrom = [];
+  var total = 0;
+  var tried = [];
+  for (var s = 0; s < sheets.length; s++) {
+    var sh = sheets[s];
+    tried.push(sh.getName());
+    var idxs = findAllSubscriptionRowIndexes_(sh, nick, subId);
+    if (!idxs.length && nick) idxs = findAllSubscriptionRowIndexes_(sh, nick, "");
+    if (!idxs.length && subId) idxs = findAllSubscriptionRowIndexes_(sh, "", subId);
+    if (!idxs.length) continue;
+    idxs.sort(function (a, b) { return b - a; });
+    for (var i = 0; i < idxs.length; i++) {
+      var row1 = idxs[i] + 1;
+      try {
+        sh.getRange(row1, 1).setValue("");
+        sh.deleteRow(row1);
+      } catch (eDel) {
+        try { sh.getRange(row1, 1, 1, Math.min(5, sh.getLastColumn())).clearContent(); } catch (eClr) {}
+      }
+      deletedRows.push(row1);
+      total++;
+    }
+    deletedFrom.push(sh.getName());
+  }
+  return {
+    deletedCount: total,
+    deletedRows: deletedRows,
+    deletedFrom: deletedFrom,
+    triedSheets: tried
+  };
+}
+
 function handleDeleteSubscription(json, callback, fromPost) {
   var crmSs;
   try { crmSs = getCrmSpreadsheet_(); } catch (e) {
@@ -8647,57 +8701,26 @@ function handleDeleteSubscription(json, callback, fromPost) {
     var need = { status: "error", message: "need_nick" };
     return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
   }
-  // Ищем по всем листам-кандидатам (канон + копии), иначе list и delete могут смотреть в разные
   var sheets = listCrmSheetCandidates_(crmSs, sheetName);
   if (!sheets.length) {
     var no = { status: "error", message: "sheet_missing", sheet: sheetName };
     return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
   }
-  var deletedRows = [];
-  var deletedFrom = [];
-  var total = 0;
-  for (var s = 0; s < sheets.length; s++) {
-    var sh = sheets[s];
-    try { rescueOrphanSubscriptionRows_(sh); } catch (eRes) {}
-    var idxs = findAllSubscriptionRowIndexes_(sh, nick, subId);
-    if (!idxs.length && nick) idxs = findAllSubscriptionRowIndexes_(sh, nick, "");
-    if (!idxs.length && subId) idxs = findAllSubscriptionRowIndexes_(sh, "", subId);
-    if (!idxs.length) continue;
-    idxs.sort(function (a, b) { return b - a; });
-    for (var i = 0; i < idxs.length; i++) {
-      var row1 = idxs[i] + 1;
-      try {
-        // сначала очистить ник — даже если deleteRow упрётся в защиту, list не покажет
-        sh.getRange(row1, 1).setValue("");
-        sh.deleteRow(row1);
-      } catch (eDel) {
-        try { sh.getRange(row1, 1, 1, Math.min(5, sh.getLastColumn())).clearContent(); } catch (eClr) {}
-      }
-      deletedRows.push(row1);
-      total++;
-    }
-    deletedFrom.push(sh.getName());
-  }
-  if (!total) {
+  var del = deleteSubscriptionRowsFast_(crmSs, sheetName, nick, subId);
+  if (!del.deletedCount) {
     var miss = {
       status: "error",
       message: "not_found",
       nick: nick,
       subId: subId,
       sheet: sheetName,
-      triedSheets: deletedFrom.length ? deletedFrom : sheets.map(function (x) { return x.getName(); })
+      triedSheets: del.triedSheets || []
     };
     return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
   }
-  try { SpreadsheetApp.flush(); } catch (eFl) {}
   var surveysCancelled = 0;
   try { surveysCancelled = cancelSurveysForNick_(crmSs, nick); } catch (eSv) {}
-  try {
-    for (var sf = 0; sf < sheets.length; sf++) {
-      try { repairSheetSubscriptionIds_(crmSs, sheets[sf].getName()); } catch (eRep0) {}
-    }
-    repairSheetSubscriptionIds_(crmSs, sheetName);
-  } catch (eRep) {}
+  try { SpreadsheetApp.flush(); } catch (eFl) {}
   try {
     clearCrmSheetCache_(sheetName);
     clearCrmSheetCache_("Опросник");
@@ -8708,10 +8731,80 @@ function handleDeleteSubscription(json, callback, fromPost) {
     nick: nick,
     subId: subId,
     sheet: sheetName,
-    deletedRow: deletedRows[0] || 0,
-    deletedRows: deletedRows,
-    deletedCount: total,
-    deletedFrom: deletedFrom,
+    deletedRow: del.deletedRows[0] || 0,
+    deletedRows: del.deletedRows,
+    deletedCount: del.deletedCount,
+    deletedFrom: del.deletedFrom,
+    surveysCancelled: surveysCancelled
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/** Пачка удаления БП/ПП: один запрос, опросники разом, без repair на каждого. */
+function handleDeleteSubscriptionBatch(json, callback, fromPost) {
+  var crmSs;
+  try { crmSs = getCrmSpreadsheet_(); } catch (e) {
+    var bad = { status: "error", message: "crm_unavailable", detail: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var sheetName = String(json.sheet || json.segment || "").trim() || "БП";
+  var items = json.items || json.targets || json.nicks || [];
+  if (typeof items === "string") {
+    try { items = JSON.parse(items); } catch (eJ) { items = []; }
+  }
+  if (!Array.isArray(items)) items = [];
+  if (!items.length && (json.nick || json.subId)) {
+    items = [{ nick: json.nick || json.label || "", subId: json.subId || "" }];
+  }
+  if (!items.length) {
+    var need = { status: "error", message: "need_items" };
+    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+  }
+  var sheets = listCrmSheetCandidates_(crmSs, sheetName);
+  if (!sheets.length) {
+    var no = { status: "error", message: "sheet_missing", sheet: sheetName };
+    return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
+  }
+  var okN = 0;
+  var fail = [];
+  var totalRows = 0;
+  var nickSet = {};
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i] || {};
+    if (typeof it === "string") it = { nick: it };
+    var nick = String(it.nick || it.label || it.client || "").trim();
+    var subId = String(it.subId || "").trim();
+    if (!nick && !subId) {
+      fail.push({ i: i, message: "need_nick" });
+      continue;
+    }
+    var del = deleteSubscriptionRowsFast_(crmSs, sheetName, nick, subId);
+    if (!del.deletedCount) {
+      fail.push({ i: i, nick: nick, subId: subId, message: "not_found" });
+      continue;
+    }
+    okN++;
+    totalRows += del.deletedCount;
+    if (nick) nickSet[nick] = true;
+  }
+  var surveysCancelled = 0;
+  var nicks = Object.keys(nickSet);
+  for (var n = 0; n < nicks.length; n++) {
+    try { surveysCancelled += cancelSurveysForNick_(crmSs, nicks[n]) || 0; } catch (eSv) {}
+  }
+  try { SpreadsheetApp.flush(); } catch (eFl) {}
+  try {
+    clearCrmSheetCache_(sheetName);
+    clearCrmSheetCache_("Опросник");
+    clearCrmSheetCache_();
+  } catch (eC) {}
+  var ok = {
+    status: "success",
+    sheet: sheetName,
+    deletedPeople: okN,
+    deletedCount: totalRows,
+    failed: fail,
+    failCount: fail.length,
     surveysCancelled: surveysCancelled
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
@@ -9368,12 +9461,23 @@ function readPriceCosts_(mode) {
   var data = sh.getDataRange().getValues();
   if (!data.length) return { costs: {}, headers: [] };
   var headers = data[0];
+  // Важно: брать СЫРУЮ себестоимость, не «стоимость 100» / итоговую (там уже может быть ×2.3).
   var costRow = null;
-  for (var r = 0; r < Math.min(5, data.length); r++) {
-    var label = String(data[r][0] || "").toLowerCase();
-    if (label.indexOf("себестоим") >= 0 || label.indexOf("100") >= 0) {
+  var costPri = -1;
+  var costRowLabel = "";
+  for (var r = 0; r < Math.min(10, data.length); r++) {
+    var label = String(data[r][0] || "").toLowerCase().replace(/\s+/g, " ").trim();
+    if (!label) continue;
+    if (/итог|факт|выхлоп|наценк|клиент/.test(label)) continue;
+    var pri = -1;
+    if (/^себестоим/.test(label) || label.indexOf("себестоим") >= 0) pri = 3;
+    else if (/сырь|закуп|cost/.test(label)) pri = 2;
+    else if (/стоимость\s*100|цена\s*100|за\s*100/.test(label)) pri = 1;
+    if (pri > costPri) {
+      costPri = pri;
       costRow = data[r];
-      break;
+      costRowLabel = label;
+      if (pri >= 3) break;
     }
   }
   if (!costRow && data.length > 1) costRow = data[1];
@@ -9393,7 +9497,7 @@ function readPriceCosts_(mode) {
       piece: map.grams === false || map.cat === "chew"
     };
   }
-  return { costs: costs, sheet: sheetName };
+  return { costs: costs, sheet: sheetName, costRowLabel: costRowLabel, costRowPriority: costPri };
 }
 
 function handleCalcPrice(json, callback, fromPost) {
@@ -9473,25 +9577,35 @@ function handleCalcPrice(json, callback, fromPost) {
       cost: Math.round(cost * 100) / 100
     });
   }
-  var markup = 2.3;
-  var total = Math.round(totalCost * markup * 100) / 100;
+  var rawCost = Math.round(totalCost * 100) / 100;
+  // markup здесь только справочно для «total» (= raw×2.3). Факт ПП считает coef отдельно — не домножать.
+  var refMarkup = 2.3;
+  var total = Math.round(rawCost * refMarkup * 100) / 100;
   var ok = {
     status: "success",
     mode: mode,
     sheet: priceInfo.sheet,
+    costRowLabel: priceInfo.costRowLabel || "",
     lines: lines,
-    cost: Math.round(totalCost * 100) / 100,
-    markup: markup,
+    cost: rawCost,
+    rawCost: rawCost,
+    markup: refMarkup,
     total: total
   };
-  // полный факт ПП: себест×коэф + 11 + 6×N + пакеты + наценка фракций
+  // полный факт ПП: сырая себест × coef (+11 +6×N …). coef ЗАМЕНЯЕТ 2.3, не множится сверху.
   if (json.fullFact === true || json.fullFact === "1" || json.fullFact === 1 ||
       String(mode || "").toLowerCase() === "pp" && (json.deliveriesN || json.deliveries)) {
     try {
-      var fact = computePpFactFromCost_(ok.cost, basket, json.deliveriesN || json.deliveries, json.coef || json.markup);
+      var coefIn = json.coef != null && json.coef !== "" ? json.coef : null;
+      var fact = computePpFactFromCost_(rawCost, basket, json.deliveriesN || json.deliveries, coefIn);
       for (var fk in fact) {
         if (Object.prototype.hasOwnProperty.call(fact, fk)) ok[fk] = fact[fk];
       }
+      // не затирать rawCost полем coef/total из fact
+      ok.cost = rawCost;
+      ok.rawCost = rawCost;
+      ok.markup = fact.coef;
+      ok.total = Math.round(rawCost * fact.coef * 100) / 100;
     } catch (eF) {}
   }
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
@@ -9590,10 +9704,12 @@ function handleCalcPpFact(json, callback, fromPost) {
       lines.push({ name: name, sub: sub, val: val, unitPrice: unitPrice, piece: piece, cost: Math.round(cost * 100) / 100 });
     }
     totalCost = Math.round(totalCost * 100) / 100;
-    var fact = computePpFactFromCost_(totalCost, basket, json.deliveriesN || json.deliveries, json.coef || json.markup);
+    var coefIn = (json.coef != null && json.coef !== "") ? json.coef : null;
+    var fact = computePpFactFromCost_(totalCost, basket, json.deliveriesN || json.deliveries, coefIn);
     var ok = {
       status: "success",
       cost: totalCost,
+      rawCost: totalCost,
       lines: lines,
       markup: fact.coef,
       total: Math.round(totalCost * fact.coef * 100) / 100
@@ -9895,56 +10011,270 @@ function handleReportBug(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
+function isCrmFinanceNick_(cell) {
+  var t = String(cell || "").trim();
+  if (!t) return true;
+  if (/^себестоим/i.test(t) || /^стоимость\s*100/i.test(t) || /^итого$/i.test(t)) return true;
+  if (/^(id|ник|nick|клиент|client)$/i.test(t)) return true;
+  return false;
+}
+
+function parsePriceTagFromNote_(note) {
+  var m = String(note || "").match(/\[ЦЕНА:\s*([0-9]+(?:[.,][0-9]+)?)\s*BYN\]/i);
+  if (!m) return 0;
+  return Number(String(m[1]).replace(",", ".")) || 0;
+}
+
+function numCrmMoney_(v) {
+  if (v == null || v === "") return 0;
+  if (typeof v === "number") return isFinite(v) ? v : 0;
+  return Number(String(v).replace(/\s/g, "").replace(",", ".").replace(/[^\d.\-]/g, "")) || 0;
+}
+
+function collectPpMoneyStats_(crmSs) {
+  var out = { clients: 0, dirty: 0, clean: 0, cost: 0 };
+  var data = null;
+  try { data = getCrmSheetValuesFast_(crmSs, "ПП"); } catch (e0) { data = null; }
+  if (!data || data.length < 3) return out;
+  var headers = data[0];
+  var factCol = -1, vyhlopCol = -1, costCol = -1, itogSebCol = -1;
+  for (var c = 0; c < headers.length; c++) {
+    var h = String(headers[c] || "").toUpperCase().replace(/\s+/g, " ").trim();
+    if (factCol < 0 && h.indexOf("ФАКТ") >= 0 && h.indexOf("СТОИМ") >= 0) factCol = c;
+    if (vyhlopCol < 0 && /^ВЫХЛОП$/.test(h)) vyhlopCol = c;
+    if (vyhlopCol < 0 && h.indexOf("ВЫХЛОП") >= 0 && h.indexOf("ОБЩИЙ") < 0) vyhlopCol = c;
+    if (costCol < 0 && h === "СЕБЕСТОИМОСТЬ") costCol = c;
+    if (itogSebCol < 0 && h.indexOf("ИТОГОВАЯ СЕБЕСТОИМ") >= 0) itogSebCol = c;
+  }
+  for (var r = 2; r < data.length; r++) {
+    var nick = String(data[r][0] || "").trim();
+    if (isCrmFinanceNick_(nick)) continue;
+    out.clients++;
+    var dirty = factCol >= 0 ? numCrmMoney_(data[r][factCol]) : 0;
+    var cost = costCol >= 0 ? numCrmMoney_(data[r][costCol])
+      : (itogSebCol >= 0 ? numCrmMoney_(data[r][itogSebCol]) : 0);
+    var clean = vyhlopCol >= 0 ? numCrmMoney_(data[r][vyhlopCol]) : Math.max(0, dirty - cost);
+    out.dirty += dirty;
+    out.clean += clean;
+    out.cost += cost;
+  }
+  out.dirty = Math.round(out.dirty * 100) / 100;
+  out.clean = Math.round(out.clean * 100) / 100;
+  out.cost = Math.round(out.cost * 100) / 100;
+  return out;
+}
+
+function collectBpFunnelStats_(crmSs) {
+  var out = { total: 0, bp1: 0, bp2: 0, final: 0 };
+  var data = null;
+  try { data = getCrmSheetValuesFast_(crmSs, "БП"); } catch (e0) { data = null; }
+  if (!data || data.length < 3) return out;
+  for (var r = 2; r < data.length; r++) {
+    var nick = String(data[r][0] || "").trim();
+    if (isCrmFinanceNick_(nick)) continue;
+    out.total++;
+    var st = normalizeBpStage_(data[r][3]);
+    if (st === "ФИНАЛ") out.final++;
+    else if (st === "БП2") out.bp2++;
+    else out.bp1++;
+  }
+  return out;
+}
+
+function collectMonthCalendarStats_(ss, monthKey) {
+  var out = {
+    deliveriesTotal: 0,
+    bySource: { pp: 0, retail: 0, bp: 0, partner: 0, other: 0 },
+    revenueBySource: { pp: 0, retail: 0, bp: 0, partner: 0, other: 0 },
+    revenueActual: 0,
+    retailRevenue: 0
+  };
+  var rows = [];
+  try { rows = readAllCalendarRows_(); } catch (e0) { rows = []; }
+  var tz = ss.getSpreadsheetTimeZone();
+  var want = String(monthKey || "").slice(0, 7);
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var st = String(row.status || "").toLowerCase();
+    if (st === "cancelled") continue;
+    var iso = String(row.dateIso || "").slice(0, 10);
+    if (!iso || iso.length < 7) {
+      var bd = parseFlexibleDate_(row.date, tz) || parseFlexibleDate_(row.dateIso, tz);
+      if (bd) iso = Utilities.formatDate(bd, tz, "yyyy-MM-dd");
+    }
+    if (!iso || iso.slice(0, 7) !== want) continue;
+    out.deliveriesTotal++;
+    var srcRaw = String(row.source || row.segment || "").toLowerCase();
+    var src = "other";
+    if (/^пп|pp|подписк/.test(srcRaw) || srcRaw.indexOf("пп") >= 0) src = "pp";
+    else if (/^бп|bp/.test(srcRaw) || srcRaw.indexOf("бп") >= 0) src = "bp";
+    else if (/розниц|^р$|retail|^r\b/.test(srcRaw) || srcRaw === "р") src = "retail";
+    else if (/партн|partner/.test(srcRaw)) src = "partner";
+    else {
+      var seg = String(row.segment || "").toUpperCase();
+      if (seg.indexOf("ПП") >= 0) src = "pp";
+      else if (seg.indexOf("БП") >= 0) src = "bp";
+      else if (seg.indexOf("РОЗН") >= 0 || seg === "Р") src = "retail";
+      else if (seg.indexOf("ПАРТ") >= 0) src = "partner";
+    }
+    out.bySource[src] = (out.bySource[src] || 0) + 1;
+    var price = parsePriceTagFromNote_(row.note);
+    out.revenueBySource[src] = Math.round(((out.revenueBySource[src] || 0) + price) * 100) / 100;
+    out.revenueActual += price;
+  }
+  out.revenueActual = Math.round(out.revenueActual * 100) / 100;
+  out.retailRevenue = out.revenueBySource.retail || 0;
+  return out;
+}
+
 function handleGetStats(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = ss.getSpreadsheetTimeZone();
   var now = new Date();
-  var monthName = Utilities.formatDate(now, tz, "MMMM yyyy");
-  var ppActive = 0, bpFunnel = 0, deliveries = 0;
+  var monthKey = String(json.month || json.monthKey || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) {
+    monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
+  }
+  var cacheKey = "STATS:" + monthKey;
+  try {
+    var cached = CacheService.getScriptCache().get(cacheKey);
+    if (cached && !json.force && json.force !== "1") {
+      var parsed = JSON.parse(cached);
+      if (parsed && parsed.status === "success") {
+        return fromPost ? jsonpText(callback, parsed) : jsonp(callback, parsed);
+      }
+    }
+  } catch (eCache) {}
+
+  var monthLabel = Utilities.formatDate(now, tz, "MMMM yyyy");
+  try {
+    var parts = monthKey.split("-");
+    var dLab = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+    monthLabel = Utilities.formatDate(dLab, tz, "MMMM yyyy");
+  } catch (eLab) {}
+
+  var pp = { clients: 0, dirty: 0, clean: 0, cost: 0 };
+  var bp = { total: 0, bp1: 0, bp2: 0, final: 0 };
   try {
     var crm = getCrmSpreadsheet_();
-    var pp = findSheetByBaseName_(crm, "ПП");
-    if (pp && pp.getLastRow() >= 3) ppActive = Math.max(0, pp.getLastRow() - 2);
-    var bp = findSheetByBaseName_(crm, "БП");
-    if (bp && bp.getLastRow() >= 3) bpFunnel = Math.max(0, bp.getLastRow() - 2);
-  } catch (e) {}
-  try {
-    var days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"];
-    for (var i = 0; i < days.length; i++) {
-      var d = getClientsData_(ss, days[i]);
-      deliveries += (d.clients || []).length;
-    }
-  } catch (e2) {}
+    pp = collectPpMoneyStats_(crm);
+    bp = collectBpFunnelStats_(crm);
+  } catch (eCrm) {}
+  var month = collectMonthCalendarStats_(ss, monthKey);
+  var expected = Math.round((Number(pp.dirty) + Number(month.retailRevenue) + Number(month.revenueBySource.partner || 0)) * 100) / 100;
+  var actual = Math.round(Number(month.revenueActual) * 100) / 100;
+  var delta = Math.round((actual - expected) * 100) / 100;
+
   var ok = {
     status: "success",
-    title: "Календарный месяц · " + monthName,
-    period: json.period || "month",
-    ppActive: ppActive,
-    bpFunnel: bpFunnel,
-    deliveries: deliveries,
-    revenue: "—",
-    note: "Сводка из CRM + текущей недели. Экспорт — exportStats. Лист «Архив» не используется."
+    title: "Календарный месяц · " + monthLabel,
+    period: "month",
+    monthKey: monthKey,
+    monthLabel: monthLabel,
+    pp: pp,
+    bp: bp,
+    month: {
+      deliveries: month.deliveriesTotal,
+      bySource: month.bySource,
+      revenueBySource: month.revenueBySource,
+      revenueActual: month.revenueActual,
+      revenueExpected: expected,
+      retailRevenue: month.retailRevenue,
+      ppSheetDirty: pp.dirty,
+      actual: actual,
+      expected: expected,
+      delta: delta
+    },
+    // совместимость со старым UI
+    ppActive: pp.clients,
+    bpFunnel: bp.total,
+    deliveries: month.deliveriesTotal,
+    revenue: actual,
+    charts: {
+      bpStages: [
+        { label: "БП1", value: bp.bp1 },
+        { label: "БП2", value: bp.bp2 },
+        { label: "Финал", value: bp.final }
+      ],
+      sources: [
+        { label: "ПП", value: month.bySource.pp || 0 },
+        { label: "Розница", value: month.bySource.retail || 0 },
+        { label: "БП", value: month.bySource.bp || 0 },
+        { label: "Партнёр", value: month.bySource.partner || 0 }
+      ],
+      money: [
+        { label: "Ожидалось", value: expected },
+        { label: "Вышло", value: actual }
+      ],
+      ppMoney: [
+        { label: "Грязные", value: pp.dirty },
+        { label: "Чистые", value: pp.clean },
+        { label: "Себест", value: pp.cost }
+      ]
+    },
+    note: "ПП деньги с листа; доставки — Календарь_Дат за " + monthKey + "."
   };
+  try {
+    CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 90);
+  } catch (ePut) {}
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
 function handleExportStats(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var lines = ["date\tclient\tday\taddress"];
+  var tz = ss.getSpreadsheetTimeZone();
+  var now = new Date();
+  var monthKey = String(json.month || json.monthKey || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) {
+    monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
+  }
+  var pp = { clients: 0, dirty: 0, clean: 0, cost: 0 };
+  var bp = { total: 0, bp1: 0, bp2: 0, final: 0 };
   try {
-    var days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"];
-    for (var i = 0; i < days.length; i++) {
-      var d = getClientsData_(ss, days[i]);
-      var dateText = d.date || "";
-      (d.clients || []).forEach(function (c) {
-        lines.push([dateText, c.name || "", days[i], (c.address || "").replace(/\t/g, " ")].join("\t"));
-      });
+    var crm = getCrmSpreadsheet_();
+    pp = collectPpMoneyStats_(crm);
+    bp = collectBpFunnelStats_(crm);
+  } catch (eCrm) {}
+  var month = collectMonthCalendarStats_(ss, monthKey);
+  var lines = [];
+  lines.push("# Месяц\t" + monthKey);
+  lines.push("# ПП клиентов\t" + pp.clients);
+  lines.push("# ПП грязные\t" + pp.dirty);
+  lines.push("# ПП чистые\t" + pp.clean);
+  lines.push("# ПП себест\t" + pp.cost);
+  lines.push("# БП всего\t" + bp.total + "\tБП1\t" + bp.bp1 + "\tБП2\t" + bp.bp2 + "\tФинал\t" + bp.final);
+  lines.push("# Доставок\t" + month.deliveriesTotal);
+  lines.push("# Выручка из note [ЦЕНА]\t" + month.revenueActual);
+  lines.push("date\tclient\tsegment\tsource\tstatus\tprice\taddress\tnote");
+  var rows = [];
+  try { rows = readAllCalendarRows_(); } catch (e0) { rows = []; }
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var st = String(row.status || "").toLowerCase();
+    if (st === "cancelled") continue;
+    var iso = String(row.dateIso || "").slice(0, 10);
+    if (!iso || iso.length < 7) {
+      var bd = parseFlexibleDate_(row.date, tz) || parseFlexibleDate_(row.dateIso, tz);
+      if (bd) iso = Utilities.formatDate(bd, tz, "yyyy-MM-dd");
     }
-  } catch (e) {}
+    if (!iso || iso.slice(0, 7) !== monthKey) continue;
+    var price = parsePriceTagFromNote_(row.note);
+    lines.push([
+      iso,
+      String(row.client || "").replace(/\t/g, " "),
+      String(row.segment || "").replace(/\t/g, " "),
+      String(row.source || "").replace(/\t/g, " "),
+      String(row.status || ""),
+      price,
+      String(row.address || "").replace(/\t/g, " "),
+      String(row.note || "").replace(/\t/g, " ").replace(/\n/g, " ")
+    ].join("\t"));
+  }
   var ok = {
     status: "success",
     format: json.format || "accountant",
-    message: "TSV текущей недели (каркас бухгалтера)",
+    monthKey: monthKey,
+    message: "TSV месяца " + monthKey,
     tsv: lines.join("\n")
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
