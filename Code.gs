@@ -3873,7 +3873,7 @@ function stripNoteAudienceTag_(note) {
 function noteVisibleForRole_(note, role) {
   var raw = String(note || "");
   if (/\[NOTE:/i.test(raw)) {
-    var re = /\[NOTE:([^|\]]+)\|(perm|once)\]/gi;
+    var re = /\[NOTE:([^|\]]+)\|(perm|once)(?:\|ITEM:[^\]]+)?\]/gi;
     var m;
     var any = false;
     while ((m = re.exec(raw))) {
@@ -3905,22 +3905,68 @@ function cleanNoteText_(note) {
   )).replace(/\s*\|\|\s*/g, " · ").replace(/\s{2,}/g, " ").trim();
 }
 
-/** Текст примечания только для роли (поддержка [NOTE:roles|once|perm]). */
+/** Разобрать блоки [NOTE:roles|once|perm|ITEM:…] */
+function parseNoteBlocks_(note) {
+  var raw = String(note || "");
+  var out = [];
+  var re = /\[NOTE:([^\|\]]+)\|(perm|once)(?:\|ITEM:([^\]]+))?\]\s*([\s\S]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
+  var m;
+  while ((m = re.exec(raw))) {
+    var rolesArr = String(m[1] || "").toLowerCase().split(/[,;\s]+/).filter(Boolean);
+    out.push({
+      roles: rolesArr,
+      kind: String(m[2] || "once").toLowerCase(),
+      item: String(m[3] || "").trim(),
+      text: String(m[4] || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\+?375[\d\s\-]{9,}/g, "").trim()
+    });
+  }
+  return out;
+}
+
+function noteBlockHasRole_(block, role) {
+  var roles = (block && block.roles) || [];
+  for (var i = 0; i < roles.length; i++) {
+    if (roles[i] === role) return true;
+  }
+  return false;
+}
+
+function noteItemMatchesProduct_(itemKey, productName, productSub) {
+  var key = String(itemKey || "").trim();
+  if (!key) return true;
+  var parts = key.split("/");
+  var wantName = String(parts[0] || "").trim().toUpperCase().replace(/\s+/g, " ");
+  var wantSub = String(parts[1] || "").trim().toUpperCase().replace(/\s+/g, " ");
+  var name = String(productName || "").trim().toUpperCase().replace(/\s+/g, " ");
+  var sub = String(productSub || "").trim().toUpperCase().replace(/\s+/g, " ");
+  var nameOk = false;
+  try {
+    var a = typeof normalizeProductAlias_ === "function" ? normalizeProductAlias_(name) : name;
+    var b = typeof normalizeProductAlias_ === "function" ? normalizeProductAlias_(wantName) : wantName;
+    nameOk = a === b || name.indexOf(wantName) >= 0 || wantName.indexOf(name) >= 0;
+  } catch (eN) {
+    nameOk = name.indexOf(wantName) >= 0 || wantName.indexOf(name) >= 0 || name === wantName;
+  }
+  if (!nameOk) return false;
+  if (wantSub) {
+    if (!sub) return false;
+    if (sub.indexOf(wantSub) < 0 && wantSub.indexOf(sub) < 0 && sub !== wantSub) return false;
+  }
+  return true;
+}
+
+/** Текст примечания только для роли (поддержка [NOTE:roles|once|perm|ITEM]). */
 function noteTextForRole_(note, role) {
   var raw = String(note || "");
   if (/\[NOTE:/i.test(raw)) {
     var bits = [];
-    var re = /\[NOTE:([^\|\]]+)\|(perm|once)\]\s*([\s\S]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
-    var m;
-    while ((m = re.exec(raw))) {
-      var rolesArr = String(m[1] || "").toLowerCase().split(/[,;\s]+/);
-      var ok = false;
-      for (var j = 0; j < rolesArr.length; j++) {
-        if (rolesArr[j] === role) { ok = true; break; }
-      }
-      if (!ok) continue;
-      var t = String(m[3] || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\+?375[\d\s\-]{9,}/g, "").trim();
-      if (t) bits.push(t);
+    var blocks = parseNoteBlocks_(raw);
+    for (var i = 0; i < blocks.length; i++) {
+      if (!noteBlockHasRole_(blocks[i], role)) continue;
+      var t = String(blocks[i].text || "").trim();
+      if (!t) continue;
+      if (blocks[i].item) bits.push("[" + blocks[i].item + "] " + t);
+      else bits.push(t);
     }
     return bits.join(" · ");
   }
@@ -3939,9 +3985,22 @@ function collectDayRoleNotes_(ss, dayName, role) {
   for (var i = 0; i < clients.length; i++) {
     var raw = clients[i].note || "";
     if (!noteVisibleForRole_(raw, role)) continue;
+    var blocks = parseNoteBlocks_(raw);
+    if (blocks.length) {
+      for (var b = 0; b < blocks.length; b++) {
+        if (!noteBlockHasRole_(blocks[b], role)) continue;
+        if (!blocks[b].text) continue;
+        out.push({
+          client: clients[i].name || "",
+          text: blocks[b].text,
+          item: blocks[b].item || ""
+        });
+      }
+      continue;
+    }
     var text = noteTextForRole_(raw, role);
     if (!text) continue;
-    out.push({ client: clients[i].name || "", text: text });
+    out.push({ client: clients[i].name || "", text: text, item: "" });
   }
   return out;
 }
@@ -3961,6 +4020,7 @@ function getProductRowToCuttingRowMap_() {
 /**
  * Для каждой позиции нарезки: сколько объёма от клиентов с примечанием нарезчику.
  * Пример: всего 10 шт, у клиента 3 + «толстые» → noted=3, groups=[{text, qty, clients}].
+ * Если в NOTE есть ITEM:название[/фракция] — привязка только к этой позиции.
  */
 function collectCuttingRowNotes_(ss, dayName) {
   var block = getDayBlock(dayName);
@@ -3978,6 +4038,7 @@ function collectCuttingRowNotes_(ss, dayName) {
   var nicks = sheet.getRange(nickRow, 3, 1, cols).getValues()[0];
   var notes = sheet.getRange(noteRow, 3, 1, cols).getValues()[0];
   var orders = sheet.getRange(startRow, 3, endRow - startRow + 1, cols).getValues();
+  var itemNames = sheet.getRange(startRow, 1, endRow - startRow + 1, 1).getValues();
   var rev = getProductRowToCuttingRowMap_();
   var byRow = {};
 
@@ -3988,8 +4049,20 @@ function collectCuttingRowNotes_(ss, dayName) {
     if (upper === "ИТОГО НА ДЕНЬ" || upper === "ИТОГО" || upper === "ФАКТ СНЯТОЕ") continue;
     var rawNote = notes[col] != null ? String(notes[col]).trim() : "";
     if (!noteVisibleForRole_(rawNote, "cut")) continue;
-    var text = noteTextForRole_(rawNote, "cut");
-    if (!text) continue;
+
+    var cutBlocks = [];
+    var parsedBlocks = parseNoteBlocks_(rawNote);
+    if (parsedBlocks.length) {
+      for (var bi = 0; bi < parsedBlocks.length; bi++) {
+        if (!noteBlockHasRole_(parsedBlocks[bi], "cut")) continue;
+        if (!parsedBlocks[bi].text) continue;
+        cutBlocks.push(parsedBlocks[bi]);
+      }
+    } else {
+      var legacyText = noteTextForRole_(rawNote, "cut");
+      if (legacyText) cutBlocks.push({ roles: ["cut"], kind: "once", item: "", text: legacyText });
+    }
+    if (!cutBlocks.length) continue;
 
     for (var rIdx = 0; rIdx < orders.length; rIdx++) {
       var val = Number(orders[rIdx][col]) || 0;
@@ -3997,9 +4070,18 @@ function collectCuttingRowNotes_(ss, dayName) {
       var mondayRow = 4 + rIdx;
       var cutRow = rev[mondayRow];
       if (!cutRow) continue;
+      var rawName = itemNames[rIdx] && itemNames[rIdx][0] != null ? String(itemNames[rIdx][0]).trim() : "";
+      if (!rawName || rawName.indexOf("#") > -1) continue;
+      var parsedItem = parseSheetItemName(rawName, mondayRow);
+      var matchedTexts = [];
+      for (var ci = 0; ci < cutBlocks.length; ci++) {
+        if (!noteItemMatchesProduct_(cutBlocks[ci].item, parsedItem.name || rawName, parsedItem.sub || "")) continue;
+        matchedTexts.push(cutBlocks[ci].text);
+      }
+      if (!matchedTexts.length) continue;
       var key = String(cutRow);
       if (!byRow[key]) byRow[key] = [];
-      byRow[key].push({ client: nick, text: text, qty: val });
+      byRow[key].push({ client: nick, text: matchedTexts.join(" · "), qty: val });
     }
   }
 

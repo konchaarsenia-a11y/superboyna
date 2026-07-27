@@ -798,6 +798,27 @@
       border-color: rgba(48,209,88,0.55);
       background: rgba(48,209,88,0.12);
     }
+    .courier-row.is-open {
+      border-color: rgba(36,139,242,0.45);
+    }
+    .courier-addr-main {
+      font-size: 13px; line-height: 1.4; color: var(--text-muted); margin-top: 4px;
+    }
+    .courier-addr-main b { color: #fff; font-weight: 600; }
+    .courier-extra {
+      display: none; margin-top: 8px; padding: 8px 10px; border-radius: 10px;
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+      font-size: 13px; line-height: 1.45; color: var(--text-muted);
+    }
+    .courier-row.is-open .courier-extra { display: block; }
+    .courier-extra b { color: #fff; font-weight: 600; }
+    .note-item-row {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px;
+    }
+    .note-item-row select {
+      flex: 1; min-width: 140px; height: 36px; border-radius: 8px;
+      border: 1px solid var(--border-color); background: #111; color: #fff; padding: 0 8px;
+    }
     .courier-row.just-done {
       animation: rowDone 0.55s ease;
     }
@@ -1055,7 +1076,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.30</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.31</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1180,6 +1201,16 @@
         <div class="form-group">
           <label>Подъезд / домофон</label>
           <input type="text" id="entranceInput" placeholder="подъезд, домофон" autocomplete="off">
+        </div>
+        <div class="form-group" style="display:flex;gap:8px;">
+          <div style="flex:1;">
+            <label>Этаж</label>
+            <input type="text" id="floorInput" placeholder="этаж" autocomplete="off" inputmode="numeric">
+          </div>
+          <div style="flex:1;">
+            <label>Квартира</label>
+            <input type="text" id="flatInput" placeholder="кв." autocomplete="off" inputmode="text">
+          </div>
         </div>
         <div class="form-group">
           <label>Телефон</label>
@@ -1904,7 +1935,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.30";
+    const APP_VERSION = "v7.11.31";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -2996,7 +3027,7 @@
           return false;
         }
         if (res.address && !String(document.getElementById("addressInput").value || "").trim()) {
-          document.getElementById("addressInput").value = res.address;
+          fillAddressFieldsFromStored_(res.address);
         }
         if (res.phone && !String(document.getElementById("phoneInput").value || "").trim()) {
           document.getElementById("phoneInput").value = res.phone;
@@ -3028,10 +3059,118 @@
     window.suggestPpBasketFromSheet = suggestPpBasketFromSheet;
 
     function shortAddressForCourier(full, entrance) {
-      var short = formatStreetHouse(full);
+      var parsed = parseDeliveryAddress(full);
+      var street = parsed.street || formatStreetHouse(full);
+      var ent = String(entrance || parsed.entrance || "").trim();
+      if (ent) street = street + (street ? ", " : "") + ( /^\d/.test(ent) ? ("п." + ent) : ent );
+      return street;
+    }
+
+    /** Разобрать адресную ячейку: дом / подъезд / этаж / квартира */
+    function parseDeliveryAddress(raw) {
+      var s = String(raw || "").trim();
+      var entrance = "";
+      var floor = "";
+      var flat = "";
+      if (!s) return { street: "", entrance: "", floor: "", flat: "" };
+
+      function take(re) {
+        var m = s.match(re);
+        if (!m) return "";
+        var val = String(m[1] || "").trim();
+        s = (s.slice(0, m.index) + " " + s.slice(m.index + m[0].length)).replace(/\s*[·|;,]\s*/g, " · ").replace(/\s{2,}/g, " ").trim();
+        s = s.replace(/^[·|;,\s]+|[·|;,\s]+$/g, "").trim();
+        return val;
+      }
+
+      entrance = take(/(?:^|[·|;,\s])(?:подъезд|под\.?|п\.?)\s*([0-9]+[а-яa-z]?|(?:домофон\s*)?[^\s·|;,]{1,20})(?=$|[·|;,]|\s)/i);
+      if (!entrance) entrance = take(/\bп\.?\s*([0-9]+[а-яa-z]?)\b/i);
+      floor = take(/(?:^|[·|;,\s])(?:этаж|эт\.?)\s*([0-9]+[а-яa-z]?)\b/i);
+      flat = take(/(?:^|[·|;,\s])(?:квартира|кв\.?)\s*([0-9]+[а-яa-z\-\/]*)\b/i);
+
+      // хвост «домофон …» в подъезд
+      var dm = s.match(/(?:^|[·|;,\s])домофон\s*([^\s·|;,]{1,24})/i);
+      if (dm) {
+        var dval = String(dm[1] || "").trim();
+        s = (s.slice(0, dm.index) + " " + s.slice(dm.index + dm[0].length)).replace(/\s{2,}/g, " ").trim();
+        if (dval) entrance = entrance ? (entrance + ", домофон " + dval) : ("домофон " + dval);
+      }
+
+      var street = formatStreetHouse(s) || s.replace(/\s*[·|]\s*/g, ", ").replace(/\s{2,}/g, " ").trim();
+      return { street: street, entrance: entrance, floor: floor, flat: flat };
+    }
+    window.parseDeliveryAddress = parseDeliveryAddress;
+
+    function composeDeliveryAddress(street, entrance, floor, flat) {
+      var st = formatStreetHouse(street) || String(street || "").trim();
+      var parts = [];
+      if (st) parts.push(st);
       var ent = String(entrance || "").trim();
-      if (ent) short = short + (short ? ", " : "") + ent;
-      return short;
+      var fl = String(floor || "").trim();
+      var ft = String(flat || "").trim();
+      if (ent) {
+        if (/^(подъезд|п\.|домофон)/i.test(ent)) parts.push(ent);
+        else parts.push("п." + ent);
+      }
+      if (fl) {
+        if (/^(этаж|эт\.)/i.test(fl)) parts.push(fl);
+        else parts.push("эт." + fl);
+      }
+      if (ft) {
+        if (/^(квартира|кв\.)/i.test(ft)) parts.push(ft);
+        else parts.push("кв." + ft);
+      }
+      return parts.join(" · ");
+    }
+    window.composeDeliveryAddress = composeDeliveryAddress;
+
+    /** Вытащить подъезд/этаж/кв из текста адреса в отдельные поля (если пустые). */
+    function autofillAddressDetailFields_(opts) {
+      opts = opts || {};
+      var force = !!opts.force;
+      var addrEl = document.getElementById("addressInput");
+      var entEl = document.getElementById("entranceInput");
+      var flEl = document.getElementById("floorInput");
+      var ftEl = document.getElementById("flatInput");
+      if (!addrEl) return;
+      var parsed = parseDeliveryAddress(addrEl.value);
+      if (parsed.street && (force || String(addrEl.value || "").trim() !== parsed.street)) {
+        // убрать из поля улицы уже распознанные хвосты
+        if (parsed.entrance || parsed.floor || parsed.flat) addrEl.value = parsed.street;
+      }
+      if (entEl && parsed.entrance && (force || !String(entEl.value || "").trim())) entEl.value = parsed.entrance;
+      if (flEl && parsed.floor && (force || !String(flEl.value || "").trim())) flEl.value = parsed.floor;
+      if (ftEl && parsed.flat && (force || !String(ftEl.value || "").trim())) ftEl.value = parsed.flat;
+    }
+    window.autofillAddressDetailFields_ = autofillAddressDetailFields_;
+
+    function fillAddressFieldsFromStored_(raw) {
+      var parsed = parseDeliveryAddress(raw);
+      var addrEl = document.getElementById("addressInput");
+      var entEl = document.getElementById("entranceInput");
+      var flEl = document.getElementById("floorInput");
+      var ftEl = document.getElementById("flatInput");
+      if (addrEl) addrEl.value = parsed.street || formatStreetHouse(raw) || String(raw || "");
+      if (entEl) entEl.value = parsed.entrance || "";
+      if (flEl) flEl.value = parsed.floor || "";
+      if (ftEl) ftEl.value = parsed.flat || "";
+    }
+    window.fillAddressFieldsFromStored_ = fillAddressFieldsFromStored_;
+
+    function courierPublicAddress_(raw) {
+      var p = parseDeliveryAddress(raw);
+      var street = p.street || formatStreetHouse(raw) || String(raw || "").trim();
+      if (p.entrance) street = street + (street ? ", " : "") + (/^(п\.|подъезд|домофон)/i.test(p.entrance) ? p.entrance : ("п." + p.entrance));
+      return street;
+    }
+
+    function courierPrivateAddressHtml_(raw) {
+      var p = parseDeliveryAddress(raw);
+      var bits = [];
+      if (p.floor) bits.push("этаж <b>" + escapeHtml(p.floor) + "</b>");
+      if (p.flat) bits.push("кв. <b>" + escapeHtml(p.flat) + "</b>");
+      if (!bits.length) return '<span class="muted">Этаж / квартира не указаны</span>';
+      return bits.join(" · ");
     }
 
     /** Только улица + дом — без района/города/страны/индекса */
@@ -3118,6 +3257,8 @@
         client: name.replace(/\s*[·•#]\s*2\s*$/i, "").trim(),
         address: (document.getElementById("addressInput") && document.getElementById("addressInput").value) || "",
         entrance: (document.getElementById("entranceInput") && document.getElementById("entranceInput").value) || "",
+        floor: (document.getElementById("floorInput") && document.getElementById("floorInput").value) || "",
+        flat: (document.getElementById("flatInput") && document.getElementById("flatInput").value) || "",
         phone: (document.getElementById("phoneInput") && document.getElementById("phoneInput").value) || "",
         geo: selectedAddressGeo
       };
@@ -3140,6 +3281,8 @@
       document.getElementById("client").readOnly = false;
       if (document.getElementById("addressInput")) document.getElementById("addressInput").value = base.address || "";
       if (document.getElementById("entranceInput")) document.getElementById("entranceInput").value = base.entrance || "";
+      if (document.getElementById("floorInput")) document.getElementById("floorInput").value = base.floor || "";
+      if (document.getElementById("flatInput")) document.getElementById("flatInput").value = base.flat || "";
       if (document.getElementById("phoneInput")) document.getElementById("phoneInput").value = base.phone || "";
       selectedAddressGeo = base.geo || null;
       setAddressPickedHint(!!selectedAddressGeo);
@@ -3295,7 +3438,7 @@
       hideClientSuggest();
       if (m.nick) document.getElementById("client").value = m.nick;
       if (m.address) {
-        document.getElementById("addressInput").value = m.address;
+        fillAddressFieldsFromStored_(m.address);
         var picked = document.getElementById("addressPickedHint");
         if (picked) picked.style.display = "block";
       }
@@ -3673,6 +3816,7 @@
         box.innerHTML = '<p class="muted">Корзина пуста</p>';
         try { if (orderType === "retail") refreshRetailOrderPrice(); } catch (e0) {}
         try { syncEditBasketToViewPreview_(); } catch (eSync0) {}
+        try { refreshNotesItemSelectsIfOpen_(); } catch (eN0) {}
         return;
       }
       const showRetail = orderType === "retail";
@@ -3695,6 +3839,15 @@
       }).join("");
       try { if (showRetail) refreshRetailOrderPrice(); } catch (e1) {}
       try { syncEditBasketToViewPreview_(); } catch (eSync1) {}
+      try { refreshNotesItemSelectsIfOpen_(); } catch (eN1) {}
+    }
+
+    function refreshNotesItemSelectsIfOpen_() {
+      if (!(orderNotes || []).some(function (n) { return n.roles && n.roles.cut; })) return;
+      var nl = document.getElementById("notesList");
+      if (!nl) return;
+      if (nl.style.display === "none" && !(nl.parentElement && nl.parentElement.id === "notesModalBody")) return;
+      renderOrderNotes();
     }
 
     /** Пока правим заказ/черновик — в Просмотре сразу убрать «нет: состав», не дожидаясь Сохранить. */
@@ -3949,6 +4102,10 @@
       if (addr) addr.value = "";
       var entrance = document.getElementById("entranceInput");
       if (entrance) entrance.value = "";
+      var floorEl = document.getElementById("floorInput");
+      if (floorEl) floorEl.value = "";
+      var flatEl = document.getElementById("flatInput");
+      if (flatEl) flatEl.value = "";
       var phoneEl = document.getElementById("phoneInput");
       if (phoneEl) phoneEl.value = "";
       var delivDate = document.getElementById("deliveryDate");
@@ -4026,11 +4183,14 @@
         if (applyOrderBasketToViewDraft()) return;
       }
       const clientName = document.getElementById("client").value.trim();
+      try { autofillAddressDetailFields_(); } catch (eAf) {}
       let clientAddressFull = document.getElementById("addressInput").value.trim();
       clientAddressFull = formatStreetHouse(clientAddressFull) || clientAddressFull;
       if (document.getElementById("addressInput")) document.getElementById("addressInput").value = clientAddressFull;
       const entrance = (document.getElementById("entranceInput") && document.getElementById("entranceInput").value || "").trim();
-      let clientAddress = shortAddressForCourier(clientAddressFull, entrance);
+      const floor = (document.getElementById("floorInput") && document.getElementById("floorInput").value || "").trim();
+      const flat = (document.getElementById("flatInput") && document.getElementById("flatInput").value || "").trim();
+      let clientAddress = composeDeliveryAddress(clientAddressFull, entrance, floor, flat);
       let clientNote = serializeOrderNotes(orderNotes).trim();
       const day = document.getElementById("day").value;
       const deliveryDate = (document.getElementById("deliveryDate") && document.getElementById("deliveryDate").value) || "";
@@ -4170,6 +4330,8 @@
         orderPrice: orderPrice,
         addressFull: clientAddressFull,
         entrance: entrance,
+        floor: floor,
+        flat: flat,
         survey: surveyMeta,
         geo: selectedAddressGeo ? {
           lat: selectedAddressGeo.lat,
@@ -5066,7 +5228,7 @@
         if (day) document.getElementById("day").value = day;
         if (dateStr && document.getElementById("deliveryDate")) document.getElementById("deliveryDate").value = dateStr;
         document.getElementById("client").value = client.name;
-        document.getElementById("addressInput").value = client.address || "";
+        fillAddressFieldsFromStored_(client.address || "");
         var phoneEl = document.getElementById("phoneInput");
         if (phoneEl) phoneEl.value = client.phone || "";
         loadOrderNotesFromRaw(client.note || "");
@@ -5678,7 +5840,7 @@
       }
       document.getElementById("client").value = client.name;
       document.getElementById("client").readOnly = false;
-      document.getElementById("addressInput").value = client.address || "";
+      fillAddressFieldsFromStored_(client.address || "");
       const rawNote = client.note || "";
       const phoneEl = document.getElementById("phoneInput");
       if (phoneEl) phoneEl.value = client.phone || extractPhone(rawNote) || "";
@@ -5934,7 +6096,8 @@
       if (!notes || !notes.length) return "";
       return '<div class="cut-notes-box"><div class="cut-notes-title">Примечания нарезчику</div>' +
         notes.map(function (n) {
-          return '<div class="cut-note-line"><b>' + escapeHtml(n.client || "") + ":</b> " +
+          var item = n.item ? (' <span class="muted">[' + escapeHtml(n.item) + "]</span>") : "";
+          return '<div class="cut-note-line"><b>' + escapeHtml(n.client || "") + ":</b>" + item + " " +
             escapeHtml(n.text || "") + "</div>";
         }).join("") + "</div>";
     }
@@ -6553,18 +6716,24 @@
           }).join("");
           const priceHtml = formatOrderPriceHtml(c.note || "", { br: true });
           const courNote = noteTextForRole(c.note || "", "cour");
-          return `<div class="courier-row${c.delivered ? " is-delivered" : ""}">
-            <label class="check-line">
+          const addrPublic = courierPublicAddress_(c.address || "");
+          const addrPrivate = courierPrivateAddressHtml_(c.address || "");
+          return `<div class="courier-row${c.delivered ? " is-delivered" : ""}" id="courierRow_${idx}" onclick="toggleCourierClientDetail_(${idx}, event)">
+            <label class="check-line" onclick="event.stopPropagation()">
               <input type="checkbox" ${c.delivered ? "checked" : ""} onchange="toggleDelivered(${idx}, this.checked)">
               <span class="cut-title">${idx + 1}. ${escapeHtml(c.name)}</span>
               ${c.assembled ? ('<span class="client-badge" style="margin-left:8px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>') : ""}
               ${c.ppHint ? ('<span class="client-badge" style="margin-left:8px;background:rgba(10,132,255,0.25);color:#64d2ff;">' + escapeHtml(c.ppHint) + "</span>") : ""}
               ${extractOrderPrice(c.note || "") != null ? ('<span class="client-badge" style="margin-left:8px;background:rgba(48,209,88,0.2);color:#30d158;">' + extractOrderPrice(c.note) + " BYN</span>") : ""}
             </label>
-            <div class="cut-meta">${c.address ? ("Адрес: " + escapeHtml(typeof shortAddressForCourier === "function" ? shortAddressForCourier(c.address, "") : c.address)) : "Адрес не указан"}
+            <div class="courier-addr-main">${addrPublic ? ("Адрес: <b>" + escapeHtml(addrPublic) + "</b>") : "Адрес не указан"}
+              <span class="muted" style="font-size:11px;"> · тап → этаж/кв</span>
+            </div>
+            <div class="courier-extra" id="courierExtra_${idx}">
+              <div>${addrPrivate}</div>
               ${formatTelHtml(c.phone || extractPhone(c.note || ""))}
               ${priceHtml}
-              ${courNote ? ("<br>Примечание: " + escapeHtml(courNote)) : ""}
+              ${courNote ? ("<div style=\"margin-top:4px;\">Примечание: " + escapeHtml(courNote) + "</div>") : ""}
             </div>
             <div>${lines || '<span class="muted">Пустой заказ</span>'}</div>
           </div>`;
@@ -6573,6 +6742,20 @@
         box.innerHTML = '<p class="muted">Ошибка: ' + escapeHtml(err.message || String(err)) + "</p>";
       }
     }
+
+    function toggleCourierClientDetail_(idx, ev) {
+      if (ev) {
+        var t = ev.target;
+        if (t && (t.tagName === "INPUT" || t.tagName === "BUTTON" || (t.closest && t.closest("label.check-line")))) return;
+      }
+      var row = document.getElementById("courierRow_" + idx);
+      if (!row) return;
+      var open = row.classList.toggle("is-open");
+      try {
+        if (open && tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+      } catch (eH) {}
+    }
+    window.toggleCourierClientDetail_ = toggleCourierClientDetail_;
 
     function refreshCourierSummary() {
       const day = document.getElementById("courierDaySelect").value;
@@ -6644,7 +6827,27 @@
 
     /* === BATCH_C_NOTES_HELPERS === */
     function defaultOrderNote() {
-      return { text: "", roles: { mgr: false, cut: false, cour: true }, permanent: false };
+      return { text: "", roles: { mgr: false, cut: false, cour: true }, permanent: false, itemKey: "" };
+    }
+    function noteItemKeyFromBasketItem_(it) {
+      var main = String((it && (it.main || it.name)) || "").trim();
+      var sub = String((it && it.sub) || "").trim();
+      if (!main) return "";
+      return sub ? (main + "/" + sub) : main;
+    }
+    function basketNoteItemOptionsHtml_(selected) {
+      selected = String(selected || "");
+      var opts = ['<option value="">Ко всему заказу</option>'];
+      var seen = {};
+      (basket || []).forEach(function (it) {
+        var key = noteItemKeyFromBasketItem_(it);
+        if (!key || seen[key]) return;
+        seen[key] = true;
+        var label = key.replace(/\//g, " · ");
+        opts.push('<option value="' + String(key).replace(/"/g, "&quot;") + '"' +
+          (selected === key ? " selected" : "") + ">" + escapeHtml(label) + "</option>");
+      });
+      return opts.join("");
     }
     function renderOrderNotes() {
       var box = document.getElementById("notesList");
@@ -6652,6 +6855,10 @@
       if (!orderNotes.length) orderNotes = [defaultOrderNote()];
       box.innerHTML = orderNotes.map(function (n, i) {
         var r = n.roles || {};
+        var itemRow = r.cut
+          ? ('<div class="note-item-row"><span class="muted" style="font-size:12px;">Позиция:</span>' +
+            '<select onchange="setOrderNoteItem(' + i + ', this.value)">' + basketNoteItemOptionsHtml_(n.itemKey) + "</select></div>")
+          : "";
         return '<div class="note-block" data-ni="' + i + '">' +
           '<input type="text" class="note-text" placeholder="Текст примечания" value="' + String(n.text || "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;") + '" ' +
           'oninput="onOrderNoteText(' + i + ', this.value)">' +
@@ -6661,6 +6868,7 @@
           '<button type="button" class="seg-btn' + (r.cour ? " active" : "") + '" onclick="toggleOrderNoteRole(' + i + ',\'cour\')">Курьеру</button>' +
           (orderNotes.length > 1 ? '<button type="button" class="seg-btn" onclick="removeOrderNote(' + i + ')">✕</button>' : "") +
           '</div>' +
+          itemRow +
           '<div class="note-perm-row">' +
           '<button type="button" class="seg-btn' + (!n.permanent ? " active" : "") + '" onclick="setOrderNotePerm(' + i + ',false)">Разовое</button>' +
           '<button type="button" class="seg-btn' + (n.permanent ? " active" : "") + '" onclick="setOrderNotePerm(' + i + ',true)">Постоянное → Контакты</button>' +
@@ -6677,12 +6885,18 @@
     function toggleOrderNoteRole(i, role) {
       if (!orderNotes[i]) return;
       orderNotes[i].roles[role] = !orderNotes[i].roles[role];
+      if (role === "cut" && !orderNotes[i].roles.cut) orderNotes[i].itemKey = "";
       renderOrderNotes();
     }
     function setOrderNotePerm(i, perm) {
       if (!orderNotes[i]) return;
       orderNotes[i].permanent = !!perm;
       renderOrderNotes();
+    }
+    function setOrderNoteItem(i, key) {
+      if (!orderNotes[i]) return;
+      orderNotes[i].itemKey = String(key || "").trim();
+      syncLegacyNoteInput();
     }
     function addOrderNote() {
       orderNotes.push(defaultOrderNote());
@@ -6697,6 +6911,9 @@
       var ni = document.getElementById("noteInput");
       if (ni) ni.value = serializeOrderNotes(orderNotes);
     }
+    function sanitizeNoteItemKey_(key) {
+      return String(key || "").trim().replace(/[\[\]\|]/g, " ").replace(/\s+/g, " ").trim();
+    }
     function serializeOrderNotes(list) {
       var parts = [];
       (list || []).forEach(function (n) {
@@ -6708,7 +6925,9 @@
         if (n.roles && n.roles.cour) roles.push("cour");
         if (!roles.length) roles = ["cour"];
         var kind = n.permanent ? "perm" : "once";
-        parts.push("[NOTE:" + roles.join(",") + "|" + kind + "] " + t);
+        var item = sanitizeNoteItemKey_(n.itemKey);
+        var tag = "[NOTE:" + roles.join(",") + "|" + kind + (item && roles.indexOf("cut") >= 0 ? ("|ITEM:" + item) : "") + "]";
+        parts.push(tag + " " + t);
       });
       return parts.join(" || ");
     }
@@ -6716,23 +6935,28 @@
       var s = String(raw || "").trim();
       if (!s) return [defaultOrderNote()];
       var blocks = [];
-      var re = /\[NOTE:([^\|\]]+)\|(perm|once)\]\s*([^]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
+      var re = /\[NOTE:([^\|\]]+)\|(perm|once)(?:\|ITEM:([^\]]+))?\]\s*([^]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
       var m;
       while ((m = re.exec(s))) {
         var rolesArr = String(m[1] || "").toLowerCase().split(/[,;\s]+/).filter(Boolean);
         var roles = { mgr: rolesArr.indexOf("mgr") >= 0, cut: rolesArr.indexOf("cut") >= 0, cour: rolesArr.indexOf("cour") >= 0 };
-        blocks.push({ text: String(m[3] || "").trim(), roles: roles, permanent: m[2] === "perm" });
+        blocks.push({
+          text: String(m[4] || "").trim(),
+          roles: roles,
+          permanent: m[2] === "perm",
+          itemKey: String(m[3] || "").trim()
+        });
       }
       if (blocks.length) return blocks;
       // legacy single note
       var rolesL = parseNoteAudience(s);
       var text = stripMetaFromNote(s).replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim();
-      // keep delivery tags out of editable text — stripMeta already drops TO/GEO; also strip NOTE leftovers
       text = text.replace(/\[NOTE:[^\]]+\]/gi, "").trim();
       return [{
         text: text,
         roles: { mgr: rolesL.indexOf("mgr") >= 0, cut: rolesL.indexOf("cut") >= 0, cour: rolesL.indexOf("cour") >= 0 },
-        permanent: false
+        permanent: false,
+        itemKey: ""
       }];
     }
     function loadOrderNotesFromRaw(raw) {
@@ -6757,6 +6981,7 @@
     window.removeOrderNote = removeOrderNote;
     window.toggleOrderNoteRole = toggleOrderNoteRole;
     window.setOrderNotePerm = setOrderNotePerm;
+    window.setOrderNoteItem = setOrderNoteItem;
     window.onOrderNoteText = onOrderNoteText;
 
     function stripDeliveryTags(note) {
@@ -6790,7 +7015,7 @@
       role = role || "mgr";
       var raw = String(note || "");
       var bits = [];
-      var re = /\[NOTE:([^\|\]]+)\|(perm|once)\]\s*([^]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
+      var re = /\[NOTE:([^\|\]]+)\|(perm|once)(?:\|ITEM:([^\]]+))?\]\s*([^]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
       var m;
       var anyBlock = false;
       var matchedRoles = [];
@@ -6798,10 +7023,11 @@
         anyBlock = true;
         var rolesArr = String(m[1] || "").toLowerCase().split(/[,;\s]+/).filter(Boolean);
         if (rolesArr.indexOf(role) < 0) continue;
-        var t = String(m[3] || "").replace(/\[TEL:[^\]]+\]/gi, "").trim();
+        var t = String(m[4] || "").replace(/\[TEL:[^\]]+\]/gi, "").trim();
         t = stripMetaFromNote(t);
+        var item = String(m[3] || "").trim();
         if (t) {
-          bits.push(t);
+          bits.push(item ? ("[" + item + "] " + t) : t);
           matchedRoles = rolesArr;
         }
       }
@@ -6945,6 +7171,7 @@
     }
 
     async function onAddressBlur() {
+      try { autofillAddressDetailFields_(); } catch (eAf) {}
       const addr = document.getElementById("addressInput").value.trim();
       if (!addr) {
         document.getElementById("deliveryMethodGroup").style.display = "none";
@@ -12509,7 +12736,7 @@
         var day = (document.getElementById("day") && document.getElementById("day").value) || "";
         var date = (document.getElementById("deliveryDate") && document.getElementById("deliveryDate").value) || "";
         var res = await apiGet({ action: "getPpOrderSuggest", nick: nick, day: day, date: date });
-        if (res && res.address) document.getElementById("addressInput").value = res.address;
+        if (res && res.address) fillAddressFieldsFromStored_(res.address);
         if (res && (res.wishes || res.note)) loadOrderNotesFromRaw([res.wishes, res.note].filter(Boolean).join(" "));
         basket = mapApiBasketToLocal((res && res.proposedBasket) || []);
         renderBasket();
