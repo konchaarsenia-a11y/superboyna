@@ -1645,10 +1645,8 @@ function handleUpdateCutting(ss, json, callback, fromPost) {
       cutting.getRange("A1").setValue(dateValue);
       restoreCuttingState_(cutting, memory, dateText, tz);
       recalculateCuttingForDate_(ss, dateText);
-    } else {
-      // дата уже активна — только пересчёт плана, флаги E/F/G не трогаем
-      recalculateCuttingForDate_(ss, dateText);
     }
+    // галочки/излишек — без пересчёта плана: иначе lock busy_retry и клики «не берутся»
 
     if (json.surplus !== undefined && json.surplus !== null && json.surplus !== "") {
       cutting.getRange("C" + row).setValue(Number(json.surplus) || 0);
@@ -1673,7 +1671,7 @@ function handleUpdateCutting(ss, json, callback, fromPost) {
       }
     }
     saveCuttingState_(cutting, memory, dateText, tz);
-    var ok = { status: "success" };
+    var ok = { status: "success", row: row, done: asBool_(cutting.getRange("F" + row).getValue()), laid: asBool_(cutting.getRange("E" + row).getValue()), outNext: asBool_(cutting.getRange("G" + row).getValue()) };
     return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
   } finally {
     try { lock.releaseLock(); } catch (eRel) {}

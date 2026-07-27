@@ -1076,7 +1076,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.31</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.32</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1935,7 +1935,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.31";
+    const APP_VERSION = "v7.11.32";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -2002,6 +2002,7 @@
     let addressSuggestSeq = 0;
     let cuttingItemsCache = [];
     let cuttingCompletionCache = null;
+    let cuttingLocalFlags = Object.create(null); // row -> {laid, done, outNext, ts}
     let cuttingSession = {
       active: false,
       startedAt: 0,
@@ -3937,7 +3938,7 @@
     var _apiGetMem = Object.create(null);
     var _API_READ_TTL = {
       getClients: 15000,
-      getCutting: 12000,
+      getCutting: 0,
       getCourier: 12000,
       getAssembly: 8000,
       getWarehouse: 25000,
@@ -6005,9 +6006,15 @@
         if (sessionBox) sessionBox.innerHTML = "";
         cuttingItemsCache = [];
         cuttingCompletionCache = null;
+        cuttingLocalFlags = Object.create(null);
         applyRemoteCuttingSession({ active: false, day: "", startedAt: 0 });
         if (finishBtn) finishBtn.style.display = "none";
         stopCuttingPoll();
+        return;
+      }
+      // во время записи не дёргаем getCutting — иначе в кэш/DOM попадёт старое
+      if (fromPoll && (cuttingSession.pendingWrites > 0 || Date.now() < cuttingSession.quietUntil)) {
+        tickCuttingTimer();
         return;
       }
       if (!fromPoll) {
@@ -6020,7 +6027,11 @@
         box.innerHTML = loadingDanceHtml("Считаю нарезку…");
       }
       try {
-        const res = await apiGet({ action: "getCutting", day: day });
+        const res = await apiGet({
+          action: "getCutting",
+          day: day,
+          _: String(Date.now())
+        }, { timeoutMs: 22000, cacheTtlMs: 0 });
         let completion = (res && res.completion) || null;
         if (!completion && res && res.date) completion = readCutDoneLocal(day, res.date);
         if (completion) {
@@ -6046,15 +6057,12 @@
           if (finishBtn) finishBtn.style.display = "none";
           return;
         }
-        const fp = cuttingFingerprint(res.items, res.session);
+        var items = (res.items || []).slice();
+        applyLocalCuttingFlags_(items);
+        const fp = cuttingFingerprint(items, res.session);
         applyRemoteCuttingSession(res.session || { active: false, day: day, startedAt: 0 });
-        // пока идут локальные сохранения — не перетираем галочки ответом сервера
-        if (fromPoll && (cuttingSession.pendingWrites > 0 || Date.now() < cuttingSession.quietUntil)) {
-          tickCuttingTimer();
-          return;
-        }
         // защита от отката: сервер ещё не догнал локальные галочки
-        if (fromPoll && cuttingFlagScore(res.items) < cuttingFlagScore(cuttingItemsCache)) {
+        if (fromPoll && cuttingFlagScore(items) < cuttingFlagScore(cuttingItemsCache)) {
           tickCuttingTimer();
           return;
         }
@@ -6063,7 +6071,7 @@
           return;
         }
         cuttingSession.fingerprint = fp;
-        cuttingItemsCache = res.items.slice();
+        cuttingItemsCache = items;
         sortCuttingItems();
         renderCuttingSummary();
         renderCuttingSessionBox();
@@ -6077,6 +6085,112 @@
           if (finishBtn) finishBtn.style.display = "none";
         }
       }
+    }
+
+    function rememberCuttingLocalFlag_(row, patch) {
+      row = Number(row);
+      if (!cuttingLocalFlags[row]) cuttingLocalFlags[row] = { ts: Date.now() };
+      var o = cuttingLocalFlags[row];
+      o.ts = Date.now();
+      if (patch.laid !== undefined) o.laid = !!patch.laid;
+      if (patch.done !== undefined) o.done = !!patch.done;
+      if (patch.outNext !== undefined) o.outNext = !!patch.outNext;
+    }
+
+    function clearCuttingLocalFlagIfMatch_(row, item) {
+      row = Number(row);
+      var o = cuttingLocalFlags[row];
+      if (!o || !item) return;
+      var same =
+        (o.laid === undefined || !!o.laid === !!item.laid) &&
+        (o.done === undefined || !!o.done === !!item.done) &&
+        (o.outNext === undefined || !!o.outNext === !!item.outNext);
+      if (same) delete cuttingLocalFlags[row];
+    }
+
+    function applyLocalCuttingFlags_(items) {
+      var now = Date.now();
+      (items || []).forEach(function (it) {
+        var row = Number(it.row);
+        var o = cuttingLocalFlags[row];
+        if (!o) return;
+        if ((now - (o.ts || 0)) > 120000) {
+          delete cuttingLocalFlags[row];
+          return;
+        }
+        // сервер уже совпал с локальным — оверлей больше не нужен
+        var serverMatches =
+          (o.laid === undefined || !!o.laid === !!it.laid) &&
+          (o.done === undefined || !!o.done === !!it.done) &&
+          (o.outNext === undefined || !!o.outNext === !!it.outNext);
+        if (serverMatches) {
+          delete cuttingLocalFlags[row];
+          return;
+        }
+        if (o.laid !== undefined) it.laid = !!o.laid;
+        if (o.done !== undefined) it.done = !!o.done;
+        if (o.outNext !== undefined) it.outNext = !!o.outNext;
+      });
+    }
+
+    function sleepMs_(ms) {
+      return new Promise(function (resolve) { setTimeout(resolve, ms); });
+    }
+
+    /** Надёжная запись галочки: JSONP с retry на busy + локальный оверлей */
+    async function persistCuttingFlag_(row, patch) {
+      var day = document.getElementById("cuttingDaySelect").value;
+      if (!day) return false;
+      rememberCuttingLocalFlag_(row, patch);
+      markCuttingWriteStart();
+      var ok = false;
+      var params = {
+        action: "updateCutting",
+        day: day,
+        row: String(row),
+        _: String(Date.now())
+      };
+      if (patch.laid !== undefined) params.laid = patch.laid ? "true" : "false";
+      if (patch.done !== undefined) params.done = patch.done ? "true" : "false";
+      if (patch.outNext !== undefined) params.outNext = patch.outNext ? "true" : "false";
+      if (patch.surplus !== undefined) params.surplus = String(patch.surplus);
+      try {
+        for (var attempt = 0; attempt < 4; attempt++) {
+          params._ = String(Date.now()) + "_" + attempt;
+          try {
+            var res = await apiGet(params, { timeoutMs: 22000, cacheTtlMs: 0 });
+            if (res && res.status === "success") {
+              ok = true;
+              break;
+            }
+            if (res && String(res.message || "") === "busy_retry") {
+              await sleepMs_(350 * (attempt + 1));
+              continue;
+            }
+          } catch (eGet) {
+            // CORS POST — fire-and-forget, потом проверим тихим getCutting не здесь
+            try {
+              var body = { action: "updateCutting", day: day, row: Number(row) };
+              if (patch.laid !== undefined) body.laid = !!patch.laid;
+              if (patch.done !== undefined) body.done = !!patch.done;
+              if (patch.outNext !== undefined) body.outNext = !!patch.outNext;
+              if (patch.surplus !== undefined) body.surplus = patch.surplus;
+              await apiPost(body);
+              ok = true;
+              break;
+            } catch (ePost) {}
+          }
+          await sleepMs_(300 * (attempt + 1));
+        }
+      } finally {
+        markCuttingWriteEnd();
+        // дольше держим quiet — не дать опросу откатить до догона сервера
+        cuttingSession.quietUntil = Math.max(cuttingSession.quietUntil, Date.now() + (ok ? 8000 : 15000));
+      }
+      if (!ok) {
+        showToast("Галочка не сохранилась — нажми ещё раз");
+      }
+      return ok;
     }
 
     function renderTransferOnlyHtml(tr) {
@@ -6354,12 +6468,24 @@
         <div class="cut-meta">Нужно: <b>${dryLabel}</b><br>Сырьё: <b>${rawLabel}</b></div>
         ${renderCutNoteHint(item)}
         <div class="cut-actions">
-          <label class="check-line"><input type="checkbox" ${item.laid ? "checked" : ""} onchange="toggleCutLaid(${item.row}, this.checked)"> Выложено</label>
-          <label class="check-line"><input type="checkbox" ${item.done ? "checked" : ""} onchange="toggleCutDone(${item.row}, this.checked)"> Нарезано</label>
+          <label class="check-line"><input type="checkbox" ${item.laid ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutLaid(${item.row}, this.checked)"> Выложено</label>
+          <label class="check-line"><input type="checkbox" ${item.done ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutDone(${item.row}, this.checked)"> Нарезано</label>
           <label>Излишек <input type="number" inputmode="decimal" id="surplus_${item.row}" value="${item.surplus || 0}" step="0.1"></label>
           <button class="btn-action btn-blue" style="width:auto;padding:0 14px;height:40px;" onclick="saveCutSurplus(${item.row})">Сохранить излишек</button>
         </div>
       </div>`;
+    }
+
+    function syncCutRowDomFromCache_(row) {
+      var cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
+      var el = document.getElementById("cut_" + row);
+      if (!cached || !el) return;
+      el.className = cutRowClass(cached);
+      var checks = el.querySelectorAll(".cut-actions input[type=checkbox]");
+      if (checks[0]) checks[0].checked = !!cached.laid;
+      if (checks[1]) checks[1].checked = !!cached.done;
+      var bang = el.querySelector(".cut-bang");
+      if (bang) bang.classList.toggle("active", !!cached.outNext);
     }
 
     function reorderCuttingDom() {
@@ -6371,87 +6497,79 @@
         if (el) {
           el.className = cutRowClass(it);
           box.appendChild(el);
+          syncCutRowDomFromCache_(it.row);
         }
       });
       updateCuttingCountersLive();
     }
 
     async function toggleCutLaid(row, laid) {
-      const day = document.getElementById("cuttingDaySelect").value;
       const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
+      const prev = cached ? !!cached.laid : null;
       if (cached) cached.laid = !!laid;
+      rememberCuttingLocalFlag_(row, { laid: !!laid });
       reorderCuttingDom();
-      markCuttingWriteStart();
-      try {
-        await apiGet({ action: "updateCutting", day: day, row: row, laid: laid ? "true" : "false" });
-      } catch (e) {
-        try { await apiPost({ action: "updateCutting", day: day, row: row, laid: !!laid }); } catch (e2) {}
-      } finally {
-        markCuttingWriteEnd();
+      const ok = await persistCuttingFlag_(row, { laid: !!laid });
+      if (!ok && cached && prev !== null) {
+        cached.laid = prev;
+        rememberCuttingLocalFlag_(row, { laid: prev });
+        syncCutRowDomFromCache_(row);
+        reorderCuttingDom();
       }
     }
+    window.toggleCutLaid = toggleCutLaid;
 
     async function toggleCutDone(row, done) {
-      const day = document.getElementById("cuttingDaySelect").value;
       const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
+      const prev = cached ? !!cached.done : null;
       if (cached) cached.done = !!done;
+      rememberCuttingLocalFlag_(row, { done: !!done });
       reorderCuttingDom();
       if (done) {
         try { if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light"); } catch (e) {}
       }
-      markCuttingWriteStart();
-      try {
-        await apiGet({ action: "updateCutting", day: day, row: row, done: done ? "true" : "false" });
-      } catch (e) {
-        try { await apiPost({ action: "updateCutting", day: day, row: row, done: !!done }); } catch (e2) {}
-      } finally {
-        markCuttingWriteEnd();
+      const ok = await persistCuttingFlag_(row, { done: !!done });
+      if (!ok && cached && prev !== null) {
+        cached.done = prev;
+        rememberCuttingLocalFlag_(row, { done: prev });
+        syncCutRowDomFromCache_(row);
+        reorderCuttingDom();
       }
     }
+    window.toggleCutDone = toggleCutDone;
 
     async function toggleCutOutNext(row) {
       const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
       if (!cached) return;
       const next = !cached.outNext;
-      const ok = next
+      const okAsk = next
         ? await uiConfirmAsync("Пометить «" + cached.name + "»: на эту нарезку хватает, на следующую — уже нет?")
         : await uiConfirmAsync("Снять пометку дефицита на следующую нарезку?");
-      if (!ok) return;
-      const day = document.getElementById("cuttingDaySelect").value;
+      if (!okAsk) return;
+      const prev = !!cached.outNext;
       cached.outNext = next;
-      const el = document.getElementById("cut_" + row);
-      if (el) {
-        el.className = cutRowClass(cached);
-        const bang = el.querySelector(".cut-bang");
-        if (bang) bang.classList.toggle("active", next);
-      }
-      markCuttingWriteStart();
-      try {
-        await apiGet({ action: "updateCutting", day: day, row: row, outNext: next ? "true" : "false" });
-      } catch (e) {
-        try { await apiPost({ action: "updateCutting", day: day, row: row, outNext: !!next }); } catch (e2) {}
-      } finally {
-        markCuttingWriteEnd();
+      rememberCuttingLocalFlag_(row, { outNext: next });
+      syncCutRowDomFromCache_(row);
+      const ok = await persistCuttingFlag_(row, { outNext: next });
+      if (!ok) {
+        cached.outNext = prev;
+        rememberCuttingLocalFlag_(row, { outNext: prev });
+        syncCutRowDomFromCache_(row);
+        return;
       }
       showToast(next ? "Помечено: нет на следующую" : "Пометка снята");
     }
 
     async function saveCutSurplus(row) {
-      const day = document.getElementById("cuttingDaySelect").value;
       const surplus = Number(document.getElementById("surplus_" + row).value) || 0;
       const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
       if (cached) cached.surplus = surplus;
-      markCuttingWriteStart();
-      try {
-        await apiGet({ action: "updateCutting", day: day, row: row, surplus: surplus });
-      } catch (e) {
-        try { await apiPost({ action: "updateCutting", day: day, row: row, surplus: surplus }); } catch (e2) {}
-      } finally {
-        markCuttingWriteEnd();
-      }
-      showToast("Излишек сохранён");
+      const ok = await persistCuttingFlag_(row, { surplus: surplus });
+      if (ok) showToast("Излишек сохранён");
       recoverUiFocus();
     }
+    window.toggleCutOutNext = toggleCutOutNext;
+    window.saveCutSurplus = saveCutSurplus;
 
     async function commitFinishCutting(day, ready, missing, elapsed) {
       (ready || []).forEach(function (r) {
