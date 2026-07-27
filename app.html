@@ -9,7 +9,7 @@
     /* Telegram WebView: обновление только при смене версии (без no-cache на весь файл) */
     (function () {
       try {
-        var want = "71121";
+        var want = "71129";
         var u = new URL(location.href);
         if (u.searchParams.get("v") === want) return;
         u.searchParams.set("v", want);
@@ -993,6 +993,46 @@
     }
     .week-banner h3 { margin: 0 0 8px; font-size: 16px; color: #ff9f0a; }
     .week-banner .muted { font-size: 12px; margin-bottom: 10px; }
+    .order-day-counts {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 6px;
+      margin: 0 0 10px;
+    }
+    .order-day-chip {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      min-height: 44px;
+      padding: 6px 2px;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+      background: #1a1a1a;
+      color: var(--text-color);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .order-day-chip:active { transform: scale(0.97); }
+    .order-day-chip.is-active {
+      border-color: rgba(255,122,0,0.7);
+      background: rgba(255,122,0,0.14);
+    }
+    .order-day-chip .odc-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      line-height: 1;
+      letter-spacing: 0.02em;
+    }
+    .order-day-chip .odc-count {
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .order-day-chip.is-full .odc-count { color: #ff9f0a; }
+    .order-day-chip.is-empty .odc-count { color: #6e6e73; }
     .subs-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 
 </style>
@@ -1015,7 +1055,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.28</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.29</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1067,6 +1107,14 @@
 
     <!-- МЕНЕДЖЕР: ПРИЁМ -->
     <div id="orderScreen" class="screen active">
+      <div id="orderDayCounts" class="order-day-counts" aria-label="Люди по дням недели">
+        <button type="button" class="order-day-chip is-empty" disabled><span class="odc-label">Пн</span><span class="odc-count">·</span></button>
+        <button type="button" class="order-day-chip is-empty" disabled><span class="odc-label">Вт</span><span class="odc-count">·</span></button>
+        <button type="button" class="order-day-chip is-empty" disabled><span class="odc-label">Ср</span><span class="odc-count">·</span></button>
+        <button type="button" class="order-day-chip is-empty" disabled><span class="odc-label">Чт</span><span class="odc-count">·</span></button>
+        <button type="button" class="order-day-chip is-empty" disabled><span class="odc-label">Пт</span><span class="odc-count">·</span></button>
+        <button type="button" class="order-day-chip is-empty" disabled><span class="odc-label">Буд</span><span class="odc-count">·</span></button>
+      </div>
       <div id="finishWeekBanner" class="week-banner" style="display:none;">
         <h3>Завершить неделю?</h3>
         <div class="muted">Склад (F/B), даты +7, очистка Пн–Пт, Будущая→Пн. Только владелец. Вс с 18:00 или пн до 12:00.</div>
@@ -1106,7 +1154,7 @@
         </div>
         <div class="form-group">
           <label>День недели</label>
-          <select id="day">
+          <select id="day" onchange="onOrderDaySelectChange_()">
             <option>Понедельник</option><option>Вторник</option><option>Среда</option>
             <option>Четверг</option><option>Пятница</option><option>Будущая неделя</option>
           </select>
@@ -1856,7 +1904,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.28";
+    const APP_VERSION = "v7.11.29";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -2452,6 +2500,7 @@
       try { updateTasksBadge(); } catch (eTb) {}
       if (opts.skipSwitch) {
         try { refreshWeekBanners(); } catch (e) {}
+      try { refreshOrderDayCounts_(); } catch (e2) {}
         return;
       }
       const first = allowed.filter(function (s) { return MAIN_TABS.indexOf(s) >= 0; })[0] || "orderScreen";
@@ -2467,6 +2516,7 @@
         switchTab(first);
       }
       try { refreshWeekBanners(); } catch (e) {}
+      try { refreshOrderDayCounts_(); } catch (e2) {}
       try { setTimeout(syncNavTabsPill_, 30); } catch (eP) {}
     }
 
@@ -3452,7 +3502,10 @@
         if (screenId === "statsScreen") loadStats({ soft: true });
         if (screenId === "deferredScreen") openTasksDrawer();
         if (screenId === "priceScreen") try { syncPriceEnrollUi(); } catch (eEn) {}
-        if (screenId === "orderScreen") try { refreshWeekBanners(); } catch (eO) {}
+        if (screenId === "orderScreen") {
+          try { refreshWeekBanners(); } catch (eO) {}
+          try { refreshOrderDayCounts_(); } catch (eC) {}
+        }
         if (screenId === "peopleScreen") loadPeople({ soft: true });
         if (screenId === "courierScreen") {
           // короткий тап = маршрут; сборку открывает long-press → setCourierSub после switchTab
@@ -4278,6 +4331,7 @@
 
         // без sleep + без повторного getClients — это главный тормоз после «Сохранить»
         try { apiCacheBustMem_(); } catch (eClr) {}
+        try { refreshOrderDayCounts_({ force: true }); } catch (eCnt) {}
         const inWeek = !!(weekDayToSave && basket.length);
         const savedItems = (saveRes && saveRes.wrote != null) ? Number(saveRes.wrote) : basket.length;
         try {
@@ -8604,9 +8658,112 @@
       return d.getDay() === 1 && d.getHours() < 12;
     }
 
+    function onOrderDaySelectChange_() {
+      try {
+        renderOrderDayCounts_((_orderDayCountsCache && _orderDayCountsCache.items) || null);
+      } catch (e) {}
+    }
+    window.onOrderDaySelectChange_ = onOrderDaySelectChange_;
+
     function refreshWeekBanners() {
       try { refreshWeekBannersAsync_(); } catch (e) {}
     }
+
+    var _orderDayCountsAt = 0;
+    var _orderDayCountsInFlight = null;
+    var _orderDayCountsCache = null;
+
+    function renderOrderDayCounts_(items) {
+      var box = document.getElementById("orderDayCounts");
+      if (!box) return;
+      var cur = "";
+      try { cur = String((document.getElementById("day") && document.getElementById("day").value) || ""); } catch (e0) {}
+      var list = items && items.length ? items : [
+        { day: "Понедельник", short: "Пн", count: "·" },
+        { day: "Вторник", short: "Вт", count: "·" },
+        { day: "Среда", short: "Ср", count: "·" },
+        { day: "Четверг", short: "Чт", count: "·" },
+        { day: "Пятница", short: "Пт", count: "·" },
+        { day: "Будущая неделя", short: "Буд", count: "·" }
+      ];
+      box.innerHTML = list.map(function (it) {
+        var n = it.count;
+        var num = Number(n);
+        var cls = "order-day-chip";
+        if (String(it.day) === cur) cls += " is-active";
+        if (isFinite(num)) {
+          if (num <= 0) cls += " is-empty";
+          else if (num >= 12) cls += " is-full";
+        } else {
+          cls += " is-empty";
+        }
+        var safeDay = String(it.day || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        return '<button type="button" class="' + cls + '" onclick="selectOrderDayFromCount_(\'' + safeDay + '\')">' +
+          '<span class="odc-label">' + escapeHtml(it.short || "") + "</span>" +
+          '<span class="odc-count">' + escapeHtml(String(n)) + "</span>" +
+          "</button>";
+      }).join("");
+    }
+
+    function selectOrderDayFromCount_(dayName) {
+      dayName = String(dayName || "").trim();
+      if (!dayName) return;
+      var sel = document.getElementById("day");
+      if (sel) {
+        sel.value = dayName;
+        try { sel.dispatchEvent(new Event("change")); } catch (e1) {}
+      }
+      var dateEl = document.getElementById("deliveryDate");
+      var hit = null;
+      if (_orderDayCountsCache && _orderDayCountsCache.items) {
+        for (var i = 0; i < _orderDayCountsCache.items.length; i++) {
+          if (String(_orderDayCountsCache.items[i].day) === dayName) {
+            hit = _orderDayCountsCache.items[i];
+            break;
+          }
+        }
+      }
+      if (dateEl && hit && hit.date) {
+        dateEl.value = String(hit.date).slice(0, 10);
+        try { onDeliveryDateChange(); } catch (e2) {}
+      }
+      renderOrderDayCounts_((_orderDayCountsCache && _orderDayCountsCache.items) || null);
+      showToast(dayName);
+    }
+    window.selectOrderDayFromCount_ = selectOrderDayFromCount_;
+
+    async function refreshOrderDayCounts_(opts) {
+      opts = opts || {};
+      var force = !!opts.force;
+      if (!force && _orderDayCountsAt && (Date.now() - _orderDayCountsAt) < 15000 && _orderDayCountsCache) {
+        renderOrderDayCounts_(_orderDayCountsCache.items || []);
+        return _orderDayCountsCache;
+      }
+      if (_orderDayCountsInFlight) return _orderDayCountsInFlight;
+      _orderDayCountsInFlight = (async function () {
+        try {
+          var res = await apiGet({
+            action: "getWeekDayCounts",
+            force: force ? "1" : "",
+            _: force ? String(Date.now()) : undefined
+          }, { timeoutMs: 12000, cacheTtlMs: force ? 0 : 15000 });
+          if (res && res.status === "success" && res.items) {
+            _orderDayCountsCache = res;
+            _orderDayCountsAt = Date.now();
+            renderOrderDayCounts_(res.items);
+            return res;
+          }
+          renderOrderDayCounts_(null);
+        } catch (e) {
+          renderOrderDayCounts_(null);
+        } finally {
+          _orderDayCountsInFlight = null;
+        }
+        return null;
+      })();
+      return _orderDayCountsInFlight;
+    }
+    window.refreshOrderDayCounts_ = refreshOrderDayCounts_;
 
     var _weekBannerState = { finished: false, pulled: false, refused: false, weekKey: "", finishedAt: "", by: "" };
     const FINISH_SEEN_LS = "superboyna_finish_seen_";
@@ -9873,6 +10030,7 @@
     async function maybeAskWeekPullFromMonth() {
       // v7.8: не спрашиваем на старте — баннер на главной после «Завершить неделю»
       try { refreshWeekBanners(); } catch (e) {}
+      try { refreshOrderDayCounts_(); } catch (e2) {}
     }
 
     async function runMaterializeWeek(quiet) {

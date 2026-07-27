@@ -721,6 +721,9 @@ function doGet(e) {
       e.parameter.date ? decodeURIComponent(e.parameter.date) : ""
     );
   }
+  if (action === "getWeekDayCounts") {
+    return handleGetWeekDayCounts({}, callback, false);
+  }
   if (action === "getCutting") {
     return handleGetCutting(payload.day, callback);
   }
@@ -1235,6 +1238,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "saveOrder") {
     return handleSaveOrder(ss, json, callback, fromPost);
+  }
+  if (action === "getWeekDayCounts") {
+    return handleGetWeekDayCounts(json, callback, fromPost);
   }
   if (action === "saveBooking") {
     return handleSaveBooking(ss, json, callback, fromPost);
@@ -2750,6 +2756,79 @@ function extractEmbeddedFraction(sheetFull) {
   if (u.indexOf("КРУПН") > -1) return "КРУПНОЕ";
   if (u.indexOf("ЦЕЛ") > -1) return "ЦЕЛОЕ";
   return "";
+}
+
+function isCountableClientNick_(nameClean) {
+  var t = String(nameClean || "").trim();
+  if (!t || t === "0" || t.length <= 1) return false;
+  var up = t.toUpperCase();
+  if (up === "ИТОГО НА ДЕНЬ" || up === "ИТОГО" || up === "ФАКТ СНЯТОЕ") return false;
+  return true;
+}
+
+/** Сколько людей в ник-ряду дня (без корзин — быстро). */
+function countClientsOnDayNickRow_(ss, dayName) {
+  var block = getDayBlock(dayName);
+  if (!block) return { day: dayName, count: 0, date: "" };
+  var targetSheet = getTargetSheet(ss, block);
+  if (!targetSheet) return { day: dayName, count: 0, date: "" };
+  var nickRow = block.nick;
+  var totalSheetCols = targetSheet.getLastColumn();
+  var colsToRead = totalSheetCols >= 3 ? Math.min(totalSheetCols - 2, 15) : 1;
+  var nicks = [];
+  try {
+    nicks = targetSheet.getRange(nickRow, 3, 1, colsToRead).getValues()[0] || [];
+  } catch (eR) { nicks = []; }
+  var n = 0;
+  for (var i = 0; i < nicks.length; i++) {
+    if (isCountableClientNick_(nicks[i])) n++;
+  }
+  var dateStr = "";
+  try {
+    var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+    var raw = getDayDate_(ss, dayName);
+    var d = parseFlexibleDate_(raw, tz);
+    if (d) dateStr = dateKey_(d, tz);
+  } catch (eD) {}
+  return { day: dayName, count: n, date: dateStr };
+}
+
+/** 6 счётчиков: Пн–Пт + Будущая неделя. */
+function handleGetWeekDayCounts(json, callback, fromPost) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var days = [
+    { day: "Понедельник", short: "Пн" },
+    { day: "Вторник", short: "Вт" },
+    { day: "Среда", short: "Ср" },
+    { day: "Четверг", short: "Чт" },
+    { day: "Пятница", short: "Пт" },
+    { day: "Будущая неделя", short: "Буд" }
+  ];
+  var cacheKey = "WDC:v1";
+  try {
+    if (!(json && (json.force === "1" || json.force === 1 || json.force === true))) {
+      var cached = cacheGetJson_(cacheKey);
+      if (cached && cached.status === "success") {
+        return fromPost ? jsonpText(callback, cached) : jsonp(callback, cached);
+      }
+    }
+  } catch (eC) {}
+
+  var items = [];
+  var total = 0;
+  for (var i = 0; i < days.length; i++) {
+    var row = countClientsOnDayNickRow_(ss, days[i].day);
+    items.push({
+      day: days[i].day,
+      short: days[i].short,
+      count: row.count || 0,
+      date: row.date || ""
+    });
+    total += Number(row.count) || 0;
+  }
+  var ok = { status: "success", items: items, total: total };
+  try { cachePutJson_(cacheKey, ok, 20); } catch (ePut) {}
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
 function handleGetClients(dayName, callback, dateStr) {
