@@ -2537,7 +2537,7 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   if (!nickNow) targetSheet.getRange(block.nick, clientCol).setValue(String(json.client || "").trim());
 
   if (json.address) targetSheet.getRange(block.addr, clientCol).setValue(json.address);
-  // TEL в примечании столбца нужен Просмотру/курьеру; GEO по-прежнему не кладём
+  // телефон только в поле phone / лист «Клиенты» — в примечание столбца НЕ пишем [TEL:]
   var cleanNote = stripGeoTagsFromNote_(String(json.note || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim());
   // тип заказа — [SEG:…] чтобы при редактировании не путать БП с розницей
   var otSave = String(json.orderType || json.source || "").trim().toLowerCase();
@@ -2562,7 +2562,6 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   }
   var phoneSave = String(json.phone || "").trim();
   if (!phoneSave) phoneSave = extractPhoneFromNote_(String(json.note || ""));
-  if (phoneSave) cleanNote = applyTelTag_(cleanNote, phoneSave);
   if (cleanNote) targetSheet.getRange(block.note, clientCol).setValue(cleanNote);
 
   var geo = json.geo || null;
@@ -3046,17 +3045,19 @@ function getClientsData_(ss, dayName) {
         if (legacyGeo) noteStr = stripGeoTagsFromNote_(noteStr);
         var geoObj = geoIndex[nameClean.toUpperCase()] || legacyGeo || null;
         var phone = "";
-        var telM = noteStr.match(/\[TEL:([^\]]+)\]/i);
-        if (telM) phone = String(telM[1] || "").trim();
+        // сначала профиль «Клиенты», потом legacy [TEL:] / голый номер в примечании
+        var pk = clientMatchKey_(nameClean) || nameClean.toUpperCase();
+        phone = (pk && phoneIndex[pk]) || phoneIndex[nameClean.toUpperCase()] || "";
+        if (!phone) {
+          var telM = noteStr.match(/\[TEL:([^\]]+)\]/i);
+          if (telM) phone = String(telM[1] || "").trim();
+        }
         if (!phone) {
           var phM = noteStr.match(/(\+?375[\s\-]?\d{2}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})/);
           if (phM) phone = phM[1].replace(/\s+/g, "");
         }
-        // телефон из профиля «Клиенты», если в столбце дня его нет
-        if (!phone) {
-          var pk = clientMatchKey_(nameClean) || nameClean.toUpperCase();
-          phone = (pk && phoneIndex[pk]) || phoneIndex[nameClean.toUpperCase()] || "";
-        }
+        // на выдачу — без [TEL:] в note (телефон отдельным полем)
+        noteStr = String(noteStr || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim();
         var segFromNote = "";
         var segMatch = String(noteStr || "").match(/\[SEG:([^\]]+)\]/i);
         if (segMatch) segFromNote = String(segMatch[1] || "").trim().toUpperCase();
@@ -5460,7 +5461,7 @@ function handleSaveBooking(ss, json, callback, fromPost) {
     note = String(note || "").replace(/\[ЦЕНА:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
     note = ("[ЦЕНА: " + Number(json.orderPrice) + " BYN]" + (note ? " " + note : "")).trim();
   }
-  if (json.phone) note = applyTelTag_(note, json.phone);
+  note = String(note || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim();
   if (json.subId) note = ("[SUB:" + String(json.subId).trim() + "] " + note).trim();
   var dayName = findDayNameForDate_(ss, deliveryDate) || "";
   var sh = getBookingsSheet_();
@@ -6292,9 +6293,11 @@ function mergePullNote_(req) {
   req = req || {};
   var parts = [];
   if (req.segment) parts.push("[SEG:" + String(req.segment).toUpperCase() + "]");
-  if (req.phone) parts.push("[TEL:" + String(req.phone).trim() + "]");
-  if (req.note) parts.push(String(req.note).trim());
-  return parts.join(" ").trim();
+  // телефон не кладём в note — только отдельное поле / лист Клиенты
+  if (req.note) {
+    parts.push(String(req.note).replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim());
+  }
+  return parts.filter(Boolean).join(" ").trim();
 }
 
 function handleEnsureDayMaterialized(json, callback, fromPost) {
@@ -6775,10 +6778,8 @@ function extractPhoneFromNote_(note) {
 }
 
 function applyTelTag_(note, phone) {
-  var clean = String(note || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim();
-  phone = String(phone || "").trim();
-  if (!phone) return clean;
-  return (clean ? clean + " " : "") + "[TEL:" + phone + "]";
+  // устарело: телефон только в поле phone / «Клиенты» — тег [TEL:] из примечания убираем
+  return String(note || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim();
 }
 
 function lookupClientProfilePhone_(ss, nick) {
@@ -7631,11 +7632,10 @@ function syncCrmIntoBookings_(ss, deliveryDate, opts) {
     var noteParts = [];
     if (subId) noteParts.push("[SUB:" + subId + "]");
     if (c.segment) noteParts.push("[SEG:" + c.segment + "]");
-    if (phone) noteParts.push("[TEL:" + phone + "]");
-    if (c.note) noteParts.push(c.note);
-    if (contact.note) noteParts.push(contact.note);
+    if (c.note) noteParts.push(String(c.note).replace(/\[TEL:[^\]]+\]/gi, "").trim());
+    if (contact.note) noteParts.push(String(contact.note).replace(/\[TEL:[^\]]+\]/gi, "").trim());
     if (filled.hint) noteParts.push(filled.hint);
-    var note = noteParts.join(" ").trim();
+    var note = noteParts.filter(Boolean).join(" ").replace(/\s{2,}/g, " ").trim();
     var now = new Date();
     var id = existing ? existing.id : ("crm" + Date.now() + "_" + Math.floor(Math.random() * 1e5));
     var clientName = displayClientNick_(c.client);
