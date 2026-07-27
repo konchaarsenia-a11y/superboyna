@@ -408,6 +408,24 @@
       gap: 6px;
       margin-top: 4px;
     }
+    .survey-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .survey-grid .sub-row {
+      white-space: normal;
+    }
+    .survey-grid .sub-row-nick {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .survey-grid .sub-row-meta {
+      white-space: normal;
+      line-height: 1.35;
+    }
     .sub-row {
       display: flex; flex-direction: column; align-items: stretch; gap: 2px;
       padding: 8px 9px; margin-bottom: 0;
@@ -433,8 +451,35 @@
     .sub-row.bp-green { border-left:4px solid #30d158; }
     .sub-row.bp-orange { border-left:4px solid #ff9f0a; }
     .sub-row.bp-red { border-left:4px solid #ff453a; }
-    .sub-row.bp-select { display:flex; gap:8px; align-items:flex-start; }
-    .sub-row.bp-select input[type=checkbox] { margin-top:6px; }
+    .sub-row.bp-select { display:flex; gap:10px; align-items:center; }
+    .sub-row.bp-edit-on { cursor: pointer; }
+    .sub-row.bp-picked {
+      outline: 2px solid #0a84ff;
+      background: #1a2a3a;
+    }
+    .bp-pick-hit {
+      flex: 0 0 48px;
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      border: 2px solid #48484a;
+      background: #2c2c2e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      line-height: 1;
+      color: #8e8e93;
+      user-select: none;
+    }
+    .sub-row.bp-picked .bp-pick-hit {
+      border-color: #0a84ff;
+      background: #0a84ff;
+      color: #fff;
+    }
+    .bp-edit-bar { display:none; width:100%; gap:6px; flex-wrap:wrap; align-items:center; margin-top:4px; }
+    .bp-edit-bar.on { display:flex; }
+    .bp-edit-hint { font-size:12px; color:#8e8e93; flex:1 1 100%; }
     .sub-detail-basket {
       margin-top: 8px; max-height: 45vh; overflow-y: auto;
       border-top: 1px dashed var(--border-color); padding-top: 8px;
@@ -972,7 +1017,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.00</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.19</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1340,7 +1385,7 @@
             <button type="button" class="seg-btn" data-seg="Опросник" onclick="setSubsSegment('Опросник')">Опросник</button>
           </div>
           <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
-            <button class="btn-action btn-blue" type="button" style="margin:0;flex:1;padding:8px;" onclick="loadSubscriptions()">Обновить</button>
+            <button class="btn-action btn-blue" type="button" style="margin:0;flex:1;padding:8px;" onclick="refreshSubscriptions()">Обновить</button>
             <span class="subs-count" id="subsCount" style="margin:0;flex:0 0 auto;"></span>
           </div>
           <div class="subs-search-wrap form-group" style="margin-bottom:0;">
@@ -1350,30 +1395,39 @@
 
         <div id="bpFilterRow" class="bp-filter-row" style="display:none;">
           <button type="button" class="bp-chip active" data-bp="all" onclick="setBpListFilter('all')">Все</button>
-          <button type="button" class="bp-chip" data-bp="green" onclick="setBpListFilter('green')">БП1 · 1-я доставка</button>
-          <button type="button" class="bp-chip" data-bp="orange" onclick="setBpListFilter('orange')">БП2 · 2-я доставка</button>
-          <button type="button" class="bp-chip" data-bp="red" onclick="setBpListFilter('red')">Финал · опрос / думает</button>
-          <button type="button" class="btn-action" style="padding:6px 10px;margin:0;background:#3a3a3c;" onclick="bpBatchDelete()">Удалить выбранных</button>
+          <button type="button" class="bp-chip" data-bp="green" onclick="setBpListFilter('green')">БП1 · 1-я доставка (+опрос через 4д)</button>
+          <button type="button" class="bp-chip" data-bp="orange" onclick="setBpListFilter('orange')">БП2 · после 1-й / опрос на 2-ю</button>
+          <button type="button" class="bp-chip" data-bp="red" onclick="setBpListFilter('red')">Финал · 2-я доставка (+опрос через 4д)</button>
           <button type="button" class="btn-action btn-green" style="padding:6px 10px;margin:0;" onclick="openAddBpClientForm()">+ Клиент БП</button>
+          <button type="button" id="bpEditToggleBtn" class="btn-action" style="padding:6px 10px;margin:0;background:#3a3a3c;" onclick="toggleBpEditMode()">Редактировать</button>
+          <div id="bpEditBar" class="bp-edit-bar">
+            <span class="bp-edit-hint">Жми на иконку человека — выбрать. Потом удали.</span>
+            <button type="button" class="btn-action" style="padding:8px 12px;margin:0;background:#5a1a1a;color:#ff8a80;" onclick="bpBatchDelete()">Удалить выбранных</button>
+            <button type="button" class="btn-action" style="padding:8px 12px;margin:0;background:#3a3a3c;" onclick="toggleBpEditMode(false)">Готово</button>
+          </div>
         </div>
         <div id="bpAddCard" class="card" style="display:none;margin-top:8px;">
           <div class="section-title" style="margin-top:0;">Новый клиент БП</div>
+          <div class="muted" style="font-size:12px;margin-bottom:8px;">Опросник: после 1-й доставки (+4 дня) и после 2-й (+4 дня = финал).</div>
           <div class="form-group">
             <label>Ник / Instagram</label>
             <input type="text" id="bpAddNick" placeholder="es_furman или Имя nick">
           </div>
           <div class="form-group">
             <label>Этап</label>
-            <select id="bpAddStage">
-              <option value="БП1">БП1 — ждёт набор (зелёный)</option>
-              <option value="БП1_SURVEY">БП1 — ждёт опросник на БП2 (оранжевый)</option>
-              <option value="БП2">БП2 — набор / после пробника</option>
-              <option value="БП2_FINAL">БП2 — ждёт финальный опросник (красный)</option>
+            <select id="bpAddStage" onchange="onBpAddStageChange_()">
+              <option value="БП1">БП1 — внесена 1-я доставка</option>
+              <option value="БП2">БП2 — после 1-й, опрос / договорённость о 2-й</option>
+              <option value="ФИНАЛ">Финал — внесена 2-я доставка</option>
             </select>
           </div>
-          <div class="form-group">
-            <label>Дата опросника (если этап с опросом)</label>
+          <div class="form-group" id="bpAddSurveyDateWrap">
+            <label id="bpAddSurveyDateLabel">Дата опросника (пусто = +4 дня)</label>
             <input type="date" id="bpAddSurveyDate">
+          </div>
+          <div class="form-group">
+            <label>Ответственный менеджер</label>
+            <select id="bpAddOwner"><option value="">— выберите —</option></select>
           </div>
           <div class="form-group">
             <label>Адрес (необяз.)</label>
@@ -1412,10 +1466,15 @@
         </div>
         <div class="form-group">
           <label>Доставок / мес (N)</label>
-          <input type="number" id="subDetailDeliveries" min="1" max="8" inputmode="numeric">
+          <input type="number" id="subDetailDeliveries" min="1" max="8" inputmode="numeric" oninput="scheduleSubDetailFactRecalc_()" onchange="scheduleSubDetailFactRecalc_()">
         </div>
-        <div class="form-group">
-          <label>Статус</label>
+        <div class="form-group" id="subDetailStatusWrap">
+          <label>Статус / этап</label>
+          <select id="subDetailStatusSelect" style="display:none;" onchange="onBpCardStageChange_()">
+            <option value="БП1">БП1 — внесена 1-я доставка (+опрос через 4д)</option>
+            <option value="БП2">БП2 — после 1-й / опрос на 2-ю</option>
+            <option value="ФИНАЛ">Финал — внесена 2-я (+финал опрос через 4д)</option>
+          </select>
           <input type="text" id="subDetailStatus" placeholder="ПП1 / …">
         </div>
         <div class="form-group">
@@ -1430,21 +1489,42 @@
           <label>Телефон</label>
           <input type="text" id="subDetailPhone" placeholder="+375…" inputmode="tel">
         </div>
-        <div class="form-group">
-          <label>Факт стоимость</label>
-          <input type="number" id="subDetailFact" step="0.01" inputmode="decimal">
+
+        <div id="subDetailPpPriceBox" style="display:none;margin:12px 0;padding:12px;background:#1c1c1e;border-radius:12px;border:1px solid #3a3a3c;">
+          <div class="section-title" style="margin:0 0 8px;font-size:15px;">Цена ПП (факт)</div>
+          <div class="form-group" id="subDetailCoefWrap" style="margin-bottom:8px;">
+            <label>Коэффициент</label>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input type="number" id="subDetailCoef" value="2.3" min="0.1" max="10" step="0.1" inputmode="decimal"
+                style="flex:1;min-width:90px;"
+                oninput="scheduleSubDetailFactRecalc_()" onchange="scheduleSubDetailFactRecalc_()" onblur="scheduleSubDetailFactRecalc_()">
+              <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2)">2.0</button>
+              <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2.3)">2.3</button>
+              <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2.5)">2.5</button>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:4px;">
+            <label>Факт стоимость (BYN)</label>
+            <input type="number" id="subDetailFact" step="0.01" inputmode="decimal" style="font-size:22px;font-weight:700;color:#30d158;">
+            <div class="muted" id="subDetailFactHint" style="font-size:12px;margin-top:6px;">себест × коэф + 11 + 6×N + пакеты + фракции</div>
+          </div>
+          <button type="button" class="btn-action btn-blue" style="margin:8px 0 0;width:100%;" onclick="recalcSubDetailFactCost_()">Пересчитать цену</button>
         </div>
 
         <div id="subDetailBpMap" style="display:none;margin:10px 0;padding:10px;background:#1c1c1e;border-radius:10px;">
           <div class="muted" style="font-size:12px;margin-bottom:6px;">Карта БП</div>
           <div id="subDetailBpMapText" class="muted" style="font-size:13px;"></div>
           <div class="form-group" style="margin-top:8px;">
-            <label>Опросник БП2 (дата)</label>
+            <label>Опросник после 1-й доставки (дата)</label>
             <input type="date" id="subDetailSurveyBp2">
           </div>
           <div class="form-group">
-            <label>Финальный опросник (дата)</label>
+            <label>Финальный опросник после 2-й (дата)</label>
             <input type="date" id="subDetailSurveyFinal">
+          </div>
+          <div class="form-group">
+            <label>Ответственный менеджер</label>
+            <select id="subDetailOwner"><option value="">—</option></select>
           </div>
           <div class="seg-row" style="margin-top:8px;">
             <button type="button" class="seg-btn active" id="bpBasketTab1" onclick="setBpBasketTab(1)">Состав БП1</button>
@@ -1697,7 +1777,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.00";
+    const APP_VERSION = "v7.11.19";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3581,6 +3661,7 @@
       weekPullStatus: 12000,
       getViewCompare: 10000,
       calcPrice: 30000,
+      calcPpFact: 0,
       findClientMatch: 20000,
       getPpFactCost: 20000,
       getPpOrderSuggest: 15000,
@@ -3828,17 +3909,9 @@
       }
       var surveyMeta = null;
       if (orderType === "bp" && !secondDogMode) {
-        var createBp = await uiConfirmAsync("Этого человека ещё нет в БП?\nСоздать карточку БП1 с этим составом?");
-        surveyMeta = { createCard: !!createBp, needSurvey: false, surveyDate: "", surveyKind: "bp2" };
-        if (createBp) {
-          var needSur = await uiConfirmAsync("Запланировать опросник?");
-          if (needSur) {
-            var kindPick = await uiConfirmAsync("ОК = опросник на БП2\nОтмена = финальный (после БП2 → ПП)");
-            surveyMeta.surveyKind = kindPick ? "bp2" : "final";
-            surveyMeta.needSurvey = true;
-            surveyMeta.surveyDate = prompt("Дата опросника (ГГГГ-ММ-ДД), пусто = сегодня", "") || "";
-          }
-        }
+        surveyMeta = await resolveBpOrderChain_(clientName, deliveryDate || "");
+        if (surveyMeta === false) return; // abort (нет ответственного и т.п.)
+        // null = заказ без обновления карточки БП
       }
       {
         var hasText = (orderNotes || []).some(function (n) { return String(n.text || "").trim(); });
@@ -4163,12 +4236,21 @@
             var bpBasketMapped = basket.map(function(g){
               return { cat:g.cat, main:g.main||g.name, name:g.name||g.main, sub:g.sub||"", val:g.val!=null?g.val:g.value, value:g.val!=null?g.val:g.value };
             });
+            var bpStatus = normalizeBpStage_(surveyMeta.status || "БП1");
+            var bpKind = surveyMeta.surveyKind || (bpStatus === "ФИНАЛ" ? "final" : "bp2");
+            var bpDue = surveyMeta.surveyDate || ymdPlusDaysLocal_(deliveryDate || "", 4);
             await apiGet({
               action: "ensureBpFromOrder",
               nick: clientName,
               createCard: "1",
-              surveyDate: surveyMeta.surveyDate || "",
-              surveyKind: surveyMeta.surveyKind || "bp2",
+              needSurvey: surveyMeta.needSurvey ? "1" : "0",
+              status: bpStatus,
+              surveyDate: bpDue,
+              surveyKind: bpKind,
+              compositionDate: deliveryDate || "",
+              subId: surveyMeta.subId || "",
+              ownerTelegramId: surveyMeta.ownerTelegramId || "",
+              ownerName: surveyMeta.ownerName || "",
               wishes: clientNote || "",
               basket: JSON.stringify(bpBasketMapped)
             }, { timeoutMs: 60000, cacheTtlMs: 0 });
@@ -4177,13 +4259,23 @@
                 action: "ensureBpFromOrder",
                 nick: clientName,
                 createCard: true,
-                surveyDate: surveyMeta.surveyDate || "",
-                surveyKind: surveyMeta.surveyKind || "bp2",
+                needSurvey: !!surveyMeta.needSurvey,
+                status: bpStatus,
+                surveyDate: bpDue,
+                surveyKind: bpKind,
+                compositionDate: deliveryDate || "",
+                subId: surveyMeta.subId || "",
+                ownerTelegramId: surveyMeta.ownerTelegramId || "",
+                ownerName: surveyMeta.ownerName || "",
                 wishes: clientNote || "",
                 basket: bpBasketMapped
               });
             } catch (ePostBp) {}
-            showToast("Карточка БП1 создана/обновлена");
+            var toastBp = bpStatus === "ФИНАЛ"
+              ? ("Финал · опрос через 4 дня (" + bpDue + ")")
+              : ("БП · " + bpStatus + " · опрос через 4 дня (" + bpDue + ")");
+            if (surveyMeta.advance === "to_final") toastBp = "2-я доставка → Финал · опрос " + bpDue;
+            showToast(toastBp);
           } catch (eBp) { showToast("Заказ ок, БП-карточку проверь вручную"); }
         }
 
@@ -8397,6 +8489,8 @@
     const FINISH_DONE_LS = "superboyna_finish_done_";
     let subsSegment = "ПП";
     var bpListFilter = "all";
+    var bpEditMode = false;
+    var bpPicked = Object.create(null); // key -> {nick,label,subId}
     var bpBasketTab = 1;
     var subDetailBasketBp1 = [];
     var subDetailBasketBp2 = [];
@@ -8718,24 +8812,269 @@
     }
     window.setBpListFilter = setBpListFilter;
 
+    function syncBpEditBarUi_() {
+      var bar = document.getElementById("bpEditBar");
+      var btn = document.getElementById("bpEditToggleBtn");
+      if (bar) bar.classList.toggle("on", !!bpEditMode);
+      if (btn) {
+        btn.textContent = bpEditMode ? "Выбор вкл." : "Редактировать";
+        btn.style.background = bpEditMode ? "#0a84ff" : "#3a3a3c";
+      }
+    }
+
+    function toggleBpEditMode(force) {
+      if (typeof force === "boolean") bpEditMode = force;
+      else bpEditMode = !bpEditMode;
+      if (!bpEditMode) bpPicked = Object.create(null);
+      syncBpEditBarUi_();
+      renderSubsList();
+      if (bpEditMode) showToast("Режим выбора: жми на человека");
+    }
+    window.toggleBpEditMode = toggleBpEditMode;
+
+    function bpPickKey_(s) {
+      return String((s && (s.subId || s.nick || s.label)) || "").trim().toUpperCase();
+    }
+
+    function onBpRowClick(i, ev) {
+      if (ev) {
+        try { ev.preventDefault(); ev.stopPropagation(); } catch (e0) {}
+      }
+      var list = window._subsListCache || [];
+      var s = list[i];
+      if (!s) return;
+      if (!bpEditMode || subsSegment !== "БП") {
+        openSubDetail(i);
+        return;
+      }
+      var key = bpPickKey_(s);
+      if (!key) return;
+      if (bpPicked[key]) delete bpPicked[key];
+      else {
+        bpPicked[key] = {
+          nick: s.nick || s.label || "",
+          label: s.label || s.nick || "",
+          subId: s.subId || ""
+        };
+      }
+      renderSubsList();
+    }
+    window.onBpRowClick = onBpRowClick;
+
     function todayYmdLocal_() {
       var d = new Date();
       return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
     }
 
-    function openAddBpClientForm() {
+    function ymdPlusDaysLocal_(ymd, days) {
+      var d;
+      if (ymd && /^\d{4}-\d{2}-\d{2}/.test(ymd)) {
+        var p = String(ymd).slice(0, 10).split("-");
+        d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+      } else {
+        d = new Date();
+      }
+      d.setDate(d.getDate() + (Number(days) || 0));
+      return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    }
+
+    async function fillOwnerSelect_(selectId, selectedId) {
+      var sel = document.getElementById(selectId);
+      if (!sel) return;
+      var people = [];
+      try { people = await loadReminderPeople_(); } catch (eP) { people = []; }
+      var cur = String(selectedId || sel.value || "").trim();
+      var html = '<option value="">— выберите —</option>';
+      for (var i = 0; i < people.length; i++) {
+        var p = people[i] || {};
+        var id = String(p.telegramId || "").trim();
+        if (!id) continue;
+        var label = (p.name || p.username || id);
+        if (p.role) label += " · " + p.role;
+        html += '<option value="' + escapeHtml(id) + '"' + (id === cur ? " selected" : "") + ">" + escapeHtml(label) + "</option>";
+      }
+      sel.innerHTML = html;
+      if (cur) sel.value = cur;
+    }
+
+    function ownerFromSelect_(selectId) {
+      var sel = document.getElementById(selectId);
+      if (!sel || !sel.value) return { telegramId: "", name: "" };
+      var opt = sel.options[sel.selectedIndex];
+      var name = opt ? String(opt.textContent || "").replace(/\s·\s.*$/, "").trim() : "";
+      return { telegramId: String(sel.value).trim(), name: name };
+    }
+
+    async function openAddBpClientForm() {
       var card = document.getElementById("bpAddCard");
       if (!card) return;
       card.style.display = "block";
       var nick = document.getElementById("bpAddNick");
       if (nick) nick.focus();
-      var sd = document.getElementById("bpAddSurveyDate");
-      if (sd && !sd.value) sd.value = todayYmdLocal_();
+      var stage = document.getElementById("bpAddStage");
+      if (stage && !stage.value) stage.value = "БП1";
+      onBpAddStageChange_();
+      try { await fillOwnerSelect_("bpAddOwner", myTelegramId || ""); } catch (eO) {}
     }
+
+    function onBpAddStageChange_() {
+      var stage = (document.getElementById("bpAddStage") && document.getElementById("bpAddStage").value) || "БП1";
+      var wrap = document.getElementById("bpAddSurveyDateWrap");
+      var lab = document.getElementById("bpAddSurveyDateLabel");
+      var sd = document.getElementById("bpAddSurveyDate");
+      if (wrap) wrap.style.display = "block";
+      if (lab) {
+        lab.textContent = stage === "ФИНАЛ"
+          ? "Дата финального опросника (пусто = +4 дня после 2-й)"
+          : "Дата опросника после 1-й доставки (пусто = +4 дня)";
+      }
+      if (sd && !sd.value) sd.value = ymdPlusDaysLocal_("", 4);
+    }
+    window.onBpAddStageChange_ = onBpAddStageChange_;
 
     function closeAddBpClientForm() {
       var card = document.getElementById("bpAddCard");
       if (card) card.style.display = "none";
+    }
+
+    /** Канон этапов БП: БП1 | БП2 | ФИНАЛ */
+    function normalizeBpStage_(raw) {
+      var u = String(raw || "").trim().toUpperCase();
+      if (!u) return "БП1";
+      if (/ФИНАЛ|FINAL|БП2_FINAL|БП2FINAL/.test(u)) return "ФИНАЛ";
+      if (/БП1_SURVEY|БП1SURVEY|ОПРОС/.test(u)) return "БП2";
+      if (/\bБП2\b/.test(u) || /^БП2/.test(u) || u.indexOf("БП2") >= 0) return "БП2";
+      if (/ДУМА/.test(u)) return "ФИНАЛ";
+      return "БП1";
+    }
+
+    /**
+     * Цепочка БП при сохранении заказа:
+     * нет в БП → БП1 + опрос после 1-й;
+     * уже БП1/БП2 → предложить 2-ю доставку → Финал + финальный опрос;
+     * уже Финал → обновить состав/дату финального опроса.
+     * return: meta | null (без карточки) | false (abort save)
+     */
+    async function resolveBpOrderChain_(clientName, deliveryDate) {
+      var existing = null;
+      try {
+        showToast("Ищу в БП…");
+        var res = await apiGet({
+          action: "getSubscription",
+          nick: clientName,
+          segment: "БП",
+          sheet: "БП",
+          _: String(Date.now())
+        }, { timeoutMs: 22000, cacheTtlMs: 0 });
+        if (res && res.status === "success" && (res.nick || res.label || res.rowIndex)) {
+          existing = res;
+        }
+      } catch (eLook) {}
+
+      async function ensureOwner_(seed) {
+        if (seed && seed.telegramId) return seed;
+        var ownerPick = await pickReminderTargetAsync_();
+        if (!ownerPick || !ownerPick.telegramId) {
+          showToast("Нужен ответственный менеджер");
+          return null;
+        }
+        return { telegramId: ownerPick.telegramId || "", name: ownerPick.name || "" };
+      }
+
+      if (!existing) {
+        var createBp = await uiConfirmAsync(
+          "«" + clientName + "» ещё нет в БП.\nСоздать карточку БП1 (1-я доставка)?\nОпросник — через 4 дня после получения."
+        );
+        if (!createBp) return null;
+        var ownNew = await ensureOwner_(null);
+        if (!ownNew) return false;
+        return {
+          createCard: true,
+          needSurvey: true,
+          status: "БП1",
+          stage: "БП1",
+          surveyDate: ymdPlusDaysLocal_(deliveryDate || "", 4),
+          surveyKind: "bp2",
+          ownerTelegramId: ownNew.telegramId,
+          ownerName: ownNew.name,
+          subId: "",
+          advance: "new"
+        };
+      }
+
+      var st = normalizeBpStage_(existing.ppStatus || existing.status || existing.stage || "БП1");
+      var seedOwner = {
+        telegramId: existing.ownerTelegramId || "",
+        name: existing.ownerName || ""
+      };
+      var due = ymdPlusDaysLocal_(deliveryDate || "", 4);
+
+      if (st === "ФИНАЛ") {
+        var updFin = await uiConfirmAsync(
+          "«" + clientName + "» уже в Финале БП.\nОбновить состав 2-й доставки и дату финального опросника на " + due + "?"
+        );
+        if (!updFin) return null;
+        var ownFin = await ensureOwner_(seedOwner);
+        if (!ownFin) return false;
+        return {
+          createCard: true,
+          needSurvey: true,
+          status: "ФИНАЛ",
+          stage: "ФИНАЛ",
+          surveyDate: due,
+          surveyKind: "final",
+          ownerTelegramId: ownFin.telegramId,
+          ownerName: ownFin.name,
+          subId: existing.subId || "",
+          advance: "refresh_final"
+        };
+      }
+
+      var go2 = await uiConfirmAsync(
+        "«" + clientName + "» уже в БП (" + st + ").\nЭто 2-я доставка?\n→ Финал + финальный опросник на " + due + "."
+      );
+      if (go2) {
+        var own2 = await ensureOwner_(seedOwner);
+        if (!own2) return false;
+        return {
+          createCard: true,
+          needSurvey: true,
+          status: "ФИНАЛ",
+          stage: "ФИНАЛ",
+          surveyDate: due,
+          surveyKind: "final",
+          ownerTelegramId: own2.telegramId,
+          ownerName: own2.name,
+          subId: existing.subId || "",
+          advance: "to_final"
+        };
+      }
+
+      var stay1 = await uiConfirmAsync(
+        "Оставить этап " + st + " и обновить состав 1-й доставки?\nОпросник после 1-й → " + due + "."
+      );
+      if (!stay1) return null;
+      var own1 = await ensureOwner_(seedOwner);
+      if (!own1) return false;
+      return {
+        createCard: true,
+        needSurvey: true,
+        status: st === "БП2" ? "БП2" : "БП1",
+        stage: st === "БП2" ? "БП2" : "БП1",
+        surveyDate: due,
+        surveyKind: "bp2",
+        ownerTelegramId: own1.telegramId,
+        ownerName: own1.name,
+        subId: existing.subId || "",
+        advance: "refresh_first"
+      };
+    }
+    window.resolveBpOrderChain_ = resolveBpOrderChain_;
+
+    function bpStageSurveyKind_(stage) {
+      var st = normalizeBpStage_(stage);
+      if (st === "ФИНАЛ") return "final";
+      return "bp2"; // БП1 и БП2 — опросник после 1-й доставки
     }
 
     async function submitAddBpClient() {
@@ -8746,89 +9085,82 @@
         return;
       }
       var stageEl = document.getElementById("bpAddStage");
-      var stageKey = stageEl ? String(stageEl.value || "БП1") : "БП1";
+      var status = normalizeBpStage_(stageEl ? stageEl.value : "БП1");
+      var surveyKind = bpStageSurveyKind_(status);
+      var needSurvey = !!surveyKind;
       var surveyDateEl = document.getElementById("bpAddSurveyDate");
       var surveyDate = surveyDateEl ? String(surveyDateEl.value || "").trim() : "";
       var address = (document.getElementById("bpAddAddress") && document.getElementById("bpAddAddress").value) || "";
       var phone = (document.getElementById("bpAddPhone") && document.getElementById("bpAddPhone").value) || "";
       var wishes = (document.getElementById("bpAddWishes") && document.getElementById("bpAddWishes").value) || "";
-      var status = "БП1";
-      var surveyKind = "";
-      if (stageKey === "БП1") {
-        status = "БП1";
-        surveyKind = "";
-        surveyDate = "";
-      } else if (stageKey === "БП1_SURVEY") {
-        status = "БП1";
-        surveyKind = "bp2";
-        if (!surveyDate) surveyDate = todayYmdLocal_();
-      } else if (stageKey === "БП2") {
-        status = "БП2";
-        surveyKind = "";
-        surveyDate = "";
-      } else if (stageKey === "БП2_FINAL") {
-        status = "БП2";
-        surveyKind = "final";
-        if (!surveyDate) surveyDate = todayYmdLocal_();
+      var owner = ownerFromSelect_("bpAddOwner");
+      if (!owner.telegramId) {
+        showToast("Выбери ответственного менеджера");
+        return;
       }
+      if (needSurvey && !surveyDate) surveyDate = ymdPlusDaysLocal_("", 4);
       var payload = {
         action: "ensureBpFromOrder",
         nick: nick,
         createCard: true,
+        needSurvey: needSurvey ? "1" : "0",
         status: status,
-        surveyDate: surveyDate || "",
+        surveyDate: needSurvey ? (surveyDate || "") : "",
         surveyKind: surveyKind || "",
         wishes: String(wishes || "").trim(),
         address: String(address || "").trim(),
         phone: String(phone || "").trim(),
+        ownerTelegramId: owner.telegramId,
+        ownerName: owner.name,
         basket: []
       };
       try {
         try {
           await apiPost(payload);
         } catch (ePost) {}
-        await apiGet({
+        var res = await apiGet({
           action: "ensureBpFromOrder",
           nick: nick,
           createCard: "1",
+          needSurvey: needSurvey ? "1" : "0",
           status: status,
-          surveyDate: surveyDate || "",
+          surveyDate: needSurvey ? (surveyDate || "") : "",
           surveyKind: surveyKind || "",
           wishes: String(wishes || "").trim(),
           address: String(address || "").trim(),
           phone: String(phone || "").trim(),
+          ownerTelegramId: owner.telegramId,
+          ownerName: owner.name,
           basket: "[]"
         }, { timeoutMs: 60000, cacheTtlMs: 0 });
-        if (surveyDate && surveyKind) {
-          var tplId = surveyKind === "final" ? "final" : "bp2";
+        if (!res || res.status !== "success") {
+          showToast("Не создалось: " + ((res && res.message) || "Deploy Code.gs"));
+          return;
+        }
+        if (needSurvey && (!res.survey || !res.survey.id)) {
           try {
-            await apiPost({
+            var sv = await apiGet({
               action: "saveSurvey",
               nick: nick,
-              kind: surveyKind,
-              dueDate: surveyDate,
+              kind: surveyKind || "bp2",
+              dueDate: surveyDate || ymdPlusDaysLocal_("", 4),
               stage: status,
               status: "planned",
-              templateId: tplId
-            });
-          } catch (eSv) {
-            try {
-              await apiGet({
-                action: "saveSurvey",
-                nick: nick,
-                kind: surveyKind,
-                dueDate: surveyDate,
-                stage: status,
-                status: "planned",
-                templateId: tplId
-              }, { timeoutMs: 20000, cacheTtlMs: 0 });
-            } catch (eSv2) {}
-          }
+              templateId: surveyKind === "final" ? "survey_final" : "survey_bp2",
+              ownerTelegramId: owner.telegramId,
+              ownerName: owner.name,
+              note: "from_manual_bp",
+              _: String(Date.now())
+            }, { timeoutMs: 45000, cacheTtlMs: 0 });
+            if (sv && sv.status === "success") res.survey = sv.item;
+          } catch (eSv) {}
         }
-        showToast("Клиент БП создан");
+        var msg = "БП · " + status;
+        if (needSurvey) msg += " · опрос " + ((res.survey && res.survey.dueDate) || surveyDate || "");
+        showToast(msg);
         closeAddBpClientForm();
         if (nickEl) nickEl.value = "";
-        await loadSubscriptions();
+        await loadSubscriptions({ force: true });
         try {
           var list = window._subsListCache || window._subsListFull || [];
           var idx = -1;
@@ -8840,7 +9172,7 @@
           if (idx >= 0 && typeof openSubDetail === "function") openSubDetail(idx);
         } catch (eOpen) {}
       } catch (e) {
-        showToast("Ошибка создания БП — нужен Deploy Code.gs v7.10.85");
+        showToast("Ошибка создания БП — нужен Deploy Code.gs v7.11.17");
       }
     }
     window.openAddBpClientForm = openAddBpClientForm;
@@ -8849,23 +9181,67 @@
 
     function bpStageColor_(s) {
       // green = БП1 ждёт 1-ю доставку
-      // orange = БП2 ждёт 2-ю (или опросник после 1-й на пути к БП2)
-      // red = финал: опросник после 2-й / думает после него
-      var st = String(s.status || s.stage || "").toUpperCase();
-      var finalDue = String(s.surveyFinalDue || "").trim();
-      var bp2Due = String(s.surveyBp2Due || "").trim();
-      var nDel = Number(s.deliveries != null ? s.deliveries : s.deliveriesN);
-      if (!isFinite(nDel)) nDel = -1;
-
-      if (/ФИНАЛ|FINAL|БП2_FINAL/.test(st) || finalDue) return "red";
-      if (/ДУМА/.test(st)) return "red";
-      if (nDel >= 2 && !/БП1/.test(st)) return "red";
-
-      if (/БП2/.test(st)) return "orange";
-      if (/SURVEY|ОПРОС|БП1_SURVEY/.test(st) || bp2Due) return "orange";
-      if (nDel === 1) return "orange";
-
+      // orange = БП2 получил 1-ю, ждёт опросник / 2-ю
+      // red = ФИНАЛ получил 2-ю (+опрос → ПП)
+      var st = normalizeBpStage_(s && (s.status || s.stage || s.ppStatus));
+      if (st === "ФИНАЛ") return "red";
+      if (st === "БП2") return "orange";
+      var finalDue = surveyDueYmdLocal_(s && s.surveyFinalDue);
+      var bp2Due = surveyDueYmdLocal_(s && s.surveyBp2Due);
+      var today = todayYmdLocal_();
+      if (finalDue && finalDue <= today) return "red";
+      if (bp2Due) return "orange";
       return "green";
+    }
+
+    function surveyDueYmdLocal_(raw) {
+      var s = String(raw || "").trim();
+      if (!s) return "";
+      var m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+      return m ? m[1] : s.slice(0, 10);
+    }
+
+    function onBpCardStageChange_() {
+      var sel = document.getElementById("subDetailStatusSelect");
+      var stage = normalizeBpStage_(sel && sel.value);
+      if (sel) sel.value = stage;
+      var statusInp = document.getElementById("subDetailStatus");
+      if (statusInp) statusInp.value = stage;
+      var d2 = document.getElementById("subDetailSurveyBp2");
+      var df = document.getElementById("subDetailSurveyFinal");
+      var d2Wrap = d2 ? d2.closest(".form-group") : null;
+      var dfWrap = df ? df.closest(".form-group") : null;
+      var isFinal = stage === "ФИНАЛ";
+      if (d2Wrap) d2Wrap.style.display = isFinal ? "none" : "block";
+      if (dfWrap) dfWrap.style.display = isFinal ? "block" : "none";
+      if (!isFinal && d2 && !d2.value) d2.value = ymdPlusDaysLocal_("", 4);
+      if (isFinal && df && !df.value) df.value = ymdPlusDaysLocal_("", 4);
+      var mapTxt = document.getElementById("subDetailBpMapText");
+      if (mapTxt) {
+        var tip = stage === "ФИНАЛ"
+          ? "2-я доставка · финальный опрос через 4 дня"
+          : (stage === "БП2"
+            ? "после 1-й · опрос / договорённость о 2-й"
+            : "1-я доставка · опрос через 4 дня");
+        mapTxt.textContent = "Этап: " + stage + " · " + tip;
+      }
+    }
+    window.onBpCardStageChange_ = onBpCardStageChange_;
+
+    function applyBpStatusUi_(sheet, statusRaw) {
+      var isBp = String(sheet || "") === "БП";
+      var sel = document.getElementById("subDetailStatusSelect");
+      var statusInp = document.getElementById("subDetailStatus");
+      if (!sel || !statusInp) return;
+      if (isBp) {
+        sel.style.display = "block";
+        statusInp.style.display = "none";
+        sel.value = normalizeBpStage_(statusRaw);
+        onBpCardStageChange_();
+      } else {
+        sel.style.display = "none";
+        statusInp.style.display = "block";
+      }
     }
 
     function groupBpSubscriptions_(list) {
@@ -8887,6 +9263,8 @@
           if (/БП2/.test(st) && (s.basket || s.basketBp2)) cur.basketBp2 = s.basketBp2 || s.basket || cur.basketBp2;
           if (s.surveyBp2Due) cur.surveyBp2Due = s.surveyBp2Due;
           if (s.surveyFinalDue) cur.surveyFinalDue = s.surveyFinalDue;
+          if (s.ownerTelegramId) cur.ownerTelegramId = s.ownerTelegramId;
+          if (s.ownerName) cur.ownerName = s.ownerName;
           if (s.wishes) cur.wishes = (cur.wishes ? cur.wishes + "\n" : "") + s.wishes;
           if (st && (!cur.status || st.length >= String(cur.status).length)) cur.status = st;
         }
@@ -8912,25 +9290,64 @@
     }
 
     async function bpBatchDelete() {
-      var boxes = document.querySelectorAll("#subsContainer input.bp-sel:checked");
-      if (!boxes.length) { showToast("Никого не выбрано"); return; }
-      var nicks = [];
-      boxes.forEach(function (cb) { nicks.push(cb.getAttribute("data-nick") || ""); });
-      nicks = nicks.filter(Boolean);
-      var ok = await uiConfirmAsync("Удалить из БП: " + nicks.length + " чел.?");
-      if (!ok) return;
-      for (var i = 0; i < nicks.length; i++) {
-        try {
-          await apiGet({
-            action: "deleteSubscription",
-            nick: nicks[i],
-            sheet: "БП",
-            segment: "БП",
-            _: String(Date.now())
-          }, { timeoutMs: 30000, cacheTtlMs: 0 });
-        } catch (e) {}
+      if (!bpEditMode) {
+        toggleBpEditMode(true);
+        showToast("Сначала выбери людей");
+        return;
       }
-      showToast("Удалено");
+      var keys = Object.keys(bpPicked);
+      if (!keys.length) { showToast("Никого не выбрано — жми на иконку человека"); return; }
+      var targets = keys.map(function (k) { return bpPicked[k]; })
+        .filter(function (t) { return t && (t.nick || t.label || t.subId); });
+      var ok = await uiConfirmAsync("Удалить из БП: " + targets.length + " чел.?");
+      if (!ok) return;
+      var okN = 0;
+      var fail = [];
+      for (var i = 0; i < targets.length; i++) {
+        var t = targets[i];
+        var attempts = [
+          { nick: t.label || t.nick, subId: t.subId || "" },
+          { nick: t.nick || t.label, subId: t.subId || "" },
+          { nick: t.label || t.nick, subId: "" },
+          { nick: "", subId: t.subId || "" }
+        ];
+        var done = false;
+        var lastMsg = "";
+        for (var a = 0; a < attempts.length; a++) {
+          if (!attempts[a].nick && !attempts[a].subId) continue;
+          try {
+            var res = await apiGet({
+              action: "deleteSubscription",
+              nick: attempts[a].nick || "",
+              subId: attempts[a].subId || "",
+              sheet: "БП",
+              segment: "БП",
+              _: String(Date.now()) + "_" + i + "_" + a
+            }, { timeoutMs: 30000, cacheTtlMs: 0 });
+            if (res && res.status === "success" && (res.deletedCount > 0 || res.deletedRow)) {
+              okN++;
+              done = true;
+              break;
+            }
+            lastMsg = (res && res.message) || "ошибка";
+          } catch (e) {
+            lastMsg = "сеть";
+          }
+        }
+        if (!done) fail.push((t.nick || t.label || t.subId) + ": " + lastMsg);
+      }
+      try { apiCacheBustMem_(); } catch (eClr) {}
+      bpPicked = Object.create(null);
+      bpEditMode = false;
+      syncBpEditBarUi_();
+      if (fail.length) {
+        await uiAlertAsync("Удалено " + okN + " из " + targets.length + ".\n" + fail.slice(0, 6).join("\n") +
+          (fail.length > 6 ? "\n…" : "") + "\n\nНужен Deploy Code.gs v7.11.06 (фикс «себестоимость»).");
+      } else if (okN) {
+        showToast("Удалено: " + okN);
+      } else {
+        showToast("Никого не удалили");
+      }
       await loadSubscriptions();
     }
     window.bpBatchDelete = bpBatchDelete;
@@ -9005,6 +9422,11 @@
 
     function setSubsSegment(seg, opts) {
       opts = opts || {};
+      if (seg !== "БП" && bpEditMode) {
+        bpEditMode = false;
+        bpPicked = Object.create(null);
+        syncBpEditBarUi_();
+      }
       subsSegment = seg;
       document.querySelectorAll("#subsTabs .seg-btn").forEach(function (b) {
         b.classList.toggle("active", b.getAttribute("data-seg") === seg);
@@ -10068,65 +10490,225 @@
     window.lockSubsScreen = lockSubsScreen;
 
     var _subsLoadSeq = 0;
+    var _surveyKindFilter = "bp2"; // bp2 | final | all
+
+    function setSurveyKindFilter(kind) {
+      _surveyKindFilter = kind === "final" ? "final" : (kind === "all" ? "all" : "bp2");
+      try { renderSurveyList_(); } catch (eR) {}
+    }
+    window.setSurveyKindFilter = setSurveyKindFilter;
+
+    function surveyNickOneLine_(raw) {
+      var s = String(raw || "").replace(/\r/g, "\n").split("\n")[0] || "";
+      s = s.replace(/^\s*@/, "").trim();
+      if (/^(БП1|БП2|БП|ПП|АФК|ФИНАЛ)$/i.test(s)) return "";
+      if (/станет|финальн|^\d{1,2}\s*[-–]?\s*[еeо]\b/i.test(s)) return "";
+      return s;
+    }
+
+    function renderSurveyList_() {
+      var box = document.getElementById("subsContainer");
+      if (!box) return;
+      var items = window._surveyList || [];
+      var html = '<div class="seg-row" style="margin-bottom:8px;flex-wrap:wrap;gap:6px;">' +
+        '<button type="button" class="bp-chip' + (_surveyKindFilter === "bp2" ? " active" : "") + '" onclick="setSurveyKindFilter(\'bp2\')">БП2</button>' +
+        '<button type="button" class="bp-chip' + (_surveyKindFilter === "final" ? " active" : "") + '" onclick="setSurveyKindFilter(\'final\')">ПП · финал</button>' +
+        '<button type="button" class="bp-chip' + (_surveyKindFilter === "all" ? " active" : "") + '" onclick="setSurveyKindFilter(\'all\')">Все типы</button>' +
+        '<button type="button" class="btn-action btn-green" style="padding:6px 10px;margin:0;" onclick="openAddSurveyForm()">+ Опросник</button>' +
+        '<button type="button" class="btn-action" style="padding:6px 10px;margin:0;background:#5a1a1a;color:#ff8a80;" onclick="surveyBatchDelete()">Удалить выбранных</button>' +
+        "</div>";
+      html += '<div class="muted" style="font-size:12px;margin-bottom:6px;">Только с датой отправки сегодня или позже. Без даты и прошлое — удаляются с листа.</div>';
+      html += '<div id="surveyAddCard" style="display:none;" class="card"></div>';
+      var filtered = [];
+      var seen = Object.create(null);
+      var today = todayYmdLocal_();
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i] || {};
+        var st = String(it.status || "").toLowerCase();
+        if (st !== "planned" && st !== "due") continue;
+        if (String(it.sentAt || "").trim()) continue;
+        var nick = surveyNickOneLine_(it.nick);
+        if (!nick) continue;
+        if (/станет|финальн|^\d{1,2}\s*[-–]?\s*[еeо]\b/i.test(nick)) continue;
+        var due = String(it.dueDate || "").slice(0, 10);
+        // строго: нужна валидная дата ≥ сегодня
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(due) || due < today) continue;
+        var k = String(it.kind || "").toLowerCase();
+        var isFinal = k === "final" || /финал|пп|final/.test(k);
+        if (_surveyKindFilter === "bp2" && isFinal) continue;
+        if (_surveyKindFilter === "final" && !isFinal) continue;
+        var key = nick.toUpperCase() + "|" + (isFinal ? "final" : "bp2") + "|" + due;
+        if (seen[key]) continue;
+        seen[key] = true;
+        filtered.push({
+          index: i,
+          nick: nick,
+          kind: isFinal ? "final" : "bp2",
+          dueDate: due,
+          status: it.status || "planned",
+          ownerName: it.ownerName || "",
+          ownerTelegramId: it.ownerTelegramId || "",
+          linkedSheet: it.linkedSheet || "",
+          id: it.id || "",
+          stage: it.stage || "",
+          templateId: it.templateId || "",
+          note: it.note || ""
+        });
+      }
+      if (!filtered.length) {
+        html += '<p class="muted">Нет опросников с датой отправки ≥ сегодня</p>';
+        box.innerHTML = html;
+        return;
+      }
+      html += '<div class="survey-grid">' + filtered.map(function (g) {
+        var kindLabel = g.kind === "final" ? "ПП · финал" : "БП2";
+        var meta = [
+          kindLabel,
+          g.dueDate ? ("до " + g.dueDate) : "",
+          g.status || ""
+        ].filter(Boolean).join(" · ");
+        var ownerSelId = "surveyOwner_" + g.index;
+        return '<div class="sub-row" style="display:flex;gap:8px;align-items:flex-start;">' +
+          '<input type="checkbox" class="survey-sel" data-id="' + escapeHtml(g.id) + '" data-nick="' + escapeHtml(g.nick) + '" onclick="event.stopPropagation()">' +
+          '<div style="flex:1;min-width:0;">' +
+          '<div class="sub-row-nick">' + escapeHtml(g.nick) + "</div>" +
+          '<div class="sub-row-meta">' + escapeHtml(meta) + "</div>" +
+          '<div class="form-group" style="margin:8px 0 0;">' +
+          '<label style="font-size:12px;">Ответственный</label>' +
+          '<select id="' + ownerSelId + '" data-survey-idx="' + g.index + '"><option value="">—</option></select>' +
+          "</div>" +
+          '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">' +
+          '<button type="button" class="seg-btn" onclick="saveSurveyOwner(' + g.index + ')">Сохранить отв.</button>' +
+          '<button type="button" class="seg-btn" onclick="markSurveyStatus(' + g.index + ',\'done\')">Готово</button>' +
+          '<button type="button" class="seg-btn" onclick="markSurveyStatus(' + g.index + ',\'cancelled\')">Отмена</button>' +
+          "</div></div></div>";
+      }).join("") + "</div>";
+      box.innerHTML = html;
+      // заполнить селекты ответственных
+      (async function () {
+        var people = [];
+        try { people = await loadReminderPeople_(); } catch (eP) { people = []; }
+        for (var fi = 0; fi < filtered.length; fi++) {
+          var g2 = filtered[fi];
+          var sel = document.getElementById("surveyOwner_" + g2.index);
+          if (!sel) continue;
+          var cur = String(g2.ownerTelegramId || "").trim();
+          var opts = '<option value="">— выберите —</option>';
+          for (var pi = 0; pi < people.length; pi++) {
+            var p = people[pi] || {};
+            var pid = String(p.telegramId || "").trim();
+            if (!pid) continue;
+            var label = (p.name || p.username || pid);
+            if (p.role) label += " · " + p.role;
+            opts += '<option value="' + escapeHtml(pid) + '"' + (pid === cur ? " selected" : "") + ">" + escapeHtml(label) + "</option>";
+          }
+          sel.innerHTML = opts;
+          if (cur) sel.value = cur;
+        }
+      })();
+    }
+
+    async function surveyBatchDelete() {
+      var boxes = document.querySelectorAll("#subsContainer input.survey-sel:checked");
+      if (!boxes.length) { showToast("Никого не выбрано"); return; }
+      var ids = [];
+      var nicks = [];
+      boxes.forEach(function (cb) {
+        var id = cb.getAttribute("data-id") || "";
+        var nick = cb.getAttribute("data-nick") || "";
+        if (id) ids.push(id);
+        if (nick) nicks.push(nick);
+      });
+      var ok = await uiConfirmAsync("Удалить (отменить) опросников: " + boxes.length + "?");
+      if (!ok) return;
+      try {
+        showToast("Удаляю…");
+        var res = null;
+        try {
+          res = await apiPost({ action: "deleteSurveyBatch", ids: ids, nicks: nicks });
+        } catch (ePost) {}
+        if (!res || res.status !== "success") {
+          res = await apiGet({
+            action: "deleteSurveyBatch",
+            ids: JSON.stringify(ids),
+            nicks: JSON.stringify(nicks),
+            _: String(Date.now())
+          }, { timeoutMs: 45000, cacheTtlMs: 0 });
+        }
+        if (!res || res.status !== "success") {
+          // fallback: по одному
+          var n = 0;
+          for (var i = 0; i < ids.length; i++) {
+            try {
+              var one = await apiGet({ action: "deleteSurvey", id: ids[i], _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
+              if (one && one.status === "success") n++;
+            } catch (e1) {}
+          }
+          showToast("Удалено: " + n);
+        } else {
+          showToast("Удалено: " + (res.cancelled != null ? res.cancelled : ids.length));
+        }
+        await loadSurveyTab_();
+      } catch (e) {
+        showToast("Нужен Deploy Code.gs v7.11.09");
+      }
+    }
+    window.surveyBatchDelete = surveyBatchDelete;
+
+    async function repairSurveysUi() {
+      try {
+        showToast("Чиню лист «Опросник»…");
+        var res = await apiGet({ action: "repairSurveys", _: String(Date.now()) }, { timeoutMs: 60000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          await uiAlertAsync("Не вышло: " + ((res && res.message) || "нужен Deploy Code.gs v7.11.09"));
+          return;
+        }
+        showToast("Готово: " + (res.count || 0) + " чел.");
+        await loadSurveyTab_();
+      } catch (e) {
+        showToast("Deploy Code.gs v7.11.09");
+      }
+    }
+    window.repairSurveysUi = repairSurveysUi;
+
     async function loadSurveyTab_() {
       var box = document.getElementById("subsContainer");
       box.innerHTML = '<p class="muted">Загрузка опросников…</p>';
       try {
-        var res = await apiGet({ action: "listSurvey", _: String(Date.now()) }, { timeoutMs: 20000, cacheTtlMs: 0 });
+        var res = await apiGet({ action: "listSurvey", activeOnly: "1" }, { timeoutMs: 45000 });
         var items = (res && res.items) || [];
         window._surveyList = items;
-        var tpl = [];
-        try {
-          var tr = await apiGet({ action: "listTemplates", kind: "survey" }, { timeoutMs: 10000, cacheTtlMs: 30000 });
-          tpl = (tr && tr.templates) || (tr && tr.items) || [];
-        } catch (eT) {}
-        window._surveyTemplates = tpl;
-        var html = '<div style="margin-bottom:8px;"><button type="button" class="btn-action btn-green" onclick="openAddSurveyForm()">+ Опросник</button></div>';
-        html += '<div id="surveyAddCard" style="display:none;" class="card"></div>';
-        if (tpl.length) {
-          html += '<div class="muted" style="font-size:12px;margin-bottom:8px;">Шаблоны: ' +
-            tpl.map(function(t){ return escapeHtml(t.id || t.title || ""); }).join(", ") + '</div>';
+        if (res && res.purged > 0) showToast("С листа убрано: " + res.purged);
+        var tpl = window._surveyTemplates;
+        if (!tpl || !tpl.length) {
+          try {
+            var tr = await apiGet({ action: "listTemplates", kind: "survey" }, { timeoutMs: 10000, cacheTtlMs: 60000 });
+            tpl = (tr && tr.templates) || (tr && tr.items) || [];
+            window._surveyTemplates = tpl;
+          } catch (eT) { tpl = []; }
         }
-        if (!items.length) html += '<p class="muted">Пока пусто — лист «Опросник» создастся при первом сохранении (Deploy).</p>';
-        else {
-          html += items.map(function(it, i) {
-            return '<div class="sub-row" style="display:block;">' +
-              '<b>' + escapeHtml(it.nick || "?") + '</b> · ' + escapeHtml(it.kind || "") +
-              ' · due ' + escapeHtml(it.dueDate || "—") +
-              ' · <span class="client-badge">' + escapeHtml(it.status || "") + '</span>' +
-              '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">' +
-              '<button type="button" class="seg-btn" onclick="markSurveyStatus(' + i + ',\'done\')">Готово</button>' +
-              '<button type="button" class="seg-btn" onclick="markSurveyStatus(' + i + ',\'cancelled\')">Отмена</button>' +
-              '</div></div>';
-          }).join("");
-        }
-        box.innerHTML = html;
+        renderSurveyList_();
       } catch (e) {
-        box.innerHTML = '<p class="muted">Ошибка listSurvey — нужен Deploy Code.gs v7.10.85</p>';
+        box.innerHTML = '<p class="muted">Ошибка listSurvey — нужен Deploy Code.gs v7.11.12</p>';
       }
     }
 
-    function openAddSurveyForm() {
+    async function openAddSurveyForm() {
       var card = document.getElementById("surveyAddCard");
       if (!card) return;
-      var tpl = window._surveyTemplates || [];
-      var opts = tpl.map(function (t) {
-        var id = t.id || t.title || "";
-        return '<option value="' + escapeHtml(id) + '">' + escapeHtml(t.title || id) + '</option>';
-      }).join("");
-      if (!opts) {
-        opts = '<option value="bp2">bp2</option><option value="final">final</option>';
-      }
       card.innerHTML =
         '<div class="section-title" style="margin-top:0;">Новый опросник</div>' +
         '<div class="form-group"><label>Ник</label><input type="text" id="surveyAddNick"></div>' +
-        '<div class="form-group"><label>Kind</label><select id="surveyAddKind"><option value="bp2">bp2</option><option value="final">final</option></select></div>' +
-        '<div class="form-group"><label>Дата</label><input type="date" id="surveyAddDue" value="' + todayYmdLocal_() + '"></div>' +
-        '<div class="form-group"><label>Этап</label><input type="text" id="surveyAddStage" placeholder="БП1 / БП2"></div>' +
-        '<div class="form-group"><label>Шаблон</label><select id="surveyAddTemplate">' + opts + '</select></div>' +
+        '<div class="form-group"><label>Тип</label><select id="surveyAddKind">' +
+        '<option value="bp2">После БП1 — опросник на БП2</option>' +
+        '<option value="final">После БП2 — финальный (→ ПП)</option>' +
+        "</select></div>" +
+        '<div class="form-group"><label>Дата отправки</label><input type="date" id="surveyAddDue" value="' + ymdPlusDaysLocal_("", 4) + '"></div>' +
+        '<div class="form-group"><label>Ответственный</label><select id="surveyAddOwner"><option value="">—</option></select></div>' +
         '<button type="button" class="btn-action btn-blue" onclick="submitAddSurvey()">Сохранить</button>' +
         '<button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="closeAddSurveyForm()">Отмена</button>';
       card.style.display = "block";
+      try { await fillOwnerSelect_("surveyAddOwner", myTelegramId || ""); } catch (eO) {}
     }
 
     function closeAddSurveyForm() {
@@ -10138,54 +10720,115 @@
       var nick = (document.getElementById("surveyAddNick") && document.getElementById("surveyAddNick").value || "").trim();
       if (!nick) { showToast("Укажи ник"); return; }
       var kind = (document.getElementById("surveyAddKind") && document.getElementById("surveyAddKind").value) || "bp2";
-      var due = (document.getElementById("surveyAddDue") && document.getElementById("surveyAddDue").value) || todayYmdLocal_();
-      var stage = (document.getElementById("surveyAddStage") && document.getElementById("surveyAddStage").value) || "";
-      var templateId = (document.getElementById("surveyAddTemplate") && document.getElementById("surveyAddTemplate").value) || kind;
+      var due = (document.getElementById("surveyAddDue") && document.getElementById("surveyAddDue").value) || ymdPlusDaysLocal_("", 4);
+      due = String(due).slice(0, 10);
+      var stage = kind === "final" ? "ФИНАЛ" : "БП2";
+      var templateId = kind === "final" ? "survey_final" : "survey_bp2";
+      var owner = ownerFromSelect_("surveyAddOwner");
       try {
-        await apiPost({
+        var res = await apiGet({
           action: "saveSurvey",
           nick: nick,
           kind: kind,
           dueDate: due,
           stage: stage,
           status: "planned",
-          templateId: templateId
-        });
-        showToast("Опросник сохранён");
+          templateId: templateId,
+          ownerTelegramId: owner.telegramId || "",
+          ownerName: owner.name || "",
+          _: String(Date.now())
+        }, { timeoutMs: 45000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          showToast("Не сохранилось: " + ((res && res.message) || "Deploy v7.11.14"));
+          return;
+        }
+        var savedDue = (res.item && res.item.dueDate) ? String(res.item.dueDate).slice(0, 10) : due;
+        showToast("Опросник на " + savedDue);
         closeAddSurveyForm();
         await loadSurveyTab_();
       } catch (e) {
-        showToast("Ошибка saveSurvey — Deploy Code.gs v7.10.85");
+        showToast("Ошибка saveSurvey — Deploy Code.gs v7.11.14");
       }
     }
 
     async function markSurveyStatus(index, status) {
       var items = window._surveyList || [];
       var it = items[index];
-      if (!it) return;
+      if (!it) { showToast("Строка не найдена"); return; }
+      var owner = ownerFromSelect_("surveyOwner_" + index);
+      var payload = {
+        action: "saveSurvey",
+        id: it.id || "",
+        nick: it.nick || "",
+        kind: it.kind || "bp2",
+        dueDate: String(it.dueDate || "").slice(0, 10),
+        stage: it.stage || "",
+        status: status,
+        templateId: it.templateId || (String(it.kind || "").indexOf("final") >= 0 ? "survey_final" : "survey_bp2"),
+        ownerTelegramId: owner.telegramId || it.ownerTelegramId || "",
+        ownerName: owner.name || it.ownerName || "",
+        _: String(Date.now())
+      };
       try {
-        await apiPost({
-          action: "saveSurvey",
-          nick: it.nick || "",
-          kind: it.kind || "",
-          dueDate: it.dueDate || "",
-          stage: it.stage || "",
-          status: status,
-          templateId: it.templateId || it.kind || ""
-        });
+        showToast(status === "done" ? "Сохраняю…" : "Отменяю…");
+        var res = await apiGet(payload, { timeoutMs: 45000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          // fallback: отмена по id
+          if (status === "cancelled" && it.id) {
+            res = await apiGet({ action: "deleteSurvey", id: it.id, _: String(Date.now()) }, { timeoutMs: 30000, cacheTtlMs: 0 });
+          }
+        }
+        if (!res || res.status !== "success") {
+          showToast("Не вышло: " + ((res && res.message) || "Deploy Code.gs v7.11.10"));
+          return;
+        }
         showToast(status === "done" ? "Готово" : "Отменено");
         await loadSurveyTab_();
+      } catch (e) {
+        showToast("Ошибка saveSurvey — Deploy v7.11.10");
+      }
+    }
+
+    async function saveSurveyOwner(index) {
+      var items = window._surveyList || [];
+      var it = items[index];
+      if (!it) return;
+      var owner = ownerFromSelect_("surveyOwner_" + index);
+      if (!owner.telegramId) { showToast("Выбери ответственного"); return; }
+      try {
+        var res = await apiGet({
+          action: "saveSurvey",
+          id: it.id || "",
+          nick: it.nick || "",
+          kind: it.kind || "bp2",
+          dueDate: String(it.dueDate || "").slice(0, 10),
+          stage: it.stage || "",
+          status: it.status || "planned",
+          templateId: it.templateId || "",
+          ownerTelegramId: owner.telegramId,
+          ownerName: owner.name,
+          _: String(Date.now())
+        }, { timeoutMs: 45000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          showToast("Не сохранилось — Deploy v7.11.10");
+          return;
+        }
+        if (res.item) items[index] = res.item;
+        showToast("Ответственный: " + (owner.name || owner.telegramId));
       } catch (e) {
         showToast("Ошибка saveSurvey");
       }
     }
+    window.saveSurveyOwner = saveSurveyOwner;
     window.loadSurveyTab_ = loadSurveyTab_;
     window.openAddSurveyForm = openAddSurveyForm;
     window.closeAddSurveyForm = closeAddSurveyForm;
     window.submitAddSurvey = submitAddSurvey;
     window.markSurveyStatus = markSurveyStatus;
 
-    async function loadSubscriptions() {
+    async function loadSubscriptions(opts) {
+      opts = opts || {};
+      var force = !!opts.force;
 
       if (!isSubsUnlocked()) {
         enterSubsScreen();
@@ -10196,6 +10839,13 @@
       if (countEl) countEl.textContent = "";
       var fr = document.getElementById("bpFilterRow");
       if (fr) fr.style.display = (subsSegment === "БП") ? "flex" : "none";
+      if (subsSegment !== "БП") {
+        bpEditMode = false;
+        bpPicked = Object.create(null);
+        syncBpEditBarUi_();
+      } else {
+        syncBpEditBarUi_();
+      }
       var bpAdd = document.getElementById("bpAddCard");
       if (bpAdd && subsSegment !== "БП") bpAdd.style.display = "none";
       if (subsSegment === "Опросник") {
@@ -10206,19 +10856,30 @@
       }
       var seq = ++_subsLoadSeq;
       var wantSheet = subsSegment;
-      box.innerHTML = '<p class="muted">Загрузка…</p>';
+      if (!force && window._subsListFull && window._subsListFull.length && window._subsListSheet === wantSheet) {
+        renderSubsList();
+      } else {
+        box.innerHTML = '<p class="muted">Загрузка…</p>';
+      }
       try {
-        try { apiCacheBustMem_(); } catch (eMem) {}
-        var res = await apiGet({
+        if (force) {
+          try { apiCacheBustMem_("listSubscriptions"); } catch (eMem) {}
+        }
+        var params = {
           action: "listSubscriptions",
           sheet: wantSheet,
-          segment: wantSheet,
-          _: String(Date.now())
-        }, { timeoutMs: 22000, cacheTtlMs: 0 });
+          segment: wantSheet
+        };
+        if (force) params._ = String(Date.now());
+        var res = await apiGet(params, {
+          timeoutMs: 22000,
+          cacheTtlMs: force ? 0 : 20000
+        });
         if (seq !== _subsLoadSeq || wantSheet !== subsSegment) return;
         if (!res || res.status !== "success") {
           window._subsListFull = [];
           window._subsListCache = [];
+          window._subsListSheet = "";
           var why = (res && (res.message || res.detail)) ? String(res.message || res.detail) : "нет ответа";
           box.innerHTML = '<p class="muted">CRM: ' + escapeHtml(why) + '. Нужен Deploy Code.gs (v7.10.52+)</p>';
           return;
@@ -10228,15 +10889,22 @@
         });
         if (wantSheet === "БП") list = groupBpSubscriptions_(list);
         window._subsListFull = list;
+        window._subsListSheet = wantSheet;
         renderSubsList();
       } catch (e) {
         if (seq !== _subsLoadSeq) return;
         window._subsListFull = [];
         window._subsListCache = [];
+        window._subsListSheet = "";
         box.innerHTML = '<p class="muted">Ошибка загрузки подписок. Deploy Code.gs v7.10.52+</p>';
       }
     }
     window.loadSubscriptions = loadSubscriptions;
+
+    function refreshSubscriptions() {
+      return loadSubscriptions({ force: true });
+    }
+    window.refreshSubscriptions = refreshSubscriptions;
 
     function normSubsSearch(s) {
       return String(s || "")
@@ -10299,17 +10967,26 @@
         var nick = s.nick || s.label || "";
         var meta = ["N=" + (s.deliveries || 0), s.status || ""].filter(Boolean).join(" · ");
         var color = (subsSegment === "БП") ? bpStageColor_(s) : "";
-        var rowClass = "sub-row" + (color ? (" bp-" + color + " bp-select") : "");
-        var check = (subsSegment === "БП")
-          ? ('<input type="checkbox" class="bp-sel" data-nick="' + escapeHtml(nick) + '" onclick="event.stopPropagation()">')
+        var isBp = subsSegment === "БП";
+        var key = isBp ? bpPickKey_(s) : "";
+        var picked = !!(isBp && bpEditMode && key && bpPicked[key]);
+        var rowClass = "sub-row" +
+          (color ? (" bp-" + color) : "") +
+          (isBp ? " bp-select" : "") +
+          (isBp && bpEditMode ? " bp-edit-on" : "") +
+          (picked ? " bp-picked" : "");
+        var pickHit = (isBp && bpEditMode)
+          ? ('<div class="bp-pick-hit" aria-hidden="true">' + (picked ? "✓" : "👤") + "</div>")
           : "";
-        return '<div class="' + rowClass + '" role="button" tabindex="0" onclick="openSubDetail(' + i + ')">' +
-          check +
+        return '<div class="' + rowClass + '" role="button" tabindex="0" onclick="onBpRowClick(' + i + ', event)">' +
+          pickHit +
           '<div class="sub-row-main">' +
           '<div class="sub-row-nick">' + escapeHtml(nick) + "</div>" +
           (meta ? '<div class="sub-row-meta">' + escapeHtml(meta) + "</div>" : "") +
+          (isBp && bpEditMode ? '<div class="sub-row-meta">' + (picked ? "выбран · ещё раз снять" : "нажми чтобы выбрать") + "</div>" : "") +
           "</div></div>";
       }).join("") + "</div>";
+      if (subsSegment === "БП") syncBpEditBarUi_();
     }
     window.renderSubsList = renderSubsList;
 
@@ -10342,11 +11019,185 @@
     }
     window.renderSubDetailBasket = renderSubDetailBasket;
 
+    var _subDetailFactTimer = null;
+    var _subDetailFactSeq = 0;
+
+    function setSubDetailCoef_(v) {
+      var el = document.getElementById("subDetailCoef");
+      if (el) el.value = String(v);
+      scheduleSubDetailFactRecalc_();
+    }
+    window.setSubDetailCoef_ = setSubDetailCoef_;
+
+    function syncSubDetailPpPriceUi_(sheet) {
+      var box = document.getElementById("subDetailPpPriceBox");
+      var isPp = String(sheet || "") === "ПП";
+      if (box) box.style.display = isPp ? "block" : "none";
+    }
+
+    function scheduleSubDetailFactRecalc_() {
+      var sheet = (document.getElementById("subDetailSheet") && document.getElementById("subDetailSheet").value) || "";
+      if (sheet !== "ПП") return;
+      clearTimeout(_subDetailFactTimer);
+      _subDetailFactTimer = setTimeout(function () {
+        recalcSubDetailFactCost_();
+      }, 180);
+    }
+    window.scheduleSubDetailFactRecalc_ = scheduleSubDetailFactRecalc_;
+
+    function parsePpCoefFromWishes_(wishes) {
+      var m = String(wishes || "").match(/\[COEF:([0-9]+(?:[.,][0-9]+)?)\]/i);
+      if (!m) return null;
+      var v = Number(String(m[1]).replace(",", "."));
+      return (isFinite(v) && v > 0) ? v : null;
+    }
+
+    function stripPpCoefFromWishes_(wishes) {
+      return String(wishes || "").replace(/\[COEF:[^\]]*\]/gi, "").replace(/\s+/g, " ").trim();
+    }
+
+    function stampPpCoefIntoWishes_(wishes, coef) {
+      var base = stripPpCoefFromWishes_(wishes);
+      var v = Number(coef);
+      if (!isFinite(v) || v <= 0) return base;
+      var tag = "[COEF:" + (Math.round(v * 1000) / 1000) + "]";
+      return (base + (base ? " " : "") + tag).trim();
+    }
+
+    function subDetailCoefValue_() {
+      var el = document.getElementById("subDetailCoef");
+      var v = el ? Number(String(el.value || "").replace(",", ".")) : 2.3;
+      if (!isFinite(v) || v <= 0) v = 2.3;
+      return v;
+    }
+
+    function applySubDetailFact_(factCost, hintText) {
+      var factEl = document.getElementById("subDetailFact");
+      var hint = document.getElementById("subDetailFactHint");
+      if (factEl) {
+        factEl.value = (factCost == null || factCost === "") ? "" : String(factCost);
+        try {
+          factEl.style.transition = "none";
+          factEl.style.background = "#143d24";
+          setTimeout(function () {
+            factEl.style.transition = "background .6s";
+            factEl.style.background = "";
+          }, 40);
+        } catch (eFlash) {}
+      }
+      if (hint && hintText) hint.textContent = hintText;
+    }
+
+    async function recalcSubDetailFactCost_() {
+      var sheet = (document.getElementById("subDetailSheet") && document.getElementById("subDetailSheet").value) || "";
+      if (sheet !== "ПП") return;
+      var list = subDetailBasketPayload_();
+      if (!list.length) {
+        applySubDetailFact_("", "Состав пуст — стоимость 0");
+        return;
+      }
+      var n = Math.max(1, Number(document.getElementById("subDetailDeliveries") && document.getElementById("subDetailDeliveries").value) || 1);
+      var coef = subDetailCoefValue_();
+      var seq = ++_subDetailFactSeq;
+      var hint = document.getElementById("subDetailFactHint");
+      if (hint) hint.textContent = "Считаю… ×" + coef + " · N=" + n;
+      try {
+        var slim = list.map(function (it) {
+          return {
+            name: it.name || it.main || "",
+            main: it.main || it.name || "",
+            sub: it.sub || "",
+            val: it.val != null ? it.val : it.value,
+            cat: it.cat || ""
+          };
+        });
+        var basketJson = JSON.stringify(slim);
+        var res = null;
+
+        // 1) calcPrice + fullFact (короче и стабильнее, чем отдельный calcPpFact с длинным URL)
+        try {
+          res = await apiGet({
+            action: "calcPrice",
+            mode: "pp",
+            fullFact: "1",
+            deliveriesN: String(n),
+            coef: String(coef),
+            basket: basketJson
+          }, { timeoutMs: 28000, cacheTtlMs: 0 });
+        } catch (e0) { res = null; }
+        if (seq !== _subDetailFactSeq) return;
+
+        if (res && res.status === "success" && res.factCost != null) {
+          applySubDetailFact_(res.factCost,
+            "себест " + (res.cost != null ? res.cost : "?") +
+            " ×" + ((res.coef != null) ? res.coef : coef) +
+            " +11 +6×" + n +
+            (res.packagesByn ? (" +пакеты " + res.packagesByn) : "") +
+            (res.fractionMarkup ? (" +фракт " + res.fractionMarkup) : "") +
+            " → " + res.factCost + " BYN");
+          return;
+        }
+
+        // 2) calcPpFact (если Deploy есть)
+        if (basketJson.length < 1600) {
+          try {
+            res = await apiGet({
+              action: "calcPpFact",
+              deliveriesN: String(n),
+              coef: String(coef),
+              basket: basketJson
+            }, { timeoutMs: 25000, cacheTtlMs: 0 });
+          } catch (e1) { res = null; }
+          if (seq !== _subDetailFactSeq) return;
+          if (res && res.status === "success" && res.factCost != null) {
+            applySubDetailFact_(res.factCost,
+              "себест " + (res.cost != null ? res.cost : "?") +
+              " ×" + ((res.coef != null) ? res.coef : coef) +
+              " +11 +6×" + n + " → " + res.factCost + " BYN");
+            return;
+          }
+        }
+
+        // 3) локально: себест из calcPrice × коэф + фикс
+        var pr = res;
+        if (!pr || pr.status !== "success") {
+          try {
+            pr = await apiGet({
+              action: "calcPrice",
+              mode: "pp",
+              basket: basketJson
+            }, { timeoutMs: 28000, cacheTtlMs: 0 });
+          } catch (e2) { pr = null; }
+        }
+        if (seq !== _subDetailFactSeq) return;
+        if (!pr || pr.status !== "success") {
+          if (hint) hint.textContent = "Не удалось посчитать — проверь сеть / Deploy Code.gs";
+          return;
+        }
+        var costSum = (pr.cost != null) ? Number(pr.cost) : recalcPpCostSum(pr, list);
+        if (!isFinite(costSum)) costSum = 0;
+        var frac = calcDressuraFractionMarkup(list, { whole: 0, large: 1, medium: 2, small: 3 });
+        var packagesByn = (pr.packagesByn != null) ? Number(pr.packagesByn) : 0;
+        if (!isFinite(packagesByn)) packagesByn = 0;
+        var total = Math.round((costSum * coef + 11 + 6 * n + packagesByn + (frac.total || 0)) * 100) / 100;
+        applySubDetailFact_(total,
+          "себест " + costSum + " ×" + coef + " +11 +6×" + n +
+          (packagesByn ? (" +пакеты " + packagesByn) : "") +
+          (frac.total ? (" +фракт " + frac.total) : "") +
+          " → " + total + " BYN");
+      } catch (e) {
+        if (seq !== _subDetailFactSeq) return;
+        if (hint) hint.textContent = "Ошибка пересчёта: " + (e.message || e);
+      }
+    }
+    window.recalcSubDetailFactCost_ = recalcSubDetailFactCost_;
+
     function deleteSubDetailBasketItem(idx) {
       idx = Number(idx);
       if (isNaN(idx) || idx < 0 || idx >= subDetailBasket.length) return;
       subDetailBasket.splice(idx, 1);
       renderSubDetailBasket();
+      scheduleSubDetailFactRecalc_();
     }
     window.deleteSubDetailBasketItem = deleteSubDetailBasketItem;
 
@@ -10356,6 +11207,7 @@
       if (!ok) return;
       subDetailBasket = [];
       renderSubDetailBasket();
+      scheduleSubDetailFactRecalc_();
     }
     window.clearSubDetailBasket = clearSubDetailBasket;
 
@@ -10432,6 +11284,7 @@
       document.getElementById("subDetailSelectorCard").style.display = "none";
       document.getElementById("subDetailVolumeInput").value = "";
       renderSubDetailBasket();
+      scheduleSubDetailFactRecalc_();
       showToast("Добавлено");
     }
     window.addItemToSubDetailBasket = addItemToSubDetailBasket;
@@ -10476,10 +11329,16 @@
       document.getElementById("subDetailSubId").value = s.subId || "";
       document.getElementById("subDetailDeliveries").value = s.deliveries || "";
       document.getElementById("subDetailStatus").value = s.status || "";
-      document.getElementById("subDetailWishes").value = s.wishes || "";
+      applyBpStatusUi_(sheet, s.status || "");
+      var wishesRaw0 = s.wishes || "";
+      var coef0 = parsePpCoefFromWishes_(wishesRaw0);
+      document.getElementById("subDetailWishes").value = stripPpCoefFromWishes_(wishesRaw0);
       document.getElementById("subDetailAddress").value = "";
       document.getElementById("subDetailPhone").value = "";
       document.getElementById("subDetailFact").value = "";
+      syncSubDetailPpPriceUi_(sheet);
+      var coefEl0 = document.getElementById("subDetailCoef");
+      if (coefEl0) coefEl0.value = (coef0 != null) ? String(coef0) : "2.3";
       subDetailBasket = [];
       subDetailBasketBp1 = [];
       subDetailBasketBp2 = [];
@@ -10513,10 +11372,19 @@
         document.getElementById("subDetailSubId").value = res.subId || "";
         document.getElementById("subDetailDeliveries").value = res.deliveries || s.deliveries || "";
         document.getElementById("subDetailStatus").value = res.ppStatus || s.status || "";
-        document.getElementById("subDetailWishes").value = res.wishes || s.wishes || "";
+        applyBpStatusUi_(res.sheet || sheet, res.ppStatus || s.status || "");
+        var wishesRaw = res.wishes || s.wishes || "";
+        var cParsed = parsePpCoefFromWishes_(wishesRaw);
+        document.getElementById("subDetailWishes").value = stripPpCoefFromWishes_(wishesRaw);
         document.getElementById("subDetailAddress").value = res.address || "";
         document.getElementById("subDetailPhone").value = res.phone || "";
         document.getElementById("subDetailFact").value = res.factCost || "";
+        var sheetNow = res.sheet || sheet;
+        syncSubDetailPpPriceUi_(sheetNow);
+        var coefEl = document.getElementById("subDetailCoef");
+        if (coefEl && sheetNow === "ПП") {
+          coefEl.value = (cParsed != null) ? String(cParsed) : "2.3";
+        }
         subDetailBasket = mapApiBasketToLocal(res.basket || []);
         var isBp = String(res.sheet || sheet) === "БП";
         var bpMap = document.getElementById("subDetailBpMap");
@@ -10531,18 +11399,26 @@
           var df = document.getElementById("subDetailSurveyFinal");
           if (d2) d2.value = (res.surveyBp2Due || s.surveyBp2Due || "").toString().slice(0, 10);
           if (df) df.value = (res.surveyFinalDue || s.surveyFinalDue || "").toString().slice(0, 10);
+          try {
+            await fillOwnerSelect_("subDetailOwner", res.ownerTelegramId || s.ownerTelegramId || "");
+          } catch (eOwn) {}
+          onBpCardStageChange_();
           var mapTxt = document.getElementById("subDetailBpMapText");
           if (mapTxt) {
-            mapTxt.textContent = "Статус: " + (res.ppStatus || s.status || "—") +
+            var stNorm = normalizeBpStage_(res.ppStatus || s.status || "");
+            var ownLabel = res.ownerName || s.ownerName || "";
+            mapTxt.textContent = "Этап: " + stNorm +
               " · БП1 поз: " + subDetailBasketBp1.length +
-              " · БП2 поз: " + subDetailBasketBp2.length;
+              " · БП2 поз: " + subDetailBasketBp2.length +
+              (ownLabel ? (" · отв: " + ownLabel) : "");
           }
-          bpBasketTab = /БП2/.test(String(res.ppStatus || s.status || "")) ? 2 : 1;
+          bpBasketTab = /БП2|ФИНАЛ/.test(String(normalizeBpStage_(res.ppStatus || s.status || ""))) ? 2 : 1;
           setBpBasketTab(bpBasketTab);
         } else {
           subDetailBasketBp1 = [];
           subDetailBasketBp2 = [];
           renderSubDetailBasket();
+          if (sheetNow === "ПП") scheduleSubDetailFactRecalc_();
         }
         syncSubDetailActions(res.sheet || sheet);
       } catch (e) {
@@ -10619,7 +11495,7 @@
         window._subsSkipNextEnterLoad = true;
         switchTab("subsScreen");
         renderSubsList();
-        showToast("Готово → " + toSheet);
+        showToast("Готово → " + toSheet + (res.surveysMoved ? (" · опросников: " + res.surveysMoved) : ""));
         await loadSubscriptions();
       } catch (e) {
         showToast(e.message || "Ошибка");
@@ -10629,35 +11505,47 @@
 
     async function deleteSubDetail() {
       var nick = (document.getElementById("subDetailNick").value || document.getElementById("subDetailLabel").value || "").trim();
+      var label = (document.getElementById("subDetailLabel").value || nick || "").trim();
       var subId = (document.getElementById("subDetailSubId").value || "").trim();
       var sheet = (document.getElementById("subDetailSheet").value || "").trim() || subsSegment || "ПП";
       if (!nick && !subId) {
         showToast("Нет ника");
         return;
       }
-      var ok = await uiConfirmAsync("Удалить «" + (nick || subId) + "» из " + sheet + "?\nСтрока в CRM будет удалена.");
+      var ok = await uiConfirmAsync("Удалить «" + (label || nick || subId) + "» из " + sheet + "?\nСтрока в CRM будет удалена.");
       if (!ok) return;
       try {
         showToast("Удаляю…");
-        var res = await apiGet({
-          action: "deleteSubscription",
-          nick: nick,
-          subId: subId,
-          sheet: sheet,
-          segment: sheet,
-          _: String(Date.now())
-        }, { timeoutMs: 30000, cacheTtlMs: 0 });
-        if (!res || res.status !== "success") {
+        var attempts = [
+          { nick: label || nick, subId: subId },
+          { nick: nick, subId: subId },
+          { nick: label || nick, subId: "" },
+          { nick: "", subId: subId }
+        ];
+        var res = null;
+        for (var a = 0; a < attempts.length; a++) {
+          if (!attempts[a].nick && !attempts[a].subId) continue;
+          res = await apiGet({
+            action: "deleteSubscription",
+            nick: attempts[a].nick || "",
+            subId: attempts[a].subId || "",
+            sheet: sheet,
+            segment: sheet,
+            _: String(Date.now()) + "_" + a
+          }, { timeoutMs: 30000, cacheTtlMs: 0 });
+          if (res && res.status === "success" && (res.deletedCount > 0 || res.deletedRow)) break;
+        }
+        if (!res || res.status !== "success" || !(res.deletedCount > 0 || res.deletedRow)) {
           var msg = (res && res.message) || "ошибка";
           if (msg === "unknown_action") {
             await uiAlertAsync("Нужен Deploy Code.gs (deleteSubscription)");
             return;
           }
-          showToast("Не удалилось: " + msg);
+          await uiAlertAsync("Не удалилось: " + msg + "\nНужен Deploy Code.gs v7.11.06");
           return;
         }
         try { apiCacheBustMem_(); } catch (eClr) {}
-        showToast("Удалено");
+        showToast("Удалено" + (res.deletedCount > 1 ? (" (" + res.deletedCount + ")") : ""));
         switchTab("subsScreen");
         await loadSubscriptions();
       } catch (e) {
@@ -10686,12 +11574,29 @@
       var wantFp = basketFingerprint_(basketPayload);
       var ppStatusSave = (document.getElementById("subDetailStatus").value || "").trim();
       if (sheet === "БП") {
-        if (!ppStatusSave) ppStatusSave = (bpBasketTab === 2) ? "БП2" : "БП1";
-        else if (bpBasketTab === 2 && !/БП2/.test(ppStatusSave)) ppStatusSave = "БП2";
-        else if (bpBasketTab === 1 && !/БП1|БП2|ФИНАЛ|ПП/.test(ppStatusSave)) ppStatusSave = "БП1";
+        var stageSel = document.getElementById("subDetailStatusSelect");
+        ppStatusSave = normalizeBpStage_(stageSel ? stageSel.value : ppStatusSave);
+        if (stageSel) stageSel.value = ppStatusSave;
+        document.getElementById("subDetailStatus").value = ppStatusSave;
+        var d2pre = document.getElementById("subDetailSurveyBp2");
+        var dfpre = document.getElementById("subDetailSurveyFinal");
+        if (ppStatusSave === "ФИНАЛ") {
+          if (dfpre && !dfpre.value) dfpre.value = ymdPlusDaysLocal_("", 4);
+        } else {
+          if (d2pre && !d2pre.value) d2pre.value = ymdPlusDaysLocal_("", 4);
+        }
       }
       try {
         showToast("Сохраняю…");
+        if (sheet === "ПП") {
+          try { await recalcSubDetailFactCost_(); } catch (eRec) {}
+        }
+        var wishesSave = (document.getElementById("subDetailWishes").value || "").trim();
+        if (sheet === "ПП") {
+          wishesSave = stampPpCoefIntoWishes_(wishesSave, subDetailCoefValue_());
+          var wEl = document.getElementById("subDetailWishes");
+          if (wEl) wEl.value = stripPpCoefFromWishes_(wishesSave);
+        }
         var saveBody = {
           action: "saveSubscription",
           nick: nick || label,
@@ -10701,18 +11606,22 @@
           segment: sheet,
           deliveries: document.getElementById("subDetailDeliveries").value || "",
           ppStatus: ppStatusSave,
-          wishes: (document.getElementById("subDetailWishes").value || "").trim(),
+          wishes: wishesSave,
           address: (document.getElementById("subDetailAddress").value || "").trim(),
           phone: (document.getElementById("subDetailPhone").value || "").trim(),
-          note: (document.getElementById("subDetailWishes").value || "").trim(),
+          note: wishesSave,
           factCost: document.getElementById("subDetailFact").value || "",
-          basket: basketPayload
+          basket: basketPayload,
+          coef: sheet === "ПП" ? String(subDetailCoefValue_()) : ""
         };
         if (sheet === "БП") {
           var d2s = document.getElementById("subDetailSurveyBp2");
           var dfs = document.getElementById("subDetailSurveyFinal");
           saveBody.surveyBp2Due = d2s ? d2s.value : "";
           saveBody.surveyFinalDue = dfs ? dfs.value : "";
+          var own = ownerFromSelect_("subDetailOwner");
+          saveBody.ownerTelegramId = own.telegramId;
+          saveBody.ownerName = own.name;
           saveBody.basketBp1 = subDetailBasketBp1;
           saveBody.basketBp2 = subDetailBasketBp2;
         }

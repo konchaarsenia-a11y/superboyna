@@ -864,7 +864,17 @@ function doGet(e) {
     return handleListSurvey({
       status: e.parameter.status ? decodeURIComponent(e.parameter.status) : "",
       kind: e.parameter.kind ? decodeURIComponent(e.parameter.kind) : "",
-      nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : (e.parameter.client ? decodeURIComponent(e.parameter.client) : "")
+      nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : (e.parameter.client ? decodeURIComponent(e.parameter.client) : ""),
+      sheet: e.parameter.sheet ? decodeURIComponent(e.parameter.sheet) : "",
+      segment: e.parameter.segment ? decodeURIComponent(e.parameter.segment) : "",
+      activeOnly: e.parameter.activeOnly,
+      includeOld: e.parameter.includeOld,
+      purge: e.parameter.purge
+    }, callback, false);
+  }
+  if (action === "repairSurveys") {
+    return handleRepairSurveys({
+      telegramId: e.parameter.telegramId || e.parameter.chatId || ""
     }, callback, false);
   }
   if (action === "saveSurvey") {
@@ -879,7 +889,9 @@ function doGet(e) {
       templateId: e.parameter.templateId || "",
       answer: e.parameter.answer ? decodeURIComponent(e.parameter.answer) : "",
       note: e.parameter.note ? decodeURIComponent(e.parameter.note) : "",
-      linkedSubId: e.parameter.linkedSubId || e.parameter.subId || ""
+      linkedSubId: e.parameter.linkedSubId || e.parameter.subId || "",
+      ownerTelegramId: e.parameter.ownerTelegramId || e.parameter.respTelegramId || "",
+      ownerName: e.parameter.ownerName ? decodeURIComponent(e.parameter.ownerName) : (e.parameter.respName ? decodeURIComponent(e.parameter.respName) : "")
     }, callback, false);
   }
   if (action === "deleteSurvey") {
@@ -888,6 +900,14 @@ function doGet(e) {
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
       kind: e.parameter.kind || "",
       status: "cancelled"
+    }, callback, false);
+  }
+  if (action === "deleteSurveyBatch") {
+    return handleDeleteSurveyBatch({
+      ids: e.parameter.ids ? decodeURIComponent(e.parameter.ids) : "",
+      nicks: e.parameter.nicks ? decodeURIComponent(e.parameter.nicks) : "",
+      id: e.parameter.id || "",
+      nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : ""
     }, callback, false);
   }
   if (action === "getPpFactCost") {
@@ -990,6 +1010,8 @@ function doGet(e) {
       createCard: e.parameter.createCard,
       surveyDate: e.parameter.surveyDate || "",
       surveyKind: e.parameter.surveyKind || "bp2",
+      needSurvey: e.parameter.needSurvey || "",
+      compositionDate: e.parameter.compositionDate || e.parameter.deliveryDate || e.parameter.date || "",
       wishes: e.parameter.wishes ? decodeURIComponent(e.parameter.wishes) : "",
       subId: e.parameter.subId || "",
       status: e.parameter.status || e.parameter.stage || "",
@@ -997,7 +1019,9 @@ function doGet(e) {
       address: e.parameter.address ? decodeURIComponent(e.parameter.address) : "",
       phone: e.parameter.phone ? decodeURIComponent(e.parameter.phone) : "",
       displayName: e.parameter.displayName ? decodeURIComponent(e.parameter.displayName) : "",
-      note: e.parameter.note ? decodeURIComponent(e.parameter.note) : ""
+      note: e.parameter.note ? decodeURIComponent(e.parameter.note) : "",
+      ownerTelegramId: e.parameter.ownerTelegramId || e.parameter.respTelegramId || "",
+      ownerName: e.parameter.ownerName ? decodeURIComponent(e.parameter.ownerName) : (e.parameter.respName ? decodeURIComponent(e.parameter.respName) : "")
     }, callback, false);
   }
   if (action === "listBpIdle") {
@@ -1017,7 +1041,12 @@ function doGet(e) {
       kind: e.parameter.kind ? decodeURIComponent(e.parameter.kind) : "",
       title: e.parameter.title ? decodeURIComponent(e.parameter.title) : "",
       body: e.parameter.body ? decodeURIComponent(e.parameter.body) : "",
-      telegramId: e.parameter.telegramId || e.parameter.chatId || e.parameter.id || ""
+      telegramId: e.parameter.telegramId || e.parameter.chatId || ""
+    }, callback, false);
+  }
+  if (action === "syncSurveyTemplates") {
+    return handleSyncSurveyTemplates({
+      telegramId: e.parameter.telegramId || e.parameter.chatId || ""
     }, callback, false);
   }
 
@@ -1061,7 +1090,16 @@ function doGet(e) {
   if (action === "calcPrice") {
     return handleCalcPrice({
       mode: e.parameter.mode || "subscription",
-      basket: e.parameter.basket ? JSON.parse(decodeURIComponent(e.parameter.basket)) : []
+      basket: e.parameter.basket ? JSON.parse(decodeURIComponent(e.parameter.basket)) : [],
+      deliveriesN: e.parameter.deliveriesN || e.parameter.deliveries || "",
+      fullFact: e.parameter.fullFact || ""
+    }, callback, false);
+  }
+  if (action === "calcPpFact") {
+    return handleCalcPpFact({
+      basket: e.parameter.basket ? JSON.parse(decodeURIComponent(e.parameter.basket)) : [],
+      deliveriesN: e.parameter.deliveriesN || e.parameter.deliveries || "1",
+      coef: e.parameter.coef || e.parameter.markup || ""
     }, callback, false);
   }
   if (action === "listDeferred") {
@@ -1329,6 +1367,9 @@ function handleApiAction(json, callback, fromPost) {
   if (action === "saveTemplate") {
     return handleSaveTemplate(json, callback, fromPost);
   }
+  if (action === "syncSurveyTemplates") {
+    return handleSyncSurveyTemplates(json, callback, fromPost);
+  }
   if (action === "moveSubscription") {
     return handleMoveSubscription(json, callback, fromPost);
   }
@@ -1340,6 +1381,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "calcPrice") {
     return handleCalcPrice(json, callback, fromPost);
+  }
+  if (action === "calcPpFact") {
+    return handleCalcPpFact(json, callback, fromPost);
   }
   if (action === "getAssembly") {
     return handleGetAssembly(json, callback, fromPost);
@@ -1371,11 +1415,17 @@ function handleApiAction(json, callback, fromPost) {
   if (action === "listSurvey") {
     return handleListSurvey(json, callback, fromPost);
   }
+  if (action === "repairSurveys") {
+    return handleRepairSurveys(json, callback, fromPost);
+  }
   if (action === "saveSurvey") {
     return handleSaveSurvey(json, callback, fromPost);
   }
   if (action === "deleteSurvey") {
     return handleDeleteSurvey(json, callback, fromPost);
+  }
+  if (action === "deleteSurveyBatch") {
+    return handleDeleteSurveyBatch(json, callback, fromPost);
   }
   if (action === "getPpFactCost") {
     return handleGetPpFactCost(json, callback, fromPost);
@@ -8020,10 +8070,12 @@ function handleListSubscriptions(json, callback, fromPost) {
   for (var s = 0; s < sheets.length; s++) {
     var sheetName = sheets[s];
     var seenInSheet = {};
-    try {
-      var shRescue = findSheetByBaseName_(crmSs, sheetName);
-      if (shRescue) rescueOrphanSubscriptionRows_(shRescue);
-    } catch (eRes) {}
+    if (forceRepair) {
+      try {
+        var shRescue = findSheetByBaseName_(crmSs, sheetName);
+        if (shRescue) rescueOrphanSubscriptionRows_(shRescue);
+      } catch (eRes) {}
+    }
     var data = readCrmSheetLiveNarrow_(crmSs, sheetName, 5);
     if (!data || data.length < 3) continue;
     // починить ID 1,2,3… если есть #REF!/пусто (особенно ПП)
@@ -8049,6 +8101,7 @@ function handleListSubscriptions(json, callback, fromPost) {
       var wishesCell = String(data[r][4] || "");
       var statusCell = String(data[r][3] || "");
       var bpMeta = /^БП$/i.test(sheetName) ? parseBpMetaFromWishes_(wishesCell) : null;
+      if (/^БП$/i.test(sheetName)) statusCell = normalizeBpStage_(statusCell);
       list.push({
         nick: nick,
         label: nickRaw.replace(/\s+/g, " ").trim().substring(0, 80),
@@ -8061,7 +8114,9 @@ function handleListSubscriptions(json, callback, fromPost) {
         rowIndex: r + 1,
         surveyBp2Due: bpMeta ? bpMeta.surveyBp2Due : "",
         surveyFinalDue: bpMeta ? bpMeta.surveyFinalDue : "",
-        lastTouch: bpMeta ? bpMeta.lastTouch : ""
+        lastTouch: bpMeta ? bpMeta.lastTouch : "",
+        ownerTelegramId: bpMeta ? bpMeta.ownerTelegramId : "",
+        ownerName: bpMeta ? bpMeta.ownerName : ""
       });
     }
   }
@@ -8140,6 +8195,7 @@ function handleGetSubscription(json, callback, fromPost) {
   } catch (eRow) {}
   var wishesOut = found.wishes || "";
   var bpMetaGet = /^БП$/i.test(String(found.sheet || segment || "")) ? parseBpMetaFromWishes_(wishesOut) : null;
+  if (/^БП$/i.test(String(found.sheet || segment || ""))) status = normalizeBpStage_(status);
   var ok = {
     status: "success",
     nick: extractInstagramNick_(label) || nick,
@@ -8158,7 +8214,9 @@ function handleGetSubscription(json, callback, fromPost) {
     rowIndex: rowIndex,
     surveyBp2Due: bpMetaGet ? bpMetaGet.surveyBp2Due : "",
     surveyFinalDue: bpMetaGet ? bpMetaGet.surveyFinalDue : "",
-    lastTouch: bpMetaGet ? bpMetaGet.lastTouch : ""
+    lastTouch: bpMetaGet ? bpMetaGet.lastTouch : "",
+    ownerTelegramId: bpMetaGet ? bpMetaGet.ownerTelegramId : "",
+    ownerName: bpMetaGet ? bpMetaGet.ownerName : ""
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
@@ -8186,11 +8244,19 @@ function handleSaveSubscription(json, callback, fromPost) {
   var deliveriesN = Number(json.deliveries != null ? json.deliveries : json.deliveriesN) || 0;
   var ppStatus = String(json.ppStatus || json.status || "").trim();
   var wishes = String(json.wishes || "").trim();
-  if (/^БП$/i.test(sheetName) || json.surveyBp2Due || json.surveyFinalDue || json.lastTouch || json.lastActivity) {
+  if (/^БП$/i.test(sheetName)) {
+    ppStatus = normalizeBpStage_(ppStatus || "БП1");
+  }
+  if (/^ПП$/i.test(sheetName) && (json.coef != null && json.coef !== "")) {
+    wishes = stampPpCoefIntoWishesGs_(wishes, json.coef);
+  }
+  if (/^БП$/i.test(sheetName) || json.surveyBp2Due || json.surveyFinalDue || json.lastTouch || json.lastActivity || json.ownerTelegramId || json.respTelegramId) {
     wishes = stampBpMetaIntoWishes_(wishes, {
       surveyBp2Due: json.surveyBp2Due,
       surveyFinalDue: json.surveyFinalDue,
-      lastTouch: json.lastTouch || json.lastActivity || new Date().toISOString()
+      lastTouch: json.lastTouch || json.lastActivity || new Date().toISOString(),
+      ownerTelegramId: json.ownerTelegramId != null ? json.ownerTelegramId : json.respTelegramId,
+      ownerName: json.ownerName != null ? json.ownerName : json.respName
     });
   }
 
@@ -8272,27 +8338,196 @@ function handleSaveSubscription(json, callback, fromPost) {
       }
     }
   } catch (eC) {}
+  var surveySync = null;
+  if (/^БП$/i.test(sheetName) && rowIdx >= 0) {
+    try {
+      var nickForSv = extractInstagramNick_(label) || nick || label;
+      surveySync = syncBpStageSurveys_(crmSs, nickForSv, ppStatus, {
+        surveyBp2Due: json.surveyBp2Due,
+        surveyFinalDue: json.surveyFinalDue,
+        ownerTelegramId: json.ownerTelegramId != null ? json.ownerTelegramId : json.respTelegramId,
+        ownerName: json.ownerName != null ? json.ownerName : json.respName,
+        subId: subId,
+        note: "from_saveSubscription"
+      });
+      if (surveySync) {
+        var metaFix = { lastTouch: new Date().toISOString() };
+        if (ppStatus === "ФИНАЛ" && surveySync.due) {
+          metaFix.surveyFinalDue = surveySync.due;
+        } else if (surveySync.due) {
+          metaFix.surveyBp2Due = surveySync.due;
+        }
+        wishes = stampBpMetaIntoWishes_(wishes, metaFix);
+        if (headers.length > 3) sh.getRange(rowIdx + 1, 4).setValue(ppStatus);
+        if (headers.length > 4) sh.getRange(rowIdx + 1, 5).setValue(wishes);
+      }
+    } catch (eSvSync) {}
+  }
   var ok = {
     status: "success",
     nick: extractInstagramNick_(label) || nick,
     label: label,
     sheet: sheetName,
     row: rowIdx + 1,
-    created: createdNew
+    created: createdNew,
+    ppStatus: ppStatus,
+    survey: surveySync && surveySync.survey ? surveySync.survey : null
   };
-  try { clearCrmSheetCache_(sheetName); clearCrmSheetCache_("Контакты"); } catch (eClr) {}
+  try { clearCrmSheetCache_(sheetName); clearCrmSheetCache_("Контакты"); clearCrmSheetCache_("Опросник"); } catch (eClr) {}
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
 function findSubscriptionRowIndex_(sh, nick, subId) {
-  if (!sh || sh.getLastRow() < 3) return -1;
+  if (!sh || sh.getLastRow() < 2) return -1;
   var data = sh.getDataRange().getValues();
   var wantId = sanitizeSubId_(subId);
-  for (var r = 2; r < data.length; r++) {
+  var wantNick = String(nick || "").trim();
+  // row1 = headers; row2 иногда тоже шапка — сканируем с индекса 1
+  // ВАЖНО: «себестоимость» не break — иначе клиенты ниже маркера не находятся (list их видит)
+  for (var r = 1; r < data.length; r++) {
+    var cell = String(data[r][0] || "").trim();
+    if (!cell) continue;
+    if (/^себестоим/i.test(cell) || /^стоимость\s*100/i.test(cell) || /^итого$/i.test(cell)) continue;
+    if (/^(id|ник|nick|клиент|client)$/i.test(cell)) continue;
     if (wantId && sanitizeSubId_(data[r][1]) === wantId) return r;
-    if (nick && (nicksMatch_(data[r][0], nick) || String(data[r][0] || "").trim() === String(nick).trim())) return r;
+    if (wantNick && (nicksMatch_(cell, wantNick) || cell === wantNick ||
+      nicksMatch_(extractInstagramNick_(cell) || cell, wantNick))) return r;
   }
   return -1;
+}
+
+/** Все строки подписки по нику/subId (снизу вверх — для безопасного deleteRow). */
+function findAllSubscriptionRowIndexes_(sh, nick, subId) {
+  var out = [];
+  if (!sh || sh.getLastRow() < 2) return out;
+  var data = sh.getDataRange().getValues();
+  var wantId = sanitizeSubId_(subId);
+  var wantNick = String(nick || "").trim();
+  var wantNick2 = extractInstagramNick_(wantNick) || wantNick;
+  for (var r = 1; r < data.length; r++) {
+    var cell = String(data[r][0] || "").trim();
+    if (!cell) continue;
+    if (/^себестоим/i.test(cell) || /^стоимость\s*100/i.test(cell) || /^итого$/i.test(cell)) continue;
+    if (/^(id|ник|nick|клиент|client)$/i.test(cell)) continue;
+    var hit = false;
+    if (wantId && sanitizeSubId_(data[r][1]) === wantId) hit = true;
+    if (!hit && wantNick && (nicksMatch_(cell, wantNick) || cell === wantNick)) hit = true;
+    if (!hit && wantNick2 && nicksMatch_(cell, wantNick2)) hit = true;
+    if (!hit && wantNick && nicksMatch_(extractInstagramNick_(cell) || "", wantNick)) hit = true;
+    if (hit) out.push(r);
+  }
+  return out;
+}
+
+/** Все листы-кандидаты «БП» / «ПП» (канон + копии) — delete/list не должны смотреть в разные. */
+function listCrmSheetCandidates_(ss, baseName) {
+  var out = [];
+  if (!ss || !baseName) return out;
+  var seen = {};
+  function add_(sh) {
+    if (!sh) return;
+    var id = sh.getSheetId();
+    if (seen[id]) return;
+    seen[id] = true;
+    out.push(sh);
+  }
+  add_(ss.getSheetByName(baseName));
+  add_(ss.getSheetByName(baseName + " (копия)"));
+  add_(ss.getSheetByName(baseName + " (copy)"));
+  var want = String(baseName).toUpperCase().replace(/ё/g, "Е");
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var n = String(sheets[i].getName() || "").toUpperCase().replace(/ё/g, "Е");
+    if (n === want || n.indexOf(want + " (") === 0) add_(sheets[i]);
+  }
+  return out;
+}
+
+function cancelSurveysForNick_(crmSs, nick) {
+  if (!nick) return 0;
+  var sh = null;
+  try { sh = ensureSurveySheet_(crmSs); } catch (e0) { sh = null; }
+  if (!sh || sh.getLastRow() < 2) return 0;
+  var data = sh.getDataRange().getValues();
+  var n = 0;
+  for (var r = 1; r < data.length; r++) {
+    if (!nicksMatch_(data[r][1], nick)) continue;
+    var st = String(data[r][6] || "").toLowerCase();
+    if (st === "cancelled" || st === "done") continue;
+    sh.getRange(r + 1, 7).setValue("cancelled");
+    sh.getRange(r + 1, 12).setValue(new Date());
+    n++;
+  }
+  return n;
+}
+
+/** Отменить открытые опросники ника только одного kind (bp2|final). */
+function cancelOpenSurveysForNickKind_(crmSs, nick, kind) {
+  if (!nick) return 0;
+  var want = normalizeSurveyKind_(kind);
+  var sh = null;
+  try { sh = ensureSurveySheet_(crmSs); } catch (e0) { sh = null; }
+  if (!sh || sh.getLastRow() < 2) return 0;
+  var data = sh.getDataRange().getValues();
+  var n = 0;
+  for (var r = 1; r < data.length; r++) {
+    if (!nicksMatch_(data[r][1], nick)) continue;
+    if (normalizeSurveyKind_(data[r][3]) !== want) continue;
+    var st = String(data[r][6] || "").toLowerCase();
+    if (st !== "planned" && st !== "due") continue;
+    sh.getRange(r + 1, 7).setValue("cancelled");
+    sh.getRange(r + 1, 12).setValue(new Date());
+    n++;
+  }
+  return n;
+}
+
+/** Канон этапов БП: БП1 | БП2 | ФИНАЛ */
+function normalizeBpStage_(raw) {
+  var u = String(raw || "").trim().toUpperCase();
+  if (!u) return "БП1";
+  if (/ФИНАЛ|FINAL|БП2_FINAL|БП2FINAL/.test(u)) return "ФИНАЛ";
+  if (/БП1_SURVEY|БП1SURVEY/.test(u)) return "БП2";
+  if (u.indexOf("БП2") >= 0) return "БП2";
+  if (/ДУМА/.test(u)) return "ФИНАЛ";
+  if (/^БП1$/.test(u) || u.indexOf("БП1") >= 0) return "БП1";
+  return "БП1";
+}
+
+/**
+ * Опросник следует за доставкой клиента БП:
+ * БП1 / БП2 — 1-я доставка → опросник kind=bp2 (+4 дня после получения);
+ * ФИНАЛ — 2-я доставка → опросник kind=final (+4 дня после получения).
+ */
+function syncBpStageSurveys_(crmSs, nick, stage, opts) {
+  opts = opts || {};
+  nick = String(nick || "").trim();
+  if (!nick || !crmSs) return { stage: "БП1", survey: null, due: "" };
+  stage = normalizeBpStage_(stage);
+  var kind = stage === "ФИНАЛ" ? "final" : "bp2";
+  var dueRaw = stage === "ФИНАЛ" ? opts.surveyFinalDue : opts.surveyBp2Due;
+  var due = surveyDueYmd_(dueRaw) || String(dueRaw || "").trim() || ymdPlusDays_("", 4);
+  var survey = null;
+  try {
+    survey = upsertOpenSurvey_(crmSs, {
+      nick: nick,
+      kind: kind,
+      dueDate: due,
+      stage: stage,
+      status: "planned",
+      templateId: surveyTemplateForKind_(kind),
+      ownerTelegramId: opts.ownerTelegramId || "",
+      ownerName: opts.ownerName || "",
+      note: opts.note || "from_bp_stage",
+      linkedSheet: "БП",
+      linkedSubId: opts.subId || ""
+    });
+  } catch (eU) {}
+  try {
+    // на этапе 1-й доставки/опроса — не держим финальный; на финале — закрываем открытый bp2
+    cancelOpenSurveysForNickKind_(crmSs, nick, stage === "ФИНАЛ" ? "bp2" : "final");
+  } catch (eK) {}
+  return { stage: stage, survey: survey, due: due, kind: kind };
 }
 
 function handleMoveSubscription(json, callback, fromPost) {
@@ -8342,6 +8577,22 @@ function handleMoveSubscription(json, callback, fromPost) {
   }
   fromSh.deleteRow(rowIdx + 1);
   try { SpreadsheetApp.flush(); } catch (eFl) {}
+  var movedNick = extractInstagramNick_(movedLabel) || displayClientNick_(movedLabel) || nick;
+  var surveysMoved = 0;
+  try {
+    var mv = moveSurveysWithClient_(crmSs, movedLabel || nick, {
+      toNick: movedLabel || nick,
+      toSheet: toSheet
+    });
+    surveysMoved = (mv && mv.moved) || 0;
+    if (movedNick && movedNick !== movedLabel) {
+      var mv2 = moveSurveysWithClient_(crmSs, movedNick, {
+        toNick: movedLabel || movedNick,
+        toSheet: toSheet
+      });
+      surveysMoved += (mv2 && mv2.moved) || 0;
+    }
+  } catch (eSvMove) {}
   try {
     var fromData = readCrmSheetLiveNarrow_(crmSs, fromSheet, 2);
     if (sheetNeedsSubscriptionIdRepair_(fromData)) repairSheetSubscriptionIds_(crmSs, fromSheet);
@@ -8351,9 +8602,9 @@ function handleMoveSubscription(json, callback, fromPost) {
   try {
     clearCrmSheetCache_(fromSheet);
     clearCrmSheetCache_(toSheet);
+    clearCrmSheetCache_("Опросник");
     clearCrmSheetCache_();
   } catch (eC) {}
-  var movedNick = extractInstagramNick_(movedLabel) || displayClientNick_(movedLabel) || nick;
   var movedId = sanitizeSubId_(toSh.getRange(insertRow, 2).getValue());
   var ok = {
     status: "success",
@@ -8365,7 +8616,8 @@ function handleMoveSubscription(json, callback, fromPost) {
     row: insertRow,
     deliveries: Number(vals[2]) || 0,
     statusText: String(vals[3] || ""),
-    wishes: String(vals[4] || "")
+    wishes: String(vals[4] || ""),
+    surveysMoved: surveysMoved
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
@@ -8377,27 +8629,79 @@ function handleDeleteSubscription(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
   var sheetName = String(json.sheet || json.segment || "").trim() || "ПП";
-  var nick = String(json.nick || json.client || "").trim();
+  var nick = String(json.nick || json.client || json.label || "").trim();
   var subId = String(json.subId || "").trim();
   if (!nick && !subId) {
     var need = { status: "error", message: "need_nick" };
     return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
   }
-  var sh = findSheetByBaseName_(crmSs, sheetName);
-  if (!sh) {
+  // Ищем по всем листам-кандидатам (канон + копии), иначе list и delete могут смотреть в разные
+  var sheets = listCrmSheetCandidates_(crmSs, sheetName);
+  if (!sheets.length) {
     var no = { status: "error", message: "sheet_missing", sheet: sheetName };
     return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
   }
-  var rowIdx = findSubscriptionRowIndex_(sh, nick, subId);
-  if (rowIdx < 0) {
-    var miss = { status: "error", message: "not_found" };
+  var deletedRows = [];
+  var deletedFrom = [];
+  var total = 0;
+  for (var s = 0; s < sheets.length; s++) {
+    var sh = sheets[s];
+    try { rescueOrphanSubscriptionRows_(sh); } catch (eRes) {}
+    var idxs = findAllSubscriptionRowIndexes_(sh, nick, subId);
+    if (!idxs.length && nick) idxs = findAllSubscriptionRowIndexes_(sh, nick, "");
+    if (!idxs.length && subId) idxs = findAllSubscriptionRowIndexes_(sh, "", subId);
+    if (!idxs.length) continue;
+    idxs.sort(function (a, b) { return b - a; });
+    for (var i = 0; i < idxs.length; i++) {
+      var row1 = idxs[i] + 1;
+      try {
+        // сначала очистить ник — даже если deleteRow упрётся в защиту, list не покажет
+        sh.getRange(row1, 1).setValue("");
+        sh.deleteRow(row1);
+      } catch (eDel) {
+        try { sh.getRange(row1, 1, 1, Math.min(5, sh.getLastColumn())).clearContent(); } catch (eClr) {}
+      }
+      deletedRows.push(row1);
+      total++;
+    }
+    deletedFrom.push(sh.getName());
+  }
+  if (!total) {
+    var miss = {
+      status: "error",
+      message: "not_found",
+      nick: nick,
+      subId: subId,
+      sheet: sheetName,
+      triedSheets: deletedFrom.length ? deletedFrom : sheets.map(function (x) { return x.getName(); })
+    };
     return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
   }
-  sh.deleteRow(rowIdx + 1);
   try { SpreadsheetApp.flush(); } catch (eFl) {}
-  try { repairSheetSubscriptionIds_(crmSs, sheetName); } catch (eRep) {}
-  try { clearCrmSheetCache_(sheetName); clearCrmSheetCache_(); } catch (eC) {}
-  var ok = { status: "success", nick: nick, subId: subId, sheet: sheetName, deletedRow: rowIdx + 1 };
+  var surveysCancelled = 0;
+  try { surveysCancelled = cancelSurveysForNick_(crmSs, nick); } catch (eSv) {}
+  try {
+    for (var sf = 0; sf < sheets.length; sf++) {
+      try { repairSheetSubscriptionIds_(crmSs, sheets[sf].getName()); } catch (eRep0) {}
+    }
+    repairSheetSubscriptionIds_(crmSs, sheetName);
+  } catch (eRep) {}
+  try {
+    clearCrmSheetCache_(sheetName);
+    clearCrmSheetCache_("Опросник");
+    clearCrmSheetCache_();
+  } catch (eC) {}
+  var ok = {
+    status: "success",
+    nick: nick,
+    subId: subId,
+    sheet: sheetName,
+    deletedRow: deletedRows[0] || 0,
+    deletedRows: deletedRows,
+    deletedCount: total,
+    deletedFrom: deletedFrom,
+    surveysCancelled: surveysCancelled
+  };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
@@ -9168,7 +9472,128 @@ function handleCalcPrice(json, callback, fromPost) {
     markup: markup,
     total: total
   };
+  // полный факт ПП: себест×коэф + 11 + 6×N + пакеты + наценка фракций
+  if (json.fullFact === true || json.fullFact === "1" || json.fullFact === 1 ||
+      String(mode || "").toLowerCase() === "pp" && (json.deliveriesN || json.deliveries)) {
+    try {
+      var fact = computePpFactFromCost_(ok.cost, basket, json.deliveriesN || json.deliveries, json.coef || json.markup);
+      for (var fk in fact) {
+        if (Object.prototype.hasOwnProperty.call(fact, fk)) ok[fk] = fact[fk];
+      }
+    } catch (eF) {}
+  }
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/** Наценка фракций дрессуры: (г/100)×ставка; ставки по умолчанию 0/1/2/3. */
+function dressuraFractionMarkupFromBasket_(basket, rates) {
+  rates = rates || { whole: 0, large: 1, medium: 2, small: 3 };
+  var sum = 0;
+  for (var i = 0; i < (basket || []).length; i++) {
+    var it = basket[i] || {};
+    var cat = String(it.cat || "").toLowerCase();
+    if (cat && cat !== "dressura") continue;
+    var sub = String(it.sub || "").toUpperCase().replace(/\s+/g, " ").trim();
+    var size = "";
+    if (/^ЦЕЛ/.test(sub)) size = "whole";
+    else if (/^БОЛЬ|^КРУП|^БОЛ\b/.test(sub) || sub === "БОЛ") size = "large";
+    else if (/^СРЕД/.test(sub)) size = "medium";
+    else if (/^МЕЛК|^МАЛ/.test(sub) && !/ОЧ/.test(sub)) size = "small";
+    else if (/КУБИК/.test(sub) && /МЕЛК/.test(sub)) size = "small";
+    else if (/КУБИК/.test(sub) && /КРУП/.test(sub)) size = "large";
+    if (!size) continue;
+    var rate = Number(rates[size]);
+    if (!isFinite(rate)) rate = 0;
+    var grams = Number(it.val != null ? it.val : it.value) || 0;
+    if (grams <= 0) continue;
+    sum += (grams / 100) * rate;
+  }
+  return Math.round(sum * 100) / 100;
+}
+
+function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn) {
+  var n = Math.max(1, Number(deliveriesN) || 1);
+  var coef = Number(coefIn);
+  if (!isFinite(coef) || coef <= 0) coef = 2.3;
+  var fixed = 11;
+  var delivery = 6 * n;
+  var pc = packCountsUFromBasket_(basket || []);
+  var packagesByn = Math.round(
+    ((Number(pc.u1) || 0) * 0.34 +
+      (Number(pc.u2) || 0) * 0.56 +
+      (Number(pc.u3) || 0) * 0.80 +
+      (Number(pc.up4) || 0) * 1.40) * 100
+  ) / 100;
+  var fracMark = dressuraFractionMarkupFromBasket_(basket);
+  var factCost = Math.round((Number(costSum) * coef + fixed + delivery + packagesByn + fracMark) * 100) / 100;
+  return {
+    factCost: factCost,
+    deliveriesN: n,
+    coef: coef,
+    fixed: fixed,
+    deliveryByn: delivery,
+    packagesByn: packagesByn,
+    packCounts: pc,
+    fractionMarkup: fracMark
+  };
+}
+
+/** Полный пересчёт ФАКТ СТОИМОСТЬ ПП по составу. */
+function handleCalcPpFact(json, callback, fromPost) {
+  json = json || {};
+  var basket = json.basket || [];
+  if (typeof basket === "string") {
+    try { basket = JSON.parse(basket); } catch (e0) { basket = []; }
+  }
+  if (!Array.isArray(basket)) basket = [];
+  try {
+    var priceInfo = readPriceCosts_("pp");
+    var totalCost = 0;
+    var lines = [];
+    for (var i = 0; i < basket.length; i++) {
+      var it = basket[i];
+      var name = String(it.name || it.main || "").trim();
+      var sub = String(it.sub || "").trim();
+      var val = Number(it.val != null ? it.val : it.value) || 0;
+      var cat = String(it.cat || "").trim();
+      if (!name || val <= 0) continue;
+      var key = name + (sub ? " / " + sub : "");
+      var info = priceInfo.costs[key];
+      if (!info) {
+        for (var k in priceInfo.costs) {
+          if (priceInfo.costs[k].name === name && (!sub || priceInfo.costs[k].sub === sub)) {
+            info = priceInfo.costs[k];
+            break;
+          }
+        }
+      }
+      var unitPrice = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
+      var piece = false;
+      if (info && info.piece) piece = true;
+      else if (cat === "chew" || cat === "chews") piece = true;
+      else if (/шт/i.test(name)) piece = true;
+      else if (info && info.grams === false) piece = true;
+      var cost = piece ? (unitPrice * val) : ((val / 100) * unitPrice);
+      totalCost += cost;
+      lines.push({ name: name, sub: sub, val: val, unitPrice: unitPrice, piece: piece, cost: Math.round(cost * 100) / 100 });
+    }
+    totalCost = Math.round(totalCost * 100) / 100;
+    var fact = computePpFactFromCost_(totalCost, basket, json.deliveriesN || json.deliveries, json.coef || json.markup);
+    var ok = {
+      status: "success",
+      cost: totalCost,
+      lines: lines,
+      markup: fact.coef,
+      total: Math.round(totalCost * fact.coef * 100) / 100
+    };
+    for (var fk in fact) {
+      if (Object.prototype.hasOwnProperty.call(fact, fk)) ok[fk] = fact[fk];
+    }
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (e) {
+    var bad = { status: "error", message: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
 }
 
 /* ----- Сборка / пакеты ----- */
@@ -9563,27 +9988,370 @@ function ensureSurveySheet_(crmSs) {
   return sh;
 }
 
+function writeSurveyRowCells_(sh, rowIndex, values) {
+  if (!sh || rowIndex < 1 || !values || !values.length) return;
+  try {
+    sh.getRange(rowIndex, 1, rowIndex, Math.max(values.length, SURVEY_HEADERS_.length)).breakApart();
+  } catch (e0) {}
+  for (var c = 0; c < values.length; c++) {
+    // col 5 (index 4) = dueDate — писать как Date в полдень, не строкой UTC
+    if (c === 4) {
+      writeSurveyDueCell_(sh, rowIndex, 5, values[c]);
+      continue;
+    }
+    try { sh.getRange(rowIndex, c + 1).setValue(values[c]); } catch (e1) {}
+  }
+}
+
 function newSurveyId_() {
   return "sv_" + Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Minsk", "yyyyMMddHHmmss") +
     "_" + String(Math.floor(Math.random() * 1e5));
 }
 
 function surveyRowToObj_(row, rowIndex1) {
+  var note = String(row[9] || "").trim();
+  var resp = parseRespFromSurveyNote_(note);
+  var seg = parseSurveySegFromNote_(note);
+  var dueRaw = row[4];
+  var dueYmd = surveyDueYmd_(dueRaw);
   return {
     id: String(row[0] || "").trim(),
     nick: String(row[1] || "").trim(),
     stage: String(row[2] || "").trim(),
     kind: String(row[3] || "").trim(),
-    dueDate: String(row[4] || "").trim(),
+    dueDate: dueYmd || String(dueRaw || "").trim(),
     sentAt: String(row[5] || "").trim(),
     status: String(row[6] || "").trim() || "planned",
     templateId: String(row[7] || "").trim(),
     answer: String(row[8] || "").trim(),
-    note: String(row[9] || "").trim(),
+    note: note,
     linkedSubId: String(row[10] || "").trim(),
     updatedAt: row[11] || "",
+    ownerTelegramId: resp.ownerTelegramId,
+    ownerName: resp.ownerName,
+    linkedSheet: seg,
     rowIndex: rowIndex1
   };
+}
+
+function parseSurveySegFromNote_(note) {
+  var m = String(note || "").match(/\[SEG:([^\]]+)\]/i);
+  return m ? String(m[1] || "").trim() : "";
+}
+
+function stampSurveySegIntoNote_(note, sheet) {
+  var base = String(note || "").replace(/\[SEG:[^\]]*\]/gi, "").replace(/\s+/g, " ").trim();
+  var seg = String(sheet || "").trim();
+  if (!seg) return base;
+  var tag = "[SEG:" + seg + "]";
+  return (base + (base ? " " : "") + tag).trim();
+}
+
+function isSurveyStageKeyword_(s) {
+  return /^(БП1|БП2|БП|ПП|АФК|ФИНАЛ|FINAL|BP1|BP2|PLANNED|DUE|SENT|DONE|CANCELLED)$/i.test(String(s || "").trim());
+}
+
+function isSurveyMetaLine_(line) {
+  var s = String(line || "").trim();
+  if (!s) return true;
+  if (isSurveyStageKeyword_(s)) return true;
+  if (/^(станет|будет|опрос|финал|напомнить|про состав)/i.test(s)) return true;
+  if (/станет\s*(БП|ПП|бп|пп)/i.test(s)) return true;
+  if (/финальн/i.test(s)) return true;
+  if (/^\d{1,2}\s*[-–]?\s*[еeо]\b/i.test(s)) return true; // 04-e, 15-ое
+  if (/\d{1,2}[\.\/\-]\d{1,2}/.test(s)) return true;
+  if (/\d{1,2}\s*-\s*(го|е|ье|ого)/i.test(s)) return true;
+  if (/(январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)/i.test(s)) return true;
+  return false;
+}
+
+function isLikelySurveyNickLine_(line) {
+  var s = String(line || "").trim();
+  if (!s || s.length < 2 || s.length > 48) return false;
+  if (isSurveyMetaLine_(s)) return false;
+  if (/^sv_/i.test(s)) return false;
+  if (/^https?:/i.test(s)) return false;
+  // ник / имя: буквы, цифры, ._ 
+  if (!/[A-Za-zА-Яа-яЁё]/.test(s)) return false;
+  if (/^[\d\s\.\-]+$/.test(s)) return false;
+  return true;
+}
+
+function inferSurveyKindFromText_(text) {
+  var t = String(text || "");
+  if (/финал|станет\s*пп|станет\s*п\.?п|→\s*пп|\bpp\b|final/i.test(t)) return "final";
+  return "bp2";
+}
+
+function cleanSurveyNickDisplay_(raw) {
+  var s = String(raw || "").replace(/\r/g, "\n");
+  var first = s.split("\n")[0] || "";
+  first = first.replace(/^\s*@/, "").trim();
+  if (isSurveyStageKeyword_(first) || isSurveyMetaLine_(first)) return "";
+  return extractInstagramNick_(first) || displayClientNick_(first) || first;
+}
+
+/** Строка уже в каноне: 1 ник, kind bp2|final, status простой. */
+function isCleanSurveyRowObj_(obj) {
+  if (!obj) return false;
+  var nick = String(obj.nick || "");
+  if (!nick || /[\n\r|]/.test(nick)) return false;
+  if (isSurveyStageKeyword_(nick)) return false;
+  if (/[\n\r|]/.test(String(obj.kind || "")) || /[\n\r|]/.test(String(obj.stage || ""))) return false;
+  if (/[\n\r|]/.test(String(obj.status || ""))) return false;
+  var st = String(obj.status || "").toLowerCase();
+  if (st && !/^(planned|due|sent|done|cancelled)$/.test(st)) return false;
+  var kind = normalizeSurveyKind_(obj.kind);
+  if (kind !== "bp2" && kind !== "final") return false;
+  // id = чужой ник (сдвиг колонок): id не sv_ и похож на ник, а nick=БП2
+  if (obj.id && !/^sv_/i.test(obj.id) && isLikelySurveyNickLine_(obj.id) && isSurveyStageKeyword_(nick)) return false;
+  return true;
+}
+
+function extractPeopleFromSurveyBlob_(text) {
+  var raw = String(text || "").replace(/\r/g, "\n").replace(/\|/g, "\n");
+  var lines = raw.split("\n").map(function (x) { return String(x || "").trim(); }).filter(Boolean);
+  var people = [];
+  var cur = null;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    if (isLikelySurveyNickLine_(line) && !isSurveyMetaLine_(line)) {
+      var nick = cleanSurveyNickDisplay_(line) || line;
+      cur = { nick: nick, note: "", kindHint: "", dueHint: "" };
+      people.push(cur);
+      continue;
+    }
+    if (!cur) continue;
+    cur.note = (cur.note ? cur.note + " " : "") + line;
+    if (!cur.kindHint) cur.kindHint = inferSurveyKindFromText_(line);
+  }
+  return people;
+}
+
+/**
+ * Чинит лист «Опросник»: было «куча людей в ячейке» / сдвиг колонок →
+ * ровно 1 человек = 1 строка.
+ */
+function repairSurveySheetToCanonical_(crmSs) {
+  var sh = ensureSurveySheet_(crmSs);
+  if (!sh || sh.getLastRow() < 2) return { repaired: 0, kept: 0 };
+  var data = sh.getDataRange().getValues();
+  var collected = []; // {nick, kind, stage, dueDate, status, note, templateId, linkedSubId, owner...}
+  var seen = {};
+
+  function pushPerson_(p) {
+    var nick = cleanSurveyNickDisplay_(p.nick);
+    if (!nick || isSurveyStageKeyword_(nick)) return;
+    var kind = normalizeSurveyKind_(p.kind || p.kindHint || "bp2");
+    var key = (clientMatchKey_(nick) || nick.toUpperCase()) + "|" + kind;
+    if (seen[key]) {
+      // дополнить note/due если пусто
+      var prev = seen[key];
+      if (!prev.dueDate && p.dueDate) prev.dueDate = p.dueDate;
+      if (p.note && String(prev.note || "").indexOf(p.note) < 0) {
+        prev.note = (prev.note ? prev.note + " " : "") + p.note;
+      }
+      return;
+    }
+    var item = {
+      nick: nick,
+      kind: kind,
+      stage: surveyStageForKind_(kind, p.stage),
+      dueDate: String(p.dueDate || "").trim(),
+      status: /^(planned|due|sent|done|cancelled)$/i.test(String(p.status || "")) ? String(p.status).toLowerCase() : "planned",
+      note: String(p.note || "").trim(),
+      templateId: p.templateId || surveyTemplateForKind_(kind),
+      linkedSubId: String(p.linkedSubId || "").trim(),
+      sentAt: String(p.sentAt || "").trim(),
+      answer: String(p.answer || "").trim(),
+      ownerTelegramId: p.ownerTelegramId || "",
+      ownerName: p.ownerName || "",
+      linkedSheet: p.linkedSheet || ""
+    };
+    if (item.ownerTelegramId) item.note = stampRespIntoSurveyNote_(item.note, item.ownerTelegramId, item.ownerName);
+    if (item.linkedSheet) item.note = stampSurveySegIntoNote_(item.note, item.linkedSheet);
+    seen[key] = item;
+    collected.push(item);
+  }
+
+  for (var r = 1; r < data.length; r++) {
+    var obj = surveyRowToObj_(data[r], r + 1);
+    // Сдвиг: nick=БП2, id=человек
+    if (isSurveyStageKeyword_(obj.nick) && obj.id && !/^sv_/i.test(obj.id) && isLikelySurveyNickLine_(obj.id)) {
+      pushPerson_({
+        nick: obj.id,
+        kind: inferSurveyKindFromText_(obj.nick + " " + obj.stage + " " + obj.kind),
+        stage: obj.nick,
+        dueDate: obj.dueDate,
+        status: /^(planned|due|sent|done|cancelled)$/i.test(obj.status) ? obj.status : "planned",
+        note: [obj.stage, obj.kind, obj.note].filter(Boolean).join(" ")
+      });
+      continue;
+    }
+    if (isCleanSurveyRowObj_(obj)) {
+      pushPerson_({
+        nick: cleanSurveyNickDisplay_(obj.nick) || obj.nick,
+        kind: obj.kind,
+        stage: obj.stage,
+        dueDate: obj.dueDate,
+        status: obj.status,
+        note: obj.note,
+        templateId: obj.templateId,
+        linkedSubId: obj.linkedSubId,
+        sentAt: obj.sentAt,
+        answer: obj.answer,
+        ownerTelegramId: obj.ownerTelegramId,
+        ownerName: obj.ownerName,
+        linkedSheet: obj.linkedSheet
+      });
+      continue;
+    }
+    // Грязная строка: вытащить всех из всех текстовых ячеек
+    var blob = [obj.id, obj.nick, obj.stage, obj.kind, obj.dueDate, obj.sentAt, obj.status, obj.note]
+      .map(function (x) { return String(x || ""); })
+      .join("\n");
+    var people = extractPeopleFromSurveyBlob_(blob);
+    if (!people.length && obj.nick) {
+      var n0 = cleanSurveyNickDisplay_(obj.nick);
+      if (n0) people = [{ nick: n0, note: String(obj.nick).split("\n").slice(1).join(" "), kindHint: inferSurveyKindFromText_(obj.nick) }];
+    }
+    for (var p = 0; p < people.length; p++) {
+      pushPerson_({
+        nick: people[p].nick,
+        kind: people[p].kindHint || inferSurveyKindFromText_(people[p].note),
+        note: people[p].note,
+        status: "planned"
+      });
+    }
+  }
+
+  // Только с валидной датой отправки ≥ сегодня — остальное не пишем обратно
+  var tzR = Session.getScriptTimeZone() || "Europe/Minsk";
+  var todayR = Utilities.formatDate(new Date(), tzR, "yyyy-MM-dd");
+  var kept = [];
+  for (var c = 0; c < collected.length; c++) {
+    var it0 = collected[c];
+    var due0 = surveyDueYmd_(it0.dueDate);
+    if (!due0 || due0 < todayR) continue;
+    var st0 = String(it0.status || "planned").toLowerCase();
+    if (st0 !== "planned" && st0 !== "due") continue;
+    if (String(it0.sentAt || "").trim()) continue;
+    it0.dueDate = due0;
+    it0.status = st0;
+    kept.push(it0);
+  }
+  collected = kept;
+
+  // Перезапись листа
+  var lastRow = sh.getLastRow();
+  if (lastRow > 1) {
+    try { sh.getRange(2, 1, lastRow, Math.max(SURVEY_HEADERS_.length, sh.getLastColumn())).clearContent(); } catch (eClr) {}
+    try {
+      // удалить лишние строки снизу, оставить шапку
+      var maxRows = sh.getMaxRows();
+      if (maxRows > 1 && lastRow > 1) sh.deleteRows(2, lastRow - 1);
+    } catch (eDel) {}
+  }
+  sh.getRange(1, 1, 1, SURVEY_HEADERS_.length).setValues([SURVEY_HEADERS_]);
+  for (var i = 0; i < collected.length; i++) {
+    var it = collected[i];
+    sh.appendRow([
+      newSurveyId_(),
+      it.nick,
+      it.stage,
+      it.kind,
+      it.dueDate,
+      it.sentAt || "",
+      it.status,
+      it.templateId,
+      it.answer || "",
+      it.note || "",
+      it.linkedSubId || "",
+      new Date()
+    ]);
+  }
+  try { PropertiesService.getScriptProperties().setProperty("survey_sheet_repair_ver", "v7.11.09"); } catch (eP) {}
+  try { clearCrmSheetCache_("Опросник"); } catch (eC) {}
+  return { repaired: 1, kept: collected.length };
+}
+
+function ensureSurveySheetRepaired_(crmSs) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    if (props.getProperty("survey_sheet_repair_ver") === "v7.11.09") {
+      // всё равно проверить на грязь / пустые даты
+      var sh = ensureSurveySheet_(crmSs);
+      if (!sh || sh.getLastRow() < 2) return;
+      var sample = sh.getRange(2, 1, Math.min(sh.getLastRow(), 20), 7).getValues();
+      var dirty = false;
+      var tzE = Session.getScriptTimeZone() || "Europe/Minsk";
+      var todayE = Utilities.formatDate(new Date(), tzE, "yyyy-MM-dd");
+      for (var i = 0; i < sample.length; i++) {
+        var nick = String(sample[i][1] || "");
+        var kind = String(sample[i][3] || "");
+        var st = String(sample[i][6] || "");
+        var dueY = surveyDueYmd_(sample[i][4]);
+        if (/[\n\r|]/.test(nick) || /[\n\r|]/.test(kind) || /[\n\r|]/.test(st)) { dirty = true; break; }
+        if (isSurveyStageKeyword_(nick) || isSurveyMetaLine_(nick)) { dirty = true; break; }
+        if (!dueY || dueY < todayE) { dirty = true; break; }
+      }
+      if (!dirty) return;
+    }
+  } catch (e0) {}
+  repairSurveySheetToCanonical_(crmSs);
+}
+
+/** Перенести открытые опросники вместе с клиентом (БП→ПП и т.п.). */
+function moveSurveysWithClient_(crmSs, nick, opts) {
+  opts = opts || {};
+  var sh = ensureSurveySheet_(crmSs);
+  if (!sh || !nick || sh.getLastRow() < 2) return { moved: 0 };
+  var toSheet = String(opts.toSheet || "").trim();
+  var toNick = String(opts.toNick || nick).trim() || nick;
+  var data = sh.getDataRange().getValues();
+  var n = 0;
+  for (var r = 1; r < data.length; r++) {
+    var obj = surveyRowToObj_(data[r], r + 1);
+    var nickCell = cleanSurveyNickDisplay_(obj.nick) || obj.nick;
+    if (!nicksMatch_(nickCell, nick) && !nicksMatch_(obj.nick, nick)) continue;
+    var st = String(obj.status || "").toLowerCase();
+    if (st === "cancelled") continue;
+    // обновить ник (если label сменился)
+    if (toNick && toNick !== obj.nick) {
+      sh.getRange(r + 1, 2).setValue(cleanSurveyNickDisplay_(toNick) || toNick);
+    }
+    var note = stampSurveySegIntoNote_(obj.note, toSheet || obj.linkedSheet);
+    // БП → ПП: открытый bp2 остаётся; финальный помечаем этапом ПП
+    if (/^ПП$/i.test(toSheet)) {
+      if (normalizeSurveyKind_(obj.kind) === "final" || /финал/i.test(obj.stage)) {
+        sh.getRange(r + 1, 3).setValue("ПП");
+      } else {
+        sh.getRange(r + 1, 3).setValue(obj.stage || "БП2");
+      }
+      note = stampSurveySegIntoNote_(note, "ПП");
+    } else if (/^БП$/i.test(toSheet)) {
+      note = stampSurveySegIntoNote_(note, "БП");
+    } else if (/^АФК$/i.test(toSheet)) {
+      note = stampSurveySegIntoNote_(note, "АФК");
+    }
+    sh.getRange(r + 1, 10).setValue(note);
+    sh.getRange(r + 1, 12).setValue(new Date());
+    n++;
+  }
+  try { clearCrmSheetCache_("Опросник"); } catch (eC) {}
+  return { moved: n };
+}
+
+function handleRepairSurveys(json, callback, fromPost) {
+  try {
+    PropertiesService.getScriptProperties().deleteProperty("survey_sheet_repair_ver");
+    var res = repairSurveySheetToCanonical_();
+    var ok = { status: "success", message: "surveys_repaired", count: res.kept || 0 };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (e) {
+    var bad = { status: "error", message: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
 }
 
 function normalizeSurveyKind_(k) {
@@ -9615,6 +10383,11 @@ function upsertOpenSurvey_(crmSs, opts) {
   var status = String(opts.status || "planned").trim() || "planned";
   var templateId = String(opts.templateId || surveyTemplateForKind_(kind)).trim();
   var note = String(opts.note || "").trim();
+  var ownerTelegramId = String(opts.ownerTelegramId || opts.respTelegramId || "").trim();
+  var ownerName = String(opts.ownerName || opts.respName || "").trim();
+  if (ownerTelegramId) note = stampRespIntoSurveyNote_(note, ownerTelegramId, ownerName);
+  var linkedSheet = String(opts.linkedSheet || opts.sheet || opts.segment || "").trim();
+  if (linkedSheet) note = stampSurveySegIntoNote_(note, linkedSheet);
   var linkedSubId = String(opts.linkedSubId || opts.subId || "").trim();
   var sentAt = String(opts.sentAt || "").trim();
   var answer = String(opts.answer || "").trim();
@@ -9626,49 +10399,257 @@ function upsertOpenSurvey_(crmSs, opts) {
     var st0 = String(data[r][6] || "planned").trim() || "planned";
     // Prefer updating open planned/due; for sent also update open row
     if (!openRe.test(st0)) continue;
-    if (dueDate) sh.getRange(r + 1, 5).setValue(dueDate);
+    if (dueDate) writeSurveyDueCell_(sh, r + 1, 5, dueDate);
     if (stage) sh.getRange(r + 1, 3).setValue(stage);
     if (opts.status) sh.getRange(r + 1, 7).setValue(status);
     if (sentAt) sh.getRange(r + 1, 6).setValue(sentAt);
     if (templateId) sh.getRange(r + 1, 8).setValue(templateId);
     if (answer) sh.getRange(r + 1, 9).setValue(answer);
-    if (note) sh.getRange(r + 1, 10).setValue(note);
+    if (note || ownerTelegramId) sh.getRange(r + 1, 10).setValue(note);
     if (linkedSubId) sh.getRange(r + 1, 11).setValue(linkedSubId);
     sh.getRange(r + 1, 12).setValue(new Date());
+    try { sh.getRange(r + 1, 1, r + 1, SURVEY_HEADERS_.length).breakApart(); } catch (eBr2) {}
     var row = sh.getRange(r + 1, 1, r + 1, SURVEY_HEADERS_.length).getValues()[0];
     return surveyRowToObj_(row, r + 1);
   }
   var id = newSurveyId_();
+  dueDate = surveyDueYmd_(dueDate) || dueDate || ymdPlusDays_("", 4);
   sh.appendRow([
-    id, nick, stage, kind, dueDate, sentAt,
+    id, nick, stage, kind, "", sentAt,
     status, templateId, answer, note, linkedSubId, new Date()
   ]);
   var last = sh.getLastRow();
+  writeSurveyRowCells_(sh, last, [
+    id, nick, stage, kind, dueDate, sentAt,
+    status, templateId, answer, note, linkedSubId, new Date()
+  ]);
+  writeSurveyDueCell_(sh, last, 5, dueDate);
   var row2 = sh.getRange(last, 1, last, SURVEY_HEADERS_.length).getValues()[0];
   return surveyRowToObj_(row2, last);
 }
 
+function surveySheetTz_() {
+  try {
+    var ss = getCrmSpreadsheet_();
+    if (ss && ss.getSpreadsheetTimeZone) {
+      return ss.getSpreadsheetTimeZone() || Session.getScriptTimeZone() || "Europe/Minsk";
+    }
+  } catch (e0) {}
+  return Session.getScriptTimeZone() || "Europe/Minsk";
+}
+
+/** Date в полдень локально — без сдвига «1 авг → 31 июл» из-за UTC. */
+function sheetDateFromYmd_(ymd) {
+  var y = surveyDueYmd_(ymd);
+  if (!y) return null;
+  var p = y.split("-");
+  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 12, 0, 0);
+}
+
+function writeSurveyDueCell_(sh, row, col, ymd) {
+  if (!sh || !(row >= 1) || !(col >= 1)) return;
+  var y = surveyDueYmd_(ymd);
+  var cell = sh.getRange(row, col);
+  if (!y) {
+    try { cell.clearContent(); } catch (eC) { cell.setValue(""); }
+    return;
+  }
+  try { cell.setNumberFormat("yyyy-mm-dd"); } catch (eF) {}
+  cell.setValue(sheetDateFromYmd_(y));
+}
+
+function surveyDueYmd_(raw) {
+  if (raw === null || raw === undefined || raw === "") return "";
+  var tz = surveySheetTz_();
+  // Date-ячейка из Sheets — всегда через TZ таблицы
+  if (Object.prototype.toString.call(raw) === "[object Date]" && !isNaN(raw.getTime())) {
+    return Utilities.formatDate(raw, tz, "yyyy-MM-dd");
+  }
+  var s = String(raw || "").trim();
+  if (!s) return "";
+  if (/^(from_order|order|bp|none|null|undefined)$/i.test(s)) return "";
+  var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return m[1] + "-" + m[2] + "-" + m[3];
+  var mEn = s.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2})\s+(\d{4})\b/i);
+  if (mEn) {
+    var months = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+    var mi = months[String(mEn[1]).slice(0, 3).toLowerCase()];
+    if (mi >= 0) {
+      var dEn = new Date(Number(mEn[3]), mi, Number(mEn[2]), 12, 0, 0);
+      if (!isNaN(dEn.getTime())) return Utilities.formatDate(dEn, tz, "yyyy-MM-dd");
+    }
+  }
+  try {
+    var d = parseFlexibleDate_(s);
+    if (d && !isNaN(d.getTime())) {
+      return Utilities.formatDate(d, tz, "yyyy-MM-dd");
+    }
+  } catch (e0) {}
+  return "";
+}
+
+/**
+ * Только опросники, которые ЕЩЁ ДОЛЖНЫ отправиться:
+ * planned/due + валидная dueDate >= сегодня. Без даты / прошлое / sent — нет.
+ */
+function isSurveyPendingUnsent_(obj, todayYmd) {
+  var st = String((obj && obj.status) || "planned").toLowerCase();
+  if (st !== "planned" && st !== "due") return false;
+  if (String((obj && obj.sentAt) || "").trim()) return false;
+  var due = surveyDueYmd_(obj && obj.dueDate);
+  if (!due) return false; // без даты — не показываем и чистим
+  return due >= todayYmd;
+}
+
+/** Удаляет с листа всё, что не «ещё не отправлено по дате». */
+function purgeNonPendingSurveys_(sh, todayYmd) {
+  if (!sh || sh.getLastRow() < 2) return 0;
+  var data = sh.getDataRange().getValues();
+  var keepers = [];
+  var drop = 0;
+  for (var r = 1; r < data.length; r++) {
+    if (!String(data[r][0] || "").trim() && !String(data[r][1] || "").trim()) {
+      drop++;
+      continue;
+    }
+    var obj = surveyRowToObj_(data[r], r + 1);
+    obj.nick = cleanSurveyNickDisplay_(obj.nick) || String(obj.nick || "").split(/\n/)[0].trim();
+    if (!obj.nick || isSurveyStageKeyword_(obj.nick) || isSurveyMetaLine_(obj.nick)) {
+      drop++;
+      continue;
+    }
+    if (/[\n\r|]/.test(String(obj.kind || "")) || /[\n\r|]/.test(String(obj.status || ""))) {
+      drop++;
+      continue;
+    }
+    obj.kind = normalizeSurveyKind_(obj.kind);
+    if (!isSurveyPendingUnsent_(obj, todayYmd)) {
+      drop++;
+      continue;
+    }
+    keepers.push([
+      obj.id || newSurveyId_(),
+      obj.nick,
+      obj.stage || surveyStageForKind_(obj.kind),
+      obj.kind,
+      sheetDateFromYmd_(surveyDueYmd_(obj.dueDate) || obj.dueDate) || surveyDueYmd_(obj.dueDate) || obj.dueDate,
+      obj.sentAt || "",
+      obj.status || "planned",
+      obj.templateId || surveyTemplateForKind_(obj.kind),
+      obj.answer || "",
+      obj.note || "",
+      obj.linkedSubId || "",
+      obj.updatedAt || new Date()
+    ]);
+  }
+  if (!drop) return 0;
+  // быстрее переписать лист, чем deleteRow по одному
+  var lastRow = sh.getLastRow();
+  try {
+    if (lastRow > 1) sh.getRange(2, 1, lastRow, Math.max(SURVEY_HEADERS_.length, sh.getLastColumn())).clearContent();
+  } catch (eClr) {}
+  try {
+    if (lastRow > 1) sh.deleteRows(2, lastRow - 1);
+  } catch (eDel) {}
+  if (keepers.length) {
+    try {
+      sh.getRange(2, 1, 1 + keepers.length, SURVEY_HEADERS_.length).setValues(keepers);
+    } catch (eSet) {
+      for (var i = 0; i < keepers.length; i++) {
+        try { sh.appendRow(keepers[i]); } catch (eAp) {}
+      }
+    }
+  }
+  try { clearCrmSheetCache_("Опросник"); } catch (eC) {}
+  return drop;
+}
+
 function handleListSurvey(json, callback, fromPost) {
   json = json || {};
-  var out = { status: "success", items: [], headers: SURVEY_HEADERS_ };
+  var out = { status: "success", items: [], headers: SURVEY_HEADERS_, purged: 0 };
   try {
+    ensureSurveySheetRepaired_();
     var sh = ensureSurveySheet_();
     if (!sh || sh.getLastRow() < 2) {
       return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
     }
-    var data = sh.getDataRange().getValues();
     var filterStatus = String(json.status || "").trim().toLowerCase();
     var filterKind = String(json.kind || "").trim();
     var filterNick = String(json.nick || json.client || "").trim();
+    var filterSheet = String(json.sheet || json.segment || json.linkedSheet || "").trim();
     var wantKind = filterKind ? normalizeSurveyKind_(filterKind) : "";
+    var activeOnly = !(json.activeOnly === false || json.activeOnly === "0" || json.activeOnly === 0 ||
+      json.includeOld === true || json.includeOld === "1" || json.includeOld === 1);
+    var wantPurge = !(json.purge === false || json.purge === "0" || json.purge === 0);
+    var forcePurge = json.purge === "force" || json.forcePurge === "1" || json.forcePurge === true;
+    var tz = Session.getScriptTimeZone() || "Europe/Minsk";
+    var todayYmd = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+    // чистка не чаще 1 раза в день (иначе вкладка тормозит)
+    if (activeOnly && wantPurge) {
+      var props = PropertiesService.getScriptProperties();
+      var lastPurge = "";
+      try { lastPurge = props.getProperty("survey_purge_ymd") || ""; } catch (eP0) {}
+      if (forcePurge || lastPurge !== todayYmd) {
+        out.purged = purgeNonPendingSurveys_(sh, todayYmd);
+        try { props.setProperty("survey_purge_ymd", todayYmd); } catch (eP1) {}
+        sh = ensureSurveySheet_();
+      }
+    }
+    if (!sh || sh.getLastRow() < 2) {
+      out.count = 0;
+      out.activeOnly = activeOnly;
+      out.today = todayYmd;
+      return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+    }
+    var data = sh.getDataRange().getValues();
     for (var r = 1; r < data.length; r++) {
       if (!String(data[r][0] || "").trim() && !String(data[r][1] || "").trim()) continue;
       var obj = surveyRowToObj_(data[r], r + 1);
+      obj.nick = cleanSurveyNickDisplay_(obj.nick) || String(obj.nick || "").split(/\n/)[0].trim();
+      if (!obj.nick || isSurveyStageKeyword_(obj.nick)) continue;
+      if (/[\n\r|]/.test(String(obj.kind || "")) || /[\n\r|]/.test(String(obj.status || ""))) continue;
+      obj.kind = normalizeSurveyKind_(obj.kind);
+      obj.dueDate = surveyDueYmd_(obj.dueDate);
+      if (activeOnly && !isSurveyPendingUnsent_(obj, todayYmd)) continue;
       if (filterStatus && String(obj.status || "").toLowerCase() !== filterStatus) continue;
-      if (wantKind && normalizeSurveyKind_(obj.kind) !== wantKind) continue;
+      if (wantKind && obj.kind !== wantKind) continue;
       if (filterNick && !nicksMatch_(obj.nick, filterNick)) continue;
+      if (filterSheet) {
+        var seg = obj.linkedSheet || parseSurveySegFromNote_(obj.note);
+        if (seg && String(seg).toUpperCase() !== String(filterSheet).toUpperCase()) continue;
+      }
       out.items.push(obj);
     }
+    var byKey = {};
+    var order = [];
+    for (var i = 0; i < out.items.length; i++) {
+      var it = out.items[i];
+      var k = (clientMatchKey_(it.nick) || String(it.nick).toUpperCase()) + "|" + normalizeSurveyKind_(it.kind);
+      if (!byKey[k]) {
+        byKey[k] = it;
+        order.push(k);
+      } else {
+        var prev = byKey[k];
+        var rank = function (s) {
+          s = String(s || "").toLowerCase();
+          if (s === "due") return 3;
+          if (s === "planned") return 2;
+          return 0;
+        };
+        if (rank(it.status) > rank(prev.status)) byKey[k] = it;
+      }
+    }
+    out.items = order.map(function (k2) { return byKey[k2]; });
+    out.items.sort(function (a, b) {
+      var da = surveyDueYmd_(a.dueDate) || "9999-99-99";
+      var db = surveyDueYmd_(b.dueDate) || "9999-99-99";
+      if (da < db) return -1;
+      if (da > db) return 1;
+      return String(a.nick || "").localeCompare(String(b.nick || ""), "ru");
+    });
+    out.count = out.items.length;
+    out.activeOnly = activeOnly;
+    out.today = todayYmd;
   } catch (e) {
     out.status = "error";
     out.message = String(e);
@@ -9679,8 +10660,9 @@ function handleListSurvey(json, callback, fromPost) {
 function handleSaveSurvey(json, callback, fromPost) {
   json = json || {};
   var nick = String(json.nick || json.client || "").trim();
-  if (!nick) {
-    var need = { status: "error", message: "need_nick" };
+  var id = String(json.id || "").trim();
+  if (!nick && !id) {
+    var need = { status: "error", message: "need_nick_or_id" };
     return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
   }
   try {
@@ -9689,42 +10671,111 @@ function handleSaveSurvey(json, callback, fromPost) {
       var nos = { status: "error", message: "survey_sheet_missing" };
       return fromPost ? jsonpText(callback, nos) : jsonp(callback, nos);
     }
-    var id = String(json.id || "").trim();
     var kind = normalizeSurveyKind_(json.kind || json.surveyKind);
-    var stage = surveyStageForKind_(kind, json.stage || json.statusStage);
-    var dueDate = String(json.dueDate || json.surveyDate || "").trim();
     var status = String(json.status || "planned").trim() || "planned";
     var allowed = { planned: 1, due: 1, sent: 1, done: 1, cancelled: 1 };
     if (!allowed[status]) status = "planned";
-    var templateId = String(json.templateId || surveyTemplateForKind_(kind)).trim();
-    var answer = String(json.answer || "").trim();
-    var note = String(json.note || "").trim();
-    var linkedSubId = String(json.linkedSubId || json.subId || "").trim();
-    var sentAt = String(json.sentAt || "").trim();
+    var dueDate = surveyDueYmd_(json.dueDate || json.surveyDate) || String(json.dueDate || json.surveyDate || "").trim();
+    var stage = String(json.stage || json.statusStage || "").trim();
+    var templateId = String(json.templateId || "").trim();
+    var answer = json.answer != null ? String(json.answer) : null;
+    var noteIn = json.note != null ? String(json.note) : null;
+    var ownerTelegramId = String(json.ownerTelegramId || json.respTelegramId || "").trim();
+    var ownerName = String(json.ownerName || json.respName || "").trim();
+    var linkedSubId = json.linkedSubId != null || json.subId != null
+      ? String(json.linkedSubId || json.subId || "").trim()
+      : null;
+    var sentAt = json.sentAt != null ? String(json.sentAt || "").trim() : null;
+
     var data = sh.getDataRange().getValues();
     var rowIndex = -1;
+    var existing = null;
     if (id) {
       for (var r = 1; r < data.length; r++) {
-        if (String(data[r][0] || "").trim() === id) { rowIndex = r + 1; break; }
+        if (String(data[r][0] || "").trim() === id) {
+          rowIndex = r + 1;
+          existing = surveyRowToObj_(data[r], rowIndex);
+          break;
+        }
       }
     }
-    var saved;
-    if (rowIndex > 0) {
-      sh.getRange(rowIndex, 1, rowIndex, SURVEY_HEADERS_.length).setValues([[
-        id, nick, stage, kind, dueDate, sentAt,
-        status, templateId, answer, note, linkedSubId, new Date()
-      ]]);
-      saved = surveyRowToObj_(sh.getRange(rowIndex, 1, rowIndex, SURVEY_HEADERS_.length).getValues()[0], rowIndex);
-    } else {
-      id = newSurveyId_();
-      sh.appendRow([
-        id, nick, stage, kind, dueDate, sentAt,
-        status, templateId, answer, note, linkedSubId, new Date()
-      ]);
-      var last = sh.getLastRow();
-      saved = surveyRowToObj_(sh.getRange(last, 1, last, SURVEY_HEADERS_.length).getValues()[0], last);
+    // без id — найти открытую строку nick+kind (не плодить дубликаты)
+    if (rowIndex < 0 && nick) {
+      var openRe = /^(planned|due)$/i;
+      var fallback = -1;
+      for (var r2 = 1; r2 < data.length; r2++) {
+        if (!nicksMatch_(data[r2][1], nick)) continue;
+        if (normalizeSurveyKind_(data[r2][3]) !== kind) continue;
+        var st0 = String(data[r2][6] || "planned").trim() || "planned";
+        if (openRe.test(st0)) {
+          rowIndex = r2 + 1;
+          existing = surveyRowToObj_(data[r2], rowIndex);
+          break;
+        }
+        if (fallback < 0) fallback = r2 + 1;
+      }
+      if (rowIndex < 0 && fallback > 0 && (status === "done" || status === "cancelled")) {
+        rowIndex = fallback;
+        existing = surveyRowToObj_(data[fallback - 1], rowIndex);
+      }
     }
-    var ok = { status: "success", item: saved };
+
+    if (existing) {
+      if (!nick) nick = existing.nick;
+      if (!kind) kind = normalizeSurveyKind_(existing.kind);
+      if (!dueDate) dueDate = existing.dueDate;
+      if (!stage) stage = existing.stage;
+      if (!templateId) templateId = existing.templateId;
+      if (answer === null) answer = existing.answer;
+      if (sentAt === null) sentAt = existing.sentAt;
+      if (linkedSubId === null) linkedSubId = existing.linkedSubId;
+      id = existing.id || id;
+      var note = existing.note || "";
+      if (noteIn !== null && String(noteIn).trim()) note = String(noteIn).trim();
+      if (ownerTelegramId) note = stampRespIntoSurveyNote_(note, ownerTelegramId, ownerName);
+      else if (!ownerTelegramId && existing.ownerTelegramId && noteIn === null) {
+        // сохранить прежнего ответственного
+        note = stampRespIntoSurveyNote_(note, existing.ownerTelegramId, existing.ownerName);
+      }
+      if (!stage) stage = surveyStageForKind_(kind, existing.stage);
+      if (!templateId) templateId = surveyTemplateForKind_(kind);
+      writeSurveyRowCells_(sh, rowIndex, [
+        id, nick, stage, kind, dueDate, sentAt || "",
+        status, templateId || surveyTemplateForKind_(kind), answer || "", note, linkedSubId || "", new Date()
+      ]);
+      var savedUp = surveyRowToObj_(sh.getRange(rowIndex, 1, rowIndex, SURVEY_HEADERS_.length).getValues()[0], rowIndex);
+      try { clearCrmSheetCache_("Опросник"); } catch (eC0) {}
+      var okUp = { status: "success", item: savedUp, updated: true };
+      return fromPost ? jsonpText(callback, okUp) : jsonp(callback, okUp);
+    }
+
+    // новая строка
+    if (!nick) {
+      var needN = { status: "error", message: "need_nick" };
+      return fromPost ? jsonpText(callback, needN) : jsonp(callback, needN);
+    }
+    if (!dueDate && (status === "planned" || status === "due")) {
+      // для нового planned без даты — +4 дня, иначе список его сразу вычистит
+      dueDate = ymdPlusDays_("", 4);
+    }
+    if (!stage) stage = surveyStageForKind_(kind, json.stage);
+    if (!templateId) templateId = surveyTemplateForKind_(kind);
+    var noteNew = noteIn !== null ? String(noteIn || "").trim() : "";
+    if (ownerTelegramId) noteNew = stampRespIntoSurveyNote_(noteNew, ownerTelegramId, ownerName);
+    id = id || newSurveyId_();
+    sh.appendRow([
+      id, nick, stage, kind, dueDate, sentAt || "",
+      status, templateId, answer || "", noteNew, linkedSubId || "", new Date()
+    ]);
+    var last = sh.getLastRow();
+    // на случай merge — перезаписать по ячейкам
+    writeSurveyRowCells_(sh, last, [
+      id, nick, stage, kind, dueDate, sentAt || "",
+      status, templateId, answer || "", noteNew, linkedSubId || "", new Date()
+    ]);
+    var saved = surveyRowToObj_(sh.getRange(last, 1, last, SURVEY_HEADERS_.length).getValues()[0], last);
+    try { clearCrmSheetCache_("Опросник"); } catch (eC1) {}
+    var ok = { status: "success", item: saved, created: true };
     return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
   } catch (e) {
     var bad = { status: "error", message: String(e) };
@@ -9764,6 +10815,68 @@ function handleDeleteSurvey(json, callback, fromPost) {
   }
   json.status = "cancelled";
   return handleSaveSurvey(json, callback, fromPost);
+}
+
+/** Пачка: отменить опросники по id[] / nick[]. */
+function handleDeleteSurveyBatch(json, callback, fromPost) {
+  json = json || {};
+  var ids = json.ids || json.idList || [];
+  if (typeof ids === "string") {
+    try { ids = JSON.parse(ids); } catch (e0) { ids = String(ids).split(/[,;]+/); }
+  }
+  if (!Array.isArray(ids)) ids = [];
+  var nicks = json.nicks || [];
+  if (typeof nicks === "string") {
+    try { nicks = JSON.parse(nicks); } catch (e1) { nicks = String(nicks).split(/[,;]+/); }
+  }
+  if (!Array.isArray(nicks)) nicks = [];
+  if (!ids.length && json.id) ids = [json.id];
+  if (!nicks.length && json.nick) nicks = [json.nick];
+  if (!ids.length && !nicks.length) {
+    var need = { status: "error", message: "need_ids_or_nicks" };
+    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+  }
+  var sh = ensureSurveySheet_();
+  if (!sh || sh.getLastRow() < 2) {
+    var nos = { status: "error", message: "survey_sheet_missing" };
+    return fromPost ? jsonpText(callback, nos) : jsonp(callback, nos);
+  }
+  var wantIds = {};
+  for (var i = 0; i < ids.length; i++) {
+    var id0 = String(ids[i] || "").trim();
+    if (id0) wantIds[id0] = 1;
+  }
+  var wantNicks = [];
+  for (var n = 0; n < nicks.length; n++) {
+    var nk = String(nicks[n] || "").trim();
+    if (nk) wantNicks.push(nk);
+  }
+  var data = sh.getDataRange().getValues();
+  var cancelled = 0;
+  // если передали ids — удаляем только по id (ник не трогает соседние kind того же человека)
+  var useIdsOnly = Object.keys(wantIds).length > 0;
+  for (var r = 1; r < data.length; r++) {
+    var rowId = String(data[r][0] || "").trim();
+    var rowNick = String(data[r][1] || "").trim();
+    var hit = !!(rowId && wantIds[rowId]);
+    if (!hit && !useIdsOnly && wantNicks.length) {
+      for (var w = 0; w < wantNicks.length; w++) {
+        if (nicksMatch_(rowNick, wantNicks[w]) || cleanSurveyNickDisplay_(rowNick) === cleanSurveyNickDisplay_(wantNicks[w])) {
+          hit = true;
+          break;
+        }
+      }
+    }
+    if (!hit) continue;
+    var st = String(data[r][6] || "").toLowerCase();
+    if (st === "cancelled") continue;
+    sh.getRange(r + 1, 7).setValue("cancelled");
+    sh.getRange(r + 1, 12).setValue(new Date());
+    cancelled++;
+  }
+  try { clearCrmSheetCache_("Опросник"); } catch (eC) {}
+  var ok = { status: "success", cancelled: cancelled };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
 
@@ -9807,76 +10920,330 @@ function handleGetPpFactCost(json, callback, fromPost) {
 }
 
 
-function getTemplatesSheet_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+function defaultSurveyTemplates_() {
+  return [
+    {
+      id: "survey_bp2",
+      kind: "survey",
+      title: "Опросник после 1-й коробки (БП2)",
+      body:
+        "Здравствуйте, ! Как себя чувствует после первой коробки? 🐾 Нам очень важно, чтобы лакомства действительно подошли — давайте немного уточним, чтобы вторая доставка была максимально точной. Можно отвечать прямо по пунктам:\n\n" +
+        "1. Какие лакомства из первой коробки особенно понравились вашему питомцу? А какие он проигнорировал или ел без интереса?\n" +
+        "2. Получилось ли использовать лакомства и в тренировках, и дома? Что было удобно, а что не очень?\n" +
+        "3. Как вам количество — хватило на неделю, было впритык или с запасом?\n" +
+        "4. Были ли сложности с хранением, дозировкой или формой лакомств?\n" +
+        "5. Есть ли замечания по составу, запаху, текстуре или размеру?\n" +
+        "6. Что бы вы хотели изменить, добавить или исключить во второй коробке, чтобы она идеально подошла именно вам и вашему пушистому другу?"
+    },
+    {
+      id: "survey_final",
+      kind: "survey",
+      title: "Опросник после 2-й коробки (→ ПП)",
+      body:
+        "Здравствуйте, ! Как чувствует себя ваш питомец? 🐾 Мы очень рады, что вы были с нами весь пробный период. Хотим немного узнать, как вам опыт подписки — это поможет сделать её ещё удобнее. Можно отвечать прямо по пунктам:\n\n" +
+        "1. Стало ли вам проще с лакомствами — меньше беготни, больше пользы?\n" +
+        "2. Какие лакомства особенно понравились вашему питомцу? А какие можно исключить?\n" +
+        "3. Удобно ли было получать коробку дважды в месяц? Хотели бы продолжать в таком ритме или перейти на раз в месяц?\n" +
+        "4. Есть ли ещё моменты, которые стоит подправить, чтобы подписка стала идеальной именно для вас и вашего пушистого друга?\n" +
+        "5. Готовы ли вы продолжить подписку на постоянной основе? Если да — мы подберём формат и ритм, который будет максимально комфортным.\n" +
+        "6. И напоследок: что вам особенно понравилось в нашем подходе или коробке? Нам важно знать, что получилось хорошо 😊"
+    }
+  ];
+}
+
+function upsertSurveyTemplateRow_(sh, id, kind, title, body) {
+  if (!sh || !id) return;
+  var data = sh.getDataRange().getValues();
+  var want = String(id).toLowerCase();
+  var row = 0;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0] || "").trim().toLowerCase() === want) {
+      row = i + 1;
+      break;
+    }
+  }
+  if (!row) {
+    sh.appendRow([id, kind || "survey", title || "", body || ""]);
+    return;
+  }
+  writeTemplateCells_(sh, row, id, kind, title, body);
+}
+
+/** Пишет шаблон по ячейкам (устойчиво к merge на листе «Шаблоны»). */
+function writeTemplateCells_(sh, row, id, kind, title, body) {
+  try {
+    var lastCol = Math.max(4, sh.getLastColumn());
+    sh.getRange(row, 1, row, lastCol).breakApart();
+  } catch (eBr) {}
+  try {
+    sh.getRange(row, 1).setValue(id);
+    sh.getRange(row, 2).setValue(kind || "survey");
+    sh.getRange(row, 3).setValue(title || "");
+    sh.getRange(row, 4).setValue(body || "");
+  } catch (eSet) {
+    // fallback: удалить строку и append
+    try { sh.deleteRow(row); } catch (eDel) {}
+    sh.appendRow([id, kind || "survey", title || "", body || ""]);
+  }
+}
+
+/** Лист «Шаблоны»: пишем в CRM (там же БП/Опросник), иначе в активную книгу. */
+function getTemplatesSpreadsheet_() {
+  try {
+    var crm = getCrmSpreadsheet_();
+    if (crm) return crm;
+  } catch (e0) {}
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
+
+function openOrCreateTemplatesSheet_(ss) {
+  if (!ss) return null;
   var sh = ss.getSheetByName("Шаблоны");
   if (!sh) {
-    sh = ss.insertSheet("Шаблоны");
-    sh.getRange(1, 1, 1, 4).setValues([["id", "kind", "title", "body"]]);
-    sh.appendRow(["survey_bp2", "survey", "Опросник БП2", "Привет! Как собака перенесла пробник БП1? Что зашло / не зашло?"]);
-    sh.appendRow(["survey_final", "survey", "Финальный опросник → ПП", "Готовы перейти на подписку ПП? Напишите пожелания по составу и доставке."]);
+    try {
+      sh = ss.insertSheet("Шаблоны");
+      sh.getRange(1, 1, 1, 4).setValues([["id", "kind", "title", "body"]]);
+    } catch (eIns) {
+      sh = ss.getSheetByName("Шаблоны");
+    }
   }
   return sh;
 }
 
-function getSurveyTemplateBody_(kind) {
+/** Лист «Шаблоны» + канон опросников (старые короткие плейсхолдеры сносятся). */
+function getTemplatesSheet_() {
+  var sh = openOrCreateTemplatesSheet_(getTemplatesSpreadsheet_());
+  if (!sh) {
+    sh = openOrCreateTemplatesSheet_(SpreadsheetApp.getActiveSpreadsheet());
+  }
+  try {
+    ensureCanonicalSurveyTemplates_(sh);
+    // если CRM и active разные — продублировать канон и туда
+    try {
+      var active = SpreadsheetApp.getActiveSpreadsheet();
+      if (active && sh.getParent().getId() !== active.getId()) {
+        var sh2 = openOrCreateTemplatesSheet_(active);
+        if (sh2) ensureCanonicalSurveyTemplates_(sh2);
+      }
+    } catch (eDupSs) {}
+  } catch (eTpl) {}
+  return sh;
+}
+
+function ensureCanonicalSurveyTemplates_(sh) {
+  if (!sh) return;
+  var VER = "v7.11.04";
+  var props = PropertiesService.getScriptProperties();
+  var defs = defaultSurveyTemplates_();
+  // Полностью очистить лист от survey-строк + любых старых плейсхолдеров
+  try {
+    var data = sh.getDataRange().getValues();
+    for (var i = data.length - 1; i >= 1; i--) {
+      var id0 = String(data[i][0] || "").trim().toLowerCase();
+      var body0 = String(data[i][3] || data[i][2] || "");
+      var title0 = String(data[i][2] || "");
+      var isSurveyId = id0 === "survey_bp2" || id0 === "survey_final" ||
+        id0 === "bp2" || id0 === "final" ||
+        /^survey_/.test(id0) || /^опрос/.test(id0);
+      var isOldPlaceholder =
+        body0.indexOf("Привет! Как собака перенесла") >= 0 ||
+        body0.indexOf("Готовы перейти на подписку ПП?") >= 0 ||
+        (body0.length > 0 && body0.length < 200 && /опрос|бп2|survey/i.test(id0 + " " + title0));
+      if (!isSurveyId && !isOldPlaceholder) continue;
+      try { sh.getRange(i + 1, 1, i + 1, Math.max(4, sh.getLastColumn())).breakApart(); } catch (e1) {}
+      try { sh.deleteRow(i + 1); } catch (e2) {}
+    }
+  } catch (eWipe) {}
+  // Заголовок
+  try {
+    sh.getRange(1, 1, 1, 4).setValues([["id", "kind", "title", "body"]]);
+  } catch (eH) {}
+  for (var d = 0; d < defs.length; d++) {
+    var def = defs[d];
+    sh.appendRow([def.id, def.kind, def.title, def.body]);
+  }
+  props.setProperty("survey_templates_ver", VER);
+}
+
+/** Принудительная синхронизация текстов опросников в лист «Шаблоны». */
+function handleSyncSurveyTemplates(json, callback, fromPost) {
+  var synced = [];
+  var errs = [];
+  function syncOne_(ss, label) {
+    if (!ss) return;
+    try {
+      var sh = openOrCreateTemplatesSheet_(ss);
+      ensureCanonicalSurveyTemplates_(sh);
+      synced.push({ book: label, id: ss.getId(), name: ss.getName() });
+    } catch (e) {
+      errs.push({ book: label, error: String(e) });
+    }
+  }
+  try {
+    syncOne_(getTemplatesSpreadsheet_(), "crm_or_active");
+  } catch (e1) { errs.push({ book: "crm_or_active", error: String(e1) }); }
+  try {
+    var active = SpreadsheetApp.getActiveSpreadsheet();
+    syncOne_(active, "active");
+  } catch (e2) { errs.push({ book: "active", error: String(e2) }); }
+  var defs = defaultSurveyTemplates_();
+  var ok = {
+    status: errs.length && !synced.length ? "error" : "success",
+    message: "survey_templates_synced",
+    count: defs.length,
+    ids: defs.map(function (d) { return d.id; }),
+    synced: synced,
+    errors: errs,
+    preview: defs.map(function (d) {
+      return { id: d.id, title: d.title, bodyLen: String(d.body || "").length, bodyStart: String(d.body || "").slice(0, 60) };
+    }),
+    ver: "v7.11.04"
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function personalizeSurveyBody_(body, nick) {
+  var text = String(body || "");
+  var name = String(nick || "").trim();
+  // «Здравствуйте, !» → «Здравствуйте, Name!»
+  if (name) {
+    text = text.replace(/Здравствуйте,\s*!/g, "Здравствуйте, " + name + "!");
+  } else {
+    text = text.replace(/Здравствуйте,\s*!/g, "Здравствуйте!");
+  }
+  return text;
+}
+
+function getSurveyTemplateBody_(kind, nick) {
   var sh = getTemplatesSheet_();
   var data = sh.getDataRange().getValues();
   var want = String(kind || "survey_bp2").toLowerCase();
+  var body = "";
   for (var i = 1; i < data.length; i++) {
     var id = String(data[i][0] || "").toLowerCase();
     var k = String(data[i][1] || "").toLowerCase();
     if (id === want || (k === "survey" && id.indexOf(want.replace("survey_", "")) >= 0)) {
-      return String(data[i][3] || data[i][2] || "");
+      body = String(data[i][3] || data[i][2] || "");
+      break;
     }
   }
-  return "";
+  if (!body) {
+    var defs = defaultSurveyTemplates_();
+    for (var d = 0; d < defs.length; d++) {
+      if (String(defs[d].id).toLowerCase() === want) { body = defs[d].body; break; }
+    }
+  }
+  return personalizeSurveyBody_(body, nick);
 }
 
 function tickBpSurveyReminders_() {
   try {
     var crmSs = getCrmSpreadsheet_();
-    var bp = findSheetByBaseName_(crmSs, "БП");
-    if (!bp) return;
     var tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || "Europe/Minsk";
     var today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
-    var data = bp.getDataRange().getValues();
     var props = PropertiesService.getScriptProperties();
     var sentKey = "bp_survey_sent_" + today;
     var already = {};
     try { already = JSON.parse(props.getProperty(sentKey) || "{}"); } catch (e0) { already = {}; }
-    for (var r = 2; r < data.length; r++) {
-      var nickRaw = String(data[r][0] || "").trim();
-      if (!nickRaw) continue;
-      var status = String(data[r][3] || "");
-      var meta = parseBpMetaFromWishes_(String(data[r][4] || ""));
-      var due = "";
-      var kind = "";
-      if (meta.surveyBp2Due === today) { due = meta.surveyBp2Due; kind = "survey_bp2"; }
-      if (meta.surveyFinalDue === today) { due = meta.surveyFinalDue; kind = "survey_final"; }
-      if (!due) continue;
-      var key = clientMatchKey_(nickRaw) + "|" + kind;
+
+    // 1) Синхронизация дат из мета БП → лист «Опросник»
+    var bp = findSheetByBaseName_(crmSs, "БП");
+    if (bp) {
+      var data = bp.getDataRange().getValues();
+      for (var r = 2; r < data.length; r++) {
+        var nickRaw = String(data[r][0] || "").trim();
+        if (!nickRaw) continue;
+        if (/^себестоим/i.test(nickRaw) || /^стоимость\s*100/i.test(nickRaw)) continue;
+        var status = String(data[r][3] || "");
+        var meta = parseBpMetaFromWishes_(String(data[r][4] || ""));
+        var jobs = [];
+        if (meta.surveyBp2Due && meta.surveyBp2Due <= today) {
+          jobs.push({ due: meta.surveyBp2Due, kind: "bp2", tpl: "survey_bp2" });
+        }
+        if (meta.surveyFinalDue && meta.surveyFinalDue <= today) {
+          jobs.push({ due: meta.surveyFinalDue, kind: "final", tpl: "survey_final" });
+        }
+        for (var j = 0; j < jobs.length; j++) {
+          try {
+            upsertOpenSurvey_(crmSs, {
+              nick: nickRaw,
+              kind: jobs[j].kind,
+              dueDate: jobs[j].due,
+              stage: status,
+              status: "due",
+              templateId: jobs[j].tpl,
+              ownerTelegramId: meta.ownerTelegramId,
+              ownerName: meta.ownerName,
+              note: "from_bp_meta",
+              linkedSheet: "БП"
+            });
+          } catch (eUp) {}
+        }
+      }
+    }
+
+    // 2) Напоминания по открытым опросникам (dueDate <= сегодня)
+    var shSv = null;
+    try { shSv = ensureSurveySheet_(crmSs); } catch (eSh) { shSv = null; }
+    if (!shSv || shSv.getLastRow() < 2) {
+      props.setProperty(sentKey, JSON.stringify(already));
+      return;
+    }
+    var svData = shSv.getDataRange().getValues();
+    for (var s = 1; s < svData.length; s++) {
+      var obj = surveyRowToObj_(svData[s], s + 1);
+      if (!obj.nick || !obj.dueDate) continue;
+      var st = String(obj.status || "").toLowerCase();
+      if (st !== "planned" && st !== "due") continue;
+      if (String(obj.dueDate) > today) continue;
+      var kindKey = normalizeSurveyKind_(obj.kind) === "final" ? "survey_final" : "survey_bp2";
+      var key = clientMatchKey_(obj.nick) + "|" + kindKey + "|" + obj.dueDate;
       if (already[key]) continue;
-      var body = getSurveyTemplateBody_(kind) || ("Опросник для " + nickRaw);
-      var text = "📋 Опросник\nКлиент: " + nickRaw + "\nСтатус: " + status + "\nТип: " + kind + "\n\n" + body;
-      var participants = listBotParticipants_();
-      for (var p = 0; p < participants.length; p++) {
-        try { telegramSendText_(participants[p], text); } catch (eS) {}
+
+      var body = getSurveyTemplateBody_(kindKey, obj.nick) ||
+        getSurveyTemplateBody_(obj.templateId, obj.nick) ||
+        ("Опросник для " + obj.nick);
+      var kindLabel = normalizeSurveyKind_(obj.kind) === "final" ? "ПП (финал)" : "БП2";
+      var text =
+        "📋 Опросник · " + kindLabel + "\n" +
+        "Кому отправить: " + obj.nick + "\n" +
+        (obj.stage ? ("Этап: " + obj.stage + "\n") : "") +
+        "Дата: " + obj.dueDate + "\n\n" +
+        "Текст опросника:\n" + body;
+
+      var targets = [];
+      if (obj.ownerTelegramId) targets.push(obj.ownerTelegramId);
+      if (!targets.length && bp) {
+        var bpVals = bp.getDataRange().getValues();
+        for (var br2 = 2; br2 < bpVals.length; br2++) {
+          if (!nicksMatch_(bpVals[br2][0], obj.nick)) continue;
+          var bm = parseBpMetaFromWishes_(String(bpVals[br2][4] || ""));
+          if (bm.ownerTelegramId) {
+            targets.push(bm.ownerTelegramId);
+            try {
+              shSv.getRange(s + 1, 10).setValue(
+                stampRespIntoSurveyNote_(obj.note, bm.ownerTelegramId, bm.ownerName)
+              );
+            } catch (eBf) {}
+          }
+          break;
+        }
+      }
+      if (!targets.length) {
+        try {
+          var owners = getOwnerTelegramIds_();
+          for (var o = 0; o < owners.length; o++) targets.push(owners[o]);
+        } catch (eOw) {}
+      }
+      for (var t = 0; t < targets.length; t++) {
+        try { telegramSendText_(targets[t], text); } catch (eS) {}
       }
       already[key] = 1;
       try {
-        var svKind = (kind === "survey_final") ? "final" : "bp2";
-        upsertOpenSurvey_(crmSs, {
-          nick: nickRaw,
-          kind: svKind,
-          dueDate: due,
-          stage: status,
-          status: "sent",
-          sentAt: today,
-          templateId: kind,
-          note: "tick_reminder"
-        });
-      } catch (eUp) {}
+        shSv.getRange(s + 1, 7).setValue("sent");
+        shSv.getRange(s + 1, 6).setValue(today);
+        shSv.getRange(s + 1, 12).setValue(new Date());
+      } catch (eMk) {}
     }
     props.setProperty(sentKey, JSON.stringify(already));
   } catch (e) {}
@@ -9930,7 +11297,7 @@ function handleSaveTemplate(json, callback, fromPost) {
     }
   }
   if (row) {
-    sh.getRange(row, 1, row, 4).setValues([[id, kind, title, body]]);
+    writeTemplateCells_(sh, row, id, kind, title, body);
   } else {
     sh.appendRow([id, kind, title, body]);
     row = sh.getLastRow();
@@ -9939,19 +11306,40 @@ function handleSaveTemplate(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
+function stampPpCoefIntoWishesGs_(wishes, coef) {
+  var base = String(wishes || "").replace(/\[COEF:[^\]]*\]/gi, "").replace(/\s+/g, " ").trim();
+  var v = Number(String(coef != null ? coef : "").replace(",", "."));
+  if (!isFinite(v) || v <= 0) return base;
+  var tag = "[COEF:" + (Math.round(v * 1000) / 1000) + "]";
+  return (base + (base ? " " : "") + tag).trim();
+}
+
 function parseBpMetaFromWishes_(wishes) {
   var w = String(wishes || "");
-  var out = { surveyBp2Due: "", surveyFinalDue: "", lastTouch: "", clean: w };
+  var out = {
+    surveyBp2Due: "",
+    surveyFinalDue: "",
+    lastTouch: "",
+    ownerTelegramId: "",
+    ownerName: "",
+    clean: w
+  };
   var m2 = w.match(/\[ОПРОС_БП2:([^\]]+)\]/i);
   var mf = w.match(/\[ОПРОС_ФИНАЛ:([^\]]+)\]/i);
   var mt = w.match(/\[TOUCH:([^\]]+)\]/i);
+  var mr = w.match(/\[RESP:([^\]|]+)(?:\|([^\]]*))?\]/i);
   if (m2) out.surveyBp2Due = String(m2[1] || "").trim();
   if (mf) out.surveyFinalDue = String(mf[1] || "").trim();
   if (mt) out.lastTouch = String(mt[1] || "").trim();
+  if (mr) {
+    out.ownerTelegramId = String(mr[1] || "").trim();
+    out.ownerName = String(mr[2] || "").trim();
+  }
   out.clean = w
     .replace(/\[ОПРОС_БП2:[^\]]*\]/gi, "")
     .replace(/\[ОПРОС_ФИНАЛ:[^\]]*\]/gi, "")
     .replace(/\[TOUCH:[^\]]*\]/gi, "")
+    .replace(/\[RESP:[^\]]*\]/gi, "")
     .replace(/\s+/g, " ")
     .trim();
   return out;
@@ -9961,14 +11349,50 @@ function stampBpMetaIntoWishes_(wishes, meta) {
   meta = meta || {};
   var parsed = parseBpMetaFromWishes_(wishes);
   var base = parsed.clean;
-  var bp2 = meta.surveyBp2Due != null && meta.surveyBp2Due !== "" ? String(meta.surveyBp2Due) : parsed.surveyBp2Due;
-  var fin = meta.surveyFinalDue != null && meta.surveyFinalDue !== "" ? String(meta.surveyFinalDue) : parsed.surveyFinalDue;
+  var bp2 = parsed.surveyBp2Due;
+  var fin = parsed.surveyFinalDue;
+  if (meta.surveyBp2Due !== undefined && meta.surveyBp2Due !== null) bp2 = String(meta.surveyBp2Due || "").trim();
+  if (meta.surveyFinalDue !== undefined && meta.surveyFinalDue !== null) fin = String(meta.surveyFinalDue || "").trim();
   var touch = meta.lastTouch != null && meta.lastTouch !== "" ? String(meta.lastTouch) : parsed.lastTouch;
+  var ownerId = meta.ownerTelegramId != null ? String(meta.ownerTelegramId).trim() : parsed.ownerTelegramId;
+  var ownerName = meta.ownerName != null ? String(meta.ownerName).trim() : parsed.ownerName;
+  if (meta.ownerTelegramId === "") { ownerId = ""; ownerName = ""; }
   var tags = "";
   if (bp2) tags += "[ОПРОС_БП2:" + bp2 + "]";
   if (fin) tags += "[ОПРОС_ФИНАЛ:" + fin + "]";
   if (touch) tags += "[TOUCH:" + touch + "]";
+  if (ownerId) tags += "[RESP:" + ownerId + (ownerName ? ("|" + ownerName) : "") + "]";
   return (base + (base && tags ? " " : "") + tags).trim();
+}
+
+function ymdPlusDays_(ymd, days, tz) {
+  tz = tz || Session.getScriptTimeZone() || "Europe/Minsk";
+  var base = null;
+  if (ymd) {
+    try { base = parseFlexibleDate_(ymd, tz); } catch (e0) { base = null; }
+  }
+  if (!base || isNaN(base.getTime())) base = new Date();
+  var d = new Date(base.getTime());
+  d.setDate(d.getDate() + (Number(days) || 0));
+  return Utilities.formatDate(d, tz, "yyyy-MM-dd");
+}
+
+function stampRespIntoSurveyNote_(note, ownerTelegramId, ownerName) {
+  var base = String(note || "")
+    .replace(/\[RESP:[^\]]*\]/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  var id = String(ownerTelegramId || "").trim();
+  if (!id) return base;
+  var name = String(ownerName || "").trim();
+  var tag = "[RESP:" + id + (name ? ("|" + name) : "") + "]";
+  return (base + (base ? " " : "") + tag).trim();
+}
+
+function parseRespFromSurveyNote_(note) {
+  var m = String(note || "").match(/\[RESP:([^\]|]+)(?:\|([^\]]*))?\]/i);
+  if (!m) return { ownerTelegramId: "", ownerName: "" };
+  return { ownerTelegramId: String(m[1] || "").trim(), ownerName: String(m[2] || "").trim() };
 }
 
 /** Если у БП мало колонок — скопировать шапку с ПП (только row1, values). */
@@ -10005,20 +11429,47 @@ function handleEnsureBpFromOrder(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
   }
   var basket = Array.isArray(json.basket) ? mergeBasketItemsForPp_(json.basket) : [];
+  if (!basket.length && typeof json.basket === "string" && String(json.basket).trim()) {
+    try { basket = mergeBasketItemsForPp_(JSON.parse(json.basket)); } catch (eB) { basket = []; }
+  }
   var createCard = json.createCard !== false && json.createCard !== "0";
+  var status = normalizeBpStage_(json.ppStatus || json.status || json.stage || "БП1");
   var surveyDate = String(json.surveyDate || "").trim();
-  var surveyKind = normalizeSurveyKind_(json.surveyKind || "bp2");
+  var surveyKindRaw = String(json.surveyKind || "").trim();
+  var needSurveyOff = json.needSurvey === false || json.needSurvey === "0" || json.needSurvey === 0;
+  var needSurveyOn = json.needSurvey === true || json.needSurvey === "1" || json.needSurvey === 1;
+  // БП1/БП2 = после 1-й доставки → опрос bp2; ФИНАЛ = после 2-й → final
+  var surveyKind = status === "ФИНАЛ" ? "final" : "bp2";
+  if (surveyKindRaw) surveyKind = normalizeSurveyKind_(surveyKindRaw);
+
+  var needSurvey = !needSurveyOff;
+  if (needSurveyOn) needSurvey = true;
+  if (needSurvey) {
+    if (!surveyDate) {
+      var baseDay = String(json.compositionDate || json.deliveryDate || json.date || "").trim();
+      surveyDate = ymdPlusDays_(baseDay, 4);
+    }
+  } else {
+    surveyDate = "";
+  }
+  surveyDate = surveyDueYmd_(surveyDate) || String(surveyDate || "").trim();
+  if (needSurvey && !surveyDate) surveyDate = ymdPlusDays_("", 4);
+
   var wishes = String(json.wishes || "").trim();
   var noteField = String(json.note || "").trim();
   if (!wishes && noteField) wishes = noteField;
-  var meta = {};
-  if (surveyDate) {
-    if (surveyKind === "final") meta.surveyFinalDue = surveyDate;
+  var ownerTelegramId = String(json.ownerTelegramId || json.respTelegramId || json.responsibleId || "").trim();
+  var ownerName = String(json.ownerName || json.respName || json.responsibleName || "").trim();
+  var meta = { lastTouch: new Date().toISOString() };
+  if (needSurvey && surveyDate) {
+    if (surveyKind === "final" || status === "ФИНАЛ") meta.surveyFinalDue = surveyDate;
     else meta.surveyBp2Due = surveyDate;
   }
-  meta.lastTouch = new Date().toISOString();
+  if (ownerTelegramId) {
+    meta.ownerTelegramId = ownerTelegramId;
+    meta.ownerName = ownerName;
+  }
   wishes = stampBpMetaIntoWishes_(wishes, meta);
-  var status = String(json.ppStatus || json.status || json.stage || "БП1").trim() || "БП1";
   var up = { row: 0, created: false };
   if (createCard) {
     var headers = bp.getRange(1, 1, 1, bp.getLastColumn()).getValues()[0];
@@ -10026,24 +11477,30 @@ function handleEnsureBpFromOrder(json, callback, fromPost) {
     if (!subId) {
       try { subId = nextSubscriptionIdForSheet_(bp); } catch (eId) {}
     }
-    // One BP row per nick is OK initially; status/stage from request (БП1/БП2).
-    // Empty basket still creates/updates the card with chosen stage.
     var createVals = writePpBasketToRowValues_(headers, basket, nick, subId, Number(json.deliveriesN || json.deliveries) || 1, status, wishes, json.factCost);
     up = upsertSubscriptionProductRow_(bp, headers, createVals, basket, nick);
   }
   var surveyItem = null;
-  if (surveyDate) {
+  if (needSurvey) {
     try {
-      surveyItem = upsertOpenSurvey_(crmSs, {
-        nick: nick,
-        kind: surveyKind,
-        dueDate: surveyDate,
-        stage: status,
-        status: "planned",
-        templateId: surveyTemplateForKind_(surveyKind),
-        linkedSubId: String(json.subId || "").trim(),
+      var sync = syncBpStageSurveys_(crmSs, nick, status, {
+        surveyBp2Due: (surveyKind !== "final" && status !== "ФИНАЛ") ? surveyDate : (json.surveyBp2Due || ""),
+        surveyFinalDue: (surveyKind === "final" || status === "ФИНАЛ") ? surveyDate : (json.surveyFinalDue || ""),
+        ownerTelegramId: ownerTelegramId,
+        ownerName: ownerName,
+        subId: String(json.subId || "").trim(),
         note: noteField || "from_ensureBp"
       });
+      surveyItem = sync && sync.survey ? sync.survey : null;
+      if (sync && sync.due) {
+        var meta2 = {};
+        if (status === "ФИНАЛ" || surveyKind === "final") meta2.surveyFinalDue = sync.due;
+        else meta2.surveyBp2Due = sync.due;
+        wishes = stampBpMetaIntoWishes_(wishes, meta2);
+        if (createCard && up.row) {
+          try { bp.getRange(up.row, 5).setValue(wishes); } catch (eW) {}
+        }
+      }
     } catch (eSv) {}
   }
   try {
@@ -10071,7 +11528,7 @@ function handleEnsureBpFromOrder(json, callback, fromPost) {
       }
     }
   } catch (eC) {}
-  try { clearCrmSheetCache_("БП"); clearCrmSheetCache_("Контакты"); } catch (eClr) {}
+  try { clearCrmSheetCache_("БП"); clearCrmSheetCache_("Контакты"); clearCrmSheetCache_("Опросник"); } catch (eClr) {}
   var ok = {
     status: "success",
     nick: nick,
@@ -10079,8 +11536,12 @@ function handleEnsureBpFromOrder(json, callback, fromPost) {
     row: up.row || 0,
     created: !!up.created,
     wishes: wishes,
-    surveyKind: surveyKind,
-    surveyDate: surveyDate,
+    ppStatus: status,
+    stage: status,
+    surveyKind: surveyKind || "",
+    surveyDate: surveyDate || "",
+    ownerTelegramId: ownerTelegramId,
+    ownerName: ownerName,
     survey: surveyItem
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
@@ -10155,38 +11616,66 @@ function handleCloseAllOpenDeficits(json, callback, fromPost) {
 
 function ensureBpAndSurveyFromOrder_(json) {
   if (String(json.orderType || "") !== "bp") return;
-  if (json.survey && json.survey.needSurvey === false) return;
+  var survey = json.survey || {};
+  if (typeof survey === "string" && String(survey).trim()) {
+    try { survey = JSON.parse(survey); } catch (eJ) { survey = {}; }
+  }
+  if (!survey || typeof survey !== "object") survey = {};
+  var createCard = survey.createCard === true || survey.createCard === "1" || survey.createCard === 1;
+  if (!createCard) return;
+
   var crmSs = getCrmSpreadsheet_();
   var nick = String(json.client || "").trim();
   if (!nick) return;
+  var status = normalizeBpStage_(survey.status || survey.stage || "БП1");
+  var needSurveyOff = survey.needSurvey === false || survey.needSurvey === "0" || survey.needSurvey === 0;
+  var needSurvey = !needSurveyOff;
+  var basket = json.basket || [];
+  var due = String(survey.surveyDate || "").trim();
+  if (needSurvey && !due) due = ymdPlusDays_(json.deliveryDate || json.date || "", 4);
+  var kind = status === "ФИНАЛ" ? "final" : "bp2";
+  if (survey.kind || survey.surveyKind) kind = normalizeSurveyKind_(survey.kind || survey.surveyKind);
+  var ownerTelegramId = String(survey.ownerTelegramId || json.ownerTelegramId || "").trim();
+  var ownerName = String(survey.ownerName || json.ownerName || "").trim();
+  var wishes = String(json.note || "").trim();
+  var meta = { lastTouch: new Date().toISOString() };
+  if (needSurvey && due) {
+    if (kind === "final" || status === "ФИНАЛ") meta.surveyFinalDue = due;
+    else meta.surveyBp2Due = due;
+  }
+  if (ownerTelegramId) {
+    meta.ownerTelegramId = ownerTelegramId;
+    meta.ownerName = ownerName;
+  }
+  wishes = stampBpMetaIntoWishes_(wishes, meta);
   var bp = findSheetByBaseName_(crmSs, "БП");
   if (bp) {
-    var data = bp.getDataRange().getValues();
-    var want = extractInstagramNick_(nick).toUpperCase();
-    var found = false;
-    for (var r = 2; r < data.length; r++) {
-      if (extractInstagramNick_(data[r][0]).toUpperCase() === want) { found = true; break; }
-    }
-    if (!found) {
-      var basket = json.basket || [];
-      bp.appendRow([nick, "", 1, "БП1", "", JSON.stringify(basket)]);
+    try { ensureBpSheetProductHeaders_(crmSs); } catch (eH) {}
+    var headers = bp.getRange(1, 1, 1, bp.getLastColumn()).getValues()[0];
+    var subId = "";
+    try { subId = nextSubscriptionIdForSheet_(bp); } catch (eId) {}
+    var createVals = writePpBasketToRowValues_(headers, basket, nick, subId, 1, status, wishes, null);
+    try { upsertSubscriptionProductRow_(bp, headers, createVals, basket, nick); } catch (eUp) {
+      var data = bp.getDataRange().getValues();
+      var want = extractInstagramNick_(nick).toUpperCase();
+      var found = false;
+      for (var r = 2; r < data.length; r++) {
+        if (extractInstagramNick_(data[r][0]).toUpperCase() === want) { found = true; break; }
+      }
+      if (!found) bp.appendRow([nick, "", 1, status, wishes, JSON.stringify(basket)]);
     }
   }
-  var due = "";
-  if (json.survey && json.survey.surveyDate) due = String(json.survey.surveyDate).trim();
-  if (!due) due = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Minsk", "yyyy-MM-dd");
-  var kind = normalizeSurveyKind_((json.survey && json.survey.kind) || json.surveyKind || "bp2");
-  try {
-    upsertOpenSurvey_(crmSs, {
-      nick: nick,
-      kind: kind,
-      dueDate: due,
-      stage: surveyStageForKind_(kind, (json.survey && json.survey.stage) || ""),
-      status: "planned",
-      templateId: surveyTemplateForKind_(kind),
-      note: "from_order"
-    });
-  } catch (eSv) {}
+  if (needSurvey) {
+    try {
+      syncBpStageSurveys_(crmSs, nick, status, {
+        surveyBp2Due: (kind !== "final" && status !== "ФИНАЛ") ? due : "",
+        surveyFinalDue: (kind === "final" || status === "ФИНАЛ") ? due : "",
+        ownerTelegramId: ownerTelegramId,
+        ownerName: ownerName,
+        note: "from_order"
+      });
+    } catch (eSv) {}
+  }
 }
 
 /* ========== Отложенные расчёты (per telegramId) ========== */
@@ -10849,7 +12338,7 @@ function upsertSubscriptionProductRow_(sh, headers, rowVals, basket, nickForMatc
   var rowIdx = -1; // 0-based in data
   for (var r = 2; r < data.length; r++) {
     var a = String(data[r][0] || "").trim();
-    if (/^себестоим/i.test(a) || /^стоимость\s*100/i.test(a)) break;
+    if (/^себестоим/i.test(a) || /^стоимость\s*100/i.test(a)) continue;
     if (nicksMatch_(data[r][0], nickForMatch) || nicksMatch_(data[r][0], rowVals[0])) {
       rowIdx = r;
       break;
@@ -10986,6 +12475,10 @@ function handleEnrollDeferredToPp_(json, callback, fromPost) {
       bustDeferredCache_(tid);
     } catch (eU) {}
   }
+
+  try {
+    moveSurveysWithClient_(crmSs, nick, { toNick: nick, toSheet: "ПП" });
+  } catch (eSv) {}
 
   var ok = {
     status: "success",
