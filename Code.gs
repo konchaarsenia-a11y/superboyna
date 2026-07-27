@@ -2167,6 +2167,14 @@ function handleMoveClient(ss, json, callback) {
       break;
     }
   }
+  if (oldClientCol === -1) {
+    for (var i2 = 0; i2 < 15; i2++) {
+      if (nicksMatch_(srcNicks[i2], json.client)) {
+        oldClientCol = i2 + 3;
+        break;
+      }
+    }
+  }
   if (oldClientCol === -1) return jsonp(callback, { status: "src_client_not_found" });
 
   var oldMeatValues = sourceSheet.getRange(srcBlock.start, oldClientCol, srcBlock.end - srcBlock.start + 1, 1).getValues();
@@ -2182,7 +2190,7 @@ function handleMoveClient(ss, json, callback) {
   var tgtNicks = targetSheet.getRange(dstBlock.nick, 3, 1, 15).getValues()[0];
   for (var j = 0; j < 15; j++) {
     var tNick = tgtNicks[j] ? tgtNicks[j].toString().trim().toUpperCase() : "";
-    if (tNick === want) {
+    if (tNick === want || nicksMatch_(tgtNicks[j], json.client)) {
       newClientCol = j + 3;
       break;
     }
@@ -2205,9 +2213,212 @@ function handleMoveClient(ss, json, callback) {
   sourceSheet.getRange(srcBlock.nick, oldClientCol).setValue("");
   sourceSheet.getRange(srcBlock.start, oldClientCol, srcBlock.note - srcBlock.start + 1, 1).clearContent();
 
+  // Синхрон даты: Календарь_Дат + брони + лист месяца CRM
+  var dateSync = { calendar: 0, bookings: 0, crm: 0 };
+  try {
+    var tz = ss.getSpreadsheetTimeZone();
+    var oldDate = parseFlexibleDate_(getDayDate_(ss, json.oldDay), tz);
+    var newDate = parseFlexibleDate_(getDayDate_(ss, json.newDay || json.day), tz);
+    if (oldDate && newDate) {
+      dateSync = moveClientDeliveryDateEverywhere_(ss, String(json.client || "").trim(), oldDate, newDate, {
+        matchKey: json.matchKey || "",
+        address: oldAddressValue,
+        note: noteStr,
+        dayName: String(json.newDay || json.day || "")
+      });
+    }
+  } catch (eSync) {
+    dateSync.error = String(eSync);
+  }
+
   checkLiveDeficitAndNotify();
   bustClientsCache_();
-  return jsonp(callback, { status: "success", cutRaw: cutRaw });
+  try { clearCrmSheetCache_(); } catch (eC) {}
+  return jsonp(callback, {
+    status: "success",
+    cutRaw: cutRaw,
+    calendarMoved: dateSync.calendar || 0,
+    bookingsMoved: dateSync.bookings || 0,
+    crmMoved: dateSync.crm || 0,
+    dateSync: dateSync
+  });
+}
+
+/**
+ * Перенос человека на другую дату доставки во всех таблицах даты:
+ * Календарь_Дат, Брони_Заказов, CRM-месяц (Июль/Август…).
+ */
+function moveClientDeliveryDateEverywhere_(ss, client, oldDate, newDate, opts) {
+  opts = opts || {};
+  var out = { calendar: 0, bookings: 0, crm: 0, createdCalendar: false };
+  if (!ss || !client || !oldDate || !newDate) return out;
+  var tz = ss.getSpreadsheetTimeZone();
+  var oldKey = dateKey_(oldDate, tz);
+  var newKey = dateKey_(newDate, tz);
+  if (!oldKey || !newKey) return out;
+
+  try { out.calendar = moveCalendarClientDate_(ss, client, oldDate, newDate, opts); } catch (e1) {}
+  try { out.bookings = moveBookingsClientDate_(ss, client, oldDate, newDate, opts); } catch (e2) {}
+  try {
+    var crmSs = getCrmSpreadsheet_();
+    out.crm = moveCrmMonthClientCell_(crmSs, client, oldDate, newDate, opts.matchKey || "");
+  } catch (e3) {}
+
+  // если в Календарь_Дат не было строки на старой дате — создаём на новой (чтобы месяц не «терял» человека)
+  if (!(out.calendar > 0) && oldKey !== newKey) {
+    try {
+      upsertCalendarEntry_(ss, {
+        date: newDate,
+        client: client,
+        matchKey: opts.matchKey || clientMatchKey_(client),
+        address: opts.address || "",
+        note: opts.note || "",
+        dayName: opts.dayName || findDayNameForDate_(ss, newDate) || "",
+        source: "move",
+        status: "planned"
+      });
+      out.createdCalendar = true;
+      out.calendar = 1;
+    } catch (e4) {}
+  }
+  return out;
+}
+
+function moveCalendarClientDate_(ss, client, oldDate, newDate, opts) {
+  opts = opts || {};
+  var tz = ss.getSpreadsheetTimeZone();
+  var oldWant = dateKey_(oldDate, tz);
+  var newStr = dateKey_(newDate, tz);
+  var newIso = isoDateKey_(newDate, tz);
+  if (oldWant === newStr) return 0;
+  var dayName = String(opts.dayName || "").trim() || findDayNameForDate_(ss, newDate) || "";
+  var matchKey = String(opts.matchKey || "").trim() || clientMatchKey_(client);
+  var all = readAllCalendarRows_();
+  var sh = getCalendarSheet_();
+  var moved = 0;
+  for (var i = 0; i < all.length; i++) {
+    var st = String(all[i].status || "").toLowerCase();
+    if (st === "cancelled") continue;
+    var bd = parseFlexibleDate_(all[i].date, tz) || parseFlexibleDate_(all[i].dateIso, tz);
+    if (!bd || dateKey_(bd, tz) !== oldWant) continue;
+    var same = false;
+    if (matchKey && all[i].matchKey && all[i].matchKey === matchKey) same = true;
+    if (!same && nicksMatch_(all[i].client, client)) same = true;
+    if (!same) continue;
+    sh.getRange(all[i].rowIndex, 1).setValue(newStr);
+    sh.getRange(all[i].rowIndex, 2).setValue(newIso);
+    sh.getRange(all[i].rowIndex, 13).setValue(dayName);
+    sh.getRange(all[i].rowIndex, 14).setValue(new Date());
+    if (opts.address != null && opts.address !== "") {
+      sh.getRange(all[i].rowIndex, 6).setValue(opts.address);
+    }
+    if (opts.note != null && String(opts.note) !== "") {
+      sh.getRange(all[i].rowIndex, 8).setValue(opts.note);
+    }
+    moved++;
+  }
+  return moved;
+}
+
+function moveBookingsClientDate_(ss, client, oldDate, newDate, opts) {
+  opts = opts || {};
+  var tz = ss.getSpreadsheetTimeZone();
+  var oldWant = dateKey_(oldDate, tz);
+  var newStr = dateKey_(newDate, tz);
+  if (oldWant === newStr) return 0;
+  var dayName = String(opts.dayName || "").trim() || findDayNameForDate_(ss, newDate) || "";
+  var sh = getBookingsSheet_();
+  var all = readAllBookings_();
+  var moved = 0;
+  for (var i = 0; i < all.length; i++) {
+    if (String(all[i].status) === "cancelled") continue;
+    if (!nicksMatch_(all[i].client, client)) continue;
+    var bd = parseFlexibleDate_(all[i].date, tz);
+    if (!bd || dateKey_(bd, tz) !== oldWant) continue;
+    sh.getRange(all[i].rowIndex, 2).setValue(newStr);
+    sh.getRange(all[i].rowIndex, 10).setValue(dayName);
+    sh.getRange(all[i].rowIndex, 11).setValue(new Date());
+    moved++;
+  }
+  return moved;
+}
+
+/** Найти ячейку человека в CRM-месяце на дату. */
+function findCrmMonthClientCell_(sh, deliveryDate, client, matchKeyOpt) {
+  if (!sh || !deliveryDate || !client) return null;
+  var dayNum = deliveryDate.getDate();
+  var lastCol = Math.max(1, sh.getLastColumn());
+  var lastRow = Math.max(1, sh.getLastRow());
+  if (lastRow < 2) return null;
+  var data = sh.getRange(1, 1, lastRow, lastCol).getValues();
+  var blocks = findCrmMonthDayBlocks_(data);
+  var matchKey = String(matchKeyOpt || "").trim() || clientMatchKey_(client);
+  for (var b = 0; b < blocks.length; b++) {
+    var bl = blocks[b];
+    var col = bl.dayToCol[dayNum] != null ? bl.dayToCol[dayNum] : bl.dayToCol[String(dayNum)];
+    if (col == null) continue;
+    for (var r = bl.dataStart; r <= bl.dataEnd; r++) {
+      var raw = (data[r] || [])[col];
+      var parsed = parseCrmCalendarCell_(raw);
+      if (!parsed) continue;
+      var same = (matchKey && parsed.matchKey === matchKey) || nicksMatch_(parsed.client, client);
+      if (!same) continue;
+      return {
+        row: r + 1,
+        col: col + 1,
+        text: raw,
+        parsed: parsed,
+        sheet: sh.getName()
+      };
+    }
+  }
+  return null;
+}
+
+/** Первая пустая ячейка в колонке дня CRM-месяца. */
+function findCrmMonthEmptyCell_(sh, deliveryDate) {
+  if (!sh || !deliveryDate) return null;
+  var dayNum = deliveryDate.getDate();
+  var lastCol = Math.max(1, sh.getLastColumn());
+  var lastRow = Math.max(1, sh.getLastRow());
+  if (lastRow < 2) return null;
+  var data = sh.getRange(1, 1, lastRow, lastCol).getValues();
+  var blocks = findCrmMonthDayBlocks_(data);
+  for (var b = 0; b < blocks.length; b++) {
+    var bl = blocks[b];
+    var col = bl.dayToCol[dayNum] != null ? bl.dayToCol[dayNum] : bl.dayToCol[String(dayNum)];
+    if (col == null) continue;
+    for (var r = bl.dataStart; r <= bl.dataEnd; r++) {
+      if (!String((data[r] || [])[col] || "").trim()) {
+        return { row: r + 1, col: col + 1, sheet: sh.getName() };
+      }
+    }
+    // нет пустой — дописать в конец блока
+    var appendRow = bl.dataEnd + 2;
+    return { row: appendRow, col: col + 1, sheet: sh.getName() };
+  }
+  return null;
+}
+
+/** Перенести ячейку человека на листе месяца CRM (Июль/Август…) со старого дня на новый. */
+function moveCrmMonthClientCell_(crmSs, client, oldDate, newDate, matchKeyOpt) {
+  if (!crmSs || !client || !oldDate || !newDate) return 0;
+  var tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  if (dateKey_(oldDate, tz) === dateKey_(newDate, tz)) return 0;
+  var oldSh = resolveCrmMonthSheet_(crmSs, oldDate);
+  if (!oldSh) return 0;
+  var found = findCrmMonthClientCell_(oldSh, oldDate, client, matchKeyOpt);
+  if (!found) return 0;
+  var newSh = resolveCrmMonthSheet_(crmSs, newDate) || oldSh;
+  var slot = findCrmMonthEmptyCell_(newSh, newDate);
+  if (!slot) return 0;
+  // не затирать сам себя при том же листе/ячейке
+  if (newSh.getSheetId() === oldSh.getSheetId() && slot.row === found.row && slot.col === found.col) {
+    return 0;
+  }
+  newSh.getRange(slot.row, slot.col).setValue(found.text);
+  oldSh.getRange(found.row, found.col).clearContent();
+  return 1;
 }
 
 /**
