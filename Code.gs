@@ -2654,7 +2654,8 @@ function getClientsData_(ss, dayName) {
   var targetSheet = getTargetSheet(ss, block);
   if (!targetSheet) return { status: "error", clients: [] };
 
-  try { purgeEmptyTestColumnsOnDay_(ss, dayName); } catch (ePurge) {}
+  // purge тестовых колонок — не на каждый getClients (тормозит все экраны)
+  // try { purgeEmptyTestColumnsOnDay_(ss, dayName); } catch (ePurge) {}
 
   var nickRow = block.nick;
   var startRow = block.start;
@@ -6402,6 +6403,9 @@ function lookupClientProfilePhone_(ss, nick) {
 }
 
 function buildClientPhoneIndex_(ss) {
+  try {
+    if (_memoPhoneIndex_ && _memoPhoneIndexSs_ === ss) return _memoPhoneIndex_;
+  } catch (e0) {}
   var idx = {};
   try {
     var sh = getClientsProfilesSheet_();
@@ -6415,8 +6419,12 @@ function buildClientPhoneIndex_(ss) {
       idx[n.toUpperCase()] = ph;
     }
   } catch (e) {}
+  _memoPhoneIndex_ = idx;
+  try { _memoPhoneIndexSs_ = ss; } catch (e1) {}
   return idx;
 }
+var _memoPhoneIndex_ = null;
+var _memoPhoneIndexSs_ = null;
 
 function handleFindClientMatch(json, callback, fromPost) {
   // быстрый поиск только по листу «Клиенты» (без обхода недели/CRM)
@@ -8078,10 +8086,12 @@ function handleListSubscriptions(json, callback, fromPost) {
         if (shRescue) rescueOrphanSubscriptionRows_(shRescue);
       } catch (eRes) {}
     }
-    var data = readCrmSheetLiveNarrow_(crmSs, sheetName, 5);
+    var data = forceRepair
+      ? readCrmSheetLiveNarrow_(crmSs, sheetName, 5)
+      : (getCrmSheetValuesFast_(crmSs, sheetName) || readCrmSheetLiveNarrow_(crmSs, sheetName, 5));
     if (!data || data.length < 3) continue;
-    // починить ID 1,2,3… если есть #REF!/пусто (особенно ПП)
-    if (forceRepair || sheetNeedsSubscriptionIdRepair_(data)) {
+    // починить ID только по явному repairIds=1 (не на каждый list — это запись на чтение)
+    if (forceRepair) {
       try {
         repairSheetSubscriptionIds_(crmSs, sheetName);
         repairedSheets.push(sheetName);
