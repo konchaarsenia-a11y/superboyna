@@ -1055,7 +1055,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.29</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.30</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1904,7 +1904,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.29";
+    const APP_VERSION = "v7.11.30";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3487,10 +3487,23 @@
         }
       } catch (e) {}
       try {
-        if (screenId === "cuttingScreen") startCuttingPoll();
-        else stopCuttingPoll();
+        if (screenId === "cuttingScreen") {
+          // повторный заход: не дёргаем сеть, если день уже в кэше сессии
+          try {
+            var cutDay = document.getElementById("cuttingDaySelect") && document.getElementById("cuttingDaySelect").value;
+            if (window._cuttingNeedRefresh) {
+              window._cuttingNeedRefresh = false;
+              if (cutDay) loadCutting(false);
+            } else if (cutDay && !cuttingItemsCache.length && !cuttingCompletionCache) {
+              loadCutting(false);
+            } else if (cuttingSession && cuttingSession.active) {
+              startCuttingPoll();
+            }
+          } catch (eCut) {}
+        } else stopCuttingPoll();
       } catch (e2) {}
       try {
+        // soft = кэш сессии: сеть только при первом заходе или после действия/«Обновить»
         if (screenId === "warehouseScreen") loadWarehouse({ soft: true });
         if (screenId === "subsScreen") {
           document.getElementById("appHeaderTitle").innerText = "Подписки · " + APP_VERSION;
@@ -3503,8 +3516,8 @@
         if (screenId === "deferredScreen") openTasksDrawer();
         if (screenId === "priceScreen") try { syncPriceEnrollUi(); } catch (eEn) {}
         if (screenId === "orderScreen") {
-          try { refreshWeekBanners(); } catch (eO) {}
-          try { refreshOrderDayCounts_(); } catch (eC) {}
+          try { refreshWeekBanners({ soft: true }); } catch (eO) {}
+          try { refreshOrderDayCounts_({ soft: true }); } catch (eC) {}
         }
         if (screenId === "peopleScreen") loadPeople({ soft: true });
         if (screenId === "courierScreen") {
@@ -4331,6 +4344,7 @@
 
         // без sleep + без повторного getClients — это главный тормоз после «Сохранить»
         try { apiCacheBustMem_(); } catch (eClr) {}
+        try { invalidateOpsDayCaches_(weekDayToSave); } catch (eInv) {}
         try { refreshOrderDayCounts_({ force: true }); } catch (eCnt) {}
         const inWeek = !!(weekDayToSave && basket.length);
         const savedItems = (saveRes && saveRes.wrote != null) ? Number(saveRes.wrote) : basket.length;
@@ -8665,9 +8679,34 @@
     }
     window.onOrderDaySelectChange_ = onOrderDaySelectChange_;
 
-    function refreshWeekBanners() {
-      try { refreshWeekBannersAsync_(); } catch (e) {}
+    function refreshWeekBanners(opts) {
+      opts = opts || {};
+      try { refreshWeekBannersAsync_(opts); } catch (e) {}
     }
+
+    function invalidateOpsDayCaches_(day) {
+      day = String(day || "");
+      try {
+        if (courierClientsCache && courierClientsCache.length) {
+          if (!day || String(courierClientsCache._day || "") === day) courierClientsCache = [];
+        }
+      } catch (eC) { courierClientsCache = []; }
+      try {
+        if (assemblyCache) {
+          if (!day || String(assemblyCache.day || "") === day) assemblyCache = null;
+        }
+      } catch (eA) { assemblyCache = null; }
+      try {
+        var cutDay = document.getElementById("cuttingDaySelect") && document.getElementById("cuttingDaySelect").value;
+        if (!day || String(cutDay || "") === day) {
+          window._cuttingNeedRefresh = true;
+          cuttingItemsCache = [];
+          cuttingCompletionCache = null;
+          if (cuttingSession) cuttingSession.fingerprint = "";
+        }
+      } catch (eCut) {}
+    }
+    window.invalidateOpsDayCaches_ = invalidateOpsDayCaches_;
 
     var _orderDayCountsAt = 0;
     var _orderDayCountsInFlight = null;
@@ -8735,7 +8774,8 @@
     async function refreshOrderDayCounts_(opts) {
       opts = opts || {};
       var force = !!opts.force;
-      if (!force && _orderDayCountsAt && (Date.now() - _orderDayCountsAt) < 15000 && _orderDayCountsCache) {
+      // soft / без force: в рамках сессии кэш живёт до действия («Сохранить» и т.п.)
+      if (!force && _orderDayCountsCache) {
         renderOrderDayCounts_(_orderDayCountsCache.items || []);
         return _orderDayCountsCache;
       }
@@ -8789,7 +8829,9 @@
     var _weekBannerLoading = false;
     var _weekBannerFetchedAt = 0;
 
-    async function refreshWeekBannersAsync_() {
+    async function refreshWeekBannersAsync_(opts) {
+      opts = opts || {};
+      var force = !!opts.force;
       var fin = document.getElementById("finishWeekBanner");
       var pull = document.getElementById("pullWeekBanner");
       if (!fin || !pull) return;
@@ -8800,7 +8842,7 @@
         _weekBannerState &&
         _weekBannerState.weekKey === wk &&
         _weekBannerFetchedAt &&
-        (Date.now() - _weekBannerFetchedAt) < 45000
+        !force
       );
       if (!bannerFresh) {
         _weekBannerLoading = true;
@@ -9749,7 +9791,7 @@
         b.classList.toggle("active", b.getAttribute("data-seg") === seg);
       });
       if (opts.skipLoad) return;
-      loadSubscriptions();
+      loadSubscriptions({ soft: true });
     }
     window.setSubsSegment = setSubsSegment;
 
@@ -9757,7 +9799,8 @@
       opts = opts || {};
       var box = document.getElementById("statsContainer");
       if (!box) return;
-      if (!opts.force && opts.soft && window._statsCacheHtml && (Date.now() - (window._statsCacheAt || 0)) < 45000) {
+      // soft: кэш на всю сессию, пока не нажали «Обновить»
+      if (!opts.force && opts.soft && window._statsCacheHtml) {
         box.innerHTML = window._statsCacheHtml;
         return;
       }
@@ -10866,7 +10909,7 @@
       opts = opts || {};
       var box = document.getElementById("warehouseContainer");
       var led = document.getElementById("warehouseLedger");
-      if (opts.soft && window._whCacheAt && (Date.now() - window._whCacheAt) < 25000 && window._whCacheHtml) {
+      if (opts.soft && window._whCacheHtml) {
         box.innerHTML = window._whCacheHtml;
         if (led && window._whCacheLed) led.innerHTML = window._whCacheLed;
         return;
@@ -10965,7 +11008,7 @@
           window._subsSkipNextEnterLoad = false;
           return;
         }
-        loadSubscriptions();
+        loadSubscriptions({ soft: true });
         return;
       }
       if (main) main.style.display = "none";
@@ -11195,13 +11238,19 @@
     }
     window.repairSurveysUi = repairSurveysUi;
 
-    async function loadSurveyTab_() {
+    async function loadSurveyTab_(opts) {
+      opts = opts || {};
       var box = document.getElementById("subsContainer");
+      if (!opts.force && opts.soft && window._surveyList && window._surveyListLoaded) {
+        renderSurveyList_();
+        return;
+      }
       box.innerHTML = '<p class="muted">Загрузка опросников…</p>';
       try {
         var res = await apiGet({ action: "listSurvey", activeOnly: "1" }, { timeoutMs: 45000 });
         var items = (res && res.items) || [];
         window._surveyList = items;
+        window._surveyListLoaded = true;
         if (res && res.purged > 0) showToast("С листа убрано: " + res.purged);
         var tpl = window._surveyTemplates;
         if (!tpl || !tpl.length) {
@@ -11353,6 +11402,7 @@
     async function loadSubscriptions(opts) {
       opts = opts || {};
       var force = !!opts.force;
+      var soft = !!opts.soft;
 
       if (!isSubsUnlocked()) {
         enterSubsScreen();
@@ -11375,19 +11425,21 @@
       if (subsSegment === "Опросник") {
         window._subsListFull = [];
         window._subsListCache = [];
-        await loadSurveyTab_();
+        await loadSurveyTab_({ soft: soft, force: force });
         return;
       }
       var seq = ++_subsLoadSeq;
       var wantSheet = subsSegment;
       if (!window._subsBySheet) window._subsBySheet = Object.create(null);
       var cachedSheet = window._subsBySheet[wantSheet];
-      if (!force && cachedSheet && cachedSheet.list && cachedSheet.list.length) {
-        window._subsListFull = cachedSheet.list;
+      if (!force && cachedSheet && cachedSheet.loaded) {
+        window._subsListFull = cachedSheet.list || [];
         window._subsListSheet = wantSheet;
         renderSubsList();
-      } else if (!force && window._subsListFull && window._subsListFull.length && window._subsListSheet === wantSheet) {
+        if (soft) return;
+      } else if (!force && window._subsListFull && window._subsListSheet === wantSheet && window._subsListLoadedSheet === wantSheet) {
         renderSubsList();
+        if (soft) return;
       } else {
         box.innerHTML = '<p class="muted">Загрузка…</p>';
       }
@@ -11407,7 +11459,7 @@
         });
         if (seq !== _subsLoadSeq || wantSheet !== subsSegment) return;
         if (!res || res.status !== "success") {
-          if (!(cachedSheet && cachedSheet.list && cachedSheet.list.length)) {
+          if (!(cachedSheet && cachedSheet.loaded)) {
             window._subsListFull = [];
             window._subsListCache = [];
             window._subsListSheet = "";
@@ -11422,11 +11474,12 @@
         if (wantSheet === "БП") list = groupBpSubscriptions_(list);
         window._subsListFull = list;
         window._subsListSheet = wantSheet;
-        window._subsBySheet[wantSheet] = { list: list, at: Date.now() };
+        window._subsListLoadedSheet = wantSheet;
+        window._subsBySheet[wantSheet] = { list: list, at: Date.now(), loaded: true };
         renderSubsList();
       } catch (e) {
         if (seq !== _subsLoadSeq) return;
-        if (!(cachedSheet && cachedSheet.list && cachedSheet.list.length)) {
+        if (!(cachedSheet && cachedSheet.loaded)) {
           window._subsListFull = [];
           window._subsListCache = [];
           window._subsListSheet = "";
@@ -13054,9 +13107,9 @@
       }
       try { document.body.classList.add("tasks-open"); } catch (eBody2) {}
       try { loadReminderPeople_(); } catch (ePeop) {}
-      // сразу из кэша, сеть — в фоне
+      // сразу из кэша; сеть — только если в сессии ещё не грузили (или force)
       renderTasksDrawer(false);
-      if (!deferredCache.length || (Date.now() - deferredCacheAt) > 12000) {
+      if (!deferredCacheAt) {
         renderTasksDrawer(true);
       }
     }
@@ -13845,7 +13898,7 @@
     async function loadPeople(opts) {
       opts = opts || {};
       var box = document.getElementById("peopleContainer");
-      if (opts.soft && window._peopleCacheHtml && (Date.now() - (window._peopleCacheAt || 0)) < 30000) {
+      if (opts.soft && window._peopleCacheHtml) {
         box.innerHTML = window._peopleCacheHtml;
         return;
       }
