@@ -10285,6 +10285,281 @@ function numCrmMoney_(v) {
   return Number(String(v).replace(/\s/g, "").replace(",", ".").replace(/[^\d.\-]/g, "")) || 0;
 }
 
+/** Первое ненулевое число из списка колонок (пустая «ОБЩАЯ …» не затирает рабочие). */
+function firstPositiveMoney_(row, cols) {
+  if (!row || !cols || !cols.length) return 0;
+  for (var i = 0; i < cols.length; i++) {
+    var c = cols[i];
+    if (c == null || c < 0) continue;
+    var v = numCrmMoney_(row[c]);
+    if (v > 0) return v;
+  }
+  return 0;
+}
+
+function firstMoneyAny_(row, cols) {
+  if (!row || !cols || !cols.length) return 0;
+  for (var i = 0; i < cols.length; i++) {
+    var c = cols[i];
+    if (c == null || c < 0) continue;
+    if (row[c] == null || row[c] === "") continue;
+    return numCrmMoney_(row[c]);
+  }
+  return 0;
+}
+
+/**
+ * Метрики с листа ПП (канон колонок):
+ *  оборот   = ФАКТ.СТОИМОСТЬ (или «грязные» / ОБОРОТ)
+ *  себест   = ОБЩАЯ СЕБЕСТОИМОСТЬ → иначе ИТОГОВАЯ → иначе СЕБЕСТОИМОСТЬ
+ *  выхлоп   = ОБЩИЙ ВЫХЛОП → иначе ВЫХЛОП → иначе max(0, оборот − себест)
+ * Пустые «ОБЩАЯ/ОБЩИЙ» не обнуляют сумму — fallback на рабочие колонки.
+ */
+function collectPpMoneyStats_(crmSs) {
+  var out = {
+    clients: 0,
+    dirty: 0,
+    clean: 0,
+    cost: 0,
+    turnover: 0,
+    colsUsed: { fact: "", cost: "", clean: "" },
+    byKey: {}
+  };
+  var data = null;
+  try { data = getCrmSheetValuesFast_(crmSs, "ПП"); } catch (e0) { data = null; }
+  if (!data || data.length < 3) return out;
+  var headers = data[0];
+  var factCols = [];
+  var dirtyCols = [];
+  var turnoverCols = [];
+  var costCols = [];
+  var itogSebCols = [];
+  var rawSebCols = [];
+  var vyhlopTotalCols = [];
+  var vyhlopCols = [];
+  var wishesCol = 4;
+  for (var c = 0; c < headers.length; c++) {
+    var h = String(headers[c] || "").toUpperCase().replace(/\s+/g, " ").trim();
+    if (!h) continue;
+    if (h.indexOf("ФАКТ") >= 0 && h.indexOf("СТОИМ") >= 0) factCols.push(c);
+    if (/^ГРЯЗН/.test(h) || h.indexOf("ГРЯЗН") === 0) dirtyCols.push(c);
+    if (h.indexOf("ОБОРОТ") >= 0) turnoverCols.push(c);
+    if (h.indexOf("ОБЩАЯ СЕБЕСТОИМ") >= 0) costCols.push(c);
+    if (h.indexOf("ИТОГОВАЯ СЕБЕСТОИМ") >= 0) itogSebCols.push(c);
+    if (h === "СЕБЕСТОИМОСТЬ" || (h.indexOf("СЕБЕСТОИМ") >= 0 && h.indexOf("ИТОГ") < 0 && h.indexOf("ОБЩ") < 0)) {
+      rawSebCols.push(c);
+    }
+    if (h.indexOf("ОБЩИЙ ВЫХЛОП") >= 0) vyhlopTotalCols.push(c);
+    if (/^ВЫХЛОП$/.test(h) || (h.indexOf("ВЫХЛОП") >= 0 && h.indexOf("ОБЩИЙ") < 0)) vyhlopCols.push(c);
+    if (/ПОЖЕЛАН|WISH/.test(h)) wishesCol = c;
+  }
+  // приоритет колонок для оборота / себест / выхлопа
+  var turnPick = turnoverCols.concat(factCols).concat(dirtyCols);
+  var costPick = costCols.concat(itogSebCols).concat(rawSebCols);
+  var cleanPick = vyhlopTotalCols.concat(vyhlopCols);
+
+  out.colsUsed.fact = turnPick.length ? String(headers[turnPick[0]] || "") : "";
+  out.colsUsed.cost = costPick.length ? String(headers[costPick[0]] || "") : "";
+  out.colsUsed.clean = cleanPick.length ? String(headers[cleanPick[0]] || "") : "";
+
+  var usedCostName = "";
+  var usedCleanName = "";
+  var usedTurnName = "";
+
+  for (var r = 2; r < data.length; r++) {
+    var nick = String(data[r][0] || "").trim();
+    if (isCrmFinanceNick_(nick)) continue;
+    out.clients++;
+
+    var turn = firstPositiveMoney_(data[r], turnPick);
+    if (!turn) turn = firstMoneyAny_(data[r], turnPick);
+    var cost = firstPositiveMoney_(data[r], costPick);
+    if (!cost) cost = firstMoneyAny_(data[r], costPick);
+    var clean = firstPositiveMoney_(data[r], cleanPick);
+    if (!clean) clean = firstMoneyAny_(data[r], cleanPick);
+    if (!clean && (turn > 0 || cost > 0)) {
+      clean = Math.max(0, Math.round((turn - cost) * 100) / 100);
+    }
+
+    if (!usedTurnName) {
+      for (var ti = 0; ti < turnPick.length; ti++) {
+        if (numCrmMoney_(data[r][turnPick[ti]]) > 0) {
+          usedTurnName = String(headers[turnPick[ti]] || "");
+          break;
+        }
+      }
+    }
+    if (!usedCostName) {
+      for (var ci = 0; ci < costPick.length; ci++) {
+        if (numCrmMoney_(data[r][costPick[ci]]) > 0) {
+          usedCostName = String(headers[costPick[ci]] || "");
+          break;
+        }
+      }
+    }
+    if (!usedCleanName) {
+      for (var yi = 0; yi < cleanPick.length; yi++) {
+        if (numCrmMoney_(data[r][cleanPick[yi]]) > 0) {
+          usedCleanName = String(headers[cleanPick[yi]] || "");
+          break;
+        }
+      }
+    }
+
+    out.dirty += turn;
+    out.turnover += turn;
+    out.clean += clean;
+    out.cost += cost;
+    var wishes = String(data[r][wishesCol] != null ? data[r][wishesCol] : data[r][4] || "");
+    var key = clientMatchKey_(nick) || String(extractInstagramNick_(nick) || nick).toUpperCase();
+    if (key) {
+      out.byKey[key] = {
+        label: nick,
+        nick: extractInstagramNick_(nick) || nick,
+        fact: turn,
+        clean: clean,
+        cost: cost,
+        wishes: wishes,
+        fromBpYmd: parseFromBpYmd_(wishes)
+      };
+    }
+  }
+  if (usedTurnName) out.colsUsed.fact = usedTurnName;
+  if (usedCostName) out.colsUsed.cost = usedCostName;
+  if (usedCleanName) out.colsUsed.clean = usedCleanName;
+  out.dirty = Math.round(out.dirty * 100) / 100;
+  out.turnover = Math.round(out.turnover * 100) / 100;
+  out.clean = Math.round(out.clean * 100) / 100;
+  out.cost = Math.round(out.cost * 100) / 100;
+  return out;
+}
+
+var STATS_MONTH_HEADERS_ = [
+  "monthKey", "at", "ppClients", "ppTurnover", "ppCost", "ppClean",
+  "calPpActual", "retail", "partner", "calTurnover", "bpSpend", "deliveries", "bpConverted"
+];
+
+function ensureStatsMonthSheet_(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("Stats_Месяцы");
+  if (!sh) {
+    sh = ss.insertSheet("Stats_Месяцы");
+    sh.getRange(1, 1, 1, STATS_MONTH_HEADERS_.length).setValues([STATS_MONTH_HEADERS_]);
+    sh.setFrozenRows(1);
+    try { sh.hideSheet(); } catch (eH) {}
+  } else if (sh.getLastRow() < 1) {
+    sh.getRange(1, 1, 1, STATS_MONTH_HEADERS_.length).setValues([STATS_MONTH_HEADERS_]);
+  }
+  return sh;
+}
+
+function upsertStatsMonthSnapshot_(ss, snap) {
+  if (!snap || !snap.monthKey) return;
+  var sh = ensureStatsMonthSheet_(ss);
+  var data = sh.getDataRange().getValues();
+  var rowIdx = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][0] || "").slice(0, 7) === String(snap.monthKey).slice(0, 7)) {
+      rowIdx = r + 1;
+      break;
+    }
+  }
+  var vals = [
+    String(snap.monthKey).slice(0, 7),
+    new Date(),
+    Number(snap.ppClients) || 0,
+    Number(snap.ppTurnover) || 0,
+    Number(snap.ppCost) || 0,
+    Number(snap.ppClean) || 0,
+    Number(snap.calPpActual) || 0,
+    Number(snap.retail) || 0,
+    Number(snap.partner) || 0,
+    Number(snap.calTurnover) || 0,
+    Number(snap.bpSpend) || 0,
+    Number(snap.deliveries) || 0,
+    Number(snap.bpConverted) || 0
+  ];
+  if (rowIdx > 0) sh.getRange(rowIdx, 1, 1, STATS_MONTH_HEADERS_.length).setValues([vals]);
+  else sh.appendRow(vals);
+}
+
+function readStatsMonthHistory_(ss, currentKey, limitN) {
+  limitN = Number(limitN) || 6;
+  var out = [];
+  var sh = null;
+  try { sh = ensureStatsMonthSheet_(ss); } catch (e0) { return out; }
+  var data = sh.getDataRange().getValues();
+  var map = {};
+  for (var r = 1; r < data.length; r++) {
+    var mk = String(data[r][0] || "").slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(mk)) continue;
+    map[mk] = {
+      monthKey: mk,
+      at: data[r][1],
+      ppClients: Number(data[r][2]) || 0,
+      ppTurnover: Number(data[r][3]) || 0,
+      ppCost: Number(data[r][4]) || 0,
+      ppClean: Number(data[r][5]) || 0,
+      calPpActual: Number(data[r][6]) || 0,
+      retail: Number(data[r][7]) || 0,
+      partner: Number(data[r][8]) || 0,
+      calTurnover: Number(data[r][9]) || 0,
+      bpSpend: Number(data[r][10]) || 0,
+      deliveries: Number(data[r][11]) || 0,
+      bpConverted: Number(data[r][12]) || 0
+    };
+  }
+  // добрать календарные метрики за прошлые месяцы, если снимка нет / пусто
+  var keys = [];
+  try {
+    var parts = String(currentKey || "").split("-");
+    var y = Number(parts[0]);
+    var m = Number(parts[1]);
+    for (var i = 0; i < limitN; i++) {
+      var mm = m - i;
+      var yy = y;
+      while (mm <= 0) { mm += 12; yy--; }
+      keys.push(yy + "-" + (mm < 10 ? "0" : "") + mm);
+    }
+  } catch (eK) {
+    keys = [currentKey];
+  }
+  for (var k = 0; k < keys.length; k++) {
+    var key = keys[k];
+    var row = map[key];
+    if (!row) {
+      var cal = collectMonthCalendarStats_(ss, key);
+      row = {
+        monthKey: key,
+        ppClients: 0,
+        ppTurnover: 0,
+        ppCost: 0,
+        ppClean: 0,
+        calPpActual: 0,
+        retail: cal.retailRevenue || 0,
+        partner: cal.partnerRevenue || 0,
+        calTurnover: Math.round(((cal.revenueBySource.pp || 0) + (cal.retailRevenue || 0) + (cal.partnerRevenue || 0)) * 100) / 100,
+        bpSpend: cal.bpCost || 0,
+        deliveries: cal.deliveriesTotal || 0,
+        bpConverted: 0,
+        fromCalendarOnly: true
+      };
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+function statsDelta_(cur, prev) {
+  cur = Number(cur) || 0;
+  prev = Number(prev) || 0;
+  var abs = Math.round((cur - prev) * 100) / 100;
+  var pct = null;
+  if (prev !== 0) pct = Math.round(((cur - prev) / Math.abs(prev)) * 1000) / 10;
+  else if (cur !== 0) pct = 100;
+  return { abs: abs, pct: pct, cur: cur, prev: prev };
+}
+
 function stampFromBpIntoWishes_(wishes, ymd) {
   var base = String(wishes || "").replace(/\[FROMBP:[^\]]*\]/gi, "").replace(/\s+/g, " ").trim();
   var d = String(ymd || "").slice(0, 10);
@@ -10384,66 +10659,6 @@ function calendarSourceKind_(row) {
     if (s.indexOf("ПАРТ") >= 0) return "partner";
   }
   return "other";
-}
-
-function collectPpMoneyStats_(crmSs) {
-  var out = {
-    clients: 0, dirty: 0, clean: 0, cost: 0,
-    byKey: {}
-  };
-  var data = null;
-  try { data = getCrmSheetValuesFast_(crmSs, "ПП"); } catch (e0) { data = null; }
-  if (!data || data.length < 3) return out;
-  var headers = data[0];
-  var factCol = -1, vyhlopCol = -1, vyhlopTotalCol = -1;
-  var costCol = -1, itogSebCol = -1, obshSebCol = -1, wishesCol = 4;
-  for (var c = 0; c < headers.length; c++) {
-    var h = String(headers[c] || "").toUpperCase().replace(/\s+/g, " ").trim();
-    if (factCol < 0 && h.indexOf("ФАКТ") >= 0 && h.indexOf("СТОИМ") >= 0) factCol = c;
-    if (vyhlopTotalCol < 0 && h.indexOf("ОБЩИЙ ВЫХЛОП") >= 0) vyhlopTotalCol = c;
-    if (vyhlopCol < 0 && /^ВЫХЛОП$/.test(h)) vyhlopCol = c;
-    if (vyhlopCol < 0 && h.indexOf("ВЫХЛОП") >= 0 && h.indexOf("ОБЩИЙ") < 0) vyhlopCol = c;
-    // «ОБЩАЯ СЕБЕСТОИМОСТЬ» — канон для статистики (не сырая «СЕБЕСТОИМОСТЬ»)
-    if (obshSebCol < 0 && h.indexOf("ОБЩАЯ СЕБЕСТОИМ") >= 0) obshSebCol = c;
-    if (itogSebCol < 0 && h.indexOf("ИТОГОВАЯ СЕБЕСТОИМ") >= 0) itogSebCol = c;
-    if (costCol < 0 && h === "СЕБЕСТОИМОСТЬ") costCol = c;
-    if (/ПОЖЕЛАН|WISH/.test(h)) wishesCol = c;
-  }
-  for (var r = 2; r < data.length; r++) {
-    var nick = String(data[r][0] || "").trim();
-    if (isCrmFinanceNick_(nick)) continue;
-    out.clients++;
-    var dirty = factCol >= 0 ? numCrmMoney_(data[r][factCol]) : 0;
-    // приоритет: ОБЩАЯ → ИТОГОВАЯ → сырая СЕБЕСТОИМОСТЬ
-    var cost = 0;
-    if (obshSebCol >= 0) cost = numCrmMoney_(data[r][obshSebCol]);
-    else if (itogSebCol >= 0) cost = numCrmMoney_(data[r][itogSebCol]);
-    else if (costCol >= 0) cost = numCrmMoney_(data[r][costCol]);
-    var clean = 0;
-    if (vyhlopTotalCol >= 0) clean = numCrmMoney_(data[r][vyhlopTotalCol]);
-    else if (vyhlopCol >= 0) clean = numCrmMoney_(data[r][vyhlopCol]);
-    else clean = Math.max(0, dirty - cost);
-    var wishes = String(data[r][wishesCol] != null ? data[r][wishesCol] : data[r][4] || "");
-    out.dirty += dirty;
-    out.clean += clean;
-    out.cost += cost;
-    var key = clientMatchKey_(nick) || String(extractInstagramNick_(nick) || nick).toUpperCase();
-    if (key) {
-      out.byKey[key] = {
-        label: nick,
-        nick: extractInstagramNick_(nick) || nick,
-        fact: dirty,
-        clean: clean,
-        cost: cost,
-        wishes: wishes,
-        fromBpYmd: parseFromBpYmd_(wishes)
-      };
-    }
-  }
-  out.dirty = Math.round(out.dirty * 100) / 100;
-  out.clean = Math.round(out.clean * 100) / 100;
-  out.cost = Math.round(out.cost * 100) / 100;
-  return out;
 }
 
 function collectBpFunnelStats_(crmSs) {
@@ -10637,7 +10852,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS2:" + monthKey;
+  var cacheKey = "STATS3:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -10655,7 +10870,7 @@ function handleGetStats(json, callback, fromPost) {
     monthLabel = Utilities.formatDate(dLab, tz, "MMMM yyyy");
   } catch (eLab) {}
 
-  var pp = { clients: 0, dirty: 0, clean: 0, cost: 0, byKey: {} };
+  var pp = { clients: 0, dirty: 0, clean: 0, cost: 0, turnover: 0, colsUsed: {}, byKey: {} };
   var bp = { total: 0, bp1: 0, bp2: 0, final: 0 };
   var crm = null;
   try {
@@ -10668,19 +10883,66 @@ function handleGetStats(json, callback, fromPost) {
   var ppOut = collectPpActualOut_(ss, monthKey, pp, month);
   var conv = collectBpToPpConversions_(ss, crm, monthKey, pp);
 
-  // Канон метрик:
-  // ПП ожидалось = Σ ФАКТ с листа ПП (план подписок)
-  // ПП вышло = деньги с клиентов ПП за месяц (календарь [ЦЕНА] + paid cycle)
-  // Оборот = ПП вышло + розница + партнёр
-  var ppExpected = Number(pp.dirty) || 0;
+  // ПП с листа (снимок всех подписок):
+  // оборот = Σ ФАКТ, себест = ОБЩАЯ→ИТОГОВАЯ→СЫРАЯ, выхлоп = ОБЩИЙ→ВЫХЛОП
+  var ppSheetTurnover = Number(pp.turnover != null ? pp.turnover : pp.dirty) || 0;
+  var ppSheetCost = Number(pp.cost) || 0;
+  var ppSheetClean = Number(pp.clean) || 0;
+  var ppExpected = ppSheetTurnover;
   var ppActual = Number(ppOut.actual) || 0;
   var retail = Number(month.retailRevenue) || 0;
   var partner = Number(month.partnerRevenue) || 0;
-  var turnover = Math.round((ppActual + retail + partner) * 100) / 100;
+  var calTurnover = Math.round((ppActual + retail + partner) * 100) / 100;
   var ppGap = Math.round((ppExpected - ppActual) * 100) / 100;
   var bpSpend = Number(month.bpCost) || 0;
   var converted = Number(conv.count) || 0;
   var cac = converted > 0 ? Math.round((bpSpend / converted) * 100) / 100 : null;
+
+  // снимок текущего месяца (лист ПП = актуальный срез; календарь = за monthKey)
+  try {
+    upsertStatsMonthSnapshot_(ss, {
+      monthKey: monthKey,
+      ppClients: pp.clients,
+      ppTurnover: ppSheetTurnover,
+      ppCost: ppSheetCost,
+      ppClean: ppSheetClean,
+      calPpActual: ppActual,
+      retail: retail,
+      partner: partner,
+      calTurnover: calTurnover,
+      bpSpend: bpSpend,
+      deliveries: month.deliveriesTotal,
+      bpConverted: converted
+    });
+  } catch (eSnap) {}
+
+  var history = [];
+  try { history = readStatsMonthHistory_(ss, monthKey, 6); } catch (eHist) { history = []; }
+  // подставить свежий снимок ПП в текущий месяц истории
+  if (history.length && history[0].monthKey === monthKey) {
+    history[0].ppClients = pp.clients;
+    history[0].ppTurnover = ppSheetTurnover;
+    history[0].ppCost = ppSheetCost;
+    history[0].ppClean = ppSheetClean;
+    history[0].calPpActual = ppActual;
+    history[0].retail = retail;
+    history[0].partner = partner;
+    history[0].calTurnover = calTurnover;
+    history[0].bpSpend = bpSpend;
+    history[0].deliveries = month.deliveriesTotal;
+    history[0].bpConverted = converted;
+    history[0].fromCalendarOnly = false;
+  }
+  var prev = history.length > 1 ? history[1] : null;
+  var compare = {
+    prevMonthKey: prev ? prev.monthKey : "",
+    ppTurnover: statsDelta_(ppSheetTurnover, prev ? prev.ppTurnover : 0),
+    ppCost: statsDelta_(ppSheetCost, prev ? prev.ppCost : 0),
+    ppClean: statsDelta_(ppSheetClean, prev ? prev.ppClean : 0),
+    ppClients: statsDelta_(pp.clients, prev ? prev.ppClients : 0),
+    calTurnover: statsDelta_(calTurnover, prev ? prev.calTurnover : 0),
+    deliveries: statsDelta_(month.deliveriesTotal, prev ? prev.deliveries : 0)
+  };
 
   var ok = {
     status: "success",
@@ -10691,11 +10953,13 @@ function handleGetStats(json, callback, fromPost) {
     pp: {
       clients: pp.clients,
       expected: ppExpected,
+      turnover: ppSheetTurnover,
       actual: ppActual,
       gap: ppGap,
       dirty: ppExpected,
-      clean: pp.clean,
-      cost: pp.cost,
+      clean: ppSheetClean,
+      cost: ppSheetCost,
+      colsUsed: pp.colsUsed || {},
       actualDetail: {
         fromPriceTags: ppOut.fromPriceTags,
         fromPaidCycle: ppOut.fromPaidCycle,
@@ -10717,12 +10981,14 @@ function handleGetStats(json, callback, fromPost) {
     },
     money: {
       ppExpected: ppExpected,
+      ppTurnover: ppSheetTurnover,
       ppActual: ppActual,
-      ppClean: pp.clean,
-      ppCost: pp.cost,
+      ppClean: ppSheetClean,
+      ppCost: ppSheetCost,
       retail: retail,
       partner: partner,
-      turnover: turnover,
+      turnover: calTurnover,
+      sheetTurnover: ppSheetTurnover,
       bpSpend: bpSpend
     },
     month: {
@@ -10738,12 +11004,14 @@ function handleGetStats(json, callback, fromPost) {
       expected: ppExpected,
       actual: ppActual,
       delta: -ppGap,
-      turnover: turnover
+      turnover: calTurnover
     },
+    history: history,
+    compare: compare,
     ppActive: pp.clients,
     bpFunnel: bp.total,
     deliveries: month.deliveriesTotal,
-    revenue: turnover,
+    revenue: calTurnover,
     charts: {
       bpStages: [
         { label: "БП1", value: bp.bp1 },
@@ -10757,25 +11025,25 @@ function handleGetStats(json, callback, fromPost) {
         { label: "Партнёр", value: month.bySource.partner || 0 }
       ],
       ppFlow: [
-        { label: "Ожидалось ПП", value: ppExpected },
+        { label: "Оборот ПП (лист)", value: ppSheetTurnover },
         { label: "Вышло ПП", value: ppActual }
       ],
       turnover: [
-        { label: "ПП", value: ppActual },
+        { label: "ПП вышло", value: ppActual },
         { label: "Розница", value: retail },
         { label: "Партнёр", value: partner }
       ],
       ppMoney: [
-        { label: "Грязные/ожид.", value: ppExpected },
-        { label: "Чистые", value: pp.clean },
-        { label: "Себест", value: pp.cost }
+        { label: "Оборот (факт)", value: ppSheetTurnover },
+        { label: "Выхлоп", value: ppSheetClean },
+        { label: "Себест", value: ppSheetCost }
       ]
     },
-    note: "ПП план/выхлоп — с листа ПП. Вышло ПП и розница — Календарь_Дат (" + monthKey +
-      "). Затраты БП — себест составов доставок БП. Переходы БП→ПП — журнал + [FROMBP]."
+    note: "ПП оборот/себест/выхлоп — сумма по всем строкам листа ПП (новый клиент сразу в сумме). " +
+      "Снимок пишется в Stats_Месяцы для сравнения. Календарный оборот — доставки месяца " + monthKey + "."
   };
   try {
-    CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 90);
+    CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 60);
   } catch (ePut) {}
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
@@ -10804,13 +11072,13 @@ function handleExportStats(json, callback, fromPost) {
   var lines = [];
   lines.push("# Месяц\t" + monthKey);
   lines.push("# ПП клиентов\t" + pp.clients);
-  lines.push("# ПП ожидалось (факт лист)\t" + pp.dirty);
-  lines.push("# ПП вышло\t" + ppOut.actual);
-  lines.push("# ПП чистые (выхлоп)\t" + pp.clean);
-  lines.push("# ПП себест\t" + pp.cost);
+  lines.push("# ПП оборот (факт лист)\t" + (pp.turnover != null ? pp.turnover : pp.dirty));
+  lines.push("# ПП выхлоп\t" + pp.clean);
+  lines.push("# ПП себест (общая→итоговая)\t" + pp.cost);
+  lines.push("# ПП вышло (календарь)\t" + ppOut.actual);
   lines.push("# Розница\t" + month.retailRevenue);
   lines.push("# Партнёр\t" + month.partnerRevenue);
-  lines.push("# Оборот (ПП вышло+розн+парт)\t" + turnover);
+  lines.push("# Оборот календаря (ПП вышло+розн+парт)\t" + turnover);
   lines.push("# БП воронка\t" + bp.total + "\tБП1\t" + bp.bp1 + "\tБП2\t" + bp.bp2 + "\tФинал\t" + bp.final);
   lines.push("# БП доставок\t" + month.bpDeliveries + "\tзатраты себест\t" + month.bpCost);
   lines.push("# БП→ПП за месяц\t" + conv.count + "\tна одного\t" + cac);
