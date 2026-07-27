@@ -8442,6 +8442,7 @@ function handleGetSubscription(json, callback, fromPost) {
   var wishesOut = found.wishes || "";
   var bpMetaGet = /^БП$/i.test(String(found.sheet || segment || "")) ? parseBpMetaFromWishes_(wishesOut) : null;
   if (/^БП$/i.test(String(found.sheet || segment || ""))) status = normalizeBpStage_(status);
+  var dogGet = parseDogFromWishesGs_(wishesOut);
   var ok = {
     status: "success",
     nick: extractInstagramNick_(label) || nick,
@@ -8459,6 +8460,9 @@ function handleGetSubscription(json, callback, fromPost) {
     factCost: factCost,
     packCounts: packCounts,
     packagesByn: packagesBynFromUCounts_(packCounts),
+    dogName: dogGet.name,
+    dogBreed: dogGet.breed,
+    dogWeight: dogGet.weight,
     rowIndex: rowIndex,
     surveyBp2Due: bpMetaGet ? bpMetaGet.surveyBp2Due : "",
     surveyFinalDue: bpMetaGet ? bpMetaGet.surveyFinalDue : "",
@@ -8498,6 +8502,13 @@ function handleSaveSubscription(json, callback, fromPost) {
   if (/^ПП$/i.test(sheetName) && (json.coef != null && json.coef !== "")) {
     wishes = stampPpCoefIntoWishesGs_(wishes, json.coef);
   }
+  if (json.dogName != null || json.dogBreed != null || json.dogWeight != null || json.dog) {
+    wishes = stampDogIntoWishesGs_(wishes, {
+      name: json.dogName != null ? json.dogName : (json.dog && json.dog.name),
+      breed: json.dogBreed != null ? json.dogBreed : (json.dog && json.dog.breed),
+      weight: json.dogWeight != null ? json.dogWeight : (json.dog && json.dog.weight)
+    });
+  }
   if (/^БП$/i.test(sheetName) || json.surveyBp2Due || json.surveyFinalDue || json.lastTouch || json.lastActivity || json.ownerTelegramId || json.respTelegramId) {
     wishes = stampBpMetaIntoWishes_(wishes, {
       surveyBp2Due: json.surveyBp2Due,
@@ -8510,6 +8521,10 @@ function handleSaveSubscription(json, callback, fromPost) {
 
   var factCost = json.factCost != null && json.factCost !== "" ? json.factCost : null;
   var basket = Array.isArray(json.basket) ? json.basket : null;
+  var packCountsOpt = json.packCounts || null;
+  if (typeof packCountsOpt === "string") {
+    try { packCountsOpt = JSON.parse(packCountsOpt); } catch (ePc) { packCountsOpt = null; }
+  }
   var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   var data = sh.getDataRange().getValues();
   var rowIdx = -1;
@@ -8525,7 +8540,7 @@ function handleSaveSubscription(json, callback, fromPost) {
         headers, basket, label, subId,
         deliveriesN || 1,
         ppStatus || (/^БП$/i.test(sheetName) ? "БП1" : "ПП1"),
-        wishes, factCost
+        wishes, factCost, packCountsOpt
       );
       var up = upsertSubscriptionProductRow_(sh, headers, createVals, basket, nick || label);
       rowIdx = (up && up.row ? up.row : 1) - 1;
@@ -8540,7 +8555,7 @@ function handleSaveSubscription(json, callback, fromPost) {
       deliveriesN || Number(data[rowIdx][2]) || 1,
       ppStatus || String(data[rowIdx][3] || "") || "ПП1",
       wishes || String(data[rowIdx][4] || ""),
-      factCost
+      factCost, packCountsOpt
     );
     while (rowVals.length < headers.length) rowVals.push("");
     sh.getRange(rowIdx + 1, 1, 1, headers.length).setValues([rowVals.slice(0, headers.length)]);
@@ -12494,6 +12509,28 @@ function stampPpCoefIntoWishesGs_(wishes, coef) {
   return (base + (base ? " " : "") + tag).trim();
 }
 
+function parseDogFromWishesGs_(wishes) {
+  var m = String(wishes || "").match(/\[DOG:([^\]]*)\]/i);
+  if (!m) return { name: "", breed: "", weight: "" };
+  var parts = String(m[1] || "").split("|");
+  return {
+    name: String(parts[0] || "").trim(),
+    breed: String(parts[1] || "").trim(),
+    weight: String(parts[2] || "").trim()
+  };
+}
+
+function stampDogIntoWishesGs_(wishes, dog) {
+  var base = String(wishes || "").replace(/\[DOG:[^\]]*\]/gi, "").replace(/\s+/g, " ").trim();
+  dog = dog || {};
+  var name = String(dog.name || dog.dogName || "").trim();
+  var breed = String(dog.breed || dog.dogBreed || "").trim();
+  var weight = String(dog.weight != null ? dog.weight : (dog.dogWeight != null ? dog.dogWeight : "")).trim();
+  if (!name && !breed && !weight) return base;
+  var tag = "[DOG:" + name + "|" + breed + "|" + weight + "]";
+  return (base + (base ? " " : "") + tag).trim();
+}
+
 function parseBpMetaFromWishes_(wishes) {
   var w = String(wishes || "");
   var out = {
@@ -13380,7 +13417,7 @@ function mergeBasketItemsForPp_(items) {
   return out;
 }
 
-function writePpBasketToRowValues_(headers, basket, nick, subId, deliveriesN, status, wishes, factCost) {
+function writePpBasketToRowValues_(headers, basket, nick, subId, deliveriesN, status, wishes, factCost, packCountsOpt) {
   var row = [];
   var i;
   for (i = 0; i < headers.length; i++) row.push("");
@@ -13425,7 +13462,7 @@ function writePpBasketToRowValues_(headers, basket, nick, subId, deliveriesN, st
       }
     }
   }
-  applyPackCountsToRowValues_(headers, row, basket);
+  applyPackCountsToRowValues_(headers, row, basket, packCountsOpt);
   return row;
 }
 
@@ -13484,9 +13521,19 @@ function packCountsUFromBasket_(basket) {
   return { u1: u1, u2: u2, u3: u3, up4: up4 };
 }
 
-function applyPackCountsToRowValues_(headers, row, basket) {
+function applyPackCountsToRowValues_(headers, row, basket, packCountsOpt) {
   if (!headers || !row) return row;
-  var pc = packCountsUFromBasket_(basket || []);
+  var pc;
+  if (packCountsOpt && typeof packCountsOpt === "object") {
+    pc = {
+      u1: Number(packCountsOpt.u1 != null ? packCountsOpt.u1 : packCountsOpt.small) || 0,
+      u2: Number(packCountsOpt.u2 != null ? packCountsOpt.u2 : packCountsOpt.medium) || 0,
+      u3: Number(packCountsOpt.u3 != null ? packCountsOpt.u3 : packCountsOpt.large) || 0,
+      up4: Number(packCountsOpt.up4 != null ? packCountsOpt.up4 : packCountsOpt.legs) || 0
+    };
+  } else {
+    pc = packCountsUFromBasket_(basket || []);
+  }
   for (var c = 0; c < headers.length; c++) {
     var h = String(headers[c] || "").replace(/\s+/g, " ").trim().toUpperCase();
     if (h === "У1") row[c] = pc.u1;

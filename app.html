@@ -1015,7 +1015,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.27</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.28</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1454,111 +1454,192 @@
         <div class="section-title" style="margin-top:0;" id="subDetailTitle">Подписка</div>
         <input type="hidden" id="subDetailNick" value="">
         <input type="hidden" id="subDetailSheet" value="">
-        <div class="form-group">
-          <label>Ник / строка</label>
-          <input type="text" id="subDetailLabel" placeholder="ник">
-        </div>
-        <div class="form-group">
-          <label>ID подписки</label>
-          <input type="text" id="subDetailSubId" placeholder="subId">
-        </div>
-        <div class="form-group">
-          <label>Доставок / мес (N)</label>
-          <input type="number" id="subDetailDeliveries" min="1" max="8" inputmode="numeric" oninput="scheduleSubDetailFactRecalc_()" onchange="scheduleSubDetailFactRecalc_()">
-        </div>
-        <div class="form-group" id="subDetailStatusWrap">
-          <label>Статус / этап</label>
-          <select id="subDetailStatusSelect" style="display:none;" onchange="onBpCardStageChange_()">
-            <option value="БП1">БП1 — внесена 1-я доставка (+опрос через 4д)</option>
-            <option value="БП2">БП2 — после 1-й / опрос на 2-ю</option>
-            <option value="ФИНАЛ">Финал — внесена 2-я (+финал опрос через 4д)</option>
-          </select>
-          <input type="text" id="subDetailStatus" placeholder="ПП1 / …">
-        </div>
-        <div class="form-group">
-          <label>Пожелания</label>
-          <textarea id="subDetailWishes" rows="3" placeholder="замены, нарезка…"></textarea>
-        </div>
-        <div class="form-group">
-          <label>Адрес</label>
-          <input type="text" id="subDetailAddress" placeholder="улица, дом">
-        </div>
-        <div class="form-group">
-          <label>Телефон</label>
-          <input type="text" id="subDetailPhone" placeholder="+375…" inputmode="tel">
-        </div>
 
-        <div id="subDetailPpPriceBox" style="display:none;margin:12px 0;padding:12px;background:#1c1c1e;border-radius:12px;border:1px solid #3a3a3c;">
-          <div class="section-title" style="margin:0 0 8px;font-size:15px;">Цена ПП (факт)</div>
-          <div class="form-group" id="subDetailCoefWrap" style="margin-bottom:8px;">
-            <label>Коэффициент</label>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <input type="number" id="subDetailCoef" value="2.3" min="0.1" max="10" step="0.1" inputmode="decimal"
-                style="flex:1;min-width:90px;"
-                oninput="recalcSubDetailFactCost_()" onchange="recalcSubDetailFactCost_()" onblur="recalcSubDetailFactCost_()">
-              <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2)">2.0</button>
-              <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2.3)">2.3</button>
-              <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2.5)">2.5</button>
-            </div>
-          </div>
-          <div class="form-group" style="margin-bottom:4px;">
-            <label>Факт стоимость (BYN)</label>
-            <input type="number" id="subDetailFact" step="0.01" inputmode="decimal" style="font-size:22px;font-weight:700;color:#30d158;">
-            <div class="muted" id="subDetailFactHint" style="font-size:12px;margin-top:6px;">сырая себест × коэф (вместо 2.3) + 11 + 6×N + пакеты + фракции</div>
-          </div>
-          <button type="button" class="btn-action btn-blue" style="margin:8px 0 0;width:100%;" onclick="recalcSubDetailFactCost_()">Пересчитать цену</button>
-        </div>
-
-        <div id="subDetailBpMap" style="display:none;margin:10px 0;padding:10px;background:#1c1c1e;border-radius:10px;">
-          <div class="muted" style="font-size:12px;margin-bottom:6px;">Карта БП</div>
-          <div id="subDetailBpMapText" class="muted" style="font-size:13px;"></div>
-          <div class="form-group" style="margin-top:8px;">
-            <label>Опросник после 1-й доставки (дата)</label>
-            <input type="date" id="subDetailSurveyBp2">
+        <!-- —— Базовые данные —— -->
+        <div id="subDetailBasicBlock">
+          <div class="form-group">
+            <label>Ник / строка</label>
+            <input type="text" id="subDetailLabel" placeholder="ник">
           </div>
           <div class="form-group">
-            <label>Финальный опросник после 2-й (дата)</label>
-            <input type="date" id="subDetailSurveyFinal">
+            <label>Собака</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <input type="text" id="subDetailDogName" placeholder="кличка">
+              <input type="text" id="subDetailDogBreed" placeholder="порода">
+            </div>
+            <input type="number" id="subDetailDogWeight" placeholder="вес, кг" step="0.1" min="0" inputmode="decimal" style="margin-top:8px;">
           </div>
           <div class="form-group">
-            <label>Ответственный менеджер</label>
-            <select id="subDetailOwner"><option value="">—</option></select>
+            <label>ID подписки</label>
+            <input type="text" id="subDetailSubId" placeholder="subId">
           </div>
-          <div class="seg-row" style="margin-top:8px;">
-            <button type="button" class="seg-btn active" id="bpBasketTab1" onclick="setBpBasketTab(1)">Состав БП1</button>
-            <button type="button" class="seg-btn" id="bpBasketTab2" onclick="setBpBasketTab(2)">Состав БП2</button>
+          <div class="form-group">
+            <label>Доставок / мес (N)</label>
+            <input type="number" id="subDetailDeliveries" min="1" max="8" inputmode="numeric" oninput="scheduleSubDetailFactRecalc_()" onchange="scheduleSubDetailFactRecalc_()">
           </div>
-        </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
-          <div class="muted" style="font-size:12px;">Состав (месяц)</div>
-          <button type="button" class="btn-action" style="margin:0;padding:6px 10px;font-size:12px;background:#3a3a3c;" onclick="clearSubDetailBasket()">Очистить</button>
-        </div>
-        <div class="sub-detail-basket" id="subDetailBasket"><p class="muted">—</p></div>
-        <button type="button" class="btn-action btn-blue" id="btnSubManualEntry" style="margin-top:8px;" onclick="toggleSubDetailManualEntry()">Ручной ввод</button>
-        <div id="subDetailManualPanel" style="display:none;margin-top:10px;">
-          <div class="grid-buttons">
-            <button class="btn-action btn-blue" onclick="openSubDetailProductSelector('dressura')">Дрессура</button>
-            <button class="btn-action btn-orange" onclick="openSubDetailProductSelector('chew')">Жевалки</button>
-            <button class="btn-action btn-purple" onclick="openSubDetailProductSelector('other')">Другое</button>
-            <button class="btn-action btn-brown" onclick="openSubDetailProductSelector('powder')">Присыпки</button>
-            <button class="btn-action btn-green" onclick="openSubDetailProductSelector('veg')">Овощи/Фрукты</button>
+          <div class="form-group" id="subDetailStatusWrap">
+            <label>Статус / этап</label>
+            <select id="subDetailStatusSelect" style="display:none;" onchange="onBpCardStageChange_()">
+              <option value="БП1">БП1 — внесена 1-я доставка (+опрос через 4д)</option>
+              <option value="БП2">БП2 — после 1-й / опрос на 2-ю</option>
+              <option value="ФИНАЛ">Финал — внесена 2-я (+финал опрос через 4д)</option>
+            </select>
+            <input type="text" id="subDetailStatus" placeholder="ПП1 / …">
           </div>
-          <div class="card" id="subDetailSelectorCard" style="display:none;margin-top:10px;">
+          <div class="form-group">
+            <label>Пожелания</label>
+            <textarea id="subDetailWishes" rows="3" placeholder="замены, нарезка…"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Адрес</label>
+            <input type="text" id="subDetailAddress" placeholder="улица, дом">
+          </div>
+          <div class="form-group">
+            <label>Телефон</label>
+            <input type="text" id="subDetailPhone" placeholder="+375…" inputmode="tel">
+          </div>
+
+          <div id="subDetailPpPriceBox" style="display:none;margin:12px 0;padding:12px;background:#1c1c1e;border-radius:12px;border:1px solid #3a3a3c;">
+            <div class="section-title" style="margin:0 0 8px;font-size:15px;">Цена ПП (факт)</div>
+            <div class="form-group" style="margin-bottom:4px;">
+              <label>Факт стоимость (BYN)</label>
+              <input type="number" id="subDetailFact" step="0.01" inputmode="decimal" style="font-size:22px;font-weight:700;color:#30d158;">
+              <div class="muted" id="subDetailFactHint" style="font-size:12px;margin-top:6px;">базовый просмотр · пакеты/фракции — в глубоком редакторе</div>
+            </div>
+          </div>
+
+          <div id="subDetailBpMap" style="display:none;margin:10px 0;padding:10px;background:#1c1c1e;border-radius:10px;">
+            <div class="muted" style="font-size:12px;margin-bottom:6px;">Карта БП</div>
+            <div id="subDetailBpMapText" class="muted" style="font-size:13px;"></div>
+            <div class="form-group" style="margin-top:8px;">
+              <label>Опросник после 1-й доставки (дата)</label>
+              <input type="date" id="subDetailSurveyBp2">
+            </div>
             <div class="form-group">
-              <label id="subDetailSelectorTitle">Позиция</label>
-              <select id="subDetailMainSelect" onchange="onSubDetailProductChange()"></select>
-            </div>
-            <div class="form-group" id="subDetailFractionGroup" style="display:none;">
-              <label>Фракция / тип</label>
-              <select id="subDetailFractionSelect"></select>
+              <label>Финальный опросник после 2-й (дата)</label>
+              <input type="date" id="subDetailSurveyFinal">
             </div>
             <div class="form-group">
-              <label id="subDetailValueLabel">Объём</label>
-              <input type="number" id="subDetailVolumeInput" placeholder="0" inputmode="numeric">
+              <label>Ответственный менеджер</label>
+              <select id="subDetailOwner"><option value="">—</option></select>
             </div>
-            <button class="btn-action btn-blue" type="button" onclick="addItemToSubDetailBasket()">В состав</button>
+            <div class="seg-row" style="margin-top:8px;">
+              <button type="button" class="seg-btn active" id="bpBasketTab1" onclick="setBpBasketTab(1)">Состав БП1</button>
+              <button type="button" class="seg-btn" id="bpBasketTab2" onclick="setBpBasketTab(2)">Состав БП2</button>
+            </div>
           </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
+            <div class="muted" style="font-size:12px;">Состав</div>
+            <span class="muted" id="subDetailBasketCount" style="font-size:12px;"></span>
+          </div>
+          <div class="sub-detail-basket" id="subDetailBasket"><p class="muted">—</p></div>
+
+          <button type="button" class="btn-action btn-orange" id="btnSubDeepEditor" style="margin-top:10px;width:100%;" onclick="toggleSubDetailDeepEditor_()">Глубокий редактор</button>
         </div>
+
+        <!-- —— Глубокий редактор: пакеты, фракции, правка состава —— -->
+        <div id="subDetailDeepPanel" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid #3a3a3c;">
+          <div class="section-title" style="margin:0 0 10px;font-size:15px;">Глубокий редактор</div>
+          <div class="muted" style="font-size:12px;margin-bottom:10px;">Пакеты, наценка фракций, коэффициент и правка состава.</div>
+
+          <div id="subDetailDeepPpExtras">
+            <div class="form-group" id="subDetailCoefWrap" style="margin-bottom:8px;">
+              <label>Коэффициент</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="number" id="subDetailCoef" value="2.3" min="0.1" max="10" step="0.1" inputmode="decimal"
+                  style="flex:1;min-width:90px;"
+                  oninput="recalcSubDetailFactCost_()" onchange="recalcSubDetailFactCost_()" onblur="recalcSubDetailFactCost_()">
+                <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2)">2.0</button>
+                <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2.3)">2.3</button>
+                <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2.5)">2.5</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Пакеты <span class="muted" id="subDetailPackTotalLabel">(0 BYN)</span></label>
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                <div class="seg-row" style="align-items:center;gap:8px;">
+                  <span style="flex:1;font-size:14px;">маленький (У1)</span>
+                  <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpSubDetailPack_('u1',-1)">−</button>
+                  <b id="subDetailPackU1" style="min-width:28px;text-align:center;">0</b>
+                  <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpSubDetailPack_('u1',1)">+</button>
+                </div>
+                <div class="seg-row" style="align-items:center;gap:8px;">
+                  <span style="flex:1;font-size:14px;">средний (У2)</span>
+                  <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpSubDetailPack_('u2',-1)">−</button>
+                  <b id="subDetailPackU2" style="min-width:28px;text-align:center;">0</b>
+                  <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpSubDetailPack_('u2',1)">+</button>
+                </div>
+                <div class="seg-row" style="align-items:center;gap:8px;">
+                  <span style="flex:1;font-size:14px;">большой (У3)</span>
+                  <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpSubDetailPack_('u3',-1)">−</button>
+                  <b id="subDetailPackU3" style="min-width:28px;text-align:center;">0</b>
+                  <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpSubDetailPack_('u3',1)">+</button>
+                </div>
+                <div class="seg-row" style="align-items:center;gap:8px;">
+                  <span style="flex:1;font-size:14px;">с ножками (УП4)</span>
+                  <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpSubDetailPack_('up4',-1)">−</button>
+                  <b id="subDetailPackUp4" style="min-width:28px;text-align:center;">0</b>
+                  <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpSubDetailPack_('up4',1)">+</button>
+                </div>
+              </div>
+            </div>
+            <div class="form-group" style="margin-top:10px;">
+              <label>Наценка за фракции дрессуры (BYN / 100 г)</label>
+              <div class="seg-row" style="gap:6px;flex-wrap:wrap;">
+                <div style="flex:1;min-width:70px;">
+                  <div class="muted" style="font-size:11px;margin-bottom:2px;">целое</div>
+                  <input type="number" id="subDetailFracWhole" value="0" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
+                </div>
+                <div style="flex:1;min-width:70px;">
+                  <div class="muted" style="font-size:11px;margin-bottom:2px;">крупный</div>
+                  <input type="number" id="subDetailFracLarge" value="1" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
+                </div>
+                <div style="flex:1;min-width:70px;">
+                  <div class="muted" style="font-size:11px;margin-bottom:2px;">средний</div>
+                  <input type="number" id="subDetailFracMedium" value="2" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
+                </div>
+                <div style="flex:1;min-width:70px;">
+                  <div class="muted" style="font-size:11px;margin-bottom:2px;">мелкий</div>
+                  <input type="number" id="subDetailFracSmall" value="3" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
+                </div>
+              </div>
+            </div>
+            <button type="button" class="btn-action btn-blue" style="margin:8px 0 0;width:100%;" onclick="recalcSubDetailFactCost_()">Пересчитать цену</button>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px;">
+            <div class="muted" style="font-size:12px;">Правка состава</div>
+            <button type="button" class="btn-action" style="margin:0;padding:6px 10px;font-size:12px;background:#3a3a3c;" onclick="clearSubDetailBasket()">Очистить</button>
+          </div>
+          <button type="button" class="btn-action btn-blue" id="btnSubManualEntry" style="margin-top:8px;" onclick="toggleSubDetailManualEntry()">Ручной ввод</button>
+          <div id="subDetailManualPanel" style="display:none;margin-top:10px;">
+            <div class="grid-buttons">
+              <button class="btn-action btn-blue" onclick="openSubDetailProductSelector('dressura')">Дрессура</button>
+              <button class="btn-action btn-orange" onclick="openSubDetailProductSelector('chew')">Жевалки</button>
+              <button class="btn-action btn-purple" onclick="openSubDetailProductSelector('other')">Другое</button>
+              <button class="btn-action btn-brown" onclick="openSubDetailProductSelector('powder')">Присыпки</button>
+              <button class="btn-action btn-green" onclick="openSubDetailProductSelector('veg')">Овощи/Фрукты</button>
+            </div>
+            <div class="card" id="subDetailSelectorCard" style="display:none;margin-top:10px;">
+              <div class="form-group">
+                <label id="subDetailSelectorTitle">Позиция</label>
+                <select id="subDetailMainSelect" onchange="onSubDetailProductChange()"></select>
+              </div>
+              <div class="form-group" id="subDetailFractionGroup" style="display:none;">
+                <label>Фракция / тип</label>
+                <select id="subDetailFractionSelect"></select>
+              </div>
+              <div class="form-group">
+                <label id="subDetailValueLabel">Объём</label>
+                <input type="number" id="subDetailVolumeInput" placeholder="0" inputmode="numeric">
+              </div>
+              <button class="btn-action btn-blue" type="button" onclick="addItemToSubDetailBasket()">В состав</button>
+            </div>
+          </div>
+          <button type="button" class="btn-action" style="margin-top:10px;width:100%;background:#3a3a3c;" onclick="toggleSubDetailDeepEditor_(false)">Свернуть редактор</button>
+        </div>
+
         <button class="btn-save" type="button" style="margin-top:12px;" onclick="saveSubDetail()">Сохранить</button>
         <div id="subDetailActions" style="display:grid;gap:8px;margin-top:10px;">
           <button type="button" class="btn-action btn-orange" id="subBtnToAfk" style="display:none;margin:0;" onclick="moveSubDetailTo('АФК')">Перенести в АФК</button>
@@ -1775,7 +1856,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.27";
+    const APP_VERSION = "v7.11.28";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -11294,19 +11375,140 @@
     var currentSubDetail = null;
     var subDetailBasket = [];
     var subDetailManualCategory = "dressura";
+    var subDetailDeepOpen = false;
+    var subDetailPackCounts = { u1: 0, u2: 0, u3: 0, up4: 0 };
+    var subDetailPacksManual = false;
+
+    function parseDogFromWishes_(wishes) {
+      var m = String(wishes || "").match(/\[DOG:([^\]]*)\]/i);
+      if (!m) return { name: "", breed: "", weight: "" };
+      var parts = String(m[1] || "").split("|");
+      return {
+        name: String(parts[0] || "").trim(),
+        breed: String(parts[1] || "").trim(),
+        weight: String(parts[2] || "").trim()
+      };
+    }
+
+    function stripDogFromWishes_(wishes) {
+      return String(wishes || "").replace(/\[DOG:[^\]]*\]/gi, "").replace(/\s+/g, " ").trim();
+    }
+
+    function stampDogIntoWishes_(wishes, dog) {
+      var base = stripDogFromWishes_(wishes);
+      dog = dog || {};
+      var name = String(dog.name || "").trim();
+      var breed = String(dog.breed || "").trim();
+      var weight = String(dog.weight != null ? dog.weight : "").trim().replace(",", ".");
+      if (!name && !breed && !weight) return base;
+      var tag = "[DOG:" + name + "|" + breed + "|" + weight + "]";
+      return (base + (base ? " " : "") + tag).trim();
+    }
+
+    function readSubDetailDogFields_() {
+      return {
+        name: (document.getElementById("subDetailDogName") && document.getElementById("subDetailDogName").value) || "",
+        breed: (document.getElementById("subDetailDogBreed") && document.getElementById("subDetailDogBreed").value) || "",
+        weight: (document.getElementById("subDetailDogWeight") && document.getElementById("subDetailDogWeight").value) || ""
+      };
+    }
+
+    function fillSubDetailDogFields_(dog) {
+      dog = dog || {};
+      var n = document.getElementById("subDetailDogName");
+      var b = document.getElementById("subDetailDogBreed");
+      var w = document.getElementById("subDetailDogWeight");
+      if (n) n.value = dog.name || "";
+      if (b) b.value = dog.breed || "";
+      if (w) w.value = dog.weight != null ? String(dog.weight) : "";
+    }
+
+    function getSubDetailFracRates_() {
+      function num(id, def) {
+        var el = document.getElementById(id);
+        var v = el ? Number(String(el.value || "").replace(",", ".")) : def;
+        return isFinite(v) ? v : def;
+      }
+      return {
+        whole: num("subDetailFracWhole", 0),
+        large: num("subDetailFracLarge", 1),
+        medium: num("subDetailFracMedium", 2),
+        small: num("subDetailFracSmall", 3)
+      };
+    }
+
+    function renderSubDetailPackCounters_() {
+      var map = { u1: "subDetailPackU1", u2: "subDetailPackU2", u3: "subDetailPackU3", up4: "subDetailPackUp4" };
+      Object.keys(map).forEach(function (k) {
+        var el = document.getElementById(map[k]);
+        if (el) el.textContent = String(subDetailPackCounts[k] || 0);
+      });
+      var tot = packagesBynFromUCountsLocal_(subDetailPackCounts);
+      var lab = document.getElementById("subDetailPackTotalLabel");
+      if (lab) lab.textContent = "(" + tot + " BYN)";
+    }
+
+    function setSubDetailPackCounts_(pc, opts) {
+      opts = opts || {};
+      pc = pc || {};
+      subDetailPackCounts = {
+        u1: Number(pc.u1 != null ? pc.u1 : pc.small) || 0,
+        u2: Number(pc.u2 != null ? pc.u2 : pc.medium) || 0,
+        u3: Number(pc.u3 != null ? pc.u3 : pc.large) || 0,
+        up4: Number(pc.up4 != null ? pc.up4 : pc.legs) || 0
+      };
+      if (opts.manual) subDetailPacksManual = true;
+      if (opts.resetManual) subDetailPacksManual = false;
+      renderSubDetailPackCounters_();
+    }
+
+    function bumpSubDetailPack_(kind, delta) {
+      if (!subDetailPackCounts.hasOwnProperty(kind)) return;
+      var next = (Number(subDetailPackCounts[kind]) || 0) + (Number(delta) || 0);
+      if (next < 0) next = 0;
+      subDetailPackCounts[kind] = next;
+      subDetailPacksManual = true;
+      renderSubDetailPackCounters_();
+      recalcSubDetailFactCost_();
+    }
+    window.bumpSubDetailPack_ = bumpSubDetailPack_;
+
+    function toggleSubDetailDeepEditor_(force) {
+      if (typeof force === "boolean") subDetailDeepOpen = force;
+      else subDetailDeepOpen = !subDetailDeepOpen;
+      var panel = document.getElementById("subDetailDeepPanel");
+      var btn = document.getElementById("btnSubDeepEditor");
+      if (panel) panel.style.display = subDetailDeepOpen ? "block" : "none";
+      if (btn) btn.textContent = subDetailDeepOpen ? "Глубокий редактор · открыт" : "Глубокий редактор";
+      var sheet = (document.getElementById("subDetailSheet") && document.getElementById("subDetailSheet").value) || "";
+      var extras = document.getElementById("subDetailDeepPpExtras");
+      if (extras) extras.style.display = (sheet === "ПП") ? "block" : "none";
+      renderSubDetailBasket();
+      if (subDetailDeepOpen && sheet === "ПП") {
+        try { recalcSubDetailFactCost_(); } catch (eR) {}
+      }
+    }
+    window.toggleSubDetailDeepEditor_ = toggleSubDetailDeepEditor_;
 
     function renderSubDetailBasket() {
       var box = document.getElementById("subDetailBasket");
+      var countEl = document.getElementById("subDetailBasketCount");
+      if (countEl) countEl.textContent = subDetailBasket.length ? (subDetailBasket.length + " поз.") : "";
       if (!box) return;
       if (!subDetailBasket.length) {
-        box.innerHTML = '<p class="muted">Состав пуст — добавь позиции вручную</p>';
+        box.innerHTML = '<p class="muted">' +
+          (subDetailDeepOpen ? "Состав пуст — добавь позиции вручную" : "Состав пуст") +
+          "</p>";
         return;
       }
       box.innerHTML = subDetailBasket.map(function (item, idx) {
         var unit = unitForItem(item.cat, item.main || item.name);
         var sub = item.sub ? ("Фракция: " + item.sub) : ("Категория: " + (item.cat || ""));
+        var delBtn = subDetailDeepOpen
+          ? ('<button type="button" class="btn-inline-del" onclick="deleteSubDetailBasketItem(' + idx + ')">Удалить</button>')
+          : "";
         return '<div class="basket-card ' + escapeHtml(item.cat || "") + '">' +
-          '<button type="button" class="btn-inline-del" onclick="deleteSubDetailBasketItem(' + idx + ')">Удалить</button>' +
+          delBtn +
           '<div class="basket-info">' + escapeHtml(item.main || item.name || "") + " → " +
           (item.val != null ? item.val : item.value) + " " + unit + "</div>" +
           '<div class="basket-sub">' + escapeHtml(sub) + "</div>" +
@@ -11332,6 +11534,10 @@
       var box = document.getElementById("subDetailPpPriceBox");
       var isPp = String(sheet || "") === "ПП";
       if (box) box.style.display = isPp ? "block" : "none";
+      var deepBtn = document.getElementById("btnSubDeepEditor");
+      if (deepBtn) deepBtn.style.display = (isPp || String(sheet || "") === "БП") ? "" : "none";
+      var extras = document.getElementById("subDetailDeepPpExtras");
+      if (extras) extras.style.display = isPp ? "block" : "none";
     }
 
     function scheduleSubDetailFactRecalc_() {
@@ -11424,7 +11630,15 @@
     }
 
     function resolveSubDetailPackagesByn_(fp) {
-      // Пока состав как при открытии — берём У1–УП4 с листа (как в таблице), не пересобираем
+      // ручные пакеты из глубокого редактора имеют приоритет
+      if (subDetailPacksManual) {
+        return {
+          packagesByn: packagesBynFromUCountsLocal_(subDetailPackCounts),
+          hint: packHintFromU_(subDetailPackCounts),
+          fromSheet: false,
+          fromManual: true
+        };
+      }
       try {
         if (currentSubDetail && currentSubDetail.packCounts &&
             _subDetailOpenedFp && fp && fp === _subDetailOpenedFp) {
@@ -11437,8 +11651,9 @@
         }
       } catch (eP) {}
       return {
-        packagesByn: Number(_subDetailCostCache.packagesByn) || 0,
-        hint: "",
+        packagesByn: packagesBynFromUCountsLocal_(subDetailPackCounts) ||
+          (Number(_subDetailCostCache.packagesByn) || 0),
+        hint: packHintFromU_(subDetailPackCounts),
         fromSheet: false
       };
     }
@@ -11478,17 +11693,17 @@
       var coef = subDetailCoefValue_();
       var seq = ++_subDetailFactSeq;
       var hint = document.getElementById("subDetailFactHint");
-      var frac = calcDressuraFractionMarkup(list, { whole: 0, large: 1, medium: 2, small: 3 });
+      var frac = calcDressuraFractionMarkup(list, getSubDetailFracRates_());
       var fracTotal = (frac && frac.total) || 0;
       var fp = "";
       try { fp = basketFingerprint_(list); } catch (eFp) { fp = String(list.length); }
 
-      // коэф/N — мгновенно по сырой себест; пакеты с листа, если состав не трогали
+      // коэф/N — мгновенно по сырой себест; пакеты: ручные / с листа
       var sheetPacks = resolveSubDetailPackagesByn_(fp);
       if (_subDetailCostCache.fp === fp && _subDetailCostCache.cost != null) {
-        var packsCached = sheetPacks.fromSheet
+        var packsCached = (sheetPacks.fromManual || sheetPacks.fromSheet)
           ? sheetPacks.packagesByn
-          : (Number(_subDetailCostCache.packagesByn) || 0);
+          : (Number(_subDetailCostCache.packagesByn) || sheetPacks.packagesByn || 0);
         applyLocalPpFact_(_subDetailCostCache.cost, coef, n, packsCached, fracTotal, sheetPacks.hint);
         return;
       }
@@ -11506,7 +11721,7 @@
         });
         var basketJson = JSON.stringify(slim);
         var costSum = null;
-        var packagesByn = sheetPacks.fromSheet ? sheetPacks.packagesByn : 0;
+        var packagesByn = sheetPacks.packagesByn || 0;
         var packHint = sheetPacks.hint || "";
 
         var pr = null;
@@ -11524,8 +11739,8 @@
           costSum = extractRawPpCost_(pr, list);
         }
 
-        // пакеты — с листа если состав тот же; иначе calcPpFact (грам→ед. листа)
-        if (!sheetPacks.fromSheet && basketJson.length < 1600) {
+        // пакеты — ручные / с листа; иначе calcPpFact
+        if (!sheetPacks.fromManual && !sheetPacks.fromSheet && basketJson.length < 1600) {
           try {
             var pfPayload = {
               action: "calcPpFact",
@@ -11540,7 +11755,10 @@
               if (costSum == null && pf.rawCost != null) costSum = Number(pf.rawCost);
               else if (costSum == null && pf.cost != null) costSum = extractRawPpCost_(pf, list);
               if (pf.packagesByn != null) packagesByn = Number(pf.packagesByn) || 0;
-              if (pf.packCounts) packHint = packHintFromU_(pf.packCounts);
+              if (pf.packCounts) {
+                packHint = packHintFromU_(pf.packCounts);
+                if (!subDetailPacksManual) setSubDetailPackCounts_(pf.packCounts, { resetManual: true });
+              }
               if (pf.fractionMarkup != null && !fracTotal) fracTotal = Number(pf.fractionMarkup) || 0;
             }
           } catch (e1) {}
@@ -11700,7 +11918,9 @@
       applyBpStatusUi_(sheet, s.status || "");
       var wishesRaw0 = s.wishes || "";
       var coef0 = parsePpCoefFromWishes_(wishesRaw0);
-      document.getElementById("subDetailWishes").value = stripPpCoefFromWishes_(wishesRaw0);
+      var dog0 = parseDogFromWishes_(wishesRaw0);
+      document.getElementById("subDetailWishes").value = stripDogFromWishes_(stripPpCoefFromWishes_(wishesRaw0));
+      fillSubDetailDogFields_(dog0);
       document.getElementById("subDetailAddress").value = "";
       document.getElementById("subDetailPhone").value = "";
       document.getElementById("subDetailFact").value = "";
@@ -11714,6 +11934,8 @@
       subDetailBasketBp1 = [];
       subDetailBasketBp2 = [];
       bpBasketTab = 1;
+      setSubDetailPackCounts_({ u1: 0, u2: 0, u3: 0, up4: 0 }, { resetManual: true });
+      toggleSubDetailDeepEditor_(false);
       renderSubDetailBasket();
       var bpMap0 = document.getElementById("subDetailBpMap");
       if (bpMap0) bpMap0.style.display = (sheet === "БП") ? "block" : "none";
@@ -11746,7 +11968,11 @@
         applyBpStatusUi_(res.sheet || sheet, res.ppStatus || s.status || "");
         var wishesRaw = res.wishes || s.wishes || "";
         var cParsed = parsePpCoefFromWishes_(wishesRaw);
-        document.getElementById("subDetailWishes").value = stripPpCoefFromWishes_(wishesRaw);
+        var dogParsed = (res.dogName != null || res.dogBreed != null || res.dogWeight != null)
+          ? { name: res.dogName || "", breed: res.dogBreed || "", weight: res.dogWeight || "" }
+          : parseDogFromWishes_(wishesRaw);
+        document.getElementById("subDetailWishes").value = stripDogFromWishes_(stripPpCoefFromWishes_(wishesRaw));
+        fillSubDetailDogFields_(dogParsed);
         document.getElementById("subDetailAddress").value = res.address || "";
         document.getElementById("subDetailPhone").value = res.phone || "";
         document.getElementById("subDetailFact").value = res.factCost || "";
@@ -11764,6 +11990,7 @@
         }
         // если с листа уже есть У1–УП4 — сразу в кэш пакеты (не раздувать крафт)
         if (res.packCounts && sheetNow === "ПП") {
+          setSubDetailPackCounts_(res.packCounts, { resetManual: true });
           _subDetailCostCache.packagesByn = packagesBynFromUCountsLocal_(res.packCounts);
         }
         var isBp = String(res.sheet || sheet) === "БП";
@@ -11939,6 +12166,9 @@
     function closeSubDetail() {
       currentSubDetail = null;
       subDetailBasket = [];
+      subDetailDeepOpen = false;
+      subDetailPacksManual = false;
+      toggleSubDetailDeepEditor_(false);
       switchTab("subsScreen");
     }
     window.closeSubDetail = closeSubDetail;
@@ -11974,11 +12204,13 @@
           try { await recalcSubDetailFactCost_(); } catch (eRec) {}
         }
         var wishesSave = (document.getElementById("subDetailWishes").value || "").trim();
+        wishesSave = stampDogIntoWishes_(wishesSave, readSubDetailDogFields_());
         if (sheet === "ПП") {
           wishesSave = stampPpCoefIntoWishes_(wishesSave, subDetailCoefValue_());
           var wEl = document.getElementById("subDetailWishes");
-          if (wEl) wEl.value = stripPpCoefFromWishes_(wishesSave);
+          if (wEl) wEl.value = stripDogFromWishes_(stripPpCoefFromWishes_(wishesSave));
         }
+        var dogSave = readSubDetailDogFields_();
         var saveBody = {
           action: "saveSubscription",
           nick: nick || label,
@@ -11994,7 +12226,16 @@
           note: wishesSave,
           factCost: document.getElementById("subDetailFact").value || "",
           basket: basketPayload,
-          coef: sheet === "ПП" ? String(subDetailCoefValue_()) : ""
+          coef: sheet === "ПП" ? String(subDetailCoefValue_()) : "",
+          dogName: dogSave.name,
+          dogBreed: dogSave.breed,
+          dogWeight: dogSave.weight,
+          packCounts: sheet === "ПП" ? {
+            u1: subDetailPackCounts.u1 || 0,
+            u2: subDetailPackCounts.u2 || 0,
+            u3: subDetailPackCounts.u3 || 0,
+            up4: subDetailPackCounts.up4 || 0
+          } : null
         };
         if (sheet === "БП") {
           var d2s = document.getElementById("subDetailSurveyBp2");
