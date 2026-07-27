@@ -1116,7 +1116,8 @@ function doGet(e) {
     return handleCalcPpFact({
       basket: e.parameter.basket ? JSON.parse(decodeURIComponent(e.parameter.basket)) : [],
       deliveriesN: e.parameter.deliveriesN || e.parameter.deliveries || "1",
-      coef: e.parameter.coef || e.parameter.markup || ""
+      coef: e.parameter.coef || e.parameter.markup || "",
+      packCounts: e.parameter.packCounts ? JSON.parse(decodeURIComponent(e.parameter.packCounts)) : null
     }, callback, false);
   }
   if (action === "listDeferred") {
@@ -8406,6 +8407,7 @@ function handleGetSubscription(json, callback, fromPost) {
   var label = nick;
   var factCost = "";
   var rowIndex = 0;
+  var packCounts = { u1: 0, u2: 0, u3: 0, up4: 0 };
   try {
     var shName = found.sheet || segment;
     var data = getCrmSheetValuesFast_(crmSs, shName);
@@ -8424,11 +8426,14 @@ function handleGetSubscription(json, callback, fromPost) {
         if (!found.subId) found.subId = String(data[r][1] || "").trim();
         rowIndex = r + 1;
         for (var fc = 0; fc < headers.length; fc++) {
-          var h = String(headers[fc] || "").toUpperCase();
+          var h = String(headers[fc] || "").toUpperCase().replace(/\s+/g, " ").trim();
           if (h.indexOf("ФАКТ") >= 0 && h.indexOf("СТОИМ") >= 0) {
             factCost = data[r][fc] != null && data[r][fc] !== "" ? String(data[r][fc]) : "";
-            break;
           }
+          if (h === "У1") packCounts.u1 = Number(data[r][fc]) || 0;
+          else if (h === "У2") packCounts.u2 = Number(data[r][fc]) || 0;
+          else if (h === "У3") packCounts.u3 = Number(data[r][fc]) || 0;
+          else if (h === "УП4") packCounts.up4 = Number(data[r][fc]) || 0;
         }
         break;
       }
@@ -8452,6 +8457,8 @@ function handleGetSubscription(json, callback, fromPost) {
     ppStatus: status,
     stage: status,
     factCost: factCost,
+    packCounts: packCounts,
+    packagesByn: packagesBynFromUCounts_(packCounts),
     rowIndex: rowIndex,
     surveyBp2Due: bpMetaGet ? bpMetaGet.surveyBp2Due : "",
     surveyFinalDue: bpMetaGet ? bpMetaGet.surveyFinalDue : "",
@@ -9868,19 +9875,31 @@ function dressuraFractionMarkupFromBasket_(basket, rates) {
   return Math.round(sum * 100) / 100;
 }
 
-function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn) {
-  var n = Math.max(1, Number(deliveriesN) || 1);
-  var coef = Number(coefIn);
-  if (!isFinite(coef) || coef <= 0) coef = 2.3;
-  var fixed = 11;
-  var delivery = 6 * n;
-  var pc = packCountsUFromBasket_(basket || []);
-  var packagesByn = Math.round(
+function packagesBynFromUCounts_(pc) {
+  pc = pc || {};
+  return Math.round(
     ((Number(pc.u1) || 0) * 0.34 +
       (Number(pc.u2) || 0) * 0.56 +
       (Number(pc.u3) || 0) * 0.80 +
       (Number(pc.up4) || 0) * 1.40) * 100
   ) / 100;
+}
+
+function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCountsOpt) {
+  var n = Math.max(1, Number(deliveriesN) || 1);
+  var coef = Number(coefIn);
+  if (!isFinite(coef) || coef <= 0) coef = 2.3;
+  var fixed = 11;
+  var delivery = 6 * n;
+  var pc = packCountsOpt && typeof packCountsOpt === "object"
+    ? {
+        u1: Number(packCountsOpt.u1) || 0,
+        u2: Number(packCountsOpt.u2) || 0,
+        u3: Number(packCountsOpt.u3) || 0,
+        up4: Number(packCountsOpt.up4) || 0
+      }
+    : packCountsUFromBasket_(basket || []);
+  var packagesByn = packagesBynFromUCounts_(pc);
   var fracMark = dressuraFractionMarkupFromBasket_(basket);
   var factCost = Math.round((Number(costSum) * coef + fixed + delivery + packagesByn + fracMark) * 100) / 100;
   return {
@@ -9936,7 +9955,11 @@ function handleCalcPpFact(json, callback, fromPost) {
     }
     totalCost = Math.round(totalCost * 100) / 100;
     var coefIn = (json.coef != null && json.coef !== "") ? json.coef : null;
-    var fact = computePpFactFromCost_(totalCost, basket, json.deliveriesN || json.deliveries, coefIn);
+    var packOpt = json.packCounts || null;
+    if (typeof packOpt === "string") {
+      try { packOpt = JSON.parse(packOpt); } catch (ePc) { packOpt = null; }
+    }
+    var fact = computePpFactFromCost_(totalCost, basket, json.deliveriesN || json.deliveries, coefIn, packOpt);
     var ok = {
       status: "success",
       cost: totalCost,
@@ -10372,14 +10395,18 @@ function collectPpMoneyStats_(crmSs) {
   try { data = getCrmSheetValuesFast_(crmSs, "ПП"); } catch (e0) { data = null; }
   if (!data || data.length < 3) return out;
   var headers = data[0];
-  var factCol = -1, vyhlopCol = -1, costCol = -1, itogSebCol = -1, wishesCol = 4;
+  var factCol = -1, vyhlopCol = -1, vyhlopTotalCol = -1;
+  var costCol = -1, itogSebCol = -1, obshSebCol = -1, wishesCol = 4;
   for (var c = 0; c < headers.length; c++) {
     var h = String(headers[c] || "").toUpperCase().replace(/\s+/g, " ").trim();
     if (factCol < 0 && h.indexOf("ФАКТ") >= 0 && h.indexOf("СТОИМ") >= 0) factCol = c;
+    if (vyhlopTotalCol < 0 && h.indexOf("ОБЩИЙ ВЫХЛОП") >= 0) vyhlopTotalCol = c;
     if (vyhlopCol < 0 && /^ВЫХЛОП$/.test(h)) vyhlopCol = c;
     if (vyhlopCol < 0 && h.indexOf("ВЫХЛОП") >= 0 && h.indexOf("ОБЩИЙ") < 0) vyhlopCol = c;
-    if (costCol < 0 && h === "СЕБЕСТОИМОСТЬ") costCol = c;
+    // «ОБЩАЯ СЕБЕСТОИМОСТЬ» — канон для статистики (не сырая «СЕБЕСТОИМОСТЬ»)
+    if (obshSebCol < 0 && h.indexOf("ОБЩАЯ СЕБЕСТОИМ") >= 0) obshSebCol = c;
     if (itogSebCol < 0 && h.indexOf("ИТОГОВАЯ СЕБЕСТОИМ") >= 0) itogSebCol = c;
+    if (costCol < 0 && h === "СЕБЕСТОИМОСТЬ") costCol = c;
     if (/ПОЖЕЛАН|WISH/.test(h)) wishesCol = c;
   }
   for (var r = 2; r < data.length; r++) {
@@ -10387,9 +10414,15 @@ function collectPpMoneyStats_(crmSs) {
     if (isCrmFinanceNick_(nick)) continue;
     out.clients++;
     var dirty = factCol >= 0 ? numCrmMoney_(data[r][factCol]) : 0;
-    var cost = costCol >= 0 ? numCrmMoney_(data[r][costCol])
-      : (itogSebCol >= 0 ? numCrmMoney_(data[r][itogSebCol]) : 0);
-    var clean = vyhlopCol >= 0 ? numCrmMoney_(data[r][vyhlopCol]) : Math.max(0, dirty - cost);
+    // приоритет: ОБЩАЯ → ИТОГОВАЯ → сырая СЕБЕСТОИМОСТЬ
+    var cost = 0;
+    if (obshSebCol >= 0) cost = numCrmMoney_(data[r][obshSebCol]);
+    else if (itogSebCol >= 0) cost = numCrmMoney_(data[r][itogSebCol]);
+    else if (costCol >= 0) cost = numCrmMoney_(data[r][costCol]);
+    var clean = 0;
+    if (vyhlopTotalCol >= 0) clean = numCrmMoney_(data[r][vyhlopTotalCol]);
+    else if (vyhlopCol >= 0) clean = numCrmMoney_(data[r][vyhlopCol]);
+    else clean = Math.max(0, dirty - cost);
     var wishes = String(data[r][wishesCol] != null ? data[r][wishesCol] : data[r][4] || "");
     out.dirty += dirty;
     out.clean += clean;
@@ -13136,7 +13169,9 @@ function isPpMetaOrFinanceHeader_(header) {
   return false;
 }
 
-/** Счётчики пакетов У1..УП4 из корзины (для листа ПП/БП). */
+/** Счётчики пакетов У1..УП4 из корзины (для листа ПП/БП).
+ * Корзина в граммах/шт. Крафт нельзя считать ceil(граммы/5) — раздувает пакеты в BYN.
+ */
 function packCountsUFromBasket_(basket) {
   var asm = buildAssemblyForBasket_(basket || []);
   var by = asm.lightBagsByCounter || {};
@@ -13144,16 +13179,40 @@ function packCountsUFromBasket_(basket) {
   var u2 = Number(by["средний"]) || 0;
   var u3 = Number(by["большой"]) || 0;
   var up4 = Number(by["целое"]) || 0;
-  // крафт / жевалки без ключа — в У2 как «средний» запас не кладём; крафт → УП4 доп.
-  var craft = Number((asm.typeCounts || {}).craft) || 0;
-  if (craft > 0) up4 += craft;
-  // если лёгкого нет, но есть сыпучее/другое — хотя бы У2 по bulk bags
-  if (u1 + u2 + u3 + up4 <= 0) {
-    var bulk = Number((asm.typeCounts || {}).bulk) || 0;
-    var chew = Number((asm.typeCounts || {}).chew) || 0;
-    if (bulk > 0) u2 += bulk;
-    if (chew > 0) u3 += chew;
-  }
+
+  var chewPacks = 0;
+  var craftPacks = 0;
+  (basket || []).forEach(function (it) {
+    var name = String(it.name || it.main || "").trim();
+    var cat = String(it.cat || "").toLowerCase();
+    var val = Number(it.val != null ? it.val : it.value) || 0;
+    if (!name || val <= 0) return;
+    // лёгкое уже учтено в lightBagsByCounter
+    if (/л[её]гк/i.test(name) && !/баран/i.test(name) && !/крошк/i.test(name)) return;
+
+    var isChew = cat === "chew" || cat === "chews" || /шт/i.test(name) ||
+      /быч|трахе|аорт|ухо|нос|станова|колен|копыт|переп|губ|книжк/i.test(name);
+    if (isChew) {
+      chewPacks += Math.max(1, Math.ceil(val / 4));
+      return;
+    }
+    var isCraft = cat === "other" ||
+      /крафт|индейк|ломтик|вымя|семен|пикальн|печень|светл/i.test(name);
+    if (isCraft) {
+      // граммы → единицы листа (1 = 100г), затем правило крафта
+      var sheetU = val >= 20 ? (val / 100) : val;
+      craftPacks += Math.max(1, Math.ceil(sheetU / 5)) + (sheetU >= 0.5 ? 1 : 0);
+      return;
+    }
+    // сыпучее/овощи/присыпки — bulk-пакеты в У2
+    if (cat === "dressura" || cat === "powder" || cat === "veg" || /баран/i.test(name)) {
+      u2 += packCountForBulk_(val);
+    }
+  });
+
+  if (chewPacks > 0) u3 += chewPacks;
+  if (craftPacks > 0) up4 += craftPacks;
+
   return { u1: u1, u2: u2, u3: u3, up4: up4 };
 }
 

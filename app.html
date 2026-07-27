@@ -1015,7 +1015,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.24</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.26</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1775,7 +1775,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.24";
+    const APP_VERSION = "v7.11.26";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -9437,22 +9437,59 @@
     }
     window.bpCardMarkTouch = bpCardMarkTouch;
 
+    async function openBpIdleFromTasks_(nick) {
+      nick = String(nick || "").trim();
+      if (!nick) return;
+      try { closeTasksDrawer(); } catch (e0) {}
+      switchTab("subsScreen");
+      setSubsSegment("БП", { skipLoad: true });
+      try {
+        await loadSubscriptions({ force: true });
+      } catch (e1) {}
+      var list = window._subsListCache || window._subsListFull || [];
+      var want = nick.toLowerCase().replace(/^@/, "");
+      var idx = -1;
+      for (var i = 0; i < list.length; i++) {
+        var n = String(list[i].nick || list[i].label || "").toLowerCase().replace(/^@/, "");
+        if (n === want || n.indexOf(want) >= 0 || want.indexOf(n) >= 0) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx >= 0) {
+        openSubDetail(idx);
+      } else {
+        showToast("Открой БП вручную: " + nick);
+      }
+    }
+    window.openBpIdleFromTasks_ = openBpIdleFromTasks_;
+
+    function dismissBpIdleTask_(id) {
+      deferredCache = (deferredCache || []).filter(function (it) {
+        return String(it.id) !== String(id);
+      });
+      updateTasksBadge();
+      try { renderTasksDrawer(false); } catch (e) {}
+    }
+    window.dismissBpIdleTask_ = dismissBpIdleTask_;
+
     async function loadBpIdleIntoDeferred_() {
       try {
         var res = await apiGet({ action: "listBpIdle", days: "7", _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
-        var items = (res && res.items) || [];
+        // бэкенд: idle[]; запасной ключ items
+        var items = (res && (res.idle || res.items)) || [];
         if (!items.length) return;
         var existing = {};
         (deferredCache || []).forEach(function (it) { existing[String(it.id)] = true; });
         items.forEach(function (it) {
-          var id = "bpidle:" + String(it.nick || it.id || "");
+          var id = "bpidle:" + String(it.nick || it.label || it.id || "");
           if (existing[id]) return;
           deferredCache.unshift({
             id: id,
             mode: "bp_idle",
             title: "БП2 простой >7д",
             nick: it.nick || "",
-            label: (it.nick || "") + " · БП2 простой >7д",
+            label: (it.nick || it.label || "") + " · БП2 простой >7д",
             status: "open",
             note: it.note || it.wishes || ""
           });
@@ -9564,7 +9601,7 @@
       html += '<div class="muted" style="font-size:12px;margin-bottom:8px;">Цифры из колонок ФАКТ / ВЫХЛОП / СЕБЕСТОИМОСТЬ</div>';
       html += statsBarRow_("Ожидалось (факт)", ppExpected, moneyMax, "#ff9f0a");
       html += statsBarRow_("Чистые (выхлоп)", ppClean, moneyMax, "#30d158");
-      html += statsBarRow_("Себестоимость", ppCost, moneyMax, "#64d2ff");
+      html += statsBarRow_("Общая себестоимость", ppCost, moneyMax, "#64d2ff");
       html += '</div>';
 
       html += '<div class="card"><div class="section-title" style="margin-top:0;font-size:15px;">ПП: ожидалось → вышло</div>';
@@ -11217,6 +11254,7 @@
     var _subDetailFactTimer = null;
     var _subDetailFactSeq = 0;
     var _subDetailCostCache = { fp: "", cost: null, packagesByn: 0 };
+    var _subDetailOpenedFp = "";
 
     function setSubDetailCoef_(v) {
       var el = document.getElementById("subDetailCoef");
@@ -11285,21 +11323,60 @@
       if (hint && hintText) hint.textContent = hintText;
     }
 
-    function applyLocalPpFact_(costSum, coef, n, packagesByn, fracTotal) {
+    function applyLocalPpFact_(costSum, coef, n, packagesByn, fracTotal, packHint) {
       costSum = Number(costSum) || 0;
       coef = Number(coef) || 2.3;
       n = Math.max(1, Number(n) || 1);
       packagesByn = Number(packagesByn) || 0;
       fracTotal = Number(fracTotal) || 0;
-      // coef ЗАМЕНЯЕТ основной ×2.3: факт = сырая_себест × coef + фикс, без второго умножения
       var marked = costSum * coef;
       var total = Math.round((marked + 11 + 6 * n + packagesByn + fracTotal) * 100) / 100;
       applySubDetailFact_(total,
-        "себест " + costSum + " ×" + coef + " (=наценка, не сверху) +11 +6×" + n +
-        (packagesByn ? (" +пакеты " + packagesByn) : "") +
+        "себест " + costSum + " ×" + coef + " +11 +6×" + n +
+        (packagesByn ? (" +пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
         (fracTotal ? (" +фракт " + fracTotal) : "") +
         " → " + total + " BYN");
       return total;
+    }
+
+    function packagesBynFromUCountsLocal_(pc) {
+      pc = pc || {};
+      return Math.round(
+        ((Number(pc.u1) || 0) * 0.34 +
+          (Number(pc.u2) || 0) * 0.56 +
+          (Number(pc.u3) || 0) * 0.80 +
+          (Number(pc.up4) || 0) * 1.40) * 100
+      ) / 100;
+    }
+
+    function packHintFromU_(pc) {
+      pc = pc || {};
+      var parts = [];
+      if (pc.u1) parts.push("У1×" + pc.u1);
+      if (pc.u2) parts.push("У2×" + pc.u2);
+      if (pc.u3) parts.push("У3×" + pc.u3);
+      if (pc.up4) parts.push("УП4×" + pc.up4);
+      return parts.join(" ");
+    }
+
+    function resolveSubDetailPackagesByn_(fp) {
+      // Пока состав как при открытии — берём У1–УП4 с листа (как в таблице), не пересобираем
+      try {
+        if (currentSubDetail && currentSubDetail.packCounts &&
+            _subDetailOpenedFp && fp && fp === _subDetailOpenedFp) {
+          var byn = packagesBynFromUCountsLocal_(currentSubDetail.packCounts);
+          return {
+            packagesByn: byn,
+            hint: packHintFromU_(currentSubDetail.packCounts),
+            fromSheet: true
+          };
+        }
+      } catch (eP) {}
+      return {
+        packagesByn: Number(_subDetailCostCache.packagesByn) || 0,
+        hint: "",
+        fromSheet: false
+      };
     }
 
     /** Сырая себест из calcPrice — никогда не брать total/factCost (там уже ×markup). */
@@ -11342,9 +11419,13 @@
       var fp = "";
       try { fp = basketFingerprint_(list); } catch (eFp) { fp = String(list.length); }
 
-      // коэф/N меняем мгновенно по сырой себест (не по факту)
+      // коэф/N — мгновенно по сырой себест; пакеты с листа, если состав не трогали
+      var sheetPacks = resolveSubDetailPackagesByn_(fp);
       if (_subDetailCostCache.fp === fp && _subDetailCostCache.cost != null) {
-        applyLocalPpFact_(_subDetailCostCache.cost, coef, n, _subDetailCostCache.packagesByn, fracTotal);
+        var packsCached = sheetPacks.fromSheet
+          ? sheetPacks.packagesByn
+          : (Number(_subDetailCostCache.packagesByn) || 0);
+        applyLocalPpFact_(_subDetailCostCache.cost, coef, n, packsCached, fracTotal, sheetPacks.hint);
         return;
       }
 
@@ -11361,7 +11442,8 @@
         });
         var basketJson = JSON.stringify(slim);
         var costSum = null;
-        var packagesByn = 0;
+        var packagesByn = sheetPacks.fromSheet ? sheetPacks.packagesByn : 0;
+        var packHint = sheetPacks.hint || "";
 
         var pr = null;
         try {
@@ -11378,21 +11460,23 @@
           costSum = extractRawPpCost_(pr, list);
         }
 
-        // пакеты — из calcPpFact; факт с сервера игнорируем (берём только packages/frac)
-        if (basketJson.length < 1600) {
+        // пакеты — с листа если состав тот же; иначе calcPpFact (грам→ед. листа)
+        if (!sheetPacks.fromSheet && basketJson.length < 1600) {
           try {
-            var pf = await apiGet({
+            var pfPayload = {
               action: "calcPpFact",
               deliveriesN: String(n),
               coef: String(coef),
               basket: basketJson,
               _: String(Date.now())
-            }, { timeoutMs: 20000, cacheTtlMs: 0 });
+            };
+            var pf = await apiGet(pfPayload, { timeoutMs: 20000, cacheTtlMs: 0 });
             if (seq !== _subDetailFactSeq) return;
             if (pf && pf.status === "success") {
               if (costSum == null && pf.rawCost != null) costSum = Number(pf.rawCost);
               else if (costSum == null && pf.cost != null) costSum = extractRawPpCost_(pf, list);
               if (pf.packagesByn != null) packagesByn = Number(pf.packagesByn) || 0;
+              if (pf.packCounts) packHint = packHintFromU_(pf.packCounts);
               if (pf.fractionMarkup != null && !fracTotal) fracTotal = Number(pf.fractionMarkup) || 0;
             }
           } catch (e1) {}
@@ -11404,7 +11488,7 @@
         }
         _subDetailCostCache = { fp: fp, cost: costSum, packagesByn: packagesByn };
         if (seq !== _subDetailFactSeq) return;
-        applyLocalPpFact_(costSum, coef, n, packagesByn, fracTotal);
+        applyLocalPpFact_(costSum, coef, n, packagesByn, fracTotal, packHint);
       } catch (e) {
         if (seq !== _subDetailFactSeq) return;
         if (hint) hint.textContent = "Ошибка пересчёта: " + (e.message || e);
@@ -11560,6 +11644,7 @@
       var coefEl0 = document.getElementById("subDetailCoef");
       if (coefEl0) coefEl0.value = (coef0 != null) ? String(coef0) : "2.3";
       _subDetailCostCache = { fp: "", cost: null, packagesByn: 0 };
+      _subDetailOpenedFp = "";
       _subDetailFactSeq++;
       subDetailBasket = [];
       subDetailBasketBp1 = [];
@@ -11608,6 +11693,15 @@
           coefEl.value = (cParsed != null) ? String(cParsed) : "2.3";
         }
         subDetailBasket = mapApiBasketToLocal(res.basket || []);
+        try {
+          _subDetailOpenedFp = basketFingerprint_(subDetailBasketPayload_());
+        } catch (eOfp) {
+          _subDetailOpenedFp = "";
+        }
+        // если с листа уже есть У1–УП4 — сразу в кэш пакеты (не раздувать крафт)
+        if (res.packCounts && sheetNow === "ПП") {
+          _subDetailCostCache.packagesByn = packagesBynFromUCountsLocal_(res.packCounts);
+        }
         var isBp = String(res.sheet || sheet) === "БП";
         var bpMap = document.getElementById("subDetailBpMap");
         if (bpMap) bpMap.style.display = isBp ? "block" : "none";
@@ -12747,6 +12841,19 @@
         html = items.map(function (it) {
           var when = it.at ? String(it.at).slice(0, 19) : "";
           var safeId = String(it.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+          var isBpIdle = String(it.mode || "").toLowerCase() === "bp_idle" || String(it.id || "").indexOf("bpidle:") === 0;
+          if (isBpIdle) {
+            var nickIdle = String(it.nick || it.clientNick || it.label || "").replace(/ · БП2.*/, "");
+            var safeNick = nickIdle.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+            return '<div class="tasks-item is-hot">' +
+              '<div><b>' + escapeHtml(it.title || "БП2 простой >7д") + '</b>' +
+              '<div class="muted" style="font-size:12px;margin-top:4px;">' +
+              escapeHtml(nickIdle || "без ника") + " · нет контакта >7 дней</div></div>" +
+              '<div class="seg-row" style="margin-top:10px;flex-wrap:wrap;">' +
+              '<button type="button" class="seg-btn" style="background:#ff9f0a;border-color:#ff9f0a;color:#111;" onclick="openBpIdleFromTasks_(\'' + safeNick + '\')">Открыть БП</button>' +
+              '<button type="button" class="seg-btn" style="background:#3a3a3c;" onclick="dismissBpIdleTask_(\'' + safeId + '\')">Скрыть</button>' +
+              "</div></div>";
+          }
           var preview = (it.payload && it.payload.lastMessage)
             ? String(it.payload.lastMessage).slice(0, 120)
             : "";
