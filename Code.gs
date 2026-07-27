@@ -951,6 +951,13 @@ function doGet(e) {
   if (action === "listAccess") {
     return handleListAccess({ telegramId: e.parameter.telegramId || "" }, callback, false);
   }
+  if (action === "setAccessTimezone") {
+    return handleSetAccessTimezone({
+      actorId: e.parameter.actorId || e.parameter.telegramId || "",
+      targetId: e.parameter.targetId || "",
+      timezone: e.parameter.timezone ? decodeURIComponent(e.parameter.timezone) : ""
+    }, callback, false);
+  }
   if (action === "listReminderPeople") {
     return handleListReminderPeople_({ telegramId: e.parameter.telegramId || "" }, callback, false);
   }
@@ -1352,6 +1359,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "setAccessRole") {
     return handleSetAccessRole(json, callback, fromPost);
+  }
+  if (action === "setAccessTimezone") {
+    return handleSetAccessTimezone(json, callback, fromPost);
   }
   if (action === "getWarehouse") {
     return handleGetWarehouse(json, callback, fromPost);
@@ -7700,7 +7710,20 @@ function fillSubscriptionBasketForDate_(ss, crmSs, client, segment, deliveryDate
 
 /* ========== v7.6: Доступы / Склад / Подписки / Цена / Сборка ========== */
 
-var ACCESS_HEADERS_ = ["telegramId", "name", "username", "role", "status", "requestedAt", "note"];
+var ACCESS_HEADERS_ = ["telegramId", "name", "username", "role", "status", "requestedAt", "note", "timezone"];
+var ACCESS_DEFAULT_TZ_ = "Europe/Minsk";
+var ACCESS_TZ_OPTIONS_ = [
+  "Europe/Minsk",
+  "Europe/Moscow",
+  "Europe/Kaliningrad",
+  "Europe/Kiev",
+  "Europe/Warsaw",
+  "Europe/Berlin",
+  "Asia/Yekaterinburg",
+  "Asia/Novosibirsk",
+  "Asia/Vladivostok",
+  "UTC"
+];
 var PRICE_SPREADSHEET_ID_DEFAULT_ = "1c3iETyh_eOGcL0_zsGapzliVEfhQk5fQqbg8aAGAgI0";
 var OWNER_IDS_FALLBACK_ = []; // задайте OWNER_TELEGRAM_IDS в Script Properties
 
@@ -7711,8 +7734,55 @@ function getAccessSheet_() {
     sh = ss.insertSheet("Доступы");
     sh.getRange(1, 1, 1, ACCESS_HEADERS_.length).setValues([ACCESS_HEADERS_]);
     sh.setFrozenRows(1);
+  } else {
+    try { ensureAccessSheetSchema_(sh); } catch (eSch) {}
   }
   return sh;
+}
+
+function ensureAccessSheetSchema_(sh) {
+  if (!sh) return;
+  var lastCol = Math.max(8, sh.getLastColumn() || 1);
+  var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  if (String(headers[7] || "").toLowerCase().indexOf("time") < 0) {
+    sh.getRange(1, 8).setValue("timezone");
+  }
+}
+
+function normalizePersonTimezone_(tz) {
+  var raw = String(tz || "").trim();
+  if (!raw) return ACCESS_DEFAULT_TZ_;
+  try {
+    Utilities.formatDate(new Date(), raw, "HH");
+    return raw;
+  } catch (e) {
+    return ACCESS_DEFAULT_TZ_;
+  }
+}
+
+/** Локальные части даты в TZ сотрудника. */
+function localPartsInTz_(date, tz) {
+  tz = normalizePersonTimezone_(tz);
+  var d = date || new Date();
+  return {
+    ymd: Utilities.formatDate(d, tz, "yyyy-MM-dd"),
+    hour: Number(Utilities.formatDate(d, tz, "H")),
+    minute: Number(Utilities.formatDate(d, tz, "m")),
+    slot: Utilities.formatDate(d, tz, "yyyy-MM-dd'T'HH") +
+      (Number(Utilities.formatDate(d, tz, "m")) < 30 ? ":00" : ":30")
+  };
+}
+
+/** Окно уведомлений: с 9:00 до 21:00 по локальному времени сотрудника. */
+function isPersonNotifyWindow_(date, tz) {
+  var p = localPartsInTz_(date, tz);
+  return p.hour >= 9 && p.hour < 21;
+}
+
+function timezoneOfAccessId_(telegramId) {
+  var row = findAccessById_(telegramId);
+  if (row && row.timezone) return normalizePersonTimezone_(row.timezone);
+  return ACCESS_DEFAULT_TZ_;
 }
 
 function getOwnerTelegramIds_() {
@@ -7790,7 +7860,8 @@ function readAccessRows_() {
       role: String(data[i][3] || "pending").toLowerCase(),
       status: String(data[i][4] || "pending").toLowerCase(),
       requestedAt: data[i][5],
-      note: String(data[i][6] || "")
+      note: String(data[i][6] || ""),
+      timezone: normalizePersonTimezone_(data[i][7] || "")
     });
   }
   return out;
@@ -7824,7 +7895,7 @@ function findAccessById_(telegramId) {
     try { CacheService.getScriptCache().put("acc_row_" + id, "__none__", 90); } catch (eN1) {}
     return null;
   }
-  var data = sh.getRange(rowIndex, 1, 1, 7).getValues()[0];
+  var data = sh.getRange(rowIndex, 1, 1, 8).getValues()[0];
   var row = {
     rowIndex: rowIndex,
     telegramId: String(data[0] || "").trim(),
@@ -7833,7 +7904,8 @@ function findAccessById_(telegramId) {
     role: String(data[3] || "pending").toLowerCase(),
     status: String(data[4] || "pending").toLowerCase(),
     requestedAt: data[5],
-    note: String(data[6] || "")
+    note: String(data[6] || ""),
+    timezone: normalizePersonTimezone_(data[7] || "")
   };
   try { CacheService.getScriptCache().put("acc_row_" + id, JSON.stringify(row), 180); } catch (eP) {}
   return row;
@@ -7924,12 +7996,18 @@ function handleGetMyAccess(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
-function upsertAccessRow_(telegramId, name, username, role, status) {
+function upsertAccessRow_(telegramId, name, username, role, status, timezone) {
   var id = String(telegramId || "").trim();
   try { CacheService.getScriptCache().remove("acc_row_" + id); } catch (eRm) {}
   var sh = getAccessSheet_();
+  try { ensureAccessSheetSchema_(sh); } catch (eSch) {}
   var existing = findAccessById_(id);
   var now = new Date();
+  var tz = normalizePersonTimezone_(
+    timezone != null && String(timezone).trim()
+      ? timezone
+      : (existing && existing.timezone) || ACCESS_DEFAULT_TZ_
+  );
   var rowObj;
   if (existing) {
     rowObj = {
@@ -7940,13 +8018,14 @@ function upsertAccessRow_(telegramId, name, username, role, status) {
       role: String(role || "").toLowerCase(),
       status: String(status || "").toLowerCase(),
       requestedAt: existing.requestedAt || now,
-      note: existing.note || ""
+      note: existing.note || "",
+      timezone: tz
     };
-    sh.getRange(existing.rowIndex, 1, 1, 7).setValues([[
-      id, rowObj.name, rowObj.username, role, status, rowObj.requestedAt, rowObj.note
+    sh.getRange(existing.rowIndex, 1, 1, 8).setValues([[
+      id, rowObj.name, rowObj.username, role, status, rowObj.requestedAt, rowObj.note, rowObj.timezone
     ]]);
   } else {
-    sh.appendRow([id, name, username, role, status, now, ""]);
+    sh.appendRow([id, name, username, role, status, now, "", tz]);
     rowObj = {
       rowIndex: sh.getLastRow(),
       telegramId: id,
@@ -7955,7 +8034,8 @@ function upsertAccessRow_(telegramId, name, username, role, status) {
       role: String(role || "").toLowerCase(),
       status: String(status || "").toLowerCase(),
       requestedAt: now,
-      note: ""
+      note: "",
+      timezone: tz
     };
   }
   try { CacheService.getScriptCache().put("acc_row_" + id, JSON.stringify(rowObj), 180); } catch (eP) {}
@@ -8001,10 +8081,11 @@ function handleListAccess(json, callback, fromPost) {
       username: r.username,
       role: r.role,
       status: r.status,
-      note: r.note
+      note: r.note,
+      timezone: r.timezone || ACCESS_DEFAULT_TZ_
     };
   });
-  var ok = { status: "success", people: rows, owners: getOwnerTelegramIds_() };
+  var ok = { status: "success", people: rows, owners: getOwnerTelegramIds_(), timezones: ACCESS_TZ_OPTIONS_ };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
@@ -8070,9 +8151,41 @@ function handleSetAccessRole(json, callback, fromPost) {
   }
   var status = (role === "denied") ? "denied" : (role === "pending" ? "pending" : "active");
   var existing = findAccessById_(target);
-  upsertAccessRow_(target, (json.name || (existing && existing.name) || ""), (json.username || (existing && existing.username) || ""), role, status);
+  upsertAccessRow_(
+    target,
+    (json.name || (existing && existing.name) || ""),
+    (json.username || (existing && existing.username) || ""),
+    role,
+    status,
+    (json.timezone != null ? json.timezone : (existing && existing.timezone))
+  );
   try { telegramSendText_(target, "Вам назначена роль: " + role); } catch (e) {}
   var ok = { status: "success", telegramId: target, role: role, access: status };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handleSetAccessTimezone(json, callback, fromPost) {
+  var actor = String(json.actorId || json.telegramIdOwner || json.telegramId || "").trim();
+  if (actor && !isOwnerId_(actor)) {
+    var rowA = findAccessById_(actor);
+    if (!rowA || rowA.role !== "owner") {
+      var forbid = { status: "error", message: "owner_only" };
+      return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+    }
+  }
+  var target = String(json.targetId || "").trim();
+  var tz = normalizePersonTimezone_(json.timezone || json.tz || "");
+  if (!target) {
+    var bad = { status: "error", message: "need_target" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var existing = findAccessById_(target);
+  if (!existing) {
+    upsertAccessRow_(target, json.name || "", json.username || "", "pending", "pending", tz);
+  } else {
+    upsertAccessRow_(target, existing.name, existing.username, existing.role, existing.status, tz);
+  }
+  var ok = { status: "success", telegramId: target, timezone: tz };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
@@ -12493,10 +12606,11 @@ function getSurveyTemplateBody_(kind, nick) {
 function tickBpSurveyReminders_() {
   try {
     var crmSs = getCrmSpreadsheet_();
-    var tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || "Europe/Minsk";
-    var today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+    var now = new Date();
     var props = PropertiesService.getScriptProperties();
-    var sentKey = "bp_survey_sent_" + today;
+    // ключ по UTC-дню — слоты внутри уже локальные
+    var dayKeyUtc = Utilities.formatDate(now, "UTC", "yyyy-MM-dd");
+    var sentKey = "bp_survey_remind_" + dayKeyUtc;
     var already = {};
     try { already = JSON.parse(props.getProperty(sentKey) || "{}"); } catch (e0) { already = {}; }
 
@@ -12510,11 +12624,13 @@ function tickBpSurveyReminders_() {
         if (/^себестоим/i.test(nickRaw) || /^стоимость\s*100/i.test(nickRaw)) continue;
         var status = String(data[r][3] || "");
         var meta = parseBpMetaFromWishes_(String(data[r][4] || ""));
+        var ownerTzSync = timezoneOfAccessId_(meta.ownerTelegramId);
+        var ownerTodaySync = localPartsInTz_(now, ownerTzSync).ymd;
         var jobs = [];
-        if (meta.surveyBp2Due && meta.surveyBp2Due <= today) {
+        if (meta.surveyBp2Due && meta.surveyBp2Due <= ownerTodaySync) {
           jobs.push({ due: meta.surveyBp2Due, kind: "bp2", tpl: "survey_bp2" });
         }
-        if (meta.surveyFinalDue && meta.surveyFinalDue <= today) {
+        if (meta.surveyFinalDue && meta.surveyFinalDue <= ownerTodaySync) {
           jobs.push({ due: meta.surveyFinalDue, kind: "final", tpl: "survey_final" });
         }
         for (var j = 0; j < jobs.length; j++) {
@@ -12536,7 +12652,7 @@ function tickBpSurveyReminders_() {
       }
     }
 
-    // 2) Напоминания по открытым опросникам (dueDate <= сегодня)
+    // 2) Напоминания по открытым опросникам — в TZ ответственного, с 9:00 каждые 30 мин
     var shSv = null;
     try { shSv = ensureSurveySheet_(crmSs); } catch (eSh) { shSv = null; }
     if (!shSv || shSv.getLastRow() < 2) {
@@ -12548,32 +12664,19 @@ function tickBpSurveyReminders_() {
       var obj = surveyRowToObj_(svData[s], s + 1);
       if (!obj.nick || !obj.dueDate) continue;
       var st = String(obj.status || "").toLowerCase();
-      if (st !== "planned" && st !== "due") continue;
-      if (String(obj.dueDate) > today) continue;
-      var kindKey = normalizeSurveyKind_(obj.kind) === "final" ? "survey_final" : "survey_bp2";
-      var key = clientMatchKey_(obj.nick) + "|" + kindKey + "|" + obj.dueDate;
-      if (already[key]) continue;
-
-      var body = getSurveyTemplateBody_(kindKey, obj.nick) ||
-        getSurveyTemplateBody_(obj.templateId, obj.nick) ||
-        ("Опросник для " + obj.nick);
-      var kindLabel = normalizeSurveyKind_(obj.kind) === "final" ? "ПП (финал)" : "БП2";
-      var text =
-        "📋 Опросник · " + kindLabel + "\n" +
-        "Кому отправить: " + obj.nick + "\n" +
-        (obj.stage ? ("Этап: " + obj.stage + "\n") : "") +
-        "Дата: " + obj.dueDate + "\n\n" +
-        "Текст опросника:\n" + body;
+      // не трогаем закрытые; sent — тоже можно напоминать, если ещё «актуальный», но обычно done/cancelled
+      if (st === "done" || st === "cancelled" || st === "cancel" || st === "closed") continue;
+      if (st !== "planned" && st !== "due" && st !== "sent") continue;
 
       var targets = [];
-      if (obj.ownerTelegramId) targets.push(obj.ownerTelegramId);
+      if (obj.ownerTelegramId) targets.push(String(obj.ownerTelegramId).trim());
       if (!targets.length && bp) {
         var bpVals = bp.getDataRange().getValues();
         for (var br2 = 2; br2 < bpVals.length; br2++) {
           if (!nicksMatch_(bpVals[br2][0], obj.nick)) continue;
           var bm = parseBpMetaFromWishes_(String(bpVals[br2][4] || ""));
           if (bm.ownerTelegramId) {
-            targets.push(bm.ownerTelegramId);
+            targets.push(String(bm.ownerTelegramId).trim());
             try {
               shSv.getRange(s + 1, 10).setValue(
                 stampRespIntoSurveyNote_(obj.note, bm.ownerTelegramId, bm.ownerName)
@@ -12586,17 +12689,46 @@ function tickBpSurveyReminders_() {
       if (!targets.length) {
         try {
           var owners = getOwnerTelegramIds_();
-          for (var o = 0; o < owners.length; o++) targets.push(owners[o]);
+          for (var o = 0; o < owners.length; o++) targets.push(String(owners[o]).trim());
         } catch (eOw) {}
       }
+      if (!targets.length) continue;
+
+      // шлём каждому target в ЕГО часовом поясе
       for (var t = 0; t < targets.length; t++) {
-        try { telegramSendText_(targets[t], text); } catch (eS) {}
+        var tid = targets[t];
+        if (!tid) continue;
+        var personTz = timezoneOfAccessId_(tid);
+        var local = localPartsInTz_(now, personTz);
+        if (String(obj.dueDate) > local.ymd) continue;
+        if (!isPersonNotifyWindow_(now, personTz)) continue;
+
+        var kindKey = normalizeSurveyKind_(obj.kind) === "final" ? "survey_final" : "survey_bp2";
+        var key = clientMatchKey_(obj.nick) + "|" + kindKey + "|" + obj.dueDate + "|" + tid + "|" + local.slot;
+        if (already[key]) continue;
+
+        var body = getSurveyTemplateBody_(kindKey, obj.nick) ||
+          getSurveyTemplateBody_(obj.templateId, obj.nick) ||
+          ("Опросник для " + obj.nick);
+        var kindLabel = normalizeSurveyKind_(obj.kind) === "final" ? "ПП (финал)" : "БП2";
+        var text =
+          "📋 Опросник · " + kindLabel + "\n" +
+          "Кому отправить: " + obj.nick + "\n" +
+          (obj.stage ? ("Этап: " + obj.stage + "\n") : "") +
+          "Дата: " + obj.dueDate + "\n" +
+          "Ваше время: " + local.slot.replace("T", " ") + " (" + personTz + ")\n\n" +
+          "Текст опросника:\n" + body;
+
+        try { telegramSendText_(tid, text); } catch (eS) {}
+        already[key] = 1;
       }
-      already[key] = 1;
+
       try {
-        shSv.getRange(s + 1, 7).setValue("sent");
-        shSv.getRange(s + 1, 6).setValue(today);
-        shSv.getRange(s + 1, 12).setValue(new Date());
+        if (st === "planned" || st === "due") {
+          shSv.getRange(s + 1, 7).setValue("due");
+          shSv.getRange(s + 1, 6).setValue(Utilities.formatDate(now, ACCESS_DEFAULT_TZ_, "yyyy-MM-dd"));
+          shSv.getRange(s + 1, 12).setValue(now);
+        }
       } catch (eMk) {}
     }
     props.setProperty(sentKey, JSON.stringify(already));

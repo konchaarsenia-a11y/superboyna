@@ -191,7 +191,8 @@
 | action | Назначение |
 |--------|------------|
 | `getMyAccess` / `requestAccess` | Роль пользователя; заявка владельцу |
-| `listAccess` / `setAccessRole` | Вкладка «Люди» (owner) |
+| `listAccess` / `setAccessRole` / `setAccessTimezone` | Вкладка «Доступы» (owner): роли + TZ |
+
 | `getWarehouse` / `setWarehouseArrival` / `warehousePreview` | Склад: остатки, дозакуп B, прогноз |
 | `listSubscriptions` / `getSubscription` / `pushSubscriptionToDay` | CRM-подписки → бронь на дату |
 | `crmInventory` / `seedCrmClients` | Инвентаризация CRM; заливка в «Клиенты» без потерь |
@@ -214,7 +215,7 @@
 
 Script Properties: `OWNER_TELEGRAM_IDS`, `CUTTER_TELEGRAM_IDS`, опционально `CRM_SPREADSHEET_ID`, `PRICE_SPREADSHEET_ID`, `DATA_SPREADSHEET_ID` (старая книга: гео/дефициты/итоги/память).
 
-Навигация: менеджер — Заказ (long-press → Просмотр / Цена / Люди), Подписки, Цена; курьер — Маршрут \| Сборка; нарезчик — Нарезка; логист — Склад; owner — всё + Люди.
+Навигация: менеджер — Заказ (long-press → Просмотр / Цена / Доступы), Подписки, Цена; курьер — Маршрут \| Сборка; нарезчик — Нарезка; логист — Склад; owner — всё + Доступы.
 
 ## Секреты
 

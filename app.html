@@ -1076,7 +1076,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.32</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.33</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1094,7 +1094,7 @@
           <button type="button" class="order-flyout-btn" data-fly="priceScreen" data-fly-roles="manager,owner,all">Расчёт</button>
           <button type="button" class="order-flyout-btn" data-fly="subsScreen" data-fly-roles="owner,all">Подписки</button>
           <button type="button" class="order-flyout-btn" data-fly="statsScreen" data-fly-roles="owner,all">Статистика</button>
-          <button type="button" class="order-flyout-btn" data-fly="peopleScreen" data-fly-roles="owner,all">Люди</button>
+          <button type="button" class="order-flyout-btn" data-fly="peopleScreen" data-fly-roles="owner,all">Доступы</button>
         </div>
         <div class="courier-flyout" id="courierFlyout">
           <button type="button" class="order-flyout-btn" data-cfly="route">Маршрут</button>
@@ -1916,9 +1916,11 @@
       <div id="deferredScreenList"><p class="muted">Загрузка…</p></div>
     </div>
 
-    <!-- ЛЮДИ -->
+    <!-- ДОСТУПЫ -->
     <div id="peopleScreen" class="screen">
       <div class="card">
+        <div class="section-title" style="margin-top:0;">Доступы</div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">Роль + часовой пояс — уведомления опросников с 9:00 каждые 30 мин по локальному времени сотрудника.</div>
         <button class="btn-action btn-blue" type="button" style="flex:1;margin:0;" onclick="loadPeople()">Обновить список</button>
       </div>
       <div id="peopleContainer"><p class="muted">—</p></div>
@@ -1935,7 +1937,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.32";
+    const APP_VERSION = "v7.11.33";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -2245,7 +2247,7 @@
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
       priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• «В отложенное» или сразу «Внести в ПП» (+ имя/IG/адрес).\n• 2 собаки: свет/доставки один раз.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
-      peopleScreen: "Люди\n• Роли назначают только владельцы."
+      peopleScreen: "Доступы\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника."
     };
 
     async function openScreenHelp() {
@@ -14249,22 +14251,39 @@
       }
       box.innerHTML = '<p class="muted">Загрузка…</p>';
       try {
-        var res = await apiGet({ action: "listAccess", telegramId: myTelegramId }, { timeoutMs: 20000, cacheTtlMs: 30000 });
+        var res = await apiGet({ action: "listAccess", telegramId: myTelegramId, _: String(Date.now()) }, { timeoutMs: 20000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
           box.innerHTML = '<p class="muted">Только владелец. Задайте OWNER_TELEGRAM_IDS в Script Properties.</p>';
           return;
         }
         var roles = ["manager", "cutter", "courier", "logistics", "owner", "denied"];
+        var zones = (res.timezones && res.timezones.length) ? res.timezones : [
+          "Europe/Minsk", "Europe/Moscow", "Europe/Kaliningrad", "Europe/Kiev",
+          "Europe/Warsaw", "Europe/Berlin", "Asia/Yekaterinburg", "Asia/Novosibirsk",
+          "Asia/Vladivostok", "UTC"
+        ];
         var html = (res.people || []).map(function (p) {
+          var curTz = p.timezone || "Europe/Minsk";
           var optsR = roles.map(function (r) {
             return '<option value="' + r + '"' + (p.role === r ? " selected" : "") + ">" + r + "</option>";
           }).join("");
+          var optsTz = zones.map(function (z) {
+            return '<option value="' + z + '"' + (curTz === z ? " selected" : "") + ">" + z + "</option>";
+          }).join("");
+          if (zones.indexOf(curTz) < 0) {
+            optsTz = '<option value="' + escapeHtml(curTz) + '" selected>' + escapeHtml(curTz) + "</option>" + optsTz;
+          }
+          var tid = String(p.telegramId || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
           return '<div class="card" style="margin-bottom:8px;">' +
-            '<b>' + (p.name || p.telegramId) + '</b> <span class="muted">@' + (p.username || "") + ' · ' + p.telegramId + '</span>' +
-            '<div class="muted" style="font-size:12px;">сейчас: ' + p.role + ' / ' + p.status + '</div>' +
+            '<b>' + escapeHtml(p.name || p.telegramId) + '</b> <span class="muted">@' + escapeHtml(p.username || "") + ' · ' + escapeHtml(String(p.telegramId)) + '</span>' +
+            '<div class="muted" style="font-size:12px;">сейчас: ' + escapeHtml(p.role) + ' / ' + escapeHtml(p.status) + '</div>' +
             '<div class="seg-row" style="margin-top:8px;">' +
             '<select id="role_' + p.telegramId + '" style="flex:1;height:40px;border-radius:8px;background:#111;color:#fff;border:1px solid var(--border-color);">' + optsR + '</select>' +
-            '<button type="button" class="seg-btn" onclick="assignRole(\'' + p.telegramId + '\')">OK</button>' +
+            '<button type="button" class="seg-btn" onclick="assignRole(\'' + tid + '\')">Роль</button>' +
+            '</div>' +
+            '<div class="seg-row" style="margin-top:8px;">' +
+            '<select id="tz_' + p.telegramId + '" style="flex:1;height:40px;border-radius:8px;background:#111;color:#fff;border:1px solid var(--border-color);">' + optsTz + '</select>' +
+            '<button type="button" class="seg-btn" onclick="assignTimezone(\'' + tid + '\')">TZ</button>' +
             '</div></div>';
         }).join("") || '<p class="muted">Пока никого нет — пусть люди нажмут «Запросить доступ»</p>';
         window._peopleCacheHtml = html;
@@ -14279,16 +14298,48 @@
     async function assignRole(targetId) {
       var sel = document.getElementById("role_" + targetId);
       var role = sel ? sel.value : "denied";
+      var tzEl = document.getElementById("tz_" + targetId);
+      var tz = tzEl ? tzEl.value : "";
       await apiPost({
         action: "setAccessRole",
         actorId: myTelegramId,
         targetId: targetId,
-        role: role
+        role: role,
+        timezone: tz
       });
       showToast("Роль " + role);
+      window._peopleCacheHtml = "";
       loadPeople();
     }
     window.assignRole = assignRole;
+
+    async function assignTimezone(targetId) {
+      var tzEl = document.getElementById("tz_" + targetId);
+      var tz = tzEl ? tzEl.value : "Europe/Minsk";
+      try {
+        var res = await apiGet({
+          action: "setAccessTimezone",
+          actorId: myTelegramId,
+          targetId: targetId,
+          timezone: tz,
+          _: String(Date.now())
+        }, { timeoutMs: 15000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          await apiPost({
+            action: "setAccessTimezone",
+            actorId: myTelegramId,
+            targetId: targetId,
+            timezone: tz
+          });
+        }
+        showToast("Часовой пояс: " + tz);
+      } catch (e) {
+        showToast("Не сохранилось — нужен Deploy Code.gs");
+      }
+      window._peopleCacheHtml = "";
+      loadPeople();
+    }
+    window.assignTimezone = assignTimezone;
 
     function syncAppTopSpacer() {
       var top = document.getElementById("appTopBar");
