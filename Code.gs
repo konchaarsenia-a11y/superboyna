@@ -2701,7 +2701,9 @@ function findSheetRowForItem(itemsInSheet, rawName, rawSub) {
       sheetBase = sheetFull
         .replace(/\s*ШТ\.?/g, "")
         .replace(/\s*ОЧ МАЛ/g, "")
+        .replace(/\s*ПОЛОВИНКО?\w*/g, "")
         .replace(/\s*ПОЛОВИНКА/g, "")
+        .replace(/\s*ОБЫЧН\w*/g, "")
         .replace(/\s*ПАЛК/g, "")
         .replace(/\s*ПЛАСТ/g, "")
         .replace(/\s*ОГР/g, "")
@@ -2718,12 +2720,20 @@ function findSheetRowForItem(itemsInSheet, rawName, rawSub) {
       continue;
     }
 
+    // уши/аорта без слова фракции на листе = «Обычное»/«Обычная»
+    if (!sheetFrac) {
+      var baseU = String(sheetBase || "").toUpperCase().replace(/Ё/g, "Е");
+      if (/УХО|УШК/.test(baseU)) sheetFrac = "Обычное";
+      else if (/АОРТ/.test(baseU)) sheetFrac = "Обычная";
+    }
+
     var score = 1;
     if (subNorm) {
       if (sheetFrac && sheetFrac === subNorm) score = 10;
       // разная фракция на строке — не матчить через indexOf («МАЛ» ⊂ «ОЧ МАЛ»)
       else if (sheetFrac && sheetFrac !== subNorm) score = 0;
       else if (!sheetFrac && sheetFull.indexOf(subNorm) > -1) score = 8;
+      else if (!sheetFrac && /ПОЛОВИН/.test(sheetFull) && subNorm === "ПОЛОВИНКА") score = 9;
       else if (!sheetFrac) score = 2;
       else score = 0;
     } else {
@@ -2776,7 +2786,13 @@ function normalizeProductAlias_(nameU) {
     "ЛЕГКОЕ": "ЛЁГКОЕ",
     "БАРАНЬЕ ЛЕГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
     "БАРАНЬЕЛЕГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
-    "БАРАНЬЕЛЁГКОЕ": "БАРАНЬЕ ЛЁГКОЕ"
+    "БАРАНЬЕЛЁГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
+    "УХО": "УХО Г",
+    "УШИ": "УХО Г",
+    "УШКИ": "УХО Г",
+    "УХО ГОВ": "УХО Г",
+    "ГОВЯЖЬЕ УХО": "УХО Г",
+    "ГОВЯЖЬИ УШИ": "УХО Г"
   };
   if (aliases[n]) return aliases[n];
   var n2 = n.replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
@@ -2795,11 +2811,14 @@ function normalizeFraction(s) {
   if (u === "БОЛЬШОЕ" || u === "БОЛ" || u === "БОЛЬШОЙ") return "БОЛ";
   if (u === "КРУПНОЕ") return "КРУПНОЕ";
   if (u === "ЦЕЛОЕ" || u === "ЦЕЛ") return "ЦЕЛОЕ";
-  if (u === "ПОЛОВИНКА") return "ПОЛОВИНКА";
+  // лист: «ПОЛОВИНКО» / «ПОЛОВИНКИ» — тот же тип, что каталог «ПОЛОВИНКА»
+  if (/^ПОЛОВИН/.test(u) || u.indexOf("ПОЛОВИН") === 0) return "ПОЛОВИНКА";
   if (u === "ПАЛК") return "ПАЛК";
   if (u === "ПЛАСТ") return "ПЛАСТ";
   if (u === "ОГР") return "ОГР";
-  if (u === "ОБЫЧНОЕ" || u === "ОБЫЧНАЯ") return "";
+  // уши/аорта: «Обычное» — реальная фракция, не пустая (иначе пишется в строку без типа)
+  if (u === "ОБЫЧНОЕ" || u === "ОБЫЧН" || u === "ЦЕЛЫЕ" || u === "ЦЕЛОЕ УХО") return "Обычное";
+  if (u === "ОБЫЧНАЯ") return "Обычная";
   return u;
 }
 
@@ -2808,7 +2827,7 @@ function extractEmbeddedFraction(sheetFull) {
   if (!u) return "";
   // «ОЧ МАЛ» раньше «МАЛ» — иначе МАЛ перехватит кусок
   if (u.indexOf("ОЧ МАЛ") > -1 || /ОЧЕНЬ\s*(МАЛ|МЕЛК)|СУПЕР\s*(МАЛ|МЕЛК)/.test(u)) return "ОЧ МАЛ";
-  if (u.indexOf("ПОЛОВИНКА") > -1) return "ПОЛОВИНКА";
+  if (/ПОЛОВИН/.test(u)) return "ПОЛОВИНКА";
   if (u.indexOf("ПАЛК") > -1) return "ПАЛК";
   if (u.indexOf("ПЛАСТ") > -1) return "ПЛАСТ";
   if (u.indexOf("ОГР") > -1) return "ОГР";
@@ -2818,6 +2837,10 @@ function extractEmbeddedFraction(sheetFull) {
   if (u.indexOf("БОЛ") > -1 || u.indexOf("БОЛЬШОЕ") > -1) return "БОЛ";
   if (u.indexOf("КРУПН") > -1) return "КРУПНОЕ";
   if (u.indexOf("ЦЕЛ") > -1) return "ЦЕЛОЕ";
+  if (/ОБЫЧН/.test(u)) {
+    if (/АОРТ/.test(u)) return "Обычная";
+    return "Обычное";
+  }
   return "";
 }
 
@@ -3251,7 +3274,9 @@ function parseSheetItemName(currentItemName, rIdx) {
       .replace(/\s*шт\.?/gi, "")
       .replace(/\s*ШТ\.?/g, "")
       .replace(/\s*ОЧ МАЛ/gi, "")
+      .replace(/\s*ПОЛОВИНКО?\w*/gi, "")
       .replace(/\s*ПОЛОВИНКА/gi, "")
+      .replace(/\s*ОБЫЧН\w*/gi, "")
       .replace(/\s*ПАЛК/gi, "")
       .replace(/\s*ПЛАСТ/gi, "")
       .replace(/\s*ОГР/gi, "")
@@ -3261,6 +3286,16 @@ function parseSheetItemName(currentItemName, rIdx) {
       .replace(/\s*КРУПНОЕ/gi, "")
       .replace(/\s*ЦЕЛОЕ/gi, "")
       .trim();
+  }
+
+  // уши/аорта: строка «УХО Г шт.» без слова фракции = обычные (иначе в Просмотре только категория)
+  if (!frac) {
+    var baseChk = String(cleanNameOnly || "").toUpperCase().replace(/Ё/g, "Е");
+    if (/УХО|УШК/.test(baseChk) || /УХО|УШК/.test(upper)) {
+      frac = /ПОЛОВИН/.test(upper) ? "ПОЛОВИНКА" : "Обычное";
+    } else if (/АОРТ/.test(baseChk) || /АОРТ/.test(upper)) {
+      frac = /ПОЛОВИН/.test(upper) ? "ПОЛОВИНКА" : "Обычная";
+    }
   }
 
   return { cat: cat, name: cleanNameOnly, sub: frac, unit: unit };

@@ -9,7 +9,7 @@
     /* Telegram WebView: обновление только при смене версии (без no-cache на весь файл) */
     (function () {
       try {
-        var want = "71142";
+        var want = "71143";
         var u = new URL(location.href);
         if (u.searchParams.get("v") === want) return;
         u.searchParams.set("v", want);
@@ -1154,7 +1154,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.42</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.43</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -2031,7 +2031,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.42";
+    const APP_VERSION = "v7.11.43";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -5141,9 +5141,16 @@
     function basketLinesHtml(basket) {
       return (basket || []).map(function (g) {
         var unit = g.unit || unitForItem(g.cat, g.name || g.main);
-        var frac = g.sub ? " (" + g.sub + ")" : "";
         var nm = g.name || g.main || "";
-        return '<div class="order-detail-line"><span>• ' + escapeHtml(nm) + escapeHtml(frac) +
+        var frac = g.sub ? String(g.sub) : "";
+        // уши/аорта без sub в старых ответах — не показываем «голый» продукт
+        if (!frac) {
+          var nu = String(nm).toUpperCase().replace(/Ё/g, "Е");
+          if (/УХО|УШК/.test(nu)) frac = "Обычное";
+          else if (/АОРТ/.test(nu)) frac = "Обычная";
+        }
+        var fracBit = frac ? " (" + frac + ")" : "";
+        return '<div class="order-detail-line"><span>• ' + escapeHtml(nm) + escapeHtml(fracBit) +
           '</span><span class="order-detail-volume">' + (g.val != null ? g.val : g.value) + " " + unit + "</span></div>";
       }).join("") || '<p class="muted">Нет позиций</p>';
     }
