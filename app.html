@@ -1076,7 +1076,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.37</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.38</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1587,11 +1587,19 @@
           </div>
 
           <div id="subDetailPpPriceBox" style="display:none;margin:12px 0;padding:12px;background:#1c1c1e;border-radius:12px;border:1px solid #3a3a3c;">
-            <div class="section-title" style="margin:0 0 8px;font-size:15px;">Цена ПП (факт)</div>
-            <div class="form-group" style="margin-bottom:4px;">
-              <label>Факт стоимость (BYN)</label>
-              <input type="number" id="subDetailFact" step="0.01" inputmode="decimal" style="font-size:22px;font-weight:700;color:#30d158;">
-              <div class="muted" id="subDetailFactHint" style="font-size:12px;margin-top:6px;">базовый просмотр · пакеты/фракции — в глубоком редакторе</div>
+            <div class="section-title" style="margin:0 0 8px;font-size:15px;">Цена ПП</div>
+            <div class="form-group" style="margin-bottom:10px;">
+              <label>Факт стоимость — расчёт (BYN)</label>
+              <input type="number" id="subDetailFact" step="0.01" inputmode="decimal" readonly
+                style="font-size:22px;font-weight:700;color:#30d158;opacity:0.95;">
+              <div class="muted" id="subDetailFactHint" style="font-size:12px;margin-top:6px;">считается от состава · пакеты/фракции — в глубоком редакторе</div>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label>Указанная стоимость (BYN)</label>
+              <input type="number" id="subDetailStatedPrice" step="0.01" inputmode="decimal"
+                style="font-size:20px;font-weight:700;color:#ffd60a;"
+                placeholder="вручную" oninput="onSubDetailStatedPriceInput_()">
+              <div class="muted" id="subDetailStatedHint" style="font-size:12px;margin-top:6px;">не пересчитывается · для старых карточек — из столбца «Факт стоимость» на листе ПП</div>
             </div>
           </div>
 
@@ -1945,7 +1953,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.37";
+    const APP_VERSION = "v7.11.38";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -12255,6 +12263,29 @@
     var _subDetailFactSeq = 0;
     var _subDetailCostCache = { fp: "", cost: null, packagesByn: 0 };
     var _subDetailOpenedFp = "";
+    var _subDetailStatedTouched = false;
+
+    function onSubDetailStatedPriceInput_() {
+      _subDetailStatedTouched = true;
+      var hint = document.getElementById("subDetailStatedHint");
+      if (hint) hint.textContent = "вручную · сохранится в столбец «Факт стоимость» на листе ПП";
+    }
+    window.onSubDetailStatedPriceInput_ = onSubDetailStatedPriceInput_;
+
+    function setSubDetailStatedPrice_(val, opts) {
+      opts = opts || {};
+      var el = document.getElementById("subDetailStatedPrice");
+      if (!el) return;
+      if (val == null || val === "") el.value = "";
+      else el.value = String(val);
+      if (!opts.keepTouched) _subDetailStatedTouched = false;
+      var hint = document.getElementById("subDetailStatedHint");
+      if (hint && !opts.keepTouched) {
+        hint.textContent = val !== "" && val != null
+          ? "с листа ПП (Факт стоимость) · можно поправить вручную"
+          : "не пересчитывается · вносит менеджер вручную";
+      }
+    }
 
     function setSubDetailCoef_(v) {
       var el = document.getElementById("subDetailCoef");
@@ -12658,6 +12689,8 @@
       document.getElementById("subDetailAddress").value = "";
       document.getElementById("subDetailPhone").value = "";
       document.getElementById("subDetailFact").value = "";
+      setSubDetailStatedPrice_("");
+      _subDetailStatedTouched = false;
       syncSubDetailPpPriceUi_(sheet);
       var coefEl0 = document.getElementById("subDetailCoef");
       if (coefEl0) coefEl0.value = (coef0 != null) ? String(coef0) : "2.3";
@@ -12709,7 +12742,12 @@
         fillSubDetailDogFields_(dogParsed);
         document.getElementById("subDetailAddress").value = res.address || "";
         document.getElementById("subDetailPhone").value = res.phone || "";
-        document.getElementById("subDetailFact").value = res.factCost || "";
+        // указанная = столбец «Факт стоимость» с листа; расчётный факт — отдельно ниже через recalc
+        var statedFromSheet = (res.statedCost != null && res.statedCost !== "")
+          ? res.statedCost
+          : (res.factCost != null && res.factCost !== "" ? res.factCost : "");
+        setSubDetailStatedPrice_(statedFromSheet);
+        document.getElementById("subDetailFact").value = "";
         var sheetNow = res.sheet || sheet;
         syncSubDetailPpPriceUi_(sheetNow);
         var coefEl = document.getElementById("subDetailCoef");
@@ -12945,6 +12983,11 @@
           if (wEl) wEl.value = stripDogFromWishes_(stripPpCoefFromWishes_(wishesSave));
         }
         var dogSave = readSubDetailDogFields_();
+        var statedSave = "";
+        if (sheet === "ПП") {
+          var stEl = document.getElementById("subDetailStatedPrice");
+          statedSave = stEl ? String(stEl.value || "").trim() : "";
+        }
         var saveBody = {
           action: "saveSubscription",
           nick: nick || label,
@@ -12958,7 +13001,10 @@
           address: (document.getElementById("subDetailAddress").value || "").trim(),
           phone: (document.getElementById("subDetailPhone").value || "").trim(),
           note: wishesSave,
-          factCost: document.getElementById("subDetailFact").value || "",
+          // в столбец «Факт стоимость» на листе ПП пишем указанную (ручную), не расчёт
+          factCost: sheet === "ПП" ? statedSave : (document.getElementById("subDetailFact").value || ""),
+          statedCost: sheet === "ПП" ? statedSave : "",
+          calcFactCost: sheet === "ПП" ? (document.getElementById("subDetailFact").value || "") : "",
           basket: basketPayload,
           coef: sheet === "ПП" ? String(subDetailCoefValue_()) : "",
           dogName: dogSave.name,

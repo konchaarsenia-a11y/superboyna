@@ -1004,7 +1004,8 @@ function doGet(e) {
       address: e.parameter.address ? decodeURIComponent(e.parameter.address) : "",
       phone: e.parameter.phone ? decodeURIComponent(e.parameter.phone) : "",
       note: e.parameter.note ? decodeURIComponent(e.parameter.note) : "",
-      factCost: e.parameter.factCost || ""
+      factCost: e.parameter.factCost || "",
+      statedCost: e.parameter.statedCost || ""
     }, callback, false);
   }
   
@@ -8970,6 +8971,7 @@ function handleGetSubscription(json, callback, fromPost) {
     ppStatus: status,
     stage: status,
     factCost: factCost,
+    statedCost: factCost,
     packCounts: packCounts,
     packagesByn: packagesBynFromUCounts_(packCounts),
     dogName: dogGet.name,
@@ -9032,6 +9034,8 @@ function handleSaveSubscription(json, callback, fromPost) {
   }
 
   var factCost = json.factCost != null && json.factCost !== "" ? json.factCost : null;
+  // указанная стоимость (ручная) — приоритет над старым factCost
+  if (json.statedCost != null && json.statedCost !== "") factCost = json.statedCost;
   var basket = Array.isArray(json.basket) ? json.basket : null;
   var packCountsOpt = json.packCounts || null;
   if (typeof packCountsOpt === "string") {
