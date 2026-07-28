@@ -1076,7 +1076,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.39</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.40</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1953,7 +1953,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.39";
+    const APP_VERSION = "v7.11.40";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -11445,13 +11445,44 @@
         if (led && window._whCacheLed) led.innerHTML = window._whCacheLed;
         return;
       }
-      box.innerHTML = '<p class="muted">Загрузка…</p>';
-      try {
-        var res = await apiGet({ action: "getWarehouse" }, { timeoutMs: 22000, cacheTtlMs: 25000 });
-        if (!res || res.status !== "success") {
-          box.innerHTML = '<p class="muted">Нет данных склада</p>';
-          return;
+      if (!opts.soft) box.innerHTML = '<p class="muted">Загрузка…</p>';
+      else if (!window._whCacheHtml) box.innerHTML = '<p class="muted">Загрузка…</p>';
+
+      async function fetchOnce_() {
+        var q = { action: "getWarehouse" };
+        if (opts.force) q._ = String(Date.now());
+        return apiGet(q, { timeoutMs: 35000, cacheTtlMs: opts.force ? 0 : 20000 });
+      }
+
+      var res = null;
+      var lastErr = null;
+      for (var attempt = 0; attempt < 3; attempt++) {
+        try {
+          res = await fetchOnce_();
+          if (res && res.status === "success") break;
+          lastErr = (res && (res.detail || res.message)) || "bad_status";
+          res = null;
+        } catch (e) {
+          lastErr = e && e.message ? e.message : String(e);
+          res = null;
         }
+        if (attempt < 2) await new Promise(function (r) { setTimeout(r, 600 + attempt * 500); });
+      }
+
+      if (!res || res.status !== "success") {
+        if (window._whCacheHtml) {
+          box.innerHTML = window._whCacheHtml;
+          if (led && window._whCacheLed) led.innerHTML = window._whCacheLed;
+          try { showToast("Склад: показан кэш"); } catch (eT) {}
+        } else {
+          box.innerHTML = '<p class="muted">Ошибка загрузки склада' +
+            (lastErr ? (": " + escapeHtml(String(lastErr).slice(0, 80))) : "") +
+            '</p><button type="button" class="btn-action btn-blue" onclick="loadWarehouse({force:1})">Повторить</button>';
+        }
+        return;
+      }
+
+      try {
         var html = (res.items || []).map(function (it) {
           return '<div class="card" style="margin-bottom:8px;">' +
             '<b>' + escapeHtml(it.name) + '</b> <span class="muted">' + escapeHtml(it.unit) + '</span>' +
@@ -11472,8 +11503,8 @@
         window._whCacheAt = Date.now();
         box.innerHTML = html;
         if (led) led.innerHTML = ledHtml;
-      } catch (e) {
-        box.innerHTML = '<p class="muted">Ошибка</p>';
+      } catch (eRender) {
+        box.innerHTML = '<p class="muted">Ошибка отрисовки склада</p>';
       }
     }
     window.loadWarehouse = loadWarehouse;
@@ -11483,7 +11514,7 @@
       var qty = Number(el && el.value) || 0;
       await apiPost({ action: "setWarehouseArrival", row: row, qty: qty, telegramId: myTelegramId });
       showToast("Дозакуп сохранён");
-      loadWarehouse();
+      loadWarehouse({ force: 1 });
     }
     window.saveWarehouseArrival = saveWarehouseArrival;
 

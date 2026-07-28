@@ -8550,59 +8550,85 @@ function round2_(n) {
 }
 
 function handleGetWarehouse(json, callback, fromPost) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var wh = ss.getSheetByName("Склад");
-  if (!wh) {
-    var bad = { status: "error", message: "no_warehouse" };
-    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
-  }
-  var last = Math.min(60, Math.max(2, wh.getLastRow()));
-  var names = wh.getRange(2, 1, last - 1, 1).getValues();
-  var arrivals = wh.getRange(2, 2, last - 1, 1).getValues();
-  var stock = wh.getRange(2, 6, last - 1, 1).getValues();
-  var buyFlags = wh.getRange(2, 7, last - 1, 1).getValues();
-  var items = [];
-  for (var i = 0; i < names.length; i++) {
-    var name = String(names[i][0] || "").trim();
-    if (!name) continue;
-    var row = i + 2;
-    var piece = /шт/i.test(name);
-    var kVal = "";
-    try {
-      if (piece) kVal = wh.getRange(row, 11).getValue();
-    } catch (e) {}
-    items.push({
-      row: row,
-      name: name,
-      arrival: round2_(arrivals[i][0]),
-      stock: round2_(stock[i][0]),
-      buy: !!buyFlags[i][0],
-      unit: piece ? "шт" : "кг",
-      stockPcs: piece ? round2_(kVal) : null
-    });
-  }
-  var ledger = [];
   try {
-    var led = getLedgerSheet_();
-    var lr = led.getLastRow();
-    if (lr > 1) {
-      var from = Math.max(2, lr - 29);
-      var data = led.getRange(from, 1, lr - from + 1, 7).getValues();
-      for (var j = data.length - 1; j >= 0; j--) {
-        ledger.push({
-          ts: data[j][0],
-          weekEnd: data[j][1],
-          skuRow: data[j][2],
-          type: data[j][3],
-          qty: round2_(data[j][4]),
-          unit: data[j][5],
-          meta: data[j][6]
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var wh = ss.getSheetByName("Склад");
+    if (!wh) {
+      var bad = { status: "error", message: "no_warehouse" };
+      return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+    }
+
+    // короткий кэш — меньше таймаутов при частом открытии вкладки
+    var cacheKey = "wh_get_v1";
+    try {
+      var cached = CacheService.getScriptCache().get(cacheKey);
+      if (cached && !(json && (json.force || json.nocache || json._))) {
+        var parsed = JSON.parse(cached);
+        if (parsed && parsed.status === "success") {
+          return fromPost ? jsonpText(callback, parsed) : jsonp(callback, parsed);
+        }
+      }
+    } catch (eCache) {}
+
+    var lastRow = Math.max(1, wh.getLastRow());
+    var last = Math.min(80, Math.max(2, lastRow));
+    var numRows = last - 1; // строки 2..last
+    var items = [];
+    if (numRows >= 1) {
+      // один батч A:K — без getRange по каждой шт-позиции (ломало JSONP таймаутами)
+      var matrix = wh.getRange(2, 1, numRows, 11).getValues();
+      for (var i = 0; i < matrix.length; i++) {
+        var name = String(matrix[i][0] || "").trim();
+        if (!name) continue;
+        var row = i + 2;
+        var piece = /шт/i.test(name);
+        var kVal = matrix[i][10];
+        items.push({
+          row: row,
+          name: name,
+          arrival: round2_(matrix[i][1]),
+          coef: round2_(matrix[i][3]),
+          stock: round2_(matrix[i][5]),
+          buy: !!matrix[i][6],
+          unit: piece ? "шт" : "кг",
+          stockPcs: piece ? round2_(kVal) : null
         });
       }
     }
-  } catch (e2) {}
-  var ok = { status: "success", items: items, ledger: ledger };
-  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+
+    var ledger = [];
+    try {
+      var led = getLedgerSheet_();
+      var lr = led.getLastRow();
+      if (lr > 1) {
+        var from = Math.max(2, lr - 29);
+        var ledNum = lr - from + 1;
+        if (ledNum > 0) {
+          var data = led.getRange(from, 1, ledNum, 7).getValues();
+          for (var j = data.length - 1; j >= 0; j--) {
+            ledger.push({
+              ts: data[j][0],
+              weekEnd: data[j][1],
+              skuRow: data[j][2],
+              type: data[j][3],
+              qty: round2_(data[j][4]),
+              unit: data[j][5],
+              meta: data[j][6]
+            });
+          }
+        }
+      }
+    } catch (e2) {}
+
+    var ok = { status: "success", items: items, ledger: ledger };
+    try {
+      CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 25);
+    } catch (ePut) {}
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (eAll) {
+    var err = { status: "error", message: "warehouse_read_failed", detail: String(eAll) };
+    return fromPost ? jsonpText(callback, err) : jsonp(callback, err);
+  }
 }
 
 function handleSetWarehouseArrival(json, callback, fromPost) {
@@ -8618,6 +8644,7 @@ function handleSetWarehouseArrival(json, callback, fromPost) {
   try {
     getLedgerSheet_().appendRow([new Date(), "", row, "arrival", qty, "кг", JSON.stringify({ by: json.telegramId || "" })]);
   } catch (e) {}
+  try { CacheService.getScriptCache().remove("wh_get_v1"); } catch (eC) {}
   var ok = { status: "success", row: row, arrival: qty };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
