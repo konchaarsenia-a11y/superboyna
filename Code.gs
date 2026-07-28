@@ -918,7 +918,9 @@ function doGet(e) {
   if (action === "getPpFactCost") {
     return handleGetPpFactCost({
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
-      client: e.parameter.client ? decodeURIComponent(e.parameter.client) : ""
+      client: e.parameter.client ? decodeURIComponent(e.parameter.client) : "",
+      day: e.parameter.day ? decodeURIComponent(e.parameter.day) : "",
+      date: e.parameter.date ? decodeURIComponent(e.parameter.date) : ""
     }, callback, false);
   }
   if (action === "getPpOrderSuggest") {
@@ -926,7 +928,9 @@ function doGet(e) {
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
       client: e.parameter.client ? decodeURIComponent(e.parameter.client) : "",
       day: e.parameter.day ? decodeURIComponent(e.parameter.day) : "",
-      date: e.parameter.date ? decodeURIComponent(e.parameter.date) : ""
+      date: e.parameter.date ? decodeURIComponent(e.parameter.date) : "",
+      deliverySlot: e.parameter.deliverySlot || e.parameter.slot || "",
+      ppSlot: e.parameter.ppSlot ? decodeURIComponent(e.parameter.ppSlot) : ""
     }, callback, false);
   }
   if (action === "setupBookingTriggers") {
@@ -1175,6 +1179,8 @@ function doGet(e) {
       permanentNote: e.parameter.permanentNote ? decodeURIComponent(e.parameter.permanentNote) : "",
       orderType: e.parameter.orderType ? decodeURIComponent(e.parameter.orderType) : "",
       orderPrice: e.parameter.orderPrice,
+      deliverySlot: e.parameter.deliverySlot || e.parameter.slot || "",
+      ppSlot: e.parameter.ppSlot ? decodeURIComponent(e.parameter.ppSlot) : "",
       basket: basketOrd,
       geo: geoOrd,
       survey: surveyOrd
@@ -1198,6 +1204,8 @@ function doGet(e) {
       phone: e.parameter.phone ? decodeURIComponent(e.parameter.phone) : "",
       note: e.parameter.note ? decodeURIComponent(e.parameter.note) : "",
       orderPrice: e.parameter.orderPrice,
+      deliverySlot: e.parameter.deliverySlot || e.parameter.slot || "",
+      ppSlot: e.parameter.ppSlot ? decodeURIComponent(e.parameter.ppSlot) : "",
       source: e.parameter.source ? decodeURIComponent(e.parameter.source) : "",
       alsoSaveOrder: e.parameter.alsoSaveOrder,
       basket: basketBk,
@@ -2556,6 +2564,14 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   var phoneSave = String(json.phone || "").trim();
   if (!phoneSave) phoneSave = extractPhoneFromNote_(String(json.note || ""));
   var ppSlotSave = String(json.ppSlot || "").trim();
+  if (!ppSlotSave && (json.deliverySlot != null && json.deliverySlot !== "" || json.slot)) {
+    var forcedSave = parseForcedPpSlot_(json.deliverySlot != null ? json.deliverySlot : json.slot, 2);
+    if (forcedSave >= 1) {
+      var dnSave = 2;
+      try { dnSave = lookupPpDeliveries_(json.client) || 2; } catch (eDnS) {}
+      ppSlotSave = formatPpSlotLabel_(forcedSave, Math.max(dnSave, 2));
+    }
+  }
   if (!ppSlotSave && segSave === "ПП") {
     try {
       var dayDatePp = getDayDate_(ss, json.day) || parseFlexibleDate_(json.date, ss.getSpreadsheetTimeZone());
@@ -5559,6 +5575,14 @@ function handleSaveBooking(ss, json, callback, fromPost) {
   var phoneSave = String(json.phone || "").trim() || extractPhoneFromNote_(String(json.note || ""));
   var subIdSave = String(json.subId || "").trim() || extractSubIdFromNote_(String(json.note || ""));
   var ppSlotSave = String(json.ppSlot || "").trim();
+  if (!ppSlotSave && (json.deliverySlot != null && json.deliverySlot !== "" || json.slot)) {
+    var forcedBk = parseForcedPpSlot_(json.deliverySlot != null ? json.deliverySlot : json.slot, 2);
+    if (forcedBk >= 1) {
+      var dnBk = 2;
+      try { dnBk = lookupPpDeliveries_(client) || 2; } catch (eDnB) {}
+      ppSlotSave = formatPpSlotLabel_(forcedBk, Math.max(dnBk, 2));
+    }
+  }
   if (!ppSlotSave && (segSave === "ПП" || String(json.source || "").toLowerCase().indexOf("sub") >= 0)) {
     try {
       var resolvedB = resolvePpDeliverySlot_(ss, client, deliveryDate, tz, false);
@@ -6939,6 +6963,20 @@ function formatPpSlotLabel_(slot, deliveriesN) {
   if (deliveriesN >= 2 && slot >= 1) return String(slot) + "/" + deliveriesN;
   if (deliveriesN === 1 || slot === 1) return "1";
   return slot >= 1 ? String(slot) : "";
+}
+
+/** Разбор ручного слота: 1 | 2 | "1/2" → номер слота. */
+function parseForcedPpSlot_(raw, deliveriesN) {
+  if (raw == null || raw === "") return 0;
+  var s = String(raw).trim();
+  var m = s.match(/(\d+)\s*\/\s*\d+/);
+  if (m) {
+    var a = Number(m[1]) || 0;
+    if (a >= 1) return Math.min(a, Math.max(1, Number(deliveriesN) || 2));
+  }
+  var n = Number(s.replace(/[^\d]/g, ""));
+  if (n >= 1) return Math.min(n, Math.max(1, Number(deliveriesN) || 2));
+  return 0;
 }
 
 /** Дописать недостающие заголовки в конец строки 1 (данные не сдвигаем). */
@@ -9778,7 +9816,8 @@ function resolvePpDeliverySlot_(ss, clientName, dateValue, tz, deliveredToday) {
   return { slot: slot, deliveriesN: deliveriesN, cycle: cycle, deliveredBefore: before };
 }
 
-function buildPpOrderSuggest_(ss, nick, dayName, dateStr) {
+function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
+  opts = opts || {};
   var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
   var dateValue = null;
   if (dateStr) dateValue = parseFlexibleDate_(dateStr, tz) || parseMemoryDateLoose_(dateStr, tz);
@@ -9805,6 +9844,18 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr) {
   var resolved = resolvePpDeliverySlot_(ss, nick, dateValue, tz, deliveredToday);
   var slot = resolved.slot || 1;
   var cycle = resolved.cycle;
+  var deliveredBefore = Number(resolved.deliveredBefore) || 0;
+  // первая доставка месяца в мини-апп: слот ещё не зафиксирован — менеджер выбирает ПП1/ПП2
+  var needManualSlot = (deliveriesN >= 2) && !(cycle && cycle.slot1) && deliveredBefore <= 0;
+  var forced = parseForcedPpSlot_(
+    opts.deliverySlot != null ? opts.deliverySlot : (opts.slot != null ? opts.slot : opts.ppSlot),
+    deliveriesN
+  );
+  if (forced >= 1) {
+    slot = forced;
+    needManualSlot = false;
+  }
+
   var slot1Basket = cycle && cycle.slot1 && cycle.slot1.basket ? cycle.slot1.basket : [];
   var monthly = clonePpBasket_(found.basket || []);
   var proposed = proposePpSlotBasket_(monthly, slot, deliveriesN, slot1Basket);
@@ -9867,6 +9918,8 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr) {
     day: dayName || "",
     deliveriesN: deliveriesN,
     deliverySlot: slot,
+    ppSlot: formatPpSlotLabel_(slot, deliveriesN),
+    needManualSlot: needManualSlot && forced < 1,
     paid: paid,
     askPaid: askPaid,
     factCost: factCost,
@@ -9888,7 +9941,11 @@ function handleGetPpOrderSuggest(json, callback, fromPost) {
   }
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var out = buildPpOrderSuggest_(ss, nick, String(json.day || "").trim(), String(json.date || json.deliveryDate || "").trim());
+    var out = buildPpOrderSuggest_(ss, nick, String(json.day || "").trim(), String(json.date || json.deliveryDate || "").trim(), {
+      deliverySlot: json.deliverySlot != null ? json.deliverySlot : json.slot,
+      ppSlot: json.ppSlot,
+      slot: json.slot
+    });
     return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
   } catch (e) {
     var err = { status: "error", message: String(e) };
@@ -12553,7 +12610,15 @@ function handleDeleteSurveyBatch(json, callback, fromPost) {
 
 function handleGetPpFactCost(json, callback, fromPost) {
   var nick = String(json.nick || json.client || "").trim();
-  var out = { status: "success", nick: nick, factCost: null, deliveries: 0 };
+  var out = {
+    status: "success",
+    nick: nick,
+    factCost: null,
+    deliveries: 0,
+    deliverySlot: 1,
+    needManualSlot: false,
+    ppSlot: ""
+  };
   try {
     var crmSs = getCrmSpreadsheet_();
     var data = getCrmSheetValuesFast_(crmSs, "ПП");
@@ -12579,6 +12644,22 @@ function handleGetPpFactCost(json, callback, fromPost) {
           out.factCost = Number(String(raw != null ? raw : "").replace(",", ".").replace(/[^\d.]/g, "")) || 0;
         }
         break;
+      }
+    }
+    if (out.deliveries >= 2) {
+      try {
+        var ss = SpreadsheetApp.getActiveSpreadsheet();
+        var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+        var dateValue = parseFlexibleDate_(json.date || json.deliveryDate, tz);
+        if (!dateValue && json.day) dateValue = getDayDate_(ss, String(json.day || "").trim());
+        if (!dateValue) dateValue = new Date();
+        var resolved = resolvePpDeliverySlot_(ss, nick, dateValue, tz, false);
+        out.deliverySlot = resolved.slot || 1;
+        out.needManualSlot = !(resolved.cycle && resolved.cycle.slot1) && !(Number(resolved.deliveredBefore) > 0);
+        out.ppSlot = formatPpSlotLabel_(out.deliverySlot, out.deliveries);
+      } catch (eSlot) {
+        out.needManualSlot = true;
+        out.deliverySlot = 1;
       }
     }
   } catch (e) {

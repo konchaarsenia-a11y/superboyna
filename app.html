@@ -1076,7 +1076,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.35</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.36</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1166,6 +1166,14 @@
           <input type="number" id="orderPriceInput" step="0.01" min="0" placeholder="0" inputmode="decimal" oninput="onOrderPriceInput()">
           <div class="field-hint" id="orderPriceLive" style="display:none;"></div>
           <div class="field-hint" id="ppSlotHint" style="display:none;margin-top:4px;"></div>
+          <div id="ppSlotPickGroup" style="display:none;margin-top:8px;">
+            <label style="display:block;margin-bottom:6px;">Доставка ПП в этом месяце</label>
+            <div class="seg-control" style="display:flex;gap:6px;">
+              <button type="button" class="seg-btn" id="ppSlot1Btn" style="flex:1;" onclick="setPpDeliverySlot(1)">ПП 1</button>
+              <button type="button" class="seg-btn" id="ppSlot2Btn" style="flex:1;" onclick="setPpDeliverySlot(2)">ПП 2</button>
+            </div>
+            <div class="field-hint" id="ppSlotPickHint" style="margin-top:6px;">У клиента 2 доставки — выбери, какая это сейчас</div>
+          </div>
           <button type="button" class="btn-action btn-blue" id="btnPpSuggest" style="display:none;margin-top:6px;" onclick="suggestPpBasketFromSheet()">Состав из листа ПП</button>
           <button type="button" class="btn-action" id="btnRetailPriceAuto" style="display:none;margin-top:6px;background:#3a3a3c;" onclick="resetRetailPriceToAuto()">По прайсу витрины</button>
         </div>
@@ -1937,7 +1945,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.35";
+    const APP_VERSION = "v7.11.36";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -2880,6 +2888,60 @@
     let secondDogMode = false; // true = вводим только состав 2-й
     let ownerContactSnapshot = null;
     let retailPriceManual = false; // true = менеджер ввёл свою цену розницы
+    let ppDeliverySlotManual = null; // 1 | 2 | null — ручной выбор при N=2
+    let ppNeedManualSlot = false;
+    let ppDeliveriesN = 0;
+
+    function setPpDeliverySlot(slot) {
+      slot = Number(slot) || 0;
+      if (slot !== 1 && slot !== 2) return;
+      ppDeliverySlotManual = slot;
+      var b1 = document.getElementById("ppSlot1Btn");
+      var b2 = document.getElementById("ppSlot2Btn");
+      if (b1) b1.classList.toggle("active", slot === 1);
+      if (b2) b2.classList.toggle("active", slot === 2);
+      var hint = document.getElementById("ppSlotHint");
+      if (hint && ppDeliveriesN >= 2) {
+        hint.textContent = "Доставок в месяц: N=" + ppDeliveriesN + " · выбрано ПП " + slot;
+        hint.style.display = "block";
+      }
+    }
+    window.setPpDeliverySlot = setPpDeliverySlot;
+
+    function updatePpSlotPickUi_(opts) {
+      opts = opts || {};
+      var group = document.getElementById("ppSlotPickGroup");
+      if (!group) return;
+      var show = orderType === "pp" && (opts.needManualSlot || ppNeedManualSlot) && (opts.deliveriesN || ppDeliveriesN) >= 2;
+      group.style.display = show ? "" : "none";
+      if (!show) {
+        if (opts.reset) {
+          ppDeliverySlotManual = null;
+          ppNeedManualSlot = false;
+          var b1 = document.getElementById("ppSlot1Btn");
+          var b2 = document.getElementById("ppSlot2Btn");
+          if (b1) b1.classList.remove("active");
+          if (b2) b2.classList.remove("active");
+        }
+        return;
+      }
+      ppNeedManualSlot = true;
+      if (ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2) {
+        setPpDeliverySlot(ppDeliverySlotManual);
+      }
+    }
+
+    function currentPpSlotPayload_() {
+      if (orderType !== "pp") return { deliverySlot: "", ppSlot: "" };
+      var slot = ppDeliverySlotManual;
+      if (!(slot >= 1) && ppDeliveriesN >= 2 && !ppNeedManualSlot) slot = 1;
+      if (!(slot >= 1)) return { deliverySlot: "", ppSlot: "" };
+      var n = ppDeliveriesN >= 2 ? ppDeliveriesN : 2;
+      return {
+        deliverySlot: slot,
+        ppSlot: slot + "/" + n
+      };
+    }
 
     function setOrderType(t) {
       orderType = t;
@@ -2899,6 +2961,7 @@
       if (btnAuto) btnAuto.style.display = t === "retail" ? "" : "none";
       if (btnPp) btnPp.style.display = t === "pp" ? "" : "none";
       if (hintPp && t !== "pp") { hintPp.style.display = "none"; hintPp.textContent = ""; }
+      if (t !== "pp") updatePpSlotPickUi_({ reset: true, needManualSlot: false, deliveriesN: 0 });
       if (t === "partner") {
         retailPriceManual = false;
         if (pg) pg.style.display = "";
@@ -2977,20 +3040,42 @@
       if (orderType !== "pp") return;
       var nick = (document.getElementById("client") && document.getElementById("client").value || "").trim();
       var hint = document.getElementById("ppSlotHint");
+      var day = (document.getElementById("day") && document.getElementById("day").value) || "";
+      var date = (document.getElementById("deliveryDate") && document.getElementById("deliveryDate").value) || "";
       if (nick.length < 2) {
         if (hint) { hint.style.display = "none"; hint.textContent = ""; }
+        updatePpSlotPickUi_({ reset: true, needManualSlot: false, deliveriesN: 0 });
         return;
       }
-      // лёгкий запрос: только факт-стоимость; полный suggest — по кнопке «Состав из ПП»
       try {
-        var res = await apiGet({ action: "getPpFactCost", nick: nick }, { timeoutMs: 12000, cacheTtlMs: 20000 });
+        var res = await apiGet(
+          { action: "getPpFactCost", nick: nick, day: day, date: date },
+          { timeoutMs: 12000, cacheTtlMs: 15000 }
+        );
         if (res && res.status === "success") {
           var inp = document.getElementById("orderPriceInput");
           if (inp && res.factCost != null) inp.value = String(res.factCost);
-          if (inp) inp.placeholder = "N=" + (res.deliveries || "?");
+          ppDeliveriesN = Number(res.deliveries) || 0;
+          if (inp) inp.placeholder = "N=" + (ppDeliveriesN || "?");
+          ppNeedManualSlot = !!(res.needManualSlot && ppDeliveriesN >= 2);
           if (hint) {
-            hint.textContent = res.deliveries ? ("Доставок в месяц: N=" + res.deliveries) : "";
+            if (ppNeedManualSlot) {
+              hint.textContent = "Доставок в месяц: N=" + ppDeliveriesN + " · выбери ПП 1 или ПП 2";
+            } else if (ppDeliveriesN) {
+              hint.textContent = "Доставок в месяц: N=" + ppDeliveriesN +
+                (res.deliverySlot ? (" · слот " + res.deliverySlot) : "");
+            } else {
+              hint.textContent = "";
+            }
             hint.style.display = hint.textContent ? "block" : "none";
+          }
+          updatePpSlotPickUi_({
+            needManualSlot: ppNeedManualSlot,
+            deliveriesN: ppDeliveriesN
+          });
+          // если слот уже известен и ручной не нужен — запомнить для save
+          if (!ppNeedManualSlot && res.deliverySlot >= 1 && ppDeliveriesN >= 2) {
+            ppDeliverySlotManual = Number(res.deliverySlot) || 1;
           }
         }
       } catch (e) {}
@@ -3021,12 +3106,29 @@
         showToast("Укажи ник клиента ПП");
         return false;
       }
+      if (ppNeedManualSlot && !(ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2)) {
+        showToast("Сначала выбери ПП 1 или ПП 2");
+        return false;
+      }
       var day = (document.getElementById("day") && document.getElementById("day").value) || "";
       var date = (document.getElementById("deliveryDate") && document.getElementById("deliveryDate").value) || "";
+      var slotPayload = currentPpSlotPayload_();
       try {
-        var res = await apiGet({ action: "getPpOrderSuggest", nick: nick, day: day, date: date });
+        var req = { action: "getPpOrderSuggest", nick: nick, day: day, date: date };
+        if (slotPayload.deliverySlot) {
+          req.deliverySlot = slotPayload.deliverySlot;
+          req.ppSlot = slotPayload.ppSlot;
+        }
+        var res = await apiGet(req);
         if (!res || res.status !== "success") {
           showToast("Не удалось прочитать лист ПП");
+          return false;
+        }
+        ppDeliveriesN = Number(res.deliveriesN) || ppDeliveriesN;
+        if (res.needManualSlot && !(ppDeliverySlotManual >= 1)) {
+          ppNeedManualSlot = true;
+          updatePpSlotPickUi_({ needManualSlot: true, deliveriesN: ppDeliveriesN });
+          showToast("Выбери ПП 1 или ПП 2");
           return false;
         }
         if (res.address && !String(document.getElementById("addressInput").value || "").trim()) {
@@ -3051,6 +3153,7 @@
         if (!ask) return false;
         basket = proposed;
         renderBasket();
+        if (res.deliverySlot >= 1) setPpDeliverySlot(res.deliverySlot);
         try { refreshPpFactPrice(); } catch (e0) {}
         showToast(res.hint || ("Состав ПП · " + proposed.length + " поз."));
         return true;
@@ -4216,6 +4319,11 @@
           return;
         }
       }
+      if (orderType === "pp" && ppNeedManualSlot && !(ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2)) {
+        await uiAlertAsync("У клиента 2 доставки в месяц — выбери ПП 1 или ПП 2");
+        return;
+      }
+      var ppSlotPayload = currentPpSlotPayload_();
       var surveyMeta = null;
       if (orderType === "bp" && !secondDogMode) {
         surveyMeta = await resolveBpOrderChain_(clientName, deliveryDate || "");
@@ -4325,6 +4433,8 @@
         permanentNote: permanentNote,
         orderType: orderType,
         orderPrice: orderPrice,
+        deliverySlot: ppSlotPayload.deliverySlot || "",
+        ppSlot: ppSlotPayload.ppSlot || "",
         addressFull: clientAddressFull,
         entrance: entrance,
         floor: floor,
@@ -4355,6 +4465,8 @@
         phone: phone,
         note: clientNote,
         orderPrice: orderPrice,
+        deliverySlot: ppSlotPayload.deliverySlot || "",
+        ppSlot: ppSlotPayload.ppSlot || "",
         source: orderType === "bp" ? "bp" : (orderType === "pp" ? "pp" : (orderType === "partner" ? "partner" : "retail")),
         basket: payload.basket,
         geo: payload.geo
@@ -4408,6 +4520,8 @@
           phone: phone || "",
           note: clientNote || "",
           orderPrice: orderPrice != null ? String(orderPrice) : "",
+          deliverySlot: ppSlotPayload.deliverySlot ? String(ppSlotPayload.deliverySlot) : "",
+          ppSlot: ppSlotPayload.ppSlot || "",
           source: orderType === "bp" ? "bp" : (orderType === "pp" ? "pp" : (orderType === "partner" ? "partner" : "retail")),
           basket: basketJson
         };
@@ -4449,6 +4563,8 @@
               permanentNote: permanentNote || "",
               orderType: orderType || "",
               orderPrice: orderPrice != null ? String(orderPrice) : "",
+              deliverySlot: ppSlotPayload.deliverySlot ? String(ppSlotPayload.deliverySlot) : "",
+              ppSlot: ppSlotPayload.ppSlot || "",
               basket: basketJson
             };
             if (geoJson) orderParams.geo = geoJson;
@@ -5884,6 +6000,20 @@
       if (priceInp && priceVal != null && ot !== "bp") {
         priceInp.value = String(priceVal);
         if (ot === "retail") retailPriceManual = true;
+      }
+      // уже известный слот ПП при правке
+      if (ot === "pp") {
+        var slotFromClient = 0;
+        if (client.deliverySlot) slotFromClient = Number(client.deliverySlot) || 0;
+        if (!slotFromClient && client.ppSlot) {
+          var mSlot = String(client.ppSlot).match(/(\d+)/);
+          if (mSlot) slotFromClient = Number(mSlot[1]) || 0;
+        }
+        if (slotFromClient === 1 || slotFromClient === 2) {
+          ppNeedManualSlot = false;
+          setPpDeliverySlot(slotFromClient);
+          updatePpSlotPickUi_({ needManualSlot: false, deliveriesN: ppDeliveriesN });
+        }
       }
       basket = (client.basket || []).map(g => ({
         id: Date.now() + Math.random(),
