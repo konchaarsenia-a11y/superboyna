@@ -9,7 +9,7 @@
     /* Telegram WebView: обновление только при смене версии (без no-cache на весь файл) */
     (function () {
       try {
-        var want = "71144";
+        var want = "71145";
         var u = new URL(location.href);
         if (u.searchParams.get("v") === want) return;
         u.searchParams.set("v", want);
@@ -1155,7 +1155,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.44</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.45</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -2032,7 +2032,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.44";
+    const APP_VERSION = "v7.11.45";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -2997,21 +2997,60 @@
       return { cost: Math.round(cost * 100) / 100, per: p, found: true };
     }
 
-    function calcRetailBasketTotal(list) {
+    /** Доставка розницы: 5 BYN, если стоимость одной доставки < 50 */
+    var PRICE_RETAIL_DELIVERY_BYN = 5;
+    var PRICE_RETAIL_FREE_FROM = 50;
+
+    function calcRetailBasketTotal(list, opts) {
+      opts = opts || {};
       var lines = [];
-      var total = 0;
+      var goods = 0;
       (list || []).forEach(function (it) {
         var name = it.name || it.main || "";
         var sub = it.sub || "";
         var val = it.val != null ? it.val : it.value;
         var r = retailLineCost(name, sub, val, it.cat);
-        total += r.cost;
+        goods += r.cost;
         lines.push({ name: name, sub: sub, val: Number(val) || 0, per100: r.per, cost: r.cost, found: r.found });
       });
-      total = Math.round(total * 100) / 100;
-      return { total: total, lines: lines, markup: 1, sheet: "витрина IG" };
+      goods = Math.round(goods * 100) / 100;
+      var deliveriesN = Math.max(1, Number(opts.deliveriesN) || 1);
+      var applyDelivery = opts.applyDelivery !== false;
+      var perDelivery = goods / deliveriesN;
+      var deliveryTimes = 0;
+      // N=2: половина набора; если <50 — доставка ×2. N=1: весь заказ <50 → +5
+      if (applyDelivery && goods > 0) {
+        for (var di = 0; di < deliveriesN; di++) {
+          if (perDelivery < PRICE_RETAIL_FREE_FROM) deliveryTimes++;
+        }
+      }
+      var delivery = Math.round(deliveryTimes * PRICE_RETAIL_DELIVERY_BYN * 100) / 100;
+      var total = Math.round((goods + delivery) * 100) / 100;
+      return {
+        total: total,
+        goods: goods,
+        delivery: delivery,
+        deliveryTimes: deliveryTimes,
+        perDelivery: Math.round(perDelivery * 100) / 100,
+        deliveriesN: deliveriesN,
+        freeFrom: PRICE_RETAIL_FREE_FROM,
+        deliveryFee: PRICE_RETAIL_DELIVERY_BYN,
+        lines: lines,
+        markup: 1,
+        sheet: "витрина IG"
+      };
     }
     window.calcRetailBasketTotal = calcRetailBasketTotal;
+
+    function formatRetailDeliveryHint_(retail) {
+      if (!retail || !(retail.delivery > 0)) return "";
+      if (retail.deliveryTimes > 1) {
+        return " · доставка " + retail.deliveryTimes + "×" + (retail.deliveryFee || 5) +
+          " (доля " + retail.perDelivery + " < " + (retail.freeFrom || 50) + ")";
+      }
+      return " · доставка +" + retail.delivery +
+        " (заказ < " + (retail.freeFrom || 50) + ")";
+    }
 
     let orderType = "pp"; // pp | bp | retail | partner
     let secondDogMode = false; // true = вводим только состав 2-й
@@ -3141,18 +3180,22 @@
 
     function refreshRetailOrderPrice() {
       if (orderType !== "retail") return { total: 0, lines: [] };
-      var local = calcRetailBasketTotal(basket);
+      var local = calcRetailBasketTotal(basket, { deliveriesN: 1 });
       var inp = document.getElementById("orderPriceInput");
       if (inp && !retailPriceManual) inp.value = String(local.total);
       var live = document.getElementById("orderPriceLive");
       if (live) {
         var miss = (local.lines || []).filter(function (L) { return !L.found && L.val > 0; }).length;
         if (retailPriceManual) {
-          live.textContent = "Своя цена · по прайсу было " + local.total + " BYN";
+          live.textContent = "Своя цена · по прайсу было " + local.total + " BYN" + formatRetailDeliveryHint_(local);
+        } else if (!basket.length) {
+          live.textContent = "Добавь позиции или введи цену";
+        } else if (miss) {
+          live.textContent = "По прайсу · без цены: " + miss + " поз." + formatRetailDeliveryHint_(local) + " · можно править";
         } else {
-          live.textContent = miss
-            ? ("По прайсу · без цены: " + miss + " поз. · можно править")
-            : (basket.length ? "По прайсу витрины · можно править" : "Добавь позиции или введи цену");
+          live.textContent = "По прайсу · товар " + local.goods +
+            (local.delivery ? (" + дост. " + local.delivery) : "") +
+            " = " + local.total + " BYN";
         }
       }
       var t = document.getElementById("orderRetailTotalText");
@@ -13416,9 +13459,11 @@
         calcPriceFromBasket({ silent: true });
         return;
       }
-      var fp = priceBasketFingerprint(list);
+      var nEl = document.getElementById("priceDeliveriesN");
+      var deliveriesN = Math.max(1, Number(nEl && nEl.value) || 1);
+      var fp = priceBasketFingerprint(list) + "|N" + deliveriesN;
       if (pricePpApiCache && pricePpApiCache.fingerprint === fp && pricePpApiCache.res) {
-        renderPpResultFromApi(pricePpApiCache.res, list, pricePpApiCache.retail);
+        renderPpResultFromApi(pricePpApiCache.res, list, null);
         return;
       }
       calcPriceFromBasket({ silent: true });
@@ -13433,7 +13478,11 @@
       var packHint = pricePacksSummary();
       var noteEl = document.getElementById("priceClientNote");
       var clientNote = noteEl ? noteEl.value : "";
-      var retail = retailCached || calcRetailBasketTotal(list);
+      var retail = retailCached || calcRetailBasketTotal(list, { deliveriesN: deliveriesN });
+      // кэш мог быть без доставки / со старым N — пересчитать
+      if (!retailCached || Number(retail.deliveriesN) !== deliveriesN || retail.goods == null) {
+        retail = calcRetailBasketTotal(list, { deliveriesN: deliveriesN });
+      }
       var costSum = recalcPpCostSum(res, list);
       var deliveryByn = PRICE_PP_DELIVERY_PER * deliveriesN;
       var fracMark = calcDressuraFractionMarkup(list, getPriceFracRates());
@@ -13442,11 +13491,17 @@
         packagesByn + fracMark.total;
       var msg = composePpClientMessage(list, deliveriesN, clientNote, retail.total, subTotal);
       pricePpApiCache = {
-        fingerprint: priceBasketFingerprint(list),
+        fingerprint: priceBasketFingerprint(list) + "|N" + deliveriesN,
         res: res,
         retail: retail
       };
       var dogsHint = priceDogCount >= 2 ? " · 2 собаки, свет/доставка×1" : "";
+      var retailHint = "товар " + roundRub(retail.goods) +
+        (retail.delivery
+          ? (" + дост. " + retail.deliveryTimes + "×" + (retail.deliveryFee || 5) +
+            " (доля " + roundRub(retail.perDelivery) + "<" + (retail.freeFrom || 50) + ")")
+          : " · дост. 0 (доля ≥" + (retail.freeFrom || 50) + ")") +
+        " = <b>" + roundRub(retail.total) + " BYN</b>";
       renderPriceMessageBox(msg,
         '<div class="card" style="margin-bottom:8px;font-size:13px;"><b>ПП</b>' + dogsHint + '<br>' +
         "себест. " + costSum + " × " + coef +
@@ -13459,7 +13514,7 @@
           ? ('<div class="muted" style="margin-top:4px;font-size:12px;">' +
             escapeHtml(fracMark.details.join("; ")) + "</div>")
           : "") +
-        "<br>розница <b>" + roundRub(retail.total) + " BYN</b></div>");
+        "<br>розница " + retailHint + "</div>");
       return {
         pp: res, retail: retail, subTotal: subTotal, coef: coef,
         costSum: costSum, fracMark: fracMark, packagesByn: packagesByn, message: msg
@@ -13814,12 +13869,14 @@
       var noteEl = document.getElementById("priceClientNote");
       var clientNote = noteEl ? noteEl.value : "";
       if (priceMode === "retail") {
-        var local = calcRetailBasketTotal(list);
+        var local = calcRetailBasketTotal(list, { deliveriesN: 1 });
         var rMsg = composeRetailClientMessage(list, local.total, clientNote);
         var miss = (local.lines || []).filter(function (L) { return !L.found; }).length;
         renderPriceMessageBox(rMsg,
-          '<div class="card" style="margin-bottom:8px;"><b>Розница</b> · ' +
-          roundRub(local.total) + " BYN" +
+          '<div class="card" style="margin-bottom:8px;"><b>Розница</b> · товар ' +
+          roundRub(local.goods) +
+          (local.delivery ? (" + дост. " + local.delivery) : "") +
+          " = <b>" + roundRub(local.total) + " BYN</b>" +
           (priceDogCount >= 2 ? " · 2 собаки" : "") +
           (miss ? ' · <span style="color:#ff9f0a;">без прайса: ' + miss + "</span>" : "") +
           "</div>");
@@ -13835,7 +13892,9 @@
             cat: it.cat || ""
           };
         });
-        var retail = calcRetailBasketTotal(list);
+        var nElPp = document.getElementById("priceDeliveriesN");
+        var nPp = Math.max(1, Number(nElPp && nElPp.value) || 1);
+        var retail = calcRetailBasketTotal(list, { deliveriesN: nPp });
         var res = await apiGet({
           action: "calcPrice",
           mode: "pp",
@@ -13990,9 +14049,10 @@
           subHint = costSum * coef + PRICE_PP_FIXED_BYN + PRICE_PP_DELIVERY_PER * deliveriesN +
             packagesByn + fracMark.total;
         } else if (priceMode === "retail") {
-          subHint = calcRetailBasketTotal(list).total;
+          subHint = calcRetailBasketTotal(list, { deliveriesN: 1 }).total;
         }
       } catch (eH) {}
+      var nSnap = Number((document.getElementById("priceDeliveriesN") || {}).value) || 1;
       return {
         mode: priceMode,
         baskets: JSON.parse(JSON.stringify(s.baskets || { 1: [], 2: [] })),
@@ -14001,11 +14061,13 @@
         packCounts: Object.assign({}, s.packCounts || pricePackCounts),
         note: s.note || "",
         lastMessage: s.lastMessage || priceLastMessage || "",
-        deliveriesN: Number((document.getElementById("priceDeliveriesN") || {}).value) || 1,
+        deliveriesN: nSnap,
         coef: getPricePpCoef(),
         fracRates: getPriceFracRates(),
         subTotal: subHint,
-        retailTotal: calcRetailBasketTotal(list).total
+        retailTotal: calcRetailBasketTotal(list, {
+          deliveriesN: priceMode === "pp" ? nSnap : 1
+        }).total
       };
     }
 

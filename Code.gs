@@ -10679,14 +10679,29 @@ function handleCalcPrice(json, callback, fromPost) {
       rLines.push({ name: rname, sub: rsub, val: rval, per100: rc.per, cost: rc.cost, found: rc.found });
     }
     rTotal = Math.round(rTotal * 100) / 100;
+    var rN = Math.max(1, Number(json.deliveriesN) || 1);
+    var rPer = rTotal / rN;
+    var rDelivTimes = 0;
+    if (rTotal > 0) {
+      for (var rdi = 0; rdi < rN; rdi++) {
+        if (rPer < 50) rDelivTimes++;
+      }
+    }
+    var rDeliv = Math.round(rDelivTimes * 5 * 100) / 100;
+    var rGrand = Math.round((rTotal + rDeliv) * 100) / 100;
     var rok = {
       status: "success",
       mode: mode,
       sheet: "витрина IG",
       lines: rLines,
       cost: rTotal,
+      goods: rTotal,
+      delivery: rDeliv,
+      deliveryTimes: rDelivTimes,
+      perDelivery: Math.round(rPer * 100) / 100,
+      deliveriesN: rN,
       markup: 1,
-      total: rTotal
+      total: rGrand
     };
     return fromPost ? jsonpText(callback, rok) : jsonp(callback, rok);
   }
