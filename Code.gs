@@ -1819,7 +1819,10 @@ function handleGetCourier(dayName, callback) {
       deliveriesN: deliveriesN,
       paid: paidCycle,
       deliverySlot: deliverySlot,
-      ppHint: ppHint,
+      ppSlot: client.ppSlot || formatPpSlotLabel_(deliverySlot, deliveriesN),
+      ppHint: ppHint || client.ppHint || "",
+      orderPrice: client.orderPrice != null ? client.orderPrice : "",
+      segment: client.segment || "",
       askPaid: askPaid && !delivered
     });
   }
@@ -2537,32 +2540,33 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   if (!nickNow) targetSheet.getRange(block.nick, clientCol).setValue(String(json.client || "").trim());
 
   if (json.address) targetSheet.getRange(block.addr, clientCol).setValue(json.address);
-  // телефон только в поле phone / лист «Клиенты» — в примечание столбца НЕ пишем [TEL:]
-  var cleanNote = stripGeoTagsFromNote_(String(json.note || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim());
-  // тип заказа — [SEG:…] чтобы при редактировании не путать БП с розницей
+  // note = только текст менеджера; тип/цена/слот — в Календарь_Дат / Брони
+  var cleanNote = stripTechFromNote_(String(json.note || ""));
   var otSave = String(json.orderType || json.source || "").trim().toLowerCase();
-  var segSave = "";
-  if (otSave === "bp" || otSave === "бп") segSave = "БП";
-  else if (otSave === "pp" || otSave === "пп" || otSave === "subscription" || otSave === "afk") segSave = "ПП";
-  else if (otSave === "partner" || otSave.indexOf("парт") === 0) segSave = "ПАРТНЁР";
-  else if (otSave === "retail" || otSave === "розница") segSave = "Р";
-  if (!segSave) {
-    var segIn = String(cleanNote || "").match(/\[SEG:([^\]]+)\]/i);
-    if (segIn) segSave = String(segIn[1] || "").trim().toUpperCase();
-  }
-  if (segSave) {
-    cleanNote = String(cleanNote || "").replace(/\[SEG:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
-    cleanNote = ("[SEG:" + segSave + "]" + (cleanNote ? " " + cleanNote : "")).trim();
-  }
-  // цена заказа (розница/партнёр/ПП) — тег в примечании столбца; БП без цены
+  var segSave = segmentLabelFromOrderType_(otSave);
+  if (!segSave) segSave = extractSegmentFromNote_(String(json.note || ""));
   var op = json.orderPrice;
+  var orderPriceSave = "";
   if (segSave !== "БП" && op != null && op !== "" && !isNaN(Number(op))) {
-    cleanNote = String(cleanNote || "").replace(/\[ЦЕНА:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
-    cleanNote = ("[ЦЕНА: " + Number(op) + " BYN]" + (cleanNote ? " " + cleanNote : "")).trim();
+    orderPriceSave = Number(op);
+  } else {
+    var legacyPrice = extractOrderPriceFromNote_(String(json.note || ""));
+    if (segSave !== "БП" && legacyPrice !== "") orderPriceSave = legacyPrice;
   }
   var phoneSave = String(json.phone || "").trim();
   if (!phoneSave) phoneSave = extractPhoneFromNote_(String(json.note || ""));
+  var ppSlotSave = String(json.ppSlot || "").trim();
+  if (!ppSlotSave && segSave === "ПП") {
+    try {
+      var dayDatePp = getDayDate_(ss, json.day) || parseFlexibleDate_(json.date, ss.getSpreadsheetTimeZone());
+      if (dayDatePp) {
+        var resolvedPp = resolvePpDeliverySlot_(ss, json.client, dayDatePp, ss.getSpreadsheetTimeZone(), false);
+        ppSlotSave = formatPpSlotLabel_(resolvedPp.slot, resolvedPp.deliveriesN);
+      }
+    } catch (ePpSlot) {}
+  }
   if (cleanNote) targetSheet.getRange(block.note, clientCol).setValue(cleanNote);
+  else targetSheet.getRange(block.note, clientCol).clearContent();
 
   var geo = json.geo || null;
   if (typeof geo === "string" && geo) {
@@ -2601,6 +2605,28 @@ function handleSaveOrder(ss, json, callback, fromPost) {
     upsertClientProfile_(ss, json.client, json.address, phoneSave || extractPhoneFromNote_(cleanNote), profileNote, src, basket);
   } catch (eProf) {}
 
+  try {
+    var dayDateCal = getDayDate_(ss, json.day) || parseFlexibleDate_(json.date, ss.getSpreadsheetTimeZone());
+    if (dayDateCal) {
+      upsertCalendarEntry_(ss, {
+        date: dayDateCal,
+        client: String(json.client || "").trim(),
+        segment: segSave,
+        address: json.address || "",
+        phone: phoneSave,
+        note: cleanNote,
+        basket: basket,
+        subId: json.subId || "",
+        source: otSave || "manual",
+        dayName: json.day || "",
+        orderPrice: orderPriceSave,
+        ppSlot: ppSlotSave,
+        status: "planned",
+        legacyRef: "week:" + String(json.day || "")
+      });
+    }
+  } catch (eCalSave) {}
+
   try { ensureBpAndSurveyFromOrder_(json); } catch (eBp) {}
   bustClientsCache_();
   // Telegram-проверку склада не зовём на каждый save — сильно тормозит запись
@@ -2611,6 +2637,9 @@ function handleSaveOrder(ss, json, callback, fromPost) {
     missed: missed.slice(0, 8),
     day: json.day,
     client: String(json.client || "").trim(),
+    segment: segSave,
+    orderPrice: orderPriceSave,
+    ppSlot: ppSlotSave,
     redirected: !!(writeDay && dayHintOrig && writeDay !== dayHintOrig)
   });
 }
@@ -2991,6 +3020,19 @@ function getClientsData_(ss, dayName) {
   var geoIndex = buildDayGeoIndex_(dayName);
   var phoneIndex = {};
   try { phoneIndex = buildClientPhoneIndex_(ss); } catch (ePhIdx) { phoneIndex = {}; }
+  var calByKey = {};
+  try {
+    var dayDateForCal = getDayDate_(ss, dayName);
+    if (dayDateForCal) {
+      var calRows = readCalendarForDate_(ss, dayDateForCal);
+      for (var ci = 0; ci < calRows.length; ci++) {
+        var ck = calRows[ci].matchKey || clientMatchKey_(calRows[ci].client) || "";
+        if (ck) calByKey[ck] = calRows[ci];
+        var cu = String(calRows[ci].client || "").toUpperCase();
+        if (cu) calByKey[cu] = calRows[ci];
+      }
+    }
+  } catch (eCalIdx) {}
 
   var clientsDataList = [];
   if (nicksMatrix && nicksMatrix.length > 0) {
@@ -3040,32 +3082,35 @@ function getClientsData_(ss, dayName) {
 
         var rawAddr = addressesMatrix && addressesMatrix[0] ? addressesMatrix[0][colIdx] : "";
         var rawNote = notesMatrix && notesMatrix[0] ? notesMatrix[0][colIdx] : "";
-        var noteStr = rawNote != null ? String(rawNote).trim() : "";
-        var legacyGeo = parseGeoTagsFromNote_(noteStr);
-        if (legacyGeo) noteStr = stripGeoTagsFromNote_(noteStr);
+        var noteRaw = rawNote != null ? String(rawNote).trim() : "";
+        var legacyGeo = parseGeoTagsFromNote_(noteRaw);
+        if (legacyGeo) noteRaw = stripGeoTagsFromNote_(noteRaw);
         var geoObj = geoIndex[nameClean.toUpperCase()] || legacyGeo || null;
         var phone = "";
-        // сначала профиль «Клиенты», потом legacy [TEL:] / голый номер в примечании
         var pk = clientMatchKey_(nameClean) || nameClean.toUpperCase();
         phone = (pk && phoneIndex[pk]) || phoneIndex[nameClean.toUpperCase()] || "";
         if (!phone) {
-          var telM = noteStr.match(/\[TEL:([^\]]+)\]/i);
+          var telM = noteRaw.match(/\[TEL:([^\]]+)\]/i);
           if (telM) phone = String(telM[1] || "").trim();
         }
         if (!phone) {
-          var phM = noteStr.match(/(\+?375[\s\-]?\d{2}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})/);
+          var phM = noteRaw.match(/(\+?375[\s\-]?\d{2}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})/);
           if (phM) phone = phM[1].replace(/\s+/g, "");
         }
-        // на выдачу — без [TEL:] в note (телефон отдельным полем)
-        noteStr = String(noteStr || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim();
-        var segFromNote = "";
-        var segMatch = String(noteStr || "").match(/\[SEG:([^\]]+)\]/i);
-        if (segMatch) segFromNote = String(segMatch[1] || "").trim().toUpperCase();
+        var calHit = (pk && calByKey[pk]) || calByKey[nameClean.toUpperCase()] || null;
+        var segFromNote = extractSegmentFromNote_(noteRaw) || (calHit && calHit.segment) || "";
+        var orderPriceOut = (calHit && calHit.orderPrice !== "" && calHit.orderPrice != null)
+          ? calHit.orderPrice
+          : extractOrderPriceFromNote_(noteRaw);
+        var ppSlotOut = (calHit && calHit.ppSlot) || "";
+        var noteStr = stripTechFromNote_(noteRaw);
+        var noCutFlag = /\[НЕ РЕЗАТЬ\]/i.test(noteRaw);
         var srcFromSeg = "";
         if (segFromNote === "БП" || segFromNote === "BP") srcFromSeg = "bp";
         else if (segFromNote === "ПП" || segFromNote === "PP" || segFromNote === "АФК") srcFromSeg = "pp";
         else if (segFromNote.indexOf("ПАРТ") === 0) srcFromSeg = "partner";
         else if (segFromNote === "Р" || segFromNote === "RETAIL") srcFromSeg = "retail";
+        if (calHit && calHit.phone && !phone) phone = calHit.phone;
         clientsDataList.push({
           name: nameClean,
           orderCount: totalItemsInOrder,
@@ -3077,7 +3122,10 @@ function getClientsData_(ss, dayName) {
           col: colIdx,
           segment: segFromNote,
           source: srcFromSeg,
-          noCut: /\[НЕ РЕЗАТЬ\]/i.test(noteStr)
+          orderPrice: orderPriceOut,
+          ppSlot: ppSlotOut,
+          ppHint: ppSlotOut ? ("ПП " + ppSlotOut) : "",
+          noCut: noCutFlag
         });
       }
     }
@@ -4957,7 +5005,8 @@ function handleDeficitCallback_(cq) {
 
 var BOOKINGS_HEADERS_ = [
   "id", "date", "client", "subId", "address", "note", "basketJson",
-  "source", "status", "dayName", "updatedAt", "pulledAt"
+  "source", "status", "dayName", "updatedAt", "pulledAt",
+  "segment", "phone", "orderPrice", "ppSlot"
 ];
 
 function getBookingsSheet_() {
@@ -4967,6 +5016,8 @@ function getBookingsSheet_() {
     sh = ss.insertSheet("Брони_Заказов");
     sh.getRange(1, 1, 1, BOOKINGS_HEADERS_.length).setValues([BOOKINGS_HEADERS_]);
     sh.setFrozenRows(1);
+  } else {
+    ensureSheetHeadersAppend_(sh, BOOKINGS_HEADERS_);
   }
   return sh;
 }
@@ -4976,12 +5027,15 @@ function getBookingsSheet_() {
 var CALENDAR_HEADERS_ = [
   "date", "dateIso", "client", "matchKey", "segment",
   "address", "phone", "note", "basketJson", "subId",
-  "source", "status", "dayName", "updatedAt", "pulledAt", "legacyRef"
+  "source", "status", "dayName", "updatedAt", "pulledAt", "legacyRef",
+  "orderPrice", "ppSlot"
 ];
 
 function getCalendarSheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  return getOrCreateSheet_(ss, "Календарь_Дат", CALENDAR_HEADERS_);
+  var sh = getOrCreateSheet_(ss, "Календарь_Дат", CALENDAR_HEADERS_);
+  ensureSheetHeadersAppend_(sh, CALENDAR_HEADERS_);
+  return sh;
 }
 
 function readAllCalendarRows_() {
@@ -4994,25 +5048,32 @@ function readAllCalendarRows_() {
     if (!client) continue;
     var basket = [];
     try { basket = JSON.parse(String(data[r][8] || "[]")); } catch (e) { basket = []; }
+    var rawNote = String(data[r][7] || "");
+    var orderPrice = data[r][16];
+    if (orderPrice == null || orderPrice === "") orderPrice = extractOrderPriceFromNote_(rawNote);
+    else if (!isNaN(Number(orderPrice))) orderPrice = Number(orderPrice);
+    else orderPrice = "";
     out.push({
       rowIndex: r + 1,
       date: data[r][0],
       dateIso: String(data[r][1] || ""),
       client: client,
       matchKey: String(data[r][3] || "") || clientMatchKey_(client),
-      segment: String(data[r][4] || ""),
+      segment: String(data[r][4] || "") || extractSegmentFromNote_(rawNote),
       address: String(data[r][5] || ""),
       phone: String(data[r][6] || ""),
-      note: String(data[r][7] || ""),
+      note: stripTechFromNote_(rawNote),
       basket: Array.isArray(basket) ? basket : [],
       basketJson: String(data[r][8] || ""),
-      subId: String(data[r][9] || ""),
+      subId: String(data[r][9] || "") || extractSubIdFromNote_(rawNote),
       source: String(data[r][10] || ""),
       status: String(data[r][11] || "planned"),
       dayName: String(data[r][12] || ""),
       updatedAt: data[r][13],
       pulledAt: data[r][14],
-      legacyRef: String(data[r][15] || "")
+      legacyRef: String(data[r][15] || ""),
+      orderPrice: orderPrice,
+      ppSlot: String(data[r][17] != null ? data[r][17] : "").trim()
     });
   }
   return out;
@@ -5050,23 +5111,38 @@ function upsertCalendarEntry_(ss, opts) {
   }
   if (!Array.isArray(basket)) basket = existing ? (existing.basket || []) : [];
   var now = new Date();
+  var noteHuman = stripTechFromNote_(opts.note != null ? opts.note : (existing && existing.note) || "");
+  var seg = String(opts.segment != null ? opts.segment : (existing && existing.segment) || "").trim();
+  if (!seg) seg = extractSegmentFromNote_(String(opts.note || ""));
+  var priceVal = opts.orderPrice;
+  if (priceVal == null || priceVal === "") {
+    priceVal = existing ? existing.orderPrice : "";
+  }
+  if ((priceVal == null || priceVal === "") && opts.note) {
+    priceVal = extractOrderPriceFromNote_(opts.note);
+  }
+  if (priceVal !== "" && priceVal != null && !isNaN(Number(priceVal))) priceVal = Number(priceVal);
+  else priceVal = "";
+  var ppSlot = String(opts.ppSlot != null ? opts.ppSlot : (existing && existing.ppSlot) || "").trim();
   var rowVals = [
     dateStr,
     dateIso,
     client,
     matchKey,
-    String(opts.segment != null ? opts.segment : (existing && existing.segment) || ""),
+    seg,
     String(opts.address != null ? opts.address : (existing && existing.address) || ""),
     String(opts.phone != null ? opts.phone : (existing && existing.phone) || ""),
-    String(opts.note != null ? opts.note : (existing && existing.note) || ""),
+    noteHuman,
     JSON.stringify(basket),
-    String(opts.subId != null ? opts.subId : (existing && existing.subId) || ""),
+    String(opts.subId != null ? opts.subId : (existing && existing.subId) || "") || extractSubIdFromNote_(String(opts.note || "")),
     String(opts.source != null ? opts.source : (existing && existing.source) || "manual"),
     status,
     String(opts.dayName != null ? opts.dayName : (existing && existing.dayName) || findDayNameForDate_(ss, deliveryDate) || ""),
     now,
     opts.pulledAt != null ? opts.pulledAt : (existing && existing.pulledAt) || "",
-    String(opts.legacyRef != null ? opts.legacyRef : (existing && existing.legacyRef) || "")
+    String(opts.legacyRef != null ? opts.legacyRef : (existing && existing.legacyRef) || ""),
+    priceVal,
+    ppSlot
   ];
   if (existing) {
     sh.getRange(existing.rowIndex, 1, 1, CALENDAR_HEADERS_.length).setValues([rowVals]);
@@ -5382,20 +5458,29 @@ function readAllBookings_() {
     if (!row[0] && !row[1] && !row[2]) continue;
     var basket = [];
     try { basket = JSON.parse(String(row[6] || "[]")); } catch (e) { basket = []; }
+    var rawNote = String(row[5] || "");
+    var orderPrice = row[14];
+    if (orderPrice == null || orderPrice === "") orderPrice = extractOrderPriceFromNote_(rawNote);
+    else if (!isNaN(Number(orderPrice))) orderPrice = Number(orderPrice);
+    else orderPrice = "";
     out.push({
       rowIndex: i + 1,
       id: String(row[0] || ""),
       date: row[1],
       client: String(row[2] || ""),
-      subId: String(row[3] || ""),
+      subId: String(row[3] || "") || extractSubIdFromNote_(rawNote),
       address: String(row[4] || ""),
-      note: String(row[5] || ""),
+      note: stripTechFromNote_(rawNote),
       basket: basket,
       source: String(row[7] || "retail"),
       status: String(row[8] || "planned"),
       dayName: String(row[9] || ""),
       updatedAt: row[10],
-      pulledAt: row[11]
+      pulledAt: row[11],
+      segment: String(row[12] || "") || extractSegmentFromNote_(rawNote),
+      phone: String(row[13] || ""),
+      orderPrice: orderPrice,
+      ppSlot: String(row[15] != null ? row[15] : "").trim()
     });
   }
   return out;
@@ -5425,7 +5510,11 @@ function handleListBookings(json, callback, fromPost) {
       basket: b.basket,
       source: b.source,
       status: b.status,
-      dayName: b.dayName
+      dayName: b.dayName,
+      segment: b.segment || "",
+      phone: b.phone || "",
+      orderPrice: b.orderPrice !== "" && b.orderPrice != null ? b.orderPrice : "",
+      ppSlot: b.ppSlot || ""
     };
   });
   var ok = { status: "success", bookings: list };
@@ -5456,13 +5545,26 @@ function handleSaveBooking(ss, json, callback, fromPost) {
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
   var basket = normalizeBasketArg_(json.basket);
-  var note = stripGeoTagsFromNote_(json.note || "");
-  if (json.orderPrice != null && json.orderPrice !== "" && !isNaN(Number(json.orderPrice))) {
-    note = String(note || "").replace(/\[ЦЕНА:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
-    note = ("[ЦЕНА: " + Number(json.orderPrice) + " BYN]" + (note ? " " + note : "")).trim();
+  var note = stripTechFromNote_(json.note || "");
+  var segSave = segmentLabelFromOrderType_(json.orderType || json.source) ||
+    String(json.segment || "").trim().toUpperCase() ||
+    extractSegmentFromNote_(String(json.note || ""));
+  var orderPriceSave = "";
+  if (segSave !== "БП" && json.orderPrice != null && json.orderPrice !== "" && !isNaN(Number(json.orderPrice))) {
+    orderPriceSave = Number(json.orderPrice);
+  } else {
+    var lp = extractOrderPriceFromNote_(String(json.note || ""));
+    if (segSave !== "БП" && lp !== "") orderPriceSave = lp;
   }
-  note = String(note || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim();
-  if (json.subId) note = ("[SUB:" + String(json.subId).trim() + "] " + note).trim();
+  var phoneSave = String(json.phone || "").trim() || extractPhoneFromNote_(String(json.note || ""));
+  var subIdSave = String(json.subId || "").trim() || extractSubIdFromNote_(String(json.note || ""));
+  var ppSlotSave = String(json.ppSlot || "").trim();
+  if (!ppSlotSave && (segSave === "ПП" || String(json.source || "").toLowerCase().indexOf("sub") >= 0)) {
+    try {
+      var resolvedB = resolvePpDeliverySlot_(ss, client, deliveryDate, tz, false);
+      ppSlotSave = formatPpSlotLabel_(resolvedB.slot, resolvedB.deliveriesN);
+    } catch (eSlotB) {}
+  }
   var dayName = findDayNameForDate_(ss, deliveryDate) || "";
   var sh = getBookingsSheet_();
   var all = readAllBookings_();
@@ -5482,15 +5584,23 @@ function handleSaveBooking(ss, json, callback, fromPost) {
   var wasPulled = existing && String(existing.status) === "pulled";
   var id = existing ? existing.id : ("b" + Date.now() + "_" + Math.floor(Math.random() * 1e5));
   var now = new Date();
+  if (!subIdSave && existing) subIdSave = existing.subId || "";
+  if (!ppSlotSave && existing) ppSlotSave = existing.ppSlot || "";
+  if (!segSave && existing) segSave = existing.segment || "";
+  if (orderPriceSave === "" && existing && existing.orderPrice !== "") orderPriceSave = existing.orderPrice;
   var rowVals = [
     id, dateStr, client,
-    String(json.subId || (existing && existing.subId) || ""),
+    subIdSave,
     String(json.address != null ? json.address : (existing && existing.address) || ""),
     note, JSON.stringify(basket),
     String(json.source || (existing && existing.source) || "retail"),
     wasPulled ? "pulled" : "planned",
     dayName, now,
-    wasPulled ? (existing.pulledAt || "") : ""
+    wasPulled ? (existing.pulledAt || "") : "",
+    segSave,
+    phoneSave || (existing && existing.phone) || "",
+    orderPriceSave,
+    ppSlotSave
   ];
 
   if (existing) {
@@ -5503,21 +5613,24 @@ function handleSaveBooking(ss, json, callback, fromPost) {
     upsertCalendarEntry_(ss, {
       date: deliveryDate,
       client: client,
+      segment: segSave,
       address: json.address != null ? json.address : (existing && existing.address) || "",
-      phone: json.phone || extractPhoneFromNote_(note),
+      phone: phoneSave || (existing && existing.phone) || "",
       note: note,
       basket: basket,
-      subId: json.subId || (existing && existing.subId) || "",
+      subId: subIdSave,
       source: json.source || (existing && existing.source) || "retail",
       status: wasPulled ? "pulled" : "planned",
       dayName: dayName,
       pulledAt: wasPulled ? (existing.pulledAt || "") : "",
-      legacyRef: "booking:" + id
+      legacyRef: "booking:" + id,
+      orderPrice: orderPriceSave,
+      ppSlot: ppSlotSave
     });
   } catch (eCal) {}
 
   try {
-    upsertClientProfile_(ss, client, json.address, json.phone || extractPhoneFromNote_(note), note, json.source || "retail");
+    upsertClientProfile_(ss, client, json.address, phoneSave || extractPhoneFromNote_(note), note, json.source || "retail");
   } catch (eProf2) {}
 
   var materializeResult = null;
@@ -5661,7 +5774,7 @@ function writeBasketToDayColumn_(ss, dayName, client, address, note, basket, opt
       var curAddr = String(targetSheet.getRange(block.addr, clientCol).getValue() || "").trim();
       if (address && !curAddr) targetSheet.getRange(block.addr, clientCol).setValue(address);
       else if (address && opts.overwriteMeta) targetSheet.getRange(block.addr, clientCol).setValue(address);
-      var cleanNote = stripGeoTagsFromNote_(note || "");
+      var cleanNote = stripTechFromNote_(note || "");
       var curNote = String(targetSheet.getRange(block.note, clientCol).getValue() || "").trim();
       if (cleanNote && !curNote) targetSheet.getRange(block.note, clientCol).setValue(cleanNote);
       else if (cleanNote && opts.overwriteMeta) targetSheet.getRange(block.note, clientCol).setValue(cleanNote);
@@ -5672,7 +5785,7 @@ function writeBasketToDayColumn_(ss, dayName, client, address, note, basket, opt
   // Пустая бронь + пустой день → оболочка (ник/адрес/note), без clear продуктов
   if (!basketItems.length && !hasQty) {
     if (address) targetSheet.getRange(block.addr, clientCol).setValue(address);
-    var shellNote = stripGeoTagsFromNote_(note || "");
+    var shellNote = stripTechFromNote_(note || "");
     if (shellNote) targetSheet.getRange(block.note, clientCol).setValue(shellNote);
     return { ok: true, col: clientCol, shell: true, created: created };
   }
@@ -5690,7 +5803,7 @@ function writeBasketToDayColumn_(ss, dayName, client, address, note, basket, opt
   // clearContent выше чистит от start до note включительно — nick выше start, OK.
   // Но addr/note внутри диапазона — пишем заново:
   if (address) targetSheet.getRange(block.addr, clientCol).setValue(address);
-  var cleanNote2 = stripGeoTagsFromNote_(note || "");
+  var cleanNote2 = stripTechFromNote_(note || "");
   if (cleanNote2) targetSheet.getRange(block.note, clientCol).setValue(cleanNote2);
 
   var itemsInSheet = targetSheet.getRange(block.start, 1, block.end - block.start + 1, 1).getValues();
@@ -6209,7 +6322,9 @@ function pullCrmClientsToDay_(ss, deliveryDate, dayName, clients) {
           if ((!basket || !basket.length) && segFill) {
             var filled = fillSubscriptionBasketForDate_(ss, crmSs, hit.client, segFill, deliveryDate);
             basket = filled.basket || [];
-            if (filled.hint) note = (note ? note + " " : "") + filled.hint;
+            // hint/слот — не в note; уйдут в Календарь при upsert ниже
+            if (filled.ppSlot) req.ppSlot = filled.ppSlot;
+            if (filled.subId) req.subId = filled.subId;
           }
         }
       } catch (eFill) {}
@@ -6291,13 +6406,8 @@ function pullCrmClientsToDay_(ss, deliveryDate, dayName, clients) {
 
 function mergePullNote_(req) {
   req = req || {};
-  var parts = [];
-  if (req.segment) parts.push("[SEG:" + String(req.segment).toUpperCase() + "]");
-  // телефон не кладём в note — только отдельное поле / лист Клиенты
-  if (req.note) {
-    parts.push(String(req.note).replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim());
-  }
-  return parts.filter(Boolean).join(" ").trim();
+  // только человеческий текст — SEG/TEL/hint не в note
+  return stripTechFromNote_(req.note || "");
 }
 
 function handleEnsureDayMaterialized(json, callback, fromPost) {
@@ -6780,6 +6890,71 @@ function extractPhoneFromNote_(note) {
 function applyTelTag_(note, phone) {
   // устарело: телефон только в поле phone / «Клиенты» — тег [TEL:] из примечания убираем
   return String(note || "").replace(/\[TEL:[^\]]+\]/gi, "").replace(/\s{2,}/g, " ").trim();
+}
+
+/** Техтеги и авто-хинты ПП — не в ячейку note / не в UI «примечание». */
+function stripTechFromNote_(note) {
+  return stripGeoTagsFromNote_(String(note || "")
+    .replace(/\[TEL:[^\]]+\]/gi, "")
+    .replace(/\[SEG:[^\]]*\]/gi, "")
+    .replace(/\[ЦЕНА:[^\]]*\]/gi, "")
+    .replace(/\[SUB:[^\]]*\]/gi, "")
+    .replace(/\[PAID:[^\]]*\]/gi, "")
+    .replace(/\[ПП[^\]]*\]/gi, "")
+    .replace(/ПП\s*N\s*=\s*\d+[^\n|[]*/gi, "")
+    .replace(/ПП:\s*состав[^\n|[]*/gi, "")
+  ).replace(/\s*\|\|\s*/g, " || ").replace(/\s{2,}/g, " ").trim();
+}
+
+function extractOrderPriceFromNote_(note) {
+  var m = String(note || "").match(/\[ЦЕНА:\s*([0-9]+(?:[.,][0-9]+)?)\s*BYN?\]/i);
+  if (!m) return "";
+  var n = Number(String(m[1]).replace(",", "."));
+  return isNaN(n) ? "" : n;
+}
+
+function extractSegmentFromNote_(note) {
+  var m = String(note || "").match(/\[SEG:([^\]]+)\]/i);
+  return m ? String(m[1] || "").trim().toUpperCase() : "";
+}
+
+function extractSubIdFromNote_(note) {
+  var m = String(note || "").match(/\[SUB:([^\]]+)\]/i);
+  return m ? String(m[1] || "").trim() : "";
+}
+
+/** bp|pp|retail|partner → метка сегмента для колонки. */
+function segmentLabelFromOrderType_(ot) {
+  ot = String(ot || "").trim().toLowerCase();
+  if (ot === "bp" || ot === "бп") return "БП";
+  if (ot === "pp" || ot === "пп" || ot === "subscription" || ot === "afk") return "ПП";
+  if (ot === "partner" || ot.indexOf("парт") === 0) return "ПАРТНЁР";
+  if (ot === "retail" || ot === "розница") return "Р";
+  return "";
+}
+
+function formatPpSlotLabel_(slot, deliveriesN) {
+  slot = Number(slot) || 0;
+  deliveriesN = Number(deliveriesN) || 0;
+  if (deliveriesN >= 2 && slot >= 1) return String(slot) + "/" + deliveriesN;
+  if (deliveriesN === 1 || slot === 1) return "1";
+  return slot >= 1 ? String(slot) : "";
+}
+
+/** Дописать недостающие заголовки в конец строки 1 (данные не сдвигаем). */
+function ensureSheetHeadersAppend_(sh, headers) {
+  if (!sh || !headers || !headers.length) return;
+  var lastCol = Math.max(sh.getLastColumn(), 1);
+  var cur = sh.getRange(1, 1, 1, Math.max(lastCol, headers.length)).getValues()[0];
+  var needWrite = false;
+  for (var i = 0; i < headers.length; i++) {
+    if (String(cur[i] || "").trim() !== headers[i]) {
+      needWrite = true;
+      break;
+    }
+  }
+  if (needWrite) sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+  try { sh.setFrozenRows(1); } catch (eF) {}
 }
 
 function lookupClientProfilePhone_(ss, nick) {
@@ -7630,12 +7805,14 @@ function syncCrmIntoBookings_(ss, deliveryDate, opts) {
     var subId = filled.subId || "";
     var basket = filled.basket || [];
     var noteParts = [];
-    if (subId) noteParts.push("[SUB:" + subId + "]");
-    if (c.segment) noteParts.push("[SEG:" + c.segment + "]");
-    if (c.note) noteParts.push(String(c.note).replace(/\[TEL:[^\]]+\]/gi, "").trim());
-    if (contact.note) noteParts.push(String(contact.note).replace(/\[TEL:[^\]]+\]/gi, "").trim());
-    if (filled.hint) noteParts.push(filled.hint);
-    var note = noteParts.filter(Boolean).join(" ").replace(/\s{2,}/g, " ").trim();
+    if (c.note) noteParts.push(String(c.note));
+    if (contact.note) noteParts.push(String(contact.note));
+    var note = stripTechFromNote_(noteParts.filter(Boolean).join(" "));
+    var ppSlot = filled.ppSlot || "";
+    if (!ppSlot && filled.hint) {
+      var hm = String(filled.hint).match(/(\d+)\s*\/\s*(\d+)/);
+      if (hm) ppSlot = hm[1] + "/" + hm[2];
+    }
     var now = new Date();
     var id = existing ? existing.id : ("crm" + Date.now() + "_" + Math.floor(Math.random() * 1e5));
     var clientName = displayClientNick_(c.client);
@@ -7647,7 +7824,11 @@ function syncCrmIntoBookings_(ss, deliveryDate, opts) {
       JSON.stringify(basket), "subscription",
       "planned",
       existing ? existing.dayName : "", now,
-      existing ? (existing.pulledAt || "") : ""
+      existing ? (existing.pulledAt || "") : "",
+      String(c.segment || "").trim(),
+      phone,
+      "",
+      ppSlot
     ];
     if (existing) {
       sh.getRange(existing.rowIndex, 1, 1, BOOKINGS_HEADERS_.length).setValues([rowVals]);
@@ -7655,6 +7836,22 @@ function syncCrmIntoBookings_(ss, deliveryDate, opts) {
       sh.appendRow(rowVals);
       added++;
     }
+    try {
+      upsertCalendarEntry_(ss, {
+        date: deliveryDate,
+        client: clientName,
+        segment: c.segment || "",
+        address: address,
+        phone: phone,
+        note: note,
+        basket: basket,
+        subId: subId || "",
+        source: "subscription",
+        status: "planned",
+        ppSlot: ppSlot,
+        legacyRef: "crm:" + id
+      });
+    } catch (eCalCrm) {}
   }
   return {
     ok: true,
@@ -7687,11 +7884,16 @@ function fillSubscriptionBasketForDate_(ss, crmSs, client, segment, deliveryDate
         return {
           basket: sug.proposedBasket,
           subId: sug.subId || "",
-          hint: sug.hint ? ("[" + sug.hint + "]") : ""
+          hint: sug.hint || "",
+          ppSlot: formatPpSlotLabel_(sug.deliverySlot, sug.deliveriesN),
+          deliveriesN: sug.deliveriesN || 0,
+          deliverySlot: sug.deliverySlot || 1
         };
       }
       if (sug && sug.deliveriesN >= 1) {
-        return { basket: sug.monthlyBasket || [], subId: sug.subId || "", hint: sug.hint || "" };
+        return { basket: sug.monthlyBasket || [], subId: sug.subId || "", hint: sug.hint || "",
+          ppSlot: formatPpSlotLabel_(sug.deliverySlot, sug.deliveriesN),
+          deliveriesN: sug.deliveriesN || 0, deliverySlot: sug.deliverySlot || 1 };
       }
     } catch (ePp) {}
   }

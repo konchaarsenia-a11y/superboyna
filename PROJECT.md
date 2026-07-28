@@ -21,7 +21,11 @@
 
 **Канон Просмотра (v7.10.64+):** лист **`Календарь_Дат`** — одна строка = один человек на дату.
 
-Колонки: `date` (дд.мм.гггг), `dateIso` (yyyy-MM-dd), `client`, `matchKey`, `segment`, `address`, `phone`, `note`, `basketJson`, `subId`, `source`, `status`, `dayName`, `updatedAt`, `pulledAt`, `legacyRef`.
+Колонки: `date` (дд.мм.гггг), `dateIso` (yyyy-MM-dd), `client`, `matchKey`, `segment`, `address`, `phone`, `note` (только текст менеджера), `basketJson`, `subId`, `source`, `status`, `dayName`, `updatedAt`, `pulledAt`, `legacyRef`, `orderPrice`, `ppSlot` (напр. `1/2`).
+
+**Брони_Заказов:** `id`, `date`, `client`, `subId`, `address`, `note`, `basketJson`, `source`, `status`, `dayName`, `updatedAt`, `pulledAt`, `segment`, `phone`, `orderPrice`, `ppSlot`.
+
+Техтеги `[SEG:]`/`[ЦЕНА:]`/`[SUB:]`/`[TEL:]` в note больше не пишутся (v7.11.35); legacy при чтении разбираются в поля.
 
 - Заказ/`saveBooking` → сразу пишет в Календарь_Дат + Брони_Заказов
 - `getViewCompare` читает Календарь_Дат; при пустой дате — seed из CRM-месяца и броней

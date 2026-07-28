@@ -1076,7 +1076,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.34</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.35</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1937,7 +1937,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.34";
+    const APP_VERSION = "v7.11.35";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -4274,7 +4274,7 @@
         document.getElementById("postOfficeGroup").style.display = "none";
       }
 
-      // GEO/TEL не кладём в примечание — телефон только отдельным полем (нарезчику не светить)
+      // GEO/TEL/SEG/ЦЕНА не в примечание — только текст менеджера + теги доставки
       clientNote = stripGeoTags(clientNote);
       clientNote = String(clientNote || "").replace(/\[TEL:[^\]]+\]/gi, "").trim();
       const phone = (document.getElementById("phoneInput") && document.getElementById("phoneInput").value || "").trim();
@@ -4282,21 +4282,15 @@
       var noteBody = serializeOrderNotes(orderNotes);
       // keep delivery/office tags from clientNote prefix
       var tagBits = [];
-      String(clientNote || "").replace(/\[(ЕВРОПОЧТА|БЕЛПОЧТА|КУРЬЕР|ОТДЕЛЕНИЕ:[^\]]*)\]/gi, function (x) { tagBits.push(x); return ""; });
+      String(clientNote || "").replace(/\[(ЕВРОПОЧТА|БЕЛПОЧТА|КУРЬЕР|ОТДЕЛЕНИЕ:[^\]]*|НЕ РЕЗАТЬ|РЕЗАТЬ)\]/gi, function (x) { tagBits.push(x); return ""; });
       clientNote = (tagBits.join(" ") + (tagBits.length && noteBody ? " " : "") + noteBody).trim();
+      clientNote = String(clientNote || "")
+        .replace(/\[SEG:[^\]]*\]/gi, "")
+        .replace(/\[ЦЕНА:[^\]]*\]/gi, "")
+        .replace(/\[SUB:[^\]]*\]/gi, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
       var permanentNote = collectPermanentNotesText();
-
-      // тип заказа — обязательный тег, иначе при следующем редактировании тип «угадывается» неверно
-      clientNote = String(clientNote || "").replace(/\[SEG:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
-      var segStamp = orderTypeToSegment_(orderType);
-      if (segStamp) {
-        clientNote = ("[SEG:" + segStamp + "]" + (clientNote ? " " + clientNote : "")).trim();
-      }
-      // цена в примечание — видно в Просмотре / курьеру / листе (БП без цены на экране)
-      clientNote = String(clientNote || "").replace(/\[ЦЕНА:[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trim();
-      if (orderType !== "bp" && orderPrice != null && !isNaN(Number(orderPrice))) {
-        clientNote = ("[ЦЕНА: " + Number(orderPrice) + " BYN]" + (clientNote ? " " + clientNote : "")).trim();
-      }
 
       var confirmMsg = isEdit ? ("Обновить заказ " + clientName + "?") : ("Сохранить заказ " + clientName + "?");
       if (orderType !== "bp" && orderPrice != null && !isNaN(Number(orderPrice))) {
@@ -4764,23 +4758,23 @@
       return "";
     }
 
-    /** Тип только из явных меток — цена [ЦЕНА:] сама по себе НЕ значит «розница». */
+    /** Тип: сначала колонка/поле segment, потом legacy [SEG:] в note. */
     function resolveClientOrderType_(client) {
       client = client || {};
+      var fromSeg = segmentToOrderType_(client.segment);
+      if (fromSeg) return fromSeg;
       var note = String(client.note || "");
       var segTag = note.match(/\[SEG:([^\]]+)\]/i);
       if (segTag) {
         var t0 = segmentToOrderType_(segTag[1]);
         if (t0) return t0;
       }
-      var fromSeg = segmentToOrderType_(client.segment);
-      if (fromSeg) return fromSeg;
       var src = String(client.source || client.orderType || "").toLowerCase();
       if (src === "bp" || src === "бп") return "bp";
       if (src === "pp" || src === "пп" || src === "subscription" || src === "afk") return "pp";
       if (src === "partner" || src === "партнёр" || src === "партнер") return "partner";
       if (src === "retail" || src === "розница") return "retail";
-      // системные хвосты из materialize / ПП suggest
+      // системные хвосты из materialize / ПП suggest (legacy)
       if (/\[лист\s*БП\]/i.test(note) || /\bБП\s*[12]\b/i.test(note) || /\bБП1\b|\bБП2\b/i.test(note)) return "bp";
       if (/\[лист\s*ПП\]/i.test(note) || /ПП\s*N\s*=/i.test(note) || /доставка\s*\d\/\d/i.test(note)) return "pp";
       if (/\[лист\s*АФК\]/i.test(note)) return "pp";
@@ -4916,7 +4910,7 @@
       const draftClass = isDraft ? " is-draft" : "";
       const lines = basketLinesHtml(client.basket);
       const addr = client.address ? `<div class="delivery-line addr-line">📍 ${escapeHtml(client.address)}</div>` : "";
-      const priceHtml = formatOrderPriceHtml(client.note || "");
+      const priceHtml = formatOrderPriceHtml(client);
       const human = humanVisibleNote(client.note || "", "mgr");
       const noteClean = human.text;
       const office = parseOfficeAddress(client.note || "");
@@ -4929,9 +4923,7 @@
         ? `<div class="delivery-line">${dm === "euro" ? "Европочта" : "Белпочта"}${office ? ": " + escapeHtml(office) : ""}</div>`
         : "";
       const tel = formatTelHtml(client.phone || extractPhone(client.note || ""));
-      const priceBadge = extractOrderPrice(client.note || "") != null
-        ? `<span class="client-badge" style="background:rgba(48,209,88,0.2);color:#30d158;">${extractOrderPrice(client.note)} BYN</span>`
-        : "";
+      const priceBadge = clientTechBadgesHtml_(client);
       const gapBadge = gaps.length
         ? ('<span class="gap-badge">нет: ' + escapeHtml(gapLabels(gaps).join(", ")) + "</span>")
         : "";
@@ -5575,6 +5567,12 @@
       var hn = humanVisibleNote(client.note || "", "mgr").text;
       if (hn) html += '<div class="delivery-line">Примечание: ' + escapeHtml(hn) + "</div>";
       if (client.segment) html += '<div class="delivery-line">Сегмент: ' + escapeHtml(client.segment) + "</div>";
+      if (client.ppHint || client.ppSlot) {
+        html += '<div class="delivery-line">Слот: ' + escapeHtml(client.ppHint || ("ПП " + client.ppSlot)) + "</div>";
+      }
+      if (resolveClientOrderPrice(client) != null) {
+        html += formatOrderPriceHtml(client);
+      }
       try {
         var otM = resolveClientOrderType_(client);
         if (otM === "pp" || String(client.segment || "").toUpperCase() === "АФК") {
@@ -5881,7 +5879,7 @@
       } else {
         showToast("Тип заказа не найден — выбери ПП / БП / Розница / Партнёр");
       }
-      var priceVal = extractOrderPrice(rawNote);
+      var priceVal = resolveClientOrderPrice(client);
       var priceInp = document.getElementById("orderPriceInput");
       if (priceInp && priceVal != null && ot !== "bp") {
         priceInp.value = String(priceVal);
@@ -6834,7 +6832,7 @@
             const frac = g.sub ? " (" + g.sub + ")" : "";
             return `<div class="order-detail-line"><span>• ${escapeHtml(g.name)}${escapeHtml(frac)}</span><span class="order-detail-volume">${g.val} ${unit}</span></div>`;
           }).join("");
-          const priceHtml = formatOrderPriceHtml(c.note || "", { br: true });
+          const priceHtml = formatOrderPriceHtml(c);
           const courNote = noteTextForRole(c.note || "", "cour");
           const addrPublic = courierPublicAddress_(c.address || "");
           const addrPrivate = courierPrivateAddressHtml_(c.address || "");
@@ -6843,8 +6841,7 @@
               <input type="checkbox" ${c.delivered ? "checked" : ""} onchange="toggleDelivered(${idx}, this.checked)">
               <span class="cut-title">${idx + 1}. ${escapeHtml(c.name)}</span>
               ${c.assembled ? ('<span class="client-badge" style="margin-left:8px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>') : ""}
-              ${c.ppHint ? ('<span class="client-badge" style="margin-left:8px;background:rgba(10,132,255,0.25);color:#64d2ff;">' + escapeHtml(c.ppHint) + "</span>") : ""}
-              ${extractOrderPrice(c.note || "") != null ? ('<span class="client-badge" style="margin-left:8px;background:rgba(48,209,88,0.2);color:#30d158;">' + extractOrderPrice(c.note) + " BYN</span>") : ""}
+              ${clientTechBadgesHtml_(c)}
             </label>
             <div class="courier-addr-main">${addrPublic ? ("Адрес: <b>" + escapeHtml(addrPublic) + "</b>") : "Адрес не указан"}
               <span class="muted" style="font-size:11px;"> · тап → этаж/кв</span>
@@ -7119,6 +7116,8 @@
         .replace(/\[YMAPS:[^\]]+\]/gi, "")
         .replace(/\[SEG:[^\]]*\]/gi, "")
         .replace(/\[SUB:[^\]]*\]/gi, "")
+        .replace(/\[ПП[^\]]*\]/gi, "")
+        .replace(/ПП\s*N\s*=\s*\d+[^\n[]*/gi, "")
         .replace(/\[НЕ РЕЗАТЬ\]/gi, "")
         .replace(/\[РЕЗАТЬ\]/gi, "")
         .replace(/\|\|/g, " ")
@@ -7394,21 +7393,48 @@
       const m = s.match(/(\+?375[\s\-]?\d{2}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}|\+?\d[\d\s\-]{8,}\d)/);
       return m ? m[1].replace(/\s+/g, "") : "";
     }
-    /** Цена из тега [ЦЕНА: 45 BYN] в примечании */
+    /** Цена: поле orderPrice, иначе legacy [ЦЕНА:] в note */
     function extractOrderPrice(note) {
       var m = String(note || "").match(/\[ЦЕНА:\s*([0-9]+(?:[.,][0-9]+)?)\s*BYN?\]/i);
       if (!m) return null;
       var n = Number(String(m[1]).replace(",", "."));
       return isNaN(n) ? null : n;
     }
+    function resolveClientOrderPrice(clientOrNote) {
+      if (clientOrNote && typeof clientOrNote === "object") {
+        if (clientOrNote.orderPrice != null && clientOrNote.orderPrice !== "" && !isNaN(Number(clientOrNote.orderPrice))) {
+          return Number(clientOrNote.orderPrice);
+        }
+        return extractOrderPrice(clientOrNote.note || "");
+      }
+      return extractOrderPrice(clientOrNote);
+    }
     function formatOrderPriceHtml(noteOrPrice, opts) {
-      var price = (typeof noteOrPrice === "number") ? noteOrPrice : extractOrderPrice(noteOrPrice);
+      var price = (typeof noteOrPrice === "number") ? noteOrPrice : resolveClientOrderPrice(noteOrPrice);
       if (price == null) return "";
       var br = opts && opts.br ? "<br>" : "";
       return br + '<div class="delivery-line" style="color:#30d158;font-weight:700;">Цена: ' +
         escapeHtml(String(price)) + " BYN</div>";
     }
+    function clientTechBadgesHtml_(client) {
+      var bits = [];
+      var seg = String((client && (client.segment || client.orderType)) || "").trim().toUpperCase();
+      if (!seg && client && client.source) {
+        var src = String(client.source).toLowerCase();
+        if (src === "bp") seg = "БП";
+        else if (src === "pp" || src === "subscription") seg = "ПП";
+        else if (src === "partner") seg = "ПАРТНЁР";
+        else if (src === "retail") seg = "Р";
+      }
+      if (seg) bits.push('<span class="client-badge" style="background:rgba(94,92,230,0.25);color:#bfbfff;">' + escapeHtml(seg) + "</span>");
+      var pp = String((client && (client.ppHint || (client.ppSlot ? ("ПП " + client.ppSlot) : ""))) || "").trim();
+      if (pp) bits.push('<span class="client-badge" style="background:rgba(10,132,255,0.25);color:#64d2ff;">' + escapeHtml(pp) + "</span>");
+      var price = resolveClientOrderPrice(client);
+      if (price != null) bits.push('<span class="client-badge" style="background:rgba(48,209,88,0.2);color:#30d158;">' + escapeHtml(String(price)) + " BYN</span>");
+      return bits.join(" ");
+    }
     window.extractOrderPrice = extractOrderPrice;
+    window.resolveClientOrderPrice = resolveClientOrderPrice;
     function normalizeTelHref(phone) {
       let d = String(phone || "").replace(/[^\d+]/g, "");
       if (!d) return "";
