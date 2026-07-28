@@ -3371,6 +3371,10 @@ function handleTelegramUpdate_(update) {
         handleAccessRequestCallback_(cq0);
         return;
       }
+      if (/^svsent:/i.test(cqData)) {
+        handleSurveySentCallback_(cq0);
+        return;
+      }
       handleDeficitCallback_(cq0);
       return;
     }
@@ -5009,6 +5013,102 @@ function handleDeficitCallback_(cq) {
   telegramEditDeficitDone_(cq, hit.day, hit.item);
   telegramAnswerCallback_(cq.id, "Куплено и заготовлено: " + hit.item);
   markCuttingDoneLight_(hit.day, hit.rowNum);
+  try {
+    if (cq.from) {
+      upsertCourier_(cq.from.id, [cq.from.first_name, cq.from.last_name].filter(Boolean).join(" "), cq.from.username || "");
+    }
+  } catch (e2) {}
+}
+
+/** Пометить опросник отправленным — дальше напоминания не шлём. */
+function markSurveySentById_(surveyId) {
+  surveyId = String(surveyId || "").trim();
+  if (!surveyId) return null;
+  var crmSs = getCrmSpreadsheet_();
+  var sh = ensureSurveySheet_(crmSs);
+  if (!sh || sh.getLastRow() < 2) return null;
+  var data = sh.getDataRange().getValues();
+  var tz = Session.getScriptTimeZone() || "Europe/Minsk";
+  var now = new Date();
+  var sentAt = Utilities.formatDate(now, tz, "yyyy-MM-dd HH:mm");
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][0] || "").trim() !== surveyId) continue;
+    var obj = surveyRowToObj_(data[r], r + 1);
+    writeSurveyRowCells_(sh, r + 1, [
+      obj.id,
+      obj.nick,
+      obj.stage,
+      obj.kind,
+      obj.dueDate,
+      sentAt,
+      "sent",
+      obj.templateId,
+      obj.answer,
+      obj.note,
+      obj.linkedSubId,
+      now
+    ]);
+    obj.status = "sent";
+    obj.sentAt = sentAt;
+    return obj;
+  }
+  return null;
+}
+
+function telegramEditSurveySent_(cq, nick) {
+  if (!cq || !cq.message || !cq.message.chat) return;
+  var token = getTelegramToken_();
+  if (!token) return;
+  var chatId = cq.message.chat.id;
+  var messageId = cq.message.message_id;
+  var prev = String((cq.message && cq.message.text) || "");
+  var doneText = "✅ Отправлено" + (nick ? (" · " + nick) : "") + "\nНапоминания выключены.\n\n" + prev;
+  doneText = doneText.slice(0, 3500);
+  try {
+    UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/editMessageText", {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        text: doneText,
+        reply_markup: { inline_keyboard: [] }
+      }),
+      muteHttpExceptions: true
+    });
+  } catch (eEdit) {
+    try {
+      UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/editMessageReplyMarkup", {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify({
+          chat_id: chatId,
+          message_id: messageId,
+          reply_markup: { inline_keyboard: [] }
+        }),
+        muteHttpExceptions: true
+      });
+    } catch (eMk) {}
+  }
+}
+
+function handleSurveySentCallback_(cq) {
+  var data = String((cq && cq.data) || "");
+  var m = data.match(/^svsent:(.+)$/i);
+  if (!m) {
+    telegramAnswerCallback_(cq && cq.id, "Неизвестная кнопка");
+    return;
+  }
+  var id = String(m[1] || "").trim();
+  var hit = null;
+  try { hit = markSurveySentById_(id); } catch (eM) { hit = null; }
+  if (!hit) {
+    telegramAnswerCallback_(cq && cq.id, "Опросник не найден или уже закрыт");
+    try { telegramEditSurveySent_(cq, ""); } catch (e0) {}
+    return;
+  }
+  telegramEditSurveySent_(cq, hit.nick || "");
+  telegramAnswerCallback_(cq.id, "Отправлено — напоминания выкл.");
   try {
     if (cq.from) {
       upsertCourier_(cq.from.id, [cq.from.first_name, cq.from.last_name].filter(Boolean).join(" "), cq.from.username || "");
@@ -12578,6 +12678,9 @@ function handleSaveSurvey(json, callback, fromPost) {
       ? String(json.linkedSubId || json.subId || "").trim()
       : null;
     var sentAt = json.sentAt != null ? String(json.sentAt || "").trim() : null;
+    if (status === "sent" && !sentAt) {
+      sentAt = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Minsk", "yyyy-MM-dd HH:mm");
+    }
 
     var data = sh.getDataRange().getValues();
     var rowIndex = -1;
@@ -13121,9 +13224,10 @@ function tickBpSurveyReminders_() {
       var obj = surveyRowToObj_(svData[s], s + 1);
       if (!obj.nick || !obj.dueDate) continue;
       var st = String(obj.status || "").toLowerCase();
-      // не трогаем закрытые; sent — тоже можно напоминать, если ещё «актуальный», но обычно done/cancelled
-      if (st === "done" || st === "cancelled" || st === "cancel" || st === "closed") continue;
-      if (st !== "planned" && st !== "due" && st !== "sent") continue;
+      // закрытые / уже отправленные менеджером — больше не напоминаем
+      if (st === "done" || st === "cancelled" || st === "cancel" || st === "closed" || st === "sent") continue;
+      if (String(obj.sentAt || "").trim()) continue;
+      if (st !== "planned" && st !== "due") continue;
 
       var targets = [];
       if (obj.ownerTelegramId) targets.push(String(obj.ownerTelegramId).trim());
@@ -13176,14 +13280,26 @@ function tickBpSurveyReminders_() {
           "Ваше время: " + local.slot.replace("T", " ") + " (" + personTz + ")\n\n" +
           "Текст опросника:\n" + body;
 
-        try { telegramSendText_(tid, text); } catch (eS) {}
+        var markup = null;
+        if (obj.id) {
+          markup = {
+            inline_keyboard: [[{
+              text: "✅ Отправлено",
+              callback_data: ("svsent:" + String(obj.id)).slice(0, 64)
+            }]]
+          };
+        }
+        try {
+          if (markup) telegramSendMarkup_(tid, text, markup);
+          else telegramSendText_(tid, text);
+        } catch (eS) {}
         already[key] = 1;
       }
 
       try {
         if (st === "planned" || st === "due") {
+          // только статус due — sentAt ставим кнопкой «Отправлено», не при напоминании
           shSv.getRange(s + 1, 7).setValue("due");
-          shSv.getRange(s + 1, 6).setValue(Utilities.formatDate(now, ACCESS_DEFAULT_TZ_, "yyyy-MM-dd"));
           shSv.getRange(s + 1, 12).setValue(now);
         }
       } catch (eMk) {}

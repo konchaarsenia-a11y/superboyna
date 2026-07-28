@@ -1076,7 +1076,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.38</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.39</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -11677,6 +11677,7 @@
           "</div>" +
           '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">' +
           '<button type="button" class="seg-btn" onclick="saveSurveyOwner(' + g.index + ')">Сохранить отв.</button>' +
+          '<button type="button" class="seg-btn" onclick="markSurveyStatus(' + g.index + ',\'sent\')" style="background:#1a3d2a;color:#30d158;">Отправлено</button>' +
           '<button type="button" class="seg-btn" onclick="markSurveyStatus(' + g.index + ',\'done\')">Готово</button>' +
           '<button type="button" class="seg-btn" onclick="markSurveyStatus(' + g.index + ',\'cancelled\')">Отмена</button>' +
           "</div></div></div>";
@@ -11874,7 +11875,7 @@
         _: String(Date.now())
       };
       try {
-        showToast(status === "done" ? "Сохраняю…" : "Отменяю…");
+        showToast(status === "sent" ? "Отмечаю отправлено…" : (status === "done" ? "Сохраняю…" : "Отменяю…"));
         var res = await apiGet(payload, { timeoutMs: 45000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
           // fallback: отмена по id
@@ -11883,13 +11884,13 @@
           }
         }
         if (!res || res.status !== "success") {
-          showToast("Не вышло: " + ((res && res.message) || "Deploy Code.gs v7.11.10"));
+          showToast("Не вышло: " + ((res && res.message) || "Deploy Code.gs"));
           return;
         }
-        showToast(status === "done" ? "Готово" : "Отменено");
+        showToast(status === "sent" ? "Отправлено — напоминания выкл." : (status === "done" ? "Готово" : "Отменено"));
         await loadSurveyTab_();
       } catch (e) {
-        showToast("Ошибка saveSurvey — Deploy v7.11.10");
+        showToast("Ошибка saveSurvey — Deploy Code.gs");
       }
     }
 
