@@ -9,7 +9,7 @@
     /* Telegram WebView: обновление только при смене версии (без no-cache на весь файл) */
     (function () {
       try {
-        var want = "71129";
+        var want = "71142";
         var u = new URL(location.href);
         if (u.searchParams.get("v") === want) return;
         u.searchParams.set("v", want);
@@ -228,6 +228,85 @@
       text-transform: uppercase; width: 100%; border: none; border-radius: 10px; color: #052e12; cursor: pointer;
     }
     .btn-save:disabled { opacity: 0.55; cursor: wait; }
+
+    /* Явный отклик нажатия — в TG WebView :active часто не виден */
+    button, .btn-action, .btn-save, .seg-btn, .tab-link, .crm-mini-btn, .route-mini,
+    .modal-day-btn, .order-day-chip, .order-flyout-btn, .sub-tab, .help-fab, .bug-fab,
+    .tasks-menu-btn, .view-save-bar button {
+      transition:
+        transform 0.07s ease-out,
+        filter 0.07s ease-out,
+        box-shadow 0.07s ease-out,
+        background-color 0.07s ease-out,
+        border-color 0.07s ease-out,
+        opacity 0.07s ease-out;
+      will-change: transform;
+    }
+    button:active:not(:disabled):not(.is-pressing),
+    .btn-action:active:not(:disabled),
+    .btn-save:active:not(:disabled),
+    .seg-btn:active:not(:disabled),
+    .tab-link:active,
+    .crm-mini-btn:active:not(:disabled),
+    .route-mini:active:not(:disabled),
+    .modal-day-btn:active:not(:disabled),
+    .order-day-chip:active:not(:disabled),
+    .order-flyout-btn:active,
+    .sub-tab:active,
+    .help-fab:active,
+    .bug-fab:active,
+    .tasks-menu-btn:active,
+    button.is-pressing:not(:disabled),
+    .btn-action.is-pressing:not(:disabled),
+    .btn-save.is-pressing:not(:disabled),
+    .seg-btn.is-pressing:not(:disabled),
+    .tab-link.is-pressing,
+    .crm-mini-btn.is-pressing:not(:disabled),
+    .route-mini.is-pressing:not(:disabled),
+    .modal-day-btn.is-pressing:not(:disabled),
+    .order-day-chip.is-pressing:not(:disabled),
+    .order-flyout-btn.is-pressing,
+    .sub-tab.is-pressing,
+    .help-fab.is-pressing,
+    .bug-fab.is-pressing,
+    .tasks-menu-btn.is-pressing {
+      transform: scale(0.93);
+      filter: brightness(1.35) saturate(1.15);
+      box-shadow:
+        0 0 0 2px rgba(255, 255, 255, 0.42),
+        0 0 18px rgba(255, 122, 0, 0.55);
+    }
+    .btn-save:active:not(:disabled),
+    .btn-save.is-pressing:not(:disabled) {
+      filter: brightness(1.2) saturate(1.1);
+      box-shadow:
+        0 0 0 3px rgba(255, 255, 255, 0.55),
+        0 0 22px rgba(48, 209, 88, 0.65);
+    }
+    .btn-action.btn-blue:active:not(:disabled),
+    .btn-action.btn-blue.is-pressing:not(:disabled),
+    .seg-btn.active:active,
+    .seg-btn.active.is-pressing {
+      box-shadow:
+        0 0 0 2px rgba(255, 255, 255, 0.5),
+        0 0 20px rgba(255, 122, 0, 0.7);
+    }
+    .btn-inline-del:active,
+    .btn-inline-del.is-pressing {
+      transform: translateY(-50%) scale(0.88);
+      filter: brightness(1.4);
+      box-shadow: none;
+      color: #ff6961;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      button, .btn-action, .btn-save, .seg-btn, .tab-link {
+        transition: none;
+      }
+      button.is-pressing, .btn-action.is-pressing, .btn-save.is-pressing {
+        transform: none;
+        filter: brightness(1.4);
+      }
+    }
 
     /* perf: неактивные экраны не участвуют в layout */
     .screen:not(.active) {
@@ -1035,7 +1114,6 @@
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
     }
-    .order-day-chip:active { transform: scale(0.97); }
     .order-day-chip.is-active {
       border-color: rgba(255,122,0,0.7);
       background: rgba(255,122,0,0.14);
@@ -1076,7 +1154,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.41</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.42</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1953,7 +2031,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.41";
+    const APP_VERSION = "v7.11.42";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -2156,6 +2234,48 @@
         } catch (e) {}
       }
     } catch (e) {}
+
+    // Явный press-feedback: класс is-pressing + лёгкий haptic (в WebView :active часто не рисуется)
+    (function installButtonPressFeedback_() {
+      var SEL = "button,.btn-action,.btn-save,.seg-btn,.tab-link,.crm-mini-btn,.route-mini," +
+        ".modal-day-btn,.order-day-chip,.order-flyout-btn,.sub-tab,.help-fab,.bug-fab,.tasks-menu-btn";
+      var lastHaptic = 0;
+      function btnFrom(t) {
+        if (!t || !t.closest) return null;
+        var b = t.closest(SEL);
+        if (!b) return null;
+        if (b.disabled || b.getAttribute("aria-disabled") === "true") return null;
+        if (b.classList && b.classList.contains("is-empty") && b.disabled) return null;
+        return b;
+      }
+      function clearPress() {
+        try {
+          document.querySelectorAll(".is-pressing").forEach(function (el) {
+            el.classList.remove("is-pressing");
+          });
+        } catch (eC) {}
+      }
+      function onDown(ev) {
+        var b = btnFrom(ev.target);
+        if (!b) return;
+        b.classList.add("is-pressing");
+        var now = Date.now();
+        if (now - lastHaptic > 45) {
+          lastHaptic = now;
+          try {
+            if (tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred) {
+              tg.HapticFeedback.impactOccurred("light");
+            }
+          } catch (eH) {}
+        }
+      }
+      function onUp() { clearPress(); }
+      document.addEventListener("pointerdown", onDown, true);
+      document.addEventListener("pointerup", onUp, true);
+      document.addEventListener("pointercancel", onUp, true);
+      document.addEventListener("lostpointercapture", onUp, true);
+      window.addEventListener("blur", clearPress);
+    })();
 
     // Скролл внутри колонок Просмотра не должен уезжать в «свернуть» миниапп
     try {
