@@ -9749,6 +9749,151 @@ function parseMemoryDateLoose_(v, tz) {
   return null;
 }
 
+/** История ПП-клиента в мини-аппе: был ли, последняя доставка, какой слот ждать. */
+function findPpClientHistoryMeta_(ss, clientName, asOfDate) {
+  var tz = (ss && ss.getSpreadsheetTimeZone()) || "Europe/Minsk";
+  var asOf = asOfDate instanceof Date ? asOfDate : (parseFlexibleDate_(asOfDate, tz) || new Date());
+  var asOfDay = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
+  var wantKey = clientMatchKey_(clientName) || "";
+  var wantU = String(clientName || "").trim().toUpperCase();
+  var everSeen = false;
+  var lastDate = null;
+  var lastSlot = 0;
+
+  function considerDate_(d, slotHint) {
+    if (!d || isNaN(d.getTime())) return;
+    var day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    everSeen = true;
+    if (!lastDate || day.getTime() > lastDate.getTime()) {
+      lastDate = day;
+      if (slotHint >= 1) lastSlot = slotHint;
+    } else if (lastDate && day.getTime() === lastDate.getTime() && slotHint >= 1) {
+      lastSlot = slotHint;
+    }
+  }
+
+  function slotFromLabel_(raw) {
+    return parseForcedPpSlot_(raw, 2) || 0;
+  }
+
+  // Календарь_Дат — факт «числился в мини-аппе»
+  try {
+    var cal = readAllCalendarRows_();
+    for (var i = 0; i < cal.length; i++) {
+      var st = String(cal[i].status || "").toLowerCase();
+      if (st === "cancelled") continue;
+      var mk = cal[i].matchKey || clientMatchKey_(cal[i].client) || "";
+      if (!(mk && wantKey && mk === wantKey) && !nicksMatch_(cal[i].client, clientName)) continue;
+      everSeen = true;
+      var bd = parseFlexibleDate_(cal[i].date, tz) || parseFlexibleDate_(cal[i].dateIso, tz);
+      considerDate_(bd, slotFromLabel_(cal[i].ppSlot));
+    }
+  } catch (eCal) {}
+
+  // Брони
+  try {
+    var books = readAllBookings_();
+    for (var b = 0; b < books.length; b++) {
+      if (String(books[b].status || "").toLowerCase() === "cancelled") continue;
+      if (!nicksMatch_(books[b].client, clientName)) continue;
+      everSeen = true;
+      considerDate_(parseFlexibleDate_(books[b].date, tz), slotFromLabel_(books[b].ppSlot));
+    }
+  } catch (eBk) {}
+
+  // Память_Доставок — реальные галочки «доставлен»
+  try {
+    var memory = getMemoryCourierSheet_();
+    if (memory && memory.getLastRow() >= 1) {
+      var data = memory.getDataRange().getValues();
+      for (var r = 0; r < data.length; r++) {
+        var rawKey = String(data[r][0] || "");
+        if (/^(PP_CYCLE:|WEEK_PAID:)/i.test(rawKey)) {
+          // цикл месяца: слот1/слот2
+          if (/^PP_CYCLE:/i.test(rawKey)) {
+            var store = null;
+            try { store = JSON.parse(String(data[r][1] || "")); } catch (eS) { store = null; }
+            if (store && typeof store === "object") {
+              var ent = store[wantKey] || store[wantU];
+              if (ent && typeof ent === "object") {
+                everSeen = true;
+                if (ent.slot2 && ent.slot2.date) {
+                  considerDate_(parseMemoryDateLoose_(ent.slot2.date, tz) || parseFlexibleDate_(ent.slot2.date, tz), 2);
+                }
+                if (ent.slot1 && ent.slot1.date) {
+                  considerDate_(parseMemoryDateLoose_(ent.slot1.date, tz) || parseFlexibleDate_(ent.slot1.date, tz), 1);
+                }
+              }
+            }
+          }
+          continue;
+        }
+        var parsed = parseMemoryDateLoose_(data[r][0], tz);
+        if (!parsed) continue;
+        var mem = null;
+        try { mem = JSON.parse(String(data[r][1] || "")); } catch (eJ) { mem = null; }
+        if (!mem || typeof mem !== "object" || Object.prototype.toString.call(mem) === "[object Array]") continue;
+        var hit = false;
+        if (wantU && normalizeMemDelivered_(mem[wantU])) hit = true;
+        if (!hit && wantKey && normalizeMemDelivered_(mem[wantKey])) hit = true;
+        if (!hit) {
+          for (var k in mem) {
+            if (!Object.prototype.hasOwnProperty.call(mem, k)) continue;
+            if (nicksMatch_(k, clientName) && normalizeMemDelivered_(mem[k])) { hit = true; break; }
+          }
+        }
+        if (hit) considerDate_(parsed, 0);
+      }
+    }
+  } catch (eMem) {}
+
+  // профиль «Клиенты»
+  try {
+    var phone = lookupClientProfilePhone_(ss, clientName);
+    if (phone) everSeen = true;
+    var sh = getClientsProfilesSheet_();
+    var pdata = sh.getDataRange().getValues();
+    for (var p = 1; p < pdata.length; p++) {
+      var n = String(pdata[p][0] || "").trim();
+      if (!n) continue;
+      if (nicksMatch_(n, clientName) || (wantKey && clientMatchKey_(n) === wantKey)) {
+        everSeen = true;
+        var upd = pdata[p][4];
+        if (upd) considerDate_(upd instanceof Date ? upd : parseFlexibleDate_(upd, tz), 0);
+        break;
+      }
+    }
+  } catch (eProf) {}
+
+  var daysSince = null;
+  if (lastDate) {
+    daysSince = Math.floor((asOfDay.getTime() - lastDate.getTime()) / 86400000);
+    if (daysSince < 0) daysSince = 0;
+  }
+
+  // какая «должна быть» следующая: после 1 → 2, после 2 (или неизвестно) → 1
+  var suggestedSlot = 1;
+  if (lastSlot === 1) suggestedSlot = 2;
+  else if (lastSlot === 2) suggestedSlot = 1;
+  else if (lastSlot >= 1) suggestedSlot = lastSlot;
+
+  var needConfirmSlot = !everSeen || daysSince == null || daysSince > 30;
+
+  return {
+    everSeen: everSeen,
+    lastDeliveryDate: lastDate ? dateKey_(lastDate, tz) : "",
+    daysSinceLastDelivery: daysSince,
+    lastSlot: lastSlot,
+    suggestedSlot: suggestedSlot,
+    needConfirmSlot: needConfirmSlot
+  };
+}
+
+function shouldAskPpSlotConfirm_(deliveriesN, historyMeta) {
+  if (!(Number(deliveriesN) >= 2)) return false;
+  return !!(historyMeta && historyMeta.needConfirmSlot);
+}
+
 /** Сколько раз клиент уже отмечен доставленным в этом календарном месяце (по Память_Доставок + лист Доставки). */
 function countPpDeliveredThisMonth_(ss, clientName, dateValue, tz, excludeDateText) {
   var want = String(clientName || "").trim().toUpperCase();
@@ -9845,15 +9990,26 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
   var slot = resolved.slot || 1;
   var cycle = resolved.cycle;
   var deliveredBefore = Number(resolved.deliveredBefore) || 0;
-  // первая доставка месяца в мини-апп: слот ещё не зафиксирован — менеджер выбирает ПП1/ПП2
-  var needManualSlot = (deliveriesN >= 2) && !(cycle && cycle.slot1) && deliveredBefore <= 0;
+  var history = findPpClientHistoryMeta_(ss, nick, dateValue);
+  // уточнять слот только если клиент новый для мини-аппа ИЛИ >30 дней с последней доставки
+  var needManualSlot = shouldAskPpSlotConfirm_(deliveriesN, history);
+  // помним «какая должна быть»: из истории, иначе авто-слот месяца
+  var suggestedSlot = Number(history.suggestedSlot) || Number(slot) || 1;
+  if (!(cycle && cycle.slot1) && deliveredBefore <= 0 && history.lastSlot >= 1) {
+    suggestedSlot = history.suggestedSlot || suggestedSlot;
+  } else if (!needManualSlot) {
+    suggestedSlot = slot;
+  }
   var forced = parseForcedPpSlot_(
     opts.deliverySlot != null ? opts.deliverySlot : (opts.slot != null ? opts.slot : opts.ppSlot),
     deliveriesN
   );
   if (forced >= 1) {
     slot = forced;
-    needManualSlot = false;
+  } else if (needManualSlot) {
+    slot = suggestedSlot;
+  } else {
+    slot = suggestedSlot = Number(resolved.slot) || 1;
   }
 
   var slot1Basket = cycle && cycle.slot1 && cycle.slot1.basket ? cycle.slot1.basket : [];
@@ -9919,7 +10075,12 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
     deliveriesN: deliveriesN,
     deliverySlot: slot,
     ppSlot: formatPpSlotLabel_(slot, deliveriesN),
-    needManualSlot: needManualSlot && forced < 1,
+    suggestedSlot: suggestedSlot,
+    needManualSlot: !!(needManualSlot && forced < 1),
+    everSeenInApp: !!history.everSeen,
+    daysSinceLastDelivery: history.daysSinceLastDelivery,
+    lastSlot: history.lastSlot || 0,
+    lastDeliveryDate: history.lastDeliveryDate || "",
     paid: paid,
     askPaid: askPaid,
     factCost: factCost,
@@ -9928,7 +10089,8 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
     slot1Basket: slot1Basket,
     remainingBasket: remaining,
     hint: deliveriesN >= 2
-      ? ("ПП N=" + deliveriesN + " · доставка " + slot + "/" + deliveriesN + (slot >= 2 ? " (остаток)" : " (доля)"))
+      ? ("ПП N=" + deliveriesN + " · доставка " + slot + "/" + deliveriesN + (slot >= 2 ? " (остаток)" : " (доля)") +
+        (needManualSlot && forced < 1 ? " · уточни слот" : ""))
       : (deliveriesN === 1 ? "ПП N=1 · состав целиком" : "ПП: состав с листа")
   };
 }
@@ -12654,12 +12816,20 @@ function handleGetPpFactCost(json, callback, fromPost) {
         if (!dateValue && json.day) dateValue = getDayDate_(ss, String(json.day || "").trim());
         if (!dateValue) dateValue = new Date();
         var resolved = resolvePpDeliverySlot_(ss, nick, dateValue, tz, false);
-        out.deliverySlot = resolved.slot || 1;
-        out.needManualSlot = !(resolved.cycle && resolved.cycle.slot1) && !(Number(resolved.deliveredBefore) > 0);
+        var history = findPpClientHistoryMeta_(ss, nick, dateValue);
+        out.needManualSlot = shouldAskPpSlotConfirm_(out.deliveries, history);
+        out.suggestedSlot = Number(history.suggestedSlot) || Number(resolved.slot) || 1;
+        if (!out.needManualSlot) out.suggestedSlot = Number(resolved.slot) || 1;
+        out.deliverySlot = out.suggestedSlot;
         out.ppSlot = formatPpSlotLabel_(out.deliverySlot, out.deliveries);
+        out.everSeenInApp = !!history.everSeen;
+        out.daysSinceLastDelivery = history.daysSinceLastDelivery;
+        out.lastSlot = history.lastSlot || 0;
+        out.lastDeliveryDate = history.lastDeliveryDate || "";
       } catch (eSlot) {
         out.needManualSlot = true;
         out.deliverySlot = 1;
+        out.suggestedSlot = 1;
       }
     }
   } catch (e) {

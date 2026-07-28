@@ -1076,7 +1076,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.36</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.37</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1172,7 +1172,7 @@
               <button type="button" class="seg-btn" id="ppSlot1Btn" style="flex:1;" onclick="setPpDeliverySlot(1)">ПП 1</button>
               <button type="button" class="seg-btn" id="ppSlot2Btn" style="flex:1;" onclick="setPpDeliverySlot(2)">ПП 2</button>
             </div>
-            <div class="field-hint" id="ppSlotPickHint" style="margin-top:6px;">У клиента 2 доставки — выбери, какая это сейчас</div>
+            <div class="field-hint" id="ppSlotPickHint" style="margin-top:6px;">Должна быть эта доставка — уточни ПП 1 или ПП 2</div>
           </div>
           <button type="button" class="btn-action btn-blue" id="btnPpSuggest" style="display:none;margin-top:6px;" onclick="suggestPpBasketFromSheet()">Состав из листа ПП</button>
           <button type="button" class="btn-action" id="btnRetailPriceAuto" style="display:none;margin-top:6px;background:#3a3a3c;" onclick="resetRetailPriceToAuto()">По прайсу витрины</button>
@@ -1945,7 +1945,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.36";
+    const APP_VERSION = "v7.11.37";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -2911,6 +2911,7 @@
     function updatePpSlotPickUi_(opts) {
       opts = opts || {};
       var group = document.getElementById("ppSlotPickGroup");
+      var pickHint = document.getElementById("ppSlotPickHint");
       if (!group) return;
       var show = orderType === "pp" && (opts.needManualSlot || ppNeedManualSlot) && (opts.deliveriesN || ppDeliveriesN) >= 2;
       group.style.display = show ? "" : "none";
@@ -2926,8 +2927,21 @@
         return;
       }
       ppNeedManualSlot = true;
-      if (ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2) {
+      var suggested = Number(opts.suggestedSlot) || ppDeliverySlotManual || 1;
+      if (!(ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2)) {
+        setPpDeliverySlot(suggested);
+      } else {
         setPpDeliverySlot(ppDeliverySlotManual);
+      }
+      if (pickHint) {
+        var why = "";
+        if (opts.everSeenInApp === false) why = "клиент ещё не был в мини-аппе";
+        else if (opts.daysSinceLastDelivery != null && opts.daysSinceLastDelivery > 30) {
+          why = "прошло " + opts.daysSinceLastDelivery + " дн. с последней доставки";
+        } else {
+          why = "уточни слот на всякий случай";
+        }
+        pickHint.textContent = "Должна быть ПП " + suggested + " (" + why + ") — подтверди или смени";
       }
     }
 
@@ -3058,9 +3072,13 @@
           ppDeliveriesN = Number(res.deliveries) || 0;
           if (inp) inp.placeholder = "N=" + (ppDeliveriesN || "?");
           ppNeedManualSlot = !!(res.needManualSlot && ppDeliveriesN >= 2);
+          var suggested = Number(res.suggestedSlot || res.deliverySlot) || 1;
+          if (ppNeedManualSlot) {
+            ppDeliverySlotManual = suggested;
+          }
           if (hint) {
             if (ppNeedManualSlot) {
-              hint.textContent = "Доставок в месяц: N=" + ppDeliveriesN + " · выбери ПП 1 или ПП 2";
+              hint.textContent = "N=" + ppDeliveriesN + " · должна быть ПП " + suggested + " — уточни";
             } else if (ppDeliveriesN) {
               hint.textContent = "Доставок в месяц: N=" + ppDeliveriesN +
                 (res.deliverySlot ? (" · слот " + res.deliverySlot) : "");
@@ -3071,9 +3089,11 @@
           }
           updatePpSlotPickUi_({
             needManualSlot: ppNeedManualSlot,
-            deliveriesN: ppDeliveriesN
+            deliveriesN: ppDeliveriesN,
+            suggestedSlot: suggested,
+            everSeenInApp: res.everSeenInApp,
+            daysSinceLastDelivery: res.daysSinceLastDelivery
           });
-          // если слот уже известен и ручной не нужен — запомнить для save
           if (!ppNeedManualSlot && res.deliverySlot >= 1 && ppDeliveriesN >= 2) {
             ppDeliverySlotManual = Number(res.deliverySlot) || 1;
           }
@@ -4320,7 +4340,7 @@
         }
       }
       if (orderType === "pp" && ppNeedManualSlot && !(ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2)) {
-        await uiAlertAsync("У клиента 2 доставки в месяц — выбери ПП 1 или ПП 2");
+        await uiAlertAsync("Уточни слот: ПП 1 или ПП 2");
         return;
       }
       var ppSlotPayload = currentPpSlotPayload_();
