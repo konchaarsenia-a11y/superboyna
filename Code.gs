@@ -1204,6 +1204,8 @@ function doGet(e) {
       address: e.parameter.address ? decodeURIComponent(e.parameter.address) : "",
       phone: e.parameter.phone ? decodeURIComponent(e.parameter.phone) : "",
       note: e.parameter.note ? decodeURIComponent(e.parameter.note) : "",
+      permanentNote: e.parameter.permanentNote ? decodeURIComponent(e.parameter.permanentNote) : "",
+      orderType: e.parameter.orderType ? decodeURIComponent(e.parameter.orderType) : "",
       orderPrice: e.parameter.orderPrice,
       deliverySlot: e.parameter.deliverySlot || e.parameter.slot || "",
       ppSlot: e.parameter.ppSlot ? decodeURIComponent(e.parameter.ppSlot) : "",
@@ -1211,7 +1213,12 @@ function doGet(e) {
       alsoSaveOrder: e.parameter.alsoSaveOrder,
       basket: basketBk,
       geo: geoBk,
-      subId: e.parameter.subId ? decodeURIComponent(e.parameter.subId) : ""
+      subId: e.parameter.subId ? decodeURIComponent(e.parameter.subId) : "",
+      survey: (function () {
+        try {
+          return e.parameter.survey ? JSON.parse(decodeURIComponent(e.parameter.survey)) : null;
+        } catch (eSv) { return null; }
+      })()
     }, callback, false);
   }
 
@@ -2510,7 +2517,10 @@ function resolveDayForOrderWrite_(ss, json) {
  */
 function handleSaveOrder(ss, json, callback, fromPost) {
   if (fromPost === undefined) fromPost = true;
+  // "internal" — вложенный вызов из saveBooking: без HTTP-ответа, только объект результата
+  var silent = fromPost === "internal" || fromPost === "silent";
   var reply = function (obj) {
+    if (silent) return obj;
     return fromPost ? jsonpText(callback, obj) : jsonp(callback, obj);
   };
   json = json || {};
@@ -5802,8 +5812,8 @@ function handleSaveBooking(ss, json, callback, fromPost) {
   var weekWrite = null;
   if (shouldWriteWeek && targetDay) {
     try {
-      // полный путь saveOrder — надёжнее, чем только writeBasket
-      handleSaveOrder(ss, {
+      // полный путь saveOrder — надёжнее, чем только writeBasket (silent: без второго HTTP-ответа)
+      var soRes = handleSaveOrder(ss, {
         day: targetDay,
         date: deliveryDate,
         client: client,
@@ -5814,9 +5824,23 @@ function handleSaveBooking(ss, json, callback, fromPost) {
         geo: json.geo || null,
         orderPrice: json.orderPrice,
         orderType: json.orderType || json.source || "",
-        permanentNote: json.permanentNote || ""
-      }, "cb", true);
-      weekWrite = { ok: true, day: targetDay };
+        permanentNote: json.permanentNote || "",
+        ppSlot: ppSlotSave || json.ppSlot || "",
+        deliverySlot: json.deliverySlot != null ? json.deliverySlot : json.slot,
+        survey: json.survey || null
+      }, null, "internal");
+      if (soRes && soRes.status === "success") {
+        weekWrite = {
+          ok: true,
+          day: targetDay,
+          wrote: Number(soRes.wrote || 0),
+          missed: soRes.missed || []
+        };
+      } else if (soRes && soRes.status) {
+        weekWrite = { ok: false, day: targetDay, status: soRes.status, message: soRes.message || "" };
+      } else {
+        weekWrite = { ok: true, day: targetDay };
+      }
     } catch (eSaveW) {
       try {
         weekWrite = writeBasketToDayColumn_(ss, targetDay, client,
@@ -5832,6 +5856,8 @@ function handleSaveBooking(ss, json, callback, fromPost) {
     date: dateStr,
     dayName: dayName || targetDay || "",
     weekWritten: !!(weekWrite && weekWrite.ok),
+    wrote: weekWrite && weekWrite.wrote != null ? Number(weekWrite.wrote) : null,
+    missed: (weekWrite && weekWrite.missed) || [],
     materialized: !!(materializeResult && materializeResult.ok),
     lateNotify: notifyLines.length > 0 && isLateChangeForDelivery_(deliveryDate, now),
     delta: notifyLines

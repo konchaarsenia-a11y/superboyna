@@ -1076,7 +1076,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.40</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.41</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -1953,7 +1953,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.40";
+    const APP_VERSION = "v7.11.41";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3645,7 +3645,7 @@
         ov.style.pointerEvents = "none";
       }
     }
-    function showSaveLoading(label) {
+    function showSaveLoading(label, timeoutMs) {
       const ov = document.getElementById("saveLoadOverlay");
       const lb = document.getElementById("saveLoadLabel");
       if (lb) lb.textContent = label || "Сохраняю заказ…";
@@ -3654,14 +3654,30 @@
         ov.style.pointerEvents = "auto";
         ov.classList.add("open");
       }
-      // страховка: не оставлять чёрный экран навечно при сбое сети
+      // БП/ПП: saveBooking уже пишет неделю — путь может быть 40–90 с; сторож ≥ ответа API
+      var ms = Number(timeoutMs);
+      if (!(ms > 0)) ms = 120000;
       try {
         if (window._saveLoadTimer) clearTimeout(window._saveLoadTimer);
         window._saveLoadTimer = setTimeout(function () {
           hideSaveLoading();
           try { showToast("Сохранение зависло — UI разблокирован"); } catch (e0) {}
-        }, 28000);
+        }, ms);
       } catch (e1) {}
+    }
+    function bumpSaveLoading(label) {
+      var lb = document.getElementById("saveLoadLabel");
+      if (lb && label) lb.textContent = label;
+      var ov = document.getElementById("saveLoadOverlay");
+      if (ov && ov.classList.contains("open")) {
+        try {
+          if (window._saveLoadTimer) clearTimeout(window._saveLoadTimer);
+          window._saveLoadTimer = setTimeout(function () {
+            hideSaveLoading();
+            try { showToast("Сохранение зависло — UI разблокирован"); } catch (e0) {}
+          }, 120000);
+        } catch (eB) {}
+      }
     }
 
     function clearBlockingOverlays() {
@@ -4438,7 +4454,7 @@
       const btn = document.getElementById("btnMainSave");
       btn.disabled = true;
       btn.innerText = "Сохраняю...";
-      showSaveLoading("Сохраняю заказ…");
+      showSaveLoading("Сохраняю заказ…", 120000);
 
       // при смене ника/дня — сначала убрать старую колонку, чтобы не плодить/не затирать чужие
       if (isEdit && editOriginalClient) {
@@ -4507,6 +4523,7 @@
         var dateOnWeek = false;
         var resolvedDayName = "";
         try {
+          bumpSaveLoading("Сверяю дату…");
           var resolved = await apiGet(
             { action: "resolveDayForDate", date: deliveryDate },
             { timeoutMs: 12000, cacheTtlMs: 60000 }
@@ -4547,6 +4564,8 @@
           address: clientAddress,
           phone: phone || "",
           note: clientNote || "",
+          permanentNote: permanentNote || "",
+          orderType: orderType || "",
           orderPrice: orderPrice != null ? String(orderPrice) : "",
           deliverySlot: ppSlotPayload.deliverySlot ? String(ppSlotPayload.deliverySlot) : "",
           ppSlot: ppSlotPayload.ppSlot || "",
@@ -4554,6 +4573,9 @@
           basket: basketJson
         };
         if (geoJson) bookParams.geo = geoJson;
+        if (surveyMeta) {
+          try { bookParams.survey = JSON.stringify(surveyMeta); } catch (eSv) {}
+        }
 
         var bookRes = null;
         var saveRes = null;
@@ -4575,11 +4597,20 @@
 
         if (useJsonpSave) {
           try {
-            bookRes = await apiGet(bookParams, { timeoutMs: 60000, cacheTtlMs: 0 });
+            bumpSaveLoading(weekDayToSave ? "Бронь + лист недели…" : "Сохраняю бронь…");
+            bookRes = await apiGet(bookParams, { timeoutMs: 90000, cacheTtlMs: 0 });
           } catch (eBook) {
             bookRes = { status: "error", message: eBook.message || String(eBook) };
           }
-          if (weekDayToSave) {
+          // saveBooking(alsoSaveOrder=1) уже вызывает saveOrder на бэке — второй раз только если не записал
+          if (weekDayToSave && bookRes && bookRes.status === "success" && bookRes.weekWritten) {
+            saveRes = {
+              status: "success",
+              wrote: bookRes.wrote != null ? Number(bookRes.wrote) : basket.length,
+              basketLen: basket.length,
+              missed: bookRes.missed || []
+            };
+          } else if (weekDayToSave) {
             var orderParams = {
               action: "saveOrder",
               day: weekDayToSave,
@@ -4598,7 +4629,8 @@
             if (geoJson) orderParams.geo = geoJson;
             if (surveyMeta) orderParams.survey = JSON.stringify(surveyMeta);
             try {
-              saveRes = await apiGet(orderParams, { timeoutMs: 60000, cacheTtlMs: 0 });
+              bumpSaveLoading("Пишу в лист недели…");
+              saveRes = await apiGet(orderParams, { timeoutMs: 90000, cacheTtlMs: 0 });
             } catch (eWeek) {
               saveRes = { status: "error", message: eWeek.message || String(eWeek) };
             }
@@ -4609,13 +4641,18 @@
         var needPost = !useJsonpSave ||
           (weekDayToSave && basket.length && (!saveRes || saveRes.status !== "success" || Number(saveRes.wrote || 0) === 0));
         if (needPost) {
+          bumpSaveLoading("Сохраняю (повтор)…");
           bookingPayload.day = weekDayToSave || day || editOriginalDay || "";
           bookingPayload.alsoSaveOrder = !!weekDayToSave;
+          bookingPayload.permanentNote = permanentNote || "";
+          bookingPayload.orderType = orderType || "";
+          if (surveyMeta) bookingPayload.survey = surveyMeta;
           try { await apiPost(bookingPayload); } catch (ePostB) {}
           if (weekDayToSave) {
             payload.day = weekDayToSave;
             payload.date = deliveryDate;
             try { await apiPost(payload); } catch (ePost) {}
+            bumpSaveLoading("Проверяю лист…");
             var verified = await verifyWeekBasket_();
             if (verified > 0) {
               saveRes = { status: "success", wrote: verified, basketLen: basket.length };
@@ -4670,6 +4707,61 @@
           });
         } catch (eMem) {}
 
+        if (orderType === "bp" && surveyMeta && surveyMeta.createCard) {
+          try {
+            bumpSaveLoading("Карточка БП…");
+            var bpBasketMapped = basket.map(function(g){
+              return { cat:g.cat, main:g.main||g.name, name:g.name||g.main, sub:g.sub||"", val:g.val!=null?g.val:g.value, value:g.val!=null?g.val:g.value };
+            });
+            var bpStatus = normalizeBpStage_(surveyMeta.status || "БП1");
+            var bpKind = surveyMeta.surveyKind || (bpStatus === "ФИНАЛ" ? "final" : "bp2");
+            var bpDue = surveyMeta.surveyDate || ymdPlusDaysLocal_(deliveryDate || "", 4);
+            // один вызов: JSONP (есть статус); POST только как запасной если GET упал
+            var bpOk = false;
+            try {
+              var bpRes = await apiGet({
+                action: "ensureBpFromOrder",
+                nick: clientName,
+                createCard: "1",
+                needSurvey: surveyMeta.needSurvey ? "1" : "0",
+                status: bpStatus,
+                surveyDate: bpDue,
+                surveyKind: bpKind,
+                compositionDate: deliveryDate || "",
+                subId: surveyMeta.subId || "",
+                ownerTelegramId: surveyMeta.ownerTelegramId || "",
+                ownerName: surveyMeta.ownerName || "",
+                wishes: clientNote || "",
+                basket: JSON.stringify(bpBasketMapped)
+              }, { timeoutMs: 60000, cacheTtlMs: 0 });
+              bpOk = !!(bpRes && bpRes.status === "success");
+            } catch (eBpGet) { bpOk = false; }
+            if (!bpOk) {
+              try {
+                await apiPost({
+                  action: "ensureBpFromOrder",
+                  nick: clientName,
+                  createCard: true,
+                  needSurvey: !!surveyMeta.needSurvey,
+                  status: bpStatus,
+                  surveyDate: bpDue,
+                  surveyKind: bpKind,
+                  compositionDate: deliveryDate || "",
+                  subId: surveyMeta.subId || "",
+                  ownerTelegramId: surveyMeta.ownerTelegramId || "",
+                  ownerName: surveyMeta.ownerName || "",
+                  wishes: clientNote || "",
+                  basket: bpBasketMapped
+                });
+              } catch (ePostBp) {}
+            }
+            surveyMeta._bpToast = bpStatus === "ФИНАЛ"
+              ? ("Финал · опрос через 4 дня (" + bpDue + ")")
+              : ("БП · " + bpStatus + " · опрос через 4 дня (" + bpDue + ")");
+            if (surveyMeta.advance === "to_final") surveyMeta._bpToast = "2-я доставка → Финал · опрос " + bpDue;
+          } catch (eBp) { surveyMeta._bpToast = ""; surveyMeta._bpWarn = true; }
+        }
+
         // лоадер снять ДО тостов/очистки — иначе ошибка в cleanup держит кружок поверх модалки
         hideSaveLoading();
 
@@ -4683,51 +4775,8 @@
             " · состав " + savedItems + " поз. В нужный день — «Доукомплектовать»");
         }
         if (orderType === "bp" && surveyMeta && surveyMeta.createCard) {
-          try {
-            var bpBasketMapped = basket.map(function(g){
-              return { cat:g.cat, main:g.main||g.name, name:g.name||g.main, sub:g.sub||"", val:g.val!=null?g.val:g.value, value:g.val!=null?g.val:g.value };
-            });
-            var bpStatus = normalizeBpStage_(surveyMeta.status || "БП1");
-            var bpKind = surveyMeta.surveyKind || (bpStatus === "ФИНАЛ" ? "final" : "bp2");
-            var bpDue = surveyMeta.surveyDate || ymdPlusDaysLocal_(deliveryDate || "", 4);
-            await apiGet({
-              action: "ensureBpFromOrder",
-              nick: clientName,
-              createCard: "1",
-              needSurvey: surveyMeta.needSurvey ? "1" : "0",
-              status: bpStatus,
-              surveyDate: bpDue,
-              surveyKind: bpKind,
-              compositionDate: deliveryDate || "",
-              subId: surveyMeta.subId || "",
-              ownerTelegramId: surveyMeta.ownerTelegramId || "",
-              ownerName: surveyMeta.ownerName || "",
-              wishes: clientNote || "",
-              basket: JSON.stringify(bpBasketMapped)
-            }, { timeoutMs: 60000, cacheTtlMs: 0 });
-            try {
-              await apiPost({
-                action: "ensureBpFromOrder",
-                nick: clientName,
-                createCard: true,
-                needSurvey: !!surveyMeta.needSurvey,
-                status: bpStatus,
-                surveyDate: bpDue,
-                surveyKind: bpKind,
-                compositionDate: deliveryDate || "",
-                subId: surveyMeta.subId || "",
-                ownerTelegramId: surveyMeta.ownerTelegramId || "",
-                ownerName: surveyMeta.ownerName || "",
-                wishes: clientNote || "",
-                basket: bpBasketMapped
-              });
-            } catch (ePostBp) {}
-            var toastBp = bpStatus === "ФИНАЛ"
-              ? ("Финал · опрос через 4 дня (" + bpDue + ")")
-              : ("БП · " + bpStatus + " · опрос через 4 дня (" + bpDue + ")");
-            if (surveyMeta.advance === "to_final") toastBp = "2-я доставка → Финал · опрос " + bpDue;
-            showToast(toastBp);
-          } catch (eBp) { showToast("Заказ ок, БП-карточку проверь вручную"); }
+          if (surveyMeta._bpWarn) showToast("Заказ ок, БП-карточку проверь вручную");
+          else if (surveyMeta._bpToast) showToast(surveyMeta._bpToast);
         }
 
         const card = document.querySelector("#orderScreen .card");
