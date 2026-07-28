@@ -9,7 +9,7 @@
     /* Telegram WebView: обновление только при смене версии (без no-cache на весь файл) */
     (function () {
       try {
-        var want = "71143";
+        var want = "71144";
         var u = new URL(location.href);
         if (u.searchParams.get("v") === want) return;
         u.searchParams.set("v", want);
@@ -990,7 +990,8 @@
     .pack-type-cell .l { display:block; font-size:10px; color:var(--text-muted); margin-top:2px; }
     .pack-type-cell .fracs { display:block; margin-top:6px; font-size:10px; line-height:1.35; color:var(--text-muted); text-align:left; }
     .pack-type-cell .fracs b { color:var(--text-main, #eee); font-weight:600; }
-    .tel-link { color:var(--accent-color); text-decoration:none; font-weight:600; }
+    .tel-link { color:var(--accent-color); text-decoration:underline; font-weight:700; -webkit-tap-highlight-color: rgba(255,122,0,0.35); }
+    .courier-tel-line { margin-top: 6px; font-size: 14px; }
     .save-load-overlay {
       display:none; position:fixed; inset:0; z-index:10002; background:rgba(0,0,0,.82);
       align-items:center; justify-content:center; flex-direction:column;
@@ -1154,7 +1155,7 @@
     <div class="app-top" id="appTopBar">
       <div class="app-top-inner">
         <div class="header-row">
-          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.43</div>
+          <div class="header-main" id="appHeaderTitle" title="Удерживайте 1 сек — разблокировать UI">Бойня-Конвейер v7.11.44</div>
           <button type="button" class="tasks-menu-btn" id="tasksMenuBtn" onclick="toggleTasksDrawer()" title="Задачи" aria-label="Задачи">
             <span class="tasks-burger" aria-hidden="true"><span></span></span>
             <span class="tasks-badge" id="tasksBadge" hidden>0</span>
@@ -2031,7 +2032,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.43";
+    const APP_VERSION = "v7.11.44";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -7180,9 +7181,9 @@
             <div class="courier-addr-main">${addrPublic ? ("Адрес: <b>" + escapeHtml(addrPublic) + "</b>") : "Адрес не указан"}
               <span class="muted" style="font-size:11px;"> · тап → этаж/кв</span>
             </div>
+            ${formatTelHtml(c.phone || extractPhone(c.note || ""), { always: true })}
             <div class="courier-extra" id="courierExtra_${idx}">
               <div>${addrPrivate}</div>
-              ${formatTelHtml(c.phone || extractPhone(c.note || ""))}
               ${priceHtml}
               ${courNote ? ("<div style=\"margin-top:4px;\">Примечание: " + escapeHtml(courNote) + "</div>") : ""}
             </div>
@@ -7197,7 +7198,12 @@
     function toggleCourierClientDetail_(idx, ev) {
       if (ev) {
         var t = ev.target;
-        if (t && (t.tagName === "INPUT" || t.tagName === "BUTTON" || (t.closest && t.closest("label.check-line")))) return;
+        if (t && (
+          t.tagName === "INPUT" ||
+          t.tagName === "BUTTON" ||
+          t.tagName === "A" ||
+          (t.closest && (t.closest("label.check-line") || t.closest("a.tel-link") || t.closest("a")))
+        )) return;
       }
       var row = document.getElementById("courierRow_" + idx);
       if (!row) return;
@@ -7761,8 +7767,10 @@
         else if (src === "retail") seg = "Р";
       }
       if (seg) bits.push('<span class="client-badge" style="background:rgba(94,92,230,0.25);color:#bfbfff;">' + escapeHtml(seg) + "</span>");
+      var isPpSeg = (seg === "ПП" || seg === "PP" || seg === "АФК");
       var pp = String((client && (client.ppHint || (client.ppSlot ? ("ПП " + client.ppSlot) : ""))) || "").trim();
-      if (pp) bits.push('<span class="client-badge" style="background:rgba(10,132,255,0.25);color:#64d2ff;">' + escapeHtml(pp) + "</span>");
+      // слот только у ПП — иначе старый кэш/баг «ПП 1» на всех
+      if (pp && isPpSeg) bits.push('<span class="client-badge" style="background:rgba(10,132,255,0.25);color:#64d2ff;">' + escapeHtml(pp) + "</span>");
       var price = resolveClientOrderPrice(client);
       if (price != null) bits.push('<span class="client-badge" style="background:rgba(48,209,88,0.2);color:#30d158;">' + escapeHtml(String(price)) + " BYN</span>");
       return bits.join(" ");
@@ -7780,11 +7788,31 @@
       }
       return "tel:" + d;
     }
-    function formatTelHtml(phone) {
+    function callPhoneFromEl_(el, ev) {
+      if (ev) {
+        try { ev.preventDefault(); } catch (e0) {}
+        try { ev.stopPropagation(); } catch (e1) {}
+      }
+      var href = el && el.getAttribute("href");
+      if (!href) return false;
+      try {
+        if (tg && typeof tg.openLink === "function") {
+          tg.openLink(href);
+          return false;
+        }
+      } catch (e2) {}
+      try { window.location.href = href; } catch (e3) {}
+      return false;
+    }
+    window.callPhoneFromEl_ = callPhoneFromEl_;
+    function formatTelHtml(phone, opts) {
       const p = String(phone || "").trim();
       if (!p) return "";
       const href = normalizeTelHref(p);
-      return '<br>Тел: <a class="tel-link" href="' + href + '">' + escapeHtml(p) + "</a>";
+      if (!href) return "";
+      var cls = (opts && opts.always) ? "courier-tel-line" : "";
+      return '<div class="delivery-line ' + cls + '">Тел: <a class="tel-link" href="' + href +
+        '" onclick="return callPhoneFromEl_(this, event)">' + escapeHtml(p) + "</a></div>";
     }
 
     function applyDepotPreset(addr) {

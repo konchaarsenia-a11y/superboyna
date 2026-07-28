@@ -1787,39 +1787,56 @@ function handleGetCourier(dayName, callback) {
 
     var deliveriesN = 0;
     var paidCycle = null;
-    var deliverySlot = 1;
+    var deliverySlot = 0;
     var ppHint = "";
     var askPaid = false;
-    try {
-      deliveriesN = lookupPpDeliveries_(client.name) || 0;
-    } catch (eN) {}
-    // тяжёлый resolve только для реальных ПП
-    if (deliveriesN >= 1) {
+    var segU = String(client.segment || "").trim().toUpperCase();
+    var srcL = String(client.source || "").trim().toLowerCase();
+    // слот/бейдж ПП только для заказа типа ПП (не БП/розница/партнёр)
+    var isPpOrder = (segU === "ПП" || segU === "PP" || segU === "АФК" || srcL === "pp" || srcL === "subscription");
+    if (segU === "БП" || segU === "BP" || segU === "Р" || segU === "RETAIL" || segU.indexOf("ПАРТ") === 0 ||
+        srcL === "bp" || srcL === "retail" || srcL === "partner") {
+      isPpOrder = false;
+    }
+    if (isPpOrder) {
       try {
-        var resolved = resolvePpDeliverySlot_(ss, client.name, dateValue, tz, delivered);
-        deliveriesN = resolved.deliveriesN || deliveriesN;
-        deliverySlot = resolved.slot || 1;
-        var cycle = resolved.cycle;
-        if (cycle && cycle.paid) paidCycle = cycle.paid;
-        if (!paidCycle) {
-          var wKey = weekPaidKey_(dateValue, tz);
-          var wStore = getWeekPaidStore_(memory, wKey, tz);
-          var mkPaid = clientMatchKey_(client.name) || String(client.name).toUpperCase();
-          var pe = wStore[mkPaid] || wStore[String(client.name).toUpperCase()];
-          if (pe && typeof pe === "object") paidCycle = pe.paid || null;
-          else if (typeof pe === "string") paidCycle = pe;
-        }
-        if (deliveriesN >= 2) {
-          ppHint = "ПП " + deliverySlot + "/" + deliveriesN + (deliverySlot >= 2 ? " · остаток" : "");
-        } else if (deliveriesN === 1) {
-          ppHint = "ПП N=1";
-        }
-        if (deliveriesN >= 2) {
-          if (paidCycle === "yes") askPaid = false;
-          else if (deliverySlot <= 1) askPaid = true;
-          else askPaid = true;
-        }
-      } catch (ePaid) {}
+        deliveriesN = lookupPpDeliveries_(client.name) || 0;
+      } catch (eN) {}
+      deliverySlot = 1;
+      // тяжёлый resolve только для реальных ПП
+      if (deliveriesN >= 1) {
+        try {
+          var resolved = resolvePpDeliverySlot_(ss, client.name, dateValue, tz, delivered);
+          deliveriesN = resolved.deliveriesN || deliveriesN;
+          deliverySlot = resolved.slot || 1;
+          var cycle = resolved.cycle;
+          if (cycle && cycle.paid) paidCycle = cycle.paid;
+          if (!paidCycle) {
+            var wKey = weekPaidKey_(dateValue, tz);
+            var wStore = getWeekPaidStore_(memory, wKey, tz);
+            var mkPaid = clientMatchKey_(client.name) || String(client.name).toUpperCase();
+            var pe = wStore[mkPaid] || wStore[String(client.name).toUpperCase()];
+            if (pe && typeof pe === "object") paidCycle = pe.paid || null;
+            else if (typeof pe === "string") paidCycle = pe;
+          }
+          if (deliveriesN >= 2) {
+            ppHint = "ПП " + deliverySlot + "/" + deliveriesN + (deliverySlot >= 2 ? " · остаток" : "");
+          } else if (deliveriesN === 1) {
+            ppHint = "ПП N=1";
+          }
+          if (deliveriesN >= 2) {
+            if (paidCycle === "yes") askPaid = false;
+            else if (deliverySlot <= 1) askPaid = true;
+            else askPaid = true;
+          }
+        } catch (ePaid) {}
+      }
+      if (!ppHint && client.ppHint) ppHint = String(client.ppHint || "");
+    }
+    var ppSlotOut = "";
+    if (isPpOrder) {
+      ppSlotOut = String(client.ppSlot || "").trim() || formatPpSlotLabel_(deliverySlot, deliveriesN);
+      if (!ppHint && ppSlotOut) ppHint = "ПП " + ppSlotOut;
     }
     clients.push({
       name: client.name,
@@ -1832,14 +1849,15 @@ function handleGetCourier(dayName, callback) {
       assembled: assembled,
       col: client.col,
       courierCol: courierCol,
-      deliveriesN: deliveriesN,
+      deliveriesN: isPpOrder ? deliveriesN : 0,
       paid: paidCycle,
-      deliverySlot: deliverySlot,
-      ppSlot: client.ppSlot || formatPpSlotLabel_(deliverySlot, deliveriesN),
-      ppHint: ppHint || client.ppHint || "",
+      deliverySlot: isPpOrder ? deliverySlot : 0,
+      ppSlot: ppSlotOut,
+      ppHint: ppHint,
       orderPrice: client.orderPrice != null ? client.orderPrice : "",
       segment: client.segment || "",
-      askPaid: askPaid && !delivered
+      source: client.source || "",
+      askPaid: !!(isPpOrder && askPaid && !delivered)
     });
   }
   var out = { status: "success", day: dayName, date: dateText, clients: clients };
@@ -7122,8 +7140,10 @@ function segmentLabelFromOrderType_(ot) {
 function formatPpSlotLabel_(slot, deliveriesN) {
   slot = Number(slot) || 0;
   deliveriesN = Number(deliveriesN) || 0;
+  // без N с листа ПП — не выдумывать «1» (иначе у всех в Курьере бейдж ПП 1)
+  if (deliveriesN < 1) return "";
   if (deliveriesN >= 2 && slot >= 1) return String(slot) + "/" + deliveriesN;
-  if (deliveriesN === 1 || slot === 1) return "1";
+  if (deliveriesN === 1) return "1";
   return slot >= 1 ? String(slot) : "";
 }
 
