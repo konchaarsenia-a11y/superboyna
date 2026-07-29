@@ -2162,7 +2162,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.69";
+    const APP_VERSION = "v7.11.70";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -2229,6 +2229,7 @@
     let addressSuggestSeq = 0;
     let cuttingItemsCache = [];
     let cuttingCompletionCache = null;
+    let cuttingDetailExpanded_ = false;
     let cuttingLocalFlags = Object.create(null); // row -> {laid, done, outNext, ts}
     let cuttingSession = {
       active: false,
@@ -6743,6 +6744,7 @@
         if (sessionBox) sessionBox.innerHTML = "";
         cuttingItemsCache = [];
         cuttingCompletionCache = null;
+        cuttingDetailExpanded_ = false;
         cuttingLocalFlags = Object.create(null);
         applyRemoteCuttingSession({ active: false, day: "", startedAt: 0 });
         if (finishBtn) finishBtn.style.display = "none";
@@ -6757,6 +6759,7 @@
       if (!fromPoll) {
         cuttingItemsCache = [];
         cuttingCompletionCache = null;
+        cuttingDetailExpanded_ = false;
         cuttingSession.fingerprint = "";
         if (summary) summary.innerHTML = "";
         if (sessionBox) sessionBox.innerHTML = "";
@@ -6953,6 +6956,30 @@
         }).join("") + "</div>";
     }
 
+    function renderFinishedCutRowHtml_(item) {
+      var dryLabel = item.unit === "шт" ? (item.dry + " шт") : (item.dry + " гр сухого");
+      var rawLabel = item.unit === "шт"
+        ? (item.raw + " шт")
+        : (Number(item.raw).toFixed(2) + " кг сырого");
+      var badges = [];
+      if (item.laid) badges.push("выложено");
+      if (item.done) badges.push("нарезано");
+      if (item.outNext) badges.push("нет на след.");
+      var badgeHtml = badges.length
+        ? '<div class="muted" style="font-size:12px;margin-top:4px;">' + escapeHtml(badges.join(" · ")) + "</div>"
+        : "";
+      var surplus = Number(item.surplus) || 0;
+      return '<div class="' + cutRowClass(item) + '" style="opacity:.95;">' +
+        '<div class="cut-title">' + escapeHtml(item.name || "") + "</div>" +
+        '<div class="cut-meta">Нужно: <b>' + escapeHtml(String(dryLabel)) + "</b><br>Сырьё: <b>" +
+          escapeHtml(String(rawLabel)) + "</b>" +
+          (surplus ? (" · излишек: <b>" + surplus + "</b>") : "") +
+        "</div>" +
+        badgeHtml +
+        (typeof renderCutNoteHint === "function" ? renderCutNoteHint(item) : "") +
+        "</div>";
+    }
+
     function renderFinishedCuttingDay(completion) {
       const box = document.getElementById("cuttingContainer");
       const summary = document.getElementById("cuttingSummary");
@@ -6960,8 +6987,9 @@
       const finishBtn = document.getElementById("btnFinishCutting");
       if (finishBtn) finishBtn.style.display = "none";
       if (sessionBox) sessionBox.innerHTML = "";
-      if (box) box.innerHTML = "";
-      const items = (completion && completion.items) || [];
+      const items = (cuttingItemsCache && cuttingItemsCache.length)
+        ? cuttingItemsCache
+        : ((completion && completion.items) || []);
       const total = Number(completion && completion.count) || items.length || 0;
       const elapsed = formatCutElapsed(Number(completion && completion.elapsedMs) || 0);
       const dayLabel = completion && completion.day ? escapeHtml(completion.day) : "";
@@ -6972,7 +7000,28 @@
             '<div class="cut-done-meta">Позиций: <b>' + total + '</b><br>Время: <b>' + escapeHtml(elapsed) + '</b></div>' +
           '</div>';
       }
+      if (!box) return;
+      if (!cuttingDetailExpanded_) {
+        box.innerHTML =
+          '<div class="card" style="text-align:center;">' +
+            '<div class="muted" style="margin-bottom:10px;">День закрыт</div>' +
+            '<button type="button" class="btn-action btn-blue" onclick="showCuttingDoneDetails_()">Подробнее</button>' +
+          "</div>";
+        return;
+      }
+      var listHtml = items.length
+        ? items.map(renderFinishedCutRowHtml_).join("")
+        : '<p class="muted">Нет позиций в снимке</p>';
+      box.innerHTML =
+        '<div class="muted" style="margin-bottom:8px;font-size:12px;">Просмотр (только чтение)</div>' +
+        listHtml;
     }
+
+    function showCuttingDoneDetails_() {
+      cuttingDetailExpanded_ = true;
+      renderFinishedCuttingDay(cuttingCompletionCache || {});
+    }
+    window.showCuttingDoneDetails_ = showCuttingDoneDetails_;
 
     function cuttingFlagScore(items) {
       var n = 0;
