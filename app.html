@@ -1227,6 +1227,7 @@
           <button type="button" class="order-flyout-btn" data-fly="priceScreen" data-fly-roles="manager,owner,all">Расчёт</button>
           <button type="button" class="order-flyout-btn" data-fly="subsScreen" data-fly-roles="owner,all">Подписки</button>
           <button type="button" class="order-flyout-btn" data-fly="statsScreen" data-fly-roles="owner,all">Статистика</button>
+          <button type="button" class="order-flyout-btn" data-fly="peopleScreen" data-fly-roles="owner,all" data-fly-focus="partners">Партнёры</button>
           <button type="button" class="order-flyout-btn" data-fly="peopleScreen" data-fly-roles="owner,all">Доступы</button>
         </div>
         <div class="courier-flyout" id="courierFlyout">
@@ -2127,9 +2128,9 @@
         <button class="btn-action btn-blue" type="button" style="flex:1;margin:0;" onclick="loadPeople()">Обновить список</button>
       </div>
       <div id="peopleContainer"><p class="muted">—</p></div>
-      <div class="card" style="margin-top:12px;">
-        <div class="section-title" style="margin-top:0;">Партнёры (источник ПП)</div>
-        <div class="muted" style="font-size:12px;margin-bottom:10px;">При заказе ПП нужно указать, от какого партнёра клиент. Здесь можно добавлять и выключать.</div>
+      <div class="card" style="margin-top:12px;" id="partnersManageCard">
+        <div class="section-title" style="margin-top:0;color:#64d2ff;">Партнёры (источник ПП)</div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">При заказе ПП обязательно указать, кто привёл. Здесь список для выбора.</div>
         <div class="form-group">
           <label>Имя партнёра</label>
           <input type="text" id="partnerNameInput" placeholder="Instagram / имя">
@@ -2154,7 +2155,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.59";
+    const APP_VERSION = "v7.11.60";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -2959,9 +2960,10 @@
       document.querySelectorAll("#orderFlyout .order-flyout-btn").forEach(function (b) {
         b.onclick = function () {
           const id = b.getAttribute("data-fly");
+          const focus = b.getAttribute("data-fly-focus") || "";
           orderFlyoutJustOpened = false;
           toggleOrderFlyout(false);
-          if (id) switchTab(id);
+          if (id) switchTab(id, { focus: focus });
         };
       });
     }
@@ -4087,7 +4089,8 @@
       } catch (e2) {}
     }
 
-    function switchTab(screenId) {
+    function switchTab(screenId, opts) {
+      opts = opts || {};
       // карточка подписки без пароля → список (без рекурсии mid-switch)
       if (screenId === "subDetailScreen") {
         try {
@@ -4129,6 +4132,14 @@
       var screen = document.getElementById(screenId);
       if (screen) screen.classList.add("active");
       try { localStorage.setItem(LAST_SCREEN_LS, screenId); } catch (eLs) {}
+      if (opts.focus === "partners") {
+        try {
+          setTimeout(function () {
+            var card = document.getElementById("partnersManageCard");
+            if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 80);
+        } catch (eF) {}
+      }
       try {
         if (screenId === "orderScreen" && document.getElementById("isEditMode").value === "false") {
           document.getElementById("appHeaderTitle").innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -11298,6 +11309,7 @@
       var money = res.money || {};
       var fact = res.fact || {};
       var by = fact.bySource || m.bySource || {};
+      var costBy = fact.costBySource || m.costBySource || {};
 
       var deliveries = fact.deliveries != null ? fact.deliveries : (m.deliveries != null ? m.deliveries : (res.deliveries || 0));
       var retail = fact.retail != null ? fact.retail : (money.retail != null ? money.retail : (m.retailRevenue || 0));
@@ -11311,7 +11323,9 @@
       var cac = bp.costPerConvert;
       var productCost = fact.productCost != null ? fact.productCost : 0;
       var couponsCost = fact.couponsCost != null ? fact.couponsCost : 0;
-      // прибыль = оборот; чистое = оборот − затраты
+      var retailCost = costBy.retail != null ? costBy.retail : 0;
+      var ppCostApp = costBy.pp != null ? costBy.pp : 0;
+      var partnerCostApp = costBy.partner != null ? costBy.partner : 0;
       var profitFact = fact.profit != null ? fact.profit : calTurnover;
       var cleanFact = fact.clean != null ? fact.clean : Math.round((Number(calTurnover) - Number(costActual)) * 100) / 100;
       var life = bp.life || {};
@@ -11323,77 +11337,102 @@
       var ppClean = (pp.clean != null) ? pp.clean : (money.ppClean || 0);
       var ppCost = (pp.cost != null) ? pp.cost : (money.ppCost || 0);
 
-      function moneyCell_(label, value, color) {
-        return '<div style="padding:10px 0;border-bottom:1px solid var(--border-color);">' +
-          '<div class="muted" style="font-size:12px;">' + escapeHtml(label) + "</div>" +
-          '<div style="font-size:22px;font-weight:800;color:' + (color || "#fff") + ';">' + escapeHtml(String(value)) + "</div></div>";
+      function tile_(label, value, bg, fg) {
+        return '<div style="background:' + bg + ';border-radius:14px;padding:12px 14px;min-width:0;">' +
+          '<div style="font-size:11px;opacity:0.85;color:' + fg + ';">' + escapeHtml(label) + "</div>" +
+          '<div style="font-size:22px;font-weight:800;color:' + fg + ';margin-top:4px;">' + escapeHtml(String(value)) + "</div></div>";
       }
-      function line_(label, value) {
-        return '<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;font-size:13px;">' +
-          '<span class="muted">' + escapeHtml(label) + "</span><b>" + escapeHtml(String(value)) + "</b></div>";
+      function line_(label, value, color) {
+        return '<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.06);">' +
+          '<span class="muted">' + escapeHtml(label) + '</span><b style="color:' + (color || "#fff") + ';">' +
+          escapeHtml(String(value)) + "</b></div>";
       }
 
       var html = '';
       if (res._oldDeploy) {
-        html += '<div class="card" style="border-color:#ff9f0a;"><b style="color:#ff9f0a;">Старый Deploy Code.gs</b>' +
+        html += '<div class="card" style="border-color:#ff9f0a;background:rgba(255,159,10,0.08);"><b style="color:#ff9f0a;">Старый Deploy Code.gs</b>' +
           '<div class="muted" style="font-size:12px;margin-top:6px;">Вставь актуальный Code.gs → Deploy → New version.</div></div>';
       }
 
-      html += '<div class="card">';
-      html += '<div class="section-title" style="margin-top:0;">' + escapeHtml(res.monthLabel || res.title || "Месяц") + "</div>";
-      html += moneyCell_("Прибыль (= оборот)", profitFact, "#30d158");
-      html += moneyCell_("Затраты", costActual, "#64d2ff");
-      html += moneyCell_("Чистое", cleanFact, "#ff9f0a");
-      html += moneyCell_("Доставок", deliveries, "#fff");
-      html += '<div class="muted" style="font-size:12px;margin-top:8px;">из них: ПП ' + (by.pp || 0) +
+      html += '<div class="card" style="background:linear-gradient(160deg,#1c1c1e 0%,#252530 100%);">';
+      html += '<div class="section-title" style="margin-top:0;color:#fff;">' + escapeHtml(res.monthLabel || res.title || "Месяц") + "</div>";
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
+      html += tile_("Прибыль (=оборот)", profitFact, "rgba(48,209,88,0.18)", "#30d158");
+      html += tile_("Чистое", cleanFact, "rgba(255,159,10,0.18)", "#ff9f0a");
+      html += tile_("Затраты", costActual, "rgba(100,210,255,0.16)", "#64d2ff");
+      html += tile_("Доставок", deliveries, "rgba(191,90,242,0.16)", "#bf5af2");
+      html += "</div>";
+      html += '<div class="muted" style="font-size:12px;margin-top:12px;">ПП ' + (by.pp || 0) +
         " · БП " + (by.bp || 0) +
         " · розница " + (by.retail || 0) +
         " · партнёр-заказ " + (by.partner || 0) +
         ((by.other || 0) ? (" · прочее " + by.other) : "") +
         "</div>";
-      html += '<div class="muted" style="font-size:11px;margin-top:6px;">1 доставка = 1 клиент на дату ≤ сегодня (календарь/брони). Не галочка курьера.</div>';
       html += "</div>";
 
-      html += '<div class="card"><div class="section-title" style="margin-top:0;">Откуда деньги</div>';
-      html += line_("ПП", ppActual + " BYN");
-      html += line_("Розница", retail + " BYN");
-      html += line_("Заказы «Партнёр»", partnerOrd + " BYN");
+      html += '<div class="card">';
+      html += '<div class="section-title" style="margin-top:0;color:#30d158;">Откуда деньги</div>';
+      html += line_("ПП", ppActual + " BYN", "#bf5af2");
+      html += line_("Розница", retail + " BYN", "#ff9f0a");
+      html += line_("Заказы «Партнёр»", partnerOrd + " BYN", "#64d2ff");
       html += "</div>";
 
-      html += '<div class="card"><div class="section-title" style="margin-top:0;">Затраты</div>';
-      html += line_("Продукция (состав)", productCost + " BYN");
-      html += line_("Купоны", couponsCost + " BYN");
-      html += line_("БП (состав + 6р)", bpSpend + " BYN · " + bpDeliv + " дост.");
-      html += line_("Всего", costActual + " BYN");
+      html += '<div class="card">';
+      html += '<div class="section-title" style="margin-top:0;color:#64d2ff;">Затраты</div>';
+      html += line_("Продукция всего", productCost + " BYN", "#fff");
+      html += line_(" · из них розница", retailCost + " BYN", "#ff9f0a");
+      html += line_(" · из них ПП", ppCostApp + " BYN", "#bf5af2");
+      html += line_(" · из них партнёр-заказ", partnerCostApp + " BYN", "#64d2ff");
+      html += line_("Купоны", couponsCost + " BYN", "#ffd60a");
+      html += line_("БП (состав + 6р)", bpSpend + " BYN · " + bpDeliv + " дост.", "#ff453a");
+      html += line_("Всего", costActual + " BYN", "#64d2ff");
+      html += '<div class="muted" style="font-size:11px;margin-top:8px;">Себест розницы/ПП/партнёра — по составу заказа и прайсу (лист Розница / Подписка).</div>';
       html += "</div>";
 
-      html += '<div class="card"><div class="section-title" style="margin-top:0;">БП</div>';
-      html += line_("Переходов в ПП (месяц)", converted);
-      html += line_("На одного (месяц)", cac != null ? (cac + " BYN") : "—");
-      html += '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border-color);">';
-      html += '<div class="muted" style="font-size:12px;margin-bottom:4px;">За всё время (и те, кто уже ПП)</div>';
-      html += line_("Перешло", life.converted || 0);
-      html += line_("Затраты на БП", (life.bpCost || 0) + " BYN");
-      html += line_("Выручка ПП с них", (life.ppRevenue || 0) + " BYN");
-      html += line_("Выхлоп", (life.profit || 0) + " BYN");
+      html += '<div class="card" style="border:1px solid rgba(255,69,58,0.35);">';
+      html += '<div class="section-title" style="margin-top:0;color:#ff453a;">БП</div>';
+      html += line_("Переходов в ПП (месяц)", converted, "#fff");
+      html += line_("На одного (месяц)", cac != null ? (cac + " BYN") : "—", "#ff9f0a");
+      html += '<div style="margin-top:10px;padding:10px;border-radius:12px;background:rgba(255,69,58,0.1);">';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:6px;color:#ff6961;">За всё время</div>';
+      html += line_("Перешло", life.converted || 0, "#fff");
+      html += line_("Затраты на БП", (life.bpCost || 0) + " BYN", "#ff453a");
+      html += line_("Выручка ПП с них", (life.ppRevenue || 0) + " BYN", "#30d158");
+      html += line_("Выхлоп", (life.profit || 0) + " BYN", "#ff9f0a");
       html += "</div></div>";
 
-      if (partners.length) {
-        html += '<div class="card"><div class="section-title" style="margin-top:0;">Партнёры (кто привёл в ПП)</div>';
-        partners.forEach(function (p) {
-          html += '<div style="margin:8px 0 12px;">';
-          html += '<b>' + escapeHtml(p.name) + "</b>";
-          html += '<div class="muted" style="font-size:12px;">' + (p.deliveries || 0) + " дост. · выручка " +
-            (p.revenue || 0) + " · затраты " + (p.cost || 0) + " · выгода " + (p.profit || 0) + "</div>";
-          html += "</div>";
-        });
+      // окно партнёров — всегда
+      html += '<div class="card" id="statsPartnersCard" style="border:1px solid rgba(100,210,255,0.35);background:linear-gradient(160deg,#1a2228 0%,#1c1c1e 100%);">';
+      html += '<div class="section-title" style="margin-top:0;color:#64d2ff;">Партнёры</div>';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">Кто привёл в ПП · выгода = выручка − себест</div>';
+      if (!partners.length) {
+        html += '<div style="padding:14px;border-radius:12px;background:rgba(100,210,255,0.08);text-align:center;">';
+        html += '<div style="font-size:14px;margin-bottom:6px;">Пока пусто</div>';
+        html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">Добавь партнёров и указывай при заказе ПП</div>';
+        html += '<button type="button" class="btn-action btn-purple" style="margin:0;" onclick="switchTab(\'peopleScreen\',{focus:\'partners\'})">Открыть список партнёров</button>';
         html += "</div>";
+      } else {
+        partners.forEach(function (p) {
+          var good = Number(p.profit) || 0;
+          var goodColor = good >= 0 ? "#30d158" : "#ff453a";
+          html += '<div style="margin:0 0 10px;padding:12px;border-radius:12px;background:rgba(100,210,255,0.1);border:1px solid rgba(100,210,255,0.2);">';
+          html += '<div style="font-weight:800;font-size:15px;color:#64d2ff;">' + escapeHtml(p.name) + "</div>";
+          html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;font-size:12px;">';
+          html += '<div><span class="muted">Доставок</span><div style="font-weight:700;">' + (p.deliveries || 0) + "</div></div>";
+          html += '<div><span class="muted">Выручка</span><div style="font-weight:700;color:#30d158;">' + (p.revenue || 0) + "</div></div>";
+          html += '<div><span class="muted">Затраты</span><div style="font-weight:700;color:#ff9f0a;">' + (p.cost || 0) + "</div></div>";
+          html += '<div><span class="muted">Выгода</span><div style="font-weight:700;color:' + goodColor + ';">' + good + "</div></div>";
+          html += "</div></div>";
+        });
+        html += '<button type="button" class="btn-action btn-blue" style="margin:4px 0 0;" onclick="switchTab(\'peopleScreen\',{focus:\'partners\'})">Управлять партнёрами</button>';
       }
+      html += "</div>";
 
-      html += '<div class="card"><div class="section-title" style="margin-top:0;">Лист ПП (снимок)</div>';
-      html += line_("Оборот листа", ppTurnover);
-      html += line_("Себест листа", ppCost);
-      html += line_("Выхлоп листа", ppClean);
+      html += '<div class="card">';
+      html += '<div class="section-title" style="margin-top:0;color:#ff9f0a;">Лист ПП (снимок)</div>';
+      html += line_("Оборот листа", ppTurnover, "#ff9f0a");
+      html += line_("Себест листа", ppCost, "#64d2ff");
+      html += line_("Выхлоп листа", ppClean, "#30d158");
       html += '<div class="muted" style="font-size:11px;margin-top:6px;">Не факт доставок — статичный лист подписок.</div>';
       html += "</div>";
 
