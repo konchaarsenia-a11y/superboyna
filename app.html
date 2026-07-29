@@ -2154,7 +2154,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.61";
+    const APP_VERSION = "v7.11.63";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -15077,7 +15077,7 @@
       var whom = (String(target.telegramId) === String(tid)) ? "себе" : ("для " + (target.name || target.telegramId));
       showToast("Ставлю: " + whom + " · " + formatDeferredRemindAt_(remindAtMs));
       try {
-        apiPost({
+        var saveRes = await apiPost({
           action: "saveDeferred",
           telegramId: tid,
           mode: "remind",
@@ -15090,6 +15090,12 @@
           createdByName: myName,
           payload: optimistic.payload
         });
+        if (!saveRes || saveRes.status !== "success") {
+          showToast((saveRes && saveRes.message) || "Не сохранилось — Deploy Code.gs");
+          deferredCacheAt = 0;
+          try { renderTasksDrawer(true); } catch (eR) {}
+          return;
+        }
         // подтверждение в TG приходит с сервера; список подтянем чуть позже
         setTimeout(function () {
           deferredCacheAt = 0;

@@ -12329,7 +12329,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS14:" + monthKey;
+  var cacheKey = "STATS15:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -14943,7 +14943,7 @@ function handleSetDeferredReminder_(json, callback, fromPost) {
     delete payload.remindSentAt;
     delete payload.remindSendError;
     delete payload.remindFailCount;
-    sh.getRange(r + 1, 8, r + 1, 9).setValues([[JSON.stringify(payload), new Date()]]);
+    sh.getRange(r + 1, 8, 1, 2).setValues([[JSON.stringify(payload), new Date()]]);
     bustDeferredCache_(ownerTid);
     if (targetTid && targetTid !== ownerTid) bustDeferredCache_(targetTid);
     try { ensureDeferredRemindTrigger_(); } catch (eTr) {}
@@ -15002,7 +15002,8 @@ function tickDeferredReminders_() {
       payload.remindSentAt = formatDeferredRemindAtIso_(new Date());
       delete payload.remindSendError;
       try {
-        sh.getRange(r + 1, 8, r + 1, 9).setValues([[JSON.stringify(payload), new Date()]]);
+        // getRange(row, col, numRows, numColumns) — НЕ endRow/endCol
+        sh.getRange(r + 1, 8, 1, 2).setValues([[JSON.stringify(payload), new Date()]]);
         SpreadsheetApp.flush();
       } catch (eClaim) {
         continue;
@@ -15022,12 +15023,12 @@ function tickDeferredReminders_() {
         payload.remindSendError = true;
         delete payload.remindSentAt;
         try {
-          sh.getRange(r + 1, 8, r + 1, 9).setValues([[JSON.stringify(payload), new Date()]]);
+          sh.getRange(r + 1, 8, 1, 2).setValues([[JSON.stringify(payload), new Date()]]);
         } catch (eWrite) {}
       } else {
         delete payload.remindFailCount;
         try {
-          sh.getRange(r + 1, 8, r + 1, 9).setValues([[JSON.stringify(payload), new Date()]]);
+          sh.getRange(r + 1, 8, 1, 2).setValues([[JSON.stringify(payload), new Date()]]);
         } catch (eOk) {}
       }
       if (ownerTid) changedTids[ownerTid] = true;
