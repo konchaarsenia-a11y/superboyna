@@ -16,10 +16,11 @@
     }
   </style>
   <script>
-    // Постоянный URL для BotFather. Свежий app.html подтягивается при каждом открытии.
+    // Постоянный URL для BotFather. Версия = цифры из APP_VER в app.html (v7.11.71 → 71171).
     (function () {
-      var bust = "71163-" + Date.now().toString(36);
-      location.replace("app.html?v=71163&_=" + encodeURIComponent(bust));
+      var ver = "71171";
+      var bust = ver + "-" + Date.now().toString(36);
+      location.replace("app.html?v=" + ver + "&_=" + encodeURIComponent(bust));
     })();
   </script>
 </head>
