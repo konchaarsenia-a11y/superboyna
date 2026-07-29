@@ -1921,14 +1921,14 @@
     <!-- СТАТИСТИКА -->
     <div id="statsScreen" class="screen">
       <div class="card">
-        <div class="section-title" style="margin-top:0;">Статистика месяца</div>
-        <div class="muted" style="font-size:12px;margin-bottom:10px;">Факт — только даты ≤ сегодня. Будущее — в блоке ниже.</div>
+        <div class="section-title" style="margin-top:0;">Статистика</div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">Факт за месяц · даты ≤ сегодня</div>
         <button class="btn-action btn-blue" type="button" onclick="loadStats({force:true})">Обновить</button>
-        <button class="btn-action btn-orange" type="button" style="margin-top:8px;" onclick="exportStatsMonth()">Экспорт месяца (TSV)</button>
       </div>
-      <div class="card">
-        <div class="section-title" style="margin-top:0;">Ожидаемая прибыль</div>
-        <div class="muted" style="font-size:12px;margin-bottom:10px;">Все записи календаря/броней в диапазоне, включая будущие даты. Прибыль = оборот − себестоимость.</div>
+      <div id="statsContainer"><p class="muted">—</p></div>
+      <div class="card" style="margin-top:12px;">
+        <div class="section-title" style="margin-top:0;">Диапазон дат</div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">Включая будущие записи. Прибыль = оборот, чистое = оборот − затраты.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
           <div class="form-group" style="margin:0;">
             <label>С</label>
@@ -1942,7 +1942,6 @@
         <button class="btn-action btn-purple" type="button" style="margin-top:10px;" onclick="loadExpectedProfit()">Посчитать</button>
         <div id="statsExpectBox" style="margin-top:10px;"></div>
       </div>
-      <div id="statsContainer"><p class="muted">—</p></div>
     </div>
 
     <!-- РАСЧЁТ (бывш. Цена) -->
@@ -2155,7 +2154,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.58";
+    const APP_VERSION = "v7.11.59";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -11256,25 +11255,17 @@
       }
       var by = res.bySource || {};
       var html = "";
-      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">';
-      html += '<div><div class="muted" style="font-size:11px;">Доставок</div><div style="font-size:20px;font-weight:800;">' + (res.deliveries || 0) + "</div></div>";
-      html += '<div><div class="muted" style="font-size:11px;">Оборот</div><div style="font-size:20px;font-weight:800;color:#30d158;">' + (res.revenue || 0) + "</div></div>";
-      html += '<div><div class="muted" style="font-size:11px;">Себестоимость</div><div style="font-size:20px;font-weight:800;color:#64d2ff;">' + (res.cost || 0) + "</div></div>";
-      html += '<div><div class="muted" style="font-size:11px;">Прибыль</div><div style="font-size:20px;font-weight:800;color:#ff9f0a;">' + (res.profit || 0) + "</div></div>";
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
+      html += '<div><div class="muted" style="font-size:11px;">Прибыль (=оборот)</div><div style="font-size:22px;font-weight:800;color:#30d158;">' + (res.profit != null ? res.profit : res.revenue || 0) + "</div></div>";
+      html += '<div><div class="muted" style="font-size:11px;">Чистое</div><div style="font-size:22px;font-weight:800;color:#ff9f0a;">' + (res.clean != null ? res.clean : Math.round(((res.revenue || 0) - (res.cost || 0)) * 100) / 100) + "</div></div>";
+      html += '<div><div class="muted" style="font-size:11px;">Затраты</div><div style="font-size:18px;font-weight:700;color:#64d2ff;">' + (res.cost || 0) + "</div></div>";
+      html += '<div><div class="muted" style="font-size:11px;">Доставок</div><div style="font-size:18px;font-weight:700;">' + (res.deliveries || 0) + "</div></div>";
       html += "</div>";
-      html += '<div class="muted" style="font-size:12px;">' + escapeHtml(res.from) + " → " + escapeHtml(res.to) + "</div>";
-      html += '<div class="muted" style="font-size:12px;margin-top:6px;">ПП ' + (res.ppRevenue || 0) +
-        " · розница " + (res.retail || 0) +
-        " · партнёр " + (res.partner || 0) +
-        " · БП себ. " + (res.bpCost || 0) + "</div>";
-      html += '<div class="muted" style="font-size:11px;margin-top:4px;">по типам: ПП ' + (by.pp || 0) +
-        " / Р " + (by.retail || 0) +
-        " / БП " + (by.bp || 0) +
-        " / Парт " + (by.partner || 0) + "</div>";
-      if (res.missingPrice || res.missingBasketCost) {
-        html += '<div class="muted" style="font-size:11px;margin-top:4px;color:#ff9f0a;">Без цены: ' +
-          (res.missingPrice || 0) + " · без себест.: " + (res.missingBasketCost || 0) + "</div>";
-      }
+      html += '<div class="muted" style="font-size:12px;margin-top:10px;">' + escapeHtml(res.from) + " → " + escapeHtml(res.to) + "</div>";
+      html += '<div class="muted" style="font-size:12px;margin-top:6px;">ПП ' + (by.pp || 0) +
+        " · БП " + (by.bp || 0) +
+        " · розница " + (by.retail || 0) +
+        " · партнёр-заказ " + (by.partner || 0) + "</div>";
       box.innerHTML = html;
     }
     window.loadExpectedProfit = loadExpectedProfit;
@@ -11306,215 +11297,106 @@
       var m = res.month || {};
       var money = res.money || {};
       var fact = res.fact || {};
-      var cmp = res.compare || {};
-      var hist = res.history || [];
-      var cols = pp.colsUsed || {};
+      var by = fact.bySource || m.bySource || {};
 
       var deliveries = fact.deliveries != null ? fact.deliveries : (m.deliveries != null ? m.deliveries : (res.deliveries || 0));
       var retail = fact.retail != null ? fact.retail : (money.retail != null ? money.retail : (m.retailRevenue || 0));
-      var partner = fact.partner != null ? fact.partner : (money.partner != null ? money.partner : (m.partnerRevenue || 0));
+      var partnerOrd = fact.partner != null ? fact.partner : (money.partner != null ? money.partner : (m.partnerRevenue || 0));
       var ppActual = fact.ppRevenue != null ? fact.ppRevenue : (pp.actual != null ? pp.actual : (money.ppActual || 0));
-      var calTurnover = fact.revenue != null ? fact.revenue : (money.turnover != null ? money.turnover : (Number(ppActual) + Number(retail) + Number(partner)));
+      var calTurnover = fact.revenue != null ? fact.revenue : (money.turnover != null ? money.turnover : (Number(ppActual) + Number(retail) + Number(partnerOrd)));
       var costActual = fact.cost != null ? fact.cost : (money.cost || m.costActual || 0);
       var bpSpend = fact.bpCost != null ? fact.bpCost : (bp.spend != null ? bp.spend : (money.bpSpend || 0));
       var bpDeliv = fact.bpDeliveries != null ? fact.bpDeliveries : (bp.deliveries || 0);
       var converted = (bp.convertedToPp != null) ? bp.convertedToPp : 0;
       var cac = bp.costPerConvert;
-      var by = fact.bySource || m.bySource || {};
-      var rev = fact.revenueBySource || m.revenueBySource || {};
-      var costBy = fact.costBySource || m.costBySource || {};
+      var productCost = fact.productCost != null ? fact.productCost : 0;
+      var couponsCost = fact.couponsCost != null ? fact.couponsCost : 0;
+      // прибыль = оборот; чистое = оборот − затраты
+      var profitFact = fact.profit != null ? fact.profit : calTurnover;
+      var cleanFact = fact.clean != null ? fact.clean : Math.round((Number(calTurnover) - Number(costActual)) * 100) / 100;
+      var life = bp.life || {};
+      var partners = (fact.byPartner || res.byPartner || []).filter(function (p) {
+        var n = String(p.name || "").trim();
+        return n && n.indexOf("без партн") < 0;
+      });
       var ppTurnover = (pp.turnover != null) ? pp.turnover : (money.ppTurnover || 0);
       var ppClean = (pp.clean != null) ? pp.clean : (money.ppClean || 0);
       var ppCost = (pp.cost != null) ? pp.cost : (money.ppCost || 0);
-      var sheetMax = Math.max(Number(ppTurnover) || 0, Number(ppClean) || 0, Number(ppCost) || 0, 1);
-      var turnMax = Math.max(Number(ppActual) || 0, Number(retail) || 0, Number(partner) || 0, Number(calTurnover) || 0, 1);
-      var srcMax = Math.max(by.pp || 0, by.retail || 0, by.bp || 0, by.partner || 0, 1);
-      var bpMax = Math.max(bp.bp1 || 0, bp.bp2 || 0, bp.final || 0, 1);
+
+      function moneyCell_(label, value, color) {
+        return '<div style="padding:10px 0;border-bottom:1px solid var(--border-color);">' +
+          '<div class="muted" style="font-size:12px;">' + escapeHtml(label) + "</div>" +
+          '<div style="font-size:22px;font-weight:800;color:' + (color || "#fff") + ';">' + escapeHtml(String(value)) + "</div></div>";
+      }
+      function line_(label, value) {
+        return '<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;font-size:13px;">' +
+          '<span class="muted">' + escapeHtml(label) + "</span><b>" + escapeHtml(String(value)) + "</b></div>";
+      }
 
       var html = '';
       if (res._oldDeploy) {
         html += '<div class="card" style="border-color:#ff9f0a;"><b style="color:#ff9f0a;">Старый Deploy Code.gs</b>' +
-          '<div class="muted" style="font-size:12px;margin-top:6px;">Сейчас на webhook ещё старая версия: факт считает и будущие даты, «Ожидаемая прибыль» не работает. ' +
-          'Вставь актуальный <code>Code.gs</code> → Deploy → New version, потом жми «Обновить».</div></div>';
-      }
-      html += '<div class="card"><b>' + escapeHtml(res.title || res.monthLabel || "Месяц") + '</b>';
-      html += '<div class="muted" style="font-size:12px;margin-top:4px;">' +
-        escapeHtml(res.monthKey || "") +
-        (cmp.prevMonthKey ? (" · сравнение с " + escapeHtml(cmp.prevMonthKey)) : " · первый снимок") +
-        '</div></div>';
-
-      // —— Факт через приложение ——
-      html += '<div class="card"><div class="section-title" style="margin-top:0;font-size:15px;">Факт через приложение</div>';
-      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">Только даты ≤ сегодня' +
-        (res.factCutoff ? (" (до " + escapeHtml(res.factCutoff) + ")") : "") +
-        ". Будущие записи — в «Ожидаемая прибыль».</div>";
-      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">';
-      html += '<div><div class="muted" style="font-size:11px;">Доставок</div><div style="font-size:22px;font-weight:800;">' + deliveries + '</div>';
-      if (cmp.deliveries) html += '<div>' + statsDeltaTxt_(cmp.deliveries) + '</div>';
-      html += '</div>';
-      html += '<div><div class="muted" style="font-size:11px;">Оборот</div><div style="font-size:22px;font-weight:800;color:#30d158;">' + calTurnover + '</div>';
-      if (cmp.calTurnover) html += '<div>' + statsDeltaTxt_(cmp.calTurnover) + '</div>';
-      html += '<div class="muted" style="font-size:10px;margin-top:2px;">ПП+розн+парт · уже прошедшие</div>';
-      html += '</div></div>';
-      var profitFact = fact.profit != null ? fact.profit : (fact.clean != null ? fact.clean : Math.round((Number(calTurnover) - Number(costActual)) * 100) / 100);
-      html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:10px 0;">';
-      html += '<div><div class="muted" style="font-size:11px;">Себест</div><div style="font-size:18px;font-weight:800;color:#64d2ff;">' + costActual + '</div></div>';
-      html += '<div><div class="muted" style="font-size:11px;">Прибыль</div><div style="font-size:18px;font-weight:800;color:#ff9f0a;">' + profitFact + '</div></div>';
-      html += '<div><div class="muted" style="font-size:11px;">Чистое</div><div style="font-size:18px;font-weight:800;color:#30d158;">' + profitFact + '</div></div>';
-      html += '</div>';
-      html += '<div class="muted" style="font-size:10px;margin-bottom:8px;">Чистое = оборот − себестоимость (продукция + купоны + доставка БП 6р).</div>';
-      html += statsBarRow_("ПП (выручка)", ppActual, turnMax, "#bf5af2");
-      if (cmp.ppActual) html += '<div style="margin-top:-4px;margin-bottom:6px;">' + statsDeltaTxt_(cmp.ppActual) + '</div>';
-      html += statsBarRow_("Розница", retail, turnMax, "#ff9f0a");
-      if (cmp.retail) html += '<div style="margin-top:-4px;margin-bottom:6px;">' + statsDeltaTxt_(cmp.retail) + '</div>';
-      html += statsBarRow_("Партнёр", partner, turnMax, "#64d2ff");
-      if (cmp.partner) html += '<div style="margin-top:-4px;margin-bottom:6px;">' + statsDeltaTxt_(cmp.partner) + '</div>';
-      var productCost = fact.productCost != null ? fact.productCost : costActual;
-      var couponsCost = fact.couponsCost != null ? fact.couponsCost : 0;
-      var costMax = Math.max(costActual, productCost, couponsCost, bpSpend, 1);
-      html += '<div style="margin-top:10px;"><div class="muted" style="font-size:11px;margin-bottom:4px;">Затраты</div>';
-      html += statsBarRow_("Всего себест", costActual, costMax, "#64d2ff");
-      html += statsBarRow_("Продукция (состав)", productCost, costMax, "#bf5af2");
-      html += statsBarRow_("Купоны", couponsCost, costMax, "#ffd60a");
-      html += statsBarRow_("из них БП (состав+6р)", bpSpend, costMax, "#ff453a");
-      if (cmp.bpSpend) html += '<div>' + statsDeltaTxt_(cmp.bpSpend) + '</div>';
-      html += '</div>';
-      if (couponsCost > 0 || fact.couponsQty) {
-        html += '<div class="muted" style="font-size:11px;margin-top:4px;">Купоны: ' +
-          (fact.couponsOrders || 0) + ' заказ(ов), ' + (fact.couponsQty || 0) + ' шт · ' + couponsCost + ' BYN</div>';
-      }
-      html += '<div class="muted" style="font-size:11px;margin-top:8px;">БП доставок: <b>' + bpDeliv + '</b>';
-      if (costBy.retail || costBy.pp || costBy.partner) {
-        html += ' · себест Р/ПП/Парт: ' + (costBy.retail || 0) + ' / ' + (costBy.pp || 0) + ' / ' + (costBy.partner || 0);
-      }
-      html += '</div>';
-      var bpBasket = fact.bpBasketCost != null ? fact.bpBasketCost : (bp.basketCost != null ? bp.basketCost : null);
-      var bpDelivFee = fact.bpDeliveryCost != null ? fact.bpDeliveryCost : (bp.deliveryCost != null ? bp.deliveryCost : null);
-      var feeEach = fact.bpDeliveryFeeEach != null ? fact.bpDeliveryFeeEach : (bp.deliveryFeeEach != null ? bp.deliveryFeeEach : 6);
-      if (bpBasket != null || bpDelivFee != null) {
-        html += '<div class="muted" style="font-size:11px;margin-top:4px;">БП: состав ' + (bpBasket || 0) +
-          ' + доставка ' + feeEach + '×' + bpDeliv + ' = ' + (bpDelivFee || 0) +
-          ' → всего ' + bpSpend + '</div>';
-      }
-      if (fact.missingPrice || fact.missingBasketCost) {
-        html += '<div class="muted" style="font-size:11px;margin-top:4px;color:#ff9f0a;">Без цены: ' +
-          (fact.missingPrice || 0) + ' · без себест. состава: ' + (fact.missingBasketCost || 0) + '</div>';
-      }
-      html += '<div class="muted" style="font-size:10px;margin-top:6px;">Доставок = строки календаря/броней с датой ≤ сегодня (1 клиент+дата = 1). Без галочки курьера.</div>';
-      html += '</div>';
-
-      // —— сравнение месяцев (факт) ——
-      if (hist.length > 1) {
-        html += '<div class="card"><div class="section-title" style="margin-top:0;font-size:15px;">Сравнение месяцев (факт)</div>';
-        html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">';
-        html += '<tr style="color:#8e8e93;text-align:left;">' +
-          '<th style="padding:4px 6px;">Мес</th>' +
-          '<th style="padding:4px 6px;">Доставок</th>' +
-          '<th style="padding:4px 6px;">Оборот</th>' +
-          '<th style="padding:4px 6px;">ПП</th>' +
-          '<th style="padding:4px 6px;">Розница</th>' +
-          '<th style="padding:4px 6px;">БП себ.</th></tr>';
-        hist.forEach(function (h) {
-          var mk = String(h.monthKey || "");
-          var isCur = mk === String(res.monthKey || "");
-          html += '<tr style="' + (isCur ? "background:#2c2c2e;" : "") + '">' +
-            '<td style="padding:5px 6px;font-weight:' + (isCur ? "700" : "400") + ';">' + escapeHtml(mk) + '</td>' +
-            '<td style="padding:5px 6px;">' + (h.deliveries || 0) + '</td>' +
-            '<td style="padding:5px 6px;">' + (h.calTurnover || 0) + '</td>' +
-            '<td style="padding:5px 6px;">' + (h.calPpActual || 0) + '</td>' +
-            '<td style="padding:5px 6px;">' + (h.retail || 0) + '</td>' +
-            '<td style="padding:5px 6px;">' + (h.bpSpend || 0) + '</td></tr>';
-        });
-        html += '</table></div>';
-        html += '<div class="muted" style="font-size:11px;margin-top:8px;">Сравнение по данным приложения, не по листу ПП.</div>';
-        html += '</div>';
+          '<div class="muted" style="font-size:12px;margin-top:6px;">Вставь актуальный Code.gs → Deploy → New version.</div></div>';
       }
 
-      html += '<div class="card"><div class="section-title" style="margin-top:0;font-size:15px;">Доставки по типу</div>';
-      html += statsBarRow_("ПП", by.pp || 0, srcMax, "#bf5af2");
-      html += statsBarRow_("Розница", by.retail || 0, srcMax, "#ff9f0a");
-      html += statsBarRow_("БП", by.bp || 0, srcMax, "#ff453a");
-      html += statsBarRow_("Партнёр", by.partner || 0, srcMax, "#64d2ff");
-      html += '</div>';
-
-      html += '<div class="card"><div class="section-title" style="margin-top:0;font-size:15px;">БП · отдельный учёт</div>';
-      html += '<div class="muted" style="font-size:12px;margin-bottom:8px;">Месяц: доставок <b>' + bpDeliv + '</b> · затраты <b>' + bpSpend + '</b> · переходов <b>' +
-        converted + '</b>' +
-        (cac != null ? (" · на одного <b>" + cac + "</b> BYN") : " · на одного — нет переходов") +
-        '</div>';
-      html += '<div class="muted" style="font-size:11px;margin-bottom:8px;">На одного (месяц) = себест БП месяца (' +
-        bpSpend + ') ÷ перешедших (' + converted + '). Себест = сырьё + ' +
-        (fact.bpDeliveryFeeEach != null ? fact.bpDeliveryFeeEach : 6) + ' BYN/доставку.</div>';
-      var life = bp.life || {};
-      html += '<div style="border-top:1px dashed var(--border-color);padding-top:10px;margin-top:8px;">';
-      html += '<div class="muted" style="font-size:12px;margin-bottom:8px;"><b>За всё время</b> (включая тех, кто уже стал ПП)</div>';
-      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
-      html += '<div><div class="muted" style="font-size:11px;">Перешло в ПП</div><div style="font-size:20px;font-weight:800;">' + (life.converted || 0) + "</div></div>";
-      html += '<div><div class="muted" style="font-size:11px;">Затраты на БП</div><div style="font-size:20px;font-weight:800;color:#ff453a;">' + (life.bpCost || 0) + "</div></div>";
-      html += '<div><div class="muted" style="font-size:11px;">Выручка ПП с них</div><div style="font-size:20px;font-weight:800;color:#30d158;">' + (life.ppRevenue || 0) + "</div></div>";
-      html += '<div><div class="muted" style="font-size:11px;">Прибыль с перешедших</div><div style="font-size:20px;font-weight:800;color:#ff9f0a;">' + (life.profit || 0) + "</div></div>";
+      html += '<div class="card">';
+      html += '<div class="section-title" style="margin-top:0;">' + escapeHtml(res.monthLabel || res.title || "Месяц") + "</div>";
+      html += moneyCell_("Прибыль (= оборот)", profitFact, "#30d158");
+      html += moneyCell_("Затраты", costActual, "#64d2ff");
+      html += moneyCell_("Чистое", cleanFact, "#ff9f0a");
+      html += moneyCell_("Доставок", deliveries, "#fff");
+      html += '<div class="muted" style="font-size:12px;margin-top:8px;">из них: ПП ' + (by.pp || 0) +
+        " · БП " + (by.bp || 0) +
+        " · розница " + (by.retail || 0) +
+        " · партнёр-заказ " + (by.partner || 0) +
+        ((by.other || 0) ? (" · прочее " + by.other) : "") +
+        "</div>";
+      html += '<div class="muted" style="font-size:11px;margin-top:6px;">1 доставка = 1 клиент на дату ≤ сегодня (календарь/брони). Не галочка курьера.</div>';
       html += "</div>";
-      html += '<div class="muted" style="font-size:11px;margin-top:8px;">CAC lifetime: <b>' +
-        (life.costPerConvert != null ? life.costPerConvert : "—") +
-        "</b> · БП доставок всего " + (life.bpDeliveries || 0) +
-        " · ПП доставок с них " + (life.ppDeliveries || 0) + "</div>";
-      html += '<div class="muted" style="font-size:10px;margin-top:4px;">Прибыль = выручка ПП после перехода − все затраты на БП (состав+6р).</div>';
+
+      html += '<div class="card"><div class="section-title" style="margin-top:0;">Откуда деньги</div>';
+      html += line_("ПП", ppActual + " BYN");
+      html += line_("Розница", retail + " BYN");
+      html += line_("Заказы «Партнёр»", partnerOrd + " BYN");
       html += "</div>";
-      html += '<div style="margin-top:10px;">';
-      html += statsBarRow_("БП1 (лист)", bp.bp1 || 0, bpMax, "#ff9f0a");
-      html += statsBarRow_("БП2 (лист)", bp.bp2 || 0, bpMax, "#ff453a");
-      html += statsBarRow_("Финал (лист)", bp.final || 0, bpMax, "#30d158");
+
+      html += '<div class="card"><div class="section-title" style="margin-top:0;">Затраты</div>';
+      html += line_("Продукция (состав)", productCost + " BYN");
+      html += line_("Купоны", couponsCost + " BYN");
+      html += line_("БП (состав + 6р)", bpSpend + " BYN · " + bpDeliv + " дост.");
+      html += line_("Всего", costActual + " BYN");
+      html += "</div>";
+
+      html += '<div class="card"><div class="section-title" style="margin-top:0;">БП</div>';
+      html += line_("Переходов в ПП (месяц)", converted);
+      html += line_("На одного (месяц)", cac != null ? (cac + " BYN") : "—");
+      html += '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border-color);">';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:4px;">За всё время (и те, кто уже ПП)</div>';
+      html += line_("Перешло", life.converted || 0);
+      html += line_("Затраты на БП", (life.bpCost || 0) + " BYN");
+      html += line_("Выручка ПП с них", (life.ppRevenue || 0) + " BYN");
+      html += line_("Выхлоп", (life.profit || 0) + " BYN");
       html += "</div></div>";
 
-      var partners = fact.byPartner || res.byPartner || [];
-      html += '<div class="card"><div class="section-title" style="margin-top:0;font-size:15px;">Партнёры (источник ПП)</div>';
-      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">По полю «партнёр» на ПП-заказах за месяц (даты ≤ сегодня). Выгода = выручка − себест.</div>';
-      if (!partners.length) {
-        html += '<p class="muted">Пока нет ПП с указанным партнёром. Добавьте партнёров в «Доступы» и указывайте при заказе ПП.</p>';
-      } else {
-        var pMax = 1;
+      if (partners.length) {
+        html += '<div class="card"><div class="section-title" style="margin-top:0;">Партнёры (кто привёл в ПП)</div>';
         partners.forEach(function (p) {
-          pMax = Math.max(pMax, Number(p.revenue) || 0, Math.abs(Number(p.profit) || 0), Number(p.cost) || 0);
-        });
-        partners.forEach(function (p) {
-          html += '<div style="margin:10px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--border-color);">';
-          html += '<div style="font-weight:700;margin-bottom:4px;">' + escapeHtml(p.name || "—") +
-            ' · ' + (p.deliveries || 0) + ' дост.</div>';
-          html += statsBarRow_("Выручка", p.revenue || 0, pMax, "#30d158");
-          html += statsBarRow_("Себест", p.cost || 0, pMax, "#64d2ff");
-          html += statsBarRow_("Выгода", p.profit || 0, pMax, "#ff9f0a");
+          html += '<div style="margin:8px 0 12px;">';
+          html += '<b>' + escapeHtml(p.name) + "</b>";
+          html += '<div class="muted" style="font-size:12px;">' + (p.deliveries || 0) + " дост. · выручка " +
+            (p.revenue || 0) + " · затраты " + (p.cost || 0) + " · выгода " + (p.profit || 0) + "</div>";
           html += "</div>";
         });
+        html += "</div>";
       }
-      html += '</div>';
 
-      // —— ПП с листа отдельно ——
-      html += '<div class="card"><div class="section-title" style="margin-top:0;font-size:15px;">ПП с листа (ожидаемое)</div>';
-      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">Статичный снимок всех подписок на листе ПП. Не путать с фактом доставок месяца. Меняется только при правках листа.</div>';
-      html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">';
-      html += '<div><div class="muted" style="font-size:11px;">Оборот</div>' +
-        '<div style="font-size:20px;font-weight:800;color:#ff9f0a;">' + ppTurnover + '</div></div>';
-      html += '<div><div class="muted" style="font-size:11px;">Себестоимость</div>' +
-        '<div style="font-size:20px;font-weight:800;color:#64d2ff;">' + ppCost + '</div></div>';
-      html += '<div><div class="muted" style="font-size:11px;">Выхлоп</div>' +
-        '<div style="font-size:20px;font-weight:800;color:#30d158;">' + ppClean + '</div></div>';
-      html += '</div>';
-      html += '<div class="muted" style="font-size:11px;margin-bottom:8px;">Клиентов на листе: <b>' +
-        (pp.clients != null ? pp.clients : 0) + '</b>';
-      if (cmp.ppClients) html += ' ' + statsDeltaTxt_(cmp.ppClients);
-      html += '</div>';
-      html += statsBarRow_("Оборот листа", ppTurnover, sheetMax, "#ff9f0a");
-      html += statsBarRow_("Себестоимость листа", ppCost, sheetMax, "#64d2ff");
-      html += statsBarRow_("Выхлоп листа", ppClean, sheetMax, "#30d158");
-      if (cols.fact || cols.cost || cols.clean) {
-        html += '<div class="muted" style="font-size:11px;margin-top:8px;">Колонки: ' +
-          escapeHtml([cols.fact, cols.cost, cols.clean].filter(Boolean).join(" · ")) + '</div>';
-      }
-      html += '</div>';
+      html += '<div class="card"><div class="section-title" style="margin-top:0;">Лист ПП (снимок)</div>';
+      html += line_("Оборот листа", ppTurnover);
+      html += line_("Себест листа", ppCost);
+      html += line_("Выхлоп листа", ppClean);
+      html += '<div class="muted" style="font-size:11px;margin-top:6px;">Не факт доставок — статичный лист подписок.</div>';
+      html += "</div>";
 
-      if (res.note) {
-        html += '<div class="muted" style="font-size:11px;margin:8px 4px 16px;">' + escapeHtml(res.note) + '</div>';
-      }
       return html;
     }
 

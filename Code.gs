@@ -12001,8 +12001,11 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       out.bpDeliveryCost = Math.round(((out.bpDeliveryCost || 0) + deliveryFee) * 100) / 100;
     }
     if (src === "pp") {
-      var pn = String(row.ppPartner || "").trim() || "— без партнёра —";
-      out.partnerRows.push({ name: pn, deliveries: 1, revenue: price, cost: costWithAll });
+      var pn = String(row.ppPartner || "").trim();
+      // только реальные партнёры из списка — без «— без партнёра —»
+      if (pn) {
+        out.partnerRows.push({ name: pn, deliveries: 1, revenue: price, cost: costWithAll });
+      }
     }
   }
 
@@ -12288,7 +12291,8 @@ function collectPartnerStatsFromMonth_(monthCal) {
   var rows = (monthCal && monthCal.partnerRows) || [];
   for (var i = 0; i < rows.length; i++) {
     var pr = rows[i];
-    var name = String(pr.name || "").trim() || "— без партнёра —";
+    var name = String(pr.name || "").trim();
+    if (!name || name.indexOf("без партн") >= 0) continue;
     if (!map[name]) map[name] = { name: name, deliveries: 0, revenue: 0, cost: 0, profit: 0 };
     map[name].deliveries += Number(pr.deliveries) || 0;
     map[name].revenue += Number(pr.revenue) || 0;
@@ -12327,7 +12331,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS13:" + monthKey;
+  var cacheKey = "STATS14:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -12372,7 +12376,8 @@ function handleGetStats(json, callback, fromPost) {
   var cac = null;
   if (converted > 0) cac = Math.round((bpSpend / converted) * 100) / 100;
   var bpDeliv = Number(month.bpDeliveries) || 0;
-  var profitFact = Math.round((calTurnover - costActual) * 100) / 100;
+  var profitFact = calTurnover; // прибыль = общий приход = оборот
+  var cleanFact = Math.round((calTurnover - costActual) * 100) / 100;
   var byPartner = [];
   try { byPartner = collectPartnerStatsFromMonth_(month); } catch (eP) { byPartner = []; }
   var bpLife = {
@@ -12451,7 +12456,7 @@ function handleGetStats(json, callback, fromPost) {
       revenue: calTurnover,
       cost: costActual,
       profit: profitFact,
-      clean: profitFact,
+      clean: cleanFact,
       productCost: Number(month.productCost) || 0,
       couponsCost: Number(month.couponsCost) || 0,
       couponsQty: Number(month.couponsQty) || 0,
@@ -12583,7 +12588,7 @@ function handleGetStats(json, callback, fromPost) {
       ]
     },
     factCutoff: month.todayIso || "",
-    note: "Факт — только даты ≤ сегодня из Календарь_Дат/броней. Будущее — в «Ожидаемая прибыль». Лист ПП отдельно."
+    note: "Прибыль = оборот (общий приход). Чистое = прибыль − затраты. Доставок = 1 клиент на дату ≤ сегодня."
   };
   try {
     CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 600);
@@ -12612,29 +12617,28 @@ function handleGetExpectedProfit(json, callback, fromPost) {
   var ppRev = Number(stats.revenueBySource && stats.revenueBySource.pp) || 0;
   var revenue = Math.round((ppRev + retail + partner) * 100) / 100;
   var cost = Number(stats.costActual) || 0;
-  var profit = Math.round((revenue - cost) * 100) / 100;
+  var profit = revenue; // прибыль = оборот
+  var clean = Math.round((revenue - cost) * 100) / 100;
   var ok = {
     status: "success",
     from: fromIso,
     to: toIso,
-    deliveries: stats.deliveriesTotal,
-    bySource: stats.bySource,
-    revenueBySource: stats.revenueBySource,
-    costBySource: stats.costBySource,
+    deliveries: stats.deliveriesTotal || 0,
+    bySource: stats.bySource || {},
     revenue: revenue,
     cost: cost,
     profit: profit,
-    ppRevenue: ppRev,
+    clean: clean,
+    productCost: Number(stats.productCost) || 0,
+    couponsCost: Number(stats.couponsCost) || 0,
     retail: retail,
     partner: partner,
+    ppRevenue: ppRev,
     bpCost: Number(stats.bpCost) || 0,
-    bpBasketCost: Number(stats.bpBasketCost) || 0,
-    bpDeliveryCost: Number(stats.bpDeliveryCost) || 0,
-    bpDeliveryFeeEach: BP_DELIVERY_COST_BYN_,
     bpDeliveries: Number(stats.bpDeliveries) || 0,
     missingPrice: stats.missingPrice || 0,
     missingBasketCost: stats.missingBasketCost || 0,
-    note: "Все записи календаря/броней в диапазоне, включая будущие даты. Прибыль = оборот − себестоимость составов."
+    note: "Прибыль = оборот. Чистое = оборот − себест."
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
