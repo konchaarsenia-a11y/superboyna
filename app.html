@@ -2114,7 +2114,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.54";
+    const APP_VERSION = "v7.11.55";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -10952,6 +10952,10 @@
           }
           return;
         }
+        // старый Deploy без onlyPast / factCutoff
+        if (!res.factCutoff) {
+          res._oldDeploy = true;
+        }
         var html = renderStatsDashboard_(res);
         window._statsCacheHtml = html;
         window._statsCacheAt = Date.now();
@@ -10989,43 +10993,58 @@
         return;
       }
       box.innerHTML = '<p class="muted">Считаю диапазон…</p>';
+      var res = null;
       try {
-        var res = await apiGet({
-          action: "getExpectedProfit",
-          from: from,
-          to: to,
+        // через getStats+mode — после Deploy Code.gs
+        res = await apiGet({
+          action: "getStats",
+          mode: "expected",
+          dateFrom: from,
+          dateTo: to,
+          force: "1",
           _: String(Date.now())
         }, { timeoutMs: 45000, cacheTtlMs: 0 });
-        if (!res || res.status !== "success") {
-          box.innerHTML = '<p class="muted">' + escapeHtml((res && res.message) || "Не удалось посчитать") + "</p>";
-          return;
-        }
-        var by = res.bySource || {};
-        var rev = res.revenueBySource || {};
-        var html = "";
-        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">';
-        html += '<div><div class="muted" style="font-size:11px;">Доставок</div><div style="font-size:20px;font-weight:800;">' + (res.deliveries || 0) + "</div></div>";
-        html += '<div><div class="muted" style="font-size:11px;">Оборот</div><div style="font-size:20px;font-weight:800;color:#30d158;">' + (res.revenue || 0) + "</div></div>";
-        html += '<div><div class="muted" style="font-size:11px;">Себестоимость</div><div style="font-size:20px;font-weight:800;color:#64d2ff;">' + (res.cost || 0) + "</div></div>";
-        html += '<div><div class="muted" style="font-size:11px;">Прибыль</div><div style="font-size:20px;font-weight:800;color:#ff9f0a;">' + (res.profit || 0) + "</div></div>";
-        html += "</div>";
-        html += '<div class="muted" style="font-size:12px;">' + escapeHtml(res.from) + " → " + escapeHtml(res.to) + "</div>";
-        html += '<div class="muted" style="font-size:12px;margin-top:6px;">ПП ' + (res.ppRevenue || 0) +
-          " · розница " + (res.retail || 0) +
-          " · партнёр " + (res.partner || 0) +
-          " · БП себ. " + (res.bpCost || 0) + "</div>";
-        html += '<div class="muted" style="font-size:11px;margin-top:4px;">по типам: ПП ' + (by.pp || 0) +
-          " / Р " + (by.retail || 0) +
-          " / БП " + (by.bp || 0) +
-          " / Парт " + (by.partner || 0) + "</div>";
-        if (res.missingPrice || res.missingBasketCost) {
-          html += '<div class="muted" style="font-size:11px;margin-top:4px;color:#ff9f0a;">Без цены: ' +
-            (res.missingPrice || 0) + " · без себест.: " + (res.missingBasketCost || 0) + "</div>";
-        }
-        box.innerHTML = html;
-      } catch (e) {
-        box.innerHTML = '<p class="muted">Ошибка / нужен Deploy Code.gs</p>';
+      } catch (e1) { res = null; }
+      if (!res || res.status !== "success") {
+        try {
+          res = await apiGet({
+            action: "getExpectedProfit",
+            fromDate: from,
+            toDate: to,
+            _: String(Date.now())
+          }, { timeoutMs: 45000, cacheTtlMs: 0 });
+        } catch (e2) { res = null; }
       }
+      if (!res || res.status !== "success") {
+        var msg = (res && res.message) || "Не удалось посчитать";
+        if (msg === "unknown_action" || !res || res.status === "unknown_action") {
+          msg = "Нужен Deploy Code.gs: вставь актуальный Code.gs → Deploy → New version. Без этого нет расчёта диапазона и фильтра «только прошедшие».";
+        }
+        box.innerHTML = '<p class="muted" style="color:#ff9f0a;">' + escapeHtml(msg) + "</p>";
+        return;
+      }
+      var by = res.bySource || {};
+      var html = "";
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">';
+      html += '<div><div class="muted" style="font-size:11px;">Доставок</div><div style="font-size:20px;font-weight:800;">' + (res.deliveries || 0) + "</div></div>";
+      html += '<div><div class="muted" style="font-size:11px;">Оборот</div><div style="font-size:20px;font-weight:800;color:#30d158;">' + (res.revenue || 0) + "</div></div>";
+      html += '<div><div class="muted" style="font-size:11px;">Себестоимость</div><div style="font-size:20px;font-weight:800;color:#64d2ff;">' + (res.cost || 0) + "</div></div>";
+      html += '<div><div class="muted" style="font-size:11px;">Прибыль</div><div style="font-size:20px;font-weight:800;color:#ff9f0a;">' + (res.profit || 0) + "</div></div>";
+      html += "</div>";
+      html += '<div class="muted" style="font-size:12px;">' + escapeHtml(res.from) + " → " + escapeHtml(res.to) + "</div>";
+      html += '<div class="muted" style="font-size:12px;margin-top:6px;">ПП ' + (res.ppRevenue || 0) +
+        " · розница " + (res.retail || 0) +
+        " · партнёр " + (res.partner || 0) +
+        " · БП себ. " + (res.bpCost || 0) + "</div>";
+      html += '<div class="muted" style="font-size:11px;margin-top:4px;">по типам: ПП ' + (by.pp || 0) +
+        " / Р " + (by.retail || 0) +
+        " / БП " + (by.bp || 0) +
+        " / Парт " + (by.partner || 0) + "</div>";
+      if (res.missingPrice || res.missingBasketCost) {
+        html += '<div class="muted" style="font-size:11px;margin-top:4px;color:#ff9f0a;">Без цены: ' +
+          (res.missingPrice || 0) + " · без себест.: " + (res.missingBasketCost || 0) + "</div>";
+      }
+      box.innerHTML = html;
     }
     window.loadExpectedProfit = loadExpectedProfit;
 
@@ -11082,6 +11101,11 @@
       var bpMax = Math.max(bp.bp1 || 0, bp.bp2 || 0, bp.final || 0, 1);
 
       var html = '';
+      if (res._oldDeploy) {
+        html += '<div class="card" style="border-color:#ff9f0a;"><b style="color:#ff9f0a;">Старый Deploy Code.gs</b>' +
+          '<div class="muted" style="font-size:12px;margin-top:6px;">Сейчас на webhook ещё старая версия: факт считает и будущие даты, «Ожидаемая прибыль» не работает. ' +
+          'Вставь актуальный <code>Code.gs</code> → Deploy → New version, потом жми «Обновить».</div></div>';
+      }
       html += '<div class="card"><b>' + escapeHtml(res.title || res.monthLabel || "Месяц") + '</b>';
       html += '<div class="muted" style="font-size:12px;margin-top:4px;">' +
         escapeHtml(res.monthKey || "") +

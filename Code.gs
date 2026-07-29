@@ -857,13 +857,17 @@ function doGet(e) {
     return handleGetStats({
       period: e.parameter.period || "month",
       month: e.parameter.month || e.parameter.monthKey || "",
-      force: e.parameter.force || ""
+      force: e.parameter.force || "",
+      mode: e.parameter.mode || "",
+      expected: e.parameter.expected || "",
+      from: e.parameter.from || e.parameter.fromDate || e.parameter.dateFrom || "",
+      to: e.parameter.to || e.parameter.toDate || e.parameter.dateTo || ""
     }, callback, false);
   }
   if (action === "getExpectedProfit") {
     return handleGetExpectedProfit({
-      from: e.parameter.from || e.parameter.fromDate || "",
-      to: e.parameter.to || e.parameter.toDate || ""
+      from: e.parameter.from || e.parameter.fromDate || e.parameter.dateFrom || "",
+      to: e.parameter.to || e.parameter.toDate || e.parameter.dateTo || ""
     }, callback, false);
   }
   if (action === "exportStats") {
@@ -11943,6 +11947,18 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
 }
 
 function handleGetStats(json, callback, fromPost) {
+  json = json || {};
+  // ожидаемая прибыль по диапазону — тот же getStats (чтобы не зависеть от отдельного action на старом Deploy)
+  var mode = String(json.mode || "").toLowerCase();
+  var fromRaw = json.from || json.fromDate || json.dateFrom || "";
+  var toRaw = json.to || json.toDate || json.dateTo || "";
+  if (mode === "expected" || mode === "expect" || json.expected === "1" || json.expected === true || json.expected === 1) {
+    return handleGetExpectedProfit({ from: fromRaw, to: toRaw }, callback, fromPost);
+  }
+  if (fromRaw && toRaw && mode === "range") {
+    return handleGetExpectedProfit({ from: fromRaw, to: toRaw }, callback, fromPost);
+  }
+
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = ss.getSpreadsheetTimeZone();
   var now = new Date();
@@ -11950,7 +11966,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS10:" + monthKey;
+  var cacheKey = "STATS11:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
