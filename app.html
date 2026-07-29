@@ -2097,7 +2097,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.50";
+    const APP_VERSION = "v7.11.51";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -4314,7 +4314,7 @@
       getAssembly: 8000,
       getWarehouse: 25000,
       warehousePreview: 20000,
-      getStats: 45000,
+      getStats: 600000,
       listSubscriptions: 30000,
       getSubscription: 20000,
       listClientProfiles: 60000,
@@ -10908,20 +10908,30 @@
       opts = opts || {};
       var box = document.getElementById("statsContainer");
       if (!box) return;
-      // soft: кэш на всю сессию, пока не нажали «Обновить»
-      if (!opts.force && opts.soft && window._statsCacheHtml) {
+      var hasCache = !!window._statsCacheHtml;
+      // soft / повторный заход: сразу старый экран, без «Считаю…»
+      if (!opts.force && hasCache) {
         box.innerHTML = window._statsCacheHtml;
-        return;
+        if (opts.soft) return;
+      } else if (!hasCache) {
+        box.innerHTML = simpleLoadingHtml("Считаю месяц…");
+      } else if (opts.force) {
+        box.insertAdjacentHTML("afterbegin",
+          '<div class="muted" id="statsRefreshHint" style="font-size:12px;margin-bottom:8px;">Обновляю…</div>');
       }
-      box.innerHTML = simpleLoadingHtml("Считаю месяц…");
       try {
         var res = await apiGet({
           action: "getStats",
           period: "month",
           force: opts.force ? "1" : ""
-        }, { timeoutMs: 45000, cacheTtlMs: opts.force ? 0 : 45000 });
+        }, { timeoutMs: 45000, cacheTtlMs: opts.force ? 0 : 600000 });
         if (!res || res.status !== "success") {
-          box.innerHTML = '<p class="muted">Статистика не ответила. Нужен Deploy Code.gs v7.11.27.</p>';
+          if (!hasCache) {
+            box.innerHTML = '<p class="muted">Статистика не ответила. Нужен Deploy Code.gs.</p>';
+          } else {
+            var hint = document.getElementById("statsRefreshHint");
+            if (hint) hint.textContent = "Не обновилось — показан прошлый снимок";
+          }
           return;
         }
         var html = renderStatsDashboard_(res);
@@ -10929,7 +10939,7 @@
         window._statsCacheAt = Date.now();
         box.innerHTML = html;
       } catch (e) {
-        box.innerHTML = '<p class="muted">Нет данных / нужен деплой бэкенда</p>';
+        if (!hasCache) box.innerHTML = '<p class="muted">Нет данных / нужен деплой бэкенда</p>';
       }
     }
     window.loadStats = loadStats;
@@ -11002,6 +11012,7 @@
       html += '</div>';
       html += '<div><div class="muted" style="font-size:11px;">Оборот</div><div style="font-size:22px;font-weight:800;color:#30d158;">' + calTurnover + '</div>';
       if (cmp.calTurnover) html += '<div>' + statsDeltaTxt_(cmp.calTurnover) + '</div>';
+      html += '<div class="muted" style="font-size:10px;margin-top:2px;">ПП+розн+парт из календаря</div>';
       html += '</div></div>';
       html += statsBarRow_("ПП (выручка)", ppActual, turnMax, "#bf5af2");
       if (cmp.ppActual) html += '<div style="margin-top:-4px;margin-bottom:6px;">' + statsDeltaTxt_(cmp.ppActual) + '</div>';

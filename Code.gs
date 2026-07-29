@@ -10630,21 +10630,35 @@ function retailLineCost_(name, sub, val, cat) {
 
 
 
+var PRICE_SS_MEM_ = null;
+var PRICE_COSTS_MEM_ = {};
+
 function getPriceSpreadsheet_() {
+  if (PRICE_SS_MEM_) return PRICE_SS_MEM_;
   var id = PropertiesService.getScriptProperties().getProperty("PRICE_SPREADSHEET_ID") || PRICE_SPREADSHEET_ID_DEFAULT_;
-  return SpreadsheetApp.openById(id);
+  PRICE_SS_MEM_ = SpreadsheetApp.openById(id);
+  return PRICE_SS_MEM_;
 }
 
 function readPriceCosts_(mode) {
-  var ss = getPriceSpreadsheet_();
   var m = String(mode || "").toLowerCase();
+  var memKey = "pp";
+  if (m.indexOf("розн") >= 0 || m === "retail") memKey = "retail";
+  else if (m === "bp" || m.indexOf("бп") >= 0) memKey = "bp";
+  else if (m === "pp" || m === "subscription" || m.indexOf("пп") >= 0) memKey = "pp";
+  if (PRICE_COSTS_MEM_[memKey]) return PRICE_COSTS_MEM_[memKey];
+
+  var ss = getPriceSpreadsheet_();
   var sheetName = "Подписка";
-  if (m.indexOf("розн") >= 0 || m === "retail") sheetName = "Розница";
-  else if (m === "bp" || m.indexOf("бп") >= 0) sheetName = ss.getSheetByName("БП") ? "БП" : "Подписка";
-  else if (m === "pp" || m === "subscription" || m.indexOf("пп") >= 0) sheetName = "Подписка";
+  if (memKey === "retail") sheetName = "Розница";
+  else if (memKey === "bp") sheetName = ss.getSheetByName("БП") ? "БП" : "Подписка";
   var sh = ss.getSheetByName(sheetName) || ss.getSheets()[0];
   var data = sh.getDataRange().getValues();
-  if (!data.length) return { costs: {}, headers: [] };
+  if (!data.length) {
+    var empty = { costs: {}, headers: [], sheet: sheetName };
+    PRICE_COSTS_MEM_[memKey] = empty;
+    return empty;
+  }
   var headers = data[0];
   // Важно: брать СЫРУЮ себестоимость, не «стоимость 100» / итоговую (там уже может быть ×2.3).
   var costRow = null;
@@ -10682,7 +10696,9 @@ function readPriceCosts_(mode) {
       piece: map.grams === false || map.cat === "chew"
     };
   }
-  return { costs: costs, sheet: sheetName, costRowLabel: costRowLabel, costRowPriority: costPri };
+  var out = { costs: costs, sheet: sheetName, costRowLabel: costRowLabel, costRowPriority: costPri };
+  PRICE_COSTS_MEM_[memKey] = out;
+  return out;
 }
 
 function handleCalcPrice(json, callback, fromPost) {
@@ -11489,8 +11505,8 @@ function readStatsMonthHistory_(ss, currentKey, limitN) {
   for (var k = 0; k < keys.length; k++) {
     var key = keys[k];
     var row = map[key];
+    // только снимки — не пересчитывать календарь за 6 месяцев на каждый getStats
     if (!row) {
-      var cal = collectMonthCalendarStats_(ss, key);
       row = {
         monthKey: key,
         ppClients: 0,
@@ -11498,13 +11514,14 @@ function readStatsMonthHistory_(ss, currentKey, limitN) {
         ppCost: 0,
         ppClean: 0,
         calPpActual: 0,
-        retail: cal.retailRevenue || 0,
-        partner: cal.partnerRevenue || 0,
-        calTurnover: Math.round(((cal.revenueBySource.pp || 0) + (cal.retailRevenue || 0) + (cal.partnerRevenue || 0)) * 100) / 100,
-        bpSpend: cal.bpCost || 0,
-        deliveries: cal.deliveriesTotal || 0,
+        retail: 0,
+        partner: 0,
+        calTurnover: 0,
+        bpSpend: 0,
+        deliveries: 0,
         bpConverted: 0,
-        fromCalendarOnly: true
+        fromCalendarOnly: false,
+        missingSnapshot: true
       };
     }
     out.push(row);
@@ -11892,7 +11909,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS6:" + monthKey;
+  var cacheKey = "STATS7:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -12108,7 +12125,7 @@ function handleGetStats(json, callback, fromPost) {
     note: "Факт — доставки/деньги из Календарь_Дат (мини-апп). Лист ПП — отдельный снимок подписок. Сравнение месяцев по факту."
   };
   try {
-    CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 60);
+    CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 600);
   } catch (ePut) {}
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
