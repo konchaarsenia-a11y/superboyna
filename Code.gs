@@ -965,6 +965,26 @@ function doGet(e) {
   if (action === "listAccess") {
     return handleListAccess({ telegramId: e.parameter.telegramId || "" }, callback, false);
   }
+  if (action === "listPartners") {
+    return handleListPartners({
+      all: e.parameter.all || "",
+      telegramId: e.parameter.telegramId || ""
+    }, callback, false);
+  }
+  if (action === "savePartner") {
+    return handleSavePartner({
+      id: e.parameter.id || "",
+      name: e.parameter.name ? decodeURIComponent(e.parameter.name) : "",
+      note: e.parameter.note ? decodeURIComponent(e.parameter.note) : "",
+      active: e.parameter.active
+    }, callback, false);
+  }
+  if (action === "deletePartner") {
+    return handleDeletePartner({
+      id: e.parameter.id || "",
+      name: e.parameter.name ? decodeURIComponent(e.parameter.name) : ""
+    }, callback, false);
+  }
   if (action === "setAccessTimezone") {
     return handleSetAccessTimezone({
       actorId: e.parameter.actorId || e.parameter.telegramId || "",
@@ -1194,6 +1214,7 @@ function doGet(e) {
       ppSlot: e.parameter.ppSlot ? decodeURIComponent(e.parameter.ppSlot) : "",
       deliveryAfter: e.parameter.deliveryAfter || "",
       deliveryBefore: e.parameter.deliveryBefore || "",
+      ppPartner: e.parameter.ppPartner ? decodeURIComponent(e.parameter.ppPartner) : "",
       basket: basketOrd,
       geo: geoOrd,
       survey: surveyOrd
@@ -1223,6 +1244,7 @@ function doGet(e) {
       ppSlot: e.parameter.ppSlot ? decodeURIComponent(e.parameter.ppSlot) : "",
       deliveryAfter: e.parameter.deliveryAfter || "",
       deliveryBefore: e.parameter.deliveryBefore || "",
+      ppPartner: e.parameter.ppPartner ? decodeURIComponent(e.parameter.ppPartner) : "",
       source: e.parameter.source ? decodeURIComponent(e.parameter.source) : "",
       alsoSaveOrder: e.parameter.alsoSaveOrder,
       basket: basketBk,
@@ -1383,6 +1405,15 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "listAccess") {
     return handleListAccess(json, callback, fromPost);
+  }
+  if (action === "listPartners") {
+    return handleListPartners(json, callback, fromPost);
+  }
+  if (action === "savePartner") {
+    return handleSavePartner(json, callback, fromPost);
+  }
+  if (action === "deletePartner") {
+    return handleDeletePartner(json, callback, fromPost);
   }
   if (action === "listReminderPeople") {
     return handleListReminderPeople_(json, callback, fromPost);
@@ -1876,6 +1907,7 @@ function handleGetCourier(dayName, callback) {
       source: client.source || "",
       deliveryAfter: client.deliveryAfter || "",
       deliveryBefore: client.deliveryBefore || "",
+      ppPartner: client.ppPartner || "",
       askPaid: !!(isPpOrder && askPaid && !delivered)
     });
   }
@@ -2689,6 +2721,7 @@ function handleSaveOrder(ss, json, callback, fromPost) {
         ppSlot: ppSlotSave,
         deliveryAfter: normalizeTimeHm_(json.deliveryAfter),
         deliveryBefore: normalizeTimeHm_(json.deliveryBefore),
+        ppPartner: String(json.ppPartner || "").trim(),
         status: "planned",
         legacyRef: "week:" + String(json.day || "")
       });
@@ -3220,6 +3253,7 @@ function getClientsData_(ss, dayName) {
           ppHint: ppSlotOut ? ("ПП " + ppSlotOut) : "",
           deliveryAfter: (calHit && calHit.deliveryAfter) || "",
           deliveryBefore: (calHit && calHit.deliveryBefore) || "",
+          ppPartner: (calHit && calHit.ppPartner) || "",
           noCut: noCutFlag
         });
       }
@@ -5214,7 +5248,7 @@ var BOOKINGS_HEADERS_ = [
   "id", "date", "client", "subId", "address", "note", "basketJson",
   "source", "status", "dayName", "updatedAt", "pulledAt",
   "segment", "phone", "orderPrice", "ppSlot",
-  "deliveryAfter", "deliveryBefore"
+  "deliveryAfter", "deliveryBefore", "ppPartner"
 ];
 
 function getBookingsSheet_() {
@@ -5237,7 +5271,7 @@ var CALENDAR_HEADERS_ = [
   "address", "phone", "note", "basketJson", "subId",
   "source", "status", "dayName", "updatedAt", "pulledAt", "legacyRef",
   "orderPrice", "ppSlot",
-  "deliveryAfter", "deliveryBefore"
+  "deliveryAfter", "deliveryBefore", "ppPartner"
 ];
 
 function getCalendarSheet_() {
@@ -5296,7 +5330,8 @@ function readAllCalendarRows_() {
       orderPrice: orderPrice,
       ppSlot: String(data[r][17] != null ? data[r][17] : "").trim(),
       deliveryAfter: normalizeTimeHm_(data[r][18]),
-      deliveryBefore: normalizeTimeHm_(data[r][19])
+      deliveryBefore: normalizeTimeHm_(data[r][19]),
+      ppPartner: String(data[r][20] != null ? data[r][20] : "").trim()
     });
   }
   return out;
@@ -5349,6 +5384,7 @@ function upsertCalendarEntry_(ss, opts) {
   var ppSlot = String(opts.ppSlot != null ? opts.ppSlot : (existing && existing.ppSlot) || "").trim();
   var afterT = normalizeTimeHm_(opts.deliveryAfter != null ? opts.deliveryAfter : (existing && existing.deliveryAfter) || "");
   var beforeT = normalizeTimeHm_(opts.deliveryBefore != null ? opts.deliveryBefore : (existing && existing.deliveryBefore) || "");
+  var ppPartner = String(opts.ppPartner != null ? opts.ppPartner : (existing && existing.ppPartner) || "").trim();
   var rowVals = [
     dateStr,
     dateIso,
@@ -5369,7 +5405,8 @@ function upsertCalendarEntry_(ss, opts) {
     priceVal,
     ppSlot,
     afterT,
-    beforeT
+    beforeT,
+    ppPartner
   ];
   if (existing) {
     sh.getRange(existing.rowIndex, 1, 1, CALENDAR_HEADERS_.length).setValues([rowVals]);
@@ -5709,7 +5746,8 @@ function readAllBookings_() {
       orderPrice: orderPrice,
       ppSlot: String(row[15] != null ? row[15] : "").trim(),
       deliveryAfter: normalizeTimeHm_(row[16]),
-      deliveryBefore: normalizeTimeHm_(row[17])
+      deliveryBefore: normalizeTimeHm_(row[17]),
+      ppPartner: String(row[18] != null ? row[18] : "").trim()
     });
   }
   return out;
@@ -5827,6 +5865,7 @@ function handleSaveBooking(ss, json, callback, fromPost) {
   if (orderPriceSave === "" && existing && existing.orderPrice !== "") orderPriceSave = existing.orderPrice;
   var afterSave = normalizeTimeHm_(json.deliveryAfter != null ? json.deliveryAfter : (existing && existing.deliveryAfter) || "");
   var beforeSave = normalizeTimeHm_(json.deliveryBefore != null ? json.deliveryBefore : (existing && existing.deliveryBefore) || "");
+  var ppPartnerSave = String(json.ppPartner != null ? json.ppPartner : (existing && existing.ppPartner) || "").trim();
   var rowVals = [
     id, dateStr, client,
     subIdSave,
@@ -5841,7 +5880,8 @@ function handleSaveBooking(ss, json, callback, fromPost) {
     orderPriceSave,
     ppSlotSave,
     afterSave,
-    beforeSave
+    beforeSave,
+    ppPartnerSave
   ];
 
   if (existing) {
@@ -5868,7 +5908,8 @@ function handleSaveBooking(ss, json, callback, fromPost) {
       orderPrice: orderPriceSave,
       ppSlot: ppSlotSave,
       deliveryAfter: afterSave,
-      deliveryBefore: beforeSave
+      deliveryBefore: beforeSave,
+      ppPartner: ppPartnerSave
     });
   } catch (eCal) {}
 
@@ -5923,7 +5964,8 @@ function handleSaveBooking(ss, json, callback, fromPost) {
         deliverySlot: json.deliverySlot != null ? json.deliverySlot : json.slot,
         survey: json.survey || null,
         deliveryAfter: afterSave,
-        deliveryBefore: beforeSave
+        deliveryBefore: beforeSave,
+        ppPartner: ppPartnerSave
       }, null, "internal");
       if (soRes && soRes.status === "success") {
         weekWrite = {
@@ -6263,7 +6305,13 @@ function handleGetViewCompare(json, callback, fromPost) {
         basket: c.basket || [],
         orderCount: c.orderCount != null ? c.orderCount : ((c.basket || []).length),
         segment: c.segment || "",
-        source: c.source || ""
+        source: c.source || "",
+        deliveryAfter: c.deliveryAfter || "",
+        deliveryBefore: c.deliveryBefore || "",
+        ppPartner: c.ppPartner || "",
+        orderPrice: c.orderPrice != null ? c.orderPrice : "",
+        ppSlot: c.ppSlot || "",
+        ppHint: c.ppHint || ""
       });
     });
   }
@@ -6328,7 +6376,11 @@ function handleGetViewCompare(json, callback, fromPost) {
           basketCount: basketCount,
           basketHint: "",
           gaps: gaps,
-          source: cc.source || ""
+          source: cc.source || "",
+          ppPartner: cc.ppPartner || "",
+          deliveryAfter: cc.deliveryAfter || "",
+          deliveryBefore: cc.deliveryBefore || "",
+          orderPrice: cc.orderPrice != null ? cc.orderPrice : ""
         });
       }
     } catch (eM) {
@@ -6436,7 +6488,8 @@ function handlePullClientsFromMonth(json, callback, fromPost) {
         phone: it.phone || "",
         note: it.note || "",
         basket: it.basket || null,
-        segment: it.segment || ""
+        segment: it.segment || "",
+        ppPartner: it.ppPartner || ""
       });
     }
   }
@@ -6527,7 +6580,8 @@ function pullCrmClientsToDay_(ss, deliveryDate, dayName, clients) {
             client: onWeek.name || name,
             matchKey: key,
             status: "pulled",
-            source: "pull"
+            source: "pull",
+            ppPartner: String(req.ppPartner || "").trim()
           });
         } catch (eCalA) {}
       }
@@ -6596,7 +6650,8 @@ function pullCrmClientsToDay_(ss, deliveryDate, dayName, clients) {
           note: note,
           basket: basket || [],
           status: "pulled",
-          source: "pull"
+          source: "pull",
+          ppPartner: String(req.ppPartner || "").trim()
         });
       } catch (eCalM) {}
       continue;
@@ -6624,7 +6679,8 @@ function pullCrmClientsToDay_(ss, deliveryDate, dayName, clients) {
           note: note,
           basket: basket || [],
           status: "pulled",
-          source: "pull"
+          source: "pull",
+          ppPartner: String(req.ppPartner || "").trim()
         });
       } catch (eCalW) {}
       continue;
@@ -11686,18 +11742,28 @@ function collectBpFunnelStats_(crmSs) {
   return out;
 }
 
-function collectBpToPpConversions_(ss, crmSs, monthKey, ppStats) {
-  var out = { count: 0, nicks: [], fromLedger: 0, fromWishes: 0 };
+function collectBpToPpConversions_(ss, crmSs, monthKey, ppStatsOrOpts) {
+  var allTime = !!(ppStatsOrOpts && ppStatsOrOpts.allTime);
+  var ppStats = (ppStatsOrOpts && ppStatsOrOpts.byKey) ? ppStatsOrOpts : null;
+  if (allTime && !ppStats) {
+    try {
+      var crmX = crmSs || getCrmSpreadsheet_();
+      ppStats = collectPpMoneyStats_(crmX);
+    } catch (e0) { ppStats = { byKey: {} }; }
+  }
+  var out = { count: 0, nicks: [], keys: [], ymdByKey: {}, fromLedger: 0, fromWishes: 0 };
   var want = String(monthKey || "").slice(0, 7);
   var seen = {};
-  function addNick_(nick, label) {
+  function addNick_(nick, label, ymd) {
     var k = clientMatchKey_(nick || label) || String(nick || label || "").toUpperCase();
     if (!k || seen[k]) return;
     seen[k] = true;
     out.count++;
     out.nicks.push(String(label || nick || k));
+    out.keys.push(k);
+    var y = String(ymd || "").slice(0, 10);
+    if (y) out.ymdByKey[k] = y;
   }
-  // 1) журнал Stats_Переходы
   try {
     var sh = ss.getSheetByName("Stats_Переходы");
     if (sh && sh.getLastRow() >= 2) {
@@ -11705,25 +11771,24 @@ function collectBpToPpConversions_(ss, crmSs, monthKey, ppStats) {
       for (var r = 1; r < data.length; r++) {
         var mk = String(data[r][2] || "").slice(0, 7);
         var ymd = String(data[r][1] || "").slice(0, 10);
-        if (mk !== want && ymd.slice(0, 7) !== want) continue;
+        if (!allTime && want && mk !== want && ymd.slice(0, 7) !== want) continue;
         var fromS = String(data[r][5] || "").toUpperCase();
         var toS = String(data[r][6] || "").toUpperCase();
         if (fromS.indexOf("БП") < 0 || toS.indexOf("ПП") < 0) continue;
         out.fromLedger++;
-        addNick_(data[r][3], data[r][4]);
+        addNick_(data[r][3], data[r][4], ymd);
       }
     }
   } catch (eL) {}
-  // 2) штамп [FROMBP:yyyy-MM-dd] на листе ПП
   try {
     var byKey = (ppStats && ppStats.byKey) || {};
     for (var k in byKey) {
       if (!byKey.hasOwnProperty(k)) continue;
       var y = String(byKey[k].fromBpYmd || "").slice(0, 10);
-      if (y.slice(0, 7) === want) {
-        out.fromWishes++;
-        addNick_(byKey[k].nick, byKey[k].label);
-      }
+      if (!y) continue;
+      if (!allTime && want && y.slice(0, 7) !== want) continue;
+      out.fromWishes++;
+      addNick_(byKey[k].nick, byKey[k].label, y);
     }
   } catch (eW) {}
   return out;
@@ -11763,7 +11828,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     ppPriceByKey: {},
     ppDeliveredKeys: {},
     missingPrice: 0,
-    missingBasketCost: 0
+    missingBasketCost: 0,
+    partnerRows: []
   };
   var rows = [];
   try { rows = readAllCalendarRows_(); } catch (e0) { rows = []; }
@@ -11856,6 +11922,10 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       out.bpBasketCost = Math.round(((out.bpBasketCost || 0) + cost) * 100) / 100;
       out.bpDeliveryCost = Math.round(((out.bpDeliveryCost || 0) + deliveryFee) * 100) / 100;
     }
+    if (src === "pp") {
+      var pn = String(row.ppPartner || "").trim() || "— без партнёра —";
+      out.partnerRows.push({ name: pn, deliveries: 1, revenue: price, cost: costWithDeliv });
+    }
   }
 
   for (var i = 0; i < rows.length; i++) ingestRow_(rows[i]);
@@ -11946,6 +12016,217 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
   return out;
 }
 
+
+/* ========== Партнёры (источник ПП) ========== */
+var PARTNERS_HEADERS_ = ["id", "name", "note", "active", "createdAt", "updatedAt"];
+
+function getPartnersSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("Партнёры");
+  if (!sh) {
+    sh = ss.insertSheet("Партнёры");
+    sh.getRange(1, 1, 1, PARTNERS_HEADERS_.length).setValues([PARTNERS_HEADERS_]);
+    sh.setFrozenRows(1);
+  } else {
+    ensureSheetHeadersAppend_(sh, PARTNERS_HEADERS_);
+  }
+  return sh;
+}
+
+function readAllPartners_() {
+  var sh = getPartnersSheet_();
+  var data = sh.getDataRange().getValues();
+  var out = [];
+  for (var r = 1; r < data.length; r++) {
+    var name = String(data[r][1] || "").trim();
+    if (!name) continue;
+    out.push({
+      rowIndex: r + 1,
+      id: String(data[r][0] || ""),
+      name: name,
+      note: String(data[r][2] || ""),
+      active: String(data[r][3] || "yes").toLowerCase() !== "no",
+      createdAt: data[r][4],
+      updatedAt: data[r][5]
+    });
+  }
+  out.sort(function (a, b) {
+    return String(a.name).localeCompare(String(b.name), "ru");
+  });
+  return out;
+}
+
+function handleListPartners(json, callback, fromPost) {
+  var activeOnly = !(json && (json.all === "1" || json.all === true || json.all === 1));
+  var list = [];
+  try { list = readAllPartners_(); } catch (e0) { list = []; }
+  if (activeOnly) list = list.filter(function (p) { return p.active; });
+  var ok = { status: "success", partners: list };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handleSavePartner(json, callback, fromPost) {
+  var name = String((json && json.name) || "").trim();
+  if (!name) {
+    var bad = { status: "error", message: "Укажите имя партнёра" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var sh = getPartnersSheet_();
+  var all = readAllPartners_();
+  var now = new Date();
+  var note = String((json && json.note) || "").trim();
+  var active = (json && (json.active === false || json.active === "no" || json.active === 0 || json.active === "0")) ? "no" : "yes";
+  var id = String((json && json.id) || "").trim();
+  var hit = null;
+  for (var i = 0; i < all.length; i++) {
+    if (id && all[i].id === id) { hit = all[i]; break; }
+    if (!id && String(all[i].name).toLowerCase() === name.toLowerCase()) { hit = all[i]; break; }
+  }
+  if (!id) id = hit ? hit.id : ("p_" + Utilities.getUuid().slice(0, 8));
+  var vals = [id, name, note, active, hit ? hit.createdAt : now, now];
+  if (hit) sh.getRange(hit.rowIndex, 1, 1, PARTNERS_HEADERS_.length).setValues([vals]);
+  else sh.appendRow(vals);
+  var ok = { status: "success", id: id, name: name, active: active === "yes" };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handleDeletePartner(json, callback, fromPost) {
+  var id = String((json && json.id) || "").trim();
+  var name = String((json && json.name) || "").trim();
+  var all = readAllPartners_();
+  var hit = null;
+  for (var i = 0; i < all.length; i++) {
+    if (id && all[i].id === id) { hit = all[i]; break; }
+    if (name && String(all[i].name).toLowerCase() === name.toLowerCase()) { hit = all[i]; break; }
+  }
+  if (!hit) {
+    var bad = { status: "error", message: "Партнёр не найден" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  // soft-delete
+  var sh = getPartnersSheet_();
+  sh.getRange(hit.rowIndex, 4).setValue("no");
+  sh.getRange(hit.rowIndex, 6).setValue(new Date());
+  var ok = { status: "success", id: hit.id, deleted: true };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/** Lifetime БП→ПП: затраты на БП и выручка ПП с перешедших. */
+function collectBpLifetimeEconomics_(ss, crmSs) {
+  var out = {
+    converted: 0,
+    nicks: [],
+    bpDeliveries: 0,
+    bpCost: 0,
+    bpBasketCost: 0,
+    bpDeliveryCost: 0,
+    ppRevenue: 0,
+    ppDeliveries: 0,
+    profit: 0,
+    costPerConvert: null
+  };
+  var conv = collectBpToPpConversions_(ss, crmSs, "", { allTime: true });
+  out.converted = Number(conv.count) || 0;
+  out.nicks = (conv.nicks || []).slice(0, 40);
+  var convertKeys = {};
+  var convertYmd = {};
+  (conv.keys || []).forEach(function (k) { convertKeys[k] = true; });
+  var ymap = conv.ymdByKey || {};
+  for (var yk in ymap) {
+    if (ymap.hasOwnProperty(yk)) convertYmd[yk] = String(ymap[yk] || "").slice(0, 10);
+  }
+
+  var rows = [];
+  try { rows = readAllCalendarRows_(); } catch (e0) { rows = []; }
+  var books = [];
+  try { books = readAllBookings_(); } catch (eB) { books = []; }
+  var tz = ss.getSpreadsheetTimeZone();
+  var fee = BP_DELIVERY_COST_BYN_;
+
+  function ingest_(row) {
+    if (!row || String(row.status || "").toLowerCase() === "cancelled") return;
+    var iso = String(row.dateIso || "").slice(0, 10);
+    if (!iso || iso.length < 7) {
+      var bd = parseFlexibleDate_(row.date, tz) || parseFlexibleDate_(row.dateIso, tz);
+      if (bd) iso = Utilities.formatDate(bd, tz, "yyyy-MM-dd");
+    }
+    if (!iso) return;
+    var ck = clientMatchKey_(row.client) || String(row.client || "").toUpperCase();
+    var src = calendarSourceKind_(row);
+    var bask = row.basket;
+    if ((!bask || !bask.length) && row.basketJson) {
+      try { bask = JSON.parse(String(row.basketJson)); } catch (e1) { bask = []; }
+    }
+    if (src === "bp") {
+      var raw = estimateBasketRawCost_(bask, "bp");
+      var withFee = Math.round((raw + fee) * 100) / 100;
+      out.bpDeliveries++;
+      out.bpBasketCost += raw;
+      out.bpDeliveryCost += fee;
+      out.bpCost += withFee;
+    }
+    if (src === "pp" && ck && convertKeys[ck]) {
+      var cy = convertYmd[ck] || "";
+      if (cy && iso < cy) return;
+      var price = calendarRowPrice_(row);
+      out.ppRevenue += price;
+      out.ppDeliveries++;
+    }
+  }
+
+  var seen = {};
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var iso2 = String(r.dateIso || "").slice(0, 10);
+    var ck2 = clientMatchKey_(r.client) || String(r.client || "").toUpperCase();
+    var k2 = iso2 + "|" + ck2;
+    seen[k2] = true;
+    ingest_(r);
+  }
+  for (var bi = 0; bi < books.length; bi++) {
+    var b = books[bi];
+    var bIso = "";
+    var bDate = parseFlexibleDate_(b.date, tz);
+    if (bDate) bIso = Utilities.formatDate(bDate, tz, "yyyy-MM-dd");
+    var bCk = clientMatchKey_(b.client) || String(b.client || "").toUpperCase();
+    var bk = bIso + "|" + bCk;
+    if (seen[bk]) continue;
+    ingest_(b);
+  }
+
+  out.bpCost = Math.round(out.bpCost * 100) / 100;
+  out.bpBasketCost = Math.round(out.bpBasketCost * 100) / 100;
+  out.bpDeliveryCost = Math.round(out.bpDeliveryCost * 100) / 100;
+  out.ppRevenue = Math.round(out.ppRevenue * 100) / 100;
+  out.profit = Math.round((out.ppRevenue - out.bpCost) * 100) / 100;
+  if (out.converted > 0) out.costPerConvert = Math.round((out.bpCost / out.converted) * 100) / 100;
+  return out;
+}
+
+function collectPartnerStatsFromMonth_(monthCal) {
+  var map = {};
+  var rows = (monthCal && monthCal.partnerRows) || [];
+  for (var i = 0; i < rows.length; i++) {
+    var pr = rows[i];
+    var name = String(pr.name || "").trim() || "— без партнёра —";
+    if (!map[name]) map[name] = { name: name, deliveries: 0, revenue: 0, cost: 0, profit: 0 };
+    map[name].deliveries += Number(pr.deliveries) || 0;
+    map[name].revenue += Number(pr.revenue) || 0;
+    map[name].cost += Number(pr.cost) || 0;
+  }
+  var list = [];
+  for (var k in map) {
+    if (!map.hasOwnProperty(k)) continue;
+    var x = map[k];
+    x.revenue = Math.round(x.revenue * 100) / 100;
+    x.cost = Math.round(x.cost * 100) / 100;
+    x.profit = Math.round((x.revenue - x.cost) * 100) / 100;
+    list.push(x);
+  }
+  list.sort(function (a, b) { return (b.profit || 0) - (a.profit || 0); });
+  return list;
+}
+
 function handleGetStats(json, callback, fromPost) {
   json = json || {};
   // ожидаемая прибыль по диапазону — тот же getStats (чтобы не зависеть от отдельного action на старом Deploy)
@@ -11966,7 +12247,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS11:" + monthKey;
+  var cacheKey = "STATS12:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -12011,6 +12292,14 @@ function handleGetStats(json, callback, fromPost) {
   var cac = null;
   if (converted > 0) cac = Math.round((bpSpend / converted) * 100) / 100;
   var bpDeliv = Number(month.bpDeliveries) || 0;
+  var profitFact = Math.round((calTurnover - costActual) * 100) / 100;
+  var byPartner = [];
+  try { byPartner = collectPartnerStatsFromMonth_(month); } catch (eP) { byPartner = []; }
+  var bpLife = {
+    converted: 0, bpDeliveries: 0, bpCost: 0, bpBasketCost: 0, bpDeliveryCost: 0,
+    ppRevenue: 0, ppDeliveries: 0, profit: 0, costPerConvert: null, nicks: []
+  };
+  try { bpLife = collectBpLifetimeEconomics_(ss, crm); } catch (eL) {}
 
   // —— Лист ПП отдельно (снимок состава подписок, не «факт месяца») ——
   var ppSheetTurnover = Number(pp.turnover != null ? pp.turnover : pp.dirty) || 0;
@@ -12081,6 +12370,8 @@ function handleGetStats(json, callback, fromPost) {
       costBySource: month.costBySource,
       revenue: calTurnover,
       cost: costActual,
+      profit: profitFact,
+      clean: profitFact,
       retail: retail,
       partner: partner,
       ppRevenue: ppActual,
@@ -12090,8 +12381,10 @@ function handleGetStats(json, callback, fromPost) {
       bpDeliveryFeeEach: BP_DELIVERY_COST_BYN_,
       bpDeliveries: month.bpDeliveries,
       missingPrice: month.missingPrice || 0,
-      missingBasketCost: month.missingBasketCost || 0
+      missingBasketCost: month.missingBasketCost || 0,
+      byPartner: byPartner
     },
+    byPartner: byPartner,
     pp: {
       clients: pp.clients,
       expected: ppExpected,
@@ -12127,7 +12420,20 @@ function handleGetStats(json, callback, fromPost) {
       costPerConvertFormula: "bpSpend / converted",
       convertNicks: (conv.nicks || []).slice(0, 30),
       convertFromLedger: Number(conv.fromLedger) || 0,
-      convertFromStamp: Number(conv.fromWishes) || 0
+      convertFromStamp: Number(conv.fromWishes) || 0,
+      // lifetime: все когда-либо перешедшие БП→ПП
+      life: {
+        converted: bpLife.converted,
+        bpDeliveries: bpLife.bpDeliveries,
+        bpCost: bpLife.bpCost,
+        bpBasketCost: bpLife.bpBasketCost,
+        bpDeliveryCost: bpLife.bpDeliveryCost,
+        ppRevenue: bpLife.ppRevenue,
+        ppDeliveries: bpLife.ppDeliveries,
+        profit: bpLife.profit,
+        costPerConvert: bpLife.costPerConvert,
+        nicks: bpLife.nicks || []
+      }
     },
     money: {
       ppExpected: ppExpected,

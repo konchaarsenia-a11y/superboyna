@@ -1294,6 +1294,13 @@
             <button type="button" class="seg-btn" id="otPart" onclick="setOrderType('partner')">Партнёр</button>
           </div>
         </div>
+        <div class="form-group" id="ppPartnerGroup" style="display:none;">
+          <label>Партнёр (кто привёл в ПП) *</label>
+          <select id="ppPartnerSelect" style="width:100%;height:42px;border-radius:10px;background:#111;color:#fff;border:1px solid var(--border-color);">
+            <option value="">— выберите партнёра —</option>
+          </select>
+          <div class="field-hint">Список партнёров — во вкладке «Доступы»</div>
+        </div>
         <div class="form-group" id="orderPriceGroup" style="display:none;">
           <label id="orderPriceLabel">Цена (BYN)</label>
           <input type="number" id="orderPriceInput" step="0.01" min="0" placeholder="0" inputmode="decimal" oninput="onOrderPriceInput()">
@@ -2101,6 +2108,20 @@
         <button class="btn-action btn-blue" type="button" style="flex:1;margin:0;" onclick="loadPeople()">Обновить список</button>
       </div>
       <div id="peopleContainer"><p class="muted">—</p></div>
+      <div class="card" style="margin-top:12px;">
+        <div class="section-title" style="margin-top:0;">Партнёры (источник ПП)</div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">При заказе ПП нужно указать, от какого партнёра клиент. Здесь можно добавлять и выключать.</div>
+        <div class="form-group">
+          <label>Имя партнёра</label>
+          <input type="text" id="partnerNameInput" placeholder="Instagram / имя">
+        </div>
+        <div class="form-group">
+          <label>Заметка</label>
+          <input type="text" id="partnerNoteInput" placeholder="условия, %…">
+        </div>
+        <button class="btn-action btn-purple" type="button" onclick="savePartnerFromUi()">Добавить / обновить</button>
+        <div id="partnersContainer" style="margin-top:12px;"><p class="muted">—</p></div>
+      </div>
     </div>
 
     <div class="bottom-spacer" aria-hidden="true"></div>
@@ -2114,7 +2135,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.55";
+    const APP_VERSION = "v7.11.56";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3226,6 +3247,11 @@
       if (btnPp) btnPp.style.display = t === "pp" ? "" : "none";
       if (hintPp && t !== "pp") { hintPp.style.display = "none"; hintPp.textContent = ""; }
       if (t !== "pp") updatePpSlotPickUi_({ reset: true, needManualSlot: false, deliveriesN: 0 });
+      var ppg = document.getElementById("ppPartnerGroup");
+      if (ppg) ppg.style.display = t === "pp" ? "" : "none";
+      if (t === "pp") {
+        try { ensurePpPartnerOptions_(); } catch (ePart) {}
+      }
       if (t === "partner") {
         retailPriceManual = false;
         if (pg) pg.style.display = "";
@@ -4051,7 +4077,10 @@
           try { refreshWeekBanners({ soft: true }); } catch (eO) {}
           try { refreshOrderDayCounts_({ soft: true }); } catch (eC) {}
         }
-        if (screenId === "peopleScreen") loadPeople({ soft: true });
+        if (screenId === "peopleScreen") {
+          loadPeople({ soft: true });
+          try { loadPartnersUi_({ soft: true }); } catch (ePar) {}
+        }
         if (screenId === "courierScreen") {
           // короткий тап = маршрут; сборку открывает long-press → setCourierSub после switchTab
           ensureOpsDaySelected({ forceSmart: true });
@@ -4608,6 +4637,14 @@
         await uiAlertAsync("Уточни слот: ПП 1 или ПП 2");
         return;
       }
+      var ppPartnerVal = "";
+      if (orderType === "pp") {
+        ppPartnerVal = String((document.getElementById("ppPartnerSelect") || {}).value || "").trim();
+        if (!ppPartnerVal) {
+          await uiAlertAsync("Для ПП обязательно укажите партнёра (кто привёл). Список — во вкладке «Доступы».");
+          return;
+        }
+      }
       var ppSlotPayload = currentPpSlotPayload_();
       var surveyMeta = null;
       if (orderType === "bp" && !secondDogMode) {
@@ -4722,6 +4759,7 @@
         ppSlot: ppSlotPayload.ppSlot || "",
         deliveryAfter: deliveryAfter,
         deliveryBefore: deliveryBefore,
+        ppPartner: ppPartnerVal || "",
         addressFull: clientAddressFull,
         entrance: entrance,
         floor: floor,
@@ -4756,6 +4794,7 @@
         ppSlot: ppSlotPayload.ppSlot || "",
         deliveryAfter: deliveryAfter,
         deliveryBefore: deliveryBefore,
+        ppPartner: ppPartnerVal || "",
         source: orderType === "bp" ? "bp" : (orderType === "pp" ? "pp" : (orderType === "partner" ? "partner" : "retail")),
         basket: payload.basket,
         geo: payload.geo
@@ -4810,6 +4849,7 @@
           ppSlot: ppSlotPayload.ppSlot || "",
           deliveryAfter: deliveryAfter || "",
           deliveryBefore: deliveryBefore || "",
+          ppPartner: ppPartnerVal || "",
           source: orderType === "bp" ? "bp" : (orderType === "pp" ? "pp" : (orderType === "partner" ? "partner" : "retail")),
           basket: basketJson
         };
@@ -4867,6 +4907,7 @@
               ppSlot: ppSlotPayload.ppSlot || "",
               deliveryAfter: deliveryAfter || "",
               deliveryBefore: deliveryBefore || "",
+              ppPartner: ppPartnerVal || "",
               basket: basketJson
             };
             if (geoJson) orderParams.geo = geoJson;
@@ -5248,6 +5289,10 @@
       if (!String(client.phone || "").trim() && !extractPhone(client.note || "")) gaps.push("phone");
       var basketLen = (client.basket && client.basket.length) || Number(client.basketCount) || Number(client.orderCount) || 0;
       if (!basketLen) gaps.push("basket");
+      var ot = resolveClientOrderType_(client);
+      var segU = String(client.segment || "").toUpperCase();
+      var isPp = ot === "pp" || segU === "ПП" || segU === "PP" || segU === "АФК";
+      if (isPp && !String(client.ppPartner || "").trim()) gaps.push("partner");
       return gaps;
     }
 
@@ -5257,6 +5302,7 @@
         if (g === "address") return "адрес";
         if (g === "phone") return "тел";
         if (g === "basket") return "состав";
+        if (g === "partner") return "партнёр";
         return g;
       });
     }
@@ -5513,6 +5559,9 @@
         phone: client.phone || "",
         note: client.note || "",
         segment: client.segment || "",
+        source: client.source || "",
+        orderType: client.orderType || "",
+        ppPartner: client.ppPartner || "",
         basket: client.basket || [],
         basketCount: client.basketCount || 0,
         gaps: [],
@@ -5525,6 +5574,8 @@
       // нет типа — сразу спросить вместе с данными/составом
       if (!resolveClientOrderType_(staged)) {
         try { editDraftClient(viewTransferDraft.length - 1); } catch (eEd) {}
+      } else if (resolveClientOrderType_(staged) === "pp" && !String(staged.ppPartner || "").trim()) {
+        try { editDraftClient(viewTransferDraft.length - 1); } catch (eEd2) {}
       }
     }
     window.stageMonthClient = stageMonthClient;
@@ -5591,6 +5642,15 @@
       var client = viewTransferDraft[index];
       if (!client) return;
       var curOt = resolveClientOrderType_(client) || "";
+      var partners = [];
+      try { partners = await fetchPartnersList_(false); } catch (eP) { partners = []; }
+      var activePartners = (partners || []).filter(function (p) { return p.active !== false; });
+      var curPart = String(client.ppPartner || "").trim();
+      var partnerOpts = '<option value="">— выберите партнёра —</option>' +
+        activePartners.map(function (p) {
+          var sel = (p.name === curPart) ? " selected" : "";
+          return '<option value="' + escapeHtml(p.name) + '"' + sel + ">" + escapeHtml(p.name) + "</option>";
+        }).join("");
       var html =
         '<div class="modal-title">Дополнить: ' + escapeHtml(client.name) + "</div>" +
         '<div class="form-group"><label>Тип заказа</label>' +
@@ -5602,6 +5662,11 @@
         "</div>" +
         (curOt ? "" : '<div class="muted" style="font-size:12px;margin-top:4px;color:#ff9f0a;">Тип не указан — выбери перед сохранением</div>') +
         "</div>" +
+        '<div class="form-group" id="draftPpPartnerGroup" style="display:' + (curOt === "pp" ? "block" : "none") + ';">' +
+        '<label>Партнёр (кто привёл) *</label>' +
+        '<select id="draftPpPartnerSelect" style="width:100%;height:42px;border-radius:10px;background:#111;color:#fff;border:1px solid var(--border-color);">' +
+        partnerOpts + "</select>" +
+        '<div class="muted" style="font-size:11px;margin-top:4px;">Список — во вкладке «Доступы»</div></div>' +
         '<div class="form-group"><label>Адрес</label><input type="text" id="draftEditAddr" value="' +
         escapeHtml(client.address || "") + '"></div>' +
         '<div class="form-group"><label>Телефон</label><input type="text" id="draftEditPhone" value="' +
@@ -5621,6 +5686,8 @@
             row.querySelectorAll("[data-ot]").forEach(function (b) {
               b.classList.toggle("active", b === btn);
             });
+            var pg = document.getElementById("draftPpPartnerGroup");
+            if (pg) pg.style.display = draftOt === "pp" ? "block" : "none";
           };
         });
       }
@@ -5637,6 +5704,10 @@
           client.orderType = draftOt;
           client.source = draftOt;
         }
+        if (draftOt === "pp") {
+          var ps = document.getElementById("draftPpPartnerSelect");
+          client.ppPartner = ps ? String(ps.value || "").trim() : "";
+        }
         client.gaps = clientGaps(client);
       }
       document.getElementById("draftEditSave").onclick = function () {
@@ -5645,14 +5716,22 @@
           showToast("Выбери тип заказа");
           return;
         }
+        if (draftOt === "pp" && !String(client.ppPartner || "").trim()) {
+          showToast("Для ПП укажите партнёра");
+          return;
+        }
         closeModal();
         renderViewLists();
         showToast("Данные в черновике");
       };
-      document.getElementById("draftEditOrder").onclick = function () {
+      document.getElementById("draftEditOrder").onclick = async function () {
         applyDraftFields_();
         if (!resolveClientOrderType_(client)) {
           showToast("Сначала выбери тип заказа");
+          return;
+        }
+        if (draftOt === "pp" && !String(client.ppPartner || "").trim()) {
+          showToast("Для ПП укажите партнёра");
           return;
         }
         closeModal();
@@ -5671,6 +5750,9 @@
         if (phoneEl) phoneEl.value = client.phone || "";
         loadOrderNotesFromRaw(client.note || "");
         try { setOrderType(resolveClientOrderType_(client) || "retail"); } catch (eOt) {}
+        if (draftOt === "pp") {
+          try { await ensurePpPartnerOptions_(client.ppPartner || ""); } catch (ePar2) {}
+        }
         basket = (client.basket || []).map(function (g) {
           return {
             id: Date.now() + Math.random(),
@@ -5707,6 +5789,10 @@
         client.source = orderType;
         client.segment = orderTypeToSegment_(orderType) || client.segment || "";
       }
+      if (orderType === "pp") {
+        var ps = document.getElementById("ppPartnerSelect");
+        client.ppPartner = ps ? String(ps.value || "").trim() : (client.ppPartner || "");
+      }
       client.gaps = clientGaps(client);
       window._viewDraftEditIndex = null;
       document.getElementById("btnMainSave").innerText = "Сохранить заказ";
@@ -5738,6 +5824,18 @@
         try { editDraftClient(viewTransferDraft.indexOf(noType[0])); } catch (eT) {}
         return;
       }
+      var noPartner = viewTransferDraft.filter(function (c) {
+        var ot = resolveClientOrderType_(c);
+        return ot === "pp" && !String(c.ppPartner || "").trim();
+      });
+      if (noPartner.length) {
+        await uiAlertAsync(
+          "У " + noPartner.length + " ПП не указан партнёр (кто привёл).\n" +
+          "Открой карточку (✏️) и выбери партнёра. Список — во вкладке «Доступы»."
+        );
+        try { editDraftClient(viewTransferDraft.indexOf(noPartner[0])); } catch (eP) {}
+        return;
+      }
       var red = viewTransferDraft.filter(function (c) { return clientGaps(c).length; });
       if (red.length) {
         var okGaps = await uiConfirmAsync(
@@ -5758,6 +5856,7 @@
               phone: c.phone || "",
               note: c.note || "",
               segment: c.segment || "",
+              ppPartner: c.ppPartner || "",
               basket: c.basket && c.basket.length ? c.basket : null
             };
           }))
@@ -6012,6 +6111,9 @@
       if (client.segment) html += '<div class="delivery-line">Сегмент: ' + escapeHtml(client.segment) + "</div>";
       if (client.ppHint || client.ppSlot) {
         html += '<div class="delivery-line">Слот: ' + escapeHtml(client.ppHint || ("ПП " + client.ppSlot)) + "</div>";
+      }
+      if (client.ppPartner) {
+        html += '<div class="delivery-line">Партнёр: ' + escapeHtml(client.ppPartner) + "</div>";
       }
       if (resolveClientOrderPrice(client) != null) {
         html += formatOrderPriceHtml(client);
@@ -6325,6 +6427,11 @@
         try { setOrderType(ot); } catch (eOt) {}
       } else {
         showToast("Тип заказа не найден — выбери ПП / БП / Розница / Партнёр");
+      }
+      if (ot === "pp") {
+        try {
+          await ensurePpPartnerOptions_(client.ppPartner || "");
+        } catch (ePar) {}
       }
       var priceVal = resolveClientOrderPrice(client);
       var priceInp = document.getElementById("orderPriceInput");
@@ -8000,6 +8107,8 @@
       var bef = String((client && client.deliveryBefore) || "").trim();
       if (aft) bits.push('<span class="client-badge" style="background:rgba(255,159,10,0.2);color:#ffd60a;">≥' + escapeHtml(aft) + "</span>");
       if (bef) bits.push('<span class="client-badge" style="background:rgba(255,69,58,0.2);color:#ff6961;">≤' + escapeHtml(bef) + "</span>");
+      var part = String((client && client.ppPartner) || "").trim();
+      if (part && isPpSeg) bits.push('<span class="client-badge" style="background:rgba(100,210,255,0.2);color:#64d2ff;">→' + escapeHtml(part) + "</span>");
       return bits.join(" ");
     }
     window.extractOrderPrice = extractOrderPrice;
@@ -11125,6 +11234,13 @@
       if (cmp.calTurnover) html += '<div>' + statsDeltaTxt_(cmp.calTurnover) + '</div>';
       html += '<div class="muted" style="font-size:10px;margin-top:2px;">ПП+розн+парт · уже прошедшие</div>';
       html += '</div></div>';
+      var profitFact = fact.profit != null ? fact.profit : (fact.clean != null ? fact.clean : Math.round((Number(calTurnover) - Number(costActual)) * 100) / 100);
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:10px 0;">';
+      html += '<div><div class="muted" style="font-size:11px;">Себест</div><div style="font-size:18px;font-weight:800;color:#64d2ff;">' + costActual + '</div></div>';
+      html += '<div><div class="muted" style="font-size:11px;">Прибыль</div><div style="font-size:18px;font-weight:800;color:#ff9f0a;">' + profitFact + '</div></div>';
+      html += '<div><div class="muted" style="font-size:11px;">Чистое</div><div style="font-size:18px;font-weight:800;color:#30d158;">' + profitFact + '</div></div>';
+      html += '</div>';
+      html += '<div class="muted" style="font-size:10px;margin-bottom:8px;">Чистое = оборот − себестоимость (составы + доставка БП 6р).</div>';
       html += statsBarRow_("ПП (выручка)", ppActual, turnMax, "#bf5af2");
       if (cmp.ppActual) html += '<div style="margin-top:-4px;margin-bottom:6px;">' + statsDeltaTxt_(cmp.ppActual) + '</div>';
       html += statsBarRow_("Розница", retail, turnMax, "#ff9f0a");
@@ -11190,17 +11306,55 @@
       html += statsBarRow_("Партнёр", by.partner || 0, srcMax, "#64d2ff");
       html += '</div>';
 
-      html += '<div class="card"><div class="section-title" style="margin-top:0;font-size:15px;">Воронка БП (лист)</div>';
-      html += '<div class="muted" style="font-size:12px;margin-bottom:8px;">Карточки на листе БП · переходов БП→ПП за месяц: <b>' +
+      html += '<div class="card"><div class="section-title" style="margin-top:0;font-size:15px;">БП · отдельный учёт</div>';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:8px;">Месяц: доставок <b>' + bpDeliv + '</b> · затраты <b>' + bpSpend + '</b> · переходов <b>' +
         converted + '</b>' +
         (cac != null ? (" · на одного <b>" + cac + "</b> BYN") : " · на одного — нет переходов") +
         '</div>';
-      html += '<div class="muted" style="font-size:11px;margin-bottom:8px;">На одного = себест БП месяца (' +
-        bpSpend + ') ÷ перешедших (' + converted + '). Себест БП = сырьё + ' +
-        (fact.bpDeliveryFeeEach != null ? fact.bpDeliveryFeeEach : 6) + ' BYN доставка за каждую БП.</div>';
-      html += statsBarRow_("БП1", bp.bp1 || 0, bpMax, "#ff9f0a");
-      html += statsBarRow_("БП2", bp.bp2 || 0, bpMax, "#ff453a");
-      html += statsBarRow_("Финал", bp.final || 0, bpMax, "#30d158");
+      html += '<div class="muted" style="font-size:11px;margin-bottom:8px;">На одного (месяц) = себест БП месяца (' +
+        bpSpend + ') ÷ перешедших (' + converted + '). Себест = сырьё + ' +
+        (fact.bpDeliveryFeeEach != null ? fact.bpDeliveryFeeEach : 6) + ' BYN/доставку.</div>';
+      var life = bp.life || {};
+      html += '<div style="border-top:1px dashed var(--border-color);padding-top:10px;margin-top:8px;">';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:8px;"><b>За всё время</b> (включая тех, кто уже стал ПП)</div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
+      html += '<div><div class="muted" style="font-size:11px;">Перешло в ПП</div><div style="font-size:20px;font-weight:800;">' + (life.converted || 0) + "</div></div>";
+      html += '<div><div class="muted" style="font-size:11px;">Затраты на БП</div><div style="font-size:20px;font-weight:800;color:#ff453a;">' + (life.bpCost || 0) + "</div></div>";
+      html += '<div><div class="muted" style="font-size:11px;">Выручка ПП с них</div><div style="font-size:20px;font-weight:800;color:#30d158;">' + (life.ppRevenue || 0) + "</div></div>";
+      html += '<div><div class="muted" style="font-size:11px;">Прибыль с перешедших</div><div style="font-size:20px;font-weight:800;color:#ff9f0a;">' + (life.profit || 0) + "</div></div>";
+      html += "</div>";
+      html += '<div class="muted" style="font-size:11px;margin-top:8px;">CAC lifetime: <b>' +
+        (life.costPerConvert != null ? life.costPerConvert : "—") +
+        "</b> · БП доставок всего " + (life.bpDeliveries || 0) +
+        " · ПП доставок с них " + (life.ppDeliveries || 0) + "</div>";
+      html += '<div class="muted" style="font-size:10px;margin-top:4px;">Прибыль = выручка ПП после перехода − все затраты на БП (состав+6р).</div>';
+      html += "</div>";
+      html += '<div style="margin-top:10px;">';
+      html += statsBarRow_("БП1 (лист)", bp.bp1 || 0, bpMax, "#ff9f0a");
+      html += statsBarRow_("БП2 (лист)", bp.bp2 || 0, bpMax, "#ff453a");
+      html += statsBarRow_("Финал (лист)", bp.final || 0, bpMax, "#30d158");
+      html += "</div></div>";
+
+      var partners = fact.byPartner || res.byPartner || [];
+      html += '<div class="card"><div class="section-title" style="margin-top:0;font-size:15px;">Партнёры (источник ПП)</div>';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">По полю «партнёр» на ПП-заказах за месяц (даты ≤ сегодня). Выгода = выручка − себест.</div>';
+      if (!partners.length) {
+        html += '<p class="muted">Пока нет ПП с указанным партнёром. Добавьте партнёров в «Доступы» и указывайте при заказе ПП.</p>';
+      } else {
+        var pMax = 1;
+        partners.forEach(function (p) {
+          pMax = Math.max(pMax, Number(p.revenue) || 0, Math.abs(Number(p.profit) || 0), Number(p.cost) || 0);
+        });
+        partners.forEach(function (p) {
+          html += '<div style="margin:10px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--border-color);">';
+          html += '<div style="font-weight:700;margin-bottom:4px;">' + escapeHtml(p.name || "—") +
+            ' · ' + (p.deliveries || 0) + ' дост.</div>';
+          html += statsBarRow_("Выручка", p.revenue || 0, pMax, "#30d158");
+          html += statsBarRow_("Себест", p.cost || 0, pMax, "#64d2ff");
+          html += statsBarRow_("Выгода", p.profit || 0, pMax, "#ff9f0a");
+          html += "</div>";
+        });
+      }
       html += '</div>';
 
       // —— ПП с листа отдельно ——
@@ -15276,6 +15430,140 @@
       }
     }
     window.loadPeople = loadPeople;
+
+    var partnersCacheList_ = null;
+    async function fetchPartnersList_(force) {
+      if (!force && partnersCacheList_ && partnersCacheList_.length) return partnersCacheList_;
+      try {
+        var res = await apiGet({
+          action: "listPartners",
+          all: "1",
+          telegramId: myTelegramId,
+          _: String(Date.now())
+        }, { timeoutMs: 20000, cacheTtlMs: force ? 0 : 60000 });
+        if (res && res.status === "success") {
+          partnersCacheList_ = res.partners || [];
+          return partnersCacheList_;
+        }
+      } catch (e) {}
+      return partnersCacheList_ || [];
+    }
+
+    async function ensurePpPartnerOptions_(selected) {
+      var sel = document.getElementById("ppPartnerSelect");
+      if (!sel) return;
+      var list = await fetchPartnersList_(false);
+      var active = (list || []).filter(function (p) { return p.active !== false; });
+      var cur = selected != null ? String(selected) : String(sel.value || "");
+      sel.innerHTML = '<option value="">— выберите партнёра —</option>' +
+        active.map(function (p) {
+          return '<option value="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) + "</option>";
+        }).join("");
+      if (cur) sel.value = cur;
+    }
+
+    async function loadPartnersUi_(opts) {
+      opts = opts || {};
+      var box = document.getElementById("partnersContainer");
+      if (!box) return;
+      if (opts.soft && window._partnersUiHtml) {
+        box.innerHTML = window._partnersUiHtml;
+        return;
+      }
+      box.innerHTML = '<p class="muted">Загрузка…</p>';
+      var list = await fetchPartnersList_(true);
+      if (!list.length) {
+        var empty = '<p class="muted">Пока пусто — добавьте первого партнёра выше</p>';
+        window._partnersUiHtml = empty;
+        box.innerHTML = empty;
+        return;
+      }
+      var html = list.map(function (p) {
+        var idEsc = String(p.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        var nameEsc = String(p.name || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        return '<div class="card" style="margin-bottom:8px;padding:10px;">' +
+          '<b>' + escapeHtml(p.name) + '</b>' +
+          (p.active ? '' : ' <span class="muted">(выкл)</span>') +
+          (p.note ? ('<div class="muted" style="font-size:12px;">' + escapeHtml(p.note) + "</div>") : "") +
+          '<div class="seg-row" style="margin-top:8px;">' +
+          '<button type="button" class="seg-btn" onclick="togglePartnerActive_(\'' + idEsc + '\',' + (p.active ? "false" : "true") + ')">' +
+          (p.active ? "Выключить" : "Включить") + "</button>" +
+          '<button type="button" class="seg-btn" style="color:#ff453a;" onclick="deletePartnerUi_(\'' + idEsc + '\',\'' + nameEsc + '\')">Удалить</button>' +
+          "</div></div>";
+      }).join("");
+      window._partnersUiHtml = html;
+      box.innerHTML = html;
+      try { ensurePpPartnerOptions_(); } catch (e2) {}
+    }
+
+    async function savePartnerFromUi() {
+      var name = String((document.getElementById("partnerNameInput") || {}).value || "").trim();
+      var note = String((document.getElementById("partnerNoteInput") || {}).value || "").trim();
+      if (!name) { showToast("Укажите имя партнёра"); return; }
+      try {
+        var res = await apiGet({
+          action: "savePartner",
+          name: name,
+          note: note,
+          active: "yes",
+          telegramId: myTelegramId,
+          _: String(Date.now())
+        }, { timeoutMs: 20000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          showToast((res && res.message) || "Не сохранилось — Deploy Code.gs");
+          return;
+        }
+        document.getElementById("partnerNameInput").value = "";
+        document.getElementById("partnerNoteInput").value = "";
+        partnersCacheList_ = null;
+        window._partnersUiHtml = "";
+        await loadPartnersUi_({});
+        showToast("Партнёр сохранён");
+      } catch (e) {
+        showToast("Ошибка сети / Deploy");
+      }
+    }
+
+    async function togglePartnerActive_(id, makeActive) {
+      var list = await fetchPartnersList_(false);
+      var hit = (list || []).filter(function (p) { return p.id === id; })[0];
+      if (!hit) return;
+      try {
+        await apiGet({
+          action: "savePartner",
+          id: id,
+          name: hit.name,
+          note: hit.note || "",
+          active: makeActive ? "yes" : "no",
+          telegramId: myTelegramId,
+          _: String(Date.now())
+        }, { timeoutMs: 15000, cacheTtlMs: 0 });
+        partnersCacheList_ = null;
+        window._partnersUiHtml = "";
+        await loadPartnersUi_({});
+      } catch (e) { showToast("Не обновилось"); }
+    }
+
+    async function deletePartnerUi_(id, name) {
+      var ok = await uiConfirmAsync("Убрать партнёра «" + name + "» из списка?");
+      if (!ok) return;
+      try {
+        await apiGet({
+          action: "deletePartner",
+          id: id,
+          name: name,
+          telegramId: myTelegramId,
+          _: String(Date.now())
+        }, { timeoutMs: 15000, cacheTtlMs: 0 });
+        partnersCacheList_ = null;
+        window._partnersUiHtml = "";
+        await loadPartnersUi_({});
+      } catch (e) { showToast("Не удалилось"); }
+    }
+    window.savePartnerFromUi = savePartnerFromUi;
+    window.togglePartnerActive_ = togglePartnerActive_;
+    window.deletePartnerUi_ = deletePartnerUi_;
+    window.ensurePpPartnerOptions_ = ensurePpPartnerOptions_;
 
     async function assignRole(targetId) {
       var sel = document.getElementById("role_" + targetId);
