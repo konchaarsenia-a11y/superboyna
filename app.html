@@ -663,6 +663,8 @@
       background: rgba(255,122,0,0.14);
       border: 1px solid rgba(255,122,0,0.35);
       font-size: 14px; line-height: 1.2;
+      cursor: pointer; font-family: inherit;
+      -webkit-appearance: none; appearance: none;
     }
     .tel-btn:active, .tel-btn.is-pressing {
       filter: brightness(1.2);
@@ -1480,7 +1482,7 @@
       <div class="card">
         <div class="form-group">
           <label>День нарезки</label>
-          <select id="cuttingDaySelect" onchange="loadCutting()">
+          <select id="cuttingDaySelect" onchange="onCuttingDayChange()">
             <option value="">-- Выбрать день --</option>
             <option>Понедельник</option><option>Вторник</option><option>Среда</option>
             <option>Четверг</option><option>Пятница</option><option>Будущая неделя</option>
@@ -2067,7 +2069,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.46";
+    const APP_VERSION = "v7.11.47";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3980,17 +3982,10 @@
       } catch (e) {}
       try {
         if (screenId === "cuttingScreen") {
-          // повторный заход: не дёргаем сеть, если день уже в кэше сессии
+          ensureCuttingDaySelected({ forceSmart: true });
           try {
-            var cutDay = document.getElementById("cuttingDaySelect") && document.getElementById("cuttingDaySelect").value;
-            if (window._cuttingNeedRefresh) {
-              window._cuttingNeedRefresh = false;
-              if (cutDay) loadCutting(false);
-            } else if (cutDay && !cuttingItemsCache.length && !cuttingCompletionCache) {
-              loadCutting(false);
-            } else if (cuttingSession && cuttingSession.active) {
-              startCuttingPoll();
-            }
+            window._cuttingNeedRefresh = false;
+            loadCutting(false);
           } catch (eCut) {}
         } else stopCuttingPoll();
       } catch (e2) {}
@@ -4014,7 +4009,7 @@
         if (screenId === "peopleScreen") loadPeople({ soft: true });
         if (screenId === "courierScreen") {
           // короткий тап = маршрут; сборку открывает long-press → setCourierSub после switchTab
-          ensureOpsDaySelected();
+          ensureOpsDaySelected({ forceSmart: true });
           if (!window._courierOpenAssembly) setCourierSub("route");
           // setCourierSub сам soft-грузит маршрут/сборку; повторно не дёргаем
           window._courierOpenAssembly = false;
@@ -7131,6 +7126,16 @@
       return names[wd];
     }
 
+    /** Нарезка под доставку завтра: вт → среда, …; сб/вс → понедельник. */
+    function opsCuttingTargetDayNow() {
+      var names = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
+      var d = new Date();
+      d.setDate(d.getDate() + 1);
+      var wd = d.getDay();
+      if (wd === 0 || wd === 6) return "Понедельник";
+      return names[wd];
+    }
+
     function setSelectDayValue(sel, day) {
       if (!sel || !day) return false;
       for (var i = 0; i < sel.options.length; i++) {
@@ -7157,12 +7162,20 @@
       }
     }
 
-    /** День сразу: память → сегодня (Пн–Пт) → не трогаем, если уже выбран. */
-    function ensureOpsDaySelected() {
+    /** Курьер/сборка: сегодня (Пн–Пт). forceSmart — при открытии вкладки. */
+    function ensureOpsDaySelected(opts) {
+      opts = opts || {};
       var cour = document.getElementById("courierDaySelect");
       var asm = document.getElementById("assemblyDaySelect");
+      var prefer = opsWeekdayNameNow();
+      if (opts.forceSmart) {
+        if (cour) setSelectDayValue(cour, prefer);
+        if (asm) setSelectDayValue(asm, prefer);
+        persistOpsDay(prefer);
+        return prefer;
+      }
       var cur = (cour && cour.value) || (asm && asm.value) || "";
-      var day = cur || readPersistedOpsDay() || opsWeekdayNameNow();
+      var day = cur || readPersistedOpsDay() || prefer;
       if (cour && !cour.value) setSelectDayValue(cour, day);
       if (asm && !asm.value) setSelectDayValue(asm, (cour && cour.value) || day);
       var finalDay = (cour && cour.value) || (asm && asm.value) || "";
@@ -7170,9 +7183,40 @@
       return finalDay;
     }
 
+    /** Нарезка: день доставки = завтра. */
+    function ensureCuttingDaySelected(opts) {
+      opts = opts || {};
+      var sel = document.getElementById("cuttingDaySelect");
+      if (!sel) return "";
+      var prefer = opsCuttingTargetDayNow();
+      if (opts.forceSmart) {
+        setSelectDayValue(sel, prefer);
+        try { localStorage.setItem("opsDayCutting", prefer); } catch (e) {}
+        return prefer;
+      }
+      if (!sel.value) {
+        var mem = "";
+        try { mem = localStorage.getItem("opsDayCutting") || ""; } catch (e2) {}
+        setSelectDayValue(sel, mem || prefer);
+      }
+      return sel.value || "";
+    }
+    window.ensureCuttingDaySelected = ensureCuttingDaySelected;
+    window.opsCuttingTargetDayNow = opsCuttingTargetDayNow;
+
+    function onCuttingDayChange() {
+      var day = document.getElementById("cuttingDaySelect") && document.getElementById("cuttingDaySelect").value;
+      if (day) {
+        try { localStorage.setItem("opsDayCutting", day); } catch (e) {}
+      }
+      loadCutting(false);
+    }
+    window.onCuttingDayChange = onCuttingDayChange;
+
     function onCourierDayChange() {
       var day = document.getElementById("courierDaySelect").value;
       persistOpsDay(day);
+      courierDetailExpanded_ = false;
       var asm = document.getElementById("assemblyDaySelect");
       if (asm && day) setSelectDayValue(asm, day);
       loadCourier(true);
@@ -7182,6 +7226,7 @@
     function onAssemblyDayChange() {
       var day = document.getElementById("assemblyDaySelect").value;
       persistOpsDay(day);
+      assemblyDetailExpanded_ = false;
       var cour = document.getElementById("courierDaySelect");
       if (cour && day) setSelectDayValue(cour, day);
       loadAssembly(true);
@@ -7204,9 +7249,11 @@
       // без запроса — не дёргаем сеть, если день уже в кэше
       if (!force && courierClientsCache && courierClientsCache.length && courierClientsCache._day === day) {
         refreshCourierSummary();
+        renderCourierClientsUi_();
         return;
       }
       courierClientsCache = [];
+      courierDetailExpanded_ = false;
       refreshCourierSummary();
       document.getElementById("routePlanBox").innerHTML = "";
       routePlanState.routes = [[], []];
@@ -7225,8 +7272,63 @@
         courierClientsCache._date = res.date || day;
         courierClientsCache._day = day;
         refreshCourierSummary();
-        box.innerHTML = res.clients.map((c, idx) => {
-          const lines = (c.basket || []).map(g => {
+        renderCourierClientsUi_();
+      } catch (err) {
+        box.innerHTML = '<p class="muted">Ошибка: ' + escapeHtml(err.message || String(err)) + "</p>";
+      }
+    }
+
+    var courierDetailExpanded_ = false;
+    var assemblyDetailExpanded_ = false;
+
+    function courierAllDelivered_() {
+      var list = courierClientsCache || [];
+      return list.length > 0 && list.every(function (c) { return !!c.delivered; });
+    }
+
+    function renderCourierFinishedSummary_() {
+      var box = document.getElementById("courierContainer");
+      var summary = document.getElementById("courierSummary");
+      var list = courierClientsCache || [];
+      var day = document.getElementById("courierDaySelect").value;
+      var dateLabel = (courierClientsCache && courierClientsCache._date) || day || "";
+      var paidN = list.filter(function (c) {
+        return String(c.paid || "").toLowerCase() === "yes";
+      }).length;
+      if (summary) {
+        summary.innerHTML =
+          '<div class="cut-done-summary">' +
+            '<div class="cut-done-title">Доставки завершены' + (dateLabel ? (" · " + escapeHtml(String(dateLabel))) : "") + "</div>" +
+            '<div class="cut-done-meta">Клиентов: <b>' + list.length + "</b>" +
+              (paidN ? (" · оплачено ПП: <b>" + paidN + "</b>") : "") +
+            "</div>" +
+          "</div>";
+      }
+      if (box) {
+        box.innerHTML =
+          '<div class="card" style="text-align:center;">' +
+            '<div class="muted" style="margin-bottom:10px;">Все галочки проставлены</div>' +
+            '<button type="button" class="btn-action btn-blue" onclick="showCourierDoneDetails_()">Подробнее</button>' +
+          "</div>";
+      }
+    }
+
+    function showCourierDoneDetails_() {
+      courierDetailExpanded_ = true;
+      renderCourierClientsUi_();
+    }
+    window.showCourierDoneDetails_ = showCourierDoneDetails_;
+
+    function renderCourierClientsUi_() {
+      var box = document.getElementById("courierContainer");
+      if (!box) return;
+      if (courierAllDelivered_() && !courierDetailExpanded_) {
+        renderCourierFinishedSummary_();
+        return;
+      }
+      var resClients = courierClientsCache || [];
+      box.innerHTML = resClients.map(function (c, idx) {
+          const lines = (c.basket || []).map(function (g) {
             const unit = g.unit || "гр";
             const frac = g.sub ? " (" + g.sub + ")" : "";
             return `<div class="order-detail-line"><span>• ${escapeHtml(g.name)}${escapeHtml(frac)}</span><span class="order-detail-volume">${g.val} ${unit}</span></div>`;
@@ -7235,6 +7337,10 @@
           const courNote = noteTextForRole(c.note || "", "cour");
           const addrPublic = courierPublicAddress_(c.address || "");
           const addrPrivate = courierPrivateAddressHtml_(c.address || "");
+          const phoneRaw = c.phone || extractPhone(c.note || "");
+          const telBlock = phoneRaw
+            ? formatTelHtml(phoneRaw, { always: true })
+            : '<div class="delivery-line courier-tel-line muted" onclick="event.stopPropagation()">📞 нет телефона</div>';
           return `<div class="courier-row${c.delivered ? " is-delivered" : ""}" id="courierRow_${idx}" onclick="toggleCourierClientDetail_(${idx}, event)">
             <label class="check-line" onclick="event.stopPropagation()">
               <input type="checkbox" ${c.delivered ? "checked" : ""} onchange="toggleDelivered(${idx}, this.checked)">
@@ -7245,7 +7351,7 @@
             <div class="courier-addr-main">${addrPublic ? ("Адрес: <b>" + escapeHtml(addrPublic) + "</b>") : "Адрес не указан"}
               <span class="muted" style="font-size:11px;"> · тап → этаж/кв</span>
             </div>
-            ${formatTelHtml(c.phone || extractPhone(c.note || ""), { always: true })}
+            ${telBlock}
             <div class="courier-extra" id="courierExtra_${idx}">
               <div>${addrPrivate}</div>
               ${priceHtml}
@@ -7254,9 +7360,6 @@
             <div>${lines || '<span class="muted">Пустой заказ</span>'}</div>
           </div>`;
         }).join("");
-      } catch (err) {
-        box.innerHTML = '<p class="muted">Ошибка: ' + escapeHtml(err.message || String(err)) + "</p>";
-      }
     }
 
     function toggleCourierClientDetail_(idx, ev) {
@@ -7318,20 +7421,9 @@
       }
       client.delivered = delivered;
       if (paidAnswer) client.paid = paidAnswer;
+      if (!delivered) courierDetailExpanded_ = true;
       refreshCourierSummary();
-      const rows = document.querySelectorAll("#courierContainer .courier-row");
-      const row = rows[index];
-      if (row) {
-        row.classList.toggle("is-delivered", !!delivered);
-        if (delivered) {
-          celebrateSuccess("deliver");
-          row.classList.remove("just-done");
-          void row.offsetWidth;
-          row.classList.add("just-done");
-        } else {
-          row.classList.remove("just-done");
-        }
-      }
+      renderCourierClientsUi_();
       try {
         var body = { action: "setDelivered", day: day, client: client.name, delivered: delivered };
         if (paidAnswer) body.paid = paidAnswer;
@@ -7340,7 +7432,7 @@
       } catch (e) {
         client.delivered = !delivered;
         refreshCourierSummary();
-        if (row) row.classList.toggle("is-delivered", !!client.delivered);
+        renderCourierClientsUi_();
         showToast("Не удалось сохранить галочку");
       }
     }
@@ -7856,26 +7948,32 @@
       if (ev) {
         try { ev.preventDefault(); } catch (e0) {}
         try { ev.stopPropagation(); } catch (e1) {}
+        try { ev.stopImmediatePropagation(); } catch (e1b) {}
       }
-      var href = el && el.getAttribute("href");
+      var href = "";
+      if (el) {
+        href = el.getAttribute("data-tel") || el.getAttribute("href") || "";
+      }
       if (!href) return false;
-      // tel: нельзя через tg.openLink — в Mini App молчит. Только location / native click.
+      try { if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light"); } catch (eH) {}
+      // Telegram Mini App: tel: надёжнее через window.open('_blank')
       try {
-        if (href.indexOf("http") === 0 && tg && typeof tg.openLink === "function") {
-          tg.openLink(href);
-          return false;
-        }
+        var w = window.open(href, "_blank");
+        if (w) return false;
       } catch (e2) {}
+      try {
+        window.location.href = href;
+        return false;
+      } catch (e3) {}
       try {
         var a = document.createElement("a");
         a.setAttribute("href", href);
+        a.setAttribute("target", "_blank");
         a.style.display = "none";
         document.body.appendChild(a);
         a.click();
         setTimeout(function () { try { a.remove(); } catch (eR) {} }, 500);
-      } catch (e3) {
-        try { window.location.href = href; } catch (e4) {}
-      }
+      } catch (e4) {}
       return false;
     }
     window.callPhoneFromEl_ = callPhoneFromEl_;
@@ -7886,8 +7984,8 @@
       if (!href) return "";
       var cls = (opts && opts.always) ? "courier-tel-line" : "";
       return '<div class="delivery-line ' + cls + '" onclick="event.stopPropagation()">' +
-        '<a class="tel-link tel-btn" href="' + href +
-        '" onclick="return callPhoneFromEl_(this, event)">📞 ' + escapeHtml(p) + "</a></div>";
+        '<button type="button" class="tel-link tel-btn" data-tel="' + href + '"' +
+        ' onclick="return callPhoneFromEl_(this, event)">📞 ' + escapeHtml(p) + "</button></div>";
     }
 
     function applyDepotPreset(addr) {
@@ -10979,6 +11077,7 @@
         renderAssemblyView();
         return;
       }
+      if (force) assemblyDetailExpanded_ = false;
       box.innerHTML = loadingDanceHtml("Считаю пакеты…");
       try {
         var res = await apiGet({ action: "getAssembly", day: day }, { timeoutMs: 22000, cacheTtlMs: 8000 });
@@ -11189,6 +11288,20 @@
 
       var doneAsm = (res.clients || []).filter(function (c) { return c.assembled; }).length;
       var totalAsm = (res.clients || []).length;
+      var allAsmDone = totalAsm > 0 && doneAsm >= totalAsm;
+
+      if (allAsmDone && !assemblyDetailExpanded_) {
+        box.innerHTML =
+          '<div class="cut-done-summary">' +
+            '<div class="cut-done-title">Сборка завершена</div>' +
+            '<div class="cut-done-meta">Клиентов: <b>' + totalAsm + "</b> · пакетов: <b>" + enabledTotal + "</b></div>" +
+          "</div>" +
+          '<div class="card" style="text-align:center;margin-top:10px;">' +
+            '<div class="muted" style="margin-bottom:10px;">Все собраны</div>' +
+            '<button type="button" class="btn-action btn-blue" onclick="showAssemblyDoneDetails_()">Подробнее</button>' +
+          "</div>";
+        return;
+      }
 
       box.innerHTML =
         '<div class="card"><b>Форматы пакетов (несобранные)</b>' +
@@ -11202,6 +11315,11 @@
         '<div class="section-title">По клиентам · отметь кого собрали</div>' +
         clientsHtml;
     }
+    function showAssemblyDoneDetails_() {
+      assemblyDetailExpanded_ = true;
+      renderAssemblyView();
+    }
+    window.showAssemblyDoneDetails_ = showAssemblyDoneDetails_;
     window.loadAssembly = loadAssembly;
 
     async function toggleAssembledByName(clientName, assembled) {
@@ -11216,6 +11334,7 @@
       var day = document.getElementById("assemblyDaySelect").value || document.getElementById("courierDaySelect").value;
       var next = assembled === undefined ? !client.assembled : !!assembled;
       client.assembled = next;
+      if (!next) assemblyDetailExpanded_ = true;
       renderAssemblyView();
       try { apiCacheBustMem_(); } catch (eClr) {}
       try {

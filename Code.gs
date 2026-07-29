@@ -11641,6 +11641,21 @@ function collectBpToPpConversions_(ss, crmSs, monthKey, ppStats) {
   return out;
 }
 
+function calendarRowPrice_(row) {
+  var op = row && row.orderPrice;
+  if (op != null && op !== "" && !isNaN(Number(op))) {
+    var n = Number(op);
+    if (isFinite(n) && n > 0) return n;
+  }
+  var fromTag = parsePriceTagFromNote_(row && row.note);
+  if (fromTag > 0) return fromTag;
+  try {
+    var e = extractOrderPriceFromNote_(row && row.note);
+    if (e !== "" && e != null && !isNaN(Number(e)) && Number(e) > 0) return Number(e);
+  } catch (e0) {}
+  return 0;
+}
+
 function collectMonthCalendarStats_(ss, monthKey) {
   var out = {
     deliveriesTotal: 0,
@@ -11671,8 +11686,11 @@ function collectMonthCalendarStats_(ss, monthKey) {
     if (!iso || iso.slice(0, 7) !== want) continue;
     out.deliveriesTotal++;
     var src = calendarSourceKind_(row);
+    // без сегмента/source платные разовые часто «other» — считаем розницей
+    if (src === "other" && calendarRowPrice_(row) > 0) src = "retail";
     out.bySource[src] = (out.bySource[src] || 0) + 1;
-    var price = parsePriceTagFromNote_(row.note);
+    // цена из колонки orderPrice (с v7.11.35), не только из [ЦЕНА:] в note
+    var price = calendarRowPrice_(row);
     out.revenueBySource[src] = Math.round(((out.revenueBySource[src] || 0) + price) * 100) / 100;
     out.revenueActual += price;
     var ck = clientMatchKey_(row.client) || String(row.client || "").toUpperCase();
@@ -11772,7 +11790,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS3:" + monthKey;
+  var cacheKey = "STATS4:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
