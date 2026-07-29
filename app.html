@@ -2154,7 +2154,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.64";
+    const APP_VERSION = "v7.11.65";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -11629,7 +11629,12 @@
         return "большой";
       }
       if (p.type === "craft") return "крафт";
-      if (p.type === "chew") return g <= 4 ? "средний" : "большой";
+      if (p.type === "chew") {
+        var su = String(p.sub || "").toUpperCase();
+        var largeChew = /ОГР|ОГРОМ|ГИГАНТ|КРУПН|БОЛЬШ|БОЛ|^ОБЫЧН/.test(su);
+        if (g <= 2 && !largeChew) return "средний";
+        return "большой";
+      }
       if (p.type === "bulk" || g > 0) {
         if (g <= 20) return "маленький";
         if (g <= 100) return "средний";

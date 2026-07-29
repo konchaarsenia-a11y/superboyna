@@ -11073,7 +11073,18 @@ function handleCalcPpFact(json, callback, fromPost) {
 var PACK_CAP_PRODUCT_ = { small: 20, medium: 100, large: 250 };
 var PACK_CAP_LIGHT_ = { small: 15, medium: 80, large: 190 };
 var PACK_CRAFT_HOLDS_ = { large: 4, medium: 7, small: 35 };
-var PACK_CHEW_FEW_ = 4;
+var PACK_CHEW_FEW_ = 2; // «мало» жевалок → средний (если фракция не большая)
+var PACK_CHEW_PER_BIG_ = 4; // шт в большом пакете
+
+/** Фракция жевалки «большая» (БОЛ/ОГР/…) — даже 1–2 шт идут в большой. */
+function isLargeChewFraction_(sub) {
+  var u = String(sub || '').trim().toUpperCase();
+  if (!u) return false;
+  if (/ОГР|ОГРОМ|ГИГАНТ|КРУПН|БОЛЬШ|БОЛ/.test(u)) return true;
+  // полное ухо/аорта vs половинка
+  if (/^ОБЫЧН/.test(u)) return true;
+  return false;
+}
 
 /** Размер + число пакетов по граммам (одна позиция → один формат). */
 function packSizeAndCount_(grams, caps) {
@@ -11139,14 +11150,17 @@ function buildAssemblyForBasket_(basket) {
       counterKey = bp.key;
     } else if (cat === 'chew' || /шт/i.test(name) || /быч|трахе|аорт|ухо|нос|станова|колен|копыт|переп|губ|книжк/i.test(name)) {
       type = 'chew';
-      if (val <= PACK_CHEW_FEW_) {
+      var chewLarge = isLargeChewFraction_(sub);
+      if (val <= PACK_CHEW_FEW_ && !chewLarge) {
         bags = 1;
         counterKey = 'средний';
-        rule = 'жевалки мало→средний';
+        rule = 'жевалки мало(≤' + PACK_CHEW_FEW_ + ')+не бол.фрак→средний';
       } else {
-        bags = Math.ceil(val / PACK_CHEW_FEW_);
+        bags = Math.max(1, Math.ceil(val / PACK_CHEW_PER_BIG_));
         counterKey = 'большой';
-        rule = 'жевалки×' + PACK_CHEW_FEW_ + '→большой';
+        rule = chewLarge
+          ? 'жевалки бол.фрак→большой'
+          : 'жевалки×' + PACK_CHEW_PER_BIG_ + '→большой';
       }
     } else if (cat === 'other' || /крафт|индейк|ломтик|вымя|семен|пикальн|печень|светл/i.test(name)) {
       bags = 1;
