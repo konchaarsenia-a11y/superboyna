@@ -1330,11 +1330,11 @@
                 <input type="number" id="couponsQtyInput" min="0" step="1" inputmode="numeric" placeholder="0" oninput="refreshPartnerCouponsLive()">
               </div>
               <div style="flex:1;">
-                <label>Цена одного (BYN)</label>
+                <label>Цена всей пачки (BYN)</label>
                 <input type="number" id="couponPriceInput" min="0" step="0.01" inputmode="decimal" placeholder="0" oninput="refreshPartnerCouponsLive()">
               </div>
             </div>
-            <div class="field-hint" id="couponsCostLive" style="margin-top:6px;">Итого купоны: 0 BYN</div>
+            <div class="field-hint" id="couponsCostLive" style="margin-top:6px;">Затраты на пачку: 0 BYN</div>
           </div>
         </div>
         <div class="form-group">
@@ -2155,7 +2155,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.57";
+    const APP_VERSION = "v7.11.58";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3338,24 +3338,25 @@
         return;
       }
       var qty = Number((document.getElementById("couponsQtyInput") || {}).value) || 0;
-      var price = Number((document.getElementById("couponPriceInput") || {}).value) || 0;
-      var total = Math.round(qty * price * 100) / 100;
-      live.textContent = "Итого купоны: " + total + " BYN (" + qty + " × " + price + ")";
+      var pack = Number((document.getElementById("couponPriceInput") || {}).value) || 0;
+      pack = Math.round(pack * 100) / 100;
+      live.textContent = "Затраты на пачку: " + pack + " BYN" +
+        (qty > 0 ? (" · " + qty + " шт") : "");
     }
     function readPartnerCouponsPayload_() {
       if (orderType !== "partner" || !partnerCouponsEnabled) {
         return { couponsQty: 0, couponPrice: 0, couponsCost: 0 };
       }
       var qty = Number((document.getElementById("couponsQtyInput") || {}).value) || 0;
-      var price = Number((document.getElementById("couponPriceInput") || {}).value) || 0;
+      var pack = Number((document.getElementById("couponPriceInput") || {}).value) || 0;
       if (qty < 0) qty = 0;
-      if (price < 0) price = 0;
+      if (pack < 0) pack = 0;
       qty = Math.floor(qty);
-      price = Math.round(price * 100) / 100;
+      pack = Math.round(pack * 100) / 100;
       return {
         couponsQty: qty,
-        couponPrice: price,
-        couponsCost: Math.round(qty * price * 100) / 100
+        couponPrice: pack,
+        couponsCost: pack
       };
     }
     function applyPartnerCouponsFromClient_(client) {
@@ -4729,7 +4730,7 @@
           return;
         }
         if (!(couponsPayload.couponPrice > 0)) {
-          await uiAlertAsync("Укажите цену одного купона (BYN)");
+          await uiAlertAsync("Укажите цену всей пачки купонов (BYN)");
           return;
         }
       }
@@ -4827,8 +4828,8 @@
         confirmMsg += "\nЦена: " + Number(orderPrice) + " BYN";
       }
       if (orderType === "partner" && couponsPayload && couponsPayload.couponsQty > 0) {
-        confirmMsg += "\nКупоны: " + couponsPayload.couponsQty + " × " + couponsPayload.couponPrice +
-          " = " + couponsPayload.couponsCost + " BYN";
+        confirmMsg += "\nКупоны: " + couponsPayload.couponsQty + " шт, пачка " +
+          couponsPayload.couponPrice + " BYN";
       }
       const okConfirm = await uiConfirmAsync(confirmMsg);
       if (!okConfirm) return;
@@ -8228,7 +8229,7 @@
       var cp = Number(client && client.couponPrice) || 0;
       if (cq > 0 && cp > 0) {
         bits.push('<span class="client-badge" style="background:rgba(255,214,10,0.2);color:#ffd60a;">купоны ' +
-          escapeHtml(String(cq)) + "×" + escapeHtml(String(cp)) + "</span>");
+          escapeHtml(String(cq)) + " шт · " + escapeHtml(String(cp)) + " BYN</span>");
       }
       return bits.join(" ");
     }

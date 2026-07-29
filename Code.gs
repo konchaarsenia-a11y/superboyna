@@ -11697,20 +11697,24 @@ function normalizeCouponsQty_(v) {
   return Math.floor(n);
 }
 
-/** Цена одного купона BYN. */
-function normalizeCouponUnitPrice_(v) {
+/** Цена пачки купонов (вся партия), BYN. */
+function normalizeCouponPackPrice_(v) {
   var n = Number(v);
   if (!isFinite(n) || n < 0) return 0;
   return Math.round(n * 100) / 100;
 }
+/** @deprecated alias — цена пачки, не за штуку */
+function normalizeCouponUnitPrice_(v) {
+  return normalizeCouponPackPrice_(v);
+}
 
-/** Затраты на купоны строки заказа. */
+/** Затраты на купоны строки = цена всей пачки (если кол-во > 0). */
 function couponsCostFromRow_(row) {
   if (!row) return 0;
   var qty = normalizeCouponsQty_(row.couponsQty);
-  var price = normalizeCouponUnitPrice_(row.couponPrice);
-  if (!(qty > 0) || !(price > 0)) return 0;
-  return Math.round(qty * price * 100) / 100;
+  var pack = normalizeCouponPackPrice_(row.couponPrice);
+  if (!(qty > 0) || !(pack > 0)) return 0;
+  return pack;
 }
 
 /** Сырая себест корзины по прайсу. modeHint: pp|retail|bp — какой лист пробовать первым. */
