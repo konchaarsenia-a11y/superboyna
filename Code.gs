@@ -1215,6 +1215,8 @@ function doGet(e) {
       deliveryAfter: e.parameter.deliveryAfter || "",
       deliveryBefore: e.parameter.deliveryBefore || "",
       ppPartner: e.parameter.ppPartner ? decodeURIComponent(e.parameter.ppPartner) : "",
+      couponsQty: e.parameter.couponsQty || 0,
+      couponPrice: e.parameter.couponPrice || 0,
       basket: basketOrd,
       geo: geoOrd,
       survey: surveyOrd
@@ -1245,6 +1247,8 @@ function doGet(e) {
       deliveryAfter: e.parameter.deliveryAfter || "",
       deliveryBefore: e.parameter.deliveryBefore || "",
       ppPartner: e.parameter.ppPartner ? decodeURIComponent(e.parameter.ppPartner) : "",
+      couponsQty: e.parameter.couponsQty || 0,
+      couponPrice: e.parameter.couponPrice || 0,
       source: e.parameter.source ? decodeURIComponent(e.parameter.source) : "",
       alsoSaveOrder: e.parameter.alsoSaveOrder,
       basket: basketBk,
@@ -1908,6 +1912,8 @@ function handleGetCourier(dayName, callback) {
       deliveryAfter: client.deliveryAfter || "",
       deliveryBefore: client.deliveryBefore || "",
       ppPartner: client.ppPartner || "",
+      couponsQty: client.couponsQty || 0,
+      couponPrice: client.couponPrice || 0,
       askPaid: !!(isPpOrder && askPaid && !delivered)
     });
   }
@@ -2722,6 +2728,8 @@ function handleSaveOrder(ss, json, callback, fromPost) {
         deliveryAfter: normalizeTimeHm_(json.deliveryAfter),
         deliveryBefore: normalizeTimeHm_(json.deliveryBefore),
         ppPartner: String(json.ppPartner || "").trim(),
+        couponsQty: normalizeCouponsQty_(json.couponsQty),
+        couponPrice: normalizeCouponUnitPrice_(json.couponPrice),
         status: "planned",
         legacyRef: "week:" + String(json.day || "")
       });
@@ -3254,6 +3262,8 @@ function getClientsData_(ss, dayName) {
           deliveryAfter: (calHit && calHit.deliveryAfter) || "",
           deliveryBefore: (calHit && calHit.deliveryBefore) || "",
           ppPartner: (calHit && calHit.ppPartner) || "",
+          couponsQty: (calHit && calHit.couponsQty) || 0,
+          couponPrice: (calHit && calHit.couponPrice) || 0,
           noCut: noCutFlag
         });
       }
@@ -5248,7 +5258,8 @@ var BOOKINGS_HEADERS_ = [
   "id", "date", "client", "subId", "address", "note", "basketJson",
   "source", "status", "dayName", "updatedAt", "pulledAt",
   "segment", "phone", "orderPrice", "ppSlot",
-  "deliveryAfter", "deliveryBefore", "ppPartner"
+  "deliveryAfter", "deliveryBefore", "ppPartner",
+  "couponsQty", "couponPrice"
 ];
 
 function getBookingsSheet_() {
@@ -5271,7 +5282,8 @@ var CALENDAR_HEADERS_ = [
   "address", "phone", "note", "basketJson", "subId",
   "source", "status", "dayName", "updatedAt", "pulledAt", "legacyRef",
   "orderPrice", "ppSlot",
-  "deliveryAfter", "deliveryBefore", "ppPartner"
+  "deliveryAfter", "deliveryBefore", "ppPartner",
+  "couponsQty", "couponPrice"
 ];
 
 function getCalendarSheet_() {
@@ -5331,7 +5343,9 @@ function readAllCalendarRows_() {
       ppSlot: String(data[r][17] != null ? data[r][17] : "").trim(),
       deliveryAfter: normalizeTimeHm_(data[r][18]),
       deliveryBefore: normalizeTimeHm_(data[r][19]),
-      ppPartner: String(data[r][20] != null ? data[r][20] : "").trim()
+      ppPartner: String(data[r][20] != null ? data[r][20] : "").trim(),
+      couponsQty: normalizeCouponsQty_(data[r][21]),
+      couponPrice: normalizeCouponUnitPrice_(data[r][22])
     });
   }
   return out;
@@ -5385,6 +5399,12 @@ function upsertCalendarEntry_(ss, opts) {
   var afterT = normalizeTimeHm_(opts.deliveryAfter != null ? opts.deliveryAfter : (existing && existing.deliveryAfter) || "");
   var beforeT = normalizeTimeHm_(opts.deliveryBefore != null ? opts.deliveryBefore : (existing && existing.deliveryBefore) || "");
   var ppPartner = String(opts.ppPartner != null ? opts.ppPartner : (existing && existing.ppPartner) || "").trim();
+  var couponsQty = opts.couponsQty != null
+    ? normalizeCouponsQty_(opts.couponsQty)
+    : normalizeCouponsQty_(existing && existing.couponsQty);
+  var couponPrice = opts.couponPrice != null
+    ? normalizeCouponUnitPrice_(opts.couponPrice)
+    : normalizeCouponUnitPrice_(existing && existing.couponPrice);
   var rowVals = [
     dateStr,
     dateIso,
@@ -5406,7 +5426,9 @@ function upsertCalendarEntry_(ss, opts) {
     ppSlot,
     afterT,
     beforeT,
-    ppPartner
+    ppPartner,
+    couponsQty,
+    couponPrice
   ];
   if (existing) {
     sh.getRange(existing.rowIndex, 1, 1, CALENDAR_HEADERS_.length).setValues([rowVals]);
@@ -5747,7 +5769,9 @@ function readAllBookings_() {
       ppSlot: String(row[15] != null ? row[15] : "").trim(),
       deliveryAfter: normalizeTimeHm_(row[16]),
       deliveryBefore: normalizeTimeHm_(row[17]),
-      ppPartner: String(row[18] != null ? row[18] : "").trim()
+      ppPartner: String(row[18] != null ? row[18] : "").trim(),
+      couponsQty: normalizeCouponsQty_(row[19]),
+      couponPrice: normalizeCouponUnitPrice_(row[20])
     });
   }
   return out;
@@ -5866,6 +5890,12 @@ function handleSaveBooking(ss, json, callback, fromPost) {
   var afterSave = normalizeTimeHm_(json.deliveryAfter != null ? json.deliveryAfter : (existing && existing.deliveryAfter) || "");
   var beforeSave = normalizeTimeHm_(json.deliveryBefore != null ? json.deliveryBefore : (existing && existing.deliveryBefore) || "");
   var ppPartnerSave = String(json.ppPartner != null ? json.ppPartner : (existing && existing.ppPartner) || "").trim();
+  var couponsQtySave = json.couponsQty != null
+    ? normalizeCouponsQty_(json.couponsQty)
+    : normalizeCouponsQty_(existing && existing.couponsQty);
+  var couponPriceSave = json.couponPrice != null
+    ? normalizeCouponUnitPrice_(json.couponPrice)
+    : normalizeCouponUnitPrice_(existing && existing.couponPrice);
   var rowVals = [
     id, dateStr, client,
     subIdSave,
@@ -5881,7 +5911,9 @@ function handleSaveBooking(ss, json, callback, fromPost) {
     ppSlotSave,
     afterSave,
     beforeSave,
-    ppPartnerSave
+    ppPartnerSave,
+    couponsQtySave,
+    couponPriceSave
   ];
 
   if (existing) {
@@ -5909,7 +5941,9 @@ function handleSaveBooking(ss, json, callback, fromPost) {
       ppSlot: ppSlotSave,
       deliveryAfter: afterSave,
       deliveryBefore: beforeSave,
-      ppPartner: ppPartnerSave
+      ppPartner: ppPartnerSave,
+      couponsQty: couponsQtySave,
+      couponPrice: couponPriceSave
     });
   } catch (eCal) {}
 
@@ -5965,7 +5999,9 @@ function handleSaveBooking(ss, json, callback, fromPost) {
         survey: json.survey || null,
         deliveryAfter: afterSave,
         deliveryBefore: beforeSave,
-        ppPartner: ppPartnerSave
+        ppPartner: ppPartnerSave,
+        couponsQty: couponsQtySave,
+        couponPrice: couponPriceSave
       }, null, "internal");
       if (soRes && soRes.status === "success") {
         weekWrite = {
@@ -11654,6 +11690,29 @@ function appendStatsConversion_(ss, opts) {
   ]);
 }
 
+/** Кол-во купонов (≥0, целое). */
+function normalizeCouponsQty_(v) {
+  var n = Number(v);
+  if (!isFinite(n) || n < 0) return 0;
+  return Math.floor(n);
+}
+
+/** Цена одного купона BYN. */
+function normalizeCouponUnitPrice_(v) {
+  var n = Number(v);
+  if (!isFinite(n) || n < 0) return 0;
+  return Math.round(n * 100) / 100;
+}
+
+/** Затраты на купоны строки заказа. */
+function couponsCostFromRow_(row) {
+  if (!row) return 0;
+  var qty = normalizeCouponsQty_(row.couponsQty);
+  var price = normalizeCouponUnitPrice_(row.couponPrice);
+  if (!(qty > 0) || !(price > 0)) return 0;
+  return Math.round(qty * price * 100) / 100;
+}
+
 /** Сырая себест корзины по прайсу. modeHint: pp|retail|bp — какой лист пробовать первым. */
 function estimateBasketRawCost_(basket, modeHint) {
   basket = basket || [];
@@ -11829,6 +11888,10 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     ppDeliveredKeys: {},
     missingPrice: 0,
     missingBasketCost: 0,
+    productCost: 0,
+    couponsCost: 0,
+    couponsQty: 0,
+    couponsOrders: 0,
     partnerRows: []
   };
   var rows = [];
@@ -11890,6 +11953,10 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       if (!hasBask && book.basket && book.basket.length) row.basket = book.basket;
       if (!row.source && book.source) row.source = book.source;
       if (!row.segment && book.segment) row.segment = book.segment;
+      if (!(normalizeCouponsQty_(row.couponsQty) > 0) && normalizeCouponsQty_(book.couponsQty) > 0) {
+        row.couponsQty = book.couponsQty;
+        row.couponPrice = book.couponPrice;
+      }
     }
 
     out.deliveriesTotal++;
@@ -11904,27 +11971,34 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if ((!bask || !bask.length) && row.basketJson) {
       try { bask = JSON.parse(String(row.basketJson)); } catch (eB2) { bask = []; }
     }
-    var cost = estimateBasketRawCost_(bask, src);
-    // БП: +6 BYN за доставку (логистика), поверх сырьевой себестоимости состава
+    // продукция = себест состава из заказа; купоны = qty×цена; БП +6р доставка
+    var product = estimateBasketRawCost_(bask, src);
+    var coupons = couponsCostFromRow_(row);
     var deliveryFee = 0;
     if (src === "bp") deliveryFee = BP_DELIVERY_COST_BYN_;
-    var costWithDeliv = Math.round((cost + deliveryFee) * 100) / 100;
-    if (!(cost > 0) && bask && bask.length) out.missingBasketCost++;
-    out.costBySource[src] = Math.round(((out.costBySource[src] || 0) + costWithDeliv) * 100) / 100;
-    out.costActual += costWithDeliv;
+    var costWithAll = Math.round((product + coupons + deliveryFee) * 100) / 100;
+    if (!(product > 0) && bask && bask.length) out.missingBasketCost++;
+    out.productCost = Math.round(((out.productCost || 0) + product) * 100) / 100;
+    out.couponsCost = Math.round(((out.couponsCost || 0) + coupons) * 100) / 100;
+    if (coupons > 0) {
+      out.couponsQty = (out.couponsQty || 0) + normalizeCouponsQty_(row.couponsQty);
+      out.couponsOrders = (out.couponsOrders || 0) + 1;
+    }
+    out.costBySource[src] = Math.round(((out.costBySource[src] || 0) + costWithAll) * 100) / 100;
+    out.costActual += costWithAll;
     if (src === 'pp' && ck) {
       out.ppDeliveredKeys[ck] = true;
       out.ppPriceByKey[ck] = Math.round(((out.ppPriceByKey[ck] || 0) + price) * 100) / 100;
     }
     if (src === 'bp') {
       out.bpDeliveries++;
-      out.bpCost += costWithDeliv;
-      out.bpBasketCost = Math.round(((out.bpBasketCost || 0) + cost) * 100) / 100;
+      out.bpCost += Math.round((product + deliveryFee) * 100) / 100;
+      out.bpBasketCost = Math.round(((out.bpBasketCost || 0) + product) * 100) / 100;
       out.bpDeliveryCost = Math.round(((out.bpDeliveryCost || 0) + deliveryFee) * 100) / 100;
     }
     if (src === "pp") {
       var pn = String(row.ppPartner || "").trim() || "— без партнёра —";
-      out.partnerRows.push({ name: pn, deliveries: 1, revenue: price, cost: costWithDeliv });
+      out.partnerRows.push({ name: pn, deliveries: 1, revenue: price, cost: costWithAll });
     }
   }
 
@@ -11936,6 +12010,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   }
   out.revenueActual = Math.round(out.revenueActual * 100) / 100;
   out.costActual = Math.round(out.costActual * 100) / 100;
+  out.productCost = Math.round((out.productCost || 0) * 100) / 100;
+  out.couponsCost = Math.round((out.couponsCost || 0) * 100) / 100;
   out.retailRevenue = out.revenueBySource.retail || 0;
   out.partnerRevenue = out.revenueBySource.partner || 0;
   out.bpCost = Math.round(out.bpCost * 100) / 100;
@@ -12247,7 +12323,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS12:" + monthKey;
+  var cacheKey = "STATS13:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -12372,6 +12448,10 @@ function handleGetStats(json, callback, fromPost) {
       cost: costActual,
       profit: profitFact,
       clean: profitFact,
+      productCost: Number(month.productCost) || 0,
+      couponsCost: Number(month.couponsCost) || 0,
+      couponsQty: Number(month.couponsQty) || 0,
+      couponsOrders: Number(month.couponsOrders) || 0,
       retail: retail,
       partner: partner,
       ppRevenue: ppActual,

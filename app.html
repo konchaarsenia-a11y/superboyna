@@ -1317,6 +1317,26 @@
           <button type="button" class="btn-action btn-blue" id="btnPpSuggest" style="display:none;margin-top:6px;" onclick="suggestPpBasketFromSheet()">Состав из листа ПП</button>
           <button type="button" class="btn-action" id="btnRetailPriceAuto" style="display:none;margin-top:6px;background:#3a3a3c;" onclick="resetRetailPriceToAuto()">По прайсу витрины</button>
         </div>
+        <div class="form-group" id="partnerCouponsGroup" style="display:none;">
+          <label>Купоны (затраты)</label>
+          <div class="seg-row" style="margin-top:6px;">
+            <button type="button" class="seg-btn active" id="couponsNoBtn" onclick="setPartnerCouponsEnabled(false)">Нет</button>
+            <button type="button" class="seg-btn" id="couponsYesBtn" onclick="setPartnerCouponsEnabled(true)">Да</button>
+          </div>
+          <div id="partnerCouponsFields" style="display:none;margin-top:10px;">
+            <div style="display:flex;gap:8px;">
+              <div style="flex:1;">
+                <label>Сколько</label>
+                <input type="number" id="couponsQtyInput" min="0" step="1" inputmode="numeric" placeholder="0" oninput="refreshPartnerCouponsLive()">
+              </div>
+              <div style="flex:1;">
+                <label>Цена одного (BYN)</label>
+                <input type="number" id="couponPriceInput" min="0" step="0.01" inputmode="decimal" placeholder="0" oninput="refreshPartnerCouponsLive()">
+              </div>
+            </div>
+            <div class="field-hint" id="couponsCostLive" style="margin-top:6px;">Итого купоны: 0 BYN</div>
+          </div>
+        </div>
         <div class="form-group">
           <label>Дата доставки</label>
           <input type="date" id="deliveryDate" onchange="onDeliveryDateChange()">
@@ -2135,7 +2155,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.56";
+    const APP_VERSION = "v7.11.57";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3252,6 +3272,13 @@
       if (t === "pp") {
         try { ensurePpPartnerOptions_(); } catch (ePart) {}
       }
+      var cg = document.getElementById("partnerCouponsGroup");
+      if (cg) cg.style.display = t === "partner" ? "" : "none";
+      if (t !== "partner") {
+        try { setPartnerCouponsEnabled(false); } catch (eCoup) {}
+      } else {
+        try { refreshPartnerCouponsLive(); } catch (eCoup2) {}
+      }
       if (t === "partner") {
         retailPriceManual = false;
         if (pg) pg.style.display = "";
@@ -3285,6 +3312,68 @@
       }
     }
     window.setOrderType = setOrderType;
+
+    var partnerCouponsEnabled = false;
+    function setPartnerCouponsEnabled(on) {
+      partnerCouponsEnabled = !!on;
+      var yes = document.getElementById("couponsYesBtn");
+      var no = document.getElementById("couponsNoBtn");
+      if (yes) yes.classList.toggle("active", partnerCouponsEnabled);
+      if (no) no.classList.toggle("active", !partnerCouponsEnabled);
+      var fields = document.getElementById("partnerCouponsFields");
+      if (fields) fields.style.display = partnerCouponsEnabled ? "" : "none";
+      if (!partnerCouponsEnabled) {
+        var q = document.getElementById("couponsQtyInput");
+        var p = document.getElementById("couponPriceInput");
+        if (q) q.value = "";
+        if (p) p.value = "";
+      }
+      refreshPartnerCouponsLive();
+    }
+    function refreshPartnerCouponsLive() {
+      var live = document.getElementById("couponsCostLive");
+      if (!live) return;
+      if (!partnerCouponsEnabled) {
+        live.textContent = "Купоны не добавляются";
+        return;
+      }
+      var qty = Number((document.getElementById("couponsQtyInput") || {}).value) || 0;
+      var price = Number((document.getElementById("couponPriceInput") || {}).value) || 0;
+      var total = Math.round(qty * price * 100) / 100;
+      live.textContent = "Итого купоны: " + total + " BYN (" + qty + " × " + price + ")";
+    }
+    function readPartnerCouponsPayload_() {
+      if (orderType !== "partner" || !partnerCouponsEnabled) {
+        return { couponsQty: 0, couponPrice: 0, couponsCost: 0 };
+      }
+      var qty = Number((document.getElementById("couponsQtyInput") || {}).value) || 0;
+      var price = Number((document.getElementById("couponPriceInput") || {}).value) || 0;
+      if (qty < 0) qty = 0;
+      if (price < 0) price = 0;
+      qty = Math.floor(qty);
+      price = Math.round(price * 100) / 100;
+      return {
+        couponsQty: qty,
+        couponPrice: price,
+        couponsCost: Math.round(qty * price * 100) / 100
+      };
+    }
+    function applyPartnerCouponsFromClient_(client) {
+      var qty = Number(client && client.couponsQty) || 0;
+      var price = Number(client && client.couponPrice) || 0;
+      if (qty > 0 || price > 0) {
+        setPartnerCouponsEnabled(true);
+        var q = document.getElementById("couponsQtyInput");
+        var p = document.getElementById("couponPriceInput");
+        if (q) q.value = String(qty || "");
+        if (p) p.value = String(price || "");
+        refreshPartnerCouponsLive();
+      } else {
+        setPartnerCouponsEnabled(false);
+      }
+    }
+    window.setPartnerCouponsEnabled = setPartnerCouponsEnabled;
+    window.refreshPartnerCouponsLive = refreshPartnerCouponsLive;
 
     function refreshRetailOrderPrice() {
       if (orderType !== "retail") return { total: 0, lines: [] };
@@ -4633,6 +4722,17 @@
           return;
         }
       }
+      var couponsPayload = readPartnerCouponsPayload_();
+      if (orderType === "partner" && partnerCouponsEnabled) {
+        if (!(couponsPayload.couponsQty > 0)) {
+          await uiAlertAsync("Укажите количество купонов (или выберите «Нет»)");
+          return;
+        }
+        if (!(couponsPayload.couponPrice > 0)) {
+          await uiAlertAsync("Укажите цену одного купона (BYN)");
+          return;
+        }
+      }
       if (orderType === "pp" && ppNeedManualSlot && !(ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2)) {
         await uiAlertAsync("Уточни слот: ПП 1 или ПП 2");
         return;
@@ -4726,6 +4826,10 @@
       if (orderType !== "bp" && orderPrice != null && !isNaN(Number(orderPrice))) {
         confirmMsg += "\nЦена: " + Number(orderPrice) + " BYN";
       }
+      if (orderType === "partner" && couponsPayload && couponsPayload.couponsQty > 0) {
+        confirmMsg += "\nКупоны: " + couponsPayload.couponsQty + " × " + couponsPayload.couponPrice +
+          " = " + couponsPayload.couponsCost + " BYN";
+      }
       const okConfirm = await uiConfirmAsync(confirmMsg);
       if (!okConfirm) return;
 
@@ -4760,6 +4864,8 @@
         deliveryAfter: deliveryAfter,
         deliveryBefore: deliveryBefore,
         ppPartner: ppPartnerVal || "",
+        couponsQty: couponsPayload.couponsQty || 0,
+        couponPrice: couponsPayload.couponPrice || 0,
         addressFull: clientAddressFull,
         entrance: entrance,
         floor: floor,
@@ -4795,6 +4901,8 @@
         deliveryAfter: deliveryAfter,
         deliveryBefore: deliveryBefore,
         ppPartner: ppPartnerVal || "",
+        couponsQty: couponsPayload.couponsQty || 0,
+        couponPrice: couponsPayload.couponPrice || 0,
         source: orderType === "bp" ? "bp" : (orderType === "pp" ? "pp" : (orderType === "partner" ? "partner" : "retail")),
         basket: payload.basket,
         geo: payload.geo
@@ -4850,6 +4958,8 @@
           deliveryAfter: deliveryAfter || "",
           deliveryBefore: deliveryBefore || "",
           ppPartner: ppPartnerVal || "",
+          couponsQty: String(couponsPayload.couponsQty || 0),
+          couponPrice: String(couponsPayload.couponPrice || 0),
           source: orderType === "bp" ? "bp" : (orderType === "pp" ? "pp" : (orderType === "partner" ? "partner" : "retail")),
           basket: basketJson
         };
@@ -4908,6 +5018,8 @@
               deliveryAfter: deliveryAfter || "",
               deliveryBefore: deliveryBefore || "",
               ppPartner: ppPartnerVal || "",
+              couponsQty: String(couponsPayload.couponsQty || 0),
+              couponPrice: String(couponsPayload.couponPrice || 0),
               basket: basketJson
             };
             if (geoJson) orderParams.geo = geoJson;
@@ -6432,6 +6544,9 @@
         try {
           await ensurePpPartnerOptions_(client.ppPartner || "");
         } catch (ePar) {}
+      }
+      if (ot === "partner") {
+        try { applyPartnerCouponsFromClient_(client); } catch (eCoup) {}
       }
       var priceVal = resolveClientOrderPrice(client);
       var priceInp = document.getElementById("orderPriceInput");
@@ -8109,6 +8224,12 @@
       if (bef) bits.push('<span class="client-badge" style="background:rgba(255,69,58,0.2);color:#ff6961;">≤' + escapeHtml(bef) + "</span>");
       var part = String((client && client.ppPartner) || "").trim();
       if (part && isPpSeg) bits.push('<span class="client-badge" style="background:rgba(100,210,255,0.2);color:#64d2ff;">→' + escapeHtml(part) + "</span>");
+      var cq = Number(client && client.couponsQty) || 0;
+      var cp = Number(client && client.couponPrice) || 0;
+      if (cq > 0 && cp > 0) {
+        bits.push('<span class="client-badge" style="background:rgba(255,214,10,0.2);color:#ffd60a;">купоны ' +
+          escapeHtml(String(cq)) + "×" + escapeHtml(String(cp)) + "</span>");
+      }
       return bits.join(" ");
     }
     window.extractOrderPrice = extractOrderPrice;
@@ -11240,18 +11361,27 @@
       html += '<div><div class="muted" style="font-size:11px;">Прибыль</div><div style="font-size:18px;font-weight:800;color:#ff9f0a;">' + profitFact + '</div></div>';
       html += '<div><div class="muted" style="font-size:11px;">Чистое</div><div style="font-size:18px;font-weight:800;color:#30d158;">' + profitFact + '</div></div>';
       html += '</div>';
-      html += '<div class="muted" style="font-size:10px;margin-bottom:8px;">Чистое = оборот − себестоимость (составы + доставка БП 6р).</div>';
+      html += '<div class="muted" style="font-size:10px;margin-bottom:8px;">Чистое = оборот − себестоимость (продукция + купоны + доставка БП 6р).</div>';
       html += statsBarRow_("ПП (выручка)", ppActual, turnMax, "#bf5af2");
       if (cmp.ppActual) html += '<div style="margin-top:-4px;margin-bottom:6px;">' + statsDeltaTxt_(cmp.ppActual) + '</div>';
       html += statsBarRow_("Розница", retail, turnMax, "#ff9f0a");
       if (cmp.retail) html += '<div style="margin-top:-4px;margin-bottom:6px;">' + statsDeltaTxt_(cmp.retail) + '</div>';
       html += statsBarRow_("Партнёр", partner, turnMax, "#64d2ff");
       if (cmp.partner) html += '<div style="margin-top:-4px;margin-bottom:6px;">' + statsDeltaTxt_(cmp.partner) + '</div>';
-      html += '<div style="margin-top:10px;"><div class="muted" style="font-size:11px;margin-bottom:4px;">Себестоимость составов (прайс)</div>';
-      html += statsBarRow_("Всего себест", costActual, Math.max(costActual, bpSpend, 1), "#64d2ff");
-      html += statsBarRow_("из них БП", bpSpend, Math.max(costActual, bpSpend, 1), "#ff453a");
+      var productCost = fact.productCost != null ? fact.productCost : costActual;
+      var couponsCost = fact.couponsCost != null ? fact.couponsCost : 0;
+      var costMax = Math.max(costActual, productCost, couponsCost, bpSpend, 1);
+      html += '<div style="margin-top:10px;"><div class="muted" style="font-size:11px;margin-bottom:4px;">Затраты</div>';
+      html += statsBarRow_("Всего себест", costActual, costMax, "#64d2ff");
+      html += statsBarRow_("Продукция (состав)", productCost, costMax, "#bf5af2");
+      html += statsBarRow_("Купоны", couponsCost, costMax, "#ffd60a");
+      html += statsBarRow_("из них БП (состав+6р)", bpSpend, costMax, "#ff453a");
       if (cmp.bpSpend) html += '<div>' + statsDeltaTxt_(cmp.bpSpend) + '</div>';
       html += '</div>';
+      if (couponsCost > 0 || fact.couponsQty) {
+        html += '<div class="muted" style="font-size:11px;margin-top:4px;">Купоны: ' +
+          (fact.couponsOrders || 0) + ' заказ(ов), ' + (fact.couponsQty || 0) + ' шт · ' + couponsCost + ' BYN</div>';
+      }
       html += '<div class="muted" style="font-size:11px;margin-top:8px;">БП доставок: <b>' + bpDeliv + '</b>';
       if (costBy.retail || costBy.pp || costBy.partner) {
         html += ' · себест Р/ПП/Парт: ' + (costBy.retail || 0) + ' / ' + (costBy.pp || 0) + ' / ' + (costBy.partner || 0);
