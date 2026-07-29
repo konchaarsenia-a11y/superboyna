@@ -11117,6 +11117,14 @@
         html += ' · себест Р/ПП/Парт: ' + (costBy.retail || 0) + ' / ' + (costBy.pp || 0) + ' / ' + (costBy.partner || 0);
       }
       html += '</div>';
+      var bpBasket = fact.bpBasketCost != null ? fact.bpBasketCost : (bp.basketCost != null ? bp.basketCost : null);
+      var bpDelivFee = fact.bpDeliveryCost != null ? fact.bpDeliveryCost : (bp.deliveryCost != null ? bp.deliveryCost : null);
+      var feeEach = fact.bpDeliveryFeeEach != null ? fact.bpDeliveryFeeEach : (bp.deliveryFeeEach != null ? bp.deliveryFeeEach : 6);
+      if (bpBasket != null || bpDelivFee != null) {
+        html += '<div class="muted" style="font-size:11px;margin-top:4px;">БП: состав ' + (bpBasket || 0) +
+          ' + доставка ' + feeEach + '×' + bpDeliv + ' = ' + (bpDelivFee || 0) +
+          ' → всего ' + bpSpend + '</div>';
+      }
       if (fact.missingPrice || fact.missingBasketCost) {
         html += '<div class="muted" style="font-size:11px;margin-top:4px;color:#ff9f0a;">Без цены: ' +
           (fact.missingPrice || 0) + ' · без себест. состава: ' + (fact.missingBasketCost || 0) + '</div>';
@@ -11163,8 +11171,9 @@
         converted + '</b>' +
         (cac != null ? (" · на одного <b>" + cac + "</b> BYN") : " · на одного — нет переходов") +
         '</div>';
-      html += '<div class="muted" style="font-size:11px;margin-bottom:8px;">На одного = себест БП-доставок месяца (' +
-        bpSpend + ') ÷ перешедших (' + converted + '). Себест БП = сырьё состава по прайсу.</div>';
+      html += '<div class="muted" style="font-size:11px;margin-bottom:8px;">На одного = себест БП месяца (' +
+        bpSpend + ') ÷ перешедших (' + converted + '). Себест БП = сырьё + ' +
+        (fact.bpDeliveryFeeEach != null ? fact.bpDeliveryFeeEach : 6) + ' BYN доставка за каждую БП.</div>';
       html += statsBarRow_("БП1", bp.bp1 || 0, bpMax, "#ff9f0a");
       html += statsBarRow_("БП2", bp.bp2 || 0, bpMax, "#ff453a");
       html += statsBarRow_("Финал", bp.final || 0, bpMax, "#30d158");

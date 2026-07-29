@@ -10641,6 +10641,8 @@ function retailLineCost_(name, sub, val, cat) {
 
 var PRICE_SS_MEM_ = null;
 var PRICE_COSTS_MEM_ = {};
+/** Логистика одной БП-доставки (BYN), входит в себестоимость БП / CAC. */
+var BP_DELIVERY_COST_BYN_ = 6;
 
 function getPriceSpreadsheet_() {
   if (PRICE_SS_MEM_) return PRICE_SS_MEM_;
@@ -11750,6 +11752,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     retailRevenue: 0,
     partnerRevenue: 0,
     bpCost: 0,
+    bpBasketCost: 0,
+    bpDeliveryCost: 0,
     bpDeliveries: 0,
     ppClientsDelivered: 0,
     ppPriceByKey: {},
@@ -11831,16 +11835,22 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       try { bask = JSON.parse(String(row.basketJson)); } catch (eB2) { bask = []; }
     }
     var cost = estimateBasketRawCost_(bask, src);
+    // БП: +6 BYN за доставку (логистика), поверх сырьевой себестоимости состава
+    var deliveryFee = 0;
+    if (src === "bp") deliveryFee = BP_DELIVERY_COST_BYN_;
+    var costWithDeliv = Math.round((cost + deliveryFee) * 100) / 100;
     if (!(cost > 0) && bask && bask.length) out.missingBasketCost++;
-    out.costBySource[src] = Math.round(((out.costBySource[src] || 0) + cost) * 100) / 100;
-    out.costActual += cost;
+    out.costBySource[src] = Math.round(((out.costBySource[src] || 0) + costWithDeliv) * 100) / 100;
+    out.costActual += costWithDeliv;
     if (src === 'pp' && ck) {
       out.ppDeliveredKeys[ck] = true;
       out.ppPriceByKey[ck] = Math.round(((out.ppPriceByKey[ck] || 0) + price) * 100) / 100;
     }
     if (src === 'bp') {
       out.bpDeliveries++;
-      out.bpCost += cost;
+      out.bpCost += costWithDeliv;
+      out.bpBasketCost = Math.round(((out.bpBasketCost || 0) + cost) * 100) / 100;
+      out.bpDeliveryCost = Math.round(((out.bpDeliveryCost || 0) + deliveryFee) * 100) / 100;
     }
   }
 
@@ -11855,6 +11865,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   out.retailRevenue = out.revenueBySource.retail || 0;
   out.partnerRevenue = out.revenueBySource.partner || 0;
   out.bpCost = Math.round(out.bpCost * 100) / 100;
+  out.bpBasketCost = Math.round((out.bpBasketCost || 0) * 100) / 100;
+  out.bpDeliveryCost = Math.round((out.bpDeliveryCost || 0) * 100) / 100;
   out.ppClientsDelivered = Object.keys(out.ppDeliveredKeys).length;
   out.todayIso = todayIso;
   out.fromIso = fromIso;
@@ -11938,7 +11950,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS9:" + monthKey;
+  var cacheKey = "STATS10:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -12057,6 +12069,9 @@ function handleGetStats(json, callback, fromPost) {
       partner: partner,
       ppRevenue: ppActual,
       bpCost: bpSpend,
+      bpBasketCost: Number(month.bpBasketCost) || 0,
+      bpDeliveryCost: Number(month.bpDeliveryCost) || 0,
+      bpDeliveryFeeEach: BP_DELIVERY_COST_BYN_,
       bpDeliveries: month.bpDeliveries,
       missingPrice: month.missingPrice || 0,
       missingBasketCost: month.missingBasketCost || 0
@@ -12088,6 +12103,9 @@ function handleGetStats(json, callback, fromPost) {
       final: bp.final,
       deliveries: month.bpDeliveries,
       spend: bpSpend,
+      basketCost: Number(month.bpBasketCost) || 0,
+      deliveryCost: Number(month.bpDeliveryCost) || 0,
+      deliveryFeeEach: BP_DELIVERY_COST_BYN_,
       convertedToPp: converted,
       costPerConvert: cac,
       costPerConvertFormula: "bpSpend / converted",
@@ -12204,6 +12222,9 @@ function handleGetExpectedProfit(json, callback, fromPost) {
     retail: retail,
     partner: partner,
     bpCost: Number(stats.bpCost) || 0,
+    bpBasketCost: Number(stats.bpBasketCost) || 0,
+    bpDeliveryCost: Number(stats.bpDeliveryCost) || 0,
+    bpDeliveryFeeEach: BP_DELIVERY_COST_BYN_,
     bpDeliveries: Number(stats.bpDeliveries) || 0,
     missingPrice: stats.missingPrice || 0,
     missingBasketCost: stats.missingBasketCost || 0,
