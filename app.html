@@ -607,20 +607,22 @@
       color: #f2f2f7;
     }
     .view-col .client-right-block {
-      display: flex; align-items: center; gap: 4px; flex-shrink: 0;
-      width: 100%;
-      margin-top: 8px;
+      display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+      width: auto;
+      margin-top: 0;
       justify-content: flex-end;
     }
-    .view-col .client-main-row { flex-wrap: wrap; }
-    .view-col .client-title-wrap { width: 100%; flex: 1 1 100%; }
+    .view-col .client-main-row { flex-wrap: nowrap; align-items: flex-start; }
+    .view-col .client-title-wrap { width: auto; flex: 1 1 auto; min-width: 0; }
     .client-meta-row {
       display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
       margin-top: 6px; padding-top: 0;
     }
     .crm-mini-btn {
-      width: 32px; height: 32px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px;
+      width: 30px; height: 30px; border-radius: 50%; border: none; cursor: pointer; font-size: 13px;
       flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.25);
     }
     .crm-edit { background: rgba(255,149,0,0.15); color: #ff9500; }
     .crm-move { background: rgba(175,82,222,0.15); color: #af52de; }
@@ -635,8 +637,43 @@
     .batch-bar-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .batch-bar .btn-action { flex: 1 1 120px; margin: 0; padding: 10px 8px; font-size: 13px; }
     .batch-count { font-size: 13px; font-weight: 700; color: var(--accent-color); width: 100%; text-align: center; margin-bottom: 4px; }
-    .client-badge { font-size: 12px; color: var(--text-muted); }
-    .delivery-info-box { margin-top: 8px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; border-top: 1px solid #2c2c2e; padding-top: 8px; }
+    .client-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; font-weight: 600; line-height: 1.2;
+      color: var(--text-muted);
+      padding: 3px 8px; border-radius: 999px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      white-space: nowrap; max-width: 100%;
+    }
+    .client-meta-row .client-badge { flex: 0 1 auto; }
+    .gap-badge {
+      display: inline-flex; align-items: center;
+      font-size: 11px; font-weight: 700; color: #ff453a;
+      background: rgba(255,69,58,0.15); padding: 3px 8px; border-radius: 999px;
+      border: 1px solid rgba(255,69,58,0.25);
+    }
+    .tel-link, .tel-btn {
+      color: var(--accent-color); text-decoration: none; font-weight: 700;
+      -webkit-tap-highlight-color: rgba(255,122,0,0.35);
+    }
+    .tel-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 12px; border-radius: 10px;
+      background: rgba(255,122,0,0.14);
+      border: 1px solid rgba(255,122,0,0.35);
+      font-size: 14px; line-height: 1.2;
+    }
+    .tel-btn:active, .tel-btn.is-pressing {
+      filter: brightness(1.2);
+      background: rgba(255,122,0,0.28);
+    }
+    .courier-tel-line { margin-top: 8px; font-size: 14px; }
+    .courier-row .check-line {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+    }
+    .courier-row .check-line .cut-title { flex: 1 1 120px; padding-right: 0; }
+    .courier-row .client-badge { margin: 0; }
     .delivery-line.time-alert {
       color: #ff9500; font-weight: 600; background: rgba(255,149,0,0.1);
       padding: 4px 8px; border-radius: 6px; width: fit-content;
@@ -990,8 +1027,6 @@
     .pack-type-cell .l { display:block; font-size:10px; color:var(--text-muted); margin-top:2px; }
     .pack-type-cell .fracs { display:block; margin-top:6px; font-size:10px; line-height:1.35; color:var(--text-muted); text-align:left; }
     .pack-type-cell .fracs b { color:var(--text-main, #eee); font-weight:600; }
-    .tel-link { color:var(--accent-color); text-decoration:underline; font-weight:700; -webkit-tap-highlight-color: rgba(255,122,0,0.35); }
-    .courier-tel-line { margin-top: 6px; font-size: 14px; }
     .save-load-overlay {
       display:none; position:fixed; inset:0; z-index:10002; background:rgba(0,0,0,.82);
       align-items:center; justify-content:center; flex-direction:column;
@@ -2032,7 +2067,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.45";
+    const APP_VERSION = "v7.11.46";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -4364,20 +4399,11 @@
       if (isNaN(d.getTime())) return;
       const daySel = document.getElementById("day");
       if (!daySel) return;
-      // сначала weekday как fallback; потом уточним через webhook (Будущая неделя!)
-      const names = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
-      const wd = names[d.getDay()];
-      for (let i = 0; i < daySel.options.length; i++) {
-        if (daySel.options[i].text === wd || daySel.options[i].value === wd) {
-          daySel.selectedIndex = i;
-          break;
-        }
-      }
+      // не ставим weekday сразу — дальняя дата ≠ «Вторник» текущей недели
       apiGet({ action: "resolveDayForDate", date: el.value }, { timeoutMs: 12000, cacheTtlMs: 30000 })
         .then(function (res) {
-          var name = (res && res.dayName) || "";
-          if (!name && res && res.onWeek === false) name = "Будущая неделя";
-          if (!name) return;
+          var name = (res && res.onWeek && res.dayName) ? res.dayName : "";
+          if (!name) return; // вне недели — селект не трогаем (бронь без листа)
           for (let i = 0; i < daySel.options.length; i++) {
             if (daySel.options[i].text === name || daySel.options[i].value === name) {
               daySel.selectedIndex = i;
@@ -4386,13 +4412,14 @@
           }
         })
         .catch(function () {
-          // дата явно не из «текущих» weekday-опций Пн–Пт листа — оставим Будущую, если сб/вс или далеко
-          if (d.getDay() === 0 || d.getDay() === 6) {
-            for (let i = 0; i < daySel.options.length; i++) {
-              if (daySel.options[i].value === "Будущая неделя" || daySel.options[i].text === "Будущая неделя") {
-                daySel.selectedIndex = i;
-                break;
-              }
+          // сеть — weekday fallback только Пн–Пт
+          var names = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
+          var wd = names[d.getDay()];
+          if (d.getDay() === 0 || d.getDay() === 6) return;
+          for (let i = 0; i < daySel.options.length; i++) {
+            if (daySel.options[i].text === wd || daySel.options[i].value === wd) {
+              daySel.selectedIndex = i;
+              break;
             }
           }
         });
@@ -4693,27 +4720,21 @@
             { timeoutMs: 12000, cacheTtlMs: 60000 }
           );
           resolvedDayName = (resolved && resolved.dayName) || "";
-          dateOnWeek = !!resolvedDayName;
-          // дата вне текущей Пн–Пт / A1 — цель «Будущая неделя» (менеджер после переноса из месяца)
-          if (!resolvedDayName && resolved && resolved.status === "success") {
-            resolvedDayName = "Будущая неделя";
-            dateOnWeek = true;
-          }
+          dateOnWeek = !!(resolved && resolved.onWeek && resolvedDayName);
+          // даты дальше «Будущей» (A1) — только бронь/календарь, без записи на лист недели
         } catch (eRes) {}
         var weekDayToSave = "";
-        // приоритет: куда человек УЖЕ стоит (edit) → resolve → Будущая → селект
-        if (isEdit && editOriginalDay) {
+        // приоритет: edit → день, где дата реально стоит на листе
+        if (isEdit && editOriginalDay && dateOnWeek) {
+          weekDayToSave = editOriginalDay;
+        } else if (dateOnWeek && resolvedDayName) {
+          weekDayToSave = resolvedDayName;
+        } else if (isEdit && editOriginalDay) {
+          // правка уже стоящего на листе (даже если дата уехала) — обновить ту колонку
           weekDayToSave = editOriginalDay;
           dateOnWeek = true;
-        } else if (resolvedDayName) {
-          weekDayToSave = resolvedDayName;
-          dateOnWeek = true;
-        } else if (day === "Будущая неделя") {
-          weekDayToSave = day;
-          dateOnWeek = true;
-        } else if (day) {
-          weekDayToSave = day;
         }
+        // иначе weekDayToSave пустой → alsoSaveOrder=0 → только бронь
 
         // Состав: короткий — JSONP GET (есть wrote); длинный — POST (тело не режется URL) + проверка getClients
         var basketJson = JSON.stringify(payload.basket || []);
@@ -7838,13 +7859,23 @@
       }
       var href = el && el.getAttribute("href");
       if (!href) return false;
+      // tel: нельзя через tg.openLink — в Mini App молчит. Только location / native click.
       try {
-        if (tg && typeof tg.openLink === "function") {
+        if (href.indexOf("http") === 0 && tg && typeof tg.openLink === "function") {
           tg.openLink(href);
           return false;
         }
       } catch (e2) {}
-      try { window.location.href = href; } catch (e3) {}
+      try {
+        var a = document.createElement("a");
+        a.setAttribute("href", href);
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { try { a.remove(); } catch (eR) {} }, 500);
+      } catch (e3) {
+        try { window.location.href = href; } catch (e4) {}
+      }
       return false;
     }
     window.callPhoneFromEl_ = callPhoneFromEl_;
@@ -7854,8 +7885,9 @@
       const href = normalizeTelHref(p);
       if (!href) return "";
       var cls = (opts && opts.always) ? "courier-tel-line" : "";
-      return '<div class="delivery-line ' + cls + '">Тел: <a class="tel-link" href="' + href +
-        '" onclick="return callPhoneFromEl_(this, event)">' + escapeHtml(p) + "</a></div>";
+      return '<div class="delivery-line ' + cls + '" onclick="event.stopPropagation()">' +
+        '<a class="tel-link tel-btn" href="' + href +
+        '" onclick="return callPhoneFromEl_(this, event)">📞 ' + escapeHtml(p) + "</a></div>";
     }
 
     function applyDepotPreset(addr) {

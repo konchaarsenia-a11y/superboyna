@@ -2476,9 +2476,8 @@ function moveCrmMonthClientCell_(crmSs, client, oldDate, newDate, matchKeyOpt) {
 /**
  * Куда реально писать заказ:
  * — дата совпала с Пн–Пт / A1 «Будущей» → этот день
- * — клиент уже на «Будущей» → туда (не на «Вторник» текущей недели!)
- * — дата вне текущей недели → «Будущая неделя»
- * — иначе dayHint
+ * — дата дальше (не совпала) → "" (только бронь/календарь, НЕ лист недели)
+ * — без даты: клиент уже на «Будущей» → туда; иначе dayHint
  */
 function clientNickOnDay_(ss, dayName, client) {
   if (!dayName || !client) return false;
@@ -2511,6 +2510,8 @@ function resolveDayForOrderWrite_(ss, json) {
   if (d) {
     var byDate = findDayNameForDate_(ss, d);
     if (byDate) return byDate;
+    // дата дальше текущей Пн–Пт и A1 «Будущей» — только бронь/календарь, НЕ лист недели
+    return "";
   }
 
   // человек уже стоит на Будущей — состав сюда, даже если UI подставил «Вторник»
@@ -2519,11 +2520,6 @@ function resolveDayForOrderWrite_(ss, json) {
   }
 
   if (dayHint === "Будущая неделя") return "Будущая неделя";
-
-  // дата не из текущей Пн–Пт и не A1 → слот будущей недели
-  if (d) {
-    return "Будущая неделя";
-  }
 
   if (dayHint && getDayBlock(dayHint)) return dayHint;
   return dayHint || "";
@@ -2543,7 +2539,13 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   };
   json = json || {};
   var dayHintOrig = String(json.day || "").trim();
+  var tzSo = ss.getSpreadsheetTimeZone();
+  var dateGiven = !!parseFlexibleDate_(json.date || json.deliveryDate, tzSo);
   var writeDay = resolveDayForOrderWrite_(ss, json);
+  // дата задана, но не Пн–Пт / A1 «Будущей» — не писать по dayHint (иначе двойная запись на «Будущую»/чужой день)
+  if (dateGiven && !writeDay) {
+    return reply({ status: "beyond_week", day: "", message: "date_not_on_week_sheet" });
+  }
   if (writeDay) json.day = writeDay;
   var block = getDayBlock(json.day);
   if (!block) return reply({ status: "bad_day", day: json.day || "" });
@@ -5838,28 +5840,14 @@ function handleSaveBooking(ss, json, callback, fromPost) {
     }
   }
 
-  // Правка уже перенесённого / стоящего на листе — обновить столбец даже до окна materialize
-  var targetDay = resolveDayForOrderWrite_(ss, {
-    day: json.day || dayName || "",
-    date: deliveryDate,
-    client: client
-  });
+  // Пишем на лист недели ТОЛЬКО если дата = Пн–Пт или A1 «Будущей».
+  // Дата дальше — только бронь + календарь (без колонки на «Будущей»).
+  var matchedDay = findDayNameForDate_(ss, deliveryDate) || "";
+  var targetDay = matchedDay;
   var alsoWeek = json.alsoSaveOrder === true || json.alsoSaveOrder === "1" || json.alsoSaveOrder === 1 || json.alsoSaveOrder === "true";
-  var shouldWriteWeek = !!(alsoWeek && targetDay);
-  if (!shouldWriteWeek && targetDay && basket && basket.length) {
-    if (wasPulled) shouldWriteWeek = true;
-    else if (clientNickOnDay_(ss, targetDay, client)) shouldWriteWeek = true;
-    else {
-      try {
-        var wdChk = getClientsData_(ss, targetDay);
-        for (var wi = 0; wi < (wdChk.clients || []).length; wi++) {
-          if (nicksMatch_(wdChk.clients[wi].name, client)) { shouldWriteWeek = true; break; }
-        }
-      } catch (eChk) {}
-    }
-  }
-  // дата вне недели + есть состав → всё равно писать на Будущую (менеджер добавил состав после переноса)
-  if (!shouldWriteWeek && targetDay && basket && basket.length) {
+  var shouldWriteWeek = !!(matchedDay && basket && basket.length && (alsoWeek || wasPulled || clientNickOnDay_(ss, matchedDay, client)));
+  // matched day + состав — всегда обновить лист (иначе бронь есть, а колонки нет)
+  if (!shouldWriteWeek && matchedDay && basket && basket.length) {
     shouldWriteWeek = true;
   }
   var weekWrite = null;
@@ -6726,18 +6714,15 @@ function handleResolveDayForDate(json, callback, fromPost) {
   var tz = ss.getSpreadsheetTimeZone();
   var d = parseFlexibleDate_(json.date || json.deliveryDate, tz);
   var dayName = d ? (findDayNameForDate_(ss, d) || "") : "";
-  var futureTarget = false;
-  // вне текущей Пн–Пт / A1 — цель записи «Будущая неделя» (не пустой dayName)
-  if (d && !dayName) {
-    dayName = "Будущая неделя";
-    futureTarget = true;
-  }
+  var beyondWeek = !!(d && !dayName);
+  // НЕ подставлять «Будущая неделя» для дат дальше A1 — иначе двойная запись (календарь + чужой лист)
   var out = {
     status: "success",
     date: d ? dateKey_(d, tz) : "",
     dayName: dayName,
-    onWeek: !!(dayName && !futureTarget),
-    futureTarget: futureTarget
+    onWeek: !!dayName,
+    futureTarget: false,
+    beyondWeek: beyondWeek
   };
   return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }
@@ -12340,19 +12325,24 @@ function repairSurveySheetToCanonical_(crmSs) {
     }
   }
 
-  // Только с валидной датой отправки ≥ сегодня — остальное не пишем обратно
+  // Только с валидной датой — но НЕ отбрасываем будущие/сегодняшние planned;
+  // past-due planned тоже оставляем (менеджер должен видеть), иначе «обновил — стёрлось»
   var tzR = Session.getScriptTimeZone() || "Europe/Minsk";
   var todayR = Utilities.formatDate(new Date(), tzR, "yyyy-MM-dd");
   var kept = [];
   for (var c = 0; c < collected.length; c++) {
     var it0 = collected[c];
     var due0 = surveyDueYmd_(it0.dueDate);
-    if (!due0 || due0 < todayR) continue;
     var st0 = String(it0.status || "planned").toLowerCase();
-    if (st0 !== "planned" && st0 !== "due") continue;
-    if (String(it0.sentAt || "").trim()) continue;
+    // done/cancelled/sent — не пишем обратно при repair (это мусор/архив)
+    if (st0 === "done" || st0 === "cancelled") continue;
+    if (st0 === "sent" && String(it0.sentAt || "").trim()) continue;
+    if (!due0) {
+      // без даты — дать +4д, не выкидывать
+      due0 = ymdPlusDays_("", 4);
+    }
     it0.dueDate = due0;
-    it0.status = st0;
+    it0.status = (st0 === "due" || st0 === "planned") ? st0 : "planned";
     kept.push(it0);
   }
   collected = kept;
@@ -12394,21 +12384,17 @@ function ensureSurveySheetRepaired_(crmSs) {
   try {
     var props = PropertiesService.getScriptProperties();
     if (props.getProperty("survey_sheet_repair_ver") === "v7.11.09") {
-      // всё равно проверить на грязь / пустые даты
+      // только структурная грязь — НЕ даты (иначе past-due и пустой parse → полная перезапись листа)
       var sh = ensureSurveySheet_(crmSs);
       if (!sh || sh.getLastRow() < 2) return;
       var sample = sh.getRange(2, 1, Math.min(sh.getLastRow(), 20), 7).getValues();
       var dirty = false;
-      var tzE = Session.getScriptTimeZone() || "Europe/Minsk";
-      var todayE = Utilities.formatDate(new Date(), tzE, "yyyy-MM-dd");
       for (var i = 0; i < sample.length; i++) {
         var nick = String(sample[i][1] || "");
         var kind = String(sample[i][3] || "");
         var st = String(sample[i][6] || "");
-        var dueY = surveyDueYmd_(sample[i][4]);
         if (/[\n\r|]/.test(nick) || /[\n\r|]/.test(kind) || /[\n\r|]/.test(st)) { dirty = true; break; }
         if (isSurveyStageKeyword_(nick) || isSurveyMetaLine_(nick)) { dirty = true; break; }
-        if (!dueY || dueY < todayE) { dirty = true; break; }
       }
       if (!dirty) return;
     }
@@ -12604,16 +12590,15 @@ function surveyDueYmd_(raw) {
 }
 
 /**
- * Только опросники, которые ЕЩЁ ДОЛЖНЫ отправиться:
- * planned/due + валидная dueDate >= сегодня. Без даты / прошлое / sent — нет.
+ * Только опросники, которые ещё нужно отправить:
+ * planned/due, без sentAt. Дата пустая — тоже показываем (не терять).
+ * Просроченные due < сегодня — тоже показываем (менеджер догонит).
  */
 function isSurveyPendingUnsent_(obj, todayYmd) {
   var st = String((obj && obj.status) || "planned").toLowerCase();
   if (st !== "planned" && st !== "due") return false;
   if (String((obj && obj.sentAt) || "").trim()) return false;
-  var due = surveyDueYmd_(obj && obj.dueDate);
-  if (!due) return false; // без даты — не показываем и чистим
-  return due >= todayYmd;
+  return true;
 }
 
 /** Удаляет с листа всё, что не «ещё не отправлено по дате». */
@@ -12695,12 +12680,14 @@ function handleListSurvey(json, callback, fromPost) {
     var wantKind = filterKind ? normalizeSurveyKind_(filterKind) : "";
     var activeOnly = !(json.activeOnly === false || json.activeOnly === "0" || json.activeOnly === 0 ||
       json.includeOld === true || json.includeOld === "1" || json.includeOld === 1);
-    var wantPurge = !(json.purge === false || json.purge === "0" || json.purge === 0);
+    // по умолчанию НЕ чистим лист при открытии вкладки — только фильтр в ответе
+    // purge=1 / force — явное удаление (кнопка «починить»)
+    var wantPurge = json.purge === true || json.purge === "1" || json.purge === 1 ||
+      json.purge === "force" || json.forcePurge === "1" || json.forcePurge === true;
     var forcePurge = json.purge === "force" || json.forcePurge === "1" || json.forcePurge === true;
     var tz = Session.getScriptTimeZone() || "Europe/Minsk";
     var todayYmd = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
-    // чистка не чаще 1 раза в день (иначе вкладка тормозит)
-    if (activeOnly && wantPurge) {
+    if (wantPurge) {
       var props = PropertiesService.getScriptProperties();
       var lastPurge = "";
       try { lastPurge = props.getProperty("survey_purge_ymd") || ""; } catch (eP0) {}
