@@ -2154,7 +2154,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.63";
+    const APP_VERSION = "v7.11.64";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -11615,22 +11615,27 @@
 
 
     function packCounterKey(p) {
-      // только форматы пакетов: маленький/средний/большой/целое/крафт
+      // форматы: маленький/средний/большой/целое/крафт (с сервера; fallback по граммам)
       if (!p) return "";
       if (p.counterKey === "маленький" || p.counterKey === "средний" || p.counterKey === "большой" ||
           p.counterKey === "целое" || p.counterKey === "крафт") {
         return p.counterKey;
       }
-      if (p.type === "light" || /л[её]гк/i.test(String(p.name || ""))) {
-        var u = String(p.sub || "").toUpperCase();
-        if (/МЕЛК|МАЛ/.test(u) && !/ОЧ/.test(u)) return "маленький";
-        if (/СРЕД/.test(u)) return "средний";
-        if (/КРУПН|БОЛЬШ|БОЛ/.test(u)) return "большой";
-        if (/ЦЕЛ/.test(u)) return "целое";
-        return "средний";
+      var g = Number(p.val) || 0;
+      var isLight = p.type === "light" || (/л[её]гк/i.test(String(p.name || "")) && !/баран/i.test(String(p.name || "")));
+      if (isLight) {
+        if (g <= 15) return "маленький";
+        if (g <= 80) return "средний";
+        return "большой";
       }
-      if (p.type === "craft" || p.counterKey === "крафт") return "крафт";
-      return ""; // жевалки/сыпучее — не форматы пакетов
+      if (p.type === "craft") return "крафт";
+      if (p.type === "chew") return g <= 4 ? "средний" : "большой";
+      if (p.type === "bulk" || g > 0) {
+        if (g <= 20) return "маленький";
+        if (g <= 100) return "средний";
+        return "большой";
+      }
+      return "";
     }
 
     function togglePackType(key) {
