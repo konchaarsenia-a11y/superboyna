@@ -1172,6 +1172,25 @@ function doGet(e) {
       light: e.parameter.light || "1"
     }, callback, false);
   }
+  if (action === "saveDeferred") {
+    var defPayload = {};
+    try {
+      defPayload = e.parameter.payload ? JSON.parse(decodeURIComponent(e.parameter.payload)) : {};
+    } catch (eDefP) { defPayload = {}; }
+    return handleDeferredAction_("saveDeferred", {
+      telegramId: e.parameter.telegramId ? decodeURIComponent(e.parameter.telegramId) : "",
+      id: e.parameter.id ? decodeURIComponent(e.parameter.id) : "",
+      mode: e.parameter.mode ? decodeURIComponent(e.parameter.mode) : "pp",
+      title: e.parameter.title ? decodeURIComponent(e.parameter.title) : "",
+      clientNick: e.parameter.clientNick ? decodeURIComponent(e.parameter.clientNick) : "",
+      remindAt: e.parameter.remindAt ? decodeURIComponent(e.parameter.remindAt) : "",
+      remindAtMs: e.parameter.remindAtMs || "",
+      targetTelegramId: e.parameter.targetTelegramId ? decodeURIComponent(e.parameter.targetTelegramId) : "",
+      targetName: e.parameter.targetName ? decodeURIComponent(e.parameter.targetName) : "",
+      createdByName: e.parameter.createdByName ? decodeURIComponent(e.parameter.createdByName) : "",
+      payload: defPayload
+    }, callback, false);
+  }
   if (action === "cancelDeferred") {
     return handleDeferredAction_("cancelDeferred", {
       telegramId: e.parameter.telegramId ? decodeURIComponent(e.parameter.telegramId) : "",

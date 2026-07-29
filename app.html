@@ -2154,7 +2154,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.67";
+    const APP_VERSION = "v7.11.68";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -15189,25 +15189,36 @@
       var whom = (String(target.telegramId) === String(tid)) ? "себе" : ("для " + (target.name || target.telegramId));
       showToast("Ставлю: " + whom + " · " + formatDeferredRemindAt_(remindAtMs));
       try {
-        var saveRes = await apiPost({
+        // apiGet (JSONP) — реальный status=success; apiPost из браузера почти всегда opaque → ложный «Deploy»
+        var saveRes = await apiGet({
           action: "saveDeferred",
           telegramId: tid,
           mode: "remind",
           title: text,
           clientNick: "",
           remindAt: remindAt,
-          remindAtMs: remindAtMs,
+          remindAtMs: String(remindAtMs),
           targetTelegramId: target.telegramId || tid,
           targetName: target.name || "",
           createdByName: myName,
-          payload: optimistic.payload
-        });
+          payload: JSON.stringify(optimistic.payload),
+          _: String(Date.now())
+        }, { timeoutMs: 25000, cacheTtlMs: 0 });
         if (!saveRes || saveRes.status !== "success") {
-          showToast((saveRes && saveRes.message) || "Не сохранилось — Deploy Code.gs");
+          var why = (saveRes && (saveRes.message || saveRes.status)) || "нет ответа";
+          if (why === "unknown_action") why = "нужен Deploy Code.gs (saveDeferred)";
+          showToast("Не сохранилось: " + why);
           deferredCacheAt = 0;
           try { renderTasksDrawer(true); } catch (eR) {}
           return;
         }
+        if (saveRes.id) {
+          optimistic.id = saveRes.id;
+          deferredCache = [optimistic].concat((deferredCache || []).filter(function (it) {
+            return String(it.id) !== localId;
+          }));
+        }
+        showToast("Готово · " + whom);
         // подтверждение в TG приходит с сервера; список подтянем чуть позже
         setTimeout(function () {
           deferredCacheAt = 0;
@@ -15216,6 +15227,7 @@
         }, 1200);
       } catch (e) {
         showToast("Не удалось сохранить напоминание");
+        deferredCacheAt = 0;
         renderTasksDrawer(true);
       }
     }
