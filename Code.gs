@@ -5856,7 +5856,7 @@ function handleSaveBooking(ss, json, callback, fromPost) {
       note: note,
       basket: basket,
       subId: subIdSave,
-      source: json.source || (existing && existing.source) || "retail",
+      source: String(json.orderType || json.source || (existing && existing.source) || "retail").trim().toLowerCase() || "retail",
       status: wasPulled ? "pulled" : "planned",
       dayName: dayName,
       pulledAt: wasPulled ? (existing.pulledAt || "") : "",
@@ -11592,8 +11592,8 @@ function appendStatsConversion_(ss, opts) {
   ]);
 }
 
-/** Сырая себест корзины по прайсу (ПП, иначе розница). */
-function estimateBasketRawCost_(basket) {
+/** Сырая себест корзины по прайсу. modeHint: pp|retail|bp — какой лист пробовать первым. */
+function estimateBasketRawCost_(basket, modeHint) {
   basket = basket || [];
   if (!basket.length) return 0;
   function sumWith_(mode) {
@@ -11627,33 +11627,39 @@ function estimateBasketRawCost_(basket) {
     }
     return Math.round(total * 100) / 100;
   }
-  // сырьё: ПП → розница → БП (один состав часто есть только на одном листе прайса)
-  var t = sumWith_("pp");
-  if (!(t > 0)) t = sumWith_("retail");
-  if (!(t > 0)) t = sumWith_("bp");
+  var hint = String(modeHint || "").toLowerCase();
+  var order = ["pp", "retail", "bp"];
+  if (hint === "bp") order = ["bp", "pp", "retail"];
+  else if (hint === "retail" || hint === "partner") order = ["retail", "pp", "bp"];
+  var t = 0;
+  for (var oi = 0; oi < order.length; oi++) {
+    t = sumWith_(order[oi]);
+    if (t > 0) break;
+  }
   return t;
 }
 
 function calendarSourceKind_(row) {
-  var srcRaw = String((row && (row.source || row.segment)) || "").toLowerCase();
-  if (/^пп|pp|подписк/.test(srcRaw) || srcRaw.indexOf("пп") >= 0) return "pp";
-  if (/^бп|bp/.test(srcRaw) || srcRaw.indexOf("бп") >= 0) return "bp";
-  if (/розниц|^р$|retail|^r\b/.test(srcRaw) || srcRaw === "р") return "retail";
-  if (/партн|partner/.test(srcRaw)) return "partner";
-  var seg = String((row && row.segment) || "").toUpperCase();
-  if (seg.indexOf("ПП") >= 0 || seg === "АФК") return "pp";
-  if (seg.indexOf("БП") >= 0) return "bp";
-  if (seg.indexOf("РОЗН") >= 0 || seg === "Р") return "retail";
-  if (seg.indexOf("ПАРТ") >= 0) return "partner";
-  // note [SEG:…]
+  function kindFromText_(raw) {
+    var s = String(raw || "").toLowerCase().trim();
+    if (!s) return "";
+    if (/^бп\b|^bp\b|бесплат|trial/.test(s) || s.indexOf("бп") >= 0) return "bp";
+    if (/^пп\b|^pp\b|подписк|афк/.test(s) || s.indexOf("пп") >= 0) return "pp";
+    if (/партн|partner/.test(s)) return "partner";
+    if (/розниц|^р$|^r$|retail/.test(s)) return "retail";
+    return "";
+  }
+  // segment надёжнее source (source часто "manual"/"retail" по умолчанию)
+  var fromSeg = kindFromText_(row && row.segment);
+  if (fromSeg) return fromSeg;
+  var fromSrc = kindFromText_(row && row.source);
+  if (fromSrc) return fromSrc;
   var m = String((row && row.note) || "").match(/\[SEG:([^\]]+)\]/i);
   if (m) {
-    var s = String(m[1] || "").toUpperCase();
-    if (s.indexOf("ПП") >= 0 || s === "АФК") return "pp";
-    if (s.indexOf("БП") >= 0) return "bp";
-    if (s === "Р" || s.indexOf("РОЗН") >= 0) return "retail";
-    if (s.indexOf("ПАРТ") >= 0) return "partner";
+    var fromNote = kindFromText_(m[1]);
+    if (fromNote) return fromNote;
   }
+  // пустой source вроде manual/saveOrder — не тип
   return "other";
 }
 
@@ -11824,7 +11830,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if ((!bask || !bask.length) && row.basketJson) {
       try { bask = JSON.parse(String(row.basketJson)); } catch (eB2) { bask = []; }
     }
-    var cost = estimateBasketRawCost_(bask);
+    var cost = estimateBasketRawCost_(bask, src);
     if (!(cost > 0) && bask && bask.length) out.missingBasketCost++;
     out.costBySource[src] = Math.round(((out.costBySource[src] || 0) + cost) * 100) / 100;
     out.costActual += cost;
@@ -11932,7 +11938,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS8:" + monthKey;
+  var cacheKey = "STATS9:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -11973,7 +11979,10 @@ function handleGetStats(json, callback, fromPost) {
   var bpSpend = Number(month.bpCost) || 0;
   var costActual = Number(month.costActual) || 0;
   var converted = Number(conv.count) || 0;
-  var cac = converted > 0 ? Math.round((bpSpend / converted) * 100) / 100 : null;
+  // CAC месяца: себестоимость БП-доставок месяца / число переходов БП→ПП в этом месяце
+  var cac = null;
+  if (converted > 0) cac = Math.round((bpSpend / converted) * 100) / 100;
+  var bpDeliv = Number(month.bpDeliveries) || 0;
 
   // —— Лист ПП отдельно (снимок состава подписок, не «факт месяца») ——
   var ppSheetTurnover = Number(pp.turnover != null ? pp.turnover : pp.dirty) || 0;
@@ -12081,7 +12090,10 @@ function handleGetStats(json, callback, fromPost) {
       spend: bpSpend,
       convertedToPp: converted,
       costPerConvert: cac,
-      convertNicks: (conv.nicks || []).slice(0, 30)
+      costPerConvertFormula: "bpSpend / converted",
+      convertNicks: (conv.nicks || []).slice(0, 30),
+      convertFromLedger: Number(conv.fromLedger) || 0,
+      convertFromStamp: Number(conv.fromWishes) || 0
     },
     money: {
       ppExpected: ppExpected,

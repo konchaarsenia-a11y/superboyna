@@ -2114,7 +2114,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.52";
+    const APP_VERSION = "v7.11.53";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -11121,6 +11121,7 @@
         html += '<div class="muted" style="font-size:11px;margin-top:4px;color:#ff9f0a;">Без цены: ' +
           (fact.missingPrice || 0) + ' · без себест. состава: ' + (fact.missingBasketCost || 0) + '</div>';
       }
+      html += '<div class="muted" style="font-size:10px;margin-top:6px;">Доставок = строки календаря/броней с датой ≤ сегодня (1 клиент+дата = 1). Без галочки курьера.</div>';
       html += '</div>';
 
       // —— сравнение месяцев (факт) ——
@@ -11158,8 +11159,12 @@
       html += '</div>';
 
       html += '<div class="card"><div class="section-title" style="margin-top:0;font-size:15px;">Воронка БП (лист)</div>';
-      html += '<div class="muted" style="font-size:12px;margin-bottom:8px;">Карточки на листе БП · конверсия в ПП: <b>' +
-        converted + '</b>' + (cac != null ? (" · CAC " + cac) : "") + '</div>';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:8px;">Карточки на листе БП · переходов БП→ПП за месяц: <b>' +
+        converted + '</b>' +
+        (cac != null ? (" · на одного <b>" + cac + "</b> BYN") : " · на одного — нет переходов") +
+        '</div>';
+      html += '<div class="muted" style="font-size:11px;margin-bottom:8px;">На одного = себест БП-доставок месяца (' +
+        bpSpend + ') ÷ перешедших (' + converted + '). Себест БП = сырьё состава по прайсу.</div>';
       html += statsBarRow_("БП1", bp.bp1 || 0, bpMax, "#ff9f0a");
       html += statsBarRow_("БП2", bp.bp2 || 0, bpMax, "#ff453a");
       html += statsBarRow_("Финал", bp.final || 0, bpMax, "#30d158");
