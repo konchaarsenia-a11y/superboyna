@@ -1296,11 +1296,11 @@
           </div>
         </div>
         <div class="form-group" id="ppPartnerGroup" style="display:none;">
-          <label>Партнёр (кто привёл в ПП) *</label>
+          <label>Партнёр (кто привёл в БП) *</label>
           <select id="ppPartnerSelect" style="width:100%;height:42px;border-radius:10px;background:#111;color:#fff;border:1px solid var(--border-color);">
             <option value="">— выберите партнёра —</option>
           </select>
-          <div class="field-hint">Список партнёров — во вкладке «Доступы»</div>
+          <div class="field-hint">Список — в меню «Партнёры». Можно выбрать «Другое»</div>
         </div>
         <div class="form-group" id="orderPriceGroup" style="display:none;">
           <label id="orderPriceLabel">Цена (BYN)</label>
@@ -3269,9 +3269,12 @@
       if (hintPp && t !== "pp") { hintPp.style.display = "none"; hintPp.textContent = ""; }
       if (t !== "pp") updatePpSlotPickUi_({ reset: true, needManualSlot: false, deliveriesN: 0 });
       var ppg = document.getElementById("ppPartnerGroup");
-      if (ppg) ppg.style.display = t === "pp" ? "" : "none";
-      if (t === "pp") {
+      if (ppg) ppg.style.display = t === "bp" ? "" : "none";
+      if (t === "bp") {
         try { ensurePpPartnerOptions_(); } catch (ePart) {}
+      } else {
+        var selClr = document.getElementById("ppPartnerSelect");
+        if (selClr && t !== "bp") { /* keep value only for bp */ }
       }
       var cg = document.getElementById("partnerCouponsGroup");
       if (cg) cg.style.display = t === "partner" ? "" : "none";
@@ -4749,10 +4752,10 @@
         return;
       }
       var ppPartnerVal = "";
-      if (orderType === "pp") {
+      if (orderType === "bp") {
         ppPartnerVal = String((document.getElementById("ppPartnerSelect") || {}).value || "").trim();
         if (!ppPartnerVal) {
-          await uiAlertAsync("Для ПП обязательно укажите партнёра (кто привёл). Список — во вкладке «Доступы».");
+          await uiAlertAsync("Для БП обязательно укажите партнёра (кто привёл). Или выберите «Другое».");
           return;
         }
       }
@@ -5414,8 +5417,8 @@
       if (!basketLen) gaps.push("basket");
       var ot = resolveClientOrderType_(client);
       var segU = String(client.segment || "").toUpperCase();
-      var isPp = ot === "pp" || segU === "ПП" || segU === "PP" || segU === "АФК";
-      if (isPp && !String(client.ppPartner || "").trim()) gaps.push("partner");
+      var isBp = ot === "bp" || segU === "БП" || segU === "BP";
+      if (isBp && !String(client.ppPartner || "").trim()) gaps.push("partner");
       return gaps;
     }
 
@@ -5697,7 +5700,7 @@
       // нет типа — сразу спросить вместе с данными/составом
       if (!resolveClientOrderType_(staged)) {
         try { editDraftClient(viewTransferDraft.length - 1); } catch (eEd) {}
-      } else if (resolveClientOrderType_(staged) === "pp" && !String(staged.ppPartner || "").trim()) {
+      } else if (resolveClientOrderType_(staged) === "bp" && !String(staged.ppPartner || "").trim()) {
         try { editDraftClient(viewTransferDraft.length - 1); } catch (eEd2) {}
       }
     }
@@ -5773,7 +5776,8 @@
         activePartners.map(function (p) {
           var sel = (p.name === curPart) ? " selected" : "";
           return '<option value="' + escapeHtml(p.name) + '"' + sel + ">" + escapeHtml(p.name) + "</option>";
-        }).join("");
+        }).join("") +
+        '<option value="Другое"' + (curPart === "Другое" ? " selected" : "") + ">Другое</option>";
       var html =
         '<div class="modal-title">Дополнить: ' + escapeHtml(client.name) + "</div>" +
         '<div class="form-group"><label>Тип заказа</label>' +
@@ -5785,11 +5789,11 @@
         "</div>" +
         (curOt ? "" : '<div class="muted" style="font-size:12px;margin-top:4px;color:#ff9f0a;">Тип не указан — выбери перед сохранением</div>') +
         "</div>" +
-        '<div class="form-group" id="draftPpPartnerGroup" style="display:' + (curOt === "pp" ? "block" : "none") + ';">' +
-        '<label>Партнёр (кто привёл) *</label>' +
+        '<div class="form-group" id="draftPpPartnerGroup" style="display:' + (curOt === "bp" ? "block" : "none") + ';">' +
+        '<label>Партнёр (кто привёл в БП) *</label>' +
         '<select id="draftPpPartnerSelect" style="width:100%;height:42px;border-radius:10px;background:#111;color:#fff;border:1px solid var(--border-color);">' +
         partnerOpts + "</select>" +
-        '<div class="muted" style="font-size:11px;margin-top:4px;">Список — во вкладке «Доступы»</div></div>' +
+        '<div class="muted" style="font-size:11px;margin-top:4px;">Список — в меню «Партнёры»</div></div>' +
         '<div class="form-group"><label>Адрес</label><input type="text" id="draftEditAddr" value="' +
         escapeHtml(client.address || "") + '"></div>' +
         '<div class="form-group"><label>Телефон</label><input type="text" id="draftEditPhone" value="' +
@@ -5810,7 +5814,7 @@
               b.classList.toggle("active", b === btn);
             });
             var pg = document.getElementById("draftPpPartnerGroup");
-            if (pg) pg.style.display = draftOt === "pp" ? "block" : "none";
+            if (pg) pg.style.display = draftOt === "bp" ? "block" : "none";
           };
         });
       }
@@ -5827,7 +5831,7 @@
           client.orderType = draftOt;
           client.source = draftOt;
         }
-        if (draftOt === "pp") {
+        if (draftOt === "bp") {
           var ps = document.getElementById("draftPpPartnerSelect");
           client.ppPartner = ps ? String(ps.value || "").trim() : "";
         }
@@ -5839,8 +5843,8 @@
           showToast("Выбери тип заказа");
           return;
         }
-        if (draftOt === "pp" && !String(client.ppPartner || "").trim()) {
-          showToast("Для ПП укажите партнёра");
+        if (draftOt === "bp" && !String(client.ppPartner || "").trim()) {
+          showToast("Для БП укажите партнёра");
           return;
         }
         closeModal();
@@ -5853,8 +5857,8 @@
           showToast("Сначала выбери тип заказа");
           return;
         }
-        if (draftOt === "pp" && !String(client.ppPartner || "").trim()) {
-          showToast("Для ПП укажите партнёра");
+        if (draftOt === "bp" && !String(client.ppPartner || "").trim()) {
+          showToast("Для БП укажите партнёра");
           return;
         }
         closeModal();
@@ -5873,7 +5877,7 @@
         if (phoneEl) phoneEl.value = client.phone || "";
         loadOrderNotesFromRaw(client.note || "");
         try { setOrderType(resolveClientOrderType_(client) || "retail"); } catch (eOt) {}
-        if (draftOt === "pp") {
+        if (draftOt === "bp") {
           try { await ensurePpPartnerOptions_(client.ppPartner || ""); } catch (ePar2) {}
         }
         basket = (client.basket || []).map(function (g) {
@@ -5912,7 +5916,7 @@
         client.source = orderType;
         client.segment = orderTypeToSegment_(orderType) || client.segment || "";
       }
-      if (orderType === "pp") {
+      if (orderType === "bp") {
         var ps = document.getElementById("ppPartnerSelect");
         client.ppPartner = ps ? String(ps.value || "").trim() : (client.ppPartner || "");
       }
@@ -5949,12 +5953,12 @@
       }
       var noPartner = viewTransferDraft.filter(function (c) {
         var ot = resolveClientOrderType_(c);
-        return ot === "pp" && !String(c.ppPartner || "").trim();
+        return ot === "bp" && !String(c.ppPartner || "").trim();
       });
       if (noPartner.length) {
         await uiAlertAsync(
-          "У " + noPartner.length + " ПП не указан партнёр (кто привёл).\n" +
-          "Открой карточку (✏️) и выбери партнёра. Список — во вкладке «Доступы»."
+          "У " + noPartner.length + " БП не указан партнёр (кто привёл).\n" +
+          "Открой карточку (✏️) и выбери партнёра или «Другое»."
         );
         try { editDraftClient(viewTransferDraft.indexOf(noPartner[0])); } catch (eP) {}
         return;
@@ -6551,7 +6555,7 @@
       } else {
         showToast("Тип заказа не найден — выбери ПП / БП / Розница / Партнёр");
       }
-      if (ot === "pp") {
+      if (ot === "bp") {
         try {
           await ensurePpPartnerOptions_(client.ppPartner || "");
         } catch (ePar) {}
@@ -15510,7 +15514,8 @@
       sel.innerHTML = '<option value="">— выберите партнёра —</option>' +
         active.map(function (p) {
           return '<option value="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) + "</option>";
-        }).join("");
+        }).join("") +
+        '<option value="Другое">Другое</option>';
       if (cur) sel.value = cur;
     }
 

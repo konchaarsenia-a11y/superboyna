@@ -11999,10 +11999,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       out.bpCost += Math.round((product + deliveryFee) * 100) / 100;
       out.bpBasketCost = Math.round(((out.bpBasketCost || 0) + product) * 100) / 100;
       out.bpDeliveryCost = Math.round(((out.bpDeliveryCost || 0) + deliveryFee) * 100) / 100;
-    }
-    if (src === "pp") {
       var pn = String(row.ppPartner || "").trim();
-      // только реальные партнёры из списка — без «— без партнёра —»
+      // партнёр пришёл на БП (не на ПП)
       if (pn) {
         out.partnerRows.push({ name: pn, deliveries: 1, revenue: price, cost: costWithAll });
       }
