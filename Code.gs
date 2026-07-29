@@ -11069,6 +11069,7 @@ function handleCalcPpFact(json, callback, fromPost) {
  * Жевалки: обычно большой (по 4 шт); мало (≤2) + не бол.фрак → средний
  * Крафт: внешний пакет клиента — в него складывают дойпаки;
  *   1 крафт вмещает 4 больших | 7 средних | 35 маленьких (иначе +ещё крафт)
+ * Остаток после полных больших → средний/маленький (не ещё один большой).
  */
 
 var PACK_CAP_PRODUCT_ = { small: 20, medium: 100, large: 250 };
@@ -11082,20 +11083,64 @@ function isLargeChewFraction_(sub) {
   var u = String(sub || '').trim().toUpperCase();
   if (!u) return false;
   if (/ОГР|ОГРОМ|ГИГАНТ|КРУПН|БОЛЬШ|БОЛ/.test(u)) return true;
-  // полное ухо/аорта vs половинка
   if (/^ОБЫЧН/.test(u)) return true;
   return false;
 }
 
-/** Размер + число дойпаков по граммам (одна позиция → один формат). */
-function packSizeAndCount_(grams, caps) {
+function packFormatOn_(enabled, key) {
+  if (!enabled) return true;
+  return enabled[key] !== false;
+}
+
+/**
+ * Раскладка граммов в дойпаки: полные крупнейшие, остаток — в наименьший подходящий.
+ * enabled: { маленький/средний/большой: false } — выключенный формат не использовать.
+ * @returns {{маленький:number,средний:number,большой:number}}
+ */
+function packGramsIntoDoypacks_(grams, caps, enabled) {
+  var out = { 'маленький': 0, 'средний': 0, 'большой': 0 };
   var g = Number(grams) || 0;
-  if (g <= 0) return { bags: 0, key: '', rule: '' };
-  if (g <= caps.small) return { bags: 1, key: 'маленький', rule: '≤' + caps.small + 'г' };
-  if (g <= caps.medium) return { bags: 1, key: 'средний', rule: '≤' + caps.medium + 'г' };
-  if (g <= caps.large) return { bags: 1, key: 'большой', rule: '≤' + caps.large + 'г' };
-  var n = Math.ceil(g / caps.large);
-  return { bags: n, key: 'большой', rule: '⌈г/' + caps.large + '⌉' };
+  if (g <= 0) return out;
+
+  var levels = [];
+  if (packFormatOn_(enabled, 'большой')) levels.push({ key: 'большой', cap: caps.large });
+  if (packFormatOn_(enabled, 'средний')) levels.push({ key: 'средний', cap: caps.medium });
+  if (packFormatOn_(enabled, 'маленький')) levels.push({ key: 'маленький', cap: caps.small });
+  if (!levels.length) {
+    levels = [
+      { key: 'большой', cap: caps.large },
+      { key: 'средний', cap: caps.medium },
+      { key: 'маленький', cap: caps.small }
+    ];
+  }
+
+  var rem = g;
+  var largest = levels[0];
+  var nFull = Math.floor(rem / largest.cap);
+  if (nFull > 0) {
+    out[largest.key] += nFull;
+    rem -= nFull * largest.cap;
+  }
+  if (rem <= 0) return out;
+
+  // остаток → самый мелкий формат, куда влезает
+  for (var i = levels.length - 1; i >= 0; i--) {
+    if (rem <= levels[i].cap) {
+      out[levels[i].key]++;
+      return out;
+    }
+  }
+  // остаток больше любого доступного — ещё крупнейшими
+  out[largest.key] += Math.ceil(rem / largest.cap);
+  return out;
+}
+
+/** @deprecated совместимость: суммарное число дойпаков */
+function packSizeAndCount_(grams, caps, enabled) {
+  var dist = packGramsIntoDoypacks_(grams, caps, enabled);
+  var bags = (dist['маленький'] || 0) + (dist['средний'] || 0) + (dist['большой'] || 0);
+  var key = dist['большой'] ? 'большой' : (dist['средний'] ? 'средний' : (dist['маленький'] ? 'маленький' : ''));
+  return { bags: bags, key: key, dist: dist, rule: 'дойпак' };
 }
 
 function packCountForLight_(grams) {
@@ -11119,7 +11164,32 @@ function craftBagsForDoypacks_(doyByKey) {
   return Math.max(1, Math.ceil(fill - 1e-12));
 }
 
-/** Нормализация фракции лёгкого (для нарезки/отображения; формат дойпака — по граммам). */
+function packChewsIntoDoypacks_(val, sub, enabled) {
+  var out = { 'маленький': 0, 'средний': 0, 'большой': 0 };
+  var n = Number(val) || 0;
+  if (n <= 0) return out;
+  var chewLarge = isLargeChewFraction_(sub);
+  var wantMed = n <= PACK_CHEW_FEW_ && !chewLarge;
+  var canM = packFormatOn_(enabled, 'средний');
+  var canL = packFormatOn_(enabled, 'большой');
+  if (wantMed && canM) {
+    out['средний'] = 1;
+    return out;
+  }
+  var bags = Math.max(1, Math.ceil(n / PACK_CHEW_PER_BIG_));
+  if (canL) {
+    out['большой'] = bags;
+    return out;
+  }
+  if (canM) {
+    out['средний'] = bags;
+    return out;
+  }
+  out['большой'] = bags;
+  return out;
+}
+
+/** Нормализация фракции лёгкого (для нарезки/отображения). */
 function lightFractionCounterKey_(sub) {
   var u = String(sub || '').trim().toUpperCase();
   if (!u || u.indexOf('БЕЗ') >= 0) return 'средний';
@@ -11130,7 +11200,33 @@ function lightFractionCounterKey_(sub) {
   return 'средний';
 }
 
-function buildAssemblyForBasket_(basket) {
+function appendDoyDistToPacks_(packs, doyByKey, lightBagsByCounter, dist, meta) {
+  var order = ['большой', 'средний', 'маленький'];
+  for (var i = 0; i < order.length; i++) {
+    var key = order[i];
+    var n = Number(dist[key]) || 0;
+    if (n <= 0) continue;
+    doyByKey[key] = (doyByKey[key] || 0) + n;
+    if (meta.type === 'light') {
+      lightBagsByCounter[key] = (lightBagsByCounter[key] || 0) + n;
+    }
+    packs.push({
+      name: meta.name,
+      sub: meta.sub,
+      val: meta.val,
+      unit: meta.unit,
+      bags: n,
+      rule: meta.rulePrefix + ' → ' + key,
+      type: meta.type,
+      counterKey: key,
+      label: meta.name + (meta.sub ? ' / ' + meta.sub : '') + ' → ' + n + ' дойп. (' + key + ')'
+    });
+  }
+}
+
+/** @param {Object=} enabledOpt выключенные форматы дойпака: {маленький:false,...} */
+function buildAssemblyForBasket_(basket, enabledOpt) {
+  var enabled = enabledOpt || null;
   var packs = [];
   var totalBags = 0;
   var typeCounts = { light: 0, bulk: 0, chew: 0, craft: 0, other: 0 };
@@ -11144,70 +11240,42 @@ function buildAssemblyForBasket_(basket) {
     var cat = String(it.cat || '').toLowerCase();
     var unit = String(it.unit || '').trim() || (/шт/i.test(name) ? 'шт' : 'гр');
     if (!name || val <= 0) return;
-    var bags = 0;
-    var rule = '';
+    var dist = null;
     var type = 'other';
-    var counterKey = '';
+    var rulePrefix = 'дойпак';
+
     if (/л[её]гк/i.test(name) && !/баран/i.test(name) && !/крошк/i.test(name)) {
-      var lp = packSizeAndCount_(val, PACK_CAP_LIGHT_);
-      bags = lp.bags;
-      rule = 'дойпак лёгкое ' + lp.rule;
+      dist = packGramsIntoDoypacks_(val, PACK_CAP_LIGHT_, enabled);
       type = 'light';
-      counterKey = lp.key;
+      rulePrefix = 'дойпак лёгкое';
       var fk = sub || 'Среднее';
       lightMap[fk] = (lightMap[fk] || 0) + val;
-      lightBagsByCounter[counterKey] = (lightBagsByCounter[counterKey] || 0) + bags;
     } else if (/баран/i.test(name) && /л[её]гк/i.test(name)) {
-      var bp = packSizeAndCount_(val, PACK_CAP_PRODUCT_);
-      bags = bp.bags;
-      rule = 'дойпак баранье лёгкое ' + bp.rule;
+      dist = packGramsIntoDoypacks_(val, PACK_CAP_PRODUCT_, enabled);
       type = 'bulk';
-      counterKey = bp.key;
+      rulePrefix = 'дойпак баранье лёгкое';
     } else if (cat === 'chew' || /шт/i.test(name) || /быч|трахе|аорт|ухо|нос|станова|колен|копыт|переп|губ|книжк/i.test(name)) {
+      dist = packChewsIntoDoypacks_(val, sub, enabled);
       type = 'chew';
-      var chewLarge = isLargeChewFraction_(sub);
-      if (val <= PACK_CHEW_FEW_ && !chewLarge) {
-        bags = 1;
-        counterKey = 'средний';
-        rule = 'дойпак жевалки мало(≤' + PACK_CHEW_FEW_ + ')+не бол.фрак→средний';
-      } else {
-        bags = Math.max(1, Math.ceil(val / PACK_CHEW_PER_BIG_));
-        counterKey = 'большой';
-        rule = chewLarge
-          ? 'дойпак жевалки бол.фрак→большой'
-          : 'дойпак жевалки×' + PACK_CHEW_PER_BIG_ + '→большой';
-      }
+      rulePrefix = 'дойпак жевалки';
     } else {
-      // все позиции (в т.ч. печень/индейка/…) → дойпаки по граммам
-      var pp = packSizeAndCount_(val, PACK_CAP_PRODUCT_);
-      bags = pp.bags;
-      rule = 'дойпак ' + pp.rule;
+      dist = packGramsIntoDoypacks_(val, PACK_CAP_PRODUCT_, enabled);
       type = (cat === 'other') ? 'other' : 'bulk';
-      counterKey = pp.key;
+      rulePrefix = 'дойпак';
     }
-    totalBags += bags;
-    typeCounts[type] = (typeCounts[type] || 0) + bags;
-    if (counterKey && doyByKey.hasOwnProperty(counterKey)) {
-      doyByKey[counterKey] += bags;
-    } else if (counterKey === 'маленький' || counterKey === 'средний' ||
-               counterKey === 'большой' || counterKey === 'целое') {
-      doyByKey[counterKey] = (doyByKey[counterKey] || 0) + bags;
-    }
-    packs.push({
-      name: name,
-      sub: sub,
-      val: val,
-      unit: unit,
-      bags: bags,
-      rule: rule,
-      type: type,
-      counterKey: counterKey,
-      label: name + (sub ? ' / ' + sub : '') + ' → ' + bags + ' дойп.' + (counterKey ? ' (' + counterKey + ')' : '')
+
+    var lineBags = (dist['маленький'] || 0) + (dist['средний'] || 0) + (dist['большой'] || 0);
+    totalBags += lineBags;
+    typeCounts[type] = (typeCounts[type] || 0) + lineBags;
+    appendDoyDistToPacks_(packs, doyByKey, lightBagsByCounter, dist, {
+      name: name, sub: sub, val: val, unit: unit, type: type, rulePrefix: rulePrefix
     });
   });
 
-  // Крафт = внешний пакет(ы) клиента под дойпаки
-  var craftBags = craftBagsForDoypacks_(doyByKey);
+  var craftBags = 0;
+  if (packFormatOn_(enabled, 'крафт')) {
+    craftBags = craftBagsForDoypacks_(doyByKey);
+  }
   typeCounts.craft = craftBags;
   totalBags += craftBags;
   if (craftBags > 0) {

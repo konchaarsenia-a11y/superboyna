@@ -2154,7 +2154,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.66";
+    const APP_VERSION = "v7.11.67";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -11614,31 +11614,130 @@
     }
 
 
+    // —— Раскладка дойпаков (зеркало Code.gs) — для пересчёта при выкл. формата ——
+    var ASM_CAP_PRODUCT = { small: 20, medium: 100, large: 250 };
+    var ASM_CAP_LIGHT = { small: 15, medium: 80, large: 190 };
+    var ASM_CRAFT_HOLDS = { large: 4, medium: 7, small: 35 };
+    var ASM_CHEW_FEW = 2;
+    var ASM_CHEW_PER_BIG = 4;
+
+    function asmFormatOn(enabled, key) {
+      if (!enabled) return true;
+      return enabled[key] !== false;
+    }
+
+    function asmIsLargeChewFrac(sub) {
+      var u = String(sub || "").toUpperCase();
+      return /ОГР|ОГРОМ|ГИГАНТ|КРУПН|БОЛЬШ|БОЛ|^ОБЫЧН/.test(u);
+    }
+
+    function asmPackGrams(grams, caps, enabled) {
+      var out = { "маленький": 0, "средний": 0, "большой": 0 };
+      var g = Number(grams) || 0;
+      if (g <= 0) return out;
+      var levels = [];
+      if (asmFormatOn(enabled, "большой")) levels.push({ key: "большой", cap: caps.large });
+      if (asmFormatOn(enabled, "средний")) levels.push({ key: "средний", cap: caps.medium });
+      if (asmFormatOn(enabled, "маленький")) levels.push({ key: "маленький", cap: caps.small });
+      if (!levels.length) {
+        levels = [
+          { key: "большой", cap: caps.large },
+          { key: "средний", cap: caps.medium },
+          { key: "маленький", cap: caps.small }
+        ];
+      }
+      var rem = g;
+      var largest = levels[0];
+      var nFull = Math.floor(rem / largest.cap);
+      if (nFull > 0) {
+        out[largest.key] += nFull;
+        rem -= nFull * largest.cap;
+      }
+      if (rem <= 0) return out;
+      for (var i = levels.length - 1; i >= 0; i--) {
+        if (rem <= levels[i].cap) {
+          out[levels[i].key]++;
+          return out;
+        }
+      }
+      out[largest.key] += Math.ceil(rem / largest.cap);
+      return out;
+    }
+
+    function asmPackChews(val, sub, enabled) {
+      var out = { "маленький": 0, "средний": 0, "большой": 0 };
+      var n = Number(val) || 0;
+      if (n <= 0) return out;
+      var wantMed = n <= ASM_CHEW_FEW && !asmIsLargeChewFrac(sub);
+      var canM = asmFormatOn(enabled, "средний");
+      var canL = asmFormatOn(enabled, "большой");
+      if (wantMed && canM) { out["средний"] = 1; return out; }
+      var bags = Math.max(1, Math.ceil(n / ASM_CHEW_PER_BIG));
+      if (canL) { out["большой"] = bags; return out; }
+      if (canM) { out["средний"] = bags; return out; }
+      out["большой"] = bags;
+      return out;
+    }
+
+    function asmCraftBags(doy) {
+      var s = Number(doy["маленький"]) || 0;
+      var m = Number(doy["средний"]) || 0;
+      var l = (Number(doy["большой"]) || 0) + (Number(doy["целое"]) || 0);
+      if (s + m + l <= 0) return 0;
+      var fill = l / ASM_CRAFT_HOLDS.large + m / ASM_CRAFT_HOLDS.medium + s / ASM_CRAFT_HOLDS.small;
+      return Math.max(1, Math.ceil(fill - 1e-12));
+    }
+
+    /** Пересчёт пакетов клиента с учётом выкл. форматов дойпака. */
+    function buildAssemblyPacksLocal(basket, enabled) {
+      var packs = [];
+      var doy = { "маленький": 0, "средний": 0, "большой": 0, "целое": 0 };
+      function pushDist(name, sub, val, unit, type, dist) {
+        ["большой", "средний", "маленький"].forEach(function (key) {
+          var n = Number(dist[key]) || 0;
+          if (n <= 0) return;
+          doy[key] = (doy[key] || 0) + n;
+          packs.push({ name: name, sub: sub, val: val, unit: unit, bags: n, type: type, counterKey: key });
+        });
+      }
+      (basket || []).forEach(function (it) {
+        var name = String(it.name || it.main || "").trim();
+        var sub = String(it.sub || "").trim();
+        var val = Number(it.val != null ? it.val : it.value) || 0;
+        var cat = String(it.cat || "").toLowerCase();
+        var unit = String(it.unit || "").trim() || (/шт/i.test(name) ? "шт" : "гр");
+        if (!name || val <= 0) return;
+        var dist;
+        var type = "bulk";
+        if (/л[её]гк/i.test(name) && !/баран/i.test(name) && !/крошк/i.test(name)) {
+          dist = asmPackGrams(val, ASM_CAP_LIGHT, enabled);
+          type = "light";
+        } else if (/баран/i.test(name) && /л[её]гк/i.test(name)) {
+          dist = asmPackGrams(val, ASM_CAP_PRODUCT, enabled);
+          type = "bulk";
+        } else if (cat === "chew" || /шт/i.test(name) || /быч|трахе|аорт|ухо|нос|станова|колен|копыт|переп|губ|книжк/i.test(name)) {
+          dist = asmPackChews(val, sub, enabled);
+          type = "chew";
+        } else {
+          dist = asmPackGrams(val, ASM_CAP_PRODUCT, enabled);
+          type = cat === "other" ? "other" : "bulk";
+        }
+        pushDist(name, sub, val, unit, type, dist);
+      });
+      if (asmFormatOn(enabled, "крафт")) {
+        var cb = asmCraftBags(doy);
+        if (cb > 0) {
+          packs.push({ name: "КРАФТ", sub: "", val: cb, unit: "пак", bags: cb, type: "craft", counterKey: "крафт" });
+        }
+      }
+      return packs;
+    }
+
     function packCounterKey(p) {
-      // форматы: маленький/средний/большой/целое/крафт (с сервера; fallback по граммам)
       if (!p) return "";
       if (p.counterKey === "маленький" || p.counterKey === "средний" || p.counterKey === "большой" ||
           p.counterKey === "целое" || p.counterKey === "крафт") {
         return p.counterKey;
-      }
-      var g = Number(p.val) || 0;
-      var isLight = p.type === "light" || (/л[её]гк/i.test(String(p.name || "")) && !/баран/i.test(String(p.name || "")));
-      if (isLight) {
-        if (g <= 15) return "маленький";
-        if (g <= 80) return "средний";
-        return "большой";
-      }
-      if (p.type === "craft" || p.counterKey === "крафт") return "крафт";
-      if (p.type === "chew") {
-        var su = String(p.sub || "").toUpperCase();
-        var largeChew = /ОГР|ОГРОМ|ГИГАНТ|КРУПН|БОЛЬШ|БОЛ|^ОБЫЧН/.test(su);
-        if (g <= 2 && !largeChew) return "средний";
-        return "большой";
-      }
-      if (p.type === "bulk" || g > 0) {
-        if (g <= 20) return "маленький";
-        if (g <= 100) return "средний";
-        return "большой";
       }
       return "";
     }
@@ -11733,7 +11832,8 @@
       };
 
       pending.forEach(function (c) {
-        (c.packs || []).forEach(function (p) {
+        var packs = buildAssemblyPacksLocal(c.basket || [], packTypesEnabled);
+        (packs || []).forEach(function (p) {
           var key = packCounterKey(p);
           if (!key) return;
           if (!packTypesEnabled.hasOwnProperty(key)) packTypesEnabled[key] = true;
@@ -11760,7 +11860,8 @@
       var phrase = phraseParts.length ? phraseParts.join(" · ") : "нет пакетов";
 
       var cells = COUNTER_ORDER.filter(function (k) {
-        return (rawTotals[k] || 0) > 0;
+        // выключенный формат оставляем видимым (0), чтобы снова включить
+        return (rawTotals[k] || 0) > 0 || packTypesEnabled[k] === false;
       }).map(function (k) {
         var on = packTypesEnabled[k] !== false;
         return '<div class="pack-type-cell' + (on ? "" : " off") + '" onclick="togglePackType(\'' + k + '\')">' +
@@ -11779,7 +11880,8 @@
       var clientsHtml = clientsSorted.map(function (c, idx) {
         var bags = 0;
         var byCounter = {};
-        (c.packs || []).forEach(function (p) {
+        var packsLocal = buildAssemblyPacksLocal(c.basket || [], packTypesEnabled);
+        (packsLocal || []).forEach(function (p) {
           var key = packCounterKey(p);
           if (!key) return;
           if (packTypesEnabled[key] === false) return;
