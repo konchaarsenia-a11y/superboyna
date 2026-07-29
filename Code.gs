@@ -860,6 +860,12 @@ function doGet(e) {
       force: e.parameter.force || ""
     }, callback, false);
   }
+  if (action === "getExpectedProfit") {
+    return handleGetExpectedProfit({
+      from: e.parameter.from || e.parameter.fromDate || "",
+      to: e.parameter.to || e.parameter.toDate || ""
+    }, callback, false);
+  }
   if (action === "exportStats") {
     return handleExportStats({
       format: e.parameter.format || "accountant"
@@ -1465,6 +1471,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "getStats") {
     return handleGetStats(json, callback, fromPost);
+  }
+  if (action === "getExpectedProfit") {
+    return handleGetExpectedProfit(json, callback, fromPost);
   }
   if (action === "exportStats") {
     return handleExportStats(json, callback, fromPost);
@@ -11723,7 +11732,8 @@ function calendarRowPrice_(row) {
   return 0;
 }
 
-function collectMonthCalendarStats_(ss, monthKey) {
+function collectMonthCalendarStats_(ss, monthKey, opts) {
+  opts = opts || {};
   var out = {
     deliveriesTotal: 0,
     bySource: { pp: 0, retail: 0, bp: 0, partner: 0, other: 0 },
@@ -11746,40 +11756,50 @@ function collectMonthCalendarStats_(ss, monthKey) {
   var books = [];
   try { books = readAllBookings_(); } catch (eB) { books = []; }
   var tz = ss.getSpreadsheetTimeZone();
-  var want = String(monthKey || "").slice(0, 7);
+  var want = String(monthKey || opts.monthKey || '').slice(0, 7);
+  var onlyPast = opts.onlyPast === true;
+  var fromIso = opts.fromIso ? String(opts.fromIso).slice(0, 10) : '';
+  var toIso = opts.toIso ? String(opts.toIso).slice(0, 10) : '';
+  var todayIso = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
 
-  // индекс броней: дата+клиент → дозаполнить цену/состав, если в календаре пусто
   var bookByKey = {};
   for (var bi = 0; bi < books.length; bi++) {
     var b = books[bi];
     if (!b || !b.client) continue;
-    if (String(b.status || "").toLowerCase() === "cancelled") continue;
-    var bIso = "";
+    if (String(b.status || '').toLowerCase() === 'cancelled') continue;
+    var bIso = '';
     var bDate = parseFlexibleDate_(b.date, tz);
-    if (bDate) bIso = Utilities.formatDate(bDate, tz, "yyyy-MM-dd");
-    if (!bIso || bIso.slice(0, 7) !== want) continue;
-    var bCk = clientMatchKey_(b.client) || String(b.client || "").toUpperCase();
+    if (bDate) bIso = Utilities.formatDate(bDate, tz, 'yyyy-MM-dd');
+    if (!bIso) continue;
+    if (want && bIso.slice(0, 7) !== want) continue;
+    if (fromIso && bIso < fromIso) continue;
+    if (toIso && bIso > toIso) continue;
+    if (onlyPast && bIso > todayIso) continue;
+    var bCk = clientMatchKey_(b.client) || String(b.client || '').toUpperCase();
     if (!bCk) continue;
-    bookByKey[bIso + "|" + bCk] = b;
+    bookByKey[bIso + '|' + bCk] = b;
   }
 
   var seenKeys = {};
   function ingestRow_(row) {
     if (!row) return;
-    var st = String(row.status || "").toLowerCase();
-    if (st === "cancelled") return;
-    var iso = String(row.dateIso || "").slice(0, 10);
+    var st = String(row.status || '').toLowerCase();
+    if (st === 'cancelled') return;
+    var iso = String(row.dateIso || '').slice(0, 10);
     if (!iso || iso.length < 7) {
       var bd = parseFlexibleDate_(row.date, tz) || parseFlexibleDate_(row.dateIso, tz);
-      if (bd) iso = Utilities.formatDate(bd, tz, "yyyy-MM-dd");
+      if (bd) iso = Utilities.formatDate(bd, tz, 'yyyy-MM-dd');
     }
-    if (!iso || iso.slice(0, 7) !== want) return;
-    var ck = clientMatchKey_(row.client) || String(row.client || "").toUpperCase();
-    var dedupe = iso + "|" + (ck || String(row.client || "").toUpperCase());
+    if (!iso) return;
+    if (want && iso.slice(0, 7) !== want) return;
+    if (fromIso && iso < fromIso) return;
+    if (toIso && iso > toIso) return;
+    if (onlyPast && iso > todayIso) return;
+    var ck = clientMatchKey_(row.client) || String(row.client || '').toUpperCase();
+    var dedupe = iso + '|' + (ck || String(row.client || '').toUpperCase());
     if (seenKeys[dedupe]) return;
     seenKeys[dedupe] = true;
 
-    // дозаполнить из брони
     var book = bookByKey[dedupe];
     if (book) {
       if (!(calendarRowPrice_(row) > 0) && calendarRowPrice_(book) > 0) {
@@ -11794,10 +11814,10 @@ function collectMonthCalendarStats_(ss, monthKey) {
 
     out.deliveriesTotal++;
     var src = calendarSourceKind_(row);
-    if (src === "other" && calendarRowPrice_(row) > 0) src = "retail";
+    if (src === 'other' && calendarRowPrice_(row) > 0) src = 'retail';
     out.bySource[src] = (out.bySource[src] || 0) + 1;
     var price = calendarRowPrice_(row);
-    if (!(price > 0) && src !== "bp") out.missingPrice++;
+    if (!(price > 0) && src !== 'bp') out.missingPrice++;
     out.revenueBySource[src] = Math.round(((out.revenueBySource[src] || 0) + price) * 100) / 100;
     out.revenueActual += price;
     var bask = row.basket;
@@ -11808,18 +11828,17 @@ function collectMonthCalendarStats_(ss, monthKey) {
     if (!(cost > 0) && bask && bask.length) out.missingBasketCost++;
     out.costBySource[src] = Math.round(((out.costBySource[src] || 0) + cost) * 100) / 100;
     out.costActual += cost;
-    if (src === "pp" && ck) {
+    if (src === 'pp' && ck) {
       out.ppDeliveredKeys[ck] = true;
       out.ppPriceByKey[ck] = Math.round(((out.ppPriceByKey[ck] || 0) + price) * 100) / 100;
     }
-    if (src === "bp") {
+    if (src === 'bp') {
       out.bpDeliveries++;
       out.bpCost += cost;
     }
   }
 
   for (var i = 0; i < rows.length; i++) ingestRow_(rows[i]);
-  // брони без строки в календаре (дальние даты / ещё не материализованы)
   for (var bk in bookByKey) {
     if (!bookByKey.hasOwnProperty(bk)) continue;
     if (seenKeys[bk]) continue;
@@ -11831,6 +11850,10 @@ function collectMonthCalendarStats_(ss, monthKey) {
   out.partnerRevenue = out.revenueBySource.partner || 0;
   out.bpCost = Math.round(out.bpCost * 100) / 100;
   out.ppClientsDelivered = Object.keys(out.ppDeliveredKeys).length;
+  out.todayIso = todayIso;
+  out.fromIso = fromIso;
+  out.toIso = toIso;
+  out.onlyPast = onlyPast;
   return out;
 }
 
@@ -11909,7 +11932,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS7:" + monthKey;
+  var cacheKey = "STATS8:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -11936,11 +11959,12 @@ function handleGetStats(json, callback, fromPost) {
     bp = collectBpFunnelStats_(crm);
   } catch (eCrm) {}
 
-  var month = collectMonthCalendarStats_(ss, monthKey);
+  // факт месяца — только даты ≤ сегодня (будущие записи не в обороте)
+  var month = collectMonthCalendarStats_(ss, monthKey, { onlyPast: true });
   var ppOut = collectPpActualOut_(ss, monthKey, pp, month);
   var conv = collectBpToPpConversions_(ss, crm, monthKey, pp);
 
-  // —— Факт через приложение (календарь/брони) ——
+  // —— Факт через приложение (календарь/брони, уже прошедшие даты) ——
   var retail = Number(month.retailRevenue) || 0;
   var partner = Number(month.partnerRevenue) || 0;
   var ppActual = Number(month.revenueBySource && month.revenueBySource.pp) || 0;
@@ -12122,11 +12146,57 @@ function handleGetStats(json, callback, fromPost) {
         { label: "Выхлоп листа", value: ppSheetClean }
       ]
     },
-    note: "Факт — доставки/деньги из Календарь_Дат (мини-апп). Лист ПП — отдельный снимок подписок. Сравнение месяцев по факту."
+    factCutoff: month.todayIso || "",
+    note: "Факт — только даты ≤ сегодня из Календарь_Дат/броней. Будущее — в «Ожидаемая прибыль». Лист ПП отдельно."
   };
   try {
     CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 600);
   } catch (ePut) {}
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/** Ожидаемая прибыль/оборот по диапазону дат (включая будущие записи в календаре). */
+function handleGetExpectedProfit(json, callback, fromPost) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone();
+  var fromD = parseFlexibleDate_(json.from || json.fromDate || json.dateFrom, tz);
+  var toD = parseFlexibleDate_(json.to || json.toDate || json.dateTo, tz);
+  if (!fromD || !toD) {
+    var bad = { status: "error", message: "Укажите даты «с» и «по»" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  if (fromD.getTime() > toD.getTime()) {
+    var tmp = fromD; fromD = toD; toD = tmp;
+  }
+  var fromIso = Utilities.formatDate(fromD, tz, "yyyy-MM-dd");
+  var toIso = Utilities.formatDate(toD, tz, "yyyy-MM-dd");
+  var stats = collectMonthCalendarStats_(ss, "", { fromIso: fromIso, toIso: toIso, onlyPast: false });
+  var retail = Number(stats.retailRevenue) || 0;
+  var partner = Number(stats.partnerRevenue) || 0;
+  var ppRev = Number(stats.revenueBySource && stats.revenueBySource.pp) || 0;
+  var revenue = Math.round((ppRev + retail + partner) * 100) / 100;
+  var cost = Number(stats.costActual) || 0;
+  var profit = Math.round((revenue - cost) * 100) / 100;
+  var ok = {
+    status: "success",
+    from: fromIso,
+    to: toIso,
+    deliveries: stats.deliveriesTotal,
+    bySource: stats.bySource,
+    revenueBySource: stats.revenueBySource,
+    costBySource: stats.costBySource,
+    revenue: revenue,
+    cost: cost,
+    profit: profit,
+    ppRevenue: ppRev,
+    retail: retail,
+    partner: partner,
+    bpCost: Number(stats.bpCost) || 0,
+    bpDeliveries: Number(stats.bpDeliveries) || 0,
+    missingPrice: stats.missingPrice || 0,
+    missingBasketCost: stats.missingBasketCost || 0,
+    note: "Все записи календаря/броней в диапазоне, включая будущие даты. Прибыль = оборот − себестоимость составов."
+  };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
