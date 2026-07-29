@@ -2154,7 +2154,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.65";
+    const APP_VERSION = "v7.11.66";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -11628,7 +11628,7 @@
         if (g <= 80) return "средний";
         return "большой";
       }
-      if (p.type === "craft") return "крафт";
+      if (p.type === "craft" || p.counterKey === "крафт") return "крафт";
       if (p.type === "chew") {
         var su = String(p.sub || "").toUpperCase();
         var largeChew = /ОГР|ОГРОМ|ГИГАНТ|КРУПН|БОЛЬШ|БОЛ|^ОБЫЧН/.test(su);
@@ -11793,7 +11793,7 @@
 
         var basket = c.basket && c.basket.length ? c.basket : (c.packs || []).map(function (p) {
           return { name: p.name, sub: p.sub, val: p.val, unit: p.unit };
-        });
+        }).filter(function (g) { return String(g.name || "").toUpperCase() !== "КРАФТ"; });
         var composition = (basket || []).map(function (g) {
           var unit = g.unit || (/шт/i.test(String(g.name || "")) ? "шт" : "гр");
           var frac = g.sub ? ' <span class="muted">(' + escapeHtml(g.sub) + ")</span>" : "";

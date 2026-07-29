@@ -11064,17 +11064,18 @@ function handleCalcPpFact(json, callback, fromPost) {
 }
 
 /* ----- Сборка / пакеты -----
- * Форматы (не лёгкое): маленький ≤20г · средний ≤100г · большой ≤250г
+ * Дойпаки позиций (не лёгкое): маленький ≤20г · средний ≤100г · большой ≤250г
  * Лёгкое: маленький ≤15г · средний ≤80г · большой ≤190г
- * Жевалки: обычно большой (по 4 шт); мало (≤4) → средний
- * Крафт: обычно 1 пакет; вместимость 1 крафт = 4 больших | 7 средних | 35 маленьких
+ * Жевалки: обычно большой (по 4 шт); мало (≤2) + не бол.фрак → средний
+ * Крафт: внешний пакет клиента — в него складывают дойпаки;
+ *   1 крафт вмещает 4 больших | 7 средних | 35 маленьких (иначе +ещё крафт)
  */
 
 var PACK_CAP_PRODUCT_ = { small: 20, medium: 100, large: 250 };
 var PACK_CAP_LIGHT_ = { small: 15, medium: 80, large: 190 };
 var PACK_CRAFT_HOLDS_ = { large: 4, medium: 7, small: 35 };
 var PACK_CHEW_FEW_ = 2; // «мало» жевалок → средний (если фракция не большая)
-var PACK_CHEW_PER_BIG_ = 4; // шт в большом пакете
+var PACK_CHEW_PER_BIG_ = 4; // шт в большом дойпаке
 
 /** Фракция жевалки «большая» (БОЛ/ОГР/…) — даже 1–2 шт идут в большой. */
 function isLargeChewFraction_(sub) {
@@ -11086,7 +11087,7 @@ function isLargeChewFraction_(sub) {
   return false;
 }
 
-/** Размер + число пакетов по граммам (одна позиция → один формат). */
+/** Размер + число дойпаков по граммам (одна позиция → один формат). */
 function packSizeAndCount_(grams, caps) {
   var g = Number(grams) || 0;
   if (g <= 0) return { bags: 0, key: '', rule: '' };
@@ -11105,7 +11106,20 @@ function packCountForBulk_(grams) {
   return packSizeAndCount_(grams, PACK_CAP_PRODUCT_).bags;
 }
 
-/** Нормализация фракции лёгкого (для нарезки/отображения; формат пакета — по граммам). */
+/** Сколько крафт-пакетов нужно, чтобы уложить дойпаки клиента. */
+function craftBagsForDoypacks_(doyByKey) {
+  var s = Number(doyByKey['маленький']) || 0;
+  var m = Number(doyByKey['средний']) || 0;
+  var l = (Number(doyByKey['большой']) || 0) + (Number(doyByKey['целое']) || 0);
+  if (s + m + l <= 0) return 0;
+  var fill =
+    l / PACK_CRAFT_HOLDS_.large +
+    m / PACK_CRAFT_HOLDS_.medium +
+    s / PACK_CRAFT_HOLDS_.small;
+  return Math.max(1, Math.ceil(fill - 1e-12));
+}
+
+/** Нормализация фракции лёгкого (для нарезки/отображения; формат дойпака — по граммам). */
 function lightFractionCounterKey_(sub) {
   var u = String(sub || '').trim().toUpperCase();
   if (!u || u.indexOf('БЕЗ') >= 0) return 'средний';
@@ -11122,6 +11136,7 @@ function buildAssemblyForBasket_(basket) {
   var typeCounts = { light: 0, bulk: 0, chew: 0, craft: 0, other: 0 };
   var lightMap = {};
   var lightBagsByCounter = {};
+  var doyByKey = { 'маленький': 0, 'средний': 0, 'большой': 0, 'целое': 0 };
   (basket || []).forEach(function (it) {
     var name = String(it.name || it.main || '').trim();
     var sub = String(it.sub || '').trim();
@@ -11136,7 +11151,7 @@ function buildAssemblyForBasket_(basket) {
     if (/л[её]гк/i.test(name) && !/баран/i.test(name) && !/крошк/i.test(name)) {
       var lp = packSizeAndCount_(val, PACK_CAP_LIGHT_);
       bags = lp.bags;
-      rule = 'лёгкое ' + lp.rule;
+      rule = 'дойпак лёгкое ' + lp.rule;
       type = 'light';
       counterKey = lp.key;
       var fk = sub || 'Среднее';
@@ -11145,7 +11160,7 @@ function buildAssemblyForBasket_(basket) {
     } else if (/баран/i.test(name) && /л[её]гк/i.test(name)) {
       var bp = packSizeAndCount_(val, PACK_CAP_PRODUCT_);
       bags = bp.bags;
-      rule = 'баранье лёгкое ' + bp.rule;
+      rule = 'дойпак баранье лёгкое ' + bp.rule;
       type = 'bulk';
       counterKey = bp.key;
     } else if (cat === 'chew' || /шт/i.test(name) || /быч|трахе|аорт|ухо|нос|станова|колен|копыт|переп|губ|книжк/i.test(name)) {
@@ -11154,29 +11169,30 @@ function buildAssemblyForBasket_(basket) {
       if (val <= PACK_CHEW_FEW_ && !chewLarge) {
         bags = 1;
         counterKey = 'средний';
-        rule = 'жевалки мало(≤' + PACK_CHEW_FEW_ + ')+не бол.фрак→средний';
+        rule = 'дойпак жевалки мало(≤' + PACK_CHEW_FEW_ + ')+не бол.фрак→средний';
       } else {
         bags = Math.max(1, Math.ceil(val / PACK_CHEW_PER_BIG_));
         counterKey = 'большой';
         rule = chewLarge
-          ? 'жевалки бол.фрак→большой'
-          : 'жевалки×' + PACK_CHEW_PER_BIG_ + '→большой';
+          ? 'дойпак жевалки бол.фрак→большой'
+          : 'дойпак жевалки×' + PACK_CHEW_PER_BIG_ + '→большой';
       }
-    } else if (cat === 'other' || /крафт|индейк|ломтик|вымя|семен|пикальн|печень|светл/i.test(name)) {
-      bags = 1;
-      rule = 'крафт×1 (вмест. ' + PACK_CRAFT_HOLDS_.large + 'бол/' +
-        PACK_CRAFT_HOLDS_.medium + 'сред/' + PACK_CRAFT_HOLDS_.small + 'мал)';
-      type = 'craft';
-      counterKey = 'крафт';
     } else {
+      // все позиции (в т.ч. печень/индейка/…) → дойпаки по граммам
       var pp = packSizeAndCount_(val, PACK_CAP_PRODUCT_);
       bags = pp.bags;
-      rule = 'позиция ' + pp.rule;
-      type = 'bulk';
+      rule = 'дойпак ' + pp.rule;
+      type = (cat === 'other') ? 'other' : 'bulk';
       counterKey = pp.key;
     }
     totalBags += bags;
     typeCounts[type] = (typeCounts[type] || 0) + bags;
+    if (counterKey && doyByKey.hasOwnProperty(counterKey)) {
+      doyByKey[counterKey] += bags;
+    } else if (counterKey === 'маленький' || counterKey === 'средний' ||
+               counterKey === 'большой' || counterKey === 'целое') {
+      doyByKey[counterKey] = (doyByKey[counterKey] || 0) + bags;
+    }
     packs.push({
       name: name,
       sub: sub,
@@ -11186,9 +11202,29 @@ function buildAssemblyForBasket_(basket) {
       rule: rule,
       type: type,
       counterKey: counterKey,
-      label: name + (sub ? ' / ' + sub : '') + ' → ' + bags + ' пак.' + (counterKey ? ' (' + counterKey + ')' : '')
+      label: name + (sub ? ' / ' + sub : '') + ' → ' + bags + ' дойп.' + (counterKey ? ' (' + counterKey + ')' : '')
     });
   });
+
+  // Крафт = внешний пакет(ы) клиента под дойпаки
+  var craftBags = craftBagsForDoypacks_(doyByKey);
+  typeCounts.craft = craftBags;
+  totalBags += craftBags;
+  if (craftBags > 0) {
+    packs.push({
+      name: 'КРАФТ',
+      sub: '',
+      val: craftBags,
+      unit: 'пак',
+      bags: craftBags,
+      rule: 'крафт клиента (вмест. ' + PACK_CRAFT_HOLDS_.large + 'бол/' +
+        PACK_CRAFT_HOLDS_.medium + 'сред/' + PACK_CRAFT_HOLDS_.small + 'мал)',
+      type: 'craft',
+      counterKey: 'крафт',
+      label: 'КРАФТ → ' + craftBags + ' пак.'
+    });
+  }
+
   var lightByFraction = [];
   for (var k in lightMap) {
     if (lightMap.hasOwnProperty(k)) lightByFraction.push({ sub: k, val: lightMap[k] });
@@ -11199,6 +11235,8 @@ function buildAssemblyForBasket_(basket) {
     typeCounts: typeCounts,
     lightByFraction: lightByFraction,
     lightBagsByCounter: lightBagsByCounter,
+    craftBags: craftBags,
+    doyByKey: doyByKey,
     craftHolds: PACK_CRAFT_HOLDS_
   };
 }
@@ -11254,6 +11292,7 @@ function handleGetAssembly(json, callback, fromPost) {
       basket: c.basket || [],
       packs: plan.packs,
       totalBags: plan.totalBags,
+      craftBags: plan.craftBags || 0,
       lightByFraction: plan.lightByFraction,
       lightBagsByCounter: plan.lightBagsByCounter || {},
       assembled: !!(memE && memE.assembled)
@@ -15151,19 +15190,23 @@ function isPpMetaOrFinanceHeader_(header) {
   return false;
 }
 
-/** Счётчики пакетов У1..УП4 из корзины (для листа ПП/БП) — те же правила, что сборка. */
+/** Счётчики пакетов У1..УП4 из корзины (для листа ПП/БП).
+ * У1–У3 = дойпаки; УП4 = крафт-пакеты клиента (внешняя упаковка).
+ */
 function packCountsUFromBasket_(basket) {
   var asm = buildAssemblyForBasket_(basket || []);
-  var u1 = 0, u2 = 0, u3 = 0, up4 = 0;
+  var u1 = 0, u2 = 0, u3 = 0;
   (asm.packs || []).forEach(function (p) {
+    if (p.type === 'craft' || p.counterKey === 'крафт') return;
     var bags = Number(p.bags) || 0;
     if (bags <= 0) return;
     var k = String(p.counterKey || '');
     if (k === 'маленький') u1 += bags;
     else if (k === 'средний') u2 += bags;
     else if (k === 'большой') u3 += bags;
-    else if (k === 'целое' || k === 'крафт') up4 += bags;
+    else if (k === 'целое') u3 += bags; // целое → как большой дойпак в У3
   });
+  var up4 = Number(asm.craftBags) || 0;
   return { u1: u1, u2: u2, u3: u3, up4: up4 };
 }
 
