@@ -1316,6 +1316,14 @@
           </div>
           <button type="button" class="btn-action btn-blue" id="btnPpSuggest" style="display:none;margin-top:6px;" onclick="suggestPpBasketFromSheet()">Состав из листа ПП</button>
           <button type="button" class="btn-action" id="btnRetailPriceAuto" style="display:none;margin-top:6px;background:#3a3a3c;" onclick="resetRetailPriceToAuto()">По прайсу витрины</button>
+          <div id="retailPaidDeliveryGroup" style="display:none;margin-top:10px;">
+            <label>Платная доставка</label>
+            <div class="seg-row" style="margin-top:6px;">
+              <button type="button" class="seg-btn active" id="retailDelivNoBtn" onclick="setRetailPaidDelivery(false)">Нет</button>
+              <button type="button" class="seg-btn" id="retailDelivYesBtn" onclick="setRetailPaidDelivery(true)">Да (+5 BYN)</button>
+            </div>
+            <div class="field-hint" style="margin-top:4px;">Если «Да» — к сумме заказа +5 BYN</div>
+          </div>
         </div>
         <div class="form-group" id="partnerCouponsGroup" style="display:none;">
           <label>Купоны (затраты)</label>
@@ -2154,7 +2162,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.68";
+    const APP_VERSION = "v7.11.69";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
@@ -3179,6 +3187,7 @@
     let secondDogMode = false; // true = вводим только состав 2-й
     let ownerContactSnapshot = null;
     let retailPriceManual = false; // true = менеджер ввёл свою цену розницы
+    let retailPaidDelivery = false; // тумблер «платная доставка» +5 BYN
     let ppDeliverySlotManual = null; // 1 | 2 | null — ручной выбор при N=2
     let ppNeedManualSlot = false;
     let ppDeliveriesN = 0;
@@ -3264,6 +3273,11 @@
       var btnPp = document.getElementById("btnPpSuggest");
       var hintPp = document.getElementById("ppSlotHint");
       if (btnAuto) btnAuto.style.display = t === "retail" ? "" : "none";
+      var rdg = document.getElementById("retailPaidDeliveryGroup");
+      if (rdg) rdg.style.display = t === "retail" ? "" : "none";
+      if (t !== "retail") {
+        try { setRetailPaidDelivery(false); } catch (eRd) {}
+      }
       if (btnPp) btnPp.style.display = t === "pp" ? "" : "none";
       if (hintPp && t !== "pp") { hintPp.style.display = "none"; hintPp.textContent = ""; }
       if (t !== "pp") updatePpSlotPickUi_({ reset: true, needManualSlot: false, deliveriesN: 0 });
@@ -3315,6 +3329,21 @@
       }
     }
     window.setOrderType = setOrderType;
+
+    function setRetailPaidDelivery(on) {
+      retailPaidDelivery = !!on;
+      var yes = document.getElementById("retailDelivYesBtn");
+      var no = document.getElementById("retailDelivNoBtn");
+      if (yes) yes.classList.toggle("active", retailPaidDelivery);
+      if (no) no.classList.toggle("active", !retailPaidDelivery);
+      if (orderType === "retail" && !retailPriceManual) {
+        try { refreshRetailOrderPrice(); } catch (e) {}
+      } else if (orderType === "retail" && retailPriceManual) {
+        // ручная цена: подсказка обновится; сумму не трогаем
+        try { refreshRetailOrderPrice(); } catch (e2) {}
+      }
+    }
+    window.setRetailPaidDelivery = setRetailPaidDelivery;
 
     var partnerCouponsEnabled = false;
     function setPartnerCouponsEnabled(on) {
@@ -3381,18 +3410,28 @@
 
     function refreshRetailOrderPrice() {
       if (orderType !== "retail") return { total: 0, lines: [] };
-      var local = calcRetailBasketTotal(basket, { deliveriesN: 1 });
+      // на Заказе: авто-<50 выкл.; платная доставка только тумблером (+5)
+      var local = calcRetailBasketTotal(basket, { deliveriesN: 1, applyDelivery: false });
+      if (retailPaidDelivery && local.goods > 0) {
+        local.delivery = PRICE_RETAIL_DELIVERY_BYN;
+        local.deliveryTimes = 1;
+        local.total = Math.round((local.goods + local.delivery) * 100) / 100;
+        local.paidDeliveryForced = true;
+      }
       var inp = document.getElementById("orderPriceInput");
       if (inp && !retailPriceManual) inp.value = String(local.total);
       var live = document.getElementById("orderPriceLive");
       if (live) {
         var miss = (local.lines || []).filter(function (L) { return !L.found && L.val > 0; }).length;
+        var delHint = retailPaidDelivery
+          ? (" · платная доставка +" + PRICE_RETAIL_DELIVERY_BYN)
+          : "";
         if (retailPriceManual) {
-          live.textContent = "Своя цена · по прайсу было " + local.total + " BYN" + formatRetailDeliveryHint_(local);
+          live.textContent = "Своя цена · по прайсу было " + local.total + " BYN" + delHint;
         } else if (!basket.length) {
           live.textContent = "Добавь позиции или введи цену";
         } else if (miss) {
-          live.textContent = "По прайсу · без цены: " + miss + " поз." + formatRetailDeliveryHint_(local) + " · можно править";
+          live.textContent = "По прайсу · без цены: " + miss + " поз." + delHint + " · можно править";
         } else {
           live.textContent = "По прайсу · товар " + local.goods +
             (local.delivery ? (" + дост. " + local.delivery) : "") +
@@ -4639,6 +4678,7 @@
       selectedPostOfficeGeo = null;
       selectedDeliveryMethod = null;
       retailPriceManual = false;
+      try { setRetailPaidDelivery(false); } catch (eRd0) { retailPaidDelivery = false; }
       setAddressPickedHint(false);
       try { hideClientSuggest(); } catch (e0) {}
       document.querySelectorAll("#orderScreen .addr-suggest").forEach(function (el) {
