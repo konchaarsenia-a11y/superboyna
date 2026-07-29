@@ -394,13 +394,14 @@
       min-width: 0;
     }
     .view-month-card .client-title {
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 2;
+      display: block;
       overflow: hidden;
-      white-space: normal;
-      line-height: 1.2;
-      max-height: 2.4em;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      line-height: 1.25;
+      max-height: none;
+      word-break: normal;
+      overflow-wrap: normal;
     }
     .view-month-card .client-right-block {
       width: auto;
@@ -603,7 +604,8 @@
     .client-title {
       font-size: 14px; font-weight: 700; line-height: 1.25;
       min-width: 0; flex: 1 1 auto;
-      overflow-wrap: anywhere; word-break: break-word; white-space: normal;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      word-break: normal; overflow-wrap: normal;
       color: #f2f2f7;
     }
     .view-col .client-right-block {
@@ -2080,7 +2082,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = "v7.11.48";
+    const APP_VERSION = "v7.11.49";
     const YANDEX_ROUTE_PAGE = "https://konchaarsenia-a11y.github.io/superboyna/yandex-route.html";
     const MINSK_CENTER = { lat: 53.9023, lon: 27.5619 };
     const MINSK_RADIUS_KM = 20;
