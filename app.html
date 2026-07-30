@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.77";
+      var APP_VER = "v7.11.78";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2452,7 +2452,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.77";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.78";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -3034,17 +3034,18 @@
           { timeoutMs: 12000, cacheTtlMs: 30000 }
         );
         if (res && res.onWeek && res.dayName) {
-          return { newDate: iso, newDay: String(res.dayName), onWeek: true, beyondWeek: false };
+          return { newDate: iso, newDay: String(res.dayName), onWeek: true, beyondWeek: false, calendarOnly: false };
         }
-        // вне текущей недели — колонка «Будущая», календарь на выбранную дату
+        // дальше текущей недели / A1 «Будущей» — только календарь, НЕ писать на «Будущую»
         return {
           newDate: iso,
-          newDay: "Будущая неделя",
+          newDay: "",
           onWeek: false,
-          beyondWeek: !!(res && res.beyondWeek) || !(res && res.onWeek)
+          beyondWeek: true,
+          calendarOnly: true
         };
       } catch (e) {
-        return { newDate: iso, newDay: "Будущая неделя", onWeek: false, beyondWeek: true };
+        return { newDate: iso, newDay: "", onWeek: false, beyondWeek: true, calendarOnly: true };
       }
     }
 
@@ -7332,18 +7333,24 @@
       const pickedDate = await uiPickMoveDate(names.length + " чел.", oldDate);
       if (!pickedDate) return;
       const target = await resolveMoveTargetFromDate_(pickedDate);
-      if (!target || !target.newDay) {
+      if (!target || (!target.newDay && !target.calendarOnly)) {
         await uiAlertAsync("Не удалось определить день для этой даты");
         return;
       }
-      if (target.newDay === oldDay && (!oldDate || target.newDate === oldDate)) {
+      if (!target.calendarOnly && target.newDay === oldDay && (!oldDate || target.newDate === oldDate)) {
         await uiAlertAsync("Выберите другую дату");
         return;
       }
-      const dateOnly = (target.newDay === oldDay);
-      const cutLabel = target.newDate + (target.onWeek ? (" · " + target.newDay) : " · Будущая");
+      if (target.calendarOnly && oldDate && target.newDate === oldDate) {
+        await uiAlertAsync("Выберите другую дату");
+        return;
+      }
+      const dateOnly = !!(!target.calendarOnly && target.newDay === oldDay);
+      const cutLabel = target.calendarOnly
+        ? (target.newDate + " · только календарь")
+        : (target.newDate + (target.onWeek ? (" · " + target.newDay) : ""));
       let cutRaw = "yes";
-      if (!dateOnly) {
+      if (!dateOnly && !target.calendarOnly) {
         cutRaw = await pickBatchCutRaw(names.length, cutLabel);
         if (!cutRaw) return;
       }
@@ -7357,10 +7364,11 @@
             action: "moveClient",
             client: names[i],
             oldDay: oldDay,
-            newDay: target.newDay,
+            newDay: target.newDay || "",
             oldDate: oldDate || "",
             newDate: target.newDate,
             dateOnly: dateOnly ? "1" : "0",
+            calendarOnly: target.calendarOnly ? "1" : "0",
             cutRaw: cutFlag,
             matchKey: (loadedClientsRawData[idxs[i]] && loadedClientsRawData[idxs[i]].matchKey) || ""
           });
@@ -7374,7 +7382,7 @@
       if (fail.length) await uiAlertAsync("Не удалось:\n" + fail.join("\n"));
       try { apiCacheBustMem_("getViewCompare"); apiCacheBustMem_("getClients"); apiCacheBustMem_("getMonthOverview"); } catch (eClr) {}
       await refreshDayViews(oldDay);
-      if (target.newDay !== oldDay) await refreshDayViews(target.newDay);
+      if (target.newDay && target.newDay !== oldDay) await refreshDayViews(target.newDay);
       recoverUiFocus();
     }
     window.crmBatchMove = crmBatchMove;
@@ -7599,19 +7607,24 @@
       const pickedDate = await uiPickMoveDate(client.name, oldDate);
       if (!pickedDate) return;
       const target = await resolveMoveTargetFromDate_(pickedDate);
-      if (!target || !target.newDay) {
+      if (!target || (!target.newDay && !target.calendarOnly)) {
         await uiAlertAsync("Не удалось определить день для этой даты");
         return;
       }
-      if (target.newDay === oldDay && (!oldDate || target.newDate === oldDate)) {
+      if (!target.calendarOnly && target.newDay === oldDay && (!oldDate || target.newDate === oldDate)) {
         await uiAlertAsync("Выберите другую дату");
         return;
       }
-      // одна колонка «Будущая» — только сдвиг даты в календаре/бронях
-      const dateOnly = (target.newDay === oldDay);
-      const cutLabel = target.newDate + (target.onWeek ? (" · " + target.newDay) : " · Будущая");
+      if (target.calendarOnly && oldDate && target.newDate === oldDate) {
+        await uiAlertAsync("Выберите другую дату");
+        return;
+      }
+      const dateOnly = !!(!target.calendarOnly && target.newDay === oldDay);
+      const cutLabel = target.calendarOnly
+        ? (target.newDate + " · только календарь")
+        : (target.newDate + (target.onWeek ? (" · " + target.newDay) : ""));
       let cutRaw = "yes";
-      if (!dateOnly) {
+      if (!dateOnly && !target.calendarOnly) {
         const cutP = openModal(
           '<div class="modal-title">Нарезка при переносе</div>' +
           '<div class="modal-text">Перенос <b>' + escapeHtml(client.name) + '</b> → <b>' + escapeHtml(cutLabel) + '</b>.<br><br>' +
@@ -7638,10 +7651,11 @@
           action: "moveClient",
           client: client.name,
           oldDay: oldDay,
-          newDay: target.newDay,
+          newDay: target.newDay || "",
           oldDate: oldDate || "",
           newDate: target.newDate,
           dateOnly: dateOnly ? "1" : "0",
+          calendarOnly: target.calendarOnly ? "1" : "0",
           cutRaw: cutRaw === "yes" ? "1" : "0",
           matchKey: client.matchKey || ""
         });
@@ -7649,12 +7663,14 @@
           await uiAlertAsync("Не удалось: " + (res.status || "ошибка"));
           return;
         }
-        showToast(dateOnly
-          ? ("Дата → " + target.newDate)
-          : (cutRaw === "yes" ? "Перенесено (резать)" : "Перенесено без резки"));
+        showToast(target.calendarOnly
+          ? ("В календаре на " + target.newDate + " (не на Будущей)")
+          : (dateOnly
+            ? ("Дата → " + target.newDate)
+            : (cutRaw === "yes" ? "Перенесено (резать)" : "Перенесено без резки")));
         try { apiCacheBustMem_("getViewCompare"); apiCacheBustMem_("getClients"); apiCacheBustMem_("getMonthOverview"); } catch (eClr) {}
         await refreshDayViews(oldDay);
-        if (target.newDay !== oldDay) await refreshDayViews(target.newDay);
+        if (target.newDay && target.newDay !== oldDay) await refreshDayViews(target.newDay);
       } catch (err) {
         await uiAlertAsync(err.message || String(err));
       } finally {

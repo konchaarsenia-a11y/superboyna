@@ -1216,6 +1216,7 @@ function doGet(e) {
     payload.oldDate = e.parameter.oldDate ? decodeURIComponent(e.parameter.oldDate) : "";
     payload.newDate = e.parameter.newDate ? decodeURIComponent(e.parameter.newDate) : "";
     payload.dateOnly = e.parameter.dateOnly || "";
+    payload.calendarOnly = e.parameter.calendarOnly || "";
     return handleApiAction(payload, callback, false);
   }
   if (action === "saveOrder") {
@@ -2298,33 +2299,169 @@ function handleDeleteClient(ss, json, callback) {
   });
 }
 
+function clearClientColumnFromDay_(ss, dayName, client, matchKeyOpt) {
+  var block = getDayBlock(dayName);
+  if (!block || !client) return 0;
+  var sh = getTargetSheet(ss, block);
+  if (!sh) return 0;
+  var wantKey = String(matchKeyOpt || "").trim() || clientMatchKey_(client) || "";
+  var nicks = sh.getRange(block.nick, 3, 1, 15).getValues()[0];
+  var cleared = 0;
+  for (var i = 0; i < 15; i++) {
+    var nick = nicks[i];
+    if (!String(nick || "").trim()) continue;
+    var hit = nicksMatch_(nick, client);
+    if (!hit && wantKey) hit = clientMatchKey_(nick) === wantKey;
+    if (!hit) continue;
+    var col = i + 3;
+    sh.getRange(block.nick, col).setValue("");
+    sh.getRange(block.start, col, block.note - block.start + 1, 1).clearContent();
+    cleared++;
+  }
+  return cleared;
+}
+
+/** Убрать человека со всех блоков недели (Пн–Пт + Будущая), кроме keepDay (если задан). */
+function clearClientFromWeekSheets_(ss, client, matchKeyOpt, keepDay) {
+  var days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Будущая неделя"];
+  var keep = String(keepDay || "").trim();
+  var total = 0;
+  for (var i = 0; i < days.length; i++) {
+    if (keep && days[i] === keep) continue;
+    total += clearClientColumnFromDay_(ss, days[i], client, matchKeyOpt);
+  }
+  return total;
+}
+
+/**
+ * На «Будущей» не должны висеть люди, чья дата в календаре ≠ A1 «Будущей»
+ * (типичный баг: перенос «дальше будущей» писал колонку на лист).
+ */
+function scrubFutureWeekOrphans_(ss) {
+  var future = ss.getSheetByName("Будущая неделя");
+  if (!future) return { removed: 0 };
+  var tz = ss.getSpreadsheetTimeZone();
+  var futDate = parseFlexibleDate_(future.getRange("A1").getValue(), tz);
+  var futKey = futDate ? dateKey_(futDate, tz) : "";
+  var block = getDayBlock("Будущая неделя");
+  if (!block) return { removed: 0 };
+  var nicks = future.getRange(block.nick, 3, 1, 15).getValues()[0];
+  var removed = 0;
+  var allCal = [];
+  try { allCal = readAllCalendarRows_(); } catch (eC) { allCal = []; }
+  for (var i = 0; i < 15; i++) {
+    var nick = String(nicks[i] || "").trim();
+    if (!nick) continue;
+    var mk = clientMatchKey_(nick);
+    var dates = [];
+    for (var c = 0; c < allCal.length; c++) {
+      var st = String(allCal[c].status || "").toLowerCase();
+      if (st === "cancelled") continue;
+      if (!nicksMatch_(allCal[c].client, nick) &&
+          !(mk && allCal[c].matchKey && allCal[c].matchKey === mk)) continue;
+      var bd = parseFlexibleDate_(allCal[c].date, tz) || parseFlexibleDate_(allCal[c].dateIso, tz);
+      if (bd) dates.push(dateKey_(bd, tz));
+    }
+    if (!dates.length) continue;
+    var onFut = futKey && dates.indexOf(futKey) >= 0;
+    if (onFut) continue;
+    // есть дата(ы) в календаре, но не A1 «Будущей» — колонка-сирота
+    future.getRange(block.nick, i + 3).setValue("");
+    future.getRange(block.start, i + 3, block.note - block.start + 1, 1).clearContent();
+    removed++;
+  }
+  if (removed) {
+    try { bustClientsCache_(); } catch (eB) {}
+  }
+  return { removed: removed };
+}
+
 function handleMoveClient(ss, json, callback) {
   var srcBlock = getDayBlock(json.oldDay);
-  var dstBlock = getDayBlock(json.newDay || json.day);
+  var tz = ss.getSpreadsheetTimeZone();
+  var clientName = String(json.client || "").trim();
+  var matchKey = String(json.matchKey || "").trim();
+  var oldDate = parseFlexibleDate_(json.oldDate || json.fromDate, tz) ||
+    (srcBlock ? parseFlexibleDate_(getDayDate_(ss, json.oldDay), tz) : null);
+  var newDate = parseFlexibleDate_(json.newDate || json.date || json.toDate, tz);
+
+  // целевой день ТОЛЬКО если дата реально стоит на листе (Пн–Пт / A1 Будущей)
+  var targetDayName = "";
+  if (newDate) {
+    targetDayName = findDayNameForDate_(ss, newDate) || "";
+  } else {
+    targetDayName = String(json.newDay || json.day || "").trim();
+    if (targetDayName) newDate = parseFlexibleDate_(getDayDate_(ss, targetDayName), tz);
+  }
+
+  var calendarOnly = !!(json.calendarOnly === true || json.calendarOnly === "1" || json.calendarOnly === 1) ||
+    !!(newDate && !targetDayName);
+  var dateOnly = !!(json.dateOnly === true || json.dateOnly === "1" || json.dateOnly === 1);
+
+  // дата дальше «Будущей» / вне недели — убрать с листа, оставить только календарь/бронь/CRM
+  if (calendarOnly) {
+    if (!clientName) return jsonp(callback, { status: "no_client" });
+    if (!newDate) return jsonp(callback, { status: "need_date" });
+    var cleared = 0;
+    if (srcBlock) cleared += clearClientColumnFromDay_(ss, json.oldDay, clientName, matchKey);
+    // на всякий случай снять и с «Будущей» / других дней
+    cleared += clearClientFromWeekSheets_(ss, clientName, matchKey, "");
+    var noteCal = "";
+    var dateSyncCal = { calendar: 0, bookings: 0, crm: 0 };
+    try {
+      if (oldDate && newDate && dateKey_(oldDate, tz) !== dateKey_(newDate, tz)) {
+        dateSyncCal = moveClientDeliveryDateEverywhere_(ss, clientName, oldDate, newDate, {
+          matchKey: matchKey,
+          note: noteCal,
+          dayName: ""
+        });
+      } else if (newDate) {
+        try {
+          upsertCalendarEntry_(ss, {
+            date: newDate,
+            client: clientName,
+            matchKey: matchKey,
+            dayName: "",
+            status: "planned"
+          });
+          dateSyncCal.calendar = 1;
+        } catch (eUp) {}
+      }
+    } catch (eSyncCal) {
+      dateSyncCal.error = String(eSyncCal);
+    }
+    try { scrubFutureWeekOrphans_(ss); } catch (eScrub) {}
+    bustClientsCache_();
+    try { clearCrmSheetCache_(); } catch (eC0) {}
+    return jsonp(callback, {
+      status: "success",
+      calendarOnly: true,
+      clearedCols: cleared,
+      calendarMoved: dateSyncCal.calendar || 0,
+      bookingsMoved: dateSyncCal.bookings || 0,
+      crmMoved: dateSyncCal.crm || 0,
+      dateSync: dateSyncCal
+    });
+  }
+
+  var dstBlock = getDayBlock(targetDayName);
   if (!srcBlock || !dstBlock) return jsonp(callback, { status: "bad_day" });
 
-  var tz = ss.getSpreadsheetTimeZone();
-  var oldDate = parseFlexibleDate_(json.oldDate || json.fromDate, tz) ||
-    parseFlexibleDate_(getDayDate_(ss, json.oldDay), tz);
-  var newDate = parseFlexibleDate_(json.newDate || json.date || json.toDate, tz) ||
-    parseFlexibleDate_(getDayDate_(ss, json.newDay || json.day), tz);
-  var dateOnly = !!(json.dateOnly === true || json.dateOnly === "1" || json.dateOnly === 1 ||
-    String(json.oldDay || "").trim() === String(json.newDay || json.day || "").trim());
-
-  // тот же блок дня (например «Будущая» → другая дата) — только синхрон календаря/броней/CRM
-  if (dateOnly) {
+  // тот же блок дня, но дата сменилась на другую, всё ещё на листе (A1 Будущей = newDate)
+  if (dateOnly || String(json.oldDay || "").trim() === targetDayName) {
     if (!oldDate || !newDate) return jsonp(callback, { status: "need_date" });
     if (dateKey_(oldDate, tz) === dateKey_(newDate, tz)) {
       return jsonp(callback, { status: "same_date" });
     }
+    // если целевая дата уже не этот блок — calendarOnly выше; здесь блок совпал
     var noteOnly = "";
     try {
       var shOnly = getTargetSheet(ss, srcBlock);
-      var wantOnly = String(json.client || "").trim().toUpperCase();
+      var wantOnly = clientName.toUpperCase();
       var nicksOnly = shOnly.getRange(srcBlock.nick, 3, 1, 15).getValues()[0];
       for (var io = 0; io < 15; io++) {
         if (String(nicksOnly[io] || "").trim().toUpperCase() === wantOnly ||
-            nicksMatch_(nicksOnly[io], json.client)) {
+            nicksMatch_(nicksOnly[io], clientName)) {
           noteOnly = String(shOnly.getRange(srcBlock.note, io + 3).getValue() || "");
           break;
         }
@@ -2332,16 +2469,16 @@ function handleMoveClient(ss, json, callback) {
     } catch (eNote) {}
     var dateSyncOnly = { calendar: 0, bookings: 0, crm: 0 };
     try {
-      dateSyncOnly = moveClientDeliveryDateEverywhere_(ss, String(json.client || "").trim(), oldDate, newDate, {
-        matchKey: json.matchKey || "",
+      dateSyncOnly = moveClientDeliveryDateEverywhere_(ss, clientName, oldDate, newDate, {
+        matchKey: matchKey,
         note: noteOnly,
-        dayName: String(json.newDay || json.day || "")
+        dayName: targetDayName
       });
     } catch (eSyncOnly) {
       dateSyncOnly.error = String(eSyncOnly);
     }
     bustClientsCache_();
-    try { clearCrmSheetCache_(); } catch (eC0) {}
+    try { clearCrmSheetCache_(); } catch (eC1) {}
     return jsonp(callback, {
       status: "success",
       dateOnly: true,
@@ -2356,7 +2493,7 @@ function handleMoveClient(ss, json, callback) {
   var targetSheet = getTargetSheet(ss, dstBlock);
   if (!sourceSheet || !targetSheet) return jsonp(callback, { status: "error" });
 
-  var want = String(json.client || "").trim().toUpperCase();
+  var want = clientName.toUpperCase();
   var oldClientCol = -1;
   var srcNicks = sourceSheet.getRange(srcBlock.nick, 3, 1, 15).getValues()[0];
   for (var i = 0; i < 15; i++) {
@@ -2368,7 +2505,8 @@ function handleMoveClient(ss, json, callback) {
   }
   if (oldClientCol === -1) {
     for (var i2 = 0; i2 < 15; i2++) {
-      if (nicksMatch_(srcNicks[i2], json.client)) {
+      if (nicksMatch_(srcNicks[i2], clientName) ||
+          (matchKey && clientMatchKey_(srcNicks[i2]) === matchKey)) {
         oldClientCol = i2 + 3;
         break;
       }
@@ -2389,7 +2527,8 @@ function handleMoveClient(ss, json, callback) {
   var tgtNicks = targetSheet.getRange(dstBlock.nick, 3, 1, 15).getValues()[0];
   for (var j = 0; j < 15; j++) {
     var tNick = tgtNicks[j] ? tgtNicks[j].toString().trim().toUpperCase() : "";
-    if (tNick === want || nicksMatch_(tgtNicks[j], json.client)) {
+    if (tNick === want || nicksMatch_(tgtNicks[j], clientName) ||
+        (matchKey && clientMatchKey_(tgtNicks[j]) === matchKey)) {
       newClientCol = j + 3;
       break;
     }
@@ -2398,7 +2537,7 @@ function handleMoveClient(ss, json, callback) {
     for (var colIdx = 3; colIdx <= 17; colIdx++) {
       if (targetSheet.getRange(dstBlock.nick, colIdx).getValue().toString().trim() === "") {
         newClientCol = colIdx;
-        targetSheet.getRange(dstBlock.nick, newClientCol).setValue(json.client);
+        targetSheet.getRange(dstBlock.nick, newClientCol).setValue(clientName);
         break;
       }
     }
@@ -2411,28 +2550,31 @@ function handleMoveClient(ss, json, callback) {
 
   sourceSheet.getRange(srcBlock.nick, oldClientCol).setValue("");
   sourceSheet.getRange(srcBlock.start, oldClientCol, srcBlock.note - srcBlock.start + 1, 1).clearContent();
+  // если дубликат остался на другом дне (часто «Будущая») — убрать
+  try { clearClientFromWeekSheets_(ss, clientName, matchKey, targetDayName); } catch (eClrDup) {}
 
-  // Синхрон даты: Календарь_Дат + брони + лист месяца CRM
   var dateSync = { calendar: 0, bookings: 0, crm: 0 };
   try {
     if (oldDate && newDate) {
-      dateSync = moveClientDeliveryDateEverywhere_(ss, String(json.client || "").trim(), oldDate, newDate, {
-        matchKey: json.matchKey || "",
+      dateSync = moveClientDeliveryDateEverywhere_(ss, clientName, oldDate, newDate, {
+        matchKey: matchKey,
         address: oldAddressValue,
         note: noteStr,
-        dayName: String(json.newDay || json.day || "")
+        dayName: targetDayName
       });
     }
   } catch (eSync) {
     dateSync.error = String(eSync);
   }
 
+  try { scrubFutureWeekOrphans_(ss); } catch (eScrub2) {}
   checkLiveDeficitAndNotify();
   bustClientsCache_();
   try { clearCrmSheetCache_(); } catch (eC) {}
   return jsonp(callback, {
     status: "success",
     cutRaw: cutRaw,
+    newDay: targetDayName,
     calendarMoved: dateSync.calendar || 0,
     bookingsMoved: dateSync.bookings || 0,
     crmMoved: dateSync.crm || 0,
@@ -3176,6 +3318,9 @@ function handleGetClients(dayName, callback, dateStr) {
   var tz = ss.getSpreadsheetTimeZone();
   var resolvedDay = String(dayName || "").trim();
   var deliveryDate = null;
+  if (resolvedDay === "Будущая неделя") {
+    try { scrubFutureWeekOrphans_(ss); } catch (eScrubG) {}
+  }
 
   // Дата — главный ключ. Если она НЕ стоит в ячейках недели — не подсовываем чужой блок дня.
   if (dateStr) {
@@ -6600,6 +6745,7 @@ function resolveViewDeliveryDate_(ss, json) {
 function handleGetViewCompare(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = ss.getSpreadsheetTimeZone();
+  try { scrubFutureWeekOrphans_(ss); } catch (eScrubV) {}
   var resolved = resolveViewDeliveryDate_(ss, json || {});
   if (!resolved || (!resolved.day && !resolved.date)) {
     var need = { status: "error", message: "need_day_or_date", week: [], month: [] };
