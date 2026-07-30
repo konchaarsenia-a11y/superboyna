@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.74";
+      var APP_VER = "v7.11.75";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2061,7 +2061,9 @@
               </div>
             </div>
             <div class="form-group">
-              <label>Пакеты <span class="muted" id="subDetailPackTotalLabel">(0 BYN)</span></label>
+              <label>Пакеты <span class="muted" id="subDetailPackTotalLabel">(0 BYN)</span>
+                <span class="muted" id="subDetailPackModeHint" style="font-size:11px;margin-left:6px;">· авто</span>
+              </label>
               <div style="display:flex;flex-direction:column;gap:8px;">
                 <div class="seg-row" style="align-items:center;gap:8px;">
                   <span style="flex:1;font-size:14px;">маленький (У1)</span>
@@ -2088,6 +2090,7 @@
                   <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpSubDetailPack_('up4',1)">+</button>
                 </div>
               </div>
+              <button type="button" class="seg-btn" style="margin-top:8px;padding:6px 10px;font-size:11px;" onclick="resetSubDetailPacksAuto_()">Пересчитать пакеты из состава</button>
             </div>
             <div class="form-group" style="margin-top:10px;">
               <label>Наценка за фракции дрессуры (BYN / 100 г)</label>
@@ -2253,7 +2256,9 @@
             <input type="number" id="pricePpCoef" value="2.3" min="0.1" max="10" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
           </div>
           <div class="form-group">
-            <label>Пакеты <span class="muted" id="pricePackTotalLabel">(0 BYN)</span></label>
+            <label>Пакеты <span class="muted" id="pricePackTotalLabel">(0 BYN)</span>
+              <span class="muted" id="pricePackModeHint" style="font-size:11px;margin-left:6px;">· авто</span>
+            </label>
             <div id="pricePackCounters" style="display:flex;flex-direction:column;gap:8px;">
               <div class="seg-row" style="align-items:center;gap:8px;">
                 <span style="flex:1;font-size:14px;">маленький</span>
@@ -2280,6 +2285,7 @@
                 <button type="button" class="seg-btn" style="width:40px;padding:0;" onclick="bumpPricePack('legs',1)">+</button>
               </div>
             </div>
+            <button type="button" class="seg-btn" id="btnPricePacksAuto" style="margin-top:8px;padding:6px 10px;font-size:11px;" onclick="resetPricePacksAuto_()">Пересчитать пакеты из состава</button>
           </div>
           <div class="form-group" style="margin-top:10px;">
             <label>Наценка за фракции дрессуры (BYN / 100 г)</label>
@@ -2393,7 +2399,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.74";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.75";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2750,7 +2756,7 @@
       warehouseScreen: "Склад\n• Сырое/сухое, коэффициенты, снабжение.",
       subsScreen: "Подписки\n• Пароль; Отмена → Заказ.\n• Карточка: мета + состав (ручной ввод) → Сохранить.\n• ПП↔АФК / удалить.",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
-      priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• «В отложенное» или сразу «Внести в ПП» (+ имя/IG/адрес).\n• 2 собаки: свет/доставки один раз.",
+      priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• Пакеты ПП считаются сами из состава (можно править +/−).\n• «В отложенное» или сразу «Внести в ПП» (+ имя/IG/адрес).\n• 2 собаки: свет/доставки один раз.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
       peopleScreen: "Доступы\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника."
     };
@@ -12645,6 +12651,23 @@
       return packs;
     }
 
+    /** У1/У2/У3/УП4 (и small/medium/large/legs) из состава — как на листе ПП / в сборке. */
+    function packCountsFromBasketLocal_(basket) {
+      var packs = [];
+      try { packs = buildAssemblyPacksLocal(basket || [], null) || []; } catch (e0) { packs = []; }
+      var out = { small: 0, medium: 0, large: 0, legs: 0, u1: 0, u2: 0, u3: 0, up4: 0 };
+      packs.forEach(function (p) {
+        var bags = Number(p.bags) || 0;
+        if (bags <= 0) return;
+        var k = String(p.counterKey || "");
+        if (k === "маленький") { out.small += bags; out.u1 += bags; }
+        else if (k === "средний") { out.medium += bags; out.u2 += bags; }
+        else if (k === "большой" || k === "целое") { out.large += bags; out.u3 += bags; }
+        else if (k === "крафт" || p.type === "craft") { out.legs += bags; out.up4 += bags; }
+      });
+      return out;
+    }
+
     function packCounterKey(p) {
       if (!p) return "";
       if (p.counterKey === "маленький" || p.counterKey === "средний" || p.counterKey === "большой" ||
@@ -13214,6 +13237,10 @@
       updatePriceDogUi();
       renderPriceBasket();
       pricePpApiCache = null;
+      if (priceMode === "pp") {
+        pricePacksManual = false;
+        syncPricePacksFromBasket_({ force: true });
+      }
       schedulePriceLiveUpdate();
     }
     window.setPriceDogCount = setPriceDogCount;
@@ -13309,6 +13336,7 @@
       renderPriceBasket();
       stashPriceActiveBasket();
       pricePpApiCache = null;
+      if (priceMode === "pp") syncPricePacksFromBasket_();
       calcPriceFromBasket({ silent: true });
       showToast("Добавлено в состав");
     }
@@ -13347,6 +13375,7 @@
       stashPriceActiveBasket();
       renderPriceBasket();
       pricePpApiCache = null;
+      if (priceMode === "pp") syncPricePacksFromBasket_();
       if (allPriceItems().length) calcPriceFromBasket({ silent: true });
       else {
         var box = document.getElementById("priceResult");
@@ -13369,6 +13398,7 @@
       priceLastMessage = "";
       pricePpApiCache = null;
       renderPriceBasket();
+      if (priceMode === "pp") syncPricePacksFromBasket_();
       if (allPriceItems().length) calcPriceFromBasket({ silent: true });
       else {
         var box = document.getElementById("priceResult");
@@ -14163,6 +14193,8 @@
       var tot = packagesBynFromUCountsLocal_(subDetailPackCounts);
       var lab = document.getElementById("subDetailPackTotalLabel");
       if (lab) lab.textContent = "(" + tot + " BYN)";
+      var hint = document.getElementById("subDetailPackModeHint");
+      if (hint) hint.textContent = subDetailPacksManual ? "· вручную" : "· авто из состава";
     }
 
     function setSubDetailPackCounts_(pc, opts) {
@@ -14178,6 +14210,25 @@
       if (opts.resetManual) subDetailPacksManual = false;
       renderSubDetailPackCounters_();
     }
+
+    function syncSubDetailPacksFromBasket_(opts) {
+      opts = opts || {};
+      if (subDetailPacksManual && !opts.force) return;
+      var list = [];
+      try { list = subDetailBasketPayload_(); } catch (e0) { list = []; }
+      var pc = packCountsFromBasketLocal_(list);
+      setSubDetailPackCounts_({
+        u1: pc.u1, u2: pc.u2, u3: pc.u3, up4: pc.up4
+      }, { resetManual: true });
+    }
+
+    function resetSubDetailPacksAuto_() {
+      subDetailPacksManual = false;
+      syncSubDetailPacksFromBasket_({ force: true });
+      recalcSubDetailFactCost_();
+      showToast("Пакеты пересчитаны из состава");
+    }
+    window.resetSubDetailPacksAuto_ = resetSubDetailPacksAuto_;
 
     function bumpSubDetailPack_(kind, delta) {
       if (!subDetailPackCounts.hasOwnProperty(kind)) return;
@@ -14283,6 +14334,9 @@
     function scheduleSubDetailFactRecalc_() {
       var sheet = (document.getElementById("subDetailSheet") && document.getElementById("subDetailSheet").value) || "";
       if (sheet !== "ПП") return;
+      if (!subDetailPacksManual) {
+        try { syncSubDetailPacksFromBasket_(); } catch (eSp) {}
+      }
       clearTimeout(_subDetailFactTimer);
       _subDetailFactTimer = setTimeout(function () {
         recalcSubDetailFactCost_();
@@ -14379,6 +14433,18 @@
           fromManual: true
         };
       }
+      // состав изменился относительно открытия — считаем пакеты локально из корзины
+      try {
+        if (!_subDetailOpenedFp || (fp && fp !== _subDetailOpenedFp)) {
+          syncSubDetailPacksFromBasket_({ force: true });
+          return {
+            packagesByn: packagesBynFromUCountsLocal_(subDetailPackCounts),
+            hint: packHintFromU_(subDetailPackCounts),
+            fromSheet: false,
+            fromManual: false
+          };
+        }
+      } catch (eAuto) {}
       try {
         if (currentSubDetail && currentSubDetail.packCounts &&
             _subDetailOpenedFp && fp && fp === _subDetailOpenedFp) {
@@ -14737,8 +14803,18 @@
         }
         // если с листа уже есть У1–УП4 — сразу в кэш пакеты (не раздувать крафт)
         if (res.packCounts && sheetNow === "ПП") {
-          setSubDetailPackCounts_(res.packCounts, { resetManual: true });
-          _subDetailCostCache.packagesByn = packagesBynFromUCountsLocal_(res.packCounts);
+          var pc0 = res.packCounts;
+          var hasSheetPacks = (Number(pc0.u1) || 0) + (Number(pc0.u2) || 0) +
+            (Number(pc0.u3) || 0) + (Number(pc0.up4) || 0) > 0;
+          if (hasSheetPacks) {
+            setSubDetailPackCounts_(pc0, { resetManual: true });
+            _subDetailCostCache.packagesByn = packagesBynFromUCountsLocal_(pc0);
+          } else {
+            syncSubDetailPacksFromBasket_({ force: true });
+            _subDetailCostCache.packagesByn = packagesBynFromUCountsLocal_(subDetailPackCounts);
+          }
+        } else if (sheetNow === "ПП") {
+          syncSubDetailPacksFromBasket_({ force: true });
         }
         var isBp = String(res.sheet || sheet) === "БП";
         var bpMap = document.getElementById("subDetailBpMap");
@@ -15076,6 +15152,7 @@
     /** Цены пакетов (FINPLAN): У1/У2/У3 / крафт с ножками */
     var PRICE_PACK_UNIT = { small: 0.34, medium: 0.56, large: 0.80, legs: 1.40 };
     var pricePackCounts = { small: 0, medium: 0, large: 0, legs: 0 };
+    var pricePacksManual = false;
 
     function priceBasketFingerprint(list) {
       return (list || []).map(function (it) {
@@ -15096,6 +15173,13 @@
       return v;
     }
 
+    function updatePricePackModeHint_() {
+      var hint = document.getElementById("pricePackModeHint");
+      if (hint) hint.textContent = pricePacksManual ? "· вручную" : "· авто из состава";
+      var btn = document.getElementById("btnPricePacksAuto");
+      if (btn) btn.style.opacity = pricePacksManual ? "1" : "0.55";
+    }
+
     function renderPricePackCounters() {
       var map = {
         small: "pricePackSmall",
@@ -15110,7 +15194,33 @@
       var tot = calcPricePacksByn();
       var lab = document.getElementById("pricePackTotalLabel");
       if (lab) lab.textContent = "(" + (Math.round(tot * 100) / 100) + " BYN)";
+      updatePricePackModeHint_();
     }
+
+    function syncPricePacksFromBasket_(opts) {
+      opts = opts || {};
+      if (priceMode !== "pp") return;
+      if (pricePacksManual && !opts.force) return;
+      var list = [];
+      try { list = allPriceItems(); } catch (eL) { list = []; }
+      var pc = packCountsFromBasketLocal_(list);
+      pricePackCounts = {
+        small: pc.small || 0,
+        medium: pc.medium || 0,
+        large: pc.large || 0,
+        legs: pc.legs || 0
+      };
+      if (opts.force) pricePacksManual = false;
+      renderPricePackCounters();
+    }
+
+    function resetPricePacksAuto_() {
+      pricePacksManual = false;
+      syncPricePacksFromBasket_({ force: true });
+      schedulePriceLiveUpdate();
+      showToast("Пакеты пересчитаны из состава");
+    }
+    window.resetPricePacksAuto_ = resetPricePacksAuto_;
 
     function bumpPricePack(kind, delta) {
       if (!pricePackCounts.hasOwnProperty(kind)) return;
@@ -15118,6 +15228,7 @@
       if (next < 0) next = 0;
       if (next > 99) next = 99;
       pricePackCounts[kind] = next;
+      pricePacksManual = true;
       renderPricePackCounters();
       schedulePriceLiveUpdate();
     }
@@ -15155,6 +15266,7 @@
         calcPriceFromBasket({ silent: true });
         return;
       }
+      syncPricePacksFromBasket_();
       var nEl = document.getElementById("priceDeliveriesN");
       var deliveriesN = Math.max(1, Number(nEl && nEl.value) || 1);
       var fp = priceBasketFingerprint(list) + "|N" + deliveriesN;
@@ -15480,6 +15592,7 @@
         large: pricePackCounts.large || 0,
         legs: pricePackCounts.legs || 0
       };
+      s.packsManual = !!pricePacksManual;
       var noteEl = document.getElementById("priceClientNote");
       s.note = noteEl ? String(noteEl.value || "") : (s.note || "");
     }
@@ -15497,6 +15610,7 @@
       priceActiveDog = (priceDogCount >= 2 && s.activeDog === 2) ? 2 : 1;
       priceLastMessage = s.lastMessage || "";
       pricePpApiCache = s.apiCache || null;
+      pricePacksManual = !!s.packsManual;
       pricePackCounts = s.packCounts || { small: 0, medium: 0, large: 0, legs: 0 };
       if (!pricePackCounts.small && pricePackCounts.small !== 0) {
         pricePackCounts = { small: 0, medium: 0, large: 0, legs: 0 };
@@ -15504,7 +15618,11 @@
       var noteEl = document.getElementById("priceClientNote");
       if (noteEl) noteEl.value = s.note || "";
       loadPriceActiveBasket();
-      try { renderPricePackCounters(); } catch (e0) {}
+      if (mode !== "retail" && !pricePacksManual) {
+        try { syncPricePacksFromBasket_({ force: true }); } catch (eSync) {}
+      } else {
+        try { renderPricePackCounters(); } catch (e0) {}
+      }
       updatePriceDogUi();
     }
 
@@ -15590,6 +15708,7 @@
         });
         var nElPp = document.getElementById("priceDeliveriesN");
         var nPp = Math.max(1, Number(nElPp && nElPp.value) || 1);
+        syncPricePacksFromBasket_();
         var retail = calcRetailBasketTotal(list, { deliveriesN: nPp });
         var res = await apiGet({
           action: "calcPrice",
