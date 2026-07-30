@@ -6636,6 +6636,7 @@ function handleGetViewCompare(json, callback, fromPost) {
           note: cc.note || "",
           address: cc.address || "",
           phone: cc.phone || extractPhoneFromNote_(cc.note || ""),
+          basket: Array.isArray(cc.basket) ? cc.basket : [],
           basketCount: basketCount,
           basketHint: "",
           gaps: gaps,
@@ -6643,7 +6644,8 @@ function handleGetViewCompare(json, callback, fromPost) {
           ppPartner: cc.ppPartner || "",
           deliveryAfter: cc.deliveryAfter || "",
           deliveryBefore: cc.deliveryBefore || "",
-          orderPrice: cc.orderPrice != null ? cc.orderPrice : ""
+          orderPrice: cc.orderPrice != null ? cc.orderPrice : "",
+          dogCount: basketHasDogSplit_(cc.basket) ? 2 : 1
         });
       }
     } catch (eM) {

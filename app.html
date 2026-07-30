@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.72";
+      var APP_VER = "v7.11.73";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -357,6 +357,15 @@
       align-items: start;
       margin-top: 8px;
       overscroll-behavior: contain;
+    }
+    .view-split.is-month-only {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .view-split.is-month-only #viewWeekCol {
+      display: none !important;
+    }
+    .view-split.is-month-only #viewMonthCol {
+      border-color: rgba(255,122,0,0.45);
     }
     @media (max-width: 360px) {
       .view-col-head b { font-size: 12px; }
@@ -2234,7 +2243,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.72";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.73";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2580,7 +2589,8 @@
         "Просмотр\n" +
         "• Вкладки Месяц / Неделя — переключение без обновления.\n" +
         "• Месяц: даты с числом людей и миксом ПП/БП/Р → тап → редактор.\n" +
-        "• Неделя: Пн–Пт + Будущая → тап → тот же редактор (неделя ↔ календарь).\n" +
+        "• Дата вне текущей недели — только календарь (без колонки недели), правка ✏️.\n" +
+        "• Неделя: Пн–Пт + Будущая → тап → неделя ↔ календарь.\n" +
         "• «Обновить» на обзоре/дне — только по кнопке.",
       cuttingScreen: "Нарезка\n• Выбери день и отмечай нарезанное.",
       courierScreen:
@@ -5755,6 +5765,9 @@
       if (monthCountEl) monthCountEl.textContent = "";
       var weekCol = document.getElementById("viewWeekCol");
       if (weekCol) weekCol.classList.remove("is-dimmed");
+      var split = document.querySelector(".view-split");
+      if (split) split.classList.remove("is-month-only");
+      if (weekCol) weekCol.style.display = "";
       viewDateOnlyMonth = false;
       loadedClientsRawData = [];
       monthClientsCache = [];
@@ -5905,6 +5918,44 @@
         var k = d.matchKey || viewClientKey(d.name);
         if (k) draftKeys[k] = true;
       });
+      var split = document.querySelector(".view-split");
+      if (split) split.classList.toggle("is-month-only", !!viewDateOnlyMonth);
+      var weekCol = document.getElementById("viewWeekCol");
+      if (weekCol) {
+        weekCol.classList.toggle("is-dimmed", false);
+        weekCol.style.display = viewDateOnlyMonth ? "none" : "";
+      }
+      var monthHead = document.querySelector("#viewMonthCol .view-col-head b");
+      if (monthHead) {
+        monthHead.innerHTML = viewDateOnlyMonth
+          ? ('Календарь <span class="muted" id="viewMonthCount"></span>')
+          : ('Месяц <span class="muted" id="viewMonthCount"></span>');
+      }
+      // id мог пересоздаться — перечитаем count el
+      var monthCountEl2 = document.getElementById("viewMonthCount");
+
+      if (viewDateOnlyMonth) {
+        // только календарь: полноценный редактор (как на неделе)
+        var aloneHtml = (loadedClientsRawData || []).map(function (c, i) {
+          return renderWeekClientCard(c, i, false);
+        }).join("");
+        if (monthBox) {
+          monthBox.innerHTML = aloneHtml || '<div class="view-idle">В календаре на эту дату пусто</div>';
+        }
+        if (box) box.innerHTML = "";
+        if (weekCountEl) weekCountEl.textContent = "";
+        if (monthCountEl2) monthCountEl2.textContent = "(" + (loadedClientsRawData || []).length + ")";
+        var stageAllBtn0 = document.getElementById("viewStageAllBtn");
+        if (stageAllBtn0) {
+          stageAllBtn0.style.display = "none";
+        }
+        updateViewDraftBar();
+        updateBatchBar();
+        return;
+      }
+
+      var stageAllBtnShow = document.getElementById("viewStageAllBtn");
+      if (stageAllBtnShow) stageAllBtnShow.style.display = "";
 
       var weekHtml = (loadedClientsRawData || []).map(function (c, i) {
         return renderWeekClientCard(c, i, false);
@@ -5913,10 +5964,7 @@
         return renderWeekClientCard(c, i, true);
       }).join("");
       if (box) {
-        if (viewDateOnlyMonth) {
-          box.innerHTML = '<div class="view-idle">Этой даты нет в Пн–Пт.<br>Перенос пойдёт на «Будущую неделю» — жми → справа.</div>';
-        } else if (viewFutureWrongDate) {
-          // чужих с другой даты A1 не показываем; черновик переноса — да
+        if (viewFutureWrongDate) {
           box.innerHTML = draftHtml
             ? ('<div class="view-idle">Слот «Будущая» на <b>другой дате</b>. Черновик ниже — «Сохранить» переключит.</div>' + draftHtml)
             : '<div class="view-idle">На «Будущей неделе» сейчас <b>другая дата</b> (Пн).<br>Справа — люди на выбранный день. «→» + «Сохранить» переключит слот.</div>';
@@ -5927,11 +5975,8 @@
         }
       }
       if (weekCountEl) {
-        if (viewDateOnlyMonth) weekCountEl.textContent = "(—)";
-        else {
-          weekCountEl.textContent = "(" + (loadedClientsRawData.length + viewTransferDraft.length) +
-            (viewTransferDraft.length ? (" · +" + viewTransferDraft.length + " черн.") : "") + ")";
-        }
+        weekCountEl.textContent = "(" + (loadedClientsRawData.length + viewTransferDraft.length) +
+          (viewTransferDraft.length ? (" · +" + viewTransferDraft.length + " черн.") : "") + ")";
       }
 
       var visibleMonth = (monthClientsCache || []).filter(function (c) {
@@ -5941,16 +5986,14 @@
       if (monthBox) {
         monthBox.innerHTML = visibleMonth.length
           ? visibleMonth.map(function (c, i) { return renderMonthClientCard(c, i); }).join("")
-          : '<div class="view-idle">' + (viewDateOnlyMonth ? "В календаре на эту дату пусто" : "Все из месяца уже на неделе / в черновике.") + "</div>";
+          : '<div class="view-idle">Все из месяца уже на неделе / в черновике.</div>';
       }
-      if (monthCountEl) monthCountEl.textContent = "(" + visibleMonth.length + ")";
-      var weekCol = document.getElementById("viewWeekCol");
-      if (weekCol) weekCol.classList.toggle("is-dimmed", !!viewDateOnlyMonth);
+      if (monthCountEl2) monthCountEl2.textContent = "(" + visibleMonth.length + ")";
       var stageAllBtn = document.getElementById("viewStageAllBtn");
       if (stageAllBtn) {
-        stageAllBtn.disabled = !!viewDateOnlyMonth;
-        stageAllBtn.style.opacity = viewDateOnlyMonth ? "0.4" : "";
-        stageAllBtn.title = viewDateOnlyMonth ? "Дата вне недели — открой дату или «Будущая неделя»" : "";
+        stageAllBtn.disabled = false;
+        stageAllBtn.style.opacity = "";
+        stageAllBtn.title = "";
       }
       updateViewDraftBar();
       updateBatchBar();
@@ -5996,7 +6039,9 @@
         actions =
           '<div class="client-right-block" onclick="event.stopPropagation()">' +
           '<button class="crm-mini-btn crm-edit" onclick="crmEditClient(' + index + ', event)">✏️</button>' +
-          '<button class="crm-mini-btn crm-move" onclick="crmMoveClient(' + index + ', event)">🔄</button>' +
+          (viewDateOnlyMonth
+            ? ""
+            : '<button class="crm-mini-btn crm-move" onclick="crmMoveClient(' + index + ', event)">🔄</button>') +
           '<button class="crm-mini-btn crm-delete" onclick="crmDeleteClient(' + index + ', event)">🗑️</button>' +
           "</div>";
       }
@@ -6499,11 +6544,11 @@
         // «Будущая неделя» занята другой датой (напр. Пн 27, а смотрим Вт 28) — не подмешивать чужих
         var futureWrongDate = !!(futureSlot && compareRes && compareRes.futureDateMatches === false);
         viewFutureWrongDate = futureWrongDate;
-        // вне недели, но есть слот «Будущая неделя» — можно переносить
-        if (dateStr && !futureSlot && (dateNotInWeek || (compareRes && compareRes.status === "success" && !compareRes.day))) {
-          viewDateOnlyMonth = true;
-        }
-        if (futureSlot) viewDateOnlyMonth = false;
+        // связан с текущей неделей = есть день Пн–Пт/Будущая и дата совпадает со слотом
+        var linkedToWeek = !!(compareRes && compareRes.day) && !futureWrongDate;
+        // из месяца: дата вне недели → редактор только календаря, без колонки недели
+        viewDateOnlyMonth = !!(dateStr && !linkedToWeek);
+        if (!dateStr && day) viewDateOnlyMonth = false;
 
         var week = [];
         var weekRes = null;
@@ -6564,9 +6609,22 @@
           return c;
         });
         monthClientsCache = month.map(function (c) {
+          if (!c.segment) {
+            var smM = String(c.note || "").match(/\[SEG:([^\]]+)\]/i);
+            if (smM) c.segment = String(smM[1] || "").trim();
+          }
+          if (!c.source) {
+            var otM = resolveClientOrderType_(c);
+            if (otM) c.source = otM;
+          }
+          if (!c.orderCount && c.basket) c.orderCount = c.basket.length;
           c.gaps = clientGaps(c);
           return c;
         });
+        // дата вне недели: календарь = основной список для ✏️ / удаления
+        if (viewDateOnlyMonth) {
+          loadedClientsRawData = monthClientsCache.slice();
+        }
 
         var weekKeys = {};
         loadedClientsRawData.forEach(function (c) {
@@ -6577,7 +6635,7 @@
           var k = d.matchKey || viewClientKey(d.name);
           return !(k && weekKeys[k]);
         });
-        if (viewDateOnlyMonth && !futureSlot) viewTransferDraft = [];
+        if (viewDateOnlyMonth) viewTransferDraft = [];
 
         const dayLabel = resolvedDay && !viewDateOnlyMonth ? (" · " + resolvedDay) : "";
         var dateShow = "";
@@ -6615,7 +6673,7 @@
           else if (futureSlot) futHint = " · → Будущая неделя";
           summary.innerHTML = '<div class="total-summary-badge">' +
             (viewDateOnlyMonth
-              ? ("Календарь: " + month.length + dateLabel + wd + sheetHint + " · нет слота недели")
+              ? ("Календарь (вне недели): " + month.length + dateLabel + wd + sheetHint + " · правка без листа недели")
               : ("Неделя: " + week.length + " · календарь: " + month.length + dayLabel + dateLabel + wd + sheetHint + futHint)) +
             "</div>";
         }
@@ -6845,6 +6903,10 @@
     async function crmBatchMove() {
       const idxs = getSelectedClientIndexes();
       if (!idxs.length) { showToast("Никого не выбрано"); return; }
+      if (viewDateOnlyMonth) {
+        await uiAlertAsync("Эта дата вне текущей недели — перенос дня недоступен. Правь через ✏️ или удали из календаря.");
+        return;
+      }
       const oldDay = document.getElementById("viewDaySelect").value;
       if (!oldDay) {
         await uiAlertAsync("Сначала выберите день недели в Просмотре (нужен для переноса в таблице).");
@@ -6901,6 +6963,46 @@
       const idxs = getSelectedClientIndexes();
       if (!idxs.length) { showToast("Никого не выбрано"); return; }
       const day = document.getElementById("viewDaySelect").value;
+      const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
+      if (viewDateOnlyMonth) {
+        if (!dateStr) {
+          await uiAlertAsync("Нет даты для удаления из календаря.");
+          return;
+        }
+        const namesM = idxs.map(function (i) { return loadedClientsRawData[i].name; });
+        const keysM = idxs.map(function (i) {
+          return loadedClientsRawData[i].matchKey || viewClientKey(loadedClientsRawData[i].name) || "";
+        });
+        const okConfirmM = await uiConfirmAsync(
+          "Убрать из календаря " + namesM.length + " чел. на " + dateStr + "?\n\n" +
+          namesM.slice(0, 8).join(", ") + (namesM.length > 8 ? "…" : "")
+        );
+        if (!okConfirmM) return;
+        let okM = 0;
+        let failM = [];
+        showToast("Убираю " + namesM.length + "…");
+        try { apiCacheBustMem_(); } catch (eMem) {}
+        for (let i = 0; i < namesM.length; i++) {
+          try {
+            const res = await apiGet({
+              action: "removeCalendarClient",
+              date: dateStr,
+              client: namesM[i],
+              matchKey: keysM[i],
+              _: String(Date.now())
+            }, { timeoutMs: 45000, cacheTtlMs: 0 });
+            if (res && res.status === "success") okM++;
+            else failM.push(namesM[i]);
+          } catch (e) {
+            failM.push(namesM[i]);
+          }
+        }
+        showToast("Убрано: " + okM + (failM.length ? ", ошибок: " + failM.length : ""));
+        if (failM.length) await uiAlertAsync("Не удалось:\n" + failM.join("\n"));
+        await loadClientsForDay();
+        recoverUiFocus();
+        return;
+      }
       if (!day) {
         await uiAlertAsync("Сначала выберите день недели в Просмотре.");
         return;
@@ -7113,6 +7215,34 @@
       event.stopPropagation();
       const client = loadedClientsRawData[index];
       const day = document.getElementById("viewDaySelect").value;
+      const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
+      if (viewDateOnlyMonth) {
+        const okM = await uiConfirmAsync(
+          "Убрать «" + client.name + "» из календаря на " + (dateStr || "эту дату") + "?\n\nЛист недели не трогаем (даты нет в текущей неделе)."
+        );
+        if (!okM) return;
+        try {
+          try { apiCacheBustMem_(); } catch (eMem) {}
+          const resM = await apiGet({
+            action: "removeCalendarClient",
+            date: dateStr,
+            client: client.name,
+            matchKey: client.matchKey || viewClientKey(client.name) || "",
+            _: String(Date.now())
+          }, { timeoutMs: 45000, cacheTtlMs: 0 });
+          if (!resM || resM.status !== "success") {
+            await uiAlertAsync("Не удалось: " + ((resM && resM.message) || resM.status || "ошибка"));
+            return;
+          }
+          showToast("Убрано из календаря");
+          await loadClientsForDay();
+        } catch (err) {
+          await uiAlertAsync(err.message || String(err));
+        } finally {
+          recoverUiFocus();
+        }
+        return;
+      }
       const ok = await uiConfirmAsync("Удалить клиента " + client.name + "?\n\nУйдёт у всех: неделя + Календарь_Дат + бронь на дату.");
       if (!ok) return;
       try {
