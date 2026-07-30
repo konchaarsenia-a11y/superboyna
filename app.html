@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.73";
+      var APP_VER = "v7.11.74";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -400,6 +400,160 @@
     }
     .view-ov-seg {
       display: inline-block; margin-right: 6px; font-size: 11px; color: #d1d1d6;
+    }
+    /* Календарь месяца — как в iOS */
+    .ios-cal {
+      margin-top: 4px;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .ios-cal-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .ios-cal-title {
+      flex: 1;
+      text-align: center;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      text-transform: capitalize;
+    }
+    .ios-cal-nav-btn {
+      width: 36px; height: 36px;
+      border-radius: 18px;
+      border: none;
+      background: #2c2c2e;
+      color: var(--accent-color);
+      font-size: 22px;
+      font-weight: 600;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+    .ios-cal-nav-btn:active { background: #3a3a3c; }
+    .ios-cal-weekdays {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      margin-bottom: 4px;
+    }
+    .ios-cal-wd {
+      text-align: center;
+      font-size: 11px;
+      font-weight: 600;
+      color: #8e8e93;
+      padding: 4px 0 8px;
+      text-transform: uppercase;
+    }
+    .ios-cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 2px 0;
+    }
+    .ios-cal-cell {
+      position: relative;
+      min-height: 52px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 2px 0 6px;
+      border: 0;
+      background: transparent;
+      color: #f5f5f7;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .ios-cal-cell.is-out {
+      color: #48484a;
+      pointer-events: none;
+      cursor: default;
+    }
+    .ios-cal-cell.is-out .ios-cal-num { opacity: 0.45; }
+    .ios-cal-num {
+      width: 30px;
+      height: 30px;
+      border-radius: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 500;
+      line-height: 1;
+    }
+    .ios-cal-cell.is-today .ios-cal-num {
+      background: var(--accent-color);
+      color: #fff;
+      font-weight: 700;
+    }
+    .ios-cal-cell.is-selected .ios-cal-num {
+      box-shadow: inset 0 0 0 1.5px #fff;
+    }
+    .ios-cal-cell.has-events:active .ios-cal-num,
+    .ios-cal-cell:not(.is-out):active .ios-cal-num {
+      background: #3a3a3c;
+    }
+    .ios-cal-cell.is-today:active .ios-cal-num {
+      background: var(--accent-active);
+    }
+    .ios-cal-dots {
+      display: flex;
+      gap: 3px;
+      justify-content: center;
+      align-items: center;
+      min-height: 8px;
+      margin-top: 2px;
+    }
+    .ios-cal-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent-color);
+    }
+    .ios-cal-dot.pp { background: #30d158; }
+    .ios-cal-dot.bp { background: #64d2ff; }
+    .ios-cal-dot.r { background: #ffd60a; }
+    .ios-cal-dot.partner { background: #bf5af2; }
+    .ios-cal-dot.other { background: #8e8e93; }
+    .ios-cal-badge {
+      margin-top: 1px;
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--accent-color);
+      line-height: 1;
+    }
+    .ios-cal-foot {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border-color);
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .ios-cal-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      margin-top: 8px;
+      font-size: 11px;
+      color: #aeaeb2;
+    }
+    .ios-cal-legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .ios-cal-legend i {
+      width: 6px; height: 6px; border-radius: 50%; display: inline-block;
     }
     /* одинаковые карточки месяца — глаз не прыгает */
     .view-col.is-month .client-item-card.view-month-card {
@@ -1522,17 +1676,13 @@
 
       <div id="viewMonthPane">
         <div class="card" id="viewMonthOverviewCard">
-          <div class="form-group">
-            <label>Месяц</label>
-            <input type="month" id="viewMonthPick" onchange="onViewMonthPickChange()">
-          </div>
-          <div class="muted" style="font-size:12px;">Даты с записями · мини-микс типов · тап → редактор дня. Смена вкладки не обновляет данные.</div>
+          <input type="hidden" id="viewMonthPick" value="">
           <div id="viewMonthOverviewList"><div class="view-idle">Загрузка…</div></div>
         </div>
         <div id="viewMonthDayPanel" style="display:none;">
           <div class="card" style="margin-bottom:10px;">
             <div class="batch-bar-row" style="margin:0;gap:8px;align-items:center;">
-              <button type="button" class="seg-btn" style="padding:8px 12px;" onclick="closeViewMonthDay()">← К датам</button>
+              <button type="button" class="seg-btn" style="padding:8px 12px;" onclick="closeViewMonthDay()">← К календарю</button>
               <b id="viewMonthDayTitle" style="flex:1;"></b>
               <button type="button" class="seg-btn" style="padding:8px 10px;font-size:11px;" onclick="refreshViewMonthDay()">Обновить</button>
             </div>
@@ -2243,7 +2393,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.73";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.74";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2588,7 +2738,7 @@
       clientsScreen:
         "Просмотр\n" +
         "• Вкладки Месяц / Неделя — переключение без обновления.\n" +
-        "• Месяц: даты с числом людей и миксом ПП/БП/Р → тап → редактор.\n" +
+        "• Месяц: календарь как в iPhone — точка/число людей, тап по дню → редактор.\n" +
         "• Дата вне текущей недели — только календарь (без колонки недели), правка ✏️.\n" +
         "• Неделя: Пн–Пт + Будущая → тап → неделя ↔ календарь.\n" +
         "• «Обновить» на обзоре/дне — только по кнопке.",
@@ -5535,7 +5685,7 @@
         var pick = document.getElementById("viewMonthPick");
         if (pick && !pick.value) {
           var now = new Date();
-          pick.value = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+          pick.value = now.getFullYear() + "-" + pad2Month_(now.getMonth() + 1);
         }
         setViewSub(viewSub || "month");
         return;
@@ -5564,26 +5714,147 @@
       } catch (e) { return ""; }
     }
 
+    function pad2Month_(n) {
+      n = Number(n) || 0;
+      return (n < 10 ? "0" : "") + n;
+    }
+
+    function monthTitleRu_(ym) {
+      var parts = String(ym || "").split("-");
+      var y = Number(parts[0]) || new Date().getFullYear();
+      var m = Number(parts[1]) || (new Date().getMonth() + 1);
+      var names = [
+        "январь", "февраль", "март", "апрель", "май", "июнь",
+        "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"
+      ];
+      return (names[m - 1] || "") + " " + y;
+    }
+
+    function shiftViewMonth_(delta) {
+      var pick = document.getElementById("viewMonthPick");
+      var cur = (pick && pick.value) || "";
+      if (!/^\d{4}-\d{2}$/.test(cur)) {
+        var now = new Date();
+        cur = now.getFullYear() + "-" + pad2Month_(now.getMonth() + 1);
+      }
+      var y = Number(cur.slice(0, 4));
+      var m = Number(cur.slice(5, 7));
+      m += Number(delta) || 0;
+      while (m < 1) { m += 12; y -= 1; }
+      while (m > 12) { m -= 12; y += 1; }
+      if (pick) pick.value = y + "-" + pad2Month_(m);
+      onViewMonthPickChange();
+    }
+    window.shiftViewMonth_ = shiftViewMonth_;
+
+    function iosCalDotsHtml_(seg, count) {
+      seg = seg || {};
+      var dots = [];
+      if (seg["ПП"]) dots.push('<span class="ios-cal-dot pp"></span>');
+      if (seg["БП"]) dots.push('<span class="ios-cal-dot bp"></span>');
+      if (seg["Р"]) dots.push('<span class="ios-cal-dot r"></span>');
+      if (seg["ПАРТНЁР"]) dots.push('<span class="ios-cal-dot partner"></span>');
+      if (seg.other) dots.push('<span class="ios-cal-dot other"></span>');
+      if (!dots.length && count > 0) dots.push('<span class="ios-cal-dot"></span>');
+      return '<div class="ios-cal-dots">' + dots.slice(0, 4).join("") + "</div>";
+    }
+
     function renderMonthOverviewList_(data) {
       var box = document.getElementById("viewMonthOverviewList");
       if (!box) return;
-      var days = (data && data.days) || [];
-      if (!days.length) {
-        box.innerHTML = '<div class="view-idle">В этом месяце записей нет</div>';
-        return;
+      var month = (data && data.month) || (document.getElementById("viewMonthPick") && document.getElementById("viewMonthPick").value) || "";
+      if (!/^\d{4}-\d{2}$/.test(month)) {
+        var now0 = new Date();
+        month = now0.getFullYear() + "-" + pad2Month_(now0.getMonth() + 1);
       }
-      box.innerHTML = days.map(function (d) {
-        var iso = d.dateIso || "";
-        var wd = weekdayLabelFromIso_(iso);
-        return '<div class="view-ov-row" data-iso="' + escapeHtml(iso) + '" onclick="openViewMonthDay(this.getAttribute(\'data-iso\'))">' +
-          '<div class="view-ov-left">' +
-            '<div class="view-ov-date">' + escapeHtml(iso) + (wd ? (" · " + wd) : "") + "</div>" +
-            '<div class="view-ov-meta">' + formatViewSegMix_(d.segments) + "</div>" +
-          "</div>" +
-          '<div class="view-ov-count">' + (Number(d.count) || 0) + "</div>" +
+      var pickEl = document.getElementById("viewMonthPick");
+      if (pickEl && pickEl.value !== month) pickEl.value = month;
+
+      var byIso = {};
+      ((data && data.days) || []).forEach(function (d) {
+        if (d && d.dateIso) byIso[d.dateIso] = d;
+      });
+
+      var y = Number(month.slice(0, 4));
+      var m = Number(month.slice(5, 7)); // 1-12
+      var first = new Date(y, m - 1, 1);
+      var daysInMonth = new Date(y, m, 0).getDate();
+      // сетка с понедельника (как в RU iOS)
+      var startWeekday = (first.getDay() + 6) % 7; // 0=пн … 6=вс
+      var today = new Date();
+      var todayIso = today.getFullYear() + "-" + pad2Month_(today.getMonth() + 1) + "-" + pad2Month_(today.getDate());
+      var selectedIso = lastViewDateIso || "";
+      var total = Number((data && data.total) || 0);
+      var daysWith = ((data && data.days) || []).length;
+
+      var html = '<div class="ios-cal">';
+      html += '<div class="ios-cal-nav">' +
+        '<button type="button" class="ios-cal-nav-btn" onclick="shiftViewMonth_(-1)" aria-label="Предыдущий">‹</button>' +
+        '<div class="ios-cal-title">' + escapeHtml(monthTitleRu_(month)) + "</div>" +
+        '<button type="button" class="ios-cal-nav-btn" onclick="shiftViewMonth_(1)" aria-label="Следующий">›</button>' +
         "</div>";
-      }).join("");
+      html += '<div class="ios-cal-weekdays">' +
+        ["пн", "вт", "ср", "чт", "пт", "сб", "вс"].map(function (w) {
+          return '<div class="ios-cal-wd">' + w + "</div>";
+        }).join("") +
+        "</div>";
+      html += '<div class="ios-cal-grid">';
+
+      var cells = [];
+      var i;
+      for (i = 0; i < startWeekday; i++) {
+        cells.push({ out: true, day: "" });
+      }
+      for (var d = 1; d <= daysInMonth; d++) {
+        var iso = month + "-" + pad2Month_(d);
+        cells.push({ out: false, day: d, iso: iso, info: byIso[iso] || null });
+      }
+      while (cells.length % 7 !== 0) {
+        cells.push({ out: true, day: "" });
+      }
+      // минимум 5–6 рядов как в iOS
+      while (cells.length < 35) cells.push({ out: true, day: "" });
+
+      cells.forEach(function (cell) {
+        if (cell.out) {
+          html += '<div class="ios-cal-cell is-out"><div class="ios-cal-num"></div></div>';
+          return;
+        }
+        var info = cell.info;
+        var count = info ? (Number(info.count) || 0) : 0;
+        var cls = "ios-cal-cell";
+        if (cell.iso === todayIso) cls += " is-today";
+        if (selectedIso && cell.iso === selectedIso) cls += " is-selected";
+        if (count > 0) cls += " has-events";
+        html += '<button type="button" class="' + cls + '" data-iso="' + escapeHtml(cell.iso) + '"' +
+          ' onclick="openViewMonthDay(this.getAttribute(\'data-iso\'))">' +
+          '<div class="ios-cal-num">' + cell.day + "</div>" +
+          iosCalDotsHtml_(info && info.segments, count) +
+          (count > 0 ? ('<div class="ios-cal-badge">' + count + "</div>") : "") +
+          "</button>";
+      });
+
+      html += "</div>";
+      html += '<div class="ios-cal-foot">' +
+        "<span>" + daysWith + " дн. с записями</span>" +
+        "<span>всего " + total + " чел.</span>" +
+        '<button type="button" class="seg-btn" style="padding:4px 10px;font-size:11px;margin-left:auto;" onclick="refreshViewMonthOverview()">Обновить</button>' +
+        "</div>";
+      html += '<div class="ios-cal-legend">' +
+        '<span><i style="background:#30d158"></i>ПП</span>' +
+        '<span><i style="background:#64d2ff"></i>БП</span>' +
+        '<span><i style="background:#ffd60a"></i>Р</span>' +
+        '<span><i style="background:#bf5af2"></i>Парт</span>' +
+        "</div>";
+      html += "</div>";
+      box.innerHTML = html;
     }
+
+    function refreshViewMonthOverview() {
+      viewMonthOverviewCache = null;
+      ensureMonthOverviewLoaded_({ force: true });
+    }
+    window.refreshViewMonthOverview = refreshViewMonthOverview;
 
     async function ensureMonthOverviewLoaded_(opts) {
       opts = opts || {};
@@ -5591,7 +5862,7 @@
       var month = (pick && pick.value) || "";
       if (!month) {
         var now = new Date();
-        month = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+        month = now.getFullYear() + "-" + pad2Month_(now.getMonth() + 1);
         if (pick) pick.value = month;
       }
       if (opts.soft && viewMonthOverviewCache && viewMonthOverviewCache.month === month) {
