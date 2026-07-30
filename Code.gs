@@ -686,8 +686,13 @@ function doPost(e) {
   try {
     var json = JSON.parse(e.postData.contents);
     // Входящие апдейты Telegram (если webhook смотрит на этот же URL)
-    if (json && (json.message || json.callback_query || json.edited_message)) {
-      handleTelegramUpdate_(json);
+    if (json && (json.message || json.callback_query || json.edited_message || json.update_id != null)) {
+      try {
+        handleTelegramUpdate_(json);
+      } catch (eTgPost) {
+        try { Logger.log("tg doPost: " + eTgPost); } catch (eL) {}
+      }
+      // всегда быстро «ok», иначе Telegram ретраит update и сыплет сообщениями
       return ContentService.createTextOutput("ok");
     }
     return handleApiAction(json, callback, true);
@@ -3609,8 +3614,55 @@ function upsertCourier_(chatId, name, username) {
   sh.appendRow([idStr, name || "", username || "", now]);
 }
 
+/** Telegram шлёт один update повторно, если /exec долго не отвечает — без дедупа спам сообщений. */
+function telegramUpdateAlreadySeen_(update) {
+  if (!update || update.update_id == null || update.update_id === "") return false;
+  var key = "tg_uid_" + String(update.update_id);
+  try {
+    var c = CacheService.getScriptCache();
+    if (c.get(key)) return true;
+    c.put(key, "1", 900);
+  } catch (e) {}
+  return false;
+}
+
+function shouldSkipStartGreeting_(chatId) {
+  var id = String(chatId || "").trim();
+  if (!id) return false;
+  try {
+    var c = CacheService.getScriptCache();
+    if (c.get("tg_start_once_" + id)) return true;
+    if (c.get("tg_start_busy_" + id)) return true;
+  } catch (e0) {}
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var raw = props.getProperty("tg_start_ts_" + id);
+    if (raw) {
+      var ts = Number(raw) || 0;
+      if (ts > 0 && (Date.now() - ts) < 86400000) return true;
+    }
+  } catch (e1) {}
+  return false;
+}
+
+function markStartGreetingSent_(chatId) {
+  var id = String(chatId || "").trim();
+  if (!id) return;
+  try {
+    var c = CacheService.getScriptCache();
+    c.put("tg_start_once_" + id, "1", 86400);
+    c.put("tg_start_busy_" + id, "1", 60);
+  } catch (e0) {}
+  try {
+    PropertiesService.getScriptProperties().setProperty("tg_start_ts_" + id, String(Date.now()));
+  } catch (e1) {}
+}
+
 function handleTelegramUpdate_(update) {
   try {
+    // сначала дедуп: ретраи Telegram не должны снова слать приветствие
+    if (telegramUpdateAlreadySeen_(update)) return;
+
     if (update && update.callback_query) {
       var cq0 = update.callback_query;
       var cqData = String((cq0 && cq0.data) || "");
@@ -3642,6 +3694,12 @@ function handleTelegramUpdate_(update) {
       if (/^gbi_/i.test(payload)) {
         var linkToken = payload.replace(/^gbi_/i, "");
         if (linkToken) {
+          // gbi_ тоже не спамить на ретраях того же /start
+          if (shouldSkipStartGreeting_(chat.id)) {
+            try { upsertCourier_(chat.id, name, from.username || ""); } catch (eUpG) {}
+            return;
+          }
+          markStartGreetingSent_(chat.id);
           try {
             CacheService.getScriptCache().put(
               "native_auth_" + linkToken,
@@ -3653,7 +3711,6 @@ function handleTelegramUpdate_(update) {
               600
             );
           } catch (eCache) {}
-          // сначала ответ пользователю
           telegramSendText_(
             chat.id,
             "✅ GBI: Telegram подключён.\n" +
@@ -3676,19 +3733,25 @@ function handleTelegramUpdate_(update) {
             }
             upsertAccessRow_(tid, name, from.username || "", role, status);
           } catch (eAcc) {}
+          try { upsertCourier_(chat.id, name, from.username || ""); } catch (eUpG2) {}
           return;
         }
       }
-      // Обычный /start — не спамить: одно приветствие на 24ч
+      // Обычный /start — одно приветствие на 24ч (+ защита от ретраев webhook)
+      var startLock = null;
       try {
-        var startKey = "tg_start_once_" + String(chat.id);
-        var cacheStart = CacheService.getScriptCache();
-        if (cacheStart.get(startKey)) {
+        startLock = LockService.getScriptLock();
+        startLock.waitLock(8000);
+      } catch (eLk) { startLock = null; }
+      try {
+        if (shouldSkipStartGreeting_(chat.id)) {
           try { upsertCourier_(chat.id, name, from.username || ""); } catch (eUp0) {}
           return;
         }
-        cacheStart.put(startKey, "1", 86400);
-      } catch (eSkip) {}
+        markStartGreetingSent_(chat.id);
+      } finally {
+        try { if (startLock) startLock.releaseLock(); } catch (eRel) {}
+      }
       var greet;
       try {
         greet = buildStartGreeting_(from, name);
@@ -3725,13 +3788,8 @@ function handleTelegramUpdate_(update) {
       return;
     }
   } catch (eTg) {
-    try {
-      if (update && update.callback_query && update.callback_query.id) {
-        telegramAnswerCallback_(update.callback_query.id, "Ошибка обработки");
-      } else if (update && update.message && update.message.chat) {
-        telegramSendText_(update.message.chat.id, "Ошибка бота на /start. Напиши владельцу.");
-      }
-    } catch (eAns) {}
+    // не слать «Ошибка бота на /start» на каждый ретрай — это и есть спам
+    try { Logger.log("handleTelegramUpdate_ err: " + eTg); } catch (eLog) {}
   }
 }
 
