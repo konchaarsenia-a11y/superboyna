@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.78";
+      var APP_VER = "v7.11.79";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2452,7 +2452,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.78";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.79";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -12924,6 +12924,89 @@
         "</div>";
     }
 
+    function assemblyNoteMatchesLine_(itemKey, name, sub) {
+      var key = String(itemKey || "").trim();
+      if (!key) return false;
+      var parts = key.split("/");
+      var wantName = String(parts[0] || "").trim().toUpperCase().replace(/\s+/g, " ");
+      var wantSub = String(parts[1] || "").trim().toUpperCase().replace(/\s+/g, " ");
+      var n = String(name || "").trim().toUpperCase().replace(/\s+/g, " ");
+      var s = String(sub || "").trim().toUpperCase().replace(/\s+/g, " ");
+      if (!wantName || !n) return false;
+      var nameOk = n === wantName || n.indexOf(wantName) >= 0 || wantName.indexOf(n) >= 0;
+      if (!nameOk) return false;
+      if (wantSub) {
+        if (!s) return false;
+        if (s !== wantSub && s.indexOf(wantSub) < 0 && wantSub.indexOf(s) < 0) return false;
+      }
+      return true;
+    }
+
+    /** Примечания cut/cour из note клиентов — с ITEM (фракция/сырьё) и без. */
+    function collectAssemblyNotesFromClients_(clients) {
+      var out = [];
+      (clients || []).forEach(function (c) {
+        var raw = String(c.note || "");
+        if (!raw) return;
+        var re = /\[NOTE:([^\|\]]+)\|(perm|once)(?:\|ITEM:([^\]]+))?\]\s*([^]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
+        var m;
+        var any = false;
+        while ((m = re.exec(raw))) {
+          any = true;
+          var roles = String(m[1] || "").toLowerCase().split(/[,;\s]+/).filter(Boolean);
+          if (roles.indexOf("cut") < 0 && roles.indexOf("cour") < 0) continue;
+          var text = String(m[4] || "").replace(/\[TEL:[^\]]+\]/gi, "").trim();
+          text = (typeof stripMetaFromNote === "function") ? stripMetaFromNote(text) : text;
+          if (!text) continue;
+          out.push({
+            client: c.name || "",
+            item: String(m[3] || "").trim(),
+            text: text,
+            roles: roles
+          });
+        }
+        if (!any) {
+          // legacy [TO:cut] / свободный текст для нарезчика
+          var cutTxt = noteTextForRole(raw, "cut");
+          if (cutTxt) out.push({ client: c.name || "", item: "", text: cutTxt, roles: ["cut"] });
+        }
+      });
+      return out;
+    }
+
+    function renderAssemblyNotesHtml_(notes) {
+      if (!notes || !notes.length) return "";
+      // сначала с фракцией/позицией, потом общие
+      var sorted = notes.slice().sort(function (a, b) {
+        var ai = a.item ? 0 : 1;
+        var bi = b.item ? 0 : 1;
+        if (ai !== bi) return ai - bi;
+        return String(a.client || "").localeCompare(String(b.client || ""), "ru");
+      });
+      return '<div class="cut-notes-box" style="margin-top:10px;">' +
+        '<div class="cut-notes-title">Примечания по сырью / фракциям</div>' +
+        sorted.map(function (n) {
+          var item = n.item
+            ? (' <span class="muted">[' + escapeHtml(String(n.item).replace(/\//g, " · ")) + "]</span>")
+            : "";
+          return '<div class="cut-note-line"><b>' + escapeHtml(n.client || "") + ":</b>" + item + " " +
+            escapeHtml(n.text || "") + "</div>";
+        }).join("") +
+        "</div>";
+    }
+
+    function assemblyLineNotesHtml_(client, name, sub) {
+      var notes = collectAssemblyNotesFromClients_([client]).filter(function (n) {
+        if (!n.item) return false;
+        return assemblyNoteMatchesLine_(n.item, name, sub);
+      });
+      if (!notes.length) return "";
+      return notes.map(function (n) {
+        return '<div class="cut-note-hint" style="margin:2px 0 6px 12px;">⚠ ' +
+          escapeHtml(n.text || "") + "</div>";
+      }).join("");
+    }
+
     function renderAssemblyView() {
       var box = document.getElementById("assemblyContainer");
       var res = assemblyCache;
@@ -13024,9 +13107,21 @@
         var composition = (basket || []).map(function (g) {
           var unit = g.unit || (/шт/i.test(String(g.name || "")) ? "шт" : "гр");
           var frac = g.sub ? ' <span class="muted">(' + escapeHtml(g.sub) + ")</span>" : "";
-          return '<div class="order-detail-line"><span>• ' + escapeHtml(g.name || g.main || "") + frac +
-            '</span><span class="order-detail-volume">' + (g.val != null ? g.val : g.value) + " " + unit + "</span></div>";
+          var lineName = g.name || g.main || "";
+          return '<div class="order-detail-line"><span>• ' + escapeHtml(lineName) + frac +
+            '</span><span class="order-detail-volume">' + (g.val != null ? g.val : g.value) + " " + unit + "</span></div>" +
+            assemblyLineNotesHtml_(c, lineName, g.sub || "");
         }).join("") || '<div class="muted">Пустой состав</div>';
+
+        var clientGeneralNotes = collectAssemblyNotesFromClients_([c]).filter(function (n) {
+          return !n.item;
+        });
+        var clientNotesHtml = clientGeneralNotes.length
+          ? ('<div class="cut-note-hint" style="margin-top:8px;">' +
+            clientGeneralNotes.map(function (n) {
+              return "⚠ " + escapeHtml(n.text || "");
+            }).join("<br>") + "</div>")
+          : "";
 
         var safeName = String(c.name || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
         return '<div class="card' + (c.assembled ? " is-delivered" : "") + '" style="margin-bottom:10px;' +
@@ -13040,6 +13135,7 @@
           "</label>" +
           (c.address ? '<div class="muted" style="font-size:12px;margin-top:4px;">' + escapeHtml(c.address) + "</div>" : "") +
           '<div style="margin-top:8px;"><b>Состав</b></div>' + composition +
+          clientNotesHtml +
           '<div class="pack-line" style="margin-top:8px;"><b>Пакеты:</b> ' + escapeHtml(packSummary) + "</div>" +
           "</div>";
       }).join("") || '<p class="muted">Нет клиентов</p>';
@@ -13047,6 +13143,8 @@
       var doneAsm = (res.clients || []).filter(function (c) { return c.assembled; }).length;
       var totalAsm = (res.clients || []).length;
       var allAsmDone = totalAsm > 0 && doneAsm >= totalAsm;
+      var asmNotes = collectAssemblyNotesFromClients_(pending);
+      var asmNotesHtml = renderAssemblyNotesHtml_(asmNotes);
 
       if (allAsmDone && !assemblyDetailExpanded_) {
         box.innerHTML =
@@ -13069,6 +13167,7 @@
         '<div class="total-summary-badge" style="margin-top:6px;">Собрано: <span style="color:var(--success-color)">' + doneAsm + "</span> / " + totalAsm + "</div>" +
         '<div style="margin-top:12px;"><b>Дрессура для нарезки (несобранные)</b></div>' +
         organCells +
+        asmNotesHtml +
         "</div></div>" +
         '<div class="section-title">По клиентам · отметь кого собрали</div>' +
         clientsHtml;
