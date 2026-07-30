@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.75";
+      var APP_VER = "v7.11.76";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1193,6 +1193,47 @@
       background:#1a1a1a; color:var(--text-muted); font-size:13px; font-weight:600; cursor:pointer;
     }
     .sub-tab.active { background:var(--accent-color); color:#fff; border-color:var(--accent-color); }
+    .tasks-tab-count {
+      display: inline-block;
+      min-width: 18px;
+      padding: 1px 6px;
+      margin-left: 4px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 800;
+      background: #3a3a3c;
+      color: #d1d1d6;
+    }
+    .sub-tab.active .tasks-tab-count {
+      background: rgba(0,0,0,0.28);
+      color: #fff;
+    }
+    .tasks-tab-count.is-hot {
+      background: var(--accent-color);
+      color: #fff;
+    }
+    .sub-tab.active .tasks-tab-count.is-hot {
+      background: #fff;
+      color: var(--accent-color);
+    }
+    .order-fold-btn {
+      width: 100%;
+      margin: 4px 0 8px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+      background: #1a1a1a;
+      color: #d1d1d6;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: left;
+      cursor: pointer;
+    }
+    .order-fold-btn:active { background: #222; }
+    .client-item-card, .tasks-item {
+      content-visibility: auto;
+      contain-intrinsic-size: 120px;
+    }
     .access-gate {
       display:none; position:fixed; inset:0; z-index:10001; background:rgba(0,0,0,.92);
       align-items:center; justify-content:center; padding:24px;
@@ -1426,16 +1467,22 @@
         <button type="button" class="tasks-drawer-close" onclick="closeTasksDrawer()" aria-label="Закрыть">×</button>
       </div>
       <div class="tasks-drawer-body" id="tasksDrawerBody">
-        <div style="margin-bottom:12px;">
-          <button type="button" class="btn-action" style="margin:0;width:100%;background:#ffd60a;color:#111;border:none;" onclick="createStandaloneReminder()">＋ Напоминалка</button>
+        <div class="sub-tabs" id="tasksSubTabs" style="margin-bottom:12px;">
+          <button type="button" class="sub-tab active" id="tasksTabOrders" onclick="setTasksTab('orders')">Заказы <span class="tasks-tab-count" id="tasksCountOrders">0</span></button>
+          <button type="button" class="sub-tab" id="tasksTabPp" onclick="setTasksTab('pp')">ПП/БП <span class="tasks-tab-count" id="tasksCountPp">0</span></button>
+          <button type="button" class="sub-tab" id="tasksTabRemind" onclick="setTasksTab('remind')">Напомин. <span class="tasks-tab-count" id="tasksCountRemind">0</span></button>
         </div>
-        <div class="tasks-section" id="tasksSectionRemind">
-          <div class="tasks-section-title">Напоминания</div>
-          <div id="tasksRemindList"><p class="muted">Пока пусто.</p></div>
+        <div id="tasksPaneOrders">
+          <div id="tasksOrderList"><p class="muted">Пока пусто. Из Заказа — «На потом».</p></div>
         </div>
-        <div class="tasks-section" id="tasksSectionPp">
-          <div class="tasks-section-title" id="tasksSectionPpTitle">Расчёт ПП</div>
+        <div id="tasksPanePp" style="display:none;">
           <div id="tasksPpList"><p class="muted">Загрузка…</p></div>
+        </div>
+        <div id="tasksPaneRemind" style="display:none;">
+          <div style="margin-bottom:12px;">
+            <button type="button" class="btn-action" style="margin:0;width:100%;background:#ffd60a;color:#111;border:none;" onclick="createStandaloneReminder()">＋ Напоминалка</button>
+          </div>
+          <div id="tasksRemindList"><p class="muted">Пока пусто.</p></div>
         </div>
       </div>
     </aside>
@@ -1467,7 +1514,7 @@
       <div class="card">
         <input type="hidden" id="isEditMode" value="false">
         <div class="form-group">
-          <label>Тип заказа</label>
+          <label>Тип</label>
           <div class="seg-row" id="orderTypeRow">
             <button type="button" class="seg-btn active" id="otPp" onclick="setOrderType('pp')">ПП</button>
             <button type="button" class="seg-btn" id="otBp" onclick="setOrderType('bp')">БП</button>
@@ -1476,11 +1523,10 @@
           </div>
         </div>
         <div class="form-group" id="ppPartnerGroup" style="display:none;">
-          <label>Партнёр (кто привёл в БП) *</label>
+          <label>Партнёр (кто привёл) *</label>
           <select id="ppPartnerSelect" style="width:100%;height:42px;border-radius:10px;background:#111;color:#fff;border:1px solid var(--border-color);">
-            <option value="">— выберите партнёра —</option>
+            <option value="">— выберите —</option>
           </select>
-          <div class="field-hint">Список — в меню «Партнёры». Можно выбрать «Другое»</div>
         </div>
         <div class="form-group" id="orderPriceGroup" style="display:none;">
           <label id="orderPriceLabel">Цена (BYN)</label>
@@ -1488,26 +1534,24 @@
           <div class="field-hint" id="orderPriceLive" style="display:none;"></div>
           <div class="field-hint" id="ppSlotHint" style="display:none;margin-top:4px;"></div>
           <div id="ppSlotPickGroup" style="display:none;margin-top:8px;">
-            <label style="display:block;margin-bottom:6px;">Доставка ПП в этом месяце</label>
             <div class="seg-control" style="display:flex;gap:6px;">
               <button type="button" class="seg-btn" id="ppSlot1Btn" style="flex:1;" onclick="setPpDeliverySlot(1)">ПП 1</button>
               <button type="button" class="seg-btn" id="ppSlot2Btn" style="flex:1;" onclick="setPpDeliverySlot(2)">ПП 2</button>
             </div>
-            <div class="field-hint" id="ppSlotPickHint" style="margin-top:6px;">Должна быть эта доставка — уточни ПП 1 или ПП 2</div>
+            <div class="field-hint" id="ppSlotPickHint" style="margin-top:6px;">Уточни ПП 1 или ПП 2</div>
           </div>
-          <button type="button" class="btn-action btn-blue" id="btnPpSuggest" style="display:none;margin-top:6px;" onclick="suggestPpBasketFromSheet()">Состав из листа ПП</button>
-          <button type="button" class="btn-action" id="btnRetailPriceAuto" style="display:none;margin-top:6px;background:#3a3a3c;" onclick="resetRetailPriceToAuto()">По прайсу витрины</button>
+          <button type="button" class="btn-action btn-blue" id="btnPpSuggest" style="display:none;margin-top:6px;" onclick="suggestPpBasketFromSheet()">Состав из ПП</button>
+          <button type="button" class="btn-action" id="btnRetailPriceAuto" style="display:none;margin-top:6px;background:#3a3a3c;" onclick="resetRetailPriceToAuto()">По прайсу</button>
           <div id="retailPaidDeliveryGroup" style="display:none;margin-top:10px;">
             <label>Платная доставка</label>
             <div class="seg-row" style="margin-top:6px;">
               <button type="button" class="seg-btn active" id="retailDelivNoBtn" onclick="setRetailPaidDelivery(false)">Нет</button>
-              <button type="button" class="seg-btn" id="retailDelivYesBtn" onclick="setRetailPaidDelivery(true)">Да (+5 BYN)</button>
+              <button type="button" class="seg-btn" id="retailDelivYesBtn" onclick="setRetailPaidDelivery(true)">Да (+5)</button>
             </div>
-            <div class="field-hint" style="margin-top:4px;">Если «Да» — к сумме заказа +5 BYN</div>
           </div>
         </div>
         <div class="form-group" id="partnerCouponsGroup" style="display:none;">
-          <label>Купоны (затраты)</label>
+          <label>Купоны</label>
           <div class="seg-row" style="margin-top:6px;">
             <button type="button" class="seg-btn active" id="couponsNoBtn" onclick="setPartnerCouponsEnabled(false)">Нет</button>
             <button type="button" class="seg-btn" id="couponsYesBtn" onclick="setPartnerCouponsEnabled(true)">Да</button>
@@ -1519,15 +1563,16 @@
                 <input type="number" id="couponsQtyInput" min="0" step="1" inputmode="numeric" placeholder="0" oninput="refreshPartnerCouponsLive()">
               </div>
               <div style="flex:1;">
-                <label>Цена всей пачки (BYN)</label>
+                <label>Цена пачки</label>
                 <input type="number" id="couponPriceInput" min="0" step="0.01" inputmode="decimal" placeholder="0" oninput="refreshPartnerCouponsLive()">
               </div>
             </div>
-            <div class="field-hint" id="couponsCostLive" style="margin-top:6px;">Затраты на пачку: 0 BYN</div>
+            <div class="field-hint" id="couponsCostLive" style="margin-top:6px;">Затраты: 0 BYN</div>
           </div>
         </div>
+
         <div class="form-group">
-          <label>Дата доставки</label>
+          <label>Дата</label>
           <input type="date" id="deliveryDate" onchange="onDeliveryDateChange()">
         </div>
         <div class="form-group" style="display:flex;gap:8px;">
@@ -1540,14 +1585,7 @@
             <input type="time" id="deliveryBeforeInput" step="300">
           </div>
         </div>
-        <div class="muted" style="font-size:11px;margin:-4px 0 10px;">Окно для курьера (необязательно). Учитывается при сборке маршрута.</div>
-        <div class="form-group">
-          <label>День недели</label>
-          <select id="day" onchange="onOrderDaySelectChange_()">
-            <option>Понедельник</option><option>Вторник</option><option>Среда</option>
-            <option>Четверг</option><option>Пятница</option><option>Будущая неделя</option>
-          </select>
-        </div>
+
         <div class="form-group">
           <label>Ник / Имя</label>
           <div class="addr-suggest-wrap">
@@ -1558,13 +1596,15 @@
             <button type="button" class="btn-action btn-blue" id="btnSecondDog" style="flex:1;margin:0;" onclick="prepareSecondDog()">2 собаки</button>
           </div>
           <div id="orderDogSwitch" style="display:none;margin-top:10px;">
-            <label style="display:block;margin-bottom:6px;">Состав</label>
             <div class="seg-row">
               <button type="button" class="seg-btn active" id="orderDogTab1" onclick="setOrderActiveDog(1)">Собака 1</button>
               <button type="button" class="seg-btn" id="orderDogTab2" onclick="setOrderActiveDog(2)">Собака 2</button>
             </div>
-            <div class="muted" style="font-size:11px;margin-top:6px;">Один клиент · в сборке два состава</div>
           </div>
+        </div>
+        <div class="form-group">
+          <label>Телефон</label>
+          <input type="tel" id="phoneInput" placeholder="+375…" autocomplete="tel" inputmode="tel">
         </div>
         <div class="form-group">
           <label>Адрес</label>
@@ -1574,44 +1614,63 @@
           </div>
           <div class="addr-picked" id="addressPickedHint">Адрес выбран</div>
         </div>
-        <div class="form-group">
-          <label>Подъезд / домофон</label>
-          <input type="text" id="entranceInput" placeholder="подъезд, домофон" autocomplete="off">
-        </div>
-        <div class="form-group" style="display:flex;gap:8px;">
-          <div style="flex:1;">
-            <label>Этаж</label>
-            <input type="text" id="floorInput" placeholder="этаж" autocomplete="off" inputmode="numeric">
+
+        <button type="button" class="order-fold-btn" id="btnOrderFoldDetails" onclick="toggleOrderFold_('details')">Подъезд и детали ▾</button>
+        <div id="orderFoldDetails" style="display:none;">
+          <div class="form-group">
+            <label>Подъезд / домофон</label>
+            <input type="text" id="entranceInput" placeholder="подъезд, домофон" autocomplete="off">
           </div>
-          <div style="flex:1;">
-            <label>Квартира</label>
-            <input type="text" id="flatInput" placeholder="кв." autocomplete="off" inputmode="text">
+          <div class="form-group" style="display:flex;gap:8px;">
+            <div style="flex:1;">
+              <label>Этаж</label>
+              <input type="text" id="floorInput" placeholder="этаж" autocomplete="off" inputmode="numeric">
+            </div>
+            <div style="flex:1;">
+              <label>Квартира</label>
+              <input type="text" id="flatInput" placeholder="кв." autocomplete="off" inputmode="text">
+            </div>
+          </div>
+          <div class="form-group" id="deliveryMethodGroup" style="display:none;">
+            <label>Доставка (за Минском)</label>
+            <div class="seg-row">
+              <button type="button" class="seg-btn" id="delivEuro" onclick="setDeliveryMethod('euro')">Европочта</button>
+              <button type="button" class="seg-btn" id="delivBel" onclick="setDeliveryMethod('bel')">Белпочта</button>
+              <button type="button" class="seg-btn" id="delivCourier" onclick="setDeliveryMethod('courier')">Курьер</button>
+            </div>
+          </div>
+          <div class="form-group" id="postOfficeGroup" style="display:none;">
+            <label>Отделение почты</label>
+            <div class="addr-suggest-wrap">
+              <input type="text" id="postOfficeInput" placeholder="Отделение" autocomplete="off" oninput="onPostOfficeInput()" onblur="onPostOfficeBlurDelayed()">
+              <div class="addr-suggest" id="postOfficeSuggest"></div>
+            </div>
           </div>
         </div>
-        <div class="form-group">
-          <label>Телефон</label>
-          <input type="tel" id="phoneInput" placeholder="+375…" autocomplete="tel" inputmode="tel">
-        </div>
-        <div class="form-group" id="deliveryMethodGroup" style="display:none;">
-          <label>Доставка (за Минском)</label>
-          <div class="seg-row">
-            <button type="button" class="seg-btn" id="delivEuro" onclick="setDeliveryMethod('euro')">Европочта</button>
-            <button type="button" class="seg-btn" id="delivBel" onclick="setDeliveryMethod('bel')">Белпочта</button>
-            <button type="button" class="seg-btn" id="delivCourier" onclick="setDeliveryMethod('courier')">Курьер</button>
+
+        <button type="button" class="order-fold-btn" id="btnOrderFoldMore" onclick="toggleOrderFold_('more')">Ещё ▾</button>
+        <div id="orderFoldMore" style="display:none;">
+          <div class="form-group">
+            <label>День недели</label>
+            <select id="day" onchange="onOrderDaySelectChange_()">
+              <option>Понедельник</option><option>Вторник</option><option>Среда</option>
+              <option>Четверг</option><option>Пятница</option><option>Будущая неделя</option>
+            </select>
           </div>
-        </div>
-        <div class="form-group" id="postOfficeGroup" style="display:none;">
-          <label>Отделение почты</label>
-          <div class="addr-suggest-wrap">
-            <input type="text" id="postOfficeInput" placeholder="Отделение" autocomplete="off" oninput="onPostOfficeInput()" onblur="onPostOfficeBlurDelayed()">
-            <div class="addr-suggest" id="postOfficeSuggest"></div>
+          <div class="form-group">
+            <button type="button" class="btn-action btn-orange" id="btnOpenNotes" onclick="openNotesModal()">Примечание</button>
+            <div class="field-hint" id="notesSummary" style="margin-top:6px;">Нет</div>
+            <div id="notesList" style="display:none;"></div>
+            <input type="hidden" id="noteInput" value="">
           </div>
-        </div>
-        <div class="form-group">
-          <button type="button" class="btn-action btn-orange" id="btnOpenNotes" onclick="openNotesModal()">Примечание</button>
-          <div class="field-hint" id="notesSummary" style="margin-top:6px;">Нет</div>
-          <div id="notesList" style="display:none;"></div>
-          <input type="hidden" id="noteInput" value="">
+          <div class="form-group">
+            <label>Чеклист Instagram</label>
+            <textarea class="ig-paste" id="igChecklistPaste" placeholder="Вставь чеклист…"></textarea>
+            <div class="batch-bar-row" style="margin-top:8px;">
+              <button class="btn-action btn-orange" type="button" style="flex:1;margin:0;" onclick="parseIgChecklistIntoBasket()">В корзину</button>
+              <button class="btn-action" type="button" style="flex:0 0 auto;margin:0;padding:10px 12px;background:#3a3a3c;" onclick="clearIgChecklist()">Очистить</button>
+            </div>
+          </div>
         </div>
         <button type="button" class="btn-action btn-purple" id="btnSecondDogOrder" style="display:none;margin-top:8px;" onclick="startSecondDogOrder()">Внести заказ 2-й собаки</button>
       </div>
@@ -1622,16 +1681,7 @@
       </div>
       <div class="card" id="basketContainer"></div>
 
-      <div class="section-title">Чеклист Instagram</div>
-      <div class="card">
-        <textarea class="ig-paste" id="igChecklistPaste" placeholder="Вставь чеклист из Instagram (позиции и граммы)…"></textarea>
-        <div class="batch-bar-row" style="margin-top:8px;">
-          <button class="btn-action btn-orange" type="button" style="flex:1;margin:0;" onclick="parseIgChecklistIntoBasket()">Разобрать в корзину</button>
-          <button class="btn-action" type="button" style="flex:0 0 auto;margin:0;padding:10px 12px;background:#3a3a3c;" onclick="clearIgChecklist()">Очистить</button>
-        </div>
-      </div>
-
-      <button type="button" class="btn-action btn-blue" id="btnManualEntry" style="margin-bottom:8px;" onclick="toggleManualEntry()">Ручной ввод</button>
+      <button type="button" class="btn-action btn-blue" id="btnManualEntry" style="margin-bottom:8px;" onclick="toggleManualEntry()">＋ Позиция</button>
       <div id="manualEntryPanel" style="display:none;margin-top:10px;margin-bottom:8px;">
         <div class="grid-buttons">
           <button class="btn-action btn-blue" onclick="openProductSelector('dressura')">Дрессура</button>
@@ -1664,7 +1714,10 @@
         </div>
       </div>
 
-      <button class="btn-save" id="btnMainSave" style="margin-top:28px;" onclick="sendEntireOrder()">Сохранить заказ</button>
+      <div class="batch-bar-row" style="margin-top:16px;gap:8px;">
+        <button type="button" class="btn-action" id="btnOrderDefer" style="flex:1;margin:0;background:#3a3a3c;" onclick="saveOrderToDeferred()">На потом</button>
+        <button class="btn-save" id="btnMainSave" style="flex:1.4;margin:0;" onclick="sendEntireOrder()">Сохранить</button>
+      </div>
     </div>
 
     <!-- МЕНЕДЖЕР: ПРОСМОТР -->
@@ -2399,7 +2452,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.75";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.76";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -4807,6 +4860,8 @@
       telegramStatus: 120000,
       getWeekBannerState: 45000,
       weekPullStatus: 30000,
+      getWeekDayCounts: 20000,
+      getMonthOverview: 25000,
       getViewCompare: 12000,
       calcPrice: 20000,
       calcPpFact: 0,
@@ -4817,7 +4872,14 @@
       suggestAddress: 30000
     };
     function apiCacheBustMem_(action) {
-      if (!action) { _apiGetMem = Object.create(null); return; }
+      // без аргумента — не сносить ВСЁ (тормозило весь app), только горячие списки
+      if (!action) {
+        apiCacheBustOrderViews_();
+        apiCacheBustDeferred_();
+        try { apiCacheBustMem_("listSubscriptions"); } catch (e0) {}
+        return;
+      }
+      if (action === "*") { _apiGetMem = Object.create(null); return; }
       try {
         var prefix = "action=" + action;
         Object.keys(_apiGetMem).forEach(function (k) {
@@ -4825,6 +4887,15 @@
             delete _apiGetMem[k];
         });
       } catch (eB) {}
+    }
+    /** Снести только связанные с заказами/просмотром кэши. */
+    function apiCacheBustOrderViews_() {
+      ["getClients", "getViewCompare", "getWeekDayCounts", "getMonthOverview", "listBookings", "getAssembly", "getCourier"].forEach(function (a) {
+        try { apiCacheBustMem_(a); } catch (e) {}
+      });
+    }
+    function apiCacheBustDeferred_() {
+      try { apiCacheBustMem_("listDeferred"); } catch (e) {}
     }
     function apiGet(params, opts) {
       opts = opts || {};
@@ -4997,9 +5068,10 @@
       var sel = document.getElementById("selectorCard");
       if (sel) sel.style.display = "none";
       var btnMan = document.getElementById("btnManualEntry");
-      if (btnMan) btnMan.textContent = "Ручной ввод";
+      if (btnMan) btnMan.textContent = "＋ Позиция";
       var vol = document.getElementById("volumeInput");
       if (vol) vol.value = "";
+      try { setOrderFoldOpen_("details", false); setOrderFoldOpen_("more", false); } catch (eFold) {}
 
       secondDogMode = false;
       if (!keepSecondDogOffer) {
@@ -5027,6 +5099,26 @@
       try { window.scrollTo(0, 0); } catch (e5) {}
     }
     window.resetOrderScreen = resetOrderScreen;
+
+    function setOrderFoldOpen_(which, open) {
+      var paneId = which === "more" ? "orderFoldMore" : "orderFoldDetails";
+      var btnId = which === "more" ? "btnOrderFoldMore" : "btnOrderFoldDetails";
+      var labels = which === "more"
+        ? { open: "Ещё ▴", closed: "Ещё ▾" }
+        : { open: "Подъезд и детали ▴", closed: "Подъезд и детали ▾" };
+      var pane = document.getElementById(paneId);
+      var btn = document.getElementById(btnId);
+      if (pane) pane.style.display = open ? "block" : "none";
+      if (btn) btn.textContent = open ? labels.open : labels.closed;
+    }
+    function toggleOrderFold_(which) {
+      var paneId = which === "more" ? "orderFoldMore" : "orderFoldDetails";
+      var pane = document.getElementById(paneId);
+      var open = !(pane && pane.style.display === "block");
+      setOrderFoldOpen_(which, open);
+    }
+    window.toggleOrderFold_ = toggleOrderFold_;
+    window.setOrderFoldOpen_ = setOrderFoldOpen_;
 
     async function sendEntireOrder() {
       if (window._viewDraftEditIndex != null && typeof applyOrderBasketToViewDraft === "function") {
@@ -5119,6 +5211,7 @@
       const outside = await isOutsideMinskDelivery(clientAddress);
       if (outside) {
         document.getElementById("deliveryMethodGroup").style.display = "block";
+        try { setOrderFoldOpen_("details", true); } catch (eFoldOut) {}
         if (!selectedDeliveryMethod) {
           const picked = await uiChoiceAsync(
             "Доставка за Минском",
@@ -5542,6 +5635,12 @@
           card.classList.add("fx-success");
         }
         try { logLearnEvent("saveOrder", { client: clientName, day: day, items: savedItems, orderType: orderType }); } catch (eL) {}
+        // черновик «На потом» — убрать после успешного save
+        var orderDeferDone = String(window._orderDeferredId || "").trim();
+        if (orderDeferDone) {
+          window._orderDeferredId = "";
+          try { await cancelDeferredSilent_(orderDeferDone); } catch (eDef) {}
+        }
         // полный сброс экрана Заказа; для сценария «2 собаки» оставляем кнопку 2-й
         var keep2 = !secondDogMode && !!ownerContactSnapshot;
         resetOrderScreen({ keepSecondDogOffer: keep2 });
@@ -7359,6 +7458,7 @@
       selectedPostOfficeGeo = null;
       if (dm) {
         document.getElementById("deliveryMethodGroup").style.display = "block";
+        try { setOrderFoldOpen_("details", true); } catch (eFoldDm) {}
         setDeliveryMethod(dm);
       } else {
         document.getElementById("deliveryMethodGroup").style.display = "none";
@@ -15786,11 +15886,9 @@
       }
       try { document.body.classList.add("tasks-open"); } catch (eBody2) {}
       try { loadReminderPeople_(); } catch (ePeop) {}
-      // сразу из кэша; сеть — только если в сессии ещё не грузили (или force)
       renderTasksDrawer(false);
-      if (!deferredCacheAt) {
-        renderTasksDrawer(true);
-      }
+      var stale = !deferredCacheAt || (Date.now() - deferredCacheAt) > 15000;
+      if (stale) renderTasksDrawer(true);
     }
     window.openTasksDrawer = openTasksDrawer;
 
@@ -15806,11 +15904,9 @@
       if (tid) storeTelegramId(tid);
       if (!tid) { deferredOpenCount = 0; deferredCache = []; updateTasksBadge(); return; }
       if (!force && deferredCacheAt && (Date.now() - deferredCacheAt) < 12000 && deferredCache.length) {
-          var ppOpenCached = deferredCache.filter(function (it) {
-            var m = String(it.mode || "pp").toLowerCase();
-            return m !== "retail";
-          });
-          deferredOpenCount = ppOpenCached.length;
+          deferredOpenCount = deferredCache.filter(function (it) {
+            return String(it.status || "open").toLowerCase() === "open";
+          }).length;
         updateTasksBadge();
         return;
       }
@@ -15826,11 +15922,9 @@
           deferredCache = (res && res.items) || [];
           deferredCacheAt = Date.now();
           try { await loadBpIdleIntoDeferred_(); } catch (eBpIdle) {}
-          var ppOpen = deferredCache.filter(function (it) {
-            var m = String(it.mode || "pp").toLowerCase();
-            return m !== "retail";
-          });
-          deferredOpenCount = ppOpen.length;
+          deferredOpenCount = deferredCache.filter(function (it) {
+            return String(it.status || "open").toLowerCase() === "open";
+          }).length;
           updateTasksBadge();
         } catch (e) {
           /* silent */
@@ -15924,6 +16018,209 @@
       }
     }
     window.saveCurrentCalcToDeferred = saveCurrentCalcToDeferred;
+
+    function buildOrderDeferredSnapshot_() {
+      try { syncOrderBasketFromActive_(); } catch (eSync) {}
+      var coupons = {};
+      try { coupons = readPartnerCouponsPayload_() || {}; } catch (eC) {}
+      var slot = {};
+      try { slot = currentPpSlotPayload_() || {}; } catch (eS) {}
+      return {
+        mode: "order",
+        orderType: orderType,
+        client: String((document.getElementById("client") || {}).value || "").trim(),
+        phone: String((document.getElementById("phoneInput") || {}).value || "").trim(),
+        address: String((document.getElementById("addressInput") || {}).value || "").trim(),
+        entrance: String((document.getElementById("entranceInput") || {}).value || "").trim(),
+        floor: String((document.getElementById("floorInput") || {}).value || "").trim(),
+        flat: String((document.getElementById("flatInput") || {}).value || "").trim(),
+        deliveryDate: String((document.getElementById("deliveryDate") || {}).value || "").trim(),
+        deliveryAfter: String((document.getElementById("deliveryAfterInput") || {}).value || "").trim(),
+        deliveryBefore: String((document.getElementById("deliveryBeforeInput") || {}).value || "").trim(),
+        day: String((document.getElementById("day") || {}).value || "").trim(),
+        orderPrice: String((document.getElementById("orderPriceInput") || {}).value || "").trim(),
+        ppPartner: String((document.getElementById("ppPartnerSelect") || {}).value || "").trim(),
+        noteRaw: serializeOrderNotes(orderNotes),
+        notes: JSON.parse(JSON.stringify(orderNotes || [])),
+        baskets: JSON.parse(JSON.stringify(orderBaskets || { 1: [], 2: [] })),
+        dogCount: orderDogCount >= 2 ? 2 : 1,
+        activeDog: orderActiveDog === 2 ? 2 : 1,
+        deliveryMethod: selectedDeliveryMethod || null,
+        postOffice: String((document.getElementById("postOfficeInput") || {}).value || "").trim(),
+        geo: selectedAddressGeo ? {
+          lat: selectedAddressGeo.lat,
+          lon: selectedAddressGeo.lon,
+          yandexUrl: selectedAddressGeo.yandexUrl || ""
+        } : null,
+        retailPaidDelivery: !!retailPaidDelivery,
+        partnerCouponsEnabled: !!partnerCouponsEnabled,
+        couponsQty: coupons.couponsQty || 0,
+        couponPrice: coupons.couponPrice || 0,
+        deliverySlot: slot.deliverySlot || "",
+        ppSlot: slot.ppSlot || "",
+        ppDeliverySlotManual: ppDeliverySlotManual,
+        igPaste: String((document.getElementById("igChecklistPaste") || {}).value || ""),
+        isEdit: String((document.getElementById("isEditMode") || {}).value || "") === "true",
+        editOriginalClient: editOriginalClient || "",
+        editOriginalDay: editOriginalDay || "",
+        editOriginalMatchKey: editOriginalMatchKey || ""
+      };
+    }
+
+    function applyOrderDeferredSnapshot_(payload) {
+      if (!payload) return;
+      resetOrderScreen();
+      try { setOrderType(payload.orderType || "pp"); } catch (eT) {}
+      var setVal = function (id, v) {
+        var el = document.getElementById(id);
+        if (el && v != null) el.value = v;
+      };
+      setVal("client", payload.client || "");
+      setVal("phoneInput", payload.phone || "");
+      setVal("addressInput", payload.address || "");
+      setVal("entranceInput", payload.entrance || "");
+      setVal("floorInput", payload.floor || "");
+      setVal("flatInput", payload.flat || "");
+      setVal("deliveryDate", payload.deliveryDate || "");
+      setVal("deliveryAfterInput", payload.deliveryAfter || "");
+      setVal("deliveryBeforeInput", payload.deliveryBefore || "");
+      setVal("day", payload.day || "");
+      setVal("orderPriceInput", payload.orderPrice || "");
+      setVal("igChecklistPaste", payload.igPaste || "");
+      if (payload.ppPartner) {
+        try {
+          var sel = document.getElementById("ppPartnerSelect");
+          if (sel) sel.value = payload.ppPartner;
+        } catch (eP) {}
+      }
+      if (payload.notes && payload.notes.length) {
+        orderNotes = JSON.parse(JSON.stringify(payload.notes));
+        try { renderOrderNotes(); updateNotesSummary(); } catch (eN) {}
+      } else if (payload.noteRaw) {
+        try { loadOrderNotesFromRaw(payload.noteRaw); } catch (eNr) {}
+      }
+      orderDogCount = payload.dogCount === 2 ? 2 : 1;
+      orderActiveDog = payload.activeDog === 2 ? 2 : 1;
+      orderBaskets = {
+        1: (payload.baskets && payload.baskets["1"]) ? payload.baskets["1"].slice() : [],
+        2: (payload.baskets && payload.baskets["2"]) ? payload.baskets["2"].slice() : []
+      };
+      try { setOrderDogCount(orderDogCount); } catch (eD) {}
+      try { setOrderActiveDog(orderActiveDog); } catch (eA) {}
+      try { loadOrderBasketToActive_(); renderBasket(); } catch (eB) {}
+      if (payload.geo && payload.geo.lat != null) {
+        selectedAddressGeo = {
+          lat: payload.geo.lat,
+          lon: payload.geo.lon,
+          yandexUrl: payload.geo.yandexUrl || ""
+        };
+        setAddressPickedHint(true);
+      }
+      if (payload.deliveryMethod) {
+        selectedDeliveryMethod = payload.deliveryMethod;
+        var dmg = document.getElementById("deliveryMethodGroup");
+        if (dmg) dmg.style.display = "block";
+        try { setOrderFoldOpen_("details", true); } catch (eF) {}
+        try { setDeliveryMethod(payload.deliveryMethod); } catch (eDm) {}
+      }
+      setVal("postOfficeInput", payload.postOffice || "");
+      try { setRetailPaidDelivery(!!payload.retailPaidDelivery); } catch (eRd) {}
+      try { setPartnerCouponsEnabled(!!payload.partnerCouponsEnabled); } catch (ePc) {}
+      if (payload.partnerCouponsEnabled) {
+        setVal("couponsQtyInput", payload.couponsQty || "");
+        setVal("couponPriceInput", payload.couponPrice || "");
+      }
+      if (payload.ppDeliverySlotManual === 1 || payload.ppDeliverySlotManual === 2) {
+        try { setPpDeliverySlot(payload.ppDeliverySlotManual); } catch (eSl) {}
+      }
+      if (payload.isEdit) {
+        document.getElementById("isEditMode").value = "true";
+        editOriginalClient = payload.editOriginalClient || payload.client || "";
+        editOriginalDay = payload.editOriginalDay || payload.day || "";
+        editOriginalMatchKey = payload.editOriginalMatchKey || "";
+        var saveBtn = document.getElementById("btnMainSave");
+        if (saveBtn) saveBtn.innerText = "Обновить заказ";
+      }
+      var needDetails = !!(payload.entrance || payload.floor || payload.flat || payload.deliveryMethod || payload.postOffice);
+      var needMore = !!(payload.noteRaw || (payload.notes && payload.notes.some(function (n) { return String(n.text || "").trim(); })) || payload.igPaste);
+      try {
+        if (needDetails) setOrderFoldOpen_("details", true);
+        if (needMore) setOrderFoldOpen_("more", true);
+      } catch (eFold) {}
+    }
+
+    async function saveOrderToDeferred() {
+      var tid = await ensureTelegramId();
+      if (!tid) return;
+      try { syncOrderBasketFromActive_(); } catch (e0) {}
+      var nick = String((document.getElementById("client") || {}).value || "").trim();
+      var hasBasket = false;
+      try { hasBasket = !!(buildOrderSaveBasket_() || []).length; } catch (eB) {}
+      if (!nick && !hasBasket) {
+        showToast("Укажи ник или корзину");
+        return;
+      }
+      var payload = buildOrderDeferredSnapshot_();
+      var typeLab = ({ pp: "ПП", bp: "БП", retail: "Р", partner: "Партнёр" })[orderType] || "Заказ";
+      var title = "Заказ · " + typeLab + (nick ? (" · " + nick) : "") +
+        (payload.deliveryDate ? (" · " + payload.deliveryDate) : "");
+      var id = String(window._orderDeferredId || ("ord_" + Date.now().toString(36)));
+      var payloadStr = JSON.stringify(payload);
+      try {
+        var res = null;
+        if (payloadStr.length < 1400) {
+          res = await apiGet({
+            action: "saveDeferred",
+            telegramId: tid,
+            id: id,
+            mode: "order",
+            title: title,
+            clientNick: nick,
+            payload: payloadStr,
+            _: String(Date.now())
+          }, { timeoutMs: 25000, cacheTtlMs: 0 });
+        } else {
+          await apiPost({
+            action: "saveDeferred",
+            telegramId: tid,
+            id: id,
+            mode: "order",
+            title: title,
+            clientNick: nick,
+            payload: payload
+          });
+          res = { status: "success", id: id };
+        }
+        if (!res || (res.status !== "success" && res.status !== "sent" && res.status !== "sent_opaque")) {
+          var why = (res && (res.message || res.status)) || "нет ответа";
+          if (why === "unknown_action") why = "нужен Deploy Code.gs (saveDeferred order)";
+          showToast("Не сохранилось: " + why);
+          return;
+        }
+        window._orderDeferredId = (res && res.id) || id;
+        deferredCacheAt = 0;
+        try { apiCacheBustDeferred_(); } catch (eClr) {}
+        showToast("В задачах · Заказы");
+        await refreshDeferredBadge(true);
+        try { setTasksTab("orders"); } catch (eTab) {}
+        var dr = document.getElementById("tasksDrawer");
+        if (dr && dr.classList.contains("open")) renderTasksDrawer(false);
+      } catch (e) {
+        showToast("Не удалось отложить");
+      }
+    }
+    window.saveOrderToDeferred = saveOrderToDeferred;
+
+    async function resumeOrderDeferred_(id) {
+      var it = findDeferredCached(id);
+      if (!it || !it.payload) { showToast("Нет данных"); return; }
+      applyOrderDeferredSnapshot_(it.payload);
+      window._orderDeferredId = id;
+      closeTasksDrawer();
+      switchTab("orderScreen");
+      showToast("Черновик открыт — допиши и сохрани");
+    }
+    window.resumeOrderDeferred_ = resumeOrderDeferred_;
 
     function formatDeferredRemindAt_(isoOrMs) {
       try {
@@ -16029,6 +16326,71 @@
       var res = await pModal;
       recoverUiFocus();
       return res;
+    }
+
+    function renderTasksOrderCards(items) {
+      var html;
+      if (!items.length) {
+        html = '<p class="muted">Пока пусто. Из Заказа — «На потом».</p>';
+      } else {
+        html = items.map(function (it) {
+          var safeId = String(it.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+          var when = it.at ? String(it.at).slice(0, 19) : "";
+          var pl = it.payload || {};
+          var typeLab = ({ pp: "ПП", bp: "БП", retail: "Р", partner: "Партнёр" })[pl.orderType || ""] || "Заказ";
+          var dateLab = pl.deliveryDate || "";
+          var itemsN = 0;
+          try {
+            var b1 = (pl.baskets && pl.baskets["1"]) || [];
+            var b2 = (pl.baskets && pl.baskets["2"]) || [];
+            itemsN = b1.length + ((pl.dogCount >= 2) ? b2.length : 0);
+          } catch (eN) {}
+          return '<div class="tasks-item is-hot">' +
+            '<div><b>' + escapeHtml(it.title || ("Заказ · " + typeLab)) + '</b>' +
+            '<div class="muted" style="font-size:12px;margin-top:4px;">' +
+            escapeHtml(typeLab) +
+            (it.clientNick ? (" · " + escapeHtml(it.clientNick)) : "") +
+            (dateLab ? (" · " + escapeHtml(dateLab)) : "") +
+            (itemsN ? (" · " + itemsN + " поз.") : "") +
+            (when ? (" · " + escapeHtml(when)) : "") +
+            "</div></div>" +
+            '<div class="seg-row" style="margin-top:10px;flex-wrap:wrap;">' +
+            '<button type="button" class="seg-btn" style="background:#30d158;border-color:#30d158;color:#111;" onclick="resumeOrderDeferred_(\'' + safeId + '\')">Открыть</button>' +
+            '<button type="button" class="seg-btn" style="background:#3a3a3c;" onclick="cancelDeferredItem(\'' + safeId + '\')">Отменить</button>' +
+            "</div></div>";
+        }).join("");
+      }
+      var box = document.getElementById("tasksOrderList");
+      if (box) box.innerHTML = html;
+    }
+
+    var _tasksTab = "orders";
+    function setTasksTab(tab) {
+      _tasksTab = (tab === "pp" || tab === "remind") ? tab : "orders";
+      var map = {
+        orders: { btn: "tasksTabOrders", pane: "tasksPaneOrders" },
+        pp: { btn: "tasksTabPp", pane: "tasksPanePp" },
+        remind: { btn: "tasksTabRemind", pane: "tasksPaneRemind" }
+      };
+      Object.keys(map).forEach(function (k) {
+        var btn = document.getElementById(map[k].btn);
+        var pane = document.getElementById(map[k].pane);
+        if (btn) btn.classList.toggle("active", k === _tasksTab);
+        if (pane) pane.style.display = k === _tasksTab ? "" : "none";
+      });
+    }
+    window.setTasksTab = setTasksTab;
+
+    function updateTasksTabCounts_(orderN, ppN, remindN) {
+      function paint(id, n) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = String(n || 0);
+        el.classList.toggle("is-hot", (n || 0) > 0);
+      }
+      paint("tasksCountOrders", orderN);
+      paint("tasksCountPp", ppN);
+      paint("tasksCountRemind", remindN);
     }
 
     function renderTasksPpCards(items) {
@@ -16265,23 +16627,29 @@
     window.createStandaloneReminder = createStandaloneReminder;
 
     async function renderTasksDrawer(doFetch) {
-      var box = document.getElementById("tasksPpList");
       var paint = function () {
         var openItems = (deferredCache || []).filter(function (it) {
           return String(it.status || "open").toLowerCase() === "open";
         });
+        var orderItems = openItems.filter(function (it) {
+          return String(it.mode || "").toLowerCase() === "order";
+        });
         var remindItems = openItems.filter(isDeferredRemindMode_);
         var ppItems = openItems.filter(function (it) {
           var m = String(it.mode || "pp").toLowerCase();
-          return m !== "retail" && m !== "remind";
+          return m !== "remind" && m !== "order";
         });
-        deferredOpenCount = remindItems.length + ppItems.length;
+        deferredOpenCount = orderItems.length + remindItems.length + ppItems.length;
         updateTasksBadge();
+        updateTasksTabCounts_(orderItems.length, ppItems.length, remindItems.length);
+        renderTasksOrderCards(orderItems);
         renderTasksRemindCards(remindItems);
         renderTasksPpCards(ppItems);
+        try { setTasksTab(_tasksTab || "orders"); } catch (eTab) {}
       };
       paint();
       if (doFetch === false) return;
+      var box = document.getElementById("tasksOrderList") || document.getElementById("tasksPpList");
       if (box && !deferredCache.length) box.innerHTML = '<p class="muted">Загрузка…</p>';
       var screenBox = document.getElementById("deferredScreenList");
       if (screenBox && !deferredCache.length) screenBox.innerHTML = '<p class="muted">Загрузка…</p>';
@@ -16341,6 +16709,9 @@
     async function editDeferredItem(id) {
       var it = findDeferredCached(id);
       if (!it || !it.payload) { showToast("Нет данных"); return; }
+      if (String(it.mode || "").toLowerCase() === "order") {
+        return resumeOrderDeferred_(id);
+      }
       applyDeferredSnapshotToPrice(it.payload);
       window._editingDeferredId = id;
       closeTasksDrawer();
@@ -16350,11 +16721,35 @@
     }
     window.editDeferredItem = editDeferredItem;
 
+    async function cancelDeferredSilent_(id) {
+      id = String(id || "").trim();
+      if (!id || String(id).indexOf("local_") === 0 || String(id).indexOf("bpidle:") === 0) return;
+      deferredCache = (deferredCache || []).filter(function (it) {
+        return String(it.id) !== id;
+      });
+      deferredCacheAt = Date.now();
+      try { renderTasksDrawer(false); } catch (e0) {}
+      var tid = myTelegramId || readTelegramIdFromTg() || loadStoredTelegramId();
+      if (!tid) return;
+      try {
+        await apiGet({
+          action: "cancelDeferred",
+          telegramId: tid,
+          id: id,
+          _: String(Date.now())
+        }, { timeoutMs: 20000, cacheTtlMs: 0 });
+        try { apiCacheBustDeferred_(); } catch (eClr) {}
+        deferredCacheAt = 0;
+        try { refreshDeferredBadge(true); } catch (eB) {}
+      } catch (e) { /* silent */ }
+    }
+
     async function cancelDeferredItem(id) {
       id = String(id || "").trim();
       if (!id) return;
       var ok = await uiConfirmAsync("Убрать из задач?");
       if (!ok) return;
+      if (String(window._orderDeferredId || "") === id) window._orderDeferredId = "";
       var tid = await ensureTelegramId();
       if (!tid) return;
       // сразу убрать из UI

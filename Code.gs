@@ -3039,6 +3039,16 @@ function handleGetMonthOverview(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthStr)) {
     monthStr = Utilities.formatDate(new Date(), tz, "yyyy-MM");
   }
+  var force = !!(json && (json.force === "1" || json.force === 1 || json.force === true));
+  var cacheKey = "MOV:" + monthStr;
+  if (!force) {
+    try {
+      var cached = cacheGetJson_(cacheKey);
+      if (cached && cached.status === "success") {
+        return fromPost ? jsonpText(callback, cached) : jsonp(callback, cached);
+      }
+    } catch (eC) {}
+  }
   var all = [];
   try { all = readAllCalendarRows_(); } catch (e0) { all = []; }
   var byDate = {};
@@ -3071,6 +3081,7 @@ function handleGetMonthOverview(json, callback, fromPost) {
   var total = 0;
   for (var t = 0; t < daysOut.length; t++) total += Number(daysOut[t].count) || 0;
   var ok = { status: "success", month: monthStr, days: daysOut, total: total };
+  try { cachePutJson_(cacheKey, ok, 45); } catch (ePut) {}
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
@@ -15032,9 +15043,12 @@ function handleSaveDeferred_(json, callback, fromPost) {
   var sh = deferredSheet_();
   var id = String(json.id || "").trim() || deferredNewId_();
   var mode = String(json.mode || "pp").trim().toLowerCase();
-  if (mode !== "retail" && mode !== "remind") mode = "pp";
+  if (mode !== "retail" && mode !== "remind" && mode !== "order") mode = "pp";
   var title = String(json.title || "").trim();
   var nick = String(json.clientNick || json.client || "").trim();
+  if (mode === "order" && !title) {
+    title = "Заказ" + (nick ? (" · " + nick) : "");
+  }
   var payloadObj = null;
   var payload = json.payload;
   if (payload && typeof payload === "object") {
