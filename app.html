@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.80";
+      var APP_VER = "v7.11.81";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2456,7 +2456,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.80";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.81";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -4915,6 +4915,22 @@
       resolveDayForDate: 60000,
       suggestAddress: 30000
     };
+    /** Тяжёлые read-action — дольше ждать cold start GAS */
+    var _API_DEFAULT_TIMEOUT = {
+      getClients: 35000,
+      getViewCompare: 40000,
+      getMonthOverview: 35000,
+      getCutting: 35000,
+      getCourier: 30000,
+      getAssembly: 30000,
+      getWarehouse: 35000,
+      getStats: 45000,
+      listSubscriptions: 35000,
+      listClientProfiles: 35000,
+      materializeWeek: 55000,
+      weekPullStatus: 35000,
+      crmInventory: 40000
+    };
     function apiCacheBustMem_(action) {
       // без аргумента — не сносить ВСЁ (тормозило весь app), только горячие списки
       if (!action) {
@@ -4943,8 +4959,9 @@
     }
     function apiGet(params, opts) {
       opts = opts || {};
-      var timeoutMs = opts.timeoutMs || 18000;
       var action = String((params && params.action) || "");
+      // Apps Script cold start часто >15–18с — дефолт повыше
+      var timeoutMs = opts.timeoutMs != null ? opts.timeoutMs : (_API_DEFAULT_TIMEOUT[action] || 28000);
       var cacheTtlMs = (opts.cacheTtlMs != null) ? opts.cacheTtlMs : (_API_READ_TTL[action] || 0);
       // cache-busters in params disable cache
       if (params && (params._ || params.nocache)) cacheTtlMs = 0;
@@ -4958,38 +4975,60 @@
           if (hit && hit.exp > Date.now()) return Promise.resolve(hit.res);
         } catch (eC) { cacheKey = ""; }
       }
-      return new Promise(function (resolve, reject) {
-        var cb = "cb_" + Math.round(Math.random() * 1e9);
-        var timer = setTimeout(function () {
-          cleanup();
-          reject(new Error("Таймаут ответа сервера"));
-        }, timeoutMs);
-        function cleanup() {
-          clearTimeout(timer);
-          try { delete window[cb]; } catch (e1) {}
-          var s = document.getElementById(cb);
-          if (s && s.parentNode) s.parentNode.removeChild(s);
-        }
-        window[cb] = function (res) {
-          cleanup();
-          if (cacheKey && cacheTtlMs > 0) {
-            _apiGetMem[cacheKey] = { exp: Date.now() + cacheTtlMs, res: res };
+      // запись не ретраим (дубли); чтение — 1 повтор при таймауте/сети
+      var retries = opts.retries;
+      if (retries == null) {
+        retries = /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub)/i.test(action)
+          ? 0
+          : 1;
+      }
+      function once_() {
+        return new Promise(function (resolve, reject) {
+          var cb = "cb_" + Math.round(Math.random() * 1e9);
+          var timer = setTimeout(function () {
+            cleanup();
+            reject(new Error("Таймаут ответа сервера"));
+          }, timeoutMs);
+          function cleanup() {
+            clearTimeout(timer);
+            try { delete window[cb]; } catch (e1) {}
+            var s = document.getElementById(cb);
+            if (s && s.parentNode) s.parentNode.removeChild(s);
           }
-          resolve(res);
-        };
-        var q = Object.keys(params).map(function (k) {
-          return k + "=" + encodeURIComponent(params[k]);
-        }).join("&");
-        var script = document.createElement("script");
-        script.id = cb;
-        script.async = true;
-        script.src = GOOGLE_WEBHOOK_URL + "?" + q + "&callback=" + cb;
-        script.onerror = function () {
-          cleanup();
-          reject(new Error("Ошибка сети"));
-        };
-        (document.head || document.body).appendChild(script);
-      });
+          window[cb] = function (res) {
+            cleanup();
+            if (cacheKey && cacheTtlMs > 0) {
+              _apiGetMem[cacheKey] = { exp: Date.now() + cacheTtlMs, res: res };
+            }
+            resolve(res);
+          };
+          var q = Object.keys(params).map(function (k) {
+            return k + "=" + encodeURIComponent(params[k]);
+          }).join("&");
+          var script = document.createElement("script");
+          script.id = cb;
+          script.async = true;
+          script.src = GOOGLE_WEBHOOK_URL + "?" + q + "&callback=" + cb;
+          script.onerror = function () {
+            cleanup();
+            reject(new Error("Ошибка сети"));
+          };
+          (document.head || document.body).appendChild(script);
+        });
+      }
+      function run_(left) {
+        return once_().catch(function (err) {
+          var msg = String((err && err.message) || err || "");
+          var retryable = /таймаут|сеть|network|timeout/i.test(msg);
+          if (left > 0 && retryable) {
+            return new Promise(function (r) { setTimeout(r, 700); }).then(function () {
+              return run_(left - 1);
+            });
+          }
+          return Promise.reject(err);
+        });
+      }
+      return run_(retries);
     }
 
     /** POST text/plain — Apps Script читает JSON из тела; после — проверка через GET */

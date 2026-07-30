@@ -2336,8 +2336,18 @@ function clearClientFromWeekSheets_(ss, client, matchKeyOpt, keepDay) {
 /**
  * На «Будущей» не должны висеть люди, чья дата в календаре ≠ A1 «Будущей»
  * (типичный баг: перенос «дальше будущей» писал колонку на лист).
+ * Тяжёлый (весь Календарь_Дат) — не чаще раза в 10 мин, иначе таймауты в мини-аппе.
  */
-function scrubFutureWeekOrphans_(ss) {
+function scrubFutureWeekOrphans_(ss, opts) {
+  opts = opts || {};
+  var force = !!(opts.force === true || opts.force === "1" || opts.force === 1);
+  if (!force) {
+    try {
+      if (CacheService.getScriptCache().get("SCRUB_FUT_V1") === "1") {
+        return { removed: 0, skipped: true };
+      }
+    } catch (eSkip) {}
+  }
   var future = ss.getSheetByName("Будущая неделя");
   if (!future) return { removed: 0 };
   var tz = ss.getSpreadsheetTimeZone();
@@ -2373,6 +2383,7 @@ function scrubFutureWeekOrphans_(ss) {
   if (removed) {
     try { bustClientsCache_(); } catch (eB) {}
   }
+  try { CacheService.getScriptCache().put("SCRUB_FUT_V1", "1", 600); } catch (ePut) {}
   return { removed: removed };
 }
 
@@ -2430,7 +2441,7 @@ function handleMoveClient(ss, json, callback) {
     } catch (eSyncCal) {
       dateSyncCal.error = String(eSyncCal);
     }
-    try { scrubFutureWeekOrphans_(ss); } catch (eScrub) {}
+    try { scrubFutureWeekOrphans_(ss, { force: true }); } catch (eScrub) {}
     bustClientsCache_();
     try { clearCrmSheetCache_(); } catch (eC0) {}
     return jsonp(callback, {
@@ -2567,7 +2578,7 @@ function handleMoveClient(ss, json, callback) {
     dateSync.error = String(eSync);
   }
 
-  try { scrubFutureWeekOrphans_(ss); } catch (eScrub2) {}
+  try { scrubFutureWeekOrphans_(ss, { force: true }); } catch (eScrub2) {}
   checkLiveDeficitAndNotify();
   bustClientsCache_();
   try { clearCrmSheetCache_(); } catch (eC) {}
@@ -3318,9 +3329,7 @@ function handleGetClients(dayName, callback, dateStr) {
   var tz = ss.getSpreadsheetTimeZone();
   var resolvedDay = String(dayName || "").trim();
   var deliveryDate = null;
-  if (resolvedDay === "Будущая неделя") {
-    try { scrubFutureWeekOrphans_(ss); } catch (eScrubG) {}
-  }
+  // scrub сирот — только на move / редкий getViewCompare (кэш), не на каждый getClients
 
   // Дата — главный ключ. Если она НЕ стоит в ячейках недели — не подсовываем чужой блок дня.
   if (dateStr) {
