@@ -1213,6 +1213,9 @@ function doGet(e) {
   if (action === "deleteClient" || action === "moveClient") {
     payload.cutRaw = e.parameter.cutRaw;
     payload.matchKey = e.parameter.matchKey ? decodeURIComponent(e.parameter.matchKey) : "";
+    payload.oldDate = e.parameter.oldDate ? decodeURIComponent(e.parameter.oldDate) : "";
+    payload.newDate = e.parameter.newDate ? decodeURIComponent(e.parameter.newDate) : "";
+    payload.dateOnly = e.parameter.dateOnly || "";
     return handleApiAction(payload, callback, false);
   }
   if (action === "saveOrder") {
@@ -2300,6 +2303,55 @@ function handleMoveClient(ss, json, callback) {
   var dstBlock = getDayBlock(json.newDay || json.day);
   if (!srcBlock || !dstBlock) return jsonp(callback, { status: "bad_day" });
 
+  var tz = ss.getSpreadsheetTimeZone();
+  var oldDate = parseFlexibleDate_(json.oldDate || json.fromDate, tz) ||
+    parseFlexibleDate_(getDayDate_(ss, json.oldDay), tz);
+  var newDate = parseFlexibleDate_(json.newDate || json.date || json.toDate, tz) ||
+    parseFlexibleDate_(getDayDate_(ss, json.newDay || json.day), tz);
+  var dateOnly = !!(json.dateOnly === true || json.dateOnly === "1" || json.dateOnly === 1 ||
+    String(json.oldDay || "").trim() === String(json.newDay || json.day || "").trim());
+
+  // тот же блок дня (например «Будущая» → другая дата) — только синхрон календаря/броней/CRM
+  if (dateOnly) {
+    if (!oldDate || !newDate) return jsonp(callback, { status: "need_date" });
+    if (dateKey_(oldDate, tz) === dateKey_(newDate, tz)) {
+      return jsonp(callback, { status: "same_date" });
+    }
+    var noteOnly = "";
+    try {
+      var shOnly = getTargetSheet(ss, srcBlock);
+      var wantOnly = String(json.client || "").trim().toUpperCase();
+      var nicksOnly = shOnly.getRange(srcBlock.nick, 3, 1, 15).getValues()[0];
+      for (var io = 0; io < 15; io++) {
+        if (String(nicksOnly[io] || "").trim().toUpperCase() === wantOnly ||
+            nicksMatch_(nicksOnly[io], json.client)) {
+          noteOnly = String(shOnly.getRange(srcBlock.note, io + 3).getValue() || "");
+          break;
+        }
+      }
+    } catch (eNote) {}
+    var dateSyncOnly = { calendar: 0, bookings: 0, crm: 0 };
+    try {
+      dateSyncOnly = moveClientDeliveryDateEverywhere_(ss, String(json.client || "").trim(), oldDate, newDate, {
+        matchKey: json.matchKey || "",
+        note: noteOnly,
+        dayName: String(json.newDay || json.day || "")
+      });
+    } catch (eSyncOnly) {
+      dateSyncOnly.error = String(eSyncOnly);
+    }
+    bustClientsCache_();
+    try { clearCrmSheetCache_(); } catch (eC0) {}
+    return jsonp(callback, {
+      status: "success",
+      dateOnly: true,
+      calendarMoved: dateSyncOnly.calendar || 0,
+      bookingsMoved: dateSyncOnly.bookings || 0,
+      crmMoved: dateSyncOnly.crm || 0,
+      dateSync: dateSyncOnly
+    });
+  }
+
   var sourceSheet = getTargetSheet(ss, srcBlock);
   var targetSheet = getTargetSheet(ss, dstBlock);
   if (!sourceSheet || !targetSheet) return jsonp(callback, { status: "error" });
@@ -2363,9 +2415,6 @@ function handleMoveClient(ss, json, callback) {
   // Синхрон даты: Календарь_Дат + брони + лист месяца CRM
   var dateSync = { calendar: 0, bookings: 0, crm: 0 };
   try {
-    var tz = ss.getSpreadsheetTimeZone();
-    var oldDate = parseFlexibleDate_(getDayDate_(ss, json.oldDay), tz);
-    var newDate = parseFlexibleDate_(getDayDate_(ss, json.newDay || json.day), tz);
     if (oldDate && newDate) {
       dateSync = moveClientDeliveryDateEverywhere_(ss, String(json.client || "").trim(), oldDate, newDate, {
         matchKey: json.matchKey || "",
