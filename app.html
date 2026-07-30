@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.79";
+      var APP_VER = "v7.11.80";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2436,7 +2436,11 @@
           <label>Заметка</label>
           <input type="text" id="partnerNoteInput" placeholder="условия, %…">
         </div>
-        <button class="btn-action btn-purple" type="button" onclick="savePartnerFromUi()">Добавить / обновить</button>
+        <input type="hidden" id="partnerEditId" value="">
+        <div class="batch-bar-row" style="margin:0 0 8px;gap:8px;">
+          <button class="btn-action btn-purple" type="button" id="btnPartnerSave" style="flex:1.4;margin:0;" onclick="savePartnerFromUi()">Добавить</button>
+          <button class="btn-action" type="button" id="btnPartnerEditCancel" style="flex:1;margin:0;background:#3a3a3c;display:none;" onclick="cancelPartnerEdit_()">Отмена</button>
+        </div>
         <div id="partnersContainer" style="margin-top:12px;"><p class="muted">—</p></div>
       </div>
     </div>
@@ -2452,7 +2456,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.79";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.80";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -17287,7 +17291,8 @@
           '<b>' + escapeHtml(p.name) + '</b>' +
           (p.active ? '' : ' <span class="muted">(выкл)</span>') +
           (p.note ? ('<div class="muted" style="font-size:12px;">' + escapeHtml(p.note) + "</div>") : "") +
-          '<div class="seg-row" style="margin-top:8px;">' +
+          '<div class="seg-row" style="margin-top:8px;flex-wrap:wrap;">' +
+          '<button type="button" class="seg-btn" onclick="editPartnerUi_(\'' + idEsc + '\')">Изменить</button>' +
           '<button type="button" class="seg-btn" onclick="togglePartnerActive_(\'' + idEsc + '\',' + (p.active ? "false" : "true") + ')">' +
           (p.active ? "Выключить" : "Включить") + "</button>" +
           '<button type="button" class="seg-btn" style="color:#ff453a;" onclick="deletePartnerUi_(\'' + idEsc + '\',\'' + nameEsc + '\')">Удалить</button>' +
@@ -17298,29 +17303,88 @@
       try { ensurePpPartnerOptions_(); } catch (e2) {}
     }
 
+    function setPartnerEditMode_(on, partner) {
+      var idEl = document.getElementById("partnerEditId");
+      var nameEl = document.getElementById("partnerNameInput");
+      var noteEl = document.getElementById("partnerNoteInput");
+      var saveBtn = document.getElementById("btnPartnerSave");
+      var cancelBtn = document.getElementById("btnPartnerEditCancel");
+      if (on && partner) {
+        if (idEl) idEl.value = partner.id || "";
+        if (nameEl) nameEl.value = partner.name || "";
+        if (noteEl) noteEl.value = partner.note || "";
+        if (saveBtn) saveBtn.textContent = "Сохранить";
+        if (cancelBtn) cancelBtn.style.display = "";
+        try {
+          if (nameEl) {
+            nameEl.focus();
+            nameEl.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        } catch (eF) {}
+      } else {
+        if (idEl) idEl.value = "";
+        if (nameEl) nameEl.value = "";
+        if (noteEl) noteEl.value = "";
+        if (saveBtn) saveBtn.textContent = "Добавить";
+        if (cancelBtn) cancelBtn.style.display = "none";
+      }
+    }
+
+    function editPartnerUi_(id) {
+      id = String(id || "").trim();
+      if (!id) return;
+      var list = partnersCacheList_ || [];
+      var hit = null;
+      for (var i = 0; i < list.length; i++) {
+        if (String(list[i].id) === id) { hit = list[i]; break; }
+      }
+      if (!hit) {
+        showToast("Не найден — обновите список");
+        return;
+      }
+      setPartnerEditMode_(true, hit);
+      showToast("Редактирование: " + (hit.name || ""));
+    }
+
+    function cancelPartnerEdit_() {
+      setPartnerEditMode_(false, null);
+    }
+
     async function savePartnerFromUi() {
       var name = String((document.getElementById("partnerNameInput") || {}).value || "").trim();
       var note = String((document.getElementById("partnerNoteInput") || {}).value || "").trim();
+      var editId = String((document.getElementById("partnerEditId") || {}).value || "").trim();
       if (!name) { showToast("Укажите имя партнёра"); return; }
       try {
-        var res = await apiGet({
+        var body = {
           action: "savePartner",
           name: name,
           note: note,
           active: "yes",
           telegramId: myTelegramId,
           _: String(Date.now())
-        }, { timeoutMs: 20000, cacheTtlMs: 0 });
+        };
+        if (editId) body.id = editId;
+        // при правке сохраняем текущий active (не форсим yes, если был выкл)
+        if (editId && partnersCacheList_) {
+          for (var i = 0; i < partnersCacheList_.length; i++) {
+            if (String(partnersCacheList_[i].id) === editId) {
+              body.active = partnersCacheList_[i].active === false ? "no" : "yes";
+              break;
+            }
+          }
+        }
+        var res = await apiGet(body, { timeoutMs: 20000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
           showToast((res && res.message) || "Не сохранилось — Deploy Code.gs");
           return;
         }
-        document.getElementById("partnerNameInput").value = "";
-        document.getElementById("partnerNoteInput").value = "";
+        setPartnerEditMode_(false, null);
         partnersCacheList_ = null;
         window._partnersUiHtml = "";
+        try { apiCacheBustMem_("listPartners"); } catch (eB) {}
         await loadPartnersUi_({});
-        showToast("Партнёр сохранён");
+        showToast(editId ? "Партнёр обновлён" : "Партнёр добавлен");
       } catch (e) {
         showToast("Ошибка сети / Deploy");
       }
@@ -17342,6 +17406,7 @@
         }, { timeoutMs: 15000, cacheTtlMs: 0 });
         partnersCacheList_ = null;
         window._partnersUiHtml = "";
+        try { apiCacheBustMem_("listPartners"); } catch (eB) {}
         await loadPartnersUi_({});
       } catch (e) { showToast("Не обновилось"); }
     }
@@ -17357,12 +17422,17 @@
           telegramId: myTelegramId,
           _: String(Date.now())
         }, { timeoutMs: 15000, cacheTtlMs: 0 });
+        var editId = String((document.getElementById("partnerEditId") || {}).value || "");
+        if (editId && editId === id) setPartnerEditMode_(false, null);
         partnersCacheList_ = null;
         window._partnersUiHtml = "";
+        try { apiCacheBustMem_("listPartners"); } catch (eB) {}
         await loadPartnersUi_({});
       } catch (e) { showToast("Не удалилось"); }
     }
     window.savePartnerFromUi = savePartnerFromUi;
+    window.editPartnerUi_ = editPartnerUi_;
+    window.cancelPartnerEdit_ = cancelPartnerEdit_;
     window.togglePartnerActive_ = togglePartnerActive_;
     window.deletePartnerUi_ = deletePartnerUi_;
     window.ensurePpPartnerOptions_ = ensurePpPartnerOptions_;
