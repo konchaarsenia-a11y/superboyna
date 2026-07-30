@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.71";
+      var APP_VER = "v7.11.72";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -376,6 +376,22 @@
     }
     .view-col-head b { font-size: 13px; }
     .view-col.is-month { border-color: rgba(175,82,222,0.4); }
+    .view-ov-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 12px 12px; border: 1px solid var(--border-color); border-radius: 12px;
+      background: #1a1a1a; margin-top: 8px; cursor: pointer;
+    }
+    .view-ov-row:active { background: #222; }
+    .view-ov-left { min-width: 0; flex: 1; }
+    .view-ov-date { font-weight: 700; font-size: 14px; }
+    .view-ov-meta { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.35; }
+    .view-ov-count {
+      flex-shrink: 0; min-width: 36px; text-align: center; font-weight: 800; font-size: 18px;
+      color: var(--accent-color);
+    }
+    .view-ov-seg {
+      display: inline-block; margin-right: 6px; font-size: 11px; color: #d1d1d6;
+    }
     /* одинаковые карточки месяца — глаз не прыгает */
     .view-col.is-month .client-item-card.view-month-card {
       display: flex;
@@ -1378,6 +1394,14 @@
           <div class="batch-bar-row" style="margin-top:8px;">
             <button type="button" class="btn-action btn-blue" id="btnSecondDog" style="flex:1;margin:0;" onclick="prepareSecondDog()">2 собаки</button>
           </div>
+          <div id="orderDogSwitch" style="display:none;margin-top:10px;">
+            <label style="display:block;margin-bottom:6px;">Состав</label>
+            <div class="seg-row">
+              <button type="button" class="seg-btn active" id="orderDogTab1" onclick="setOrderActiveDog(1)">Собака 1</button>
+              <button type="button" class="seg-btn" id="orderDogTab2" onclick="setOrderActiveDog(2)">Собака 2</button>
+            </div>
+            <div class="muted" style="font-size:11px;margin-top:6px;">Один клиент · в сборке два состава</div>
+          </div>
         </div>
         <div class="form-group">
           <label>Адрес</label>
@@ -1482,46 +1506,92 @@
 
     <!-- МЕНЕДЖЕР: ПРОСМОТР -->
     <div id="clientsScreen" class="screen">
-      <div class="card">
-        <div class="form-group">
-          <label>День недели</label>
-          <select id="viewDaySelect" onchange="onViewDayChange()">
-            <option value="">-- Выбрать день --</option>
-            <option>Понедельник</option><option>Вторник</option><option>Среда</option>
-            <option>Четверг</option><option>Пятница</option><option>Будущая неделя</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Или дата</label>
-          <input type="date" id="viewDate" onchange="onViewDateChange()">
-        </div>
-        <div class="muted" style="font-size:12px;">Выбери день или дату — слева неделя, справа <b>Календарь_Дат</b>. Дата вне текущей недели → на <b>Будущую неделю</b>. «→» → «Сохранить переносы».</div>
-        <div id="viewDeployHint" class="muted" style="display:none;font-size:12px;margin-top:8px;color:#ff9f0a;"></div>
-
+      <div class="sub-tabs" id="viewSubTabs">
+        <button type="button" class="sub-tab active" id="viewSubMonth" onclick="setViewSub('month')">Месяц</button>
+        <button type="button" class="sub-tab" id="viewSubWeek" onclick="setViewSub('week')">Неделя</button>
       </div>
-      <div id="totalDaySummaryContainer"></div>
 
-      <div class="view-split">
-        <div class="view-col" id="viewWeekCol">
-          <div class="view-col-head">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
-              <b>Неделя <span class="muted" id="viewWeekCount"></span></b>
-              <span class="batch-bar-row" style="margin:0;gap:4px;">
-                <button type="button" class="seg-btn" style="padding:6px 8px;font-size:11px;" onclick="selectAllViewClients(true)">Все</button>
-                <button type="button" class="seg-btn" style="padding:6px 8px;font-size:11px;" onclick="selectAllViewClients(false)">Снять</button>
-              </span>
-            </div>
+      <div id="viewMonthPane">
+        <div class="card" id="viewMonthOverviewCard">
+          <div class="form-group">
+            <label>Месяц</label>
+            <input type="month" id="viewMonthPick" onchange="onViewMonthPickChange()">
           </div>
-          <div id="clientsContainer"><div class="view-idle">Выберите день или дату</div></div>
+          <div class="muted" style="font-size:12px;">Даты с записями · мини-микс типов · тап → редактор дня. Смена вкладки не обновляет данные.</div>
+          <div id="viewMonthOverviewList"><div class="view-idle">Загрузка…</div></div>
         </div>
-        <div class="view-col is-month" id="viewMonthCol">
-          <div class="view-col-head">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
-              <b>Месяц <span class="muted" id="viewMonthCount"></span></b>
-              <button type="button" class="btn-action btn-purple" id="viewStageAllBtn" style="margin:0;padding:6px 10px;font-size:11px;" onclick="stageAllFromMonth()">Все →</button>
+        <div id="viewMonthDayPanel" style="display:none;">
+          <div class="card" style="margin-bottom:10px;">
+            <div class="batch-bar-row" style="margin:0;gap:8px;align-items:center;">
+              <button type="button" class="seg-btn" style="padding:8px 12px;" onclick="closeViewMonthDay()">← К датам</button>
+              <b id="viewMonthDayTitle" style="flex:1;"></b>
+              <button type="button" class="seg-btn" style="padding:8px 10px;font-size:11px;" onclick="refreshViewMonthDay()">Обновить</button>
             </div>
           </div>
-          <div id="monthClientsContainer"><div class="view-idle">Выберите день или дату</div></div>
+        </div>
+      </div>
+
+      <div id="viewWeekPane" style="display:none;">
+        <div class="card" id="viewWeekOverviewCard">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
+            <b>Текущая неделя <span class="muted" id="viewWeekOverviewTotal"></span></b>
+            <button type="button" class="seg-btn" style="padding:6px 10px;font-size:11px;" onclick="refreshViewWeekOverview()">Обновить</button>
+          </div>
+          <div class="muted" style="font-size:12px;margin-bottom:8px;">Тап по дню → список и редактор. Переключение на «Месяц» без перезагрузки.</div>
+          <div id="viewWeekOverviewList"><div class="view-idle">Загрузка…</div></div>
+        </div>
+        <div id="viewWeekDayPanel" style="display:none;">
+          <div class="card" style="margin-bottom:10px;">
+            <div class="batch-bar-row" style="margin:0;gap:8px;align-items:center;">
+              <button type="button" class="seg-btn" style="padding:8px 12px;" onclick="closeViewWeekDay()">← К неделе</button>
+              <b id="viewWeekDayTitle" style="flex:1;"></b>
+              <button type="button" class="seg-btn" style="padding:8px 10px;font-size:11px;" onclick="refreshViewWeekDay()">Обновить</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="viewDayEditorHost" style="display:none;">
+        <div class="card">
+          <div class="form-group">
+            <label>День недели</label>
+            <select id="viewDaySelect" onchange="onViewDayChange()">
+              <option value="">-- Выбрать день --</option>
+              <option>Понедельник</option><option>Вторник</option><option>Среда</option>
+              <option>Четверг</option><option>Пятница</option><option>Будущая неделя</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Или дата</label>
+            <input type="date" id="viewDate" onchange="onViewDateChange()">
+          </div>
+          <div class="muted" style="font-size:12px;">Слева — неделя, справа — календарь даты. «→» → «Сохранить переносы».</div>
+          <div id="viewDeployHint" class="muted" style="display:none;font-size:12px;margin-top:8px;color:#ff9f0a;"></div>
+        </div>
+        <div id="totalDaySummaryContainer"></div>
+
+        <div class="view-split">
+          <div class="view-col" id="viewWeekCol">
+            <div class="view-col-head">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+                <b>Неделя <span class="muted" id="viewWeekCount"></span></b>
+                <span class="batch-bar-row" style="margin:0;gap:4px;">
+                  <button type="button" class="seg-btn" style="padding:6px 8px;font-size:11px;" onclick="selectAllViewClients(true)">Все</button>
+                  <button type="button" class="seg-btn" style="padding:6px 8px;font-size:11px;" onclick="selectAllViewClients(false)">Снять</button>
+                </span>
+              </div>
+            </div>
+            <div id="clientsContainer"><div class="view-idle">Выберите день или дату</div></div>
+          </div>
+          <div class="view-col is-month" id="viewMonthCol">
+            <div class="view-col-head">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+                <b>Месяц <span class="muted" id="viewMonthCount"></span></b>
+                <button type="button" class="btn-action btn-purple" id="viewStageAllBtn" style="margin:0;padding:6px 10px;font-size:11px;" onclick="stageAllFromMonth()">Все →</button>
+              </div>
+            </div>
+            <div id="monthClientsContainer"><div class="view-idle">Выберите день или дату</div></div>
+          </div>
         </div>
       </div>
 
@@ -2164,7 +2234,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.71";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.72";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2503,14 +2573,15 @@
         "Заказ\n" +
         "• Тип: ПП — цена с листа ФАКТ СТОИМОСТЬ; БП = 0 + опросник; Розница — авто; Партнёр — свой прайс.\n" +
         "• Дата: бронь; в «Прием заказов» — утром предыдущего дня.\n" +
-        "• 2 собаки: контакты + 1-й состав → сохрани → только состав 2-й.\n" +
+        "• 2 собаки: один хозяин → Собака 1/2 составы → один клиент (в сборке два состава).\n" +
         "• Адрес: выбери из списка. Подъезд — для курьера (короткий адрес).\n" +
         "• Чеклист: «средний кубик» → Среднее; голый «кубик» → Мелкое; без фракции у дрессуры → Среднее.",
       clientsScreen:
         "Просмотр\n" +
-        "• Два списка: уже на неделе и ещё только в календаре месяца (Июль…).\n" +
-        "• «→ на неделю» — одного; «Перенести всех» — весь день из месяца.\n" +
-        "• Галочки на неделе → перенос/удаление пачкой.",
+        "• Вкладки Месяц / Неделя — переключение без обновления.\n" +
+        "• Месяц: даты с числом людей и миксом ПП/БП/Р → тап → редактор.\n" +
+        "• Неделя: Пн–Пт + Будущая → тап → тот же редактор (неделя ↔ календарь).\n" +
+        "• «Обновить» на обзоре/дне — только по кнопке.",
       cuttingScreen: "Нарезка\n• Выбери день и отмечай нарезанное.",
       courierScreen:
         "Курьер\n" +
@@ -3191,7 +3262,7 @@
     }
 
     let orderType = "pp"; // pp | bp | retail | partner
-    let secondDogMode = false; // true = вводим только состав 2-й
+    let secondDogMode = false; // legacy flag
     let ownerContactSnapshot = null;
     let retailPriceManual = false; // true = менеджер ввёл свою цену розницы
     let retailPaidDelivery = false; // тумблер «платная доставка» +5 BYN
@@ -3790,6 +3861,67 @@
     }
     window.openNotesModal = openNotesModal;
 
+    let orderDogCount = 1;
+    let orderActiveDog = 1;
+    let orderBaskets = { 1: [], 2: [] };
+
+    function syncOrderBasketFromActive_() {
+      orderBaskets[orderActiveDog] = (basket || []).slice();
+    }
+    function loadOrderBasketToActive_() {
+      if (!orderBaskets[orderActiveDog]) orderBaskets[orderActiveDog] = [];
+      basket = orderBaskets[orderActiveDog];
+    }
+    function setOrderActiveDog(n) {
+      n = Number(n) === 2 ? 2 : 1;
+      syncOrderBasketFromActive_();
+      orderActiveDog = n;
+      var t1 = document.getElementById("orderDogTab1");
+      var t2 = document.getElementById("orderDogTab2");
+      if (t1) t1.classList.toggle("active", n === 1);
+      if (t2) t2.classList.toggle("active", n === 2);
+      loadOrderBasketToActive_();
+      try { renderBasket(); } catch (e) {}
+    }
+    window.setOrderActiveDog = setOrderActiveDog;
+
+    function setOrderDogCount(n) {
+      n = Number(n) === 2 ? 2 : 1;
+      syncOrderBasketFromActive_();
+      orderDogCount = n;
+      var sw = document.getElementById("orderDogSwitch");
+      if (sw) sw.style.display = n >= 2 ? "" : "none";
+      if (n < 2) {
+        orderBaskets[2] = [];
+        orderActiveDog = 1;
+      } else if (!orderBaskets[2]) {
+        orderBaskets[2] = [];
+      }
+      setOrderActiveDog(orderActiveDog);
+    }
+    window.setOrderDogCount = setOrderDogCount;
+
+    function buildOrderSaveBasket_() {
+      syncOrderBasketFromActive_();
+      var out = [];
+      var maxD = orderDogCount >= 2 ? 2 : 1;
+      for (var d = 1; d <= maxD; d++) {
+        (orderBaskets[d] || []).forEach(function (x) {
+          var row = {
+            cat: x.cat,
+            main: x.main || x.name,
+            name: x.main || x.name,
+            sub: x.sub || "",
+            value: x.value != null ? x.value : x.val,
+            val: x.value != null ? x.value : x.val
+          };
+          if (maxD >= 2) row.dog = d;
+          out.push(row);
+        });
+      }
+      return out;
+    }
+
     function prepareSecondDog() {
       const el = document.getElementById("client");
       let name = (el.value || "").trim();
@@ -3797,9 +3929,10 @@
         showToast("Сначала укажи имя / ник владельца");
         return;
       }
-      // снимок контактов — для 2-й собаки
+      name = name.replace(/\s*[·•#]\s*2\s*$/i, "").trim();
+      el.value = name;
       ownerContactSnapshot = {
-        client: name.replace(/\s*[·•#]\s*2\s*$/i, "").trim(),
+        client: name,
         address: (document.getElementById("addressInput") && document.getElementById("addressInput").value) || "",
         entrance: (document.getElementById("entranceInput") && document.getElementById("entranceInput").value) || "",
         floor: (document.getElementById("floorInput") && document.getElementById("floorInput").value) || "",
@@ -3807,37 +3940,22 @@
         phone: (document.getElementById("phoneInput") && document.getElementById("phoneInput").value) || "",
         geo: selectedAddressGeo
       };
-      var btn = document.getElementById("btnSecondDogOrder");
-      if (btn) btn.style.display = "";
-      showToast("Сохрани 1-й заказ, потом «Внести заказ 2-й собаки» — только состав");
+      syncOrderBasketFromActive_();
+      if (!(orderBaskets[1] && orderBaskets[1].length) && basket && basket.length) {
+        orderBaskets[1] = basket.slice();
+      }
+      setOrderDogCount(2);
+      setOrderActiveDog(1);
+      var btn2 = document.getElementById("btnSecondDogOrder");
+      if (btn2) btn2.style.display = "none";
+      showToast("Хозяин один · переключай Собака 1 / 2 и сохрани один раз");
     }
     window.prepareSecondDog = prepareSecondDog;
 
     function startSecondDogOrder() {
-      var base = ownerContactSnapshot;
-      if (!base) {
-        prepareSecondDog();
-        base = ownerContactSnapshot;
-      }
-      if (!base) return;
-      secondDogMode = true;
-      document.getElementById("isEditMode").value = "false";
-      document.getElementById("client").value = base.client + " · 2";
-      document.getElementById("client").readOnly = false;
-      if (document.getElementById("addressInput")) document.getElementById("addressInput").value = base.address || "";
-      if (document.getElementById("entranceInput")) document.getElementById("entranceInput").value = base.entrance || "";
-      if (document.getElementById("floorInput")) document.getElementById("floorInput").value = base.floor || "";
-      if (document.getElementById("flatInput")) document.getElementById("flatInput").value = base.flat || "";
-      if (document.getElementById("phoneInput")) document.getElementById("phoneInput").value = base.phone || "";
-      selectedAddressGeo = base.geo || null;
-      setAddressPickedHint(!!selectedAddressGeo);
-      basket = [];
-      renderBasket();
-      clearOrderNotes();
-      document.getElementById("btnMainSave").innerText = "Сохранить 2-ю собаку";
-      var btn = document.getElementById("btnSecondDogOrder");
-      if (btn) btn.style.display = "none";
-      showToast("Контакты те же — внеси только состав 2-й собаки");
+      // legacy кнопка — сразу режим 2 собак
+      prepareSecondDog();
+      setOrderActiveDog(2);
     }
     window.startSecondDogOrder = startSecondDogOrder;
 
@@ -4195,8 +4313,7 @@
         }
         if (screenId === "clientsScreen") {
           document.getElementById("appHeaderTitle").innerText = "Просмотр · " + APP_VERSION;
-          // не грузим сами — только после выбора дня/даты
-          try { resetViewIdleIfEmpty(); } catch (eV) {}
+          try { enterViewScreen_(); } catch (eV) {}
         }
       } catch (e) {}
       try {
@@ -4721,11 +4838,15 @@
       secondDogMode = false;
       if (!keepSecondDogOffer) {
         ownerContactSnapshot = null;
+        orderDogCount = 1;
+        orderActiveDog = 1;
+        orderBaskets = { 1: [], 2: [] };
+        try { setOrderDogCount(1); } catch (eDog) {}
         var b2 = document.getElementById("btnSecondDogOrder");
         if (b2) b2.style.display = "none";
       } else if (ownerContactSnapshot) {
         var b2ok = document.getElementById("btnSecondDogOrder");
-        if (b2ok) b2ok.style.display = "";
+        if (b2ok) b2ok.style.display = "none";
       }
 
       try { setOrderType("pp"); } catch (e3) {}
@@ -4766,7 +4887,9 @@
       const isEdit = document.getElementById("isEditMode").value === "true";
       if (!clientName) { await uiAlertAsync("Введите имя клиента"); return; }
       if (!deliveryDate) { await uiAlertAsync("Укажите дату доставки"); return; }
-      if (!basket.length) { await uiAlertAsync("Корзина пуста"); return; }
+      syncOrderBasketFromActive_();
+      var saveBasketCheck = buildOrderSaveBasket_();
+      if (!saveBasketCheck.length) { await uiAlertAsync("Корзина пуста"); return; }
       var orderPrice = null;
       if (orderType === "bp") orderPrice = 0;
       else if (orderType === "retail") {
@@ -4898,13 +5021,15 @@
       btn.innerText = "Сохраняю...";
       showSaveLoading("Сохраняю заказ…", 120000);
 
-      // при смене ника/дня — сначала убрать старую колонку, чтобы не плодить/не затирать чужие
+      // при правке: убрать старую колонку если сменились ник/день (дата → другой день недели)
       if (isEdit && editOriginalClient) {
         var nickChanged = String(editOriginalClient).trim().toUpperCase() !== clientName.toUpperCase();
-        var dayChanged = String(editOriginalDay || "") !== String(day || "");
+        var dayChanged = false;
+        // dayChanged посчитаем после resolve; здесь предварительный по селекту
+        if (String(editOriginalDay || "") !== String(day || "")) dayChanged = true;
         if (nickChanged || dayChanged) {
           try {
-            await apiGet(deleteClientParams(editOriginalClient, editOriginalDay || day));
+            await apiGet(deleteClientParams(editOriginalClient, editOriginalDay || day, editOriginalMatchKey), { timeoutMs: 30000, cacheTtlMs: 0 });
           } catch (eDelOld) {}
         }
       }
@@ -4913,6 +5038,9 @@
         action: "saveOrder",
         day: day,
         client: clientName,
+        editClient: isEdit ? (editOriginalClient || "") : "",
+        originalClient: isEdit ? (editOriginalClient || "") : "",
+        matchKey: isEdit ? (editOriginalMatchKey || "") : "",
         address: clientAddress,
         phone: phone,
         note: clientNote,
@@ -4936,14 +5064,7 @@
           lon: selectedAddressGeo.lon,
           yandexUrl: selectedAddressGeo.yandexUrl || ""
         } : null,
-        basket: basket.map(x => ({
-          cat: x.cat,
-          main: x.main,
-          name: x.main,
-          sub: x.sub || "",
-          value: x.value,
-          val: x.value
-        }))
+        basket: buildOrderSaveBasket_()
       };
 
       const bookingPayload = {
@@ -4952,6 +5073,9 @@
         day: day || editOriginalDay || "",
         alsoSaveOrder: false,
         client: clientName,
+        editClient: isEdit ? (editOriginalClient || "") : "",
+        originalClient: isEdit ? (editOriginalClient || "") : "",
+        matchKey: isEdit ? (editOriginalMatchKey || "") : "",
         address: clientAddress,
         phone: phone,
         note: clientNote,
@@ -4985,13 +5109,17 @@
           // даты дальше «Будущей» (A1) — только бронь/календарь, без записи на лист недели
         } catch (eRes) {}
         var weekDayToSave = "";
-        // приоритет: edit → день, где дата реально стоит на листе
-        if (isEdit && editOriginalDay && dateOnWeek) {
-          weekDayToSave = editOriginalDay;
+        // правка: пишем туда, где дата реально стоит на листе; старый день чистим
+        if (isEdit && dateOnWeek && resolvedDayName) {
+          weekDayToSave = resolvedDayName;
+          if (editOriginalDay && String(editOriginalDay) !== String(resolvedDayName)) {
+            try {
+              await apiGet(deleteClientParams(editOriginalClient || clientName, editOriginalDay, editOriginalMatchKey), { timeoutMs: 30000, cacheTtlMs: 0 });
+            } catch (eDelDay) {}
+          }
         } else if (dateOnWeek && resolvedDayName) {
           weekDayToSave = resolvedDayName;
         } else if (isEdit && editOriginalDay) {
-          // правка уже стоящего на листе (даже если дата уехала) — обновить ту колонку
           weekDayToSave = editOriginalDay;
           dateOnWeek = true;
         }
@@ -5007,6 +5135,9 @@
           day: weekDayToSave || day || editOriginalDay || "",
           alsoSaveOrder: weekDayToSave ? "1" : "0",
           client: clientName,
+          editClient: isEdit ? (editOriginalClient || "") : "",
+          originalClient: isEdit ? (editOriginalClient || "") : "",
+          matchKey: isEdit ? (editOriginalMatchKey || "") : "",
           address: clientAddress,
           phone: phone || "",
           note: clientNote || "",
@@ -5067,6 +5198,9 @@
               day: weekDayToSave,
               date: deliveryDate,
               client: clientName,
+              editClient: isEdit ? (editOriginalClient || "") : "",
+              originalClient: isEdit ? (editOriginalClient || "") : "",
+              matchKey: isEdit ? (editOriginalMatchKey || "") : "",
               address: clientAddress,
               phone: phone || "",
               note: clientNote || "",
@@ -5334,6 +5468,264 @@
     let viewDateOnlyMonth = false; // дата вне текущей недели — только колонка месяца
     let viewFutureWrongDate = false; // «Будущая неделя» сейчас на другой дате
     let lastViewDateIso = ""; // последняя дата Просмотра (для edit → Заказ)
+    let viewSub = "month"; // month | week
+    let viewMonthOverviewCache = null; // { month, days, total }
+    let viewWeekOverviewCache = null; // { items, total }
+    let viewMonthDayOpen = false;
+    let viewWeekDayOpen = false;
+    let viewScreenVisited = false;
+
+    function mountViewDayEditor_() {
+      var host = document.getElementById("viewDayEditorHost");
+      if (!host) return;
+      var monthPanel = document.getElementById("viewMonthDayPanel");
+      var weekPanel = document.getElementById("viewWeekDayPanel");
+      if (viewSub === "month" && monthPanel) {
+        if (host.parentElement !== monthPanel) monthPanel.appendChild(host);
+        host.style.display = viewMonthDayOpen ? "" : "none";
+      } else if (weekPanel) {
+        if (host.parentElement !== weekPanel) weekPanel.appendChild(host);
+        host.style.display = viewWeekDayOpen ? "" : "none";
+      }
+    }
+
+    function setViewSub(which) {
+      viewSub = which === "week" ? "week" : "month";
+      var mBtn = document.getElementById("viewSubMonth");
+      var wBtn = document.getElementById("viewSubWeek");
+      if (mBtn) mBtn.classList.toggle("active", viewSub === "month");
+      if (wBtn) wBtn.classList.toggle("active", viewSub === "week");
+      var mPane = document.getElementById("viewMonthPane");
+      var wPane = document.getElementById("viewWeekPane");
+      if (mPane) mPane.style.display = viewSub === "month" ? "" : "none";
+      if (wPane) wPane.style.display = viewSub === "week" ? "" : "none";
+      var mOv = document.getElementById("viewMonthOverviewCard");
+      var wOv = document.getElementById("viewWeekOverviewCard");
+      if (mOv) mOv.style.display = (viewSub === "month" && !viewMonthDayOpen) ? "" : "none";
+      if (wOv) wOv.style.display = (viewSub === "week" && !viewWeekDayOpen) ? "" : "none";
+      var mDay = document.getElementById("viewMonthDayPanel");
+      var wDay = document.getElementById("viewWeekDayPanel");
+      if (mDay) mDay.style.display = (viewSub === "month" && viewMonthDayOpen) ? "" : "none";
+      if (wDay) wDay.style.display = (viewSub === "week" && viewWeekDayOpen) ? "" : "none";
+      mountViewDayEditor_();
+      // без рефетча — только показать кэш / пустой idle
+      if (viewSub === "month") {
+        if (viewMonthOverviewCache) renderMonthOverviewList_(viewMonthOverviewCache);
+        else if (!viewMonthDayOpen) ensureMonthOverviewLoaded_({ soft: true });
+      } else {
+        if (viewWeekOverviewCache) renderWeekOverviewList_(viewWeekOverviewCache);
+        else if (!viewWeekDayOpen) ensureWeekOverviewLoaded_({ soft: true });
+      }
+    }
+    window.setViewSub = setViewSub;
+
+    function enterViewScreen_() {
+      if (!viewScreenVisited) {
+        viewScreenVisited = true;
+        var pick = document.getElementById("viewMonthPick");
+        if (pick && !pick.value) {
+          var now = new Date();
+          pick.value = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+        }
+        setViewSub(viewSub || "month");
+        return;
+      }
+      // повторный заход — ничего не грузим заново
+      setViewSub(viewSub || "month");
+    }
+
+    function formatViewSegMix_(seg) {
+      seg = seg || {};
+      var bits = [];
+      if (seg["ПП"]) bits.push('<span class="view-ov-seg">ПП ' + seg["ПП"] + "</span>");
+      if (seg["БП"]) bits.push('<span class="view-ov-seg">БП ' + seg["БП"] + "</span>");
+      if (seg["Р"]) bits.push('<span class="view-ov-seg">Р ' + seg["Р"] + "</span>");
+      if (seg["ПАРТНЁР"]) bits.push('<span class="view-ov-seg">Парт ' + seg["ПАРТНЁР"] + "</span>");
+      if (seg.other) bits.push('<span class="view-ov-seg">др. ' + seg.other + "</span>");
+      return bits.join("") || '<span class="view-ov-seg muted">без типа</span>';
+    }
+
+    function weekdayLabelFromIso_(iso) {
+      try {
+        var names = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+        var dt = new Date(String(iso) + "T12:00:00");
+        if (isNaN(dt.getTime())) return "";
+        return names[dt.getDay()];
+      } catch (e) { return ""; }
+    }
+
+    function renderMonthOverviewList_(data) {
+      var box = document.getElementById("viewMonthOverviewList");
+      if (!box) return;
+      var days = (data && data.days) || [];
+      if (!days.length) {
+        box.innerHTML = '<div class="view-idle">В этом месяце записей нет</div>';
+        return;
+      }
+      box.innerHTML = days.map(function (d) {
+        var iso = d.dateIso || "";
+        var wd = weekdayLabelFromIso_(iso);
+        return '<div class="view-ov-row" data-iso="' + escapeHtml(iso) + '" onclick="openViewMonthDay(this.getAttribute(\'data-iso\'))">' +
+          '<div class="view-ov-left">' +
+            '<div class="view-ov-date">' + escapeHtml(iso) + (wd ? (" · " + wd) : "") + "</div>" +
+            '<div class="view-ov-meta">' + formatViewSegMix_(d.segments) + "</div>" +
+          "</div>" +
+          '<div class="view-ov-count">' + (Number(d.count) || 0) + "</div>" +
+        "</div>";
+      }).join("");
+    }
+
+    async function ensureMonthOverviewLoaded_(opts) {
+      opts = opts || {};
+      var pick = document.getElementById("viewMonthPick");
+      var month = (pick && pick.value) || "";
+      if (!month) {
+        var now = new Date();
+        month = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+        if (pick) pick.value = month;
+      }
+      if (opts.soft && viewMonthOverviewCache && viewMonthOverviewCache.month === month) {
+        renderMonthOverviewList_(viewMonthOverviewCache);
+        return;
+      }
+      var box = document.getElementById("viewMonthOverviewList");
+      if (box && !opts.soft) box.innerHTML = viewLoadingSkeletonHtml();
+      try {
+        var res = await apiGet(
+          { action: "getMonthOverview", month: month, _: String(Date.now()) },
+          { timeoutMs: 35000, cacheTtlMs: opts.force ? 0 : 20000 }
+        );
+        if (res && res.status === "success") {
+          viewMonthOverviewCache = res;
+          renderMonthOverviewList_(res);
+        } else {
+          if (box) {
+            box.innerHTML = '<div class="view-idle">Не удалось загрузить месяц' +
+              (res && res.message === "Unknown action" ? " — нужен Deploy Code.gs" : "") + "</div>";
+          }
+        }
+      } catch (e) {
+        if (box) box.innerHTML = '<div class="view-idle">Ошибка: ' + escapeHtml(e.message || String(e)) + "</div>";
+      }
+    }
+
+    function onViewMonthPickChange() {
+      viewMonthOverviewCache = null;
+      ensureMonthOverviewLoaded_({ force: true });
+    }
+    window.onViewMonthPickChange = onViewMonthPickChange;
+
+    async function openViewMonthDay(iso) {
+      iso = String(iso || "").trim();
+      if (!iso) return;
+      viewMonthDayOpen = true;
+      var title = document.getElementById("viewMonthDayTitle");
+      if (title) title.textContent = iso;
+      var pickDate = document.getElementById("viewDate");
+      if (pickDate) pickDate.value = iso;
+      var daySel = document.getElementById("viewDaySelect");
+      if (daySel) daySel.selectedIndex = 0;
+      setViewSub("month");
+      await loadClientsForDay();
+    }
+    window.openViewMonthDay = openViewMonthDay;
+
+    function closeViewMonthDay() {
+      viewMonthDayOpen = false;
+      setViewSub("month");
+    }
+    window.closeViewMonthDay = closeViewMonthDay;
+
+    function refreshViewMonthDay() {
+      loadClientsForDay();
+    }
+    window.refreshViewMonthDay = refreshViewMonthDay;
+
+    function renderWeekOverviewList_(data) {
+      var box = document.getElementById("viewWeekOverviewList");
+      var tot = document.getElementById("viewWeekOverviewTotal");
+      if (tot) tot.textContent = data && data.total != null ? ("(" + data.total + ")") : "";
+      if (!box) return;
+      var items = (data && data.items) || [];
+      if (!items.length) {
+        box.innerHTML = '<div class="view-idle">Нет данных по неделе</div>';
+        return;
+      }
+      box.innerHTML = items.map(function (it) {
+        var day = it.day || "";
+        var dateBit = it.date ? (" · " + escapeHtml(String(it.date))) : "";
+        return '<div class="view-ov-row" data-day="' + escapeHtml(day) + '" onclick="openViewWeekDay(this.getAttribute(\'data-day\'))">' +
+          '<div class="view-ov-left">' +
+            '<div class="view-ov-date">' + escapeHtml(it.short || day) + " · " + escapeHtml(day) + "</div>" +
+            '<div class="view-ov-meta">' + dateBit + "</div>" +
+          "</div>" +
+          '<div class="view-ov-count">' + (Number(it.count) || 0) + "</div>" +
+        "</div>";
+      }).join("");
+    }
+
+    async function ensureWeekOverviewLoaded_(opts) {
+      opts = opts || {};
+      if (opts.soft && viewWeekOverviewCache) {
+        renderWeekOverviewList_(viewWeekOverviewCache);
+        return;
+      }
+      var box = document.getElementById("viewWeekOverviewList");
+      if (box && !opts.soft) box.innerHTML = viewLoadingSkeletonHtml();
+      try {
+        var res = await apiGet(
+          { action: "getWeekDayCounts", force: opts.force ? "1" : "", _: String(Date.now()) },
+          { timeoutMs: 25000, cacheTtlMs: opts.force ? 0 : 15000 }
+        );
+        if (res && res.status === "success") {
+          viewWeekOverviewCache = res;
+          renderWeekOverviewList_(res);
+        } else if (box) {
+          box.innerHTML = '<div class="view-idle">Не удалось загрузить неделю</div>';
+        }
+      } catch (e) {
+        if (box) box.innerHTML = '<div class="view-idle">Ошибка: ' + escapeHtml(e.message || String(e)) + "</div>";
+      }
+    }
+
+    function refreshViewWeekOverview() {
+      viewWeekOverviewCache = null;
+      ensureWeekOverviewLoaded_({ force: true });
+    }
+    window.refreshViewWeekOverview = refreshViewWeekOverview;
+
+    async function openViewWeekDay(dayName) {
+      dayName = String(dayName || "").trim();
+      if (!dayName) return;
+      viewWeekDayOpen = true;
+      var title = document.getElementById("viewWeekDayTitle");
+      if (title) title.textContent = dayName;
+      var daySel = document.getElementById("viewDaySelect");
+      if (daySel) {
+        for (var i = 0; i < daySel.options.length; i++) {
+          if (daySel.options[i].value === dayName || daySel.options[i].text === dayName) {
+            daySel.selectedIndex = i;
+            break;
+          }
+        }
+      }
+      var pickDate = document.getElementById("viewDate");
+      if (pickDate) pickDate.value = "";
+      setViewSub("week");
+      await loadClientsForDay();
+    }
+    window.openViewWeekDay = openViewWeekDay;
+
+    function closeViewWeekDay() {
+      viewWeekDayOpen = false;
+      setViewSub("week");
+    }
+    window.closeViewWeekDay = closeViewWeekDay;
+
+    function refreshViewWeekDay() {
+      loadClientsForDay();
+    }
+    window.refreshViewWeekDay = refreshViewWeekDay;
 
     function viewLoadingSkeletonHtml() {
       var card = function () {
@@ -6542,6 +6934,7 @@
 
     let editOriginalClient = "";
     let editOriginalDay = "";
+    let editOriginalMatchKey = "";
 
     async function crmEditClient(index, event) {
       event.stopPropagation();
@@ -6551,6 +6944,7 @@
       document.getElementById("isEditMode").value = "true";
       editOriginalClient = client.name || "";
       editOriginalDay = day || "";
+      editOriginalMatchKey = client.matchKey || (typeof viewClientKey === "function" ? viewClientKey(client.name) : "") || "";
       document.getElementById("appHeaderTitle").innerText = "Изменение: " + client.name;
       document.getElementById("btnMainSave").innerText = "Обновить заказ";
       if (day) document.getElementById("day").value = day;
@@ -6632,12 +7026,34 @@
       basket = (client.basket || []).map(g => ({
         id: Date.now() + Math.random(),
         cat: g.cat || "other",
-        main: g.name,
-        name: g.name,
+        main: g.name || g.main,
+        name: g.name || g.main,
         sub: g.sub || "",
-        value: g.val,
-        val: g.val
+        value: g.val != null ? g.val : g.value,
+        val: g.val != null ? g.val : g.value,
+        dog: g.dog ? Number(g.dog) : 0
       }));
+      var hasDogSplit = basket.some(function (x) { return Number(x.dog) === 1 || Number(x.dog) === 2; })
+        || Number(client.dogCount) >= 2;
+      if (hasDogSplit) {
+        orderBaskets = { 1: [], 2: [] };
+        basket.forEach(function (x) {
+          var d = Number(x.dog) === 2 ? 2 : 1;
+          orderBaskets[d].push(x);
+        });
+        if (!orderBaskets[1].length && basket.length) {
+          orderBaskets[1] = basket.filter(function (x) { return Number(x.dog) !== 2; });
+        }
+        orderDogCount = 2;
+        orderActiveDog = 1;
+        basket = orderBaskets[1];
+        try { setOrderDogCount(2); } catch (eDogEdit) {}
+      } else {
+        orderDogCount = 1;
+        orderActiveDog = 1;
+        orderBaskets = { 1: basket.slice(), 2: [] };
+        try { setOrderDogCount(1); } catch (eDog1) {}
+      }
       renderBasket();
       switchTab("orderScreen");
       recoverUiFocus();

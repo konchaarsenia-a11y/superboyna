@@ -724,6 +724,11 @@ function doGet(e) {
   if (action === "getWeekDayCounts") {
     return handleGetWeekDayCounts({}, callback, false);
   }
+  if (action === "getMonthOverview") {
+    return handleGetMonthOverview({
+      month: e.parameter.month ? decodeURIComponent(e.parameter.month) : ""
+    }, callback, false);
+  }
   if (action === "getCutting") {
     return handleGetCutting(payload.day, callback);
   }
@@ -1238,7 +1243,10 @@ function doGet(e) {
       couponPrice: e.parameter.couponPrice || 0,
       basket: basketOrd,
       geo: geoOrd,
-      survey: surveyOrd
+      survey: surveyOrd,
+      editClient: e.parameter.editClient ? decodeURIComponent(e.parameter.editClient) : "",
+      originalClient: e.parameter.originalClient ? decodeURIComponent(e.parameter.originalClient) : "",
+      matchKey: e.parameter.matchKey ? decodeURIComponent(e.parameter.matchKey) : ""
     }, callback, false);
   }
   if (action === "saveBooking") {
@@ -1277,7 +1285,10 @@ function doGet(e) {
         try {
           return e.parameter.survey ? JSON.parse(decodeURIComponent(e.parameter.survey)) : null;
         } catch (eSv) { return null; }
-      })()
+      })(),
+      editClient: e.parameter.editClient ? decodeURIComponent(e.parameter.editClient) : "",
+      originalClient: e.parameter.originalClient ? decodeURIComponent(e.parameter.originalClient) : "",
+      matchKey: e.parameter.matchKey ? decodeURIComponent(e.parameter.matchKey) : ""
     }, callback, false);
   }
 
@@ -1323,6 +1334,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "getWeekDayCounts") {
     return handleGetWeekDayCounts(json, callback, fromPost);
+  }
+  if (action === "getMonthOverview") {
+    return handleGetMonthOverview(json, callback, fromPost);
   }
   if (action === "saveBooking") {
     return handleSaveBooking(ss, json, callback, fromPost);
@@ -2631,13 +2645,34 @@ function handleSaveOrder(ss, json, callback, fromPost) {
 
   var clientCol = -1;
   var mgrNicks = targetSheet.getRange(block.nick, 3, 1, 15).getValues()[0];
-  for (var i = 0; i < 15; i++) {
-    if (nicksMatch_(mgrNicks[i], json.client)) {
-      clientCol = i + 3;
-      break;
+  var editClient = String(json.editClient || json.originalClient || "").trim();
+  var wantMatchKey = String(json.matchKey || "").trim();
+  // 1) правка: колонка по matchKey / старому нику
+  if (wantMatchKey || editClient) {
+    for (var ie = 0; ie < 15; ie++) {
+      var nickE = mgrNicks[ie];
+      if (!nickE) continue;
+      if (wantMatchKey && clientMatchKey_(nickE) === wantMatchKey) {
+        clientCol = ie + 3;
+        break;
+      }
+      if (editClient && nicksMatch_(nickE, editClient)) {
+        clientCol = ie + 3;
+        break;
+      }
     }
   }
+  // 2) обычный матч по текущему нику
   if (clientCol === -1) {
+    for (var i = 0; i < 15; i++) {
+      if (nicksMatch_(mgrNicks[i], json.client)) {
+        clientCol = i + 3;
+        break;
+      }
+    }
+  }
+  // 3) новая колонка — только если не правка (нет editClient/matchKey)
+  if (clientCol === -1 && !(editClient || wantMatchKey)) {
     for (var colIdx = 3; colIdx <= 17; colIdx++) {
       if (String(targetSheet.getRange(block.nick, colIdx).getValue() || "").trim() === "") {
         clientCol = colIdx;
@@ -2645,6 +2680,11 @@ function handleSaveOrder(ss, json, callback, fromPost) {
         break;
       }
     }
+  }
+  // правка: ник мог смениться — обновим ячейку ника в найденной колонке
+  if (clientCol !== -1 && (editClient || wantMatchKey)) {
+    var nickWant = String(json.client || "").trim();
+    if (nickWant) targetSheet.getRange(block.nick, clientCol).setValue(nickWant);
   }
   if (clientCol === -1) return reply({ status: "no_free_columns" });
 
@@ -2702,7 +2742,9 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   }
 
   var itemsInSheet = targetSheet.getRange(block.start, 1, block.end - block.start + 1, 1).getValues();
-  var basket = normalizeBasketArg_(json.basket);
+  var basketRaw = normalizeBasketArg_(json.basket);
+  // 2 собаки: на лист недели — суммы по позициям; dog-метки сохраняются в Календарь_Дат basketJson
+  var basket = mergeBasketQtyForSheet_(basketRaw);
 
   var wrote = 0;
   var missed = [];
@@ -2983,6 +3025,50 @@ function countClientsOnDayNickRow_(ss, dayName) {
 }
 
 /** 6 счётчиков: Пн–Пт + Будущая неделя. */
+/** Обзор месяца: даты + кол-во людей + микс сегментов (Календарь_Дат). */
+function handleGetMonthOverview(json, callback, fromPost) {
+  if (fromPost === undefined) fromPost = true;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone();
+  var monthStr = String((json && (json.month || json.ym)) || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(monthStr)) {
+    monthStr = Utilities.formatDate(new Date(), tz, "yyyy-MM");
+  }
+  var all = [];
+  try { all = readAllCalendarRows_(); } catch (e0) { all = []; }
+  var byDate = {};
+  for (var i = 0; i < all.length; i++) {
+    var row = all[i];
+    var st = String(row.status || "").toLowerCase();
+    if (st === "cancelled") continue;
+    var iso = String(row.dateIso || "").trim();
+    if (!iso || iso.indexOf("-") < 0) {
+      var d = parseFlexibleDate_(row.date, tz) || parseFlexibleDate_(row.dateIso, tz);
+      if (d) iso = isoDateKey_(d, tz);
+    }
+    if (!iso || iso.indexOf(monthStr) !== 0) continue;
+    if (!byDate[iso]) {
+      byDate[iso] = {
+        dateIso: iso,
+        count: 0,
+        segments: { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 }
+      };
+    }
+    byDate[iso].count++;
+    var seg = String(row.segment || "").trim().toUpperCase();
+    if (seg === "ПП" || seg === "PP" || seg === "АФК" || seg === "AFK") byDate[iso].segments["ПП"]++;
+    else if (seg === "БП" || seg === "BP") byDate[iso].segments["БП"]++;
+    else if (seg === "Р" || seg === "R" || seg === "RETAIL" || seg === "РОЗНИЦА") byDate[iso].segments["Р"]++;
+    else if (seg.indexOf("ПАРТ") === 0 || seg === "PARTNER" || seg === "ВАРКА") byDate[iso].segments["ПАРТНЁР"]++;
+    else byDate[iso].segments.other++;
+  }
+  var daysOut = Object.keys(byDate).sort().map(function (k) { return byDate[k]; });
+  var total = 0;
+  for (var t = 0; t < daysOut.length; t++) total += Number(daysOut[t].count) || 0;
+  var ok = { status: "success", month: monthStr, days: daysOut, total: total };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
 function handleGetWeekDayCounts(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var days = [
@@ -3264,6 +3350,12 @@ function getClientsData_(ss, dayName) {
         else if (segFromNote.indexOf("ПАРТ") === 0) srcFromSeg = "partner";
         else if (segFromNote === "Р" || segFromNote === "RETAIL") srcFromSeg = "retail";
         if (calHit && calHit.phone && !phone) phone = calHit.phone;
+        var basketOut = clientBasket;
+        var dogCountOut = 1;
+        if (calHit && calHit.basket && basketHasDogSplit_(calHit.basket)) {
+          basketOut = calHit.basket;
+          dogCountOut = 2;
+        }
         clientsDataList.push({
           name: nameClean,
           orderCount: totalItemsInOrder,
@@ -3271,7 +3363,8 @@ function getClientsData_(ss, dayName) {
           note: noteStr,
           phone: phone,
           geo: geoObj || null,
-          basket: clientBasket,
+          basket: basketOut,
+          dogCount: dogCountOut,
           col: colIdx,
           segment: segFromNote,
           source: srcFromSeg,
@@ -3280,6 +3373,7 @@ function getClientsData_(ss, dayName) {
           ppHint: ppSlotOut ? ("ПП " + ppSlotOut) : "",
           deliveryAfter: (calHit && calHit.deliveryAfter) || "",
           deliveryBefore: (calHit && calHit.deliveryBefore) || "",
+          matchKey: pk || "",
           ppPartner: (calHit && calHit.ppPartner) || "",
           couponsQty: (calHit && calHit.couponsQty) || 0,
           couponPrice: (calHit && calHit.couponPrice) || 0,
@@ -5845,6 +5939,57 @@ function normalizeBasketArg_(basket) {
   });
 }
 
+/** Суммирует одинаковые позиции (для колонки недели); dog-метки отбрасывает. */
+function mergeBasketQtyForSheet_(basket) {
+  var map = {};
+  var order = [];
+  (basket || []).forEach(function (it) {
+    var name = String(it.name || it.main || "").trim();
+    var sub = String(it.sub || "").trim();
+    var val = Number(it.val != null ? it.val : it.value) || 0;
+    if (!name || val <= 0) return;
+    var key = name.toUpperCase() + "|" + sub.toUpperCase();
+    if (!map[key]) {
+      map[key] = {
+        cat: it.cat || "",
+        main: name,
+        name: name,
+        sub: sub,
+        val: 0,
+        value: 0,
+        unit: it.unit || ""
+      };
+      order.push(key);
+    }
+    map[key].val += val;
+    map[key].value = map[key].val;
+  });
+  return order.map(function (k) { return map[k]; });
+}
+
+function basketHasDogSplit_(basket) {
+  var has1 = false, has2 = false;
+  (basket || []).forEach(function (it) {
+    var d = Number(it.dog) || 0;
+    if (d === 1) has1 = true;
+    if (d === 2) has2 = true;
+  });
+  return has1 && has2;
+}
+
+function splitBasketByDog_(basket) {
+  var d1 = [], d2 = [], rest = [];
+  (basket || []).forEach(function (it) {
+    var d = Number(it.dog) || 0;
+    if (d === 2) d2.push(it);
+    else if (d === 1) d1.push(it);
+    else rest.push(it);
+  });
+  if (!d2.length) return null;
+  if (rest.length) d1 = d1.concat(rest);
+  return { dog1: d1, dog2: d2 };
+}
+
 function handleSaveBooking(ss, json, callback, fromPost) {
   if (fromPost === undefined) fromPost = true;
   var tz = ss.getSpreadsheetTimeZone();
@@ -6020,7 +6165,10 @@ function handleSaveBooking(ss, json, callback, fromPost) {
         deliveryBefore: beforeSave,
         ppPartner: ppPartnerSave,
         couponsQty: couponsQtySave,
-        couponPrice: couponPriceSave
+        couponPrice: couponPriceSave,
+        editClient: json.editClient || json.originalClient || "",
+        originalClient: json.originalClient || json.editClient || "",
+        matchKey: json.matchKey || ""
       }, null, "internal");
       if (soRes && soRes.status === "success") {
         weekWrite = {
@@ -6366,7 +6514,9 @@ function handleGetViewCompare(json, callback, fromPost) {
         ppPartner: c.ppPartner || "",
         orderPrice: c.orderPrice != null ? c.orderPrice : "",
         ppSlot: c.ppSlot || "",
-        ppHint: c.ppHint || ""
+        ppHint: c.ppHint || "",
+        matchKey: c.matchKey || k || "",
+        dogCount: c.dogCount || 1
       });
     });
   }
@@ -9433,7 +9583,7 @@ function handleSaveSubscription(json, callback, fromPost) {
       factCost, packCountsOpt
     );
     while (rowVals.length < headers.length) rowVals.push("");
-    sh.getRange(rowIdx + 1, 1, 1, headers.length).setValues([rowVals.slice(0, headers.length)]);
+    applyPpRowValuesPreservingFormulas_(sh, rowIdx + 1, headers, rowVals);
   } else {
     sh.getRange(rowIdx + 1, 1).setValue(label);
     if (headers.length > 1) sh.getRange(rowIdx + 1, 2).setValue(subId || String(data[rowIdx][1] || ""));
@@ -11353,37 +11503,51 @@ function handleGetAssembly(json, callback, fromPost) {
   var typeTotals = { light: 0, bulk: 0, chew: 0, craft: 0, other: 0 };
   var counterTotals = {};
   var lightAll = {};
-  var out = (clientsData.clients || []).map(function (c) {
-    var plan = buildAssemblyForBasket_(c.basket || []);
-    for (var t in plan.typeCounts) {
-      if (plan.typeCounts.hasOwnProperty(t)) typeTotals[t] = (typeTotals[t] || 0) + plan.typeCounts[t];
+  var out = [];
+  (clientsData.clients || []).forEach(function (c) {
+    var baseName = String(c.name || "").replace(/\s*[·•#]\s*2\s*$/i, "").trim() || String(c.name || "");
+    var parts = splitBasketByDog_(c.basket || []);
+    var entries = [];
+    if (parts && parts.dog2 && parts.dog2.length) {
+      entries.push({ name: baseName, basket: parts.dog1 || [], dogPart: 1 });
+      entries.push({ name: baseName + " · 2", basket: parts.dog2, dogPart: 2 });
+    } else {
+      entries.push({ name: c.name, basket: c.basket || [], dogPart: 0 });
     }
-    var lbc = plan.lightBagsByCounter || {};
-    for (var ck in lbc) {
-      if (lbc.hasOwnProperty(ck)) counterTotals[ck] = (counterTotals[ck] || 0) + lbc[ck];
-    }
-    (plan.packs || []).forEach(function (p) {
-      if (p.type === 'light') return;
-      var key = p.counterKey || '';
-      if (!key) return;
-      counterTotals[key] = (counterTotals[key] || 0) + (Number(p.bags) || 0);
+    entries.forEach(function (ent) {
+      var plan = buildAssemblyForBasket_(ent.basket || []);
+      for (var t in plan.typeCounts) {
+        if (plan.typeCounts.hasOwnProperty(t)) typeTotals[t] = (typeTotals[t] || 0) + plan.typeCounts[t];
+      }
+      var lbc = plan.lightBagsByCounter || {};
+      for (var ck in lbc) {
+        if (lbc.hasOwnProperty(ck)) counterTotals[ck] = (counterTotals[ck] || 0) + lbc[ck];
+      }
+      (plan.packs || []).forEach(function (p) {
+        if (p.type === 'light') return;
+        var key = p.counterKey || '';
+        if (!key) return;
+        counterTotals[key] = (counterTotals[key] || 0) + (Number(p.bags) || 0);
+      });
+      (plan.lightByFraction || []).forEach(function (lf) {
+        lightAll[lf.sub] = (lightAll[lf.sub] || 0) + lf.val;
+      });
+      var memE = memFlagEntry_(memFlags, ent.name);
+      out.push({
+        name: ent.name,
+        address: c.address || '',
+        note: c.note || '',
+        basket: ent.basket || [],
+        packs: plan.packs,
+        totalBags: plan.totalBags,
+        craftBags: plan.craftBags || 0,
+        lightByFraction: plan.lightByFraction,
+        lightBagsByCounter: plan.lightBagsByCounter || {},
+        assembled: !!(memE && memE.assembled),
+        dogPart: ent.dogPart || 0,
+        ownerName: baseName
+      });
     });
-    (plan.lightByFraction || []).forEach(function (lf) {
-      lightAll[lf.sub] = (lightAll[lf.sub] || 0) + lf.val;
-    });
-    var memE = memFlagEntry_(memFlags, c.name);
-    return {
-      name: c.name,
-      address: c.address || '',
-      note: c.note || '',
-      basket: c.basket || [],
-      packs: plan.packs,
-      totalBags: plan.totalBags,
-      craftBags: plan.craftBags || 0,
-      lightByFraction: plan.lightByFraction,
-      lightBagsByCounter: plan.lightBagsByCounter || {},
-      assembled: !!(memE && memE.assembled)
-    };
   });
   var lightByFraction = [];
   var lightGramsTotal = 0;
@@ -15320,6 +15484,35 @@ function applyPackCountsToRowValues_(headers, row, basket, packCountsOpt) {
   return row;
 }
 
+/** Колонки с формулами метрик — не затирать при обновлении карточки. */
+function isPpFinancePreserveHeader_(header) {
+  var h = String(header || "").replace(/\s+/g, " ").trim().toUpperCase().replace(/Ё/g, "Е");
+  if (!h) return false;
+  if (/^У[123]$|^УП4$|^С[123]$/.test(h)) return false;
+  if (h.indexOf("ФАКТ") >= 0 && h.indexOf("СТОИМ") >= 0) return false;
+  if (/^(ЛЮДИ|ID|КОЛИЧ|СТАТУС|ПОЖЕЛАН)/.test(h)) return false;
+  return /СЕБЕСТОИМ|СТОИМОСТ|СУММА|ЦЕНА|ИТОГ|СКИДК|ВЫХЛОП|КАРМАН|ФРАК|ГРЯЗН|ОБЩАЯ|ОБЩИЙ/.test(h);
+}
+
+/**
+ * Запись строки ПП/БП без сноса формул (ОБЩАЯ СЕБЕСТОИМОСТЬ / ВЫХЛОП / ИТОГОВАЯ…).
+ * Любая ячейка с формулой — не трогаем; пустые finance-колонки — тоже.
+ */
+function applyPpRowValuesPreservingFormulas_(sh, row1, headers, rowVals) {
+  if (!sh || !(row1 >= 2) || !headers || !rowVals) return;
+  var n = Math.min(headers.length, rowVals.length);
+  if (n <= 0) return;
+  var formulas = sh.getRange(row1, 1, 1, n).getFormulas()[0] || [];
+  for (var c = 0; c < n; c++) {
+    var formula = String(formulas[c] || "");
+    if (formula) continue;
+    var v = rowVals[c];
+    if ((v === "" || v == null) && isPpFinancePreserveHeader_(headers[c])) continue;
+    if (v === null || v === undefined) continue;
+    sh.getRange(row1, c + 1).setValue(v);
+  }
+}
+
 /** Первая пустая строка клиента (A пусто), не хвост «себестоимость/стоимость 100». */
 function findFirstEmptySubscriptionRowIndex_(sh) {
   var lastCol = Math.max(1, sh.getLastColumn());
@@ -15381,7 +15574,7 @@ function upsertSubscriptionProductRow_(sh, headers, rowVals, basket, nickForMatc
     }
   }
   if (rowIdx >= 0) {
-    sh.getRange(rowIdx + 1, 1, 1, headers.length).setValues([rowVals.slice(0, headers.length)]);
+    applyPpRowValuesPreservingFormulas_(sh, rowIdx + 1, headers, rowVals);
     return { row: rowIdx + 1, created: false };
   }
   var emptyIdx = findFirstEmptySubscriptionRowIndex_(sh); // 0-based from getRange row1
