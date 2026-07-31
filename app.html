@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.88";
+      var APP_VER = "v7.11.89";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2461,7 +2461,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.88";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.89";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -7405,6 +7405,7 @@
       const cutFlag = cutRaw === "yes" ? "1" : "0";
       let ok = 0;
       let fail = [];
+      let surveys = 0;
       showToast("Переношу " + names.length + "…");
       for (let i = 0; i < names.length; i++) {
         try {
@@ -7420,15 +7421,26 @@
             cutRaw: cutFlag,
             matchKey: (loadedClientsRawData[idxs[i]] && loadedClientsRawData[idxs[i]].matchKey) || ""
           });
-          if (res.status === "success") ok++;
-          else fail.push(names[i] + " (" + (res.status || "?") + ")");
+          if (res.status === "success") {
+            ok++;
+            surveys += Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
+          } else fail.push(names[i] + " (" + (res.status || "?") + ")");
         } catch (e) {
           fail.push(names[i]);
         }
       }
-      showToast("Перенесено: " + ok + (fail.length ? ", ошибок: " + fail.length : ""));
+      showToast(
+        "Перенесено: " + ok +
+        (surveys ? (", опросников: " + surveys) : "") +
+        (fail.length ? ", ошибок: " + fail.length : "")
+      );
       if (fail.length) await uiAlertAsync("Не удалось:\n" + fail.join("\n"));
-      try { apiCacheBustMem_("getViewCompare"); apiCacheBustMem_("getClients"); apiCacheBustMem_("getMonthOverview"); } catch (eClr) {}
+      try {
+        apiCacheBustMem_("getViewCompare");
+        apiCacheBustMem_("getClients");
+        apiCacheBustMem_("getMonthOverview");
+        apiCacheBustMem_("listSurvey");
+      } catch (eClr) {}
       await refreshDayViews(oldDay);
       if (target.newDay && target.newDay !== oldDay) await refreshDayViews(target.newDay);
       recoverUiFocus();
@@ -7711,12 +7723,19 @@
           await uiAlertAsync("Не удалось: " + (res.status || "ошибка"));
           return;
         }
-        showToast(target.calendarOnly
+        var svN = Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
+        var baseMsg = target.calendarOnly
           ? ("В календаре на " + target.newDate + " (не на Будущей)")
           : (dateOnly
             ? ("Дата → " + target.newDate)
-            : (cutRaw === "yes" ? "Перенесено (резать)" : "Перенесено без резки")));
-        try { apiCacheBustMem_("getViewCompare"); apiCacheBustMem_("getClients"); apiCacheBustMem_("getMonthOverview"); } catch (eClr) {}
+            : (cutRaw === "yes" ? "Перенесено (резать)" : "Перенесено без резки"));
+        showToast(svN ? (baseMsg + " · опрос " + svN) : baseMsg);
+        try {
+          apiCacheBustMem_("getViewCompare");
+          apiCacheBustMem_("getClients");
+          apiCacheBustMem_("getMonthOverview");
+          apiCacheBustMem_("listSurvey");
+        } catch (eClr) {}
         await refreshDayViews(oldDay);
         if (target.newDay && target.newDay !== oldDay) await refreshDayViews(target.newDay);
       } catch (err) {

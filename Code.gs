@@ -2983,6 +2983,7 @@ function handleMoveClient(ss, json, callback) {
       calendarMoved: dateSyncCal.calendar || 0,
       bookingsMoved: dateSyncCal.bookings || 0,
       crmMoved: dateSyncCal.crm || 0,
+      surveysMoved: dateSyncCal.surveys || 0,
       dateSync: dateSyncCal
     });
   }
@@ -3028,6 +3029,7 @@ function handleMoveClient(ss, json, callback) {
       calendarMoved: dateSyncOnly.calendar || 0,
       bookingsMoved: dateSyncOnly.bookings || 0,
       crmMoved: dateSyncOnly.crm || 0,
+      surveysMoved: dateSyncOnly.surveys || 0,
       dateSync: dateSyncOnly
     });
   }
@@ -3121,17 +3123,18 @@ function handleMoveClient(ss, json, callback) {
     calendarMoved: dateSync.calendar || 0,
     bookingsMoved: dateSync.bookings || 0,
     crmMoved: dateSync.crm || 0,
+    surveysMoved: dateSync.surveys || 0,
     dateSync: dateSync
   });
 }
 
 /**
  * Перенос человека на другую дату доставки во всех таблицах даты:
- * Календарь_Дат, Брони_Заказов, CRM-месяц (Июль/Август…).
+ * Календарь_Дат, Брони_Заказов, CRM-месяц (Июль/Август…), открытые опросники (+meta БП).
  */
 function moveClientDeliveryDateEverywhere_(ss, client, oldDate, newDate, opts) {
   opts = opts || {};
-  var out = { calendar: 0, bookings: 0, crm: 0, createdCalendar: false };
+  var out = { calendar: 0, bookings: 0, crm: 0, surveys: 0, surveyDeltaDays: 0, bpMeta: 0, createdCalendar: false };
   if (!ss || !client || !oldDate || !newDate) return out;
   var tz = ss.getSpreadsheetTimeZone();
   var oldKey = dateKey_(oldDate, tz);
@@ -3161,6 +3164,19 @@ function moveClientDeliveryDateEverywhere_(ss, client, oldDate, newDate, opts) {
       out.createdCalendar = true;
       out.calendar = 1;
     } catch (e4) {}
+  }
+
+  // опросники: dueDate сдвигается на тот же Δ дней, что и доставка (+ теги в карточке БП)
+  if (oldKey !== newKey) {
+    try {
+      var crmSv = getCrmSpreadsheet_();
+      var sv = shiftOpenSurveysOnDeliveryMove_(crmSv, client, oldDate, newDate, opts);
+      out.surveys = (sv && sv.shifted) || 0;
+      out.surveyDeltaDays = (sv && sv.deltaDays) || 0;
+      out.bpMeta = (sv && sv.bpMeta) || 0;
+    } catch (eSv) {
+      out.surveyError = String(eSv);
+    }
   }
   return out;
 }
@@ -14268,6 +14284,109 @@ function moveSurveysWithClient_(crmSs, nick, opts) {
   }
   try { clearCrmSheetCache_("Опросник"); } catch (eC) {}
   return { moved: n };
+}
+
+/**
+ * При переносе даты доставки сдвинуть dueDate открытых опросников на тот же Δ дней.
+ * Отправленные/отменённые не трогаем. Также двигает [ОПРОС_БП2/ФИНАЛ] в карточке БП.
+ */
+function shiftOpenSurveysOnDeliveryMove_(crmSs, nick, oldDate, newDate, opts) {
+  opts = opts || {};
+  var out = { shifted: 0, deltaDays: 0, bpMeta: 0, items: [] };
+  nick = String(nick || "").trim();
+  if (!crmSs || !nick || !oldDate || !newDate) return out;
+  var tz = Session.getScriptTimeZone() || "Europe/Minsk";
+  try {
+    var act = SpreadsheetApp.getActiveSpreadsheet();
+    if (act) tz = act.getSpreadsheetTimeZone() || tz;
+  } catch (eTz) {}
+  var oldD = oldDate instanceof Date ? oldDate : parseFlexibleDate_(oldDate, tz);
+  var newD = newDate instanceof Date ? newDate : parseFlexibleDate_(newDate, tz);
+  if (!oldD || !newD || isNaN(oldD.getTime()) || isNaN(newD.getTime())) return out;
+  var deltaDays = Math.round((dateKeyMidnightMs_(newD, tz) - dateKeyMidnightMs_(oldD, tz)) / 86400000);
+  out.deltaDays = deltaDays;
+  if (!deltaDays) return out;
+
+  var sh = ensureSurveySheet_(crmSs);
+  var nickAlts = [nick];
+  try {
+    var nShort = extractInstagramNick_(nick) || displayClientNick_(nick) || "";
+    if (nShort && nickAlts.indexOf(nShort) < 0) nickAlts.push(nShort);
+  } catch (eAlt) {}
+  if (sh && sh.getLastRow() >= 2) {
+    var data = sh.getDataRange().getValues();
+    var closedRe = /^(sent|done|cancelled|canceled|answered|completed|closed)$/i;
+    for (var r = 1; r < data.length; r++) {
+      var obj = surveyRowToObj_(data[r], r + 1);
+      var nickCell = cleanSurveyNickDisplay_(obj.nick) || obj.nick;
+      var hit = false;
+      for (var a = 0; a < nickAlts.length && !hit; a++) {
+        if (nicksMatch_(nickCell, nickAlts[a]) || nicksMatch_(obj.nick, nickAlts[a])) hit = true;
+      }
+      if (!hit) continue;
+      var st = String(obj.status || "planned").trim() || "planned";
+      if (closedRe.test(st)) continue;
+      var dueYmd = surveyDueYmd_(obj.dueDate);
+      var newDue = "";
+      if (dueYmd) {
+        newDue = ymdPlusDays_(dueYmd, deltaDays, tz);
+      } else {
+        // нет due — канон: новая доставка + 4 дня
+        newDue = ymdPlusDays_(Utilities.formatDate(newD, tz, "yyyy-MM-dd"), 4, tz);
+      }
+      if (!newDue || newDue === dueYmd) continue;
+      writeSurveyDueCell_(sh, r + 1, 5, newDue);
+      try { sh.getRange(r + 1, 12).setValue(new Date()); } catch (eUp) {}
+      out.shifted++;
+      out.items.push({ id: obj.id || "", nick: nickCell, from: dueYmd || "", to: newDue, kind: obj.kind || "" });
+    }
+    if (out.shifted) {
+      try { clearCrmSheetCache_("Опросник"); } catch (eC) {}
+    }
+  }
+
+  try {
+    out.bpMeta = shiftBpSurveyMetaDates_(crmSs, nick, deltaDays) || 0;
+    var nick2 = extractInstagramNick_(nick) || displayClientNick_(nick) || "";
+    if (nick2 && nick2 !== nick) {
+      out.bpMeta += shiftBpSurveyMetaDates_(crmSs, nick2, deltaDays) || 0;
+    }
+  } catch (eBp) {}
+  return out;
+}
+
+function dateKeyMidnightMs_(d, tz) {
+  var ymd = Utilities.formatDate(d, tz || Session.getScriptTimeZone() || "Europe/Minsk", "yyyy-MM-dd");
+  var p = String(ymd).split("-");
+  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 12, 0, 0).getTime();
+}
+
+/** Сдвинуть теги [ОПРОС_БП2]/ОПРОС_ФИНАЛ] в wishes карточки БП. */
+function shiftBpSurveyMetaDates_(crmSs, nick, deltaDays) {
+  nick = String(nick || "").trim();
+  deltaDays = Number(deltaDays) || 0;
+  if (!crmSs || !nick || !deltaDays) return 0;
+  var bp = findSheetByBaseName_(crmSs, "БП");
+  if (!bp) return 0;
+  var rowIdx = -1;
+  try { rowIdx = findSubscriptionRowIndex_(bp, nick, ""); } catch (eF) { rowIdx = -1; }
+  if (rowIdx < 0) return 0;
+  var wishes = String(bp.getRange(rowIdx + 1, 5).getValue() || "");
+  var meta = parseBpMetaFromWishes_(wishes);
+  var next = {};
+  var changed = false;
+  if (meta.surveyBp2Due) {
+    next.surveyBp2Due = ymdPlusDays_(meta.surveyBp2Due, deltaDays);
+    changed = true;
+  }
+  if (meta.surveyFinalDue) {
+    next.surveyFinalDue = ymdPlusDays_(meta.surveyFinalDue, deltaDays);
+    changed = true;
+  }
+  if (!changed) return 0;
+  bp.getRange(rowIdx + 1, 5).setValue(stampBpMetaIntoWishes_(wishes, next));
+  try { clearCrmSheetCache_("БП"); } catch (eC) {}
+  return 1;
 }
 
 function handleRepairSurveys(json, callback, fromPost) {
