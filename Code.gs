@@ -30,8 +30,21 @@ var MANAGER_DAY_NAMES_ = [
   "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"
 ];
 
-/** Создать блоки Сб/Вс на «Прием заказов» (копия названий товаров с Пн + даты от Пт). */
-function ensureManagerWeekendBlocks_(ss) {
+/**
+ * Устройство блока дня на «Прием заказов» (шаг 61 от Пн):
+ *   A{date}     — дата (=A1+N для Вт…Вс)
+ *   A{date+1}   — название дня
+ *   A{date+2}   — «ИМЯ КЛИЕНТА» (ники C–Q)
+ *   A{date+3}…  — товары (как A4:A59)
+ *   B{товар}    — =SUM(C:Q) по строке
+ *   addr/note   — две строки после товаров
+ *
+ * Сб: A306…A366 (date+5). Вс: A367…A427 (date+6).
+ * force — переустановить подписи и формулы B/дат.
+ */
+function ensureManagerWeekendBlocks_(ss, opts) {
+  opts = opts || {};
+  var force = !!(opts.force === true || opts.force === "1" || opts.force === 1);
   ss = ss || SpreadsheetApp.getActiveSpreadsheet();
   var manager = ss.getSheetByName("Прием заказов");
   if (!manager) return { ok: false };
@@ -41,35 +54,205 @@ function ensureManagerWeekendBlocks_(ss) {
       manager.insertRowsAfter(manager.getMaxRows(), needRows - manager.getMaxRows());
     }
   } catch (eRows) {}
-  var monLabels = manager.getRange(4, 1, 56, 1).getValues();
-  var addrLabels = manager.getRange(60, 1, 2, 1).getValues();
-  if (!String(manager.getRange(309, 1).getValue() || "").trim()) {
-    try {
-      manager.getRange(309, 1, 56, 1).setValues(monLabels);
-      manager.getRange(365, 1, 2, 1).setValues(addrLabels);
-      manager.getRange(308, 2).setValue("Суббота");
-    } catch (eSat) {}
-  }
-  if (!String(manager.getRange(370, 1).getValue() || "").trim()) {
-    try {
-      manager.getRange(370, 1, 56, 1).setValues(monLabels);
-      manager.getRange(426, 1, 2, 1).setValues(addrLabels);
-      manager.getRange(369, 2).setValue("Воскресенье");
-    } catch (eSun) {}
-  }
-  var tz = ss.getSpreadsheetTimeZone();
-  var fri = parseFlexibleDate_(manager.getRange("A245").getValue(), tz);
-  if (fri) {
-    if (!manager.getRange("A306").getValue()) {
-      var sat = new Date(fri.getFullYear(), fri.getMonth(), fri.getDate() + 1);
-      manager.getRange("A306").setValue(Utilities.formatDate(sat, tz, "dd.MM.yyyy"));
+
+  var sat = installManagerDayBlockFromMonday_(manager, {
+    dateRow: 306,
+    dayOffset: 5,
+    dayTitle: "Суббота",
+    force: force
+  });
+  var sun = installManagerDayBlockFromMonday_(manager, {
+    dateRow: 367,
+    dayOffset: 6,
+    dayTitle: "Воскресенье",
+    force: force
+  });
+  return { ok: true, saturday: sat, sunday: sun };
+}
+
+/**
+ * Поставить один блок дня по образцу понедельника (подписи A + суммы B + дата =A1+N).
+ * Не копирует заказы C–Q.
+ */
+function installManagerDayBlockFromMonday_(manager, cfg) {
+  var dateRow = Number(cfg.dateRow) || 0;
+  var dayOffset = Number(cfg.dayOffset) || 0;
+  var title = String(cfg.dayTitle || "");
+  var force = !!cfg.force;
+  if (dateRow < 2) return { ok: false };
+  var titleRow = dateRow + 1;
+  var nickRow = dateRow + 2;
+  var prodStart = dateRow + 3;
+  var prodEnd = prodStart + 55;
+  var out = { dateRow: dateRow, title: title, nickRow: nickRow, prodStart: prodStart, prodEnd: prodEnd };
+
+  // убрать старый баг: название дня в B{nick}
+  try {
+    if (String(manager.getRange(nickRow, 2).getValue() || "").trim() === title) {
+      manager.getRange(nickRow, 2).clearContent();
     }
-    if (!manager.getRange("A367").getValue()) {
-      var sun = new Date(fri.getFullYear(), fri.getMonth(), fri.getDate() + 2);
-      manager.getRange("A367").setValue(Utilities.formatDate(sun, tz, "dd.MM.yyyy"));
+  } catch (eClr) {}
+
+  manager.getRange(titleRow, 1).setValue(title);
+
+  var nickVal = String(manager.getRange(nickRow, 1).getValue() || "").trim();
+  var firstProd = String(manager.getRange(prodStart, 1).getValue() || "").trim();
+  var misaligned = /л[её]гк/i.test(nickVal) || (!nickVal && firstProd);
+  var needLabels = force || misaligned || !firstProd;
+  if (needLabels) {
+    // A3:A61 → nick…note (59 строк): ИМЯ + товары + адрес + примечание
+    manager.getRange(3, 1, 59, 1).copyTo(manager.getRange(nickRow, 1), { contentsOnly: true });
+  }
+
+  // B: итог по клиентам строки =SUM(C:Q) — как на Пн
+  var needB = force || !String(manager.getRange(prodStart, 2).getFormula() || "").trim();
+  if (needB) {
+    var monB = String(manager.getRange("B4").getFormula() || "").trim();
+    if (monB) {
+      manager.getRange("B4:B59").copyTo(manager.getRange(prodStart, 2), { contentsOnly: false });
+    } else {
+      var formulas = [];
+      for (var r = prodStart; r <= prodEnd; r++) {
+        formulas.push(["=SUM(C" + r + ":Q" + r + ")"]);
+      }
+      manager.getRange(prodStart, 2, 56, 1).setFormulas(formulas);
     }
   }
-  return { ok: true };
+
+  // Дата от понедельника: =A1+N (Вт=+1 … Вс=+6)
+  var dateCell = manager.getRange(dateRow, 1);
+  var existingF = String(dateCell.getFormula() || "").trim();
+  if (force || !existingF || !dateCell.getValue()) {
+    dateCell.setFormula("=A1+" + dayOffset);
+  }
+  out.dateFormula = String(dateCell.getFormula() || "");
+  out.bFormulaSample = String(manager.getRange(prodStart, 2).getFormula() || "");
+  out.labels = needLabels;
+  out.ok = true;
+  return out;
+}
+
+/**
+ * Один раз из редактора: формулы дат Пн→Вс + блоки Сб/Вс как у Пн.
+ * Вт–Пт даты тоже =A1+1…+4 (если ещё не формулы).
+ */
+function setupWeekendDayFormulas() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var manager = ss.getSheetByName("Прием заказов");
+  if (!manager) {
+    Logger.log("no Прием заказов");
+    return { ok: false };
+  }
+  var dayOffsets = [
+    { cell: "A62", n: 1 },
+    { cell: "A123", n: 2 },
+    { cell: "A184", n: 3 },
+    { cell: "A245", n: 4 },
+    { cell: "A306", n: 5 },
+    { cell: "A367", n: 6 }
+  ];
+  for (var i = 0; i < dayOffsets.length; i++) {
+    manager.getRange(dayOffsets[i].cell).setFormula("=A1+" + dayOffsets[i].n);
+  }
+  // подписи дней Вт–Пт (если пусто)
+  var titles = [
+    { row: 2, name: "Понедельник" },
+    { row: 63, name: "Вторник" },
+    { row: 124, name: "Среда" },
+    { row: 185, name: "Четверг" },
+    { row: 246, name: "Пятница" },
+    { row: 307, name: "Суббота" },
+    { row: 368, name: "Воскресенье" }
+  ];
+  for (var t = 0; t < titles.length; t++) {
+    var cell = manager.getRange(titles[t].row, 1);
+    if (!String(cell.getValue() || "").trim()) cell.setValue(titles[t].name);
+  }
+  // B на Пн, если вдруг нет формул
+  if (!String(manager.getRange("B4").getFormula() || "").trim()) {
+    var monF = [];
+    for (var r = 4; r <= 59; r++) monF.push(["=SUM(C" + r + ":Q" + r + ")"]);
+    manager.getRange(4, 2, 56, 1).setFormulas(monF);
+  }
+  // скопировать B-формулы Пн → Вт…Пт (если пусто)
+  var bStarts = [65, 126, 187, 248];
+  for (var b = 0; b < bStarts.length; b++) {
+    var bs = bStarts[b];
+    if (!String(manager.getRange(bs, 2).getFormula() || "").trim()) {
+      manager.getRange("B4:B59").copyTo(manager.getRange(bs, 2), { contentsOnly: false });
+    }
+  }
+  var week = ensureManagerWeekendBlocks_(ss, { force: true });
+  var snap = inspectManagerFormulas_(ss);
+  Logger.log(JSON.stringify({ week: week, snap: snap }));
+  return { ok: true, week: week, snap: snap };
+}
+
+/** Снимок формул дат/B для отладки (и action inspectManagerFormulas). */
+function inspectManagerFormulas_(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var manager = ss.getSheetByName("Прием заказов");
+  var cutting = ss.getSheetByName("Нарезка");
+  var wh = ss.getSheetByName("Склад");
+  if (!manager) return { ok: false };
+  function cellInfo_(a1) {
+    var c = manager.getRange(a1);
+    return { a1: a1, formula: String(c.getFormula() || ""), value: String(c.getDisplayValue() || "") };
+  }
+  var dates = ["A1", "A62", "A123", "A184", "A245", "A306", "A367"].map(cellInfo_);
+  var sums = ["B4", "B65", "B126", "B187", "B248", "B309", "B370"].map(cellInfo_);
+  var titles = ["A2", "A63", "A124", "A185", "A246", "A307", "A368"].map(cellInfo_);
+  var cutD = null;
+  var whG = null;
+  try {
+    if (cutting) {
+      cutD = {
+        formula: String(cutting.getRange("D3").getFormula() || ""),
+        value: String(cutting.getRange("D3").getDisplayValue() || "")
+      };
+    }
+  } catch (eC) {}
+  try {
+    if (wh) {
+      whG = {
+        formula: String(wh.getRange("G2").getFormula() || ""),
+        value: String(wh.getRange("G2").getDisplayValue() || "")
+      };
+    }
+  } catch (eW) {}
+  return {
+    ok: true,
+    pattern: "date=A1+N; B=SUM(C:Q); titles A2/A63/…; nick+products from Mon A3:A61",
+    dates: dates,
+    titles: titles,
+    rowSums: sums,
+    cuttingD3: cutD,
+    warehouseG2: whG,
+    affects: [
+      "recalculateCuttingForDate_ (Нарезка!B из C:Q блока дня)",
+      "finishFullWeekProduction (расход склада по всем блокам Пн–Вс)",
+      "getClients / move / materialize / weekDayCounts",
+      "Нарезка!D — свои формулы от B и Склад!D (не от блоков Сб/Вс напрямую)",
+      "Склад!G — формулы листа; если суммируют только Пн–Пт — расширить вручную после inspect"
+    ]
+  };
+}
+
+function handleInspectManagerFormulas(json, callback, fromPost) {
+  var out = inspectManagerFormulas_(SpreadsheetApp.getActiveSpreadsheet());
+  out.status = out.ok ? "success" : "error";
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+}
+
+function handleSetupWeekendFormulas(json, callback, fromPost) {
+  var tid = String((json && json.telegramId) || "").trim();
+  if (tid && !actorIsOwner_(tid)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var result = setupWeekendDayFormulas();
+  result.status = result.ok ? "success" : "error";
+  return fromPost ? jsonpText(callback, result) : jsonp(callback, result);
 }
 
 /** Заполнить токены и выполнить ОДИН раз, затем очистить литералы из кода или оставить пустыми. */
@@ -493,13 +676,25 @@ function finishFullWeekProduction(optSs, optOpts) {
   sheetWarehouse.getRange("F15:F25").setValues(pieceStockValues);
   sheetWarehouse.getRange("B15:B25").setValue(0);
 
-  for (var k = 0; k < MANAGER_DAY_NAMES_.length; k++) {
+  // Даты Вт–Вс = формулы =A1+N → двигаем только понедельник (+7)
+  var mondayCell = sheetManager.getRange("A1");
+  var oldManagerDate = mondayCell.getValue();
+  if (oldManagerDate instanceof Date && !isNaN(oldManagerDate.getTime())) {
+    var nextManagerDate = new Date(oldManagerDate);
+    nextManagerDate.setDate(nextManagerDate.getDate() + 7);
+    mondayCell.setValue(Utilities.formatDate(nextManagerDate, tz, "dd.MM.yyyy"));
+  }
+  // если на Вт–Вс стоят значения без формулы — тоже +7 (старый режим)
+  for (var k = 1; k < MANAGER_DAY_NAMES_.length; k++) {
     var cellRef = MANAGER_DATE_CELLS[k];
-    var oldManagerDate = sheetManager.getRange(cellRef).getValue();
-    if (oldManagerDate instanceof Date && !isNaN(oldManagerDate.getTime())) {
-      var nextManagerDate = new Date(oldManagerDate);
-      nextManagerDate.setDate(nextManagerDate.getDate() + 7);
-      sheetManager.getRange(cellRef).setValue(Utilities.formatDate(nextManagerDate, tz, "dd.MM.yyyy"));
+    var cell = sheetManager.getRange(cellRef);
+    var fml = String(cell.getFormula() || "").trim();
+    if (fml && /A1/i.test(fml)) continue;
+    var oldD = cell.getValue();
+    if (oldD instanceof Date && !isNaN(oldD.getTime())) {
+      var nextD = new Date(oldD);
+      nextD.setDate(nextD.getDate() + 7);
+      cell.setValue(Utilities.formatDate(nextD, tz, "dd.MM.yyyy"));
     }
   }
 
@@ -782,6 +977,14 @@ function doGet(e) {
   }
   if (action === "getWeekDayCounts") {
     return handleGetWeekDayCounts({}, callback, false);
+  }
+  if (action === "inspectManagerFormulas") {
+    return handleInspectManagerFormulas({}, callback, false);
+  }
+  if (action === "setupWeekendFormulas") {
+    return handleSetupWeekendFormulas({
+      telegramId: e.parameter.telegramId || ""
+    }, callback, false);
   }
   if (action === "getMonthOverview") {
     return handleGetMonthOverview({
@@ -1397,6 +1600,12 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "getWeekDayCounts") {
     return handleGetWeekDayCounts(json, callback, fromPost);
+  }
+  if (action === "inspectManagerFormulas") {
+    return handleInspectManagerFormulas(json, callback, fromPost);
+  }
+  if (action === "setupWeekendFormulas") {
+    return handleSetupWeekendFormulas(json, callback, fromPost);
   }
   if (action === "getMonthOverview") {
     return handleGetMonthOverview(json, callback, fromPost);
