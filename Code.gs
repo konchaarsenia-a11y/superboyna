@@ -37,10 +37,11 @@ var MANAGER_DAY_NAMES_ = [
  *   A{date+2}   — «ИМЯ КЛИЕНТА» (ники C–Q)
  *   A{date+3}…  — товары (как A4:A59)
  *   B{товар}    — =SUM(C:Q) по строке
+ *   R{блок}     — остаток сырья со склада с учётом прошлых дней (цепочка Пн→…→Вс)
  *   addr/note   — две строки после товаров
  *
  * Сб: A306…A366 (date+5). Вс: A367…A427 (date+6).
- * force — переустановить подписи и формулы B/дат.
+ * force — переустановить подписи и формулы B/дат/R.
  */
 function ensureManagerWeekendBlocks_(ss, opts) {
   opts = opts || {};
@@ -67,7 +68,50 @@ function ensureManagerWeekendBlocks_(ss, opts) {
     dayTitle: "Воскресенье",
     force: force
   });
+  // Колонка R: остаток склада — цепочка от предыдущего дня (Пт→Сб→Вс)
+  var rSat = installManagerStockColR_(manager, 245, 306, force);
+  var rSun = installManagerStockColR_(manager, 306, 367, force);
+  if (sat) sat.colR = rSat;
+  if (sun) sun.colR = rSun;
   return { ok: true, saturday: sat, sunday: sun };
+}
+
+/**
+ * Скопировать колонку R блока (61 строка: дата…примечание) с prevDateRow → toDateRow.
+ * Формулы относительные: Вт ссылается на Пн, Сб на Пт, Вс на Сб.
+ */
+function installManagerStockColR_(manager, prevDateRow, toDateRow, force) {
+  prevDateRow = Number(prevDateRow) || 0;
+  toDateRow = Number(toDateRow) || 0;
+  if (prevDateRow < 1 || toDateRow < 1) return { ok: false };
+  var prevProd = prevDateRow + 3;
+  var toProd = toDateRow + 3;
+  var prevF = String(manager.getRange(prevProd, 18).getFormula() || "").trim();
+  var toF = String(manager.getRange(toProd, 18).getFormula() || "").trim();
+  var toV = manager.getRange(toProd, 18).getValue();
+  var emptyTo = !toF && (toV === "" || toV == null);
+  if (!force && !emptyTo) return { ok: true, skipped: true, reason: "already_filled" };
+  if (!prevF) {
+    // у Пн/Пт иногда значение без формулы в первой строке — пробуем любую формулу в блоке товаров
+    for (var i = 0; i < 56 && !prevF; i++) {
+      prevF = String(manager.getRange(prevProd + i, 18).getFormula() || "").trim();
+    }
+  }
+  if (!prevF) {
+    return { ok: false, reason: "prev_no_formula", prevDateRow: prevDateRow, toDateRow: toDateRow };
+  }
+  // весь блок дня в R (61 строк), как у Пн–Пт
+  try {
+    manager.getRange(prevDateRow, 18, 61, 1).copyTo(manager.getRange(toDateRow, 18), { contentsOnly: false });
+  } catch (eCopy) {
+    return { ok: false, reason: String(eCopy), prevDateRow: prevDateRow, toDateRow: toDateRow };
+  }
+  return {
+    ok: true,
+    from: "R" + prevDateRow + ":R" + (prevDateRow + 60),
+    to: "R" + toDateRow,
+    sample: String(manager.getRange(toProd, 18).getFormula() || "")
+  };
 }
 
 /**
@@ -183,9 +227,14 @@ function setupWeekendDayFormulas() {
     }
   }
   var week = ensureManagerWeekendBlocks_(ss, { force: true });
+  // колонка R ещё раз явно (на случай пустого Пт)
+  var rFix = {
+    sat: installManagerStockColR_(manager, 245, 306, true),
+    sun: installManagerStockColR_(manager, 306, 367, true)
+  };
   var snap = inspectManagerFormulas_(ss);
-  Logger.log(JSON.stringify({ week: week, snap: snap }));
-  return { ok: true, week: week, snap: snap };
+  Logger.log(JSON.stringify({ week: week, rFix: rFix, snap: snap }));
+  return { ok: true, week: week, rFix: rFix, snap: snap };
 }
 
 /** Снимок формул дат/B для отладки (и action inspectManagerFormulas). */
@@ -201,6 +250,7 @@ function inspectManagerFormulas_(ss) {
   }
   var dates = ["A1", "A62", "A123", "A184", "A245", "A306", "A367"].map(cellInfo_);
   var sums = ["B4", "B65", "B126", "B187", "B248", "B309", "B370"].map(cellInfo_);
+  var stockR = ["R4", "R65", "R126", "R187", "R248", "R309", "R370"].map(cellInfo_);
   var titles = ["A2", "A63", "A124", "A185", "A246", "A307", "A368"].map(cellInfo_);
   var cutD = null;
   var whG = null;
@@ -222,10 +272,11 @@ function inspectManagerFormulas_(ss) {
   } catch (eW) {}
   return {
     ok: true,
-    pattern: "date=A1+N; B=SUM(C:Q); titles A2/A63/…; nick+products from Mon A3:A61",
+    pattern: "date=A1+N; B=SUM(C:Q); R=остаток склада цепочкой от пред. дня; titles A2/A63/…",
     dates: dates,
     titles: titles,
     rowSums: sums,
+    stockColR: stockR,
     cuttingD3: cutD,
     warehouseG2: whG,
     affects: [
@@ -233,7 +284,7 @@ function inspectManagerFormulas_(ss) {
       "finishFullWeekProduction (расход склада по всем блокам Пн–Вс)",
       "getClients / move / materialize / weekDayCounts",
       "Нарезка!D — свои формулы от B и Склад!D (не от блоков Сб/Вс напрямую)",
-      "Склад!G — формулы листа; если суммируют только Пн–Пт — расширить вручную после inspect"
+      "Колонка R на Прием заказов — остаток сырья с учётом прошлых дней (Пн→…→Вс)"
     ]
   };
 }
