@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.81";
+      var APP_VER = "v7.11.82";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1499,7 +1499,7 @@
       </div>
       <div id="finishWeekBanner" class="week-banner" style="display:none;">
         <h3>Завершить неделю?</h3>
-        <div class="muted">Склад (F/B), даты +7, очистка Пн–Пт, Будущая→Пн. Только владелец. Вс с 18:00 или пн до 12:00.</div>
+        <div class="muted">Склад (F/B), даты +7, очистка Пн–Вс, Будущая→Пн. Только владелец. Вс с 18:00 или пн до 12:00.</div>
         <button type="button" class="btn-action btn-blue" onclick="dismissFinishWeekBanner()">Уже завершили — скрыть</button>
         <button type="button" class="btn-action btn-orange" style="margin-top:8px;" onclick="onFinishWeekClick()">Завершить неделю</button>
         <button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="refuseFinishWeek()">Позже</button>
@@ -1508,7 +1508,7 @@
         <h3>Подтянуть из месяца</h3>
         <div class="muted" id="pullWeekHint">Люди + состав из ПП/АФК/БП (ПП — доля слота N=1/N=2). Уже стоящих с составом не затираем.</div>
         <div id="pullWeekPreview" class="muted" style="margin-bottom:8px;"></div>
-        <button type="button" class="btn-action btn-blue" onclick="confirmPullWeekFromHome()">Подтянуть Пн–Пт</button>
+        <button type="button" class="btn-action btn-blue" onclick="confirmPullWeekFromHome()">Подтянуть Пн–Вс</button>
         <button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="dismissPullWeekBanner()">Уже подтянули — скрыть</button>
       </div>
       <div class="card">
@@ -1654,7 +1654,8 @@
             <label>День недели</label>
             <select id="day" onchange="onOrderDaySelectChange_()">
               <option>Понедельник</option><option>Вторник</option><option>Среда</option>
-              <option>Четверг</option><option>Пятница</option><option>Будущая неделя</option>
+              <option>Четверг</option><option>Пятница</option><option>Суббота</option>
+              <option>Воскресенье</option><option>Будущая неделя</option>
             </select>
           </div>
           <div class="form-group">
@@ -1770,7 +1771,8 @@
             <select id="viewDaySelect" onchange="onViewDayChange()">
               <option value="">-- Выбрать день --</option>
               <option>Понедельник</option><option>Вторник</option><option>Среда</option>
-              <option>Четверг</option><option>Пятница</option><option>Будущая неделя</option>
+              <option>Четверг</option><option>Пятница</option><option>Суббота</option>
+              <option>Воскресенье</option><option>Будущая неделя</option>
             </select>
           </div>
           <div class="form-group">
@@ -1829,10 +1831,11 @@
       <div class="card">
         <div class="form-group">
           <label>День нарезки</label>
-          <select id="cuttingDaySelect" onchange="onCuttingDayChange()">
+            <select id="cuttingDaySelect" onchange="onCuttingDayChange()">
             <option value="">-- Выбрать день --</option>
             <option>Понедельник</option><option>Вторник</option><option>Среда</option>
-            <option>Четверг</option><option>Пятница</option><option>Будущая неделя</option>
+            <option>Четверг</option><option>Пятница</option><option>Суббота</option>
+            <option>Воскресенье</option><option>Будущая неделя</option>
           </select>
         </div>
       </div>
@@ -1852,10 +1855,11 @@
       <div class="card">
         <div class="form-group">
           <label>День доставки</label>
-          <select id="courierDaySelect" onchange="onCourierDayChange()">
+            <select id="courierDaySelect" onchange="onCourierDayChange()">
             <option value="">-- Выбрать день --</option>
             <option>Понедельник</option><option>Вторник</option><option>Среда</option>
-            <option>Четверг</option><option>Пятница</option>
+            <option>Четверг</option><option>Пятница</option><option>Суббота</option>
+            <option>Воскресенье</option>
           </select>
           <button class="btn-action btn-blue" type="button" style="margin-top:8px;" onclick="loadCourier(true)">Обновить список</button>
         </div>
@@ -1886,7 +1890,8 @@
             <select id="assemblyDaySelect" onchange="onAssemblyDayChange()">
               <option value="">-- Выбрать день --</option>
               <option>Понедельник</option><option>Вторник</option><option>Среда</option>
-              <option>Четверг</option><option>Пятница</option>
+              <option>Четверг</option><option>Пятница</option><option>Суббота</option>
+              <option>Воскресенье</option>
             </select>
           </div>
           <button class="btn-action btn-orange" type="button" onclick="loadAssembly(true)">Посчитать пакеты</button>
@@ -2456,7 +2461,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.81";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.82";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -8574,20 +8579,15 @@
 
     function opsWeekdayNameNow() {
       var names = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
-      var wd = new Date().getDay();
-      if (wd === 0) return "Понедельник";
-      if (wd === 6) return "Пятница";
-      return names[wd];
+      return names[new Date().getDay()];
     }
 
-    /** Нарезка под доставку завтра: вт → среда, …; сб/вс → понедельник. */
+    /** Нарезка под доставку завтра (включая сб/вс). */
     function opsCuttingTargetDayNow() {
       var names = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
       var d = new Date();
       d.setDate(d.getDate() + 1);
-      var wd = d.getDay();
-      if (wd === 0 || wd === 6) return "Понедельник";
-      return names[wd];
+      return names[d.getDay()];
     }
 
     function setSelectDayValue(sel, day) {
@@ -8616,7 +8616,7 @@
       }
     }
 
-    /** Курьер/сборка: сегодня (Пн–Пт). forceSmart — при открытии вкладки. */
+    /** Курьер/сборка: сегодня (Пн–Вс). forceSmart — при открытии вкладки. */
     function ensureOpsDaySelected(opts) {
       opts = opts || {};
       var cour = document.getElementById("courierDaySelect");
@@ -11245,6 +11245,8 @@
         { day: "Среда", short: "Ср", count: "·" },
         { day: "Четверг", short: "Чт", count: "·" },
         { day: "Пятница", short: "Пт", count: "·" },
+        { day: "Суббота", short: "Сб", count: "·" },
+        { day: "Воскресенье", short: "Вс", count: "·" },
         { day: "Будущая неделя", short: "Буд", count: "·" }
       ];
       box.innerHTML = list.map(function (it) {
@@ -11612,7 +11614,7 @@
     async function confirmPullWeekFromHome() {
       var st = null;
       try { st = await apiGet({ action: "weekPullStatus" }); } catch (e) {}
-      var msg = "Подтянуть людей из месяцев на всю Пн–Пт?\nСостав подставится с листов ПП/АФК/БП (ПП — с учётом 1-й/2-й доставки).\nУже стоящих с составом не затираем.";
+      var msg = "Подтянуть людей из месяцев на всю Пн–Вс?\nСостав подставится с листов ПП/АФК/БП (ПП — с учётом 1-й/2-й доставки).\nУже стоящих с составом не затираем.";
       if (st && st.status === "success") {
         msg += "\n\nМесяц: " + (st.monthPeople || 0) + ", неделя: " + (st.weekPeople || 0) + ", дописать ~" + (st.maybeMissing || 0);
       }
@@ -12840,6 +12842,18 @@
     }
 
     /** Пересчёт пакетов клиента с учётом выкл. форматов дойпака. */
+    function isAssemblyTreatItemLocal_(it) {
+      var name = String((it && (it.name || it.main)) || "").trim();
+      var cat = String((it && it.cat) || "").toLowerCase();
+      if (!name && !cat) return false;
+      if (cat === "chew" || cat === "chews") return true;
+      if (/шт/i.test(name) || /быч|трахе|аорт|ухо|нос|станова|колен|копыт|переп|губ|книжк/i.test(name)) return true;
+      return false;
+    }
+    function basketForAssemblyPacks_(basket, printed) {
+      if (!printed) return basket || [];
+      return (basket || []).filter(function (it) { return !isAssemblyTreatItemLocal_(it); });
+    }
     function buildAssemblyPacksLocal(basket, enabled) {
       var packs = [];
       var doy = { "маленький": 0, "средний": 0, "большой": 0, "целое": 0 };
@@ -13083,7 +13097,7 @@
       };
 
       pending.forEach(function (c) {
-        var packs = buildAssemblyPacksLocal(c.basket || [], packTypesEnabled);
+        var packs = buildAssemblyPacksLocal(basketForAssemblyPacks_(c.basket || [], c.printed), packTypesEnabled);
         (packs || []).forEach(function (p) {
           var key = packCounterKey(p);
           if (!key) return;
@@ -13131,7 +13145,7 @@
       var clientsHtml = clientsSorted.map(function (c, idx) {
         var bags = 0;
         var byCounter = {};
-        var packsLocal = buildAssemblyPacksLocal(c.basket || [], packTypesEnabled);
+        var packsLocal = buildAssemblyPacksLocal(basketForAssemblyPacks_(c.basket || [], c.printed), packTypesEnabled);
         (packsLocal || []).forEach(function (p) {
           var key = packCounterKey(p);
           if (!key) return;
@@ -13151,9 +13165,13 @@
           var unit = g.unit || (/шт/i.test(String(g.name || "")) ? "шт" : "гр");
           var frac = g.sub ? ' <span class="muted">(' + escapeHtml(g.sub) + ")</span>" : "";
           var lineName = g.name || g.main || "";
-          return '<div class="order-detail-line"><span>• ' + escapeHtml(lineName) + frac +
+          var isTreat = isAssemblyTreatItemLocal_(g);
+          var treatSkip = c.printed && isTreat;
+          var lineStyle = treatSkip ? ' style="opacity:.45;text-decoration:line-through;"' : "";
+          var treatTag = treatSkip ? ' <span class="muted">(не в печати)</span>' : "";
+          return '<div class="order-detail-line"' + lineStyle + '><span>• ' + escapeHtml(lineName) + frac + treatTag +
             '</span><span class="order-detail-volume">' + (g.val != null ? g.val : g.value) + " " + unit + "</span></div>" +
-            assemblyLineNotesHtml_(c, lineName, g.sub || "");
+            (treatSkip ? "" : assemblyLineNotesHtml_(c, lineName, g.sub || ""));
         }).join("") || '<div class="muted">Пустой состав</div>';
 
         var clientGeneralNotes = collectAssemblyNotesFromClients_([c]).filter(function (n) {
@@ -13169,17 +13187,24 @@
         var safeName = String(c.name || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
         return '<div class="card' + (c.assembled ? " is-delivered" : "") + '" style="margin-bottom:10px;' +
           (c.assembled ? "opacity:.72;" : "") + '" id="asmCard_' + idx + '">' +
-          '<label class="check-line" style="margin-bottom:6px;">' +
+          '<label class="check-line" style="margin-bottom:4px;">' +
           '<input type="checkbox" ' + (c.assembled ? "checked" : "") +
           ' onchange="toggleAssembledByName(\'' + safeName + '\', this.checked)">' +
           '<span class="cut-title">' + escapeHtml(c.name) + '</span>' +
           ' <span class="muted">· ' + bags + " пак.</span>" +
           (c.assembled ? ' <span class="client-badge" style="margin-left:6px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>' : "") +
+          (c.printed ? ' <span class="client-badge" style="margin-left:6px;background:rgba(10,132,255,0.22);color:#64d2ff;">пропечатано</span>' : "") +
+          "</label>" +
+          '<label class="check-line" style="margin-bottom:6px;font-size:13px;">' +
+          '<input type="checkbox" ' + (c.printed ? "checked" : "") +
+          ' onchange="togglePrintedByName(\'' + safeName + '\', this.checked)">' +
+          '<span>Пропечатано <span class="muted">(без лакомств)</span></span>' +
           "</label>" +
           (c.address ? '<div class="muted" style="font-size:12px;margin-top:4px;">' + escapeHtml(c.address) + "</div>" : "") +
           '<div style="margin-top:8px;"><b>Состав</b></div>' + composition +
           clientNotesHtml +
-          '<div class="pack-line" style="margin-top:8px;"><b>Пакеты:</b> ' + escapeHtml(packSummary) + "</div>" +
+          '<div class="pack-line" style="margin-top:8px;"><b>Пакеты:</b> ' + escapeHtml(packSummary) +
+          (c.printed ? ' <span class="muted">· без лакомств</span>' : "") + "</div>" +
           "</div>";
       }).join("") || '<p class="muted">Нет клиентов</p>';
 
@@ -13247,6 +13272,30 @@
       }
     }
 
+    async function togglePrintedByName(clientName, printed) {
+      var res = assemblyCache;
+      if (!res || !res.clients) return;
+      var name = String(clientName || "");
+      var client = null;
+      for (var i = 0; i < res.clients.length; i++) {
+        if (String(res.clients[i].name || "") === name) { client = res.clients[i]; break; }
+      }
+      if (!client) return;
+      var day = document.getElementById("assemblyDaySelect").value || document.getElementById("courierDaySelect").value;
+      var next = printed === undefined ? !client.printed : !!printed;
+      client.printed = next;
+      renderAssemblyView();
+      try { apiCacheBustMem_("getAssembly"); } catch (eClr) {}
+      try {
+        await apiPost({ action: "setPrinted", day: day, client: client.name, printed: next });
+        showToast(next ? ("Пропечатано без лакомств: " + client.name) : ("Печать сброшена: " + client.name));
+      } catch (e) {
+        client.printed = !next;
+        showToast("Не удалось сохранить");
+        renderAssemblyView();
+      }
+    }
+
     async function toggleAssembled(index, assembled) {
       var res = assemblyCache;
       if (!res || !res.clients) return;
@@ -13262,6 +13311,7 @@
     }
     window.toggleAssembled = toggleAssembled;
     window.toggleAssembledByName = toggleAssembledByName;
+    window.togglePrintedByName = togglePrintedByName;
 
 
 

@@ -16,10 +16,61 @@ var DAY_BLOCKS = {
   "СРЕДА": { nick: 125, start: 126, end: 181, addr: 182, note: 183, sheet: "manager" },
   "ЧЕТВЕРГ": { nick: 186, start: 187, end: 242, addr: 243, note: 244, sheet: "manager" },
   "ПЯТНИЦА": { nick: 247, start: 248, end: 303, addr: 304, note: 305, sheet: "manager" },
+  "СУББОТА": { nick: 308, start: 309, end: 364, addr: 365, note: 366, sheet: "manager" },
+  "ВОСКРЕСЕНЬЕ": { nick: 369, start: 370, end: 425, addr: 426, note: 427, sheet: "manager" },
   "БУДУЩАЯ НЕДЕЛЯ": { nick: 3, start: 4, end: 59, addr: 60, note: 61, sheet: "future" }
 };
 
-var MANAGER_DATE_CELLS = { 0: "A1", 1: "A62", 2: "A123", 3: "A184", 4: "A245" };
+var MANAGER_DATE_CELLS = {
+  0: "A1", 1: "A62", 2: "A123", 3: "A184", 4: "A245",
+  5: "A306", 6: "A367"
+};
+
+var MANAGER_DAY_NAMES_ = [
+  "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"
+];
+
+/** Создать блоки Сб/Вс на «Прием заказов» (копия названий товаров с Пн + даты от Пт). */
+function ensureManagerWeekendBlocks_(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var manager = ss.getSheetByName("Прием заказов");
+  if (!manager) return { ok: false };
+  var needRows = 427;
+  try {
+    if (manager.getMaxRows() < needRows) {
+      manager.insertRowsAfter(manager.getMaxRows(), needRows - manager.getMaxRows());
+    }
+  } catch (eRows) {}
+  var monLabels = manager.getRange(4, 1, 56, 1).getValues();
+  var addrLabels = manager.getRange(60, 1, 2, 1).getValues();
+  if (!String(manager.getRange(309, 1).getValue() || "").trim()) {
+    try {
+      manager.getRange(309, 1, 56, 1).setValues(monLabels);
+      manager.getRange(365, 1, 2, 1).setValues(addrLabels);
+      manager.getRange(308, 2).setValue("Суббота");
+    } catch (eSat) {}
+  }
+  if (!String(manager.getRange(370, 1).getValue() || "").trim()) {
+    try {
+      manager.getRange(370, 1, 56, 1).setValues(monLabels);
+      manager.getRange(426, 1, 2, 1).setValues(addrLabels);
+      manager.getRange(369, 2).setValue("Воскресенье");
+    } catch (eSun) {}
+  }
+  var tz = ss.getSpreadsheetTimeZone();
+  var fri = parseFlexibleDate_(manager.getRange("A245").getValue(), tz);
+  if (fri) {
+    if (!manager.getRange("A306").getValue()) {
+      var sat = new Date(fri.getFullYear(), fri.getMonth(), fri.getDate() + 1);
+      manager.getRange("A306").setValue(Utilities.formatDate(sat, tz, "dd.MM.yyyy"));
+    }
+    if (!manager.getRange("A367").getValue()) {
+      var sun = new Date(fri.getFullYear(), fri.getMonth(), fri.getDate() + 2);
+      manager.getRange("A367").setValue(Utilities.formatDate(sun, tz, "dd.MM.yyyy"));
+    }
+  }
+  return { ok: true };
+}
 
 /** Заполнить токены и выполнить ОДИН раз, затем очистить литералы из кода или оставить пустыми. */
 function setupSecrets() {
@@ -73,7 +124,7 @@ function cachePutJson_(key, obj, ttlSec) {
 function bustClientsCache_() {
   try {
     var cache = CacheService.getScriptCache();
-    var days = ["ПОНЕДЕЛЬНИК", "ВТОРНИК", "СРЕДА", "ЧЕТВЕРГ", "ПЯТНИЦА", "БУДУЩАЯ НЕДЕЛЯ"];
+    var days = ["ПОНЕДЕЛЬНИК", "ВТОРНИК", "СРЕДА", "ЧЕТВЕРГ", "ПЯТНИЦА", "СУББОТА", "ВОСКРЕСЕНЬЕ", "БУДУЩАЯ НЕДЕЛЯ"];
     for (var i = 0; i < days.length; i++) cache.remove("GC:" + days[i]);
   } catch (e) {}
 }
@@ -205,7 +256,7 @@ function recalculateCuttingForDate_(ss, dateText) {
   if (future && formatSheetDate(future.getRange("A1").getValue(), tz) === dateText) {
     sourceSheet = future;
   } else if (manager) {
-    for (var i = 0; i < 5; i++) {
+    for (var i = 0; i < MANAGER_DAY_NAMES_.length; i++) {
       if (formatSheetDate(manager.getRange(MANAGER_DATE_CELLS[i]).getValue(), tz) === dateText) {
         sourceSheet = manager;
         offset = i * 61;
@@ -214,7 +265,7 @@ function recalculateCuttingForDate_(ss, dateText) {
     }
   }
 
-  var matrixRows = sourceSheet === future ? 60 : 310;
+  var matrixRows = sourceSheet === future ? 60 : 427;
   var matrix = sourceSheet ? sourceSheet.getRange(1, 3, matrixRows, 15).getValues() : null;
   // колонки с [НЕ РЕЗАТЬ] в примечании — не входят в план резки дня
   var skipCols = {};
@@ -340,12 +391,15 @@ function finishFullWeekProduction(optSs, optOpts) {
   }
 
   var today = dateVal instanceof Date ? dateVal : new Date();
+  try { ensureManagerWeekendBlocks_(ss); } catch (eWk) {}
   var weekDaysGeo = [
     { start: 4, end: 59 },
     { start: 65, end: 120 },
     { start: 126, end: 181 },
     { start: 187, end: 242 },
-    { start: 248, end: 303 }
+    { start: 248, end: 303 },
+    { start: 309, end: 364 },
+    { start: 370, end: 425 }
   ];
 
   // Итоги недели — вкладка «Статистика» (getStats / Календарь_Дат / CRM).
@@ -414,7 +468,7 @@ function finishFullWeekProduction(optSs, optOpts) {
       var totalGramsWeek = 0;
       weekDaysGeo.forEach(function (day) {
         var dayOffset = day.start - 4;
-        var fullManagerMatrix = sheetManager.getRange("C1:Q310").getValues();
+        var fullManagerMatrix = sheetManager.getRange("C1:Q427").getValues();
         rowsToSum.forEach(function (rNum) {
           var targetRowIdx = rNum + dayOffset - 1;
           for (var colM = 0; colM < 15; colM++) {
@@ -439,7 +493,7 @@ function finishFullWeekProduction(optSs, optOpts) {
   sheetWarehouse.getRange("F15:F25").setValues(pieceStockValues);
   sheetWarehouse.getRange("B15:B25").setValue(0);
 
-  for (var k = 0; k < 5; k++) {
+  for (var k = 0; k < MANAGER_DAY_NAMES_.length; k++) {
     var cellRef = MANAGER_DATE_CELLS[k];
     var oldManagerDate = sheetManager.getRange(cellRef).getValue();
     if (oldManagerDate instanceof Date && !isNaN(oldManagerDate.getTime())) {
@@ -453,7 +507,7 @@ function finishFullWeekProduction(optSs, optOpts) {
   nextCourierDate.setDate(nextCourierDate.getDate() + 7);
   sheetCourier.getRange("A1").setValue(Utilities.formatDate(nextCourierDate, tz, "dd.MM.yyyy"));
 
-  // Очистка всех блоков Пн–Пт: ники + товары + адрес + примечание
+  // Очистка всех блоков Пн–Вс: ники + товары + адрес + примечание
   Object.keys(DAY_BLOCKS).forEach(function (dayKey) {
     var b = DAY_BLOCKS[dayKey];
     if (b.sheet !== "manager") return;
@@ -1392,6 +1446,9 @@ function handleApiAction(json, callback, fromPost) {
   if (action === "setAssembled") {
     return handleSetAssembled(ss, json, callback);
   }
+  if (action === "setPrinted") {
+    return handleSetPrinted(ss, json, callback);
+  }
   if (action === "registerCourier") {
     return handleRegisterCourier(json, callback, fromPost);
   }
@@ -2005,7 +2062,8 @@ function handleSetDelivered(ss, json, callback) {
   values[memKey] = {
     delivered: delivered,
     paid: paidVal || prevMem.paid || null,
-    assembled: !!prevMem.assembled
+    assembled: !!prevMem.assembled,
+    printed: !!prevMem.printed
   };
   saveMemoryJson_(memory, dateText, values, tz);
   try { CacheService.getScriptCache().remove("COUR:" + String(json.day || "").toUpperCase()); } catch (eC) {}
@@ -2044,7 +2102,8 @@ function handleSetAssembled(ss, json, callback) {
   values[memKey] = {
     delivered: !!prevMem.delivered,
     paid: prevMem.paid || null,
-    assembled: assembled
+    assembled: assembled,
+    printed: !!prevMem.printed
   };
   saveMemoryJson_(memory, dateText, values, tz);
   try {
@@ -2052,6 +2111,37 @@ function handleSetAssembled(ss, json, callback) {
     CacheService.getScriptCache().remove("ASM:" + String(dayName || "").toUpperCase());
   } catch (eC) {}
   return jsonpText(callback, { status: "success", assembled: assembled });
+}
+
+/** Галочка «пропечатано» — пакеты без лакомств (жевалки); хранится в Память_Доставок. */
+function handleSetPrinted(ss, json, callback) {
+  var memory = getMemoryCourierSheet_();
+  var tz = ss.getSpreadsheetTimeZone();
+  var dayName = String(json.day || "").trim();
+  var dateValue = getDayDate_(ss, dayName);
+  if (!dateValue) return jsonpText(callback, { status: "bad_day" });
+  var want = String(json.client || "").trim();
+  if (!want) return jsonpText(callback, { status: "no_client" });
+  var printed = json.printed === true || String(json.printed).toLowerCase() === "true";
+  var dateText = formatSheetDate(dateValue, tz);
+  var memKey = clientMatchKey_(want) || normalizeClientKey_(want);
+  if (!memory) memory = getMemoryCourierSheet_() || ss.insertSheet("Память_Доставок");
+  var values = getMemoryJson_(memory, dateText, tz);
+  if (!values || Object.prototype.toString.call(values) === "[object Array]") values = {};
+  var prevMem = memFlagEntry_(values, want) || values[memKey] || {};
+  if (typeof prevMem !== "object" || prevMem === null) prevMem = {};
+  values[memKey] = {
+    delivered: !!prevMem.delivered,
+    paid: prevMem.paid || null,
+    assembled: !!prevMem.assembled,
+    printed: printed
+  };
+  saveMemoryJson_(memory, dateText, values, tz);
+  try {
+    CacheService.getScriptCache().remove("COUR:" + String(dayName || "").toUpperCase());
+    CacheService.getScriptCache().remove("ASM:" + String(dayName || "").toUpperCase());
+  } catch (eC) {}
+  return jsonpText(callback, { status: "success", printed: printed });
 }
 
 /** Нормализация ника для поиска: пробелы, ё/е, невидимые символы. */
@@ -2321,9 +2411,9 @@ function clearClientColumnFromDay_(ss, dayName, client, matchKeyOpt) {
   return cleared;
 }
 
-/** Убрать человека со всех блоков недели (Пн–Пт + Будущая), кроме keepDay (если задан). */
+/** Убрать человека со всех блоков недели (Пн–Вс + Будущая), кроме keepDay (если задан). */
 function clearClientFromWeekSheets_(ss, client, matchKeyOpt, keepDay) {
-  var days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Будущая неделя"];
+  var days = MANAGER_DAY_NAMES_.concat(["Будущая неделя"]);
   var keep = String(keepDay || "").trim();
   var total = 0;
   for (var i = 0; i < days.length; i++) {
@@ -3288,6 +3378,7 @@ function handleGetMonthOverview(json, callback, fromPost) {
 }
 
 function handleGetWeekDayCounts(json, callback, fromPost) {
+  // 8 счётчиков: Пн–Вс + Будущая
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var days = [
     { day: "Понедельник", short: "Пн" },
@@ -3295,9 +3386,12 @@ function handleGetWeekDayCounts(json, callback, fromPost) {
     { day: "Среда", short: "Ср" },
     { day: "Четверг", short: "Чт" },
     { day: "Пятница", short: "Пт" },
+    { day: "Суббота", short: "Сб" },
+    { day: "Воскресенье", short: "Вс" },
     { day: "Будущая неделя", short: "Буд" }
   ];
-  var cacheKey = "WDC:v1";
+  try { ensureManagerWeekendBlocks_(ss); } catch (eEns) {}
+  var cacheKey = "WDC:v2";
   try {
     if (!(json && (json.force === "1" || json.force === 1 || json.force === true))) {
       var cached = cacheGetJson_(cacheKey);
@@ -3329,6 +3423,7 @@ function handleGetClients(dayName, callback, dateStr) {
   var tz = ss.getSpreadsheetTimeZone();
   var resolvedDay = String(dayName || "").trim();
   var deliveryDate = null;
+  try { ensureManagerWeekendBlocks_(ss); } catch (eEnsG) {}
   // scrub сирот — только на move / редкий getViewCompare (кэш), не на каждый getClients
 
   // Дата — главный ключ. Если она НЕ стоит в ячейках недели — не подсовываем чужой блок дня.
@@ -6065,8 +6160,8 @@ function findDayNameForDate_(ss, deliveryDate) {
   var want = dateKey_(deliveryDate, tz);
   var manager = ss.getSheetByName("Прием заказов");
   if (!manager) return null;
-  var names = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"];
-  for (var i = 0; i < 5; i++) {
+  var names = MANAGER_DAY_NAMES_;
+  for (var i = 0; i < names.length; i++) {
     var cell = manager.getRange(MANAGER_DATE_CELLS[i]).getValue();
     if (formatSheetDate(cell, tz) === want) return names[i];
   }
@@ -7236,14 +7331,15 @@ function handleEnsureDayMaterialized(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }
 
-/** Даты Пн–Пт текущей операционной недели из «Прием заказов». */
+/** Даты Пн–Вс текущей операционной недели из «Прием заказов». */
 function getWeekDayDates_(ss) {
   var tz = ss.getSpreadsheetTimeZone();
   var manager = ss.getSheetByName("Прием заказов");
-  var names = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"];
+  var names = MANAGER_DAY_NAMES_;
   var out = [];
   if (!manager) return out;
-  for (var i = 0; i < 5; i++) {
+  try { ensureManagerWeekendBlocks_(ss); } catch (eE) {}
+  for (var i = 0; i < names.length; i++) {
     var raw = manager.getRange(MANAGER_DATE_CELLS[i]).getValue();
     var d = parseFlexibleDate_(raw, tz);
     out.push({
@@ -10977,7 +11073,7 @@ function normalizeMemDelivered_(v) {
 }
 function countDeliveredThisWeek_(ss, clientName, dateValue, tz) {
   var want = String(clientName || "").trim().toUpperCase();
-  var days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"];
+  var days = MANAGER_DAY_NAMES_;
   var n = 0;
   var memory = getMemoryCourierSheet_();
   for (var i = 0; i < days.length; i++) {
@@ -11668,6 +11764,24 @@ function appendDoyDistToPacks_(packs, doyByKey, lightBagsByCounter, dist, meta) 
   }
 }
 
+/** Лакомства для сборки = жевалки (chew) + штучные treat-имена. */
+function isAssemblyTreatItem_(it) {
+  var name = String((it && (it.name || it.main)) || "").trim();
+  var cat = String((it && it.cat) || "").toLowerCase();
+  if (!name && !cat) return false;
+  if (cat === "chew" || cat === "chews") return true;
+  if (/шт/i.test(name) || /быч|трахе|аорт|ухо|нос|станова|колен|копыт|переп|губ|книжк/i.test(name)) return true;
+  return false;
+}
+
+function basketWithoutTreats_(basket) {
+  var out = [];
+  (basket || []).forEach(function (it) {
+    if (!isAssemblyTreatItem_(it)) out.push(it);
+  });
+  return out;
+}
+
 /** @param {Object=} enabledOpt выключенные форматы дойпака: {маленький:false,...} */
 function buildAssemblyForBasket_(basket, enabledOpt) {
   var enabled = enabledOpt || null;
@@ -11790,7 +11904,10 @@ function handleGetAssembly(json, callback, fromPost) {
       entries.push({ name: c.name, basket: c.basket || [], dogPart: 0 });
     }
     entries.forEach(function (ent) {
-      var plan = buildAssemblyForBasket_(ent.basket || []);
+      var memE = memFlagEntry_(memFlags, ent.name);
+      var printed = !!(memE && memE.printed);
+      var basketForPacks = printed ? basketWithoutTreats_(ent.basket || []) : (ent.basket || []);
+      var plan = buildAssemblyForBasket_(basketForPacks);
       for (var t in plan.typeCounts) {
         if (plan.typeCounts.hasOwnProperty(t)) typeTotals[t] = (typeTotals[t] || 0) + plan.typeCounts[t];
       }
@@ -11807,7 +11924,6 @@ function handleGetAssembly(json, callback, fromPost) {
       (plan.lightByFraction || []).forEach(function (lf) {
         lightAll[lf.sub] = (lightAll[lf.sub] || 0) + lf.val;
       });
-      var memE = memFlagEntry_(memFlags, ent.name);
       out.push({
         name: ent.name,
         address: c.address || '',
@@ -11819,6 +11935,7 @@ function handleGetAssembly(json, callback, fromPost) {
         lightByFraction: plan.lightByFraction,
         lightBagsByCounter: plan.lightBagsByCounter || {},
         assembled: !!(memE && memE.assembled),
+        printed: printed,
         dogPart: ent.dogPart || 0,
         ownerName: baseName
       });
@@ -11858,6 +11975,7 @@ function setupOpsEcosystem() {
   getGeoSheet_();
   getDeficitSheet_();
   getCuttingCompletionSheet_();
+  try { ensureManagerWeekendBlocks_(SpreadsheetApp.getActiveSpreadsheet()); } catch (eW) {}
   var sku = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("SKU_Карта");
   if (!sku) {
     sku = SpreadsheetApp.getActiveSpreadsheet().insertSheet("SKU_Карта");
