@@ -337,7 +337,7 @@ function inspectManagerFormulas_(ss) {
       "getClients / move / materialize / weekDayCounts",
       "Нарезка!D — свои формулы от B и Склад!D",
       "Прием заказов!R — остаток по дням",
-      "Склад G–K Остаток Пн–Пт; L–M Остаток Сб/Вс (SUM Прием!C:Q +61/+122 от Пт)"
+      "Склад G–K Остаток Пн–Пт; L–M Сб/Вс цепочка K→L→M (без сброса на F)"
     ]
   };
 }
@@ -362,11 +362,15 @@ function handleSetupWeekendFormulas(json, callback, fromPost) {
 /**
  * Живые «Остаток Пн…Пт» на Складе считают расход через
  * SUM('Прием заказов'!C{a}:Q{b}) / (D{row}*1000), а не через колонку R.
- * Сб/Вс: те же формулы + сдвиг строк блока (+61 от Пт / +305 от Пн),
- * цепочка остатка: … → K(Пт) → L(Сб) → M(Вс).
+ * Сб/Вс: сдвиг строк (+61/+122 от Пт) и жёсткая цепочка K→L→M
+ * (без сброса на ревизию F — неделя технически до воскресенья).
  * Нельзя copyTo вправо: уедут D→E (#DIV/0!), C:Q→D:R, F→G.
+ *
+ * opt.chainOnly — старт только от prevCol (для L/M); иначе IF(F>0;F;prev) как Пн–Пт.
  */
-function rewriteWarehouseDayRemainFormula_(srcFormula, whRow, deltaPriem, prevColLetter) {
+function rewriteWarehouseDayRemainFormula_(srcFormula, whRow, deltaPriem, prevColLetter, opt) {
+  opt = opt || {};
+  var chainOnly = !!opt.chainOnly;
   var f = String(srcFormula || "").trim();
   var row = Number(whRow) || 0;
   var delta = Number(deltaPriem) || 0;
@@ -379,12 +383,20 @@ function rewriteWarehouseDayRemainFormula_(srcFormula, whRow, deltaPriem, prevCo
       });
     });
   }
-  // IF(F2>0; F2; J2) → IF(F2>0; F2; K2); чинит и сломанные IF(G2>0; G2; …)
+  // IF(F2>0; F2; J2) → для Сб/Вс просто K2 / L2; для Пн–Пт оставляем IF(F;F;prev)
   var reIf = new RegExp(
     "IF\\(\\s*[A-Z]+" + row + "\\s*>\\s*0\\s*[;,]\\s*[A-Z]+" + row + "\\s*[;,]\\s*[A-Z]+" + row + "\\s*\\)",
     "i"
   );
-  f = f.replace(reIf, "IF(F" + row + ">0; F" + row + "; " + prev + row + ")");
+  if (chainOnly) {
+    f = f.replace(reIf, prev + row);
+    // уже переписанные L/M вида =K2 - MAX(...) — подменить стартовый столбец
+    if (!reIf.test(String(srcFormula || ""))) {
+      f = f.replace(new RegExp("^(\\s*=\\s*)[A-Z]+" + row + "(\\s*-)", "i"), "$1" + prev + row + "$2");
+    }
+  } else {
+    f = f.replace(reIf, "IF(F" + row + ">0; F" + row + "; " + prev + row + ")");
+  }
   // страховка: коэф всегда D{row}, вычитание излишка E{row}
   f = f.replace(new RegExp("/\\s*\\(\\s*[A-Z]+" + row + "\\s*\\*\\s*1000\\s*\\)", "gi"), "/ (D" + row + " * 1000)");
   f = f.replace(
@@ -396,7 +408,7 @@ function rewriteWarehouseDayRemainFormula_(srcFormula, whRow, deltaPriem, prevCo
 
 /**
  * На «Склад»: колонки L/M = Остаток Сб / Остаток Вс.
- * Источник — Пт (K) или Пн (G); без relative-copy вправо.
+ * Цепочка: … → K(Пт) → L(Сб) → M(Вс), без IF(F>0;F;…) на выходных.
  */
 function setupWarehouseWeekendRemainCols_(optForce) {
   var force = optForce !== false;
@@ -413,6 +425,7 @@ function setupWarehouseWeekendRemainCols_(optForce) {
   var skipped = 0;
   var cleared = 0;
   var samples = [];
+  var chainOpt = { chainOnly: true };
   for (var r = 2; r <= last; r++) {
     var name = String(wh.getRange(r, 1).getValue() || "").trim();
     if (!name) { skipped++; continue; }
@@ -422,7 +435,8 @@ function setupWarehouseWeekendRemainCols_(optForce) {
     var mCell = wh.getRange(r, 13);
     var oldL = String(lCell.getFormula() || "").trim();
     var oldM = String(mCell.getFormula() || "").trim();
-    if (!force && oldL && oldM) {
+    if (!force && oldL && oldM && !/IF\s*\(\s*F\d+\s*>\s*0/i.test(oldL + oldM)) {
+      // уже цепочка без сброса на F — не трогаем
       skipped++;
       continue;
     }
@@ -430,13 +444,13 @@ function setupWarehouseWeekendRemainCols_(optForce) {
     var sunF = "";
     var mode = "";
     if (kF && /Прием\s*заказов/i.test(kF)) {
-      satF = rewriteWarehouseDayRemainFormula_(kF, r, 61, "K");
-      sunF = rewriteWarehouseDayRemainFormula_(kF, r, 122, "L");
-      mode = "from_fri_K";
+      satF = rewriteWarehouseDayRemainFormula_(kF, r, 61, "K", chainOpt);
+      sunF = rewriteWarehouseDayRemainFormula_(kF, r, 122, "L", chainOpt);
+      mode = "from_fri_K_chain";
     } else if (gF && /Прием\s*заказов/i.test(gF)) {
-      satF = rewriteWarehouseDayRemainFormula_(gF, r, 305, "K");
-      sunF = rewriteWarehouseDayRemainFormula_(gF, r, 366, "L");
-      mode = "from_mon_G";
+      satF = rewriteWarehouseDayRemainFormula_(gF, r, 305, "K", chainOpt);
+      sunF = rewriteWarehouseDayRemainFormula_(gF, r, 366, "L", chainOpt);
+      mode = "from_mon_G_chain";
     } else {
       // шт / строки без дневных SUM — не копируем вправо (ломает D/E → #DIV/0!)
       if (force && (oldL || oldM) && (/#DIV\/0!|#REF!|#VALUE!/i.test(String(lCell.getDisplayValue() || "")) ||
@@ -461,7 +475,8 @@ function setupWarehouseWeekendRemainCols_(optForce) {
     skipped: skipped,
     cleared: cleared,
     samples: samples,
-    headers: { L1: "Остаток Сб", M1: "Остаток Вс" }
+    headers: { L1: "Остаток Сб", M1: "Остаток Вс" },
+    chain: "K→L→M"
   };
 }
 
@@ -889,7 +904,8 @@ function finishFullWeekProduction(optSs, optOpts) {
     }
   }
 
-  var pieceStockValues = sheetWarehouse.getRange("K15:K25").getValues();
+  // шт-остаток: неделя до Вс → в F берём Остаток Вс (M), не Пт (K)
+  var pieceStockValues = sheetWarehouse.getRange("M15:M25").getValues();
   sheetWarehouse.getRange("F15:F25").setValues(pieceStockValues);
   sheetWarehouse.getRange("B15:B25").setValue(0);
 
@@ -9754,14 +9770,14 @@ function handleGetWarehouse(json, callback, fromPost) {
     var numRows = last - 1; // строки 2..last
     var items = [];
     if (numRows >= 1) {
-      // один батч A:K — без getRange по каждой шт-позиции (ломало JSONP таймаутами)
-      var matrix = wh.getRange(2, 1, numRows, 11).getValues();
+      // A:M — шт-остаток смотрим в M (Остаток Вс), неделя до воскресенья
+      var matrix = wh.getRange(2, 1, numRows, 13).getValues();
       for (var i = 0; i < matrix.length; i++) {
         var name = String(matrix[i][0] || "").trim();
         if (!name) continue;
         var row = i + 2;
         var piece = /шт/i.test(name);
-        var kVal = matrix[i][10];
+        var mVal = matrix[i][12];
         items.push({
           row: row,
           name: name,
@@ -9770,7 +9786,7 @@ function handleGetWarehouse(json, callback, fromPost) {
           stock: round2_(matrix[i][5]),
           buy: !!matrix[i][6],
           unit: piece ? "шт" : "кг",
-          stockPcs: piece ? round2_(kVal) : null
+          stockPcs: piece ? round2_(mVal) : null
         });
       }
     }
