@@ -232,9 +232,10 @@ function setupWeekendDayFormulas() {
     sat: installManagerStockColR_(manager, 245, 306, true),
     sun: installManagerStockColR_(manager, 306, 367, true)
   };
+  var whFix = setupWarehouseWeekendRemainCols_(true);
   var snap = inspectManagerFormulas_(ss);
-  Logger.log(JSON.stringify({ week: week, rFix: rFix, snap: snap }));
-  return { ok: true, week: week, rFix: rFix, snap: snap };
+  Logger.log(JSON.stringify({ week: week, rFix: rFix, whFix: whFix, snap: snap }));
+  return { ok: true, week: week, rFix: rFix, warehouse: whFix, snap: snap };
 }
 
 /** Снимок формул дат/B для отладки (и action inspectManagerFormulas). */
@@ -270,21 +271,35 @@ function inspectManagerFormulas_(ss) {
       };
     }
   } catch (eW) {}
+  var whLM = null;
+  try {
+    if (wh) {
+      whLM = {
+        L1: String(wh.getRange("L1").getDisplayValue() || ""),
+        M1: String(wh.getRange("M1").getDisplayValue() || ""),
+        L2: { formula: String(wh.getRange("L2").getFormula() || ""), value: String(wh.getRange("L2").getDisplayValue() || "") },
+        M2: { formula: String(wh.getRange("M2").getFormula() || ""), value: String(wh.getRange("M2").getDisplayValue() || "") },
+        K2: { formula: String(wh.getRange("K2").getFormula() || ""), value: String(wh.getRange("K2").getDisplayValue() || "") }
+      };
+    }
+  } catch (eLM) {}
   return {
     ok: true,
-    pattern: "date=A1+N; B=SUM(C:Q); R=остаток склада цепочкой от пред. дня; titles A2/A63/…",
+    pattern: "date=A1+N; B=SUM(C:Q); R=остаток склада цепочкой; Склад L/M=Остаток Сб/Вс",
     dates: dates,
     titles: titles,
     rowSums: sums,
     stockColR: stockR,
     cuttingD3: cutD,
     warehouseG2: whG,
+    warehouseWeekend: whLM,
     affects: [
       "recalculateCuttingForDate_ (Нарезка!B из C:Q блока дня)",
       "finishFullWeekProduction (расход склада по всем блокам Пн–Вс)",
       "getClients / move / materialize / weekDayCounts",
-      "Нарезка!D — свои формулы от B и Склад!D (не от блоков Сб/Вс напрямую)",
-      "Колонка R на Прием заказов — остаток сырья с учётом прошлых дней (Пн→…→Вс)"
+      "Нарезка!D — свои формулы от B и Склад!D",
+      "Прием заказов!R — остаток по дням",
+      "Склад G–K Остаток Пн–Пт; L–M Остаток Сб/Вс (от тех же R)"
     ]
   };
 }
@@ -304,6 +319,103 @@ function handleSetupWeekendFormulas(json, callback, fromPost) {
   var result = setupWeekendDayFormulas();
   result.status = result.ok ? "success" : "error";
   return fromPost ? jsonpText(callback, result) : jsonp(callback, result);
+}
+
+/**
+ * Сдвиг ссылок на колонку R листа «Прием заказов» в формуле (R4 → R309 и т.п.).
+ */
+function bumpPriemOrdersRRefs_(formula, deltaRows) {
+  var f = String(formula || "");
+  if (!f || !deltaRows) return f;
+  return f.replace(/(Прием\s*заказов['"]?\s*!\s*\$?R\$?)(\d+)/gi, function (_, pref, num) {
+    return pref + (parseInt(num, 10) + deltaRows);
+  });
+}
+
+/**
+ * На «Склад»: колонки L/M = Остаток Сб / Остаток Вс.
+ * Живой лист: G…K = Остаток Пн…Пт (формулы → «Прием заказов»!R…).
+ * Сб = те же формулы, что Пн, но R+305; Вс = R+366.
+ * Если Пн пуст — отталкиваемся от Пт (K): +61 / +122.
+ */
+function setupWarehouseWeekendRemainCols_(optForce) {
+  var force = optForce !== false;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var wh = ss.getSheetByName("Склад");
+  if (!wh) return { ok: false, message: "no_warehouse" };
+  try {
+    if (wh.getMaxColumns() < 13) wh.insertColumnsAfter(wh.getMaxColumns(), 13 - wh.getMaxColumns());
+  } catch (eCol) {}
+  wh.getRange("L1").setValue("Остаток Сб");
+  wh.getRange("M1").setValue("Остаток Вс");
+  var last = Math.min(60, Math.max(2, wh.getLastRow()));
+  var installed = 0;
+  var skipped = 0;
+  var samples = [];
+  for (var r = 2; r <= last; r++) {
+    var name = String(wh.getRange(r, 1).getValue() || "").trim();
+    if (!name) { skipped++; continue; }
+    var gF = String(wh.getRange(r, 7).getFormula() || "").trim();
+    var kF = String(wh.getRange(r, 11).getFormula() || "").trim();
+    var lCell = wh.getRange(r, 12);
+    var mCell = wh.getRange(r, 13);
+    if (!force && String(lCell.getFormula() || "").trim() && String(mCell.getFormula() || "").trim()) {
+      skipped++;
+      continue;
+    }
+    var satF = "";
+    var sunF = "";
+    var mode = "";
+    if (gF && /Прием\s*заказов/i.test(gF) && /R\d+/i.test(gF)) {
+      satF = bumpPriemOrdersRRefs_(gF, 305);
+      sunF = bumpPriemOrdersRRefs_(gF, 366);
+      mode = "from_mon_G";
+    } else if (kF && /Прием\s*заказов/i.test(kF) && /R\d+/i.test(kF)) {
+      satF = bumpPriemOrdersRRefs_(kF, 61);
+      sunF = bumpPriemOrdersRRefs_(kF, 122);
+      mode = "from_fri_K";
+    } else if (kF) {
+      // =$F2 / внутренние ссылки — просто протянуть вправо
+      try {
+        wh.getRange(r, 11).copyTo(lCell, { contentsOnly: false });
+        wh.getRange(r, 12).copyTo(mCell, { contentsOnly: false });
+        installed++;
+        if (samples.length < 5) samples.push({ row: r, name: name, mode: "copy_K", l: String(lCell.getFormula() || "") });
+        continue;
+      } catch (eCp) {
+        skipped++;
+        continue;
+      }
+    } else if (gF) {
+      try {
+        wh.getRange(r, 7).copyTo(lCell, { contentsOnly: false });
+        wh.getRange(r, 12).copyTo(mCell, { contentsOnly: false });
+        installed++;
+        if (samples.length < 5) samples.push({ row: r, name: name, mode: "copy_G", l: String(lCell.getFormula() || "") });
+        continue;
+      } catch (eCp2) {
+        skipped++;
+        continue;
+      }
+    } else {
+      skipped++;
+      continue;
+    }
+    lCell.setFormula(satF);
+    mCell.setFormula(sunF);
+    installed++;
+    if (samples.length < 8) {
+      samples.push({ row: r, name: name, mode: mode, g: gF, k: kF, l: satF, m: sunF });
+    }
+  }
+  return { ok: true, installed: installed, skipped: skipped, samples: samples, headers: { L1: "Остаток Сб", M1: "Остаток Вс" } };
+}
+
+/** Явный запуск из редактора: только колонки Сб/Вс на Складе. */
+function setupWarehouseWeekendCols() {
+  var out = setupWarehouseWeekendRemainCols_(true);
+  Logger.log(JSON.stringify(out));
+  return out;
 }
 
 /** Заполнить токены и выполнить ОДИН раз, затем очистить литералы из кода или оставить пустыми. */

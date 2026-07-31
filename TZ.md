@@ -1,4 +1,5 @@
 - [x] **UI v7.11.84:** Сборка «пропечатано» — лакомства в составе не зачёркиваются (пакеты без них как раньше) — **Pages**
+- [~] **UI v7.11.86:** Склад — колонки **Остаток Сб / Остаток Вс** (L/M) по формулам Пн–Пт → Прием!R — **нужен Deploy Code.gs** + `setupWarehouseWeekendCols` (или `setupWeekendDayFormulas`)
 - [~] **UI v7.11.85:** колонка R (остаток склада) на Сб/Вс — копия цепочки с Пт→Сб→Вс; `setupWeekendDayFormulas` — **нужен Deploy Code.gs** + снова `setupWeekendDayFormulas`
 - [~] **UI v7.11.83:** формулы Сб/Вс от Пн (`=A1+5/6`, `B=SUM(C:Q)`); `setupWeekendDayFormulas`; закрытие недели двигает только A1 — **нужен Deploy Code.gs** + один раз `setupWeekendDayFormulas`
 - [~] **UI v7.11.82:** Сборка — галочка «Пропечатано (без лакомств)» + пересчёт пакетов; Сб/Вс на «Прием заказов» и во всех селектах — **Pages** · **нужен Deploy Code.gs**
