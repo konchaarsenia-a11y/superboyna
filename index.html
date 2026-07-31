@@ -7,6 +7,8 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>Бойня</title>
+  <link rel="preconnect" href="https://script.google.com" crossorigin>
+  <link rel="dns-prefetch" href="https://script.google.com">
   <style>
     html, body {
       margin: 0; background: #121212; color: #f5f5f7;
@@ -16,11 +18,27 @@
     }
   </style>
   <script>
-    // Постоянный URL для BotFather. Версия = цифры из APP_VER в app.html (v7.11.71 → 71171).
+    // Постоянный URL для BotFather. Версия = цифры из APP_VER в app.html (v7.11.89 → 71189).
+    // ВАЖНО: без Date.now() — иначе каждый вход качает ~800KB app.html заново.
     (function () {
-      var ver = "71184";
-      var bust = ver + "-" + Date.now().toString(36);
-      location.replace("app.html?v=" + ver + "&_=" + encodeURIComponent(bust));
+      var WH = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
+      // Прогрев GAS параллельно с загрузкой app.html (не ждём ответ)
+      try {
+        window.__boinyaWarm = function () {};
+        var s = document.createElement("script");
+        s.async = true;
+        s.src = WH + "?callback=__boinyaWarm";
+        (document.head || document.documentElement).appendChild(s);
+      } catch (eW) {}
+      try {
+        var link = document.createElement("link");
+        link.rel = "prefetch";
+        link.href = "app.html?v=71189";
+        link.as = "document";
+        (document.head || document.documentElement).appendChild(link);
+      } catch (eP) {}
+      var ver = "71189";
+      location.replace("app.html?v=" + ver);
     })();
   </script>
 </head>
