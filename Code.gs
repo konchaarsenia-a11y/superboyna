@@ -77,6 +77,27 @@ function ensureManagerWeekendBlocks_(ss, opts) {
 }
 
 /**
+ * Горячие read-пути (getClients / weekDayCounts): ensure Сб/Вс не чаще 1 раза в час.
+ * Раньше setValue на каждый запрос ломал кэш Sheets и давал 5–7с «думает».
+ */
+function ensureManagerWeekendBlocksCached_(ss) {
+  try {
+    var c = CacheService.getScriptCache();
+    if (c.get("WK_ENS:v2") === "1") return { ok: true, skipped: true };
+  } catch (e0) {}
+  var out = { ok: true };
+  try {
+    out = ensureManagerWeekendBlocks_(ss || SpreadsheetApp.getActiveSpreadsheet(), { force: false }) || out;
+  } catch (e1) {
+    out = { ok: false, error: String(e1) };
+  }
+  try {
+    CacheService.getScriptCache().put("WK_ENS:v2", "1", 3600);
+  } catch (e2) {}
+  return out;
+}
+
+/**
  * Сдвиг локальных A1-ссылок на строки (R190→R251, C248:Q251→C309:Q312).
  * Ссылки других листов ('Склад'!$D$2 и т.п.) не трогаем.
  */
@@ -175,7 +196,13 @@ function installManagerDayBlockFromMonday_(manager, cfg) {
     }
   } catch (eClr) {}
 
-  manager.getRange(titleRow, 1).setValue(title);
+  // не писать title каждый раз — лишний setValue на горячем пути
+  try {
+    var titleNow = String(manager.getRange(titleRow, 1).getValue() || "").trim();
+    if (force || titleNow !== title) manager.getRange(titleRow, 1).setValue(title);
+  } catch (eTit) {
+    try { manager.getRange(titleRow, 1).setValue(title); } catch (eTit2) {}
+  }
 
   var nickVal = String(manager.getRange(nickRow, 1).getValue() || "").trim();
   var firstProd = String(manager.getRange(prodStart, 1).getValue() || "").trim();
@@ -201,11 +228,14 @@ function installManagerDayBlockFromMonday_(manager, cfg) {
     }
   }
 
-  // Дата от понедельника: =A1+N (Вт=+1 … Вс=+6)
+  // Дата от понедельника: =A1+N (Вт=+1 … Вс=+6) — не переписывать если уже верная формула
   var dateCell = manager.getRange(dateRow, 1);
   var existingF = String(dateCell.getFormula() || "").trim();
-  if (force || !existingF || !dateCell.getValue()) {
-    dateCell.setFormula("=A1+" + dayOffset);
+  var wantDateF = "=A1+" + dayOffset;
+  if (force || !existingF) {
+    dateCell.setFormula(wantDateF);
+  } else if (existingF.toUpperCase() !== wantDateF.toUpperCase() && !dateCell.getValue()) {
+    dateCell.setFormula(wantDateF);
   }
   out.dateFormula = String(dateCell.getFormula() || "");
   out.bFormulaSample = String(manager.getRange(prodStart, 2).getFormula() || "");
@@ -526,6 +556,8 @@ function bustClientsCache_() {
     var cache = CacheService.getScriptCache();
     var days = ["ПОНЕДЕЛЬНИК", "ВТОРНИК", "СРЕДА", "ЧЕТВЕРГ", "ПЯТНИЦА", "СУББОТА", "ВОСКРЕСЕНЬЕ", "БУДУЩАЯ НЕДЕЛЯ"];
     for (var i = 0; i < days.length; i++) cache.remove("GC:" + days[i]);
+    cache.remove("WDC:v2");
+    cache.remove("PHIDX:v1");
   } catch (e) {}
 }
 
@@ -3816,7 +3848,6 @@ function handleGetWeekDayCounts(json, callback, fromPost) {
     { day: "Воскресенье", short: "Вс" },
     { day: "Будущая неделя", short: "Буд" }
   ];
-  try { ensureManagerWeekendBlocks_(ss); } catch (eEns) {}
   var cacheKey = "WDC:v2";
   try {
     if (!(json && (json.force === "1" || json.force === 1 || json.force === true))) {
@@ -3826,6 +3857,8 @@ function handleGetWeekDayCounts(json, callback, fromPost) {
       }
     }
   } catch (eC) {}
+  // ensure только при cache miss (и не чаще 1×/час)
+  try { ensureManagerWeekendBlocksCached_(ss); } catch (eEns) {}
 
   var items = [];
   var total = 0;
@@ -3840,7 +3873,7 @@ function handleGetWeekDayCounts(json, callback, fromPost) {
     total += Number(row.count) || 0;
   }
   var ok = { status: "success", items: items, total: total };
-  try { cachePutJson_(cacheKey, ok, 20); } catch (ePut) {}
+  try { cachePutJson_(cacheKey, ok, 90); } catch (ePut) {}
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
@@ -3849,7 +3882,6 @@ function handleGetClients(dayName, callback, dateStr) {
   var tz = ss.getSpreadsheetTimeZone();
   var resolvedDay = String(dayName || "").trim();
   var deliveryDate = null;
-  try { ensureManagerWeekendBlocks_(ss); } catch (eEnsG) {}
   // scrub сирот — только на move / редкий getViewCompare (кэш), не на каждый getClients
 
   // Дата — главный ключ. Если она НЕ стоит в ячейках недели — не подсовываем чужой блок дня.
@@ -3880,6 +3912,8 @@ function handleGetClients(dayName, callback, dateStr) {
       var cached = cacheGetJson_(cacheKey);
       if (cached && cached.status) return jsonp(callback, cached);
     }
+    // ensure после cache miss — иначе каждый getClients писал в лист
+    try { ensureManagerWeekendBlocksCached_(ss); } catch (eEnsG) {}
     var data = getClientsData_(ss, resolvedDay);
     for (var i = 0; i < data.clients.length; i++) delete data.clients[i].col;
     data.day = resolvedDay;
@@ -3897,7 +3931,7 @@ function handleGetClients(dayName, callback, dateStr) {
         data.fromBookings = true;
       }
     }
-    if (!dateStr && data.status === "success") cachePutJson_(cacheKey, data, 25);
+    if (!dateStr && data.status === "success") cachePutJson_(cacheKey, data, 90);
     return jsonp(callback, data);
   }
 
@@ -7764,7 +7798,7 @@ function getWeekDayDates_(ss) {
   var names = MANAGER_DAY_NAMES_;
   var out = [];
   if (!manager) return out;
-  try { ensureManagerWeekendBlocks_(ss); } catch (eE) {}
+  try { ensureManagerWeekendBlocksCached_(ss); } catch (eE) {}
   for (var i = 0; i < names.length; i++) {
     var raw = manager.getRange(MANAGER_DATE_CELLS[i]).getValue();
     var d = parseFlexibleDate_(raw, tz);
@@ -8299,6 +8333,14 @@ function buildClientPhoneIndex_(ss) {
   try {
     if (_memoPhoneIndex_ && _memoPhoneIndexSs_ === ss) return _memoPhoneIndex_;
   } catch (e0) {}
+  try {
+    var cached = cacheGetJson_("PHIDX:v1");
+    if (cached && typeof cached === "object") {
+      _memoPhoneIndex_ = cached;
+      try { _memoPhoneIndexSs_ = ss; } catch (eM) {}
+      return cached;
+    }
+  } catch (eC) {}
   var idx = {};
   try {
     var sh = getClientsProfilesSheet_();
@@ -8314,6 +8356,7 @@ function buildClientPhoneIndex_(ss) {
   } catch (e) {}
   _memoPhoneIndex_ = idx;
   try { _memoPhoneIndexSs_ = ss; } catch (e1) {}
+  try { cachePutJson_("PHIDX:v1", idx, 180); } catch (eP) {}
   return idx;
 }
 var _memoPhoneIndex_ = null;

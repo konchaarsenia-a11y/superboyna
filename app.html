@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.87";
+      var APP_VER = "v7.11.88";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2461,7 +2461,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.87";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.88";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -4884,34 +4884,37 @@
     }
     window.clearIgPriceChecklist = clearIgPriceChecklist;
 
-    /** JSONP GET — кэш по умолчанию для read-action (ускорение WebView) */
+    /** JSONP GET — mem + localStorage SWR (мгновенный UI, сеть в фоне) */
     var _apiGetMem = Object.create(null);
+    var _apiGetInflight = Object.create(null);
+    var _API_PERSIST_PREFIX = "boinya_api_v1:";
+    var _API_PERSIST_MAX_AGE = 30 * 60 * 1000; // stale usable 30 мин
     var _API_READ_TTL = {
-      getClients: 15000,
+      getClients: 20000,
       getCutting: 0,
-      getCourier: 12000,
-      getAssembly: 8000,
-      getWarehouse: 25000,
-      warehousePreview: 20000,
+      getCourier: 15000,
+      getAssembly: 10000,
+      getWarehouse: 30000,
+      warehousePreview: 25000,
       getStats: 600000,
       listSubscriptions: 30000,
       getSubscription: 20000,
       listClientProfiles: 60000,
-      listBookings: 15000,
+      listBookings: 20000,
       listAccess: 30000,
-      getMyAccess: 60000,
+      getMyAccess: 90000,
       listReminderPeople: 60000,
-      listDeferred: 15000,
+      listDeferred: 20000,
       listTemplates: 120000,
-      listSurvey: 25000,
+      listSurvey: 30000,
       crmInventory: 60000,
       getCouriers: 30000,
       telegramStatus: 120000,
-      getWeekBannerState: 45000,
+      getWeekBannerState: 60000,
       weekPullStatus: 30000,
-      getWeekDayCounts: 20000,
-      getMonthOverview: 25000,
-      getViewCompare: 12000,
+      getWeekDayCounts: 30000,
+      getMonthOverview: 30000,
+      getViewCompare: 15000,
       calcPrice: 20000,
       calcPpFact: 0,
       findClientMatch: 20000,
@@ -4936,6 +4939,54 @@
       weekPullStatus: 35000,
       crmInventory: 40000
     };
+    function apiPersistKey_(cacheKey) {
+      return _API_PERSIST_PREFIX + cacheKey;
+    }
+    function apiPersistGet_(cacheKey) {
+      try {
+        var raw = localStorage.getItem(apiPersistKey_(cacheKey));
+        if (!raw) return null;
+        var obj = JSON.parse(raw);
+        if (!obj || !obj.res || !obj.t) return null;
+        if (Date.now() - obj.t > _API_PERSIST_MAX_AGE) return null;
+        return obj;
+      } catch (e) { return null; }
+    }
+    function apiPersistPut_(cacheKey, res) {
+      if (!cacheKey || !res) return;
+      try {
+        // не кэшируем явные ошибки
+        var st = String(res.status || "");
+        if (st && st !== "success" && st !== "ok" && st !== "online") return;
+        localStorage.setItem(apiPersistKey_(cacheKey), JSON.stringify({ t: Date.now(), res: res }));
+      } catch (e) {
+        // quota — вычистить старые
+        try {
+          var keys = [];
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (k && k.indexOf(_API_PERSIST_PREFIX) === 0) keys.push(k);
+          }
+          keys.sort();
+          for (var j = 0; j < Math.min(8, keys.length); j++) localStorage.removeItem(keys[j]);
+          localStorage.setItem(apiPersistKey_(cacheKey), JSON.stringify({ t: Date.now(), res: res }));
+        } catch (e2) {}
+      }
+    }
+    function apiPersistClearAction_(action) {
+      try {
+        var needle = "action=" + action;
+        var doomed = [];
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (!k || k.indexOf(_API_PERSIST_PREFIX) !== 0) continue;
+          var body = k.slice(_API_PERSIST_PREFIX.length);
+          if (body.indexOf(needle) === 0 || body.indexOf("&" + needle) >= 0 || body === needle || body.indexOf(needle + "&") === 0)
+            doomed.push(k);
+        }
+        doomed.forEach(function (k) { try { localStorage.removeItem(k); } catch (e0) {} });
+      } catch (e) {}
+    }
     function apiCacheBustMem_(action) {
       // без аргумента — не сносить ВСЁ (тормозило весь app), только горячие списки
       if (!action) {
@@ -4944,7 +4995,18 @@
         try { apiCacheBustMem_("listSubscriptions"); } catch (e0) {}
         return;
       }
-      if (action === "*") { _apiGetMem = Object.create(null); return; }
+      if (action === "*") {
+        _apiGetMem = Object.create(null);
+        try {
+          var all = [];
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (k && k.indexOf(_API_PERSIST_PREFIX) === 0) all.push(k);
+          }
+          all.forEach(function (k) { try { localStorage.removeItem(k); } catch (eA) {} });
+        } catch (eStar) {}
+        return;
+      }
       try {
         var prefix = "action=" + action;
         Object.keys(_apiGetMem).forEach(function (k) {
@@ -4952,6 +5014,7 @@
             delete _apiGetMem[k];
         });
       } catch (eB) {}
+      try { apiPersistClearAction_(action); } catch (eP) {}
     }
     /** Снести только связанные с заказами/просмотром кэши. */
     function apiCacheBustOrderViews_() {
@@ -4970,6 +5033,7 @@
       var cacheTtlMs = (opts.cacheTtlMs != null) ? opts.cacheTtlMs : (_API_READ_TTL[action] || 0);
       // cache-busters in params disable cache
       if (params && (params._ || params.nocache)) cacheTtlMs = 0;
+      var swr = opts.swr !== false && cacheTtlMs > 0;
       var cacheKey = "";
       if (cacheTtlMs > 0) {
         try {
@@ -5004,6 +5068,7 @@
             cleanup();
             if (cacheKey && cacheTtlMs > 0) {
               _apiGetMem[cacheKey] = { exp: Date.now() + cacheTtlMs, res: res };
+              try { apiPersistPut_(cacheKey, res); } catch (ePers) {}
             }
             resolve(res);
           };
@@ -5033,7 +5098,32 @@
           return Promise.reject(err);
         });
       }
-      return run_(retries);
+      function startNetwork_() {
+        if (cacheKey && _apiGetInflight[cacheKey]) return _apiGetInflight[cacheKey];
+        var networkPromise = run_(retries);
+        if (cacheKey) {
+          _apiGetInflight[cacheKey] = networkPromise.finally(function () {
+            try { delete _apiGetInflight[cacheKey]; } catch (eF) {}
+          });
+        }
+        return cacheKey ? _apiGetInflight[cacheKey] : networkPromise;
+      }
+      // SWR: stale из localStorage сразу; сеть догоняет в фоне
+      var staleEntry = (swr && cacheKey) ? apiPersistGet_(cacheKey) : null;
+      if (staleEntry && staleEntry.res) {
+        var bg = startNetwork_();
+        bg.then(function (fresh) {
+          try {
+            if (!fresh || String(fresh.status || "") !== "success") return;
+            if (JSON.stringify(fresh) === JSON.stringify(staleEntry.res)) return;
+            if (typeof window.__boinyaOnApiFresh === "function") {
+              window.__boinyaOnApiFresh(action, fresh, params);
+            }
+          } catch (eFresh) {}
+        }).catch(function () { /* stale уже на экране */ });
+        return Promise.resolve(staleEntry.res);
+      }
+      return startNetwork_();
     }
 
     /** POST text/plain — Apps Script читает JSON из тела; после — проверка через GET */
@@ -11110,6 +11200,31 @@
           maybeAskWeekPullFromMonth();
           return;
         }
+        // Мгновенный старт: роль из localStorage, UI без ожидания webhook (~2–3с)
+        var bootedFromCache = false;
+        try {
+          var rawAcc = localStorage.getItem("superboyna_access_v1");
+          var cachedAcc = rawAcc ? JSON.parse(rawAcc) : null;
+          if (
+            cachedAcc &&
+            String(cachedAcc.telegramId || "") === String(myTelegramId) &&
+            cachedAcc.role &&
+            cachedAcc.role !== "none" &&
+            cachedAcc.role !== "pending" &&
+            cachedAcc.role !== "denied" &&
+            Date.now() - Number(cachedAcc.t || 0) < 7 * 24 * 3600 * 1000
+          ) {
+            APP_ROLE = cachedAcc.role;
+            if (APP_ROLE === "owner" || APP_ROLE === "all") weekTabUnlocked = true;
+            hideAccessGate();
+            applyRoleTabs({ skipSwitch: true });
+            restoreLastScreen();
+            bootedFromCache = true;
+            try { refreshDeferredBadge(); } catch (eDef0) {}
+            try { setTimeout(prefetchHotApis_, 80); } catch (ePf0) {}
+          }
+        } catch (eBoot) {}
+
         var res = await apiGet({
           action: "getMyAccess",
           telegramId: myTelegramId,
@@ -11117,14 +11232,23 @@
           username: username
         });
         if (!res || res.status !== "success") {
-          APP_ROLE = "all";
-          weekTabUnlocked = true;
-          applyRoleTabs({ skipSwitch: true });
-          restoreLastScreen();
-          maybeAskWeekPullFromMonth();
+          if (!bootedFromCache) {
+            APP_ROLE = "all";
+            weekTabUnlocked = true;
+            applyRoleTabs({ skipSwitch: true });
+            restoreLastScreen();
+            maybeAskWeekPullFromMonth();
+          }
           return;
         }
         APP_ROLE = res.role || "none";
+        try {
+          localStorage.setItem("superboyna_access_v1", JSON.stringify({
+            t: Date.now(),
+            telegramId: myTelegramId,
+            role: APP_ROLE
+          }));
+        } catch (eSave) {}
         if (APP_ROLE === "owner" || APP_ROLE === "all") weekTabUnlocked = true;
         if (APP_ROLE === "none" || APP_ROLE === "pending") {
           showAccessGate(
@@ -11146,9 +11270,15 @@
         }
         hideAccessGate();
         applyRoleTabs({ skipSwitch: true });
-        restoreLastScreen();
-        try { refreshDeferredBadge(); } catch (eDef) {}
-        maybeAskWeekPullFromMonth();
+        if (!bootedFromCache) {
+          restoreLastScreen();
+          try { refreshDeferredBadge(); } catch (eDef) {}
+          maybeAskWeekPullFromMonth();
+          try { setTimeout(prefetchHotApis_, 120); } catch (ePf) {}
+        } else {
+          // роль могла смениться — только вкладки, экран не дёргаем
+          try { maybeAskWeekPullFromMonth(); } catch (eAsk) {}
+        }
       } catch (e) {
         APP_ROLE = "all";
         weekTabUnlocked = true;
@@ -11158,6 +11288,29 @@
         maybeAskWeekPullFromMonth();
       }
     }
+
+    /** Прогрев webhook после старта — warm GAS + заполнить SWR */
+    function prefetchHotApis_() {
+      try {
+        apiGet({ action: "getWeekDayCounts" }, { timeoutMs: 20000 }).catch(function () {});
+      } catch (e1) {}
+      try {
+        var daySel = document.getElementById("day");
+        var day = (daySel && daySel.value) || "Понедельник";
+        if (day) apiGet({ action: "getClients", day: day }, { timeoutMs: 25000 }).catch(function () {});
+      } catch (e2) {}
+    }
+    window.prefetchHotApis_ = prefetchHotApis_;
+
+    window.__boinyaOnApiFresh = function (action, fresh) {
+      try {
+        if (action === "getWeekDayCounts" && fresh && fresh.items) {
+          _orderDayCountsCache = fresh;
+          _orderDayCountsAt = Date.now();
+          renderOrderDayCounts_(fresh.items);
+        }
+      } catch (e) {}
+    };
 
 
     
