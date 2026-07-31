@@ -77,13 +77,38 @@ function ensureManagerWeekendBlocks_(ss, opts) {
 }
 
 /**
+ * Сдвиг локальных A1-ссылок на строки (R190→R251, C248:Q251→C309:Q312).
+ * Ссылки других листов ('Склад'!$D$2 и т.п.) не трогаем.
+ */
+function shiftLocalA1Rows_(formula, delta) {
+  var f = String(formula || "");
+  var d = Number(delta) || 0;
+  if (!f || !d) return f;
+  var ext = [];
+  // только §N§ — без букв, иначе A1-regex съест T0 внутри SHEET0
+  f = f.replace(/((?:'[^']+'|[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё0-9 ]*))!(\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?)/gi, function (m) {
+    ext.push(m);
+    return "\u00A7" + (ext.length - 1) + "\u00A7";
+  });
+  f = f.replace(/(\$?[A-Z]{1,3}\$?)(\d+)/gi, function (_, col, row) {
+    return col + (parseInt(row, 10) + d);
+  });
+  f = f.replace(/\u00A7(\d+)\u00A7/g, function (_, i) {
+    return ext[Number(i)];
+  });
+  return f;
+}
+
+/**
  * Скопировать колонку R блока (61 строка: дата…примечание) с prevDateRow → toDateRow.
- * Формулы относительные: Вт ссылается на Пн, Сб на Пт, Вс на Сб.
+ * На живом листе ссылки абсолютные ($R$190, $C$248:$Q$251) — после copyTo
+ * обязательно сдвигаем строки на (to−prev), иначе Сб/Вс = копия пятницы.
  */
 function installManagerStockColR_(manager, prevDateRow, toDateRow, force) {
   prevDateRow = Number(prevDateRow) || 0;
   toDateRow = Number(toDateRow) || 0;
   if (prevDateRow < 1 || toDateRow < 1) return { ok: false };
+  var delta = toDateRow - prevDateRow;
   var prevProd = prevDateRow + 3;
   var toProd = toDateRow + 3;
   var prevF = String(manager.getRange(prevProd, 18).getFormula() || "").trim();
@@ -92,7 +117,6 @@ function installManagerStockColR_(manager, prevDateRow, toDateRow, force) {
   var emptyTo = !toF && (toV === "" || toV == null);
   if (!force && !emptyTo) return { ok: true, skipped: true, reason: "already_filled" };
   if (!prevF) {
-    // у Пн/Пт иногда значение без формулы в первой строке — пробуем любую формулу в блоке товаров
     for (var i = 0; i < 56 && !prevF; i++) {
       prevF = String(manager.getRange(prevProd + i, 18).getFormula() || "").trim();
     }
@@ -100,16 +124,30 @@ function installManagerStockColR_(manager, prevDateRow, toDateRow, force) {
   if (!prevF) {
     return { ok: false, reason: "prev_no_formula", prevDateRow: prevDateRow, toDateRow: toDateRow };
   }
-  // весь блок дня в R (61 строк), как у Пн–Пт
   try {
     manager.getRange(prevDateRow, 18, 61, 1).copyTo(manager.getRange(toDateRow, 18), { contentsOnly: false });
   } catch (eCopy) {
     return { ok: false, reason: String(eCopy), prevDateRow: prevDateRow, toDateRow: toDateRow };
   }
+  var shifted = 0;
+  if (delta) {
+    for (var rr = 0; rr < 61; rr++) {
+      var cell = manager.getRange(toDateRow + rr, 18);
+      var raw = String(cell.getFormula() || "").trim();
+      if (!raw) continue;
+      var next = shiftLocalA1Rows_(raw, delta);
+      if (next && next !== raw) {
+        cell.setFormula(next);
+        shifted++;
+      }
+    }
+  }
   return {
     ok: true,
     from: "R" + prevDateRow + ":R" + (prevDateRow + 60),
     to: "R" + toDateRow,
+    delta: delta,
+    shifted: shifted,
     sample: String(manager.getRange(toProd, 18).getFormula() || "")
   };
 }
@@ -285,7 +323,7 @@ function inspectManagerFormulas_(ss) {
   } catch (eLM) {}
   return {
     ok: true,
-    pattern: "date=A1+N; B=SUM(C:Q); R=остаток склада цепочкой; Склад L/M=Остаток Сб/Вс",
+    pattern: "date=A1+N; B=SUM(C:Q); R=остаток цепочкой (+61 абс.refs); Склад L/M от Пт K без copyTo",
     dates: dates,
     titles: titles,
     rowSums: sums,
@@ -299,7 +337,7 @@ function inspectManagerFormulas_(ss) {
       "getClients / move / materialize / weekDayCounts",
       "Нарезка!D — свои формулы от B и Склад!D",
       "Прием заказов!R — остаток по дням",
-      "Склад G–K Остаток Пн–Пт; L–M Остаток Сб/Вс (от тех же R)"
+      "Склад G–K Остаток Пн–Пт; L–M Остаток Сб/Вс (SUM Прием!C:Q +61/+122 от Пт)"
     ]
   };
 }
@@ -322,21 +360,43 @@ function handleSetupWeekendFormulas(json, callback, fromPost) {
 }
 
 /**
- * Сдвиг ссылок на колонку R листа «Прием заказов» в формуле (R4 → R309 и т.п.).
+ * Живые «Остаток Пн…Пт» на Складе считают расход через
+ * SUM('Прием заказов'!C{a}:Q{b}) / (D{row}*1000), а не через колонку R.
+ * Сб/Вс: те же формулы + сдвиг строк блока (+61 от Пт / +305 от Пн),
+ * цепочка остатка: … → K(Пт) → L(Сб) → M(Вс).
+ * Нельзя copyTo вправо: уедут D→E (#DIV/0!), C:Q→D:R, F→G.
  */
-function bumpPriemOrdersRRefs_(formula, deltaRows) {
-  var f = String(formula || "");
-  if (!f || !deltaRows) return f;
-  return f.replace(/(Прием\s*заказов['"]?\s*!\s*\$?R\$?)(\d+)/gi, function (_, pref, num) {
-    return pref + (parseInt(num, 10) + deltaRows);
-  });
+function rewriteWarehouseDayRemainFormula_(srcFormula, whRow, deltaPriem, prevColLetter) {
+  var f = String(srcFormula || "").trim();
+  var row = Number(whRow) || 0;
+  var delta = Number(deltaPriem) || 0;
+  var prev = String(prevColLetter || "").toUpperCase();
+  if (!f || !row || !prev) return "";
+  if (delta) {
+    f = f.replace(/(['']?Прием\s*заказов['']?\s*!)([^!;\)]*)/gi, function (_, pref, body) {
+      return pref + String(body).replace(/(\$?[A-Z]{1,3}\$?)(\d+)/gi, function (__ , col, rnum) {
+        return col + (parseInt(rnum, 10) + delta);
+      });
+    });
+  }
+  // IF(F2>0; F2; J2) → IF(F2>0; F2; K2); чинит и сломанные IF(G2>0; G2; …)
+  var reIf = new RegExp(
+    "IF\\(\\s*[A-Z]+" + row + "\\s*>\\s*0\\s*[;,]\\s*[A-Z]+" + row + "\\s*[;,]\\s*[A-Z]+" + row + "\\s*\\)",
+    "i"
+  );
+  f = f.replace(reIf, "IF(F" + row + ">0; F" + row + "; " + prev + row + ")");
+  // страховка: коэф всегда D{row}, вычитание излишка E{row}
+  f = f.replace(new RegExp("/\\s*\\(\\s*[A-Z]+" + row + "\\s*\\*\\s*1000\\s*\\)", "gi"), "/ (D" + row + " * 1000)");
+  f = f.replace(
+    new RegExp("([;,]\\s*0\\s*\\)\\s*-\\s*)[A-Z]+" + row + "(\\s*\\))", "i"),
+    "$1E" + row + "$2"
+  );
+  return f;
 }
 
 /**
  * На «Склад»: колонки L/M = Остаток Сб / Остаток Вс.
- * Живой лист: G…K = Остаток Пн…Пт (формулы → «Прием заказов»!R…).
- * Сб = те же формулы, что Пн, но R+305; Вс = R+366.
- * Если Пн пуст — отталкиваемся от Пт (K): +61 / +122.
+ * Источник — Пт (K) или Пн (G); без relative-copy вправо.
  */
 function setupWarehouseWeekendRemainCols_(optForce) {
   var force = optForce !== false;
@@ -351,6 +411,7 @@ function setupWarehouseWeekendRemainCols_(optForce) {
   var last = Math.min(60, Math.max(2, wh.getLastRow()));
   var installed = 0;
   var skipped = 0;
+  var cleared = 0;
   var samples = [];
   for (var r = 2; r <= last; r++) {
     var name = String(wh.getRange(r, 1).getValue() || "").trim();
@@ -359,56 +420,49 @@ function setupWarehouseWeekendRemainCols_(optForce) {
     var kF = String(wh.getRange(r, 11).getFormula() || "").trim();
     var lCell = wh.getRange(r, 12);
     var mCell = wh.getRange(r, 13);
-    if (!force && String(lCell.getFormula() || "").trim() && String(mCell.getFormula() || "").trim()) {
+    var oldL = String(lCell.getFormula() || "").trim();
+    var oldM = String(mCell.getFormula() || "").trim();
+    if (!force && oldL && oldM) {
       skipped++;
       continue;
     }
     var satF = "";
     var sunF = "";
     var mode = "";
-    if (gF && /Прием\s*заказов/i.test(gF) && /R\d+/i.test(gF)) {
-      satF = bumpPriemOrdersRRefs_(gF, 305);
-      sunF = bumpPriemOrdersRRefs_(gF, 366);
-      mode = "from_mon_G";
-    } else if (kF && /Прием\s*заказов/i.test(kF) && /R\d+/i.test(kF)) {
-      satF = bumpPriemOrdersRRefs_(kF, 61);
-      sunF = bumpPriemOrdersRRefs_(kF, 122);
+    if (kF && /Прием\s*заказов/i.test(kF)) {
+      satF = rewriteWarehouseDayRemainFormula_(kF, r, 61, "K");
+      sunF = rewriteWarehouseDayRemainFormula_(kF, r, 122, "L");
       mode = "from_fri_K";
-    } else if (kF) {
-      // =$F2 / внутренние ссылки — просто протянуть вправо
-      try {
-        wh.getRange(r, 11).copyTo(lCell, { contentsOnly: false });
-        wh.getRange(r, 12).copyTo(mCell, { contentsOnly: false });
-        installed++;
-        if (samples.length < 5) samples.push({ row: r, name: name, mode: "copy_K", l: String(lCell.getFormula() || "") });
-        continue;
-      } catch (eCp) {
-        skipped++;
-        continue;
-      }
-    } else if (gF) {
-      try {
-        wh.getRange(r, 7).copyTo(lCell, { contentsOnly: false });
-        wh.getRange(r, 12).copyTo(mCell, { contentsOnly: false });
-        installed++;
-        if (samples.length < 5) samples.push({ row: r, name: name, mode: "copy_G", l: String(lCell.getFormula() || "") });
-        continue;
-      } catch (eCp2) {
-        skipped++;
-        continue;
-      }
+    } else if (gF && /Прием\s*заказов/i.test(gF)) {
+      satF = rewriteWarehouseDayRemainFormula_(gF, r, 305, "K");
+      sunF = rewriteWarehouseDayRemainFormula_(gF, r, 366, "L");
+      mode = "from_mon_G";
     } else {
+      // шт / строки без дневных SUM — не копируем вправо (ломает D/E → #DIV/0!)
+      if (force && (oldL || oldM) && (/#DIV\/0!|#REF!|#VALUE!/i.test(String(lCell.getDisplayValue() || "")) ||
+          /#DIV\/0!|#REF!|#VALUE!/i.test(String(mCell.getDisplayValue() || "")) ||
+          /Прием\s*заказов/i.test(oldL + oldM))) {
+        try { lCell.clearContent(); mCell.clearContent(); cleared++; } catch (eClr) {}
+      }
       skipped++;
       continue;
     }
+    if (!satF || !sunF) { skipped++; continue; }
     lCell.setFormula(satF);
     mCell.setFormula(sunF);
     installed++;
     if (samples.length < 8) {
-      samples.push({ row: r, name: name, mode: mode, g: gF, k: kF, l: satF, m: sunF });
+      samples.push({ row: r, name: name, mode: mode, k: kF, l: satF, m: sunF });
     }
   }
-  return { ok: true, installed: installed, skipped: skipped, samples: samples, headers: { L1: "Остаток Сб", M1: "Остаток Вс" } };
+  return {
+    ok: true,
+    installed: installed,
+    skipped: skipped,
+    cleared: cleared,
+    samples: samples,
+    headers: { L1: "Остаток Сб", M1: "Остаток Вс" }
+  };
 }
 
 /** Явный запуск из редактора: только колонки Сб/Вс на Складе. */
