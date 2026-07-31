@@ -1470,6 +1470,25 @@ function doGet(e) {
       initData: e.parameter.initData ? decodeURIComponent(e.parameter.initData) : ""
     }, callback, false);
   }
+  if (action === "getBootstrap") {
+    return handleGetBootstrap({
+      telegramId: e.parameter.telegramId || "",
+      name: e.parameter.name ? decodeURIComponent(e.parameter.name) : "",
+      username: e.parameter.username ? decodeURIComponent(e.parameter.username) : "",
+      initData: e.parameter.initData ? decodeURIComponent(e.parameter.initData) : "",
+      day: e.parameter.day ? decodeURIComponent(e.parameter.day) : "",
+      weekKey: e.parameter.weekKey ? decodeURIComponent(e.parameter.weekKey) : ""
+    }, callback, false);
+  }
+  if (action === "keepWarm" || action === "ping") {
+    try { CacheService.getScriptCache().put("WARM", "1", 600); } catch (eW) {}
+    return ContentService
+      .createTextOutput((callback || "callback") + '({"status":"ok","warm":true})')
+      .setMimeType(ContentService.MimeType.TEXT);
+  }
+  if (action === "setupKeepWarm") {
+    return handleSetupKeepWarm({ telegramId: e.parameter.telegramId || "" }, callback, false);
+  }
   if (action === "getNativeLinkInfo") {
     return handleGetNativeLinkInfo(callback, false);
   }
@@ -1954,6 +1973,12 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "getMyAccess") {
     return handleGetMyAccess(json, callback, fromPost);
+  }
+  if (action === "getBootstrap") {
+    return handleGetBootstrap(json, callback, fromPost);
+  }
+  if (action === "setupKeepWarm") {
+    return handleSetupKeepWarm(json, callback, fromPost);
   }
   if (action === "getNativeLinkInfo") {
     return handleGetNativeLinkInfo(callback, fromPost);
@@ -3836,44 +3861,7 @@ function handleGetMonthOverview(json, callback, fromPost) {
 }
 
 function handleGetWeekDayCounts(json, callback, fromPost) {
-  // 8 счётчиков: Пн–Вс + Будущая
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var days = [
-    { day: "Понедельник", short: "Пн" },
-    { day: "Вторник", short: "Вт" },
-    { day: "Среда", short: "Ср" },
-    { day: "Четверг", short: "Чт" },
-    { day: "Пятница", short: "Пт" },
-    { day: "Суббота", short: "Сб" },
-    { day: "Воскресенье", short: "Вс" },
-    { day: "Будущая неделя", short: "Буд" }
-  ];
-  var cacheKey = "WDC:v2";
-  try {
-    if (!(json && (json.force === "1" || json.force === 1 || json.force === true))) {
-      var cached = cacheGetJson_(cacheKey);
-      if (cached && cached.status === "success") {
-        return fromPost ? jsonpText(callback, cached) : jsonp(callback, cached);
-      }
-    }
-  } catch (eC) {}
-  // ensure только при cache miss (и не чаще 1×/час)
-  try { ensureManagerWeekendBlocksCached_(ss); } catch (eEns) {}
-
-  var items = [];
-  var total = 0;
-  for (var i = 0; i < days.length; i++) {
-    var row = countClientsOnDayNickRow_(ss, days[i].day);
-    items.push({
-      day: days[i].day,
-      short: days[i].short,
-      count: row.count || 0,
-      date: row.date || ""
-    });
-    total += Number(row.count) || 0;
-  }
-  var ok = { status: "success", items: items, total: total };
-  try { cachePutJson_(cacheKey, ok, 90); } catch (ePut) {}
+  var ok = getWeekDayCountsPayload_(json || {});
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
@@ -9557,6 +9545,205 @@ function handleGetMyAccess(json, callback, fromPost) {
     initOk: init.ok
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/**
+ * Один round-trip на старт: access + weekDayCounts (+ clients дня).
+ * Экономит 2–3 последовательных JSONP (~6–10с) → один запрос.
+ */
+function handleGetBootstrap(json, callback, fromPost) {
+  json = json || {};
+  var t0 = Date.now();
+  var accessPayload = null;
+  try {
+    // переиспользуем логику getMyAccess без двойного jsonp
+    accessPayload = getMyAccessPayload_(json);
+  } catch (eA) {
+    accessPayload = { status: "error", role: "all", access: "active", tabs: roleTabsFor_("all"), message: String(eA) };
+  }
+
+  var counts = null;
+  try {
+    counts = getWeekDayCountsPayload_(json);
+  } catch (eC) {
+    counts = { status: "error", items: [], total: 0, message: String(eC) };
+  }
+
+  var clients = null;
+  var dayName = String(json.day || "").trim();
+  if (dayName) {
+    try {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var cacheKey = "GC:" + dayName.toUpperCase();
+      var cached = cacheGetJson_(cacheKey);
+      if (cached && cached.status) {
+        clients = cached;
+      } else {
+        try { ensureManagerWeekendBlocksCached_(ss); } catch (eEns) {}
+        var data = getClientsData_(ss, dayName);
+        for (var i = 0; i < (data.clients || []).length; i++) delete data.clients[i].col;
+        data.day = dayName;
+        try {
+          var rawDayDate = getDayDate_(ss, dayName);
+          var deliveryDate = parseFlexibleDate_(rawDayDate, ss.getSpreadsheetTimeZone());
+          data.date = deliveryDate ? dateKey_(deliveryDate, ss.getSpreadsheetTimeZone()) : "";
+        } catch (eD) { data.date = ""; }
+        if (data.status === "success") cachePutJson_(cacheKey, data, 90);
+        clients = data;
+      }
+    } catch (eCl) {
+      clients = { status: "error", clients: [], message: String(eCl) };
+    }
+  }
+
+  try { CacheService.getScriptCache().put("WARM", "1", 600); } catch (eW) {}
+
+  var out = {
+    status: "success",
+    access: accessPayload,
+    weekDayCounts: counts,
+    clients: clients,
+    ms: Date.now() - t0
+  };
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+}
+
+function getMyAccessPayload_(json) {
+  var init = validateInitDataSoft_((json && json.initData) || "");
+  var user = init.user || {};
+  var telegramId = String((json && json.telegramId) || user.id || "").trim();
+  var name = String((json && json.name) || user.first_name || "").trim();
+  var username = String((json && json.username) || user.username || "").trim();
+
+  if (isOwnerId_(telegramId)) {
+    try { upsertAccessRow_(telegramId, name, username, "owner", "active"); } catch (eU) {}
+    return {
+      status: "success",
+      role: "owner",
+      access: "active",
+      tabs: roleTabsFor_("owner"),
+      telegramId: telegramId,
+      name: name,
+      initOk: init.ok
+    };
+  }
+
+  var row = findAccessById_(telegramId);
+  if (!row) {
+    var owners = getOwnerTelegramIds_();
+    if (!owners.length) {
+      return {
+        status: "success",
+        role: "all",
+        access: "active",
+        tabs: roleTabsFor_("all"),
+        telegramId: telegramId,
+        name: name,
+        initOk: init.ok,
+        message: "no_owners_configured"
+      };
+    }
+    return {
+      status: "success",
+      role: "none",
+      access: "none",
+      tabs: [],
+      telegramId: telegramId,
+      name: name,
+      initOk: init.ok,
+      message: "need_request"
+    };
+  }
+
+  var role = row.role;
+  var access = row.status;
+  if (access === "denied" || role === "denied") {
+    return { status: "success", role: "denied", access: "denied", tabs: [], telegramId: telegramId, name: row.name || name };
+  }
+  if (access === "pending" || role === "pending") {
+    return { status: "success", role: "pending", access: "pending", tabs: [], telegramId: telegramId, name: row.name || name };
+  }
+  return {
+    status: "success",
+    role: role,
+    access: access || "active",
+    tabs: roleTabsFor_(role),
+    telegramId: telegramId,
+    name: row.name || name,
+    initOk: init.ok
+  };
+}
+
+function getWeekDayCountsPayload_(json) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var days = [
+    { day: "Понедельник", short: "Пн" },
+    { day: "Вторник", short: "Вт" },
+    { day: "Среда", short: "Ср" },
+    { day: "Четверг", short: "Чт" },
+    { day: "Пятница", short: "Пт" },
+    { day: "Суббота", short: "Сб" },
+    { day: "Воскресенье", short: "Вс" },
+    { day: "Будущая неделя", short: "Буд" }
+  ];
+  var cacheKey = "WDC:v2";
+  try {
+    if (!(json && (json.force === "1" || json.force === 1 || json.force === true))) {
+      var cached = cacheGetJson_(cacheKey);
+      if (cached && cached.status === "success") return cached;
+    }
+  } catch (eC) {}
+  try { ensureManagerWeekendBlocksCached_(ss); } catch (eEns) {}
+  var items = [];
+  var total = 0;
+  for (var i = 0; i < days.length; i++) {
+    var row = countClientsOnDayNickRow_(ss, days[i].day);
+    items.push({
+      day: days[i].day,
+      short: days[i].short,
+      count: row.count || 0,
+      date: row.date || ""
+    });
+    total += Number(row.count) || 0;
+  }
+  var ok = { status: "success", items: items, total: total };
+  try { cachePutJson_(cacheKey, ok, 90); } catch (ePut) {}
+  return ok;
+}
+
+/** Прогрев контейнера Apps Script — снижает cold start с ~5–7с до ~2с */
+function keepWarm_() {
+  try {
+    CacheService.getScriptCache().put("WARM", String(Date.now()), 600);
+  } catch (e0) {}
+  try {
+    SpreadsheetApp.getActiveSpreadsheet().getName();
+  } catch (e1) {}
+}
+
+function ensureKeepWarmTrigger_() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "keepWarm_") return { ok: true, existed: true };
+  }
+  ScriptApp.newTrigger("keepWarm_").timeBased().everyMinutes(5).create();
+  return { ok: true, created: true };
+}
+
+function handleSetupKeepWarm(json, callback, fromPost) {
+  var tid = String((json && json.telegramId) || "").trim();
+  if (tid && !isOwnerId_(tid)) {
+    var denied = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, denied) : jsonp(callback, denied);
+  }
+  var out = { status: "success" };
+  try {
+    out.trigger = ensureKeepWarmTrigger_();
+    keepWarm_();
+  } catch (e) {
+    out = { status: "error", message: String(e) };
+  }
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }
 
 function upsertAccessRow_(telegramId, name, username, role, status, timezone) {

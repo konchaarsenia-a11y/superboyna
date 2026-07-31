@@ -1,3 +1,4 @@
+- [~] **UI v7.11.89:** ещё быстрее — кэш 800KB app.html (убран Date.now bust), warm GAS из index, `getBootstrap` 1 round-trip, `keepWarm` trigger — **Pages** · **нужен Deploy Code.gs** + один раз `?action=setupKeepWarm&telegramId=ВАШ_ID`
 - [~] **UI v7.11.88:** скорость — SWR+persist API, мгновенный старт без ожидания getMyAccess; бэкенд: ensure Сб/Вс не на каждый getClients (кэш 1ч), TTL getClients/WDC 90с — **Pages** · **нужен Deploy Code.gs**
 - [~] **UI v7.11.87:** Склад Сб/Вс — фикс `#DIV/0!` (L/M от Пт без copyTo; Прием!R Сб/Вс сдвиг абс.refs +61) — **нужен Deploy Code.gs** + `setupWeekendDayFormulas`
 - [~] **UI v7.11.86:** Склад — колонки **Остаток Сб / Остаток Вс** (L/M) — **superseded v7.11.87** (старый setup ломал формулы copyTo)
@@ -142,7 +143,7 @@
 - [~] **Чеклист IG:** игнор цены/доставки/заголовков + алиасы из примеров *(задеплоить + проверить на живых)*
 - [~] **Адрес курьеру:** дом + подъезд всегда; этаж/кв по тапу; авторазбор в поля (`entranceInput`/`floorInput`/`flatInput`) — **v7.11.31**
 - [~] **Кнопки:** ряд совпадение / 2 собаки; примечание кнопкой
-- [~] **Скорость:** SWR+persist (v7.11.88) + убран ensure-write на каждый getClients — **нужен Deploy GS**
+- [~] **Скорость:** v7.11.89 — кэш app.html + getBootstrap + keepWarm; потолок GAS ~2с на cold — дальше только смена бэкенда (прокси/БД)
 - [x] **Баг навигации:** не откидывать на старт при applyRoleTabs
 - [~] **Клавиатура:** dismiss по клику вне поля + свайп
 - [x] **Тип заказа сверху:** ПП | БП | Розница | Партнёр

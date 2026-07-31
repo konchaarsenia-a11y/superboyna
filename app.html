@@ -3,22 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <meta http-equiv="Cache-Control" content="max-age=300">
+  <meta http-equiv="Cache-Control" content="max-age=86400">
   <title>Конвейер Бойня</title>
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.88";
+      var APP_VER = "v7.11.89";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
         var u = new URL(location.href);
         if (u.searchParams.get("v") === want) return;
         u.searchParams.set("v", want);
+        // не добавляем Date.now — WebView должен кэшировать 800KB
+        u.searchParams.delete("_");
         location.replace(u.toString());
       } catch (e0) {}
     })();
   </script>
+  <link rel="preconnect" href="https://script.google.com" crossorigin>
+  <link rel="dns-prefetch" href="https://script.google.com">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     :root {
@@ -2461,7 +2465,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.88";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.89";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -4903,6 +4907,7 @@
       listBookings: 20000,
       listAccess: 30000,
       getMyAccess: 90000,
+      getBootstrap: 45000,
       listReminderPeople: 60000,
       listDeferred: 20000,
       listTemplates: 120000,
@@ -4926,6 +4931,7 @@
     /** Тяжёлые read-action — дольше ждать cold start GAS */
     var _API_DEFAULT_TIMEOUT = {
       getClients: 35000,
+      getBootstrap: 40000,
       getViewCompare: 40000,
       getMonthOverview: 35000,
       getCutting: 35000,
@@ -11225,12 +11231,46 @@
           }
         } catch (eBoot) {}
 
-        var res = await apiGet({
-          action: "getMyAccess",
-          telegramId: myTelegramId,
-          name: myAccessName,
-          username: username
-        });
+        var dayHint = "";
+        try {
+          var daySel0 = document.getElementById("day");
+          dayHint = (daySel0 && daySel0.value) || "";
+        } catch (eDay) {}
+
+        // Один round-trip вместо getMyAccess + getWeekDayCounts (+ getClients)
+        var boot = null;
+        try {
+          boot = await apiGet({
+            action: "getBootstrap",
+            telegramId: myTelegramId,
+            name: myAccessName,
+            username: username,
+            day: dayHint || ""
+          }, { timeoutMs: 40000, cacheTtlMs: bootedFromCache ? 45000 : 15000 });
+        } catch (eBootApi) { boot = null; }
+
+        var res = (boot && boot.access) ? boot.access : null;
+        if (!res || res.status !== "success") {
+          // fallback на старый getMyAccess (Deploy ещё без getBootstrap)
+          try {
+            res = await apiGet({
+              action: "getMyAccess",
+              telegramId: myTelegramId,
+              name: myAccessName,
+              username: username
+            });
+          } catch (eAcc) { res = null; }
+        }
+
+        // Применить weekDayCounts из bootstrap сразу
+        try {
+          if (boot && boot.weekDayCounts && boot.weekDayCounts.items) {
+            _orderDayCountsCache = boot.weekDayCounts;
+            _orderDayCountsAt = Date.now();
+            renderOrderDayCounts_(boot.weekDayCounts.items);
+          }
+        } catch (eCnt) {}
+
         if (!res || res.status !== "success") {
           if (!bootedFromCache) {
             APP_ROLE = "all";
@@ -11276,7 +11316,6 @@
           maybeAskWeekPullFromMonth();
           try { setTimeout(prefetchHotApis_, 120); } catch (ePf) {}
         } else {
-          // роль могла смениться — только вкладки, экран не дёргаем
           try { maybeAskWeekPullFromMonth(); } catch (eAsk) {}
         }
       } catch (e) {
@@ -11291,6 +11330,9 @@
 
     /** Прогрев webhook после старта — warm GAS + заполнить SWR */
     function prefetchHotApis_() {
+      try {
+        apiGet({ action: "keepWarm" }, { timeoutMs: 12000, cacheTtlMs: 0, retries: 0 }).catch(function () {});
+      } catch (e0) {}
       try {
         apiGet({ action: "getWeekDayCounts" }, { timeoutMs: 20000 }).catch(function () {});
       } catch (e1) {}
@@ -11308,6 +11350,11 @@
           _orderDayCountsCache = fresh;
           _orderDayCountsAt = Date.now();
           renderOrderDayCounts_(fresh.items);
+        }
+        if (action === "getBootstrap" && fresh && fresh.weekDayCounts && fresh.weekDayCounts.items) {
+          _orderDayCountsCache = fresh.weekDayCounts;
+          _orderDayCountsAt = Date.now();
+          renderOrderDayCounts_(fresh.weekDayCounts.items);
         }
       } catch (e) {}
     };
