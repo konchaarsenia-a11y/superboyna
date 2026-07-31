@@ -92,7 +92,7 @@
 
 **Куда влияют:** `recalculateCuttingForDate_` (Нарезка!B), `finishFullWeekProduction` (склад по Пн–Вс), getClients/move/materialize.  
 **Нарезка!D** — свои формулы (сырое от B и Склад!D), не ссылки на строки Сб/Вс.  
-**Склад!G** — формулы листа; проверить `inspectManagerFormulas` → `warehouseG2`, если суммируют только Пн–Пт — дописать Сб/Вс вручную.
+**Склад G–K** — Остаток Пн–Пт; **L–M** — Остаток Сб/Вс (`setupWarehouseWeekendCols`).
 
 ## API webhook
 
