@@ -1,23 +1,18 @@
 # Бойня FAST
 
-Параллельная быстрая копия. **Прод `app.html` / `Code.gs` не трогаем.**
+Прод не трогаем. Открывайте **файл**, не папку репо.
 
-## Открыть (рабочая ссылка)
+## Ссылки (копируйте целиком)
 
-GitHub Pages сейчас часто залипает на билде — используйте **jsDelivr** (отдаёт прямо из git):
+1. **GitHub Pages (лучше):**  
+   https://konchaarsenia-a11y.github.io/superboyna/fast/
 
-**https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/fast/**
+2. **или сразу приложение:**  
+   https://konchaarsenia-a11y.github.io/superboyna/fast/app.html
 
-Должен быть бейдж **FAST**. Счётчики дней и списки клиентов — из `data/*` **сразу**, без ожидания Google.
+3. **jsDelivr (если Pages глючит) — обязательно с `index.html`:**  
+   https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/fast/index.html
 
-Запасная (Pages, когда оживёт):  
-https://konchaarsenia-a11y.github.io/superboyna/fast/
+Без `index.html` / `app.html` jsDelivr показывает список файлов репозитория — это не баг приложения.
 
-## Почему раньше «не быстрее»
-
-Снапшоты писались в localStorage, а `apiGet` их **не читал** и каждый раз ждал GAS 3–7 с.  
-С **f3/f4** `getClients` / `getWeekDayCounts` отвечают из CDN мгновенно, GAS только фоном.
-
-## Важно
-
-Открывайте именно FAST-URL. Обычная кнопка бота → прод → там по-прежнему медленный GAS.
+Должен быть зелёный бейдж **FAST**.
