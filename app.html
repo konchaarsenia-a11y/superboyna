@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.90";
+      var APP_VER = "v7.11.91";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1447,6 +1447,7 @@
         <div class="order-flyout" id="orderFlyout">
           <button type="button" class="order-flyout-btn" data-fly="clientsScreen" data-fly-roles="manager,owner,all">Просмотр</button>
           <button type="button" class="order-flyout-btn" data-fly="priceScreen" data-fly-roles="manager,owner,all">Расчёт</button>
+          <button type="button" class="order-flyout-btn" data-fly="templatesScreen" data-fly-roles="manager,owner,all">Шаблоны</button>
           <button type="button" class="order-flyout-btn" data-fly="subsScreen" data-fly-roles="owner,all">Подписки</button>
           <button type="button" class="order-flyout-btn" data-fly="statsScreen" data-fly-roles="owner,all">Статистика</button>
           <button type="button" class="order-flyout-btn" data-fly="peopleScreen" data-fly-roles="owner,all">Доступы</button>
@@ -2422,6 +2423,24 @@
       <div id="deferredScreenList"><p class="muted">Загрузка…</p></div>
     </div>
 
+    <!-- ШАБЛОНЫ + ИИ (менеджер / owner) -->
+    <div id="templatesScreen" class="screen">
+      <div class="card">
+        <div class="section-title" style="margin-top:0;">Шаблоны</div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">Тексты опросников, ответы клиентам и подбор состава ИИ — здесь.</div>
+        <div class="sub-tabs" id="templatesSubTabs" style="margin-bottom:12px;">
+          <button type="button" class="sub-tab active" id="tplTabTexts" onclick="setTemplatesSub_('texts')">Тексты</button>
+          <button type="button" class="sub-tab" id="tplTabAi" onclick="setTemplatesSub_('ai')">Подбор ИИ</button>
+        </div>
+        <div id="templatesPaneTexts">
+          <p class="muted" style="margin:0;">Скоро: шаблоны сообщений и опросников. Пока тексты живут на листе «Шаблоны» / в опросниках.</p>
+        </div>
+        <div id="templatesPaneAi" style="display:none;">
+          <p class="muted" style="margin:0;">Скоро: подбор состава и рекомендации по базе заказов. Пока только место в меню.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- ДОСТУПЫ -->
     <div id="peopleScreen" class="screen">
       <div class="card">
@@ -2461,7 +2480,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.90";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.91";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2608,9 +2627,9 @@
     }
     window.ensureTelegramId = ensureTelegramId;
     const ROLE_TABS = {
-      all: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen"],
-      owner: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen"],
-      manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen"],
+      all: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen"],
+      owner: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen"],
+      manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen"],
       cutter: ["cuttingScreen"],
       courier: ["courierScreen"],
       logistics: ["warehouseScreen"],
@@ -2630,7 +2649,7 @@
       "крафт": true
     };
     let assemblyCache = null;
-    const FLYOUT_SCREENS = ["clientsScreen", "priceScreen", "deferredScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen"];
+    const FLYOUT_SCREENS = ["clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen"];
     let deferredCache = [];
     let deferredOpenCount = 0;
     let deferredCacheAt = 0;
@@ -2820,8 +2839,24 @@
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
       priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• Пакеты ПП считаются сами из состава (можно править +/−).\n• «В отложенное» или сразу «Внести в ПП» (+ имя/IG/адрес).\n• 2 собаки: свет/доставки один раз.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
+      templatesScreen: "Шаблоны\n• Тексты — шаблоны сообщений и опросников.\n• Подбор ИИ — рекомендации состава (скоро).",
       peopleScreen: "Доступы\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника."
     };
+
+    window._templatesSub = "texts";
+    function setTemplatesSub_(sub) {
+      sub = sub === "ai" ? "ai" : "texts";
+      window._templatesSub = sub;
+      var tabT = document.getElementById("tplTabTexts");
+      var tabA = document.getElementById("tplTabAi");
+      var paneT = document.getElementById("templatesPaneTexts");
+      var paneA = document.getElementById("templatesPaneAi");
+      if (tabT) tabT.classList.toggle("active", sub === "texts");
+      if (tabA) tabA.classList.toggle("active", sub === "ai");
+      if (paneT) paneT.style.display = sub === "texts" ? "" : "none";
+      if (paneA) paneA.style.display = sub === "ai" ? "" : "none";
+    }
+    window.setTemplatesSub_ = setTemplatesSub_;
 
     async function openScreenHelp() {
       var scr = document.querySelector(".screen.active");
@@ -4582,6 +4617,10 @@
         if (screenId === "clientsScreen") {
           document.getElementById("appHeaderTitle").innerText = "Просмотр · " + APP_VERSION;
           try { enterViewScreen_(); } catch (eV) {}
+        }
+        if (screenId === "templatesScreen") {
+          document.getElementById("appHeaderTitle").innerText = "Шаблоны · " + APP_VERSION;
+          try { setTemplatesSub_(window._templatesSub || "texts"); } catch (eTpl) {}
         }
       } catch (e) {}
       try {
