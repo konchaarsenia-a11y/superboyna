@@ -2430,7 +2430,6 @@
         <div class="muted" style="font-size:12px;margin-bottom:10px;">Тексты клиентам, карточки лакомств по ассортименту, подбор ИИ.</div>
         <div class="sub-tabs" id="templatesSubTabs" style="margin-bottom:12px;">
           <button type="button" class="sub-tab active" id="tplTabTexts" onclick="setTemplatesSub_('texts')">Тексты</button>
-          <button type="button" class="sub-tab" id="tplTabCards" onclick="setTemplatesSub_('cards')">Карточки</button>
           <button type="button" class="sub-tab" id="tplTabAi" onclick="setTemplatesSub_('ai')">Подбор ИИ</button>
         </div>
         <div id="templatesPaneTexts">
@@ -2848,7 +2847,7 @@
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
       priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• Пакеты ПП считаются сами из состава (можно править +/−).\n• «В отложенное» или сразу «Внести в ПП» (+ имя/IG/адрес).\n• 2 собаки: свет/доставки один раз.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
-      templatesScreen: "Шаблоны\n• Тексты — сообщения и опросники.\n• Карточки — ассортимент: краткое описание позиции, копировать клиенту.\n• Подбор ИИ — скоро.",
+      templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ — скоро.",
       peopleScreen: "Доступы\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника."
     };
 
@@ -2862,13 +2861,12 @@
       if (sub !== "ai" && sub !== "cards") sub = "texts";
       window._templatesSub = sub;
       var tabT = document.getElementById("tplTabTexts");
-      var tabC = document.getElementById("tplTabCards");
       var tabA = document.getElementById("tplTabAi");
       var paneT = document.getElementById("templatesPaneTexts");
       var paneC = document.getElementById("templatesPaneCards");
       var paneA = document.getElementById("templatesPaneAi");
-      if (tabT) tabT.classList.toggle("active", sub === "texts");
-      if (tabC) tabC.classList.toggle("active", sub === "cards");
+      // вкладки только Тексты / ИИ; «cards» — скрытый режим из плитки в Текстах
+      if (tabT) tabT.classList.toggle("active", sub === "texts" || sub === "cards");
       if (tabA) tabA.classList.toggle("active", sub === "ai");
       if (paneT) paneT.style.display = sub === "texts" ? "" : "none";
       if (paneC) paneC.style.display = sub === "cards" ? "" : "none";
@@ -3976,6 +3974,7 @@
       var root = document.getElementById("productCardsRoot");
       if (!root) return;
       var html =
+        '<button type="button" class="btn-action" style="margin:0 0 10px;background:#3a3a3c;" onclick="setTemplatesSub_(\'texts\')">← К шаблонам</button>' +
         '<div class="muted" style="font-size:12px;margin-bottom:10px;">Выбери категорию, затем позицию — откроется краткая карточка.</div>';
       Object.keys(catalog).forEach(function (catKey) {
         var cat = catalog[catKey];
