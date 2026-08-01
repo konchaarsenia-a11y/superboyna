@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.89f4";
+      var APP_VER = "v7.11.89f5";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -19,6 +19,7 @@
       } catch (e0) {}
     })();
   </script>
+  <script src="seed-inline.js"></script>
   <script src="bridge.js"></script>
   <script src="config.js"></script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -2481,7 +2482,7 @@
     // FAST edition: Cloudflare Worker edge-cache. Fallback = прямой GAS если прокси не задан.
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.89f4";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.89f5";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня FAST " + APP_VERSION;
@@ -11152,68 +11153,100 @@
         if (myTelegramId) storeTelegramId(myTelegramId);
         myAccessName = String(u.first_name || "") + (u.last_name ? " " + u.last_name : "");
         var username = String(u.username || "");
+
+        function finishOk_(role) {
+          APP_ROLE = role || "all";
+          if (APP_ROLE === "owner" || APP_ROLE === "all") weekTabUnlocked = true;
+          hideAccessGate();
+          applyRoleTabs({ skipSwitch: true });
+          restoreLastScreen();
+        }
+
+        // FAST: роль из localStorage → UI сразу, GAS потом
+        var booted = false;
+        try {
+          var rawAcc = localStorage.getItem("superboyna_access_v1");
+          var cachedAcc = rawAcc ? JSON.parse(rawAcc) : null;
+          if (
+            cachedAcc &&
+            (!myTelegramId || String(cachedAcc.telegramId || "") === String(myTelegramId)) &&
+            cachedAcc.role &&
+            cachedAcc.role !== "none" &&
+            cachedAcc.role !== "pending" &&
+            cachedAcc.role !== "denied"
+          ) {
+            finishOk_(cachedAcc.role);
+            booted = true;
+          }
+        } catch (eBoot) {}
+
         if (!myTelegramId) {
-          APP_ROLE = "all";
-          weekTabUnlocked = true;
-          applyRoleTabs({ skipSwitch: true });
-          restoreLastScreen();
-          maybeAskWeekPullFromMonth();
+          if (!booted) finishOk_("all");
           return;
         }
-        var res = await apiGet({
-          action: "getMyAccess",
-          telegramId: myTelegramId,
-          name: myAccessName,
-          username: username
-        });
-        if (!res || res.status !== "success") {
-          APP_ROLE = "all";
-          weekTabUnlocked = true;
-          applyRoleTabs({ skipSwitch: true });
-          restoreLastScreen();
-          maybeAskWeekPullFromMonth();
-          return;
-        }
-        APP_ROLE = res.role || "none";
-        if (APP_ROLE === "owner" || APP_ROLE === "all") weekTabUnlocked = true;
-        if (APP_ROLE === "none" || APP_ROLE === "pending") {
-          showAccessGate(
-            APP_ROLE === "pending" ? "Ожидание" : "Нет доступа",
-            APP_ROLE === "pending"
-              ? "Заявка отправлена. Владелец назначит роль."
-              : "Нажмите «Запросить доступ». Владелец увидит заявку.",
-            APP_ROLE === "pending"
-              ? ""
-              : '<button class="btn-action btn-orange" type="button" onclick="doRequestAccess()">Запросить доступ</button>'
-          );
-          applyRoleTabs({ skipSwitch: true });
-          return;
-        }
-        if (APP_ROLE === "denied") {
-          showAccessGate("Доступ закрыт", "Обратитесь к владельцу.", "");
-          applyRoleTabs({ skipSwitch: true });
-          return;
-        }
-        hideAccessGate();
-        applyRoleTabs({ skipSwitch: true });
-        restoreLastScreen();
-        try { refreshDeferredBadge(); } catch (eDef) {}
-        maybeAskWeekPullFromMonth();
+
+        // сеть — только после тишины / в фоне
+        var delay = 0;
+        try {
+          delay = Math.max(0, (window.__BOINYA_FAST_QUIET_UNTIL__ || 0) - Date.now());
+        } catch (eD) {}
+        setTimeout(function () {
+          apiGet({
+            action: "getMyAccess",
+            telegramId: myTelegramId,
+            name: myAccessName,
+            username: username
+          }, { __boinyaNoSnap: false, timeoutMs: 20000 }).then(function (res) {
+            if (!res || res.status !== "success") return;
+            try {
+              localStorage.setItem("superboyna_access_v1", JSON.stringify({
+                t: Date.now(),
+                telegramId: myTelegramId,
+                role: res.role || "all"
+              }));
+            } catch (eS) {}
+            if (res.role === "none" || res.role === "pending") {
+              showAccessGate(
+                res.role === "pending" ? "Ожидание" : "Нет доступа",
+                res.role === "pending"
+                  ? "Заявка отправлена. Владелец назначит роль."
+                  : "Нажмите «Запросить доступ». Владелец увидит заявку.",
+                res.role === "pending"
+                  ? ""
+                  : '<button class="btn-action btn-orange" type="button" onclick="doRequestAccess()">Запросить доступ</button>'
+              );
+              return;
+            }
+            if (res.role === "denied") {
+              showAccessGate("Доступ закрыт", "Обратитесь к владельцу.", "");
+              return;
+            }
+            if (!booted) finishOk_(res.role);
+            else {
+              APP_ROLE = res.role || APP_ROLE;
+              if (APP_ROLE === "owner" || APP_ROLE === "all") weekTabUnlocked = true;
+              try { applyRoleTabs({ skipSwitch: true }); } catch (eT) {}
+            }
+            try { refreshDeferredBadge(); } catch (eDef) {}
+          }).catch(function () {
+            if (!booted) finishOk_("all");
+          });
+        }, delay + 50);
+
+        if (!booted) finishOk_("all");
       } catch (e) {
         APP_ROLE = "all";
         weekTabUnlocked = true;
         applyRoleTabs({ skipSwitch: true });
         restoreLastScreen();
-        try { refreshDeferredBadge(); } catch (eDef2) {}
-        maybeAskWeekPullFromMonth();
       }
     }
 
 
+
     
 
-
-    /* === v7.8 D/E/F/I helpers === */
+        /* === v7.8 D/E/F/I helpers === */
     const WEEK_PULL_LS = "superboyna_week_pull_";
     const FINISH_REFUSE_LS = "superboyna_finish_refuse_";
     const FINISH_DONE_LS = "superboyna_finish_done_";
@@ -17628,7 +17661,7 @@
     window.syncAppTopSpacer = syncAppTopSpacer;
 
     try { loadDepotAddress(); } catch (e) {}
-    try { registerMeAsCourier(); } catch (e) {}
+    try { setTimeout(function(){ try { registerMeAsCourier(); } catch(eC){} }, 22000); } catch (e) {}
     try { if (document.getElementById("departHourCol")) buildTimeWheels(); } catch (e) {}
     try { renderBasket(); } catch (e) {}
     try { bindOrderLongPress(); } catch (e) {}
@@ -17647,7 +17680,7 @@
       }
     } catch (e) { try { applyRoleTabs(); } catch (e2) {} }
     try { updateTasksBadge(); } catch (eTb0) {}
-    try { setTimeout(function () { try { updateTasksBadge(); refreshDeferredBadge(false); } catch (eTb1) {} }, 200); } catch (eTb2) {}
+    try { setTimeout(function () { try { updateTasksBadge(); } catch (eTb1) {} }, 200); setTimeout(function(){ try { refreshDeferredBadge(false); } catch(eD){} }, 22000); } catch (eTb2) {}
     try { applyTelegramSafeArea(); } catch (e) {}
     try { syncAppTopSpacer(); } catch (e) {}
     try {

@@ -117,6 +117,10 @@ async function main() {
 
   writeJson("meta.json", meta);
   console.log("done", meta);
+  try {
+    const { spawnSync } = await import("child_process");
+    spawnSync(process.execPath, [new URL("./build-seed-inline.mjs", import.meta.url).pathname], { stdio: "inherit" });
+  } catch (eB) { console.error(eB); }
 }
 
 main().catch((e) => {

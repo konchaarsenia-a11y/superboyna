@@ -1,18 +1,21 @@
-# Бойня FAST
+# Бойня FAST (f5)
 
-Прод не трогаем. Открывайте **файл**, не папку репо.
+Прод не трогаем.
 
-## Ссылки (копируйте целиком)
+## Открыть
 
-1. **GitHub Pages (лучше):**  
-   https://konchaarsenia-a11y.github.io/superboyna/fast/
+https://konchaarsenia-a11y.github.io/superboyna/fast/
 
-2. **или сразу приложение:**  
-   https://konchaarsenia-a11y.github.io/superboyna/fast/app.html
+или
 
-3. **jsDelivr (если Pages глючит) — обязательно с `index.html`:**  
-   https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/fast/index.html
+https://konchaarsenia-a11y.github.io/superboyna/fast/app.html
 
-Без `index.html` / `app.html` jsDelivr показывает список файлов репозитория — это не баг приложения.
+Должен быть бейдж **FAST**.
 
-Должен быть зелёный бейдж **FAST**.
+## Что ускорено в f5
+
+- Данные заказов **вшиты** в `seed-inline.js` (без запроса на старте)
+- Первые **20 секунд** чтения не ходят в Google Apps Script
+- `getMyAccess` не блокирует UI (роль из кэша)
+
+Запись заказа / «Обновить» по-прежнему идут в GAS (это медленно — потолок Sheets).
