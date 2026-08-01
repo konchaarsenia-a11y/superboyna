@@ -1591,6 +1591,12 @@ function doGet(e) {
       telegramId: e.parameter.telegramId || e.parameter.chatId || ""
     }, callback, false);
   }
+  if (action === "deleteTemplate") {
+    return handleDeleteTemplate({
+      id: e.parameter.id ? decodeURIComponent(e.parameter.id) : "",
+      telegramId: e.parameter.telegramId || e.parameter.chatId || ""
+    }, callback, false);
+  }
   if (action === "syncSurveyTemplates") {
     return handleSyncSurveyTemplates({
       telegramId: e.parameter.telegramId || e.parameter.chatId || ""
@@ -2006,6 +2012,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "saveTemplate") {
     return handleSaveTemplate(json, callback, fromPost);
+  }
+  if (action === "deleteTemplate") {
+    return handleDeleteTemplate(json, callback, fromPost);
   }
   if (action === "syncSurveyTemplates") {
     return handleSyncSurveyTemplates(json, callback, fromPost);
@@ -15248,6 +15257,10 @@ function ensureCanonicalSurveyTemplates_(sh) {
   if (!sh) return;
   var VER = "v7.11.04";
   var props = PropertiesService.getScriptProperties();
+  // уже синхронизировано — не трогать кастомные / отредактированные строки
+  try {
+    if (String(props.getProperty("survey_templates_ver") || "") === VER) return;
+  } catch (eVer) {}
   var defs = defaultSurveyTemplates_();
   // Полностью очистить лист от survey-строк + любых старых плейсхолдеров
   try {
@@ -15496,6 +15509,23 @@ function tickBpSurveyReminders_() {
   } catch (e) {}
 }
 
+function actorCanEditTemplates_(telegramId) {
+  var tid = String(telegramId || "").trim();
+  if (!tid) return true; // soft: тесты / JSONP без actor
+  if (actorIsOwner_(tid) || isOwnerId_(tid)) return true;
+  var row = findAccessById_(tid);
+  if (!row) return false;
+  var role = String(row.role || "").toLowerCase();
+  var st = String(row.status || "").toLowerCase();
+  if (st === "denied" || st === "pending") return false;
+  return role === "manager" || role === "owner" || role === "all";
+}
+
+function isCanonicalSurveyTemplateId_(id) {
+  var id0 = String(id || "").trim().toLowerCase();
+  return id0 === "survey_bp2" || id0 === "survey_final";
+}
+
 function handleListTemplates(json, callback, fromPost) {
   json = json || {};
   var sh = getTemplatesSheet_();
@@ -15514,26 +15544,34 @@ function handleListTemplates(json, callback, fromPost) {
       body: String(data[i][3] || "")
     });
   }
-  var ok = { status: "success", templates: rows, count: rows.length };
+  var ok = { status: "success", templates: rows, items: rows, count: rows.length };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
 function handleSaveTemplate(json, callback, fromPost) {
   json = json || {};
   var tid = String(json.telegramId || "").trim();
-  // soft owner: empty actor (tests/JSONP) allowed; non-owner with id blocked
-  if (tid && !actorIsOwner_(tid) && !isOwnerId_(tid)) {
-    var forbid = { status: "error", message: "owner_only" };
+  if (tid && !actorCanEditTemplates_(tid)) {
+    var forbid = { status: "error", message: "forbidden" };
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
   }
   var id = String(json.id || "").trim();
-  if (!id) {
-    var need = { status: "error", message: "need_id" };
-    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
-  }
-  var kind = String(json.kind || "survey").trim() || "survey";
+  var kind = String(json.kind || "text").trim() || "text";
   var title = String(json.title || "").trim();
   var body = String(json.body || "").trim();
+  if (!id) {
+    var slug = title.toLowerCase()
+      .replace(/[^a-z0-9а-яё]+/gi, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 24);
+    if (!slug) slug = "tpl";
+    id = "tpl_" + slug + "_" + Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Minsk", "yyyyMMddHHmmss");
+  }
+  if (!title && !body) {
+    var empty = { status: "error", message: "need_title_or_body" };
+    return fromPost ? jsonpText(callback, empty) : jsonp(callback, empty);
+  }
+  if (!title) title = id;
   var sh = getTemplatesSheet_();
   var data = sh.getDataRange().getValues();
   var row = 0;
@@ -15550,6 +15588,36 @@ function handleSaveTemplate(json, callback, fromPost) {
     row = sh.getLastRow();
   }
   var ok = { status: "success", id: id, kind: kind, title: title, body: body, row: row };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handleDeleteTemplate(json, callback, fromPost) {
+  json = json || {};
+  var tid = String(json.telegramId || "").trim();
+  if (tid && !actorCanEditTemplates_(tid)) {
+    var forbid = { status: "error", message: "forbidden" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var id = String(json.id || "").trim();
+  if (!id) {
+    var need = { status: "error", message: "need_id" };
+    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+  }
+  if (isCanonicalSurveyTemplateId_(id) && tid && !actorIsOwner_(tid) && !isOwnerId_(tid)) {
+    var protect = { status: "error", message: "canonical_owner_only" };
+    return fromPost ? jsonpText(callback, protect) : jsonp(callback, protect);
+  }
+  var sh = getTemplatesSheet_();
+  var data = sh.getDataRange().getValues();
+  var deleted = false;
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][0] || "").trim().toLowerCase() !== id.toLowerCase()) continue;
+    try { sh.getRange(i + 1, 1, i + 1, Math.max(4, sh.getLastColumn())).breakApart(); } catch (eBr) {}
+    try { sh.deleteRow(i + 1); deleted = true; } catch (eDel) {}
+  }
+  var ok = deleted
+    ? { status: "success", id: id, deleted: true }
+    : { status: "error", message: "not_found" };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 

@@ -229,7 +229,7 @@
 | `ensureBpFromOrder` | БП-карта из заказа: basket в doGet через try/catch → [] |
 | `listBpIdle` | БП без движения N дней |
 | `closeAllOpenDeficits` | Owner: закрыть все open в Дефицит_Нарезки |
-| `listTemplates` / `saveTemplate` | Шаблоны корзин (kind) |
+| `listTemplates` / `saveTemplate` / `deleteTemplate` | Лист «Шаблоны» (id, kind, title, body); manager+owner |
 | `listSurvey` | Список записей листа «Опросник» |
 | `saveSurvey` | Создать/обновить опрос (id/nick/kind/dueDate/…) |
 | `deleteSurvey` | Удалить запись опросника по id |
