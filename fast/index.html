@@ -22,10 +22,18 @@
     }
     p { color: #9a9a9a; font-size: 14px; }
   </style>
+  <script>
+    try {
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(function(){});
+      }
+    } catch (e) {}
+  </script>
+  <script src="bridge.js"></script>
   <script src="config.js"></script>
   <script>
     (function () {
-      var ver = "711891"; // v7.11.89f1
+      var ver = "711892"; // v7.11.89f1
       // Прогрев edge-прокси (или GAS), не блокируем переход
       try {
         var base = window.__BOINYA_FAST_PROXY__ || "";
