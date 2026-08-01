@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.95";
+      var APP_VER = "v7.11.96";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2489,7 +2489,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.95";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.96";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2848,7 +2848,7 @@
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
       priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• Пакеты ПП считаются сами из состава (можно править +/−).\n• «В отложенное» или сразу «Внести в ПП» (+ имя/IG/адрес).\n• 2 собаки: свет/доставки один раз.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
-      templatesScreen: "Шаблоны\n• Тексты — сообщения и опросники.\n• Карточки — ассортимент: тап → краткая инфа + цена, копировать клиенту.\n• Подбор ИИ — скоро.",
+      templatesScreen: "Шаблоны\n• Тексты — сообщения и опросники.\n• Карточки — ассортимент: краткое описание позиции, копировать клиенту.\n• Подбор ИИ — скоро.",
       peopleScreen: "Доступы\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника."
     };
 
@@ -2906,7 +2906,7 @@
       var html =
         '<div class="card" style="margin:0 0 12px;padding:12px;border:1px solid rgba(255,122,0,0.45);cursor:pointer;" onclick="openProductCardsFromTemplates_()">' +
         '<div style="font-weight:600;font-size:15px;color:var(--accent-color);">Карточка лакомств</div>' +
-        '<div class="muted" style="font-size:12px;margin-top:4px;">Все позиции ассортимента → краткая инфа, цена, копировать клиенту</div>' +
+        '<div class="muted" style="font-size:12px;margin-top:4px;">Все позиции ассортимента → краткое описание, копировать клиенту</div>' +
         "</div>";
       if (!items.length) {
         html += '<p class="muted">Текстовых шаблонов пока нет — нажми «＋ Шаблон».</p>';
@@ -3946,44 +3946,14 @@
       return "Натуральное сушёное лакомство из ассортимента Бойни. Уточни фракцию/размер под собаку.";
     }
 
-    function productCardPriceLines_(name, catKey, fractions) {
-      var lines = [];
-      var fr = fractions || [];
-      function pushFor_(sub) {
-        var meta = retailLookupKey_(name, sub);
-        var info = RETAIL_PRICE[meta.key] || RETAIL_PRICE[meta.name];
-        if (!info) return;
-        var label = String(sub || "").trim();
-        if (info.packs) {
-          Object.keys(info.packs).sort(function (a, b) { return Number(a) - Number(b); }).forEach(function (g) {
-            lines.push((label ? label + " · " : "") + g + " г — " + info.packs[g] + " BYN");
-          });
-          return;
-        }
-        if (info.perPiece != null) {
-          lines.push((label ? label + " — " : "") + info.perPiece + " BYN/шт");
-          return;
-        }
-        if (info.per100 != null) {
-          lines.push((label ? label + " — " : "") + info.per100 + " BYN/100 г");
-        }
-      }
-      if (fr.length) fr.forEach(pushFor_);
-      else pushFor_("");
-      return lines;
-    }
-
     function formatProductCardText_(name, catKey, catTitle, fractions) {
       var blurb = productCardBlurb_(name);
-      var prices = productCardPriceLines_(name, catKey, fractions);
-      var fr = (fractions || []).length ? ("Фракции/размеры: " + fractions.join(", ")) : "Без фракций (на вес или 1 шт.)";
-      var priceBlock = prices.length ? ("Цена (витрина):\n• " + prices.join("\n• ")) : "Цена: уточни по актуальной витрине";
+      var fr = (fractions || []).length ? ("Фракции/размеры: " + fractions.join(", ")) : "";
       return (
         name + "\n" +
         (catTitle ? ("Категория: " + catTitle + "\n") : "") +
-        fr + "\n\n" +
-        blurb + "\n\n" +
-        priceBlock
+        (fr ? fr + "\n" : "") +
+        "\n" + blurb
       );
     }
 
@@ -4052,7 +4022,6 @@
       var cat = catalog[catKey] || {};
       var fr = (cat.fractions && cat.fractions[name]) || [];
       var text = formatProductCardText_(name, catKey, cat.title || "", fr);
-      var prices = productCardPriceLines_(name, catKey, fr);
       if (!root) return;
       var html =
         '<button type="button" class="btn-action" style="margin:0 0 10px;background:#3a3a3c;" onclick="openProductCardsCategory_(\'' + catKey + '\')">← ' +
@@ -4061,13 +4030,8 @@
         '<div class="section-title" style="margin-top:0;">' + escapeHtml(name) + "</div>" +
         '<div class="muted" style="font-size:12px;margin-bottom:8px;">' + escapeHtml(cat.title || "") +
         (fr.length ? " · " + escapeHtml(fr.join(", ")) : "") + "</div>" +
-        '<div style="font-size:14px;line-height:1.45;white-space:pre-wrap;margin-bottom:10px;">' +
+        '<div style="font-size:14px;line-height:1.45;white-space:pre-wrap;margin-bottom:12px;">' +
         escapeHtml(productCardBlurb_(name)) + "</div>" +
-        (prices.length
-          ? '<div style="font-size:13px;margin-bottom:12px;"><b>Цена (витрина)</b><ul style="margin:6px 0 0;padding-left:18px;">' +
-            prices.map(function (p) { return "<li>" + escapeHtml(p) + "</li>"; }).join("") +
-            "</ul></div>"
-          : '<div class="muted" style="margin-bottom:12px;">Цены в прайсе нет — уточни вручную.</div>') +
         '<div class="batch-bar-row" style="margin:0;gap:8px;flex-wrap:wrap;">' +
         '<button type="button" class="btn-action btn-blue" style="flex:1.2;margin:0;" onclick="copyProductCardText_()">Копировать</button>' +
         '<button type="button" class="btn-action" style="flex:1;margin:0;background:#3a3a3c;" onclick="editProductCardBlurb_()">Текст</button>' +
