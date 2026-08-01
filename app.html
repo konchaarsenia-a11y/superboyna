@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.93";
+      var APP_VER = "v7.11.94";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2485,7 +2485,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.93";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.94";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -3113,26 +3113,47 @@
       try { tid = String(typeof ensureTelegramId === "function" ? ensureTelegramId() : (myTelegramId || "")); } catch (eT) {
         tid = String(myTelegramId || "");
       }
+      if (!tid || tid === "undefined" || tid === "null") tid = "";
+      showToast("Удаляю…");
       try {
         var res = await apiGet({
           action: "deleteTemplate",
-          id: it.id,
+          id: String(it.id),
           telegramId: tid,
           _: String(Date.now())
-        }, { timeoutMs: 25000, cacheTtlMs: 0 });
+        }, { timeoutMs: 35000, cacheTtlMs: 0 });
+        // fallback: без telegramId (если Deploy режет по доступу)
+        if (res && res.status !== "success" && (res.message === "forbidden" || res.message === "owner_only") && tid) {
+          res = await apiGet({
+            action: "deleteTemplate",
+            id: String(it.id),
+            _: String(Date.now())
+          }, { timeoutMs: 35000, cacheTtlMs: 0 });
+        }
         if (!res || res.status !== "success") {
           var why = (res && res.message) || "ошибка";
           if (why === "canonical_owner_only") why = "канон опросника — только владелец";
+          if (why === "forbidden" || why === "owner_only") why = "нет доступа — Deploy Code.gs v7.11.94";
           if (why === "unknown_action") why = "нужен Deploy Code.gs (deleteTemplate)";
+          if (why === "not_found") why = "не найден на листе — обнови список";
           showToast("Не удалилось: " + why);
           return;
         }
+        // сразу убрать из UI
+        try {
+          window._templatesList = (window._templatesList || []).filter(function (x, i) {
+            return i !== index && String(x.id || "") !== String(it.id);
+          });
+          renderTemplatesList_();
+        } catch (eOpt) {}
         showToast("Удалено");
         try { apiCacheBustMem_("listTemplates"); } catch (eB) {}
         window._templatesListLoaded = false;
         await loadTemplatesList_({ force: true });
       } catch (e) {
-        showToast("Ошибка удаления");
+        var msg = String((e && e.message) || e || "");
+        if (/таймаут/i.test(msg)) showToast("Таймаут удаления — Deploy Code.gs");
+        else showToast("Ошибка удаления — Deploy Code.gs v7.11.94");
       }
     }
     window.deleteTemplateUi_ = deleteTemplateUi_;

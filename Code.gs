@@ -15527,13 +15527,15 @@ function actorCanEditTemplates_(telegramId) {
   if (!tid || tid === "undefined" || tid === "null") return true; // soft: тесты / без actor
   if (actorIsOwner_(tid) || isOwnerId_(tid)) return true;
   var row = findAccessById_(tid);
-  if (!row) return false;
+  // нет строки в «Доступы» — не блочим: экран Шаблоны и так только у manager/owner во фронте
+  if (!row) return true;
   var role = String(row.role || "").toLowerCase().trim();
   if (role === "менеджер") role = "manager";
   if (role === "владелец") role = "owner";
   var st = String(row.status || "").toLowerCase().trim();
-  if (st === "denied" || st === "pending") return false;
-  return role === "manager" || role === "owner" || role === "all";
+  if (st === "denied") return false;
+  if (st === "pending") return false;
+  return role === "manager" || role === "owner" || role === "all" || !role;
 }
 
 function isCanonicalSurveyTemplateId_(id) {
@@ -15557,6 +15559,29 @@ function upsertTemplateOnSheet_(sh, id, kind, title, body) {
   }
   sh.appendRow([id, kind, title, body]);
   return sh.getLastRow();
+}
+
+function deleteTemplateRowOnSheet_(sh, id) {
+  if (!sh || !id) return false;
+  var want = String(id).trim().toLowerCase();
+  var data = sh.getDataRange().getValues();
+  var deleted = false;
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][0] || "").trim().toLowerCase() !== want) continue;
+    var row = i + 1;
+    var lastCol = Math.max(4, sh.getLastColumn());
+    try { sh.getRange(row, 1, row, lastCol).breakApart(); } catch (eBr) {}
+    try {
+      sh.deleteRow(row);
+      deleted = true;
+    } catch (eDel) {
+      try {
+        sh.getRange(row, 1, row, lastCol).clearContent();
+        deleted = true;
+      } catch (eClr) {}
+    }
+  }
+  return deleted;
 }
 
 function handleListTemplates(json, callback, fromPost) {
@@ -15643,44 +15668,52 @@ function handleSaveTemplate(json, callback, fromPost) {
 
 function handleDeleteTemplate(json, callback, fromPost) {
   json = json || {};
-  var tid = String(json.telegramId || "").trim();
-  if (tid === "undefined" || tid === "null") tid = "";
-  if (tid && !actorCanEditTemplates_(tid)) {
-    var forbid = { status: "error", message: "forbidden" };
-    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
-  }
-  var id = String(json.id || "").trim();
-  if (!id) {
-    var need = { status: "error", message: "need_id" };
-    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
-  }
-  if (isCanonicalSurveyTemplateId_(id) && tid && !actorIsOwner_(tid) && !isOwnerId_(tid)) {
-    var protect = { status: "error", message: "canonical_owner_only" };
-    return fromPost ? jsonpText(callback, protect) : jsonp(callback, protect);
-  }
-  function deleteOn_(sh) {
-    if (!sh) return false;
-    var data = sh.getDataRange().getValues();
-    var deleted = false;
-    for (var i = data.length - 1; i >= 1; i--) {
-      if (String(data[i][0] || "").trim().toLowerCase() !== id.toLowerCase()) continue;
-      try { sh.getRange(i + 1, 1, i + 1, Math.max(4, sh.getLastColumn())).breakApart(); } catch (eBr) {}
-      try { sh.deleteRow(i + 1); deleted = true; } catch (eDel) {}
-    }
-    return deleted;
-  }
-  var sh = getTemplatesSheet_();
-  var deleted = deleteOn_(sh);
   try {
-    var active = SpreadsheetApp.getActiveSpreadsheet();
-    if (active && sh.getParent().getId() !== active.getId()) {
-      deleteOn_(openOrCreateTemplatesSheet_(active));
+    var tid = String(json.telegramId || "").trim();
+    if (tid === "undefined" || tid === "null") tid = "";
+    if (tid && !actorCanEditTemplates_(tid)) {
+      var forbid = { status: "error", message: "forbidden" };
+      return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
     }
-  } catch (eDupD) {}
-  var ok = deleted
-    ? { status: "success", id: id, deleted: true }
-    : { status: "error", message: "not_found" };
-  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+    var id = String(json.id || "").trim();
+    if (!id) {
+      var need = { status: "error", message: "need_id" };
+      return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+    }
+    if (isCanonicalSurveyTemplateId_(id) && tid && !actorIsOwner_(tid) && !isOwnerId_(tid)) {
+      var protect = { status: "error", message: "canonical_owner_only" };
+      return fromPost ? jsonpText(callback, protect) : jsonp(callback, protect);
+    }
+    var deleted = false;
+    var sh = getTemplatesSheet_();
+    if (deleteTemplateRowOnSheet_(sh, id)) deleted = true;
+    try {
+      var active = SpreadsheetApp.getActiveSpreadsheet();
+      if (active) {
+        var shActive = openOrCreateTemplatesSheet_(active);
+        if (shActive && (!sh || shActive.getSheetId() !== sh.getSheetId() || shActive.getParent().getId() !== sh.getParent().getId())) {
+          if (deleteTemplateRowOnSheet_(shActive, id)) deleted = true;
+        } else if (shActive && sh && shActive.getParent().getId() === sh.getParent().getId() && shActive.getName() !== sh.getName()) {
+          if (deleteTemplateRowOnSheet_(shActive, id)) deleted = true;
+        }
+      }
+    } catch (eDupD) {}
+    // ещё раз CRM, если getTemplatesSheet_ брал active
+    try {
+      var crm = getCrmSpreadsheet_();
+      if (crm) {
+        var shCrm = crm.getSheetByName("Шаблоны");
+        if (shCrm && deleteTemplateRowOnSheet_(shCrm, id)) deleted = true;
+      }
+    } catch (eCrm) {}
+    var ok = deleted
+      ? { status: "success", id: id, deleted: true }
+      : { status: "error", message: "not_found" };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (err) {
+    var fail = { status: "error", message: String(err) };
+    return fromPost ? jsonpText(callback, fail) : jsonp(callback, fail);
+  }
 }
 
 function stampPpCoefIntoWishesGs_(wishes, coef) {
