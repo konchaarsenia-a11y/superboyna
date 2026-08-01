@@ -1,52 +1,23 @@
-# Бойня FAST — параллельная быстрая копия
+# Бойня FAST
 
-Отдельная копия Mini App. **Корневые `app.html` / `Code.gs` / `index.html` не трогаются.**
+Параллельная быстрая копия. **Прод `app.html` / `Code.gs` не трогаем.**
 
-## Уже работает без Cloudflare
+## Открыть (рабочая ссылка)
 
-1. **GitHub Pages:** `https://konchaarsenia-a11y.github.io/superboyna/fast/`
-2. **Снапшоты** `fast/data/*.json` — прогреваются скриптом / Actions каждые 10 мин
-3. **Service Worker** `sw.js` — кэш повторных запросов к GAS в браузере
+GitHub Pages сейчас часто залипает на билде — используйте **jsDelivr** (отдаёт прямо из git):
 
-```
-Telegram / браузер
-       │
-       ▼
-  fast/app.html  (Pages CDN)
-       │
-       ├─ data/*.json     ← мгновенно (предзагрузка)
-       ├─ Service Worker  ← повторные GET к GAS из Cache Storage
-       └─ (опц.) Cloudflare Worker — ещё быстрее на первом miss
-              │
-              ▼
-         Apps Script / Sheets
-```
+**https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/fast/**
 
-## Открыть сейчас
+Должен быть бейдж **FAST**. Счётчики дней и списки клиентов — из `data/*` **сразу**, без ожидания Google.
 
-`https://konchaarsenia-a11y.github.io/superboyna/fast/`
+Запасная (Pages, когда оживёт):  
+https://konchaarsenia-a11y.github.io/superboyna/fast/
 
-Бейдж **FAST** в углу = вы в копии, не в проде.
+## Почему раньше «не быстрее»
 
-## Опционально: Cloudflare Worker
+Снапшоты писались в localStorage, а `apiGet` их **не читал** и каждый раз ждал GAS 3–7 с.  
+С **f3/f4** `getClients` / `getWeekDayCounts` отвечают из CDN мгновенно, GAS только фоном.
 
-Нужен бесплатный аккаунт Cloudflare (агент не может залогиниться за вас):
+## Важно
 
-```bash
-cd fast/proxy
-npx wrangler login
-npx wrangler deploy
-```
-
-URL в `fast/config.js` → `PROXY = "https://….workers.dev"`.
-
-## Обновить копию UI из прода
-
-```bash
-bash fast/sync-from-prod.sh
-```
-
-## Не делать
-
-- Не менять корневой `app.html` / `Code.gs` ради FAST.
-- Не переключать BotFather прод-кнопку на FAST, пока не решите так сознательно.
+Открывайте именно FAST-URL. Обычная кнопка бота → прод → там по-прежнему медленный GAS.
