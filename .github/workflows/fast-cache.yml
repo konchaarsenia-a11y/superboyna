@@ -1,0 +1,52 @@
+# Прогрев снапшотов FAST (GitHub Pages) — бесплатно, без Cloudflare.
+# Каждые 10 минут тянет getClients / weekDayCounts → fast/data/
+name: fast-cache
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "fast/scripts/refresh-cache.mjs"
+      - ".github/workflows/fast-cache.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fast-cache
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Refresh GAS snapshots
+        run: node fast/scripts/refresh-cache.mjs
+      - name: Commit if changed
+        run: |
+          git config user.name "boinya-fast-bot"
+          git config user.email "boinya-fast-bot@users.noreply.github.com"
+          git add fast/data
+          if git diff --staged --quiet; then
+            echo "no changes"
+            exit 0
+          fi
+          git commit -m "chore(fast): refresh edge snapshots"
+          # на случай параллельного пуша (агент / другой job)
+          for i in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            git pull --rebase origin main || git rebase --abort || true
+            sleep $((i * 2))
+          done
+          exit 1
