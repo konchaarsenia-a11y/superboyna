@@ -1,5 +1,5 @@
 - [~] **UI v7.11.90:** опросники — после «Отправлено» не возрождать из meta БП (тик); чистка дублей — **нужен Deploy Code.gs**
-- [~] **FAST parallel:** папка `fast/` — копия UI + Cloudflare Worker edge-кэш (**прод `app.html`/`Code.gs` не трогаем**); деплой: `fast/README.md`
+- [~] **FAST parallel:** `fast/` — снапшоты Pages + apiGet отдаёт data/* сразу (f3); прод не трогаем; Cloudflare опц.
 - [~] **UI v7.11.89:** перенос заказа сдвигает dueDate открытых опросников (+ meta БП) на тот же Δ дней — **нужен Deploy Code.gs**
 - [~] **UI v7.11.88:** Склад Сб/Вс — цепочка **K→L→M** без сброса на F; шт при закрытии из M (Вс) — **нужен Deploy Code.gs** + `setupWarehouseWeekendCols`
 - [~] **UI v7.11.87:** Склад Сб/Вс — фикс `#DIV/0!` (L/M от Пт без copyTo; Прием!R Сб/Вс сдвиг абс.refs +61) — **нужен Deploy Code.gs** + `setupWeekendDayFormulas`
