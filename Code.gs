@@ -6122,6 +6122,9 @@ function markSurveySentById_(surveyId) {
     ]);
     obj.status = "sent";
     obj.sentAt = sentAt;
+    try { clearBpSurveyMetaAfterClose_(crmSs, obj.nick, obj.kind); } catch (eMeta) {}
+    try { cancelOpenSurveyDuplicatesExceptId_(sh, obj.nick, obj.kind, obj.id); } catch (eDup0) {}
+    try { clearCrmSheetCache_("Опросник"); } catch (eC) {}
     return obj;
   }
   return null;
@@ -6175,8 +6178,13 @@ function handleSurveySentCallback_(cq) {
   var hit = null;
   try { hit = markSurveySentById_(id); } catch (eM) { hit = null; }
   if (!hit) {
-    telegramAnswerCallback_(cq && cq.id, "Опросник не найден или уже закрыт");
-    try { telegramEditSurveySent_(cq, ""); } catch (e0) {}
+    // уже закрыт / нет строки — не маскируем под успех
+    telegramAnswerCallback_(cq && cq.id, "Уже отмечено или не найдено");
+    try {
+      if (cq && cq.message && cq.message.reply_markup) {
+        telegramEditSurveySent_(cq, "");
+      }
+    } catch (e0) {}
     return;
   }
   telegramEditSurveySent_(cq, hit.nick || "");
@@ -14417,7 +14425,10 @@ function surveyTemplateForKind_(kind) {
   return kind === "final" ? "survey_final" : "survey_bp2";
 }
 
-/** Upsert open (planned/due) survey for nick+kind; updates dueDate/stage/meta. */
+/** Upsert open (planned/due) survey for nick+kind; updates dueDate/stage/meta.
+ * Не плодит новый due, если этот nick+kind(+due) уже sent/done — иначе тик из meta БП
+ * снова создаёт опросник после «Отправлено».
+ */
 function upsertOpenSurvey_(crmSs, opts) {
   opts = opts || {};
   var sh = ensureSurveySheet_(crmSs);
@@ -14426,6 +14437,7 @@ function upsertOpenSurvey_(crmSs, opts) {
   if (!nick) return null;
   var kind = normalizeSurveyKind_(opts.kind);
   var dueDate = String(opts.dueDate || "").trim();
+  var dueWant = surveyDueYmd_(dueDate) || "";
   var stage = surveyStageForKind_(kind, opts.stage);
   var status = String(opts.status || "planned").trim() || "planned";
   var templateId = String(opts.templateId || surveyTemplateForKind_(kind)).trim();
@@ -14438,26 +14450,38 @@ function upsertOpenSurvey_(crmSs, opts) {
   var linkedSubId = String(opts.linkedSubId || opts.subId || "").trim();
   var sentAt = String(opts.sentAt || "").trim();
   var answer = String(opts.answer || "").trim();
+  var forceNew = opts.forceNew === true || opts.forceNew === "1" || opts.forceNew === 1;
   var data = sh.getDataRange().getValues();
   var openRe = /^(planned|due)$/i;
+  var closedRe = /^(sent|done|cancelled|canceled|answered|completed|closed)$/i;
+  var closedSame = null;
   for (var r = 1; r < data.length; r++) {
     if (!nicksMatch_(data[r][1], nick)) continue;
     if (normalizeSurveyKind_(data[r][3]) !== kind) continue;
     var st0 = String(data[r][6] || "planned").trim() || "planned";
-    // Prefer updating open planned/due; for sent also update open row
-    if (!openRe.test(st0)) continue;
-    if (dueDate) writeSurveyDueCell_(sh, r + 1, 5, dueDate);
-    if (stage) sh.getRange(r + 1, 3).setValue(stage);
-    if (opts.status) sh.getRange(r + 1, 7).setValue(status);
-    if (sentAt) sh.getRange(r + 1, 6).setValue(sentAt);
-    if (templateId) sh.getRange(r + 1, 8).setValue(templateId);
-    if (answer) sh.getRange(r + 1, 9).setValue(answer);
-    if (note || ownerTelegramId) sh.getRange(r + 1, 10).setValue(note);
-    if (linkedSubId) sh.getRange(r + 1, 11).setValue(linkedSubId);
-    sh.getRange(r + 1, 12).setValue(new Date());
-    try { sh.getRange(r + 1, 1, r + 1, SURVEY_HEADERS_.length).breakApart(); } catch (eBr2) {}
-    var row = sh.getRange(r + 1, 1, r + 1, SURVEY_HEADERS_.length).getValues()[0];
-    return surveyRowToObj_(row, r + 1);
+    var due0 = surveyDueYmd_(data[r][4]) || "";
+    // Prefer updating open planned/due
+    if (openRe.test(st0)) {
+      if (dueDate) writeSurveyDueCell_(sh, r + 1, 5, dueDate);
+      if (stage) sh.getRange(r + 1, 3).setValue(stage);
+      if (opts.status) sh.getRange(r + 1, 7).setValue(status);
+      if (sentAt) sh.getRange(r + 1, 6).setValue(sentAt);
+      if (templateId) sh.getRange(r + 1, 8).setValue(templateId);
+      if (answer) sh.getRange(r + 1, 9).setValue(answer);
+      if (note || ownerTelegramId) sh.getRange(r + 1, 10).setValue(note);
+      if (linkedSubId) sh.getRange(r + 1, 11).setValue(linkedSubId);
+      sh.getRange(r + 1, 12).setValue(new Date());
+      try { sh.getRange(r + 1, 1, r + 1, SURVEY_HEADERS_.length).breakApart(); } catch (eBr2) {}
+      var row = sh.getRange(r + 1, 1, r + 1, SURVEY_HEADERS_.length).getValues()[0];
+      return surveyRowToObj_(row, r + 1);
+    }
+    if (closedRe.test(st0)) {
+      // тот же due или due не задан у закрытого — считаем «уже отработан»
+      if (!dueWant || !due0 || due0 === dueWant) closedSame = surveyRowToObj_(data[r], r + 1);
+    }
+  }
+  if (closedSame && !forceNew) {
+    return closedSame;
   }
   var id = newSurveyId_();
   dueDate = surveyDueYmd_(dueDate) || dueDate || ymdPlusDays_("", 4);
@@ -14473,6 +14497,99 @@ function upsertOpenSurvey_(crmSs, opts) {
   writeSurveyDueCell_(sh, last, 5, dueDate);
   var row2 = sh.getRange(last, 1, last, SURVEY_HEADERS_.length).getValues()[0];
   return surveyRowToObj_(row2, last);
+}
+
+/**
+ * После sent/done/cancelled убрать due из meta БП, иначе тик каждые 30 мин
+ * снова upsert'ит опросник из [ОПРОС_БП2:…] / [ОПРОС_ФИНАЛ:…].
+ */
+function clearBpSurveyMetaAfterClose_(crmSs, nick, kind) {
+  nick = String(nick || "").trim();
+  if (!crmSs || !nick) return 0;
+  kind = normalizeSurveyKind_(kind);
+  var bp = findSheetByBaseName_(crmSs, "БП");
+  if (!bp) return 0;
+  var nicks = [nick];
+  try {
+    var shortN = extractInstagramNick_(nick) || displayClientNick_(nick) || "";
+    if (shortN && nicks.indexOf(shortN) < 0) nicks.push(shortN);
+  } catch (eN) {}
+  var n = 0;
+  for (var i = 0; i < nicks.length; i++) {
+    var rowIdx = -1;
+    try { rowIdx = findSubscriptionRowIndex_(bp, nicks[i], ""); } catch (eF) { rowIdx = -1; }
+    if (rowIdx < 0) continue;
+    var wishes = String(bp.getRange(rowIdx + 1, 5).getValue() || "");
+    var meta = parseBpMetaFromWishes_(wishes);
+    var next = {};
+    var changed = false;
+    if (kind === "final") {
+      if (meta.surveyFinalDue) { next.surveyFinalDue = ""; changed = true; }
+    } else {
+      if (meta.surveyBp2Due) { next.surveyBp2Due = ""; changed = true; }
+    }
+    if (!changed) continue;
+    bp.getRange(rowIdx + 1, 5).setValue(stampBpMetaIntoWishes_(wishes, next));
+    n++;
+  }
+  if (n) {
+    try { clearCrmSheetCache_("БП"); } catch (eC) {}
+  }
+  return n;
+}
+
+/** Закрыть лишние planned/due того же nick+kind (кроме keepId) — хвосты после ре-upsert тика. */
+function cancelOpenSurveyDuplicatesExceptId_(sh, nick, kind, keepId) {
+  if (!sh || sh.getLastRow() < 2) return 0;
+  nick = String(nick || "").trim();
+  keepId = String(keepId || "").trim();
+  kind = normalizeSurveyKind_(kind);
+  if (!nick) return 0;
+  var data = sh.getDataRange().getValues();
+  var openRe = /^(planned|due)$/i;
+  var n = 0;
+  for (var r = 1; r < data.length; r++) {
+    var id0 = String(data[r][0] || "").trim();
+    if (keepId && id0 === keepId) continue;
+    if (!nicksMatch_(data[r][1], nick)) continue;
+    if (normalizeSurveyKind_(data[r][3]) !== kind) continue;
+    var st0 = String(data[r][6] || "planned").trim() || "planned";
+    if (!openRe.test(st0)) continue;
+    sh.getRange(r + 1, 7).setValue("cancelled");
+    sh.getRange(r + 1, 12).setValue(new Date());
+    n++;
+  }
+  return n;
+}
+
+/** Если по nick+kind уже есть sent/done — отменить висящие planned/due (лечение после бага тика). */
+function suppressOpenSurveysIfAlreadySent_(sh) {
+  if (!sh || sh.getLastRow() < 2) return 0;
+  var data = sh.getDataRange().getValues();
+  var sentKeys = {};
+  var openRe = /^(planned|due)$/i;
+  for (var r = 1; r < data.length; r++) {
+    var nick = String(data[r][1] || "").trim();
+    if (!nick) continue;
+    var kind = normalizeSurveyKind_(data[r][3]);
+    var st = String(data[r][6] || "").toLowerCase();
+    var key = clientMatchKey_(nick) + "|" + kind;
+    if (st === "sent" || st === "done") sentKeys[key] = true;
+  }
+  var n = 0;
+  for (var r2 = 1; r2 < data.length; r2++) {
+    var nick2 = String(data[r2][1] || "").trim();
+    if (!nick2) continue;
+    var kind2 = normalizeSurveyKind_(data[r2][3]);
+    var st2 = String(data[r2][6] || "planned").trim().toLowerCase() || "planned";
+    var key2 = clientMatchKey_(nick2) + "|" + kind2;
+    if (!sentKeys[key2]) continue;
+    if (!openRe.test(st2)) continue;
+    sh.getRange(r2 + 1, 7).setValue("cancelled");
+    sh.getRange(r2 + 1, 12).setValue(new Date());
+    n++;
+  }
+  return n;
 }
 
 function surveySheetTz_() {
@@ -14795,6 +14912,11 @@ function handleSaveSurvey(json, callback, fromPost) {
         status, templateId || surveyTemplateForKind_(kind), answer || "", note, linkedSubId || "", new Date()
       ]);
       var savedUp = surveyRowToObj_(sh.getRange(rowIndex, 1, rowIndex, SURVEY_HEADERS_.length).getValues()[0], rowIndex);
+      if (status === "sent" || status === "done" || status === "cancelled") {
+        try { clearBpSurveyMetaAfterClose_(getCrmSpreadsheet_(), nick, kind); } catch (eMeta2) {}
+        // закрыть дубликаты nick+kind (старые due, которые плодил тик)
+        try { cancelOpenSurveyDuplicatesExceptId_(sh, nick, kind, id); } catch (eDup) {}
+      }
       try { clearCrmSheetCache_("Опросник"); } catch (eC0) {}
       var okUp = { status: "success", item: savedUp, updated: true };
       return fromPost ? jsonpText(callback, okUp) : jsonp(callback, okUp);
@@ -15275,6 +15397,7 @@ function tickBpSurveyReminders_() {
       props.setProperty(sentKey, JSON.stringify(already));
       return;
     }
+    try { suppressOpenSurveysIfAlreadySent_(shSv); } catch (eSup) {}
     var svData = shSv.getDataRange().getValues();
     for (var s = 1; s < svData.length; s++) {
       var obj = surveyRowToObj_(svData[s], s + 1);
