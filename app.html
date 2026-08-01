@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.98";
+      var APP_VER = "v7.11.99";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2488,7 +2488,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.98";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.99";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2833,8 +2833,8 @@
       clientsScreen:
         "Просмотр\n" +
         "• Вкладки Месяц / Неделя — переключение без обновления.\n" +
-        "• Месяц: календарь как в iPhone — точка/число людей, тап по дню → редактор.\n" +
-        "• Дата вне текущей недели — только календарь (без колонки недели), правка ✏️.\n" +
+        "• Месяц: календарь → тап по дню → список. 🔄 — перенос на другую дату (напр. 7→3).\n" +
+        "• Дата вне текущей недели — только календарь (без колонки недели), правка ✏️ / перенос 🔄.\n" +
         "• Неделя: Пн–Пт + Будущая → тап → неделя ↔ календарь.\n" +
         "• «Обновить» на обзоре/дне — только по кнопке.",
       cuttingScreen: "Нарезка\n• Выбери день и отмечай нарезанное.",
@@ -7307,9 +7307,7 @@
         actions =
           '<div class="client-right-block" onclick="event.stopPropagation()">' +
           '<button class="crm-mini-btn crm-edit" onclick="crmEditClient(' + index + ', event)">✏️</button>' +
-          (viewDateOnlyMonth
-            ? ""
-            : '<button class="crm-mini-btn crm-move" onclick="crmMoveClient(' + index + ', event)">🔄</button>') +
+          '<button class="crm-mini-btn crm-move" title="Перенести на дату" onclick="crmMoveClient(' + index + ', event)">🔄</button>' +
           '<button class="crm-mini-btn crm-delete" onclick="crmDeleteClient(' + index + ', event)">🗑️</button>' +
           "</div>";
       }
@@ -7358,10 +7356,12 @@
         ? '<button type="button" class="btn-action btn-purple" style="margin:0;padding:8px 10px;font-size:11px;opacity:0.4;" disabled title="Дата вне недели">→</button>'
         : '<button type="button" class="btn-action btn-purple" style="margin:0;padding:8px 10px;font-size:11px;" onclick="stageMonthClient(' + index + ')">→</button>';
       var remBtn = '<button type="button" class="seg-btn" style="margin:0;padding:8px 10px;font-size:11px;" title="Убрать из календаря" onclick="removeMonthClient(' + index + ',event)">✕</button>';
+      var moveBtn = '<button type="button" class="crm-mini-btn crm-move" style="width:auto;padding:0 8px;height:32px;" title="Перенести на другую дату" onclick="crmMoveMonthClient(' + index + ',event)">🔄</button>';
       return '<div class="client-item-card view-month-card' + gapClass + '" id="monthCard_' + index + '">' +
         '<div class="client-main-row" onclick="toggleMonthDetail(' + index + ', event)">' +
         '<div class="client-title-wrap"><span class="client-title">' + escapeHtml(nick) + "</span></div>" +
-        '<div class="client-right-block" onclick="event.stopPropagation()" style="display:flex;gap:4px;">' + remBtn + stageBtn + "</div>" +
+        '<div class="client-right-block" onclick="event.stopPropagation()" style="display:flex;gap:4px;align-items:center;">' +
+        moveBtn + remBtn + stageBtn + "</div>" +
         "</div>" +
         addrHtml +
         phoneHtml +
@@ -8171,38 +8171,33 @@
     async function crmBatchMove() {
       const idxs = getSelectedClientIndexes();
       if (!idxs.length) { showToast("Никого не выбрано"); return; }
-      if (viewDateOnlyMonth) {
-        await uiAlertAsync("Эта дата вне текущей недели — перенос дня недоступен. Правь через ✏️ или удали из календаря.");
-        return;
-      }
-      const oldDay = document.getElementById("viewDaySelect").value;
-      if (!oldDay) {
-        await uiAlertAsync("Сначала выберите день недели в Просмотре (нужен для переноса в таблице).");
+      const oldDay = (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) || "";
+      const oldDate = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
+      if (!oldDate && !oldDay) {
+        await uiAlertAsync("Сначала открой дату или день в Просмотре.");
         return;
       }
       const names = idxs.map(function (i) { return loadedClientsRawData[i].name; });
-      const oldDate = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
       const pickedDate = await uiPickMoveDate(names.length + " чел.", oldDate);
       if (!pickedDate) return;
       const target = await resolveMoveTargetFromDate_(pickedDate);
-      if (!target || (!target.newDay && !target.calendarOnly)) {
-        await uiAlertAsync("Не удалось определить день для этой даты");
+      if (!target || !target.newDate) {
+        await uiAlertAsync("Не удалось определить дату");
         return;
       }
-      if (!target.calendarOnly && target.newDay === oldDay && (!oldDate || target.newDate === oldDate)) {
+      if (oldDate && target.newDate === oldDate) {
         await uiAlertAsync("Выберите другую дату");
         return;
       }
-      if (target.calendarOnly && oldDate && target.newDate === oldDate) {
-        await uiAlertAsync("Выберите другую дату");
-        return;
-      }
-      const dateOnly = !!(!target.calendarOnly && target.newDay === oldDay);
-      const cutLabel = target.calendarOnly
-        ? (target.newDate + " · только календарь")
-        : (target.newDate + (target.onWeek ? (" · " + target.newDay) : ""));
+      // вне недели / без дня на листе — только календарь+брони+CRM
+      const calendarOnly = !!(viewDateOnlyMonth || !oldDay || target.calendarOnly);
+      const newDay = calendarOnly ? "" : (target.newDay || "");
+      const dateOnly = !!(!calendarOnly && newDay && oldDay && newDay === oldDay);
+      const cutLabel = calendarOnly
+        ? (target.newDate + " · календарь")
+        : (target.newDate + (target.onWeek ? (" · " + newDay) : ""));
       let cutRaw = "yes";
-      if (!dateOnly && !target.calendarOnly) {
+      if (!dateOnly && !calendarOnly) {
         cutRaw = await pickBatchCutRaw(names.length, cutLabel);
         if (!cutRaw) return;
       }
@@ -8216,15 +8211,16 @@
           const res = await apiGet({
             action: "moveClient",
             client: names[i],
-            oldDay: oldDay,
-            newDay: target.newDay || "",
+            oldDay: oldDay || "",
+            newDay: newDay,
             oldDate: oldDate || "",
             newDate: target.newDate,
             dateOnly: dateOnly ? "1" : "0",
-            calendarOnly: target.calendarOnly ? "1" : "0",
+            calendarOnly: calendarOnly ? "1" : "0",
             cutRaw: cutFlag,
-            matchKey: (loadedClientsRawData[idxs[i]] && loadedClientsRawData[idxs[i]].matchKey) || ""
-          });
+            matchKey: (loadedClientsRawData[idxs[i]] && loadedClientsRawData[idxs[i]].matchKey) || "",
+            _: String(Date.now())
+          }, { timeoutMs: 45000, cacheTtlMs: 0 });
           if (res.status === "success") {
             ok++;
             surveys += Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
@@ -8245,8 +8241,10 @@
         apiCacheBustMem_("getMonthOverview");
         apiCacheBustMem_("listSurvey");
       } catch (eClr) {}
-      await refreshDayViews(oldDay);
-      if (target.newDay && target.newDay !== oldDay) await refreshDayViews(target.newDay);
+      viewMonthOverviewCache = null;
+      await loadClientsForDay();
+      if (!calendarOnly && newDay && oldDay && newDay !== oldDay) await refreshDayViews(newDay);
+      try { await ensureMonthOverviewLoaded_({ force: true }); } catch (eOv) {}
       recoverUiFocus();
     }
     window.crmBatchMove = crmBatchMove;
@@ -8463,73 +8461,78 @@
       recoverUiFocus();
     }
 
-    async function crmMoveClient(index, event) {
-      event.stopPropagation();
-      const client = loadedClientsRawData[index];
-      const oldDay = document.getElementById("viewDaySelect").value;
-      const oldDate = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
-      const pickedDate = await uiPickMoveDate(client.name, oldDate);
-      if (!pickedDate) return;
-      const target = await resolveMoveTargetFromDate_(pickedDate);
-      if (!target || (!target.newDay && !target.calendarOnly)) {
-        await uiAlertAsync("Не удалось определить день для этой даты");
-        return;
+    async function performViewClientMove_(opts) {
+      opts = opts || {};
+      var clientName = String(opts.name || "").trim();
+      var matchKey = String(opts.matchKey || "").trim();
+      var oldDay = String(opts.oldDay || "").trim();
+      var oldDate = String(opts.oldDate || "").trim();
+      if (!clientName) return false;
+      if (!oldDate && !oldDay) {
+        await uiAlertAsync("Нет исходной даты для переноса");
+        return false;
       }
-      if (!target.calendarOnly && target.newDay === oldDay && (!oldDate || target.newDate === oldDate)) {
+      var pickedDate = await uiPickMoveDate(clientName, oldDate);
+      if (!pickedDate) return false;
+      var target = await resolveMoveTargetFromDate_(pickedDate);
+      if (!target || !target.newDate) {
+        await uiAlertAsync("Не удалось определить дату");
+        return false;
+      }
+      if (oldDate && target.newDate === oldDate) {
         await uiAlertAsync("Выберите другую дату");
-        return;
+        return false;
       }
-      if (target.calendarOnly && oldDate && target.newDate === oldDate) {
-        await uiAlertAsync("Выберите другую дату");
-        return;
-      }
-      const dateOnly = !!(!target.calendarOnly && target.newDay === oldDay);
-      const cutLabel = target.calendarOnly
-        ? (target.newDate + " · только календарь")
-        : (target.newDate + (target.onWeek ? (" · " + target.newDay) : ""));
-      let cutRaw = "yes";
-      if (!dateOnly && !target.calendarOnly) {
-        const cutP = openModal(
+      var calendarOnly = !!(opts.forceCalendarOnly || viewDateOnlyMonth || !oldDay || target.calendarOnly);
+      var newDay = calendarOnly ? "" : (target.newDay || "");
+      var dateOnly = !!(!calendarOnly && newDay && oldDay && newDay === oldDay);
+      var cutLabel = calendarOnly
+        ? (target.newDate + " · календарь")
+        : (target.newDate + (target.onWeek ? (" · " + newDay) : ""));
+      var cutRaw = "yes";
+      if (!dateOnly && !calendarOnly) {
+        var cutP = openModal(
           '<div class="modal-title">Нарезка при переносе</div>' +
-          '<div class="modal-text">Перенос <b>' + escapeHtml(client.name) + '</b> → <b>' + escapeHtml(cutLabel) + '</b>.<br><br>' +
+          '<div class="modal-text">Перенос <b>' + escapeHtml(clientName) + '</b> → <b>' + escapeHtml(cutLabel) + '</b>.<br><br>' +
           'Нарезать сырьё на этого клиента в новом дне вместе со всеми?</div>' +
           '<div class="modal-actions">' +
             '<button class="btn-action btn-orange" type="button" id="modalCutYes">Да, резать</button>' +
             '<button class="btn-action btn-blue" type="button" id="modalCutNo">Нет — только перенос</button>' +
             '<button class="btn-action" type="button" id="modalCancel" style="background:#3a3a3c;">Отмена</button>' +
-          '</div>'
+          "</div>"
         );
         setTimeout(function () {
-          const y = document.getElementById("modalCutYes");
-          const n = document.getElementById("modalCutNo");
-          const c = document.getElementById("modalCancel");
+          var y = document.getElementById("modalCutYes");
+          var n = document.getElementById("modalCutNo");
+          var c = document.getElementById("modalCancel");
           if (y) y.onclick = function () { closeModal("yes"); };
           if (n) n.onclick = function () { closeModal("no"); };
           if (c) c.onclick = function () { closeModal(null); };
         }, 0);
         cutRaw = await cutP;
-        if (!cutRaw) return;
+        if (!cutRaw) return false;
       }
       try {
-        const res = await apiGet({
+        var res = await apiGet({
           action: "moveClient",
-          client: client.name,
-          oldDay: oldDay,
-          newDay: target.newDay || "",
+          client: clientName,
+          oldDay: oldDay || "",
+          newDay: newDay,
           oldDate: oldDate || "",
           newDate: target.newDate,
           dateOnly: dateOnly ? "1" : "0",
-          calendarOnly: target.calendarOnly ? "1" : "0",
+          calendarOnly: calendarOnly ? "1" : "0",
           cutRaw: cutRaw === "yes" ? "1" : "0",
-          matchKey: client.matchKey || ""
-        });
-        if (res.status !== "success") {
-          await uiAlertAsync("Не удалось: " + (res.status || "ошибка"));
-          return;
+          matchKey: matchKey,
+          _: String(Date.now())
+        }, { timeoutMs: 45000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
+          return false;
         }
         var svN = Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
-        var baseMsg = target.calendarOnly
-          ? ("В календаре на " + target.newDate + " (не на Будущей)")
+        var baseMsg = calendarOnly
+          ? ("Перенесено на " + target.newDate)
           : (dateOnly
             ? ("Дата → " + target.newDate)
             : (cutRaw === "yes" ? "Перенесено (резать)" : "Перенесено без резки"));
@@ -8540,14 +8543,60 @@
           apiCacheBustMem_("getMonthOverview");
           apiCacheBustMem_("listSurvey");
         } catch (eClr) {}
-        await refreshDayViews(oldDay);
-        if (target.newDay && target.newDay !== oldDay) await refreshDayViews(target.newDay);
+        viewMonthOverviewCache = null;
+        await loadClientsForDay();
+        if (!calendarOnly && newDay && oldDay && newDay !== oldDay) {
+          try { await refreshDayViews(newDay); } catch (eR) {}
+        }
+        try { await ensureMonthOverviewLoaded_({ force: true }); } catch (eOv) {}
+        return true;
       } catch (err) {
         await uiAlertAsync(err.message || String(err));
+        return false;
       } finally {
         recoverUiFocus();
       }
     }
+
+    async function crmMoveClient(index, event) {
+      if (event) event.stopPropagation();
+      const client = loadedClientsRawData[index];
+      if (!client) return;
+      const oldDay = (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) || "";
+      const oldDate = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
+      await performViewClientMove_({
+        name: client.name,
+        matchKey: client.matchKey || "",
+        oldDay: oldDay,
+        oldDate: oldDate,
+        forceCalendarOnly: !!viewDateOnlyMonth
+      });
+    }
+
+    async function crmMoveMonthClient(index, event) {
+      if (event) event.stopPropagation();
+      var draftKeys = {};
+      viewTransferDraft.forEach(function (d) {
+        var k = d.matchKey || viewClientKey(d.name);
+        if (k) draftKeys[k] = true;
+      });
+      var visible = (monthClientsCache || []).filter(function (c) {
+        var k = c.matchKey || viewClientKey(c.name);
+        return !(k && draftKeys[k]);
+      });
+      var client = visible[index];
+      if (!client) return;
+      var oldDay = (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) || "";
+      var oldDate = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
+      await performViewClientMove_({
+        name: client.name,
+        matchKey: client.matchKey || viewClientKey(client.name) || "",
+        oldDay: oldDay,
+        oldDate: oldDate,
+        forceCalendarOnly: !!viewDateOnlyMonth || !oldDay
+      });
+    }
+    window.crmMoveMonthClient = crmMoveMonthClient;
 
     async function crmDeleteClient(index, event) {
       event.stopPropagation();
