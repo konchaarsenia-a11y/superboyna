@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.89f5";
+      var APP_VER = "v7.11.89f6";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2482,7 +2482,7 @@
     // FAST edition: Cloudflare Worker edge-cache. Fallback = прямой GAS если прокси не задан.
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.89f5";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.89f6";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня FAST " + APP_VERSION;
@@ -14004,6 +14004,19 @@
           window._subsSkipNextEnterLoad = false;
           return;
         }
+        // FAST: если раньше тихое окно закэшировало пустой список — перезагрузить
+        try {
+          var sheet = typeof subsSegment !== "undefined" ? subsSegment : "";
+          var cached = window._subsBySheet && sheet ? window._subsBySheet[sheet] : null;
+          var empty = !cached || !cached.list || !cached.list.length;
+          if (empty || (cached && cached.fastEmpty)) {
+            try { delete window._subsBySheet[sheet]; } catch (e0) {}
+            window._subsListFull = null;
+            window._subsListLoadedSheet = "";
+            loadSubscriptions({ force: true });
+            return;
+          }
+        } catch (eFastSubs) {}
         loadSubscriptions({ soft: true });
         return;
       }
@@ -14465,10 +14478,17 @@
           }
           return;
         }
-        var list = (res.subscriptions || []).filter(function (s) {
-          return !wantSheet || s.sheet === wantSheet;
+        var list = (res.subscriptions || res.items || []).filter(function (s) {
+          return !wantSheet || !s.sheet || s.sheet === wantSheet;
         });
         if (wantSheet === "БП") list = groupBpSubscriptions_(list);
+        // пустой ответ с fastQuiet — не кэшировать как «загружено»
+        if ((!list || !list.length) && res.fastQuiet) {
+          window._subsBySheet[wantSheet] = { list: [], at: Date.now(), loaded: false, fastEmpty: true };
+          box.innerHTML = '<p class="muted">Загрузка подписок…</p>';
+          setTimeout(function () { loadSubscriptions({ force: true }); }, 400);
+          return;
+        }
         window._subsListFull = list;
         window._subsListSheet = wantSheet;
         window._subsListLoadedSheet = wantSheet;

@@ -153,7 +153,25 @@
       }
     }
 
-    // прочие чтения в тишине — не блокировать UI пустым успехом / кэшем
+    // CRM / подписки / опросники — НИКОГДА не подменять пустым списком
+    // (иначе UI кэширует [] и люди «пропадают»)
+    if (
+      action === "listSubscriptions" ||
+      action === "listSurvey" ||
+      action === "getSubscription" ||
+      action === "listDeferred" ||
+      action === "listClientProfiles" ||
+      action === "listPartners" ||
+      action === "listAccess" ||
+      action === "listBookings" ||
+      action === "getViewCompare" ||
+      action === "getMonthOverview" ||
+      action === "crmInventory"
+    ) {
+      return null; // всегда реальный GAS
+    }
+
+    // прочие чтения в тишине — только безопасные заглушки без списков людей
     if (inQuiet() && !/^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup)/i.test(action)) {
       if (action === "getWeekBannerState") {
         return Promise.resolve({
@@ -165,18 +183,11 @@
           fastQuiet: true
         });
       }
-      if (action === "listDeferred" || action === "listSurvey" || action === "listSubscriptions") {
-        return Promise.resolve({ status: "success", items: [], fastQuiet: true });
-      }
-      if (action === "getCourier" || action === "getAssembly" || action === "getCutting") {
-        return Promise.resolve({ status: "success", clients: [], items: [], fastQuiet: true });
-      }
       if (action === "telegramStatus" || action === "weekPullStatus") {
         return Promise.resolve({ status: "success", ok: true, fastQuiet: true });
       }
-      // неизвестное чтение — отложить GAS
-      bgRefresh(params);
-      return Promise.resolve({ status: "success", fastQuiet: true, items: [], clients: [] });
+      // всё остальное в тишине — не фейкать данными, пусть идёт в GAS
+      return null;
     }
 
     return null;
