@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.89f3";
+      var APP_VER = "v7.11.89f4";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2481,7 +2481,7 @@
     // FAST edition: Cloudflare Worker edge-cache. Fallback = прямой GAS если прокси не задан.
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.89f3";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.89f4";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня FAST " + APP_VERSION;
@@ -4987,7 +4987,7 @@
       var action = String((params && params.action) || "");
       // FAST edition: снапшоты с Pages — без ожидания GAS
       try {
-        if (window.__BOINYA_FAST_EDITION__ && typeof window.__boinyaFastTrySnap === "function") {
+        if (!opts.__boinyaNoSnap && window.__BOINYA_FAST_EDITION__ && typeof window.__boinyaFastTrySnap === "function") {
           var _fastHit = window.__boinyaFastTrySnap(params, opts);
           if (_fastHit) return _fastHit;
         }
