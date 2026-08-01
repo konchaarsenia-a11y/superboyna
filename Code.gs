@@ -1583,18 +1583,31 @@ function doGet(e) {
     }, callback, false);
   }
   if (action === "saveTemplate") {
+    var tplTitle = String(e.parameter.title || "");
+    var tplBody = String(e.parameter.body || "");
+    // GAS уже URL-decode'ит e.parameter — повторный decodeURIComponent ломает текст с «%»
+    try {
+      if (e.parameter.titleB64) {
+        tplTitle = Utilities.newBlob(Utilities.base64Decode(String(e.parameter.titleB64))).getDataAsString("UTF-8");
+      }
+    } catch (eTb) {}
+    try {
+      if (e.parameter.bodyB64) {
+        tplBody = Utilities.newBlob(Utilities.base64Decode(String(e.parameter.bodyB64))).getDataAsString("UTF-8");
+      }
+    } catch (eBb) {}
     return handleSaveTemplate({
-      id: e.parameter.id ? decodeURIComponent(e.parameter.id) : "",
-      kind: e.parameter.kind ? decodeURIComponent(e.parameter.kind) : "",
-      title: e.parameter.title ? decodeURIComponent(e.parameter.title) : "",
-      body: e.parameter.body ? decodeURIComponent(e.parameter.body) : "",
-      telegramId: e.parameter.telegramId || e.parameter.chatId || ""
+      id: String(e.parameter.id || ""),
+      kind: String(e.parameter.kind || ""),
+      title: tplTitle,
+      body: tplBody,
+      telegramId: String(e.parameter.telegramId || e.parameter.chatId || "")
     }, callback, false);
   }
   if (action === "deleteTemplate") {
     return handleDeleteTemplate({
-      id: e.parameter.id ? decodeURIComponent(e.parameter.id) : "",
-      telegramId: e.parameter.telegramId || e.parameter.chatId || ""
+      id: String(e.parameter.id || ""),
+      telegramId: String(e.parameter.telegramId || e.parameter.chatId || "")
     }, callback, false);
   }
   if (action === "syncSurveyTemplates") {
@@ -15511,12 +15524,14 @@ function tickBpSurveyReminders_() {
 
 function actorCanEditTemplates_(telegramId) {
   var tid = String(telegramId || "").trim();
-  if (!tid) return true; // soft: тесты / JSONP без actor
+  if (!tid || tid === "undefined" || tid === "null") return true; // soft: тесты / без actor
   if (actorIsOwner_(tid) || isOwnerId_(tid)) return true;
   var row = findAccessById_(tid);
   if (!row) return false;
-  var role = String(row.role || "").toLowerCase();
-  var st = String(row.status || "").toLowerCase();
+  var role = String(row.role || "").toLowerCase().trim();
+  if (role === "менеджер") role = "manager";
+  if (role === "владелец") role = "owner";
+  var st = String(row.status || "").toLowerCase().trim();
   if (st === "denied" || st === "pending") return false;
   return role === "manager" || role === "owner" || role === "all";
 }
@@ -15526,17 +15541,39 @@ function isCanonicalSurveyTemplateId_(id) {
   return id0 === "survey_bp2" || id0 === "survey_final";
 }
 
+function upsertTemplateOnSheet_(sh, id, kind, title, body) {
+  if (!sh || !id) return 0;
+  var data = sh.getDataRange().getValues();
+  var row = 0;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0] || "").trim().toLowerCase() === String(id).toLowerCase()) {
+      row = i + 1;
+      break;
+    }
+  }
+  if (row) {
+    writeTemplateCells_(sh, row, id, kind, title, body);
+    return row;
+  }
+  sh.appendRow([id, kind, title, body]);
+  return sh.getLastRow();
+}
+
 function handleListTemplates(json, callback, fromPost) {
   json = json || {};
   var sh = getTemplatesSheet_();
   var data = sh.getDataRange().getValues();
   var wantKind = String(json.kind || "").trim().toLowerCase();
   var rows = [];
+  var seen = {};
   for (var i = 1; i < data.length; i++) {
     var id = String(data[i][0] || "").trim();
     if (!id) continue;
     var kind = String(data[i][1] || "").trim();
     if (wantKind && kind.toLowerCase() !== wantKind && id.toLowerCase().indexOf(wantKind) < 0) continue;
+    var key = id.toLowerCase();
+    if (seen[key]) continue;
+    seen[key] = true;
     rows.push({
       id: id,
       kind: kind,
@@ -15550,50 +15587,64 @@ function handleListTemplates(json, callback, fromPost) {
 
 function handleSaveTemplate(json, callback, fromPost) {
   json = json || {};
-  var tid = String(json.telegramId || "").trim();
-  if (tid && !actorCanEditTemplates_(tid)) {
-    var forbid = { status: "error", message: "forbidden" };
-    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
-  }
-  var id = String(json.id || "").trim();
-  var kind = String(json.kind || "text").trim() || "text";
-  var title = String(json.title || "").trim();
-  var body = String(json.body || "").trim();
-  if (!id) {
-    var slug = title.toLowerCase()
-      .replace(/[^a-z0-9а-яё]+/gi, "_")
-      .replace(/^_+|_+$/g, "")
-      .slice(0, 24);
-    if (!slug) slug = "tpl";
-    id = "tpl_" + slug + "_" + Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Minsk", "yyyyMMddHHmmss");
-  }
-  if (!title && !body) {
-    var empty = { status: "error", message: "need_title_or_body" };
-    return fromPost ? jsonpText(callback, empty) : jsonp(callback, empty);
-  }
-  if (!title) title = id;
-  var sh = getTemplatesSheet_();
-  var data = sh.getDataRange().getValues();
-  var row = 0;
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0] || "").trim().toLowerCase() === id.toLowerCase()) {
-      row = i + 1;
-      break;
+  try {
+    if (json.titleB64 && !json.title) {
+      try {
+        json.title = Utilities.newBlob(Utilities.base64Decode(String(json.titleB64))).getDataAsString("UTF-8");
+      } catch (e1) {}
     }
+    if (json.bodyB64 && !json.body) {
+      try {
+        json.body = Utilities.newBlob(Utilities.base64Decode(String(json.bodyB64))).getDataAsString("UTF-8");
+      } catch (e2) {}
+    }
+    var tid = String(json.telegramId || "").trim();
+    if (tid === "undefined" || tid === "null") tid = "";
+    if (tid && !actorCanEditTemplates_(tid)) {
+      var forbid = { status: "error", message: "forbidden" };
+      return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+    }
+    var id = String(json.id || "").trim();
+    var kind = String(json.kind || "text").trim() || "text";
+    var title = String(json.title || "").trim();
+    var body = String(json.body || "").trim();
+    if (!id) {
+      var slug = title.toLowerCase()
+        .replace(/[^a-z0-9а-яё]+/gi, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 24);
+      if (!slug) slug = "tpl";
+      // ASCII-only id — без кириллицы в ключе строки
+      slug = String(slug).replace(/[^a-z0-9_]+/gi, "").slice(0, 16) || "tpl";
+      id = "tpl_" + slug + "_" + Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Minsk", "yyyyMMddHHmmss");
+    }
+    if (!title && !body) {
+      var empty = { status: "error", message: "need_title_or_body" };
+      return fromPost ? jsonpText(callback, empty) : jsonp(callback, empty);
+    }
+    if (!title) title = id;
+    var sh = getTemplatesSheet_();
+    var row = upsertTemplateOnSheet_(sh, id, kind, title, body);
+    // дубль в active, если CRM отдельная книга
+    try {
+      var active = SpreadsheetApp.getActiveSpreadsheet();
+      if (active && sh.getParent().getId() !== active.getId()) {
+        var sh2 = openOrCreateTemplatesSheet_(active);
+        if (sh2) upsertTemplateOnSheet_(sh2, id, kind, title, body);
+      }
+    } catch (eDup) {}
+    var ok = { status: "success", id: id, kind: kind, title: title, body: body, row: row };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (err) {
+    var fail = { status: "error", message: String(err) };
+    return fromPost ? jsonpText(callback, fail) : jsonp(callback, fail);
   }
-  if (row) {
-    writeTemplateCells_(sh, row, id, kind, title, body);
-  } else {
-    sh.appendRow([id, kind, title, body]);
-    row = sh.getLastRow();
-  }
-  var ok = { status: "success", id: id, kind: kind, title: title, body: body, row: row };
-  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
 function handleDeleteTemplate(json, callback, fromPost) {
   json = json || {};
   var tid = String(json.telegramId || "").trim();
+  if (tid === "undefined" || tid === "null") tid = "";
   if (tid && !actorCanEditTemplates_(tid)) {
     var forbid = { status: "error", message: "forbidden" };
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
@@ -15607,14 +15658,25 @@ function handleDeleteTemplate(json, callback, fromPost) {
     var protect = { status: "error", message: "canonical_owner_only" };
     return fromPost ? jsonpText(callback, protect) : jsonp(callback, protect);
   }
-  var sh = getTemplatesSheet_();
-  var data = sh.getDataRange().getValues();
-  var deleted = false;
-  for (var i = data.length - 1; i >= 1; i--) {
-    if (String(data[i][0] || "").trim().toLowerCase() !== id.toLowerCase()) continue;
-    try { sh.getRange(i + 1, 1, i + 1, Math.max(4, sh.getLastColumn())).breakApart(); } catch (eBr) {}
-    try { sh.deleteRow(i + 1); deleted = true; } catch (eDel) {}
+  function deleteOn_(sh) {
+    if (!sh) return false;
+    var data = sh.getDataRange().getValues();
+    var deleted = false;
+    for (var i = data.length - 1; i >= 1; i--) {
+      if (String(data[i][0] || "").trim().toLowerCase() !== id.toLowerCase()) continue;
+      try { sh.getRange(i + 1, 1, i + 1, Math.max(4, sh.getLastColumn())).breakApart(); } catch (eBr) {}
+      try { sh.deleteRow(i + 1); deleted = true; } catch (eDel) {}
+    }
+    return deleted;
   }
+  var sh = getTemplatesSheet_();
+  var deleted = deleteOn_(sh);
+  try {
+    var active = SpreadsheetApp.getActiveSpreadsheet();
+    if (active && sh.getParent().getId() !== active.getId()) {
+      deleteOn_(openOrCreateTemplatesSheet_(active));
+    }
+  } catch (eDupD) {}
   var ok = deleted
     ? { status: "success", id: id, deleted: true }
     : { status: "error", message: "not_found" };

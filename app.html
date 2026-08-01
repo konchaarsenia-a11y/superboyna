@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.92";
+      var APP_VER = "v7.11.93";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2485,7 +2485,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.92";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.93";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2997,28 +2997,56 @@
       try { tid = String(typeof ensureTelegramId === "function" ? ensureTelegramId() : (myTelegramId || "")); } catch (eT) {
         tid = String(myTelegramId || "");
       }
+      if (!tid || tid === "undefined" || tid === "null") tid = String(myTelegramId || "") || "";
+      if (tid === "undefined" || tid === "null") tid = "";
+
+      function utf8ToB64_(s) {
+        try {
+          return btoa(unescape(encodeURIComponent(String(s || ""))));
+        } catch (e) {
+          return "";
+        }
+      }
+
+      var titleB64 = utf8ToB64_(title);
+      var bodyB64 = utf8ToB64_(body);
       var payload = {
         action: "saveTemplate",
         id: id,
         kind: kind,
-        title: title,
-        body: body,
+        titleB64: titleB64,
+        bodyB64: bodyB64,
         telegramId: tid,
         _: String(Date.now())
       };
+      // короткий ASCII-fallback только если b64 пустой
+      if (!titleB64) payload.title = title;
+      if (!bodyB64) payload.body = body;
+
       showToast("Сохраняю…");
       try {
         var qApprox = Object.keys(payload).reduce(function (n, k) {
           return n + encodeURIComponent(String(payload[k] == null ? "" : payload[k])).length + 2;
         }, 0);
         var res = null;
-        if (qApprox < 1800) {
-          res = await apiGet(payload, { timeoutMs: 35000, cacheTtlMs: 0 });
+        if (qApprox < 7000) {
+          res = await apiGet(payload, { timeoutMs: 45000, cacheTtlMs: 0 });
         } else {
-          await apiPost(payload);
+          // длинный текст — POST + проверка list
+          await apiPost({
+            action: "saveTemplate",
+            id: id,
+            kind: kind,
+            title: title,
+            body: body,
+            titleB64: titleB64,
+            bodyB64: bodyB64,
+            telegramId: tid
+          });
+          await new Promise(function (r) { setTimeout(r, 900); });
           var list = await apiGet(
             { action: "listTemplates", _: String(Date.now()) },
-            { timeoutMs: 25000, cacheTtlMs: 0 }
+            { timeoutMs: 30000, cacheTtlMs: 0 }
           );
           var items = (list && (list.templates || list.items)) || [];
           var found = null;
@@ -3038,18 +3066,40 @@
         }
         if (!res || res.status !== "success") {
           var why = (res && res.message) || "ошибка";
-          if (why === "owner_only" || why === "forbidden") why = "нет доступа (нужен Deploy Code.gs v7.11.92)";
+          if (why === "owner_only" || why === "forbidden") why = "нет доступа — Deploy Code.gs v7.11.93";
           if (why === "unknown_action") why = "нужен Deploy Code.gs (saveTemplate)";
+          if (why === "not_confirmed") why = "сервер не подтвердил запись — Deploy Code.gs";
           showToast("Не сохранилось: " + why);
           return;
         }
+        // оптимистично в список
+        try {
+          var saved = {
+            id: res.id || id,
+            kind: res.kind || kind,
+            title: res.title != null ? res.title : title,
+            body: res.body != null ? res.body : body
+          };
+          var cur = window._templatesList || [];
+          var ix = -1;
+          for (var i = 0; i < cur.length; i++) {
+            if (String(cur[i].id || "").toLowerCase() === String(saved.id || "").toLowerCase()) { ix = i; break; }
+          }
+          if (ix >= 0) cur[ix] = saved;
+          else cur = [saved].concat(cur);
+          window._templatesList = cur;
+          window._templatesListLoaded = true;
+          renderTemplatesList_();
+        } catch (eOpt) {}
         closeTplAddForm_();
         showToast("Сохранено");
         try { apiCacheBustMem_("listTemplates"); } catch (eB) {}
         window._templatesListLoaded = false;
         await loadTemplatesList_({ force: true });
       } catch (e) {
-        showToast("Ошибка сохранения — Deploy Code.gs");
+        var msg = String((e && e.message) || e || "");
+        if (/таймаут/i.test(msg)) showToast("Таймаут — Deploy Code.gs или короче текст");
+        else showToast("Ошибка сохранения — Deploy Code.gs v7.11.93");
       }
     }
     window.submitTemplateForm_ = submitTemplateForm_;
