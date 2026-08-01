@@ -1,0 +1,35 @@
+{
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "proxy/**",
+      "README.md"
+    ],
+    "headers": [
+      {
+        "source": "app.html",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=86400" }
+        ]
+      },
+      {
+        "source": "config.js",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=60" }
+        ]
+      },
+      {
+        "source": "index.html",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache" }
+        ]
+      }
+    ],
+    "rewrites": [
+      { "source": "/", "destination": "/index.html" }
+    ]
+  }
+}

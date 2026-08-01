@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <title>Бойня FAST</title>
+  <link rel="preconnect" href="https://script.google.com" crossorigin>
+  <link rel="dns-prefetch" href="https://script.google.com">
+  <style>
+    html, body {
+      margin: 0; background: #0a0a0a; color: #f5f5f7;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh;
+    }
+    .box { text-align: center; padding: 24px; }
+    .badge {
+      display: inline-block; background: #30d158; color: #0a0a0a;
+      font-weight: 800; font-size: 11px; letter-spacing: .08em;
+      padding: 4px 8px; border-radius: 4px; margin-bottom: 12px;
+    }
+    p { color: #9a9a9a; font-size: 14px; }
+  </style>
+  <script>
+    try {
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(function(){});
+      }
+    } catch (e) {}
+  </script>
+  <script src="bridge.js"></script>
+  <script src="config.js"></script>
+  <script>
+    (function () {
+      var ver = "711892"; // v7.11.89f1
+      // Прогрев edge-прокси (или GAS), не блокируем переход
+      try {
+        var base = window.__BOINYA_FAST_PROXY__ || "";
+        if (base) {
+          window.__boinyaWarm = function () {};
+          var s = document.createElement("script");
+          s.async = true;
+          s.src = base.replace(/\/?$/, "") + "?action=keepWarm&callback=__boinyaWarm";
+          (document.head || document.documentElement).appendChild(s);
+        }
+      } catch (eW) {}
+      var q = "app.html?v=" + ver;
+      try {
+        var u = new URL(location.href);
+        if (u.searchParams.get("proxy")) q += "&proxy=" + encodeURIComponent(u.searchParams.get("proxy"));
+      } catch (eQ) {}
+      location.replace(q);
+    })();
+  </script>
+</head>
+<body>
+  <div class="box">
+    <div class="badge">FAST</div>
+    <p>Загрузка быстрой копии…</p>
+  </div>
+</body>
+</html>

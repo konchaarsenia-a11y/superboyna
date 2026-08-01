@@ -1,0 +1,18 @@
+# Cloudflare Workers — бесплатный план (100k req/день)
+# Документация: ../README.md
+#
+# Деплой:
+#   cd fast/proxy
+#   npx wrangler login
+#   npx wrangler deploy
+#
+# Затем URL вида https://boinya-fast.<subdomain>.workers.dev
+# вставить в ../config.js → PROXY = "https://..."
+
+name = "boinya-fast"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Опционально переопределить origin Apps Script:
+# [vars]
+# GAS_ORIGIN = "https://script.google.com/macros/s/XXXX/exec"

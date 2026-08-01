@@ -6,8 +6,9 @@ Telegram Mini App + Google Sheets для подписки на лакомств�
 
 ```
 superboyna/
-  app.html              # Mini App (фронт) — не трогать при нативе
+  app.html              # Mini App (прод) — не трогать ради FAST/натива
   Code.gs               # Apps Script (бэкенд)
+  fast/                 # параллельная быстрая копия (edge proxy) — см. fast/README.md
   native/               # Capacitor iOS/Android (см. NATIVE.md)
   scripts/sync-native.sh
   PROJECT.md / TZ.md / NATIVE.md
@@ -50,6 +51,11 @@ superboyna/
 
 Параллельная оболочка в [`native/`](./native/) — веб для Telegram **не меняется**.  
 Инструкция: **[NATIVE.md](./NATIVE.md)**. Sync: `bash scripts/sync-native.sh`.
+
+## FAST (edge proxy) — параллельная копия
+
+Быстрая копия UI в [`fast/`](./fast/) через Cloudflare Worker (кэш).  
+**Прод `app.html` / `Code.gs` не меняются.** См. [fast/README.md](./fast/README.md).
 
 ## Документы
 
