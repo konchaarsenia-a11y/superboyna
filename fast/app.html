@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.89f2";
+      var APP_VER = "v7.11.89f3";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2481,7 +2481,7 @@
     // FAST edition: Cloudflare Worker edge-cache. Fallback = прямой GAS если прокси не задан.
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.89f2";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.89f3";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня FAST " + APP_VERSION;
@@ -4985,6 +4985,13 @@
     function apiGet(params, opts) {
       opts = opts || {};
       var action = String((params && params.action) || "");
+      // FAST edition: снапшоты с Pages — без ожидания GAS
+      try {
+        if (window.__BOINYA_FAST_EDITION__ && typeof window.__boinyaFastTrySnap === "function") {
+          var _fastHit = window.__boinyaFastTrySnap(params, opts);
+          if (_fastHit) return _fastHit;
+        }
+      } catch (eFastSnap) {}
       // Apps Script cold start часто >15–18с — дефолт повыше
       var timeoutMs = opts.timeoutMs != null ? opts.timeoutMs : (_API_DEFAULT_TIMEOUT[action] || 28000);
       var cacheTtlMs = (opts.cacheTtlMs != null) ? opts.cacheTtlMs : (_API_READ_TTL[action] || 0);
@@ -5055,6 +5062,10 @@
       }
       return run_(retries);
     }
+    try {
+      apiGet.__boinyaFastRaw = apiGet;
+      window.apiGet = apiGet;
+    } catch (eExp) {}
 
     /** POST text/plain — Apps Script читает JSON из тела; после — проверка через GET */
     function apiPost(payload) {
@@ -6168,7 +6179,7 @@
       if (box && !opts.soft) box.innerHTML = viewLoadingSkeletonHtml();
       try {
         var res = await apiGet(
-          { action: "getWeekDayCounts", force: opts.force ? "1" : "", _: String(Date.now()) },
+          { action: "getWeekDayCounts", force: opts.force ? "1" : "" },
           { timeoutMs: 25000, cacheTtlMs: opts.force ? 0 : 15000 }
         );
         if (res && res.status === "success") {
@@ -17624,7 +17635,17 @@
     try { bindCourierLongPress(); } catch (e) {}
     try { renderOrderNotes(); } catch (e) {}
     try { setOrderType(orderType || 'pp'); updateNotesSummary(); } catch (e) {}
-    try { bootstrapAccess(); } catch (e) { try { applyRoleTabs(); } catch (e2) {} }
+    try {
+      if (window.__boinyaFastSeedReady && window.__BOINYA_FAST_EDITION__) {
+        window.__boinyaFastSeedReady.then(function () {
+          try { bootstrapAccess(); } catch (eB) { try { applyRoleTabs(); } catch (e2) {} }
+        }).catch(function () {
+          try { bootstrapAccess(); } catch (eB2) { try { applyRoleTabs(); } catch (e3) {} }
+        });
+      } else {
+        bootstrapAccess();
+      }
+    } catch (e) { try { applyRoleTabs(); } catch (e2) {} }
     try { updateTasksBadge(); } catch (eTb0) {}
     try { setTimeout(function () { try { updateTasksBadge(); refreshDeferredBadge(false); } catch (eTb1) {} }, 200); } catch (eTb2) {}
     try { applyTelegramSafeArea(); } catch (e) {}
