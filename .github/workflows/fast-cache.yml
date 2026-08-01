@@ -38,7 +38,15 @@ jobs:
           git add fast/data
           if git diff --staged --quiet; then
             echo "no changes"
-          else
-            git commit -m "chore(fast): refresh edge snapshots"
-            git push origin HEAD:main
+            exit 0
           fi
+          git commit -m "chore(fast): refresh edge snapshots"
+          # на случай параллельного пуша (агент / другой job)
+          for i in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            git pull --rebase origin main || git rebase --abort || true
+            sleep $((i * 2))
+          done
+          exit 1
