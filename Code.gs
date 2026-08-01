@@ -14664,7 +14664,16 @@ function isSurveyPendingUnsent_(obj, todayYmd) {
   return true;
 }
 
-/** Удаляет с листа всё, что не «ещё не отправлено по дате». */
+/** Не вычищать sent/done — иначе тик meta БП снова создаст due. */
+function shouldRetainSurveyRow_(obj) {
+  if (isSurveyPendingUnsent_(obj)) return true;
+  var st = String((obj && obj.status) || "").toLowerCase();
+  if (st === "sent" || st === "done") return true;
+  if (String((obj && obj.sentAt) || "").trim()) return true;
+  return false;
+}
+
+/** Удаляет мусор/cancelled; открытые и sent/done оставляем. */
 function purgeNonPendingSurveys_(sh, todayYmd) {
   if (!sh || sh.getLastRow() < 2) return 0;
   var data = sh.getDataRange().getValues();
@@ -14686,7 +14695,7 @@ function purgeNonPendingSurveys_(sh, todayYmd) {
       continue;
     }
     obj.kind = normalizeSurveyKind_(obj.kind);
-    if (!isSurveyPendingUnsent_(obj, todayYmd)) {
+    if (!shouldRetainSurveyRow_(obj)) {
       drop++;
       continue;
     }
