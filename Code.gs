@@ -1000,6 +1000,15 @@ function finishFullWeekProduction(optSs, optOpts) {
   var newMondayDate = sheetManager.getRange("A1").getValue();
   sheetCutting.getRange("A1").setValue(newMondayDate);
 
+  // Новая неделя: сразу записать людей из месяца/броней/CRM на лист (Пн–Вс + Будущая)
+  var materializeInfo = null;
+  try {
+    SpreadsheetApp.flush();
+    materializeInfo = materializeCurrentWeek_(ss, { onlyMissing: true, includeFuture: true });
+  } catch (eMat) {
+    materializeInfo = { ok: false, message: String(eMat), totalAdded: 0 };
+  }
+
   var sheetMemory = getMemoryCuttingSheet_();
   if (sheetMemory && sheetMemory.getLastRow() > 0) {
     sheetMemory.getRange(1, 1, sheetMemory.getLastRow(), 2).clearContent();
@@ -1019,7 +1028,9 @@ function finishFullWeekProduction(optSs, optOpts) {
     status: "success",
     message: "week_closed",
     mondayDate: String(newMondayDate || ""),
-    courierDate: Utilities.formatDate(nextCourierDate, tz, "dd.MM.yyyy")
+    courierDate: Utilities.formatDate(nextCourierDate, tz, "dd.MM.yyyy"),
+    materialize: materializeInfo,
+    materializeAdded: materializeInfo ? (Number(materializeInfo.totalAdded) || 0) : 0
   };
 }
 
@@ -1057,7 +1068,7 @@ function handleFinishFullWeek(json, callback, fromPost) {
         finished: true,
         finishedAt: new Date().toISOString(),
         refused: false,
-        pulled: false,
+        pulled: true,
         by: tid
       });
       result.weekKey = wkFin;

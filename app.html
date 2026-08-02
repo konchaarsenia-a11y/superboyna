@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.102";
+      var APP_VER = "v7.11.103";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1789,7 +1789,7 @@
             <label>Или дата</label>
             <input type="date" id="viewDate" onchange="onViewDateChange()">
           </div>
-          <div class="muted" style="font-size:12px;">Неделя — только колонка недели. Месяц / дальние даты — только календарь.</div>
+          <div class="muted" style="font-size:12px;">Дата текущей недели — только колонка недели. Дальние даты — только календарь.</div>
           <div id="viewDeployHint" class="muted" style="display:none;font-size:12px;margin-top:8px;color:#ff9f0a;"></div>
         </div>
         <div id="totalDaySummaryContainer"></div>
@@ -2497,7 +2497,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.102";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.103";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2842,8 +2842,8 @@
       clientsScreen:
         "Просмотр\n" +
         "• Вкладки Месяц / Неделя — переключение без обновления.\n" +
-        "• Месяц: календарь → тап по дню → одна колонка календаря (дальние даты) или редактор.\n" +
-        "• Неделя: тап по дню → только колонка недели (без правой колонки месяца).\n" +
+        "• Дата текущей недели → только колонка недели.\n" +
+        "• Дальние даты → только календарь.\n" +
         "• 🔄 — перенос на другую дату.\n" +
         "• «Обновить» на обзоре/дне — только по кнопке.",
       cuttingScreen: "Нарезка\n• Выбери день и отмечай нарезанное.",
@@ -3573,18 +3573,8 @@
     }
 
     function restoreLastScreen() {
+      // больше не восстанавливаем прошлую вкладку — долго и мешает
       var allowed = ROLE_TABS[APP_ROLE] || ROLE_TABS.all;
-      var saved = "";
-      try { saved = String(localStorage.getItem(LAST_SCREEN_LS) || "").trim(); } catch (e) {}
-      if (saved === "subDetailScreen") saved = "subsScreen";
-      if (saved === "deferredScreen") {
-        // задачи — drawer, не экран
-        saved = "orderScreen";
-      }
-      if (saved && allowed.indexOf(saved) >= 0) {
-        switchTab(saved);
-        return;
-      }
       var first = allowed.filter(function (s) { return MAIN_TABS.indexOf(s) >= 0; })[0] || "orderScreen";
       switchTab(first);
     }
@@ -5373,7 +5363,6 @@
       try { syncNavTabsPill_(); } catch (ePill) {}
       var screen = document.getElementById(screenId);
       if (screen) screen.classList.add("active");
-      try { localStorage.setItem(LAST_SCREEN_LS, screenId); } catch (eLs) {}
       if (opts.focus === "partners") {
         try {
           setTimeout(function () {
@@ -7211,7 +7200,7 @@
         if (k) draftKeys[k] = true;
       });
       var split = document.querySelector(".view-split");
-      var weekOnly = (viewSub === "week" && !viewDateOnlyMonth);
+      var weekOnly = !viewDateOnlyMonth;
       if (split) {
         split.classList.toggle("is-month-only", !!viewDateOnlyMonth);
         split.classList.toggle("is-week-only", !!weekOnly);
@@ -7987,9 +7976,7 @@
           summary.innerHTML = '<div class="total-summary-badge">' +
             (viewDateOnlyMonth
               ? ("Календарь (вне недели): " + month.length + dateLabel + wd + sheetHint + " · правка без листа недели")
-              : (viewSub === "week"
-                ? ("Неделя: " + week.length + dayLabel + dateLabel + wd + futHint)
-                : ("Неделя: " + week.length + " · календарь: " + month.length + dayLabel + dateLabel + wd + sheetHint + futHint))) +
+              : ("Неделя: " + week.length + dayLabel + dateLabel + wd + futHint)) +
             "</div>";
         }
         if (deployHint && needDeploy) {
@@ -12451,6 +12438,7 @@
         "• Даты Пн–Пт и Доставки +7 дней\n" +
         "• Очистка заказов Пн–Пт (ники, состав, адрес, примечание)\n" +
         "• «Будущая неделя» → блок Понедельника\n" +
+        "• Люди из месяца сразу пишутся на новую неделю\n" +
         "• Память нарезки/доставок очищается\n\n" +
         "Сырьё (приходы) вноси после закрытия — на новую неделю.\n" +
         "Отменить будет нельзя. Продолжить?"
@@ -12492,21 +12480,26 @@
       }
       var wk = currentWeekKeyLocal();
       localStorage.setItem(FINISH_DONE_LS + wk, "1");
+      localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
       localStorage.removeItem(FINISH_REFUSE_LS + wk);
       _weekBannerState.finished = true;
-      _weekBannerState.pulled = false;
+      _weekBannerState.pulled = true;
       _weekBannerState.weekKey = wk;
       try {
         await apiGet({
           action: "setWeekBannerState",
           weekKey: wk,
           finished: "1",
+          pulled: "1",
           telegramId: tid,
           _: String(Date.now())
         }, { timeoutMs: 15000, cacheTtlMs: 0 });
       } catch (eSet) {}
-      showToast("Неделя закрыта. Пн: " + (res.mondayDate || "ок"));
-      try { logLearnEvent("finishFullWeek", { weekKey: wk, mondayDate: res.mondayDate || "" }); } catch (e2) {}
+      var addedN = Number(res.materializeAdded != null ? res.materializeAdded
+        : (res.materialize && res.materialize.totalAdded)) || 0;
+      showToast("Неделя закрыта. Пн: " + (res.mondayDate || "ок") +
+        (addedN ? (" · из месяца +" + addedN) : ""));
+      try { logLearnEvent("finishFullWeek", { weekKey: wk, mondayDate: res.mondayDate || "", materializeAdded: addedN }); } catch (e2) {}
       refreshWeekBanners();
     }
 
