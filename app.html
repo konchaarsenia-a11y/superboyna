@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.120";
+      var APP_VER = "v7.11.121";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2506,7 +2506,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.120";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.121";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -4852,8 +4852,15 @@
       if (entEl) entEl.value = parsed.entrance || "";
       if (flEl) flEl.value = parsed.floor || "";
       if (ftEl) ftEl.value = parsed.flat || "";
-      // подтягивание из ПП/БП/клиентов / карточки — в память подсказок
-      try { if (street) rememberAddress({ address: street }); } catch (eRemFill) {}
+      // подстановка из базы — без «закреплённой» гео; поиск всегда заново
+      selectedAddressGeo = null;
+      try { setAddressPickedHint(false); } catch (eHint) {}
+      if (street && street.length >= 2) {
+        clearTimeout(addressSuggestTimer);
+        addressSuggestTimer = setTimeout(function () {
+          try { fetchAddressSuggest(street); } catch (eSug) {}
+        }, 80);
+      }
     }
     window.fillAddressFieldsFromStored_ = fillAddressFieldsFromStored_;
 
@@ -5193,8 +5200,6 @@
       if (m.nick) document.getElementById("client").value = m.nick;
       if (m.address) {
         fillAddressFieldsFromStored_(m.address);
-        var picked = document.getElementById("addressPickedHint");
-        if (picked) picked.style.display = "block";
       }
       if (m.phone) document.getElementById("phoneInput").value = m.phone;
       if (m.note) {
@@ -5242,7 +5247,6 @@
             orderType: c.source || ""
           });
         });
-        try { harvestAddrMemoryFromClients_(); } catch (eHarv) {}
       } catch (e) {}
     }
     window.onClientNameInput = onClientNameInput;
@@ -6499,12 +6503,6 @@
               return { cat: x.cat, main: x.main, name: x.main, sub: x.sub || "", value: x.value, val: x.value };
             }),
             orderType: orderType
-          });
-          rememberAddress({
-            address: clientAddress,
-            lat: selectedAddressGeo && selectedAddressGeo.lat,
-            lon: selectedAddressGeo && selectedAddressGeo.lon,
-            yandexUrl: selectedAddressGeo && selectedAddressGeo.yandexUrl
           });
         } catch (eMem) {}
 
@@ -10495,46 +10493,11 @@
       if (el) el.classList.toggle("show", !!on);
     }
 
-    // v2: заказ + выбор из поиска + ПП/БП/клиенты (не blur и не весь Просмотр)
-    const ADDR_MEMORY_KEY = "superboyna_addr_memory_v2";
-    let addrMemory = []; // [{address, lat, lon, yandexUrl, updatedAt}]
+    try {
+      localStorage.removeItem("superboyna_addr_memory_v1");
+      localStorage.removeItem("superboyna_addr_memory_v2");
+    } catch (eClrAddrMem) {}
 
-    function loadAddrMemory() {
-      try {
-        addrMemory = JSON.parse(localStorage.getItem(ADDR_MEMORY_KEY) || "[]") || [];
-      } catch (e) { addrMemory = []; }
-      if (!Array.isArray(addrMemory)) addrMemory = [];
-      try { harvestAddrMemoryFromClients_(); } catch (e2) {}
-    }
-    function harvestAddrMemoryFromClients_() {
-      Object.keys(clientMemory || {}).forEach(function (k) {
-        var a = clientMemory[k] && clientMemory[k].address;
-        if (a) rememberAddress({ address: a }, true);
-      });
-      persistAddrMemory();
-    }
-    function persistAddrMemory() {
-      try { localStorage.setItem(ADDR_MEMORY_KEY, JSON.stringify(addrMemory.slice(0, 120))); } catch (e) {}
-    }
-    function rememberAddress(item, quiet) {
-      if (!item) return;
-      var short = formatStreetHouse(item.address || item.title || "");
-      if (!short || short.length < 3) return;
-      var key = short.toUpperCase();
-      addrMemory = (addrMemory || []).filter(function (x) {
-        return formatStreetHouse(x.address || "").toUpperCase() !== key;
-      });
-      addrMemory.unshift({
-        address: short,
-        title: short,
-        subtitle: "",
-        lat: item.lat != null ? item.lat : null,
-        lon: item.lon != null ? item.lon : null,
-        yandexUrl: item.yandexUrl || "",
-        updatedAt: Date.now()
-      });
-      if (!quiet) persistAddrMemory();
-    }
     function normalizeAddrSearchKey(s) {
       return String(s || "")
         .toUpperCase()
@@ -10622,33 +10585,6 @@
       if (qi === qu.length && qu.length >= 4) return 48;
       return 0;
     }
-    function searchAddrMemory(q) {
-      var qu = String(q || "").trim();
-      if (qu.length < 1) return [];
-      var out = [];
-      (addrMemory || []).forEach(function (it) {
-        var sc = scoreAddress(it.address || it.title, qu);
-        if (sc > 0) out.push({ score: sc, item: it });
-      });
-      out.sort(function (a, b) {
-        if (b.score !== a.score) return b.score - a.score;
-        return (b.item.updatedAt || 0) - (a.item.updatedAt || 0);
-      });
-      return out.slice(0, 8).map(function (x) {
-        var it = x.item;
-        var short = formatStreetHouse(it.address || it.title);
-        return {
-          title: short,
-          subtitle: "",
-          address: short,
-          lat: it.lat,
-          lon: it.lon,
-          yandexUrl: it.yandexUrl || "",
-          local: true
-        };
-      });
-    }
-
     function clearAddressSuggest() {
       var box = document.getElementById("addressSuggest");
       if (box) {
@@ -10676,12 +10612,13 @@
         addressSuggestTimer = setTimeout(function () { fetchAddressSuggest(q); }, 120);
         return;
       }
-      // моментально — локальная память
-      var local = searchAddrMemory(q);
-      if (local.length && box) renderAddressSuggestList(box, local);
-      else if (q.length < 2) {
+      if (q.length < 2) {
         clearAddressSuggest();
         return;
+      }
+      if (box) {
+        box.innerHTML = '<div class="addr-suggest-item" style="color:#8e8e93;">Ищу на карте…</div>';
+        box.classList.add("open");
       }
       addressSuggestTimer = setTimeout(function () { fetchAddressSuggest(q); }, 180);
     }
@@ -10873,17 +10810,7 @@
         return;
       }
 
-      var local = searchAddrMemory(q);
-      var cacheKey = "asuggest:v5:" + q.toLowerCase();
-      var cachedList = [];
-      try {
-        var cached = localStorage.getItem(cacheKey);
-        if (cached) cachedList = JSON.parse(cached) || [];
-      } catch (e0) {}
-      var first = mergeSuggestLists(local, cachedList);
-      if (first.length && seq === addressSuggestSeq) {
-        renderAddressSuggestList(box, first);
-      } else if (seq === addressSuggestSeq) {
+      if (seq === addressSuggestSeq) {
         box.innerHTML = '<div class="addr-suggest-item" style="color:#8e8e93;">Ищу на карте…</div>';
         box.classList.add("open");
       }
@@ -10903,15 +10830,12 @@
         serverList = settledTxt[2] || [];
       } catch (e1) {}
       if (seq !== addressSuggestSeq) return;
-      var list = mergeSuggestLists(local, nomiList, serverList, photonList, cachedList);
+      var list = mergeSuggestLists(nomiList, serverList, photonList);
       if (!list.length) {
         box.innerHTML = '<div class="addr-suggest-item" style="color:#8e8e93;">Ничего не найдено — можно ввести адрес вручную или 📍 координаты</div>';
         box.classList.add("open");
         return;
       }
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify(list.filter(function (x) { return !x.local; }).slice(0, 8)));
-      } catch (e3) {}
       renderAddressSuggestList(box, list);
     }
 
@@ -11030,14 +10954,11 @@
         address: short,
         yandexUrl: item.yandexUrl || (item.lat != null ? ("https://yandex.ru/maps/?pt=" + item.lon + "," + item.lat + "&z=17&l=map") : "")
       };
-      rememberAddress({ address: short, lat: item.lat, lon: item.lon, yandexUrl: selectedAddressGeo.yandexUrl });
       setAddressPickedHint(true);
       clearAddressSuggest();
       dismissKeyboard();
       onAddressBlur();
     }
-
-    loadAddrMemory();
 
     function normalizeAddressForMaps(addr) {
       const a = String(addr || "").trim();
