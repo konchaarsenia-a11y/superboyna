@@ -2214,14 +2214,11 @@ function handleGetCutting(dayName, callback) {
   var totals = recalculateCuttingForDate_(ss, dateText);
   var names = cutting.getRange("A3:A48").getValues();
   var plans = cutting.getRange("D3:D48").getValues();
-  // live + память: при обновлении не терять галочки (память мог отстать / A1 на другом дне)
-  var memState = null;
-  try { memState = getMemoryJson_(memory, dateText, tz); } catch (eMem) { memState = null; }
-  if (isActiveDate) {
-    try { saveCuttingState_(cutting, memory, dateText, tz); } catch (eSave) {}
-    try { memState = getMemoryJson_(memory, dateText, tz) || memState; } catch (eMem2) {}
-  }
+  // Активная дата на листе → только live E/F/G (не OR с памятью: иначе снятая галочка
+  // снова включается из устаревшей Память_Нарезки при параллельном getCutting).
+  // Другой день → только память.
   var activeState = isActiveDate ? cutting.getRange("C3:G48").getValues() : null;
+  var savedState = isActiveDate ? null : getMemoryJson_(memory, dateText, tz);
   var rowNotes = collectCuttingRowNotes_(ss, dayName);
   var items = [];
 
@@ -2231,14 +2228,15 @@ function handleGetCutting(dayName, callback) {
     var name = names[i][0] == null ? "" : String(names[i][0]).trim();
     var row = i + 3;
     var piece = isPieceSkuName_(name);
-    var state = activeState ? activeState[i] : [];
-    var memRow = (memState && memState[i]) ? memState[i] : [];
+    var state = activeState
+      ? activeState[i]
+      : (savedState && savedState[i] ? savedState[i] : []);
     // active C3:G = [C,D,E,F,G] → laid=E[2], done=F[3], outNext=G[4]
-    // memory packed = [surplus,"",laid,done,outNext]
-    var surplus = Number(state[0] != null && state[0] !== "" ? state[0] : memRow[0]) || 0;
-    var laid = asBool_(state[2]) || asBool_(memRow[2]);
-    var done = asBool_(state[3]) || asBool_(memRow[3]);
-    var outNext = asBool_(state[4]) || asBool_(memRow[4]);
+    // memory packed = [surplus,"",laid,done,outNext] — те же индексы 0,2,3,4
+    var surplus = Number(state[0]) || 0;
+    var laid = asBool_(state[2]);
+    var done = asBool_(state[3]);
+    var outNext = asBool_(state[4]);
     var raw;
     if (piece) {
       raw = dry;
