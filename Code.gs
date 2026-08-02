@@ -651,11 +651,48 @@ function saveMemoryJson_(memorySheet, dateText, value, tz) {
   else memorySheet.appendRow([dateText, JSON.stringify(value)]);
 }
 
+/**
+ * Жевалки / штучные SKU — даже без «шт» в названии (Склад!A17 = «БЫЧИЙ КОРЕНЬ»).
+ * КНИЖКА — граммы, не сюда.
+ */
+function isPieceSkuName_(name) {
+  var n = String(name || "");
+  if (!n) return false;
+  if (/шт/i.test(n)) return true;
+  if (/ХРЯЩ|ЛОПАТ|ЛОП\s*ХРЯЩ/i.test(n)) return true;
+  if (/КОЛЕН|КОПЫТ|НОСЫ|НОС\b|УХО|УШК|ШЕИ|ШЕЯ|ГУБЫ|ПЕРЕП[ЕЁ]?Л|АОРТ|ТРАХЕ|СТАНОВ|УТИН/i.test(n)) return true;
+  if (/БЫЧ.*КОРЕН|КОРЕНЬ/i.test(n)) return true;
+  return false;
+}
+
+/** Нарезка A3:A48 → Склад A2:A35 (фракции жевалок схлопываются в одну строку склада). */
 function getWarehouseRowForCuttingRow_(cRow) {
-  var wRow = cRow < 7 ? cRow - 1 : cRow - 2;
-  if (cRow >= 12) wRow = cRow < 16 ? 11 : cRow + 10;
-  if (cRow >= 43) wRow = cRow - 13;
-  return wRow;
+  var MAP = {
+    3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8, 10: 9, 11: 10,
+    12: 11, 13: 12, 14: 13, 15: 14,
+    16: 15, 17: 15, // УХО + ПОЛОВИНКА → УХО Г
+    18: 16, // КОЛЕНИ
+    19: 17, 20: 17, 21: 17, 22: 17, 23: 17, // БЫЧИЙ КОРЕНЬ
+    24: 18, // ЛОП ХРЯЩ
+    25: 19, 26: 19, 27: 19, 28: 19, 29: 19, // ТРАХЕЯ
+    30: 20, // КОПЫТО
+    31: 21, 32: 21, 33: 21, // СТАНОВАЯ ЖИЛА
+    34: 22, 35: 22, // АОРТА
+    36: 23, // УТИНЫЕ ШЕИ
+    37: 24, // ГУБЫ
+    38: 25, // НОСЫ
+    39: 26, 40: 27, 41: 28, 42: 29,
+    43: 30, 44: 31, 45: 32, 46: 33, 47: 34, 48: 35
+  };
+  var w = MAP[cRow];
+  return w != null ? w : 0;
+}
+
+/** Склад: шт-строки = ряд 10 (перепёлки) и 15–25, либо имя жевалки. */
+function isPieceWarehouseRow_(row, name) {
+  var r = Number(row) || 0;
+  if (r === 10 || (r >= 15 && r <= 25)) return true;
+  return isPieceSkuName_(name);
 }
 
 function recalculateCuttingForDate_(ss, dateText) {
@@ -877,9 +914,8 @@ function finishFullWeekProduction(optSs, optOpts) {
   for (var cRow = 3; cRow <= 48; cRow++) {
     var rowsToSum = itemMap[cRow.toString()];
     if (rowsToSum) {
-      var wRow = cRow < 7 ? cRow - 1 : cRow - 2;
-      if (cRow >= 12) wRow = cRow < 16 ? 11 : cRow + 10;
-      if (cRow >= 43) wRow = cRow - 13;
+      var wRow = getWarehouseRowForCuttingRow_(cRow);
+      if (!wRow) continue;
       var totalGramsWeek = 0;
       weekDaysGeo.forEach(function (day) {
         var dayOffset = day.start - 4;
@@ -2132,7 +2168,7 @@ function handleGetCutting(dayName, callback) {
     if (dry <= 0) continue;
     var name = names[i][0] == null ? "" : String(names[i][0]).trim();
     var row = i + 3;
-    var piece = /шт/i.test(name);
+    var piece = isPieceSkuName_(name);
     var state = activeState ? activeState[i] : (savedState && savedState[i] ? savedState[i] : []);
     var surplus = Number(state[0]) || 0;
     // active C3:G = [C,D,E,F,G] → laid=E[2], done=F[3], outNext=G[4]
@@ -4246,12 +4282,16 @@ function parseSheetItemName(currentItemName, rIdx) {
     upper.indexOf("КОПЫТО") > -1 ||
     upper.indexOf("ПЕРЕПЁЛКИ") > -1 ||
     upper.indexOf("ЛОП") > -1 ||
+    upper.indexOf("ХРЯЩ") > -1 ||
     upper.indexOf("УТИНЫЕ") > -1 ||
-    upper.indexOf("ГУБЫ") > -1 ||
-    upper.indexOf("КНИЖКА") > -1
+    upper.indexOf("ГУБЫ") > -1
   ) {
     cat = "chew";
     unit = "шт";
+  }
+  if (isPieceSkuName_(currentItemName) || isPieceSkuName_(upper)) {
+    unit = "шт";
+    if (cat === "other") cat = "chew";
   }
 
   var cleanNameOnly = currentItemName;
@@ -4323,7 +4363,7 @@ function sendTelegramSnabNotificationInternal(headerText) {
     if (itemName !== "" && needToBuy > 0) {
       hasDeficit = true;
       var rowNum = i + 2;
-      var unit = rowNum >= 15 && rowNum <= 25 ? " шт." : " кг";
+      var unit = (rowNum === 10 || (rowNum >= 15 && rowNum <= 25) || isPieceSkuName_(itemName)) ? " шт." : " кг";
       messageLines.push("• " + itemName + ": " + needToBuy.toFixed(1) + unit);
     }
   }
@@ -5654,7 +5694,7 @@ function handleFinishCutting(ss, json, callback, fromPost) {
         row: rowNum,
         name: names[i][0] == null ? "" : String(names[i][0]).trim(),
         dry: dry,
-        unit: /шт/i.test(String(names[i][0] || "")) ? "шт" : "гр",
+        unit: isPieceSkuName_(String(names[i][0] || "")) ? "шт" : "гр",
         done: asBool_(st[3]),
         laid: asBool_(st[2]),
         outNext: asBool_(st[4]),
@@ -6696,7 +6736,7 @@ function diffBasketIncrease_(oldBasket, newBasket) {
     var prev = a[k] || 0;
     var next = b[k] || 0;
     if (next > prev) {
-      var unit = /шт/i.test(k) ? "шт" : "г";
+      var unit = isPieceSkuName_(k) || /шт/i.test(k) ? "шт" : "г";
       lines.push("+" + (next - prev) + " " + unit + " · " + k);
     }
   }
@@ -9822,7 +9862,7 @@ function handleGetWarehouse(json, callback, fromPost) {
         var name = String(matrix[i][0] || "").trim();
         if (!name) continue;
         var row = i + 2;
-        var piece = /шт/i.test(name);
+        var piece = isPieceWarehouseRow_(row, name);
         var mVal = matrix[i][12];
         items.push({
           row: row,
@@ -9906,7 +9946,7 @@ function handleWarehousePreview(json, callback, fromPost) {
   var deficits = [];
   for (var i = 0; i < names.length; i++) {
     var name = String(names[i][0] || "").trim();
-    if (!name || /шт/i.test(name)) continue;
+    if (!name || isPieceWarehouseRow_(i + 2, name)) continue;
     var f = Number(stock[i][0]) || 0;
     var b = Number(arrivals[i][0]) || 0;
     var need = 0;
@@ -10986,7 +11026,7 @@ function isPpChewItem_(it) {
   if (cat === "dressura") return false;
   // шт / жевалки по имени
   var name = String((it && (it.main || it.name)) || "");
-  return /шт\.?|колен|копыт|нос|ухо|уши|шея|хрящ|хвост|рога?|сустав/i.test(name);
+  return /шт\.?|колен|копыт|нос|ухо|уши|шея|хрящ|лоп|хвост|рога?|сустав|быч|трахе|аорт|станова|переп|губ|утин/i.test(name);
 }
 
 function clonePpBasket_(list) {
@@ -11914,7 +11954,7 @@ function handleCalcPrice(json, callback, fromPost) {
     var piece = false;
     if (info && info.piece) piece = true;
     else if (cat === "chew" || cat === "chews") piece = true;
-    else if (/шт/i.test(name)) piece = true;
+    else if (isPieceSkuName_(name) || /шт/i.test(name)) piece = true;
     else if (info && info.grams === false) piece = true;
     var cost = piece ? (unitPrice * val) : ((val / 100) * unitPrice);
     totalCost += cost;
@@ -12060,7 +12100,7 @@ function handleCalcPpFact(json, callback, fromPost) {
       var piece = false;
       if (info && info.piece) piece = true;
       else if (cat === "chew" || cat === "chews") piece = true;
-      else if (/шт/i.test(name)) piece = true;
+      else if (isPieceSkuName_(name) || /шт/i.test(name)) piece = true;
       else if (info && info.grams === false) piece = true;
       var cost = piece ? (unitPrice * val) : ((val / 100) * unitPrice);
       totalCost += cost;
@@ -12258,7 +12298,7 @@ function isAssemblyTreatItem_(it) {
   var cat = String((it && it.cat) || "").toLowerCase();
   if (!name && !cat) return false;
   if (cat === "chew" || cat === "chews") return true;
-  if (/шт/i.test(name) || /быч|трахе|аорт|ухо|нос|станова|колен|копыт|переп|губ|книжк/i.test(name)) return true;
+  if (isPieceSkuName_(name)) return true;
   return false;
 }
 
@@ -12284,7 +12324,7 @@ function buildAssemblyForBasket_(basket, enabledOpt) {
     var sub = String(it.sub || '').trim();
     var val = Number(it.val != null ? it.val : it.value) || 0;
     var cat = String(it.cat || '').toLowerCase();
-    var unit = String(it.unit || '').trim() || (/шт/i.test(name) ? 'шт' : 'гр');
+    var unit = String(it.unit || '').trim() || (isPieceSkuName_(name) || cat === 'chew' || cat === 'chews' ? 'шт' : 'гр');
     if (!name || val <= 0) return;
     var dist = null;
     var type = 'other';
@@ -12300,7 +12340,7 @@ function buildAssemblyForBasket_(basket, enabledOpt) {
       dist = packGramsIntoDoypacks_(val, PACK_CAP_PRODUCT_, enabled);
       type = 'bulk';
       rulePrefix = 'дойпак баранье лёгкое';
-    } else if (cat === 'chew' || /шт/i.test(name) || /быч|трахе|аорт|ухо|нос|станова|колен|копыт|переп|губ|книжк/i.test(name)) {
+    } else if (cat === 'chew' || cat === 'chews' || isPieceSkuName_(name)) {
       dist = packChewsIntoDoypacks_(val, sub, enabled);
       type = 'chew';
       rulePrefix = 'дойпак жевалки';
@@ -12947,7 +12987,7 @@ function estimateBasketRawCost_(basket, modeHint) {
       var piece = false;
       if (info && info.piece) piece = true;
       else if (cat === "chew" || cat === "chews") piece = true;
-      else if (/шт/i.test(name)) piece = true;
+      else if (isPieceSkuName_(name) || /шт/i.test(name)) piece = true;
       total += piece ? (unitPrice * val) : ((val / 100) * unitPrice);
     }
     return Math.round(total * 100) / 100;

@@ -175,7 +175,7 @@
 
 Поставить L/M: выполнить **`setupWarehouseWeekendCols`** или полный **`setupWeekendDayFormulas`**.
 
-Маппинг строк Нарезка→Склад: `getWarehouseRowForCuttingRow_`.
+Маппинг строк Нарезка→Склад: `getWarehouseRowForCuttingRow_` (явная таблица; жевалки с фракциями схлопываются в одну строку склада). Штучные SKU: `isPieceSkuName_` / ряды склада 10 и 15–25.
 
 ### Нарезка
 

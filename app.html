@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.101";
+      var APP_VER = "v7.11.102";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2497,7 +2497,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.101";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.102";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -5511,9 +5511,19 @@
       try { clearBlockingOverlays(); } catch (ePs) {}
     });
 
+    function isPieceSkuName(name) {
+      var n = String(name || "");
+      if (!n) return false;
+      if (/шт/i.test(n)) return true;
+      if (/ХРЯЩ|ЛОПАТ|ЛОП\s*ХРЯЩ/i.test(n)) return true;
+      if (/КОЛЕН|КОПЫТ|НОСЫ|НОС\b|УХО|УШК|ШЕИ|ШЕЯ|ГУБЫ|ПЕРЕП[ЕЁ]?Л|АОРТ|ТРАХЕ|СТАНОВ|УТИН/i.test(n)) return true;
+      if (/БЫЧ.*КОРЕН|КОРЕНЬ/i.test(n)) return true;
+      return false;
+    }
+
     function unitForItem(cat, main) {
-      if (cat === "chew") return "шт";
-      if (/шт/i.test(main || "")) return "шт";
+      if (cat === "chew" || cat === "chews") return "шт";
+      if (isPieceSkuName(main)) return "шт";
       return "гр";
     }
 
@@ -9703,7 +9713,7 @@
       var resClients = courierClientsCache || [];
       box.innerHTML = resClients.map(function (c, idx) {
           const lines = (c.basket || []).map(function (g) {
-            const unit = g.unit || "гр";
+            const unit = g.unit || unitForItem(g.cat, g.name || g.main);
             const frac = g.sub ? " (" + g.sub + ")" : "";
             return `<div class="order-detail-line"><span>• ${escapeHtml(g.name)}${escapeHtml(frac)}</span><span class="order-detail-volume">${g.val} ${unit}</span></div>`;
           }).join("");
@@ -13767,7 +13777,7 @@
       var cat = String((it && it.cat) || "").toLowerCase();
       if (!name && !cat) return false;
       if (cat === "chew" || cat === "chews") return true;
-      if (/шт/i.test(name) || /быч|трахе|аорт|ухо|нос|станова|колен|копыт|переп|губ|книжк/i.test(name)) return true;
+      if (isPieceSkuName(name)) return true;
       return false;
     }
     function basketForAssemblyPacks_(basket, printed) {
@@ -13790,7 +13800,7 @@
         var sub = String(it.sub || "").trim();
         var val = Number(it.val != null ? it.val : it.value) || 0;
         var cat = String(it.cat || "").toLowerCase();
-        var unit = String(it.unit || "").trim() || (/шт/i.test(name) ? "шт" : "гр");
+        var unit = String(it.unit || "").trim() || (isPieceSkuName(name) || cat === "chew" || cat === "chews" ? "шт" : "гр");
         if (!name || val <= 0) return;
         var dist;
         var type = "bulk";
@@ -13800,7 +13810,7 @@
         } else if (/баран/i.test(name) && /л[её]гк/i.test(name)) {
           dist = asmPackGrams(val, ASM_CAP_PRODUCT, enabled);
           type = "bulk";
-        } else if (cat === "chew" || /шт/i.test(name) || /быч|трахе|аорт|ухо|нос|станова|колен|копыт|переп|губ|книжк/i.test(name)) {
+        } else if (cat === "chew" || cat === "chews" || isPieceSkuName(name)) {
           dist = asmPackChews(val, sub, enabled);
           type = "chew";
         } else {
@@ -14082,7 +14092,7 @@
           return { name: p.name, sub: p.sub, val: p.val, unit: p.unit };
         }).filter(function (g) { return String(g.name || "").toUpperCase() !== "КРАФТ"; });
         var composition = (basket || []).map(function (g) {
-          var unit = g.unit || (/шт/i.test(String(g.name || "")) ? "шт" : "гр");
+          var unit = g.unit || unitForItem(g.cat, g.name || g.main);
           var frac = g.sub ? ' <span class="muted">(' + escapeHtml(g.sub) + ")</span>" : "";
           var lineName = g.name || g.main || "";
           return '<div class="order-detail-line"><span>• ' + escapeHtml(lineName) + frac +
