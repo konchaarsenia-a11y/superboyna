@@ -1809,6 +1809,14 @@ function doGet(e) {
       status: "cancelled"
     }, callback, false);
   }
+  if (action === "setDeferredReminder") {
+    return handleDeferredAction_("setDeferredReminder", {
+      telegramId: e.parameter.telegramId ? decodeURIComponent(e.parameter.telegramId) : "",
+      id: e.parameter.id ? decodeURIComponent(e.parameter.id) : "",
+      remindAt: e.parameter.remindAt ? decodeURIComponent(e.parameter.remindAt) : "",
+      remindAtMs: e.parameter.remindAtMs || ""
+    }, callback, false);
+  }
 
   // delete / move / saveOrder / saveBooking — и через GET (JSONP из mini-app; POST в Telegram часто молчит)
   if (action === "deleteClient" || action === "moveClient") {
@@ -16592,6 +16600,26 @@ function handleSaveDeferred_(json, callback, fromPost) {
         "\nКому: " + (targetTid === tid ? "себе" : toLabelAck);
       telegramSendText_(tid, ack);
     } catch (eAck) {}
+  } else if (payloadObj && typeof payloadObj === "object") {
+    // опциональное напоминание к «На потом» / «В отложенное» (mode order|pp|retail)
+    var msOpt = Number(json.remindAtMs != null ? json.remindAtMs : payloadObj.remindAtMs);
+    var whenOpt = null;
+    if (isFinite(msOpt) && msOpt > 0) whenOpt = new Date(msOpt);
+    else whenOpt = parseDeferredRemindAt_(json.remindAt || payloadObj.remindAt);
+    if (whenOpt && !isNaN(whenOpt.getTime())) {
+      payloadObj.remindAtMs = whenOpt.getTime();
+      payloadObj.remindAt = Utilities.formatDate(whenOpt, "GMT", "yyyy-MM-dd'T'HH:mm:ss'Z'");
+      payloadObj.remindSent = false;
+      delete payloadObj.remindSentAt;
+      delete payloadObj.remindSendError;
+      delete payloadObj.remindFailCount;
+      if (!payloadObj.createdBy) payloadObj.createdBy = tid;
+      if (!payloadObj.targetTelegramId && !payloadObj.forTelegramId) {
+        payloadObj.targetTelegramId = tid;
+        payloadObj.forTelegramId = tid;
+      }
+      payload = JSON.stringify(payloadObj);
+    }
   }
   if (!title) {
     title = (mode === "retail" ? "Розница" : "ПП") + (nick ? (" · " + nick) : "");
@@ -16599,9 +16627,11 @@ function handleSaveDeferred_(json, callback, fromPost) {
   var now = new Date();
   var data = sh.getDataRange().getValues();
   var targetForCache = "";
+  var hasRemind = false;
   try {
     var po = JSON.parse(String(payload || "{}"));
     targetForCache = String(po.targetTelegramId || po.forTelegramId || "").trim();
+    hasRemind = !!(po.remindAtMs || po.remindAt);
   } catch (ePo) {}
   for (var r = 1; r < data.length; r++) {
     if (String(data[r][0]) === id && String(data[r][2]).trim() === tid) {
@@ -16609,7 +16639,7 @@ function handleSaveDeferred_(json, callback, fromPost) {
       sh.getRange(r + 1, 4, 1, 6).setValues([[mode, title, nick, "open", payload, now]]);
       bustDeferredCache_(tid);
       if (targetForCache && targetForCache !== tid) bustDeferredCache_(targetForCache);
-      if (mode === "remind") {
+      if (mode === "remind" || hasRemind) {
         try { ensureDeferredRemindTrigger_(); } catch (eTr) {}
       }
       var upd = { status: "success", id: id, updated: true, mode: mode };
@@ -16619,7 +16649,7 @@ function handleSaveDeferred_(json, callback, fromPost) {
   sh.appendRow([id, now, tid, mode, title, nick, "open", payload, now]);
   bustDeferredCache_(tid);
   if (targetForCache && targetForCache !== tid) bustDeferredCache_(targetForCache);
-  if (mode === "remind") {
+  if (mode === "remind" || hasRemind) {
     try { ensureDeferredRemindTrigger_(); } catch (eTr2) {}
   }
   var ok = { status: "success", id: id, created: true, mode: mode };
