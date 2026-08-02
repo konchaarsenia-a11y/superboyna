@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.100";
+      var APP_VER = "v7.11.101";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -365,6 +365,15 @@
       display: none !important;
     }
     .view-split.is-month-only #viewMonthCol {
+      border-color: rgba(255,122,0,0.45);
+    }
+    .view-split.is-week-only {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .view-split.is-week-only #viewMonthCol {
+      display: none !important;
+    }
+    .view-split.is-week-only #viewWeekCol {
       border-color: rgba(255,122,0,0.45);
     }
     @media (max-width: 360px) {
@@ -1780,7 +1789,7 @@
             <label>Или дата</label>
             <input type="date" id="viewDate" onchange="onViewDateChange()">
           </div>
-          <div class="muted" style="font-size:12px;">Слева — неделя, справа — календарь даты. «→» → «Сохранить переносы».</div>
+          <div class="muted" style="font-size:12px;">Неделя — только колонка недели. Месяц / дальние даты — только календарь.</div>
           <div id="viewDeployHint" class="muted" style="display:none;font-size:12px;margin-top:8px;color:#ff9f0a;"></div>
         </div>
         <div id="totalDaySummaryContainer"></div>
@@ -2488,7 +2497,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.100";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.101";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2833,9 +2842,9 @@
       clientsScreen:
         "Просмотр\n" +
         "• Вкладки Месяц / Неделя — переключение без обновления.\n" +
-        "• Месяц: календарь → тап по дню → список. 🔄 — перенос на другую дату (напр. 7→3).\n" +
-        "• Дата вне текущей недели — только календарь (без колонки недели), правка ✏️ / перенос 🔄.\n" +
-        "• Неделя: Пн–Пт + Будущая → тап → неделя ↔ календарь.\n" +
+        "• Месяц: календарь → тап по дню → одна колонка календаря (дальние даты) или редактор.\n" +
+        "• Неделя: тап по дню → только колонка недели (без правой колонки месяца).\n" +
+        "• 🔄 — перенос на другую дату.\n" +
         "• «Обновить» на обзоре/дне — только по кнопке.",
       cuttingScreen: "Нарезка\n• Выбери день и отмечай нарезанное.",
       courierScreen:
@@ -7034,8 +7043,13 @@
       var weekCol = document.getElementById("viewWeekCol");
       if (weekCol) weekCol.classList.remove("is-dimmed");
       var split = document.querySelector(".view-split");
-      if (split) split.classList.remove("is-month-only");
+      if (split) {
+        split.classList.remove("is-month-only");
+        split.classList.remove("is-week-only");
+      }
       if (weekCol) weekCol.style.display = "";
+      var monthCol = document.getElementById("viewMonthCol");
+      if (monthCol) monthCol.style.display = "";
       viewDateOnlyMonth = false;
       loadedClientsRawData = [];
       monthClientsCache = [];
@@ -7187,11 +7201,19 @@
         if (k) draftKeys[k] = true;
       });
       var split = document.querySelector(".view-split");
-      if (split) split.classList.toggle("is-month-only", !!viewDateOnlyMonth);
+      var weekOnly = (viewSub === "week" && !viewDateOnlyMonth);
+      if (split) {
+        split.classList.toggle("is-month-only", !!viewDateOnlyMonth);
+        split.classList.toggle("is-week-only", !!weekOnly);
+      }
       var weekCol = document.getElementById("viewWeekCol");
       if (weekCol) {
         weekCol.classList.toggle("is-dimmed", false);
         weekCol.style.display = viewDateOnlyMonth ? "none" : "";
+      }
+      var monthCol = document.getElementById("viewMonthCol");
+      if (monthCol) {
+        monthCol.style.display = weekOnly ? "none" : "";
       }
       var monthHead = document.querySelector("#viewMonthCol .view-col-head b");
       if (monthHead) {
@@ -7223,28 +7245,41 @@
       }
 
       var stageAllBtnShow = document.getElementById("viewStageAllBtn");
-      if (stageAllBtnShow) stageAllBtnShow.style.display = "";
+      if (stageAllBtnShow) stageAllBtnShow.style.display = weekOnly ? "none" : "";
 
       var weekHtml = (loadedClientsRawData || []).map(function (c, i) {
         return renderWeekClientCard(c, i, false);
       }).join("");
-      var draftHtml = viewTransferDraft.map(function (c, i) {
+      var draftHtml = weekOnly ? "" : viewTransferDraft.map(function (c, i) {
         return renderWeekClientCard(c, i, true);
       }).join("");
       if (box) {
-        if (viewFutureWrongDate) {
+        if (viewFutureWrongDate && !weekOnly) {
           box.innerHTML = draftHtml
             ? ('<div class="view-idle">Слот «Будущая» на <b>другой дате</b>. Черновик ниже — «Сохранить» переключит.</div>' + draftHtml)
             : '<div class="view-idle">На «Будущей неделе» сейчас <b>другая дата</b> (Пн).<br>Справа — люди на выбранный день. «→» + «Сохранить» переключит слот.</div>';
+        } else if (viewFutureWrongDate && weekOnly) {
+          box.innerHTML = '<div class="view-idle">На «Будущей неделе» сейчас <b>другая дата</b>.</div>';
         } else {
           box.innerHTML = (weekHtml || draftHtml)
             ? (weekHtml + draftHtml)
-            : '<div class="view-idle">На неделе пусто — бери справа →</div>';
+            : (weekOnly
+              ? '<div class="view-idle">На этом дне недели пусто</div>'
+              : '<div class="view-idle">На неделе пусто — бери справа →</div>');
         }
       }
       if (weekCountEl) {
-        weekCountEl.textContent = "(" + (loadedClientsRawData.length + viewTransferDraft.length) +
-          (viewTransferDraft.length ? (" · +" + viewTransferDraft.length + " черн.") : "") + ")";
+        var draftN = weekOnly ? 0 : viewTransferDraft.length;
+        weekCountEl.textContent = "(" + ((loadedClientsRawData.length + draftN)) +
+          (draftN ? (" · +" + draftN + " черн.") : "") + ")";
+      }
+
+      if (weekOnly) {
+        if (monthBox) monthBox.innerHTML = "";
+        if (monthCountEl2) monthCountEl2.textContent = "";
+        updateViewDraftBar();
+        updateBatchBar();
+        return;
       }
 
       var visibleMonth = (monthClientsCache || []).filter(function (c) {
@@ -7942,7 +7977,9 @@
           summary.innerHTML = '<div class="total-summary-badge">' +
             (viewDateOnlyMonth
               ? ("Календарь (вне недели): " + month.length + dateLabel + wd + sheetHint + " · правка без листа недели")
-              : ("Неделя: " + week.length + " · календарь: " + month.length + dayLabel + dateLabel + wd + sheetHint + futHint)) +
+              : (viewSub === "week"
+                ? ("Неделя: " + week.length + dayLabel + dateLabel + wd + futHint)
+                : ("Неделя: " + week.length + " · календарь: " + month.length + dayLabel + dateLabel + wd + sheetHint + futHint))) +
             "</div>";
         }
         if (deployHint && needDeploy) {
