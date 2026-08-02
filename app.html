@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.105";
+      var APP_VER = "v7.11.106";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1617,7 +1617,7 @@
         <div class="form-group">
           <label>Адрес</label>
           <div class="addr-suggest-wrap">
-            <input type="text" id="addressInput" placeholder="Улица и дом" autocomplete="off" oninput="onAddressInput()" onblur="onAddressBlurDelayed()">
+            <input type="text" id="addressInput" placeholder="Улица и дом · или 53.90, 27.56" autocomplete="off" oninput="onAddressInput()" onblur="onAddressBlurDelayed()">
             <div class="addr-suggest" id="addressSuggest"></div>
           </div>
           <div class="addr-picked" id="addressPickedHint">Адрес выбран</div>
@@ -2495,7 +2495,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.105";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.106";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -10594,6 +10594,68 @@
       }
     }
 
+    /** Если вся строка — координаты, вернуть {lat,lon}; иначе null. Обычный адрес не трогаем. */
+    function parseLatLonQuery(text) {
+      var s = String(text || "").trim();
+      if (!s) return null;
+      // не путать с «ул. 50 лет Победы, 5» — нужны две десятичные доли
+      var m = s.match(/^(-?\d+[.,]\d+)\s*[,;\s]+\s*(-?\d+[.,]\d+)\s*$/);
+      if (!m) {
+        m = s.match(/^(?:lat|широта)[=:\s]*(-?\d+[.,]\d+)[^\d\-]+(?:lon|lng|долгота)[=:\s]*(-?\d+[.,]\d+)\s*$/i);
+      }
+      if (!m) {
+        m = s.match(/^(-?\d+[.,]\d+)\s*[NnСс]\s*[,;\s]*(-?\d+[.,]\d+)\s*[EeВв]\s*$/);
+      }
+      if (!m) return null;
+      var a = Number(String(m[1]).replace(",", "."));
+      var b = Number(String(m[2]).replace(",", "."));
+      if (!isFinite(a) || !isFinite(b)) return null;
+      if (Math.abs(a) > 180 || Math.abs(b) > 180) return null;
+      var lat;
+      var lon;
+      // BY: lat≈51–56, lon≈23–33. Яндекс часто даёт lon,lat
+      if (a >= 23 && a <= 33.5 && b >= 51 && b <= 56.5) {
+        lon = a; lat = b;
+      } else if (b >= 23 && b <= 33.5 && a >= 51 && a <= 56.5) {
+        lat = a; lon = b;
+      } else if (Math.abs(a) <= 90 && Math.abs(b) <= 180) {
+        lat = a; lon = b;
+      } else {
+        return null;
+      }
+      if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+      return { lat: lat, lon: lon };
+    }
+
+    async function reverseGeocodeCoordsClient(lat, lon) {
+      var url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=ru&zoom=18&lat=" +
+        encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lon);
+      var res = await fetch(url, {
+        headers: { Accept: "application/json", "User-Agent": "superboyna-courier/1.0" }
+      });
+      if (!res.ok) return [];
+      var row = await res.json();
+      if (!row) return [];
+      var ad = row.address || {};
+      var street = ad.road || ad.pedestrian || ad.street || ad.avenue || "";
+      var house = ad.house_number || "";
+      var title = street && house ? (street + ", " + house)
+        : (street || formatStreetHouse(row.display_name || ""));
+      title = formatStreetHouse(title);
+      if (!title) {
+        title = Number(lat).toFixed(5) + ", " + Number(lon).toFixed(5);
+      }
+      return [{
+        title: title,
+        subtitle: "по координатам",
+        address: title,
+        lat: Number(lat),
+        lon: Number(lon),
+        yandexUrl: "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map",
+        fromCoords: true
+      }];
+    }
+
     function onAddressInput() {
       selectedAddressGeo = null;
       setAddressPickedHint(false);
@@ -10604,15 +10666,15 @@
         clearAddressSuggest();
         return;
       }
-      // моментально — локальная память
-      var local = searchAddrMemory(q);
+      var coords = parseLatLonQuery(q);
+      // моментально — локальная память (для текста; для координат почти пусто)
+      var local = coords ? [] : searchAddrMemory(q);
       if (local.length && box) renderAddressSuggestList(box, local);
-      else if (q.length < 2) {
+      else if (!coords && q.length < 2) {
         clearAddressSuggest();
         return;
       }
-      // сеть: Photon в браузере + webhook (Photon/Nominatim на сервере) — карта всегда
-      addressSuggestTimer = setTimeout(function () { fetchAddressSuggest(q); }, 180);
+      addressSuggestTimer = setTimeout(function () { fetchAddressSuggest(q); }, coords ? 120 : 180);
     }
 
     function onAddressBlurDelayed() {
@@ -10762,6 +10824,45 @@
       var seq = ++addressSuggestSeq;
       var box = document.getElementById("addressSuggest");
       if (!box) return;
+
+      // Опционально: вся строка = координаты → reverse geocode (обычный поиск адресов не меняем)
+      var coords = parseLatLonQuery(q);
+      if (coords) {
+        box.innerHTML = '<div class="addr-suggest-item" style="color:#8e8e93;">Ищу адрес по координатам…</div>';
+        box.classList.add("open");
+        var revList = [];
+        var srvList = [];
+        try {
+          var settled = await Promise.all([
+            reverseGeocodeCoordsClient(coords.lat, coords.lon).catch(function () { return []; }),
+            apiGet({
+              action: "suggestAddress",
+              text: coords.lat + "," + coords.lon
+            }).then(function (res) {
+              return (res && res.results) ? res.results : [];
+            }).catch(function () { return []; })
+          ]);
+          revList = settled[0] || [];
+          srvList = settled[1] || [];
+        } catch (eC) {}
+        if (seq !== addressSuggestSeq) return;
+        var listC = mergeSuggestLists(revList, srvList);
+        if (!listC.length) {
+          // хотя бы точка с координатами — можно выбрать и сохранить geo
+          listC = [{
+            title: Number(coords.lat).toFixed(5) + ", " + Number(coords.lon).toFixed(5),
+            subtitle: "координаты",
+            address: Number(coords.lat).toFixed(5) + ", " + Number(coords.lon).toFixed(5),
+            lat: coords.lat,
+            lon: coords.lon,
+            yandexUrl: "https://yandex.ru/maps/?pt=" + coords.lon + "," + coords.lat + "&z=17&l=map",
+            fromCoords: true
+          }];
+        }
+        renderAddressSuggestList(box, listC);
+        return;
+      }
+
       var local = searchAddrMemory(q);
       var cacheKey = "asuggest:v5:" + q.toLowerCase();
       var cachedList = [];
@@ -10809,10 +10910,11 @@
       box._items = list;
       box.innerHTML = list.map(function (item, i) {
         var title = formatStreetHouse(item.title || item.address || "");
+        var sub = item.fromCoords
+          ? '<span class="addr-suggest-sub">по координатам</span>'
+          : (item.local ? '<span class="addr-suggest-sub">из памяти</span>' : "");
         return '<button type="button" class="addr-suggest-item" data-idx="' + i + '">' +
-          escapeHtml(title) +
-          (item.local ? '<span class="addr-suggest-sub">из памяти</span>' : "") +
-          "</button>";
+          escapeHtml(title) + sub + "</button>";
       }).join("");
       box.classList.add("open");
       box.querySelectorAll(".addr-suggest-item").forEach(function (btn) {

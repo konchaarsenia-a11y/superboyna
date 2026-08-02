@@ -4916,6 +4916,18 @@ function handleSuggestAddress(json, callback, fromPost) {
   }
   var results = [];
   var source = "none";
+  // Опционально: вся строка = координаты → reverse (обычный текстовый поиск не ломаем)
+  var coords = parseLatLonQueryGs_(text);
+  if (coords) {
+    try {
+      results = nominatimReverse_(coords.lat, coords.lon);
+      if (results.length) source = "nominatim_reverse";
+    } catch (eR) {
+      Logger.log("nominatim reverse err: " + eR);
+    }
+    body = { status: "success", results: results, source: source, coords: coords };
+    return fromPost ? jsonpText(callback, body) : jsonp(callback, body);
+  }
   // Nominatim для Беларуси обычно точнее улиц Минска
   try {
     results = nominatimSuggest_(text);
@@ -4944,6 +4956,63 @@ function handleSuggestAddress(json, callback, fromPost) {
   }
   body = { status: "success", results: results, source: source };
   return fromPost ? jsonpText(callback, body) : jsonp(callback, body);
+}
+
+function parseLatLonQueryGs_(text) {
+  var s = String(text || "").trim();
+  if (!s) return null;
+  var m = s.match(/^(-?\d+[.,]\d+)\s*[,;\s]+\s*(-?\d+[.,]\d+)\s*$/);
+  if (!m) {
+    m = s.match(/^(?:lat|широта)[=:\s]*(-?\d+[.,]\d+)[^\d\-]+(?:lon|lng|долгота)[=:\s]*(-?\d+[.,]\d+)\s*$/i);
+  }
+  if (!m) return null;
+  var a = Number(String(m[1]).replace(",", "."));
+  var b = Number(String(m[2]).replace(",", "."));
+  if (!isFinite(a) || !isFinite(b)) return null;
+  if (Math.abs(a) > 180 || Math.abs(b) > 180) return null;
+  var lat;
+  var lon;
+  if (a >= 23 && a <= 33.5 && b >= 51 && b <= 56.5) {
+    lon = a; lat = b;
+  } else if (b >= 23 && b <= 33.5 && a >= 51 && a <= 56.5) {
+    lat = a; lon = b;
+  } else if (Math.abs(a) <= 90 && Math.abs(b) <= 180) {
+    lat = a; lon = b;
+  } else {
+    return null;
+  }
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { lat: lat, lon: lon };
+}
+
+function nominatimReverse_(lat, lon) {
+  var url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=ru&zoom=18&lat=" +
+    encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lon);
+  var res = UrlFetchApp.fetch(url, {
+    muteHttpExceptions: true,
+    headers: { "User-Agent": "superboyna-courier/1.0" }
+  });
+  if (res.getResponseCode() >= 400) return [];
+  var row = JSON.parse(res.getContentText());
+  if (!row) return [];
+  var ad = row.address || {};
+  var street = String(ad.road || ad.pedestrian || ad.street || ad.avenue || "").trim();
+  var house = String(ad.house_number || "").trim();
+  var title = "";
+  if (street && house) title = street + ", " + house;
+  else if (street) title = street;
+  else title = String(row.display_name || "").split(",").slice(0, 2).join(", ").trim();
+  title = String(title || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Мінск).*$/i, "").trim();
+  if (!title) title = Number(lat).toFixed(5) + ", " + Number(lon).toFixed(5);
+  return [{
+    title: title,
+    subtitle: "по координатам",
+    address: title,
+    lat: Number(lat),
+    lon: Number(lon),
+    yandexUrl: "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map",
+    fromCoords: true
+  }];
 }
 
 function expandAddressQueriesGs_(text) {
