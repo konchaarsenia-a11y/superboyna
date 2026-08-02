@@ -2565,6 +2565,7 @@ function handleGetCourier(dayName, callback) {
       phone: client.phone || "",
       geo: client.geo || null,
       basket: client.basket,
+      dogCount: client.dogCount || (basketHasDogSplit_(client.basket) ? 2 : 1),
       delivered: delivered,
       assembled: assembled,
       col: client.col,
@@ -3662,7 +3663,8 @@ function handleSaveOrder(ss, json, callback, fromPost) {
         address: json.address || "",
         phone: phoneSave,
         note: cleanNote,
-        basket: basket,
+        // dog:1/2 — в календарь целиком; на лист недели уже ушёл merge без dog
+        basket: basketRaw,
         subId: json.subId || "",
         source: otSave || "manual",
         dayName: json.day || "",
@@ -3681,11 +3683,17 @@ function handleSaveOrder(ss, json, callback, fromPost) {
 
   try { ensureBpAndSurveyFromOrder_(json); } catch (eBp) {}
   bustClientsCache_();
+  try {
+    var dayU = String(json.day || "").toUpperCase();
+    CacheService.getScriptCache().remove("ASM:" + dayU);
+    CacheService.getScriptCache().remove("COUR:" + dayU);
+  } catch (eAsm) {}
   // Telegram-проверку склада не зовём на каждый save — сильно тормозит запись
   return reply({
     status: "success",
     wrote: wrote,
     basketLen: basket.length,
+    dogSplit: basketHasDogSplit_(basketRaw),
     missed: missed.slice(0, 8),
     day: json.day,
     client: String(json.client || "").trim(),
@@ -7339,11 +7347,8 @@ function writeBasketToDayColumn_(ss, dayName, client, address, note, basket, opt
     }
   } catch (eQty) {}
 
-  var basketItems = (basket || []).filter(function (it) {
-    var v = Number(it && (it.val != null ? it.val : it.value)) || 0;
-    var n = String((it && (it.name || it.main)) || "").trim();
-    return n && v > 0;
-  });
+  // 2 собаки: на лист — суммы qty; dog-метки остаются в календаре/брони
+  var basketItems = mergeBasketQtyForSheet_(basket || []);
 
   // Пустая бронь + в дне уже есть состав → только адрес/телефон/note, состав НЕ трогаем
   if (!basketItems.length && hasQty && !opts.forceClear) {

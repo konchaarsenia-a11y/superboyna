@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.117";
+      var APP_VER = "v7.11.118";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2506,7 +2506,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.117";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.118";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -7213,21 +7213,41 @@
       });
     }
 
+    function basketLineItemHtml_(g) {
+      var unit = g.unit || unitForItem(g.cat, g.name || g.main);
+      var nm = g.name || g.main || "";
+      var frac = g.sub ? String(g.sub) : "";
+      // уши/аорта без sub в старых ответах — не показываем «голый» продукт
+      if (!frac) {
+        var nu = String(nm).toUpperCase().replace(/Ё/g, "Е");
+        if (/УХО|УШК/.test(nu)) frac = "Обычное";
+        else if (/АОРТ/.test(nu)) frac = "Обычная";
+      }
+      var fracBit = frac ? " (" + frac + ")" : "";
+      return '<div class="order-detail-line"><span>• ' + escapeHtml(nm) + escapeHtml(fracBit) +
+        '</span><span class="order-detail-volume">' + (g.val != null ? g.val : g.value) + " " + unit + "</span></div>";
+    }
+
     function basketLinesHtml(basket) {
-      return (basket || []).map(function (g) {
-        var unit = g.unit || unitForItem(g.cat, g.name || g.main);
-        var nm = g.name || g.main || "";
-        var frac = g.sub ? String(g.sub) : "";
-        // уши/аорта без sub в старых ответах — не показываем «голый» продукт
-        if (!frac) {
-          var nu = String(nm).toUpperCase().replace(/Ё/g, "Е");
-          if (/УХО|УШК/.test(nu)) frac = "Обычное";
-          else if (/АОРТ/.test(nu)) frac = "Обычная";
-        }
-        var fracBit = frac ? " (" + frac + ")" : "";
-        return '<div class="order-detail-line"><span>• ' + escapeHtml(nm) + escapeHtml(fracBit) +
-          '</span><span class="order-detail-volume">' + (g.val != null ? g.val : g.value) + " " + unit + "</span></div>";
-      }).join("") || '<p class="muted">Нет позиций</p>';
+      var items = basket || [];
+      var d1 = [], d2 = [], rest = [];
+      items.forEach(function (g) {
+        var d = Number(g.dog) || 0;
+        if (d === 2) d2.push(g);
+        else if (d === 1) d1.push(g);
+        else rest.push(g);
+      });
+      function block(arr) {
+        return (arr || []).map(basketLineItemHtml_).join("");
+      }
+      // 2 собаки одного клиента — два блока состава, один адрес снаружи карточки
+      if (d1.length && d2.length) {
+        return '<div class="muted" style="font-size:11px;margin:4px 0 2px;">Собака 1</div>' +
+          (block(d1.concat(rest)) || '<p class="muted">Нет позиций</p>') +
+          '<div class="muted" style="font-size:11px;margin:8px 0 2px;">Собака 2</div>' +
+          (block(d2) || '<p class="muted">Нет позиций</p>');
+      }
+      return block(items) || '<p class="muted">Нет позиций</p>';
     }
 
     function updateViewDraftBar() {
@@ -9766,11 +9786,7 @@
       }
       var resClients = courierClientsCache || [];
       box.innerHTML = resClients.map(function (c, idx) {
-          const lines = (c.basket || []).map(function (g) {
-            const unit = g.unit || unitForItem(g.cat, g.name || g.main);
-            const frac = g.sub ? " (" + g.sub + ")" : "";
-            return `<div class="order-detail-line"><span>• ${escapeHtml(g.name)}${escapeHtml(frac)}</span><span class="order-detail-volume">${g.val} ${unit}</span></div>`;
-          }).join("");
+          const lines = basketLinesHtml(c.basket || []);
           const priceHtml = formatOrderPriceHtml(c);
           const courNote = noteTextForRole(c.note || "", "cour");
           const addrPublic = courierPublicAddress_(c.address || "");
