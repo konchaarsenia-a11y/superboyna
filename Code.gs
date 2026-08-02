@@ -704,29 +704,34 @@ function recalculateCuttingForDate_(ss, dateText) {
   var totals = [];
   var sourceSheet = null;
   var offset = 0;
+  var dayName = "";
+  var block = null;
 
   if (future && formatSheetDate(future.getRange("A1").getValue(), tz) === dateText) {
     sourceSheet = future;
+    dayName = "Будущая неделя";
+    block = getDayBlock(dayName);
   } else if (manager) {
     for (var i = 0; i < MANAGER_DAY_NAMES_.length; i++) {
       if (formatSheetDate(manager.getRange(MANAGER_DATE_CELLS[i]).getValue(), tz) === dateText) {
         sourceSheet = manager;
         offset = i * 61;
+        dayName = MANAGER_DAY_NAMES_[i];
+        block = getDayBlock(dayName);
         break;
       }
     }
   }
 
-  var matrixRows = sourceSheet === future ? 60 : 427;
+  // 61+ строк: примечание «Будущей» на row 61 — раньше matrix=60 и skip [НЕ РЕЗАТЬ] не работал
+  var matrixRows = sourceSheet === future ? 61 : 427;
   var matrix = sourceSheet ? sourceSheet.getRange(1, 3, matrixRows, 15).getValues() : null;
-  // колонки с [НЕ РЕЗАТЬ] в примечании — не входят в план резки дня
-  var skipCols = {};
-  if (matrix) {
-    var noteRowIdx = (sourceSheet === future ? 61 : (61 + offset)) - 1;
+  var skipCols = noCutSkipColsForBlock_(sourceSheet, block);
+  if (matrix && block && !Object.keys(skipCols).length) {
+    var noteRowIdx = block.note - 1;
     if (noteRowIdx >= 0 && noteRowIdx < matrix.length) {
       for (var sc = 0; sc < 15; sc++) {
-        var nv = String(matrix[noteRowIdx][sc] || "");
-        if (/\[НЕ РЕЗАТЬ\]/i.test(nv)) skipCols[sc] = true;
+        if (/\[НЕ\s*РЕЗАТЬ\]/i.test(String(matrix[noteRowIdx][sc] || ""))) skipCols[sc] = true;
       }
     }
   }
@@ -736,6 +741,7 @@ function recalculateCuttingForDate_(ss, dateText) {
     if (matrix && rows) {
       for (var r = 0; r < rows.length; r++) {
         var rowIndex = rows[r] + offset - 1;
+        if (rowIndex < 0 || rowIndex >= matrix.length) continue;
         for (var col = 0; col < 15; col++) {
           if (skipCols[col]) continue;
           total += Number(matrix[rowIndex][col]) || 0;
@@ -748,8 +754,23 @@ function recalculateCuttingForDate_(ss, dateText) {
   return totals;
 }
 
+/** Колонки C–Q (0..14) с [НЕ РЕЗАТЬ] в примечании блока дня. */
+function noCutSkipColsForBlock_(sheet, block) {
+  var skip = {};
+  if (!sheet || !block) return skip;
+  try {
+    var notes = sheet.getRange(block.note, 3, 1, 15).getValues()[0] || [];
+    for (var sc = 0; sc < 15; sc++) {
+      if (/\[НЕ\s*РЕЗАТЬ\]/i.test(String(notes[sc] || ""))) skip[sc] = true;
+    }
+  } catch (eN) {}
+  return skip;
+}
+
 function asBool_(v) {
-  return v === true || v === "TRUE" || v === "true" || v === 1 || v === "1";
+  if (v === true || v === 1) return true;
+  var s = String(v == null ? "" : v).trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes" || s === "да" || s === "✓" || s === "✔";
 }
 
 function restoreCuttingState_(cutting, memorySheet, dateText, tz) {
@@ -911,6 +932,19 @@ function finishFullWeekProduction(optSs, optOpts) {
   }
 
   var cuttingSurplusValues = sheetCutting.getRange("C3:C60").getValues();
+  // один read матрицы на все дни + skip [НЕ РЕЗАТЬ]
+  var fullManagerMatrix = sheetManager.getRange(1, 3, 427, 15).getValues();
+  var noCutByDayOffset = {};
+  for (var nd = 0; nd < weekDaysGeo.length; nd++) {
+    var dayBlk = getDayBlock(weekDaysGeo[nd].name || weekDaysGeo[nd].day);
+    if (!dayBlk) {
+      // weekDaysGeo may use .start only — resolve by start row
+      var st = Number(weekDaysGeo[nd].start) || 4;
+      var di = Math.floor((st - 4) / 61);
+      dayBlk = getDayBlock(MANAGER_DAY_NAMES_[di]);
+    }
+    noCutByDayOffset[weekDaysGeo[nd].start] = noCutSkipColsForBlock_(sheetManager, dayBlk);
+  }
   for (var cRow = 3; cRow <= 48; cRow++) {
     var rowsToSum = itemMap[cRow.toString()];
     if (rowsToSum) {
@@ -919,10 +953,12 @@ function finishFullWeekProduction(optSs, optOpts) {
       var totalGramsWeek = 0;
       weekDaysGeo.forEach(function (day) {
         var dayOffset = day.start - 4;
-        var fullManagerMatrix = sheetManager.getRange("C1:Q427").getValues();
+        var skipCols = noCutByDayOffset[day.start] || {};
         rowsToSum.forEach(function (rNum) {
           var targetRowIdx = rNum + dayOffset - 1;
+          if (targetRowIdx < 0 || targetRowIdx >= fullManagerMatrix.length) return;
           for (var colM = 0; colM < 15; colM++) {
+            if (skipCols[colM]) continue;
             totalGramsWeek += Number(fullManagerMatrix[targetRowIdx][colM]) || 0;
           }
         });
@@ -2169,8 +2205,14 @@ function handleGetCutting(dayName, callback) {
   var totals = recalculateCuttingForDate_(ss, dateText);
   var names = cutting.getRange("A3:A48").getValues();
   var plans = cutting.getRange("D3:D48").getValues();
+  // live + память: при обновлении не терять галочки (память мог отстать / A1 на другом дне)
+  var memState = null;
+  try { memState = getMemoryJson_(memory, dateText, tz); } catch (eMem) { memState = null; }
+  if (isActiveDate) {
+    try { saveCuttingState_(cutting, memory, dateText, tz); } catch (eSave) {}
+    try { memState = getMemoryJson_(memory, dateText, tz) || memState; } catch (eMem2) {}
+  }
   var activeState = isActiveDate ? cutting.getRange("C3:G48").getValues() : null;
-  var savedState = isActiveDate ? null : getMemoryJson_(memory, dateText, tz);
   var rowNotes = collectCuttingRowNotes_(ss, dayName);
   var items = [];
 
@@ -2180,13 +2222,14 @@ function handleGetCutting(dayName, callback) {
     var name = names[i][0] == null ? "" : String(names[i][0]).trim();
     var row = i + 3;
     var piece = isPieceSkuName_(name);
-    var state = activeState ? activeState[i] : (savedState && savedState[i] ? savedState[i] : []);
-    var surplus = Number(state[0]) || 0;
+    var state = activeState ? activeState[i] : [];
+    var memRow = (memState && memState[i]) ? memState[i] : [];
     // active C3:G = [C,D,E,F,G] → laid=E[2], done=F[3], outNext=G[4]
     // memory packed = [surplus,"",laid,done,outNext]
-    var laid = asBool_(state[2]);
-    var done = asBool_(state[3]);
-    var outNext = asBool_(state[4]);
+    var surplus = Number(state[0] != null && state[0] !== "" ? state[0] : memRow[0]) || 0;
+    var laid = asBool_(state[2]) || asBool_(memRow[2]);
+    var done = asBool_(state[3]) || asBool_(memRow[3]);
+    var outNext = asBool_(state[4]) || asBool_(memRow[4]);
     var raw;
     if (piece) {
       raw = dry;
@@ -4185,7 +4228,7 @@ function getClientsData_(ss, dayName) {
           : extractOrderPriceFromNote_(noteRaw);
         var ppSlotOut = (calHit && calHit.ppSlot) || "";
         var noteStr = stripTechFromNote_(noteRaw);
-        var noCutFlag = /\[НЕ РЕЗАТЬ\]/i.test(noteRaw);
+        var noCutFlag = /\[НЕ\s*РЕЗАТЬ\]/i.test(noteRaw);
         var srcFromSeg = "";
         if (segFromNote === "БП" || segFromNote === "BP") srcFromSeg = "bp";
         else if (segFromNote === "ПП" || segFromNote === "PP" || segFromNote === "АФК") srcFromSeg = "pp";

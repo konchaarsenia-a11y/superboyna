@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.109";
+      var APP_VER = "v7.11.110";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2505,7 +2505,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.109";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.110";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -8825,6 +8825,18 @@
           return;
         }
         var items = (res.items || []).slice();
+        // при полном обновлении не затирать локально отмеченные галочки, если сервер ещё «пустой»
+        if (!fromPoll && cuttingItemsCache && cuttingItemsCache.length) {
+          var prevByRow = {};
+          cuttingItemsCache.forEach(function (p) { prevByRow[Number(p.row)] = p; });
+          items.forEach(function (it) {
+            var prev = prevByRow[Number(it.row)];
+            if (!prev) return;
+            if (!it.laid && prev.laid) it.laid = true;
+            if (!it.done && prev.done) it.done = true;
+            if (!it.outNext && prev.outNext) it.outNext = true;
+          });
+        }
         applyLocalCuttingFlags_(items);
         const fp = cuttingFingerprint(items, res.session);
         applyRemoteCuttingSession(res.session || { active: false, day: day, startedAt: 0 });
@@ -8881,7 +8893,7 @@
         var row = Number(it.row);
         var o = cuttingLocalFlags[row];
         if (!o) return;
-        if ((now - (o.ts || 0)) > 120000) {
+        if ((now - (o.ts || 0)) > 300000) {
           delete cuttingLocalFlags[row];
           return;
         }
@@ -8952,7 +8964,7 @@
       } finally {
         markCuttingWriteEnd();
         // дольше держим quiet — не дать опросу откатить до догона сервера
-        cuttingSession.quietUntil = Math.max(cuttingSession.quietUntil, Date.now() + (ok ? 8000 : 15000));
+        cuttingSession.quietUntil = Math.max(cuttingSession.quietUntil, Date.now() + (ok ? 15000 : 25000));
       }
       if (!ok) {
         showToast("Галочка не сохранилась — нажми ещё раз");
