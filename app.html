@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.108";
+      var APP_VER = "v7.11.109";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2505,7 +2505,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.108";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.109";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -4867,8 +4867,15 @@
     function formatStreetHouse(full) {
       var s = String(full || "").trim();
       if (!s) return "";
+      // координаты: не трогать (хвост «484504» иначе съедается как индекс)
+      if (typeof parseLatLonFromText_ === "function" && parseLatLonFromText_(s)) {
+        return s.replace(/\s+/g, " ");
+      }
+      // индекс в начале строки («220000, ул. …»)
       s = s.replace(/^\d{5,6}\s*,?\s*/g, "");
-      s = s.replace(/\s*\d{5,6}\s*$/g, "");
+      // индекс в конце — только если это не дробная часть после точки/запятой
+      s = s.replace(/(^|[^0-9.,])(\d{5,6})\s*$/g, "$1").trim();
+      s = s.replace(/[,\s]+$/g, "").trim();
       var parts = s.split(",").map(function (x) { return x.trim(); }).filter(Boolean);
       function dropPart(p) {
         if (/^(беларусь|belarus|by|минск|minsk)$/i.test(p)) return true;
@@ -6044,6 +6051,19 @@
       let clientAddressFull = document.getElementById("addressInput").value.trim();
       clientAddressFull = formatStreetHouse(clientAddressFull) || clientAddressFull;
       if (document.getElementById("addressInput")) document.getElementById("addressInput").value = clientAddressFull;
+      // ручной ввод lat,lon → сохранить geo, даже если подсказку не тапнули
+      if (!selectedAddressGeo && typeof parseLatLonFromText_ === "function") {
+        var manualCoords = parseLatLonFromText_(clientAddressFull);
+        if (manualCoords) {
+          selectedAddressGeo = {
+            lat: manualCoords.lat,
+            lon: manualCoords.lon,
+            address: clientAddressFull,
+            yandexUrl: "https://yandex.ru/maps/?pt=" + manualCoords.lon + "," + manualCoords.lat + "&z=17&l=map"
+          };
+          setAddressPickedHint(true);
+        }
+      }
       const entrance = (document.getElementById("entranceInput") && document.getElementById("entranceInput").value || "").trim();
       const floor = (document.getElementById("floorInput") && document.getElementById("floorInput").value || "").trim();
       const flat = (document.getElementById("flatInput") && document.getElementById("flatInput").value || "").trim();
