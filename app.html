@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.116";
+      var APP_VER = "v7.11.117";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2506,7 +2506,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.116";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.117";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -16497,15 +16497,6 @@
       }).filter(function (it) { return (Number(it.val) || 0) > 0 && (it.main || it.name); });
       if (!list.length) return "";
       var n = Math.max(1, Number((document.getElementById("subDetailDeliveries") || {}).value) || 1);
-      var note = String((document.getElementById("subDetailWishes") || {}).value || "").trim();
-      var dogName = String((document.getElementById("subDetailDogName") || {}).value || "").trim();
-      var dogBreed = String((document.getElementById("subDetailDogBreed") || {}).value || "").trim();
-      var dogWeight = String((document.getElementById("subDetailDogWeight") || {}).value || "").trim();
-      var dogBits = [];
-      if (dogName) dogBits.push(dogName);
-      if (dogBreed) dogBits.push(dogBreed);
-      if (dogWeight) dogBits.push(dogWeight + " кг");
-      if (dogBits.length) note = (dogBits.join(", ") + (note ? ("\n" + note) : "")).trim();
       var stated = Number((document.getElementById("subDetailStatedPrice") || {}).value);
       var fact = Number((document.getElementById("subDetailFact") || {}).value);
       var subTotal = (isFinite(stated) && stated > 0) ? stated : ((isFinite(fact) && fact > 0) ? fact : 0);
@@ -16514,7 +16505,8 @@
         retail = calcRetailBasketTotal(list, { deliveriesN: n }) || { total: 0 };
       } catch (eR) { retail = { total: 0 }; }
       if (!(subTotal > 0)) subTotal = Number(retail.total) || 0;
-      return composePpClientMessage(list, n, note, retail.total, subTotal);
+      // без примечаний / пожеланий / собаки — только состав и цены
+      return composePpClientMessage(list, n, "", retail.total, subTotal);
     }
 
     async function openSubDetailClientMessage_() {
@@ -16527,65 +16519,39 @@
       var nick = String((document.getElementById("subDetailNick") || {}).value || "").trim();
       var ig = igHandleFromSubNick_(label) || igHandleFromSubNick_(nick);
       var igUrl = ig ? ("https://instagram.com/" + encodeURIComponent(ig)) : "";
+      if (!igUrl) {
+        showToast("Нет Instagram-ника в карточке");
+        return;
+      }
       var p = openModal(
         '<div class="modal-title">Сообщение клиенту</div>' +
-        '<div class="muted" style="font-size:12px;margin-bottom:8px;">Можно поправить текст → скопировать → вставить в Direct' +
-          (ig ? (" · @" + escapeHtml(ig)) : "") +
-        "</div>" +
-        '<textarea id="subClientMsgText" rows="14" style="width:100%;font-size:14px;line-height:1.4;white-space:pre-wrap;">' +
+        '<div class="muted" style="font-size:12px;margin-bottom:8px;">@' + escapeHtml(ig) +
+          " — скопировать и открыть Instagram</div>" +
+        '<div class="card" style="white-space:pre-wrap;font-size:13px;line-height:1.4;max-height:45vh;overflow:auto;">' +
           escapeHtml(text) +
-        "</textarea>" +
-        '<div class="modal-actions" style="display:grid;gap:8px;margin-top:10px;">' +
-          '<button type="button" class="btn-action btn-blue" id="subMsgCopy">Копировать</button>' +
-          (igUrl
-            ? '<button type="button" class="btn-action btn-orange" id="subMsgOpenIg">Открыть Instagram</button>'
-            : "") +
-          '<button type="button" class="btn-action btn-green" id="subMsgCopyOpen">Копировать и открыть IG</button>' +
-          '<button type="button" class="btn-action" id="modalCancel" style="background:#3a3a3c;">Закрыть</button>' +
+        "</div>" +
+        '<div class="modal-actions" style="margin-top:10px;">' +
+          '<button type="button" class="btn-action btn-green" id="subMsgCopyOpen" style="width:100%;">Копировать и открыть Instagram</button>' +
         "</div>"
       );
-      function readMsg_() {
-        var ta = document.getElementById("subClientMsgText");
-        return ta ? String(ta.value || "") : text;
-      }
-      async function doCopy_() {
-        var ok = await copyText(readMsg_());
-        showToast(ok ? "Скопировано — вставь в Direct" : "Не скопировалось");
-        return ok;
-      }
-      function openIg_() {
-        if (!igUrl) {
-          showToast("Нет Instagram-ника в карточке");
-          return;
-        }
-        try {
-          if (typeof openExternalLink === "function") openExternalLink(igUrl);
-          else if (window.Telegram && Telegram.WebApp && typeof Telegram.WebApp.openLink === "function") {
-            Telegram.WebApp.openLink(igUrl, { try_instant_view: false });
-          } else {
-            window.open(igUrl, "_blank");
-          }
-        } catch (eO) {
-          try { location.href = igUrl; } catch (e2) {}
-        }
-      }
       setTimeout(function () {
-        var copy = document.getElementById("subMsgCopy");
-        var openBtn = document.getElementById("subMsgOpenIg");
         var both = document.getElementById("subMsgCopyOpen");
-        var cancel = document.getElementById("modalCancel");
-        if (copy) copy.onclick = function () { doCopy_(); };
-        if (openBtn) openBtn.onclick = function () { openIg_(); };
-        if (both) both.onclick = async function () {
-          await doCopy_();
-          openIg_();
+        if (!both) return;
+        both.onclick = async function () {
+          var ok = await copyText(text);
+          showToast(ok ? "Скопировано — вставь в Direct" : "Не скопировалось");
+          try {
+            if (typeof openExternalLink === "function") openExternalLink(igUrl);
+            else if (window.Telegram && Telegram.WebApp && typeof Telegram.WebApp.openLink === "function") {
+              Telegram.WebApp.openLink(igUrl, { try_instant_view: false });
+            } else {
+              window.open(igUrl, "_blank");
+            }
+          } catch (eO) {
+            try { location.href = igUrl; } catch (e2) {}
+          }
+          closeModal(true);
         };
-        if (cancel) cancel.onclick = function () { closeModal(true); };
-        // если нет IG — кнопка «копировать и открыть» всё равно копирует
-        if (both && !igUrl) {
-          both.textContent = "Копировать";
-          both.onclick = async function () { await doCopy_(); };
-        }
       }, 0);
       await p;
       recoverUiFocus();
