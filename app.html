@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.111";
+      var APP_VER = "v7.11.112";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2505,7 +2505,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.111";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.112";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -12370,6 +12370,8 @@
     const FINISH_REFUSE_LS = "superboyna_finish_refuse_";
     const FINISH_REFUSE_UNTIL_LS = "superboyna_finish_refuse_until_";
     const FINISH_DONE_LS = "superboyna_finish_done_";
+    const FINISH_REAL_LS = "superboyna_finish_real_"; // только после успешного finishFullWeek
+    const FINISH_HIDE_LS = "superboyna_finish_hide_"; // «Уже завершили — скрыть»
     let subsSegment = "ПП";
     var bpListFilter = "all";
     var bpEditMode = false;
@@ -12577,20 +12579,19 @@
       var pull = document.getElementById("pullWeekBanner");
       if (!fin || !pull) return;
       var wk = currentWeekKeyLocal();
-      // не долбим webhook при каждом возврате на «Заказ»
-      if (_weekBannerLoading) return;
+      var skipFetch = _weekBannerLoading;
       var bannerFresh = !!(
         _weekBannerState &&
         _weekBannerState.weekKey === wk &&
         _weekBannerFetchedAt &&
         !force
       );
-      if (!bannerFresh) {
+      if (!skipFetch && !bannerFresh) {
         _weekBannerLoading = true;
         try {
           var st = await apiGet(
             { action: "getWeekBannerState", weekKey: wk },
-            { timeoutMs: 12000, cacheTtlMs: 45000 }
+            { timeoutMs: 12000, cacheTtlMs: 0 }
           );
           _weekBannerFetchedAt = Date.now();
           if (st && st.status === "success") {
@@ -12603,75 +12604,10 @@
               by: st.by || ""
             };
             try { maybeAnnounceWeekFinished_(st, wk); } catch (eAnn) {}
-            // если у этого устройства уже отмечено, а на сервере ещё нет — догнать (после деплоя / старый localStorage)
-            var locFin = false;
-            var locPull = false;
-            try {
-              locFin = localStorage.getItem(FINISH_DONE_LS + wk) === "1";
-              locPull = localStorage.getItem(WEEK_PULL_LS + wk) === "pulled";
-              // legacy: подтягивали с weekKey dd.MM.yyyy — ищем любой ключ pull для этой недели
-              if (!locPull) {
-                try {
-                  var parts = wk.split("-");
-                  if (parts.length === 3) {
-                    var legacyWk = parts[2] + "." + parts[1] + "." + parts[0];
-                    if (localStorage.getItem(WEEK_PULL_LS + legacyWk) === "pulled") locPull = true;
-                  }
-                } catch (eLeg) {}
-              }
-              if (!st.pulled && (st.finished || locFin)) {
-                try {
-                  var ps = await apiGet({ action: "weekPullStatus" }, { timeoutMs: 12000, cacheTtlMs: 30000 });
-                  if (ps && ps.status === "success") {
-                    // только «уже подтянули» — НЕ помечать неделю закрытой
-                    if ((Number(ps.weekPeople || 0) > 0 && ps.suggestPull === false) ||
-                        (Number(ps.weekPeople || 0) > 0 && Number(ps.monthPeople || 0) > 0 &&
-                          Number(ps.weekPeople) >= Number(ps.monthPeople))) {
-                      locPull = true;
-                    }
-                  }
-                } catch (ePs) {}
-              }
-              // в окне вс/пн не «заражать» сервер ложным finished из localStorage («Позже»)
-              if (locFin && !st.finished && !locPull && isFinishWeekWindow_()) {
-                locFin = false;
-                try { localStorage.removeItem(FINISH_DONE_LS + wk); } catch (eRm) {}
-              }
-              if ((locFin && !st.finished) || (locPull && !st.pulled)) {
-                try {
-                  await apiGet({
-                    action: "setWeekBannerState",
-                    weekKey: wk,
-                    finished: (locFin || st.finished) ? "1" : "",
-                    pulled: (locPull || st.pulled) ? "1" : "",
-                    telegramId: String(myTelegramId || ""),
-                    _: String(Date.now())
-                  }, { timeoutMs: 12000, cacheTtlMs: 0 });
-                } catch (ePush) {}
-                if (locFin) _weekBannerState.finished = true;
-                if (locPull) _weekBannerState.pulled = true;
-                st.finished = _weekBannerState.finished;
-                st.pulled = _weekBannerState.pulled;
-              }
-            } catch (eSync) {}
-            try {
-              // реальное закрытие всегда пишет pulled=true; finished без pulled — часто ложный dismiss
-              if ((st.finished || _weekBannerState.finished || locFin) && (st.pulled || _weekBannerState.pulled || locPull)) {
-                localStorage.setItem(FINISH_DONE_LS + wk, "1");
-              }
-              // не стираем local «pulled», если сервер ещё false — иначе баннер вспыхивает снова
-              if (st.pulled || _weekBannerState.pulled || locPull) localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
-              // refused на сервере больше не прячет кнопку навсегда — только локальный snooze
-              if (!refuseSnoozeActive_(wk)) {
-                localStorage.removeItem(FINISH_REFUSE_LS + wk);
-                _weekBannerState.refused = false;
-              }
-            } catch (eLs) {}
           }
         } catch (eGet) {
-          // fallback: localStorage если сервер ещё без Deploy
           _weekBannerState = {
-            finished: localStorage.getItem(FINISH_DONE_LS + wk) === "1",
+            finished: localStorage.getItem(FINISH_REAL_LS + wk) === "1",
             pulled: localStorage.getItem(WEEK_PULL_LS + wk) === "pulled",
             refused: false,
             weekKey: wk
@@ -12679,40 +12615,49 @@
         }
         _weekBannerLoading = false;
       }
-      // сервер — источник правды: если кто-то закрыл неделю, у всех скрываем finish
-      var finished = !!_weekBannerState.finished || localStorage.getItem(FINISH_DONE_LS + wk) === "1";
-      var pulled = !!_weekBannerState.pulled || localStorage.getItem(WEEK_PULL_LS + wk) === "pulled";
-      // «Позже» = только snooze (3ч); вечный refused больше не блокирует
+
+      var realClosed = localStorage.getItem(FINISH_REAL_LS + wk) === "1";
+      var hidden = localStorage.getItem(FINISH_HIDE_LS + wk) === "1";
       var refused = refuseSnoozeActive_(wk);
-      if (finished) refused = false;
-      // ложный finished без pulled («Позже»/«Уже завершили» без закрытия таблицы) —
-      // в окне вс/пн снова показать кнопку и сбросить флаги
-      if (finished && !pulled && isFinishWeekWindow_()) {
-        finished = false;
+      var finished = realClosed || !!_weekBannerState.finished;
+      var pulled = realClosed || !!_weekBannerState.pulled || localStorage.getItem(WEEK_PULL_LS + wk) === "pulled";
+
+      // В окне вс/пн кнопка закрытия НЕ зависит от устаревших finished/pulled на сервере
+      // (часто ложный dismiss+heal с субботы). Прячем только после реального закрытия,
+      // «Уже завершили — скрыть» или snooze «Позже».
+      var canFinish = false;
+      if ((APP_ROLE === "owner" || APP_ROLE === "all") && isFinishWeekWindow_()) {
+        if (!realClosed && !hidden && !refused) canFinish = true;
+      }
+
+      // если сервер ещё держит ложный finished/pulled — сбросить, чтобы не путать другие устройства
+      if (canFinish && (_weekBannerState.finished || _weekBannerState.pulled || _weekBannerState.refused)) {
+        _weekBannerState.finished = false;
+        _weekBannerState.pulled = false;
+        _weekBannerState.refused = false;
         try {
           localStorage.removeItem(FINISH_DONE_LS + wk);
+          localStorage.removeItem(WEEK_PULL_LS + wk);
           localStorage.removeItem(FINISH_REFUSE_LS + wk);
-          _weekBannerState.finished = false;
-          _weekBannerState.refused = false;
-        } catch (eRec) {}
+        } catch (eLs) {}
         try {
           apiGet({
             action: "setWeekBannerState",
             weekKey: wk,
             finished: "0",
+            pulled: "0",
             refused: "0",
             telegramId: String(myTelegramId || ""),
             _: String(Date.now())
           }, { timeoutMs: 12000, cacheTtlMs: 0 }).catch(function () {});
         } catch (eClr) {}
+        finished = false;
+        pulled = false;
       }
-      var canFinish = false;
-      if (APP_ROLE === "owner" || APP_ROLE === "all") {
-        if (!finished && !refused && isFinishWeekWindow_()) canFinish = true;
-      }
+
       fin.style.display = canFinish ? "" : "none";
       var showPull = false;
-      if ((APP_ROLE === "owner" || APP_ROLE === "manager" || APP_ROLE === "all") && finished && !pulled) {
+      if ((APP_ROLE === "owner" || APP_ROLE === "manager" || APP_ROLE === "all") && !canFinish && finished && !pulled) {
         showPull = true;
       }
       pull.style.display = showPull ? "" : "none";
@@ -12722,27 +12667,13 @@
     async function dismissFinishWeekBanner() {
       var wk = currentWeekKeyLocal();
       try {
-        localStorage.setItem(FINISH_DONE_LS + wk, "1");
-        localStorage.removeItem(FINISH_REFUSE_LS + wk);
+        localStorage.setItem(FINISH_HIDE_LS + wk, "1");
         localStorage.removeItem(FINISH_REFUSE_UNTIL_LS + wk);
+        localStorage.removeItem(FINISH_REFUSE_LS + wk);
       } catch (eLs) {}
-      _weekBannerState.finished = true;
-      _weekBannerState.refused = false;
-      _weekBannerState.weekKey = wk;
-      try {
-        await apiGet({
-          action: "setWeekBannerState",
-          weekKey: wk,
-          finished: "1",
-          refused: "",
-          telegramId: String(myTelegramId || ""),
-          _: String(Date.now())
-        }, { timeoutMs: 12000, cacheTtlMs: 0 });
-      } catch (eSet) {}
       var fin = document.getElementById("finishWeekBanner");
       if (fin) fin.style.display = "none";
-      try { refreshWeekBanners({ force: true }); } catch (eR) {}
-      showToast("Баннер скрыт — неделю больше не предлагаем закрыть");
+      showToast("Скрыто до конца окна вс/пн");
     }
     window.dismissFinishWeekBanner = dismissFinishWeekBanner;
 
@@ -12812,9 +12743,12 @@
         return;
       }
       var wk = currentWeekKeyLocal();
+      localStorage.setItem(FINISH_REAL_LS + wk, "1");
       localStorage.setItem(FINISH_DONE_LS + wk, "1");
       localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
+      localStorage.setItem(FINISH_HIDE_LS + wk, "1");
       localStorage.removeItem(FINISH_REFUSE_LS + wk);
+      localStorage.removeItem(FINISH_REFUSE_UNTIL_LS + wk);
       _weekBannerState.finished = true;
       _weekBannerState.pulled = true;
       _weekBannerState.weekKey = wk;
