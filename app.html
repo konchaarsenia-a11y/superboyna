@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.99";
+      var APP_VER = "v7.11.100";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2488,7 +2488,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.99";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.100";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -8189,15 +8189,21 @@
         await uiAlertAsync("Выберите другую дату");
         return;
       }
-      // вне недели / без дня на листе — только календарь+брони+CRM
-      const calendarOnly = !!(viewDateOnlyMonth || !oldDay || target.calendarOnly);
+      // вне недели без дня на листе — календарь; если день есть и цель на неделе — обычный перенос
+      const calendarOnly = (function () {
+        if (viewDateOnlyMonth && !oldDay) return true;
+        if (oldDay && target.onWeek && target.newDay) return false;
+        if (!oldDay || target.calendarOnly) return true;
+        return false;
+      })();
       const newDay = calendarOnly ? "" : (target.newDay || "");
       const dateOnly = !!(!calendarOnly && newDay && oldDay && newDay === oldDay);
       const cutLabel = calendarOnly
         ? (target.newDate + " · календарь")
-        : (target.newDate + (target.onWeek ? (" · " + newDay) : ""));
+        : (target.newDate + (newDay ? (" · " + newDay) : ""));
       let cutRaw = "yes";
-      if (!dateOnly && !calendarOnly) {
+      // спрашиваем всегда, кроме dateOnly (та же колонка дня)
+      if (!dateOnly) {
         cutRaw = await pickBatchCutRaw(names.length, cutLabel);
         if (!cutRaw) return;
       }
@@ -8484,13 +8490,18 @@
         return false;
       }
       var calendarOnly = !!(opts.forceCalendarOnly || viewDateOnlyMonth || !oldDay || target.calendarOnly);
+      // если есть день на листе и целевая дата тоже на неделе — обычный перенос (не calendarOnly)
+      if (oldDay && target.onWeek && target.newDay && !viewDateOnlyMonth && !opts.forceCalendarOnly) {
+        calendarOnly = false;
+      }
       var newDay = calendarOnly ? "" : (target.newDay || "");
       var dateOnly = !!(!calendarOnly && newDay && oldDay && newDay === oldDay);
       var cutLabel = calendarOnly
-        ? (target.newDate + " · календарь")
-        : (target.newDate + (target.onWeek ? (" · " + newDay) : ""));
+        ? (target.newDate + (oldDay ? (" · с «" + oldDay + "»") : "") + " · календарь")
+        : (target.newDate + (newDay ? (" · " + newDay) : ""));
       var cutRaw = "yes";
-      if (!dateOnly && !calendarOnly) {
+      // спрашиваем всегда, кроме «та же колонка дня, только дата» (dateOnly)
+      if (!dateOnly) {
         var cutP = openModal(
           '<div class="modal-title">Нарезка при переносе</div>' +
           '<div class="modal-text">Перенос <b>' + escapeHtml(clientName) + '</b> → <b>' + escapeHtml(cutLabel) + '</b>.<br><br>' +
@@ -8569,7 +8580,7 @@
         matchKey: client.matchKey || "",
         oldDay: oldDay,
         oldDate: oldDate,
-        forceCalendarOnly: !!viewDateOnlyMonth
+        forceCalendarOnly: !!viewDateOnlyMonth && !oldDay
       });
     }
 
@@ -8593,7 +8604,7 @@
         matchKey: client.matchKey || viewClientKey(client.name) || "",
         oldDay: oldDay,
         oldDate: oldDate,
-        forceCalendarOnly: !!viewDateOnlyMonth || !oldDay
+        forceCalendarOnly: !!viewDateOnlyMonth && !oldDay
       });
     }
     window.crmMoveMonthClient = crmMoveMonthClient;
