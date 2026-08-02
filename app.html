@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.113";
+      var APP_VER = "v7.11.114";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2505,7 +2505,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.113";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.114";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2590,6 +2590,11 @@
       celebrateCutTimer: null,
       celebrateCutQueued: 0
     };
+    var _cuttingLoadSeq = 0;
+    var _courierLoadSeq = 0;
+    var _assemblyLoadSeq = 0;
+    var _viewClientsLoadSeq = 0;
+    var _deliveryDateResolveSeq = 0;
     let routePlanState = {
       courierCount: 1,
       routes: [[], []],
@@ -5892,20 +5897,25 @@
       if (isNaN(d.getTime())) return;
       const daySel = document.getElementById("day");
       if (!daySel) return;
-      // не ставим weekday сразу — дальняя дата ≠ «Вторник» текущей недели
-      apiGet({ action: "resolveDayForDate", date: el.value }, { timeoutMs: 12000, cacheTtlMs: 30000 })
+      var wantDate = el.value;
+      var seq = ++_deliveryDateResolveSeq;
+      apiGet({ action: "resolveDayForDate", date: wantDate }, { timeoutMs: 12000, cacheTtlMs: 30000 })
         .then(function (res) {
+          if (seq !== _deliveryDateResolveSeq) return;
+          if (!el.value || el.value !== wantDate) return;
           var name = (res && res.onWeek && res.dayName) ? res.dayName : "";
-          if (!name) return; // вне недели — селект не трогаем (бронь без листа)
+          if (!name) return;
           for (let i = 0; i < daySel.options.length; i++) {
             if (daySel.options[i].text === name || daySel.options[i].value === name) {
               daySel.selectedIndex = i;
               break;
             }
           }
+          try { onOrderDaySelectChange_(); } catch (eOd) {}
         })
         .catch(function () {
-          // сеть — weekday fallback только Пн–Пт
+          if (seq !== _deliveryDateResolveSeq) return;
+          if (!el.value || el.value !== wantDate) return;
           var names = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
           var wd = names[d.getDay()];
           if (d.getDay() === 0 || d.getDay() === 6) return;
@@ -5915,6 +5925,7 @@
               break;
             }
           }
+          try { onOrderDaySelectChange_(); } catch (eOd2) {}
         });
       try { if (orderType === "pp") refreshPpFactPrice(); } catch (e) {}
     }
@@ -7850,6 +7861,9 @@
       const monthBox = document.getElementById("monthClientsContainer");
       const summary = document.getElementById("totalDaySummaryContainer");
       const deployHint = document.getElementById("viewDeployHint");
+      var loadSeq = ++_viewClientsLoadSeq;
+      var requestedDay = String(day || "");
+      var requestedDate = String(dateStr || "");
       viewDateOnlyMonth = false;
       viewFutureWrongDate = false;
       if (!day && !dateStr) {
@@ -7870,10 +7884,14 @@
 
         var compareRes = null;
         try {
-          compareRes = await apiGet(compareParams, { timeoutMs: 45000, cacheTtlMs: 12000 });
+          compareRes = await apiGet(compareParams, { timeoutMs: 45000, cacheTtlMs: 0 });
         } catch (eC) {
           compareRes = null;
         }
+        if (loadSeq !== _viewClientsLoadSeq) return;
+        var dayNow = document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value;
+        var dateNow = document.getElementById("viewDate") && document.getElementById("viewDate").value;
+        if (String(dayNow || "") !== requestedDay || String(dateNow || "") !== requestedDate) return;
 
         var needDeploy = !compareRes || compareRes.status !== "success" || !Array.isArray(compareRes.month);
         var dateNotInWeek = !!(compareRes && compareRes.dateNotInWeek);
@@ -7902,10 +7920,11 @@
             else if (dateStr) weekParams.date = dateStr;
             if (weekParams.day || weekParams.date) {
               try {
-                weekRes = await apiGet(weekParams, { timeoutMs: 22000, cacheTtlMs: 12000 });
+                weekRes = await apiGet(weekParams, { timeoutMs: 22000, cacheTtlMs: 0 });
               } catch (eW) {
                 weekRes = { status: "error", message: eW.message || String(eW), clients: [] };
               }
+              if (loadSeq !== _viewClientsLoadSeq) return;
             }
             week = (weekRes && weekRes.status === "success" && Array.isArray(weekRes.clients))
               ? weekRes.clients
@@ -7921,9 +7940,10 @@
         var resolvedDay = (compareRes && compareRes.day) || (weekRes && weekRes.day) || (!dateStr ? day : "") || "";
         // не подставлять «Будущая неделя» в селект, если A1 на другой дате — путает с Пн
         if (futureWrongDate) resolvedDay = "";
+        // если пользователь явно выбрал день (не дату) — не перезаписывать селект ответом сервера
         if (viewDateOnlyMonth && daySel) {
           daySel.selectedIndex = 0;
-        } else if (resolvedDay && daySel) {
+        } else if (dateStr && resolvedDay && daySel) {
           for (let i = 0; i < daySel.options.length; i++) {
             if (daySel.options[i].value === resolvedDay || daySel.options[i].text === resolvedDay) {
               daySel.selectedIndex = i;
@@ -7933,6 +7953,7 @@
         } else if (futureWrongDate && daySel) {
           daySel.selectedIndex = 0;
         }
+        if (loadSeq !== _viewClientsLoadSeq) return;
 
         loadedClientsRawData = week.map(function (c) {
           if (!c.segment) {
@@ -8765,6 +8786,7 @@
       const summary = document.getElementById("cuttingSummary");
       const sessionBox = document.getElementById("cuttingSessionBox");
       const finishBtn = document.getElementById("btnFinishCutting");
+      var loadSeq = fromPoll ? _cuttingLoadSeq : (++_cuttingLoadSeq);
       if (!day) {
         box.innerHTML = '<p class="muted">Выберите день...</p>';
         summary.innerHTML = "";
@@ -8799,6 +8821,9 @@
           day: day,
           _: String(Date.now())
         }, { timeoutMs: 22000, cacheTtlMs: 0 });
+        if (loadSeq !== _cuttingLoadSeq) return;
+        var curDay = document.getElementById("cuttingDaySelect") && document.getElementById("cuttingDaySelect").value;
+        if (String(curDay || "") !== String(day)) return;
         let completion = (res && res.completion) || null;
         // только сервер: локальный cutDone_ иначе после обновления показывает «итог» вместо галочек
         if (completion) {
@@ -8838,6 +8863,7 @@
           tickCuttingTimer();
           return;
         }
+        if (loadSeq !== _cuttingLoadSeq) return;
         cuttingSession.fingerprint = fp;
         cuttingItemsCache = items;
         sortCuttingItems();
@@ -8848,6 +8874,7 @@
         if (finishBtn) finishBtn.style.display = cuttingSession.active ? "block" : "none";
         startCuttingPoll();
       } catch (err) {
+        if (loadSeq !== _cuttingLoadSeq) return;
         if (!fromPoll) {
           box.innerHTML = '<p class="muted">Ошибка: ' + escapeHtml(err.message || String(err)) + "</p>";
           if (finishBtn) finishBtn.style.display = "none";
@@ -9577,43 +9604,32 @@
       }
     }
 
-    /** Курьер/сборка: сегодня (Пн–Вс). forceSmart — при открытии вкладки. */
+    /** Курьер/сборка: память выбора, иначе сегодня. Не затирать уже выбранный день. */
     function ensureOpsDaySelected(opts) {
       opts = opts || {};
       var cour = document.getElementById("courierDaySelect");
       var asm = document.getElementById("assemblyDaySelect");
       var prefer = opsWeekdayNameNow();
-      if (opts.forceSmart) {
-        if (cour) setSelectDayValue(cour, prefer);
-        if (asm) setSelectDayValue(asm, prefer);
-        persistOpsDay(prefer);
-        return prefer;
-      }
+      var mem = readPersistedOpsDay();
       var cur = (cour && cour.value) || (asm && asm.value) || "";
-      var day = cur || readPersistedOpsDay() || prefer;
-      if (cour && !cour.value) setSelectDayValue(cour, day);
-      if (asm && !asm.value) setSelectDayValue(asm, (cour && cour.value) || day);
+      var day = cur || mem || prefer;
+      if (cour) setSelectDayValue(cour, day);
+      if (asm) setSelectDayValue(asm, (cour && cour.value) || day);
       var finalDay = (cour && cour.value) || (asm && asm.value) || "";
       if (finalDay) persistOpsDay(finalDay);
       return finalDay;
     }
 
-    /** Нарезка: день доставки = завтра. */
+    /** Нарезка: память, иначе завтра (день доставки). */
     function ensureCuttingDaySelected(opts) {
       opts = opts || {};
       var sel = document.getElementById("cuttingDaySelect");
       if (!sel) return "";
       var prefer = opsCuttingTargetDayNow();
-      if (opts.forceSmart) {
-        setSelectDayValue(sel, prefer);
-        try { localStorage.setItem("opsDayCutting", prefer); } catch (e) {}
-        return prefer;
-      }
-      if (!sel.value) {
-        var mem = "";
-        try { mem = localStorage.getItem("opsDayCutting") || ""; } catch (e2) {}
-        setSelectDayValue(sel, mem || prefer);
-      }
+      if (sel.value) return sel.value;
+      var mem = "";
+      try { mem = localStorage.getItem("opsDayCutting") || ""; } catch (e2) {}
+      setSelectDayValue(sel, mem || prefer);
       return sel.value || "";
     }
     window.ensureCuttingDaySelected = ensureCuttingDaySelected;
@@ -9652,6 +9668,7 @@
       ensureOpsDaySelected();
       const day = document.getElementById("courierDaySelect").value;
       const box = document.getElementById("courierContainer");
+      var loadSeq = ++_courierLoadSeq;
       setDepartTimeLocked(false);
       if (!day) {
         box.innerHTML = '<p class="muted">Выберите день...</p>';
@@ -9674,7 +9691,10 @@
       routePlanState.routes = [[], []];
       box.innerHTML = loadingDanceHtml("Собираю маршрут…");
       try {
-        const res = await apiGet({ action: "getCourier", day: day }, { timeoutMs: 22000, cacheTtlMs: 12000 });
+        const res = await apiGet({ action: "getCourier", day: day }, { timeoutMs: 22000, cacheTtlMs: 0 });
+        if (loadSeq !== _courierLoadSeq) return;
+        var curDay = document.getElementById("courierDaySelect") && document.getElementById("courierDaySelect").value;
+        if (String(curDay || "") !== String(day)) return;
         if (res.status !== "success" || !res.clients || !res.clients.length) {
           box.innerHTML = '<p class="muted">Нет клиентов на день</p>';
           courierClientsCache = [];
@@ -9689,6 +9709,7 @@
         refreshCourierSummary();
         renderCourierClientsUi_();
       } catch (err) {
+        if (loadSeq !== _courierLoadSeq) return;
         box.innerHTML = '<p class="muted">Ошибка: ' + escapeHtml(err.message || String(err)) + "</p>";
       }
     }
@@ -12495,8 +12516,9 @@
         }
       }
       if (dateEl && hit && hit.date) {
+        // дату ставим тихо: onDeliveryDateChange снова дергает resolveDay и прыгает на другой день
         dateEl.value = String(hit.date).slice(0, 10);
-        try { onDeliveryDateChange(); } catch (e2) {}
+        try { if (orderType === "pp") refreshPpFactPrice(); } catch (ePp) {}
       }
       renderOrderDayCounts_((_orderDayCountsCache && _orderDayCountsCache.items) || null);
       showToast(dayName);
@@ -13935,6 +13957,7 @@
       ensureOpsDaySelected();
       var day = document.getElementById("assemblyDaySelect").value || document.getElementById("courierDaySelect").value;
       var box = document.getElementById("assemblyContainer");
+      var loadSeq = ++_assemblyLoadSeq;
       if (!day) { box.innerHTML = '<p class="muted">Выберите день…</p>'; return; }
       if (!force && assemblyCache && assemblyCache.status === "success" && String(assemblyCache.day || "") === String(day)) {
         renderAssemblyView();
@@ -13943,7 +13966,11 @@
       if (force) assemblyDetailExpanded_ = false;
       box.innerHTML = loadingDanceHtml("Считаю пакеты…");
       try {
-        var res = await apiGet({ action: "getAssembly", day: day }, { timeoutMs: 22000, cacheTtlMs: 8000 });
+        var res = await apiGet({ action: "getAssembly", day: day }, { timeoutMs: 22000, cacheTtlMs: 0 });
+        if (loadSeq !== _assemblyLoadSeq) return;
+        var curDay = document.getElementById("assemblyDaySelect") && document.getElementById("assemblyDaySelect").value;
+        if (!curDay) curDay = document.getElementById("courierDaySelect") && document.getElementById("courierDaySelect").value;
+        if (String(curDay || "") !== String(day)) return;
         if (!res || res.status !== "success") {
           box.innerHTML = '<p class="muted">Не удалось загрузить</p>';
           return;
@@ -13951,6 +13978,7 @@
         assemblyCache = res;
         renderAssemblyView();
       } catch (e) {
+        if (loadSeq !== _assemblyLoadSeq) return;
         box.innerHTML = '<p class="muted">Ошибка сети</p>';
       }
     }
