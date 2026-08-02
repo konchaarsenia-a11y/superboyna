@@ -3815,7 +3815,8 @@ function extractEmbeddedFraction(sheetFull) {
 
 function isCountableClientNick_(nameClean) {
   var t = String(nameClean || "").trim();
-  if (!t || t === "0" || t.length <= 1) return false;
+  // короткие ники вроде «A» / «Я» — валидны; режем только пустое и мусор
+  if (!t || t === "0") return false;
   var up = t.toUpperCase();
   if (up === "ИТОГО НА ДЕНЬ" || up === "ИТОГО" || up === "ФАКТ СНЯТОЕ") return false;
   return true;
@@ -4127,7 +4128,7 @@ function getClientsData_(ss, dayName) {
         checkUpper !== "ИТОГО НА ДЕНЬ" &&
         checkUpper !== "ИТОГО" &&
         checkUpper !== "ФАКТ СНЯТОЕ" &&
-        nameClean.length > 1
+        isCountableClientNick_(nameClean)
       ) {
         var clientBasket = [];
         var totalItemsInOrder = 0;
@@ -7513,7 +7514,7 @@ function syncOnWeekCalendarToSheet_(ss, deliveryDate, dayName) {
   var added = 0;
   try {
     var mat = materializeDeliveryDate_(ss, deliveryDate, { onlyMissing: true });
-    if (mat && mat.count) added += Number(mat.count) || 0;
+    if (mat && (mat.count || mat.done)) added += Number(mat.count || mat.done) || 0;
   } catch (eMat) {}
   try {
     var onWeek = {};
@@ -7521,6 +7522,8 @@ function syncOnWeekCalendarToSheet_(ss, deliveryDate, dayName) {
     (weekData.clients || []).forEach(function (cl) {
       var k = clientMatchKey_(cl.name);
       if (k) onWeek[k] = true;
+      var nu = String(cl.name || "").trim().toUpperCase();
+      if (nu) onWeek[nu] = true;
     });
     var cal = readCalendarForDate_(ss, deliveryDate);
     var missing = [];
@@ -7528,9 +7531,10 @@ function syncOnWeekCalendarToSheet_(ss, deliveryDate, dayName) {
       var cc = cal[i];
       if (String(cc.status || "").toLowerCase() === "cancelled") continue;
       var key = cc.matchKey || clientMatchKey_(cc.client);
-      if (key && onWeek[key]) continue;
       var display = displayClientNick_(cc.client) || String(cc.client || "").trim();
       if (!display) continue;
+      var du = display.toUpperCase();
+      if ((key && onWeek[key]) || (du && onWeek[du])) continue;
       missing.push({
         client: display,
         address: cc.address || "",
@@ -7544,6 +7548,30 @@ function syncOnWeekCalendarToSheet_(ss, deliveryDate, dayName) {
     if (missing.length) {
       var pull = pullCrmClientsToDay_(ss, deliveryDate, dayName, missing);
       added += Number(pull && pull.added) || 0;
+      // если pull не насчитал — всё равно дописать оболочки напрямую
+      if (!(pull && pull.added)) {
+        for (var m = 0; m < missing.length; m++) {
+          try {
+            var w = writeBasketToDayColumn_(ss, dayName, missing[m].client,
+              missing[m].address, missing[m].note, missing[m].basket || [], { overwriteMeta: true });
+            if (w && w.ok && !w.skipped) {
+              added++;
+              try {
+                upsertCalendarEntry_(ss, {
+                  date: deliveryDate,
+                  client: missing[m].client,
+                  matchKey: clientMatchKey_(missing[m].client),
+                  address: missing[m].address,
+                  note: missing[m].note,
+                  basket: missing[m].basket || [],
+                  status: "pulled",
+                  source: "sync"
+                });
+              } catch (eUp) {}
+            }
+          } catch (eW) {}
+        }
+      }
     }
   } catch (ePull) {}
   if (added) {

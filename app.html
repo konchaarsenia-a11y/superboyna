@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.107";
+      var APP_VER = "v7.11.108";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -143,7 +143,7 @@
       backdrop-filter: none;
       min-height: 44px;
     }
-    .nav-tabs-pill {
+      .nav-tabs-pill {
       position: absolute;
       top: 3px;
       bottom: 3px;
@@ -157,10 +157,10 @@
       box-shadow: 0 1px 3px rgba(255, 122, 0, 0.35);
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
-      transform: translate3d(3px, 0, 0);
-      /* только сдвиг — анимация width даёт «расплыв» между вкладками */
-      transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
-      will-change: transform;
+      /* без transform/transition — в TG WebView «плывёт» */
+      transform: none;
+      transition: none;
+      will-change: auto;
     }
     .tab-link {
       flex: 1 0 auto; min-width: 78px; text-align: center; background: transparent; border: none;
@@ -229,18 +229,17 @@
     }
     .btn-save:disabled { opacity: 0.55; cursor: wait; }
 
-    /* Явный отклик нажатия — в TG WebView :active часто не виден */
+    /* Отклик нажатия без transform — scale в TG WebView даёт «плывущие» кнопки */
     button, .btn-action, .btn-save, .seg-btn, .tab-link, .crm-mini-btn, .route-mini,
     .modal-day-btn, .order-day-chip, .order-flyout-btn, .sub-tab, .help-fab, .bug-fab,
     .tasks-menu-btn, .view-save-bar button {
       transition:
-        transform 0.07s ease-out,
         filter 0.07s ease-out,
         box-shadow 0.07s ease-out,
         background-color 0.07s ease-out,
         border-color 0.07s ease-out,
         opacity 0.07s ease-out;
-      will-change: transform;
+      will-change: auto;
     }
     button:active:not(:disabled):not(.is-pressing),
     .btn-action:active:not(:disabled),
@@ -270,11 +269,9 @@
     .help-fab.is-pressing,
     .bug-fab.is-pressing,
     .tasks-menu-btn.is-pressing {
-      transform: scale(0.93);
-      filter: brightness(1.35) saturate(1.15);
-      box-shadow:
-        0 0 0 2px rgba(255, 255, 255, 0.42),
-        0 0 18px rgba(255, 122, 0, 0.55);
+      filter: brightness(1.25) saturate(1.1);
+      opacity: 0.92;
+      box-shadow: none;
     }
     .btn-save:active:not(:disabled),
     .btn-save.is-pressing:not(:disabled) {
@@ -823,6 +820,14 @@
       display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
       margin-top: 6px; padding-top: 0;
     }
+    .view-card-act {
+      width: 32px; height: 32px; min-width: 32px; margin: 0; padding: 0;
+      border-radius: 8px; border: none; cursor: pointer; font-size: 14px;
+      flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+      background: #3a3a3c; color: #f2f2f7;
+      transform: none !important; will-change: auto;
+    }
+    .view-card-act-go { background: #af52de; color: #fff; }
     .crm-mini-btn {
       width: 30px; height: 30px; border-radius: 50%; border: none; cursor: pointer; font-size: 13px;
       flex-shrink: 0;
@@ -2500,7 +2505,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.107";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.108";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -5457,7 +5462,8 @@
       var width = active.offsetWidth;
       if (!(width > 0)) return;
       pill.style.width = Math.round(width) + "px";
-      pill.style.transform = "translate3d(" + Math.round(left) + "px,0,0)";
+      pill.style.left = Math.round(left) + "px";
+      pill.style.transform = "none";
       pill.style.opacity = "1";
     }
     window.syncNavTabsPill_ = syncNavTabsPill_;
@@ -7209,15 +7215,11 @@
         if (k) draftKeys[k] = true;
       });
       var split = document.querySelector(".view-split");
-      // дата на неделе → обычно только колонка недели; если лист пуст, а календарь нет —
-      // показать месяц, чтобы человек не «пропал» до Deploy/синка
+      // дата текущей недели → только колонка недели (месяц скрыт)
       var weekOnly = !viewDateOnlyMonth;
-      if (weekOnly && !(loadedClientsRawData || []).length && (monthClientsCache || []).length) {
-        weekOnly = false;
-      }
       if (split) {
         split.classList.toggle("is-month-only", !!viewDateOnlyMonth);
-        split.classList.toggle("is-week-only", !!weekOnly && !viewDateOnlyMonth);
+        split.classList.toggle("is-week-only", !!weekOnly);
       }
       var weekCol = document.getElementById("viewWeekCol");
       if (weekCol) {
@@ -7401,14 +7403,14 @@
         ? ('<div class="view-field">' + escapeHtml(phone) + "</div>")
         : '<div class="view-field is-empty">тел —</div>';
       var stageBtn = viewDateOnlyMonth
-        ? '<button type="button" class="btn-action btn-purple" style="margin:0;padding:8px 10px;font-size:11px;opacity:0.4;" disabled title="Дата вне недели">→</button>'
-        : '<button type="button" class="btn-action btn-purple" style="margin:0;padding:8px 10px;font-size:11px;" onclick="stageMonthClient(' + index + ')">→</button>';
-      var remBtn = '<button type="button" class="seg-btn" style="margin:0;padding:8px 10px;font-size:11px;" title="Убрать из календаря" onclick="removeMonthClient(' + index + ',event)">✕</button>';
-      var moveBtn = '<button type="button" class="crm-mini-btn crm-move" style="width:auto;padding:0 8px;height:32px;" title="Перенести на другую дату" onclick="crmMoveMonthClient(' + index + ',event)">🔄</button>';
+        ? '<button type="button" class="view-card-act" disabled title="Дата вне недели" style="opacity:0.4">→</button>'
+        : '<button type="button" class="view-card-act view-card-act-go" onclick="stageMonthClient(' + index + ')">→</button>';
+      var remBtn = '<button type="button" class="view-card-act" title="Убрать из календаря" onclick="removeMonthClient(' + index + ',event)">✕</button>';
+      var moveBtn = '<button type="button" class="view-card-act" title="Перенести на другую дату" onclick="crmMoveMonthClient(' + index + ',event)">🔄</button>';
       return '<div class="client-item-card view-month-card' + gapClass + '" id="monthCard_' + index + '">' +
         '<div class="client-main-row" onclick="toggleMonthDetail(' + index + ', event)">' +
         '<div class="client-title-wrap"><span class="client-title">' + escapeHtml(nick) + "</span></div>" +
-        '<div class="client-right-block" onclick="event.stopPropagation()" style="display:flex;gap:4px;align-items:center;">' +
+        '<div class="client-right-block" onclick="event.stopPropagation()">' +
         moveBtn + remBtn + stageBtn + "</div>" +
         "</div>" +
         addrHtml +
