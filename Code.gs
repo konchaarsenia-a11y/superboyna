@@ -4904,8 +4904,8 @@ function handleTelegramStatus(callback, fromPost) {
 }
 
 /**
- * Подсказки адресов — бесплатно (Photon + Nominatim).
- * Платный ключ Яндекса не нужен. YANDEX_MAPS_API_KEY можно не задавать.
+ * Подсказки адресов — Nominatim (BY) + Photon.
+ * Photon: lang=ru больше не поддерживается → lang=default.
  */
 function handleSuggestAddress(json, callback, fromPost) {
   var text = String(json.text || json.q || "").trim();
@@ -4916,21 +4916,21 @@ function handleSuggestAddress(json, callback, fromPost) {
   }
   var results = [];
   var source = "none";
+  // Nominatim для Беларуси обычно точнее улиц Минска
   try {
-    results = photonSuggest_(text);
-    if (results.length) source = "photon";
-  } catch (e0) {
-    Logger.log("photon suggest err: " + e0);
+    results = nominatimSuggest_(text);
+    if (results.length) source = "nominatim";
+  } catch (e2) {
+    Logger.log("nominatim suggest err: " + e2);
   }
   if (!results.length) {
     try {
-      results = nominatimSuggest_(text);
-      if (results.length) source = "nominatim";
-    } catch (e2) {
-      Logger.log("nominatim suggest err: " + e2);
+      results = photonSuggest_(text);
+      if (results.length) source = "photon";
+    } catch (e0) {
+      Logger.log("photon suggest err: " + e0);
     }
   }
-  // Опционально: если вдруг ключ Яндекса уже есть — дополним/заменим пустой ответ
   if (!results.length) {
     var key = PropertiesService.getScriptProperties().getProperty("YANDEX_MAPS_API_KEY") || "";
     if (key) {
@@ -4946,57 +4946,85 @@ function handleSuggestAddress(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, body) : jsonp(callback, body);
 }
 
-/** Бесплатный геокодер Photon (OSM), хорошо понимает улицы Минска */
-function photonSuggest_(text) {
-  var q = String(text || "").trim();
-  if (!q) return [];
-  if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(q)) {
-    q = q + ", Минск";
+function expandAddressQueriesGs_(text) {
+  var raw = String(text || "").trim().replace(/\s+/g, " ");
+  if (!raw) return [];
+  var bare = raw.replace(/^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок|бул\.?|бульвар)\s+/i, "").trim();
+  var withType = /^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок)/i.test(raw)
+    ? raw.replace(/^ул\.?\s+/i, "улица ").replace(/^пр\.?-?\s*т\.?\s+/i, "проспект ").replace(/^пр\.?\s+/i, "проспект ")
+    : ("улица " + bare);
+  var out = [raw, bare, withType];
+  if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(raw)) {
+    out.push(raw + ", Минск");
+    out.push("Минск, " + raw);
+    out.push(bare + ", Минск");
+    out.push("Минск, " + withType);
   }
-  var url = "https://photon.komoot.io/api/?limit=7&lang=ru&lat=53.9&lon=27.56&q=" + encodeURIComponent(q);
-  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
-  if (res.getResponseCode() >= 400) return [];
-  var data = JSON.parse(res.getContentText());
-  var features = (data && data.features) || [];
+  var seen = {};
+  var uniq = [];
+  for (var i = 0; i < out.length; i++) {
+    var q = String(out[i] || "").trim();
+    var k = q.toLowerCase();
+    if (!k || seen[k]) continue;
+    seen[k] = true;
+    uniq.push(q);
+  }
+  return uniq.slice(0, 6);
+}
+
+/** Бесплатный геокодер Photon (OSM) */
+function photonSuggest_(text) {
+  var queries = expandAddressQueriesGs_(text);
+  if (!queries.length) return [];
   var out = [];
   var seen = {};
-  for (var i = 0; i < features.length; i++) {
-    var f = features[i] || {};
-    var geom = f.geometry || {};
-    var coords = geom.coordinates || [];
-    if (coords.length < 2) continue;
-    var lon = Number(coords[0]);
-    var lat = Number(coords[1]);
-    if (!isFinite(lat) || !isFinite(lon)) continue;
-    // ограничиваем примерно Минском + область (~80 км), чтобы не тащить чужие города без нужды
-    if (Math.abs(lat - 53.9) > 1.2 || Math.abs(lon - 27.56) > 1.5) {
-      if (!/брест|гродн|гомел|витебск|могил|борисов|жодино|молодечн/i.test(q)) continue;
+  for (var qi = 0; qi < Math.min(queries.length, 4); qi++) {
+    var q = queries[qi];
+    var url = "https://photon.komoot.io/api/?limit=7&lang=default&lat=53.9&lon=27.56&bbox=27.30,53.78,27.80,54.08&q=" +
+      encodeURIComponent(q);
+    var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+    if (res.getResponseCode() >= 400) continue;
+    var data = JSON.parse(res.getContentText());
+    var features = (data && data.features) || [];
+    for (var i = 0; i < features.length; i++) {
+      var f = features[i] || {};
+      var geom = f.geometry || {};
+      var coords = geom.coordinates || [];
+      if (coords.length < 2) continue;
+      var lon = Number(coords[0]);
+      var lat = Number(coords[1]);
+      if (!isFinite(lat) || !isFinite(lon)) continue;
+      var p = f.properties || {};
+      var city = String(p.city || p.locality || p.town || "").toLowerCase();
+      var inMinsk = /м[іи]нск|minsk/.test(city) ||
+        (Math.abs(lat - 53.9) <= 0.35 && Math.abs(lon - 27.56) <= 0.45);
+      var otherOk = /брест|гродн|гомел|витебск|могил|борисов|жодино|молодечн/i.test(text);
+      if (!inMinsk && !otherOk) continue;
+      var street = String(p.street || "").trim();
+      var house = String(p.housenumber || "").trim();
+      if (!street && p.name && (String(p.osm_key || "") === "highway" || String(p.type || "") === "street" || !house)) {
+        street = String(p.name || "").trim();
+      }
+      var title = "";
+      if (street && house) title = street + ", " + house;
+      else if (street) title = street;
+      else if (p.name && house) title = String(p.name).trim() + ", " + house;
+      else title = [p.name, p.street, p.housenumber].filter(Boolean).join(", ");
+      title = String(title || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Минская область|Мінск).*$/i, "").trim();
+      if (!title) continue;
+      var keyDup = lat.toFixed(5) + "," + lon.toFixed(5);
+      if (seen[keyDup]) continue;
+      seen[keyDup] = true;
+      out.push({
+        title: title,
+        subtitle: "",
+        address: title,
+        lat: lat,
+        lon: lon,
+        yandexUrl: "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map"
+      });
     }
-    var p = f.properties || {};
-    var street = String(p.street || "").trim();
-    var house = String(p.housenumber || "").trim();
-    if (!street && p.name && (String(p.osm_key || "") === "highway" || String(p.type || "") === "street" || !house)) {
-      street = String(p.name || "").trim();
-    }
-    var title = "";
-    if (street && house) title = street + ", " + house;
-    else if (street) title = street;
-    else if (p.name && house) title = String(p.name).trim() + ", " + house;
-    else title = [p.name, p.street, p.housenumber].filter(Boolean).join(", ");
-    // без района/города/страны
-    title = String(title || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Минская область).*$/i, "").trim();
-    if (!title) continue;
-    var keyDup = lat.toFixed(5) + "," + lon.toFixed(5);
-    if (seen[keyDup]) continue;
-    seen[keyDup] = true;
-    out.push({
-      title: title,
-      subtitle: "",
-      address: title,
-      lat: lat,
-      lon: lon,
-      yandexUrl: "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map"
-    });
+    if (out.length >= 5) break;
   }
   return out;
 }
@@ -5037,31 +5065,50 @@ function yandexGeocodeSuggest_(text, key) {
 }
 
 function nominatimSuggest_(text) {
-  var q = text;
-  if (!/минск|беларусь|брест|гродн/i.test(text)) q = "Минск, " + text;
-  var url = "https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=by&q=" +
-    encodeURIComponent(q);
-  var res = UrlFetchApp.fetch(url, {
-    muteHttpExceptions: true,
-    headers: { "User-Agent": "superboyna-courier/1.0" }
-  });
-  if (res.getResponseCode() >= 400) return [];
-  var data = JSON.parse(res.getContentText());
+  var queries = expandAddressQueriesGs_(text);
+  if (!queries.length) return [];
   var out = [];
-  for (var i = 0; i < data.length; i++) {
-    var row = data[i];
-    var lat = Number(row.lat);
-    var lon = Number(row.lon);
-    if (!isFinite(lat) || !isFinite(lon)) continue;
-    var address = String(row.display_name || "").trim();
-    out.push({
-      title: address.split(",")[0] || address,
-      subtitle: address,
-      address: address,
-      lat: lat,
-      lon: lon,
-      yandexUrl: "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map"
+  var seen = {};
+  for (var qi = 0; qi < Math.min(queries.length, 4); qi++) {
+    var q = queries[qi];
+    if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(q)) q = "Минск, " + q;
+    var url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=by&accept-language=ru&q=" +
+      encodeURIComponent(q);
+    var res = UrlFetchApp.fetch(url, {
+      muteHttpExceptions: true,
+      headers: { "User-Agent": "superboyna-courier/1.0" }
     });
+    if (res.getResponseCode() >= 400) continue;
+    var data = JSON.parse(res.getContentText());
+    for (var i = 0; i < data.length; i++) {
+      var row = data[i];
+      var lat = Number(row.lat);
+      var lon = Number(row.lon);
+      if (!isFinite(lat) || !isFinite(lon)) continue;
+      var ad = row.address || {};
+      var street = String(ad.road || ad.pedestrian || ad.street || ad.avenue || "").trim();
+      var house = String(ad.house_number || "").trim();
+      var title = "";
+      if (street && house) title = street + ", " + house;
+      else if (street) title = street;
+      else {
+        title = String(row.display_name || "").split(",").slice(0, 2).join(", ").trim();
+      }
+      title = String(title || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Мінск).*$/i, "").trim();
+      if (!title) continue;
+      var keyDup = lat.toFixed(5) + "," + lon.toFixed(5);
+      if (seen[keyDup]) continue;
+      seen[keyDup] = true;
+      out.push({
+        title: title,
+        subtitle: "",
+        address: title,
+        lat: lat,
+        lon: lon,
+        yandexUrl: "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map"
+      });
+    }
+    if (out.length >= 5) break;
   }
   return out;
 }
