@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.119";
+      var APP_VER = "v7.11.120";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2506,7 +2506,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.119";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.120";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -4847,10 +4847,13 @@
       var entEl = document.getElementById("entranceInput");
       var flEl = document.getElementById("floorInput");
       var ftEl = document.getElementById("flatInput");
-      if (addrEl) addrEl.value = parsed.street || formatStreetHouse(raw) || String(raw || "");
+      var street = parsed.street || formatStreetHouse(raw) || String(raw || "");
+      if (addrEl) addrEl.value = street;
       if (entEl) entEl.value = parsed.entrance || "";
       if (flEl) flEl.value = parsed.floor || "";
       if (ftEl) ftEl.value = parsed.flat || "";
+      // подтягивание из ПП/БП/клиентов / карточки — в память подсказок
+      try { if (street) rememberAddress({ address: street }); } catch (eRemFill) {}
     }
     window.fillAddressFieldsFromStored_ = fillAddressFieldsFromStored_;
 
@@ -5239,6 +5242,7 @@
             orderType: c.source || ""
           });
         });
+        try { harvestAddrMemoryFromClients_(); } catch (eHarv) {}
       } catch (e) {}
     }
     window.onClientNameInput = onClientNameInput;
@@ -10491,7 +10495,7 @@
       if (el) el.classList.toggle("show", !!on);
     }
 
-    // v2: только адреса из успешного «Сохранить заказ» (не blur/поиск/просмотр)
+    // v2: заказ + выбор из поиска + ПП/БП/клиенты (не blur и не весь Просмотр)
     const ADDR_MEMORY_KEY = "superboyna_addr_memory_v2";
     let addrMemory = []; // [{address, lat, lon, yandexUrl, updatedAt}]
 
@@ -10500,6 +10504,14 @@
         addrMemory = JSON.parse(localStorage.getItem(ADDR_MEMORY_KEY) || "[]") || [];
       } catch (e) { addrMemory = []; }
       if (!Array.isArray(addrMemory)) addrMemory = [];
+      try { harvestAddrMemoryFromClients_(); } catch (e2) {}
+    }
+    function harvestAddrMemoryFromClients_() {
+      Object.keys(clientMemory || {}).forEach(function (k) {
+        var a = clientMemory[k] && clientMemory[k].address;
+        if (a) rememberAddress({ address: a }, true);
+      });
+      persistAddrMemory();
     }
     function persistAddrMemory() {
       try { localStorage.setItem(ADDR_MEMORY_KEY, JSON.stringify(addrMemory.slice(0, 120))); } catch (e) {}
@@ -11018,6 +11030,7 @@
         address: short,
         yandexUrl: item.yandexUrl || (item.lat != null ? ("https://yandex.ru/maps/?pt=" + item.lon + "," + item.lat + "&z=17&l=map") : "")
       };
+      rememberAddress({ address: short, lat: item.lat, lon: item.lon, yandexUrl: selectedAddressGeo.yandexUrl });
       setAddressPickedHint(true);
       clearAddressSuggest();
       dismissKeyboard();
