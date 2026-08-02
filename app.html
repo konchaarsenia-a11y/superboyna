@@ -1615,11 +1615,16 @@
           <input type="tel" id="phoneInput" placeholder="+375…" autocomplete="tel" inputmode="tel">
         </div>
         <div class="form-group">
-          <label>Адрес</label>
+          <label style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <span>Адрес</span>
+            <button type="button" class="btn-action" style="margin:0;padding:4px 10px;font-size:12px;background:#3a3a3c;"
+              onclick="promptAddressByCoords_()">📍 координаты</button>
+          </label>
           <div class="addr-suggest-wrap">
-            <input type="text" id="addressInput" placeholder="Улица и дом · или 53.90, 27.56" autocomplete="off" oninput="onAddressInput()" onblur="onAddressBlurDelayed()">
+            <input type="text" id="addressInput" placeholder="Улица и дом · или 53.9, 27.5" autocomplete="off" oninput="onAddressInput()" onblur="onAddressBlurDelayed()">
             <div class="addr-suggest" id="addressSuggest"></div>
           </div>
+          <div class="field-hint" style="margin-top:4px;">Обычный поиск по улице. Координаты — кнопка или вставка «53.9078, 27.4845»</div>
           <div class="addr-picked" id="addressPickedHint">Адрес выбран</div>
         </div>
 
@@ -10594,68 +10599,6 @@
       }
     }
 
-    /** Если вся строка — координаты, вернуть {lat,lon}; иначе null. Обычный адрес не трогаем. */
-    function parseLatLonQuery(text) {
-      var s = String(text || "").trim();
-      if (!s) return null;
-      // не путать с «ул. 50 лет Победы, 5» — нужны две десятичные доли
-      var m = s.match(/^(-?\d+[.,]\d+)\s*[,;\s]+\s*(-?\d+[.,]\d+)\s*$/);
-      if (!m) {
-        m = s.match(/^(?:lat|широта)[=:\s]*(-?\d+[.,]\d+)[^\d\-]+(?:lon|lng|долгота)[=:\s]*(-?\d+[.,]\d+)\s*$/i);
-      }
-      if (!m) {
-        m = s.match(/^(-?\d+[.,]\d+)\s*[NnСс]\s*[,;\s]*(-?\d+[.,]\d+)\s*[EeВв]\s*$/);
-      }
-      if (!m) return null;
-      var a = Number(String(m[1]).replace(",", "."));
-      var b = Number(String(m[2]).replace(",", "."));
-      if (!isFinite(a) || !isFinite(b)) return null;
-      if (Math.abs(a) > 180 || Math.abs(b) > 180) return null;
-      var lat;
-      var lon;
-      // BY: lat≈51–56, lon≈23–33. Яндекс часто даёт lon,lat
-      if (a >= 23 && a <= 33.5 && b >= 51 && b <= 56.5) {
-        lon = a; lat = b;
-      } else if (b >= 23 && b <= 33.5 && a >= 51 && a <= 56.5) {
-        lat = a; lon = b;
-      } else if (Math.abs(a) <= 90 && Math.abs(b) <= 180) {
-        lat = a; lon = b;
-      } else {
-        return null;
-      }
-      if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
-      return { lat: lat, lon: lon };
-    }
-
-    async function reverseGeocodeCoordsClient(lat, lon) {
-      var url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=ru&zoom=18&lat=" +
-        encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lon);
-      var res = await fetch(url, {
-        headers: { Accept: "application/json", "User-Agent": "superboyna-courier/1.0" }
-      });
-      if (!res.ok) return [];
-      var row = await res.json();
-      if (!row) return [];
-      var ad = row.address || {};
-      var street = ad.road || ad.pedestrian || ad.street || ad.avenue || "";
-      var house = ad.house_number || "";
-      var title = street && house ? (street + ", " + house)
-        : (street || formatStreetHouse(row.display_name || ""));
-      title = formatStreetHouse(title);
-      if (!title) {
-        title = Number(lat).toFixed(5) + ", " + Number(lon).toFixed(5);
-      }
-      return [{
-        title: title,
-        subtitle: "по координатам",
-        address: title,
-        lat: Number(lat),
-        lon: Number(lon),
-        yandexUrl: "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map",
-        fromCoords: true
-      }];
-    }
-
     function onAddressInput() {
       selectedAddressGeo = null;
       setAddressPickedHint(false);
@@ -10666,15 +10609,23 @@
         clearAddressSuggest();
         return;
       }
-      var coords = parseLatLonQuery(q);
-      // моментально — локальная память (для текста; для координат почти пусто)
-      var local = coords ? [] : searchAddrMemory(q);
+      // координаты → сразу reverse, без текстового поиска
+      if (parseLatLonFromText_(q)) {
+        if (box) {
+          box.innerHTML = '<div class="addr-suggest-item" style="color:#8e8e93;">Ищу по координатам…</div>';
+          box.classList.add("open");
+        }
+        addressSuggestTimer = setTimeout(function () { fetchAddressSuggest(q); }, 120);
+        return;
+      }
+      // моментально — локальная память
+      var local = searchAddrMemory(q);
       if (local.length && box) renderAddressSuggestList(box, local);
-      else if (!coords && q.length < 2) {
+      else if (q.length < 2) {
         clearAddressSuggest();
         return;
       }
-      addressSuggestTimer = setTimeout(function () { fetchAddressSuggest(q); }, coords ? 120 : 180);
+      addressSuggestTimer = setTimeout(function () { fetchAddressSuggest(q); }, 180);
     }
 
     function onAddressBlurDelayed() {
@@ -10825,41 +10776,42 @@
       var box = document.getElementById("addressSuggest");
       if (!box) return;
 
-      // Опционально: вся строка = координаты → reverse geocode (обычный поиск адресов не меняем)
-      var coords = parseLatLonQuery(q);
+      var coords = parseLatLonFromText_(q);
       if (coords) {
-        box.innerHTML = '<div class="addr-suggest-item" style="color:#8e8e93;">Ищу адрес по координатам…</div>';
+        box.innerHTML = '<div class="addr-suggest-item" style="color:#8e8e93;">Ищу по координатам…</div>';
         box.classList.add("open");
         var revList = [];
-        var srvList = [];
         try {
           var settled = await Promise.all([
-            reverseGeocodeCoordsClient(coords.lat, coords.lon).catch(function () { return []; }),
+            reverseGeocodeCoordsClient_(coords.lat, coords.lon).catch(function () { return []; }),
             apiGet({
               action: "suggestAddress",
-              text: coords.lat + "," + coords.lon
+              text: coords.lat + "," + coords.lon,
+              lat: coords.lat,
+              lon: coords.lon
             }).then(function (res) {
               return (res && res.results) ? res.results : [];
             }).catch(function () { return []; })
           ]);
-          revList = settled[0] || [];
-          srvList = settled[1] || [];
-        } catch (eC) {}
+          revList = mergeSuggestLists(settled[0] || [], settled[1] || []);
+        } catch (eRev) {}
         if (seq !== addressSuggestSeq) return;
-        var listC = mergeSuggestLists(revList, srvList);
-        if (!listC.length) {
-          // хотя бы точка с координатами — можно выбрать и сохранить geo
-          listC = [{
-            title: Number(coords.lat).toFixed(5) + ", " + Number(coords.lon).toFixed(5),
-            subtitle: "координаты",
-            address: Number(coords.lat).toFixed(5) + ", " + Number(coords.lon).toFixed(5),
+        if (!revList.length) {
+          // хотя бы точка на карте — можно сохранить как координаты
+          revList = [{
+            title: coords.lat.toFixed(6) + ", " + coords.lon.toFixed(6),
+            address: coords.lat.toFixed(6) + ", " + coords.lon.toFixed(6),
             lat: coords.lat,
             lon: coords.lon,
             yandexUrl: "https://yandex.ru/maps/?pt=" + coords.lon + "," + coords.lat + "&z=17&l=map",
             fromCoords: true
           }];
+        } else {
+          revList = revList.map(function (it) {
+            return Object.assign({}, it, { fromCoords: true });
+          });
         }
-        renderAddressSuggestList(box, listC);
+        renderAddressSuggestList(box, revList);
         return;
       }
 
@@ -10881,22 +10833,21 @@
       var nomiList = [];
       var serverList = [];
       try {
-        var settled = await Promise.all([
+        var settledTxt = await Promise.all([
           nominatimSuggestClient(q).catch(function () { return []; }),
           photonSuggestClient(q).catch(function () { return []; }),
           apiGet({ action: "suggestAddress", text: q }).then(function (res) {
             return (res && res.results) ? res.results : [];
           }).catch(function () { return []; })
         ]);
-        nomiList = settled[0] || [];
-        photonList = settled[1] || [];
-        serverList = settled[2] || [];
+        nomiList = settledTxt[0] || [];
+        photonList = settledTxt[1] || [];
+        serverList = settledTxt[2] || [];
       } catch (e1) {}
       if (seq !== addressSuggestSeq) return;
-      // Nominatim для BY обычно точнее Photon; память — сверху
       var list = mergeSuggestLists(local, nomiList, serverList, photonList, cachedList);
       if (!list.length) {
-        box.innerHTML = '<div class="addr-suggest-item" style="color:#8e8e93;">Ничего не найдено — можно ввести адрес вручную</div>';
+        box.innerHTML = '<div class="addr-suggest-item" style="color:#8e8e93;">Ничего не найдено — можно ввести адрес вручную или 📍 координаты</div>';
         box.classList.add("open");
         return;
       }
@@ -10906,15 +10857,101 @@
       renderAddressSuggestList(box, list);
     }
 
+    /** Распознать lat/lon в строке (не путать с обычным адресом). */
+    function parseLatLonFromText_(text) {
+      var s = String(text || "").trim();
+      if (!s) return null;
+      var ym = s.match(/[?&#]pt=([+-]?\d{1,3}(?:[.,]\d+)?)\s*,\s*([+-]?\d{1,3}(?:[.,]\d+)?)/i);
+      if (ym) {
+        var ya = Number(String(ym[1]).replace(",", "."));
+        var yb = Number(String(ym[2]).replace(",", "."));
+        if (isFinite(ya) && isFinite(yb)) return orderLatLonPair_(ya, yb);
+      }
+      s = s.replace(/^@+/, "").trim();
+      // только «число + число», с десятичной частью хотя бы у одного
+      var m = s.match(/^([+-]?\d{1,3}(?:[.,]\d+)?)\s*[,;\s]+\s*([+-]?\d{1,3}(?:[.,]\d+)?)\s*$/);
+      if (!m) return null;
+      if (!/[.,]\d/.test(m[1]) && !/[.,]\d/.test(m[2])) return null;
+      var x = Number(String(m[1]).replace(",", "."));
+      var y = Number(String(m[2]).replace(",", "."));
+      if (!isFinite(x) || !isFinite(y)) return null;
+      return orderLatLonPair_(x, y);
+    }
+
+    function orderLatLonPair_(a, b) {
+      // Минск/BY: lat ~51–56, lon ~23–33
+      if (a >= 50 && a <= 58 && b >= 22 && b <= 41) return { lat: a, lon: b };
+      if (b >= 50 && b <= 58 && a >= 22 && a <= 41) return { lat: b, lon: a };
+      if (Math.abs(a) <= 90 && Math.abs(b) <= 180) return { lat: a, lon: b };
+      if (Math.abs(b) <= 90 && Math.abs(a) <= 180) return { lat: b, lon: a };
+      return null;
+    }
+
+    async function reverseGeocodeCoordsClient_(lat, lon) {
+      var url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=ru&lat=" +
+        encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lon);
+      var res = await fetch(url, {
+        headers: { Accept: "application/json", "User-Agent": "superboyna-courier/1.0" }
+      });
+      if (!res.ok) return [];
+      var row = await res.json();
+      if (!row) return [];
+      var ad = row.address || {};
+      var street = ad.road || ad.pedestrian || ad.street || ad.avenue || "";
+      var house = ad.house_number || "";
+      var title = street && house ? (street + ", " + house)
+        : (street || formatStreetHouse(row.display_name || ""));
+      title = formatStreetHouse(title) || (Number(lat).toFixed(6) + ", " + Number(lon).toFixed(6));
+      return [{
+        title: title,
+        subtitle: "",
+        address: title,
+        lat: Number(lat),
+        lon: Number(lon),
+        yandexUrl: "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map",
+        fromCoords: true
+      }];
+    }
+
+    async function promptAddressByCoords_() {
+      var raw = "";
+      try {
+        if (typeof uiPromptAsync === "function") {
+          raw = await uiPromptAsync(
+            "Координаты: широта, долгота (напр. 53.907861, 27.484504) или ссылка Яндекс с pt=",
+            ""
+          );
+        } else {
+          raw = window.prompt("Координаты (широта, долгота)", "") || "";
+        }
+      } catch (eP) {
+        raw = window.prompt("Координаты (широта, долгота)", "") || "";
+      }
+      raw = String(raw || "").trim();
+      if (!raw) return;
+      var c = parseLatLonFromText_(raw);
+      if (!c) {
+        showToast("Не разобрал координаты");
+        return;
+      }
+      var el = document.getElementById("addressInput");
+      if (el) el.value = c.lat.toFixed(6) + ", " + c.lon.toFixed(6);
+      selectedAddressGeo = null;
+      setAddressPickedHint(false);
+      fetchAddressSuggest(el ? el.value : (c.lat + "," + c.lon));
+    }
+    window.promptAddressByCoords_ = promptAddressByCoords_;
+    window.parseLatLonFromText_ = parseLatLonFromText_;
+
     function renderAddressSuggestList(box, list) {
       box._items = list;
       box.innerHTML = list.map(function (item, i) {
         var title = formatStreetHouse(item.title || item.address || "");
-        var sub = item.fromCoords
-          ? '<span class="addr-suggest-sub">по координатам</span>'
-          : (item.local ? '<span class="addr-suggest-sub">из памяти</span>' : "");
+        var sub = item.local ? "из памяти" : (item.fromCoords ? "по координатам" : "");
         return '<button type="button" class="addr-suggest-item" data-idx="' + i + '">' +
-          escapeHtml(title) + sub + "</button>";
+          escapeHtml(title) +
+          (sub ? '<span class="addr-suggest-sub">' + escapeHtml(sub) + "</span>" : "") +
+          "</button>";
       }).join("");
       box.classList.add("open");
       box.querySelectorAll(".addr-suggest-item").forEach(function (btn) {

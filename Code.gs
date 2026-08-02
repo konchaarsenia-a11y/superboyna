@@ -4910,14 +4910,21 @@ function handleTelegramStatus(callback, fromPost) {
 function handleSuggestAddress(json, callback, fromPost) {
   var text = String(json.text || json.q || "").trim();
   var body;
-  if (text.length < 2) {
+  if (text.length < 2 && json.lat == null) {
     body = { status: "success", results: [], source: "empty" };
     return fromPost ? jsonpText(callback, body) : jsonp(callback, body);
   }
   var results = [];
   var source = "none";
-  // Опционально: вся строка = координаты → reverse (обычный текстовый поиск не ломаем)
-  var coords = parseLatLonQueryGs_(text);
+
+  // опционально: поиск по координатам (не вместо обычного — только если похоже на lat/lon)
+  var coords = null;
+  if (json.lat != null && json.lon != null) {
+    var la = Number(json.lat);
+    var lo = Number(json.lon);
+    if (isFinite(la) && isFinite(lo)) coords = { lat: la, lon: lo };
+  }
+  if (!coords) coords = parseLatLonFromTextGs_(text);
   if (coords) {
     try {
       results = nominatimReverse_(coords.lat, coords.lon);
@@ -4928,6 +4935,7 @@ function handleSuggestAddress(json, callback, fromPost) {
     body = { status: "success", results: results, source: source, coords: coords };
     return fromPost ? jsonpText(callback, body) : jsonp(callback, body);
   }
+
   // Nominatim для Беларуси обычно точнее улиц Минска
   try {
     results = nominatimSuggest_(text);
@@ -4958,35 +4966,35 @@ function handleSuggestAddress(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, body) : jsonp(callback, body);
 }
 
-function parseLatLonQueryGs_(text) {
+function parseLatLonFromTextGs_(text) {
   var s = String(text || "").trim();
   if (!s) return null;
-  var m = s.match(/^(-?\d+[.,]\d+)\s*[,;\s]+\s*(-?\d+[.,]\d+)\s*$/);
-  if (!m) {
-    m = s.match(/^(?:lat|широта)[=:\s]*(-?\d+[.,]\d+)[^\d\-]+(?:lon|lng|долгота)[=:\s]*(-?\d+[.,]\d+)\s*$/i);
+  var ym = s.match(/[?&#]pt=([+-]?\d{1,3}(?:[.,]\d+)?)\s*,\s*([+-]?\d{1,3}(?:[.,]\d+)?)/i);
+  if (ym) {
+    var ya = Number(String(ym[1]).replace(",", "."));
+    var yb = Number(String(ym[2]).replace(",", "."));
+    if (isFinite(ya) && isFinite(yb)) return orderLatLonPairGs_(ya, yb);
   }
+  s = s.replace(/^@+/, "").trim();
+  var m = s.match(/^([+-]?\d{1,3}(?:[.,]\d+)?)\s*[,;\s]+\s*([+-]?\d{1,3}(?:[.,]\d+)?)\s*$/);
   if (!m) return null;
-  var a = Number(String(m[1]).replace(",", "."));
-  var b = Number(String(m[2]).replace(",", "."));
-  if (!isFinite(a) || !isFinite(b)) return null;
-  if (Math.abs(a) > 180 || Math.abs(b) > 180) return null;
-  var lat;
-  var lon;
-  if (a >= 23 && a <= 33.5 && b >= 51 && b <= 56.5) {
-    lon = a; lat = b;
-  } else if (b >= 23 && b <= 33.5 && a >= 51 && a <= 56.5) {
-    lat = a; lon = b;
-  } else if (Math.abs(a) <= 90 && Math.abs(b) <= 180) {
-    lat = a; lon = b;
-  } else {
-    return null;
-  }
-  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
-  return { lat: lat, lon: lon };
+  if (!/[.,]\d/.test(m[1]) && !/[.,]\d/.test(m[2])) return null;
+  var x = Number(String(m[1]).replace(",", "."));
+  var y = Number(String(m[2]).replace(",", "."));
+  if (!isFinite(x) || !isFinite(y)) return null;
+  return orderLatLonPairGs_(x, y);
+}
+
+function orderLatLonPairGs_(a, b) {
+  if (a >= 50 && a <= 58 && b >= 22 && b <= 41) return { lat: a, lon: b };
+  if (b >= 50 && b <= 58 && a >= 22 && a <= 41) return { lat: b, lon: a };
+  if (Math.abs(a) <= 90 && Math.abs(b) <= 180) return { lat: a, lon: b };
+  if (Math.abs(b) <= 90 && Math.abs(a) <= 180) return { lat: b, lon: a };
+  return null;
 }
 
 function nominatimReverse_(lat, lon) {
-  var url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=ru&zoom=18&lat=" +
+  var url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=ru&lat=" +
     encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lon);
   var res = UrlFetchApp.fetch(url, {
     muteHttpExceptions: true,
@@ -5003,10 +5011,10 @@ function nominatimReverse_(lat, lon) {
   else if (street) title = street;
   else title = String(row.display_name || "").split(",").slice(0, 2).join(", ").trim();
   title = String(title || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Мінск).*$/i, "").trim();
-  if (!title) title = Number(lat).toFixed(5) + ", " + Number(lon).toFixed(5);
+  if (!title) title = Number(lat).toFixed(6) + ", " + Number(lon).toFixed(6);
   return [{
     title: title,
-    subtitle: "по координатам",
+    subtitle: "",
     address: title,
     lat: Number(lat),
     lon: Number(lon),
