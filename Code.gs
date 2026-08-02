@@ -7162,16 +7162,12 @@ function handleSaveBooking(ss, json, callback, fromPost) {
     }
   }
 
-  // Пишем на лист недели ТОЛЬКО если дата = Пн–Пт или A1 «Будущей».
-  // Дата дальше — только бронь + календарь (без колонки на «Будущей»).
+  // Дата = Пн–Вс / A1 «Будущей» → всегда колонка на листе (даже без состава).
+  // Дальше недели — только бронь + календарь.
   var matchedDay = findDayNameForDate_(ss, deliveryDate) || "";
   var targetDay = matchedDay;
   var alsoWeek = json.alsoSaveOrder === true || json.alsoSaveOrder === "1" || json.alsoSaveOrder === 1 || json.alsoSaveOrder === "true";
-  var shouldWriteWeek = !!(matchedDay && basket && basket.length && (alsoWeek || wasPulled || clientNickOnDay_(ss, matchedDay, client)));
-  // matched day + состав — всегда обновить лист (иначе бронь есть, а колонки нет)
-  if (!shouldWriteWeek && matchedDay && basket && basket.length) {
-    shouldWriteWeek = true;
-  }
+  var shouldWriteWeek = !!matchedDay;
   var weekWrite = null;
   if (shouldWriteWeek && targetDay) {
     try {
@@ -7508,6 +7504,55 @@ function resolveViewDeliveryDate_(ss, json) {
   return null;
 }
 
+/**
+ * Дата уже на листе недели (Пн–Вс / Будущая), а человек только в календаре —
+ * дописать колонку, чтобы Просмотр · Неделя не был пустым.
+ */
+function syncOnWeekCalendarToSheet_(ss, deliveryDate, dayName) {
+  if (!ss || !deliveryDate || !dayName) return { added: 0 };
+  var added = 0;
+  try {
+    var mat = materializeDeliveryDate_(ss, deliveryDate, { onlyMissing: true });
+    if (mat && mat.count) added += Number(mat.count) || 0;
+  } catch (eMat) {}
+  try {
+    var onWeek = {};
+    var weekData = getClientsData_(ss, dayName);
+    (weekData.clients || []).forEach(function (cl) {
+      var k = clientMatchKey_(cl.name);
+      if (k) onWeek[k] = true;
+    });
+    var cal = readCalendarForDate_(ss, deliveryDate);
+    var missing = [];
+    for (var i = 0; i < cal.length; i++) {
+      var cc = cal[i];
+      if (String(cc.status || "").toLowerCase() === "cancelled") continue;
+      var key = cc.matchKey || clientMatchKey_(cc.client);
+      if (key && onWeek[key]) continue;
+      var display = displayClientNick_(cc.client) || String(cc.client || "").trim();
+      if (!display) continue;
+      missing.push({
+        client: display,
+        address: cc.address || "",
+        phone: cc.phone || "",
+        note: cc.note || "",
+        basket: Array.isArray(cc.basket) ? cc.basket : [],
+        segment: cc.segment || "",
+        ppPartner: cc.ppPartner || ""
+      });
+    }
+    if (missing.length) {
+      var pull = pullCrmClientsToDay_(ss, deliveryDate, dayName, missing);
+      added += Number(pull && pull.added) || 0;
+    }
+  } catch (ePull) {}
+  if (added) {
+    try { bustClientsCache_(); } catch (eB) {}
+    try { CacheService.getScriptCache().remove("WDC:v2"); } catch (eW) {}
+  }
+  return { added: added };
+}
+
 /** Просмотр: кто уже на неделе + кто в календаре месяца ещё не перенесён. */
 function handleGetViewCompare(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -7524,6 +7569,11 @@ function handleGetViewCompare(json, callback, fromPost) {
   // «Будущая неделя» с другой датой в A1 — не показывать чужих людей слева
   var showWeek = !!resolved.day;
   if (resolved.futureSlot && resolved.futureDateMatches === false) showWeek = false;
+  // дата на листе → сироты календаря сразу на колонку недели
+  var syncedOrphans = null;
+  if (showWeek && resolved.date && resolved.day) {
+    try { syncedOrphans = syncOnWeekCalendarToSheet_(ss, resolved.date, resolved.day); } catch (eSync) {}
+  }
   if (showWeek) {
     var data = getClientsData_(ss, resolved.day);
     (data.clients || []).forEach(function (c) {
@@ -7643,7 +7693,8 @@ function handleGetViewCompare(json, callback, fromPost) {
     week: week,
     month: month,
     weekCount: week.length,
-    monthCount: month.length
+    monthCount: month.length,
+    syncedOrphans: syncedOrphans ? (Number(syncedOrphans.added) || 0) : 0
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
