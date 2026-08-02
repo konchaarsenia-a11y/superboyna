@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.103";
+      var APP_VER = "v7.11.104";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -154,15 +154,13 @@
       z-index: 0;
       background: var(--accent-color);
       border: none;
-      box-shadow:
-        0 1px 2px rgba(255,122,0,0.35),
-        0 4px 12px rgba(255,122,0,0.28),
-        inset 0 0.5px 0 rgba(255,255,255,0.28);
+      box-shadow: 0 1px 3px rgba(255, 122, 0, 0.35);
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
-      transform: translateX(3px);
-      transition: transform 0.28s cubic-bezier(0.25, 0.1, 0.25, 1), width 0.28s cubic-bezier(0.25, 0.1, 0.25, 1);
-      will-change: transform, width;
+      transform: translate3d(3px, 0, 0);
+      /* только сдвиг — анимация width даёт «расплыв» между вкладками */
+      transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+      will-change: transform;
     }
     .tab-link {
       flex: 1 0 auto; min-width: 78px; text-align: center; background: transparent; border: none;
@@ -2497,7 +2495,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.103";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.104";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -5444,11 +5442,17 @@
       var pill = document.getElementById("navTabsPill");
       if (!tabs || !pill) return;
       var active = tabs.querySelector(".tab-link.active");
-      if (!active) return;
+      if (!active) {
+        pill.style.opacity = "0";
+        return;
+      }
+      // offsetLeft внутри .nav-tabs (position:relative) — без getBoundingClientRect,
+      // иначе при scroll/resize легко получить «смазанный» сдвиг
       var left = active.offsetLeft;
       var width = active.offsetWidth;
-      pill.style.width = Math.max(40, width) + "px";
-      pill.style.transform = "translateX(" + left + "px)";
+      if (!(width > 0)) return;
+      pill.style.width = Math.round(width) + "px";
+      pill.style.transform = "translate3d(" + Math.round(left) + "px,0,0)";
       pill.style.opacity = "1";
     }
     window.syncNavTabsPill_ = syncNavTabsPill_;
