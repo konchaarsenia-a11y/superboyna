@@ -1204,17 +1204,17 @@ function currentWeekKeyServer_(optDate) {
 function handleGetWeekBannerState(json, callback, fromPost) {
   var wk = normalizeWeekBannerKey_((json && json.weekKey) || "");
   var st = readWeekBannerState_(wk);
-  // если уже подтягивали, а флаг не записался — спрятать баннер по факту недели (не по посуточному maybeMissing)
-  if (!st.pulled && st.finished) {
-    try {
-      var snap = weekPullSnapshot_();
-      if (snap && (snap.suggestPull === false) && Number(snap.weekPeople || 0) > 0) {
-        st = writeWeekBannerState_(wk, { pulled: true, pulledAt: new Date().toISOString(), finished: true });
-      }
-    } catch (eHeal) {}
-  }
+  // не авто-ставить pulled по finished: ложный dismiss («Позже»/«Уже завершили»)
+  // + suggestPull=false прятал и закрытие, и подтягивание на вс
   var ok = { status: "success", weekKey: wk, finished: st.finished, pulled: st.pulled, refused: st.refused, finishedAt: st.finishedAt, pulledAt: st.pulledAt, by: st.by };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function weekBannerFlagOn_(v) {
+  return v === true || v === "1" || v === 1 || v === "true";
+}
+function weekBannerFlagOff_(v) {
+  return v === false || v === "0" || v === 0 || v === "false" || v === "";
 }
 
 function handleSetWeekBannerState(json, callback, fromPost) {
@@ -1222,22 +1222,31 @@ function handleSetWeekBannerState(json, callback, fromPost) {
   var patch = {};
   var now = new Date().toISOString();
   var tid = String((json && json.telegramId) || "").trim();
-  if (json.finished === true || json.finished === "1" || json.finished === 1) {
+  if (weekBannerFlagOn_(json.finished)) {
     patch.finished = true;
     patch.finishedAt = now;
     patch.refused = false;
     if (tid) patch.by = tid;
+  } else if (json.finished != null && weekBannerFlagOff_(json.finished)) {
+    // сброс ложного «закрыли» (кнопка «Позже» / устаревший localStorage)
+    patch.finished = false;
+    patch.finishedAt = "";
   }
-  if (json.pulled === true || json.pulled === "1" || json.pulled === 1) {
+  if (weekBannerFlagOn_(json.pulled)) {
     patch.pulled = true;
     patch.pulledAt = now;
     if (tid) patch.by = tid;
+  } else if (json.pulled != null && weekBannerFlagOff_(json.pulled)) {
+    patch.pulled = false;
+    patch.pulledAt = "";
   }
-  if (json.refused === true || json.refused === "1" || json.refused === 1) {
+  if (weekBannerFlagOn_(json.refused)) {
     patch.refused = true;
     patch.refusedAt = now;
+  } else if (json.refused != null && weekBannerFlagOff_(json.refused)) {
+    patch.refused = false;
+    patch.refusedAt = "";
   }
-  // allow explicit clear only for owner tests — skip
   var st = writeWeekBannerState_(wk, patch);
   var ok = { status: "success", weekKey: wk, finished: st.finished, pulled: st.pulled, refused: st.refused };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);

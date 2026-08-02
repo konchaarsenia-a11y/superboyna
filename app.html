@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.110";
+      var APP_VER = "v7.11.111";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1512,7 +1512,7 @@
       </div>
       <div id="finishWeekBanner" class="week-banner" style="display:none;">
         <h3>Завершить неделю?</h3>
-        <div class="muted">Склад (F/B), даты +7, очистка Пн–Вс, Будущая→Пн. Только владелец. Вс с 18:00 или пн до 12:00.</div>
+        <div class="muted">Склад (F/B), даты +7, очистка Пн–Вс, Будущая→Пн. Только владелец. Вс (весь день) или пн до 12:00.</div>
         <button type="button" class="btn-action btn-blue" onclick="dismissFinishWeekBanner()">Уже завершили — скрыть</button>
         <button type="button" class="btn-action btn-orange" style="margin-top:8px;" onclick="onFinishWeekClick()">Завершить неделю</button>
         <button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="refuseFinishWeek()">Позже</button>
@@ -2505,7 +2505,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.110";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.111";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -12368,6 +12368,7 @@
     /* === v7.8 D/E/F/I helpers === */
     const WEEK_PULL_LS = "superboyna_week_pull_";
     const FINISH_REFUSE_LS = "superboyna_finish_refuse_";
+    const FINISH_REFUSE_UNTIL_LS = "superboyna_finish_refuse_until_";
     const FINISH_DONE_LS = "superboyna_finish_done_";
     let subsSegment = "ПП";
     var bpListFilter = "all";
@@ -12387,13 +12388,27 @@
       return mon.getFullYear() + "-" + pad(mon.getMonth() + 1) + "-" + pad(mon.getDate());
     }
 
-    function isSundayEvening() {
-      var d = new Date();
-      return d.getDay() === 0 && d.getHours() >= 18;
+    function isSundayForFinishWeek_() {
+      return new Date().getDay() === 0;
     }
     function isMondayMorning() {
       var d = new Date();
       return d.getDay() === 1 && d.getHours() < 12;
+    }
+    function isFinishWeekWindow_() {
+      return isSundayForFinishWeek_() || isMondayMorning();
+    }
+    function refuseSnoozeActive_(wk) {
+      try {
+        var until = Number(localStorage.getItem(FINISH_REFUSE_UNTIL_LS + wk) || 0);
+        if (until > Date.now()) return true;
+        // snooze истёк — убрать legacy «Позже», чтобы кнопка снова появилась
+        if (until > 0 || localStorage.getItem(FINISH_REFUSE_LS + wk) === "1") {
+          localStorage.removeItem(FINISH_REFUSE_UNTIL_LS + wk);
+          localStorage.removeItem(FINISH_REFUSE_LS + wk);
+        }
+        return false;
+      } catch (e) { return false; }
     }
 
     function onOrderDaySelectChange_() {
@@ -12608,15 +12623,19 @@
                 try {
                   var ps = await apiGet({ action: "weekPullStatus" }, { timeoutMs: 12000, cacheTtlMs: 30000 });
                   if (ps && ps.status === "success") {
-                    // итоги недели/месяца; посуточный maybeMissing больше не используем как критерий «уже подтянули»
+                    // только «уже подтянули» — НЕ помечать неделю закрытой
                     if ((Number(ps.weekPeople || 0) > 0 && ps.suggestPull === false) ||
                         (Number(ps.weekPeople || 0) > 0 && Number(ps.monthPeople || 0) > 0 &&
                           Number(ps.weekPeople) >= Number(ps.monthPeople))) {
                       locPull = true;
-                      locFin = true;
                     }
                   }
                 } catch (ePs) {}
+              }
+              // в окне вс/пн не «заражать» сервер ложным finished из localStorage («Позже»)
+              if (locFin && !st.finished && !locPull && isFinishWeekWindow_()) {
+                locFin = false;
+                try { localStorage.removeItem(FINISH_DONE_LS + wk); } catch (eRm) {}
               }
               if ((locFin && !st.finished) || (locPull && !st.pulled)) {
                 try {
@@ -12636,11 +12655,17 @@
               }
             } catch (eSync) {}
             try {
-              if (st.finished || _weekBannerState.finished || locFin) localStorage.setItem(FINISH_DONE_LS + wk, "1");
+              // реальное закрытие всегда пишет pulled=true; finished без pulled — часто ложный dismiss
+              if ((st.finished || _weekBannerState.finished || locFin) && (st.pulled || _weekBannerState.pulled || locPull)) {
+                localStorage.setItem(FINISH_DONE_LS + wk, "1");
+              }
               // не стираем local «pulled», если сервер ещё false — иначе баннер вспыхивает снова
               if (st.pulled || _weekBannerState.pulled || locPull) localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
-              if (st.refused) localStorage.setItem(FINISH_REFUSE_LS + wk, "1");
-              else localStorage.removeItem(FINISH_REFUSE_LS + wk);
+              // refused на сервере больше не прячет кнопку навсегда — только локальный snooze
+              if (!refuseSnoozeActive_(wk)) {
+                localStorage.removeItem(FINISH_REFUSE_LS + wk);
+                _weekBannerState.refused = false;
+              }
             } catch (eLs) {}
           }
         } catch (eGet) {
@@ -12648,7 +12673,7 @@
           _weekBannerState = {
             finished: localStorage.getItem(FINISH_DONE_LS + wk) === "1",
             pulled: localStorage.getItem(WEEK_PULL_LS + wk) === "pulled",
-            refused: localStorage.getItem(FINISH_REFUSE_LS + wk) === "1",
+            refused: false,
             weekKey: wk
           };
         }
@@ -12657,12 +12682,33 @@
       // сервер — источник правды: если кто-то закрыл неделю, у всех скрываем finish
       var finished = !!_weekBannerState.finished || localStorage.getItem(FINISH_DONE_LS + wk) === "1";
       var pulled = !!_weekBannerState.pulled || localStorage.getItem(WEEK_PULL_LS + wk) === "pulled";
-      var refused = !!_weekBannerState.refused || localStorage.getItem(FINISH_REFUSE_LS + wk) === "1";
+      // «Позже» = только snooze (3ч); вечный refused больше не блокирует
+      var refused = refuseSnoozeActive_(wk);
       if (finished) refused = false;
+      // ложный finished без pulled («Позже»/«Уже завершили» без закрытия таблицы) —
+      // в окне вс/пн снова показать кнопку и сбросить флаги
+      if (finished && !pulled && isFinishWeekWindow_()) {
+        finished = false;
+        try {
+          localStorage.removeItem(FINISH_DONE_LS + wk);
+          localStorage.removeItem(FINISH_REFUSE_LS + wk);
+          _weekBannerState.finished = false;
+          _weekBannerState.refused = false;
+        } catch (eRec) {}
+        try {
+          apiGet({
+            action: "setWeekBannerState",
+            weekKey: wk,
+            finished: "0",
+            refused: "0",
+            telegramId: String(myTelegramId || ""),
+            _: String(Date.now())
+          }, { timeoutMs: 12000, cacheTtlMs: 0 }).catch(function () {});
+        } catch (eClr) {}
+      }
       var canFinish = false;
       if (APP_ROLE === "owner" || APP_ROLE === "all") {
-        // refused = «Позже»; finished = уже закрыли / «Уже завершили — скрыть»
-        if (!finished && !refused && (isSundayEvening() || isMondayMorning())) canFinish = true;
+        if (!finished && !refused && isFinishWeekWindow_()) canFinish = true;
       }
       fin.style.display = canFinish ? "" : "none";
       var showPull = false;
@@ -12678,6 +12724,7 @@
       try {
         localStorage.setItem(FINISH_DONE_LS + wk, "1");
         localStorage.removeItem(FINISH_REFUSE_LS + wk);
+        localStorage.removeItem(FINISH_REFUSE_UNTIL_LS + wk);
       } catch (eLs) {}
       _weekBannerState.finished = true;
       _weekBannerState.refused = false;
@@ -12687,13 +12734,14 @@
           action: "setWeekBannerState",
           weekKey: wk,
           finished: "1",
+          refused: "",
           telegramId: String(myTelegramId || ""),
           _: String(Date.now())
         }, { timeoutMs: 12000, cacheTtlMs: 0 });
       } catch (eSet) {}
       var fin = document.getElementById("finishWeekBanner");
       if (fin) fin.style.display = "none";
-      try { refreshWeekBanners(); } catch (eR) {}
+      try { refreshWeekBanners({ force: true }); } catch (eR) {}
       showToast("Баннер скрыт — неделю больше не предлагаем закрыть");
     }
     window.dismissFinishWeekBanner = dismissFinishWeekBanner;
@@ -12789,8 +12837,18 @@
     }
 
     async function refuseFinishWeek() {
-      // «Позже» = скрыть на эту неделю (как «Уже завершили»), без закрытия таблицы
-      await dismissFinishWeekBanner();
+      // «Позже» — только локальный snooze 3ч (не finished / не вечный refused на сервере)
+      var wk = currentWeekKeyLocal();
+      var until = Date.now() + 3 * 60 * 60 * 1000;
+      try {
+        localStorage.setItem(FINISH_REFUSE_UNTIL_LS + wk, String(until));
+        localStorage.removeItem(FINISH_REFUSE_LS + wk);
+      } catch (eLs) {}
+      _weekBannerState.refused = false;
+      _weekBannerState.weekKey = wk;
+      var fin = document.getElementById("finishWeekBanner");
+      if (fin) fin.style.display = "none";
+      showToast("Ок, напомним через ~3 часа");
     }
     window.onFinishWeekClick = onFinishWeekClick;
     window.refuseFinishWeek = refuseFinishWeek;
