@@ -2536,9 +2536,14 @@ function handleGetCourier(dayName, callback) {
       // тяжёлый resolve только для реальных ПП
       if (deliveriesN >= 1) {
         try {
-          var resolved = resolvePpDeliverySlot_(ss, client.name, dateValue, tz, delivered);
+          var resolved = resolvePpDeliverySlot_(ss, client.name, dateValue, tz, delivered, {
+            ppSlot: client.ppSlot || ""
+          });
           deliveriesN = resolved.deliveriesN || deliveriesN;
           deliverySlot = resolved.slot || 1;
+          // если в заказе уже стоит слот — он побеждает (и для бейджа, и для оплаты)
+          var forcedCour = parseForcedPpSlot_(client.ppSlot, deliveriesN);
+          if (forcedCour >= 1) deliverySlot = forcedCour;
           var cycle = resolved.cycle;
           if (cycle && cycle.paid) paidCycle = cycle.paid;
           if (!paidCycle) {
@@ -2554,10 +2559,11 @@ function handleGetCourier(dayName, callback) {
           } else if (deliveriesN === 1) {
             ppHint = "ПП N=1";
           }
+          // N=2: спросить оплату на 1-й; на 2-й — только если на 1-й сказали «нет» или ещё не фиксировали
           if (deliveriesN >= 2) {
             if (paidCycle === "yes") askPaid = false;
             else if (deliverySlot <= 1) askPaid = true;
-            else askPaid = true;
+            else askPaid = (paidCycle === "no" || !paidCycle);
           }
         } catch (ePaid) {}
       }
@@ -2565,7 +2571,7 @@ function handleGetCourier(dayName, callback) {
     }
     var ppSlotOut = "";
     if (isPpOrder) {
-      ppSlotOut = String(client.ppSlot || "").trim() || formatPpSlotLabel_(deliverySlot, deliveriesN);
+      ppSlotOut = formatPpSlotLabel_(deliverySlot, deliveriesN) || String(client.ppSlot || "").trim();
       if (!ppHint && ppSlotOut) ppHint = "ПП " + ppSlotOut;
     }
     clients.push({
@@ -11435,7 +11441,14 @@ function getPpCycleEntry_(memory, dateValue, tz, clientName) {
   var store = getPpMonthCycleStore_(memory, ppMonthCycleKey_(dateValue, tz), tz);
   var want = clientMatchKey_(clientName) || String(clientName || "").trim().toUpperCase();
   var e = store[want] || store[String(clientName || "").trim().toUpperCase()];
-  return e && typeof e === "object" ? e : null;
+  if (e && typeof e === "object") return e;
+  for (var k in store) {
+    if (!Object.prototype.hasOwnProperty.call(store, k)) continue;
+    if (nicksMatch_(k, clientName) || (want && clientMatchKey_(k) === want)) {
+      if (store[k] && typeof store[k] === "object") return store[k];
+    }
+  }
+  return null;
 }
 
 function savePpCycleEntry_(memory, dateValue, tz, clientName, entry) {
@@ -11609,71 +11622,231 @@ function shouldAskPpSlotConfirm_(deliveriesN, historyMeta) {
   return !!(historyMeta && historyMeta.needConfirmSlot);
 }
 
-/** Сколько раз клиент уже отмечен доставленным в этом календарном месяце (по Память_Доставок + лист Доставки). */
-function countPpDeliveredThisMonth_(ss, clientName, dateValue, tz, excludeDateText) {
-  var want = String(clientName || "").trim().toUpperCase();
-  if (!want || !dateValue) return 0;
+/** Сколько ПП-доставок у клиента уже было в этом календарном месяце строго до dateValue. */
+function countPpPriorDeliveriesThisMonth_(ss, clientName, dateValue, tz) {
+  var wantKey = clientMatchKey_(clientName) || "";
+  var wantU = String(clientName || "").trim().toUpperCase();
+  if ((!wantKey && !wantU) || !dateValue) return 0;
   var ym = Utilities.formatDate(dateValue, tz, "yyyy-MM");
+  var asOfMs = new Date(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()).getTime();
   var seen = {};
-  var n = 0;
-  var memory = getMemoryCourierSheet_();
-  if (memory && memory.getLastRow() >= 1) {
-    var data = memory.getDataRange().getValues();
-    for (var i = 0; i < data.length; i++) {
-      var rawKey = String(data[i][0] || "");
-      if (/^(PP_CYCLE:|WEEK_PAID:)/i.test(rawKey)) continue;
-      var dt = formatSheetDate(data[i][0], tz);
-      if (!dt || (excludeDateText && dt === excludeDateText)) continue;
-      var parsed = parseMemoryDateLoose_(data[i][0], tz);
-      if (!parsed) continue;
-      if (Utilities.formatDate(parsed, tz, "yyyy-MM") !== ym) continue;
-      var mem = null;
-      try { mem = JSON.parse(String(data[i][1] || "")); } catch (eJ) { mem = null; }
-      if (!mem || typeof mem !== "object" || Object.prototype.toString.call(mem) === "[object Array]") continue;
-      if (normalizeMemDelivered_(mem[want])) {
-        if (!seen[dt]) { seen[dt] = true; n++; }
+
+  function addDay_(d) {
+    if (!d || isNaN(d.getTime())) return;
+    if (Utilities.formatDate(d, tz, "yyyy-MM") !== ym) return;
+    var dayMs = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    if (dayMs >= asOfMs) return; // только строго раньше сегодняшней даты доставки
+    var dt = formatSheetDate(d, tz);
+    if (dt && !seen[dt]) seen[dt] = true;
+  }
+
+  function memHit_(mem) {
+    if (!mem || typeof mem !== "object" || Object.prototype.toString.call(mem) === "[object Array]") return false;
+    if (wantKey && normalizeMemDelivered_(mem[wantKey])) return true;
+    if (wantU && normalizeMemDelivered_(mem[wantU])) return true;
+    if (normalizeMemDelivered_(memFlagEntry_(mem, clientName))) return true;
+    for (var k in mem) {
+      if (!Object.prototype.hasOwnProperty.call(mem, k)) continue;
+      if (/^(PP_CYCLE:|WEEK_PAID:)/i.test(k)) continue;
+      if (nicksMatch_(k, clientName) && normalizeMemDelivered_(mem[k])) return true;
+    }
+    return false;
+  }
+
+  // 1) Память_Доставок — галочки «доставлен»
+  try {
+    var memory = getMemoryCourierSheet_();
+    if (memory && memory.getLastRow() >= 1) {
+      var data = memory.getDataRange().getValues();
+      for (var i = 0; i < data.length; i++) {
+        var rawKey = String(data[i][0] || "");
+        if (/^(PP_CYCLE:|WEEK_PAID:)/i.test(rawKey)) {
+          if (/^PP_CYCLE:/i.test(rawKey) && rawKey.indexOf(ym) >= 0) {
+            var store = null;
+            try { store = JSON.parse(String(data[i][1] || "")); } catch (eS) { store = null; }
+            if (store && typeof store === "object") {
+              var ent = (wantKey && store[wantKey]) || store[wantU];
+              if (!ent) {
+                for (var sk in store) {
+                  if (!Object.prototype.hasOwnProperty.call(store, sk)) continue;
+                  if (nicksMatch_(sk, clientName)) { ent = store[sk]; break; }
+                }
+              }
+              if (ent && typeof ent === "object") {
+                if (ent.slot1 && ent.slot1.date) {
+                  addDay_(parseMemoryDateLoose_(ent.slot1.date, tz) || parseFlexibleDate_(ent.slot1.date, tz));
+                }
+                if (ent.slot2 && ent.slot2.date) {
+                  addDay_(parseMemoryDateLoose_(ent.slot2.date, tz) || parseFlexibleDate_(ent.slot2.date, tz));
+                }
+              }
+            }
+          }
+          continue;
+        }
+        var parsed = parseMemoryDateLoose_(data[i][0], tz);
+        if (!parsed) continue;
+        var mem = null;
+        try { mem = JSON.parse(String(data[i][1] || "")); } catch (eJ) { mem = null; }
+        if (memHit_(mem)) addDay_(parsed);
       }
     }
-  }
-  // текущий лист «Доставки», если дата этого месяца
+  } catch (eMem) {}
+
+  // 2) Календарь_Дат — запланированные/состоявшиеся ПП в месяце
+  try {
+    var cal = readAllCalendarRows_();
+    for (var c = 0; c < cal.length; c++) {
+      var st = String(cal[c].status || "").toLowerCase();
+      if (st === "cancelled") continue;
+      var mk = cal[c].matchKey || clientMatchKey_(cal[c].client) || "";
+      if (!(wantKey && mk && mk === wantKey) && !nicksMatch_(cal[c].client, clientName)) continue;
+      var seg = String(cal[c].segment || "").toUpperCase();
+      var src = String(cal[c].source || "").toLowerCase();
+      var isPp = (seg === "ПП" || seg === "PP" || seg === "АФК" || src === "pp" || src === "subscription");
+      if (!isPp && String(cal[c].ppSlot || "").trim()) isPp = true;
+      if (!isPp) continue;
+      var bd = parseFlexibleDate_(cal[c].date, tz) || parseFlexibleDate_(cal[c].dateIso, tz);
+      addDay_(bd);
+    }
+  } catch (eCal) {}
+
+  // 3) Брони
+  try {
+    var books = readAllBookings_();
+    for (var b = 0; b < books.length; b++) {
+      if (String(books[b].status || "").toLowerCase() === "cancelled") continue;
+      if (!nicksMatch_(books[b].client, clientName)) continue;
+      var bseg = String(books[b].segment || "").toUpperCase();
+      var bsrc = String(books[b].source || "").toLowerCase();
+      var isPpB = (bseg === "ПП" || bseg === "PP" || bseg === "АФК" || bsrc === "pp" || bsrc === "subscription");
+      if (!isPpB && String(books[b].ppSlot || "").trim()) isPpB = true;
+      if (!isPpB) continue;
+      addDay_(parseFlexibleDate_(books[b].date, tz));
+    }
+  } catch (eBk) {}
+
+  // 4) лист «Доставки» если дата месяца и уже отмечен, и день раньше asOf
   try {
     var courier = ss.getSheetByName("Доставки");
     if (courier) {
-      var curTxt = formatSheetDate(courier.getRange("A1").getValue(), tz);
       var curParsed = parseMemoryDateLoose_(courier.getRange("A1").getValue(), tz);
-      if (curParsed && Utilities.formatDate(curParsed, tz, "yyyy-MM") === ym &&
-          (!excludeDateText || curTxt !== excludeDateText) && !seen[curTxt]) {
+      if (curParsed && Utilities.formatDate(curParsed, tz, "yyyy-MM") === ym) {
         var col = findCourierClientCol_(courier, clientName);
-        if (col > 0 && courier.getRange(2, col).getValue() === true) {
-          seen[curTxt] = true;
-          n++;
-        }
+        if (col > 0 && courier.getRange(2, col).getValue() === true) addDay_(curParsed);
       }
     }
   } catch (eC) {}
+
+  var n = 0;
+  for (var k in seen) {
+    if (Object.prototype.hasOwnProperty.call(seen, k)) n++;
+  }
   return n;
 }
 
-function resolvePpDeliverySlot_(ss, clientName, dateValue, tz, deliveredToday) {
+/** Явный слот с Календарь_Дат / Брони на эту дату (если менеджер уже выбрал ПП 1/2). */
+function lookupStoredPpSlotForDate_(ss, clientName, dateValue, tz) {
+  if (!clientName || !dateValue) return 0;
+  var wantKey = clientMatchKey_(clientName) || "";
+  var wantDate = dateKey_(dateValue, tz);
+  var wantIso = isoDateKey_(dateValue, tz);
+  try {
+    var cal = readAllCalendarRows_();
+    for (var i = 0; i < cal.length; i++) {
+      var st = String(cal[i].status || "").toLowerCase();
+      if (st === "cancelled") continue;
+      var mk = cal[i].matchKey || clientMatchKey_(cal[i].client) || "";
+      if (!(wantKey && mk && mk === wantKey) && !nicksMatch_(cal[i].client, clientName)) continue;
+      var bd = parseFlexibleDate_(cal[i].date, tz) || parseFlexibleDate_(cal[i].dateIso, tz);
+      if (!bd) continue;
+      if (dateKey_(bd, tz) !== wantDate && isoDateKey_(bd, tz) !== wantIso) continue;
+      var slot = parseForcedPpSlot_(cal[i].ppSlot, 2);
+      if (slot >= 1) return slot;
+    }
+  } catch (eCal) {}
+  try {
+    var books = readAllBookings_();
+    for (var b = 0; b < books.length; b++) {
+      if (String(books[b].status || "").toLowerCase() === "cancelled") continue;
+      if (!nicksMatch_(books[b].client, clientName)) continue;
+      var bdate = parseFlexibleDate_(books[b].date, tz);
+      if (!bdate) continue;
+      if (dateKey_(bdate, tz) !== wantDate) continue;
+      var slotB = parseForcedPpSlot_(books[b].ppSlot, 2);
+      if (slotB >= 1) return slotB;
+    }
+  } catch (eBk) {}
+  return 0;
+}
+
+function resolvePpDeliverySlot_(ss, clientName, dateValue, tz, deliveredToday, opts) {
+  opts = opts || {};
   var memory = getMemoryCourierSheet_();
   var cycle = getPpCycleEntry_(memory, dateValue, tz, clientName);
   var deliveriesN = lookupPpDeliveries_(clientName);
   if (!(deliveriesN >= 1)) deliveriesN = 0;
   var dateText = formatSheetDate(dateValue, tz);
-  var before = countPpDeliveredThisMonth_(ss, clientName, dateValue, tz, deliveredToday ? null : dateText);
-  // если сегодня уже в счётчике — before включает сегодня
+
+  // 1) явный слот заказа (календарь / бронь / opts)
+  var forced = parseForcedPpSlot_(
+    opts.ppSlot != null ? opts.ppSlot : (opts.deliverySlot != null ? opts.deliverySlot : opts.slot),
+    deliveriesN || 2
+  );
+  if (!(forced >= 1)) {
+    try { forced = lookupStoredPpSlotForDate_(ss, clientName, dateValue, tz); } catch (eSt) { forced = 0; }
+  }
+  if (forced >= 1) {
+    if (deliveriesN >= 2) forced = Math.min(forced, deliveriesN);
+    else if (deliveriesN === 1) forced = 1;
+    return {
+      slot: forced,
+      deliveriesN: deliveriesN,
+      cycle: cycle,
+      deliveredBefore: Math.max(0, forced - 1),
+      source: "stored"
+    };
+  }
+
+  // 2) цикл месяца: эта дата уже записана как slot1/slot2
+  if (cycle && cycle.slot1 && cycle.slot1.date === dateText) {
+    return { slot: 1, deliveriesN: deliveriesN, cycle: cycle, deliveredBefore: 0, source: "cycle" };
+  }
+  if (cycle && cycle.slot2 && cycle.slot2.date === dateText) {
+    return { slot: Math.min(2, deliveriesN || 2), deliveriesN: deliveriesN, cycle: cycle, deliveredBefore: 1, source: "cycle" };
+  }
+
+  var before = 0;
+  try {
+    before = countPpPriorDeliveriesThisMonth_(ss, clientName, dateValue, tz);
+  } catch (eCnt) { before = 0; }
+
+  // 3) в цикле уже есть slot1 на другую дату → это 2-я
+  if (cycle && cycle.slot1 && cycle.slot1.date && cycle.slot1.date !== dateText) {
+    before = Math.max(before, 1);
+  }
+
   if (deliveredToday) {
-    var slotDone = Math.max(1, before);
+    // сегодня уже отмечен: слот = max(1, before) если before не включал сегодня
+    var slotDone = Math.max(1, before + 1);
     if (cycle && cycle.slot1 && cycle.slot1.date === dateText) slotDone = 1;
     else if (cycle && cycle.slot1) slotDone = Math.max(2, slotDone);
-    return { slot: Math.min(deliveriesN || slotDone, slotDone), deliveriesN: deliveriesN, cycle: cycle };
+    if (deliveriesN >= 2) slotDone = Math.min(slotDone, deliveriesN);
+    else if (deliveriesN === 1) slotDone = 1;
+    return { slot: slotDone, deliveriesN: deliveriesN, cycle: cycle, deliveredBefore: before, source: "delivered" };
   }
+
   var slot = before + 1;
-  if (cycle && cycle.slot1 && cycle.slot1.date !== dateText) slot = Math.max(slot, 2);
-  if (cycle && !cycle.slot1) slot = Math.max(1, Math.min(slot, 1));
   if (deliveriesN >= 2) slot = Math.min(Math.max(1, slot), deliveriesN);
   else if (deliveriesN === 1) slot = 1;
-  return { slot: slot, deliveriesN: deliveriesN, cycle: cycle, deliveredBefore: before };
+  else slot = Math.max(1, slot);
+  return { slot: slot, deliveriesN: deliveriesN, cycle: cycle, deliveredBefore: before, source: "count" };
+}
+
+/** @deprecated имя оставлено для совместимости — считает prior до даты. */
+function countPpDeliveredThisMonth_(ss, clientName, dateValue, tz, excludeDateText) {
+  // excludeDateText игнорируем: считаем строго даты < dateValue
+  return countPpPriorDeliveriesThisMonth_(ss, clientName, dateValue, tz);
 }
 
 function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
@@ -11701,7 +11874,10 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
     }
   } catch (eD) {}
 
-  var resolved = resolvePpDeliverySlot_(ss, nick, dateValue, tz, deliveredToday);
+  var resolved = resolvePpDeliverySlot_(ss, nick, dateValue, tz, deliveredToday, {
+    ppSlot: opts.ppSlot,
+    deliverySlot: opts.deliverySlot != null ? opts.deliverySlot : opts.slot
+  });
   var slot = resolved.slot || 1;
   var cycle = resolved.cycle;
   var deliveredBefore = Number(resolved.deliveredBefore) || 0;
@@ -11721,6 +11897,10 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
   );
   if (forced >= 1) {
     slot = forced;
+  } else if (resolved.source === "stored" || resolved.source === "cycle" || resolved.source === "count") {
+    // авто-слот уже посчитан с календарём/историей — не откатывать к «всегда 1»
+    slot = Number(resolved.slot) || suggestedSlot || 1;
+    if (!needManualSlot) suggestedSlot = slot;
   } else if (needManualSlot) {
     slot = suggestedSlot;
   } else {
@@ -11749,8 +11929,7 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
   if (deliveriesN >= 2) {
     if (paid === "yes") askPaid = false;
     else if (slot <= 1) askPaid = true;
-    else if (paid === "no") askPaid = true;
-    else askPaid = true;
+    else askPaid = (paid === "no" || !paid);
   }
 
   var factCost = null;
@@ -11859,9 +12038,14 @@ function recordPpDeliveryCycle_(ss, dayName, clientName, dateValue, tz, paidVal)
 
   var resolved = resolvePpDeliverySlot_(ss, clientName, dateValue, tz, true);
   var slot = resolved.slot || 1;
-  // если slot1 ещё нет — это первая доставка месяца
-  if (!cycle.slot1) slot = 1;
-  else if (cycle.slot1.date !== dateText) slot = 2;
+  // явный слот с календаря/брони на эту дату
+  try {
+    var storedRec = lookupStoredPpSlotForDate_(ss, clientName, dateValue, tz);
+    if (storedRec >= 1) slot = storedRec;
+  } catch (eSt) {}
+  // если slot1 ещё нет — это первая доставка месяца (если слот не задан явно как 2)
+  if (!cycle.slot1 && slot <= 1) slot = 1;
+  else if (cycle.slot1 && cycle.slot1.date !== dateText) slot = Math.max(slot, 2);
 
   var dayBasket = findClientDayBasket_(ss, dayName, clientName);
   if (slot <= 1) {
