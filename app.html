@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.125";
+      var APP_VER = "v7.11.126";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -8629,8 +8629,9 @@
       // спрашиваем всегда, кроме «та же колонка дня, только дата» (dateOnly)
       if (!dateOnly) {
         var cutP = openModal(
-          '<div class="modal-title">Нарезка при переносе</div>' +
+          '<div class="modal-title">Перенос клиента</div>' +
           '<div class="modal-text">Перенос <b>' + escapeHtml(clientName) + '</b> → <b>' + escapeHtml(cutLabel) + '</b>.<br><br>' +
+          'Открытые опросники и даты в карточке БП сдвинутся на тот же срок.<br><br>' +
           'Нарезать сырьё на этого клиента в новом дне вместе со всеми?</div>' +
           '<div class="modal-actions">' +
             '<button class="btn-action btn-orange" type="button" id="modalCutYes">Да, резать</button>' +
@@ -8668,12 +8669,19 @@
           return false;
         }
         var svN = Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
+        var bpMetaN = Number((res.dateSync && res.dateSync.bpMeta) || 0) || 0;
         var baseMsg = calendarOnly
           ? ("Перенесено на " + target.newDate)
           : (dateOnly
             ? ("Дата → " + target.newDate)
             : (cutRaw === "yes" ? "Перенесено (резать)" : "Перенесено без резки"));
-        showToast(svN ? (baseMsg + " · опрос " + svN) : baseMsg);
+        if (svN || bpMetaN) {
+          showToast(baseMsg + " · опрос " + svN + (bpMetaN ? (" · meta БП " + bpMetaN) : ""));
+        } else if (res.dateSync && res.dateSync.surveyError) {
+          showToast(baseMsg + " · опрос не сдвинут (ошибка)");
+        } else {
+          showToast(baseMsg);
+        }
         try {
           apiCacheBustMem_("getViewCompare");
           apiCacheBustMem_("getClients");
