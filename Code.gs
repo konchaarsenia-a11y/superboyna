@@ -3722,7 +3722,8 @@ function findSheetRowForItem(itemsInSheet, rawName, rawSub) {
   for (var r = 0; r < itemsInSheet.length; r++) {
     var sheetRaw = itemsInSheet[r][0];
     if (!sheetRaw) continue;
-    var sheetFull = sheetRaw.toString().trim().toUpperCase();
+    // на листе бывают двойные пробелы («УТИНЫЕ  ШЕИ  шт.»)
+    var sheetFull = sheetRaw.toString().trim().toUpperCase().replace(/\s+/g, " ");
     if (sheetFull === "" || sheetFull.indexOf("#") > -1) continue;
 
     var sheetBase = sheetFull;
@@ -3788,8 +3789,8 @@ function findSheetRowForItem(itemsInSheet, rawName, rawSub) {
  * Запрещает «ЛЁГКОЕ» ⊂ «БАРАНЬЕ ЛЁГКОЕ».
  */
 function productBasesMatch_(a, b) {
-  var x = String(a || "").trim().toUpperCase().replace(/Ё/g, "Е");
-  var y = String(b || "").trim().toUpperCase().replace(/Ё/g, "Е");
+  var x = String(a || "").trim().toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ");
+  var y = String(b || "").trim().toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ");
   if (!x || !y) return false;
   if (x === y) return true;
   if (x.indexOf(y) === 0) {
@@ -3805,7 +3806,7 @@ function productBasesMatch_(a, b) {
 
 /** Опечатки / варианты написания в таблице */
 function normalizeProductAlias_(nameU) {
-  var n = String(nameU || "").trim();
+  var n = String(nameU || "").trim().replace(/\s+/g, " ");
   var aliases = {
     "ГРУШЫ": "ГРУШИ",
     "ГРУША": "ГРУШИ",
@@ -3827,13 +3828,18 @@ function normalizeProductAlias_(nameU) {
     "УШКИ": "УХО Г",
     "УХО ГОВ": "УХО Г",
     "ГОВЯЖЬЕ УХО": "УХО Г",
-    "ГОВЯЖЬИ УШИ": "УХО Г"
+    "ГОВЯЖЬИ УШИ": "УХО Г",
+    "УТИНЫЕШЕИ": "УТИНЫЕ ШЕИ",
+    "УТИНАЯ ШЕЯ": "УТИНЫЕ ШЕИ",
+    "УТИНАЯШЕЯ": "УТИНЫЕ ШЕИ"
   };
   if (aliases[n]) return aliases[n];
   var n2 = n.replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  if (aliases[n2]) return aliases[n2];
   if (/^БАРАНЬ?Е?\s*ЛЕГК/.test(n2)) return "БАРАНЬЕ ЛЁГКОЕ";
   if (n2 === "ЛЕГКОЕ") return "ЛЁГКОЕ";
-  return n;
+  if (/^УТИН/.test(n2) && /ШЕ/.test(n2)) return "УТИНЫЕ ШЕИ";
+  return n2;
 }
 
 function normalizeFraction(s) {
