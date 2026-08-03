@@ -3864,7 +3864,7 @@ function normalizeFraction(s) {
 }
 
 function extractEmbeddedFraction(sheetFull) {
-  var u = String(sheetFull || "").toUpperCase().replace(/Ё/g, "Е");
+  var u = String(sheetFull || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ");
   if (!u) return "";
   // «ОЧ МАЛ» раньше «МАЛ» — иначе МАЛ перехватит кусок
   if (u.indexOf("ОЧ МАЛ") > -1 || /ОЧЕНЬ\s*(МАЛ|МЕЛК)|СУПЕР\s*(МАЛ|МЕЛК)/.test(u)) return "ОЧ МАЛ";
@@ -3875,7 +3875,8 @@ function extractEmbeddedFraction(sheetFull) {
   // \b в JS не работает с кириллицей — граница по не-буквам
   if (/(^|[^А-ЯA-Z0-9])МАЛ([^А-ЯA-Z0-9]|$)/.test(u) || u.indexOf(" МЕЛКОЕ") > -1 || /МЕЛК/.test(u)) return "МАЛ";
   if (u.indexOf("СРЕД") > -1) return "СРЕД";
-  if (u.indexOf("БОЛ") > -1 || u.indexOf("БОЛЬШОЕ") > -1) return "БОЛ";
+  // БОЛЬШ… или отдельное БОЛ (не кусок чужого слова)
+  if (/БОЛЬШ/.test(u) || /(^|[^А-ЯA-Z0-9])БОЛ([^А-ЯA-Z0-9]|$)/.test(u)) return "БОЛ";
   if (u.indexOf("КРУПН") > -1) return "КРУПНОЕ";
   if (u.indexOf("ЦЕЛ") > -1) return "ЦЕЛОЕ";
   if (/ОБЫЧН/.test(u)) {
@@ -4324,13 +4325,14 @@ function getClientsData_(ss, dayName) {
 
 /** Единый разбор имени строки листа → name/sub/cat/unit для mini-app. */
 function parseSheetItemName(currentItemName, rIdx) {
-  var upper = currentItemName.toUpperCase();
+  var rawName = String(currentItemName || "").replace(/\s+/g, " ").trim();
+  var upper = rawName.toUpperCase();
   var cat = "other";
   var unit = "гр";
 
   // Ориентиры по строкам понедельничного блока (индекс 0 = строка 4)
   // 0–11 дрессура-подобные с « / »; жевалки со шт.; и т.д.
-  if (currentItemName.indexOf("шт.") > -1 || currentItemName.indexOf("ШТ") > -1) {
+  if (rawName.indexOf("шт.") > -1 || rawName.indexOf("ШТ") > -1) {
     unit = "шт";
   }
 
@@ -4343,17 +4345,19 @@ function parseSheetItemName(currentItemName, rIdx) {
     unit = "гр";
   } else if (
     upper.indexOf("ЛЁГКОЕ") === 0 ||
+    upper.indexOf("ЛЕГКОЕ") === 0 ||
     upper.indexOf("СЕРДЦЕ") === 0 ||
     upper.indexOf("ПОЧКИ") === 0 ||
     upper.indexOf("РУБЕЦ Т") === 0 ||
     upper.indexOf("БАРАНЬЕ") === 0
   ) {
-    if (currentItemName.indexOf(" / ") > -1) {
+    if (rawName.indexOf(" / ") > -1) {
       cat = "dressura";
       unit = "гр";
     } else {
-      cat = "chew";
-      unit = unit === "шт" ? "шт" : "гр";
+      // без « / » (сводка Нарезки) — всё равно граммы, не жевалка
+      cat = "dressura";
+      unit = "гр";
     }
   } else if (
     upper.indexOf("БЫЧИЙ") > -1 ||
@@ -4365,32 +4369,34 @@ function parseSheetItemName(currentItemName, rIdx) {
     upper.indexOf("КОЛЕНИ") > -1 ||
     upper.indexOf("КОПЫТО") > -1 ||
     upper.indexOf("ПЕРЕПЁЛКИ") > -1 ||
+    upper.indexOf("ПЕРЕПЕЛКИ") > -1 ||
     upper.indexOf("ЛОП") > -1 ||
     upper.indexOf("ХРЯЩ") > -1 ||
     upper.indexOf("УТИНЫЕ") > -1 ||
+    upper.indexOf("УТИН") > -1 ||
     upper.indexOf("ГУБЫ") > -1
   ) {
     cat = "chew";
     unit = "шт";
   }
-  if (isPieceSkuName_(currentItemName) || isPieceSkuName_(upper)) {
+  if (isPieceSkuName_(rawName) || isPieceSkuName_(upper)) {
     unit = "шт";
     if (cat === "other") cat = "chew";
   }
 
-  var cleanNameOnly = currentItemName;
+  var cleanNameOnly = rawName;
   var frac = "";
 
-  if (currentItemName.indexOf(" / ") > -1) {
-    var splitIdx = currentItemName.indexOf(" / ");
-    cleanNameOnly = currentItemName.substring(0, splitIdx).trim();
-    var subText = currentItemName.substring(splitIdx + 3).trim();
+  if (rawName.indexOf(" / ") > -1) {
+    var splitIdx = rawName.indexOf(" / ");
+    cleanNameOnly = rawName.substring(0, splitIdx).trim();
+    var subText = rawName.substring(splitIdx + 3).trim();
     // дрессура: оставляем Мелкое/Среднее/… как в листе; жевалки — нормализуем
     if (/^(Мелкое|Среднее|Большое|Крупное|Целое)$/i.test(subText)) frac = subText;
     else frac = normalizeFraction(subText) || subText;
   } else {
     frac = extractEmbeddedFraction(upper);
-    cleanNameOnly = currentItemName
+    cleanNameOnly = rawName
       .replace(/\s*шт\.?/gi, "")
       .replace(/\s*ШТ\.?/g, "")
       .replace(/\s*ОЧ МАЛ/gi, "")
@@ -4405,6 +4411,7 @@ function parseSheetItemName(currentItemName, rIdx) {
       .replace(/\s*БОЛ/gi, "")
       .replace(/\s*КРУПНОЕ/gi, "")
       .replace(/\s*ЦЕЛОЕ/gi, "")
+      .replace(/\s+/g, " ")
       .trim();
   }
 
@@ -4418,6 +4425,7 @@ function parseSheetItemName(currentItemName, rIdx) {
     }
   }
 
+  cleanNameOnly = normalizeProductAlias_(String(cleanNameOnly || "").replace(/\s+/g, " ").trim());
   return { cat: cat, name: cleanNameOnly, sub: frac, unit: unit };
 }
 
@@ -9295,11 +9303,11 @@ function mapCrmHeaderToItem_(header) {
   }
   if (/КОЛЕН/.test(h)) return { name: "КОЛЕНИ шт.", sub: "", cat: "chew", grams: false };
   if (/КОПЫТ/.test(h)) return { name: "КОПЫТО шт.", sub: "", cat: "chew", grams: false };
-  if (/НОС/.test(h)) return { name: "НОСЫ шт.", sub: "", cat: "chew", grams: false };
+  if (/НОСЫ|(^|[^А-ЯA-Z0-9])НОС([^А-ЯA-Z0-9]|$)/.test(h)) return { name: "НОСЫ шт.", sub: "", cat: "chew", grams: false };
   if (/ЛОП.*ХРЯЩ|ХРЯЩ.*ЛОП|ЛОПАТ/.test(h)) return { name: "ЛОП ХРЯЩ шт.", sub: "", cat: "chew", grams: false };
   if (/УТИН.*ШЕ|ШЕИ\s*УТ|УТИНЫЕ/.test(h)) return { name: "УТИНЫЕ ШЕИ шт.", sub: "", cat: "chew", grams: false };
   if (/ПЕРЕП[ЕЁ]Л|ПЕРЕПЕЛ/.test(h)) return { name: "ПЕРЕПЁЛКИ шт.", sub: "", cat: "chew", grams: false };
-  if (/ГУБ/.test(h)) return { name: "ГУБЫ шт.", sub: "", cat: "chew", grams: false };
+  if (/(^|[^А-ЯA-Z0-9])ГУБ/.test(h)) return { name: "ГУБЫ шт.", sub: "", cat: "chew", grams: false };
 
   // --- дрессура / баранье ---
   function dressSub_(hh) {
