@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.122";
+      var APP_VER = "v7.11.123";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2513,7 +2513,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.122";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.123";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -11558,15 +11558,24 @@
 
     async function buildRoutePlan() {
       const box = document.getElementById("routePlanBox");
-      const withAddr = courierClientsCache.filter(function (c) {
+      const allWithAddr = (courierClientsCache || []).filter(function (c) {
         return String(c.address || "").trim();
       });
+      const deliveredSkipped = allWithAddr.filter(function (c) { return !!c.delivered; });
+      // уже завезённых (галочка на листе Доставки) в маршрут не берём
+      const withAddr = allWithAddr.filter(function (c) { return !c.delivered; });
       if (!withAddr.length) {
-        await uiAlertAsync("Нет адресов на этот день. Сначала выберите день и проверьте адреса.");
+        if (deliveredSkipped.length) {
+          await uiAlertAsync("Все клиенты с адресом уже отмечены доставленными — в маршрут некого добавлять.");
+        } else {
+          await uiAlertAsync("Нет адресов на этот день. Сначала выберите день и проверьте адреса.");
+        }
         return;
       }
 
-      box.innerHTML = '<div class="card"><p class="muted">Считаю точки и отделения…</p></div>';
+      box.innerHTML = '<div class="card"><p class="muted">Считаю точки и отделения…' +
+        (deliveredSkipped.length ? (" · без доставленных: " + deliveredSkipped.length) : "") +
+        "</p></div>";
       const depotAddr = normalizeAddressForMaps(getDepotAddress());
       saveDepotAddress();
 
@@ -11646,7 +11655,9 @@
       const t0 = estimateRouteMinutes(routePlanState.depot, routePlanState.routes[0]);
       const t1 = estimateRouteMinutes(routePlanState.depot, routePlanState.routes[1]);
       const wall = routePlanState.courierCount === 2 ? Math.max(t0, t1) : t0;
-      showToast("Готово · ≈" + formatMinutes(wall) + " с запасом на пробки");
+      showToast("Готово · ≈" + formatMinutes(wall) +
+        (deliveredSkipped.length ? (" · без доставленных: " + deliveredSkipped.length) : "") +
+        " · с запасом на пробки");
     }
 
     function moveStopBetweenRoutes(fromRoute, stopIndex, toRoute) {
