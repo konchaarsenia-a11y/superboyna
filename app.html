@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.121";
+      var APP_VER = "v7.11.122";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1512,7 +1512,7 @@
       </div>
       <div id="finishWeekBanner" class="week-banner" style="display:none;">
         <h3>Завершить неделю?</h3>
-        <div class="muted">Склад (F/B), даты +7, очистка Пн–Вс, Будущая→Пн. Только владелец. Вс (весь день) или пн до 12:00.</div>
+        <div class="muted">Склад (F/B), даты +7, очистка Пн–Вс, Будущая→Пн. Только владелец. Вс (весь день) или пн до 12:00. Кнопка также всегда во вкладке «Доступы».</div>
         <button type="button" class="btn-action btn-blue" onclick="dismissFinishWeekBanner()">Уже завершили — скрыть</button>
         <button type="button" class="btn-action btn-orange" style="margin-top:8px;" onclick="onFinishWeekClick()">Завершить неделю</button>
         <button type="button" class="btn-action" style="margin-top:8px;background:#3a3a3c;" onclick="refuseFinishWeek()">Позже</button>
@@ -2469,6 +2469,13 @@
 
     <!-- ДОСТУПЫ -->
     <div id="peopleScreen" class="screen">
+      <div class="card" id="finishWeekPeopleCard">
+        <div class="section-title" style="margin-top:0;color:#ff9f0a;">Неделя</div>
+        <div class="muted" style="font-size:12px;margin-bottom:8px;">Закрытие недели: склад F/B, даты +7, очистка Пн–Вс, Будущая→Пн. Обычно вс (весь день) или пн до 12:00. Только владелец.</div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px;" id="finishWeekPeopleStatus">Статус: …</div>
+        <button class="btn-action btn-orange" type="button" id="btnFinishWeekPeople" style="margin:0;" onclick="onFinishWeekClick()">Завершить неделю</button>
+        <button class="btn-action btn-blue" type="button" id="btnPullWeekPeople" style="margin-top:8px;display:none;" onclick="confirmPullWeekFromHome()">Подтянуть из месяца</button>
+      </div>
       <div class="card">
         <div class="section-title" style="margin-top:0;">Доступы</div>
         <div class="muted" style="font-size:12px;margin-bottom:10px;">Роль + часовой пояс — уведомления опросников с 9:00 каждые 30 мин по локальному времени сотрудника.</div>
@@ -2506,7 +2513,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.121";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.122";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2872,7 +2879,7 @@
       priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• Пакеты ПП считаются сами из состава (можно править +/−).\n• «В отложенное» или сразу «Внести в ПП» (+ имя/IG/адрес).\n• 2 собаки: свет/доставки один раз.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
       templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ — скоро.",
-      peopleScreen: "Доступы\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника."
+      peopleScreen: "Доступы\n• Завершить неделю / подтянуть из месяца — сверху.\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника."
     };
 
     window._templatesSub = "texts";
@@ -5445,6 +5452,7 @@
         if (screenId === "peopleScreen") {
           loadPeople({ soft: true });
           try { loadPartnersUi_({ soft: true }); } catch (ePar) {}
+          try { refreshWeekBanners({ soft: true }); } catch (eFw) {}
         }
         if (screenId === "courierScreen") {
           // короткий тап = маршрут; сборку открывает long-press → setCourierSub после switchTab
@@ -12601,7 +12609,54 @@
       }
       pull.style.display = showPull ? "" : "none";
       if (showPull) loadPullWeekPreview();
+      try {
+        syncFinishWeekPeopleUi_({
+          finished: finished,
+          pulled: pulled,
+          realClosed: realClosed,
+          showPull: showPull,
+          by: _weekBannerState && _weekBannerState.by
+        });
+      } catch (ePe) {}
     }
+
+    function syncFinishWeekPeopleUi_(st) {
+      st = st || {};
+      var card = document.getElementById("finishWeekPeopleCard");
+      var statusEl = document.getElementById("finishWeekPeopleStatus");
+      var btnFin = document.getElementById("btnFinishWeekPeople");
+      var btnPull = document.getElementById("btnPullWeekPeople");
+      if (!card) return;
+      var isOwner = (APP_ROLE === "owner" || APP_ROLE === "all");
+      card.style.display = isOwner ? "" : "none";
+      if (!isOwner) return;
+      var wk = currentWeekKeyLocal();
+      var inWindow = isFinishWeekWindow_();
+      var realClosed = !!st.realClosed || localStorage.getItem(FINISH_REAL_LS + wk) === "1";
+      var finished = realClosed || !!st.finished;
+      var pulled = !!st.pulled || localStorage.getItem(WEEK_PULL_LS + wk) === "pulled";
+      var by = String(st.by || "").trim();
+      var lines = [];
+      lines.push("Неделя с " + wk);
+      if (realClosed || finished) {
+        lines.push("Статус: уже закрыта" + (by ? (" · " + by) : ""));
+      } else if (inWindow) {
+        lines.push("Статус: окно закрытия (вс / пн до 12) — можно закрывать");
+      } else {
+        lines.push("Статус: вне окна вс/пн — кнопка всё равно доступна владельцу");
+      }
+      if (statusEl) statusEl.textContent = lines.join(". ");
+      if (btnFin) {
+        btnFin.disabled = !!realClosed;
+        btnFin.style.opacity = realClosed ? "0.45" : "1";
+        btnFin.innerText = realClosed ? "Неделя уже закрыта" : "Завершить неделю";
+      }
+      if (btnPull) {
+        var showPull = !!st.showPull || (finished && !pulled);
+        btnPull.style.display = showPull ? "" : "none";
+      }
+    }
+    window.syncFinishWeekPeopleUi_ = syncFinishWeekPeopleUi_;
 
     async function dismissFinishWeekBanner() {
       var wk = currentWeekKeyLocal();
