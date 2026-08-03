@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.126";
+      var APP_VER = "v7.11.127";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -8841,8 +8841,8 @@
         tickCuttingTimer();
         return;
       }
+      var prevItems = (cuttingItemsCache || []).slice();
       if (!fromPoll) {
-        cuttingItemsCache = [];
         cuttingCompletionCache = null;
         cuttingDetailExpanded_ = false;
         cuttingSession.fingerprint = "";
@@ -8888,10 +8888,16 @@
         var items = (res.items || []).slice();
         // оверлей только свежих локальных кликов (умеет и снять галочку); без OR «только включить»
         applyLocalCuttingFlags_(items);
+        // защита от отката только пока есть свежие клики / quiet после записи
+        var guardFlags = Object.keys(cuttingLocalFlags || {}).length > 0 ||
+          cuttingSession.pendingWrites > 0 ||
+          Date.now() < (cuttingSession.quietUntil || 0);
+        if (guardFlags && cuttingFlagScore(items) < cuttingFlagScore(prevItems)) {
+          mergeCuttingFlagsPreferLocal_(items, prevItems);
+        }
         const fp = cuttingFingerprint(items, res.session);
         applyRemoteCuttingSession(res.session || { active: false, day: day, startedAt: 0 });
-        // защита от отката: сервер ещё не догнал локальные галочки
-        if (fromPoll && cuttingFlagScore(items) < cuttingFlagScore(cuttingItemsCache)) {
+        if (fromPoll && guardFlags && cuttingFlagScore(items) < cuttingFlagScore(prevItems)) {
           tickCuttingTimer();
           return;
         }
@@ -8912,10 +8918,38 @@
       } catch (err) {
         if (loadSeq !== _cuttingLoadSeq) return;
         if (!fromPoll) {
-          box.innerHTML = '<p class="muted">Ошибка: ' + escapeHtml(err.message || String(err)) + "</p>";
-          if (finishBtn) finishBtn.style.display = "none";
+          // откат UI: вернуть предыдущий список, не оставлять пустой лоадер
+          if (prevItems.length) {
+            cuttingItemsCache = prevItems;
+            sortCuttingItems();
+            renderCuttingSummary();
+            box.innerHTML = cuttingItemsCache.map(renderCutRowHtml).join("");
+            showToast("Не обновилось — галочки на месте");
+          } else {
+            box.innerHTML = '<p class="muted">Ошибка: ' + escapeHtml(err.message || String(err)) + "</p>";
+            if (finishBtn) finishBtn.style.display = "none";
+          }
         }
       }
+    }
+
+    /** Если сервер вернул меньше галочек — не терять локально уже отмеченные (выложено/нарезано). */
+    function mergeCuttingFlagsPreferLocal_(items, prevItems) {
+      var prevMap = Object.create(null);
+      (prevItems || []).forEach(function (p) {
+        if (p && p.row != null) prevMap[Number(p.row)] = p;
+      });
+      (items || []).forEach(function (it) {
+        var p = prevMap[Number(it.row)];
+        if (!p) return;
+        var loc = cuttingLocalFlags[Number(it.row)];
+        // свежий локальный клик — уже в applyLocalCuttingFlags_
+        if (loc) return;
+        // сервер откатил относительно того, что только что видели
+        if (!it.laid && p.laid) it.laid = true;
+        if (!it.done && p.done) it.done = true;
+        if (!it.outNext && p.outNext) it.outNext = true;
+      });
     }
 
     function rememberCuttingLocalFlag_(row, patch) {
@@ -8945,7 +8979,7 @@
         var row = Number(it.row);
         var o = cuttingLocalFlags[row];
         if (!o) return;
-        if ((now - (o.ts || 0)) > 300000) {
+        if ((now - (o.ts || 0)) > 1800000) {
           delete cuttingLocalFlags[row];
           return;
         }

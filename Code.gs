@@ -799,6 +799,8 @@ function restoreCuttingState_(cutting, memorySheet, dateText, tz) {
 }
 
 function saveCuttingState_(cutting, memorySheet, dateText, tz) {
+  if (!cutting || !memorySheet || !dateText) return;
+  try { SpreadsheetApp.flush(); } catch (eFl) {}
   var c = cutting.getRange("C3:C60").getValues();
   var e = cutting.getRange("E3:E60").getValues();
   var f = cutting.getRange("F3:F60").getValues();
@@ -2222,11 +2224,18 @@ function handleGetCutting(dayName, callback) {
   var totals = recalculateCuttingForDate_(ss, dateText);
   var names = cutting.getRange("A3:A48").getValues();
   var plans = cutting.getRange("D3:D48").getValues();
-  // Активная дата на листе → только live E/F/G (не OR с памятью: иначе снятая галочка
-  // снова включается из устаревшей Память_Нарезки при параллельном getCutting).
-  // Другой день → только память.
-  var activeState = isActiveDate ? cutting.getRange("C3:G48").getValues() : null;
-  var savedState = isActiveDate ? null : getMemoryJson_(memory, dateText, tz);
+  // Активная дата на листе → live E/F/G + сразу снимок в Память_Нарезки (flush внутри save),
+  // чтобы смена дня не восстановила устаревший false и не сбросила «выложено».
+  // Другой день → только память. Без OR live||mem — иначе нельзя снять галочку.
+  var activeState = null;
+  var savedState = null;
+  if (isActiveDate) {
+    try { SpreadsheetApp.flush(); } catch (eFl0) {}
+    activeState = cutting.getRange("C3:G48").getValues();
+    try { saveCuttingState_(cutting, memory, dateText, tz); } catch (eSave) {}
+  } else {
+    savedState = getMemoryJson_(memory, dateText, tz);
+  }
   var rowNotes = collectCuttingRowNotes_(ss, dayName);
   var items = [];
 
@@ -2416,6 +2425,7 @@ function handleUpdateCutting(ss, json, callback, fromPost) {
         } catch (eOut) {}
       }
     }
+    try { SpreadsheetApp.flush(); } catch (eFl1) {}
     saveCuttingState_(cutting, memory, dateText, tz);
     var ok = { status: "success", row: row, done: asBool_(cutting.getRange("F" + row).getValue()), laid: asBool_(cutting.getRange("E" + row).getValue()), outNext: asBool_(cutting.getRange("G" + row).getValue()) };
     return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
