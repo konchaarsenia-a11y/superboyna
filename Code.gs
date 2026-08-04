@@ -6810,30 +6810,42 @@ function handleSetupDeliveryDatesNudgeTriggers(callback, fromPost) {
 }
 
 /**
- * Запуск из редактора (Run). Паттерн как setupTelegramWebhookManual:
- * без return и без Browser.msgBox — иначе IDE пишет «Неизвестная ошибка».
- * Результат: Выполнения → этот запуск → Журнал (Logger).
+ * Запуск из редактора (Run).
+ * Не через ContentService/jsonpText — в IDE это часто даёт «Неизвестная ошибка».
+ * Не return, не Browser.msgBox. Смотреть: Выполнения → Журнал.
  */
 function setupDeliveryDatesNudgeTriggersManual() {
   try {
-    var r = handleSetupDeliveryDatesNudgeTriggers("cb", true);
-    Logger.log(r.getContent());
+    var r = ensureDeliveryDatesNudgeTriggers_();
+    Logger.log("setupDeliveryDatesNudgeTriggersManual OK " + JSON.stringify(r));
   } catch (e) {
-    Logger.log("ERR setupDeliveryDatesNudgeTriggersManual: " + String(e));
-    try { Logger.log(e && e.stack ? String(e.stack) : ""); } catch (e2) {}
+    Logger.log("setupDeliveryDatesNudgeTriggersManual ERR " + String(e));
+    try { Logger.log(String(e && e.stack || "")); } catch (e2) {}
   }
 }
 
+/** Диагностика IDE: если и это красное — проблема не в nudge, а в проекте/вставке. */
+function pingEditorOk() {
+  Logger.log("pingEditorOk " + new Date().toISOString());
+}
+
 /**
- * Тест пуша из редактора. Смотреть Журнал выполнения, не экран результата.
+ * Тест пуша из редактора. Смотреть Журнал выполнения.
  */
 function testDeliveryDatesNudgeNow() {
   try {
-    var r = handleTestDeliveryDatesNudge("cb", true);
-    Logger.log(r.getContent());
+    try {
+      var props = PropertiesService.getScriptProperties();
+      var ymd = Utilities.formatDate(new Date(), "Europe/Minsk", "yyyy-MM-dd");
+      props.deleteProperty("DATE_NUDGE_" + ymd + "_11");
+      props.deleteProperty("DATE_NUDGE_" + ymd + "_19");
+      props.deleteProperty("DATE_NUDGE_" + ymd + "_test");
+    } catch (eClr) {}
+    var sent = sendDeliveryDatesNudge_("11");
+    Logger.log("testDeliveryDatesNudgeNow OK " + JSON.stringify(sent));
   } catch (e) {
-    Logger.log("ERR testDeliveryDatesNudgeNow: " + String(e));
-    try { Logger.log(e && e.stack ? String(e.stack) : ""); } catch (e2) {}
+    Logger.log("testDeliveryDatesNudgeNow ERR " + String(e));
+    try { Logger.log(String(e && e.stack || "")); } catch (e2) {}
   }
 }
 
