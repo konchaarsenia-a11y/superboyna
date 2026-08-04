@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <title>Варок · пополнение</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: #0c0c0c;
+      --bg2: #161616;
+      --bg3: #1e1e1e;
+      --line: #2a2a2a;
+      --text: #f2f2f2;
+      --muted: #8e8e93;
+      --accent: #c4a574;
+      --accent2: #e8d5b5;
+      --ok: #30d158;
+      --danger: #ff453a;
+      --radius: 14px;
+      --safe-b: env(safe-area-inset-bottom, 0px);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--bg); color: var(--text);
+      font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100%;
+    }
+    body {
+      background:
+        radial-gradient(120% 80% at 10% -10%, rgba(196,165,116,0.18), transparent 55%),
+        radial-gradient(90% 60% at 100% 0%, rgba(80,60,40,0.25), transparent 50%),
+        var(--bg);
+      padding-bottom: calc(88px + var(--safe-b));
+    }
+    .wrap { max-width: 480px; margin: 0 auto; padding: 16px 16px 0; }
+    .brand {
+      font-size: 28px; font-weight: 700; letter-spacing: -0.03em;
+      color: var(--accent2); margin: 4px 0 2px;
+    }
+    .sub { color: var(--muted); font-size: 14px; margin-bottom: 18px; }
+    .screen { display: none; animation: in 0.28s ease; }
+    .screen.on { display: block; }
+    @keyframes in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: none; }
+    }
+    .loc {
+      display: block; width: 100%; text-align: left;
+      background: var(--bg2); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 16px 18px; margin-bottom: 10px;
+      color: var(--text); font-size: 16px; cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .loc:active { background: var(--bg3); }
+    .loc .name { font-weight: 600; }
+    .loc .addr { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .tabs {
+      display: flex; gap: 6px; background: var(--bg2);
+      padding: 4px; border-radius: 12px; margin-bottom: 14px;
+    }
+    .tab {
+      flex: 1; border: 0; background: transparent; color: var(--muted);
+      padding: 10px; border-radius: 10px; font-size: 14px; font-weight: 600;
+      cursor: pointer;
+    }
+    .tab.on { background: var(--bg3); color: var(--accent2); }
+    .item {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--bg2); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px;
+    }
+    .item .meta { flex: 1; min-width: 0; }
+    .item .title { font-weight: 600; font-size: 15px; }
+    .item .price { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .stepper { display: flex; align-items: center; gap: 8px; }
+    .stepper button {
+      width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line);
+      background: var(--bg3); color: var(--text); font-size: 18px; cursor: pointer;
+    }
+    .stepper span { min-width: 22px; text-align: center; font-weight: 600; }
+    .bar {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      padding: 12px 16px calc(12px + var(--safe-b));
+      background: linear-gradient(to top, #0c0c0c 70%, transparent);
+      pointer-events: none;
+    }
+    .bar-inner {
+      max-width: 480px; margin: 0 auto; pointer-events: auto;
+      display: flex; gap: 10px; align-items: center;
+    }
+    .cart-sum {
+      flex: 1; background: var(--bg2); border: 1px solid var(--line);
+      border-radius: 12px; padding: 12px 14px; font-size: 14px;
+    }
+    .cart-sum b { color: var(--accent2); }
+    .btn {
+      border: 0; border-radius: 12px; padding: 14px 18px;
+      font-weight: 700; font-size: 15px; cursor: pointer;
+      background: var(--accent); color: #1a1208;
+    }
+    .btn:disabled { opacity: 0.4; cursor: default; }
+    .btn.ghost {
+      background: var(--bg3); color: var(--text); border: 1px solid var(--line);
+    }
+    .btn.block { width: 100%; margin-top: 8px; }
+    .toprow {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; margin-bottom: 12px;
+    }
+    .chip {
+      border: 1px solid var(--line); background: var(--bg2);
+      color: var(--muted); border-radius: 999px; padding: 6px 12px;
+      font-size: 12px; cursor: pointer;
+    }
+    .chip.on { color: var(--accent2); border-color: var(--accent); }
+    .empty { color: var(--muted); text-align: center; padding: 40px 16px; }
+    .err {
+      background: rgba(255,69,58,0.12); border: 1px solid rgba(255,69,58,0.35);
+      color: #ff8a84; border-radius: 12px; padding: 14px; margin: 12px 0;
+      font-size: 14px;
+    }
+    .okmsg {
+      background: rgba(48,209,88,0.12); border: 1px solid rgba(48,209,88,0.35);
+      color: #7dff9a; border-radius: 12px; padding: 14px; margin: 12px 0;
+      font-size: 14px;
+    }
+    .admin-row {
+      display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
+    }
+    .field {
+      width: 100%; background: var(--bg2); border: 1px solid var(--line);
+      border-radius: 10px; padding: 12px; color: var(--text);
+      font-size: 15px; margin-bottom: 8px;
+    }
+    .order {
+      background: var(--bg2); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px; margin-bottom: 10px;
+    }
+    .order .h { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); }
+    .order .lines { margin-top: 8px; font-size: 14px; }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 6px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      background: #2a2418; color: var(--accent2);
+    }
+    .badge.done { background: #14301c; color: #7dff9a; }
+    .nav {
+      display: flex; gap: 6px; margin: 8px 0 16px; overflow-x: auto;
+    }
+    .nav button {
+      flex: 0 0 auto; border: 1px solid var(--line); background: var(--bg2);
+      color: var(--muted); border-radius: 10px; padding: 8px 12px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .nav button.on { color: var(--accent2); border-color: var(--accent); }
+    label.lbl { display: block; font-size: 12px; color: var(--muted); margin: 6px 0 4px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="screenBoot" class="screen on">
+      <div class="brand">Варок</div>
+      <div class="sub">Пополнение лакомств и купонов</div>
+      <p class="empty" id="bootMsg">Вход…</p>
+    </div>
+
+    <div id="screenLocs" class="screen">
+      <div class="brand">Варок</div>
+      <div class="sub">Выберите точку</div>
+      <div id="locList"></div>
+      <div id="locAdminHint" style="display:none;margin-top:16px;">
+        <button class="btn ghost block" type="button" onclick="goAdmin()">Кабинет владельца</button>
+      </div>
+    </div>
+
+    <div id="screenOrder" class="screen">
+      <div class="toprow">
+        <div>
+          <div class="brand" style="font-size:22px;margin:0;">Заказ</div>
+          <div class="sub" style="margin:2px 0 0;" id="orderLocName">—</div>
+        </div>
+        <button class="chip" type="button" onclick="goLocs()">Сменить</button>
+      </div>
+      <div class="nav">
+        <button type="button" class="on" id="navOrder" onclick="showOrderTab()">Каталог</button>
+        <button type="button" id="navOrders" onclick="showMyOrders()">Мои заказы</button>
+        <button type="button" id="navAdmin" style="display:none;" onclick="goAdmin()">Кабинет</button>
+      </div>
+      <div class="tabs">
+        <button class="tab on" type="button" data-cat="treat" onclick="setCat('treat')">Лакомства</button>
+        <button class="tab" type="button" data-cat="coupon" onclick="setCat('coupon')">Купоны</button>
+      </div>
+      <div id="catalogList"></div>
+    </div>
+
+    <div id="screenMyOrders" class="screen">
+      <div class="toprow">
+        <div class="brand" style="font-size:22px;margin:0;">Мои заказы</div>
+        <button class="chip" type="button" onclick="showOrderTab()">Каталог</button>
+      </div>
+      <div id="myOrdersList"></div>
+    </div>
+
+    <div id="screenAdmin" class="screen">
+      <div class="toprow">
+        <div class="brand" style="font-size:22px;margin:0;">Кабинет</div>
+        <button class="chip" type="button" onclick="goLocs()">К точкам</button>
+      </div>
+      <div class="admin-row">
+        <button class="chip on" type="button" data-admin="catalog" onclick="setAdminPane('catalog')">Каталог</button>
+        <button class="chip" type="button" data-admin="locations" onclick="setAdminPane('locations')">Точки</button>
+        <button class="chip" type="button" data-admin="access" onclick="setAdminPane('access')">Доступы</button>
+        <button class="chip" type="button" data-admin="orders" onclick="setAdminPane('orders')">Заказы</button>
+      </div>
+      <div id="adminPane"></div>
+    </div>
+  </div>
+
+  <div class="bar" id="cartBar" style="display:none;">
+    <div class="bar-inner">
+      <div class="cart-sum">В корзине: <b id="cartCount">0</b> · <b id="cartTotal">0</b> BYN</div>
+      <button class="btn" type="button" id="btnSubmit" onclick="submitOrder()" disabled>Отправить</button>
+    </div>
+  </div>
+
+  <script>
+(function () {
+  var APP_VER = "1.0.0";
+  var GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
+
+  var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  if (tg) {
+    try { tg.ready(); tg.expand(); } catch (e) {}
+    try { tg.setHeaderColor("#0c0c0c"); tg.setBackgroundColor("#0c0c0c"); } catch (e2) {}
+  }
+
+  var state = {
+    me: null,
+    location: null,
+    catalog: [],
+    cart: {}, // id -> qty
+    cat: "treat",
+    adminPane: "catalog"
+  };
+
+  function user() {
+    var u = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
+    return {
+      telegramId: String(u.id || ""),
+      name: [u.first_name, u.last_name].filter(Boolean).join(" ") || u.username || "",
+      username: u.username || "",
+      initData: (tg && tg.initData) || ""
+    };
+  }
+
+  function apiGet(params) {
+    return new Promise(function (resolve, reject) {
+      var cb = "vr_cb_" + Math.round(Math.random() * 1e9);
+      var timer = setTimeout(function () {
+        cleanup();
+        reject(new Error("Таймаут сервера"));
+      }, 28000);
+      function cleanup() {
+        clearTimeout(timer);
+        try { delete window[cb]; } catch (e) {}
+        var s = document.getElementById(cb);
+        if (s && s.parentNode) s.parentNode.removeChild(s);
+      }
+      window[cb] = function (res) { cleanup(); resolve(res); };
+      var q = Object.keys(params).map(function (k) {
+        return k + "=" + encodeURIComponent(params[k] == null ? "" : params[k]);
+      }).join("&");
+      var script = document.createElement("script");
+      script.id = cb;
+      script.async = true;
+      script.src = GOOGLE_WEBHOOK_URL + "?" + q + "&callback=" + cb;
+      script.onerror = function () { cleanup(); reject(new Error("Сеть")); };
+      (document.head || document.body).appendChild(script);
+    });
+  }
+
+  function show(id) {
+    ["screenBoot", "screenLocs", "screenOrder", "screenMyOrders", "screenAdmin"].forEach(function (s) {
+      var el = document.getElementById(s);
+      if (el) el.classList.toggle("on", s === id);
+    });
+    var bar = document.getElementById("cartBar");
+    if (bar) bar.style.display = (id === "screenOrder") ? "" : "none";
+  }
+
+  function money(n) {
+    var x = Math.round((Number(n) || 0) * 100) / 100;
+    return (x % 1 === 0) ? String(x) : x.toFixed(2);
+  }
+
+  function cartStats() {
+    var count = 0, total = 0;
+    state.catalog.forEach(function (it) {
+      var q = Number(state.cart[it.id]) || 0;
+      if (q > 0) {
+        count += q;
+        total += q * (Number(it.price) || 0);
+      }
+    });
+    return { count: count, total: total };
+  }
+
+  function refreshCartBar() {
+    var st = cartStats();
+    var c = document.getElementById("cartCount");
+    var t = document.getElementById("cartTotal");
+    var b = document.getElementById("btnSubmit");
+    if (c) c.textContent = String(st.count);
+    if (t) t.textContent = money(st.total);
+    if (b) b.disabled = st.count <= 0;
+  }
+
+  function setQty(id, delta) {
+    var cur = Number(state.cart[id]) || 0;
+    var next = Math.max(0, cur + delta);
+    if (next === 0) delete state.cart[id];
+    else state.cart[id] = next;
+    renderCatalog();
+    refreshCartBar();
+    try { if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged(); } catch (e) {}
+  }
+
+  function setCat(cat) {
+    state.cat = cat;
+    document.querySelectorAll(".tab").forEach(function (el) {
+      el.classList.toggle("on", el.getAttribute("data-cat") === cat);
+    });
+    renderCatalog();
+  }
+
+  function renderCatalog() {
+    var box = document.getElementById("catalogList");
+    if (!box) return;
+    var items = state.catalog.filter(function (it) {
+      return String(it.type) === state.cat && it.active !== false;
+    });
+    if (!items.length) {
+      box.innerHTML = '<div class="empty">Пока пусто в этой категории</div>';
+      return;
+    }
+    box.innerHTML = items.map(function (it) {
+      var q = Number(state.cart[it.id]) || 0;
+      var unit = it.unit ? (" / " + it.unit) : "";
+      return '<div class="item">' +
+        '<div class="meta"><div class="title">' + esc(it.name) + '</div>' +
+        '<div class="price">' + money(it.price) + " BYN" + esc(unit) + "</div></div>" +
+        '<div class="stepper">' +
+        '<button type="button" onclick="setQty(\'' + it.id + '\',-1)">−</button>' +
+        "<span>" + q + "</span>" +
+        '<button type="button" onclick="setQty(\'' + it.id + '\',1)">+</button>' +
+        "</div></div>";
+    }).join("");
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function goLocs() {
+    state.location = null;
+    state.cart = {};
+    renderLocs();
+    show("screenLocs");
+  }
+
+  function renderLocs() {
+    var box = document.getElementById("locList");
+    var locs = (state.me && state.me.locations) || [];
+    if (!locs.length) {
+      box.innerHTML = '<div class="err">Нет доступа к точкам. Попросите владельца добавить ваш Telegram ID.</div>' +
+        '<p class="empty" style="padding-top:8px;">Ваш ID: <b>' + esc((state.me && state.me.telegramId) || user().telegramId || "—") + "</b></p>";
+    } else {
+      box.innerHTML = locs.map(function (loc) {
+        return '<button class="loc" type="button" onclick="pickLoc(\'' + esc(loc.id) + '\')">' +
+          '<div class="name">' + esc(loc.name) + "</div>" +
+          (loc.address ? '<div class="addr">' + esc(loc.address) + "</div>" : "") +
+          "</button>";
+      }).join("");
+    }
+    var hint = document.getElementById("locAdminHint");
+    if (hint) hint.style.display = (state.me && state.me.isAdmin) ? "" : "none";
+  }
+
+  function pickLoc(id) {
+    var locs = (state.me && state.me.locations) || [];
+    var hit = null;
+    for (var i = 0; i < locs.length; i++) {
+      if (locs[i].id === id) { hit = locs[i]; break; }
+    }
+    if (!hit && state.me && state.me.isAdmin) {
+      // admin may pick any from allLocations
+      var all = state.me.allLocations || [];
+      for (var j = 0; j < all.length; j++) {
+        if (all[j].id === id) { hit = all[j]; break; }
+      }
+    }
+    if (!hit) return;
+    state.location = hit;
+    state.cart = {};
+    document.getElementById("orderLocName").textContent = hit.name;
+    var na = document.getElementById("navAdmin");
+    if (na) na.style.display = (state.me && state.me.isAdmin) ? "" : "none";
+    show("screenOrder");
+    showOrderTab();
+    loadCatalog().then(function () {
+      renderCatalog();
+      refreshCartBar();
+    });
+  }
+
+  function showOrderTab() {
+    document.getElementById("navOrder").classList.add("on");
+    document.getElementById("navOrders").classList.remove("on");
+    show("screenOrder");
+    renderCatalog();
+    refreshCartBar();
+  }
+
+  function loadCatalog() {
+    var u = user();
+    return apiGet({
+      action: "vrGetCatalog",
+      telegramId: u.telegramId || (state.me && state.me.telegramId) || ""
+    }).then(function (res) {
+      if (!res || res.status !== "success") throw new Error((res && res.message) || "Каталог недоступен");
+      state.catalog = res.items || [];
+    });
+  }
+
+  function submitOrder() {
+    var st = cartStats();
+    if (st.count <= 0 || !state.location) return;
+    var btn = document.getElementById("btnSubmit");
+    if (btn) btn.disabled = true;
+    var basket = [];
+    state.catalog.forEach(function (it) {
+      var q = Number(state.cart[it.id]) || 0;
+      if (q > 0) {
+        basket.push({
+          id: it.id,
+          type: it.type,
+          name: it.name,
+          qty: q,
+          price: Number(it.price) || 0,
+          unit: it.unit || ""
+        });
+      }
+    });
+    var u = user();
+    apiGet({
+      action: "vrSubmitOrder",
+      telegramId: u.telegramId || (state.me && state.me.telegramId) || "",
+      name: u.name || (state.me && state.me.name) || "",
+      locationId: state.location.id,
+      basket: JSON.stringify(basket),
+      note: ""
+    }).then(function (res) {
+      if (!res || res.status !== "success") throw new Error((res && res.message) || "Не удалось отправить");
+      state.cart = {};
+      refreshCartBar();
+      renderCatalog();
+      var box = document.getElementById("catalogList");
+      box.insertAdjacentHTML("afterbegin",
+        '<div class="okmsg">Заказ отправлен · № ' + esc(res.id || "") + " · " + money(res.total) + " BYN</div>");
+      try { if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); } catch (e) {}
+    }).catch(function (err) {
+      alert(String((err && err.message) || err));
+      if (btn) btn.disabled = false;
+    });
+  }
+
+  function showMyOrders() {
+    document.getElementById("navOrder").classList.remove("on");
+    document.getElementById("navOrders").classList.add("on");
+    show("screenMyOrders");
+    var box = document.getElementById("myOrdersList");
+    box.innerHTML = '<p class="empty">Загрузка…</p>';
+    var u = user();
+    apiGet({
+      action: "vrListOrders",
+      telegramId: u.telegramId || (state.me && state.me.telegramId) || "",
+      locationId: (state.location && state.location.id) || ""
+    }).then(function (res) {
+      var list = (res && res.orders) || [];
+      if (!list.length) {
+        box.innerHTML = '<div class="empty">Заказов пока нет</div>';
+        return;
+      }
+      box.innerHTML = list.map(function (o) {
+        var lines = (o.basket || []).map(function (b) {
+          return esc(b.name) + " × " + b.qty;
+        }).join("<br>");
+        var st = String(o.status || "new");
+        return '<div class="order"><div class="h"><span>' + esc(o.dateIso || "") +
+          '</span><span class="badge' + (st === "done" ? " done" : "") + '">' + esc(st) +
+          "</span></div><div class=\"lines\">" + lines +
+          '</div><div class="h" style="margin-top:8px;"><span>' + esc(o.locationName || "") +
+          "</span><b>" + money(o.total) + " BYN</b></div></div>";
+      }).join("");
+    }).catch(function (err) {
+      box.innerHTML = '<div class="err">' + esc(err.message || err) + "</div>";
+    });
+  }
+
+  function goAdmin() {
+    if (!(state.me && state.me.isAdmin)) return;
+    show("screenAdmin");
+    setAdminPane(state.adminPane || "catalog");
+  }
+
+  function setAdminPane(pane) {
+    state.adminPane = pane;
+    document.querySelectorAll("[data-admin]").forEach(function (el) {
+      el.classList.toggle("on", el.getAttribute("data-admin") === pane);
+    });
+    var box = document.getElementById("adminPane");
+    box.innerHTML = '<p class="empty">Загрузка…</p>';
+    if (pane === "catalog") loadAdminCatalog(box);
+    else if (pane === "locations") loadAdminLocations(box);
+    else if (pane === "access") loadAdminAccess(box);
+    else if (pane === "orders") loadAdminOrders(box);
+  }
+
+  function loadAdminCatalog(box) {
+    var u = user();
+    apiGet({
+      action: "vrGetCatalog",
+      telegramId: u.telegramId || "",
+      all: "1"
+    }).then(function (res) {
+      var items = (res && res.items) || [];
+      var html = '<label class="lbl">Новая / правка позиции</label>' +
+        '<input class="field" id="acId" placeholder="id (пусто = новый)">' +
+        '<select class="field" id="acType"><option value="treat">Лакомство</option><option value="coupon">Купон</option></select>' +
+        '<input class="field" id="acName" placeholder="Название">' +
+        '<input class="field" id="acUnit" placeholder="Ед. (шт / пачка / 100г)">' +
+        '<input class="field" id="acPrice" type="number" step="0.01" placeholder="Цена BYN">' +
+        '<select class="field" id="acActive"><option value="yes">Активна</option><option value="no">Скрыта</option></select>' +
+        '<button class="btn block" type="button" onclick="saveCatalogItem()">Сохранить</button>' +
+        '<div style="margin-top:16px;">';
+      items.forEach(function (it) {
+        html += '<div class="item" onclick="fillCatalogForm(' + JSON.stringify(JSON.stringify(it)) + ')">' +
+          '<div class="meta"><div class="title">' + esc(it.name) +
+          ' <span class="badge">' + esc(it.type) + "</span></div>" +
+          '<div class="price">' + money(it.price) + " · " + (it.active === false ? "скрыта" : "активна") +
+          "</div></div></div>";
+      });
+      box.innerHTML = html + "</div>";
+    }).catch(function (err) {
+      box.innerHTML = '<div class="err">' + esc(err.message || err) + "</div>";
+    });
+  }
+
+  function fillCatalogForm(raw) {
+    var it = typeof raw === "string" ? JSON.parse(raw) : raw;
+    document.getElementById("acId").value = it.id || "";
+    document.getElementById("acType").value = it.type || "treat";
+    document.getElementById("acName").value = it.name || "";
+    document.getElementById("acUnit").value = it.unit || "";
+    document.getElementById("acPrice").value = it.price != null ? it.price : "";
+    document.getElementById("acActive").value = it.active === false ? "no" : "yes";
+  }
+
+  function saveCatalogItem() {
+    var u = user();
+    apiGet({
+      action: "vrAdminSaveCatalog",
+      telegramId: u.telegramId || "",
+      id: document.getElementById("acId").value.trim(),
+      type: document.getElementById("acType").value,
+      name: document.getElementById("acName").value.trim(),
+      unit: document.getElementById("acUnit").value.trim(),
+      price: document.getElementById("acPrice").value,
+      active: document.getElementById("acActive").value
+    }).then(function (res) {
+      if (!res || res.status !== "success") throw new Error((res && res.message) || "Ошибка");
+      setAdminPane("catalog");
+    }).catch(function (err) { alert(String(err.message || err)); });
+  }
+
+  function loadAdminLocations(box) {
+    var locs = (state.me && state.me.allLocations) || (state.me && state.me.locations) || [];
+    var html = '<label class="lbl">Точка</label>' +
+      '<input class="field" id="alId" placeholder="id (пусто = новая)">' +
+      '<input class="field" id="alName" placeholder="Название">' +
+      '<input class="field" id="alAddr" placeholder="Адрес">' +
+      '<select class="field" id="alActive"><option value="yes">Активна</option><option value="no">Скрыта</option></select>' +
+      '<button class="btn block" type="button" onclick="saveLocation()">Сохранить</button><div style="margin-top:16px;">';
+    locs.forEach(function (loc) {
+      html += '<button class="loc" type="button" onclick="fillLocForm(' + JSON.stringify(JSON.stringify(loc)) + ')">' +
+        '<div class="name">' + esc(loc.name) + "</div>" +
+        (loc.address ? '<div class="addr">' + esc(loc.address) + "</div>" : "") +
+        "</button>";
+    });
+    box.innerHTML = html + "</div>";
+  }
+
+  function fillLocForm(raw) {
+    var loc = typeof raw === "string" ? JSON.parse(raw) : raw;
+    document.getElementById("alId").value = loc.id || "";
+    document.getElementById("alName").value = loc.name || "";
+    document.getElementById("alAddr").value = loc.address || "";
+    document.getElementById("alActive").value = loc.active === false ? "no" : "yes";
+  }
+
+  function saveLocation() {
+    var u = user();
+    apiGet({
+      action: "vrAdminSaveLocation",
+      telegramId: u.telegramId || "",
+      id: document.getElementById("alId").value.trim(),
+      name: document.getElementById("alName").value.trim(),
+      address: document.getElementById("alAddr").value.trim(),
+      active: document.getElementById("alActive").value
+    }).then(function (res) {
+      if (!res || res.status !== "success") throw new Error((res && res.message) || "Ошибка");
+      return boot(true);
+    }).then(function () { setAdminPane("locations"); })
+      .catch(function (err) { alert(String(err.message || err)); });
+  }
+
+  function loadAdminAccess(box) {
+    box.innerHTML =
+      '<label class="lbl">Доступ владельца точки</label>' +
+      '<input class="field" id="aaTid" placeholder="Telegram ID">' +
+      '<input class="field" id="aaName" placeholder="Имя">' +
+      '<input class="field" id="aaLocs" placeholder="ID точек через запятую">' +
+      '<select class="field" id="aaRole"><option value="owner">owner (точка)</option><option value="admin">admin</option></select>' +
+      '<select class="field" id="aaStatus"><option value="active">active</option><option value="denied">denied</option></select>' +
+      '<button class="btn block" type="button" onclick="saveAccess()">Сохранить доступ</button>' +
+      '<p class="sub" style="margin-top:12px;">Свой ID: <b>' + esc((state.me && state.me.telegramId) || "") + "</b></p>";
+  }
+
+  function saveAccess() {
+    var u = user();
+    apiGet({
+      action: "vrAdminSaveAccess",
+      telegramId: u.telegramId || "",
+      targetId: document.getElementById("aaTid").value.trim(),
+      name: document.getElementById("aaName").value.trim(),
+      locationIds: document.getElementById("aaLocs").value.trim(),
+      role: document.getElementById("aaRole").value,
+      status: document.getElementById("aaStatus").value
+    }).then(function (res) {
+      if (!res || res.status !== "success") throw new Error((res && res.message) || "Ошибка");
+      alert("Сохранено");
+    }).catch(function (err) { alert(String(err.message || err)); });
+  }
+
+  function loadAdminOrders(box) {
+    var u = user();
+    apiGet({
+      action: "vrListOrders",
+      telegramId: u.telegramId || "",
+      all: "1"
+    }).then(function (res) {
+      var list = (res && res.orders) || [];
+      if (!list.length) {
+        box.innerHTML = '<div class="empty">Заказов нет</div>';
+        return;
+      }
+      box.innerHTML = list.map(function (o) {
+        var lines = (o.basket || []).map(function (b) {
+          return esc(b.name) + " × " + b.qty;
+        }).join("<br>");
+        return '<div class="order"><div class="h"><span>' + esc(o.dateIso || "") + " · " +
+          esc(o.locationName || "") + '</span><span class="badge">' + esc(o.status || "") +
+          "</span></div><div class=\"lines\">" + lines +
+          '</div><div class="h" style="margin-top:8px;"><span>' + esc(o.userName || o.telegramId || "") +
+          "</span><b>" + money(o.total) + " BYN</b></div></div>";
+      }).join("");
+    }).catch(function (err) {
+      box.innerHTML = '<div class="err">' + esc(err.message || err) + "</div>";
+    });
+  }
+
+  function boot(soft) {
+    var u = user();
+    var msg = document.getElementById("bootMsg");
+    if (!soft && msg) msg.textContent = "Вход…";
+    if (!soft) show("screenBoot");
+    return apiGet({
+      action: "vrMe",
+      telegramId: u.telegramId,
+      name: u.name,
+      username: u.username,
+      initData: u.initData
+    }).then(function (res) {
+      if (!res || res.status !== "success") {
+        // Fallback demo when Deploy ещё без vr*
+        if (res && (res.status === "unknown_action" || res.status === "error")) {
+          throw new Error((res.message || "API vr* ещё не задеплоен. Вставьте Code.gs → Deploy."));
+        }
+        throw new Error((res && res.message) || "Нет доступа");
+      }
+      state.me = res;
+      if (!soft) {
+        var locs = res.locations || [];
+        if (locs.length === 1 && !res.isAdmin) {
+          pickLoc(locs[0].id);
+        } else {
+          renderLocs();
+          show("screenLocs");
+        }
+      }
+    }).catch(function (err) {
+      if (soft) throw err;
+      if (msg) {
+        msg.innerHTML = '<div class="err">' + esc(err.message || err) + "</div>" +
+          '<p class="empty">ID: <b>' + esc(u.telegramId || "откройте из Telegram") + "</b></p>" +
+          '<p class="sub">После Deploy Code.gs владелец выдаёт доступ в кабинете.</p>';
+      }
+    });
+  }
+
+  window.setQty = setQty;
+  window.setCat = setCat;
+  window.pickLoc = pickLoc;
+  window.goLocs = goLocs;
+  window.goAdmin = goAdmin;
+  window.submitOrder = submitOrder;
+  window.showMyOrders = showMyOrders;
+  window.showOrderTab = showOrderTab;
+  window.setAdminPane = setAdminPane;
+  window.saveCatalogItem = saveCatalogItem;
+  window.fillCatalogForm = fillCatalogForm;
+  window.saveLocation = saveLocation;
+  window.fillLocForm = fillLocForm;
+  window.saveAccess = saveAccess;
+
+  boot(false);
+})();
+  </script>
+</body>
+</html>

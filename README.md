@@ -57,9 +57,16 @@ superboyna/
 Быстрая копия UI в [`fast/`](./fast/) через Cloudflare Worker (кэш).  
 **Прод `app.html` / `Code.gs` не меняются.** См. [fast/README.md](./fast/README.md).
 
+## Варок (партнёры)
+
+Mini App для владельцев точек: заказ лакомств и купонов.  
+Фронт: [`varok/`](./varok/) · логика: [VAROK.md](./VAROK.md).  
+Бэкенд `vr*` в `Code.gs` — отдельно, по согласованию (живой конвейер не трогаем без нужды).
+
 ## Документы
 
 - [ИНСТРУКЦИЯ.md](./ИНСТРУКЦИЯ.md) — **для владельца: куда вставить код**
 - [PROJECT.md](./PROJECT.md) — устройство таблиц и API
 - [TZ.md](./TZ.md) — ТЗ и отложенные задачи (токен бота)
+- [VAROK.md](./VAROK.md) — партнёры Варок (заказы пополнения)
 - [NATIVE.md](./NATIVE.md) — Capacitor iOS/Android
