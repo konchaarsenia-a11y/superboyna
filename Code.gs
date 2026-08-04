@@ -1540,6 +1540,9 @@ function doGet(e) {
   if (action === "setupBookingTriggers") {
     return handleSetupBookingTriggers(callback, false);
   }
+  if (action === "setupDeliveryDatesNudgeTriggers") {
+    return handleSetupDeliveryDatesNudgeTriggers(callback, false);
+  }
   if (action === "getMyAccess") {
     return handleGetMyAccess({
       telegramId: e.parameter.telegramId || "",
@@ -1999,6 +2002,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "setupBookingTriggers") {
     return handleSetupBookingTriggers(callback, fromPost);
+  }
+  if (action === "setupDeliveryDatesNudgeTriggers") {
+    return handleSetupDeliveryDatesNudgeTriggers(callback, fromPost);
   }
   if (action === "updateCutting") {
     return handleUpdateCutting(ss, json, callback, fromPost);
@@ -6251,6 +6257,8 @@ function notifyOutNextStock_(info) {
 
 function tickCuttingDeficit_() {
   try { ensureTelegramWebhookUrl_(); } catch (eWh) {}
+  try { ensureDeliveryDatesNudgeTriggers_(); } catch (eNudgeTr) {}
+  try { tickDeliveryDatesNudge_(); } catch (eNudge) {}
   try { tickBpSurveyReminders_(); } catch (eSurvey) {}
   var sh = getDeficitSheet_();
   var data = sh.getDataRange().getValues();
@@ -6276,6 +6284,145 @@ function tickCuttingDeficit_() {
     sh.getRange(i + 1, 8).setValue(now);
   }
   SpreadsheetApp.flush();
+}
+
+/** Все активные сотрудники из «Доступы» (+ OWNER_TELEGRAM_IDS). */
+function collectAllActiveStaffTelegramIds_() {
+  var ids = {};
+  try {
+    var owners = getOwnerTelegramIds_();
+    for (var i = 0; i < owners.length; i++) {
+      if (owners[i]) ids[String(owners[i]).trim()] = true;
+    }
+  } catch (eO) {}
+  try {
+    var rows = readAccessRows_();
+    var okRoles = {
+      owner: true, manager: true, cutter: true, courier: true, logistics: true, all: true
+    };
+    for (var r = 0; r < rows.length; r++) {
+      var role = String(rows[r].role || "").toLowerCase();
+      var st = String(rows[r].status || "").toLowerCase();
+      if (st === "denied" || st === "pending" || role === "pending" || role === "denied") continue;
+      if (!(st === "active" || !st || role === "owner")) continue;
+      if (!okRoles[role]) continue;
+      var id = String(rows[r].telegramId || "").trim();
+      if (id) ids[id] = true;
+    }
+  } catch (eR) {}
+  return Object.keys(ids);
+}
+
+/**
+ * Напоминание «подбить даты доставок» — 11:00 и 19:00 Europe/Minsk, всем сотрудникам.
+ * Идемпотентно на день+слот (Script Properties).
+ */
+function tickDeliveryDatesNudge_() {
+  var tz = "Europe/Minsk";
+  var now = new Date();
+  var hour = Number(Utilities.formatDate(now, tz, "H"));
+  var ymd = Utilities.formatDate(now, tz, "yyyy-MM-dd");
+  var slot = "";
+  if (hour === 11) slot = "11";
+  else if (hour === 19) slot = "19";
+  else return { skipped: true, reason: "not_slot", hour: hour };
+
+  var props = PropertiesService.getScriptProperties();
+  var key = "DATE_NUDGE_" + ymd + "_" + slot;
+  try {
+    if (props.getProperty(key) === "1") {
+      return { skipped: true, reason: "already", slot: slot, ymd: ymd };
+    }
+  } catch (eK) {}
+
+  var sent = sendDeliveryDatesNudge_(slot);
+  try { props.setProperty(key, "1"); } catch (eS) {}
+  try { pruneOldDeliveryDatesNudgeKeys_(props, ymd); } catch (eP) {}
+  return { ok: true, slot: slot, ymd: ymd, sent: sent };
+}
+
+function pruneOldDeliveryDatesNudgeKeys_(props, keepYmd) {
+  if (!props) return;
+  var all = props.getProperties() || {};
+  var keys = Object.keys(all);
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    if (k.indexOf("DATE_NUDGE_") !== 0) continue;
+    if (keepYmd && k.indexOf("DATE_NUDGE_" + keepYmd) === 0) continue;
+    try { props.deleteProperty(k); } catch (eD) {}
+  }
+}
+
+function sendDeliveryDatesNudge_(slot) {
+  var when = String(slot || "") === "19" ? "19:00" : "11:00";
+  var text =
+    "📅 Подбейте даты доставок\n\n" +
+    "Сверьте в мини-аппе (Просмотр / Календарь), что все клиенты стоят на верных датах.\n\n" +
+    "⏰ " + when + " · Минск";
+  var ids = collectAllActiveStaffTelegramIds_();
+  var ok = 0;
+  var fail = 0;
+  for (var i = 0; i < ids.length; i++) {
+    try {
+      var res = telegramSendText_(ids[i], text);
+      if (res && res.ok) ok++;
+      else fail++;
+    } catch (e) {
+      fail++;
+    }
+  }
+  // общий чат (если задан) — дубль для команды
+  try {
+    var chat = PropertiesService.getScriptProperties().getProperty("TELEGRAM_CHAT_ID");
+    if (chat && String(chat).trim()) {
+      try { telegramSendText_(String(chat).trim(), text); } catch (eC) {}
+    }
+  } catch (eChat) {}
+  return { recipients: ids.length, ok: ok, fail: fail };
+}
+
+/** Триггеры: ежедневно около 11:00 и 19:00 (TZ проекта / таблицы; слот проверяем по Минску). */
+function ensureDeliveryDatesNudgeTriggers_() {
+  var props = PropertiesService.getScriptProperties();
+  var ver = "";
+  try { ver = String(props.getProperty("DATE_NUDGE_TRIG_V") || ""); } catch (eV) {}
+  var triggers = ScriptApp.getProjectTriggers();
+  var ours = [];
+  var i;
+  for (i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "tickDeliveryDatesNudge_") {
+      ours.push(triggers[i]);
+    }
+  }
+  if (ours.length === 2 && ver === "11-19-v1") return { ok: true, already: true };
+  for (i = 0; i < ours.length; i++) {
+    try { ScriptApp.deleteTrigger(ours[i]); } catch (eDel) {}
+  }
+  ScriptApp.newTrigger("tickDeliveryDatesNudge_").timeBased().atHour(11).everyDays(1).create();
+  ScriptApp.newTrigger("tickDeliveryDatesNudge_").timeBased().atHour(19).everyDays(1).create();
+  try { props.setProperty("DATE_NUDGE_TRIG_V", "11-19-v1"); } catch (eS) {}
+  return { ok: true, created: true, triggers: ["11:00", "19:00"] };
+}
+
+function handleSetupDeliveryDatesNudgeTriggers(callback, fromPost) {
+  var r = ensureDeliveryDatesNudgeTriggers_();
+  // пробная отправка не делаем — только установка
+  var ok = {
+    status: "success",
+    trigger: "tickDeliveryDatesNudge_@11+19 Europe/Minsk",
+    result: r
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/** Запустить один раз из редактора Script после Deploy. */
+function setupDeliveryDatesNudgeTriggersManual() {
+  return ensureDeliveryDatesNudgeTriggers_();
+}
+
+/** Тест из редактора: сразу разослать (не ждёт 11/19). */
+function testDeliveryDatesNudgeNow() {
+  return sendDeliveryDatesNudge_("11");
 }
 
 function closeDeficitRowsById_(sh, id) {
@@ -8424,7 +8571,13 @@ function handleSetupBookingTriggers(callback, fromPost) {
     }
   }
   ScriptApp.newTrigger("morningMaterializeTomorrow").timeBased().atHour(7).everyDays(1).create();
-  var ok = { status: "success", trigger: "morningMaterializeTomorrow@07:00" };
+  var nudge = null;
+  try { nudge = ensureDeliveryDatesNudgeTriggers_(); } catch (eN) { nudge = { ok: false, error: String(eN) }; }
+  var ok = {
+    status: "success",
+    trigger: "morningMaterializeTomorrow@07:00",
+    deliveryDatesNudge: nudge
+  };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
