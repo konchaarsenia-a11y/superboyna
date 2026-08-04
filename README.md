@@ -57,16 +57,18 @@ superboyna/
 Быстрая копия UI в [`fast/`](./fast/) через Cloudflare Worker (кэш).  
 **Прод `app.html` / `Code.gs` не меняются.** См. [fast/README.md](./fast/README.md).
 
-## Варок (партнёры)
+## Varka (партнёры)
 
-Mini App для владельцев точек: заказ лакомств и купонов.  
-Фронт: [`varok/`](./varok/) · логика: [VAROK.md](./VAROK.md).  
-**Параллельно конвейеру:** свой бэкенд/книга; корневой `Code.gs` Бойни **не трогаем**.
+Бесплатное пополнение лакомств/купонов для точек.  
+Фронт: [`varka/`](./varka/) · [VAROK.md](./VAROK.md).  
+**Параллельно конвейеру:** свой бэкенд; корневой `Code.gs` Бойни **не трогаем**.
+
+Pages: https://konchaarsenia-a11y.github.io/superboyna/varka/
 
 ## Документы
 
 - [ИНСТРУКЦИЯ.md](./ИНСТРУКЦИЯ.md) — **для владельца: куда вставить код**
 - [PROJECT.md](./PROJECT.md) — устройство таблиц и API
 - [TZ.md](./TZ.md) — ТЗ и отложенные задачи (токен бота)
-- [VAROK.md](./VAROK.md) — партнёры Варок (заказы пополнения)
+- [VAROK.md](./VAROK.md) — Varka (бесплатное пополнение)
 - [NATIVE.md](./NATIVE.md) — Capacitor iOS/Android
