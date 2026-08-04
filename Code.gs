@@ -6761,18 +6761,26 @@ function ensureDeliveryDatesNudgeTriggers_() {
     try { ScriptApp.deleteTrigger(ours[i]); } catch (eDel) {}
   }
   // nearMinute(0) — ближе к :00; TZ проекта должна быть Europe/Minsk (Файл → Настройки проекта)
-  ScriptApp.newTrigger("tickDeliveryDatesNudgeMorning_")
-    .timeBased()
-    .atHour(11)
-    .nearMinute(0)
-    .everyDays(1)
-    .create();
-  ScriptApp.newTrigger("tickDeliveryDatesNudgeEvening_")
-    .timeBased()
-    .atHour(19)
-    .nearMinute(0)
-    .everyDays(1)
-    .create();
+  try {
+    ScriptApp.newTrigger("tickDeliveryDatesNudgeMorning_")
+      .timeBased()
+      .atHour(11)
+      .nearMinute(0)
+      .everyDays(1)
+      .create();
+  } catch (eM) {
+    return { ok: false, created: false, step: "morning", error: String(eM) };
+  }
+  try {
+    ScriptApp.newTrigger("tickDeliveryDatesNudgeEvening_")
+      .timeBased()
+      .atHour(19)
+      .nearMinute(0)
+      .everyDays(1)
+      .create();
+  } catch (eE) {
+    return { ok: false, created: false, step: "evening", error: String(eE) };
+  }
   try { props.setProperty("DATE_NUDGE_TRIG_V", "11-19-v3"); } catch (eS) {}
   return { ok: true, created: true, ver: "11-19-v3", triggers: ["11:00", "19:00"] };
 }
@@ -6802,56 +6810,31 @@ function handleSetupDeliveryDatesNudgeTriggers(callback, fromPost) {
 }
 
 /**
- * Запуск из редактора Script (Run).
- * Важно: НЕ возвращать значение — IDE показывает «Неизвестная ошибка»
- * на любом return (как у setupTelegramWebhookManual / setupBookingTriggersManual).
- * Смотреть: Выполнения → лог, или всплывающее Browser.msgBox.
+ * Запуск из редактора (Run). Паттерн как setupTelegramWebhookManual:
+ * без return и без Browser.msgBox — иначе IDE пишет «Неизвестная ошибка».
+ * Результат: Выполнения → этот запуск → Журнал (Logger).
  */
 function setupDeliveryDatesNudgeTriggersManual() {
-  var msg = "";
   try {
-    var r = ensureDeliveryDatesNudgeTriggers_();
-    msg = r.already
-      ? ("OK: триггеры уже стоят (" + (r.ver || "") + ")")
-      : ("OK: созданы триггеры 11:00 и 19:00 (" + (r.ver || "") + ")");
-    Logger.log(msg);
-    try { Logger.log(JSON.stringify(r)); } catch (eJ) {}
+    var r = handleSetupDeliveryDatesNudgeTriggers("cb", true);
+    Logger.log(r.getContent());
   } catch (e) {
-    msg = "ERR setup triggers: " + String(e);
-    Logger.log(msg);
+    Logger.log("ERR setupDeliveryDatesNudgeTriggersManual: " + String(e));
     try { Logger.log(e && e.stack ? String(e.stack) : ""); } catch (e2) {}
   }
-  try { Browser.msgBox(msg || "done"); } catch (eUi) {}
 }
 
 /**
- * Тест из редактора: сразу разослать (не ждёт 11/19).
- * Без return — иначе IDE: «Неизвестная ошибка».
+ * Тест пуша из редактора. Смотреть Журнал выполнения, не экран результата.
  */
 function testDeliveryDatesNudgeNow() {
-  var msg = "";
   try {
-    // сбросить dedupe на сегодня, чтобы тест реально ушёл
-    try {
-      var props = PropertiesService.getScriptProperties();
-      var ymd = Utilities.formatDate(new Date(), "Europe/Minsk", "yyyy-MM-dd");
-      props.deleteProperty("DATE_NUDGE_" + ymd + "_11");
-      props.deleteProperty("DATE_NUDGE_" + ymd + "_19");
-      props.deleteProperty("DATE_NUDGE_" + ymd + "_test");
-    } catch (eClr) {}
-    var sent = sendDeliveryDatesNudge_("11");
-    msg = "OK push: recipients=" + (sent.recipients || 0) +
-      " ok=" + (sent.ok || 0) + " fail=" + (sent.fail || 0) +
-      " pp=" + (sent.pp || 0) + " bp1=" + (sent.bp1 || 0) +
-      " date=" + (sent.dateText || "");
-    Logger.log(msg);
-    try { Logger.log(JSON.stringify(sent)); } catch (eJ) {}
+    var r = handleTestDeliveryDatesNudge("cb", true);
+    Logger.log(r.getContent());
   } catch (e) {
-    msg = "ERR test push: " + String(e);
-    Logger.log(msg);
+    Logger.log("ERR testDeliveryDatesNudgeNow: " + String(e));
     try { Logger.log(e && e.stack ? String(e.stack) : ""); } catch (e2) {}
   }
-  try { Browser.msgBox(msg || "done"); } catch (eUi) {}
 }
 
 /** HTTP: тот же тест пуша (для агента / отладки). */
