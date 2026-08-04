@@ -4,43 +4,56 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <title>Varka · пополнение</title>
+  <title>Varka × Good Boy</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     :root {
-      --bg: #0c0c0c;
-      --bg2: #161616;
-      --bg3: #1e1e1e;
-      --line: #2a2a2a;
-      --text: #f2f2f2;
-      --muted: #8e8e93;
-      --accent: #c4a574;
-      --accent2: #e8d5b5;
+      --bg: #0a0a0a;
+      --bg2: #141414;
+      --bg3: #1c1c1c;
+      --line: #2c2c2c;
+      --text: #f5f5f5;
+      --muted: #9a9a9a;
+      --accent: #ff7a00;
+      --accent2: #ff9a3d;
+      --soft: #d8d8d8;
       --ok: #30d158;
       --danger: #ff453a;
-      --radius: 14px;
+      --radius: 16px;
       --safe-b: env(safe-area-inset-bottom, 0px);
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body {
       margin: 0; padding: 0;
       background: var(--bg); color: var(--text);
-      font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: "Nunito", "SF Pro Rounded", "SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif;
       min-height: 100%;
     }
     body {
       background:
-        radial-gradient(120% 80% at 10% -10%, rgba(196,165,116,0.18), transparent 55%),
-        radial-gradient(90% 60% at 100% 0%, rgba(80,60,40,0.25), transparent 50%),
+        radial-gradient(100% 70% at 85% -5%, rgba(255,122,0,0.16), transparent 50%),
+        radial-gradient(90% 55% at 0% 0%, rgba(255,255,255,0.05), transparent 45%),
         var(--bg);
       padding-bottom: calc(88px + var(--safe-b));
     }
     .wrap { max-width: 480px; margin: 0 auto; padding: 16px 16px 0; }
-    .brand {
-      font-size: 28px; font-weight: 700; letter-spacing: -0.03em;
-      color: var(--accent2); margin: 4px 0 2px;
+    .hero {
+      display: flex; align-items: center; justify-content: center;
+      gap: 14px; margin: 8px 0 10px;
     }
-    .sub { color: var(--muted); font-size: 14px; margin-bottom: 18px; }
+    .hero img {
+      width: 72px; height: 72px; object-fit: contain;
+      border-radius: 14px;
+    }
+    .hero .x {
+      color: var(--soft); font-size: 18px; font-weight: 700; opacity: 0.55;
+    }
+    .brand {
+      font-size: 26px; font-weight: 800; letter-spacing: -0.02em;
+      color: var(--text); margin: 4px 0 2px; text-align: center;
+    }
+    .brand .gb { color: var(--accent); }
+    .sub { color: var(--muted); font-size: 14px; margin-bottom: 18px; text-align: center; }
     .screen { display: none; animation: in 0.28s ease; }
     .screen.on { display: block; }
     @keyframes in {
@@ -52,17 +65,18 @@
       background: var(--bg2); border: 1px solid var(--line);
       border-radius: var(--radius); padding: 16px 18px; margin-bottom: 10px;
       color: var(--text); font-size: 16px; cursor: pointer;
+      transition: border-color 0.15s, transform 0.12s;
     }
-    .loc:active { background: var(--bg3); }
-    .loc .name { font-weight: 600; }
+    .loc:active { background: var(--bg3); transform: scale(0.99); }
+    .loc .name { font-weight: 700; }
     .loc .addr { color: var(--muted); font-size: 13px; margin-top: 4px; }
     .tabs {
       display: flex; gap: 6px; background: var(--bg2);
-      padding: 4px; border-radius: 12px; margin-bottom: 14px;
+      padding: 4px; border-radius: 14px; margin-bottom: 14px;
     }
     .tab {
       flex: 1; border: 0; background: transparent; color: var(--muted);
-      padding: 10px; border-radius: 10px; font-size: 14px; font-weight: 600;
+      padding: 10px; border-radius: 11px; font-size: 14px; font-weight: 700;
       cursor: pointer;
     }
     .tab.on { background: var(--bg3); color: var(--accent2); }
@@ -72,18 +86,36 @@
       border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px;
     }
     .item .meta { flex: 1; min-width: 0; }
-    .item .title { font-weight: 600; font-size: 15px; }
+    .item .title { font-weight: 700; font-size: 15px; }
     .item .unit { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .coupon-card {
+      background: linear-gradient(145deg, #121212 0%, #1a140f 100%);
+      border: 1px solid rgba(255,122,0,0.28);
+      border-radius: 18px; padding: 14px; margin-bottom: 10px;
+    }
+    .coupon-logos {
+      display: flex; align-items: center; justify-content: center;
+      gap: 16px; padding: 8px 4px 12px;
+    }
+    .coupon-logos img {
+      width: 88px; height: 88px; object-fit: contain;
+      border-radius: 12px;
+    }
+    .coupon-row {
+      display: flex; align-items: center; gap: 12px;
+      padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.12);
+    }
+    .coupon-row .meta { flex: 1; }
     .stepper { display: flex; align-items: center; gap: 8px; }
     .stepper button {
-      width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line);
+      width: 34px; height: 34px; border-radius: 11px; border: 1px solid var(--line);
       background: var(--bg3); color: var(--text); font-size: 18px; cursor: pointer;
     }
-    .stepper span { min-width: 22px; text-align: center; font-weight: 600; }
+    .stepper span { min-width: 22px; text-align: center; font-weight: 700; }
     .bar {
       position: fixed; left: 0; right: 0; bottom: 0;
       padding: 12px 16px calc(12px + var(--safe-b));
-      background: linear-gradient(to top, #0c0c0c 70%, transparent);
+      background: linear-gradient(to top, #0a0a0a 70%, transparent);
       pointer-events: none;
     }
     .bar-inner {
@@ -92,13 +124,13 @@
     }
     .cart-sum {
       flex: 1; background: var(--bg2); border: 1px solid var(--line);
-      border-radius: 12px; padding: 12px 14px; font-size: 14px;
+      border-radius: 14px; padding: 12px 14px; font-size: 14px;
     }
     .cart-sum b { color: var(--accent2); }
     .btn {
-      border: 0; border-radius: 12px; padding: 14px 18px;
-      font-weight: 700; font-size: 15px; cursor: pointer;
-      background: var(--accent); color: #1a1208;
+      border: 0; border-radius: 14px; padding: 14px 18px;
+      font-weight: 800; font-size: 15px; cursor: pointer;
+      background: var(--accent); color: #1a0f00;
     }
     .btn:disabled { opacity: 0.4; cursor: default; }
     .btn.ghost {
@@ -112,7 +144,7 @@
     .chip {
       border: 1px solid var(--line); background: var(--bg2);
       color: var(--muted); border-radius: 999px; padding: 6px 12px;
-      font-size: 12px; cursor: pointer;
+      font-size: 12px; cursor: pointer; font-weight: 700;
     }
     .chip.on { color: var(--accent2); border-color: var(--accent); }
     .empty { color: var(--muted); text-align: center; padding: 40px 16px; }
@@ -122,8 +154,8 @@
       font-size: 14px;
     }
     .okmsg {
-      background: rgba(48,209,88,0.12); border: 1px solid rgba(48,209,88,0.35);
-      color: #7dff9a; border-radius: 12px; padding: 14px; margin: 12px 0;
+      background: rgba(255,122,0,0.12); border: 1px solid rgba(255,122,0,0.35);
+      color: #ffc38a; border-radius: 12px; padding: 14px; margin: 12px 0;
       font-size: 14px;
     }
     .admin-row {
@@ -131,7 +163,7 @@
     }
     .field {
       width: 100%; background: var(--bg2); border: 1px solid var(--line);
-      border-radius: 10px; padding: 12px; color: var(--text);
+      border-radius: 12px; padding: 12px; color: var(--text);
       font-size: 15px; margin-bottom: 8px;
     }
     .order {
@@ -142,8 +174,8 @@
     .order .lines { margin-top: 8px; font-size: 14px; }
     .badge {
       display: inline-block; padding: 2px 8px; border-radius: 6px;
-      font-size: 11px; font-weight: 700; text-transform: uppercase;
-      background: #2a2418; color: var(--accent2);
+      font-size: 11px; font-weight: 800; text-transform: uppercase;
+      background: rgba(255,122,0,0.15); color: var(--accent2);
     }
     .badge.done { background: #14301c; color: #7dff9a; }
     .nav {
@@ -151,29 +183,42 @@
     }
     .nav button {
       flex: 0 0 auto; border: 1px solid var(--line); background: var(--bg2);
-      color: var(--muted); border-radius: 10px; padding: 8px 12px;
-      font-size: 13px; font-weight: 600; cursor: pointer;
+      color: var(--muted); border-radius: 12px; padding: 8px 12px;
+      font-size: 13px; font-weight: 700; cursor: pointer;
     }
     .nav button.on { color: var(--accent2); border-color: var(--accent); }
     label.lbl { display: block; font-size: 12px; color: var(--muted); margin: 6px 0 4px; }
     .free-pill {
-      display: inline-block; font-size: 11px; font-weight: 700;
+      display: block; width: fit-content; margin: 0 auto 12px;
+      font-size: 11px; font-weight: 800;
       letter-spacing: 0.04em; text-transform: uppercase;
-      color: var(--accent2); border: 1px solid rgba(196,165,116,0.45);
-      border-radius: 999px; padding: 4px 10px; margin-bottom: 10px;
+      color: var(--accent2); border: 1px solid rgba(255,122,0,0.4);
+      border-radius: 999px; padding: 5px 12px;
     }
   </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="wrap">
     <div id="screenBoot" class="screen on">
-      <div class="brand">Varka</div>
+      <div class="hero">
+        <img src="assets/varka-logo.png" alt="Varka">
+        <span class="x">×</span>
+        <img src="assets/goodboy-logo.png" alt="Good Boy">
+      </div>
+      <div class="brand">Varka × <span class="gb">Good Boy</span></div>
       <div class="sub">Партнёрское пополнение · бесплатно</div>
       <p class="empty" id="bootMsg">Вход…</p>
     </div>
 
     <div id="screenLocs" class="screen">
-      <div class="brand">Varka</div>
+      <div class="hero">
+        <img src="assets/varka-logo.png" alt="Varka">
+        <span class="x">×</span>
+        <img src="assets/goodboy-logo.png" alt="Good Boy">
+      </div>
+      <div class="brand">Varka × <span class="gb">Good Boy</span></div>
       <div class="free-pill">Бесплатно для партнёров</div>
       <div class="sub">Выберите точку</div>
       <div id="locList"></div>
@@ -185,8 +230,8 @@
     <div id="screenOrder" class="screen">
       <div class="toprow">
         <div>
-          <div class="brand" style="font-size:22px;margin:0;">Заказ</div>
-          <div class="sub" style="margin:2px 0 0;" id="orderLocName">—</div>
+          <div class="brand" style="font-size:20px;margin:0;text-align:left;">Заявка</div>
+          <div class="sub" style="margin:2px 0 0;text-align:left;" id="orderLocName">—</div>
         </div>
         <button class="chip" type="button" onclick="goLocs()">Сменить</button>
       </div>
@@ -234,10 +279,12 @@
 
   <script>
 (function () {
-  var APP_VER = "1.1.0";
+  var APP_VER = "1.2.0";
   // Свой webhook Varka (отдельный Script). ПУСТО = демо без сети.
   // НИКОГДА не ставить сюда /exec Бойни-конвейера.
   var VARKA_WEBHOOK_URL = "";
+  var LOGO_VARKA = "assets/varka-logo.png";
+  var LOGO_GOODBOY = "assets/goodboy-logo.png";
 
   var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   if (tg) {
@@ -456,15 +503,29 @@
     box.innerHTML = items.map(function (it) {
       var q = Number(state.cart[it.id]) || 0;
       var unit = it.unit ? esc(it.unit) : "";
-      return '<div class="item">' +
-        '<div class="meta"><div class="title">' + esc(it.name) + '</div>' +
-        (unit ? '<div class="unit">' + unit + "</div>" : "") +
-        "</div>" +
+      var stepper =
         '<div class="stepper">' +
         '<button type="button" onclick="setQty(\'' + it.id + '\',-1)">−</button>' +
         "<span>" + q + "</span>" +
         '<button type="button" onclick="setQty(\'' + it.id + '\',1)">+</button>' +
-        "</div></div>";
+        "</div>";
+      if (it.type === "coupon") {
+        // На купоне — только два логотипа
+        return '<div class="coupon-card">' +
+          '<div class="coupon-logos">' +
+          '<img src="' + LOGO_VARKA + '" alt="Varka">' +
+          '<img src="' + LOGO_GOODBOY + '" alt="Good Boy">' +
+          "</div>" +
+          '<div class="coupon-row">' +
+          '<div class="meta"><div class="title">' + esc(it.name) + "</div>" +
+          (unit ? '<div class="unit">' + unit + "</div>" : "") +
+          "</div>" + stepper +
+          "</div></div>";
+      }
+      return '<div class="item">' +
+        '<div class="meta"><div class="title">' + esc(it.name) + "</div>" +
+        (unit ? '<div class="unit">' + unit + "</div>" : "") +
+        "</div>" + stepper + "</div>";
     }).join("");
   }
 
@@ -815,7 +876,7 @@
             var box = document.getElementById("locList");
             if (box) {
               box.insertAdjacentHTML("afterbegin",
-                '<div class="okmsg">Демо · бесплатное партнёрство Varka · webhook Бойни не вызываем</div>');
+                '<div class="okmsg">Демо · Varka × Good Boy · бесплатно · webhook Бойни не вызываем</div>');
             }
           }
         }
