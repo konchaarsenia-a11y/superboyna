@@ -288,7 +288,7 @@
 
   <script>
 (function () {
-  var APP_VER = "1.3.0";
+  var APP_VER = "1.3.1";
   // Свой webhook Varka (отдельный Script). ПУСТО = демо без сети.
   // НИКОГДА не ставить сюда /exec Бойни-конвейера.
   var VARKA_WEBHOOK_URL = "";
@@ -296,11 +296,20 @@
   var LOGO_GOODBOY = "assets/goodboy-logo.png";
 
   function partnerLogoFor_(loc) {
-    if (!loc) return LOGO_VARKA;
+    if (!loc) return LOGO_GOODBOY;
     if (loc.logo) return loc.logo;
     var n = String(loc.name || "").toLowerCase();
     if (n.indexOf("varka") >= 0 || n.indexOf("варка") >= 0) return LOGO_VARKA;
-    return LOGO_VARKA;
+    // Плейсхолдер с названием, пока нет файла логотипа партнёра
+    var label = String(loc.name || "?").slice(0, 12);
+    var svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">' +
+      '<rect width="256" height="256" rx="40" fill="#1a1a1a"/>' +
+      '<circle cx="128" cy="108" r="70" fill="#ff7a00"/>' +
+      '<text x="128" y="118" text-anchor="middle" fill="#111" font-family="Arial,sans-serif" font-size="36" font-weight="700">' +
+      label.replace(/&/g, "&amp;").replace(/</g, "&lt;") +
+      "</text></svg>";
+    return "data:image/svg+xml," + encodeURIComponent(svg);
   }
 
   function setNetworkHero_(loc) {
@@ -329,12 +338,22 @@
       role: "admin",
       isAdmin: true,
       locations: [
-        { id: "loc_demo1", name: "Varka", address: "сеть кофеен", logo: "assets/varka-logo.png", active: true },
-        { id: "loc_demo2", name: "Good Boy Demo", address: "партнёрский проект", logo: "assets/goodboy-icon.png", active: true }
+        { id: "net_varka", name: "Varka", address: "сеть кофеен", logo: "assets/varka-logo.png", active: true },
+        { id: "net_nan", name: "NaN clinic", address: "ветклиника", active: true },
+        { id: "net_fundog", name: "Fundog", address: "партнёрский проект", active: true },
+        { id: "net_firedog", name: "Firedog", address: "партнёрский проект", active: true },
+        { id: "net_polotno", name: "Polotno", address: "партнёрский проект", active: true },
+        { id: "net_indixvost", name: "Indixvost", address: "партнёрский проект", active: true },
+        { id: "net_bowwow", name: "Bow_wow_color", address: "партнёрский проект", active: true }
       ],
       allLocations: [
-        { id: "loc_demo1", name: "Varka", address: "сеть кофеен", logo: "assets/varka-logo.png", active: true },
-        { id: "loc_demo2", name: "Good Boy Demo", address: "партнёрский проект", logo: "assets/goodboy-icon.png", active: true }
+        { id: "net_varka", name: "Varka", address: "сеть кофеен", logo: "assets/varka-logo.png", active: true },
+        { id: "net_nan", name: "NaN clinic", address: "ветклиника", active: true },
+        { id: "net_fundog", name: "Fundog", address: "партнёрский проект", active: true },
+        { id: "net_firedog", name: "Firedog", address: "партнёрский проект", active: true },
+        { id: "net_polotno", name: "Polotno", address: "партнёрский проект", active: true },
+        { id: "net_indixvost", name: "Indixvost", address: "партнёрский проект", active: true },
+        { id: "net_bowwow", name: "Bow_wow_color", address: "партнёрский проект", active: true }
       ]
     },
     catalog: [
