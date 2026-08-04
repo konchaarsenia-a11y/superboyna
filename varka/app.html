@@ -69,13 +69,18 @@
       to { opacity: 1; transform: none; }
     }
     .loc {
-      display: block; width: 100%; text-align: left;
+      display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
       background: var(--bg2); border: 1px solid var(--line);
-      border-radius: var(--radius); padding: 16px 18px; margin-bottom: 10px;
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px;
       color: var(--text); font-size: 16px; cursor: pointer;
       transition: border-color 0.15s, transform 0.12s;
     }
     .loc:active { background: var(--bg3); transform: scale(0.99); }
+    .loc .logo {
+      width: 52px; height: 52px; border-radius: 14px; object-fit: cover;
+      background: #111; flex-shrink: 0; border: 1px solid var(--line);
+    }
+    .loc .meta { flex: 1; min-width: 0; }
     .loc .name { font-weight: 700; }
     .loc .addr { color: var(--muted); font-size: 13px; margin-top: 4px; }
     .tabs {
@@ -288,7 +293,7 @@
 
   <script>
 (function () {
-  var APP_VER = "1.3.1";
+  var APP_VER = "1.4.0";
   // Свой webhook Varka (отдельный Script). ПУСТО = демо без сети.
   // НИКОГДА не ставить сюда /exec Бойни-конвейера.
   var VARKA_WEBHOOK_URL = "";
@@ -339,18 +344,18 @@
       isAdmin: true,
       locations: [
         { id: "net_varka", name: "Varka", address: "сеть кофеен", logo: "assets/varka-logo.png", active: true },
-        { id: "net_nan", name: "NaN clinic", address: "ветклиника", active: true },
-        { id: "net_fundog", name: "Fundog", address: "партнёрский проект", active: true },
-        { id: "net_firedog", name: "Firedog", address: "партнёрский проект", active: true },
+        { id: "net_nan", name: "NaN clinic", address: "ветклиника", logo: "assets/partners/nan.png", active: true },
+        { id: "net_fundog", name: "Fundog", address: "комьюнити · Минск", logo: "assets/partners/fundog.png", active: true },
+        { id: "net_firedog", name: "Firedog", address: "партнёрский проект", logo: "assets/partners/firedog.png", active: true },
         { id: "net_polotno", name: "Polotno", address: "партнёрский проект", active: true },
         { id: "net_indixvost", name: "Indixvost", address: "партнёрский проект", active: true },
         { id: "net_bowwow", name: "Bow_wow_color", address: "партнёрский проект", active: true }
       ],
       allLocations: [
         { id: "net_varka", name: "Varka", address: "сеть кофеен", logo: "assets/varka-logo.png", active: true },
-        { id: "net_nan", name: "NaN clinic", address: "ветклиника", active: true },
-        { id: "net_fundog", name: "Fundog", address: "партнёрский проект", active: true },
-        { id: "net_firedog", name: "Firedog", address: "партнёрский проект", active: true },
+        { id: "net_nan", name: "NaN clinic", address: "ветклиника", logo: "assets/partners/nan.png", active: true },
+        { id: "net_fundog", name: "Fundog", address: "комьюнити · Минск", logo: "assets/partners/fundog.png", active: true },
+        { id: "net_firedog", name: "Firedog", address: "партнёрский проект", logo: "assets/partners/firedog.png", active: true },
         { id: "net_polotno", name: "Polotno", address: "партнёрский проект", active: true },
         { id: "net_indixvost", name: "Indixvost", address: "партнёрский проект", active: true },
         { id: "net_bowwow", name: "Bow_wow_color", address: "партнёрский проект", active: true }
@@ -599,10 +604,12 @@
         '<p class="empty" style="padding-top:8px;">Ваш ID: <b>' + esc((state.me && state.me.telegramId) || user().telegramId || "—") + "</b></p>";
     } else {
       box.innerHTML = locs.map(function (loc) {
+        var logo = partnerLogoFor_(loc);
         return '<button class="loc" type="button" onclick="pickLoc(\'' + esc(loc.id) + '\')">' +
-          '<div class="name">' + esc(loc.name) + "</div>" +
+          '<img class="logo" src="' + logo + '" alt="">' +
+          '<div class="meta"><div class="name">' + esc(loc.name) + "</div>" +
           (loc.address ? '<div class="addr">' + esc(loc.address) + "</div>" : "") +
-          "</button>";
+          "</div></button>";
       }).join("");
     }
     var hint = document.getElementById("locAdminHint");
