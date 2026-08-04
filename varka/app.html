@@ -220,7 +220,7 @@
       </div>
       <div class="brand">Varka × <span class="gb">Good Boy</span></div>
       <div class="free-pill">Бесплатно для партнёров</div>
-      <div class="sub">Выберите точку</div>
+      <div class="sub">Выберите сеть или название вашего проекта</div>
       <div id="locList"></div>
       <div id="locAdminHint" style="display:none;margin-top:16px;">
         <button class="btn ghost block" type="button" onclick="goAdmin()">Кабинет владельца</button>
@@ -300,12 +300,12 @@
       role: "admin",
       isAdmin: true,
       locations: [
-        { id: "loc_demo1", name: "Varka · Немига", address: "ул. Немига", active: true },
-        { id: "loc_demo2", name: "Varka · Каменная", address: "ул. Каменная", active: true }
+        { id: "loc_demo1", name: "Varka", address: "сеть кофеен", active: true },
+        { id: "loc_demo2", name: "Good Boy", address: "партнёрский проект", active: true }
       ],
       allLocations: [
-        { id: "loc_demo1", name: "Varka · Немига", address: "ул. Немига", active: true },
-        { id: "loc_demo2", name: "Varka · Каменная", address: "ул. Каменная", active: true }
+        { id: "loc_demo1", name: "Varka", address: "сеть кофеен", active: true },
+        { id: "loc_demo2", name: "Good Boy", address: "партнёрский проект", active: true }
       ]
     },
     catalog: [
@@ -546,7 +546,7 @@
     var box = document.getElementById("locList");
     var locs = (state.me && state.me.locations) || [];
     if (!locs.length) {
-      box.innerHTML = '<div class="err">Нет доступа к точкам. Попросите владельца добавить ваш Telegram ID.</div>' +
+      box.innerHTML = '<div class="err">Нет доступа к сетям. Попросите владельца добавить ваш Telegram ID.</div>' +
         '<p class="empty" style="padding-top:8px;">Ваш ID: <b>' + esc((state.me && state.me.telegramId) || user().telegramId || "—") + "</b></p>";
     } else {
       box.innerHTML = locs.map(function (loc) {
