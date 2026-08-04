@@ -11,10 +11,11 @@ alwaysApply: true
 
 | Файл | Назначение |
 |------|------------|
-| `app.html` | Telegram Mini App (фронт) |
+| `app.html` | Telegram Mini App конвейера (фронт команды) |
 | `Code.gs` | Google Apps Script (бэкенд) — копировать в редактор Script |
 | `PROJECT.md` | Карта листов, строк, API |
 | `TZ.md` | ТЗ по экранам и багам |
+| `GOODBOY.md` | Клиентская экосистема Goodboy (сайт + TG; не конвейер) |
 | `README.md` | Деплой и как тестировать |
 
 ## Внешние ссылки (живые)
