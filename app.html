@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.130";
+      var APP_VER = "v7.11.131";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1476,16 +1476,20 @@
     <div class="tasks-drawer-overlay" id="tasksDrawerOverlay" onclick="closeTasksDrawer()"></div>
     <aside class="tasks-drawer" id="tasksDrawer" aria-hidden="true">
       <div class="tasks-drawer-head">
-        <b>Задачи</b>
+        <b>Переносы / задачи</b>
         <button type="button" class="tasks-drawer-close" onclick="closeTasksDrawer()" aria-label="Закрыть">×</button>
       </div>
       <div class="tasks-drawer-body" id="tasksDrawerBody">
         <div class="sub-tabs" id="tasksSubTabs" style="margin-bottom:12px;">
-          <button type="button" class="sub-tab active" id="tasksTabOrders" onclick="setTasksTab('orders')">Заказы <span class="tasks-tab-count" id="tasksCountOrders">0</span></button>
+          <button type="button" class="sub-tab active" id="tasksTabXfer" onclick="setTasksTab('xfer')">Переносы <span class="tasks-tab-count" id="tasksCountXfer">0</span></button>
+          <button type="button" class="sub-tab" id="tasksTabOrders" onclick="setTasksTab('orders')">Заказы <span class="tasks-tab-count" id="tasksCountOrders">0</span></button>
           <button type="button" class="sub-tab" id="tasksTabPp" onclick="setTasksTab('pp')">ПП/БП <span class="tasks-tab-count" id="tasksCountPp">0</span></button>
           <button type="button" class="sub-tab" id="tasksTabRemind" onclick="setTasksTab('remind')">Напомин. <span class="tasks-tab-count" id="tasksCountRemind">0</span></button>
         </div>
-        <div id="tasksPaneOrders">
+        <div id="tasksPaneXfer">
+          <div id="tasksXferList"><p class="muted">Нет переносов. Курьер шлёт «Не получил» — появится здесь.</p></div>
+        </div>
+        <div id="tasksPaneOrders" style="display:none;">
           <div id="tasksOrderList"><p class="muted">Пока пусто. Из Заказа — «На потом».</p></div>
         </div>
         <div id="tasksPanePp" style="display:none;">
@@ -2431,11 +2435,11 @@
       <div id="priceResult"><p class="muted">Набери состав и нажми «Собрать сообщение»</p></div>
     </div>
 
-    <!-- ОТЛОЖЕННОЕ / задачи — список в ☰; экран без плашки-заглушки -->
+    <!-- ПЕРЕНОСЫ / задачи — список в ☰ -->
     <div id="deferredScreen" class="screen">
       <div class="card" style="margin-bottom:10px;">
         <button class="btn-action" type="button" style="margin:0 0 8px;width:100%;background:#ffd60a;color:#111;" onclick="createStandaloneReminder()">＋ Напоминалка</button>
-        <button class="btn-action btn-orange" type="button" style="margin:0;width:100%;" onclick="openTasksDrawer()">Открыть задачи ☰</button>
+        <button class="btn-action btn-orange" type="button" style="margin:0;width:100%;" onclick="openTasksDrawer()">Открыть Переносы / задачи ☰</button>
       </div>
       <div id="deferredScreenRemindList" style="margin-bottom:12px;"></div>
       <div id="deferredScreenList"><p class="muted">Загрузка…</p></div>
@@ -2513,7 +2517,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.130";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.131";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -9914,6 +9918,7 @@
               <div>${addrPrivate}</div>
               ${priceHtml}
               ${courNote ? ("<div style=\"margin-top:4px;\">Примечание: " + escapeHtml(courNote) + "</div>") : ""}
+              ${!c.delivered ? ('<button type="button" class="btn-action btn-orange" style="margin-top:8px;width:100%;" onclick="event.stopPropagation();notifyMissedDelivery_(' + idx + ')">Не получил → менеджеру</button>') : ""}
             </div>
             <div>${lines || '<span class="muted">Пустой заказ</span>'}</div>
           </div>`;
@@ -9994,6 +9999,176 @@
         showToast("Не удалось сохранить галочку");
       }
     }
+
+    async function notifyMissedDelivery_(index) {
+      var day = document.getElementById("courierDaySelect").value;
+      var client = courierClientsCache[index];
+      if (!client) return;
+      if (client.delivered) {
+        showToast("Уже отмечен доставленным");
+        return;
+      }
+      var reason = await uiChoiceAsync(
+        "Не получил · " + client.name,
+        "Коротко: почему не вручили? Менеджер получит задачу на перенос.",
+        [
+          { label: "Не открыл / не дома", value: "не дома", cls: "btn-orange" },
+          { label: "Перенос по просьбе", value: "просил перенос", cls: "btn-blue" },
+          { label: "Другое", value: "другое", cls: "" },
+          { label: "Отмена", value: "", cls: "" }
+        ]
+      );
+      if (!reason) return;
+      if (reason === "другое") {
+        var custom = await uiPromptAsync("Причина (кратко)", "например: звонок не берёт");
+        if (custom === null) return;
+        reason = String(custom || "").trim() || "другое";
+      }
+      var tid = "";
+      try { tid = String(await ensureTelegramId() || "").trim(); } catch (eT) { tid = String(myTelegramId || ""); }
+      if (!tid) {
+        await uiAlertAsync("Нужен Telegram ID (вход в мини-апп)");
+        return;
+      }
+      var myName = "";
+      try {
+        var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+        myName = [u && u.first_name, u && u.last_name].filter(Boolean).join(" ").trim();
+      } catch (eN) {}
+      try {
+        showToast("Отправляю менеджеру…");
+        var res = await apiGet({
+          action: "notifyMissedDelivery",
+          telegramId: tid,
+          client: client.name,
+          day: day,
+          date: courierClientsCache._date || "",
+          reason: reason,
+          segment: client.segment || "",
+          matchKey: client.matchKey || "",
+          basket: JSON.stringify(client.basket || []),
+          createdByName: myName,
+          _: String(Date.now())
+        }, { timeoutMs: 25000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          await uiAlertAsync("Не удалось: " + ((res && res.message) || "ошибка / Deploy"));
+          return;
+        }
+        showToast("Менеджеру отправлено · " + (res.notified || 0) + " чел.");
+      } catch (e) {
+        await uiAlertAsync(e.message || "Ошибка сети");
+      }
+    }
+    window.notifyMissedDelivery_ = notifyMissedDelivery_;
+
+    async function openTransferTask_(id) {
+      id = String(id || "").trim();
+      if (!id) return;
+      var tid = "";
+      try { tid = String(await ensureTelegramId() || "").trim(); } catch (eT) { tid = String(myTelegramId || ""); }
+      try { closeTasksDrawer(); } catch (eC) {}
+      showToast("Загрузка переноса…");
+      var res = null;
+      try {
+        res = await apiGet({
+          action: "getTransferTask",
+          telegramId: tid,
+          id: id,
+          _: String(Date.now())
+        }, { timeoutMs: 20000, cacheTtlMs: 0 });
+      } catch (e) {
+        await uiAlertAsync(e.message || "Ошибка сети");
+        return;
+      }
+      if (!res || res.status !== "success" || !res.item) {
+        await uiAlertAsync("Задача не найдена — нужен Deploy или уже закрыта");
+        return;
+      }
+      var it = res.item;
+      var p = it.payload || {};
+      var week = res.weekCounts || [];
+      var weekHtml = week.length
+        ? ('<div style="display:flex;flex-wrap:wrap;gap:6px;margin:10px 0;">' +
+          week.filter(function (w) { return w.short !== "Сб" && w.short !== "Вс"; }).map(function (w) {
+            return '<span class="client-badge" style="background:#222;">' +
+              escapeHtml(w.short) + " " + (Number(w.count) || 0) + "</span>";
+          }).join("") + "</div>")
+        : "";
+      var basket = Array.isArray(p.basket) ? p.basket : [];
+      var basketLines = basket.slice(0, 12).map(function (x) {
+        var nm = String(x.name || x.main || "").trim();
+        var v = x.val != null ? x.val : x.value;
+        return nm ? ("· " + nm + (v != null && v !== "" ? (" — " + v) : "")) : "";
+      }).filter(Boolean).join("<br>");
+      var modalP = openModal(
+        '<div class="modal-title">Перенос · ' + escapeHtml(it.clientNick || p.client || "") + "</div>" +
+        '<div class="modal-text">' +
+        "<b>Тип:</b> " + escapeHtml(p.segment || "—") + "<br>" +
+        "<b>Был день:</b> " + escapeHtml(p.day || p.date || "—") + "<br>" +
+        "<b>Причина:</b> " + escapeHtml(p.reason || "—") + "<br>" +
+        (p.createdByName ? ("<b>Курьер:</b> " + escapeHtml(p.createdByName) + "<br>") : "") +
+        weekHtml +
+        (basketLines ? ('<div class="muted" style="margin-top:8px;font-size:12px;"><b>Состав</b><br>' + basketLines + "</div>") : "") +
+        "</div>" +
+        '<div class="modal-actions">' +
+        '<button class="btn-action btn-green" type="button" id="modalXferGo">Перенести на другой день</button>' +
+        '<button class="btn-action" type="button" id="modalXferLater" style="background:#3a3a3c;">Позже</button>' +
+        "</div>"
+      );
+      setTimeout(function () {
+        var a = document.getElementById("modalXferGo");
+        var b = document.getElementById("modalXferLater");
+        if (a) a.onclick = function () { closeModal("go"); };
+        if (b) b.onclick = function () { closeModal(null); };
+      }, 0);
+      var go = await modalP;
+      if (go !== "go") return;
+      var moved = await performViewClientMove_({
+        name: it.clientNick || p.client || "",
+        matchKey: p.matchKey || "",
+        oldDay: p.day || "",
+        oldDate: p.dateIso || p.date || ""
+      });
+      if (moved) {
+        try {
+          await apiGet({
+            action: "cancelDeferred",
+            telegramId: tid,
+            id: id,
+            _: String(Date.now())
+          }, { timeoutMs: 15000, cacheTtlMs: 0 });
+        } catch (eCan) {}
+        deferredCacheAt = 0;
+        try { renderTasksDrawer(true); } catch (eR) {}
+        showToast("Перенос готов");
+      }
+    }
+    window.openTransferTask_ = openTransferTask_;
+
+    function consumeXferDeepLink_() {
+      var id = "";
+      try {
+        var u = new URL(location.href);
+        id = String(u.searchParams.get("xfer") || "").trim();
+      } catch (eU) {}
+      if (!id) {
+        try {
+          var sp = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || "";
+          if (/^xfer[_-]/i.test(sp)) id = String(sp).replace(/^xfer[_-]/i, "").trim();
+        } catch (eS) {}
+      }
+      if (!id) return;
+      try {
+        var u2 = new URL(location.href);
+        u2.searchParams.delete("xfer");
+        history.replaceState({}, "", u2.toString());
+      } catch (eH) {}
+      setTimeout(function () {
+        try { setTasksTab("xfer"); openTasksDrawer(); } catch (eD) {}
+        openTransferTask_(id);
+      }, 700);
+    }
+    window.consumeXferDeepLink_ = consumeXferDeepLink_;
 
 
     /* === BATCH_C_NOTES_HELPERS === */
@@ -18148,10 +18323,11 @@
       if (box) box.innerHTML = html;
     }
 
-    var _tasksTab = "orders";
+    var _tasksTab = "xfer";
     function setTasksTab(tab) {
-      _tasksTab = (tab === "pp" || tab === "remind") ? tab : "orders";
+      _tasksTab = (tab === "pp" || tab === "remind" || tab === "orders") ? tab : "xfer";
       var map = {
+        xfer: { btn: "tasksTabXfer", pane: "tasksPaneXfer" },
         orders: { btn: "tasksTabOrders", pane: "tasksPaneOrders" },
         pp: { btn: "tasksTabPp", pane: "tasksPanePp" },
         remind: { btn: "tasksTabRemind", pane: "tasksPaneRemind" }
@@ -18165,16 +18341,52 @@
     }
     window.setTasksTab = setTasksTab;
 
-    function updateTasksTabCounts_(orderN, ppN, remindN) {
+    function updateTasksTabCounts_(xferN, orderN, ppN, remindN) {
       function paint(id, n) {
         var el = document.getElementById(id);
         if (!el) return;
         el.textContent = String(n || 0);
         el.classList.toggle("is-hot", (n || 0) > 0);
       }
+      paint("tasksCountXfer", xferN);
       paint("tasksCountOrders", orderN);
       paint("tasksCountPp", ppN);
       paint("tasksCountRemind", remindN);
+    }
+
+    function renderTasksXferCards(items) {
+      var box = document.getElementById("tasksXferList");
+      if (!box) return;
+      if (!items.length) {
+        box.innerHTML = '<p class="muted">Нет переносов. Курьер жмёт «Не получил» — задача появится здесь.</p>';
+        return;
+      }
+      box.innerHTML = items.map(function (it) {
+        var p = it.payload || {};
+        var safeId = String(it.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        var basket = Array.isArray(p.basket) ? p.basket : [];
+        var preview = basket.slice(0, 6).map(function (x) {
+          return String(x.name || x.main || "").trim();
+        }).filter(Boolean).join(", ");
+        return '<div class="tasks-item is-hot">' +
+          '<div><b>' + escapeHtml(it.title || "Перенос") + '</b>' +
+          '<div class="muted" style="font-size:12px;margin-top:4px;">' +
+          escapeHtml(it.clientNick || p.client || "—") +
+          (p.segment ? (" · " + escapeHtml(p.segment)) : "") +
+          (p.date || p.day ? (" · " + escapeHtml(p.date || p.day)) : "") +
+          "</div>" +
+          (p.reason ? ('<div style="font-size:12px;margin-top:4px;color:#ff9f0a;">Причина: ' +
+            escapeHtml(p.reason) + "</div>") : "") +
+          (preview ? ('<div class="muted" style="font-size:12px;margin-top:6px;">Состав: ' +
+            escapeHtml(preview) + (basket.length > 6 ? "…" : "") + "</div>") : "") +
+          (p.createdByName ? ('<div class="muted" style="font-size:11px;margin-top:4px;">от ' +
+            escapeHtml(p.createdByName) + "</div>") : "") +
+          "</div>" +
+          '<div class="seg-row" style="margin-top:10px;flex-wrap:wrap;">' +
+          '<button type="button" class="seg-btn" style="background:#30d158;border-color:#30d158;color:#111;" onclick="openTransferTask_(\'' + safeId + '\')">Перенести</button>' +
+          '<button type="button" class="seg-btn" style="background:#3a3a3c;" onclick="cancelDeferredItem(\'' + safeId + '\')">Закрыть</button>' +
+          "</div></div>";
+      }).join("");
     }
 
     function renderTasksPpCards(items) {
@@ -18458,25 +18670,29 @@
         var openItems = (deferredCache || []).filter(function (it) {
           return String(it.status || "open").toLowerCase() === "open";
         });
+        var xferItems = openItems.filter(function (it) {
+          return String(it.mode || "").toLowerCase() === "transfer";
+        });
         var orderItems = openItems.filter(function (it) {
           return String(it.mode || "").toLowerCase() === "order";
         });
         var remindItems = openItems.filter(isDeferredRemindMode_);
         var ppItems = openItems.filter(function (it) {
           var m = String(it.mode || "pp").toLowerCase();
-          return m !== "remind" && m !== "order";
+          return m !== "remind" && m !== "order" && m !== "transfer";
         });
-        deferredOpenCount = orderItems.length + remindItems.length + ppItems.length;
+        deferredOpenCount = xferItems.length + orderItems.length + remindItems.length + ppItems.length;
         updateTasksBadge();
-        updateTasksTabCounts_(orderItems.length, ppItems.length, remindItems.length);
+        updateTasksTabCounts_(xferItems.length, orderItems.length, ppItems.length, remindItems.length);
+        renderTasksXferCards(xferItems);
         renderTasksOrderCards(orderItems);
         renderTasksRemindCards(remindItems);
         renderTasksPpCards(ppItems);
-        try { setTasksTab(_tasksTab || "orders"); } catch (eTab) {}
+        try { setTasksTab(_tasksTab || "xfer"); } catch (eTab) {}
       };
       paint();
       if (doFetch === false) return;
-      var box = document.getElementById("tasksOrderList") || document.getElementById("tasksPpList");
+      var box = document.getElementById("tasksXferList") || document.getElementById("tasksOrderList") || document.getElementById("tasksPpList");
       if (box && !deferredCache.length) box.innerHTML = '<p class="muted">Загрузка…</p>';
       var screenBox = document.getElementById("deferredScreenList");
       if (screenBox && !deferredCache.length) screenBox.innerHTML = '<p class="muted">Загрузка…</p>';
@@ -19137,6 +19353,7 @@
     try { bootstrapAccess(); } catch (e) { try { applyRoleTabs(); } catch (e2) {} }
     try { updateTasksBadge(); } catch (eTb0) {}
     try { setTimeout(function () { try { updateTasksBadge(); refreshDeferredBadge(false); } catch (eTb1) {} }, 200); } catch (eTb2) {}
+    try { setTimeout(function () { try { consumeXferDeepLink_(); } catch (eXf) {} }, 900); } catch (eXf2) {}
     try { applyTelegramSafeArea(); } catch (e) {}
     try { syncAppTopSpacer(); } catch (e) {}
     try {
