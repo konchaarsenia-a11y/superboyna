@@ -6803,30 +6803,33 @@ function handleSetupDeliveryDatesNudgeTriggers(callback, fromPost) {
 
 /**
  * Запуск из редактора Script (Run).
- * Возвращает строку — иначе редактор часто пишет «Неизвестная ошибка».
+ * Важно: НЕ возвращать значение — IDE показывает «Неизвестная ошибка»
+ * на любом return (как у setupTelegramWebhookManual / setupBookingTriggersManual).
+ * Смотреть: Выполнения → лог, или всплывающее Browser.msgBox.
  */
 function setupDeliveryDatesNudgeTriggersManual() {
+  var msg = "";
   try {
     var r = ensureDeliveryDatesNudgeTriggers_();
-    var msg = r.already
+    msg = r.already
       ? ("OK: триггеры уже стоят (" + (r.ver || "") + ")")
       : ("OK: созданы триггеры 11:00 и 19:00 (" + (r.ver || "") + ")");
     Logger.log(msg);
-    Logger.log(JSON.stringify(r));
-    return msg;
+    try { Logger.log(JSON.stringify(r)); } catch (eJ) {}
   } catch (e) {
-    var err = "ERR setup triggers: " + String(e);
-    Logger.log(err);
+    msg = "ERR setup triggers: " + String(e);
+    Logger.log(msg);
     try { Logger.log(e && e.stack ? String(e.stack) : ""); } catch (e2) {}
-    return err;
   }
+  try { Browser.msgBox(msg || "done"); } catch (eUi) {}
 }
 
 /**
  * Тест из редактора: сразу разослать (не ждёт 11/19).
- * Возвращает строку для UI редактора.
+ * Без return — иначе IDE: «Неизвестная ошибка».
  */
 function testDeliveryDatesNudgeNow() {
+  var msg = "";
   try {
     // сбросить dedupe на сегодня, чтобы тест реально ушёл
     try {
@@ -6837,19 +6840,18 @@ function testDeliveryDatesNudgeNow() {
       props.deleteProperty("DATE_NUDGE_" + ymd + "_test");
     } catch (eClr) {}
     var sent = sendDeliveryDatesNudge_("11");
-    var msg = "OK push: recipients=" + (sent.recipients || 0) +
+    msg = "OK push: recipients=" + (sent.recipients || 0) +
       " ok=" + (sent.ok || 0) + " fail=" + (sent.fail || 0) +
       " pp=" + (sent.pp || 0) + " bp1=" + (sent.bp1 || 0) +
       " date=" + (sent.dateText || "");
     Logger.log(msg);
-    Logger.log(JSON.stringify(sent));
-    return msg;
+    try { Logger.log(JSON.stringify(sent)); } catch (eJ) {}
   } catch (e) {
-    var err = "ERR test push: " + String(e);
-    Logger.log(err);
+    msg = "ERR test push: " + String(e);
+    Logger.log(msg);
     try { Logger.log(e && e.stack ? String(e.stack) : ""); } catch (e2) {}
-    return err;
   }
+  try { Browser.msgBox(msg || "done"); } catch (eUi) {}
 }
 
 /** HTTP: тот же тест пуша (для агента / отладки). */
