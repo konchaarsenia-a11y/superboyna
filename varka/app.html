@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <title>Varka × Good Boy</title>
+  <title>Good Boy · партнёры</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     :root {
@@ -40,6 +40,14 @@
     .hero {
       display: flex; align-items: center; justify-content: center;
       gap: 14px; margin: 8px 0 10px;
+    }
+    .hero.solo img {
+      width: 120px; height: 120px; object-fit: contain;
+      border-radius: 18px;
+    }
+    .hero.pair img {
+      width: 72px; height: 72px; object-fit: contain;
+      border-radius: 14px;
     }
     .hero img {
       width: 72px; height: 72px; object-fit: contain;
@@ -202,23 +210,19 @@
 <body>
   <div class="wrap">
     <div id="screenBoot" class="screen on">
-      <div class="hero">
-        <img src="assets/varka-logo.png" alt="Varka">
-        <span class="x">×</span>
+      <div class="hero solo">
         <img src="assets/goodboy-logo.png" alt="Good Boy">
       </div>
-      <div class="brand">Varka × <span class="gb">Good Boy</span></div>
+      <div class="brand"><span class="gb">Good Boy</span></div>
       <div class="sub">Партнёрское пополнение · бесплатно</div>
       <p class="empty" id="bootMsg">Вход…</p>
     </div>
 
     <div id="screenLocs" class="screen">
-      <div class="hero">
-        <img src="assets/varka-logo.png" alt="Varka">
-        <span class="x">×</span>
+      <div class="hero solo">
         <img src="assets/goodboy-logo.png" alt="Good Boy">
       </div>
-      <div class="brand">Varka × <span class="gb">Good Boy</span></div>
+      <div class="brand"><span class="gb">Good Boy</span></div>
       <div class="free-pill">Бесплатно для партнёров</div>
       <div class="sub">Выберите сеть или название вашего проекта</div>
       <div id="locList"></div>
@@ -228,9 +232,14 @@
     </div>
 
     <div id="screenOrder" class="screen">
+      <div class="hero pair" id="orderHero">
+        <img id="orderPartnerLogo" src="assets/varka-logo.png" alt="Партнёр">
+        <span class="x">×</span>
+        <img src="assets/goodboy-logo.png" alt="Good Boy">
+      </div>
       <div class="toprow">
         <div>
-          <div class="brand" style="font-size:20px;margin:0;text-align:left;">Заявка</div>
+          <div class="brand" style="font-size:20px;margin:0;text-align:left;" id="orderPairTitle">Заявка</div>
           <div class="sub" style="margin:2px 0 0;text-align:left;" id="orderLocName">—</div>
         </div>
         <button class="chip" type="button" onclick="goLocs()">Сменить</button>
@@ -279,12 +288,32 @@
 
   <script>
 (function () {
-  var APP_VER = "1.2.0";
+  var APP_VER = "1.3.0";
   // Свой webhook Varka (отдельный Script). ПУСТО = демо без сети.
   // НИКОГДА не ставить сюда /exec Бойни-конвейера.
   var VARKA_WEBHOOK_URL = "";
   var LOGO_VARKA = "assets/varka-logo.png";
   var LOGO_GOODBOY = "assets/goodboy-logo.png";
+
+  function partnerLogoFor_(loc) {
+    if (!loc) return LOGO_VARKA;
+    if (loc.logo) return loc.logo;
+    var n = String(loc.name || "").toLowerCase();
+    if (n.indexOf("varka") >= 0 || n.indexOf("варка") >= 0) return LOGO_VARKA;
+    return LOGO_VARKA;
+  }
+
+  function setNetworkHero_(loc) {
+    var img = document.getElementById("orderPartnerLogo");
+    var title = document.getElementById("orderPairTitle");
+    if (img) {
+      img.src = partnerLogoFor_(loc);
+      img.alt = (loc && loc.name) || "Партнёр";
+    }
+    if (title) {
+      title.innerHTML = esc((loc && loc.name) || "Сеть") + ' × <span class="gb">Good Boy</span>';
+    }
+  }
 
   var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   if (tg) {
@@ -300,12 +329,12 @@
       role: "admin",
       isAdmin: true,
       locations: [
-        { id: "loc_demo1", name: "Varka", address: "сеть кофеен", active: true },
-        { id: "loc_demo2", name: "Good Boy", address: "партнёрский проект", active: true }
+        { id: "loc_demo1", name: "Varka", address: "сеть кофеен", logo: "assets/varka-logo.png", active: true },
+        { id: "loc_demo2", name: "Good Boy Demo", address: "партнёрский проект", logo: "assets/goodboy-icon.png", active: true }
       ],
       allLocations: [
-        { id: "loc_demo1", name: "Varka", address: "сеть кофеен", active: true },
-        { id: "loc_demo2", name: "Good Boy", address: "партнёрский проект", active: true }
+        { id: "loc_demo1", name: "Varka", address: "сеть кофеен", logo: "assets/varka-logo.png", active: true },
+        { id: "loc_demo2", name: "Good Boy Demo", address: "партнёрский проект", logo: "assets/goodboy-icon.png", active: true }
       ]
     },
     catalog: [
@@ -510,10 +539,11 @@
         '<button type="button" onclick="setQty(\'' + it.id + '\',1)">+</button>' +
         "</div>";
       if (it.type === "coupon") {
-        // На купоне — только два логотипа
+        // На купоне — только два логотипа: партнёр + Good Boy
+        var partnerLogo = partnerLogoFor_(state.location);
         return '<div class="coupon-card">' +
           '<div class="coupon-logos">' +
-          '<img src="' + LOGO_VARKA + '" alt="Varka">' +
+          '<img src="' + partnerLogo + '" alt="Партнёр">' +
           '<img src="' + LOGO_GOODBOY + '" alt="Good Boy">' +
           "</div>" +
           '<div class="coupon-row">' +
@@ -575,7 +605,8 @@
     if (!hit) return;
     state.location = hit;
     state.cart = {};
-    document.getElementById("orderLocName").textContent = hit.name;
+    setNetworkHero_(hit);
+    document.getElementById("orderLocName").textContent = hit.address || "партнёрская сеть";
     var na = document.getElementById("navAdmin");
     if (na) na.style.display = (state.me && state.me.isAdmin) ? "" : "none";
     show("screenOrder");
