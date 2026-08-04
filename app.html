@@ -8,13 +8,19 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.123";
+      var APP_VER = "v7.11.124";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
         var u = new URL(location.href);
-        if (u.searchParams.get("v") === want) return;
+        var cur = u.searchParams.get("v");
+        if (cur === want) return;
         u.searchParams.set("v", want);
+        // без ?v= — только replaceState (без второго парсинга ~900KB); устаревший ?v= — полный reload
+        if (!cur) {
+          history.replaceState(null, "", u.toString());
+          return;
+        }
         location.replace(u.toString());
       } catch (e0) {}
     })();
@@ -2513,7 +2519,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.123";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.124";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2983,11 +2989,14 @@
         renderTemplatesList_();
         return;
       }
-      if (box) box.innerHTML = '<p class="muted">Загрузка…</p>';
+      if (box && !opts.soft) box.innerHTML = '<p class="muted">Загрузка…</p>';
+      else if (box && opts.soft && !window._templatesListLoaded) box.innerHTML = '<p class="muted">Загрузка…</p>';
       try {
+        var params = { action: "listTemplates" };
+        if (opts.force) params._ = String(Date.now());
         var res = await apiGet(
-          { action: "listTemplates", _: String(Date.now()) },
-          { timeoutMs: 25000, cacheTtlMs: 0 }
+          params,
+          { timeoutMs: opts.soft ? 18000 : 25000, retries: opts.soft ? 0 : 1, cacheTtlMs: opts.force ? 0 : undefined }
         );
         var items = (res && (res.templates || res.items)) || [];
         window._templatesList = items;
@@ -2998,7 +3007,7 @@
         });
         renderTemplatesList_();
       } catch (e) {
-        if (box) box.innerHTML = '<p class="muted">Не загрузилось — проверь Deploy Code.gs (listTemplates).</p>';
+        if (box && !opts.soft) box.innerHTML = '<p class="muted">Не загрузилось — проверь Deploy Code.gs (listTemplates).</p>';
       }
     }
     window.loadTemplatesList_ = loadTemplatesList_;
@@ -3550,7 +3559,7 @@
     function applyRoleTabs(opts) {
       opts = opts || {};
       const allowed = ROLE_TABS[APP_ROLE] || ROLE_TABS.all;
-      document.querySelectorAll(".tab-link").forEach(btn => {
+      getTabLinkNodes_().forEach(btn => {
         const screen = btn.dataset.screen;
         if (FLYOUT_SCREENS.indexOf(screen) >= 0) {
           btn.style.display = "none";
@@ -3573,8 +3582,11 @@
       });
       try { updateTasksBadge(); } catch (eTb) {}
       if (opts.skipSwitch) {
-        try { refreshWeekBanners(); } catch (e) {}
-      try { refreshOrderDayCounts_(); } catch (e2) {}
+        // сеть тянет restoreLastScreen / switchTab — не дублируем на boot
+        if (!opts.skipNetwork) {
+          try { refreshWeekBanners({ soft: true }); } catch (e) {}
+          try { refreshOrderDayCounts_({ soft: true }); } catch (e2) {}
+        }
         return;
       }
       const first = allowed.filter(function (s) { return MAIN_TABS.indexOf(s) >= 0; })[0] || "orderScreen";
@@ -3582,15 +3594,17 @@
       var cur = active && active.id;
       // не откидывать на стартовую, если уже на разрешённой вкладке
       if (cur && allowed.indexOf(cur) >= 0) {
-        document.querySelectorAll(".tab-link").forEach(function (el) {
+        getTabLinkNodes_().forEach(function (el) {
           el.classList.toggle("active", el.getAttribute("data-screen") === cur ||
             (FLYOUT_SCREENS.indexOf(cur) >= 0 && el.getAttribute("data-screen") === "orderScreen"));
         });
       } else if (first) {
         switchTab(first);
       }
-      try { refreshWeekBanners(); } catch (e) {}
-      try { refreshOrderDayCounts_(); } catch (e2) {}
+      if (!opts.skipNetwork) {
+        try { refreshWeekBanners({ soft: true }); } catch (e) {}
+        try { refreshOrderDayCounts_({ soft: true }); } catch (e2) {}
+      }
       try { setTimeout(syncNavTabsPill_, 30); } catch (eP) {}
     }
 
@@ -5314,13 +5328,24 @@
 
     function clearBlockingOverlays() {
       try {
-        hideSaveLoading();
+        var modal = document.getElementById("modalOverlay");
+        var modalOpen = modal && (modal.classList.contains("open") || modal.style.display === "flex" || modal.style.display === "block");
+        var slo = document.getElementById("saveLoadOverlay");
+        var sloOpen = slo && slo.classList.contains("open");
         var yr = document.getElementById("yandexRouteOverlay");
-        if (yr) yr.remove();
         var tyan = document.getElementById("fxTyanOverlay");
+        var burst = document.querySelector(".fx-burst");
+        var sug = document.querySelector(".addr-suggest.open");
+        var tov = document.getElementById("tasksDrawerOverlay");
+        var drawerOpen = tov && tov.classList.contains("open");
+        if (!modalOpen && !sloOpen && !yr && !tyan && !burst && !sug && !drawerOpen) {
+          // быстрый путь: не трогаем DOM если нечего чистить
+          return;
+        }
+        hideSaveLoading();
+        if (yr) yr.remove();
         if (tyan) tyan.remove();
         document.querySelectorAll(".fx-burst").forEach(function (el) { el.remove(); });
-        var modal = document.getElementById("modalOverlay");
         if (modal) {
           modal.classList.remove("open");
           modal.style.display = "none";
@@ -5331,7 +5356,6 @@
         });
         // ☰-drawer: иначе полупрозрачный слой перекрывает клики
         try { closeTasksDrawer(); } catch (eDr) {
-          var tov = document.getElementById("tasksDrawerOverlay");
           var tdr = document.getElementById("tasksDrawer");
           if (tov) {
             tov.classList.remove("open");
@@ -5343,7 +5367,6 @@
             tdr.setAttribute("aria-hidden", "true");
           }
         }
-        var slo = document.getElementById("saveLoadOverlay");
         if (slo) {
           slo.classList.remove("open");
           slo.style.display = "none";
@@ -5356,6 +5379,21 @@
         var app = document.querySelector(".app");
         if (app) app.style.pointerEvents = "auto";
       } catch (e2) {}
+    }
+
+    var _screenNodesCache = null;
+    var _tabLinkNodesCache = null;
+    function getScreenNodes_() {
+      if (!_screenNodesCache || !_screenNodesCache.length) {
+        _screenNodesCache = document.querySelectorAll(".screen");
+      }
+      return _screenNodesCache;
+    }
+    function getTabLinkNodes_() {
+      if (!_tabLinkNodesCache || !_tabLinkNodesCache.length) {
+        _tabLinkNodesCache = document.querySelectorAll(".tab-link");
+      }
+      return _tabLinkNodesCache;
     }
 
     function switchTab(screenId, opts) {
@@ -5388,8 +5426,8 @@
           courierFlyoutJustOpened = false;
         }
       } catch (eCfly) {}
-      document.querySelectorAll(".screen").forEach(function (el) { el.classList.remove("active"); });
-      document.querySelectorAll(".tab-link").forEach(function (el) {
+      getScreenNodes_().forEach(function (el) { el.classList.remove("active"); });
+      getTabLinkNodes_().forEach(function (el) {
         el.classList.toggle("active", el.getAttribute("data-screen") === screenId);
       });
       // flyout-экраны не подсвечивают вкладку Заказ как «чужую»
@@ -5415,53 +5453,66 @@
         }
         if (screenId === "clientsScreen") {
           document.getElementById("appHeaderTitle").innerText = "Просмотр · " + APP_VERSION;
-          try { enterViewScreen_(); } catch (eV) {}
         }
         if (screenId === "templatesScreen") {
           document.getElementById("appHeaderTitle").innerText = "Шаблоны · " + APP_VERSION;
           try { setTemplatesSub_(window._templatesSub || "texts"); } catch (eTpl) {}
-          try { loadTemplatesList_({ soft: true }); } catch (eTpl2) {}
         }
-      } catch (e) {}
-      try {
-        if (screenId === "cuttingScreen") {
-          ensureCuttingDaySelected({ forceSmart: true });
-          try {
-            window._cuttingNeedRefresh = false;
-            loadCutting(false);
-          } catch (eCut) {}
-        } else stopCuttingPoll();
-      } catch (e2) {}
-      try {
-        // soft = кэш сессии: сеть только при первом заходе или после действия/«Обновить»
-        if (screenId === "warehouseScreen") loadWarehouse({ soft: true });
         if (screenId === "subsScreen") {
           document.getElementById("appHeaderTitle").innerText = "Подписки · " + APP_VERSION;
-          enterSubsScreen();
         }
         if (screenId === "subDetailScreen") {
           document.getElementById("appHeaderTitle").innerText = "Карточка · " + APP_VERSION;
         }
-        if (screenId === "statsScreen") loadStats({ soft: true });
-        if (screenId === "deferredScreen") openTasksDrawer();
-        if (screenId === "priceScreen") try { syncPriceEnrollUi(); } catch (eEn) {}
-        if (screenId === "orderScreen") {
-          try { refreshWeekBanners({ soft: true }); } catch (eO) {}
-          try { refreshOrderDayCounts_({ soft: true }); } catch (eC) {}
-        }
-        if (screenId === "peopleScreen") {
-          loadPeople({ soft: true });
-          try { loadPartnersUi_({ soft: true }); } catch (ePar) {}
-          try { refreshWeekBanners({ soft: true }); } catch (eFw) {}
-        }
-        if (screenId === "courierScreen") {
-          // короткий тап = маршрут; сборку открывает long-press → setCourierSub после switchTab
-          ensureOpsDaySelected({ forceSmart: true });
-          if (!window._courierOpenAssembly) setCourierSub("route");
-          // setCourierSub сам soft-грузит маршрут/сборку; повторно не дёргаем
-          window._courierOpenAssembly = false;
-        }
-      } catch (e3) {}
+      } catch (e) {}
+      // сеть — после paint, чтобы вкладка открылась мгновенно
+      var sid = screenId;
+      var runLoads = function () {
+        try {
+          if (sid === "clientsScreen") {
+            try { enterViewScreen_(); } catch (eV) {}
+          }
+          if (sid === "templatesScreen") {
+            try { loadTemplatesList_({ soft: true }); } catch (eTpl2) {}
+          }
+          if (sid === "cuttingScreen") {
+            ensureCuttingDaySelected({ forceSmart: true });
+            try { loadCutting({ soft: true }); } catch (eCut) {}
+          } else {
+            stopCuttingPoll();
+          }
+          if (sid === "warehouseScreen") loadWarehouse({ soft: true });
+          if (sid === "subsScreen") enterSubsScreen();
+          if (sid === "statsScreen") loadStats({ soft: true });
+          if (sid === "deferredScreen") openTasksDrawer();
+          if (sid === "priceScreen") try { syncPriceEnrollUi(); } catch (eEn) {}
+          if (sid === "orderScreen") {
+            try { refreshWeekBanners({ soft: true }); } catch (eO) {}
+            try { refreshOrderDayCounts_({ soft: true }); } catch (eC) {}
+          }
+          if (sid === "peopleScreen") {
+            loadPeople({ soft: true });
+            try { loadPartnersUi_({ soft: true }); } catch (ePar) {}
+            try { refreshWeekBanners({ soft: true }); } catch (eFw) {}
+          }
+          if (sid === "courierScreen") {
+            try {
+              if (!window._timeWheelsBuilt) {
+                buildTimeWheels();
+                window._timeWheelsBuilt = true;
+              }
+            } catch (eTw) {}
+            ensureOpsDaySelected({ forceSmart: true });
+            if (!window._courierOpenAssembly) setCourierSub("route");
+            window._courierOpenAssembly = false;
+          }
+        } catch (e3) {}
+      };
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(function () { setTimeout(runLoads, 0); });
+      } else {
+        setTimeout(runLoads, 0);
+      }
     }
     // доступно для inline onclick даже при странностях WebView
     window.switchTab = switchTab;
@@ -5743,11 +5794,12 @@
 
     /** JSONP GET — кэш по умолчанию для read-action (ускорение WebView) */
     var _apiGetMem = Object.create(null);
+    var _apiGetInflight = Object.create(null);
     var _API_READ_TTL = {
       getClients: 15000,
-      getCutting: 0,
-      getCourier: 12000,
-      getAssembly: 8000,
+      getCutting: 12000,
+      getCourier: 20000,
+      getAssembly: 15000,
       getWarehouse: 25000,
       warehousePreview: 20000,
       getStats: 600000,
@@ -5775,7 +5827,8 @@
       getPpFactCost: 20000,
       getPpOrderSuggest: 15000,
       resolveDayForDate: 60000,
-      suggestAddress: 30000
+      suggestAddress: 30000,
+      listPartners: 60000
     };
     /** Тяжёлые read-action — дольше ждать cold start GAS */
     var _API_DEFAULT_TIMEOUT = {
@@ -5828,16 +5881,20 @@
       // cache-busters in params disable cache
       if (params && (params._ || params.nocache)) cacheTtlMs = 0;
       var cacheKey = "";
-      if (cacheTtlMs > 0) {
+      try {
+        cacheKey = Object.keys(params || {}).sort().map(function (k) {
+          return k + "=" + params[k];
+        }).join("&");
+      } catch (eC) { cacheKey = ""; }
+      if (cacheTtlMs > 0 && cacheKey) {
         try {
-          cacheKey = Object.keys(params).sort().map(function (k) {
-            return k + "=" + params[k];
-          }).join("&");
           var hit = _apiGetMem[cacheKey];
           if (hit && hit.exp > Date.now()) return Promise.resolve(hit.res);
-        } catch (eC) { cacheKey = ""; }
+        } catch (eHit) {}
       }
-      // запись не ретраим (дубли); чтение — 1 повтор при таймауте/сети
+      // одинаковые параллельные JSONP — один полёт
+      if (cacheKey && _apiGetInflight[cacheKey]) return _apiGetInflight[cacheKey];
+      // запись не ретраим (дубли); чтение — 1 повтор при таймауте/сети (soft tab: retries:0)
       var retries = opts.retries;
       if (retries == null) {
         retries = /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub)/i.test(action)
@@ -5890,7 +5947,18 @@
           return Promise.reject(err);
         });
       }
-      return run_(retries);
+      var p = run_(retries);
+      if (cacheKey) {
+        _apiGetInflight[cacheKey] = p.then(function (res) {
+          delete _apiGetInflight[cacheKey];
+          return res;
+        }, function (err) {
+          delete _apiGetInflight[cacheKey];
+          throw err;
+        });
+        return _apiGetInflight[cacheKey];
+      }
+      return p;
     }
 
     /** POST text/plain — Apps Script читает JSON из тела; после — проверка через GET */
@@ -6935,9 +7003,11 @@
       var box = document.getElementById("viewMonthOverviewList");
       if (box && !opts.soft) box.innerHTML = viewLoadingSkeletonHtml();
       try {
+        var params = { action: "getMonthOverview", month: month };
+        if (opts.force) params._ = String(Date.now());
         var res = await apiGet(
-          { action: "getMonthOverview", month: month, _: String(Date.now()) },
-          { timeoutMs: 35000, cacheTtlMs: opts.force ? 0 : 20000 }
+          params,
+          { timeoutMs: opts.soft ? 22000 : 35000, retries: opts.soft ? 0 : 1, cacheTtlMs: opts.force ? 0 : undefined }
         );
         if (res && res.status === "success") {
           viewMonthOverviewCache = res;
@@ -7017,9 +7087,14 @@
       var box = document.getElementById("viewWeekOverviewList");
       if (box && !opts.soft) box.innerHTML = viewLoadingSkeletonHtml();
       try {
+        var params = {
+          action: "getWeekDayCounts",
+          force: opts.force ? "1" : ""
+        };
+        if (opts.force) params._ = String(Date.now());
         var res = await apiGet(
-          { action: "getWeekDayCounts", force: opts.force ? "1" : "", _: String(Date.now()) },
-          { timeoutMs: 25000, cacheTtlMs: opts.force ? 0 : 15000 }
+          params,
+          { timeoutMs: opts.soft ? 15000 : 25000, retries: opts.soft ? 0 : 1, cacheTtlMs: opts.force ? 0 : undefined }
         );
         if (res && res.status === "success") {
           viewWeekOverviewCache = res;
@@ -8805,7 +8880,17 @@
       } catch (e) {}
     }
 
-    async function loadCutting(fromPoll) {
+    async function loadCutting(fromPollOrOpts, maybeOpts) {
+      var opts = {};
+      var fromPoll = false;
+      if (typeof fromPollOrOpts === "object" && fromPollOrOpts) {
+        opts = fromPollOrOpts;
+        fromPoll = !!opts.fromPoll;
+      } else {
+        fromPoll = !!fromPollOrOpts;
+        opts = maybeOpts || {};
+      }
+      var soft = !!opts.soft && !fromPoll;
       const day = document.getElementById("cuttingDaySelect").value;
       const box = document.getElementById("cuttingContainer");
       const summary = document.getElementById("cuttingSummary");
@@ -8830,7 +8915,34 @@
         tickCuttingTimer();
         return;
       }
-      if (!fromPoll) {
+      // soft: мгновенно из кэша сессии; сеть только если нужно или нет данных
+      var cacheDayOk = String(cuttingItemsCache && cuttingItemsCache._day || "") === String(day);
+      var hasCache = cacheDayOk && (
+        (cuttingItemsCache && cuttingItemsCache.length) ||
+        !!cuttingCompletionCache
+      );
+      if (soft && hasCache && !window._cuttingNeedRefresh) {
+        if (cuttingCompletionCache) {
+          renderFinishedCuttingDay(cuttingCompletionCache);
+          if (finishBtn) finishBtn.style.display = "none";
+          stopCuttingPoll();
+        } else {
+          renderCuttingSummary();
+          renderCuttingSessionBox();
+          if (finishBtn) finishBtn.style.display = cuttingSession.active ? "block" : "none";
+          try {
+            if (box && !box.querySelector(".cut-row") && cuttingItemsCache.length) {
+              box.innerHTML = cuttingItemsCache.map(renderCutRowHtml).join("");
+            }
+          } catch (eDom) {}
+          startCuttingPoll();
+        }
+        return;
+      }
+      if (soft && hasCache && window._cuttingNeedRefresh) {
+        // stale-while-revalidate: UI уже есть — не спиннер
+        window._cuttingNeedRefresh = false;
+      } else if (!fromPoll && !soft) {
         cuttingItemsCache = [];
         cuttingCompletionCache = null;
         cuttingDetailExpanded_ = false;
@@ -8839,21 +8951,27 @@
         if (sessionBox) sessionBox.innerHTML = "";
         if (finishBtn) finishBtn.style.display = "none";
         box.innerHTML = loadingDanceHtml("Считаю нарезку…");
+      } else if (!fromPoll && soft && !hasCache) {
+        box.innerHTML = loadingDanceHtml("Считаю нарезку…");
       }
       try {
         const res = await apiGet({
           action: "getCutting",
-          day: day,
-          _: String(Date.now())
-        }, { timeoutMs: 22000, cacheTtlMs: 0 });
+          day: day
+        }, {
+          timeoutMs: soft ? 18000 : 22000,
+          retries: soft ? 0 : 1
+        });
         if (loadSeq !== _cuttingLoadSeq) return;
         var curDay = document.getElementById("cuttingDaySelect") && document.getElementById("cuttingDaySelect").value;
         if (String(curDay || "") !== String(day)) return;
+        window._cuttingNeedRefresh = false;
         let completion = (res && res.completion) || null;
         // только сервер: локальный cutDone_ иначе после обновления показывает «итог» вместо галочек
         if (completion) {
           cuttingCompletionCache = completion;
           cuttingItemsCache = (res.items || []).slice();
+          cuttingItemsCache._day = day;
           if (res.date) writeCutDoneLocal(day, res.date, completion);
           applyRemoteCuttingSession({ active: false, day: "", startedAt: 0 });
           if (finishBtn) finishBtn.style.display = "none";
@@ -8869,6 +8987,7 @@
             if (sessionBox) sessionBox.innerHTML = "";
           }
           cuttingItemsCache = [];
+          cuttingItemsCache._day = day;
           cuttingSession.fingerprint = "";
           applyRemoteCuttingSession(res.session || { active: false });
           if (finishBtn) finishBtn.style.display = "none";
@@ -8891,6 +9010,7 @@
         if (loadSeq !== _cuttingLoadSeq) return;
         cuttingSession.fingerprint = fp;
         cuttingItemsCache = items;
+        cuttingItemsCache._day = day;
         sortCuttingItems();
         renderCuttingSummary();
         renderCuttingSessionBox();
@@ -8900,7 +9020,7 @@
         startCuttingPoll();
       } catch (err) {
         if (loadSeq !== _cuttingLoadSeq) return;
-        if (!fromPoll) {
+        if (!fromPoll && !(soft && hasCache)) {
           box.innerHTML = '<p class="muted">Ошибка: ' + escapeHtml(err.message || String(err)) + "</p>";
           if (finishBtn) finishBtn.style.display = "none";
         }
@@ -9716,7 +9836,10 @@
       routePlanState.routes = [[], []];
       box.innerHTML = loadingDanceHtml("Собираю маршрут…");
       try {
-        const res = await apiGet({ action: "getCourier", day: day }, { timeoutMs: 22000, cacheTtlMs: 0 });
+        const res = await apiGet(
+          { action: "getCourier", day: day },
+          { timeoutMs: force ? 22000 : 18000, retries: force ? 1 : 0 }
+        );
         if (loadSeq !== _courierLoadSeq) return;
         var curDay = document.getElementById("courierDaySelect") && document.getElementById("courierDaySelect").value;
         if (String(curDay || "") !== String(day)) return;
@@ -11895,6 +12018,12 @@
       try {
         if (!tg || !tg.initDataUnsafe || !tg.initDataUnsafe.user) return;
         const u = tg.initDataUnsafe.user;
+        var dayKey = "";
+        try {
+          var d = new Date();
+          dayKey = d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+          if (localStorage.getItem("superboyna_courier_reg") === String(u.id) + "|" + dayKey) return;
+        } catch (eLs) {}
         const name = [u.first_name, u.last_name].filter(Boolean).join(" ").trim();
         await apiPost({
           action: "registerCourier",
@@ -11902,6 +12031,7 @@
           name: name,
           username: u.username || ""
         });
+        try { localStorage.setItem("superboyna_courier_reg", String(u.id) + "|" + dayKey); } catch (e2) {}
       } catch (e) {}
     }
 
@@ -12261,11 +12391,25 @@
         if (myTelegramId) storeTelegramId(myTelegramId);
         myAccessName = String(u.first_name || "") + (u.last_name ? " " + u.last_name : "");
         var username = String(u.username || "");
+        // мгновенный UI из кэша роли — не ждём getMyAccess
+        var cachedRole = "";
+        try { cachedRole = String(localStorage.getItem("superboyna_app_role") || ""); } catch (eR0) {}
+        var bootedEarly = false;
+        if (cachedRole && cachedRole !== "none" && cachedRole !== "pending" && cachedRole !== "denied") {
+          APP_ROLE = cachedRole;
+          if (APP_ROLE === "owner" || APP_ROLE === "all") weekTabUnlocked = true;
+          applyRoleTabs({ skipSwitch: true, skipNetwork: true });
+          restoreLastScreen();
+          bootedEarly = true;
+        }
         if (!myTelegramId) {
           APP_ROLE = "all";
           weekTabUnlocked = true;
-          applyRoleTabs({ skipSwitch: true });
-          restoreLastScreen();
+          try { localStorage.setItem("superboyna_app_role", "all"); } catch (eR1) {}
+          if (!bootedEarly) {
+            applyRoleTabs({ skipSwitch: true, skipNetwork: true });
+            restoreLastScreen();
+          }
           maybeAskWeekPullFromMonth();
           return;
         }
@@ -12274,16 +12418,21 @@
           telegramId: myTelegramId,
           name: myAccessName,
           username: username
-        });
+        }, { timeoutMs: 18000, retries: 0 });
         if (!res || res.status !== "success") {
           APP_ROLE = "all";
           weekTabUnlocked = true;
-          applyRoleTabs({ skipSwitch: true });
-          restoreLastScreen();
+          try { localStorage.setItem("superboyna_app_role", "all"); } catch (eR2) {}
+          if (!bootedEarly) {
+            applyRoleTabs({ skipSwitch: true, skipNetwork: true });
+            restoreLastScreen();
+          }
           maybeAskWeekPullFromMonth();
           return;
         }
+        var prevRole = APP_ROLE;
         APP_ROLE = res.role || "none";
+        try { localStorage.setItem("superboyna_app_role", String(APP_ROLE)); } catch (eR3) {}
         if (APP_ROLE === "owner" || APP_ROLE === "all") weekTabUnlocked = true;
         if (APP_ROLE === "none" || APP_ROLE === "pending") {
           showAccessGate(
@@ -12295,25 +12444,32 @@
               ? ""
               : '<button class="btn-action btn-orange" type="button" onclick="doRequestAccess()">Запросить доступ</button>'
           );
-          applyRoleTabs({ skipSwitch: true });
+          applyRoleTabs({ skipSwitch: true, skipNetwork: true });
           return;
         }
         if (APP_ROLE === "denied") {
           showAccessGate("Доступ закрыт", "Обратитесь к владельцу.", "");
-          applyRoleTabs({ skipSwitch: true });
+          applyRoleTabs({ skipSwitch: true, skipNetwork: true });
           return;
         }
         hideAccessGate();
-        applyRoleTabs({ skipSwitch: true });
-        restoreLastScreen();
-        try { refreshDeferredBadge(); } catch (eDef) {}
+        if (!bootedEarly || prevRole !== APP_ROLE) {
+          applyRoleTabs({ skipSwitch: true, skipNetwork: true });
+          if (!bootedEarly) restoreLastScreen();
+        }
+        setTimeout(function () {
+          try { refreshDeferredBadge(false); } catch (eDef) {}
+        }, 800);
         maybeAskWeekPullFromMonth();
       } catch (e) {
         APP_ROLE = "all";
         weekTabUnlocked = true;
-        applyRoleTabs({ skipSwitch: true });
+        try { localStorage.setItem("superboyna_app_role", "all"); } catch (eR4) {}
+        applyRoleTabs({ skipSwitch: true, skipNetwork: true });
         restoreLastScreen();
-        try { refreshDeferredBadge(); } catch (eDef2) {}
+        setTimeout(function () {
+          try { refreshDeferredBadge(false); } catch (eDef2) {}
+        }, 800);
         maybeAskWeekPullFromMonth();
       }
     }
@@ -12529,49 +12685,63 @@
 
     var _weekBannerLoading = false;
     var _weekBannerFetchedAt = 0;
+    var _weekBannerInflight = null;
 
     async function refreshWeekBannersAsync_(opts) {
       opts = opts || {};
       var force = !!opts.force;
+      var soft = !!opts.soft;
       var fin = document.getElementById("finishWeekBanner");
       var pull = document.getElementById("pullWeekBanner");
       if (!fin || !pull) return;
       var wk = currentWeekKeyLocal();
-      var skipFetch = _weekBannerLoading;
       var bannerFresh = !!(
         _weekBannerState &&
         _weekBannerState.weekKey === wk &&
         _weekBannerFetchedAt &&
+        (Date.now() - _weekBannerFetchedAt) < 60000 &&
         !force
       );
-      if (!skipFetch && !bannerFresh) {
+      if (soft && bannerFresh) {
+        // только перерисовать UI из кэша
+      } else if (!force && _weekBannerInflight) {
+        try { await _weekBannerInflight; } catch (eJoin) {}
+      } else if (!bannerFresh || force) {
         _weekBannerLoading = true;
-        try {
-          var st = await apiGet(
-            { action: "getWeekBannerState", weekKey: wk },
-            { timeoutMs: 12000, cacheTtlMs: 0 }
-          );
-          _weekBannerFetchedAt = Date.now();
-          if (st && st.status === "success") {
-            _weekBannerState = {
-              finished: !!st.finished,
-              pulled: !!st.pulled,
-              refused: !!st.refused,
-              weekKey: st.weekKey || wk,
-              finishedAt: st.finishedAt || "",
-              by: st.by || ""
-            };
-            try { maybeAnnounceWeekFinished_(st, wk); } catch (eAnn) {}
+        _weekBannerInflight = (async function () {
+          try {
+            var st = await apiGet(
+              { action: "getWeekBannerState", weekKey: wk },
+              { timeoutMs: soft ? 10000 : 12000, retries: soft ? 0 : 1 }
+            );
+            _weekBannerFetchedAt = Date.now();
+            if (st && st.status === "success") {
+              _weekBannerState = {
+                finished: !!st.finished,
+                pulled: !!st.pulled,
+                refused: !!st.refused,
+                weekKey: st.weekKey || wk,
+                finishedAt: st.finishedAt || "",
+                by: st.by || ""
+              };
+              try { maybeAnnounceWeekFinished_(st, wk); } catch (eAnn) {}
+            }
+          } catch (eGet) {
+            if (!_weekBannerFetchedAt) {
+              _weekBannerState = {
+                finished: localStorage.getItem(FINISH_REAL_LS + wk) === "1",
+                pulled: localStorage.getItem(WEEK_PULL_LS + wk) === "pulled",
+                refused: false,
+                weekKey: wk
+              };
+              _weekBannerFetchedAt = Date.now();
+            }
+          } finally {
+            _weekBannerLoading = false;
           }
-        } catch (eGet) {
-          _weekBannerState = {
-            finished: localStorage.getItem(FINISH_REAL_LS + wk) === "1",
-            pulled: localStorage.getItem(WEEK_PULL_LS + wk) === "pulled",
-            refused: false,
-            weekKey: wk
-          };
-        }
-        _weekBannerLoading = false;
+        })();
+        try { await _weekBannerInflight; } catch (eAw) {}
+        _weekBannerInflight = null;
       }
 
       var realClosed = localStorage.getItem(FINISH_REAL_LS + wk) === "1";
@@ -13859,8 +14029,9 @@
 
     async function maybeAskWeekPullFromMonth() {
       // v7.8: не спрашиваем на старте — баннер на главной после «Завершить неделю»
-      try { refreshWeekBanners(); } catch (e) {}
-      try { refreshOrderDayCounts_(); } catch (e2) {}
+      // soft: не дублируем сеть, если switchTab/boot уже тянул
+      try { refreshWeekBanners({ soft: true }); } catch (e) {}
+      try { refreshOrderDayCounts_({ soft: true }); } catch (e2) {}
     }
 
     async function runMaterializeWeek(quiet) {
@@ -13960,7 +14131,10 @@
       if (force) assemblyDetailExpanded_ = false;
       box.innerHTML = loadingDanceHtml("Считаю пакеты…");
       try {
-        var res = await apiGet({ action: "getAssembly", day: day }, { timeoutMs: 22000, cacheTtlMs: 0 });
+        var res = await apiGet(
+          { action: "getAssembly", day: day },
+          { timeoutMs: force ? 22000 : 18000, retries: force ? 1 : 0 }
+        );
         if (loadSeq !== _assemblyLoadSeq) return;
         var curDay = document.getElementById("assemblyDaySelect") && document.getElementById("assemblyDaySelect").value;
         if (!curDay) curDay = document.getElementById("courierDaySelect") && document.getElementById("courierDaySelect").value;
@@ -17466,6 +17640,14 @@
       renderTasksDrawer(false);
       var stale = !deferredCacheAt || (Date.now() - deferredCacheAt) > 15000;
       if (stale) renderTasksDrawer(true);
+      // bp idle — только при открытии меню, не на каждом badge-poll
+      setTimeout(function () {
+        try {
+          loadBpIdleIntoDeferred_().then(function () {
+            try { renderTasksDrawer(false); updateTasksBadge(); } catch (eR) {}
+          });
+        } catch (eBp) {}
+      }, 50);
     }
     window.openTasksDrawer = openTasksDrawer;
 
@@ -17495,10 +17677,13 @@
             telegramId: tid,
             status: "open",
             light: "1"
-          }, { timeoutMs: 12000, cacheTtlMs: 15000 });
+          }, { timeoutMs: 12000, cacheTtlMs: 15000, retries: force ? 1 : 0 });
           deferredCache = (res && res.items) || [];
           deferredCacheAt = Date.now();
-          try { await loadBpIdleIntoDeferred_(); } catch (eBpIdle) {}
+          // listBpIdle — тяжёлый; на soft badge не тянем (только при открытии задач / force)
+          if (force) {
+            try { await loadBpIdleIntoDeferred_(); } catch (eBpIdle) {}
+          }
           deferredOpenCount = deferredCache.filter(function (it) {
             return String(it.status || "open").toLowerCase() === "open";
           }).length;
@@ -18723,9 +18908,16 @@
         box.innerHTML = window._peopleCacheHtml;
         return;
       }
-      box.innerHTML = '<p class="muted">Загрузка…</p>';
+      if (!opts.soft) box.innerHTML = '<p class="muted">Загрузка…</p>';
+      else if (!window._peopleCacheHtml) box.innerHTML = '<p class="muted">Загрузка…</p>';
       try {
-        var res = await apiGet({ action: "listAccess", telegramId: myTelegramId, _: String(Date.now()) }, { timeoutMs: 20000, cacheTtlMs: 0 });
+        var params = { action: "listAccess", telegramId: myTelegramId };
+        if (!opts.soft) params._ = String(Date.now());
+        var res = await apiGet(params, {
+          timeoutMs: opts.soft ? 15000 : 20000,
+          retries: opts.soft ? 0 : 1,
+          cacheTtlMs: opts.soft ? undefined : 0
+        });
         if (!res || res.status !== "success") {
           box.innerHTML = '<p class="muted">Только владелец. Задайте OWNER_TELEGRAM_IDS в Script Properties.</p>';
           return;
@@ -18773,12 +18965,17 @@
     async function fetchPartnersList_(force) {
       if (!force && partnersCacheList_ && partnersCacheList_.length) return partnersCacheList_;
       try {
-        var res = await apiGet({
+        var params = {
           action: "listPartners",
           all: "1",
-          telegramId: myTelegramId,
-          _: String(Date.now())
-        }, { timeoutMs: 20000, cacheTtlMs: force ? 0 : 60000 });
+          telegramId: myTelegramId
+        };
+        if (force) params._ = String(Date.now());
+        var res = await apiGet(params, {
+          timeoutMs: 20000,
+          retries: force ? 1 : 0,
+          cacheTtlMs: force ? 0 : undefined
+        });
         if (res && res.status === "success") {
           partnersCacheList_ = res.partners || [];
           return partnersCacheList_;
@@ -18809,8 +19006,8 @@
         box.innerHTML = window._partnersUiHtml;
         return;
       }
-      box.innerHTML = '<p class="muted">Загрузка…</p>';
-      var list = await fetchPartnersList_(true);
+      if (!opts.soft || !window._partnersUiHtml) box.innerHTML = '<p class="muted">Загрузка…</p>';
+      var list = await fetchPartnersList_(!opts.soft);
       if (!list.length) {
         var empty = '<p class="muted">Пока пусто — добавьте первого партнёра выше</p>';
         window._partnersUiHtml = empty;
@@ -19026,26 +19223,37 @@
     window.syncAppTopSpacer = syncAppTopSpacer;
 
     try { loadDepotAddress(); } catch (e) {}
-    try { registerMeAsCourier(); } catch (e) {}
-    try { if (document.getElementById("departHourCol")) buildTimeWheels(); } catch (e) {}
     try { renderBasket(); } catch (e) {}
     try { bindOrderLongPress(); } catch (e) {}
     try { bindCourierLongPress(); } catch (e) {}
     try { renderOrderNotes(); } catch (e) {}
     try { setOrderType(orderType || 'pp'); updateNotesSummary(); } catch (e) {}
-    try { bootstrapAccess(); } catch (e) { try { applyRoleTabs(); } catch (e2) {} }
+    try { bootstrapAccess(); } catch (e) { try { applyRoleTabs({ skipNetwork: true }); } catch (e2) {} }
     try { updateTasksBadge(); } catch (eTb0) {}
-    try { setTimeout(function () { try { updateTasksBadge(); refreshDeferredBadge(false); } catch (eTb1) {} }, 200); } catch (eTb2) {}
     try { applyTelegramSafeArea(); } catch (e) {}
     try { syncAppTopSpacer(); } catch (e) {}
     try {
       window.addEventListener("resize", syncAppTopSpacer);
       if (window.visualViewport) window.visualViewport.addEventListener("resize", syncAppTopSpacer);
       setTimeout(syncAppTopSpacer, 50);
-      setTimeout(syncAppTopSpacer, 300);
-      setTimeout(syncAppTopSpacer, 1000);
+      setTimeout(syncAppTopSpacer, 400);
     } catch (eR) {}
     clearBlockingOverlays();
+    // тяжёлое / сеть — после первого paint
+    function bootIdleWork_() {
+      try { registerMeAsCourier(); } catch (e) {}
+      try {
+        if (document.getElementById("departHourCol") && !window._timeWheelsBuilt) {
+          buildTimeWheels();
+          window._timeWheelsBuilt = true;
+        }
+      } catch (eW) {}
+    }
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(bootIdleWork_, { timeout: 2500 });
+    } else {
+      setTimeout(bootIdleWork_, 1200);
+    }
   </script>
 </body>
 </html>
