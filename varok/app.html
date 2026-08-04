@@ -228,8 +228,10 @@
 
   <script>
 (function () {
-  var APP_VER = "1.0.0";
-  var GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
+  var APP_VER = "1.0.1";
+  // Свой webhook Варок (отдельный Script). ПУСТО = демо без сети.
+  // НИКОГДА не ставить сюда /exec Бойни-конвейера.
+  var VAROK_WEBHOOK_URL = "";
 
   var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   if (tg) {
@@ -237,13 +239,40 @@
     try { tg.setHeaderColor("#0c0c0c"); tg.setBackgroundColor("#0c0c0c"); } catch (e2) {}
   }
 
+  var DEMO = {
+    me: {
+      status: "success",
+      telegramId: "demo",
+      name: "Демо",
+      role: "admin",
+      isAdmin: true,
+      locations: [
+        { id: "loc_demo1", name: "Варок · Немига", address: "ул. Немига", active: true },
+        { id: "loc_demo2", name: "Варок · Каменная", address: "ул. Каменная", active: true }
+      ],
+      allLocations: [
+        { id: "loc_demo1", name: "Варок · Немига", address: "ул. Немига", active: true },
+        { id: "loc_demo2", name: "Варок · Каменная", address: "ул. Каменная", active: true }
+      ]
+    },
+    catalog: [
+      { id: "vr_t_ears", type: "treat", name: "Говяжьи уши", unit: "шт", price: 4.5, active: true, sort: 10 },
+      { id: "vr_t_trach", type: "treat", name: "Трахея", unit: "шт", price: 5, active: true, sort: 20 },
+      { id: "vr_t_neck", type: "treat", name: "Утиные шеи", unit: "шт", price: 3.5, active: true, sort: 30 },
+      { id: "vr_c_pack10", type: "coupon", name: "Купоны ×10", unit: "пачка", price: 25, active: true, sort: 10 },
+      { id: "vr_c_pack20", type: "coupon", name: "Купоны ×20", unit: "пачка", price: 45, active: true, sort: 20 }
+    ],
+    orders: []
+  };
+
   var state = {
     me: null,
     location: null,
     catalog: [],
-    cart: {}, // id -> qty
+    cart: {},
     cat: "treat",
-    adminPane: "catalog"
+    adminPane: "catalog",
+    demo: !VAROK_WEBHOOK_URL
   };
 
   function user() {
@@ -257,6 +286,9 @@
   }
 
   function apiGet(params) {
+    if (!VAROK_WEBHOOK_URL) {
+      return Promise.resolve(demoApi_(params));
+    }
     return new Promise(function (resolve, reject) {
       var cb = "vr_cb_" + Math.round(Math.random() * 1e9);
       var timer = setTimeout(function () {
@@ -276,10 +308,94 @@
       var script = document.createElement("script");
       script.id = cb;
       script.async = true;
-      script.src = GOOGLE_WEBHOOK_URL + "?" + q + "&callback=" + cb;
+      script.src = VAROK_WEBHOOK_URL + "?" + q + "&callback=" + cb;
       script.onerror = function () { cleanup(); reject(new Error("Сеть")); };
       (document.head || document.body).appendChild(script);
     });
+  }
+
+  function demoApi_(params) {
+    var action = String((params && params.action) || "");
+    var u = user();
+    if (action === "vrMe") {
+      var me = JSON.parse(JSON.stringify(DEMO.me));
+      me.telegramId = u.telegramId || "demo";
+      me.name = u.name || me.name;
+      return me;
+    }
+    if (action === "vrGetCatalog") {
+      return { status: "success", items: DEMO.catalog.slice() };
+    }
+    if (action === "vrSubmitOrder") {
+      var basket = [];
+      try { basket = JSON.parse(params.basket || "[]"); } catch (e) { basket = []; }
+      var total = 0;
+      basket.forEach(function (b) { total += (Number(b.price) || 0) * (Number(b.qty) || 0); });
+      var id = "demo_" + Date.now().toString(36);
+      var loc = null;
+      (DEMO.me.locations || []).forEach(function (l) {
+        if (l.id === params.locationId) loc = l;
+      });
+      DEMO.orders.unshift({
+        id: id,
+        dateIso: new Date().toISOString().slice(0, 10),
+        locationId: params.locationId,
+        locationName: loc ? loc.name : "",
+        telegramId: u.telegramId || "demo",
+        userName: u.name || "",
+        basket: basket,
+        total: Math.round(total * 100) / 100,
+        status: "new"
+      });
+      return { status: "success", id: id, total: Math.round(total * 100) / 100 };
+    }
+    if (action === "vrListOrders") {
+      var list = DEMO.orders.slice();
+      if (params.locationId) {
+        list = list.filter(function (o) { return o.locationId === params.locationId; });
+      }
+      return { status: "success", orders: list };
+    }
+    if (action === "vrAdminSaveCatalog") {
+      var idc = String(params.id || "").trim() || ("vr_" + Date.now().toString(36));
+      var hit = null;
+      DEMO.catalog.forEach(function (c) { if (c.id === idc) hit = c; });
+      var row = {
+        id: idc,
+        type: params.type === "coupon" ? "coupon" : "treat",
+        name: params.name || "Без имени",
+        unit: params.unit || "",
+        price: Number(params.price) || 0,
+        active: params.active !== "no",
+        sort: 100
+      };
+      if (hit) {
+        Object.keys(row).forEach(function (k) { hit[k] = row[k]; });
+      } else DEMO.catalog.push(row);
+      return { status: "success", id: idc };
+    }
+    if (action === "vrAdminSaveLocation") {
+      var idl = String(params.id || "").trim() || ("loc_" + Date.now().toString(36));
+      var locHit = null;
+      DEMO.me.allLocations.forEach(function (l) { if (l.id === idl) locHit = l; });
+      var locRow = {
+        id: idl,
+        name: params.name || "Точка",
+        address: params.address || "",
+        active: params.active !== "no"
+      };
+      if (locHit) {
+        Object.keys(locRow).forEach(function (k) { locHit[k] = locRow[k]; });
+      } else {
+        DEMO.me.allLocations.push(locRow);
+        DEMO.me.locations.push(locRow);
+      }
+      return { status: "success", id: idl };
+    }
+    if (action === "vrAdminSaveAccess") {
+      return { status: "success", telegramId: params.targetId || "" };
+    }
+    return { status: "error", message: "demo: unknown " + action };
   }
 
   function show(id) {
@@ -697,20 +813,27 @@
       initData: u.initData
     }).then(function (res) {
       if (!res || res.status !== "success") {
-        // Fallback demo when Deploy ещё без vr*
-        if (res && (res.status === "unknown_action" || res.status === "error")) {
-          throw new Error((res.message || "API vr* ещё не задеплоен. Вставьте Code.gs → Deploy."));
-        }
         throw new Error((res && res.message) || "Нет доступа");
       }
       state.me = res;
       if (!soft) {
         var locs = res.locations || [];
+        var bootEl = document.getElementById("bootMsg");
+        if (state.demo && bootEl) {
+          /* demo banner only on locs */
+        }
         if (locs.length === 1 && !res.isAdmin) {
           pickLoc(locs[0].id);
         } else {
           renderLocs();
           show("screenLocs");
+          if (state.demo) {
+            var box = document.getElementById("locList");
+            if (box) {
+              box.insertAdjacentHTML("afterbegin",
+                '<div class="okmsg">Демо-режим · webhook Бойни не вызываем. Свой Script позже.</div>');
+            }
+          }
         }
       }
     }).catch(function (err) {
