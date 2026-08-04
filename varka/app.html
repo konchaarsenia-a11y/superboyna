@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <title>Варок · пополнение</title>
+  <title>Varka · пополнение</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     :root {
@@ -52,7 +52,6 @@
       background: var(--bg2); border: 1px solid var(--line);
       border-radius: var(--radius); padding: 16px 18px; margin-bottom: 10px;
       color: var(--text); font-size: 16px; cursor: pointer;
-      transition: border-color 0.15s, background 0.15s;
     }
     .loc:active { background: var(--bg3); }
     .loc .name { font-weight: 600; }
@@ -74,7 +73,7 @@
     }
     .item .meta { flex: 1; min-width: 0; }
     .item .title { font-weight: 600; font-size: 15px; }
-    .item .price { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .item .unit { color: var(--muted); font-size: 13px; margin-top: 2px; }
     .stepper { display: flex; align-items: center; gap: 8px; }
     .stepper button {
       width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line);
@@ -157,18 +156,25 @@
     }
     .nav button.on { color: var(--accent2); border-color: var(--accent); }
     label.lbl { display: block; font-size: 12px; color: var(--muted); margin: 6px 0 4px; }
+    .free-pill {
+      display: inline-block; font-size: 11px; font-weight: 700;
+      letter-spacing: 0.04em; text-transform: uppercase;
+      color: var(--accent2); border: 1px solid rgba(196,165,116,0.45);
+      border-radius: 999px; padding: 4px 10px; margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div id="screenBoot" class="screen on">
-      <div class="brand">Варок</div>
-      <div class="sub">Пополнение лакомств и купонов</div>
+      <div class="brand">Varka</div>
+      <div class="sub">Партнёрское пополнение · бесплатно</div>
       <p class="empty" id="bootMsg">Вход…</p>
     </div>
 
     <div id="screenLocs" class="screen">
-      <div class="brand">Варок</div>
+      <div class="brand">Varka</div>
+      <div class="free-pill">Бесплатно для партнёров</div>
       <div class="sub">Выберите точку</div>
       <div id="locList"></div>
       <div id="locAdminHint" style="display:none;margin-top:16px;">
@@ -221,17 +227,17 @@
 
   <div class="bar" id="cartBar" style="display:none;">
     <div class="bar-inner">
-      <div class="cart-sum">В корзине: <b id="cartCount">0</b> · <b id="cartTotal">0</b> BYN</div>
+      <div class="cart-sum">В заявке: <b id="cartCount">0</b> поз.</div>
       <button class="btn" type="button" id="btnSubmit" onclick="submitOrder()" disabled>Отправить</button>
     </div>
   </div>
 
   <script>
 (function () {
-  var APP_VER = "1.0.1";
-  // Свой webhook Варок (отдельный Script). ПУСТО = демо без сети.
+  var APP_VER = "1.1.0";
+  // Свой webhook Varka (отдельный Script). ПУСТО = демо без сети.
   // НИКОГДА не ставить сюда /exec Бойни-конвейера.
-  var VAROK_WEBHOOK_URL = "";
+  var VARKA_WEBHOOK_URL = "";
 
   var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   if (tg) {
@@ -247,20 +253,20 @@
       role: "admin",
       isAdmin: true,
       locations: [
-        { id: "loc_demo1", name: "Варок · Немига", address: "ул. Немига", active: true },
-        { id: "loc_demo2", name: "Варок · Каменная", address: "ул. Каменная", active: true }
+        { id: "loc_demo1", name: "Varka · Немига", address: "ул. Немига", active: true },
+        { id: "loc_demo2", name: "Varka · Каменная", address: "ул. Каменная", active: true }
       ],
       allLocations: [
-        { id: "loc_demo1", name: "Варок · Немига", address: "ул. Немига", active: true },
-        { id: "loc_demo2", name: "Варок · Каменная", address: "ул. Каменная", active: true }
+        { id: "loc_demo1", name: "Varka · Немига", address: "ул. Немига", active: true },
+        { id: "loc_demo2", name: "Varka · Каменная", address: "ул. Каменная", active: true }
       ]
     },
     catalog: [
-      { id: "vr_t_ears", type: "treat", name: "Говяжьи уши", unit: "шт", price: 4.5, active: true, sort: 10 },
-      { id: "vr_t_trach", type: "treat", name: "Трахея", unit: "шт", price: 5, active: true, sort: 20 },
-      { id: "vr_t_neck", type: "treat", name: "Утиные шеи", unit: "шт", price: 3.5, active: true, sort: 30 },
-      { id: "vr_c_pack10", type: "coupon", name: "Купоны ×10", unit: "пачка", price: 25, active: true, sort: 10 },
-      { id: "vr_c_pack20", type: "coupon", name: "Купоны ×20", unit: "пачка", price: 45, active: true, sort: 20 }
+      { id: "vr_t_ears", type: "treat", name: "Говяжьи уши", unit: "шт", active: true, sort: 10 },
+      { id: "vr_t_trach", type: "treat", name: "Трахея", unit: "шт", active: true, sort: 20 },
+      { id: "vr_t_neck", type: "treat", name: "Утиные шеи", unit: "шт", active: true, sort: 30 },
+      { id: "vr_c_pack10", type: "coupon", name: "Купоны ×10", unit: "пачка", active: true, sort: 10 },
+      { id: "vr_c_pack20", type: "coupon", name: "Купоны ×20", unit: "пачка", active: true, sort: 20 }
     ],
     orders: []
   };
@@ -272,7 +278,7 @@
     cart: {},
     cat: "treat",
     adminPane: "catalog",
-    demo: !VAROK_WEBHOOK_URL
+    demo: !VARKA_WEBHOOK_URL
   };
 
   function user() {
@@ -286,7 +292,7 @@
   }
 
   function apiGet(params) {
-    if (!VAROK_WEBHOOK_URL) {
+    if (!VARKA_WEBHOOK_URL) {
       return Promise.resolve(demoApi_(params));
     }
     return new Promise(function (resolve, reject) {
@@ -308,7 +314,7 @@
       var script = document.createElement("script");
       script.id = cb;
       script.async = true;
-      script.src = VAROK_WEBHOOK_URL + "?" + q + "&callback=" + cb;
+      script.src = VARKA_WEBHOOK_URL + "?" + q + "&callback=" + cb;
       script.onerror = function () { cleanup(); reject(new Error("Сеть")); };
       (document.head || document.body).appendChild(script);
     });
@@ -329,8 +335,6 @@
     if (action === "vrSubmitOrder") {
       var basket = [];
       try { basket = JSON.parse(params.basket || "[]"); } catch (e) { basket = []; }
-      var total = 0;
-      basket.forEach(function (b) { total += (Number(b.price) || 0) * (Number(b.qty) || 0); });
       var id = "demo_" + Date.now().toString(36);
       var loc = null;
       (DEMO.me.locations || []).forEach(function (l) {
@@ -344,10 +348,9 @@
         telegramId: u.telegramId || "demo",
         userName: u.name || "",
         basket: basket,
-        total: Math.round(total * 100) / 100,
         status: "new"
       });
-      return { status: "success", id: id, total: Math.round(total * 100) / 100 };
+      return { status: "success", id: id };
     }
     if (action === "vrListOrders") {
       var list = DEMO.orders.slice();
@@ -365,7 +368,6 @@
         type: params.type === "coupon" ? "coupon" : "treat",
         name: params.name || "Без имени",
         unit: params.unit || "",
-        price: Number(params.price) || 0,
         active: params.active !== "no",
         sort: 100
       };
@@ -407,31 +409,20 @@
     if (bar) bar.style.display = (id === "screenOrder") ? "" : "none";
   }
 
-  function money(n) {
-    var x = Math.round((Number(n) || 0) * 100) / 100;
-    return (x % 1 === 0) ? String(x) : x.toFixed(2);
-  }
-
-  function cartStats() {
-    var count = 0, total = 0;
-    state.catalog.forEach(function (it) {
-      var q = Number(state.cart[it.id]) || 0;
-      if (q > 0) {
-        count += q;
-        total += q * (Number(it.price) || 0);
-      }
+  function cartCount() {
+    var count = 0;
+    Object.keys(state.cart).forEach(function (id) {
+      count += Number(state.cart[id]) || 0;
     });
-    return { count: count, total: total };
+    return count;
   }
 
   function refreshCartBar() {
-    var st = cartStats();
     var c = document.getElementById("cartCount");
-    var t = document.getElementById("cartTotal");
     var b = document.getElementById("btnSubmit");
-    if (c) c.textContent = String(st.count);
-    if (t) t.textContent = money(st.total);
-    if (b) b.disabled = st.count <= 0;
+    var n = cartCount();
+    if (c) c.textContent = String(n);
+    if (b) b.disabled = n <= 0;
   }
 
   function setQty(id, delta) {
@@ -464,10 +455,11 @@
     }
     box.innerHTML = items.map(function (it) {
       var q = Number(state.cart[it.id]) || 0;
-      var unit = it.unit ? (" / " + it.unit) : "";
+      var unit = it.unit ? esc(it.unit) : "";
       return '<div class="item">' +
         '<div class="meta"><div class="title">' + esc(it.name) + '</div>' +
-        '<div class="price">' + money(it.price) + " BYN" + esc(unit) + "</div></div>" +
+        (unit ? '<div class="unit">' + unit + "</div>" : "") +
+        "</div>" +
         '<div class="stepper">' +
         '<button type="button" onclick="setQty(\'' + it.id + '\',-1)">−</button>' +
         "<span>" + q + "</span>" +
@@ -514,7 +506,6 @@
       if (locs[i].id === id) { hit = locs[i]; break; }
     }
     if (!hit && state.me && state.me.isAdmin) {
-      // admin may pick any from allLocations
       var all = state.me.allLocations || [];
       for (var j = 0; j < all.length; j++) {
         if (all[j].id === id) { hit = all[j]; break; }
@@ -554,8 +545,7 @@
   }
 
   function submitOrder() {
-    var st = cartStats();
-    if (st.count <= 0 || !state.location) return;
+    if (cartCount() <= 0 || !state.location) return;
     var btn = document.getElementById("btnSubmit");
     if (btn) btn.disabled = true;
     var basket = [];
@@ -567,7 +557,6 @@
           type: it.type,
           name: it.name,
           qty: q,
-          price: Number(it.price) || 0,
           unit: it.unit || ""
         });
       }
@@ -587,7 +576,7 @@
       renderCatalog();
       var box = document.getElementById("catalogList");
       box.insertAdjacentHTML("afterbegin",
-        '<div class="okmsg">Заказ отправлен · № ' + esc(res.id || "") + " · " + money(res.total) + " BYN</div>");
+        '<div class="okmsg">Заявка отправлена · № ' + esc(res.id || "") + " · бесплатно</div>");
       try { if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); } catch (e) {}
     }).catch(function (err) {
       alert(String((err && err.message) || err));
@@ -621,7 +610,7 @@
           '</span><span class="badge' + (st === "done" ? " done" : "") + '">' + esc(st) +
           "</span></div><div class=\"lines\">" + lines +
           '</div><div class="h" style="margin-top:8px;"><span>' + esc(o.locationName || "") +
-          "</span><b>" + money(o.total) + " BYN</b></div></div>";
+          "</span><span>бесплатно</span></div></div>";
       }).join("");
     }).catch(function (err) {
       box.innerHTML = '<div class="err">' + esc(err.message || err) + "</div>";
@@ -655,12 +644,12 @@
       all: "1"
     }).then(function (res) {
       var items = (res && res.items) || [];
-      var html = '<label class="lbl">Новая / правка позиции</label>' +
+      var html = '<p class="sub" style="margin-top:0;">Каталог для бесплатных заявок (без цен)</p>' +
+        '<label class="lbl">Новая / правка позиции</label>' +
         '<input class="field" id="acId" placeholder="id (пусто = новый)">' +
         '<select class="field" id="acType"><option value="treat">Лакомство</option><option value="coupon">Купон</option></select>' +
         '<input class="field" id="acName" placeholder="Название">' +
-        '<input class="field" id="acUnit" placeholder="Ед. (шт / пачка / 100г)">' +
-        '<input class="field" id="acPrice" type="number" step="0.01" placeholder="Цена BYN">' +
+        '<input class="field" id="acUnit" placeholder="Ед. (шт / пачка)">' +
         '<select class="field" id="acActive"><option value="yes">Активна</option><option value="no">Скрыта</option></select>' +
         '<button class="btn block" type="button" onclick="saveCatalogItem()">Сохранить</button>' +
         '<div style="margin-top:16px;">';
@@ -668,7 +657,8 @@
         html += '<div class="item" onclick="fillCatalogForm(' + JSON.stringify(JSON.stringify(it)) + ')">' +
           '<div class="meta"><div class="title">' + esc(it.name) +
           ' <span class="badge">' + esc(it.type) + "</span></div>" +
-          '<div class="price">' + money(it.price) + " · " + (it.active === false ? "скрыта" : "активна") +
+          '<div class="unit">' + (it.unit ? esc(it.unit) + " · " : "") +
+          (it.active === false ? "скрыта" : "активна") +
           "</div></div></div>";
       });
       box.innerHTML = html + "</div>";
@@ -683,7 +673,6 @@
     document.getElementById("acType").value = it.type || "treat";
     document.getElementById("acName").value = it.name || "";
     document.getElementById("acUnit").value = it.unit || "";
-    document.getElementById("acPrice").value = it.price != null ? it.price : "";
     document.getElementById("acActive").value = it.active === false ? "no" : "yes";
   }
 
@@ -696,7 +685,6 @@
       type: document.getElementById("acType").value,
       name: document.getElementById("acName").value.trim(),
       unit: document.getElementById("acUnit").value.trim(),
-      price: document.getElementById("acPrice").value,
       active: document.getElementById("acActive").value
     }).then(function (res) {
       if (!res || res.status !== "success") throw new Error((res && res.message) || "Ошибка");
@@ -793,7 +781,7 @@
           esc(o.locationName || "") + '</span><span class="badge">' + esc(o.status || "") +
           "</span></div><div class=\"lines\">" + lines +
           '</div><div class="h" style="margin-top:8px;"><span>' + esc(o.userName || o.telegramId || "") +
-          "</span><b>" + money(o.total) + " BYN</b></div></div>";
+          "</span><span>бесплатно</span></div></div>";
       }).join("");
     }).catch(function (err) {
       box.innerHTML = '<div class="err">' + esc(err.message || err) + "</div>";
@@ -818,10 +806,6 @@
       state.me = res;
       if (!soft) {
         var locs = res.locations || [];
-        var bootEl = document.getElementById("bootMsg");
-        if (state.demo && bootEl) {
-          /* demo banner only on locs */
-        }
         if (locs.length === 1 && !res.isAdmin) {
           pickLoc(locs[0].id);
         } else {
@@ -831,7 +815,7 @@
             var box = document.getElementById("locList");
             if (box) {
               box.insertAdjacentHTML("afterbegin",
-                '<div class="okmsg">Демо-режим · webhook Бойни не вызываем. Свой Script позже.</div>');
+                '<div class="okmsg">Демо · бесплатное партнёрство Varka · webhook Бойни не вызываем</div>');
             }
           }
         }
@@ -840,8 +824,7 @@
       if (soft) throw err;
       if (msg) {
         msg.innerHTML = '<div class="err">' + esc(err.message || err) + "</div>" +
-          '<p class="empty">ID: <b>' + esc(u.telegramId || "откройте из Telegram") + "</b></p>" +
-          '<p class="sub">После Deploy Code.gs владелец выдаёт доступ в кабинете.</p>';
+          '<p class="empty">ID: <b>' + esc(u.telegramId || "откройте из Telegram") + "</b></p>";
       }
     });
   }
