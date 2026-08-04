@@ -52,6 +52,6 @@ API `vr*` — **свой** webhook (`varka/Code.gs`), не Бойня.
 
 - [x] Бренд **Varka**, без цен
 - [~] UI `varka/` (демо)
-- [ ] Список реальных точек
+- [ ] Список реальных партнёрских сетей (логотипы): Varka, NaN clinic, Fundog, Firedog, Polotno, Indixvost, Bow_wow_color
 - [ ] Стартовый каталог (названия)
 - [ ] Свой Script (не Бойня)
