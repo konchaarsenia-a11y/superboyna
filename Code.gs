@@ -1543,6 +1543,9 @@ function doGet(e) {
   if (action === "setupDeliveryDatesNudgeTriggers") {
     return handleSetupDeliveryDatesNudgeTriggers(callback, false);
   }
+  if (action === "testDeliveryDatesNudge") {
+    return handleTestDeliveryDatesNudge(callback, false);
+  }
   if (action === "getMyAccess") {
     return handleGetMyAccess({
       telegramId: e.parameter.telegramId || "",
@@ -2024,6 +2027,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "setupDeliveryDatesNudgeTriggers") {
     return handleSetupDeliveryDatesNudgeTriggers(callback, fromPost);
+  }
+  if (action === "testDeliveryDatesNudge") {
+    return handleTestDeliveryDatesNudge(callback, fromPost);
   }
   if (action === "updateCutting") {
     return handleUpdateCutting(ss, json, callback, fromPost);
@@ -6739,22 +6745,54 @@ function ensureDeliveryDatesNudgeTriggers_() {
   var ours = [];
   var i;
   for (i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === "tickDeliveryDatesNudge_") {
+    var fn = "";
+    try { fn = triggers[i].getHandlerFunction(); } catch (eFn) { continue; }
+    if (fn === "tickDeliveryDatesNudge_" ||
+        fn === "tickDeliveryDatesNudgeMorning_" ||
+        fn === "tickDeliveryDatesNudgeEvening_") {
       ours.push(triggers[i]);
     }
   }
-  if (ours.length === 2 && ver === "11-19-v2") return { ok: true, already: true };
+  // v3: отдельные handler-функции (стабильнее в редакторе / квотах)
+  if (ours.length === 2 && ver === "11-19-v3") {
+    return { ok: true, already: true, ver: ver, count: ours.length };
+  }
   for (i = 0; i < ours.length; i++) {
     try { ScriptApp.deleteTrigger(ours[i]); } catch (eDel) {}
   }
-  ScriptApp.newTrigger("tickDeliveryDatesNudge_").timeBased().atHour(11).everyDays(1).create();
-  ScriptApp.newTrigger("tickDeliveryDatesNudge_").timeBased().atHour(19).everyDays(1).create();
-  try { props.setProperty("DATE_NUDGE_TRIG_V", "11-19-v2"); } catch (eS) {}
-  return { ok: true, created: true, triggers: ["11:00", "19:00"] };
+  // nearMinute(0) — ближе к :00; TZ проекта должна быть Europe/Minsk (Файл → Настройки проекта)
+  ScriptApp.newTrigger("tickDeliveryDatesNudgeMorning_")
+    .timeBased()
+    .atHour(11)
+    .nearMinute(0)
+    .everyDays(1)
+    .create();
+  ScriptApp.newTrigger("tickDeliveryDatesNudgeEvening_")
+    .timeBased()
+    .atHour(19)
+    .nearMinute(0)
+    .everyDays(1)
+    .create();
+  try { props.setProperty("DATE_NUDGE_TRIG_V", "11-19-v3"); } catch (eS) {}
+  return { ok: true, created: true, ver: "11-19-v3", triggers: ["11:00", "19:00"] };
+}
+
+/** Обёртки для триггеров (не вызывать вручную — только clock). */
+function tickDeliveryDatesNudgeMorning_() {
+  return tickDeliveryDatesNudge_();
+}
+function tickDeliveryDatesNudgeEvening_() {
+  return tickDeliveryDatesNudge_();
 }
 
 function handleSetupDeliveryDatesNudgeTriggers(callback, fromPost) {
-  var r = ensureDeliveryDatesNudgeTriggers_();
+  var r;
+  try {
+    r = ensureDeliveryDatesNudgeTriggers_();
+  } catch (e) {
+    var err = { status: "error", message: String(e), detail: (e && e.stack) ? String(e.stack).slice(0, 400) : "" };
+    return fromPost ? jsonpText(callback, err) : jsonp(callback, err);
+  }
   var ok = {
     status: "success",
     trigger: "tickDeliveryDatesNudge_@11+19 Europe/Minsk",
@@ -6763,12 +6801,73 @@ function handleSetupDeliveryDatesNudgeTriggers(callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
+/**
+ * Запуск из редактора Script (Run).
+ * Возвращает строку — иначе редактор часто пишет «Неизвестная ошибка».
+ */
 function setupDeliveryDatesNudgeTriggersManual() {
-  return ensureDeliveryDatesNudgeTriggers_();
+  try {
+    var r = ensureDeliveryDatesNudgeTriggers_();
+    var msg = r.already
+      ? ("OK: триггеры уже стоят (" + (r.ver || "") + ")")
+      : ("OK: созданы триггеры 11:00 и 19:00 (" + (r.ver || "") + ")");
+    Logger.log(msg);
+    Logger.log(JSON.stringify(r));
+    return msg;
+  } catch (e) {
+    var err = "ERR setup triggers: " + String(e);
+    Logger.log(err);
+    try { Logger.log(e && e.stack ? String(e.stack) : ""); } catch (e2) {}
+    return err;
+  }
 }
 
+/**
+ * Тест из редактора: сразу разослать (не ждёт 11/19).
+ * Возвращает строку для UI редактора.
+ */
 function testDeliveryDatesNudgeNow() {
-  return sendDeliveryDatesNudge_("11");
+  try {
+    // сбросить dedupe на сегодня, чтобы тест реально ушёл
+    try {
+      var props = PropertiesService.getScriptProperties();
+      var ymd = Utilities.formatDate(new Date(), "Europe/Minsk", "yyyy-MM-dd");
+      props.deleteProperty("DATE_NUDGE_" + ymd + "_11");
+      props.deleteProperty("DATE_NUDGE_" + ymd + "_19");
+      props.deleteProperty("DATE_NUDGE_" + ymd + "_test");
+    } catch (eClr) {}
+    var sent = sendDeliveryDatesNudge_("11");
+    var msg = "OK push: recipients=" + (sent.recipients || 0) +
+      " ok=" + (sent.ok || 0) + " fail=" + (sent.fail || 0) +
+      " pp=" + (sent.pp || 0) + " bp1=" + (sent.bp1 || 0) +
+      " date=" + (sent.dateText || "");
+    Logger.log(msg);
+    Logger.log(JSON.stringify(sent));
+    return msg;
+  } catch (e) {
+    var err = "ERR test push: " + String(e);
+    Logger.log(err);
+    try { Logger.log(e && e.stack ? String(e.stack) : ""); } catch (e2) {}
+    return err;
+  }
+}
+
+/** HTTP: тот же тест пуша (для агента / отладки). */
+function handleTestDeliveryDatesNudge(callback, fromPost) {
+  var out;
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var ymd = Utilities.formatDate(new Date(), "Europe/Minsk", "yyyy-MM-dd");
+    try {
+      props.deleteProperty("DATE_NUDGE_" + ymd + "_11");
+      props.deleteProperty("DATE_NUDGE_" + ymd + "_19");
+    } catch (eClr) {}
+    var sent = sendDeliveryDatesNudge_("11");
+    out = { status: "success", result: sent, ymd: ymd };
+  } catch (e) {
+    out = { status: "error", message: String(e) };
+  }
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }
 
 function closeDeficitRowsById_(sh, id) {
