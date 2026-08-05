@@ -15479,6 +15479,56 @@ function handlePartnerGetMe(json, callback, fromPost) {
   try { ensurePartnerAppSeeded_(false); } catch (eSeed) {}
   var username = partnerNormUser_((json && json.username) || "");
   var tid = String((json && json.telegramId) || "").trim();
+  var nets = readPartnerNetworks_().filter(function (n) { return n.active; });
+  var pts = readPartnerPoints_().filter(function (p) { return p.active; });
+
+  // Временно: мини-апп varka только для владельцев Бойни (OWNER_TELEGRAM_IDS / роль owner в «Доступы»).
+  // Партнёров пустим после настройки доступов во вкладке Партнёры.
+  var PARTNER_MINIAPP_OWNERS_ONLY_ = true;
+  var isBoynaOwner = false;
+  try { isBoynaOwner = partnerRequireOwner_(tid); } catch (eOwn) { isBoynaOwner = false; }
+
+  if (PARTNER_MINIAPP_OWNERS_ONLY_) {
+    if (!tid || !isBoynaOwner) {
+      var locked = {
+        status: "success",
+        allowed: false,
+        ownersOnly: true,
+        role: "none",
+        message: "owners_only",
+        networks: [],
+        points: [],
+        catalog: partnerCatalogStatic_()
+      };
+      return fromPost ? jsonpText(callback, locked) : jsonp(callback, locked);
+    }
+    // Владелец: полный доступ для проверки (все активные точки)
+    var allIds = pts.map(function (p) { return p.id; });
+    var allowedAll = {};
+    allIds.forEach(function (id) { allowedAll[id] = true; });
+    var firstNet = (pts[0] && pts[0].networkId) || (nets[0] && nets[0].id) || "";
+    var ownerOk = {
+      status: "success",
+      allowed: true,
+      ownersOnly: true,
+      role: "owner",
+      isPartner: false,
+      isOwner: true,
+      name: "Владелец Good Boy",
+      username: username,
+      telegramId: tid,
+      networkId: firstNet,
+      pointIds: allIds,
+      allowedPointIds: allowedAll,
+      networks: nets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
+      points: pts.map(function (p) {
+        return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
+      }),
+      catalog: partnerCatalogStatic_()
+    };
+    return fromPost ? jsonpText(callback, ownerOk) : jsonp(callback, ownerOk);
+  }
+
   var rows = readPartnerAccessRows_();
   var hit = null;
   for (var i = 0; i < rows.length; i++) {
@@ -15491,8 +15541,6 @@ function handlePartnerGetMe(json, callback, fromPost) {
       if (rows[j].telegramId && String(rows[j].telegramId) === tid) { hit = rows[j]; break; }
     }
   }
-  var nets = readPartnerNetworks_().filter(function (n) { return n.active; });
-  var pts = readPartnerPoints_().filter(function (p) { return p.active; });
   if (!hit) {
     var no = {
       status: "success",

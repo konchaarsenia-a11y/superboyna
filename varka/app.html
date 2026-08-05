@@ -298,6 +298,16 @@
       <p class="note">Бойню не трогаем. Уведомления / «Отложенные» — позже.</p>
     </div>
 
+    <!-- Временно: только владельцы Бойни -->
+    <div id="screenLocked" class="screen">
+      <div class="hero">
+        <img class="mark" src="assets/goodboy-logo.png" alt="Good Boy">
+      </div>
+      <div class="pill wrap-c">Доступ закрыт</div>
+      <div class="sub" id="lockedMsg">Сейчас мини-апп открыт только владельцам Good Boy. Партнёров подключим после настройки доступов в Бойне.</div>
+      <p class="note">Владельцы входят через Telegram — список в Бойне (Доступы / OWNER_TELEGRAM_IDS).</p>
+    </div>
+
     <!-- Личный кабинет (главный экран после входа) -->
     <div id="screenHome" class="screen">
       <div class="hero">
@@ -429,13 +439,15 @@
 
   <script>
 (function () {
-  var APP_VER = "2.3.1";
+  var APP_VER = "2.3.2";
   // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры». ПУСТО = локальное демо.
   var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var SESSION_KEY = "gb_partner_session_v3";
   var SETTINGS_KEY = "gb_partner_settings_v2";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
   var COUPON_BANNER = "assets/coupon-banner.png";
+  var OWNERS_ONLY_MODE_ = false;
+  var REMOTE_IS_OWNER_ = false;
 
   var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   if (tg) {
@@ -585,17 +597,18 @@
   function loadSession_() {
     try {
       var s = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
-      if (!s || s.role !== "partner") return false;
+      if (!s || (s.role !== "partner" && s.role !== "owner")) return false;
       var ids = Array.isArray(s.pointIds) ? s.pointIds.filter(Boolean) : [];
       if (!ids.length && s.pointId) ids = [s.pointId];
       if (!s.networkId || !ids.length) {
         clearSession_();
         return false;
       }
-      DEMO_ROLE = "partner";
+      DEMO_ROLE = s.role === "owner" ? "owner" : "partner";
       DEMO_NETWORK = s.networkId || "";
       DEMO_USERNAME = normUser_(s.username || "");
       DEMO_POINT_IDS = ids;
+      REMOTE_IS_OWNER_ = DEMO_ROLE === "owner" || !!s.isOwner;
       return true;
     } catch (e) { return false; }
   }
@@ -605,7 +618,8 @@
         role: DEMO_ROLE,
         username: DEMO_USERNAME,
         networkId: DEMO_NETWORK,
-        pointIds: DEMO_POINT_IDS.slice()
+        pointIds: DEMO_POINT_IDS.slice(),
+        isOwner: !!REMOTE_IS_OWNER_
       }));
     } catch (e) {}
   }
@@ -614,6 +628,7 @@
     DEMO_NETWORK = "";
     DEMO_USERNAME = "";
     DEMO_POINT_IDS = [];
+    REMOTE_IS_OWNER_ = false;
     try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
   }
 
@@ -644,14 +659,17 @@
     var u = user();
     var display = state.settings.displayName || "";
     if (!display) {
-      var acc = accessForUsername_(DEMO_USERNAME);
-      display = (acc && acc.name) || (u.name) || (net ? net.name : "Партнёр");
+      if (REMOTE_IS_OWNER_) display = u.name || "Владелец Good Boy";
+      else {
+        var acc = accessForUsername_(DEMO_USERNAME);
+        display = (acc && acc.name) || (u.name) || (net ? net.name : "Партнёр");
+      }
     }
     return {
       status: "success",
-      role: "partner",
-      isOwner: false,
-      isPartner: true,
+      role: REMOTE_IS_OWNER_ ? "owner" : "partner",
+      isOwner: !!REMOTE_IS_OWNER_,
+      isPartner: !REMOTE_IS_OWNER_,
       name: display,
       username: DEMO_USERNAME || u.username || "",
       networkId: DEMO_NETWORK,
@@ -679,13 +697,23 @@
   }
 
   function show(id) {
-    ["screenBoot", "screenLogin", "screenHome", "screenPoints", "screenOrder", "screenMyOrders", "screenCabinet"].forEach(function (s) {
+    ["screenBoot", "screenLogin", "screenLocked", "screenHome", "screenPoints", "screenOrder", "screenMyOrders", "screenCabinet"].forEach(function (s) {
       var el = document.getElementById(s);
       if (el) el.classList.toggle("on", s === id);
     });
     var bar = document.getElementById("cartBar");
     if (bar) bar.style.display = (id === "screenOrder" || id === "screenPoints") ? "" : "none";
     updateCartButton_();
+  }
+
+  function showLocked_(msg) {
+    clearSession_();
+    state.me = null;
+    state.point = null;
+    state.cart = {};
+    var el = document.getElementById("lockedMsg");
+    if (el && msg) el.textContent = msg;
+    show("screenLocked");
   }
 
   function updateCartButton_() {
@@ -716,7 +744,12 @@
 
   function loginWithAccess_(acc, username) {
     if (!acc || !acc.pointIds || !acc.pointIds.length) return false;
-    DEMO_ROLE = "partner";
+    if (VARKA_WEBHOOK_URL && OWNERS_ONLY_MODE_ && !acc.isOwner && !REMOTE_IS_OWNER_) {
+      showLocked_();
+      return false;
+    }
+    REMOTE_IS_OWNER_ = !!acc.isOwner;
+    DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
     DEMO_NETWORK = acc.networkId || "";
     DEMO_USERNAME = normUser_(username || "");
     DEMO_POINT_IDS = acc.pointIds.slice();
@@ -768,6 +801,10 @@
   }
 
   function demoLoginAs(username) {
+    if (VARKA_WEBHOOK_URL) {
+      alert("Демо-вход отключён: мини-апп только для владельцев Бойни.");
+      return;
+    }
     var acc = accessForUsername_(username);
     if (!acc) {
       alert("Нет доступа для @" + username);
@@ -777,6 +814,10 @@
   }
 
   function loginAsTgUser() {
+    if (VARKA_WEBHOOK_URL && OWNERS_ONLY_MODE_) {
+      showLocked_();
+      return;
+    }
     var u = user();
     var acc = accessForUsername_(u.username);
     if (!acc) {
@@ -792,6 +833,14 @@
     state.me = null;
     state.point = null;
     state.cart = {};
+    if (VARKA_WEBHOOK_URL && OWNERS_ONLY_MODE_) {
+      showLocked_();
+      return;
+    }
+    if (VARKA_WEBHOOK_URL) {
+      bootFromApi_();
+      return;
+    }
     renderLogin_();
     show("screenLogin");
   }
@@ -1190,8 +1239,21 @@
           telegramId: u.telegramId || "",
           _: String(Date.now())
         });
+        if (probe && probe.ownersOnly) OWNERS_ONLY_MODE_ = true;
         applyRemoteConfig_(probe);
-        enterApp_();
+        if (probe && probe.allowed && (probe.pointIds || []).length) {
+          REMOTE_IS_OWNER_ = !!probe.isOwner || probe.role === "owner";
+          DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
+          DEMO_NETWORK = probe.networkId || DEMO_NETWORK;
+          DEMO_POINT_IDS = (probe.pointIds || []).slice();
+          if (probe.username) DEMO_USERNAME = normUser_(probe.username);
+          saveSession_();
+          enterApp_();
+          return;
+        }
+        showLocked_(probe && probe.ownersOnly
+          ? "Сейчас мини-апп открыт только владельцам Good Boy. Партнёров подключим после настройки доступов в Бойне."
+          : "Нет доступа к партнёрскому мини-аппу.");
         return;
       }
       var res = await apiGet_({
@@ -1200,13 +1262,19 @@
         telegramId: u.telegramId || "",
         _: String(Date.now())
       });
+      if (res && res.ownersOnly) OWNERS_ONLY_MODE_ = true;
       applyRemoteConfig_(res);
       if (res && res.allowed && (res.pointIds || []).length) {
         loginWithAccess_({
           name: res.name,
           networkId: res.networkId,
-          pointIds: res.pointIds
+          pointIds: res.pointIds,
+          isOwner: !!res.isOwner || res.role === "owner"
         }, res.username || u.username || "");
+        return;
+      }
+      if (res && res.ownersOnly) {
+        showLocked_();
         return;
       }
       renderLogin_();
@@ -1215,9 +1283,8 @@
       if (msg) msg.textContent = "";
     } catch (e) {
       document.getElementById("bootMsg").innerHTML =
-        '<div class="err">Не удалось связаться с Бойней. Deploy Code.gs? Можно открыть демо: очистите VARKA_WEBHOOK_URL.</div>';
-      renderLogin_();
-      show("screenLogin");
+        '<div class="err">Не удалось связаться с Бойней. Нужен Deploy Code.gs.</div>';
+      showLocked_("Не удалось проверить доступ. Откройте снова после Deploy Code.gs.");
     }
   }
 
