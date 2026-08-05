@@ -5,6 +5,9 @@ secrets.local.md
 .DS_Store
 Thumbs.db
 
+# Goodboy: исходники с диска F (копии), в git только обработанные assets
+goodboy/assets/source-ava/
+
 # Native (Capacitor) — см. native/.gitignore; дублируем критичное
 native/node_modules/
 native/www/
