@@ -106,11 +106,21 @@
       border: 1px solid rgba(255,122,0,0.28);
       border-radius: 18px; padding: 12px; margin-bottom: 10px;
     }
+    .coupon-banner {
+      width: 100%; border-radius: 12px; display: block;
+      background: #111; border: 1px solid rgba(255,122,0,0.25);
+      aspect-ratio: 3 / 1; object-fit: cover; margin-bottom: 10px;
+    }
     .coupon-preview {
       width: 100%; border-radius: 12px; display: block;
       background: #000; border: 1px solid rgba(255,255,255,0.08);
       aspect-ratio: 16 / 9; object-fit: cover;
     }
+    .role-bar {
+      display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+      margin: 8px 0 14px;
+    }
+    .role-bar .chip { font-size: 11px; }
     .coupon-row {
       display: flex; align-items: center; gap: 12px;
       padding-top: 12px; margin-top: 10px;
@@ -228,9 +238,15 @@
       <div class="brand"><span class="gb">Good Boy</span></div>
       <div class="free-pill">Бесплатно для партнёров</div>
       <div class="sub">Выберите сеть или название вашего проекта</div>
+      <div class="role-bar" id="demoRoleBar" style="display:none;">
+        <button class="chip on" type="button" data-role="owner" onclick="setDemoRole('owner')">Демо: владелец Good Boy</button>
+        <button class="chip" type="button" data-role="partner" onclick="setDemoRole('partner')">Демо: партнёр Varka</button>
+        <button class="chip" type="button" data-role="staff" onclick="setDemoRole('staff')">Демо: точка</button>
+      </div>
       <div id="locList"></div>
       <div id="locAdminHint" style="display:none;margin-top:16px;">
-        <button class="btn ghost block" type="button" onclick="goAdmin()">Кабинет владельца</button>
+        <button class="btn ghost block" type="button" id="btnOwnerCab" style="display:none;" onclick="goOwnerCabinet()">Кабинет владельца Good Boy</button>
+        <button class="btn ghost block" type="button" id="btnPartnerCab" style="display:none;margin-top:8px;" onclick="goPartnerCabinet()">Мини-кабинет партнёра</button>
       </div>
     </div>
 
@@ -250,7 +266,8 @@
       <div class="nav">
         <button type="button" class="on" id="navOrder" onclick="showOrderTab()">Каталог</button>
         <button type="button" id="navOrders" onclick="showMyOrders()">Мои заказы</button>
-        <button type="button" id="navAdmin" style="display:none;" onclick="goAdmin()">Кабинет</button>
+        <button type="button" id="navPartner" style="display:none;" onclick="goPartnerCabinet()">Кабинет партнёра</button>
+        <button type="button" id="navOwner" style="display:none;" onclick="goOwnerCabinet()">Кабинет владельца</button>
       </div>
       <div class="tabs">
         <button class="tab on" type="button" data-cat="treat" onclick="setCat('treat')">Лакомства</button>
@@ -269,14 +286,23 @@
 
     <div id="screenAdmin" class="screen">
       <div class="toprow">
-        <div class="brand" style="font-size:22px;margin:0;">Кабинет</div>
-        <button class="chip" type="button" onclick="goLocs()">К точкам</button>
+        <div>
+          <div class="brand" style="font-size:22px;margin:0;" id="adminTitle">Кабинет</div>
+          <div class="sub" style="margin:2px 0 0;text-align:left;" id="adminSub">—</div>
+        </div>
+        <button class="chip" type="button" onclick="goLocs()">К сетям</button>
       </div>
-      <div class="admin-row">
-        <button class="chip on" type="button" data-admin="catalog" onclick="setAdminPane('catalog')">Каталог</button>
+      <div class="admin-row" id="adminTabsOwner">
+        <button class="chip on" type="button" data-admin="networks" onclick="setAdminPane('networks')">Сети</button>
         <button class="chip" type="button" data-admin="locations" onclick="setAdminPane('locations')">Точки</button>
+        <button class="chip" type="button" data-admin="catalog" onclick="setAdminPane('catalog')">Каталог</button>
         <button class="chip" type="button" data-admin="access" onclick="setAdminPane('access')">Доступы</button>
         <button class="chip" type="button" data-admin="orders" onclick="setAdminPane('orders')">Заказы</button>
+      </div>
+      <div class="admin-row" id="adminTabsPartner" style="display:none;">
+        <button class="chip on" type="button" data-admin="locations" onclick="setAdminPane('locations')">Мои точки</button>
+        <button class="chip" type="button" data-admin="orders" onclick="setAdminPane('orders')">Мои заказы</button>
+        <button class="chip" type="button" data-admin="access" onclick="setAdminPane('access')">Доступы точки</button>
       </div>
       <div id="adminPane"></div>
     </div>
@@ -284,20 +310,27 @@
 
   <div class="bar" id="cartBar" style="display:none;">
     <div class="bar-inner">
-      <div class="cart-sum">В заявке: <b id="cartCount">0</b> поз.</div>
+      <div class="cart-sum">В заявке: <b id="cartCount">0</b> шт</div>
       <button class="btn" type="button" id="btnSubmit" onclick="submitOrder()" disabled>Отправить</button>
     </div>
   </div>
 
   <script>
 (function () {
-  var APP_VER = "1.5.0";
+  var APP_VER = "1.6.0";
   // Свой webhook Varka (отдельный Script). ПУСТО = демо без сети.
   // НИКОГДА не ставить сюда /exec Бойни-конвейера.
   var VARKA_WEBHOOK_URL = "";
   var LOGO_VARKA = "assets/varka-logo.png";
   var LOGO_GOODBOY = "assets/goodboy-logo.png";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
+  var COUPON_BANNER = "assets/coupon-banner.png"; // PNG баннера — замените файлом позже
+
+  // Роли:
+  // owner  — менеджер Good Boy: полный кабинет владельца
+  // partner — кабинет партнёра (только своя сеть/точки)
+  // staff  — заказ по доступным точкам/сетям
+  var DEMO_ROLE = "owner";
 
   function partnerLogoFor_(loc) {
     if (!loc) return LOGO_GOODBOY;
@@ -334,38 +367,93 @@
     try { tg.setHeaderColor("#0c0c0c"); tg.setBackgroundColor("#0c0c0c"); } catch (e2) {}
   }
 
-  var DEMO = {
-    me: {
+  var NETWORKS = [
+    { id: "net_varka", name: "Varka", address: "сеть кофеен", logo: "assets/varka-logo.png", active: true },
+    { id: "net_nan", name: "NaN clinic", address: "ветклиника", logo: "assets/partners/nan.png", active: true },
+    { id: "net_fundog", name: "Fundog", address: "комьюнити · Минск", logo: "assets/partners/fundog.png", active: true },
+    { id: "net_firedog", name: "Firedog", address: "партнёрский проект", logo: "assets/partners/firedog.png", active: true },
+    { id: "net_polotno", name: "Polotno", address: "партнёрский проект", active: true },
+    { id: "net_indixvost", name: "Indixvost", address: "партнёрский проект", active: true },
+    { id: "net_bowwow", name: "Bow_wow_color", address: "партнёрский проект", active: true }
+  ];
+
+  var POINTS = [
+    { id: "pt_varka_1", networkId: "net_varka", name: "Varka · Немига", address: "ул. Немига", active: true },
+    { id: "pt_varka_2", networkId: "net_varka", name: "Varka · Каменная", address: "ул. Каменная", active: true },
+    { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34", active: true }
+  ];
+
+  function buildDemoMe_() {
+    var role = DEMO_ROLE;
+    var isOwner = role === "owner";
+    var isPartner = role === "partner";
+    var isStaff = role === "staff";
+    var partnerNetworkId = "net_varka";
+    var staffPointId = "pt_varka_1";
+    var locations;
+    if (isOwner) {
+      locations = NETWORKS.slice();
+    } else if (isPartner) {
+      locations = NETWORKS.filter(function (n) { return n.id === partnerNetworkId; });
+    } else {
+      // staff: заказ по доступной точке
+      locations = POINTS.filter(function (p) { return p.id === staffPointId; }).map(function (p) {
+        var net = NETWORKS.filter(function (n) { return n.id === p.networkId; })[0];
+        return {
+          id: p.id,
+          name: p.name,
+          address: p.address,
+          logo: net ? net.logo : "",
+          networkId: p.networkId,
+          active: p.active !== false
+        };
+      });
+    }
+    var myPoints = POINTS.slice();
+    if (isPartner) {
+      myPoints = POINTS.filter(function (p) { return p.networkId === partnerNetworkId; });
+    } else if (isStaff) {
+      myPoints = POINTS.filter(function (p) { return p.id === staffPointId; });
+    }
+    return {
       status: "success",
       telegramId: "demo",
-      name: "Демо",
-      role: "admin",
-      isAdmin: true,
-      locations: [
-        { id: "net_varka", name: "Varka", address: "сеть кофеен", logo: "assets/varka-logo.png", active: true },
-        { id: "net_nan", name: "NaN clinic", address: "ветклиника", logo: "assets/partners/nan.png", active: true },
-        { id: "net_fundog", name: "Fundog", address: "комьюнити · Минск", logo: "assets/partners/fundog.png", active: true },
-        { id: "net_firedog", name: "Firedog", address: "партнёрский проект", logo: "assets/partners/firedog.png", active: true },
-        { id: "net_polotno", name: "Polotno", address: "партнёрский проект", active: true },
-        { id: "net_indixvost", name: "Indixvost", address: "партнёрский проект", active: true },
-        { id: "net_bowwow", name: "Bow_wow_color", address: "партнёрский проект", active: true }
-      ],
-      allLocations: [
-        { id: "net_varka", name: "Varka", address: "сеть кофеен", logo: "assets/varka-logo.png", active: true },
-        { id: "net_nan", name: "NaN clinic", address: "ветклиника", logo: "assets/partners/nan.png", active: true },
-        { id: "net_fundog", name: "Fundog", address: "комьюнити · Минск", logo: "assets/partners/fundog.png", active: true },
-        { id: "net_firedog", name: "Firedog", address: "партнёрский проект", logo: "assets/partners/firedog.png", active: true },
-        { id: "net_polotno", name: "Polotno", address: "партнёрский проект", active: true },
-        { id: "net_indixvost", name: "Indixvost", address: "партнёрский проект", active: true },
-        { id: "net_bowwow", name: "Bow_wow_color", address: "партнёрский проект", active: true }
-      ]
-    },
+      name: isOwner ? "Менеджер Good Boy" : (isPartner ? "Партнёр Varka" : "Сотрудник точки"),
+      role: role,
+      isOwner: isOwner,
+      isPartner: isPartner,
+      isStaff: isStaff,
+      isAdmin: isOwner, // backward compat
+      partnerNetworkId: isPartner ? partnerNetworkId : "",
+      locations: locations,
+      allLocations: NETWORKS.slice(),
+      points: myPoints
+    };
+  }
+
+  function setDemoRole(role) {
+    DEMO_ROLE = role === "partner" || role === "staff" ? role : "owner";
+    document.querySelectorAll("#demoRoleBar .chip").forEach(function (el) {
+      el.classList.toggle("on", el.getAttribute("data-role") === DEMO_ROLE);
+    });
+    state.cart = {};
+    state.location = null;
+    boot(false);
+  }
+
+  var DEMO = {
+    me: buildDemoMe_(),
     catalog: [
       { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "шт", active: true, sort: 10 },
       { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "шт", active: true, sort: 20 },
-      { id: "vr_c_pack48", type: "coupon", name: "Купоны ×48", unit: "пачка", packSize: 48, active: true, sort: 10 }
+      { id: "vr_c_piece", type: "coupon", name: "Купон", unit: "шт", active: true, sort: 10 }
     ],
-    orders: []
+    orders: [],
+    access: [
+      { telegramId: "111", name: "Менеджер GB", role: "owner", networkIds: "", status: "active" },
+      { telegramId: "222", name: "Партнёр Varka", role: "partner", networkIds: "net_varka", status: "active" },
+      { telegramId: "333", name: "Точка Немига", role: "staff", networkIds: "net_varka", pointIds: "pt_varka_1", status: "active" }
+    ]
   };
 
   var state = {
@@ -374,7 +462,8 @@
     catalog: [],
     cart: {},
     cat: "treat",
-    adminPane: "catalog",
+    adminPane: "networks",
+    adminMode: "owner", // owner | partner
     demo: !VARKA_WEBHOOK_URL
   };
 
@@ -421,9 +510,10 @@
     var action = String((params && params.action) || "");
     var u = user();
     if (action === "vrMe") {
+      DEMO.me = buildDemoMe_();
       var me = JSON.parse(JSON.stringify(DEMO.me));
       me.telegramId = u.telegramId || "demo";
-      me.name = u.name || me.name;
+      if (u.name) me.name = u.name;
       return me;
     }
     if (action === "vrGetCatalog") {
@@ -473,26 +563,93 @@
       } else DEMO.catalog.push(row);
       return { status: "success", id: idc };
     }
+    if (action === "vrAdminSaveNetwork") {
+      if (DEMO_ROLE !== "owner") return { status: "error", message: "Только владелец Good Boy" };
+      var idn = String(params.id || "").trim() || ("net_" + Date.now().toString(36));
+      var netHit = null;
+      NETWORKS.forEach(function (n) { if (n.id === idn) netHit = n; });
+      var netRow = {
+        id: idn,
+        name: params.name || "Сеть",
+        address: params.address || "партнёрский проект",
+        logo: params.logo || "",
+        active: params.active !== "no"
+      };
+      if (netHit) {
+        Object.keys(netRow).forEach(function (k) { if (k !== "logo" || netRow.logo) netHit[k] = netRow[k]; });
+      } else {
+        NETWORKS.push(netRow);
+      }
+      return { status: "success", id: idn };
+    }
     if (action === "vrAdminSaveLocation") {
-      var idl = String(params.id || "").trim() || ("loc_" + Date.now().toString(36));
-      var locHit = null;
-      DEMO.me.allLocations.forEach(function (l) { if (l.id === idl) locHit = l; });
-      var locRow = {
+      var idl = String(params.id || "").trim() || ("pt_" + Date.now().toString(36));
+      var networkId = String(params.networkId || "").trim();
+      if (DEMO_ROLE === "partner") {
+        networkId = "net_varka";
+      }
+      if (!networkId) return { status: "error", message: "Укажите сеть" };
+      if (DEMO_ROLE === "partner" && networkId !== "net_varka") {
+        return { status: "error", message: "Чужая сеть" };
+      }
+      if (DEMO_ROLE !== "owner" && DEMO_ROLE !== "partner") {
+        return { status: "error", message: "Нет прав" };
+      }
+      var ptHit = null;
+      POINTS.forEach(function (p) { if (p.id === idl) ptHit = p; });
+      var ptRow = {
         id: idl,
+        networkId: networkId,
         name: params.name || "Точка",
         address: params.address || "",
         active: params.active !== "no"
       };
-      if (locHit) {
-        Object.keys(locRow).forEach(function (k) { locHit[k] = locRow[k]; });
+      if (ptHit) {
+        Object.keys(ptRow).forEach(function (k) { ptHit[k] = ptRow[k]; });
       } else {
-        DEMO.me.allLocations.push(locRow);
-        DEMO.me.locations.push(locRow);
+        POINTS.push(ptRow);
       }
       return { status: "success", id: idl };
     }
     if (action === "vrAdminSaveAccess") {
-      return { status: "success", telegramId: params.targetId || "" };
+      if (DEMO_ROLE !== "owner" && DEMO_ROLE !== "partner") {
+        return { status: "error", message: "Нет прав" };
+      }
+      var tid = String(params.targetId || "").trim();
+      if (!tid) return { status: "error", message: "Нужен Telegram ID" };
+      var accHit = null;
+      DEMO.access.forEach(function (a) { if (a.telegramId === tid) accHit = a; });
+      var role = String(params.role || "staff");
+      if (DEMO_ROLE === "partner" && role === "owner") {
+        return { status: "error", message: "Партнёр не выдаёт роль владельца Good Boy" };
+      }
+      var accRow = {
+        telegramId: tid,
+        name: params.name || "",
+        role: role,
+        networkIds: String(params.networkIds || params.locationIds || "").trim(),
+        pointIds: String(params.pointIds || "").trim(),
+        status: params.status === "denied" ? "denied" : "active"
+      };
+      if (DEMO_ROLE === "partner") {
+        accRow.networkIds = "net_varka";
+        if (accRow.role !== "partner" && accRow.role !== "staff") accRow.role = "staff";
+      }
+      if (accHit) {
+        Object.keys(accRow).forEach(function (k) { accHit[k] = accRow[k]; });
+      } else {
+        DEMO.access.push(accRow);
+      }
+      return { status: "success", telegramId: tid };
+    }
+    if (action === "vrListAccess") {
+      var acc = DEMO.access.slice();
+      if (DEMO_ROLE === "partner") {
+        acc = acc.filter(function (a) {
+          return String(a.networkIds || "").indexOf("net_varka") >= 0 && a.role !== "owner";
+        });
+      }
+      return { status: "success", access: acc };
     }
     return { status: "error", message: "demo: unknown " + action };
   }
@@ -560,15 +717,14 @@
         '<button type="button" onclick="setQty(\'' + it.id + '\',1)">+</button>' +
         "</div>";
       if (it.type === "coupon") {
-        // Один вариант: пачка ×48, qty = число пачек
-        var pack = Number(it.packSize) || 48;
-        var totalPcs = q * pack;
+        // Поштучно + баннер (PNG замените позже) + макет купона
         return '<div class="coupon-card">' +
-          '<img class="coupon-preview" src="' + COUPON_IMG + '" alt="Купон Varka × Good Boy">' +
+          '<img class="coupon-banner" src="' + COUPON_BANNER + '" alt="Баннер купонов">' +
+          '<img class="coupon-preview" src="' + COUPON_IMG + '" alt="Купон">' +
           '<div class="coupon-row">' +
           '<div class="meta"><div class="title">' + esc(it.name) + "</div>" +
-          '<div class="unit">1 пачка = ' + pack + " шт" +
-          (q > 0 ? (" · в заявке " + totalPcs + " шт") : "") +
+          '<div class="unit">поштучно' +
+          (q > 0 ? (" · в заявке " + q + " шт") : "") +
           "</div></div>" + stepper +
           "</div></div>";
       }
@@ -583,6 +739,24 @@
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function syncCabinetNav_() {
+    var me = state.me || {};
+    var hint = document.getElementById("locAdminHint");
+    var btnO = document.getElementById("btnOwnerCab");
+    var btnP = document.getElementById("btnPartnerCab");
+    var navO = document.getElementById("navOwner");
+    var navP = document.getElementById("navPartner");
+    var showOwner = !!me.isOwner;
+    var showPartner = !!me.isPartner;
+    if (hint) hint.style.display = (showOwner || showPartner) ? "" : "none";
+    if (btnO) btnO.style.display = showOwner ? "" : "none";
+    if (btnP) btnP.style.display = showPartner ? "" : "none";
+    if (navO) navO.style.display = showOwner ? "" : "none";
+    if (navP) navP.style.display = showPartner ? "" : "none";
+    var demoBar = document.getElementById("demoRoleBar");
+    if (demoBar) demoBar.style.display = state.demo ? "" : "none";
   }
 
   function goLocs() {
@@ -608,8 +782,7 @@
           "</div></button>";
       }).join("");
     }
-    var hint = document.getElementById("locAdminHint");
-    if (hint) hint.style.display = (state.me && state.me.isAdmin) ? "" : "none";
+    syncCabinetNav_();
   }
 
   function pickLoc(id) {
@@ -618,7 +791,7 @@
     for (var i = 0; i < locs.length; i++) {
       if (locs[i].id === id) { hit = locs[i]; break; }
     }
-    if (!hit && state.me && state.me.isAdmin) {
+    if (!hit && state.me && state.me.isOwner) {
       var all = state.me.allLocations || [];
       for (var j = 0; j < all.length; j++) {
         if (all[j].id === id) { hit = all[j]; break; }
@@ -629,8 +802,7 @@
     state.cart = {};
     setNetworkHero_(hit);
     document.getElementById("orderLocName").textContent = hit.address || "партнёрская сеть";
-    var na = document.getElementById("navAdmin");
-    if (na) na.style.display = (state.me && state.me.isAdmin) ? "" : "none";
+    syncCabinetNav_();
     show("screenOrder");
     showOrderTab();
     loadCatalog().then(function () {
@@ -671,9 +843,7 @@
           type: it.type,
           name: it.name,
           qty: q,
-          unit: it.unit || "",
-          packSize: it.packSize || null,
-          pieces: it.type === "coupon" ? q * (Number(it.packSize) || 48) : null
+          unit: it.unit || ""
         });
       }
     });
@@ -719,7 +889,7 @@
       }
       box.innerHTML = list.map(function (o) {
         var lines = (o.basket || []).map(function (b) {
-          return esc(b.name) + " × " + b.qty;
+          return esc(b.name) + " × " + b.qty + (b.unit ? " " + esc(b.unit) : "");
         }).join("<br>");
         var st = String(o.status || "new");
         return '<div class="order"><div class="h"><span>' + esc(o.dateIso || "") +
@@ -733,26 +903,119 @@
     });
   }
 
-  function goAdmin() {
-    if (!(state.me && state.me.isAdmin)) return;
+  function applyAdminChrome_() {
+    var mode = state.adminMode;
+    var tabsO = document.getElementById("adminTabsOwner");
+    var tabsP = document.getElementById("adminTabsPartner");
+    var title = document.getElementById("adminTitle");
+    var sub = document.getElementById("adminSub");
+    if (tabsO) tabsO.style.display = mode === "owner" ? "" : "none";
+    if (tabsP) tabsP.style.display = mode === "partner" ? "" : "none";
+    if (title) {
+      title.textContent = mode === "owner" ? "Кабинет владельца Good Boy" : "Мини-кабинет партнёра";
+    }
+    if (sub) {
+      if (mode === "owner") {
+        sub.textContent = "Сети · точки · каталог · доступы · все заказы";
+      } else {
+        var netName = "ваша сеть";
+        var nid = (state.me && state.me.partnerNetworkId) || "";
+        NETWORKS.forEach(function (n) { if (n.id === nid) netName = n.name; });
+        sub.textContent = netName + " · точки · заказы · доступы сотрудников";
+      }
+    }
+  }
+
+  function goOwnerCabinet() {
+    if (!(state.me && state.me.isOwner)) return;
+    state.adminMode = "owner";
+    state.adminPane = "networks";
+    applyAdminChrome_();
     show("screenAdmin");
-    setAdminPane(state.adminPane || "catalog");
+    setAdminPane("networks");
+  }
+
+  function goPartnerCabinet() {
+    if (!(state.me && state.me.isPartner)) return;
+    state.adminMode = "partner";
+    state.adminPane = "locations";
+    applyAdminChrome_();
+    show("screenAdmin");
+    setAdminPane("locations");
+  }
+
+  function goAdmin() {
+    if (state.me && state.me.isOwner) goOwnerCabinet();
+    else if (state.me && state.me.isPartner) goPartnerCabinet();
   }
 
   function setAdminPane(pane) {
     state.adminPane = pane;
-    document.querySelectorAll("[data-admin]").forEach(function (el) {
+    var scope = state.adminMode === "partner" ? "#adminTabsPartner" : "#adminTabsOwner";
+    document.querySelectorAll(scope + " [data-admin]").forEach(function (el) {
       el.classList.toggle("on", el.getAttribute("data-admin") === pane);
     });
     var box = document.getElementById("adminPane");
     box.innerHTML = '<p class="empty">Загрузка…</p>';
-    if (pane === "catalog") loadAdminCatalog(box);
+    if (pane === "networks") loadAdminNetworks(box);
+    else if (pane === "catalog") loadAdminCatalog(box);
     else if (pane === "locations") loadAdminLocations(box);
     else if (pane === "access") loadAdminAccess(box);
     else if (pane === "orders") loadAdminOrders(box);
   }
 
+  function loadAdminNetworks(box) {
+    if (state.adminMode !== "owner") {
+      box.innerHTML = '<div class="err">Сети — только кабинет владельца Good Boy</div>';
+      return;
+    }
+    var html = '<p class="sub" style="margin-top:0;">Партнёрские сети. После сохранения появятся на старте.</p>' +
+      '<label class="lbl">Новая / правка сети</label>' +
+      '<input class="field" id="anId" placeholder="id (пусто = новая)">' +
+      '<input class="field" id="anName" placeholder="Название сети">' +
+      '<input class="field" id="anAddr" placeholder="Кратко (тип проекта)">' +
+      '<select class="field" id="anActive"><option value="yes">Активна</option><option value="no">Скрыта</option></select>' +
+      '<button class="btn block" type="button" onclick="saveNetwork()">Сохранить сеть</button>' +
+      '<div style="margin-top:16px;">';
+    NETWORKS.forEach(function (net) {
+      html += '<button class="loc" type="button" onclick="fillNetworkForm(' + JSON.stringify(JSON.stringify(net)) + ')">' +
+        '<img class="logo" src="' + partnerLogoFor_(net) + '" alt="">' +
+        '<div class="meta"><div class="name">' + esc(net.name) + "</div>" +
+        (net.address ? '<div class="addr">' + esc(net.address) + "</div>" : "") +
+        "</div></button>";
+    });
+    box.innerHTML = html + "</div>";
+  }
+
+  function fillNetworkForm(raw) {
+    var net = typeof raw === "string" ? JSON.parse(raw) : raw;
+    document.getElementById("anId").value = net.id || "";
+    document.getElementById("anName").value = net.name || "";
+    document.getElementById("anAddr").value = net.address || "";
+    document.getElementById("anActive").value = net.active === false ? "no" : "yes";
+  }
+
+  function saveNetwork() {
+    var u = user();
+    apiGet({
+      action: "vrAdminSaveNetwork",
+      telegramId: u.telegramId || "",
+      id: document.getElementById("anId").value.trim(),
+      name: document.getElementById("anName").value.trim(),
+      address: document.getElementById("anAddr").value.trim(),
+      active: document.getElementById("anActive").value
+    }).then(function (res) {
+      if (!res || res.status !== "success") throw new Error((res && res.message) || "Ошибка");
+      return boot(true);
+    }).then(function () { setAdminPane("networks"); })
+      .catch(function (err) { alert(String(err.message || err)); });
+  }
+
   function loadAdminCatalog(box) {
+    if (state.adminMode !== "owner") {
+      box.innerHTML = '<div class="err">Каталог правит только владелец Good Boy</div>';
+      return;
+    }
     var u = user();
     apiGet({
       action: "vrGetCatalog",
@@ -760,12 +1023,12 @@
       all: "1"
     }).then(function (res) {
       var items = (res && res.items) || [];
-      var html = '<p class="sub" style="margin-top:0;">Каталог для бесплатных заявок (без цен)</p>' +
+      var html = '<p class="sub" style="margin-top:0;">Каталог для бесплатных заявок (без цен). Купоны — поштучно.</p>' +
         '<label class="lbl">Новая / правка позиции</label>' +
         '<input class="field" id="acId" placeholder="id (пусто = новый)">' +
         '<select class="field" id="acType"><option value="treat">Лакомство</option><option value="coupon">Купон</option></select>' +
         '<input class="field" id="acName" placeholder="Название">' +
-        '<input class="field" id="acUnit" placeholder="Ед. (шт / пачка)">' +
+        '<input class="field" id="acUnit" placeholder="Ед. (шт)">' +
         '<select class="field" id="acActive"><option value="yes">Активна</option><option value="no">Скрыта</option></select>' +
         '<button class="btn block" type="button" onclick="saveCatalogItem()">Сохранить</button>' +
         '<div style="margin-top:16px;">';
@@ -809,25 +1072,44 @@
   }
 
   function loadAdminLocations(box) {
-    var locs = (state.me && state.me.allLocations) || (state.me && state.me.locations) || [];
-    var html = '<label class="lbl">Точка</label>' +
+    var isPartner = state.adminMode === "partner";
+    var netId = isPartner ? ((state.me && state.me.partnerNetworkId) || "") : "";
+    var points = POINTS.slice();
+    if (isPartner) {
+      points = points.filter(function (p) { return p.networkId === netId; });
+    }
+    var netOpts = NETWORKS.map(function (n) {
+      return '<option value="' + esc(n.id) + '"' + (n.id === netId ? " selected" : "") + ">" + esc(n.name) + "</option>";
+    }).join("");
+    var html = '<p class="sub" style="margin-top:0;">' +
+      (isPartner ? "Точки вашей сети — добавляйте адреса для сотрудников." : "Точки всех партнёрских сетей.") +
+      "</p>" +
+      '<label class="lbl">Точка</label>' +
       '<input class="field" id="alId" placeholder="id (пусто = новая)">' +
-      '<input class="field" id="alName" placeholder="Название">' +
+      (isPartner
+        ? '<input type="hidden" id="alNetworkId" value="' + esc(netId) + '">'
+        : ('<select class="field" id="alNetworkId">' + netOpts + "</select>")) +
+      '<input class="field" id="alName" placeholder="Название точки">' +
       '<input class="field" id="alAddr" placeholder="Адрес">' +
       '<select class="field" id="alActive"><option value="yes">Активна</option><option value="no">Скрыта</option></select>' +
-      '<button class="btn block" type="button" onclick="saveLocation()">Сохранить</button><div style="margin-top:16px;">';
-    locs.forEach(function (loc) {
-      html += '<button class="loc" type="button" onclick="fillLocForm(' + JSON.stringify(JSON.stringify(loc)) + ')">' +
-        '<div class="name">' + esc(loc.name) + "</div>" +
-        (loc.address ? '<div class="addr">' + esc(loc.address) + "</div>" : "") +
-        "</button>";
+      '<button class="btn block" type="button" onclick="saveLocation()">Сохранить точку</button><div style="margin-top:16px;">';
+    points.forEach(function (pt) {
+      var netName = "";
+      NETWORKS.forEach(function (n) { if (n.id === pt.networkId) netName = n.name; });
+      html += '<button class="loc" type="button" onclick="fillLocForm(' + JSON.stringify(JSON.stringify(pt)) + ')">' +
+        '<div class="meta"><div class="name">' + esc(pt.name) + "</div>" +
+        '<div class="addr">' + esc(netName) + (pt.address ? " · " + esc(pt.address) : "") + "</div>" +
+        "</div></button>";
     });
+    if (!points.length) html += '<div class="empty">Точек пока нет</div>';
     box.innerHTML = html + "</div>";
   }
 
   function fillLocForm(raw) {
     var loc = typeof raw === "string" ? JSON.parse(raw) : raw;
     document.getElementById("alId").value = loc.id || "";
+    var netEl = document.getElementById("alNetworkId");
+    if (netEl) netEl.value = loc.networkId || netEl.value || "";
     document.getElementById("alName").value = loc.name || "";
     document.getElementById("alAddr").value = loc.address || "";
     document.getElementById("alActive").value = loc.active === false ? "no" : "yes";
@@ -835,10 +1117,12 @@
 
   function saveLocation() {
     var u = user();
+    var netEl = document.getElementById("alNetworkId");
     apiGet({
       action: "vrAdminSaveLocation",
       telegramId: u.telegramId || "",
       id: document.getElementById("alId").value.trim(),
+      networkId: netEl ? netEl.value.trim() : "",
       name: document.getElementById("alName").value.trim(),
       address: document.getElementById("alAddr").value.trim(),
       active: document.getElementById("alActive").value
@@ -850,48 +1134,94 @@
   }
 
   function loadAdminAccess(box) {
-    box.innerHTML =
-      '<label class="lbl">Доступ владельца точки</label>' +
-      '<input class="field" id="aaTid" placeholder="Telegram ID">' +
-      '<input class="field" id="aaName" placeholder="Имя">' +
-      '<input class="field" id="aaLocs" placeholder="ID точек через запятую">' +
-      '<select class="field" id="aaRole"><option value="owner">owner (точка)</option><option value="admin">admin</option></select>' +
-      '<select class="field" id="aaStatus"><option value="active">active</option><option value="denied">denied</option></select>' +
-      '<button class="btn block" type="button" onclick="saveAccess()">Сохранить доступ</button>' +
-      '<p class="sub" style="margin-top:12px;">Свой ID: <b>' + esc((state.me && state.me.telegramId) || "") + "</b></p>";
+    var isPartner = state.adminMode === "partner";
+    var u = user();
+    apiGet({
+      action: "vrListAccess",
+      telegramId: u.telegramId || ""
+    }).then(function (res) {
+      var list = (res && res.access) || [];
+      var roleOpts = isPartner
+        ? '<option value="staff">staff (точка)</option><option value="partner">partner (сеть)</option>'
+        : '<option value="staff">staff (точка)</option><option value="partner">partner (сеть)</option><option value="owner">owner (Good Boy)</option>';
+      var html =
+        '<p class="sub" style="margin-top:0;">' +
+        (isPartner
+          ? "Выдаёте доступ сотрудникам своих точек. Роль владельца Good Boy недоступна."
+          : "Полные доступы: владелец Good Boy, партнёр сети, сотрудник точки.") +
+        "</p>" +
+        '<label class="lbl">Доступ</label>' +
+        '<input class="field" id="aaTid" placeholder="Telegram ID">' +
+        '<input class="field" id="aaName" placeholder="Имя">' +
+        (isPartner
+          ? '<input class="field" id="aaPoints" placeholder="ID точек через запятую (пусто = вся сеть)">'
+          : '<input class="field" id="aaNets" placeholder="ID сетей через запятую">' +
+            '<input class="field" id="aaPoints" placeholder="ID точек (для staff, опционально)">') +
+        '<select class="field" id="aaRole">' + roleOpts + "</select>" +
+        '<select class="field" id="aaStatus"><option value="active">active</option><option value="denied">denied</option></select>' +
+        '<button class="btn block" type="button" onclick="saveAccess()">Сохранить доступ</button>' +
+        '<p class="sub" style="margin-top:12px;">Свой ID: <b>' + esc((state.me && state.me.telegramId) || "") + "</b></p>" +
+        '<div style="margin-top:12px;">';
+      list.forEach(function (a) {
+        html += '<div class="item"><div class="meta"><div class="title">' + esc(a.name || a.telegramId) +
+          ' <span class="badge">' + esc(a.role) + "</span></div>" +
+          '<div class="unit">TG ' + esc(a.telegramId) +
+          (a.networkIds ? " · сети " + esc(a.networkIds) : "") +
+          (a.pointIds ? " · точки " + esc(a.pointIds) : "") +
+          " · " + esc(a.status || "") +
+          "</div></div></div>";
+      });
+      if (!list.length) html += '<div class="empty">Пока никого</div>';
+      box.innerHTML = html + "</div>";
+    }).catch(function (err) {
+      box.innerHTML = '<div class="err">' + esc(err.message || err) + "</div>";
+    });
   }
 
   function saveAccess() {
     var u = user();
+    var netsEl = document.getElementById("aaNets");
+    var ptsEl = document.getElementById("aaPoints");
     apiGet({
       action: "vrAdminSaveAccess",
       telegramId: u.telegramId || "",
       targetId: document.getElementById("aaTid").value.trim(),
       name: document.getElementById("aaName").value.trim(),
-      locationIds: document.getElementById("aaLocs").value.trim(),
+      networkIds: netsEl ? netsEl.value.trim() : "",
+      pointIds: ptsEl ? ptsEl.value.trim() : "",
       role: document.getElementById("aaRole").value,
       status: document.getElementById("aaStatus").value
     }).then(function (res) {
       if (!res || res.status !== "success") throw new Error((res && res.message) || "Ошибка");
-      alert("Сохранено");
+      setAdminPane("access");
     }).catch(function (err) { alert(String(err.message || err)); });
   }
 
   function loadAdminOrders(box) {
     var u = user();
+    var isPartner = state.adminMode === "partner";
+    var partnerNet = (state.me && state.me.partnerNetworkId) || "";
     apiGet({
       action: "vrListOrders",
       telegramId: u.telegramId || "",
       all: "1"
     }).then(function (res) {
       var list = (res && res.orders) || [];
+      if (isPartner) {
+        var allowed = {};
+        POINTS.forEach(function (p) {
+          if (p.networkId === partnerNet) allowed[p.id] = true;
+        });
+        allowed[partnerNet] = true;
+        list = list.filter(function (o) { return !!allowed[o.locationId]; });
+      }
       if (!list.length) {
         box.innerHTML = '<div class="empty">Заказов нет</div>';
         return;
       }
       box.innerHTML = list.map(function (o) {
         var lines = (o.basket || []).map(function (b) {
-          return esc(b.name) + " × " + b.qty;
+          return esc(b.name) + " × " + b.qty + (b.unit ? " " + esc(b.unit) : "");
         }).join("<br>");
         return '<div class="order"><div class="h"><span>' + esc(o.dateIso || "") + " · " +
           esc(o.locationName || "") + '</span><span class="badge">' + esc(o.status || "") +
@@ -922,7 +1252,7 @@
       state.me = res;
       if (!soft) {
         var locs = res.locations || [];
-        if (locs.length === 1 && !res.isAdmin) {
+        if (locs.length === 1 && !res.isOwner && !res.isPartner) {
           pickLoc(locs[0].id);
         } else {
           renderLocs();
@@ -930,11 +1260,15 @@
           if (state.demo) {
             var box = document.getElementById("locList");
             if (box) {
+              var roleLabel = res.isOwner ? "владелец Good Boy" : (res.isPartner ? "партнёр" : "точка");
               box.insertAdjacentHTML("afterbegin",
-                '<div class="okmsg">Демо · Varka × Good Boy · бесплатно · webhook Бойни не вызываем</div>');
+                '<div class="okmsg">Демо · роль: ' + esc(roleLabel) +
+                " · переключите чипы сверху · webhook Бойни не вызываем</div>");
             }
           }
         }
+      } else {
+        syncCabinetNav_();
       }
     }).catch(function (err) {
       if (soft) throw err;
@@ -950,6 +1284,9 @@
   window.pickLoc = pickLoc;
   window.goLocs = goLocs;
   window.goAdmin = goAdmin;
+  window.goOwnerCabinet = goOwnerCabinet;
+  window.goPartnerCabinet = goPartnerCabinet;
+  window.setDemoRole = setDemoRole;
   window.submitOrder = submitOrder;
   window.showMyOrders = showMyOrders;
   window.showOrderTab = showOrderTab;
@@ -958,6 +1295,8 @@
   window.fillCatalogForm = fillCatalogForm;
   window.saveLocation = saveLocation;
   window.fillLocForm = fillLocForm;
+  window.saveNetwork = saveNetwork;
+  window.fillNetworkForm = fillNetworkForm;
   window.saveAccess = saveAccess;
 
   boot(false);
