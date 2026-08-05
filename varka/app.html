@@ -6,168 +6,216 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>Good Boy · партнёры</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #0a0a0a;
-      --bg2: #141414;
-      --bg3: #1c1c1c;
-      --line: #2c2c2c;
-      --text: #f5f5f5;
-      --muted: #9a9a9a;
-      --accent: #ff7a00;
-      --accent2: #ff9a3d;
-      --soft: #d8d8d8;
-      --ok: #30d158;
-      --danger: #ff453a;
-      --radius: 16px;
+      --bg: #070707;
+      --bg2: #121212;
+      --bg3: #1a1a1a;
+      --line: rgba(245, 154, 46, 0.22);
+      --text: #f4ebe0;
+      --muted: rgba(244, 235, 224, 0.62);
+      --accent: #f59a2e;
+      --accent2: #ffb04a;
+      --ok: #3dd68c;
+      --danger: #ff5a5a;
+      --radius: 18px;
       --safe-b: env(safe-area-inset-bottom, 0px);
+      --font: "Outfit", system-ui, sans-serif;
+      --display: "Archivo Black", "Arial Black", sans-serif;
+    }
+    html[data-theme="light"] {
+      --bg: #f7f1e8;
+      --bg2: #ffffff;
+      --bg3: #efe6d8;
+      --line: rgba(120, 70, 20, 0.18);
+      --text: #1a140e;
+      --muted: rgba(26, 20, 14, 0.55);
+      --accent: #e8891a;
+      --accent2: #c56f0a;
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body {
-      margin: 0; padding: 0;
+      margin: 0; padding: 0; min-height: 100%;
       background: var(--bg); color: var(--text);
-      font-family: "Nunito", "SF Pro Rounded", "SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif;
-      min-height: 100%;
+      font-family: var(--font);
     }
     body {
       background:
-        radial-gradient(100% 70% at 85% -5%, rgba(255,122,0,0.16), transparent 50%),
-        radial-gradient(90% 55% at 0% 0%, rgba(255,255,255,0.05), transparent 45%),
+        radial-gradient(90% 60% at 100% -10%, rgba(245,154,46,0.18), transparent 55%),
+        radial-gradient(70% 50% at 0% 0%, rgba(255,255,255,0.04), transparent 45%),
         var(--bg);
-      padding-bottom: calc(88px + var(--safe-b));
+      padding-bottom: calc(24px + var(--safe-b));
     }
-    .wrap { max-width: 480px; margin: 0 auto; padding: 16px 16px 0; }
-    .hero {
-      display: flex; align-items: center; justify-content: center;
-      gap: 14px; margin: 8px 0 10px;
+    body::before {
+      content: "";
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      opacity: 0.04;
+      background-image: url("assets/noise.svg");
+      background-size: 180px 180px;
+      mix-blend-mode: soft-light;
     }
-    .hero.solo img {
-      width: 120px; height: 120px; object-fit: contain;
-      border-radius: 18px;
-    }
-    .hero.pair img {
-      width: 72px; height: 72px; object-fit: contain;
-      border-radius: 14px;
-    }
-    .hero img {
-      width: 72px; height: 72px; object-fit: contain;
-      border-radius: 14px;
-    }
-    .hero .x {
-      color: var(--soft); font-size: 18px; font-weight: 700; opacity: 0.55;
-    }
-    .brand {
-      font-size: 26px; font-weight: 800; letter-spacing: -0.02em;
-      color: var(--text); margin: 4px 0 2px; text-align: center;
-    }
-    .brand .gb { color: var(--accent); }
-    .sub { color: var(--muted); font-size: 14px; margin-bottom: 18px; text-align: center; }
-    .screen { display: none; animation: in 0.28s ease; }
+    .wrap { position: relative; z-index: 1; max-width: 440px; margin: 0 auto; padding: 18px 16px 0; }
+    .screen { display: none; animation: in 0.28s cubic-bezier(0.22,1,0.36,1); }
     .screen.on { display: block; }
     @keyframes in {
-      from { opacity: 0; transform: translateY(6px); }
+      from { opacity: 0; transform: translateY(8px); }
       to { opacity: 1; transform: none; }
     }
-    .loc {
-      display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
-      background: var(--bg2); border: 1px solid var(--line);
-      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px;
-      color: var(--text); font-size: 16px; cursor: pointer;
-      transition: border-color 0.15s, transform 0.12s;
+    .hero {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 10px; margin: 8px 0 6px; text-align: center;
     }
-    .loc:active { background: var(--bg3); transform: scale(0.99); }
-    .loc .logo {
-      width: 52px; height: 52px; border-radius: 14px; object-fit: cover;
+    .hero img.mark { width: 72px; height: 72px; object-fit: contain; }
+    .hero img.word { width: min(220px, 70vw); height: auto; object-fit: contain; }
+    .brand {
+      font-family: var(--display); font-size: 28px; letter-spacing: 0.04em;
+      margin: 4px 0 0; text-align: center;
+    }
+    .brand .gb { color: var(--accent); }
+    .sub { color: var(--muted); font-size: 14px; text-align: center; margin: 6px 0 16px; line-height: 1.4; }
+    .pill {
+      display: inline-block; margin: 0 auto 14px;
+      font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--accent2); border: 1px solid var(--line);
+      border-radius: 999px; padding: 6px 12px;
+    }
+    .pill.wrap-c { display: block; width: fit-content; }
+
+    .door {
+      display: flex; align-items: center; gap: 14px; width: 100%;
+      text-align: left; cursor: pointer;
+      background: linear-gradient(145deg, var(--bg2), var(--bg3));
+      border: 1px solid var(--line); border-radius: 20px;
+      padding: 18px 16px; margin-bottom: 12px; color: var(--text);
+      transition: transform 0.12s, border-color 0.15s;
+    }
+    .door:active { transform: scale(0.985); }
+    .door .ico {
+      width: 48px; height: 48px; border-radius: 14px; flex-shrink: 0;
+      display: grid; place-items: center;
+      background: rgba(245,154,46,0.14); color: var(--accent2);
+      font-size: 22px; font-weight: 800;
+    }
+    .door .t { font-weight: 800; font-size: 17px; }
+    .door .d { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+    .session {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      background: rgba(245,154,46,0.1); border: 1px solid var(--line);
+      border-radius: 14px; padding: 10px 12px; margin-bottom: 14px;
+    }
+    .session .who { font-weight: 800; color: var(--accent2); font-size: 13px; }
+    .session .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+    .loc, .login-pick {
+      display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+      background: var(--bg2); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px; margin-bottom: 10px;
+      color: var(--text); font-size: 15px; cursor: pointer; font-weight: 700;
+    }
+    .loc:active, .login-pick:active { transform: scale(0.99); }
+    .loc.locked {
+      opacity: 0.42; filter: grayscale(1); cursor: not-allowed;
+      border-color: rgba(255,255,255,0.08);
+    }
+    .loc .logo, .login-pick img {
+      width: 44px; height: 44px; border-radius: 12px; object-fit: cover;
       background: #111; flex-shrink: 0; border: 1px solid var(--line);
     }
-    .loc .meta { flex: 1; min-width: 0; }
-    .loc .name { font-weight: 700; }
-    .loc .addr { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .loc .name { font-weight: 800; }
+    .loc .addr, .login-pick .hint { display: block; color: var(--muted); font-size: 12px; font-weight: 500; margin-top: 3px; }
+    .loc .badge-lock {
+      margin-left: auto; font-size: 11px; font-weight: 800; text-transform: uppercase;
+      color: var(--muted); letter-spacing: 0.04em; white-space: nowrap;
+    }
+
+    .card {
+      background: var(--bg2); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px; margin-bottom: 12px;
+    }
+    .card h3 {
+      margin: 0 0 6px; font-size: 14px; font-weight: 800;
+      color: var(--accent2); letter-spacing: 0.02em;
+    }
+    .card p { margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.35; }
+
+    .toprow { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+    .toprow .title { font-family: var(--display); font-size: 20px; letter-spacing: 0.03em; margin: 0; }
+    .chip {
+      border: 1px solid var(--line); background: var(--bg2); color: var(--muted);
+      border-radius: 999px; padding: 7px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .chip.on { color: var(--accent2); border-color: var(--accent); }
+
     .tabs {
-      display: flex; gap: 6px; background: var(--bg2);
-      padding: 4px; border-radius: 14px; margin-bottom: 14px;
+      display: flex; gap: 6px; background: var(--bg2); padding: 4px;
+      border-radius: 14px; margin-bottom: 14px; border: 1px solid var(--line);
     }
     .tab {
       flex: 1; border: 0; background: transparent; color: var(--muted);
-      padding: 10px; border-radius: 11px; font-size: 14px; font-weight: 700;
-      cursor: pointer;
+      padding: 10px; border-radius: 11px; font-size: 14px; font-weight: 700; cursor: pointer;
     }
     .tab.on { background: var(--bg3); color: var(--accent2); }
+
     .item {
       display: flex; align-items: center; gap: 12px;
       background: var(--bg2); border: 1px solid var(--line);
       border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px;
     }
-    .item .meta { flex: 1; min-width: 0; }
-    .item .title { font-weight: 700; font-size: 15px; }
+    .item .title { font-weight: 800; font-size: 15px; }
     .item .unit { color: var(--muted); font-size: 13px; margin-top: 2px; }
     .coupon-card {
-      background: linear-gradient(145deg, #121212 0%, #1a140f 100%);
-      border: 1px solid rgba(255,122,0,0.28);
+      background: linear-gradient(145deg, var(--bg2), #1a140f);
+      border: 1px solid rgba(245,154,46,0.28);
       border-radius: 18px; padding: 12px; margin-bottom: 10px;
     }
-    .coupon-banner {
-      width: 100%; border-radius: 12px; display: block;
-      background: #111; border: 1px solid rgba(255,122,0,0.25);
-      aspect-ratio: 3 / 1; object-fit: cover; margin-bottom: 10px;
+    html[data-theme="light"] .coupon-card {
+      background: linear-gradient(145deg, #fff, #f8efe3);
     }
-    .coupon-preview {
-      width: 100%; border-radius: 12px; display: block;
-      background: #000; border: 1px solid rgba(255,255,255,0.08);
-      aspect-ratio: 16 / 9; object-fit: cover;
+    .coupon-banner, .coupon-preview {
+      width: 100%; border-radius: 12px; display: block; background: #111;
+      border: 1px solid rgba(245,154,46,0.25); object-fit: cover; margin-bottom: 10px;
     }
-    .role-bar {
-      display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
-      margin: 8px 0 14px;
-    }
-    .role-bar .chip { font-size: 11px; }
-    .session-bar {
-      display: flex; align-items: center; justify-content: space-between; gap: 10px;
-      background: rgba(255,122,0,0.1); border: 1px solid rgba(255,122,0,0.3);
-      border-radius: 12px; padding: 10px 12px; margin-bottom: 14px; font-size: 13px;
-    }
-    .session-bar .who { color: var(--accent2); font-weight: 800; }
-    .session-bar .muted { color: var(--muted); font-size: 12px; margin-top: 2px; }
-    .login-card {
-      background: var(--bg2); border: 1px solid var(--line);
-      border-radius: var(--radius); padding: 14px; margin-bottom: 12px;
-    }
-    .login-card h3 {
-      margin: 0 0 6px; font-size: 15px; font-weight: 800; color: var(--accent2);
-    }
-    .login-card p { margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.35; }
-    .login-pick {
-      display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
-      background: var(--bg3); border: 1px solid var(--line);
-      border-radius: 12px; padding: 12px; margin-bottom: 8px;
-      color: var(--text); font-size: 15px; cursor: pointer; font-weight: 700;
-    }
-    .login-pick:active { transform: scale(0.99); }
-    .login-pick img {
-      width: 40px; height: 40px; border-radius: 10px; object-fit: cover;
-      background: #111; flex-shrink: 0;
-    }
-    .login-pick .hint { display: block; font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 2px; }
+    .coupon-banner { aspect-ratio: 3 / 1; }
+    .coupon-preview { aspect-ratio: 16 / 9; }
     .coupon-row {
       display: flex; align-items: center; gap: 12px;
-      padding-top: 12px; margin-top: 10px;
-      border-top: 1px dashed rgba(255,255,255,0.12);
+      padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.12);
     }
-    .coupon-row .meta { flex: 1; }
     .stepper { display: flex; align-items: center; gap: 8px; }
     .stepper button {
       width: 34px; height: 34px; border-radius: 11px; border: 1px solid var(--line);
       background: var(--bg3); color: var(--text); font-size: 18px; cursor: pointer;
     }
-    .stepper span { min-width: 22px; text-align: center; font-weight: 700; }
+    .stepper span { min-width: 22px; text-align: center; font-weight: 800; }
+
+    .field {
+      width: 100%; background: var(--bg3); border: 1px solid var(--line);
+      border-radius: 12px; padding: 12px; color: var(--text);
+      font-size: 15px; margin-bottom: 8px; font-family: inherit;
+    }
+    .lbl { display: block; font-size: 12px; color: var(--muted); margin: 6px 0 4px; }
+    .btn {
+      border: 0; border-radius: 14px; padding: 14px 18px;
+      font-weight: 800; font-size: 15px; cursor: pointer;
+      background: var(--accent); color: #1a0f00; font-family: inherit;
+    }
+    .btn:disabled { opacity: 0.4; cursor: default; }
+    .btn.ghost {
+      background: var(--bg3); color: var(--text); border: 1px solid var(--line);
+    }
+    .btn.block { width: 100%; margin-top: 8px; }
+
     .bar {
-      position: fixed; left: 0; right: 0; bottom: 0;
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
       padding: 12px 16px calc(12px + var(--safe-b));
-      background: linear-gradient(to top, #0a0a0a 70%, transparent);
+      background: linear-gradient(to top, var(--bg) 70%, transparent);
       pointer-events: none;
     }
     .bar-inner {
-      max-width: 480px; margin: 0 auto; pointer-events: auto;
+      max-width: 440px; margin: 0 auto; pointer-events: auto;
       display: flex; gap: 10px; align-items: center;
     }
     .cart-sum {
@@ -175,45 +223,7 @@
       border-radius: 14px; padding: 12px 14px; font-size: 14px;
     }
     .cart-sum b { color: var(--accent2); }
-    .btn {
-      border: 0; border-radius: 14px; padding: 14px 18px;
-      font-weight: 800; font-size: 15px; cursor: pointer;
-      background: var(--accent); color: #1a0f00;
-    }
-    .btn:disabled { opacity: 0.4; cursor: default; }
-    .btn.ghost {
-      background: var(--bg3); color: var(--text); border: 1px solid var(--line);
-    }
-    .btn.block { width: 100%; margin-top: 8px; }
-    .toprow {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 10px; margin-bottom: 12px;
-    }
-    .chip {
-      border: 1px solid var(--line); background: var(--bg2);
-      color: var(--muted); border-radius: 999px; padding: 6px 12px;
-      font-size: 12px; cursor: pointer; font-weight: 700;
-    }
-    .chip.on { color: var(--accent2); border-color: var(--accent); }
-    .empty { color: var(--muted); text-align: center; padding: 40px 16px; }
-    .err {
-      background: rgba(255,69,58,0.12); border: 1px solid rgba(255,69,58,0.35);
-      color: #ff8a84; border-radius: 12px; padding: 14px; margin: 12px 0;
-      font-size: 14px;
-    }
-    .okmsg {
-      background: rgba(255,122,0,0.12); border: 1px solid rgba(255,122,0,0.35);
-      color: #ffc38a; border-radius: 12px; padding: 14px; margin: 12px 0;
-      font-size: 14px;
-    }
-    .admin-row {
-      display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
-    }
-    .field {
-      width: 100%; background: var(--bg2); border: 1px solid var(--line);
-      border-radius: 12px; padding: 12px; color: var(--text);
-      font-size: 15px; margin-bottom: 8px;
-    }
+
     .order {
       background: var(--bg2); border: 1px solid var(--line);
       border-radius: var(--radius); padding: 14px; margin-bottom: 10px;
@@ -223,110 +233,136 @@
     .badge {
       display: inline-block; padding: 2px 8px; border-radius: 6px;
       font-size: 11px; font-weight: 800; text-transform: uppercase;
-      background: rgba(255,122,0,0.15); color: var(--accent2);
+      background: rgba(245,154,46,0.15); color: var(--accent2);
     }
-    .badge.done { background: #14301c; color: #7dff9a; }
-    .nav {
-      display: flex; gap: 6px; margin: 8px 0 16px; overflow-x: auto;
+    .empty { color: var(--muted); text-align: center; padding: 36px 16px; }
+    .err {
+      background: rgba(255,90,90,0.12); border: 1px solid rgba(255,90,90,0.35);
+      color: #ff8a84; border-radius: 12px; padding: 14px; margin: 12px 0; font-size: 14px;
     }
-    .nav button {
-      flex: 0 0 auto; border: 1px solid var(--line); background: var(--bg2);
-      color: var(--muted); border-radius: 12px; padding: 8px 12px;
-      font-size: 13px; font-weight: 700; cursor: pointer;
+    .okmsg {
+      background: rgba(245,154,46,0.12); border: 1px solid rgba(245,154,46,0.35);
+      color: var(--accent2); border-radius: 12px; padding: 14px; margin: 12px 0; font-size: 14px;
     }
-    .nav button.on { color: var(--accent2); border-color: var(--accent); }
-    label.lbl { display: block; font-size: 12px; color: var(--muted); margin: 6px 0 4px; }
-    .free-pill {
-      display: block; width: fit-content; margin: 0 auto 12px;
-      font-size: 11px; font-weight: 800;
-      letter-spacing: 0.04em; text-transform: uppercase;
-      color: var(--accent2); border: 1px solid rgba(255,122,0,0.4);
-      border-radius: 999px; padding: 5px 12px;
+    .row-switch {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 10px 0; border-bottom: 1px solid var(--line);
+    }
+    .row-switch:last-child { border-bottom: 0; }
+    .switch {
+      width: 46px; height: 28px; border-radius: 999px; border: 1px solid var(--line);
+      background: var(--bg3); position: relative; cursor: pointer; flex-shrink: 0;
+    }
+    .switch.on { background: rgba(245,154,46,0.35); border-color: var(--accent); }
+    .switch i {
+      position: absolute; top: 3px; left: 3px; width: 20px; height: 20px;
+      border-radius: 50%; background: var(--text); transition: left 0.15s;
+    }
+    .switch.on i { left: 21px; background: var(--accent); }
+    .pair {
+      display: flex; align-items: center; justify-content: center; gap: 12px; margin: 4px 0 10px;
+    }
+    .pair img { width: 56px; height: 56px; object-fit: contain; border-radius: 12px; }
+    .pair .x { color: var(--muted); font-weight: 700; opacity: 0.6; }
+    .note {
+      font-size: 12px; color: var(--muted); text-align: center; margin-top: 18px; line-height: 1.4;
     }
   </style>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="wrap">
+    <!-- Boot -->
     <div id="screenBoot" class="screen on">
-      <div class="hero solo">
-        <img src="assets/goodboy-logo.png" alt="Good Boy">
+      <div class="hero">
+        <img class="mark" src="assets/logo-mark.png" alt="Good Boy">
+        <img class="word" src="assets/logo-wordmark.png" alt="GOOD BOY">
       </div>
-      <div class="brand"><span class="gb">Good Boy</span></div>
-      <div class="sub">Партнёрское пополнение · бесплатно</div>
       <p class="empty" id="bootMsg">Вход…</p>
     </div>
 
-    <div id="screenDemoLogin" class="screen">
-      <div class="hero solo">
-        <img src="assets/goodboy-logo.png" alt="Good Boy">
+    <!-- Демо-вход (позже заменит бот + доступы) -->
+    <div id="screenLogin" class="screen">
+      <div class="hero">
+        <img class="mark" src="assets/logo-mark.png" alt="Good Boy">
+        <img class="word" src="assets/logo-wordmark.png" alt="GOOD BOY">
       </div>
-      <div class="brand"><span class="gb">Good Boy</span></div>
-      <div class="free-pill">Демо-вход для проверки</div>
-      <div class="sub">Выберите, под кем зайти. Партнёр не видит кабинет владельца.</div>
+      <div class="pill wrap-c">Партнёрское пополнение</div>
+      <div class="sub">Небольшой вход для проверки. Позже — через бота и доступы.</div>
 
-      <div class="login-card">
-        <h3>1. Владелец Good Boy</h3>
-        <p>Полный кабинет: сети, все точки, каталог, доступы, все заказы.</p>
+      <div class="card">
+        <h3>Партнёр</h3>
+        <p>Заказ + личный кабинет своей точки. Чужие точки серые.</p>
+        <div id="loginPartnerList"></div>
+      </div>
+
+      <div class="card">
+        <h3>Владелец Good Boy</h3>
+        <p>Только для проверки менеджером (позже — отдельно).</p>
         <button class="login-pick" type="button" onclick="demoLogin('owner')">
-          <img src="assets/goodboy-logo.png" alt="">
-          <span>Войти как владелец Good Boy<span class="hint">менеджер проекта</span></span>
+          <img src="assets/logo-mark.png" alt="">
+          <span>Войти как владелец<span class="hint">все точки · все заказы</span></span>
         </button>
       </div>
-
-      <div class="login-card">
-        <h3>2. Партнёр сети</h3>
-        <p>Только мини-кабинет своей сети. Без настроек Good Boy и чужих партнёров.</p>
-        <div id="demoPartnerList"></div>
-      </div>
-
-      <div class="login-card">
-        <h3>3. Сотрудник точки</h3>
-        <p>Только заказ. Без кабинетов и настроек.</p>
-        <div id="demoStaffList"></div>
-      </div>
+      <p class="note">Заказы в Бойню / «Отложенные» подключим отдельно — этот миниап Бойню не трогает.</p>
     </div>
 
-    <div id="screenLocs" class="screen">
-      <div class="hero solo">
-        <img src="assets/goodboy-logo.png" alt="Good Boy">
+    <!-- Хаб: 2 входа -->
+    <div id="screenHome" class="screen">
+      <div class="hero">
+        <img class="mark" src="assets/logo-mark.png" alt="Good Boy">
       </div>
-      <div class="brand"><span class="gb">Good Boy</span></div>
-      <div class="free-pill">Бесплатно для партнёров</div>
-      <div id="sessionBar" class="session-bar" style="display:none;">
+      <div class="session" id="sessionBar">
         <div>
           <div class="who" id="sessionWho">—</div>
-          <div class="muted" id="sessionHint">—</div>
+          <div class="meta" id="sessionMeta">—</div>
         </div>
-        <button class="chip" type="button" onclick="demoLogout()">Сменить аккаунт</button>
+        <button class="chip" type="button" onclick="demoLogout()">Выйти</button>
       </div>
-      <div class="sub" id="locsSub">Выберите сеть или точку</div>
-      <div id="locList"></div>
-      <div id="locAdminHint" style="display:none;margin-top:16px;">
-        <button class="btn ghost block" type="button" id="btnOwnerCab" style="display:none;" onclick="goOwnerCabinet()">Кабинет владельца Good Boy</button>
-        <button class="btn ghost block" type="button" id="btnPartnerCab" style="display:none;margin-top:8px;" onclick="goPartnerCabinet()">Мини-кабинет партнёра</button>
-      </div>
+      <div class="sub" style="margin-top:0;">Два входа · только ваша точка</div>
+      <button class="door" type="button" onclick="goOrderFlow()">
+        <div class="ico">1</div>
+        <div>
+          <div class="t">Заказ</div>
+          <div class="d">Лакомства и купоны · мои заявки</div>
+        </div>
+      </button>
+      <button class="door" type="button" onclick="goCabinet()">
+        <div class="ico">2</div>
+        <div>
+          <div class="t">Личный кабинет</div>
+          <div class="d">Тема, настройки, доступ сотруднику</div>
+        </div>
+      </button>
     </div>
 
+    <!-- Выбор точки -->
+    <div id="screenPoints" class="screen">
+      <div class="toprow">
+        <div class="title">Точки</div>
+        <button class="chip" type="button" onclick="goHome()">Назад</button>
+      </div>
+      <div class="sub" style="text-align:left;margin-top:0;">Своя — активна. Остальные недоступны.</div>
+      <div id="pointsList"></div>
+    </div>
+
+    <!-- Каталог -->
     <div id="screenOrder" class="screen">
-      <div class="hero pair" id="orderHero">
-        <img id="orderPartnerLogo" src="assets/varka-logo.png" alt="Партнёр">
+      <div class="pair" id="orderPair">
+        <img id="orderPartnerLogo" src="assets/varka-logo.png" alt="">
         <span class="x">×</span>
-        <img src="assets/goodboy-logo.png" alt="Good Boy">
+        <img src="assets/logo-mark.png" alt="Good Boy">
       </div>
       <div class="toprow">
         <div>
-          <div class="brand" style="font-size:20px;margin:0;text-align:left;" id="orderPairTitle">Заявка</div>
-          <div class="sub" style="margin:2px 0 0;text-align:left;" id="orderLocName">—</div>
+          <div class="title" id="orderTitle" style="font-size:18px;">Заявка</div>
+          <div class="sub" style="text-align:left;margin:2px 0 0;" id="orderLocName">—</div>
         </div>
-        <button class="chip" type="button" onclick="goLocs()">Сменить</button>
+        <button class="chip" type="button" onclick="goPoints()">Точки</button>
       </div>
-      <div class="nav">
-        <button type="button" class="on" id="navOrder" onclick="showOrderTab()">Каталог</button>
-        <button type="button" id="navOrders" onclick="showMyOrders()">Мои заказы</button>
-        <button type="button" id="navPartner" style="display:none;" onclick="goPartnerCabinet()">Кабинет партнёра</button>
-        <button type="button" id="navOwner" style="display:none;" onclick="goOwnerCabinet()">Кабинет владельца</button>
+      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;">
+        <button class="chip on" type="button" id="navCat" onclick="showCatalogTab()">Каталог</button>
+        <button class="chip" type="button" id="navMy" onclick="showMyOrders()">Мои заказы</button>
+        <button class="chip" type="button" onclick="goHome()">На главную</button>
       </div>
       <div class="tabs">
         <button class="tab on" type="button" data-cat="treat" onclick="setCat('treat')">Лакомства</button>
@@ -337,33 +373,55 @@
 
     <div id="screenMyOrders" class="screen">
       <div class="toprow">
-        <div class="brand" style="font-size:22px;margin:0;">Мои заказы</div>
-        <button class="chip" type="button" onclick="showOrderTab()">Каталог</button>
+        <div class="title">Мои заказы</div>
+        <button class="chip" type="button" onclick="showCatalogTab()">Каталог</button>
       </div>
       <div id="myOrdersList"></div>
     </div>
 
-    <div id="screenAdmin" class="screen">
+    <!-- ЛК -->
+    <div id="screenCabinet" class="screen">
       <div class="toprow">
-        <div>
-          <div class="brand" style="font-size:22px;margin:0;" id="adminTitle">Кабинет</div>
-          <div class="sub" style="margin:2px 0 0;text-align:left;" id="adminSub">—</div>
+        <div class="title">Кабинет</div>
+        <button class="chip" type="button" onclick="goHome()">Назад</button>
+      </div>
+      <div class="card">
+        <h3>Внешний вид</h3>
+        <div class="row-switch">
+          <div>
+            <div style="font-weight:800;">Светлая тема</div>
+            <div class="addr">Как в Instagram / ленте — тёмная по умолчанию</div>
+          </div>
+          <button class="switch" type="button" id="swTheme" onclick="toggleTheme()"><i></i></button>
         </div>
-        <button class="chip" type="button" onclick="goLocs()">К сетям</button>
       </div>
-      <div class="admin-row" id="adminTabsOwner">
-        <button class="chip on" type="button" data-admin="networks" onclick="setAdminPane('networks')">Сети</button>
-        <button class="chip" type="button" data-admin="locations" onclick="setAdminPane('locations')">Точки</button>
-        <button class="chip" type="button" data-admin="catalog" onclick="setAdminPane('catalog')">Каталог</button>
-        <button class="chip" type="button" data-admin="access" onclick="setAdminPane('access')">Доступы</button>
-        <button class="chip" type="button" data-admin="orders" onclick="setAdminPane('orders')">Заказы</button>
+      <div class="card">
+        <h3>Базовые настройки</h3>
+        <label class="lbl">Как вас называть в заявках</label>
+        <input class="field" id="setDisplayName" placeholder="Имя / точка">
+        <div class="row-switch">
+          <div>
+            <div style="font-weight:800;">Уведомления о статусе</div>
+            <div class="addr">Позже — в бота Good Boy</div>
+          </div>
+          <button class="switch on" type="button" id="swNotify" onclick="toggleNotify()"><i></i></button>
+        </div>
+        <button class="btn block" type="button" onclick="saveSettings()">Сохранить</button>
       </div>
-      <div class="admin-row" id="adminTabsPartner" style="display:none;">
-        <button class="chip on" type="button" data-admin="locations" onclick="setAdminPane('locations')">Мои точки</button>
-        <button class="chip" type="button" data-admin="orders" onclick="setAdminPane('orders')">Мои заказы</button>
-        <button class="chip" type="button" data-admin="access" onclick="setAdminPane('access')">Доступы точки</button>
+      <div class="card">
+        <h3>Доступ сотруднику</h3>
+        <p>Дайте доступ к <b>своей</b> точке ответственному. Он сможет заказывать от неё.</p>
+        <label class="lbl">Telegram ID сотрудника</label>
+        <input class="field" id="staffTid" placeholder="например 123456789" inputmode="numeric">
+        <label class="lbl">Имя</label>
+        <input class="field" id="staffName" placeholder="Имя">
+        <button class="btn block" type="button" onclick="grantStaffAccess()">Выдать доступ</button>
+        <div id="staffList" style="margin-top:12px;"></div>
       </div>
-      <div id="adminPane"></div>
+      <div class="card" id="ownerExtra" style="display:none;">
+        <h3>Владелец · все заказы (демо)</h3>
+        <div id="ownerOrders"></div>
+      </div>
     </div>
   </div>
 
@@ -376,443 +434,165 @@
 
   <script>
 (function () {
-  var APP_VER = "1.7.0";
-  // Свой webhook Varka (отдельный Script). ПУСТО = демо без сети.
-  // НИКОГДА не ставить сюда /exec Бойни-конвейера.
+  var APP_VER = "2.0.0";
+  // Свой webhook. ПУСТО = демо. НИКОГДА не ставить /exec Бойни.
   var VARKA_WEBHOOK_URL = "";
-  var LOGO_VARKA = "assets/varka-logo.png";
-  var LOGO_GOODBOY = "assets/goodboy-logo.png";
+  var SESSION_KEY = "gb_partner_session_v2";
+  var SETTINGS_KEY = "gb_partner_settings_v2";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
-  var COUPON_BANNER = "assets/coupon-banner.png"; // PNG баннера — замените файлом позже
-  var DEMO_SESSION_KEY = "varka_demo_session_v1";
-
-  // Роли демо-сессии (после «Войти»):
-  // owner  — менеджер Good Boy: полный кабинет владельца
-  // partner — кабинет партнёра (только выбранная сеть)
-  // staff  — заказ по выбранной точке
-  var DEMO_ROLE = "";
-  var DEMO_PARTNER_NETWORK = "";
-  var DEMO_STAFF_POINT = "";
-
-  function loadDemoSession_() {
-    try {
-      var raw = sessionStorage.getItem(DEMO_SESSION_KEY);
-      if (!raw) return false;
-      var s = JSON.parse(raw);
-      if (!s || !s.role) return false;
-      DEMO_ROLE = s.role;
-      DEMO_PARTNER_NETWORK = s.partnerNetworkId || "";
-      DEMO_STAFF_POINT = s.staffPointId || "";
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function saveDemoSession_() {
-    try {
-      sessionStorage.setItem(DEMO_SESSION_KEY, JSON.stringify({
-        role: DEMO_ROLE,
-        partnerNetworkId: DEMO_PARTNER_NETWORK,
-        staffPointId: DEMO_STAFF_POINT
-      }));
-    } catch (e) {}
-  }
-
-  function clearDemoSession_() {
-    DEMO_ROLE = "";
-    DEMO_PARTNER_NETWORK = "";
-    DEMO_STAFF_POINT = "";
-    try { sessionStorage.removeItem(DEMO_SESSION_KEY); } catch (e) {}
-  }
-
-  function partnerLogoFor_(loc) {
-    if (!loc) return LOGO_GOODBOY;
-    if (loc.logo) return loc.logo;
-    var n = String(loc.name || "").toLowerCase();
-    if (n.indexOf("varka") >= 0 || n.indexOf("варка") >= 0) return LOGO_VARKA;
-    // Плейсхолдер с названием, пока нет файла логотипа партнёра
-    var label = String(loc.name || "?").slice(0, 12);
-    var svg =
-      '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">' +
-      '<rect width="256" height="256" rx="40" fill="#1a1a1a"/>' +
-      '<circle cx="128" cy="108" r="70" fill="#ff7a00"/>' +
-      '<text x="128" y="118" text-anchor="middle" fill="#111" font-family="Arial,sans-serif" font-size="36" font-weight="700">' +
-      label.replace(/&/g, "&amp;").replace(/</g, "&lt;") +
-      "</text></svg>";
-    return "data:image/svg+xml," + encodeURIComponent(svg);
-  }
-
-  function setNetworkHero_(loc) {
-    var img = document.getElementById("orderPartnerLogo");
-    var title = document.getElementById("orderPairTitle");
-    if (img) {
-      img.src = partnerLogoFor_(loc);
-      img.alt = (loc && loc.name) || "Партнёр";
-    }
-    if (title) {
-      title.innerHTML = esc((loc && loc.name) || "Сеть") + ' × <span class="gb">Good Boy</span>';
-    }
-  }
+  var COUPON_BANNER = "assets/coupon-banner.png";
 
   var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   if (tg) {
     try { tg.ready(); tg.expand(); } catch (e) {}
-    try { tg.setHeaderColor("#0c0c0c"); tg.setBackgroundColor("#0c0c0c"); } catch (e2) {}
+    try { tg.setHeaderColor("#070707"); tg.setBackgroundColor("#070707"); } catch (e2) {}
   }
 
   var NETWORKS = [
-    { id: "net_varka", name: "Varka", address: "сеть кофеен", logo: "assets/varka-logo.png", active: true },
-    { id: "net_nan", name: "NaN clinic", address: "ветклиника", logo: "assets/partners/nan.png", active: true },
-    { id: "net_fundog", name: "Fundog", address: "комьюнити · Минск", logo: "assets/partners/fundog.png", active: true },
-    { id: "net_firedog", name: "Firedog", address: "партнёрский проект", logo: "assets/partners/firedog.png", active: true },
-    { id: "net_polotno", name: "Polotno", address: "партнёрский проект", active: true },
-    { id: "net_indixvost", name: "Indixvost", address: "партнёрский проект", active: true },
-    { id: "net_bowwow", name: "Bow_wow_color", address: "партнёрский проект", active: true }
+    { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" },
+    { id: "net_nan", name: "NaN clinic", logo: "assets/partners/nan.png" },
+    { id: "net_fundog", name: "Fundog", logo: "assets/partners/fundog.png" },
+    { id: "net_firedog", name: "Firedog", logo: "assets/partners/firedog.png" },
+    { id: "net_polotno", name: "Polotno", logo: "" },
+    { id: "net_indixvost", name: "Indixvost", logo: "" },
+    { id: "net_bowwow", name: "Bow_wow_color", logo: "" }
   ];
 
   var POINTS = [
-    { id: "pt_varka_1", networkId: "net_varka", name: "Varka · Немига", address: "ул. Немига", active: true },
-    { id: "pt_varka_2", networkId: "net_varka", name: "Varka · Каменная", address: "ул. Каменная", active: true },
-    { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34", active: true }
+    { id: "pt_varka_1", networkId: "net_varka", name: "Varka · Немига", address: "ул. Немига" },
+    { id: "pt_varka_2", networkId: "net_varka", name: "Varka · Каменная", address: "ул. Каменная" },
+    { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34" },
+    { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
+    { id: "pt_firedog_1", networkId: "net_firedog", name: "Firedog · точка 1", address: "Минск" },
+    { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—" },
+    { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—" },
+    { id: "pt_bow_1", networkId: "net_bowwow", name: "Bow_wow_color · точка 1", address: "—" }
   ];
 
-  function buildDemoMe_() {
-    var role = DEMO_ROLE;
-    var isOwner = role === "owner";
-    var isPartner = role === "partner";
-    var isStaff = role === "staff";
-    var partnerNetworkId = DEMO_PARTNER_NETWORK || "net_varka";
-    var staffPointId = DEMO_STAFF_POINT || "pt_varka_1";
-    var locations;
-    if (isOwner) {
-      locations = NETWORKS.slice();
-    } else if (isPartner) {
-      locations = NETWORKS.filter(function (n) { return n.id === partnerNetworkId; });
-    } else if (isStaff) {
-      locations = POINTS.filter(function (p) { return p.id === staffPointId; }).map(function (p) {
-        var net = NETWORKS.filter(function (n) { return n.id === p.networkId; })[0];
-        return {
-          id: p.id,
-          name: p.name,
-          address: p.address,
-          logo: net ? net.logo : "",
-          networkId: p.networkId,
-          active: p.active !== false
-        };
-      });
-    } else {
-      locations = [];
-    }
-    var myPoints = POINTS.slice();
-    if (isPartner) {
-      myPoints = POINTS.filter(function (p) { return p.networkId === partnerNetworkId; });
-    } else if (isStaff) {
-      myPoints = POINTS.filter(function (p) { return p.id === staffPointId; });
-    }
-    var partnerName = "";
-    NETWORKS.forEach(function (n) { if (n.id === partnerNetworkId) partnerName = n.name; });
-    var staffName = "";
-    POINTS.forEach(function (p) { if (p.id === staffPointId) staffName = p.name; });
-    return {
-      status: "success",
-      telegramId: "demo_" + (role || "none"),
-      name: isOwner ? "Менеджер Good Boy" : (isPartner ? ("Партнёр · " + partnerName) : (staffName || "Сотрудник точки")),
-      role: role || "",
-      isOwner: isOwner,
-      isPartner: isPartner,
-      isStaff: isStaff,
-      isAdmin: isOwner,
-      partnerNetworkId: isPartner ? partnerNetworkId : "",
-      partnerName: partnerName,
-      locations: locations,
-      allLocations: NETWORKS.slice(),
-      points: myPoints
-    };
-  }
+  var CATALOG = [
+    { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "шт", active: true },
+    { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "шт", active: true },
+    { id: "vr_c_piece", type: "coupon", name: "Купон", unit: "шт", active: true }
+  ];
 
-  function demoLogin(role, id) {
-    if (role === "owner") {
-      DEMO_ROLE = "owner";
-      DEMO_PARTNER_NETWORK = "";
-      DEMO_STAFF_POINT = "";
-    } else if (role === "partner") {
-      DEMO_ROLE = "partner";
-      DEMO_PARTNER_NETWORK = id || "net_varka";
-      DEMO_STAFF_POINT = "";
-    } else if (role === "staff") {
-      DEMO_ROLE = "staff";
-      DEMO_PARTNER_NETWORK = "";
-      DEMO_STAFF_POINT = id || "pt_varka_1";
-    } else {
-      return;
-    }
-    saveDemoSession_();
-    state.cart = {};
-    state.location = null;
-    state.adminMode = DEMO_ROLE === "owner" ? "owner" : (DEMO_ROLE === "partner" ? "partner" : "");
-    boot(false);
-  }
-
-  function demoLogout() {
-    clearDemoSession_();
-    state.me = null;
-    state.location = null;
-    state.cart = {};
-    renderDemoLogin_();
-    show("screenDemoLogin");
-  }
-
-  function renderDemoLogin_() {
-    var pBox = document.getElementById("demoPartnerList");
-    var sBox = document.getElementById("demoStaffList");
-    if (pBox) {
-      pBox.innerHTML = NETWORKS.map(function (net) {
-        return '<button class="login-pick" type="button" onclick="demoLogin(\'partner\',\'' + esc(net.id) + '\')">' +
-          '<img src="' + partnerLogoFor_(net) + '" alt="">' +
-          "<span>Войти как партнёр · " + esc(net.name) +
-          '<span class="hint">мини-кабинет только этой сети</span></span></button>';
-      }).join("");
-    }
-    if (sBox) {
-      sBox.innerHTML = POINTS.map(function (pt) {
-        var netName = "";
-        NETWORKS.forEach(function (n) { if (n.id === pt.networkId) netName = n.name; });
-        var net = NETWORKS.filter(function (n) { return n.id === pt.networkId; })[0];
-        return '<button class="login-pick" type="button" onclick="demoLogin(\'staff\',\'' + esc(pt.id) + '\')">' +
-          '<img src="' + partnerLogoFor_(net) + '" alt="">' +
-          "<span>" + esc(pt.name) +
-          '<span class="hint">' + esc(netName) + " · только заказ</span></span></button>";
-      }).join("");
-    }
-  }
-
-  function setDemoRole(role) {
-    if (role === "owner") demoLogin("owner");
-    else if (role === "partner") demoLogin("partner", DEMO_PARTNER_NETWORK || "net_varka");
-    else if (role === "staff") demoLogin("staff", DEMO_STAFF_POINT || "pt_varka_1");
-    else demoLogout();
-  }
-
-  var DEMO = {
-    me: { status: "success", locations: [], allLocations: [], points: [] },
-    catalog: [
-      { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "шт", active: true, sort: 10 },
-      { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "шт", active: true, sort: 20 },
-      { id: "vr_c_piece", type: "coupon", name: "Купон", unit: "шт", active: true, sort: 10 }
-    ],
-    orders: [],
-    access: [
-      { telegramId: "111", name: "Менеджер GB", role: "owner", networkIds: "", status: "active" },
-      { telegramId: "222", name: "Партнёр Varka", role: "partner", networkIds: "net_varka", status: "active" },
-      { telegramId: "333", name: "Точка Немига", role: "staff", networkIds: "net_varka", pointIds: "pt_varka_1", status: "active" }
-    ]
-  };
+  var DEMO = { orders: [], staffAccess: [] };
+  var DEMO_ROLE = "";
+  var DEMO_NETWORK = "";
+  var DEMO_POINT = "";
 
   var state = {
     me: null,
-    location: null,
-    catalog: [],
+    point: null,
+    catalog: CATALOG.slice(),
     cart: {},
     cat: "treat",
-    adminPane: "networks",
-    adminMode: "owner", // owner | partner
+    settings: loadSettings_(),
     demo: !VARKA_WEBHOOK_URL
   };
+
+  applyTheme_(state.settings.theme || "dark");
+
+  function loadSettings_() {
+    try {
+      return JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") || {};
+    } catch (e) { return {}; }
+  }
+  function saveSettingsLocal_() {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings || {})); } catch (e) {}
+  }
+  function applyTheme_(theme) {
+    document.documentElement.setAttribute("data-theme", theme === "light" ? "light" : "dark");
+    var sw = document.getElementById("swTheme");
+    if (sw) sw.classList.toggle("on", theme === "light");
+    if (tg) {
+      try {
+        var c = theme === "light" ? "#f7f1e8" : "#070707";
+        tg.setHeaderColor(c); tg.setBackgroundColor(c);
+      } catch (e) {}
+    }
+  }
+
+  function loadSession_() {
+    try {
+      var s = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
+      if (!s || !s.role) return false;
+      DEMO_ROLE = s.role;
+      DEMO_NETWORK = s.networkId || "";
+      DEMO_POINT = s.pointId || "";
+      return true;
+    } catch (e) { return false; }
+  }
+  function saveSession_() {
+    try {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+        role: DEMO_ROLE, networkId: DEMO_NETWORK, pointId: DEMO_POINT
+      }));
+    } catch (e) {}
+  }
+  function clearSession_() {
+    DEMO_ROLE = ""; DEMO_NETWORK = ""; DEMO_POINT = "";
+    try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
+  }
+
+  function netById_(id) {
+    for (var i = 0; i < NETWORKS.length; i++) if (NETWORKS[i].id === id) return NETWORKS[i];
+    return null;
+  }
+  function pointById_(id) {
+    for (var i = 0; i < POINTS.length; i++) if (POINTS[i].id === id) return POINTS[i];
+    return null;
+  }
+  function logoFor_(net) {
+    if (net && net.logo) return net.logo;
+    var label = String((net && net.name) || "?").slice(0, 10);
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" rx="40" fill="#1a1a1a"/><circle cx="128" cy="120" r="70" fill="#f59a2e"/><text x="128" y="130" text-anchor="middle" fill="#111" font-family="Arial" font-size="28" font-weight="700">' +
+      label.replace(/&/g,"&amp;").replace(/</g,"&lt;") + "</text></svg>";
+    return "data:image/svg+xml," + encodeURIComponent(svg);
+  }
+
+  function buildMe_() {
+    var isOwner = DEMO_ROLE === "owner";
+    var isPartner = DEMO_ROLE === "partner";
+    var net = netById_(DEMO_NETWORK);
+    var pt = pointById_(DEMO_POINT);
+    var allowed = {};
+    if (isOwner) {
+      POINTS.forEach(function (p) { allowed[p.id] = true; });
+    } else if (pt) {
+      allowed[pt.id] = true;
+    }
+    return {
+      status: "success",
+      role: DEMO_ROLE,
+      isOwner: isOwner,
+      isPartner: isPartner,
+      name: isOwner ? "Менеджер Good Boy" : ((state.settings.displayName) || (pt ? pt.name : (net ? net.name : "Партнёр"))),
+      networkId: DEMO_NETWORK,
+      networkName: net ? net.name : "",
+      pointId: DEMO_POINT,
+      pointName: pt ? pt.name : "",
+      allowedPointIds: allowed,
+      telegramId: "demo_" + (DEMO_ROLE || "x")
+    };
+  }
 
   function user() {
     var u = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
     return {
       telegramId: String(u.id || ""),
-      name: [u.first_name, u.last_name].filter(Boolean).join(" ") || u.username || "",
-      username: u.username || "",
-      initData: (tg && tg.initData) || ""
+      name: [u.first_name, u.last_name].filter(Boolean).join(" ") || "",
+      username: u.username || ""
     };
   }
 
-  function apiGet(params) {
-    if (!VARKA_WEBHOOK_URL) {
-      return Promise.resolve(demoApi_(params));
-    }
-    return new Promise(function (resolve, reject) {
-      var cb = "vr_cb_" + Math.round(Math.random() * 1e9);
-      var timer = setTimeout(function () {
-        cleanup();
-        reject(new Error("Таймаут сервера"));
-      }, 28000);
-      function cleanup() {
-        clearTimeout(timer);
-        try { delete window[cb]; } catch (e) {}
-        var s = document.getElementById(cb);
-        if (s && s.parentNode) s.parentNode.removeChild(s);
-      }
-      window[cb] = function (res) { cleanup(); resolve(res); };
-      var q = Object.keys(params).map(function (k) {
-        return k + "=" + encodeURIComponent(params[k] == null ? "" : params[k]);
-      }).join("&");
-      var script = document.createElement("script");
-      script.id = cb;
-      script.async = true;
-      script.src = VARKA_WEBHOOK_URL + "?" + q + "&callback=" + cb;
-      script.onerror = function () { cleanup(); reject(new Error("Сеть")); };
-      (document.head || document.body).appendChild(script);
-    });
-  }
-
-  function demoApi_(params) {
-    var action = String((params && params.action) || "");
-    var u = user();
-    if (action === "vrMe") {
-      DEMO.me = buildDemoMe_();
-      var me = JSON.parse(JSON.stringify(DEMO.me));
-      me.telegramId = u.telegramId || me.telegramId || "demo";
-      // в демо имя роли важнее TG-имени — иначе не видно «Партнёр · Varka»
-      if (!state.demo && u.name) me.name = u.name;
-      return me;
-    }
-    if (action === "vrGetCatalog") {
-      return { status: "success", items: DEMO.catalog.slice() };
-    }
-    if (action === "vrSubmitOrder") {
-      var basket = [];
-      try { basket = JSON.parse(params.basket || "[]"); } catch (e) { basket = []; }
-      var id = "demo_" + Date.now().toString(36);
-      var loc = null;
-      (DEMO.me.locations || []).forEach(function (l) {
-        if (l.id === params.locationId) loc = l;
-      });
-      DEMO.orders.unshift({
-        id: id,
-        dateIso: new Date().toISOString().slice(0, 10),
-        locationId: params.locationId,
-        locationName: loc ? loc.name : "",
-        telegramId: u.telegramId || "demo",
-        userName: u.name || "",
-        basket: basket,
-        status: "new"
-      });
-      return { status: "success", id: id };
-    }
-    if (action === "vrListOrders") {
-      var list = DEMO.orders.slice();
-      if (params.locationId) {
-        list = list.filter(function (o) { return o.locationId === params.locationId; });
-      }
-      return { status: "success", orders: list };
-    }
-    if (action === "vrAdminSaveCatalog") {
-      var idc = String(params.id || "").trim() || ("vr_" + Date.now().toString(36));
-      var hit = null;
-      DEMO.catalog.forEach(function (c) { if (c.id === idc) hit = c; });
-      var row = {
-        id: idc,
-        type: params.type === "coupon" ? "coupon" : "treat",
-        name: params.name || "Без имени",
-        unit: params.unit || "",
-        active: params.active !== "no",
-        sort: 100
-      };
-      if (hit) {
-        Object.keys(row).forEach(function (k) { hit[k] = row[k]; });
-      } else DEMO.catalog.push(row);
-      return { status: "success", id: idc };
-    }
-    if (action === "vrAdminSaveNetwork") {
-      if (DEMO_ROLE !== "owner") return { status: "error", message: "Только владелец Good Boy" };
-      var idn = String(params.id || "").trim() || ("net_" + Date.now().toString(36));
-      var netHit = null;
-      NETWORKS.forEach(function (n) { if (n.id === idn) netHit = n; });
-      var netRow = {
-        id: idn,
-        name: params.name || "Сеть",
-        address: params.address || "партнёрский проект",
-        logo: params.logo || "",
-        active: params.active !== "no"
-      };
-      if (netHit) {
-        Object.keys(netRow).forEach(function (k) { if (k !== "logo" || netRow.logo) netHit[k] = netRow[k]; });
-      } else {
-        NETWORKS.push(netRow);
-      }
-      return { status: "success", id: idn };
-    }
-    if (action === "vrAdminSaveLocation") {
-      var idl = String(params.id || "").trim() || ("pt_" + Date.now().toString(36));
-      var networkId = String(params.networkId || "").trim();
-      var myNet = DEMO_PARTNER_NETWORK || "net_varka";
-      if (DEMO_ROLE === "partner") {
-        networkId = myNet;
-      }
-      if (!networkId) return { status: "error", message: "Укажите сеть" };
-      if (DEMO_ROLE === "partner" && networkId !== myNet) {
-        return { status: "error", message: "Чужая сеть" };
-      }
-      if (DEMO_ROLE !== "owner" && DEMO_ROLE !== "partner") {
-        return { status: "error", message: "Нет прав" };
-      }
-      var ptHit = null;
-      POINTS.forEach(function (p) { if (p.id === idl) ptHit = p; });
-      var ptRow = {
-        id: idl,
-        networkId: networkId,
-        name: params.name || "Точка",
-        address: params.address || "",
-        active: params.active !== "no"
-      };
-      if (ptHit) {
-        Object.keys(ptRow).forEach(function (k) { ptHit[k] = ptRow[k]; });
-      } else {
-        POINTS.push(ptRow);
-      }
-      return { status: "success", id: idl };
-    }
-    if (action === "vrAdminSaveAccess") {
-      if (DEMO_ROLE !== "owner" && DEMO_ROLE !== "partner") {
-        return { status: "error", message: "Нет прав" };
-      }
-      var tid = String(params.targetId || "").trim();
-      if (!tid) return { status: "error", message: "Нужен Telegram ID" };
-      var accHit = null;
-      DEMO.access.forEach(function (a) { if (a.telegramId === tid) accHit = a; });
-      var role = String(params.role || "staff");
-      if (DEMO_ROLE === "partner" && role === "owner") {
-        return { status: "error", message: "Партнёр не выдаёт роль владельца Good Boy" };
-      }
-      var myNet2 = DEMO_PARTNER_NETWORK || "net_varka";
-      var accRow = {
-        telegramId: tid,
-        name: params.name || "",
-        role: role,
-        networkIds: String(params.networkIds || params.locationIds || "").trim(),
-        pointIds: String(params.pointIds || "").trim(),
-        status: params.status === "denied" ? "denied" : "active"
-      };
-      if (DEMO_ROLE === "partner") {
-        accRow.networkIds = myNet2;
-        if (accRow.role !== "partner" && accRow.role !== "staff") accRow.role = "staff";
-      }
-      if (accHit) {
-        Object.keys(accRow).forEach(function (k) { accHit[k] = accRow[k]; });
-      } else {
-        DEMO.access.push(accRow);
-      }
-      return { status: "success", telegramId: tid };
-    }
-    if (action === "vrListAccess") {
-      var acc = DEMO.access.slice();
-      if (DEMO_ROLE === "partner") {
-        var netF = DEMO_PARTNER_NETWORK || "net_varka";
-        acc = acc.filter(function (a) {
-          return String(a.networkIds || "").indexOf(netF) >= 0 && a.role !== "owner";
-        });
-      }
-      return { status: "success", access: acc };
-    }
-    return { status: "error", message: "demo: unknown " + action };
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
   function show(id) {
-    ["screenBoot", "screenDemoLogin", "screenLocs", "screenOrder", "screenMyOrders", "screenAdmin"].forEach(function (s) {
+    ["screenBoot", "screenLogin", "screenHome", "screenPoints", "screenOrder", "screenMyOrders", "screenCabinet"].forEach(function (s) {
       var el = document.getElementById(s);
       if (el) el.classList.toggle("on", s === id);
     });
@@ -820,30 +600,110 @@
     if (bar) bar.style.display = (id === "screenOrder") ? "" : "none";
   }
 
-  function cartCount() {
-    var count = 0;
-    Object.keys(state.cart).forEach(function (id) {
-      count += Number(state.cart[id]) || 0;
-    });
-    return count;
+  function renderLogin_() {
+    var box = document.getElementById("loginPartnerList");
+    if (!box) return;
+    // Для демо: партнёр = сеть → первая точка сети как «своя»
+    box.innerHTML = NETWORKS.map(function (net) {
+      var pts = POINTS.filter(function (p) { return p.networkId === net.id; });
+      var first = pts[0];
+      if (!first) return "";
+      return '<button class="login-pick" type="button" onclick="demoLogin(\'partner\',\'' + esc(net.id) + '\',\'' + esc(first.id) + '\')">' +
+        '<img src="' + logoFor_(net) + '" alt="">' +
+        "<span>Войти · " + esc(net.name) +
+        '<span class="hint">точка: ' + esc(first.name) + " · 2 входа</span></span></button>";
+    }).join("");
   }
 
-  function refreshCartBar() {
-    var c = document.getElementById("cartCount");
-    var b = document.getElementById("btnSubmit");
-    var n = cartCount();
-    if (c) c.textContent = String(n);
-    if (b) b.disabled = n <= 0;
+  function demoLogin(role, networkId, pointId) {
+    DEMO_ROLE = role === "owner" ? "owner" : "partner";
+    DEMO_NETWORK = networkId || "";
+    DEMO_POINT = pointId || "";
+    if (DEMO_ROLE === "owner") {
+      DEMO_NETWORK = "";
+      DEMO_POINT = "";
+    }
+    saveSession_();
+    state.cart = {};
+    state.point = null;
+    enterApp_();
   }
 
-  function setQty(id, delta) {
-    var cur = Number(state.cart[id]) || 0;
-    var next = Math.max(0, cur + delta);
-    if (next === 0) delete state.cart[id];
-    else state.cart[id] = next;
-    renderCatalog();
-    refreshCartBar();
-    try { if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged(); } catch (e) {}
+  function demoLogout() {
+    clearSession_();
+    state.me = null;
+    state.point = null;
+    state.cart = {};
+    renderLogin_();
+    show("screenLogin");
+  }
+
+  function enterApp_() {
+    state.me = buildMe_();
+    var who = document.getElementById("sessionWho");
+    var meta = document.getElementById("sessionMeta");
+    if (who) who.textContent = state.me.name;
+    if (meta) {
+      meta.textContent = state.me.isOwner
+        ? "Владелец · все точки"
+        : ("Партнёр · " + (state.me.networkName || "") + " · " + (state.me.pointName || ""));
+    }
+    show("screenHome");
+  }
+
+  function goHome() {
+    state.cart = {};
+    show("screenHome");
+  }
+
+  function goOrderFlow() {
+    goPoints();
+  }
+
+  function goPoints() {
+    var box = document.getElementById("pointsList");
+    var allowed = (state.me && state.me.allowedPointIds) || {};
+    var list = POINTS.slice();
+    // Партнёру показываем точки своей сети + чужие сети серыми (для наглядности)
+    if (state.me && state.me.isPartner) {
+      var mine = POINTS.filter(function (p) { return p.networkId === state.me.networkId; });
+      var others = POINTS.filter(function (p) { return p.networkId !== state.me.networkId; });
+      list = mine.concat(others);
+    }
+    box.innerHTML = list.map(function (pt) {
+      var net = netById_(pt.networkId);
+      var ok = !!allowed[pt.id];
+      if (ok) {
+        return '<button class="loc" type="button" onclick="pickPoint(\'' + esc(pt.id) + '\')">' +
+          '<img class="logo" src="' + logoFor_(net) + '" alt="">' +
+          '<div><div class="name">' + esc(pt.name) + "</div>" +
+          '<div class="addr">' + esc(pt.address || (net && net.name) || "") + "</div></div></button>";
+      }
+      return '<div class="loc locked" title="Нет доступа">' +
+        '<img class="logo" src="' + logoFor_(net) + '" alt="">' +
+        '<div><div class="name">' + esc(pt.name) + "</div>" +
+        '<div class="addr">' + esc(pt.address || (net && net.name) || "") + "</div></div>" +
+        '<span class="badge-lock">нет доступа</span></div>';
+    }).join("");
+    show("screenPoints");
+  }
+
+  function pickPoint(id) {
+    var allowed = (state.me && state.me.allowedPointIds) || {};
+    if (!allowed[id]) {
+      alert("Эта точка недоступна. Нужен доступ от партнёра.");
+      return;
+    }
+    var pt = pointById_(id);
+    if (!pt) return;
+    state.point = pt;
+    state.cart = {};
+    var net = netById_(pt.networkId);
+    var img = document.getElementById("orderPartnerLogo");
+    if (img) { img.src = logoFor_(net); img.alt = (net && net.name) || ""; }
+    document.getElementById("orderTitle").textContent = (net ? net.name + " × Good Boy" : "Заявка");
+    document.getElementById("orderLocName").textContent = pt.name + (pt.address ? " · " + pt.address : "");
+    showCatalogTab();
   }
 
   function setCat(cat) {
@@ -854,644 +714,232 @@
     renderCatalog();
   }
 
+  function cartCount() {
+    var n = 0;
+    Object.keys(state.cart).forEach(function (id) { n += Number(state.cart[id]) || 0; });
+    return n;
+  }
+  function refreshCart() {
+    var c = document.getElementById("cartCount");
+    var b = document.getElementById("btnSubmit");
+    var n = cartCount();
+    if (c) c.textContent = String(n);
+    if (b) b.disabled = n <= 0;
+  }
+  function setQty(id, delta) {
+    var cur = Number(state.cart[id]) || 0;
+    var next = Math.max(0, cur + delta);
+    if (next === 0) delete state.cart[id];
+    else state.cart[id] = next;
+    renderCatalog();
+    refreshCart();
+  }
+
   function renderCatalog() {
     var box = document.getElementById("catalogList");
-    if (!box) return;
     var items = state.catalog.filter(function (it) {
-      return String(it.type) === state.cat && it.active !== false;
+      return it.type === state.cat && it.active !== false;
     });
     if (!items.length) {
-      box.innerHTML = '<div class="empty">Пока пусто в этой категории</div>';
+      box.innerHTML = '<div class="empty">Пусто</div>';
       return;
     }
     box.innerHTML = items.map(function (it) {
       var q = Number(state.cart[it.id]) || 0;
-      var unit = it.unit ? esc(it.unit) : "";
-      var stepper =
+      var ste =
         '<div class="stepper">' +
         '<button type="button" onclick="setQty(\'' + it.id + '\',-1)">−</button>' +
         "<span>" + q + "</span>" +
-        '<button type="button" onclick="setQty(\'' + it.id + '\',1)">+</button>' +
-        "</div>";
+        '<button type="button" onclick="setQty(\'' + it.id + '\',1)">+</button></div>';
       if (it.type === "coupon") {
-        // Поштучно + баннер (PNG замените позже) + макет купона
         return '<div class="coupon-card">' +
-          '<img class="coupon-banner" src="' + COUPON_BANNER + '" alt="Баннер купонов">' +
-          '<img class="coupon-preview" src="' + COUPON_IMG + '" alt="Купон">' +
-          '<div class="coupon-row">' +
-          '<div class="meta"><div class="title">' + esc(it.name) + "</div>" +
-          '<div class="unit">поштучно' +
-          (q > 0 ? (" · в заявке " + q + " шт") : "") +
-          "</div></div>" + stepper +
-          "</div></div>";
+          '<img class="coupon-banner" src="' + COUPON_BANNER + '" alt="">' +
+          '<img class="coupon-preview" src="' + COUPON_IMG + '" alt="">' +
+          '<div class="coupon-row"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
+          '</div><div class="unit">поштучно' + (q ? (" · " + q + " шт") : "") +
+          "</div></div>" + ste + "</div></div>";
       }
-      return '<div class="item">' +
-        '<div class="meta"><div class="title">' + esc(it.name) + "</div>" +
-        (unit ? '<div class="unit">' + unit + "</div>" : "") +
-        "</div>" + stepper + "</div>";
+      return '<div class="item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
+        '</div><div class="unit">' + esc(it.unit || "шт") + "</div></div>" + ste + "</div>";
     }).join("");
   }
 
-  function esc(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  }
-
-  function syncCabinetNav_() {
-    var me = state.me || {};
-    var hint = document.getElementById("locAdminHint");
-    var btnO = document.getElementById("btnOwnerCab");
-    var btnP = document.getElementById("btnPartnerCab");
-    var navO = document.getElementById("navOwner");
-    var navP = document.getElementById("navPartner");
-    // Жёстко: owner-кнопки только у owner, partner — только мини-кабинет
-    var showOwner = !!me.isOwner;
-    var showPartner = !!me.isPartner && !me.isOwner;
-    if (hint) hint.style.display = (showOwner || showPartner) ? "" : "none";
-    if (btnO) btnO.style.display = showOwner ? "" : "none";
-    if (btnP) btnP.style.display = showPartner ? "" : "none";
-    if (navO) navO.style.display = showOwner ? "" : "none";
-    if (navP) navP.style.display = showPartner ? "" : "none";
-
-    var sess = document.getElementById("sessionBar");
-    var who = document.getElementById("sessionWho");
-    var hintEl = document.getElementById("sessionHint");
-    var locsSub = document.getElementById("locsSub");
-    if (sess && state.demo && me.role) {
-      sess.style.display = "";
-      if (who) who.textContent = me.name || me.role;
-      if (hintEl) {
-        if (me.isOwner) hintEl.textContent = "Полный кабинет владельца Good Boy";
-        else if (me.isPartner) hintEl.textContent = "Мини-кабинет · без доступа к настройкам Good Boy";
-        else hintEl.textContent = "Только заказ · без кабинета";
-      }
-      if (locsSub) {
-        locsSub.textContent = me.isOwner
-          ? "Все сети (режим владельца)"
-          : (me.isPartner ? "Ваша сеть" : "Ваша точка");
-      }
-    } else if (sess) {
-      sess.style.display = "none";
-    }
-  }
-
-  function goLocs() {
-    state.location = null;
-    state.cart = {};
-    renderLocs();
-    show("screenLocs");
-  }
-
-  function renderLocs() {
-    var box = document.getElementById("locList");
-    var locs = (state.me && state.me.locations) || [];
-    if (!locs.length) {
-      box.innerHTML = '<div class="err">Нет доступа к сетям. Попросите владельца добавить ваш Telegram ID.</div>' +
-        '<p class="empty" style="padding-top:8px;">Ваш ID: <b>' + esc((state.me && state.me.telegramId) || user().telegramId || "—") + "</b></p>";
-    } else {
-      box.innerHTML = locs.map(function (loc) {
-        var logo = partnerLogoFor_(loc);
-        return '<button class="loc" type="button" onclick="pickLoc(\'' + esc(loc.id) + '\')">' +
-          '<img class="logo" src="' + logo + '" alt="">' +
-          '<div class="meta"><div class="name">' + esc(loc.name) + "</div>" +
-          (loc.address ? '<div class="addr">' + esc(loc.address) + "</div>" : "") +
-          "</div></button>";
-      }).join("");
-    }
-    syncCabinetNav_();
-  }
-
-  function pickLoc(id) {
-    var locs = (state.me && state.me.locations) || [];
-    var hit = null;
-    for (var i = 0; i < locs.length; i++) {
-      if (locs[i].id === id) { hit = locs[i]; break; }
-    }
-    if (!hit && state.me && state.me.isOwner) {
-      var all = state.me.allLocations || [];
-      for (var j = 0; j < all.length; j++) {
-        if (all[j].id === id) { hit = all[j]; break; }
-      }
-    }
-    if (!hit) return;
-    state.location = hit;
-    state.cart = {};
-    setNetworkHero_(hit);
-    document.getElementById("orderLocName").textContent = hit.address || "партнёрская сеть";
-    syncCabinetNav_();
-    show("screenOrder");
-    showOrderTab();
-    loadCatalog().then(function () {
-      renderCatalog();
-      refreshCartBar();
-    });
-  }
-
-  function showOrderTab() {
-    document.getElementById("navOrder").classList.add("on");
-    document.getElementById("navOrders").classList.remove("on");
+  function showCatalogTab() {
+    document.getElementById("navCat").classList.add("on");
+    document.getElementById("navMy").classList.remove("on");
     show("screenOrder");
     renderCatalog();
-    refreshCartBar();
-  }
-
-  function loadCatalog() {
-    var u = user();
-    return apiGet({
-      action: "vrGetCatalog",
-      telegramId: u.telegramId || (state.me && state.me.telegramId) || ""
-    }).then(function (res) {
-      if (!res || res.status !== "success") throw new Error((res && res.message) || "Каталог недоступен");
-      state.catalog = res.items || [];
-    });
+    refreshCart();
   }
 
   function submitOrder() {
-    if (cartCount() <= 0 || !state.location) return;
-    var btn = document.getElementById("btnSubmit");
-    if (btn) btn.disabled = true;
+    if (cartCount() <= 0 || !state.point) return;
     var basket = [];
     state.catalog.forEach(function (it) {
       var q = Number(state.cart[it.id]) || 0;
-      if (q > 0) {
-        basket.push({
-          id: it.id,
-          type: it.type,
-          name: it.name,
-          qty: q,
-          unit: it.unit || ""
-        });
-      }
+      if (q > 0) basket.push({ id: it.id, type: it.type, name: it.name, qty: q, unit: it.unit || "шт" });
     });
-    var u = user();
-    apiGet({
-      action: "vrSubmitOrder",
-      telegramId: u.telegramId || (state.me && state.me.telegramId) || "",
-      name: u.name || (state.me && state.me.name) || "",
-      locationId: state.location.id,
-      basket: JSON.stringify(basket),
-      note: ""
-    }).then(function (res) {
-      if (!res || res.status !== "success") throw new Error((res && res.message) || "Не удалось отправить");
-      state.cart = {};
-      refreshCartBar();
-      renderCatalog();
-      var box = document.getElementById("catalogList");
-      box.insertAdjacentHTML("afterbegin",
-        '<div class="okmsg">Заявка отправлена · № ' + esc(res.id || "") + " · бесплатно</div>");
-      try { if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); } catch (e) {}
-    }).catch(function (err) {
-      alert(String((err && err.message) || err));
-      if (btn) btn.disabled = false;
+    var id = "demo_" + Date.now().toString(36);
+    DEMO.orders.unshift({
+      id: id,
+      dateIso: new Date().toISOString().slice(0, 10),
+      locationId: state.point.id,
+      locationName: state.point.name,
+      networkId: state.point.networkId,
+      userName: (state.me && state.me.name) || "",
+      basket: basket,
+      status: "new"
     });
+    // Позже: пуш в бота Бойни + вкладка «Отложенные». Сейчас только локально.
+    state.cart = {};
+    refreshCart();
+    renderCatalog();
+    document.getElementById("catalogList").insertAdjacentHTML("afterbegin",
+      '<div class="okmsg">Заявка № ' + esc(id) + " принята (демо). В Бойню подключим позже.</div>");
   }
 
   function showMyOrders() {
-    document.getElementById("navOrder").classList.remove("on");
-    document.getElementById("navOrders").classList.add("on");
+    document.getElementById("navCat").classList.remove("on");
+    document.getElementById("navMy").classList.add("on");
     show("screenMyOrders");
     var box = document.getElementById("myOrdersList");
-    box.innerHTML = '<p class="empty">Загрузка…</p>';
-    var u = user();
-    apiGet({
-      action: "vrListOrders",
-      telegramId: u.telegramId || (state.me && state.me.telegramId) || "",
-      locationId: (state.location && state.location.id) || ""
-    }).then(function (res) {
-      var list = (res && res.orders) || [];
-      if (!list.length) {
-        box.innerHTML = '<div class="empty">Заказов пока нет</div>';
-        return;
-      }
-      box.innerHTML = list.map(function (o) {
-        var lines = (o.basket || []).map(function (b) {
-          return esc(b.name) + " × " + b.qty + (b.unit ? " " + esc(b.unit) : "");
-        }).join("<br>");
-        var st = String(o.status || "new");
-        return '<div class="order"><div class="h"><span>' + esc(o.dateIso || "") +
-          '</span><span class="badge' + (st === "done" ? " done" : "") + '">' + esc(st) +
-          "</span></div><div class=\"lines\">" + lines +
-          '</div><div class="h" style="margin-top:8px;"><span>' + esc(o.locationName || "") +
-          "</span><span>бесплатно</span></div></div>";
-      }).join("");
-    }).catch(function (err) {
-      box.innerHTML = '<div class="err">' + esc(err.message || err) + "</div>";
-    });
-  }
-
-  function applyAdminChrome_() {
-    var mode = state.adminMode;
-    var tabsO = document.getElementById("adminTabsOwner");
-    var tabsP = document.getElementById("adminTabsPartner");
-    var title = document.getElementById("adminTitle");
-    var sub = document.getElementById("adminSub");
-    if (tabsO) tabsO.style.display = mode === "owner" ? "" : "none";
-    if (tabsP) tabsP.style.display = mode === "partner" ? "" : "none";
-    if (title) {
-      title.textContent = mode === "owner" ? "Кабинет владельца Good Boy" : "Мини-кабинет партнёра";
+    var list = DEMO.orders.slice();
+    if (state.me && state.me.isPartner) {
+      var allowed = state.me.allowedPointIds || {};
+      list = list.filter(function (o) { return !!allowed[o.locationId]; });
     }
-    if (sub) {
-      if (mode === "owner") {
-        sub.textContent = "Сети · точки · каталог · доступы · все заказы";
-      } else {
-        var netName = "ваша сеть";
-        var nid = (state.me && state.me.partnerNetworkId) || "";
-        NETWORKS.forEach(function (n) { if (n.id === nid) netName = n.name; });
-        sub.textContent = netName + " · точки · заказы · доступы сотрудников";
-      }
-    }
-  }
-
-  function goOwnerCabinet() {
-    if (!(state.me && state.me.isOwner)) {
-      alert("Кабинет владельца доступен только менеджеру Good Boy. Смените аккаунт на экране входа.");
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">Заказов пока нет</div>';
       return;
     }
-    state.adminMode = "owner";
-    state.adminPane = "networks";
-    applyAdminChrome_();
-    show("screenAdmin");
-    setAdminPane("networks");
-  }
-
-  function goPartnerCabinet() {
-    if (!(state.me && state.me.isPartner) || (state.me && state.me.isOwner)) {
-      alert("Мини-кабинет только для партнёра сети.");
-      return;
-    }
-    state.adminMode = "partner";
-    state.adminPane = "locations";
-    applyAdminChrome_();
-    show("screenAdmin");
-    setAdminPane("locations");
-  }
-
-  function goAdmin() {
-    if (state.me && state.me.isOwner) goOwnerCabinet();
-    else if (state.me && state.me.isPartner) goPartnerCabinet();
-  }
-
-  function setAdminPane(pane) {
-    state.adminPane = pane;
-    var scope = state.adminMode === "partner" ? "#adminTabsPartner" : "#adminTabsOwner";
-    document.querySelectorAll(scope + " [data-admin]").forEach(function (el) {
-      el.classList.toggle("on", el.getAttribute("data-admin") === pane);
-    });
-    var box = document.getElementById("adminPane");
-    box.innerHTML = '<p class="empty">Загрузка…</p>';
-    if (pane === "networks") loadAdminNetworks(box);
-    else if (pane === "catalog") loadAdminCatalog(box);
-    else if (pane === "locations") loadAdminLocations(box);
-    else if (pane === "access") loadAdminAccess(box);
-    else if (pane === "orders") loadAdminOrders(box);
-  }
-
-  function loadAdminNetworks(box) {
-    if (state.adminMode !== "owner") {
-      box.innerHTML = '<div class="err">Сети — только кабинет владельца Good Boy</div>';
-      return;
-    }
-    var html = '<p class="sub" style="margin-top:0;">Партнёрские сети. После сохранения появятся на старте.</p>' +
-      '<label class="lbl">Новая / правка сети</label>' +
-      '<input class="field" id="anId" placeholder="id (пусто = новая)">' +
-      '<input class="field" id="anName" placeholder="Название сети">' +
-      '<input class="field" id="anAddr" placeholder="Кратко (тип проекта)">' +
-      '<select class="field" id="anActive"><option value="yes">Активна</option><option value="no">Скрыта</option></select>' +
-      '<button class="btn block" type="button" onclick="saveNetwork()">Сохранить сеть</button>' +
-      '<div style="margin-top:16px;">';
-    NETWORKS.forEach(function (net) {
-      html += '<button class="loc" type="button" onclick="fillNetworkForm(' + JSON.stringify(JSON.stringify(net)) + ')">' +
-        '<img class="logo" src="' + partnerLogoFor_(net) + '" alt="">' +
-        '<div class="meta"><div class="name">' + esc(net.name) + "</div>" +
-        (net.address ? '<div class="addr">' + esc(net.address) + "</div>" : "") +
-        "</div></button>";
-    });
-    box.innerHTML = html + "</div>";
-  }
-
-  function fillNetworkForm(raw) {
-    var net = typeof raw === "string" ? JSON.parse(raw) : raw;
-    document.getElementById("anId").value = net.id || "";
-    document.getElementById("anName").value = net.name || "";
-    document.getElementById("anAddr").value = net.address || "";
-    document.getElementById("anActive").value = net.active === false ? "no" : "yes";
-  }
-
-  function saveNetwork() {
-    var u = user();
-    apiGet({
-      action: "vrAdminSaveNetwork",
-      telegramId: u.telegramId || "",
-      id: document.getElementById("anId").value.trim(),
-      name: document.getElementById("anName").value.trim(),
-      address: document.getElementById("anAddr").value.trim(),
-      active: document.getElementById("anActive").value
-    }).then(function (res) {
-      if (!res || res.status !== "success") throw new Error((res && res.message) || "Ошибка");
-      return boot(true);
-    }).then(function () { setAdminPane("networks"); })
-      .catch(function (err) { alert(String(err.message || err)); });
-  }
-
-  function loadAdminCatalog(box) {
-    if (state.adminMode !== "owner") {
-      box.innerHTML = '<div class="err">Каталог правит только владелец Good Boy</div>';
-      return;
-    }
-    var u = user();
-    apiGet({
-      action: "vrGetCatalog",
-      telegramId: u.telegramId || "",
-      all: "1"
-    }).then(function (res) {
-      var items = (res && res.items) || [];
-      var html = '<p class="sub" style="margin-top:0;">Каталог для бесплатных заявок (без цен). Купоны — поштучно.</p>' +
-        '<label class="lbl">Новая / правка позиции</label>' +
-        '<input class="field" id="acId" placeholder="id (пусто = новый)">' +
-        '<select class="field" id="acType"><option value="treat">Лакомство</option><option value="coupon">Купон</option></select>' +
-        '<input class="field" id="acName" placeholder="Название">' +
-        '<input class="field" id="acUnit" placeholder="Ед. (шт)">' +
-        '<select class="field" id="acActive"><option value="yes">Активна</option><option value="no">Скрыта</option></select>' +
-        '<button class="btn block" type="button" onclick="saveCatalogItem()">Сохранить</button>' +
-        '<div style="margin-top:16px;">';
-      items.forEach(function (it) {
-        html += '<div class="item" onclick="fillCatalogForm(' + JSON.stringify(JSON.stringify(it)) + ')">' +
-          '<div class="meta"><div class="title">' + esc(it.name) +
-          ' <span class="badge">' + esc(it.type) + "</span></div>" +
-          '<div class="unit">' + (it.unit ? esc(it.unit) + " · " : "") +
-          (it.active === false ? "скрыта" : "активна") +
-          "</div></div></div>";
-      });
-      box.innerHTML = html + "</div>";
-    }).catch(function (err) {
-      box.innerHTML = '<div class="err">' + esc(err.message || err) + "</div>";
-    });
-  }
-
-  function fillCatalogForm(raw) {
-    var it = typeof raw === "string" ? JSON.parse(raw) : raw;
-    document.getElementById("acId").value = it.id || "";
-    document.getElementById("acType").value = it.type || "treat";
-    document.getElementById("acName").value = it.name || "";
-    document.getElementById("acUnit").value = it.unit || "";
-    document.getElementById("acActive").value = it.active === false ? "no" : "yes";
-  }
-
-  function saveCatalogItem() {
-    var u = user();
-    apiGet({
-      action: "vrAdminSaveCatalog",
-      telegramId: u.telegramId || "",
-      id: document.getElementById("acId").value.trim(),
-      type: document.getElementById("acType").value,
-      name: document.getElementById("acName").value.trim(),
-      unit: document.getElementById("acUnit").value.trim(),
-      active: document.getElementById("acActive").value
-    }).then(function (res) {
-      if (!res || res.status !== "success") throw new Error((res && res.message) || "Ошибка");
-      setAdminPane("catalog");
-    }).catch(function (err) { alert(String(err.message || err)); });
-  }
-
-  function loadAdminLocations(box) {
-    var isPartner = state.adminMode === "partner";
-    var netId = isPartner ? ((state.me && state.me.partnerNetworkId) || "") : "";
-    var points = POINTS.slice();
-    if (isPartner) {
-      points = points.filter(function (p) { return p.networkId === netId; });
-    }
-    var netOpts = NETWORKS.map(function (n) {
-      return '<option value="' + esc(n.id) + '"' + (n.id === netId ? " selected" : "") + ">" + esc(n.name) + "</option>";
+    box.innerHTML = list.map(function (o) {
+      var lines = (o.basket || []).map(function (b) {
+        return esc(b.name) + " × " + b.qty;
+      }).join("<br>");
+      return '<div class="order"><div class="h"><span>' + esc(o.dateIso) + '</span><span class="badge">' +
+        esc(o.status) + "</span></div><div class=\"lines\">" + lines +
+        '</div><div class="h" style="margin-top:8px;"><span>' + esc(o.locationName) +
+        "</span><span>бесплатно</span></div></div>";
     }).join("");
-    var html = '<p class="sub" style="margin-top:0;">' +
-      (isPartner ? "Точки вашей сети — добавляйте адреса для сотрудников." : "Точки всех партнёрских сетей.") +
-      "</p>" +
-      '<label class="lbl">Точка</label>' +
-      '<input class="field" id="alId" placeholder="id (пусто = новая)">' +
-      (isPartner
-        ? '<input type="hidden" id="alNetworkId" value="' + esc(netId) + '">'
-        : ('<select class="field" id="alNetworkId">' + netOpts + "</select>")) +
-      '<input class="field" id="alName" placeholder="Название точки">' +
-      '<input class="field" id="alAddr" placeholder="Адрес">' +
-      '<select class="field" id="alActive"><option value="yes">Активна</option><option value="no">Скрыта</option></select>' +
-      '<button class="btn block" type="button" onclick="saveLocation()">Сохранить точку</button><div style="margin-top:16px;">';
-    points.forEach(function (pt) {
-      var netName = "";
-      NETWORKS.forEach(function (n) { if (n.id === pt.networkId) netName = n.name; });
-      html += '<button class="loc" type="button" onclick="fillLocForm(' + JSON.stringify(JSON.stringify(pt)) + ')">' +
-        '<div class="meta"><div class="name">' + esc(pt.name) + "</div>" +
-        '<div class="addr">' + esc(netName) + (pt.address ? " · " + esc(pt.address) : "") + "</div>" +
-        "</div></button>";
-    });
-    if (!points.length) html += '<div class="empty">Точек пока нет</div>';
-    box.innerHTML = html + "</div>";
   }
 
-  function fillLocForm(raw) {
-    var loc = typeof raw === "string" ? JSON.parse(raw) : raw;
-    document.getElementById("alId").value = loc.id || "";
-    var netEl = document.getElementById("alNetworkId");
-    if (netEl) netEl.value = loc.networkId || netEl.value || "";
-    document.getElementById("alName").value = loc.name || "";
-    document.getElementById("alAddr").value = loc.address || "";
-    document.getElementById("alActive").value = loc.active === false ? "no" : "yes";
-  }
-
-  function saveLocation() {
-    var u = user();
-    var netEl = document.getElementById("alNetworkId");
-    apiGet({
-      action: "vrAdminSaveLocation",
-      telegramId: u.telegramId || "",
-      id: document.getElementById("alId").value.trim(),
-      networkId: netEl ? netEl.value.trim() : "",
-      name: document.getElementById("alName").value.trim(),
-      address: document.getElementById("alAddr").value.trim(),
-      active: document.getElementById("alActive").value
-    }).then(function (res) {
-      if (!res || res.status !== "success") throw new Error((res && res.message) || "Ошибка");
-      return boot(true);
-    }).then(function () { setAdminPane("locations"); })
-      .catch(function (err) { alert(String(err.message || err)); });
-  }
-
-  function loadAdminAccess(box) {
-    var isPartner = state.adminMode === "partner";
-    var u = user();
-    apiGet({
-      action: "vrListAccess",
-      telegramId: u.telegramId || ""
-    }).then(function (res) {
-      var list = (res && res.access) || [];
-      var roleOpts = isPartner
-        ? '<option value="staff">staff (точка)</option><option value="partner">partner (сеть)</option>'
-        : '<option value="staff">staff (точка)</option><option value="partner">partner (сеть)</option><option value="owner">owner (Good Boy)</option>';
-      var html =
-        '<p class="sub" style="margin-top:0;">' +
-        (isPartner
-          ? "Выдаёте доступ сотрудникам своих точек. Роль владельца Good Boy недоступна."
-          : "Полные доступы: владелец Good Boy, партнёр сети, сотрудник точки.") +
-        "</p>" +
-        '<label class="lbl">Доступ</label>' +
-        '<input class="field" id="aaTid" placeholder="Telegram ID">' +
-        '<input class="field" id="aaName" placeholder="Имя">' +
-        (isPartner
-          ? '<input class="field" id="aaPoints" placeholder="ID точек через запятую (пусто = вся сеть)">'
-          : '<input class="field" id="aaNets" placeholder="ID сетей через запятую">' +
-            '<input class="field" id="aaPoints" placeholder="ID точек (для staff, опционально)">') +
-        '<select class="field" id="aaRole">' + roleOpts + "</select>" +
-        '<select class="field" id="aaStatus"><option value="active">active</option><option value="denied">denied</option></select>' +
-        '<button class="btn block" type="button" onclick="saveAccess()">Сохранить доступ</button>' +
-        '<p class="sub" style="margin-top:12px;">Свой ID: <b>' + esc((state.me && state.me.telegramId) || "") + "</b></p>" +
-        '<div style="margin-top:12px;">';
-      list.forEach(function (a) {
-        html += '<div class="item"><div class="meta"><div class="title">' + esc(a.name || a.telegramId) +
-          ' <span class="badge">' + esc(a.role) + "</span></div>" +
-          '<div class="unit">TG ' + esc(a.telegramId) +
-          (a.networkIds ? " · сети " + esc(a.networkIds) : "") +
-          (a.pointIds ? " · точки " + esc(a.pointIds) : "") +
-          " · " + esc(a.status || "") +
-          "</div></div></div>";
-      });
-      if (!list.length) html += '<div class="empty">Пока никого</div>';
-      box.innerHTML = html + "</div>";
-    }).catch(function (err) {
-      box.innerHTML = '<div class="err">' + esc(err.message || err) + "</div>";
-    });
-  }
-
-  function saveAccess() {
-    var u = user();
-    var netsEl = document.getElementById("aaNets");
-    var ptsEl = document.getElementById("aaPoints");
-    apiGet({
-      action: "vrAdminSaveAccess",
-      telegramId: u.telegramId || "",
-      targetId: document.getElementById("aaTid").value.trim(),
-      name: document.getElementById("aaName").value.trim(),
-      networkIds: netsEl ? netsEl.value.trim() : "",
-      pointIds: ptsEl ? ptsEl.value.trim() : "",
-      role: document.getElementById("aaRole").value,
-      status: document.getElementById("aaStatus").value
-    }).then(function (res) {
-      if (!res || res.status !== "success") throw new Error((res && res.message) || "Ошибка");
-      setAdminPane("access");
-    }).catch(function (err) { alert(String(err.message || err)); });
-  }
-
-  function loadAdminOrders(box) {
-    var u = user();
-    var isPartner = state.adminMode === "partner";
-    var partnerNet = (state.me && state.me.partnerNetworkId) || "";
-    apiGet({
-      action: "vrListOrders",
-      telegramId: u.telegramId || "",
-      all: "1"
-    }).then(function (res) {
-      var list = (res && res.orders) || [];
-      if (isPartner) {
-        var allowed = {};
-        POINTS.forEach(function (p) {
-          if (p.networkId === partnerNet) allowed[p.id] = true;
-        });
-        allowed[partnerNet] = true;
-        list = list.filter(function (o) { return !!allowed[o.locationId]; });
-      }
-      if (!list.length) {
-        box.innerHTML = '<div class="empty">Заказов нет</div>';
-        return;
-      }
-      box.innerHTML = list.map(function (o) {
-        var lines = (o.basket || []).map(function (b) {
-          return esc(b.name) + " × " + b.qty + (b.unit ? " " + esc(b.unit) : "");
-        }).join("<br>");
-        return '<div class="order"><div class="h"><span>' + esc(o.dateIso || "") + " · " +
-          esc(o.locationName || "") + '</span><span class="badge">' + esc(o.status || "") +
-          "</span></div><div class=\"lines\">" + lines +
-          '</div><div class="h" style="margin-top:8px;"><span>' + esc(o.userName || o.telegramId || "") +
-          "</span><span>бесплатно</span></div></div>";
-      }).join("");
-    }).catch(function (err) {
-      box.innerHTML = '<div class="err">' + esc(err.message || err) + "</div>";
-    });
-  }
-
-  function boot(soft) {
-    var u = user();
-    var msg = document.getElementById("bootMsg");
-    if (!soft && msg) msg.textContent = "Вход…";
-    if (!soft) show("screenBoot");
-
-    // Демо: без выбранного аккаунта — экран «войти под кем»
-    if (state.demo && !DEMO_ROLE) {
-      if (!loadDemoSession_()) {
-        renderDemoLogin_();
-        show("screenDemoLogin");
-        return Promise.resolve();
+  function goCabinet() {
+    document.getElementById("setDisplayName").value = state.settings.displayName || (state.me && state.me.name) || "";
+    var swN = document.getElementById("swNotify");
+    if (swN) swN.classList.toggle("on", state.settings.notify !== false);
+    applyTheme_(state.settings.theme || "dark");
+    renderStaffList_();
+    var ox = document.getElementById("ownerExtra");
+    if (ox) {
+      ox.style.display = (state.me && state.me.isOwner) ? "" : "none";
+      if (state.me && state.me.isOwner) {
+        var oo = document.getElementById("ownerOrders");
+        oo.innerHTML = DEMO.orders.length
+          ? DEMO.orders.map(function (o) {
+              return '<div class="item"><div class="meta"><div class="title">' + esc(o.locationName) +
+                '</div><div class="unit">' + esc(o.dateIso) + " · " + esc(o.userName) + "</div></div></div>";
+            }).join("")
+          : '<div class="empty" style="padding:12px">Заказов нет</div>';
       }
     }
-
-    return apiGet({
-      action: "vrMe",
-      telegramId: u.telegramId,
-      name: u.name,
-      username: u.username,
-      initData: u.initData
-    }).then(function (res) {
-      if (!res || res.status !== "success") {
-        throw new Error((res && res.message) || "Нет доступа");
-      }
-      state.me = res;
-      if (!soft) {
-        var locs = res.locations || [];
-        if (locs.length === 1 && res.isStaff) {
-          pickLoc(locs[0].id);
-        } else {
-          renderLocs();
-          show("screenLocs");
-        }
-      } else {
-        syncCabinetNav_();
-      }
-    }).catch(function (err) {
-      if (soft) throw err;
-      if (state.demo) {
-        clearDemoSession_();
-        renderDemoLogin_();
-        show("screenDemoLogin");
-        return;
-      }
-      if (msg) {
-        msg.innerHTML = '<div class="err">' + esc(err.message || err) + "</div>" +
-          '<p class="empty">ID: <b>' + esc(u.telegramId || "откройте из Telegram") + "</b></p>";
-      }
-    });
+    show("screenCabinet");
   }
 
-  window.setQty = setQty;
-  window.setCat = setCat;
-  window.pickLoc = pickLoc;
-  window.goLocs = goLocs;
-  window.goAdmin = goAdmin;
-  window.goOwnerCabinet = goOwnerCabinet;
-  window.goPartnerCabinet = goPartnerCabinet;
-  window.setDemoRole = setDemoRole;
+  function toggleTheme() {
+    var next = (state.settings.theme === "light") ? "dark" : "light";
+    state.settings.theme = next;
+    saveSettingsLocal_();
+    applyTheme_(next);
+  }
+  function toggleNotify() {
+    state.settings.notify = !(state.settings.notify !== false);
+    saveSettingsLocal_();
+    document.getElementById("swNotify").classList.toggle("on", state.settings.notify !== false);
+  }
+  function saveSettings() {
+    state.settings.displayName = document.getElementById("setDisplayName").value.trim();
+    saveSettingsLocal_();
+    if (state.me) state.me.name = state.settings.displayName || state.me.name;
+    var who = document.getElementById("sessionWho");
+    if (who && state.me) who.textContent = state.me.name;
+    alert("Сохранено");
+  }
+
+  function grantStaffAccess() {
+    if (!(state.me && state.me.isPartner)) {
+      alert("Выдать доступ может партнёр своей точки");
+      return;
+    }
+    var tid = document.getElementById("staffTid").value.trim();
+    var name = document.getElementById("staffName").value.trim() || "Сотрудник";
+    if (!tid) { alert("Укажите Telegram ID"); return; }
+    DEMO.staffAccess = DEMO.staffAccess.filter(function (a) { return a.telegramId !== tid; });
+    DEMO.staffAccess.push({
+      telegramId: tid,
+      name: name,
+      pointId: state.me.pointId,
+      pointName: state.me.pointName,
+      networkId: state.me.networkId,
+      status: "active"
+    });
+    document.getElementById("staffTid").value = "";
+    document.getElementById("staffName").value = "";
+    renderStaffList_();
+    alert("Доступ выдан (демо). Позже — через бота.");
+  }
+
+  function renderStaffList_() {
+    var box = document.getElementById("staffList");
+    if (!box) return;
+    var list = DEMO.staffAccess.slice();
+    if (state.me && state.me.isPartner) {
+      list = list.filter(function (a) { return a.pointId === state.me.pointId; });
+    }
+    if (!list.length) {
+      box.innerHTML = '<div class="empty" style="padding:8px">Пока никого</div>';
+      return;
+    }
+    box.innerHTML = list.map(function (a) {
+      return '<div class="item"><div class="meta"><div class="title">' + esc(a.name) +
+        ' <span class="badge">staff</span></div><div class="unit">TG ' + esc(a.telegramId) +
+        " · " + esc(a.pointName) + "</div></div></div>";
+    }).join("");
+  }
+
+  function boot() {
+    show("screenBoot");
+    if (state.demo) {
+      if (loadSession_()) {
+        enterApp_();
+      } else {
+        renderLogin_();
+        show("screenLogin");
+      }
+      return;
+    }
+    // Живой webhook — позже
+    document.getElementById("bootMsg").innerHTML =
+      '<div class="err">Webhook ещё не подключён. Демо: очистите VARKA_WEBHOOK_URL.</div>';
+  }
+
   window.demoLogin = demoLogin;
   window.demoLogout = demoLogout;
+  window.goHome = goHome;
+  window.goOrderFlow = goOrderFlow;
+  window.goPoints = goPoints;
+  window.pickPoint = pickPoint;
+  window.goCabinet = goCabinet;
+  window.setCat = setCat;
+  window.setQty = setQty;
   window.submitOrder = submitOrder;
+  window.showCatalogTab = showCatalogTab;
   window.showMyOrders = showMyOrders;
-  window.showOrderTab = showOrderTab;
-  window.setAdminPane = setAdminPane;
-  window.saveCatalogItem = saveCatalogItem;
-  window.fillCatalogForm = fillCatalogForm;
-  window.saveLocation = saveLocation;
-  window.fillLocForm = fillLocForm;
-  window.saveNetwork = saveNetwork;
-  window.fillNetworkForm = fillNetworkForm;
-  window.saveAccess = saveAccess;
+  window.toggleTheme = toggleTheme;
+  window.toggleNotify = toggleNotify;
+  window.saveSettings = saveSettings;
+  window.grantStaffAccess = grantStaffAccess;
 
-  boot(false);
+  boot();
 })();
   </script>
 </body>
