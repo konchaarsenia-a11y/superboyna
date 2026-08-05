@@ -284,12 +284,15 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 
 .hero-stage {
   justify-self: center;
-  width: min(100%, 380px);
+  width: min(100%, 340px);
   position: relative;
+}
+@media (min-width: 880px) {
+  .hero-stage { width: min(100%, 400px); }
 }
 .hero-glow {
   position: absolute;
-  inset: 8%;
+  inset: 12% 8% 18% 8%;
   border-radius: 50%;
   background: radial-gradient(circle, rgba(245,154,46,0.45), transparent 68%);
   filter: blur(18px);
@@ -298,14 +301,14 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 .hero-ring {
   position: absolute;
-  inset: 2%;
+  inset: 6% 4% 14% 4%;
   border-radius: 50%;
   border: 1px solid rgba(245,154,46,0.28);
   z-index: 0;
   animation: ringOut 4.8s ease-out infinite;
 }
 .hero-ring.r2 {
-  inset: -4%;
+  inset: 0% -2% 8% -2%;
   animation-delay: 1.6s;
   opacity: 0.7;
 }
