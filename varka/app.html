@@ -429,9 +429,9 @@
 
   <script>
 (function () {
-  var APP_VER = "2.3.0";
-  // Свой webhook. ПУСТО = демо. НИКОГДА не ставить /exec Бойни.
-  var VARKA_WEBHOOK_URL = "";
+  var APP_VER = "2.3.1";
+  // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры». ПУСТО = локальное демо.
+  var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var SESSION_KEY = "gb_partner_session_v3";
   var SETTINGS_KEY = "gb_partner_settings_v2";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
@@ -1033,7 +1033,7 @@
     alert("Сохранено");
   }
 
-  function grantStaffAccess() {
+  async function grantStaffAccess() {
     if (!(state.me && state.me.isPartner)) {
       alert("Выдать доступ может партнёр своей точки");
       return;
@@ -1043,12 +1043,36 @@
     if (!tid) { alert("Укажите Telegram ID"); return; }
     var pts = (state.me.points || []).slice();
     if (!pts.length) { alert("Нет своих точек"); return; }
-    // По умолчанию — доступ ко всем своим точкам партнёра
+    var pointIds = pts.map(function (p) { return p.id; });
+    if (VARKA_WEBHOOK_URL) {
+      try {
+        var res = await apiGet_({
+          action: "partnerSaveAccess",
+          telegramId: user().telegramId || tid,
+          actorRole: "partner",
+          actorUsername: state.me.username || "",
+          targetTelegramId: tid,
+          name: name,
+          networkId: state.me.networkId || "",
+          pointIds: JSON.stringify(pointIds),
+          role: "staff",
+          status: "active",
+          _: String(Date.now())
+        });
+        if (!res || res.status !== "success") {
+          alert((res && res.message) || "Не выдалось — Deploy Code.gs?");
+          return;
+        }
+      } catch (e) {
+        alert("Сеть: не удалось сохранить доступ");
+        return;
+      }
+    }
     DEMO.staffAccess = DEMO.staffAccess.filter(function (a) { return a.telegramId !== tid; });
     DEMO.staffAccess.push({
       telegramId: tid,
       name: name,
-      pointIds: pts.map(function (p) { return p.id; }),
+      pointIds: pointIds,
       pointId: pts[0].id,
       pointName: pts.map(function (p) { return p.name; }).join(", "),
       networkId: state.me.networkId,
@@ -1057,7 +1081,7 @@
     document.getElementById("staffTid").value = "";
     document.getElementById("staffName").value = "";
     renderStaffList_();
-    alert("Доступ выдан (демо). Позже — через бота.");
+    alert(VARKA_WEBHOOK_URL ? "Доступ выдан" : "Доступ выдан (демо)");
   }
 
   function renderStaffList_() {
@@ -1086,28 +1110,115 @@
 
   function boot() {
     show("screenBoot");
-    if (state.demo) {
-      // 1) Уже есть сессия
+    if (!VARKA_WEBHOOK_URL) {
+      // локальное демо без webhook
       if (loadSession_()) {
         enterApp_();
         return;
       }
-      // 2) Telegram username → авто-вход только со своими точками
-      var u = user();
-      if (u.username) {
-        var acc = accessForUsername_(u.username);
-        if (acc) {
-          loginWithAccess_(acc, u.username);
+      var u0 = user();
+      if (u0.username) {
+        var acc0 = accessForUsername_(u0.username);
+        if (acc0) {
+          loginWithAccess_(acc0, u0.username);
           return;
         }
       }
-      // 3) Экран выбора / нет доступа
       renderLogin_();
       show("screenLogin");
       return;
     }
-    document.getElementById("bootMsg").innerHTML =
-      '<div class="err">Webhook ещё не подключён. Демо: очистите VARKA_WEBHOOK_URL.</div>';
+    bootFromApi_();
+  }
+
+  function apiGet_(params) {
+    return new Promise(function (resolve, reject) {
+      var qs = Object.keys(params || {}).map(function (k) {
+        return encodeURIComponent(k) + "=" + encodeURIComponent(params[k] == null ? "" : params[k]);
+      }).join("&");
+      var cb = "gb_cb_" + Date.now().toString(36) + "_" + Math.floor(Math.random() * 1e6);
+      var done = false;
+      window[cb] = function (data) {
+        if (done) return;
+        done = true;
+        try { delete window[cb]; } catch (e) {}
+        resolve(data);
+      };
+      var s = document.createElement("script");
+      s.src = VARKA_WEBHOOK_URL + (VARKA_WEBHOOK_URL.indexOf("?") >= 0 ? "&" : "?") + qs + "&callback=" + cb;
+      s.onerror = function () {
+        if (done) return;
+        done = true;
+        try { delete window[cb]; } catch (e2) {}
+        reject(new Error("network"));
+      };
+      document.head.appendChild(s);
+      setTimeout(function () {
+        if (done) return;
+        done = true;
+        try { delete window[cb]; } catch (e3) {}
+        reject(new Error("timeout"));
+      }, 25000);
+    });
+  }
+
+  function applyRemoteConfig_(res) {
+    if (!res) return;
+    if (Array.isArray(res.networks) && res.networks.length) {
+      NETWORKS = res.networks.map(function (n) {
+        return { id: n.id, name: n.name, logo: n.logo || "" };
+      });
+    }
+    if (Array.isArray(res.points) && res.points.length) {
+      POINTS = res.points.map(function (p) {
+        return { id: p.id, networkId: p.networkId, name: p.name, address: p.address || "" };
+      });
+    }
+    if (Array.isArray(res.catalog) && res.catalog.length) {
+      state.catalog = res.catalog.slice();
+    }
+  }
+
+  async function bootFromApi_() {
+    document.getElementById("bootMsg").textContent = "Вход…";
+    try {
+      var u = user();
+      if (loadSession_()) {
+        var probe = await apiGet_({
+          action: "partnerGetMe",
+          username: DEMO_USERNAME || u.username || "",
+          telegramId: u.telegramId || "",
+          _: String(Date.now())
+        });
+        applyRemoteConfig_(probe);
+        enterApp_();
+        return;
+      }
+      var res = await apiGet_({
+        action: "partnerGetMe",
+        username: u.username || "",
+        telegramId: u.telegramId || "",
+        _: String(Date.now())
+      });
+      applyRemoteConfig_(res);
+      if (res && res.allowed && (res.pointIds || []).length) {
+        loginWithAccess_({
+          name: res.name,
+          networkId: res.networkId,
+          pointIds: res.pointIds
+        }, res.username || u.username || "");
+        return;
+      }
+      renderLogin_();
+      show("screenLogin");
+      var msg = document.getElementById("bootMsg");
+      if (msg) msg.textContent = "";
+    } catch (e) {
+      document.getElementById("bootMsg").innerHTML =
+        '<div class="err">Не удалось связаться с Бойней. Deploy Code.gs? Можно открыть демо: очистите VARKA_WEBHOOK_URL.</div>';
+      renderLogin_();
+      show("screenLogin");
+    }
   }
 
   window.demoLoginAs = demoLoginAs;

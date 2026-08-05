@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.136";
+      var APP_VER = "v7.11.137";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1469,6 +1469,7 @@
           <button type="button" class="order-flyout-btn" data-fly="subsScreen" data-fly-roles="owner,all">Подписки</button>
           <button type="button" class="order-flyout-btn" data-fly="statsScreen" data-fly-roles="owner,all">Статистика</button>
           <button type="button" class="order-flyout-btn" data-fly="peopleScreen" data-fly-roles="owner,all">Доступы</button>
+          <button type="button" class="order-flyout-btn" data-fly="partnerHubScreen" data-fly-roles="owner,all">Партнёры</button>
         </div>
         <div class="courier-flyout" id="courierFlyout">
           <button type="button" class="order-flyout-btn" data-cfly="route">Маршрут</button>
@@ -2523,6 +2524,81 @@
       </div>
     </div>
 
+    <!-- ПАРТНЁРСКИЙ МИНИ-АПП (сети / точки / доступы) -->
+    <div id="partnerHubScreen" class="screen">
+      <div class="card">
+        <div class="section-title" style="margin-top:0;color:#f59a2e;">Партнёрский мини-апп</div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">Good Boy · пополнение сетей. Не путать с «партнёрами БП» во вкладке Доступы.</div>
+        <a class="btn-action btn-orange" id="partnerHubOpenLink" href="https://konchaarsenia-a11y.github.io/superboyna/varka/" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin:0 0 8px;">Открыть мини-апп</a>
+        <div class="batch-bar-row" style="margin:0;gap:8px;">
+          <button class="btn-action btn-blue" type="button" style="flex:1;margin:0;" onclick="loadPartnerHubUi_({force:1})">Обновить</button>
+          <button class="btn-action" type="button" style="flex:1;margin:0;background:#3a3a3c;" onclick="partnerHubSeedDefaults_()">Залить демо</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:12px;">
+        <div class="section-title" style="margin-top:0;">Сети</div>
+        <div class="form-group">
+          <label>Название сети</label>
+          <input type="text" id="phNetName" placeholder="Varka">
+        </div>
+        <div class="form-group">
+          <label>Logo URL (необязательно)</label>
+          <input type="text" id="phNetLogo" placeholder="assets/…">
+        </div>
+        <input type="hidden" id="phNetEditId" value="">
+        <button class="btn-action btn-purple" type="button" style="margin:0;width:100%;" onclick="partnerHubSaveNetwork_()">Сохранить сеть</button>
+        <div id="phNetworksList" style="margin-top:12px;"><p class="muted">—</p></div>
+      </div>
+
+      <div class="card" style="margin-top:12px;">
+        <div class="section-title" style="margin-top:0;">Точки</div>
+        <div class="form-group">
+          <label>Сеть</label>
+          <select id="phPointNetwork"></select>
+        </div>
+        <div class="form-group">
+          <label>Название точки</label>
+          <input type="text" id="phPointName" placeholder="Varka · Немига">
+        </div>
+        <div class="form-group">
+          <label>Адрес</label>
+          <input type="text" id="phPointAddr" placeholder="ул. …">
+        </div>
+        <input type="hidden" id="phPointEditId" value="">
+        <button class="btn-action btn-purple" type="button" style="margin:0;width:100%;" onclick="partnerHubSavePoint_()">Сохранить точку</button>
+        <div id="phPointsList" style="margin-top:12px;"><p class="muted">—</p></div>
+      </div>
+
+      <div class="card" style="margin-top:12px;">
+        <div class="section-title" style="margin-top:0;color:#ff6961;">Доступы к точкам</div>
+        <div class="muted" style="font-size:12px;margin-bottom:8px;">Партнёр входит в мини-апп по Telegram @username. Точки — только выбранные.</div>
+        <div class="form-group">
+          <label>@username</label>
+          <input type="text" id="phAccUser" placeholder="varka_two" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label>Telegram ID (необязательно)</label>
+          <input type="text" id="phAccTid" placeholder="123456789" inputmode="numeric">
+        </div>
+        <div class="form-group">
+          <label>Имя</label>
+          <input type="text" id="phAccName" placeholder="Партнёр Varka">
+        </div>
+        <div class="form-group">
+          <label>Сеть</label>
+          <select id="phAccNetwork" onchange="partnerHubRenderPointChecks_()"></select>
+        </div>
+        <div class="form-group">
+          <label>Точки</label>
+          <div id="phAccPoints" class="muted" style="font-size:13px;">—</div>
+        </div>
+        <input type="hidden" id="phAccEditId" value="">
+        <button class="btn-action btn-orange" type="button" style="margin:0;width:100%;" onclick="partnerHubSaveAccess_()">Выдать / обновить доступ</button>
+        <div id="phAccessList" style="margin-top:12px;"><p class="muted">—</p></div>
+      </div>
+    </div>
+
     <div class="bottom-spacer" aria-hidden="true"></div>
   </div>
 
@@ -2534,7 +2610,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.136";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.137";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2686,8 +2762,8 @@
     }
     window.ensureTelegramId = ensureTelegramId;
     const ROLE_TABS = {
-      all: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen"],
-      owner: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen"],
+      all: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen", "partnerHubScreen"],
+      owner: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen", "partnerHubScreen"],
       manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen"],
       cutter: ["cuttingScreen"],
       courier: ["courierScreen"],
@@ -2708,7 +2784,7 @@
       "крафт": true
     };
     let assemblyCache = null;
-    const FLYOUT_SCREENS = ["clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen"];
+    const FLYOUT_SCREENS = ["clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen", "partnerHubScreen"];
     let deferredCache = [];
     let deferredOpenCount = 0;
     let deferredCacheAt = 0;
@@ -2900,7 +2976,8 @@
       priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• Пакеты ПП считаются сами из состава (можно править +/−).\n• «В отложенное» или сразу «Внести в ПП» (+ имя/IG/адрес).\n• 2 собаки: свет/доставки один раз.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
       templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ — скоро.",
-      peopleScreen: "Доступы\n• Завершить неделю / подтянуть из месяца — сверху.\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника."
+      peopleScreen: "Доступы\n• Завершить неделю / подтянуть из месяца — сверху.\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника.",
+      partnerHubScreen: "Партнёры (мини-апп)\n• Сети и точки Good Boy / varka.\n• Выдача доступа по @username или Telegram ID.\n• Это не «партнёры БП» из вкладки Доступы."
     };
 
     window._templatesSub = "texts";
@@ -5523,6 +5600,9 @@
         if (screenId === "subDetailScreen") {
           document.getElementById("appHeaderTitle").innerText = "Карточка · " + APP_VERSION;
         }
+        if (screenId === "partnerHubScreen") {
+          document.getElementById("appHeaderTitle").innerText = "Партнёры · " + APP_VERSION;
+        }
       } catch (e) {}
       // сеть — после paint, чтобы вкладка открылась мгновенно
       var sid = screenId;
@@ -5553,6 +5633,9 @@
             loadPeople({ soft: true });
             try { loadPartnersUi_({ soft: true }); } catch (ePar) {}
             try { refreshWeekBanners({ soft: true }); } catch (eFw) {}
+          }
+          if (sid === "partnerHubScreen") {
+            try { loadPartnerHubUi_({ soft: true }); } catch (eHub) {}
           }
           if (sid === "courierScreen") {
             try {
@@ -19681,6 +19764,298 @@
     window.togglePartnerActive_ = togglePartnerActive_;
     window.deletePartnerUi_ = deletePartnerUi_;
     window.ensurePpPartnerOptions_ = ensurePpPartnerOptions_;
+
+    var partnerHubCache_ = null;
+
+    async function loadPartnerHubUi_(opts) {
+      opts = opts || {};
+      var boxN = document.getElementById("phNetworksList");
+      var boxP = document.getElementById("phPointsList");
+      var boxA = document.getElementById("phAccessList");
+      if (!boxN) return;
+      if (opts.soft && partnerHubCache_ && !opts.force) {
+        partnerHubPaint_(partnerHubCache_);
+        return;
+      }
+      if (!opts.soft) {
+        if (boxN) boxN.innerHTML = '<p class="muted">Загрузка…</p>';
+        if (boxP) boxP.innerHTML = '<p class="muted">Загрузка…</p>';
+        if (boxA) boxA.innerHTML = '<p class="muted">Загрузка…</p>';
+      }
+      try {
+        var res = await apiGet({
+          action: "partnerListAdmin",
+          telegramId: myTelegramId,
+          _: String(Date.now())
+        }, { timeoutMs: 35000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          var msg = (res && res.message) || "нет ответа — Deploy Code.gs?";
+          if (boxN) boxN.innerHTML = '<p class="muted">' + escapeHtml(msg) + "</p>";
+          return;
+        }
+        partnerHubCache_ = res;
+        partnerHubPaint_(res);
+      } catch (e) {
+        if (boxN) boxN.innerHTML = '<p class="muted">Ошибка загрузки</p>';
+      }
+    }
+
+    function partnerHubPaint_(res) {
+      var nets = res.networks || [];
+      var pts = res.points || [];
+      var acc = res.access || [];
+      var link = document.getElementById("partnerHubOpenLink");
+      if (link && res.miniAppUrl) link.href = res.miniAppUrl;
+
+      function fillNetSelect(selId, prefer) {
+        var sel = document.getElementById(selId);
+        if (!sel) return;
+        var cur = prefer || sel.value || "";
+        sel.innerHTML = nets.filter(function (n) { return n.active !== false; }).map(function (n) {
+          return '<option value="' + escapeHtml(n.id) + '">' + escapeHtml(n.name) + "</option>";
+        }).join("");
+        if (cur) sel.value = cur;
+      }
+      fillNetSelect("phPointNetwork");
+      fillNetSelect("phAccNetwork");
+
+      var boxN = document.getElementById("phNetworksList");
+      if (boxN) {
+        boxN.innerHTML = nets.length ? nets.map(function (n) {
+          var idEsc = String(n.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+          return '<div class="card" style="margin-bottom:8px;padding:10px;">' +
+            "<b>" + escapeHtml(n.name) + "</b>" +
+            (n.active === false ? ' <span class="muted">(выкл)</span>' : "") +
+            '<div class="muted" style="font-size:11px;">' + escapeHtml(n.id) + "</div>" +
+            '<div class="seg-row" style="margin-top:8px;">' +
+            '<button type="button" class="seg-btn" onclick="partnerHubEditNetwork_(\'' + idEsc + '\')">Изменить</button>' +
+            "</div></div>";
+        }).join("") : '<p class="muted">Нет сетей — «Залить демо»</p>';
+      }
+
+      var boxP = document.getElementById("phPointsList");
+      if (boxP) {
+        boxP.innerHTML = pts.length ? pts.map(function (p) {
+          var idEsc = String(p.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+          var net = nets.filter(function (n) { return n.id === p.networkId; })[0];
+          return '<div class="card" style="margin-bottom:8px;padding:10px;">' +
+            "<b>" + escapeHtml(p.name) + "</b>" +
+            '<div class="muted" style="font-size:12px;">' + escapeHtml((net && net.name) || p.networkId) +
+            (p.address ? (" · " + escapeHtml(p.address)) : "") + "</div>" +
+            '<div class="seg-row" style="margin-top:8px;">' +
+            '<button type="button" class="seg-btn" onclick="partnerHubEditPoint_(\'' + idEsc + '\')">Изменить</button>' +
+            "</div></div>";
+        }).join("") : '<p class="muted">Нет точек</p>';
+      }
+
+      partnerHubRenderPointChecks_();
+
+      var boxA = document.getElementById("phAccessList");
+      if (boxA) {
+        var openAcc = acc.filter(function (a) { return String(a.status || "") === "active"; });
+        boxA.innerHTML = openAcc.length ? openAcc.map(function (a) {
+          var idEsc = String(a.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+          var ptsLab = (a.pointIds || []).map(function (pid) {
+            var hit = pts.filter(function (p) { return p.id === pid; })[0];
+            return hit ? hit.name : pid;
+          }).join(", ");
+          return '<div class="card" style="margin-bottom:8px;padding:10px;border:1px solid rgba(245,154,46,0.35);">' +
+            "<b>@" + escapeHtml(a.username || "—") + "</b> · " + escapeHtml(a.name || "") +
+            '<div class="muted" style="font-size:12px;margin-top:4px;">' + escapeHtml(a.role || "partner") +
+            (a.telegramId ? (" · TG " + escapeHtml(a.telegramId)) : "") + "</div>" +
+            '<div style="font-size:12px;margin-top:6px;">' + escapeHtml(ptsLab || "нет точек") + "</div>" +
+            '<div class="seg-row" style="margin-top:8px;flex-wrap:wrap;">' +
+            '<button type="button" class="seg-btn" onclick="partnerHubEditAccess_(\'' + idEsc + '\')">Править</button>' +
+            '<button type="button" class="seg-btn" style="color:#ff453a;" onclick="partnerHubRevokeAccess_(\'' + idEsc + '\')">Отозвать</button>' +
+            "</div></div>";
+        }).join("") : '<p class="muted">Нет активных доступов</p>';
+      }
+    }
+
+    function partnerHubRenderPointChecks_() {
+      var box = document.getElementById("phAccPoints");
+      if (!box || !partnerHubCache_) return;
+      var netId = String((document.getElementById("phAccNetwork") || {}).value || "");
+      var pts = (partnerHubCache_.points || []).filter(function (p) {
+        return p.active !== false && (!netId || p.networkId === netId);
+      });
+      if (!pts.length) {
+        box.innerHTML = '<span class="muted">Нет точек в этой сети</span>';
+        return;
+      }
+      box.innerHTML = pts.map(function (p) {
+        return '<label style="display:flex;align-items:center;gap:8px;margin:6px 0;">' +
+          '<input type="checkbox" class="ph-pt-check" value="' + escapeHtml(p.id) + '">' +
+          '<span>' + escapeHtml(p.name) + "</span></label>";
+      }).join("");
+    }
+
+    function partnerHubEditNetwork_(id) {
+      var n = (partnerHubCache_.networks || []).filter(function (x) { return x.id === id; })[0];
+      if (!n) return;
+      document.getElementById("phNetEditId").value = n.id;
+      document.getElementById("phNetName").value = n.name || "";
+      document.getElementById("phNetLogo").value = n.logo || "";
+      showToast("Редактирование сети");
+    }
+
+    function partnerHubEditPoint_(id) {
+      var p = (partnerHubCache_.points || []).filter(function (x) { return x.id === id; })[0];
+      if (!p) return;
+      document.getElementById("phPointEditId").value = p.id;
+      document.getElementById("phPointNetwork").value = p.networkId || "";
+      document.getElementById("phPointName").value = p.name || "";
+      document.getElementById("phPointAddr").value = p.address || "";
+      showToast("Редактирование точки");
+    }
+
+    function partnerHubEditAccess_(id) {
+      var a = (partnerHubCache_.access || []).filter(function (x) { return x.id === id; })[0];
+      if (!a) return;
+      document.getElementById("phAccEditId").value = a.id;
+      document.getElementById("phAccUser").value = a.username || "";
+      document.getElementById("phAccTid").value = a.telegramId || "";
+      document.getElementById("phAccName").value = a.name || "";
+      if (a.networkId) document.getElementById("phAccNetwork").value = a.networkId;
+      partnerHubRenderPointChecks_();
+      var want = {};
+      (a.pointIds || []).forEach(function (pid) { want[pid] = true; });
+      document.querySelectorAll(".ph-pt-check").forEach(function (el) {
+        el.checked = !!want[el.value];
+      });
+      showToast("Редактирование доступа");
+    }
+
+    async function partnerHubSaveNetwork_() {
+      var name = String((document.getElementById("phNetName") || {}).value || "").trim();
+      if (!name) { showToast("Имя сети"); return; }
+      var body = {
+        action: "partnerSaveNetwork",
+        telegramId: myTelegramId,
+        id: String((document.getElementById("phNetEditId") || {}).value || ""),
+        name: name,
+        logo: String((document.getElementById("phNetLogo") || {}).value || ""),
+        _: String(Date.now())
+      };
+      var res = await apiGet(body, { timeoutMs: 20000, cacheTtlMs: 0 });
+      if (!res || res.status !== "success") {
+        showToast((res && res.message) || "Не сохранилось — Deploy?");
+        return;
+      }
+      document.getElementById("phNetEditId").value = "";
+      document.getElementById("phNetName").value = "";
+      document.getElementById("phNetLogo").value = "";
+      partnerHubCache_ = null;
+      await loadPartnerHubUi_({ force: 1 });
+      showToast("Сеть сохранена");
+    }
+
+    async function partnerHubSavePoint_() {
+      var name = String((document.getElementById("phPointName") || {}).value || "").trim();
+      var networkId = String((document.getElementById("phPointNetwork") || {}).value || "");
+      if (!name || !networkId) { showToast("Сеть и название"); return; }
+      var body = {
+        action: "partnerSavePoint",
+        telegramId: myTelegramId,
+        id: String((document.getElementById("phPointEditId") || {}).value || ""),
+        networkId: networkId,
+        name: name,
+        address: String((document.getElementById("phPointAddr") || {}).value || ""),
+        _: String(Date.now())
+      };
+      var res = await apiGet(body, { timeoutMs: 20000, cacheTtlMs: 0 });
+      if (!res || res.status !== "success") {
+        showToast((res && res.message) || "Не сохранилось — Deploy?");
+        return;
+      }
+      document.getElementById("phPointEditId").value = "";
+      document.getElementById("phPointName").value = "";
+      document.getElementById("phPointAddr").value = "";
+      partnerHubCache_ = null;
+      await loadPartnerHubUi_({ force: 1 });
+      showToast("Точка сохранена");
+    }
+
+    async function partnerHubSaveAccess_() {
+      var username = String((document.getElementById("phAccUser") || {}).value || "").replace(/^@/, "").trim();
+      var tid = String((document.getElementById("phAccTid") || {}).value || "").trim();
+      var ids = [];
+      document.querySelectorAll(".ph-pt-check:checked").forEach(function (el) { ids.push(el.value); });
+      if (!username && !tid) { showToast("Нужен @username или Telegram ID"); return; }
+      if (!ids.length) { showToast("Выберите точки"); return; }
+      var body = {
+        action: "partnerSaveAccess",
+        telegramId: myTelegramId,
+        id: String((document.getElementById("phAccEditId") || {}).value || ""),
+        username: username,
+        targetTelegramId: tid,
+        name: String((document.getElementById("phAccName") || {}).value || ""),
+        networkId: String((document.getElementById("phAccNetwork") || {}).value || ""),
+        pointIds: JSON.stringify(ids),
+        role: "partner",
+        status: "active",
+        _: String(Date.now())
+      };
+      var res = await apiGet(body, { timeoutMs: 20000, cacheTtlMs: 0 });
+      if (!res || res.status !== "success") {
+        showToast((res && res.message) || "Не выдалось — Deploy?");
+        return;
+      }
+      document.getElementById("phAccEditId").value = "";
+      document.getElementById("phAccUser").value = "";
+      document.getElementById("phAccTid").value = "";
+      document.getElementById("phAccName").value = "";
+      partnerHubCache_ = null;
+      await loadPartnerHubUi_({ force: 1 });
+      showToast("Доступ выдан");
+    }
+
+    async function partnerHubRevokeAccess_(id) {
+      var ok = await uiConfirmAsync("Отозвать доступ?");
+      if (!ok) return;
+      var res = await apiGet({
+        action: "partnerRevokeAccess",
+        telegramId: myTelegramId,
+        id: id,
+        _: String(Date.now())
+      }, { timeoutMs: 15000, cacheTtlMs: 0 });
+      if (!res || res.status !== "success") {
+        showToast((res && res.message) || "Не отозвалось");
+        return;
+      }
+      partnerHubCache_ = null;
+      await loadPartnerHubUi_({ force: 1 });
+      showToast("Отозвано");
+    }
+
+    async function partnerHubSeedDefaults_() {
+      var ok = await uiConfirmAsync("Залить демо-сети/точки/доступы из varka? Существующие перезапишутся только если листы пустые (force — отдельно).");
+      if (!ok) return;
+      var res = await apiGet({
+        action: "partnerSeedDefaults",
+        telegramId: myTelegramId,
+        force: "0",
+        _: String(Date.now())
+      }, { timeoutMs: 45000, cacheTtlMs: 0 });
+      if (!res || res.status !== "success") {
+        showToast((res && res.message) || "Не залилось — Deploy Code.gs");
+        return;
+      }
+      partnerHubCache_ = null;
+      await loadPartnerHubUi_({ force: 1 });
+      showToast(res.result && res.result.seeded ? "Демо залито" : "Уже было — ничего не трогал");
+    }
+
+    window.loadPartnerHubUi_ = loadPartnerHubUi_;
+    window.partnerHubRenderPointChecks_ = partnerHubRenderPointChecks_;
+    window.partnerHubEditNetwork_ = partnerHubEditNetwork_;
+    window.partnerHubEditPoint_ = partnerHubEditPoint_;
+    window.partnerHubEditAccess_ = partnerHubEditAccess_;
+    window.partnerHubSaveNetwork_ = partnerHubSaveNetwork_;
+    window.partnerHubSavePoint_ = partnerHubSavePoint_;
+    window.partnerHubSaveAccess_ = partnerHubSaveAccess_;
+    window.partnerHubRevokeAccess_ = partnerHubRevokeAccess_;
+    window.partnerHubSeedDefaults_ = partnerHubSeedDefaults_;
 
     async function assignRole(targetId) {
       var sel = document.getElementById("role_" + targetId);

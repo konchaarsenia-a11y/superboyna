@@ -1585,6 +1585,58 @@ function doGet(e) {
       name: e.parameter.name ? decodeURIComponent(e.parameter.name) : ""
     }, callback, false);
   }
+  if (action === "partnerListAdmin") {
+    return handlePartnerListAdmin({ telegramId: e.parameter.telegramId || "" }, callback, false);
+  }
+  if (action === "partnerGetMe") {
+    return handlePartnerGetMe({
+      username: e.parameter.username ? decodeURIComponent(e.parameter.username) : "",
+      telegramId: e.parameter.telegramId || ""
+    }, callback, false);
+  }
+  if (action === "partnerSaveNetwork") {
+    return handlePartnerSaveNetwork({
+      telegramId: e.parameter.telegramId || "",
+      id: e.parameter.id || "",
+      name: e.parameter.name ? decodeURIComponent(e.parameter.name) : "",
+      logo: e.parameter.logo ? decodeURIComponent(e.parameter.logo) : "",
+      active: e.parameter.active
+    }, callback, false);
+  }
+  if (action === "partnerSavePoint") {
+    return handlePartnerSavePoint({
+      telegramId: e.parameter.telegramId || "",
+      id: e.parameter.id || "",
+      networkId: e.parameter.networkId || "",
+      name: e.parameter.name ? decodeURIComponent(e.parameter.name) : "",
+      address: e.parameter.address ? decodeURIComponent(e.parameter.address) : "",
+      active: e.parameter.active
+    }, callback, false);
+  }
+  if (action === "partnerSaveAccess") {
+    return handlePartnerSaveAccess({
+      telegramId: e.parameter.telegramId || "",
+      id: e.parameter.id || "",
+      username: e.parameter.username ? decodeURIComponent(e.parameter.username) : "",
+      targetTelegramId: e.parameter.targetTelegramId || e.parameter.staffTelegramId || "",
+      name: e.parameter.name ? decodeURIComponent(e.parameter.name) : "",
+      networkId: e.parameter.networkId || "",
+      pointIds: e.parameter.pointIds ? decodeURIComponent(e.parameter.pointIds) : "",
+      role: e.parameter.role || "partner",
+      status: e.parameter.status || "active",
+      actorRole: e.parameter.actorRole || ""
+    }, callback, false);
+  }
+  if (action === "partnerRevokeAccess") {
+    return handlePartnerRevokeAccess({
+      telegramId: e.parameter.telegramId || "",
+      id: e.parameter.id || "",
+      username: e.parameter.username ? decodeURIComponent(e.parameter.username) : ""
+    }, callback, false);
+  }
+  if (action === "partnerSeedDefaults") {
+    return handlePartnerSeedDefaults({ telegramId: e.parameter.telegramId || "", force: e.parameter.force || "" }, callback, false);
+  }
   if (action === "setAccessTimezone") {
     return handleSetAccessTimezone({
       actorId: e.parameter.actorId || e.parameter.telegramId || "",
@@ -2124,6 +2176,27 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "deletePartner") {
     return handleDeletePartner(json, callback, fromPost);
+  }
+  if (action === "partnerListAdmin") {
+    return handlePartnerListAdmin(json, callback, fromPost);
+  }
+  if (action === "partnerGetMe") {
+    return handlePartnerGetMe(json, callback, fromPost);
+  }
+  if (action === "partnerSaveNetwork") {
+    return handlePartnerSaveNetwork(json, callback, fromPost);
+  }
+  if (action === "partnerSavePoint") {
+    return handlePartnerSavePoint(json, callback, fromPost);
+  }
+  if (action === "partnerSaveAccess") {
+    return handlePartnerSaveAccess(json, callback, fromPost);
+  }
+  if (action === "partnerRevokeAccess") {
+    return handlePartnerRevokeAccess(json, callback, fromPost);
+  }
+  if (action === "partnerSeedDefaults") {
+    return handlePartnerSeedDefaults(json, callback, fromPost);
   }
   if (action === "listReminderPeople") {
     return handleListReminderPeople_(json, callback, fromPost);
@@ -15131,6 +15204,498 @@ function handleDeletePartner(json, callback, fromPost) {
   sh.getRange(hit.rowIndex, 4).setValue("no");
   sh.getRange(hit.rowIndex, 6).setValue(new Date());
   var ok = { status: "success", id: hit.id, deleted: true };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/* ========== Партнёрский мини-апп (сети / точки / доступы) ========== */
+var PARTNER_NET_HEADERS_ = ["id", "name", "logo", "active", "updatedAt"];
+var PARTNER_POINT_HEADERS_ = ["id", "networkId", "name", "address", "active", "updatedAt"];
+var PARTNER_ACCESS_HEADERS_ = ["id", "username", "telegramId", "name", "networkId", "pointIds", "role", "status", "updatedAt"];
+
+function partnerNormUser_(u) {
+  return String(u || "").replace(/^@/, "").trim().toLowerCase();
+}
+
+function partnerParsePointIds_(raw) {
+  if (Array.isArray(raw)) {
+    return raw.map(function (x) { return String(x || "").trim(); }).filter(Boolean);
+  }
+  var s = String(raw || "").trim();
+  if (!s) return [];
+  if (s.charAt(0) === "[") {
+    try {
+      var arr = JSON.parse(s);
+      if (Array.isArray(arr)) {
+        return arr.map(function (x) { return String(x || "").trim(); }).filter(Boolean);
+      }
+    } catch (e) {}
+  }
+  return s.split(/[,;\s]+/).map(function (x) { return String(x || "").trim(); }).filter(Boolean);
+}
+
+function partnerRequireOwner_(actorId) {
+  var actor = String(actorId || "").trim();
+  if (!actor) return false;
+  if (isOwnerId_(actor)) return true;
+  var row = findAccessById_(actor);
+  return !!(row && String(row.role || "").toLowerCase() === "owner" &&
+    String(row.status || "").toLowerCase() !== "denied");
+}
+
+function getPartnerNetworksSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("Partner_Networks");
+  if (!sh) {
+    sh = ss.insertSheet("Partner_Networks");
+    sh.getRange(1, 1, 1, PARTNER_NET_HEADERS_.length).setValues([PARTNER_NET_HEADERS_]);
+    sh.setFrozenRows(1);
+  } else {
+    ensureSheetHeadersAppend_(sh, PARTNER_NET_HEADERS_);
+  }
+  return sh;
+}
+
+function getPartnerPointsSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("Partner_Points");
+  if (!sh) {
+    sh = ss.insertSheet("Partner_Points");
+    sh.getRange(1, 1, 1, PARTNER_POINT_HEADERS_.length).setValues([PARTNER_POINT_HEADERS_]);
+    sh.setFrozenRows(1);
+  } else {
+    ensureSheetHeadersAppend_(sh, PARTNER_POINT_HEADERS_);
+  }
+  return sh;
+}
+
+function getPartnerAccessSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("Partner_Access");
+  if (!sh) {
+    sh = ss.insertSheet("Partner_Access");
+    sh.getRange(1, 1, 1, PARTNER_ACCESS_HEADERS_.length).setValues([PARTNER_ACCESS_HEADERS_]);
+    sh.setFrozenRows(1);
+  } else {
+    ensureSheetHeadersAppend_(sh, PARTNER_ACCESS_HEADERS_);
+  }
+  return sh;
+}
+
+function partnerDefaultSeedPack_() {
+  return {
+    networks: [
+      { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" },
+      { id: "net_nan", name: "NaN clinic", logo: "assets/partners/nan.png" },
+      { id: "net_fundog", name: "Fundog", logo: "assets/partners/fundog.png" },
+      { id: "net_firedog", name: "Firedog", logo: "assets/partners/firedog.png" },
+      { id: "net_polotno", name: "Polotno", logo: "" },
+      { id: "net_indixvost", name: "Indixvost", logo: "" },
+      { id: "net_bowwow", name: "Bow_wow_color", logo: "" }
+    ],
+    points: [
+      { id: "pt_varka_1", networkId: "net_varka", name: "Varka · Немига", address: "ул. Немига" },
+      { id: "pt_varka_2", networkId: "net_varka", name: "Varka · Каменная", address: "ул. Каменная" },
+      { id: "pt_varka_3", networkId: "net_varka", name: "Varka · Победителей", address: "пр. Победителей" },
+      { id: "pt_varka_4", networkId: "net_varka", name: "Varka · Притыцкого", address: "ул. Притыцкого" },
+      { id: "pt_varka_5", networkId: "net_varka", name: "Varka · Независимости", address: "пр. Независимости" },
+      { id: "pt_varka_6", networkId: "net_varka", name: "Varka · Кульман", address: "ул. Кульман" },
+      { id: "pt_varka_7", networkId: "net_varka", name: "Varka · Веры Хоружей", address: "ул. Веры Хоружей" },
+      { id: "pt_varka_8", networkId: "net_varka", name: "Varka · Сурганова", address: "ул. Сурганова" },
+      { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34" },
+      { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
+      { id: "pt_firedog_1", networkId: "net_firedog", name: "Firedog · точка 1", address: "Минск" },
+      { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—" },
+      { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—" },
+      { id: "pt_bow_1", networkId: "net_bowwow", name: "Bow_wow_color · точка 1", address: "—" }
+    ],
+    access: [
+      { username: "varka_two", name: "Партнёр Varka (2 точки)", networkId: "net_varka", pointIds: ["pt_varka_1", "pt_varka_2"] },
+      { username: "varka_one", name: "Партнёр Varka (1 точка)", networkId: "net_varka", pointIds: ["pt_varka_5"] },
+      { username: "nan_demo", name: "Партнёр NaN", networkId: "net_nan", pointIds: ["pt_nan_1"] },
+      { username: "fundog_demo", name: "Партнёр Fundog", networkId: "net_fundog", pointIds: ["pt_fundog_1"] },
+      { username: "firedog_demo", name: "Партнёр Firedog", networkId: "net_firedog", pointIds: ["pt_firedog_1"] },
+      { username: "polotno_demo", name: "Партнёр Polotno", networkId: "net_polotno", pointIds: ["pt_polotno_1"] },
+      { username: "indixvost_demo", name: "Партнёр Indixvost", networkId: "net_indixvost", pointIds: ["pt_indix_1"] },
+      { username: "bowwow_demo", name: "Партнёр Bow_wow_color", networkId: "net_bowwow", pointIds: ["pt_bow_1"] }
+    ]
+  };
+}
+
+function readPartnerNetworks_() {
+  var sh = getPartnerNetworksSheet_();
+  var data = sh.getDataRange().getValues();
+  var out = [];
+  for (var r = 1; r < data.length; r++) {
+    var id = String(data[r][0] || "").trim();
+    if (!id) continue;
+    out.push({
+      rowIndex: r + 1,
+      id: id,
+      name: String(data[r][1] || "").trim(),
+      logo: String(data[r][2] || "").trim(),
+      active: String(data[r][3] || "yes").toLowerCase() !== "no",
+      updatedAt: data[r][4]
+    });
+  }
+  return out;
+}
+
+function readPartnerPoints_() {
+  var sh = getPartnerPointsSheet_();
+  var data = sh.getDataRange().getValues();
+  var out = [];
+  for (var r = 1; r < data.length; r++) {
+    var id = String(data[r][0] || "").trim();
+    if (!id) continue;
+    out.push({
+      rowIndex: r + 1,
+      id: id,
+      networkId: String(data[r][1] || "").trim(),
+      name: String(data[r][2] || "").trim(),
+      address: String(data[r][3] || "").trim(),
+      active: String(data[r][4] || "yes").toLowerCase() !== "no",
+      updatedAt: data[r][5]
+    });
+  }
+  return out;
+}
+
+function readPartnerAccessRows_() {
+  var sh = getPartnerAccessSheet_();
+  var data = sh.getDataRange().getValues();
+  var out = [];
+  for (var r = 1; r < data.length; r++) {
+    var id = String(data[r][0] || "").trim();
+    if (!id) continue;
+    out.push({
+      rowIndex: r + 1,
+      id: id,
+      username: partnerNormUser_(data[r][1]),
+      telegramId: String(data[r][2] || "").trim(),
+      name: String(data[r][3] || "").trim(),
+      networkId: String(data[r][4] || "").trim(),
+      pointIds: partnerParsePointIds_(data[r][5]),
+      role: String(data[r][6] || "partner").toLowerCase() || "partner",
+      status: String(data[r][7] || "active").toLowerCase() || "active",
+      updatedAt: data[r][8]
+    });
+  }
+  return out;
+}
+
+function ensurePartnerAppSeeded_(force) {
+  var nets = readPartnerNetworks_();
+  var pts = readPartnerPoints_();
+  var acc = readPartnerAccessRows_();
+  if (!force && nets.length && pts.length && acc.length) {
+    return { seeded: false, networks: nets.length, points: pts.length, access: acc.length };
+  }
+  var pack = partnerDefaultSeedPack_();
+  var now = new Date();
+  var netSh = getPartnerNetworksSheet_();
+  var ptSh = getPartnerPointsSheet_();
+  var acSh = getPartnerAccessSheet_();
+  if (force || !nets.length) {
+    if (netSh.getLastRow() > 1) netSh.getRange(2, 1, netSh.getLastRow(), PARTNER_NET_HEADERS_.length).clearContent();
+    var netRows = pack.networks.map(function (n) {
+      return [n.id, n.name, n.logo || "", "yes", now];
+    });
+    if (netRows.length) netSh.getRange(2, 1, 1 + netRows.length, PARTNER_NET_HEADERS_.length).setValues(netRows);
+  }
+  if (force || !pts.length) {
+    if (ptSh.getLastRow() > 1) ptSh.getRange(2, 1, ptSh.getLastRow(), PARTNER_POINT_HEADERS_.length).clearContent();
+    var ptRows = pack.points.map(function (p) {
+      return [p.id, p.networkId, p.name, p.address || "", "yes", now];
+    });
+    if (ptRows.length) ptSh.getRange(2, 1, 1 + ptRows.length, PARTNER_POINT_HEADERS_.length).setValues(ptRows);
+  }
+  if (force || !acc.length) {
+    if (acSh.getLastRow() > 1) acSh.getRange(2, 1, acSh.getLastRow(), PARTNER_ACCESS_HEADERS_.length).clearContent();
+    var acRows = pack.access.map(function (a) {
+      return [
+        "pa_" + partnerNormUser_(a.username),
+        partnerNormUser_(a.username),
+        "",
+        a.name || "",
+        a.networkId || "",
+        JSON.stringify(a.pointIds || []),
+        "partner",
+        "active",
+        now
+      ];
+    });
+    if (acRows.length) acSh.getRange(2, 1, 1 + acRows.length, PARTNER_ACCESS_HEADERS_.length).setValues(acRows);
+  }
+  return {
+    seeded: true,
+    networks: pack.networks.length,
+    points: pack.points.length,
+    access: pack.access.length
+  };
+}
+
+function partnerCatalogStatic_() {
+  return [
+    { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "шт", active: true },
+    { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "шт", active: true },
+    { id: "vr_c_piece", type: "coupon", name: "Купон", unit: "шт", active: true }
+  ];
+}
+
+function handlePartnerListAdmin(json, callback, fromPost) {
+  var actor = String((json && json.telegramId) || "").trim();
+  if (actor && !partnerRequireOwner_(actor)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  try { ensurePartnerAppSeeded_(false); } catch (eSeed) {}
+  var ok = {
+    status: "success",
+    networks: readPartnerNetworks_().map(function (n) {
+      return { id: n.id, name: n.name, logo: n.logo, active: n.active };
+    }),
+    points: readPartnerPoints_().map(function (p) {
+      return { id: p.id, networkId: p.networkId, name: p.name, address: p.address, active: p.active };
+    }),
+    access: readPartnerAccessRows_().map(function (a) {
+      return {
+        id: a.id,
+        username: a.username,
+        telegramId: a.telegramId,
+        name: a.name,
+        networkId: a.networkId,
+        pointIds: a.pointIds,
+        role: a.role,
+        status: a.status
+      };
+    }),
+    miniAppUrl: "https://konchaarsenia-a11y.github.io/superboyna/varka/",
+    catalog: partnerCatalogStatic_()
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePartnerGetMe(json, callback, fromPost) {
+  try { ensurePartnerAppSeeded_(false); } catch (eSeed) {}
+  var username = partnerNormUser_((json && json.username) || "");
+  var tid = String((json && json.telegramId) || "").trim();
+  var rows = readPartnerAccessRows_();
+  var hit = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].status || "") !== "active") continue;
+    if (username && rows[i].username === username) { hit = rows[i]; break; }
+  }
+  if (!hit && tid) {
+    for (var j = 0; j < rows.length; j++) {
+      if (String(rows[j].status || "") !== "active") continue;
+      if (rows[j].telegramId && String(rows[j].telegramId) === tid) { hit = rows[j]; break; }
+    }
+  }
+  var nets = readPartnerNetworks_().filter(function (n) { return n.active; });
+  var pts = readPartnerPoints_().filter(function (p) { return p.active; });
+  if (!hit) {
+    var no = {
+      status: "success",
+      role: "none",
+      allowed: false,
+      networks: nets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
+      points: pts.map(function (p) {
+        return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
+      }),
+      catalog: partnerCatalogStatic_()
+    };
+    return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
+  }
+  var allowed = {};
+  (hit.pointIds || []).forEach(function (id) { allowed[id] = true; });
+  var ok = {
+    status: "success",
+    allowed: true,
+    role: hit.role || "partner",
+    isPartner: true,
+    isOwner: false,
+    name: hit.name || username || tid,
+    username: hit.username || username,
+    telegramId: hit.telegramId || tid,
+    networkId: hit.networkId || "",
+    pointIds: hit.pointIds || [],
+    allowedPointIds: allowed,
+    networks: nets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
+    points: pts.map(function (p) {
+      return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
+    }),
+    catalog: partnerCatalogStatic_()
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePartnerSaveNetwork(json, callback, fromPost) {
+  if (!partnerRequireOwner_(json && json.telegramId)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var name = String((json && json.name) || "").trim();
+  if (!name) {
+    var bad = { status: "error", message: "need_name" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var id = String((json && json.id) || "").trim() || ("net_" + Utilities.getUuid().slice(0, 8));
+  var logo = String((json && json.logo) || "").trim();
+  var active = (json && (json.active === false || json.active === "no" || json.active === 0 || json.active === "0")) ? "no" : "yes";
+  var sh = getPartnerNetworksSheet_();
+  var all = readPartnerNetworks_();
+  var hit = null;
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].id === id) { hit = all[i]; break; }
+  }
+  var vals = [id, name, logo, active, new Date()];
+  if (hit) sh.getRange(hit.rowIndex, 1, 1, PARTNER_NET_HEADERS_.length).setValues([vals]);
+  else sh.appendRow(vals);
+  var ok = { status: "success", id: id, name: name, active: active === "yes" };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePartnerSavePoint(json, callback, fromPost) {
+  if (!partnerRequireOwner_(json && json.telegramId)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var name = String((json && json.name) || "").trim();
+  var networkId = String((json && json.networkId) || "").trim();
+  if (!name || !networkId) {
+    var bad = { status: "error", message: "need_name_network" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var id = String((json && json.id) || "").trim() || ("pt_" + Utilities.getUuid().slice(0, 8));
+  var address = String((json && json.address) || "").trim();
+  var active = (json && (json.active === false || json.active === "no" || json.active === 0 || json.active === "0")) ? "no" : "yes";
+  var sh = getPartnerPointsSheet_();
+  var all = readPartnerPoints_();
+  var hit = null;
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].id === id) { hit = all[i]; break; }
+  }
+  var vals = [id, networkId, name, address, active, new Date()];
+  if (hit) sh.getRange(hit.rowIndex, 1, 1, PARTNER_POINT_HEADERS_.length).setValues([vals]);
+  else sh.appendRow(vals);
+  var ok = { status: "success", id: id, networkId: networkId, name: name, active: active === "yes" };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePartnerSaveAccess(json, callback, fromPost) {
+  var actor = String((json && json.telegramId) || "").trim();
+  var actorRole = String((json && json.actorRole) || "").toLowerCase();
+  var isOwner = partnerRequireOwner_(actor);
+  // партнёр из мини-аппа может выдать staff только на свои точки
+  var allowPartnerStaff = !isOwner && actorRole === "partner";
+  if (!isOwner && !allowPartnerStaff) {
+    var forbid = { status: "error", message: "forbidden" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  try { ensurePartnerAppSeeded_(false); } catch (eSeed) {}
+  var username = partnerNormUser_((json && json.username) || "");
+  var targetTid = String((json && (json.targetTelegramId || json.staffTelegramId)) || "").trim();
+  var name = String((json && json.name) || "").trim();
+  var networkId = String((json && json.networkId) || "").trim();
+  var pointIds = partnerParsePointIds_((json && json.pointIds) || "");
+  var role = String((json && json.role) || "partner").toLowerCase() || "partner";
+  var status = String((json && json.status) || "active").toLowerCase() || "active";
+  if (allowPartnerStaff) {
+    role = "staff";
+    // ограничить точкуми актёра
+    var meRows = readPartnerAccessRows_();
+    var me = null;
+    for (var m = 0; m < meRows.length; m++) {
+      if (meRows[m].telegramId && meRows[m].telegramId === actor && meRows[m].status === "active") {
+        me = meRows[m]; break;
+      }
+    }
+    if (!me) {
+      for (var m2 = 0; m2 < meRows.length; m2++) {
+        if (meRows[m2].username && partnerNormUser_(json.actorUsername) === meRows[m2].username) {
+          me = meRows[m2]; break;
+        }
+      }
+    }
+    if (!me) {
+      var noMe = { status: "error", message: "partner_not_found" };
+      return fromPost ? jsonpText(callback, noMe) : jsonp(callback, noMe);
+    }
+    networkId = me.networkId;
+    var allowed = {};
+    (me.pointIds || []).forEach(function (pid) { allowed[pid] = true; });
+    pointIds = pointIds.filter(function (pid) { return !!allowed[pid]; });
+    if (!pointIds.length) pointIds = (me.pointIds || []).slice();
+  }
+  if (!username && !targetTid) {
+    var bad = { status: "error", message: "need_username_or_telegramId" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  if (!pointIds.length) {
+    var badP = { status: "error", message: "need_points" };
+    return fromPost ? jsonpText(callback, badP) : jsonp(callback, badP);
+  }
+  var id = String((json && json.id) || "").trim();
+  if (!id) id = "pa_" + (username || targetTid || Utilities.getUuid().slice(0, 8));
+  var sh = getPartnerAccessSheet_();
+  var all = readPartnerAccessRows_();
+  var hit = null;
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].id === id) { hit = all[i]; break; }
+    if (username && all[i].username === username) { hit = all[i]; id = all[i].id; break; }
+    if (targetTid && all[i].telegramId === targetTid && all[i].role === role) {
+      hit = all[i]; id = all[i].id; break;
+    }
+  }
+  var vals = [
+    id,
+    username,
+    targetTid,
+    name || username || targetTid,
+    networkId,
+    JSON.stringify(pointIds),
+    role,
+    status,
+    new Date()
+  ];
+  if (hit) sh.getRange(hit.rowIndex, 1, 1, PARTNER_ACCESS_HEADERS_.length).setValues([vals]);
+  else sh.appendRow(vals);
+  var ok = { status: "success", id: id, username: username, telegramId: targetTid, pointIds: pointIds, role: role };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePartnerRevokeAccess(json, callback, fromPost) {
+  if (!partnerRequireOwner_(json && json.telegramId)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var id = String((json && json.id) || "").trim();
+  var username = partnerNormUser_((json && json.username) || "");
+  var all = readPartnerAccessRows_();
+  var hit = null;
+  for (var i = 0; i < all.length; i++) {
+    if (id && all[i].id === id) { hit = all[i]; break; }
+    if (username && all[i].username === username) { hit = all[i]; break; }
+  }
+  if (!hit) {
+    var bad = { status: "error", message: "not_found" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var sh = getPartnerAccessSheet_();
+  sh.getRange(hit.rowIndex, 8).setValue("revoked");
+  sh.getRange(hit.rowIndex, 9).setValue(new Date());
+  var ok = { status: "success", id: hit.id, revoked: true };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePartnerSeedDefaults(json, callback, fromPost) {
+  if (!partnerRequireOwner_(json && json.telegramId)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var force = !!(json && (json.force === "1" || json.force === true || json.force === 1));
+  var r = ensurePartnerAppSeeded_(force);
+  var ok = { status: "success", result: r };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 

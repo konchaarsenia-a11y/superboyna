@@ -255,10 +255,13 @@ Script Properties: `OWNER_TELEGRAM_IDS`, `CUTTER_TELEGRAM_IDS`, опционал
 
 Навигация: менеджер — Заказ (long-press → Просмотр / Цена / Доступы), Подписки, Цена; курьер — Маршрут \| Сборка; нарезчик — Нарезка; логист — Склад; owner — всё + Доступы.
 
-## Varka — партнёрские заявки (параллельно, бесплатно)
+## Varka — партнёрские заявки
 
 Отдельный Mini App [`varka/`](./varka/) · [VAROK.md](./VAROK.md).  
-**Без цен.** **Не править** боевой `Code.gs` / `app.html`. Бэкенд — свой Script и своя книга.
+Управление доступами: вкладка **Партнёры** в `app.html` (owner).  
+Листы: `Partner_Networks`, `Partner_Points`, `Partner_Access`.  
+Actions: `partnerListAdmin` / `partnerGetMe` / `partnerSaveNetwork` / `partnerSavePoint` / `partnerSaveAccess` / `partnerRevokeAccess` / `partnerSeedDefaults`.  
+Без цен. Не путать с листом «Партнёры» (источник БП).
 
 ## Секреты
 
