@@ -121,6 +121,33 @@
       margin: 8px 0 14px;
     }
     .role-bar .chip { font-size: 11px; }
+    .session-bar {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      background: rgba(255,122,0,0.1); border: 1px solid rgba(255,122,0,0.3);
+      border-radius: 12px; padding: 10px 12px; margin-bottom: 14px; font-size: 13px;
+    }
+    .session-bar .who { color: var(--accent2); font-weight: 800; }
+    .session-bar .muted { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .login-card {
+      background: var(--bg2); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px; margin-bottom: 12px;
+    }
+    .login-card h3 {
+      margin: 0 0 6px; font-size: 15px; font-weight: 800; color: var(--accent2);
+    }
+    .login-card p { margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.35; }
+    .login-pick {
+      display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+      background: var(--bg3); border: 1px solid var(--line);
+      border-radius: 12px; padding: 12px; margin-bottom: 8px;
+      color: var(--text); font-size: 15px; cursor: pointer; font-weight: 700;
+    }
+    .login-pick:active { transform: scale(0.99); }
+    .login-pick img {
+      width: 40px; height: 40px; border-radius: 10px; object-fit: cover;
+      background: #111; flex-shrink: 0;
+    }
+    .login-pick .hint { display: block; font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 2px; }
     .coupon-row {
       display: flex; align-items: center; gap: 12px;
       padding-top: 12px; margin-top: 10px;
@@ -231,18 +258,50 @@
       <p class="empty" id="bootMsg">Вход…</p>
     </div>
 
+    <div id="screenDemoLogin" class="screen">
+      <div class="hero solo">
+        <img src="assets/goodboy-logo.png" alt="Good Boy">
+      </div>
+      <div class="brand"><span class="gb">Good Boy</span></div>
+      <div class="free-pill">Демо-вход для проверки</div>
+      <div class="sub">Выберите, под кем зайти. Партнёр не видит кабинет владельца.</div>
+
+      <div class="login-card">
+        <h3>1. Владелец Good Boy</h3>
+        <p>Полный кабинет: сети, все точки, каталог, доступы, все заказы.</p>
+        <button class="login-pick" type="button" onclick="demoLogin('owner')">
+          <img src="assets/goodboy-logo.png" alt="">
+          <span>Войти как владелец Good Boy<span class="hint">менеджер проекта</span></span>
+        </button>
+      </div>
+
+      <div class="login-card">
+        <h3>2. Партнёр сети</h3>
+        <p>Только мини-кабинет своей сети. Без настроек Good Boy и чужих партнёров.</p>
+        <div id="demoPartnerList"></div>
+      </div>
+
+      <div class="login-card">
+        <h3>3. Сотрудник точки</h3>
+        <p>Только заказ. Без кабинетов и настроек.</p>
+        <div id="demoStaffList"></div>
+      </div>
+    </div>
+
     <div id="screenLocs" class="screen">
       <div class="hero solo">
         <img src="assets/goodboy-logo.png" alt="Good Boy">
       </div>
       <div class="brand"><span class="gb">Good Boy</span></div>
       <div class="free-pill">Бесплатно для партнёров</div>
-      <div class="sub">Выберите сеть или название вашего проекта</div>
-      <div class="role-bar" id="demoRoleBar" style="display:none;">
-        <button class="chip on" type="button" data-role="owner" onclick="setDemoRole('owner')">Демо: владелец Good Boy</button>
-        <button class="chip" type="button" data-role="partner" onclick="setDemoRole('partner')">Демо: партнёр Varka</button>
-        <button class="chip" type="button" data-role="staff" onclick="setDemoRole('staff')">Демо: точка</button>
+      <div id="sessionBar" class="session-bar" style="display:none;">
+        <div>
+          <div class="who" id="sessionWho">—</div>
+          <div class="muted" id="sessionHint">—</div>
+        </div>
+        <button class="chip" type="button" onclick="demoLogout()">Сменить аккаунт</button>
       </div>
+      <div class="sub" id="locsSub">Выберите сеть или точку</div>
       <div id="locList"></div>
       <div id="locAdminHint" style="display:none;margin-top:16px;">
         <button class="btn ghost block" type="button" id="btnOwnerCab" style="display:none;" onclick="goOwnerCabinet()">Кабинет владельца Good Boy</button>
@@ -317,7 +376,7 @@
 
   <script>
 (function () {
-  var APP_VER = "1.6.0";
+  var APP_VER = "1.7.0";
   // Свой webhook Varka (отдельный Script). ПУСТО = демо без сети.
   // НИКОГДА не ставить сюда /exec Бойни-конвейера.
   var VARKA_WEBHOOK_URL = "";
@@ -325,12 +384,47 @@
   var LOGO_GOODBOY = "assets/goodboy-logo.png";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
   var COUPON_BANNER = "assets/coupon-banner.png"; // PNG баннера — замените файлом позже
+  var DEMO_SESSION_KEY = "varka_demo_session_v1";
 
-  // Роли:
+  // Роли демо-сессии (после «Войти»):
   // owner  — менеджер Good Boy: полный кабинет владельца
-  // partner — кабинет партнёра (только своя сеть/точки)
-  // staff  — заказ по доступным точкам/сетям
-  var DEMO_ROLE = "owner";
+  // partner — кабинет партнёра (только выбранная сеть)
+  // staff  — заказ по выбранной точке
+  var DEMO_ROLE = "";
+  var DEMO_PARTNER_NETWORK = "";
+  var DEMO_STAFF_POINT = "";
+
+  function loadDemoSession_() {
+    try {
+      var raw = sessionStorage.getItem(DEMO_SESSION_KEY);
+      if (!raw) return false;
+      var s = JSON.parse(raw);
+      if (!s || !s.role) return false;
+      DEMO_ROLE = s.role;
+      DEMO_PARTNER_NETWORK = s.partnerNetworkId || "";
+      DEMO_STAFF_POINT = s.staffPointId || "";
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function saveDemoSession_() {
+    try {
+      sessionStorage.setItem(DEMO_SESSION_KEY, JSON.stringify({
+        role: DEMO_ROLE,
+        partnerNetworkId: DEMO_PARTNER_NETWORK,
+        staffPointId: DEMO_STAFF_POINT
+      }));
+    } catch (e) {}
+  }
+
+  function clearDemoSession_() {
+    DEMO_ROLE = "";
+    DEMO_PARTNER_NETWORK = "";
+    DEMO_STAFF_POINT = "";
+    try { sessionStorage.removeItem(DEMO_SESSION_KEY); } catch (e) {}
+  }
 
   function partnerLogoFor_(loc) {
     if (!loc) return LOGO_GOODBOY;
@@ -388,15 +482,14 @@
     var isOwner = role === "owner";
     var isPartner = role === "partner";
     var isStaff = role === "staff";
-    var partnerNetworkId = "net_varka";
-    var staffPointId = "pt_varka_1";
+    var partnerNetworkId = DEMO_PARTNER_NETWORK || "net_varka";
+    var staffPointId = DEMO_STAFF_POINT || "pt_varka_1";
     var locations;
     if (isOwner) {
       locations = NETWORKS.slice();
     } else if (isPartner) {
       locations = NETWORKS.filter(function (n) { return n.id === partnerNetworkId; });
-    } else {
-      // staff: заказ по доступной точке
+    } else if (isStaff) {
       locations = POINTS.filter(function (p) { return p.id === staffPointId; }).map(function (p) {
         var net = NETWORKS.filter(function (n) { return n.id === p.networkId; })[0];
         return {
@@ -408,6 +501,8 @@
           active: p.active !== false
         };
       });
+    } else {
+      locations = [];
     }
     var myPoints = POINTS.slice();
     if (isPartner) {
@@ -415,34 +510,92 @@
     } else if (isStaff) {
       myPoints = POINTS.filter(function (p) { return p.id === staffPointId; });
     }
+    var partnerName = "";
+    NETWORKS.forEach(function (n) { if (n.id === partnerNetworkId) partnerName = n.name; });
+    var staffName = "";
+    POINTS.forEach(function (p) { if (p.id === staffPointId) staffName = p.name; });
     return {
       status: "success",
-      telegramId: "demo",
-      name: isOwner ? "Менеджер Good Boy" : (isPartner ? "Партнёр Varka" : "Сотрудник точки"),
-      role: role,
+      telegramId: "demo_" + (role || "none"),
+      name: isOwner ? "Менеджер Good Boy" : (isPartner ? ("Партнёр · " + partnerName) : (staffName || "Сотрудник точки")),
+      role: role || "",
       isOwner: isOwner,
       isPartner: isPartner,
       isStaff: isStaff,
-      isAdmin: isOwner, // backward compat
+      isAdmin: isOwner,
       partnerNetworkId: isPartner ? partnerNetworkId : "",
+      partnerName: partnerName,
       locations: locations,
       allLocations: NETWORKS.slice(),
       points: myPoints
     };
   }
 
-  function setDemoRole(role) {
-    DEMO_ROLE = role === "partner" || role === "staff" ? role : "owner";
-    document.querySelectorAll("#demoRoleBar .chip").forEach(function (el) {
-      el.classList.toggle("on", el.getAttribute("data-role") === DEMO_ROLE);
-    });
+  function demoLogin(role, id) {
+    if (role === "owner") {
+      DEMO_ROLE = "owner";
+      DEMO_PARTNER_NETWORK = "";
+      DEMO_STAFF_POINT = "";
+    } else if (role === "partner") {
+      DEMO_ROLE = "partner";
+      DEMO_PARTNER_NETWORK = id || "net_varka";
+      DEMO_STAFF_POINT = "";
+    } else if (role === "staff") {
+      DEMO_ROLE = "staff";
+      DEMO_PARTNER_NETWORK = "";
+      DEMO_STAFF_POINT = id || "pt_varka_1";
+    } else {
+      return;
+    }
+    saveDemoSession_();
     state.cart = {};
     state.location = null;
+    state.adminMode = DEMO_ROLE === "owner" ? "owner" : (DEMO_ROLE === "partner" ? "partner" : "");
     boot(false);
   }
 
+  function demoLogout() {
+    clearDemoSession_();
+    state.me = null;
+    state.location = null;
+    state.cart = {};
+    renderDemoLogin_();
+    show("screenDemoLogin");
+  }
+
+  function renderDemoLogin_() {
+    var pBox = document.getElementById("demoPartnerList");
+    var sBox = document.getElementById("demoStaffList");
+    if (pBox) {
+      pBox.innerHTML = NETWORKS.map(function (net) {
+        return '<button class="login-pick" type="button" onclick="demoLogin(\'partner\',\'' + esc(net.id) + '\')">' +
+          '<img src="' + partnerLogoFor_(net) + '" alt="">' +
+          "<span>Войти как партнёр · " + esc(net.name) +
+          '<span class="hint">мини-кабинет только этой сети</span></span></button>';
+      }).join("");
+    }
+    if (sBox) {
+      sBox.innerHTML = POINTS.map(function (pt) {
+        var netName = "";
+        NETWORKS.forEach(function (n) { if (n.id === pt.networkId) netName = n.name; });
+        var net = NETWORKS.filter(function (n) { return n.id === pt.networkId; })[0];
+        return '<button class="login-pick" type="button" onclick="demoLogin(\'staff\',\'' + esc(pt.id) + '\')">' +
+          '<img src="' + partnerLogoFor_(net) + '" alt="">' +
+          "<span>" + esc(pt.name) +
+          '<span class="hint">' + esc(netName) + " · только заказ</span></span></button>";
+      }).join("");
+    }
+  }
+
+  function setDemoRole(role) {
+    if (role === "owner") demoLogin("owner");
+    else if (role === "partner") demoLogin("partner", DEMO_PARTNER_NETWORK || "net_varka");
+    else if (role === "staff") demoLogin("staff", DEMO_STAFF_POINT || "pt_varka_1");
+    else demoLogout();
+  }
+
   var DEMO = {
-    me: buildDemoMe_(),
+    me: { status: "success", locations: [], allLocations: [], points: [] },
     catalog: [
       { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "шт", active: true, sort: 10 },
       { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "шт", active: true, sort: 20 },
@@ -512,8 +665,9 @@
     if (action === "vrMe") {
       DEMO.me = buildDemoMe_();
       var me = JSON.parse(JSON.stringify(DEMO.me));
-      me.telegramId = u.telegramId || "demo";
-      if (u.name) me.name = u.name;
+      me.telegramId = u.telegramId || me.telegramId || "demo";
+      // в демо имя роли важнее TG-имени — иначе не видно «Партнёр · Varka»
+      if (!state.demo && u.name) me.name = u.name;
       return me;
     }
     if (action === "vrGetCatalog") {
@@ -585,11 +739,12 @@
     if (action === "vrAdminSaveLocation") {
       var idl = String(params.id || "").trim() || ("pt_" + Date.now().toString(36));
       var networkId = String(params.networkId || "").trim();
+      var myNet = DEMO_PARTNER_NETWORK || "net_varka";
       if (DEMO_ROLE === "partner") {
-        networkId = "net_varka";
+        networkId = myNet;
       }
       if (!networkId) return { status: "error", message: "Укажите сеть" };
-      if (DEMO_ROLE === "partner" && networkId !== "net_varka") {
+      if (DEMO_ROLE === "partner" && networkId !== myNet) {
         return { status: "error", message: "Чужая сеть" };
       }
       if (DEMO_ROLE !== "owner" && DEMO_ROLE !== "partner") {
@@ -623,6 +778,7 @@
       if (DEMO_ROLE === "partner" && role === "owner") {
         return { status: "error", message: "Партнёр не выдаёт роль владельца Good Boy" };
       }
+      var myNet2 = DEMO_PARTNER_NETWORK || "net_varka";
       var accRow = {
         telegramId: tid,
         name: params.name || "",
@@ -632,7 +788,7 @@
         status: params.status === "denied" ? "denied" : "active"
       };
       if (DEMO_ROLE === "partner") {
-        accRow.networkIds = "net_varka";
+        accRow.networkIds = myNet2;
         if (accRow.role !== "partner" && accRow.role !== "staff") accRow.role = "staff";
       }
       if (accHit) {
@@ -645,8 +801,9 @@
     if (action === "vrListAccess") {
       var acc = DEMO.access.slice();
       if (DEMO_ROLE === "partner") {
+        var netF = DEMO_PARTNER_NETWORK || "net_varka";
         acc = acc.filter(function (a) {
-          return String(a.networkIds || "").indexOf("net_varka") >= 0 && a.role !== "owner";
+          return String(a.networkIds || "").indexOf(netF) >= 0 && a.role !== "owner";
         });
       }
       return { status: "success", access: acc };
@@ -655,7 +812,7 @@
   }
 
   function show(id) {
-    ["screenBoot", "screenLocs", "screenOrder", "screenMyOrders", "screenAdmin"].forEach(function (s) {
+    ["screenBoot", "screenDemoLogin", "screenLocs", "screenOrder", "screenMyOrders", "screenAdmin"].forEach(function (s) {
       var el = document.getElementById(s);
       if (el) el.classList.toggle("on", s === id);
     });
@@ -748,15 +905,35 @@
     var btnP = document.getElementById("btnPartnerCab");
     var navO = document.getElementById("navOwner");
     var navP = document.getElementById("navPartner");
+    // Жёстко: owner-кнопки только у owner, partner — только мини-кабинет
     var showOwner = !!me.isOwner;
-    var showPartner = !!me.isPartner;
+    var showPartner = !!me.isPartner && !me.isOwner;
     if (hint) hint.style.display = (showOwner || showPartner) ? "" : "none";
     if (btnO) btnO.style.display = showOwner ? "" : "none";
     if (btnP) btnP.style.display = showPartner ? "" : "none";
     if (navO) navO.style.display = showOwner ? "" : "none";
     if (navP) navP.style.display = showPartner ? "" : "none";
-    var demoBar = document.getElementById("demoRoleBar");
-    if (demoBar) demoBar.style.display = state.demo ? "" : "none";
+
+    var sess = document.getElementById("sessionBar");
+    var who = document.getElementById("sessionWho");
+    var hintEl = document.getElementById("sessionHint");
+    var locsSub = document.getElementById("locsSub");
+    if (sess && state.demo && me.role) {
+      sess.style.display = "";
+      if (who) who.textContent = me.name || me.role;
+      if (hintEl) {
+        if (me.isOwner) hintEl.textContent = "Полный кабинет владельца Good Boy";
+        else if (me.isPartner) hintEl.textContent = "Мини-кабинет · без доступа к настройкам Good Boy";
+        else hintEl.textContent = "Только заказ · без кабинета";
+      }
+      if (locsSub) {
+        locsSub.textContent = me.isOwner
+          ? "Все сети (режим владельца)"
+          : (me.isPartner ? "Ваша сеть" : "Ваша точка");
+      }
+    } else if (sess) {
+      sess.style.display = "none";
+    }
   }
 
   function goLocs() {
@@ -927,7 +1104,10 @@
   }
 
   function goOwnerCabinet() {
-    if (!(state.me && state.me.isOwner)) return;
+    if (!(state.me && state.me.isOwner)) {
+      alert("Кабинет владельца доступен только менеджеру Good Boy. Смените аккаунт на экране входа.");
+      return;
+    }
     state.adminMode = "owner";
     state.adminPane = "networks";
     applyAdminChrome_();
@@ -936,7 +1116,10 @@
   }
 
   function goPartnerCabinet() {
-    if (!(state.me && state.me.isPartner)) return;
+    if (!(state.me && state.me.isPartner) || (state.me && state.me.isOwner)) {
+      alert("Мини-кабинет только для партнёра сети.");
+      return;
+    }
     state.adminMode = "partner";
     state.adminPane = "locations";
     applyAdminChrome_();
@@ -1239,6 +1422,16 @@
     var msg = document.getElementById("bootMsg");
     if (!soft && msg) msg.textContent = "Вход…";
     if (!soft) show("screenBoot");
+
+    // Демо: без выбранного аккаунта — экран «войти под кем»
+    if (state.demo && !DEMO_ROLE) {
+      if (!loadDemoSession_()) {
+        renderDemoLogin_();
+        show("screenDemoLogin");
+        return Promise.resolve();
+      }
+    }
+
     return apiGet({
       action: "vrMe",
       telegramId: u.telegramId,
@@ -1252,26 +1445,23 @@
       state.me = res;
       if (!soft) {
         var locs = res.locations || [];
-        if (locs.length === 1 && !res.isOwner && !res.isPartner) {
+        if (locs.length === 1 && res.isStaff) {
           pickLoc(locs[0].id);
         } else {
           renderLocs();
           show("screenLocs");
-          if (state.demo) {
-            var box = document.getElementById("locList");
-            if (box) {
-              var roleLabel = res.isOwner ? "владелец Good Boy" : (res.isPartner ? "партнёр" : "точка");
-              box.insertAdjacentHTML("afterbegin",
-                '<div class="okmsg">Демо · роль: ' + esc(roleLabel) +
-                " · переключите чипы сверху · webhook Бойни не вызываем</div>");
-            }
-          }
         }
       } else {
         syncCabinetNav_();
       }
     }).catch(function (err) {
       if (soft) throw err;
+      if (state.demo) {
+        clearDemoSession_();
+        renderDemoLogin_();
+        show("screenDemoLogin");
+        return;
+      }
       if (msg) {
         msg.innerHTML = '<div class="err">' + esc(err.message || err) + "</div>" +
           '<p class="empty">ID: <b>' + esc(u.telegramId || "откройте из Telegram") + "</b></p>";
@@ -1287,6 +1477,8 @@
   window.goOwnerCabinet = goOwnerCabinet;
   window.goPartnerCabinet = goPartnerCabinet;
   window.setDemoRole = setDemoRole;
+  window.demoLogin = demoLogin;
+  window.demoLogout = demoLogout;
   window.submitOrder = submitOrder;
   window.showMyOrders = showMyOrders;
   window.showOrderTab = showOrderTab;
