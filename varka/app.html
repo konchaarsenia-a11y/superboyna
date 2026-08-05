@@ -298,14 +298,13 @@
       <p class="note">Бойню не трогаем. Уведомления / «Отложенные» — позже.</p>
     </div>
 
-    <!-- Временно: только владельцы Бойни -->
+    <!-- Временно закрыто -->
     <div id="screenLocked" class="screen">
       <div class="hero">
         <img class="mark" src="assets/goodboy-logo.png" alt="Good Boy">
       </div>
-      <div class="pill wrap-c">Доступ закрыт</div>
-      <div class="sub" id="lockedMsg">Сейчас мини-апп открыт только владельцам Good Boy. Партнёров подключим после настройки доступов в Бойне.</div>
-      <p class="note">Владельцы входят через Telegram — список в Бойне (Доступы / OWNER_TELEGRAM_IDS).</p>
+      <div class="pill wrap-c">Good Boy</div>
+      <div class="sub" id="lockedMsg">Ведутся технические работы</div>
     </div>
 
     <!-- Личный кабинет (главный экран после входа) -->
@@ -439,7 +438,7 @@
 
   <script>
 (function () {
-  var APP_VER = "2.3.3";
+  var APP_VER = "2.3.4";
   // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры». ПУСТО = локальное демо.
   var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var SESSION_KEY = "gb_partner_session_v3";
@@ -713,7 +712,7 @@
     state.point = null;
     state.cart = {};
     var el = document.getElementById("lockedMsg");
-    if (el && msg) el.textContent = msg;
+    if (el) el.textContent = msg || "Ведутся технические работы";
     show("screenLocked");
   }
 
@@ -803,7 +802,7 @@
 
   function demoLoginAs(username) {
     if (VARKA_WEBHOOK_URL) {
-      alert("Демо-вход отключён: мини-апп только для владельцев Бойни.");
+      alert("Демо-вход временно отключён.");
       return;
     }
     var acc = accessForUsername_(username);
@@ -1250,7 +1249,7 @@
     try {
       var u = user();
       if (!u.telegramId) {
-        showLocked_("Откройте мини-апп из Telegram. Сейчас доступ только владельцам Good Boy.");
+        showLocked_();
         return;
       }
 
@@ -1313,7 +1312,7 @@
 
       enterAsOwnerFallback_(u, acc.name);
     } catch (e) {
-      showLocked_("Не удалось проверить доступ в Бойне. Откройте снова из Telegram.");
+      showLocked_();
     }
   }
 
