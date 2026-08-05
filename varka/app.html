@@ -932,6 +932,13 @@
     var swN = document.getElementById("swNotify");
     if (swN) swN.classList.toggle("on", state.settings.notify !== false);
     applyTheme_(state.settings.theme || "dark");
+    var info = document.getElementById("accessInfo");
+    if (info && state.me) {
+      var pts = (state.me.points || []).map(function (p) { return p.name; }).join("<br>");
+      info.innerHTML = (state.me.username ? ("@" + esc(state.me.username) + " · ") : "") +
+        esc(state.me.networkName || "") +
+        "<br><br><b>Ваши точки:</b><br>" + (pts || "—");
+    }
     renderStaffList_();
     show("screenCabinet");
   }
