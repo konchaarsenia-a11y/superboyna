@@ -479,7 +479,7 @@
 
   <script>
 (function () {
-  var APP_VER = "2.3.6";
+  var APP_VER = "2.3.7";
   // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры». ПУСТО = локальное демо.
   var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var SESSION_KEY = "gb_partner_session_v3";
@@ -724,11 +724,50 @@
 
   function user() {
     var u = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
+    var tid = String(u.id || "").trim();
+    if (!tid) tid = readTelegramIdFromTg_();
+    if (!tid) {
+      try { tid = String(localStorage.getItem("superboyna_tg_id") || "").trim(); } catch (e) {}
+    }
     return {
-      telegramId: String(u.id || ""),
+      telegramId: tid,
       name: [u.first_name, u.last_name].filter(Boolean).join(" ") || "",
-      username: u.username || ""
+      username: u.username || "",
+      initData: (tg && tg.initData) || ""
     };
+  }
+
+  function readTelegramIdFromTg_() {
+    try {
+      var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+      if (u && u.id) return String(u.id);
+    } catch (e0) {}
+    try {
+      var raw = (tg && tg.initData) || "";
+      if (!raw) return "";
+      var m = String(raw).match(/(?:^|&)user=([^&]+)/);
+      if (!m) return "";
+      var ju = JSON.parse(decodeURIComponent(m[1]));
+      if (ju && ju.id) return String(ju.id);
+    } catch (e1) {}
+    return "";
+  }
+
+  function sleep_(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  async function resolveUser_() {
+    var u = user();
+    if (u.telegramId) return u;
+    var i;
+    for (i = 0; i < 12; i++) {
+      try { if (tg && tg.ready) tg.ready(); } catch (eR) {}
+      await sleep_(120);
+      u = user();
+      if (u.telegramId) return u;
+    }
+    return u;
   }
 
   function esc(s) {
@@ -1270,8 +1309,56 @@
   }
 
   function isBoynaOwnerRole_(acc) {
-    return !!(acc && String(acc.role || "").toLowerCase() === "owner" &&
-      String(acc.access || "").toLowerCase() !== "denied");
+    var role = String((acc && acc.role) || "").toLowerCase();
+    var access = String((acc && acc.access) || "").toLowerCase();
+    if (access === "denied" || role === "denied") return false;
+    return role === "owner";
+  }
+
+  function cachedBoynaOwner_() {
+    try {
+      var role = String(localStorage.getItem("superboyna_app_role") || "").toLowerCase();
+      return role === "owner";
+    } catch (e) { return false; }
+  }
+
+  async function checkIsBoynaOwner_(u) {
+    // 1) как Бойня: partnerListAdmin пускает только owner (OWNER_TELEGRAM_IDS / роль owner)
+    try {
+      var admin = await apiGet_({
+        action: "partnerListAdmin",
+        telegramId: u.telegramId,
+        _: String(Date.now())
+      });
+      if (admin && admin.status === "success" && admin.message !== "owner_only") {
+        applyRemoteConfig_(admin);
+        return { ok: true, name: u.name, admin: admin };
+      }
+      if (admin && admin.status === "error" && admin.message === "owner_only") {
+        // не владелец по этому API — ещё проверим getMyAccess
+      }
+    } catch (eAdm) {}
+
+    // 2) getMyAccess → role=owner
+    try {
+      var acc = await apiGet_({
+        action: "getMyAccess",
+        telegramId: u.telegramId,
+        username: u.username || "",
+        name: u.name || "",
+        initData: u.initData || "",
+        _: String(Date.now())
+      });
+      if (isBoynaOwnerRole_(acc)) {
+        return { ok: true, name: acc.name || u.name, acc: acc };
+      }
+    } catch (eAcc) {}
+
+    // 3) кэш роли из Бойни на том же origin (Pages)
+    if (cachedBoynaOwner_()) {
+      return { ok: true, name: u.name };
+    }
+    return { ok: false };
   }
 
   function enterAsOwnerFallback_(u, accName) {
@@ -1288,26 +1375,36 @@
   async function bootFromApi_() {
     document.getElementById("bootMsg").textContent = "Вход…";
     try {
-      var u = user();
+      var u = await resolveUser_();
       if (!u.telegramId) {
         showLocked_();
         return;
       }
+      try { localStorage.setItem("superboyna_tg_id", u.telegramId); } catch (eSt) {}
 
-      var acc = await apiGet_({
-        action: "getMyAccess",
-        telegramId: u.telegramId,
-        username: u.username || "",
-        name: u.name || "",
-        _: String(Date.now())
-      });
-      if (!isBoynaOwnerRole_(acc)) {
+      var gate = await checkIsBoynaOwner_(u);
+      if (!gate.ok) {
         clearSession_();
         showLocked_();
         return;
       }
 
-      // Владелец по Бойне — пускаем. Точки: partnerGetMe / partnerListAdmin, иначе локальный каталог.
+      // Владелец — пускаем. Точки из admin / partnerGetMe / локальный каталог.
+      if (gate.admin && Array.isArray(gate.admin.points) && gate.admin.points.length) {
+        applyRemoteConfig_(gate.admin);
+        var ptsA = gate.admin.points.filter(function (p) { return p.active !== false; });
+        var idsA = ptsA.map(function (p) { return p.id; }).filter(Boolean);
+        if (idsA.length) {
+          loginWithAccess_({
+            name: gate.name || u.name || "Владелец Good Boy",
+            networkId: (ptsA[0] && ptsA[0].networkId) || "",
+            pointIds: idsA,
+            isOwner: true
+          }, u.username || "");
+          return;
+        }
+      }
+
       var res = null;
       try {
         res = await apiGet_({
@@ -1321,7 +1418,7 @@
 
       if (res && res.allowed && (res.pointIds || []).length) {
         loginWithAccess_({
-          name: res.name || acc.name || u.name,
+          name: res.name || gate.name || u.name,
           networkId: res.networkId,
           pointIds: res.pointIds,
           isOwner: true
@@ -1329,29 +1426,7 @@
         return;
       }
 
-      try {
-        var admin = await apiGet_({
-          action: "partnerListAdmin",
-          telegramId: u.telegramId,
-          _: String(Date.now())
-        });
-        if (admin && admin.status === "success") {
-          applyRemoteConfig_(admin);
-          var pts = Array.isArray(admin.points) ? admin.points : POINTS;
-          var ids = pts.map(function (p) { return p.id; }).filter(Boolean);
-          if (ids.length) {
-            loginWithAccess_({
-              name: acc.name || u.name || "Владелец Good Boy",
-              networkId: (pts[0] && pts[0].networkId) || "",
-              pointIds: ids,
-              isOwner: true
-            }, u.username || "");
-            return;
-          }
-        }
-      } catch (eAdm) {}
-
-      enterAsOwnerFallback_(u, acc.name);
+      enterAsOwnerFallback_(u, gate.name);
     } catch (e) {
       showLocked_();
     }
