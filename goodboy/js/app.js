@@ -1,6 +1,8 @@
 (function (global) {
   "use strict";
 
+  var wired = false;
+
   function applyBootstrap(payload, session) {
     global.GBStore.set({
       demo: !!(payload && payload.demo) || ((global.GB_CONFIG && global.GB_CONFIG.mode) !== "live"),
@@ -17,14 +19,16 @@
   }
 
   function bootstrap() {
+    var gate = document.getElementById("gate");
+    var cabinet = document.getElementById("cabinet");
     var session = GBAuth.resolveSession();
     if (!session.user) {
-      document.getElementById("gate").style.display = "";
-      document.getElementById("cabinet").style.display = "none";
+      if (gate) gate.style.display = "";
+      if (cabinet) cabinet.style.display = "none";
       return;
     }
-    document.getElementById("gate").style.display = "none";
-    document.getElementById("cabinet").style.display = "";
+    if (gate) gate.style.display = "none";
+    if (cabinet) cabinet.style.display = "";
 
     GBApi.get({
       action: "gbMe",
@@ -128,6 +132,8 @@
   }
 
   function wire() {
+    if (wired) return;
+    wired = true;
     document.querySelectorAll(".nav button").forEach(function (b) {
       b.addEventListener("click", function () {
         GBUI.setScreen(b.getAttribute("data-go"));
@@ -139,7 +145,7 @@
     if (linkForm) linkForm.addEventListener("submit", linkByPhone);
     var plist = document.getElementById("partnersList");
     if (plist) plist.addEventListener("click", onPartnerClick);
-    document.querySelectorAll("[data-go]").forEach(function (el) {
+    document.querySelectorAll("#gb-mount [data-go]").forEach(function (el) {
       if (el.closest(".nav")) return;
       el.addEventListener("click", function () {
         var s = el.getAttribute("data-go");
@@ -155,10 +161,12 @@
     }
   }
 
-  document.addEventListener("DOMContentLoaded", function () {
+  function start() {
     wire();
     GBUI.setScreen("home");
     GBUI.render();
     bootstrap();
-  });
+  }
+
+  global.GBBoot = { start: start, bootstrap: bootstrap };
 })(window);
