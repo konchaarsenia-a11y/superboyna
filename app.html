@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.135";
+      var APP_VER = "v7.11.136";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1488,12 +1488,21 @@
       <div class="tasks-drawer-body" id="tasksDrawerBody">
         <div class="sub-tabs" id="tasksSubTabs" style="margin-bottom:12px;">
           <button type="button" class="sub-tab active" id="tasksTabXfer" onclick="setTasksTab('xfer')">Переносы <span class="tasks-tab-count" id="tasksCountXfer">0</span></button>
+          <button type="button" class="sub-tab" id="tasksTabBuy" onclick="setTasksTab('buy')" style="color:#ff6961;">Дозакуп <span class="tasks-tab-count" id="tasksCountBuy">0</span></button>
           <button type="button" class="sub-tab" id="tasksTabOrders" onclick="setTasksTab('orders')">Заказы <span class="tasks-tab-count" id="tasksCountOrders">0</span></button>
           <button type="button" class="sub-tab" id="tasksTabPp" onclick="setTasksTab('pp')">ПП/БП <span class="tasks-tab-count" id="tasksCountPp">0</span></button>
           <button type="button" class="sub-tab" id="tasksTabRemind" onclick="setTasksTab('remind')">Напомин. <span class="tasks-tab-count" id="tasksCountRemind">0</span></button>
         </div>
         <div id="tasksPaneXfer">
           <div id="tasksXferList"><p class="muted">Нет переносов. Курьер шлёт «Не получил» — появится здесь.</p></div>
+        </div>
+        <div id="tasksPaneBuy" style="display:none;">
+          <div style="margin-bottom:10px;">
+            <button type="button" class="btn-action btn-orange" style="margin:0;width:100%;" onclick="composeWarehouseBuyMessageUi()">Собрать сообщение дозакупа</button>
+            <button type="button" class="btn-action" style="margin:8px 0 0;width:100%;background:#3a3a3c;" onclick="refreshWarehouseBuyTasksUi()">Обновить дефицит</button>
+          </div>
+          <div class="muted" style="font-size:12px;margin-bottom:8px;">СРОЧНО: позиции, которых не хватает под план недели. Галочки нарезки склад не списывают.</div>
+          <div id="tasksBuyList"><p class="muted">Загрузка…</p></div>
         </div>
         <div id="tasksPaneOrders" style="display:none;">
           <div id="tasksOrderList"><p class="muted">Пока пусто. Из Заказа — «На потом».</p></div>
@@ -1933,7 +1942,8 @@
       <div class="card">
         <button class="btn-action btn-blue" type="button" onclick="loadWarehouse()">Обновить склад</button>
         <button class="btn-action btn-orange" type="button" style="margin-top:8px;" onclick="loadWarehousePreview()">Прогноз / дефицит по датам</button>
-        <div class="muted" style="font-size:12px;margin-top:8px;">Ревизия: впиши фактический приход/корректировку в «дозакуп» у позиции и сохрани. Прогноз считает сырьё из плана недели (Приём) с учётом коэфа D.</div>
+        <button class="btn-action btn-blue" type="button" style="margin-top:8px;" onclick="composeWarehouseBuyMessageUi()">Собрать сообщение дозакупа</button>
+        <div class="muted" style="font-size:12px;margin-top:8px;">Ревизия: «дозакуп» у позиции = корректировка. Списание F только при «Завершить неделю» — галочки нарезки не списывают.</div>
         <button class="btn-action" type="button" style="margin-top:8px;background:#3a3a3c;" onclick="closeAllOpenDeficitsUi()">Закрыть все открытые дефициты (TG спам)</button>
       </div>
       <div id="warehousePreviewBox"></div>
@@ -2524,7 +2534,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.135";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.136";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -6716,6 +6726,16 @@
           showToast((isEdit ? "Заказ обновлён" : "Заказ сохранён") +
             " (" + savedItems + " поз.)" +
             (orderPrice != null ? (" · " + orderPrice + " BYN") : ""));
+          try {
+            var whA = saveRes && saveRes.warehouseAlert;
+            if (whA && (whA.count > 0 || (whA.deficits && whA.deficits.length))) {
+              var nDef = whA.count || (whA.deficits && whA.deficits.length) || 0;
+              setTimeout(function () {
+                showToast("СРОЧНО · склад: не хватает " + nDef + " поз. → Отложенные → Дозакуп");
+              }, 900);
+              try { refreshDeferredBadge(true); } catch (eBadge) {}
+            }
+          } catch (eWh) {}
         } else {
           showToast("Бронь на " + deliveryDate +
             " · состав " + savedItems + " поз. В нужный день — «Доукомплектовать»");
@@ -8572,6 +8592,7 @@
         (fail.length ? ", ошибок: " + fail.length : "")
       );
       if (fail.length) await uiAlertAsync("Не удалось:\n" + fail.join("\n"));
+      try { refreshDeferredBadge(true); } catch (eBd) {}
       try {
         apiCacheBustMem_("getViewCompare");
         apiCacheBustMem_("getClients");
@@ -8886,6 +8907,15 @@
         } else {
           showToast(baseMsg);
         }
+        try {
+          var whM = res.warehouseAlert;
+          if (whM && (whM.count > 0 || (whM.deficits && whM.deficits.length))) {
+            setTimeout(function () {
+              showToast("СРОЧНО · склад: не хватает " + (whM.count || whM.deficits.length) + " поз. → Дозакуп");
+            }, 900);
+            try { refreshDeferredBadge(true); } catch (eB2) {}
+          }
+        } catch (eWhM) {}
         try {
           apiCacheBustMem_("getViewCompare");
           apiCacheBustMem_("getClients");
@@ -18606,9 +18636,10 @@
 
     var _tasksTab = "xfer";
     function setTasksTab(tab) {
-      _tasksTab = (tab === "pp" || tab === "remind" || tab === "orders") ? tab : "xfer";
+      _tasksTab = (tab === "pp" || tab === "remind" || tab === "orders" || tab === "buy") ? tab : "xfer";
       var map = {
         xfer: { btn: "tasksTabXfer", pane: "tasksPaneXfer" },
+        buy: { btn: "tasksTabBuy", pane: "tasksPaneBuy" },
         orders: { btn: "tasksTabOrders", pane: "tasksPaneOrders" },
         pp: { btn: "tasksTabPp", pane: "tasksPanePp" },
         remind: { btn: "tasksTabRemind", pane: "tasksPaneRemind" }
@@ -18622,7 +18653,7 @@
     }
     window.setTasksTab = setTasksTab;
 
-    function updateTasksTabCounts_(xferN, orderN, ppN, remindN) {
+    function updateTasksTabCounts_(xferN, buyN, orderN, ppN, remindN) {
       function paint(id, n) {
         var el = document.getElementById(id);
         if (!el) return;
@@ -18630,10 +18661,77 @@
         el.classList.toggle("is-hot", (n || 0) > 0);
       }
       paint("tasksCountXfer", xferN);
+      paint("tasksCountBuy", buyN);
       paint("tasksCountOrders", orderN);
       paint("tasksCountPp", ppN);
       paint("tasksCountRemind", remindN);
     }
+
+    function renderTasksBuyCards(items) {
+      var box = document.getElementById("tasksBuyList");
+      if (!box) return;
+      if (!items.length) {
+        box.innerHTML = '<p class="muted">Дефицита нет — план недели покрыт остатком F+B.</p>';
+        return;
+      }
+      box.innerHTML = items.map(function (it) {
+        var p = it.payload || {};
+        var safeId = String(it.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        var unit = p.unit || "кг";
+        return '<div class="tasks-item is-hot" style="border:1px solid rgba(255,69,58,0.45);background:rgba(255,69,58,0.12);">' +
+          '<div><b style="color:#ff6961;">СРОЧНО · ' + escapeHtml(p.name || it.clientNick || it.title || "SKU") + '</b>' +
+          '<div style="font-size:13px;margin-top:6px;">нужно <b>' + escapeHtml(String(p.needRaw != null ? p.needRaw : "—")) +
+          "</b> " + escapeHtml(unit) + " · есть <b>" + escapeHtml(String(p.available != null ? p.available : "—")) +
+          "</b> · дефицит <b style=\"color:#ff453a;\">" + escapeHtml(String(p.deficit != null ? p.deficit : "—")) + "</b></div>" +
+          "</div>" +
+          '<div class="seg-row" style="margin-top:10px;">' +
+          '<button type="button" class="seg-btn" style="background:#3a3a3c;" onclick="cancelDeferredItem(\'' + safeId + '\')">Закрыть</button>' +
+          "</div></div>";
+      }).join("");
+    }
+
+    async function refreshWarehouseBuyTasksUi() {
+      var box = document.getElementById("tasksBuyList");
+      if (box) box.innerHTML = '<p class="muted">Считаю дефицит…</p>';
+      try {
+        await apiGet({ action: "warehousePreview", _: String(Date.now()) }, { timeoutMs: 45000, cacheTtlMs: 0 });
+        await refreshDeferredBadge(true);
+        await renderTasksDrawer(false);
+      } catch (e) {
+        if (box) box.innerHTML = '<p class="muted">Не удалось обновить</p>';
+      }
+    }
+    window.refreshWarehouseBuyTasksUi = refreshWarehouseBuyTasksUi;
+
+    async function composeWarehouseBuyMessageUi() {
+      showToast("Собираю сообщение…");
+      try {
+        var res = await apiGet({
+          action: "composeWarehouseBuyMessage",
+          force: "1",
+          _: String(Date.now())
+        }, { timeoutMs: 45000, cacheTtlMs: 0 });
+        var text = (res && res.text) ? String(res.text) : "";
+        if (!text) {
+          showToast("Пусто");
+          return;
+        }
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            showToast("Скопировано · " + ((res && res.count) || 0) + " поз.");
+          } else {
+            throw new Error("no_clipboard");
+          }
+        } catch (eClip) {
+          await uiAlertAsync(text);
+        }
+        try { await refreshDeferredBadge(true); renderTasksDrawer(false); } catch (eR) {}
+      } catch (e) {
+        showToast("Не собралось — Deploy Code.gs?");
+      }
+    }
+    window.composeWarehouseBuyMessageUi = composeWarehouseBuyMessageUi;
 
     function renderTasksXferCards(items) {
       var box = document.getElementById("tasksXferList");
@@ -18954,18 +19052,22 @@
         var xferItems = openItems.filter(function (it) {
           return String(it.mode || "").toLowerCase() === "transfer";
         });
+        var buyItems = openItems.filter(function (it) {
+          return String(it.mode || "").toLowerCase() === "buy";
+        });
         var orderItems = openItems.filter(function (it) {
           return String(it.mode || "").toLowerCase() === "order";
         });
         var remindItems = openItems.filter(isDeferredRemindMode_);
         var ppItems = openItems.filter(function (it) {
           var m = String(it.mode || "pp").toLowerCase();
-          return m !== "remind" && m !== "order" && m !== "transfer";
+          return m !== "remind" && m !== "order" && m !== "transfer" && m !== "buy";
         });
-        deferredOpenCount = xferItems.length + orderItems.length + remindItems.length + ppItems.length;
+        deferredOpenCount = xferItems.length + buyItems.length + orderItems.length + remindItems.length + ppItems.length;
         updateTasksBadge();
-        updateTasksTabCounts_(xferItems.length, orderItems.length, ppItems.length, remindItems.length);
+        updateTasksTabCounts_(xferItems.length, buyItems.length, orderItems.length, ppItems.length, remindItems.length);
         renderTasksXferCards(xferItems);
+        renderTasksBuyCards(buyItems);
         renderTasksOrderCards(orderItems);
         renderTasksRemindCards(remindItems);
         renderTasksPpCards(ppItems);

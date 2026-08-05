@@ -1605,6 +1605,12 @@ function doGet(e) {
   if (action === "warehousePreview") {
     return handleWarehousePreview({}, callback, false);
   }
+  if (action === "composeWarehouseBuyMessage") {
+    return handleComposeWarehouseBuyMessage({
+      force: e.parameter.force || "",
+      refresh: e.parameter.refresh || ""
+    }, callback, false);
+  }
   if (action === "lookupBpPartner") {
     return handleLookupBpPartner({ nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "" }, callback, false);
   }
@@ -2139,6 +2145,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "warehousePreview") {
     return handleWarehousePreview(json, callback, fromPost);
+  }
+  if (action === "composeWarehouseBuyMessage") {
+    return handleComposeWarehouseBuyMessage(json, callback, fromPost);
   }
   if (action === "lookupBpPartner") {
     return handleLookupBpPartner(json, callback, fromPost);
@@ -3311,7 +3320,20 @@ function handleMoveClient(ss, json, callback) {
   }
 
   try { scrubFutureWeekOrphans_(ss, { force: true }); } catch (eScrub2) {}
+  try { CacheService.getScriptCache().remove("WH_PLAN_V2"); } catch (eWhC) {}
   checkLiveDeficitAndNotify();
+  var whAlertMove = null;
+  try {
+    var packMove = computeWarehouseWeekPlan_(ss);
+    if (packMove && packMove.deficits && packMove.deficits.length) {
+      whAlertMove = {
+        count: packMove.deficits.length,
+        top: packMove.deficits.slice(0, 5).map(function (d) {
+          return d.name + " −" + d.deficit + (d.unit || "кг");
+        })
+      };
+    }
+  } catch (eWhM) {}
   bustClientsCache_();
   try { clearCrmSheetCache_(); } catch (eC) {}
   return jsonp(callback, {
@@ -3322,7 +3344,8 @@ function handleMoveClient(ss, json, callback) {
     bookingsMoved: dateSync.bookings || 0,
     crmMoved: dateSync.crm || 0,
     surveysMoved: dateSync.surveys || 0,
-    dateSync: dateSync
+    dateSync: dateSync,
+    warehouseAlert: whAlertMove
   });
 }
 
@@ -3774,7 +3797,21 @@ function handleSaveOrder(ss, json, callback, fromPost) {
     CacheService.getScriptCache().remove("ASM:" + dayU);
     CacheService.getScriptCache().remove("COUR:" + dayU);
   } catch (eAsm) {}
-  // Telegram-проверку склада не зовём на каждый save — сильно тормозит запись
+  // после записи в неделю — пересчитать дефицит, задачи «Дозакуп», TG СРОЧНО (с антиспамом)
+  var whAlert = null;
+  try {
+    CacheService.getScriptCache().remove("WH_PLAN_V2");
+    checkLiveDeficitAndNotify();
+    var packWh = computeWarehouseWeekPlan_(ss);
+    if (packWh && packWh.deficits && packWh.deficits.length) {
+      whAlert = {
+        count: packWh.deficits.length,
+        top: packWh.deficits.slice(0, 5).map(function (d) {
+          return d.name + " −" + d.deficit + (d.unit || "кг");
+        })
+      };
+    }
+  } catch (eWh) {}
   return reply({
     status: "success",
     wrote: wrote,
@@ -3788,7 +3825,8 @@ function handleSaveOrder(ss, json, callback, fromPost) {
     ppSlot: ppSlotSave,
     deliveryAfter: normalizeTimeHm_(json.deliveryAfter),
     deliveryBefore: normalizeTimeHm_(json.deliveryBefore),
-    redirected: !!(writeDay && dayHintOrig && writeDay !== dayHintOrig)
+    redirected: !!(writeDay && dayHintOrig && writeDay !== dayHintOrig),
+    warehouseAlert: whAlert
   });
 }
 
@@ -4518,51 +4556,341 @@ function parseSheetItemName(currentItemName, rIdx) {
 // ===================== Telegram =====================
 
 function checkLiveDeficitAndNotify() {
-  sendTelegramSnabNotificationInternal("🚨 *ОПЕРАТИВНЫЙ ДЕФИЦИТ СЫРЬЯ НА СКЛАДЕ!*");
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var pack = computeWarehouseWeekPlan_(ss);
+    if (!pack || !pack.ok) return;
+    try { syncWarehouseBuyDeferred_(ss, pack.deficits || []); } catch (eSync) {}
+    if (!(pack.deficits && pack.deficits.length)) return;
+    notifyWarehouseBuyUrgent_(pack, "СРОЧНО · дефицит сырья по плану недели");
+  } catch (e) {
+    Logger.log("checkLiveDeficitAndNotify: " + String(e));
+  }
 }
 
 function sendTelegramSnabNotification() {
-  sendTelegramSnabNotificationInternal("🚨 *ПЛАН СНАБЖЕНИЯ НА НОВУЮ НЕДЕЛЮ*");
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var pack = computeWarehouseWeekPlan_(ss);
+    if (!pack || !pack.ok) return;
+    try { syncWarehouseBuyDeferred_(ss, pack.deficits || []); } catch (eSync) {}
+    notifyWarehouseBuyUrgent_(pack, "План снабжения / дозакуп");
+  } catch (e) {
+    Logger.log("sendTelegramSnabNotification: " + String(e));
+  }
 }
 
-function sendTelegramSnabNotificationInternal(headerText) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheetWarehouse = ss.getSheetByName("Склад");
-  if (!sheetWarehouse) return;
+/** Текст заказа дозакупа по дефицитам. */
+function composeWarehouseBuyMessage_(pack) {
+  pack = pack || {};
+  var defs = pack.deficits || [];
+  var lines = [];
+  lines.push("🛒 Дозакуп сырья");
+  lines.push("СРОЧНО — не хватает под план текущей недели:");
+  lines.push("");
+  if (!defs.length) {
+    lines.push("Дефицита нет (F+B покрывает план).");
+    return lines.join("\n");
+  }
+  for (var i = 0; i < defs.length; i++) {
+    var d = defs[i];
+    var unit = d.unit || "кг";
+    lines.push("· " + d.name + " — нужно " + d.needRaw + " " + unit +
+      ", есть " + d.available + ", дефицит " + d.deficit);
+  }
+  lines.push("");
+  lines.push("Бойня-Конвейер · склад");
+  return lines.join("\n");
+}
 
-  var names = sheetWarehouse.getRange("A2:A35").getValues();
-  var snabValues = sheetWarehouse.getRange("G2:G35").getValues();
-  var messageLines = [];
-  var hasDeficit = false;
+function notifyWarehouseBuyUrgent_(pack, header) {
+  var defs = (pack && pack.deficits) || [];
+  if (!defs.length) return;
+  // антиспам: один пуш на набор SKU раз в 45 мин
+  var sig = defs.map(function (d) { return String(d.row) + ":" + String(d.deficit); }).join("|");
+  var props = PropertiesService.getScriptProperties();
+  try {
+    var prev = String(props.getProperty("WH_BUY_NUDGE_SIG") || "");
+    var at = Number(props.getProperty("WH_BUY_NUDGE_AT") || 0) || 0;
+    if (prev === sig && (Date.now() - at) < 45 * 60 * 1000) return;
+    props.setProperty("WH_BUY_NUDGE_SIG", sig);
+    props.setProperty("WH_BUY_NUDGE_AT", String(Date.now()));
+  } catch (eP) {}
 
-  for (var i = 0; i < names.length; i++) {
-    var itemName = names[i][0].toString().trim();
-    var needToBuy = Number(snabValues[i][0]) || 0;
-    if (itemName !== "" && needToBuy > 0) {
-      hasDeficit = true;
-      var rowNum = i + 2;
-      var unit = (rowNum === 10 || (rowNum >= 15 && rowNum <= 25) || isPieceSkuName_(itemName)) ? " шт." : " кг";
-      messageLines.push("• " + itemName + ": " + needToBuy.toFixed(1) + unit);
+  var text = "🚨 " + String(header || "СРОЧНО · дефицит сырья") + "\n\n" + composeWarehouseBuyMessage_(pack);
+  var ids = [];
+  try {
+    var staff = listActiveStaffIdsForRoles_(["owner", "manager", "logistics", "all"]);
+    ids = staff || [];
+  } catch (eS) {}
+  try {
+    var owners = getOwnerTelegramIds_();
+    for (var o = 0; o < owners.length; o++) {
+      if (ids.indexOf(String(owners[o])) < 0) ids.push(String(owners[o]));
+    }
+  } catch (eO) {}
+  if (!ids.length) {
+    try {
+      var chat = PropertiesService.getScriptProperties().getProperty("TELEGRAM_CHAT_ID");
+      if (chat) ids.push(String(chat).trim());
+    } catch (eC) {}
+  }
+  for (var i = 0; i < ids.length; i++) {
+    try { telegramSendText_(ids[i], text); } catch (eT) {}
+  }
+}
+
+function listActiveStaffIdsForRoles_(roles) {
+  var want = {};
+  for (var i = 0; i < (roles || []).length; i++) want[String(roles[i] || "").toLowerCase()] = true;
+  var ids = [];
+  try {
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Доступы");
+    if (!sh || sh.getLastRow() < 2) return ids;
+    var data = sh.getDataRange().getValues();
+    for (var r = 1; r < data.length; r++) {
+      var id = String(data[r][0] || "").trim();
+      var role = String(data[r][3] || "").toLowerCase();
+      var status = String(data[r][4] || "").toLowerCase();
+      if (!id) continue;
+      if (status && status !== "active") continue;
+      if (want[role] || want["all"]) {
+        if (ids.indexOf(id) < 0) ids.push(id);
+      }
+    }
+  } catch (e) {}
+  return ids;
+}
+
+/** Задачи mode=buy в «Отложенное» — видно менеджерам во вкладке Дозакуп. */
+function syncWarehouseBuyDeferred_(ss, deficits) {
+  var sh = deferredSheet_();
+  var data = sh.getDataRange().getValues();
+  var ownerTid = "";
+  try {
+    var owners = getOwnerTelegramIds_();
+    ownerTid = owners && owners[0] ? String(owners[0]) : "";
+  } catch (eO) {}
+  if (!ownerTid) ownerTid = "warehouse";
+
+  var openByRow = {};
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][3] || "").toLowerCase() !== "buy") continue;
+    var st = String(data[r][6] || "open").toLowerCase();
+    var payload = {};
+    try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payload = {}; }
+    var row = Number(payload.row) || 0;
+    if (row >= 2) openByRow[row] = { sheetRow: r + 1, status: st, id: String(data[r][0] || "") };
+  }
+
+  var alive = {};
+  for (var i = 0; i < (deficits || []).length; i++) {
+    var d = deficits[i];
+    var wRow = Number(d.row) || 0;
+    if (!(wRow >= 2) || !(d.deficit > 0)) continue;
+    alive[wRow] = true;
+    var title = "СРОЧНО · дозакуп · " + String(d.name || "");
+    var payloadObj = {
+      mode: "buy",
+      row: wRow,
+      name: d.name,
+      needRaw: d.needRaw,
+      available: d.available,
+      deficit: d.deficit,
+      unit: d.unit || "кг",
+      byDay: d.byDay || [],
+      urgent: true
+    };
+    var payloadStr = JSON.stringify(payloadObj);
+    if (openByRow[wRow] && openByRow[wRow].sheetRow) {
+      var sr = openByRow[wRow].sheetRow;
+      sh.getRange(sr, 4, 1, 5).setValues([["buy", title, String(d.name || ""), "open", payloadStr]]);
+      sh.getRange(sr, 9).setValue(new Date());
+    } else {
+      sh.appendRow([
+        deferredNewId_(),
+        new Date(),
+        ownerTid,
+        "buy",
+        title,
+        String(d.name || ""),
+        "open",
+        payloadStr,
+        new Date()
+      ]);
+    }
+  }
+  // закрыть то, чего больше нет в дефиците
+  for (var rowKey in openByRow) {
+    if (!openByRow.hasOwnProperty(rowKey)) continue;
+    if (alive[rowKey]) continue;
+    if (openByRow[rowKey].status !== "open") continue;
+    try {
+      sh.getRange(openByRow[rowKey].sheetRow, 7).setValue("done");
+      sh.getRange(openByRow[rowKey].sheetRow, 9).setValue(new Date());
+    } catch (eCl) {}
+  }
+  try { CacheService.getScriptCache().remove("DEF:"); } catch (eC) {}
+  // сбросить кэши listDeferred (префиксы разные — чистим через bump)
+  try {
+    PropertiesService.getScriptProperties().setProperty("DEF_CACHE_BUMP", String(Date.now()));
+  } catch (eB) {}
+}
+
+function computeWarehouseWeekPlan_(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var wh = ss.getSheetByName("Склад");
+  var sheetManager = ss.getSheetByName("Прием заказов");
+  var sheetCutting = ss.getSheetByName("Нарезка");
+  if (!wh || !sheetManager) return { ok: false, message: "no_warehouse" };
+
+  try {
+    var cached = CacheService.getScriptCache().get("WH_PLAN_V2");
+    if (cached) {
+      var parsed = JSON.parse(cached);
+      if (parsed && parsed.ok) return parsed;
+    }
+  } catch (eCache) {}
+
+  var tz = ss.getSpreadsheetTimeZone();
+  var itemMap = getCuttingItemMap_();
+  var weekDaysGeo = [
+    { start: 4, name: "Пн" },
+    { start: 65, name: "Вт" },
+    { start: 126, name: "Ср" },
+    { start: 187, name: "Чт" },
+    { start: 248, name: "Пт" },
+    { start: 309, name: "Сб" },
+    { start: 370, name: "Вс" }
+  ];
+  try {
+    for (var di = 0; di < MANAGER_DAY_NAMES_.length && di < weekDaysGeo.length; di++) {
+      var dv = sheetManager.getRange(MANAGER_DATE_CELLS[di]).getValue();
+      var ds = formatSheetDate(dv, tz);
+      if (ds) weekDaysGeo[di].date = ds;
+      weekDaysGeo[di].label = (weekDaysGeo[di].name || "") + (ds ? (" " + ds) : "");
+    }
+  } catch (eD) {}
+
+  var fullManagerMatrix = sheetManager.getRange(1, 3, 427, 15).getValues();
+  var noCutByDayOffset = {};
+  for (var nd = 0; nd < weekDaysGeo.length; nd++) {
+    var dayBlk = getDayBlock(MANAGER_DAY_NAMES_[nd]);
+    noCutByDayOffset[weekDaysGeo[nd].start] = noCutSkipColsForBlock_(sheetManager, dayBlk);
+  }
+
+  var cuttingSurplusValues = [];
+  try {
+    if (sheetCutting) cuttingSurplusValues = sheetCutting.getRange("C3:C48").getValues();
+  } catch (eC) {}
+
+  var byWh = {};
+  for (var cRow = 3; cRow <= 48; cRow++) {
+    var rowsToSum = itemMap[String(cRow)];
+    if (!rowsToSum) continue;
+    var wRow = getWarehouseRowForCuttingRow_(cRow);
+    if (!wRow) continue;
+    if (!byWh[wRow]) byWh[wRow] = { dryG: 0, byDay: {}, surplusKg: 0 };
+    try {
+      if (cuttingSurplusValues && cuttingSurplusValues[cRow - 3]) {
+        byWh[wRow].surplusKg += Number(cuttingSurplusValues[cRow - 3][0]) || 0;
+      }
+    } catch (eS) {}
+    for (var d = 0; d < weekDaysGeo.length; d++) {
+      var day = weekDaysGeo[d];
+      var dayOffset = day.start - 4;
+      var skipCols = noCutByDayOffset[day.start] || {};
+      var dayG = 0;
+      for (var ri = 0; ri < rowsToSum.length; ri++) {
+        var targetRowIdx = rowsToSum[ri] + dayOffset - 1;
+        if (targetRowIdx < 0 || targetRowIdx >= fullManagerMatrix.length) continue;
+        for (var colM = 0; colM < 15; colM++) {
+          if (skipCols[colM]) continue;
+          dayG += Number(fullManagerMatrix[targetRowIdx][colM]) || 0;
+        }
+      }
+      byWh[wRow].dryG += dayG;
+      byWh[wRow].byDay[d] = (byWh[wRow].byDay[d] || 0) + dayG;
     }
   }
 
-  if (!hasDeficit) return;
-
-  var props = PropertiesService.getScriptProperties();
-  var token = props.getProperty("TELEGRAM_BOT_TOKEN");
-  var chatId = props.getProperty("TELEGRAM_CHAT_ID");
-  if (!token || !chatId) {
-    Logger.log("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID не заданы в Script Properties");
-    return;
+  var last = Math.min(50, Math.max(2, wh.getLastRow()));
+  var matrix = wh.getRange(2, 1, last - 1, 13).getValues(); // A..M
+  var deficits = [];
+  var plan = [];
+  for (var i = 0; i < matrix.length; i++) {
+    var name = String(matrix[i][0] || "").trim();
+    if (!name) continue;
+    var row = i + 2;
+    var piece = isPieceWarehouseRow_(row, name);
+    var f = Number(matrix[i][5]) || 0;
+    var b = Number(matrix[i][1]) || 0;
+    var mVal = Number(matrix[i][12]) || 0;
+    var coef = Number(matrix[i][3]) || (piece ? 1 : 0.2);
+    if (!(coef > 0)) coef = piece ? 1 : 0.2;
+    var agg = byWh[row] || { dryG: 0, byDay: {}, surplusKg: 0 };
+    var needRaw = 0;
+    var available = 0;
+    var unit = "кг";
+    if (piece) {
+      unit = "шт";
+      needRaw = (agg.dryG || 0); // на листе для шт обычно штуки
+      available = (mVal > 0 ? mVal : f) + b;
+    } else {
+      needRaw = ((agg.dryG || 0) / 1000) / coef + (agg.surplusKg || 0);
+      available = f + b;
+    }
+    var deficit = Math.max(0, needRaw - available);
+    var byDay = [];
+    for (var dj = 0; dj < weekDaysGeo.length; dj++) {
+      var gDay = agg.byDay[dj] || 0;
+      if (gDay <= 0) continue;
+      byDay.push({
+        day: weekDaysGeo[dj].label || weekDaysGeo[dj].name,
+        needRaw: round2_(piece ? gDay : ((gDay / 1000) / coef))
+      });
+    }
+    var item = {
+      row: row,
+      name: name,
+      unit: unit,
+      stock: round2_(f),
+      arrival: round2_(b),
+      available: round2_(available),
+      needRaw: round2_(needRaw),
+      deficit: round2_(deficit),
+      byDay: byDay
+    };
+    plan.push(item);
+    if (deficit >= (piece ? 0.5 : 0.05)) deficits.push(item);
   }
+  deficits.sort(function (a, b) { return (b.deficit || 0) - (a.deficit || 0); });
 
-  var fullMessage = headerText + "\n" + messageLines.join("\n") + "\n\n🏭 _Бойня-Конвейер v4.0_";
-  UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
-    method: "post",
-    contentType: "application/json",
-    payload: JSON.stringify({ chat_id: chatId, text: fullMessage, parse_mode: "Markdown" }),
-    muteHttpExceptions: true
-  });
+  var buyList = [];
+  try {
+    for (var j = 0; j < matrix.length; j++) {
+      if (matrix[j][6]) buyList.push({ row: j + 2, name: String(matrix[j][0] || "") });
+    }
+  } catch (e2) {}
+
+  var out = {
+    ok: true,
+    deficits: deficits,
+    plan: plan,
+    buyList: buyList,
+    note: "Сырьё = план Приём / коэф D (+излишки C). Есть = F+B (шт: M или F). Списание в F — только при «Завершить неделю», не по галочкам нарезки."
+  };
+  try { CacheService.getScriptCache().put("WH_PLAN_V2", JSON.stringify(out), 45); } catch (ePut) {}
+  return out;
+}
+
+function sendTelegramSnabNotificationInternal(headerText) {
+  // совместимость со старым вызовом
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var pack = computeWarehouseWeekPlan_(ss);
+    notifyWarehouseBuyUrgent_(pack, String(headerText || "").replace(/\*/g, "") || "СРОЧНО · склад");
+  } catch (e) {}
 }
 
 function getTelegramToken_() {
@@ -11032,140 +11360,46 @@ function applyWarehouseRevisionManual() {
 
 function handleWarehousePreview(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var wh = ss.getSheetByName("Склад");
-  var sheetManager = ss.getSheetByName("Прием заказов");
-  var sheetCutting = ss.getSheetByName("Нарезка");
-  if (!wh || !sheetManager) {
-    var bad = { status: "error", message: "no_warehouse" };
+  var pack = computeWarehouseWeekPlan_(ss);
+  if (!pack || !pack.ok) {
+    var bad = { status: "error", message: (pack && pack.message) || "no_warehouse" };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
-  var tz = ss.getSpreadsheetTimeZone();
-  var itemMap = getCuttingItemMap_();
-  var weekDaysGeo = [
-    { start: 4, name: "Пн" },
-    { start: 65, name: "Вт" },
-    { start: 126, name: "Ср" },
-    { start: 187, name: "Чт" },
-    { start: 248, name: "Пт" },
-    { start: 309, name: "Сб" },
-    { start: 370, name: "Вс" }
-  ];
-  // даты блоков для подписи
-  try {
-    for (var di = 0; di < MANAGER_DAY_NAMES_.length && di < weekDaysGeo.length; di++) {
-      var dv = sheetManager.getRange(MANAGER_DATE_CELLS[di]).getValue();
-      var ds = formatSheetDate(dv, tz);
-      if (ds) weekDaysGeo[di].date = ds;
-      weekDaysGeo[di].label = (weekDaysGeo[di].name || "") + (ds ? (" " + ds) : "");
-    }
-  } catch (eD) {}
-
-  var fullManagerMatrix = sheetManager.getRange(1, 3, 427, 15).getValues();
-  var noCutByDayOffset = {};
-  for (var nd = 0; nd < weekDaysGeo.length; nd++) {
-    var dayBlk = getDayBlock(MANAGER_DAY_NAMES_[nd]);
-    noCutByDayOffset[weekDaysGeo[nd].start] = noCutSkipColsForBlock_(sheetManager, dayBlk);
-  }
-
-  var cuttingSurplusValues = [];
-  try {
-    if (sheetCutting) cuttingSurplusValues = sheetCutting.getRange("C3:C48").getValues();
-  } catch (eC) {}
-
-  // агрегат по строкам склада: dry grams week + by day
-  var byWh = {}; // wRow -> { dryG, byDay: {dayIdx: dryG}, surplusKg }
-  for (var cRow = 3; cRow <= 48; cRow++) {
-    var rowsToSum = itemMap[String(cRow)];
-    if (!rowsToSum) continue;
-    var wRow = getWarehouseRowForCuttingRow_(cRow);
-    if (!wRow) continue;
-    if (!byWh[wRow]) byWh[wRow] = { dryG: 0, byDay: {}, surplusKg: 0 };
-    var surplusKg = 0;
-    try {
-      if (cuttingSurplusValues && cuttingSurplusValues[cRow - 3]) {
-        surplusKg = Number(cuttingSurplusValues[cRow - 3][0]) || 0;
-      }
-    } catch (eS) {}
-    byWh[wRow].surplusKg += surplusKg;
-    for (var d = 0; d < weekDaysGeo.length; d++) {
-      var day = weekDaysGeo[d];
-      var dayOffset = day.start - 4;
-      var skipCols = noCutByDayOffset[day.start] || {};
-      var dayG = 0;
-      for (var ri = 0; ri < rowsToSum.length; ri++) {
-        var targetRowIdx = rowsToSum[ri] + dayOffset - 1;
-        if (targetRowIdx < 0 || targetRowIdx >= fullManagerMatrix.length) continue;
-        for (var colM = 0; colM < 15; colM++) {
-          if (skipCols[colM]) continue;
-          dayG += Number(fullManagerMatrix[targetRowIdx][colM]) || 0;
-        }
-      }
-      byWh[wRow].dryG += dayG;
-      byWh[wRow].byDay[d] = (byWh[wRow].byDay[d] || 0) + dayG;
-    }
-  }
-
-  var last = Math.min(50, Math.max(2, wh.getLastRow()));
-  var matrix = wh.getRange(2, 1, last - 1, 6).getValues(); // A..F
-  var deficits = [];
-  var plan = [];
-  for (var i = 0; i < matrix.length; i++) {
-    var name = String(matrix[i][0] || "").trim();
-    if (!name) continue;
-    var row = i + 2;
-    if (isPieceWarehouseRow_(row, name)) continue;
-    var f = Number(matrix[i][5]) || 0;
-    var b = Number(matrix[i][1]) || 0;
-    var coef = Number(matrix[i][3]) || 0.2;
-    if (!(coef > 0)) coef = 0.2;
-    var agg = byWh[row] || { dryG: 0, byDay: {}, surplusKg: 0 };
-    var dryKg = (agg.dryG || 0) / 1000;
-    var needRaw = dryKg / coef + (agg.surplusKg || 0);
-    var available = f + b;
-    var deficit = Math.max(0, needRaw - available);
-    var byDay = [];
-    for (var dj = 0; dj < weekDaysGeo.length; dj++) {
-      var gDay = agg.byDay[dj] || 0;
-      if (gDay <= 0) continue;
-      byDay.push({
-        day: weekDaysGeo[dj].label || weekDaysGeo[dj].name,
-        needRaw: round2_((gDay / 1000) / coef)
-      });
-    }
-    var item = {
-      row: row,
-      name: name,
-      stock: round2_(f),
-      arrival: round2_(b),
-      available: round2_(available),
-      needRaw: round2_(needRaw),
-      deficit: round2_(deficit),
-      byDay: byDay
-    };
-    plan.push(item);
-    if (deficit >= 0.05) deficits.push(item);
-  }
-  deficits.sort(function (a, b) { return (b.deficit || 0) - (a.deficit || 0); });
-
-  var buyList = [];
-  try {
-    var flags = wh.getRange(2, 7, last - 1, 1).getValues();
-    for (var j = 0; j < matrix.length; j++) {
-      if (flags[j][0]) buyList.push({ row: j + 2, name: String(matrix[j][0] || "") });
-    }
-  } catch (e2) {}
-
+  try { syncWarehouseBuyDeferred_(ss, pack.deficits || []); } catch (eSync) {}
+  var msg = "";
+  try { msg = composeWarehouseBuyMessage_(pack); } catch (eM) {}
   var ok = {
     status: "success",
-    deficits: deficits,
-    plan: plan,
-    buyList: buyList,
-    note: "Сырьё = план Приём (неделя) / коэф D + излишки C. Остаток F + дозакуп B. Ревизию пиши в «дозакуп»."
+    deficits: pack.deficits || [],
+    plan: pack.plan || [],
+    buyList: pack.buyList || [],
+    note: pack.note || "",
+    messageText: msg,
+    writeOffNote: "Галочки нарезки НЕ списывают склад. Списание F — только при Завершить неделю."
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
-/** Последний известный партнёр БП по нику из Календарь_Дат (для 2-й доставки). */
+function handleComposeWarehouseBuyMessage(json, callback, fromPost) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (json && (json.force || json.refresh)) {
+    try { CacheService.getScriptCache().remove("WH_PLAN_V2"); } catch (e) {}
+  }
+  var pack = computeWarehouseWeekPlan_(ss);
+  if (!pack || !pack.ok) {
+    var bad2 = { status: "error", message: (pack && pack.message) || "no_warehouse" };
+    return fromPost ? jsonpText(callback, bad2) : jsonp(callback, bad2);
+  }
+  try { syncWarehouseBuyDeferred_(ss, pack.deficits || []); } catch (eSync2) {}
+  var ok2 = {
+    status: "success",
+    text: composeWarehouseBuyMessage_(pack),
+    deficits: pack.deficits || [],
+    count: (pack.deficits || []).length
+  };
+  return fromPost ? jsonpText(callback, ok2) : jsonp(callback, ok2);
+}
+
 function lookupLastPpPartner_(ss, nick) {
   var want = clientMatchKey_(nick);
   if (!want && !nick) return "";
@@ -17839,11 +18073,11 @@ function handleListDeferred_(json, callback, fromPost) {
     var modeRow = String(data[r][3] || "").trim().toLowerCase();
     var visible = (ownerTid === tid) || (targetTid && targetTid === tid);
     // переносы (не получил доставку) — видят manager/owner
-    if (!visible && modeRow === "transfer") {
+    if (!visible && (modeRow === "transfer" || modeRow === "buy")) {
       try {
         var acc = findAccessById_(tid);
         var role = acc ? String(acc.role || "").toLowerCase() : "";
-        if (role === "owner" || role === "manager" || role === "all" || isOwnerId_(tid)) visible = true;
+        if (role === "owner" || role === "manager" || role === "all" || role === "logistics" || isOwnerId_(tid)) visible = true;
       } catch (eVis) {}
     }
     if (!visible) continue;
@@ -17865,6 +18099,18 @@ function handleListDeferred_(json, callback, fromPost) {
           client: payload.client || "",
           createdBy: payload.createdBy || ownerTid,
           createdByName: payload.createdByName || ""
+        };
+      } else if (String(data[r][3] || "").toLowerCase() === "buy") {
+        payload = {
+          mode: "buy",
+          row: payload.row || 0,
+          name: payload.name || "",
+          needRaw: payload.needRaw,
+          available: payload.available,
+          deficit: payload.deficit,
+          unit: payload.unit || "кг",
+          urgent: true,
+          byDay: payload.byDay || []
         };
       } else {
       payload = {
@@ -17923,7 +18169,7 @@ function handleSaveDeferred_(json, callback, fromPost) {
   var sh = deferredSheet_();
   var id = String(json.id || "").trim() || deferredNewId_();
   var mode = String(json.mode || "pp").trim().toLowerCase();
-  if (mode !== "retail" && mode !== "remind" && mode !== "order") mode = "pp";
+  if (mode !== "retail" && mode !== "remind" && mode !== "order" && mode !== "buy" && mode !== "transfer") mode = "pp";
   var title = String(json.title || "").trim();
   var nick = String(json.clientNick || json.client || "").trim();
   if (mode === "order" && !title) {
