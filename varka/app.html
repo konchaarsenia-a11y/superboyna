@@ -282,34 +282,23 @@
       <p class="empty" id="bootMsg">Вход…</p>
     </div>
 
-    <!-- Демо-вход (позже заменит бот + доступы) -->
+    <!-- Демо / нет доступа -->
     <div id="screenLogin" class="screen">
       <div class="hero">
         <img class="mark" src="assets/goodboy-logo.png" alt="Good Boy">
       </div>
       <div class="pill wrap-c">Партнёрское пополнение</div>
-      <div class="sub">Небольшой вход для проверки. Позже — через бота и доступы.</div>
-
+      <div class="sub">В Telegram вход автоматический по @username.</div>
+      <div id="loginTgHint" class="okmsg" style="display:none;margin-top:0;"></div>
       <div class="card">
-        <h3>Сеть / проект</h3>
-        <p>Сначала выберите партнёра. У <b>Varka</b> — подэкран с вашими адресами (по @username).</p>
-        <div id="loginTgHint" class="okmsg" style="display:none;margin-top:0;"></div>
+        <h3>Демо (браузер)</h3>
+        <p>Выберите профиль — как будто вы вошли с этим @username.</p>
         <div id="loginPartnerList"></div>
       </div>
-      <p class="note">Заказы в Бойню / «Отложенные» подключим отдельно — этот миниап Бойню не трогает.</p>
+      <p class="note">Бойню не трогаем. Уведомления / «Отложенные» — позже.</p>
     </div>
 
-    <!-- Подэкран: адреса выбранной сети (Varka и др.) -->
-    <div id="screenLoginPoints" class="screen">
-      <div class="toprow">
-        <div class="title" id="loginPointsTitle">Адреса</div>
-        <button class="chip" type="button" onclick="backToLoginPartners()">Назад</button>
-      </div>
-      <div class="sub" style="text-align:left;margin-top:0;" id="loginPointsSub">Только ваши точки</div>
-      <div id="loginPointsList"></div>
-    </div>
-
-    <!-- Хаб: 2 входа -->
+    <!-- Личный кабинет (главный экран после входа) -->
     <div id="screenHome" class="screen">
       <div class="hero">
         <img class="mark sm" src="assets/goodboy-logo.png" alt="Good Boy">
@@ -321,34 +310,31 @@
         </div>
         <button class="chip" type="button" onclick="demoLogout()">Выйти</button>
       </div>
-      <div class="sub" style="margin-top:0;">Два входа · только ваши точки</div>
+      <div class="sub" style="margin-top:0;">Личный кабинет</div>
       <button class="door" type="button" onclick="goOrderFlow()">
         <div class="ico">1</div>
         <div>
-          <div class="t">Заказ</div>
-          <div class="d">Лакомства и купоны · мои заявки</div>
+          <div class="t">Сделать заказ</div>
+          <div class="d">Сначала лакомства и купоны · потом ваша точка</div>
+        </div>
+      </button>
+      <button class="door" type="button" onclick="showMyOrders()">
+        <div class="ico">2</div>
+        <div>
+          <div class="t">История заказов</div>
+          <div class="d">Ваши заявки</div>
         </div>
       </button>
       <button class="door" type="button" onclick="goCabinet()">
-        <div class="ico">2</div>
+        <div class="ico">3</div>
         <div>
-          <div class="t">Личный кабинет</div>
-          <div class="d">Тема, настройки, доступ сотруднику</div>
+          <div class="t">Настройки</div>
+          <div class="d">Тема, имя, доступ сотруднику</div>
         </div>
       </button>
     </div>
 
-    <!-- Выбор точки -->
-    <div id="screenPoints" class="screen">
-      <div class="toprow">
-        <div class="title">Точки</div>
-        <button class="chip" type="button" onclick="goHome()">Назад</button>
-      </div>
-      <div class="sub" style="text-align:left;margin-top:0;">Только ваши точки по доступу @username</div>
-      <div id="pointsList"></div>
-    </div>
-
-    <!-- Каталог -->
+    <!-- Каталог (шаг 1 заказа) -->
     <div id="screenOrder" class="screen">
       <div class="pair" id="orderPair">
         <img id="orderPartnerLogo" src="assets/varka-logo.png" alt="">
@@ -358,14 +344,9 @@
       <div class="toprow">
         <div>
           <div class="title" id="orderTitle" style="font-size:18px;">Заявка</div>
-          <div class="sub" style="text-align:left;margin:2px 0 0;" id="orderLocName">—</div>
+          <div class="sub" style="text-align:left;margin:2px 0 0;" id="orderLocName">Сначала выберите позиции</div>
         </div>
-        <button class="chip" type="button" onclick="goPoints()">Точки</button>
-      </div>
-      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;">
-        <button class="chip on" type="button" id="navCat" onclick="showCatalogTab()">Каталог</button>
-        <button class="chip" type="button" id="navMy" onclick="showMyOrders()">Мои заказы</button>
-        <button class="chip" type="button" onclick="goHome()">На главную</button>
+        <button class="chip" type="button" onclick="goHome()">Кабинет</button>
       </div>
       <div class="tabs">
         <button class="tab on" type="button" data-cat="treat" onclick="setCat('treat')">Лакомства</button>
@@ -374,19 +355,30 @@
       <div id="catalogList"></div>
     </div>
 
+    <!-- Точки (шаг 2 заказа — после корзины) -->
+    <div id="screenPoints" class="screen">
+      <div class="toprow">
+        <div class="title">Куда доставить</div>
+        <button class="chip" type="button" onclick="showCatalogTab()">К каталогу</button>
+      </div>
+      <div class="sub" style="text-align:left;margin-top:0;" id="pointsSub">Только ваши точки · выберите адрес для заявки</div>
+      <div id="pointsCartHint" class="okmsg" style="display:none;"></div>
+      <div id="pointsList"></div>
+    </div>
+
     <div id="screenMyOrders" class="screen">
       <div class="toprow">
-        <div class="title">Мои заказы</div>
-        <button class="chip" type="button" onclick="showCatalogTab()">Каталог</button>
+        <div class="title">История заказов</div>
+        <button class="chip" type="button" onclick="goHome()">Кабинет</button>
       </div>
       <div id="myOrdersList"></div>
     </div>
 
-    <!-- ЛК -->
+    <!-- Настройки -->
     <div id="screenCabinet" class="screen">
       <div class="toprow">
-        <div class="title">Кабинет</div>
-        <button class="chip" type="button" onclick="goHome()">Назад</button>
+        <div class="title">Настройки</div>
+        <button class="chip" type="button" onclick="goHome()">Кабинет</button>
       </div>
       <div class="card">
         <h3>Ваш доступ</h3>
@@ -397,7 +389,7 @@
         <div class="row-switch">
           <div>
             <div style="font-weight:800;">Светлая тема</div>
-            <div class="addr">Как в Instagram / ленте — тёмная по умолчанию</div>
+            <div class="addr">Тёмная по умолчанию</div>
           </div>
           <button class="switch" type="button" id="swTheme" onclick="toggleTheme()"><i></i></button>
         </div>
@@ -417,7 +409,7 @@
       </div>
       <div class="card">
         <h3>Доступ сотруднику</h3>
-        <p>Дайте доступ к <b>своей</b> точке ответственному. Он сможет заказывать от неё.</p>
+        <p>Дайте доступ к своим точкам ответственному.</p>
         <label class="lbl">Telegram ID сотрудника</label>
         <input class="field" id="staffTid" placeholder="например 123456789" inputmode="numeric">
         <label class="lbl">Имя</label>
@@ -431,13 +423,13 @@
   <div class="bar" id="cartBar" style="display:none;">
     <div class="bar-inner">
       <div class="cart-sum">В заявке: <b id="cartCount">0</b> шт</div>
-      <button class="btn" type="button" id="btnSubmit" onclick="submitOrder()" disabled>Отправить</button>
+      <button class="btn" type="button" id="btnSubmit" onclick="onCartPrimary()" disabled>Далее</button>
     </div>
   </div>
 
   <script>
 (function () {
-  var APP_VER = "2.2.0";
+  var APP_VER = "2.3.0";
   // Свой webhook. ПУСТО = демо. НИКОГДА не ставить /exec Бойни.
   var VARKA_WEBHOOK_URL = "";
   var SESSION_KEY = "gb_partner_session_v3";
@@ -687,41 +679,42 @@
   }
 
   function show(id) {
-    ["screenBoot", "screenLogin", "screenLoginPoints", "screenHome", "screenPoints", "screenOrder", "screenMyOrders", "screenCabinet"].forEach(function (s) {
+    ["screenBoot", "screenLogin", "screenHome", "screenPoints", "screenOrder", "screenMyOrders", "screenCabinet"].forEach(function (s) {
       var el = document.getElementById(s);
       if (el) el.classList.toggle("on", s === id);
     });
     var bar = document.getElementById("cartBar");
-    if (bar) bar.style.display = (id === "screenOrder") ? "" : "none";
+    if (bar) bar.style.display = (id === "screenOrder" || id === "screenPoints") ? "" : "none";
+    updateCartButton_();
   }
 
-  function resolveAccessForNetwork_(networkId) {
-    var u = user();
-    var uname = normUser_(u.username);
-    var acc = null;
-    if (uname) {
-      acc = accessForUsername_(uname);
-      if (acc && acc.networkId !== networkId) {
-        return { error: "no_network", username: uname, acc: acc };
-      }
-      if (!acc) return { error: "no_access", username: uname };
-      return { acc: acc, username: uname, demo: false };
+  function updateCartButton_() {
+    var b = document.getElementById("btnSubmit");
+    var n = cartCount();
+    if (!b) return;
+    var onPoints = document.getElementById("screenPoints") &&
+      document.getElementById("screenPoints").classList.contains("on");
+    if (onPoints) {
+      b.textContent = "Отправить";
+      b.disabled = n <= 0 || !state.point;
+    } else {
+      b.textContent = "Далее · точка";
+      b.disabled = n <= 0;
     }
-    // Браузер / нет username — демо-профиль сети
-    var fallback = DEMO_FALLBACK_USER_BY_NETWORK[networkId];
-    acc = fallback ? accessForUsername_(fallback) : null;
-    if (!acc) return { error: "no_access", username: "" };
-    return { acc: acc, username: fallback, demo: true };
   }
 
-  function pointsForAccessNetwork_(acc, networkId) {
-    var ids = (acc && acc.pointIds) || [];
-    return ids.map(pointById_).filter(function (p) {
-      return p && p.networkId === networkId;
-    });
+  function onCartPrimary() {
+    var onPoints = document.getElementById("screenPoints") &&
+      document.getElementById("screenPoints").classList.contains("on");
+    if (onPoints) {
+      submitOrder();
+      return;
+    }
+    if (cartCount() <= 0) return;
+    goPointsForOrder_();
   }
 
-  function loginWithAccess_(acc, username, preselectPointId) {
+  function loginWithAccess_(acc, username) {
     if (!acc || !acc.pointIds || !acc.pointIds.length) return false;
     DEMO_ROLE = "partner";
     DEMO_NETWORK = acc.networkId || "";
@@ -729,7 +722,7 @@
     DEMO_POINT_IDS = acc.pointIds.slice();
     saveSession_();
     state.cart = {};
-    state.point = preselectPointId ? pointById_(preselectPointId) : null;
+    state.point = null;
     enterApp_();
     return true;
   }
@@ -744,111 +737,34 @@
       if (u.username) {
         var acc = accessForUsername_(u.username);
         if (acc) {
-          var net = netById_(acc.networkId);
           hint.style.display = "";
-          hint.innerHTML = "Вы @" + esc(normUser_(u.username)) +
-            " · сеть <b>" + esc(net ? net.name : acc.networkId) + "</b> · " +
-            acc.pointIds.length + " точ. Выберите сеть ниже — увидите только свои адреса.";
+          hint.innerHTML = "Найден @" + esc(normUser_(u.username)) +
+            " · " + acc.pointIds.length + " точ. · входим…" +
+            ' <button class="chip" type="button" onclick="loginAsTgUser()">Войти сейчас</button>';
         } else {
           hint.style.display = "";
           hint.className = "err";
           hint.innerHTML = "Ваш @" + esc(normUser_(u.username)) +
-            " пока без доступа. Напишите в бота — выдадим точки.";
+            " пока без доступа. Напишите в бота.";
         }
       } else {
         hint.style.display = "";
-        hint.textContent = "Демо: Varka откроет 2 своих адреса (Немига, Каменная). В Telegram — по @username.";
+        hint.textContent = "Нет Telegram username — выберите демо-профиль ниже.";
       }
     }
     if (!box) return;
-    // Одна вкладка на сеть: Varka + остальные партнёры
-    box.innerHTML = NETWORKS.map(function (net) {
-      var isVarka = net.id === "net_varka";
-      return '<button class="login-pick" type="button" onclick="pickPartnerNetwork(\'' + esc(net.id) + '\')">' +
+    box.innerHTML = Object.keys(ACCESS_BY_USERNAME).map(function (uname) {
+      var acc = ACCESS_BY_USERNAME[uname];
+      var net = netById_(acc.networkId);
+      var names = (acc.pointIds || []).map(function (id) {
+        var p = pointById_(id);
+        return p ? p.name : id;
+      }).join(", ");
+      return '<button class="login-pick" type="button" onclick="demoLoginAs(\'' + esc(uname) + '\')">' +
         '<img src="' + logoFor_(net) + '" alt="">' +
-        "<span>" + esc(net.name) +
-        '<span class="hint">' +
-        (isVarka ? "адреса ваших точек Varka" : "вход в сеть") +
-        "</span></span></button>";
+        "<span>@" + esc(uname) + " · " + esc(net ? net.name : "") +
+        '<span class="hint">' + esc(names) + "</span></span></button>";
     }).join("");
-  }
-
-  function pickPartnerNetwork(networkId) {
-    var net = netById_(networkId);
-    if (!net) return;
-    var resolved = resolveAccessForNetwork_(networkId);
-    if (resolved.error === "no_access") {
-      alert(resolved.username
-        ? ("@" + resolved.username + " — нет доступа к " + net.name)
-        : ("Нет доступа к " + net.name));
-      return;
-    }
-    if (resolved.error === "no_network") {
-      var own = netById_(resolved.acc.networkId);
-      alert("@" + resolved.username + " привязан к «" + (own ? own.name : "") +
-        "», не к «" + net.name + "».");
-      return;
-    }
-    var pts = pointsForAccessNetwork_(resolved.acc, networkId);
-    if (!pts.length) {
-      alert("Нет точек " + net.name + " в вашем доступе.");
-      return;
-    }
-    // Varka всегда через подэкран адресов; остальные — если точек > 1
-    var needAddressScreen = networkId === "net_varka" || pts.length > 1;
-    if (!needAddressScreen) {
-      loginWithAccess_(resolved.acc, resolved.username, pts[0].id);
-      return;
-    }
-    pendingLogin_ = {
-      acc: resolved.acc,
-      username: resolved.username,
-      networkId: networkId,
-      points: pts,
-      demo: !!resolved.demo
-    };
-    renderLoginPoints_();
-    show("screenLoginPoints");
-  }
-
-  function renderLoginPoints_() {
-    var p = pendingLogin_;
-    var box = document.getElementById("loginPointsList");
-    var title = document.getElementById("loginPointsTitle");
-    var sub = document.getElementById("loginPointsSub");
-    if (!p || !box) return;
-    var net = netById_(p.networkId);
-    if (title) title.textContent = (net ? net.name : "Сеть") + " · адреса";
-    if (sub) {
-      sub.innerHTML = (p.username ? ("@" + esc(p.username) + " · ") : "") +
-        "показаны только ваши точки" +
-        (p.demo ? " <span class=\"badge\">демо</span>" : "") +
-        ". Всего в сети больше — чужие скрыты.";
-    }
-    box.innerHTML = p.points.map(function (pt) {
-      return '<button class="loc" type="button" onclick="confirmLoginPoint(\'' + esc(pt.id) + '\')">' +
-        '<img class="logo" src="' + logoFor_(net) + '" alt="">' +
-        '<div><div class="name">' + esc(pt.name) + "</div>" +
-        '<div class="addr">' + esc(pt.address || "") + "</div></div></button>";
-    }).join("");
-  }
-
-  function confirmLoginPoint(pointId) {
-    var p = pendingLogin_;
-    if (!p || !p.acc) return;
-    var ok = (p.points || []).some(function (pt) { return pt.id === pointId; });
-    if (!ok) {
-      alert("Нет доступа к этой точке");
-      return;
-    }
-    loginWithAccess_(p.acc, p.username, pointId);
-    pendingLogin_ = null;
-  }
-
-  function backToLoginPartners() {
-    pendingLogin_ = null;
-    renderLogin_();
-    show("screenLogin");
   }
 
   function demoLoginAs(username) {
@@ -857,7 +773,7 @@
       alert("Нет доступа для @" + username);
       return;
     }
-    pickPartnerNetwork(acc.networkId);
+    loginWithAccess_(acc, username);
   }
 
   function loginAsTgUser() {
@@ -867,11 +783,7 @@
       alert("Нет доступа для @" + (u.username || "—"));
       return;
     }
-    pickPartnerNetwork(acc.networkId);
-  }
-
-  function demoLogin(role, networkId, pointId) {
-    if (networkId) pickPartnerNetwork(networkId);
+    loginWithAccess_(acc, u.username);
   }
 
   function demoLogout() {
@@ -894,47 +806,55 @@
       meta.textContent = (state.me.username ? ("@" + state.me.username + " · ") : "") +
         (state.me.networkName || "") + " · " + n + " точ.";
     }
+    var img = document.getElementById("orderPartnerLogo");
+    var net = netById_(state.me.networkId);
+    if (img) { img.src = logoFor_(net); img.alt = (net && net.name) || ""; }
+    var ot = document.getElementById("orderTitle");
+    if (ot) ot.textContent = (net ? net.name + " × Good Boy" : "Заявка");
     show("screenHome");
   }
 
   function goHome() {
-    state.cart = {};
     show("screenHome");
   }
 
   function goOrderFlow() {
-    var pts = (state.me && state.me.points) || myPoints_();
-    if (state.point && state.me && state.me.allowedPointIds[state.point.id]) {
-      pickPoint(state.point.id);
-      return;
-    }
-    if (pts.length === 1) {
-      pickPoint(pts[0].id);
-      return;
-    }
-    goPoints();
+    state.point = null;
+    state.cat = "treat";
+    document.querySelectorAll(".tab").forEach(function (el) {
+      el.classList.toggle("on", el.getAttribute("data-cat") === "treat");
+    });
+    var loc = document.getElementById("orderLocName");
+    if (loc) loc.textContent = "Сначала выберите позиции · точку укажете дальше";
+    showCatalogTab();
   }
 
-  function goPoints() {
+  function goPointsForOrder_() {
     var box = document.getElementById("pointsList");
-    // Только свои точки — чужие сети/адреса не показываем вообще
+    var hint = document.getElementById("pointsCartHint");
     var list = (state.me && state.me.points) || myPoints_();
+    if (hint) {
+      hint.style.display = "";
+      hint.innerHTML = "В заявке <b>" + cartCount() + "</b> шт · выберите свою точку";
+    }
     if (!list.length) {
-      box.innerHTML = '<div class="err">Нет привязанных точек к вашему @username. Напишите в бота.</div>';
+      box.innerHTML = '<div class="err">Нет привязанных точек к вашему @username.</div>';
       show("screenPoints");
       return;
     }
     box.innerHTML = list.map(function (pt) {
       var net = netById_(pt.networkId);
-      return '<button class="loc" type="button" onclick="pickPoint(\'' + esc(pt.id) + '\')">' +
+      var on = state.point && state.point.id === pt.id;
+      return '<button class="loc" type="button" style="' +
+        (on ? "border-color:var(--accent);" : "") + '" onclick="pickPointForOrder(\'' + esc(pt.id) + '\')">' +
         '<img class="logo" src="' + logoFor_(net) + '" alt="">' +
         '<div><div class="name">' + esc(pt.name) + "</div>" +
-        '<div class="addr">' + esc(pt.address || (net && net.name) || "") + "</div></div></button>";
+        '<div class="addr">' + esc(pt.address || "") + "</div></div></button>";
     }).join("");
     show("screenPoints");
   }
 
-  function pickPoint(id) {
+  function pickPointForOrder(id) {
     var allowed = (state.me && state.me.allowedPointIds) || {};
     if (!allowed[id]) {
       alert("Нет доступа к этой точке.");
@@ -943,13 +863,18 @@
     var pt = pointById_(id);
     if (!pt) return;
     state.point = pt;
-    state.cart = {};
-    var net = netById_(pt.networkId);
-    var img = document.getElementById("orderPartnerLogo");
-    if (img) { img.src = logoFor_(net); img.alt = (net && net.name) || ""; }
-    document.getElementById("orderTitle").textContent = (net ? net.name + " × Good Boy" : "Заявка");
-    document.getElementById("orderLocName").textContent = pt.name + (pt.address ? " · " + pt.address : "");
-    showCatalogTab();
+    var loc = document.getElementById("orderLocName");
+    if (loc) loc.textContent = pt.name + (pt.address ? " · " + pt.address : "");
+    goPointsForOrder_();
+    updateCartButton_();
+  }
+
+  function goPoints() {
+    goPointsForOrder_();
+  }
+
+  function pickPoint(id) {
+    pickPointForOrder(id);
   }
 
   function setCat(cat) {
@@ -967,10 +892,9 @@
   }
   function refreshCart() {
     var c = document.getElementById("cartCount");
-    var b = document.getElementById("btnSubmit");
     var n = cartCount();
     if (c) c.textContent = String(n);
-    if (b) b.disabled = n <= 0;
+    updateCartButton_();
   }
   function setQty(id, delta) {
     var cur = Number(state.cart[id]) || 0;
@@ -1011,15 +935,21 @@
   }
 
   function showCatalogTab() {
-    document.getElementById("navCat").classList.add("on");
-    document.getElementById("navMy").classList.remove("on");
     show("screenOrder");
     renderCatalog();
     refreshCart();
   }
 
   function submitOrder() {
-    if (cartCount() <= 0 || !state.point) return;
+    if (cartCount() <= 0) {
+      alert("Добавьте позиции в заявку");
+      return;
+    }
+    if (!state.point) {
+      alert("Выберите точку");
+      goPointsForOrder_();
+      return;
+    }
     var basket = [];
     state.catalog.forEach(function (it) {
       var q = Number(state.cart[it.id]) || 0;
@@ -1033,20 +963,18 @@
       locationName: state.point.name,
       networkId: state.point.networkId,
       userName: (state.me && state.me.name) || "",
+      username: (state.me && state.me.username) || "",
       basket: basket,
       status: "new"
     });
-    // Позже: пуш в бота Бойни + вкладка «Отложенные». Сейчас только локально.
     state.cart = {};
+    state.point = null;
     refreshCart();
-    renderCatalog();
-    document.getElementById("catalogList").insertAdjacentHTML("afterbegin",
-      '<div class="okmsg">Заявка № ' + esc(id) + " принята (демо). В Бойню подключим позже.</div>");
+    show("screenHome");
+    alert("Заявка № " + id + " принята (демо). История — в кабинете.");
   }
 
   function showMyOrders() {
-    document.getElementById("navCat").classList.remove("on");
-    document.getElementById("navMy").classList.add("on");
     show("screenMyOrders");
     var box = document.getElementById("myOrdersList");
     var list = DEMO.orders.slice();
@@ -1182,17 +1110,15 @@
       '<div class="err">Webhook ещё не подключён. Демо: очистите VARKA_WEBHOOK_URL.</div>';
   }
 
-  window.demoLogin = demoLogin;
   window.demoLoginAs = demoLoginAs;
   window.loginAsTgUser = loginAsTgUser;
-  window.pickPartnerNetwork = pickPartnerNetwork;
-  window.confirmLoginPoint = confirmLoginPoint;
-  window.backToLoginPartners = backToLoginPartners;
   window.demoLogout = demoLogout;
   window.goHome = goHome;
   window.goOrderFlow = goOrderFlow;
   window.goPoints = goPoints;
   window.pickPoint = pickPoint;
+  window.pickPointForOrder = pickPointForOrder;
+  window.onCartPrimary = onCartPrimary;
   window.goCabinet = goCabinet;
   window.setCat = setCat;
   window.setQty = setQty;
