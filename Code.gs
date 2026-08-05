@@ -1598,6 +1598,10 @@ function doGet(e) {
   if (action === "getWarehouse") {
     return handleGetWarehouse({}, callback, false);
   }
+  if (action === "applyWarehouseRevision") {
+    var itemsG = e.parameter.items ? decodeURIComponent(e.parameter.items) : "[]";
+    return handleApplyWarehouseRevision({ items: itemsG, note: e.parameter.note || "" }, callback, false);
+  }
   if (action === "warehousePreview") {
     return handleWarehousePreview({}, callback, false);
   }
@@ -2129,6 +2133,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "setWarehouseArrival") {
     return handleSetWarehouseArrival(json, callback, fromPost);
+  }
+  if (action === "applyWarehouseRevision") {
+    return handleApplyWarehouseRevision(json, callback, fromPost);
   }
   if (action === "warehousePreview") {
     return handleWarehousePreview(json, callback, fromPost);
@@ -10903,6 +10910,124 @@ function handleSetWarehouseArrival(json, callback, fromPost) {
   try { CacheService.getScriptCache().remove("wh_get_v1"); } catch (eC) {}
   var ok = { status: "success", row: row, arrival: qty };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/**
+ * Ревизия остатка: пишет F (кг/шт), для шт-строк ещё M (Остаток Вс), B=0.
+ * json.items: [{row, qty}] или [{name, qty}]
+ */
+function applyWarehouseRevision_(items, meta) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var wh = ss.getSheetByName("Склад");
+  if (!wh) return { ok: false, message: "no_warehouse", updated: [] };
+  meta = meta || {};
+  var nameToRow = {};
+  var last = Math.min(80, Math.max(2, wh.getLastRow()));
+  var names = wh.getRange(2, 1, last - 1, 1).getValues();
+  for (var i = 0; i < names.length; i++) {
+    var nm = String(names[i][0] || "").trim().toUpperCase().replace(/\s+/g, " ");
+    if (nm) nameToRow[nm] = i + 2;
+  }
+  function resolveRow_(it) {
+    var r = Number(it.row) || 0;
+    if (r >= 2) return r;
+    var key = String(it.name || "").trim().toUpperCase().replace(/\s+/g, " ");
+    if (!key) return 0;
+    if (nameToRow[key]) return nameToRow[key];
+    // мягкий матч без «шт.»
+    var key2 = key.replace(/\s*ШТ\.?/g, "").trim();
+    for (var k in nameToRow) {
+      if (!nameToRow.hasOwnProperty(k)) continue;
+      var k2 = k.replace(/\s*ШТ\.?/g, "").trim();
+      if (k2 === key2 || k.indexOf(key2) === 0 || key2.indexOf(k2) === 0) return nameToRow[k];
+    }
+    return 0;
+  }
+  var updated = [];
+  var missed = [];
+  for (var j = 0; j < (items || []).length; j++) {
+    var it = items[j] || {};
+    var row = resolveRow_(it);
+    if (!(row >= 2)) {
+      missed.push(String(it.name || it.row || ""));
+      continue;
+    }
+    var qty = Number(it.qty);
+    if (isNaN(qty)) qty = 0;
+    var name = String(wh.getRange(row, 1).getValue() || "");
+    var piece = isPieceWarehouseRow_(row, name);
+    wh.getRange(row, 6).setValue(qty); // F остаток/ревизия
+    wh.getRange(row, 2).setValue(0);   // B дозакуп сброс
+    if (piece) {
+      try { wh.getRange(row, 13).setValue(qty); } catch (eM) {} // M Остаток Вс
+    }
+    try {
+      getLedgerSheet_().appendRow([
+        new Date(), "", row, "revision", qty, piece ? "шт" : "кг",
+        JSON.stringify({ by: meta.by || "", note: meta.note || "revision" })
+      ]);
+    } catch (eL) {}
+    updated.push({ row: row, name: name, qty: qty, unit: piece ? "шт" : "кг" });
+  }
+  try { CacheService.getScriptCache().remove("wh_get_v1"); } catch (eC) {}
+  return { ok: true, updated: updated, missed: missed, count: updated.length };
+}
+
+function handleApplyWarehouseRevision(json, callback, fromPost) {
+  var items = (json && json.items) || [];
+  if (typeof items === "string") {
+    try { items = JSON.parse(items); } catch (e) { items = []; }
+  }
+  if (!items.length) {
+    var bad = { status: "error", message: "no_items" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var r = applyWarehouseRevision_(items, {
+    by: (json && json.telegramId) || "",
+    note: (json && json.note) || "revision"
+  });
+  var ok = { status: r.ok ? "success" : "error", result: r };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/** Ревизия 2026-08-05 (после нарезки вт) — Run в редакторе после вставки Code.gs. */
+function applyWarehouseRevisionManual() {
+  var items = [
+    { name: "ЛЁГКОЕ", qty: 15 },
+    { name: "СЕРДЦЕ", qty: 0.5 },
+    { name: "ПОЧКИ", qty: 7.2 },
+    { name: "РУБЕЦ Т", qty: 5.5 },
+    { name: "ПЕЧЕНЬ", qty: 3 },
+    { name: "БАРАНЬЕ ЛЁГКОЕ", qty: 0.5 },
+    { name: "ИНДЕЙКА", qty: 0 },
+    { name: "МЯСНЫЕ ЛОМТИКИ", qty: 0 },
+    { name: "ЛОП ХРЯЩ", qty: 60 },
+    { name: "БЫЧИЙ КОРЕНЬ", qty: 7 },
+    { name: "ТРАХЕЯ", qty: 12 },
+    { name: "ПЕРЕПЁЛКИ", qty: 8 },
+    { name: "УХО Г", qty: 0 },
+    { name: "КОЛЕНИ", qty: 6 },
+    { name: "КОПЫТО", qty: 0 },
+    { name: "СТАНОВАЯ ЖИЛА", qty: 80 },
+    { name: "АОРТА", qty: 40 },
+    { name: "УТИНЫЕ ШЕИ", qty: 20 },
+    { name: "НОСЫ", qty: 5 },
+    { name: "ВЫМЯ", qty: 0.4 },
+    { name: "СЕМЕННИКИ", qty: 7.5 },
+    { name: "ПИКАЛЬНОЕ МЯСО", qty: 1 },
+    { name: "БАНАНЫ", qty: 0 },
+    { name: "ЯБЛОКИ", qty: 0 },
+    { name: "МОРКОВЬ", qty: 0 },
+    { name: "ГРУШЫ", qty: 0 },
+    { name: "ТЫКВА", qty: 0 },
+    { name: "БАТАТ", qty: 0 }
+  ];
+  try {
+    var r = applyWarehouseRevision_(items, { by: "manual", note: "rev_2026-08-05_tue_cut" });
+    Logger.log(JSON.stringify(r));
+  } catch (e) {
+    Logger.log("ERR revision: " + String(e));
+  }
 }
 
 function handleWarehousePreview(json, callback, fromPost) {
