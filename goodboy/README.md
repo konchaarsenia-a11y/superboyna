@@ -1,41 +1,36 @@
-# Goodboy — папка клиента
+# Goodboy
 
-Параллельный продукт. **Не смешивать** с конвейером Бойни (`app.html`, `Code.gs` в корне).
+Клиентский **сайт + Telegram Mini App**.  
+Конвейер Бойни (`/app.html`, `Code.gs`) не трогаем.
 
-## Открыть локально
+## Ссылки (GitHub Pages)
 
-```bash
-# из корня репо, любой статик-сервер:
-python3 -m http.server 8765
-# → http://localhost:8765/goodboy/
-# → http://localhost:8765/goodboy/app.html
+| Что | URL |
+|-----|-----|
+| **Сайт** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/ |
+| **Кабинет на сайте** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/#app |
+| **Mini App (для BotFather)** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html |
+
+## Как устроено
+
+```
+goodboy/
+  index.html      # сайт: лендинг + кнопка «Открыть кабинет»
+  app.html        # тот же кабинет для Telegram Mini App
+  cabinet.html    # разметка кабинета (общая)
+  css/            # goodboy.css + site.css
+  js/             # логика + demo-api (локально)
 ```
 
-Или просто открыть `goodboy/app.html` в браузере.
+На сайте кабинет открывается поверх (`#app`).  
+В Telegram открываете `app.html` — сразу кабинет.
+
+## BotFather
+
+Menu Button / Web App URL →  
+`https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html`
 
 ## Режим
 
-В `js/config.js`:
-
-- `mode: "demo"` — вся логика в `js/demo-api.js` + `localStorage` (сейчас так)
-- `mode: "live"` — позже, когда свяжем свой/общий API (`webhookUrl`)
-
-Конвейер Бойни из этой папки **не вызывается**.
-
-## Экраны v0.1
-
-| Экран | Что умеет |
-|-------|-----------|
-| Дом | питомец, доставка, вход в скидку Варок |
-| Пёс | CRUD карточки питомца (локально) |
-| Подписка | демо-привязка по телефону/нику → сегмент ПП/БП |
-| Партнёры | Варок |
-| Скидка | код (если ПП) + 12 точек-заглушек |
-| Профиль | имя / TG |
-
-## Связка с Бойней (позже)
-
-Отдельным этапом: живой API, match клиента, даты из Календарь_Дат.  
-До явной команды **не трогаем** корневые `Code.gs` / `app.html`.
-
-Карта продукта: [`../GOODBOY.md`](../GOODBOY.md).
+`js/config.js` → `mode: "demo"` (localStorage).  
+Связка с Бойней — позже, отдельно.

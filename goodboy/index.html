@@ -5,30 +5,94 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#1a1410" />
   <title>Goodboy — кабинет собаки в Минске</title>
-  <meta name="description" content="Goodboy: подписка, карточка питомца и скидки у партнёров в Минске." />
+  <meta name="description" content="Goodboy: рацион, доставка и скидки у партнёров в Минске. Сайт и Telegram Mini App." />
+  <link rel="canonical" href="https://konchaarsenia-a11y.github.io/superboyna/goodboy/" />
+  <meta property="og:title" content="Goodboy — кабинет собаки в Минске" />
+  <meta property="og:description" content="Подписка, карточка питомца и привилегии у партнёров. Минск." />
+  <meta property="og:type" content="website" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/goodboy.css" />
-  <style>
-    .land {
-      max-width: 480px; margin: 0 auto; padding: 32px 20px 48px;
-      min-height: 100dvh; display: flex; flex-direction: column; justify-content: center;
-    }
-    .land h1 { font-size: 2.6rem; margin-bottom: 10px; }
-    .land .lead { font-size: 1.05rem; margin-bottom: 28px; }
-  </style>
+  <link rel="stylesheet" href="css/goodboy.css?v=011" />
+  <link rel="stylesheet" href="css/site.css?v=011" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <main class="land">
-    <p class="badge">Минск</p>
-    <h1><span style="font-family:var(--gb-display)">Good</span><span style="color:var(--gb-accent)">boy</span></h1>
-    <p class="lead">Кабинет собаки: рацион, доставка и привилегии у партнёров. Не путать с рабочим конвейером команды.</p>
-    <div class="btn-row">
-      <a class="btn" href="app.html?v=010" style="text-align:center;text-decoration:none;display:block;">Открыть кабинет</a>
-      <a class="btn btn-ghost" href="app.html?v=010#partners" style="text-align:center;text-decoration:none;display:block;">Партнёры · Варок</a>
+  <nav class="site-nav" aria-label="Goodboy сайт">
+    <a class="logo" href="./">Good<span>boy</span></a>
+    <div class="links">
+      <a href="#how">Как это</a>
+      <a href="#partners">Партнёры</a>
+      <a href="#app" data-open-app>Кабинет</a>
+      <a class="nav-cta" href="app.html?v=011">Mini App</a>
     </div>
-    <p class="muted" style="margin-top:22px;">v0.1 · сайт + Telegram</p>
-  </main>
+  </nav>
+
+  <div class="site-main">
+    <header class="site-hero">
+      <p class="eyebrow">Минск</p>
+      <h1 class="brand-hero">Good<span>boy</span></h1>
+      <p class="tagline">Кабинет собаки: рацион, доставка и привилегии у партнёров — в одном месте.</p>
+      <div class="cta-row">
+        <a class="btn" href="#app" data-open-app>Открыть кабинет</a>
+        <a class="btn btn-ghost" href="app.html?v=011">Telegram Mini App</a>
+      </div>
+    </header>
+
+    <section class="site-section" id="how">
+      <h2>Один кабинет</h2>
+      <p class="sec-lead">На сайте и в Telegram — одно приложение. Заходите как удобно.</p>
+      <div class="feature-list">
+        <article>
+          <h3>Питомец</h3>
+          <p>Карточка собаки в центре: кличка, вес, привычки. Позже — рацион и напоминания.</p>
+        </article>
+        <article>
+          <h3>Подписка</h3>
+          <p>Следующая доставка и состав. Привязка к Бойне — отдельным этапом.</p>
+        </article>
+        <article>
+          <h3>Партнёры</h3>
+          <p>Скидки в городе. Первый партнёр — сеть кофеен Варок.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="site-section" id="partners">
+      <h2>Партнёры</h2>
+      <p class="sec-lead">Привилегии для подписчиков Goodboy.</p>
+      <div class="partner-spot">
+        <p class="badge">Уже на витрине</p>
+        <h3>Варок</h3>
+        <p>12 кофеен в Минске. Лакомства Бойни можно пробовать на месте — скидка для подписчиков в кабинете.</p>
+        <a class="btn" href="#app" data-open-app style="width:auto;display:inline-block;text-decoration:none;">Моя скидка</a>
+      </div>
+    </section>
+
+    <footer class="site-footer">
+      Goodboy v0.1.1 · сайт + Telegram Mini App · параллельно конвейеру Бойни
+    </footer>
+  </div>
+
+  <button type="button" class="app-exit" id="appExit">← На сайт</button>
+  <div id="gb-mount" aria-live="polite"></div>
+
+  <script src="js/config.js?v=011"></script>
+  <script src="js/demo-api.js?v=011"></script>
+  <script src="js/api.js?v=011"></script>
+  <script src="js/store.js?v=011"></script>
+  <script src="js/auth.js?v=011"></script>
+  <script src="js/screens.js?v=011"></script>
+  <script src="js/app.js?v=011"></script>
+  <script src="js/site.js?v=011"></script>
+  <script>
+    GB_CONFIG.version = "0.1.1";
+    document.addEventListener("DOMContentLoaded", function () {
+      GBSite.wireSite();
+      if (GBSite.wantMiniapp() || location.hash === "#app") {
+        GBSite.boot();
+      }
+    });
+  </script>
 </body>
 </html>
