@@ -292,7 +292,8 @@
 
       <div class="card">
         <h3>Партнёр</h3>
-        <p>Заказ + личный кабинет своей точки. Чужие точки серые.</p>
+        <p>В Telegram вход по <b>@username</b> — видите только свои точки. Ниже демо-профили для проверки.</p>
+        <div id="loginTgHint" class="okmsg" style="display:none;margin-top:0;"></div>
         <div id="loginPartnerList"></div>
       </div>
       <p class="note">Заказы в Бойню / «Отложенные» подключим отдельно — этот миниап Бойню не трогает.</p>
@@ -310,7 +311,7 @@
         </div>
         <button class="chip" type="button" onclick="demoLogout()">Выйти</button>
       </div>
-      <div class="sub" style="margin-top:0;">Два входа · только ваша точка</div>
+      <div class="sub" style="margin-top:0;">Два входа · только ваши точки</div>
       <button class="door" type="button" onclick="goOrderFlow()">
         <div class="ico">1</div>
         <div>
@@ -333,7 +334,7 @@
         <div class="title">Точки</div>
         <button class="chip" type="button" onclick="goHome()">Назад</button>
       </div>
-      <div class="sub" style="text-align:left;margin-top:0;">Своя — активна. Остальные недоступны.</div>
+      <div class="sub" style="text-align:left;margin-top:0;">Только ваши точки по доступу @username</div>
       <div id="pointsList"></div>
     </div>
 
@@ -376,6 +377,10 @@
       <div class="toprow">
         <div class="title">Кабинет</div>
         <button class="chip" type="button" onclick="goHome()">Назад</button>
+      </div>
+      <div class="card">
+        <h3>Ваш доступ</h3>
+        <p id="accessInfo">—</p>
       </div>
       <div class="card">
         <h3>Внешний вид</h3>
@@ -422,10 +427,10 @@
 
   <script>
 (function () {
-  var APP_VER = "2.0.2";
+  var APP_VER = "2.1.0";
   // Свой webhook. ПУСТО = демо. НИКОГДА не ставить /exec Бойни.
   var VARKA_WEBHOOK_URL = "";
-  var SESSION_KEY = "gb_partner_session_v2";
+  var SESSION_KEY = "gb_partner_session_v3";
   var SETTINGS_KEY = "gb_partner_settings_v2";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
   var COUPON_BANNER = "assets/coupon-banner.png";
@@ -446,9 +451,16 @@
     { id: "net_bowwow", name: "Bow_wow_color", logo: "" }
   ];
 
+  // Полный каталог точек сети (в UI партнёру НЕ показываем чужие)
   var POINTS = [
     { id: "pt_varka_1", networkId: "net_varka", name: "Varka · Немига", address: "ул. Немига" },
     { id: "pt_varka_2", networkId: "net_varka", name: "Varka · Каменная", address: "ул. Каменная" },
+    { id: "pt_varka_3", networkId: "net_varka", name: "Varka · Победителей", address: "пр. Победителей" },
+    { id: "pt_varka_4", networkId: "net_varka", name: "Varka · Притыцкого", address: "ул. Притыцкого" },
+    { id: "pt_varka_5", networkId: "net_varka", name: "Varka · Независимости", address: "пр. Независимости" },
+    { id: "pt_varka_6", networkId: "net_varka", name: "Varka · Кульман", address: "ул. Кульман" },
+    { id: "pt_varka_7", networkId: "net_varka", name: "Varka · Веры Хоружей", address: "ул. Веры Хоружей" },
+    { id: "pt_varka_8", networkId: "net_varka", name: "Varka · Сурганова", address: "ул. Сурганова" },
     { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34" },
     { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
     { id: "pt_firedog_1", networkId: "net_firedog", name: "Firedog · точка 1", address: "Минск" },
@@ -456,6 +468,36 @@
     { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—" },
     { id: "pt_bow_1", networkId: "net_bowwow", name: "Bow_wow_color · точка 1", address: "—" }
   ];
+
+  // Доступы: telegram username (без @, lower) → свои точки
+  // Позже — лист VR_Доступы / бот. Сейчас демо + авто-вход из Mini App.
+  var ACCESS_BY_USERNAME = {
+    "varka_two": {
+      name: "Партнёр Varka (2 точки)",
+      networkId: "net_varka",
+      pointIds: ["pt_varka_1", "pt_varka_2"]
+    },
+    "varka_one": {
+      name: "Партнёр Varka (1 точка)",
+      networkId: "net_varka",
+      pointIds: ["pt_varka_5"]
+    },
+    "nan_demo": {
+      name: "Партнёр NaN",
+      networkId: "net_nan",
+      pointIds: ["pt_nan_1"]
+    },
+    "fundog_demo": {
+      name: "Партнёр Fundog",
+      networkId: "net_fundog",
+      pointIds: ["pt_fundog_1"]
+    },
+    "firedog_demo": {
+      name: "Партнёр Firedog",
+      networkId: "net_firedog",
+      pointIds: ["pt_firedog_1"]
+    }
+  };
 
   var CATALOG = [
     { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "шт", active: true },
@@ -466,7 +508,8 @@
   var DEMO = { orders: [], staffAccess: [] };
   var DEMO_ROLE = "";
   var DEMO_NETWORK = "";
-  var DEMO_POINT = "";
+  var DEMO_USERNAME = "";
+  var DEMO_POINT_IDS = [];
 
   var state = {
     me: null,
@@ -500,30 +543,48 @@
     }
   }
 
+  function normUser_(u) {
+    return String(u || "").replace(/^@/, "").trim().toLowerCase();
+  }
+
+  function accessForUsername_(username) {
+    var key = normUser_(username);
+    if (!key) return null;
+    return ACCESS_BY_USERNAME[key] || null;
+  }
+
   function loadSession_() {
     try {
       var s = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
-      if (!s || !s.role) return false;
-      // Старые демо-сессии owner больше не пускаем — только partner
-      if (s.role !== "partner" || !s.networkId || !s.pointId) {
+      if (!s || s.role !== "partner") return false;
+      var ids = Array.isArray(s.pointIds) ? s.pointIds.filter(Boolean) : [];
+      if (!ids.length && s.pointId) ids = [s.pointId];
+      if (!s.networkId || !ids.length) {
         clearSession_();
         return false;
       }
       DEMO_ROLE = "partner";
       DEMO_NETWORK = s.networkId || "";
-      DEMO_POINT = s.pointId || "";
+      DEMO_USERNAME = normUser_(s.username || "");
+      DEMO_POINT_IDS = ids;
       return true;
     } catch (e) { return false; }
   }
   function saveSession_() {
     try {
       sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-        role: DEMO_ROLE, networkId: DEMO_NETWORK, pointId: DEMO_POINT
+        role: DEMO_ROLE,
+        username: DEMO_USERNAME,
+        networkId: DEMO_NETWORK,
+        pointIds: DEMO_POINT_IDS.slice()
       }));
     } catch (e) {}
   }
   function clearSession_() {
-    DEMO_ROLE = ""; DEMO_NETWORK = ""; DEMO_POINT = "";
+    DEMO_ROLE = "";
+    DEMO_NETWORK = "";
+    DEMO_USERNAME = "";
+    DEMO_POINT_IDS = [];
     try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
   }
 
@@ -535,6 +596,9 @@
     for (var i = 0; i < POINTS.length; i++) if (POINTS[i].id === id) return POINTS[i];
     return null;
   }
+  function myPoints_() {
+    return DEMO_POINT_IDS.map(pointById_).filter(Boolean);
+  }
   function logoFor_(net) {
     if (net && net.logo) return net.logo;
     var label = String((net && net.name) || "?").slice(0, 10);
@@ -544,28 +608,29 @@
   }
 
   function buildMe_() {
-    var isOwner = DEMO_ROLE === "owner";
-    var isPartner = DEMO_ROLE === "partner";
     var net = netById_(DEMO_NETWORK);
-    var pt = pointById_(DEMO_POINT);
+    var pts = myPoints_();
     var allowed = {};
-    if (isOwner) {
-      POINTS.forEach(function (p) { allowed[p.id] = true; });
-    } else if (pt) {
-      allowed[pt.id] = true;
+    pts.forEach(function (p) { allowed[p.id] = true; });
+    var u = user();
+    var display = state.settings.displayName || "";
+    if (!display) {
+      var acc = accessForUsername_(DEMO_USERNAME);
+      display = (acc && acc.name) || (u.name) || (net ? net.name : "Партнёр");
     }
     return {
       status: "success",
-      role: DEMO_ROLE,
-      isOwner: isOwner,
-      isPartner: isPartner,
-      name: isOwner ? "Менеджер Good Boy" : ((state.settings.displayName) || (pt ? pt.name : (net ? net.name : "Партнёр"))),
+      role: "partner",
+      isOwner: false,
+      isPartner: true,
+      name: display,
+      username: DEMO_USERNAME || u.username || "",
       networkId: DEMO_NETWORK,
       networkName: net ? net.name : "",
-      pointId: DEMO_POINT,
-      pointName: pt ? pt.name : "",
+      pointIds: DEMO_POINT_IDS.slice(),
+      points: pts,
       allowedPointIds: allowed,
-      telegramId: "demo_" + (DEMO_ROLE || "x")
+      telegramId: u.telegramId || ("demo_" + (DEMO_USERNAME || "x"))
     };
   }
 
@@ -593,30 +658,83 @@
     if (bar) bar.style.display = (id === "screenOrder") ? "" : "none";
   }
 
-  function renderLogin_() {
-    var box = document.getElementById("loginPartnerList");
-    if (!box) return;
-    // Для демо: партнёр = сеть → первая точка сети как «своя»
-    box.innerHTML = NETWORKS.map(function (net) {
-      var pts = POINTS.filter(function (p) { return p.networkId === net.id; });
-      var first = pts[0];
-      if (!first) return "";
-      return '<button class="login-pick" type="button" onclick="demoLogin(\'partner\',\'' + esc(net.id) + '\',\'' + esc(first.id) + '\')">' +
-        '<img src="' + logoFor_(net) + '" alt="">' +
-        "<span>Войти · " + esc(net.name) +
-        '<span class="hint">точка: ' + esc(first.name) + " · 2 входа</span></span></button>";
-    }).join("");
-  }
-
-  function demoLogin(role, networkId, pointId) {
-    // Вход только партнёром. Кабинет владельца Good Boy — позже в миниапп Бойни.
+  function loginWithAccess_(acc, username) {
+    if (!acc || !acc.pointIds || !acc.pointIds.length) return false;
     DEMO_ROLE = "partner";
-    DEMO_NETWORK = networkId || "";
-    DEMO_POINT = pointId || "";
+    DEMO_NETWORK = acc.networkId || "";
+    DEMO_USERNAME = normUser_(username || "");
+    DEMO_POINT_IDS = acc.pointIds.slice();
     saveSession_();
     state.cart = {};
     state.point = null;
     enterApp_();
+    return true;
+  }
+
+  function renderLogin_() {
+    var box = document.getElementById("loginPartnerList");
+    var hint = document.getElementById("loginTgHint");
+    var u = user();
+    if (hint) {
+      if (u.username) {
+        var acc = accessForUsername_(u.username);
+        if (acc) {
+          hint.style.display = "";
+          hint.innerHTML = "Telegram <b>@" + esc(normUser_(u.username)) + "</b> · доступ есть · " +
+            acc.pointIds.length + " точ." +
+            ' · <button class="chip" type="button" onclick="loginAsTgUser()">Войти</button>';
+        } else {
+          hint.style.display = "";
+          hint.className = "err";
+          hint.innerHTML = "Ваш @" + esc(normUser_(u.username)) +
+            " пока без доступа. Напишите в бота — выдадим точки.";
+        }
+      } else {
+        hint.style.display = "";
+        hint.className = "okmsg";
+        hint.textContent = "Откройте из Telegram (@GOODBOY_LG) — вход по username. Ниже демо.";
+      }
+    }
+    if (!box) return;
+    // Демо-профили: как будто разные @username с разным набором точек
+    box.innerHTML = Object.keys(ACCESS_BY_USERNAME).map(function (uname) {
+      var acc = ACCESS_BY_USERNAME[uname];
+      var net = netById_(acc.networkId);
+      var names = (acc.pointIds || []).map(function (id) {
+        var p = pointById_(id);
+        return p ? p.name : id;
+      }).join(", ");
+      return '<button class="login-pick" type="button" onclick="demoLoginAs(\'' + esc(uname) + '\')">' +
+        '<img src="' + logoFor_(net) + '" alt="">' +
+        "<span>@" + esc(uname) + " · " + esc(acc.name) +
+        '<span class="hint">' + esc(names) + " · только эти</span></span></button>";
+    }).join("");
+  }
+
+  function demoLoginAs(username) {
+    var acc = accessForUsername_(username);
+    if (!acc) {
+      alert("Нет доступа для @" + username);
+      return;
+    }
+    loginWithAccess_(acc, username);
+  }
+
+  function loginAsTgUser() {
+    var u = user();
+    var acc = accessForUsername_(u.username);
+    if (!acc) {
+      alert("Нет доступа для @" + (u.username || "—"));
+      return;
+    }
+    loginWithAccess_(acc, u.username);
+  }
+
+  function demoLogin(role, networkId, pointId) {
+    // совместимость: один point → ищем профиль или создаём временный
+    if (pointId && networkId) {
+      loginWithAccess_({ networkId: networkId, pointIds: [pointId], name: "Партнёр" }, "demo");
+    }
   }
 
   function demoLogout() {
@@ -634,7 +752,9 @@
     var meta = document.getElementById("sessionMeta");
     if (who) who.textContent = state.me.name;
     if (meta) {
-      meta.textContent = "Партнёр · " + (state.me.networkName || "") + " · " + (state.me.pointName || "");
+      var n = (state.me.pointIds || []).length;
+      meta.textContent = (state.me.username ? ("@" + state.me.username + " · ") : "") +
+        (state.me.networkName || "") + " · " + n + " точ.";
     }
     show("screenHome");
   }
@@ -645,33 +765,29 @@
   }
 
   function goOrderFlow() {
+    var pts = (state.me && state.me.points) || myPoints_();
+    if (pts.length === 1) {
+      pickPoint(pts[0].id);
+      return;
+    }
     goPoints();
   }
 
   function goPoints() {
     var box = document.getElementById("pointsList");
-    var allowed = (state.me && state.me.allowedPointIds) || {};
-    var list = POINTS.slice();
-    // Партнёру показываем точки своей сети + чужие сети серыми (для наглядности)
-    if (state.me && state.me.isPartner) {
-      var mine = POINTS.filter(function (p) { return p.networkId === state.me.networkId; });
-      var others = POINTS.filter(function (p) { return p.networkId !== state.me.networkId; });
-      list = mine.concat(others);
+    // Только свои точки — чужие сети/адреса не показываем вообще
+    var list = (state.me && state.me.points) || myPoints_();
+    if (!list.length) {
+      box.innerHTML = '<div class="err">Нет привязанных точек к вашему @username. Напишите в бота.</div>';
+      show("screenPoints");
+      return;
     }
     box.innerHTML = list.map(function (pt) {
       var net = netById_(pt.networkId);
-      var ok = !!allowed[pt.id];
-      if (ok) {
-        return '<button class="loc" type="button" onclick="pickPoint(\'' + esc(pt.id) + '\')">' +
-          '<img class="logo" src="' + logoFor_(net) + '" alt="">' +
-          '<div><div class="name">' + esc(pt.name) + "</div>" +
-          '<div class="addr">' + esc(pt.address || (net && net.name) || "") + "</div></div></button>";
-      }
-      return '<div class="loc locked" title="Нет доступа">' +
+      return '<button class="loc" type="button" onclick="pickPoint(\'' + esc(pt.id) + '\')">' +
         '<img class="logo" src="' + logoFor_(net) + '" alt="">' +
         '<div><div class="name">' + esc(pt.name) + "</div>" +
-        '<div class="addr">' + esc(pt.address || (net && net.name) || "") + "</div></div>" +
-        '<span class="badge-lock">нет доступа</span></div>';
+        '<div class="addr">' + esc(pt.address || (net && net.name) || "") + "</div></div></button>";
     }).join("");
     show("screenPoints");
   }
@@ -679,7 +795,7 @@
   function pickPoint(id) {
     var allowed = (state.me && state.me.allowedPointIds) || {};
     if (!allowed[id]) {
-      alert("Эта точка недоступна. Нужен доступ от партнёра.");
+      alert("Нет доступа к этой точке.");
       return;
     }
     var pt = pointById_(id);
@@ -816,6 +932,13 @@
     var swN = document.getElementById("swNotify");
     if (swN) swN.classList.toggle("on", state.settings.notify !== false);
     applyTheme_(state.settings.theme || "dark");
+    var info = document.getElementById("accessInfo");
+    if (info && state.me) {
+      var pts = (state.me.points || []).map(function (p) { return p.name; }).join("<br>");
+      info.innerHTML = (state.me.username ? ("@" + esc(state.me.username) + " · ") : "") +
+        esc(state.me.networkName || "") +
+        "<br><br><b>Ваши точки:</b><br>" + (pts || "—");
+    }
     renderStaffList_();
     show("screenCabinet");
   }
@@ -848,12 +971,16 @@
     var tid = document.getElementById("staffTid").value.trim();
     var name = document.getElementById("staffName").value.trim() || "Сотрудник";
     if (!tid) { alert("Укажите Telegram ID"); return; }
+    var pts = (state.me.points || []).slice();
+    if (!pts.length) { alert("Нет своих точек"); return; }
+    // По умолчанию — доступ ко всем своим точкам партнёра
     DEMO.staffAccess = DEMO.staffAccess.filter(function (a) { return a.telegramId !== tid; });
     DEMO.staffAccess.push({
       telegramId: tid,
       name: name,
-      pointId: state.me.pointId,
-      pointName: state.me.pointName,
+      pointIds: pts.map(function (p) { return p.id; }),
+      pointId: pts[0].id,
+      pointName: pts.map(function (p) { return p.name; }).join(", "),
       networkId: state.me.networkId,
       status: "active"
     });
@@ -868,7 +995,13 @@
     if (!box) return;
     var list = DEMO.staffAccess.slice();
     if (state.me && state.me.isPartner) {
-      list = list.filter(function (a) { return a.pointId === state.me.pointId; });
+      var allowed = state.me.allowedPointIds || {};
+      list = list.filter(function (a) {
+        if (a.pointIds && a.pointIds.length) {
+          return a.pointIds.some(function (id) { return !!allowed[id]; });
+        }
+        return !!allowed[a.pointId];
+      });
     }
     if (!list.length) {
       box.innerHTML = '<div class="empty" style="padding:8px">Пока никого</div>';
@@ -884,20 +1017,32 @@
   function boot() {
     show("screenBoot");
     if (state.demo) {
+      // 1) Уже есть сессия
       if (loadSession_()) {
         enterApp_();
-      } else {
-        renderLogin_();
-        show("screenLogin");
+        return;
       }
+      // 2) Telegram username → авто-вход только со своими точками
+      var u = user();
+      if (u.username) {
+        var acc = accessForUsername_(u.username);
+        if (acc) {
+          loginWithAccess_(acc, u.username);
+          return;
+        }
+      }
+      // 3) Экран выбора / нет доступа
+      renderLogin_();
+      show("screenLogin");
       return;
     }
-    // Живой webhook — позже
     document.getElementById("bootMsg").innerHTML =
       '<div class="err">Webhook ещё не подключён. Демо: очистите VARKA_WEBHOOK_URL.</div>';
   }
 
   window.demoLogin = demoLogin;
+  window.demoLoginAs = demoLoginAs;
+  window.loginAsTgUser = loginAsTgUser;
   window.demoLogout = demoLogout;
   window.goHome = goHome;
   window.goOrderFlow = goOrderFlow;
