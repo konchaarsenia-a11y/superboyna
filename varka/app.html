@@ -86,6 +86,38 @@
     }
     .pill.wrap-c { display: block; width: fit-content; }
 
+    .locked-screen {
+      min-height: 72vh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; gap: 0;
+    }
+    .locked-screen .hero { margin: 0 0 8px; }
+    .locked-screen .hero img.mark {
+      width: 168px; height: 168px; border-radius: 28px;
+    }
+    .locked-screen .brand { margin-top: 2px; font-size: 30px; }
+    .maint-sign {
+      margin-top: 28px;
+      display: flex; flex-direction: column; align-items: center; gap: 14px;
+    }
+    .maint-glyph {
+      width: 72px; height: 64px;
+      display: grid; place-items: center;
+      animation: maintPulse 2.4s ease-in-out infinite;
+    }
+    .maint-glyph svg { width: 72px; height: 64px; display: block; }
+    @keyframes maintPulse {
+      0%, 100% { transform: translateY(0); opacity: 1; }
+      50% { transform: translateY(-3px); opacity: 0.88; }
+    }
+    .maint-sign .sub {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: 0.01em;
+    }
+
     .door {
       display: flex; align-items: center; gap: 14px; width: 100%;
       text-align: left; cursor: pointer;
@@ -300,11 +332,22 @@
 
     <!-- Временно закрыто -->
     <div id="screenLocked" class="screen">
-      <div class="hero">
-        <img class="mark" src="assets/goodboy-logo.png" alt="Good Boy">
+      <div class="locked-screen">
+        <div class="hero">
+          <img class="mark" src="assets/goodboy-logo.png" alt="Good Boy">
+          <div class="brand"><span class="gb">GOOD</span> BOY</div>
+        </div>
+        <div class="maint-sign" aria-label="Технические работы">
+          <div class="maint-glyph" aria-hidden="true">
+            <svg viewBox="0 0 72 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M36 4 L68 60 H4 Z" fill="#f59a2e" stroke="#1a140e" stroke-width="3" stroke-linejoin="round"/>
+              <rect x="33" y="22" width="6" height="20" rx="2" fill="#1a140e"/>
+              <circle cx="36" cy="50" r="3.2" fill="#1a140e"/>
+            </svg>
+          </div>
+          <div class="sub" id="lockedMsg">Ведутся технические работы</div>
+        </div>
       </div>
-      <div class="pill wrap-c">Good Boy</div>
-      <div class="sub" id="lockedMsg">Ведутся технические работы</div>
     </div>
 
     <!-- Личный кабинет (главный экран после входа) -->
@@ -438,7 +481,7 @@
 
   <script>
 (function () {
-  var APP_VER = "2.3.4";
+  var APP_VER = "2.3.5";
   // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры». ПУСТО = локальное демо.
   var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var SESSION_KEY = "gb_partner_session_v3";
