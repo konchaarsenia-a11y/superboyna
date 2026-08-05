@@ -104,19 +104,17 @@
     .coupon-card {
       background: linear-gradient(145deg, #121212 0%, #1a140f 100%);
       border: 1px solid rgba(255,122,0,0.28);
-      border-radius: 18px; padding: 14px; margin-bottom: 10px;
+      border-radius: 18px; padding: 12px; margin-bottom: 10px;
     }
-    .coupon-logos {
-      display: flex; align-items: center; justify-content: center;
-      gap: 16px; padding: 8px 4px 12px;
-    }
-    .coupon-logos img {
-      width: 88px; height: 88px; object-fit: contain;
-      border-radius: 12px;
+    .coupon-preview {
+      width: 100%; border-radius: 12px; display: block;
+      background: #000; border: 1px solid rgba(255,255,255,0.08);
+      aspect-ratio: 16 / 9; object-fit: cover;
     }
     .coupon-row {
       display: flex; align-items: center; gap: 12px;
-      padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.12);
+      padding-top: 12px; margin-top: 10px;
+      border-top: 1px dashed rgba(255,255,255,0.12);
     }
     .coupon-row .meta { flex: 1; }
     .stepper { display: flex; align-items: center; gap: 8px; }
@@ -293,12 +291,13 @@
 
   <script>
 (function () {
-  var APP_VER = "1.4.0";
+  var APP_VER = "1.5.0";
   // Свой webhook Varka (отдельный Script). ПУСТО = демо без сети.
   // НИКОГДА не ставить сюда /exec Бойни-конвейера.
   var VARKA_WEBHOOK_URL = "";
   var LOGO_VARKA = "assets/varka-logo.png";
   var LOGO_GOODBOY = "assets/goodboy-logo.png";
+  var COUPON_IMG = "assets/coupon-varka-goodboy.png";
 
   function partnerLogoFor_(loc) {
     if (!loc) return LOGO_GOODBOY;
@@ -362,11 +361,9 @@
       ]
     },
     catalog: [
-      { id: "vr_t_ears", type: "treat", name: "Говяжьи уши", unit: "шт", active: true, sort: 10 },
-      { id: "vr_t_trach", type: "treat", name: "Трахея", unit: "шт", active: true, sort: 20 },
-      { id: "vr_t_neck", type: "treat", name: "Утиные шеи", unit: "шт", active: true, sort: 30 },
-      { id: "vr_c_pack10", type: "coupon", name: "Купоны ×10", unit: "пачка", active: true, sort: 10 },
-      { id: "vr_c_pack20", type: "coupon", name: "Купоны ×20", unit: "пачка", active: true, sort: 20 }
+      { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "шт", active: true, sort: 10 },
+      { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "шт", active: true, sort: 20 },
+      { id: "vr_c_pack48", type: "coupon", name: "Купоны ×48", unit: "пачка", packSize: 48, active: true, sort: 10 }
     ],
     orders: []
   };
@@ -563,17 +560,16 @@
         '<button type="button" onclick="setQty(\'' + it.id + '\',1)">+</button>' +
         "</div>";
       if (it.type === "coupon") {
-        // На купоне — только два логотипа: партнёр + Good Boy
-        var partnerLogo = partnerLogoFor_(state.location);
+        // Один вариант: пачка ×48, qty = число пачек
+        var pack = Number(it.packSize) || 48;
+        var totalPcs = q * pack;
         return '<div class="coupon-card">' +
-          '<div class="coupon-logos">' +
-          '<img src="' + partnerLogo + '" alt="Партнёр">' +
-          '<img src="' + LOGO_GOODBOY + '" alt="Good Boy">' +
-          "</div>" +
+          '<img class="coupon-preview" src="' + COUPON_IMG + '" alt="Купон Varka × Good Boy">' +
           '<div class="coupon-row">' +
           '<div class="meta"><div class="title">' + esc(it.name) + "</div>" +
-          (unit ? '<div class="unit">' + unit + "</div>" : "") +
-          "</div>" + stepper +
+          '<div class="unit">1 пачка = ' + pack + " шт" +
+          (q > 0 ? (" · в заявке " + totalPcs + " шт") : "") +
+          "</div></div>" + stepper +
           "</div></div>";
       }
       return '<div class="item">' +
