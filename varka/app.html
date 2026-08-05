@@ -291,12 +291,22 @@
       <div class="sub">Небольшой вход для проверки. Позже — через бота и доступы.</div>
 
       <div class="card">
-        <h3>Партнёр</h3>
-        <p>В Telegram вход по <b>@username</b> — видите только свои точки. Ниже демо-профили для проверки.</p>
+        <h3>Сеть / проект</h3>
+        <p>Сначала выберите партнёра. У <b>Varka</b> — подэкран с вашими адресами (по @username).</p>
         <div id="loginTgHint" class="okmsg" style="display:none;margin-top:0;"></div>
         <div id="loginPartnerList"></div>
       </div>
       <p class="note">Заказы в Бойню / «Отложенные» подключим отдельно — этот миниап Бойню не трогает.</p>
+    </div>
+
+    <!-- Подэкран: адреса выбранной сети (Varka и др.) -->
+    <div id="screenLoginPoints" class="screen">
+      <div class="toprow">
+        <div class="title" id="loginPointsTitle">Адреса</div>
+        <button class="chip" type="button" onclick="backToLoginPartners()">Назад</button>
+      </div>
+      <div class="sub" style="text-align:left;margin-top:0;" id="loginPointsSub">Только ваши точки</div>
+      <div id="loginPointsList"></div>
     </div>
 
     <!-- Хаб: 2 входа -->
@@ -427,7 +437,7 @@
 
   <script>
 (function () {
-  var APP_VER = "2.1.1";
+  var APP_VER = "2.2.0";
   // Свой webhook. ПУСТО = демо. НИКОГДА не ставить /exec Бойни.
   var VARKA_WEBHOOK_URL = "";
   var SESSION_KEY = "gb_partner_session_v3";
@@ -470,7 +480,7 @@
   ];
 
   // Доступы: telegram username (без @, lower) → свои точки
-  // Позже — лист VR_Доступы / бот. Сейчас демо + авто-вход из Mini App.
+  // Позже — лист VR_Доступы / бот.
   var ACCESS_BY_USERNAME = {
     "varka_two": {
       name: "Партнёр Varka (2 точки)",
@@ -514,6 +524,17 @@
     }
   };
 
+  // Демо без TG username: какой профиль подставить для сети
+  var DEMO_FALLBACK_USER_BY_NETWORK = {
+    net_varka: "varka_two",
+    net_nan: "nan_demo",
+    net_fundog: "fundog_demo",
+    net_firedog: "firedog_demo",
+    net_polotno: "polotno_demo",
+    net_indixvost: "indixvost_demo",
+    net_bowwow: "bowwow_demo"
+  };
+
   var CATALOG = [
     { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "шт", active: true },
     { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "шт", active: true },
@@ -525,6 +546,7 @@
   var DEMO_NETWORK = "";
   var DEMO_USERNAME = "";
   var DEMO_POINT_IDS = [];
+  var pendingLogin_ = null; // { acc, username, networkId, points[] }
 
   var state = {
     me: null,
@@ -665,7 +687,7 @@
   }
 
   function show(id) {
-    ["screenBoot", "screenLogin", "screenHome", "screenPoints", "screenOrder", "screenMyOrders", "screenCabinet"].forEach(function (s) {
+    ["screenBoot", "screenLogin", "screenLoginPoints", "screenHome", "screenPoints", "screenOrder", "screenMyOrders", "screenCabinet"].forEach(function (s) {
       var el = document.getElementById(s);
       if (el) el.classList.toggle("on", s === id);
     });
@@ -673,7 +695,33 @@
     if (bar) bar.style.display = (id === "screenOrder") ? "" : "none";
   }
 
-  function loginWithAccess_(acc, username) {
+  function resolveAccessForNetwork_(networkId) {
+    var u = user();
+    var uname = normUser_(u.username);
+    var acc = null;
+    if (uname) {
+      acc = accessForUsername_(uname);
+      if (acc && acc.networkId !== networkId) {
+        return { error: "no_network", username: uname, acc: acc };
+      }
+      if (!acc) return { error: "no_access", username: uname };
+      return { acc: acc, username: uname, demo: false };
+    }
+    // Браузер / нет username — демо-профиль сети
+    var fallback = DEMO_FALLBACK_USER_BY_NETWORK[networkId];
+    acc = fallback ? accessForUsername_(fallback) : null;
+    if (!acc) return { error: "no_access", username: "" };
+    return { acc: acc, username: fallback, demo: true };
+  }
+
+  function pointsForAccessNetwork_(acc, networkId) {
+    var ids = (acc && acc.pointIds) || [];
+    return ids.map(pointById_).filter(function (p) {
+      return p && p.networkId === networkId;
+    });
+  }
+
+  function loginWithAccess_(acc, username, preselectPointId) {
     if (!acc || !acc.pointIds || !acc.pointIds.length) return false;
     DEMO_ROLE = "partner";
     DEMO_NETWORK = acc.networkId || "";
@@ -681,7 +729,7 @@
     DEMO_POINT_IDS = acc.pointIds.slice();
     saveSession_();
     state.cart = {};
-    state.point = null;
+    state.point = preselectPointId ? pointById_(preselectPointId) : null;
     enterApp_();
     return true;
   }
@@ -690,14 +738,17 @@
     var box = document.getElementById("loginPartnerList");
     var hint = document.getElementById("loginTgHint");
     var u = user();
+    pendingLogin_ = null;
     if (hint) {
+      hint.className = "okmsg";
       if (u.username) {
         var acc = accessForUsername_(u.username);
         if (acc) {
+          var net = netById_(acc.networkId);
           hint.style.display = "";
-          hint.innerHTML = "Telegram <b>@" + esc(normUser_(u.username)) + "</b> · доступ есть · " +
-            acc.pointIds.length + " точ." +
-            ' · <button class="chip" type="button" onclick="loginAsTgUser()">Войти</button>';
+          hint.innerHTML = "Вы @" + esc(normUser_(u.username)) +
+            " · сеть <b>" + esc(net ? net.name : acc.networkId) + "</b> · " +
+            acc.pointIds.length + " точ. Выберите сеть ниже — увидите только свои адреса.";
         } else {
           hint.style.display = "";
           hint.className = "err";
@@ -706,24 +757,98 @@
         }
       } else {
         hint.style.display = "";
-        hint.className = "okmsg";
-        hint.textContent = "Откройте из Telegram (@GOODBOY_LG) — вход по username. Ниже демо.";
+        hint.textContent = "Демо: Varka откроет 2 своих адреса (Немига, Каменная). В Telegram — по @username.";
       }
     }
     if (!box) return;
-    // Демо-профили: как будто разные @username с разным набором точек
-    box.innerHTML = Object.keys(ACCESS_BY_USERNAME).map(function (uname) {
-      var acc = ACCESS_BY_USERNAME[uname];
-      var net = netById_(acc.networkId);
-      var names = (acc.pointIds || []).map(function (id) {
-        var p = pointById_(id);
-        return p ? p.name : id;
-      }).join(", ");
-      return '<button class="login-pick" type="button" onclick="demoLoginAs(\'' + esc(uname) + '\')">' +
+    // Одна вкладка на сеть: Varka + остальные партнёры
+    box.innerHTML = NETWORKS.map(function (net) {
+      var isVarka = net.id === "net_varka";
+      return '<button class="login-pick" type="button" onclick="pickPartnerNetwork(\'' + esc(net.id) + '\')">' +
         '<img src="' + logoFor_(net) + '" alt="">' +
-        "<span>@" + esc(uname) + " · " + esc(acc.name) +
-        '<span class="hint">' + esc(names) + " · только эти</span></span></button>";
+        "<span>" + esc(net.name) +
+        '<span class="hint">' +
+        (isVarka ? "адреса ваших точек Varka" : "вход в сеть") +
+        "</span></span></button>";
     }).join("");
+  }
+
+  function pickPartnerNetwork(networkId) {
+    var net = netById_(networkId);
+    if (!net) return;
+    var resolved = resolveAccessForNetwork_(networkId);
+    if (resolved.error === "no_access") {
+      alert(resolved.username
+        ? ("@" + resolved.username + " — нет доступа к " + net.name)
+        : ("Нет доступа к " + net.name));
+      return;
+    }
+    if (resolved.error === "no_network") {
+      var own = netById_(resolved.acc.networkId);
+      alert("@" + resolved.username + " привязан к «" + (own ? own.name : "") +
+        "», не к «" + net.name + "».");
+      return;
+    }
+    var pts = pointsForAccessNetwork_(resolved.acc, networkId);
+    if (!pts.length) {
+      alert("Нет точек " + net.name + " в вашем доступе.");
+      return;
+    }
+    // Varka всегда через подэкран адресов; остальные — если точек > 1
+    var needAddressScreen = networkId === "net_varka" || pts.length > 1;
+    if (!needAddressScreen) {
+      loginWithAccess_(resolved.acc, resolved.username, pts[0].id);
+      return;
+    }
+    pendingLogin_ = {
+      acc: resolved.acc,
+      username: resolved.username,
+      networkId: networkId,
+      points: pts,
+      demo: !!resolved.demo
+    };
+    renderLoginPoints_();
+    show("screenLoginPoints");
+  }
+
+  function renderLoginPoints_() {
+    var p = pendingLogin_;
+    var box = document.getElementById("loginPointsList");
+    var title = document.getElementById("loginPointsTitle");
+    var sub = document.getElementById("loginPointsSub");
+    if (!p || !box) return;
+    var net = netById_(p.networkId);
+    if (title) title.textContent = (net ? net.name : "Сеть") + " · адреса";
+    if (sub) {
+      sub.innerHTML = (p.username ? ("@" + esc(p.username) + " · ") : "") +
+        "показаны только ваши точки" +
+        (p.demo ? " <span class=\"badge\">демо</span>" : "") +
+        ". Всего в сети больше — чужие скрыты.";
+    }
+    box.innerHTML = p.points.map(function (pt) {
+      return '<button class="loc" type="button" onclick="confirmLoginPoint(\'' + esc(pt.id) + '\')">' +
+        '<img class="logo" src="' + logoFor_(net) + '" alt="">' +
+        '<div><div class="name">' + esc(pt.name) + "</div>" +
+        '<div class="addr">' + esc(pt.address || "") + "</div></div></button>";
+    }).join("");
+  }
+
+  function confirmLoginPoint(pointId) {
+    var p = pendingLogin_;
+    if (!p || !p.acc) return;
+    var ok = (p.points || []).some(function (pt) { return pt.id === pointId; });
+    if (!ok) {
+      alert("Нет доступа к этой точке");
+      return;
+    }
+    loginWithAccess_(p.acc, p.username, pointId);
+    pendingLogin_ = null;
+  }
+
+  function backToLoginPartners() {
+    pendingLogin_ = null;
+    renderLogin_();
+    show("screenLogin");
   }
 
   function demoLoginAs(username) {
@@ -732,7 +857,7 @@
       alert("Нет доступа для @" + username);
       return;
     }
-    loginWithAccess_(acc, username);
+    pickPartnerNetwork(acc.networkId);
   }
 
   function loginAsTgUser() {
@@ -742,18 +867,16 @@
       alert("Нет доступа для @" + (u.username || "—"));
       return;
     }
-    loginWithAccess_(acc, u.username);
+    pickPartnerNetwork(acc.networkId);
   }
 
   function demoLogin(role, networkId, pointId) {
-    // совместимость: один point → ищем профиль или создаём временный
-    if (pointId && networkId) {
-      loginWithAccess_({ networkId: networkId, pointIds: [pointId], name: "Партнёр" }, "demo");
-    }
+    if (networkId) pickPartnerNetwork(networkId);
   }
 
   function demoLogout() {
     clearSession_();
+    pendingLogin_ = null;
     state.me = null;
     state.point = null;
     state.cart = {};
