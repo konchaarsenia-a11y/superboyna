@@ -295,15 +295,6 @@
         <p>Заказ + личный кабинет своей точки. Чужие точки серые.</p>
         <div id="loginPartnerList"></div>
       </div>
-
-      <div class="card">
-        <h3>Владелец Good Boy</h3>
-        <p>Только для проверки менеджером (позже — отдельно).</p>
-        <button class="login-pick" type="button" onclick="demoLogin('owner')">
-          <img src="assets/goodboy-logo.png" alt="">
-          <span>Войти как владелец<span class="hint">все точки · все заказы</span></span>
-        </button>
-      </div>
       <p class="note">Заказы в Бойню / «Отложенные» подключим отдельно — этот миниап Бойню не трогает.</p>
     </div>
 
@@ -419,10 +410,6 @@
         <button class="btn block" type="button" onclick="grantStaffAccess()">Выдать доступ</button>
         <div id="staffList" style="margin-top:12px;"></div>
       </div>
-      <div class="card" id="ownerExtra" style="display:none;">
-        <h3>Владелец · все заказы (демо)</h3>
-        <div id="ownerOrders"></div>
-      </div>
     </div>
   </div>
 
@@ -435,7 +422,7 @@
 
   <script>
 (function () {
-  var APP_VER = "2.0.1";
+  var APP_VER = "2.0.2";
   // Свой webhook. ПУСТО = демо. НИКОГДА не ставить /exec Бойни.
   var VARKA_WEBHOOK_URL = "";
   var SESSION_KEY = "gb_partner_session_v2";
@@ -517,7 +504,12 @@
     try {
       var s = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
       if (!s || !s.role) return false;
-      DEMO_ROLE = s.role;
+      // Старые демо-сессии owner больше не пускаем — только partner
+      if (s.role !== "partner" || !s.networkId || !s.pointId) {
+        clearSession_();
+        return false;
+      }
+      DEMO_ROLE = "partner";
       DEMO_NETWORK = s.networkId || "";
       DEMO_POINT = s.pointId || "";
       return true;
@@ -617,13 +609,10 @@
   }
 
   function demoLogin(role, networkId, pointId) {
-    DEMO_ROLE = role === "owner" ? "owner" : "partner";
+    // Вход только партнёром. Кабинет владельца Good Boy — позже в миниапп Бойни.
+    DEMO_ROLE = "partner";
     DEMO_NETWORK = networkId || "";
     DEMO_POINT = pointId || "";
-    if (DEMO_ROLE === "owner") {
-      DEMO_NETWORK = "";
-      DEMO_POINT = "";
-    }
     saveSession_();
     state.cart = {};
     state.point = null;
@@ -645,9 +634,7 @@
     var meta = document.getElementById("sessionMeta");
     if (who) who.textContent = state.me.name;
     if (meta) {
-      meta.textContent = state.me.isOwner
-        ? "Владелец · все точки"
-        : ("Партнёр · " + (state.me.networkName || "") + " · " + (state.me.pointName || ""));
+      meta.textContent = "Партнёр · " + (state.me.networkName || "") + " · " + (state.me.pointName || "");
     }
     show("screenHome");
   }
@@ -830,19 +817,6 @@
     if (swN) swN.classList.toggle("on", state.settings.notify !== false);
     applyTheme_(state.settings.theme || "dark");
     renderStaffList_();
-    var ox = document.getElementById("ownerExtra");
-    if (ox) {
-      ox.style.display = (state.me && state.me.isOwner) ? "" : "none";
-      if (state.me && state.me.isOwner) {
-        var oo = document.getElementById("ownerOrders");
-        oo.innerHTML = DEMO.orders.length
-          ? DEMO.orders.map(function (o) {
-              return '<div class="item"><div class="meta"><div class="title">' + esc(o.locationName) +
-                '</div><div class="unit">' + esc(o.dateIso) + " · " + esc(o.userName) + "</div></div></div>";
-            }).join("")
-          : '<div class="empty" style="padding:12px">Заказов нет</div>';
-      }
-    }
     show("screenCabinet");
   }
 
