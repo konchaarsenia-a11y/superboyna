@@ -4,9 +4,24 @@ Telegram Mini App для **партнёрских сетей**: бесплатн
 
 **Живой URL:** https://konchaarsenia-a11y.github.io/superboyna/varka/
 
+**Бот партнёров:** [@GOODBOY_LG](https://t.me/GOODBOY_LG)  
+(отдельный от бота Бойни; токен только в Script Properties / `secrets.local.md`, не в git)
+
 **Стиль:** как Instagram [@goodboy_rb](https://www.instagram.com/goodboy_rb/) — чёрный фон, крем, оранжевый акцент, логотип Good Boy.
 
 **Бесплатно** — цен нет.
+
+## Привязка Mini App к боту (BotFather)
+
+1. [@BotFather](https://t.me/BotFather) → `/mybots` → **GOODBOY_LG**
+2. **Bot Settings → Menu Button → Configure menu button**
+   - Text: `Открыть`
+   - URL: `https://konchaarsenia-a11y.github.io/superboyna/varka/`
+3. Проверка: открыть [@GOODBOY_LG](https://t.me/GOODBOY_LG) → кнопка меню слева от поля ввода → должен открыться миниап с лого Good Boy.
+
+Токен бота в репозиторий **не** писать. Для webhook/уведомлений позже — `PropertiesService` в своём Script.
+
+---
 
 ## ⚠️ Не трогать конвейер Бойни
 
