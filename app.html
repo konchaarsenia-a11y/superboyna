@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.137";
+      var APP_VER = "v7.11.138";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1461,6 +1461,7 @@
           <button type="button" class="tab-link" data-screen="cuttingScreen" onclick="switchTab('cuttingScreen')">Нарезка</button>
           <button type="button" class="tab-link" data-screen="courierScreen" onclick="switchTab('courierScreen')">Курьер</button>
           <button type="button" class="tab-link" data-screen="warehouseScreen" onclick="switchTab('warehouseScreen')">Склад</button>
+          <button type="button" class="tab-link" data-screen="partnerHubScreen" onclick="switchTab('partnerHubScreen')">Партнёры</button>
         </div>
         <div class="order-flyout" id="orderFlyout">
           <button type="button" class="order-flyout-btn" data-fly="clientsScreen" data-fly-roles="manager,owner,all">Просмотр</button>
@@ -1469,7 +1470,6 @@
           <button type="button" class="order-flyout-btn" data-fly="subsScreen" data-fly-roles="owner,all">Подписки</button>
           <button type="button" class="order-flyout-btn" data-fly="statsScreen" data-fly-roles="owner,all">Статистика</button>
           <button type="button" class="order-flyout-btn" data-fly="peopleScreen" data-fly-roles="owner,all">Доступы</button>
-          <button type="button" class="order-flyout-btn" data-fly="partnerHubScreen" data-fly-roles="owner,all">Партнёры</button>
         </div>
         <div class="courier-flyout" id="courierFlyout">
           <button type="button" class="order-flyout-btn" data-cfly="route">Маршрут</button>
@@ -2610,7 +2610,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.137";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.138";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2772,7 +2772,7 @@
       pending: [],
       denied: []
     };
-    const MAIN_TABS = ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen"];
+    const MAIN_TABS = ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "partnerHubScreen"];
     /* priceMode set above */
     let courierSub = "route";
     let weekTabUnlocked = false;
@@ -2784,7 +2784,7 @@
       "крафт": true
     };
     let assemblyCache = null;
-    const FLYOUT_SCREENS = ["clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen", "partnerHubScreen"];
+    const FLYOUT_SCREENS = ["clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen"];
     let deferredCache = [];
     let deferredOpenCount = 0;
     let deferredCacheAt = 0;
