@@ -604,6 +604,24 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 .cta-band .cta-row { position: relative; }
 
+.about-shot {
+  margin: 28px 0 0;
+  max-width: 420px;
+}
+.about-shot img {
+  width: 100%;
+  display: block;
+  border-radius: 18px;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+}
+.about-shot figcaption {
+  margin-top: 10px;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: var(--gb-muted);
+}
+
 .cta-note {
   margin: 12px 0 0;
   max-width: 32rem;
