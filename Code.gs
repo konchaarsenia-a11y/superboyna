@@ -2603,8 +2603,17 @@ function handleGetCourier(dayName, callback) {
     }
     var ppSlotOut = "";
     if (isPpOrder) {
-      ppSlotOut = formatPpSlotLabel_(deliverySlot, deliveriesN) || String(client.ppSlot || "").trim();
+      ppSlotOut = formatPpSlotLabel_(deliverySlot, deliveriesN);
+      if (!ppSlotOut) {
+        var rawSlot = String(client.ppSlot || "").trim();
+        // не тащить Date.toString() («Sun Feb 01…») в бейдж
+        if (rawSlot && !/GMT|[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}/.test(rawSlot) &&
+            parseForcedPpSlot_(rawSlot, deliveriesN || 2) >= 1) {
+          ppSlotOut = rawSlot;
+        }
+      }
       if (!ppHint && ppSlotOut) ppHint = "ПП " + ppSlotOut;
+      if (ppHint && /GMT|[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}/.test(ppHint)) ppHint = "";
     }
     clients.push({
       name: client.name,
