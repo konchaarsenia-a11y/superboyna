@@ -38,9 +38,8 @@ API (`Code.gs`): `partnerListAdmin`, `partnerGetMe`, `partnerSaveNetwork`, `part
 
 Мини-апп читает тот же webhook Бойни (`partnerGetMe` по Telegram username / telegramId).
 
-**Сейчас (временно):** вход только для **владельцев Бойни** (`OWNER_TELEGRAM_IDS` / роль `owner` в листе «Доступы»).  
-Партнёры из `Partner_Access` пока не пускаются — флаг `PARTNER_MINIAPP_OWNERS_ONLY_` в `Code.gs`.  
-Нужен **Deploy Code.gs**, иначе live webhook ещё пускает по старой логике.
+**Сейчас (временно):** вход только для **владельцев Бойни** — проверка на фронте через уже живой `getMyAccess` (`role=owner`).  
+**Deploy Code.gs не нужен.** Партнёров откроем позже (фронтовый флаг `OWNERS_ONLY_MODE_` + при желании серверный `PARTNER_MINIAPP_OWNERS_ONLY_`).
 
 Не путать с листом **«Партнёры»** (источник БП во вкладке Доступы).
 
@@ -75,7 +74,7 @@ Telegram telegramId → partnerGetMe → (owners-only) владелец → вс
 - [x] Убран вход «Владелец» из `varka/`
 - [x] Вкладка владельца в Бойне (сети/точки/доступы)
 - [x] Листы Partner_* + seed
-- [~] Временно: мини-апп только владельцам Бойни (`PARTNER_MINIAPP_OWNERS_ONLY_`) — **Pages** · **нужен Deploy Code.gs**
+- [x] Временно: мини-апп только владельцам Бойни — фронт `getMyAccess` · **Pages** (без Deploy)
 - [ ] Пуш заказов в Бойню / Отложенные
 - [ ] `/start` с кнопкой Web App
 - [ ] Открыть доступ партнёрам из `Partner_Access` (снять owners-only)

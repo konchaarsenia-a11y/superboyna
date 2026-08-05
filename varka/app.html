@@ -439,14 +439,15 @@
 
   <script>
 (function () {
-  var APP_VER = "2.3.2";
+  var APP_VER = "2.3.3";
   // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры». ПУСТО = локальное демо.
   var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var SESSION_KEY = "gb_partner_session_v3";
   var SETTINGS_KEY = "gb_partner_settings_v2";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
   var COUPON_BANNER = "assets/coupon-banner.png";
-  var OWNERS_ONLY_MODE_ = false;
+  // Без правок Code.gs: закрываем всех, кроме role=owner из уже живого getMyAccess.
+  var OWNERS_ONLY_MODE_ = true;
   var REMOTE_IS_OWNER_ = false;
 
   var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
@@ -1228,63 +1229,91 @@
     }
   }
 
+  function isBoynaOwnerRole_(acc) {
+    return !!(acc && String(acc.role || "").toLowerCase() === "owner" &&
+      String(acc.access || "").toLowerCase() !== "denied");
+  }
+
+  function enterAsOwnerFallback_(u, accName) {
+    var allIds = POINTS.map(function (p) { return p.id; });
+    var firstNet = (POINTS[0] && POINTS[0].networkId) || (NETWORKS[0] && NETWORKS[0].id) || "";
+    loginWithAccess_({
+      name: accName || u.name || "Владелец Good Boy",
+      networkId: firstNet,
+      pointIds: allIds,
+      isOwner: true
+    }, u.username || "");
+  }
+
   async function bootFromApi_() {
     document.getElementById("bootMsg").textContent = "Вход…";
     try {
       var u = user();
-      if (loadSession_()) {
-        var probe = await apiGet_({
-          action: "partnerGetMe",
-          username: DEMO_USERNAME || u.username || "",
-          telegramId: u.telegramId || "",
-          _: String(Date.now())
-        });
-        if (probe && probe.ownersOnly) OWNERS_ONLY_MODE_ = true;
-        applyRemoteConfig_(probe);
-        if (probe && probe.allowed && (probe.pointIds || []).length) {
-          REMOTE_IS_OWNER_ = !!probe.isOwner || probe.role === "owner";
-          DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
-          DEMO_NETWORK = probe.networkId || DEMO_NETWORK;
-          DEMO_POINT_IDS = (probe.pointIds || []).slice();
-          if (probe.username) DEMO_USERNAME = normUser_(probe.username);
-          saveSession_();
-          enterApp_();
-          return;
-        }
-        showLocked_(probe && probe.ownersOnly
-          ? "Сейчас мини-апп открыт только владельцам Good Boy. Партнёров подключим после настройки доступов в Бойне."
-          : "Нет доступа к партнёрскому мини-аппу.");
+      if (!u.telegramId) {
+        showLocked_("Откройте мини-апп из Telegram. Сейчас доступ только владельцам Good Boy.");
         return;
       }
-      var res = await apiGet_({
-        action: "partnerGetMe",
+
+      var acc = await apiGet_({
+        action: "getMyAccess",
+        telegramId: u.telegramId,
         username: u.username || "",
-        telegramId: u.telegramId || "",
+        name: u.name || "",
         _: String(Date.now())
       });
-      if (res && res.ownersOnly) OWNERS_ONLY_MODE_ = true;
-      applyRemoteConfig_(res);
-      if (res && res.allowed && (res.pointIds || []).length) {
-        loginWithAccess_({
-          name: res.name,
-          networkId: res.networkId,
-          pointIds: res.pointIds,
-          isOwner: !!res.isOwner || res.role === "owner"
-        }, res.username || u.username || "");
-        return;
-      }
-      if (res && res.ownersOnly) {
+      if (!isBoynaOwnerRole_(acc)) {
+        clearSession_();
         showLocked_();
         return;
       }
-      renderLogin_();
-      show("screenLogin");
-      var msg = document.getElementById("bootMsg");
-      if (msg) msg.textContent = "";
+
+      // Владелец по Бойне — пускаем. Точки: partnerGetMe / partnerListAdmin, иначе локальный каталог.
+      var res = null;
+      try {
+        res = await apiGet_({
+          action: "partnerGetMe",
+          username: u.username || "",
+          telegramId: u.telegramId || "",
+          _: String(Date.now())
+        });
+        applyRemoteConfig_(res);
+      } catch (eGet) { res = null; }
+
+      if (res && res.allowed && (res.pointIds || []).length) {
+        loginWithAccess_({
+          name: res.name || acc.name || u.name,
+          networkId: res.networkId,
+          pointIds: res.pointIds,
+          isOwner: true
+        }, res.username || u.username || "");
+        return;
+      }
+
+      try {
+        var admin = await apiGet_({
+          action: "partnerListAdmin",
+          telegramId: u.telegramId,
+          _: String(Date.now())
+        });
+        if (admin && admin.status === "success") {
+          applyRemoteConfig_(admin);
+          var pts = Array.isArray(admin.points) ? admin.points : POINTS;
+          var ids = pts.map(function (p) { return p.id; }).filter(Boolean);
+          if (ids.length) {
+            loginWithAccess_({
+              name: acc.name || u.name || "Владелец Good Boy",
+              networkId: (pts[0] && pts[0].networkId) || "",
+              pointIds: ids,
+              isOwner: true
+            }, u.username || "");
+            return;
+          }
+        }
+      } catch (eAdm) {}
+
+      enterAsOwnerFallback_(u, acc.name);
     } catch (e) {
-      document.getElementById("bootMsg").innerHTML =
-        '<div class="err">Не удалось связаться с Бойней. Нужен Deploy Code.gs.</div>';
-      showLocked_("Не удалось проверить доступ. Откройте снова после Deploy Code.gs.");
+      showLocked_("Не удалось проверить доступ в Бойне. Откройте снова из Telegram.");
     }
   }
 
