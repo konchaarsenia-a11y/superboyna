@@ -251,12 +251,12 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 .promise-hero {
   font-family: var(--gb-display);
-  font-size: clamp(2.2rem, 6.5vw, 3.4rem);
-  line-height: 1.02;
+  font-size: clamp(2.1rem, 6.2vw, 3.2rem);
+  line-height: 1.05;
   letter-spacing: 0.01em;
   text-transform: uppercase;
   margin: 0 0 14px;
-  max-width: 14ch;
+  max-width: 16ch;
   color: var(--gb-cream);
   background: none;
   -webkit-background-clip: unset;
