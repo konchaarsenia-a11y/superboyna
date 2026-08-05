@@ -67,8 +67,11 @@
       display: flex; flex-direction: column; align-items: center;
       gap: 10px; margin: 8px 0 6px; text-align: center;
     }
-    .hero img.mark { width: 72px; height: 72px; object-fit: contain; }
-    .hero img.word { width: min(220px, 70vw); height: auto; object-fit: contain; }
+    .hero img.mark {
+      width: 140px; height: 140px; object-fit: contain;
+      border-radius: 22px;
+    }
+    .hero img.mark.sm { width: 72px; height: 72px; border-radius: 16px; }
     .brand {
       font-family: var(--display); font-size: 28px; letter-spacing: 0.04em;
       margin: 4px 0 0; text-align: center;
@@ -274,8 +277,7 @@
     <!-- Boot -->
     <div id="screenBoot" class="screen on">
       <div class="hero">
-        <img class="mark" src="assets/logo-mark.png" alt="Good Boy">
-        <img class="word" src="assets/logo-wordmark.png" alt="GOOD BOY">
+        <img class="mark" src="assets/goodboy-logo.png" alt="Good Boy">
       </div>
       <p class="empty" id="bootMsg">Вход…</p>
     </div>
@@ -283,8 +285,7 @@
     <!-- Демо-вход (позже заменит бот + доступы) -->
     <div id="screenLogin" class="screen">
       <div class="hero">
-        <img class="mark" src="assets/logo-mark.png" alt="Good Boy">
-        <img class="word" src="assets/logo-wordmark.png" alt="GOOD BOY">
+        <img class="mark" src="assets/goodboy-logo.png" alt="Good Boy">
       </div>
       <div class="pill wrap-c">Партнёрское пополнение</div>
       <div class="sub">Небольшой вход для проверки. Позже — через бота и доступы.</div>
@@ -299,7 +300,7 @@
         <h3>Владелец Good Boy</h3>
         <p>Только для проверки менеджером (позже — отдельно).</p>
         <button class="login-pick" type="button" onclick="demoLogin('owner')">
-          <img src="assets/logo-mark.png" alt="">
+          <img src="assets/goodboy-logo.png" alt="">
           <span>Войти как владелец<span class="hint">все точки · все заказы</span></span>
         </button>
       </div>
@@ -309,7 +310,7 @@
     <!-- Хаб: 2 входа -->
     <div id="screenHome" class="screen">
       <div class="hero">
-        <img class="mark" src="assets/logo-mark.png" alt="Good Boy">
+        <img class="mark sm" src="assets/goodboy-logo.png" alt="Good Boy">
       </div>
       <div class="session" id="sessionBar">
         <div>
@@ -350,7 +351,7 @@
       <div class="pair" id="orderPair">
         <img id="orderPartnerLogo" src="assets/varka-logo.png" alt="">
         <span class="x">×</span>
-        <img src="assets/logo-mark.png" alt="Good Boy">
+        <img src="assets/goodboy-logo.png" alt="Good Boy">
       </div>
       <div class="toprow">
         <div>
@@ -434,7 +435,7 @@
 
   <script>
 (function () {
-  var APP_VER = "2.0.0";
+  var APP_VER = "2.0.1";
   // Свой webhook. ПУСТО = демо. НИКОГДА не ставить /exec Бойни.
   var VARKA_WEBHOOK_URL = "";
   var SESSION_KEY = "gb_partner_session_v2";
