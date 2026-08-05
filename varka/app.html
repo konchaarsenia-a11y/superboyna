@@ -671,7 +671,9 @@
           type: it.type,
           name: it.name,
           qty: q,
-          unit: it.unit || ""
+          unit: it.unit || "",
+          packSize: it.packSize || null,
+          pieces: it.type === "coupon" ? q * (Number(it.packSize) || 48) : null
         });
       }
     });
