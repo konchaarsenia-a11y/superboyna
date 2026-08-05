@@ -189,10 +189,15 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
     grid-template-columns: 1.1fr 0.9fr;
     gap: 48px;
   }
+  .hero-grid--manifesto {
+    grid-template-columns: 0.95fr 1.05fr;
+    gap: 40px;
+  }
 }
 
 .hero-copy .eyebrow,
 .hero-copy .brand-hero,
+.hero-copy .promise-hero,
 .hero-copy .tagline,
 .hero-copy .cta-row {
   opacity: 0;
@@ -200,7 +205,8 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   animation: rise 0.85s var(--ease) forwards;
 }
 .hero-copy .eyebrow { animation-delay: 0.05s; }
-.hero-copy .brand-hero { animation-delay: 0.14s; }
+.hero-copy .brand-hero,
+.hero-copy .promise-hero { animation-delay: 0.14s; }
 .hero-copy .tagline { animation-delay: 0.24s; }
 .hero-copy .cta-row { animation-delay: 0.34s; }
 .hero-stage {
@@ -208,6 +214,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   transform: translate3d(0, 24px, 0) scale(0.96);
   animation: riseScale 1s var(--ease) 0.18s forwards;
 }
+.site-hero--manifesto .hero-stage { animation-delay: 0.06s; }
 
 @keyframes rise {
   to { opacity: 1; transform: translate3d(0, 0, 0); }
@@ -235,6 +242,15 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .brand-hero span {
   color: var(--gb-orange);
   text-shadow: 0 0 40px rgba(245,154,46,0.25);
+}
+.promise-hero {
+  font-family: var(--gb-display);
+  font-size: clamp(2.35rem, 7.2vw, 3.85rem);
+  line-height: 0.98;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  margin: 0 0 16px;
+  max-width: 11ch;
 }
 .tagline {
   max-width: 28rem;
@@ -289,6 +305,12 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 @media (min-width: 880px) {
   .hero-stage { width: min(100%, 380px); }
+  .site-hero--manifesto .hero-stage { width: min(100%, 440px); }
+}
+@media (max-width: 879px) {
+  .hero-grid--manifesto { gap: 20px; }
+  .site-hero--manifesto .hero-stage { order: -1; width: min(72vw, 280px); }
+  .promise-hero { max-width: none; }
 }
 .hero-glow {
   position: absolute;
@@ -342,9 +364,53 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   padding: 80px 20px;
   position: relative;
 }
+.site-section--alt {
+  background:
+    linear-gradient(180deg, rgba(245,154,46,0.04), transparent 28%),
+    #0a0a0a;
+  border-top: 1px solid rgba(244,235,224,0.06);
+  border-bottom: 1px solid rgba(244,235,224,0.06);
+}
 .site-section .inner {
   width: min(840px, 100%);
   margin: 0 auto;
+}
+.manifesto-line {
+  margin: 0;
+  font-family: var(--gb-display);
+  font-size: clamp(1.15rem, 3vw, 1.45rem);
+  line-height: 1.25;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--gb-orange-2);
+  max-width: 22rem;
+}
+.horizon-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.horizon-list li {
+  display: grid;
+  gap: 6px;
+  padding: 20px 0;
+  border-top: 1px solid rgba(244,235,224,0.1);
+}
+.horizon-list li:last-child {
+  border-bottom: 1px solid rgba(244,235,224,0.1);
+}
+.horizon-list strong {
+  font-family: var(--gb-display);
+  font-size: 1.15rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.horizon-list span {
+  color: var(--gb-muted);
+  line-height: 1.45;
+  font-size: 0.98rem;
+  max-width: 36rem;
 }
 .sec-kicker {
   color: var(--gb-orange);
@@ -518,6 +584,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   html { scroll-behavior: auto; }
   .hero-copy .eyebrow,
   .hero-copy .brand-hero,
+  .hero-copy .promise-hero,
   .hero-copy .tagline,
   .hero-copy .cta-row,
   .hero-stage {
