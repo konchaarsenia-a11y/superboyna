@@ -1637,6 +1637,12 @@ function doGet(e) {
   if (action === "partnerSeedDefaults") {
     return handlePartnerSeedDefaults({ telegramId: e.parameter.telegramId || "", force: e.parameter.force || "" }, callback, false);
   }
+  if (action === "partnerSetNotifyRecipients") {
+    return handlePartnerSetNotifyRecipients({
+      telegramId: e.parameter.telegramId || "",
+      recipients: e.parameter.recipients ? decodeURIComponent(e.parameter.recipients) : "[]"
+    }, callback, false);
+  }
   if (action === "setAccessTimezone") {
     return handleSetAccessTimezone({
       actorId: e.parameter.actorId || e.parameter.telegramId || "",
@@ -2197,6 +2203,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "partnerSeedDefaults") {
     return handlePartnerSeedDefaults(json, callback, fromPost);
+  }
+  if (action === "partnerSetNotifyRecipients") {
+    return handlePartnerSetNotifyRecipients(json, callback, fromPost);
   }
   if (action === "listReminderPeople") {
     return handleListReminderPeople_(json, callback, fromPost);
@@ -15442,6 +15451,105 @@ function partnerCatalogStatic_() {
   ];
 }
 
+/** Кому слать TG о заявках партнёров (Script Properties). */
+var PARTNER_NOTIFY_PROP_ = "PARTNER_ORDER_NOTIFY_IDS";
+
+function readPartnerNotifyRecipients_() {
+  var out = [];
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty(PARTNER_NOTIFY_PROP_) || "[]";
+    var arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return out;
+    for (var i = 0; i < arr.length; i++) {
+      var it = arr[i];
+      if (typeof it === "string" || typeof it === "number") {
+        var id0 = String(it || "").trim();
+        if (id0) out.push({ telegramId: id0, name: "" });
+        continue;
+      }
+      if (!it) continue;
+      var id = String(it.telegramId || it.id || "").trim();
+      if (!id) continue;
+      out.push({
+        telegramId: id,
+        name: String(it.name || "").trim()
+      });
+    }
+  } catch (e) {}
+  return out;
+}
+
+function writePartnerNotifyRecipients_(list) {
+  var clean = [];
+  var seen = {};
+  (list || []).forEach(function (it) {
+    var id = String((it && (it.telegramId || it.id)) || it || "").trim();
+    if (!id || seen[id]) return;
+    seen[id] = true;
+    clean.push({
+      telegramId: id,
+      name: String((it && it.name) || "").trim()
+    });
+  });
+  PropertiesService.getScriptProperties().setProperty(PARTNER_NOTIFY_PROP_, JSON.stringify(clean));
+  return clean;
+}
+
+/** Для будущих пушей заявок: список telegramId (+ owners fallback если пусто). */
+function getPartnerOrderNotifyIds_() {
+  var rec = readPartnerNotifyRecipients_();
+  var ids = rec.map(function (r) { return r.telegramId; }).filter(Boolean);
+  if (ids.length) return ids;
+  try {
+    var owners = getOwnerTelegramIds_();
+    return owners || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function listPartnerNotifyCandidates_() {
+  var people = [];
+  var seen = {};
+  function pushPerson_(id, name, username, role) {
+    id = String(id || "").trim();
+    if (!id || seen[id]) return;
+    seen[id] = true;
+    people.push({
+      telegramId: id,
+      name: String(name || "").trim(),
+      username: String(username || "").trim(),
+      role: String(role || "").trim().toLowerCase()
+    });
+  }
+  try {
+    var rows = readAccessRows_();
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var st = String(r.status || "").toLowerCase();
+      var role = String(r.role || "").toLowerCase();
+      if (st === "denied" || st === "pending") continue;
+      if (role === "denied" || role === "pending" || role === "none") continue;
+      if (!r.telegramId) continue;
+      pushPerson_(r.telegramId, r.name, r.username, role);
+    }
+  } catch (eR) {}
+  try {
+    var owners = getOwnerTelegramIds_();
+    for (var o = 0; o < owners.length; o++) {
+      pushPerson_(owners[o], "", "", "owner");
+    }
+  } catch (eO) {}
+  people.sort(function (a, b) {
+    var an = (a.name || a.username || a.telegramId).toLowerCase();
+    var bn = (b.name || b.username || b.telegramId).toLowerCase();
+    if (an < bn) return -1;
+    if (an > bn) return 1;
+    return 0;
+  });
+  return people;
+}
+
 function handlePartnerListAdmin(json, callback, fromPost) {
   var actor = String((json && json.telegramId) || "").trim();
   if (actor && !partnerRequireOwner_(actor)) {
@@ -15449,6 +15557,10 @@ function handlePartnerListAdmin(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
   }
   try { ensurePartnerAppSeeded_(false); } catch (eSeed) {}
+  var notifyRecipients = [];
+  try { notifyRecipients = readPartnerNotifyRecipients_(); } catch (eN) {}
+  var notifyCandidates = [];
+  try { notifyCandidates = listPartnerNotifyCandidates_(); } catch (eC) {}
   var ok = {
     status: "success",
     networks: readPartnerNetworks_().map(function (n) {
@@ -15469,9 +15581,42 @@ function handlePartnerListAdmin(json, callback, fromPost) {
         status: a.status
       };
     }),
+    notifyRecipients: notifyRecipients,
+    notifyCandidates: notifyCandidates,
     miniAppUrl: "https://konchaarsenia-a11y.github.io/superboyna/varka/",
     catalog: partnerCatalogStatic_()
   };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePartnerSetNotifyRecipients(json, callback, fromPost) {
+  if (!partnerRequireOwner_(json && json.telegramId)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var raw = (json && json.recipients != null) ? json.recipients : "[]";
+  var parsed = [];
+  if (Array.isArray(raw)) {
+    parsed = raw;
+  } else {
+    try { parsed = JSON.parse(String(raw || "[]")); } catch (e) { parsed = []; }
+  }
+  var cand = listPartnerNotifyCandidates_();
+  var byId = {};
+  cand.forEach(function (p) { byId[p.telegramId] = p; });
+  var list = [];
+  for (var i = 0; i < parsed.length; i++) {
+    var it = parsed[i];
+    var id = String((it && (it.telegramId || it.id)) || it || "").trim();
+    if (!id) continue;
+    var hit = byId[id];
+    list.push({
+      telegramId: id,
+      name: (it && it.name) || (hit && (hit.name || hit.username)) || ""
+    });
+  }
+  var saved = writePartnerNotifyRecipients_(list);
+  var ok = { status: "success", notifyRecipients: saved, count: saved.length };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 

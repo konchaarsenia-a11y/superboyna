@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.138";
+      var APP_VER = "v7.11.139";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2537,6 +2537,13 @@
       </div>
 
       <div class="card" style="margin-top:12px;">
+        <div class="section-title" style="margin-top:0;color:#64d2ff;">Ответственные за заказы</div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">Сотрудники из «Доступы», которым уйдут уведомления о заявках партнёров. Можно несколько.</div>
+        <div id="phNotifyPeople"><p class="muted">—</p></div>
+        <button class="btn-action btn-blue" type="button" style="margin:10px 0 0;width:100%;" onclick="partnerHubSaveNotify_()">Сохранить ответственных</button>
+      </div>
+
+      <div class="card" style="margin-top:12px;">
         <div class="section-title" style="margin-top:0;">Сети</div>
         <div class="form-group">
           <label>Название сети</label>
@@ -2610,7 +2617,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.138";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.139";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -19819,6 +19826,34 @@
       fillNetSelect("phPointNetwork");
       fillNetSelect("phAccNetwork");
 
+      var selectedNotify = {};
+      (res.notifyRecipients || []).forEach(function (r) {
+        var id = String((r && r.telegramId) || r || "").trim();
+        if (id) selectedNotify[id] = true;
+      });
+      var cands = res.notifyCandidates || [];
+      var boxNotify = document.getElementById("phNotifyPeople");
+      if (boxNotify) {
+        if (!cands.length) {
+          boxNotify.innerHTML = '<p class="muted">Нет сотрудников с доступом. Сначала выдай роли во вкладке «Доступы».</p>';
+        } else {
+          boxNotify.innerHTML = cands.map(function (p) {
+            var tid = String(p.telegramId || "");
+            var label = (p.name || p.username || tid);
+            var meta = [];
+            if (p.username) meta.push("@" + p.username);
+            if (p.role) meta.push(p.role);
+            meta.push(tid);
+            return '<label style="display:flex;align-items:flex-start;gap:10px;margin:8px 0;padding:10px;background:#111;border:1px solid var(--border-color);border-radius:10px;">' +
+              '<input type="checkbox" class="ph-notify-check" value="' + escapeHtml(tid) + '"' +
+              (selectedNotify[tid] ? " checked" : "") + ' style="margin-top:3px;">' +
+              '<span><b>' + escapeHtml(label) + "</b>" +
+              '<div class="muted" style="font-size:12px;margin-top:2px;">' + escapeHtml(meta.join(" · ")) +
+              "</div></span></label>";
+          }).join("");
+        }
+      }
+
       var boxN = document.getElementById("phNetworksList");
       if (boxN) {
         boxN.innerHTML = nets.length ? nets.map(function (n) {
@@ -20046,6 +20081,33 @@
       showToast(res.result && res.result.seeded ? "Демо залито" : "Уже было — ничего не трогал");
     }
 
+    async function partnerHubSaveNotify_() {
+      var recipients = [];
+      document.querySelectorAll(".ph-notify-check:checked").forEach(function (el) {
+        var tid = String(el.value || "").trim();
+        if (!tid) return;
+        var name = "";
+        try {
+          var b = el.parentElement && el.parentElement.querySelector("b");
+          if (b) name = String(b.textContent || "").trim();
+        } catch (eN) {}
+        recipients.push({ telegramId: tid, name: name });
+      });
+      showToast("Сохраняю…");
+      var res = await apiGet({
+        action: "partnerSetNotifyRecipients",
+        telegramId: myTelegramId,
+        recipients: JSON.stringify(recipients),
+        _: String(Date.now())
+      }, { timeoutMs: 20000, cacheTtlMs: 0 });
+      if (!res || res.status !== "success") {
+        showToast((res && res.message) || "Не сохранилось — Deploy Code.gs?");
+        return;
+      }
+      if (partnerHubCache_) partnerHubCache_.notifyRecipients = res.notifyRecipients || recipients;
+      showToast("Ответственных: " + (res.count != null ? res.count : recipients.length));
+    }
+
     window.loadPartnerHubUi_ = loadPartnerHubUi_;
     window.partnerHubRenderPointChecks_ = partnerHubRenderPointChecks_;
     window.partnerHubEditNetwork_ = partnerHubEditNetwork_;
@@ -20056,6 +20118,7 @@
     window.partnerHubSaveAccess_ = partnerHubSaveAccess_;
     window.partnerHubRevokeAccess_ = partnerHubRevokeAccess_;
     window.partnerHubSeedDefaults_ = partnerHubSeedDefaults_;
+    window.partnerHubSaveNotify_ = partnerHubSaveNotify_;
 
     async function assignRole(targetId) {
       var sel = document.getElementById("role_" + targetId);

@@ -34,7 +34,9 @@ Telegram Mini App для **партнёрских сетей**: бесплатн
 | `Partner_Points` | Точки сети |
 | `Partner_Access` | Доступ: `@username` / Telegram ID → точки |
 
-API (`Code.gs`): `partnerListAdmin`, `partnerGetMe`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`.
+API (`Code.gs`): `partnerListAdmin`, `partnerGetMe`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`.
+
+Ответственные за пуши заявок: Script Property `PARTNER_ORDER_NOTIFY_IDS` (список telegramId из вкладки Партнёры). Хелпер `getPartnerOrderNotifyIds_()`.
 
 Мини-апп читает тот же webhook Бойни (`partnerGetMe` по Telegram username / telegramId).
 
