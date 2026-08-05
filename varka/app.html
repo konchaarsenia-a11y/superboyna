@@ -904,6 +904,10 @@
 
   function goOrderFlow() {
     var pts = (state.me && state.me.points) || myPoints_();
+    if (state.point && state.me && state.me.allowedPointIds[state.point.id]) {
+      pickPoint(state.point.id);
+      return;
+    }
     if (pts.length === 1) {
       pickPoint(pts[0].id);
       return;
@@ -1181,6 +1185,9 @@
   window.demoLogin = demoLogin;
   window.demoLoginAs = demoLoginAs;
   window.loginAsTgUser = loginAsTgUser;
+  window.pickPartnerNetwork = pickPartnerNetwork;
+  window.confirmLoginPoint = confirmLoginPoint;
+  window.backToLoginPartners = backToLoginPartners;
   window.demoLogout = demoLogout;
   window.goHome = goHome;
   window.goOrderFlow = goOrderFlow;
