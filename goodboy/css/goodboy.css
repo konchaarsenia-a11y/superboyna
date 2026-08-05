@@ -1,19 +1,19 @@
 /* Goodboy — клиентский кабинет (не конвейер) */
 :root {
-  --gb-bg0: #1a1410;
-  --gb-bg1: #241c16;
-  --gb-bg2: #2e241c;
+  --gb-bg0: #070707;
+  --gb-bg1: #0d0d0d;
+  --gb-bg2: #16120e;
   --gb-surface: rgba(255, 248, 240, 0.06);
-  --gb-border: rgba(255, 232, 200, 0.12);
-  --gb-text: #fff8f0;
-  --gb-muted: rgba(255, 232, 200, 0.62);
-  --gb-accent: #e8a54b;
-  --gb-accent-2: #f0c27a;
+  --gb-border: rgba(245, 154, 46, 0.18);
+  --gb-text: #f4ebe0;
+  --gb-muted: rgba(244, 235, 224, 0.62);
+  --gb-accent: #f59a2e;
+  --gb-accent-2: #ffb04a;
   --gb-ok: #7dba6f;
   --gb-danger: #e07060;
   --gb-radius: 18px;
-  --gb-font: "Manrope", system-ui, sans-serif;
-  --gb-display: "Fraunces", Georgia, serif;
+  --gb-font: "Outfit", system-ui, sans-serif;
+  --gb-display: "Archivo Black", "Arial Black", sans-serif;
   --safe-b: env(safe-area-inset-bottom, 0px);
 }
 
