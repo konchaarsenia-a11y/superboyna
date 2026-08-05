@@ -1601,6 +1601,9 @@ function doGet(e) {
   if (action === "warehousePreview") {
     return handleWarehousePreview({}, callback, false);
   }
+  if (action === "lookupBpPartner") {
+    return handleLookupBpPartner({ nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "" }, callback, false);
+  }
   if (action === "listSubscriptions") {
     return handleListSubscriptions({
       sheet: e.parameter.sheet ? decodeURIComponent(e.parameter.sheet) : "",
@@ -2129,6 +2132,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "warehousePreview") {
     return handleWarehousePreview(json, callback, fromPost);
+  }
+  if (action === "lookupBpPartner") {
+    return handleLookupBpPartner(json, callback, fromPost);
   }
   if (action === "listSubscriptions") {
     return handleListSubscriptions(json, callback, fromPost);
@@ -4362,7 +4368,7 @@ function getClientsData_(ss, dayName) {
           deliveryAfter: (calHit && calHit.deliveryAfter) || "",
           deliveryBefore: (calHit && calHit.deliveryBefore) || "",
           matchKey: pk || "",
-          ppPartner: (calHit && calHit.ppPartner) || "",
+          ppPartner: (calHit && calHit.ppPartner) || lookupLastPpPartner_(ss, nameClean) || "",
           couponsQty: (calHit && calHit.couponsQty) || 0,
           couponPrice: (calHit && calHit.couponPrice) || 0,
           noCut: noCutFlag
@@ -5182,8 +5188,17 @@ function nominatimReverse_(lat, lon) {
 }
 
 function expandAddressQueriesGs_(text) {
-  var raw = String(text || "").trim().replace(/\s+/g, " ");
-  if (!raw) return [];
+  var raw0 = String(text || "").trim().replace(/\s+/g, " ");
+  if (!raw0) return [];
+  // убрать кв/подъезд/этаж — иначе Photon/Nominatim часто пустые
+  var raw = raw0
+    .replace(/(?:^|[·|;,\s])(?:подъезд|под\.|п\.)\s*[0-9]+[а-яa-z]?/gi, " ")
+    .replace(/(?:^|[·|;,\s])(?:этаж|эт\.?)\s*[0-9]+[а-яa-z]?/gi, " ")
+    .replace(/(?:^|[·|;,\s])(?:квартира|кв\.?)\s*[0-9]+[а-яa-z\-\/]*/gi, " ")
+    .replace(/(?:^|[·|;,\s])[0-9]+[а-яa-z\-\/]*\s*кв\.?\b/gi, " ")
+    .replace(/(?:^|[·|;,\s])домофон\s*[^\s·|;,]{1,24}/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim() || raw0;
   var bare = raw.replace(/^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок|бул\.?|бульвар)\s+/i, "").trim();
   var withType = /^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок)/i.test(raw)
     ? raw.replace(/^ул\.?\s+/i, "улица ").replace(/^пр\.?-?\s*т\.?\s+/i, "проспект ").replace(/^пр\.?\s+/i, "проспект ")
@@ -10893,46 +10908,178 @@ function handleSetWarehouseArrival(json, callback, fromPost) {
 function handleWarehousePreview(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var wh = ss.getSheetByName("Склад");
-  var cutting = ss.getSheetByName("Нарезка");
-  if (!wh) {
+  var sheetManager = ss.getSheetByName("Прием заказов");
+  var sheetCutting = ss.getSheetByName("Нарезка");
+  if (!wh || !sheetManager) {
     var bad = { status: "error", message: "no_warehouse" };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
-  // упрощённый preview: текущий остаток F + дозакуп B vs сырьё по активной нарезке D
-  var last = Math.min(50, Math.max(2, wh.getLastRow()));
-  var names = wh.getRange(2, 1, last - 1, 1).getValues();
-  var arrivals = wh.getRange(2, 2, last - 1, 1).getValues();
-  var stock = wh.getRange(2, 6, last - 1, 1).getValues();
-  var deficits = [];
-  for (var i = 0; i < names.length; i++) {
-    var name = String(names[i][0] || "").trim();
-    if (!name || isPieceWarehouseRow_(i + 2, name)) continue;
-    var f = Number(stock[i][0]) || 0;
-    var b = Number(arrivals[i][0]) || 0;
-    var need = 0;
-    try {
-      if (cutting) {
-        // эвристика: строки нарезки с объёмом
-        var cRow = i + 3;
-        var dry = 0;
-        // skip detailed map — flag low stock only
-      }
-    } catch (e) {}
-    if (f + b <= 0.01 && f === 0) {
-      /* skip empty names without stock concern */
+  var tz = ss.getSpreadsheetTimeZone();
+  var itemMap = getCuttingItemMap_();
+  var weekDaysGeo = [
+    { start: 4, name: "Пн" },
+    { start: 65, name: "Вт" },
+    { start: 126, name: "Ср" },
+    { start: 187, name: "Чт" },
+    { start: 248, name: "Пт" },
+    { start: 309, name: "Сб" },
+    { start: 370, name: "Вс" }
+  ];
+  // даты блоков для подписи
+  try {
+    for (var di = 0; di < MANAGER_DAY_NAMES_.length && di < weekDaysGeo.length; di++) {
+      var dv = sheetManager.getRange(MANAGER_DATE_CELLS[di]).getValue();
+      var ds = formatSheetDate(dv, tz);
+      if (ds) weekDaysGeo[di].date = ds;
+      weekDaysGeo[di].label = (weekDaysGeo[di].name || "") + (ds ? (" " + ds) : "");
     }
-    if (f + b < 0.5 && (f > 0 || b > 0)) {
-      deficits.push({ row: i + 2, name: name, stock: f, arrival: b, available: f + b });
+  } catch (eD) {}
+
+  var fullManagerMatrix = sheetManager.getRange(1, 3, 427, 15).getValues();
+  var noCutByDayOffset = {};
+  for (var nd = 0; nd < weekDaysGeo.length; nd++) {
+    var dayBlk = getDayBlock(MANAGER_DAY_NAMES_[nd]);
+    noCutByDayOffset[weekDaysGeo[nd].start] = noCutSkipColsForBlock_(sheetManager, dayBlk);
+  }
+
+  var cuttingSurplusValues = [];
+  try {
+    if (sheetCutting) cuttingSurplusValues = sheetCutting.getRange("C3:C48").getValues();
+  } catch (eC) {}
+
+  // агрегат по строкам склада: dry grams week + by day
+  var byWh = {}; // wRow -> { dryG, byDay: {dayIdx: dryG}, surplusKg }
+  for (var cRow = 3; cRow <= 48; cRow++) {
+    var rowsToSum = itemMap[String(cRow)];
+    if (!rowsToSum) continue;
+    var wRow = getWarehouseRowForCuttingRow_(cRow);
+    if (!wRow) continue;
+    if (!byWh[wRow]) byWh[wRow] = { dryG: 0, byDay: {}, surplusKg: 0 };
+    var surplusKg = 0;
+    try {
+      if (cuttingSurplusValues && cuttingSurplusValues[cRow - 3]) {
+        surplusKg = Number(cuttingSurplusValues[cRow - 3][0]) || 0;
+      }
+    } catch (eS) {}
+    byWh[wRow].surplusKg += surplusKg;
+    for (var d = 0; d < weekDaysGeo.length; d++) {
+      var day = weekDaysGeo[d];
+      var dayOffset = day.start - 4;
+      var skipCols = noCutByDayOffset[day.start] || {};
+      var dayG = 0;
+      for (var ri = 0; ri < rowsToSum.length; ri++) {
+        var targetRowIdx = rowsToSum[ri] + dayOffset - 1;
+        if (targetRowIdx < 0 || targetRowIdx >= fullManagerMatrix.length) continue;
+        for (var colM = 0; colM < 15; colM++) {
+          if (skipCols[colM]) continue;
+          dayG += Number(fullManagerMatrix[targetRowIdx][colM]) || 0;
+        }
+      }
+      byWh[wRow].dryG += dayG;
+      byWh[wRow].byDay[d] = (byWh[wRow].byDay[d] || 0) + dayG;
     }
   }
+
+  var last = Math.min(50, Math.max(2, wh.getLastRow()));
+  var matrix = wh.getRange(2, 1, last - 1, 6).getValues(); // A..F
+  var deficits = [];
+  var plan = [];
+  for (var i = 0; i < matrix.length; i++) {
+    var name = String(matrix[i][0] || "").trim();
+    if (!name) continue;
+    var row = i + 2;
+    if (isPieceWarehouseRow_(row, name)) continue;
+    var f = Number(matrix[i][5]) || 0;
+    var b = Number(matrix[i][1]) || 0;
+    var coef = Number(matrix[i][3]) || 0.2;
+    if (!(coef > 0)) coef = 0.2;
+    var agg = byWh[row] || { dryG: 0, byDay: {}, surplusKg: 0 };
+    var dryKg = (agg.dryG || 0) / 1000;
+    var needRaw = dryKg / coef + (agg.surplusKg || 0);
+    var available = f + b;
+    var deficit = Math.max(0, needRaw - available);
+    var byDay = [];
+    for (var dj = 0; dj < weekDaysGeo.length; dj++) {
+      var gDay = agg.byDay[dj] || 0;
+      if (gDay <= 0) continue;
+      byDay.push({
+        day: weekDaysGeo[dj].label || weekDaysGeo[dj].name,
+        needRaw: round2_((gDay / 1000) / coef)
+      });
+    }
+    var item = {
+      row: row,
+      name: name,
+      stock: round2_(f),
+      arrival: round2_(b),
+      available: round2_(available),
+      needRaw: round2_(needRaw),
+      deficit: round2_(deficit),
+      byDay: byDay
+    };
+    plan.push(item);
+    if (deficit >= 0.05) deficits.push(item);
+  }
+  deficits.sort(function (a, b) { return (b.deficit || 0) - (a.deficit || 0); });
+
   var buyList = [];
   try {
     var flags = wh.getRange(2, 7, last - 1, 1).getValues();
-    for (var j = 0; j < names.length; j++) {
-      if (flags[j][0]) buyList.push({ row: j + 2, name: String(names[j][0] || "") });
+    for (var j = 0; j < matrix.length; j++) {
+      if (flags[j][0]) buyList.push({ row: j + 2, name: String(matrix[j][0] || "") });
     }
   } catch (e2) {}
-  var ok = { status: "success", deficits: deficits, buyList: buyList, note: "Полный расход недели — при закрытии (owner)." };
+
+  var ok = {
+    status: "success",
+    deficits: deficits,
+    plan: plan,
+    buyList: buyList,
+    note: "Сырьё = план Приём (неделя) / коэф D + излишки C. Остаток F + дозакуп B. Ревизию пиши в «дозакуп»."
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/** Последний известный партнёр БП по нику из Календарь_Дат (для 2-й доставки). */
+function lookupLastPpPartner_(ss, nick) {
+  var want = clientMatchKey_(nick);
+  if (!want && !nick) return "";
+  var all = [];
+  try { all = readAllCalendarRows_(); } catch (e) { return ""; }
+  var best = "";
+  var bestTs = -1;
+  for (var i = 0; i < all.length; i++) {
+    var p = String(all[i].ppPartner || "").trim();
+    if (!p) continue;
+    var mk = clientMatchKey_(all[i].client) || "";
+    var okNick = (want && mk === want);
+    if (!okNick) {
+      try { okNick = nicksMatch_(all[i].client, nick); } catch (eN) { okNick = false; }
+    }
+    if (!okNick) continue;
+    var d = null;
+    try {
+      d = parseFlexibleDate_(all[i].date) || parseFlexibleDate_(all[i].dateIso);
+    } catch (eD) {}
+    var t = d && d.getTime ? d.getTime() : i;
+    if (t >= bestTs) {
+      bestTs = t;
+      best = p;
+    }
+  }
+  return best;
+}
+
+function handleLookupBpPartner(json, callback, fromPost) {
+  var nick = String((json && json.nick) || "").trim();
+  if (!nick) {
+    var bad = { status: "error", message: "no_nick", ppPartner: "" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var p = "";
+  try { p = lookupLastPpPartner_(ss, nick); } catch (e) {}
+  var ok = { status: "success", nick: nick, ppPartner: p || "" };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 

@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.134";
+      var APP_VER = "v7.11.135";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1932,7 +1932,8 @@
     <div id="warehouseScreen" class="screen">
       <div class="card">
         <button class="btn-action btn-blue" type="button" onclick="loadWarehouse()">Обновить склад</button>
-        <button class="btn-action btn-orange" type="button" style="margin-top:8px;" onclick="loadWarehousePreview()">Прогноз / дефицит</button>
+        <button class="btn-action btn-orange" type="button" style="margin-top:8px;" onclick="loadWarehousePreview()">Прогноз / дефицит по датам</button>
+        <div class="muted" style="font-size:12px;margin-top:8px;">Ревизия: впиши фактический приход/корректировку в «дозакуп» у позиции и сохрани. Прогноз считает сырьё из плана недели (Приём) с учётом коэфа D.</div>
         <button class="btn-action" type="button" style="margin-top:8px;background:#3a3a3c;" onclick="closeAllOpenDeficitsUi()">Закрыть все открытые дефициты (TG спам)</button>
       </div>
       <div id="warehousePreviewBox"></div>
@@ -2523,7 +2524,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.134";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.135";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -4466,7 +4467,15 @@
       var ppg = document.getElementById("ppPartnerGroup");
       if (ppg) ppg.style.display = t === "bp" ? "" : "none";
       if (t === "bp") {
-        try { ensurePpPartnerOptions_(); } catch (ePart) {}
+        try {
+          var nickBp = String((document.getElementById("client") || {}).value || "").trim();
+          var memP = "";
+          if (nickBp) {
+            var mk = nickBp.toUpperCase();
+            memP = String((clientMemory[mk] && clientMemory[mk].ppPartner) || "").trim();
+          }
+          ensurePpPartnerOptions_(memP || undefined);
+        } catch (ePart) {}
       } else {
         var selClr = document.getElementById("ppPartnerSelect");
         if (selClr && t !== "bp") { /* keep value only for bp */ }
@@ -4816,8 +4825,11 @@
       }
       floor = take(/(?:^|[·|;,\s])(?:этаж|эт\.)\s*([0-9]+[а-яa-z]?)\b/i);
       if (!floor) floor = take(/(?:^|[·|;,\s])эт\s+([0-9]+[а-яa-z]?)\b/i);
-      flat = take(/(?:^|[·|;,\s])(?:квартира|кв\.)\s*([0-9]+[а-яa-z\-\/]*)\b/i);
+      if (!floor) floor = take(/(?:^|[·|;,\s])эт\.?\s*([0-9]+[а-яa-z]?)\b/i);
+      // кв.133 / кв 133 / кв133 / 133кв
+      flat = take(/(?:^|[·|;,\s])(?:квартира|кв\.?)\s*([0-9]+[а-яa-z\-\/]*)\b/i);
       if (!flat) flat = take(/(?:^|[·|;,\s])кв\s+([0-9]+[а-яa-z\-\/]*)\b/i);
+      if (!flat) flat = take(/(?:^|[·|;,\s])([0-9]+[а-яa-z\-\/]*)\s*кв\.?\b/i);
 
       // хвост «домофон …» в подъезд
       var dm = s.match(/(?:^|[·|;,\s])домофон\s*([^\s·|;,]{1,24})/i);
@@ -4848,6 +4860,7 @@
         else parts.push("эт." + fl);
       }
       if (ft) {
+        ft = ft.replace(/^(квартира|кв\.?)\s*/i, "").trim();
         if (/^(квартира|кв\.)/i.test(ft)) parts.push(ft);
         else parts.push("кв." + ft);
       }
@@ -4944,7 +4957,16 @@
         if (out.length >= 2) break;
         if (out.length === 1 && /\d/.test(keep[i]) && /[а-яa-z]/i.test(keep[i])) break; // "ул. X 12"
       }
-      return out.join(", ") || s;
+      var joined = out.join(", ") || s;
+      // хвосты кв/эт не должны оставаться в «улице»
+      joined = joined
+        .replace(/(?:^|[·|;,\s])(?:квартира|кв\.?)\s*[0-9]+[а-яa-z\-\/]*/gi, " ")
+        .replace(/(?:^|[·|;,\s])[0-9]+[а-яa-z\-\/]*\s*кв\.?\b/gi, " ")
+        .replace(/(?:^|[·|;,\s])(?:этаж|эт\.?)\s*[0-9]+[а-яa-z]?/gi, " ")
+        .replace(/\s{2,}/g, " ")
+        .replace(/^[·|;,\s]+|[·|;,\s]+$/g, "")
+        .trim();
+      return joined || s;
     }
     window.formatStreetHouse = formatStreetHouse;
 
@@ -5119,11 +5141,13 @@
         note: p.note != null ? String(p.note) : (prev.note || ""),
         basket: basket,
         orderType: p.orderType || prev.orderType || "",
+        ppPartner: p.ppPartner != null ? String(p.ppPartner) : (prev.ppPartner || ""),
         updatedAt: Date.now()
       };
-      // не затирать адрес/телефон пустым
+      // не затирать адрес/телефон/партнёра пустым
       if (!clientMemory[key].address && prev.address) clientMemory[key].address = prev.address;
       if (!clientMemory[key].phone && prev.phone) clientMemory[key].phone = prev.phone;
+      if (!clientMemory[key].ppPartner && prev.ppPartner) clientMemory[key].ppPartner = prev.ppPartner;
       if (!basket.length && prev.basket && prev.basket.length) clientMemory[key].basket = prev.basket;
       persistClientMemory();
     }
@@ -5183,6 +5207,7 @@
           note: p.note || "",
           basket: p.basket || [],
           orderType: p.orderType || "",
+          ppPartner: p.ppPartner || "",
           score: x.score
         };
       });
@@ -5239,6 +5264,17 @@
       if (m.note) {
         var hasAny = (orderNotes || []).some(function (n) { return String(n.text || "").trim(); });
         if (!hasAny) loadOrderNotesFromRaw(m.note);
+      }
+      // БП: партнёр уже подвязан — подставить без повторного выбора
+      if (m.ppPartner) {
+        try {
+          if (orderType !== "bp" && (m.orderType === "bp" || String(m.ppPartner).trim())) {
+            /* не форсим тип — только если уже БП */
+          }
+          if (orderType === "bp") {
+            await ensurePpPartnerOptions_(m.ppPartner);
+          }
+        } catch (ePar) {}
       }
       try { if (orderType === "pp") refreshPpFactPrice(); } catch (e0) {}
       // ПП: состав только с листа ПП (с учётом N и слота), не из памяти аппа
@@ -6226,6 +6262,27 @@
       var ppPartnerVal = "";
       if (orderType === "bp") {
         ppPartnerVal = String((document.getElementById("ppPartnerSelect") || {}).value || "").trim();
+        // 2-я доставка: партнёр уже в памяти / с прошлой записи — не спрашивать снова
+        if (!ppPartnerVal) {
+          var nickKey = String(clientName || "").trim().toUpperCase();
+          ppPartnerVal = String((clientMemory[nickKey] && clientMemory[nickKey].ppPartner) || "").trim();
+          if (ppPartnerVal) {
+            try { await ensurePpPartnerOptions_(ppPartnerVal); } catch (eMemP) {}
+          }
+        }
+        if (!ppPartnerVal) {
+          try {
+            var lp = await apiGet({
+              action: "lookupBpPartner",
+              nick: clientName,
+              _: String(Date.now())
+            }, { timeoutMs: 10000, cacheTtlMs: 0 });
+            if (lp && lp.status === "success" && lp.ppPartner) {
+              ppPartnerVal = String(lp.ppPartner).trim();
+              try { await ensurePpPartnerOptions_(ppPartnerVal); } catch (eLp) {}
+            }
+          } catch (eLookP) {}
+        }
         if (!ppPartnerVal) {
           await uiAlertAsync("Для БП обязательно укажите партнёра (кто привёл). Или выберите «Другое».");
           return;
@@ -6591,7 +6648,8 @@
             basket: basket.map(function (x) {
               return { cat: x.cat, main: x.main, name: x.main, sub: x.sub || "", value: x.value, val: x.value };
             }),
-            orderType: orderType
+            orderType: orderType,
+            ppPartner: ppPartnerVal || ""
           });
         } catch (eMem) {}
 
@@ -10935,9 +10993,25 @@
         .trim();
     }
 
+    function stripAddressDetailsForSearch_(text) {
+      var parsed = parseDeliveryAddress(text);
+      var street = String((parsed && parsed.street) || text || "").trim();
+      street = street
+        .replace(/(?:^|[·|;,\s])(?:подъезд|под\.|п\.)\s*[0-9]+[а-яa-z]?/gi, " ")
+        .replace(/(?:^|[·|;,\s])(?:этаж|эт\.?)\s*[0-9]+[а-яa-z]?/gi, " ")
+        .replace(/(?:^|[·|;,\s])(?:квартира|кв\.?)\s*[0-9]+[а-яa-z\-\/]*/gi, " ")
+        .replace(/(?:^|[·|;,\s])[0-9]+[а-яa-z\-\/]*\s*кв\.?\b/gi, " ")
+        .replace(/(?:^|[·|;,\s])домофон\s*[^\s·|;,]{1,24}/gi, " ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+      return street || String(text || "").trim();
+    }
+
     function expandAddressQueries(text) {
-      var raw = String(text || "").trim().replace(/\s+/g, " ");
-      if (!raw) return [];
+      var raw0 = String(text || "").trim().replace(/\s+/g, " ");
+      if (!raw0) return [];
+      var raw = stripAddressDetailsForSearch_(raw0);
+      if (!raw) raw = raw0;
       var bare = raw
         .replace(/^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок|бул\.?|бульвар)\s+/i, "")
         .trim();
@@ -10951,6 +11025,7 @@
           .replace(/^пр\.?\s+/i, "проспект ");
       }
       var out = [raw, bare, withType];
+      if (raw0 !== raw) out.unshift(raw0);
       if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(raw)) {
         out.push(raw + ", Минск");
         out.push("Минск, " + raw);
@@ -11102,7 +11177,7 @@
         title = formatStreetHouse(title);
         if (!title) return;
         // отсев явного мусора: запрос почти не пересекается с названием
-        if (qKey && scoreAddress(title, text) < 40 && !otherOk) return;
+        if (qKey && scoreAddress(title, text) < 28 && !otherOk) return;
         var keyDup = lat.toFixed(5) + "," + lon.toFixed(5);
         if (seen[keyDup]) return;
         seen[keyDup] = true;
@@ -11164,7 +11239,7 @@
               : (street || formatStreetHouse(row.display_name || ""));
             title = formatStreetHouse(title);
             if (!title) return;
-            if (scoreAddress(title, text) < 35 && !looksLikeOtherCity(text)) return;
+            if (scoreAddress(title, text) < 22 && !looksLikeOtherCity(text)) return;
             var key = lat.toFixed(5) + "," + lon.toFixed(5);
             if (seen[key]) return;
             seen[key] = true;
@@ -15547,12 +15622,23 @@
         var res = await apiGet({ action: "warehousePreview" });
         var buy = (res.buyList || []).map(function (b) { return b.name; }).join(", ");
         var def = (res.deficits || []).map(function (d) {
-          return d.name + " (F+B=" + d.available + ")";
-        }).join("; ");
-        box.innerHTML = '<div class="card"><b>Прогноз</b><div class="muted" style="margin-top:6px;font-size:13px;">' +
-          (res.note || "") + '</div>' +
-          (buy ? '<div style="margin-top:8px;">Флаг G: ' + buy + '</div>' : '') +
-          (def ? '<div style="margin-top:8px;color:var(--danger-color);">Мало: ' + def + '</div>' : '<div style="margin-top:8px;">Критических остатков нет</div>') +
+          var days = "";
+          if (d.byDay && d.byDay.length) {
+            days = " · " + d.byDay.map(function (x) {
+              return (x.day || "") + " " + formatWhNum(x.needRaw || x.need || 0);
+            }).join(", ");
+          }
+          return escapeHtml(d.name) +
+            " (нужно " + formatWhNum(d.needRaw != null ? d.needRaw : d.need) +
+            ", есть " + formatWhNum(d.available) +
+            (d.deficit != null ? ", дефицит " + formatWhNum(d.deficit) : "") +
+            ")" + days;
+        }).join("<br>");
+        box.innerHTML = '<div class="card"><b>Прогноз сырья по неделе</b><div class="muted" style="margin-top:6px;font-size:13px;">' +
+          escapeHtml(res.note || "") + '</div>' +
+          (buy ? '<div style="margin-top:8px;">Флаг G: ' + escapeHtml(buy) + '</div>' : '') +
+          (def ? '<div style="margin-top:8px;color:var(--danger-color);font-size:13px;line-height:1.45;">' + def + '</div>' :
+            '<div style="margin-top:8px;">Дефицита по плану недели нет</div>') +
           '</div>';
       } catch (e) {
         box.innerHTML = '<p class="muted">Ошибка preview</p>';
