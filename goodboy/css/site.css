@@ -622,6 +622,26 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   color: var(--gb-muted);
 }
 
+.photo-trio {
+  display: grid;
+  gap: 12px;
+  margin-top: 28px;
+}
+@media (min-width: 720px) {
+  .photo-trio {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+}
+.photo-trio figure { margin: 0; }
+.photo-trio img {
+  width: 100%;
+  display: block;
+  border-radius: 16px;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
 .cta-note {
   margin: 12px 0 0;
   max-width: 32rem;
