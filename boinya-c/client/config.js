@@ -1,5 +1,5 @@
 /**
- * Песочница C — конфиг. Прод webhook сюда не подставляем по умолчанию.
+ * Песочница C — конфиг копии миниаппа.
  */
 (function () {
   "use strict";
@@ -19,12 +19,16 @@
       PROXY = localStorage.getItem("boinya_c_proxy") || "";
     } catch (e2) {}
   }
+  window.__BOINYA_C_PROXY__ = String(PROXY || "").trim();
+  window.__BOINYA_FAST_PROXY__ = window.__BOINYA_C_PROXY__;
   window.__BOINYA_C__ = {
     edition: "C",
     sandbox: true,
-    proxy: String(PROXY || "").trim(),
+    proxy: window.__BOINYA_C_PROXY__,
     seedUrl: new URL("../data/seed.json", location.href).href,
     idbName: "boinya_c_v1",
     idbVersion: 1
   };
+  window.__BOINYA_C_EDITION__ = true;
+  window.__BOINYA_FAST_EDITION__ = true;
 })();

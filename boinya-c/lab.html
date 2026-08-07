@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>Бойня C · demo</title>
+  <link rel="stylesheet" href="client/styles.css">
+  <script src="client/config.js"></script>
+  <script src="client/idb.js"></script>
+  <script src="client/api.js"></script>
+  <script src="client/optimistic.js"></script>
+</head>
+<body>
+  <div class="badge">C · SANDBOX</div>
+  <h1>Демо конвейера C</h1>
+  <p class="sub">Мгновенное чтение из IndexedDB. Сохранение — optimistic (сначала телефон, потом outbox → Worker если есть).</p>
+
+  <div class="bar">
+    <select id="day" aria-label="День">
+      <option>Понедельник</option>
+      <option>Вторник</option>
+      <option>Среда</option>
+      <option>Четверг</option>
+      <option>Пятница</option>
+      <option>Суббота</option>
+      <option>Воскресенье</option>
+    </select>
+    <button type="button" id="btnReload">Обновить</button>
+    <button type="button" id="btnSeed">Перезалить seed</button>
+    <button type="button" id="btnFlush">Flush outbox</button>
+    <button type="button" id="btnClear" class="danger">Сброс IDB</button>
+  </div>
+  <div id="status" class="status"></div>
+  <div id="outbox" class="status"></div>
+  <div id="proxyHint" class="status"></div>
+
+  <div id="list" class="list"></div>
+
+  <div class="form">
+    <strong>Optimistic save</strong>
+    <label>Ник <input id="fName" value="zzz_test_c" autocomplete="off"></label>
+    <label>Адрес <input id="fAddr" value="песочница" autocomplete="off"></label>
+    <label>Заметка <input id="fNote" value="" autocomplete="off"></label>
+    <button type="button" class="primary" id="btnSave">Сохранить в IDB</button>
+  </div>
+
+  <p class="hint">
+    Это не прод. Клиент <code>zzz_test_c</code> живёт только здесь.
+    Worker: <code>boinya-c/proxy</code> → URL в <code>?proxy=</code> или localStorage <code>boinya_c_proxy</code>.
+  </p>
+
+  <script src="client/app.js"></script>
+</body>
+</html>
