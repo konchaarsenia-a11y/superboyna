@@ -37,15 +37,17 @@ Telegram Mini App для **партнёрских сетей**: бесплатн
 
 API (`Code.gs`): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`.
 
-**Prod v3:** демо-вход выключен; owners-only снят; партнёры входят по `Partner_Access`; владельцы Бойни видят все точки.  
-После Deploy миграция `PARTNER_PROD_V3` гасит Varka/демо в листах.
+**Prod v3+:** демо-вход выключен; вход только по `Partner_Access`.  
+Владелец точки / сотрудник видят **только выданные** `pointIds` (не весь справочник).  
+Полный список сетей/точек — вкладка **Партнёры** в Бойне (`partnerListAdmin`).  
+После Deploy миграции `PARTNER_PROD_V3` / `V4` / `V5`.
 
 Ответственные за пуши заявок: Script Property `PARTNER_ORDER_NOTIFY_IDS` (вкладка Партнёры → Пуши).
 
-Мини-апп читает тот же webhook Бойни (`partnerGetMe` по Telegram username / telegramId).
+Мини-апп: `partnerGetMe` по `@username` / `telegramId` → фильтр точек.
 
-**Сейчас (временно):** вход только для **владельцев Бойни** — проверка на фронте через уже живой `getMyAccess` (`role=owner`).  
-**Deploy Code.gs не нужен.** Партнёров откроем позже (фронтовый флаг `OWNERS_ONLY_MODE_` + при желании серверный `PARTNER_MINIAPP_OWNERS_ONLY_`).
+**Сейчас (тест):** allowlist `@one_more_person_228` → Firedog, Indixvost, Карского 23, Рокоссовского 150Б, Цвирко 100.  
+Нужен **Deploy Code.gs** после правок бэкенда.
 
 Не путать с листом **«Партнёры»** (источник БП во вкладке Доступы).
 
@@ -56,8 +58,8 @@ API (`Code.gs`): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `part
 ## Поток
 
 ```
-Telegram telegramId → partnerGetMe → (owners-only) владелец → все точки
-  → кабинет / заказ (каталог → точка) / история
+Telegram @username/telegramId → partnerGetMe → Partner_Access.pointIds
+  → кабинет / заказ (каталог → только свои точки) / история
 ```
 
 Демо-профили в браузере при живом webhook **отключены**.
@@ -83,7 +85,7 @@ Telegram telegramId → partnerGetMe → (owners-only) владелец → вс
 - [x] Qty-пресеты: лёгкое/сердце 50–200 г; купоны 48/73/96/120; баннер только 1 шт · **Pages**
 - [x] **Prod v3.0.0:** без демо · партнёры из Access · `partnerSubmitOrder` · **Pages** · **нужен Deploy**
 - [x] **Varka точки v3.0.1:** 10 адресов (Репина…Скрипникова) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V4`)
-- [~] **Тест-доступ:** только `@one_more_person_228` → Firedog, Indixvost, Карского 23, Рокоссовского 150Б, Цвирко 100 · **нужен Deploy Code.gs** (`PARTNER_PROD_V5`)
+- [~] **Тест-доступ:** только `@one_more_person_228` → 5 точек; сотрудник/владелец точки без чужих точек · v3.0.3 · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V5` + `partnerGetMe` без owner-all)
 - [~] Пуш заявок получателям из Партнёры→Пуши (`PARTNER_ORDER_NOTIFY_IDS`) — в коде, нужен Deploy + настройка списка
 - [ ] `/start` с кнопкой Web App
 - [ ] Вкладка «Отложенные» в Бойне под заявки партнёров
