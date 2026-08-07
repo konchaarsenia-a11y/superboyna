@@ -374,6 +374,8 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 
 /* —— Cinematic photo shelves —— */
 .site-section--shelves {
+  padding-left: 0;
+  padding-right: 0;
   padding-bottom: 0;
 }
 .inner--narrow {
