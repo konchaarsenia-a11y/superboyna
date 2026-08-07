@@ -51,11 +51,11 @@
   function initPointerLight() {
     if (reduced()) return;
     var hero = document.querySelector(".site-hero");
-    if (!hero) return;
-    var wash = hero.querySelector(".hero-wash");
-    var spot = hero.querySelector(".hero-spot");
+    var phoneZone = document.querySelector(".site-section--phone") || document.querySelector(".phone-stage");
+    if (!hero && !phoneZone) return;
+    var wash = hero && hero.querySelector(".hero-wash");
+    var spot = hero && hero.querySelector(".hero-spot");
     var phone = document.getElementById("heroPhone");
-    if (!wash && !spot && !phone) return;
 
     var ticking = false;
     var lx = 0.7;
@@ -81,8 +81,8 @@
       }
     }
 
-    hero.addEventListener("pointermove", function (e) {
-      var r = hero.getBoundingClientRect();
+    function onMove(e, el) {
+      var r = el.getBoundingClientRect();
       if (!r.width || !r.height) return;
       lx = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
       ly = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
@@ -90,16 +90,22 @@
         ticking = true;
         global.requestAnimationFrame(apply);
       }
-    }, { passive: true });
+    }
 
-    hero.addEventListener("pointerleave", function () {
-      lx = 0.7;
-      ly = 0.35;
-      if (!ticking) {
-        ticking = true;
-        global.requestAnimationFrame(apply);
-      }
-    }, { passive: true });
+    if (hero) {
+      hero.addEventListener("pointermove", function (e) { onMove(e, hero); }, { passive: true });
+    }
+    if (phoneZone && phone) {
+      phoneZone.addEventListener("pointermove", function (e) { onMove(e, phoneZone); }, { passive: true });
+      phoneZone.addEventListener("pointerleave", function () {
+        lx = 0.5;
+        ly = 0.45;
+        if (!ticking) {
+          ticking = true;
+          global.requestAnimationFrame(apply);
+        }
+      }, { passive: true });
+    }
   }
 
   function initScrollParallax() {
