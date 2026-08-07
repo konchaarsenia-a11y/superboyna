@@ -1,0 +1,12 @@
+# Песочница Бойня C — НЕ прод-прокси fast/
+# cd boinya-c/proxy && npx wrangler deploy
+
+name = "boinya-c"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# После: npx wrangler d1 create boinya-c
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "boinya-c"
+# database_id = "PASTE_ID_HERE"

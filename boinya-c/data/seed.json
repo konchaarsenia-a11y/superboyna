@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "sandbox": true,
+  "weekKey": "2026-08-10",
+  "days": {
+    "Понедельник": {
+      "date": "2026-08-10",
+      "clients": [
+        {
+          "name": "zzz_test_c",
+          "matchKey": "zzz_test_c",
+          "address": "песочница C, не прод",
+          "note": "демо seed",
+          "segment": "Р",
+          "basket": [
+            { "cat": "demo", "name": "ЛЁГКОЕ", "sub": "Среднее", "val": 100 }
+          ],
+          "updatedAt": "2026-08-07T12:00:00.000Z"
+        },
+        {
+          "name": "demo_aria",
+          "matchKey": "demo_aria",
+          "address": "ул. Песочная 1",
+          "note": "",
+          "segment": "ПП",
+          "basket": [
+            { "cat": "demo", "name": "ТРАХЕЯ", "sub": "Большое", "val": 2 }
+          ],
+          "updatedAt": "2026-08-07T12:00:00.000Z"
+        }
+      ]
+    },
+    "Вторник": {
+      "date": "2026-08-11",
+      "clients": [
+        {
+          "name": "zzz_test_c",
+          "matchKey": "zzz_test_c",
+          "address": "песочница C",
+          "note": "вт",
+          "segment": "Р",
+          "basket": [
+            { "cat": "demo", "name": "ЛЁГКОЕ", "sub": "Малое", "val": 50 }
+          ],
+          "updatedAt": "2026-08-07T12:00:00.000Z"
+        }
+      ]
+    }
+  }
+}
