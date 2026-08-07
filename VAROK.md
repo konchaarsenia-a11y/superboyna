@@ -83,6 +83,7 @@ Telegram telegramId → partnerGetMe → (owners-only) владелец → вс
 - [x] Qty-пресеты: лёгкое/сердце 50–200 г; купоны 48/73/96/120; баннер только 1 шт · **Pages**
 - [x] **Prod v3.0.0:** без демо · партнёры из Access · `partnerSubmitOrder` · **Pages** · **нужен Deploy**
 - [x] **Varka точки v3.0.1:** 10 адресов (Репина…Скрипникова) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V4`)
+- [~] **Тест-доступ:** только `@one_more_person_228` → Firedog, Indixvost, Карского 23, Рокоссовского 150Б, Цвирко 100 · **нужен Deploy Code.gs** (`PARTNER_PROD_V5`)
 - [~] Пуш заявок получателям из Партнёры→Пуши (`PARTNER_ORDER_NOTIFY_IDS`) — в коде, нужен Deploy + настройка списка
 - [ ] `/start` с кнопкой Web App
 - [ ] Вкладка «Отложенные» в Бойне под заявки партнёров

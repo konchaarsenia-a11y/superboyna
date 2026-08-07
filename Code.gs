@@ -15461,9 +15461,35 @@ function partnerDefaultSeedPack_() {
       { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—" },
       { id: "pt_bob_1", networkId: "net_bobwow", name: "Bob Wow Collar · точка 1", address: "—" }
     ],
-    // доступы партнёров — только через вкладку «Партнёры» в Бойне
-    access: []
+    // тестовый доступ (расширим через вкладку Партнёры)
+    access: [
+      {
+        username: "one_more_person_228",
+        name: "one_more_person_228",
+        networkId: "net_varka",
+        pointIds: [
+          "pt_firedog_1",
+          "pt_indix_1",
+          "pt_varka_karskogo_23",
+          "pt_varka_rokoss_150b",
+          "pt_varka_tsvirko_100"
+        ]
+      }
+    ]
   };
+}
+
+/** Пока не пусто — в мини-апп пускаем только эти @username (+ владельцы Бойни). Пустой = все из Partner_Access. */
+var PARTNER_MINIAPP_ALLOWLIST_ = ["one_more_person_228"];
+
+function partnerIsOnAllowlist_(username) {
+  var u = partnerNormUser_(username);
+  if (!PARTNER_MINIAPP_ALLOWLIST_ || !PARTNER_MINIAPP_ALLOWLIST_.length) return true;
+  if (!u) return false;
+  for (var i = 0; i < PARTNER_MINIAPP_ALLOWLIST_.length; i++) {
+    if (partnerNormUser_(PARTNER_MINIAPP_ALLOWLIST_[i]) === u) return true;
+  }
+  return false;
 }
 
 function readPartnerNetworks_() {
@@ -15656,9 +15682,53 @@ function partnerMigrateProdV4_() {
   return { migrated: true };
 }
 
+/** V5: доступ @one_more_person_228 к Firedog / Indixvost / 3 точки Varka; остальные партнёры — inactive. */
+function partnerMigrateProdV5_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V5") === "1") return { migrated: false };
+  try { partnerMigrateProdV4_(); } catch (e4) {}
+  var now = new Date();
+  var acSh = getPartnerAccessSheet_();
+  var uname = "one_more_person_228";
+  var pointIds = [
+    "pt_firedog_1",
+    "pt_indix_1",
+    "pt_varka_karskogo_23",
+    "pt_varka_rokoss_150b",
+    "pt_varka_tsvirko_100"
+  ];
+  var rows = readPartnerAccessRows_();
+  // погасить прочих партнёров
+  rows.forEach(function (a) {
+    if (a.username === uname) return;
+    try { acSh.getRange(a.rowIndex, 8).setValue("inactive"); } catch (e1) {}
+  });
+  var hit = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].username === uname) { hit = rows[i]; break; }
+  }
+  var vals = [
+    hit ? hit.id : ("pa_" + uname),
+    uname,
+    hit ? hit.telegramId : "",
+    "one_more_person_228",
+    "net_varka",
+    JSON.stringify(pointIds),
+    "partner",
+    "active",
+    now
+  ];
+  if (hit) acSh.getRange(hit.rowIndex, 1, 1, PARTNER_ACCESS_HEADERS_.length).setValues([vals]);
+  else acSh.appendRow(vals);
+
+  props.setProperty("PARTNER_PROD_V5", "1");
+  return { migrated: true };
+}
+
 function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV3_(); } catch (eMig) {}
   try { partnerMigrateProdV4_(); } catch (eMig4) {}
+  try { partnerMigrateProdV5_(); } catch (eMig5) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
@@ -16057,7 +16127,7 @@ function handlePartnerGetMe(json, callback, fromPost) {
   var isBoynaOwner = false;
   try { isBoynaOwner = partnerRequireOwner_(tid); } catch (eOwn) { isBoynaOwner = false; }
 
-  // Владельцы Бойни — полный доступ ко всем активным партнёрским точкам (прод)
+  // Владельцы Бойни — полный доступ (админ-проверка). Партнёры — только allowlist / Partner_Access.
   if (tid && isBoynaOwner) {
     var allIds = pts.map(function (p) { return p.id; });
     var allowedAll = {};
@@ -16085,6 +16155,20 @@ function handlePartnerGetMe(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, ownerOk) : jsonp(callback, ownerOk);
   }
 
+  // Временный allowlist: пускаем только перечисленных партнёров
+  if (PARTNER_MINIAPP_ALLOWLIST_ && PARTNER_MINIAPP_ALLOWLIST_.length && !partnerIsOnAllowlist_(username)) {
+    var denyList = {
+      status: "success",
+      role: "none",
+      allowed: false,
+      message: "not_on_allowlist",
+      networks: [],
+      points: [],
+      catalog: partnerCatalogStatic_()
+    };
+    return fromPost ? jsonpText(callback, denyList) : jsonp(callback, denyList);
+  }
+
   var rows = readPartnerAccessRows_();
   var hit = null;
   for (var i = 0; i < rows.length; i++) {
@@ -16096,6 +16180,10 @@ function handlePartnerGetMe(json, callback, fromPost) {
       if (String(rows[j].status || "") !== "active") continue;
       if (rows[j].telegramId && String(rows[j].telegramId) === tid) { hit = rows[j]; break; }
     }
+  }
+  if (hit && PARTNER_MINIAPP_ALLOWLIST_ && PARTNER_MINIAPP_ALLOWLIST_.length &&
+      !partnerIsOnAllowlist_(hit.username) && !partnerIsOnAllowlist_(username)) {
+    hit = null;
   }
   if (!hit) {
     var no = {
@@ -16117,6 +16205,11 @@ function handlePartnerGetMe(json, callback, fromPost) {
   });
   var allowed = {};
   allowedIds.forEach(function (id) { allowed[id] = true; });
+  // партнёру в UI — только свои точки (не весь справочник)
+  var myPts = pts.filter(function (p) { return !!allowed[p.id]; });
+  var myNetsMap = {};
+  myPts.forEach(function (p) { myNetsMap[p.networkId] = true; });
+  var myNets = nets.filter(function (n) { return myNetsMap[n.id]; });
   var ok = {
     status: "success",
     allowed: allowedIds.length > 0,
@@ -16127,11 +16220,11 @@ function handlePartnerGetMe(json, callback, fromPost) {
     name: hit.name || username || tid,
     username: hit.username || username,
     telegramId: hit.telegramId || tid,
-    networkId: hit.networkId || "",
+    networkId: hit.networkId || (myPts[0] && myPts[0].networkId) || "",
     pointIds: allowedIds,
     allowedPointIds: allowed,
-    networks: nets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
-    points: pts.map(function (p) {
+    networks: myNets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
+    points: myPts.map(function (p) {
       return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
     }),
     catalog: partnerCatalogStatic_()
