@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.141";
+      var APP_VER = "v7.11.142";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2633,7 +2633,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.141";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.142";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2981,7 +2981,7 @@
         "• Дата: бронь; в «Прием заказов» — утром предыдущего дня.\n" +
         "• 2 собаки: один хозяин → Собака 1/2 составы → один клиент (в сборке два состава).\n" +
         "• Адрес: выбери из списка. Подъезд — для курьера (короткий адрес).\n" +
-        "• Чеклист: «средний кубик» → Среднее; голый «кубик» → Мелкое; без фракции у дрессуры → Среднее.",
+        "• Чеклист: непонятная фракция — спросит (не пишет в примечание). Два блока с кличками — в Расчёте сразу на 2 собак.",
       clientsScreen:
         "Просмотр\n" +
         "• Вкладки Месяц / Неделя — переключение без обновления.\n" +
@@ -15380,15 +15380,9 @@
         }
         if (hit.fractions && hit.fractions.length) {
           if (!frac) {
-            if (hit.cat === "dressura" && hit.fractions.indexOf("Среднее") >= 0) frac = "Среднее";
-            else if (hit.cat === "dressura" && hit.fractions.indexOf("Мелкое") >= 0) frac = "Мелкое";
-            else             if (hit.name === "БЫЧИЙ КОРЕНЬ") {
-              frac = "";
-              needFrac = true;
-            } else {
-              frac = "";
-              needFrac = true;
-            }
+            // не угадываем «Среднее» — непонятная фракция → спросим в UI
+            needFrac = true;
+            frac = "";
           } else if (hit.fractions.indexOf(frac) < 0) {
             // точное совпадение без регистра; «МАЛ» не должен цепляться к «ОЧ МАЛ»
             var found = "";
@@ -15722,6 +15716,7 @@
 
       var totalAdded = 0;
       var asked = 0;
+      var unknown = [];
       for (var s = 0; s < sections.length; s++) {
         var sec = sections[s];
         var dogN = Number(sec.dog) === 2 ? 2 : 1;
@@ -15730,6 +15725,9 @@
           await setPriceDogCount(2);
         }
         var parsed = parseIgLinesToItems(sec.text || "");
+        if (parsed.noteBits && parsed.noteBits.length) {
+          unknown = unknown.concat(parsed.noteBits);
+        }
         if (!parsed.items.length) continue;
 
         if (!priceBaskets[dogN]) priceBaskets[dogN] = [];
@@ -15763,6 +15761,10 @@
       if (!totalAdded) {
         showToast("Не разобрал позиции — проверь формат");
         return;
+      }
+
+      if (unknown.length) {
+        showToast("Не распознал: " + unknown.slice(0, 3).join("; ") + (unknown.length > 3 ? "…" : ""));
       }
 
       // после разбора 2 блоков — остаёмся на собаке 1 для просмотра
