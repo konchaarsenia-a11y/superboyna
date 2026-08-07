@@ -385,16 +385,36 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   box-sizing: border-box;
 }
 .photo-shelves {
-  margin-top: 28px;
+  margin-top: 32px;
   display: grid;
-  gap: 8px;
+  gap: 14px;
   width: 100%;
+  padding: 10px 0 18px;
+  overflow: visible;
 }
 .photo-shelves .shelf {
   margin: 0;
   overflow: hidden;
-  height: clamp(56px, 9vw, 88px);
+  width: 118%;
+  max-width: none;
+  height: clamp(58px, 9.5vw, 92px);
   background: #0a0907;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  will-change: transform;
+  transition: transform 0.45s var(--ease);
+}
+/* в разные стороны — куски торчат за край */
+.photo-shelves .shelf:nth-child(1) {
+  margin-left: -14%;
+  transform: rotate(-2.2deg) translateX(-2vw);
+}
+.photo-shelves .shelf:nth-child(2) {
+  margin-left: -2%;
+  transform: rotate(2.6deg) translateX(6vw);
+}
+.photo-shelves .shelf:nth-child(3) {
+  margin-left: -16%;
+  transform: rotate(-1.6deg) translateX(-5vw);
 }
 .photo-shelves .shelf img {
   width: 100%;
@@ -408,8 +428,25 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .photo-shelves .shelf:nth-child(2) img { object-position: center 55%; }
 .photo-shelves .shelf:nth-child(3) img { object-position: center 40%; }
 .photo-shelves .shelf:hover img {
-  transform: scale(1.04);
+  transform: scale(1.06);
   filter: saturate(1.05) contrast(1.08) brightness(1.03);
+}
+.photo-shelves .shelf:nth-child(1):hover {
+  transform: rotate(-1.4deg) translateX(-1vw);
+}
+.photo-shelves .shelf:nth-child(2):hover {
+  transform: rotate(1.8deg) translateX(5vw);
+}
+.photo-shelves .shelf:nth-child(3):hover {
+  transform: rotate(-0.8deg) translateX(-4vw);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .photo-shelves .shelf:nth-child(1),
+  .photo-shelves .shelf:nth-child(2),
+  .photo-shelves .shelf:nth-child(3) {
+    transition: none;
+  }
 }
 
 /* —— Phone block below shelves —— */
