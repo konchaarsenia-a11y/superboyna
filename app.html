@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.144";
+      var APP_VER = "v7.11.145";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -67,12 +67,14 @@
       border-radius: 16px; padding: 18px; color: #fff;
       max-height: min(82vh, 640px);
       display: flex; flex-direction: column;
-      overflow: hidden;
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
       overscroll-behavior: contain;
       touch-action: pan-y;
     }
     .modal-title { font-size: 17px; font-weight: 700; margin-bottom: 10px; flex-shrink: 0; }
-    .modal-text { font-size: 14px; color: #d1d1d6; line-height: 1.4; margin-bottom: 16px; white-space: pre-wrap; }
+    .modal-text { font-size: 14px; color: #d1d1d6; line-height: 1.4; margin-bottom: 16px; white-space: pre-wrap; flex-shrink: 0; }
     .modal-actions { display: grid; gap: 8px; flex-shrink: 0; }
     .modal-actions.row { grid-template-columns: 1fr 1fr; }
     #notesModalBody {
@@ -2633,7 +2635,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.144";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.145";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2929,14 +2931,28 @@
 
     let modalResolver = null;
 
+    function unlockPageScroll_() {
+      try {
+        document.body.style.overflow = "";
+        document.documentElement.style.overflow = "";
+        document.body.style.pointerEvents = "auto";
+        document.documentElement.style.pointerEvents = "auto";
+        var overlay = document.getElementById("modalOverlay");
+        if (overlay && !overlay.classList.contains("open")) {
+          overlay.style.display = "none";
+          overlay.style.pointerEvents = "none";
+        }
+      } catch (eU) {}
+    }
+
     function recoverUiFocus() {
       try {
         if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
       } catch (e) {}
-      document.body.style.pointerEvents = "auto";
-      document.documentElement.style.pointerEvents = "auto";
+      unlockPageScroll_();
       // Telegram WebView иногда «залипает» после системных диалогов
       setTimeout(function () {
+        unlockPageScroll_();
         window.scrollTo(0, window.scrollY || 0);
       }, 50);
     }
@@ -3424,10 +3440,7 @@
       overlay.style.display = "none";
       overlay.style.pointerEvents = "none";
       document.getElementById("modalSheet").innerHTML = "";
-      try {
-        document.body.style.overflow = "";
-        document.documentElement.style.overflow = "";
-      } catch (eLock) {}
+      unlockPageScroll_();
       const resolver = modalResolver;
       modalResolver = null;
       recoverUiFocus();
@@ -3448,9 +3461,16 @@
         overlay.style.display = "flex";
         overlay.style.pointerEvents = "auto";
         try {
-          document.body.style.overflow = "hidden";
-          document.documentElement.style.overflow = "hidden";
+          // не лочим html/body overflow — в TG WebView после закрытия скролл «умирает»
+          document.body.style.overflow = "";
+          document.documentElement.style.overflow = "";
         } catch (eLock2) {}
+        setTimeout(function () {
+          try {
+            var sheet = document.getElementById("modalSheet");
+            if (sheet) sheet.scrollTop = 0;
+          } catch (eSc) {}
+        }, 0);
       });
     }
 
@@ -3525,8 +3545,9 @@
       const p = openModal(
         '<div class="modal-title">' + escapeHtml(title || "Выбор") + "</div>" +
         '<div class="modal-text">' + escapeHtml(String(message || "")) + "</div>" +
-        '<div class="modal-actions">' + buttons +
+        '<div class="modal-actions">' +
           '<button class="btn-action" type="button" id="modalCancel" style="background:#3a3a3c;">Отмена</button>' +
+          buttons +
         "</div>"
       );
       setTimeout(function () {
@@ -15947,6 +15968,7 @@
            " / " + (priceDogNames[2] || "Собака 2") + ": " + perDog[2])
         : (" · " + priceDogLabel_(priceActiveDog) + ": " + totalAdded);
       showToast("В состав: " + totalAdded + dogsHint + (asked ? (" · фракций: " + asked) : ""));
+      unlockPageScroll_();
     }
     window.parseIgChecklistIntoPrice = parseIgChecklistIntoPrice;
 
