@@ -111,7 +111,7 @@
   function initScrollParallax() {
     if (reduced()) return;
     var hero = document.querySelector(".site-hero");
-    var stage = hero && hero.querySelector(".hero-stage");
+    var stage = hero && (hero.querySelector(".hero-features") || hero.querySelector(".hero-stage"));
     var copy = hero && hero.querySelector(".hero-copy");
     if (!hero || (!stage && !copy)) return;
 
@@ -133,12 +133,12 @@
       var h = hero.offsetHeight || 1;
       var p = Math.min(1, Math.max(0, y / h));
       if (stage) {
-        stage.style.transform = "translate3d(0," + (p * 28).toFixed(1) + "px,0)";
-        stage.style.opacity = String((1 - p * 0.55).toFixed(3));
+        stage.style.transform = "translate3d(0," + (p * 22).toFixed(1) + "px,0)";
+        stage.style.opacity = String((1 - p * 0.45).toFixed(3));
       }
       if (copy) {
-        copy.style.transform = "translate3d(0," + (p * 18).toFixed(1) + "px,0)";
-        copy.style.opacity = String((1 - p * 0.4).toFixed(3));
+        copy.style.transform = "translate3d(0," + (p * 14).toFixed(1) + "px,0)";
+        copy.style.opacity = String((1 - p * 0.35).toFixed(3));
       }
     }
 
@@ -151,13 +151,16 @@
   }
 
   function initPhoneDemo() {
+    var screen = document.getElementById("phoneScreen");
     var slides = document.querySelectorAll(".phone-slide");
-    var tabs = document.querySelectorAll(".phone-tabs span");
+    var tabs = document.querySelectorAll(".phone-tabs [data-tab], .phone-tabs span");
     var toast = document.getElementById("phoneToast");
     if (!slides.length) return;
 
     var i = 0;
     var total = slides.length;
+    var timer = null;
+    var manual = false;
 
     function show(n) {
       i = ((n % total) + total) % total;
@@ -165,18 +168,72 @@
         s.classList.toggle("is-on", idx === i);
       });
       tabs.forEach(function (t, idx) {
-        t.classList.toggle("is-on", idx === i);
+        var key = t.getAttribute("data-tab");
+        var on = key != null ? Number(key) === i : idx === i;
+        t.classList.toggle("is-on", on);
       });
     }
 
+    function next() { show(i + 1); }
+    function prev() { show(i - 1); }
+
+    function stopAuto() {
+      manual = true;
+      if (timer) {
+        global.clearInterval(timer);
+        timer = null;
+      }
+    }
+
+    function startAuto() {
+      if (reduced() || manual) return;
+      if (timer) global.clearInterval(timer);
+      timer = global.setInterval(next, 4200);
+    }
+
     show(0);
-    if (reduced()) return;
 
-    global.setInterval(function () {
-      show(i + 1);
-    }, 3200);
+    tabs.forEach(function (t) {
+      t.addEventListener("click", function (e) {
+        e.preventDefault();
+        stopAuto();
+        var key = t.getAttribute("data-tab");
+        show(key != null ? Number(key) : Array.prototype.indexOf.call(tabs, t));
+      });
+    });
 
-    if (toast) {
+    if (screen) {
+      var startX = 0;
+      var startY = 0;
+      var tracking = false;
+
+      screen.addEventListener("pointerdown", function (e) {
+        tracking = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        try { screen.setPointerCapture(e.pointerId); } catch (err) {}
+      });
+
+      screen.addEventListener("pointerup", function (e) {
+        if (!tracking) return;
+        tracking = false;
+        var dx = e.clientX - startX;
+        var dy = e.clientY - startY;
+        if (Math.abs(dx) < 36 || Math.abs(dx) < Math.abs(dy)) return;
+        stopAuto();
+        if (dx < 0) next();
+        else prev();
+      });
+
+      screen.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowRight") { stopAuto(); next(); }
+        if (e.key === "ArrowLeft") { stopAuto(); prev(); }
+      });
+    }
+
+    startAuto();
+
+    if (toast && !reduced()) {
       var toastOn = false;
       global.setTimeout(function () {
         toast.classList.add("is-on");
@@ -185,7 +242,7 @@
       global.setInterval(function () {
         toastOn = !toastOn;
         toast.classList.toggle("is-on", toastOn);
-      }, 4200);
+      }, 4800);
     }
   }
 
