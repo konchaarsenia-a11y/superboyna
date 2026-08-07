@@ -16127,8 +16127,71 @@ function handlePartnerGetMe(json, callback, fromPost) {
   var isBoynaOwner = false;
   try { isBoynaOwner = partnerRequireOwner_(tid); } catch (eOwn) { isBoynaOwner = false; }
 
-  // Владельцы Бойни — полный доступ (админ-проверка). Партнёры — только allowlist / Partner_Access.
+  // 1) Сначала @username → Partner_Access (сотрудник видит ТОЛЬКО выданные точки)
+  var rows = readPartnerAccessRows_();
+  var hit = null;
+  if (username) {
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i].status || "") !== "active") continue;
+      if (rows[i].username === username) { hit = rows[i]; break; }
+    }
+  }
+  if (!hit && tid) {
+    for (var j = 0; j < rows.length; j++) {
+      if (String(rows[j].status || "") !== "active") continue;
+      if (rows[j].telegramId && String(rows[j].telegramId) === tid) { hit = rows[j]; break; }
+    }
+  }
+
+  if (hit) {
+    if (PARTNER_MINIAPP_ALLOWLIST_ && PARTNER_MINIAPP_ALLOWLIST_.length &&
+        !partnerIsOnAllowlist_(hit.username) && !partnerIsOnAllowlist_(username)) {
+      var denyHit = {
+        status: "success",
+        role: "none",
+        allowed: false,
+        message: "not_on_allowlist",
+        networks: [],
+        points: [],
+        catalog: partnerCatalogStatic_()
+      };
+      return fromPost ? jsonpText(callback, denyHit) : jsonp(callback, denyHit);
+    }
+    var allowedIds = (hit.pointIds || []).filter(function (id) {
+      for (var k = 0; k < pts.length; k++) if (pts[k].id === id) return true;
+      return false;
+    });
+    var allowed = {};
+    allowedIds.forEach(function (id) { allowed[id] = true; });
+    var myPts = pts.filter(function (p) { return !!allowed[p.id]; });
+    var myNetsMap = {};
+    myPts.forEach(function (p) { myNetsMap[p.networkId] = true; });
+    var myNets = nets.filter(function (n) { return myNetsMap[n.id]; });
+    var okPartner = {
+      status: "success",
+      allowed: allowedIds.length > 0,
+      ownersOnly: false,
+      role: hit.role || "partner",
+      isPartner: true,
+      isOwner: false,
+      name: hit.name || username || tid,
+      username: hit.username || username,
+      telegramId: hit.telegramId || tid,
+      networkId: hit.networkId || (myPts[0] && myPts[0].networkId) || "",
+      pointIds: allowedIds,
+      allowedPointIds: allowed,
+      networks: myNets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
+      points: myPts.map(function (p) {
+        return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
+      }),
+      catalog: partnerCatalogStatic_()
+    };
+    return fromPost ? jsonpText(callback, okPartner) : jsonp(callback, okPartner);
+  }
+
+  // 2) Нет строки в Partner_Access — владелец Бойни видит все точки (админ)
   if (tid && isBoynaOwner) {
+    // allowlist: владельца пускаем, но если задан username из allowlist без Access — не сюда
     var allIds = pts.map(function (p) { return p.id; });
     var allowedAll = {};
     allIds.forEach(function (id) { allowedAll[id] = true; });
@@ -16155,7 +16218,7 @@ function handlePartnerGetMe(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, ownerOk) : jsonp(callback, ownerOk);
   }
 
-  // Временный allowlist: пускаем только перечисленных партнёров
+  // 3) Остальным — нет доступа
   if (PARTNER_MINIAPP_ALLOWLIST_ && PARTNER_MINIAPP_ALLOWLIST_.length && !partnerIsOnAllowlist_(username)) {
     var denyList = {
       status: "success",
@@ -16169,67 +16232,16 @@ function handlePartnerGetMe(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, denyList) : jsonp(callback, denyList);
   }
 
-  var rows = readPartnerAccessRows_();
-  var hit = null;
-  for (var i = 0; i < rows.length; i++) {
-    if (String(rows[i].status || "") !== "active") continue;
-    if (username && rows[i].username === username) { hit = rows[i]; break; }
-  }
-  if (!hit && tid) {
-    for (var j = 0; j < rows.length; j++) {
-      if (String(rows[j].status || "") !== "active") continue;
-      if (rows[j].telegramId && String(rows[j].telegramId) === tid) { hit = rows[j]; break; }
-    }
-  }
-  if (hit && PARTNER_MINIAPP_ALLOWLIST_ && PARTNER_MINIAPP_ALLOWLIST_.length &&
-      !partnerIsOnAllowlist_(hit.username) && !partnerIsOnAllowlist_(username)) {
-    hit = null;
-  }
-  if (!hit) {
-    var no = {
-      status: "success",
-      role: "none",
-      allowed: false,
-      ownersOnly: false,
-      networks: nets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
-      points: pts.map(function (p) {
-        return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
-      }),
-      catalog: partnerCatalogStatic_()
-    };
-    return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
-  }
-  var allowedIds = (hit.pointIds || []).filter(function (id) {
-    for (var k = 0; k < pts.length; k++) if (pts[k].id === id) return true;
-    return false;
-  });
-  var allowed = {};
-  allowedIds.forEach(function (id) { allowed[id] = true; });
-  // партнёру в UI — только свои точки (не весь справочник)
-  var myPts = pts.filter(function (p) { return !!allowed[p.id]; });
-  var myNetsMap = {};
-  myPts.forEach(function (p) { myNetsMap[p.networkId] = true; });
-  var myNets = nets.filter(function (n) { return myNetsMap[n.id]; });
-  var ok = {
+  var no = {
     status: "success",
-    allowed: allowedIds.length > 0,
+    role: "none",
+    allowed: false,
     ownersOnly: false,
-    role: hit.role || "partner",
-    isPartner: true,
-    isOwner: false,
-    name: hit.name || username || tid,
-    username: hit.username || username,
-    telegramId: hit.telegramId || tid,
-    networkId: hit.networkId || (myPts[0] && myPts[0].networkId) || "",
-    pointIds: allowedIds,
-    allowedPointIds: allowed,
-    networks: myNets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
-    points: myPts.map(function (p) {
-      return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
-    }),
+    networks: [],
+    points: [],
     catalog: partnerCatalogStatic_()
   };
-  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
 }
 
 function handlePartnerSaveNetwork(json, callback, fromPost) {

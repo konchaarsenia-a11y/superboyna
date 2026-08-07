@@ -504,7 +504,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.0.1";
+  var APP_VER = "3.0.2";
   // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры».
   var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var SESSION_KEY = "gb_partner_session_v4";
@@ -664,7 +664,26 @@
     return null;
   }
   function myPoints_() {
-    return DEMO_POINT_IDS.map(pointById_).filter(Boolean);
+    var ids = DEMO_POINT_IDS.slice();
+    var allowed = {};
+    ids.forEach(function (id) { allowed[id] = true; });
+    // только выданные id; не тащим весь POINTS
+    var out = [];
+    ids.forEach(function (id) {
+      var p = pointById_(id);
+      if (p) out.push(p);
+    });
+    return out;
+  }
+
+  function assignedPointsList_() {
+    if (state.me && Array.isArray(state.me.points) && state.me.points.length) {
+      var allow = state.me.allowedPointIds || {};
+      return state.me.points.filter(function (p) {
+        return p && p.id && (allow[p.id] || (state.me.pointIds || []).indexOf(p.id) >= 0);
+      });
+    }
+    return myPoints_();
   }
   function logoFor_(net) {
     if (net && net.logo) return net.logo;
@@ -806,11 +825,36 @@
 
   function loginWithAccess_(acc, username) {
     if (!acc || !acc.pointIds || !acc.pointIds.length) return false;
-    REMOTE_IS_OWNER_ = !!acc.isOwner;
+    // партнёр никогда не получает «все точки», даже если isOwner пришёл по ошибке
+    var forcePartner = !acc.isOwner || (acc.role === "partner") || (acc.isPartner === true);
+    if (acc.points && acc.points.length && !acc.isOwner) forcePartner = true;
+    if (acc.isPartner) forcePartner = true;
+    REMOTE_IS_OWNER_ = !!acc.isOwner && !acc.isPartner && acc.role !== "partner";
     DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
     DEMO_NETWORK = acc.networkId || "";
     DEMO_USERNAME = normUser_(username || "");
-    DEMO_POINT_IDS = acc.pointIds.slice();
+    DEMO_POINT_IDS = (acc.pointIds || []).slice();
+    // если сервер прислал готовый список точек — подставляем в POINTS только их
+    if (Array.isArray(acc.points) && acc.points.length) {
+      POINTS = acc.points.map(function (p) {
+        return {
+          id: p.id,
+          networkId: p.networkId,
+          name: p.name,
+          address: p.address || ""
+        };
+      });
+    } else {
+      // оставить в POINTS только выданные
+      var keep = {};
+      DEMO_POINT_IDS.forEach(function (id) { keep[id] = true; });
+      POINTS = POINTS.filter(function (p) { return keep[p.id]; });
+    }
+    if (Array.isArray(acc.networks) && acc.networks.length) {
+      NETWORKS = acc.networks.map(function (n) {
+        return { id: n.id, name: n.name, logo: n.logo || "" };
+      });
+    }
     saveSession_();
     state.cart = {};
     state.point = null;
@@ -890,7 +934,7 @@
   function goPointsForOrder_() {
     var box = document.getElementById("pointsList");
     var hint = document.getElementById("pointsCartHint");
-    var list = (state.me && state.me.points) || myPoints_();
+    var list = assignedPointsList_();
     if (hint) {
       hint.style.display = "";
       hint.innerHTML = "В заявке <b>" + cartCount() + "</b> поз. · выберите свою точку";
@@ -1495,13 +1539,17 @@
           name: res.name || u.name,
           networkId: res.networkId,
           pointIds: res.pointIds,
-          isOwner: !!res.isOwner || res.role === "owner"
+          points: res.points || [],
+          networks: res.networks || [],
+          isOwner: !!res.isOwner && !res.isPartner,
+          isPartner: !!res.isPartner || res.role === "partner" || res.role === "staff",
+          role: res.role || ""
         }, res.username || u.username || "");
         return;
       }
 
-      // владелец Бойни без точек в ответе — fallback на admin-каталог
-      if (res && (res.isOwner || res.role === "owner")) {
+      // владелец Бойни без Partner_Access — полный каталог
+      if (res && res.isOwner && !res.isPartner) {
         try {
           var admin = await apiGet_({
             action: "partnerListAdmin",
