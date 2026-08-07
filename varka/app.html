@@ -504,7 +504,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.0.0";
+  var APP_VER = "3.0.1";
   // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры».
   var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var SESSION_KEY = "gb_partner_session_v4";
@@ -530,6 +530,7 @@
   }
 
   var NETWORKS = [
+    { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" },
     { id: "net_nan", name: "NaN clinic", logo: "assets/partners/nan.png" },
     { id: "net_fundog", name: "Fundog", logo: "assets/partners/fundog.png" },
     { id: "net_firedog", name: "Firedog", logo: "assets/partners/firedog.png" },
@@ -539,6 +540,16 @@
   ];
 
   var POINTS = [
+    { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka · Репина 4", address: "Репина 4" },
+    { id: "pt_varka_avia_17", networkId: "net_varka", name: "Varka · Авиационная 17", address: "Авиационная 17" },
+    { id: "pt_varka_karskogo_23", networkId: "net_varka", name: "Varka · Карского 23", address: "Карского 23" },
+    { id: "pt_varka_golodeda_15", networkId: "net_varka", name: "Varka · Голодеда 15", address: "Голодеда 15" },
+    { id: "pt_varka_rokoss_80", networkId: "net_varka", name: "Varka · Рокоссовского 80", address: "Рокоссовского 80" },
+    { id: "pt_varka_rokoss_150b", networkId: "net_varka", name: "Varka · Рокоссовского 150Б", address: "Рокоссовского 150Б" },
+    { id: "pt_varka_kazintsa_120", networkId: "net_varka", name: "Varka · Казинца 120", address: "Казинца 120" },
+    { id: "pt_varka_matus_70", networkId: "net_varka", name: "Varka · Матусевича 70", address: "Матусевича 70" },
+    { id: "pt_varka_tsvirko_100", networkId: "net_varka", name: "Varka · Цвирко 100", address: "Цвирко 100" },
+    { id: "pt_varka_skrip_1", networkId: "net_varka", name: "Varka · Скрипникова 1", address: "Скрипникова 1" },
     { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34" },
     { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
     { id: "pt_firedog_1", networkId: "net_firedog", name: "Firedog · точка 1", address: "Минск" },
@@ -1363,13 +1374,13 @@
 
   function isProdNetwork_(n) {
     var id = String((n && n.id) || "");
-    if (!id || id.indexOf("varka") >= 0 || id === "net_bowwow") return false;
+    if (!id || id === "net_bowwow") return false;
     return true;
   }
   function isProdPoint_(p) {
     var id = String((p && p.id) || "");
     var nid = String((p && p.networkId) || "");
-    if (!id || id.indexOf("varka") >= 0 || nid.indexOf("varka") >= 0 || nid === "net_bowwow") return false;
+    if (!id || nid === "net_bowwow") return false;
     return true;
   }
 

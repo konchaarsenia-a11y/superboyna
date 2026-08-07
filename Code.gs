@@ -15435,6 +15435,7 @@ function getPartnerOrdersSheet_() {
 function partnerDefaultSeedPack_() {
   return {
     networks: [
+      { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" },
       { id: "net_nan", name: "NaN clinic", logo: "assets/partners/nan.png" },
       { id: "net_fundog", name: "Fundog", logo: "assets/partners/fundog.png" },
       { id: "net_firedog", name: "Firedog", logo: "assets/partners/firedog.png" },
@@ -15443,6 +15444,16 @@ function partnerDefaultSeedPack_() {
       { id: "net_bobwow", name: "Bob Wow Collar", logo: "" }
     ],
     points: [
+      { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka · Репина 4", address: "Репина 4" },
+      { id: "pt_varka_avia_17", networkId: "net_varka", name: "Varka · Авиационная 17", address: "Авиационная 17" },
+      { id: "pt_varka_karskogo_23", networkId: "net_varka", name: "Varka · Карского 23", address: "Карского 23" },
+      { id: "pt_varka_golodeda_15", networkId: "net_varka", name: "Varka · Голодеда 15", address: "Голодеда 15" },
+      { id: "pt_varka_rokoss_80", networkId: "net_varka", name: "Varka · Рокоссовского 80", address: "Рокоссовского 80" },
+      { id: "pt_varka_rokoss_150b", networkId: "net_varka", name: "Varka · Рокоссовского 150Б", address: "Рокоссовского 150Б" },
+      { id: "pt_varka_kazintsa_120", networkId: "net_varka", name: "Varka · Казинца 120", address: "Казинца 120" },
+      { id: "pt_varka_matus_70", networkId: "net_varka", name: "Varka · Матусевича 70", address: "Матусевича 70" },
+      { id: "pt_varka_tsvirko_100", networkId: "net_varka", name: "Varka · Цвирко 100", address: "Цвирко 100" },
+      { id: "pt_varka_skrip_1", networkId: "net_varka", name: "Varka · Скрипникова 1", address: "Скрипникова 1" },
       { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34" },
       { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
       { id: "pt_firedog_1", networkId: "net_firedog", name: "Firedog · точка 1", address: "Минск" },
@@ -15584,8 +15595,70 @@ function partnerMigrateProdV3_() {
   return { migrated: true };
 }
 
+/** V4: вернуть сеть Varka + 10 адресов точек (после V3, где Varka гасилась). */
+function partnerMigrateProdV4_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V4") === "1") return { migrated: false };
+  var now = new Date();
+  var netSh = getPartnerNetworksSheet_();
+  var ptSh = getPartnerPointsSheet_();
+  var pack = partnerDefaultSeedPack_();
+  var varkaNet = null;
+  for (var i = 0; i < pack.networks.length; i++) {
+    if (pack.networks[i].id === "net_varka") { varkaNet = pack.networks[i]; break; }
+  }
+  if (!varkaNet) {
+    props.setProperty("PARTNER_PROD_V4", "1");
+    return { migrated: false };
+  }
+
+  var nets = readPartnerNetworks_();
+  var haveNet = {};
+  nets.forEach(function (n) { haveNet[n.id] = n; });
+  if (haveNet["net_varka"]) {
+    try {
+      netSh.getRange(haveNet["net_varka"].rowIndex, 2, 1, 3).setValues([[
+        varkaNet.name, varkaNet.logo || "assets/varka-logo.png", "yes"
+      ]]);
+    } catch (e1) {}
+  } else {
+    netSh.appendRow([varkaNet.id, varkaNet.name, varkaNet.logo || "assets/varka-logo.png", "yes", now]);
+  }
+
+  // старые placeholder-точки Varka — выключить
+  var pts = readPartnerPoints_();
+  var newIds = {};
+  pack.points.forEach(function (p) {
+    if (p.networkId === "net_varka") newIds[p.id] = true;
+  });
+  pts.forEach(function (p) {
+    if (String(p.networkId || "") !== "net_varka" && String(p.id || "").indexOf("varka") < 0) return;
+    if (newIds[p.id]) return;
+    try { ptSh.getRange(p.rowIndex, 5).setValue("no"); } catch (e2) {}
+  });
+
+  var havePt = {};
+  readPartnerPoints_().forEach(function (p) { havePt[p.id] = p; });
+  pack.points.forEach(function (p) {
+    if (p.networkId !== "net_varka") return;
+    if (havePt[p.id]) {
+      try {
+        ptSh.getRange(havePt[p.id].rowIndex, 2, 1, 4).setValues([[
+          p.networkId, p.name, p.address || "", "yes"
+        ]]);
+      } catch (e3) {}
+      return;
+    }
+    ptSh.appendRow([p.id, p.networkId, p.name, p.address || "", "yes", now]);
+  });
+
+  props.setProperty("PARTNER_PROD_V4", "1");
+  return { migrated: true };
+}
+
 function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV3_(); } catch (eMig) {}
+  try { partnerMigrateProdV4_(); } catch (eMig4) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
@@ -15975,11 +16048,10 @@ function handlePartnerGetMe(json, callback, fromPost) {
   var username = partnerNormUser_((json && json.username) || "");
   var tid = String((json && json.telegramId) || "").trim();
   var nets = readPartnerNetworks_().filter(function (n) {
-    return n.active && String(n.id || "").indexOf("varka") < 0 && n.id !== "net_bowwow";
+    return n.active && n.id !== "net_bowwow";
   });
   var pts = readPartnerPoints_().filter(function (p) {
-    return p.active && String(p.networkId || "").indexOf("varka") < 0 &&
-      p.networkId !== "net_bowwow" && String(p.id || "").indexOf("varka") < 0;
+    return p.active && p.networkId !== "net_bowwow";
   });
 
   var isBoynaOwner = false;

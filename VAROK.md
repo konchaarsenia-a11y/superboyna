@@ -30,7 +30,7 @@ Telegram Mini App для **партнёрских сетей**: бесплатн
 
 | Лист | Что |
 |------|-----|
-| `Partner_Networks` | Сети: NaN clinic, Fundog, Firedog, Polotno, Indixvost, Bob Wow Collar (**без Varka**) |
+| `Partner_Networks` | Сети: **Varka**, NaN clinic, Fundog, Firedog, Polotno, Indixvost, Bob Wow Collar |
 | `Partner_Points` | Точки сети |
 | `Partner_Access` | Доступ: `@username` / Telegram ID → точки |
 | `Partner_Orders` | Заявки партнёров |
@@ -81,7 +81,8 @@ Telegram telegramId → partnerGetMe → (owners-only) владелец → вс
 - [x] Вкладка владельца в Бойне (сети/точки/доступы)
 - [x] Листы Partner_* + seed
 - [x] Qty-пресеты: лёгкое/сердце 50–200 г; купоны 48/73/96/120; баннер только 1 шт · **Pages**
-- [x] **Prod v3.0.0:** без Varka · сети NaN/Fundog/Firedog/Polotno/Indixvost/Bob Wow Collar · без демо · партнёры из Access · `partnerSubmitOrder` / история · **Pages** · **нужен Deploy Code.gs**
+- [x] **Prod v3.0.0:** без демо · партнёры из Access · `partnerSubmitOrder` · **Pages** · **нужен Deploy**
+- [x] **Varka точки v3.0.1:** 10 адресов (Репина…Скрипникова) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V4`)
 - [~] Пуш заявок получателям из Партнёры→Пуши (`PARTNER_ORDER_NOTIFY_IDS`) — в коде, нужен Deploy + настройка списка
 - [ ] `/start` с кнопкой Web App
 - [ ] Вкладка «Отложенные» в Бойне под заявки партнёров
