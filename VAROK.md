@@ -25,18 +25,22 @@ Telegram Mini App для **партнёрских сетей**: бесплатн
 
 ## Связка с Бойней (кабинет владельца)
 
-Управление — вкладка **Партнёры** в конвейере Бойни (owner, long-press Заказ → Партнёры).  
-Во `varka/` кнопки владельца нет — только партнёр.
+Управление — вкладка **Партнёры** в конвейере Бойни (owner).  
+Во `varka/` кнопок владельца нет — только кабинет партнёра.
 
 | Лист | Что |
 |------|-----|
-| `Partner_Networks` | Сети (Varka, NaN, …) |
+| `Partner_Networks` | Сети: NaN clinic, Fundog, Firedog, Polotno, Indixvost, Bob Wow Collar (**без Varka**) |
 | `Partner_Points` | Точки сети |
 | `Partner_Access` | Доступ: `@username` / Telegram ID → точки |
+| `Partner_Orders` | Заявки партнёров |
 
-API (`Code.gs`): `partnerListAdmin`, `partnerGetMe`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`.
+API (`Code.gs`): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`.
 
-Ответственные за пуши заявок: Script Property `PARTNER_ORDER_NOTIFY_IDS` (список telegramId из вкладки Партнёры). Хелпер `getPartnerOrderNotifyIds_()`.
+**Prod v3:** демо-вход выключен; owners-only снят; партнёры входят по `Partner_Access`; владельцы Бойни видят все точки.  
+После Deploy миграция `PARTNER_PROD_V3` гасит Varka/демо в листах.
+
+Ответственные за пуши заявок: Script Property `PARTNER_ORDER_NOTIFY_IDS` (вкладка Партнёры → Пуши).
 
 Мини-апп читает тот же webhook Бойни (`partnerGetMe` по Telegram username / telegramId).
 
@@ -76,8 +80,8 @@ Telegram telegramId → partnerGetMe → (owners-only) владелец → вс
 - [x] Убран вход «Владелец» из `varka/`
 - [x] Вкладка владельца в Бойне (сети/точки/доступы)
 - [x] Листы Partner_* + seed
-- [x] Временно: мини-апп только владельцам Бойни — фронт `getMyAccess` · **Pages** (без Deploy)
 - [x] Qty-пресеты: лёгкое/сердце 50–200 г; купоны 48/73/96/120; баннер только 1 шт · **Pages**
-- [ ] Пуш заказов в Бойню / Отложенные
+- [x] **Prod v3.0.0:** без Varka · сети NaN/Fundog/Firedog/Polotno/Indixvost/Bob Wow Collar · без демо · партнёры из Access · `partnerSubmitOrder` / история · **Pages** · **нужен Deploy Code.gs**
+- [~] Пуш заявок получателям из Партнёры→Пуши (`PARTNER_ORDER_NOTIFY_IDS`) — в коде, нужен Deploy + настройка списка
 - [ ] `/start` с кнопкой Web App
-- [ ] Открыть доступ партнёрам из `Partner_Access` (снять owners-only)
+- [ ] Вкладка «Отложенные» в Бойне под заявки партнёров

@@ -1690,6 +1690,23 @@ function doGet(e) {
       recipients: e.parameter.recipients ? decodeURIComponent(e.parameter.recipients) : "[]"
     }, callback, false);
   }
+  if (action === "partnerSubmitOrder") {
+    return handlePartnerSubmitOrder({
+      telegramId: e.parameter.telegramId || "",
+      username: e.parameter.username ? decodeURIComponent(e.parameter.username) : "",
+      userName: e.parameter.userName ? decodeURIComponent(e.parameter.userName) : "",
+      locationId: e.parameter.locationId || "",
+      locationName: e.parameter.locationName ? decodeURIComponent(e.parameter.locationName) : "",
+      networkId: e.parameter.networkId || "",
+      basket: e.parameter.basket ? decodeURIComponent(e.parameter.basket) : (e.parameter.basketJson ? decodeURIComponent(e.parameter.basketJson) : "[]")
+    }, callback, false);
+  }
+  if (action === "partnerListMyOrders") {
+    return handlePartnerListMyOrders({
+      telegramId: e.parameter.telegramId || "",
+      username: e.parameter.username ? decodeURIComponent(e.parameter.username) : ""
+    }, callback, false);
+  }
   if (action === "setAccessTimezone") {
     return handleSetAccessTimezone({
       actorId: e.parameter.actorId || e.parameter.telegramId || "",
@@ -2253,6 +2270,12 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "partnerSetNotifyRecipients") {
     return handlePartnerSetNotifyRecipients(json, callback, fromPost);
+  }
+  if (action === "partnerSubmitOrder") {
+    return handlePartnerSubmitOrder(json, callback, fromPost);
+  }
+  if (action === "partnerListMyOrders") {
+    return handlePartnerListMyOrders(json, callback, fromPost);
   }
   if (action === "listReminderPeople") {
     return handleListReminderPeople_(json, callback, fromPost);
@@ -15325,6 +15348,7 @@ function handleDeletePartner(json, callback, fromPost) {
 var PARTNER_NET_HEADERS_ = ["id", "name", "logo", "active", "updatedAt"];
 var PARTNER_POINT_HEADERS_ = ["id", "networkId", "name", "address", "active", "updatedAt"];
 var PARTNER_ACCESS_HEADERS_ = ["id", "username", "telegramId", "name", "networkId", "pointIds", "role", "status", "updatedAt"];
+var PARTNER_ORDER_HEADERS_ = ["id", "dateIso", "locationId", "locationName", "networkId", "telegramId", "userName", "username", "basketJson", "status", "createdAt"];
 
 function partnerNormUser_(u) {
   return String(u || "").replace(/^@/, "").trim().toLowerCase();
@@ -15395,43 +15419,39 @@ function getPartnerAccessSheet_() {
   return sh;
 }
 
+function getPartnerOrdersSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("Partner_Orders");
+  if (!sh) {
+    sh = ss.insertSheet("Partner_Orders");
+    sh.getRange(1, 1, 1, PARTNER_ORDER_HEADERS_.length).setValues([PARTNER_ORDER_HEADERS_]);
+    sh.setFrozenRows(1);
+  } else {
+    ensureSheetHeadersAppend_(sh, PARTNER_ORDER_HEADERS_);
+  }
+  return sh;
+}
+
 function partnerDefaultSeedPack_() {
   return {
     networks: [
-      { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" },
       { id: "net_nan", name: "NaN clinic", logo: "assets/partners/nan.png" },
       { id: "net_fundog", name: "Fundog", logo: "assets/partners/fundog.png" },
       { id: "net_firedog", name: "Firedog", logo: "assets/partners/firedog.png" },
       { id: "net_polotno", name: "Polotno", logo: "" },
       { id: "net_indixvost", name: "Indixvost", logo: "" },
-      { id: "net_bowwow", name: "Bow_wow_color", logo: "" }
+      { id: "net_bobwow", name: "Bob Wow Collar", logo: "" }
     ],
     points: [
-      { id: "pt_varka_1", networkId: "net_varka", name: "Varka · Немига", address: "ул. Немига" },
-      { id: "pt_varka_2", networkId: "net_varka", name: "Varka · Каменная", address: "ул. Каменная" },
-      { id: "pt_varka_3", networkId: "net_varka", name: "Varka · Победителей", address: "пр. Победителей" },
-      { id: "pt_varka_4", networkId: "net_varka", name: "Varka · Притыцкого", address: "ул. Притыцкого" },
-      { id: "pt_varka_5", networkId: "net_varka", name: "Varka · Независимости", address: "пр. Независимости" },
-      { id: "pt_varka_6", networkId: "net_varka", name: "Varka · Кульман", address: "ул. Кульман" },
-      { id: "pt_varka_7", networkId: "net_varka", name: "Varka · Веры Хоружей", address: "ул. Веры Хоружей" },
-      { id: "pt_varka_8", networkId: "net_varka", name: "Varka · Сурганова", address: "ул. Сурганова" },
       { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34" },
       { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
       { id: "pt_firedog_1", networkId: "net_firedog", name: "Firedog · точка 1", address: "Минск" },
       { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—" },
       { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—" },
-      { id: "pt_bow_1", networkId: "net_bowwow", name: "Bow_wow_color · точка 1", address: "—" }
+      { id: "pt_bob_1", networkId: "net_bobwow", name: "Bob Wow Collar · точка 1", address: "—" }
     ],
-    access: [
-      { username: "varka_two", name: "Партнёр Varka (2 точки)", networkId: "net_varka", pointIds: ["pt_varka_1", "pt_varka_2"] },
-      { username: "varka_one", name: "Партнёр Varka (1 точка)", networkId: "net_varka", pointIds: ["pt_varka_5"] },
-      { username: "nan_demo", name: "Партнёр NaN", networkId: "net_nan", pointIds: ["pt_nan_1"] },
-      { username: "fundog_demo", name: "Партнёр Fundog", networkId: "net_fundog", pointIds: ["pt_fundog_1"] },
-      { username: "firedog_demo", name: "Партнёр Firedog", networkId: "net_firedog", pointIds: ["pt_firedog_1"] },
-      { username: "polotno_demo", name: "Партнёр Polotno", networkId: "net_polotno", pointIds: ["pt_polotno_1"] },
-      { username: "indixvost_demo", name: "Партнёр Indixvost", networkId: "net_indixvost", pointIds: ["pt_indix_1"] },
-      { username: "bowwow_demo", name: "Партнёр Bow_wow_color", networkId: "net_bowwow", pointIds: ["pt_bow_1"] }
-    ]
+    // доступы партнёров — только через вкладку «Партнёры» в Бойне
+    access: []
   };
 }
 
@@ -15497,12 +15517,80 @@ function readPartnerAccessRows_() {
   return out;
 }
 
-function ensurePartnerAppSeeded_(force) {
+function partnerMigrateProdV3_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V3") === "1") return { migrated: false };
+  var now = new Date();
+  var netSh = getPartnerNetworksSheet_();
+  var ptSh = getPartnerPointsSheet_();
+  var acSh = getPartnerAccessSheet_();
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   var acc = readPartnerAccessRows_();
-  if (!force && nets.length && pts.length && acc.length) {
-    return { seeded: false, networks: nets.length, points: pts.length, access: acc.length };
+  var pack = partnerDefaultSeedPack_();
+  var haveNet = {};
+  nets.forEach(function (n) { haveNet[n.id] = n; });
+
+  // выключить Varka + старые bowwow id
+  nets.forEach(function (n) {
+    var id = String(n.id || "");
+    var kill = id === "net_varka" || id.indexOf("varka") >= 0 || id === "net_bowwow";
+    if (!kill) return;
+    try { netSh.getRange(n.rowIndex, 4).setValue("no"); } catch (e1) {}
+  });
+  pts.forEach(function (p) {
+    var id = String(p.id || "");
+    var nid = String(p.networkId || "");
+    var kill = id.indexOf("varka") >= 0 || nid === "net_varka" || nid.indexOf("varka") >= 0 ||
+      id === "pt_bow_1" || nid === "net_bowwow";
+    if (!kill) return;
+    try { ptSh.getRange(p.rowIndex, 5).setValue("no"); } catch (e2) {}
+  });
+
+  // переименовать/добавить сети из прод-пака
+  pack.networks.forEach(function (n) {
+    if (haveNet[n.id]) {
+      try {
+        netSh.getRange(haveNet[n.id].rowIndex, 2, 1, 3).setValues([[n.name, n.logo || "", "yes"]]);
+      } catch (e3) {}
+      return;
+    }
+    netSh.appendRow([n.id, n.name, n.logo || "", "yes", now]);
+  });
+  var havePt = {};
+  readPartnerPoints_().forEach(function (p) { havePt[p.id] = p; });
+  pack.points.forEach(function (p) {
+    if (havePt[p.id]) {
+      try {
+        ptSh.getRange(havePt[p.id].rowIndex, 2, 1, 4).setValues([[p.networkId, p.name, p.address || "", "yes"]]);
+      } catch (e4) {}
+      return;
+    }
+    ptSh.appendRow([p.id, p.networkId, p.name, p.address || "", "yes", now]);
+  });
+
+  // убрать демо-доступы и varka_* (снизу вверх — индексы строк)
+  var killAcc = acc.filter(function (a) {
+    var u = String(a.username || "");
+    return /_demo$/.test(u) || u.indexOf("varka") === 0 ||
+      String(a.networkId || "").indexOf("varka") >= 0 ||
+      String(a.networkId || "") === "net_bowwow";
+  }).sort(function (a, b) { return b.rowIndex - a.rowIndex; });
+  killAcc.forEach(function (a) {
+    try { acSh.deleteRow(a.rowIndex); } catch (e5) {}
+  });
+
+  props.setProperty("PARTNER_PROD_V3", "1");
+  return { migrated: true };
+}
+
+function ensurePartnerAppSeeded_(force) {
+  try { partnerMigrateProdV3_(); } catch (eMig) {}
+  var nets = readPartnerNetworks_();
+  var pts = readPartnerPoints_();
+  // access может быть пустым в проде — не перезасеивать из‑за этого
+  if (!force && nets.length && pts.length) {
+    return { seeded: false, networks: nets.length, points: pts.length, access: readPartnerAccessRows_().length };
   }
   var pack = partnerDefaultSeedPack_();
   var now = new Date();
@@ -15523,9 +15611,9 @@ function ensurePartnerAppSeeded_(force) {
     });
     if (ptRows.length) ptSh.getRange(2, 1, 1 + ptRows.length, PARTNER_POINT_HEADERS_.length).setValues(ptRows);
   }
-  if (force || !acc.length) {
+  if (force) {
     if (acSh.getLastRow() > 1) acSh.getRange(2, 1, acSh.getLastRow(), PARTNER_ACCESS_HEADERS_.length).clearContent();
-    var acRows = pack.access.map(function (a) {
+    var acRows = (pack.access || []).map(function (a) {
       return [
         "pa_" + partnerNormUser_(a.username),
         partnerNormUser_(a.username),
@@ -15544,7 +15632,7 @@ function ensurePartnerAppSeeded_(force) {
     seeded: true,
     networks: pack.networks.length,
     points: pack.points.length,
-    access: pack.access.length
+    access: (pack.access || []).length
   };
 }
 
@@ -15555,6 +15643,162 @@ function partnerCatalogStatic_() {
     { id: "vr_c_piece", type: "coupon", name: "Купон", unit: "шт", active: true },
     { id: "vr_c_banner", type: "coupon", name: "Баннер", unit: "шт", active: true }
   ];
+}
+
+function partnerParseBasket_(raw) {
+  if (Array.isArray(raw)) return raw;
+  try {
+    var arr = JSON.parse(String(raw || "[]"));
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+}
+
+function partnerNotifyNewOrder_(order) {
+  try {
+    var rec = readPartnerNotifyRecipients_();
+    if (!rec.length) return;
+    var lines = (order.basket || []).map(function (b) {
+      return "• " + (b.name || b.id) + " — " + b.qty + " " + (b.unit || "");
+    }).join("\n");
+    var text = "🛍 Заявка партнёра " + (order.id || "") + "\n" +
+      (order.locationName || order.locationId || "") + "\n" +
+      (order.userName || order.username || order.telegramId || "") + "\n" +
+      lines;
+    for (var i = 0; i < rec.length; i++) {
+      try { telegramSendMarkup_(rec[i].telegramId, text, null); } catch (eN) {}
+    }
+  } catch (e) {}
+}
+
+function handlePartnerSubmitOrder(json, callback, fromPost) {
+  try { ensurePartnerAppSeeded_(false); } catch (eSeed) {}
+  var tid = String((json && json.telegramId) || "").trim();
+  var username = partnerNormUser_((json && json.username) || "");
+  if (!tid && !username) {
+    var bad = { status: "error", message: "need_user" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var locationId = String((json && json.locationId) || "").trim();
+  if (!locationId) {
+    var badLoc = { status: "error", message: "need_location" };
+    return fromPost ? jsonpText(callback, badLoc) : jsonp(callback, badLoc);
+  }
+  var basket = partnerParseBasket_(json && (json.basket || json.basketJson));
+  basket = basket.filter(function (b) { return b && (Number(b.qty) || 0) > 0; });
+  if (!basket.length) {
+    var badB = { status: "error", message: "empty_basket" };
+    return fromPost ? jsonpText(callback, badB) : jsonp(callback, badB);
+  }
+
+  var isOwner = false;
+  try { isOwner = partnerRequireOwner_(tid); } catch (eO) { isOwner = false; }
+  var allowed = false;
+  var locationName = String((json && json.locationName) || "").trim();
+  var networkId = String((json && json.networkId) || "").trim();
+  if (isOwner) {
+    allowed = true;
+  } else {
+    var rows = readPartnerAccessRows_();
+    var hit = null;
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i].status || "") !== "active") continue;
+      if (username && rows[i].username === username) { hit = rows[i]; break; }
+    }
+    if (!hit && tid) {
+      for (var j = 0; j < rows.length; j++) {
+        if (String(rows[j].status || "") !== "active") continue;
+        if (rows[j].telegramId && String(rows[j].telegramId) === tid) { hit = rows[j]; break; }
+      }
+    }
+    if (hit && (hit.pointIds || []).indexOf(locationId) >= 0) {
+      allowed = true;
+      if (!networkId) networkId = hit.networkId || "";
+    }
+  }
+  if (!allowed) {
+    var forbid = { status: "error", message: "forbidden_point" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  if (!locationName) {
+    var pts = readPartnerPoints_();
+    for (var p = 0; p < pts.length; p++) {
+      if (pts[p].id === locationId) {
+        locationName = pts[p].name;
+        if (!networkId) networkId = pts[p].networkId;
+        break;
+      }
+    }
+  }
+  var id = "po_" + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+  var now = new Date();
+  var dateIso = Utilities.formatDate(now, "Europe/Minsk", "yyyy-MM-dd");
+  var order = {
+    id: id,
+    dateIso: dateIso,
+    locationId: locationId,
+    locationName: locationName,
+    networkId: networkId,
+    telegramId: tid,
+    userName: String((json && json.userName) || "").trim(),
+    username: username,
+    basket: basket,
+    status: "new",
+    createdAt: now
+  };
+  getPartnerOrdersSheet_().appendRow([
+    order.id,
+    order.dateIso,
+    order.locationId,
+    order.locationName,
+    order.networkId,
+    order.telegramId,
+    order.userName,
+    order.username,
+    JSON.stringify(order.basket),
+    order.status,
+    order.createdAt
+  ]);
+  try { partnerNotifyNewOrder_(order); } catch (eN2) {}
+  var ok = { status: "success", order: order, id: id };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePartnerListMyOrders(json, callback, fromPost) {
+  try { ensurePartnerAppSeeded_(false); } catch (eSeed) {}
+  var tid = String((json && json.telegramId) || "").trim();
+  var username = partnerNormUser_((json && json.username) || "");
+  var isOwner = false;
+  try { isOwner = partnerRequireOwner_(tid); } catch (eO) { isOwner = false; }
+  var sh = getPartnerOrdersSheet_();
+  var data = sh.getDataRange().getValues();
+  var out = [];
+  for (var r = data.length - 1; r >= 1; r--) {
+    var id = String(data[r][0] || "").trim();
+    if (!id) continue;
+    var rowTid = String(data[r][5] || "").trim();
+    var rowUser = partnerNormUser_(data[r][7]);
+    if (!isOwner) {
+      if (tid && rowTid && rowTid !== tid) continue;
+      if (!tid && username && rowUser !== username) continue;
+      if (tid && !rowTid && username && rowUser !== username) continue;
+    }
+    var basket = partnerParseBasket_(data[r][8]);
+    out.push({
+      id: id,
+      dateIso: String(data[r][1] || ""),
+      locationId: String(data[r][2] || ""),
+      locationName: String(data[r][3] || ""),
+      networkId: String(data[r][4] || ""),
+      telegramId: rowTid,
+      userName: String(data[r][6] || ""),
+      username: rowUser,
+      basket: basket,
+      status: String(data[r][9] || "new")
+    });
+    if (out.length >= 100) break;
+  }
+  var ok = { status: "success", orders: out };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
 /** Кому слать TG о заявках партнёров (Script Properties). */
@@ -15730,30 +15974,19 @@ function handlePartnerGetMe(json, callback, fromPost) {
   try { ensurePartnerAppSeeded_(false); } catch (eSeed) {}
   var username = partnerNormUser_((json && json.username) || "");
   var tid = String((json && json.telegramId) || "").trim();
-  var nets = readPartnerNetworks_().filter(function (n) { return n.active; });
-  var pts = readPartnerPoints_().filter(function (p) { return p.active; });
+  var nets = readPartnerNetworks_().filter(function (n) {
+    return n.active && String(n.id || "").indexOf("varka") < 0 && n.id !== "net_bowwow";
+  });
+  var pts = readPartnerPoints_().filter(function (p) {
+    return p.active && String(p.networkId || "").indexOf("varka") < 0 &&
+      p.networkId !== "net_bowwow" && String(p.id || "").indexOf("varka") < 0;
+  });
 
-  // Временно: мини-апп varka только для владельцев Бойни (OWNER_TELEGRAM_IDS / роль owner в «Доступы»).
-  // Партнёров пустим после настройки доступов во вкладке Партнёры.
-  var PARTNER_MINIAPP_OWNERS_ONLY_ = true;
   var isBoynaOwner = false;
   try { isBoynaOwner = partnerRequireOwner_(tid); } catch (eOwn) { isBoynaOwner = false; }
 
-  if (PARTNER_MINIAPP_OWNERS_ONLY_) {
-    if (!tid || !isBoynaOwner) {
-      var locked = {
-        status: "success",
-        allowed: false,
-        ownersOnly: true,
-        role: "none",
-        message: "owners_only",
-        networks: [],
-        points: [],
-        catalog: partnerCatalogStatic_()
-      };
-      return fromPost ? jsonpText(callback, locked) : jsonp(callback, locked);
-    }
-    // Владелец: полный доступ для проверки (все активные точки)
+  // Владельцы Бойни — полный доступ ко всем активным партнёрским точкам (прод)
+  if (tid && isBoynaOwner) {
     var allIds = pts.map(function (p) { return p.id; });
     var allowedAll = {};
     allIds.forEach(function (id) { allowedAll[id] = true; });
@@ -15761,7 +15994,7 @@ function handlePartnerGetMe(json, callback, fromPost) {
     var ownerOk = {
       status: "success",
       allowed: true,
-      ownersOnly: true,
+      ownersOnly: false,
       role: "owner",
       isPartner: false,
       isOwner: true,
@@ -15797,6 +16030,7 @@ function handlePartnerGetMe(json, callback, fromPost) {
       status: "success",
       role: "none",
       allowed: false,
+      ownersOnly: false,
       networks: nets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
       points: pts.map(function (p) {
         return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
@@ -15805,11 +16039,16 @@ function handlePartnerGetMe(json, callback, fromPost) {
     };
     return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
   }
+  var allowedIds = (hit.pointIds || []).filter(function (id) {
+    for (var k = 0; k < pts.length; k++) if (pts[k].id === id) return true;
+    return false;
+  });
   var allowed = {};
-  (hit.pointIds || []).forEach(function (id) { allowed[id] = true; });
+  allowedIds.forEach(function (id) { allowed[id] = true; });
   var ok = {
     status: "success",
-    allowed: true,
+    allowed: allowedIds.length > 0,
+    ownersOnly: false,
     role: hit.role || "partner",
     isPartner: true,
     isOwner: false,
@@ -15817,7 +16056,7 @@ function handlePartnerGetMe(json, callback, fromPost) {
     username: hit.username || username,
     telegramId: hit.telegramId || tid,
     networkId: hit.networkId || "",
-    pointIds: hit.pointIds || [],
+    pointIds: allowedIds,
     allowedPointIds: allowed,
     networks: nets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
     points: pts.map(function (p) {
