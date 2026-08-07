@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.145";
+      var APP_VER = "v7.11.147";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2635,7 +2635,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.145";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.147";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -15319,7 +15319,15 @@
           "УХО": "УХО Г",
           "ЛОПАТОЧНЫЙ ХРЯЩ": "ЛОП ХРЯЩ шт.",
           "ЛОП ХРЯЩ": "ЛОП ХРЯЩ шт.",
-          "УТИНЫЕ ШЕИ": "УТИНЫЕ ШЕИ шт.",
+          "ЛОП. ХРЯЩ": "ЛОП ХРЯЩ шт.",
+          "ЛОП.ХРЯЩ": "ЛОП ХРЯЩ шт.",
+          "ЛОПАТ. ХРЯЩ": "ЛОП ХРЯЩ шт.",
+          "ПЕЧЕНЬ": "ПЕЧЕНЬ",
+          "ПОЧКИ": "ПОЧКИ",
+          "СЕРДЦЕ": "СЕРДЦЕ",
+          "БАНАН": "БАНАНЫ",
+          "БАНАНЫ": "БАНАНЫ",
+          "ТЫКВА": "ТЫКВА",
           "УТИНАЯ ШЕЯ": "УТИНЫЕ ШЕИ шт.",
           "ТРАХЕЯ": "ТРАХЕЯ",
           "ТРАХЕИ": "ТРАХЕЯ",
@@ -15756,8 +15764,52 @@
       return false;
     }
 
+    function normalizeChecklistRaw_(raw) {
+      return String(raw || "")
+        .replace(/\u2028|\u2029/g, "\n")
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .replace(/<br\s*\/?>/gi, "\n")
+        // иногда IG склеивает блоки одним пробелом перед кличкой — вернём перенос
+        .replace(/\s+([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-']{1,24}\s*:)/g, "\n$1");
+    }
+
     function isBareCategoryHeader_(t) {
-      return /^(дрессур[аы]?|жевалк[аи]?|фрукт[ы]?|овощ[и]?|присыпк?[аи]?|заказ|итого|всего|состав|набор)\s*$/i.test(String(t || "").trim());
+      var s = String(t || "").trim();
+      if (/^(дрессур[аы]?|жевалк[аи]?|фрукт[ы]?|овощ[и]?|присыпк?[аи]?|заказ|итого|всего|состав|набор)\s*$/i.test(s)) return true;
+      // «Овощи/фрукты», «Фрукты / овощи»
+      if (/^(овощ|фрукт)/i.test(s) && /(овощ|фрукт)/i.test(s)) return true;
+      return false;
+    }
+
+    /** Клички вида «Ария:» / «Киара:» — даже если IG вставил без переносов. */
+    function splitChecklistByDogNameMarkers_(raw) {
+      var text = normalizeChecklistRaw_(raw);
+      var re = /([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-']{1,24})\s*:/g;
+      var marks = [];
+      var m;
+      while ((m = re.exec(text)) !== null) {
+        var name = String(m[1] || "").trim();
+        if (!name || isBareCategoryHeader_(name)) continue;
+        if (/^собак/i.test(name) || /^dog\s*\d/i.test(name)) continue;
+        if (isKnownChecklistProductName_(name)) continue;
+        var prev = m.index > 0 ? text.charAt(m.index - 1) : "\n";
+        if (/[A-Za-zА-Яа-яЁё0-9]/i.test(prev)) continue;
+        marks.push({ index: m.index, end: m.index + m[0].length, name: name });
+      }
+      if (marks.length < 2) return null;
+      // первые две клички = две собаки; хвост после 2-й — ей же
+      var sections = [];
+      for (var i = 0; i < 2; i++) {
+        var start = marks[i].end;
+        var stop = (i === 0) ? marks[1].index : text.length;
+        sections.push({
+          dog: i + 1,
+          name: marks[i].name,
+          text: text.slice(start, stop).trim()
+        });
+      }
+      return sections;
     }
 
     function looksLikePriceDogHeader_(line) {
@@ -15866,7 +15918,13 @@
 
     /** Разбивка одного чеклиста на блоки собак. */
     function splitPriceChecklistByDogs_(raw) {
-      var lines = String(raw || "").split(/\r?\n/);
+      raw = normalizeChecklistRaw_(raw);
+
+      // 1) надёжно: клички «Ария:» / «Киара:» в любом месте текста
+      var byMarks = splitChecklistByDogNameMarkers_(raw);
+      if (byMarks && byMarks.length >= 2) return byMarks;
+
+      var lines = String(raw || "").split(/\n/);
       var sections = [];
       var cur = { dog: 0, name: "", lines: [] };
       var autoDog = 1;
@@ -15901,12 +15959,15 @@
       }
       pushCur();
 
-      // нет явных кличек → два блока через пустую строку / ---
+      // 2) два блока через пустую строку / ---
       if (sections.length <= 1 || headerHits === 0) {
         var byBlank = splitRawByBlankBlocks_(raw);
         if (byBlank) return byBlank;
         var bySep = splitRawBySepLine_(raw);
         if (bySep) return bySep;
+        // ещё раз маркеры после нормализации переносов
+        byMarks = splitChecklistByDogNameMarkers_(raw);
+        if (byMarks && byMarks.length >= 2) return byMarks;
       }
 
       if (!sections.length) {
@@ -15928,21 +15989,33 @@
       });
       if (dogsUsed[1] && dogsUsed[2]) return sections;
 
-      // ещё раз: два блока через пустую строку / ---
+      raw = normalizeChecklistRaw_(raw);
+      var byMarks = splitChecklistByDogNameMarkers_(raw);
+      if (byMarks && byMarks.length >= 2) return byMarks;
+
       var byBlank = splitRawByBlankBlocks_(raw);
       if (byBlank) return byBlank;
       var bySep = splitRawBySepLine_(raw);
       if (bySep) return bySep;
 
-      // спрашиваем только если уже режим «2 собаки» или явный намёк в тексте
+      // явные две клички с «:» в тексте — не спрашивать, даже если блок один
+      var named = (String(raw).match(/([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-']{1,24})\s*:/g) || [])
+        .map(function (x) { return x.replace(/\s*:$/, "").trim(); })
+        .filter(function (n) { return n && !isBareCategoryHeader_(n) && !isKnownChecklistProductName_(n); });
+      if (named.length >= 2) {
+        byMarks = splitChecklistByDogNameMarkers_(raw);
+        if (byMarks) return byMarks;
+      }
+
       var hintTwo = priceDogCount >= 2 ||
         /собак\s*2|dog\s*2|втор(ая|ой)\s*собак|двух\s*собак|2\s*собак/i.test(raw) ||
-        (!!String(priceDogNames[1] || "").trim() && !!String(priceDogNames[2] || "").trim());
+        (!!String(priceDogNames[1] || "").trim() && !!String(priceDogNames[2] || "").trim()) ||
+        named.length >= 2;
       if (!hintTwo) return sections;
 
       var how = await uiChoiceAsync(
         "2 собаки — как разделить чеклист?",
-        "Не вижу границы (клички «Рекс:»/«Пэни:», «Собака 1/2» или пустая строка между составами).",
+        "Не вижу границы. Нужны клички с двоеточием, напр. «Ария:» и «Киара:» (можно без пустых строк).",
         [
           { label: "Всё → собака 1", value: "1", cls: "btn-blue" },
           { label: "Всё → собака 2", value: "2", cls: "btn-blue" },
