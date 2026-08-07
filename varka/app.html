@@ -504,7 +504,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.0.4";
+  var APP_VER = "3.0.5";
   // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры».
   var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var SESSION_KEY = "gb_partner_session_v5";
@@ -947,8 +947,13 @@
     if (who) who.textContent = state.me.name;
     if (meta) {
       var n = (state.me.pointIds || []).length;
+      var ptsLab = (state.me.points || []).map(function (p) {
+        return (p && (p.address || p.name)) || "";
+      }).filter(Boolean).slice(0, 6).join(", ");
       meta.textContent = (state.me.username ? ("@" + state.me.username + " · ") : "") +
-        (state.me.networkName || "") + " · " + n + " точ.";
+        n + " точ." + (ptsLab ? (" · " + ptsLab) : "") +
+        (REMOTE_IS_OWNER_ ? " · owner" : "") +
+        " · v" + APP_VER;
     }
     var img = document.getElementById("orderPartnerLogo");
     var net = netById_(state.me.networkId);
@@ -986,7 +991,8 @@
       show("screenPoints");
       return;
     }
-    box.innerHTML = list.map(function (pt) {
+    box.innerHTML = '<div class="sub" style="text-align:left;margin:0 0 10px;">Доступно точек: <b>' +
+      list.length + "</b></div>" + list.map(function (pt) {
       var net = netById_(pt.networkId);
       var on = state.point && state.point.id === pt.id;
       return '<button class="loc" type="button" style="' +
@@ -1567,11 +1573,14 @@
         action: "partnerGetMe",
         username: u.username || "",
         telegramId: u.telegramId || "",
+        initData: u.initData || "",
         _: String(Date.now())
       });
       var ids = normalizePointIds_(res && res.pointIds);
-      var asOwner = !!(res && res.isOwner && !res.isPartner && res.role === "owner");
-      // партнёр — режем по pointIds; владелец Бойни — полный ответ сервера
+      // isPartner с сервера важнее — Access всегда режет точки
+      var asPartner = !!(res && (res.isPartner || res.role === "partner" || res.role === "staff" ||
+        res.matchBy === "username" || res.matchBy === "telegramId"));
+      var asOwner = !asPartner && !!(res && res.isOwner && res.role === "owner");
       applyRemoteConfig_(res, asOwner ? null : { pointIds: ids });
 
       if (res && res.allowed && ids.length) {
@@ -1582,7 +1591,7 @@
           points: res.points || [],
           networks: res.networks || [],
           isOwner: asOwner,
-          isPartner: !asOwner,
+          isPartner: asPartner || !asOwner,
           role: asOwner ? "owner" : (res.role || "partner"),
           username: res.username || u.username || ""
         }, res.username || u.username || "");

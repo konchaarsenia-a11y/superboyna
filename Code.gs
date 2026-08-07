@@ -1638,7 +1638,8 @@ function doGet(e) {
   if (action === "partnerGetMe") {
     return handlePartnerGetMe({
       username: e.parameter.username ? decodeURIComponent(e.parameter.username) : "",
-      telegramId: e.parameter.telegramId || ""
+      telegramId: e.parameter.telegramId || "",
+      initData: e.parameter.initData ? decodeURIComponent(e.parameter.initData) : ""
     }, callback, false);
   }
   if (action === "partnerSaveNetwork") {
@@ -15725,10 +15726,53 @@ function partnerMigrateProdV5_() {
   return { migrated: true };
 }
 
+/**
+ * V6: снова зафиксировать 5 точек для @one_more_person_228 и сбросить
+ * мусорный telegramId (тестовые вызовы могли записать «1»/«999»).
+ * Реальный tid привяжется при входе по @username.
+ */
+function partnerMigrateProdV6_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V6") === "1") return { migrated: false };
+  try { partnerMigrateProdV5_(); } catch (e5) {}
+  var now = new Date();
+  var acSh = getPartnerAccessSheet_();
+  var uname = "one_more_person_228";
+  var pointIds = [
+    "pt_firedog_1",
+    "pt_indix_1",
+    "pt_varka_karskogo_23",
+    "pt_varka_rokoss_150b",
+    "pt_varka_tsvirko_100"
+  ];
+  var rows = readPartnerAccessRows_();
+  var hit = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].username === uname) { hit = rows[i]; break; }
+  }
+  var vals = [
+    hit ? hit.id : ("pa_" + uname),
+    uname,
+    "", // сброс tid — привяжем при реальном входе
+    "one_more_person_228",
+    "net_varka",
+    JSON.stringify(pointIds),
+    "partner",
+    "active",
+    now
+  ];
+  if (hit) acSh.getRange(hit.rowIndex, 1, 1, PARTNER_ACCESS_HEADERS_.length).setValues([vals]);
+  else acSh.appendRow(vals);
+
+  props.setProperty("PARTNER_PROD_V6", "1");
+  return { migrated: true, pointIds: pointIds };
+}
+
 function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV3_(); } catch (eMig) {}
   try { partnerMigrateProdV4_(); } catch (eMig4) {}
   try { partnerMigrateProdV5_(); } catch (eMig5) {}
+  try { partnerMigrateProdV6_(); } catch (eMig6) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
@@ -16116,6 +16160,15 @@ function handlePartnerGetMe(json, callback, fromPost) {
   try { ensurePartnerAppSeeded_(false); } catch (eSeed) {}
   var username = partnerNormUser_((json && json.username) || "");
   var tid = String((json && json.telegramId) || "").trim();
+  // Telegram WebView иногда не отдаёт username в initDataUnsafe — берём из initData
+  try {
+    var iu = parseInitDataUser_((json && json.initData) || "");
+    if (iu) {
+      if (!username && iu.username) username = partnerNormUser_(iu.username);
+      if (!tid && iu.id) tid = String(iu.id).trim();
+    }
+  } catch (eInit) {}
+
   var nets = readPartnerNetworks_().filter(function (n) {
     return n.active && n.id !== "net_bowwow";
   });
@@ -16126,19 +16179,25 @@ function handlePartnerGetMe(json, callback, fromPost) {
   var isBoynaOwner = false;
   try { isBoynaOwner = partnerRequireOwner_(tid); } catch (eOwn) { isBoynaOwner = false; }
 
-  // 1) Сначала @username / telegramId → Partner_Access (ТОЛЬКО выданные точки)
+  // 1) Сначала @username → Partner_Access (ТОЛЬКО выданные точки).
+  //    Даже если человек ещё и owner Бойни — Access важнее (сотрудник с 5 точками).
   var rows = readPartnerAccessRows_();
   var hit = null;
+  var matchedBy = "";
   if (username) {
     for (var i = 0; i < rows.length; i++) {
       if (String(rows[i].status || "") !== "active") continue;
-      if (rows[i].username === username) { hit = rows[i]; break; }
+      if (rows[i].username === username) { hit = rows[i]; matchedBy = "username"; break; }
     }
   }
   if (!hit && tid) {
     for (var j = 0; j < rows.length; j++) {
       if (String(rows[j].status || "") !== "active") continue;
-      if (rows[j].telegramId && String(rows[j].telegramId) === tid) { hit = rows[j]; break; }
+      if (rows[j].telegramId && String(rows[j].telegramId) === tid) {
+        hit = rows[j];
+        matchedBy = "telegramId";
+        break;
+      }
     }
   }
 
@@ -16156,8 +16215,8 @@ function handlePartnerGetMe(json, callback, fromPost) {
       };
       return fromPost ? jsonpText(callback, denyHit) : jsonp(callback, denyHit);
     }
-    // привяжем telegramId к доступу (чтобы дальше находило и по id)
-    if (tid && String(hit.telegramId || "") !== tid) {
+    // telegramId пишем только после матча по @username (не затираем левыми tid из тестов)
+    if (matchedBy === "username" && tid && String(hit.telegramId || "") !== tid) {
       try {
         getPartnerAccessSheet_().getRange(hit.rowIndex, 3).setValue(tid);
         hit.telegramId = tid;
@@ -16186,6 +16245,7 @@ function handlePartnerGetMe(json, callback, fromPost) {
       networkId: hit.networkId || (myPts[0] && myPts[0].networkId) || "",
       pointIds: allowedIds,
       allowedPointIds: allowed,
+      matchBy: matchedBy,
       networks: myNets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
       points: myPts.map(function (p) {
         return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
@@ -16215,6 +16275,7 @@ function handlePartnerGetMe(json, callback, fromPost) {
       networkId: firstNet,
       pointIds: allIds,
       allowedPointIds: allowedAll,
+      matchBy: "boyna_owner",
       networks: nets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
       points: pts.map(function (p) {
         return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
