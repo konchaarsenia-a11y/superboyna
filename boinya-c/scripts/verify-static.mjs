@@ -12,13 +12,28 @@ const need = [
   "README.md",
   "index.html",
   "app.html",
+  "bridge.js",
+  "seed-inline.js",
+  "lab.html",
   "data/seed.json",
+  "data/clients-mon.json",
   "client/idb.js",
   "client/optimistic.js",
   "proxy/worker.js",
   "proxy/schema.sql",
-  "docs/ISOLATION.md"
+  "docs/ISOLATION.md",
+  "scripts/sync-from-prod.sh"
 ];
+const app = fs.readFileSync(path.join(sand, "app.html"), "utf8");
+if (!app.includes("C · SANDBOX") || !app.includes("__boinyaCTrySnap")) {
+  console.error("app.html missing C patches");
+  process.exit(1);
+}
+const rootApp = fs.readFileSync(path.join(root, "app.html"), "utf8");
+if (rootApp.includes("BOINYA_C_EDITION") || rootApp.includes("C · SANDBOX")) {
+  console.error("root app.html was polluted — abort");
+  process.exit(1);
+}
 
 let ok = true;
 for (const f of need) {

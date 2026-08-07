@@ -1,40 +1,37 @@
-# Бойня C — песочница (не прод)
+# Бойня C — песочница (копия миниаппа)
 
-Параллельный контур уровня **C**: IndexedDB + optimistic UI + (дальше) Worker/D1.  
-**Реальный миниапп не трогаем.**
+Полный UI конвейера, **отдельная копия**. Корневые `app.html` / `Code.gs` / `fast/` не трогаем.
 
-| Запрещено менять из этой папки | Можно |
-|--------------------------------|--------|
-| корневые `app.html`, `Code.gs` | всё внутри `boinya-c/` |
-| `fast/` | свой Worker / D1 / UI |
-| `TZ.md`, бот, webhook прода | локальный seed, демо |
+| | |
+|--|--|
+| Открыть | https://konchaarsenia-a11y.github.io/superboyna/boinya-c/ |
+| Бейдж | **C · SANDBOX** |
+| Запись в таблицу | **выключена** (чтобы не задеть прод) |
+| Старт Заказа | из seed/снапшота (быстро), потом можно догнать GAS |
 
-Прод: как был. Переключение — отдельным решением, когда C готов.
+## Что смотреть
 
-## Открыть
+Тот же миниапп: вкладки Заказ / Нарезка / Курьер / …  
+Оцени скорость открытия списка клиентов и общий UI.
 
-После пуша на Pages:
-
-`https://konchaarsenia-a11y.github.io/superboyna/boinya-c/`
-
-Локально: любой static server из корня репо, путь `/boinya-c/`.
-
-Бейдж **C · SANDBOX** на экране — это не конвейер.
-
-## Фазы
-
-См. [docs/PLAN.md](./docs/PLAN.md). Сейчас: **фаза 0–1 каркас** (IDB + optimistic + seed, Worker-заготовка).
-
-## Cloudflare (позже, бесплатно)
+## Обновить копию из прода (не меняет прод)
 
 ```bash
-cd boinya-c/proxy
-npx wrangler login
-npx wrangler d1 create boinya-c
-# прописать database_id в wrangler.toml
-npx wrangler d1 execute boinya-c --file=./schema.sql
-npx wrangler deploy
-# URL → client/config.js → PROXY
+bash boinya-c/scripts/sync-from-prod.sh
+node boinya-c/scripts/build-seed-inline.mjs
 ```
 
-До деплоя Worker демо работает **полностью офлайн** на seed + IndexedDB.
+Снапшоты дней: `boinya-c/data/` (сейчас из `fast/data`).
+
+## Осторожно: запись
+
+По умолчанию save/move/delete **блокируются**.  
+Включить (пишет в тот же GAS/Sheets!): `?allowWrite=1` — только если явно нужно.
+
+## Лаборатория IDB
+
+Старое тонкое демо: [`lab.html`](./lab.html).
+
+## Worker / D1
+
+Заготовка в `proxy/` — см. `docs/PLAN.md`. Для оценки UI не обязателен.
