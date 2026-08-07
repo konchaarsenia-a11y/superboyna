@@ -37,16 +37,18 @@ Telegram Mini App для **партнёрских сетей**: бесплатн
 
 API (`Code.gs`): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`.
 
-**Prod v3+:** демо-вход выключен; вход только по `Partner_Access`.  
-Владелец точки / сотрудник видят **только выданные** `pointIds` (не весь справочник).  
-Полный список сетей/точек — вкладка **Партнёры** в Бойне (`partnerListAdmin`).  
+**Prod v3+:** демо-вход выключен.  
+- Партнёр / сотрудник / владелец точки → только выданные `pointIds` из `Partner_Access`  
+- Владелец Бойни (без строки Access) → все точки в мини-апп  
+- Админка сетей/доступов — вкладка **Партнёры** в Бойне (`partnerListAdmin`)  
+
 После Deploy миграции `PARTNER_PROD_V3` / `V4` / `V5`.
 
 Ответственные за пуши заявок: Script Property `PARTNER_ORDER_NOTIFY_IDS` (вкладка Партнёры → Пуши).
 
-Мини-апп: `partnerGetMe` по `@username` / `telegramId` → фильтр точек.
+Мини-апп: `partnerGetMe` по `@username` / `telegramId`.
 
-**Сейчас (тест):** allowlist `@one_more_person_228` → Firedog, Indixvost, Карского 23, Рокоссовского 150Б, Цвирко 100.  
+**Сейчас (тест):** allowlist партнёров `@one_more_person_228` → 5 точек; владельцы Бойни не режутся allowlist’ом.  
 Нужен **Deploy Code.gs** после правок бэкенда.
 
 Не путать с листом **«Партнёры»** (источник БП во вкладке Доступы).
@@ -58,8 +60,10 @@ API (`Code.gs`): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `part
 ## Поток
 
 ```
-Telegram @username/telegramId → partnerGetMe → Partner_Access.pointIds
-  → кабинет / заказ (каталог → только свои точки) / история
+Telegram → partnerGetMe
+  → есть Partner_Access → только pointIds
+  → иначе владелец Бойни → все точки
+  → кабинет / заказ / история
 ```
 
 Демо-профили в браузере при живом webhook **отключены**.
@@ -85,7 +89,7 @@ Telegram @username/telegramId → partnerGetMe → Partner_Access.pointIds
 - [x] Qty-пресеты: лёгкое/сердце 50–200 г; купоны 48/73/96/120; баннер только 1 шт · **Pages**
 - [x] **Prod v3.0.0:** без демо · партнёры из Access · `partnerSubmitOrder` · **Pages** · **нужен Deploy**
 - [x] **Varka точки v3.0.1:** 10 адресов (Репина…Скрипникова) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V4`)
-- [~] **Тест-доступ:** только `@one_more_person_228` → 5 точек; сотрудник/владелец точки без чужих точек · v3.0.3 · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V5` + `partnerGetMe` без owner-all)
+- [~] **Тест-доступ:** `@one_more_person_228` → 5 точек; владельцы Бойни — полный доступ · v3.0.4 · **Pages** · **нужен Deploy Code.gs**
 - [~] Пуш заявок получателям из Партнёры→Пуши (`PARTNER_ORDER_NOTIFY_IDS`) — в коде, нужен Deploy + настройка списка
 - [ ] `/start` с кнопкой Web App
 - [ ] Вкладка «Отложенные» в Бойне под заявки партнёров

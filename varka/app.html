@@ -504,14 +504,14 @@
 
   <script>
 (function () {
-  var APP_VER = "3.0.3";
+  var APP_VER = "3.0.4";
   // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры».
   var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var SESSION_KEY = "gb_partner_session_v5";
   var SETTINGS_KEY = "gb_partner_settings_v2";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
   var COUPON_BANNER = "assets/coupon-banner.png";
-  // Прод: только Partner_Access → выданные точки. Владелец Бойни без Access — не входит.
+  // Партнёр/staff — только Partner_Access; владелец Бойни без Access — все точки.
   var OWNERS_ONLY_MODE_ = false;
   var REMOTE_IS_OWNER_ = false;
 
@@ -623,34 +623,31 @@
       if (!s || (s.role !== "partner" && s.role !== "owner" && s.role !== "staff")) return false;
       var ids = normalizePointIds_(s.pointIds);
       if (!ids.length && s.pointId) ids = [String(s.pointId)];
-      // старые сессии owner/"all" — сбрасываем, вход только через Partner_Access
-      if (!ids.length || s.isOwner || s.role === "owner") {
+      if (!ids.length || !s.networkId) {
         clearSession_();
         return false;
       }
-      if (!s.networkId) {
-        clearSession_();
-        return false;
-      }
-      DEMO_ROLE = "partner";
+      REMOTE_IS_OWNER_ = !!s.isOwner && s.role === "owner";
+      DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
       DEMO_NETWORK = s.networkId || "";
       DEMO_USERNAME = normUser_(s.username || "");
       DEMO_POINT_IDS = ids;
-      REMOTE_IS_OWNER_ = false;
-      var keep = {};
-      ids.forEach(function (id) { keep[id] = true; });
-      POINTS = (POINTS || []).filter(function (p) { return p && keep[p.id]; });
+      if (!REMOTE_IS_OWNER_) {
+        var keep = {};
+        ids.forEach(function (id) { keep[id] = true; });
+        POINTS = (POINTS || []).filter(function (p) { return p && keep[p.id]; });
+      }
       return true;
     } catch (e) { return false; }
   }
   function saveSession_() {
     try {
       sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-        role: "partner",
+        role: DEMO_ROLE || "partner",
         username: DEMO_USERNAME,
         networkId: DEMO_NETWORK,
         pointIds: DEMO_POINT_IDS.slice(),
-        isOwner: false
+        isOwner: !!REMOTE_IS_OWNER_
       }));
     } catch (e) {}
   }
@@ -860,9 +857,10 @@
   function loginWithAccess_(acc, username) {
     var ids = normalizePointIds_(acc && acc.pointIds);
     if (!ids.length) return false;
-    // в мини-апп нет «владельца со всеми точками» — только выданные id
-    REMOTE_IS_OWNER_ = false;
-    DEMO_ROLE = "partner";
+    // владелец Бойни (без Partner_Access) — все точки; партнёр/staff — только выданные
+    REMOTE_IS_OWNER_ = !!acc.isOwner && !acc.isPartner &&
+      acc.role !== "partner" && acc.role !== "staff";
+    DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
     DEMO_NETWORK = (acc && acc.networkId) || "";
     DEMO_USERNAME = normUser_(username || (acc && acc.username) || "");
     DEMO_POINT_IDS = ids.slice();
@@ -885,13 +883,19 @@
     });
 
     if (Array.isArray(acc.networks) && acc.networks.length) {
-      var netNeed = {};
-      POINTS.forEach(function (p) { if (p.networkId) netNeed[p.networkId] = true; });
-      NETWORKS = acc.networks.filter(function (n) {
-        return n && n.id && netNeed[n.id];
-      }).map(function (n) {
-        return { id: n.id, name: n.name, logo: n.logo || "" };
-      });
+      if (REMOTE_IS_OWNER_) {
+        NETWORKS = acc.networks.map(function (n) {
+          return { id: n.id, name: n.name, logo: n.logo || "" };
+        });
+      } else {
+        var netNeed = {};
+        POINTS.forEach(function (p) { if (p.networkId) netNeed[p.networkId] = true; });
+        NETWORKS = acc.networks.filter(function (n) {
+          return n && n.id && netNeed[n.id];
+        }).map(function (n) {
+          return { id: n.id, name: n.name, logo: n.logo || "" };
+        });
+      }
     }
     saveSession_();
     state.cart = {};
@@ -1566,8 +1570,9 @@
         _: String(Date.now())
       });
       var ids = normalizePointIds_(res && res.pointIds);
-      // жёстко: только выданные точки из Partner_Access (без owner-all / partnerListAdmin)
-      applyRemoteConfig_(res, { pointIds: ids });
+      var asOwner = !!(res && res.isOwner && !res.isPartner && res.role === "owner");
+      // партнёр — режем по pointIds; владелец Бойни — полный ответ сервера
+      applyRemoteConfig_(res, asOwner ? null : { pointIds: ids });
 
       if (res && res.allowed && ids.length) {
         loginWithAccess_({
@@ -1576,9 +1581,9 @@
           pointIds: ids,
           points: res.points || [],
           networks: res.networks || [],
-          isOwner: false,
-          isPartner: true,
-          role: res.role || "partner",
+          isOwner: asOwner,
+          isPartner: !asOwner,
+          role: asOwner ? "owner" : (res.role || "partner"),
           username: res.username || u.username || ""
         }, res.username || u.username || "");
         return;

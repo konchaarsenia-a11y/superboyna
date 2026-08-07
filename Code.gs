@@ -15479,7 +15479,7 @@ function partnerDefaultSeedPack_() {
   };
 }
 
-/** Пока не пусто — в мини-апп пускаем только эти @username из Partner_Access. Пустой = все active из Partner_Access. Владельцы Бойни без Access — не видят точки в мини-апп. */
+/** Пока не пусто — партнёров пускаем только этих @username (+ владельцы Бойни всегда). Пустой = все active из Partner_Access. */
 var PARTNER_MINIAPP_ALLOWLIST_ = ["one_more_person_228"];
 
 function partnerIsOnAllowlist_(username) {
@@ -15833,10 +15833,12 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, badB) : jsonp(callback, badB);
   }
 
-  // заказ только на точки из Partner_Access (сотрудник/владелец точки ≠ все точки)
+  var isOwner = false;
+  try { isOwner = partnerRequireOwner_(tid); } catch (eO) { isOwner = false; }
   var allowed = false;
   var locationName = String((json && json.locationName) || "").trim();
   var networkId = String((json && json.networkId) || "").trim();
+  // партнёр/staff — только свои точки; владелец Бойни — любая
   var rows = readPartnerAccessRows_();
   var hit = null;
   for (var i = 0; i < rows.length; i++) {
@@ -15852,6 +15854,8 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
   if (hit && (hit.pointIds || []).indexOf(locationId) >= 0) {
     allowed = true;
     if (!networkId) networkId = hit.networkId || "";
+  } else if (isOwner && !hit) {
+    allowed = true;
   }
   if (!allowed) {
     var forbid = { status: "error", message: "forbidden_point" };
@@ -16191,9 +16195,36 @@ function handlePartnerGetMe(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, okPartner) : jsonp(callback, okPartner);
   }
 
-  // 2) Без строки Partner_Access — в мини-апп не пускаем (ни владельца Бойни, ни сотрудника).
-  //    Полный справочник точек — только вкладка «Партнёры» в Бойне (partnerListAdmin).
-  //    Владелец точки / staff видят ТОЛЬКО выданные pointIds (шаг 1 выше).
+  // 2) Нет Partner_Access — владелец Бойни видит все точки (админ мини-апп).
+  //    Сотрудник / владелец точки без Access — нет входа.
+  if (tid && isBoynaOwner) {
+    var allIds = pts.map(function (p) { return p.id; });
+    var allowedAll = {};
+    allIds.forEach(function (id) { allowedAll[id] = true; });
+    var firstNet = (pts[0] && pts[0].networkId) || (nets[0] && nets[0].id) || "";
+    var ownerOk = {
+      status: "success",
+      allowed: true,
+      ownersOnly: false,
+      role: "owner",
+      isPartner: false,
+      isOwner: true,
+      name: "Владелец Good Boy",
+      username: username,
+      telegramId: tid,
+      networkId: firstNet,
+      pointIds: allIds,
+      allowedPointIds: allowedAll,
+      networks: nets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
+      points: pts.map(function (p) {
+        return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
+      }),
+      catalog: partnerCatalogStatic_()
+    };
+    return fromPost ? jsonpText(callback, ownerOk) : jsonp(callback, ownerOk);
+  }
+
+  // 3) Остальным без Access — отказ (allowlist тоже)
   if (PARTNER_MINIAPP_ALLOWLIST_ && PARTNER_MINIAPP_ALLOWLIST_.length &&
       !partnerIsOnAllowlist_(username)) {
     var denyList = {
@@ -16214,7 +16245,6 @@ function handlePartnerGetMe(json, callback, fromPost) {
     allowed: false,
     ownersOnly: false,
     message: username || tid ? "no_partner_access" : "need_username",
-    isBoynaOwner: !!isBoynaOwner,
     networks: [],
     points: [],
     catalog: partnerCatalogStatic_()
