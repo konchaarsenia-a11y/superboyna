@@ -504,16 +504,17 @@
 
   <script>
 (function () {
-  var APP_VER = "3.0.5";
+  var APP_VER = "3.0.6";
   // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры».
   var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
-  var SESSION_KEY = "gb_partner_session_v5";
+  var SESSION_KEY = "gb_partner_session_v6";
   var SETTINGS_KEY = "gb_partner_settings_v2";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
   var COUPON_BANNER = "assets/coupon-banner.png";
-  // Партнёр/staff — только Partner_Access; владелец Бойни без Access — все точки.
+  // Точки ТОЛЬКО с сервера (Partner_Access / owner). Локальный справочник не показываем.
   var OWNERS_ONLY_MODE_ = false;
   var REMOTE_IS_OWNER_ = false;
+  var LAST_MATCH_BY_ = "";
 
   // Пресеты кол-ва по id (серверный каталог может быть старым — фронт нормализует).
   var QTY_RULES_ = {
@@ -529,34 +530,9 @@
     try { tg.setHeaderColor("#070707"); tg.setBackgroundColor("#070707"); } catch (e2) {}
   }
 
-  var NETWORKS = [
-    { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" },
-    { id: "net_nan", name: "NaN clinic", logo: "assets/partners/nan.png" },
-    { id: "net_fundog", name: "Fundog", logo: "assets/partners/fundog.png" },
-    { id: "net_firedog", name: "Firedog", logo: "assets/partners/firedog.png" },
-    { id: "net_polotno", name: "Polotno", logo: "" },
-    { id: "net_indixvost", name: "Indixvost", logo: "" },
-    { id: "net_bobwow", name: "Bob Wow Collar", logo: "" }
-  ];
-
-  var POINTS = [
-    { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka · Репина 4", address: "Репина 4" },
-    { id: "pt_varka_avia_17", networkId: "net_varka", name: "Varka · Авиационная 17", address: "Авиационная 17" },
-    { id: "pt_varka_karskogo_23", networkId: "net_varka", name: "Varka · Карского 23", address: "Карского 23" },
-    { id: "pt_varka_golodeda_15", networkId: "net_varka", name: "Varka · Голодеда 15", address: "Голодеда 15" },
-    { id: "pt_varka_rokoss_80", networkId: "net_varka", name: "Varka · Рокоссовского 80", address: "Рокоссовского 80" },
-    { id: "pt_varka_rokoss_150b", networkId: "net_varka", name: "Varka · Рокоссовского 150Б", address: "Рокоссовского 150Б" },
-    { id: "pt_varka_kazintsa_120", networkId: "net_varka", name: "Varka · Казинца 120", address: "Казинца 120" },
-    { id: "pt_varka_matus_70", networkId: "net_varka", name: "Varka · Матусевича 70", address: "Матусевича 70" },
-    { id: "pt_varka_tsvirko_100", networkId: "net_varka", name: "Varka · Цвирко 100", address: "Цвирко 100" },
-    { id: "pt_varka_skrip_1", networkId: "net_varka", name: "Varka · Скрипникова 1", address: "Скрипникова 1" },
-    { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34" },
-    { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
-    { id: "pt_firedog_1", networkId: "net_firedog", name: "Firedog · точка 1", address: "Минск" },
-    { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—" },
-    { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—" },
-    { id: "pt_bob_1", networkId: "net_bobwow", name: "Bob Wow Collar · точка 1", address: "—" }
-  ];
+  // Пусто до ответа partnerGetMe — иначе при сбое матча светился весь хардкод (16 точек).
+  var NETWORKS = [];
+  var POINTS = [];
 
   // Вход только через webhook / Partner_Access (без демо-профилей).
   var ACCESS_BY_USERNAME = {};
@@ -754,35 +730,32 @@
     };
   }
 
+  function userFromInitDataRaw_() {
+    try {
+      var raw = (tg && tg.initData) || "";
+      if (!raw) return null;
+      var m = String(raw).match(/(?:^|&)user=([^&]+)/);
+      if (!m) return null;
+      return JSON.parse(decodeURIComponent(m[1].replace(/\+/g, " ")));
+    } catch (e) { return null; }
+  }
+
   function user() {
     var u = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
-    var tid = String(u.id || "").trim();
-    if (!tid) tid = readTelegramIdFromTg_();
+    var fromInit = userFromInitDataRaw_() || {};
+    var tid = String(u.id || fromInit.id || "").trim();
     if (!tid) {
       try { tid = String(localStorage.getItem("superboyna_tg_id") || "").trim(); } catch (e) {}
     }
+    var uname = String(u.username || fromInit.username || "").replace(/^@/, "").trim();
+    var name = [u.first_name || fromInit.first_name, u.last_name || fromInit.last_name]
+      .filter(Boolean).join(" ") || "";
     return {
       telegramId: tid,
-      name: [u.first_name, u.last_name].filter(Boolean).join(" ") || "",
-      username: u.username || "",
+      name: name,
+      username: uname,
       initData: (tg && tg.initData) || ""
     };
-  }
-
-  function readTelegramIdFromTg_() {
-    try {
-      var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
-      if (u && u.id) return String(u.id);
-    } catch (e0) {}
-    try {
-      var raw = (tg && tg.initData) || "";
-      if (!raw) return "";
-      var m = String(raw).match(/(?:^|&)user=([^&]+)/);
-      if (!m) return "";
-      var ju = JSON.parse(decodeURIComponent(m[1]));
-      if (ju && ju.id) return String(ju.id);
-    } catch (e1) {}
-    return "";
   }
 
   function sleep_(ms) {
@@ -951,7 +924,9 @@
         return (p && (p.address || p.name)) || "";
       }).filter(Boolean).slice(0, 6).join(", ");
       meta.textContent = (state.me.username ? ("@" + state.me.username + " · ") : "") +
-        n + " точ." + (ptsLab ? (" · " + ptsLab) : "") +
+        n + " точ." +
+        (LAST_MATCH_BY_ ? (" · " + LAST_MATCH_BY_) : "") +
+        (ptsLab ? (" · " + ptsLab) : "") +
         (REMOTE_IS_OWNER_ ? " · owner" : "") +
         " · v" + APP_VER;
     }
@@ -1569,21 +1544,30 @@
       }
       try { localStorage.setItem("superboyna_tg_id", u.telegramId); } catch (eSt) {}
 
+      // initData в URL JSONP не шлём (длинный/ломает qs) — username уже вытащили на клиенте
       var res = await apiGet_({
         action: "partnerGetMe",
         username: u.username || "",
         telegramId: u.telegramId || "",
-        initData: u.initData || "",
         _: String(Date.now())
       });
+      LAST_MATCH_BY_ = String((res && res.matchBy) || "");
       var ids = normalizePointIds_(res && res.pointIds);
-      // isPartner с сервера важнее — Access всегда режет точки
+      // жёстко: partner/staff — только pointIds; owner — только если сервер явно сказал
       var asPartner = !!(res && (res.isPartner || res.role === "partner" || res.role === "staff" ||
         res.matchBy === "username" || res.matchBy === "telegramId"));
-      var asOwner = !asPartner && !!(res && res.isOwner && res.role === "owner");
+      var asOwner = !asPartner && !!(res && res.isOwner && res.role === "owner" &&
+        res.matchBy === "boyna_owner");
+      // никогда не подмешиваем локальный справочник — только res.points
+      POINTS = [];
+      NETWORKS = [];
       applyRemoteConfig_(res, asOwner ? null : { pointIds: ids });
 
       if (res && res.allowed && ids.length) {
+        // страховка: партнёр не может получить больше pointIds, чем прислал сервер в points
+        if (asPartner && Array.isArray(res.points) && res.points.length) {
+          ids = normalizePointIds_(res.points.map(function (p) { return p && p.id; }));
+        }
         loginWithAccess_({
           name: res.name || u.name,
           networkId: res.networkId,
@@ -1599,6 +1583,14 @@
       }
 
       clearSession_();
+      if (res && res.message === "owner_use_partner_access_during_test") {
+        var hint = document.getElementById("loginTgHint");
+        if (hint) {
+          hint.textContent = "Сейчас тест партнёров: выдайте себе точки во вкладке Партнёры (как сотруднику) или откройте под @ из allowlist.";
+        }
+        show("screenLogin");
+        return;
+      }
       renderLogin_();
       show("screenLogin");
     } catch (e) {

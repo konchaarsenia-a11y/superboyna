@@ -16255,9 +16255,12 @@ function handlePartnerGetMe(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, okPartner) : jsonp(callback, okPartner);
   }
 
-  // 2) Нет Partner_Access — владелец Бойни видит все точки (админ мини-апп).
-  //    Сотрудник / владелец точки без Access — нет входа.
-  if (tid && isBoynaOwner) {
+  // 2) Владелец Бойни без Partner_Access.
+  //    Пока включён allowlist теста партнёров — полный каталог в мини-апп ВЫКЛ
+  //    (иначе сотрудник-owner видит все 16 точек). Админка — вкладка Партнёры.
+  //    Когда allowlist пустой — owner снова видит все точки.
+  if (tid && isBoynaOwner &&
+      !(PARTNER_MINIAPP_ALLOWLIST_ && PARTNER_MINIAPP_ALLOWLIST_.length)) {
     var allIds = pts.map(function (p) { return p.id; });
     var allowedAll = {};
     allIds.forEach(function (id) { allowedAll[id] = true; });
@@ -16285,27 +16288,20 @@ function handlePartnerGetMe(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, ownerOk) : jsonp(callback, ownerOk);
   }
 
-  // 3) Остальным без Access — отказ (allowlist тоже)
-  if (PARTNER_MINIAPP_ALLOWLIST_ && PARTNER_MINIAPP_ALLOWLIST_.length &&
-      !partnerIsOnAllowlist_(username)) {
-    var denyList = {
-      status: "success",
-      role: "none",
-      allowed: false,
-      message: username ? "not_on_allowlist" : "need_username",
-      networks: [],
-      points: [],
-      catalog: partnerCatalogStatic_()
-    };
-    return fromPost ? jsonpText(callback, denyList) : jsonp(callback, denyList);
+  // 3) Остальным без Access — отказ
+  var denyMsg = "no_partner_access";
+  if (!username && !tid) denyMsg = "need_username";
+  else if (PARTNER_MINIAPP_ALLOWLIST_ && PARTNER_MINIAPP_ALLOWLIST_.length) {
+    if (isBoynaOwner) denyMsg = "owner_use_partner_access_during_test";
+    else if (!partnerIsOnAllowlist_(username)) denyMsg = username ? "not_on_allowlist" : "need_username";
   }
-
   var no = {
     status: "success",
     role: "none",
     allowed: false,
     ownersOnly: false,
-    message: username || tid ? "no_partner_access" : "need_username",
+    message: denyMsg,
+    isBoynaOwner: !!isBoynaOwner,
     networks: [],
     points: [],
     catalog: partnerCatalogStatic_()
