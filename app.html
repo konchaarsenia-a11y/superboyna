@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.142";
+      var APP_VER = "v7.11.143";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2633,7 +2633,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.142";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.143";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -15608,21 +15608,51 @@
     }
     window.clearPriceChecklist = clearPriceChecklist;
 
+    function normalizePriceDogHeaderLine_(line) {
+      return String(line || "")
+        .replace(/^[^A-Za-zА-Яа-яЁё0-9]+/, "")
+        .replace(/\*\*|__/g, "")
+        .trim();
+    }
+
+    function isKnownChecklistProductName_(name) {
+      var up = String(name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+      if (!up) return false;
+      try {
+        var known = buildIgKnownMap();
+        if (known[up]) return true;
+        var aliased = typeof igAliasResolve === "function" ? igAliasResolve(up) : up;
+        if (aliased && known[aliased]) return true;
+      } catch (eK) {}
+      return false;
+    }
+
     function looksLikePriceDogHeader_(line) {
-      var raw = String(line || "").trim();
+      var raw = normalizePriceDogHeaderLine_(line);
       if (!raw) return false;
+      // позиция с количеством — не кличка
       if (/\d/.test(raw) && /(г|гр|шт|кг)\b/i.test(raw)) return false;
       if (/[—\-–:].*\d|\d+\s*(г|гр|шт|кг)/i.test(raw)) return false;
-      var t = raw.replace(/[:：]\s*$/, "").trim();
+      var hadColon = /[:：]\s*$/.test(raw);
+      var t = raw.replace(/[:：]\s*$/, "").replace(/[—\-–]\s*$/, "").trim();
       if (!t || t.length > 40) return false;
-      if (/^(дрессур|жевалк|фрукт|овощ|присып|состав|заказ|итого)/i.test(t)) return false;
+      if (/^(дрессур|жевалк|фрукт|овощ|присып|состав|заказ|итого|всего)/i.test(t)) return false;
       if (/^собак/i.test(t) || /^dog\s*\d/i.test(t)) return true;
-      // кличка: одно-два слова без цифр
-      return /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-']{0,24}(?:\s+[A-Za-zА-Яа-яЁё\-']{1,16})?$/.test(t);
+      if (/^для\s+/i.test(t)) return true;
+      // кличка: 1–2 слова; с «:» — почти всегда заголовок; без «:» — не продукт каталога
+      var nickOk = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-']{0,24}(?:\s+[A-Za-zА-Яа-яЁё\-']{1,16})?$/.test(t);
+      if (!nickOk) return false;
+      if (isKnownChecklistProductName_(t)) return false;
+      if (hadColon) return true;
+      // без двоеточия — только явная кличка (не слишком общее слово)
+      if (/^(кубик|ломтик|полоск|средн|мелк|больш|крупн|мал|норм)$/i.test(t)) return false;
+      return true;
     }
 
     function resolvePriceDogHeader_(line) {
-      var t = String(line || "").trim().replace(/[:：]\s*$/, "").trim();
+      var raw = normalizePriceDogHeaderLine_(line);
+      var t = raw.replace(/[:：]\s*$/, "").replace(/[—\-–]\s*$/, "").trim();
+      t = t.replace(/^для\s+/i, "").trim();
       var mNum = t.match(/^собак[аеи]?\s*([12])\b/i) || t.match(/^dog\s*([12])\b/i);
       if (mNum) {
         var n = Number(mNum[1]) === 2 ? 2 : 1;
@@ -15638,19 +15668,33 @@
       return { dog: 0, name: t };
     }
 
+    /** Тихо включить режим 2 собак (без промпта клички — клички из чеклиста). */
+    function enablePriceTwoDogsFromChecklist_(name1, name2) {
+      stashPriceActiveBasket();
+      priceDogCount = 2;
+      if (!priceBaskets[1]) priceBaskets[1] = [];
+      if (!priceBaskets[2]) priceBaskets[2] = [];
+      if (name1) priceDogNames[1] = String(name1).trim();
+      if (name2) priceDogNames[2] = String(name2).trim();
+      priceActiveDog = 1;
+      loadPriceActiveBasket();
+      updatePriceDogUi();
+    }
+
     /** Разбивка одного чеклиста на блоки собак. */
     function splitPriceChecklistByDogs_(raw) {
       var lines = String(raw || "").split(/\r?\n/);
       var sections = [];
       var cur = { dog: 0, name: "", lines: [] };
       var autoDog = 1;
+      var localNames = { 1: "", 2: "" };
       function pushCur() {
         var body = cur.lines.join("\n").trim();
         if (!body && !cur.name) return;
         var dog = cur.dog;
         if (!dog) {
-          dog = autoDog;
-          if (autoDog < 2) autoDog = 2;
+          dog = autoDog <= 2 ? autoDog : 1;
+          if (autoDog < 2) autoDog += 1;
         }
         sections.push({ dog: dog, name: cur.name || "", text: body });
       }
@@ -15661,13 +15705,11 @@
           if (cur.lines.length || cur.name || cur.dog) pushCur();
           var dogN = hdr.dog;
           if (!dogN) {
-            dogN = autoDog;
-            if (autoDog < 2) autoDog = 2;
+            dogN = autoDog <= 2 ? autoDog : 1;
+            if (autoDog < 2) autoDog += 1;
           }
           cur = { dog: dogN, name: hdr.name || "", lines: [] };
-          if (hdr.name && (!priceDogNames[dogN] || !String(priceDogNames[dogN]).trim())) {
-            priceDogNames[dogN] = hdr.name;
-          }
+          if (hdr.name) localNames[dogN] = hdr.name;
           continue;
         }
         cur.lines.push(line);
@@ -15680,6 +15722,10 @@
       if (sections.length === 1 && !sections[0].name && !/собак|dog\s*[12]/i.test(String(raw || ""))) {
         sections[0].dog = priceDogCount >= 2 ? (priceActiveDog || 1) : 1;
       }
+      // проставить клички на секции, если были
+      sections.forEach(function (sec) {
+        if (!sec.name && localNames[sec.dog]) sec.name = localNames[sec.dog];
+      });
       return sections;
     }
 
@@ -15708,44 +15754,44 @@
       if (!raw) { showToast("Вставь текст чеклиста"); return; }
 
       var sections = splitPriceChecklistByDogs_(raw);
-      var multi = sections.length >= 2 ||
-        (sections.length === 1 && priceDogCount >= 2 && /собак\s*2|dog\s*2/i.test(raw));
-      if (multi && priceDogCount < 2) {
-        await setPriceDogCount(2);
-      }
+      var dogsUsed = {};
+      sections.forEach(function (sec) {
+        dogsUsed[Number(sec.dog) === 2 ? 2 : 1] = true;
+      });
+      var multi = !!dogsUsed[1] && !!dogsUsed[2];
 
+      // собираем во временные корзины — без гонок stash/priceBasket
+      var built = { 1: [], 2: [] };
+      var nameFromSec = { 1: "", 2: "" };
       var totalAdded = 0;
       var asked = 0;
       var unknown = [];
+      var perDog = { 1: 0, 2: 0 };
+
       for (var s = 0; s < sections.length; s++) {
         var sec = sections[s];
         var dogN = Number(sec.dog) === 2 ? 2 : 1;
-        if (sec.name) priceDogNames[dogN] = String(sec.name).trim();
-        if (priceDogCount < 2 && dogN === 2) {
-          await setPriceDogCount(2);
-        }
+        if (sec.name) nameFromSec[dogN] = String(sec.name).trim();
         var parsed = parseIgLinesToItems(sec.text || "");
         if (parsed.noteBits && parsed.noteBits.length) {
           unknown = unknown.concat(parsed.noteBits);
         }
         if (!parsed.items.length) continue;
 
-        if (!priceBaskets[dogN]) priceBaskets[dogN] = [];
         for (var i = 0; i < parsed.items.length; i++) {
           var it = parsed.items[i];
           var sub = it.sub || "";
           if (it.needFrac && it.fractions && it.fractions.length) {
             asked++;
-            var picked = await askChecklistFraction_(it, priceDogLabel_(dogN));
+            var label = nameFromSec[dogN] || ("Собака " + dogN);
+            var picked = await askChecklistFraction_(it, multi ? label : "");
             if (picked == null) {
               showToast("Отменено");
-              updatePriceDogUi();
-              renderPriceBasket();
               return;
             }
             sub = picked;
           }
-          priceBaskets[dogN].push({
+          built[dogN].push({
             id: Date.now() + Math.random(),
             cat: it.cat,
             main: it.main,
@@ -15755,20 +15801,34 @@
             val: it.val
           });
           totalAdded++;
+          perDog[dogN]++;
         }
       }
 
       if (!totalAdded) {
-        showToast("Не разобрал позиции — проверь формат");
+        showToast("Не разобрал позиции — нужны блоки с кличками, напр. «Рекс:» и «Пэни:»");
         return;
       }
 
-      if (unknown.length) {
-        showToast("Не распознал: " + unknown.slice(0, 3).join("; ") + (unknown.length > 3 ? "…" : ""));
+      if (multi) {
+        enablePriceTwoDogsFromChecklist_(nameFromSec[1], nameFromSec[2]);
+        // чеклист на 2 собак — заменить составы целиком
+        priceBaskets[1] = built[1];
+        priceBaskets[2] = built[2];
+        if (nameFromSec[1]) priceDogNames[1] = nameFromSec[1];
+        if (nameFromSec[2]) priceDogNames[2] = nameFromSec[2];
+        priceActiveDog = 1;
+      } else {
+        var onlyDog = dogsUsed[2] && !dogsUsed[1] ? 2 : (priceActiveDog || 1);
+        if (onlyDog === 2 && priceDogCount < 2) {
+          enablePriceTwoDogsFromChecklist_(priceDogNames[1], nameFromSec[2]);
+        }
+        if (!priceBaskets[onlyDog]) priceBaskets[onlyDog] = [];
+        priceBaskets[onlyDog] = priceBaskets[onlyDog].concat(built[onlyDog] || built[1] || []);
+        if (nameFromSec[onlyDog]) priceDogNames[onlyDog] = nameFromSec[onlyDog];
+        priceActiveDog = onlyDog;
       }
 
-      // после разбора 2 блоков — остаёмся на собаке 1 для просмотра
-      if (sections.length >= 2) priceActiveDog = 1;
       loadPriceActiveBasket();
       updatePriceDogUi();
       renderPriceBasket();
@@ -15778,10 +15838,15 @@
         syncPricePacksFromBasket_({ force: true });
       }
       schedulePriceLiveUpdate();
-      var dogsHint = sections.length >= 2
-        ? (" · " + priceDogLabel_(1) + " + " + priceDogLabel_(2))
-        : (" · " + priceDogLabel_(priceActiveDog));
-      showToast("В состав: " + totalAdded + dogsHint + (asked ? (" · уточнили фракций: " + asked) : ""));
+
+      if (unknown.length) {
+        showToast("Не распознал: " + unknown.slice(0, 3).join("; ") + (unknown.length > 3 ? "…" : ""));
+      }
+      var dogsHint = multi
+        ? (" · " + (priceDogNames[1] || "Собака 1") + ": " + perDog[1] +
+           " / " + (priceDogNames[2] || "Собака 2") + ": " + perDog[2])
+        : (" · " + priceDogLabel_(priceActiveDog) + ": " + totalAdded);
+      showToast("В состав: " + totalAdded + dogsHint + (asked ? (" · фракций: " + asked) : ""));
     }
     window.parseIgChecklistIntoPrice = parseIgChecklistIntoPrice;
 
