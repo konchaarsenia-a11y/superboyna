@@ -13,7 +13,11 @@
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+  max-width: 100%;
+}
 
 body.gb-site {
   margin: 0;
@@ -26,6 +30,8 @@ body.gb-site {
     var(--gb-black);
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  max-width: 100%;
+  position: relative;
 }
 
 /* Глобальные наложения атмосферы */
@@ -113,7 +119,7 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 8px 24px rgba(255,159,53,0.35);
 }
 
-.site-main { display: block; position: relative; z-index: 1; }
+.site-main { display: block; position: relative; z-index: 1; overflow-x: clip; }
 body.mode-app .site-main,
 body.mode-app .site-nav,
 body.mode-app .fx-grain,
@@ -377,6 +383,8 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   padding-left: 0;
   padding-right: 0;
   padding-bottom: 0;
+  overflow-x: clip;
+  max-width: 100%;
 }
 .inner--narrow {
   width: min(840px, 100%);
@@ -389,8 +397,9 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   display: grid;
   gap: 16px;
   width: 100%;
+  max-width: 100%;
   padding: 14px 0 22px;
-  overflow: visible;
+  overflow: hidden; /* обрезаем вылет — без горизонтального скролла */
 }
 .photo-shelves .shelf {
   margin: 0;
