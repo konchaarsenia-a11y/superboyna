@@ -1,4 +1,5 @@
-- [~] **Varka v3.0.6:** пока allowlist — без owner-all в мини-апп; точки только с сервера (без хардкода 16); username из initData — **Pages** · **нужен Deploy Code.gs**
+- [~] **Varka v3.0.7:** убран блок «тест партнёров»; owner снова входит; Access → только выданные точки; экран техработ не трогали — **Pages** · **нужен Deploy Code.gs**
+- [~] **Varka v3.0.6:** точки только с сервера; username из initData — **Pages** · **нужен Deploy Code.gs**
 - [~] **Varka v3.0.5:** матч точек по `@username`+`initData`; V6 сброс мусорного tid — **Pages** · **нужен Deploy Code.gs**
 - [~] **Varka v3.0.4:** владелец Бойни снова входит со всеми точками; партнёр/сотрудник — только `Partner_Access` — **Pages** · **нужен Deploy Code.gs**
 - [~] **UI v7.11.150:** Партнёры — чекбоксы точек из всех сетей при выдаче доступа — **Pages** · **нужен Deploy Code.gs**

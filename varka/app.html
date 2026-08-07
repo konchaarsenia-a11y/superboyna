@@ -504,7 +504,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.0.6";
+  var APP_VER = "3.0.7";
   // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры».
   var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var SESSION_KEY = "gb_partner_session_v6";
@@ -1583,14 +1583,6 @@
       }
 
       clearSession_();
-      if (res && res.message === "owner_use_partner_access_during_test") {
-        var hint = document.getElementById("loginTgHint");
-        if (hint) {
-          hint.textContent = "Сейчас тест партнёров: выдайте себе точки во вкладке Партнёры (как сотруднику) или откройте под @ из allowlist.";
-        }
-        show("screenLogin");
-        return;
-      }
       renderLogin_();
       show("screenLogin");
     } catch (e) {

@@ -16255,12 +16255,9 @@ function handlePartnerGetMe(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, okPartner) : jsonp(callback, okPartner);
   }
 
-  // 2) Владелец Бойни без Partner_Access.
-  //    Пока включён allowlist теста партнёров — полный каталог в мини-апп ВЫКЛ
-  //    (иначе сотрудник-owner видит все 16 точек). Админка — вкладка Партнёры.
-  //    Когда allowlist пустой — owner снова видит все точки.
-  if (tid && isBoynaOwner &&
-      !(PARTNER_MINIAPP_ALLOWLIST_ && PARTNER_MINIAPP_ALLOWLIST_.length)) {
+  // 2) Нет Partner_Access — владелец Бойни видит все точки.
+  //    Партнёр/сотрудник с Access уже обработан выше (только pointIds).
+  if (tid && isBoynaOwner) {
     var allIds = pts.map(function (p) { return p.id; });
     var allowedAll = {};
     allIds.forEach(function (id) { allowedAll[id] = true; });
@@ -16291,9 +16288,9 @@ function handlePartnerGetMe(json, callback, fromPost) {
   // 3) Остальным без Access — отказ
   var denyMsg = "no_partner_access";
   if (!username && !tid) denyMsg = "need_username";
-  else if (PARTNER_MINIAPP_ALLOWLIST_ && PARTNER_MINIAPP_ALLOWLIST_.length) {
-    if (isBoynaOwner) denyMsg = "owner_use_partner_access_during_test";
-    else if (!partnerIsOnAllowlist_(username)) denyMsg = username ? "not_on_allowlist" : "need_username";
+  else if (PARTNER_MINIAPP_ALLOWLIST_ && PARTNER_MINIAPP_ALLOWLIST_.length &&
+      !partnerIsOnAllowlist_(username)) {
+    denyMsg = username ? "not_on_allowlist" : "need_username";
   }
   var no = {
     status: "success",
@@ -16301,7 +16298,6 @@ function handlePartnerGetMe(json, callback, fromPost) {
     allowed: false,
     ownersOnly: false,
     message: denyMsg,
-    isBoynaOwner: !!isBoynaOwner,
     networks: [],
     points: [],
     catalog: partnerCatalogStatic_()

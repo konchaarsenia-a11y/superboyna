@@ -89,7 +89,7 @@ Telegram → partnerGetMe
 - [x] Qty-пресеты: лёгкое/сердце 50–200 г; купоны 48/73/96/120; баннер только 1 шт · **Pages**
 - [x] **Prod v3.0.0:** без демо · партнёры из Access · `partnerSubmitOrder` · **Pages** · **нужен Deploy**
 - [x] **Varka точки v3.0.1:** 10 адресов (Репина…Скрипникова) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V4`)
-- [~] **Тест-доступ:** `@one_more_person_228` → 5 точек; allowlist режет owner-all · v3.0.6 · **Pages** · **нужен Deploy Code.gs**
+- [~] **Тест-доступ:** `@one_more_person_228` → 5 точек; owner Бойни входит; экран «Ведутся технические работы» без изменений · v3.0.7 · **Pages** · **нужен Deploy Code.gs**
 - [~] Пуш заявок получателям из Партнёры→Пуши (`PARTNER_ORDER_NOTIFY_IDS`) — в коде, нужен Deploy + настройка списка
 - [ ] `/start` с кнопкой Web App
 - [ ] Вкладка «Отложенные» в Бойне под заявки партнёров
