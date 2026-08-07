@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.139";
+      var APP_VER = "v7.11.140";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2344,6 +2344,11 @@
             <button type="button" class="seg-btn active" id="priceDogTab1" onclick="setPriceActiveDog(1)">Собака 1</button>
             <button type="button" class="seg-btn" id="priceDogTab2" onclick="setPriceActiveDog(2)">Собака 2</button>
           </div>
+          <div class="form-group" style="margin-top:10px;margin-bottom:0;">
+            <label id="priceDogNameLabel">Кличка собаки 1</label>
+            <input type="text" id="priceDogNameInput" placeholder="например Рекс" autocomplete="off" oninput="onPriceDogNameInput_()">
+          </div>
+          <div class="muted" style="font-size:12px;margin-top:6px;">Собака 1 → состав → Собака 2 → кличка и свой состав. В сообщение уйдут оба блока; примечание и цены — общие.</div>
         </div>
         <div id="pricePpExtras">
           <div class="form-group">
@@ -2422,6 +2427,17 @@
         <button type="button" class="btn-action" style="margin:0;padding:6px 12px;font-size:12px;background:#3a3a3c;" onclick="clearPriceBasket()">Очистить</button>
       </div>
       <div class="card" id="priceBasketContainer"><p class="muted">Пусто — добавь позиции вручную.</p></div>
+
+      <div class="card" style="margin-top:10px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Чеклист Instagram</label>
+          <textarea class="ig-paste" id="priceChecklistPaste" placeholder="Вставь чеклист — попадёт в состав текущей собаки…"></textarea>
+          <div class="batch-bar-row" style="margin-top:8px;">
+            <button class="btn-action btn-orange" type="button" style="flex:1;margin:0;" onclick="parseIgChecklistIntoPrice()">В состав</button>
+            <button class="btn-action" type="button" style="flex:0 0 auto;margin:0;padding:10px 12px;background:#3a3a3c;" onclick="clearPriceChecklist()">Очистить</button>
+          </div>
+        </div>
+      </div>
 
       <button type="button" class="btn-action btn-blue" id="btnPriceManualEntry" onclick="togglePriceManualEntry()">Ручной ввод</button>
       <div id="priceManualEntryPanel" style="display:none;margin-top:10px;">
@@ -2617,7 +2633,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.139";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.140";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2666,12 +2682,14 @@
     let priceBaskets = { 1: [], 2: [] };
     let priceDogCount = 1;
     let priceActiveDog = 1;
+    let priceDogNames = { 1: "", 2: "" };
     let priceMode = "pp";
     function makeEmptyPriceModeStore() {
       return {
         baskets: { 1: [], 2: [] },
         dogCount: 1,
         activeDog: 1,
+        dogNames: { 1: "", 2: "" },
         lastMessage: "",
         apiCache: null,
         packCounts: { small: 0, medium: 0, large: 0, legs: 0 },
@@ -2980,7 +2998,7 @@
       subsScreen: "Подписки\n• Пароль; Отмена → Заказ.\n• Карточка: мета + состав (ручной ввод) → Сохранить.\n• ПП: «Сообщение клиенту» — копировать текст и открыть Instagram.\n• ПП↔АФК / удалить.",
       subDetailScreen: "Карточка подписки\n• Правишь поля и состав → Сохранить.\n• ПП/АФК: «Сообщение клиенту» — текст как в Расчёте, копируй в Direct.",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
-      priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• Пакеты ПП считаются сами из состава (можно править +/−).\n• «В отложенное» или сразу «Внести в ПП» (+ имя/IG/адрес).\n• 2 собаки: свет/доставки один раз.",
+      priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• Чеклист Instagram → в состав текущей собаки.\n• 2 собаки: кличка + свой состав у каждой; одно сообщение; примечание и цены общие.\n• «В отложенное» или «Внести в ПП».",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
       templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ — скоро.",
       peopleScreen: "Доступы\n• Завершить неделю / подтянуть из месяца — сверху.\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника.",
@@ -15448,6 +15466,30 @@
       return list;
     }
 
+    function syncPriceDogNameInput_() {
+      var inp = document.getElementById("priceDogNameInput");
+      var lab = document.getElementById("priceDogNameLabel");
+      if (lab) lab.textContent = "Кличка собаки " + priceActiveDog;
+      if (inp) {
+        inp.value = priceDogNames[priceActiveDog] || "";
+        inp.placeholder = priceActiveDog === 2 ? "например Пэни" : "например Рекс";
+      }
+    }
+
+    function onPriceDogNameInput_() {
+      var inp = document.getElementById("priceDogNameInput");
+      priceDogNames[priceActiveDog] = inp ? String(inp.value || "").trim() : "";
+      updatePriceDogUi();
+      schedulePriceLiveUpdate();
+    }
+    window.onPriceDogNameInput_ = onPriceDogNameInput_;
+
+    function priceDogLabel_(n) {
+      var name = String((priceDogNames && priceDogNames[n]) || "").trim();
+      if (name) return name;
+      return "Собака " + n;
+    }
+
     function updatePriceDogUi() {
       var sw = document.getElementById("priceDogSwitch");
       var d1 = document.getElementById("priceDogs1");
@@ -15458,24 +15500,51 @@
       if (d1) d1.classList.toggle("active", priceDogCount === 1);
       if (d2) d2.classList.toggle("active", priceDogCount === 2);
       if (sw) sw.style.display = priceDogCount >= 2 ? "" : "none";
-      if (t1) t1.classList.toggle("active", priceActiveDog === 1);
-      if (t2) t2.classList.toggle("active", priceActiveDog === 2);
+      if (t1) {
+        t1.classList.toggle("active", priceActiveDog === 1);
+        t1.textContent = priceDogNames[1] ? ("1 · " + priceDogNames[1]) : "Собака 1";
+      }
+      if (t2) {
+        t2.classList.toggle("active", priceActiveDog === 2);
+        t2.textContent = priceDogNames[2] ? ("2 · " + priceDogNames[2]) : "Собака 2";
+      }
       if (title) {
         title.textContent = priceDogCount >= 2
-          ? ("Состав · собака " + priceActiveDog)
+          ? ("Состав · " + priceDogLabel_(priceActiveDog))
           : "Состав";
       }
+      syncPriceDogNameInput_();
     }
 
-    function setPriceDogCount(n) {
+    async function ensurePriceDogName_(n, opts) {
+      opts = opts || {};
+      n = Number(n) === 2 ? 2 : 1;
+      var cur = String(priceDogNames[n] || "").trim();
+      if (cur && !opts.force) return cur;
+      if (!opts.prompt) return cur;
+      var entered = await uiPromptAsync(
+        "Кличка собаки " + n,
+        cur || ""
+      );
+      if (entered == null) return cur;
+      priceDogNames[n] = String(entered || "").trim();
+      syncPriceDogNameInput_();
+      updatePriceDogUi();
+      return priceDogNames[n];
+    }
+
+    async function setPriceDogCount(n) {
       n = Number(n) === 2 ? 2 : 1;
       stashPriceActiveBasket();
       priceDogCount = n;
       if (n === 1) {
         priceActiveDog = 1;
         priceBaskets[2] = [];
-      } else if (!priceBaskets[2]) {
-        priceBaskets[2] = [];
+        priceDogNames[2] = "";
+      } else {
+        if (!priceBaskets[2]) priceBaskets[2] = [];
+        priceActiveDog = 1;
+        await ensurePriceDogName_(1, { prompt: true });
       }
       loadPriceActiveBasket();
       updatePriceDogUi();
@@ -15489,19 +15558,67 @@
     }
     window.setPriceDogCount = setPriceDogCount;
 
-    function setPriceActiveDog(n) {
+    async function setPriceActiveDog(n) {
       n = Number(n) === 2 ? 2 : 1;
       if (priceDogCount < 2) n = 1;
       stashPriceActiveBasket();
       priceActiveDog = n;
       loadPriceActiveBasket();
+      if (n === 2) {
+        await ensurePriceDogName_(2, { prompt: !String(priceDogNames[2] || "").trim() });
+      }
       updatePriceDogUi();
       renderPriceBasket();
+      try {
+        var inp = document.getElementById("priceDogNameInput");
+        if (inp && priceDogCount >= 2) inp.focus();
+      } catch (eF) {}
     }
     window.setPriceActiveDog = setPriceActiveDog;
 
+    function clearPriceChecklist() {
+      var el = document.getElementById("priceChecklistPaste");
+      if (el) el.value = "";
+    }
+    window.clearPriceChecklist = clearPriceChecklist;
+
     function parseIgChecklistIntoPrice() {
-      showToast("Чеклист в Расчёте отключён — вводи позиции вручную");
+      var raw = (document.getElementById("priceChecklistPaste").value || "").trim();
+      if (!raw) { showToast("Вставь текст чеклиста"); return; }
+      var parsed = parseIgLinesToItems(raw);
+      if (!parsed.items.length) {
+        showToast("Не разобрал позиции — проверь формат");
+        return;
+      }
+      loadPriceActiveBasket();
+      parsed.items.forEach(function (it) {
+        priceBasket.push({
+          id: Date.now() + Math.random(),
+          cat: it.cat,
+          main: it.main,
+          name: it.name,
+          sub: it.sub,
+          value: it.val,
+          val: it.val
+        });
+      });
+      stashPriceActiveBasket();
+      if (parsed.noteBits.length) {
+        var noteEl = document.getElementById("priceClientNote");
+        if (noteEl) {
+          var extra = "Чеклист (" + priceDogLabel_(priceActiveDog) + "): " + parsed.noteBits.join("; ");
+          noteEl.value = noteEl.value ? (noteEl.value + "\n" + extra) : extra;
+        }
+        showToast("Есть позиции без точной фракции — в примечании");
+      }
+      renderPriceBasket();
+      pricePpApiCache = null;
+      if (priceMode === "pp") {
+        pricePacksManual = false;
+        syncPricePacksFromBasket_({ force: true });
+      }
+      schedulePriceLiveUpdate();
+      showToast("В состав «" + priceDogLabel_(priceActiveDog) + "»: " + parsed.items.length);
     }
     window.parseIgChecklistIntoPrice = parseIgChecklistIntoPrice;
 
@@ -17861,8 +17978,8 @@
       var d1 = items.filter(function (it) { return Number(it.dog) !== 2; });
       var d2 = items.filter(function (it) { return Number(it.dog) === 2; });
       var parts = [];
-      if (d1.length) parts.push("Собака 1:\n\n" + buildPriceCompositionBlocks(d1));
-      if (d2.length) parts.push("Собака 2:\n\n" + buildPriceCompositionBlocks(d2));
+      if (d1.length) parts.push(priceDogLabel_(1) + ":\n\n" + buildPriceCompositionBlocks(d1));
+      if (d2.length) parts.push(priceDogLabel_(2) + ":\n\n" + buildPriceCompositionBlocks(d2));
       return parts.join("\n\n");
     }
 
@@ -17927,6 +18044,10 @@
       };
       s.dogCount = priceDogCount;
       s.activeDog = priceActiveDog;
+      s.dogNames = {
+        1: String((priceDogNames && priceDogNames[1]) || ""),
+        2: String((priceDogNames && priceDogNames[2]) || "")
+      };
       s.lastMessage = priceLastMessage || "";
       s.apiCache = pricePpApiCache;
       s.packCounts = {
@@ -17951,6 +18072,10 @@
       s.baskets = priceBaskets;
       priceDogCount = s.dogCount === 2 ? 2 : 1;
       priceActiveDog = (priceDogCount >= 2 && s.activeDog === 2) ? 2 : 1;
+      priceDogNames = {
+        1: String((s.dogNames && s.dogNames[1]) || ""),
+        2: String((s.dogNames && s.dogNames[2]) || "")
+      };
       priceLastMessage = s.lastMessage || "";
       pricePpApiCache = s.apiCache || null;
       pricePacksManual = !!s.packsManual;
@@ -18034,7 +18159,9 @@
           roundRub(local.goods) +
           (local.delivery ? (" + дост. " + local.delivery) : "") +
           " = <b>" + roundRub(local.total) + " BYN</b>" +
-          (priceDogCount >= 2 ? " · 2 собаки" : "") +
+          (priceDogCount >= 2
+            ? (" · " + priceDogLabel_(1) + ( (priceBaskets[2] || []).length ? (" + " + priceDogLabel_(2)) : "") )
+            : "") +
           (miss ? ' · <span style="color:#ff9f0a;">без прайса: ' + miss + "</span>" : "") +
           "</div>");
         return local;
