@@ -13,7 +13,11 @@
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+  max-width: 100%;
+}
 
 body.gb-site {
   margin: 0;
@@ -26,6 +30,8 @@ body.gb-site {
     var(--gb-black);
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  max-width: 100%;
+  position: relative;
 }
 
 /* Глобальные наложения атмосферы */
@@ -113,7 +119,7 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 8px 24px rgba(255,159,53,0.35);
 }
 
-.site-main { display: block; position: relative; z-index: 1; }
+.site-main { display: block; position: relative; z-index: 1; overflow-x: clip; }
 body.mode-app .site-main,
 body.mode-app .site-nav,
 body.mode-app .fx-grain,
@@ -377,6 +383,8 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   padding-left: 0;
   padding-right: 0;
   padding-bottom: 0;
+  overflow: hidden; /* без скролла в стороны; вертикаль — за счёт padding */
+  max-width: 100%;
 }
 .inner--narrow {
   width: min(840px, 100%);
@@ -385,98 +393,76 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   box-sizing: border-box;
 }
 .photo-shelves {
-  margin-top: 36px;
-  display: grid;
-  gap: 16px;
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   width: 100%;
-  padding: 14px 0 22px;
-  overflow: visible;
+  max-width: 100%;
+  padding: 36px 0 44px; /* место под наклон — полоски не режутся */
 }
 .photo-shelves .shelf {
   margin: 0;
   overflow: hidden;
-  width: 148%;
-  max-width: none;
-  height: clamp(88px, 14vw, 132px);
+  width: 122%;
+  height: clamp(104px, 16vw, 152px);
   background: #0a0907;
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.42);
-  will-change: transform;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  flex-shrink: 0;
   transition: transform 0.45s var(--ease);
 }
-/* сильнее за край — в разные стороны */
+/* в разные стороны — торчат, но не «ползут» */
 .photo-shelves .shelf:nth-child(1) {
-  margin-left: -28%;
-  transform: rotate(-2.8deg) translateX(-8vw);
+  align-self: flex-start;
+  margin-left: -14%;
+  transform: rotate(-1.8deg);
 }
 .photo-shelves .shelf:nth-child(2) {
-  margin-left: 4%;
-  transform: rotate(3.2deg) translateX(12vw);
+  align-self: flex-end;
+  margin-left: auto;
+  margin-right: -14%;
+  transform: rotate(2.1deg);
 }
 .photo-shelves .shelf:nth-child(3) {
-  margin-left: -32%;
-  transform: rotate(-2.1deg) translateX(-11vw);
+  align-self: flex-start;
+  margin-left: -16%;
+  transform: rotate(-1.4deg);
 }
 .photo-shelves .shelf img {
   width: 100%;
   height: 100%;
   display: block;
   object-fit: cover;
-  object-position: center center;
   filter: none;
-  transform: scale(1.12);
-  transform-origin: center center;
   transition: transform 0.7s var(--ease), filter 0.45s ease;
 }
-/* кадр на главный объект каждой полоски */
-.photo-shelves .shelf:nth-child(1) img {
-  object-position: 50% 42%;
-  transform-origin: 50% 40%;
-}
-.photo-shelves .shelf:nth-child(2) img {
-  object-position: 48% 38%;
-  transform-origin: 48% 36%;
-}
-.photo-shelves .shelf:nth-child(3) img {
-  object-position: 50% 36%;
-  transform-origin: 50% 34%;
-}
+.photo-shelves .shelf:nth-child(1) img { object-position: 50% 40%; }
+.photo-shelves .shelf:nth-child(2) img { object-position: 48% 36%; }
+.photo-shelves .shelf:nth-child(3) img { object-position: 50% 34%; }
 .photo-shelves .shelf:hover img {
-  transform: scale(1.18);
-  filter: brightness(1.04);
+  transform: scale(1.05);
+  filter: brightness(1.03);
 }
-.photo-shelves .shelf:nth-child(1):hover {
-  transform: rotate(-2deg) translateX(-6vw);
-}
-.photo-shelves .shelf:nth-child(2):hover {
-  transform: rotate(2.4deg) translateX(10vw);
-}
-.photo-shelves .shelf:nth-child(3):hover {
-  transform: rotate(-1.4deg) translateX(-9vw);
-}
+.photo-shelves .shelf:nth-child(1):hover { transform: rotate(-1.2deg); }
+.photo-shelves .shelf:nth-child(2):hover { transform: rotate(1.5deg); }
+.photo-shelves .shelf:nth-child(3):hover { transform: rotate(-0.9deg); }
 
 @media (max-width: 640px) {
+  .photo-shelves {
+    gap: 12px;
+    padding: 28px 0 36px;
+  }
   .photo-shelves .shelf {
-    width: 160%;
-    height: clamp(76px, 22vw, 110px);
+    width: 128%;
+    height: clamp(92px, 26vw, 120px);
   }
-  .photo-shelves .shelf:nth-child(1) {
-    margin-left: -36%;
-    transform: rotate(-2.4deg) translateX(-10vw);
-  }
-  .photo-shelves .shelf:nth-child(2) {
-    margin-left: 8%;
-    transform: rotate(2.8deg) translateX(14vw);
-  }
-  .photo-shelves .shelf:nth-child(3) {
-    margin-left: -40%;
-    transform: rotate(-1.8deg) translateX(-12vw);
-  }
+  .photo-shelves .shelf:nth-child(1) { margin-left: -18%; }
+  .photo-shelves .shelf:nth-child(2) { margin-right: -18%; }
+  .photo-shelves .shelf:nth-child(3) { margin-left: -20%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .photo-shelves .shelf:nth-child(1),
-  .photo-shelves .shelf:nth-child(2),
-  .photo-shelves .shelf:nth-child(3) {
+  .photo-shelves .shelf {
     transition: none;
   }
 }
