@@ -25,12 +25,12 @@ const need = [
   "scripts/sync-from-prod.sh"
 ];
 const app = fs.readFileSync(path.join(sand, "app.html"), "utf8");
-if (!app.includes("C · SANDBOX") || !app.includes("__boinyaCTrySnap")) {
+if ((!app.includes("C · SANDBOX") && !app.includes("C · TURBO")) || !app.includes("__boinyaCTrySnap")) {
   console.error("app.html missing C patches");
   process.exit(1);
 }
 const rootApp = fs.readFileSync(path.join(root, "app.html"), "utf8");
-if (rootApp.includes("BOINYA_C_EDITION") || rootApp.includes("C · SANDBOX")) {
+if (rootApp.includes("BOINYA_C_EDITION") || rootApp.includes("C · TURBO") || rootApp.includes("C · SANDBOX")) {
   console.error("root app.html was polluted — abort");
   process.exit(1);
 }

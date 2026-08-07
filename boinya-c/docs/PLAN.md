@@ -12,6 +12,7 @@ Apps Script → Sheets  →  зеркало
 |------|-----|--------|
 | 0 | Изолированная папка, seed, lab.html | сделано |
 | 0b | Копия UI миниаппа (`sync-from-prod`) + блок записи | сделано |
+| 0c | TURBO local-first: seed+IDB, quiet 2м, без prefetch GAS | сделано |
 | 1 | Worker + D1: чтение заказов дня | заготовка |
 | 2 | Запись в D1 (save/move), без Sheets | дальше |
 | 3 | Полный optimistic + очередь + poll diff | каркас IDB |
