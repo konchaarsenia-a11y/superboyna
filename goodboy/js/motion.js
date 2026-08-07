@@ -1,5 +1,5 @@
 /**
- * Motion + overlays: nav, scroll reveal, soft pointer light, light parallax.
+ * Motion + overlays: nav, reveal, phone mockup, soft pointer light.
  * Без тяжёлых либ. Учитывает prefers-reduced-motion.
  */
 (function (global) {
@@ -54,7 +54,8 @@
     if (!hero) return;
     var wash = hero.querySelector(".hero-wash");
     var spot = hero.querySelector(".hero-spot");
-    if (!wash && !spot) return;
+    var phone = document.getElementById("heroPhone");
+    if (!wash && !spot && !phone) return;
 
     var ticking = false;
     var lx = 0.7;
@@ -72,6 +73,12 @@
         wash.style.setProperty("--mx", dx + "px");
         wash.style.setProperty("--my", dy + "px");
       }
+      if (phone) {
+        var ry = ((lx - 0.5) * 14).toFixed(2);
+        var rx = ((0.5 - ly) * 8).toFixed(2);
+        phone.style.setProperty("--ry", ry + "deg");
+        phone.style.setProperty("--rx", rx + "deg");
+      }
     }
 
     hero.addEventListener("pointermove", function (e) {
@@ -79,6 +86,15 @@
       if (!r.width || !r.height) return;
       lx = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
       ly = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+      if (!ticking) {
+        ticking = true;
+        global.requestAnimationFrame(apply);
+      }
+    }, { passive: true });
+
+    hero.addEventListener("pointerleave", function () {
+      lx = 0.7;
+      ly = 0.35;
       if (!ticking) {
         ticking = true;
         global.requestAnimationFrame(apply);
@@ -128,12 +144,52 @@
     }, { passive: true });
   }
 
+  function initPhoneDemo() {
+    var slides = document.querySelectorAll(".phone-slide");
+    var tabs = document.querySelectorAll(".phone-tabs span");
+    var toast = document.getElementById("phoneToast");
+    if (!slides.length) return;
+
+    var i = 0;
+    var total = slides.length;
+
+    function show(n) {
+      i = ((n % total) + total) % total;
+      slides.forEach(function (s, idx) {
+        s.classList.toggle("is-on", idx === i);
+      });
+      tabs.forEach(function (t, idx) {
+        t.classList.toggle("is-on", idx === i);
+      });
+    }
+
+    show(0);
+    if (reduced()) return;
+
+    global.setInterval(function () {
+      show(i + 1);
+    }, 3200);
+
+    if (toast) {
+      var toastOn = false;
+      global.setTimeout(function () {
+        toast.classList.add("is-on");
+        toastOn = true;
+      }, 1600);
+      global.setInterval(function () {
+        toastOn = !toastOn;
+        toast.classList.toggle("is-on", toastOn);
+      }, 4200);
+    }
+  }
+
   function init() {
     initNav();
     initFeatureStagger();
     initReveal();
     initPointerLight();
     initScrollParallax();
+    initPhoneDemo();
   }
 
   global.GBMotion = { init: init };
