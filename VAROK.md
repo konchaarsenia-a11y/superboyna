@@ -38,22 +38,15 @@ Telegram Mini App для **партнёрских сетей**: бесплатн
 API (`Code.gs`): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`.
 
 **Prod v3+:** демо-вход выключен.  
-- Партнёр / сотрудник / владелец точки → только выданные `pointIds` из `Partner_Access`  
-- Владелец Бойни (без строки Access) → все точки в мини-апп  
-- Админка сетей/доступов — вкладка **Партнёры** в Бойне (`partnerListAdmin`)  
+- Владелец Бойни → все точки в мини-апп  
+- Партнёр / сотрудник → только `pointIds` из `Partner_Access`  
+- Админка — вкладка **Партнёры** в Бойне  
 
-После Deploy миграции `PARTNER_PROD_V3` / `V4` / `V5`.
+После Deploy: `PARTNER_PROD_V3` / `V4` / `V7` (V7 снимает тестовый Access у `@one_more_person_228` — он обычный owner).
 
-Ответственные за пуши заявок: Script Property `PARTNER_ORDER_NOTIFY_IDS` (вкладка Партнёры → Пуши).
-
-Мини-апп: `partnerGetMe` по `@username` / `telegramId`.
-
-**Сейчас (тест):** allowlist партнёров `@one_more_person_228` → 5 точек; владельцы Бойни не режутся allowlist’ом.  
-Нужен **Deploy Code.gs** после правок бэкенда.
+Ответственные за пуши: Script Property `PARTNER_ORDER_NOTIFY_IDS`.
 
 Не путать с листом **«Партнёры»** (источник БП во вкладке Доступы).
-
-Уведомления заказов в бота Бойни и вкладка «Отложенные» — **отдельным этапом**.
 
 ---
 
@@ -61,8 +54,8 @@ API (`Code.gs`): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `part
 
 ```
 Telegram → partnerGetMe
-  → есть Partner_Access → только pointIds
-  → иначе владелец Бойни → все точки
+  → владелец Бойни → все точки
+  → иначе Partner_Access → только pointIds
   → кабинет / заказ / история
 ```
 

@@ -504,17 +504,16 @@
 
   <script>
 (function () {
-  var APP_VER = "3.0.7";
+  var APP_VER = "3.0.8";
   // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры».
   var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
-  var SESSION_KEY = "gb_partner_session_v6";
+  var SESSION_KEY = "gb_partner_session_v7";
   var SETTINGS_KEY = "gb_partner_settings_v2";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
   var COUPON_BANNER = "assets/coupon-banner.png";
-  // Точки ТОЛЬКО с сервера (Partner_Access / owner). Локальный справочник не показываем.
+  // Owner Бойни — все точки; партнёр — Partner_Access. Точки с сервера.
   var OWNERS_ONLY_MODE_ = false;
   var REMOTE_IS_OWNER_ = false;
-  var LAST_MATCH_BY_ = "";
 
   // Пресеты кол-ва по id (серверный каталог может быть старым — фронт нормализует).
   var QTY_RULES_ = {
@@ -925,7 +924,6 @@
       }).filter(Boolean).slice(0, 6).join(", ");
       meta.textContent = (state.me.username ? ("@" + state.me.username + " · ") : "") +
         n + " точ." +
-        (LAST_MATCH_BY_ ? (" · " + LAST_MATCH_BY_) : "") +
         (ptsLab ? (" · " + ptsLab) : "") +
         (REMOTE_IS_OWNER_ ? " · owner" : "") +
         " · v" + APP_VER;
@@ -1551,23 +1549,14 @@
         telegramId: u.telegramId || "",
         _: String(Date.now())
       });
-      LAST_MATCH_BY_ = String((res && res.matchBy) || "");
       var ids = normalizePointIds_(res && res.pointIds);
-      // жёстко: partner/staff — только pointIds; owner — только если сервер явно сказал
-      var asPartner = !!(res && (res.isPartner || res.role === "partner" || res.role === "staff" ||
-        res.matchBy === "username" || res.matchBy === "telegramId"));
-      var asOwner = !asPartner && !!(res && res.isOwner && res.role === "owner" &&
-        res.matchBy === "boyna_owner");
-      // никогда не подмешиваем локальный справочник — только res.points
+      var asOwner = !!(res && res.isOwner && !res.isPartner && res.role === "owner");
+      var asPartner = !asOwner && !!(res && (res.isPartner || res.role === "partner" || res.role === "staff"));
       POINTS = [];
       NETWORKS = [];
       applyRemoteConfig_(res, asOwner ? null : { pointIds: ids });
 
       if (res && res.allowed && ids.length) {
-        // страховка: партнёр не может получить больше pointIds, чем прислал сервер в points
-        if (asPartner && Array.isArray(res.points) && res.points.length) {
-          ids = normalizePointIds_(res.points.map(function (p) { return p && p.id; }));
-        }
         loginWithAccess_({
           name: res.name || u.name,
           networkId: res.networkId,

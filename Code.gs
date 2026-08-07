@@ -15462,26 +15462,13 @@ function partnerDefaultSeedPack_() {
       { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—" },
       { id: "pt_bob_1", networkId: "net_bobwow", name: "Bob Wow Collar · точка 1", address: "—" }
     ],
-    // тестовый доступ (расширим через вкладку Партнёры)
-    access: [
-      {
-        username: "one_more_person_228",
-        name: "one_more_person_228",
-        networkId: "net_varka",
-        pointIds: [
-          "pt_firedog_1",
-          "pt_indix_1",
-          "pt_varka_karskogo_23",
-          "pt_varka_rokoss_150b",
-          "pt_varka_tsvirko_100"
-        ]
-      }
-    ]
+    // доступы партнёров — только через вкладку Партнёры в Бойне
+    access: []
   };
 }
 
-/** Пока не пусто — партнёров пускаем только этих @username (+ владельцы Бойни всегда). Пустой = все active из Partner_Access. */
-var PARTNER_MINIAPP_ALLOWLIST_ = ["one_more_person_228"];
+/** Пустой = все active из Partner_Access (+ владельцы Бойни всегда). */
+var PARTNER_MINIAPP_ALLOWLIST_ = [];
 
 function partnerIsOnAllowlist_(username) {
   var u = partnerNormUser_(username);
@@ -15768,11 +15755,33 @@ function partnerMigrateProdV6_() {
   return { migrated: true, pointIds: pointIds };
 }
 
+/** V7: снять тестовый Partner_Access у @one_more_person_228 — он обычный owner Бойни. */
+function partnerMigrateProdV7_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V7") === "1") return { migrated: false };
+  try { partnerMigrateProdV6_(); } catch (e6) {}
+  var uname = "one_more_person_228";
+  var acSh = getPartnerAccessSheet_();
+  var rows = readPartnerAccessRows_();
+  var n = 0;
+  rows.forEach(function (a) {
+    if (a.username !== uname) return;
+    try {
+      acSh.getRange(a.rowIndex, 8).setValue("inactive");
+      acSh.getRange(a.rowIndex, 9).setValue(new Date());
+      n++;
+    } catch (e1) {}
+  });
+  props.setProperty("PARTNER_PROD_V7", "1");
+  return { migrated: true, revoked: n };
+}
+
 function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV3_(); } catch (eMig) {}
   try { partnerMigrateProdV4_(); } catch (eMig4) {}
   try { partnerMigrateProdV5_(); } catch (eMig5) {}
   try { partnerMigrateProdV6_(); } catch (eMig6) {}
+  try { partnerMigrateProdV7_(); } catch (eMig7) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
@@ -15882,24 +15891,26 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
   var allowed = false;
   var locationName = String((json && json.locationName) || "").trim();
   var networkId = String((json && json.networkId) || "").trim();
-  // партнёр/staff — только свои точки; владелец Бойни — любая
-  var rows = readPartnerAccessRows_();
-  var hit = null;
-  for (var i = 0; i < rows.length; i++) {
-    if (String(rows[i].status || "") !== "active") continue;
-    if (username && rows[i].username === username) { hit = rows[i]; break; }
-  }
-  if (!hit && tid) {
-    for (var j = 0; j < rows.length; j++) {
-      if (String(rows[j].status || "") !== "active") continue;
-      if (rows[j].telegramId && String(rows[j].telegramId) === tid) { hit = rows[j]; break; }
+  // владелец Бойни — любая точка; партнёр/staff — только из Access
+  if (isOwner) {
+    allowed = true;
+  } else {
+    var rows = readPartnerAccessRows_();
+    var hit = null;
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i].status || "") !== "active") continue;
+      if (username && rows[i].username === username) { hit = rows[i]; break; }
     }
-  }
-  if (hit && (hit.pointIds || []).indexOf(locationId) >= 0) {
-    allowed = true;
-    if (!networkId) networkId = hit.networkId || "";
-  } else if (isOwner && !hit) {
-    allowed = true;
+    if (!hit && tid) {
+      for (var j = 0; j < rows.length; j++) {
+        if (String(rows[j].status || "") !== "active") continue;
+        if (rows[j].telegramId && String(rows[j].telegramId) === tid) { hit = rows[j]; break; }
+      }
+    }
+    if (hit && (hit.pointIds || []).indexOf(locationId) >= 0) {
+      allowed = true;
+      if (!networkId) networkId = hit.networkId || "";
+    }
   }
   if (!allowed) {
     var forbid = { status: "error", message: "forbidden_point" };
@@ -16160,7 +16171,6 @@ function handlePartnerGetMe(json, callback, fromPost) {
   try { ensurePartnerAppSeeded_(false); } catch (eSeed) {}
   var username = partnerNormUser_((json && json.username) || "");
   var tid = String((json && json.telegramId) || "").trim();
-  // Telegram WebView иногда не отдаёт username в initDataUnsafe — берём из initData
   try {
     var iu = parseInitDataUser_((json && json.initData) || "");
     if (iu) {
@@ -16179,25 +16189,47 @@ function handlePartnerGetMe(json, callback, fromPost) {
   var isBoynaOwner = false;
   try { isBoynaOwner = partnerRequireOwner_(tid); } catch (eOwn) { isBoynaOwner = false; }
 
-  // 1) Сначала @username → Partner_Access (ТОЛЬКО выданные точки).
-  //    Даже если человек ещё и owner Бойни — Access важнее (сотрудник с 5 точками).
+  // 1) Владелец Бойни — все точки (как было). @one_more_person_228 = обычный owner.
+  if (tid && isBoynaOwner) {
+    var allIds = pts.map(function (p) { return p.id; });
+    var allowedAll = {};
+    allIds.forEach(function (id) { allowedAll[id] = true; });
+    var firstNet = (pts[0] && pts[0].networkId) || (nets[0] && nets[0].id) || "";
+    var ownerOk = {
+      status: "success",
+      allowed: true,
+      ownersOnly: false,
+      role: "owner",
+      isPartner: false,
+      isOwner: true,
+      name: "Владелец Good Boy",
+      username: username,
+      telegramId: tid,
+      networkId: firstNet,
+      pointIds: allIds,
+      allowedPointIds: allowedAll,
+      networks: nets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
+      points: pts.map(function (p) {
+        return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
+      }),
+      catalog: partnerCatalogStatic_()
+    };
+    return fromPost ? jsonpText(callback, ownerOk) : jsonp(callback, ownerOk);
+  }
+
+  // 2) Партнёр / сотрудник — только точки из Partner_Access
   var rows = readPartnerAccessRows_();
   var hit = null;
-  var matchedBy = "";
   if (username) {
     for (var i = 0; i < rows.length; i++) {
       if (String(rows[i].status || "") !== "active") continue;
-      if (rows[i].username === username) { hit = rows[i]; matchedBy = "username"; break; }
+      if (rows[i].username === username) { hit = rows[i]; break; }
     }
   }
   if (!hit && tid) {
     for (var j = 0; j < rows.length; j++) {
       if (String(rows[j].status || "") !== "active") continue;
-      if (rows[j].telegramId && String(rows[j].telegramId) === tid) {
-        hit = rows[j];
-        matchedBy = "telegramId";
-        break;
-      }
+      if (rows[j].telegramId && String(rows[j].telegramId) === tid) { hit = rows[j]; break; }
     }
   }
 
@@ -16215,8 +16247,7 @@ function handlePartnerGetMe(json, callback, fromPost) {
       };
       return fromPost ? jsonpText(callback, denyHit) : jsonp(callback, denyHit);
     }
-    // telegramId пишем только после матча по @username (не затираем левыми tid из тестов)
-    if (matchedBy === "username" && tid && String(hit.telegramId || "") !== tid) {
+    if (tid && !hit.telegramId) {
       try {
         getPartnerAccessSheet_().getRange(hit.rowIndex, 3).setValue(tid);
         hit.telegramId = tid;
@@ -16245,7 +16276,6 @@ function handlePartnerGetMe(json, callback, fromPost) {
       networkId: hit.networkId || (myPts[0] && myPts[0].networkId) || "",
       pointIds: allowedIds,
       allowedPointIds: allowed,
-      matchBy: matchedBy,
       networks: myNets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
       points: myPts.map(function (p) {
         return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
@@ -16255,49 +16285,12 @@ function handlePartnerGetMe(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, okPartner) : jsonp(callback, okPartner);
   }
 
-  // 2) Нет Partner_Access — владелец Бойни видит все точки.
-  //    Партнёр/сотрудник с Access уже обработан выше (только pointIds).
-  if (tid && isBoynaOwner) {
-    var allIds = pts.map(function (p) { return p.id; });
-    var allowedAll = {};
-    allIds.forEach(function (id) { allowedAll[id] = true; });
-    var firstNet = (pts[0] && pts[0].networkId) || (nets[0] && nets[0].id) || "";
-    var ownerOk = {
-      status: "success",
-      allowed: true,
-      ownersOnly: false,
-      role: "owner",
-      isPartner: false,
-      isOwner: true,
-      name: "Владелец Good Boy",
-      username: username,
-      telegramId: tid,
-      networkId: firstNet,
-      pointIds: allIds,
-      allowedPointIds: allowedAll,
-      matchBy: "boyna_owner",
-      networks: nets.map(function (n) { return { id: n.id, name: n.name, logo: n.logo }; }),
-      points: pts.map(function (p) {
-        return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
-      }),
-      catalog: partnerCatalogStatic_()
-    };
-    return fromPost ? jsonpText(callback, ownerOk) : jsonp(callback, ownerOk);
-  }
-
-  // 3) Остальным без Access — отказ
-  var denyMsg = "no_partner_access";
-  if (!username && !tid) denyMsg = "need_username";
-  else if (PARTNER_MINIAPP_ALLOWLIST_ && PARTNER_MINIAPP_ALLOWLIST_.length &&
-      !partnerIsOnAllowlist_(username)) {
-    denyMsg = username ? "not_on_allowlist" : "need_username";
-  }
   var no = {
     status: "success",
     role: "none",
     allowed: false,
     ownersOnly: false,
-    message: denyMsg,
+    message: (!username && !tid) ? "need_username" : "no_partner_access",
     networks: [],
     points: [],
     catalog: partnerCatalogStatic_()
