@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.140";
+      var APP_VER = "v7.11.141";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2431,7 +2431,7 @@
       <div class="card" style="margin-top:10px;">
         <div class="form-group" style="margin-bottom:0;">
           <label>Чеклист Instagram</label>
-          <textarea class="ig-paste" id="priceChecklistPaste" placeholder="Вставь чеклист — попадёт в состав текущей собаки…"></textarea>
+          <textarea class="ig-paste" id="priceChecklistPaste" placeholder="Вставь чеклист… Для 2 собак — блоки «Рекс:» / «Пэни:» или «Собака 1» / «Собака 2»"></textarea>
           <div class="batch-bar-row" style="margin-top:8px;">
             <button class="btn-action btn-orange" type="button" style="flex:1;margin:0;" onclick="parseIgChecklistIntoPrice()">В состав</button>
             <button class="btn-action" type="button" style="flex:0 0 auto;margin:0;padding:10px 12px;background:#3a3a3c;" onclick="clearPriceChecklist()">Очистить</button>
@@ -2633,7 +2633,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.140";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.141";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -2998,7 +2998,7 @@
       subsScreen: "Подписки\n• Пароль; Отмена → Заказ.\n• Карточка: мета + состав (ручной ввод) → Сохранить.\n• ПП: «Сообщение клиенту» — копировать текст и открыть Instagram.\n• ПП↔АФК / удалить.",
       subDetailScreen: "Карточка подписки\n• Правишь поля и состав → Сохранить.\n• ПП/АФК: «Сообщение клиенту» — текст как в Расчёте, копируй в Direct.",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
-      priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• Чеклист Instagram → в состав текущей собаки.\n• 2 собаки: кличка + свой состав у каждой; одно сообщение; примечание и цены общие.\n• «В отложенное» или «Внести в ПП».",
+      priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• Чеклист: один текст на 1–2 собак (блоки «Рекс:» / «Пэни:»).\n• Непонятная фракция — спросит, в сообщение не пишет.\n• 2 собаки: кличка + свой состав; примечание и цены общие.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
       templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ — скоро.",
       peopleScreen: "Доступы\n• Завершить неделю / подтянуть из месяца — сверху.\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника.",
@@ -15355,6 +15355,7 @@
         var up = namePart.toUpperCase().replace(/\s+/g, " ").trim();
         var frac = "";
         var fracSrc = paren || "";
+        var needFrac = false;
         var fracHit = up.match(/((?:СРЕДН\w*|СРЕДНЕВАТ\w*|МЕЛК\w*|МАЛЕНЬК\w*|МАЛЮСЕНЬК\w*|КРУПН\w*|БОЛЬШ\w*|ОЧЕНЬ\s*(?:МАЛ|МЕЛК)\w*|СУПЕР\s*(?:МАЛ|МЕЛК)\w*)\s+(?:КУБИК\w*|КУСОЧК\w*)|(?:КУБИК\w*|КУСОЧК\w*)\s+(?:СРЕДН\w*|СРЕДНЕВАТ\w*|МЕЛК\w*|МАЛЕНЬК\w*|КРУПН\w*|БОЛЬШ\w*)|ОЧ\s*МАЛ|ОЧЕНЬ\s*(?:МАЛ|МЕЛК)\w*|СУПЕР\s*(?:МАЛ|МЕЛК)\w*|МАЛЮСЕНЬК\w*|МАХОНЬК\w*|КРОШЕЧН\w*|КРОХОТН\w*|МИНИАТЮР\w*|МАЛЕНЬК\w*|МЕЛК\w*|СРЕДНЕВАТ\w*|СРЕДН\w*|БОЛЬШ\w*|КРУПН\w*|ЗДОРОВЕНН\w*|ОГРОМ\w*|ГИГАНТ\w*|ЦЕЛИКОМ|ЦЕЛ\w*|ПОЛОВИН\w*|ПАЛОЧ\w*|ПАЛК|ПЛАСТИН\w*|ПЛАСТ|КУБИК\w*|КУСОЧК\w*|ЛОМТ\w*|ПОЛОСК\w*|РОГАЛИК|СРЕД(?![А-ЯЁA-Z])|МАЛ(?![А-ЯЁA-Z])|БОЛ(?![А-ЯЁA-Z])|ОГР|МИНИ(?![А-ЯЁA-Z])|НОРМ(?![А-ЯЁA-Z]))/);
         if (fracHit) {
           fracSrc = fracSrc || fracHit[0];
@@ -15381,12 +15382,12 @@
           if (!frac) {
             if (hit.cat === "dressura" && hit.fractions.indexOf("Среднее") >= 0) frac = "Среднее";
             else if (hit.cat === "dressura" && hit.fractions.indexOf("Мелкое") >= 0) frac = "Мелкое";
-            else if (hit.name === "БЫЧИЙ КОРЕНЬ") {
-              noteBits.push(hit.name + " " + val + " — нужна фракция");
+            else             if (hit.name === "БЫЧИЙ КОРЕНЬ") {
               frac = "";
+              needFrac = true;
             } else {
-              noteBits.push(hit.name + " " + val + (fracSrc ? " (" + fracSrc + ")" : "") + " — фракция?");
               frac = "";
+              needFrac = true;
             }
           } else if (hit.fractions.indexOf(frac) < 0) {
             // точное совпадение без регистра; «МАЛ» не должен цепляться к «ОЧ МАЛ»
@@ -15411,37 +15412,68 @@
             }
             if (found) frac = found;
             else {
-              noteBits.push(hit.name + " " + val + " (" + fracSrc + ") — фракция?");
               frac = "";
+              needFrac = true;
             }
           }
         } else {
           frac = "";
         }
-        added.push({ cat: hit.cat, main: hit.name, name: hit.name, sub: frac, value: val, val: val });
+        added.push({
+          cat: hit.cat,
+          main: hit.name,
+          name: hit.name,
+          sub: frac,
+          value: val,
+          val: val,
+          needFrac: !!needFrac,
+          fractions: (hit.fractions || []).slice(),
+          fracHint: fracSrc || ""
+        });
       });
       return { items: added, noteBits: noteBits };
     }
 
 
-    function parseIgChecklistIntoBasket() {
+    async function parseIgChecklistIntoBasket() {
       var raw = (document.getElementById("igChecklistPaste").value || "").trim();
       if (!raw) { showToast("Вставь текст чеклиста"); return; }
       var parsed = parseIgLinesToItems(raw);
-      parsed.items.forEach(function (it) {
-        basket.push({ id: Date.now() + Math.random(), cat: it.cat, main: it.main, name: it.name, sub: it.sub, value: it.val, val: it.val });
-      });
-      if (parsed.noteBits.length) {
-        orderNotes.push({
-          text: "Чеклист: " + parsed.noteBits.join("; "),
-          roles: { mgr: true, cut: true, cour: true },
-          permanent: false
+      if (!parsed.items.length) {
+        showToast("Не разобрал позиции");
+        return;
+      }
+      var added = 0;
+      for (var i = 0; i < parsed.items.length; i++) {
+        var it = parsed.items[i];
+        var sub = it.sub || "";
+        if (it.needFrac && it.fractions && it.fractions.length) {
+          var picked = await askChecklistFraction_(it, "");
+          if (picked == null) {
+            showToast("Отменено");
+            renderBasket();
+            return;
+          }
+          sub = picked;
+        }
+        basket.push({
+          id: Date.now() + Math.random(),
+          cat: it.cat,
+          main: it.main,
+          name: it.name,
+          sub: sub,
+          value: it.val,
+          val: it.val
         });
-        renderOrderNotes();
-        showToast("Есть позиции без точной фракции — в примечании");
+        added++;
+      }
+      // неизвестные названия — только тост, не в сообщение клиенту
+      if (parsed.noteBits.length) {
+        showToast("Не распознал: " + parsed.noteBits.slice(0, 3).join("; ") +
+          (parsed.noteBits.length > 3 ? "…" : ""));
       }
       renderBasket();
-      showToast("Добавлено позиций: " + parsed.items.length);
+      showToast("Добавлено позиций: " + added);
     }
     window.parseIgChecklistIntoBasket = parseIgChecklistIntoBasket;
     function stashPriceActiveBasket() {
@@ -15582,35 +15614,161 @@
     }
     window.clearPriceChecklist = clearPriceChecklist;
 
-    function parseIgChecklistIntoPrice() {
+    function looksLikePriceDogHeader_(line) {
+      var raw = String(line || "").trim();
+      if (!raw) return false;
+      if (/\d/.test(raw) && /(г|гр|шт|кг)\b/i.test(raw)) return false;
+      if (/[—\-–:].*\d|\d+\s*(г|гр|шт|кг)/i.test(raw)) return false;
+      var t = raw.replace(/[:：]\s*$/, "").trim();
+      if (!t || t.length > 40) return false;
+      if (/^(дрессур|жевалк|фрукт|овощ|присып|состав|заказ|итого)/i.test(t)) return false;
+      if (/^собак/i.test(t) || /^dog\s*\d/i.test(t)) return true;
+      // кличка: одно-два слова без цифр
+      return /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-']{0,24}(?:\s+[A-Za-zА-Яа-яЁё\-']{1,16})?$/.test(t);
+    }
+
+    function resolvePriceDogHeader_(line) {
+      var t = String(line || "").trim().replace(/[:：]\s*$/, "").trim();
+      var mNum = t.match(/^собак[аеи]?\s*([12])\b/i) || t.match(/^dog\s*([12])\b/i);
+      if (mNum) {
+        var n = Number(mNum[1]) === 2 ? 2 : 1;
+        var rest = t.replace(/^собак[аеи]?\s*[12]\b\s*[·.\-–—:]?\s*/i, "")
+          .replace(/^dog\s*[12]\b\s*[·.\-–—:]?\s*/i, "").trim();
+        return { dog: n, name: rest };
+      }
+      var n1 = String(priceDogNames[1] || "").trim().toLowerCase();
+      var n2 = String(priceDogNames[2] || "").trim().toLowerCase();
+      var low = t.toLowerCase();
+      if (n1 && low === n1) return { dog: 1, name: t };
+      if (n2 && low === n2) return { dog: 2, name: t };
+      return { dog: 0, name: t };
+    }
+
+    /** Разбивка одного чеклиста на блоки собак. */
+    function splitPriceChecklistByDogs_(raw) {
+      var lines = String(raw || "").split(/\r?\n/);
+      var sections = [];
+      var cur = { dog: 0, name: "", lines: [] };
+      var autoDog = 1;
+      function pushCur() {
+        var body = cur.lines.join("\n").trim();
+        if (!body && !cur.name) return;
+        var dog = cur.dog;
+        if (!dog) {
+          dog = autoDog;
+          if (autoDog < 2) autoDog = 2;
+        }
+        sections.push({ dog: dog, name: cur.name || "", text: body });
+      }
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        if (looksLikePriceDogHeader_(line)) {
+          var hdr = resolvePriceDogHeader_(line);
+          if (cur.lines.length || cur.name || cur.dog) pushCur();
+          var dogN = hdr.dog;
+          if (!dogN) {
+            dogN = autoDog;
+            if (autoDog < 2) autoDog = 2;
+          }
+          cur = { dog: dogN, name: hdr.name || "", lines: [] };
+          if (hdr.name && (!priceDogNames[dogN] || !String(priceDogNames[dogN]).trim())) {
+            priceDogNames[dogN] = hdr.name;
+          }
+          continue;
+        }
+        cur.lines.push(line);
+      }
+      pushCur();
+      if (!sections.length) {
+        return [{ dog: priceActiveDog || 1, name: "", text: String(raw || "").trim() }];
+      }
+      // один блок без заголовков → текущая собака
+      if (sections.length === 1 && !sections[0].name && !/собак|dog\s*[12]/i.test(String(raw || ""))) {
+        sections[0].dog = priceDogCount >= 2 ? (priceActiveDog || 1) : 1;
+      }
+      return sections;
+    }
+
+    async function askChecklistFraction_(it, dogLabel) {
+      var fracs = (it.fractions || []).slice();
+      if (!fracs.length) return "";
+      var choices = fracs.map(function (f) {
+        return { label: f, value: f, cls: "btn-blue" };
+      });
+      choices.push({ label: "Без фракции", value: "__none__", cls: "btn-orange" });
+      var title = (dogLabel ? (dogLabel + " · ") : "") +
+        prettyProductName(it.main || it.name) + " · " +
+        (Number(it.val != null ? it.val : it.value) || 0) + " " +
+        priceUnitLabel(it.cat, it.main || it.name);
+      var msg = it.fracHint
+        ? ("В чеклисте: «" + it.fracHint + "». Какая фракция?")
+        : "Какая фракция / размер?";
+      var picked = await uiChoiceAsync(title, msg, choices);
+      if (picked == null) return null; // отмена всего
+      if (picked === "__none__") return "";
+      return String(picked);
+    }
+
+    async function parseIgChecklistIntoPrice() {
       var raw = (document.getElementById("priceChecklistPaste").value || "").trim();
       if (!raw) { showToast("Вставь текст чеклиста"); return; }
-      var parsed = parseIgLinesToItems(raw);
-      if (!parsed.items.length) {
+
+      var sections = splitPriceChecklistByDogs_(raw);
+      var multi = sections.length >= 2 ||
+        (sections.length === 1 && priceDogCount >= 2 && /собак\s*2|dog\s*2/i.test(raw));
+      if (multi && priceDogCount < 2) {
+        await setPriceDogCount(2);
+      }
+
+      var totalAdded = 0;
+      var asked = 0;
+      for (var s = 0; s < sections.length; s++) {
+        var sec = sections[s];
+        var dogN = Number(sec.dog) === 2 ? 2 : 1;
+        if (sec.name) priceDogNames[dogN] = String(sec.name).trim();
+        if (priceDogCount < 2 && dogN === 2) {
+          await setPriceDogCount(2);
+        }
+        var parsed = parseIgLinesToItems(sec.text || "");
+        if (!parsed.items.length) continue;
+
+        if (!priceBaskets[dogN]) priceBaskets[dogN] = [];
+        for (var i = 0; i < parsed.items.length; i++) {
+          var it = parsed.items[i];
+          var sub = it.sub || "";
+          if (it.needFrac && it.fractions && it.fractions.length) {
+            asked++;
+            var picked = await askChecklistFraction_(it, priceDogLabel_(dogN));
+            if (picked == null) {
+              showToast("Отменено");
+              updatePriceDogUi();
+              renderPriceBasket();
+              return;
+            }
+            sub = picked;
+          }
+          priceBaskets[dogN].push({
+            id: Date.now() + Math.random(),
+            cat: it.cat,
+            main: it.main,
+            name: it.name,
+            sub: sub,
+            value: it.val,
+            val: it.val
+          });
+          totalAdded++;
+        }
+      }
+
+      if (!totalAdded) {
         showToast("Не разобрал позиции — проверь формат");
         return;
       }
+
+      // после разбора 2 блоков — остаёмся на собаке 1 для просмотра
+      if (sections.length >= 2) priceActiveDog = 1;
       loadPriceActiveBasket();
-      parsed.items.forEach(function (it) {
-        priceBasket.push({
-          id: Date.now() + Math.random(),
-          cat: it.cat,
-          main: it.main,
-          name: it.name,
-          sub: it.sub,
-          value: it.val,
-          val: it.val
-        });
-      });
-      stashPriceActiveBasket();
-      if (parsed.noteBits.length) {
-        var noteEl = document.getElementById("priceClientNote");
-        if (noteEl) {
-          var extra = "Чеклист (" + priceDogLabel_(priceActiveDog) + "): " + parsed.noteBits.join("; ");
-          noteEl.value = noteEl.value ? (noteEl.value + "\n" + extra) : extra;
-        }
-        showToast("Есть позиции без точной фракции — в примечании");
-      }
+      updatePriceDogUi();
       renderPriceBasket();
       pricePpApiCache = null;
       if (priceMode === "pp") {
@@ -15618,7 +15776,10 @@
         syncPricePacksFromBasket_({ force: true });
       }
       schedulePriceLiveUpdate();
-      showToast("В состав «" + priceDogLabel_(priceActiveDog) + "»: " + parsed.items.length);
+      var dogsHint = sections.length >= 2
+        ? (" · " + priceDogLabel_(1) + " + " + priceDogLabel_(2))
+        : (" · " + priceDogLabel_(priceActiveDog));
+      showToast("В состав: " + totalAdded + dogsHint + (asked ? (" · уточнили фракций: " + asked) : ""));
     }
     window.parseIgChecklistIntoPrice = parseIgChecklistIntoPrice;
 
