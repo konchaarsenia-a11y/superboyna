@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.143";
+      var APP_VER = "v7.11.144";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2431,7 +2431,7 @@
       <div class="card" style="margin-top:10px;">
         <div class="form-group" style="margin-bottom:0;">
           <label>Чеклист Instagram</label>
-          <textarea class="ig-paste" id="priceChecklistPaste" placeholder="Вставь чеклист… Для 2 собак — блоки «Рекс:» / «Пэни:» или «Собака 1» / «Собака 2»"></textarea>
+          <textarea class="ig-paste" id="priceChecklistPaste" placeholder="Чеклист… 2 собаки: «Рекс:» … «Пэни:» или два блока через пустую строку"></textarea>
           <div class="batch-bar-row" style="margin-top:8px;">
             <button class="btn-action btn-orange" type="button" style="flex:1;margin:0;" onclick="parseIgChecklistIntoPrice()">В состав</button>
             <button class="btn-action" type="button" style="flex:0 0 auto;margin:0;padding:10px 12px;background:#3a3a3c;" onclick="clearPriceChecklist()">Очистить</button>
@@ -2633,7 +2633,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.143";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.144";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -15627,32 +15627,42 @@
       return false;
     }
 
+    function isBareCategoryHeader_(t) {
+      return /^(дрессур[аы]?|жевалк[аи]?|фрукт[ы]?|овощ[и]?|присыпк?[аи]?|заказ|итого|всего|состав|набор)\s*$/i.test(String(t || "").trim());
+    }
+
     function looksLikePriceDogHeader_(line) {
       var raw = normalizePriceDogHeaderLine_(line);
       if (!raw) return false;
+      if (/^[-–—=*_]{3,}$/.test(raw)) return true; // --- / === разделитель
       // позиция с количеством — не кличка
       if (/\d/.test(raw) && /(г|гр|шт|кг)\b/i.test(raw)) return false;
       if (/[—\-–:].*\d|\d+\s*(г|гр|шт|кг)/i.test(raw)) return false;
       var hadColon = /[:：]\s*$/.test(raw);
       var t = raw.replace(/[:：]\s*$/, "").replace(/[—\-–]\s*$/, "").trim();
-      if (!t || t.length > 40) return false;
-      if (/^(дрессур|жевалк|фрукт|овощ|присып|состав|заказ|итого|всего)/i.test(t)) return false;
+      if (!t || t.length > 48) return false;
+      if (isBareCategoryHeader_(t)) return false;
       if (/^собак/i.test(t) || /^dog\s*\d/i.test(t)) return true;
-      if (/^для\s+/i.test(t)) return true;
+      if (/^(для|состав|набор)\s+\S+/i.test(t)) return true;
+      // клички из полей Расчёта
+      var n1 = String(priceDogNames[1] || "").trim().toLowerCase();
+      var n2 = String(priceDogNames[2] || "").trim().toLowerCase();
+      var low = t.toLowerCase();
+      if ((n1 && low === n1) || (n2 && low === n2)) return true;
       // кличка: 1–2 слова; с «:» — почти всегда заголовок; без «:» — не продукт каталога
       var nickOk = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-']{0,24}(?:\s+[A-Za-zА-Яа-яЁё\-']{1,16})?$/.test(t);
       if (!nickOk) return false;
       if (isKnownChecklistProductName_(t)) return false;
       if (hadColon) return true;
-      // без двоеточия — только явная кличка (не слишком общее слово)
       if (/^(кубик|ломтик|полоск|средн|мелк|больш|крупн|мал|норм)$/i.test(t)) return false;
       return true;
     }
 
     function resolvePriceDogHeader_(line) {
       var raw = normalizePriceDogHeaderLine_(line);
+      if (/^[-–—=*_]{3,}$/.test(raw)) return { dog: 0, name: "", sep: true };
       var t = raw.replace(/[:：]\s*$/, "").replace(/[—\-–]\s*$/, "").trim();
-      t = t.replace(/^для\s+/i, "").trim();
+      t = t.replace(/^(для|состав|набор)\s+/i, "").trim();
       var mNum = t.match(/^собак[аеи]?\s*([12])\b/i) || t.match(/^dog\s*([12])\b/i);
       if (mNum) {
         var n = Number(mNum[1]) === 2 ? 2 : 1;
@@ -15681,6 +15691,50 @@
       updatePriceDogUi();
     }
 
+    function splitRawByBlankBlocks_(raw) {
+      var parts = String(raw || "").split(/\n\s*\n+/).map(function (p) { return p.trim(); }).filter(Boolean);
+      // отбросить куски без позиций (приветствия / цена)
+      var withItems = [];
+      for (var i = 0; i < parts.length; i++) {
+        var p = parts[i];
+        // убрать одиночные заголовки категорий из оценки
+        var probe = p.replace(/^(дрессур|жевалк|фрукт|овощ|присып)[^\n]*\n?/igm, "").trim();
+        var parsed = parseIgLinesToItems(probe || p);
+        if (parsed.items && parsed.items.length) withItems.push(p);
+      }
+      if (withItems.length === 2) {
+        return [
+          { dog: 1, name: "", text: withItems[0] },
+          { dog: 2, name: "", text: withItems[1] }
+        ];
+      }
+      return null;
+    }
+
+    function splitRawBySepLine_(raw) {
+      var lines = String(raw || "").split(/\r?\n/);
+      var blocks = [];
+      var cur = [];
+      for (var i = 0; i < lines.length; i++) {
+        if (/^\s*[-–—=*_]{3,}\s*$/.test(lines[i])) {
+          var body = cur.join("\n").trim();
+          if (body) blocks.push(body);
+          cur = [];
+          continue;
+        }
+        cur.push(lines[i]);
+      }
+      var last = cur.join("\n").trim();
+      if (last) blocks.push(last);
+      if (blocks.length === 2) {
+        return [
+          { dog: 1, name: "", text: blocks[0] },
+          { dog: 2, name: "", text: blocks[1] }
+        ];
+      }
+      return null;
+    }
+
     /** Разбивка одного чеклиста на блоки собак. */
     function splitPriceChecklistByDogs_(raw) {
       var lines = String(raw || "").split(/\r?\n/);
@@ -15688,6 +15742,7 @@
       var cur = { dog: 0, name: "", lines: [] };
       var autoDog = 1;
       var localNames = { 1: "", 2: "" };
+      var headerHits = 0;
       function pushCur() {
         var body = cur.lines.join("\n").trim();
         if (!body && !cur.name) return;
@@ -15708,21 +15763,29 @@
             dogN = autoDog <= 2 ? autoDog : 1;
             if (autoDog < 2) autoDog += 1;
           }
-          cur = { dog: dogN, name: hdr.name || "", lines: [] };
+          cur = { dog: dogN, name: hdr.sep ? "" : (hdr.name || ""), lines: [] };
           if (hdr.name) localNames[dogN] = hdr.name;
+          headerHits++;
           continue;
         }
         cur.lines.push(line);
       }
       pushCur();
+
+      // нет явных кличек → два блока через пустую строку / ---
+      if (sections.length <= 1 || headerHits === 0) {
+        var byBlank = splitRawByBlankBlocks_(raw);
+        if (byBlank) return byBlank;
+        var bySep = splitRawBySepLine_(raw);
+        if (bySep) return bySep;
+      }
+
       if (!sections.length) {
         return [{ dog: priceActiveDog || 1, name: "", text: String(raw || "").trim() }];
       }
-      // один блок без заголовков → текущая собака
       if (sections.length === 1 && !sections[0].name && !/собак|dog\s*[12]/i.test(String(raw || ""))) {
         sections[0].dog = priceDogCount >= 2 ? (priceActiveDog || 1) : 1;
       }
-      // проставить клички на секции, если были
       sections.forEach(function (sec) {
         if (!sec.name && localNames[sec.dog]) sec.name = localNames[sec.dog];
       });
@@ -15744,9 +15807,42 @@
         ? ("В чеклисте: «" + it.fracHint + "». Какая фракция?")
         : "Какая фракция / размер?";
       var picked = await uiChoiceAsync(title, msg, choices);
-      if (picked == null) return null; // отмена всего
+      if (picked == null) return null;
       if (picked === "__none__") return "";
       return String(picked);
+    }
+
+    async function ensureChecklistTwoDogSections_(raw, sections) {
+      var dogsUsed = {};
+      sections.forEach(function (sec) {
+        dogsUsed[Number(sec.dog) === 2 ? 2 : 1] = true;
+      });
+      if (dogsUsed[1] && dogsUsed[2]) return sections;
+
+      // ещё раз: два блока через пустую строку / ---
+      var byBlank = splitRawByBlankBlocks_(raw);
+      if (byBlank) return byBlank;
+      var bySep = splitRawBySepLine_(raw);
+      if (bySep) return bySep;
+
+      // спрашиваем только если уже режим «2 собаки» или явный намёк в тексте
+      var hintTwo = priceDogCount >= 2 ||
+        /собак\s*2|dog\s*2|втор(ая|ой)\s*собак|двух\s*собак|2\s*собак/i.test(raw) ||
+        (!!String(priceDogNames[1] || "").trim() && !!String(priceDogNames[2] || "").trim());
+      if (!hintTwo) return sections;
+
+      var how = await uiChoiceAsync(
+        "2 собаки — как разделить чеклист?",
+        "Не вижу границы (клички «Рекс:»/«Пэни:», «Собака 1/2» или пустая строка между составами).",
+        [
+          { label: "Всё → собака 1", value: "1", cls: "btn-blue" },
+          { label: "Всё → собака 2", value: "2", cls: "btn-blue" },
+          { label: "Отмена — поправлю текст", value: "cancel", cls: "btn-orange" }
+        ]
+      );
+      if (how == null || how === "cancel") return null;
+      var dog = Number(how) === 2 ? 2 : 1;
+      return [{ dog: dog, name: priceDogNames[dog] || "", text: String(raw || "").trim() }];
     }
 
     async function parseIgChecklistIntoPrice() {
@@ -15754,13 +15850,15 @@
       if (!raw) { showToast("Вставь текст чеклиста"); return; }
 
       var sections = splitPriceChecklistByDogs_(raw);
+      sections = await ensureChecklistTwoDogSections_(raw, sections);
+      if (!sections) { showToast("Отменено"); return; }
+
       var dogsUsed = {};
       sections.forEach(function (sec) {
         dogsUsed[Number(sec.dog) === 2 ? 2 : 1] = true;
       });
       var multi = !!dogsUsed[1] && !!dogsUsed[2];
 
-      // собираем во временные корзины — без гонок stash/priceBasket
       var built = { 1: [], 2: [] };
       var nameFromSec = { 1: "", 2: "" };
       var totalAdded = 0;
@@ -15806,13 +15904,15 @@
       }
 
       if (!totalAdded) {
-        showToast("Не разобрал позиции — нужны блоки с кличками, напр. «Рекс:» и «Пэни:»");
+        showToast("Не разобрал позиции — проверь формат чеклиста");
         return;
       }
 
       if (multi) {
-        enablePriceTwoDogsFromChecklist_(nameFromSec[1], nameFromSec[2]);
-        // чеклист на 2 собак — заменить составы целиком
+        enablePriceTwoDogsFromChecklist_(
+          nameFromSec[1] || priceDogNames[1],
+          nameFromSec[2] || priceDogNames[2]
+        );
         priceBaskets[1] = built[1];
         priceBaskets[2] = built[2];
         if (nameFromSec[1]) priceDogNames[1] = nameFromSec[1];
