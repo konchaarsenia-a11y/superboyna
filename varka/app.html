@@ -225,6 +225,38 @@
     }
     .stepper span { min-width: 22px; text-align: center; font-weight: 800; }
 
+    .qty-box { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; min-width: 0; }
+    .qty-presets {
+      display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px;
+    }
+    .qty-chip {
+      border: 1px solid var(--line); background: var(--bg3); color: var(--muted);
+      border-radius: 999px; padding: 7px 10px; font-size: 12px; font-weight: 800;
+      cursor: pointer; font-family: inherit; line-height: 1;
+    }
+    .qty-chip.on {
+      color: #1a0f00; background: var(--accent); border-color: var(--accent);
+    }
+    .qty-chip:disabled { opacity: 0.45; cursor: default; }
+    .qty-custom {
+      display: flex; align-items: center; gap: 6px; width: 100%;
+      max-width: 160px; margin-left: auto;
+    }
+    .qty-custom input {
+      flex: 1; min-width: 0; width: 100%;
+      background: var(--bg3); border: 1px solid var(--line);
+      border-radius: 10px; padding: 8px 10px; color: var(--text);
+      font-size: 14px; font-weight: 700; font-family: inherit; text-align: right;
+    }
+    .qty-custom input:focus { outline: none; border-color: var(--accent); }
+    .qty-custom .u {
+      font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap;
+    }
+    .item.qty-item, .coupon-row.qty-item {
+      align-items: flex-start;
+    }
+    .item.qty-item .meta, .coupon-row.qty-item .meta { padding-top: 2px; }
+
     .field {
       width: 100%; background: var(--bg3); border: 1px solid var(--line);
       border-radius: 12px; padding: 12px; color: var(--text);
@@ -472,14 +504,14 @@
 
   <div class="bar" id="cartBar" style="display:none;">
     <div class="bar-inner">
-      <div class="cart-sum">В заявке: <b id="cartCount">0</b> шт</div>
+      <div class="cart-sum">В заявке: <b id="cartCount">0</b> поз.</div>
       <button class="btn" type="button" id="btnSubmit" onclick="onCartPrimary()" disabled>Далее</button>
     </div>
   </div>
 
   <script>
 (function () {
-  var APP_VER = "2.3.7";
+  var APP_VER = "2.3.8";
   // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры». ПУСТО = локальное демо.
   var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var SESSION_KEY = "gb_partner_session_v3";
@@ -489,6 +521,14 @@
   // Без правок Code.gs: закрываем всех, кроме role=owner из уже живого getMyAccess.
   var OWNERS_ONLY_MODE_ = true;
   var REMOTE_IS_OWNER_ = false;
+
+  // Пресеты кол-ва по id (серверный каталог может быть старым — фронт нормализует).
+  var QTY_RULES_ = {
+    vr_t_heart: { presets: [50, 100, 150, 200], unit: "г", custom: true },
+    vr_t_lung: { presets: [50, 100, 150, 200], unit: "г", custom: true },
+    vr_c_piece: { presets: [48, 73, 96, 120], unit: "шт", custom: true },
+    vr_c_banner: { presets: [1], unit: "шт", custom: false, fixed: true }
+  };
 
   var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   if (tg) {
@@ -581,9 +621,10 @@
   };
 
   var CATALOG = [
-    { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "шт", active: true },
-    { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "шт", active: true },
-    { id: "vr_c_piece", type: "coupon", name: "Купон", unit: "шт", active: true }
+    { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
+    { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "г", active: true },
+    { id: "vr_c_piece", type: "coupon", name: "Купон", unit: "шт", active: true },
+    { id: "vr_c_banner", type: "coupon", name: "Баннер", unit: "шт", active: true }
   ];
 
   var DEMO = { orders: [], staffAccess: [] };
@@ -964,7 +1005,7 @@
     var list = (state.me && state.me.points) || myPoints_();
     if (hint) {
       hint.style.display = "";
-      hint.innerHTML = "В заявке <b>" + cartCount() + "</b> шт · выберите свою точку";
+      hint.innerHTML = "В заявке <b>" + cartCount() + "</b> поз. · выберите свою точку";
     }
     if (!list.length) {
       box.innerHTML = '<div class="err">Нет привязанных точек к вашему @username.</div>';
@@ -1016,7 +1057,9 @@
 
   function cartCount() {
     var n = 0;
-    Object.keys(state.cart).forEach(function (id) { n += Number(state.cart[id]) || 0; });
+    Object.keys(state.cart).forEach(function (id) {
+      if ((Number(state.cart[id]) || 0) > 0) n += 1;
+    });
     return n;
   }
   function refreshCart() {
@@ -1025,19 +1068,132 @@
     if (c) c.textContent = String(n);
     updateCartButton_();
   }
+
+  function qtyRuleFor_(it) {
+    if (!it) return { presets: [], unit: "шт", custom: true };
+    if (QTY_RULES_[it.id]) return QTY_RULES_[it.id];
+    if (it.type === "treat") return { presets: [50, 100, 150, 200], unit: it.unit || "г", custom: true };
+    if (String(it.name || "").toLowerCase().indexOf("баннер") >= 0) {
+      return { presets: [1], unit: "шт", custom: false, fixed: true };
+    }
+    if (it.type === "coupon") return { presets: [48, 73, 96, 120], unit: it.unit || "шт", custom: true };
+    return { presets: [], unit: it.unit || "шт", custom: true };
+  }
+
+  function unitFor_(it) {
+    var rule = qtyRuleFor_(it);
+    return rule.unit || it.unit || "шт";
+  }
+
   function setQty(id, delta) {
+    var it = null;
+    state.catalog.forEach(function (c) { if (c.id === id) it = c; });
+    var rule = qtyRuleFor_(it);
+    if (rule.fixed) {
+      var curF = Number(state.cart[id]) || 0;
+      if (delta > 0) state.cart[id] = rule.presets[0] || 1;
+      else delete state.cart[id];
+      renderCatalog();
+      refreshCart();
+      return;
+    }
     var cur = Number(state.cart[id]) || 0;
-    var next = Math.max(0, cur + delta);
+    var step = 1;
+    var next = Math.max(0, cur + delta * step);
     if (next === 0) delete state.cart[id];
     else state.cart[id] = next;
     renderCatalog();
     refreshCart();
   }
 
+  function pickQty(id, qty) {
+    var n = Math.max(0, Math.round(Number(qty) || 0));
+    var it = null;
+    state.catalog.forEach(function (c) { if (c.id === id) it = c; });
+    var rule = qtyRuleFor_(it);
+    var cur = Number(state.cart[id]) || 0;
+    if (rule.fixed) {
+      if (cur > 0 && n > 0) delete state.cart[id];
+      else if (n > 0) state.cart[id] = rule.presets[0] || 1;
+      else delete state.cart[id];
+    } else if (n <= 0) {
+      delete state.cart[id];
+    } else if (cur === n) {
+      delete state.cart[id]; // повторный тап по пресету снимает
+    } else {
+      state.cart[id] = n;
+    }
+    renderCatalog();
+    refreshCart();
+  }
+
+  function onQtyCustomInput(id, el) {
+    var raw = String((el && el.value) || "").replace(/[^\d]/g, "");
+    if (el && el.value !== raw) el.value = raw;
+    if (raw === "") {
+      delete state.cart[id];
+      refreshCart();
+      // не перерисовываем весь список — иначе инпут теряет фокус
+      var chips = document.querySelectorAll('[data-qty-id="' + id + '"]');
+      chips.forEach(function (ch) { ch.classList.remove("on"); });
+      return;
+    }
+    var n = Math.max(0, parseInt(raw, 10) || 0);
+    if (n <= 0) delete state.cart[id];
+    else state.cart[id] = n;
+    refreshCart();
+    var chips2 = document.querySelectorAll('[data-qty-id="' + id + '"]');
+    chips2.forEach(function (ch) {
+      ch.classList.toggle("on", Number(ch.getAttribute("data-qty-val")) === n);
+    });
+  }
+
+  function onQtyCustomBlur(id, el) {
+    var n = Math.max(0, parseInt(String((el && el.value) || "").replace(/[^\d]/g, ""), 10) || 0);
+    pickQty(id, n);
+  }
+
+  function renderQtyControls_(it, q) {
+    var rule = qtyRuleFor_(it);
+    var unit = unitFor_(it);
+    var isPreset = rule.presets.indexOf(q) >= 0;
+    if (rule.fixed) {
+      var on = q > 0;
+      return '<div class="qty-box">' +
+        '<div class="qty-presets">' +
+        '<button type="button" class="qty-chip' + (on ? " on" : "") +
+        '" data-qty-id="' + it.id + '" data-qty-val="1" onclick="pickQty(\'' + it.id + '\',' + (on ? 0 : 1) + ')">1 ' +
+        esc(unit) + "</button>" +
+        "</div></div>";
+    }
+    var chips = rule.presets.map(function (p) {
+      return '<button type="button" class="qty-chip' + (q === p ? " on" : "") +
+        '" data-qty-id="' + it.id + '" data-qty-val="' + p +
+        '" onclick="pickQty(\'' + it.id + '\',' + p + ')">' + p + " " + esc(unit) + "</button>";
+    }).join("");
+    var customVal = q && !isPreset ? String(q) : (q && isPreset ? "" : "");
+    // если выбран пресет — поле пустое; если своё число — показываем его
+    if (q && !isPreset) customVal = String(q);
+    else customVal = "";
+    return '<div class="qty-box">' +
+      '<div class="qty-presets">' + chips + "</div>" +
+      '<div class="qty-custom">' +
+      '<input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="своё" ' +
+      'value="' + esc(customVal) + '" ' +
+      'oninput="onQtyCustomInput(\'' + it.id + '\', this)" ' +
+      'onblur="onQtyCustomBlur(\'' + it.id + '\', this)">' +
+      '<span class="u">' + esc(unit) + "</span>" +
+      "</div></div>";
+  }
+
   function renderCatalog() {
     var box = document.getElementById("catalogList");
     var items = state.catalog.filter(function (it) {
-      return it.type === state.cat && it.active !== false;
+      if (it.active === false) return false;
+      if (state.cat === "coupon") {
+        return it.type === "coupon" || it.id === "vr_c_banner";
+      }
+      return it.type === state.cat && it.id !== "vr_c_banner";
     });
     if (!items.length) {
       box.innerHTML = '<div class="empty">Пусто</div>';
@@ -1045,21 +1201,25 @@
     }
     box.innerHTML = items.map(function (it) {
       var q = Number(state.cart[it.id]) || 0;
-      var ste =
-        '<div class="stepper">' +
-        '<button type="button" onclick="setQty(\'' + it.id + '\',-1)">−</button>' +
-        "<span>" + q + "</span>" +
-        '<button type="button" onclick="setQty(\'' + it.id + '\',1)">+</button></div>';
-      if (it.type === "coupon") {
+      var unit = unitFor_(it);
+      var ste = renderQtyControls_(it, q);
+      var selected = q ? (" · " + q + " " + unit) : "";
+      if (it.id === "vr_c_banner") {
         return '<div class="coupon-card">' +
           '<img class="coupon-banner" src="' + COUPON_BANNER + '" alt="">' +
-          '<img class="coupon-preview" src="' + COUPON_IMG + '" alt="">' +
-          '<div class="coupon-row"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
-          '</div><div class="unit">поштучно' + (q ? (" · " + q + " шт") : "") +
+          '<div class="coupon-row qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
+          '</div><div class="unit">только 1 шт' + selected +
           "</div></div>" + ste + "</div></div>";
       }
-      return '<div class="item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
-        '</div><div class="unit">' + esc(it.unit || "шт") + "</div></div>" + ste + "</div>";
+      if (it.type === "coupon") {
+        return '<div class="coupon-card">' +
+          '<img class="coupon-preview" src="' + COUPON_IMG + '" alt="">' +
+          '<div class="coupon-row qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
+          '</div><div class="unit">пресеты или своё' + selected +
+          "</div></div>" + ste + "</div></div>";
+      }
+      return '<div class="item qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
+        '</div><div class="unit">' + esc(unit) + selected + "</div></div>" + ste + "</div>";
     }).join("");
   }
 
@@ -1082,7 +1242,7 @@
     var basket = [];
     state.catalog.forEach(function (it) {
       var q = Number(state.cart[it.id]) || 0;
-      if (q > 0) basket.push({ id: it.id, type: it.type, name: it.name, qty: q, unit: it.unit || "шт" });
+      if (q > 0) basket.push({ id: it.id, type: it.type, name: it.name, qty: q, unit: unitFor_(it) });
     });
     var id = "demo_" + Date.now().toString(36);
     DEMO.orders.unshift({
@@ -1238,6 +1398,7 @@
   }
 
   function boot() {
+    state.catalog = normalizeCatalog_(state.catalog && state.catalog.length ? state.catalog : CATALOG);
     show("screenBoot");
     if (!VARKA_WEBHOOK_URL) {
       // локальное демо без webhook
@@ -1291,6 +1452,33 @@
     });
   }
 
+  function normalizeCatalog_(list) {
+    var byId = {};
+    (list || []).forEach(function (it) {
+      if (!it || !it.id) return;
+      var row = {
+        id: it.id,
+        type: it.type === "treat" ? "treat" : "coupon",
+        name: it.name || it.id,
+        unit: it.unit || "шт",
+        active: it.active !== false
+      };
+      if (QTY_RULES_[row.id] && QTY_RULES_[row.id].unit) row.unit = QTY_RULES_[row.id].unit;
+      byId[row.id] = row;
+    });
+    // гарантируем базовые позиции даже на старом Deploy
+    CATALOG.forEach(function (base) {
+      if (!byId[base.id]) byId[base.id] = {
+        id: base.id, type: base.type, name: base.name, unit: base.unit, active: true
+      };
+      else {
+        if (QTY_RULES_[base.id]) byId[base.id].unit = QTY_RULES_[base.id].unit;
+        if (!byId[base.id].name) byId[base.id].name = base.name;
+      }
+    });
+    return Object.keys(byId).map(function (k) { return byId[k]; });
+  }
+
   function applyRemoteConfig_(res) {
     if (!res) return;
     if (Array.isArray(res.networks) && res.networks.length) {
@@ -1304,7 +1492,11 @@
       });
     }
     if (Array.isArray(res.catalog) && res.catalog.length) {
-      state.catalog = res.catalog.slice();
+      state.catalog = normalizeCatalog_(res.catalog);
+    } else if (!state.catalog || !state.catalog.length) {
+      state.catalog = normalizeCatalog_(CATALOG);
+    } else {
+      state.catalog = normalizeCatalog_(state.catalog);
     }
   }
 
@@ -1444,6 +1636,9 @@
   window.goCabinet = goCabinet;
   window.setCat = setCat;
   window.setQty = setQty;
+  window.pickQty = pickQty;
+  window.onQtyCustomInput = onQtyCustomInput;
+  window.onQtyCustomBlur = onQtyCustomBlur;
   window.submitOrder = submitOrder;
   window.showCatalogTab = showCatalogTab;
   window.showMyOrders = showMyOrders;

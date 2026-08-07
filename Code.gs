@@ -15550,9 +15550,10 @@ function ensurePartnerAppSeeded_(force) {
 
 function partnerCatalogStatic_() {
   return [
-    { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "шт", active: true },
-    { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "шт", active: true },
-    { id: "vr_c_piece", type: "coupon", name: "Купон", unit: "шт", active: true }
+    { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
+    { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "г", active: true },
+    { id: "vr_c_piece", type: "coupon", name: "Купон", unit: "шт", active: true },
+    { id: "vr_c_banner", type: "coupon", name: "Баннер", unit: "шт", active: true }
   ];
 }
 
