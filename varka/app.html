@@ -825,16 +825,12 @@
 
   function loginWithAccess_(acc, username) {
     if (!acc || !acc.pointIds || !acc.pointIds.length) return false;
-    // партнёр никогда не получает «все точки», даже если isOwner пришёл по ошибке
-    var forcePartner = !acc.isOwner || (acc.role === "partner") || (acc.isPartner === true);
-    if (acc.points && acc.points.length && !acc.isOwner) forcePartner = true;
-    if (acc.isPartner) forcePartner = true;
-    REMOTE_IS_OWNER_ = !!acc.isOwner && !acc.isPartner && acc.role !== "partner";
+    // партнёр/staff — только выданные точки; owner без isPartner — полный доступ
+    REMOTE_IS_OWNER_ = !!acc.isOwner && !acc.isPartner && acc.role !== "partner" && acc.role !== "staff";
     DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
     DEMO_NETWORK = acc.networkId || "";
     DEMO_USERNAME = normUser_(username || "");
     DEMO_POINT_IDS = (acc.pointIds || []).slice();
-    // если сервер прислал готовый список точек — подставляем в POINTS только их
     if (Array.isArray(acc.points) && acc.points.length) {
       POINTS = acc.points.map(function (p) {
         return {
@@ -844,8 +840,7 @@
           address: p.address || ""
         };
       });
-    } else {
-      // оставить в POINTS только выданные
+    } else if (!REMOTE_IS_OWNER_) {
       var keep = {};
       DEMO_POINT_IDS.forEach(function (id) { keep[id] = true; });
       POINTS = POINTS.filter(function (p) { return keep[p.id]; });
