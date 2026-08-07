@@ -97,6 +97,17 @@
     function apply() {
       ticking = false;
       var y = global.scrollY || 0;
+      if (y < 4) {
+        if (stage) {
+          stage.style.transform = "";
+          stage.style.opacity = "";
+        }
+        if (copy) {
+          copy.style.transform = "";
+          copy.style.opacity = "";
+        }
+        return;
+      }
       var h = hero.offsetHeight || 1;
       var p = Math.min(1, Math.max(0, y / h));
       if (stage) {
