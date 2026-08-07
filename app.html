@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.148";
+      var APP_VER = "v7.11.149";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2542,85 +2542,118 @@
       </div>
     </div>
 
-    <!-- ПАРТНЁРСКИЙ МИНИ-АПП (сети / точки / доступы) -->
+    <!-- ПАРТНЁРЫ (varka / Good Boy) -->
     <div id="partnerHubScreen" class="screen">
-      <div class="card">
-        <div class="section-title" style="margin-top:0;color:#f59a2e;">Партнёрский мини-апп</div>
-        <div class="muted" style="font-size:12px;margin-bottom:10px;">Good Boy · пополнение сетей. Не путать с «партнёрами БП» во вкладке Доступы.</div>
-        <a class="btn-action btn-orange" id="partnerHubOpenLink" href="https://konchaarsenia-a11y.github.io/superboyna/varka/" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin:0 0 8px;">Открыть мини-апп</a>
-        <div class="batch-bar-row" style="margin:0;gap:8px;">
-          <button class="btn-action btn-blue" type="button" style="flex:1;margin:0;" onclick="loadPartnerHubUi_({force:1})">Обновить</button>
-          <button class="btn-action" type="button" style="flex:1;margin:0;background:#3a3a3c;" onclick="partnerHubSeedDefaults_()">Залить демо</button>
+      <div class="card" style="padding:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;">
+          <div class="section-title" style="margin:0;color:#f59a2e;">Партнёры</div>
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button type="button" class="seg-btn" style="margin:0;padding:6px 10px;" onclick="loadPartnerHubUi_({force:1})">↻</button>
+            <a class="seg-btn" id="partnerHubOpenLink" href="https://konchaarsenia-a11y.github.io/superboyna/varka/" target="_blank" rel="noopener"
+              style="margin:0;padding:6px 10px;text-decoration:none;color:#fff;background:var(--accent-color);border-color:var(--accent-color);">Мини-апп</a>
+          </div>
+        </div>
+        <div class="seg-row" id="phSubTabs" style="margin:0;">
+          <button type="button" class="seg-btn active" data-ph-tab="people" onclick="setPartnerHubTab_('people')">Люди</button>
+          <button type="button" class="seg-btn" data-ph-tab="points" onclick="setPartnerHubTab_('points')">Точки</button>
+          <button type="button" class="seg-btn" data-ph-tab="nets" onclick="setPartnerHubTab_('nets')">Сети</button>
+          <button type="button" class="seg-btn" data-ph-tab="notify" onclick="setPartnerHubTab_('notify')">Пуши</button>
         </div>
       </div>
 
-      <div class="card" style="margin-top:12px;">
-        <div class="section-title" style="margin-top:0;color:#64d2ff;">Ответственные за заказы</div>
-        <div class="muted" style="font-size:12px;margin-bottom:10px;">Сотрудники из «Доступы», которым уйдут уведомления о заявках партнёров. Можно несколько.</div>
+      <!-- Люди = доступы -->
+      <div class="card ph-panel" id="phPanelPeople" style="margin-top:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+          <div class="muted" style="font-size:12px;margin:0;">@username → точки мини-аппа</div>
+          <button type="button" class="seg-btn" style="margin:0;" id="phAccToggleBtn" onclick="partnerHubToggleForm_('acc')">+ Выдать</button>
+        </div>
+        <div id="phAccForm" style="display:none;margin-bottom:12px;padding:10px;background:#111;border-radius:10px;border:1px solid var(--border-color);">
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>@username</label>
+            <input type="text" id="phAccUser" placeholder="varka_two" autocomplete="off">
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Имя</label>
+            <input type="text" id="phAccName" placeholder="Партнёр">
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Telegram ID <span class="muted">(необяз.)</span></label>
+            <input type="text" id="phAccTid" placeholder="123…" inputmode="numeric">
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Сеть</label>
+            <select id="phAccNetwork" onchange="partnerHubRenderPointChecks_()"></select>
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Точки</label>
+            <div id="phAccPoints" class="muted" style="font-size:13px;">—</div>
+          </div>
+          <input type="hidden" id="phAccEditId" value="">
+          <div class="batch-bar-row" style="margin:0;gap:8px;">
+            <button class="btn-action btn-orange" type="button" style="flex:1.4;margin:0;" onclick="partnerHubSaveAccess_()">Сохранить</button>
+            <button class="btn-action" type="button" style="flex:1;margin:0;background:#3a3a3c;" onclick="partnerHubCancelForm_('acc')">Отмена</button>
+          </div>
+        </div>
+        <div id="phAccessList"><p class="muted">—</p></div>
+      </div>
+
+      <!-- Точки -->
+      <div class="card ph-panel" id="phPanelPoints" style="margin-top:10px;display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+          <div class="muted" style="font-size:12px;margin:0;">Точки продаж</div>
+          <button type="button" class="seg-btn" style="margin:0;" id="phPointToggleBtn" onclick="partnerHubToggleForm_('point')">+ Точка</button>
+        </div>
+        <div id="phPointForm" style="display:none;margin-bottom:12px;padding:10px;background:#111;border-radius:10px;border:1px solid var(--border-color);">
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Сеть</label>
+            <select id="phPointNetwork"></select>
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Название</label>
+            <input type="text" id="phPointName" placeholder="Varka · Немига">
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Адрес</label>
+            <input type="text" id="phPointAddr" placeholder="ул. …">
+          </div>
+          <input type="hidden" id="phPointEditId" value="">
+          <div class="batch-bar-row" style="margin:0;gap:8px;">
+            <button class="btn-action btn-purple" type="button" style="flex:1.4;margin:0;" onclick="partnerHubSavePoint_()">Сохранить</button>
+            <button class="btn-action" type="button" style="flex:1;margin:0;background:#3a3a3c;" onclick="partnerHubCancelForm_('point')">Отмена</button>
+          </div>
+        </div>
+        <div id="phPointsList"><p class="muted">—</p></div>
+      </div>
+
+      <!-- Сети -->
+      <div class="card ph-panel" id="phPanelNets" style="margin-top:10px;display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+          <div class="muted" style="font-size:12px;margin:0;">Сети (бренд)</div>
+          <div style="display:flex;gap:6px;">
+            <button type="button" class="seg-btn" style="margin:0;" onclick="partnerHubSeedDefaults_()" title="Демо">Демо</button>
+            <button type="button" class="seg-btn" style="margin:0;" id="phNetToggleBtn" onclick="partnerHubToggleForm_('net')">+ Сеть</button>
+          </div>
+        </div>
+        <div id="phNetForm" style="display:none;margin-bottom:12px;padding:10px;background:#111;border-radius:10px;border:1px solid var(--border-color);">
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Название</label>
+            <input type="text" id="phNetName" placeholder="Varka">
+          </div>
+          <input type="hidden" id="phNetLogo" value="">
+          <input type="hidden" id="phNetEditId" value="">
+          <div class="batch-bar-row" style="margin:0;gap:8px;">
+            <button class="btn-action btn-purple" type="button" style="flex:1.4;margin:0;" onclick="partnerHubSaveNetwork_()">Сохранить</button>
+            <button class="btn-action" type="button" style="flex:1;margin:0;background:#3a3a3c;" onclick="partnerHubCancelForm_('net')">Отмена</button>
+          </div>
+        </div>
+        <div id="phNetworksList"><p class="muted">—</p></div>
+      </div>
+
+      <!-- Пуши -->
+      <div class="card ph-panel" id="phPanelNotify" style="margin-top:10px;display:none;">
+        <div class="muted" style="font-size:12px;margin-bottom:8px;">Кому слать заявки из мини-аппа (сотрудники из Доступов)</div>
         <div id="phNotifyPeople"><p class="muted">—</p></div>
-        <button class="btn-action btn-blue" type="button" style="margin:10px 0 0;width:100%;" onclick="partnerHubSaveNotify_()">Сохранить ответственных</button>
-      </div>
-
-      <div class="card" style="margin-top:12px;">
-        <div class="section-title" style="margin-top:0;">Сети</div>
-        <div class="form-group">
-          <label>Название сети</label>
-          <input type="text" id="phNetName" placeholder="Varka">
-        </div>
-        <div class="form-group">
-          <label>Logo URL (необязательно)</label>
-          <input type="text" id="phNetLogo" placeholder="assets/…">
-        </div>
-        <input type="hidden" id="phNetEditId" value="">
-        <button class="btn-action btn-purple" type="button" style="margin:0;width:100%;" onclick="partnerHubSaveNetwork_()">Сохранить сеть</button>
-        <div id="phNetworksList" style="margin-top:12px;"><p class="muted">—</p></div>
-      </div>
-
-      <div class="card" style="margin-top:12px;">
-        <div class="section-title" style="margin-top:0;">Точки</div>
-        <div class="form-group">
-          <label>Сеть</label>
-          <select id="phPointNetwork"></select>
-        </div>
-        <div class="form-group">
-          <label>Название точки</label>
-          <input type="text" id="phPointName" placeholder="Varka · Немига">
-        </div>
-        <div class="form-group">
-          <label>Адрес</label>
-          <input type="text" id="phPointAddr" placeholder="ул. …">
-        </div>
-        <input type="hidden" id="phPointEditId" value="">
-        <button class="btn-action btn-purple" type="button" style="margin:0;width:100%;" onclick="partnerHubSavePoint_()">Сохранить точку</button>
-        <div id="phPointsList" style="margin-top:12px;"><p class="muted">—</p></div>
-      </div>
-
-      <div class="card" style="margin-top:12px;">
-        <div class="section-title" style="margin-top:0;color:#ff6961;">Доступы к точкам</div>
-        <div class="muted" style="font-size:12px;margin-bottom:8px;">Партнёр входит в мини-апп по Telegram @username. Точки — только выбранные.</div>
-        <div class="form-group">
-          <label>@username</label>
-          <input type="text" id="phAccUser" placeholder="varka_two" autocomplete="off">
-        </div>
-        <div class="form-group">
-          <label>Telegram ID (необязательно)</label>
-          <input type="text" id="phAccTid" placeholder="123456789" inputmode="numeric">
-        </div>
-        <div class="form-group">
-          <label>Имя</label>
-          <input type="text" id="phAccName" placeholder="Партнёр Varka">
-        </div>
-        <div class="form-group">
-          <label>Сеть</label>
-          <select id="phAccNetwork" onchange="partnerHubRenderPointChecks_()"></select>
-        </div>
-        <div class="form-group">
-          <label>Точки</label>
-          <div id="phAccPoints" class="muted" style="font-size:13px;">—</div>
-        </div>
-        <input type="hidden" id="phAccEditId" value="">
-        <button class="btn-action btn-orange" type="button" style="margin:0;width:100%;" onclick="partnerHubSaveAccess_()">Выдать / обновить доступ</button>
-        <div id="phAccessList" style="margin-top:12px;"><p class="muted">—</p></div>
+        <button class="btn-action btn-blue" type="button" style="margin:10px 0 0;width:100%;" onclick="partnerHubSaveNotify_()">Сохранить</button>
       </div>
     </div>
 
@@ -2635,7 +2668,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.148";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.149";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -3018,7 +3051,7 @@
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
       templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ — скоро.",
       peopleScreen: "Доступы\n• Завершить неделю / подтянуть из месяца — сверху.\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника.",
-      partnerHubScreen: "Партнёры (мини-апп)\n• Сети и точки Good Boy / varka.\n• Выдача доступа по @username или Telegram ID.\n• Это не «партнёры БП» из вкладки Доступы."
+      partnerHubScreen: "Партнёры (мини-апп varka)\n• Люди — доступы к точкам.\n• Точки / Сети — справочник.\n• Пуши — кому слать заявки.\n• Не путать с партнёрами БП в Доступах."
     };
 
     window._templatesSub = "texts";
@@ -20469,22 +20502,99 @@
     window.ensurePpPartnerOptions_ = ensurePpPartnerOptions_;
 
     var partnerHubCache_ = null;
+    var partnerHubTab_ = "people";
+
+    function setPartnerHubTab_(tab) {
+      partnerHubTab_ = tab === "points" || tab === "nets" || tab === "notify" ? tab : "people";
+      var map = {
+        people: "phPanelPeople",
+        points: "phPanelPoints",
+        nets: "phPanelNets",
+        notify: "phPanelNotify"
+      };
+      Object.keys(map).forEach(function (k) {
+        var el = document.getElementById(map[k]);
+        if (el) el.style.display = k === partnerHubTab_ ? "" : "none";
+      });
+      document.querySelectorAll("#phSubTabs [data-ph-tab]").forEach(function (btn) {
+        btn.classList.toggle("active", btn.getAttribute("data-ph-tab") === partnerHubTab_);
+      });
+    }
+    window.setPartnerHubTab_ = setPartnerHubTab_;
+
+    function partnerHubToggleForm_(kind) {
+      var id = kind === "point" ? "phPointForm" : (kind === "net" ? "phNetForm" : "phAccForm");
+      var el = document.getElementById(id);
+      if (!el) return;
+      if (el.style.display !== "none") {
+        partnerHubCancelForm_(kind);
+        return;
+      }
+      if (kind === "net") {
+        document.getElementById("phNetEditId").value = "";
+        document.getElementById("phNetName").value = "";
+        document.getElementById("phNetLogo").value = "";
+      } else if (kind === "point") {
+        document.getElementById("phPointEditId").value = "";
+        document.getElementById("phPointName").value = "";
+        document.getElementById("phPointAddr").value = "";
+      } else {
+        document.getElementById("phAccEditId").value = "";
+        document.getElementById("phAccUser").value = "";
+        document.getElementById("phAccTid").value = "";
+        document.getElementById("phAccName").value = "";
+        partnerHubRenderPointChecks_();
+      }
+      el.style.display = "block";
+      if (kind === "acc") {
+        try { document.getElementById("phAccUser").focus(); } catch (eF) {}
+      }
+    }
+    window.partnerHubToggleForm_ = partnerHubToggleForm_;
+
+    function partnerHubCancelForm_(kind) {
+      if (kind === "net") {
+        document.getElementById("phNetEditId").value = "";
+        document.getElementById("phNetName").value = "";
+        document.getElementById("phNetLogo").value = "";
+        var nf = document.getElementById("phNetForm");
+        if (nf) nf.style.display = "none";
+      } else if (kind === "point") {
+        document.getElementById("phPointEditId").value = "";
+        document.getElementById("phPointName").value = "";
+        document.getElementById("phPointAddr").value = "";
+        var pf = document.getElementById("phPointForm");
+        if (pf) pf.style.display = "none";
+      } else {
+        document.getElementById("phAccEditId").value = "";
+        document.getElementById("phAccUser").value = "";
+        document.getElementById("phAccTid").value = "";
+        document.getElementById("phAccName").value = "";
+        var af = document.getElementById("phAccForm");
+        if (af) af.style.display = "none";
+      }
+    }
+    window.partnerHubCancelForm_ = partnerHubCancelForm_;
+
+    function partnerHubOpenForm_(kind) {
+      var id = kind === "point" ? "phPointForm" : (kind === "net" ? "phNetForm" : "phAccForm");
+      var el = document.getElementById(id);
+      if (el) el.style.display = "block";
+      if (kind === "point") setPartnerHubTab_("points");
+      else if (kind === "net") setPartnerHubTab_("nets");
+      else setPartnerHubTab_("people");
+    }
 
     async function loadPartnerHubUi_(opts) {
       opts = opts || {};
-      var boxN = document.getElementById("phNetworksList");
-      var boxP = document.getElementById("phPointsList");
       var boxA = document.getElementById("phAccessList");
-      if (!boxN) return;
+      if (!document.getElementById("phNetworksList")) return;
       if (opts.soft && partnerHubCache_ && !opts.force) {
         partnerHubPaint_(partnerHubCache_);
+        setPartnerHubTab_(partnerHubTab_);
         return;
       }
-      if (!opts.soft) {
-        if (boxN) boxN.innerHTML = '<p class="muted">Загрузка…</p>';
-        if (boxP) boxP.innerHTML = '<p class="muted">Загрузка…</p>';
-        if (boxA) boxA.innerHTML = '<p class="muted">Загрузка…</p>';
-      }
+      if (!opts.soft && boxA) boxA.innerHTML = '<p class="muted">Загрузка…</p>';
       try {
         var res = await apiGet({
           action: "partnerListAdmin",
@@ -20493,13 +20603,14 @@
         }, { timeoutMs: 35000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || "нет ответа — Deploy Code.gs?";
-          if (boxN) boxN.innerHTML = '<p class="muted">' + escapeHtml(msg) + "</p>";
+          if (boxA) boxA.innerHTML = '<p class="muted">' + escapeHtml(msg) + "</p>";
           return;
         }
         partnerHubCache_ = res;
         partnerHubPaint_(res);
+        setPartnerHubTab_(partnerHubTab_);
       } catch (e) {
-        if (boxN) boxN.innerHTML = '<p class="muted">Ошибка загрузки</p>';
+        if (boxA) boxA.innerHTML = '<p class="muted">Ошибка загрузки</p>';
       }
     }
 
@@ -20531,7 +20642,7 @@
       var boxNotify = document.getElementById("phNotifyPeople");
       if (boxNotify) {
         if (!cands.length) {
-          boxNotify.innerHTML = '<p class="muted">Нет сотрудников с доступом. Сначала выдай роли во вкладке «Доступы».</p>';
+          boxNotify.innerHTML = '<p class="muted">Нет сотрудников — сначала роли в «Доступах»</p>';
         } else {
           boxNotify.innerHTML = cands.map(function (p) {
             var tid = String(p.telegramId || "");
@@ -20539,13 +20650,12 @@
             var meta = [];
             if (p.username) meta.push("@" + p.username);
             if (p.role) meta.push(p.role);
-            meta.push(tid);
-            return '<label style="display:flex;align-items:flex-start;gap:10px;margin:8px 0;padding:10px;background:#111;border:1px solid var(--border-color);border-radius:10px;">' +
+            return '<label style="display:flex;align-items:center;gap:10px;margin:6px 0;padding:8px 10px;background:#111;border:1px solid var(--border-color);border-radius:10px;">' +
               '<input type="checkbox" class="ph-notify-check" value="' + escapeHtml(tid) + '"' +
-              (selectedNotify[tid] ? " checked" : "") + ' style="margin-top:3px;">' +
-              '<span><b>' + escapeHtml(label) + "</b>" +
-              '<div class="muted" style="font-size:12px;margin-top:2px;">' + escapeHtml(meta.join(" · ")) +
-              "</div></span></label>";
+              (selectedNotify[tid] ? " checked" : "") + '>' +
+              '<span style="min-width:0;"><b>' + escapeHtml(label) + "</b>" +
+              (meta.length ? '<span class="muted" style="font-size:12px;"> · ' + escapeHtml(meta.join(" · ")) + "</span>" : "") +
+              "</span></label>";
           }).join("");
         }
       }
@@ -20554,14 +20664,12 @@
       if (boxN) {
         boxN.innerHTML = nets.length ? nets.map(function (n) {
           var idEsc = String(n.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-          return '<div class="card" style="margin-bottom:8px;padding:10px;">' +
-            "<b>" + escapeHtml(n.name) + "</b>" +
-            (n.active === false ? ' <span class="muted">(выкл)</span>' : "") +
-            '<div class="muted" style="font-size:11px;">' + escapeHtml(n.id) + "</div>" +
-            '<div class="seg-row" style="margin-top:8px;">' +
-            '<button type="button" class="seg-btn" onclick="partnerHubEditNetwork_(\'' + idEsc + '\')">Изменить</button>' +
-            "</div></div>";
-        }).join("") : '<p class="muted">Нет сетей — «Залить демо»</p>';
+          return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid #222;">' +
+            '<div style="min-width:0;"><b>' + escapeHtml(n.name) + "</b>" +
+            (n.active === false ? ' <span class="muted">(выкл)</span>' : "") + "</div>" +
+            '<button type="button" class="seg-btn" style="margin:0;flex-shrink:0;" onclick="partnerHubEditNetwork_(\'' + idEsc + '\')">Изменить</button>' +
+            "</div>";
+        }).join("") : '<p class="muted">Пусто — «Демо» или «+ Сеть»</p>';
       }
 
       var boxP = document.getElementById("phPointsList");
@@ -20569,13 +20677,12 @@
         boxP.innerHTML = pts.length ? pts.map(function (p) {
           var idEsc = String(p.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
           var net = nets.filter(function (n) { return n.id === p.networkId; })[0];
-          return '<div class="card" style="margin-bottom:8px;padding:10px;">' +
-            "<b>" + escapeHtml(p.name) + "</b>" +
-            '<div class="muted" style="font-size:12px;">' + escapeHtml((net && net.name) || p.networkId) +
-            (p.address ? (" · " + escapeHtml(p.address)) : "") + "</div>" +
-            '<div class="seg-row" style="margin-top:8px;">' +
-            '<button type="button" class="seg-btn" onclick="partnerHubEditPoint_(\'' + idEsc + '\')">Изменить</button>' +
-            "</div></div>";
+          return '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid #222;">' +
+            '<div style="min-width:0;"><b>' + escapeHtml(p.name) + "</b>" +
+            '<div class="muted" style="font-size:12px;margin-top:2px;">' + escapeHtml((net && net.name) || p.networkId) +
+            (p.address ? (" · " + escapeHtml(p.address)) : "") + "</div></div>" +
+            '<button type="button" class="seg-btn" style="margin:0;flex-shrink:0;" onclick="partnerHubEditPoint_(\'' + idEsc + '\')">Изменить</button>' +
+            "</div>";
         }).join("") : '<p class="muted">Нет точек</p>';
       }
 
@@ -20590,16 +20697,16 @@
             var hit = pts.filter(function (p) { return p.id === pid; })[0];
             return hit ? hit.name : pid;
           }).join(", ");
-          return '<div class="card" style="margin-bottom:8px;padding:10px;border:1px solid rgba(245,154,46,0.35);">' +
-            "<b>@" + escapeHtml(a.username || "—") + "</b> · " + escapeHtml(a.name || "") +
-            '<div class="muted" style="font-size:12px;margin-top:4px;">' + escapeHtml(a.role || "partner") +
-            (a.telegramId ? (" · TG " + escapeHtml(a.telegramId)) : "") + "</div>" +
-            '<div style="font-size:12px;margin-top:6px;">' + escapeHtml(ptsLab || "нет точек") + "</div>" +
-            '<div class="seg-row" style="margin-top:8px;flex-wrap:wrap;">' +
-            '<button type="button" class="seg-btn" onclick="partnerHubEditAccess_(\'' + idEsc + '\')">Править</button>' +
-            '<button type="button" class="seg-btn" style="color:#ff453a;" onclick="partnerHubRevokeAccess_(\'' + idEsc + '\')">Отозвать</button>' +
-            "</div></div>";
-        }).join("") : '<p class="muted">Нет активных доступов</p>';
+          return '<div style="padding:10px 0;border-bottom:1px solid #222;">' +
+            '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">' +
+            '<div style="min-width:0;"><b>@' + escapeHtml(a.username || "—") + "</b>" +
+            (a.name ? (' <span class="muted">' + escapeHtml(a.name) + "</span>") : "") +
+            '<div class="muted" style="font-size:12px;margin-top:3px;">' + escapeHtml(ptsLab || "нет точек") + "</div></div>" +
+            '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">' +
+            '<button type="button" class="seg-btn" style="margin:0;" onclick="partnerHubEditAccess_(\'' + idEsc + '\')">Править</button>' +
+            '<button type="button" class="seg-btn" style="margin:0;color:#ff453a;" onclick="partnerHubRevokeAccess_(\'' + idEsc + '\')">✕</button>' +
+            "</div></div></div>";
+        }).join("") : '<p class="muted">Никого нет — «+ Выдать»</p>';
       }
     }
 
@@ -20627,7 +20734,8 @@
       document.getElementById("phNetEditId").value = n.id;
       document.getElementById("phNetName").value = n.name || "";
       document.getElementById("phNetLogo").value = n.logo || "";
-      showToast("Редактирование сети");
+      partnerHubOpenForm_("net");
+      showToast("Правка сети");
     }
 
     function partnerHubEditPoint_(id) {
@@ -20637,7 +20745,8 @@
       document.getElementById("phPointNetwork").value = p.networkId || "";
       document.getElementById("phPointName").value = p.name || "";
       document.getElementById("phPointAddr").value = p.address || "";
-      showToast("Редактирование точки");
+      partnerHubOpenForm_("point");
+      showToast("Правка точки");
     }
 
     function partnerHubEditAccess_(id) {
@@ -20648,13 +20757,14 @@
       document.getElementById("phAccTid").value = a.telegramId || "";
       document.getElementById("phAccName").value = a.name || "";
       if (a.networkId) document.getElementById("phAccNetwork").value = a.networkId;
+      partnerHubOpenForm_("acc");
       partnerHubRenderPointChecks_();
       var want = {};
       (a.pointIds || []).forEach(function (pid) { want[pid] = true; });
       document.querySelectorAll(".ph-pt-check").forEach(function (el) {
         el.checked = !!want[el.value];
       });
-      showToast("Редактирование доступа");
+      showToast("Правка доступа");
     }
 
     async function partnerHubSaveNetwork_() {
@@ -20676,6 +20786,7 @@
       document.getElementById("phNetEditId").value = "";
       document.getElementById("phNetName").value = "";
       document.getElementById("phNetLogo").value = "";
+      partnerHubCancelForm_("net");
       partnerHubCache_ = null;
       await loadPartnerHubUi_({ force: 1 });
       showToast("Сеть сохранена");
@@ -20702,6 +20813,7 @@
       document.getElementById("phPointEditId").value = "";
       document.getElementById("phPointName").value = "";
       document.getElementById("phPointAddr").value = "";
+      partnerHubCancelForm_("point");
       partnerHubCache_ = null;
       await loadPartnerHubUi_({ force: 1 });
       showToast("Точка сохранена");
@@ -20736,6 +20848,7 @@
       document.getElementById("phAccUser").value = "";
       document.getElementById("phAccTid").value = "";
       document.getElementById("phAccName").value = "";
+      partnerHubCancelForm_("acc");
       partnerHubCache_ = null;
       await loadPartnerHubUi_({ force: 1 });
       showToast("Доступ выдан");
@@ -20804,6 +20917,9 @@
       showToast("Ответственных: " + (res.count != null ? res.count : recipients.length));
     }
 
+    window.partnerHubCancelForm_ = partnerHubCancelForm_;
+    window.partnerHubToggleForm_ = partnerHubToggleForm_;
+    window.setPartnerHubTab_ = setPartnerHubTab_;
     window.loadPartnerHubUi_ = loadPartnerHubUi_;
     window.partnerHubRenderPointChecks_ = partnerHubRenderPointChecks_;
     window.partnerHubEditNetwork_ = partnerHubEditNetwork_;
