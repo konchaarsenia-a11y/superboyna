@@ -1706,7 +1706,7 @@
           </div>
           <div class="form-group">
             <label>Чеклист Instagram</label>
-            <textarea class="ig-paste" id="igChecklistPaste" placeholder="Вставь чеклист…"></textarea>
+            <textarea class="ig-paste" id="igChecklistPaste" placeholder="Чеклист… 2 собаки: «Рекс:» … «Пэни:» или два блока через пустую строку. Неясная фракция — спросит."></textarea>
             <div class="batch-bar-row" style="margin-top:8px;">
               <button class="btn-action btn-orange" type="button" style="flex:1;margin:0;" onclick="parseIgChecklistIntoBasket()">В корзину</button>
               <button class="btn-action" type="button" style="flex:0 0 auto;margin:0;padding:10px 12px;background:#3a3a3c;" onclick="clearIgChecklist()">Очистить</button>
@@ -2997,7 +2997,7 @@
         "• Дата: бронь; в «Прием заказов» — утром предыдущего дня.\n" +
         "• 2 собаки: один хозяин → Собака 1/2 составы → один клиент (в сборке два состава).\n" +
         "• Адрес: выбери из списка. Подъезд — для курьера (короткий адрес).\n" +
-        "• Чеклист: непонятная фракция — спросит (не пишет в примечание). Два блока с кличками — в Расчёте сразу на 2 собак.",
+        "• Чеклист: непонятная фракция / голый «кубик» — спросит (не в примечание). 2 собаки — блоки с кличками или пустая строка.",
       clientsScreen:
         "Просмотр\n" +
         "• Вкладки Месяц / Неделя — переключение без обновления.\n" +
@@ -3014,7 +3014,7 @@
       subsScreen: "Подписки\n• Пароль; Отмена → Заказ.\n• Карточка: мета + состав (ручной ввод) → Сохранить.\n• ПП: «Сообщение клиенту» — копировать текст и открыть Instagram.\n• ПП↔АФК / удалить.",
       subDetailScreen: "Карточка подписки\n• Правишь поля и состав → Сохранить.\n• ПП/АФК: «Сообщение клиенту» — текст как в Расчёте, копируй в Direct.",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
-      priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• Чеклист: один текст на 1–2 собак (блоки «Рекс:» / «Пэни:»).\n• Непонятная фракция — спросит, в сообщение не пишет.\n• 2 собаки: кличка + свой состав; примечание и цены общие.",
+      priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• Чеклист: 1–2 собаки; неясная фракция — спросит.\n• 2 собаки: кличка + состав; примечание и цены общие.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
       templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ — скоро.",
       peopleScreen: "Доступы\n• Завершить неделю / подтянуть из месяца — сверху.\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника.",
@@ -15431,6 +15431,14 @@
               needFrac = true;
             }
           }
+          // голый «кубик/кусочек/ломтик» без размера — неясная догадка, спросить
+          if (!needFrac && fracSrc) {
+            var fsUp = String(fracSrc).toUpperCase().replace(/Ё/g, "Е");
+            var hasSizeWord = /(СРЕДН|СРЕДНЕВАТ|СРЕД(?![А-ЯA-Z])|МЕЛК|МАЛЕНЬК|МАЛЮСЕНЬК|МАХОНЬК|КРОШЕЧН|КРОХОТН|МИНИАТЮР|КРУПН|БОЛЬШ|ЗДОРОВЕН|ОЧ\s*МАЛ|ОЧЕНЬ|СУПЕР|НОРМ(?![А-ЯA-Z])|ЦЕЛ|ПОЛОВИН|ПАЛК|ПАЛОЧ|ПЛАСТ|ОГР|ГИГАНТ|РОГАЛИК|(^|[^А-ЯA-Z])МАЛ([^А-ЯA-Z]|$)|БОЛ([^А-ЯA-Z]|$)|МИНИ(?![А-ЯA-Z]))/.test(fsUp);
+            if (!hasSizeWord && /(КУБИК|КУСОЧК|ЛОМТ|ПОЛОСК)/.test(fsUp)) {
+              needFrac = true;
+            }
+          }
         } else {
           frac = "";
         }
@@ -15450,28 +15458,45 @@
     }
 
 
-    async function parseIgChecklistIntoBasket() {
-      var raw = (document.getElementById("igChecklistPaste").value || "").trim();
-      if (!raw) { showToast("Вставь текст чеклиста"); return; }
-      var parsed = parseIgLinesToItems(raw);
-      if (!parsed.items.length) {
-        showToast("Не разобрал позиции");
-        return;
+    async function askChecklistFraction_(it, dogLabel) {
+      var fracs = (it.fractions || []).slice();
+      if (!fracs.length) return "";
+      var choices = fracs.map(function (f) {
+        var cls = (it.sub && f === it.sub) ? "btn-orange" : "btn-blue";
+        return { label: f, value: f, cls: cls };
+      });
+      choices.push({ label: "Без фракции", value: "__none__", cls: "btn-orange" });
+      var unitFn = (typeof priceUnitLabel === "function") ? priceUnitLabel : function () { return "г"; };
+      var title = (dogLabel ? (dogLabel + " · ") : "") +
+        prettyProductName(it.main || it.name) + " · " +
+        (Number(it.val != null ? it.val : it.value) || 0) + " " +
+        unitFn(it.cat, it.main || it.name);
+      var msg = it.fracHint
+        ? ("В чеклисте: «" + it.fracHint + "». Какая фракция?")
+        : "Какая фракция / размер?";
+      if (it.needFrac && it.sub) {
+        msg += "\n(авто: «" + it.sub + "» — подтверди или выбери другую)";
       }
-      var added = 0;
-      for (var i = 0; i < parsed.items.length; i++) {
-        var it = parsed.items[i];
+      var picked = await uiChoiceAsync(title, msg, choices);
+      if (picked == null) return null;
+      if (picked === "__none__") return "";
+      return String(picked);
+    }
+
+    /** Общий разбор позиций чеклиста с опросом неясных фракций. */
+    async function resolveChecklistItemsFrac_(items, dogLabel) {
+      var out = [];
+      var asked = 0;
+      for (var i = 0; i < (items || []).length; i++) {
+        var it = items[i];
         var sub = it.sub || "";
         if (it.needFrac && it.fractions && it.fractions.length) {
-          var picked = await askChecklistFraction_(it, "");
-          if (picked == null) {
-            showToast("Отменено");
-            renderBasket();
-            return;
-          }
+          asked++;
+          var picked = await askChecklistFraction_(it, dogLabel || "");
+          if (picked == null) return { cancelled: true, items: out, asked: asked };
           sub = picked;
         }
-        basket.push({
+        out.push({
           id: Date.now() + Math.random(),
           cat: it.cat,
           main: it.main,
@@ -15480,15 +15505,98 @@
           value: it.val,
           val: it.val
         });
-        added++;
       }
-      // неизвестные названия — только тост, не в сообщение клиенту
-      if (parsed.noteBits.length) {
-        showToast("Не распознал: " + parsed.noteBits.slice(0, 3).join("; ") +
-          (parsed.noteBits.length > 3 ? "…" : ""));
+      return { cancelled: false, items: out, asked: asked };
+    }
+
+    async function parseIgChecklistIntoBasket() {
+      var raw = (document.getElementById("igChecklistPaste").value || "").trim();
+      if (!raw) { showToast("Вставь текст чеклиста"); return; }
+
+      var sections = splitPriceChecklistByDogs_(raw);
+      // для заказа: если уже 2 собаки — тоже пытаемся разделить
+      if (typeof orderDogCount !== "undefined" && orderDogCount >= 2) {
+        sections = await ensureChecklistTwoDogSections_(raw, sections);
+        if (!sections) { showToast("Отменено"); return; }
+      } else {
+        var dogsProbe = {};
+        sections.forEach(function (sec) {
+          dogsProbe[Number(sec.dog) === 2 ? 2 : 1] = true;
+        });
+        if (dogsProbe[1] && dogsProbe[2]) {
+          sections = await ensureChecklistTwoDogSections_(raw, sections);
+          if (!sections) { showToast("Отменено"); return; }
+        }
       }
-      renderBasket();
-      showToast("Добавлено позиций: " + added);
+
+      var dogsUsed = {};
+      sections.forEach(function (sec) {
+        dogsUsed[Number(sec.dog) === 2 ? 2 : 1] = true;
+      });
+      var multi = !!dogsUsed[1] && !!dogsUsed[2];
+
+      var built = { 1: [], 2: [] };
+      var unknown = [];
+      var totalAdded = 0;
+      var asked = 0;
+      var perDog = { 1: 0, 2: 0 };
+
+      for (var s = 0; s < sections.length; s++) {
+        var sec = sections[s];
+        var dogN = Number(sec.dog) === 2 ? 2 : 1;
+        var parsed = parseIgLinesToItems(sec.text || "");
+        if (parsed.noteBits && parsed.noteBits.length) {
+          unknown = unknown.concat(parsed.noteBits);
+        }
+        if (!parsed.items.length) continue;
+        var label = multi ? ("Собака " + dogN) : "";
+        var resolved = await resolveChecklistItemsFrac_(parsed.items, label);
+        if (resolved.cancelled) {
+          showToast("Отменено");
+          try { renderBasket(); } catch (eR) {}
+          unlockPageScroll_();
+          return;
+        }
+        asked += resolved.asked || 0;
+        built[dogN] = built[dogN].concat(resolved.items);
+        totalAdded += resolved.items.length;
+        perDog[dogN] += resolved.items.length;
+      }
+
+      if (!totalAdded) {
+        showToast("Не разобрал позиции — проверь формат чеклиста");
+        return;
+      }
+
+      if (multi) {
+        try {
+          if (typeof setOrderDogCount === "function") setOrderDogCount(2);
+        } catch (eD) {}
+        orderBaskets[1] = built[1];
+        orderBaskets[2] = built[2];
+        orderActiveDog = 1;
+        basket = orderBaskets[1];
+      } else {
+        var onlyDog = dogsUsed[2] && !dogsUsed[1] ? 2 : (orderActiveDog || 1);
+        if (onlyDog === 2 && orderDogCount < 2) {
+          try { setOrderDogCount(2); } catch (eD2) {}
+        }
+        syncOrderBasketFromActive_();
+        if (!orderBaskets[onlyDog]) orderBaskets[onlyDog] = [];
+        orderBaskets[onlyDog] = orderBaskets[onlyDog].concat(built[onlyDog] || built[1] || []);
+        orderActiveDog = onlyDog;
+        basket = orderBaskets[onlyDog];
+      }
+
+      if (unknown.length) {
+        showToast("Не распознал: " + unknown.slice(0, 3).join("; ") + (unknown.length > 3 ? "…" : ""));
+      }
+      try { renderBasket(); } catch (eB) {}
+      unlockPageScroll_();
+      var dogsHint = multi
+        ? (" · Собака 1: " + perDog[1] + " / Собака 2: " + perDog[2])
+        : "";
+      showToast("В корзину: " + totalAdded + dogsHint + (asked ? (" · фракций: " + asked) : ""));
     }
     window.parseIgChecklistIntoBasket = parseIgChecklistIntoBasket;
     function stashPriceActiveBasket() {
@@ -15813,26 +15921,6 @@
       return sections;
     }
 
-    async function askChecklistFraction_(it, dogLabel) {
-      var fracs = (it.fractions || []).slice();
-      if (!fracs.length) return "";
-      var choices = fracs.map(function (f) {
-        return { label: f, value: f, cls: "btn-blue" };
-      });
-      choices.push({ label: "Без фракции", value: "__none__", cls: "btn-orange" });
-      var title = (dogLabel ? (dogLabel + " · ") : "") +
-        prettyProductName(it.main || it.name) + " · " +
-        (Number(it.val != null ? it.val : it.value) || 0) + " " +
-        priceUnitLabel(it.cat, it.main || it.name);
-      var msg = it.fracHint
-        ? ("В чеклисте: «" + it.fracHint + "». Какая фракция?")
-        : "Какая фракция / размер?";
-      var picked = await uiChoiceAsync(title, msg, choices);
-      if (picked == null) return null;
-      if (picked === "__none__") return "";
-      return String(picked);
-    }
-
     async function ensureChecklistTwoDogSections_(raw, sections) {
       var dogsUsed = {};
       sections.forEach(function (sec) {
@@ -15896,32 +15984,17 @@
           unknown = unknown.concat(parsed.noteBits);
         }
         if (!parsed.items.length) continue;
-
-        for (var i = 0; i < parsed.items.length; i++) {
-          var it = parsed.items[i];
-          var sub = it.sub || "";
-          if (it.needFrac && it.fractions && it.fractions.length) {
-            asked++;
-            var label = nameFromSec[dogN] || ("Собака " + dogN);
-            var picked = await askChecklistFraction_(it, multi ? label : "");
-            if (picked == null) {
-              showToast("Отменено");
-              return;
-            }
-            sub = picked;
-          }
-          built[dogN].push({
-            id: Date.now() + Math.random(),
-            cat: it.cat,
-            main: it.main,
-            name: it.name,
-            sub: sub,
-            value: it.val,
-            val: it.val
-          });
-          totalAdded++;
-          perDog[dogN]++;
+        var label = nameFromSec[dogN] || (multi ? ("Собака " + dogN) : "");
+        var resolved = await resolveChecklistItemsFrac_(parsed.items, multi ? label : "");
+        if (resolved.cancelled) {
+          showToast("Отменено");
+          unlockPageScroll_();
+          return;
         }
+        asked += resolved.asked || 0;
+        built[dogN] = built[dogN].concat(resolved.items);
+        totalAdded += resolved.items.length;
+        perDog[dogN] += resolved.items.length;
       }
 
       if (!totalAdded) {
