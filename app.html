@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.147";
+      var APP_VER = "v7.11.148";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2635,7 +2635,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.147";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.148";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -5983,41 +5983,77 @@
     /** JSONP GET — кэш по умолчанию для read-action (ускорение WebView) */
     var _apiGetMem = Object.create(null);
     var _apiGetInflight = Object.create(null);
+    var _API_SS_KEY = "boinya_api_swr_v1";
     var _API_READ_TTL = {
-      getClients: 15000,
-      getCutting: 12000,
-      getCourier: 20000,
-      getAssembly: 15000,
-      getWarehouse: 25000,
-      warehousePreview: 20000,
+      getClients: 45000,
+      getCutting: 20000,
+      getCourier: 45000,
+      getAssembly: 30000,
+      getWarehouse: 60000,
+      warehousePreview: 45000,
       getStats: 600000,
-      listSubscriptions: 30000,
-      getSubscription: 20000,
-      listClientProfiles: 60000,
-      listBookings: 15000,
-      listAccess: 30000,
-      getMyAccess: 60000,
-      listReminderPeople: 60000,
-      listDeferred: 15000,
-      listTemplates: 120000,
-      listSurvey: 25000,
-      crmInventory: 60000,
-      getCouriers: 30000,
-      telegramStatus: 120000,
-      getWeekBannerState: 45000,
-      weekPullStatus: 30000,
-      getWeekDayCounts: 20000,
-      getMonthOverview: 25000,
-      getViewCompare: 12000,
-      calcPrice: 20000,
+      listSubscriptions: 60000,
+      getSubscription: 30000,
+      listClientProfiles: 120000,
+      listBookings: 30000,
+      listAccess: 60000,
+      getMyAccess: 120000,
+      listReminderPeople: 120000,
+      listDeferred: 30000,
+      listTemplates: 180000,
+      listSurvey: 45000,
+      crmInventory: 90000,
+      getCouriers: 60000,
+      telegramStatus: 180000,
+      getWeekBannerState: 90000,
+      weekPullStatus: 45000,
+      getWeekDayCounts: 45000,
+      getMonthOverview: 60000,
+      getViewCompare: 25000,
+      calcPrice: 30000,
       calcPpFact: 0,
-      findClientMatch: 20000,
-      getPpFactCost: 20000,
-      getPpOrderSuggest: 15000,
-      resolveDayForDate: 60000,
-      suggestAddress: 30000,
-      listPartners: 60000
+      findClientMatch: 30000,
+      getPpFactCost: 30000,
+      getPpOrderSuggest: 25000,
+      resolveDayForDate: 120000,
+      suggestAddress: 45000,
+      listPartners: 120000,
+      partnerListNetworks: 120000,
+      partnerListPoints: 90000
     };
+
+    function apiSsLoad_() {
+      try {
+        var raw = sessionStorage.getItem(_API_SS_KEY);
+        if (!raw) return;
+        var obj = JSON.parse(raw);
+        if (!obj || typeof obj !== "object") return;
+        var now = Date.now();
+        Object.keys(obj).forEach(function (k) {
+          var hit = obj[k];
+          if (hit && hit.exp > now && hit.res) _apiGetMem[k] = hit;
+        });
+      } catch (eSs) {}
+    }
+    function apiSsSaveKey_(cacheKey, hit) {
+      try {
+        var raw = sessionStorage.getItem(_API_SS_KEY);
+        var obj = raw ? JSON.parse(raw) : {};
+        if (!obj || typeof obj !== "object") obj = {};
+        obj[cacheKey] = hit;
+        // не раздувать sessionStorage
+        var keys = Object.keys(obj);
+        if (keys.length > 80) {
+          keys.sort(function (a, b) {
+            return (obj[a].exp || 0) - (obj[b].exp || 0);
+          });
+          keys.slice(0, keys.length - 60).forEach(function (k) { delete obj[k]; });
+        }
+        var s = JSON.stringify(obj);
+        if (s.length < 4500000) sessionStorage.setItem(_API_SS_KEY, s);
+      } catch (eSs2) {}
+    }
+    try { apiSsLoad_(); } catch (eBootSs) {}
     /** Тяжёлые read-action — дольше ждать cold start GAS */
     var _API_DEFAULT_TIMEOUT = {
       getClients: 35000,
@@ -6042,13 +6078,29 @@
         try { apiCacheBustMem_("listSubscriptions"); } catch (e0) {}
         return;
       }
-      if (action === "*") { _apiGetMem = Object.create(null); return; }
+      if (action === "*") {
+        _apiGetMem = Object.create(null);
+        try { sessionStorage.removeItem(_API_SS_KEY); } catch (eSsC) {}
+        return;
+      }
       try {
         var prefix = "action=" + action;
         Object.keys(_apiGetMem).forEach(function (k) {
           if (k.indexOf(prefix) === 0 || k.indexOf("&" + prefix) >= 0 || k === prefix || k.indexOf(prefix + "&") === 0)
             delete _apiGetMem[k];
         });
+        // подчистить sessionStorage точечно
+        try {
+          var raw = sessionStorage.getItem(_API_SS_KEY);
+          if (raw) {
+            var obj = JSON.parse(raw);
+            Object.keys(obj || {}).forEach(function (k) {
+              if (k.indexOf(prefix) === 0 || k.indexOf("&" + prefix) >= 0 || k === prefix || k.indexOf(prefix + "&") === 0)
+                delete obj[k];
+            });
+            sessionStorage.setItem(_API_SS_KEY, JSON.stringify(obj));
+          }
+        } catch (eSsB) {}
       } catch (eB) {}
     }
     /** Снести только связанные с заказами/просмотром кэши. */
@@ -6070,14 +6122,31 @@
       if (params && (params._ || params.nocache)) cacheTtlMs = 0;
       var cacheKey = "";
       try {
-        cacheKey = Object.keys(params || {}).sort().map(function (k) {
+        cacheKey = Object.keys(params || {}).filter(function (k) {
+          return k !== "_" && k !== "nocache";
+        }).sort().map(function (k) {
           return k + "=" + params[k];
         }).join("&");
       } catch (eC) { cacheKey = ""; }
-      if (cacheTtlMs > 0 && cacheKey) {
+      if (!opts.bypassMem && cacheTtlMs > 0 && cacheKey) {
         try {
           var hit = _apiGetMem[cacheKey];
           if (hit && hit.exp > Date.now()) return Promise.resolve(hit.res);
+          // stale-while-revalidate: мгновенно старое, в фоне обновить
+          if (hit && hit.res && hit.exp > Date.now() - Math.max(cacheTtlMs * 4, 120000)) {
+            var stale = hit.res;
+            setTimeout(function () {
+              try {
+                apiGet(params, {
+                  timeoutMs: timeoutMs,
+                  cacheTtlMs: cacheTtlMs,
+                  retries: 0,
+                  bypassMem: true
+                }).catch(function () {});
+              } catch (eSwr) {}
+            }, 30);
+            return Promise.resolve(stale);
+          }
         } catch (eHit) {}
       }
       // одинаковые параллельные JSONP — один полёт
@@ -6105,7 +6174,9 @@
           window[cb] = function (res) {
             cleanup();
             if (cacheKey && cacheTtlMs > 0) {
-              _apiGetMem[cacheKey] = { exp: Date.now() + cacheTtlMs, res: res };
+              var packed = { exp: Date.now() + cacheTtlMs, res: res };
+              _apiGetMem[cacheKey] = packed;
+              try { apiSsSaveKey_(cacheKey, packed); } catch (eSs3) {}
             }
             resolve(res);
           };
@@ -15217,12 +15288,14 @@
 
 
     function buildIgKnownMap() {
+      if (window._igKnownMapCache) return window._igKnownMapCache;
       var known = {};
       Object.keys(catalog).forEach(function (k) {
         (catalog[k].items || []).forEach(function (n) {
           known[n.toUpperCase()] = { cat: k, name: n, fractions: (catalog[k].fractions || {})[n] || [] };
         });
       });
+      window._igKnownMapCache = known;
       return known;
     }
     function igAliasResolve(up) {
@@ -20799,10 +20872,22 @@
     window.syncAppTopSpacer = syncAppTopSpacer;
 
     try { loadDepotAddress(); } catch (e) {}
-    try { renderBasket(); } catch (e) {}
+    // тяжёлый UI — после первого кадра
+    try {
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(function () {
+          try { renderBasket(); } catch (e0) {}
+          try { renderOrderNotes(); } catch (e1) {}
+        });
+      } else {
+        setTimeout(function () {
+          try { renderBasket(); } catch (e0) {}
+          try { renderOrderNotes(); } catch (e1) {}
+        }, 0);
+      }
+    } catch (eBootUi) {}
     try { bindOrderLongPress(); } catch (e) {}
     try { bindCourierLongPress(); } catch (e) {}
-    try { renderOrderNotes(); } catch (e) {}
     try { setOrderType(orderType || 'pp'); updateNotesSummary(); } catch (e) {}
     try { bootstrapAccess(); } catch (e) { try { applyRoleTabs({ skipNetwork: true }); } catch (e2) {} }
     try { updateTasksBadge(); } catch (eTb0) {}
@@ -20825,11 +20910,25 @@
           window._timeWheelsBuilt = true;
         }
       } catch (eW) {}
+      // prefetch горячих данных — вкладки открываются из кэша
+      try {
+        var dayEl = document.getElementById("day");
+        var dayName = dayEl && dayEl.value ? String(dayEl.value) : "";
+        if (dayName) {
+          apiGet({ action: "getClients", day: dayName }, { retries: 0 }).catch(function () {});
+          apiGet({ action: "getWeekDayCounts" }, { retries: 0 }).catch(function () {});
+        }
+        apiGet({ action: "getWeekBannerState" }, { retries: 0 }).catch(function () {});
+        if (APP_ROLE === "cutter" || APP_ROLE === "owner" || APP_ROLE === "all") {
+          var cutDay = (document.getElementById("cuttingDay") || {}).value || dayName;
+          if (cutDay) apiGet({ action: "getCutting", day: cutDay }, { retries: 0 }).catch(function () {});
+        }
+      } catch (ePf) {}
     }
     if (typeof requestIdleCallback === "function") {
-      requestIdleCallback(bootIdleWork_, { timeout: 2500 });
+      requestIdleCallback(bootIdleWork_, { timeout: 1800 });
     } else {
-      setTimeout(bootIdleWork_, 1200);
+      setTimeout(bootIdleWork_, 800);
     }
   </script>
 </body>

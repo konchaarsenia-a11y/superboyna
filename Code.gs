@@ -514,6 +514,9 @@ function jsonp(callback, obj) {
 
 /** Кэш на время одного запроса + короткий ScriptCache между вызовами */
 var _memoCrmSheets_ = {};
+var _memoCalendarRows_ = null;
+var _memoPpPartnerIndex_ = null;
+var _memoClientsData_ = {};
 
 function cacheGetJson_(key) {
   try {
@@ -540,8 +543,52 @@ function bustClientsCache_() {
   try {
     var cache = CacheService.getScriptCache();
     var days = ["ПОНЕДЕЛЬНИК", "ВТОРНИК", "СРЕДА", "ЧЕТВЕРГ", "ПЯТНИЦА", "СУББОТА", "ВОСКРЕСЕНЬЕ", "БУДУЩАЯ НЕДЕЛЯ"];
-    for (var i = 0; i < days.length; i++) cache.remove("GC:" + days[i]);
+    for (var i = 0; i < days.length; i++) {
+      cache.remove("GC:" + days[i]);
+      cache.remove("COUR:" + days[i]);
+      cache.remove("CUT:" + days[i]);
+      cache.remove("ASM:" + days[i]);
+    }
   } catch (e) {}
+  _memoClientsData_ = {};
+  _memoCalendarRows_ = null;
+  _memoPpPartnerIndex_ = null;
+}
+
+function bustCuttingCache_(dayName) {
+  try {
+    CacheService.getScriptCache().remove("CUT:" + String(dayName || "").toUpperCase());
+  } catch (e) {}
+}
+
+/** Индекс ppPartner по matchKey — один проход календаря на запрос (вместо N×readAll). */
+function getPpPartnerIndex_(ss) {
+  if (_memoPpPartnerIndex_) return _memoPpPartnerIndex_;
+  var idx = {};
+  var all = [];
+  try { all = readAllCalendarRows_(); } catch (e) { all = []; }
+  for (var i = 0; i < all.length; i++) {
+    var p = String(all[i].ppPartner || "").trim();
+    if (!p) continue;
+    var mk = all[i].matchKey || clientMatchKey_(all[i].client) || "";
+    var cu = String(all[i].client || "").toUpperCase();
+    var d = null;
+    try {
+      d = parseFlexibleDate_(all[i].date) || parseFlexibleDate_(all[i].dateIso);
+    } catch (eD) {}
+    var t = d && d.getTime ? d.getTime() : i;
+    function put(k) {
+      if (!k) return;
+      var prev = idx[k];
+      if (!prev || t >= prev.t) idx[k] = { p: p, t: t };
+    }
+    put(mk);
+    put(cu);
+  }
+  var out = Object.create(null);
+  Object.keys(idx).forEach(function (k) { out[k] = idx[k].p; });
+  _memoPpPartnerIndex_ = out;
+  return out;
 }
 
 function bustDeferredCache_(telegramId) {
@@ -2347,6 +2394,11 @@ function handleApiAction(json, callback, fromPost) {
 }
 
 function handleGetCutting(dayName, callback) {
+  var cutKey = "CUT:" + String(dayName || "").toUpperCase();
+  try {
+    var cutCached = cacheGetJson_(cutKey);
+    if (cutCached && cutCached.status === "success") return jsonp(callback, cutCached);
+  } catch (eCutC) {}
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var cutting = ss.getSheetByName("Нарезка");
   var warehouse = ss.getSheetByName("Склад");
@@ -2373,6 +2425,20 @@ function handleGetCutting(dayName, callback) {
     savedState = getMemoryJson_(memory, dateText, tz);
   }
   var rowNotes = collectCuttingRowNotes_(ss, dayName);
+  // один batch коэффициентов склада вместо N×getRange("D"+wRow)
+  var whCoefByRow = {};
+  try {
+    if (warehouse) {
+      var lastWh = Math.min(90, Math.max(2, warehouse.getLastRow()));
+      var nWh = lastWh - 1;
+      if (nWh >= 1) {
+        var coefVals = warehouse.getRange(2, 4, nWh, 1).getValues();
+        for (var wi = 0; wi < coefVals.length; wi++) {
+          whCoefByRow[wi + 2] = Number(coefVals[wi][0]) || 0;
+        }
+      }
+    }
+  } catch (eWh) { whCoefByRow = {}; }
   var items = [];
 
   for (var i = 0; i < 46; i++) {
@@ -2397,7 +2463,7 @@ function handleGetCutting(dayName, callback) {
       raw = Number(plans[i][0]);
     } else {
       var wRow = getWarehouseRowForCuttingRow_(row);
-      var coef = warehouse ? Number(warehouse.getRange("D" + wRow).getValue()) : 0;
+      var coef = Number(whCoefByRow[wRow]) || 0;
       if (!coef) coef = 0.2;
       raw = (dry / 1000) / coef;
     }
@@ -2415,7 +2481,7 @@ function handleGetCutting(dayName, callback) {
       noteInfo: noteInfo
     });
   }
-  return jsonp(callback, {
+  var payload = {
     status: "success",
     date: dateText,
     day: dayName,
@@ -2424,7 +2490,9 @@ function handleGetCutting(dayName, callback) {
     completion: getCuttingCompletion_(dateText),
     cutterNotes: collectDayRoleNotes_(ss, dayName, "cut"),
     transferOnly: collectTransferOnlyCutting_(ss, dayName)
-  });
+  };
+  try { cachePutJson_(cutKey, payload, 15); } catch (eCutP) {}
+  return jsonp(callback, payload);
 }
 
 /** Клиенты с [НЕ РЕЗАТЬ] — объёмы для блока «напилено под перенос». */
@@ -2563,6 +2631,7 @@ function handleUpdateCutting(ss, json, callback, fromPost) {
     }
     try { SpreadsheetApp.flush(); } catch (eFl1) {}
     saveCuttingState_(cutting, memory, dateText, tz);
+    try { bustCuttingCache_(json.day); } catch (eBc) {}
     var ok = { status: "success", row: row, done: asBool_(cutting.getRange("F" + row).getValue()), laid: asBool_(cutting.getRange("E" + row).getValue()), outNext: asBool_(cutting.getRange("G" + row).getValue()) };
     return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
   } finally {
@@ -2748,7 +2817,7 @@ function handleGetCourier(dayName, callback) {
     });
   }
   var out = { status: "success", day: dayName, date: dateText, clients: clients };
-  cachePutJson_(cacheKey, out, 20);
+  cachePutJson_(cacheKey, out, 60);
   return jsonp(callback, out);
 }
 
@@ -4278,7 +4347,7 @@ function handleGetClients(dayName, callback, dateStr) {
         data.fromBookings = true;
       }
     }
-    if (!dateStr && data.status === "success") cachePutJson_(cacheKey, data, 25);
+    if (!dateStr && data.status === "success") cachePutJson_(cacheKey, data, 75);
     return jsonp(callback, data);
   }
 
@@ -4354,6 +4423,8 @@ function purgeEmptyTestColumnsOnDay_(ss, dayName) {
 }
 
 function getClientsData_(ss, dayName) {
+  var memoKey = String(dayName || "").toUpperCase();
+  if (memoKey && _memoClientsData_[memoKey]) return _memoClientsData_[memoKey];
   var block = getDayBlock(dayName);
   if (!block) return { status: "bad_day", clients: [] };
   var targetSheet = getTargetSheet(ss, block);
@@ -4393,6 +4464,8 @@ function getClientsData_(ss, dayName) {
       }
     }
   } catch (eCalIdx) {}
+  var ppIdx = {};
+  try { ppIdx = getPpPartnerIndex_(ss); } catch (ePp) { ppIdx = {}; }
 
   var clientsDataList = [];
   if (nicksMatrix && nicksMatrix.length > 0) {
@@ -4495,7 +4568,7 @@ function getClientsData_(ss, dayName) {
           deliveryAfter: (calHit && calHit.deliveryAfter) || "",
           deliveryBefore: (calHit && calHit.deliveryBefore) || "",
           matchKey: pk || "",
-          ppPartner: (calHit && calHit.ppPartner) || lookupLastPpPartner_(ss, nameClean) || "",
+          ppPartner: (calHit && calHit.ppPartner) || (pk && ppIdx[pk]) || ppIdx[nameClean.toUpperCase()] || "",
           couponsQty: (calHit && calHit.couponsQty) || 0,
           couponPrice: (calHit && calHit.couponPrice) || 0,
           noCut: noCutFlag
@@ -4526,7 +4599,9 @@ function getClientsData_(ss, dayName) {
       deduped[seenKeys[mk]] = cl;
     }
   }
-  return { status: "success", clients: deduped };
+  var result = { status: "success", clients: deduped };
+  if (memoKey) _memoClientsData_[memoKey] = result;
+  return result;
 }
 
 /** Единый разбор имени строки листа → name/sub/cat/unit для mini-app. */
@@ -7592,9 +7667,13 @@ function normalizeTimeHm_(v) {
 }
 
 function readAllCalendarRows_() {
+  if (_memoCalendarRows_) return _memoCalendarRows_;
   var sh = getCalendarSheet_();
   var data = sh.getDataRange().getValues();
-  if (data.length < 2) return [];
+  if (data.length < 2) {
+    _memoCalendarRows_ = [];
+    return _memoCalendarRows_;
+  }
   var out = [];
   for (var r = 1; r < data.length; r++) {
     var client = String(data[r][2] || "").trim();
@@ -7634,6 +7713,7 @@ function readAllCalendarRows_() {
       couponPrice: normalizeCouponUnitPrice_(data[r][22])
     });
   }
+  _memoCalendarRows_ = out;
   return out;
 }
 
@@ -10943,8 +11023,28 @@ function handleGetMyAccess(json, callback, fromPost) {
   var name = String(json.name || user.first_name || "").trim();
   var username = String(json.username || user.username || "").trim();
 
+  var accKey = telegramId ? ("myacc:" + telegramId) : "";
+  if (accKey && !(json && (json.force || json.nocache || json._))) {
+    try {
+      var accCached = cacheGetJson_(accKey);
+      if (accCached && accCached.status === "success") {
+        return fromPost ? jsonpText(callback, accCached) : jsonp(callback, accCached);
+      }
+    } catch (eAcc) {}
+  }
+
   if (isOwnerId_(telegramId)) {
-    upsertAccessRow_(telegramId, name, username, "owner", "active");
+    // не пишем в «Доступы» на каждый старт — только если имя/username изменились
+    try {
+      var rowOwn = findAccessById_(telegramId);
+      var needUp = !rowOwn ||
+        String(rowOwn.name || "") !== name ||
+        String(rowOwn.username || "") !== username ||
+        String(rowOwn.role || "") !== "owner";
+      if (needUp) upsertAccessRow_(telegramId, name, username, "owner", "active");
+    } catch (eUp) {
+      try { upsertAccessRow_(telegramId, name, username, "owner", "active"); } catch (e2) {}
+    }
     var okOwner = {
       status: "success",
       role: "owner",
@@ -10954,6 +11054,7 @@ function handleGetMyAccess(json, callback, fromPost) {
       name: name,
       initOk: init.ok
     };
+    if (accKey) try { cachePutJson_(accKey, okOwner, 120); } catch (eP) {}
     return fromPost ? jsonpText(callback, okOwner) : jsonp(callback, okOwner);
   }
 
@@ -11007,12 +11108,16 @@ function handleGetMyAccess(json, callback, fromPost) {
     name: row.name || name,
     initOk: init.ok
   };
+  if (accKey) try { cachePutJson_(accKey, ok, 90); } catch (eP2) {}
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
 function upsertAccessRow_(telegramId, name, username, role, status, timezone) {
   var id = String(telegramId || "").trim();
-  try { CacheService.getScriptCache().remove("acc_row_" + id); } catch (eRm) {}
+  try {
+    CacheService.getScriptCache().remove("acc_row_" + id);
+    CacheService.getScriptCache().remove("myacc:" + id);
+  } catch (eRm) {}
   var sh = getAccessSheet_();
   try { ensureAccessSheetSchema_(sh); } catch (eSch) {}
   var existing = findAccessById_(id);
@@ -11295,7 +11400,7 @@ function handleGetWarehouse(json, callback, fromPost) {
 
     var ok = { status: "success", items: items, ledger: ledger };
     try {
-      CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 25);
+      CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 60);
     } catch (ePut) {}
     return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
   } catch (eAll) {
