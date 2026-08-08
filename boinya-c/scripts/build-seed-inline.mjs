@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-/** Собирает seed-inline.js из boinya-c/data/*.json */
+/**
+ * seed-inline.js — ЛЁГКИЙ критический путь (counts + clients).
+ * cutting/courier/assembly/warehouse — только data/*.json (async в bridge).
+ * --full — старый жирный inline (не для продакшен-песочницы).
+ */
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -7,6 +11,7 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, "..", "data");
 const out = path.join(__dirname, "..", "seed-inline.js");
+const full = process.argv.includes("--full");
 
 const DAY_FILE = {
   Понедельник: "mon",
@@ -38,26 +43,28 @@ const assembly = {};
 for (const [day, key] of Object.entries(DAY_FILE)) {
   const c = loadPayload(`clients-${key}.json`);
   if (c && c.status === "success") clients[day] = c;
-  const cut = loadPayload(`cutting-${key}.json`);
-  if (cut && cut.status === "success") cutting[day] = cut;
-  const cour = loadPayload(`courier-${key}.json`);
-  if (cour && cour.status === "success") courier[day] = cour;
-  const asm = loadPayload(`assembly-${key}.json`);
-  if (asm && asm.status === "success") assembly[day] = asm;
+  if (full) {
+    const cut = loadPayload(`cutting-${key}.json`);
+    if (cut && cut.status === "success") cutting[day] = cut;
+    const cour = loadPayload(`courier-${key}.json`);
+    if (cour && cour.status === "success") courier[day] = cour;
+    const asm = loadPayload(`assembly-${key}.json`);
+    if (asm && asm.status === "success") assembly[day] = asm;
+  }
 }
 
 const counts = loadPayload("weekDayCounts.json");
 const weekBanner = loadPayload("weekBanner.json");
-const warehouse = loadPayload("warehouse.json");
+const warehouse = full ? loadPayload("warehouse.json") : null;
 
 const inline = {
   weekDayCounts: counts && counts.status === "success" ? counts : null,
   weekBanner: weekBanner && weekBanner.status === "success" ? weekBanner : null,
   warehouse: warehouse && warehouse.status === "success" ? warehouse : null,
   clients,
-  cutting,
-  courier,
-  assembly
+  cutting: full ? cutting : {},
+  courier: full ? courier : {},
+  assembly: full ? assembly : {}
 };
 
 const body =
@@ -70,8 +77,7 @@ console.log(
   out,
   fs.statSync(out).size,
   "bytes",
+  full ? "FULL" : "LITE",
   "clients",
-  Object.keys(clients).length,
-  "cutting",
-  Object.keys(cutting).length
+  Object.keys(clients).length
 );

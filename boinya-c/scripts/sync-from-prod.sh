@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC="$ROOT/app.html"
 DST="$ROOT/boinya-c/app.html"
 ORIGIN='https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec'
-VER='v7.11.149c2'
+VER='v7.11.149c3'
 
 cp "$SRC" "$DST"
 python3 - "$DST" "$ORIGIN" "$VER" <<'PY'
@@ -172,4 +172,7 @@ p.write_text(t, encoding="utf-8")
 print("synced", p, "ver", ver)
 PY
 
-echo "OK: $DST (root app.html не менялся)"
+# Вынести JS + лёгкий seed (первая загрузка)
+node "$ROOT/boinya-c/scripts/split-app.mjs"
+node "$ROOT/boinya-c/scripts/build-seed-inline.mjs"
+echo "OK: $DST (root app.html не менялся; app.main.js + lite seed)"
