@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.149c";
+      var APP_VER = "v7.11.149c2";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -36,8 +36,8 @@
         if (document.getElementById("boinyaCBadge")) return;
         var b = document.createElement("div");
         b.id = "boinyaCBadge";
-        b.textContent = "C · SANDBOX";
-        b.title = "Песочница C — не боевой миниапп. Запись в таблицу выключена.";
+        b.textContent = "C · TURBO";
+        b.title = "Песочница C TURBO — local-first, не боевой миниапп. Запись выключена.";
         b.style.cssText = "position:fixed;top:6px;right:8px;z-index:99998;font:700 10px/1 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:.06em;color:#06221f;background:#3dd6c6;padding:4px 7px;border-radius:4px;opacity:.9;pointer-events:none;";
         document.body.appendChild(b);
       }
@@ -2689,7 +2689,7 @@
     // Песочница C: опциональный Worker. По умолчанию — GAS (чтение).
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.149c";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.149c2";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -20744,18 +20744,21 @@
     function partnerHubRenderPointChecks_() {
       var box = document.getElementById("phAccPoints");
       if (!box || !partnerHubCache_) return;
-      var netId = String((document.getElementById("phAccNetwork") || {}).value || "");
+      // показываем точки ВСЕХ сетей — доступ часто на несколько сетей сразу
       var pts = (partnerHubCache_.points || []).filter(function (p) {
-        return p.active !== false && (!netId || p.networkId === netId);
+        return p.active !== false;
       });
       if (!pts.length) {
-        box.innerHTML = '<span class="muted">Нет точек в этой сети</span>';
+        box.innerHTML = '<span class="muted">Нет точек</span>';
         return;
       }
+      var nets = partnerHubCache_.networks || [];
       box.innerHTML = pts.map(function (p) {
+        var net = nets.filter(function (n) { return n.id === p.networkId; })[0];
+        var lab = (net && net.name ? (net.name + " · ") : "") + (p.name || p.id);
         return '<label style="display:flex;align-items:center;gap:8px;margin:6px 0;">' +
           '<input type="checkbox" class="ph-pt-check" value="' + escapeHtml(p.id) + '">' +
-          '<span>' + escapeHtml(p.name) + "</span></label>";
+          '<span>' + escapeHtml(lab) + "</span></label>";
       }).join("");
     }
 
@@ -21049,6 +21052,7 @@
     } catch (eR) {}
     clearBlockingOverlays();
     // тяжёлое / сеть — после первого paint
+    // В песочнице C TURBO не долбим GAS сразу — иначе опять «секунды».
     function bootIdleWork_() {
       try { registerMeAsCourier(); } catch (e) {}
       try {
@@ -21057,7 +21061,7 @@
           window._timeWheelsBuilt = true;
         }
       } catch (eW) {}
-      // prefetch горячих данных — вкладки открываются из кэша
+      if (window.__BOINYA_C_TURBO__) return;
       try {
         var dayEl = document.getElementById("day");
         var dayName = dayEl && dayEl.value ? String(dayEl.value) : "";
@@ -21073,9 +21077,9 @@
       } catch (ePf) {}
     }
     if (typeof requestIdleCallback === "function") {
-      requestIdleCallback(bootIdleWork_, { timeout: 1800 });
+      requestIdleCallback(bootIdleWork_, { timeout: window.__BOINYA_C_TURBO__ ? 8000 : 1800 });
     } else {
-      setTimeout(bootIdleWork_, 800);
+      setTimeout(bootIdleWork_, window.__BOINYA_C_TURBO__ ? 5000 : 800);
     }
   </script>
 </body>
