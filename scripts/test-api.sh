@@ -10,12 +10,13 @@ DAY="${1:-Понедельник}"
 DAY_ENC="$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$DAY")"
 
 echo "=== 1. Online check ==="
-curl -fsS --max-time 30 "$WEBHOOK" | head -c 500
+# Google Apps Script отвечает редиректом на script.googleusercontent.com
+curl -fsSL --max-time 30 "$WEBHOOK" | head -c 500
 echo
 echo
 
 echo "=== 2. getClients ($DAY) ==="
-RESP="$(curl -fsS --max-time 45 "${WEBHOOK}?action=getClients&day=${DAY_ENC}&callback=cb")"
+RESP="$(curl -fsSL --max-time 45 "${WEBHOOK}?action=getClients&day=${DAY_ENC}&callback=cb")"
 python3 - <<'PY' "$RESP"
 import json, re, sys
 raw = sys.argv[1]
