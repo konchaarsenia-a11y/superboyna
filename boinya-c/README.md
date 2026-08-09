@@ -1,41 +1,27 @@
-# Бойня C — полный клон миниаппа на D1
+# Бойня C
 
-UI = копия боевого `app.html`. Данные = полный снимок с GAS в Cloudflare D1.  
-**Прод / бот / Sheets на запись не трогаем.**
+Два режима:
 
-## Тест
+1. **Sandbox (по умолчанию)** — снимок в D1, Sheets не трогаем.  
+2. **Cutover LIVE** — `?cutover=1` → Worker → боевой GAS (свежие данные + запись в таблицу).
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?v=7111498  
+## Пробуем LIVE (как прод, через Worker)
 
-Hard refresh. Бейдж **C · D1**.
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111499  
 
-Worker: https://boinya-c.konchaarsenia.workers.dev/?action=ping
+Бейдж **C · LIVE**. Тестируй на **`zzz_test`**.
 
-## Что внутри (паритет)
+Подробности: [docs/CUTOVER.md](./docs/CUTOVER.md)
 
-| Область | Источник |
-|--|--|
-| UI / вкладки | свежий sync с прод `app.html` |
-| Заказы недели, Просмотр, переносы | D1 `orders` (живой) |
-| Нарезка / курьер / сборка | снапы + флаги в D1 |
-| Подписки, опросы, партнёры, доступы, профили, шаблоны, статистика | полный dump GAS → `snap_cache` |
-| `calcPrice` / адрес / PP suggest | **чтение** GAS (proxy, без записи) |
-| Закрытие недели / materialize | заблокировано (не ломаем прод) |
+## Sandbox D1
 
-Запись заказов/справочников в песочнице → **только D1**.
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?v=7111499  
 
-## Обновить клон с боя
+Бейдж **C · D1**. Запись только в D1.
+
+## Обновить снимок sandbox
 
 ```bash
-bash boinya-c/scripts/sync-from-prod.sh
-node boinya-c/scripts/refresh-full.mjs          # ~5–7 мин, только чтение GAS
+node boinya-c/scripts/refresh-full.mjs
 CLOUDFLARE_API_TOKEN=… node boinya-c/scripts/seed-d1.mjs
-# задеплоить boinya-c/proxy/worker.js
 ```
-
-## Режимы
-
-| | |
-|--|--|
-| D1 (по умолчанию) | Worker |
-| Прямой GAS | `?live=1` |

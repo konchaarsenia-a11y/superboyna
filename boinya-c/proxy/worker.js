@@ -1,6 +1,7 @@
 /**
- * Бойня C — Worker + D1 (песочница).
- * Прод GAS / Sheets не пишет.
+ * Бойня C — Worker + D1.
+ * По умолчанию: sandbox (D1, Sheets не пишет).
+ * Cutover live: ?cutover=1 / mode=live → прокси в боевой GAS (чтение+запись).
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -45,8 +46,9 @@ export default {
         status: "ok",
         service: "boinya-c",
         sandbox: true,
+        cutover: "pass cutover=1 for live GAS proxy",
         d1: !!(env && env.DB),
-        tip: "?action=getClients&day=Понедельник"
+        tip: "?action=getClients&day=Понедельник&cutover=1"
       });
     }
 
@@ -60,7 +62,7 @@ export default {
       }
       const act = String(params.action || action || "");
       const cb = params.callback;
-      const result = await handleAction_(act, params, env);
+      const result = await handleAction_(act, params, env, url);
       if (cb) {
         return new Response(String(cb) + "(" + JSON.stringify(result) + ")", {
           headers: {
@@ -79,10 +81,47 @@ export default {
   }
 };
 
-async function handleAction_(action, params, env) {
+function isCutoverLive_(params, env, url) {
+  if (env && (env.CUTOVER === "1" || env.CUTOVER === "true")) return true;
+  const p = params || {};
+  if (p.cutover === "1" || p.cutover === "true" || p.mode === "live") return true;
+  try {
+    if (url && url.searchParams.get("cutover") === "1") return true;
+  } catch (e) {}
+  return false;
+}
+
+async function handleAction_(action, params, env, url) {
   const a = String(action || "");
+  const live = isCutoverLive_(params, env, url);
+
   if (a === "ping" || a === "keepWarm") {
-    return { status: "success", sandbox: true, d1: !!(env && env.DB) };
+    return {
+      status: "success",
+      sandbox: !live,
+      cutover: !!live,
+      live: !!live,
+      d1: !!(env && env.DB)
+    };
+  }
+
+  // ——— CUTOVER LIVE: всё в боевой GAS (свежие данные + реальная запись) ———
+  if (live) {
+    if (
+      (a === "finishFullWeek" || a === "materializeWeek" || a === "closeAllOpenDeficits") &&
+      String(params.allowDanger || "") !== "1"
+    ) {
+      return {
+        status: "error",
+        message: "cutover_danger_blocked",
+        tip: "Для опасных действий добавь allowDanger=1",
+        cutover: true,
+        action: a
+      };
+    }
+    const proxied = await gasProxy_(a, params, env, { write: true });
+    if (proxied) return proxied;
+    return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
   }
   if (a === "getClients") return getClients_(params, env);
   if (a === "getViewCompare") return getViewCompare_(params, env);
@@ -1023,21 +1062,58 @@ function unwrapGas_(text) {
 }
 
 async function gasRead_(action, params, env) {
+  return gasProxy_(action, params, env, { write: false });
+}
+
+async function gasProxy_(action, params, env, opts) {
+  opts = opts || {};
   try {
     const origin = (env && env.GAS_ORIGIN) || GAS_ORIGIN;
     const u = new URL(origin);
     u.searchParams.set("action", action);
     Object.keys(params || {}).forEach(function (k) {
-      if (k === "action" || k === "callback" || k === "_" || params[k] == null || params[k] === "") return;
-      // не прокидываем мутационные confirm в прокси-чтение
-      if (k === "confirm" && String(params[k]) === "1" && /finish|materialize|closeAll/i.test(action)) return;
-      u.searchParams.set(k, String(params[k]));
+      if (
+        k === "action" ||
+        k === "callback" ||
+        k === "_" ||
+        k === "cutover" ||
+        k === "mode" ||
+        k === "allowDanger" ||
+        params[k] == null ||
+        params[k] === ""
+      ) {
+        return;
+      }
+      // в sandbox-read не прокидываем confirm на опасные
+      if (
+        !opts.write &&
+        k === "confirm" &&
+        String(params[k]) === "1" &&
+        /finish|materialize|closeAll/i.test(action)
+      ) {
+        return;
+      }
+      var val = params[k];
+      if (typeof val === "object") {
+        try {
+          val = JSON.stringify(val);
+        } catch (eJ) {
+          val = String(val);
+        }
+      }
+      u.searchParams.set(k, String(val));
     });
     u.searchParams.set("callback", "cb");
-    const res = await fetch(u.toString(), { redirect: "follow" });
+    const res = await fetch(u.toString(), {
+      redirect: "follow",
+      headers: { "Cache-Control": "no-cache" }
+    });
     const text = await res.text();
     const json = unwrapGas_(text);
-    if (json && typeof json === "object") json.sandboxProxy = true;
+    if (json && typeof json === "object") {
+      if (opts.write) json.cutover = true;
+      else json.sandboxProxy = true;
+    }
     return json;
   } catch (e) {
     return null;

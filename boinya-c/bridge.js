@@ -108,8 +108,8 @@
     return window.__BOINYA_C_TURBO__ !== false;
   }
   function preferD1() {
-    // PROXY = Worker+D1. Не зависит от turbo/live: запись и чтения идут в D1.
-    // ?live=1 отключает PROXY только если явно сбросили proxy (см. config).
+    // PROXY = Worker. Cutover тоже идёт через Worker (тот проксирует в GAS).
+    // ?live=1 = напрямую GAS без Worker.
     try {
       if (new URL(location.href).searchParams.get("live") === "1") return false;
     } catch (e0) {}
@@ -118,6 +118,10 @@
     } catch (e) {
       return !!(window.__BOINYA_C_PROXY__ || "").trim();
     }
+  }
+
+  function isCutover() {
+    return !!window.__BOINYA_C_CUTOVER__;
   }
 
   function hasProxy() {
@@ -609,8 +613,8 @@
   window.__boinyaCGuardWrite = function (params) {
     if (!params || !params.action) return null;
     var action = String(params.action);
-    // D1 Worker принимает запись — не блокируем при любом PROXY
-    if (hasProxy() || (typeof preferD1 === "function" && preferD1())) return null;
+    // Worker (D1 или cutover→GAS) принимает запись — не блокируем
+    if (isCutover() || hasProxy() || (typeof preferD1 === "function" && preferD1())) return null;
     // локальные мутации обрабатывает trySnap
     if (turboOn() && LOCAL_MUT[action]) return null;
     if (window.__BOINYA_C_ALLOW_WRITE__) return null;
@@ -690,9 +694,9 @@
 
     var action = String(params.action);
 
-    // ——— D1 Worker: не перехватывать — пусть apiGet идёт на PROXY ———
-    if (preferD1()) {
-      if (action === "getMyAccess") {
+    // ——— Cutover / Worker: не перехватывать локально — всё на PROXY ———
+    if (preferD1() || isCutover()) {
+      if (!isCutover() && action === "getMyAccess") {
         return Promise.resolve({
           status: "success",
           role: "all",
@@ -703,6 +707,7 @@
           sandbox: true
         });
       }
+      // cutover: getMyAccess тоже с GAS (реальные роли)
       return null;
     }
 
@@ -892,7 +897,7 @@
   try {
     function mountTurbo() {
       var b = document.getElementById("boinyaCBadge");
-      if (b && turboOn()) b.textContent = "C · D1";
+      if (b && turboOn()) b.textContent = window.__BOINYA_C_CUTOVER__ ? "C · LIVE" : "C · D1";
     }
     if (document.body) mountTurbo();
     else document.addEventListener("DOMContentLoaded", mountTurbo);

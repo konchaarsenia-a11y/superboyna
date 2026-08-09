@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C · sandbox</title>
-  <link rel="preload" href="app.main.js?v=7111498" as="script">
+  <link rel="preload" href="app.main.js?v=7111499" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.149c8";
+      var APP_VER = "v7.11.149c9";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -37,8 +37,8 @@
         if (document.getElementById("boinyaCBadge")) return;
         var b = document.createElement("div");
         b.id = "boinyaCBadge";
-        b.textContent = "C · D1";
-        b.title = "Бойня C · полный клон на Worker/D1 (данные с GAS, запись в D1).";
+        b.textContent = window.__BOINYA_C_CUTOVER__ ? "C · LIVE" : "C · D1";
+        b.title = window.__BOINYA_C_CUTOVER__ ? "CUTOVER LIVE: Worker→боевой GAS (запись в Sheets)" : "Sandbox D1: снимок, запись только в D1";
         b.style.cssText = "position:fixed;top:6px;right:8px;z-index:99998;font:700 10px/1 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:.06em;color:#06221f;background:#3dd6c6;padding:4px 7px;border-radius:4px;opacity:.9;pointer-events:none;";
         document.body.appendChild(b);
       }
@@ -2685,6 +2685,6 @@
   </div>
   <div class="toast" id="appToast"></div>
 
-  <script src="app.main.js?v=7111498" defer></script>
+  <script src="app.main.js?v=7111499" defer></script>
 </body>
 </html>
