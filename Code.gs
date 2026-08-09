@@ -6177,18 +6177,88 @@ function stripAddressDetailsForSearchGs_(text) {
     .trim() || raw0;
 }
 
+function looksLikeOtherCityGs_(addr) {
+  return /(брест|гродн|гомел|витебск|могил[её]в|борисов|жодино|молодечн|баранович|пинск|орша|полоцк|лида|слоним|бобруйск|солигорск|слуцк|дзержинск|фанипол|смолевич|светлогорск|жлобин|речиц|новополоцк|мозыр|колодищ|голодищ|городищ|боровлян|жданович|ратомк|миханович|семков|прилук|крыжовк|хатежин|тарасов|раубич|озерц|щепич|заславл|логойск|руденск|мачулищ|сеница|копищ|юхновк|лесной|гай\b)/i.test(String(addr || ""));
+}
+
+function detectSearchLocalityGs_(text) {
+  var s = String(text || "");
+  var m = s.match(/(колодищ\w*|голодищ\w*|городищ\w*|боровлян\w*|жданович\w*|фанипол\w*|дзержинск\w*|смолевич\w*|ратомк\w*|миханович\w*|семков\w*|прилук\w*|крыжовк\w*|хатежин\w*|тарасов\w*|раубич\w*|озерц\w*|щепич\w*|заславл\w*|логойск\w*|руденск\w*|мачулищ\w*|сениц\w*|копищ\w*|юхновк\w*|лесной|боровляны|брест\w*|гродн\w*|гомел\w*|витебск\w*|могил[её]в\w*|борисов\w*|жодино|молодечн\w*|баранович\w*|пинск\w*|орша|полоцк\w*|лида|слоним\w*|бобруйск\w*|солигорск\w*|слуцк\w*)/i);
+  if (!m) return "";
+  var loc = String(m[0] || "");
+  if (/^голодищ/i.test(loc)) loc = loc.replace(/^голодищ/i, "Колодищ");
+  return loc;
+}
+
+function normalizeLocalityTypoGs_(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/голодищ/g, "колодищ")
+    .replace(/гродищ/g, "городищ");
+}
+
+function greaterMinskNominatimViewboxGs_() {
+  return "27.15,54.15,28.05,53.65";
+}
+
+function inGreaterMinskRegionGs_(lat, lon) {
+  lat = Number(lat);
+  lon = Number(lon);
+  return lat >= 53.65 && lat <= 54.15 && lon >= 27.15 && lon <= 28.05;
+}
+
+function inBelarusBboxGs_(lat, lon) {
+  lat = Number(lat);
+  lon = Number(lon);
+  return lat >= 51.2 && lat <= 56.3 && lon >= 23.1 && lon <= 32.9;
+}
+
+function addressGeoAllowedGs_(lat, lon, text) {
+  if (looksLikeOtherCityGs_(text) || detectSearchLocalityGs_(text)) {
+    return inBelarusBboxGs_(lat, lon);
+  }
+  return inGreaterMinskRegionGs_(lat, lon);
+}
+
+function localityLabelFromOsmGs_(ad) {
+  if (!ad) return "";
+  var loc = String(ad.village || ad.hamlet || ad.town || ad.suburb || ad.municipality || "").trim();
+  if (!loc && ad.city && !/^(минск|minsk|м[іи]нск)$/i.test(String(ad.city))) {
+    loc = String(ad.city).trim();
+  }
+  if (/^(минск|minsk|м[іи]нск)$/i.test(loc)) return "";
+  return loc;
+}
+
+function buildAddressSuggestTitleGs_(street, house, locality) {
+  var st = String(street || "").trim();
+  var h = String(house || "").trim();
+  var loc = String(locality || "").trim();
+  if (/^(минск|minsk|м[іи]нск)$/i.test(loc)) loc = "";
+  var core = "";
+  if (st && h) core = st + ", " + h;
+  else if (st) core = st;
+  else if (loc && h) core = loc + ", " + h;
+  else if (h) core = h;
+  else core = loc;
+  if (loc && core && core.toLowerCase().indexOf(loc.toLowerCase()) < 0) core = loc + ", " + core;
+  else if (!core) core = loc;
+  return String(core || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Мінск).*$/i, "").trim() || core;
+}
+
 function minskNominatimViewboxGs_() {
-  return "27.30,54.05,27.85,53.80";
+  return greaterMinskNominatimViewboxGs_();
 }
 
 function inMinskBboxGs_(lat, lon) {
-  return Math.abs(Number(lat) - 53.9) <= 0.38 && Math.abs(Number(lon) - 27.56) <= 0.48;
+  return inGreaterMinskRegionGs_(lat, lon);
 }
 
 function streetNameMatchesQueryGs_(resultTitle, queryText) {
   var want = parseSearchStreetHouseGs_(queryText);
   function norm(s) {
-    return String(s || "")
+    return normalizeLocalityTypoGs_(String(s || "")
       .toUpperCase()
       .replace(/Ё/g, "Е")
       .replace(/\bУЛ\.?\b/g, " ")
@@ -6202,11 +6272,17 @@ function streetNameMatchesQueryGs_(resultTitle, queryText) {
       .replace(/\bБЕЛАРУСЬ\b/g, " ")
       .replace(/[.,«»"']/g, " ")
       .replace(/\s+/g, " ")
-      .trim();
+      .trim());
   }
   var qStreet = norm(want.street || queryText);
-  var aStreet = norm(parseSearchStreetHouseGs_(resultTitle).street || resultTitle);
+  var aStreet = norm(resultTitle);
   if (!qStreet || !aStreet) return true;
+  var loc = detectSearchLocalityGs_(queryText);
+  if (loc) {
+    var locN = norm(loc);
+    var prefLoc = locN.slice(0, Math.min(6, locN.length));
+    if (prefLoc.length >= 4 && aStreet.indexOf(prefLoc) >= 0) return true;
+  }
   var qWords = qStreet.split(" ").filter(function (w) {
     return w.length >= 4 && !/^\d/.test(w);
   });
@@ -6434,27 +6510,41 @@ function mergeSuggestResultsGs_() {
 function expandAddressQueriesGs_(text) {
   var raw0 = String(text || "").trim().replace(/\s+/g, " ");
   if (!raw0) return [];
-  // убрать кв/подъезд/этаж — иначе Photon/Nominatim часто пустые
+  raw0 = raw0.replace(/голодищ/gi, "Колодищ").replace(/гродищ/gi, "Городищ");
   var raw = stripAddressDetailsForSearchGs_(raw0) || raw0;
   var parsed = parseSearchStreetHouseGs_(raw);
   var streetOnly = parsed.house ? parsed.street : raw;
   var bare = streetOnly.replace(/^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок|бул\.?|бульвар)\s+/i, "").trim();
-  var withType = /^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок)/i.test(streetOnly)
-    ? streetOnly.replace(/^ул\.?\s+/i, "улица ").replace(/^пр\.?-?\s*т\.?\s+/i, "проспект ").replace(/^пр\.?\s+/i, "проспект ")
-    : ("улица " + bare);
-  var out = [raw, streetOnly, bare, withType];
+  var locWant = detectSearchLocalityGs_(raw);
+  var isLocalityQuery = !!(locWant && bare && normalizeLocalityTypoGs_(bare).indexOf(normalizeLocalityTypoGs_(locWant).slice(0, 5)) >= 0);
+  var withType = bare;
+  if (isLocalityQuery) {
+    withType = streetOnly;
+  } else if (/^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок)/i.test(streetOnly)) {
+    withType = streetOnly.replace(/^ул\.?\s+/i, "улица ").replace(/^пр\.?-?\s*т\.?\s+/i, "проспект ").replace(/^пр\.?\s+/i, "проспект ");
+  } else {
+    withType = "улица " + bare;
+  }
+  var out = isLocalityQuery ? [raw, streetOnly, bare] : [raw, streetOnly, bare, withType];
   if (raw0 !== raw) out.unshift(raw0);
   if (parsed.house) {
     var h = parsed.house;
     out.push(streetOnly + ", " + h);
     out.push(streetOnly + " " + h);
     out.push(bare + ", " + h);
-    out.push(withType + ", " + h);
-    out.push(withType + " " + h);
+    if (!isLocalityQuery) {
+      out.push(withType + ", " + h);
+      out.push(withType + " " + h);
+      out.push(withType + ", д." + h);
+    }
     out.push(streetOnly + ", д." + h);
-    out.push(withType + ", д." + h);
   }
-  if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(raw)) {
+  if (locWant) {
+    out.push(locWant + ", Минский район");
+    out.push(locWant + ", Беларусь");
+    out.push("аг. " + locWant);
+    if (parsed.house) out.push(locWant + ", " + parsed.house);
+  } else if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(raw)) {
     out.push(raw + ", Минск");
     out.push("Минск, " + raw);
     if (parsed.house) {
@@ -6474,7 +6564,7 @@ function expandAddressQueriesGs_(text) {
     seen[k] = true;
     uniq.push(q);
   }
-  return uniq.slice(0, 10);
+  return uniq.slice(0, 12);
 }
 
 /** Бесплатный геокодер Photon (OSM) */
@@ -6484,10 +6574,15 @@ function photonSuggest_(text) {
   var out = [];
   var seen = {};
   var wantHouse = !!parseSearchStreetHouseGs_(text).house;
-  var otherOk = /брест|гродн|гомел|витебск|могил|борисов|жодино|молодечн/i.test(text);
-  for (var qi = 0; qi < Math.min(queries.length, wantHouse ? 7 : 4); qi++) {
+  var locWant = detectSearchLocalityGs_(text);
+  var otherOk = !!(looksLikeOtherCityGs_(text) || locWant);
+  for (var qi = 0; qi < Math.min(queries.length, wantHouse || locWant ? 7 : 4); qi++) {
     var q = queries[qi];
-    if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(q)) q = q + ", Минск";
+    if (locWant) {
+      if (!/беларусь/i.test(q)) q = q + ", Беларусь";
+    } else if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(q)) {
+      q = q + ", Минск";
+    }
     var url = "https://photon.komoot.io/api/?limit=12&lang=default&lat=53.9&lon=27.56&q=" +
       encodeURIComponent(q);
     var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
@@ -6502,18 +6597,19 @@ function photonSuggest_(text) {
       var lon = Number(coords[0]);
       var lat = Number(coords[1]);
       if (!isFinite(lat) || !isFinite(lon)) continue;
-      if (!otherOk && !inMinskBboxGs_(lat, lon)) continue;
+      if (!addressGeoAllowedGs_(lat, lon, text)) continue;
       var p = f.properties || {};
       var street = String(p.street || "").trim();
       var house = String(p.housenumber || "").trim();
       if (!street && p.name && (String(p.osm_key || "") === "highway" || String(p.type || "") === "street" || !house)) {
         street = String(p.name || "").trim();
       }
-      var title = "";
-      if (street && house) title = street + ", " + house;
-      else if (street) title = street;
-      else if (p.name && house) title = String(p.name).trim() + ", " + house;
-      else title = [p.name, p.street, p.housenumber].filter(Boolean).join(", ");
+      var locality = "";
+      if (p.city && !/^(минск|minsk|м[іи]нск)$/i.test(String(p.city))) locality = String(p.city);
+      else if (p.locality) locality = String(p.locality);
+      else if (p.name && /village|hamlet|town|suburb/i.test(String(p.type || p.osm_value || ""))) locality = String(p.name);
+      var title = buildAddressSuggestTitleGs_(street, house, locality);
+      if (!title && p.name) title = String(p.name);
       title = String(title || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Минская область|Мінск).*$/i, "").trim();
       if (!title) continue;
       if (!streetNameMatchesQueryGs_(title, text)) continue;
@@ -6543,7 +6639,10 @@ function photonSuggest_(text) {
 
 function yandexGeocodeSuggest_(text, key) {
   var q = text;
-  if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(text)) {
+  var locWant = detectSearchLocalityGs_(text);
+  if (locWant) {
+    if (!/беларусь/i.test(text)) q = text + ", Беларусь";
+  } else if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(text)) {
     q = "Минск, " + text;
   }
   var url = "https://geocode-maps.yandex.ru/1.x/?apikey=" + encodeURIComponent(key) +
@@ -6561,6 +6660,7 @@ function yandexGeocodeSuggest_(text, key) {
     var lon = Number(pos[0]);
     var lat = Number(pos[1]);
     if (!isFinite(lat) || !isFinite(lon)) continue;
+    if (!addressGeoAllowedGs_(lat, lon, text)) continue;
     var title = String(geo.name || meta.text || "").trim();
     var subtitle = String(geo.description || "").trim();
     var label = subtitle ? (title + ", " + subtitle) : (meta.text || title);
@@ -6577,20 +6677,19 @@ function yandexGeocodeSuggest_(text, key) {
 }
 
 function nominatimPushRowsGs_(data, text, seen, out) {
-  var otherOk = /брест|гродн|гомел|витебск|могил|борисов|жодино|молодечн/i.test(text);
+  var locWant = detectSearchLocalityGs_(text);
   for (var i = 0; i < (data || []).length; i++) {
     var row = data[i];
     var lat = Number(row.lat);
     var lon = Number(row.lon);
     if (!isFinite(lat) || !isFinite(lon)) continue;
-    if (!otherOk && !inMinskBboxGs_(lat, lon)) continue;
+    if (!addressGeoAllowedGs_(lat, lon, text)) continue;
     var ad = row.address || {};
     var street = String(ad.road || ad.pedestrian || ad.street || ad.avenue || "").trim();
     var house = String(ad.house_number || "").trim();
-    var title = "";
-    if (street && house) title = street + ", " + house;
-    else if (street) title = street;
-    else {
+    var locality = localityLabelFromOsmGs_(ad);
+    var title = buildAddressSuggestTitleGs_(street, house, locality);
+    if (!title) {
       title = String(row.display_name || "").split(",").slice(0, 2).join(", ").trim();
     }
     title = String(title || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Мінск).*$/i, "").trim();
@@ -6613,14 +6712,16 @@ function nominatimPushRowsGs_(data, text, seen, out) {
   }
 }
 
-function nominatimStructuredSuggestGs_(street, house) {
+function nominatimStructuredSuggestGs_(street, house, city) {
   if (!street || !house) return [];
   var streetParam = String(house).trim() + " " + String(street).trim();
+  var cityName = String(city || "Минск").trim() || "Минск";
   var url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=by&accept-language=ru" +
     "&street=" + encodeURIComponent(streetParam) +
-    "&city=" + encodeURIComponent("Минск") +
-    "&viewbox=" + encodeURIComponent(minskNominatimViewboxGs_()) +
-    "&bounded=1";
+    "&city=" + encodeURIComponent(cityName);
+  if (!detectSearchLocalityGs_(cityName) && !looksLikeOtherCityGs_(cityName)) {
+    url += "&viewbox=" + encodeURIComponent(greaterMinskNominatimViewboxGs_());
+  }
   var res = UrlFetchApp.fetch(url, {
     muteHttpExceptions: true,
     headers: { "User-Agent": "superboyna-courier/1.0" }
@@ -6636,28 +6737,34 @@ function nominatimSuggest_(text) {
   var seen = {};
   var parsed = parseSearchStreetHouseGs_(text);
   var wantHouse = !!parsed.house;
-  var otherOk = /брест|гродн|гомел|витебск|могил|борисов|жодино|молодечн/i.test(text);
+  var locWant = detectSearchLocalityGs_(text);
+  var otherOk = !!(looksLikeOtherCityGs_(text) || locWant);
   if (wantHouse && parsed.street) {
     var stVariants = [parsed.street];
     var bareSt = parsed.street
       .replace(/^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок|бул\.?|бульвар)\s+/i, "")
       .trim();
     if (bareSt && bareSt !== parsed.street) stVariants.push(bareSt);
-    if (!/^(ул\.?|улица)/i.test(parsed.street)) stVariants.push("улица " + bareSt);
+    if (!/^(ул\.?|улица)/i.test(parsed.street) && !locWant) stVariants.push("улица " + bareSt);
+    var cityForStruct = locWant || "Минск";
     for (var si = 0; si < stVariants.length; si++) {
       try {
-        nominatimPushRowsGs_(nominatimStructuredSuggestGs_(stVariants[si], parsed.house), text, seen, out);
+        nominatimPushRowsGs_(nominatimStructuredSuggestGs_(stVariants[si], parsed.house, cityForStruct), text, seen, out);
       } catch (eSt) {}
       if (suggestHasWantedHouseGs_(out, text)) break;
     }
   }
-  for (var qi = 0; qi < Math.min(queries.length, wantHouse ? 7 : 4); qi++) {
+  for (var qi = 0; qi < Math.min(queries.length, wantHouse || locWant ? 7 : 4); qi++) {
     var q = queries[qi];
-    if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(q)) q = "Минск, " + q;
+    if (locWant) {
+      if (!/беларусь/i.test(q)) q = q + ", Беларусь";
+    } else if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(q)) {
+      q = "Минск, " + q;
+    }
     var url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=by&accept-language=ru&q=" +
       encodeURIComponent(q);
     if (!otherOk) {
-      url += "&viewbox=" + encodeURIComponent(minskNominatimViewboxGs_()) + "&bounded=1";
+      url += "&viewbox=" + encodeURIComponent(greaterMinskNominatimViewboxGs_());
     }
     var res = UrlFetchApp.fetch(url, {
       muteHttpExceptions: true,
