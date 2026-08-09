@@ -261,16 +261,31 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 .promise-hero {
   font-family: var(--gb-display);
-  font-size: clamp(2.1rem, 6.2vw, 3.2rem);
+  font-size: clamp(2.25rem, 6.6vw, 3.45rem);
   line-height: 1.05;
   letter-spacing: 0.01em;
   text-transform: uppercase;
-  margin: 0 0 14px;
-  max-width: 16ch;
+  margin: 0 0 18px;
+  max-width: 15ch;
   color: var(--gb-cream);
   background: none;
   -webkit-background-clip: unset;
   background-clip: unset;
+  position: relative;
+  padding-bottom: 14px;
+}
+.promise-hero .promise-accent {
+  color: var(--gb-orange);
+  text-shadow: 0 0 28px rgba(212, 161, 90, 0.35);
+}
+.promise-hero::after {
+  content: "";
+  display: block;
+  width: 2.6rem;
+  height: 3px;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--gb-orange), transparent);
 }
 .tagline {
   max-width: 32rem;
