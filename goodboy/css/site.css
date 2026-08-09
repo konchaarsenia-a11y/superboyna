@@ -1871,12 +1871,12 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   90%, 100% { transform: translate3d(102vw, 0, 0); opacity: 0; }
 }
 @keyframes tcTreatBob {
-  0%, 100% { translate: 0 0; }
-  50% { translate: 0 -5px; }
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
 }
 @keyframes tcDogBob {
-  0%, 100% { translate: 0 0; }
-  50% { translate: 0 -3px; }
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
 }
 @keyframes tcLeg {
   0%, 100% { transform: rotate(18deg); }
