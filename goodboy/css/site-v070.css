@@ -577,7 +577,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   margin-right: auto;
 }
 .shelf-from-left img { object-position: 50% 48%; } /* трое — ровно по мордам */
-.photo-shelves .shelf:nth-child(3) img { object-position: 48% 55%; } /* нюх у двери */
+.photo-shelves .shelf:nth-child(3) img { object-position: 50% 52%; } /* боковой вид Vector */
 
 @media (max-width: 640px) {
   .photo-shelves {
