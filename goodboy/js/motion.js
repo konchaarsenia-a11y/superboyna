@@ -71,6 +71,8 @@
         if (!en.isIntersecting) return;
         en.target.classList.add("is-in");
         io.unobserve(en.target);
+        // kick shelf parallax once strip appears
+        global.dispatchEvent(new Event("scroll"));
       });
     }, { rootMargin: "0px 0px -8% 0px", threshold: 0.14 });
     nodes.forEach(function (n) { io.observe(n); });
