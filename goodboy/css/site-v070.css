@@ -513,7 +513,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   animation: rise 0.85s var(--ease) 0.05s forwards;
 }
 
-/* —— Photo bleed: куски торчат из углов экрана (не сетка / не перемычки) —— */
+/* —— Photo shelves: ровные полосы — справа / слева / справа —— */
 .site-section--shelves {
   padding: 88px 0 12px;
   margin-top: 0;
@@ -529,37 +529,28 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   padding: 0 20px;
   box-sizing: border-box;
 }
-.photo-bleed {
+.photo-shelves {
   margin-top: 40px;
-  padding: 32px 0 48px;
+  padding: 28px 0 44px;
   width: 100%;
   max-width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   position: relative;
 }
-.pb-row {
-  position: relative;
-  width: 100%;
-  height: clamp(118px, 17vw, 168px);
-  display: block;
-  will-change: transform;
-}
-.pb-row-full {
-  height: clamp(130px, 19vw, 188px);
-}
-.photo-bleed .pb {
+.photo-shelves .shelf {
   margin: 0;
   overflow: hidden;
-  position: absolute;
-  top: 0;
-  height: 100%;
+  width: 118%;
+  height: clamp(110px, 16vw, 156px);
   background: transparent;
   border-radius: 0;
   box-shadow: none;
+  flex-shrink: 0;
+  will-change: transform;
 }
-.photo-bleed .pb img {
+.photo-shelves .shelf img {
   width: 100%;
   height: 100%;
   display: block;
@@ -567,74 +558,42 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   filter: saturate(1.04) contrast(1.02);
   transition: transform 0.75s var(--ease), filter 0.45s ease;
 }
-.photo-bleed .pb:hover img {
-  transform: scale(1.05);
+.photo-shelves .shelf:hover img {
+  transform: scale(1.04);
   filter: saturate(1.06) brightness(1.03) contrast(1.03);
 }
-/* короткий — из левого угла, за край */
-.pb-from-left {
-  left: 0;
-  width: 34%;
-  margin-left: -12%;
-  transform: rotate(-1.8deg);
-  transform-origin: left center;
+/* 1 и 3 — торчат справа */
+.shelf-from-right {
+  align-self: flex-end;
+  margin-right: -18%;
+  margin-left: auto;
 }
-.pb-from-left.pb-sm { width: 34%; }
-.pb-from-left img { object-position: 18% 45%; }
-/* длинный — из правого угла, за край; в середине пустота, не стык */
-.pb-from-right {
-  right: 0;
-  left: auto;
-  width: 54%;
-  margin-right: -14%;
-  transform: rotate(2deg);
-  transform-origin: right center;
+.shelf-from-right img { object-position: 70% 40%; }
+/* 2 — торчит слева, такой же ровный кусок */
+.shelf-from-left {
+  align-self: flex-start;
+  margin-left: -18%;
+  margin-right: auto;
 }
-.pb-from-right.pb-wide { width: 54%; }
-.pb-from-right img { object-position: 72% 40%; }
-/* средняя полоса — шире экрана, свисает с обоих краёв */
-.pb-full {
-  left: 0;
-  width: 124%;
-  margin-left: -12%;
-  transform: rotate(-0.85deg);
-}
-.pb-full img { object-position: 50% 32%; }
-.pb-row:last-child .pb-from-left img { object-position: 12% 48%; }
-.pb-row:last-child .pb-from-right img { object-position: 68% 50%; }
+.shelf-from-left img { object-position: 30% 42%; }
+.photo-shelves .shelf:nth-child(3) img { object-position: 55% 48%; }
 
 @media (max-width: 640px) {
-  .photo-bleed {
-    gap: 12px;
-    padding: 24px 0 36px;
+  .photo-shelves {
+    gap: 10px;
+    padding: 22px 0 36px;
   }
-  .pb-row {
-    height: clamp(96px, 26vw, 128px);
+  .photo-shelves .shelf {
+    width: 124%;
+    height: clamp(96px, 26vw, 124px);
   }
-  .pb-row-full {
-    height: clamp(108px, 28vw, 140px);
-  }
-  .pb-from-left {
-    width: 40%;
-    margin-left: -18%;
-  }
-  .pb-from-left.pb-sm { width: 40%; }
-  .pb-from-right {
-    width: 58%;
-    margin-right: -20%;
-  }
-  .pb-from-right.pb-wide { width: 58%; }
-  .pb-full {
-    width: 132%;
-    margin-left: -16%;
-  }
+  .shelf-from-right { margin-right: -22%; }
+  .shelf-from-left { margin-left: -22%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .photo-bleed .pb img {
-    transition: none;
-  }
-  .pb-row { will-change: auto; }
+  .photo-shelves .shelf img { transition: none; }
+  .photo-shelves .shelf { will-change: auto; }
 }
 
 /* —— Phone block below shelves —— */

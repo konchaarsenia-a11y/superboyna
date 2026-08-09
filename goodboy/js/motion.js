@@ -155,8 +155,8 @@
     var hero = document.querySelector(".site-hero");
     var stage = hero && (hero.querySelector(".hero-features") || hero.querySelector(".hero-stage"));
     var copy = hero && hero.querySelector(".hero-copy");
-    var bleedRows = document.querySelectorAll(".photo-bleed .pb-row");
-    if (!hero && !bleedRows.length) return;
+    var shelves = document.querySelectorAll(".photo-shelves .shelf");
+    if (!hero && !shelves.length) return;
 
     var ticking = false;
     function apply() {
@@ -182,14 +182,14 @@
         }
       }
 
-      /* ряды чуть едут в стороны — куски сильнее «торчат» из углов */
-      for (var i = 0; i < bleedRows.length; i++) {
-        var row = bleedRows[i];
-        var r = row.getBoundingClientRect();
+      for (var i = 0; i < shelves.length; i++) {
+        var el = shelves[i];
+        var r = el.getBoundingClientRect();
         var mid = r.top + r.height * 0.5;
         var t = (mid - vh * 0.5) / vh;
-        var dir = i % 2 === 0 ? -1 : 1;
-        row.style.transform = "translate3d(" + (t * 18 * dir).toFixed(2) + "px,0,0)";
+        var fromRight = el.classList.contains("shelf-from-right");
+        var dir = fromRight ? 1 : -1;
+        el.style.transform = "translate3d(" + (t * 14 * dir).toFixed(2) + "px,0,0)";
       }
     }
 

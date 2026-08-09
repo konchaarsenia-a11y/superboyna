@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="css/site-v070.css?v=075" />
+    <link rel="stylesheet" href="css/site-v070.css?v=076" />
 </head>
 <body class="gb-site landing-only">
   <div class="scroll-progress" id="scrollProgress" aria-hidden="true"></div>
@@ -85,28 +85,17 @@
         <h2 class="reveal d1">О проекте</h2>
         <p class="sec-lead reveal d2">GOOD&nbsp;BOY&nbsp;— проект о&nbsp;жизни с&nbsp;питомцем без лишнего напряжения. Мы начинаем с&nbsp;натуральных лакомств и&nbsp;месячной подписки, чтобы вкусное всегда было под рукой. Рядом&nbsp;— интерактивная карта с&nbsp;удобствами и&nbsp;советы специалистов именно для вашего хвостика.</p>
       </div>
-      <div class="photo-bleed reveal" aria-label="Кадры GOOD BOY">
-        <div class="pb-row">
-          <figure class="pb pb-from-left pb-sm">
-            <img src="assets/shot-1.jpg?v=075" width="900" height="700" alt="Лакомства GOOD BOY" loading="lazy" />
-          </figure>
-          <figure class="pb pb-from-right pb-wide">
-            <img src="assets/shot-meadow.jpg?v=075" width="1600" height="700" alt="Питомец на лугу" loading="lazy" />
-          </figure>
-        </div>
-        <div class="pb-row pb-row-full">
-          <figure class="pb pb-full">
-            <img src="assets/shot-3.jpg?v=075" width="1400" height="700" alt="Питомцы GOOD BOY" loading="lazy" />
-          </figure>
-        </div>
-        <div class="pb-row">
-          <figure class="pb pb-from-left pb-sm">
-            <img src="assets/photo-unbox.jpg?v=075" width="900" height="700" alt="Набор GOOD BOY" loading="lazy" />
-          </figure>
-          <figure class="pb pb-from-right pb-wide">
-            <img src="assets/shot-1.jpg?v=075" width="1400" height="700" alt="" aria-hidden="true" loading="lazy" />
-          </figure>
-        </div>
+      <!-- Три ровные полосы: справа → слева → справа -->
+      <div class="photo-shelves reveal" aria-label="Кадры GOOD BOY">
+        <figure class="shelf shelf-from-right">
+          <img src="assets/shot-meadow.jpg?v=076" width="1600" height="700" alt="Питомец на лугу" loading="lazy" />
+        </figure>
+        <figure class="shelf shelf-from-left">
+          <img src="assets/shot-1.jpg?v=076" width="1400" height="700" alt="Лакомства GOOD BOY" loading="lazy" />
+        </figure>
+        <figure class="shelf shelf-from-right">
+          <img src="assets/shot-3.jpg?v=076" width="1400" height="700" alt="Питомцы GOOD BOY" loading="lazy" />
+        </figure>
       </div>
     </section>
 
@@ -287,11 +276,11 @@
 
     <footer class="site-footer">
       GOOD BOY · <a href="https://www.instagram.com/goodboy_rb" target="_blank" rel="noopener">@goodboy_rb</a>
-      · v0.7.5
+      · v0.7.6
     </footer>
   </div>
 
-  <script src="js/motion.js?v=075"></script>
+  <script src="js/motion.js?v=076"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.GBMotion) GBMotion.init();
