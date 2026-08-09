@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.153";
+      var APP_VER = "v7.11.154";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1955,7 +1955,7 @@
             <input type="date" id="whDefTo">
           </div>
         </div>
-        <div class="muted" style="font-size:12px;margin-top:6px;">Даты из текущей недели на «Приём». Пусто = остаток недели с сегодня. «Нужно сырья» = сухое÷коэф (не граммы заказа).</div>
+        <div class="muted" style="font-size:12px;margin-top:6px;">Любые даты: текущая/будущая неделя — с листа, остальные — из календаря. Пусто = остаток недели с сегодня. «Нужно сырья» = сухое÷коэф.</div>
         <button class="btn-action btn-orange" type="button" style="margin-top:8px;" onclick="loadWarehousePreview()">Показать позиции</button>
         <button class="btn-action btn-blue" type="button" style="margin-top:8px;" onclick="composeWarehouseBuyMessageUi()">Собрать сообщение дозакупа</button>
         <div class="muted" style="font-size:12px;margin-top:8px;">Ревизия: «дозакуп» у позиции = корректировка. Списание F только при «Завершить неделю» — галочки нарезки не списывают.</div>
@@ -2680,7 +2680,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.153";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.154";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -16686,10 +16686,12 @@
         var defs = res.deficits || [];
         var rows = (res.withPlan && res.withPlan.length) ? res.withPlan : defs;
         var rowsHtml = "";
-        if (!(res.activeDays && res.activeDays.length) && dates.dateFrom) {
-          rowsHtml = '<div style="padding:10px 0;color:#ff6961;">В выбранных датах нет дней текущей недели на «Приём» — сдвинь период.</div>';
-        } else if (!rows.length) {
-          rowsHtml = '<div style="padding:10px 0;" class="muted">На период плана нет — или остаток покрывает всё.</div>';
+        if (!rows.length) {
+          rowsHtml = '<div style="padding:10px 0;" class="muted">' +
+            ((dates.dateFrom || dates.dateTo)
+              ? "На эти даты в календаре/листе нет плана — или остаток покрывает всё."
+              : "На период плана нет — или остаток покрывает всё.") +
+            "</div>";
         } else {
           rowsHtml =
             '<div style="display:grid;grid-template-columns:1.3fr 0.7fr 0.7fr 0.7fr;gap:6px 8px;font-size:11px;color:#8e8e93;margin:8px 0 4px;">' +

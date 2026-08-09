@@ -4938,6 +4938,75 @@ function syncWarehouseBuyDeferred_(ss, deficits) {
   } catch (eB) {}
 }
 
+/** Менеджер-строка Пн (4–59) → строка Нарезки (3–48). */
+function reverseManagerRowToCutting_() {
+  var itemMap = getCuttingItemMap_();
+  var rev = {};
+  for (var cKey in itemMap) {
+    var rows = itemMap[cKey];
+    for (var i = 0; i < rows.length; i++) rev[String(rows[i])] = Number(cKey);
+  }
+  return rev;
+}
+
+function buildWarehouseNameIndex_(matrix) {
+  var byNorm = {};
+  for (var i = 0; i < matrix.length; i++) {
+    var name = String(matrix[i][0] || "").trim();
+    if (!name) continue;
+    var row = i + 2;
+    var u = normalizeProductAlias_(name.toUpperCase().replace(/\s+/g, " ").trim());
+    if (u && byNorm[u] == null) byNorm[u] = row;
+    var u2 = u.replace(/\s*ШТ\.?/g, "").trim();
+    if (u2 && byNorm[u2] == null) byNorm[u2] = row;
+  }
+  return byNorm;
+}
+
+function warehouseRowFromBasketItem_(item, itemsInSheet, revMap, byNorm) {
+  var name = String((item && (item.name || item.main)) || "").trim();
+  var sub = String((item && item.sub) || "").trim();
+  if (!name) return 0;
+  if (itemsInSheet && itemsInSheet.length) {
+    try {
+      var idx = findSheetRowForItem(itemsInSheet, name, sub);
+      if (idx >= 0) {
+        var monRow = idx + 4;
+        var cRow = (revMap && revMap[String(monRow)]) || 0;
+        if (cRow) {
+          var w = getWarehouseRowForCuttingRow_(cRow);
+          if (w) return w;
+        }
+      }
+    } catch (eF) {}
+  }
+  var u = normalizeProductAlias_(name.toUpperCase().replace(/\s+/g, " ").trim());
+  if (byNorm && byNorm[u]) return byNorm[u];
+  var u2 = u.replace(/\s*ШТ\.?/g, "").trim();
+  if (byNorm && byNorm[u2]) return byNorm[u2];
+  if (byNorm && u2.length >= 4) {
+    for (var k in byNorm) {
+      if (String(k).length < 3) continue;
+      if (k.indexOf(u2) === 0 || u2.indexOf(k) === 0) return byNorm[k];
+    }
+  }
+  return 0;
+}
+
+function basketItemDryQty_(item) {
+  var val = Number(item && (item.val != null ? item.val : (item.value != null ? item.value : item.qty))) || 0;
+  return val > 0 ? val : 0;
+}
+
+function weekdayShortRu_(d) {
+  var names = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+  try { return names[d.getDay()] || ""; } catch (e) { return ""; }
+}
+
+/**
+ * План склада: без дат — остаток текущей недели с «Приём»;
+ * с датами — любые дни: лист недели/будущей где есть + иначе Календарь_Дат.
+ */
 function computeWarehouseWeekPlan_(ss, opts) {
   ss = ss || SpreadsheetApp.getActiveSpreadsheet();
   opts = opts || {};
@@ -4954,7 +5023,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
     dateTo = swap;
   }
   var filterOn = !!(dateFrom || dateTo);
-  var cacheKey = "WH_PLAN_V3" + (filterOn
+  var cacheKey = "WH_PLAN_V4" + (filterOn
     ? (":" + (dateFrom ? isoDateKey_(dateFrom) : "") + ":" + (dateTo ? isoDateKey_(dateTo) : ""))
     : "");
 
@@ -4970,6 +5039,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
 
   var tz = ss.getSpreadsheetTimeZone();
   var itemMap = getCuttingItemMap_();
+  var revMap = reverseManagerRowToCutting_();
   var weekDaysGeo = [
     { start: 4, name: "Пн" },
     { start: 65, name: "Вт" },
@@ -4988,30 +5058,44 @@ function computeWarehouseWeekPlan_(ss, opts) {
       if (dObj) weekDaysGeo[di].dateIso = isoDateKey_(dObj, tz);
       weekDaysGeo[di].label = (weekDaysGeo[di].name || "") + (ds ? (" " + ds) : "");
       weekDaysGeo[di].ts = dObj ? dObj.getTime() : 0;
+      weekDaysGeo[di].source = "priem";
     }
   } catch (eD) {}
 
+  // «Будущая неделя» — как ещё один день листа (если дата попадает в фильтр / без фильтра не в «остаток недели»)
+  var futureDay = null;
+  try {
+    var futSh = ss.getSheetByName("Будущая неделя");
+    if (futSh) {
+      var fv = futSh.getRange("A1").getValue();
+      var fObj = parseFlexibleDate_(fv, tz);
+      if (fObj) {
+        var fds = formatSheetDate(fv, tz);
+        futureDay = {
+          start: 4,
+          name: "Буд",
+          date: fds || "",
+          dateIso: isoDateKey_(fObj, tz),
+          label: "Буд" + (fds ? (" " + fds) : ""),
+          ts: fObj.getTime(),
+          source: "future",
+          sheet: futSh
+        };
+      }
+    }
+  } catch (eFut) {}
+
   function dayInRange_(day) {
     if (!filterOn) return true;
-    if (!day || !day.ts) {
-      // нет даты у дня — при фильтре не берём
-      return false;
-    }
+    if (!day || !day.ts) return false;
     if (dateFrom && day.ts < dateFrom.getTime()) return false;
     if (dateTo && day.ts > dateTo.getTime()) return false;
     return true;
   }
 
-  var activeDays = [];
-  for (var ad = 0; ad < weekDaysGeo.length; ad++) {
-    if (dayInRange_(weekDaysGeo[ad])) activeDays.push(weekDaysGeo[ad]);
-  }
-
-  // «Сегодня» по TZ таблицы — прошлые дни недели уже «съели» остаток F (F списывается только при закрытии недели).
   var todayTs = 0;
   try {
-    var now = new Date();
-    var todayIso = isoDateKey_(now, tz);
+    var todayIso = isoDateKey_(new Date(), tz);
     var todayD = parseFlexibleDate_(todayIso, tz);
     if (todayD) todayTs = todayD.getTime();
   } catch (eToday) {}
@@ -5020,15 +5104,13 @@ function computeWarehouseWeekPlan_(ss, opts) {
     return !!(todayTs && day && day.ts && day.ts < todayTs);
   }
 
-  // Дни для «нужно»: в диапазоне; без фильтра — только сегодня и дальше (остаток недели).
-  // Если в диапазоне все дни уже прошли — оставляем их (аудит).
+  // need / prior по дням листа «Приём» (F ещё не списан за прошедшие дни этой недели)
   var needDaysIdx = {};
   var priorDaysIdx = {};
   var anyFutureInRange = false;
   for (var fd = 0; fd < weekDaysGeo.length; fd++) {
     var dayF = weekDaysGeo[fd];
     if (!dayInRange_(dayF)) {
-      // до начала выбранного диапазона — вычитаем из «есть»
       if (filterOn && dateFrom && dayF.ts && dayF.ts < dateFrom.getTime()) {
         priorDaysIdx[fd] = true;
       } else if (!filterOn && dayIsPast_(dayF)) {
@@ -5037,19 +5119,14 @@ function computeWarehouseWeekPlan_(ss, opts) {
       continue;
     }
     if (dayIsPast_(dayF)) {
-      if (filterOn) {
-        // явный выбор прошлого дня — считаем как аудит (в нужно)
-        needDaysIdx[fd] = true;
-      } else {
-        priorDaysIdx[fd] = true;
-      }
+      if (filterOn) needDaysIdx[fd] = true;
+      else priorDaysIdx[fd] = true;
     } else {
       anyFutureInRange = true;
       needDaysIdx[fd] = true;
     }
   }
   if (filterOn && !anyFutureInRange) {
-    // все выбранные дни в прошлом — prior внутри диапазона не вычитаем повторно
     for (var pd = 0; pd < weekDaysGeo.length; pd++) {
       if (dayInRange_(weekDaysGeo[pd])) {
         needDaysIdx[pd] = true;
@@ -5057,6 +5134,12 @@ function computeWarehouseWeekPlan_(ss, opts) {
       }
     }
   }
+
+  var sheetIsoCovered = {};
+  for (var ci = 0; ci < weekDaysGeo.length; ci++) {
+    if (weekDaysGeo[ci].dateIso) sheetIsoCovered[weekDaysGeo[ci].dateIso] = true;
+  }
+  if (futureDay && futureDay.dateIso) sheetIsoCovered[futureDay.dateIso] = true;
 
   var fullManagerMatrix = sheetManager.getRange(1, 3, 427, 15).getValues();
   var noCutByDayOffset = {};
@@ -5071,13 +5154,17 @@ function computeWarehouseWeekPlan_(ss, opts) {
   } catch (eC) {}
 
   var byWh = {};
+  function ensureWh_(wRow) {
+    if (!byWh[wRow]) byWh[wRow] = { dryG: 0, priorDryG: 0, byDay: {}, surplusKg: 0 };
+    return byWh[wRow];
+  }
+
   for (var cRow = 3; cRow <= 48; cRow++) {
     var rowsToSum = itemMap[String(cRow)];
     if (!rowsToSum) continue;
     var wRow = getWarehouseRowForCuttingRow_(cRow);
     if (!wRow) continue;
-    if (!byWh[wRow]) byWh[wRow] = { dryG: 0, priorDryG: 0, byDay: {}, surplusKg: 0 };
-    // излишки C — на весь остаток недели (не на срез одного дня)
+    ensureWh_(wRow);
     if (!filterOn || Object.keys(needDaysIdx).length >= 5) {
       try {
         if (cuttingSurplusValues && cuttingSurplusValues[cRow - 3]) {
@@ -5099,16 +5186,132 @@ function computeWarehouseWeekPlan_(ss, opts) {
         }
       }
       if (!(dayG > 0)) continue;
-      byWh[wRow].byDay[d] = (byWh[wRow].byDay[d] || 0) + dayG;
+      var isoKey = day.dateIso || ("idx:" + d);
+      byWh[wRow].byDay[isoKey] = (byWh[wRow].byDay[isoKey] || 0) + dayG;
       if (needDaysIdx[d]) byWh[wRow].dryG += dayG;
       if (priorDaysIdx[d]) byWh[wRow].priorDryG += dayG;
     }
   }
 
-  var last = Math.min(50, Math.max(2, wh.getLastRow()));
-  var matrix = wh.getRange(2, 1, last - 1, 13).getValues(); // A..M
+  // Будущая неделя (только при явном диапазоне дат, если дата в диапазоне)
+  var futureInNeed = false;
+  if (filterOn && futureDay && dayInRange_(futureDay) && futureDay.sheet) {
+    futureInNeed = true;
+    try {
+      var futMatrix = futureDay.sheet.getRange(1, 3, 59, 15).getValues();
+      var futBlk = getDayBlock("Будущая неделя");
+      var futSkip = noCutSkipColsForBlock_(futureDay.sheet, futBlk) || {};
+      for (var cRowF = 3; cRowF <= 48; cRowF++) {
+        var rowsF = itemMap[String(cRowF)];
+        if (!rowsF) continue;
+        var wRowF = getWarehouseRowForCuttingRow_(cRowF);
+        if (!wRowF) continue;
+        ensureWh_(wRowF);
+        var dayGF = 0;
+        for (var riF = 0; riF < rowsF.length; riF++) {
+          var tIdxF = rowsF[riF] - 1;
+          if (tIdxF < 0 || tIdxF >= futMatrix.length) continue;
+          for (var colF = 0; colF < 15; colF++) {
+            if (futSkip[colF]) continue;
+            dayGF += Number(futMatrix[tIdxF][colF]) || 0;
+          }
+        }
+        if (!(dayGF > 0)) continue;
+        var fIso = futureDay.dateIso;
+        byWh[wRowF].byDay[fIso] = (byWh[wRowF].byDay[fIso] || 0) + dayGF;
+        byWh[wRowF].dryG += dayGF;
+      }
+    } catch (eFutSum) {}
+  }
+
+  // Любые даты вне листов недели — из Календарь_Дат (канон)
+  var calendarDaysByIso = {};
+  var lastWh = Math.min(50, Math.max(2, wh.getLastRow()));
+  var matrix = wh.getRange(2, 1, lastWh - 1, 13).getValues();
+  var byNorm = buildWarehouseNameIndex_(matrix);
+  var itemsInSheet = [];
+  try { itemsInSheet = sheetManager.getRange(4, 1, 59, 1).getValues(); } catch (eItems) { itemsInSheet = []; }
+
+  if (filterOn) {
+    try {
+      var calRows = readAllCalendarRows_();
+      for (var cr = 0; cr < calRows.length; cr++) {
+        var rec = calRows[cr];
+        var st = String(rec.status || "").toLowerCase();
+        if (st === "cancelled") continue;
+        var dCal = parseFlexibleDate_(rec.date, tz) || parseFlexibleDate_(rec.dateIso, tz);
+        if (!dCal) continue;
+        var tsCal = dCal.getTime();
+        if (dateFrom && tsCal < dateFrom.getTime()) continue;
+        if (dateTo && tsCal > dateTo.getTime()) continue;
+        var isoCal = isoDateKey_(dCal, tz);
+        // дни уже на «Приём»/Будущей — только лист, без двойного счёта из календаря
+        if (sheetIsoCovered[isoCal]) continue;
+        var noteCal = String(rec.note || "") + " " + String(rec.basketJson || "");
+        if (/\[\s*НЕ\s*РЕЗАТЬ\s*\]/i.test(noteCal)) continue;
+        if (!calendarDaysByIso[isoCal]) {
+          var dsCal = formatSheetDate(dCal, tz) || isoCal;
+          calendarDaysByIso[isoCal] = {
+            name: weekdayShortRu_(dCal),
+            date: dsCal,
+            dateIso: isoCal,
+            label: weekdayShortRu_(dCal) + " " + dsCal,
+            ts: tsCal,
+            source: "calendar",
+            inNeed: true,
+            past: !!(todayTs && tsCal < todayTs)
+          };
+        }
+        var basket = rec.basket || [];
+        for (var bi = 0; bi < basket.length; bi++) {
+          var it = basket[bi] || {};
+          var g = basketItemDryQty_(it);
+          if (!(g > 0)) continue;
+          var wRowC = warehouseRowFromBasketItem_(it, itemsInSheet, revMap, byNorm);
+          if (!wRowC) continue;
+          ensureWh_(wRowC);
+          byWh[wRowC].byDay[isoCal] = (byWh[wRowC].byDay[isoCal] || 0) + g;
+          byWh[wRowC].dryG += g;
+        }
+      }
+    } catch (eCal) {}
+  }
+
   var deficits = [];
   var plan = [];
+  var daysForByDay = [];
+  for (var dj0 = 0; dj0 < weekDaysGeo.length; dj0++) {
+    daysForByDay.push({
+      key: weekDaysGeo[dj0].dateIso || ("idx:" + dj0),
+      label: weekDaysGeo[dj0].label || weekDaysGeo[dj0].name,
+      date: weekDaysGeo[dj0].date || "",
+      dateIso: weekDaysGeo[dj0].dateIso || "",
+      past: !!priorDaysIdx[dj0],
+      inNeed: !!needDaysIdx[dj0]
+    });
+  }
+  if (futureInNeed && futureDay) {
+    daysForByDay.push({
+      key: futureDay.dateIso,
+      label: futureDay.label,
+      date: futureDay.date || "",
+      dateIso: futureDay.dateIso || "",
+      past: false,
+      inNeed: true
+    });
+  }
+  for (var cIso in calendarDaysByIso) {
+    var cd = calendarDaysByIso[cIso];
+    daysForByDay.push({
+      key: cIso,
+      label: cd.label,
+      date: cd.date || "",
+      dateIso: cIso,
+      past: !!cd.past,
+      inNeed: true
+    });
+  }
+
   for (var i = 0; i < matrix.length; i++) {
     var name = String(matrix[i][0] || "").trim();
     if (!name) continue;
@@ -5136,23 +5339,23 @@ function computeWarehouseWeekPlan_(ss, opts) {
       priorRaw = (priorDryG / 1000) / coef;
       stockStart = f + b;
     }
-    // F не уменьшается галочками нарезки → вычитаем уже прошедшие дни из «есть»
     var available = Math.max(0, stockStart - priorRaw);
     var deficit = Math.max(0, needRaw - available);
     var byDay = [];
-    for (var dj = 0; dj < weekDaysGeo.length; dj++) {
-      if (!needDaysIdx[dj] && !priorDaysIdx[dj]) continue;
-      var gDay = agg.byDay[dj] || 0;
+    for (var dj = 0; dj < daysForByDay.length; dj++) {
+      var metaD = daysForByDay[dj];
+      if (!metaD.inNeed && !metaD.past) continue;
+      var gDay = agg.byDay[metaD.key] || 0;
       if (gDay <= 0) continue;
       var dayNeed = piece ? gDay : ((gDay / 1000) / coef);
       byDay.push({
-        day: weekDaysGeo[dj].label || weekDaysGeo[dj].name,
-        date: weekDaysGeo[dj].date || "",
-        dateIso: weekDaysGeo[dj].dateIso || "",
+        day: metaD.label,
+        date: metaD.date || "",
+        dateIso: metaD.dateIso || "",
         dryG: round2_(gDay),
         needRaw: round2_(dayNeed),
-        past: !!priorDaysIdx[dj],
-        inNeed: !!needDaysIdx[dj]
+        past: !!metaD.past,
+        inNeed: !!metaD.inNeed
       });
     }
     var item = {
@@ -5192,9 +5395,45 @@ function computeWarehouseWeekPlan_(ss, opts) {
       label: x.label || x.name,
       inRange: dayInRange_(x),
       inNeed: !!needDaysIdx[idx],
-      past: !!priorDaysIdx[idx]
+      past: !!priorDaysIdx[idx],
+      source: "priem"
     };
   });
+  if (futureInNeed && futureDay) {
+    daysMeta.push({
+      name: futureDay.name,
+      date: futureDay.date || "",
+      dateIso: futureDay.dateIso || "",
+      label: futureDay.label,
+      inRange: true,
+      inNeed: true,
+      past: false,
+      source: "future"
+    });
+  }
+  for (var cIso2 in calendarDaysByIso) {
+    var cdm = calendarDaysByIso[cIso2];
+    daysMeta.push({
+      name: cdm.name,
+      date: cdm.date || "",
+      dateIso: cIso2,
+      label: cdm.label,
+      inRange: true,
+      inNeed: true,
+      past: !!cdm.past,
+      source: "calendar"
+    });
+  }
+  daysMeta.sort(function (a, b) {
+    var ta = a.dateIso || "";
+    var tb = b.dateIso || "";
+    if (ta < tb) return -1;
+    if (ta > tb) return 1;
+    return 0;
+  });
+
+  var activeDays = daysMeta.filter(function (x) { return x.inNeed || (x.inRange && !x.past); });
+
   var rangeLabel = "";
   if (filterOn) {
     rangeLabel = (dateFrom ? isoDateKey_(dateFrom, tz) : "…") + " — " + (dateTo ? isoDateKey_(dateTo, tz) : "…");
@@ -5217,12 +5456,15 @@ function computeWarehouseWeekPlan_(ss, opts) {
     buyList: buyList,
     days: daysMeta,
     activeDays: activeDays.map(function (x) {
-      return { name: x.name, date: x.date || "", dateIso: x.dateIso || "", label: x.label || x.name };
+      return { name: x.name, date: x.date || "", dateIso: x.dateIso || "", label: x.label || x.name, source: x.source || "" };
     }),
     dateFrom: dateFrom ? isoDateKey_(dateFrom, tz) : "",
     dateTo: dateTo ? isoDateKey_(dateTo, tz) : "",
     rangeLabel: rangeLabel,
-    note: "Нужно = сырьё (сухое÷коэф D). План = граммы с «Приём». Есть = F+B минус уже прошедшие дни недели (галочки нарезки F не списывают)."
+    source: filterOn ? "calendar+sheets" : "week",
+    note: filterOn
+      ? "Нужно = сырьё (сухое÷коэф). План: дни текущей/будущей недели с листа, остальные даты — из Календарь_Дат. Есть = F+B минус прошедшие дни текущей недели."
+      : "Нужно = сырьё (сухое÷коэф). План = граммы с «Приём» (остаток недели с сегодня). Есть = F+B минус уже прошедшие дни недели."
   };
   try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(out), 45); } catch (ePut) {}
   return out;
@@ -11967,7 +12209,10 @@ function handleWarehousePreview(json, callback, fromPost) {
     force: !!(json && (json.force || json.refresh))
   };
   if (opts.force) {
-    try { CacheService.getScriptCache().remove("WH_PLAN_V3"); } catch (e) {}
+    try {
+      CacheService.getScriptCache().remove("WH_PLAN_V3");
+      CacheService.getScriptCache().remove("WH_PLAN_V4");
+    } catch (e) {}
   }
   var pack = computeWarehouseWeekPlan_(ss, opts);
   if (!pack || !pack.ok) {
@@ -12006,7 +12251,10 @@ function handleComposeWarehouseBuyMessage(json, callback, fromPost) {
     force: !!(json && (json.force || json.refresh))
   };
   if (opts.force) {
-    try { CacheService.getScriptCache().remove("WH_PLAN_V3"); } catch (e) {}
+    try {
+      CacheService.getScriptCache().remove("WH_PLAN_V3");
+      CacheService.getScriptCache().remove("WH_PLAN_V4");
+    } catch (e) {}
   }
   var pack = computeWarehouseWeekPlan_(ss, opts);
   if (!pack || !pack.ok) {
