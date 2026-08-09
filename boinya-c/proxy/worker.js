@@ -402,6 +402,14 @@ function isoToDmy_(iso) {
 }
 
 async function dateMap_(env) {
+  // только актуальная неделя из weekDayCounts — dateToDay-snap часто протухает после сдвига недели
+  const counts = await getSnapRaw_(env, "weekDayCounts");
+  const map = Object.create(null);
+  ((counts && counts.items) || []).forEach(function (it) {
+    const iso = dmyToIso_(it && it.date);
+    if (iso && it.day) map[iso] = it.day;
+  });
+  if (Object.keys(map).length) return map;
   const mapWrap = await getSnapRaw_(env, "dateToDay");
   return (mapWrap && mapWrap.map) || mapWrap || {};
 }
@@ -414,11 +422,24 @@ async function dayDateInfo_(env, day) {
       return { date: items[i].date || "", iso: dmyToIso_(items[i].date) };
     }
   }
-  const map = await dateMap_(env);
-  for (const iso of Object.keys(map)) {
-    if (map[iso] === day) return { date: isoToDmy_(iso), iso: iso };
+  // дата из живых orders этого дня
+  if (env && env.DB && day) {
+    const row = await env.DB.prepare(
+      "SELECT date_iso FROM orders WHERE day_name = ? AND status = 'active' AND date_iso != '' LIMIT 1"
+    )
+      .bind(day)
+      .first();
+    if (row && row.date_iso) return { date: isoToDmy_(row.date_iso), iso: row.date_iso };
   }
   return { date: "", iso: "" };
+}
+
+function dayForDateFromCounts_(counts, dateIso) {
+  const items = (counts && counts.items) || [];
+  for (let i = 0; i < items.length; i++) {
+    if (dmyToIso_(items[i].date) === dateIso) return String(items[i].day || "");
+  }
+  return "";
 }
 
 async function findOrderRow_(env, matchKey, day, dateIso) {
@@ -484,75 +505,94 @@ async function getViewCompare_(params, env) {
   await ensureMetaColumn_(env);
   const day = String(params.day || "");
   const dateIso = String(params.date || "");
-  let resolvedDay = day;
-  if (!resolvedDay && dateIso) {
-    const map = await dateMap_(env);
-    if (map[dateIso]) resolvedDay = map[dateIso];
+  const counts = await getSnapRaw_(env, "weekDayCounts");
+
+  // date → день ТОЛЬКО через актуальные weekDayCounts (не протухший dateToDay)
+  let resolvedDay = "";
+  let onWeek = false;
+  if (dateIso) {
+    const byCounts = dayForDateFromCounts_(counts, dateIso);
+    if (byCounts) {
+      resolvedDay = byCounts;
+      onWeek = true;
+    } else if (day) {
+      // явный day + дата не из текущей недели → если day выбран в UI с пустой датой не сюда;
+      // при клике календаря day пустой. Если оба и дата чужая — календарь.
+      resolvedDay = "";
+      onWeek = false;
+    }
+  } else if (day) {
+    resolvedDay = day;
+    onWeek = true;
   }
 
-  // Предпочитаем свежий snap с GAS (week + month-delta как в проде)
-  if (resolvedDay) {
+  // Неделя: snap + live orders
+  if (resolvedDay && onWeek) {
     const snap = await getSnapRaw_(env, "view:" + resolvedDay);
-    if (snap && snap.status === "success" && Array.isArray(snap.week)) {
-      const live = await getClients_({ day: resolvedDay }, env);
-      const week = live.clients && live.clients.length ? live.clients : snap.week;
+    const live = await getClients_({ day: resolvedDay }, env);
+    const info = await dayDateInfo_(env, resolvedDay);
+    const iso = info.iso || (snap && snap.dateIso) || dateIso || "";
+    // если спросили конкретную дату и у дня другая — это не этот слот
+    if (dateIso && iso && dateIso !== iso) {
+      // fall through to calendar-only for dateIso
+    } else {
+      const week =
+        live.clients && live.clients.length
+          ? live.clients
+          : snap && Array.isArray(snap.week)
+            ? snap.week
+            : [];
       const weekKeys = Object.create(null);
       (week || []).forEach(function (c) {
         weekKeys[normalizeMatchKey_(c.matchKey || c.name)] = true;
       });
-      // month = календарные сироты (не на неделе), как в GAS
-      let month = Array.isArray(snap.month) ? snap.month.slice() : [];
+      let month = snap && Array.isArray(snap.month) ? snap.month.slice() : [];
       month = month.filter(function (c) {
         return !weekKeys[normalizeMatchKey_(c.matchKey || c.name)];
       });
-      const info = await dayDateInfo_(env, resolvedDay);
-      const iso = dateIso || snap.dateIso || info.iso;
       return {
         status: "success",
         day: resolvedDay,
         targetDay: resolvedDay,
-        date: snap.date || info.date || isoToDmy_(iso),
+        date: info.date || (snap && snap.date) || isoToDmy_(iso),
         dateIso: iso,
         dateNotInWeek: false,
         futureSlot: resolvedDay === "Будущая неделя",
-        monthSheet: snap.monthSheet || "D1",
+        monthSheet: (snap && snap.monthSheet) || "D1",
         calendar: true,
         week: week || [],
         month: month,
         sandbox: true,
-        source: snap.source || "d1",
-        fromSnap: true
+        source: snap ? "d1+snap" : "d1",
+        fromSnap: !!snap
       };
     }
   }
 
-  if (resolvedDay) {
-    const live = await getClients_({ day: resolvedDay }, env);
-    const info = await dayDateInfo_(env, resolvedDay);
-    const iso = dateIso || info.iso;
-    return {
-      status: "success",
-      day: resolvedDay,
-      targetDay: resolvedDay,
-      date: info.date || isoToDmy_(iso),
-      dateIso: iso,
-      dateNotInWeek: false,
-      futureSlot: resolvedDay === "Будущая неделя",
-      monthSheet: "D1",
-      calendar: true,
-      week: live.clients || [],
-      // без snap — month пустой (не копия week; иначе UI врёт)
-      month: [],
-      sandbox: true,
-      source: "d1"
-    };
-  }
-
-  // вне недели — клиенты по date_iso + snap по дате
+  // вне недели — snap по дате / orders по date_iso
   if (dateIso) {
     const byDate = await getSnapRaw_(env, "viewDate:" + dateIso);
     if (byDate && byDate.status === "success") {
-      return Object.assign({}, byDate, { sandbox: true, source: byDate.source || "d1", fromSnap: true });
+      const month = Array.isArray(byDate.month)
+        ? byDate.month
+        : Array.isArray(byDate.week)
+          ? byDate.week
+          : [];
+      return {
+        status: "success",
+        day: "",
+        dateIso: dateIso,
+        date: byDate.date || isoToDmy_(dateIso),
+        dateNotInWeek: true,
+        calendarOnly: true,
+        week: [],
+        month: month,
+        calendar: true,
+        monthSheet: byDate.monthSheet || "Календарь_Дат",
+        sandbox: true,
+        source: "snap",
+        fromSnap: true
+      };
     }
     const live = await getClients_({ date: dateIso }, env);
     return {
@@ -566,6 +606,27 @@ async function getViewCompare_(params, env) {
       month: live.clients || [],
       calendar: true,
       monthSheet: "D1",
+      sandbox: true,
+      source: "d1"
+    };
+  }
+
+  // только day без date (и без week counts hit выше — на всякий)
+  if (day) {
+    const live = await getClients_({ day: day }, env);
+    const info = await dayDateInfo_(env, day);
+    return {
+      status: "success",
+      day: day,
+      targetDay: day,
+      date: info.date || "",
+      dateIso: info.iso || "",
+      dateNotInWeek: false,
+      futureSlot: day === "Будущая неделя",
+      monthSheet: "D1",
+      calendar: true,
+      week: live.clients || [],
+      month: [],
       sandbox: true,
       source: "d1"
     };
@@ -592,14 +653,10 @@ async function rebuildWeekCounts_(env) {
   ((prev && prev.items) || []).forEach(function (it) {
     if (it && it.day) prevDates[it.day] = it.date || "";
   });
-  const map = await dateMap_(env);
-  Object.keys(map).forEach(function (iso) {
-    const d = map[iso];
-    if (d && !prevDates[d]) prevDates[d] = isoToDmy_(iso);
-  });
 
   const items = [];
   let total = 0;
+  const dateToDay = Object.create(null);
   for (let i = 0; i < WEEK_DAYS.length; i++) {
     const d = WEEK_DAYS[i];
     const q = await env.DB.prepare(
@@ -609,10 +666,22 @@ async function rebuildWeekCounts_(env) {
       .first();
     const c = Number(q && q.c) || 0;
     total += c;
-    items.push({ day: d, short: DAY_SHORT[d] || d, count: c, date: prevDates[d] || "" });
+    // дата — из живых orders, иначе из предыдущего counts (не из протухшего dateToDay)
+    let date = "";
+    const dr = await env.DB.prepare(
+      "SELECT date_iso, COUNT(*) AS n FROM orders WHERE day_name = ? AND status = 'active' AND date_iso != '' GROUP BY date_iso ORDER BY n DESC LIMIT 1"
+    )
+      .bind(d)
+      .first();
+    if (dr && dr.date_iso) date = isoToDmy_(dr.date_iso);
+    if (!date) date = prevDates[d] || "";
+    const iso = dmyToIso_(date);
+    if (iso) dateToDay[iso] = d;
+    items.push({ day: d, short: DAY_SHORT[d] || d, count: c, date: date });
   }
   const body = { status: "success", items: items, total: total, sandbox: true, source: "d1" };
   await putSnap_(env, "weekDayCounts", body);
+  await putSnap_(env, "dateToDay", { map: dateToDay });
   return body;
 }
 
@@ -1171,9 +1240,29 @@ async function handleCutover_(a, params, env, ctx) {
     return proxied;
   }
 
-  // чтение: НИКОГДА не ждём GAS в ответе — только D1/пусто.
-  // GAS revalidate только если D1 пусто/промах (с cooldown), иначе каждый тап долбит Sheets.
+  // чтение: D1 сразу. Исключение — дата календаря вне недели без snap (иначе UI «никого нет»).
   const fast = await cutoverFastRead_(a, params, env);
+  const calEmpty =
+    a === "getViewCompare" &&
+    params &&
+    params.date &&
+    fast &&
+    fast.dateNotInWeek &&
+    (!Array.isArray(fast.month) || !fast.month.length) &&
+    (!Array.isArray(fast.week) || !fast.week.length);
+  if (calEmpty) {
+    try {
+      const fresh = await gasProxy_(a, params, env, { write: false });
+      if (fresh && fresh.status === "success") {
+        await cutoverStoreRead_(a, params, env, fresh);
+        fresh.cutover = true;
+        fresh.swr = true;
+        fresh.fromGas = true;
+        return fresh;
+      }
+    } catch (eCal) {}
+  }
+
   const needGas = cutoverNeedsRevalidate_(a, params, fast);
   if (needGas && ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(cutoverRevalidate_(a, params, env));
@@ -1354,6 +1443,12 @@ async function cutoverStoreRead_(a, params, env, payload) {
   }
   if (a === "getWeekDayCounts") {
     await putSnap_(env, "weekDayCounts", payload);
+    const map = Object.create(null);
+    ((payload && payload.items) || []).forEach(function (it) {
+      const iso = dmyToIso_(it && it.date);
+      if (iso && it.day) map[iso] = it.day;
+    });
+    await putSnap_(env, "dateToDay", { map: map });
     return;
   }
   if (a === "getCutting" && params.day) {

@@ -4466,10 +4466,21 @@
           pick.value = now.getFullYear() + "-" + pad2Month_(now.getMonth() + 1);
         }
         setViewSub(viewSub || "month");
+        // cutover: сразу тянем свежий месяц/неделю, иначе календарь врёт после сдвига недели
+        if (window.__BOINYA_C_CUTOVER__) {
+          try { apiCacheBustMem_("getMonthOverview"); } catch (e0) {}
+          try { apiCacheBustMem_("getWeekDayCounts"); } catch (e1) {}
+          try { apiCacheBustMem_("getViewCompare"); } catch (e2) {}
+          ensureMonthOverviewLoaded_({ force: true });
+          ensureWeekOverviewLoaded_({ force: true, soft: true });
+        }
         return;
       }
 
       setViewSub(viewSub || "month");
+      if (window.__BOINYA_C_CUTOVER__ && viewSub === "month" && !viewMonthDayOpen) {
+        ensureMonthOverviewLoaded_({ soft: true });
+      }
     }
 
     function formatViewSegMix_(seg) {
@@ -4687,7 +4698,22 @@
       var daySel = document.getElementById("viewDaySelect");
       if (daySel) daySel.selectedIndex = 0;
       setViewSub("month");
+      try { apiCacheBustMem_("getViewCompare"); } catch (eB) {}
       await loadClientsForDay();
+      // если пусто, а в календаре был count — один принудительный догруз
+      var n = (loadedClientsRawData && loadedClientsRawData.length) || 0;
+      var m = (monthClientsCache && monthClientsCache.length) || 0;
+      if (window.__BOINYA_C_CUTOVER__ && n + m === 0) {
+        try {
+          var retry = await apiGet(
+            { action: "getViewCompare", date: iso, cutover: "1", _: String(Date.now()) },
+            { timeoutMs: 25000, cacheTtlMs: 0, retries: 1, __boinyaNoSnap: true }
+          );
+          if (retry && retry.status === "success") {
+            await loadClientsForDay();
+          }
+        } catch (eR) {}
+      }
     }
     window.openViewMonthDay = openViewMonthDay;
 

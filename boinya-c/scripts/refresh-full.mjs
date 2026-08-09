@@ -133,6 +133,32 @@ async function main() {
     await pull("getViewCompare", { day }, `view-${key}.json`);
   }
 
+  // даты календаря вне текущей недели — иначе клик по числу в Просмотре пустой
+  try {
+    const mo = JSON.parse(fs.readFileSync(path.join(OUT, "monthOverview.json"), "utf8"));
+    const weekIso = new Set();
+    try {
+      const counts = JSON.parse(fs.readFileSync(path.join(OUT, "weekDayCounts.json"), "utf8"));
+      ((counts.payload && counts.payload.items) || []).forEach((it) => {
+        const m = String(it.date || "").match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+        if (!m) return;
+        weekIso.add(m[3] + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0"));
+      });
+    } catch (eW) {}
+    const calDays = ((mo.payload && mo.payload.days) || []).filter(
+      (d) => d && d.dateIso && Number(d.count) > 0 && !weekIso.has(d.dateIso)
+    );
+    for (const d of calDays) {
+      const payload = await getAction("getViewCompare", { date: d.dateIso });
+      writeJson("viewDate-" + d.dateIso + ".json", { payload, params: { date: d.dateIso } });
+      snaps["viewDate:" + d.dateIso] = payload;
+      meta.items.push("viewDate:" + d.dateIso);
+      console.log("viewDate", d.dateIso, "month", ((payload && payload.month) || []).length);
+    }
+  } catch (eCal) {
+    console.error("calendar dates", eCal.message || eCal);
+  }
+
   for (const [action, params] of LIST_ACTIONS) {
     const fname =
       "snap-" +
