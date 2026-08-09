@@ -292,18 +292,18 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   position: relative;
   padding-bottom: 0;
 }
-/* «Мир» — мягкий акцент, без жёсткой подложки */
+/* «Мир» — едва теплее основного текста */
 .promise-hero .promise-mir {
   display: inline;
-  color: var(--gb-orange-2);
-  letter-spacing: 0.03em;
+  color: #e8d9c4;
+  letter-spacing: 0.02em;
   font-size: inherit;
   line-height: inherit;
   margin: 0;
   padding: 0;
   border: 0;
   text-shadow: none;
-  opacity: 0.92;
+  opacity: 1;
 }
 .promise-hero .promise-rest {
   display: inline;
@@ -1784,6 +1784,115 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   animation: phoneBob 6.5s ease-in-out infinite;
 }
 
+/* —— Лёгкая собачка за лакомством —— */
+.treat-chase {
+  position: relative;
+  height: 52px;
+  margin: 4px 0 8px;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.88;
+}
+.treat-chase-track {
+  position: absolute;
+  inset: 0;
+}
+.treat-chase-treat,
+.treat-chase-dog {
+  position: absolute;
+  bottom: 6px;
+  left: 0;
+  color: var(--gb-orange);
+  will-change: transform;
+  opacity: 0;
+}
+.treat-chase-treat {
+  color: var(--gb-orange-2);
+  filter: drop-shadow(0 2px 6px rgba(212, 161, 90, 0.35));
+}
+.treat-chase-dog {
+  color: var(--gb-cream);
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.28));
+}
+.treat-chase-dog svg {
+  display: block;
+  overflow: visible;
+}
+.treat-chase-bob {
+  display: block;
+}
+.treat-chase.is-running .treat-chase-treat {
+  opacity: 1;
+  animation: tcTreatRun 9.5s var(--ease) infinite;
+}
+.treat-chase.is-running .treat-chase-dog {
+  opacity: 1;
+  animation: tcDogRun 9.5s var(--ease) infinite;
+}
+.treat-chase.is-running .treat-chase-treat .treat-chase-bob {
+  animation: tcTreatBob 0.55s ease-in-out infinite;
+}
+.treat-chase.is-running .treat-chase-dog .treat-chase-bob {
+  animation: tcDogBob 0.38s ease-in-out infinite;
+}
+.treat-chase.is-running .tc-leg-a,
+.treat-chase.is-running .tc-leg-d {
+  transform-origin: center top;
+  animation: tcLeg 0.38s ease-in-out infinite;
+}
+.treat-chase.is-running .tc-leg-b,
+.treat-chase.is-running .tc-leg-c {
+  transform-origin: center top;
+  animation: tcLeg 0.38s ease-in-out infinite reverse;
+}
+.treat-chase.is-running .tc-tail {
+  transform-origin: 14px 18px;
+  animation: tcTail 0.45s ease-in-out infinite;
+}
+.treat-chase.is-static .treat-chase-treat,
+.treat-chase.is-static .treat-chase-dog {
+  opacity: 0.55;
+  left: 42%;
+}
+.treat-chase.is-static .treat-chase-treat {
+  transform: translateX(48px);
+}
+
+@keyframes tcTreatRun {
+  0%, 8% { transform: translate3d(-12vw, 0, 0); opacity: 0; }
+  14% { opacity: 1; }
+  78% { opacity: 1; }
+  88%, 100% { transform: translate3d(108vw, 0, 0); opacity: 0; }
+}
+@keyframes tcDogRun {
+  0%, 10% { transform: translate3d(-18vw, 0, 0); opacity: 0; }
+  16% { opacity: 1; }
+  80% { opacity: 1; }
+  90%, 100% { transform: translate3d(102vw, 0, 0); opacity: 0; }
+}
+@keyframes tcTreatBob {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -5px; }
+}
+@keyframes tcDogBob {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -3px; }
+}
+@keyframes tcLeg {
+  0%, 100% { transform: rotate(18deg); }
+  50% { transform: rotate(-22deg); }
+}
+@keyframes tcTail {
+  0%, 100% { transform: rotate(-8deg); }
+  50% { transform: rotate(14deg); }
+}
+
+@media (max-width: 640px) {
+  .treat-chase { height: 44px; margin-top: 0; }
+  .treat-chase-dog svg { width: 48px; height: 28px; }
+  .treat-chase-treat svg { width: 18px; height: 18px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .scroll-progress { display: none; }
   .site-hero .promise-hero,
@@ -1800,4 +1909,20 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
     transform: none !important;
     filter: none !important;
   }
+  .treat-chase.is-running .treat-chase-treat,
+  .treat-chase.is-running .treat-chase-dog,
+  .treat-chase.is-running .treat-chase-bob,
+  .treat-chase.is-running .tc-leg-a,
+  .treat-chase.is-running .tc-leg-b,
+  .treat-chase.is-running .tc-leg-c,
+  .treat-chase.is-running .tc-leg-d,
+  .treat-chase.is-running .tc-tail {
+    animation: none !important;
+  }
+  .treat-chase .treat-chase-treat,
+  .treat-chase .treat-chase-dog {
+    opacity: 0.5;
+    left: 40%;
+  }
+  .treat-chase .treat-chase-treat { transform: translateX(40px); }
 }
