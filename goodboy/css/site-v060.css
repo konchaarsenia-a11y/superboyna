@@ -123,7 +123,13 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 8px 24px rgba(212,161,90,0.35);
 }
 
-.site-main { display: block; position: relative; z-index: 1; overflow-x: clip; }
+.site-main {
+  display: block;
+  position: relative;
+  z-index: 1;
+  overflow-x: clip;
+  background: transparent;
+}
 body.mode-app .site-main,
 body.mode-app .site-nav,
 body.mode-app .fx-grain,
@@ -156,8 +162,8 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 /* —— Hero + overlays —— */
 .site-hero {
   position: relative;
-  min-height: 100dvh;
-  padding: 100px 20px 56px;
+  min-height: auto;
+  padding: 110px 20px 40px;
   display: grid;
   align-items: center;
   overflow: hidden;
@@ -426,8 +432,8 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   }
 }
 .site-hero--features {
-  min-height: 100dvh;
-  padding: 100px 20px 56px;
+  min-height: auto;
+  padding: 110px 20px 36px;
 }
 .hero-features {
   display: grid;
@@ -487,9 +493,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 
 /* —— Cinematic photo shelves —— */
 .site-section--shelves {
-  padding-left: 0;
-  padding-right: 0;
-  padding-bottom: 0;
+  padding: 28px 0 8px;
   overflow: hidden; /* без скролла в стороны; вертикаль — за счёт padding */
   max-width: 100%;
 }
@@ -508,16 +512,6 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   max-width: 100%;
   padding: 36px 0 44px; /* место под наклон — полоски не режутся */
   position: relative;
-}
-/* мягкий фон-«плёнка», чтобы стыки не читались как обрезки */
-.photo-shelves::before {
-  content: "";
-  position: absolute;
-  inset: 18px 0 22px;
-  background:
-    linear-gradient(180deg, transparent 0%, rgba(38, 44, 41, 0.55) 18%, rgba(38, 44, 41, 0.55) 82%, transparent 100%);
-  pointer-events: none;
-  z-index: 0;
 }
 .photo-shelves .shelf {
   margin: 0;
@@ -620,8 +614,8 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 
 /* —— Phone block below shelves —— */
 .site-section--phone {
-  padding-top: 64px;
-  padding-bottom: 72px;
+  padding-top: 48px;
+  padding-bottom: 56px;
 }
 .phone-block {
   display: grid;
@@ -1096,15 +1090,20 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .d3 { transition-delay: 0.24s; }
 
 .site-section {
-  padding: 80px 20px;
+  padding: 56px 20px;
   position: relative;
+  background: transparent;
+  border: 0;
 }
+/* без «листа презентации» — только мягкая волна тона, общий фон страницы */
 .site-section--alt {
-  background:
-    linear-gradient(180deg, rgba(127,168,144,0.08), transparent 30%),
-    #262c29;
-  border-top: 1px solid rgba(237,232,223,0.07);
-  border-bottom: 1px solid rgba(237,232,223,0.07);
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(127, 168, 144, 0.05) 45%,
+    transparent 100%
+  );
+  border: 0;
 }
 .site-section .inner {
   width: min(840px, 100%);
@@ -1175,16 +1174,16 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 16px;
-  padding: 18px 14px;
+  padding: 16px 14px;
   margin: 0 -14px;
-  border-top: 1px solid rgba(237,232,223,0.1);
+  border-top: 1px solid rgba(237,232,223,0.06);
   border-radius: 14px;
   transition: background 0.3s ease, transform 0.3s var(--ease);
   position: relative;
   overflow: hidden;
 }
 .feature-rail article:last-child {
-  border-bottom: 1px solid rgba(237,232,223,0.1);
+  border-bottom: 1px solid rgba(237,232,223,0.06);
 }
 .feature-rail article::before {
   content: "";
@@ -1528,11 +1527,12 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 
 .site-footer {
-  padding: 18px 20px 32px;
+  padding: 28px 20px 40px;
   text-align: center;
   color: var(--gb-muted);
   font-size: 0.82rem;
-  border-top: 1px solid rgba(237,232,223,0.08);
+  border-top: 0;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.12));
 }
 .site-footer a { color: var(--gb-orange-2); text-decoration: none; }
 
