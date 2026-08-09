@@ -292,18 +292,18 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   position: relative;
   padding-bottom: 0;
 }
-/* «Мир» — мягкий акцент, без жёсткой подложки */
+/* «Мир» — едва теплее основного текста */
 .promise-hero .promise-mir {
   display: inline;
-  color: var(--gb-orange-2);
-  letter-spacing: 0.03em;
+  color: #e8d9c4;
+  letter-spacing: 0.02em;
   font-size: inherit;
   line-height: inherit;
   margin: 0;
   padding: 0;
   border: 0;
   text-shadow: none;
-  opacity: 0.92;
+  opacity: 1;
 }
 .promise-hero .promise-rest {
   display: inline;
