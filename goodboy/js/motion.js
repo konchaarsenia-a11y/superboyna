@@ -155,12 +155,14 @@
     var hero = document.querySelector(".site-hero");
     var stage = hero && (hero.querySelector(".hero-features") || hero.querySelector(".hero-stage"));
     var copy = hero && hero.querySelector(".hero-copy");
-    if (!hero) return;
+    var bleedRows = document.querySelectorAll(".photo-bleed .pb-row");
+    if (!hero && !bleedRows.length) return;
 
     var ticking = false;
     function apply() {
       ticking = false;
       var y = global.scrollY || 0;
+      var vh = global.innerHeight || 1;
 
       if (hero && (stage || copy)) {
         var h = hero.offsetHeight || 1;
@@ -178,6 +180,16 @@
             copy.style.opacity = String((1 - p * 0.28).toFixed(3));
           }
         }
+      }
+
+      /* ряды чуть едут в стороны — куски сильнее «торчат» из углов */
+      for (var i = 0; i < bleedRows.length; i++) {
+        var row = bleedRows[i];
+        var r = row.getBoundingClientRect();
+        var mid = r.top + r.height * 0.5;
+        var t = (mid - vh * 0.5) / vh;
+        var dir = i % 2 === 0 ? -1 : 1;
+        row.style.transform = "translate3d(" + (t * 18 * dir).toFixed(2) + "px,0,0)";
       }
     }
 

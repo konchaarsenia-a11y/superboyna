@@ -513,7 +513,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   animation: rise 0.85s var(--ease) 0.05s forwards;
 }
 
-/* —— Photo mosaic (как на разметке) —— */
+/* —— Photo bleed: куски торчат из углов экрана (не сетка / не перемычки) —— */
 .site-section--shelves {
   padding: 88px 0 12px;
   margin-top: 0;
@@ -529,23 +529,37 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   padding: 0 20px;
   box-sizing: border-box;
 }
-.photo-mosaic {
-  width: min(980px, calc(100% - 32px));
-  margin: 36px auto 48px;
-  display: grid;
-  grid-template-columns: minmax(110px, 0.95fr) minmax(180px, 2.05fr);
-  grid-template-rows: auto auto auto;
-  gap: 10px;
+.photo-bleed {
+  margin-top: 40px;
+  padding: 32px 0 48px;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   position: relative;
 }
-.photo-mosaic .pm {
+.pb-row {
+  position: relative;
+  width: 100%;
+  height: clamp(118px, 17vw, 168px);
+  display: block;
+  will-change: transform;
+}
+.pb-row-full {
+  height: clamp(130px, 19vw, 188px);
+}
+.photo-bleed .pb {
   margin: 0;
   overflow: hidden;
-  border-radius: 4px;
-  background: var(--gb-surface-2);
-  position: relative;
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
 }
-.photo-mosaic .pm img {
+.photo-bleed .pb img {
   width: 100%;
   height: 100%;
   display: block;
@@ -553,67 +567,74 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   filter: saturate(1.04) contrast(1.02);
   transition: transform 0.75s var(--ease), filter 0.45s ease;
 }
-.photo-mosaic .pm:hover img {
-  transform: scale(1.04);
+.photo-bleed .pb:hover img {
+  transform: scale(1.05);
   filter: saturate(1.06) brightness(1.03) contrast(1.03);
 }
-/* ряд 1: квадрат + широкий */
-.pm-a {
-  grid-column: 1;
-  grid-row: 1;
-  aspect-ratio: 1 / 1;
-  min-height: clamp(120px, 20vw, 200px);
+/* короткий — из левого угла, за край */
+.pb-from-left {
+  left: 0;
+  width: 34%;
+  margin-left: -12%;
+  transform: rotate(-1.8deg);
+  transform-origin: left center;
 }
-.pm-a img { object-position: 18% 45%; }
-.pm-b {
-  grid-column: 2;
-  grid-row: 1;
-  min-height: clamp(120px, 20vw, 200px);
+.pb-from-left.pb-sm { width: 34%; }
+.pb-from-left img { object-position: 18% 45%; }
+/* длинный — из правого угла, за край; в середине пустота, не стык */
+.pb-from-right {
+  right: 0;
+  left: auto;
+  width: 54%;
+  margin-right: -14%;
+  transform: rotate(2deg);
+  transform-origin: right center;
 }
-.pm-b img { object-position: 72% 42%; }
-/* ряд 2: на всю ширину */
-.pm-c {
-  grid-column: 1 / -1;
-  grid-row: 2;
-  aspect-ratio: 2.4 / 1;
-  min-height: clamp(140px, 24vw, 230px);
+.pb-from-right.pb-wide { width: 54%; }
+.pb-from-right img { object-position: 72% 40%; }
+/* средняя полоса — шире экрана, свисает с обоих краёв */
+.pb-full {
+  left: 0;
+  width: 124%;
+  margin-left: -12%;
+  transform: rotate(-0.85deg);
 }
-.pm-c img { object-position: 50% 30%; }
-/* ряд 3: квадрат + широкий */
-.pm-d {
-  grid-column: 1;
-  grid-row: 3;
-  aspect-ratio: 1 / 1;
-  min-height: clamp(120px, 20vw, 200px);
-}
-.pm-d img { object-position: 12% 45%; }
-.pm-e {
-  grid-column: 2;
-  grid-row: 3;
-  min-height: clamp(120px, 20vw, 200px);
-}
-.pm-e img { object-position: 68% 48%; }
+.pb-full img { object-position: 50% 32%; }
+.pb-row:last-child .pb-from-left img { object-position: 12% 48%; }
+.pb-row:last-child .pb-from-right img { object-position: 68% 50%; }
 
 @media (max-width: 640px) {
-  .photo-mosaic {
-    width: calc(100% - 24px);
-    gap: 8px;
-    margin: 28px auto 36px;
-    grid-template-columns: 0.92fr 1.9fr;
+  .photo-bleed {
+    gap: 12px;
+    padding: 24px 0 36px;
   }
-  .pm-a, .pm-b, .pm-d, .pm-e {
-    min-height: clamp(96px, 28vw, 140px);
+  .pb-row {
+    height: clamp(96px, 26vw, 128px);
   }
-  .pm-c {
-    min-height: clamp(110px, 32vw, 160px);
-    aspect-ratio: 2.1 / 1;
+  .pb-row-full {
+    height: clamp(108px, 28vw, 140px);
+  }
+  .pb-from-left {
+    width: 40%;
+    margin-left: -18%;
+  }
+  .pb-from-left.pb-sm { width: 40%; }
+  .pb-from-right {
+    width: 58%;
+    margin-right: -20%;
+  }
+  .pb-from-right.pb-wide { width: 58%; }
+  .pb-full {
+    width: 132%;
+    margin-left: -16%;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .photo-mosaic .pm img {
+  .photo-bleed .pb img {
     transition: none;
   }
+  .pb-row { will-change: auto; }
 }
 
 /* —— Phone block below shelves —— */
