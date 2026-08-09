@@ -1,28 +1,23 @@
-# Cutover: пробуем живой режим
+# Cutover LIVE (быстрый)
 
-## Режимы C
+## Как открыть
 
-| URL | Режим | Скорость | Данные / запись |
-|--|--|--|--|
-| `/boinya-c/` | Sandbox D1 | быстро (кэш) | снимок / только D1 |
-| `/boinya-c/?cutover=1` | **LIVE прямой GAS** | как прод | бой / Sheets |
-| `/boinya-c/?cutover=1&via=worker` | LIVE через Worker | медленнее (+hop) | бой / Sheets |
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111501  
 
-Раньше `?cutover=1` всегда шёл Browser→Worker→GAS — из‑за этого было «сильно дольше».  
-Сейчас по умолчанию cutover = **напрямую в GAS**, как боевой миниапп.
+Hard refresh. Бейдж **C · LIVE**.
 
-## Как пробовать сейчас
+## Как это устроено сейчас
 
-1. Открой:  
-   https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111500  
-2. Hard refresh. Бейдж **C · LIVE**.
-3. Проверяй на **`zzz_test`**.
-4. Реальных клиентов не крути, пока не убедишься.
+| | |
+|--|--|
+| **Чтение** | сразу из D1 (быстро), в фоне подтягивается GAS |
+| **Запись** | в боевой GAS/Sheets, потом D1 обновляется |
+| Опасные week-actions | только с `allowDanger=1` |
 
-## Чего ещё нет для полного cutover бота
+Тест только на **`zzz_test`**.
 
-- URL в Telegram-боте всё ещё на старый миниапп.
-- Опасные week-actions требуют явного `allowDanger`.
-- Нет авто-rollback и мониторинга.
+## Если снова тормозит
 
-Когда LIVE стабилен на `zzz_test` и неделе — отдельно меняем URL бота.
+1. Hard refresh / смени `v=`
+2. Не используй `?via=direct` — это медленный путь напрямую в GAS
+3. Sandbox без записи: `?cutover=0` или `?sandbox=1`
