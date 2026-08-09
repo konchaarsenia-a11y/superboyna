@@ -33,6 +33,12 @@ Environment: `.cursor/environment.json`.
 - Deploy Apps Script делает владелец; в git код пушить сам, напоминать только про Deploy.
 - Environment/Builds/Secrets — в [Cloud Agents dashboard](https://cursor.com/dashboard/cloud-agents#environments); секреты не коммитить.
 
+## Automations
+
+Готовые рецепты (создаёт владелец в UI): [`.cursor/automations/`](./.cursor/automations/README.md)  
+Создать: [cursor.com/automations](https://cursor.com/automations) или `/automate` в Desktop.  
+Cloud Agent **не может** сохранить Automation за владельца — только положить prompt в репо.
+
 Рабочие файлы конвейера: `app.html` (фронт), `Code.gs` (бэкенд).  
 Клиентский продукт: **Goodboy** — см. `GOODBOY.md`.  
 Партнёры **Varka** (бесплатное пополнение): **`varka/`** — см. `VAROK.md`.  
