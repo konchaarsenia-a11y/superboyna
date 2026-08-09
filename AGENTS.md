@@ -18,14 +18,17 @@
 |-------|--------|
 | `frontend-design` | Новый/смелый UI (лендинги, Goodboy); не ломать токены конвейера |
 | `ui-miniapp-pass` | Полировка Mini App / HTML без полного редизайна |
-| `test-api` | Smoke webhook на `zzz_test` |
+| `webapp-testing` | Playwright / локальный HTML UI smoke |
+| `test-api` | Smoke webhook на `zzz_test` (`scripts/test-api.sh`) |
 | `tz-checklist` | Галочки в `TZ.md` после работы / слов владельца |
 
-UI-токены конвейера и Varka: `.cursor/rules/ui-miniapp.mdc`.
+UI-токены конвейера и Varka: `.cursor/rules/ui-miniapp.mdc`.  
+Hooks: `.cursor/hooks.json` (блок `finishFullWeekProduction` в shell).  
+Environment: `.cursor/environment.json`.
 
 ## Cursor Cloud
 
-- Тест API из VM: skill `test-api`, клиент только `zzz_test`.
+- Тест API из VM: `bash scripts/test-api.sh` / skill `test-api`, клиент только `zzz_test`.
 - Не запускать `finishFullWeekProduction` без явного ОК.
 - Deploy Apps Script делает владелец; в git код пушить сам, напоминать только про Deploy.
 - Environment/Builds/Secrets — в [Cloud Agents dashboard](https://cursor.com/dashboard/cloud-agents#environments); секреты не коммитить.
