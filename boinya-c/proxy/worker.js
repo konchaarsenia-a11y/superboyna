@@ -1240,8 +1240,33 @@ async function handleCutover_(a, params, env, ctx) {
     return proxied;
   }
 
+  // подсказки адресов / партнёров / цены — только живой GAS (в D1 их нет)
+  if (
+    a === "suggestAddress" ||
+    a === "lookupBpPartner" ||
+    a === "calcPrice" ||
+    a === "calcPpFact" ||
+    a === "getPpFactCost" ||
+    a === "getPpOrderSuggest"
+  ) {
+    const live = await gasProxy_(a, params, env, { write: false });
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+      // UI ждёт results у suggestAddress
+      if (a === "suggestAddress" && !Array.isArray(live.results)) {
+        live.results = live.suggestions || live.items || [];
+      }
+      return live;
+    }
+    if (a === "suggestAddress") {
+      return { status: "success", results: [], suggestions: [], items: [], cutover: true, source: "empty" };
+    }
+    return { status: "success", items: [], suggestions: [], basket: [], total: 0, price: 0, cutover: true };
+  }
+
   // чтение: D1 сразу. Исключение — дата календаря вне недели без snap (иначе UI «никого нет»).
-  const fast = await cutoverFastRead_(a, params, env);
+  const fast = await cutoverFastRead_(a, params, env)
   const calEmpty =
     a === "getViewCompare" &&
     params &&
@@ -1341,7 +1366,15 @@ function cutoverEmptyRead_(a, params) {
     return { status: "success", items: [], basket: [], total: 0, price: 0, cutover: true, swr: true, empty: true };
   }
   if (a === "suggestAddress" || a === "lookupBpPartner") {
-    return { status: "success", items: [], suggestions: [], cutover: true, swr: true, empty: true };
+    return {
+      status: "success",
+      results: [],
+      items: [],
+      suggestions: [],
+      cutover: true,
+      swr: true,
+      empty: true
+    };
   }
   return {
     status: "success",
