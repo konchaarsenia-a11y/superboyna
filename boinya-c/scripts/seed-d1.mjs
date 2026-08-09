@@ -38,6 +38,19 @@ function sqlEscape(s) {
   return String(s ?? "").replace(/'/g, "''");
 }
 
+function normalizeMatchKey(raw) {
+  var s = String(raw || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!s) return "";
+  var at = s.match(/@([A-Za-z0-9._]{2,})/);
+  var handle = "";
+  if (at) handle = at[1];
+  else if (/^[A-Za-z0-9._]{3,}$/.test(s) && /[A-Za-z]/.test(s)) handle = s;
+  if (handle) return handle.toUpperCase().replace(/[._]/g, "");
+  return s.toUpperCase().replace(/Ё/g, "Е");
+}
+
 async function d1(sql) {
   const url = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/d1/database/${DB_ID}/query`;
   const res = await fetch(url, {
@@ -57,18 +70,24 @@ async function d1(sql) {
 }
 
 function dmyToIso(dmy) {
-  const m = String(dmy || "").trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  const m = String(dmy || "")
+    .trim()
+    .match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (!m) return "";
   return m[3] + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
 }
 
 async function main() {
   console.log("migrate columns…");
-  for (const col of ["phone TEXT DEFAULT ''", "source TEXT DEFAULT ''"]) {
+  for (const col of [
+    "phone TEXT DEFAULT ''",
+    "source TEXT DEFAULT ''",
+    "meta_json TEXT DEFAULT '{}'"
+  ]) {
     try {
       await d1(`ALTER TABLE orders ADD COLUMN ${col}`);
     } catch (e) {
-      /* already */
+      /* already / duplicate */
     }
   }
   await d1(`CREATE TABLE IF NOT EXISTS snap_cache (
@@ -76,11 +95,29 @@ async function main() {
     payload TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`);
+  await d1(`CREATE TABLE IF NOT EXISTS deliveries (
+    date_iso TEXT NOT NULL,
+    match_key TEXT NOT NULL,
+    delivered INTEGER DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (date_iso, match_key)
+  )`);
+  await d1(`CREATE TABLE IF NOT EXISTS cutting_flags (
+    date_iso TEXT NOT NULL,
+    row_key TEXT NOT NULL,
+    surplus REAL DEFAULT 0,
+    done INTEGER DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (date_iso, row_key)
+  )`);
 
   const now = new Date().toISOString();
   console.log("clear old sandbox orders…");
   await d1("DELETE FROM orders");
   await d1("DELETE FROM snap_cache");
+  try {
+    await d1("DELETE FROM deliveries");
+  } catch (e) {}
 
   const counts = loadJson("weekDayCounts.json");
   const dateByDay = {};
@@ -94,16 +131,29 @@ async function main() {
     const clients = (cl && cl.payload && cl.payload.clients) || [];
     const meta = dateByDay[day] || { date: "", iso: "" };
     for (const c of clients) {
-      const mk = String(c.matchKey || c.name || "")
-        .trim()
-        .toLowerCase();
+      const mk = normalizeMatchKey(c.matchKey || c.name || "");
       if (!mk) continue;
       const id = day + ":" + mk;
       const basket = JSON.stringify(c.basket || []);
-      const sql = `INSERT INTO orders (id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at)
+      const metaObj = {
+        orderPrice: c.orderPrice,
+        ppSlot: c.ppSlot,
+        ppHint: c.ppHint,
+        ppPartner: c.ppPartner,
+        deliveryAfter: c.deliveryAfter,
+        deliveryBefore: c.deliveryBefore,
+        dogCount: c.dogCount,
+        geo: c.geo,
+        noCut: !!c.noCut,
+        couponsQty: c.couponsQty,
+        couponPrice: c.couponPrice,
+        orderCount: c.orderCount
+      };
+      const sql = `INSERT INTO orders (id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json)
         VALUES ('${sqlEscape(id)}', '${sqlEscape(meta.iso)}', '${sqlEscape(day)}', '${sqlEscape(c.name)}', '${sqlEscape(mk)}',
         '${sqlEscape(c.address)}', '${sqlEscape(c.note)}', '${sqlEscape(c.phone)}', '${sqlEscape(basket)}',
-        '${sqlEscape(c.segment)}', '${sqlEscape(c.source)}', 'active', '${sqlEscape(c.updatedAt || now)}')`;
+        '${sqlEscape(c.segment)}', '${sqlEscape(c.source)}', 'active', '${sqlEscape(c.updatedAt || now)}',
+        '${sqlEscape(JSON.stringify(metaObj))}')`;
       await d1(sql);
       orderN++;
     }
@@ -141,7 +191,6 @@ async function main() {
     if (v && v.payload) await putSnap(`view:${day}`, v.payload);
   }
 
-  // лёгкие пустые списки чтобы вкладки не висели на GAS
   for (const a of [
     "listDeferred",
     "listSurvey",
@@ -150,9 +199,22 @@ async function main() {
     "listAccess",
     "listBookings",
     "listClientProfiles",
-    "listTemplates"
+    "listTemplates",
+    "listReminderPeople",
+    "listBpIdle",
+    "getCouriers",
+    "partnerListAdmin"
   ]) {
-    await putSnap(a, { status: "success", items: [], list: [], people: [], clients: [], sandbox: true });
+    await putSnap(a, {
+      status: "success",
+      items: [],
+      list: [],
+      people: [],
+      clients: [],
+      partners: [],
+      couriers: [],
+      sandbox: true
+    });
   }
 
   await putSnap("meta:seededAt", { at: now, orders: orderN });

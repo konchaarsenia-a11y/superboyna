@@ -9,6 +9,28 @@ const CORS = {
   "Access-Control-Max-Age": "86400"
 };
 
+const WEEK_DAYS = [
+  "Понедельник",
+  "Вторник",
+  "Среда",
+  "Четверг",
+  "Пятница",
+  "Суббота",
+  "Воскресенье",
+  "Будущая неделя"
+];
+
+const DAY_SHORT = {
+  Понедельник: "Пн",
+  Вторник: "Вт",
+  Среда: "Ср",
+  Четверг: "Чт",
+  Пятница: "Пт",
+  Суббота: "Сб",
+  Воскресенье: "Вс",
+  "Будущая неделя": "Буд"
+};
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -49,7 +71,10 @@ export default {
       }
       return json(result);
     } catch (e) {
-      return json({ status: "error", message: String(e && e.message ? e.message : e), sandbox: true }, 500);
+      return json(
+        { status: "error", message: String(e && e.message ? e.message : e), sandbox: true },
+        500
+      );
     }
   }
 };
@@ -61,12 +86,12 @@ async function handleAction_(action, params, env) {
   }
   if (a === "getClients") return getClients_(params, env);
   if (a === "getViewCompare") return getViewCompare_(params, env);
-  if (a === "getWeekDayCounts") return getSnapOrBuild_(env, "weekDayCounts", () => buildWeekCounts_(env));
+  if (a === "getWeekDayCounts") return rebuildWeekCounts_(env);
   if (a === "getMonthOverview") return getMonthOverview_(params, env);
   if (a === "getWeekBannerState") return getSnap_(env, "weekBanner", defaultBanner_(params));
-  if (a === "getCutting") return getDaySnap_(env, "cutting", params.day);
-  if (a === "getCourier") return getDaySnap_(env, "courier", params.day);
-  if (a === "getAssembly") return getDaySnap_(env, "assembly", params.day);
+  if (a === "getCutting") return getCutting_(params, env);
+  if (a === "getCourier") return getCourier_(params, env);
+  if (a === "getAssembly") return getAssembly_(params, env);
   if (a === "getWarehouse" || a === "warehousePreview") {
     return getSnap_(env, "warehouse", { status: "success", items: [], rows: [], sandbox: true });
   }
@@ -82,16 +107,53 @@ async function handleAction_(action, params, env) {
       sandbox: true
     };
   }
-  if (a === "saveOrder" || a === "saveBooking") return saveOrder_(params, env);
-  if (a === "deleteClient") return deleteClient_(params, env);
+  if (a === "saveOrder") return saveOrder_(params, env, false);
+  if (a === "saveBooking") return saveOrder_(params, env, true);
+  if (a === "deleteClient" || a === "removeCalendarClient") return deleteClient_(params, env);
   if (a === "moveClient") return moveClient_(params, env);
-  if (a === "listDeferred" || a === "listSurvey" || a === "listSubscriptions" || a === "listPartners" || a === "listAccess" || a === "listBookings" || a === "listClientProfiles" || a === "listTemplates" || a === "listReminderPeople" || a === "listBpIdle" || a === "getCouriers" || a === "partnerListAdmin") {
+  if (a === "setDelivered") return setDelivered_(params, env);
+  if (a === "setAssembled") return setAssemblyFlag_(params, env, "assembled");
+  if (a === "setPrinted") return setAssemblyFlag_(params, env, "printed");
+  if (a === "updateCutting") return updateCutting_(params, env);
+  if (a === "startCuttingSession" || a === "finishCutting" || a === "prepareFinishCutting") {
+    return { status: "success", sandbox: true, wrote: 1, action: a };
+  }
+  if (
+    a === "listDeferred" ||
+    a === "listSurvey" ||
+    a === "listSubscriptions" ||
+    a === "listPartners" ||
+    a === "listAccess" ||
+    a === "listBookings" ||
+    a === "listClientProfiles" ||
+    a === "listTemplates" ||
+    a === "listReminderPeople" ||
+    a === "listBpIdle" ||
+    a === "getCouriers" ||
+    a === "partnerListAdmin"
+  ) {
     const hit = await getSnapRaw_(env, a);
     if (hit) return hit;
-    return { status: "success", items: [], list: [], people: [], clients: [], partners: [], couriers: [], sandbox: true, empty: true };
+    return {
+      status: "success",
+      items: [],
+      list: [],
+      people: [],
+      clients: [],
+      partners: [],
+      couriers: [],
+      sandbox: true,
+      empty: true
+    };
   }
   if (a === "getSubscription") {
-    return { status: "success", found: false, nick: params.nick || "", segment: params.segment || "", sandbox: true };
+    return {
+      status: "success",
+      found: false,
+      nick: params.nick || "",
+      segment: params.segment || "",
+      sandbox: true
+    };
   }
   if (a === "getPpFactCost" || a === "getPpOrderSuggest" || a === "calcPrice" || a === "calcPpFact") {
     return { status: "success", items: [], basket: [], total: 0, price: 0, suggest: {}, sandbox: true };
@@ -108,25 +170,103 @@ async function handleAction_(action, params, env) {
   if (a === "setWeekBannerState") {
     const body = {
       status: "success",
-      finished: !!params.finished,
-      pulled: !!params.pulled,
-      refused: !!params.refused,
+      finished: !!toBool_(params.finished),
+      pulled: !!toBool_(params.pulled),
+      refused: !!toBool_(params.refused),
       weekKey: params.weekKey || "",
       sandbox: true
     };
     await putSnap_(env, "weekBanner", body);
     return body;
   }
-  // мутации / прочие action миниаппа — песочница, не падаем в unknown
-  if (/^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner)/i.test(a)) {
-    return { status: "success", sandbox: true, wrote: "noop", action: a };
+  if (
+    /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner)/i.test(
+      a
+    )
+  ) {
+    return { status: "success", sandbox: true, wrote: 1, action: a };
   }
   return { status: "success", sandbox: true, action: a, empty: true };
 }
 
+function toBool_(v) {
+  if (v === true || v === 1) return true;
+  const s = String(v == null ? "" : v).toLowerCase();
+  return s === "1" || s === "true" || s === "yes";
+}
+
+function normalizeMatchKey_(raw) {
+  var s = String(raw || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!s) return "";
+  var at = s.match(/@([A-Za-z0-9._]{2,})/);
+  var handle = "";
+  if (at) handle = at[1];
+  else if (/^[A-Za-z0-9._]{3,}$/.test(s) && /[A-Za-z]/.test(s)) handle = s;
+  if (handle) return handle.toUpperCase().replace(/[._]/g, "");
+  return s.toUpperCase().replace(/Ё/g, "Е");
+}
+
+function parseBasket_(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      const j = JSON.parse(raw || "[]");
+      return Array.isArray(j) ? j : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
+}
+
+function parseMeta_(raw) {
+  if (!raw) return {};
+  if (typeof raw === "object") return raw;
+  try {
+    return JSON.parse(raw) || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function clientFromRow_(r) {
+  const basket = parseBasket_(r.basket_json);
+  const meta = parseMeta_(r.meta_json);
+  const out = Object.assign({}, meta, {
+    name: r.client,
+    matchKey: r.match_key,
+    address: r.address || meta.address || "",
+    note: r.note || meta.note || "",
+    phone: r.phone || meta.phone || "",
+    basket: basket,
+    segment: r.segment || meta.segment || "",
+    source: r.source || meta.source || "",
+    orderCount: Array.isArray(basket) ? basket.length : Number(meta.orderCount) || 0,
+    updatedAt: r.updated_at,
+    dateIso: r.date_iso || "",
+    day: r.day_name || "",
+    noCut: !!meta.noCut
+  });
+  return out;
+}
+
+async function ensureMetaColumn_(env) {
+  if (!env || !env.DB || env.__metaColReady) return;
+  try {
+    await env.DB.prepare("ALTER TABLE orders ADD COLUMN meta_json TEXT DEFAULT '{}'").run();
+  } catch (e) {
+    /* already */
+  }
+  env.__metaColReady = true;
+}
+
 async function getSnapRaw_(env, key) {
   if (!env || !env.DB) return null;
-  const q = await env.DB.prepare("SELECT payload FROM snap_cache WHERE cache_key = ?").bind(key).first();
+  const q = await env.DB.prepare("SELECT payload FROM snap_cache WHERE cache_key = ?")
+    .bind(key)
+    .first();
   if (!q || !q.payload) return null;
   try {
     return JSON.parse(q.payload);
@@ -146,118 +286,130 @@ async function putSnap_(env, key, payload) {
     .run();
 }
 
+async function delSnap_(env, key) {
+  if (!env || !env.DB) return;
+  await env.DB.prepare("DELETE FROM snap_cache WHERE cache_key = ?").bind(key).run();
+}
+
 async function getSnap_(env, key, fallback) {
   const hit = await getSnapRaw_(env, key);
   return hit || fallback;
 }
 
-async function getSnapOrBuild_(env, key, builder) {
-  const hit = await getSnapRaw_(env, key);
-  if (hit) return hit;
-  const built = await builder();
-  try {
-    await putSnap_(env, key, built);
-  } catch (e) {
-    /* ignore cache write */
-  }
-  return built;
+function dmyToIso_(dmy) {
+  const m = String(dmy || "")
+    .trim()
+    .match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (!m) return "";
+  return m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
 }
 
-async function getDaySnap_(env, kind, day) {
-  const d = String(day || "Понедельник");
-  const hit = await getSnapRaw_(env, kind + ":" + d);
-  if (hit) return hit;
-  if (kind === "getCutting" || kind === "cutting") {
-    return { status: "success", items: [], day: d, date: "", sandbox: true, session: {} };
-  }
-  return { status: "success", clients: [], day: d, sandbox: true };
+function isoToDmy_(iso) {
+  const m = String(iso || "")
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return "";
+  return m[3] + "." + m[2] + "." + m[1];
 }
 
-function clientFromRow_(r) {
-  var basket = [];
-  try {
-    basket = JSON.parse(r.basket_json || "[]");
-  } catch (e) {}
-  return {
-    name: r.client,
-    matchKey: r.match_key,
-    address: r.address || "",
-    note: r.note || "",
-    phone: r.phone || "",
-    basket: basket,
-    segment: r.segment || "",
-    source: r.source || "",
-    orderCount: Array.isArray(basket) ? basket.length : 0,
-    updatedAt: r.updated_at
-  };
+async function dateMap_(env) {
+  const mapWrap = await getSnapRaw_(env, "dateToDay");
+  return (mapWrap && mapWrap.map) || mapWrap || {};
+}
+
+async function dayDateInfo_(env, day) {
+  const counts = await getSnapRaw_(env, "weekDayCounts");
+  const items = (counts && counts.items) || [];
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].day === day) {
+      return { date: items[i].date || "", iso: dmyToIso_(items[i].date) };
+    }
+  }
+  const map = await dateMap_(env);
+  for (const iso of Object.keys(map)) {
+    if (map[iso] === day) return { date: isoToDmy_(iso), iso: iso };
+  }
+  return { date: "", iso: "" };
+}
+
+async function findOrderRow_(env, matchKey, day, dateIso) {
+  const mk = normalizeMatchKey_(matchKey);
+  const mkLow = String(matchKey || "").trim().toLowerCase();
+  if (day) {
+    let row = await env.DB.prepare(
+      "SELECT * FROM orders WHERE day_name = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?) LIMIT 1"
+    )
+      .bind(day, mk, mkLow, mkLow)
+      .first();
+    if (row) return row;
+  }
+  if (dateIso) {
+    let row = await env.DB.prepare(
+      "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?) LIMIT 1"
+    )
+      .bind(dateIso, mk, mkLow, mkLow)
+      .first();
+    if (row) return row;
+  }
+  return env.DB.prepare(
+    "SELECT * FROM orders WHERE status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?) LIMIT 1"
+  )
+    .bind(mk, mkLow, mkLow)
+    .first();
 }
 
 async function getClients_(params, env) {
-  const day = String(params.day || "Понедельник");
+  await ensureMetaColumn_(env);
+  const day = String(params.day || "");
+  const dateIso = String(params.date || params.dateIso || "");
   if (!env || !env.DB) {
     return { status: "success", sandbox: true, day: day, source: "empty", clients: [] };
   }
-  const q = await env.DB.prepare(
-    "SELECT * FROM orders WHERE day_name = ? AND status = 'active' ORDER BY client"
-  )
-    .bind(day)
-    .all();
-  const rows = q.results || [];
+  let rows = [];
+  if (day) {
+    const q = await env.DB.prepare(
+      "SELECT * FROM orders WHERE day_name = ? AND status = 'active' ORDER BY client"
+    )
+      .bind(day)
+      .all();
+    rows = q.results || [];
+  } else if (dateIso) {
+    const q = await env.DB.prepare(
+      "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' ORDER BY client"
+    )
+      .bind(dateIso)
+      .all();
+    rows = q.results || [];
+  }
   return {
     status: "success",
     sandbox: true,
     day: day,
+    date: dateIso,
     source: "d1",
     clients: rows.map(clientFromRow_)
   };
 }
 
 async function getViewCompare_(params, env) {
+  await ensureMetaColumn_(env);
   const day = String(params.day || "");
   const dateIso = String(params.date || "");
   let resolvedDay = day;
   if (!resolvedDay && dateIso) {
-    const map = await getSnapRaw_(env, "dateToDay");
-    if (map && map.map && map.map[dateIso]) resolvedDay = map.map[dateIso];
-    else if (map && map[dateIso]) resolvedDay = map[dateIso];
-  }
-
-  const cached = resolvedDay ? await getSnapRaw_(env, "view:" + resolvedDay) : null;
-  if (cached && cached.status === "success") {
-    // подмешать свежие orders в week
-    if (resolvedDay && env && env.DB) {
-      const live = await getClients_({ day: resolvedDay }, env);
-      cached.week = live.clients || [];
-      cached.month = live.clients || [];
-      cached.day = resolvedDay;
-      cached.source = "d1";
-    }
-    return cached;
+    const map = await dateMap_(env);
+    if (map[dateIso]) resolvedDay = map[dateIso];
   }
 
   if (resolvedDay) {
     const live = await getClients_({ day: resolvedDay }, env);
-    const counts = await getSnapRaw_(env, "weekDayCounts");
-    let date = "";
-    let iso = dateIso;
-    try {
-      const items = (counts && counts.items) || [];
-      for (let i = 0; i < items.length; i++) {
-        if (items[i].day === resolvedDay) {
-          date = items[i].date || "";
-          break;
-        }
-      }
-    } catch (e) {}
-    if (!iso && date) {
-      const m = String(date).match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-      if (m) iso = m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
-    }
+    const info = await dayDateInfo_(env, resolvedDay);
+    const iso = dateIso || info.iso;
     return {
       status: "success",
       day: resolvedDay,
       targetDay: resolvedDay,
-      date: date,
+      date: info.date || isoToDmy_(iso),
       dateIso: iso,
       dateNotInWeek: false,
       futureSlot: resolvedDay === "Будущая неделя",
@@ -270,11 +422,30 @@ async function getViewCompare_(params, env) {
     };
   }
 
+  // вне недели — клиенты по date_iso
+  if (dateIso) {
+    const live = await getClients_({ date: dateIso }, env);
+    return {
+      status: "success",
+      day: "",
+      dateIso: dateIso,
+      date: isoToDmy_(dateIso),
+      dateNotInWeek: true,
+      calendarOnly: true,
+      week: [],
+      month: live.clients || [],
+      calendar: true,
+      monthSheet: "D1",
+      sandbox: true,
+      source: "d1"
+    };
+  }
+
   return {
     status: "success",
     day: "",
-    dateIso: dateIso,
-    dateNotInWeek: !!dateIso,
+    dateIso: "",
+    dateNotInWeek: false,
     week: [],
     month: [],
     calendar: true,
@@ -284,23 +455,23 @@ async function getViewCompare_(params, env) {
   };
 }
 
-async function buildWeekCounts_(env) {
+async function rebuildWeekCounts_(env) {
   if (!env || !env.DB) return { status: "success", items: [], total: 0, sandbox: true };
-  const days = [
-    "Понедельник",
-    "Вторник",
-    "Среда",
-    "Четверг",
-    "Пятница",
-    "Суббота",
-    "Воскресенье",
-    "Будущая неделя"
-  ];
-  const short = { Понедельник: "Пн", Вторник: "Вт", Среда: "Ср", Четверг: "Чт", Пятница: "Пт", Суббота: "Сб", Воскресенье: "Вс", "Будущая неделя": "Буд" };
+  const prev = await getSnapRaw_(env, "weekDayCounts");
+  const prevDates = {};
+  ((prev && prev.items) || []).forEach(function (it) {
+    if (it && it.day) prevDates[it.day] = it.date || "";
+  });
+  const map = await dateMap_(env);
+  Object.keys(map).forEach(function (iso) {
+    const d = map[iso];
+    if (d && !prevDates[d]) prevDates[d] = isoToDmy_(iso);
+  });
+
   const items = [];
   let total = 0;
-  for (let i = 0; i < days.length; i++) {
-    const d = days[i];
+  for (let i = 0; i < WEEK_DAYS.length; i++) {
+    const d = WEEK_DAYS[i];
     const q = await env.DB.prepare(
       "SELECT COUNT(*) AS c FROM orders WHERE day_name = ? AND status = 'active'"
     )
@@ -308,20 +479,155 @@ async function buildWeekCounts_(env) {
       .first();
     const c = Number(q && q.c) || 0;
     total += c;
-    items.push({ day: d, short: short[d] || d, count: c, date: "" });
+    items.push({ day: d, short: DAY_SHORT[d] || d, count: c, date: prevDates[d] || "" });
   }
-  return { status: "success", items: items, total: total, sandbox: true, source: "d1" };
+  const body = { status: "success", items: items, total: total, sandbox: true, source: "d1" };
+  await putSnap_(env, "weekDayCounts", body);
+  return body;
+}
+
+async function rebuildMonthOverview_(env) {
+  if (!env || !env.DB) return;
+  const prev = await getSnapRaw_(env, "monthOverview");
+  const month =
+    (prev && prev.month) ||
+    new Date().toISOString().slice(0, 7);
+  const q = await env.DB.prepare(
+    "SELECT date_iso, segment, COUNT(*) AS c FROM orders WHERE status = 'active' AND date_iso != '' GROUP BY date_iso, segment"
+  ).all();
+  const byDate = Object.create(null);
+  (q.results || []).forEach(function (r) {
+    const iso = r.date_iso;
+    if (!iso || iso.slice(0, 7) !== month) return;
+    if (!byDate[iso]) byDate[iso] = { dateIso: iso, count: 0, segments: {} };
+    const c = Number(r.c) || 0;
+    byDate[iso].count += c;
+    const seg = r.segment || "";
+    if (seg) byDate[iso].segments[seg] = (byDate[iso].segments[seg] || 0) + c;
+  });
+  const days = Object.keys(byDate)
+    .sort()
+    .map(function (k) {
+      return byDate[k];
+    });
+  const body = { status: "success", month: month, days: days, sandbox: true, source: "d1" };
+  await putSnap_(env, "monthOverview", body);
+  await putSnap_(env, "monthOverview:" + month, body);
+  return body;
+}
+
+async function rebuildCourierDay_(env, day) {
+  if (!day) return;
+  const live = await getClients_({ day: day }, env);
+  const info = await dayDateInfo_(env, day);
+  const prev = await getSnapRaw_(env, "courier:" + day);
+  const prevBy = Object.create(null);
+  ((prev && prev.clients) || []).forEach(function (c) {
+    prevBy[normalizeMatchKey_(c.matchKey || c.name)] = c;
+  });
+  const clients = (live.clients || []).map(function (c) {
+    const mk = normalizeMatchKey_(c.matchKey || c.name);
+    const old = prevBy[mk] || {};
+    return Object.assign({}, old, c, {
+      delivered: !!old.delivered,
+      assembled: !!old.assembled,
+      paid: old.paid,
+      col: old.col,
+      courierCol: old.courierCol,
+      deliveriesN: old.deliveriesN,
+      askPaid: old.askPaid
+    });
+  });
+  // merge deliveries table
+  if (info.iso) {
+    const dq = await env.DB.prepare("SELECT match_key, delivered FROM deliveries WHERE date_iso = ?")
+      .bind(info.iso)
+      .all();
+    const flags = Object.create(null);
+    (dq.results || []).forEach(function (r) {
+      flags[normalizeMatchKey_(r.match_key)] = !!r.delivered;
+    });
+    clients.forEach(function (c) {
+      const mk = normalizeMatchKey_(c.matchKey || c.name);
+      if (mk in flags) c.delivered = !!flags[mk];
+    });
+  }
+  await putSnap_(env, "courier:" + day, {
+    status: "success",
+    day: day,
+    date: info.date,
+    clients: clients,
+    sandbox: true,
+    source: "d1"
+  });
+}
+
+async function rebuildAssemblyDay_(env, day) {
+  if (!day) return;
+  const live = await getClients_({ day: day }, env);
+  const info = await dayDateInfo_(env, day);
+  const prev = await getSnapRaw_(env, "assembly:" + day);
+  const prevBy = Object.create(null);
+  ((prev && prev.clients) || []).forEach(function (c) {
+    prevBy[normalizeMatchKey_(c.matchKey || c.name)] = c;
+  });
+  const clients = (live.clients || []).map(function (c) {
+    const mk = normalizeMatchKey_(c.matchKey || c.name);
+    const old = prevBy[mk] || {};
+    return Object.assign({}, old, {
+      name: c.name,
+      address: c.address,
+      note: c.note,
+      basket: c.basket,
+      packs: old.packs || [],
+      totalBags: old.totalBags || 0,
+      craftBags: old.craftBags || 0,
+      lightByFraction: old.lightByFraction || {},
+      lightBagsByCounter: old.lightBagsByCounter || {},
+      assembled: !!old.assembled,
+      printed: !!old.printed,
+      dogPart: old.dogPart || "",
+      ownerName: old.ownerName || c.name,
+      matchKey: c.matchKey
+    });
+  });
+  await putSnap_(env, "assembly:" + day, {
+    status: "success",
+    day: day,
+    date: info.date,
+    clients: clients,
+    typeTotals: (prev && prev.typeTotals) || {},
+    counterTotals: (prev && prev.counterTotals) || {},
+    lightByFraction: (prev && prev.lightByFraction) || {},
+    lightGramsTotal: (prev && prev.lightGramsTotal) || 0,
+    sandbox: true,
+    source: "d1"
+  });
+}
+
+async function invalidateDays_(env, days) {
+  const uniq = [];
+  (days || []).forEach(function (d) {
+    if (d && uniq.indexOf(d) < 0) uniq.push(d);
+  });
+  for (let i = 0; i < uniq.length; i++) {
+    const d = uniq[i];
+    await delSnap_(env, "view:" + d);
+    await rebuildCourierDay_(env, d);
+    await rebuildAssemblyDay_(env, d);
+  }
+  await rebuildWeekCounts_(env);
+  await rebuildMonthOverview_(env);
 }
 
 async function getMonthOverview_(params, env) {
   const month = String(params.month || "");
-  const hit = await getSnapRaw_(env, "monthOverview");
-  if (hit && hit.status === "success") {
-    if (!month || !hit.month || hit.month === month) return hit;
-  }
+  // всегда пересобираем из orders — иначе после переносов врёт
+  const body = await rebuildMonthOverview_(env);
+  if (body && (!month || body.month === month)) return body;
   const hitM = month ? await getSnapRaw_(env, "monthOverview:" + month) : null;
   if (hitM) return hitM;
-  return { status: "success", month: month, days: [], sandbox: true, source: "d1" };
+  return body || { status: "success", month: month, days: [], sandbox: true, source: "d1" };
 }
 
 function defaultBanner_(params) {
@@ -337,154 +643,320 @@ function defaultBanner_(params) {
 
 async function resolveDay_(params, env) {
   const iso = String(params.date || "");
-  const mapWrap = await getSnapRaw_(env, "dateToDay");
-  const map = (mapWrap && mapWrap.map) || mapWrap || {};
+  const map = await dateMap_(env);
   const dayName = map[iso] || "";
   if (dayName) {
     return { status: "success", date: iso, dayName: dayName, day: dayName, onWeek: true, sandbox: true };
   }
-  return { status: "success", date: iso, dayName: "", day: "", onWeek: false, calendarOnly: true, sandbox: true };
+  return {
+    status: "success",
+    date: iso,
+    dayName: "",
+    day: "",
+    onWeek: false,
+    calendarOnly: true,
+    sandbox: true
+  };
 }
 
-async function saveOrder_(params, env) {
+async function getCourier_(params, env) {
   const day = String(params.day || "Понедельник");
-  const client = String(params.client || "").trim();
-  if (!client) return { status: "error", message: "no_client" };
-  if (!env || !env.DB) return { status: "error", message: "no_d1" };
+  let hit = await getSnapRaw_(env, "courier:" + day);
+  if (!hit) {
+    await rebuildCourierDay_(env, day);
+    hit = await getSnapRaw_(env, "courier:" + day);
+  }
+  return hit || { status: "success", clients: [], day: day, sandbox: true };
+}
 
-  const matchKey = String(params.matchKey || client).toLowerCase();
-  const now = new Date().toISOString();
-  const id = String(params.id || day + ":" + matchKey);
-  const basket =
-    typeof params.basket === "string" ? params.basket : JSON.stringify(params.basket || []);
-  const dateIso = String(params.date || params.dateIso || params.newDate || "");
+async function getAssembly_(params, env) {
+  const day = String(params.day || "Понедельник");
+  let hit = await getSnapRaw_(env, "assembly:" + day);
+  if (!hit) {
+    await rebuildAssemblyDay_(env, day);
+    hit = await getSnapRaw_(env, "assembly:" + day);
+  }
+  return hit || { status: "success", clients: [], day: day, sandbox: true };
+}
 
+async function getCutting_(params, env) {
+  const day = String(params.day || "Понедельник");
+  const hit = await getSnapRaw_(env, "cutting:" + day);
+  if (hit) return hit;
+  return { status: "success", items: [], day: day, date: "", sandbox: true, session: {} };
+}
+
+async function upsertOrderRow_(env, row) {
+  await ensureMetaColumn_(env);
   await env.DB.prepare(
-    `INSERT INTO orders (id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+    `INSERT INTO orders (id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        date_iso=excluded.date_iso, day_name=excluded.day_name, client=excluded.client,
-       address=excluded.address, note=excluded.note, phone=excluded.phone,
+       match_key=excluded.match_key, address=excluded.address, note=excluded.note, phone=excluded.phone,
        basket_json=excluded.basket_json, segment=excluded.segment, source=excluded.source,
-       status='active', updated_at=excluded.updated_at`
+       status=excluded.status, updated_at=excluded.updated_at, meta_json=excluded.meta_json`
   )
     .bind(
-      id,
-      dateIso,
-      day,
-      client,
-      matchKey,
-      String(params.address || ""),
-      String(params.note || ""),
-      String(params.phone || ""),
-      basket,
-      String(params.segment || ""),
-      String(params.source || ""),
-      now
+      row.id,
+      row.date_iso || "",
+      row.day_name || "",
+      row.client,
+      row.match_key,
+      row.address || "",
+      row.note || "",
+      row.phone || "",
+      row.basket_json || "[]",
+      row.segment || "",
+      row.source || "",
+      row.status || "active",
+      row.updated_at,
+      row.meta_json || "{}"
     )
     .run();
+}
 
-  return { status: "success", sandbox: true, wrote: "d1", id: id, updatedAt: now };
+async function saveOrder_(params, env, asBooking) {
+  await ensureMetaColumn_(env);
+  if (!env || !env.DB) return { status: "error", message: "no_d1" };
+  const client = String(params.client || "").trim();
+  if (!client) return { status: "error", message: "no_client" };
+
+  let day = String(params.day || "").trim();
+  let dateIso = String(params.date || params.dateIso || params.newDate || params.deliveryDate || "").trim();
+  if (!day && dateIso) {
+    const r = await resolveDay_({ date: dateIso }, env);
+    if (r.onWeek && r.dayName) day = r.dayName;
+  }
+  if (!asBooking && !day) day = "Понедельник";
+  if (asBooking && !day && !dateIso) {
+    return { status: "error", message: "no_day_or_date" };
+  }
+
+  const matchKey = normalizeMatchKey_(params.matchKey || client);
+  const now = new Date().toISOString();
+  const id = (day || "CAL") + ":" + matchKey + (day ? "" : ":" + dateIso);
+  const basketArr = parseBasket_(params.basket);
+  const basket = JSON.stringify(basketArr);
+  const meta = {
+    orderPrice: params.orderPrice,
+    ppSlot: params.ppSlot,
+    ppHint: params.ppHint,
+    ppPartner: params.ppPartner,
+    deliveryAfter: params.deliveryAfter,
+    deliveryBefore: params.deliveryBefore,
+    dogCount: params.dogCount,
+    geo: params.geo,
+    noCut: toBool_(params.noCut),
+    couponsQty: params.couponsQty,
+    couponPrice: params.couponPrice
+  };
+
+  // soft-delete duplicates with other key forms
+  await env.DB.prepare(
+    "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR lower(client) = ?) AND id != ?"
+  )
+    .bind(now, day || "", matchKey, client.toLowerCase(), id)
+    .run();
+
+  await upsertOrderRow_(env, {
+    id: id,
+    date_iso: dateIso || (day ? (await dayDateInfo_(env, day)).iso : ""),
+    day_name: day || "",
+    client: client,
+    match_key: matchKey,
+    address: String(params.address || ""),
+    note: String(params.note || ""),
+    phone: String(params.phone || ""),
+    basket_json: basket,
+    segment: String(params.segment || ""),
+    source: String(params.source || ""),
+    status: "active",
+    updated_at: now,
+    meta_json: JSON.stringify(meta)
+  });
+
+  await invalidateDays_(env, day ? [day] : []);
+  return {
+    status: "success",
+    sandbox: true,
+    wrote: basketArr.length || 1,
+    basketLen: basketArr.length,
+    weekWritten: !!day,
+    id: id,
+    updatedAt: now
+  };
 }
 
 async function deleteClient_(params, env) {
-  const day = String(params.day || "");
-  const matchKey = String(params.matchKey || params.client || "")
-    .trim()
-    .toLowerCase();
-  if (!matchKey) return { status: "error", message: "no_client" };
   if (!env || !env.DB) return { status: "error", message: "no_d1" };
+  const day = String(params.day || "");
+  const dateIso = String(params.date || params.dateIso || "");
+  const matchKey = normalizeMatchKey_(params.matchKey || params.client || "");
+  if (!matchKey && !params.client) return { status: "error", message: "no_client" };
   const now = new Date().toISOString();
-  if (day) {
-    await env.DB.prepare(
-      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE day_name = ? AND (match_key = ? OR lower(client) = ?)"
-    )
-      .bind(now, day, matchKey, matchKey)
-      .run();
-  } else {
-    await env.DB.prepare(
-      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE match_key = ? OR lower(client) = ?"
-    )
-      .bind(now, matchKey, matchKey)
-      .run();
+  const row = await findOrderRow_(env, params.matchKey || params.client, day, dateIso);
+  if (!row) {
+    return { status: "success", sandbox: true, wrote: 0, missing: true };
   }
-  return { status: "success", sandbox: true, wrote: "d1" };
+  await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
+    .bind(now, row.id)
+    .run();
+  await invalidateDays_(env, [row.day_name, day].filter(Boolean));
+  return { status: "success", sandbox: true, wrote: 1 };
 }
 
 async function moveClient_(params, env) {
+  await ensureMetaColumn_(env);
   if (!env || !env.DB) return { status: "error", message: "no_d1" };
   const oldDay = String(params.oldDay || "");
   let newDay = String(params.newDay || "");
+  const oldDate = String(params.oldDate || "");
   const newDate = String(params.newDate || "");
+  const calendarOnly = toBool_(params.calendarOnly) || (!newDay && !!newDate);
   const client = String(params.client || "");
-  const matchKey = String(params.matchKey || client).toLowerCase();
+  const matchKeyRaw = params.matchKey || client;
+  const matchKey = normalizeMatchKey_(matchKeyRaw);
   const now = new Date().toISOString();
+  const cutRaw = String(params.cutRaw == null ? "1" : params.cutRaw);
 
-  if (!newDay && newDate) {
+  if (!newDay && newDate && !calendarOnly) {
     const r = await resolveDay_({ date: newDate }, env);
     if (r.onWeek && r.dayName) newDay = r.dayName;
   }
 
-  let row = null;
-  if (oldDay) {
-    row = await env.DB.prepare(
-      "SELECT * FROM orders WHERE day_name = ? AND status = 'active' AND (match_key = ? OR lower(client) = ?) LIMIT 1"
-    )
-      .bind(oldDay, matchKey, matchKey)
-      .first();
-  }
-  if (!row) {
-    row = await env.DB.prepare(
-      "SELECT * FROM orders WHERE status = 'active' AND (match_key = ? OR lower(client) = ?) LIMIT 1"
-    )
-      .bind(matchKey, matchKey)
-      .first();
-  }
+  const row = await findOrderRow_(env, matchKeyRaw, oldDay, oldDate);
   if (!row) {
     return { status: "error", message: "not_found", sandbox: true };
   }
 
-  // soft-delete old
+  const meta = parseMeta_(row.meta_json);
+  if (cutRaw === "0" || cutRaw === "no") meta.noCut = true;
+  else if (cutRaw === "1" || cutRaw === "yes") meta.noCut = false;
+
   await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
     .bind(now, row.id)
     .run();
 
+  let toLabel = "(calendar)";
   if (newDay) {
+    const info = await dayDateInfo_(env, newDay);
+    const iso = newDate || info.iso || row.date_iso || "";
     const newId = newDay + ":" + matchKey;
-    await env.DB.prepare(
-      `INSERT INTO orders (id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
-       ON CONFLICT(id) DO UPDATE SET
-         date_iso=excluded.date_iso, client=excluded.client, address=excluded.address, note=excluded.note,
-         phone=excluded.phone, basket_json=excluded.basket_json, segment=excluded.segment,
-         source=excluded.source, status='active', updated_at=excluded.updated_at, day_name=excluded.day_name`
-    )
-      .bind(
-        newId,
-        newDate || row.date_iso || "",
-        newDay,
-        row.client,
-        row.match_key,
-        row.address || "",
-        row.note || "",
-        row.phone || "",
-        row.basket_json || "[]",
-        row.segment || "",
-        row.source || "",
-        now
-      )
-      .run();
+    await upsertOrderRow_(env, {
+      id: newId,
+      date_iso: iso,
+      day_name: newDay,
+      client: row.client,
+      match_key: matchKey,
+      address: row.address || "",
+      note: row.note || "",
+      phone: row.phone || "",
+      basket_json: row.basket_json || "[]",
+      segment: row.segment || "",
+      source: row.source || "",
+      status: "active",
+      updated_at: now,
+      meta_json: JSON.stringify(meta)
+    });
+    toLabel = newDay;
+  } else if (newDate) {
+    // календарь вне недели
+    const newId = "CAL:" + matchKey + ":" + newDate;
+    await upsertOrderRow_(env, {
+      id: newId,
+      date_iso: newDate,
+      day_name: "",
+      client: row.client,
+      match_key: matchKey,
+      address: row.address || "",
+      note: row.note || "",
+      phone: row.phone || "",
+      basket_json: row.basket_json || "[]",
+      segment: row.segment || "",
+      source: row.source || "",
+      status: "active",
+      updated_at: now,
+      meta_json: JSON.stringify(meta)
+    });
+    toLabel = newDate;
   }
+
+  await invalidateDays_(env, [oldDay || row.day_name, newDay].filter(Boolean));
 
   return {
     status: "success",
     sandbox: true,
-    wrote: "d1",
+    wrote: 1,
     local: false,
     from: oldDay || row.day_name,
-    to: newDay || "(calendar)",
-    newDate: newDate
+    to: toLabel,
+    newDate: newDate,
+    calendarOnly: !newDay && !!newDate
   };
+}
+
+async function setDelivered_(params, env) {
+  if (!env || !env.DB) return { status: "error", message: "no_d1" };
+  const day = String(params.day || "");
+  const client = String(params.client || "");
+  const delivered = toBool_(params.delivered);
+  const info = await dayDateInfo_(env, day);
+  const iso = info.iso || String(params.date || "");
+  const mk = normalizeMatchKey_(params.matchKey || client);
+  const now = new Date().toISOString();
+  if (iso) {
+    await env.DB.prepare(
+      `INSERT INTO deliveries (date_iso, match_key, delivered, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(date_iso, match_key) DO UPDATE SET delivered=excluded.delivered, updated_at=excluded.updated_at`
+    )
+      .bind(iso, mk, delivered ? 1 : 0, now)
+      .run();
+  }
+  const snap = await getCourier_({ day: day }, env);
+  (snap.clients || []).forEach(function (c) {
+    if (normalizeMatchKey_(c.matchKey || c.name) === mk || c.name === client) {
+      c.delivered = delivered;
+    }
+  });
+  await putSnap_(env, "courier:" + day, snap);
+  return { status: "success", sandbox: true, wrote: 1, delivered: delivered };
+}
+
+async function setAssemblyFlag_(params, env, flag) {
+  const day = String(params.day || "");
+  const client = String(params.client || "");
+  const mk = normalizeMatchKey_(params.matchKey || client);
+  const val = toBool_(params[flag] != null ? params[flag] : params.value);
+  const snap = await getAssembly_({ day: day }, env);
+  (snap.clients || []).forEach(function (c) {
+    if (normalizeMatchKey_(c.matchKey || c.name) === mk || c.name === client) {
+      c[flag] = val;
+    }
+  });
+  await putSnap_(env, "assembly:" + day, snap);
+  return { status: "success", sandbox: true, wrote: 1, [flag]: val };
+}
+
+async function updateCutting_(params, env) {
+  const day = String(params.day || "");
+  const rowNum = Number(params.row);
+  const snap = await getCutting_({ day: day }, env);
+  const items = snap.items || [];
+  for (let i = 0; i < items.length; i++) {
+    if (Number(items[i].row) === rowNum) {
+      if (params.surplus != null && params.surplus !== "") items[i].surplus = Number(params.surplus) || 0;
+      if (params.done != null && params.done !== "") items[i].done = toBool_(params.done);
+      if (params.laid != null && params.laid !== "") items[i].laid = toBool_(params.laid);
+      if (params.outNext != null && params.outNext !== "") items[i].outNext = toBool_(params.outNext);
+      if (params.noteInfo != null) items[i].noteInfo = String(params.noteInfo);
+      break;
+    }
+  }
+  snap.items = items;
+  snap.sandbox = true;
+  await putSnap_(env, "cutting:" + day, snap);
+  return { status: "success", sandbox: true, wrote: 1, day: day, row: rowNum };
 }
 
 function json(obj, status) {

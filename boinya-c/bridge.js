@@ -108,11 +108,23 @@
     return window.__BOINYA_C_TURBO__ !== false;
   }
   function preferD1() {
+    // PROXY = Worker+D1. Не зависит от turbo/live: запись и чтения идут в D1.
+    // ?live=1 отключает PROXY только если явно сбросили proxy (см. config).
     try {
-      var p = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || "").trim();
-      return !!p && window.__BOINYA_C_TURBO__ !== false && !(new URL(location.href).searchParams.get("live") === "1");
+      if (new URL(location.href).searchParams.get("live") === "1") return false;
+    } catch (e0) {}
+    try {
+      return !!(window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || "").trim();
     } catch (e) {
       return !!(window.__BOINYA_C_PROXY__ || "").trim();
+    }
+  }
+
+  function hasProxy() {
+    try {
+      return !!(window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || "").trim();
+    } catch (e) {
+      return false;
     }
   }
 
@@ -597,8 +609,8 @@
   window.__boinyaCGuardWrite = function (params) {
     if (!params || !params.action) return null;
     var action = String(params.action);
-    // D1 Worker принимает запись — не блокируем
-    if (typeof preferD1 === "function" && preferD1()) return null;
+    // D1 Worker принимает запись — не блокируем при любом PROXY
+    if (hasProxy() || (typeof preferD1 === "function" && preferD1())) return null;
     // локальные мутации обрабатывает trySnap
     if (turboOn() && LOCAL_MUT[action]) return null;
     if (window.__BOINYA_C_ALLOW_WRITE__) return null;

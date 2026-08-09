@@ -2,9 +2,9 @@
  * Бойня C — SW: прекэш оболочки + cache-first статики песочницы.
  * Ускоряет 2-й заход; на 1-м — install в фоне.
  */
-const SW_VER = "boinya-c-sw-v3";
-const SHELL = "boinya-c-shell-v3";
-const API_CACHE = "boinya-c-api-v3";
+const SW_VER = "boinya-c-sw-v4";
+const SHELL = "boinya-c-shell-v4";
+const API_CACHE = "boinya-c-api-v4";
 
 const PRECACHE = [
   "./",
