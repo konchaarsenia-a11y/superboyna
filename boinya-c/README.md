@@ -1,56 +1,29 @@
-# Бойня C — песочница (TURBO + быстрый старт)
+# Бойня C — полный миниапп на D1
 
-Копия миниаппа. Прод не трогаем.
+Копия UI прода. **Прод / бот / Sheets не трогаем.**
 
-## Открыть
+## Тест
 
 https://konchaarsenia-a11y.github.io/superboyna/boinya-c/
 
-Бейдж **C · INSTANT**.
+Hard refresh. Бейдж **C · D1**. Worker: https://boinya-c.konchaarsenia.workers.dev/?action=ping
 
-Просмотр дней и перенос людей — **локально, без ожидания GAS** (снапшот + IndexedDB).
+В D1 залито: **24 заказа** недели + снапшоты Просмотр / Нарезка / Курьер / Сборка / месяц / склад.
 
-## Почему первая загрузка стала легче
-
-| Было | Стало |
-|------|--------|
-| `index` грузил seed+bridge, потом снова `app.html` ~1MB | `index` — только редирект + preload |
-| Весь JS внутри `app.html` (блок парсинга) | `app.html` ~140KB + `app.main.js` (defer, параллельно) |
-| Жирный seed ~110KB в критическом пути | Lite seed ~22KB (clients); нарезка/курьер — async из `data/` |
-| SW от FAST | SW прекэш оболочки (2-й заход из кэша) |
+Запись `saveOrder` / `moveClient` / `deleteClient` → **D1**. Остальные мутации — sandbox noop (не Sheets).
 
 ## Режимы
 
 | | |
 |--|--|
-| Turbo | по умолчанию |
-| Живой GAS | `?live=1` |
-| Запись в прод | `?allowWrite=1` (осторожно) |
+| D1 (по умолчанию) | `client/config.js` → Worker |
+| Старый GAS | `?live=1` |
 
-## Обновить из прода
+## Обновить данные
 
 ```bash
-bash boinya-c/scripts/sync-from-prod.sh   # копирует UI → split → lite seed
-node boinya-c/scripts/refresh-cache.mjs   # снапшоты с GAS (чтение)
+node boinya-c/scripts/refresh-cache.mjs
+node boinya-c/scripts/build-view-snaps.mjs
+CLOUDFLARE_API_TOKEN=… node boinya-c/scripts/seed-d1.mjs
+cd boinya-c/proxy && npx wrangler@4 deploy
 ```
-
-<<<<<<< HEAD
-Потолок без D1: первый визит всё ещё качает ~800KB JS (gzip ~200KB).  
-Дальше — Worker+D1 и нарезка экранов по вкладкам.
-=======
-Снапшоты дней: `boinya-c/data/` (сейчас из `fast/data`).
-
-## Осторожно: запись
-
-По умолчанию save/move/delete **блокируются**.  
-Включить (пишет в тот же GAS/Sheets!): `?allowWrite=1` — только если явно нужно.
-
-## Лаборатория IDB
-
-Старое тонкое демо: [`lab.html`](./lab.html).
-
-## Worker / D1
-
-База D1 создана (`boinya-c`, ID в `proxy/wrangler.toml`).  
-**Как задеплоить Worker:** [docs/SETUP_D1.md](./docs/SETUP_D1.md) — после деплоя пришли URL `*.workers.dev`.
->>>>>>> origin/cursor/boinya-c-d1-wire-15e1

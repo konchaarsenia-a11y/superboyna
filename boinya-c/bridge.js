@@ -107,6 +107,14 @@
   function turboOn() {
     return window.__BOINYA_C_TURBO__ !== false;
   }
+  function preferD1() {
+    try {
+      var p = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || "").trim();
+      return !!p && window.__BOINYA_C_TURBO__ !== false && !(new URL(location.href).searchParams.get("live") === "1");
+    } catch (e) {
+      return !!(window.__BOINYA_C_PROXY__ || "").trim();
+    }
+  }
 
   function loadJson(url) {
     return fetch(url, { credentials: "same-origin", cache: "force-cache" })
@@ -589,6 +597,8 @@
   window.__boinyaCGuardWrite = function (params) {
     if (!params || !params.action) return null;
     var action = String(params.action);
+    // D1 Worker принимает запись — не блокируем
+    if (typeof preferD1 === "function" && preferD1()) return null;
     // локальные мутации обрабатывает trySnap
     if (turboOn() && LOCAL_MUT[action]) return null;
     if (window.__BOINYA_C_ALLOW_WRITE__) return null;
@@ -668,7 +678,23 @@
 
     var action = String(params.action);
 
-    // ——— мгновенные локальные мутации (перенос и т.п.) ———
+    // ——— D1 Worker: не перехватывать — пусть apiGet идёт на PROXY ———
+    if (preferD1()) {
+      if (action === "getMyAccess") {
+        return Promise.resolve({
+          status: "success",
+          role: "all",
+          access: "active",
+          telegramId: String(params.telegramId || ""),
+          name: params.name || "",
+          tabs: [],
+          sandbox: true
+        });
+      }
+      return null;
+    }
+
+    // ——— мгновенные локальные мутации (офлайн / без PROXY) ———
     if (turboOn() && LOCAL_MUT[action]) {
       if (action === "moveClient") return Promise.resolve(localMove_(params));
       if (action === "deleteClient") return Promise.resolve(localDelete_(params));
@@ -854,7 +880,7 @@
   try {
     function mountTurbo() {
       var b = document.getElementById("boinyaCBadge");
-      if (b && turboOn()) b.textContent = "C · INSTANT";
+      if (b && turboOn()) b.textContent = "C · D1";
     }
     if (document.body) mountTurbo();
     else document.addEventListener("DOMContentLoaded", mountTurbo);
