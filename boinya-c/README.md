@@ -10,7 +10,7 @@ Hard refresh. Бейдж **C · D1**. Worker: https://boinya-c.konchaarsenia.wor
 
 В D1 залито: **24 заказа** недели + снапшоты Просмотр / Нарезка / Курьер / Сборка / месяц / склад.
 
-Запись `saveOrder` / `moveClient` / `deleteClient` → **D1**. Остальные мутации — sandbox noop (не Sheets).
+Живые на D1: `getClients` / `getViewCompare` / `getWeekDayCounts` / `moveClient` (в т.ч. календарь) / `saveOrder` / `deleteClient` / `setDelivered` / `setAssembled` / `setPrinted` / `updateCutting`. Счётчики и курьер/сборка пересобираются после переноса.
 
 ## Режимы
 

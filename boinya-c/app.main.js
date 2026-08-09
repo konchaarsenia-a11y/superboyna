@@ -3574,12 +3574,24 @@
         redirect: "follow",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify(payload)
-      }).then(function () {
-        return { status: "sent" };
-      }).catch(function () {
-
-        return { status: "sent_opaque" };
-      });
+      })
+        .then(function (res) {
+          return res
+            .json()
+            .catch(function () {
+              return null;
+            })
+            .then(function (body) {
+              if (body && typeof body === "object") {
+                if (!body.status) body.status = "success";
+                return body;
+              }
+              return { status: res.ok ? "success" : "error", http: res.status };
+            });
+        })
+        .catch(function () {
+          return { status: "sent_opaque" };
+        });
     }
 
     function onDeliveryDateChange() {
@@ -5677,21 +5689,23 @@
       box.innerHTML = skel;
       if (monthBox) monthBox.innerHTML = skel;
       try {
-        // Песочница C TURBO: не сбрасываем кэш и не ждём GAS — иначе Просмотр по 15–40с
-        if (!window.__BOINYA_C_TURBO__) {
+        // D1 Worker быстрый — не держим 5‑мин кэш, иначе переносы «не видны»
+        var d1Proxy = !!(window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__);
+        if (!window.__BOINYA_C_TURBO__ || d1Proxy) {
           try { apiCacheBustMem_("getViewCompare"); apiCacheBustMem_("getClients"); } catch (eClr) {}
         }
 
         var compareParams = { action: "getViewCompare" };
         if (dateStr) compareParams.date = dateStr;
         else compareParams.day = day;
+        if (d1Proxy) compareParams._ = String(Date.now());
 
         var compareRes = null;
         try {
           compareRes = await apiGet(compareParams, {
-            timeoutMs: window.__BOINYA_C_TURBO__ ? 8000 : 45000,
-            cacheTtlMs: window.__BOINYA_C_TURBO__ ? 300000 : 0,
-            retries: window.__BOINYA_C_TURBO__ ? 0 : 1
+            timeoutMs: d1Proxy ? 15000 : (window.__BOINYA_C_TURBO__ ? 8000 : 45000),
+            cacheTtlMs: d1Proxy ? 0 : (window.__BOINYA_C_TURBO__ ? 300000 : 0),
+            retries: window.__BOINYA_C_TURBO__ && !d1Proxy ? 0 : 1
           });
         } catch (eC) {
           compareRes = null;
@@ -5728,9 +5742,10 @@
             else if (dateStr) weekParams.date = dateStr;
             if (weekParams.day || weekParams.date) {
               try {
+                if (d1Proxy) weekParams._ = String(Date.now());
                 weekRes = await apiGet(weekParams, {
-                  timeoutMs: window.__BOINYA_C_TURBO__ ? 8000 : 22000,
-                  cacheTtlMs: window.__BOINYA_C_TURBO__ ? 300000 : 0,
+                  timeoutMs: d1Proxy ? 15000 : (window.__BOINYA_C_TURBO__ ? 8000 : 22000),
+                  cacheTtlMs: d1Proxy ? 0 : (window.__BOINYA_C_TURBO__ ? 300000 : 0),
                   retries: 0
                 });
               } catch (eW) {
@@ -6129,9 +6144,9 @@
             cutRaw: cutFlag,
             matchKey: (loadedClientsRawData[idxs[i]] && loadedClientsRawData[idxs[i]].matchKey) || ""
           };
-          if (!window.__BOINYA_C_TURBO__) moveParams._ = String(Date.now());
+          moveParams._ = String(Date.now());
           const res = await apiGet(moveParams, {
-            timeoutMs: window.__BOINYA_C_TURBO__ ? 5000 : 45000,
+            timeoutMs: window.__BOINYA_C_PROXY__ ? 20000 : (window.__BOINYA_C_TURBO__ ? 5000 : 45000),
             cacheTtlMs: 0,
             retries: 0
           });
@@ -6150,19 +6165,22 @@
       );
       if (fail.length) await uiAlertAsync("Не удалось:\n" + fail.join("\n"));
       try { refreshDeferredBadge(true); } catch (eBd) {}
-      if (!window.__BOINYA_C_TURBO__) {
-        try {
-          apiCacheBustMem_("getViewCompare");
-          apiCacheBustMem_("getClients");
-          apiCacheBustMem_("getMonthOverview");
-          apiCacheBustMem_("listSurvey");
-        } catch (eClr) {}
-        viewMonthOverviewCache = null;
-      }
+      try {
+        apiCacheBustMem_("getViewCompare");
+        apiCacheBustMem_("getClients");
+        apiCacheBustMem_("getMonthOverview");
+        apiCacheBustMem_("getWeekDayCounts");
+        apiCacheBustMem_("listSurvey");
+      } catch (eClr) {}
+      viewMonthOverviewCache = null;
+      viewWeekOverviewCache = null;
+      _orderDayCountsCache = null;
       await loadClientsForDay();
       if (!calendarOnly && newDay && oldDay && newDay !== oldDay) await refreshDayViews(newDay);
+      try { await ensureWeekOverviewLoaded_({ force: true }); } catch (eWo) {}
+      try { await refreshOrderDayCounts_({ force: true }); } catch (eOd) {}
       try {
-        await ensureMonthOverviewLoaded_({ force: !window.__BOINYA_C_TURBO__, soft: !!window.__BOINYA_C_TURBO__ });
+        await ensureMonthOverviewLoaded_({ force: true, soft: false });
       } catch (eOv) {}
       recoverUiFocus();
     }
@@ -6447,9 +6465,10 @@
           dateOnly: dateOnly ? "1" : "0",
           calendarOnly: calendarOnly ? "1" : "0",
           cutRaw: cutRaw === "yes" ? "1" : "0",
-          matchKey: matchKey
+          matchKey: matchKey,
+          _: String(Date.now())
         }, {
-          timeoutMs: window.__BOINYA_C_TURBO__ ? 5000 : 45000,
+          timeoutMs: window.__BOINYA_C_PROXY__ ? 20000 : (window.__BOINYA_C_TURBO__ ? 5000 : 45000),
           cacheTtlMs: 0,
           retries: 0
         });
@@ -6484,13 +6503,20 @@
           apiCacheBustMem_("getViewCompare");
           apiCacheBustMem_("getClients");
           apiCacheBustMem_("getMonthOverview");
+          apiCacheBustMem_("getWeekDayCounts");
+          apiCacheBustMem_("getCourier");
+          apiCacheBustMem_("getAssembly");
           apiCacheBustMem_("listSurvey");
         } catch (eClr) {}
         viewMonthOverviewCache = null;
+        viewWeekOverviewCache = null;
+        _orderDayCountsCache = null;
         await loadClientsForDay();
         if (!calendarOnly && newDay && oldDay && newDay !== oldDay) {
           try { await refreshDayViews(newDay); } catch (eR) {}
         }
+        try { await ensureWeekOverviewLoaded_({ force: true }); } catch (eWo) {}
+        try { await refreshOrderDayCounts_({ force: true }); } catch (eOd) {}
         try { await ensureMonthOverviewLoaded_({ force: true }); } catch (eOv) {}
         return true;
       } catch (err) {

@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS orders (
   segment TEXT DEFAULT '',
   source TEXT DEFAULT '',
   status TEXT DEFAULT 'active',
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  meta_json TEXT DEFAULT '{}'
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_day ON orders(day_name);
