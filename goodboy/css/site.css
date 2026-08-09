@@ -544,7 +544,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   overflow: hidden;
   /* короче экрана — с другой стороны пусто, выступ за край виден */
   width: min(78vw, 920px);
-  height: clamp(110px, 16vw, 156px);
+  height: clamp(120px, 18vw, 172px);
   background: transparent;
   border-radius: 0;
   box-shadow: none;
@@ -576,7 +576,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   margin-left: -28vw;
   margin-right: auto;
 }
-.shelf-from-left img { object-position: 50% 40%; }
+.shelf-from-left img { object-position: 50% 48%; } /* трое — ровно по мордам */
 .photo-shelves .shelf:nth-child(3) img { object-position: 48% 55%; } /* нюх у двери */
 
 @media (max-width: 640px) {
