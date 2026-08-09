@@ -5,19 +5,18 @@
 1. **Sandbox (по умолчанию)** — снимок в D1, Sheets не трогаем.  
 2. **Cutover LIVE** — `?cutover=1` → Worker → боевой GAS (свежие данные + запись в таблицу).
 
-## Пробуем LIVE (как прод, через Worker)
+## LIVE (как прод по скорости)
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111499  
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111500  
 
-Бейдж **C · LIVE**. Тестируй на **`zzz_test`**.
+Бейдж **C · LIVE** — напрямую в GAS (без лишнего hop через Worker).  
+Тест на **`zzz_test`**. См. [docs/CUTOVER.md](./docs/CUTOVER.md).
 
-Подробности: [docs/CUTOVER.md](./docs/CUTOVER.md)
+## Sandbox D1 (быстрый снимок)
 
-## Sandbox D1
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?v=7111500  
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?v=7111499  
-
-Бейдж **C · D1**. Запись только в D1.
+Бейдж **C · D1**.
 
 ## Обновить снимок sandbox
 

@@ -3453,8 +3453,10 @@
     function apiGet(params, opts) {
       opts = opts || {};
       params = params || {};
-      // Cutover: каждый запрос через Worker → боевой GAS
-      if (window.__BOINYA_C_CUTOVER__ && !params.cutover) params.cutover = "1";
+      // Cutover через Worker: помечаем cutover=1. Прямой GAS — без лишнего параметра.
+      if (window.__BOINYA_C_CUTOVER__ && window.__BOINYA_C_PROXY__ && !params.cutover) {
+        params.cutover = "1";
+      }
       if (!opts.__boinyaNoSnap && typeof window.__boinyaCTrySnap === "function") {
         var _cHit = window.__boinyaCTrySnap(params, opts);
         if (_cHit) return _cHit;

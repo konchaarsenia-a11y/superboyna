@@ -1,27 +1,23 @@
 # Cutover: пробуем живой режим
 
-## Два режима C
+## Режимы C
 
-| URL | Режим | Данные | Запись |
+| URL | Режим | Скорость | Данные / запись |
 |--|--|--|--|
-| `/boinya-c/` | **Sandbox D1** (по умолчанию) | снимок | только D1 |
-| `/boinya-c/?cutover=1` | **LIVE** | боевой GAS сейчас | **в Sheets** |
-| `/boinya-c/?live=1` | напрямую GAS | бой | в Sheets (без Worker) |
+| `/boinya-c/` | Sandbox D1 | быстро (кэш) | снимок / только D1 |
+| `/boinya-c/?cutover=1` | **LIVE прямой GAS** | как прод | бой / Sheets |
+| `/boinya-c/?cutover=1&via=worker` | LIVE через Worker | медленнее (+hop) | бой / Sheets |
+
+Раньше `?cutover=1` всегда шёл Browser→Worker→GAS — из‑за этого было «сильно дольше».  
+Сейчас по умолчанию cutover = **напрямую в GAS**, как боевой миниапп.
 
 ## Как пробовать сейчас
 
 1. Открой:  
-   https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111499  
+   https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111500  
 2. Hard refresh. Бейдж **C · LIVE**.
-3. Проверяй на **`zzz_test`** (создать / перенести / удалить).
+3. Проверяй на **`zzz_test`**.
 4. Реальных клиентов не крути, пока не убедишься.
-5. Закрытие недели / materialize в LIVE всё ещё с предохранителем `allowDanger=1`.
-
-## Что это даёт
-
-- Данные всегда с боевой таблицы (не снимок).
-- Сохранения/переносы идут в тот же GAS/Sheets, что и прод-миниапп.
-- Worker = прокси (+ позже кэш). Потерь относительно боя по API не должно быть.
 
 ## Чего ещё нет для полного cutover бота
 

@@ -15,10 +15,16 @@
 
   window.__BOINYA_C_EDITION__ = true;
   window.__BOINYA_FAST_EDITION__ = true;
-  window.__BOINYA_C_TURBO__ = true;
+  // Cutover LIVE: turbo выключен (иначе stubs/тишина вместо живого GAS)
+  window.__BOINYA_C_TURBO__ = window.__BOINYA_C_CUTOVER__ ? false : true;
   window.__BOINYA_C_DATA_BASE__ = BASE + "data/";
-  window.__BOINYA_FAST_QUIET_UNTIL__ = Date.now() + QUIET_MS;
-  window.__BOINYA_C_QUIET_UNTIL__ = window.__BOINYA_FAST_QUIET_UNTIL__;
+  if (window.__BOINYA_C_CUTOVER__) {
+    window.__BOINYA_FAST_QUIET_UNTIL__ = 0;
+    window.__BOINYA_C_QUIET_UNTIL__ = 0;
+  } else {
+    window.__BOINYA_FAST_QUIET_UNTIL__ = Date.now() + QUIET_MS;
+    window.__BOINYA_C_QUIET_UNTIL__ = window.__BOINYA_FAST_QUIET_UNTIL__;
+  }
 
   try {
     var u = new URL(location.href);
@@ -694,9 +700,12 @@
 
     var action = String(params.action);
 
-    // ——— Cutover / Worker: не перехватывать локально — всё на PROXY ———
-    if (preferD1() || isCutover()) {
-      if (!isCutover() && action === "getMyAccess") {
+    // LIVE cutover: никаких локальных снапов — сразу GAS (как прод)
+    if (isCutover()) return null;
+
+    // ——— Worker+D1 sandbox: не перехватывать — пусть apiGet идёт на PROXY ———
+    if (preferD1()) {
+      if (action === "getMyAccess") {
         return Promise.resolve({
           status: "success",
           role: "all",
@@ -707,7 +716,6 @@
           sandbox: true
         });
       }
-      // cutover: getMyAccess тоже с GAS (реальные роли)
       return null;
     }
 
