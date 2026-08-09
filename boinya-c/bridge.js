@@ -269,7 +269,8 @@
       monthSheet: "sandbox",
       calendar: true,
       week: clients,
-      month: clients.slice(),
+      // как в GAS: month = календарные «сироты», не копия недели
+      month: (prev && Array.isArray(prev.month) ? prev.month.slice() : []),
       sandbox: true,
       local: true
     };
@@ -283,14 +284,15 @@
     if (!day && dateIso && SNAP.dateToDay[dateIso]) day = SNAP.dateToDay[dateIso];
     if (dateIso && SNAP.viewByDate[dateIso]) return SNAP.viewByDate[dateIso];
     if (day && SNAP.viewCompare[day]) {
-      // всегда свежие clients в week
       var base = SNAP.viewCompare[day];
       var cl = SNAP.clients[day] && SNAP.clients[day].clients;
-      if (cl) {
-        base = Object.assign({}, base, { week: cl.slice(), month: (base.month && base.month.length ? base.month : cl).slice() });
-        // if local moves happened, week is source of truth in sandbox
-        base.week = cl.slice();
-        base.month = cl.slice();
+      // sandbox: week из локальных clients после move; month НЕ затираем (это дельта календаря).
+      // cutover сюда почти не заходит (trySnap → сеть), но на всякий случай не портим month.
+      if (cl && !isCutover()) {
+        base = Object.assign({}, base, {
+          week: cl.slice(),
+          month: Array.isArray(base.month) ? base.month.slice() : []
+        });
         putView_(base);
       }
       return base;
@@ -528,7 +530,20 @@
     else if (action === "getCutting" && day) SNAP.cutting[day] = res;
     else if (action === "getCourier" && day) SNAP.courier[day] = res;
     else if (action === "getAssembly" && day) SNAP.assembly[day] = res;
-    else if (action === "getViewCompare") putView_(res);
+    else if (action === "getViewCompare") {
+      putView_(res);
+      // синхронизируем clients из week, чтобы synth не откатывал список
+      var d = String(res.day || day || "");
+      if (d && Array.isArray(res.week)) {
+        SNAP.clients[d] = {
+          status: "success",
+          day: d,
+          clients: res.week.slice(),
+          source: res.source || "view"
+        };
+        idbPut("clients:" + d, SNAP.clients[d]);
+      }
+    }
     else if (action === "getMonthOverview" && params.month) {
       SNAP.monthOverview[String(params.month)] = res;
     } else if (action === "getWeekDayCounts") SNAP.weekDayCounts = res;
@@ -699,8 +714,8 @@
 
     var action = String(params.action);
 
-    // Cutover LIVE: mem/seed мгновенно; пустой stub НЕ отдаём (иначе список «пустой навсегда»).
-    // Промах → сеть в Worker (D1 ~0.2с, без ожидания GAS).
+    // Cutover LIVE: Просмотр/списки — ВСЕГДА Worker (D1 ~0.3с).
+    // Seed/IDB нельзя отдавать как финальный ответ: UI не перерисует bgRefresh → «пропали люди».
     if (isCutover()) {
       if (LOCAL_MUT[action] || WRITE_RE.test(action)) return null;
       if (action === "getMyAccess") {
@@ -714,23 +729,6 @@
           cutover: true
         });
       }
-      var memC = fromMem(action, params);
-      if (memC) {
-        var emptyClients =
-          action === "getClients" &&
-          (!Array.isArray(memC.clients) || !memC.clients.length);
-        var emptyView =
-          action === "getViewCompare" &&
-          (!Array.isArray(memC.week) || !memC.week.length) &&
-          (!Array.isArray(memC.month) || !memC.month.length);
-        if (emptyClients || emptyView) {
-          bgRefresh(params, 50);
-          return null; // идём в Worker за живыми данными
-        }
-        bgRefresh(params, 200);
-        return Promise.resolve(memC);
-      }
-      // без mem — сразу Worker, не turboStub
       return null;
     }
 

@@ -490,6 +490,42 @@ async function getViewCompare_(params, env) {
     if (map[dateIso]) resolvedDay = map[dateIso];
   }
 
+  // Предпочитаем свежий snap с GAS (week + month-delta как в проде)
+  if (resolvedDay) {
+    const snap = await getSnapRaw_(env, "view:" + resolvedDay);
+    if (snap && snap.status === "success" && Array.isArray(snap.week)) {
+      const live = await getClients_({ day: resolvedDay }, env);
+      const week = live.clients && live.clients.length ? live.clients : snap.week;
+      const weekKeys = Object.create(null);
+      (week || []).forEach(function (c) {
+        weekKeys[normalizeMatchKey_(c.matchKey || c.name)] = true;
+      });
+      // month = календарные сироты (не на неделе), как в GAS
+      let month = Array.isArray(snap.month) ? snap.month.slice() : [];
+      month = month.filter(function (c) {
+        return !weekKeys[normalizeMatchKey_(c.matchKey || c.name)];
+      });
+      const info = await dayDateInfo_(env, resolvedDay);
+      const iso = dateIso || snap.dateIso || info.iso;
+      return {
+        status: "success",
+        day: resolvedDay,
+        targetDay: resolvedDay,
+        date: snap.date || info.date || isoToDmy_(iso),
+        dateIso: iso,
+        dateNotInWeek: false,
+        futureSlot: resolvedDay === "Будущая неделя",
+        monthSheet: snap.monthSheet || "D1",
+        calendar: true,
+        week: week || [],
+        month: month,
+        sandbox: true,
+        source: snap.source || "d1",
+        fromSnap: true
+      };
+    }
+  }
+
   if (resolvedDay) {
     const live = await getClients_({ day: resolvedDay }, env);
     const info = await dayDateInfo_(env, resolvedDay);
@@ -505,14 +541,19 @@ async function getViewCompare_(params, env) {
       monthSheet: "D1",
       calendar: true,
       week: live.clients || [],
-      month: (live.clients || []).slice(),
+      // без snap — month пустой (не копия week; иначе UI врёт)
+      month: [],
       sandbox: true,
       source: "d1"
     };
   }
 
-  // вне недели — клиенты по date_iso
+  // вне недели — клиенты по date_iso + snap по дате
   if (dateIso) {
+    const byDate = await getSnapRaw_(env, "viewDate:" + dateIso);
+    if (byDate && byDate.status === "success") {
+      return Object.assign({}, byDate, { sandbox: true, source: byDate.source || "d1", fromSnap: true });
+    }
     const live = await getClients_({ date: dateIso }, env);
     return {
       status: "success",
@@ -576,7 +617,7 @@ async function rebuildWeekCounts_(env) {
 }
 
 async function rebuildMonthOverview_(env) {
-  if (!env || !env.DB) return;
+  if (!env || !env.DB) return { status: "success", month: "", days: [], total: 0, sandbox: true };
   const prev = await getSnapRaw_(env, "monthOverview");
   const month =
     (prev && prev.month) ||
@@ -585,23 +626,62 @@ async function rebuildMonthOverview_(env) {
     "SELECT date_iso, segment, COUNT(*) AS c FROM orders WHERE status = 'active' AND date_iso != '' GROUP BY date_iso, segment"
   ).all();
   const byDate = Object.create(null);
+  // стартуем с полного календарного snap (GAS), иначе пропадут даты вне недели
+  ((prev && prev.days) || []).forEach(function (d) {
+    if (!d || !d.dateIso) return;
+    if (String(d.dateIso).slice(0, 7) !== month) return;
+    byDate[d.dateIso] = {
+      dateIso: d.dateIso,
+      count: Number(d.count) || 0,
+      segments: d.segments || {}
+    };
+  });
+  const orderByDate = Object.create(null);
   (q.results || []).forEach(function (r) {
     const iso = r.date_iso;
     if (!iso || iso.slice(0, 7) !== month) return;
-    if (!byDate[iso]) byDate[iso] = { dateIso: iso, count: 0, segments: {} };
+    if (!orderByDate[iso]) orderByDate[iso] = { count: 0, segments: {} };
     const c = Number(r.c) || 0;
-    byDate[iso].count += c;
+    orderByDate[iso].count += c;
     const seg = r.segment || "";
-    if (seg) byDate[iso].segments[seg] = (byDate[iso].segments[seg] || 0) + c;
+    if (seg) orderByDate[iso].segments[seg] = (orderByDate[iso].segments[seg] || 0) + c;
+  });
+  Object.keys(orderByDate).forEach(function (iso) {
+    const o = orderByDate[iso];
+    if (!byDate[iso]) {
+      byDate[iso] = { dateIso: iso, count: o.count, segments: o.segments };
+      return;
+    }
+    // не теряем календарных «лишних» с GAS: берём max
+    if (o.count >= (Number(byDate[iso].count) || 0)) {
+      byDate[iso].count = o.count;
+      byDate[iso].segments = o.segments;
+    } else {
+      byDate[iso].count = Math.max(Number(byDate[iso].count) || 0, o.count);
+    }
   });
   const days = Object.keys(byDate)
     .sort()
     .map(function (k) {
       return byDate[k];
     });
-  const body = { status: "success", month: month, days: days, sandbox: true, source: "d1" };
-  await putSnap_(env, "monthOverview", body);
-  await putSnap_(env, "monthOverview:" + month, body);
+  const total = days.reduce(function (s, d) {
+    return s + (Number(d.count) || 0);
+  }, 0);
+  const body = {
+    status: "success",
+    month: month,
+    days: days,
+    total: total,
+    sandbox: true,
+    source: prev && prev.days && prev.days.length > days.length ? "d1+snap" : "d1"
+  };
+  // не затираем более полный GAS-snap урезанной сборкой из orders
+  const prevN = (prev && prev.days && prev.days.length) || 0;
+  if (days.length >= prevN || prevN === 0) {
+    await putSnap_(env, "monthOverview", body);
+    await putSnap_(env, "monthOverview:" + month, body);
+  }
   return body;
 }
 
@@ -711,12 +791,18 @@ async function invalidateDays_(env, days) {
 
 async function getMonthOverview_(params, env) {
   const month = String(params.month || "");
-  // всегда пересобираем из orders — иначе после переносов врёт
-  const body = await rebuildMonthOverview_(env);
-  if (body && (!month || body.month === month)) return body;
   const hitM = month ? await getSnapRaw_(env, "monthOverview:" + month) : null;
-  if (hitM) return hitM;
-  return body || { status: "success", month: month, days: [], sandbox: true, source: "d1" };
+  const hit = hitM || (await getSnapRaw_(env, "monthOverview"));
+  // полный календарь с GAS — отдаём сразу (merge week-дат сделает rebuild без потери)
+  if (hit && Array.isArray(hit.days) && hit.days.length >= 10) {
+    const body = await rebuildMonthOverview_(env);
+    if (body && Array.isArray(body.days) && body.days.length >= hit.days.length) return body;
+    return hit;
+  }
+  const body = await rebuildMonthOverview_(env);
+  if (body && (!month || body.month === month || !body.month)) return body;
+  if (hit) return hit;
+  return body || { status: "success", month: month, days: [], total: 0, sandbox: true, source: "d1" };
 }
 
 function defaultBanner_(params) {
@@ -1125,8 +1211,11 @@ function cutoverNeedsRevalidate_(a, params, fast) {
     else if (Array.isArray(fast.list)) empty = !fast.list.length;
     else if (fast.empty) empty = true;
   }
-  // пусто — чаще (45с); есть данные — редкий soft refresh (3 мин), ответ всё равно из D1
-  const minGap = empty ? 45000 : 180000;
+  // Просмотр — чаще подтягиваем GAS в фоне (ответ всё равно мгновенный из D1/snap)
+  let minGap = empty ? 20000 : 90000;
+  if (a === "getViewCompare" || a === "getClients" || a === "getMonthOverview") {
+    minGap = empty ? 10000 : 45000;
+  }
   if (now - prev < minGap) return false;
   _revalCooldown.set(key, now);
   return true;
@@ -1236,15 +1325,31 @@ async function cutoverFastRead_(a, params, env) {
 async function cutoverStoreRead_(a, params, env, payload) {
   if (!payload || !env || !env.DB) return;
   if (a === "getClients" && params.day) {
-    await replaceDayOrdersFromClients_(env, params.day, payload.clients || []);
+    const list = Array.isArray(payload.clients) ? payload.clients : [];
+    if (list.length) {
+      await replaceDayOrdersFromClients_(env, params.day, list);
+    } else {
+      const cur = await getClients_({ day: params.day }, env);
+      if (!(cur.clients && cur.clients.length)) {
+        await replaceDayOrdersFromClients_(env, params.day, []);
+      }
+    }
     return;
   }
-  if (a === "getViewCompare" && (payload.day || params.day)) {
+  if (a === "getViewCompare" && (payload.day || params.day || payload.dateIso || params.date)) {
     const day = payload.day || params.day;
-    if (day && Array.isArray(payload.week)) {
+    // не затираем D1 пустым week при сбое/гонке GAS
+    if (day && Array.isArray(payload.week) && payload.week.length) {
       await replaceDayOrdersFromClients_(env, day, payload.week);
+    } else if (day && Array.isArray(payload.week) && !payload.week.length) {
+      const cur = await getClients_({ day: day }, env);
+      if (!(cur.clients && cur.clients.length)) {
+        await replaceDayOrdersFromClients_(env, day, []);
+      }
     }
     if (day) await putSnap_(env, "view:" + day, payload);
+    const iso = payload.dateIso || params.date || "";
+    if (iso) await putSnap_(env, "viewDate:" + iso, payload);
     return;
   }
   if (a === "getWeekDayCounts") {

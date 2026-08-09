@@ -5694,15 +5694,16 @@
         var cutover = !!window.__BOINYA_C_CUTOVER__;
 
         var compareParams = { action: "getViewCompare" };
+        // и date, и day — Worker/GAS точнее резолвят; date-only ломал неделю при пустом dateMap
         if (dateStr) compareParams.date = dateStr;
-        else compareParams.day = day;
+        if (day) compareParams.day = day;
 
         var compareRes = null;
         try {
           compareRes = await apiGet(compareParams, {
-            timeoutMs: cutover ? 4000 : d1Proxy ? 8000 : 45000,
-            cacheTtlMs: cutover || d1Proxy ? 60000 : 0,
-            retries: 0
+            timeoutMs: cutover ? 12000 : d1Proxy ? 8000 : 45000,
+            cacheTtlMs: cutover ? 8000 : d1Proxy ? 60000 : 0,
+            retries: cutover ? 1 : 0
           });
         } catch (eC) {
           compareRes = null;
@@ -5740,9 +5741,9 @@
             if (weekParams.day || weekParams.date) {
               try {
                 weekRes = await apiGet(weekParams, {
-                  timeoutMs: cutover ? 4000 : d1Proxy ? 8000 : 22000,
-                  cacheTtlMs: cutover || d1Proxy ? 60000 : 0,
-                  retries: 0
+                  timeoutMs: cutover ? 12000 : d1Proxy ? 8000 : 22000,
+                  cacheTtlMs: cutover ? 8000 : d1Proxy ? 60000 : 0,
+                  retries: cutover ? 1 : 0
                 });
               } catch (eW) {
                 weekRes = { status: "error", message: eW.message || String(eW), clients: [] };

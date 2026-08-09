@@ -162,7 +162,8 @@ async function main() {
   writeJson("snaps-index.json", { snaps: Object.keys(snaps), full: true });
   writeJson("meta.json", meta);
 
-  spawnSync(process.execPath, [path.join(__dirname, "build-view-snaps.mjs")], { stdio: "inherit" });
+  // НЕ пересобираем view-*.json из clients: это затирает GAS month (календарные сироты).
+  // dateToDay уже записан выше; seed-inline — лёгкий кэш для sandbox.
   spawnSync(process.execPath, [path.join(__dirname, "build-seed-inline.mjs")], { stdio: "inherit" });
   console.log("FULL refresh done", meta.items.length, "ok=", meta.ok);
 }
