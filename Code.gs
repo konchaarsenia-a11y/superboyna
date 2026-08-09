@@ -4767,7 +4767,7 @@ function sendTelegramSnabNotification() {
   }
 }
 
-/** Текст заказа дозакупа: позиция — нужно / есть (без колонки «дефицит»). */
+/** Текст заказа дозакупа: нужно сырья / есть (план сухого — для ясности). */
 function composeWarehouseBuyMessage_(pack) {
   pack = pack || {};
   var defs = pack.deficits || [];
@@ -4784,6 +4784,7 @@ function composeWarehouseBuyMessage_(pack) {
   } else {
     lines.push("Под план выбранных дат:");
   }
+  lines.push("«Нужно» = сырьё (сухое ÷ коэф усушки), не граммы с заказа.");
   lines.push("");
   if (!defs.length) {
     lines.push("Нехватки нет (остаток покрывает план).");
@@ -4792,7 +4793,11 @@ function composeWarehouseBuyMessage_(pack) {
   for (var i = 0; i < defs.length; i++) {
     var d = defs[i];
     var unit = d.unit || "кг";
-    lines.push("· " + d.name + " — нужно " + d.needRaw + " " + unit + ", есть " + d.available + " " + unit);
+    var line = "· " + d.name + " — нужно " + d.needRaw + " " + unit + ", есть " + d.available + " " + unit;
+    if (!d.piece && d.dryG > 0) {
+      line += " (план " + (d.dryG >= 1000 ? (round2_(d.dryG / 1000) + " кг") : (round2_(d.dryG) + " г")) + " сухого)";
+    }
+    lines.push(line);
   }
   lines.push("");
   lines.push("Бойня-Конвейер · склад");
@@ -5002,6 +5007,57 @@ function computeWarehouseWeekPlan_(ss, opts) {
     if (dayInRange_(weekDaysGeo[ad])) activeDays.push(weekDaysGeo[ad]);
   }
 
+  // «Сегодня» по TZ таблицы — прошлые дни недели уже «съели» остаток F (F списывается только при закрытии недели).
+  var todayTs = 0;
+  try {
+    var now = new Date();
+    var todayIso = isoDateKey_(now, tz);
+    var todayD = parseFlexibleDate_(todayIso, tz);
+    if (todayD) todayTs = todayD.getTime();
+  } catch (eToday) {}
+
+  function dayIsPast_(day) {
+    return !!(todayTs && day && day.ts && day.ts < todayTs);
+  }
+
+  // Дни для «нужно»: в диапазоне; без фильтра — только сегодня и дальше (остаток недели).
+  // Если в диапазоне все дни уже прошли — оставляем их (аудит).
+  var needDaysIdx = {};
+  var priorDaysIdx = {};
+  var anyFutureInRange = false;
+  for (var fd = 0; fd < weekDaysGeo.length; fd++) {
+    var dayF = weekDaysGeo[fd];
+    if (!dayInRange_(dayF)) {
+      // до начала выбранного диапазона — вычитаем из «есть»
+      if (filterOn && dateFrom && dayF.ts && dayF.ts < dateFrom.getTime()) {
+        priorDaysIdx[fd] = true;
+      } else if (!filterOn && dayIsPast_(dayF)) {
+        priorDaysIdx[fd] = true;
+      }
+      continue;
+    }
+    if (dayIsPast_(dayF)) {
+      if (filterOn) {
+        // явный выбор прошлого дня — считаем как аудит (в нужно)
+        needDaysIdx[fd] = true;
+      } else {
+        priorDaysIdx[fd] = true;
+      }
+    } else {
+      anyFutureInRange = true;
+      needDaysIdx[fd] = true;
+    }
+  }
+  if (filterOn && !anyFutureInRange) {
+    // все выбранные дни в прошлом — prior внутри диапазона не вычитаем повторно
+    for (var pd = 0; pd < weekDaysGeo.length; pd++) {
+      if (dayInRange_(weekDaysGeo[pd])) {
+        needDaysIdx[pd] = true;
+        delete priorDaysIdx[pd];
+      }
+    }
+  }
+
   var fullManagerMatrix = sheetManager.getRange(1, 3, 427, 15).getValues();
   var noCutByDayOffset = {};
   for (var nd = 0; nd < weekDaysGeo.length; nd++) {
@@ -5020,9 +5076,9 @@ function computeWarehouseWeekPlan_(ss, opts) {
     if (!rowsToSum) continue;
     var wRow = getWarehouseRowForCuttingRow_(cRow);
     if (!wRow) continue;
-    if (!byWh[wRow]) byWh[wRow] = { dryG: 0, byDay: {}, surplusKg: 0 };
-    // излишки C — только для полного плана недели; при срезе дат не размазываем
-    if (!filterOn) {
+    if (!byWh[wRow]) byWh[wRow] = { dryG: 0, priorDryG: 0, byDay: {}, surplusKg: 0 };
+    // излишки C — на весь остаток недели (не на срез одного дня)
+    if (!filterOn || Object.keys(needDaysIdx).length >= 5) {
       try {
         if (cuttingSurplusValues && cuttingSurplusValues[cRow - 3]) {
           byWh[wRow].surplusKg += Number(cuttingSurplusValues[cRow - 3][0]) || 0;
@@ -5031,7 +5087,6 @@ function computeWarehouseWeekPlan_(ss, opts) {
     }
     for (var d = 0; d < weekDaysGeo.length; d++) {
       var day = weekDaysGeo[d];
-      if (!dayInRange_(day)) continue;
       var dayOffset = day.start - 4;
       var skipCols = noCutByDayOffset[day.start] || {};
       var dayG = 0;
@@ -5043,8 +5098,10 @@ function computeWarehouseWeekPlan_(ss, opts) {
           dayG += Number(fullManagerMatrix[targetRowIdx][colM]) || 0;
         }
       }
-      byWh[wRow].dryG += dayG;
+      if (!(dayG > 0)) continue;
       byWh[wRow].byDay[d] = (byWh[wRow].byDay[d] || 0) + dayG;
+      if (needDaysIdx[d]) byWh[wRow].dryG += dayG;
+      if (priorDaysIdx[d]) byWh[wRow].priorDryG += dayG;
     }
   }
 
@@ -5062,44 +5119,61 @@ function computeWarehouseWeekPlan_(ss, opts) {
     var mVal = Number(matrix[i][12]) || 0;
     var coef = Number(matrix[i][3]) || (piece ? 1 : 0.2);
     if (!(coef > 0)) coef = piece ? 1 : 0.2;
-    var agg = byWh[row] || { dryG: 0, byDay: {}, surplusKg: 0 };
+    var agg = byWh[row] || { dryG: 0, priorDryG: 0, byDay: {}, surplusKg: 0 };
     var needRaw = 0;
-    var available = 0;
+    var priorRaw = 0;
+    var stockStart = 0;
     var unit = "кг";
+    var dryG = agg.dryG || 0;
+    var priorDryG = agg.priorDryG || 0;
     if (piece) {
       unit = "шт";
-      needRaw = (agg.dryG || 0);
-      available = (mVal > 0 ? mVal : f) + b;
+      needRaw = dryG;
+      priorRaw = priorDryG;
+      stockStart = (mVal > 0 ? mVal : f) + b;
     } else {
-      needRaw = ((agg.dryG || 0) / 1000) / coef + (agg.surplusKg || 0);
-      available = f + b;
+      needRaw = (dryG / 1000) / coef + (agg.surplusKg || 0);
+      priorRaw = (priorDryG / 1000) / coef;
+      stockStart = f + b;
     }
+    // F не уменьшается галочками нарезки → вычитаем уже прошедшие дни из «есть»
+    var available = Math.max(0, stockStart - priorRaw);
     var deficit = Math.max(0, needRaw - available);
     var byDay = [];
     for (var dj = 0; dj < weekDaysGeo.length; dj++) {
-      if (!dayInRange_(weekDaysGeo[dj])) continue;
+      if (!needDaysIdx[dj] && !priorDaysIdx[dj]) continue;
       var gDay = agg.byDay[dj] || 0;
       if (gDay <= 0) continue;
+      var dayNeed = piece ? gDay : ((gDay / 1000) / coef);
       byDay.push({
         day: weekDaysGeo[dj].label || weekDaysGeo[dj].name,
         date: weekDaysGeo[dj].date || "",
         dateIso: weekDaysGeo[dj].dateIso || "",
-        needRaw: round2_(piece ? gDay : ((gDay / 1000) / coef))
+        dryG: round2_(gDay),
+        needRaw: round2_(dayNeed),
+        past: !!priorDaysIdx[dj],
+        inNeed: !!needDaysIdx[dj]
       });
     }
     var item = {
       row: row,
       name: name,
       unit: unit,
+      piece: !!piece,
+      coef: round2_(coef),
+      dryG: round2_(dryG),
+      dryKg: piece ? null : round2_(dryG / 1000),
       stock: round2_(f),
       arrival: round2_(b),
+      stockStart: round2_(stockStart),
+      priorRaw: round2_(priorRaw),
       available: round2_(available),
       needRaw: round2_(needRaw),
       deficit: round2_(deficit),
       byDay: byDay
     };
     plan.push(item);
-    if (deficit >= (piece ? 0.5 : 0.05)) deficits.push(item);
+    if (needRaw > 0 && deficit >= (piece ? 0.5 : 0.05)) deficits.push(item);
   }
   deficits.sort(function (a, b) { return (b.deficit || 0) - (a.deficit || 0); });
 
@@ -5110,28 +5184,36 @@ function computeWarehouseWeekPlan_(ss, opts) {
     }
   } catch (e2) {}
 
-  var daysMeta = weekDaysGeo.map(function (x) {
+  var daysMeta = weekDaysGeo.map(function (x, idx) {
     return {
       name: x.name,
       date: x.date || "",
       dateIso: x.dateIso || "",
       label: x.label || x.name,
-      inRange: dayInRange_(x)
+      inRange: dayInRange_(x),
+      inNeed: !!needDaysIdx[idx],
+      past: !!priorDaysIdx[idx]
     };
   });
   var rangeLabel = "";
   if (filterOn) {
     rangeLabel = (dateFrom ? isoDateKey_(dateFrom, tz) : "…") + " — " + (dateTo ? isoDateKey_(dateTo, tz) : "…");
   } else if (daysMeta.length) {
-    var firstD = daysMeta[0].dateIso || daysMeta[0].date;
-    var lastD = daysMeta[daysMeta.length - 1].dateIso || daysMeta[daysMeta.length - 1].date;
+    var needMeta = daysMeta.filter(function (x) { return x.inNeed; });
+    var firstD = (needMeta[0] && (needMeta[0].dateIso || needMeta[0].date)) || daysMeta[0].dateIso || daysMeta[0].date;
+    var lastD = (needMeta.length && (needMeta[needMeta.length - 1].dateIso || needMeta[needMeta.length - 1].date)) ||
+      daysMeta[daysMeta.length - 1].dateIso || daysMeta[daysMeta.length - 1].date;
     if (firstD || lastD) rangeLabel = String(firstD || "…") + " — " + String(lastD || "…");
   }
+
+  var withPlan = plan.filter(function (p) { return (p.needRaw || 0) > 0 || (p.dryG || 0) > 0; });
+  withPlan.sort(function (a, b) { return (b.deficit || 0) - (a.deficit || 0); });
 
   var out = {
     ok: true,
     deficits: deficits,
     plan: plan,
+    withPlan: withPlan,
     buyList: buyList,
     days: daysMeta,
     activeDays: activeDays.map(function (x) {
@@ -5140,9 +5222,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
     dateFrom: dateFrom ? isoDateKey_(dateFrom, tz) : "",
     dateTo: dateTo ? isoDateKey_(dateTo, tz) : "",
     rangeLabel: rangeLabel,
-    note: filterOn
-      ? ("План сырья за выбранные даты недели. Есть = F+B. Без излишков C (они на всю неделю).")
-      : "Сырьё = план Приём / коэф D (+излишки C). Есть = F+B (шт: M или F). Списание в F — только при «Завершить неделю», не по галочкам нарезки."
+    note: "Нужно = сырьё (сухое÷коэф D). План = граммы с «Приём». Есть = F+B минус уже прошедшие дни недели (галочки нарезки F не списывают)."
   };
   try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(out), 45); } catch (ePut) {}
   return out;
@@ -11904,6 +11984,7 @@ function handleWarehousePreview(json, callback, fromPost) {
     status: "success",
     deficits: pack.deficits || [],
     plan: pack.plan || [],
+    withPlan: pack.withPlan || [],
     buyList: pack.buyList || [],
     days: pack.days || [],
     activeDays: pack.activeDays || [],
