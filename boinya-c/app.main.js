@@ -3452,6 +3452,9 @@
     }
     function apiGet(params, opts) {
       opts = opts || {};
+      params = params || {};
+      // Cutover: каждый запрос через Worker → боевой GAS
+      if (window.__BOINYA_C_CUTOVER__ && !params.cutover) params.cutover = "1";
       if (!opts.__boinyaNoSnap && typeof window.__boinyaCTrySnap === "function") {
         var _cHit = window.__boinyaCTrySnap(params, opts);
         if (_cHit) return _cHit;
@@ -3563,13 +3566,19 @@
     }
 
     function apiPost(payload) {
+      payload = payload || {};
+      if (window.__BOINYA_C_CUTOVER__ && !payload.cutover) payload.cutover = "1";
       try {
         if (typeof window.__boinyaCGuardWrite === "function") {
-          var _bw = window.__boinyaCGuardWrite(payload || {});
+          var _bw = window.__boinyaCGuardWrite(payload);
           if (_bw) return _bw;
         }
       } catch (eBw) {}
-      return fetch(GOOGLE_WEBHOOK_URL, {
+      var postUrl = GOOGLE_WEBHOOK_URL;
+      if (window.__BOINYA_C_CUTOVER__ && postUrl && postUrl.indexOf("cutover=") < 0) {
+        postUrl += (postUrl.indexOf("?") >= 0 ? "&" : "?") + "cutover=1";
+      }
+      return fetch(postUrl, {
         method: "POST",
         redirect: "follow",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
