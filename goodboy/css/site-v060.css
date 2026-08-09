@@ -274,6 +274,26 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   position: relative;
   padding-bottom: 14px;
 }
+.promise-hero .promise-mir {
+  position: relative;
+  display: inline-block;
+  color: var(--gb-cream);
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 34px rgba(212, 161, 90, 0.28);
+}
+.promise-hero .promise-mir::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 48%;
+  width: 1.55em;
+  height: 1.55em;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(212, 161, 90, 0.28) 0%, rgba(127, 168, 144, 0.12) 42%, transparent 70%);
+  z-index: -1;
+  pointer-events: none;
+}
 .promise-hero .promise-accent {
   color: var(--gb-orange);
   text-shadow: 0 0 28px rgba(212, 161, 90, 0.35);
@@ -483,20 +503,48 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   margin-top: 28px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   width: 100%;
   max-width: 100%;
   padding: 36px 0 44px; /* место под наклон — полоски не режутся */
+  position: relative;
+}
+/* мягкий фон-«плёнка», чтобы стыки не читались как обрезки */
+.photo-shelves::before {
+  content: "";
+  position: absolute;
+  inset: 18px 0 22px;
+  background:
+    linear-gradient(180deg, transparent 0%, rgba(38, 44, 41, 0.55) 18%, rgba(38, 44, 41, 0.55) 82%, transparent 100%);
+  pointer-events: none;
+  z-index: 0;
 }
 .photo-shelves .shelf {
   margin: 0;
   overflow: hidden;
   width: 122%;
   height: clamp(104px, 16vw, 152px);
-  background: #2c3330;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  background: transparent;
+  box-shadow: none;
   flex-shrink: 0;
   transition: transform 0.45s var(--ease);
+  position: relative;
+  z-index: 1;
+  /* края растворяются в фон — нет жёстких стыков «листов» */
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 12%,
+    #000 88%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 12%,
+    #000 88%,
+    transparent 100%
+  );
 }
 /* в разные стороны — торчат, но не «ползут» */
 .photo-shelves .shelf:nth-child(1) {
@@ -509,18 +557,20 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   margin-left: auto;
   margin-right: -14%;
   transform: rotate(2.1deg);
+  margin-top: -4px;
 }
 .photo-shelves .shelf:nth-child(3) {
   align-self: flex-start;
   margin-left: -16%;
   transform: rotate(-1.4deg);
+  margin-top: -4px;
 }
 .photo-shelves .shelf img {
   width: 100%;
   height: 100%;
   display: block;
   object-fit: cover;
-  filter: none;
+  filter: saturate(1.04) contrast(1.02);
   transition: transform 0.7s var(--ease), filter 0.45s ease;
 }
 .photo-shelves .shelf:nth-child(1) img { object-position: 50% 40%; }
@@ -528,7 +578,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .photo-shelves .shelf:nth-child(3) img { object-position: 50% 48%; } /* головы собак чётко в кадре */
 .photo-shelves .shelf:hover img {
   transform: scale(1.05);
-  filter: brightness(1.03);
+  filter: saturate(1.06) brightness(1.04) contrast(1.03);
 }
 .photo-shelves .shelf:nth-child(1):hover { transform: rotate(-1.2deg); }
 .photo-shelves .shelf:nth-child(2):hover { transform: rotate(1.5deg); }
@@ -536,12 +586,26 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 
 @media (max-width: 640px) {
   .photo-shelves {
-    gap: 12px;
+    gap: 8px;
     padding: 28px 0 36px;
   }
   .photo-shelves .shelf {
     width: 128%;
     height: clamp(92px, 26vw, 120px);
+    -webkit-mask-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      #000 16%,
+      #000 84%,
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      #000 16%,
+      #000 84%,
+      transparent 100%
+    );
   }
   .photo-shelves .shelf:nth-child(1) { margin-left: -18%; }
   .photo-shelves .shelf:nth-child(2) { margin-right: -18%; }
