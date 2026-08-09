@@ -34,5 +34,23 @@ bash boinya-c/scripts/sync-from-prod.sh   # копирует UI → split → li
 node boinya-c/scripts/refresh-cache.mjs   # снапшоты с GAS (чтение)
 ```
 
+<<<<<<< HEAD
 Потолок без D1: первый визит всё ещё качает ~800KB JS (gzip ~200KB).  
 Дальше — Worker+D1 и нарезка экранов по вкладкам.
+=======
+Снапшоты дней: `boinya-c/data/` (сейчас из `fast/data`).
+
+## Осторожно: запись
+
+По умолчанию save/move/delete **блокируются**.  
+Включить (пишет в тот же GAS/Sheets!): `?allowWrite=1` — только если явно нужно.
+
+## Лаборатория IDB
+
+Старое тонкое демо: [`lab.html`](./lab.html).
+
+## Worker / D1
+
+База D1 создана (`boinya-c`, ID в `proxy/wrangler.toml`).  
+**Как задеплоить Worker:** [docs/SETUP_D1.md](./docs/SETUP_D1.md) — после деплоя пришли URL `*.workers.dev`.
+>>>>>>> origin/cursor/boinya-c-d1-wire-15e1

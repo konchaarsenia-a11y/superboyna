@@ -39,7 +39,8 @@ export default {
     const url = new URL(request.url);
     const action = String(url.searchParams.get("action") || "").trim();
 
-    if (!action && request.method === "GET") {
+    // health: / или /? — без action
+    if (request.method === "GET" && (!action || action === "health")) {
       return json({
         status: "ok",
         service: "boinya-c",
