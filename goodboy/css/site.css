@@ -513,11 +513,11 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   animation: rise 0.85s var(--ease) 0.05s forwards;
 }
 
-/* —— Cinematic photo shelves —— */
+/* —— Photo mosaic (как на разметке) —— */
 .site-section--shelves {
   padding: 88px 0 12px;
   margin-top: 0;
-  overflow: hidden; /* без скролла в стороны; вертикаль — за счёт padding */
+  overflow: hidden;
   max-width: 100%;
   background: transparent !important;
   border: 0 !important;
@@ -529,108 +529,89 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   padding: 0 20px;
   box-sizing: border-box;
 }
-.photo-shelves {
-  margin-top: 36px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  width: 100%;
-  max-width: 100%;
-  padding: 40px 0 52px; /* место под наклон — полоски не режутся */
+.photo-mosaic {
+  width: min(980px, calc(100% - 32px));
+  margin: 36px auto 48px;
+  display: grid;
+  grid-template-columns: minmax(110px, 0.95fr) minmax(180px, 2.05fr);
+  grid-template-rows: auto auto auto;
+  gap: 10px;
   position: relative;
 }
-.photo-shelves .shelf {
+.photo-mosaic .pm {
   margin: 0;
   overflow: hidden;
-  width: 122%;
-  height: clamp(120px, 18vw, 168px);
-  background: transparent;
-  box-shadow: none;
-  flex-shrink: 0;
-  transition: transform 0.45s var(--ease);
+  border-radius: 4px;
+  background: var(--gb-surface-2);
   position: relative;
-  z-index: 1;
-  /* края растворяются в фон — нет жёстких стыков «листов» */
-  -webkit-mask-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    #000 12%,
-    #000 88%,
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    #000 12%,
-    #000 88%,
-    transparent 100%
-  );
 }
-/* в разные стороны — торчат, но не «ползут» */
-.photo-shelves .shelf:nth-child(1) {
-  align-self: flex-start;
-  margin-left: -14%;
-  transform: rotate(-1.8deg);
-}
-.photo-shelves .shelf:nth-child(2) {
-  align-self: flex-end;
-  margin-left: auto;
-  margin-right: -14%;
-  transform: rotate(2.1deg);
-  margin-top: -4px;
-}
-.photo-shelves .shelf:nth-child(3) {
-  align-self: flex-start;
-  margin-left: -16%;
-  transform: rotate(-1.4deg);
-  margin-top: -4px;
-}
-.photo-shelves .shelf img {
+.photo-mosaic .pm img {
   width: 100%;
   height: 100%;
   display: block;
   object-fit: cover;
   filter: saturate(1.04) contrast(1.02);
-  transition: transform 0.7s var(--ease), filter 0.45s ease;
+  transition: transform 0.75s var(--ease), filter 0.45s ease;
 }
-.photo-shelves .shelf:nth-child(1) img { object-position: 50% 40%; }
-.photo-shelves .shelf:nth-child(2) img { object-position: 50% 28%; } /* морда питомца в лугу */
-.photo-shelves .shelf:nth-child(3) img { object-position: 50% 48%; } /* головы собак чётко в кадре */
-.photo-shelves .shelf:hover img {
-  transform: scale(1.06);
-  filter: saturate(1.06) brightness(1.04) contrast(1.03);
+.photo-mosaic .pm:hover img {
+  transform: scale(1.04);
+  filter: saturate(1.06) brightness(1.03) contrast(1.03);
 }
+/* ряд 1: квадрат + широкий */
+.pm-a {
+  grid-column: 1;
+  grid-row: 1;
+  aspect-ratio: 1 / 1;
+  min-height: clamp(120px, 20vw, 200px);
+}
+.pm-a img { object-position: 18% 45%; }
+.pm-b {
+  grid-column: 2;
+  grid-row: 1;
+  min-height: clamp(120px, 20vw, 200px);
+}
+.pm-b img { object-position: 72% 42%; }
+/* ряд 2: на всю ширину */
+.pm-c {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  aspect-ratio: 2.4 / 1;
+  min-height: clamp(140px, 24vw, 230px);
+}
+.pm-c img { object-position: 50% 30%; }
+/* ряд 3: квадрат + широкий */
+.pm-d {
+  grid-column: 1;
+  grid-row: 3;
+  aspect-ratio: 1 / 1;
+  min-height: clamp(120px, 20vw, 200px);
+}
+.pm-d img { object-position: 12% 45%; }
+.pm-e {
+  grid-column: 2;
+  grid-row: 3;
+  min-height: clamp(120px, 20vw, 200px);
+}
+.pm-e img { object-position: 68% 48%; }
 
 @media (max-width: 640px) {
-  .photo-shelves {
+  .photo-mosaic {
+    width: calc(100% - 24px);
     gap: 8px;
-    padding: 28px 0 36px;
+    margin: 28px auto 36px;
+    grid-template-columns: 0.92fr 1.9fr;
   }
-  .photo-shelves .shelf {
-    width: 128%;
-    height: clamp(92px, 26vw, 120px);
-    -webkit-mask-image: linear-gradient(
-      90deg,
-      transparent 0%,
-      #000 16%,
-      #000 84%,
-      transparent 100%
-    );
-    mask-image: linear-gradient(
-      90deg,
-      transparent 0%,
-      #000 16%,
-      #000 84%,
-      transparent 100%
-    );
+  .pm-a, .pm-b, .pm-d, .pm-e {
+    min-height: clamp(96px, 28vw, 140px);
   }
-  .photo-shelves .shelf:nth-child(1) { margin-left: -18%; }
-  .photo-shelves .shelf:nth-child(2) { margin-right: -18%; }
-  .photo-shelves .shelf:nth-child(3) { margin-left: -20%; }
+  .pm-c {
+    min-height: clamp(110px, 32vw, 160px);
+    aspect-ratio: 2.1 / 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .photo-shelves .shelf {
+  .photo-mosaic .pm img {
     transition: none;
   }
 }
@@ -1113,15 +1094,6 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   opacity: 1;
   transform: translate3d(0, 0, 0);
   filter: blur(0);
-}
-.photo-shelves .shelf.reveal {
-  filter: none;
-  opacity: 0;
-  /* transform — в motion.js (parallax) */
-  transition: opacity 0.9s var(--ease);
-}
-.photo-shelves .shelf.reveal.is-in {
-  opacity: 1;
 }
 .d1 { transition-delay: 0.08s; }
 .d2 { transition-delay: 0.16s; }
@@ -1713,13 +1685,6 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   background: rgba(212, 161, 90, 0.18);
 }
 
-.photo-shelves .shelf {
-  will-change: transform;
-  transition: none; /* scroll-driven transform */
-}
-.photo-shelves .shelf img {
-  transition: transform 0.8s var(--ease), filter 0.5s ease;
-}
 
 /* Closing invite — one calm CTA */
 .site-invite {
