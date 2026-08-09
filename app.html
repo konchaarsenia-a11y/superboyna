@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.151";
+      var APP_VER = "v7.11.152";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1944,7 +1944,19 @@
     <div id="warehouseScreen" class="screen">
       <div class="card">
         <button class="btn-action btn-blue" type="button" onclick="loadWarehouse()">Обновить склад</button>
-        <button class="btn-action btn-orange" type="button" style="margin-top:8px;" onclick="loadWarehousePreview()">Прогноз / дефицит по датам</button>
+        <div class="section-title" style="margin:14px 0 8px;font-size:14px;">Дефицит по датам</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="form-group" style="margin:0;">
+            <label>С даты</label>
+            <input type="date" id="whDefFrom">
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label>По дату</label>
+            <input type="date" id="whDefTo">
+          </div>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:6px;">Даты из текущей недели на «Приём заказов». Пусто = вся неделя.</div>
+        <button class="btn-action btn-orange" type="button" style="margin-top:8px;" onclick="loadWarehousePreview()">Показать позиции</button>
         <button class="btn-action btn-blue" type="button" style="margin-top:8px;" onclick="composeWarehouseBuyMessageUi()">Собрать сообщение дозакупа</button>
         <div class="muted" style="font-size:12px;margin-top:8px;">Ревизия: «дозакуп» у позиции = корректировка. Списание F только при «Завершить неделю» — галочки нарезки не списывают.</div>
         <button class="btn-action" type="button" style="margin-top:8px;background:#3a3a3c;" onclick="closeAllOpenDeficitsUi()">Закрыть все открытые дефициты (TG спам)</button>
@@ -2668,7 +2680,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.151";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.152";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -16614,36 +16626,123 @@
     }
     window.saveWarehouseArrival = saveWarehouseArrival;
 
-    async function loadWarehousePreview() {
+    function getWarehouseDeficitDates_() {
+      var fromEl = document.getElementById("whDefFrom");
+      var toEl = document.getElementById("whDefTo");
+      return {
+        dateFrom: fromEl ? String(fromEl.value || "").trim() : "",
+        dateTo: toEl ? String(toEl.value || "").trim() : ""
+      };
+    }
+
+    function fillWarehouseDeficitDatesFromDays_(days) {
+      var fromEl = document.getElementById("whDefFrom");
+      var toEl = document.getElementById("whDefTo");
+      if (!fromEl || !toEl) return;
+      if (fromEl.value && toEl.value) return;
+      var list = (days || []).filter(function (d) { return d && d.dateIso; });
+      if (!list.length) return;
+      if (!fromEl.value) fromEl.value = list[0].dateIso;
+      if (!toEl.value) toEl.value = list[list.length - 1].dateIso;
+    }
+
+    function setWarehouseDeficitWholeWeek_() {
+      var fromEl = document.getElementById("whDefFrom");
+      var toEl = document.getElementById("whDefTo");
+      if (fromEl) fromEl.value = "";
+      if (toEl) toEl.value = "";
+      loadWarehousePreview({ prefWeek: 1 });
+    }
+    window.setWarehouseDeficitWholeWeek_ = setWarehouseDeficitWholeWeek_;
+
+    async function loadWarehousePreview(opts) {
+      opts = opts || {};
       var box = document.getElementById("warehousePreviewBox");
-      box.innerHTML = '<p class="muted">Считаю…</p>';
+      if (box) box.innerHTML = '<p class="muted">Считаю…</p>';
       try {
-        var res = await apiGet({ action: "warehousePreview" });
-        var buy = (res.buyList || []).map(function (b) { return b.name; }).join(", ");
-        var def = (res.deficits || []).map(function (d) {
-          var days = "";
-          if (d.byDay && d.byDay.length) {
-            days = " · " + d.byDay.map(function (x) {
-              return (x.day || "") + " " + formatWhNum(x.needRaw || x.need || 0);
-            }).join(", ");
+        var dates = getWarehouseDeficitDates_();
+        var params = {
+          action: "warehousePreview",
+          force: "1",
+          _: String(Date.now())
+        };
+        if (dates.dateFrom) params.dateFrom = dates.dateFrom;
+        if (dates.dateTo) params.dateTo = dates.dateTo;
+        var res = await apiGet(params, { timeoutMs: 45000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          if (box) box.innerHTML = '<p class="muted">' + escapeHtml((res && res.message) || "Ошибка preview") + "</p>";
+          return;
+        }
+        fillWarehouseDeficitDatesFromDays_(res.days || []);
+        // если только что открыли и даты были пустые — подставили неделю, пересчёт с ними
+        if (opts.prefWeek && (!dates.dateFrom || !dates.dateTo)) {
+          var filled = getWarehouseDeficitDates_();
+          if (filled.dateFrom || filled.dateTo) {
+            return loadWarehousePreview({});
           }
-          return escapeHtml(d.name) +
-            " (нужно " + formatWhNum(d.needRaw != null ? d.needRaw : d.need) +
-            ", есть " + formatWhNum(d.available) +
-            (d.deficit != null ? ", дефицит " + formatWhNum(d.deficit) : "") +
-            ")" + days;
-        }).join("<br>");
-        box.innerHTML = '<div class="card"><b>Прогноз сырья по неделе</b><div class="muted" style="margin-top:6px;font-size:13px;">' +
-          escapeHtml(res.note || "") + '</div>' +
-          (buy ? '<div style="margin-top:8px;">Флаг G: ' + escapeHtml(buy) + '</div>' : '') +
-          (def ? '<div style="margin-top:8px;color:var(--danger-color);font-size:13px;line-height:1.45;">' + def + '</div>' :
-            '<div style="margin-top:8px;">Дефицита по плану недели нет</div>') +
-          '</div>';
+        }
+        var rangeLab = res.rangeLabel ||
+          ((res.dateFrom || dates.dateFrom || "…") + " — " + (res.dateTo || dates.dateTo || "…"));
+        var defs = res.deficits || [];
+        var rowsHtml = "";
+        if (!defs.length) {
+          rowsHtml = '<div style="padding:10px 0;" class="muted">Нехватки нет — остаток покрывает план за период.</div>';
+        } else {
+          rowsHtml =
+            '<div style="display:grid;grid-template-columns:1.4fr 0.8fr 0.8fr;gap:6px 8px;font-size:12px;color:#8e8e93;margin:8px 0 4px;">' +
+            "<div>Позиция</div><div>Нужно</div><div>Есть</div></div>" +
+            defs.map(function (d) {
+              var unit = d.unit || "кг";
+              return '<div style="display:grid;grid-template-columns:1.4fr 0.8fr 0.8fr;gap:6px 8px;padding:8px 0;border-top:1px solid rgba(255,255,255,0.08);font-size:13px;align-items:start;">' +
+                "<div><b>" + escapeHtml(d.name || "") + "</b></div>" +
+                "<div>" + escapeHtml(formatWhNum(d.needRaw != null ? d.needRaw : d.need)) + " " + escapeHtml(unit) + "</div>" +
+                "<div>" + escapeHtml(formatWhNum(d.available)) + " " + escapeHtml(unit) + "</div>" +
+                "</div>";
+            }).join("");
+        }
+        var chips = (res.days || []).map(function (d) {
+          var iso = d.dateIso || "";
+          if (!iso) return "";
+          var on = d.inRange !== false;
+          return '<button type="button" class="seg-btn" style="padding:4px 8px;font-size:11px;' +
+            (on ? "background:#ff9f0a;border-color:#ff9f0a;color:#111;" : "background:#3a3a3c;") +
+            '" onclick="setWarehouseDeficitDayChip_(\'' + escapeHtml(iso) + '\')">' +
+            escapeHtml(d.name || "") + "</button>";
+        }).join("");
+        if (box) {
+          box.innerHTML = '<div class="card" style="margin-top:0;">' +
+            "<b>Позиции · " + escapeHtml(String(defs.length)) + "</b>" +
+            '<div class="muted" style="margin-top:4px;font-size:12px;">' + escapeHtml(rangeLab) + "</div>" +
+            (chips ? '<div class="seg-row" style="margin-top:8px;flex-wrap:wrap;">' + chips +
+              '<button type="button" class="seg-btn" style="padding:4px 8px;font-size:11px;background:#3a3a3c;" onclick="setWarehouseDeficitWholeWeek_()">Вся неделя</button></div>' : "") +
+            rowsHtml +
+            '<div class="muted" style="margin-top:10px;font-size:12px;">' + escapeHtml(res.note || "") + "</div>" +
+            "</div>";
+        }
       } catch (e) {
-        box.innerHTML = '<p class="muted">Ошибка preview</p>';
+        if (box) box.innerHTML = '<p class="muted">Ошибка preview</p>';
       }
     }
     window.loadWarehousePreview = loadWarehousePreview;
+
+    function setWarehouseDeficitDayChip_(iso) {
+      var fromEl = document.getElementById("whDefFrom");
+      var toEl = document.getElementById("whDefTo");
+      if (!fromEl || !toEl || !iso) return;
+      // тап по дню: если диапазон пуст/один день — ставим этот день; иначе расширяем к краю
+      if (!fromEl.value && !toEl.value) {
+        fromEl.value = iso;
+        toEl.value = iso;
+      } else if (fromEl.value === toEl.value) {
+        if (iso < fromEl.value) fromEl.value = iso;
+        else toEl.value = iso;
+      } else {
+        fromEl.value = iso;
+        toEl.value = iso;
+      }
+      loadWarehousePreview({});
+    }
+    window.setWarehouseDeficitDayChip_ = setWarehouseDeficitDayChip_;
 
     const SUBS_VIEW_PASSWORD = "708080";
     const SUBS_UNLOCK_SS = "superboyna_subs_unlocked_session";
@@ -19661,7 +19760,7 @@
           '<div><b style="color:#ff6961;">СРОЧНО · ' + escapeHtml(p.name || it.clientNick || it.title || "SKU") + '</b>' +
           '<div style="font-size:13px;margin-top:6px;">нужно <b>' + escapeHtml(String(p.needRaw != null ? p.needRaw : "—")) +
           "</b> " + escapeHtml(unit) + " · есть <b>" + escapeHtml(String(p.available != null ? p.available : "—")) +
-          "</b> · дефицит <b style=\"color:#ff453a;\">" + escapeHtml(String(p.deficit != null ? p.deficit : "—")) + "</b></div>" +
+          "</b></div>" +
           "</div>" +
           '<div class="seg-row" style="margin-top:10px;">' +
           '<button type="button" class="seg-btn" style="background:#3a3a3c;" onclick="cancelDeferredItem(\'' + safeId + '\')">Закрыть</button>' +
@@ -19685,11 +19784,15 @@
     async function composeWarehouseBuyMessageUi() {
       showToast("Собираю сообщение…");
       try {
-        var res = await apiGet({
+        var dates = (typeof getWarehouseDeficitDates_ === "function") ? getWarehouseDeficitDates_() : { dateFrom: "", dateTo: "" };
+        var params = {
           action: "composeWarehouseBuyMessage",
           force: "1",
           _: String(Date.now())
-        }, { timeoutMs: 45000, cacheTtlMs: 0 });
+        };
+        if (dates.dateFrom) params.dateFrom = dates.dateFrom;
+        if (dates.dateTo) params.dateTo = dates.dateTo;
+        var res = await apiGet(params, { timeoutMs: 45000, cacheTtlMs: 0 });
         var text = (res && res.text) ? String(res.text) : "";
         if (!text) {
           showToast("Пусто");

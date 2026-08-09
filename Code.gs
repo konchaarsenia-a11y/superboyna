@@ -1726,12 +1726,18 @@ function doGet(e) {
     return handleApplyWarehouseRevision({ items: itemsG, note: e.parameter.note || "" }, callback, false);
   }
   if (action === "warehousePreview") {
-    return handleWarehousePreview({}, callback, false);
+    return handleWarehousePreview({
+      dateFrom: e.parameter.dateFrom || "",
+      dateTo: e.parameter.dateTo || "",
+      force: e.parameter.force || ""
+    }, callback, false);
   }
   if (action === "composeWarehouseBuyMessage") {
     return handleComposeWarehouseBuyMessage({
       force: e.parameter.force || "",
-      refresh: e.parameter.refresh || ""
+      refresh: e.parameter.refresh || "",
+      dateFrom: e.parameter.dateFrom || "",
+      dateTo: e.parameter.dateTo || ""
     }, callback, false);
   }
   if (action === "lookupBpPartner") {
@@ -4761,23 +4767,32 @@ function sendTelegramSnabNotification() {
   }
 }
 
-/** Текст заказа дозакупа по дефицитам. */
+/** Текст заказа дозакупа: позиция — нужно / есть (без колонки «дефицит»). */
 function composeWarehouseBuyMessage_(pack) {
   pack = pack || {};
   var defs = pack.deficits || [];
   var lines = [];
   lines.push("🛒 Дозакуп сырья");
-  lines.push("СРОЧНО — не хватает под план текущей недели:");
+  var rangeLab = "";
+  if (pack.dateFrom || pack.dateTo) {
+    rangeLab = String(pack.dateFrom || "…") + " — " + String(pack.dateTo || "…");
+  } else if (pack.rangeLabel) {
+    rangeLab = String(pack.rangeLabel);
+  }
+  if (rangeLab) {
+    lines.push("Период: " + rangeLab);
+  } else {
+    lines.push("Под план выбранных дат:");
+  }
   lines.push("");
   if (!defs.length) {
-    lines.push("Дефицита нет (F+B покрывает план).");
+    lines.push("Нехватки нет (остаток покрывает план).");
     return lines.join("\n");
   }
   for (var i = 0; i < defs.length; i++) {
     var d = defs[i];
     var unit = d.unit || "кг";
-    lines.push("· " + d.name + " — нужно " + d.needRaw + " " + unit +
-      ", есть " + d.available + ", дефицит " + d.deficit);
+    lines.push("· " + d.name + " — нужно " + d.needRaw + " " + unit + ", есть " + d.available + " " + unit);
   }
   lines.push("");
   lines.push("Бойня-Конвейер · склад");
@@ -4918,20 +4933,35 @@ function syncWarehouseBuyDeferred_(ss, deficits) {
   } catch (eB) {}
 }
 
-function computeWarehouseWeekPlan_(ss) {
+function computeWarehouseWeekPlan_(ss, opts) {
   ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  opts = opts || {};
   var wh = ss.getSheetByName("Склад");
   var sheetManager = ss.getSheetByName("Прием заказов");
   var sheetCutting = ss.getSheetByName("Нарезка");
   if (!wh || !sheetManager) return { ok: false, message: "no_warehouse" };
 
-  try {
-    var cached = CacheService.getScriptCache().get("WH_PLAN_V2");
-    if (cached) {
-      var parsed = JSON.parse(cached);
-      if (parsed && parsed.ok) return parsed;
-    }
-  } catch (eCache) {}
+  var dateFrom = parseFlexibleDate_(opts.dateFrom || opts.from || "");
+  var dateTo = parseFlexibleDate_(opts.dateTo || opts.to || "");
+  if (dateFrom && dateTo && dateFrom.getTime() > dateTo.getTime()) {
+    var swap = dateFrom;
+    dateFrom = dateTo;
+    dateTo = swap;
+  }
+  var filterOn = !!(dateFrom || dateTo);
+  var cacheKey = "WH_PLAN_V3" + (filterOn
+    ? (":" + (dateFrom ? isoDateKey_(dateFrom) : "") + ":" + (dateTo ? isoDateKey_(dateTo) : ""))
+    : "");
+
+  if (!(opts.force || opts.refresh || opts.noCache)) {
+    try {
+      var cached = CacheService.getScriptCache().get(cacheKey);
+      if (cached) {
+        var parsed = JSON.parse(cached);
+        if (parsed && parsed.ok) return parsed;
+      }
+    } catch (eCache) {}
+  }
 
   var tz = ss.getSpreadsheetTimeZone();
   var itemMap = getCuttingItemMap_();
@@ -4948,10 +4978,29 @@ function computeWarehouseWeekPlan_(ss) {
     for (var di = 0; di < MANAGER_DAY_NAMES_.length && di < weekDaysGeo.length; di++) {
       var dv = sheetManager.getRange(MANAGER_DATE_CELLS[di]).getValue();
       var ds = formatSheetDate(dv, tz);
+      var dObj = parseFlexibleDate_(dv, tz) || parseFlexibleDate_(ds, tz);
       if (ds) weekDaysGeo[di].date = ds;
+      if (dObj) weekDaysGeo[di].dateIso = isoDateKey_(dObj, tz);
       weekDaysGeo[di].label = (weekDaysGeo[di].name || "") + (ds ? (" " + ds) : "");
+      weekDaysGeo[di].ts = dObj ? dObj.getTime() : 0;
     }
   } catch (eD) {}
+
+  function dayInRange_(day) {
+    if (!filterOn) return true;
+    if (!day || !day.ts) {
+      // нет даты у дня — при фильтре не берём
+      return false;
+    }
+    if (dateFrom && day.ts < dateFrom.getTime()) return false;
+    if (dateTo && day.ts > dateTo.getTime()) return false;
+    return true;
+  }
+
+  var activeDays = [];
+  for (var ad = 0; ad < weekDaysGeo.length; ad++) {
+    if (dayInRange_(weekDaysGeo[ad])) activeDays.push(weekDaysGeo[ad]);
+  }
 
   var fullManagerMatrix = sheetManager.getRange(1, 3, 427, 15).getValues();
   var noCutByDayOffset = {};
@@ -4972,13 +5021,17 @@ function computeWarehouseWeekPlan_(ss) {
     var wRow = getWarehouseRowForCuttingRow_(cRow);
     if (!wRow) continue;
     if (!byWh[wRow]) byWh[wRow] = { dryG: 0, byDay: {}, surplusKg: 0 };
-    try {
-      if (cuttingSurplusValues && cuttingSurplusValues[cRow - 3]) {
-        byWh[wRow].surplusKg += Number(cuttingSurplusValues[cRow - 3][0]) || 0;
-      }
-    } catch (eS) {}
+    // излишки C — только для полного плана недели; при срезе дат не размазываем
+    if (!filterOn) {
+      try {
+        if (cuttingSurplusValues && cuttingSurplusValues[cRow - 3]) {
+          byWh[wRow].surplusKg += Number(cuttingSurplusValues[cRow - 3][0]) || 0;
+        }
+      } catch (eS) {}
+    }
     for (var d = 0; d < weekDaysGeo.length; d++) {
       var day = weekDaysGeo[d];
+      if (!dayInRange_(day)) continue;
       var dayOffset = day.start - 4;
       var skipCols = noCutByDayOffset[day.start] || {};
       var dayG = 0;
@@ -5015,7 +5068,7 @@ function computeWarehouseWeekPlan_(ss) {
     var unit = "кг";
     if (piece) {
       unit = "шт";
-      needRaw = (agg.dryG || 0); // на листе для шт обычно штуки
+      needRaw = (agg.dryG || 0);
       available = (mVal > 0 ? mVal : f) + b;
     } else {
       needRaw = ((agg.dryG || 0) / 1000) / coef + (agg.surplusKg || 0);
@@ -5024,10 +5077,13 @@ function computeWarehouseWeekPlan_(ss) {
     var deficit = Math.max(0, needRaw - available);
     var byDay = [];
     for (var dj = 0; dj < weekDaysGeo.length; dj++) {
+      if (!dayInRange_(weekDaysGeo[dj])) continue;
       var gDay = agg.byDay[dj] || 0;
       if (gDay <= 0) continue;
       byDay.push({
         day: weekDaysGeo[dj].label || weekDaysGeo[dj].name,
+        date: weekDaysGeo[dj].date || "",
+        dateIso: weekDaysGeo[dj].dateIso || "",
         needRaw: round2_(piece ? gDay : ((gDay / 1000) / coef))
       });
     }
@@ -5054,14 +5110,41 @@ function computeWarehouseWeekPlan_(ss) {
     }
   } catch (e2) {}
 
+  var daysMeta = weekDaysGeo.map(function (x) {
+    return {
+      name: x.name,
+      date: x.date || "",
+      dateIso: x.dateIso || "",
+      label: x.label || x.name,
+      inRange: dayInRange_(x)
+    };
+  });
+  var rangeLabel = "";
+  if (filterOn) {
+    rangeLabel = (dateFrom ? isoDateKey_(dateFrom, tz) : "…") + " — " + (dateTo ? isoDateKey_(dateTo, tz) : "…");
+  } else if (daysMeta.length) {
+    var firstD = daysMeta[0].dateIso || daysMeta[0].date;
+    var lastD = daysMeta[daysMeta.length - 1].dateIso || daysMeta[daysMeta.length - 1].date;
+    if (firstD || lastD) rangeLabel = String(firstD || "…") + " — " + String(lastD || "…");
+  }
+
   var out = {
     ok: true,
     deficits: deficits,
     plan: plan,
     buyList: buyList,
-    note: "Сырьё = план Приём / коэф D (+излишки C). Есть = F+B (шт: M или F). Списание в F — только при «Завершить неделю», не по галочкам нарезки."
+    days: daysMeta,
+    activeDays: activeDays.map(function (x) {
+      return { name: x.name, date: x.date || "", dateIso: x.dateIso || "", label: x.label || x.name };
+    }),
+    dateFrom: dateFrom ? isoDateKey_(dateFrom, tz) : "",
+    dateTo: dateTo ? isoDateKey_(dateTo, tz) : "",
+    rangeLabel: rangeLabel,
+    note: filterOn
+      ? ("План сырья за выбранные даты недели. Есть = F+B. Без излишков C (они на всю неделю).")
+      : "Сырьё = план Приём / коэф D (+излишки C). Есть = F+B (шт: M или F). Списание в F — только при «Завершить неделю», не по галочкам нарезки."
   };
-  try { CacheService.getScriptCache().put("WH_PLAN_V2", JSON.stringify(out), 45); } catch (ePut) {}
+  try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(out), 45); } catch (ePut) {}
   return out;
 }
 
@@ -11798,12 +11881,23 @@ function applyWarehouseRevisionManual() {
 
 function handleWarehousePreview(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var pack = computeWarehouseWeekPlan_(ss);
+  var opts = {
+    dateFrom: (json && (json.dateFrom || json.from)) || "",
+    dateTo: (json && (json.dateTo || json.to)) || "",
+    force: !!(json && (json.force || json.refresh))
+  };
+  if (opts.force) {
+    try { CacheService.getScriptCache().remove("WH_PLAN_V3"); } catch (e) {}
+  }
+  var pack = computeWarehouseWeekPlan_(ss, opts);
   if (!pack || !pack.ok) {
     var bad = { status: "error", message: (pack && pack.message) || "no_warehouse" };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
-  try { syncWarehouseBuyDeferred_(ss, pack.deficits || []); } catch (eSync) {}
+  // задачи Дозакуп — только для полного плана недели (без среза дат)
+  if (!opts.dateFrom && !opts.dateTo) {
+    try { syncWarehouseBuyDeferred_(ss, pack.deficits || []); } catch (eSync) {}
+  }
   var msg = "";
   try { msg = composeWarehouseBuyMessage_(pack); } catch (eM) {}
   var ok = {
@@ -11811,6 +11905,11 @@ function handleWarehousePreview(json, callback, fromPost) {
     deficits: pack.deficits || [],
     plan: pack.plan || [],
     buyList: pack.buyList || [],
+    days: pack.days || [],
+    activeDays: pack.activeDays || [],
+    dateFrom: pack.dateFrom || "",
+    dateTo: pack.dateTo || "",
+    rangeLabel: pack.rangeLabel || "",
     note: pack.note || "",
     messageText: msg,
     writeOffNote: "Галочки нарезки НЕ списывают склад. Списание F — только при Завершить неделю."
@@ -11820,20 +11919,30 @@ function handleWarehousePreview(json, callback, fromPost) {
 
 function handleComposeWarehouseBuyMessage(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (json && (json.force || json.refresh)) {
-    try { CacheService.getScriptCache().remove("WH_PLAN_V2"); } catch (e) {}
+  var opts = {
+    dateFrom: (json && (json.dateFrom || json.from)) || "",
+    dateTo: (json && (json.dateTo || json.to)) || "",
+    force: !!(json && (json.force || json.refresh))
+  };
+  if (opts.force) {
+    try { CacheService.getScriptCache().remove("WH_PLAN_V3"); } catch (e) {}
   }
-  var pack = computeWarehouseWeekPlan_(ss);
+  var pack = computeWarehouseWeekPlan_(ss, opts);
   if (!pack || !pack.ok) {
     var bad2 = { status: "error", message: (pack && pack.message) || "no_warehouse" };
     return fromPost ? jsonpText(callback, bad2) : jsonp(callback, bad2);
   }
-  try { syncWarehouseBuyDeferred_(ss, pack.deficits || []); } catch (eSync2) {}
+  if (!opts.dateFrom && !opts.dateTo) {
+    try { syncWarehouseBuyDeferred_(ss, pack.deficits || []); } catch (eSync2) {}
+  }
   var ok2 = {
     status: "success",
     text: composeWarehouseBuyMessage_(pack),
     deficits: pack.deficits || [],
-    count: (pack.deficits || []).length
+    count: (pack.deficits || []).length,
+    dateFrom: pack.dateFrom || "",
+    dateTo: pack.dateTo || "",
+    rangeLabel: pack.rangeLabel || ""
   };
   return fromPost ? jsonpText(callback, ok2) : jsonp(callback, ok2);
 }
