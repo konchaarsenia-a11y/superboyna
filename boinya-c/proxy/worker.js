@@ -1085,28 +1085,98 @@ async function handleCutover_(a, params, env, ctx) {
     return proxied;
   }
 
-  // чтение: быстрый D1, параллельно подтягиваем GAS
+  // чтение: НИКОГДА не ждём GAS в ответе — только D1/пусто.
+  // GAS revalidate только если D1 пусто/промах (с cooldown), иначе каждый тап долбит Sheets.
   const fast = await cutoverFastRead_(a, params, env);
-  if (fast) {
-    if (ctx && typeof ctx.waitUntil === "function") {
-      ctx.waitUntil(cutoverRevalidate_(a, params, env));
-    }
-    if (fast && typeof fast === "object") {
-      fast.cutover = true;
-      fast.swr = true;
-    }
+  const needGas = cutoverNeedsRevalidate_(a, params, fast);
+  if (needGas && ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(cutoverRevalidate_(a, params, env));
+  }
+  if (fast && typeof fast === "object") {
+    fast.cutover = true;
+    fast.swr = true;
     return fast;
   }
+  return cutoverEmptyRead_(a, params);
+}
 
-  // кэша нет — ждём GAS и кладём в D1
-  const proxied = await gasProxy_(a, params, env, { write: false });
-  if (proxied && proxied.status === "success") {
-    try {
-      await cutoverStoreRead_(a, params, env, proxied);
-    } catch (e) {}
-    proxied.cutover = true;
+const _revalCooldown = new Map();
+function cutoverNeedsRevalidate_(a, params, fast) {
+  // calc/ping/suggest — не гоняем в GAS из UI
+  if (/^(calc|ping|keepWarm|suggest|lookup)/i.test(a)) return false;
+  const key =
+    a +
+    "|" +
+    String((params && (params.day || params.date || params.month || params.nick || "")) || "");
+  const now = Date.now();
+  const prev = _revalCooldown.get(key) || 0;
+
+  let empty = !fast;
+  if (fast && typeof fast === "object") {
+    if (a === "getClients") empty = !Array.isArray(fast.clients) || !fast.clients.length;
+    else if (a === "getViewCompare") {
+      empty =
+        (!Array.isArray(fast.week) || !fast.week.length) &&
+        (!Array.isArray(fast.month) || !fast.month.length);
+    } else if (a === "listSubscriptions") {
+      empty = !Array.isArray(fast.subscriptions) || !fast.subscriptions.length;
+    } else if (Array.isArray(fast.items)) empty = !fast.items.length;
+    else if (Array.isArray(fast.clients)) empty = !fast.clients.length;
+    else if (Array.isArray(fast.list)) empty = !fast.list.length;
+    else if (fast.empty) empty = true;
   }
-  return proxied || { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
+  // пусто — чаще (45с); есть данные — редкий soft refresh (3 мин), ответ всё равно из D1
+  const minGap = empty ? 45000 : 180000;
+  if (now - prev < minGap) return false;
+  _revalCooldown.set(key, now);
+  return true;
+}
+
+function cutoverEmptyRead_(a, params) {
+  const day = String((params && params.day) || "");
+  if (a === "getClients") {
+    return { status: "success", day: day, clients: [], cutover: true, swr: true, empty: true };
+  }
+  if (a === "getViewCompare") {
+    return {
+      status: "success",
+      day: day,
+      week: [],
+      month: [],
+      cutover: true,
+      swr: true,
+      empty: true,
+      calendar: true
+    };
+  }
+  if (a === "getWeekDayCounts") {
+    return { status: "success", items: [], total: 0, cutover: true, swr: true, empty: true };
+  }
+  if (a === "getCutting") {
+    return { status: "success", items: [], day: day, session: {}, cutover: true, swr: true, empty: true };
+  }
+  if (a === "getCourier" || a === "getAssembly") {
+    return { status: "success", clients: [], day: day, cutover: true, swr: true, empty: true };
+  }
+  if (a === "calcPrice" || a === "calcPpFact" || a === "getPpFactCost" || a === "getPpOrderSuggest") {
+    // эти редко дергаются — пусть UI не висит; точный расчёт придёт после revalidate в mem
+    return { status: "success", items: [], basket: [], total: 0, price: 0, cutover: true, swr: true, empty: true };
+  }
+  if (a === "suggestAddress" || a === "lookupBpPartner") {
+    return { status: "success", items: [], suggestions: [], cutover: true, swr: true, empty: true };
+  }
+  return {
+    status: "success",
+    items: [],
+    list: [],
+    people: [],
+    clients: [],
+    subscriptions: [],
+    cutover: true,
+    swr: true,
+    empty: true,
+    action: a
+  };
 }
 
 async function cutoverFastRead_(a, params, env) {
