@@ -1,21 +1,18 @@
 /**
  * Бойня C — конфиг.
+ *
  * По умолчанию: Worker+D1 (sandbox-снимок).
- * Cutover: ?cutover=1 → Worker проксирует в боевой GAS (свежие данные + запись в Sheets).
+ * Cutover LIVE: ?cutover=1 → напрямую в боевой GAS (как прод по скорости + запись в Sheets).
+ * Опционально: ?cutover=1&via=worker → через Worker (медленнее на +1 hop).
  */
 (function () {
   "use strict";
-  var PROXY = "https://boinya-c.konchaarsenia.workers.dev";
+  var WORKER = "https://boinya-c.konchaarsenia.workers.dev";
+  var PROXY = WORKER;
   var CUTOVER = false;
+  var VIA_WORKER = false;
   try {
     var u = new URL(location.href);
-    var q = u.searchParams.get("proxy");
-    if (q) {
-      PROXY = q;
-      try {
-        localStorage.setItem("boinya_c_proxy", q);
-      } catch (e0) {}
-    }
     if (u.searchParams.get("cutover") === "1" || u.searchParams.get("mode") === "live") {
       CUTOVER = true;
       try {
@@ -31,24 +28,52 @@
         CUTOVER = localStorage.getItem("boinya_c_cutover") === "1";
       } catch (e3) {}
     }
-    // ?live=1 = старый путь напрямую в GAS (без Worker)
+
+    VIA_WORKER = u.searchParams.get("via") === "worker";
+
+    var q = u.searchParams.get("proxy");
+    if (q) {
+      PROXY = q;
+      try {
+        localStorage.setItem("boinya_c_proxy", q);
+      } catch (e0) {}
+    } else if (CUTOVER && !VIA_WORKER) {
+      // LIVE: без Worker — один hop в GAS, как боевой миниапп
+      PROXY = "";
+    } else if (CUTOVER && VIA_WORKER) {
+      PROXY = WORKER;
+    }
+
+    // ?live=1 = то же, что cutover напрямую в GAS (совместимость)
     if (u.searchParams.get("live") === "1") {
       PROXY = "";
-      CUTOVER = false;
+      CUTOVER = true;
     }
   } catch (e1) {}
-  if (!PROXY && !CUTOVER) {
+
+  if (!CUTOVER && !PROXY) {
     try {
-      PROXY = localStorage.getItem("boinya_c_proxy") || "";
-    } catch (e2) {}
+      PROXY = localStorage.getItem("boinya_c_proxy") || WORKER;
+    } catch (e2) {
+      PROXY = WORKER;
+    }
   }
+
   window.__BOINYA_C_PROXY__ = String(PROXY || "").trim();
   window.__BOINYA_FAST_PROXY__ = window.__BOINYA_C_PROXY__;
   window.__BOINYA_C_CUTOVER__ = !!CUTOVER;
+  // в LIVE не включаем turbo/local stubs — они дают ложные «пустые» ответы и лишние круги
+  if (CUTOVER) {
+    window.__BOINYA_C_TURBO__ = false;
+    window.__BOINYA_C_QUIET_UNTIL__ = 0;
+    window.__BOINYA_FAST_QUIET_UNTIL__ = 0;
+    window.__BOINYA_C_ALLOW_WRITE__ = true;
+  }
   window.__BOINYA_C__ = {
     edition: "C",
     sandbox: !CUTOVER,
     cutover: !!CUTOVER,
+    viaWorker: !!(CUTOVER && PROXY),
     proxy: window.__BOINYA_C_PROXY__,
     seedUrl: new URL("../data/seed.json", location.href).href,
     idbName: "boinya_c_v1",
