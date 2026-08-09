@@ -569,15 +569,15 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   margin-right: -28vw;
   margin-left: auto;
 }
-.shelf-from-right img { object-position: 70% 40%; }
+.shelf-from-right img { object-position: 50% 45%; }
 /* 2 — из левого края, такой же кусок */
 .shelf-from-left {
   align-self: flex-start;
   margin-left: -28vw;
   margin-right: auto;
 }
-.shelf-from-left img { object-position: 30% 42%; }
-.photo-shelves .shelf:nth-child(3) img { object-position: 55% 48%; }
+.shelf-from-left img { object-position: 50% 48%; }
+.photo-shelves .shelf:nth-child(3) img { object-position: 50% 42%; }
 
 @media (max-width: 640px) {
   .photo-shelves {
