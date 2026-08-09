@@ -7,12 +7,11 @@
 
 | Что | URL |
 |-----|-----|
-| **Сайт — день (палитра 1)** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/ |
-| **Сайт — вечер (палитра 8)** | https://konchaarsenia-a11y.github.io/superboyna/goodboy-evening/ |
+| **Сайт** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/ |
 | **Кабинет на сайте** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/#app |
 | **Mini App (для BotFather)** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html |
 
-Два лендинга для сравнения палитр: `goodboy/` = тёплый дневной, `goodboy-evening/` = вечерняя прогулка (общие `assets/`).
+Палитра лендинга: **вечерняя прогулка** (8).
 
 ## Как устроено
 
