@@ -743,9 +743,9 @@ function isPieceWarehouseRow_(row, name) {
 }
 
 /**
- * Жевалки с градацией размера на складе считаются в «условных средних».
- * Корень: ОГР = 2 БОЛ = 4 СРЕД = 8 МАЛ = 16 ОЧ МАЛ.
- * Трахея: то же (+ ПЛАСТ ≈ СРЕД). Становая: ПАЛК ≈ МАЛ. Ухо/аорта: половинка = 0.5.
+ * Жевалки с градацией: учётные шт склада, база = БОЛЬШОЙ (=1),
+ * как в формулах Склад (становая: ПАЛК*0.25 + СРЕД*0.5 + БОЛ*1).
+ * 1 ОГР = 2 БОЛ = 4 СРЕД = 8 МАЛ = 16 ОЧ МАЛ.
  */
 function isGradedChewName_(name) {
   var u = String(name || "").toUpperCase().replace(/Ё/g, "Е");
@@ -756,13 +756,14 @@ function chewFractionStockFactor_(nameOrSub) {
   var u = String(nameOrSub || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
   if (!u) return 1;
   if (/ПОЛОВИН/.test(u)) return 0.5;
-  if (/ОЧ\s*МАЛ|ОЧЕНЬ\s*(МАЛ|МЕЛК)|СУПЕР\s*(МАЛ|МЕЛК)/.test(u)) return 0.25;
-  if (/ОГР|ОГРОМ|ГИГАНТ|РОГАЛ/.test(u)) return 4;
-  if (/БОЛ|БОЛЬШ/.test(u)) return 2;
-  if (/ПАЛК|ПАЛОЧ/.test(u)) return 0.5;
-  if (/ПЛАСТ/.test(u)) return 1;
-  if (/СРЕД/.test(u)) return 1;
-  if (/(^|[^А-ЯA-Z0-9])МАЛ([^А-ЯA-Z0-9]|$)|МЕЛК/.test(u)) return 0.5;
+  if (/ОЧ\s*МАЛ|ОЧЕНЬ\s*(МАЛ|МЕЛК)|СУПЕР\s*(МАЛ|МЕЛК)/.test(u)) return 0.125;
+  if (/ОГР|ОГРОМ|ГИГАНТ|РОГАЛ/.test(u)) return 2;
+  if (/БОЛ|БОЛЬШ/.test(u)) return 1;
+  if (/ПАЛК|ПАЛОЧ/.test(u)) return 0.25;
+  if (/ПЛАСТ/.test(u)) return 0.5;
+  if (/СРЕД/.test(u)) return 0.5;
+  if (/(^|[^А-ЯA-Z0-9])МАЛ([^А-ЯA-Z0-9]|$)|МЕЛК/.test(u)) return 0.25;
+  // целая аорта / ухо без фракции = 1
   return 1;
 }
 
@@ -5059,7 +5060,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
     dateTo = swap;
   }
   var filterOn = !!(dateFrom || dateTo);
-  var cacheKey = "WH_PLAN_V5" + (filterOn
+  var cacheKey = "WH_PLAN_V6" + (filterOn
     ? (":" + (dateFrom ? isoDateKey_(dateFrom) : "") + ":" + (dateTo ? isoDateKey_(dateTo) : ""))
     : "");
 
@@ -5383,7 +5384,8 @@ function computeWarehouseWeekPlan_(ss, opts) {
       unit = gradedChew ? "усл.шт" : "шт";
       needRaw = dryG + (agg.surplusKg || 0);
       priorRaw = priorDryG;
-      stockStart = (mVal > 0 ? mVal : f) + b;
+      // F — ревизия на неделю; M при F>0 в формулах часто = F − только день, не накопительный остаток
+      stockStart = f + b;
     } else {
       needRaw = (dryG / 1000) / coef + (agg.surplusKg || 0);
       priorRaw = (priorDryG / 1000) / coef;
@@ -5516,7 +5518,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
     note: (filterOn
       ? "Нужно = сырьё (сухое÷коэф). План: дни текущей/будущей недели с листа, остальные даты — из Календарь_Дат. Есть = F+B минус прошедшие дни текущей недели."
       : "Нужно = сырьё (сухое÷коэф). План = граммы с «Приём» (остаток недели с сегодня). Есть = F+B минус уже прошедшие дни недели.") +
-      " Жевалки с размером (корень/трахея/жила/аорта/ухо): учётные средние — ОГР=4, БОЛ=2, СРЕД=1, МАЛ=0.5, ОЧ МАЛ=0.25."
+      " Жевалки с размером (корень/трахея/жила/аорта/ухо): учётные шт как на Складе, база БОЛЬШОЙ=1 — ОГР=2, БОЛ=1, СРЕД=0.5, МАЛ=0.25, ОЧ МАЛ=0.125 (1 огромный = 4 средних)."
   };
   try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(out), 45); } catch (ePut) {}
   return out;
@@ -12484,6 +12486,7 @@ function handleWarehousePreview(json, callback, fromPost) {
       CacheService.getScriptCache().remove("WH_PLAN_V3");
       CacheService.getScriptCache().remove("WH_PLAN_V4");
       CacheService.getScriptCache().remove("WH_PLAN_V5");
+      CacheService.getScriptCache().remove("WH_PLAN_V6");
     } catch (e) {}
   }
   var pack = computeWarehouseWeekPlan_(ss, opts);
@@ -12527,6 +12530,7 @@ function handleComposeWarehouseBuyMessage(json, callback, fromPost) {
       CacheService.getScriptCache().remove("WH_PLAN_V3");
       CacheService.getScriptCache().remove("WH_PLAN_V4");
       CacheService.getScriptCache().remove("WH_PLAN_V5");
+      CacheService.getScriptCache().remove("WH_PLAN_V6");
     } catch (e) {}
   }
   var pack = computeWarehouseWeekPlan_(ss, opts);

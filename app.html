@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.157";
+      var APP_VER = "v7.11.158";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1955,7 +1955,7 @@
             <input type="date" id="whDefTo">
           </div>
         </div>
-        <div class="muted" style="font-size:12px;margin-top:6px;">Любые даты: текущая/будущая неделя — с листа, остальные — из календаря. Пусто = остаток недели с сегодня. «Нужно сырья» = сухое÷коэф. Жевалки с размером — в учётных средних (ОГР=4 · БОЛ=2 · СРЕД=1 · МАЛ=0.5 · ОЧ МАЛ=0.25).</div>
+        <div class="muted" style="font-size:12px;margin-top:6px;">Любые даты: текущая/будущая неделя — с листа, остальные — из календаря. Пусто = остаток недели с сегодня. «Нужно сырья» = сухое÷коэф. Жевалки: база БОЛЬШОЙ=1 (ОГР=2 · БОЛ=1 · СРЕД=0.5 · МАЛ=0.25 · ОЧ МАЛ=0.125) — 1 огромный = 4 средних.</div>
         <button class="btn-action btn-orange" type="button" style="margin-top:8px;" onclick="loadWarehousePreview()">Показать позиции</button>
         <button class="btn-action btn-blue" type="button" style="margin-top:8px;" onclick="composeWarehouseBuyMessageUi()">Собрать сообщение дозакупа</button>
         <div class="muted" style="font-size:12px;margin-top:8px;">Ревизия: «дозакуп» у позиции = корректировка. Списание F только при «Завершить неделю» — галочки нарезки не списывают.</div>
@@ -2680,7 +2680,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.157";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
