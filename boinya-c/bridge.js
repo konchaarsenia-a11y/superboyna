@@ -700,9 +700,12 @@
 
     var action = String(params.action);
 
-    // ——— Cutover / Worker: не перехватывать локально — всё на PROXY ———
-    if (preferD1() || isCutover()) {
-      if (!isCutover() && action === "getMyAccess") {
+    // LIVE cutover: никаких локальных снапов — сразу GAS (как прод)
+    if (isCutover()) return null;
+
+    // ——— Worker+D1 sandbox: не перехватывать — пусть apiGet идёт на PROXY ———
+    if (preferD1()) {
+      if (action === "getMyAccess") {
         return Promise.resolve({
           status: "success",
           role: "all",
@@ -713,7 +716,6 @@
           sandbox: true
         });
       }
-      // cutover: getMyAccess тоже с GAS (реальные роли)
       return null;
     }
 
