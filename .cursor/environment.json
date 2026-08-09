@@ -1,0 +1,4 @@
+{
+  "name": "superboyna",
+  "install": "python3 -m pip install --user --upgrade pip >/dev/null 2>&1 || true\npython3 -m pip install --user requests >/dev/null 2>&1 || true\nchmod +x scripts/test-api.sh 2>/dev/null || true\necho \"superboyna bootstrap ok\"\npython3 --version\nnode --version\nls -la app.html Code.gs .cursor/skills | head -40"
+}

@@ -16,7 +16,10 @@ description: Smoke-test Google Apps Script webhook for Superboyna (getClients, s
 1. `getClients` на нужный день/лист — ответ ок, структура клиентов читается.
 2. При правках заказа: `saveOrder` для `zzz_test` → перечитать → сверить basket/address/note.
 3. При удалении/переносе: `deleteClient` / `moveClient` на `zzz_test` → проверить отсутствие/новое место.
-4. Скрипты в репо: `scripts/test-api.ps1`, при наличии Python — `scripts/full_live_test.py` (только если безопасно и не бьёт прод-данные сверх zzz_test).
+4. Скрипты в репо:
+   - Cloud / Linux: `bash scripts/test-api.sh` (опц. `WEBHOOK_URL=...`)
+   - Windows: `scripts/test-api.ps1`
+   - Расширенный: `scripts/full_live_test.py` — только если безопасно и не бьёт прод сверх `zzz_test`.
 
 ## Формат отчёта владельцу
 
