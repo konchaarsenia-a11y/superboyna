@@ -742,6 +742,42 @@ function isPieceWarehouseRow_(row, name) {
   return isPieceSkuName_(name);
 }
 
+/**
+ * Жевалки с градацией размера на складе считаются в «условных средних».
+ * Корень: ОГР = 2 БОЛ = 4 СРЕД = 8 МАЛ = 16 ОЧ МАЛ.
+ * Трахея: то же (+ ПЛАСТ ≈ СРЕД). Становая: ПАЛК ≈ МАЛ. Ухо/аорта: половинка = 0.5.
+ */
+function isGradedChewName_(name) {
+  var u = String(name || "").toUpperCase().replace(/Ё/g, "Е");
+  return /КОРЕН|ТРАХЕ|СТАНОВ|АОРТ|\bУХО\b|УХО\s*Г/.test(u);
+}
+
+function chewFractionStockFactor_(nameOrSub) {
+  var u = String(nameOrSub || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  if (!u) return 1;
+  if (/ПОЛОВИН/.test(u)) return 0.5;
+  if (/ОЧ\s*МАЛ|ОЧЕНЬ\s*(МАЛ|МЕЛК)|СУПЕР\s*(МАЛ|МЕЛК)/.test(u)) return 0.25;
+  if (/ОГР|ОГРОМ|ГИГАНТ|РОГАЛ/.test(u)) return 4;
+  if (/БОЛ|БОЛЬШ/.test(u)) return 2;
+  if (/ПАЛК|ПАЛОЧ/.test(u)) return 0.5;
+  if (/ПЛАСТ/.test(u)) return 1;
+  if (/СРЕД/.test(u)) return 1;
+  if (/(^|[^А-ЯA-Z0-9])МАЛ([^А-ЯA-Z0-9]|$)|МЕЛК/.test(u)) return 0.5;
+  return 1;
+}
+
+function chewStockFactorForCuttingName_(cutName) {
+  if (!isGradedChewName_(cutName)) return 1;
+  return chewFractionStockFactor_(cutName);
+}
+
+function chewStockFactorForBasketItem_(item) {
+  var name = String((item && (item.name || item.main)) || "");
+  if (!isGradedChewName_(name)) return 1;
+  var sub = String((item && item.sub) || "");
+  return chewFractionStockFactor_(sub || name);
+}
+
 function recalculateCuttingForDate_(ss, dateText) {
   var cutting = ss.getSheetByName("Нарезка");
   var manager = ss.getSheetByName("Прием заказов");
@@ -5023,7 +5059,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
     dateTo = swap;
   }
   var filterOn = !!(dateFrom || dateTo);
-  var cacheKey = "WH_PLAN_V4" + (filterOn
+  var cacheKey = "WH_PLAN_V5" + (filterOn
     ? (":" + (dateFrom ? isoDateKey_(dateFrom) : "") + ":" + (dateTo ? isoDateKey_(dateTo) : ""))
     : "");
 
@@ -5149,8 +5185,12 @@ function computeWarehouseWeekPlan_(ss, opts) {
   }
 
   var cuttingSurplusValues = [];
+  var cutNames = [];
   try {
-    if (sheetCutting) cuttingSurplusValues = sheetCutting.getRange("C3:C48").getValues();
+    if (sheetCutting) {
+      cuttingSurplusValues = sheetCutting.getRange("C3:C48").getValues();
+      cutNames = sheetCutting.getRange("A3:A48").getValues();
+    }
   } catch (eC) {}
 
   var byWh = {};
@@ -5165,10 +5205,13 @@ function computeWarehouseWeekPlan_(ss, opts) {
     var wRow = getWarehouseRowForCuttingRow_(cRow);
     if (!wRow) continue;
     ensureWh_(wRow);
+    var cutName = "";
+    try { cutName = String((cutNames[cRow - 3] && cutNames[cRow - 3][0]) || ""); } catch (eN) {}
+    var sizeFactor = chewStockFactorForCuttingName_(cutName);
     if (!filterOn || Object.keys(needDaysIdx).length >= 5) {
       try {
         if (cuttingSurplusValues && cuttingSurplusValues[cRow - 3]) {
-          byWh[wRow].surplusKg += Number(cuttingSurplusValues[cRow - 3][0]) || 0;
+          byWh[wRow].surplusKg += (Number(cuttingSurplusValues[cRow - 3][0]) || 0) * sizeFactor;
         }
       } catch (eS) {}
     }
@@ -5186,6 +5229,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
         }
       }
       if (!(dayG > 0)) continue;
+      dayG = dayG * sizeFactor;
       var isoKey = day.dateIso || ("idx:" + d);
       byWh[wRow].byDay[isoKey] = (byWh[wRow].byDay[isoKey] || 0) + dayG;
       if (needDaysIdx[d]) byWh[wRow].dryG += dayG;
@@ -5207,6 +5251,9 @@ function computeWarehouseWeekPlan_(ss, opts) {
         var wRowF = getWarehouseRowForCuttingRow_(cRowF);
         if (!wRowF) continue;
         ensureWh_(wRowF);
+        var cutNameF = "";
+        try { cutNameF = String((cutNames[cRowF - 3] && cutNames[cRowF - 3][0]) || ""); } catch (eNF) {}
+        var sizeFactorF = chewStockFactorForCuttingName_(cutNameF);
         var dayGF = 0;
         for (var riF = 0; riF < rowsF.length; riF++) {
           var tIdxF = rowsF[riF] - 1;
@@ -5217,6 +5264,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
           }
         }
         if (!(dayGF > 0)) continue;
+        dayGF = dayGF * sizeFactorF;
         var fIso = futureDay.dateIso;
         byWh[wRowF].byDay[fIso] = (byWh[wRowF].byDay[fIso] || 0) + dayGF;
         byWh[wRowF].dryG += dayGF;
@@ -5267,6 +5315,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
           var it = basket[bi] || {};
           var g = basketItemDryQty_(it);
           if (!(g > 0)) continue;
+          g = g * chewStockFactorForBasketItem_(it);
           var wRowC = warehouseRowFromBasketItem_(it, itemsInSheet, revMap, byNorm);
           if (!wRowC) continue;
           ensureWh_(wRowC);
@@ -5317,6 +5366,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
     if (!name) continue;
     var row = i + 2;
     var piece = isPieceWarehouseRow_(row, name);
+    var gradedChew = isGradedChewName_(name);
     var f = Number(matrix[i][5]) || 0;
     var b = Number(matrix[i][1]) || 0;
     var mVal = Number(matrix[i][12]) || 0;
@@ -5330,8 +5380,8 @@ function computeWarehouseWeekPlan_(ss, opts) {
     var dryG = agg.dryG || 0;
     var priorDryG = agg.priorDryG || 0;
     if (piece) {
-      unit = "шт";
-      needRaw = dryG;
+      unit = gradedChew ? "усл.шт" : "шт";
+      needRaw = dryG + (agg.surplusKg || 0);
       priorRaw = priorDryG;
       stockStart = (mVal > 0 ? mVal : f) + b;
     } else {
@@ -5363,6 +5413,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
       name: name,
       unit: unit,
       piece: !!piece,
+      gradedChew: !!gradedChew,
       coef: round2_(coef),
       dryG: round2_(dryG),
       dryKg: piece ? null : round2_(dryG / 1000),
@@ -5376,7 +5427,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
       byDay: byDay
     };
     plan.push(item);
-    if (needRaw > 0 && deficit >= (piece ? 0.5 : 0.05)) deficits.push(item);
+    if (needRaw > 0 && deficit >= (piece ? (gradedChew ? 0.2 : 0.5) : 0.05)) deficits.push(item);
   }
   deficits.sort(function (a, b) { return (b.deficit || 0) - (a.deficit || 0); });
 
@@ -5462,9 +5513,10 @@ function computeWarehouseWeekPlan_(ss, opts) {
     dateTo: dateTo ? isoDateKey_(dateTo, tz) : "",
     rangeLabel: rangeLabel,
     source: filterOn ? "calendar+sheets" : "week",
-    note: filterOn
+    note: (filterOn
       ? "Нужно = сырьё (сухое÷коэф). План: дни текущей/будущей недели с листа, остальные даты — из Календарь_Дат. Есть = F+B минус прошедшие дни текущей недели."
-      : "Нужно = сырьё (сухое÷коэф). План = граммы с «Приём» (остаток недели с сегодня). Есть = F+B минус уже прошедшие дни недели."
+      : "Нужно = сырьё (сухое÷коэф). План = граммы с «Приём» (остаток недели с сегодня). Есть = F+B минус уже прошедшие дни недели.") +
+      " Жевалки с размером (корень/трахея/жила/аорта/ухо): учётные средние — ОГР=4, БОЛ=2, СРЕД=1, МАЛ=0.5, ОЧ МАЛ=0.25."
   };
   try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(out), 45); } catch (ePut) {}
   return out;
@@ -12324,6 +12376,7 @@ function handleWarehousePreview(json, callback, fromPost) {
     try {
       CacheService.getScriptCache().remove("WH_PLAN_V3");
       CacheService.getScriptCache().remove("WH_PLAN_V4");
+      CacheService.getScriptCache().remove("WH_PLAN_V5");
     } catch (e) {}
   }
   var pack = computeWarehouseWeekPlan_(ss, opts);
@@ -12366,6 +12419,7 @@ function handleComposeWarehouseBuyMessage(json, callback, fromPost) {
     try {
       CacheService.getScriptCache().remove("WH_PLAN_V3");
       CacheService.getScriptCache().remove("WH_PLAN_V4");
+      CacheService.getScriptCache().remove("WH_PLAN_V5");
     } catch (e) {}
   }
   var pack = computeWarehouseWeekPlan_(ss, opts);
