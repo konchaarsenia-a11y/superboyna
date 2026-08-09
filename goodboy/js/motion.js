@@ -155,14 +155,12 @@
     var hero = document.querySelector(".site-hero");
     var stage = hero && (hero.querySelector(".hero-features") || hero.querySelector(".hero-stage"));
     var copy = hero && hero.querySelector(".hero-copy");
-    var shelves = document.querySelectorAll(".photo-shelves .shelf");
-    if (!hero && !shelves.length) return;
+    if (!hero) return;
 
     var ticking = false;
     function apply() {
       ticking = false;
       var y = global.scrollY || 0;
-      var vh = global.innerHeight || 1;
 
       if (hero && (stage || copy)) {
         var h = hero.offsetHeight || 1;
@@ -181,20 +179,6 @@
           }
         }
       }
-
-      // Signature: shelves drift opposite ways while in view
-      shelves.forEach(function (shelf, idx) {
-        if (!shelf.classList.contains("is-in") && shelf.classList.contains("reveal")) {
-          return;
-        }
-        var r = shelf.getBoundingClientRect();
-        var mid = r.top + r.height * 0.5;
-        var t = (mid - vh * 0.5) / vh; // -0.5..0.5 around viewport center
-        var drift = Math.max(-1, Math.min(1, t)) * (idx % 2 === 0 ? -22 : 22);
-        var baseRot = idx === 0 ? -1.8 : idx === 1 ? 2.1 : -1.4;
-        shelf.style.transform =
-          "translate3d(" + drift.toFixed(1) + "px,0,0) rotate(" + baseRot + "deg)";
-      });
     }
 
     global.addEventListener("scroll", function () {
