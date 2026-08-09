@@ -33,7 +33,7 @@ const DAY_SHORT = {
 };
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS });
     }
@@ -46,7 +46,7 @@ export default {
         status: "ok",
         service: "boinya-c",
         sandbox: true,
-        cutover: "pass cutover=1 for live GAS proxy",
+        cutover: "cutover=1 → D1 fast read + GAS write/revalidate",
         d1: !!(env && env.DB),
         tip: "?action=getClients&day=Понедельник&cutover=1"
       });
@@ -62,7 +62,7 @@ export default {
       }
       const act = String(params.action || action || "");
       const cb = params.callback;
-      const result = await handleAction_(act, params, env, url);
+      const result = await handleAction_(act, params, env, url, ctx);
       if (cb) {
         return new Response(String(cb) + "(" + JSON.stringify(result) + ")", {
           headers: {
@@ -91,7 +91,16 @@ function isCutoverLive_(params, env, url) {
   return false;
 }
 
-async function handleAction_(action, params, env, url) {
+function isWriteAction_(a) {
+  if (!a) return false;
+  if (/^(get|list|resolve|calc|suggest|lookup|ping|keepWarm|warehousePreview)/i.test(a)) return false;
+  if (a === "getMyAccess" || a === "telegramStatus" || a === "weekPullStatus") return false;
+  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner)/i.test(
+    a
+  );
+}
+
+async function handleAction_(action, params, env, url, ctx) {
   const a = String(action || "");
   const live = isCutoverLive_(params, env, url);
 
@@ -101,27 +110,14 @@ async function handleAction_(action, params, env, url) {
       sandbox: !live,
       cutover: !!live,
       live: !!live,
+      swr: !!live,
       d1: !!(env && env.DB)
     };
   }
 
-  // ——— CUTOVER LIVE: всё в боевой GAS (свежие данные + реальная запись) ———
+  // ——— CUTOVER: чтение из D1 сразу + фон GAS; запись → GAS ———
   if (live) {
-    if (
-      (a === "finishFullWeek" || a === "materializeWeek" || a === "closeAllOpenDeficits") &&
-      String(params.allowDanger || "") !== "1"
-    ) {
-      return {
-        status: "error",
-        message: "cutover_danger_blocked",
-        tip: "Для опасных действий добавь allowDanger=1",
-        cutover: true,
-        action: a
-      };
-    }
-    const proxied = await gasProxy_(a, params, env, { write: true });
-    if (proxied) return proxied;
-    return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
+    return handleCutover_(a, params, env, ctx);
   }
   if (a === "getClients") return getClients_(params, env);
   if (a === "getViewCompare") return getViewCompare_(params, env);
@@ -1059,6 +1055,248 @@ function unwrapGas_(text) {
   const s = String(text || "").trim();
   const m = s.match(/^[a-zA-Z_$][\w$]*\s*\(\s*([\s\S]*)\s*\)\s*;?\s*$/);
   return JSON.parse(m ? m[1] : s);
+}
+
+async function handleCutover_(a, params, env, ctx) {
+  if (
+    (a === "finishFullWeek" || a === "materializeWeek" || a === "closeAllOpenDeficits") &&
+    String(params.allowDanger || "") !== "1"
+  ) {
+    return {
+      status: "error",
+      message: "cutover_danger_blocked",
+      tip: "Для опасных действий добавь allowDanger=1",
+      cutover: true,
+      action: a
+    };
+  }
+
+  // запись — только GAS, потом обновляем D1 в фоне
+  if (isWriteAction_(a)) {
+    const proxied = await gasProxy_(a, params, env, { write: true });
+    if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(cutoverAfterWrite_(a, params, env, proxied));
+    } else {
+      try {
+        await cutoverAfterWrite_(a, params, env, proxied);
+      } catch (e) {}
+    }
+    return proxied;
+  }
+
+  // чтение: быстрый D1, параллельно подтягиваем GAS
+  const fast = await cutoverFastRead_(a, params, env);
+  if (fast) {
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(cutoverRevalidate_(a, params, env));
+    }
+    if (fast && typeof fast === "object") {
+      fast.cutover = true;
+      fast.swr = true;
+    }
+    return fast;
+  }
+
+  // кэша нет — ждём GAS и кладём в D1
+  const proxied = await gasProxy_(a, params, env, { write: false });
+  if (proxied && proxied.status === "success") {
+    try {
+      await cutoverStoreRead_(a, params, env, proxied);
+    } catch (e) {}
+    proxied.cutover = true;
+  }
+  return proxied || { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
+}
+
+async function cutoverFastRead_(a, params, env) {
+  try {
+    if (a === "getClients") return getClients_(params, env);
+    if (a === "getViewCompare") return getViewCompare_(params, env);
+    if (a === "getWeekDayCounts") return rebuildWeekCounts_(env);
+    if (a === "getMonthOverview") return getMonthOverview_(params, env);
+    if (a === "getWeekBannerState") return getSnap_(env, "weekBanner", null);
+    if (a === "getCutting") return getCutting_(params, env);
+    if (a === "getCourier") return getCourier_(params, env);
+    if (a === "getAssembly") return getAssembly_(params, env);
+    if (a === "getWarehouse") return getSnapRaw_(env, "warehouse");
+    if (a === "warehousePreview") {
+      return (await getSnapRaw_(env, "warehousePreview")) || (await getSnapRaw_(env, "warehouse"));
+    }
+    if (a === "resolveDayForDate") return resolveDay_(params, env);
+    if (a === "getMyAccess") {
+      return {
+        status: "success",
+        role: "all",
+        access: "active",
+        telegramId: String(params.telegramId || ""),
+        name: params.name || "",
+        tabs: [],
+        cutover: true
+      };
+    }
+    if (a === "listTemplates") {
+      const key = params.kind ? "listTemplates:" + String(params.kind) : "listTemplates";
+      return (await getSnapRaw_(env, key)) || (await getSnapRaw_(env, "listTemplates"));
+    }
+    if (
+      a === "listDeferred" ||
+      a === "listSurvey" ||
+      a === "listSubscriptions" ||
+      a === "listPartners" ||
+      a === "listAccess" ||
+      a === "listClientProfiles" ||
+      a === "listReminderPeople" ||
+      a === "listBpIdle" ||
+      a === "getCouriers" ||
+      a === "partnerListAdmin" ||
+      a === "getStats" ||
+      a === "telegramStatus" ||
+      a === "weekPullStatus"
+    ) {
+      return getSnapRaw_(env, a);
+    }
+    if (a === "getSubscription") return getSubscription_(params, env);
+  } catch (e) {
+    return null;
+  }
+  return null;
+}
+
+async function cutoverStoreRead_(a, params, env, payload) {
+  if (!payload || !env || !env.DB) return;
+  if (a === "getClients" && params.day) {
+    await replaceDayOrdersFromClients_(env, params.day, payload.clients || []);
+    return;
+  }
+  if (a === "getViewCompare" && (payload.day || params.day)) {
+    const day = payload.day || params.day;
+    if (day && Array.isArray(payload.week)) {
+      await replaceDayOrdersFromClients_(env, day, payload.week);
+    }
+    if (day) await putSnap_(env, "view:" + day, payload);
+    return;
+  }
+  if (a === "getWeekDayCounts") {
+    await putSnap_(env, "weekDayCounts", payload);
+    return;
+  }
+  if (a === "getCutting" && params.day) {
+    await putSnap_(env, "cutting:" + params.day, payload);
+    return;
+  }
+  if (a === "getCourier" && params.day) {
+    await putSnap_(env, "courier:" + params.day, payload);
+    return;
+  }
+  if (a === "getAssembly" && params.day) {
+    await putSnap_(env, "assembly:" + params.day, payload);
+    return;
+  }
+  if (a === "getWarehouse") {
+    await putSnap_(env, "warehouse", payload);
+    return;
+  }
+  if (a === "warehousePreview") {
+    await putSnap_(env, "warehousePreview", payload);
+    return;
+  }
+  if (a === "getWeekBannerState") {
+    await putSnap_(env, "weekBanner", payload);
+    return;
+  }
+  if (a === "getMonthOverview") {
+    await putSnap_(env, "monthOverview", payload);
+    if (payload.month) await putSnap_(env, "monthOverview:" + payload.month, payload);
+    return;
+  }
+  if (a === "listTemplates" && params.kind) {
+    await putSnap_(env, "listTemplates:" + params.kind, payload);
+    return;
+  }
+  if (
+    a.indexOf("list") === 0 ||
+    a === "getCouriers" ||
+    a === "partnerListAdmin" ||
+    a === "getStats" ||
+    a === "telegramStatus" ||
+    a === "weekPullStatus"
+  ) {
+    await putSnap_(env, a, payload);
+  }
+}
+
+async function replaceDayOrdersFromClients_(env, day, clients) {
+  await ensureMetaColumn_(env);
+  const info = await dayDateInfo_(env, day);
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "UPDATE orders SET status = 'deleted', updated_at = ? WHERE day_name = ? AND status = 'active'"
+  )
+    .bind(now, day)
+    .run();
+  for (let i = 0; i < (clients || []).length; i++) {
+    const c = clients[i];
+    const mk = normalizeMatchKey_(c.matchKey || c.name || "");
+    if (!mk) continue;
+    const basket = JSON.stringify(c.basket || []);
+    const meta = {
+      orderPrice: c.orderPrice,
+      ppSlot: c.ppSlot,
+      ppHint: c.ppHint,
+      ppPartner: c.ppPartner,
+      noCut: !!c.noCut,
+      dogCount: c.dogCount,
+      geo: c.geo
+    };
+    await upsertOrderRow_(env, {
+      id: day + ":" + mk,
+      date_iso: info.iso || c.dateIso || "",
+      day_name: day,
+      client: c.name,
+      match_key: mk,
+      address: c.address || "",
+      note: c.note || "",
+      phone: c.phone || "",
+      basket_json: basket,
+      segment: c.segment || "",
+      source: c.source || "",
+      status: "active",
+      updated_at: now,
+      meta_json: JSON.stringify(meta)
+    });
+  }
+  await rebuildWeekCounts_(env);
+}
+
+async function cutoverRevalidate_(a, params, env) {
+  try {
+    const fresh = await gasProxy_(a, params, env, { write: false });
+    if (fresh && fresh.status === "success") await cutoverStoreRead_(a, params, env, fresh);
+  } catch (e) {}
+}
+
+async function cutoverAfterWrite_(a, params, env, writeRes) {
+  try {
+    // после записи подтягиваем затронутые дни с GAS
+    const days = [];
+    if (params.day) days.push(String(params.day));
+    if (params.oldDay) days.push(String(params.oldDay));
+    if (params.newDay) days.push(String(params.newDay));
+    const uniq = [];
+    days.forEach(function (d) {
+      if (d && uniq.indexOf(d) < 0) uniq.push(d);
+    });
+    for (let i = 0; i < uniq.length; i++) {
+      await cutoverRevalidate_("getClients", { day: uniq[i] }, env);
+      await cutoverRevalidate_("getViewCompare", { day: uniq[i] }, env);
+      await cutoverRevalidate_("getCourier", { day: uniq[i] }, env);
+      await cutoverRevalidate_("getAssembly", { day: uniq[i] }, env);
+    }
+    await cutoverRevalidate_("getWeekDayCounts", {}, env);
+    if (/subscription/i.test(a)) await cutoverRevalidate_("listSubscriptions", {}, env);
+    if (/survey/i.test(a)) await cutoverRevalidate_("listSurvey", { activeOnly: "1" }, env);
+  } catch (e) {}
 }
 
 async function gasRead_(action, params, env) {

@@ -15,8 +15,8 @@
 
   window.__BOINYA_C_EDITION__ = true;
   window.__BOINYA_FAST_EDITION__ = true;
-  // Cutover LIVE: turbo выключен (иначе stubs/тишина вместо живого GAS)
-  window.__BOINYA_C_TURBO__ = window.__BOINYA_C_CUTOVER__ ? false : true;
+  // turbo ON и в cutover: быстрые таймауты; локальные stubs отключены в trySnap
+  window.__BOINYA_C_TURBO__ = true;
   window.__BOINYA_C_DATA_BASE__ = BASE + "data/";
   if (window.__BOINYA_C_CUTOVER__) {
     window.__BOINYA_FAST_QUIET_UNTIL__ = 0;
@@ -39,8 +39,7 @@
     ) {
       window.__BOINYA_C_ALLOW_WRITE__ = true;
     }
-    if (u.searchParams.get("live") === "1") {
-      window.__BOINYA_C_TURBO__ = false;
+    if (u.searchParams.get("live") === "1" && u.searchParams.get("via") === "direct") {
       window.__BOINYA_C_QUIET_UNTIL__ = 0;
       window.__BOINYA_FAST_QUIET_UNTIL__ = 0;
     }
@@ -700,11 +699,9 @@
 
     var action = String(params.action);
 
-    // LIVE cutover: никаких локальных снапов — сразу GAS (как прод)
-    if (isCutover()) return null;
-
-    // ——— Worker+D1 sandbox: не перехватывать — пусть apiGet идёт на PROXY ———
-    if (preferD1()) {
+    // Cutover / Worker: не перехватывать локально — идём в PROXY (D1 SWR / GAS)
+    if (isCutover() || preferD1()) {
+      if (isCutover()) return null;
       if (action === "getMyAccess") {
         return Promise.resolve({
           status: "success",
