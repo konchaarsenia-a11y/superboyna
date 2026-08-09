@@ -499,7 +499,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 
 /* —— Cinematic photo shelves —— */
 .site-section--shelves {
-  padding: 28px 0 0;
+  padding: 72px 0 0;
   margin-top: 0;
   overflow: hidden; /* без скролла в стороны; вертикаль — за счёт padding */
   max-width: 100%;
