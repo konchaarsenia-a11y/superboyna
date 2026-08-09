@@ -75,9 +75,9 @@ button { font: inherit; color: inherit; }
   border-bottom: 1px solid transparent;
 }
 .site-nav.is-solid {
-  background: rgba(30, 36, 33, 0.86);
+  background: rgba(30, 36, 33, 0.72);
   backdrop-filter: blur(14px) saturate(1.15);
-  border-bottom-color: var(--gb-line);
+  border-bottom-color: transparent;
 }
 .site-nav .logo {
   display: inline-flex;
