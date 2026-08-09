@@ -569,15 +569,15 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   margin-right: -28vw;
   margin-left: auto;
 }
-.shelf-from-right img { object-position: 50% 28%; } /* meadow — морда в кадре */
-/* 2 — из левого края, такой же кусок */
+.shelf-from-right img { object-position: 50% 50%; } /* пакеты — окна в кадре */
+/* 2 — из левого края: трое собак, морды */
 .shelf-from-left {
   align-self: flex-start;
   margin-left: -28vw;
   margin-right: auto;
 }
 .shelf-from-left img { object-position: 50% 40%; }
-.photo-shelves .shelf:nth-child(3) img { object-position: 50% 45%; }
+.photo-shelves .shelf:nth-child(3) img { object-position: 48% 55%; } /* нюх у двери */
 
 @media (max-width: 640px) {
   .photo-shelves {
