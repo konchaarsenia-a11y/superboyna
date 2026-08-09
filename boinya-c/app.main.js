@@ -3576,18 +3576,13 @@
         body: JSON.stringify(payload)
       })
         .then(function (res) {
-          return res
-            .json()
-            .catch(function () {
-              return null;
-            })
-            .then(function (body) {
-              if (body && typeof body === "object") {
-                if (!body.status) body.status = "success";
-                return body;
-              }
-              return { status: res.ok ? "success" : "error", http: res.status };
-            });
+          return res.json().catch(function () { return null; }).then(function (body) {
+            if (body && typeof body === "object") {
+              if (!body.status) body.status = "success";
+              return body;
+            }
+            return { status: res.ok ? "success" : "error", http: res.status };
+          });
         })
         .catch(function () {
           return { status: "sent_opaque" };
@@ -4645,15 +4640,10 @@
       if (box && !opts.soft) box.innerHTML = viewLoadingSkeletonHtml();
       try {
         var params = { action: "getMonthOverview", month: month };
-        // в TURBO не шлём `_` — иначе bridge/GAS снова тормозит сетку месяца
-        if (opts.force && !window.__BOINYA_C_TURBO__) params._ = String(Date.now());
+        if (opts.force) params._ = String(Date.now());
         var res = await apiGet(
           params,
-          {
-            timeoutMs: window.__BOINYA_C_TURBO__ ? 8000 : (opts.soft ? 22000 : 35000),
-            retries: window.__BOINYA_C_TURBO__ ? 0 : (opts.soft ? 0 : 1),
-            cacheTtlMs: window.__BOINYA_C_TURBO__ ? 300000 : (opts.force ? 0 : undefined)
-          }
+          { timeoutMs: opts.soft ? 22000 : 35000, retries: opts.soft ? 0 : 1, cacheTtlMs: opts.force ? 0 : undefined }
         );
         if (res && res.status === "success") {
           viewMonthOverviewCache = res;
@@ -5689,11 +5679,8 @@
       box.innerHTML = skel;
       if (monthBox) monthBox.innerHTML = skel;
       try {
-        // D1 Worker быстрый — не держим 5‑мин кэш, иначе переносы «не видны»
         var d1Proxy = !!(window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__);
-        if (!window.__BOINYA_C_TURBO__ || d1Proxy) {
-          try { apiCacheBustMem_("getViewCompare"); apiCacheBustMem_("getClients"); } catch (eClr) {}
-        }
+        try { apiCacheBustMem_("getViewCompare"); apiCacheBustMem_("getClients"); } catch (eClr) {}
 
         var compareParams = { action: "getViewCompare" };
         if (dateStr) compareParams.date = dateStr;
@@ -5703,9 +5690,9 @@
         var compareRes = null;
         try {
           compareRes = await apiGet(compareParams, {
-            timeoutMs: d1Proxy ? 15000 : (window.__BOINYA_C_TURBO__ ? 8000 : 45000),
-            cacheTtlMs: d1Proxy ? 0 : (window.__BOINYA_C_TURBO__ ? 300000 : 0),
-            retries: window.__BOINYA_C_TURBO__ && !d1Proxy ? 0 : 1
+            timeoutMs: d1Proxy ? 15000 : 45000,
+            cacheTtlMs: 0,
+            retries: d1Proxy ? 1 : 1
           });
         } catch (eC) {
           compareRes = null;
@@ -5742,12 +5729,7 @@
             else if (dateStr) weekParams.date = dateStr;
             if (weekParams.day || weekParams.date) {
               try {
-                if (d1Proxy) weekParams._ = String(Date.now());
-                weekRes = await apiGet(weekParams, {
-                  timeoutMs: d1Proxy ? 15000 : (window.__BOINYA_C_TURBO__ ? 8000 : 22000),
-                  cacheTtlMs: d1Proxy ? 0 : (window.__BOINYA_C_TURBO__ ? 300000 : 0),
-                  retries: 0
-                });
+                weekRes = await apiGet(weekParams, { timeoutMs: 22000, cacheTtlMs: 0 });
               } catch (eW) {
                 weekRes = { status: "error", message: eW.message || String(eW), clients: [] };
               }
@@ -6132,7 +6114,7 @@
       showToast("Переношу " + names.length + "…");
       for (let i = 0; i < names.length; i++) {
         try {
-          var moveParams = {
+          const res = await apiGet({
             action: "moveClient",
             client: names[i],
             oldDay: oldDay || "",
@@ -6142,14 +6124,9 @@
             dateOnly: dateOnly ? "1" : "0",
             calendarOnly: calendarOnly ? "1" : "0",
             cutRaw: cutFlag,
-            matchKey: (loadedClientsRawData[idxs[i]] && loadedClientsRawData[idxs[i]].matchKey) || ""
-          };
-          moveParams._ = String(Date.now());
-          const res = await apiGet(moveParams, {
-            timeoutMs: window.__BOINYA_C_PROXY__ ? 20000 : (window.__BOINYA_C_TURBO__ ? 5000 : 45000),
-            cacheTtlMs: 0,
-            retries: 0
-          });
+            matchKey: (loadedClientsRawData[idxs[i]] && loadedClientsRawData[idxs[i]].matchKey) || "",
+            _: String(Date.now())
+          }, { timeoutMs: 45000, cacheTtlMs: 0 });
           if (res.status === "success") {
             ok++;
             surveys += Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
@@ -6179,9 +6156,7 @@
       if (!calendarOnly && newDay && oldDay && newDay !== oldDay) await refreshDayViews(newDay);
       try { await ensureWeekOverviewLoaded_({ force: true }); } catch (eWo) {}
       try { await refreshOrderDayCounts_({ force: true }); } catch (eOd) {}
-      try {
-        await ensureMonthOverviewLoaded_({ force: true, soft: false });
-      } catch (eOv) {}
+      try { await ensureMonthOverviewLoaded_({ force: true }); } catch (eOv) {}
       recoverUiFocus();
     }
     window.crmBatchMove = crmBatchMove;
@@ -6467,11 +6442,7 @@
           cutRaw: cutRaw === "yes" ? "1" : "0",
           matchKey: matchKey,
           _: String(Date.now())
-        }, {
-          timeoutMs: window.__BOINYA_C_PROXY__ ? 20000 : (window.__BOINYA_C_TURBO__ ? 5000 : 45000),
-          cacheTtlMs: 0,
-          retries: 0
-        });
+        }, { timeoutMs: 45000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return false;
@@ -8603,6 +8574,16 @@
         .trim();
     }
 
+    function normalizeHouseKey_(h) {
+      return String(h || "")
+        .toLowerCase()
+        .replace(/ё/g, "е")
+        .replace(/\s+/g, "")
+        .replace(/корп\.?|корпус/gi, "к")
+        .replace(/стр\.?|строение/gi, "с")
+        .replace(/[k]/g, "к");
+    }
+
     function stripAddressDetailsForSearch_(text) {
       var parsed = parseDeliveryAddress(text);
       var street = String((parsed && parsed.street) || text || "").trim();
@@ -8617,32 +8598,82 @@
       return street || String(text || "").trim();
     }
 
+    function parseSearchStreetHouse_(text) {
+      var raw0 = String(text || "").trim().replace(/\s+/g, " ");
+      if (!raw0) return { street: "", house: "", raw: "" };
+      var s = stripAddressDetailsForSearch_(raw0) || raw0;
+      var house = "";
+      var street = s;
+      var m = s.match(/^(.*?)(?:,\s*|\s+)(?:д\.?|дом)\s*([0-9]+[а-яa-z]?(?:\s*[\/кk]\s*[0-9]+[а-яa-z]?)?)\s*$/i);
+      if (m && /[а-яa-z]/i.test(m[1])) {
+        street = String(m[1] || "").trim().replace(/[,\s]+$/g, "");
+        house = String(m[2] || "").replace(/\s+/g, "").replace(/[k]/gi, "к");
+        return { street: street, house: house, raw: s };
+      }
+      m = s.match(/^(.*?)(?:,\s*|\s+)([0-9]+[а-яa-z]?(?:\s*[\/кk]\s*[0-9]+[а-яa-z]?)?)\s*$/i);
+      if (m) {
+        var st = String(m[1] || "").trim().replace(/[,\s]+$/g, "");
+        var hn = String(m[2] || "").replace(/\s+/g, "").replace(/[k]/gi, "к");
+
+        if (st && /[а-яa-z]/i.test(st) && !/^\d{5,6}$/.test(hn)) {
+          street = st;
+          house = hn;
+        }
+      }
+      return { street: street, house: house, raw: s };
+    }
+
+    function houseFromSuggestTitle_(title) {
+      var p = parseSearchStreetHouse_(title);
+      return p.house || "";
+    }
+
     function expandAddressQueries(text) {
       var raw0 = String(text || "").trim().replace(/\s+/g, " ");
       if (!raw0) return [];
       var raw = stripAddressDetailsForSearch_(raw0);
       if (!raw) raw = raw0;
-      var bare = raw
+      var parsed = parseSearchStreetHouse_(raw);
+      var streetOnly = parsed.house ? parsed.street : raw;
+      var bare = streetOnly
         .replace(/^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок|бул\.?|бульвар)\s+/i, "")
         .trim();
       var withType = bare;
-      if (!/^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок)/i.test(raw)) {
+      if (!/^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок)/i.test(streetOnly)) {
         withType = "улица " + bare;
       } else {
-        withType = raw
+        withType = streetOnly
           .replace(/^ул\.?\s+/i, "улица ")
           .replace(/^пр\.?-?\s*т\.?\s+/i, "проспект ")
           .replace(/^пр\.?\s+/i, "проспект ");
       }
-      var out = [raw, bare, withType];
+      var out = [raw, streetOnly, bare, withType];
       if (raw0 !== raw) out.unshift(raw0);
+      if (parsed.house) {
+        var h = parsed.house;
+        out.push(streetOnly + ", " + h);
+        out.push(streetOnly + " " + h);
+        out.push(bare + ", " + h);
+        out.push(bare + " " + h);
+        out.push(withType + ", " + h);
+        out.push(withType + " " + h);
+        out.push(streetOnly + ", д." + h);
+        out.push(withType + ", д." + h);
+        out.push(h + ", " + withType);
+      }
       if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(raw)) {
         out.push(raw + ", Минск");
         out.push("Минск, " + raw);
-        out.push(bare + ", Минск");
-        out.push("Минск, " + bare);
-        out.push(withType + ", Минск");
-        out.push("Минск, " + withType);
+        if (parsed.house) {
+          out.push("Минск, " + withType + ", " + parsed.house);
+          out.push(withType + ", " + parsed.house + ", Минск");
+          out.push("Минск, " + bare + ", " + parsed.house);
+        } else {
+          out.push(bare + ", Минск");
+          out.push("Минск, " + bare);
+          out.push(withType + ", Минск");
+          out.push("Минск, " + withType);
+        }
       }
       var seen = {};
       var uniq = [];
@@ -8652,7 +8683,7 @@
         seen[k] = true;
         uniq.push(String(q).trim());
       });
-      return uniq.slice(0, 8);
+      return uniq.slice(0, 12);
     }
 
     function scoreAddress(addr, q) {
@@ -8662,7 +8693,7 @@
       if (a === qu) return 100;
       if (a.indexOf(qu) === 0) return 94;
       if (a.indexOf(qu) >= 0) return 86;
-      var qWords = qu.split(" ").filter(function (w) { return w.length >= 2; });
+      var qWords = qu.split(" ").filter(function (w) { return w.length >= 2 || /^\d/.test(w); });
       if (!qWords.length) return 0;
       var hit = 0;
       for (var i = 0; i < qWords.length; i++) {
@@ -8686,6 +8717,37 @@
       }
       if (qi === qu.length && qu.length >= 4) return 48;
       return 0;
+    }
+
+    function scoreSuggestItem_(it, q) {
+      var title = String((it && (it.address || it.title)) || "");
+      var base = scoreAddress(title, q);
+      var want = parseSearchStreetHouse_(q);
+      var wantH = normalizeHouseKey_(want.house);
+      if (!wantH) return base;
+      var gotH = normalizeHouseKey_((it && it.house) || houseFromSuggestTitle_(title));
+      if (gotH && gotH === wantH) return base + 45;
+      if (gotH && (gotH.indexOf(wantH) === 0 || wantH.indexOf(gotH) === 0)) return base + 30;
+      if (gotH) return base + 8;
+
+      return base - 40;
+    }
+
+    function rankAddressSuggests_(list, q) {
+      return (list || []).slice().sort(function (a, b) {
+        return scoreSuggestItem_(b, q) - scoreSuggestItem_(a, q);
+      });
+    }
+
+    function suggestHasWantedHouse_(list, q) {
+      var wantH = normalizeHouseKey_(parseSearchStreetHouse_(q).house);
+      if (!wantH) return true;
+      for (var i = 0; i < (list || []).length; i++) {
+        var it = list[i];
+        var got = normalizeHouseKey_((it && it.house) || houseFromSuggestTitle_((it && (it.address || it.title)) || ""));
+        if (got && (got === wantH || got.indexOf(wantH) === 0 || wantH.indexOf(got) === 0)) return true;
+      }
+      return false;
     }
     function clearAddressSuggest() {
       var box = document.getElementById("addressSuggest");
@@ -8744,7 +8806,8 @@
           if (!it) continue;
           var short = formatStreetHouse(it.address || it.title || "");
           if (!short) continue;
-          it = Object.assign({}, it, { title: short, address: short, subtitle: "" });
+          var house = String(it.house || houseFromSuggestTitle_(short) || "").trim();
+          it = Object.assign({}, it, { title: short, address: short, subtitle: "", house: house });
           var key = (it.lat != null && it.lon != null)
             ? (Number(it.lat).toFixed(5) + "," + Number(it.lon).toFixed(5))
             : short.toLowerCase();
@@ -8753,13 +8816,14 @@
           out.push(it);
         }
       }
-      return out.slice(0, 10);
+      return out.slice(0, 12);
     }
 
     function mapPhotonFeatures(features, text) {
       var out = [];
       var seen = {};
       var qKey = normalizeAddrSearchKey(text);
+      var wantH = normalizeHouseKey_(parseSearchStreetHouse_(text).house);
       (features || []).forEach(function (f) {
         var coords = (f.geometry && f.geometry.coordinates) || [];
         if (coords.length < 2) return;
@@ -8787,7 +8851,11 @@
         title = formatStreetHouse(title);
         if (!title) return;
 
-        if (qKey && scoreAddress(title, text) < 28 && !otherOk) return;
+        var minScore = wantH ? 18 : 28;
+        if (qKey && scoreAddress(title, text) < minScore && !otherOk) {
+
+          if (!(wantH && house && normalizeHouseKey_(house) === wantH)) return;
+        }
         var keyDup = lat.toFixed(5) + "," + lon.toFixed(5);
         if (seen[keyDup]) return;
         seen[keyDup] = true;
@@ -8795,6 +8863,7 @@
           title: title,
           subtitle: "",
           address: title,
+          house: house,
           lat: lat,
           lon: lon,
           yandexUrl: "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map"
@@ -8803,23 +8872,73 @@
       return out;
     }
 
+    function pushNominatimRows_(data, text, seen, merged) {
+      (data || []).forEach(function (row) {
+        var lat = Number(row.lat);
+        var lon = Number(row.lon);
+        if (!isFinite(lat) || !isFinite(lon)) return;
+        var ad = row.address || {};
+        var street = ad.road || ad.pedestrian || ad.street || ad.avenue || "";
+        var house = ad.house_number || "";
+        var title = street && house ? (street + ", " + house)
+          : (street || formatStreetHouse(row.display_name || ""));
+        title = formatStreetHouse(title);
+        if (!title) return;
+        var wantH = normalizeHouseKey_(parseSearchStreetHouse_(text).house);
+        var minScore = wantH ? 16 : 22;
+        if (scoreAddress(title, text) < minScore && !looksLikeOtherCity(text)) {
+          if (!(wantH && house && normalizeHouseKey_(house) === wantH)) return;
+        }
+        var key = lat.toFixed(5) + "," + lon.toFixed(5);
+        if (seen[key]) return;
+        seen[key] = true;
+        merged.push({
+          title: title,
+          subtitle: "",
+          address: title,
+          house: house,
+          lat: lat,
+          lon: lon,
+          yandexUrl: "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map"
+        });
+      });
+    }
+
+    async function nominatimStructuredClient_(street, house) {
+      if (!street || !house) return [];
+      var streetParam = String(house).trim() + " " + String(street).trim();
+      var url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=by&accept-language=ru" +
+        "&street=" + encodeURIComponent(streetParam) +
+        "&city=" + encodeURIComponent("Минск");
+      var res = await fetch(url, {
+        headers: { Accept: "application/json", "User-Agent": "superboyna-courier/1.0" }
+      });
+      if (!res.ok) return [];
+      return await res.json();
+    }
+
     async function photonSuggestClient(text) {
       var queries = expandAddressQueries(text);
       if (!queries.length) return [];
       var merged = [];
-      for (var qi = 0; qi < Math.min(queries.length, 5); qi++) {
+      var wantHouse = !!parseSearchStreetHouse_(text).house;
+      for (var qi = 0; qi < Math.min(queries.length, wantHouse ? 8 : 5); qi++) {
         try {
 
-          var url = "https://photon.komoot.io/api/?limit=8&lang=default&lat=53.9&lon=27.56&bbox=27.30,53.78,27.80,54.08&q=" +
+          var url = "https://photon.komoot.io/api/?limit=10&lang=default&lat=53.9&lon=27.56&bbox=27.30,53.78,27.80,54.08&q=" +
             encodeURIComponent(queries[qi]);
           var res = await fetch(url);
           if (!res.ok) continue;
           var data = await res.json();
           merged = mergeSuggestLists(merged, mapPhotonFeatures(data && data.features, text));
-          if (merged.length >= 5) break;
+          if (wantHouse) {
+            if (suggestHasWantedHouse_(merged, text) && merged.length >= 3) break;
+          } else if (merged.length >= 5) {
+            break;
+          }
         } catch (e) {}
       }
-      return merged;
+      return rankAddressSuggests_(merged, text);
     }
 
     async function nominatimSuggestClient(text) {
@@ -8827,45 +8946,44 @@
       if (!queries.length) return [];
       var merged = [];
       var seen = {};
-      for (var qi = 0; qi < Math.min(queries.length, 4); qi++) {
+      var parsed = parseSearchStreetHouse_(text);
+      var wantHouse = !!parsed.house;
+
+      if (wantHouse && parsed.street) {
+        try {
+          var stVariants = [parsed.street];
+          var bareSt = parsed.street
+            .replace(/^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок|бул\.?|бульвар)\s+/i, "")
+            .trim();
+          if (bareSt && bareSt !== parsed.street) stVariants.push(bareSt);
+          if (!/^(ул\.?|улица)/i.test(parsed.street)) stVariants.push("улица " + bareSt);
+          for (var si = 0; si < stVariants.length; si++) {
+            var rows = await nominatimStructuredClient_(stVariants[si], parsed.house);
+            pushNominatimRows_(rows, text, seen, merged);
+            if (suggestHasWantedHouse_(merged, text)) break;
+          }
+        } catch (eSt) {}
+      }
+      for (var qi = 0; qi < Math.min(queries.length, wantHouse ? 7 : 4); qi++) {
         try {
           var q = queries[qi];
           if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(q)) q = q + ", Минск, Беларусь";
-          var url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=by&accept-language=ru&q=" +
+          var url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=by&accept-language=ru&q=" +
             encodeURIComponent(q);
           var res = await fetch(url, {
             headers: { Accept: "application/json", "User-Agent": "superboyna-courier/1.0" }
           });
           if (!res.ok) continue;
           var data = await res.json();
-          (data || []).forEach(function (row) {
-            var lat = Number(row.lat);
-            var lon = Number(row.lon);
-            if (!isFinite(lat) || !isFinite(lon)) return;
-            var ad = row.address || {};
-            var street = ad.road || ad.pedestrian || ad.street || ad.avenue || "";
-            var house = ad.house_number || "";
-            var title = street && house ? (street + ", " + house)
-              : (street || formatStreetHouse(row.display_name || ""));
-            title = formatStreetHouse(title);
-            if (!title) return;
-            if (scoreAddress(title, text) < 22 && !looksLikeOtherCity(text)) return;
-            var key = lat.toFixed(5) + "," + lon.toFixed(5);
-            if (seen[key]) return;
-            seen[key] = true;
-            merged.push({
-              title: title,
-              subtitle: "",
-              address: title,
-              lat: lat,
-              lon: lon,
-              yandexUrl: "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map"
-            });
-          });
-          if (merged.length >= 5) break;
+          pushNominatimRows_(data, text, seen, merged);
+          if (wantHouse) {
+            if (suggestHasWantedHouse_(merged, text) && merged.length >= 2) break;
+          } else if (merged.length >= 5) {
+            break;
+          }
         } catch (e) {}
       }
-      return merged;
+      return rankAddressSuggests_(merged, text);
     }
 
     async function fetchAddressSuggest(q) {
@@ -8932,7 +9050,19 @@
         serverList = settledTxt[2] || [];
       } catch (e1) {}
       if (seq !== addressSuggestSeq) return;
-      var list = mergeSuggestLists(nomiList, serverList, photonList);
+      var list = rankAddressSuggests_(mergeSuggestLists(nomiList, serverList, photonList), q);
+
+      if (parseSearchStreetHouse_(q).house && list.length) {
+        var withHouse = list.filter(function (it) {
+          return !!normalizeHouseKey_((it && it.house) || houseFromSuggestTitle_((it && (it.address || it.title)) || ""));
+        });
+        var streetOnly = list.filter(function (it) {
+          return !normalizeHouseKey_((it && it.house) || houseFromSuggestTitle_((it && (it.address || it.title)) || ""));
+        });
+        list = withHouse.length ? withHouse.concat(streetOnly).slice(0, 10) : list.slice(0, 10);
+      } else {
+        list = list.slice(0, 10);
+      }
       if (!list.length) {
         box.innerHTML = '<div class="addr-suggest-item" style="color:#8e8e93;">Ничего не найдено — можно ввести адрес вручную или 📍 координаты</div>';
         box.classList.add("open");

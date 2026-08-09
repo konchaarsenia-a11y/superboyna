@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Заливает boinya-c/data → D1 (orders + snap_cache).
- * Нужны: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+ * Полный клон для 1:1 песочницы. Sheets не пишет.
  */
 import fs from "fs";
 import path from "path";
@@ -63,7 +63,9 @@ async function d1(sql) {
   });
   const j = await res.json();
   if (!j.success) {
-    console.error("D1 error", JSON.stringify(j.errors || j, null, 2));
+    const msg = JSON.stringify(j.errors || j);
+    if (/duplicate column/i.test(msg)) return j;
+    console.error("D1 error", msg);
     throw new Error("d1_failed");
   }
   return j;
@@ -78,7 +80,7 @@ function dmyToIso(dmy) {
 }
 
 async function main() {
-  console.log("migrate columns…");
+  console.log("migrate…");
   for (const col of [
     "phone TEXT DEFAULT ''",
     "source TEXT DEFAULT ''",
@@ -86,9 +88,7 @@ async function main() {
   ]) {
     try {
       await d1(`ALTER TABLE orders ADD COLUMN ${col}`);
-    } catch (e) {
-      /* already / duplicate */
-    }
+    } catch (e) {}
   }
   await d1(`CREATE TABLE IF NOT EXISTS snap_cache (
     cache_key TEXT PRIMARY KEY,
@@ -102,17 +102,9 @@ async function main() {
     updated_at TEXT NOT NULL,
     PRIMARY KEY (date_iso, match_key)
   )`);
-  await d1(`CREATE TABLE IF NOT EXISTS cutting_flags (
-    date_iso TEXT NOT NULL,
-    row_key TEXT NOT NULL,
-    surplus REAL DEFAULT 0,
-    done INTEGER DEFAULT 0,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (date_iso, row_key)
-  )`);
 
   const now = new Date().toISOString();
-  console.log("clear old sandbox orders…");
+  console.log("clear…");
   await d1("DELETE FROM orders");
   await d1("DELETE FROM snap_cache");
   try {
@@ -149,12 +141,11 @@ async function main() {
         couponPrice: c.couponPrice,
         orderCount: c.orderCount
       };
-      const sql = `INSERT INTO orders (id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json)
+      await d1(`INSERT INTO orders (id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json)
         VALUES ('${sqlEscape(id)}', '${sqlEscape(meta.iso)}', '${sqlEscape(day)}', '${sqlEscape(c.name)}', '${sqlEscape(mk)}',
         '${sqlEscape(c.address)}', '${sqlEscape(c.note)}', '${sqlEscape(c.phone)}', '${sqlEscape(basket)}',
         '${sqlEscape(c.segment)}', '${sqlEscape(c.source)}', 'active', '${sqlEscape(c.updatedAt || now)}',
-        '${sqlEscape(JSON.stringify(metaObj))}')`;
-      await d1(sql);
+        '${sqlEscape(JSON.stringify(metaObj))}')`);
       orderN++;
     }
     console.log("orders", day, clients.length);
@@ -170,55 +161,44 @@ async function main() {
   }
 
   if (counts && counts.payload) await putSnap("weekDayCounts", counts.payload);
-  const banner = loadJson("weekBanner.json");
-  if (banner && banner.payload) await putSnap("weekBanner", banner.payload);
-  const wh = loadJson("warehouse.json");
-  if (wh && wh.payload) await putSnap("warehouse", wh.payload);
-  const mo = loadJson("monthOverview.json");
-  if (mo && mo.payload) {
-    await putSnap("monthOverview", mo.payload);
-    if (mo.payload.month) await putSnap("monthOverview:" + mo.payload.month, mo.payload);
+  for (const name of ["weekBanner", "warehouse", "monthOverview"]) {
+    const j = loadJson(name + ".json");
+    if (j && j.payload) {
+      await putSnap(name, j.payload);
+      if (name === "monthOverview" && j.payload.month) {
+        await putSnap("monthOverview:" + j.payload.month, j.payload);
+      }
+    }
   }
   const dtd = loadJson("dateToDay.json");
   if (dtd) await putSnap("dateToDay", dtd.map ? dtd : { map: dtd });
 
   for (const [day, key] of Object.entries(DAY_KEY)) {
-    for (const kind of ["cutting", "courier", "assembly"]) {
+    for (const kind of ["cutting", "courier", "assembly", "view"]) {
       const j = loadJson(`${kind}-${key}.json`);
-      if (j && j.payload) await putSnap(`${kind}:${day}`, j.payload);
+      if (j && j.payload) await putSnap(`${kind === "view" ? "view" : kind}:${day}`, j.payload);
     }
-    const v = loadJson(`view-${key}.json`);
-    if (v && v.payload) await putSnap(`view:${day}`, v.payload);
   }
 
-  for (const a of [
-    "listDeferred",
-    "listSurvey",
-    "listSubscriptions",
-    "listPartners",
-    "listAccess",
-    "listBookings",
-    "listClientProfiles",
-    "listTemplates",
-    "listReminderPeople",
-    "listBpIdle",
-    "getCouriers",
-    "partnerListAdmin"
-  ]) {
-    await putSnap(a, {
-      status: "success",
-      items: [],
-      list: [],
-      people: [],
-      clients: [],
-      partners: [],
-      couriers: [],
-      sandbox: true
-    });
+  // все snap-*.json с полного refresh
+  const files = fs.readdirSync(dataDir).filter((f) => f.startsWith("snap-") && f.endsWith(".json"));
+  let snapN = 0;
+  for (const f of files) {
+    const j = loadJson(f);
+    if (!j || !j.payload) continue;
+    let key = f.replace(/^snap-/, "").replace(/\.json$/, "");
+    // listTemplates-survey → listTemplates:survey
+    if (key.startsWith("listTemplates-")) key = "listTemplates:" + key.slice("listTemplates-".length);
+    await putSnap(key, j.payload);
+    snapN++;
   }
 
-  await putSnap("meta:seededAt", { at: now, orders: orderN });
-  console.log("DONE orders=", orderN, "seededAt", now);
+  // warehousePreview alias
+  const whp = loadJson("snap-warehousePreview.json");
+  if (whp && whp.payload) await putSnap("warehousePreview", whp.payload);
+
+  await putSnap("meta:seededAt", { at: now, orders: orderN, snaps: snapN, full: true });
+  console.log("DONE orders=", orderN, "snaps=", snapN, now);
 }
 
 main().catch((e) => {

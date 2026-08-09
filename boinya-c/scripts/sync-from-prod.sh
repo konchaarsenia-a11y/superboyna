@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC="$ROOT/app.html"
 DST="$ROOT/boinya-c/app.html"
 ORIGIN='https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec'
-VER='v7.11.149c3'
+VER='v7.11.149c8'
 
 cp "$SRC" "$DST"
 python3 - "$DST" "$ORIGIN" "$VER" <<'PY'
@@ -41,9 +41,9 @@ elif "GOOGLE_WEBHOOK_ORIGIN" not in t and "BOINYA_C_PROXY" not in t:
 t = t.replace("<title>Конвейер Бойня</title>", "<title>Бойня C · sandbox</title>", 1)
 
 needle = '  <script src="https://telegram.org/js/telegram-web-app.js"></script>'
-inject = '''  <script src="seed-inline.js"></script>
+inject = '''  <script src="client/config.js"></script>
+  <script src="seed-inline.js"></script>
   <script src="bridge.js"></script>
-  <script src="client/config.js"></script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script>
     /* C badge — только копия, прод не трогаем */
@@ -52,8 +52,8 @@ inject = '''  <script src="seed-inline.js"></script>
         if (document.getElementById("boinyaCBadge")) return;
         var b = document.createElement("div");
         b.id = "boinyaCBadge";
-        b.textContent = "C · TURBO";
-        b.title = "Песочница C TURBO — local-first. Запись выключена.";
+        b.textContent = "C · D1";
+        b.title = "Бойня C · полный клон на Worker/D1 (данные с GAS, запись в D1).";
         b.style.cssText = "position:fixed;top:6px;right:8px;z-index:99998;font:700 10px/1 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:.06em;color:#06221f;background:#3dd6c6;padding:4px 7px;border-radius:4px;opacity:.9;pointer-events:none;";
         document.body.appendChild(b);
       }

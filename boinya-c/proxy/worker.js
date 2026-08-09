@@ -92,11 +92,17 @@ async function handleAction_(action, params, env) {
   if (a === "getCutting") return getCutting_(params, env);
   if (a === "getCourier") return getCourier_(params, env);
   if (a === "getAssembly") return getAssembly_(params, env);
-  if (a === "getWarehouse" || a === "warehousePreview") {
+  if (a === "getWarehouse") {
+    return getSnap_(env, "warehouse", { status: "success", items: [], rows: [], sandbox: true });
+  }
+  if (a === "warehousePreview") {
+    const hit = await getSnapRaw_(env, "warehousePreview");
+    if (hit) return hit;
     return getSnap_(env, "warehouse", { status: "success", items: [], rows: [], sandbox: true });
   }
   if (a === "resolveDayForDate") return resolveDay_(params, env);
   if (a === "getMyAccess") {
+    // роль all — полный UI как у владельца; люди из listAccess
     return {
       status: "success",
       role: "all",
@@ -118,6 +124,13 @@ async function handleAction_(action, params, env) {
   if (a === "startCuttingSession" || a === "finishCutting" || a === "prepareFinishCutting") {
     return { status: "success", sandbox: true, wrote: 1, action: a };
   }
+  if (a === "listTemplates") {
+    const key = params.kind ? "listTemplates:" + String(params.kind) : "listTemplates";
+    const hit = await getSnapRaw_(env, key);
+    if (hit) return hit;
+    const base = await getSnapRaw_(env, "listTemplates");
+    if (base) return base;
+  }
   if (
     a === "listDeferred" ||
     a === "listSurvey" ||
@@ -126,11 +139,14 @@ async function handleAction_(action, params, env) {
     a === "listAccess" ||
     a === "listBookings" ||
     a === "listClientProfiles" ||
-    a === "listTemplates" ||
     a === "listReminderPeople" ||
     a === "listBpIdle" ||
     a === "getCouriers" ||
-    a === "partnerListAdmin"
+    a === "partnerListAdmin" ||
+    a === "getStats" ||
+    a === "getExpectedProfit" ||
+    a === "telegramStatus" ||
+    a === "weekPullStatus"
   ) {
     const hit = await getSnapRaw_(env, a);
     if (hit) return hit;
@@ -142,29 +158,31 @@ async function handleAction_(action, params, env) {
       clients: [],
       partners: [],
       couriers: [],
+      subscriptions: [],
       sandbox: true,
       empty: true
     };
   }
-  if (a === "getSubscription") {
-    return {
-      status: "success",
-      found: false,
-      nick: params.nick || "",
-      segment: params.segment || "",
-      sandbox: true
-    };
+  if (a === "getSubscription") return getSubscription_(params, env);
+  if (a === "exportStats") {
+    const st = await getSnapRaw_(env, "getStats");
+    if (st) return Object.assign({}, st, { format: params.format || "", sandbox: true });
+    return { status: "success", rows: [], items: [], sandbox: true };
   }
-  if (a === "getPpFactCost" || a === "getPpOrderSuggest" || a === "calcPrice" || a === "calcPpFact") {
-    return { status: "success", items: [], basket: [], total: 0, price: 0, suggest: {}, sandbox: true };
+  // живые калькуляции / подсказки — только чтение GAS (Sheets не пишет)
+  if (
+    a === "getPpFactCost" ||
+    a === "getPpOrderSuggest" ||
+    a === "calcPrice" ||
+    a === "calcPpFact" ||
+    a === "suggestAddress" ||
+    a === "lookupBpPartner"
+  ) {
+    const proxied = await gasRead_(a, params, env);
+    if (proxied) return proxied;
+    return { status: "success", items: [], suggestions: [], basket: [], total: 0, price: 0, sandbox: true };
   }
-  if (a === "suggestAddress" || a === "lookupBpPartner") {
-    return { status: "success", items: [], suggestions: [], sandbox: true };
-  }
-  if (a === "getStats" || a === "getExpectedProfit" || a === "exportStats") {
-    return { status: "success", rows: [], items: [], total: 0, sandbox: true };
-  }
-  if (a === "getTransferTask" || a === "telegramStatus" || a === "weekPullStatus") {
+  if (a === "getTransferTask") {
     return { status: "success", ok: true, ready: false, sandbox: true };
   }
   if (a === "setWeekBannerState") {
@@ -179,12 +197,48 @@ async function handleAction_(action, params, env) {
     await putSnap_(env, "weekBanner", body);
     return body;
   }
+  // мутации справочников — только D1 snap (не Sheets)
+  if (a === "saveSubscription" || a === "moveSubscription") return upsertSubscription_(params, env);
+  if (a === "deleteSubscription" || a === "deleteSubscriptionBatch") return deleteSubscription_(params, env);
+  if (a === "saveSurvey") return upsertInList_(env, "listSurvey", "items", params, "id");
+  if (a === "deleteSurvey" || a === "deleteSurveyBatch") return deleteFromList_(env, "listSurvey", "items", params, "id");
+  if (a === "saveDeferred") return upsertInList_(env, "listDeferred", "items", params, "id");
+  if (a === "cancelDeferred") return deleteFromList_(env, "listDeferred", "items", params, "id");
+  if (a === "savePartner" || a === "deletePartner") return mutatePartners_(a, params, env);
+  if (a === "saveTemplate" || a === "deleteTemplate") return mutateTemplates_(a, params, env);
+  if (a === "setAccessRole" || a === "setAccessTimezone" || a === "requestAccess") {
+    return mutateAccess_(a, params, env);
+  }
+  if (a === "setWarehouseArrival") return setWarehouseArrival_(params, env);
+  if (a === "finishFullWeek" || a === "materializeWeek" || a === "pullClientsFromMonth") {
+    // не трогаем боевую неделю Sheets
+    return {
+      status: "success",
+      sandbox: true,
+      wrote: 0,
+      blocked: true,
+      message: "sandbox_no_prod_week",
+      action: a
+    };
+  }
   if (
     /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner)/i.test(
       a
     )
   ) {
     return { status: "success", sandbox: true, wrote: 1, action: a };
+  }
+  // любой другой get/list — из snap или GAS read
+  {
+    const hit = await getSnapRaw_(env, a);
+    if (hit) return hit;
+    const proxied = await gasRead_(a, params, env);
+    if (proxied) {
+      try {
+        await putSnap_(env, a, proxied);
+      } catch (e) {}
+      return proxied;
+    }
   }
   return { status: "success", sandbox: true, action: a, empty: true };
 }
@@ -957,6 +1011,230 @@ async function updateCutting_(params, env) {
   snap.sandbox = true;
   await putSnap_(env, "cutting:" + day, snap);
   return { status: "success", sandbox: true, wrote: 1, day: day, row: rowNum };
+}
+
+const GAS_ORIGIN =
+  "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
+
+function unwrapGas_(text) {
+  const s = String(text || "").trim();
+  const m = s.match(/^[a-zA-Z_$][\w$]*\s*\(\s*([\s\S]*)\s*\)\s*;?\s*$/);
+  return JSON.parse(m ? m[1] : s);
+}
+
+async function gasRead_(action, params, env) {
+  try {
+    const origin = (env && env.GAS_ORIGIN) || GAS_ORIGIN;
+    const u = new URL(origin);
+    u.searchParams.set("action", action);
+    Object.keys(params || {}).forEach(function (k) {
+      if (k === "action" || k === "callback" || k === "_" || params[k] == null || params[k] === "") return;
+      // не прокидываем мутационные confirm в прокси-чтение
+      if (k === "confirm" && String(params[k]) === "1" && /finish|materialize|closeAll/i.test(action)) return;
+      u.searchParams.set(k, String(params[k]));
+    });
+    u.searchParams.set("callback", "cb");
+    const res = await fetch(u.toString(), { redirect: "follow" });
+    const text = await res.text();
+    const json = unwrapGas_(text);
+    if (json && typeof json === "object") json.sandboxProxy = true;
+    return json;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function getSubscription_(params, env) {
+  const nick = String(params.nick || "").trim();
+  const segment = String(params.segment || "").trim();
+  const list = await getSnapRaw_(env, "listSubscriptions");
+  const arr = (list && (list.subscriptions || list.items || list.list)) || [];
+  const nickKey = normalizeMatchKey_(nick);
+  let found = null;
+  for (let i = 0; i < arr.length; i++) {
+    const it = arr[i];
+    const n = normalizeMatchKey_(it.nick || it.name || "");
+    if (n !== nickKey) continue;
+    if (segment) {
+      const seg = String(it.segment || it.sheet || it.kind || "").toUpperCase();
+      const want = segment.toUpperCase();
+      if (seg !== want && seg.indexOf(want) < 0) continue;
+    }
+    found = it;
+    break;
+  }
+  if (!found) {
+    return { status: "success", found: false, nick: nick, segment: segment, sandbox: true };
+  }
+  return Object.assign({}, found, {
+    status: "success",
+    found: true,
+    nick: nick,
+    segment: segment || found.sheet || "",
+    subStatus: found.status,
+    sandbox: true
+  });
+}
+
+async function upsertSubscription_(params, env) {
+  let list = (await getSnapRaw_(env, "listSubscriptions")) || {
+    status: "success",
+    subscriptions: [],
+    sandbox: true
+  };
+  const arr = list.subscriptions || list.items || [];
+  const nick = String(params.nick || params.client || "").trim();
+  const mk = normalizeMatchKey_(nick);
+  let idx = -1;
+  for (let i = 0; i < arr.length; i++) {
+    if (normalizeMatchKey_(arr[i].nick || arr[i].name) === mk) {
+      idx = i;
+      break;
+    }
+  }
+  const row = Object.assign({}, idx >= 0 ? arr[idx] : {}, params, { nick: nick || (arr[idx] && arr[idx].nick) });
+  delete row.action;
+  if (idx >= 0) arr[idx] = row;
+  else arr.push(row);
+  list.subscriptions = arr;
+  list.count = arr.length;
+  list.status = "success";
+  list.sandbox = true;
+  await putSnap_(env, "listSubscriptions", list);
+  return { status: "success", sandbox: true, wrote: 1, nick: nick };
+}
+
+async function deleteSubscription_(params, env) {
+  let list = (await getSnapRaw_(env, "listSubscriptions")) || { status: "success", subscriptions: [] };
+  let arr = list.subscriptions || list.items || [];
+  const nicks = []
+    .concat(params.nicks || [], params.nick ? [params.nick] : [], params.ids || [])
+    .map(String);
+  const keys = nicks.map(normalizeMatchKey_);
+  const before = arr.length;
+  arr = arr.filter(function (it) {
+    const k = normalizeMatchKey_(it.nick || it.name || it.subId || it.id);
+    return keys.indexOf(k) < 0;
+  });
+  list.subscriptions = arr;
+  list.count = arr.length;
+  list.sandbox = true;
+  await putSnap_(env, "listSubscriptions", list);
+  return { status: "success", sandbox: true, wrote: before - arr.length };
+}
+
+async function upsertInList_(env, snapKey, arrKey, params, idField) {
+  let list = (await getSnapRaw_(env, snapKey)) || { status: "success" };
+  const arr = list[arrKey] || list.items || list.list || [];
+  list[arrKey] = arr;
+  const id = String(params[idField] || params.id || params.nick || Date.now());
+  let idx = -1;
+  for (let i = 0; i < arr.length; i++) {
+    if (String(arr[i][idField] || arr[i].id || arr[i].nick) === id) {
+      idx = i;
+      break;
+    }
+  }
+  const row = Object.assign({}, idx >= 0 ? arr[idx] : {}, params);
+  delete row.action;
+  row[idField] = id;
+  if (idx >= 0) arr[idx] = row;
+  else arr.push(row);
+  list.status = "success";
+  list.count = arr.length;
+  list.sandbox = true;
+  await putSnap_(env, snapKey, list);
+  return { status: "success", sandbox: true, wrote: 1, id: id };
+}
+
+async function deleteFromList_(env, snapKey, arrKey, params, idField) {
+  let list = (await getSnapRaw_(env, snapKey)) || { status: "success" };
+  let arr = list[arrKey] || list.items || list.list || [];
+  const ids = [].concat(params.ids || [], params.id != null ? [params.id] : [], params.nicks || []).map(String);
+  const before = arr.length;
+  arr = arr.filter(function (it) {
+    const id = String(it[idField] || it.id || it.nick || "");
+    return ids.indexOf(id) < 0;
+  });
+  list[arrKey] = arr;
+  list.items = arr;
+  list.count = arr.length;
+  list.sandbox = true;
+  await putSnap_(env, snapKey, list);
+  return { status: "success", sandbox: true, wrote: before - arr.length };
+}
+
+async function mutatePartners_(action, params, env) {
+  let list = (await getSnapRaw_(env, "listPartners")) || { status: "success", partners: [] };
+  let arr = list.partners || list.items || [];
+  const id = String(params.id || params.nick || params.name || "");
+  if (action === "deletePartner") {
+    arr = arr.filter(function (p) {
+      return String(p.id || p.nick || p.name) !== id;
+    });
+  } else {
+    let idx = -1;
+    for (let i = 0; i < arr.length; i++) {
+      if (String(arr[i].id || arr[i].nick || arr[i].name) === id) {
+        idx = i;
+        break;
+      }
+    }
+    const row = Object.assign({}, idx >= 0 ? arr[idx] : {}, params);
+    delete row.action;
+    if (idx >= 0) arr[idx] = row;
+    else arr.push(row);
+  }
+  list.partners = arr;
+  list.sandbox = true;
+  await putSnap_(env, "listPartners", list);
+  return { status: "success", sandbox: true, wrote: 1 };
+}
+
+async function mutateTemplates_(action, params, env) {
+  const kind = params.kind ? "listTemplates:" + String(params.kind) : "listTemplates";
+  if (action === "deleteTemplate") return deleteFromList_(env, kind, "items", params, "id");
+  return upsertInList_(env, kind, "items", params, "id");
+}
+
+async function mutateAccess_(action, params, env) {
+  let list = (await getSnapRaw_(env, "listAccess")) || { status: "success", people: [] };
+  let people = list.people || [];
+  const tid = String(params.telegramId || "");
+  let idx = -1;
+  for (let i = 0; i < people.length; i++) {
+    if (String(people[i].telegramId) === tid) {
+      idx = i;
+      break;
+    }
+  }
+  if (action === "requestAccess") {
+    if (idx < 0) people.push({ telegramId: tid, name: params.name || "", role: "pending", status: "pending" });
+  } else if (idx >= 0) {
+    if (params.role != null) people[idx].role = params.role;
+    if (params.timezone != null) people[idx].timezone = params.timezone;
+  }
+  list.people = people;
+  list.sandbox = true;
+  await putSnap_(env, "listAccess", list);
+  return { status: "success", sandbox: true, wrote: 1 };
+}
+
+async function setWarehouseArrival_(params, env) {
+  let wh = (await getSnapRaw_(env, "warehouse")) || { status: "success", items: [] };
+  const items = wh.items || wh.rows || [];
+  const row = Number(params.row);
+  const qty = Number(params.qty) || 0;
+  for (let i = 0; i < items.length; i++) {
+    if (Number(items[i].row) === row) {
+      items[i].arrival = qty;
+      break;
+    }
+  }
+  wh.items = items;
+  wh.sandbox = true;
+  await putSnap_(env, "warehouse", wh);
+  return { status: "success", sandbox: true, wrote: 1 };
 }
 
 function json(obj, status) {
