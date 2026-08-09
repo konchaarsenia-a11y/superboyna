@@ -3,7 +3,13 @@
 База уже есть: **boinya-c**  
 ID: `8ab3668c-a654-432c-9ebd-a1ac5c4db800`
 
+**Worker задеплоен:** https://boinya-c.konchaarsenia.workers.dev  
+Проверка: `?action=ping` → `"d1":true`
+
 Прод-миниапп не трогаем.
+
+⚠️ API-токен, если светился в чате — **удали** в  
+https://dash.cloudflare.com/profile/api-tokens → Revoke.
 
 ---
 

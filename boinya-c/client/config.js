@@ -1,9 +1,11 @@
 /**
- * Песочница C — конфиг копии миниаппа.
+ * Песочница C — конфиг. По умолчанию Worker+D1.
+ * Прод webhook миниаппа не трогаем.
  */
 (function () {
   "use strict";
-  var PROXY = "";
+  // Live Worker (D1). Переопределение: ?proxy= или localStorage boinya_c_proxy
+  var PROXY = "https://boinya-c.konchaarsenia.workers.dev";
   try {
     var u = new URL(location.href);
     var q = u.searchParams.get("proxy");
