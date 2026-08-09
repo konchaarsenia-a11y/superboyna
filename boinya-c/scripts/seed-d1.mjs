@@ -183,6 +183,15 @@ async function main() {
   // все snap-*.json с полного refresh
   const files = fs.readdirSync(dataDir).filter((f) => f.startsWith("snap-") && f.endsWith(".json"));
   let snapN = 0;
+  // viewDate-YYYY-MM-DD.json → snap viewDate:YYYY-MM-DD (календарь вне недели)
+  const viewDateFiles = fs.readdirSync(dataDir).filter((f) => /^viewDate-\d{4}-\d{2}-\d{2}\.json$/.test(f));
+  for (const f of viewDateFiles) {
+    const j = loadJson(f);
+    if (!j || !j.payload) continue;
+    const iso = f.replace(/^viewDate-/, "").replace(/\.json$/, "");
+    await putSnap("viewDate:" + iso, j.payload);
+    snapN++;
+  }
   for (const f of files) {
     const j = loadJson(f);
     if (!j || !j.payload) continue;
