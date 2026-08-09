@@ -542,7 +542,8 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .photo-shelves .shelf {
   margin: 0;
   overflow: hidden;
-  width: 136%; /* было 118% — выступ за край ×2 */
+  /* короче экрана — с другой стороны пусто, выступ за край виден */
+  width: min(78vw, 920px);
   height: clamp(110px, 16vw, 156px);
   background: transparent;
   border-radius: 0;
@@ -562,17 +563,17 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   transform: scale(1.04);
   filter: saturate(1.06) brightness(1.03) contrast(1.03);
 }
-/* 1 и 3 — торчат справа (было -18% → -36%) */
+/* 1 и 3 — из правого края, сильно за поле */
 .shelf-from-right {
   align-self: flex-end;
-  margin-right: -36%;
+  margin-right: -28vw;
   margin-left: auto;
 }
 .shelf-from-right img { object-position: 70% 40%; }
-/* 2 — торчит слева, такой же ровный кусок */
+/* 2 — из левого края, такой же кусок */
 .shelf-from-left {
   align-self: flex-start;
-  margin-left: -36%;
+  margin-left: -28vw;
   margin-right: auto;
 }
 .shelf-from-left img { object-position: 30% 42%; }
@@ -584,11 +585,11 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
     padding: 22px 0 36px;
   }
   .photo-shelves .shelf {
-    width: 144%;
+    width: 82vw;
     height: clamp(96px, 26vw, 124px);
   }
-  .shelf-from-right { margin-right: -44%; }
-  .shelf-from-left { margin-left: -44%; }
+  .shelf-from-right { margin-right: -34vw; }
+  .shelf-from-left { margin-left: -34vw; }
 }
 
 @media (prefers-reduced-motion: reduce) {
