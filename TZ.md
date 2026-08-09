@@ -1,3 +1,4 @@
+- [~] **UI+GS v7.11.151:** поиск адресов — приоритет дома (не только улица): разбор «X 12»/«д.12», Nominatim structured street+house, ранжирование с домом сверху — **Pages** · **нужен Deploy Code.gs**
 - [~] **Varka v3.0.8:** как было — owner first / все точки; `@one_more_person_228` обычный owner; сняты allowlist и тест-Access (V7) — **Pages** · **нужен Deploy Code.gs**
 - [~] **Varka v3.0.7:** убран блок «тест партнёров» — **Pages** · **нужен Deploy Code.gs**
 - [~] **Varka v3.0.6:** точки только с сервера; username из initData — **Pages** · **нужен Deploy Code.gs**
