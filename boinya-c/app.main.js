@@ -5691,19 +5691,22 @@
       if (monthBox) monthBox.innerHTML = skel;
       try {
         var d1Proxy = !!(window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__);
-        try { apiCacheBustMem_("getViewCompare"); apiCacheBustMem_("getClients"); } catch (eClr) {}
+        var cutover = !!window.__BOINYA_C_CUTOVER__;
+        // В cutover/SWR не сбрасываем mem на каждый заход — иначе снова ждём GAS
+        if (!cutover && !d1Proxy) {
+          try { apiCacheBustMem_("getViewCompare"); apiCacheBustMem_("getClients"); } catch (eClr) {}
+        }
 
         var compareParams = { action: "getViewCompare" };
         if (dateStr) compareParams.date = dateStr;
         else compareParams.day = day;
-        if (d1Proxy) compareParams._ = String(Date.now());
 
         var compareRes = null;
         try {
           compareRes = await apiGet(compareParams, {
-            timeoutMs: d1Proxy ? 15000 : 45000,
-            cacheTtlMs: 0,
-            retries: d1Proxy ? 1 : 1
+            timeoutMs: d1Proxy || cutover ? 12000 : 45000,
+            cacheTtlMs: cutover || d1Proxy ? 20000 : 0,
+            retries: 0
           });
         } catch (eC) {
           compareRes = null;
