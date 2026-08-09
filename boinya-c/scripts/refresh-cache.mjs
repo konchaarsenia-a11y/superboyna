@@ -93,6 +93,16 @@ async function main() {
     console.error("warehouse", e.message || e);
   }
 
+  try {
+    const now = new Date();
+    const month = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    const mo = await getAction("getMonthOverview", { month });
+    writeJson("monthOverview.json", { payload: mo });
+    meta.items.push("monthOverview");
+  } catch (e) {
+    console.error("monthOverview", e.message || e);
+  }
+
   for (const day of DAYS) {
     const key = DAY_KEY[day] || "x";
     try {
@@ -117,6 +127,7 @@ async function main() {
 
   writeJson("meta.json", meta);
   const build = path.join(__dirname, "build-seed-inline.mjs");
+  spawnSync(process.execPath, [path.join(__dirname, "build-view-snaps.mjs")], { stdio: "inherit" });
   spawnSync(process.execPath, [build], { stdio: "inherit" });
   console.log("done", meta);
 }

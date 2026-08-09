@@ -6,7 +6,9 @@
 
 https://konchaarsenia-a11y.github.io/superboyna/boinya-c/
 
-Бейдж **C · TURBO**.
+Бейдж **C · INSTANT**.
+
+Просмотр дней и перенос людей — **локально, без ожидания GAS** (снапшот + IndexedDB).
 
 ## Почему первая загрузка стала легче
 

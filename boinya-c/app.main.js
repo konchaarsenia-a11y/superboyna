@@ -4633,10 +4633,15 @@
       if (box && !opts.soft) box.innerHTML = viewLoadingSkeletonHtml();
       try {
         var params = { action: "getMonthOverview", month: month };
-        if (opts.force) params._ = String(Date.now());
+        // в TURBO не шлём `_` — иначе bridge/GAS снова тормозит сетку месяца
+        if (opts.force && !window.__BOINYA_C_TURBO__) params._ = String(Date.now());
         var res = await apiGet(
           params,
-          { timeoutMs: opts.soft ? 22000 : 35000, retries: opts.soft ? 0 : 1, cacheTtlMs: opts.force ? 0 : undefined }
+          {
+            timeoutMs: window.__BOINYA_C_TURBO__ ? 8000 : (opts.soft ? 22000 : 35000),
+            retries: window.__BOINYA_C_TURBO__ ? 0 : (opts.soft ? 0 : 1),
+            cacheTtlMs: window.__BOINYA_C_TURBO__ ? 300000 : (opts.force ? 0 : undefined)
+          }
         );
         if (res && res.status === "success") {
           viewMonthOverviewCache = res;
@@ -5672,7 +5677,10 @@
       box.innerHTML = skel;
       if (monthBox) monthBox.innerHTML = skel;
       try {
-        try { apiCacheBustMem_("getViewCompare"); apiCacheBustMem_("getClients"); } catch (eClr) {}
+        // Песочница C TURBO: не сбрасываем кэш и не ждём GAS — иначе Просмотр по 15–40с
+        if (!window.__BOINYA_C_TURBO__) {
+          try { apiCacheBustMem_("getViewCompare"); apiCacheBustMem_("getClients"); } catch (eClr) {}
+        }
 
         var compareParams = { action: "getViewCompare" };
         if (dateStr) compareParams.date = dateStr;
@@ -5680,7 +5688,11 @@
 
         var compareRes = null;
         try {
-          compareRes = await apiGet(compareParams, { timeoutMs: 45000, cacheTtlMs: 0 });
+          compareRes = await apiGet(compareParams, {
+            timeoutMs: window.__BOINYA_C_TURBO__ ? 8000 : 45000,
+            cacheTtlMs: window.__BOINYA_C_TURBO__ ? 300000 : 0,
+            retries: window.__BOINYA_C_TURBO__ ? 0 : 1
+          });
         } catch (eC) {
           compareRes = null;
         }
@@ -5716,7 +5728,11 @@
             else if (dateStr) weekParams.date = dateStr;
             if (weekParams.day || weekParams.date) {
               try {
-                weekRes = await apiGet(weekParams, { timeoutMs: 22000, cacheTtlMs: 0 });
+                weekRes = await apiGet(weekParams, {
+                  timeoutMs: window.__BOINYA_C_TURBO__ ? 8000 : 22000,
+                  cacheTtlMs: window.__BOINYA_C_TURBO__ ? 300000 : 0,
+                  retries: 0
+                });
               } catch (eW) {
                 weekRes = { status: "error", message: eW.message || String(eW), clients: [] };
               }
@@ -6101,7 +6117,7 @@
       showToast("Переношу " + names.length + "…");
       for (let i = 0; i < names.length; i++) {
         try {
-          const res = await apiGet({
+          var moveParams = {
             action: "moveClient",
             client: names[i],
             oldDay: oldDay || "",
@@ -6111,9 +6127,14 @@
             dateOnly: dateOnly ? "1" : "0",
             calendarOnly: calendarOnly ? "1" : "0",
             cutRaw: cutFlag,
-            matchKey: (loadedClientsRawData[idxs[i]] && loadedClientsRawData[idxs[i]].matchKey) || "",
-            _: String(Date.now())
-          }, { timeoutMs: 45000, cacheTtlMs: 0 });
+            matchKey: (loadedClientsRawData[idxs[i]] && loadedClientsRawData[idxs[i]].matchKey) || ""
+          };
+          if (!window.__BOINYA_C_TURBO__) moveParams._ = String(Date.now());
+          const res = await apiGet(moveParams, {
+            timeoutMs: window.__BOINYA_C_TURBO__ ? 5000 : 45000,
+            cacheTtlMs: 0,
+            retries: 0
+          });
           if (res.status === "success") {
             ok++;
             surveys += Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
@@ -6129,16 +6150,20 @@
       );
       if (fail.length) await uiAlertAsync("Не удалось:\n" + fail.join("\n"));
       try { refreshDeferredBadge(true); } catch (eBd) {}
-      try {
-        apiCacheBustMem_("getViewCompare");
-        apiCacheBustMem_("getClients");
-        apiCacheBustMem_("getMonthOverview");
-        apiCacheBustMem_("listSurvey");
-      } catch (eClr) {}
-      viewMonthOverviewCache = null;
+      if (!window.__BOINYA_C_TURBO__) {
+        try {
+          apiCacheBustMem_("getViewCompare");
+          apiCacheBustMem_("getClients");
+          apiCacheBustMem_("getMonthOverview");
+          apiCacheBustMem_("listSurvey");
+        } catch (eClr) {}
+        viewMonthOverviewCache = null;
+      }
       await loadClientsForDay();
       if (!calendarOnly && newDay && oldDay && newDay !== oldDay) await refreshDayViews(newDay);
-      try { await ensureMonthOverviewLoaded_({ force: true }); } catch (eOv) {}
+      try {
+        await ensureMonthOverviewLoaded_({ force: !window.__BOINYA_C_TURBO__, soft: !!window.__BOINYA_C_TURBO__ });
+      } catch (eOv) {}
       recoverUiFocus();
     }
     window.crmBatchMove = crmBatchMove;
@@ -6422,9 +6447,12 @@
           dateOnly: dateOnly ? "1" : "0",
           calendarOnly: calendarOnly ? "1" : "0",
           cutRaw: cutRaw === "yes" ? "1" : "0",
-          matchKey: matchKey,
-          _: String(Date.now())
-        }, { timeoutMs: 45000, cacheTtlMs: 0 });
+          matchKey: matchKey
+        }, {
+          timeoutMs: window.__BOINYA_C_TURBO__ ? 5000 : 45000,
+          cacheTtlMs: 0,
+          retries: 0
+        });
         if (!res || res.status !== "success") {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return false;

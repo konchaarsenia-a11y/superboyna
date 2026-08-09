@@ -57,10 +57,23 @@ const counts = loadPayload("weekDayCounts.json");
 const weekBanner = loadPayload("weekBanner.json");
 const warehouse = full ? loadPayload("warehouse.json") : null;
 
+const monthOv = loadPayload("monthOverview.json");
+const dateMapFile = (() => {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(dataDir, "dateToDay.json"), "utf8"));
+    return j.map || {};
+  } catch (e) {
+    return {};
+  }
+})();
 const inline = {
   weekDayCounts: counts && counts.status === "success" ? counts : null,
   weekBanner: weekBanner && weekBanner.status === "success" ? weekBanner : null,
   warehouse: warehouse && warehouse.status === "success" ? warehouse : null,
+  monthOverview: monthOv && monthOv.status === "success" ? { [monthOv.month || ""]: monthOv } : {},
+  dateToDay: dateMapFile,
+  // viewCompare не инлайним — bridge собирает из clients (меньше первый байт)
+  viewCompare: {},
   clients,
   cutting: full ? cutting : {},
   courier: full ? courier : {},

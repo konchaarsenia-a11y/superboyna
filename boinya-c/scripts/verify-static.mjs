@@ -27,7 +27,7 @@ const need = [
 ];
 const app = fs.readFileSync(path.join(sand, "app.html"), "utf8");
 const mainJs = fs.readFileSync(path.join(sand, "app.main.js"), "utf8");
-if (!app.includes("C · TURBO") && !app.includes("C · SANDBOX")) {
+if (!app.includes("C · TURBO") && !app.includes("C · SANDBOX") && !app.includes("C · INSTANT")) {
   console.error("app.html missing C badge");
   process.exit(1);
 }
