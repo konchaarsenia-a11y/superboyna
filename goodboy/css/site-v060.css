@@ -28,10 +28,12 @@ body.gb-site {
   min-height: 100%;
   color: var(--gb-cream);
   font-family: var(--gb-font);
+  /* fixed — градиенты не «уезжают» при скролле и не режут страницу на листы */
   background:
     radial-gradient(90% 55% at 85% 8%, rgba(212, 161, 90, 0.14), transparent 55%),
     radial-gradient(70% 45% at 12% 88%, rgba(127, 168, 144, 0.1), transparent 50%),
     var(--gb-black);
+  background-attachment: fixed, fixed, fixed;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
   max-width: 100%;
@@ -173,13 +175,14 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   position: absolute;
   inset: -10%;
   z-index: -2;
+  /* без своей «плиты» фона — только лёгкое пятно, общий фон страницы */
   background:
-    radial-gradient(55% 45% at 78% 32%, rgba(212,161,90,0.2), transparent 60%),
-    radial-gradient(42% 38% at 16% 72%, rgba(127,168,144,0.12), transparent 55%),
-    var(--gb-black);
+    radial-gradient(55% 45% at 78% 32%, rgba(212,161,90,0.16), transparent 60%),
+    radial-gradient(42% 38% at 16% 72%, rgba(127,168,144,0.1), transparent 55%);
   transform: translate3d(var(--mx, 0), var(--my, 0), 0);
   transition: transform 0.6s var(--ease);
   will-change: transform;
+  pointer-events: none;
 }
 .hero-spot {
   position: absolute;
@@ -272,46 +275,32 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   letter-spacing: 0.01em;
   text-transform: uppercase;
   margin: 0 0 18px;
-  max-width: 15ch;
+  max-width: 12ch;
   color: var(--gb-cream);
   background: none;
   -webkit-background-clip: unset;
   background-clip: unset;
   position: relative;
-  padding-bottom: 14px;
+  padding-bottom: 0;
 }
 .promise-hero .promise-mir {
-  position: relative;
-  display: inline-block;
-  color: var(--gb-cream);
-  letter-spacing: 0.04em;
-  text-shadow: 0 0 34px rgba(212, 161, 90, 0.28);
+  display: block;
+  width: max-content;
+  color: var(--gb-orange);
+  letter-spacing: 0.08em;
+  font-size: 1.12em;
+  line-height: 1;
+  margin: 0 0 0.22em;
+  padding-bottom: 0.18em;
+  border-bottom: 3px solid var(--gb-orange);
+  text-shadow: none;
 }
-.promise-hero .promise-mir::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 48%;
-  width: 1.55em;
-  height: 1.55em;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(212, 161, 90, 0.28) 0%, rgba(127, 168, 144, 0.12) 42%, transparent 70%);
-  z-index: -1;
-  pointer-events: none;
+.promise-hero .promise-rest {
+  display: block;
 }
 .promise-hero .promise-accent {
-  color: var(--gb-orange);
-  text-shadow: 0 0 28px rgba(212, 161, 90, 0.35);
-}
-.promise-hero::after {
-  content: "";
-  display: block;
-  width: 2.6rem;
-  height: 3px;
-  margin-top: 12px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--gb-orange), transparent);
+  color: var(--gb-cream);
+  text-shadow: none;
 }
 .tagline {
   max-width: 32rem;
@@ -493,9 +482,10 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 
 /* —— Cinematic photo shelves —— */
 .site-section--shelves {
-  padding: 28px 0 8px;
+  padding: 12px 0 0;
   overflow: hidden; /* без скролла в стороны; вертикаль — за счёт padding */
   max-width: 100%;
+  background: transparent !important;
 }
 .inner--narrow {
   width: min(840px, 100%);
@@ -614,8 +604,9 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 
 /* —— Phone block below shelves —— */
 .site-section--phone {
-  padding-top: 48px;
-  padding-bottom: 56px;
+  padding-top: 36px;
+  padding-bottom: 40px;
+  background: transparent !important;
 }
 .phone-block {
   display: grid;
@@ -1077,9 +1068,9 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 
 /* —— Reveal —— */
 .reveal {
-  opacity: 0;
-  transform: translate3d(0, 22px, 0);
-  transition: opacity 0.7s var(--ease), transform 0.7s var(--ease);
+  opacity: 0.55;
+  transform: translate3d(0, 10px, 0);
+  transition: opacity 0.55s var(--ease), transform 0.55s var(--ease);
 }
 .reveal.is-in {
   opacity: 1;
@@ -1090,20 +1081,15 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .d3 { transition-delay: 0.24s; }
 
 .site-section {
-  padding: 56px 20px;
+  padding: 40px 20px;
   position: relative;
-  background: transparent;
-  border: 0;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none;
 }
-/* без «листа презентации» — только мягкая волна тона, общий фон страницы */
 .site-section--alt {
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    rgba(127, 168, 144, 0.05) 45%,
-    transparent 100%
-  );
-  border: 0;
+  background: transparent !important;
+  border: 0 !important;
 }
 .site-section .inner {
   width: min(840px, 100%);
@@ -1174,16 +1160,16 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 16px;
-  padding: 16px 14px;
-  margin: 0 -14px;
-  border-top: 1px solid rgba(237,232,223,0.06);
-  border-radius: 14px;
+  padding: 14px 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
   transition: background 0.3s ease, transform 0.3s var(--ease);
   position: relative;
   overflow: hidden;
 }
 .feature-rail article:last-child {
-  border-bottom: 1px solid rgba(237,232,223,0.06);
+  border: 0;
 }
 .feature-rail article::before {
   content: "";
@@ -1527,12 +1513,12 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 
 .site-footer {
-  padding: 28px 20px 40px;
+  padding: 24px 20px 40px;
   text-align: center;
   color: var(--gb-muted);
   font-size: 0.82rem;
   border-top: 0;
-  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.12));
+  background: transparent;
 }
 .site-footer a { color: var(--gb-orange-2); text-decoration: none; }
 
