@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC="$ROOT/app.html"
 DST="$ROOT/boinya-c/app.html"
 ORIGIN='https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec'
-VER='v7.11.149c'
+VER='v7.11.149c3'
 
 cp "$SRC" "$DST"
 python3 - "$DST" "$ORIGIN" "$VER" <<'PY'
@@ -52,8 +52,8 @@ inject = '''  <script src="seed-inline.js"></script>
         if (document.getElementById("boinyaCBadge")) return;
         var b = document.createElement("div");
         b.id = "boinyaCBadge";
-        b.textContent = "C · SANDBOX";
-        b.title = "Песочница C — не боевой миниапп. Запись в таблицу выключена.";
+        b.textContent = "C · TURBO";
+        b.title = "Песочница C TURBO — local-first. Запись выключена.";
         b.style.cssText = "position:fixed;top:6px;right:8px;z-index:99998;font:700 10px/1 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:.06em;color:#06221f;background:#3dd6c6;padding:4px 7px;border-radius:4px;opacity:.9;pointer-events:none;";
         document.body.appendChild(b);
       }
@@ -103,8 +103,76 @@ if idx >= 0 and "__boinyaCGuardWrite" not in t[idx : idx + 280]:
     t = t.replace(api_post, guard, 1)
     print("apiPost guarded")
 
+# TURBO: не prefetch в GAS на старте
+old_boot = """    function bootIdleWork_() {
+      try { registerMeAsCourier(); } catch (e) {}
+      try {
+        if (document.getElementById("departHourCol") && !window._timeWheelsBuilt) {
+          buildTimeWheels();
+          window._timeWheelsBuilt = true;
+        }
+      } catch (eW) {}
+      // prefetch горячих данных — вкладки открываются из кэша
+      try {
+        var dayEl = document.getElementById("day");
+        var dayName = dayEl && dayEl.value ? String(dayEl.value) : "";
+        if (dayName) {
+          apiGet({ action: "getClients", day: dayName }, { retries: 0 }).catch(function () {});
+          apiGet({ action: "getWeekDayCounts" }, { retries: 0 }).catch(function () {});
+        }
+        apiGet({ action: "getWeekBannerState" }, { retries: 0 }).catch(function () {});
+        if (APP_ROLE === "cutter" || APP_ROLE === "owner" || APP_ROLE === "all") {
+          var cutDay = (document.getElementById("cuttingDay") || {}).value || dayName;
+          if (cutDay) apiGet({ action: "getCutting", day: cutDay }, { retries: 0 }).catch(function () {});
+        }
+      } catch (ePf) {}
+    }
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(bootIdleWork_, { timeout: 1800 });
+    } else {
+      setTimeout(bootIdleWork_, 800);
+    }"""
+new_boot = """    function bootIdleWork_() {
+      try { registerMeAsCourier(); } catch (e) {}
+      try {
+        if (document.getElementById("departHourCol") && !window._timeWheelsBuilt) {
+          buildTimeWheels();
+          window._timeWheelsBuilt = true;
+        }
+      } catch (eW) {}
+      if (window.__BOINYA_C_TURBO__) return;
+      try {
+        var dayEl = document.getElementById("day");
+        var dayName = dayEl && dayEl.value ? String(dayEl.value) : "";
+        if (dayName) {
+          apiGet({ action: "getClients", day: dayName }, { retries: 0 }).catch(function () {});
+          apiGet({ action: "getWeekDayCounts" }, { retries: 0 }).catch(function () {});
+        }
+        apiGet({ action: "getWeekBannerState" }, { retries: 0 }).catch(function () {});
+        if (APP_ROLE === "cutter" || APP_ROLE === "owner" || APP_ROLE === "all") {
+          var cutDay = (document.getElementById("cuttingDay") || {}).value || dayName;
+          if (cutDay) apiGet({ action: "getCutting", day: cutDay }, { retries: 0 }).catch(function () {});
+        }
+      } catch (ePf) {}
+    }
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(bootIdleWork_, { timeout: window.__BOINYA_C_TURBO__ ? 8000 : 1800 });
+    } else {
+      setTimeout(bootIdleWork_, window.__BOINYA_C_TURBO__ ? 5000 : 800);
+    }"""
+if old_boot in t:
+    t = t.replace(old_boot, new_boot, 1)
+    print("bootIdle TURBO patched")
+elif "__BOINYA_C_TURBO__" in t and "bootIdleWork_" in t:
+    print("bootIdle already turbo")
+else:
+    print("WARN: bootIdle pattern miss")
+
 p.write_text(t, encoding="utf-8")
 print("synced", p, "ver", ver)
 PY
 
-echo "OK: $DST (root app.html не менялся)"
+# Вынести JS + лёгкий seed (первая загрузка)
+node "$ROOT/boinya-c/scripts/split-app.mjs"
+node "$ROOT/boinya-c/scripts/build-seed-inline.mjs"
+echo "OK: $DST (root app.html не менялся; app.main.js + lite seed)"

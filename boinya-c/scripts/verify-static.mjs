@@ -12,6 +12,7 @@ const need = [
   "README.md",
   "index.html",
   "app.html",
+  "app.main.js",
   "bridge.js",
   "seed-inline.js",
   "lab.html",
@@ -25,12 +26,17 @@ const need = [
   "scripts/sync-from-prod.sh"
 ];
 const app = fs.readFileSync(path.join(sand, "app.html"), "utf8");
-if (!app.includes("C · SANDBOX") || !app.includes("__boinyaCTrySnap")) {
-  console.error("app.html missing C patches");
+const mainJs = fs.readFileSync(path.join(sand, "app.main.js"), "utf8");
+if (!app.includes("C · TURBO") && !app.includes("C · SANDBOX") && !app.includes("C · INSTANT")) {
+  console.error("app.html missing C badge");
+  process.exit(1);
+}
+if (!app.includes("app.main.js") || !mainJs.includes("__boinyaCTrySnap")) {
+  console.error("split app.main.js missing C hooks");
   process.exit(1);
 }
 const rootApp = fs.readFileSync(path.join(root, "app.html"), "utf8");
-if (rootApp.includes("BOINYA_C_EDITION") || rootApp.includes("C · SANDBOX")) {
+if (rootApp.includes("BOINYA_C_EDITION") || rootApp.includes("C · TURBO") || rootApp.includes("C · SANDBOX")) {
   console.error("root app.html was polluted — abort");
   process.exit(1);
 }
