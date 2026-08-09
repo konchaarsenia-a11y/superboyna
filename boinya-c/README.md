@@ -34,4 +34,5 @@ node boinya-c/scripts/build-seed-inline.mjs
 
 ## Worker / D1
 
-Заготовка в `proxy/` — см. `docs/PLAN.md`. Для оценки UI не обязателен.
+База D1 создана (`boinya-c`, ID в `proxy/wrangler.toml`).  
+**Как задеплоить Worker:** [docs/SETUP_D1.md](./docs/SETUP_D1.md) — после деплоя пришли URL `*.workers.dev`.
