@@ -1,0 +1,27 @@
+---
+description: Паттерны Code.gs / webhook — не ломать натив-auth, согласовывать actions с app.html.
+globs: Code.gs,native/**/*.gs,MERGE_NATIVE_AUTH.md
+alwaysApply: false
+---
+
+# Apps Script (`Code.gs`)
+
+## Не откатывать (натив GBI)
+
+- `/start gbi_<token>` в `handleTelegramUpdate_`
+- actions `getNativeLinkInfo`, `pollNativeAuth` (+ хелперы)
+- контракт листа **Доступы** / `getMyAccess`
+
+Слияние только через `MERGE_NATIVE_AUTH.md` + сниппет — не подменять весь файл чужим `Code.gs`.
+
+## Контракт с фронтом
+
+- Имена `action` и форматы basket/ответов — как в `app.html` и `PROJECT.md`.
+- После смены API: обновить оба слоя и smoke через skill `test-api` (`zzz_test`).
+- Живой Deploy делает владелец; в ответах — `[~]` в `TZ.md`, пока не подтвердил.
+
+## Безопасность
+
+- Токены бота — только `PropertiesService` / secrets, не в коде и не в git.
+- Не закрывать неделю (`finishFullWeekProduction`) без явного ОК.
+- Не трогать реальных клиентов; тест — `zzz_test`.
