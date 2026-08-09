@@ -195,16 +195,16 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 .hero-spot {
   position: absolute;
-  width: 42vmax;
-  height: 42vmax;
+  width: 55vmax;
+  height: 55vmax;
   border-radius: 50%;
   z-index: -1;
-  left: var(--spot-x, 70%);
-  top: var(--spot-y, 35%);
+  left: var(--spot-x, 72%);
+  top: var(--spot-y, 38%);
   transform: translate(-50%, -50%);
-  background: radial-gradient(circle, rgba(212,161,90,0.22) 0%, transparent 68%);
-  filter: blur(8px);
-  opacity: 0.9;
+  background: radial-gradient(circle, rgba(212,161,90,0.14) 0%, transparent 72%);
+  filter: blur(18px);
+  opacity: 0.75;
   transition: left 0.5s var(--ease), top 0.5s var(--ease);
   pointer-events: none;
 }
