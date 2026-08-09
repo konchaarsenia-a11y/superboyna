@@ -424,13 +424,13 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   width: min(1040px, 100%);
   margin: 0 auto;
   display: grid;
-  gap: 36px;
+  gap: 44px;
   align-items: center;
 }
 @media (min-width: 880px) {
   .hero-grid--features {
     grid-template-columns: 1.05fr 0.95fr;
-    gap: 48px;
+    gap: 56px;
   }
 }
 .site-hero--features {
@@ -646,7 +646,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 .phone-block-copy h2 {
   font-family: var(--gb-display);
-  font-size: clamp(1.8rem, 4.5vw, 2.6rem);
+  font-size: clamp(2rem, 5vw, 2.85rem);
   line-height: 1.05;
   letter-spacing: 0.02em;
   text-transform: uppercase;
