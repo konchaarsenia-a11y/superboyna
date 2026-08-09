@@ -2,13 +2,13 @@
 
 ## LIVE (быстро + запись в бой)
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111503  
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111504  
 
 Чтение из D1, запись в GAS. Бейдж **C · LIVE**. Тест: `zzz_test`.
 
 ## Sandbox снимок
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=0&v=7111503  
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=0&v=7111504  
 
 Бейдж **C · D1**.
 

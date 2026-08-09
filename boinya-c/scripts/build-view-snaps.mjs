@@ -45,6 +45,19 @@ for (const it of items) {
   const date = it.date || (cl && cl.payload && cl.payload.date) || "";
   const dateIso = dmyToIso(date);
   if (dateIso) dateToDay[dateIso] = day;
+  // month = дельта календаря (как в GAS), НЕ копия week — иначе Просмотр врёт
+  const prev = load(`view-${key}.json`);
+  const prevMonth =
+    prev && prev.payload && Array.isArray(prev.payload.month) && !prev.payload.fromSeed
+      ? prev.payload.month
+      : [];
+  const weekKeys = new Set(
+    clients.map((c) => String((c && (c.matchKey || c.name)) || "").toUpperCase().replace(/[._\s]/g, ""))
+  );
+  const month = prevMonth.filter((c) => {
+    const k = String((c && (c.matchKey || c.name)) || "").toUpperCase().replace(/[._\s]/g, "");
+    return k && !weekKeys.has(k);
+  });
   const payload = {
     status: "success",
     day: day,
@@ -53,10 +66,10 @@ for (const it of items) {
     dateIso: dateIso,
     dateNotInWeek: false,
     futureSlot: day === "Будущая неделя",
-    monthSheet: "sandbox",
+    monthSheet: (prev && prev.payload && prev.payload.monthSheet) || "sandbox",
     calendar: true,
     week: clients,
-    month: clients.slice(),
+    month: month,
     sandbox: true,
     fromSeed: true
   };
