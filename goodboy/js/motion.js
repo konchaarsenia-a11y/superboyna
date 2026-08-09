@@ -302,25 +302,6 @@
     }
   }
 
-  function initTreatChase() {
-    var el = document.getElementById("treatChase");
-    if (!el) return;
-    if (reduced()) {
-      el.classList.add("is-static");
-      return;
-    }
-    if (!("IntersectionObserver" in global)) {
-      el.classList.add("is-running");
-      return;
-    }
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (en) {
-        el.classList.toggle("is-running", en.isIntersecting);
-      });
-    }, { rootMargin: "0px 0px -5% 0px", threshold: 0.2 });
-    io.observe(el);
-  }
-
   function init() {
     initNav();
     initProgress();
@@ -330,7 +311,6 @@
     initPointerLight();
     initScrollParallax();
     initPhoneDemo();
-    initTreatChase();
   }
 
   global.GBMotion = { init: init };
