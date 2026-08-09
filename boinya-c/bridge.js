@@ -564,11 +564,10 @@
 
   var _bgScheduled = Object.create(null);
   function bgRefresh(params, delayMs) {
-    if (!turboOn()) {
-      /* soft */
-    } else {
-      // в turbo Просмотр/переносы не догоняем GAS — иначе снова «долго»
-      var a = String(params.action || "");
+    var a = String((params && params.action) || "");
+    // sandbox turbo: не гоняем GAS на просмотр (локальный seed).
+    // cutover: обязательно догоняем Worker/D1 — иначе UI залипает на пустом stub.
+    if (!isCutover() && turboOn()) {
       if (
         a === "getViewCompare" ||
         a === "getMonthOverview" ||
@@ -587,6 +586,7 @@
         ? delayMs
         : Math.max(BG_MIN_DELAY, (window.__BOINYA_C_QUIET_UNTIL__ || 0) - Date.now() + 500);
     if (!turboOn()) wait = Math.min(wait, 800);
+    if (isCutover()) wait = Math.min(wait, delayMs != null ? delayMs : 180);
     setTimeout(function () {
       _bgScheduled[key] = false;
       try {
@@ -598,9 +598,9 @@
           p[k] = params[k];
         });
         raw(p, {
-          cacheTtlMs: 30000,
+          cacheTtlMs: isCutover() ? 15000 : 30000,
           retries: 0,
-          timeoutMs: 40000,
+          timeoutMs: isCutover() ? 6000 : 40000,
           __boinyaNoSnap: true,
           __boinyaCBg: true
         })
@@ -699,9 +699,43 @@
 
     var action = String(params.action);
 
-    // Cutover / Worker: не перехватывать локально — идём в PROXY (D1 SWR / GAS)
-    if (isCutover() || preferD1()) {
-      if (isCutover()) return null;
+    // Cutover LIVE: mem/seed мгновенно; пустой stub НЕ отдаём (иначе список «пустой навсегда»).
+    // Промах → сеть в Worker (D1 ~0.2с, без ожидания GAS).
+    if (isCutover()) {
+      if (LOCAL_MUT[action] || WRITE_RE.test(action)) return null;
+      if (action === "getMyAccess") {
+        return Promise.resolve({
+          status: "success",
+          role: "all",
+          access: "active",
+          telegramId: String(params.telegramId || ""),
+          name: params.name || "",
+          tabs: [],
+          cutover: true
+        });
+      }
+      var memC = fromMem(action, params);
+      if (memC) {
+        var emptyClients =
+          action === "getClients" &&
+          (!Array.isArray(memC.clients) || !memC.clients.length);
+        var emptyView =
+          action === "getViewCompare" &&
+          (!Array.isArray(memC.week) || !memC.week.length) &&
+          (!Array.isArray(memC.month) || !memC.month.length);
+        if (emptyClients || emptyView) {
+          bgRefresh(params, 50);
+          return null; // идём в Worker за живыми данными
+        }
+        bgRefresh(params, 200);
+        return Promise.resolve(memC);
+      }
+      // без mem — сразу Worker, не turboStub
+      return null;
+    }
+
+    // Sandbox Worker+D1
+    if (preferD1()) {
       if (action === "getMyAccess") {
         return Promise.resolve({
           status: "success",

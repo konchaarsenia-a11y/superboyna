@@ -5692,10 +5692,6 @@
       try {
         var d1Proxy = !!(window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__);
         var cutover = !!window.__BOINYA_C_CUTOVER__;
-        // В cutover/SWR не сбрасываем mem на каждый заход — иначе снова ждём GAS
-        if (!cutover && !d1Proxy) {
-          try { apiCacheBustMem_("getViewCompare"); apiCacheBustMem_("getClients"); } catch (eClr) {}
-        }
 
         var compareParams = { action: "getViewCompare" };
         if (dateStr) compareParams.date = dateStr;
@@ -5704,8 +5700,8 @@
         var compareRes = null;
         try {
           compareRes = await apiGet(compareParams, {
-            timeoutMs: d1Proxy || cutover ? 12000 : 45000,
-            cacheTtlMs: cutover || d1Proxy ? 20000 : 0,
+            timeoutMs: cutover ? 4000 : d1Proxy ? 8000 : 45000,
+            cacheTtlMs: cutover || d1Proxy ? 60000 : 0,
             retries: 0
           });
         } catch (eC) {
@@ -5743,7 +5739,11 @@
             else if (dateStr) weekParams.date = dateStr;
             if (weekParams.day || weekParams.date) {
               try {
-                weekRes = await apiGet(weekParams, { timeoutMs: 22000, cacheTtlMs: 0 });
+                weekRes = await apiGet(weekParams, {
+                  timeoutMs: cutover ? 4000 : d1Proxy ? 8000 : 22000,
+                  cacheTtlMs: cutover || d1Proxy ? 60000 : 0,
+                  retries: 0
+                });
               } catch (eW) {
                 weekRes = { status: "error", message: eW.message || String(eW), clients: [] };
               }
