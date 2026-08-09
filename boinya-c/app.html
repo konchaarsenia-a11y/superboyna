@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C · sandbox</title>
-  <link rel="preload" href="app.main.js?v=7111494" as="script">
+  <link rel="preload" href="app.main.js?v=7111496" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.149c4";
+      var APP_VER = "v7.11.149c6";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -26,10 +26,10 @@
       } catch (e0) {}
     })();
   </script>
+  <script src="client/config.js"></script>
   <script src="seed-inline.js"></script>
   <script src="bridge.js"></script>
-  <script src="client/config.js"></script>
-  <script src="app.main.js?v=7111494" defer></script>
+  <script src="app.main.js?v=7111496" defer></script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script>
     /* C badge — только копия, прод не трогаем */
@@ -38,8 +38,8 @@
         if (document.getElementById("boinyaCBadge")) return;
         var b = document.createElement("div");
         b.id = "boinyaCBadge";
-        b.textContent = "C · INSTANT";
-        b.title = "Песочница C TURBO — local-first, не боевой миниапп. Запись выключена.";
+        b.textContent = "C · D1";
+        b.title = "Песочница C · D1 — полный миниапп на Worker/D1, не Sheets.";
         b.style.cssText = "position:fixed;top:6px;right:8px;z-index:99998;font:700 10px/1 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:.06em;color:#06221f;background:#3dd6c6;padding:4px 7px;border-radius:4px;opacity:.9;pointer-events:none;";
         document.body.appendChild(b);
       }
