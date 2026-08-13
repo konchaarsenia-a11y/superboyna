@@ -8,6 +8,7 @@
 | Что | URL |
 |-----|-----|
 | **Сайт** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/ |
+| **Подписка** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/subscription.html |
 | **Кабинет на сайте** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/#app |
 | **Mini App (для BotFather)** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html |
 
@@ -17,11 +18,12 @@
 
 ```
 goodboy/
-  index.html      # сайт: лендинг + кнопка «Открыть кабинет»
-  app.html        # тот же кабинет для Telegram Mini App
-  cabinet.html    # разметка кабинета (общая)
-  css/            # goodboy.css + site.css
-  js/             # логика + demo-api (локально)
+  index.html           # сайт: лендинг
+  subscription.html    # вкладка «Подписка»
+  app.html             # кабинет для Telegram Mini App
+  cabinet.html         # разметка кабинета (общая)
+  css/                 # goodboy.css + site.css / site-v070.css
+  js/                  # логика + demo-api (локально)
 ```
 
 На сайте кабинет открывается поверх (`#app`).  
