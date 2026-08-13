@@ -1240,33 +1240,38 @@ async function handleCutover_(a, params, env, ctx) {
     return proxied;
   }
 
-  // подсказки адресов / партнёров / цены — только живой GAS (в D1 их нет)
+  // подсказки / калькуляции / экспорт / задачи — только живой GAS (в D1 нет или неполный)
   if (
     a === "suggestAddress" ||
     a === "lookupBpPartner" ||
     a === "calcPrice" ||
     a === "calcPpFact" ||
     a === "getPpFactCost" ||
-    a === "getPpOrderSuggest"
+    a === "getPpOrderSuggest" ||
+    a === "exportStats" ||
+    a === "getExpectedProfit" ||
+    a === "getTransferTask" ||
+    a === "composeWarehouseBuyMessage" ||
+    a === "listBookings"
   ) {
+    if (a === "suggestAddress") {
+      return suggestAddressCutover_(params, env);
+    }
     const live = await gasProxy_(a, params, env, { write: false });
     if (live && typeof live === "object") {
       live.cutover = true;
       live.fromGas = true;
-      // UI ждёт results у suggestAddress
-      if (a === "suggestAddress" && !Array.isArray(live.results)) {
-        live.results = live.suggestions || live.items || [];
-      }
       return live;
     }
-    if (a === "suggestAddress") {
-      return { status: "success", results: [], suggestions: [], items: [], cutover: true, source: "empty" };
-    }
-    return { status: "success", items: [], suggestions: [], basket: [], total: 0, price: 0, cutover: true };
+    return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
   }
 
   // чтение: D1 сразу. Исключение — дата календаря вне недели без snap (иначе UI «никого нет»).
-  const fast = await cutoverFastRead_(a, params, env)
+  let fast = await cutoverFastRead_(a, params, env);
+  // битый/ошибочный snap (например need_telegramId) — не отдаём UI, идём в GAS
+  if (fast && typeof fast === "object" && fast.status && fast.status !== "success") {
+    fast = null;
+  }
   const calEmpty =
     a === "getViewCompare" &&
     params &&
@@ -1292,12 +1297,119 @@ async function handleCutover_(a, params, env, ctx) {
   if (needGas && ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(cutoverRevalidate_(a, params, env));
   }
+  // Нарезка/курьер/сборка: пустой D1 при живом дне — не врать UI, сразу GAS
+  if (
+    fast &&
+    (a === "getCutting" || a === "getCourier" || a === "getAssembly") &&
+    ((Array.isArray(fast.items) && !fast.items.length) ||
+      (Array.isArray(fast.clients) && !fast.clients.length))
+  ) {
+    try {
+      const live = await gasProxy_(a, params, env, { write: false });
+      if (live && live.status === "success") {
+        if (ctx && typeof ctx.waitUntil === "function") {
+          ctx.waitUntil(cutoverStoreRead_(a, params, env, live));
+        } else {
+          try {
+            await cutoverStoreRead_(a, params, env, live);
+          } catch (eStore) {}
+        }
+        live.cutover = true;
+        live.fromGas = true;
+        live.swr = true;
+        return live;
+      }
+    } catch (eCut) {}
+  }
   if (fast && typeof fast === "object") {
     fast.cutover = true;
     fast.swr = true;
     return fast;
   }
+
+  // нет D1-обработчика / битый snap — не врём пустым stub: идём в GAS
+  try {
+    const live = await gasProxy_(a, params, env, { write: false });
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+      if (live.status === "success" && ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(cutoverStoreRead_(a, params, env, live));
+      }
+      return live;
+    }
+  } catch (eLive) {}
   return cutoverEmptyRead_(a, params);
+}
+
+/** suggestAddress: GAS + fallback Nominatim с края CF (GAS иногда source:none). */
+async function suggestAddressCutover_(params, env) {
+  const text = String((params && (params.text || params.q || params.query)) || "").trim();
+  let live = null;
+  try {
+    live = await gasProxy_("suggestAddress", params, env, { write: false });
+  } catch (e) {}
+  if (live && Array.isArray(live.results) && live.results.length) {
+    live.cutover = true;
+    live.fromGas = true;
+    return live;
+  }
+  const fallback = await nominatimSuggestWorker_(text);
+  if (fallback.length) {
+    return {
+      status: "success",
+      results: fallback,
+      source: "worker_nominatim",
+      cutover: true,
+      fromGas: false
+    };
+  }
+  if (live && typeof live === "object") {
+    live.cutover = true;
+    live.fromGas = true;
+    if (!Array.isArray(live.results)) live.results = [];
+    return live;
+  }
+  return { status: "success", results: [], source: "empty", cutover: true };
+}
+
+async function nominatimSuggestWorker_(text) {
+  const q = String(text || "").trim();
+  if (q.length < 2) return [];
+  try {
+    const u =
+      "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=by&accept-language=ru&q=" +
+      encodeURIComponent(q + ", Минск");
+    const res = await fetch(u, {
+      headers: {
+        "User-Agent": "boinya-c-worker/1.0 (cutover address suggest)",
+        Accept: "application/json"
+      }
+    });
+    if (!res.ok) return [];
+    const arr = await res.json();
+    if (!Array.isArray(arr)) return [];
+    return arr.map(function (it) {
+      const lat = Number(it.lat);
+      const lon = Number(it.lon);
+      const title = String(it.display_name || it.name || "").split(",")[0] || String(it.display_name || "");
+      return {
+        title: title,
+        subtitle: String(it.display_name || ""),
+        address: title,
+        house: (it.address && (it.address.house_number || "")) || "",
+        kind: it.type || it.class || "",
+        lat: lat,
+        lon: lon,
+        yandexUrl:
+          isFinite(lat) && isFinite(lon)
+            ? "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map"
+            : ""
+      };
+    });
+  } catch (e) {
+    return [];
+  }
 }
 
 const _revalCooldown = new Map();
@@ -1446,6 +1558,8 @@ async function cutoverFastRead_(a, params, env) {
 
 async function cutoverStoreRead_(a, params, env, payload) {
   if (!payload || !env || !env.DB) return;
+  // не кэшируем ошибки GAS (иначе listDeferred навсегда need_telegramId)
+  if (payload.status && payload.status !== "success") return;
   if (a === "getClients" && params.day) {
     const list = Array.isArray(payload.clients) ? payload.clients : [];
     if (list.length) {
@@ -1610,8 +1724,7 @@ async function gasProxy_(action, params, env, opts) {
   opts = opts || {};
   try {
     const origin = (env && env.GAS_ORIGIN) || GAS_ORIGIN;
-    const u = new URL(origin);
-    u.searchParams.set("action", action);
+    const clean = {};
     Object.keys(params || {}).forEach(function (k) {
       if (
         k === "action" ||
@@ -1625,7 +1738,6 @@ async function gasProxy_(action, params, env, opts) {
       ) {
         return;
       }
-      // в sandbox-read не прокидываем confirm на опасные
       if (
         !opts.write &&
         k === "confirm" &&
@@ -1634,23 +1746,56 @@ async function gasProxy_(action, params, env, opts) {
       ) {
         return;
       }
-      var val = params[k];
-      if (typeof val === "object") {
-        try {
-          val = JSON.stringify(val);
-        } catch (eJ) {
-          val = String(val);
+      clean[k] = params[k];
+    });
+
+    let text = "";
+    // save/move/delete работают через GET (JSONP); setDelivered/updateCutting — только doPost
+    const mustPost =
+      opts.write &&
+      /^(setDelivered|setAssembled|setPrinted|updateCutting|finishCutting|prepareFinishCutting|registerCourier|sendCourierRoute|prepareCourierRoute|finishFullWeek|setWeekBannerState|startCuttingSession|stopCuttingSession|notifyMissedDelivery|partner|composeWarehouse|registerCutting|ensureBp|enrollDeferred|markBp|repairSurvey|logEvent|reportBug)/i.test(
+        action
+      );
+    if (mustPost) {
+      const body = Object.assign({}, clean, { action: action });
+      const res = await fetch(origin, {
+        method: "POST",
+        redirect: "follow",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+          "Cache-Control": "no-cache"
+        },
+        body: JSON.stringify(body)
+      });
+      text = await res.text();
+    } else {
+      const u = new URL(origin);
+      u.searchParams.set("action", action);
+      Object.keys(clean).forEach(function (k) {
+        var val = clean[k];
+        if (typeof val === "object") {
+          try {
+            val = JSON.stringify(val);
+          } catch (eJ) {
+            val = String(val);
+          }
         }
-      }
-      u.searchParams.set(k, String(val));
-    });
-    u.searchParams.set("callback", "cb");
-    const res = await fetch(u.toString(), {
-      redirect: "follow",
-      headers: { "Cache-Control": "no-cache" }
-    });
-    const text = await res.text();
-    const json = unwrapGas_(text);
+        u.searchParams.set(k, String(val));
+      });
+      u.searchParams.set("callback", "cb");
+      const res = await fetch(u.toString(), {
+        redirect: "follow",
+        headers: { "Cache-Control": "no-cache" }
+      });
+      text = await res.text();
+    }
+
+    let json;
+    try {
+      json = unwrapGas_(text);
+    } catch (eUnwrap) {
+      json = JSON.parse(String(text || "").trim());
+    }
     if (json && typeof json === "object") {
       if (opts.write) json.cutover = true;
       else json.sandboxProxy = true;
