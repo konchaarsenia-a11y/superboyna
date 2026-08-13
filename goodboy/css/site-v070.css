@@ -495,6 +495,16 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   font-size: 1.12rem;
   font-weight: 700;
 }
+.hf-card h3 .hf-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(212, 161, 90, 0.35);
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+.hf-card h3 .hf-link:hover {
+  color: var(--gb-orange-2);
+  border-color: var(--gb-orange);
+}
 .hf-card p {
   margin: 0;
   color: var(--gb-muted);
