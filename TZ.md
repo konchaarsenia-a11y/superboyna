@@ -1,3 +1,4 @@
+- [~] **Бойня C опросники cutover 2026-08-13:** listSurvey → живой GAS; save/delete через POST (без double-GET); тест `zzz_test` due сегодня owner `827494606` — ждать TG-тик ≤30мин · **Worker Deploy OK** · полный D1 без GAS = пуши сами не поедут (нужен Cron+token)
 - [~] **Бойня C cutover LIVE QA 2026-08-13:** Worker D1+GAS — записи `zzz_test` (save/update/move/flags/delete) OK; suggestAddress Nominatim fallback; danger block OK; пустая нарезка → sync GAS; битые snap `need_telegramId` не кэшируются — **Worker Deploy OK** · UI по кнопкам в TG ещё не 100%
 - [~] **UI+GS v7.11.151:** поиск адресов — приоритет дома (не только улица): разбор «X 12»/«д.12», Nominatim structured street+house, ранжирование с домом сверху — **Pages** · **нужен Deploy Code.gs**
 - [~] **Varka v3.0.8:** как было — owner first / все точки; `@one_more_person_228` обычный owner; сняты allowlist и тест-Access (V7) — **Pages** · **нужен Deploy Code.gs**

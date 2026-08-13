@@ -1240,7 +1240,8 @@ async function handleCutover_(a, params, env, ctx) {
     return proxied;
   }
 
-  // подсказки / калькуляции / экспорт / задачи — только живой GAS (в D1 нет или неполный)
+  // подсказки / калькуляции / экспорт / задачи / опросники — живой GAS
+  // (listSurvey в D1 часто отстаёт → UI «нет опросников»)
   if (
     a === "suggestAddress" ||
     a === "lookupBpPartner" ||
@@ -1252,7 +1253,8 @@ async function handleCutover_(a, params, env, ctx) {
     a === "getExpectedProfit" ||
     a === "getTransferTask" ||
     a === "composeWarehouseBuyMessage" ||
-    a === "listBookings"
+    a === "listBookings" ||
+    a === "listSurvey"
   ) {
     if (a === "suggestAddress") {
       return suggestAddressCutover_(params, env);
@@ -1261,6 +1263,11 @@ async function handleCutover_(a, params, env, ctx) {
     if (live && typeof live === "object") {
       live.cutover = true;
       live.fromGas = true;
+      if (a === "listSurvey" && live.status === "success" && env && env.DB) {
+        try {
+          await cutoverStoreRead_(a, params, env, live);
+        } catch (eSv) {}
+      }
       return live;
     }
     return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
@@ -1712,7 +1719,13 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
     }
     await cutoverRevalidate_("getWeekDayCounts", {}, env);
     if (/subscription/i.test(a)) await cutoverRevalidate_("listSubscriptions", {}, env);
-    if (/survey/i.test(a)) await cutoverRevalidate_("listSurvey", { activeOnly: "1" }, env);
+    if (/survey/i.test(a)) {
+      // дать Sheets дописать строку до listSurvey
+      await new Promise(function (r) {
+        setTimeout(r, 800);
+      });
+      await cutoverRevalidate_("listSurvey", { activeOnly: "1" }, env);
+    }
   } catch (e) {}
 }
 
@@ -1750,10 +1763,11 @@ async function gasProxy_(action, params, env, opts) {
     });
 
     let text = "";
-    // save/move/delete работают через GET (JSONP); setDelivered/updateCutting — только doPost
+    // GET JSONP + redirect:follow на GAS часто дублирует doGet (двойной saveSurvey).
+    // Мутации листа «Опросник»/задач/флагов — только doPost.
     const mustPost =
       opts.write &&
-      /^(setDelivered|setAssembled|setPrinted|updateCutting|finishCutting|prepareFinishCutting|registerCourier|sendCourierRoute|prepareCourierRoute|finishFullWeek|setWeekBannerState|startCuttingSession|stopCuttingSession|notifyMissedDelivery|partner|composeWarehouse|registerCutting|ensureBp|enrollDeferred|markBp|repairSurvey|logEvent|reportBug)/i.test(
+      /^(setDelivered|setAssembled|setPrinted|updateCutting|finishCutting|prepareFinishCutting|registerCourier|sendCourierRoute|prepareCourierRoute|finishFullWeek|setWeekBannerState|startCuttingSession|stopCuttingSession|notifyMissedDelivery|partner|composeWarehouse|registerCutting|ensureBp|enrollDeferred|markBp|repairSurvey|saveSurvey|deleteSurvey|deleteSurveyBatch|saveDeferred|cancelDeferred|updateDeferred|setDeferredReminder|logEvent|reportBug)/i.test(
         action
       );
     if (mustPost) {
