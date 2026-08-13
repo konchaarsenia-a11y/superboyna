@@ -504,7 +504,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.0.8";
+  var APP_VER = "3.0.9";
   // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры».
   var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
   var SESSION_KEY = "gb_partner_session_v7";
@@ -1109,20 +1109,22 @@
   function renderQtyControls_(it, q) {
     var rule = qtyRuleFor_(it);
     var unit = unitFor_(it);
+    var showUnit = unit && unit !== "г";
     var isPreset = rule.presets.indexOf(q) >= 0;
     if (rule.fixed) {
       var on = q > 0;
       return '<div class="qty-box">' +
         '<div class="qty-presets">' +
         '<button type="button" class="qty-chip' + (on ? " on" : "") +
-        '" data-qty-id="' + it.id + '" data-qty-val="1" onclick="pickQty(\'' + it.id + '\',' + (on ? 0 : 1) + ')">1 ' +
-        esc(unit) + "</button>" +
+        '" data-qty-id="' + it.id + '" data-qty-val="1" onclick="pickQty(\'' + it.id + '\',' + (on ? 0 : 1) + ')">1' +
+        (showUnit ? (" " + esc(unit)) : "") + "</button>" +
         "</div></div>";
     }
     var chips = rule.presets.map(function (p) {
       return '<button type="button" class="qty-chip' + (q === p ? " on" : "") +
         '" data-qty-id="' + it.id + '" data-qty-val="' + p +
-        '" onclick="pickQty(\'' + it.id + '\',' + p + ')">' + p + " " + esc(unit) + "</button>";
+        '" onclick="pickQty(\'' + it.id + '\',' + p + ')">' + p +
+        (showUnit ? (" " + esc(unit)) : "") + "</button>";
     }).join("");
     var customVal = q && !isPreset ? String(q) : (q && isPreset ? "" : "");
     // если выбран пресет — поле пустое; если своё число — показываем его
@@ -1135,7 +1137,7 @@
       'value="' + esc(customVal) + '" ' +
       'oninput="onQtyCustomInput(\'' + it.id + '\', this)" ' +
       'onblur="onQtyCustomBlur(\'' + it.id + '\', this)">' +
-      '<span class="u">' + esc(unit) + "</span>" +
+      (showUnit ? ('<span class="u">' + esc(unit) + "</span>") : "") +
       "</div></div>";
   }
 
@@ -1156,7 +1158,8 @@
       var q = Number(state.cart[it.id]) || 0;
       var unit = unitFor_(it);
       var ste = renderQtyControls_(it, q);
-      var selected = q ? (" · " + q + " " + unit) : "";
+      // «г» у позиций не показываем — только число, если выбрано
+      var selected = q ? (" · " + q + (unit && unit !== "г" ? (" " + unit) : "")) : "";
       if (it.id === "vr_c_banner") {
         return '<div class="coupon-card">' +
           '<img class="coupon-banner" src="' + COUPON_BANNER + '" alt="">' +
@@ -1172,7 +1175,7 @@
           "</div></div>" + ste + "</div></div>";
       }
       return '<div class="item qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
-        '</div><div class="unit">' + esc(unit) + selected + "</div></div>" + ste + "</div>";
+        '</div><div class="unit">пресеты или своё' + selected + "</div></div>" + ste + "</div>";
     }).join("");
   }
 
@@ -1245,7 +1248,7 @@
       }
       box.innerHTML = list.map(function (o) {
         var lines = (o.basket || []).map(function (b) {
-          return esc(b.name) + " × " + b.qty + (b.unit ? (" " + b.unit) : "");
+          return esc(b.name) + " × " + b.qty + (b.unit && b.unit !== "г" ? (" " + b.unit) : "");
         }).join("<br>");
         return '<div class="order"><div class="h"><span>' + esc(o.dateIso) + '</span><span class="badge">' +
           esc(o.status) + '</span></div><div class="lines">' + lines +
