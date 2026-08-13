@@ -1,1 +1,1 @@
-{"fetchedAt":"2026-08-09T19:16:54.707Z","payload":{"status":"error","message":"need_telegramId"},"params":{}}
+{"fetchedAt":"2026-08-13T16:16:55.666Z","payload":{"status":"success","people":[{"telegramId":"1027813038","name":"Daniil Sachenko","username":"danya_sachenk0","role":"owner"},{"telegramId":"650923866","name":"Арсений Хотько","username":"arseniyhotko","role":"owner"},{"telegramId":"827494606","name":"ㅤ","username":"one_more_person_228","role":"owner"}]},"params":{"telegramId":"1"}}
