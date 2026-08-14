@@ -1829,7 +1829,13 @@ async function gasProxy_(action, params, env, opts) {
     }
     return json;
   } catch (e) {
-    return null;
+    return {
+      status: "error",
+      message: "gas_proxy_failed",
+      detail: String((e && e.message) || e),
+      action: action,
+      cutover: !!opts.write
+    };
   }
 }
 
