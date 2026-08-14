@@ -138,6 +138,10 @@ button { font: inherit; color: inherit; }
   align-items: stretch;
   gap: 0;
   padding: 10px 0 0;
+  /* строка вкладок всегда на месте — не растворяется при смене вкладки/скролле */
+  background: rgba(30, 36, 33, 0.92);
+  backdrop-filter: blur(16px) saturate(1.15);
+  border-bottom: 1px solid rgba(237, 232, 223, 0.12);
 }
 .site-nav--tabs .nav-top {
   display: flex;
@@ -155,7 +159,9 @@ button { font: inherit; color: inherit; }
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
-  border-top: 1px solid rgba(237, 232, 223, 0.06);
+  border-top: 1px solid rgba(237, 232, 223, 0.08);
+  /* постоянная нижняя линия вкладки — не пропадает */
+  box-shadow: inset 0 -2px 0 rgba(237, 232, 223, 0.14);
 }
 .site-nav--tabs .nav-tabs::-webkit-scrollbar { display: none; }
 .site-nav--tabs .nav-tabs a {
@@ -169,6 +175,7 @@ button { font: inherit; color: inherit; }
   letter-spacing: 0.02em;
   padding: 14px 16px 12px;
   border-bottom: 2px solid transparent;
+  margin-bottom: 0;
   transition: color 0.2s ease, border-color 0.25s ease, background 0.25s ease;
 }
 .site-nav--tabs .nav-tabs a:hover {
@@ -178,6 +185,9 @@ button { font: inherit; color: inherit; }
 .site-nav--tabs .nav-tabs a[aria-current="page"] {
   color: var(--gb-orange-2);
   border-bottom-color: var(--gb-orange);
+  /* активная вкладка поверх общей линии */
+  position: relative;
+  z-index: 1;
 }
 .site-nav--tabs .nav-cta {
   padding: 10px 16px;
@@ -185,9 +195,9 @@ button { font: inherit; color: inherit; }
   flex-shrink: 0;
 }
 .site-nav--tabs.is-solid {
-  background: rgba(30, 36, 33, 0.88);
+  background: rgba(30, 36, 33, 0.96);
   backdrop-filter: blur(16px) saturate(1.15);
-  border-bottom-color: rgba(237, 232, 223, 0.06);
+  border-bottom-color: rgba(237, 232, 223, 0.14);
 }
 
 /* место под двухрядную шапку */
