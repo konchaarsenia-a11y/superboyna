@@ -1,3 +1,4 @@
+- [~] **Бойня C speed+phantoms 2026-08-14:** apiGet шлёт cutover=1; кнопки без sync-wait; Просмотр/getStats из GAS; D1 не держит seed · **Worker+Pages** · hard refresh `?v=7111582`
 - [~] **Бойня C cutover prod-ready 2026-08-14:** UI=main **v7.11.158c1** + Worker: write→POST, getMyAccess из GAS, optimistic D1 после save/move/delete (без «пустых позиций»), warehouse/access OK · **Worker Deploy OK** · **нужен Deploy Code.gs** (опросники/склад GS 152–158)
 - [~] **Бойня C опросники spam-fix 2026-08-14:** 3 пуша — lock тика + 1 пуш/ник/сутки + не спамить всем owner; repair не меняет sv_* · **нужен Deploy Code.gs** · тест `zzz_test` cancelled
 - [~] **Бойня C опросники cutover 2026-08-14:** listSurvey → GAS; POST→GET Location; forceSurveyRemind в git · **Worker** · **нужен Deploy Code.gs**

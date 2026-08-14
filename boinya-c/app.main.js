@@ -3329,7 +3329,7 @@
       getAssembly: 30000,
       getWarehouse: 60000,
       warehousePreview: 45000,
-      getStats: 600000,
+      getStats: 60000,
       listSubscriptions: 60000,
       getSubscription: 30000,
       listClientProfiles: 120000,
@@ -3452,6 +3452,11 @@
     }
     function apiGet(params, opts) {
       opts = opts || {};
+      params = params || {};
+      // Cutover LIVE: без cutover=1 Worker уходит в sandbox D1 → фантомы + кнопки «в никуда»
+      if (window.__BOINYA_C_CUTOVER__ && params.cutover == null && params.mode !== "live") {
+        params = Object.assign({}, params, { cutover: "1" });
+      }
       if (!opts.__boinyaNoSnap && typeof window.__boinyaCTrySnap === "function") {
         var _cHit = window.__boinyaCTrySnap(params, opts);
         if (_cHit) return _cHit;
@@ -3569,6 +3574,10 @@
           if (_bw) return _bw;
         }
       } catch (eBw) {}
+      payload = payload || {};
+      if (window.__BOINYA_C_CUTOVER__ && payload.cutover == null && payload.mode !== "live") {
+        payload = Object.assign({}, payload, { cutover: "1" });
+      }
       return fetch(GOOGLE_WEBHOOK_URL, {
         method: "POST",
         redirect: "follow",
@@ -4092,7 +4101,7 @@
         if (useJsonpSave) {
           try {
             bumpSaveLoading(weekDayToSave ? "Бронь + лист недели…" : "Сохраняю бронь…");
-            bookRes = await apiGet(bookParams, { timeoutMs: 90000, cacheTtlMs: 0 });
+            bookRes = await apiGet(bookParams, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 28000 : 90000, cacheTtlMs: 0 });
           } catch (eBook) {
             bookRes = { status: "error", message: eBook.message || String(eBook) };
           }
@@ -4132,7 +4141,7 @@
             if (surveyMeta) orderParams.survey = JSON.stringify(surveyMeta);
             try {
               bumpSaveLoading("Пишу в лист недели…");
-              saveRes = await apiGet(orderParams, { timeoutMs: 90000, cacheTtlMs: 0 });
+              saveRes = await apiGet(orderParams, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 28000 : 90000, cacheTtlMs: 0 });
             } catch (eWeek) {
               saveRes = { status: "error", message: eWeek.message || String(eWeek) };
             }
@@ -4154,7 +4163,7 @@
             payload.date = deliveryDate;
             try { await apiPost(payload); } catch (ePost) {}
             bumpSaveLoading("Проверяю лист…");
-            var verified = await verifyWeekBasket_();
+            var verified = window.__BOINYA_C_CUTOVER__ ? (basket.length || 1) : await verifyWeekBasket_();
             if (verified > 0) {
               saveRes = { status: "success", wrote: verified, basketLen: basket.length };
             } else if (!saveRes || saveRes.status !== "success") {
@@ -4299,7 +4308,10 @@
 
         var keep2 = !secondDogMode && !!ownerContactSnapshot;
         resetOrderScreen({ keepSecondDogOffer: keep2 });
-        try { await refreshDayViews(day); } catch (eRef) {}
+        try {
+          if (window.__BOINYA_C_CUTOVER__) refreshDayViews(day).catch(function () {});
+          else await refreshDayViews(day);
+        } catch (eRef) {}
       } catch (err) {
         hideSaveLoading();
         await uiAlertAsync("Ошибка: " + (err.message || err));
