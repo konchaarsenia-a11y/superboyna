@@ -2043,7 +2043,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 
 @media (max-width: 640px) {
-  .sub-hero { padding-top: 6.25rem; }
+  .sub-hero { padding-top: clamp(7.5rem, 22vw, 8.5rem); }
   .sub-pack-visual {
     width: 118%;
     margin-left: -9%;
