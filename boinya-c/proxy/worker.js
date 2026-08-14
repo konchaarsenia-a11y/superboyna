@@ -1235,11 +1235,19 @@ async function handleCutover_(a, params, env, ctx) {
     };
   }
 
-  // запись — только GAS, потом обновляем D1 в фоне
+  // запись — только GAS, потом обновляем D1
   if (isWriteAction_(a)) {
     const proxied = await gasProxy_(a, params, env, { write: true });
     if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
-    if (ctx && typeof ctx.waitUntil === "function") {
+    // Критичные мутации заказа — ждём getClients/view ДО ответа UI,
+    // иначе SWR отдаёт старый D1 ещё 5–15с («пропали позиции»).
+    const syncDays =
+      /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(a);
+    if (syncDays) {
+      try {
+        await cutoverAfterWrite_(a, params, env, proxied);
+      } catch (eSync) {}
+    } else if (ctx && typeof ctx.waitUntil === "function") {
       ctx.waitUntil(cutoverAfterWrite_(a, params, env, proxied));
     } else {
       try {
@@ -1722,12 +1730,69 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
     days.forEach(function (d) {
       if (d && uniq.indexOf(d) < 0) uniq.push(d);
     });
+
+    // Sheets часто не успевает flush → getClients без нового клиента → D1 затирает заказ.
+    // Сначала пишем optimistic в D1 из params, потом GAS с ретраями.
+    if (/^(saveOrder|saveBooking)$/i.test(a) && env && env.DB) {
+      try {
+        await saveOrder_(params, env, /^saveBooking$/i.test(a));
+      } catch (eOpt) {}
+    }
+    if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
+      try {
+        await deleteClient_(params, env);
+      } catch (eDel) {}
+    }
+    if (/^moveClient$/i.test(a) && env && env.DB) {
+      try {
+        await moveClient_(params, env);
+      } catch (eMv) {}
+    }
+
     for (let i = 0; i < uniq.length; i++) {
-      await cutoverRevalidate_("getClients", { day: uniq[i] }, env);
-      await cutoverRevalidate_("getViewCompare", { day: uniq[i] }, env);
-      await cutoverRevalidate_("getCourier", { day: uniq[i] }, env);
-      await cutoverRevalidate_("getAssembly", { day: uniq[i] }, env);
-      await cutoverRevalidate_("getCutting", { day: uniq[i] }, env);
+      const day = uniq[i];
+      const wantClient = String(params.client || params.nick || "").trim();
+      let fresh = null;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt) {
+          await new Promise(function (r) {
+            setTimeout(r, 350 * attempt);
+          });
+        }
+        try {
+          fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
+        } catch (eG) {
+          fresh = null;
+        }
+        if (!fresh || fresh.status !== "success") continue;
+        const list = Array.isArray(fresh.clients) ? fresh.clients : [];
+        if (!wantClient || !/^(saveOrder|saveBooking)$/i.test(a)) break;
+        const hit = list.some(function (c) {
+          return nicksLooseMatch_(c && (c.name || c.client), wantClient);
+        });
+        if (hit) break;
+        // последняя попытка — всё равно сохраним (optimistic уже в D1)
+        if (attempt === 3) break;
+      }
+      if (fresh && fresh.status === "success") {
+        // не затирать день пустым ответом сразу после save
+        const list = Array.isArray(fresh.clients) ? fresh.clients : [];
+        if (
+          /^(saveOrder|saveBooking)$/i.test(a) &&
+          wantClient &&
+          !list.some(function (c) {
+            return nicksLooseMatch_(c && (c.name || c.client), wantClient);
+          })
+        ) {
+          // GAS ещё без клиента — оставить optimistic D1, только counts/прочее
+        } else {
+          await cutoverStoreRead_("getClients", { day: day }, env, fresh);
+        }
+      }
+      await cutoverRevalidate_("getViewCompare", { day: day }, env);
+      await cutoverRevalidate_("getCourier", { day: day }, env);
+      await cutoverRevalidate_("getAssembly", { day: day }, env);
+      await cutoverRevalidate_("getCutting", { day: day }, env);
     }
     await cutoverRevalidate_("getWeekDayCounts", {}, env);
     await cutoverRevalidate_("getWarehouse", {}, env);
@@ -1750,6 +1815,12 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
       await cutoverRevalidate_("listAccess", {}, env);
     }
   } catch (e) {}
+}
+
+function nicksLooseMatch_(a, b) {
+  const na = normalizeMatchKey_(a);
+  const nb = normalizeMatchKey_(b);
+  return !!(na && nb && na === nb);
 }
 
 async function gasRead_(action, params, env) {
