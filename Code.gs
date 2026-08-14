@@ -1566,6 +1566,11 @@ function doGet(e) {
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : ""
     }, callback, false);
   }
+  if (action === "forceSurveyRemind") {
+    return handleForceSurveyRemind({
+      nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : (e.parameter.client ? decodeURIComponent(e.parameter.client) : "")
+    }, callback, false);
+  }
   if (action === "getPpFactCost") {
     return handleGetPpFactCost({
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
@@ -2402,6 +2407,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "deleteSurveyBatch") {
     return handleDeleteSurveyBatch(json, callback, fromPost);
+  }
+  if (action === "forceSurveyRemind") {
+    return handleForceSurveyRemind(json, callback, fromPost);
   }
   if (action === "getPpFactCost") {
     return handleGetPpFactCost(json, callback, fromPost);
@@ -18817,19 +18825,45 @@ function getSurveyTemplateBody_(kind, nick) {
 }
 
 function tickBpSurveyReminders_() {
+  return runBpSurveyReminders_({ force: false });
+}
+
+/**
+ * Принудительная рассылка due-опросников (игнор окна 9–21).
+ * action=forceSurveyRemind&nick=zzz_test (nick опционально).
+ */
+function handleForceSurveyRemind(json, callback, fromPost) {
+  json = json || {};
+  try {
+    var out = runBpSurveyReminders_({
+      force: true,
+      nick: String(json.nick || json.client || "").trim()
+    });
+    out.status = "success";
+    return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+  } catch (e) {
+    var bad = { status: "error", message: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+}
+
+function runBpSurveyReminders_(opts) {
+  opts = opts || {};
+  var force = !!opts.force;
+  var onlyNick = String(opts.nick || "").trim();
+  var sent = [];
+  var skipped = [];
   try {
     var crmSs = getCrmSpreadsheet_();
     var now = new Date();
     var props = PropertiesService.getScriptProperties();
-    // ключ по UTC-дню — слоты внутри уже локальные
     var dayKeyUtc = Utilities.formatDate(now, "UTC", "yyyy-MM-dd");
     var sentKey = "bp_survey_remind_" + dayKeyUtc;
     var already = {};
     try { already = JSON.parse(props.getProperty(sentKey) || "{}"); } catch (e0) { already = {}; }
 
-    // 1) Синхронизация дат из мета БП → лист «Опросник»
     var bp = findSheetByBaseName_(crmSs, "БП");
-    if (bp) {
+    if (bp && !force) {
       var data = bp.getDataRange().getValues();
       for (var r = 2; r < data.length; r++) {
         var nickRaw = String(data[r][0] || "").trim();
@@ -18867,22 +18901,27 @@ function tickBpSurveyReminders_() {
       }
     }
 
-    // 2) Напоминания по открытым опросникам — в TZ ответственного, с 9:00 каждые 30 мин
     var shSv = null;
     try { shSv = ensureSurveySheet_(crmSs); } catch (eSh) { shSv = null; }
     if (!shSv || shSv.getLastRow() < 2) {
-      props.setProperty(sentKey, JSON.stringify(already));
-      return;
+      if (!force) props.setProperty(sentKey, JSON.stringify(already));
+      return { sent: sent, skipped: skipped, empty: true };
     }
     try { suppressOpenSurveysIfAlreadySent_(shSv); } catch (eSup) {}
     var svData = shSv.getDataRange().getValues();
     for (var s = 1; s < svData.length; s++) {
       var obj = surveyRowToObj_(svData[s], s + 1);
       if (!obj.nick || !obj.dueDate) continue;
+      if (onlyNick && !nicksMatch_(obj.nick, onlyNick)) continue;
       var st = String(obj.status || "").toLowerCase();
-      // закрытые / уже отправленные менеджером — больше не напоминаем
-      if (st === "done" || st === "cancelled" || st === "cancel" || st === "closed" || st === "sent") continue;
-      if (String(obj.sentAt || "").trim()) continue;
+      if (st === "done" || st === "cancelled" || st === "cancel" || st === "closed" || st === "sent") {
+        skipped.push({ nick: obj.nick, reason: "closed:" + st });
+        continue;
+      }
+      if (String(obj.sentAt || "").trim()) {
+        skipped.push({ nick: obj.nick, reason: "has_sentAt" });
+        continue;
+      }
       if (st !== "planned" && st !== "due") continue;
 
       var targets = [];
@@ -18909,20 +18948,32 @@ function tickBpSurveyReminders_() {
           for (var o = 0; o < owners.length; o++) targets.push(String(owners[o]).trim());
         } catch (eOw) {}
       }
-      if (!targets.length) continue;
+      if (!targets.length) {
+        skipped.push({ nick: obj.nick, reason: "no_target" });
+        continue;
+      }
 
-      // шлём каждому target в ЕГО часовом поясе
       for (var t = 0; t < targets.length; t++) {
         var tid = targets[t];
         if (!tid) continue;
         var personTz = timezoneOfAccessId_(tid);
         var local = localPartsInTz_(now, personTz);
-        if (String(obj.dueDate) > local.ymd) continue;
-        if (!isPersonNotifyWindow_(now, personTz)) continue;
+        // force+nick (тест) — шлём даже если due завтра; обычный тик / force без nick — только due≤сегодня
+        if (String(obj.dueDate) > local.ymd && !(force && onlyNick)) {
+          skipped.push({ nick: obj.nick, reason: "due_future:" + obj.dueDate + ">" + local.ymd, tid: tid });
+          continue;
+        }
+        if (!force && !isPersonNotifyWindow_(now, personTz)) {
+          skipped.push({ nick: obj.nick, reason: "outside_window:" + local.slot + "@" + personTz, tid: tid });
+          continue;
+        }
 
         var kindKey = normalizeSurveyKind_(obj.kind) === "final" ? "survey_final" : "survey_bp2";
-        var key = clientMatchKey_(obj.nick) + "|" + kindKey + "|" + obj.dueDate + "|" + tid + "|" + local.slot;
-        if (already[key]) continue;
+        var key = clientMatchKey_(obj.nick) + "|" + kindKey + "|" + obj.dueDate + "|" + tid + "|" + (force ? "force" : local.slot);
+        if (!force && already[key]) {
+          skipped.push({ nick: obj.nick, reason: "already_slot", tid: tid });
+          continue;
+        }
 
         var body = getSurveyTemplateBody_(kindKey, obj.nick) ||
           getSurveyTemplateBody_(obj.templateId, obj.nick) ||
@@ -18933,7 +18984,8 @@ function tickBpSurveyReminders_() {
           "Кому отправить: " + obj.nick + "\n" +
           (obj.stage ? ("Этап: " + obj.stage + "\n") : "") +
           "Дата: " + obj.dueDate + "\n" +
-          "Ваше время: " + local.slot.replace("T", " ") + " (" + personTz + ")\n\n" +
+          "Ваше время: " + local.slot.replace("T", " ") + " (" + personTz + ")" +
+          (force ? "\n⚡ forceSurveyRemind" : "") + "\n\n" +
           "Текст опросника:\n" + body;
 
         var markup = null;
@@ -18945,23 +18997,35 @@ function tickBpSurveyReminders_() {
             }]]
           };
         }
+        var sendRes = null;
         try {
-          if (markup) telegramSendMarkup_(tid, text, markup);
-          else telegramSendText_(tid, text);
-        } catch (eS) {}
+          if (markup) sendRes = telegramSendMarkup_(tid, text, markup);
+          else sendRes = telegramSendText_(tid, text);
+        } catch (eS) {
+          sendRes = { ok: false, error: String(eS) };
+        }
         already[key] = 1;
+        sent.push({
+          nick: obj.nick,
+          tid: tid,
+          id: obj.id || "",
+          ok: !!(sendRes && sendRes.ok !== false),
+          raw: sendRes
+        });
       }
 
       try {
         if (st === "planned" || st === "due") {
-          // только статус due — sentAt ставим кнопкой «Отправлено», не при напоминании
           shSv.getRange(s + 1, 7).setValue("due");
           shSv.getRange(s + 1, 12).setValue(now);
         }
       } catch (eMk) {}
     }
-    props.setProperty(sentKey, JSON.stringify(already));
-  } catch (e) {}
+    try { props.setProperty(sentKey, JSON.stringify(already)); } catch (eP) {}
+  } catch (e) {
+    return { sent: sent, skipped: skipped, error: String(e) };
+  }
+  return { sent: sent, skipped: skipped, force: force };
 }
 
 function actorCanEditTemplates_(telegramId) {

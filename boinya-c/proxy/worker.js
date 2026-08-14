@@ -95,7 +95,7 @@ function isWriteAction_(a) {
   if (!a) return false;
   if (/^(get|list|resolve|calc|suggest|lookup|ping|keepWarm|warehousePreview)/i.test(a)) return false;
   if (a === "getMyAccess" || a === "telegramStatus" || a === "weekPullStatus") return false;
-  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner)/i.test(
+  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner|force)/i.test(
     a
   );
 }
@@ -1764,23 +1764,38 @@ async function gasProxy_(action, params, env, opts) {
 
     let text = "";
     // GET JSONP + redirect:follow на GAS часто дублирует doGet (двойной saveSurvey).
-    // Мутации листа «Опросник»/задач/флагов — только doPost.
+    // Мутации листа — doPost. sendCourierRoute оставляем GET (короткий текст; POST+redirect ломается).
     const mustPost =
       opts.write &&
-      /^(setDelivered|setAssembled|setPrinted|updateCutting|finishCutting|prepareFinishCutting|registerCourier|sendCourierRoute|prepareCourierRoute|finishFullWeek|setWeekBannerState|startCuttingSession|stopCuttingSession|notifyMissedDelivery|partner|composeWarehouse|registerCutting|ensureBp|enrollDeferred|markBp|repairSurvey|saveSurvey|deleteSurvey|deleteSurveyBatch|saveDeferred|cancelDeferred|updateDeferred|setDeferredReminder|logEvent|reportBug)/i.test(
+      /^(setDelivered|setAssembled|setPrinted|updateCutting|finishCutting|prepareFinishCutting|registerCourier|prepareCourierRoute|finishFullWeek|setWeekBannerState|startCuttingSession|stopCuttingSession|notifyMissedDelivery|partner|composeWarehouse|registerCutting|ensureBp|enrollDeferred|markBp|repairSurvey|saveSurvey|deleteSurvey|deleteSurveyBatch|saveDeferred|cancelDeferred|updateDeferred|setDeferredReminder|forceSurveyRemind|logEvent|reportBug)/i.test(
         action
       );
     if (mustPost) {
       const body = Object.assign({}, clean, { action: action });
-      const res = await fetch(origin, {
+      // Apps Script /exec часто отвечает 302; redirect:follow превращает POST→GET без body → «Бэкенд Жив».
+      let res = await fetch(origin, {
         method: "POST",
-        redirect: "follow",
+        redirect: "manual",
         headers: {
           "Content-Type": "text/plain;charset=utf-8",
           "Cache-Control": "no-cache"
         },
         body: JSON.stringify(body)
       });
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get("Location") || res.headers.get("location");
+        if (loc) {
+          res = await fetch(loc, {
+            method: "POST",
+            redirect: "follow",
+            headers: {
+              "Content-Type": "text/plain;charset=utf-8",
+              "Cache-Control": "no-cache"
+            },
+            body: JSON.stringify(body)
+          });
+        }
+      }
       text = await res.text();
     } else {
       const u = new URL(origin);
