@@ -742,6 +742,43 @@ function isPieceWarehouseRow_(row, name) {
   return isPieceSkuName_(name);
 }
 
+/**
+ * Жевалки с градацией: учётные шт склада, база = БОЛЬШОЙ (=1),
+ * как в формулах Склад (становая: ПАЛК*0.25 + СРЕД*0.5 + БОЛ*1).
+ * 1 ОГР = 2 БОЛ = 4 СРЕД = 8 МАЛ = 16 ОЧ МАЛ.
+ */
+function isGradedChewName_(name) {
+  var u = String(name || "").toUpperCase().replace(/Ё/g, "Е");
+  return /КОРЕН|ТРАХЕ|СТАНОВ|АОРТ|\bУХО\b|УХО\s*Г/.test(u);
+}
+
+function chewFractionStockFactor_(nameOrSub) {
+  var u = String(nameOrSub || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  if (!u) return 1;
+  if (/ПОЛОВИН/.test(u)) return 0.5;
+  if (/ОЧ\s*МАЛ|ОЧЕНЬ\s*(МАЛ|МЕЛК)|СУПЕР\s*(МАЛ|МЕЛК)/.test(u)) return 0.125;
+  if (/ОГР|ОГРОМ|ГИГАНТ|РОГАЛ/.test(u)) return 2;
+  if (/БОЛ|БОЛЬШ/.test(u)) return 1;
+  if (/ПАЛК|ПАЛОЧ/.test(u)) return 0.25;
+  if (/ПЛАСТ/.test(u)) return 0.5;
+  if (/СРЕД/.test(u)) return 0.5;
+  if (/(^|[^А-ЯA-Z0-9])МАЛ([^А-ЯA-Z0-9]|$)|МЕЛК/.test(u)) return 0.25;
+  // целая аорта / ухо без фракции = 1
+  return 1;
+}
+
+function chewStockFactorForCuttingName_(cutName) {
+  if (!isGradedChewName_(cutName)) return 1;
+  return chewFractionStockFactor_(cutName);
+}
+
+function chewStockFactorForBasketItem_(item) {
+  var name = String((item && (item.name || item.main)) || "");
+  if (!isGradedChewName_(name)) return 1;
+  var sub = String((item && item.sub) || "");
+  return chewFractionStockFactor_(sub || name);
+}
+
 function recalculateCuttingForDate_(ss, dateText) {
   var cutting = ss.getSheetByName("Нарезка");
   var manager = ss.getSheetByName("Прием заказов");
@@ -1731,12 +1768,18 @@ function doGet(e) {
     return handleApplyWarehouseRevision({ items: itemsG, note: e.parameter.note || "" }, callback, false);
   }
   if (action === "warehousePreview") {
-    return handleWarehousePreview({}, callback, false);
+    return handleWarehousePreview({
+      dateFrom: e.parameter.dateFrom || "",
+      dateTo: e.parameter.dateTo || "",
+      force: e.parameter.force || ""
+    }, callback, false);
   }
   if (action === "composeWarehouseBuyMessage") {
     return handleComposeWarehouseBuyMessage({
       force: e.parameter.force || "",
-      refresh: e.parameter.refresh || ""
+      refresh: e.parameter.refresh || "",
+      dateFrom: e.parameter.dateFrom || "",
+      dateTo: e.parameter.dateTo || ""
     }, callback, false);
   }
   if (action === "lookupBpPartner") {
@@ -4769,23 +4812,37 @@ function sendTelegramSnabNotification() {
   }
 }
 
-/** Текст заказа дозакупа по дефицитам. */
+/** Текст заказа дозакупа: нужно сырья / есть (план сухого — для ясности). */
 function composeWarehouseBuyMessage_(pack) {
   pack = pack || {};
   var defs = pack.deficits || [];
   var lines = [];
   lines.push("🛒 Дозакуп сырья");
-  lines.push("СРОЧНО — не хватает под план текущей недели:");
+  var rangeLab = "";
+  if (pack.dateFrom || pack.dateTo) {
+    rangeLab = String(pack.dateFrom || "…") + " — " + String(pack.dateTo || "…");
+  } else if (pack.rangeLabel) {
+    rangeLab = String(pack.rangeLabel);
+  }
+  if (rangeLab) {
+    lines.push("Период: " + rangeLab);
+  } else {
+    lines.push("Под план выбранных дат:");
+  }
+  lines.push("«Нужно» = сырьё (сухое ÷ коэф усушки), не граммы с заказа.");
   lines.push("");
   if (!defs.length) {
-    lines.push("Дефицита нет (F+B покрывает план).");
+    lines.push("Нехватки нет (остаток покрывает план).");
     return lines.join("\n");
   }
   for (var i = 0; i < defs.length; i++) {
     var d = defs[i];
     var unit = d.unit || "кг";
-    lines.push("· " + d.name + " — нужно " + d.needRaw + " " + unit +
-      ", есть " + d.available + ", дефицит " + d.deficit);
+    var line = "· " + d.name + " — нужно " + d.needRaw + " " + unit + ", есть " + d.available + " " + unit;
+    if (!d.piece && d.dryG > 0) {
+      line += " (план " + (d.dryG >= 1000 ? (round2_(d.dryG / 1000) + " кг") : (round2_(d.dryG) + " г")) + " сухого)";
+    }
+    lines.push(line);
   }
   lines.push("");
   lines.push("Бойня-Конвейер · склад");
@@ -4926,23 +4983,108 @@ function syncWarehouseBuyDeferred_(ss, deficits) {
   } catch (eB) {}
 }
 
-function computeWarehouseWeekPlan_(ss) {
+/** Менеджер-строка Пн (4–59) → строка Нарезки (3–48). */
+function reverseManagerRowToCutting_() {
+  var itemMap = getCuttingItemMap_();
+  var rev = {};
+  for (var cKey in itemMap) {
+    var rows = itemMap[cKey];
+    for (var i = 0; i < rows.length; i++) rev[String(rows[i])] = Number(cKey);
+  }
+  return rev;
+}
+
+function buildWarehouseNameIndex_(matrix) {
+  var byNorm = {};
+  for (var i = 0; i < matrix.length; i++) {
+    var name = String(matrix[i][0] || "").trim();
+    if (!name) continue;
+    var row = i + 2;
+    var u = normalizeProductAlias_(name.toUpperCase().replace(/\s+/g, " ").trim());
+    if (u && byNorm[u] == null) byNorm[u] = row;
+    var u2 = u.replace(/\s*ШТ\.?/g, "").trim();
+    if (u2 && byNorm[u2] == null) byNorm[u2] = row;
+  }
+  return byNorm;
+}
+
+function warehouseRowFromBasketItem_(item, itemsInSheet, revMap, byNorm) {
+  var name = String((item && (item.name || item.main)) || "").trim();
+  var sub = String((item && item.sub) || "").trim();
+  if (!name) return 0;
+  if (itemsInSheet && itemsInSheet.length) {
+    try {
+      var idx = findSheetRowForItem(itemsInSheet, name, sub);
+      if (idx >= 0) {
+        var monRow = idx + 4;
+        var cRow = (revMap && revMap[String(monRow)]) || 0;
+        if (cRow) {
+          var w = getWarehouseRowForCuttingRow_(cRow);
+          if (w) return w;
+        }
+      }
+    } catch (eF) {}
+  }
+  var u = normalizeProductAlias_(name.toUpperCase().replace(/\s+/g, " ").trim());
+  if (byNorm && byNorm[u]) return byNorm[u];
+  var u2 = u.replace(/\s*ШТ\.?/g, "").trim();
+  if (byNorm && byNorm[u2]) return byNorm[u2];
+  if (byNorm && u2.length >= 4) {
+    for (var k in byNorm) {
+      if (String(k).length < 3) continue;
+      if (k.indexOf(u2) === 0 || u2.indexOf(k) === 0) return byNorm[k];
+    }
+  }
+  return 0;
+}
+
+function basketItemDryQty_(item) {
+  var val = Number(item && (item.val != null ? item.val : (item.value != null ? item.value : item.qty))) || 0;
+  return val > 0 ? val : 0;
+}
+
+function weekdayShortRu_(d) {
+  var names = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+  try { return names[d.getDay()] || ""; } catch (e) { return ""; }
+}
+
+/**
+ * План склада: без дат — остаток текущей недели с «Приём»;
+ * с датами — любые дни: лист недели/будущей где есть + иначе Календарь_Дат.
+ */
+function computeWarehouseWeekPlan_(ss, opts) {
   ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  opts = opts || {};
   var wh = ss.getSheetByName("Склад");
   var sheetManager = ss.getSheetByName("Прием заказов");
   var sheetCutting = ss.getSheetByName("Нарезка");
   if (!wh || !sheetManager) return { ok: false, message: "no_warehouse" };
 
-  try {
-    var cached = CacheService.getScriptCache().get("WH_PLAN_V2");
-    if (cached) {
-      var parsed = JSON.parse(cached);
-      if (parsed && parsed.ok) return parsed;
-    }
-  } catch (eCache) {}
+  var dateFrom = parseFlexibleDate_(opts.dateFrom || opts.from || "");
+  var dateTo = parseFlexibleDate_(opts.dateTo || opts.to || "");
+  if (dateFrom && dateTo && dateFrom.getTime() > dateTo.getTime()) {
+    var swap = dateFrom;
+    dateFrom = dateTo;
+    dateTo = swap;
+  }
+  var filterOn = !!(dateFrom || dateTo);
+  var cacheKey = "WH_PLAN_V6" + (filterOn
+    ? (":" + (dateFrom ? isoDateKey_(dateFrom) : "") + ":" + (dateTo ? isoDateKey_(dateTo) : ""))
+    : "");
+
+  if (!(opts.force || opts.refresh || opts.noCache)) {
+    try {
+      var cached = CacheService.getScriptCache().get(cacheKey);
+      if (cached) {
+        var parsed = JSON.parse(cached);
+        if (parsed && parsed.ok) return parsed;
+      }
+    } catch (eCache) {}
+  }
 
   var tz = ss.getSpreadsheetTimeZone();
   var itemMap = getCuttingItemMap_();
+  var revMap = reverseManagerRowToCutting_();
   var weekDaysGeo = [
     { start: 4, name: "Пн" },
     { start: 65, name: "Вт" },
@@ -4956,10 +5098,93 @@ function computeWarehouseWeekPlan_(ss) {
     for (var di = 0; di < MANAGER_DAY_NAMES_.length && di < weekDaysGeo.length; di++) {
       var dv = sheetManager.getRange(MANAGER_DATE_CELLS[di]).getValue();
       var ds = formatSheetDate(dv, tz);
+      var dObj = parseFlexibleDate_(dv, tz) || parseFlexibleDate_(ds, tz);
       if (ds) weekDaysGeo[di].date = ds;
+      if (dObj) weekDaysGeo[di].dateIso = isoDateKey_(dObj, tz);
       weekDaysGeo[di].label = (weekDaysGeo[di].name || "") + (ds ? (" " + ds) : "");
+      weekDaysGeo[di].ts = dObj ? dObj.getTime() : 0;
+      weekDaysGeo[di].source = "priem";
     }
   } catch (eD) {}
+
+  // «Будущая неделя» — как ещё один день листа (если дата попадает в фильтр / без фильтра не в «остаток недели»)
+  var futureDay = null;
+  try {
+    var futSh = ss.getSheetByName("Будущая неделя");
+    if (futSh) {
+      var fv = futSh.getRange("A1").getValue();
+      var fObj = parseFlexibleDate_(fv, tz);
+      if (fObj) {
+        var fds = formatSheetDate(fv, tz);
+        futureDay = {
+          start: 4,
+          name: "Буд",
+          date: fds || "",
+          dateIso: isoDateKey_(fObj, tz),
+          label: "Буд" + (fds ? (" " + fds) : ""),
+          ts: fObj.getTime(),
+          source: "future",
+          sheet: futSh
+        };
+      }
+    }
+  } catch (eFut) {}
+
+  function dayInRange_(day) {
+    if (!filterOn) return true;
+    if (!day || !day.ts) return false;
+    if (dateFrom && day.ts < dateFrom.getTime()) return false;
+    if (dateTo && day.ts > dateTo.getTime()) return false;
+    return true;
+  }
+
+  var todayTs = 0;
+  try {
+    var todayIso = isoDateKey_(new Date(), tz);
+    var todayD = parseFlexibleDate_(todayIso, tz);
+    if (todayD) todayTs = todayD.getTime();
+  } catch (eToday) {}
+
+  function dayIsPast_(day) {
+    return !!(todayTs && day && day.ts && day.ts < todayTs);
+  }
+
+  // need / prior по дням листа «Приём» (F ещё не списан за прошедшие дни этой недели)
+  var needDaysIdx = {};
+  var priorDaysIdx = {};
+  var anyFutureInRange = false;
+  for (var fd = 0; fd < weekDaysGeo.length; fd++) {
+    var dayF = weekDaysGeo[fd];
+    if (!dayInRange_(dayF)) {
+      if (filterOn && dateFrom && dayF.ts && dayF.ts < dateFrom.getTime()) {
+        priorDaysIdx[fd] = true;
+      } else if (!filterOn && dayIsPast_(dayF)) {
+        priorDaysIdx[fd] = true;
+      }
+      continue;
+    }
+    if (dayIsPast_(dayF)) {
+      if (filterOn) needDaysIdx[fd] = true;
+      else priorDaysIdx[fd] = true;
+    } else {
+      anyFutureInRange = true;
+      needDaysIdx[fd] = true;
+    }
+  }
+  if (filterOn && !anyFutureInRange) {
+    for (var pd = 0; pd < weekDaysGeo.length; pd++) {
+      if (dayInRange_(weekDaysGeo[pd])) {
+        needDaysIdx[pd] = true;
+        delete priorDaysIdx[pd];
+      }
+    }
+  }
+
+  var sheetIsoCovered = {};
+  for (var ci = 0; ci < weekDaysGeo.length; ci++) {
+    if (weekDaysGeo[ci].dateIso) sheetIsoCovered[weekDaysGeo[ci].dateIso] = true;
+  }
+  if (futureDay && futureDay.dateIso) sheetIsoCovered[futureDay.dateIso] = true;
 
   var fullManagerMatrix = sheetManager.getRange(1, 3, 427, 15).getValues();
   var noCutByDayOffset = {};
@@ -4969,22 +5194,36 @@ function computeWarehouseWeekPlan_(ss) {
   }
 
   var cuttingSurplusValues = [];
+  var cutNames = [];
   try {
-    if (sheetCutting) cuttingSurplusValues = sheetCutting.getRange("C3:C48").getValues();
+    if (sheetCutting) {
+      cuttingSurplusValues = sheetCutting.getRange("C3:C48").getValues();
+      cutNames = sheetCutting.getRange("A3:A48").getValues();
+    }
   } catch (eC) {}
 
   var byWh = {};
+  function ensureWh_(wRow) {
+    if (!byWh[wRow]) byWh[wRow] = { dryG: 0, priorDryG: 0, byDay: {}, surplusKg: 0 };
+    return byWh[wRow];
+  }
+
   for (var cRow = 3; cRow <= 48; cRow++) {
     var rowsToSum = itemMap[String(cRow)];
     if (!rowsToSum) continue;
     var wRow = getWarehouseRowForCuttingRow_(cRow);
     if (!wRow) continue;
-    if (!byWh[wRow]) byWh[wRow] = { dryG: 0, byDay: {}, surplusKg: 0 };
-    try {
-      if (cuttingSurplusValues && cuttingSurplusValues[cRow - 3]) {
-        byWh[wRow].surplusKg += Number(cuttingSurplusValues[cRow - 3][0]) || 0;
-      }
-    } catch (eS) {}
+    ensureWh_(wRow);
+    var cutName = "";
+    try { cutName = String((cutNames[cRow - 3] && cutNames[cRow - 3][0]) || ""); } catch (eN) {}
+    var sizeFactor = chewStockFactorForCuttingName_(cutName);
+    if (!filterOn || Object.keys(needDaysIdx).length >= 5) {
+      try {
+        if (cuttingSurplusValues && cuttingSurplusValues[cRow - 3]) {
+          byWh[wRow].surplusKg += (Number(cuttingSurplusValues[cRow - 3][0]) || 0) * sizeFactor;
+        }
+      } catch (eS) {}
+    }
     for (var d = 0; d < weekDaysGeo.length; d++) {
       var day = weekDaysGeo[d];
       var dayOffset = day.start - 4;
@@ -4998,60 +5237,207 @@ function computeWarehouseWeekPlan_(ss) {
           dayG += Number(fullManagerMatrix[targetRowIdx][colM]) || 0;
         }
       }
-      byWh[wRow].dryG += dayG;
-      byWh[wRow].byDay[d] = (byWh[wRow].byDay[d] || 0) + dayG;
+      if (!(dayG > 0)) continue;
+      dayG = dayG * sizeFactor;
+      var isoKey = day.dateIso || ("idx:" + d);
+      byWh[wRow].byDay[isoKey] = (byWh[wRow].byDay[isoKey] || 0) + dayG;
+      if (needDaysIdx[d]) byWh[wRow].dryG += dayG;
+      if (priorDaysIdx[d]) byWh[wRow].priorDryG += dayG;
     }
   }
 
-  var last = Math.min(50, Math.max(2, wh.getLastRow()));
-  var matrix = wh.getRange(2, 1, last - 1, 13).getValues(); // A..M
+  // Будущая неделя (только при явном диапазоне дат, если дата в диапазоне)
+  var futureInNeed = false;
+  if (filterOn && futureDay && dayInRange_(futureDay) && futureDay.sheet) {
+    futureInNeed = true;
+    try {
+      var futMatrix = futureDay.sheet.getRange(1, 3, 59, 15).getValues();
+      var futBlk = getDayBlock("Будущая неделя");
+      var futSkip = noCutSkipColsForBlock_(futureDay.sheet, futBlk) || {};
+      for (var cRowF = 3; cRowF <= 48; cRowF++) {
+        var rowsF = itemMap[String(cRowF)];
+        if (!rowsF) continue;
+        var wRowF = getWarehouseRowForCuttingRow_(cRowF);
+        if (!wRowF) continue;
+        ensureWh_(wRowF);
+        var cutNameF = "";
+        try { cutNameF = String((cutNames[cRowF - 3] && cutNames[cRowF - 3][0]) || ""); } catch (eNF) {}
+        var sizeFactorF = chewStockFactorForCuttingName_(cutNameF);
+        var dayGF = 0;
+        for (var riF = 0; riF < rowsF.length; riF++) {
+          var tIdxF = rowsF[riF] - 1;
+          if (tIdxF < 0 || tIdxF >= futMatrix.length) continue;
+          for (var colF = 0; colF < 15; colF++) {
+            if (futSkip[colF]) continue;
+            dayGF += Number(futMatrix[tIdxF][colF]) || 0;
+          }
+        }
+        if (!(dayGF > 0)) continue;
+        dayGF = dayGF * sizeFactorF;
+        var fIso = futureDay.dateIso;
+        byWh[wRowF].byDay[fIso] = (byWh[wRowF].byDay[fIso] || 0) + dayGF;
+        byWh[wRowF].dryG += dayGF;
+      }
+    } catch (eFutSum) {}
+  }
+
+  // Любые даты вне листов недели — из Календарь_Дат (канон)
+  var calendarDaysByIso = {};
+  var lastWh = Math.min(50, Math.max(2, wh.getLastRow()));
+  var matrix = wh.getRange(2, 1, lastWh - 1, 13).getValues();
+  var byNorm = buildWarehouseNameIndex_(matrix);
+  var itemsInSheet = [];
+  try { itemsInSheet = sheetManager.getRange(4, 1, 59, 1).getValues(); } catch (eItems) { itemsInSheet = []; }
+
+  if (filterOn) {
+    try {
+      var calRows = readAllCalendarRows_();
+      for (var cr = 0; cr < calRows.length; cr++) {
+        var rec = calRows[cr];
+        var st = String(rec.status || "").toLowerCase();
+        if (st === "cancelled") continue;
+        var dCal = parseFlexibleDate_(rec.date, tz) || parseFlexibleDate_(rec.dateIso, tz);
+        if (!dCal) continue;
+        var tsCal = dCal.getTime();
+        if (dateFrom && tsCal < dateFrom.getTime()) continue;
+        if (dateTo && tsCal > dateTo.getTime()) continue;
+        var isoCal = isoDateKey_(dCal, tz);
+        // дни уже на «Приём»/Будущей — только лист, без двойного счёта из календаря
+        if (sheetIsoCovered[isoCal]) continue;
+        var noteCal = String(rec.note || "") + " " + String(rec.basketJson || "");
+        if (/\[\s*НЕ\s*РЕЗАТЬ\s*\]/i.test(noteCal)) continue;
+        if (!calendarDaysByIso[isoCal]) {
+          var dsCal = formatSheetDate(dCal, tz) || isoCal;
+          calendarDaysByIso[isoCal] = {
+            name: weekdayShortRu_(dCal),
+            date: dsCal,
+            dateIso: isoCal,
+            label: weekdayShortRu_(dCal) + " " + dsCal,
+            ts: tsCal,
+            source: "calendar",
+            inNeed: true,
+            past: !!(todayTs && tsCal < todayTs)
+          };
+        }
+        var basket = rec.basket || [];
+        for (var bi = 0; bi < basket.length; bi++) {
+          var it = basket[bi] || {};
+          var g = basketItemDryQty_(it);
+          if (!(g > 0)) continue;
+          g = g * chewStockFactorForBasketItem_(it);
+          var wRowC = warehouseRowFromBasketItem_(it, itemsInSheet, revMap, byNorm);
+          if (!wRowC) continue;
+          ensureWh_(wRowC);
+          byWh[wRowC].byDay[isoCal] = (byWh[wRowC].byDay[isoCal] || 0) + g;
+          byWh[wRowC].dryG += g;
+        }
+      }
+    } catch (eCal) {}
+  }
+
   var deficits = [];
   var plan = [];
+  var daysForByDay = [];
+  for (var dj0 = 0; dj0 < weekDaysGeo.length; dj0++) {
+    daysForByDay.push({
+      key: weekDaysGeo[dj0].dateIso || ("idx:" + dj0),
+      label: weekDaysGeo[dj0].label || weekDaysGeo[dj0].name,
+      date: weekDaysGeo[dj0].date || "",
+      dateIso: weekDaysGeo[dj0].dateIso || "",
+      past: !!priorDaysIdx[dj0],
+      inNeed: !!needDaysIdx[dj0]
+    });
+  }
+  if (futureInNeed && futureDay) {
+    daysForByDay.push({
+      key: futureDay.dateIso,
+      label: futureDay.label,
+      date: futureDay.date || "",
+      dateIso: futureDay.dateIso || "",
+      past: false,
+      inNeed: true
+    });
+  }
+  for (var cIso in calendarDaysByIso) {
+    var cd = calendarDaysByIso[cIso];
+    daysForByDay.push({
+      key: cIso,
+      label: cd.label,
+      date: cd.date || "",
+      dateIso: cIso,
+      past: !!cd.past,
+      inNeed: true
+    });
+  }
+
   for (var i = 0; i < matrix.length; i++) {
     var name = String(matrix[i][0] || "").trim();
     if (!name) continue;
     var row = i + 2;
     var piece = isPieceWarehouseRow_(row, name);
+    var gradedChew = isGradedChewName_(name);
     var f = Number(matrix[i][5]) || 0;
     var b = Number(matrix[i][1]) || 0;
     var mVal = Number(matrix[i][12]) || 0;
     var coef = Number(matrix[i][3]) || (piece ? 1 : 0.2);
     if (!(coef > 0)) coef = piece ? 1 : 0.2;
-    var agg = byWh[row] || { dryG: 0, byDay: {}, surplusKg: 0 };
+    var agg = byWh[row] || { dryG: 0, priorDryG: 0, byDay: {}, surplusKg: 0 };
     var needRaw = 0;
-    var available = 0;
+    var priorRaw = 0;
+    var stockStart = 0;
     var unit = "кг";
+    var dryG = agg.dryG || 0;
+    var priorDryG = agg.priorDryG || 0;
     if (piece) {
-      unit = "шт";
-      needRaw = (agg.dryG || 0); // на листе для шт обычно штуки
-      available = (mVal > 0 ? mVal : f) + b;
+      unit = gradedChew ? "усл.шт" : "шт";
+      needRaw = dryG + (agg.surplusKg || 0);
+      priorRaw = priorDryG;
+      // F — ревизия на неделю; M при F>0 в формулах часто = F − только день, не накопительный остаток
+      stockStart = f + b;
     } else {
-      needRaw = ((agg.dryG || 0) / 1000) / coef + (agg.surplusKg || 0);
-      available = f + b;
+      needRaw = (dryG / 1000) / coef + (agg.surplusKg || 0);
+      priorRaw = (priorDryG / 1000) / coef;
+      stockStart = f + b;
     }
+    var available = Math.max(0, stockStart - priorRaw);
     var deficit = Math.max(0, needRaw - available);
     var byDay = [];
-    for (var dj = 0; dj < weekDaysGeo.length; dj++) {
-      var gDay = agg.byDay[dj] || 0;
+    for (var dj = 0; dj < daysForByDay.length; dj++) {
+      var metaD = daysForByDay[dj];
+      if (!metaD.inNeed && !metaD.past) continue;
+      var gDay = agg.byDay[metaD.key] || 0;
       if (gDay <= 0) continue;
+      var dayNeed = piece ? gDay : ((gDay / 1000) / coef);
       byDay.push({
-        day: weekDaysGeo[dj].label || weekDaysGeo[dj].name,
-        needRaw: round2_(piece ? gDay : ((gDay / 1000) / coef))
+        day: metaD.label,
+        date: metaD.date || "",
+        dateIso: metaD.dateIso || "",
+        dryG: round2_(gDay),
+        needRaw: round2_(dayNeed),
+        past: !!metaD.past,
+        inNeed: !!metaD.inNeed
       });
     }
     var item = {
       row: row,
       name: name,
       unit: unit,
+      piece: !!piece,
+      gradedChew: !!gradedChew,
+      coef: round2_(coef),
+      dryG: round2_(dryG),
+      dryKg: piece ? null : round2_(dryG / 1000),
       stock: round2_(f),
       arrival: round2_(b),
+      stockStart: round2_(stockStart),
+      priorRaw: round2_(priorRaw),
       available: round2_(available),
       needRaw: round2_(needRaw),
       deficit: round2_(deficit),
       byDay: byDay
     };
     plan.push(item);
-    if (deficit >= (piece ? 0.5 : 0.05)) deficits.push(item);
+    if (needRaw > 0 && deficit >= (piece ? (gradedChew ? 0.2 : 0.5) : 0.05)) deficits.push(item);
   }
   deficits.sort(function (a, b) { return (b.deficit || 0) - (a.deficit || 0); });
 
@@ -5062,14 +5448,87 @@ function computeWarehouseWeekPlan_(ss) {
     }
   } catch (e2) {}
 
+  var daysMeta = weekDaysGeo.map(function (x, idx) {
+    return {
+      name: x.name,
+      date: x.date || "",
+      dateIso: x.dateIso || "",
+      label: x.label || x.name,
+      inRange: dayInRange_(x),
+      inNeed: !!needDaysIdx[idx],
+      past: !!priorDaysIdx[idx],
+      source: "priem"
+    };
+  });
+  if (futureInNeed && futureDay) {
+    daysMeta.push({
+      name: futureDay.name,
+      date: futureDay.date || "",
+      dateIso: futureDay.dateIso || "",
+      label: futureDay.label,
+      inRange: true,
+      inNeed: true,
+      past: false,
+      source: "future"
+    });
+  }
+  for (var cIso2 in calendarDaysByIso) {
+    var cdm = calendarDaysByIso[cIso2];
+    daysMeta.push({
+      name: cdm.name,
+      date: cdm.date || "",
+      dateIso: cIso2,
+      label: cdm.label,
+      inRange: true,
+      inNeed: true,
+      past: !!cdm.past,
+      source: "calendar"
+    });
+  }
+  daysMeta.sort(function (a, b) {
+    var ta = a.dateIso || "";
+    var tb = b.dateIso || "";
+    if (ta < tb) return -1;
+    if (ta > tb) return 1;
+    return 0;
+  });
+
+  var activeDays = daysMeta.filter(function (x) { return x.inNeed || (x.inRange && !x.past); });
+
+  var rangeLabel = "";
+  if (filterOn) {
+    rangeLabel = (dateFrom ? isoDateKey_(dateFrom, tz) : "…") + " — " + (dateTo ? isoDateKey_(dateTo, tz) : "…");
+  } else if (daysMeta.length) {
+    var needMeta = daysMeta.filter(function (x) { return x.inNeed; });
+    var firstD = (needMeta[0] && (needMeta[0].dateIso || needMeta[0].date)) || daysMeta[0].dateIso || daysMeta[0].date;
+    var lastD = (needMeta.length && (needMeta[needMeta.length - 1].dateIso || needMeta[needMeta.length - 1].date)) ||
+      daysMeta[daysMeta.length - 1].dateIso || daysMeta[daysMeta.length - 1].date;
+    if (firstD || lastD) rangeLabel = String(firstD || "…") + " — " + String(lastD || "…");
+  }
+
+  var withPlan = plan.filter(function (p) { return (p.needRaw || 0) > 0 || (p.dryG || 0) > 0; });
+  withPlan.sort(function (a, b) { return (b.deficit || 0) - (a.deficit || 0); });
+
   var out = {
     ok: true,
     deficits: deficits,
     plan: plan,
+    withPlan: withPlan,
     buyList: buyList,
-    note: "Сырьё = план Приём / коэф D (+излишки C). Есть = F+B (шт: M или F). Списание в F — только при «Завершить неделю», не по галочкам нарезки."
+    days: daysMeta,
+    activeDays: activeDays.map(function (x) {
+      return { name: x.name, date: x.date || "", dateIso: x.dateIso || "", label: x.label || x.name, source: x.source || "" };
+    }),
+    dateFrom: dateFrom ? isoDateKey_(dateFrom, tz) : "",
+    dateTo: dateTo ? isoDateKey_(dateTo, tz) : "",
+    rangeLabel: rangeLabel,
+    source: filterOn ? "calendar+sheets" : "week",
+    note: (filterOn
+      ? "Нужно = сырьё (сухое÷коэф). План: дни текущей/будущей недели с листа, остальные даты — из Календарь_Дат. Есть = F+B минус прошедшие дни текущей недели."
+      : "Нужно = сырьё (сухое÷коэф). План = граммы с «Приём» (остаток недели с сегодня). Есть = F+B минус уже прошедшие дни недели.") +
+      " Жевалки с размером (корень/трахея/жила/аорта/ухо): учётные шт как на Складе, база БОЛЬШОЙ=1 — ОГР=2, БОЛ=1, СРЕД=0.5, МАЛ=0.25, ОЧ МАЛ=0.125 (1 огромный = 4 средних)."
   };
-  try { CacheService.getScriptCache().put("WH_PLAN_V2", JSON.stringify(out), 45); } catch (ePut) {}
+  try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(out), 45); } catch (ePut) {}
   return out;
 }
 
@@ -5653,7 +6112,7 @@ function handleSuggestAddress(json, callback, fromPost) {
       }
     }
   }
-  results = rankAddressSuggestsGs_(results, text);
+  results = finalizeAddressSuggestsGs_(rankAddressSuggestsGs_(results, text), text);
   body = { status: "success", results: results, source: source };
   return fromPost ? jsonpText(callback, body) : jsonp(callback, body);
 }
@@ -5726,6 +6185,181 @@ function stripAddressDetailsForSearchGs_(text) {
     .replace(/(?:^|[·|;,\s])домофон\s*[^\s·|;,]{1,24}/gi, " ")
     .replace(/\s{2,}/g, " ")
     .trim() || raw0;
+}
+
+function looksLikeOtherCityGs_(addr) {
+  return /(брест|гродн|гомел|витебск|могил[её]в|борисов|жодино|молодечн|баранович|пинск|орша|полоцк|лида|слоним|бобруйск|солигорск|слуцк|дзержинск|фанипол|смолевич|светлогорск|жлобин|речиц|новополоцк|мозыр|колодищ|голодищ|городищ|боровлян|жданович|ратомк|миханович|семков|прилук|крыжовк|хатежин|тарасов|раубич|озерц|щепич|заславл|логойск|руденск|мачулищ|сеница|копищ|юхновк|лесной|гай\b)/i.test(String(addr || ""));
+}
+
+function detectSearchLocalityGs_(text) {
+  var s = String(text || "");
+  var m = s.match(/(колодищ\w*|голодищ\w*|городищ\w*|боровлян\w*|жданович\w*|фанипол\w*|дзержинск\w*|смолевич\w*|ратомк\w*|миханович\w*|семков\w*|прилук\w*|крыжовк\w*|хатежин\w*|тарасов\w*|раубич\w*|озерц\w*|щепич\w*|заславл\w*|логойск\w*|руденск\w*|мачулищ\w*|сениц\w*|копищ\w*|юхновк\w*|лесной|боровляны|брест\w*|гродн\w*|гомел\w*|витебск\w*|могил[её]в\w*|борисов\w*|жодино|молодечн\w*|баранович\w*|пинск\w*|орша|полоцк\w*|лида|слоним\w*|бобруйск\w*|солигорск\w*|слуцк\w*)/i);
+  if (!m) return "";
+  var loc = String(m[0] || "");
+  if (/^голодищ/i.test(loc)) loc = loc.replace(/^голодищ/i, "Колодищ");
+  return loc;
+}
+
+function normalizeLocalityTypoGs_(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/голодищ/g, "колодищ")
+    .replace(/гродищ/g, "городищ");
+}
+
+function greaterMinskNominatimViewboxGs_() {
+  return "27.15,54.15,28.05,53.65";
+}
+
+function inGreaterMinskRegionGs_(lat, lon) {
+  lat = Number(lat);
+  lon = Number(lon);
+  return lat >= 53.65 && lat <= 54.15 && lon >= 27.15 && lon <= 28.05;
+}
+
+function inBelarusBboxGs_(lat, lon) {
+  lat = Number(lat);
+  lon = Number(lon);
+  return lat >= 51.2 && lat <= 56.3 && lon >= 23.1 && lon <= 32.9;
+}
+
+function addressGeoAllowedGs_(lat, lon, text) {
+  if (looksLikeOtherCityGs_(text) || detectSearchLocalityGs_(text)) {
+    return inBelarusBboxGs_(lat, lon);
+  }
+  return inGreaterMinskRegionGs_(lat, lon);
+}
+
+function localityLabelFromOsmGs_(ad) {
+  if (!ad) return "";
+  var loc = String(ad.village || ad.hamlet || ad.town || ad.suburb || ad.municipality || "").trim();
+  if (!loc && ad.city && !/^(минск|minsk|м[іи]нск)$/i.test(String(ad.city))) {
+    loc = String(ad.city).trim();
+  }
+  if (/^(минск|minsk|м[іи]нск)$/i.test(loc)) return "";
+  return loc;
+}
+
+function buildAddressSuggestTitleGs_(street, house, locality) {
+  var st = String(street || "").trim();
+  var h = String(house || "").trim();
+  var loc = String(locality || "").trim();
+  if (/^(минск|minsk|м[іи]нск)$/i.test(loc)) loc = "";
+  var core = "";
+  if (st && h) core = st + ", " + h;
+  else if (st) core = st;
+  else if (loc && h) core = loc + ", " + h;
+  else if (h) core = h;
+  else core = loc;
+  if (loc && core && core.toLowerCase().indexOf(loc.toLowerCase()) < 0) core = loc + ", " + core;
+  else if (!core) core = loc;
+  return String(core || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Мінск).*$/i, "").trim() || core;
+}
+
+function minskNominatimViewboxGs_() {
+  return greaterMinskNominatimViewboxGs_();
+}
+
+function inMinskBboxGs_(lat, lon) {
+  return inGreaterMinskRegionGs_(lat, lon);
+}
+
+function streetNameMatchesQueryGs_(resultTitle, queryText) {
+  var want = parseSearchStreetHouseGs_(queryText);
+  function norm(s) {
+    return normalizeLocalityTypoGs_(String(s || "")
+      .toUpperCase()
+      .replace(/Ё/g, "Е")
+      .replace(/\bУЛ\.?\b/g, " ")
+      .replace(/\bУЛИЦ[АЫ]\b/g, " ")
+      .replace(/\bПР\.?-?\s*Т\.?\b/g, " ")
+      .replace(/\bПРОСПЕКТ(Е|А|У)?\b/g, " ")
+      .replace(/\bПР\.?\b/g, " ")
+      .replace(/\bПЕР\.?\b/g, " ")
+      .replace(/\bПЕРЕУЛОК\b/g, " ")
+      .replace(/\bМИНСК\b/g, " ")
+      .replace(/\bБЕЛАРУСЬ\b/g, " ")
+      .replace(/[.,«»"']/g, " ")
+      .replace(/\s+/g, " ")
+      .trim());
+  }
+  var qStreet = norm(want.street || queryText);
+  var aStreet = norm(resultTitle);
+  if (!qStreet || !aStreet) return true;
+  var loc = detectSearchLocalityGs_(queryText);
+  if (loc) {
+    var locN = norm(loc);
+    var prefLoc = locN.slice(0, Math.min(6, locN.length));
+    if (prefLoc.length >= 4 && aStreet.indexOf(prefLoc) >= 0) return true;
+  }
+  var qWords = qStreet.split(" ").filter(function (w) {
+    return w.length >= 4 && !/^\d/.test(w);
+  });
+  if (!qWords.length) return true;
+  qWords.sort(function (a, b) { return b.length - a.length; });
+  var main = qWords[0];
+  if (aStreet.indexOf(main) >= 0) return true;
+  var pref = main.slice(0, Math.min(6, main.length));
+  if (pref.length >= 5 && aStreet.indexOf(pref) >= 0) return true;
+  return false;
+}
+
+function suggestDedupeKeyGs_(it) {
+  var title = String((it && (it.address || it.title)) || "").trim();
+  title = String(title || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Мінск).*$/i, "").trim();
+  var p = parseSearchStreetHouseGs_(title);
+  var house = normalizeHouseKeyGs_((it && it.house) || p.house || "");
+  if (house) {
+    return String(p.street || title).toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim() + "#" + house;
+  }
+  if (it && it.lat != null && it.lon != null) {
+    return Number(it.lat).toFixed(4) + "," + Number(it.lon).toFixed(4);
+  }
+  return title.toLowerCase();
+}
+
+function suggestKindBonusGs_(it) {
+  var k = String((it && (it.kind || it.addresstype || it.category)) || "").toLowerCase();
+  if (/house|building|residential|apartments|yes/.test(k)) return 28;
+  if (/shop|amenity|leisure|office|tourism|clinic/.test(k)) return 6;
+  if (/road|highway|street|pedestrian/.test(k)) return -20;
+  return 0;
+}
+
+function finalizeAddressSuggestsGs_(list, q) {
+  var wantH = normalizeHouseKeyGs_(parseSearchStreetHouseGs_(q).house);
+  var byKey = {};
+  var order = [];
+  for (var i = 0; i < (list || []).length; i++) {
+    var it = list[i];
+    if (!it) continue;
+    if (!streetNameMatchesQueryGs_(it.address || it.title || "", q)) continue;
+    var key = suggestDedupeKeyGs_(it);
+    if (!key) continue;
+    if (!byKey[key]) {
+      byKey[key] = it;
+      order.push(key);
+      continue;
+    }
+    if (suggestKindBonusGs_(it) > suggestKindBonusGs_(byKey[key])) byKey[key] = it;
+  }
+  var merged = [];
+  for (var oi = 0; oi < order.length; oi++) merged.push(byKey[order[oi]]);
+  merged.sort(function (a, b) {
+    return (scoreSuggestItemGs_(b, q) + suggestKindBonusGs_(b)) - (scoreSuggestItemGs_(a, q) + suggestKindBonusGs_(a));
+  });
+  if (wantH) {
+    var withH = [];
+    var onlySt = [];
+    for (var j = 0; j < merged.length; j++) {
+      var got = normalizeHouseKeyGs_((merged[j] && merged[j].house) || houseFromSuggestTitleGs_((merged[j].address || merged[j].title) || ""));
+      if (got) withH.push(merged[j]);
+      else onlySt.push(merged[j]);
+    }
+    merged = withH.concat(onlySt.slice(0, withH.length ? 2 : 6));
+  }
+  return merged.slice(0, 8);
 }
 
 function normalizeHouseKeyGs_(h) {
@@ -5862,21 +6496,22 @@ function mergeSuggestResultsGs_() {
       if (!it) continue;
       var title = String(it.address || it.title || "").trim();
       if (!title) continue;
+      title = String(title || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Мінск).*$/i, "").trim();
       var house = String(it.house || houseFromSuggestTitleGs_(title) || "").trim();
-      var key = (it.lat != null && it.lon != null)
-        ? (Number(it.lat).toFixed(5) + "," + Number(it.lon).toFixed(5))
-        : title.toLowerCase();
-      if (!key || seen[key]) continue;
-      seen[key] = true;
-      out.push({
+      var item = {
         title: title,
         subtitle: String(it.subtitle || ""),
         address: title,
         house: house,
+        kind: String(it.kind || it.addresstype || it.category || ""),
         lat: it.lat,
         lon: it.lon,
         yandexUrl: it.yandexUrl || ("https://yandex.ru/maps/?pt=" + it.lon + "," + it.lat + "&z=17&l=map")
-      });
+      };
+      var key = suggestDedupeKeyGs_(item);
+      if (!key || seen[key]) continue;
+      seen[key] = true;
+      out.push(item);
     }
   }
   return out;
@@ -5885,27 +6520,41 @@ function mergeSuggestResultsGs_() {
 function expandAddressQueriesGs_(text) {
   var raw0 = String(text || "").trim().replace(/\s+/g, " ");
   if (!raw0) return [];
-  // убрать кв/подъезд/этаж — иначе Photon/Nominatim часто пустые
+  raw0 = raw0.replace(/голодищ/gi, "Колодищ").replace(/гродищ/gi, "Городищ");
   var raw = stripAddressDetailsForSearchGs_(raw0) || raw0;
   var parsed = parseSearchStreetHouseGs_(raw);
   var streetOnly = parsed.house ? parsed.street : raw;
   var bare = streetOnly.replace(/^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок|бул\.?|бульвар)\s+/i, "").trim();
-  var withType = /^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок)/i.test(streetOnly)
-    ? streetOnly.replace(/^ул\.?\s+/i, "улица ").replace(/^пр\.?-?\s*т\.?\s+/i, "проспект ").replace(/^пр\.?\s+/i, "проспект ")
-    : ("улица " + bare);
-  var out = [raw, streetOnly, bare, withType];
+  var locWant = detectSearchLocalityGs_(raw);
+  var isLocalityQuery = !!(locWant && bare && normalizeLocalityTypoGs_(bare).indexOf(normalizeLocalityTypoGs_(locWant).slice(0, 5)) >= 0);
+  var withType = bare;
+  if (isLocalityQuery) {
+    withType = streetOnly;
+  } else if (/^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок)/i.test(streetOnly)) {
+    withType = streetOnly.replace(/^ул\.?\s+/i, "улица ").replace(/^пр\.?-?\s*т\.?\s+/i, "проспект ").replace(/^пр\.?\s+/i, "проспект ");
+  } else {
+    withType = "улица " + bare;
+  }
+  var out = isLocalityQuery ? [raw, streetOnly, bare] : [raw, streetOnly, bare, withType];
   if (raw0 !== raw) out.unshift(raw0);
   if (parsed.house) {
     var h = parsed.house;
     out.push(streetOnly + ", " + h);
     out.push(streetOnly + " " + h);
     out.push(bare + ", " + h);
-    out.push(withType + ", " + h);
-    out.push(withType + " " + h);
+    if (!isLocalityQuery) {
+      out.push(withType + ", " + h);
+      out.push(withType + " " + h);
+      out.push(withType + ", д." + h);
+    }
     out.push(streetOnly + ", д." + h);
-    out.push(withType + ", д." + h);
   }
-  if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(raw)) {
+  if (locWant) {
+    out.push(locWant + ", Минский район");
+    out.push(locWant + ", Беларусь");
+    out.push("аг. " + locWant);
+    if (parsed.house) out.push(locWant + ", " + parsed.house);
+  } else if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(raw)) {
     out.push(raw + ", Минск");
     out.push("Минск, " + raw);
     if (parsed.house) {
@@ -5925,7 +6574,7 @@ function expandAddressQueriesGs_(text) {
     seen[k] = true;
     uniq.push(q);
   }
-  return uniq.slice(0, 10);
+  return uniq.slice(0, 12);
 }
 
 /** Бесплатный геокодер Photon (OSM) */
@@ -5935,9 +6584,16 @@ function photonSuggest_(text) {
   var out = [];
   var seen = {};
   var wantHouse = !!parseSearchStreetHouseGs_(text).house;
-  for (var qi = 0; qi < Math.min(queries.length, wantHouse ? 7 : 4); qi++) {
+  var locWant = detectSearchLocalityGs_(text);
+  var otherOk = !!(looksLikeOtherCityGs_(text) || locWant);
+  for (var qi = 0; qi < Math.min(queries.length, wantHouse || locWant ? 7 : 4); qi++) {
     var q = queries[qi];
-    var url = "https://photon.komoot.io/api/?limit=10&lang=default&lat=53.9&lon=27.56&bbox=27.30,53.78,27.80,54.08&q=" +
+    if (locWant) {
+      if (!/беларусь/i.test(q)) q = q + ", Беларусь";
+    } else if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(q)) {
+      q = q + ", Минск";
+    }
+    var url = "https://photon.komoot.io/api/?limit=12&lang=default&lat=53.9&lon=27.56&q=" +
       encodeURIComponent(q);
     var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
     if (res.getResponseCode() >= 400) continue;
@@ -5951,39 +6607,39 @@ function photonSuggest_(text) {
       var lon = Number(coords[0]);
       var lat = Number(coords[1]);
       if (!isFinite(lat) || !isFinite(lon)) continue;
+      if (!addressGeoAllowedGs_(lat, lon, text)) continue;
       var p = f.properties || {};
-      var city = String(p.city || p.locality || p.town || "").toLowerCase();
-      var inMinsk = /м[іи]нск|minsk/.test(city) ||
-        (Math.abs(lat - 53.9) <= 0.35 && Math.abs(lon - 27.56) <= 0.45);
-      var otherOk = /брест|гродн|гомел|витебск|могил|борисов|жодино|молодечн/i.test(text);
-      if (!inMinsk && !otherOk) continue;
       var street = String(p.street || "").trim();
       var house = String(p.housenumber || "").trim();
       if (!street && p.name && (String(p.osm_key || "") === "highway" || String(p.type || "") === "street" || !house)) {
         street = String(p.name || "").trim();
       }
-      var title = "";
-      if (street && house) title = street + ", " + house;
-      else if (street) title = street;
-      else if (p.name && house) title = String(p.name).trim() + ", " + house;
-      else title = [p.name, p.street, p.housenumber].filter(Boolean).join(", ");
+      var locality = "";
+      if (p.city && !/^(минск|minsk|м[іи]нск)$/i.test(String(p.city))) locality = String(p.city);
+      else if (p.locality) locality = String(p.locality);
+      else if (p.name && /village|hamlet|town|suburb/i.test(String(p.type || p.osm_value || ""))) locality = String(p.name);
+      var title = buildAddressSuggestTitleGs_(street, house, locality);
+      if (!title && p.name) title = String(p.name);
       title = String(title || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Минская область|Мінск).*$/i, "").trim();
       if (!title) continue;
-      var keyDup = lat.toFixed(5) + "," + lon.toFixed(5);
-      if (seen[keyDup]) continue;
-      seen[keyDup] = true;
-      out.push({
+      if (!streetNameMatchesQueryGs_(title, text)) continue;
+      var item = {
         title: title,
         subtitle: "",
         address: title,
         house: house,
+        kind: String(p.type || p.osm_value || ""),
         lat: lat,
         lon: lon,
         yandexUrl: "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map"
-      });
+      };
+      var keyDup = suggestDedupeKeyGs_(item);
+      if (seen[keyDup]) continue;
+      seen[keyDup] = true;
+      out.push(item);
     }
     if (wantHouse) {
-      if (suggestHasWantedHouseGs_(out, text) && out.length >= 3) break;
+      if (suggestHasWantedHouseGs_(out, text) && out.length >= 1) break;
     } else if (out.length >= 5) {
       break;
     }
@@ -5993,7 +6649,10 @@ function photonSuggest_(text) {
 
 function yandexGeocodeSuggest_(text, key) {
   var q = text;
-  if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(text)) {
+  var locWant = detectSearchLocalityGs_(text);
+  if (locWant) {
+    if (!/беларусь/i.test(text)) q = text + ", Беларусь";
+  } else if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(text)) {
     q = "Минск, " + text;
   }
   var url = "https://geocode-maps.yandex.ru/1.x/?apikey=" + encodeURIComponent(key) +
@@ -6011,6 +6670,7 @@ function yandexGeocodeSuggest_(text, key) {
     var lon = Number(pos[0]);
     var lat = Number(pos[1]);
     if (!isFinite(lat) || !isFinite(lon)) continue;
+    if (!addressGeoAllowedGs_(lat, lon, text)) continue;
     var title = String(geo.name || meta.text || "").trim();
     var subtitle = String(geo.description || "").trim();
     var label = subtitle ? (title + ", " + subtitle) : (meta.text || title);
@@ -6027,43 +6687,51 @@ function yandexGeocodeSuggest_(text, key) {
 }
 
 function nominatimPushRowsGs_(data, text, seen, out) {
+  var locWant = detectSearchLocalityGs_(text);
   for (var i = 0; i < (data || []).length; i++) {
     var row = data[i];
     var lat = Number(row.lat);
     var lon = Number(row.lon);
     if (!isFinite(lat) || !isFinite(lon)) continue;
+    if (!addressGeoAllowedGs_(lat, lon, text)) continue;
     var ad = row.address || {};
     var street = String(ad.road || ad.pedestrian || ad.street || ad.avenue || "").trim();
     var house = String(ad.house_number || "").trim();
-    var title = "";
-    if (street && house) title = street + ", " + house;
-    else if (street) title = street;
-    else {
+    var locality = localityLabelFromOsmGs_(ad);
+    var title = buildAddressSuggestTitleGs_(street, house, locality);
+    if (!title) {
       title = String(row.display_name || "").split(",").slice(0, 2).join(", ").trim();
     }
     title = String(title || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Мінск).*$/i, "").trim();
     if (!title) continue;
-    var keyDup = lat.toFixed(5) + "," + lon.toFixed(5);
-    if (seen[keyDup]) continue;
-    seen[keyDup] = true;
-    out.push({
+    if (!streetNameMatchesQueryGs_(title, text)) continue;
+    var item = {
       title: title,
       subtitle: "",
       address: title,
       house: house,
+      kind: String(row.addresstype || row.category || row.type || ""),
       lat: lat,
       lon: lon,
       yandexUrl: "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map"
-    });
+    };
+    var keyDup = suggestDedupeKeyGs_(item);
+    if (seen[keyDup]) continue;
+    seen[keyDup] = true;
+    out.push(item);
   }
 }
 
-function nominatimStructuredSuggestGs_(street, house) {
+function nominatimStructuredSuggestGs_(street, house, city) {
   if (!street || !house) return [];
   var streetParam = String(house).trim() + " " + String(street).trim();
+  var cityName = String(city || "Минск").trim() || "Минск";
   var url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=by&accept-language=ru" +
     "&street=" + encodeURIComponent(streetParam) +
-    "&city=" + encodeURIComponent("Минск");
+    "&city=" + encodeURIComponent(cityName);
+  if (!detectSearchLocalityGs_(cityName) && !looksLikeOtherCityGs_(cityName)) {
+    url += "&viewbox=" + encodeURIComponent(greaterMinskNominatimViewboxGs_());
+  }
   var res = UrlFetchApp.fetch(url, {
     muteHttpExceptions: true,
     headers: { "User-Agent": "superboyna-courier/1.0" }
@@ -6079,25 +6747,35 @@ function nominatimSuggest_(text) {
   var seen = {};
   var parsed = parseSearchStreetHouseGs_(text);
   var wantHouse = !!parsed.house;
+  var locWant = detectSearchLocalityGs_(text);
+  var otherOk = !!(looksLikeOtherCityGs_(text) || locWant);
   if (wantHouse && parsed.street) {
     var stVariants = [parsed.street];
     var bareSt = parsed.street
       .replace(/^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок|бул\.?|бульвар)\s+/i, "")
       .trim();
     if (bareSt && bareSt !== parsed.street) stVariants.push(bareSt);
-    if (!/^(ул\.?|улица)/i.test(parsed.street)) stVariants.push("улица " + bareSt);
+    if (!/^(ул\.?|улица)/i.test(parsed.street) && !locWant) stVariants.push("улица " + bareSt);
+    var cityForStruct = locWant || "Минск";
     for (var si = 0; si < stVariants.length; si++) {
       try {
-        nominatimPushRowsGs_(nominatimStructuredSuggestGs_(stVariants[si], parsed.house), text, seen, out);
+        nominatimPushRowsGs_(nominatimStructuredSuggestGs_(stVariants[si], parsed.house, cityForStruct), text, seen, out);
       } catch (eSt) {}
       if (suggestHasWantedHouseGs_(out, text)) break;
     }
   }
-  for (var qi = 0; qi < Math.min(queries.length, wantHouse ? 7 : 4); qi++) {
+  for (var qi = 0; qi < Math.min(queries.length, wantHouse || locWant ? 7 : 4); qi++) {
     var q = queries[qi];
-    if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(q)) q = "Минск, " + q;
+    if (locWant) {
+      if (!/беларусь/i.test(q)) q = q + ", Беларусь";
+    } else if (!/минск|беларусь|брест|гродн|гомел|витебск|могил/i.test(q)) {
+      q = "Минск, " + q;
+    }
     var url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=by&accept-language=ru&q=" +
       encodeURIComponent(q);
+    if (!otherOk) {
+      url += "&viewbox=" + encodeURIComponent(greaterMinskNominatimViewboxGs_());
+    }
     var res = UrlFetchApp.fetch(url, {
       muteHttpExceptions: true,
       headers: { "User-Agent": "superboyna-courier/1.0" }
@@ -6106,7 +6784,7 @@ function nominatimSuggest_(text) {
     var data = JSON.parse(res.getContentText());
     nominatimPushRowsGs_(data, text, seen, out);
     if (wantHouse) {
-      if (suggestHasWantedHouseGs_(out, text) && out.length >= 2) break;
+      if (suggestHasWantedHouseGs_(out, text) && out.length >= 1) break;
     } else if (out.length >= 5) {
       break;
     }
@@ -11806,19 +12484,41 @@ function applyWarehouseRevisionManual() {
 
 function handleWarehousePreview(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var pack = computeWarehouseWeekPlan_(ss);
+  var opts = {
+    dateFrom: (json && (json.dateFrom || json.from)) || "",
+    dateTo: (json && (json.dateTo || json.to)) || "",
+    force: !!(json && (json.force || json.refresh))
+  };
+  if (opts.force) {
+    try {
+      CacheService.getScriptCache().remove("WH_PLAN_V3");
+      CacheService.getScriptCache().remove("WH_PLAN_V4");
+      CacheService.getScriptCache().remove("WH_PLAN_V5");
+      CacheService.getScriptCache().remove("WH_PLAN_V6");
+    } catch (e) {}
+  }
+  var pack = computeWarehouseWeekPlan_(ss, opts);
   if (!pack || !pack.ok) {
     var bad = { status: "error", message: (pack && pack.message) || "no_warehouse" };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
-  try { syncWarehouseBuyDeferred_(ss, pack.deficits || []); } catch (eSync) {}
+  // задачи Дозакуп — только для полного плана недели (без среза дат)
+  if (!opts.dateFrom && !opts.dateTo) {
+    try { syncWarehouseBuyDeferred_(ss, pack.deficits || []); } catch (eSync) {}
+  }
   var msg = "";
   try { msg = composeWarehouseBuyMessage_(pack); } catch (eM) {}
   var ok = {
     status: "success",
     deficits: pack.deficits || [],
     plan: pack.plan || [],
+    withPlan: pack.withPlan || [],
     buyList: pack.buyList || [],
+    days: pack.days || [],
+    activeDays: pack.activeDays || [],
+    dateFrom: pack.dateFrom || "",
+    dateTo: pack.dateTo || "",
+    rangeLabel: pack.rangeLabel || "",
     note: pack.note || "",
     messageText: msg,
     writeOffNote: "Галочки нарезки НЕ списывают склад. Списание F — только при Завершить неделю."
@@ -11828,20 +12528,35 @@ function handleWarehousePreview(json, callback, fromPost) {
 
 function handleComposeWarehouseBuyMessage(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (json && (json.force || json.refresh)) {
-    try { CacheService.getScriptCache().remove("WH_PLAN_V2"); } catch (e) {}
+  var opts = {
+    dateFrom: (json && (json.dateFrom || json.from)) || "",
+    dateTo: (json && (json.dateTo || json.to)) || "",
+    force: !!(json && (json.force || json.refresh))
+  };
+  if (opts.force) {
+    try {
+      CacheService.getScriptCache().remove("WH_PLAN_V3");
+      CacheService.getScriptCache().remove("WH_PLAN_V4");
+      CacheService.getScriptCache().remove("WH_PLAN_V5");
+      CacheService.getScriptCache().remove("WH_PLAN_V6");
+    } catch (e) {}
   }
-  var pack = computeWarehouseWeekPlan_(ss);
+  var pack = computeWarehouseWeekPlan_(ss, opts);
   if (!pack || !pack.ok) {
     var bad2 = { status: "error", message: (pack && pack.message) || "no_warehouse" };
     return fromPost ? jsonpText(callback, bad2) : jsonp(callback, bad2);
   }
-  try { syncWarehouseBuyDeferred_(ss, pack.deficits || []); } catch (eSync2) {}
+  if (!opts.dateFrom && !opts.dateTo) {
+    try { syncWarehouseBuyDeferred_(ss, pack.deficits || []); } catch (eSync2) {}
+  }
   var ok2 = {
     status: "success",
     text: composeWarehouseBuyMessage_(pack),
     deficits: pack.deficits || [],
-    count: (pack.deficits || []).length
+    count: (pack.deficits || []).length,
+    dateFrom: pack.dateFrom || "",
+    dateTo: pack.dateTo || "",
+    rangeLabel: pack.rangeLabel || ""
   };
   return fromPost ? jsonpText(callback, ok2) : jsonp(callback, ok2);
 }

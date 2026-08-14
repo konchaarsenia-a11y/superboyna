@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC="$ROOT/app.html"
 DST="$ROOT/boinya-c/app.html"
 ORIGIN='https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec'
-VER='v7.11.149c8'
+VER='v7.11.158c1'
 
 cp "$SRC" "$DST"
 python3 - "$DST" "$ORIGIN" "$VER" <<'PY'

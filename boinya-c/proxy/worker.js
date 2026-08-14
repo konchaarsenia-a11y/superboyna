@@ -93,8 +93,17 @@ function isCutoverLive_(params, env, url) {
 
 function isWriteAction_(a) {
   if (!a) return false;
+  // явные чтения / списки — не write (даже если имя начинается с partner*)
   if (/^(get|list|resolve|calc|suggest|lookup|ping|keepWarm|warehousePreview)/i.test(a)) return false;
-  if (a === "getMyAccess" || a === "telegramStatus" || a === "weekPullStatus") return false;
+  if (
+    a === "getMyAccess" ||
+    a === "telegramStatus" ||
+    a === "weekPullStatus" ||
+    a === "partnerListAdmin" ||
+    a === "composeWarehouseBuyMessage"
+  ) {
+    return false;
+  }
   return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner|force)/i.test(
     a
   );
@@ -1240,8 +1249,8 @@ async function handleCutover_(a, params, env, ctx) {
     return proxied;
   }
 
-  // подсказки / калькуляции / экспорт / задачи / опросники — живой GAS
-  // (listSurvey в D1 часто отстаёт → UI «нет опросников»)
+  // подсказки / калькуляции / экспорт / задачи / опросники / доступ — живой GAS
+  // (listSurvey/getMyAccess в D1 часто отстают или были stub role:all)
   if (
     a === "suggestAddress" ||
     a === "lookupBpPartner" ||
@@ -1254,7 +1263,9 @@ async function handleCutover_(a, params, env, ctx) {
     a === "getTransferTask" ||
     a === "composeWarehouseBuyMessage" ||
     a === "listBookings" ||
-    a === "listSurvey"
+    a === "listSurvey" ||
+    a === "getMyAccess" ||
+    a === "partnerListAdmin"
   ) {
     if (a === "suggestAddress") {
       return suggestAddressCutover_(params, env);
@@ -1263,7 +1274,12 @@ async function handleCutover_(a, params, env, ctx) {
     if (live && typeof live === "object") {
       live.cutover = true;
       live.fromGas = true;
-      if (a === "listSurvey" && live.status === "success" && env && env.DB) {
+      if (
+        (a === "listSurvey" || a === "getMyAccess" || a === "partnerListAdmin") &&
+        live.status === "success" &&
+        env &&
+        env.DB
+      ) {
         try {
           await cutoverStoreRead_(a, params, env, live);
         } catch (eSv) {}
@@ -1304,12 +1320,17 @@ async function handleCutover_(a, params, env, ctx) {
   if (needGas && ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(cutoverRevalidate_(a, params, env));
   }
-  // Нарезка/курьер/сборка: пустой D1 при живом дне — не врать UI, сразу GAS
+  // Нарезка/курьер/сборка/склад/отложенные: пустой D1 при живом дне — не врать UI, сразу GAS
   if (
     fast &&
-    (a === "getCutting" || a === "getCourier" || a === "getAssembly") &&
+    (a === "getCutting" ||
+      a === "getCourier" ||
+      a === "getAssembly" ||
+      a === "getWarehouse" ||
+      a === "listDeferred") &&
     ((Array.isArray(fast.items) && !fast.items.length) ||
-      (Array.isArray(fast.clients) && !fast.clients.length))
+      (Array.isArray(fast.clients) && !fast.clients.length) ||
+      (Array.isArray(fast.rows) && !fast.rows.length && a === "getWarehouse"))
   ) {
     try {
       const live = await gasProxy_(a, params, env, { write: false });
@@ -1524,17 +1545,7 @@ async function cutoverFastRead_(a, params, env) {
       return (await getSnapRaw_(env, "warehousePreview")) || (await getSnapRaw_(env, "warehouse"));
     }
     if (a === "resolveDayForDate") return resolveDay_(params, env);
-    if (a === "getMyAccess") {
-      return {
-        status: "success",
-        role: "all",
-        access: "active",
-        telegramId: String(params.telegramId || ""),
-        name: params.name || "",
-        tabs: [],
-        cutover: true
-      };
-    }
+    // getMyAccess — только live GAS (см. handleCutover_), здесь не stub'им role:all
     if (a === "listTemplates") {
       const key = params.kind ? "listTemplates:" + String(params.kind) : "listTemplates";
       return (await getSnapRaw_(env, key)) || (await getSnapRaw_(env, "listTemplates"));
@@ -1716,15 +1727,27 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
       await cutoverRevalidate_("getViewCompare", { day: uniq[i] }, env);
       await cutoverRevalidate_("getCourier", { day: uniq[i] }, env);
       await cutoverRevalidate_("getAssembly", { day: uniq[i] }, env);
+      await cutoverRevalidate_("getCutting", { day: uniq[i] }, env);
     }
     await cutoverRevalidate_("getWeekDayCounts", {}, env);
+    await cutoverRevalidate_("getWarehouse", {}, env);
     if (/subscription/i.test(a)) await cutoverRevalidate_("listSubscriptions", {}, env);
+    if (/deferred|remind|missed|transfer/i.test(a)) {
+      await cutoverRevalidate_("listDeferred", params, env);
+    }
+    if (/cutting|warehouse|composeWarehouse|setWarehouse/i.test(a)) {
+      await cutoverRevalidate_("getWarehouse", {}, env);
+      await cutoverRevalidate_("warehousePreview", {}, env);
+    }
     if (/survey/i.test(a)) {
       // дать Sheets дописать строку до listSurvey
       await new Promise(function (r) {
         setTimeout(r, 800);
       });
       await cutoverRevalidate_("listSurvey", { activeOnly: "1" }, env);
+    }
+    if (/access|Access/i.test(a)) {
+      await cutoverRevalidate_("listAccess", {}, env);
     }
   } catch (e) {}
 }
@@ -1763,13 +1786,12 @@ async function gasProxy_(action, params, env, opts) {
     });
 
     let text = "";
-    // GET JSONP + redirect:follow на GAS часто дублирует doGet (двойной saveSurvey).
-    // Мутации листа — doPost. sendCourierRoute оставляем GET (короткий текст; POST+redirect ломается).
-    const mustPost =
-      opts.write &&
-      /^(setDelivered|setAssembled|setPrinted|updateCutting|finishCutting|prepareFinishCutting|registerCourier|prepareCourierRoute|finishFullWeek|setWeekBannerState|startCuttingSession|stopCuttingSession|notifyMissedDelivery|partner|composeWarehouse|registerCutting|ensureBp|enrollDeferred|markBp|repairSurvey|saveSurvey|deleteSurvey|deleteSurveyBatch|saveDeferred|cancelDeferred|updateDeferred|setDeferredReminder|forceSurveyRemind|logEvent|reportBug)/i.test(
-        action
-      );
+    // GET JSONP + redirect:follow на GAS часто дублирует doGet (двойной save*).
+    // Все write → doPost, кроме коротких TG-текстов (sendCourierRoute и т.п. — GET).
+    // sendCourierRoute: POST+redirect ломался; оставляем GET.
+    const preferGet =
+      /^(sendCourierRoute|sendDeficit|telegramStatus)$/i.test(action);
+    const mustPost = opts.write && !preferGet;
     if (mustPost) {
       const body = Object.assign({}, clean, { action: action });
       // Apps Script /exec часто отвечает 302; redirect:follow превращает POST→GET без body → «Бэкенд Жив».

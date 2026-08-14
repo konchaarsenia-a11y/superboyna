@@ -1,7 +1,16 @@
-- [~] **Бойня C опросники spam-fix 2026-08-14:** 3 пуша — lock тика + 1 пуш/ник/сутки + не спамить всем owner; repair не меняет sv_*; пустые строки ≠ dirty · **нужен Deploy Code.gs** · тест `zzz_test` cancelled
-- [~] **Бойня C опросники cutover 2026-08-14:** listSurvey → GAS; POST `manual`→GET Location; saveSurvey OK; `forceSurveyRemind` в git → live **`unknown_action`** · **Worker Deploy OK** · **нужен Deploy Code.gs** → затем URL force&nick=zzz_test (owner Арсений `650923866`)
-- [~] **Бойня C cutover LIVE QA 2026-08-13:** Worker D1+GAS — записи `zzz_test` (save/update/move/flags/delete) OK; suggestAddress Nominatim fallback; danger block OK; пустая нарезка → sync GAS; битые snap `need_telegramId` не кэшируются — **Worker Deploy OK** · UI по кнопкам в TG ещё не 100%
+- [~] **Бойня C cutover prod-ready 2026-08-14:** UI=main v7.11.158c1; Worker: все write→POST, getMyAccess из GAS, revalidate cutting/warehouse/deferred; partnerList* не write · **нужен Deploy Code.gs** + Worker
+- [~] **Бойня C опросники spam-fix 2026-08-14:** 3 пуша — lock тика + 1 пуш/ник/сутки + не спамить всем owner; repair не меняет sv_* · **нужен Deploy Code.gs** · тест `zzz_test` cancelled
+- [~] **Бойня C опросники cutover 2026-08-14:** listSurvey → GAS; POST→GET Location; forceSurveyRemind в git · **Worker** · **нужен Deploy Code.gs**
+- [~] **Бойня C cutover LIVE QA 2026-08-13:** записи `zzz_test` OK; suggestAddress Nominatim; danger block; пустая нарезка→GAS · UI по кнопкам доводим
+- [~] **UI+GS v7.11.158:** склад жевалки — база БОЛЬШОЙ=1 как в формулах листа (ОГР=2…ОЧ=0.125); было ×2 от «средних» — **Pages** · **нужен Deploy Code.gs**
+- [~] **UI+GS v7.11.157:** поиск адресов — пригороды/НП (Колодищи/голодищи, Боровляны…), шире Минск+район, без bounded-отреза — **Pages** · **нужен Deploy Code.gs**
+- [~] **UI+GS v7.11.156:** склад — градация жевалок в учётных средних (ОГР=4…ОЧ МАЛ=0.25; трахея/жила/аорта/ухо) — **Pages** · **нужен Deploy Code.gs**
+- [~] **UI+GS v7.11.155:** поиск адресов — склейка «улица+дом», жёсткий Минск/viewbox, отсев чужих улиц (Photon врал) — **Pages** · **нужен Deploy Code.gs**
+- [~] **UI+GS v7.11.154:** склад дефицит — любые даты (не только текущая неделя): лист Приём/Будущая + Календарь_Дат — **Pages** · **нужен Deploy Code.gs**
+- [~] **UI+GS v7.11.153:** склад дефицит — план (сухое) vs нужно сырья (÷коэф); «есть» минус прошедшие дни недели; не врёт «хватает» в середине недели — **Pages** · **нужен Deploy Code.gs**
+- [~] **UI+GS v7.11.152:** склад — выбор дат с/по для дефицита, таблица позиций «нужно/есть» без колонки дефицита; то же в сообщении дозакупа — **Pages** · **нужен Deploy Code.gs**
 - [~] **UI+GS v7.11.151:** поиск адресов — приоритет дома (не только улица): разбор «X 12»/«д.12», Nominatim structured street+house, ранжирование с домом сверху — **Pages** · **нужен Deploy Code.gs**
+- [x] **UI varka v3.0.9:** у позиций лакомств убрана буква «г» (карточка / пресеты / своё) — **Pages**
 - [~] **Varka v3.0.8:** как было — owner first / все точки; `@one_more_person_228` обычный owner; сняты allowlist и тест-Access (V7) — **Pages** · **нужен Deploy Code.gs**
 - [~] **Varka v3.0.7:** убран блок «тест партнёров» — **Pages** · **нужен Deploy Code.gs**
 - [~] **Varka v3.0.6:** точки только с сервера; username из initData — **Pages** · **нужен Deploy Code.gs**

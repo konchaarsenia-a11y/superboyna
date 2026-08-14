@@ -716,19 +716,9 @@
 
     // Cutover LIVE: Просмотр/списки — ВСЕГДА Worker (D1 ~0.3с).
     // Seed/IDB нельзя отдавать как финальный ответ: UI не перерисует bgRefresh → «пропали люди».
+    // getMyAccess — НЕ stub role:all: роли с листа «Доступы» через Worker→GAS.
     if (isCutover()) {
       if (LOCAL_MUT[action] || WRITE_RE.test(action)) return null;
-      if (action === "getMyAccess") {
-        return Promise.resolve({
-          status: "success",
-          role: "all",
-          access: "active",
-          telegramId: String(params.telegramId || ""),
-          name: params.name || "",
-          tabs: [],
-          cutover: true
-        });
-      }
       return null;
     }
 

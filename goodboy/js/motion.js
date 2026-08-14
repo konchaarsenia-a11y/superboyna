@@ -1,6 +1,7 @@
 /**
- * Motion + overlays: nav, reveal, phone mockup, soft pointer light.
- * Без тяжёлых либ. Учитывает prefers-reduced-motion.
+ * GOOD BOY motion — cinematic, restrained.
+ * Nav · progress · hero entrance · reveals · shelves · phone.
+ * Respects prefers-reduced-motion.
  */
 (function (global) {
   "use strict";
@@ -23,6 +24,41 @@
     global.addEventListener("scroll", onScroll, { passive: true });
   }
 
+  function initProgress() {
+    var bar = document.getElementById("scrollProgress");
+    if (!bar) return;
+    var ticking = false;
+    function apply() {
+      ticking = false;
+      var doc = document.documentElement;
+      var max = (doc.scrollHeight - doc.clientHeight) || 1;
+      var p = Math.min(1, Math.max(0, (global.scrollY || 0) / max));
+      bar.style.transform = "scaleX(" + p.toFixed(4) + ")";
+    }
+    global.addEventListener("scroll", function () {
+      if (!ticking) {
+        ticking = true;
+        global.requestAnimationFrame(apply);
+      }
+    }, { passive: true });
+    apply();
+  }
+
+  function initHeroEntrance() {
+    var hero = document.querySelector(".site-hero");
+    if (!hero) return;
+    if (reduced()) {
+      hero.classList.add("is-ready");
+      return;
+    }
+    // next frame — CSS transitions kick from .is-ready
+    global.requestAnimationFrame(function () {
+      global.requestAnimationFrame(function () {
+        hero.classList.add("is-ready");
+      });
+    });
+  }
+
   function initReveal() {
     var nodes = document.querySelectorAll(".reveal");
     if (!nodes.length) return;
@@ -35,8 +71,10 @@
         if (!en.isIntersecting) return;
         en.target.classList.add("is-in");
         io.unobserve(en.target);
+        // kick shelf parallax once strip appears
+        global.dispatchEvent(new Event("scroll"));
       });
-    }, { rootMargin: "0px 0px -10% 0px", threshold: 0.12 });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.14 });
     nodes.forEach(function (n) { io.observe(n); });
   }
 
@@ -44,7 +82,11 @@
     if (reduced()) return;
     var articles = document.querySelectorAll(".feature-rail article.reveal");
     articles.forEach(function (el, i) {
-      el.style.transitionDelay = (0.06 + i * 0.07).toFixed(2) + "s";
+      el.style.transitionDelay = (0.05 + i * 0.08).toFixed(2) + "s";
+    });
+    var cards = document.querySelectorAll(".hero-features .hf-card");
+    cards.forEach(function (el, i) {
+      el.style.setProperty("--hf-delay", (0.42 + i * 0.09).toFixed(2) + "s");
     });
   }
 
@@ -68,14 +110,14 @@
         spot.style.setProperty("--spot-y", (ly * 100).toFixed(2) + "%");
       }
       if (wash) {
-        var dx = ((lx - 0.5) * 18).toFixed(1);
-        var dy = ((ly - 0.5) * 14).toFixed(1);
+        var dx = ((lx - 0.5) * 14).toFixed(1);
+        var dy = ((ly - 0.5) * 10).toFixed(1);
         wash.style.setProperty("--mx", dx + "px");
         wash.style.setProperty("--my", dy + "px");
       }
       if (phone) {
-        var ry = ((lx - 0.5) * 14).toFixed(2);
-        var rx = ((0.5 - ly) * 8).toFixed(2);
+        var ry = ((lx - 0.5) * 10).toFixed(2);
+        var rx = ((0.5 - ly) * 6).toFixed(2);
         phone.style.setProperty("--ry", ry + "deg");
         phone.style.setProperty("--rx", rx + "deg");
       }
@@ -113,32 +155,41 @@
     var hero = document.querySelector(".site-hero");
     var stage = hero && (hero.querySelector(".hero-features") || hero.querySelector(".hero-stage"));
     var copy = hero && hero.querySelector(".hero-copy");
-    if (!hero || (!stage && !copy)) return;
+    var shelves = document.querySelectorAll(".photo-shelves .shelf");
+    if (!hero && !shelves.length) return;
 
     var ticking = false;
     function apply() {
       ticking = false;
       var y = global.scrollY || 0;
-      if (y < 4) {
-        if (stage) {
-          stage.style.transform = "";
-          stage.style.opacity = "";
+      var vh = global.innerHeight || 1;
+
+      if (hero && (stage || copy)) {
+        var h = hero.offsetHeight || 1;
+        var p = Math.min(1, Math.max(0, y / h));
+        if (p < 0.01) {
+          if (stage) { stage.style.transform = ""; stage.style.opacity = ""; }
+          if (copy) { copy.style.transform = ""; copy.style.opacity = ""; }
+        } else {
+          if (stage) {
+            stage.style.transform = "translate3d(0," + (p * 18).toFixed(1) + "px,0)";
+            stage.style.opacity = String((1 - p * 0.35).toFixed(3));
+          }
+          if (copy) {
+            copy.style.transform = "translate3d(0," + (p * 10).toFixed(1) + "px,0)";
+            copy.style.opacity = String((1 - p * 0.28).toFixed(3));
+          }
         }
-        if (copy) {
-          copy.style.transform = "";
-          copy.style.opacity = "";
-        }
-        return;
       }
-      var h = hero.offsetHeight || 1;
-      var p = Math.min(1, Math.max(0, y / h));
-      if (stage) {
-        stage.style.transform = "translate3d(0," + (p * 22).toFixed(1) + "px,0)";
-        stage.style.opacity = String((1 - p * 0.45).toFixed(3));
-      }
-      if (copy) {
-        copy.style.transform = "translate3d(0," + (p * 14).toFixed(1) + "px,0)";
-        copy.style.opacity = String((1 - p * 0.35).toFixed(3));
+
+      for (var i = 0; i < shelves.length; i++) {
+        var el = shelves[i];
+        var r = el.getBoundingClientRect();
+        var mid = r.top + r.height * 0.5;
+        var t = (mid - vh * 0.5) / vh;
+        var fromRight = el.classList.contains("shelf-from-right");
+        var dir = fromRight ? 1 : -1;
+        el.style.transform = "translate3d(" + (t * 14 * dir).toFixed(2) + "px,0,0)";
       }
     }
 
@@ -148,6 +199,7 @@
         global.requestAnimationFrame(apply);
       }
     }, { passive: true });
+    apply();
   }
 
   function initPhoneDemo() {
@@ -238,17 +290,19 @@
       global.setTimeout(function () {
         toast.classList.add("is-on");
         toastOn = true;
-      }, 1600);
+      }, 1800);
       global.setInterval(function () {
         toastOn = !toastOn;
         toast.classList.toggle("is-on", toastOn);
-      }, 4800);
+      }, 5200);
     }
   }
 
   function init() {
     initNav();
+    initProgress();
     initFeatureStagger();
+    initHeroEntrance();
     initReveal();
     initPointerLight();
     initScrollParallax();

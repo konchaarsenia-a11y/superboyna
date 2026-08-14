@@ -1,0 +1,47 @@
+---
+description: UI конвейера и Mini App — токены, TG-паттерны, когда не ломать существующий вид.
+globs: app.html,varka/**/*.html,goodboy/**/*.{html,css},*.html,maps.html,yandex-route.html
+alwaysApply: false
+---
+
+# UI Mini App / HTML
+
+## Конвейер (`app.html`) — не редизайнить без явной просьбы
+
+Существующий вид: тёмный iOS/Telegram utility UI. При правках **матчить токены**, не подмешивать «новый бренд».
+
+CSS-переменные (источник правды в `app.html`):
+
+| Токен | Значение |
+|-------|----------|
+| `--bg-color` | `#0a0a0a` |
+| `--card-bg` | `#141414` |
+| `--text-color` | `#f5f5f7` |
+| `--text-muted` | `#9a9a9a` |
+| `--accent-color` | `#ff7a00` |
+| `--accent-active` | `#e56b00` |
+| `--danger-color` | `#ff453a` |
+| `--success-color` | `#30d158` |
+| `--border-color` | `#2a2a2a` |
+
+Шрифт конвейера: `-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif`.
+
+Поверхности: `#1c1c1e` / `#2c2c2e` для карточек и инпутов; радиусы ~10–16px; max-width контента ~420px.
+
+Safe-area: использовать `--safe-top` / `--safe-bottom` (Telegram insets). Не ломать нижние панели и клавиатуру.
+
+## Varka (`varka/`)
+
+Отдельный продукт: оранжевый акцент (`#f59a2e` / `#e8891a`), свои `--font` / `--display`. Не копировать токены Бойни в Varka и наоборот. Корневые `app.html` / `Code.gs` не трогать.
+
+## Goodboy / лендинги
+
+Клиентский бренд — см. `GOODBOY.md`. Для **нового** маркетингового UI можно подключать skill `frontend-design`; для правок существующего экрана — сначала вычитать текущие токены/классы и продолжить их.
+
+## Общие запреты для UI-задач
+
+- Не тащить Next.js / Tailwind / shadcn-паттерны в эти HTML-файлы.
+- Не фиолетовые «AI-gradient» темы и не cream+terracotta дефолты, если бриф не просит.
+- Карточки — только если это контейнер взаимодействия; не обвешивать hero бейджами.
+- После визуальных правок: мобильная ширина (~390px) и Telegram WebView в голове; не десктоп-дашборд.
+- Копирайт интерфейса: короткие глаголы, sentence case, ошибки с действием («Повторить»), без «Oops».

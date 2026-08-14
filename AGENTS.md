@@ -10,6 +10,35 @@
 6. [VAROK.md](./VAROK.md) — Varka: бесплатное пополнение (точки / каталог)
 7. **Handoff** ниже — если трогаешь `Code.gs`
 
+## Skills (Cursor Agent)
+
+В `.cursor/skills/` — подключаются сами по описанию или через `/имя`:
+
+| Skill | Когда |
+|-------|--------|
+| `frontend-design` | Новый/смелый UI (лендинги, Goodboy); не ломать токены конвейера |
+| `ui-miniapp-pass` | Полировка Mini App / HTML без полного редизайна |
+| `webapp-testing` | Playwright / локальный HTML UI smoke |
+| `test-api` | Smoke webhook на `zzz_test` (`scripts/test-api.sh`) |
+| `tz-checklist` | Галочки в `TZ.md` после работы / слов владельца |
+
+UI-токены конвейера и Varka: `.cursor/rules/ui-miniapp.mdc`.  
+Hooks: `.cursor/hooks.json` (блок `finishFullWeekProduction` в shell).  
+Environment: `.cursor/environment.json`.
+
+## Cursor Cloud
+
+- Тест API из VM: `bash scripts/test-api.sh` / skill `test-api`, клиент только `zzz_test`.
+- Не запускать `finishFullWeekProduction` без явного ОК.
+- Deploy Apps Script делает владелец; в git код пушить сам, напоминать только про Deploy.
+- Environment/Builds/Secrets — в [Cloud Agents dashboard](https://cursor.com/dashboard/cloud-agents#environments); секреты не коммитить.
+
+## Automations
+
+Готовые рецепты (создаёт владелец в UI): [`.cursor/automations/`](./.cursor/automations/README.md)  
+Создать: [cursor.com/automations](https://cursor.com/automations) или `/automate` в Desktop.  
+Cloud Agent **не может** сохранить Automation за владельца — только положить prompt в репо.
+
 Рабочие файлы конвейера: `app.html` (фронт), `Code.gs` (бэкенд).  
 Клиентский продукт: **Goodboy** — см. `GOODBOY.md`.  
 Партнёры **Varka** (бесплатное пополнение): **`varka/`** — см. `VAROK.md`.  
