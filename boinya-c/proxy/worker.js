@@ -1782,17 +1782,15 @@ async function gasProxy_(action, params, env, opts) {
         },
         body: JSON.stringify(body)
       });
+      // 302 → Location уже содержит результат doPost; повторный POST даёт HTML.
+      // fetch redirect:follow на 302 сам делает GET — здесь явно GET Location.
       if (res.status >= 300 && res.status < 400) {
         const loc = res.headers.get("Location") || res.headers.get("location");
         if (loc) {
           res = await fetch(loc, {
-            method: "POST",
+            method: "GET",
             redirect: "follow",
-            headers: {
-              "Content-Type": "text/plain;charset=utf-8",
-              "Cache-Control": "no-cache"
-            },
-            body: JSON.stringify(body)
+            headers: { "Cache-Control": "no-cache" }
           });
         }
       }
