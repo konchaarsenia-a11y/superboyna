@@ -17438,6 +17438,7 @@ function repairSurveySheetToCanonical_(crmSs) {
       return;
     }
     var item = {
+      id: /^sv_/i.test(String(p.id || "").trim()) ? String(p.id).trim() : "",
       nick: nick,
       kind: kind,
       stage: surveyStageForKind_(kind, p.stage),
@@ -17474,6 +17475,7 @@ function repairSurveySheetToCanonical_(crmSs) {
     }
     if (isCleanSurveyRowObj_(obj)) {
       pushPerson_({
+        id: obj.id,
         nick: cleanSurveyNickDisplay_(obj.nick) || obj.nick,
         kind: obj.kind,
         stage: obj.stage,
@@ -17544,8 +17546,10 @@ function repairSurveySheetToCanonical_(crmSs) {
   sh.getRange(1, 1, 1, SURVEY_HEADERS_.length).setValues([SURVEY_HEADERS_]);
   for (var i = 0; i < collected.length; i++) {
     var it = collected[i];
+    // сохраняем прежний sv_* — иначе каждый repair/listSurvey плодит новый id и путает кнопку «Отправлено»
+    var keepId = /^sv_/i.test(String(it.id || "").trim()) ? String(it.id).trim() : newSurveyId_();
     sh.appendRow([
-      newSurveyId_(),
+      keepId,
       it.nick,
       it.stage,
       it.kind,
@@ -17574,11 +17578,14 @@ function ensureSurveySheetRepaired_(crmSs) {
       var sample = sh.getRange(2, 1, Math.min(sh.getLastRow(), 20), 7).getValues();
       var dirty = false;
       for (var i = 0; i < sample.length; i++) {
-        var nick = String(sample[i][1] || "");
+        var nick = String(sample[i][1] || "").trim();
+        var id0 = String(sample[i][0] || "").trim();
+        // пустые строки / хвост после clear — не грязь (иначе repair на каждый listSurvey → новые sv_*)
+        if (!nick && !id0) continue;
         var kind = String(sample[i][3] || "");
         var st = String(sample[i][6] || "");
         if (/[\n\r|]/.test(nick) || /[\n\r|]/.test(kind) || /[\n\r|]/.test(st)) { dirty = true; break; }
-        if (isSurveyStageKeyword_(nick) || isSurveyMetaLine_(nick)) { dirty = true; break; }
+        if (nick && (isSurveyStageKeyword_(nick) || isSurveyMetaLine_(nick))) { dirty = true; break; }
       }
       if (!dirty) return;
     }
@@ -18853,6 +18860,11 @@ function runBpSurveyReminders_(opts) {
   var onlyNick = String(opts.nick || "").trim();
   var sent = [];
   var skipped = [];
+  var lock = LockService.getScriptLock();
+  // параллельные tickCuttingDeficit_ (дубли триггеров) иначе шлют 2–3 одинаковых пуша
+  if (!lock.tryLock(force ? 30000 : 15000)) {
+    return { sent: sent, skipped: [{ reason: "lock_busy" }], force: force, locked: true };
+  }
   try {
     var crmSs = getCrmSpreadsheet_();
     var now = new Date();
@@ -18905,10 +18917,12 @@ function runBpSurveyReminders_(opts) {
     try { shSv = ensureSurveySheet_(crmSs); } catch (eSh) { shSv = null; }
     if (!shSv || shSv.getLastRow() < 2) {
       if (!force) props.setProperty(sentKey, JSON.stringify(already));
-      return { sent: sent, skipped: skipped, empty: true };
+      return { sent: sent, skipped: skipped, empty: true, force: force };
     }
     try { suppressOpenSurveysIfAlreadySent_(shSv); } catch (eSup) {}
     var svData = shSv.getDataRange().getValues();
+    // один ник+kind — один пуш за проход (дубли строк на листе)
+    var remindedOpen = {};
     for (var s = 1; s < svData.length; s++) {
       var obj = surveyRowToObj_(svData[s], s + 1);
       if (!obj.nick || !obj.dueDate) continue;
@@ -18924,15 +18938,28 @@ function runBpSurveyReminders_(opts) {
       }
       if (st !== "planned" && st !== "due") continue;
 
+      var openKey = (clientMatchKey_(obj.nick) || String(obj.nick).toUpperCase()) + "|" + normalizeSurveyKind_(obj.kind) + "|" + String(obj.dueDate);
+      if (remindedOpen[openKey]) {
+        skipped.push({ nick: obj.nick, reason: "dup_row" });
+        continue;
+      }
+
       var targets = [];
-      if (obj.ownerTelegramId) targets.push(String(obj.ownerTelegramId).trim());
+      var seenTid = {};
+      function addTarget_(tid0) {
+        tid0 = String(tid0 || "").trim();
+        if (!tid0 || seenTid[tid0]) return;
+        seenTid[tid0] = 1;
+        targets.push(tid0);
+      }
+      if (obj.ownerTelegramId) addTarget_(obj.ownerTelegramId);
       if (!targets.length && bp) {
         var bpVals = bp.getDataRange().getValues();
         for (var br2 = 2; br2 < bpVals.length; br2++) {
           if (!nicksMatch_(bpVals[br2][0], obj.nick)) continue;
           var bm = parseBpMetaFromWishes_(String(bpVals[br2][4] || ""));
           if (bm.ownerTelegramId) {
-            targets.push(String(bm.ownerTelegramId).trim());
+            addTarget_(bm.ownerTelegramId);
             try {
               shSv.getRange(s + 1, 10).setValue(
                 stampRespIntoSurveyNote_(obj.note, bm.ownerTelegramId, bm.ownerName)
@@ -18942,10 +18969,11 @@ function runBpSurveyReminders_(opts) {
           break;
         }
       }
-      if (!targets.length) {
+      // без ответственного — НЕ спамим всем owner'ам; только если force+nick (явный тест)
+      if (!targets.length && force && onlyNick) {
         try {
           var owners = getOwnerTelegramIds_();
-          for (var o = 0; o < owners.length; o++) targets.push(String(owners[o]).trim());
+          for (var o = 0; o < owners.length; o++) addTarget_(owners[o]);
         } catch (eOw) {}
       }
       if (!targets.length) {
@@ -18953,6 +18981,7 @@ function runBpSurveyReminders_(opts) {
         continue;
       }
 
+      var anySent = false;
       for (var t = 0; t < targets.length; t++) {
         var tid = targets[t];
         if (!tid) continue;
@@ -18969,9 +18998,10 @@ function runBpSurveyReminders_(opts) {
         }
 
         var kindKey = normalizeSurveyKind_(obj.kind) === "final" ? "survey_final" : "survey_bp2";
-        var key = clientMatchKey_(obj.nick) + "|" + kindKey + "|" + obj.dueDate + "|" + tid + "|" + (force ? "force" : local.slot);
-        if (!force && already[key]) {
-          skipped.push({ nick: obj.nick, reason: "already_slot", tid: tid });
+        // один пуш на ник+kind+due+tid в сутки (force тоже — иначе 3 клика = 3 сообщения)
+        var key = clientMatchKey_(obj.nick) + "|" + kindKey + "|" + obj.dueDate + "|" + tid;
+        if (already[key]) {
+          skipped.push({ nick: obj.nick, reason: "already_day", tid: tid });
           continue;
         }
 
@@ -19005,6 +19035,7 @@ function runBpSurveyReminders_(opts) {
           sendRes = { ok: false, error: String(eS) };
         }
         already[key] = 1;
+        anySent = true;
         sent.push({
           nick: obj.nick,
           tid: tid,
@@ -19013,6 +19044,7 @@ function runBpSurveyReminders_(opts) {
           raw: sendRes
         });
       }
+      if (anySent) remindedOpen[openKey] = 1;
 
       try {
         if (st === "planned" || st === "due") {
@@ -19023,7 +19055,9 @@ function runBpSurveyReminders_(opts) {
     }
     try { props.setProperty(sentKey, JSON.stringify(already)); } catch (eP) {}
   } catch (e) {
-    return { sent: sent, skipped: skipped, error: String(e) };
+    return { sent: sent, skipped: skipped, error: String(e), force: force };
+  } finally {
+    try { lock.releaseLock(); } catch (eL) {}
   }
   return { sent: sent, skipped: skipped, force: force };
 }

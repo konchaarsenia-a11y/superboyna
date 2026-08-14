@@ -1,3 +1,4 @@
+- [~] **Бойня C опросники spam-fix 2026-08-14:** 3 пуша — lock тика + 1 пуш/ник/сутки + не спамить всем owner; repair не меняет sv_*; пустые строки ≠ dirty · **нужен Deploy Code.gs** · тест `zzz_test` cancelled
 - [~] **Бойня C опросники cutover 2026-08-14:** listSurvey → GAS; POST `manual`→GET Location; saveSurvey OK; `forceSurveyRemind` в git → live **`unknown_action`** · **Worker Deploy OK** · **нужен Deploy Code.gs** → затем URL force&nick=zzz_test (owner Арсений `650923866`)
 - [~] **Бойня C cutover LIVE QA 2026-08-13:** Worker D1+GAS — записи `zzz_test` (save/update/move/flags/delete) OK; suggestAddress Nominatim fallback; danger block OK; пустая нарезка → sync GAS; битые snap `need_telegramId` не кэшируются — **Worker Deploy OK** · UI по кнопкам в TG ещё не 100%
 - [~] **UI+GS v7.11.151:** поиск адресов — приоритет дома (не только улица): разбор «X 12»/«д.12», Nominatim structured street+house, ранжирование с домом сверху — **Pages** · **нужен Deploy Code.gs**
