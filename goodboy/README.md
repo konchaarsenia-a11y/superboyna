@@ -9,7 +9,8 @@
 |-----|-----|
 | **Сайт** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/ |
 | **Подписка** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/subscription.html |
-| **Кабинет на сайте** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/#app |
+| **Кабинет** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html |
+| **Кабинет (кнопка на сайте)** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html |
 | **Mini App (для BotFather)** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html |
 
 Палитра лендинга: **вечерняя прогулка** (8).
