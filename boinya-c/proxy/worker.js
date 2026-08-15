@@ -1261,6 +1261,7 @@ async function handleCutover_(a, params, env, ctx) {
 
   // подсказки / калькуляции / экспорт / задачи / опросники / доступ — живой GAS
   // (listSurvey/getMyAccess в D1 часто отстают или были stub role:all)
+  // getViewCompare — НЕ здесь: иначе Просмотр ждёт GAS 10–40с; D1+SWR ниже
   if (
     a === "suggestAddress" ||
     a === "lookupBpPartner" ||
@@ -1276,8 +1277,7 @@ async function handleCutover_(a, params, env, ctx) {
     a === "listBookings" ||
     a === "listSurvey" ||
     a === "getMyAccess" ||
-    a === "partnerListAdmin" ||
-    a === "getViewCompare"
+    a === "partnerListAdmin"
   ) {
     if (a === "suggestAddress") {
       return suggestAddressCutover_(params, env);
@@ -1290,8 +1290,7 @@ async function handleCutover_(a, params, env, ctx) {
         (a === "listSurvey" ||
           a === "getMyAccess" ||
           a === "partnerListAdmin" ||
-          a === "getStats" ||
-          a === "getViewCompare") &&
+          a === "getStats") &&
         live.status === "success" &&
         env &&
         env.DB
@@ -1336,16 +1335,21 @@ async function handleCutover_(a, params, env, ctx) {
   if (needGas && ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(cutoverRevalidate_(a, params, env));
   }
-  // Нарезка/курьер/сборка/склад/отложенные: пустой D1 при живом дне — не врать UI, сразу GAS
+  // Нарезка/курьер/сборка/склад/отложенные/Просмотр: пустой D1 — не врать UI, сразу GAS
+  // getClients пустой день — норма; не ждём GAS. getViewCompare без snap — один раз подтянуть.
   if (
     fast &&
     (a === "getCutting" ||
       a === "getCourier" ||
       a === "getAssembly" ||
       a === "getWarehouse" ||
-      a === "listDeferred") &&
+      a === "listDeferred" ||
+      (a === "getViewCompare" && !fast.fromSnap)) &&
     ((Array.isArray(fast.items) && !fast.items.length) ||
       (Array.isArray(fast.clients) && !fast.clients.length) ||
+      (a === "getViewCompare" &&
+        (!Array.isArray(fast.week) || !fast.week.length) &&
+        (!Array.isArray(fast.month) || !fast.month.length)) ||
       (Array.isArray(fast.rows) && !fast.rows.length && a === "getWarehouse"))
   ) {
     try {
@@ -1368,6 +1372,8 @@ async function handleCutover_(a, params, env, ctx) {
   if (fast && typeof fast === "object") {
     fast.cutover = true;
     fast.swr = true;
+    // D1-ответ для LIVE: не путать UI флагом sandbox
+    if (fast.sandbox === true) fast.sandbox = false;
     return fast;
   }
 

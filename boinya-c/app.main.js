@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c3";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c4";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3347,7 +3347,7 @@
       weekPullStatus: 45000,
       getWeekDayCounts: 45000,
       getMonthOverview: 60000,
-      getViewCompare: 25000,
+      getViewCompare: 20000,
       calcPrice: 30000,
       calcPpFact: 0,
       findClientMatch: 30000,
@@ -3395,7 +3395,7 @@
 
     var _API_DEFAULT_TIMEOUT = {
       getClients: 35000,
-      getViewCompare: 40000,
+      getViewCompare: 18000,
       getMonthOverview: 35000,
       getCutting: 35000,
       getCourier: 30000,
@@ -5684,7 +5684,10 @@
       box.innerHTML = skel;
       if (monthBox) monthBox.innerHTML = skel;
       try {
-        try { apiCacheBustMem_("getViewCompare"); apiCacheBustMem_("getClients"); } catch (eClr) {}
+        // cutover: не сбрасываем кэш на каждый клик — D1 отвечает быстро; после save и так bust
+        if (!window.__BOINYA_C_CUTOVER__) {
+          try { apiCacheBustMem_("getViewCompare"); apiCacheBustMem_("getClients"); } catch (eClr) {}
+        }
 
         var compareParams = { action: "getViewCompare" };
         if (dateStr) compareParams.date = dateStr;
@@ -5692,7 +5695,10 @@
 
         var compareRes = null;
         try {
-          compareRes = await apiGet(compareParams, { timeoutMs: 45000, cacheTtlMs: 0 });
+          compareRes = await apiGet(compareParams, {
+            timeoutMs: window.__BOINYA_C_CUTOVER__ ? 18000 : 45000,
+            cacheTtlMs: window.__BOINYA_C_CUTOVER__ ? 20000 : 0
+          });
         } catch (eC) {
           compareRes = null;
         }

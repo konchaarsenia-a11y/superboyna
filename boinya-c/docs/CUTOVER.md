@@ -2,7 +2,7 @@
 
 ## Как открыть
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111583  
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111584  
 
 Hard refresh. Бейдж **C · LIVE**.
 
