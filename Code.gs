@@ -1570,6 +1570,14 @@ function doGet(e) {
       telegramId: e.parameter.telegramId || e.parameter.chatId || ""
     }, callback, false);
   }
+  if (action === "submitGoodboyTry") {
+    return handleSubmitGoodboyTry({
+      name: e.parameter.name ? decodeURIComponent(e.parameter.name) : "",
+      phone: e.parameter.phone ? decodeURIComponent(e.parameter.phone) : "",
+      pet: e.parameter.pet ? decodeURIComponent(e.parameter.pet) : "",
+      note: e.parameter.note ? decodeURIComponent(e.parameter.note) : ""
+    }, callback, false);
+  }
   if (action === "saveSurvey") {
     return handleSaveSurvey({
       id: e.parameter.id || "",
@@ -2452,12 +2460,56 @@ function handleApiAction(json, callback, fromPost) {
   if (action === "getPpOrderSuggest") {
     return handleGetPpOrderSuggest(json, callback, fromPost);
   }
+  if (action === "submitGoodboyTry") {
+    return handleSubmitGoodboyTry(json, callback, fromPost);
+  }
   if (action === "listDeferred" || action === "saveDeferred" || action === "updateDeferred" ||
       action === "cancelDeferred" || action === "enrollDeferredToPp" || action === "setDeferredReminder" ||
       action === "notifyMissedDelivery" || action === "getTransferTask") {
     return handleDeferredAction_(action, json, callback, fromPost);
   }
   return fromPost ? jsonpText(callback, { status: "unknown_action" }) : jsonp(callback, { status: "unknown_action" });
+}
+
+/** Заявка «Хочу попробовать» с сайта Goodboy → лист + Telegram */
+function handleSubmitGoodboyTry(json, callback, fromPost) {
+  var name = String((json && json.name) || "").trim();
+  var phone = String((json && json.phone) || "").trim();
+  var pet = String((json && json.pet) || "").trim();
+  var note = String((json && json.note) || "").trim();
+  if (!name || !phone || !pet) {
+    var bad = { status: "error", message: "need_fields" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sh = ss.getSheetByName("Goodboy_Заявки");
+    if (!sh) {
+      sh = ss.insertSheet("Goodboy_Заявки");
+      sh.appendRow(["Когда", "Имя", "Телефон", "Питомец", "Комментарий", "Источник"]);
+      sh.getRange(1, 1, 1, 6).setFontWeight("bold");
+    }
+    var tz = ss.getSpreadsheetTimeZone() || Session.getScriptTimeZone();
+    var when = Utilities.formatDate(new Date(), tz, "dd.MM.yyyy HH:mm");
+    sh.appendRow([when, name, phone, pet, note, "subscription"]);
+    try {
+      var chat = PropertiesService.getScriptProperties().getProperty("TELEGRAM_CHAT_ID");
+      if (chat) {
+        telegramSendText_(
+          chat,
+          "🐾 GOOD BOY · заявка с сайта\n" +
+            name + " · " + phone +
+            "\nПитомец: " + pet +
+            (note ? ("\n" + note) : "")
+        );
+      }
+    } catch (eTg) {}
+    var ok = { status: "ok", message: "saved" };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (err) {
+    var fail = { status: "error", message: String(err) };
+    return fromPost ? jsonpText(callback, fail) : jsonp(callback, fail);
+  }
 }
 
 function handleGetCutting(dayName, callback) {

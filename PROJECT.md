@@ -118,6 +118,7 @@
 | `moveClient` | `client`, `oldDay`, `newDay`, `callback` | `{status}` |
 | `getCutting` | `day`, `callback` | `{status, date, items:[{row,name,dry,unit,raw,surplus,done}]}` |
 | `getCourier` | `day`, `callback` | `{status, date, clients:[{name,address,note,basket,delivered}]}` |
+| `submitGoodboyTry` | `name`, `phone`, `pet`, `note`, `callback` | Заявка с сайта Goodboy → лист `Goodboy_Заявки` + TG |
 
 ### POST (JSON body, Content-Type: text/plain)
 
