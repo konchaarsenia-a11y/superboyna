@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/site-v070.css?v=094" />
+  <link rel="stylesheet" href="css/site-v070.css?v=095" />
   <style>
     html.gb-booting { overflow: hidden; }
     #gbBoot {
@@ -172,18 +172,26 @@
       <div class="inner">
         <p class="sec-kicker reveal">С чего начать</p>
         <h2 class="reveal d1">Две дороги</h2>
-        <div class="sub-path-rail">
-          <article class="reveal">
+        <div class="sub-path-screens">
+          <article class="sub-screen reveal" aria-label="Путь 1 — уже с нами">
+            <div class="sub-screen-bar" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+            <p class="sub-screen-path">Путь 1</p>
             <p class="sub-path-kicker">Уже с нами</p>
             <h3>У меня подписка</h3>
             <p>Зайдите в&nbsp;кабинет: дата доставки, состав, статус и&nbsp;связь с&nbsp;менеджером&nbsp;— в&nbsp;одном месте.</p>
-            <a class="sub-path-link" href="app.html">Открыть кабинет</a>
+            <a class="sub-screen-cta" href="app.html">Открыть кабинет</a>
           </article>
-          <article class="reveal d1">
+          <article class="sub-screen sub-screen--alt reveal d1" aria-label="Путь 2 — новый хвост">
+            <div class="sub-screen-bar" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+            <p class="sub-screen-path">Путь 2</p>
             <p class="sub-path-kicker">Новый хвост</p>
             <h3>Хочу попробовать</h3>
             <p>Напишите в&nbsp;Instagram&nbsp;— подскажем набор под питомца и&nbsp;оформим первый месяц без лишней бюрократии.</p>
-            <a class="sub-path-link" href="https://ig.me/m/goodboy_rb" target="_blank" rel="noopener">Написать @goodboy_rb</a>
+            <a class="sub-screen-cta" href="https://ig.me/m/goodboy_rb" target="_blank" rel="noopener">Написать @goodboy_rb</a>
           </article>
         </div>
       </div>
@@ -201,12 +209,12 @@
     <footer class="site-footer">
       GOOD BOY · <a href="https://www.instagram.com/goodboy_rb" target="_blank" rel="noopener">@goodboy_rb</a>
       · <a href="./">Главная</a>
-      · v0.9.4
+      · v0.9.5
     </footer>
   </div>
 
-  <script src="js/boot-loader.js?v=094"></script>
-  <script src="js/motion.js?v=094"></script>
+  <script src="js/boot-loader.js?v=095"></script>
+  <script src="js/motion.js?v=095"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.GBMotion) GBMotion.init();
