@@ -14670,6 +14670,10 @@ var PRICE_SS_MEM_ = null;
 var PRICE_COSTS_MEM_ = {};
 /** Логистика одной БП-доставки (BYN), входит в себестоимость БП / CAC. */
 var BP_DELIVERY_COST_BYN_ = 6;
+/** ПП: свет на человека (BYN) — как в computePpFactFromCost_ (fixed=11). */
+var PP_LIGHT_COST_BYN_ = 11;
+/** ПП: логистика одной доставки (BYN) — как 6×N в computePpFactFromCost_. */
+var PP_DELIVERY_COST_BYN_ = 6;
 
 function getPriceSpreadsheet_() {
   if (PRICE_SS_MEM_) return PRICE_SS_MEM_;
@@ -15999,7 +16003,12 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     couponsCost: 0,
     couponsQty: 0,
     couponsOrders: 0,
-    partnerRows: []
+    partnerRows: [],
+    ppBasketCost: 0,
+    ppLightCost: 0,
+    ppDeliveryCost: 0,
+    ppLightPeople: 0,
+    ppLightKeys: {}
   };
   var rows = [];
   try { rows = readAllCalendarRows_(); } catch (e0) { rows = []; }
@@ -16078,12 +16087,22 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if ((!bask || !bask.length) && row.basketJson) {
       try { bask = JSON.parse(String(row.basketJson)); } catch (eB2) { bask = []; }
     }
-    // продукция = себест состава из заказа; купоны = qty×цена; БП +6р доставка
+    // продукция = себест состава из заказа; купоны = qty×цена;
+    // БП +6р доставка; ПП +6р доставка + свет 11р на человека (раз за месяц)
     var product = estimateBasketRawCost_(bask, src);
     var coupons = couponsCostFromRow_(row);
     var deliveryFee = 0;
+    var lightFee = 0;
     if (src === "bp") deliveryFee = BP_DELIVERY_COST_BYN_;
-    var costWithAll = Math.round((product + coupons + deliveryFee) * 100) / 100;
+    if (src === "pp") {
+      deliveryFee = PP_DELIVERY_COST_BYN_;
+      if (ck && !out.ppLightKeys[ck]) {
+        out.ppLightKeys[ck] = true;
+        lightFee = PP_LIGHT_COST_BYN_;
+        out.ppLightPeople = (out.ppLightPeople || 0) + 1;
+      }
+    }
+    var costWithAll = Math.round((product + coupons + deliveryFee + lightFee) * 100) / 100;
     if (!(product > 0) && bask && bask.length) out.missingBasketCost++;
     out.productCost = Math.round(((out.productCost || 0) + product) * 100) / 100;
     out.couponsCost = Math.round(((out.couponsCost || 0) + coupons) * 100) / 100;
@@ -16096,6 +16115,9 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (src === 'pp' && ck) {
       out.ppDeliveredKeys[ck] = true;
       out.ppPriceByKey[ck] = Math.round(((out.ppPriceByKey[ck] || 0) + price) * 100) / 100;
+      out.ppBasketCost = Math.round(((out.ppBasketCost || 0) + product) * 100) / 100;
+      out.ppDeliveryCost = Math.round(((out.ppDeliveryCost || 0) + deliveryFee) * 100) / 100;
+      out.ppLightCost = Math.round(((out.ppLightCost || 0) + lightFee) * 100) / 100;
     }
     if (src === 'bp') {
       out.bpDeliveries++;
@@ -16125,6 +16147,9 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   out.bpCost = Math.round(out.bpCost * 100) / 100;
   out.bpBasketCost = Math.round((out.bpBasketCost || 0) * 100) / 100;
   out.bpDeliveryCost = Math.round((out.bpDeliveryCost || 0) * 100) / 100;
+  out.ppBasketCost = Math.round((out.ppBasketCost || 0) * 100) / 100;
+  out.ppDeliveryCost = Math.round((out.ppDeliveryCost || 0) * 100) / 100;
+  out.ppLightCost = Math.round((out.ppLightCost || 0) * 100) / 100;
   out.ppClientsDelivered = Object.keys(out.ppDeliveredKeys).length;
   out.todayIso = todayIso;
   out.fromIso = fromIso;
@@ -17688,6 +17713,13 @@ function handleGetStats(json, callback, fromPost) {
       retail: retail,
       partner: partner,
       ppRevenue: ppActual,
+      ppBasketCost: Number(month.ppBasketCost) || 0,
+      ppLightCost: Number(month.ppLightCost) || 0,
+      ppDeliveryCost: Number(month.ppDeliveryCost) || 0,
+      ppLightPeople: Number(month.ppLightPeople) || 0,
+      ppDeliveries: Number(month.bySource && month.bySource.pp) || 0,
+      ppLightFeeEach: PP_LIGHT_COST_BYN_,
+      ppDeliveryFeeEach: PP_DELIVERY_COST_BYN_,
       bpCost: bpSpend,
       bpBasketCost: Number(month.bpBasketCost) || 0,
       bpDeliveryCost: Number(month.bpDeliveryCost) || 0,
@@ -17812,7 +17844,7 @@ function handleGetStats(json, callback, fromPost) {
       ]
     },
     factCutoff: month.todayIso || "",
-    note: "Прибыль = оборот (общий приход). Чистое = прибыль − затраты. Доставок = 1 клиент на дату ≤ сегодня."
+    note: "Прибыль = оборот. Чистое = оборот − затраты. ПП затраты = состав + свет 11р/чел + доставка 6р. БП = состав + 6р."
   };
   try {
     CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 600);
@@ -17858,11 +17890,18 @@ function handleGetExpectedProfit(json, callback, fromPost) {
     retail: retail,
     partner: partner,
     ppRevenue: ppRev,
+    ppBasketCost: Number(stats.ppBasketCost) || 0,
+    ppLightCost: Number(stats.ppLightCost) || 0,
+    ppDeliveryCost: Number(stats.ppDeliveryCost) || 0,
+    ppLightPeople: Number(stats.ppLightPeople) || 0,
+    ppDeliveries: Number(stats.bySource && stats.bySource.pp) || 0,
+    ppLightFeeEach: PP_LIGHT_COST_BYN_,
+    ppDeliveryFeeEach: PP_DELIVERY_COST_BYN_,
     bpCost: Number(stats.bpCost) || 0,
     bpDeliveries: Number(stats.bpDeliveries) || 0,
     missingPrice: stats.missingPrice || 0,
     missingBasketCost: stats.missingBasketCost || 0,
-    note: "Прибыль = оборот. Чистое = оборот − себест."
+    note: "Прибыль = оборот. Чистое = оборот − себест. ПП = состав + свет 11р/чел + доставка 6р."
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
