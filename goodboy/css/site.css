@@ -1953,6 +1953,26 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   line-height: 1.5;
   font-size: 1.02rem;
 }
+.sub-promise {
+  margin-top: 32px;
+  padding: 22px 0 0;
+  border-top: 1px solid rgba(212, 161, 90, 0.28);
+}
+.sub-promise p {
+  margin: 0;
+  color: var(--gb-muted);
+  font-size: 1.08rem;
+  line-height: 1.5;
+}
+.sub-promise-lead {
+  margin-bottom: 8px !important;
+  color: var(--gb-cream) !important;
+  font-size: 1.15rem !important;
+}
+.sub-promise-lead strong {
+  color: var(--gb-orange-2);
+  font-weight: 800;
+}
 
 .sub-pack { padding-top: 28px; }
 .sub-pack-grid {
