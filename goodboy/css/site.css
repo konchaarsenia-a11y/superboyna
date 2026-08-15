@@ -2169,6 +2169,36 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   color: var(--gb-cream) !important;
 }
 
+/* Отдельная страница заявки */
+.page-try .try-hero .sub-cta-row { display: none; }
+.try-form-section {
+  padding-top: 8px;
+  padding-bottom: clamp(48px, 10vw, 80px);
+}
+.try-form-wrap {
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 22px 22px 20px;
+  border-radius: 28px;
+  background:
+    linear-gradient(165deg, rgba(44, 51, 48, 0.95) 0%, rgba(30, 36, 33, 0.98) 100%);
+  border: 1px solid rgba(237, 232, 223, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 18px 40px rgba(0, 0, 0, 0.28);
+}
+.try-form-wrap .try-form { margin-top: 0; }
+.try-back {
+  margin: 18px 0 0;
+  text-align: center;
+  font-size: 0.9rem;
+}
+.try-back a {
+  color: var(--gb-orange-2);
+  text-decoration: none;
+}
+.try-back a:hover { color: var(--gb-cream); }
+
 @media (max-width: 640px) {
   .sub-hero { padding-top: clamp(7.5rem, 22vw, 8.5rem); }
   .sub-pack-visual {

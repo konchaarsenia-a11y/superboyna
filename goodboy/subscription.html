@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/site-v070.css?v=097" />
+  <link rel="stylesheet" href="css/site-v070.css?v=098" />
   <style>
     html.gb-booting { overflow: hidden; }
     #gbBoot {
@@ -110,7 +110,7 @@
         <h1>Подписка</h1>
         <p class="sub-lead">Месячный набор натуральных лакомств сам приезжает. Состав&nbsp;— под вашего хвостика, статус&nbsp;— в&nbsp;кабинете.</p>
         <div class="sub-cta-row">
-          <a class="invite-btn" href="#try">Хочу попробовать</a>
+          <a class="invite-btn" href="try.html">Хочу попробовать</a>
           <a class="btn-ghost" href="app.html">Смотреть кабинет</a>
         </div>
       </div>
@@ -181,26 +181,7 @@
             <p class="sub-path-kicker">Новый хвост</p>
             <h3>Хочу попробовать</h3>
             <p>Заполните короткую форму&nbsp;— подскажем набор под питомца и&nbsp;оформим знакомство без лишней бюрократии.</p>
-            <form class="order-form try-form" id="tryForm" novalidate>
-              <label>
-                <span>Ваше имя</span>
-                <input type="text" name="name" autocomplete="name" required placeholder="Как к вам обращаться" />
-              </label>
-              <label>
-                <span>Телефон</span>
-                <input type="tel" name="phone" autocomplete="tel" required placeholder="+375 …" />
-              </label>
-              <label>
-                <span>Кличка питомца</span>
-                <input type="text" name="pet" autocomplete="off" required placeholder="Бим" />
-              </label>
-              <label>
-                <span>Комментарий</span>
-                <textarea name="note" rows="3" placeholder="Аллергии, вес, что любит — по желанию"></textarea>
-              </label>
-              <button type="submit" class="btn-primary">Отправить заявку</button>
-              <p class="form-status" id="tryFormStatus" hidden></p>
-            </form>
+            <a class="sub-screen-cta" href="try.html">Заполнить форму</a>
           </article>
           <article class="sub-screen sub-screen--alt reveal d1" aria-label="Путь 2 — уже с нами">
             <div class="sub-screen-bar" aria-hidden="true">
@@ -221,21 +202,20 @@
         <p class="invite-kicker">Рядом</p>
         <h2 class="invite-title">Готовы к&nbsp;первому набору?</h2>
         <p class="invite-lead">Расскажите про питомца&nbsp;— ответим в&nbsp;течение часа.</p>
-        <a class="invite-btn" href="https://ig.me/m/goodboy_rb" target="_blank" rel="noopener">@goodboy_rb</a>
+        <a class="invite-btn" href="try.html">Заполнить форму</a>
       </div>
     </section>
 
     <footer class="site-footer">
       GOOD BOY · <a href="https://www.instagram.com/goodboy_rb" target="_blank" rel="noopener">@goodboy_rb</a>
       · <a href="./">Главная</a>
-      · v0.9.7
+      · v0.9.8
     </footer>
   </div>
 
-  <script src="js/config.js?v=097"></script>
-  <script src="js/boot-loader.js?v=097"></script>
-  <script src="js/motion.js?v=097"></script>
-  <script src="js/try-form.js?v=097"></script>
+  <script src="js/config.js?v=098"></script>
+  <script src="js/boot-loader.js?v=098"></script>
+  <script src="js/motion.js?v=098"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.GBMotion) GBMotion.init();
