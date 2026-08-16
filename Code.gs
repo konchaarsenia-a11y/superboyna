@@ -1204,6 +1204,91 @@ function handleFinishFullWeek(json, callback, fromPost) {
   }
 }
 
+/**
+ * Откат/установка даты понедельника на листе «Прием» (без очистки людей).
+ * Нужно если finishFullWeek нажали несколько раз и даты ускакали вперёд.
+ * monday: yyyy-MM-dd или dd.MM.yyyy
+ */
+function handleRepairWeekMonday(json, callback, fromPost) {
+  json = json || {};
+  var tid = String(json.telegramId || "").trim();
+  var confirm = String(json.confirm || "").trim();
+  if (confirm !== "1" && confirm !== "true" && json.confirm !== true) {
+    var need = { status: "error", message: "need_confirm" };
+    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+  }
+  if (!actorIsOwner_(tid)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+    var monday = parseFlexibleDate_(json.monday || json.mondayDate || json.date, tz);
+    if (!monday) {
+      var badD = { status: "error", message: "need_monday_date" };
+      return fromPost ? jsonpText(callback, badD) : jsonp(callback, badD);
+    }
+    var sheetManager = ss.getSheetByName("Прием заказов") || ss.getSheetByName("Приём заказов");
+    var sheetFuture = ss.getSheetByName("Будущая неделя");
+    var sheetCourier = ss.getSheetByName("Доставки");
+    var sheetCutting = ss.getSheetByName("Нарезка");
+    if (!sheetManager) {
+      var no = { status: "error", message: "no_manager_sheet" };
+      return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
+    }
+    var monStr = Utilities.formatDate(monday, tz, "dd.MM.yyyy");
+    sheetManager.getRange("A1").setValue(monStr);
+    // Вт–Вс: формулы =A1+N если ещё не стоят
+    try {
+      var dayOffsets = [
+        { cell: "A62", n: 1 },
+        { cell: "A123", n: 2 },
+        { cell: "A184", n: 3 },
+        { cell: "A245", n: 4 },
+        { cell: "A306", n: 5 },
+        { cell: "A367", n: 6 }
+      ];
+      for (var i = 0; i < dayOffsets.length; i++) {
+        var cell = sheetManager.getRange(dayOffsets[i].cell);
+        var fml = String(cell.getFormula() || "").trim();
+        if (!(fml && /A1/i.test(fml))) {
+          cell.setFormula("=A1+" + dayOffsets[i].n);
+        }
+      }
+    } catch (eOff) {}
+    var fut = new Date(monday.getTime());
+    fut.setDate(fut.getDate() + 7);
+    var futStr = Utilities.formatDate(fut, tz, "dd.MM.yyyy");
+    if (sheetFuture) sheetFuture.getRange("A1").setValue(futStr);
+    if (sheetCutting) sheetCutting.getRange("A1").setValue(monStr);
+    if (sheetCourier) sheetCourier.getRange("A1").setValue(monStr);
+    SpreadsheetApp.flush();
+    try { bustClientsCache_(); } catch (eB2) {}
+    var counts = [];
+    try {
+      var days = [
+        "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье", "Будущая неделя"
+      ];
+      for (var d = 0; d < days.length; d++) {
+        var row = countClientsOnDayNickRow_(ss, days[d]);
+        counts.push({ day: days[d], count: row.count || 0, date: row.date || "" });
+      }
+    } catch (eC) {}
+    var ok = {
+      status: "success",
+      message: "week_monday_repaired",
+      mondayDate: monStr,
+      futureDate: futStr,
+      items: counts
+    };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (err) {
+    var fail = { status: "error", message: String(err) };
+    return fromPost ? jsonpText(callback, fail) : jsonp(callback, fail);
+  }
+}
+
 function weekBannerPropsKey_(weekKey) {
   return "week_banner_" + String(weekKey || "").trim();
 }
@@ -2128,6 +2213,13 @@ function doGet(e) {
       weekKey: e.parameter.weekKey ? decodeURIComponent(e.parameter.weekKey) : ""
     }, callback, false);
   }
+  if (action === "repairWeekMonday") {
+    return handleRepairWeekMonday({
+      telegramId: e.parameter.telegramId || "",
+      confirm: e.parameter.confirm || "",
+      monday: e.parameter.monday ? decodeURIComponent(e.parameter.monday) : (e.parameter.mondayDate || e.parameter.date || "")
+    }, callback, false);
+  }
   if (action === "getWeekBannerState") {
     return handleGetWeekBannerState({
       weekKey: e.parameter.weekKey ? decodeURIComponent(e.parameter.weekKey) : ""
@@ -2247,6 +2339,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "finishFullWeek") {
     return handleFinishFullWeek(json, callback, fromPost);
+  }
+  if (action === "repairWeekMonday") {
+    return handleRepairWeekMonday(json, callback, fromPost);
   }
   if (action === "getWeekBannerState") {
     return handleGetWeekBannerState(json, callback, fromPost);

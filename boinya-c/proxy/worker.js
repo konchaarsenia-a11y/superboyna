@@ -480,12 +480,17 @@ async function findOrderRow_(env, matchKey, day, dateIso) {
 async function getClients_(params, env) {
   await ensureMetaColumn_(env);
   const day = String(params.day || "");
-  const dateIso = String(params.date || params.dateIso || "");
+  const dateIsoParam = String(params.date || params.dateIso || "");
   if (!env || !env.DB) {
     return { status: "success", sandbox: true, day: day, source: "empty", clients: [] };
   }
   let rows = [];
+  let dateIso = dateIsoParam;
+  let dateDmy = "";
   if (day) {
+    const info = await dayDateInfo_(env, day);
+    if (!dateIso && info && info.iso) dateIso = info.iso;
+    if (info && info.date) dateDmy = info.date;
     const q = await env.DB.prepare(
       "SELECT * FROM orders WHERE day_name = ? AND status = 'active' ORDER BY client"
     )
@@ -500,11 +505,13 @@ async function getClients_(params, env) {
       .all();
     rows = q.results || [];
   }
+  if (!dateDmy && dateIso) dateDmy = isoToDmy_(dateIso);
   return {
     status: "success",
     sandbox: true,
     day: day,
-    date: dateIso,
+    date: dateDmy || "",
+    dateIso: dateIso || "",
     source: "d1",
     clients: rows.map(clientFromRow_)
   };
@@ -1471,6 +1478,32 @@ async function handleCutover_(a, params, env, ctx) {
   if (needGas && ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(cutoverRevalidate_(a, params, env));
   }
+
+  // Приёмка: если D1 count ≠ getWeekDayCounts — сразу GAS (иначе «на Будущей 6 вместо 2»)
+  if (a === "getClients" && fast && params && params.day) {
+    try {
+      const counts = await getSnapRaw_(env, "weekDayCounts");
+      let expect = null;
+      ((counts && counts.items) || []).forEach(function (it) {
+        if (it && String(it.day) === String(params.day)) expect = Number(it.count) || 0;
+      });
+      const got = Array.isArray(fast.clients) ? fast.clients.length : -1;
+      if (expect != null && got !== expect) {
+        const live = await gasProxy_(a, params, env, { write: false });
+        if (live && live.status === "success") {
+          try {
+            await cutoverStoreRead_(a, params, env, live);
+          } catch (eStore) {}
+          live.cutover = true;
+          live.fromGas = true;
+          live.swr = true;
+          live.sandbox = false;
+          return live;
+        }
+      }
+    } catch (eMis) {}
+  }
+
   // Нарезка/курьер/сборка/склад/отложенные/Просмотр: пустой D1 — не врать UI, сразу GAS
   // getClients пустой день — норма; не ждём GAS. getViewCompare без snap — один раз подтянуть.
   if (

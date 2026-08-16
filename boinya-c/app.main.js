@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c9";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c10";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -10914,8 +10914,12 @@
         }
       }
       if (dateEl && hit && hit.date) {
-
-        dateEl.value = String(hit.date).slice(0, 10);
+        var rawD = String(hit.date || "").trim();
+        var isoD = "";
+        var mD = rawD.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+        if (mD) isoD = mD[3] + "-" + ("0" + mD[2]).slice(-2) + "-" + ("0" + mD[1]).slice(-2);
+        else if (/^\d{4}-\d{2}-\d{2}/.test(rawD)) isoD = rawD.slice(0, 10);
+        if (isoD) dateEl.value = isoD;
         try { if (orderType === "pp") refreshPpFactPrice(); } catch (ePp) {}
       }
       renderOrderDayCounts_((_orderDayCountsCache && _orderDayCountsCache.items) || null);
