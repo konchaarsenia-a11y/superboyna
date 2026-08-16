@@ -1,18 +1,18 @@
-- [~] **Бойня C Просмотр speed 2026-08-15:** getViewCompare снова из D1+SWR (не ждать GAS 10–40с); UI кэш 20с · **Worker+Pages** · `?v=7111584`
-- [~] **Статистика ПП себест 2026-08-15:** в getStats к ПП добавлены свет 11р/чел + доставка 6р (как в calc); UI разбивка · **Pages** · **нужен Deploy Code.gs**
-- [~] **Бойня C speed+phantoms 2026-08-14:** apiGet шлёт cutover=1; кнопки без sync-wait; Просмотр/getStats из GAS; D1 не держит seed · **Worker+Pages** · hard refresh `?v=7111584`
-- [~] **Бойня C cutover prod-ready 2026-08-14:** UI=main **v7.11.158c1** + Worker: write→POST, getMyAccess из GAS, optimistic D1 после save/move/delete (без «пустых позиций»), warehouse/access OK · **Worker Deploy OK** · **нужен Deploy Code.gs** (опросники/склад GS 152–158)
-- [~] **Бойня C опросники spam-fix 2026-08-14:** 3 пуша — lock тика + 1 пуш/ник/сутки + не спамить всем owner; repair не меняет sv_* · **нужен Deploy Code.gs** · тест `zzz_test` cancelled
-- [~] **Бойня C опросники cutover 2026-08-14:** listSurvey → GAS; POST→GET Location; forceSurveyRemind в git · **Worker** · **нужен Deploy Code.gs**
+- [x] **Бойня C Просмотр speed 2026-08-15:** getViewCompare снова из D1+SWR (не ждать GAS 10–40с); UI кэш 20с · **Worker+Pages** · `?v=7111584`
+- [x] **Статистика ПП себест 2026-08-15:** в getStats к ПП добавлены свет 11р/чел + доставка 6р (как в calc); UI разбивка · **Pages** · **Deploy OK** (live: свет+доставки в fact)
+- [x] **Бойня C speed+phantoms 2026-08-14:** apiGet шлёт cutover=1; кнопки без sync-wait; Просмотр D1+SWR / getStats из GAS; D1 не держит seed · **Worker+Pages** · `?v=7111584`
+- [x] **Бойня C cutover prod-ready 2026-08-14:** UI=main **v7.11.158c4** + Worker: write→POST, getMyAccess из GAS, optimistic D1 после save/move/delete · **Worker Deploy OK** · **Deploy Code.gs OK**
+- [x] **Бойня C опросники spam-fix 2026-08-14:** 3 пуша — lock тика + 1 пуш/ник/сутки + не спамить всем owner; repair не меняет sv_* · **Deploy OK** · тест `zzz_test` cancelled
+- [x] **Бойня C опросники cutover 2026-08-14:** listSurvey → GAS; POST→GET Location; forceSurveyRemind · **Worker** · **Deploy OK**
 - [~] **Бойня C cutover LIVE QA 2026-08-13:** записи `zzz_test` OK; suggestAddress Nominatim; danger block; пустая нарезка→GAS · UI по кнопкам доводим
-- [~] **UI+GS v7.11.158:** склад жевалки — база БОЛЬШОЙ=1 как в формулах листа (ОГР=2…ОЧ=0.125); было ×2 от «средних» — **Pages** · **нужен Deploy Code.gs**
-- [~] **UI+GS v7.11.157:** поиск адресов — пригороды/НП (Колодищи/голодищи, Боровляны…), шире Минск+район, без bounded-отреза — **Pages** · **нужен Deploy Code.gs**
-- [~] **UI+GS v7.11.156:** склад — градация жевалок в учётных средних (ОГР=4…ОЧ МАЛ=0.25; трахея/жила/аорта/ухо) — **Pages** · **нужен Deploy Code.gs**
-- [~] **UI+GS v7.11.155:** поиск адресов — склейка «улица+дом», жёсткий Минск/viewbox, отсев чужих улиц (Photon врал) — **Pages** · **нужен Deploy Code.gs**
-- [~] **UI+GS v7.11.154:** склад дефицит — любые даты (не только текущая неделя): лист Приём/Будущая + Календарь_Дат — **Pages** · **нужен Deploy Code.gs**
-- [~] **UI+GS v7.11.153:** склад дефицит — план (сухое) vs нужно сырья (÷коэф); «есть» минус прошедшие дни недели; не врёт «хватает» в середине недели — **Pages** · **нужен Deploy Code.gs**
-- [~] **UI+GS v7.11.152:** склад — выбор дат с/по для дефицита, таблица позиций «нужно/есть» без колонки дефицита; то же в сообщении дозакупа — **Pages** · **нужен Deploy Code.gs**
-- [~] **UI+GS v7.11.151:** поиск адресов — приоритет дома (не только улица): разбор «X 12»/«д.12», Nominatim structured street+house, ранжирование с домом сверху — **Pages** · **нужен Deploy Code.gs**
+- [x] **UI+GS v7.11.158:** склад жевалки — база БОЛЬШОЙ=1 как в формулах листа (ОГР=2…ОЧ=0.125); было ×2 от «средних» — **Pages** · **Deploy OK**
+- [x] **UI+GS v7.11.157:** поиск адресов — пригороды/НП (Колодищи/голодищи, Боровляны…), шире Минск+район, без bounded-отреза — **Pages** · **Deploy OK**
+- [x] **UI+GS v7.11.156:** склад — градация жевалок в учётных средних (ОГР=4…ОЧ МАЛ=0.25; трахея/жила/аорта/ухо) — **Pages** · **Deploy OK**
+- [x] **UI+GS v7.11.155:** поиск адресов — склейка «улица+дом», жёсткий Минск/viewbox, отсев чужих улиц (Photon врал) — **Pages** · **Deploy OK**
+- [x] **UI+GS v7.11.154:** склад дефицит — любые даты (не только текущая неделя): лист Приём/Будущая + Календарь_Дат — **Pages** · **Deploy OK**
+- [x] **UI+GS v7.11.153:** склад дефицит — план (сухое) vs нужно сырья (÷коэф); «есть» минус прошедшие дни недели; не врёт «хватает» в середине недели — **Pages** · **Deploy OK**
+- [x] **UI+GS v7.11.152:** склад — выбор дат с/по для дефицита, таблица позиций «нужно/есть» без колонки дефицита; то же в сообщении дозакупа — **Pages** · **Deploy OK**
+- [x] **UI+GS v7.11.151:** поиск адресов — приоритет дома (не только улица): разбор «X 12»/«д.12», Nominatim structured street+house, ранжирование с домом сверху — **Pages** · **Deploy OK**
 - [x] **UI varka v3.0.9:** у позиций лакомств убрана буква «г» (карточка / пресеты / своё) — **Pages**
 - [~] **Varka v3.0.8:** как было — owner first / все точки; `@one_more_person_228` обычный owner; сняты allowlist и тест-Access (V7) — **Pages** · **нужен Deploy Code.gs**
 - [~] **Varka v3.0.7:** убран блок «тест партнёров» — **Pages** · **нужен Deploy Code.gs**
