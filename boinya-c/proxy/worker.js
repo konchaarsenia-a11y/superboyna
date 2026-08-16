@@ -1221,6 +1221,64 @@ function unwrapGas_(text) {
   return JSON.parse(m ? m[1] : s);
 }
 
+async function cutoverGetMyAccess_(params, env, ctx) {
+  const tid = String((params && params.telegramId) || "").trim();
+  const snapKey = tid ? "access:" + tid : "";
+  let snap = null;
+  if (snapKey && env && env.DB) {
+    try {
+      snap = await getSnapRaw_(env, snapKey);
+    } catch (e0) {
+      snap = null;
+    }
+  }
+  const snapOk =
+    snap &&
+    snap.status === "success" &&
+    snap.role &&
+    snap.role !== "none" &&
+    (!tid || !snap.telegramId || String(snap.telegramId) === tid);
+
+  async function fetchLive_() {
+    const live = await gasProxy_("getMyAccess", params, env, { write: false });
+    if (live && live.status === "success" && snapKey && env && env.DB) {
+      try {
+        const toStore = Object.assign({}, live, {
+          telegramId: tid || live.telegramId || "",
+          cachedAt: new Date().toISOString()
+        });
+        await putSnap_(env, snapKey, toStore);
+      } catch (eS) {}
+    }
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+    }
+    return live;
+  }
+
+  if (snapOk) {
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async function () {
+          try {
+            await fetchLive_();
+          } catch (eR) {}
+        })()
+      );
+    }
+    snap.cutover = true;
+    snap.swr = true;
+    snap.fromGas = false;
+    snap.sandbox = false;
+    return snap;
+  }
+
+  const live = await fetchLive_();
+  if (live && typeof live === "object") return live;
+  return { status: "error", message: "gas_proxy_failed", cutover: true, action: "getMyAccess" };
+}
+
 async function handleCutover_(a, params, env, ctx) {
   if (
     (a === "finishFullWeek" || a === "materializeWeek" || a === "closeAllOpenDeficits") &&
@@ -1259,9 +1317,12 @@ async function handleCutover_(a, params, env, ctx) {
     return proxied;
   }
 
-  // подсказки / калькуляции / экспорт / задачи / опросники / доступ — живой GAS
-  // (listSurvey/getMyAccess в D1 часто отстают или были stub role:all)
-  // getViewCompare — НЕ здесь: иначе Просмотр ждёт GAS 10–40с; D1+SWR ниже
+  // подсказки / калькуляции / экспорт / задачи / опросники — живой GAS
+  // getMyAccess — отдельно: D1 snap по telegramId + SWR (иначе TG ждёт GAS ~4с на каждый вход)
+  // getViewCompare — D1+SWR ниже
+  if (a === "getMyAccess") {
+    return cutoverGetMyAccess_(params, env, ctx);
+  }
   if (
     a === "suggestAddress" ||
     a === "lookupBpPartner" ||
@@ -1276,7 +1337,6 @@ async function handleCutover_(a, params, env, ctx) {
     a === "composeWarehouseBuyMessage" ||
     a === "listBookings" ||
     a === "listSurvey" ||
-    a === "getMyAccess" ||
     a === "partnerListAdmin"
   ) {
     if (a === "suggestAddress") {
@@ -1288,7 +1348,6 @@ async function handleCutover_(a, params, env, ctx) {
       live.fromGas = true;
       if (
         (a === "listSurvey" ||
-          a === "getMyAccess" ||
           a === "partnerListAdmin" ||
           a === "getStats") &&
         live.status === "success" &&

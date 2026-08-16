@@ -1,4 +1,5 @@
-- [x] **Бойня C Просмотр speed 2026-08-15:** getViewCompare снова из D1+SWR (не ждать GAS 10–40с); UI кэш 20с · **Worker+Pages** · `?v=7111584`
+- [~] **Бойня C TG speed 2026-08-16:** index.html v совпадал со старым → двойной reload ~1MB в WebView; getMyAccess D1+SWR · **Worker+Pages** · Menu URL `app.html?cutover=1&v=7111585`
+- [x] **Бойня C Просмотр speed 2026-08-15:** getViewCompare снова из D1+SWR (не ждать GAS 10–40с); UI кэш 20с · **Worker+Pages** · `?v=7111585`
 - [x] **Статистика ПП себест 2026-08-15:** в getStats к ПП добавлены свет 11р/чел + доставка 6р (как в calc); UI разбивка · **Pages** · **Deploy OK** (live: свет+доставки в fact)
 - [x] **Бойня C speed+phantoms 2026-08-14:** apiGet шлёт cutover=1; кнопки без sync-wait; Просмотр D1+SWR / getStats из GAS; D1 не держит seed · **Worker+Pages** · `?v=7111584`
 - [x] **Бойня C cutover prod-ready 2026-08-14:** UI=main **v7.11.158c4** + Worker: write→POST, getMyAccess из GAS, optimistic D1 после save/move/delete · **Worker Deploy OK** · **Deploy Code.gs OK**
