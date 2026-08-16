@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c8";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c9";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -11254,7 +11254,22 @@
       showToast("Неделя закрыта. Пн: " + (res.mondayDate || "ок") +
         (addedN ? (" · из месяца +" + addedN) : ""));
       try { logLearnEvent("finishFullWeek", { weekKey: wk, mondayDate: res.mondayDate || "", materializeAdded: addedN }); } catch (e2) {}
+      try { apiCacheBustMem_(); } catch (eClr2) {}
+      // Worker D1 ещё со старой неделей — принудительно подтянуть GAS
+      try {
+        await apiGet({ action: "getWeekDayCounts", force: "1", _: String(Date.now()) }, { timeoutMs: 45000, cacheTtlMs: 0 });
+      } catch (eCnt) {}
+      viewWeekOverviewCache = null;
+      viewMonthOverviewCache = null;
+      try { await ensureWeekOverviewLoaded_({ force: true }); } catch (eW) {}
       refreshWeekBanners();
+      try {
+        await uiAlertAsync(
+          "Неделя закрыта.\n\nНовый понедельник: " + (res.mondayDate || "—") +
+          (addedN ? ("\nИз месяца дописано: +" + addedN) : "") +
+          "\n\nЕсли экран ещё старый — закрой Mini App и открой снова."
+        );
+      } catch (eA) {}
     }
 
     async function refuseFinishWeek() {

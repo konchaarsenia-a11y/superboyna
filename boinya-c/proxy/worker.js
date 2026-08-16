@@ -1386,6 +1386,7 @@ async function handleCutover_(a, params, env, ctx) {
   }
 
   // подсказки / калькуляции / экспорт / задачи / опросники — живой GAS
+  // getWeekDayCounts — всегда GAS: после finishFullWeek D1 иначе месяцами врёт даты
   // getMyAccess — отдельно: D1 snap по telegramId + SWR (иначе TG ждёт GAS ~4с на каждый вход)
   // getViewCompare — D1+SWR ниже
   if (a === "getMyAccess") {
@@ -1405,7 +1406,9 @@ async function handleCutover_(a, params, env, ctx) {
     a === "composeWarehouseBuyMessage" ||
     a === "listBookings" ||
     a === "listSurvey" ||
-    a === "partnerListAdmin"
+    a === "partnerListAdmin" ||
+    a === "getWeekDayCounts" ||
+    a === "getWeekBannerState"
   ) {
     if (a === "suggestAddress") {
       return suggestAddressCutover_(params, env);
@@ -1417,7 +1420,9 @@ async function handleCutover_(a, params, env, ctx) {
       if (
         (a === "listSurvey" ||
           a === "partnerListAdmin" ||
-          a === "getStats") &&
+          a === "getStats" ||
+          a === "getWeekDayCounts" ||
+          a === "getWeekBannerState") &&
         live.status === "success" &&
         env &&
         env.DB
@@ -1425,6 +1430,10 @@ async function handleCutover_(a, params, env, ctx) {
         try {
           await cutoverStoreRead_(a, params, env, live);
         } catch (eSv) {}
+      }
+      // после сдвига недели — сразу перетянуть все дни в D1
+      if (a === "getWeekDayCounts" && live.status === "success" && ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(cutoverRefreshAllWeekDays_(env));
       }
       return live;
     }
@@ -1846,6 +1855,22 @@ async function cutoverRevalidate_(a, params, env) {
     const fresh = await gasProxy_(a, params, env, { write: false });
     if (fresh && fresh.status === "success") await cutoverStoreRead_(a, params, env, fresh);
   } catch (e) {}
+}
+
+async function cutoverRefreshAllWeekDays_(env) {
+  if (!env || !env.DB) return;
+  for (let i = 0; i < WEEK_DAYS.length; i++) {
+    const day = WEEK_DAYS[i];
+    try {
+      const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
+      if (fresh && fresh.status === "success") {
+        await cutoverStoreRead_("getClients", { day: day }, env, fresh);
+      }
+    } catch (eDay) {}
+  }
+  try {
+    await rebuildWeekCounts_(env);
+  } catch (eC) {}
 }
 
 async function cutoverAfterWrite_(a, params, env, writeRes) {
