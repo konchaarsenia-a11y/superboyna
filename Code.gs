@@ -13398,11 +13398,16 @@ function findAllSubscriptionRowIndexes_(sh, nick, subId) {
     if (!cell) continue;
     if (/^себестоим/i.test(cell) || /^стоимость\s*100/i.test(cell) || /^итого$/i.test(cell)) continue;
     if (/^(id|ник|nick|клиент|client)$/i.test(cell)) continue;
+    var idOk = wantId ? sanitizeSubId_(data[r][1]) === wantId : false;
+    var nickOk = false;
+    if (wantNick && (nicksMatch_(cell, wantNick) || cell === wantNick)) nickOk = true;
+    if (!nickOk && wantNick2 && nicksMatch_(cell, wantNick2)) nickOk = true;
+    if (!nickOk && wantNick && nicksMatch_(extractInstagramNick_(cell) || "", wantNick)) nickOk = true;
+    // Если переданы и ник, и subId — нужны ОБА (иначе чужой subId сносит лишние строки)
     var hit = false;
-    if (wantId && sanitizeSubId_(data[r][1]) === wantId) hit = true;
-    if (!hit && wantNick && (nicksMatch_(cell, wantNick) || cell === wantNick)) hit = true;
-    if (!hit && wantNick2 && nicksMatch_(cell, wantNick2)) hit = true;
-    if (!hit && wantNick && nicksMatch_(extractInstagramNick_(cell) || "", wantNick)) hit = true;
+    if (wantId && wantNick) hit = idOk && nickOk;
+    else if (wantId) hit = idOk;
+    else if (wantNick) hit = nickOk;
     if (hit) out.push(r);
   }
   return out;
@@ -13640,12 +13645,17 @@ function deleteSubscriptionRowsFast_(crmSs, sheetName, nick, subId) {
   var deletedFrom = [];
   var total = 0;
   var tried = [];
+  nick = String(nick || "").trim();
+  subId = String(subId || "").trim();
   for (var s = 0; s < sheets.length; s++) {
     var sh = sheets[s];
     tried.push(sh.getName());
-    var idxs = findAllSubscriptionRowIndexes_(sh, nick, subId);
+    // С ником: сначала ник+id, потом только ник. НЕ откатываемся на «только subId» —
+    // иначе чужой id сносит другого человека / пачку.
+    var idxs = [];
+    if (nick && subId) idxs = findAllSubscriptionRowIndexes_(sh, nick, subId);
     if (!idxs.length && nick) idxs = findAllSubscriptionRowIndexes_(sh, nick, "");
-    if (!idxs.length && subId) idxs = findAllSubscriptionRowIndexes_(sh, "", subId);
+    if (!idxs.length && !nick && subId) idxs = findAllSubscriptionRowIndexes_(sh, "", subId);
     if (!idxs.length) continue;
     idxs.sort(function (a, b) { return b - a; });
     for (var i = 0; i < idxs.length; i++) {
