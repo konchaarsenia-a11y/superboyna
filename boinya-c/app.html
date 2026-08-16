@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C · sandbox</title>
-  <link rel="preload" href="app.main.js?v=7111592" as="script">
+  <link rel="preload" href="app.main.js?v=7111593" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.158c12";
+      var APP_VER = "v7.11.158c13";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1552,6 +1552,10 @@
         <button type="button" class="order-day-chip is-empty" disabled><span class="odc-label">Пт</span><span class="odc-count">·</span></button>
         <button type="button" class="order-day-chip is-empty" disabled><span class="odc-label">Буд</span><span class="odc-count">·</span></button>
       </div>
+      <div id="weekSkewBanner" class="week-banner" style="display:none;border-color:#ff9f0a;">
+        <h3 style="color:#ff9f0a;">Даты недели уехали</h3>
+        <div class="muted" id="weekSkewText">На листе не та неделя. Нарезка/курьер/приём смотрят на неё.</div>
+      </div>
       <div id="finishWeekBanner" class="week-banner" style="display:none;">
         <h3>Завершить неделю?</h3>
         <div class="muted">Склад (F/B), даты +7, очистка Пн–Вс, Будущая→Пн. Только владелец. Вс (весь день) или пн до 12:00. Кнопка также всегда во вкладке «Доступы».</div>
@@ -2697,6 +2701,6 @@
   </div>
   <div class="toast" id="appToast"></div>
 
-  <script src="app.main.js?v=7111592" defer></script>
+  <script src="app.main.js?v=7111593" defer></script>
 </body>
 </html>
