@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c6";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c7";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -11171,6 +11171,13 @@
       if (!ok) return;
       var ok2 = await uiConfirmAsync("Точно закрыть неделю сейчас?");
       if (!ok2) return;
+      if (window.__BOINYA_C_CUTOVER__) {
+        var ok3 = await uiConfirmAsync(
+          "Бойня C · LIVE\n\nЗакрытие уйдёт в боевые Google Sheets.\n" +
+          "Это не песочница. Продолжить?"
+        );
+        if (!ok3) return;
+      }
       var tid = String(myTelegramId || "").trim();
       if (!tid) {
         try {
@@ -11187,8 +11194,16 @@
       var res = null;
       try {
         try { apiCacheBustMem_(); } catch (eClr) {}
+        var finishPayload = {
+          action: "finishFullWeek",
+          telegramId: tid,
+          confirm: "1",
+          weekKey: currentWeekKeyLocal()
+        };
+        // cutover Worker без allowDanger=1 отвечает cutover_danger_blocked
+        if (window.__BOINYA_C_CUTOVER__) finishPayload.allowDanger = "1";
         res = await apiGet(
-          { action: "finishFullWeek", telegramId: tid, confirm: "1", weekKey: currentWeekKeyLocal() },
+          finishPayload,
           { timeoutMs: 120000, cacheTtlMs: 0 }
         );
       } catch (e1) {
@@ -11200,7 +11215,13 @@
         if (msg === "owner_only") msg = "Только владелец (Deploy Code.gs + доступ owner).";
         if (msg === "need_confirm") msg = "Нет подтверждения.";
         if (msg === "unknown_action") msg = "Нужен Deploy Code.gs с action finishFullWeek.";
-        await uiAlertAsync("Не закрылось: " + msg);
+        if (msg === "cutover_danger_blocked") {
+          msg = "Cutover заблокировал закрытие. Обнови Mini App (новая версия) и повтори.";
+        }
+        if (msg === "sandbox_no_prod_week") {
+          msg = "Открыто без cutover=1 (песочница) — в боевые Sheets не пишет. Открой с ?cutover=1";
+        }
+        await uiAlertAsync("Не закрылось: " + msg + (res && res.tip ? ("\n" + res.tip) : ""));
         return;
       }
       var wk = currentWeekKeyLocal();

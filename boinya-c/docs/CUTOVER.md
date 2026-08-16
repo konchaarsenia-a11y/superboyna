@@ -2,12 +2,12 @@
 
 ## Как открыть
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111586
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111587
 
 Hard refresh. Бейдж **C · LIVE**.
 
 В Telegram Menu Button лучше сразу:
-`.../boinya-c/app.html?cutover=1&v=7111586`
+`.../boinya-c/app.html?cutover=1&v=7111587`
 (без лишнего редиректа через index.html).
 
 ## Как это устроено сейчас
@@ -16,7 +16,14 @@ Hard refresh. Бейдж **C · LIVE**.
 |--|--|
 | **Чтение** | сразу из D1 (быстро), в фоне подтягивается GAS |
 | **Запись** | в боевой GAS/Sheets, потом D1 обновляется |
-| Опасные week-actions | только с `allowDanger=1` |
+| Опасные week-actions | UI «Завершить неделю» после 3 подтверждений шлёт `allowDanger=1` → GAS |
+
+## Закрыть неделю
+
+1. Открыть с `?cutover=1`, роль **owner**
+2. Люди / баннер → **Завершить неделю**
+3. Три раза подтвердить (в т.ч. «LIVE → Sheets»)
+4. Ждать до ~1–2 мин (GAS тяжёлый)
 
 Тест только на **`zzz_test`**.
 
