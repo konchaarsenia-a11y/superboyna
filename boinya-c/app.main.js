@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c10";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c11";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -11259,10 +11259,16 @@
         (addedN ? (" · из месяца +" + addedN) : ""));
       try { logLearnEvent("finishFullWeek", { weekKey: wk, mondayDate: res.mondayDate || "", materializeAdded: addedN }); } catch (e2) {}
       try { apiCacheBustMem_(); } catch (eClr2) {}
-      // Worker D1 ещё со старой неделей — принудительно подтянуть GAS
+      // Worker D1 ещё со старой неделей — принудительно подтянуть GAS (+ сброс нарезки/курьера)
       try {
         await apiGet({ action: "getWeekDayCounts", force: "1", _: String(Date.now()) }, { timeoutMs: 45000, cacheTtlMs: 0 });
       } catch (eCnt) {}
+      try {
+        // доп. пинок: пустые ops-экраны не должны показывать «завершено» из mem
+        cuttingCompletionCache = null;
+        cuttingItemsCache = [];
+        courierClientsCache = [];
+      } catch (eMem) {}
       viewWeekOverviewCache = null;
       viewMonthOverviewCache = null;
       try { await ensureWeekOverviewLoaded_({ force: true }); } catch (eW) {}
