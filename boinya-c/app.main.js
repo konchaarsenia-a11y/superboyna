@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c11";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c12";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -11828,9 +11828,10 @@
       showToast("Удаляю " + targets.length + "…");
       var items = targets.map(function (t) {
         return {
+          // Только ник: subId+ник раньше матчились через ИЛИ и могли снести чужие строки.
+          // После Deploy Code.gs AND-матч безопасен; ник достаточнен для удаления.
           nick: t.label || t.nick || "",
-          label: t.label || t.nick || "",
-          subId: t.subId || ""
+          label: t.label || t.nick || ""
         };
       });
       var res = null;
@@ -12026,9 +12027,29 @@
       try { ensureStatsExpectDates_(); } catch (eD) {}
       var hasCache = !!window._statsCacheHtml;
 
+      function applyStatsRes_(res) {
+        if (!res || res.status !== "success") return false;
+        if (!res.factCutoff) res._oldDeploy = true;
+        var html = renderStatsDashboard_(res);
+        window._statsCacheHtml = html;
+        window._statsCacheAt = Date.now();
+        box.innerHTML = html;
+        return true;
+      }
+
       if (!opts.force && hasCache) {
         box.innerHTML = window._statsCacheHtml;
-        if (opts.soft) return;
+        if (opts.soft) {
+          // фон: обновить без лоадера
+          apiGet({
+            action: "getStats",
+            period: "month",
+            _: String(Date.now())
+          }, { timeoutMs: 60000, cacheTtlMs: 120000, retries: 0 }).then(function (res) {
+            try { applyStatsRes_(res); } catch (eBg) {}
+          }).catch(function () {});
+          return;
+        }
       } else if (!hasCache) {
         box.innerHTML = simpleLoadingHtml("Считаю месяц…");
       } else if (opts.force) {
@@ -12036,12 +12057,16 @@
           '<div class="muted" id="statsRefreshHint" style="font-size:12px;margin-bottom:8px;">Обновляю…</div>');
       }
       try {
-        var res = await apiGet({
-          action: "getStats",
-          period: "month",
-          force: opts.force ? "1" : ""
-        }, { timeoutMs: 45000, cacheTtlMs: opts.force ? 0 : 600000 });
-        if (!res || res.status !== "success") {
+        var statsParams = { action: "getStats", period: "month" };
+        if (opts.force) {
+          statsParams.force = "1";
+          statsParams._ = String(Date.now());
+        }
+        var res = await apiGet(statsParams, {
+          timeoutMs: opts.force ? 90000 : 20000,
+          cacheTtlMs: opts.force ? 0 : 120000
+        });
+        if (!applyStatsRes_(res)) {
           if (!hasCache) {
             box.innerHTML = '<p class="muted">Статистика не ответила. Нужен Deploy Code.gs.</p>';
           } else {
@@ -12050,14 +12075,6 @@
           }
           return;
         }
-
-        if (!res.factCutoff) {
-          res._oldDeploy = true;
-        }
-        var html = renderStatsDashboard_(res);
-        window._statsCacheHtml = html;
-        window._statsCacheAt = Date.now();
-        box.innerHTML = html;
       } catch (e) {
         if (!hasCache) box.innerHTML = '<p class="muted">Нет данных / нужен деплой бэкенда</p>';
       }

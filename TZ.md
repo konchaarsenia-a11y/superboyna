@@ -1,3 +1,4 @@
+- [~] **Статистика SWR + БП delete-safe 2026-08-16:** getStats D1+SWR (~мс); удаление БП только по нику (не OR subId); Code.gs AND-матч · Worker+Pages `v=7111592` · **Deploy Code.gs** для AND на листе
 - [~] **Нарезка/курьер «день завершён» после смены недели 2026-08-16:** D1 snap по имени дня тащил completion/delivered со старой даты; сброс ops при refresh + GAS clear CUT_DONE/laid · **Worker Deploy** · Pages `v=7111591` · **нужен Deploy Code.gs**
 - [~] **Счётчики Приём + откат дат 2026-08-16:** D1 sync/mismatch→GAS; `repairWeekMonday` откат A1 (после мульти-finish на 07.09) · **нужен Deploy Code.gs** · Pages
 - [~] **finish week sync 2026-08-16:** после закрытия недели getWeekDayCounts из GAS + refresh D1; UI алерт с новой датой Пн · Pages

@@ -84,7 +84,9 @@ export default {
 function isCutoverLive_(params, env, url) {
   if (env && (env.CUTOVER === "1" || env.CUTOVER === "true")) return true;
   const p = params || {};
-  if (p.cutover === "1" || p.cutover === "true" || p.mode === "live") return true;
+  // UI/JSON иногда шлёт число 1, не строку "1"
+  if (p.cutover === "1" || p.cutover === "true" || p.cutover === 1 || p.cutover === true) return true;
+  if (p.mode === "live") return true;
   try {
     if (url && url.searchParams.get("cutover") === "1") return true;
   } catch (e) {}
@@ -1360,6 +1362,74 @@ async function cutoverGetMyAccess_(params, env, ctx) {
   return { status: "error", message: "gas_proxy_failed", cutover: true, action: "getMyAccess" };
 }
 
+/** Статистика: D1 сразу (~мс), GAS в фоне. force=1 — только GAS. */
+async function cutoverGetStats_(params, env, ctx) {
+  const force = String((params && params.force) || "") === "1" || (params && params.force) === true;
+  const mode = String((params && (params.mode || params.expected)) || "").toLowerCase();
+  // expected/range — всегда живой GAS (другие даты)
+  if (
+    force ||
+    mode === "expected" ||
+    mode === "expect" ||
+    mode === "range" ||
+    (params && (params.dateFrom || params.fromDate || params.from)) ||
+    (params && (params.expected === "1" || params.expected === 1 || params.expected === true))
+  ) {
+    const live = await gasProxy_("getStats", params, env, { write: false });
+    if (live && live.status === "success" && env && env.DB && !mode && !params.dateFrom && !params.fromDate) {
+      try {
+        await putSnap_(env, "getStats", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+      } catch (eS) {}
+    }
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+      live.sandbox = false;
+    }
+    return live || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
+  }
+
+  const snap = await getSnapRaw_(env, "getStats");
+  const snapOk = snap && snap.status === "success" && (snap.fact || snap.bp || snap.month);
+
+  async function fetchLive_() {
+    const live = await gasProxy_("getStats", params || {}, env, { write: false });
+    if (live && live.status === "success" && env && env.DB) {
+      try {
+        await putSnap_(env, "getStats", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+      } catch (eS) {}
+    }
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+      live.sandbox = false;
+    }
+    return live;
+  }
+
+  if (snapOk) {
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async function () {
+          try {
+            await fetchLive_();
+          } catch (eR) {}
+        })()
+      );
+    }
+    const out = Object.assign({}, snap);
+    out.cutover = true;
+    out.swr = true;
+    out.fromGas = false;
+    out.sandbox = false;
+    return out;
+  }
+
+  const live = await fetchLive_();
+  if (live && typeof live === "object") return live;
+  return { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
+}
+
 async function handleCutover_(a, params, env, ctx) {
   // Опасные действия: пускаем при allowDanger=1 ИЛИ confirm=1
   // (старый UI на Pages мог не слать allowDanger → cutover_danger_blocked)
@@ -1390,6 +1460,8 @@ async function handleCutover_(a, params, env, ctx) {
         await deleteClient_(params, env);
       } else if (/^moveClient$/i.test(a) && env && env.DB) {
         await moveClient_(params, env);
+      } else if (/^(deleteSubscription|deleteSubscriptionBatch)$/i.test(a) && env && env.DB) {
+        await deleteSubscription_(params, env);
       }
     } catch (eOpt) {}
     if (ctx && typeof ctx.waitUntil === "function") {
@@ -1409,6 +1481,10 @@ async function handleCutover_(a, params, env, ctx) {
   if (a === "getMyAccess") {
     return cutoverGetMyAccess_(params, env, ctx);
   }
+  // getStats — тяжёлый GAS (~10с): D1 сразу + SWR в фоне (как getMyAccess)
+  if (a === "getStats") {
+    return cutoverGetStats_(params, env, ctx);
+  }
   if (
     a === "suggestAddress" ||
     a === "lookupBpPartner" ||
@@ -1418,7 +1494,6 @@ async function handleCutover_(a, params, env, ctx) {
     a === "getPpOrderSuggest" ||
     a === "exportStats" ||
     a === "getExpectedProfit" ||
-    a === "getStats" ||
     a === "getTransferTask" ||
     a === "composeWarehouseBuyMessage" ||
     a === "listBookings" ||
@@ -1437,7 +1512,6 @@ async function handleCutover_(a, params, env, ctx) {
       if (
         (a === "listSurvey" ||
           a === "partnerListAdmin" ||
-          a === "getStats" ||
           a === "getWeekDayCounts" ||
           a === "getWeekBannerState") &&
         live.status === "success" &&
@@ -2249,14 +2323,39 @@ async function upsertSubscription_(params, env) {
 async function deleteSubscription_(params, env) {
   let list = (await getSnapRaw_(env, "listSubscriptions")) || { status: "success", subscriptions: [] };
   let arr = list.subscriptions || list.items || [];
+  let items = params.items || params.targets || params.nicks || [];
+  if (typeof items === "string") {
+    try {
+      items = JSON.parse(items);
+    } catch (eJ) {
+      items = [];
+    }
+  }
+  if (!Array.isArray(items)) items = [];
   const nicks = []
-    .concat(params.nicks || [], params.nick ? [params.nick] : [], params.ids || [])
-    .map(String);
+    .concat(
+      items.map(function (it) {
+        if (typeof it === "string") return it;
+        return (it && (it.nick || it.label || it.client || it.name)) || "";
+      }),
+      params.nicks || [],
+      params.nick ? [params.nick] : [],
+      params.ids || []
+    )
+    .map(String)
+    .filter(Boolean);
   const keys = nicks.map(normalizeMatchKey_);
+  if (!keys.length) {
+    return { status: "error", message: "need_nick", sandbox: true };
+  }
   const before = arr.length;
+  const sheetWant = String(params.sheet || params.segment || "").trim().toUpperCase();
   arr = arr.filter(function (it) {
     const k = normalizeMatchKey_(it.nick || it.name || it.subId || it.id);
-    return keys.indexOf(k) < 0;
+    if (keys.indexOf(k) < 0) return true;
+    if (!sheetWant) return false;
+    const sh = String(it.sheet || it.segment || "").trim().toUpperCase();
+    return sh && sh !== sheetWant;
   });
   list.subscriptions = arr;
   list.count = arr.length;
