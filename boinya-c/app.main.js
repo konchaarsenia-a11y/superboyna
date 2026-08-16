@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c12";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c13";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -10893,6 +10893,53 @@
           '<span class="odc-count">' + escapeHtml(String(n)) + "</span>" +
           "</button>";
       }).join("");
+      try { updateWeekSkewBanner_(items); } catch (eSkew) {}
+    }
+
+    function parseDmyToDate_(raw) {
+      var s = String(raw || "").trim();
+      var m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+      if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+        var p = s.slice(0, 10).split("-");
+        return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+      }
+      return null;
+    }
+
+    function updateWeekSkewBanner_(items) {
+      var ban = document.getElementById("weekSkewBanner");
+      var txt = document.getElementById("weekSkewText");
+      if (!ban) return;
+      var mon = null;
+      (items || []).forEach(function (it) {
+        if (it && String(it.day) === "Понедельник") mon = it;
+      });
+      if (!mon || !mon.date) {
+        ban.style.display = "none";
+        return;
+      }
+      var d = parseDmyToDate_(mon.date);
+      if (!d || isNaN(d.getTime())) {
+        ban.style.display = "none";
+        return;
+      }
+      var today = new Date();
+      today.setHours(0, 0, 0, 0);
+      d.setHours(0, 0, 0, 0);
+      var diffDays = Math.round((d.getTime() - today.getTime()) / 86400000);
+      // норма: Пн этой/прошлой/следующей недели (±10 дней от сегодня)
+      if (diffDays >= -10 && diffDays <= 14) {
+        ban.style.display = "none";
+        return;
+      }
+      ban.style.display = "block";
+      if (txt) {
+        txt.textContent =
+          "На листе понедельник " + String(mon.date) +
+          " (сейчас должно быть около текущей недели). " +
+          "Приём/нарезка/курьер показывают эту дату. Нужен Deploy Code.gs → repairWeekMonday на 17.08.2026.";
+      }
     }
 
     function selectOrderDayFromCount_(dayName) {
@@ -18846,13 +18893,19 @@
         var dayEl = document.getElementById("day");
         var dayName = dayEl && dayEl.value ? String(dayEl.value) : "";
         if (dayName) {
-          apiGet({ action: "getClients", day: dayName }, { retries: 0 }).catch(function () {});
-          apiGet({ action: "getWeekDayCounts" }, { retries: 0 }).catch(function () {});
+          apiGet({ action: "getClients", day: dayName }, { retries: 0, cacheTtlMs: 20000 }).catch(function () {});
         }
-        apiGet({ action: "getWeekBannerState" }, { retries: 0 }).catch(function () {});
-        if (APP_ROLE === "cutter" || APP_ROLE === "owner" || APP_ROLE === "all") {
-          var cutDay = (document.getElementById("cuttingDay") || {}).value || dayName;
-          if (cutDay) apiGet({ action: "getCutting", day: cutDay }, { retries: 0 }).catch(function () {});
+        apiGet({ action: "getWeekDayCounts" }, { retries: 0, cacheTtlMs: 30000 }).catch(function () {});
+        apiGet({ action: "getWeekBannerState" }, { retries: 0, cacheTtlMs: 30000 }).catch(function () {});
+        apiGet({ action: "getStats", period: "month" }, { retries: 0, cacheTtlMs: 120000 }).catch(function () {});
+        apiGet({ action: "listSubscriptions" }, { retries: 0, cacheTtlMs: 60000 }).catch(function () {});
+        if (APP_ROLE === "cutter" || APP_ROLE === "owner" || APP_ROLE === "all" || APP_ROLE === "courier") {
+          var cutSel = document.getElementById("cuttingDaySelect");
+          var cutDay = (cutSel && cutSel.value) || dayName;
+          if (cutDay) apiGet({ action: "getCutting", day: cutDay }, { retries: 0, cacheTtlMs: 20000 }).catch(function () {});
+          var courSel = document.getElementById("courierDaySelect");
+          var courDay = (courSel && courSel.value) || dayName;
+          if (courDay) apiGet({ action: "getCourier", day: courDay }, { retries: 0, cacheTtlMs: 20000 }).catch(function () {});
         }
       } catch (ePf) {}
     }

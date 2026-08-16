@@ -1430,6 +1430,70 @@ async function cutoverGetStats_(params, env, ctx) {
   return { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
 }
 
+/** Универсальный D1+SWR для тяжёлых GAS-чтений. */
+async function cutoverSwrGas_(action, params, env, ctx, opts) {
+  opts = opts || {};
+  const force =
+    String((params && params.force) || "") === "1" ||
+    (params && (params.force === true || params.force === 1));
+  const snapKey = opts.snapKey || action;
+
+  async function fetchLive_() {
+    const live = await gasProxy_(action, params || {}, env, { write: false });
+    if (live && live.status === "success" && env && env.DB) {
+      try {
+        const toStore = Object.assign({}, live, { cachedAt: new Date().toISOString() });
+        await putSnap_(env, snapKey, toStore);
+        if (typeof opts.afterStore === "function") {
+          try {
+            await opts.afterStore(live, env);
+          } catch (eA) {}
+        }
+      } catch (eS) {}
+    }
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+      live.sandbox = false;
+    }
+    return live;
+  }
+
+  if (force) {
+    const live = await fetchLive_();
+    return live || { status: "error", message: "gas_proxy_failed", cutover: true, action: action };
+  }
+
+  const snap = await getSnapRaw_(env, snapKey);
+  const snapOk = snap && snap.status === "success" && (!opts.isOk || opts.isOk(snap));
+
+  if (snapOk) {
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async function () {
+          try {
+            await fetchLive_();
+          } catch (eR) {}
+        })()
+      );
+    } else if (opts.inlineRevalidate) {
+      try {
+        await fetchLive_();
+      } catch (eI) {}
+    }
+    const out = Object.assign({}, snap);
+    out.cutover = true;
+    out.swr = true;
+    out.fromGas = false;
+    out.sandbox = false;
+    return out;
+  }
+
+  const live = await fetchLive_();
+  if (live && typeof live === "object") return live;
+  return { status: "error", message: "gas_proxy_failed", cutover: true, action: action };
+}
+
 async function handleCutover_(a, params, env, ctx) {
   // Опасные действия: пускаем при allowDanger=1 ИЛИ confirm=1
   // (старый UI на Pages мог не слать allowDanger → cutover_danger_blocked)
@@ -1485,6 +1549,36 @@ async function handleCutover_(a, params, env, ctx) {
   if (a === "getStats") {
     return cutoverGetStats_(params, env, ctx);
   }
+  // listSurvey / week meta — тоже тяжёлые; D1+SWR
+  if (a === "listSurvey") {
+    return cutoverSwrGas_("listSurvey", params, env, ctx, {
+      isOk: function (s) {
+        return Array.isArray(s.items) || Array.isArray(s.list) || Array.isArray(s.surveys);
+      }
+    });
+  }
+  if (a === "getWeekDayCounts") {
+    const body = await cutoverSwrGas_("getWeekDayCounts", params, env, ctx, {
+      isOk: function (s) {
+        return Array.isArray(s.items) && s.items.length > 0;
+      },
+      afterStore: async function (live, e) {
+        // после свежих дат — подтянуть дни в фоне
+        if (ctx && typeof ctx.waitUntil === "function") {
+          ctx.waitUntil(cutoverRefreshAllWeekDays_(e));
+        }
+      }
+    });
+    return body;
+  }
+  if (a === "getWeekBannerState") {
+    return cutoverSwrGas_("getWeekBannerState", params, env, ctx, {
+      snapKey: "weekBanner",
+      isOk: function (s) {
+        return s && (s.weekKey != null || s.finished != null || s.pulled != null || s.status === "success");
+      }
+    });
+  }
   if (
     a === "suggestAddress" ||
     a === "lookupBpPartner" ||
@@ -1497,10 +1591,7 @@ async function handleCutover_(a, params, env, ctx) {
     a === "getTransferTask" ||
     a === "composeWarehouseBuyMessage" ||
     a === "listBookings" ||
-    a === "listSurvey" ||
-    a === "partnerListAdmin" ||
-    a === "getWeekDayCounts" ||
-    a === "getWeekBannerState"
+    a === "partnerListAdmin"
   ) {
     if (a === "suggestAddress") {
       return suggestAddressCutover_(params, env);
@@ -1509,22 +1600,10 @@ async function handleCutover_(a, params, env, ctx) {
     if (live && typeof live === "object") {
       live.cutover = true;
       live.fromGas = true;
-      if (
-        (a === "listSurvey" ||
-          a === "partnerListAdmin" ||
-          a === "getWeekDayCounts" ||
-          a === "getWeekBannerState") &&
-        live.status === "success" &&
-        env &&
-        env.DB
-      ) {
+      if (a === "partnerListAdmin" && live.status === "success" && env && env.DB) {
         try {
           await cutoverStoreRead_(a, params, env, live);
         } catch (eSv) {}
-      }
-      // после сдвига недели — сразу перетянуть все дни в D1
-      if (a === "getWeekDayCounts" && live.status === "success" && ctx && typeof ctx.waitUntil === "function") {
-        ctx.waitUntil(cutoverRefreshAllWeekDays_(env));
       }
       return live;
     }
@@ -1620,22 +1699,65 @@ async function handleCutover_(a, params, env, ctx) {
     } catch (eDate) {}
   }
 
-  // Нарезка/курьер/сборка/склад/отложенные/Просмотр: пустой D1 — не врать UI, сразу GAS
-  // getClients пустой день — норма; не ждём GAS. getViewCompare без snap — один раз подтянуть.
+  // Нарезка/курьер/сборка: пустой snap
+  // — если по счётчикам дня 0 клиентов → не ждём GAS (пусто нормально)
+  // — если люди есть → сразу GAS
   if (
     fast &&
-    (a === "getCutting" ||
-      a === "getCourier" ||
-      a === "getAssembly" ||
-      a === "getWarehouse" ||
+    (a === "getCutting" || a === "getCourier" || a === "getAssembly") &&
+    ((Array.isArray(fast.items) && !fast.items.length) ||
+      (Array.isArray(fast.clients) && !fast.clients.length) ||
+      !fast.date)
+  ) {
+    let dayCount = null;
+    try {
+      const counts = await getSnapRaw_(env, "weekDayCounts");
+      ((counts && counts.items) || []).forEach(function (it) {
+        if (it && String(it.day) === String(params.day || "")) dayCount = Number(it.count) || 0;
+      });
+    } catch (eCnt) {}
+    if (dayCount === 0) {
+      const emptyOut = Object.assign({}, fast, {
+        cutover: true,
+        swr: true,
+        fromGas: false,
+        sandbox: false,
+        empty: true
+      });
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(cutoverRevalidate_(a, params, env));
+      }
+      return emptyOut;
+    }
+    try {
+      const live = await gasProxy_(a, params, env, { write: false });
+      if (live && live.status === "success") {
+        if (ctx && typeof ctx.waitUntil === "function") {
+          ctx.waitUntil(cutoverStoreRead_(a, params, env, live));
+        } else {
+          try {
+            await cutoverStoreRead_(a, params, env, live);
+          } catch (eStore) {}
+        }
+        live.cutover = true;
+        live.fromGas = true;
+        live.swr = true;
+        return live;
+      }
+    } catch (eCut) {}
+  }
+  // склад / отложенные / просмотр без snap — подтянуть GAS
+  if (
+    fast &&
+    (a === "getWarehouse" ||
       a === "listDeferred" ||
       (a === "getViewCompare" && !fast.fromSnap)) &&
     ((Array.isArray(fast.items) && !fast.items.length) ||
-      (Array.isArray(fast.clients) && !fast.clients.length) ||
       (a === "getViewCompare" &&
         (!Array.isArray(fast.week) || !fast.week.length) &&
         (!Array.isArray(fast.month) || !fast.month.length)) ||
-      (Array.isArray(fast.rows) && !fast.rows.length && a === "getWarehouse"))
+      (Array.isArray(fast.rows) && !fast.rows.length && a === "getWarehouse") ||
+      (a === "listDeferred" && Array.isArray(fast.items) && !fast.items.length))
   ) {
     try {
       const live = await gasProxy_(a, params, env, { write: false });
