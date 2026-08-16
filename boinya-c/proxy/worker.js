@@ -93,9 +93,18 @@ function isCutoverLive_(params, env, url) {
 
 function isWriteAction_(a) {
   if (!a) return false;
+  // явные чтения / списки — не write (даже если имя начинается с partner*)
   if (/^(get|list|resolve|calc|suggest|lookup|ping|keepWarm|warehousePreview)/i.test(a)) return false;
-  if (a === "getMyAccess" || a === "telegramStatus" || a === "weekPullStatus") return false;
-  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner)/i.test(
+  if (
+    a === "getMyAccess" ||
+    a === "telegramStatus" ||
+    a === "weekPullStatus" ||
+    a === "partnerListAdmin" ||
+    a === "composeWarehouseBuyMessage"
+  ) {
+    return false;
+  }
+  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner|force)/i.test(
     a
   );
 }
@@ -685,6 +694,67 @@ async function rebuildWeekCounts_(env) {
   return body;
 }
 
+async function overlayWeekSheetCountsOnMonth_(env, body) {
+  if (!body || typeof body !== "object") return body;
+  let counts = null;
+  try {
+    counts = await getSnapRaw_(env, "weekDayCounts");
+  } catch (e0) {
+    counts = null;
+  }
+  if (!counts || !Array.isArray(counts.items) || !counts.items.length) {
+    try {
+      counts = await rebuildWeekCounts_(env);
+    } catch (e1) {
+      counts = null;
+    }
+  }
+  const weekMap = Object.create(null);
+  ((counts && counts.items) || []).forEach(function (it) {
+    if (!it) return;
+    const iso = dmyToIso_(it.date);
+    if (!iso) return;
+    weekMap[iso] = Number(it.count) || 0;
+  });
+  if (!Object.keys(weekMap).length) return body;
+
+  const byIso = Object.create(null);
+  ((body.days || []) || []).forEach(function (d) {
+    if (!d || !d.dateIso) return;
+    byIso[d.dateIso] = {
+      dateIso: d.dateIso,
+      count: Number(d.count) || 0,
+      segments: d.segments || {},
+      fromWeekSheet: !!d.fromWeekSheet
+    };
+  });
+  Object.keys(weekMap).forEach(function (iso) {
+    if (!byIso[iso]) {
+      byIso[iso] = {
+        dateIso: iso,
+        count: weekMap[iso],
+        segments: {},
+        fromWeekSheet: true
+      };
+    } else {
+      byIso[iso].count = weekMap[iso];
+      byIso[iso].fromWeekSheet = true;
+    }
+  });
+  const days = Object.keys(byIso)
+    .sort()
+    .map(function (k) {
+      return byIso[k];
+    });
+  const total = days.reduce(function (s, d) {
+    return s + (Number(d.count) || 0);
+  }, 0);
+  body.days = days;
+  body.total = total;
+  body.weekOverlay = true;
+  return body;
+}
+
 async function rebuildMonthOverview_(env) {
   if (!env || !env.DB) return { status: "success", month: "", days: [], total: 0, sandbox: true };
   const prev = await getSnapRaw_(env, "monthOverview");
@@ -721,12 +791,10 @@ async function rebuildMonthOverview_(env) {
       byDate[iso] = { dateIso: iso, count: o.count, segments: o.segments };
       return;
     }
-    // не теряем календарных «лишних» с GAS: берём max
+    // вне недели: max(calendar snap, D1). Даты недели перебьёт overlayWeekSheetCountsOnMonth_
     if (o.count >= (Number(byDate[iso].count) || 0)) {
       byDate[iso].count = o.count;
       byDate[iso].segments = o.segments;
-    } else {
-      byDate[iso].count = Math.max(Number(byDate[iso].count) || 0, o.count);
     }
   });
   const days = Object.keys(byDate)
@@ -737,7 +805,7 @@ async function rebuildMonthOverview_(env) {
   const total = days.reduce(function (s, d) {
     return s + (Number(d.count) || 0);
   }, 0);
-  const body = {
+  let body = {
     status: "success",
     month: month,
     days: days,
@@ -745,9 +813,10 @@ async function rebuildMonthOverview_(env) {
     sandbox: true,
     source: prev && prev.days && prev.days.length > days.length ? "d1+snap" : "d1"
   };
+  body = await overlayWeekSheetCountsOnMonth_(env, body);
   // не затираем более полный GAS-snap урезанной сборкой из orders
   const prevN = (prev && prev.days && prev.days.length) || 0;
-  if (days.length >= prevN || prevN === 0) {
+  if ((body.days && body.days.length) >= prevN || prevN === 0) {
     await putSnap_(env, "monthOverview", body);
     await putSnap_(env, "monthOverview:" + month, body);
   }
@@ -865,12 +934,16 @@ async function getMonthOverview_(params, env) {
   // полный календарь с GAS — отдаём сразу (merge week-дат сделает rebuild без потери)
   if (hit && Array.isArray(hit.days) && hit.days.length >= 10) {
     const body = await rebuildMonthOverview_(env);
-    if (body && Array.isArray(body.days) && body.days.length >= hit.days.length) return body;
-    return hit;
+    if (body && Array.isArray(body.days) && body.days.length >= hit.days.length) {
+      return overlayWeekSheetCountsOnMonth_(env, body);
+    }
+    return overlayWeekSheetCountsOnMonth_(env, hit);
   }
   const body = await rebuildMonthOverview_(env);
-  if (body && (!month || body.month === month || !body.month)) return body;
-  if (hit) return hit;
+  if (body && (!month || body.month === month || !body.month)) {
+    return overlayWeekSheetCountsOnMonth_(env, body);
+  }
+  if (hit) return overlayWeekSheetCountsOnMonth_(env, hit);
   return body || { status: "success", month: month, days: [], total: 0, sandbox: true, source: "d1" };
 }
 
@@ -1212,24 +1285,96 @@ function unwrapGas_(text) {
   return JSON.parse(m ? m[1] : s);
 }
 
+async function cutoverGetMyAccess_(params, env, ctx) {
+  const tid = String((params && params.telegramId) || "").trim();
+  const snapKey = tid ? "access:" + tid : "";
+  let snap = null;
+  if (snapKey && env && env.DB) {
+    try {
+      snap = await getSnapRaw_(env, snapKey);
+    } catch (e0) {
+      snap = null;
+    }
+  }
+  const snapOk =
+    snap &&
+    snap.status === "success" &&
+    snap.role &&
+    snap.role !== "none" &&
+    (!tid || !snap.telegramId || String(snap.telegramId) === tid);
+
+  async function fetchLive_() {
+    const live = await gasProxy_("getMyAccess", params, env, { write: false });
+    if (live && live.status === "success" && snapKey && env && env.DB) {
+      try {
+        const toStore = Object.assign({}, live, {
+          telegramId: tid || live.telegramId || "",
+          cachedAt: new Date().toISOString()
+        });
+        await putSnap_(env, snapKey, toStore);
+      } catch (eS) {}
+    }
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+    }
+    return live;
+  }
+
+  if (snapOk) {
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async function () {
+          try {
+            await fetchLive_();
+          } catch (eR) {}
+        })()
+      );
+    }
+    snap.cutover = true;
+    snap.swr = true;
+    snap.fromGas = false;
+    snap.sandbox = false;
+    return snap;
+  }
+
+  const live = await fetchLive_();
+  if (live && typeof live === "object") return live;
+  return { status: "error", message: "gas_proxy_failed", cutover: true, action: "getMyAccess" };
+}
+
 async function handleCutover_(a, params, env, ctx) {
+  // Опасные действия: пускаем при allowDanger=1 ИЛИ confirm=1
+  // (старый UI на Pages мог не слать allowDanger → cutover_danger_blocked)
   if (
     (a === "finishFullWeek" || a === "materializeWeek" || a === "closeAllOpenDeficits") &&
-    String(params.allowDanger || "") !== "1"
+    String(params.allowDanger || "") !== "1" &&
+    String(params.confirm || "") !== "1" &&
+    String(params.confirm || "").toLowerCase() !== "true"
   ) {
     return {
       status: "error",
       message: "cutover_danger_blocked",
-      tip: "Для опасных действий добавь allowDanger=1",
+      tip: "Нужен confirm=1 (кнопка «Завершить неделю») или allowDanger=1",
       cutover: true,
       action: a
     };
   }
 
-  // запись — только GAS, потом обновляем D1 в фоне
+  // запись — GAS быстро; D1 optimistic сразу; тяжёлый revalidate в фоне
   if (isWriteAction_(a)) {
     const proxied = await gasProxy_(a, params, env, { write: true });
     if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
+    // optimistic D1 (~мс) — UI сразу видит позиции; GAS-догон в waitUntil
+    try {
+      if (/^(saveOrder|saveBooking)$/i.test(a) && env && env.DB) {
+        await saveOrder_(params, env, /^saveBooking$/i.test(a));
+      } else if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
+        await deleteClient_(params, env);
+      } else if (/^moveClient$/i.test(a) && env && env.DB) {
+        await moveClient_(params, env);
+      }
+    } catch (eOpt) {}
     if (ctx && typeof ctx.waitUntil === "function") {
       ctx.waitUntil(cutoverAfterWrite_(a, params, env, proxied));
     } else {
@@ -1240,33 +1385,58 @@ async function handleCutover_(a, params, env, ctx) {
     return proxied;
   }
 
-  // подсказки адресов / партнёров / цены — только живой GAS (в D1 их нет)
+  // подсказки / калькуляции / экспорт / задачи / опросники — живой GAS
+  // getMyAccess — отдельно: D1 snap по telegramId + SWR (иначе TG ждёт GAS ~4с на каждый вход)
+  // getViewCompare — D1+SWR ниже
+  if (a === "getMyAccess") {
+    return cutoverGetMyAccess_(params, env, ctx);
+  }
   if (
     a === "suggestAddress" ||
     a === "lookupBpPartner" ||
     a === "calcPrice" ||
     a === "calcPpFact" ||
     a === "getPpFactCost" ||
-    a === "getPpOrderSuggest"
+    a === "getPpOrderSuggest" ||
+    a === "exportStats" ||
+    a === "getExpectedProfit" ||
+    a === "getStats" ||
+    a === "getTransferTask" ||
+    a === "composeWarehouseBuyMessage" ||
+    a === "listBookings" ||
+    a === "listSurvey" ||
+    a === "partnerListAdmin"
   ) {
+    if (a === "suggestAddress") {
+      return suggestAddressCutover_(params, env);
+    }
     const live = await gasProxy_(a, params, env, { write: false });
     if (live && typeof live === "object") {
       live.cutover = true;
       live.fromGas = true;
-      // UI ждёт results у suggestAddress
-      if (a === "suggestAddress" && !Array.isArray(live.results)) {
-        live.results = live.suggestions || live.items || [];
+      if (
+        (a === "listSurvey" ||
+          a === "partnerListAdmin" ||
+          a === "getStats") &&
+        live.status === "success" &&
+        env &&
+        env.DB
+      ) {
+        try {
+          await cutoverStoreRead_(a, params, env, live);
+        } catch (eSv) {}
       }
       return live;
     }
-    if (a === "suggestAddress") {
-      return { status: "success", results: [], suggestions: [], items: [], cutover: true, source: "empty" };
-    }
-    return { status: "success", items: [], suggestions: [], basket: [], total: 0, price: 0, cutover: true };
+    return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
   }
 
   // чтение: D1 сразу. Исключение — дата календаря вне недели без snap (иначе UI «никого нет»).
-  const fast = await cutoverFastRead_(a, params, env)
+  let fast = await cutoverFastRead_(a, params, env);
+  // битый/ошибочный snap (например need_telegramId) — не отдаём UI, идём в GAS
+  if (fast && typeof fast === "object" && fast.status && fast.status !== "success") {
+    fast = null;
+  }
   const calEmpty =
     a === "getViewCompare" &&
     params &&
@@ -1292,12 +1462,131 @@ async function handleCutover_(a, params, env, ctx) {
   if (needGas && ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(cutoverRevalidate_(a, params, env));
   }
+  // Нарезка/курьер/сборка/склад/отложенные/Просмотр: пустой D1 — не врать UI, сразу GAS
+  // getClients пустой день — норма; не ждём GAS. getViewCompare без snap — один раз подтянуть.
+  if (
+    fast &&
+    (a === "getCutting" ||
+      a === "getCourier" ||
+      a === "getAssembly" ||
+      a === "getWarehouse" ||
+      a === "listDeferred" ||
+      (a === "getViewCompare" && !fast.fromSnap)) &&
+    ((Array.isArray(fast.items) && !fast.items.length) ||
+      (Array.isArray(fast.clients) && !fast.clients.length) ||
+      (a === "getViewCompare" &&
+        (!Array.isArray(fast.week) || !fast.week.length) &&
+        (!Array.isArray(fast.month) || !fast.month.length)) ||
+      (Array.isArray(fast.rows) && !fast.rows.length && a === "getWarehouse"))
+  ) {
+    try {
+      const live = await gasProxy_(a, params, env, { write: false });
+      if (live && live.status === "success") {
+        if (ctx && typeof ctx.waitUntil === "function") {
+          ctx.waitUntil(cutoverStoreRead_(a, params, env, live));
+        } else {
+          try {
+            await cutoverStoreRead_(a, params, env, live);
+          } catch (eStore) {}
+        }
+        live.cutover = true;
+        live.fromGas = true;
+        live.swr = true;
+        return live;
+      }
+    } catch (eCut) {}
+  }
   if (fast && typeof fast === "object") {
     fast.cutover = true;
     fast.swr = true;
+    // D1-ответ для LIVE: не путать UI флагом sandbox
+    if (fast.sandbox === true) fast.sandbox = false;
     return fast;
   }
+
+  // нет D1-обработчика / битый snap — не врём пустым stub: идём в GAS
+  try {
+    const live = await gasProxy_(a, params, env, { write: false });
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+      if (live.status === "success" && ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(cutoverStoreRead_(a, params, env, live));
+      }
+      return live;
+    }
+  } catch (eLive) {}
   return cutoverEmptyRead_(a, params);
+}
+
+/** suggestAddress: GAS + fallback Nominatim с края CF (GAS иногда source:none). */
+async function suggestAddressCutover_(params, env) {
+  const text = String((params && (params.text || params.q || params.query)) || "").trim();
+  let live = null;
+  try {
+    live = await gasProxy_("suggestAddress", params, env, { write: false });
+  } catch (e) {}
+  if (live && Array.isArray(live.results) && live.results.length) {
+    live.cutover = true;
+    live.fromGas = true;
+    return live;
+  }
+  const fallback = await nominatimSuggestWorker_(text);
+  if (fallback.length) {
+    return {
+      status: "success",
+      results: fallback,
+      source: "worker_nominatim",
+      cutover: true,
+      fromGas: false
+    };
+  }
+  if (live && typeof live === "object") {
+    live.cutover = true;
+    live.fromGas = true;
+    if (!Array.isArray(live.results)) live.results = [];
+    return live;
+  }
+  return { status: "success", results: [], source: "empty", cutover: true };
+}
+
+async function nominatimSuggestWorker_(text) {
+  const q = String(text || "").trim();
+  if (q.length < 2) return [];
+  try {
+    const u =
+      "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=by&accept-language=ru&q=" +
+      encodeURIComponent(q + ", Минск");
+    const res = await fetch(u, {
+      headers: {
+        "User-Agent": "boinya-c-worker/1.0 (cutover address suggest)",
+        Accept: "application/json"
+      }
+    });
+    if (!res.ok) return [];
+    const arr = await res.json();
+    if (!Array.isArray(arr)) return [];
+    return arr.map(function (it) {
+      const lat = Number(it.lat);
+      const lon = Number(it.lon);
+      const title = String(it.display_name || it.name || "").split(",")[0] || String(it.display_name || "");
+      return {
+        title: title,
+        subtitle: String(it.display_name || ""),
+        address: title,
+        house: (it.address && (it.address.house_number || "")) || "",
+        kind: it.type || it.class || "",
+        lat: lat,
+        lon: lon,
+        yandexUrl:
+          isFinite(lat) && isFinite(lon)
+            ? "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map"
+            : ""
+      };
+    });
+  } catch (e) {
+    return [];
+  }
 }
 
 const _revalCooldown = new Map();
@@ -1405,17 +1694,7 @@ async function cutoverFastRead_(a, params, env) {
       return (await getSnapRaw_(env, "warehousePreview")) || (await getSnapRaw_(env, "warehouse"));
     }
     if (a === "resolveDayForDate") return resolveDay_(params, env);
-    if (a === "getMyAccess") {
-      return {
-        status: "success",
-        role: "all",
-        access: "active",
-        telegramId: String(params.telegramId || ""),
-        name: params.name || "",
-        tabs: [],
-        cutover: true
-      };
-    }
+    // getMyAccess — только live GAS (см. handleCutover_), здесь не stub'им role:all
     if (a === "listTemplates") {
       const key = params.kind ? "listTemplates:" + String(params.kind) : "listTemplates";
       return (await getSnapRaw_(env, key)) || (await getSnapRaw_(env, "listTemplates"));
@@ -1446,28 +1725,18 @@ async function cutoverFastRead_(a, params, env) {
 
 async function cutoverStoreRead_(a, params, env, payload) {
   if (!payload || !env || !env.DB) return;
+  // не кэшируем ошибки GAS (иначе listDeferred навсегда need_telegramId)
+  if (payload.status && payload.status !== "success") return;
   if (a === "getClients" && params.day) {
     const list = Array.isArray(payload.clients) ? payload.clients : [];
-    if (list.length) {
-      await replaceDayOrdersFromClients_(env, params.day, list);
-    } else {
-      const cur = await getClients_({ day: params.day }, env);
-      if (!(cur.clients && cur.clients.length)) {
-        await replaceDayOrdersFromClients_(env, params.day, []);
-      }
-    }
+    // всегда синхронизируем с GAS (в т.ч. пустой) — иначе в Просмотре живут seed/фантомы
+    await replaceDayOrdersFromClients_(env, params.day, list);
     return;
   }
   if (a === "getViewCompare" && (payload.day || params.day || payload.dateIso || params.date)) {
     const day = payload.day || params.day;
-    // не затираем D1 пустым week при сбое/гонке GAS
-    if (day && Array.isArray(payload.week) && payload.week.length) {
+    if (day && Array.isArray(payload.week)) {
       await replaceDayOrdersFromClients_(env, day, payload.week);
-    } else if (day && Array.isArray(payload.week) && !payload.week.length) {
-      const cur = await getClients_({ day: day }, env);
-      if (!(cur.clients && cur.clients.length)) {
-        await replaceDayOrdersFromClients_(env, day, []);
-      }
     }
     if (day) await putSnap_(env, "view:" + day, payload);
     const iso = payload.dateIso || params.date || "";
@@ -1581,7 +1850,6 @@ async function cutoverRevalidate_(a, params, env) {
 
 async function cutoverAfterWrite_(a, params, env, writeRes) {
   try {
-    // после записи подтягиваем затронутые дни с GAS
     const days = [];
     if (params.day) days.push(String(params.day));
     if (params.oldDay) days.push(String(params.oldDay));
@@ -1590,16 +1858,85 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
     days.forEach(function (d) {
       if (d && uniq.indexOf(d) < 0) uniq.push(d);
     });
-    for (let i = 0; i < uniq.length; i++) {
-      await cutoverRevalidate_("getClients", { day: uniq[i] }, env);
-      await cutoverRevalidate_("getViewCompare", { day: uniq[i] }, env);
-      await cutoverRevalidate_("getCourier", { day: uniq[i] }, env);
-      await cutoverRevalidate_("getAssembly", { day: uniq[i] }, env);
+
+    // лёгкая пауза — Sheets flush; без 4 ретраев (кнопки не ждут этот фон)
+    if (/^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(a)) {
+      await new Promise(function (r) {
+        setTimeout(r, 250);
+      });
     }
-    await cutoverRevalidate_("getWeekDayCounts", {}, env);
+
+    const jobs = [];
+    for (let i = 0; i < uniq.length; i++) {
+      const day = uniq[i];
+      jobs.push(
+        (async function () {
+          try {
+            const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
+            if (fresh && fresh.status === "success") {
+              let list = Array.isArray(fresh.clients) ? fresh.clients : [];
+              const wantClient = String(params.client || params.nick || "").trim();
+              // merge optimistic row if GAS ещё не видит save
+              if (
+                /^(saveOrder|saveBooking)$/i.test(a) &&
+                wantClient &&
+                !list.some(function (c) {
+                  return nicksLooseMatch_(c && (c.name || c.client), wantClient);
+                })
+              ) {
+                const basketArr = parseBasket_(params.basket);
+                list = list.concat([
+                  {
+                    name: wantClient,
+                    matchKey: normalizeMatchKey_(params.matchKey || wantClient),
+                    address: String(params.address || ""),
+                    note: String(params.note || ""),
+                    phone: String(params.phone || ""),
+                    basket: basketArr,
+                    segment: String(params.segment || params.orderType || ""),
+                    source: String(params.source || "")
+                  }
+                ]);
+                fresh.clients = list;
+              }
+              await cutoverStoreRead_("getClients", { day: day }, env, fresh);
+            }
+          } catch (eG) {}
+          await Promise.all([
+            cutoverRevalidate_("getViewCompare", { day: day }, env),
+            cutoverRevalidate_("getCourier", { day: day }, env),
+            cutoverRevalidate_("getAssembly", { day: day }, env),
+            cutoverRevalidate_("getCutting", { day: day }, env)
+          ]);
+        })()
+      );
+    }
+    await Promise.all(jobs);
+    await Promise.all([
+      cutoverRevalidate_("getWeekDayCounts", {}, env),
+      cutoverRevalidate_("getWarehouse", {}, env),
+      cutoverRevalidate_("getStats", {}, env)
+    ]);
     if (/subscription/i.test(a)) await cutoverRevalidate_("listSubscriptions", {}, env);
-    if (/survey/i.test(a)) await cutoverRevalidate_("listSurvey", { activeOnly: "1" }, env);
+    if (/deferred|remind|missed|transfer/i.test(a)) {
+      await cutoverRevalidate_("listDeferred", params, env);
+    }
+    if (/cutting|warehouse|composeWarehouse|setWarehouse/i.test(a)) {
+      await cutoverRevalidate_("warehousePreview", {}, env);
+    }
+    if (/survey/i.test(a)) {
+      await cutoverRevalidate_("listSurvey", { activeOnly: "1" }, env);
+    }
+    if (/access|Access/i.test(a)) {
+      await cutoverRevalidate_("listAccess", {}, env);
+    }
   } catch (e) {}
+}
+
+function nicksLooseMatch_(a, b) {
+  const na = normalizeMatchKey_(a);
+  const nb = normalizeMatchKey_(b);
+  return !!(na && nb && na === nb);
 }
 
 async function gasRead_(action, params, env) {
@@ -1610,8 +1947,7 @@ async function gasProxy_(action, params, env, opts) {
   opts = opts || {};
   try {
     const origin = (env && env.GAS_ORIGIN) || GAS_ORIGIN;
-    const u = new URL(origin);
-    u.searchParams.set("action", action);
+    const clean = {};
     Object.keys(params || {}).forEach(function (k) {
       if (
         k === "action" ||
@@ -1625,7 +1961,6 @@ async function gasProxy_(action, params, env, opts) {
       ) {
         return;
       }
-      // в sandbox-read не прокидываем confirm на опасные
       if (
         !opts.write &&
         k === "confirm" &&
@@ -1634,30 +1969,82 @@ async function gasProxy_(action, params, env, opts) {
       ) {
         return;
       }
-      var val = params[k];
-      if (typeof val === "object") {
-        try {
-          val = JSON.stringify(val);
-        } catch (eJ) {
-          val = String(val);
+      clean[k] = params[k];
+    });
+
+    let text = "";
+    // GET JSONP + redirect:follow на GAS часто дублирует doGet (двойной save*).
+    // Все write → doPost, кроме коротких TG-текстов (sendCourierRoute и т.п. — GET).
+    // sendCourierRoute: POST+redirect ломался; оставляем GET.
+    const preferGet =
+      /^(sendCourierRoute|sendDeficit|telegramStatus)$/i.test(action);
+    const mustPost = opts.write && !preferGet;
+    if (mustPost) {
+      const body = Object.assign({}, clean, { action: action });
+      // Apps Script /exec часто отвечает 302; redirect:follow превращает POST→GET без body → «Бэкенд Жив».
+      let res = await fetch(origin, {
+        method: "POST",
+        redirect: "manual",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+          "Cache-Control": "no-cache"
+        },
+        body: JSON.stringify(body)
+      });
+      // 302 → Location уже содержит результат doPost; повторный POST даёт HTML.
+      // fetch redirect:follow на 302 сам делает GET — здесь явно GET Location.
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get("Location") || res.headers.get("location");
+        if (loc) {
+          res = await fetch(loc, {
+            method: "GET",
+            redirect: "follow",
+            headers: { "Cache-Control": "no-cache" }
+          });
         }
       }
-      u.searchParams.set(k, String(val));
-    });
-    u.searchParams.set("callback", "cb");
-    const res = await fetch(u.toString(), {
-      redirect: "follow",
-      headers: { "Cache-Control": "no-cache" }
-    });
-    const text = await res.text();
-    const json = unwrapGas_(text);
+      text = await res.text();
+    } else {
+      const u = new URL(origin);
+      u.searchParams.set("action", action);
+      Object.keys(clean).forEach(function (k) {
+        var val = clean[k];
+        if (typeof val === "object") {
+          try {
+            val = JSON.stringify(val);
+          } catch (eJ) {
+            val = String(val);
+          }
+        }
+        u.searchParams.set(k, String(val));
+      });
+      u.searchParams.set("callback", "cb");
+      const res = await fetch(u.toString(), {
+        redirect: "follow",
+        headers: { "Cache-Control": "no-cache" }
+      });
+      text = await res.text();
+    }
+
+    let json;
+    try {
+      json = unwrapGas_(text);
+    } catch (eUnwrap) {
+      json = JSON.parse(String(text || "").trim());
+    }
     if (json && typeof json === "object") {
       if (opts.write) json.cutover = true;
       else json.sandboxProxy = true;
     }
     return json;
   } catch (e) {
-    return null;
+    return {
+      status: "error",
+      message: "gas_proxy_failed",
+      detail: String((e && e.message) || e),
+      action: action,
+      cutover: !!opts.write
+    };
   }
 }
 
