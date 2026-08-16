@@ -1344,14 +1344,18 @@ async function cutoverGetMyAccess_(params, env, ctx) {
 }
 
 async function handleCutover_(a, params, env, ctx) {
+  // Опасные действия: пускаем при allowDanger=1 ИЛИ confirm=1
+  // (старый UI на Pages мог не слать allowDanger → cutover_danger_blocked)
   if (
     (a === "finishFullWeek" || a === "materializeWeek" || a === "closeAllOpenDeficits") &&
-    String(params.allowDanger || "") !== "1"
+    String(params.allowDanger || "") !== "1" &&
+    String(params.confirm || "") !== "1" &&
+    String(params.confirm || "").toLowerCase() !== "true"
   ) {
     return {
       status: "error",
       message: "cutover_danger_blocked",
-      tip: "Для опасных действий добавь allowDanger=1",
+      tip: "Нужен confirm=1 (кнопка «Завершить неделю») или allowDanger=1",
       cutover: true,
       action: a
     };
