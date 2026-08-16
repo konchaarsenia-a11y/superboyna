@@ -1204,6 +1204,91 @@ function handleFinishFullWeek(json, callback, fromPost) {
   }
 }
 
+/**
+ * Откат/установка даты понедельника на листе «Прием» (без очистки людей).
+ * Нужно если finishFullWeek нажали несколько раз и даты ускакали вперёд.
+ * monday: yyyy-MM-dd или dd.MM.yyyy
+ */
+function handleRepairWeekMonday(json, callback, fromPost) {
+  json = json || {};
+  var tid = String(json.telegramId || "").trim();
+  var confirm = String(json.confirm || "").trim();
+  if (confirm !== "1" && confirm !== "true" && json.confirm !== true) {
+    var need = { status: "error", message: "need_confirm" };
+    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+  }
+  if (!actorIsOwner_(tid)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+    var monday = parseFlexibleDate_(json.monday || json.mondayDate || json.date, tz);
+    if (!monday) {
+      var badD = { status: "error", message: "need_monday_date" };
+      return fromPost ? jsonpText(callback, badD) : jsonp(callback, badD);
+    }
+    var sheetManager = ss.getSheetByName("Прием заказов") || ss.getSheetByName("Приём заказов");
+    var sheetFuture = ss.getSheetByName("Будущая неделя");
+    var sheetCourier = ss.getSheetByName("Доставки");
+    var sheetCutting = ss.getSheetByName("Нарезка");
+    if (!sheetManager) {
+      var no = { status: "error", message: "no_manager_sheet" };
+      return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
+    }
+    var monStr = Utilities.formatDate(monday, tz, "dd.MM.yyyy");
+    sheetManager.getRange("A1").setValue(monStr);
+    // Вт–Вс: формулы =A1+N если ещё не стоят
+    try {
+      var dayOffsets = [
+        { cell: "A62", n: 1 },
+        { cell: "A123", n: 2 },
+        { cell: "A184", n: 3 },
+        { cell: "A245", n: 4 },
+        { cell: "A306", n: 5 },
+        { cell: "A367", n: 6 }
+      ];
+      for (var i = 0; i < dayOffsets.length; i++) {
+        var cell = sheetManager.getRange(dayOffsets[i].cell);
+        var fml = String(cell.getFormula() || "").trim();
+        if (!(fml && /A1/i.test(fml))) {
+          cell.setFormula("=A1+" + dayOffsets[i].n);
+        }
+      }
+    } catch (eOff) {}
+    var fut = new Date(monday.getTime());
+    fut.setDate(fut.getDate() + 7);
+    var futStr = Utilities.formatDate(fut, tz, "dd.MM.yyyy");
+    if (sheetFuture) sheetFuture.getRange("A1").setValue(futStr);
+    if (sheetCutting) sheetCutting.getRange("A1").setValue(monStr);
+    if (sheetCourier) sheetCourier.getRange("A1").setValue(monStr);
+    SpreadsheetApp.flush();
+    try { bustClientsCache_(); } catch (eB2) {}
+    var counts = [];
+    try {
+      var days = [
+        "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье", "Будущая неделя"
+      ];
+      for (var d = 0; d < days.length; d++) {
+        var row = countClientsOnDayNickRow_(ss, days[d]);
+        counts.push({ day: days[d], count: row.count || 0, date: row.date || "" });
+      }
+    } catch (eC) {}
+    var ok = {
+      status: "success",
+      message: "week_monday_repaired",
+      mondayDate: monStr,
+      futureDate: futStr,
+      items: counts
+    };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (err) {
+    var fail = { status: "error", message: String(err) };
+    return fromPost ? jsonpText(callback, fail) : jsonp(callback, fail);
+  }
+}
+
 function weekBannerPropsKey_(weekKey) {
   return "week_banner_" + String(weekKey || "").trim();
 }
@@ -1570,14 +1655,6 @@ function doGet(e) {
       telegramId: e.parameter.telegramId || e.parameter.chatId || ""
     }, callback, false);
   }
-  if (action === "submitGoodboyTry") {
-    return handleSubmitGoodboyTry({
-      name: e.parameter.name ? decodeURIComponent(e.parameter.name) : "",
-      phone: e.parameter.phone ? decodeURIComponent(e.parameter.phone) : "",
-      pet: e.parameter.pet ? decodeURIComponent(e.parameter.pet) : "",
-      note: e.parameter.note ? decodeURIComponent(e.parameter.note) : ""
-    }, callback, false);
-  }
   if (action === "saveSurvey") {
     return handleSaveSurvey({
       id: e.parameter.id || "",
@@ -1609,6 +1686,11 @@ function doGet(e) {
       nicks: e.parameter.nicks ? decodeURIComponent(e.parameter.nicks) : "",
       id: e.parameter.id || "",
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : ""
+    }, callback, false);
+  }
+  if (action === "forceSurveyRemind") {
+    return handleForceSurveyRemind({
+      nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : (e.parameter.client ? decodeURIComponent(e.parameter.client) : "")
     }, callback, false);
   }
   if (action === "getPpFactCost") {
@@ -2131,6 +2213,13 @@ function doGet(e) {
       weekKey: e.parameter.weekKey ? decodeURIComponent(e.parameter.weekKey) : ""
     }, callback, false);
   }
+  if (action === "repairWeekMonday") {
+    return handleRepairWeekMonday({
+      telegramId: e.parameter.telegramId || "",
+      confirm: e.parameter.confirm || "",
+      monday: e.parameter.monday ? decodeURIComponent(e.parameter.monday) : (e.parameter.mondayDate || e.parameter.date || "")
+    }, callback, false);
+  }
   if (action === "getWeekBannerState") {
     return handleGetWeekBannerState({
       weekKey: e.parameter.weekKey ? decodeURIComponent(e.parameter.weekKey) : ""
@@ -2250,6 +2339,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "finishFullWeek") {
     return handleFinishFullWeek(json, callback, fromPost);
+  }
+  if (action === "repairWeekMonday") {
+    return handleRepairWeekMonday(json, callback, fromPost);
   }
   if (action === "getWeekBannerState") {
     return handleGetWeekBannerState(json, callback, fromPost);
@@ -2454,14 +2546,14 @@ function handleApiAction(json, callback, fromPost) {
   if (action === "deleteSurveyBatch") {
     return handleDeleteSurveyBatch(json, callback, fromPost);
   }
+  if (action === "forceSurveyRemind") {
+    return handleForceSurveyRemind(json, callback, fromPost);
+  }
   if (action === "getPpFactCost") {
     return handleGetPpFactCost(json, callback, fromPost);
   }
   if (action === "getPpOrderSuggest") {
     return handleGetPpOrderSuggest(json, callback, fromPost);
-  }
-  if (action === "submitGoodboyTry") {
-    return handleSubmitGoodboyTry(json, callback, fromPost);
   }
   if (action === "listDeferred" || action === "saveDeferred" || action === "updateDeferred" ||
       action === "cancelDeferred" || action === "enrollDeferredToPp" || action === "setDeferredReminder" ||
@@ -2469,47 +2561,6 @@ function handleApiAction(json, callback, fromPost) {
     return handleDeferredAction_(action, json, callback, fromPost);
   }
   return fromPost ? jsonpText(callback, { status: "unknown_action" }) : jsonp(callback, { status: "unknown_action" });
-}
-
-/** Заявка «Хочу попробовать» с сайта Goodboy → лист + Telegram */
-function handleSubmitGoodboyTry(json, callback, fromPost) {
-  var name = String((json && json.name) || "").trim();
-  var phone = String((json && json.phone) || "").trim();
-  var pet = String((json && json.pet) || "").trim();
-  var note = String((json && json.note) || "").trim();
-  if (!name || !phone || !pet) {
-    var bad = { status: "error", message: "need_fields" };
-    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
-  }
-  try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sh = ss.getSheetByName("Goodboy_Заявки");
-    if (!sh) {
-      sh = ss.insertSheet("Goodboy_Заявки");
-      sh.appendRow(["Когда", "Имя", "Телефон", "Питомец", "Комментарий", "Источник"]);
-      sh.getRange(1, 1, 1, 6).setFontWeight("bold");
-    }
-    var tz = ss.getSpreadsheetTimeZone() || Session.getScriptTimeZone();
-    var when = Utilities.formatDate(new Date(), tz, "dd.MM.yyyy HH:mm");
-    sh.appendRow([when, name, phone, pet, note, "subscription"]);
-    try {
-      var chat = PropertiesService.getScriptProperties().getProperty("TELEGRAM_CHAT_ID");
-      if (chat) {
-        telegramSendText_(
-          chat,
-          "🐾 GOOD BOY · заявка с сайта\n" +
-            name + " · " + phone +
-            "\nПитомец: " + pet +
-            (note ? ("\n" + note) : "")
-        );
-      }
-    } catch (eTg) {}
-    var ok = { status: "ok", message: "saved" };
-    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
-  } catch (err) {
-    var fail = { status: "error", message: String(err) };
-    return fromPost ? jsonpText(callback, fail) : jsonp(callback, fail);
-  }
 }
 
 function handleGetCutting(dayName, callback) {
@@ -4327,7 +4378,7 @@ function handleGetMonthOverview(json, callback, fromPost) {
     monthStr = Utilities.formatDate(new Date(), tz, "yyyy-MM");
   }
   var force = !!(json && (json.force === "1" || json.force === 1 || json.force === true));
-  var cacheKey = "MOV:" + monthStr;
+  var cacheKey = "MOV:v3:" + monthStr;
   if (!force) {
     try {
       var cached = cacheGetJson_(cacheKey);
@@ -4365,6 +4416,35 @@ function handleGetMonthOverview(json, callback, fromPost) {
     else byDate[iso].segments.other++;
   }
   var daysOut = Object.keys(byDate).sort().map(function (k) { return byDate[k]; });
+  // Даты текущей недели / «Будущая»: бейдж = люди на листе «Прием» (как в Просмотре),
+  // а не сырой Календарь_Дат (там часто дубли/сироты → 9 на календаре при 3 на листе).
+  try {
+    var weekNames = [
+      "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье", "Будущая неделя"
+    ];
+    for (var wi = 0; wi < weekNames.length; wi++) {
+      var wrow = countClientsOnDayNickRow_(ss, weekNames[wi]);
+      var wDate = String(wrow.date || "").trim();
+      if (!wDate) continue;
+      var wIso = "";
+      var wd = parseFlexibleDate_(wDate, tz);
+      if (wd) wIso = isoDateKey_(wd, tz);
+      if (!wIso || wIso.indexOf(monthStr) !== 0) continue;
+      var wCount = Number(wrow.count) || 0;
+      if (!byDate[wIso]) {
+        byDate[wIso] = {
+          dateIso: wIso,
+          count: wCount,
+          segments: { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 },
+          fromWeekSheet: true
+        };
+      } else {
+        byDate[wIso].count = wCount;
+        byDate[wIso].fromWeekSheet = true;
+      }
+    }
+    daysOut = Object.keys(byDate).sort().map(function (k) { return byDate[k]; });
+  } catch (eWeekOv) {}
   var total = 0;
   for (var t = 0; t < daysOut.length; t++) total += Number(daysOut[t].count) || 0;
   var ok = { status: "success", month: monthStr, days: daysOut, total: total };
@@ -14714,6 +14794,10 @@ var PRICE_SS_MEM_ = null;
 var PRICE_COSTS_MEM_ = {};
 /** Логистика одной БП-доставки (BYN), входит в себестоимость БП / CAC. */
 var BP_DELIVERY_COST_BYN_ = 6;
+/** ПП: свет на человека (BYN) — как в computePpFactFromCost_ (fixed=11). */
+var PP_LIGHT_COST_BYN_ = 11;
+/** ПП: логистика одной доставки (BYN) — как 6×N в computePpFactFromCost_. */
+var PP_DELIVERY_COST_BYN_ = 6;
 
 function getPriceSpreadsheet_() {
   if (PRICE_SS_MEM_) return PRICE_SS_MEM_;
@@ -16043,7 +16127,12 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     couponsCost: 0,
     couponsQty: 0,
     couponsOrders: 0,
-    partnerRows: []
+    partnerRows: [],
+    ppBasketCost: 0,
+    ppLightCost: 0,
+    ppDeliveryCost: 0,
+    ppLightPeople: 0,
+    ppLightKeys: {}
   };
   var rows = [];
   try { rows = readAllCalendarRows_(); } catch (e0) { rows = []; }
@@ -16122,12 +16211,22 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if ((!bask || !bask.length) && row.basketJson) {
       try { bask = JSON.parse(String(row.basketJson)); } catch (eB2) { bask = []; }
     }
-    // продукция = себест состава из заказа; купоны = qty×цена; БП +6р доставка
+    // продукция = себест состава из заказа; купоны = qty×цена;
+    // БП +6р доставка; ПП +6р доставка + свет 11р на человека (раз за месяц)
     var product = estimateBasketRawCost_(bask, src);
     var coupons = couponsCostFromRow_(row);
     var deliveryFee = 0;
+    var lightFee = 0;
     if (src === "bp") deliveryFee = BP_DELIVERY_COST_BYN_;
-    var costWithAll = Math.round((product + coupons + deliveryFee) * 100) / 100;
+    if (src === "pp") {
+      deliveryFee = PP_DELIVERY_COST_BYN_;
+      if (ck && !out.ppLightKeys[ck]) {
+        out.ppLightKeys[ck] = true;
+        lightFee = PP_LIGHT_COST_BYN_;
+        out.ppLightPeople = (out.ppLightPeople || 0) + 1;
+      }
+    }
+    var costWithAll = Math.round((product + coupons + deliveryFee + lightFee) * 100) / 100;
     if (!(product > 0) && bask && bask.length) out.missingBasketCost++;
     out.productCost = Math.round(((out.productCost || 0) + product) * 100) / 100;
     out.couponsCost = Math.round(((out.couponsCost || 0) + coupons) * 100) / 100;
@@ -16140,6 +16239,9 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (src === 'pp' && ck) {
       out.ppDeliveredKeys[ck] = true;
       out.ppPriceByKey[ck] = Math.round(((out.ppPriceByKey[ck] || 0) + price) * 100) / 100;
+      out.ppBasketCost = Math.round(((out.ppBasketCost || 0) + product) * 100) / 100;
+      out.ppDeliveryCost = Math.round(((out.ppDeliveryCost || 0) + deliveryFee) * 100) / 100;
+      out.ppLightCost = Math.round(((out.ppLightCost || 0) + lightFee) * 100) / 100;
     }
     if (src === 'bp') {
       out.bpDeliveries++;
@@ -16169,6 +16271,9 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   out.bpCost = Math.round(out.bpCost * 100) / 100;
   out.bpBasketCost = Math.round((out.bpBasketCost || 0) * 100) / 100;
   out.bpDeliveryCost = Math.round((out.bpDeliveryCost || 0) * 100) / 100;
+  out.ppBasketCost = Math.round((out.ppBasketCost || 0) * 100) / 100;
+  out.ppDeliveryCost = Math.round((out.ppDeliveryCost || 0) * 100) / 100;
+  out.ppLightCost = Math.round((out.ppLightCost || 0) * 100) / 100;
   out.ppClientsDelivered = Object.keys(out.ppDeliveredKeys).length;
   out.todayIso = todayIso;
   out.fromIso = fromIso;
@@ -17732,6 +17837,13 @@ function handleGetStats(json, callback, fromPost) {
       retail: retail,
       partner: partner,
       ppRevenue: ppActual,
+      ppBasketCost: Number(month.ppBasketCost) || 0,
+      ppLightCost: Number(month.ppLightCost) || 0,
+      ppDeliveryCost: Number(month.ppDeliveryCost) || 0,
+      ppLightPeople: Number(month.ppLightPeople) || 0,
+      ppDeliveries: Number(month.bySource && month.bySource.pp) || 0,
+      ppLightFeeEach: PP_LIGHT_COST_BYN_,
+      ppDeliveryFeeEach: PP_DELIVERY_COST_BYN_,
       bpCost: bpSpend,
       bpBasketCost: Number(month.bpBasketCost) || 0,
       bpDeliveryCost: Number(month.bpDeliveryCost) || 0,
@@ -17856,7 +17968,7 @@ function handleGetStats(json, callback, fromPost) {
       ]
     },
     factCutoff: month.todayIso || "",
-    note: "Прибыль = оборот (общий приход). Чистое = прибыль − затраты. Доставок = 1 клиент на дату ≤ сегодня."
+    note: "Прибыль = оборот. Чистое = оборот − затраты. ПП затраты = состав + свет 11р/чел + доставка 6р. БП = состав + 6р."
   };
   try {
     CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 600);
@@ -17902,11 +18014,18 @@ function handleGetExpectedProfit(json, callback, fromPost) {
     retail: retail,
     partner: partner,
     ppRevenue: ppRev,
+    ppBasketCost: Number(stats.ppBasketCost) || 0,
+    ppLightCost: Number(stats.ppLightCost) || 0,
+    ppDeliveryCost: Number(stats.ppDeliveryCost) || 0,
+    ppLightPeople: Number(stats.ppLightPeople) || 0,
+    ppDeliveries: Number(stats.bySource && stats.bySource.pp) || 0,
+    ppLightFeeEach: PP_LIGHT_COST_BYN_,
+    ppDeliveryFeeEach: PP_DELIVERY_COST_BYN_,
     bpCost: Number(stats.bpCost) || 0,
     bpDeliveries: Number(stats.bpDeliveries) || 0,
     missingPrice: stats.missingPrice || 0,
     missingBasketCost: stats.missingBasketCost || 0,
-    note: "Прибыль = оборот. Чистое = оборот − себест."
+    note: "Прибыль = оборот. Чистое = оборот − себест. ПП = состав + свет 11р/чел + доставка 6р."
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
@@ -18197,6 +18316,7 @@ function repairSurveySheetToCanonical_(crmSs) {
       return;
     }
     var item = {
+      id: /^sv_/i.test(String(p.id || "").trim()) ? String(p.id).trim() : "",
       nick: nick,
       kind: kind,
       stage: surveyStageForKind_(kind, p.stage),
@@ -18233,6 +18353,7 @@ function repairSurveySheetToCanonical_(crmSs) {
     }
     if (isCleanSurveyRowObj_(obj)) {
       pushPerson_({
+        id: obj.id,
         nick: cleanSurveyNickDisplay_(obj.nick) || obj.nick,
         kind: obj.kind,
         stage: obj.stage,
@@ -18303,8 +18424,10 @@ function repairSurveySheetToCanonical_(crmSs) {
   sh.getRange(1, 1, 1, SURVEY_HEADERS_.length).setValues([SURVEY_HEADERS_]);
   for (var i = 0; i < collected.length; i++) {
     var it = collected[i];
+    // сохраняем прежний sv_* — иначе каждый repair/listSurvey плодит новый id и путает кнопку «Отправлено»
+    var keepId = /^sv_/i.test(String(it.id || "").trim()) ? String(it.id).trim() : newSurveyId_();
     sh.appendRow([
-      newSurveyId_(),
+      keepId,
       it.nick,
       it.stage,
       it.kind,
@@ -18333,11 +18456,14 @@ function ensureSurveySheetRepaired_(crmSs) {
       var sample = sh.getRange(2, 1, Math.min(sh.getLastRow(), 20), 7).getValues();
       var dirty = false;
       for (var i = 0; i < sample.length; i++) {
-        var nick = String(sample[i][1] || "");
+        var nick = String(sample[i][1] || "").trim();
+        var id0 = String(sample[i][0] || "").trim();
+        // пустые строки / хвост после clear — не грязь (иначе repair на каждый listSurvey → новые sv_*)
+        if (!nick && !id0) continue;
         var kind = String(sample[i][3] || "");
         var st = String(sample[i][6] || "");
         if (/[\n\r|]/.test(nick) || /[\n\r|]/.test(kind) || /[\n\r|]/.test(st)) { dirty = true; break; }
-        if (isSurveyStageKeyword_(nick) || isSurveyMetaLine_(nick)) { dirty = true; break; }
+        if (nick && (isSurveyStageKeyword_(nick) || isSurveyMetaLine_(nick))) { dirty = true; break; }
       }
       if (!dirty) return;
     }
@@ -19584,19 +19710,50 @@ function getSurveyTemplateBody_(kind, nick) {
 }
 
 function tickBpSurveyReminders_() {
+  return runBpSurveyReminders_({ force: false });
+}
+
+/**
+ * Принудительная рассылка due-опросников (игнор окна 9–21).
+ * action=forceSurveyRemind&nick=zzz_test (nick опционально).
+ */
+function handleForceSurveyRemind(json, callback, fromPost) {
+  json = json || {};
+  try {
+    var out = runBpSurveyReminders_({
+      force: true,
+      nick: String(json.nick || json.client || "").trim()
+    });
+    out.status = "success";
+    return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+  } catch (e) {
+    var bad = { status: "error", message: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+}
+
+function runBpSurveyReminders_(opts) {
+  opts = opts || {};
+  var force = !!opts.force;
+  var onlyNick = String(opts.nick || "").trim();
+  var sent = [];
+  var skipped = [];
+  var lock = LockService.getScriptLock();
+  // параллельные tickCuttingDeficit_ (дубли триггеров) иначе шлют 2–3 одинаковых пуша
+  if (!lock.tryLock(force ? 30000 : 15000)) {
+    return { sent: sent, skipped: [{ reason: "lock_busy" }], force: force, locked: true };
+  }
   try {
     var crmSs = getCrmSpreadsheet_();
     var now = new Date();
     var props = PropertiesService.getScriptProperties();
-    // ключ по UTC-дню — слоты внутри уже локальные
     var dayKeyUtc = Utilities.formatDate(now, "UTC", "yyyy-MM-dd");
     var sentKey = "bp_survey_remind_" + dayKeyUtc;
     var already = {};
     try { already = JSON.parse(props.getProperty(sentKey) || "{}"); } catch (e0) { already = {}; }
 
-    // 1) Синхронизация дат из мета БП → лист «Опросник»
     var bp = findSheetByBaseName_(crmSs, "БП");
-    if (bp) {
+    if (bp && !force) {
       var data = bp.getDataRange().getValues();
       for (var r = 2; r < data.length; r++) {
         var nickRaw = String(data[r][0] || "").trim();
@@ -19634,33 +19791,53 @@ function tickBpSurveyReminders_() {
       }
     }
 
-    // 2) Напоминания по открытым опросникам — в TZ ответственного, с 9:00 каждые 30 мин
     var shSv = null;
     try { shSv = ensureSurveySheet_(crmSs); } catch (eSh) { shSv = null; }
     if (!shSv || shSv.getLastRow() < 2) {
-      props.setProperty(sentKey, JSON.stringify(already));
-      return;
+      if (!force) props.setProperty(sentKey, JSON.stringify(already));
+      return { sent: sent, skipped: skipped, empty: true, force: force };
     }
     try { suppressOpenSurveysIfAlreadySent_(shSv); } catch (eSup) {}
     var svData = shSv.getDataRange().getValues();
+    // один ник+kind — один пуш за проход (дубли строк на листе)
+    var remindedOpen = {};
     for (var s = 1; s < svData.length; s++) {
       var obj = surveyRowToObj_(svData[s], s + 1);
       if (!obj.nick || !obj.dueDate) continue;
+      if (onlyNick && !nicksMatch_(obj.nick, onlyNick)) continue;
       var st = String(obj.status || "").toLowerCase();
-      // закрытые / уже отправленные менеджером — больше не напоминаем
-      if (st === "done" || st === "cancelled" || st === "cancel" || st === "closed" || st === "sent") continue;
-      if (String(obj.sentAt || "").trim()) continue;
+      if (st === "done" || st === "cancelled" || st === "cancel" || st === "closed" || st === "sent") {
+        skipped.push({ nick: obj.nick, reason: "closed:" + st });
+        continue;
+      }
+      if (String(obj.sentAt || "").trim()) {
+        skipped.push({ nick: obj.nick, reason: "has_sentAt" });
+        continue;
+      }
       if (st !== "planned" && st !== "due") continue;
 
+      var openKey = (clientMatchKey_(obj.nick) || String(obj.nick).toUpperCase()) + "|" + normalizeSurveyKind_(obj.kind) + "|" + String(obj.dueDate);
+      if (remindedOpen[openKey]) {
+        skipped.push({ nick: obj.nick, reason: "dup_row" });
+        continue;
+      }
+
       var targets = [];
-      if (obj.ownerTelegramId) targets.push(String(obj.ownerTelegramId).trim());
+      var seenTid = {};
+      function addTarget_(tid0) {
+        tid0 = String(tid0 || "").trim();
+        if (!tid0 || seenTid[tid0]) return;
+        seenTid[tid0] = 1;
+        targets.push(tid0);
+      }
+      if (obj.ownerTelegramId) addTarget_(obj.ownerTelegramId);
       if (!targets.length && bp) {
         var bpVals = bp.getDataRange().getValues();
         for (var br2 = 2; br2 < bpVals.length; br2++) {
           if (!nicksMatch_(bpVals[br2][0], obj.nick)) continue;
           var bm = parseBpMetaFromWishes_(String(bpVals[br2][4] || ""));
           if (bm.ownerTelegramId) {
-            targets.push(String(bm.ownerTelegramId).trim());
+            addTarget_(bm.ownerTelegramId);
             try {
               shSv.getRange(s + 1, 10).setValue(
                 stampRespIntoSurveyNote_(obj.note, bm.ownerTelegramId, bm.ownerName)
@@ -19670,26 +19847,41 @@ function tickBpSurveyReminders_() {
           break;
         }
       }
-      if (!targets.length) {
+      // без ответственного — НЕ спамим всем owner'ам; только если force+nick (явный тест)
+      if (!targets.length && force && onlyNick) {
         try {
           var owners = getOwnerTelegramIds_();
-          for (var o = 0; o < owners.length; o++) targets.push(String(owners[o]).trim());
+          for (var o = 0; o < owners.length; o++) addTarget_(owners[o]);
         } catch (eOw) {}
       }
-      if (!targets.length) continue;
+      if (!targets.length) {
+        skipped.push({ nick: obj.nick, reason: "no_target" });
+        continue;
+      }
 
-      // шлём каждому target в ЕГО часовом поясе
+      var anySent = false;
       for (var t = 0; t < targets.length; t++) {
         var tid = targets[t];
         if (!tid) continue;
         var personTz = timezoneOfAccessId_(tid);
         var local = localPartsInTz_(now, personTz);
-        if (String(obj.dueDate) > local.ymd) continue;
-        if (!isPersonNotifyWindow_(now, personTz)) continue;
+        // force+nick (тест) — шлём даже если due завтра; обычный тик / force без nick — только due≤сегодня
+        if (String(obj.dueDate) > local.ymd && !(force && onlyNick)) {
+          skipped.push({ nick: obj.nick, reason: "due_future:" + obj.dueDate + ">" + local.ymd, tid: tid });
+          continue;
+        }
+        if (!force && !isPersonNotifyWindow_(now, personTz)) {
+          skipped.push({ nick: obj.nick, reason: "outside_window:" + local.slot + "@" + personTz, tid: tid });
+          continue;
+        }
 
         var kindKey = normalizeSurveyKind_(obj.kind) === "final" ? "survey_final" : "survey_bp2";
-        var key = clientMatchKey_(obj.nick) + "|" + kindKey + "|" + obj.dueDate + "|" + tid + "|" + local.slot;
-        if (already[key]) continue;
+        // один пуш на ник+kind+due+tid в сутки (force тоже — иначе 3 клика = 3 сообщения)
+        var key = clientMatchKey_(obj.nick) + "|" + kindKey + "|" + obj.dueDate + "|" + tid;
+        if (already[key]) {
+          skipped.push({ nick: obj.nick, reason: "already_day", tid: tid });
+          continue;
+        }
 
         var body = getSurveyTemplateBody_(kindKey, obj.nick) ||
           getSurveyTemplateBody_(obj.templateId, obj.nick) ||
@@ -19700,7 +19892,8 @@ function tickBpSurveyReminders_() {
           "Кому отправить: " + obj.nick + "\n" +
           (obj.stage ? ("Этап: " + obj.stage + "\n") : "") +
           "Дата: " + obj.dueDate + "\n" +
-          "Ваше время: " + local.slot.replace("T", " ") + " (" + personTz + ")\n\n" +
+          "Ваше время: " + local.slot.replace("T", " ") + " (" + personTz + ")" +
+          (force ? "\n⚡ forceSurveyRemind" : "") + "\n\n" +
           "Текст опросника:\n" + body;
 
         var markup = null;
@@ -19712,23 +19905,39 @@ function tickBpSurveyReminders_() {
             }]]
           };
         }
+        var sendRes = null;
         try {
-          if (markup) telegramSendMarkup_(tid, text, markup);
-          else telegramSendText_(tid, text);
-        } catch (eS) {}
+          if (markup) sendRes = telegramSendMarkup_(tid, text, markup);
+          else sendRes = telegramSendText_(tid, text);
+        } catch (eS) {
+          sendRes = { ok: false, error: String(eS) };
+        }
         already[key] = 1;
+        anySent = true;
+        sent.push({
+          nick: obj.nick,
+          tid: tid,
+          id: obj.id || "",
+          ok: !!(sendRes && sendRes.ok !== false),
+          raw: sendRes
+        });
       }
+      if (anySent) remindedOpen[openKey] = 1;
 
       try {
         if (st === "planned" || st === "due") {
-          // только статус due — sentAt ставим кнопкой «Отправлено», не при напоминании
           shSv.getRange(s + 1, 7).setValue("due");
           shSv.getRange(s + 1, 12).setValue(now);
         }
       } catch (eMk) {}
     }
-    props.setProperty(sentKey, JSON.stringify(already));
-  } catch (e) {}
+    try { props.setProperty(sentKey, JSON.stringify(already)); } catch (eP) {}
+  } catch (e) {
+    return { sent: sent, skipped: skipped, error: String(e), force: force };
+  } finally {
+    try { lock.releaseLock(); } catch (eL) {}
+  }
+  return { sent: sent, skipped: skipped, force: force };
 }
 
 function actorCanEditTemplates_(telegramId) {

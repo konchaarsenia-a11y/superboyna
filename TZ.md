@@ -1,3 +1,4 @@
+- [~] **Счётчики Приём + откат дат 2026-08-16:** D1 sync/mismatch→GAS; `repairWeekMonday` откат A1 (после мульти-finish на 07.09) · **нужен Deploy Code.gs** · Pages
 - [~] **finish week sync 2026-08-16:** после закрытия недели getWeekDayCounts из GAS + refresh D1; UI алерт с новой датой Пн · Pages
 - [~] **Закрытие недели C fix2 2026-08-16:** finishFullWeek → напрямую GAS (не Worker/CF 30с); Worker пускает confirm=1 · нужен push на **main**/Pages
 - [~] **Закрытие недели в C 2026-08-16:** finishFullWeek после 3 подтверждений шлёт allowDanger=1 (иначе cutover_danger_blocked) · Pages `v=7111587`
