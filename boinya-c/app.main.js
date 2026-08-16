@@ -3530,10 +3530,15 @@
           var q = Object.keys(params).map(function (k) {
             return k + "=" + encodeURIComponent(params[k]);
           }).join("&");
+          // finishFullWeek и т.п.: напрямую в GAS — Worker CF рвёт долгие запросы (~30с)
+          var baseUrl = GOOGLE_WEBHOOK_URL;
+          if (opts.directGas || action === "finishFullWeek" || action === "materializeWeek") {
+            baseUrl = GOOGLE_WEBHOOK_ORIGIN;
+          }
           var script = document.createElement("script");
           script.id = cb;
           script.async = true;
-          script.src = GOOGLE_WEBHOOK_URL + "?" + q + "&callback=" + cb;
+          script.src = baseUrl + "?" + q + "&callback=" + cb;
           script.onerror = function () {
             cleanup();
             reject(new Error("Ошибка сети"));
@@ -11204,7 +11209,7 @@
         if (window.__BOINYA_C_CUTOVER__) finishPayload.allowDanger = "1";
         res = await apiGet(
           finishPayload,
-          { timeoutMs: 120000, cacheTtlMs: 0 }
+          { timeoutMs: 180000, cacheTtlMs: 0, directGas: true }
         );
       } catch (e1) {
         await uiAlertAsync("Ошибка сети: " + (e1 && e1.message ? e1.message : e1));
