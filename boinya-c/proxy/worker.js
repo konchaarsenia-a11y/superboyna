@@ -835,24 +835,30 @@ async function rebuildCourierDay_(env, day) {
   const live = await getClients_({ day: day }, env);
   const info = await dayDateInfo_(env, day);
   const prev = await getSnapRaw_(env, "courier:" + day);
+  // Галочки только для той же даты дня. После finishFullWeek день «Пн» тот же,
+  // а дата новая — иначе «Доставки завершены» тянется со старой недели.
+  const sameDate =
+    !!(prev && prev.date && info.date && String(prev.date) === String(info.date));
   const prevBy = Object.create(null);
-  ((prev && prev.clients) || []).forEach(function (c) {
-    prevBy[normalizeMatchKey_(c.matchKey || c.name)] = c;
-  });
+  if (sameDate) {
+    ((prev && prev.clients) || []).forEach(function (c) {
+      prevBy[normalizeMatchKey_(c.matchKey || c.name)] = c;
+    });
+  }
   const clients = (live.clients || []).map(function (c) {
     const mk = normalizeMatchKey_(c.matchKey || c.name);
     const old = prevBy[mk] || {};
-    return Object.assign({}, old, c, {
-      delivered: !!old.delivered,
-      assembled: !!old.assembled,
-      paid: old.paid,
+    return Object.assign({}, c, {
+      delivered: sameDate ? !!old.delivered : false,
+      assembled: sameDate ? !!old.assembled : false,
+      paid: sameDate ? old.paid : null,
       col: old.col,
       courierCol: old.courierCol,
       deliveriesN: old.deliveriesN,
-      askPaid: old.askPaid
+      askPaid: sameDate ? old.askPaid : false
     });
   });
-  // merge deliveries table
+  // merge deliveries table (только текущий date_iso)
   if (info.iso) {
     const dq = await env.DB.prepare("SELECT match_key, delivered FROM deliveries WHERE date_iso = ?")
       .bind(info.iso)
@@ -881,26 +887,30 @@ async function rebuildAssemblyDay_(env, day) {
   const live = await getClients_({ day: day }, env);
   const info = await dayDateInfo_(env, day);
   const prev = await getSnapRaw_(env, "assembly:" + day);
+  const sameDate =
+    !!(prev && prev.date && info.date && String(prev.date) === String(info.date));
   const prevBy = Object.create(null);
-  ((prev && prev.clients) || []).forEach(function (c) {
-    prevBy[normalizeMatchKey_(c.matchKey || c.name)] = c;
-  });
+  if (sameDate) {
+    ((prev && prev.clients) || []).forEach(function (c) {
+      prevBy[normalizeMatchKey_(c.matchKey || c.name)] = c;
+    });
+  }
   const clients = (live.clients || []).map(function (c) {
     const mk = normalizeMatchKey_(c.matchKey || c.name);
     const old = prevBy[mk] || {};
-    return Object.assign({}, old, {
+    return Object.assign({}, {
       name: c.name,
       address: c.address,
       note: c.note,
       basket: c.basket,
-      packs: old.packs || [],
-      totalBags: old.totalBags || 0,
-      craftBags: old.craftBags || 0,
-      lightByFraction: old.lightByFraction || {},
-      lightBagsByCounter: old.lightBagsByCounter || {},
-      assembled: !!old.assembled,
-      printed: !!old.printed,
-      dogPart: old.dogPart || "",
+      packs: sameDate ? old.packs || [] : [],
+      totalBags: sameDate ? old.totalBags || 0 : 0,
+      craftBags: sameDate ? old.craftBags || 0 : 0,
+      lightByFraction: sameDate ? old.lightByFraction || {} : {},
+      lightBagsByCounter: sameDate ? old.lightBagsByCounter || {} : {},
+      assembled: sameDate ? !!old.assembled : false,
+      printed: sameDate ? !!old.printed : false,
+      dogPart: sameDate ? old.dogPart || "" : "",
       ownerName: old.ownerName || c.name,
       matchKey: c.matchKey
     });
@@ -910,10 +920,10 @@ async function rebuildAssemblyDay_(env, day) {
     day: day,
     date: info.date,
     clients: clients,
-    typeTotals: (prev && prev.typeTotals) || {},
-    counterTotals: (prev && prev.counterTotals) || {},
-    lightByFraction: (prev && prev.lightByFraction) || {},
-    lightGramsTotal: (prev && prev.lightGramsTotal) || 0,
+    typeTotals: sameDate ? (prev && prev.typeTotals) || {} : {},
+    counterTotals: sameDate ? (prev && prev.counterTotals) || {} : {},
+    lightByFraction: sameDate ? (prev && prev.lightByFraction) || {} : {},
+    lightGramsTotal: sameDate ? (prev && prev.lightGramsTotal) || 0 : 0,
     sandbox: true,
     source: "d1"
   });
@@ -1504,6 +1514,38 @@ async function handleCutover_(a, params, env, ctx) {
     } catch (eMis) {}
   }
 
+  // Нарезка/курьер/сборка: snap с датой другой недели → сразу GAS (не «день завершён» со старой)
+  if (
+    fast &&
+    (a === "getCutting" || a === "getCourier" || a === "getAssembly") &&
+    params &&
+    params.day
+  ) {
+    try {
+      const info = await dayDateInfo_(env, params.day);
+      const snapDate = String((fast && fast.date) || "");
+      const wantDate = String((info && info.date) || "");
+      const dateMismatch = !!(wantDate && snapDate && snapDate !== wantDate);
+      const staleDone =
+        a === "getCutting" && fast.completion && wantDate && (!snapDate || snapDate !== wantDate);
+      if (dateMismatch || staleDone) {
+        await delSnap_(env, (a === "getCutting" ? "cutting:" : a === "getCourier" ? "courier:" : "assembly:") + params.day);
+        const live = await gasProxy_(a, params, env, { write: false });
+        if (live && live.status === "success") {
+          try {
+            await cutoverStoreRead_(a, params, env, live);
+          } catch (eSt) {}
+          live.cutover = true;
+          live.fromGas = true;
+          live.swr = true;
+          live.sandbox = false;
+          return live;
+        }
+        fast = null;
+      }
+    } catch (eDate) {}
+  }
+
   // Нарезка/курьер/сборка/склад/отложенные/Просмотр: пустой D1 — не врать UI, сразу GAS
   // getClients пустой день — норма; не ждём GAS. getViewCompare без snap — один раз подтянуть.
   if (
@@ -1890,8 +1932,32 @@ async function cutoverRevalidate_(a, params, env) {
   } catch (e) {}
 }
 
+/** После сдвига недели: сбросить ops-снимки (нарезка/курьер/сборка), иначе UI «день завершён». */
+async function cutoverResetOpsSnaps_(env) {
+  if (!env || !env.DB) return;
+  for (let i = 0; i < WEEK_DAYS.length; i++) {
+    const day = WEEK_DAYS[i];
+    try {
+      await delSnap_(env, "cutting:" + day);
+      await delSnap_(env, "courier:" + day);
+      await delSnap_(env, "assembly:" + day);
+      await delSnap_(env, "view:" + day);
+    } catch (eDel) {}
+  }
+}
+
 async function cutoverRefreshAllWeekDays_(env) {
   if (!env || !env.DB) return;
+  // сначала актуальные даты недели, потом сброс ops (сравнение date в rebuildCourier)
+  try {
+    const liveCounts = await gasProxy_("getWeekDayCounts", {}, env, { write: false });
+    if (liveCounts && liveCounts.status === "success") {
+      await cutoverStoreRead_("getWeekDayCounts", {}, env, liveCounts);
+    }
+  } catch (eCnt) {}
+  try {
+    await cutoverResetOpsSnaps_(env);
+  } catch (eOps) {}
   for (let i = 0; i < WEEK_DAYS.length; i++) {
     const day = WEEK_DAYS[i];
     try {
@@ -1900,6 +1966,20 @@ async function cutoverRefreshAllWeekDays_(env) {
         await cutoverStoreRead_("getClients", { day: day }, env, fresh);
       }
     } catch (eDay) {}
+    // курьер/сборка — чистый rebuild по новым датам (без старых галочек)
+    try {
+      await rebuildCourierDay_(env, day);
+    } catch (eCour) {}
+    try {
+      await rebuildAssemblyDay_(env, day);
+    } catch (eAsm) {}
+    // нарезка — только живой GAS (completion/laid не из старого snap)
+    try {
+      const cut = await gasProxy_("getCutting", { day: day }, env, { write: false });
+      if (cut && cut.status === "success") {
+        await cutoverStoreRead_("getCutting", { day: day }, env, cut);
+      }
+    } catch (eCut) {}
   }
   try {
     await rebuildWeekCounts_(env);

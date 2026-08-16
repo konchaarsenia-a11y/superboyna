@@ -2,12 +2,12 @@
 
 ## Как открыть
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111590
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111591
 
 Hard refresh. Бейдж **C · LIVE**.
 
 В Telegram Menu Button лучше сразу:
-`.../boinya-c/app.html?cutover=1&v=7111590`
+`.../boinya-c/app.html?cutover=1&v=7111591`
 (без лишнего редиректа через index.html).
 
 ## Как это устроено сейчас

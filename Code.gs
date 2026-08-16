@@ -1115,9 +1115,15 @@ function finishFullWeekProduction(optSs, optOpts) {
     sheetCourier.getRange(cell).setValue("");
   });
 
+  sheetCutting.getRange("E3:E60").setValue(false); // выложено
   sheetCutting.getRange("F3:F60").setValue(false);
   sheetCutting.getRange("C3:C60").clearContent();
   sheetCutting.getRange("G3:G60").setValue(false);
+
+  // Итоги_Нарезки / CUT_DONE_* старой недели — иначе getCutting может вернуть «завершена»
+  try {
+    clearCuttingCompletionsForClosedWeek_(ss, tz, oldManagerDate);
+  } catch (eCutDone) {}
 
   var newMondayDate = sheetManager.getRange("A1").getValue();
   sheetCutting.getRange("A1").setValue(newMondayDate);
@@ -1261,8 +1267,20 @@ function handleRepairWeekMonday(json, callback, fromPost) {
     fut.setDate(fut.getDate() + 7);
     var futStr = Utilities.formatDate(fut, tz, "dd.MM.yyyy");
     if (sheetFuture) sheetFuture.getRange("A1").setValue(futStr);
-    if (sheetCutting) sheetCutting.getRange("A1").setValue(monStr);
-    if (sheetCourier) sheetCourier.getRange("A1").setValue(monStr);
+    if (sheetCutting) {
+      sheetCutting.getRange("A1").setValue(monStr);
+      // ops-флаги не тащить со старой недели при откате дат
+      try {
+        sheetCutting.getRange("E3:G60").setValue(false);
+        sheetCutting.getRange("C3:C60").clearContent();
+      } catch (eCutFlags) {}
+    }
+    if (sheetCourier) {
+      sheetCourier.getRange("A1").setValue(monStr);
+      try {
+        sheetCourier.getRange("C2:Q2").setValue(false);
+      } catch (eCourFlags) {}
+    }
     SpreadsheetApp.flush();
     try { bustClientsCache_(); } catch (eB2) {}
     var counts = [];
@@ -7677,6 +7695,39 @@ function saveCuttingCompletion_(info) {
     }
   }
   sh.appendRow([dateText, payloadObj.day, payload]);
+}
+
+/** Стереть итоги нарезки за закрытую неделю (Пн…Вс от oldMonday), чтобы новая неделя не была «завершена». */
+function clearCuttingCompletionsForClosedWeek_(ss, tz, oldMondayDate) {
+  var base = oldMondayDate instanceof Date && !isNaN(oldMondayDate.getTime())
+    ? new Date(oldMondayDate.getTime())
+    : null;
+  if (!base) return;
+  var want = {};
+  for (var d = 0; d < 7; d++) {
+    var dt = new Date(base.getTime());
+    dt.setDate(dt.getDate() + d);
+    want[Utilities.formatDate(dt, tz || "Europe/Minsk", "dd.MM.yyyy")] = true;
+  }
+  try {
+    var props = PropertiesService.getScriptProperties();
+    Object.keys(want).forEach(function (dateText) {
+      try {
+        props.deleteProperty("CUT_DONE_" + dateText.replace(/\./g, "_"));
+      } catch (eP) {}
+    });
+  } catch (eProps) {}
+  try {
+    var sh = getCuttingCompletionSheet_();
+    if (!sh || sh.getLastRow() < 2) return;
+    var data = sh.getDataRange().getValues();
+    for (var i = data.length - 1; i >= 1; i--) {
+      var rowDate = formatSheetDate(data[i][0], tz);
+      if (want[rowDate]) {
+        sh.deleteRow(i + 1);
+      }
+    }
+  } catch (eSh) {}
 }
 
 function getCuttingCompletion_(dateText) {
