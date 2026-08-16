@@ -4283,7 +4283,7 @@ function handleGetMonthOverview(json, callback, fromPost) {
     monthStr = Utilities.formatDate(new Date(), tz, "yyyy-MM");
   }
   var force = !!(json && (json.force === "1" || json.force === 1 || json.force === true));
-  var cacheKey = "MOV:" + monthStr;
+  var cacheKey = "MOV:v3:" + monthStr;
   if (!force) {
     try {
       var cached = cacheGetJson_(cacheKey);
@@ -4321,6 +4321,35 @@ function handleGetMonthOverview(json, callback, fromPost) {
     else byDate[iso].segments.other++;
   }
   var daysOut = Object.keys(byDate).sort().map(function (k) { return byDate[k]; });
+  // Даты текущей недели / «Будущая»: бейдж = люди на листе «Прием» (как в Просмотре),
+  // а не сырой Календарь_Дат (там часто дубли/сироты → 9 на календаре при 3 на листе).
+  try {
+    var weekNames = [
+      "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье", "Будущая неделя"
+    ];
+    for (var wi = 0; wi < weekNames.length; wi++) {
+      var wrow = countClientsOnDayNickRow_(ss, weekNames[wi]);
+      var wDate = String(wrow.date || "").trim();
+      if (!wDate) continue;
+      var wIso = "";
+      var wd = parseFlexibleDate_(wDate, tz);
+      if (wd) wIso = isoDateKey_(wd, tz);
+      if (!wIso || wIso.indexOf(monthStr) !== 0) continue;
+      var wCount = Number(wrow.count) || 0;
+      if (!byDate[wIso]) {
+        byDate[wIso] = {
+          dateIso: wIso,
+          count: wCount,
+          segments: { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 },
+          fromWeekSheet: true
+        };
+      } else {
+        byDate[wIso].count = wCount;
+        byDate[wIso].fromWeekSheet = true;
+      }
+    }
+    daysOut = Object.keys(byDate).sort().map(function (k) { return byDate[k]; });
+  } catch (eWeekOv) {}
   var total = 0;
   for (var t = 0; t < daysOut.length; t++) total += Number(daysOut[t].count) || 0;
   var ok = { status: "success", month: monthStr, days: daysOut, total: total };

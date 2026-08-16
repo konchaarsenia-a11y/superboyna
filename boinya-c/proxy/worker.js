@@ -694,6 +694,67 @@ async function rebuildWeekCounts_(env) {
   return body;
 }
 
+async function overlayWeekSheetCountsOnMonth_(env, body) {
+  if (!body || typeof body !== "object") return body;
+  let counts = null;
+  try {
+    counts = await getSnapRaw_(env, "weekDayCounts");
+  } catch (e0) {
+    counts = null;
+  }
+  if (!counts || !Array.isArray(counts.items) || !counts.items.length) {
+    try {
+      counts = await rebuildWeekCounts_(env);
+    } catch (e1) {
+      counts = null;
+    }
+  }
+  const weekMap = Object.create(null);
+  ((counts && counts.items) || []).forEach(function (it) {
+    if (!it) return;
+    const iso = dmyToIso_(it.date);
+    if (!iso) return;
+    weekMap[iso] = Number(it.count) || 0;
+  });
+  if (!Object.keys(weekMap).length) return body;
+
+  const byIso = Object.create(null);
+  ((body.days || []) || []).forEach(function (d) {
+    if (!d || !d.dateIso) return;
+    byIso[d.dateIso] = {
+      dateIso: d.dateIso,
+      count: Number(d.count) || 0,
+      segments: d.segments || {},
+      fromWeekSheet: !!d.fromWeekSheet
+    };
+  });
+  Object.keys(weekMap).forEach(function (iso) {
+    if (!byIso[iso]) {
+      byIso[iso] = {
+        dateIso: iso,
+        count: weekMap[iso],
+        segments: {},
+        fromWeekSheet: true
+      };
+    } else {
+      byIso[iso].count = weekMap[iso];
+      byIso[iso].fromWeekSheet = true;
+    }
+  });
+  const days = Object.keys(byIso)
+    .sort()
+    .map(function (k) {
+      return byIso[k];
+    });
+  const total = days.reduce(function (s, d) {
+    return s + (Number(d.count) || 0);
+  }, 0);
+  body.days = days;
+  body.total = total;
+  body.weekOverlay = true;
+  return body;
+}
+
 async function rebuildMonthOverview_(env) {
   if (!env || !env.DB) return { status: "success", month: "", days: [], total: 0, sandbox: true };
   const prev = await getSnapRaw_(env, "monthOverview");
@@ -730,12 +791,10 @@ async function rebuildMonthOverview_(env) {
       byDate[iso] = { dateIso: iso, count: o.count, segments: o.segments };
       return;
     }
-    // не теряем календарных «лишних» с GAS: берём max
+    // вне недели: max(calendar snap, D1). Даты недели перебьёт overlayWeekSheetCountsOnMonth_
     if (o.count >= (Number(byDate[iso].count) || 0)) {
       byDate[iso].count = o.count;
       byDate[iso].segments = o.segments;
-    } else {
-      byDate[iso].count = Math.max(Number(byDate[iso].count) || 0, o.count);
     }
   });
   const days = Object.keys(byDate)
@@ -746,7 +805,7 @@ async function rebuildMonthOverview_(env) {
   const total = days.reduce(function (s, d) {
     return s + (Number(d.count) || 0);
   }, 0);
-  const body = {
+  let body = {
     status: "success",
     month: month,
     days: days,
@@ -754,9 +813,10 @@ async function rebuildMonthOverview_(env) {
     sandbox: true,
     source: prev && prev.days && prev.days.length > days.length ? "d1+snap" : "d1"
   };
+  body = await overlayWeekSheetCountsOnMonth_(env, body);
   // не затираем более полный GAS-snap урезанной сборкой из orders
   const prevN = (prev && prev.days && prev.days.length) || 0;
-  if (days.length >= prevN || prevN === 0) {
+  if ((body.days && body.days.length) >= prevN || prevN === 0) {
     await putSnap_(env, "monthOverview", body);
     await putSnap_(env, "monthOverview:" + month, body);
   }
@@ -874,12 +934,16 @@ async function getMonthOverview_(params, env) {
   // полный календарь с GAS — отдаём сразу (merge week-дат сделает rebuild без потери)
   if (hit && Array.isArray(hit.days) && hit.days.length >= 10) {
     const body = await rebuildMonthOverview_(env);
-    if (body && Array.isArray(body.days) && body.days.length >= hit.days.length) return body;
-    return hit;
+    if (body && Array.isArray(body.days) && body.days.length >= hit.days.length) {
+      return overlayWeekSheetCountsOnMonth_(env, body);
+    }
+    return overlayWeekSheetCountsOnMonth_(env, hit);
   }
   const body = await rebuildMonthOverview_(env);
-  if (body && (!month || body.month === month || !body.month)) return body;
-  if (hit) return hit;
+  if (body && (!month || body.month === month || !body.month)) {
+    return overlayWeekSheetCountsOnMonth_(env, body);
+  }
+  if (hit) return overlayWeekSheetCountsOnMonth_(env, hit);
   return body || { status: "success", month: month, days: [], total: 0, sandbox: true, source: "d1" };
 }
 

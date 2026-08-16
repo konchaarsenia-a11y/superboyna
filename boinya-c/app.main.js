@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c5";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c6";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -4531,7 +4531,41 @@
       return '<div class="ios-cal-dots">' + dots.slice(0, 4).join("") + "</div>";
     }
 
+    function overlayWeekCountsOnMonthData_(data) {
+      if (!data || typeof data !== "object") return data;
+      var week = viewWeekOverviewCache;
+      if (!week || !Array.isArray(week.items) || !week.items.length) return data;
+      var byIso = {};
+      ((data.days || []) || []).forEach(function (d) {
+        if (!d || !d.dateIso) return;
+        byIso[d.dateIso] = {
+          dateIso: d.dateIso,
+          count: Number(d.count) || 0,
+          segments: d.segments || {},
+          fromWeekSheet: !!d.fromWeekSheet
+        };
+      });
+      week.items.forEach(function (it) {
+        if (!it) return;
+        var m = String(it.date || "").trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+        if (!m) return;
+        var iso = m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
+        var c = Number(it.count) || 0;
+        if (!byIso[iso]) {
+          byIso[iso] = { dateIso: iso, count: c, segments: {}, fromWeekSheet: true };
+        } else {
+          byIso[iso].count = c;
+          byIso[iso].fromWeekSheet = true;
+        }
+      });
+      var days = Object.keys(byIso).sort().map(function (k) { return byIso[k]; });
+      var total = 0;
+      for (var i = 0; i < days.length; i++) total += Number(days[i].count) || 0;
+      return Object.assign({}, data, { days: days, total: total, weekOverlay: true });
+    }
+
     function renderMonthOverviewList_(data) {
+      data = overlayWeekCountsOnMonthData_(data);
       var box = document.getElementById("viewMonthOverviewList");
       if (!box) return;
       var month = (data && data.month) || (document.getElementById("viewMonthPick") && document.getElementById("viewMonthPick").value) || "";
@@ -4644,6 +4678,10 @@
       var box = document.getElementById("viewMonthOverviewList");
       if (box && !opts.soft) box.innerHTML = viewLoadingSkeletonHtml();
       try {
+        // для бейджей текущей недели нужен getWeekDayCounts (лист «Прием», не Календарь_Дат)
+        try {
+          await ensureWeekOverviewLoaded_({ soft: true });
+        } catch (eWov) {}
         var params = { action: "getMonthOverview", month: month };
         if (opts.force) params._ = String(Date.now());
         var res = await apiGet(
@@ -4651,8 +4689,8 @@
           { timeoutMs: opts.soft ? 22000 : 35000, retries: opts.soft ? 0 : 1, cacheTtlMs: opts.force ? 0 : undefined }
         );
         if (res && res.status === "success") {
-          viewMonthOverviewCache = res;
-          renderMonthOverviewList_(res);
+          viewMonthOverviewCache = overlayWeekCountsOnMonthData_(res);
+          renderMonthOverviewList_(viewMonthOverviewCache);
         } else {
           if (box) {
             box.innerHTML = '<div class="view-idle">Не удалось загрузить месяц' +
