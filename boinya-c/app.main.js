@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c17";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c18";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -2823,6 +2823,8 @@
     }
 
     function hideSaveLoading() {
+      window._saveInFlight = false;
+      window._saveLoadGen = (window._saveLoadGen || 0) + 1;
       try { if (window._saveLoadTimer) { clearTimeout(window._saveLoadTimer); window._saveLoadTimer = null; } } catch (eT) {}
       try { if (window._saveLoadTapTimer) { clearTimeout(window._saveLoadTapTimer); window._saveLoadTapTimer = null; } } catch (eT2) {}
       const ov = document.getElementById("saveLoadOverlay");
@@ -2836,6 +2838,9 @@
       }
     }
     function showSaveLoading(label, timeoutMs) {
+      window._saveInFlight = true;
+      window._saveLoadGen = (window._saveLoadGen || 0) + 1;
+      var gen = window._saveLoadGen;
       const ov = document.getElementById("saveLoadOverlay");
       const lb = document.getElementById("saveLoadLabel");
       if (lb) lb.textContent = label || "Сохраняю заказ…";
@@ -2848,42 +2853,61 @@
         ov.onclick = null;
       }
 
-      // Жёсткий потолок: раньше 120с оставляли чёрный экран без кликов
       var ms = Number(timeoutMs);
-      if (!(ms > 0)) ms = 20000;
-      if (ms > 25000) ms = 25000;
+      if (!(ms > 0)) ms = 45000;
+      if (ms > 90000) ms = 90000;
       try {
         if (window._saveLoadTimer) clearTimeout(window._saveLoadTimer);
         window._saveLoadTimer = setTimeout(function () {
+          if (gen !== window._saveLoadGen) return;
+          var still = !!window._saveInFlight;
           hideSaveLoading();
-          try { showToast("Сохранение зависло — UI разблокирован"); } catch (e0) {}
+          if (still) {
+            try { showToast("Пишу в таблицу в фоне — список обновится сам"); } catch (e0) {}
+          }
         }, ms);
       } catch (e1) {}
-      // Через 2.5с тап по оверлею снимает блок
       try {
         if (window._saveLoadTapTimer) clearTimeout(window._saveLoadTapTimer);
         window._saveLoadTapTimer = setTimeout(function () {
+          if (gen !== window._saveLoadGen) return;
           var o2 = document.getElementById("saveLoadOverlay");
           if (!o2 || !o2.classList.contains("open")) return;
+          var lb2 = document.getElementById("saveLoadLabel");
+          if (lb2 && window._saveInFlight) {
+            lb2.textContent = (lb2.textContent || "Сохраняю") + " · можно закрыть";
+          }
           o2.classList.add("can-dismiss");
           o2.onclick = function () {
-            hideSaveLoading();
-            try { showToast("UI разблокирован"); } catch (eTap) {}
+            if (gen !== window._saveLoadGen) return;
+            var ovEl = document.getElementById("saveLoadOverlay");
+            if (ovEl) {
+              ovEl.classList.remove("open");
+              ovEl.style.display = "none";
+              ovEl.style.pointerEvents = "none";
+              ovEl.onclick = null;
+            }
+            try { showToast("Сохраняю в фоне"); } catch (eTap) {}
           };
-        }, 2500);
+        }, 4000);
       } catch (eTapArm) {}
     }
     function bumpSaveLoading(label) {
       var lb = document.getElementById("saveLoadLabel");
       if (lb && label) lb.textContent = label;
       var ov = document.getElementById("saveLoadOverlay");
-      if (ov && ov.classList.contains("open")) {
+      if (ov && ov.classList.contains("open") && window._saveInFlight) {
         try {
+          var gen = window._saveLoadGen || 0;
           if (window._saveLoadTimer) clearTimeout(window._saveLoadTimer);
           window._saveLoadTimer = setTimeout(function () {
+            if (gen !== window._saveLoadGen) return;
+            var still = !!window._saveInFlight;
             hideSaveLoading();
-            try { showToast("Сохранение зависло — UI разблокирован"); } catch (e0) {}
-          }, 20000);
+            if (still) {
+              try { showToast("Пишу в таблицу в фоне — список обновится сам"); } catch (e0) {}
+            }
+          }, 45000);
         } catch (eB) {}
       }
     }
@@ -3586,6 +3610,46 @@
           : 1;
       }
       function once_() {
+        var writeCutover =
+          window.__BOINYA_C_CUTOVER__ &&
+          !opts.directGas &&
+          /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|saveSubscription|pullClientsFromMonth)$/i.test(action);
+        if (writeCutover) {
+          return new Promise(function (resolve, reject) {
+            var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+            var timer = setTimeout(function () {
+              try { if (ctrl) ctrl.abort(); } catch (eAb) {}
+              reject(new Error("Таймаут ответа сервера"));
+            }, timeoutMs);
+            fetch(GOOGLE_WEBHOOK_URL, {
+              method: "POST",
+              redirect: "follow",
+              headers: {
+                "Content-Type": "application/json;charset=utf-8",
+                "Cache-Control": "no-cache"
+              },
+              body: JSON.stringify(params),
+              signal: ctrl ? ctrl.signal : undefined
+            })
+              .then(function (r) {
+                return r.json();
+              })
+              .then(function (res) {
+                clearTimeout(timer);
+                if (cacheKey && cacheTtlMs > 0) {
+                  var packed = { exp: Date.now() + cacheTtlMs, res: res };
+                  _apiGetMem[cacheKey] = packed;
+                  try { apiSsSaveKey_(cacheKey, packed); } catch (eSs3) {}
+                }
+                resolve(res);
+              })
+              .catch(function (err) {
+                clearTimeout(timer);
+                if (err && err.name === "AbortError") reject(new Error("Таймаут ответа сервера"));
+                else reject(new Error("Ошибка сети"));
+              });
+          });
+        }
         return new Promise(function (resolve, reject) {
           var cb = "cb_" + Math.round(Math.random() * 1e9);
           var timer = setTimeout(function () {
@@ -4030,7 +4094,7 @@
       const btn = document.getElementById("btnMainSave");
       btn.disabled = true;
       btn.innerText = "Сохраняю...";
-      showSaveLoading("Сохраняю заказ…", 20000);
+      showSaveLoading("Сохраняю заказ…", 45000);
 
       if (isEdit && editOriginalClient) {
         var nickChanged = String(editOriginalClient).trim().toUpperCase() !== clientName.toUpperCase();
@@ -4186,7 +4250,7 @@
         if (useJsonpSave) {
           try {
             bumpSaveLoading(weekDayToSave ? "Бронь + лист недели…" : "Сохраняю бронь…");
-            bookRes = await apiGet(bookParams, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 28000 : 90000, cacheTtlMs: 0 });
+            bookRes = await apiGet(bookParams, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 18000 : 90000, cacheTtlMs: 0 });
           } catch (eBook) {
             bookRes = { status: "error", message: eBook.message || String(eBook) };
           }
@@ -4226,7 +4290,7 @@
             if (surveyMeta) orderParams.survey = JSON.stringify(surveyMeta);
             try {
               bumpSaveLoading("Пишу в лист недели…");
-              saveRes = await apiGet(orderParams, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 28000 : 90000, cacheTtlMs: 0 });
+              saveRes = await apiGet(orderParams, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 18000 : 90000, cacheTtlMs: 0 });
             } catch (eWeek) {
               saveRes = { status: "error", message: eWeek.message || String(eWeek) };
             }
@@ -5734,6 +5798,7 @@
       var ok = await uiConfirmAsync("Записать в таблицу " + viewTransferDraft.length + " чел. на «" + (day || dateStr) + "»?");
       if (!ok) return;
       try {
+        showSaveLoading("Сохраняю " + viewTransferDraft.length + " чел.…", 60000);
         showToast("Сохраняю…");
         var payload = {
           action: "pullClientsFromMonth",
@@ -5781,6 +5846,8 @@
         await loadClientsForDay();
       } catch (e) {
         await uiAlertAsync(e.message || "Ошибка сети / Deploy");
+      } finally {
+        hideSaveLoading();
       }
     }
     window.saveViewTransferDraft = saveViewTransferDraft;

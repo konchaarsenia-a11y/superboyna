@@ -2155,17 +2155,60 @@ async function handleCutover_(a, params, env, ctx) {
     return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
   }
 
-  // запись — GAS быстро; D1 optimistic сразу; тяжёлый revalidate в фоне
+  // запись: save* — D1 сразу, GAS не дольше ~6.5с в ответе (остальное waitUntil).
+  // Иначе UI 20с видит «сохранение зависло», хотя таблица ещё пишет.
   if (isWriteAction_(a)) {
     const blocked = partnerBlockWrongPoint_(a, params);
     if (blocked) return blocked;
+    const isFastSave = /^(saveOrder|saveBooking)$/i.test(a);
+    if (isFastSave) {
+      try {
+        if (env && env.DB) await saveOrder_(params, env, /^saveBooking$/i.test(a));
+      } catch (eOpt) {}
+      const gasP = gasProxy_(a, params, env, { write: true }).catch(function () {
+        return null;
+      });
+      let proxied = null;
+      let gotGas = false;
+      await Promise.race([
+        gasP.then(function (p) {
+          proxied = p;
+          gotGas = true;
+        }),
+        new Promise(function (r) {
+          setTimeout(r, 6500);
+        })
+      ]);
+      const bg = (async function () {
+        try {
+          if (!gotGas) proxied = await gasP;
+        } catch (eG) {}
+        try {
+          await cutoverAfterWrite_(a, params, env, proxied);
+        } catch (eA) {}
+      })();
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(bg);
+      else await bg;
+      if (gotGas && proxied) return partnerGuardOrRewrite_(a, params, proxied);
+      const alsoWeek =
+        params.alsoSaveOrder === true ||
+        String(params.alsoSaveOrder || "") === "1" ||
+        String(params.alsoSaveOrder || "").toLowerCase() === "true";
+      const basketLen = parseBasket_(params.basket).length;
+      return {
+        status: "success",
+        wrote: basketLen || 1,
+        basketLen: basketLen,
+        optimistic: true,
+        weekWritten: alsoWeek || /^saveOrder$/i.test(a),
+        cutover: true,
+        sandbox: false
+      };
+    }
     const proxied = await gasProxy_(a, params, env, { write: true });
     if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
-    // optimistic D1 (~мс) — UI сразу видит позиции; GAS-догон в waitUntil
     try {
-      if (/^(saveOrder|saveBooking)$/i.test(a) && env && env.DB) {
-        await saveOrder_(params, env, /^saveBooking$/i.test(a));
-      } else if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
+      if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
         await deleteClient_(params, env);
       } else if (/^moveClient$/i.test(a) && env && env.DB) {
         await moveClient_(params, env);
