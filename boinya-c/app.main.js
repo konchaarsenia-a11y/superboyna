@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c15";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c16";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -11041,7 +11041,7 @@
           '<span class="odc-count">' + escapeHtml(String(n)) + "</span>" +
           "</button>";
       }).join("");
-      try { updateWeekSkewBanner_(items); } catch (eSkew) {}
+      try { updateWeekSkewBanner_(items, _orderDayCountsCache); } catch (eSkew) {}
     }
 
     function parseDmyToDate_(raw) {
@@ -11055,10 +11055,22 @@
       return null;
     }
 
-    function updateWeekSkewBanner_(items) {
+    function updateWeekSkewBanner_(items, meta) {
       var ban = document.getElementById("weekSkewBanner");
       var txt = document.getElementById("weekSkewText");
       if (!ban) return;
+      meta = meta || {};
+      if (meta.fromCalendar && meta.sheetMonday) {
+        ban.style.display = "block";
+        if (txt) {
+          txt.textContent =
+            "Лист «Прием» стоит на " + String(meta.sheetMonday) +
+            " (закрытие недели ускакало). Счётчики и нарезка сейчас с календаря " +
+            String(meta.calendarMonday || "") +
+            ". Вставка Code.gs даты не откатывает — нужен вызов repairWeekMonday.";
+        }
+        return;
+      }
       var mon = null;
       (items || []).forEach(function (it) {
         if (it && String(it.day) === "Понедельник") mon = it;
@@ -11086,7 +11098,7 @@
         txt.textContent =
           "На листе понедельник " + String(mon.date) +
           " (сейчас должно быть около текущей недели). " +
-          "Приём/нарезка/курьер показывают эту дату. Нужен Deploy Code.gs → repairWeekMonday на 17.08.2026.";
+          "Приём/нарезка/курьер показывают эту дату. Нужен Deploy Code.gs → repairWeekMonday.";
       }
     }
 

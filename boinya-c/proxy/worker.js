@@ -413,8 +413,12 @@ function isoToDmy_(iso) {
 }
 
 async function dateMap_(env) {
-  // только актуальная неделя из weekDayCounts — dateToDay-snap часто протухает после сдвига недели
-  const counts = await getSnapRaw_(env, "weekDayCounts");
+  // маппинг дата→слот листа: не брать overlay календаря (иначе 17.08 = «Пн» листа 07.09)
+  let counts = await getSnapRaw_(env, "weekDayCountsSheet");
+  if (!counts || !Array.isArray(counts.items) || !counts.items.length) {
+    counts = await getSnapRaw_(env, "weekDayCounts");
+    if (counts && counts.fromCalendar) counts = null;
+  }
   const map = Object.create(null);
   ((counts && counts.items) || []).forEach(function (it) {
     const iso = dmyToIso_(it && it.date);
@@ -426,7 +430,11 @@ async function dateMap_(env) {
 }
 
 async function dayDateInfo_(env, day) {
-  const counts = await getSnapRaw_(env, "weekDayCounts");
+  let counts = await getSnapRaw_(env, "weekDayCounts");
+  if (counts && counts.fromCalendar) {
+    const sheet = await getSnapRaw_(env, "weekDayCountsSheet");
+    if (sheet && Array.isArray(sheet.items)) counts = sheet;
+  }
   const items = (counts && counts.items) || [];
   for (let i = 0; i < items.length; i++) {
     if (items[i].day === day) {
@@ -523,7 +531,11 @@ async function getViewCompare_(params, env) {
   await ensureMetaColumn_(env);
   const day = String(params.day || "");
   const dateIso = String(params.date || "");
-  const counts = await getSnapRaw_(env, "weekDayCounts");
+  let counts = await getSnapRaw_(env, "weekDayCounts");
+  if (counts && counts.fromCalendar) {
+    const sheet = await getSnapRaw_(env, "weekDayCountsSheet");
+    if (sheet && Array.isArray(sheet.items)) counts = sheet;
+  }
 
   // date → день ТОЛЬКО через актуальные weekDayCounts (не протухший dateToDay)
   let resolvedDay = "";
@@ -737,7 +749,10 @@ async function overlayWeekSheetCountsOnMonth_(env, body) {
       fromWeekSheet: !!d.fromWeekSheet
     };
   });
+  const bodyMonth = String(body.month || "").slice(0, 7);
   Object.keys(weekMap).forEach(function (iso) {
+    // не вклеивать «Приём» 07.09 в обзор августа — лист уехал вперёд
+    if (bodyMonth && String(iso).slice(0, 7) !== bodyMonth) return;
     if (!byIso[iso]) {
       byIso[iso] = {
         dateIso: iso,
@@ -762,6 +777,325 @@ async function overlayWeekSheetCountsOnMonth_(env, body) {
   body.total = total;
   body.weekOverlay = true;
   return body;
+}
+
+function minkTodayIso_() {
+  const t = Date.now() + 3 * 3600 * 1000;
+  const d = new Date(t);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1);
+  const day = String(d.getUTCDate());
+  return y + "-" + (m.length < 2 ? "0" + m : m) + "-" + (day.length < 2 ? "0" + day : day);
+}
+
+function isoAddDays_(iso, n) {
+  const p = String(iso || "").split("-");
+  if (p.length !== 3) return "";
+  const dt = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]) + Number(n || 0)));
+  const y = dt.getUTCFullYear();
+  const m = String(dt.getUTCMonth() + 1);
+  const d = String(dt.getUTCDate());
+  return y + "-" + (m.length < 2 ? "0" + m : m) + "-" + (d.length < 2 ? "0" + d : d);
+}
+
+function currentMondayIso_() {
+  const iso = minkTodayIso_();
+  const p = iso.split("-");
+  const dt = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])));
+  const wd = dt.getUTCDay();
+  const back = wd === 0 ? 6 : wd - 1;
+  return isoAddDays_(iso, -back);
+}
+
+function daysBetweenIso_(a, b) {
+  const pa = String(a || "").split("-");
+  const pb = String(b || "").split("-");
+  if (pa.length !== 3 || pb.length !== 3) return 0;
+  const da = Date.UTC(Number(pa[0]), Number(pa[1]) - 1, Number(pa[2]));
+  const db = Date.UTC(Number(pb[0]), Number(pb[1]) - 1, Number(pb[2]));
+  return Math.round((db - da) / 86400000);
+}
+
+function mondayDmyFromCounts_(counts) {
+  const items = (counts && counts.items) || [];
+  for (let i = 0; i < items.length; i++) {
+    if (items[i] && String(items[i].day) === "Понедельник") return String(items[i].date || "");
+  }
+  return "";
+}
+
+function isWeekSkewed_(counts) {
+  const dmy = (counts && counts.sheetMonday) || mondayDmyFromCounts_(counts);
+  const iso = dmyToIso_(dmy);
+  if (!iso) return false;
+  return Math.abs(daysBetweenIso_(iso, currentMondayIso_())) > 10;
+}
+
+function calendarIsoForDay_(dayName, mondayIso) {
+  const raw = String(dayName || "").trim();
+  let idx = WEEK_DAYS.indexOf(raw);
+  if (idx < 0) {
+    const shorts = { Пн: 0, Вт: 1, Ср: 2, Чт: 3, Пт: 4, Сб: 5, Вс: 6, Буд: 7 };
+    if (shorts[raw] != null) idx = shorts[raw];
+  }
+  if (idx < 0) return "";
+  return isoAddDays_(mondayIso, idx === 7 ? 7 : idx);
+}
+
+function uniqPeople_(list) {
+  const seen = Object.create(null);
+  const out = [];
+  (list || []).forEach(function (c) {
+    if (!c) return;
+    const mk = normalizeMatchKey_(c.matchKey || c.name || c.client || c.nick);
+    if (!mk || seen[mk]) return;
+    seen[mk] = true;
+    out.push(c);
+  });
+  return out;
+}
+
+function peopleFromViewPayload_(payload) {
+  return uniqPeople_(
+    [].concat(Array.isArray(payload && payload.week) ? payload.week : []).concat(
+      Array.isArray(payload && payload.month) ? payload.month : []
+    )
+  );
+}
+
+async function fetchCalendarPeople_(env, dateIso, dateDmy) {
+  if (dateIso) {
+    try {
+      const snap = await getSnapRaw_(env, "viewDate:" + dateIso);
+      const people = peopleFromViewPayload_(snap);
+      if (people.length) return people;
+    } catch (e0) {}
+  }
+  try {
+    const live = await gasProxy_(
+      "getViewCompare",
+      { date: dateDmy || isoToDmy_(dateIso), dateIso: dateIso },
+      env,
+      { write: false }
+    );
+    if (live && live.status === "success") {
+      try {
+        await cutoverStoreRead_(
+          "getViewCompare",
+          { date: dateDmy || isoToDmy_(dateIso), dateIso: dateIso },
+          env,
+          live
+        );
+      } catch (eS) {}
+      return peopleFromViewPayload_(live);
+    }
+  } catch (e1) {}
+  return [];
+}
+
+function calendarPersonToClient_(c, day, dateDmy, dateIso) {
+  const name = String((c && (c.name || c.client || c.nick)) || "").trim();
+  const note = String((c && c.note) || "");
+  return {
+    name: name,
+    matchKey: String((c && c.matchKey) || name),
+    address: (c && c.address) || "",
+    note: note,
+    phone: (c && c.phone) || "",
+    basket: Array.isArray(c && c.basket) ? c.basket : [],
+    segment: (c && c.segment) || "",
+    source: (c && c.source) || "calendar",
+    orderPrice: c && c.orderPrice != null ? c.orderPrice : "",
+    ppSlot: (c && c.ppSlot) || "",
+    ppHint: (c && c.ppHint) || "",
+    ppPartner: (c && c.ppPartner) || "",
+    dogCount: Number(c && c.dogCount) || 1,
+    noCut: !!(c && c.noCut) || /\[НЕ\s*РЕЗАТЬ\]/i.test(note),
+    geo: (c && c.geo) || null,
+    delivered: false,
+    assembled: false,
+    dateIso: dateIso,
+    day: day,
+    date: dateDmy
+  };
+}
+
+function isPieceSku_(name, cat, unit) {
+  if (String(unit || "").toLowerCase().indexOf("шт") >= 0) return true;
+  const c = String(cat || "").toLowerCase();
+  if (c === "chew" || c === "chews") return true;
+  const n = String(name || "");
+  if (/шт/i.test(n)) return true;
+  if (/УХО|УШК|КОРЕН|ХРЯЩ|КОПЫТ|НОСЫ|НОС\b|ШЕИ|ШЕЯ|ГУБЫ|АОРТ|ТРАХЕ|ЛОПАТ/i.test(n)) return true;
+  return false;
+}
+
+function cuttingItemsFromPeople_(people, warehouseItems) {
+  const coefByName = Object.create(null);
+  const rowByName = Object.create(null);
+  (warehouseItems || []).forEach(function (w) {
+    const nm = String((w && w.name) || "").trim().toUpperCase();
+    if (!nm) return;
+    coefByName[nm] = Number(w.coef) || 0.2;
+    if (w.row != null) rowByName[nm] = Number(w.row);
+  });
+  const acc = Object.create(null);
+  (people || []).forEach(function (p) {
+    if (p && (p.noCut || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(p.note || "")))) return;
+    (p.basket || []).forEach(function (it) {
+      const name = String((it && (it.main || it.name)) || "").trim();
+      if (!name) return;
+      const val = Number(it.value != null ? it.value : it.val) || 0;
+      if (!(val > 0)) return;
+      const key = name.toUpperCase();
+      if (!acc[key]) {
+        acc[key] = {
+          name: name,
+          dry: 0,
+          cat: it.cat || "",
+          unitHint: it.unit || ""
+        };
+      }
+      acc[key].dry += val;
+    });
+  });
+  const items = [];
+  Object.keys(acc)
+    .sort()
+    .forEach(function (k, i) {
+      const it = acc[k];
+      const piece = isPieceSku_(it.name, it.cat, it.unitHint);
+      const coef = coefByName[k] || 0.2;
+      const raw = piece ? it.dry : it.dry / 1000 / (coef || 0.2);
+      items.push({
+        row: rowByName[k] || 200 + i,
+        name: it.name,
+        dry: Math.round(it.dry * 100) / 100,
+        unit: piece ? "шт" : "гр",
+        raw: Math.round(raw * 100) / 100,
+        surplus: 0,
+        done: false,
+        laid: false,
+        outNext: false,
+        fromCalendar: true
+      });
+    });
+  return items;
+}
+
+async function calendarWeekPlan_(env, sheetCounts) {
+  const mondayIso = currentMondayIso_();
+  const sheetMonday = String((sheetCounts && sheetCounts.sheetMonday) || mondayDmyFromCounts_(sheetCounts) || "");
+  let byIso = Object.create(null);
+  try {
+    const month = mondayIso.slice(0, 7);
+    let ov = await getSnapRaw_(env, "monthOverview:" + month);
+    if (!ov || !Array.isArray(ov.days)) ov = await getSnapRaw_(env, "monthOverview");
+    ((ov && ov.days) || []).forEach(function (d) {
+      if (d && d.dateIso && !d.fromWeekSheet) byIso[d.dateIso] = Number(d.count) || 0;
+    });
+  } catch (eO) {}
+  const items = WEEK_DAYS.map(function (day, i) {
+    const iso = isoAddDays_(mondayIso, i === 7 ? 7 : i);
+    return {
+      day: day,
+      short: DAY_SHORT[day],
+      count: byIso[iso] != null ? byIso[iso] : 0,
+      date: isoToDmy_(iso),
+      dateIso: iso
+    };
+  });
+  const total = items.reduce(function (s, it) {
+    return s + (Number(it.count) || 0);
+  }, 0);
+  return {
+    status: "success",
+    items: items,
+    total: total,
+    fromCalendar: true,
+    calendarMonday: isoToDmy_(mondayIso),
+    sheetMonday: sheetMonday,
+    cutover: true,
+    sandbox: false
+  };
+}
+
+async function applyCalendarWeekIfSkewed_(a, params, env, sheetCounts) {
+  if (!isWeekSkewed_(sheetCounts)) return null;
+  const mondayIso = currentMondayIso_();
+  if (a === "getWeekDayCounts") {
+    const plan = await calendarWeekPlan_(env, sheetCounts);
+    try {
+      await putSnap_(env, "weekDayCounts", plan);
+    } catch (eP) {}
+    return plan;
+  }
+  const day = String((params && params.day) || "");
+  if (!day) return null;
+  const iso = calendarIsoForDay_(day, mondayIso);
+  const dmy = isoToDmy_(iso);
+  if (!iso) return null;
+  const people = await fetchCalendarPeople_(env, iso, dmy);
+  const clients = people.map(function (c) {
+    return calendarPersonToClient_(c, day, dmy, iso);
+  });
+  const sheetMonday = String((sheetCounts && sheetCounts.sheetMonday) || mondayDmyFromCounts_(sheetCounts) || "");
+  if (a === "getClients") {
+    return {
+      status: "success",
+      day: day,
+      date: dmy,
+      dateIso: iso,
+      clients: clients,
+      fromCalendar: true,
+      calendarMonday: isoToDmy_(mondayIso),
+      sheetMonday: sheetMonday,
+      cutover: true,
+      sandbox: false,
+      source: "calendar"
+    };
+  }
+  if (a === "getCourier" || a === "getAssembly") {
+    return {
+      status: "success",
+      day: day,
+      date: dmy,
+      dateIso: iso,
+      clients: clients,
+      fromCalendar: true,
+      calendarMonday: isoToDmy_(mondayIso),
+      sheetMonday: sheetMonday,
+      cutover: true,
+      sandbox: false
+    };
+  }
+  if (a === "getCutting") {
+    let wh = [];
+    try {
+      const wsnap = await getSnapRaw_(env, "warehouse");
+      wh = (wsnap && (wsnap.items || wsnap.rows)) || [];
+    } catch (eW) {}
+    let items = [];
+    try {
+      items = cuttingItemsFromPeople_(clients, wh);
+    } catch (eCut) {
+      items = [];
+    }
+    return {
+      status: "success",
+      day: day,
+      date: dmy,
+      dateIso: iso,
+      items: items,
+      session: {},
+      fromCalendar: true,
+      calendarMonday: isoToDmy_(mondayIso),
+      sheetMonday: sheetMonday,
+      cutover: true,
+      sandbox: false
+    };
+  }
+  return null;
 }
 
 /** Уникальные люди из ответа Просмотра (week+month). */
@@ -1737,18 +2071,53 @@ async function handleCutover_(a, params, env, ctx) {
     });
   }
   if (a === "getWeekDayCounts") {
+    const snap = await getSnapRaw_(env, "weekDayCounts");
+    if (snap && snap.fromCalendar && isWeekSkewed_(snap)) {
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(
+          (async function () {
+            try {
+              const live = await gasProxy_("getWeekDayCounts", params || {}, env, { write: false });
+              if (live && live.status === "success") {
+                try {
+                  await putSnap_(env, "weekDayCountsSheet", live);
+                } catch (eS) {}
+                if (isWeekSkewed_(live)) {
+                  await applyCalendarWeekIfSkewed_("getWeekDayCounts", params, env, live);
+                } else {
+                  await putSnap_(env, "weekDayCounts", live);
+                }
+              }
+            } catch (eR) {}
+          })()
+        );
+      }
+      const out = Object.assign({}, snap);
+      out.cutover = true;
+      out.swr = true;
+      out.fromGas = false;
+      out.sandbox = false;
+      return out;
+    }
     const body = await cutoverSwrGas_("getWeekDayCounts", params, env, ctx, {
       isOk: function (s) {
         return Array.isArray(s.items) && s.items.length > 0;
       },
       afterStore: async function (live, e) {
-        // после свежих дат — подтянуть дни в фоне
+        if (isWeekSkewed_(live)) {
+          try {
+            await putSnap_(e, "weekDayCountsSheet", live);
+          } catch (eSh) {}
+          await applyCalendarWeekIfSkewed_("getWeekDayCounts", params, e, live);
+          return;
+        }
         if (ctx && typeof ctx.waitUntil === "function") {
           ctx.waitUntil(cutoverRefreshAllWeekDays_(e));
         }
       }
     });
-    return body;
+    const cal = await applyCalendarWeekIfSkewed_("getWeekDayCounts", params, env, body);
+    return cal || body;
   }
   if (a === "getWeekBannerState") {
     return cutoverSwrGas_("getWeekBannerState", params, env, ctx, {
@@ -1787,6 +2156,19 @@ async function handleCutover_(a, params, env, ctx) {
       return live;
     }
     return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
+  }
+
+  // Лист Приёма уехал (07.09 при живой 17.08) — клиенты/нарезка с календаря этой недели
+  if (a === "getClients" || a === "getCutting" || a === "getCourier" || a === "getAssembly") {
+    try {
+      let counts = await getSnapRaw_(env, "weekDayCounts");
+      if (!isWeekSkewed_(counts)) {
+        const sheet = await getSnapRaw_(env, "weekDayCountsSheet");
+        if (isWeekSkewed_(sheet)) counts = sheet;
+      }
+      const cal = await applyCalendarWeekIfSkewed_(a, params, env, counts);
+      if (cal) return cal;
+    } catch (eCalOps) {}
   }
 
   // чтение: D1 сразу. Исключение — дата календаря вне недели без snap (иначе UI «никого нет»).
