@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c21";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c22";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3732,11 +3732,22 @@
         redirect: "follow",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify(payload)
-      }).then(function () {
-        return { status: "sent" };
-      }).catch(function () {
-
-        return { status: "sent_opaque" };
+      }).then(function (r) {
+        return r.text().then(function (text) {
+          try {
+            var j = JSON.parse(text);
+            if (j && typeof j === "object") return j;
+          } catch (eJ) {}
+          if (/^\s*\{/.test(String(text || ""))) {
+            try {
+              var j2 = JSON.parse(String(text).trim());
+              if (j2 && typeof j2 === "object") return j2;
+            } catch (eJ2) {}
+          }
+          return { status: "sent_opaque", raw: text };
+        });
+      }).catch(function (err) {
+        return Promise.reject(err);
       });
     }
 
@@ -3976,6 +3987,21 @@
       }
       var ppPartnerVal = "";
       if (orderType === "bp") {
+        var bpKnownStage = "";
+        try {
+          var bpPeek = await apiGet({
+            action: "getSubscription",
+            nick: clientName,
+            segment: "БП",
+            sheet: "БП",
+            _: String(Date.now())
+          }, { timeoutMs: 12000, cacheTtlMs: 0 });
+          if (bpPeek && bpPeek.status === "success" && (bpPeek.nick || bpPeek.rowIndex)) {
+            bpKnownStage = normalizeBpStage_(bpPeek.ppStatus || bpPeek.status || bpPeek.stage || "");
+          }
+        } catch (eBpPeek) {}
+        var bpSecondOrLater = bpKnownStage === "БП2" || bpKnownStage === "ФИНАЛ";
+
         ppPartnerVal = String((document.getElementById("ppPartnerSelect") || {}).value || "").trim();
 
         if (!ppPartnerVal) {
@@ -3998,7 +4024,7 @@
             }
           } catch (eLookP) {}
         }
-        if (!ppPartnerVal) {
+        if (!ppPartnerVal && !bpSecondOrLater) {
           await uiAlertAsync("Для БП обязательно укажите партнёра (кто привёл). Или выберите «Другое».");
           return;
         }
@@ -7003,17 +7029,6 @@
         box.innerHTML = transferHtml + cuttingItemsCache.map(renderCutRowHtml).join("");
         if (finishBtn) finishBtn.style.display = cuttingSession.active ? "block" : "none";
         startCuttingPoll();
-        if (res && (res.fromD1 || res.source === "d1" || res.fromCalendar) && !fromPoll) {
-          try {
-            if (window._cutGasCatchTimer) clearTimeout(window._cutGasCatchTimer);
-            window._cutGasCatchTimer = setTimeout(function () {
-              window._cutGasCatchTimer = null;
-              var sel = document.getElementById("cuttingDaySelect");
-              if (!sel || String(sel.value) !== String(day)) return;
-              loadCutting(true);
-            }, 7000);
-          } catch (eCatch) {}
-        }
       } catch (err) {
         if (loadSeq !== _cuttingLoadSeq) return;
         if (!fromPoll) {
@@ -8027,8 +8042,11 @@
       try {
         var body = { action: "setDelivered", day: day, client: client.name, delivered: delivered };
         if (paidAnswer) body.paid = paidAnswer;
-        await apiPost(body);
-        try { apiCacheBustMem_(); } catch (eClr) {}
+        if (client.matchKey) body.matchKey = client.matchKey;
+        var delRes = await apiPost(body);
+        var delOk = delRes && (delRes.status === "success" || delRes.status === "sent_opaque");
+        if (!delOk) throw new Error((delRes && delRes.message) || "save_failed");
+        try { apiCacheBustMem_("getCourier"); } catch (eClr) {}
       } catch (e) {
         client.delivered = !delivered;
         refreshCourierSummary();
@@ -13303,7 +13321,16 @@
       renderAssemblyView();
       try { apiCacheBustMem_(); } catch (eClr) {}
       try {
-        await apiPost({ action: "setAssembled", day: day, client: client.name, assembled: next });
+        var asmRes = await apiPost({
+          action: "setAssembled",
+          day: day,
+          client: client.name,
+          matchKey: client.matchKey || "",
+          assembled: next
+        });
+        if (!asmRes || (asmRes.status !== "success" && asmRes.status !== "sent_opaque")) {
+          throw new Error((asmRes && asmRes.message) || "save_failed");
+        }
         showToast(next ? ("Собран: " + client.name) : ("Снято: " + client.name));
       } catch (e) {
         client.assembled = !next;

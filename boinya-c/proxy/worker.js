@@ -1549,9 +1549,7 @@ async function invalidateDays_(env, days) {
     await delSnap_(env, "view:" + d);
     await rebuildCourierDay_(env, d);
     await rebuildAssemblyDay_(env, d);
-    try {
-      await rebuildCuttingDay_(env, d);
-    } catch (eCutInv) {}
+    await delSnap_(env, "cutting:" + d);
   }
   await rebuildWeekCounts_(env);
   await rebuildMonthOverview_(env);
@@ -1628,29 +1626,17 @@ async function getAssembly_(params, env) {
 
 async function getCutting_(params, env) {
   const day = String(params.day || "Понедельник");
+  const hit = await getSnapRaw_(env, "cutting:" + day);
+  if (!hit) return null;
   const info = await dayDateInfo_(env, day);
   const wantDate = String((info && info.date) || "");
-  let hit = await getSnapRaw_(env, "cutting:" + day);
   const snapDate = String((hit && hit.date) || "");
-  const hasItems = !!(hit && Array.isArray(hit.items) && hit.items.length);
   const dateOk = !wantDate || !snapDate || snapDate === wantDate;
   const staleDone = !!(hit && hit.completion && wantDate && snapDate !== wantDate);
-  if (hit && hasItems && dateOk && !staleDone) return hit;
-  try {
-    const rebuilt = await rebuildCuttingDay_(env, day);
-    if (rebuilt) return rebuilt;
-  } catch (eRb) {}
-  if (hit && dateOk && !staleDone) return hit;
-  return {
-    status: "success",
-    items: [],
-    day: day,
-    date: wantDate,
-    dateIso: (info && info.iso) || "",
-    sandbox: true,
-    session: {},
-    source: "d1"
-  };
+  if (!dateOk || staleDone) return null;
+  // Оценка из D1 теряет фракции (трахея мал/сред…) — только snap с GAS
+  if (hit.fromD1 || hit.fromCalendar) return null;
+  return hit;
 }
 
 async function upsertOrderRow_(env, row) {
@@ -1903,6 +1889,92 @@ async function setAssemblyFlag_(params, env, flag) {
   });
   await putSnap_(env, "assembly:" + day, snap);
   return { status: "success", sandbox: true, wrote: 1, [flag]: val };
+}
+
+async function syncOpsWriteToD1_(action, params, env, proxied) {
+  if (!env || !env.DB || !proxied || proxied.status !== "success") return;
+  const day = String(params.day || "");
+  if (!day) return;
+  const client = String(params.client || "");
+  const mk = normalizeMatchKey_(params.matchKey || client);
+
+  if (/^updateCutting$/i.test(action)) {
+    const rowNum = Number(params.row);
+    if (!rowNum) return;
+    let snap = (await getSnapRaw_(env, "cutting:" + day)) || {
+      status: "success",
+      day: day,
+      items: [],
+      session: {}
+    };
+    const items = Array.isArray(snap.items) ? snap.items.slice() : [];
+    let found = false;
+    for (let i = 0; i < items.length; i++) {
+      if (Number(items[i].row) === rowNum) {
+        if (params.laid != null && params.laid !== "") items[i].laid = toBool_(params.laid);
+        else if (proxied.laid !== undefined) items[i].laid = !!proxied.laid;
+        if (params.done != null && params.done !== "") items[i].done = toBool_(params.done);
+        else if (proxied.done !== undefined) items[i].done = !!proxied.done;
+        if (params.outNext != null && params.outNext !== "") items[i].outNext = toBool_(params.outNext);
+        else if (proxied.outNext !== undefined) items[i].outNext = !!proxied.outNext;
+        if (params.surplus != null && params.surplus !== "") items[i].surplus = Number(params.surplus) || 0;
+        found = true;
+        break;
+      }
+    }
+    snap.items = items;
+    snap.fromGas = true;
+    snap.fromD1 = false;
+    await putSnap_(env, "cutting:" + day, snap);
+    return;
+  }
+
+  if (/^setDelivered$/i.test(action)) {
+    const delivered = toBool_(params.delivered);
+    let snap = (await getSnapRaw_(env, "courier:" + day));
+    if (!snap) {
+      await rebuildCourierDay_(env, day);
+      snap = await getSnapRaw_(env, "courier:" + day);
+    }
+    if (snap && Array.isArray(snap.clients)) {
+      snap.clients.forEach(function (c) {
+        if (c.name === client || normalizeMatchKey_(c.matchKey || c.name) === mk) {
+          c.delivered = delivered;
+          if (params.paid) c.paid = params.paid;
+        }
+      });
+      await putSnap_(env, "courier:" + day, snap);
+    }
+    const info = await dayDateInfo_(env, day);
+    if (info.iso && mk) {
+      const now = new Date().toISOString();
+      await env.DB.prepare(
+        `INSERT INTO deliveries (date_iso, match_key, delivered, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(date_iso, match_key) DO UPDATE SET delivered=excluded.delivered, updated_at=excluded.updated_at`
+      )
+        .bind(info.iso, mk, delivered ? 1 : 0, now)
+        .run();
+    }
+    return;
+  }
+
+  if (/^set(Assembled|Printed)$/i.test(action)) {
+    const flag = /^setAssembled$/i.test(action) ? "assembled" : "printed";
+    const val = toBool_(params[flag] != null ? params[flag] : params.value);
+    let snap = (await getSnapRaw_(env, "assembly:" + day));
+    if (!snap) {
+      await rebuildAssemblyDay_(env, day);
+      snap = await getSnapRaw_(env, "assembly:" + day);
+    }
+    if (snap && Array.isArray(snap.clients)) {
+      snap.clients.forEach(function (c) {
+        if (c.name === client || normalizeMatchKey_(c.matchKey || c.name) === mk) {
+          c[flag] = val;
+        }
+      });
+      await putSnap_(env, "assembly:" + day, snap);
+    }
+  }
 }
 
 async function updateCutting_(params, env) {
@@ -2324,6 +2396,9 @@ async function handleCutover_(a, params, env, ctx) {
     const proxied = await gasProxy_(a, params, env, { write: true });
     if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
     try {
+      await syncOpsWriteToD1_(a, params, env, proxied);
+    } catch (eOps) {}
+    try {
       if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
         await deleteClient_(params, env);
       } else if (/^moveClient$/i.test(a) && env && env.DB) {
@@ -2520,12 +2595,22 @@ async function handleCutover_(a, params, env, ctx) {
     ctx.waitUntil(cutoverRevalidate_(a, params, env));
   }
 
-  // Нарезка: D1/rebuild сразу. GAS (пересчёт листа) только в фоне — иначе UI висит 10–40с.
+  // Нарезка: GAS-snap сразу + фоновое обновление. D1-оценку (fromD1) не отдаём — теряются фракции.
   if (a === "getCutting" && fast && typeof fast === "object") {
-    fast.cutover = true;
-    fast.swr = true;
-    if (fast.sandbox === true) fast.sandbox = false;
-    return fast;
+    const isEstimate = !!(fast.fromD1 || fast.fromCalendar);
+    const hasGasSnap =
+      !isEstimate &&
+      ((Array.isArray(fast.items) && fast.items.length) || fast.completion);
+    if (hasGasSnap) {
+      fast.cutover = true;
+      fast.swr = true;
+      fast.fromGas = true;
+      if (fast.sandbox === true) fast.sandbox = false;
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(cutoverRevalidate_(a, params, env));
+      }
+      return fast;
+    }
   }
 
   // Приёмка: если D1 count ≠ getWeekDayCounts — сразу GAS (иначе «на Будущей 6 вместо 2»)
@@ -2925,7 +3010,12 @@ async function cutoverStoreRead_(a, params, env, payload) {
     return;
   }
   if (a === "getCutting" && params.day) {
-    await putSnap_(env, "cutting:" + params.day, payload);
+    const body = Object.assign({}, payload, {
+      fromGas: true,
+      fromD1: false,
+      cachedAt: new Date().toISOString()
+    });
+    await putSnap_(env, "cutting:" + params.day, body);
     return;
   }
   if (a === "getCourier" && params.day) {
