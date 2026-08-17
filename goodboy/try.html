@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/site-v070.css?v=098" />
+  <link rel="stylesheet" href="css/site-v070.css?v=100" />
   <style>
     html.gb-booting { overflow: hidden; }
     #gbBoot {
@@ -108,7 +108,7 @@
       <div class="sub-hero-inner">
         <p class="sub-brand">GOOD&nbsp;BOY</p>
         <h1>Хочу попробовать</h1>
-        <p class="sub-lead">Короткая форма&nbsp;— подскажем набор под питомца и&nbsp;оформим знакомство без лишней бюрократии.</p>
+        <p class="sub-lead">Имя, телефон и кличка&nbsp;— этого достаточно. Если ответите на все вопросы сразу, специалист быстрее подберёт набор.</p>
       </div>
     </header>
 
@@ -127,10 +127,27 @@
             <span>Кличка питомца</span>
             <input type="text" name="pet" autocomplete="off" required placeholder="Бим" />
           </label>
-          <label>
-            <span>Комментарий</span>
-            <textarea name="note" rows="3" placeholder="Аллергии, вес, что любит — по желанию"></textarea>
-          </label>
+          <div class="try-full-opt">
+            <label class="try-full-check">
+              <input type="checkbox" id="tryFullToggle" name="full" value="1" />
+              <span>Ответить на все вопросы сразу</span>
+            </label>
+            <p class="try-full-hint">В этом случае специалист сможет быстрее подобрать набор.</p>
+          </div>
+          <div class="try-full-fields" id="tryFullFields" hidden>
+            <label>
+              <span>Вес</span>
+              <input type="text" name="weight" inputmode="decimal" autocomplete="off" placeholder="Например, 12 кг" />
+            </label>
+            <label>
+              <span>Аллергии</span>
+              <input type="text" name="allergies" autocomplete="off" placeholder="Если нет — напишите «нет»" />
+            </label>
+            <label>
+              <span>Что любит</span>
+              <textarea name="likes" rows="3" placeholder="Любимые лакомства, что не ест"></textarea>
+            </label>
+          </div>
           <button type="submit" class="btn-primary">Отправить заявку</button>
           <p class="form-status" id="tryFormStatus" hidden></p>
         </form>
@@ -143,14 +160,14 @@
     <footer class="site-footer">
       GOOD BOY · <a href="https://www.instagram.com/goodboy_rb" target="_blank" rel="noopener">@goodboy_rb</a>
       · <a href="subscription.html">Подписка</a>
-      · v0.9.8
+      · v0.9.10
     </footer>
   </div>
 
-  <script src="js/config.js?v=098"></script>
-  <script src="js/boot-loader.js?v=098"></script>
-  <script src="js/motion.js?v=098"></script>
-  <script src="js/try-form.js?v=098"></script>
+  <script src="js/config.js?v=100"></script>
+  <script src="js/boot-loader.js?v=100"></script>
+  <script src="js/motion.js?v=100"></script>
+  <script src="js/try-form.js?v=100"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.GBMotion) GBMotion.init();

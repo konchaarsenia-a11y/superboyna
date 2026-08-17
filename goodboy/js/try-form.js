@@ -37,6 +37,7 @@
         "phone=" + encodeURIComponent(data.phone || ""),
         "pet=" + encodeURIComponent(data.pet || ""),
         "note=" + encodeURIComponent(data.note || ""),
+        "mode=" + encodeURIComponent(data.mode || "short"),
         "callback=" + cb
       ].join("&");
       var script = document.createElement("script");
@@ -51,19 +52,44 @@
     });
   }
 
+  function packNote(form, full) {
+    if (!full) return "";
+    var parts = ["Анкета: полная"];
+    var weight = (form.weight && form.weight.value || "").trim();
+    var allergies = (form.allergies && form.allergies.value || "").trim();
+    var likes = (form.likes && form.likes.value || "").trim();
+    if (weight) parts.push("Вес: " + weight);
+    if (allergies) parts.push("Аллергии: " + allergies);
+    if (likes) parts.push("Любит: " + likes);
+    return parts.join("\n");
+  }
+
   function initTryForm() {
     var form = document.getElementById("tryForm");
     if (!form) return;
     var status = document.getElementById("tryFormStatus");
     var btn = form.querySelector('button[type="submit"]');
+    var toggle = document.getElementById("tryFullToggle");
+    var extra = document.getElementById("tryFullFields");
+
+    function syncFull() {
+      var on = !!(toggle && toggle.checked);
+      if (extra) extra.hidden = !on;
+    }
+    if (toggle) {
+      toggle.addEventListener("change", syncFull);
+      syncFull();
+    }
 
     form.addEventListener("submit", function (e) {
       e.preventDefault();
+      var full = !!(toggle && toggle.checked);
       var data = {
         name: (form.name.value || "").trim(),
         phone: (form.phone.value || "").trim(),
         pet: (form.pet.value || "").trim(),
-        note: (form.note.value || "").trim()
+        mode: full ? "full" : "short",
+        note: packNote(form, full)
       };
 
       if (!data.name || !data.phone || !data.pet) {
@@ -89,6 +115,7 @@
         .then(function (res) {
           if (res && res.status === "ok") {
             form.reset();
+            syncFull();
             if (status) {
               status.className = "form-status is-ok";
               status.textContent = "Заявка отправлена. Мы напишем в течение часа.";
