@@ -1924,6 +1924,16 @@ function doGet(e) {
       username: e.parameter.username ? decodeURIComponent(e.parameter.username) : ""
     }, callback, false);
   }
+  if (action === "partnerSetOrderStatus") {
+    return handlePartnerSetOrderStatus({
+      telegramId: e.parameter.telegramId || "",
+      id: e.parameter.id || "",
+      partnerOrderId: e.parameter.partnerOrderId || e.parameter.orderId || "",
+      deferredId: e.parameter.deferredId || "",
+      status: e.parameter.status || e.parameter.orderStatus || "",
+      orderStatus: e.parameter.orderStatus || e.parameter.status || ""
+    }, callback, false);
+  }
   if (action === "setAccessTimezone") {
     return handleSetAccessTimezone({
       actorId: e.parameter.actorId || e.parameter.telegramId || "",
@@ -2518,6 +2528,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "partnerListMyOrders") {
     return handlePartnerListMyOrders(json, callback, fromPost);
+  }
+  if (action === "partnerSetOrderStatus") {
+    return handlePartnerSetOrderStatus(json, callback, fromPost);
   }
   if (action === "listReminderPeople") {
     return handleListReminderPeople_(json, callback, fromPost);
@@ -16753,7 +16766,11 @@ function handleDeletePartner(json, callback, fromPost) {
 var PARTNER_NET_HEADERS_ = ["id", "name", "logo", "active", "updatedAt"];
 var PARTNER_POINT_HEADERS_ = ["id", "networkId", "name", "address", "active", "updatedAt"];
 var PARTNER_ACCESS_HEADERS_ = ["id", "username", "telegramId", "name", "networkId", "pointIds", "role", "status", "updatedAt"];
-var PARTNER_ORDER_HEADERS_ = ["id", "dateIso", "locationId", "locationName", "networkId", "telegramId", "userName", "username", "basketJson", "status", "createdAt"];
+var PARTNER_ORDER_HEADERS_ = [
+  "id", "dateIso", "locationId", "locationName", "networkId", "telegramId",
+  "userName", "username", "basketJson", "status", "createdAt",
+  "deliverDateIso", "deliverTimeFrom", "deliverTimeTo", "deferredId"
+];
 
 function partnerNormUser_(u) {
   return String(u || "").replace(/^@/, "").trim().toLowerCase();
@@ -17313,19 +17330,186 @@ function partnerParseBasket_(raw) {
 
 function partnerNotifyNewOrder_(order) {
   try {
-    var rec = readPartnerNotifyRecipients_();
-    if (!rec.length) return;
+    var ids = getPartnerOrderNotifyIds_();
+    if (!ids || !ids.length) return;
     var lines = (order.basket || []).map(function (b) {
       return "• " + (b.name || b.id) + " — " + b.qty + " " + (b.unit || "");
     }).join("\n");
+    var slot = (order.deliverDateLabel || "") +
+      (order.deliverTimeLabel ? (", " + order.deliverTimeLabel) : "");
     var text = "🛍 Заявка партнёра " + (order.id || "") + "\n" +
       (order.locationName || order.locationId || "") + "\n" +
       (order.userName || order.username || order.telegramId || "") + "\n" +
-      lines;
-    for (var i = 0; i < rec.length; i++) {
-      try { telegramSendMarkup_(rec[i].telegramId, text, null); } catch (eN) {}
+      (slot ? ("Слот: " + slot + "\n") : "") +
+      lines +
+      "\n\nОтложенные → Заказы";
+    for (var i = 0; i < ids.length; i++) {
+      try { telegramSendMarkup_(ids[i], text, null); } catch (eN) {}
     }
   } catch (e) {}
+}
+
+function getPartnerBotToken_() {
+  var props = PropertiesService.getScriptProperties();
+  return props.getProperty("PARTNER_BOT_TOKEN") ||
+    props.getProperty("GOODBOY_BOT_TOKEN") ||
+    getTelegramToken_() || "";
+}
+
+function partnerTelegramSend_(chatId, text) {
+  var token = getPartnerBotToken_();
+  var id = chatId != null ? String(chatId).trim() : "";
+  if (!token || !id) return { ok: false, error: "no_token_or_chat" };
+  var res = UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({
+      chat_id: id,
+      text: String(text || "").slice(0, 3500),
+      disable_web_page_preview: true
+    }),
+    muteHttpExceptions: true
+  });
+  try { return JSON.parse(res.getContentText()); } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+function partnerDefaultSlot_(now) {
+  var tz = "Europe/Minsk";
+  now = now || new Date();
+  var y = Number(Utilities.formatDate(now, tz, "yyyy"));
+  var m = Number(Utilities.formatDate(now, tz, "MM"));
+  var d = Number(Utilities.formatDate(now, tz, "dd"));
+  var dow = Number(Utilities.formatDate(now, tz, "u"));
+  var add = 1;
+  if (dow === 6) add = 2;
+  if (dow === 7) add = 1;
+  var slot = new Date(Date.UTC(y, m - 1, d + add));
+  var dateIso = Utilities.formatDate(slot, tz, "yyyy-MM-dd");
+  var dow2 = Number(Utilities.formatDate(slot, tz, "u"));
+  var names = ["", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"];
+  return {
+    dateIso: dateIso,
+    dateLabel: (names[dow2] || "") + ", " + Utilities.formatDate(slot, tz, "dd.MM"),
+    timeFrom: "12:00",
+    timeTo: "18:00",
+    timeLabel: "с 12:00 до 18:00"
+  };
+}
+
+function partnerStaffCanAct_(tid) {
+  var id = String(tid || "").trim();
+  if (!id) return false;
+  try { if (partnerRequireOwner_(id)) return true; } catch (eO) {}
+  var row = null;
+  try { row = findAccessById_(id); } catch (eR) { row = null; }
+  if (!row) return false;
+  var role = String(row.role || "").toLowerCase();
+  var st = String(row.status || "").toLowerCase();
+  if (st === "denied" || st === "pending") return false;
+  return role === "owner" || role === "manager" || role === "all" ||
+    role === "courier" || role === "logistics";
+}
+
+function partnerBasketLines_(basket) {
+  return (basket || []).map(function (b) {
+    return "• " + (b.name || b.id) + " — " + b.qty + (b.unit && b.unit !== "г" ? (" " + b.unit) : "");
+  }).join("\n");
+}
+
+function partnerEnqueueDeferred_(order) {
+  var sh = deferredSheet_();
+  var id = deferredNewId_();
+  var title = "Партнёр · " + (order.locationName || order.locationId || "") +
+    (order.userName || order.username ? (" · " + (order.userName || order.username)) : "");
+  var payload = {
+    mode: "partner",
+    orderType: "partner",
+    partnerOrderId: order.id,
+    locationId: order.locationId,
+    locationName: order.locationName,
+    networkId: order.networkId,
+    basket: order.basket || [],
+    deliverDateIso: order.deliverDateIso || "",
+    deliverDateLabel: order.deliverDateLabel || "",
+    deliverTimeFrom: order.deliverTimeFrom || "",
+    deliverTimeTo: order.deliverTimeTo || "",
+    deliverTimeLabel: order.deliverTimeLabel || "",
+    partnerTelegramId: order.telegramId || "",
+    partnerUsername: order.username || "",
+    partnerName: order.userName || ""
+  };
+  var ownerTid = "";
+  try {
+    var ids = getPartnerOrderNotifyIds_();
+    ownerTid = (ids && ids[0]) || "";
+  } catch (eI) {}
+  if (!ownerTid) {
+    try { ownerTid = (getOwnerTelegramIds_()[0] || ""); } catch (eO) {}
+  }
+  sh.appendRow([
+    id, new Date(), ownerTid, "partner", title,
+    order.userName || order.username || "",
+    "open", JSON.stringify(payload), new Date()
+  ]);
+  try {
+    bustDeferredCache_(ownerTid);
+    var more = getPartnerOrderNotifyIds_() || [];
+    for (var i = 0; i < more.length; i++) bustDeferredCache_(more[i]);
+  } catch (eC) {}
+  return id;
+}
+
+function partnerFindOrderRow_(orderId) {
+  var want = String(orderId || "").trim();
+  if (!want) return null;
+  var sh = getPartnerOrdersSheet_();
+  var data = sh.getDataRange().getValues();
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][0] || "").trim() === want) {
+      return { sh: sh, rowIndex: r + 1, data: data[r] };
+    }
+  }
+  return null;
+}
+
+function partnerFindDeferredByOrderId_(orderId) {
+  var want = String(orderId || "").trim();
+  if (!want) return null;
+  var sh = deferredSheet_();
+  var data = sh.getDataRange().getValues();
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][3] || "").toLowerCase() !== "partner") continue;
+    var payload = {};
+    try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payload = {}; }
+    if (String(payload.partnerOrderId || "") === want || String(data[r][0] || "") === want) {
+      return { sh: sh, rowIndex: r + 1, id: String(data[r][0] || ""), payload: payload, data: data[r] };
+    }
+  }
+  return null;
+}
+
+function partnerNotifyPartnerStatus_(order, kind) {
+  var tid = String((order && order.telegramId) || "").trim();
+  if (!tid) return;
+  var loc = (order && (order.locationName || order.locationId)) || "";
+  var slot = ((order && order.deliverDateLabel) || "") +
+    ((order && order.deliverTimeLabel) ? (", " + order.deliverTimeLabel) : "");
+  var text = "";
+  if (kind === "accepted") {
+    text = "✅ Заявка принята\n" + loc + "\n" +
+      "Привезём: " + (slot || "ближайший слот") + "\n" +
+      partnerBasketLines_(order.basket);
+  } else if (kind === "in_transit") {
+    text = "🚚 Курьер уже в пути\n" + loc + "\n" +
+      (slot ? ("Ожидайте " + slot) : "Ожидайте сегодня");
+  } else if (kind === "delivered") {
+    text = "✅ Доставлено\n" + loc + "\nЗаявка в истории заказов";
+  } else {
+    return;
+  }
+  try { partnerTelegramSend_(tid, text); } catch (eS) {}
 }
 
 function handlePartnerSubmitOrder(json, callback, fromPost) {
@@ -17380,6 +17564,7 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
   var id = "po_" + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
   var now = new Date();
   var dateIso = Utilities.formatDate(now, "Europe/Minsk", "yyyy-MM-dd");
+  var slot = partnerDefaultSlot_(now);
   var order = {
     id: id,
     dateIso: dateIso,
@@ -17391,8 +17576,16 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     username: username,
     basket: basket,
     status: "new",
-    createdAt: now
+    createdAt: now,
+    deliverDateIso: slot.dateIso,
+    deliverDateLabel: slot.dateLabel,
+    deliverTimeFrom: slot.timeFrom,
+    deliverTimeTo: slot.timeTo,
+    deliverTimeLabel: slot.timeLabel
   };
+  var deferredId = "";
+  try { deferredId = partnerEnqueueDeferred_(order); } catch (eDf) { deferredId = ""; }
+  order.deferredId = deferredId;
   getPartnerOrdersSheet_().appendRow([
     order.id,
     order.dateIso,
@@ -17404,10 +17597,15 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     order.username,
     JSON.stringify(order.basket),
     order.status,
-    order.createdAt
+    order.createdAt,
+    order.deliverDateIso,
+    order.deliverTimeFrom,
+    order.deliverTimeTo,
+    deferredId
   ]);
   try { partnerNotifyNewOrder_(order); } catch (eN2) {}
-  var ok = { status: "success", order: order, id: id };
+  try { partnerNotifyPartnerStatus_(order, "accepted"); } catch (eP) {}
+  var ok = { status: "success", order: order, id: id, deferredId: deferredId };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
@@ -17433,6 +17631,17 @@ function handlePartnerListMyOrders(json, callback, fromPost) {
       if (tid && !rowTid && username && rowUser !== username) continue;
     }
     var basket = partnerParseBasket_(data[r][8]);
+    var deliverDateIso = String(data[r][11] || "").trim();
+    var timeFrom = String(data[r][12] || "").trim();
+    var timeTo = String(data[r][13] || "").trim();
+    var timeLabel = (timeFrom && timeTo) ? ("с " + timeFrom + " до " + timeTo) : "";
+    var dateLabel = "";
+    if (deliverDateIso) {
+      try {
+        var parts = deliverDateIso.split("-");
+        if (parts.length === 3) dateLabel = parts[2] + "." + parts[1];
+      } catch (eDl) {}
+    }
     out.push({
       id: id,
       dateIso: String(data[r][1] || ""),
@@ -17443,12 +17652,94 @@ function handlePartnerListMyOrders(json, callback, fromPost) {
       userName: String(data[r][6] || ""),
       username: rowUser,
       basket: basket,
-      status: String(data[r][9] || "new")
+      status: String(data[r][9] || "new"),
+      deliverDateIso: deliverDateIso,
+      deliverDateLabel: dateLabel,
+      deliverTimeFrom: timeFrom,
+      deliverTimeTo: timeTo,
+      deliverTimeLabel: timeLabel,
+      deferredId: String(data[r][14] || "")
     });
     if (out.length >= 100) break;
   }
   var ok = { status: "success", orders: out };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePartnerSetOrderStatus(json, callback, fromPost) {
+  var actor = String((json && json.telegramId) || "").trim();
+  if (!partnerStaffCanAct_(actor)) {
+    var forbid = { status: "error", message: "forbidden" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var status = String((json && json.orderStatus) || (json && json.status) || "").trim().toLowerCase();
+  if (status === "assembled" || status === "on_the_way" || status === "way" || status === "courier") {
+    status = "in_transit";
+  }
+  if (status !== "in_transit" && status !== "delivered") {
+    var badSt = { status: "error", message: "bad_status" };
+    return fromPost ? jsonpText(callback, badSt) : jsonp(callback, badSt);
+  }
+  var orderId = String((json && (json.partnerOrderId || json.orderId)) || "").trim();
+  var deferredId = String((json && json.deferredId) || "").trim();
+  var rawId = String((json && json.id) || "").trim();
+  if (!orderId && rawId && !/^df_/i.test(rawId)) orderId = rawId;
+  if (!deferredId && /^df_/i.test(rawId)) deferredId = rawId;
+  var hit = null;
+  if (orderId) hit = partnerFindOrderRow_(orderId);
+  if (!hit && deferredId) {
+    var df0 = partnerFindDeferredByOrderId_(deferredId);
+    if (df0 && df0.payload && df0.payload.partnerOrderId) {
+      hit = partnerFindOrderRow_(df0.payload.partnerOrderId);
+      orderId = df0.payload.partnerOrderId;
+    }
+  }
+  if (!hit) {
+    var miss = { status: "error", message: "order_not_found" };
+    return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+  }
+  var row = hit.data;
+  var basket = partnerParseBasket_(row[8]);
+  var timeFrom = String(row[12] || "").trim();
+  var timeTo = String(row[13] || "").trim();
+  var deliverDateIso = String(row[11] || "").trim();
+  var dateLabel = "";
+  if (deliverDateIso) {
+    var p = deliverDateIso.split("-");
+    if (p.length === 3) dateLabel = p[2] + "." + p[1];
+  }
+  var order = {
+    id: String(row[0] || ""),
+    locationId: String(row[2] || ""),
+    locationName: String(row[3] || ""),
+    telegramId: String(row[5] || ""),
+    userName: String(row[6] || ""),
+    username: partnerNormUser_(row[7]),
+    basket: basket,
+    status: status,
+    deliverDateIso: deliverDateIso,
+    deliverDateLabel: dateLabel,
+    deliverTimeFrom: timeFrom,
+    deliverTimeTo: timeTo,
+    deliverTimeLabel: (timeFrom && timeTo) ? ("с " + timeFrom + " до " + timeTo) : ""
+  };
+  hit.sh.getRange(hit.rowIndex, 10).setValue(status);
+  var df = partnerFindDeferredByOrderId_(order.id);
+  if (df) {
+    var payload = df.payload || {};
+    payload.orderStatus = status;
+    df.sh.getRange(df.rowIndex, 8).setValue(JSON.stringify(payload));
+    if (status === "delivered") {
+      df.sh.getRange(df.rowIndex, 7).setValue("done");
+      df.sh.getRange(df.rowIndex, 9).setValue(new Date());
+    }
+    try { bustDeferredCache_(String(df.data[2] || "")); } catch (eB) {}
+  }
+  try {
+    partnerNotifyPartnerStatus_(order, status === "delivered" ? "delivered" : "in_transit");
+  } catch (eN) {}
+  var okSt = { status: "success", id: order.id, orderStatus: status };
+  return fromPost ? jsonpText(callback, okSt) : jsonp(callback, okSt);
 }
 
 /** Кому слать TG о заявках партнёров (Script Properties). */
@@ -20950,11 +21241,11 @@ function handleListDeferred_(json, callback, fromPost) {
     var modeRow = String(data[r][3] || "").trim().toLowerCase();
     var visible = (ownerTid === tid) || (targetTid && targetTid === tid);
     // переносы (не получил доставку) — видят manager/owner
-    if (!visible && (modeRow === "transfer" || modeRow === "buy")) {
+    if (!visible && (modeRow === "transfer" || modeRow === "buy" || modeRow === "partner")) {
       try {
         var acc = findAccessById_(tid);
         var role = acc ? String(acc.role || "").toLowerCase() : "";
-        if (role === "owner" || role === "manager" || role === "all" || role === "logistics" || isOwnerId_(tid)) visible = true;
+        if (role === "owner" || role === "manager" || role === "all" || role === "logistics" || role === "courier" || isOwnerId_(tid)) visible = true;
       } catch (eVis) {}
     }
     if (!visible) continue;
@@ -20988,6 +21279,25 @@ function handleListDeferred_(json, callback, fromPost) {
           unit: payload.unit || "кг",
           urgent: true,
           byDay: payload.byDay || []
+        };
+      } else if (String(data[r][3] || "").toLowerCase() === "partner") {
+        payload = {
+          mode: "partner",
+          orderType: "partner",
+          partnerOrderId: payload.partnerOrderId || "",
+          locationId: payload.locationId || "",
+          locationName: payload.locationName || "",
+          networkId: payload.networkId || "",
+          basket: payload.basket || [],
+          deliverDateIso: payload.deliverDateIso || "",
+          deliverDateLabel: payload.deliverDateLabel || "",
+          deliverTimeFrom: payload.deliverTimeFrom || "",
+          deliverTimeTo: payload.deliverTimeTo || "",
+          deliverTimeLabel: payload.deliverTimeLabel || "",
+          partnerTelegramId: payload.partnerTelegramId || "",
+          partnerUsername: payload.partnerUsername || "",
+          partnerName: payload.partnerName || "",
+          orderStatus: payload.orderStatus || "new"
         };
       } else {
       payload = {

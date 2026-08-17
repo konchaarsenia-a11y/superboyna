@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c19";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c20";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -4457,6 +4457,7 @@
         hideSaveLoading();
       }
     }
+    window.sendEntireOrder = sendEntireOrder;
 
     function loadingDanceHtml(label) {
       return simpleLoadingHtml(label);
@@ -16917,7 +16918,7 @@
     window.calcPriceFromBasket = calcPriceFromBasket;
 
     function canUseTasksMenu() {
-      if (APP_ROLE === "manager" || APP_ROLE === "owner" || APP_ROLE === "all") return true;
+      if (APP_ROLE === "manager" || APP_ROLE === "owner" || APP_ROLE === "all" || APP_ROLE === "courier" || APP_ROLE === "logistics") return true;
       // cutover / кэш роли ещё не подтянулся — не прячем ☰
       if (window.__BOINYA_C_CUTOVER__) return true;
       if ((deferredCache && deferredCache.length) || deferredOpenCount > 0) return true;
@@ -17565,12 +17566,42 @@
     function renderTasksOrderCards(items) {
       var html;
       if (!items.length) {
-        html = '<p class="muted">Пока пусто. Из Заказа — «На потом».</p>';
+        html = '<p class="muted">Заявки партнёров и «На потом» появятся здесь.</p>';
       } else {
         html = items.map(function (it) {
           var safeId = String(it.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
           var when = it.at ? String(it.at).slice(0, 19) : "";
           var pl = it.payload || {};
+          var isPartner = String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
+            String(pl.orderType || "") === "partner";
+          if (isPartner) {
+            var lines = (pl.basket || []).map(function (b) {
+              return escapeHtml(b.name || b.id) + " × " + escapeHtml(String(b.qty)) +
+                (b.unit && b.unit !== "г" ? (" " + escapeHtml(b.unit)) : "");
+            }).join("<br>");
+            var eta = [pl.deliverDateLabel, pl.deliverTimeLabel].filter(Boolean).join(", ");
+            var st = String(pl.orderStatus || "new").toLowerCase();
+            var stRu = st === "in_transit" ? "в пути" : (st === "delivered" ? "доставлено" : "принят");
+            var poId = String(pl.partnerOrderId || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+            return '<div class="tasks-item is-hot" style="border:1px solid rgba(245,154,46,0.45);">' +
+              '<div><b>🛍 ' + escapeHtml(it.title || pl.locationName || "Партнёр") + '</b>' +
+              '<div class="muted" style="font-size:12px;margin-top:4px;">' +
+              escapeHtml(stRu) +
+              (pl.partnerName || pl.partnerUsername ? (" · " + escapeHtml(pl.partnerName || ("@" + pl.partnerUsername))) : "") +
+              (eta ? (" · " + escapeHtml(eta)) : "") +
+              "</div>" +
+              (lines ? ('<div class="muted" style="white-space:normal;font-size:12px;margin-top:8px;">' + lines + "</div>") : "") +
+              "</div>" +
+              '<div class="seg-row" style="margin-top:10px;flex-wrap:wrap;">' +
+              (st !== "in_transit" && st !== "delivered"
+                ? '<button type="button" class="seg-btn" style="background:#64d2ff;border-color:#64d2ff;color:#111;" onclick="partnerMarkInTransit_(\'' + safeId + '\',\'' + poId + '\')">В пути</button>'
+                : "") +
+              (st !== "delivered"
+                ? '<button type="button" class="seg-btn" style="background:#30d158;border-color:#30d158;color:#111;" onclick="partnerMarkDelivered_(\'' + safeId + '\',\'' + poId + '\')">Доставлено</button>'
+                : "") +
+              '<button type="button" class="seg-btn" style="background:#3a3a3c;" onclick="cancelDeferredItem(\'' + safeId + '\')">Скрыть</button>' +
+              "</div></div>";
+          }
           var typeLab = ({ pp: "ПП", bp: "БП", retail: "Р", partner: "Партнёр" })[pl.orderType || ""] || "Заказ";
           var dateLab = pl.deliveryDate || "";
           var itemsN = 0;
@@ -17604,6 +17635,46 @@
       var box = document.getElementById("tasksOrderList");
       if (box) box.innerHTML = html;
     }
+
+    async function partnerSetOrderStatusUi_(deferredId, partnerOrderId, status) {
+      var tid = await ensureTelegramId();
+      if (!tid) {
+        showToast("Нужен Telegram");
+        return;
+      }
+      try {
+        var res = await apiGet({
+          action: "partnerSetOrderStatus",
+          telegramId: tid,
+          deferredId: deferredId || "",
+          partnerOrderId: partnerOrderId || "",
+          id: partnerOrderId || deferredId || "",
+          orderStatus: status,
+          status: status,
+          _: String(Date.now())
+        }, { timeoutMs: 25000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          showToast((res && res.message) || "Не обновилось · Deploy Code.gs?");
+          return;
+        }
+        deferredCacheAt = 0;
+        try { apiCacheBustDeferred_(); } catch (eClr) {}
+        showToast(status === "delivered" ? "Доставлено · партнёру ушло" : "В пути · партнёру ушло");
+        await refreshDeferredBadge(true);
+        var dr = document.getElementById("tasksDrawer");
+        if (dr && dr.classList.contains("open")) renderTasksDrawer(false);
+      } catch (e) {
+        showToast("Сеть / Deploy Code.gs");
+      }
+    }
+    async function partnerMarkInTransit_(deferredId, partnerOrderId) {
+      await partnerSetOrderStatusUi_(deferredId, partnerOrderId, "in_transit");
+    }
+    async function partnerMarkDelivered_(deferredId, partnerOrderId) {
+      await partnerSetOrderStatusUi_(deferredId, partnerOrderId, "delivered");
+    }
+    window.partnerMarkInTransit_ = partnerMarkInTransit_;
+    window.partnerMarkDelivered_ = partnerMarkDelivered_;
 
     function setTasksTab(tab) {
       _tasksTab = (tab === "pp" || tab === "remind" || tab === "orders" || tab === "buy") ? tab : "xfer";
@@ -18030,12 +18101,13 @@
           return String(it.mode || "").toLowerCase() === "buy";
         });
         var orderItems = openItems.filter(function (it) {
-          return String(it.mode || "").toLowerCase() === "order";
+          var m = String(it.mode || "").toLowerCase();
+          return m === "order" || m === "partner";
         });
         var remindItems = openItems.filter(isDeferredRemindMode_);
         var ppItems = openItems.filter(function (it) {
           var m = String(it.mode || "pp").toLowerCase();
-          return m !== "remind" && m !== "order" && m !== "transfer" && m !== "buy" && m !== "bp_idle";
+          return m !== "remind" && m !== "order" && m !== "transfer" && m !== "buy" && m !== "bp_idle" && m !== "partner";
         });
         var idleItems = openItems.filter(function (it) {
           return String(it.mode || "").toLowerCase() === "bp_idle";

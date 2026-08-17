@@ -396,8 +396,8 @@
       <button class="door" type="button" onclick="showMyOrders()">
         <div class="ico">2</div>
         <div>
-          <div class="t">История заказов</div>
-          <div class="d">Ваши заявки</div>
+          <div class="t">Мои заказы</div>
+          <div class="d">Текущие и история</div>
         </div>
       </button>
       <button class="door" type="button" onclick="goCabinet()">
@@ -443,7 +443,7 @@
 
     <div id="screenMyOrders" class="screen">
       <div class="toprow">
-        <div class="title">История заказов</div>
+        <div class="title">Мои заказы</div>
         <button class="chip" type="button" onclick="goHome()">Кабинет</button>
       </div>
       <div id="myOrdersList"></div>
@@ -476,7 +476,7 @@
         <div class="row-switch">
           <div>
             <div style="font-weight:800;">Уведомления о статусе</div>
-            <div class="addr">Позже — в бота Good Boy</div>
+            <div class="addr">В бота @GOODBOY_LG: слот, «в пути», доставлено</div>
           </div>
           <button class="switch on" type="button" id="swNotify" onclick="toggleNotify()"><i></i></button>
         </div>
@@ -504,7 +504,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.1.2";
+  var APP_VER = "3.2.0";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v9";
@@ -800,15 +800,32 @@
     show("screenLocked");
   }
 
+  function onlyPoint_() {
+    var list = assignedPointsList_();
+    return list.length === 1 ? list[0] : null;
+  }
+
+  function ensurePoint_() {
+    if (state.point && state.point.id) return state.point;
+    var one = onlyPoint_();
+    if (one) {
+      state.point = one;
+      var loc = document.getElementById("orderLocName");
+      if (loc) loc.textContent = one.name + (one.address ? " · " + one.address : "");
+    }
+    return state.point;
+  }
+
   function updateCartButton_() {
     var b = document.getElementById("btnSubmit");
     var n = cartCount();
     if (!b) return;
     var onPoints = document.getElementById("screenPoints") &&
       document.getElementById("screenPoints").classList.contains("on");
-    if (onPoints) {
+    var pt = ensurePoint_();
+    if (onPoints || pt) {
       b.textContent = "Отправить";
-      b.disabled = n <= 0 || !state.point;
+      b.disabled = n <= 0 || !pt;
     } else {
       b.textContent = "Далее · точка";
       b.disabled = n <= 0;
@@ -816,13 +833,14 @@
   }
 
   function onCartPrimary() {
+    if (cartCount() <= 0) return;
+    ensurePoint_();
     var onPoints = document.getElementById("screenPoints") &&
       document.getElementById("screenPoints").classList.contains("on");
-    if (onPoints) {
+    if (onPoints || state.point) {
       submitOrder();
       return;
     }
-    if (cartCount() <= 0) return;
     goPointsForOrder_();
   }
 
@@ -947,7 +965,13 @@
       el.classList.toggle("on", el.getAttribute("data-cat") === "treat");
     });
     var loc = document.getElementById("orderLocName");
-    if (loc) loc.textContent = "Сначала выберите позиции · точку укажете дальше";
+    var one = onlyPoint_();
+    if (one) {
+      state.point = one;
+      if (loc) loc.textContent = one.name + (one.address ? " · " + one.address : "");
+    } else if (loc) {
+      loc.textContent = "Сначала выберите позиции · точку укажете дальше";
+    }
     showCatalogTab();
   }
 
@@ -964,6 +988,7 @@
       show("screenPoints");
       return;
     }
+    if (list.length === 1) ensurePoint_();
     box.innerHTML = '<div class="sub" style="text-align:left;margin:0 0 10px;">Доступно точек: <b>' +
       list.length + "</b></div>" + list.map(function (pt) {
       var net = netById_(pt.networkId);
@@ -978,8 +1003,12 @@
   }
 
   function pickPointForOrder(id) {
-    var allowed = (state.me && state.me.allowedPointIds) || {};
-    if (!allowed[id]) {
+    var list = assignedPointsList_();
+    var ok = false;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].id === id) { ok = true; break; }
+    }
+    if (!ok) {
       alert("Нет доступа к этой точке.");
       return;
     }
@@ -1226,12 +1255,16 @@
         alert((res && res.message) || "Не удалось отправить заявку");
         return;
       }
-      var id = (res.order && res.order.id) || res.id || "";
+      var ord = res.order || {};
+      var slot = (ord.deliverDateLabel || "") +
+        (ord.deliverTimeLabel ? (", " + ord.deliverTimeLabel) : "");
       state.cart = {};
-      state.point = null;
+      state.point = onlyPoint_() || null;
       refreshCart();
       show("screenHome");
-      alert(id ? ("Заявка № " + id + " принята.") : "Заявка принята.");
+      alert(slot
+        ? ("Заявка принята.\nПривезём: " + slot)
+        : (res.id ? ("Заявка № " + res.id + " принята.") : "Заявка принята."));
     } catch (e) {
       alert("Сеть: не удалось отправить заявку");
     }
@@ -1254,15 +1287,41 @@
         box.innerHTML = '<div class="empty">Заказов пока нет</div>';
         return;
       }
-      box.innerHTML = list.map(function (o) {
+      function statusRu_(st) {
+        st = String(st || "new").toLowerCase();
+        if (st === "delivered") return "доставлено";
+        if (st === "in_transit") return "в пути";
+        if (st === "new") return "принят";
+        return st;
+      }
+      function card_(o, hist) {
         var lines = (o.basket || []).map(function (b) {
           return esc(b.name) + " × " + b.qty + (b.unit && b.unit !== "г" ? (" " + b.unit) : "");
         }).join("<br>");
+        var eta = [o.deliverDateLabel, o.deliverTimeLabel].filter(Boolean).join(", ");
         return '<div class="order"><div class="h"><span>' + esc(o.dateIso) + '</span><span class="badge">' +
-          esc(o.status) + '</span></div><div class="lines">' + lines +
+          esc(statusRu_(o.status)) + '</span></div><div class="lines">' + lines +
           '</div><div class="h" style="margin-top:8px;"><span>' + esc(o.locationName) +
-          '</span><span>бесплатно</span></div></div>';
-      }).join("");
+          '</span><span>бесплатно</span></div>' +
+          (eta && !hist ? ('<div class="unit" style="margin-top:6px;">Привезём: ' + esc(eta) + "</div>") : "") +
+          "</div>";
+      }
+      var active = list.filter(function (o) {
+        return String(o.status || "new").toLowerCase() !== "delivered";
+      });
+      var hist = list.filter(function (o) {
+        return String(o.status || "").toLowerCase() === "delivered";
+      });
+      var html = "";
+      if (active.length) {
+        html += '<div class="sub" style="text-align:left;margin:0 0 8px;">Сейчас</div>' +
+          active.map(function (o) { return card_(o, false); }).join("");
+      }
+      if (hist.length) {
+        html += '<div class="sub" style="text-align:left;margin:16px 0 8px;">История</div>' +
+          hist.map(function (o) { return card_(o, true); }).join("");
+      }
+      box.innerHTML = html || '<div class="empty">Заказов пока нет</div>';
     } catch (e) {
       box.innerHTML = '<div class="empty">Не удалось загрузить историю</div>';
     }
