@@ -2695,7 +2695,7 @@ function handleSubmitGoodboyTry(json, callback, fromPost) {
           "🐾 GOOD BOY · заявка с сайта\n" +
             name + " · " + phone +
             "\nПитомец: " + pet +
-            (note ? ("\n" + note) : "")
+            (note ? ("\n" + (note.length > 3200 ? note.slice(0, 3200) + "…" : note)) : "")
         );
       }
     } catch (eTg) {}

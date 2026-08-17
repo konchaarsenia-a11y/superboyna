@@ -13,7 +13,20 @@
     return DEFAULT_WEBHOOK;
   }
 
-  function sendLead(data) {
+  function val(form, name) {
+    var el = form.elements[name];
+    if (!el) return "";
+    if (el.nodeName) return String(el.value || "").trim();
+    if (el.length && el[0] && el[0].type === "radio") {
+      for (var i = 0; i < el.length; i++) {
+        if (el[i].checked) return String(el[i].value || "").trim();
+      }
+      return "";
+    }
+    return String((el.value || "")).trim();
+  }
+
+  function sendLeadJsonp(data) {
     var url = webhookUrl();
     return new Promise(function (resolve, reject) {
       var cb = "gb_try_" + Math.round(Math.random() * 1e9);
@@ -52,15 +65,65 @@
     });
   }
 
-  function packNote(form, full) {
-    if (!full) return "";
+  function sendLeadPost(data) {
+    var url = webhookUrl();
+    var payload = {
+      action: "submitGoodboyTry",
+      name: data.name || "",
+      phone: data.phone || "",
+      pet: data.pet || "",
+      note: data.note || "",
+      mode: data.mode || "short"
+    };
+    return fetch(url, {
+      method: "POST",
+      redirect: "follow",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    }).then(function () {
+      return { status: "ok" };
+    }).catch(function () {
+      return { status: "ok" };
+    });
+  }
+
+  function sendLead(data) {
+    if (data.mode === "full" || (data.note && data.note.length > 900)) {
+      return sendLeadPost(data);
+    }
+    return sendLeadJsonp(data);
+  }
+
+  function line(n, title, text) {
+    if (!text) return "";
+    return n + ". " + title + ": " + text;
+  }
+
+  function packNote(form) {
     var parts = ["Анкета: полная"];
-    var weight = (form.weight && form.weight.value || "").trim();
-    var allergies = (form.allergies && form.allergies.value || "").trim();
-    var likes = (form.likes && form.likes.value || "").trim();
-    if (weight) parts.push("Вес: " + weight);
-    if (allergies) parts.push("Аллергии: " + allergies);
-    if (likes) parts.push("Любит: " + likes);
+    var q1n = val(form, "q1_name");
+    var q1p = val(form, "q1_pet");
+    if (q1n || q1p) {
+      parts.push("1. Имя: " + (q1n || "—") + "; питомец: " + (q1p || "—"));
+    }
+    var q2 = [val(form, "q2_breed"), val(form, "q2_age"), val(form, "q2_weight")].filter(Boolean).join(", ");
+    var rows = [
+      line("2", "Порода / возраст / вес", q2),
+      line("3", "Активность", val(form, "q3_activity")),
+      line("4", "Дрессировка", val(form, "q4_training")),
+      line("5", "Уже давали", val(form, "q5_tried")),
+      line("6", "Аллергии / исключения", val(form, "q6_allergies")),
+      line("7", "Особенно нужны", val(form, "q7_need")),
+      line("8", "Не нужны", val(form, "q8_skip")),
+      line("9", "Расход в месяц", val(form, "q9_amount")),
+      line("10", "Бюджет", val(form, "q10_budget")),
+      line("11", "Размер лакомств", val(form, "q11_size")),
+      line("12", "Доставка раз в месяц", val(form, "q12_monthly")),
+      line("13", "Кинолог в подписке", val(form, "q13_trainer"))
+    ];
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i]) parts.push(rows[i]);
+    }
     return parts.join("\n");
   }
 
@@ -72,13 +135,30 @@
     var toggle = document.getElementById("tryFullToggle");
     var extra = document.getElementById("tryFullFields");
 
+    function setDisabled(root, on) {
+      if (!root) return;
+      var fields = root.querySelectorAll("input, textarea");
+      for (var i = 0; i < fields.length; i++) fields[i].disabled = on;
+    }
+
     function syncFull() {
       var on = !!(toggle && toggle.checked);
+      form.classList.toggle("is-full", on);
       if (extra) {
         extra.hidden = !on;
         extra.classList.toggle("is-open", on);
-        var fields = extra.querySelectorAll("input, textarea");
-        for (var i = 0; i < fields.length; i++) fields[i].disabled = !on;
+        setDisabled(extra, !on);
+      }
+      var shortOnly = form.querySelectorAll(".try-short-only");
+      for (var s = 0; s < shortOnly.length; s++) {
+        setDisabled(shortOnly[s], on);
+      }
+      if (on) {
+        if (!val(form, "q1_name") && form.name && form.name.value) form.q1_name.value = form.name.value;
+        if (!val(form, "q1_pet") && form.pet && form.pet.value) form.q1_pet.value = form.pet.value;
+      } else {
+        if (form.name && !String(form.name.value || "").trim() && form.q1_name) form.name.value = form.q1_name.value || "";
+        if (form.pet && !String(form.pet.value || "").trim() && form.q1_pet) form.pet.value = form.q1_pet.value || "";
       }
       if (toggle) toggle.setAttribute("aria-checked", on ? "true" : "false");
     }
@@ -91,11 +171,11 @@
       e.preventDefault();
       var full = !!(toggle && toggle.checked);
       var data = {
-        name: (form.name.value || "").trim(),
-        phone: (form.phone.value || "").trim(),
-        pet: (form.pet.value || "").trim(),
+        phone: val(form, "phone"),
+        name: full ? (val(form, "q1_name") || val(form, "name")) : val(form, "name"),
+        pet: full ? (val(form, "q1_pet") || val(form, "pet")) : val(form, "pet"),
         mode: full ? "full" : "short",
-        note: packNote(form, full)
+        note: full ? packNote(form) : ""
       };
 
       if (!data.name || !data.phone || !data.pet) {
