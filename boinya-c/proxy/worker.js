@@ -2022,6 +2022,41 @@ async function handleCutover_(a, params, env, ctx) {
     };
   }
 
+  if (a === "finishFullWeek") {
+    try {
+      const counts =
+        (await getSnapRaw_(env, "weekDayCountsSheet")) || (await getSnapRaw_(env, "weekDayCounts"));
+      const a1iso = dmyToIso_(mondayDmyFromCounts_(counts));
+      const caliso = currentMondayIso_();
+      if (a1iso && caliso && a1iso > caliso) {
+        return {
+          status: "error",
+          message: "week_already_finished",
+          tip:
+            "Понедельник листа уже " +
+            mondayDmyFromCounts_(counts) +
+            " (текущая неделя с " +
+            isoToDmy_(caliso) +
+            "). Повторно закрывать нельзя.",
+          sheetMonday: mondayDmyFromCounts_(counts),
+          calendarMonday: isoToDmy_(caliso),
+          cutover: true
+        };
+      }
+    } catch (eFinGuard) {}
+  }
+
+  if (a === "getSubscription") {
+    const liveSub = await gasProxy_(a, params, env, { write: false });
+    if (liveSub && typeof liveSub === "object") {
+      liveSub.cutover = true;
+      liveSub.fromGas = true;
+      liveSub.sandbox = false;
+      return liveSub;
+    }
+    return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
+  }
+
   // запись — GAS быстро; D1 optimistic сразу; тяжёлый revalidate в фоне
   if (isWriteAction_(a)) {
     const proxied = await gasProxy_(a, params, env, { write: true });
@@ -2580,7 +2615,7 @@ async function cutoverFastRead_(a, params, env) {
     ) {
       return getSnapRaw_(env, a);
     }
-    if (a === "getSubscription") return getSubscription_(params, env);
+    if (a === "getSubscription") return null;
   } catch (e) {
     return null;
   }
