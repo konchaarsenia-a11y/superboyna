@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c14";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c15";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -109,6 +109,15 @@
     let myAccessName = "";
     const TG_ID_LS = "superboyna_tg_id";
 
+    function readTelegramIdFromUrl_() {
+      try {
+        var u = new URL(location.href);
+        var q = String(u.searchParams.get("tid") || u.searchParams.get("telegramId") || "").trim();
+        if (q && /^\d{5,15}$/.test(q)) return q;
+      } catch (eU) {}
+      return "";
+    }
+
     function readTelegramIdFromTg() {
       try {
         var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
@@ -122,6 +131,10 @@
         var ju = JSON.parse(decodeURIComponent(m[1]));
         if (ju && ju.id) return String(ju.id);
       } catch (e1) {}
+      try {
+        var fromUrl = readTelegramIdFromUrl_();
+        if (fromUrl) return fromUrl;
+      } catch (e2) {}
       return "";
     }
 
@@ -2811,11 +2824,14 @@
 
     function hideSaveLoading() {
       try { if (window._saveLoadTimer) { clearTimeout(window._saveLoadTimer); window._saveLoadTimer = null; } } catch (eT) {}
+      try { if (window._saveLoadTapTimer) { clearTimeout(window._saveLoadTapTimer); window._saveLoadTapTimer = null; } } catch (eT2) {}
       const ov = document.getElementById("saveLoadOverlay");
       if (ov) {
         ov.classList.remove("open");
+        ov.classList.remove("can-dismiss");
         ov.style.display = "none";
         ov.style.pointerEvents = "none";
+        ov.onclick = null;
       }
     }
     function showSaveLoading(label, timeoutMs) {
@@ -2826,10 +2842,15 @@
         ov.style.display = "flex";
         ov.style.pointerEvents = "auto";
         ov.classList.add("open");
+        ov.classList.remove("can-dismiss");
+        ov.setAttribute("data-opened-at", String(Date.now()));
+        ov.onclick = null;
       }
 
+      // Жёсткий потолок: раньше 120с оставляли чёрный экран без кликов
       var ms = Number(timeoutMs);
-      if (!(ms > 0)) ms = 120000;
+      if (!(ms > 0)) ms = 20000;
+      if (ms > 25000) ms = 25000;
       try {
         if (window._saveLoadTimer) clearTimeout(window._saveLoadTimer);
         window._saveLoadTimer = setTimeout(function () {
@@ -2837,6 +2858,19 @@
           try { showToast("Сохранение зависло — UI разблокирован"); } catch (e0) {}
         }, ms);
       } catch (e1) {}
+      // Через 2.5с тап по оверлею снимает блок
+      try {
+        if (window._saveLoadTapTimer) clearTimeout(window._saveLoadTapTimer);
+        window._saveLoadTapTimer = setTimeout(function () {
+          var o2 = document.getElementById("saveLoadOverlay");
+          if (!o2 || !o2.classList.contains("open")) return;
+          o2.classList.add("can-dismiss");
+          o2.onclick = function () {
+            hideSaveLoading();
+            try { showToast("UI разблокирован"); } catch (eTap) {}
+          };
+        }, 2500);
+      } catch (eTapArm) {}
     }
     function bumpSaveLoading(label) {
       var lb = document.getElementById("saveLoadLabel");
@@ -2848,28 +2882,18 @@
           window._saveLoadTimer = setTimeout(function () {
             hideSaveLoading();
             try { showToast("Сохранение зависло — UI разблокирован"); } catch (e0) {}
-          }, 120000);
+          }, 20000);
         } catch (eB) {}
       }
     }
 
     function clearBlockingOverlays() {
       try {
+        hideSaveLoading();
         var modal = document.getElementById("modalOverlay");
-        var modalOpen = modal && (modal.classList.contains("open") || modal.style.display === "flex" || modal.style.display === "block");
-        var slo = document.getElementById("saveLoadOverlay");
-        var sloOpen = slo && slo.classList.contains("open");
         var yr = document.getElementById("yandexRouteOverlay");
         var tyan = document.getElementById("fxTyanOverlay");
-        var burst = document.querySelector(".fx-burst");
-        var sug = document.querySelector(".addr-suggest.open");
         var tov = document.getElementById("tasksDrawerOverlay");
-        var drawerOpen = tov && tov.classList.contains("open");
-        if (!modalOpen && !sloOpen && !yr && !tyan && !burst && !sug && !drawerOpen) {
-
-          return;
-        }
-        hideSaveLoading();
         if (yr) yr.remove();
         if (tyan) tyan.remove();
         document.querySelectorAll(".fx-burst").forEach(function (el) { el.remove(); });
@@ -2877,6 +2901,13 @@
           modal.classList.remove("open");
           modal.style.display = "none";
           modal.style.pointerEvents = "none";
+          try {
+            if (modalResolver) {
+              var r = modalResolver;
+              modalResolver = null;
+              try { r(null); } catch (eR) {}
+            }
+          } catch (eMod) {}
         }
         document.querySelectorAll(".addr-suggest.open").forEach(function (el) {
           el.classList.remove("open");
@@ -2894,17 +2925,28 @@
             tdr.setAttribute("aria-hidden", "true");
           }
         }
-        if (slo) {
-          slo.classList.remove("open");
-          slo.style.display = "none";
-          slo.style.pointerEvents = "none";
-        }
+        // accessGate: не держим чёрный экран, если роль уже рабочая
+        try {
+          var gate = document.getElementById("accessGate");
+          if (gate && gate.classList.contains("open")) {
+            var roleOk = APP_ROLE === "owner" || APP_ROLE === "manager" || APP_ROLE === "all" ||
+              APP_ROLE === "courier" || APP_ROLE === "cutter";
+            if (roleOk) {
+              gate.classList.remove("open");
+              gate.style.display = "none";
+              gate.style.pointerEvents = "none";
+            }
+          }
+        } catch (eGate) {}
       } catch (e) {}
       try {
         document.body.style.pointerEvents = "auto";
         document.documentElement.style.pointerEvents = "auto";
+        document.body.style.overflow = "";
+        document.documentElement.style.overflow = "";
         var app = document.querySelector(".app");
         if (app) app.style.pointerEvents = "auto";
+        try { document.body.classList.remove("tasks-open"); } catch (eBody) {}
       } catch (e2) {}
     }
 
@@ -3118,11 +3160,48 @@
           document.body.style.pointerEvents = "auto";
           document.documentElement.style.pointerEvents = "auto";
         } catch (eP) {}
+        try { clearBlockingOverlays(); } catch (eC) {}
       }
     });
     window.addEventListener("pageshow", function () {
       try { clearBlockingOverlays(); } catch (ePs) {}
     });
+    // Авто-разблок: если лоадер/модал залип — UI оживёт сам
+    (function armUiWatchdog_() {
+      function tick() {
+        try {
+          var slo = document.getElementById("saveLoadOverlay");
+          var sloOpen = slo && slo.classList.contains("open");
+          var modal = document.getElementById("modalOverlay");
+          var modalOpen = modal && modal.classList.contains("open");
+          var gate = document.getElementById("accessGate");
+          var gateOpen = gate && gate.classList.contains("open");
+          var roleOk = APP_ROLE === "owner" || APP_ROLE === "manager" || APP_ROLE === "all" ||
+            APP_ROLE === "courier" || APP_ROLE === "cutter";
+          if (sloOpen) {
+            var openedAt = Number(slo.getAttribute("data-opened-at") || 0);
+            if (!openedAt) {
+              slo.setAttribute("data-opened-at", String(Date.now()));
+            } else if ((Date.now() - openedAt) > 22000) {
+              hideSaveLoading();
+              try { showToast("UI разблокирован"); } catch (e0) {}
+            }
+          } else if (slo) {
+            slo.removeAttribute("data-opened-at");
+          }
+          if (gateOpen && roleOk) {
+            gate.classList.remove("open");
+            gate.style.display = "none";
+            gate.style.pointerEvents = "none";
+          }
+          document.body.style.pointerEvents = "auto";
+          document.documentElement.style.pointerEvents = "auto";
+        } catch (eW) {}
+      }
+      setTimeout(tick, 2500);
+      setTimeout(tick, 8000);
+      setInterval(tick, 15000);
+    })();
 
     function isPieceSkuName(name) {
       var n = String(name || "");
@@ -3950,7 +4029,7 @@
       const btn = document.getElementById("btnMainSave");
       btn.disabled = true;
       btn.innerText = "Сохраняю...";
-      showSaveLoading("Сохраняю заказ…", 120000);
+      showSaveLoading("Сохраняю заказ…", 20000);
 
       if (isEdit && editOriginalClient) {
         var nickChanged = String(editOriginalClient).trim().toUpperCase() !== clientName.toUpperCase();
@@ -10743,13 +10822,20 @@
       gate.classList.add("open");
     }
     function hideAccessGate() {
-      document.getElementById("accessGate").classList.remove("open");
+      var gate = document.getElementById("accessGate");
+      if (!gate) return;
+      gate.classList.remove("open");
+      gate.style.display = "none";
+      gate.style.pointerEvents = "none";
     }
 
     async function bootstrapAccess() {
       try {
         var u = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
         myTelegramId = String(u.id || "") || readTelegramIdFromTg() || loadStoredTelegramId();
+        if (!myTelegramId) {
+          try { myTelegramId = readTelegramIdFromUrl_() || ""; } catch (eUrl) {}
+        }
         if (myTelegramId) storeTelegramId(myTelegramId);
         myAccessName = String(u.first_name || "") + (u.last_name ? " " + u.last_name : "");
         var username = String(u.username || "");
@@ -16718,7 +16804,11 @@
     window.calcPriceFromBasket = calcPriceFromBasket;
 
     function canUseTasksMenu() {
-      return APP_ROLE === "manager" || APP_ROLE === "owner" || APP_ROLE === "all";
+      if (APP_ROLE === "manager" || APP_ROLE === "owner" || APP_ROLE === "all") return true;
+      // cutover / кэш роли ещё не подтянулся — не прячем ☰
+      if (window.__BOINYA_C_CUTOVER__) return true;
+      if ((deferredCache && deferredCache.length) || deferredOpenCount > 0) return true;
+      return false;
     }
 
     function updateTasksBadge() {
@@ -16759,8 +16849,28 @@
     }
     window.closeTasksDrawer = closeTasksDrawer;
 
+    function pickBestTasksTab_(xferN, buyN, orderN, ppN, remindN) {
+      var counts = {
+        buy: Number(buyN) || 0,
+        orders: Number(orderN) || 0,
+        xfer: Number(xferN) || 0,
+        remind: Number(remindN) || 0,
+        pp: Number(ppN) || 0
+      };
+      if (counts[_tasksTab] > 0) return _tasksTab;
+      var prefer = ["buy", "orders", "xfer", "remind", "pp"];
+      for (var i = 0; i < prefer.length; i++) {
+        if (counts[prefer[i]] > 0) return prefer[i];
+      }
+      return _tasksTab || "xfer";
+    }
+
+    var _tasksAutoPickOnOpen = false;
+    var _tasksTab = "xfer";
+
     function openTasksDrawer() {
       if (!canUseTasksMenu()) return;
+      _tasksAutoPickOnOpen = true;
       var ov = document.getElementById("tasksDrawerOverlay");
       var dr = document.getElementById("tasksDrawer");
       if (ov) {
@@ -16798,7 +16908,16 @@
     async function refreshDeferredBadge(force) {
       var tid = myTelegramId || readTelegramIdFromTg() || loadStoredTelegramId();
       if (tid) storeTelegramId(tid);
-      if (!tid) { deferredOpenCount = 0; deferredCache = []; updateTasksBadge(); return; }
+      if (!tid) {
+        // не затираем кэш — иначе ☰ «пустеет» при кратком отсутствии tid
+        try {
+          deferredOpenCount = (deferredCache || []).filter(function (it) {
+            return String(it.status || "open").toLowerCase() === "open";
+          }).length;
+        } catch (eKeep) {}
+        updateTasksBadge();
+        return;
+      }
       if (!force && deferredCacheAt && (Date.now() - deferredCacheAt) < 12000 && deferredCache.length) {
           deferredOpenCount = deferredCache.filter(function (it) {
             return String(it.status || "open").toLowerCase() === "open";
@@ -16813,10 +16932,14 @@
             action: "listDeferred",
             telegramId: tid,
             status: "open",
-            light: "1"
-          }, { timeoutMs: 12000, cacheTtlMs: 15000, retries: force ? 1 : 0 });
-          deferredCache = (res && res.items) || [];
-          deferredCacheAt = Date.now();
+            light: "1",
+            force: force ? "1" : undefined,
+            _: force ? String(Date.now()) : undefined
+          }, { timeoutMs: 12000, cacheTtlMs: force ? 0 : 15000, retries: force ? 1 : 0 });
+          if (res && Array.isArray(res.items)) {
+            deferredCache = res.items;
+            deferredCacheAt = Date.now();
+          }
 
           if (force) {
             try { await loadBpIdleIntoDeferred_(); } catch (eBpIdle) {}
@@ -17369,7 +17492,6 @@
       if (box) box.innerHTML = html;
     }
 
-    var _tasksTab = "xfer";
     function setTasksTab(tab) {
       _tasksTab = (tab === "pp" || tab === "remind" || tab === "orders" || tab === "buy") ? tab : "xfer";
       var map = {
@@ -17800,8 +17922,13 @@
         var remindItems = openItems.filter(isDeferredRemindMode_);
         var ppItems = openItems.filter(function (it) {
           var m = String(it.mode || "pp").toLowerCase();
-          return m !== "remind" && m !== "order" && m !== "transfer" && m !== "buy";
+          return m !== "remind" && m !== "order" && m !== "transfer" && m !== "buy" && m !== "bp_idle";
         });
+        var idleItems = openItems.filter(function (it) {
+          return String(it.mode || "").toLowerCase() === "bp_idle";
+        });
+        // bp_idle показываем во вкладке ПП/БП
+        ppItems = ppItems.concat(idleItems);
         deferredOpenCount = xferItems.length + buyItems.length + orderItems.length + remindItems.length + ppItems.length;
         updateTasksBadge();
         updateTasksTabCounts_(xferItems.length, buyItems.length, orderItems.length, ppItems.length, remindItems.length);
@@ -17810,16 +17937,26 @@
         renderTasksOrderCards(orderItems);
         renderTasksRemindCards(remindItems);
         renderTasksPpCards(ppItems);
-        try { setTasksTab(_tasksTab || "xfer"); } catch (eTab) {}
+        try {
+          if (_tasksAutoPickOnOpen) {
+            setTasksTab(pickBestTasksTab_(
+              xferItems.length, buyItems.length, orderItems.length, ppItems.length, remindItems.length
+            ));
+            if (deferredOpenCount > 0) _tasksAutoPickOnOpen = false;
+          } else {
+            setTasksTab(_tasksTab || "xfer");
+          }
+        } catch (eTab) {}
       };
       paint();
       if (doFetch === false) return;
-      var box = document.getElementById("tasksXferList") || document.getElementById("tasksOrderList") || document.getElementById("tasksPpList");
+      var box = document.getElementById("tasksBuyList") || document.getElementById("tasksXferList") || document.getElementById("tasksOrderList") || document.getElementById("tasksPpList");
       if (box && !deferredCache.length) box.innerHTML = '<p class="muted">Загрузка…</p>';
       var screenBox = document.getElementById("deferredScreenList");
       if (screenBox && !deferredCache.length) screenBox.innerHTML = '<p class="muted">Загрузка…</p>';
       await refreshDeferredBadge(true);
       paint();
+      _tasksAutoPickOnOpen = false;
     }
     window.renderTasksDrawer = renderTasksDrawer;
 
