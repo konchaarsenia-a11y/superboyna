@@ -99,6 +99,65 @@
     return n + ". " + title + ": " + text;
   }
 
+  function qBlock(form, n) {
+    return form.querySelector('.try-q[data-q="' + n + '"]');
+  }
+
+  function isSkipped(form, n) {
+    var block = qBlock(form, n);
+    return !!(block && block.classList.contains("is-skipped"));
+  }
+
+  function packQ(form, n, title, text) {
+    if (isSkipped(form, n)) return line(String(n), title, "не знаю");
+    return line(String(n), title, text);
+  }
+
+  function setQuestionSkipped(block, skipped) {
+    if (!block) return;
+    block.classList.toggle("is-skipped", skipped);
+    var answer = block.querySelector(".try-q-answer");
+    if (answer) {
+      var fields = answer.querySelectorAll("input, textarea");
+      for (var i = 0; i < fields.length; i++) {
+        fields[i].disabled = skipped;
+        if (skipped) fields[i].value = "";
+      }
+    }
+    var skipBtn = block.querySelector("[data-try-skip]");
+    if (skipBtn) {
+      skipBtn.textContent = skipped ? "Пропущено — нажмите, чтобы ответить" : "Не знаю / пропустить";
+      skipBtn.setAttribute("aria-pressed", skipped ? "true" : "false");
+    }
+  }
+
+  function clearQuestionSkips(form) {
+    var blocks = form.querySelectorAll(".try-q.is-skipped");
+    for (var i = 0; i < blocks.length; i++) setQuestionSkipped(blocks[i], false);
+  }
+
+  function initSkipControls(form) {
+    var skipBtns = form.querySelectorAll("[data-try-skip]");
+    for (var i = 0; i < skipBtns.length; i++) {
+      (function (btn) {
+        btn.addEventListener("click", function () {
+          var block = btn.closest(".try-q");
+          if (!block) return;
+          setQuestionSkipped(block, !block.classList.contains("is-skipped"));
+        });
+      })(skipBtns[i]);
+    }
+    var answers = form.querySelectorAll(".try-q-answer input, .try-q-answer textarea");
+    for (var j = 0; j < answers.length; j++) {
+      (function (field) {
+        field.addEventListener("input", function () {
+          var block = field.closest(".try-q");
+          if (block && block.classList.contains("is-skipped")) setQuestionSkipped(block, false);
+        });
+      })(answers[j]);
+    }
+  }
+
   function packNote(form) {
     var parts = ["Анкета: полная"];
     var q1n = val(form, "q1_name");
@@ -108,16 +167,16 @@
     }
     var q2 = [val(form, "q2_breed"), val(form, "q2_age"), val(form, "q2_weight")].filter(Boolean).join(", ");
     var rows = [
-      line("2", "Порода / возраст / вес", q2),
-      line("3", "Активность", val(form, "q3_activity")),
-      line("4", "Дрессировка", val(form, "q4_training")),
-      line("5", "Уже давали", val(form, "q5_tried")),
-      line("6", "Аллергии / исключения", val(form, "q6_allergies")),
-      line("7", "Особенно нужны", val(form, "q7_need")),
-      line("8", "Не нужны", val(form, "q8_skip")),
-      line("9", "Расход в месяц", val(form, "q9_amount")),
+      packQ(form, 2, "Порода / возраст / вес", q2),
+      packQ(form, 3, "Активность", val(form, "q3_activity")),
+      packQ(form, 4, "Дрессировка", val(form, "q4_training")),
+      packQ(form, 5, "Уже давали", val(form, "q5_tried")),
+      packQ(form, 6, "Аллергии / исключения", val(form, "q6_allergies")),
+      packQ(form, 7, "Особенно нужны", val(form, "q7_need")),
+      packQ(form, 8, "Не нужны", val(form, "q8_skip")),
+      packQ(form, 9, "Расход в месяц", val(form, "q9_amount")),
       line("10", "Бюджет", val(form, "q10_budget")),
-      line("11", "Размер лакомств", val(form, "q11_size")),
+      packQ(form, 11, "Размер лакомств", val(form, "q11_size")),
       line("12", "Доставка раз в месяц", val(form, "q12_monthly")),
       line("13", "Кинолог в подписке", val(form, "q13_trainer"))
     ];
@@ -135,11 +194,19 @@
     var toggle = document.getElementById("tryFullToggle");
     var extra = document.getElementById("tryFullFields");
 
-    function setDisabled(root, on) {
+    function setDisabled(root, disableAll) {
       if (!root) return;
       var fields = root.querySelectorAll("input, textarea");
-      for (var i = 0; i < fields.length; i++) fields[i].disabled = on;
+      for (var i = 0; i < fields.length; i++) {
+        if (disableAll || fields[i].closest(".try-q.is-skipped")) {
+          fields[i].disabled = true;
+        } else {
+          fields[i].disabled = false;
+        }
+      }
     }
+
+    initSkipControls(form);
 
     function syncFull() {
       var on = !!(toggle && toggle.checked);
@@ -201,6 +268,7 @@
         .then(function (res) {
           if (res && res.status === "ok") {
             form.reset();
+            clearQuestionSkips(form);
             syncFull();
             if (status) {
               status.className = "form-status is-ok";

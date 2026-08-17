@@ -2272,6 +2272,32 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   gap: 10px;
   padding-top: 4px;
 }
+.try-q.is-skipped .try-q-title {
+  color: var(--gb-muted);
+}
+.try-q-answer {
+  display: grid;
+  gap: 10px;
+}
+.try-q-skip {
+  justify-self: start;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gb-orange-2);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.try-q-skip:hover { color: var(--gb-cream); }
+.try-q-skip[aria-pressed="true"] {
+  color: var(--gb-sage);
+  text-decoration: none;
+}
 .try-q-title {
   margin: 0;
   font-size: 0.94rem;
