@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c18";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c19";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -4092,34 +4092,30 @@
       if (!okConfirm) return;
 
       const btn = document.getElementById("btnMainSave");
-      btn.disabled = true;
-      btn.innerText = "Сохраняю...";
-      showSaveLoading("Сохраняю заказ…", 45000);
-
-      if (isEdit && editOriginalClient) {
-        var nickChanged = String(editOriginalClient).trim().toUpperCase() !== clientName.toUpperCase();
-        var dayChanged = false;
-
-        if (String(editOriginalDay || "") !== String(day || "")) dayChanged = true;
-        if (nickChanged || dayChanged) {
-          try {
-            await apiGet(deleteClientParams(editOriginalClient, editOriginalDay || day, editOriginalMatchKey), { timeoutMs: 30000, cacheTtlMs: 0 });
-          } catch (eDelOld) {}
-        }
-      }
+      var editClientSnap = isEdit ? String(editOriginalClient || "") : "";
+      var editDaySnap = isEdit ? String(editOriginalDay || "") : "";
+      var editKeySnap = isEdit ? String(editOriginalMatchKey || "") : "";
+      var orderTypeSnap = orderType;
+      var basketSnap = [];
+      try { basketSnap = (basket || []).slice(); } catch (eBs) { basketSnap = []; }
+      var geoSnap = selectedAddressGeo
+        ? { lat: selectedAddressGeo.lat, lon: selectedAddressGeo.lon, yandexUrl: selectedAddressGeo.yandexUrl || "" }
+        : null;
+      var keep2Snap = !secondDogMode && !!ownerContactSnapshot;
+      var deferSnap = String(window._orderDeferredId || "").trim();
 
       const payload = {
         action: "saveOrder",
         day: day,
         client: clientName,
-        editClient: isEdit ? (editOriginalClient || "") : "",
-        originalClient: isEdit ? (editOriginalClient || "") : "",
-        matchKey: isEdit ? (editOriginalMatchKey || "") : "",
+        editClient: editClientSnap,
+        originalClient: editClientSnap,
+        matchKey: editKeySnap,
         address: clientAddress,
         phone: phone,
         note: clientNote,
         permanentNote: permanentNote,
-        orderType: orderType,
+        orderType: orderTypeSnap,
         orderPrice: orderPrice,
         deliverySlot: ppSlotPayload.deliverySlot || "",
         ppSlot: ppSlotPayload.ppSlot || "",
@@ -4133,23 +4129,19 @@
         floor: floor,
         flat: flat,
         survey: surveyMeta,
-        geo: selectedAddressGeo ? {
-          lat: selectedAddressGeo.lat,
-          lon: selectedAddressGeo.lon,
-          yandexUrl: selectedAddressGeo.yandexUrl || ""
-        } : null,
+        geo: geoSnap,
         basket: buildOrderSaveBasket_()
       };
 
       const bookingPayload = {
         action: "saveBooking",
         date: deliveryDate,
-        day: day || editOriginalDay || "",
+        day: day || editDaySnap || "",
         alsoSaveOrder: false,
         client: clientName,
-        editClient: isEdit ? (editOriginalClient || "") : "",
-        originalClient: isEdit ? (editOriginalClient || "") : "",
-        matchKey: isEdit ? (editOriginalMatchKey || "") : "",
+        editClient: editClientSnap,
+        originalClient: editClientSnap,
+        matchKey: editKeySnap,
         address: clientAddress,
         phone: phone,
         note: clientNote,
@@ -4161,17 +4153,25 @@
         ppPartner: ppPartnerVal || "",
         couponsQty: couponsPayload.couponsQty || 0,
         couponPrice: couponsPayload.couponPrice || 0,
-        source: orderType === "bp" ? "bp" : (orderType === "pp" ? "pp" : (orderType === "partner" ? "partner" : "retail")),
+        source: orderTypeSnap === "bp" ? "bp" : (orderTypeSnap === "pp" ? "pp" : (orderTypeSnap === "partner" ? "partner" : "retail")),
         basket: payload.basket,
         geo: payload.geo
       };
+
+      try { hideSaveLoading(); } catch (eH0) {}
+      try { resetOrderScreen({ keepSecondDogOffer: keep2Snap }); } catch (eRst) {}
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = "Сохранить заказ";
+      }
+      try { recoverUiFocus(); } catch (eFoc) {}
+      showToast("Сохраняю " + clientName + "…");
 
       try {
 
         var dateOnWeek = false;
         var resolvedDayName = "";
         try {
-          bumpSaveLoading("Сверяю дату…");
           var resolved = await apiGet(
             { action: "resolveDayForDate", date: deliveryDate },
             { timeoutMs: 12000, cacheTtlMs: 60000 }
@@ -4184,16 +4184,26 @@
 
         if (isEdit && dateOnWeek && resolvedDayName) {
           weekDayToSave = resolvedDayName;
-          if (editOriginalDay && String(editOriginalDay) !== String(resolvedDayName)) {
+          if (editDaySnap && String(editDaySnap) !== String(resolvedDayName)) {
             try {
-              await apiGet(deleteClientParams(editOriginalClient || clientName, editOriginalDay, editOriginalMatchKey), { timeoutMs: 30000, cacheTtlMs: 0 });
+              await apiGet(deleteClientParams(editClientSnap || clientName, editDaySnap, editKeySnap), { timeoutMs: 30000, cacheTtlMs: 0 });
             } catch (eDelDay) {}
           }
         } else if (dateOnWeek && resolvedDayName) {
           weekDayToSave = resolvedDayName;
-        } else if (isEdit && editOriginalDay) {
-          weekDayToSave = editOriginalDay;
+        } else if (isEdit && editDaySnap) {
+          weekDayToSave = editDaySnap;
           dateOnWeek = true;
+        }
+
+        if (isEdit && editClientSnap) {
+          var nickChanged = String(editClientSnap).trim().toUpperCase() !== clientName.toUpperCase();
+          var dayChanged = String(editDaySnap || "") !== String(weekDayToSave || day || "");
+          if (nickChanged || (dayChanged && editDaySnap)) {
+            try {
+              await apiGet(deleteClientParams(editClientSnap, editDaySnap || day, editKeySnap), { timeoutMs: 30000, cacheTtlMs: 0 });
+            } catch (eDelOld) {}
+          }
         }
 
         var basketJson = JSON.stringify(payload.basket || []);
@@ -4202,17 +4212,17 @@
         var bookParams = {
           action: "saveBooking",
           date: deliveryDate,
-          day: weekDayToSave || day || editOriginalDay || "",
+          day: weekDayToSave || day || editDaySnap || "",
           alsoSaveOrder: weekDayToSave ? "1" : "0",
           client: clientName,
-          editClient: isEdit ? (editOriginalClient || "") : "",
-          originalClient: isEdit ? (editOriginalClient || "") : "",
-          matchKey: isEdit ? (editOriginalMatchKey || "") : "",
+          editClient: editClientSnap,
+          originalClient: editClientSnap,
+          matchKey: editKeySnap,
           address: clientAddress,
           phone: phone || "",
           note: clientNote || "",
           permanentNote: permanentNote || "",
-          orderType: orderType || "",
+          orderType: orderTypeSnap || "",
           orderPrice: orderPrice != null ? String(orderPrice) : "",
           deliverySlot: ppSlotPayload.deliverySlot ? String(ppSlotPayload.deliverySlot) : "",
           ppSlot: ppSlotPayload.ppSlot || "",
@@ -4221,7 +4231,7 @@
           ppPartner: ppPartnerVal || "",
           couponsQty: String(couponsPayload.couponsQty || 0),
           couponPrice: String(couponsPayload.couponPrice || 0),
-          source: orderType === "bp" ? "bp" : (orderType === "pp" ? "pp" : (orderType === "partner" ? "partner" : "retail")),
+          source: orderTypeSnap === "bp" ? "bp" : (orderTypeSnap === "pp" ? "pp" : (orderTypeSnap === "partner" ? "partner" : "retail")),
           basket: basketJson
         };
         if (geoJson) bookParams.geo = geoJson;
@@ -4249,7 +4259,6 @@
 
         if (useJsonpSave) {
           try {
-            bumpSaveLoading(weekDayToSave ? "Бронь + лист недели…" : "Сохраняю бронь…");
             bookRes = await apiGet(bookParams, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 18000 : 90000, cacheTtlMs: 0 });
           } catch (eBook) {
             bookRes = { status: "error", message: eBook.message || String(eBook) };
@@ -4258,8 +4267,8 @@
           if (weekDayToSave && bookRes && bookRes.status === "success" && bookRes.weekWritten) {
             saveRes = {
               status: "success",
-              wrote: bookRes.wrote != null ? Number(bookRes.wrote) : basket.length,
-              basketLen: basket.length,
+              wrote: bookRes.wrote != null ? Number(bookRes.wrote) : basketSnap.length,
+              basketLen: basketSnap.length,
               missed: bookRes.missed || []
             };
           } else if (weekDayToSave) {
@@ -4268,14 +4277,14 @@
               day: weekDayToSave,
               date: deliveryDate,
               client: clientName,
-              editClient: isEdit ? (editOriginalClient || "") : "",
-              originalClient: isEdit ? (editOriginalClient || "") : "",
-              matchKey: isEdit ? (editOriginalMatchKey || "") : "",
+              editClient: editClientSnap,
+              originalClient: editClientSnap,
+              matchKey: editKeySnap,
               address: clientAddress,
               phone: phone || "",
               note: clientNote || "",
               permanentNote: permanentNote || "",
-              orderType: orderType || "",
+              orderType: orderTypeSnap || "",
               orderPrice: orderPrice != null ? String(orderPrice) : "",
               deliverySlot: ppSlotPayload.deliverySlot ? String(ppSlotPayload.deliverySlot) : "",
               ppSlot: ppSlotPayload.ppSlot || "",
@@ -4289,7 +4298,6 @@
             if (geoJson) orderParams.geo = geoJson;
             if (surveyMeta) orderParams.survey = JSON.stringify(surveyMeta);
             try {
-              bumpSaveLoading("Пишу в лист недели…");
               saveRes = await apiGet(orderParams, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 18000 : 90000, cacheTtlMs: 0 });
             } catch (eWeek) {
               saveRes = { status: "error", message: eWeek.message || String(eWeek) };
@@ -4298,23 +4306,21 @@
         }
 
         var needPost = !useJsonpSave ||
-          (weekDayToSave && basket.length && (!saveRes || saveRes.status !== "success" || Number(saveRes.wrote || 0) === 0));
+          (weekDayToSave && basketSnap.length && (!saveRes || saveRes.status !== "success" || Number(saveRes.wrote || 0) === 0));
         if (needPost) {
-          bumpSaveLoading("Сохраняю (повтор)…");
-          bookingPayload.day = weekDayToSave || day || editOriginalDay || "";
+          bookingPayload.day = weekDayToSave || day || editDaySnap || "";
           bookingPayload.alsoSaveOrder = !!weekDayToSave;
           bookingPayload.permanentNote = permanentNote || "";
-          bookingPayload.orderType = orderType || "";
+          bookingPayload.orderType = orderTypeSnap || "";
           if (surveyMeta) bookingPayload.survey = surveyMeta;
           try { await apiPost(bookingPayload); } catch (ePostB) {}
           if (weekDayToSave) {
             payload.day = weekDayToSave;
             payload.date = deliveryDate;
             try { await apiPost(payload); } catch (ePost) {}
-            bumpSaveLoading("Проверяю лист…");
-            var verified = window.__BOINYA_C_CUTOVER__ ? (basket.length || 1) : await verifyWeekBasket_();
+            var verified = window.__BOINYA_C_CUTOVER__ ? (basketSnap.length || 1) : await verifyWeekBasket_();
             if (verified > 0) {
-              saveRes = { status: "success", wrote: verified, basketLen: basket.length };
+              saveRes = { status: "success", wrote: verified, basketLen: basketSnap.length };
             } else if (!saveRes || saveRes.status !== "success") {
               saveRes = { status: verified === 0 ? "error" : "sent_opaque", wrote: Math.max(0, verified), message: verified === 0 ? "состав не появился на листе" : "" };
             }
@@ -4324,46 +4330,40 @@
         }
 
         if (weekDayToSave && saveRes && saveRes.status === "success" &&
-            Number(saveRes.wrote || 0) === 0 && basket.length > 0) {
-          hideSaveLoading();
+            Number(saveRes.wrote || 0) === 0 && basketSnap.length > 0) {
           await uiAlertAsync(
-            "Человек на листе есть, но состав не записался (" + basket.length + " поз.).\n" +
+            "Человек на листе есть, но состав не записался (" + basketSnap.length + " поз.).\n" +
             "Попробуй ещё раз или проверь названия продуктов.\n" +
             ((saveRes.missed && saveRes.missed.length) ? saveRes.missed.join(", ") : "")
           );
         } else if (weekDayToSave && saveRes && saveRes.status &&
             saveRes.status !== "success" && saveRes.status !== "sent" && saveRes.status !== "sent_opaque") {
-          hideSaveLoading();
-          await uiAlertAsync("Не удалось сохранить в лист недели: " + (saveRes.message || saveRes.status));
-          btn.disabled = false;
-          btn.innerText = isEdit ? "Обновить заказ" : "Сохранить заказ";
-          recoverUiFocus();
+          await uiAlertAsync("Не удалось сохранить «" + clientName + "»: " + (saveRes.message || saveRes.status));
           return;
         }
 
         try { apiCacheBustMem_(); } catch (eClr) {}
         try { invalidateOpsDayCaches_(weekDayToSave); } catch (eInv) {}
         try { refreshOrderDayCounts_({ force: true }); } catch (eCnt) {}
-        const inWeek = !!(weekDayToSave && basket.length);
-        const savedItems = (saveRes && saveRes.wrote != null) ? Number(saveRes.wrote) : basket.length;
+        const inWeek = !!(weekDayToSave && basketSnap.length);
+        const savedItems = (saveRes && saveRes.wrote != null) ? Number(saveRes.wrote) : basketSnap.length;
         try {
           rememberClientProfile({
             nick: clientName,
             address: clientAddress,
             phone: phone,
             note: permanentNote || "",
-            basket: basket.map(function (x) {
+            basket: basketSnap.map(function (x) {
               return { cat: x.cat, main: x.main, name: x.main, sub: x.sub || "", value: x.value, val: x.value };
             }),
-            orderType: orderType,
+            orderType: orderTypeSnap,
             ppPartner: ppPartnerVal || ""
           });
         } catch (eMem) {}
 
-        if (orderType === "bp" && surveyMeta && surveyMeta.createCard) {
+        if (orderTypeSnap === "bp" && surveyMeta && surveyMeta.createCard) {
           try {
-            bumpSaveLoading("Карточка БП…");
-            var bpBasketMapped = basket.map(function(g){
+            var bpBasketMapped = basketSnap.map(function(g){
               return { cat:g.cat, main:g.main||g.name, name:g.name||g.main, sub:g.sub||"", val:g.val!=null?g.val:g.value, value:g.val!=null?g.val:g.value };
             });
             var bpStatus = normalizeBpStage_(surveyMeta.status || "БП1");
@@ -4418,8 +4418,7 @@
         hideSaveLoading();
 
         if (dateOnWeek && inWeek) {
-          celebrateSuccess("save");
-          showToast((isEdit ? "Заказ обновлён" : "Заказ сохранён") +
+          showToast((isEdit ? "Обновлён" : "Сохранён") + " " + clientName +
             " (" + savedItems + " поз.)" +
             (orderPrice != null ? (" · " + orderPrice + " BYN") : ""));
           try {
@@ -4436,39 +4435,26 @@
           showToast("Бронь на " + deliveryDate +
             " · состав " + savedItems + " поз. В нужный день — «Доукомплектовать»");
         }
-        if (orderType === "bp" && surveyMeta && surveyMeta.createCard) {
+        if (orderTypeSnap === "bp" && surveyMeta && surveyMeta.createCard) {
           if (surveyMeta._bpWarn) showToast("Заказ ок, БП-карточку проверь вручную");
           else if (surveyMeta._bpToast) showToast(surveyMeta._bpToast);
         }
 
-        const card = document.querySelector("#orderScreen .card");
-        if (card) {
-          card.classList.remove("fx-success");
-          void card.offsetWidth;
-          card.classList.add("fx-success");
-        }
-        try { logLearnEvent("saveOrder", { client: clientName, day: day, items: savedItems, orderType: orderType }); } catch (eL) {}
+        try { logLearnEvent("saveOrder", { client: clientName, day: day, items: savedItems, orderType: orderTypeSnap }); } catch (eL) {}
 
-        var orderDeferDone = String(window._orderDeferredId || "").trim();
-        if (orderDeferDone) {
+        if (deferSnap) {
           window._orderDeferredId = "";
-          try { await cancelDeferredSilent_(orderDeferDone); } catch (eDef) {}
+          try { await cancelDeferredSilent_(deferSnap); } catch (eDef) {}
         }
 
-        var keep2 = !secondDogMode && !!ownerContactSnapshot;
-        resetOrderScreen({ keepSecondDogOffer: keep2 });
         try {
-          if (window.__BOINYA_C_CUTOVER__) refreshDayViews(day).catch(function () {});
-          else await refreshDayViews(day);
+          refreshDayViews(day).catch(function () {});
         } catch (eRef) {}
       } catch (err) {
         hideSaveLoading();
-        await uiAlertAsync("Ошибка: " + (err.message || err));
+        await uiAlertAsync("Не сохранилось «" + clientName + "»: " + (err.message || err));
       } finally {
         hideSaveLoading();
-        btn.disabled = false;
-        btn.innerText = "Сохранить заказ";
-        recoverUiFocus();
       }
     }
 
@@ -5798,11 +5784,13 @@
       var ok = await uiConfirmAsync("Записать в таблицу " + viewTransferDraft.length + " чел. на «" + (day || dateStr) + "»?");
       if (!ok) return;
       try {
-        showSaveLoading("Сохраняю " + viewTransferDraft.length + " чел.…", 60000);
-        showToast("Сохраняю…");
+        var draftSnap = viewTransferDraft.slice();
+        viewTransferDraft = [];
+        try { renderViewLists(); } catch (eRnd) {}
+        showToast("Сохраняю " + draftSnap.length + " чел.…");
         var payload = {
           action: "pullClientsFromMonth",
-          clients: JSON.stringify(viewTransferDraft.map(function (c) {
+          clients: JSON.stringify(draftSnap.map(function (c) {
             return {
               client: c.name,
               address: c.address || "",
@@ -5821,6 +5809,8 @@
         try { apiCacheBustMem_(); } catch (eClr) {}
         var res = await apiGet(payload, { timeoutMs: 60000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
+          viewTransferDraft = draftSnap;
+          try { renderViewLists(); } catch (eR2) {}
           var msg = (res && res.message) || (res && res.result && res.result.message) || "ошибка";
           if (msg === "date_not_in_week") {
             await uiAlertAsync("Не удалось привязать дату к «Будущей неделе». Нужен Deploy Code.gs v7.10.85.");
@@ -5838,16 +5828,17 @@
         (r.items || []).forEach(function (it) {
           lines.push((it.client || "") + ": " + (it.outcome || ""));
         });
-        viewTransferDraft = [];
         showToast("Добавлено: " + (r.added || 0) + (r.already ? (", уже были: " + r.already) : "") + (r.failed ? (", ошибок: " + r.failed) : ""));
         if (lines.length && lines.length <= 12) {
           try { await uiAlertAsync(lines.join("\n")); } catch (eA) {}
         }
         await loadClientsForDay();
       } catch (e) {
+        if (typeof draftSnap !== "undefined" && draftSnap && draftSnap.length && !viewTransferDraft.length) {
+          viewTransferDraft = draftSnap;
+          try { renderViewLists(); } catch (eR3) {}
+        }
         await uiAlertAsync(e.message || "Ошибка сети / Deploy");
-      } finally {
-        hideSaveLoading();
       }
     }
     window.saveViewTransferDraft = saveViewTransferDraft;
