@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC="$ROOT/app.html"
 DST="$ROOT/boinya-c/app.html"
 ORIGIN='https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec'
-VER='v7.11.149c8'
+VER='v7.11.158c1'
 
 cp "$SRC" "$DST"
 python3 - "$DST" "$ORIGIN" "$VER" <<'PY'
@@ -75,6 +75,10 @@ t = t.replace(
 
 hook = '''    function apiGet(params, opts) {
       opts = opts || {};
+      params = params || {};
+      if (window.__BOINYA_C_CUTOVER__ && params.cutover == null && params.mode !== "live") {
+        params = Object.assign({}, params, { cutover: "1" });
+      }
       if (!opts.__boinyaNoSnap && typeof window.__boinyaCTrySnap === "function") {
         var _cHit = window.__boinyaCTrySnap(params, opts);
         if (_cHit) return _cHit;
@@ -89,6 +93,15 @@ if "__boinyaCTrySnap" not in t:
         1,
     )
 
+# если sync уже был — всё равно вшить cutover в apiGet
+if "params.cutover == null" not in t and "function apiGet(params, opts)" in t:
+    t = t.replace(
+        "    function apiGet(params, opts) {\n      opts = opts || {};\n",
+        hook,
+        1,
+    )
+    print("apiGet cutover injected")
+
 api_post = "    function apiPost(payload) {\n"
 guard = '''    function apiPost(payload) {
       try {
@@ -97,11 +110,18 @@ guard = '''    function apiPost(payload) {
           if (_bw) return _bw;
         }
       } catch (eBw) {}
+      payload = payload || {};
+      if (window.__BOINYA_C_CUTOVER__ && payload.cutover == null && payload.mode !== "live") {
+        payload = Object.assign({}, payload, { cutover: "1" });
+      }
 '''
 idx = t.find(api_post)
-if idx >= 0 and "__boinyaCGuardWrite" not in t[idx : idx + 280]:
+if idx >= 0 and "payload.cutover == null" not in t[idx : idx + 450]:
+    # убрать старый guard без cutover, если есть
+    if "__boinyaCGuardWrite" in t[idx : idx + 280]:
+        pass
     t = t.replace(api_post, guard, 1)
-    print("apiPost guarded")
+    print("apiPost cutover injected")
 
 # TURBO: не prefetch в GAS на старте
 old_boot = """    function bootIdleWork_() {

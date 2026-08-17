@@ -39,13 +39,13 @@ const DAY_KEY = {
 const LIST_ACTIONS = [
   ["listSubscriptions", {}],
   ["listSurvey", { activeOnly: "1" }],
-  ["listDeferred", {}],
+  ["listDeferred", { telegramId: "1" }],
   ["listPartners", {}],
   ["listAccess", {}],
   ["listClientProfiles", {}],
   ["listTemplates", {}],
   ["listTemplates", { kind: "survey" }],
-  ["listReminderPeople", {}],
+  ["listReminderPeople", { telegramId: "1" }],
   ["listBpIdle", { days: "7" }],
   ["getCouriers", {}],
   ["partnerListAdmin", {}],
@@ -104,6 +104,11 @@ async function main() {
   async function pull(action, params, fileName) {
     try {
       const payload = await getAction(action, params);
+      if (payload && payload.status && payload.status !== "success") {
+        console.warn("SKIP bad status", action, payload.message || payload.status);
+        meta.ok = false;
+        return null;
+      }
       if (fileName) writeJson(fileName, { payload, params });
       snaps[snapKey(action, params)] = payload;
       meta.items.push(snapKey(action, params));
