@@ -988,6 +988,58 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
   return items;
 }
 
+function cutNameKey_(name) {
+  return String(name || "")
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function transferOnlyFromPeople_(people) {
+  const map = Object.create(null);
+  const clients = [];
+  (people || []).forEach(function (p) {
+    if (!(p && (p.noCut || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(p.note || ""))))) return;
+    clients.push(p.name);
+    (p.basket || []).forEach(function (it) {
+      const name = String((it && (it.main || it.name)) || "").trim();
+      const sub = String((it && it.sub) || "").trim();
+      const val = Number(it && (it.value != null ? it.value : it.val)) || 0;
+      if (!name || !(val > 0)) return;
+      const key = name + (sub ? " / " + sub : "");
+      map[key] = (map[key] || 0) + val;
+    });
+  });
+  const lines = Object.keys(map).map(function (k) {
+    return { label: k, val: map[k] };
+  });
+  return { clients: clients, lines: lines };
+}
+
+function mergeCuttingFlags_(items, prevItems, sameDate) {
+  if (!sameDate || !prevItems || !prevItems.length) return items || [];
+  const byName = Object.create(null);
+  const byRow = Object.create(null);
+  prevItems.forEach(function (p) {
+    if (!p) return;
+    const k = cutNameKey_(p.name);
+    if (k) byName[k] = p;
+    if (p.row != null) byRow[Number(p.row)] = p;
+  });
+  (items || []).forEach(function (it) {
+    const old = byName[cutNameKey_(it.name)] || (it.row != null ? byRow[Number(it.row)] : null);
+    if (!old) return;
+    it.laid = !!old.laid;
+    it.done = !!old.done;
+    it.outNext = !!old.outNext;
+    if (old.surplus != null && old.surplus !== "") it.surplus = Number(old.surplus) || 0;
+    if (old.row != null) it.row = old.row;
+    if (old.noteInfo) it.noteInfo = old.noteInfo;
+  });
+  return items;
+}
+
 async function calendarWeekPlan_(env, sheetCounts) {
   const mondayIso = currentMondayIso_();
   const sheetMonday = String((sheetCounts && sheetCounts.sheetMonday) || mondayDmyFromCounts_(sheetCounts) || "");
@@ -1446,6 +1498,47 @@ async function rebuildAssemblyDay_(env, day) {
   });
 }
 
+async function rebuildCuttingDay_(env, day) {
+  if (!day) return null;
+  const live = await getClients_({ day: day }, env);
+  const info = await dayDateInfo_(env, day);
+  const prev = await getSnapRaw_(env, "cutting:" + day);
+  const sameDate = !!(prev && prev.date && info.date && String(prev.date) === String(info.date));
+  let wh = [];
+  try {
+    const wsnap = await getSnapRaw_(env, "warehouse");
+    wh = (wsnap && (wsnap.items || wsnap.rows)) || [];
+  } catch (eW) {
+    wh = [];
+  }
+  let items = [];
+  try {
+    items = cuttingItemsFromPeople_(live.clients || [], wh);
+  } catch (eCut) {
+    items = [];
+  }
+  items = mergeCuttingFlags_(items, (prev && prev.items) || [], sameDate);
+  let transferOnly = { clients: [], lines: [] };
+  try {
+    transferOnly = transferOnlyFromPeople_(live.clients || []);
+  } catch (eTr) {}
+  const payload = {
+    status: "success",
+    day: day,
+    date: info.date || "",
+    dateIso: info.iso || "",
+    items: items,
+    session: sameDate ? (prev && prev.session) || {} : {},
+    completion: sameDate ? (prev && prev.completion) || null : null,
+    transferOnly: transferOnly,
+    sandbox: true,
+    source: "d1",
+    fromD1: true
+  };
+  await putSnap_(env, "cutting:" + day, payload);
+  return payload;
+}
+
 async function invalidateDays_(env, days) {
   const uniq = [];
   (days || []).forEach(function (d) {
@@ -1456,6 +1549,9 @@ async function invalidateDays_(env, days) {
     await delSnap_(env, "view:" + d);
     await rebuildCourierDay_(env, d);
     await rebuildAssemblyDay_(env, d);
+    try {
+      await rebuildCuttingDay_(env, d);
+    } catch (eCutInv) {}
   }
   await rebuildWeekCounts_(env);
   await rebuildMonthOverview_(env);
@@ -1532,9 +1628,29 @@ async function getAssembly_(params, env) {
 
 async function getCutting_(params, env) {
   const day = String(params.day || "Понедельник");
-  const hit = await getSnapRaw_(env, "cutting:" + day);
-  if (hit) return hit;
-  return { status: "success", items: [], day: day, date: "", sandbox: true, session: {} };
+  const info = await dayDateInfo_(env, day);
+  const wantDate = String((info && info.date) || "");
+  let hit = await getSnapRaw_(env, "cutting:" + day);
+  const snapDate = String((hit && hit.date) || "");
+  const hasItems = !!(hit && Array.isArray(hit.items) && hit.items.length);
+  const dateOk = !wantDate || !snapDate || snapDate === wantDate;
+  const staleDone = !!(hit && hit.completion && wantDate && snapDate !== wantDate);
+  if (hit && hasItems && dateOk && !staleDone) return hit;
+  try {
+    const rebuilt = await rebuildCuttingDay_(env, day);
+    if (rebuilt) return rebuilt;
+  } catch (eRb) {}
+  if (hit && dateOk && !staleDone) return hit;
+  return {
+    status: "success",
+    items: [],
+    day: day,
+    date: wantDate,
+    dateIso: (info && info.iso) || "",
+    sandbox: true,
+    session: {},
+    source: "d1"
+  };
 }
 
 async function upsertOrderRow_(env, row) {
@@ -2402,6 +2518,14 @@ async function handleCutover_(a, params, env, ctx) {
   const needGas = cutoverNeedsRevalidate_(a, params, fast);
   if (needGas && ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(cutoverRevalidate_(a, params, env));
+  }
+
+  // Нарезка: D1/rebuild сразу. GAS (пересчёт листа) только в фоне — иначе UI висит 10–40с.
+  if (a === "getCutting" && fast && typeof fast === "object") {
+    fast.cutover = true;
+    fast.swr = true;
+    if (fast.sandbox === true) fast.sandbox = false;
+    return fast;
   }
 
   // Приёмка: если D1 count ≠ getWeekDayCounts — сразу GAS (иначе «на Будущей 6 вместо 2»)

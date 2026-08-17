@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c20";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c21";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3428,7 +3428,7 @@
     var _API_SS_KEY = "boinya_api_swr_v1";
     var _API_READ_TTL = {
       getClients: 45000,
-      getCutting: 20000,
+      getCutting: 60000,
       getCourier: 45000,
       getAssembly: 30000,
       getWarehouse: 60000,
@@ -3501,7 +3501,7 @@
       getClients: 35000,
       getViewCompare: 18000,
       getMonthOverview: 35000,
-      getCutting: 35000,
+      getCutting: 12000,
       getCourier: 30000,
       getAssembly: 30000,
       getWarehouse: 35000,
@@ -6907,19 +6907,30 @@
         }
         return;
       }
-      if (soft && hasCache && window._cuttingNeedRefresh) {
-
+      if (hasCache && !fromPoll) {
         window._cuttingNeedRefresh = false;
-      } else if (!fromPoll && !soft) {
-        cuttingItemsCache = [];
-        cuttingCompletionCache = null;
-        cuttingDetailExpanded_ = false;
-        cuttingSession.fingerprint = "";
-        if (summary) summary.innerHTML = "";
-        if (sessionBox) sessionBox.innerHTML = "";
-        if (finishBtn) finishBtn.style.display = "none";
-        box.innerHTML = loadingDanceHtml("Считаю нарезку…");
-      } else if (!fromPoll && soft && !hasCache) {
+        if (cuttingCompletionCache) {
+          renderFinishedCuttingDay(cuttingCompletionCache);
+        } else {
+          renderCuttingSummary();
+          renderCuttingSessionBox();
+          try {
+            if (box && !box.querySelector(".cut-row") && cuttingItemsCache.length) {
+              box.innerHTML = cuttingItemsCache.map(renderCutRowHtml).join("");
+            }
+          } catch (eDomKeep) {}
+          if (finishBtn) finishBtn.style.display = cuttingSession.active ? "block" : "none";
+        }
+      } else if (!fromPoll) {
+        if (!soft) {
+          cuttingItemsCache = [];
+          cuttingCompletionCache = null;
+          cuttingDetailExpanded_ = false;
+          cuttingSession.fingerprint = "";
+          if (summary) summary.innerHTML = "";
+          if (sessionBox) sessionBox.innerHTML = "";
+          if (finishBtn) finishBtn.style.display = "none";
+        }
         box.innerHTML = loadingDanceHtml("Считаю нарезку…");
       }
       try {
@@ -6927,8 +6938,8 @@
           action: "getCutting",
           day: day
         }, {
-          timeoutMs: soft ? 18000 : 22000,
-          retries: soft ? 0 : 1
+          timeoutMs: hasCache ? 8000 : 10000,
+          retries: 0
         });
         if (loadSeq !== _cuttingLoadSeq) return;
         var curDay = document.getElementById("cuttingDaySelect") && document.getElementById("cuttingDaySelect").value;
@@ -6992,6 +7003,17 @@
         box.innerHTML = transferHtml + cuttingItemsCache.map(renderCutRowHtml).join("");
         if (finishBtn) finishBtn.style.display = cuttingSession.active ? "block" : "none";
         startCuttingPoll();
+        if (res && (res.fromD1 || res.source === "d1" || res.fromCalendar) && !fromPoll) {
+          try {
+            if (window._cutGasCatchTimer) clearTimeout(window._cutGasCatchTimer);
+            window._cutGasCatchTimer = setTimeout(function () {
+              window._cutGasCatchTimer = null;
+              var sel = document.getElementById("cuttingDaySelect");
+              if (!sel || String(sel.value) !== String(day)) return;
+              loadCutting(true);
+            }, 7000);
+          } catch (eCatch) {}
+        }
       } catch (err) {
         if (loadSeq !== _cuttingLoadSeq) return;
         if (!fromPoll) {
