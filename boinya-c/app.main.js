@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c22";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c23";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -13392,6 +13392,7 @@
       return known;
     }
     function igAliasResolve(up) {
+      var key = String(up || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
       var aliases = {
         "РУБЕЦ": "РУБЕЦ Т",
         "РУБЕЦ ТЁРПЫЙ": "РУБЕЦ Т",
@@ -13405,26 +13406,65 @@
         "БЫЧИЙ КОРЕНЬ": "БЫЧИЙ КОРЕНЬ",
         "ЛЕГКОЕ": "ЛЁГКОЕ",
         "ЛЁГКОЕ": "ЛЁГКОЕ",
+        "БАРАНЬЕ ЛЕГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
+        "БАРАНЬЕ ЛЁГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
         "КРОШКА ЛЕГКОГО": "КРОШКА ЛЁГКОГО",
         "УШКО": "УХО Г",
+        "УШКО Г": "УХО Г",
         "УШКО ГОВЯЖЬЕ": "УХО Г",
         "УХО": "УХО Г",
         "КАБАЧКИ": "КАБАЧОК",
-        "ГРУШЫ": "ГРУШИ",
+        "ГРУШЫ": "ГРУШЫ",
         "БАРАНЬЯ ПЕЧЕНЬ": "БАРАНЬЯ ПЕЧЕНЬ",
-        "ЛОПАТЧНЫЙ ХРЯЩ": "ЛОП ХРЯЩ шт.",
-        "ЛОПАТОЧНЫЙ ХРЯЩ": "ЛОП ХРЯЩ шт."
+        "ЛОПАТЧНЫЙ ХРЯЩ": "ЛОП ХРЯЩ ШТ.",
+        "ЛОПАТОЧНЫЙ ХРЯЩ": "ЛОП ХРЯЩ ШТ.",
+        "ЛОП ХРЯЩ": "ЛОП ХРЯЩ ШТ.",
+        "ЛОП. ХРЯЩ": "ЛОП ХРЯЩ ШТ.",
+        "ЛОП.ХРЯЩ": "ЛОП ХРЯЩ ШТ.",
+        "ЛОПАТ. ХРЯЩ": "ЛОП ХРЯЩ ШТ.",
+        "ЯБЛОКО": "ЯБЛОКИ",
+        "ЯБЛОКИ": "ЯБЛОКИ",
+        "ПЕЧЕНЬ": "ПЕЧЕНЬ",
+        "ПОЧКИ": "ПОЧКИ",
+        "СЕРДЦЕ": "СЕРДЦЕ",
+        "БАНАН": "БАНАНЫ",
+        "БАНАНЫ": "БАНАНЫ",
+        "ТЫКВА": "ТЫКВА",
+        "УТИНАЯ ШЕЯ": "УТИНЫЕ ШЕИ ШТ.",
+        "ТРАХЕЯ": "ТРАХЕЯ",
+        "ТРАХЕИ": "ТРАХЕЯ",
+        "ТРАХЕЮ": "ТРАХЕЯ",
+        "СТАНОВАЯ ЖИЛА": "СТАНОВАЯ ЖИЛА",
+        "ИНДЕЙКА": "ИНДЕЙКА"
       };
-      if (aliases[up]) return aliases[up];
-      return up;
+      if (aliases[key]) return aliases[key];
+      return key;
+    }
+
+    function cleanChecklistLine_(line) {
+      return String(line || "")
+        .replace(/^[\s\uFEFF\u200B\u2060]+/, "")
+        .replace(/^[\*•\-–—▪︎▸🔸✅✔️☑️👍🐾🦴🥩🍖🐶]+/u, "")
+        .replace(/^\d+[\.\)\:]\s*/, "")
+        .replace(/^[\s*•\-–—]+/, "")
+        .trim();
+    }
+
+    function peelInlineChecklistFrac_(up) {
+      var combo = up.match(/(?:(?:СРЕДН|СРЕДНЕВАТ|МЕЛК|МАЛЕНЬК|МАЛЮСЕНЬК|КРУПН|БОЛЬШ|ОЧЕНЬ|СУПЕР|ОЧ)[\p{L}\p{N}_]*|(?:КУБИК|КУСОЧК)[\p{L}\p{N}_]*)\s+(?:(?:КУБИК|КУСОЧК)[\p{L}\p{N}_]*|(?:СРЕДН|МЕЛК|МАЛЕНЬК|КРУПН|БОЛЬШ|СРЕД)[\p{L}\p{N}_]*)/u);
+      if (combo) {
+        return {
+          frac: combo[0],
+          name: up.replace(combo[0], "").replace(/\s+/g, " ").trim()
+        };
+      }
+      return { frac: "", name: up };
     }
 
     function parseIgLinesToItems(raw) {
-      var IGNORE_LINE = /^(дрессур|жевалк|фрукт|овощ|присып|вс[её]\s*подход|спасибо|заменил|второй\s*заказ|итоговая|цена\s|стоимость|будет\s*ли|вам\s*будет|давайте\s*под|удобно\s*получить|доставк)/i;
+      var IGNORE_LINE = /^(?:дрессур[аы]?|жевалк[аи]?|фрукт[ы]?|овощ[и]?|присыпк?[аи]?)\s*$|^(?:вс[её]\s*подход|спасибо|заменил|второй\s*заказ|итоговая|цена\s|стоимость|будет\s*ли|вам\s*будет|давайте\s*под|удобно\s*получить|доставк)/i;
       var IGNORE_HAS = /(рубл|цена\s*за|стоимость\s*этого|итоговая\s*стоимость|с\s*учётом\s*доставк|вс[её]\s*подходит)/i;
-      var lines = String(raw || "").split(/\r?\n/).map(function (l) {
-        return l.replace(/^[\s*•\-–—]+/, "").trim();
-      }).filter(Boolean);
+      var lines = String(normalizeChecklistRaw_(raw) || "").split(/\r?\n/).map(cleanChecklistLine_).filter(Boolean);
       var added = [];
       var noteBits = [];
       var known = buildIgKnownMap();
@@ -13468,42 +13508,6 @@
         if (/КУБИК/.test(t)) return "Мелкое";
         return "";
       }
-      function igAliasResolve(up) {
-        var aliases = {
-          "РУБЕЦ": "РУБЕЦ Т",
-          "КОРЕНЬ": "БЫЧИЙ КОРЕНЬ",
-          "БЫЧИЙКОРЕНЬ": "БЫЧИЙ КОРЕНЬ",
-          "БЫЧИЙ КОРЕНЬ": "БЫЧИЙ КОРЕНЬ",
-          "ЛЕГКОЕ": "ЛЁГКОЕ",
-          "ЛЁГКОЕ": "ЛЁГКОЕ",
-          "БАРАНЬЕ ЛЕГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
-          "БАРАНЬЕ ЛЁГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
-          "ЯБЛОКО": "ЯБЛОКИ",
-          "ЯБЛОКИ": "ЯБЛОКИ",
-          "УШКО": "УХО Г",
-          "УШКО Г": "УХО Г",
-          "УХО": "УХО Г",
-          "ЛОПАТОЧНЫЙ ХРЯЩ": "ЛОП ХРЯЩ шт.",
-          "ЛОП ХРЯЩ": "ЛОП ХРЯЩ шт.",
-          "ЛОП. ХРЯЩ": "ЛОП ХРЯЩ шт.",
-          "ЛОП.ХРЯЩ": "ЛОП ХРЯЩ шт.",
-          "ЛОПАТ. ХРЯЩ": "ЛОП ХРЯЩ шт.",
-          "ПЕЧЕНЬ": "ПЕЧЕНЬ",
-          "ПОЧКИ": "ПОЧКИ",
-          "СЕРДЦЕ": "СЕРДЦЕ",
-          "БАНАН": "БАНАНЫ",
-          "БАНАНЫ": "БАНАНЫ",
-          "ТЫКВА": "ТЫКВА",
-          "УТИНАЯ ШЕЯ": "УТИНЫЕ ШЕИ шт.",
-          "ТРАХЕЯ": "ТРАХЕЯ",
-          "ТРАХЕИ": "ТРАХЕЯ",
-          "ТРАХЕЮ": "ТРАХЕЯ",
-          "СТАНОВАЯ ЖИЛА": "СТАНОВАЯ ЖИЛА",
-          "ИНДЕЙКА": "ИНДЕЙКА"
-        };
-        if (aliases[up]) return aliases[up];
-        return up;
-      }
       function matchKnown(upRaw) {
         var up = igAliasResolve(upRaw);
         var keys = Object.keys(known).sort(function (a, b) { return b.length - a.length; });
@@ -13519,30 +13523,46 @@
         return best;
       }
       lines.forEach(function (line) {
+        line = line.replace(/^(?:дрессур[аы]?|жевалк[аи]?|фрукт[ы]?|овощ[и]?|присыпк?[аи]?)\s+/i, "");
         if (IGNORE_LINE.test(line) || IGNORE_HAS.test(line)) return;
         if (/^\d{1,2}([./-]\d{1,2})?\s*(июл|авг|сен|окт|ноя|дек|янв|фев|мар|апр|мая|июн)/i.test(line)) return;
         if (/доставк/i.test(line) && /(удобн|числ|вторник|понедельник|дата)/i.test(line)) return;
 
-        var m = line.match(/^(.+?)\s*[—\-–:]\s*(\d+(?:[.,]\d+)?)\s*(г|гр|грамм|шт|кг)?(?:\s*[\(（]([^\)）]+)[\)）])?/i) ||
+        var mult = 1;
+        var multM = line.match(/\s*[x×х\*]\s*(\d+)\s*$/i);
+        if (multM) {
+          mult = Math.max(1, parseInt(multM[1], 10) || 1);
+          line = line.slice(0, multM.index).trim();
+        }
+        line = line.replace(/(\d+(?:[.,]\d+)?)(г|гр|грамм|шт|кг)(?=\s|[\(,.;]|$|[x×х\*])/gi, "$1 $2");
+
+        var m = line.match(/^(.+?)\s*[—\-–:]\s*(\d+(?:[.,]\d+)?)\s*(г|гр|грамм|шт|кг)?(?:\s*[\(（]([^\)）]+)[\)）])?(?:\s+(.+))?$/i) ||
                 line.match(/^(\d+(?:[.,]\d+)?)\s*(г|гр|шт|кг)?\s+(.+)$/i);
-        var namePart = "", val = 0, unit = "", paren = "";
+        var namePart = "", val = 0, unit = "", paren = "", trailing = "";
         if (m) {
           if (m[3] && /г|шт|кг/i.test(String(m[2] || ""))) {
             val = parseFloat(String(m[1]).replace(",", ".")); unit = m[2] || ""; namePart = m[3];
           } else {
             namePart = m[1]; val = parseFloat(String(m[2]).replace(",", ".")); unit = m[3] || "";
-            paren = m[4] || "";
+            paren = m[4] || ""; trailing = m[5] || "";
           }
         } else {
           var m2 = line.match(/(.+?)\s+(\d+(?:[.,]\d+)?)\s*(г|гр|шт|кг)?(?:\s*[\(（]([^\)）]+)[\)）])?$/i);
-          if (!m2) return;
-          namePart = m2[1]; val = parseFloat(String(m2[2]).replace(",", ".")); unit = m2[3] || ""; paren = m2[4] || "";
+          if (m2) {
+            namePart = m2[1]; val = parseFloat(String(m2[2]).replace(",", ".")); unit = m2[3] || ""; paren = m2[4] || "";
+          } else {
+            var m3 = line.match(/^(.+?)\s+(\d+(?:[.,]\d+)?)\s*(г|гр|грамм|шт|кг)\.?\s+(.+)$/i);
+            if (!m3) return;
+            namePart = m3[1]; val = parseFloat(String(m3[2]).replace(",", ".")); unit = m3[3] || ""; trailing = m3[4] || "";
+          }
         }
+        if (trailing && !paren) paren = trailing;
         namePart = String(namePart || "").replace(/[\(（][^\)）]+[\)）]/g, function (x) {
           if (!paren) paren = x.replace(/[\(\)（）]/g, "");
           return "";
         }).trim();
         if (!namePart || !(val > 0)) return;
+        if (mult > 1) val = val * mult;
 
         if (/^(набор|состав|заказ|итого)/i.test(namePart)) return;
         if (/кг/i.test(unit)) val = Math.round(val * 1000);
@@ -13551,7 +13571,12 @@
         var frac = "";
         var fracSrc = paren || "";
         var needFrac = false;
-        var fracHit = up.match(/((?:СРЕДН\w*|СРЕДНЕВАТ\w*|МЕЛК\w*|МАЛЕНЬК\w*|МАЛЮСЕНЬК\w*|КРУПН\w*|БОЛЬШ\w*|ОЧЕНЬ\s*(?:МАЛ|МЕЛК)\w*|СУПЕР\s*(?:МАЛ|МЕЛК)\w*)\s+(?:КУБИК\w*|КУСОЧК\w*)|(?:КУБИК\w*|КУСОЧК\w*)\s+(?:СРЕДН\w*|СРЕДНЕВАТ\w*|МЕЛК\w*|МАЛЕНЬК\w*|КРУПН\w*|БОЛЬШ\w*)|ОЧ\s*МАЛ|ОЧЕНЬ\s*(?:МАЛ|МЕЛК)\w*|СУПЕР\s*(?:МАЛ|МЕЛК)\w*|МАЛЮСЕНЬК\w*|МАХОНЬК\w*|КРОШЕЧН\w*|КРОХОТН\w*|МИНИАТЮР\w*|МАЛЕНЬК\w*|МЕЛК\w*|СРЕДНЕВАТ\w*|СРЕДН\w*|БОЛЬШ\w*|КРУПН\w*|ЗДОРОВЕНН\w*|ОГРОМ\w*|ГИГАНТ\w*|ЦЕЛИКОМ|ЦЕЛ\w*|ПОЛОВИН\w*|ПАЛОЧ\w*|ПАЛК|ПЛАСТИН\w*|ПЛАСТ|КУБИК\w*|КУСОЧК\w*|ЛОМТ\w*|ПОЛОСК\w*|РОГАЛИК|СРЕД(?![А-ЯЁA-Z])|МАЛ(?![А-ЯЁA-Z])|БОЛ(?![А-ЯЁA-Z])|ОГР|МИНИ(?![А-ЯЁA-Z])|НОРМ(?![А-ЯЁA-Z]))/);
+        var peeled = peelInlineChecklistFrac_(up);
+        if (peeled.frac) {
+          fracSrc = fracSrc || peeled.frac;
+          up = peeled.name;
+        }
+        var fracHit = up.match(/((?:СРЕДН[\p{L}\p{N}_]*|СРЕДНЕВАТ[\p{L}\p{N}_]*|МЕЛК[\p{L}\p{N}_]*|МАЛЕНЬК[\p{L}\p{N}_]*|МАЛЮСЕНЬК[\p{L}\p{N}_]*|КРУПН[\p{L}\p{N}_]*|БОЛЬШ[\p{L}\p{N}_]*|ОЧЕНЬ\s*(?:МАЛ|МЕЛК)[\p{L}\p{N}_]*|СУПЕР\s*(?:МАЛ|МЕЛК)[\p{L}\p{N}_]*)\s+(?:КУБИК[\p{L}\p{N}_]*|КУСОЧК[\p{L}\p{N}_]*)|(?:КУБИК[\p{L}\p{N}_]*|КУСОЧК[\p{L}\p{N}_]*)\s+(?:СРЕДН[\p{L}\p{N}_]*|СРЕДНЕВАТ[\p{L}\p{N}_]*|МЕЛК[\p{L}\p{N}_]*|МАЛЕНЬК[\p{L}\p{N}_]*|КРУПН[\p{L}\p{N}_]*|БОЛЬШ[\p{L}\p{N}_]*)|ОЧ\s*МАЛ|ОЧЕНЬ\s*(?:МАЛ|МЕЛК)[\p{L}\p{N}_]*|СУПЕР\s*(?:МАЛ|МЕЛК)[\p{L}\p{N}_]*|МАЛЮСЕНЬК[\p{L}\p{N}_]*|МАХОНЬК[\p{L}\p{N}_]*|КРОШЕЧН[\p{L}\p{N}_]*|КРОХОТН[\p{L}\p{N}_]*|МИНИАТЮР[\p{L}\p{N}_]*|МАЛЕНЬК[\p{L}\p{N}_]*|МЕЛК[\p{L}\p{N}_]*|СРЕДНЕВАТ[\p{L}\p{N}_]*|СРЕДН[\p{L}\p{N}_]*|БОЛЬШ[\p{L}\p{N}_]*|КРУПН[\p{L}\p{N}_]*|ЗДОРОВЕНН[\p{L}\p{N}_]*|ОГРОМ[\p{L}\p{N}_]*|ГИГАНТ[\p{L}\p{N}_]*|ЦЕЛИКОМ|ЦЕЛ[\p{L}\p{N}_]*|ПОЛОВИН[\p{L}\p{N}_]*|ПАЛОЧ[\p{L}\p{N}_]*|ПАЛК|ПЛАСТИН[\p{L}\p{N}_]*|ПЛАСТ|КУБИК[\p{L}\p{N}_]*|КУСОЧК[\p{L}\p{N}_]*|ЛОМТ[\p{L}\p{N}_]*|ПОЛОСК[\p{L}\p{N}_]*|РОГАЛИК|СРЕД(?![\p{L}])|МАЛ(?![\p{L}])|БОЛ(?![\p{L}])|ОГР|МИНИ(?![\p{L}])|НОРМ(?![\p{L}]))/u);
         if (fracHit) {
           fracSrc = fracSrc || fracHit[0];
           up = up.replace(fracHit[0], "").replace(/\s+/g, " ").trim();
@@ -13929,13 +13954,21 @@
     }
 
     function normalizeChecklistRaw_(raw) {
-      return String(raw || "")
+      var text = String(raw || "")
         .replace(/\u2028|\u2029/g, "\n")
         .replace(/\r\n/g, "\n")
         .replace(/\r/g, "\n")
         .replace(/<br\s*\/?>/gi, "\n")
-
+        .replace(/\t+/g, " ")
         .replace(/\s+([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-']{1,24}\s*:)/g, "\n$1");
+      text = text.replace(/\s+(?=(?:дрессур[аы]?|жевалк[аи]?|фрукт[ы]?|овощ[и]?|присыпк?[аи]?)(?:\s|$))/gi, "\n");
+      text = text.replace(/^(\s*)(дрессур[аы]?|жевалк[аи]?|фрукт[ы]?|овощ[и]?|присыпк?[аи]?)\s+(?=[A-Za-zА-Яа-яЁё])/i, "$1$2\n");
+      text = text.split("\n").map(function (line) {
+        var qtyHits = line.match(/[—\-–]\s*\d+(?:[.,]\d+)?\s*(?:г|гр|грамм|шт|кг)(?=\s|[\(,.;]|$|[x×х\*])/gi);
+        if (!qtyHits || qtyHits.length < 2) return line;
+        return line.replace(/\s+(?=[A-ZА-ЯЁ][\p{L}\p{N}_\-']*\s*[—\-–]\s*\d+(?:[.,]\d+)?\s*(?:г|гр|грамм|шт|кг)(?=\s|[\(,.;]|$))/gu, "\n");
+      }).join("\n");
+      return text;
     }
 
     function isBareCategoryHeader_(t) {
