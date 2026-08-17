@@ -764,6 +764,182 @@ async function overlayWeekSheetCountsOnMonth_(env, body) {
   return body;
 }
 
+/** Уникальные люди из ответа Просмотра (week+month). */
+function countPeopleFromViewPayload_(payload) {
+  const seen = Object.create(null);
+  const segments = { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 };
+  const lists = []
+    .concat(Array.isArray(payload && payload.week) ? payload.week : [])
+    .concat(Array.isArray(payload && payload.month) ? payload.month : []);
+  let n = 0;
+  lists.forEach(function (c) {
+    if (!c) return;
+    const mk = normalizeMatchKey_(c.matchKey || c.name || c.client || c.nick);
+    if (!mk || seen[mk]) return;
+    seen[mk] = true;
+    n++;
+    const seg = String(c.segment || c.source || "").trim().toUpperCase();
+    if (seg === "ПП" || seg === "PP" || seg === "АФК" || seg === "AFK") segments["ПП"]++;
+    else if (seg === "БП" || seg === "BP") segments["БП"]++;
+    else if (seg === "Р" || seg === "R" || seg === "RETAIL" || seg === "РОЗНИЦА") segments["Р"]++;
+    else if (seg.indexOf("ПАРТ") === 0 || seg === "PARTNER" || seg === "ВАРКА") segments["ПАРТНЁР"]++;
+    else if (/partner/i.test(String(c.source || ""))) segments["ПАРТНЁР"]++;
+    else segments.other++;
+  });
+  return { count: n, segments: segments };
+}
+
+/** Бейдж дня = фактический список Просмотра, не сырой Календарь_Дат. */
+async function patchMonthOverviewDayFromView_(env, iso, payload) {
+  if (!env || !env.DB || !iso) return;
+  const tallied = countPeopleFromViewPayload_(payload);
+  const month = String(iso).slice(0, 7);
+  const keys = ["monthOverview:" + month, "monthOverview"];
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    let body = await getSnapRaw_(env, key);
+    if (!body || !Array.isArray(body.days)) {
+      if (key === "monthOverview:" + month) {
+        body = { status: "success", month: month, days: [], total: 0 };
+      } else {
+        continue;
+      }
+    }
+    let found = false;
+    body.days = (body.days || []).map(function (d) {
+      if (!d || d.dateIso !== iso) return d;
+      found = true;
+      return Object.assign({}, d, {
+        count: tallied.count,
+        segments: tallied.segments,
+        fromView: true
+      });
+    });
+    if (!found) {
+      body.days.push({
+        dateIso: iso,
+        count: tallied.count,
+        segments: tallied.segments,
+        fromView: true
+      });
+      body.days.sort(function (a, b) {
+        return String(a.dateIso).localeCompare(String(b.dateIso));
+      });
+    }
+    body.total = body.days.reduce(function (s, d) {
+      return s + (Number(d.count) || 0);
+    }, 0);
+    body.month = body.month || month;
+    body.status = "success";
+    await putSnap_(env, key, body);
+  }
+}
+
+/** Подтянуть бейджи из уже открытых viewDate:* (иначе 9 на календаре / 6 в дне). */
+async function reconcileMonthOverviewWithViewSnaps_(env, body) {
+  if (!body || !env || !env.DB) return body;
+  const month = String(body.month || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(month)) return body;
+  try {
+    const q = await env.DB.prepare(
+      "SELECT cache_key, payload FROM snap_cache WHERE cache_key LIKE ?"
+    )
+      .bind("viewDate:" + month + "-%")
+      .all();
+    const byIso = Object.create(null);
+    ((body.days || []) || []).forEach(function (d) {
+      if (d && d.dateIso) byIso[d.dateIso] = Object.assign({}, d);
+    });
+    (q.results || []).forEach(function (row) {
+      const key = String(row.cache_key || "");
+      const iso = key.indexOf("viewDate:") === 0 ? key.slice(9) : "";
+      if (!iso) return;
+      let payload = null;
+      try {
+        payload = JSON.parse(row.payload || "{}");
+      } catch (eP) {
+        return;
+      }
+      // week-sheet дни не трогаем (fromWeekSheet) — там источник Приём
+      if (byIso[iso] && byIso[iso].fromWeekSheet) return;
+      const tallied = countPeopleFromViewPayload_(payload);
+      byIso[iso] = {
+        dateIso: iso,
+        count: tallied.count,
+        segments: tallied.segments,
+        fromView: true
+      };
+    });
+    body.days = Object.keys(byIso)
+      .sort()
+      .map(function (k) {
+        return byIso[k];
+      });
+    body.total = body.days.reduce(function (s, d) {
+      return s + (Number(d.count) || 0);
+    }, 0);
+    body.viewReconcile = true;
+  } catch (eR) {}
+  return body;
+}
+
+async function cutoverGetMonthOverview_(params, env, ctx) {
+  const month = String((params && params.month) || "").trim();
+  const force =
+    String((params && params.force) || "") === "1" ||
+    (params && (params.force === true || params.force === 1));
+
+  async function fromGas_() {
+    const live = await gasProxy_("getMonthOverview", params || {}, env, { write: false });
+    if (live && live.status === "success" && env && env.DB) {
+      try {
+        let body = Object.assign({}, live, { cachedAt: new Date().toISOString() });
+        body = await overlayWeekSheetCountsOnMonth_(env, body);
+        body = await reconcileMonthOverviewWithViewSnaps_(env, body);
+        await putSnap_(env, "monthOverview", body);
+        if (body.month) await putSnap_(env, "monthOverview:" + body.month, body);
+        live.cutover = true;
+        live.fromGas = true;
+        live.sandbox = false;
+        live.days = body.days;
+        live.total = body.total;
+        live.weekOverlay = body.weekOverlay;
+        live.viewReconcile = body.viewReconcile;
+        return live;
+      } catch (eS) {}
+    }
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+    }
+    return live;
+  }
+
+  if (force) {
+    return (await fromGas_()) || { status: "error", message: "gas_proxy_failed", cutover: true };
+  }
+
+  let body = await getMonthOverview_(params, env);
+  body = await reconcileMonthOverviewWithViewSnaps_(env, body);
+  if (body && body.status === "success" && Array.isArray(body.days) && body.days.length) {
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async function () {
+          try {
+            await fromGas_();
+          } catch (eR) {}
+        })()
+      );
+    }
+    body.cutover = true;
+    body.swr = true;
+    body.fromGas = false;
+    body.sandbox = false;
+    return body;
+  }
+  return (await fromGas_()) || { status: "success", month: month, days: [], total: 0, cutover: true };
+}
+
 async function rebuildMonthOverview_(env) {
   if (!env || !env.DB) return { status: "success", month: "", days: [], total: 0, sandbox: true };
   const prev = await getSnapRaw_(env, "monthOverview");
@@ -1549,6 +1725,9 @@ async function handleCutover_(a, params, env, ctx) {
   if (a === "getStats") {
     return cutoverGetStats_(params, env, ctx);
   }
+  if (a === "getMonthOverview") {
+    return cutoverGetMonthOverview_(params, env, ctx);
+  }
   // listSurvey / week meta — тоже тяжёлые; D1+SWR
   if (a === "listSurvey") {
     return cutoverSwrGas_("listSurvey", params, env, ctx, {
@@ -2019,8 +2198,13 @@ async function cutoverStoreRead_(a, params, env, payload) {
       await replaceDayOrdersFromClients_(env, day, payload.week);
     }
     if (day) await putSnap_(env, "view:" + day, payload);
-    const iso = payload.dateIso || params.date || "";
-    if (iso) await putSnap_(env, "viewDate:" + iso, payload);
+    const iso = payload.dateIso || dmyToIso_(payload.date) || params.date || "";
+    if (iso) {
+      await putSnap_(env, "viewDate:" + iso, payload);
+      try {
+        await patchMonthOverviewDayFromView_(env, iso, payload);
+      } catch (ePatch) {}
+    }
     return;
   }
   if (a === "getWeekDayCounts") {

@@ -4408,6 +4408,7 @@ function handleGetMonthOverview(json, callback, fromPost) {
   var all = [];
   try { all = readAllCalendarRows_(); } catch (e0) { all = []; }
   var byDate = {};
+  var seenNickByDate = {};
   for (var i = 0; i < all.length; i++) {
     var row = all[i];
     var st = String(row.status || "").toLowerCase();
@@ -4418,6 +4419,16 @@ function handleGetMonthOverview(json, callback, fromPost) {
       if (d) iso = isoDateKey_(d, tz);
     }
     if (!iso || iso.indexOf(monthStr) !== 0) continue;
+    var nickRaw = row.nick || row.client || row.name || row.label || "";
+    var mk = "";
+    try { mk = clientMatchKey_(nickRaw) || String(nickRaw || "").trim().toUpperCase(); } catch (eMk) {
+      mk = String(nickRaw || "").trim().toUpperCase();
+    }
+    if (mk) {
+      if (!seenNickByDate[iso]) seenNickByDate[iso] = {};
+      if (seenNickByDate[iso][mk]) continue; // дубли Календарь_Дат не раздувают бейдж
+      seenNickByDate[iso][mk] = true;
+    }
     if (!byDate[iso]) {
       byDate[iso] = {
         dateIso: iso,

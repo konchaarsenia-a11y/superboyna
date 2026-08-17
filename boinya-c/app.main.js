@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c13";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c14";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -5899,6 +5899,13 @@
         }
 
         renderViewLists();
+        try {
+          syncMonthBadgeFromLoadedView_(
+            (compareRes && compareRes.dateIso) || dateStr || "",
+            week,
+            month
+          );
+        } catch (eBadge) {}
         if (needDeploy && monthBox) {
           monthBox.innerHTML = '<div class="view-idle">Нужен Deploy Code.gs — Календарь_Дат не читается.</div>';
         }
@@ -5907,6 +5914,60 @@
         box.innerHTML = errIdle;
         if (monthBox) monthBox.innerHTML = errIdle;
         updateBatchBar();
+      }
+    }
+
+    function syncMonthBadgeFromLoadedView_(iso, weekList, monthList) {
+      iso = String(iso || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+      var seen = Object.create(null);
+      var segments = { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 };
+      var n = 0;
+      [].concat(weekList || [], monthList || []).forEach(function (c) {
+        if (!c) return;
+        var mk = viewClientKey(c.name || c.client || c.nick || "");
+        if (!mk || seen[mk]) return;
+        seen[mk] = true;
+        n++;
+        var seg = String(c.segment || c.source || "").trim().toUpperCase();
+        if (seg === "ПП" || seg === "PP" || seg === "АФК" || seg === "AFK") segments["ПП"]++;
+        else if (seg === "БП" || seg === "BP") segments["БП"]++;
+        else if (seg === "Р" || seg === "R" || seg === "RETAIL" || seg === "РОЗНИЦА") segments["Р"]++;
+        else if (seg.indexOf("ПАРТ") === 0 || seg === "PARTNER") segments["ПАРТНЁР"]++;
+        else segments.other++;
+      });
+      if (!viewMonthOverviewCache || !Array.isArray(viewMonthOverviewCache.days)) {
+        viewMonthOverviewCache = {
+          status: "success",
+          month: iso.slice(0, 7),
+          days: [],
+          total: 0
+        };
+      }
+      var found = false;
+      viewMonthOverviewCache.days = (viewMonthOverviewCache.days || []).map(function (d) {
+        if (!d || d.dateIso !== iso) return d;
+        // лист недели не затираем сырым календарём
+        if (d.fromWeekSheet) return d;
+        found = true;
+        return Object.assign({}, d, { count: n, segments: segments, fromView: true });
+      });
+      if (!found) {
+        viewMonthOverviewCache.days.push({
+          dateIso: iso,
+          count: n,
+          segments: segments,
+          fromView: true
+        });
+      }
+      var tot = 0;
+      viewMonthOverviewCache.days.forEach(function (d) {
+        tot += Number(d.count) || 0;
+      });
+      viewMonthOverviewCache.total = tot;
+      viewMonthOverviewCache.month = viewMonthOverviewCache.month || iso.slice(0, 7);
+      if (viewSub === "month" && !viewMonthDayOpen) {
+        try { renderMonthOverviewList_(viewMonthOverviewCache); } catch (eR) {}
       }
     }
 

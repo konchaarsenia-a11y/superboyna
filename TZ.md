@@ -1,3 +1,4 @@
+- [~] **Календарь бейджи ≠ список 2026-08-17:** бейдж из сырого Календарь_Дат (9) при 6 в Просмотре; sync бейджа с viewDate + dedupe nick в getMonthOverview · Worker+Pages `v=7111594` · **Deploy Code.gs**
 - [~] **Аудит скорости 2026-08-16:** index ver рассинхрон→двойной reload; SWR для listSurvey/weekCounts/banner; prefetch; баннер уехавших дат · Worker+Pages `v=7111593` · **Deploy Code.gs** (`repairWeekMonday` на 17.08)
 - [~] **Статистика SWR + БП delete-safe 2026-08-16:** getStats D1+SWR (~мс); удаление БП только по нику (не OR subId); Code.gs AND-матч · Worker+Pages `v=7111592` · **Deploy Code.gs** для AND на листе
 - [~] **Нарезка/курьер «день завершён» после смены недели 2026-08-16:** D1 snap по имени дня тащил completion/delivered со старой даты; сброс ops при refresh + GAS clear CUT_DONE/laid · **Worker Deploy** · Pages `v=7111591` · **нужен Deploy Code.gs**
