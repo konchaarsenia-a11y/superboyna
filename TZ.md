@@ -27,7 +27,7 @@
 - [x] **UI+GS v7.11.153:** склад дефицит — план (сухое) vs нужно сырья (÷коэф); «есть» минус прошедшие дни недели; не врёт «хватает» в середине недели — **Pages** · **Deploy OK**
 - [x] **UI+GS v7.11.152:** склад — выбор дат с/по для дефицита, таблица позиций «нужно/есть» без колонки дефицита; то же в сообщении дозакупа — **Pages** · **Deploy OK**
 - [x] **UI+GS v7.11.151:** поиск адресов — приоритет дома (не только улица): разбор «X 12»/«д.12», Nominatim structured street+house, ранжирование с домом сверху — **Pages** · **Deploy OK**
-- [~] **Varka v3.1.1:** webhook = Worker Бойня C (`boinya-c.konchaarsenia.workers.dev`); `@arseniyhotko` — 1 точка Карского 23 на Worker (без Deploy Code.gs) · **Pages** · **нужен Worker Deploy**
+- [~] **Varka v3.1.2:** `@arseniyhotko` — 1 точка Карского 23 (фронт + Worker); webhook = Бойня C · **Pages**
 - [x] **UI varka v3.0.9:** у позиций лакомств убрана буква «г» (карточка / пресеты / своё) — **Pages**
 - [~] **Varka v3.0.8:** как было — owner first / все точки; `@one_more_person_228` обычный owner; сняты allowlist и тест-Access (V7) — **Pages** · **нужен Deploy Code.gs**
 - [~] **Varka v3.0.7:** убран блок «тест партнёров» — **Pages** · **нужен Deploy Code.gs**

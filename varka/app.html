@@ -504,7 +504,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.1.1";
+  var APP_VER = "3.1.2";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v9";
@@ -1195,6 +1195,14 @@
       goPointsForOrder_();
       return;
     }
+    if (state.point && state.point.id !== "pt_varka_karskogo_23") {
+      var uname = normUser_((state.me && state.me.username) || (user() && user().username) || "");
+      var tid = String((state.me && state.me.telegramId) || (user() && user().telegramId) || "").trim();
+      if (uname === "arseniyhotko" || tid === "650923866") {
+        alert("Нет доступа к этой точке");
+        return;
+      }
+    }
     var basket = [];
     state.catalog.forEach(function (it) {
       var q = Number(state.cart[it.id]) || 0;
@@ -1535,6 +1543,40 @@
     return { ok: false };
   }
 
+  function applyArseniyOnePoint_(u, res) {
+    var uname = normUser_((u && u.username) || (res && res.username) || "");
+    var tid = String((u && u.telegramId) || (res && res.telegramId) || "").trim();
+    if (uname !== "arseniyhotko" && tid !== "650923866") return res;
+    var POINT_ID = "pt_varka_karskogo_23";
+    var pts = (res && res.points) || [];
+    var one = null;
+    for (var i = 0; i < pts.length; i++) {
+      if (pts[i] && pts[i].id === POINT_ID) { one = pts[i]; break; }
+    }
+    if (!one) {
+      one = { id: POINT_ID, networkId: "net_varka", name: "Varka · Карского 23", address: "Карского 23" };
+    }
+    var nets = ((res && res.networks) || []).filter(function (n) {
+      return n && n.id === "net_varka";
+    });
+    if (!nets.length) nets = [{ id: "net_varka", name: "Varka", logo: "" }];
+    return Object.assign({}, res || {}, {
+      status: "success",
+      allowed: true,
+      ownersOnly: false,
+      role: "partner",
+      isPartner: true,
+      isOwner: false,
+      name: (res && res.name && res.name !== "Владелец Good Boy") ? res.name : "Арсений Хотько",
+      username: (res && res.username) || "arseniyhotko",
+      telegramId: tid || "650923866",
+      networkId: "net_varka",
+      pointIds: [POINT_ID],
+      points: [one],
+      networks: nets
+    });
+  }
+
   async function bootFromApi_() {
     document.getElementById("bootMsg").textContent = "Вход…";
     try {
@@ -1553,6 +1595,7 @@
         telegramId: u.telegramId || "",
         _: String(Date.now())
       });
+      res = applyArseniyOnePoint_(u, res);
       var ids = normalizePointIds_(res && res.pointIds);
       var asOwner = !!(res && res.isOwner && !res.isPartner && res.role === "owner");
       var asPartner = !asOwner && !!(res && (res.isPartner || res.role === "partner" || res.role === "staff"));
