@@ -2207,6 +2207,9 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   opacity: 0;
   width: 1px;
   height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
   pointer-events: none;
 }
 .try-switch-ui {
