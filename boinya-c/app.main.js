@@ -2832,6 +2832,7 @@
         ov.style.display = "none";
         ov.style.pointerEvents = "none";
         ov.onclick = null;
+        try { ov.removeAttribute("data-opened-at"); } catch (eAt) {}
       }
     }
     function showSaveLoading(label, timeoutMs) {
