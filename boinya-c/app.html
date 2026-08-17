@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C · sandbox</title>
-  <link rel="preload" href="app.main.js?v=7111595" as="script">
+  <link rel="preload" href="app.main.js?v=71115815" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
@@ -2528,4 +2528,183 @@
         <div class="muted" style="font-size:12px;margin-bottom:10px;">Тексты клиентам, карточки лакомств по ассортименту, подбор ИИ.</div>
         <div class="sub-tabs" id="templatesSubTabs" style="margin-bottom:12px;">
           <button type="button" class="sub-tab active" id="tplTabTexts" onclick="setTemplatesSub_('texts')">Тексты</button>
-          <button type="bu
+          <button type="button" class="sub-tab" id="tplTabAi" onclick="setTemplatesSub_('ai')">Подбор ИИ</button>
+        </div>
+        <div id="templatesPaneTexts">
+          <div class="batch-bar-row" style="margin:0 0 10px;gap:8px;">
+            <button type="button" class="btn-action btn-blue" style="flex:1.4;margin:0;" onclick="openTplAddForm_()">＋ Шаблон</button>
+            <button type="button" class="btn-action" style="flex:1;margin:0;background:#3a3a3c;" onclick="loadTemplatesList_({force:true})">Обновить</button>
+          </div>
+          <div id="tplAddCard" style="display:none;margin-bottom:12px;padding-top:8px;border-top:1px solid var(--border-color);"></div>
+          <div id="templatesList"><p class="muted">Загрузка…</p></div>
+        </div>
+        <div id="templatesPaneCards" style="display:none;">
+          <div id="productCardsRoot"><p class="muted">Загрузка ассортимента…</p></div>
+        </div>
+        <div id="templatesPaneAi" style="display:none;">
+          <p class="muted" style="margin:0;">Скоро: подбор состава и рекомендации по базе заказов. Пока только место в меню.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ДОСТУПЫ -->
+    <div id="peopleScreen" class="screen">
+      <div class="card" id="finishWeekPeopleCard">
+        <div class="section-title" style="margin-top:0;color:#ff9f0a;">Неделя</div>
+        <div class="muted" style="font-size:12px;margin-bottom:8px;">Закрытие недели: склад F/B, даты +7, очистка Пн–Вс, Будущая→Пн. Обычно вс (весь день) или пн до 12:00. Только владелец.</div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px;" id="finishWeekPeopleStatus">Статус: …</div>
+        <button class="btn-action btn-orange" type="button" id="btnFinishWeekPeople" style="margin:0;" onclick="onFinishWeekClick()">Завершить неделю</button>
+        <button class="btn-action btn-blue" type="button" id="btnPullWeekPeople" style="margin-top:8px;display:none;" onclick="confirmPullWeekFromHome()">Подтянуть из месяца</button>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0;">Доступы</div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">Роль + часовой пояс — уведомления опросников с 9:00 каждые 30 мин по локальному времени сотрудника.</div>
+        <button class="btn-action btn-blue" type="button" style="flex:1;margin:0;" onclick="loadPeople()">Обновить список</button>
+      </div>
+      <div id="peopleContainer"><p class="muted">—</p></div>
+      <div class="card" style="margin-top:12px;" id="partnersManageCard">
+        <div class="section-title" style="margin-top:0;color:#64d2ff;">Партнёры (источник БП)</div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">При заказе БП обязательно указать, кто привёл. Здесь список для выбора (+ «Другое» в заказе).</div>
+        <div class="form-group">
+          <label>Имя партнёра</label>
+          <input type="text" id="partnerNameInput" placeholder="Instagram / имя">
+        </div>
+        <div class="form-group">
+          <label>Заметка</label>
+          <input type="text" id="partnerNoteInput" placeholder="условия, %…">
+        </div>
+        <input type="hidden" id="partnerEditId" value="">
+        <div class="batch-bar-row" style="margin:0 0 8px;gap:8px;">
+          <button class="btn-action btn-purple" type="button" id="btnPartnerSave" style="flex:1.4;margin:0;" onclick="savePartnerFromUi()">Добавить</button>
+          <button class="btn-action" type="button" id="btnPartnerEditCancel" style="flex:1;margin:0;background:#3a3a3c;display:none;" onclick="cancelPartnerEdit_()">Отмена</button>
+        </div>
+        <div id="partnersContainer" style="margin-top:12px;"><p class="muted">—</p></div>
+      </div>
+    </div>
+
+    <!-- ПАРТНЁРЫ (varka / Good Boy) -->
+    <div id="partnerHubScreen" class="screen">
+      <div class="card" style="padding:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;">
+          <div class="section-title" style="margin:0;color:#f59a2e;">Партнёры</div>
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button type="button" class="seg-btn" style="margin:0;padding:6px 10px;" onclick="loadPartnerHubUi_({force:1})">↻</button>
+            <a class="seg-btn" id="partnerHubOpenLink" href="https://konchaarsenia-a11y.github.io/superboyna/varka/" target="_blank" rel="noopener"
+              style="margin:0;padding:6px 10px;text-decoration:none;color:#fff;background:var(--accent-color);border-color:var(--accent-color);">Мини-апп</a>
+          </div>
+        </div>
+        <div class="seg-row" id="phSubTabs" style="margin:0;">
+          <button type="button" class="seg-btn active" data-ph-tab="people" onclick="setPartnerHubTab_('people')">Люди</button>
+          <button type="button" class="seg-btn" data-ph-tab="points" onclick="setPartnerHubTab_('points')">Точки</button>
+          <button type="button" class="seg-btn" data-ph-tab="nets" onclick="setPartnerHubTab_('nets')">Сети</button>
+          <button type="button" class="seg-btn" data-ph-tab="notify" onclick="setPartnerHubTab_('notify')">Пуши</button>
+        </div>
+      </div>
+
+      <!-- Люди = доступы -->
+      <div class="card ph-panel" id="phPanelPeople" style="margin-top:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+          <div class="muted" style="font-size:12px;margin:0;">@username → точки мини-аппа</div>
+          <button type="button" class="seg-btn" style="margin:0;" id="phAccToggleBtn" onclick="partnerHubToggleForm_('acc')">+ Выдать</button>
+        </div>
+        <div id="phAccForm" style="display:none;margin-bottom:12px;padding:10px;background:#111;border-radius:10px;border:1px solid var(--border-color);">
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>@username</label>
+            <input type="text" id="phAccUser" placeholder="varka_two" autocomplete="off">
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Имя</label>
+            <input type="text" id="phAccName" placeholder="Партнёр">
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Telegram ID <span class="muted">(необяз.)</span></label>
+            <input type="text" id="phAccTid" placeholder="123…" inputmode="numeric">
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Сеть</label>
+            <select id="phAccNetwork" onchange="partnerHubRenderPointChecks_()"></select>
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Точки</label>
+            <div id="phAccPoints" class="muted" style="font-size:13px;">—</div>
+          </div>
+          <input type="hidden" id="phAccEditId" value="">
+          <div class="batch-bar-row" style="margin:0;gap:8px;">
+            <button class="btn-action btn-orange" type="button" style="flex:1.4;margin:0;" onclick="partnerHubSaveAccess_()">Сохранить</button>
+            <button class="btn-action" type="button" style="flex:1;margin:0;background:#3a3a3c;" onclick="partnerHubCancelForm_('acc')">Отмена</button>
+          </div>
+        </div>
+        <div id="phAccessList"><p class="muted">—</p></div>
+      </div>
+
+      <!-- Точки -->
+      <div class="card ph-panel" id="phPanelPoints" style="margin-top:10px;display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+          <div class="muted" style="font-size:12px;margin:0;">Точки продаж</div>
+          <button type="button" class="seg-btn" style="margin:0;" id="phPointToggleBtn" onclick="partnerHubToggleForm_('point')">+ Точка</button>
+        </div>
+        <div id="phPointForm" style="display:none;margin-bottom:12px;padding:10px;background:#111;border-radius:10px;border:1px solid var(--border-color);">
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Сеть</label>
+            <select id="phPointNetwork"></select>
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Название</label>
+            <input type="text" id="phPointName" placeholder="Varka · Немига">
+          </div>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Адрес</label>
+            <input type="text" id="phPointAddr" placeholder="ул. …">
+          </div>
+          <input type="hidden" id="phPointEditId" value="">
+          <div class="batch-bar-row" style="margin:0;gap:8px;">
+            <button class="btn-action btn-purple" type="button" style="flex:1.4;margin:0;" onclick="partnerHubSavePoint_()">Сохранить</button>
+            <button class="btn-action" type="button" style="flex:1;margin:0;background:#3a3a3c;" onclick="partnerHubCancelForm_('point')">Отмена</button>
+          </div>
+        </div>
+        <div id="phPointsList"><p class="muted">—</p></div>
+      </div>
+
+      <!-- Сети -->
+      <div class="card ph-panel" id="phPanelNets" style="margin-top:10px;display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+          <div class="muted" style="font-size:12px;margin:0;">Сети (бренд)</div>
+          <div style="display:flex;gap:6px;">
+            <button type="button" class="seg-btn" style="margin:0;" onclick="partnerHubSeedDefaults_()" title="Демо">Демо</button>
+            <button type="button" class="seg-btn" style="margin:0;" id="phNetToggleBtn" onclick="partnerHubToggleForm_('net')">+ Сеть</button>
+          </div>
+        </div>
+        <div id="phNetForm" style="display:none;margin-bottom:12px;padding:10px;background:#111;border-radius:10px;border:1px solid var(--border-color);">
+          <div class="form-group" style="margin-bottom:8px;">
+            <label>Название</label>
+            <input type="text" id="phNetName" placeholder="Varka">
+          </div>
+          <input type="hidden" id="phNetLogo" value="">
+          <input type="hidden" id="phNetEditId" value="">
+          <div class="batch-bar-row" style="margin:0;gap:8px;">
+            <button class="btn-action btn-purple" type="button" style="flex:1.4;margin:0;" onclick="partnerHubSaveNetwork_()">Сохранить</button>
+            <button class="btn-action" type="button" style="flex:1;margin:0;background:#3a3a3c;" onclick="partnerHubCancelForm_('net')">Отмена</button>
+          </div>
+        </div>
+        <div id="phNetworksList"><p class="muted">—</p></div>
+      </div>
+
+      <!-- Пуши -->
+      <div class="card ph-panel" id="phPanelNotify" style="margin-top:10px;display:none;">
+        <div class="muted" style="font-size:12px;margin-bottom:8px;">Кому слать заявки из мини-аппа (сотрудники из Доступов)</div>
+        <div id="phNotifyPeople"><p class="muted">—</p></div>
+        <button class="btn-action btn-blue" type="button" style="margin:10px 0 0;width:100%;" onclick="partnerHubSaveNotify_()">Сохранить</button>
+      </div>
+    </div>
+
+    <div class="bottom-spacer" aria-hidden="true"></div>
+  </div>
+
+  <div class="modal-overlay" id="modalOverlay" onclick="onModalOverlayClick(event)">
+    <div class="modal-sheet" id="modalSheet"></div>
+  </div>
+  <div class="toast" id="appToast"></div>
+
+  <script src="app.main.js?v=71115815" defer></script>
+</body>
+</html>
