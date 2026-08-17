@@ -38,11 +38,11 @@ Telegram Mini App для **партнёрских сетей**: бесплатн
 API (`Code.gs`): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`.
 
 **Prod v3+:** демо-вход выключен.  
-- Владелец Бойни → все точки в мини-апп  
-- Партнёр / сотрудник → только `pointIds` из `Partner_Access`  
+- Есть `Partner_Access` → только выданные точки (даже если человек owner Бойни)  
+- Нет Access и owner Бойни → все точки  
 - Админка — вкладка **Партнёры** в Бойне  
 
-После Deploy: `PARTNER_PROD_V3` / `V4` / `V7` (V7 снимает тестовый Access у `@one_more_person_228` — он обычный owner).
+После Deploy: `PARTNER_PROD_V8` — `@arseniyhotko` видит только **Varka · Карского 23**.
 
 Ответственные за пуши: Script Property `PARTNER_ORDER_NOTIFY_IDS`.
 
@@ -54,8 +54,8 @@ API (`Code.gs`): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `part
 
 ```
 Telegram → partnerGetMe
-  → владелец Бойни → все точки
-  → иначе Partner_Access → только pointIds
+  → Partner_Access → только pointIds
+  → иначе владелец Бойни → все точки
   → кабинет / заказ / история
 ```
 
@@ -82,6 +82,7 @@ Telegram → partnerGetMe
 - [x] Qty-пресеты: лёгкое/сердце 50–200 г; купоны 48/73/96/120; баннер только 1 шт · **Pages**
 - [x] **Prod v3.0.0:** без демо · партнёры из Access · `partnerSubmitOrder` · **Pages** · **нужен Deploy**
 - [x] **Varka точки v3.0.1:** 10 адресов (Репина…Скрипникова) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V4`)
+- [~] **v3.1.0:** `@arseniyhotko` — 1 точка Карского 23 (не owner в мини-апп) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V8`)
 - [x] **v3.0.9:** у позиций лакомств убрана буква «г» — **Pages**
 - [x] **v3.0.8:** как было — owner first (все точки); `@one_more_person_228` обычный owner; allowlist/тест-Access сняты (`PARTNER_PROD_V7`) · **Pages** · **нужен Deploy Code.gs**
 - [~] Пуш заявок получателям из Партнёры→Пуши (`PARTNER_ORDER_NOTIFY_IDS`) — в коде, нужен Deploy + настройка списка
