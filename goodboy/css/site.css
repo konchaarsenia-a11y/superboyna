@@ -2304,6 +2304,10 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .try-q-field textarea {
   width: 100%;
 }
+.try-q-field textarea {
+  line-height: 1.45;
+  min-height: 4.8rem;
+}
 .try-q-sub {
   margin: -4px 0 0;
   font-size: 0.9rem;
