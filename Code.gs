@@ -1170,6 +1170,34 @@ function actorIsOwner_(telegramId) {
   return !!(row && String(row.role || "").toLowerCase() === "owner" && String(row.status || "").toLowerCase() !== "denied");
 }
 
+function sheetMondayDateObj_(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("Прием заказов") || ss.getSheetByName("Приём заказов");
+  if (!sh) return null;
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  return parseFlexibleDate_(sh.getRange("A1").getValue(), tz);
+}
+
+function isoDayKeyMinsk_(d, tz) {
+  if (!d) return "";
+  return Utilities.formatDate(d, tz || "Europe/Minsk", "yyyy-MM-dd");
+}
+
+/** Лист уже сдвинут вперёд относительно календарного понедельника текущей недели. */
+function weekAlreadyAdvanced_(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var a1 = sheetMondayDateObj_(ss);
+  if (!a1) return false;
+  var calKey = currentWeekKeyServer_();
+  var a1Key = isoDayKeyMinsk_(a1, tz);
+  return !!(a1Key && calKey && a1Key > calKey);
+}
+
+function finishWeekLockKey_(mondayIso) {
+  return "WEEK_FINISHED_" + String(mondayIso || "").trim();
+}
+
 function handleFinishFullWeek(json, callback, fromPost) {
   json = json || {};
   var tid = String(json.telegramId || "").trim();
@@ -1182,9 +1210,45 @@ function handleFinishFullWeek(json, callback, fromPost) {
     var forbid = { status: "error", message: "owner_only" };
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
   }
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+  } catch (eLock) {
+    var busy = { status: "error", message: "week_finish_busy", tip: "Закрытие уже идёт — подожди и не нажимай повторно." };
+    return fromPost ? jsonpText(callback, busy) : jsonp(callback, busy);
+  }
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+    var a1 = sheetMondayDateObj_(ss);
+    var a1Key = isoDayKeyMinsk_(a1, tz);
+    var calKey = currentWeekKeyServer_();
+    var props = PropertiesService.getScriptProperties();
+    var already = null;
+    if (a1Key && props.getProperty(finishWeekLockKey_(a1Key)) === "1") {
+      already = {
+        status: "error",
+        message: "week_already_finished",
+        tip: "Неделя с " + a1Key + " уже закрыта. Повторно нельзя.",
+        sheetMonday: a1Key,
+        calendarMonday: calKey
+      };
+    } else if (weekAlreadyAdvanced_(ss)) {
+      already = {
+        status: "error",
+        message: "week_already_finished",
+        tip: "Понедельник листа уже " + a1Key + " (текущая неделя с " + calKey + "). Повторно закрывать нельзя.",
+        sheetMonday: a1Key,
+        calendarMonday: calKey
+      };
+    }
+    if (already) {
+      return fromPost ? jsonpText(callback, already) : jsonp(callback, already);
+    }
     var result = finishFullWeekProduction(ss, { silent: true });
+    if (result && result.status === "success" && a1Key) {
+      try { props.setProperty(finishWeekLockKey_(a1Key), "1"); } catch (eProp) {}
+    }
     try { bustClientsCache_(); } catch (eB) {}
     if (!result || result.status !== "success") {
       var bad = result || { status: "error", message: "finish_failed" };
@@ -1207,6 +1271,8 @@ function handleFinishFullWeek(json, callback, fromPost) {
   } catch (err) {
     var fail = { status: "error", message: String(err) };
     return fromPost ? jsonpText(callback, fail) : jsonp(callback, fail);
+  } finally {
+    try { lock.releaseLock(); } catch (eRel) {}
   }
 }
 
@@ -1245,6 +1311,11 @@ function handleRepairWeekMonday(json, callback, fromPost) {
     }
     var monStr = Utilities.formatDate(monday, tz, "dd.MM.yyyy");
     sheetManager.getRange("A1").setValue(monStr);
+    try {
+      PropertiesService.getScriptProperties().deleteProperty(
+        finishWeekLockKey_(Utilities.formatDate(monday, tz, "yyyy-MM-dd"))
+      );
+    } catch (eFinLock) {}
     // Вт–Вс: формулы =A1+N если ещё не стоят
     try {
       var dayOffsets = [
@@ -10468,12 +10539,83 @@ function getWeekDayDates_(ss) {
   return out;
 }
 
+function clearWeekClientColumnOnly_(ss, dayName, clientRaw) {
+  var block = getDayBlock(dayName);
+  if (!block) return 0;
+  var targetSheet = getTargetSheet(ss, block);
+  if (!targetSheet) return 0;
+  var nicksRowValues = targetSheet.getRange(block.nick, 3, 1, 15).getValues()[0];
+  var n = 0;
+  for (var i = 0; i < 15; i++) {
+    if (!String(nicksRowValues[i] || "").trim()) continue;
+    if (!nicksMatch_(nicksRowValues[i], clientRaw)) continue;
+    var targetCol = i + 3;
+    targetSheet.getRange(block.nick, targetCol).setValue("");
+    targetSheet.getRange(block.start, targetCol, block.note - block.start + 1, 1).clearContent();
+    n++;
+  }
+  return n;
+}
+
+function collectWantedKeysForDate_(ss, deliveryDate) {
+  var tz = ss.getSpreadsheetTimeZone();
+  var want = {};
+  function add(name, mk) {
+    var k = String(mk || "").trim() || clientMatchKey_(name);
+    if (k) want[k] = true;
+  }
+  try {
+    var cal = readCalendarForDate_(ss, deliveryDate);
+    for (var i = 0; i < (cal || []).length; i++) add(cal[i].client, cal[i].matchKey);
+  } catch (e1) {}
+  try {
+    var all = readAllBookings_();
+    var dateStr = dateKey_(deliveryDate, tz);
+    for (var j = 0; j < (all || []).length; j++) {
+      if (String(all[j].status) === "cancelled") continue;
+      var bd = parseFlexibleDate_(all[j].date, tz);
+      if (!bd || dateKey_(bd, tz) !== dateStr) continue;
+      add(all[j].client, all[j].matchKey);
+    }
+  } catch (e2) {}
+  try {
+    var crmSs = getCrmSpreadsheet_();
+    var crm = readCrmClientsForDate_(crmSs, deliveryDate);
+    for (var c = 0; c < (crm || []).length; c++) add(crm[c].client, crm[c].matchKey);
+  } catch (e3) {}
+  return want;
+}
+
+/** Убрать с листа дня тех, кого нет в календаре/бронях/CRM на эту дату. Неделю не пушим в календарь. */
+function dropWeekExtrasForDate_(ss, deliveryDate) {
+  var dayName = findDayNameForDate_(ss, deliveryDate);
+  if (!dayName) return { ok: false, dropped: 0, names: [], message: "date_not_in_week" };
+  var want = collectWantedKeysForDate_(ss, deliveryDate);
+  var wantN = 0;
+  for (var k in want) {
+    if (want.hasOwnProperty(k)) wantN++;
+  }
+  if (!wantN) return { ok: true, dropped: 0, names: [], skipped: "no_source_people", day: dayName };
+  var weekData = { clients: [] };
+  try { weekData = getClientsData_(ss, dayName) || weekData; } catch (eW) {}
+  var names = [];
+  (weekData.clients || []).forEach(function (cl) {
+    var key = clientMatchKey_(cl.name);
+    if (!key || want[key]) return;
+    var n = clearWeekClientColumnOnly_(ss, dayName, cl.name);
+    if (n) names.push(cl.name);
+  });
+  return { ok: true, dropped: names.length, names: names, day: dayName, wanted: wantN };
+}
+
 function materializeCurrentWeek_(ss, opts) {
   opts = opts || {};
   var onlyMissing = !(opts.onlyMissing === false || opts.onlyMissing === "0" || opts.onlyMissing === 0 || opts.onlyMissing === "false");
+  var dropExtras = !!(opts.dropExtras === true || opts.dropExtras === "1" || opts.dropExtras === 1 || opts.dropExtras === "true");
   var days = getWeekDayDates_(ss);
   var results = [];
   var total = 0;
+  var totalDropped = 0;
   var weekKey = "";
   for (var i = 0; i < days.length; i++) {
     if (!weekKey && days[i].date) weekKey = days[i].date;
@@ -10481,8 +10623,16 @@ function materializeCurrentWeek_(ss, opts) {
       results.push({ day: days[i].day, ok: false, message: "no_date" });
       continue;
     }
+    var dropped = null;
+    if (dropExtras) {
+      try { dropped = dropWeekExtrasForDate_(ss, days[i].dateObj); } catch (eDrop) {
+        dropped = { ok: false, message: String(eDrop), dropped: 0, names: [] };
+      }
+      totalDropped += Number(dropped && dropped.dropped) || 0;
+    }
     var r = materializeDeliveryDate_(ss, days[i].dateObj, { onlyMissing: onlyMissing });
     total += Number(r.count) || 0;
+    if (dropped) r.droppedExtras = dropped;
     results.push(r);
   }
   if (opts.includeFuture === true || opts.includeFuture === "1" || opts.includeFuture === "true") {
@@ -10491,14 +10641,31 @@ function materializeCurrentWeek_(ss, opts) {
       var tz = ss.getSpreadsheetTimeZone();
       var fd = parseFlexibleDate_(future.getRange("A1").getValue(), tz);
       if (fd) {
+        var droppedF = null;
+        if (dropExtras) {
+          try { droppedF = dropWeekExtrasForDate_(ss, fd); } catch (eDf) {
+            droppedF = { ok: false, message: String(eDf), dropped: 0, names: [] };
+          }
+          totalDropped += Number(droppedF && droppedF.dropped) || 0;
+        }
         var fr = materializeDeliveryDate_(ss, fd, { onlyMissing: onlyMissing });
         total += Number(fr.count) || 0;
+        if (droppedF) fr.droppedExtras = droppedF;
         results.push(fr);
       }
     }
   }
   var isoWeek = currentWeekKeyServer_();
-  return { ok: true, weekKey: isoWeek, weekKeyLegacy: weekKey, totalAdded: total, onlyMissing: onlyMissing, days: results };
+  return {
+    ok: true,
+    weekKey: isoWeek,
+    weekKeyLegacy: weekKey,
+    totalAdded: total,
+    totalDropped: totalDropped,
+    onlyMissing: onlyMissing,
+    dropExtras: dropExtras,
+    days: results
+  };
 }
 
 function handleMaterializeWeek(json, callback, fromPost) {
@@ -10507,9 +10674,10 @@ function handleMaterializeWeek(json, callback, fromPost) {
   var out = { status: "success", result: result };
   try {
     var wkM = normalizeWeekBannerKey_((json && json.weekKey) || "") || currentWeekKeyServer_();
-    writeWeekBannerState_(wkM, { pulled: true, pulledAt: new Date().toISOString(), finished: true });
+    writeWeekBannerState_(wkM, { pulled: true, pulledAt: new Date().toISOString() });
     if (result) result.weekKey = wkM;
   } catch (eM) {}
+  try { bustClientsCache_(); } catch (eB) {}
   return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }
 
@@ -11673,6 +11841,16 @@ function mapCrmHeaderToItem_(header) {
   return null;
 }
 
+function getCrmSheetValuesForBasket_(crmSs, sheetName) {
+  var data = getCrmSheetValuesFast_(crmSs, sheetName);
+  if (data && data[0] && data[0].length >= 10) return data;
+  var sh = findSheetByBaseName_(crmSs, sheetName);
+  if (!sh || sh.getLastRow() < 2) return data;
+  var lastRow = getCrmSheetScanLastRow_(sh);
+  var lastCol = Math.max(1, sh.getLastColumn());
+  return sh.getRange(1, 1, lastRow, lastCol).getValues();
+}
+
 function basketFromSubscriberRow_(headers, row) {
   var basket = [];
   for (var c = 6; c < headers.length && c < row.length; c++) {
@@ -11713,7 +11891,7 @@ function findSubscriberBasket_(crmSs, nick, preferredSegment) {
   var wantKey = clientMatchKey_(nick);
   if (!wantKey) return { basket: [], subId: "", wishes: "", sheet: "" };
   for (var s = 0; s < sheets.length; s++) {
-    var data = getCrmSheetValuesFast_(crmSs, sheets[s]);
+    var data = getCrmSheetValuesForBasket_(crmSs, sheets[s]);
     if (!data || data.length < 3) continue;
     var headers = data[0];
     var best = null;

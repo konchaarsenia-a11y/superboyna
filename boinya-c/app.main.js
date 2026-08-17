@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c16";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c17";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -11373,6 +11373,15 @@
         await uiAlertAsync("Закрыть неделю может только владелец.");
         return;
       }
+      if (window.__finishWeekInFlight) {
+        await uiAlertAsync("Закрытие уже запущено — подожди, не нажимай ещё раз.");
+        return;
+      }
+      var wkNow = currentWeekKeyLocal();
+      if (localStorage.getItem(FINISH_REAL_LS + wkNow) === "1") {
+        await uiAlertAsync("Эта неделя уже закрыта. Повторно нельзя.");
+        return;
+      }
       var ok = await uiConfirmAsync(
         "ЗАКРЫТЬ НЕДЕЛЮ на живой таблице?\n\n" +
         "• Склад: остаток F = F+B−расход, приход B=0\n" +
@@ -11406,6 +11415,8 @@
         await uiAlertAsync("Нет Telegram ID — открой из бота под владельцем.");
         return;
       }
+      window.__finishWeekInFlight = true;
+      try { if (typeof syncFinishWeekPeopleUi_ === "function") syncFinishWeekPeopleUi_({ realClosed: true }); } catch (eDis) {}
       showToast("Закрываем неделю…");
       var res = null;
       try {
@@ -11423,21 +11434,31 @@
           { timeoutMs: 180000, cacheTtlMs: 0, directGas: true }
         );
       } catch (e1) {
+        window.__finishWeekInFlight = false;
+        try { if (typeof syncFinishWeekPeopleUi_ === "function") syncFinishWeekPeopleUi_({}); } catch (eEn) {}
         await uiAlertAsync("Ошибка сети: " + (e1 && e1.message ? e1.message : e1));
         return;
       }
       if (!res || res.status !== "success") {
+        window.__finishWeekInFlight = false;
+        try { if (typeof syncFinishWeekPeopleUi_ === "function") syncFinishWeekPeopleUi_({}); } catch (eEn2) {}
         var msg = (res && res.message) || "finish_failed";
         if (msg === "owner_only") msg = "Только владелец (Deploy Code.gs + доступ owner).";
         if (msg === "need_confirm") msg = "Нет подтверждения.";
         if (msg === "unknown_action") msg = "Нужен Deploy Code.gs с action finishFullWeek.";
+        if (msg === "week_already_finished") {
+          msg = "Неделя уже закрыта — повторно нельзя." + (res && res.tip ? ("\n" + res.tip) : "");
+          try { localStorage.setItem(FINISH_REAL_LS + currentWeekKeyLocal(), "1"); } catch (eLsFin) {}
+          try { if (typeof syncFinishWeekPeopleUi_ === "function") syncFinishWeekPeopleUi_({ realClosed: true }); } catch (eDis2) {}
+        }
+        if (msg === "week_finish_busy") msg = "Закрытие уже идёт. Подожди и не нажимай повторно.";
         if (msg === "cutover_danger_blocked") {
           msg = "Cutover заблокировал закрытие. Обнови Mini App (новая версия) и повтори.";
         }
         if (msg === "sandbox_no_prod_week") {
           msg = "Открыто без cutover=1 (песочница) — в боевые Sheets не пишет. Открой с ?cutover=1";
         }
-        await uiAlertAsync("Не закрылось: " + msg + (res && res.tip ? ("\n" + res.tip) : ""));
+        await uiAlertAsync("Не закрылось: " + msg + (res && res.tip && msg.indexOf(res.tip) < 0 ? ("\n" + res.tip) : ""));
         return;
       }
       var wk = currentWeekKeyLocal();
@@ -11487,6 +11508,7 @@
           "\n\nЕсли экран ещё старый — закрой Mini App и открой снова."
         );
       } catch (eA) {}
+      window.__finishWeekInFlight = false;
     }
 
     async function refuseFinishWeek() {
@@ -12592,37 +12614,47 @@
       try {
         if (!quiet) showToast("Подтягиваю неделю из месяца…");
         const wk = currentWeekKeyLocal();
-        const res = await apiGet({
+        const payload = {
           action: "materializeWeek",
           onlyMissing: "1",
+          includeFuture: "1",
+          dropExtras: "1",
+          confirm: "1",
           weekKey: wk,
           _: String(Date.now())
-        }, { timeoutMs: 120000, cacheTtlMs: 0 });
+        };
+        if (window.__BOINYA_C_CUTOVER__) payload.allowDanger = "1";
+        const res = await apiGet(payload, { timeoutMs: 180000, cacheTtlMs: 0, directGas: true });
         const added = res && res.result ? (res.result.totalAdded || 0) : 0;
+        const dropped = res && res.result ? (Number(res.result.totalDropped) || 0) : 0;
         const preserved = res && res.result && res.result.days
           ? (res.result.days || []).reduce(function (s, d) { return s + (Number(d.preserved) || 0); }, 0)
           : 0;
 
         if (wk) {
           localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
-          localStorage.setItem(FINISH_DONE_LS + wk, "1");
           _weekBannerState.pulled = true;
-          _weekBannerState.finished = true;
           _weekBannerState.weekKey = wk;
           try {
             await apiGet({
               action: "setWeekBannerState",
               weekKey: wk,
               pulled: "1",
-              finished: "1",
               telegramId: String(myTelegramId || ""),
               _: String(Date.now())
             }, { timeoutMs: 15000, cacheTtlMs: 0 });
           } catch (ePullFlag) {}
         }
-        if (added) showToast("Добавлено: " + added + (preserved ? ("; контакты обновлены: " + preserved) : ""));
-        else if (preserved) showToast("Новых нет; у уже стоящих подтянуты контакты: " + preserved);
+        var bits = [];
+        if (dropped) bits.push("снято лишних: " + dropped);
+        if (added) bits.push("добавлено: " + added);
+        if (preserved) bits.push("контакты: " + preserved);
+        if (bits.length) showToast(bits.join(" · "));
         else showToast("Новых не нашлось (уже всё на месте?)");
+        try { apiCacheBustMem_(); } catch (eBust) {}
+        try {
+          await apiGet({ action: "getWeekDayCounts", force: "1", _: String(Date.now()) }, { timeoutMs: 45000, cacheTtlMs: 0 });
+        } catch (eCnt) {}
         try { refreshWeekBanners(); } catch (eBan) {}
         const day = document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value;
         if (day) await loadClientsForDay();
@@ -15753,11 +15785,15 @@
           nick: s.nick || s.label || "",
           subId: s.subId || "",
           segment: sheet,
-          sheet: sheet
-        }, { timeoutMs: 18000, cacheTtlMs: 20000 });
+          sheet: sheet,
+          _: String(Date.now())
+        }, { timeoutMs: 25000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
           document.getElementById("subDetailBasket").innerHTML = '<p class="muted">Состав не загрузился</p>';
           return;
+        }
+        if (res.found === false) {
+          document.getElementById("subDetailBasket").innerHTML = '<p class="muted">Нет в CRM</p>';
         }
         currentSubDetail = res;
         document.getElementById("subDetailTitle").textContent = (res.nick || s.nick || "Подписка") + " · " + (res.sheet || sheet);
@@ -15790,6 +15826,12 @@
           coefEl.value = (cParsed != null) ? String(cParsed) : "2.3";
         }
         subDetailBasket = mapApiBasketToLocal(res.basket || []);
+        if (!subDetailBasket.length && sheetNow !== "БП") {
+          var emptyHint = document.getElementById("subDetailBasket");
+          if (emptyHint && !(res.basket && res.basket.length)) {
+            emptyHint.innerHTML = '<p class="muted">В CRM состав пустой</p>';
+          }
+        }
         try {
           _subDetailOpenedFp = basketFingerprint_(subDetailBasketPayload_());
         } catch (eOfp) {
