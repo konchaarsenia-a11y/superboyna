@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/site-v070.css?v=100" />
+  <link rel="stylesheet" href="css/site-v070.css?v=101" />
   <style>
     html.gb-booting { overflow: hidden; }
     #gbBoot {
@@ -128,9 +128,10 @@
             <input type="text" name="pet" autocomplete="off" required placeholder="Бим" />
           </label>
           <div class="try-full-opt">
-            <label class="try-full-check">
-              <input type="checkbox" id="tryFullToggle" name="full" value="1" />
-              <span>Ответить на все вопросы сразу</span>
+            <label class="try-switch">
+              <input type="checkbox" id="tryFullToggle" name="full" value="1" role="switch" aria-checked="false" aria-controls="tryFullFields" />
+              <span class="try-switch-ui" aria-hidden="true"></span>
+              <span class="try-switch-text">Ответить на все вопросы сразу</span>
             </label>
             <p class="try-full-hint">В этом случае специалист сможет быстрее подобрать набор.</p>
           </div>
@@ -160,14 +161,14 @@
     <footer class="site-footer">
       GOOD BOY · <a href="https://www.instagram.com/goodboy_rb" target="_blank" rel="noopener">@goodboy_rb</a>
       · <a href="subscription.html">Подписка</a>
-      · v0.9.10
+      · v0.9.11
     </footer>
   </div>
 
-  <script src="js/config.js?v=100"></script>
-  <script src="js/boot-loader.js?v=100"></script>
-  <script src="js/motion.js?v=100"></script>
-  <script src="js/try-form.js?v=100"></script>
+  <script src="js/config.js?v=101"></script>
+  <script src="js/boot-loader.js?v=101"></script>
+  <script src="js/motion.js?v=101"></script>
+  <script src="js/try-form.js?v=101"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.GBMotion) GBMotion.init();

@@ -74,7 +74,13 @@
 
     function syncFull() {
       var on = !!(toggle && toggle.checked);
-      if (extra) extra.hidden = !on;
+      if (extra) {
+        extra.hidden = !on;
+        extra.classList.toggle("is-open", on);
+        var fields = extra.querySelectorAll("input, textarea");
+        for (var i = 0; i < fields.length; i++) fields[i].disabled = !on;
+      }
+      if (toggle) toggle.setAttribute("aria-checked", on ? "true" : "false");
     }
     if (toggle) {
       toggle.addEventListener("change", syncFull);
