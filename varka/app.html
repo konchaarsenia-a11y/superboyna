@@ -504,10 +504,10 @@
 
   <script>
 (function () {
-  var APP_VER = "3.1.0";
-  // Webhook Бойни: сети/точки/доступы из вкладки «Партнёры».
-  var VARKA_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
-  var SESSION_KEY = "gb_partner_session_v8";
+  var APP_VER = "3.1.1";
+  // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
+  var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
+  var SESSION_KEY = "gb_partner_session_v9";
   var SETTINGS_KEY = "gb_partner_settings_v2";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
   var COUPON_BANNER = "assets/coupon-banner.png";
@@ -1215,7 +1215,7 @@
     try {
       var res = await apiGet_(payload);
       if (!res || res.status !== "success") {
-        alert((res && res.message) || "Не удалось отправить. Нужен Deploy Code.gs?");
+        alert((res && res.message) || "Не удалось отправить заявку");
         return;
       }
       var id = (res.order && res.order.id) || res.id || "";
@@ -1385,8 +1385,9 @@
 
   function apiGet_(params) {
     return new Promise(function (resolve, reject) {
-      var qs = Object.keys(params || {}).map(function (k) {
-        return encodeURIComponent(k) + "=" + encodeURIComponent(params[k] == null ? "" : params[k]);
+      var p = Object.assign({ cutover: "1" }, params || {});
+      var qs = Object.keys(p).map(function (k) {
+        return encodeURIComponent(k) + "=" + encodeURIComponent(p[k] == null ? "" : p[k]);
       }).join("&");
       var cb = "gb_cb_" + Date.now().toString(36) + "_" + Math.floor(Math.random() * 1e6);
       var done = false;

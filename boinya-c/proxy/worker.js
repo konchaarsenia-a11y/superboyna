@@ -126,6 +126,11 @@ async function handleAction_(action, params, env, url, ctx) {
     };
   }
 
+  // Varka Mini App: всегда live Worker→GAS (не sandbox-заглушка partner*)
+  if (/^partner(GetMe|SubmitOrder|ListMyOrders)$/i.test(a)) {
+    return handleCutover_(a, Object.assign({}, params, { cutover: "1" }), env, ctx);
+  }
+
   // ——— CUTOVER: чтение из D1 сразу + фон GAS; запись → GAS ———
   if (live) {
     return handleCutover_(a, params, env, ctx);
@@ -2004,6 +2009,99 @@ async function cutoverSwrGas_(action, params, env, ctx, opts) {
   return { status: "error", message: "gas_proxy_failed", cutover: true, action: action };
 }
 
+/** @arseniyhotko — одна точка в мини-апп Varka (роль owner Бойни не трогаем). */
+const PARTNER_ARSENIY_USER = "arseniyhotko";
+const PARTNER_ARSENIY_TID = "650923866";
+const PARTNER_ARSENIY_POINT = {
+  id: "pt_varka_karskogo_23",
+  networkId: "net_varka",
+  name: "Varka · Карского 23",
+  address: "Карского 23"
+};
+const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "" };
+
+function partnerNormUserWorker_(raw) {
+  return String(raw || "")
+    .replace(/^@/, "")
+    .trim()
+    .toLowerCase();
+}
+
+function isPartnerArseniy_(params) {
+  const u = partnerNormUserWorker_(params && params.username);
+  const tid = String((params && params.telegramId) || "").trim();
+  return u === PARTNER_ARSENIY_USER || tid === PARTNER_ARSENIY_TID;
+}
+
+function partnerArseniyGetMe_(json) {
+  const src = json && typeof json === "object" && json.status !== "error" ? json : {};
+  const pts = Array.isArray(src.points) ? src.points : [];
+  let one = null;
+  for (let i = 0; i < pts.length; i++) {
+    if (pts[i] && pts[i].id === PARTNER_ARSENIY_POINT.id) {
+      one = pts[i];
+      break;
+    }
+  }
+  if (!one) one = PARTNER_ARSENIY_POINT;
+  const nets = Array.isArray(src.networks)
+    ? src.networks.filter(function (n) {
+        return n && n.id === "net_varka";
+      })
+    : [];
+  const allowedPointIds = {};
+  allowedPointIds[PARTNER_ARSENIY_POINT.id] = true;
+  return Object.assign({}, src, {
+    status: "success",
+    allowed: true,
+    ownersOnly: false,
+    role: "partner",
+    isPartner: true,
+    isOwner: false,
+    name: src.name && src.name !== "Владелец Good Boy" ? src.name : "Арсений Хотько",
+    username: src.username || PARTNER_ARSENIY_USER,
+    telegramId: src.telegramId || PARTNER_ARSENIY_TID,
+    networkId: "net_varka",
+    pointIds: [PARTNER_ARSENIY_POINT.id],
+    allowedPointIds: allowedPointIds,
+    networks: nets.length ? nets : [PARTNER_ARSENIY_NET],
+    points: [
+      {
+        id: one.id || PARTNER_ARSENIY_POINT.id,
+        networkId: one.networkId || "net_varka",
+        name: one.name || PARTNER_ARSENIY_POINT.name,
+        address: one.address || PARTNER_ARSENIY_POINT.address
+      }
+    ],
+    catalog: src.catalog,
+    cutover: true,
+    partnerOverride: "arseniy_karskogo_23"
+  });
+}
+
+function partnerBlockWrongPoint_(a, params) {
+  if (a !== "partnerSubmitOrder" || !isPartnerArseniy_(params)) return null;
+  const loc = String((params && (params.locationId || params.pointId)) || "").trim();
+  if (loc && loc !== PARTNER_ARSENIY_POINT.id) {
+    return { status: "error", message: "forbidden_point", cutover: true };
+  }
+  if (!loc && params) params.locationId = PARTNER_ARSENIY_POINT.id;
+  return null;
+}
+
+function partnerGuardOrRewrite_(a, params, json) {
+  if (!isPartnerArseniy_(params)) return json;
+  if (a === "partnerGetMe") return partnerArseniyGetMe_(json);
+  if (a === "partnerListMyOrders" && json && json.status === "success" && Array.isArray(json.orders)) {
+    return Object.assign({}, json, {
+      orders: json.orders.filter(function (o) {
+        return String((o && (o.locationId || o.pointId)) || "") === PARTNER_ARSENIY_POINT.id;
+      })
+    });
+  }
+  return json;
+}
+
 async function handleCutover_(a, params, env, ctx) {
   // Опасные действия: пускаем при allowDanger=1 ИЛИ confirm=1
   // (старый UI на Pages мог не слать allowDanger → cutover_danger_blocked)
@@ -2024,6 +2122,8 @@ async function handleCutover_(a, params, env, ctx) {
 
   // запись — GAS быстро; D1 optimistic сразу; тяжёлый revalidate в фоне
   if (isWriteAction_(a)) {
+    const blocked = partnerBlockWrongPoint_(a, params);
+    if (blocked) return blocked;
     const proxied = await gasProxy_(a, params, env, { write: true });
     if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
     // optimistic D1 (~мс) — UI сразу видит позиции; GAS-догон в waitUntil
@@ -2045,7 +2145,7 @@ async function handleCutover_(a, params, env, ctx) {
         await cutoverAfterWrite_(a, params, env, proxied);
       } catch (e) {}
     }
-    return proxied;
+    return partnerGuardOrRewrite_(a, params, proxied);
   }
 
   // подсказки / калькуляции / экспорт / задачи / опросники — живой GAS

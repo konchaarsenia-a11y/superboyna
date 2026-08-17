@@ -35,14 +35,16 @@ Telegram Mini App для **партнёрских сетей**: бесплатн
 | `Partner_Access` | Доступ: `@username` / Telegram ID → точки |
 | `Partner_Orders` | Заявки партнёров |
 
-API (`Code.gs`): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`.
+API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerSubmitOrder`, `partnerListMyOrders`, `partnerSaveNetwork`, `partnerSavePoint`, `partnerSaveAccess`, `partnerRevokeAccess`, `partnerSeedDefaults`, `partnerSetNotifyRecipients`.
+
+**Живой webhook мини-аппа:** `https://boinya-c.konchaarsenia.workers.dev` (`cutover=1`), не сырой `/exec`.
 
 **Prod v3+:** демо-вход выключен.  
 - Есть `Partner_Access` → только выданные точки (даже если человек owner Бойни)  
 - Нет Access и owner Бойни → все точки  
 - Админка — вкладка **Партнёры** в Бойне  
 
-После Deploy: `PARTNER_PROD_V8` — `@arseniyhotko` видит только **Varka · Карского 23**.
+Worker: `@arseniyhotko` / `650923866` видит только **Varka · Карского 23** (роль owner в Бойне не трогаем). Deploy — **Worker**, не вставка `Code.gs`.
 
 Ответственные за пуши: Script Property `PARTNER_ORDER_NOTIFY_IDS`.
 
