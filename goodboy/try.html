@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/site-v070.css?v=101" />
+  <link rel="stylesheet" href="css/site-v070.css?v=102" />
   <style>
     html.gb-booting { overflow: hidden; }
     #gbBoot {
@@ -115,17 +115,17 @@
     <section class="site-section try-form-section" id="form">
       <div class="inner try-form-wrap">
         <form class="order-form try-form" id="tryForm" novalidate>
-          <label>
+          <label class="try-short-only">
             <span>Ваше имя</span>
-            <input type="text" name="name" autocomplete="name" required placeholder="Как к вам обращаться" />
+            <input type="text" name="name" autocomplete="name" placeholder="Как к вам обращаться" />
           </label>
           <label>
             <span>Телефон</span>
             <input type="tel" name="phone" autocomplete="tel" required placeholder="+375 …" />
           </label>
-          <label>
+          <label class="try-short-only">
             <span>Кличка питомца</span>
-            <input type="text" name="pet" autocomplete="off" required placeholder="Бим" />
+            <input type="text" name="pet" autocomplete="off" placeholder="Бим" />
           </label>
           <div class="try-full-opt">
             <label class="try-switch">
@@ -136,18 +136,113 @@
             <p class="try-full-hint">В этом случае специалист сможет быстрее подобрать набор.</p>
           </div>
           <div class="try-full-fields" id="tryFullFields" hidden>
-            <label>
-              <span>Вес</span>
-              <input type="text" name="weight" inputmode="decimal" autocomplete="off" placeholder="Например, 12 кг" />
-            </label>
-            <label>
-              <span>Аллергии</span>
-              <input type="text" name="allergies" autocomplete="off" placeholder="Если нет — напишите «нет»" />
-            </label>
-            <label>
-              <span>Что любит</span>
-              <textarea name="likes" rows="3" placeholder="Любимые лакомства, что не ест"></textarea>
-            </label>
+            <div class="try-q">
+              <p class="try-q-title"><em>1</em> Как вас зовут и как будет удобно к вам обращаться? Как зовут вашего питомца?</p>
+              <label>
+                <span>Вы</span>
+                <input type="text" name="q1_name" autocomplete="name" placeholder="Имя и как обращаться" />
+              </label>
+              <label>
+                <span>Питомец</span>
+                <input type="text" name="q1_pet" autocomplete="off" placeholder="Кличка" />
+              </label>
+            </div>
+            <div class="try-q">
+              <p class="try-q-title"><em>2</em> Порода, возраст и вес собаки</p>
+              <div class="try-row-3">
+                <label>
+                  <span>Порода</span>
+                  <input type="text" name="q2_breed" autocomplete="off" placeholder="Порода" />
+                </label>
+                <label>
+                  <span>Возраст</span>
+                  <input type="text" name="q2_age" autocomplete="off" placeholder="Возраст" />
+                </label>
+                <label>
+                  <span>Вес</span>
+                  <input type="text" name="q2_weight" inputmode="decimal" autocomplete="off" placeholder="Вес" />
+                </label>
+              </div>
+            </div>
+            <div class="try-q">
+              <p class="try-q-title"><em>3</em> Насколько активна собака в повседневной жизни</p>
+              <label>
+                <span>Активность</span>
+                <textarea name="q3_activity" rows="2" placeholder="Спокойная, средняя, очень активная — своими словами"></textarea>
+              </label>
+            </div>
+            <div class="try-q">
+              <p class="try-q-title"><em>4</em> Занимаетесь ли вы с питомцем дрессировкой? Если да — какое примерное соотношение тренировочных лакомств к поощрительным дома (например: 70/30, 50/50)</p>
+              <label>
+                <span>Дрессировка</span>
+                <textarea name="q4_training" rows="3" placeholder="Да / нет, и соотношение, если занимаетесь"></textarea>
+              </label>
+            </div>
+            <div class="try-q">
+              <p class="try-q-title"><em>5</em> Какие лакомства вы уже давали раньше? Что понравилось, а что нет</p>
+              <label>
+                <span>Опыт</span>
+                <textarea name="q5_tried" rows="3" placeholder="Что давали, что зашло, что нет"></textarea>
+              </label>
+            </div>
+            <div class="try-q">
+              <p class="try-q-title"><em>6</em> Есть ли аллергии или продукты, которые вы исключаете</p>
+              <label>
+                <span>Аллергии и исключения</span>
+                <textarea name="q6_allergies" rows="2" placeholder="Если нет — напишите «нет»"></textarea>
+              </label>
+            </div>
+            <div class="try-q">
+              <p class="try-q-title"><em>7</em> Какие лакомства особенно нужны</p>
+              <label>
+                <span>Нужны</span>
+                <textarea name="q7_need" rows="2" placeholder="Что важно положить в набор"></textarea>
+              </label>
+            </div>
+            <div class="try-q">
+              <p class="try-q-title"><em>8</em> Какие лакомства точно не нужны или не подходят</p>
+              <label>
+                <span>Не нужны</span>
+                <textarea name="q8_skip" rows="2" placeholder="Что лучше не класть"></textarea>
+              </label>
+            </div>
+            <div class="try-q">
+              <p class="try-q-title"><em>9</em> Примерно сколько лакомств уходит у вас в месяц</p>
+              <label>
+                <span>Расход</span>
+                <input type="text" name="q9_amount" autocomplete="off" placeholder="Например, 1–2 пакета или «пачка в неделю»" />
+              </label>
+            </div>
+            <div class="try-q">
+              <p class="try-q-title"><em>10</em> Какой бюджет на лакомства для питомца вам комфортен ежемесячно?</p>
+              <div class="try-choices">
+                <label><input type="radio" name="q10_budget" value="30–50 BYN" /> <span>30–50 BYN</span></label>
+                <label><input type="radio" name="q10_budget" value="50–80 BYN" /> <span>50–80 BYN</span></label>
+                <label><input type="radio" name="q10_budget" value="80–120 BYN" /> <span>80–120 BYN</span></label>
+                <label><input type="radio" name="q10_budget" value="Более 120 BYN" /> <span>Более 120 BYN</span></label>
+              </div>
+            </div>
+            <div class="try-q">
+              <p class="try-q-title"><em>11</em> Какие размеры лакомств вам удобнее всего: полоски, мелкие кубики, ломтики или что‑то другое</p>
+              <label>
+                <span>Размер</span>
+                <input type="text" name="q11_size" autocomplete="off" placeholder="Полоски, кубики, ломтики…" />
+              </label>
+            </div>
+            <div class="try-q">
+              <p class="try-q-title"><em>12</em> После первой доставки будет ещё одна — в рамках бесплатного месяца. В дальнейшем частота доставки будет по вашему желанию. Удобно ли вам получать коробку раз в месяц?</p>
+              <div class="try-choices try-choices--row">
+                <label><input type="radio" name="q12_monthly" value="да" /> <span>Да, раз в месяц удобно</span></label>
+                <label><input type="radio" name="q12_monthly" value="нет" /> <span>Нет, лучше иначе</span></label>
+              </div>
+            </div>
+            <div class="try-q">
+              <p class="try-q-title"><em>13</em> У нас есть функция занятий с кинологом — нужна ли вам такая опция в подписке? Если да, расскажем подробнее. Если нет — будем работать чисто по лакомствам 😊</p>
+              <div class="try-choices try-choices--row">
+                <label><input type="radio" name="q13_trainer" value="да" /> <span>Да, интересно</span></label>
+                <label><input type="radio" name="q13_trainer" value="нет" /> <span>Нет, только лакомства</span></label>
+              </div>
+            </div>
           </div>
           <button type="submit" class="btn-primary">Отправить заявку</button>
           <p class="form-status" id="tryFormStatus" hidden></p>
@@ -161,14 +256,14 @@
     <footer class="site-footer">
       GOOD BOY · <a href="https://www.instagram.com/goodboy_rb" target="_blank" rel="noopener">@goodboy_rb</a>
       · <a href="subscription.html">Подписка</a>
-      · v0.9.11
+      · v0.9.12
     </footer>
   </div>
 
-  <script src="js/config.js?v=101"></script>
-  <script src="js/boot-loader.js?v=101"></script>
-  <script src="js/motion.js?v=101"></script>
-  <script src="js/try-form.js?v=101"></script>
+  <script src="js/config.js?v=102"></script>
+  <script src="js/boot-loader.js?v=102"></script>
+  <script src="js/motion.js?v=102"></script>
+  <script src="js/try-form.js?v=102"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.GBMotion) GBMotion.init();
