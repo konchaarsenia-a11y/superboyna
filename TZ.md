@@ -1,3 +1,4 @@
+- [~] **UI freeze + отложенные 2026-08-17:** лоадер/оверлей блокировал клики (120с); ☰ открывал пустые «Переносы» при 8 дозакупах; tid не прокидывался из index · Pages `v=7111595` / `v7.11.158c15`
 - [~] **Календарь бейджи ≠ список 2026-08-17:** бейдж из сырого Календарь_Дат (9) при 6 в Просмотре; sync бейджа с viewDate + dedupe nick в getMonthOverview · Worker+Pages `v=7111594` · **Deploy Code.gs**
 - [~] **Аудит скорости 2026-08-16:** index ver рассинхрон→двойной reload; SWR для listSurvey/weekCounts/banner; prefetch; баннер уехавших дат · Worker+Pages `v=7111593` · **Deploy Code.gs** (`repairWeekMonday` на 17.08)
 - [~] **Статистика SWR + БП delete-safe 2026-08-16:** getStats D1+SWR (~мс); удаление БП только по нику (не OR subId); Code.gs AND-матч · Worker+Pages `v=7111592` · **Deploy Code.gs** для AND на листе
