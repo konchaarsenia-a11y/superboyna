@@ -2071,23 +2071,44 @@ async function handleCutover_(a, params, env, ctx) {
     });
   }
   if (a === "getWeekDayCounts") {
+    const force =
+      String((params && params.force) || "") === "1" ||
+      (params && (params.force === true || params.force === 1));
     const snap = await getSnapRaw_(env, "weekDayCounts");
+    async function syncLiveCounts_() {
+      const live = await gasProxy_("getWeekDayCounts", params || {}, env, { write: false });
+      if (!(live && live.status === "success")) return null;
+      try {
+        await putSnap_(env, "weekDayCountsSheet", live);
+      } catch (eS) {}
+      if (isWeekSkewed_(live)) {
+        return await applyCalendarWeekIfSkewed_("getWeekDayCounts", params, env, live);
+      }
+      try {
+        await putSnap_(env, "weekDayCounts", live);
+      } catch (eP) {}
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(cutoverRefreshAllWeekDays_(env));
+      }
+      live.cutover = true;
+      live.fromGas = true;
+      live.fromCalendar = false;
+      live.sandbox = false;
+      return live;
+    }
+    // overlay на устаревшем snap не должен прятать свежий A1 после смены даты
+    if (force || (snap && snap.fromCalendar)) {
+      try {
+        const synced = await syncLiveCounts_();
+        if (synced) return synced;
+      } catch (eSync) {}
+    }
     if (snap && snap.fromCalendar && isWeekSkewed_(snap)) {
       if (ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(
           (async function () {
             try {
-              const live = await gasProxy_("getWeekDayCounts", params || {}, env, { write: false });
-              if (live && live.status === "success") {
-                try {
-                  await putSnap_(env, "weekDayCountsSheet", live);
-                } catch (eS) {}
-                if (isWeekSkewed_(live)) {
-                  await applyCalendarWeekIfSkewed_("getWeekDayCounts", params, env, live);
-                } else {
-                  await putSnap_(env, "weekDayCounts", live);
-                }
-              }
+              await syncLiveCounts_();
             } catch (eR) {}
           })()
         );
@@ -2101,7 +2122,7 @@ async function handleCutover_(a, params, env, ctx) {
     }
     const body = await cutoverSwrGas_("getWeekDayCounts", params, env, ctx, {
       isOk: function (s) {
-        return Array.isArray(s.items) && s.items.length > 0;
+        return Array.isArray(s.items) && s.items.length > 0 && !s.fromCalendar;
       },
       afterStore: async function (live, e) {
         if (isWeekSkewed_(live)) {
@@ -2158,16 +2179,18 @@ async function handleCutover_(a, params, env, ctx) {
     return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
   }
 
-  // Лист Приёма уехал (07.09 при живой 17.08) — клиенты/нарезка с календаря этой недели
+  // Лист Приёма уехал вперёд — клиенты/нарезка с календаря. Если A1 уже текущая неделя — не подменять.
   if (a === "getClients" || a === "getCutting" || a === "getCourier" || a === "getAssembly") {
     try {
-      let counts = await getSnapRaw_(env, "weekDayCounts");
-      if (!isWeekSkewed_(counts)) {
-        const sheet = await getSnapRaw_(env, "weekDayCountsSheet");
-        if (isWeekSkewed_(sheet)) counts = sheet;
+      const sheet = await getSnapRaw_(env, "weekDayCountsSheet");
+      const counts = await getSnapRaw_(env, "weekDayCounts");
+      const liveLike = sheet && Array.isArray(sheet.items) && sheet.items.length ? sheet : counts;
+      if (isWeekSkewed_(liveLike) || (counts && counts.fromCalendar && isWeekSkewed_(counts))) {
+        if (!(sheet && !isWeekSkewed_(sheet))) {
+          const cal = await applyCalendarWeekIfSkewed_(a, params, env, liveLike || counts);
+          if (cal) return cal;
+        }
       }
-      const cal = await applyCalendarWeekIfSkewed_(a, params, env, counts);
-      if (cal) return cal;
     } catch (eCalOps) {}
   }
 
