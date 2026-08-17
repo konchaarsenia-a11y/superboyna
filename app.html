@@ -8,7 +8,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.158";
+      var APP_VER = "v7.11.159";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2680,7 +2680,7 @@
   <script>
     const GOOGLE_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec";
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.159";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня-Конвейер " + APP_VERSION;
@@ -7226,7 +7226,41 @@
       return '<div class="ios-cal-dots">' + dots.slice(0, 4).join("") + "</div>";
     }
 
+    function overlayWeekCountsOnMonthData_(data) {
+      if (!data || typeof data !== "object") return data;
+      var week = viewWeekOverviewCache;
+      if (!week || !Array.isArray(week.items) || !week.items.length) return data;
+      var byIso = {};
+      ((data.days || []) || []).forEach(function (d) {
+        if (!d || !d.dateIso) return;
+        byIso[d.dateIso] = {
+          dateIso: d.dateIso,
+          count: Number(d.count) || 0,
+          segments: d.segments || {},
+          fromWeekSheet: !!d.fromWeekSheet
+        };
+      });
+      week.items.forEach(function (it) {
+        if (!it) return;
+        var m = String(it.date || "").trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+        if (!m) return;
+        var iso = m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
+        var c = Number(it.count) || 0;
+        if (!byIso[iso]) {
+          byIso[iso] = { dateIso: iso, count: c, segments: {}, fromWeekSheet: true };
+        } else {
+          byIso[iso].count = c;
+          byIso[iso].fromWeekSheet = true;
+        }
+      });
+      var days = Object.keys(byIso).sort().map(function (k) { return byIso[k]; });
+      var total = 0;
+      for (var i = 0; i < days.length; i++) total += Number(days[i].count) || 0;
+      return Object.assign({}, data, { days: days, total: total, weekOverlay: true });
+    }
+
     function renderMonthOverviewList_(data) {
+      data = overlayWeekCountsOnMonthData_(data);
       var box = document.getElementById("viewMonthOverviewList");
       if (!box) return;
       var month = (data && data.month) || (document.getElementById("viewMonthPick") && document.getElementById("viewMonthPick").value) || "";
@@ -7339,6 +7373,9 @@
       var box = document.getElementById("viewMonthOverviewList");
       if (box && !opts.soft) box.innerHTML = viewLoadingSkeletonHtml();
       try {
+        try {
+          await ensureWeekOverviewLoaded_({ soft: true });
+        } catch (eWov) {}
         var params = { action: "getMonthOverview", month: month };
         if (opts.force) params._ = String(Date.now());
         var res = await apiGet(
@@ -7346,8 +7383,8 @@
           { timeoutMs: opts.soft ? 22000 : 35000, retries: opts.soft ? 0 : 1, cacheTtlMs: opts.force ? 0 : undefined }
         );
         if (res && res.status === "success") {
-          viewMonthOverviewCache = res;
-          renderMonthOverviewList_(res);
+          viewMonthOverviewCache = overlayWeekCountsOnMonthData_(res);
+          renderMonthOverviewList_(viewMonthOverviewCache);
         } else {
           if (box) {
             box.innerHTML = '<div class="view-idle">Не удалось загрузить месяц' +
@@ -13862,6 +13899,13 @@
       if (!ok) return;
       var ok2 = await uiConfirmAsync("Точно закрыть неделю сейчас?");
       if (!ok2) return;
+      if (window.__BOINYA_C_CUTOVER__) {
+        var ok3 = await uiConfirmAsync(
+          "Бойня C · LIVE\n\nЗакрытие уйдёт в боевые Google Sheets.\n" +
+          "Это не песочница. Продолжить?"
+        );
+        if (!ok3) return;
+      }
       var tid = String(myTelegramId || "").trim();
       if (!tid) {
         try {
@@ -13878,8 +13922,15 @@
       var res = null;
       try {
         try { apiCacheBustMem_(); } catch (eClr) {}
+        var finishPayload = {
+          action: "finishFullWeek",
+          telegramId: tid,
+          confirm: "1",
+          weekKey: currentWeekKeyLocal()
+        };
+        if (window.__BOINYA_C_CUTOVER__) finishPayload.allowDanger = "1";
         res = await apiGet(
-          { action: "finishFullWeek", telegramId: tid, confirm: "1", weekKey: currentWeekKeyLocal() },
+          finishPayload,
           { timeoutMs: 120000, cacheTtlMs: 0 }
         );
       } catch (e1) {
@@ -13891,6 +13942,12 @@
         if (msg === "owner_only") msg = "Только владелец (Deploy Code.gs + доступ owner).";
         if (msg === "need_confirm") msg = "Нет подтверждения.";
         if (msg === "unknown_action") msg = "Нужен Deploy Code.gs с action finishFullWeek.";
+        if (msg === "cutover_danger_blocked") {
+          msg = "Cutover заблокировал закрытие. Обнови Mini App и повтори.";
+        }
+        if (msg === "sandbox_no_prod_week") {
+          msg = "Открыто без cutover=1 (песочница). Открой с ?cutover=1";
+        }
         await uiAlertAsync("Не закрылось: " + msg);
         return;
       }
@@ -14833,8 +14890,14 @@
       var productCost = fact.productCost != null ? fact.productCost : 0;
       var couponsCost = fact.couponsCost != null ? fact.couponsCost : 0;
       var retailCost = costBy.retail != null ? costBy.retail : 0;
-      var ppCostApp = costBy.pp != null ? costBy.pp : 0;
+      var ppBasketCost = fact.ppBasketCost != null ? fact.ppBasketCost : 0;
       var partnerCostApp = costBy.partner != null ? costBy.partner : 0;
+      var ppLightCost = fact.ppLightCost != null ? fact.ppLightCost : 0;
+      var ppDeliveryCost = fact.ppDeliveryCost != null ? fact.ppDeliveryCost : 0;
+      var ppLightPeople = fact.ppLightPeople != null ? fact.ppLightPeople : 0;
+      var ppDelivN = fact.ppDeliveries != null ? fact.ppDeliveries : (by.pp || 0);
+      var ppLightEach = fact.ppLightFeeEach != null ? fact.ppLightFeeEach : 11;
+      var ppDelivEach = fact.ppDeliveryFeeEach != null ? fact.ppDeliveryFeeEach : 6;
       var profitFact = fact.profit != null ? fact.profit : calTurnover;
       var cleanFact = fact.clean != null ? fact.clean : Math.round((Number(calTurnover) - Number(costActual)) * 100) / 100;
       var life = bp.life || {};
@@ -14889,13 +14952,15 @@
       html += '<div class="card">';
       html += '<div class="section-title" style="margin-top:0;color:#64d2ff;">Затраты</div>';
       html += line_("Продукция всего", productCost + " BYN", "#fff");
-      html += line_(" · из них розница", retailCost + " BYN", "#ff9f0a");
-      html += line_(" · из них ПП", ppCostApp + " BYN", "#bf5af2");
-      html += line_(" · из них партнёр-заказ", partnerCostApp + " BYN", "#64d2ff");
+      html += line_(" · розница (состав)", retailCost + " BYN", "#ff9f0a");
+      html += line_(" · ПП (состав)", ppBasketCost + " BYN", "#bf5af2");
+      html += line_(" · партнёр-заказ", partnerCostApp + " BYN", "#64d2ff");
       html += line_("Купоны", couponsCost + " BYN", "#ffd60a");
+      html += line_("Свет ПП (" + ppLightEach + "р × " + ppLightPeople + " чел)", ppLightCost + " BYN", "#bf5af2");
+      html += line_("Доставки ПП (" + ppDelivEach + "р × " + ppDelivN + ")", ppDeliveryCost + " BYN", "#bf5af2");
       html += line_("БП (состав + 6р)", bpSpend + " BYN · " + bpDeliv + " дост.", "#ff453a");
       html += line_("Всего", costActual + " BYN", "#64d2ff");
-      html += '<div class="muted" style="font-size:11px;margin-top:8px;">Себест розницы/ПП/партнёра — по составу заказа и прайсу (лист Розница / Подписка).</div>';
+      html += '<div class="muted" style="font-size:11px;margin-top:8px;">ПП: состав + свет 11р/чел (раз в месяц) + 6р за доставку. БП: состав + 6р. Прайс — лист Розница / Подписка.</div>';
       html += "</div>";
 
       html += '<div class="card" style="border:1px solid rgba(255,69,58,0.35);">';
