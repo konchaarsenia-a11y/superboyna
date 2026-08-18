@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c23";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c27";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -8092,7 +8092,7 @@
       } catch (eN) {}
       try {
         showToast("Отправляю менеджеру…");
-        var res = await apiGet({
+        var body = {
           action: "notifyMissedDelivery",
           telegramId: tid,
           client: client.name,
@@ -8101,15 +8101,39 @@
           reason: reason,
           segment: client.segment || "",
           matchKey: client.matchKey || "",
-          basket: JSON.stringify(client.basket || []),
-          createdByName: myName,
-          _: String(Date.now())
-        }, { timeoutMs: 25000, cacheTtlMs: 0 });
-        if (!res || res.status !== "success") {
+          basket: client.basket || [],
+          address: client.address || "",
+          phone: client.phone || "",
+          note: client.note || "",
+          createdByName: myName
+        };
+        var res = null;
+        try { res = await apiPost(body); } catch (ePost) { res = null; }
+        if (!res || (res.status !== "success" && res.status !== "sent_opaque")) {
+          try {
+            res = await apiGet(Object.assign({}, body, {
+              basket: JSON.stringify(client.basket || []),
+              _: String(Date.now())
+            }), { timeoutMs: 25000, cacheTtlMs: 0 });
+          } catch (eGet) {}
+        }
+        if (!res || (res.status !== "success" && res.status !== "sent_opaque")) {
           await uiAlertAsync("Не удалось: " + ((res && res.message) || "ошибка / Deploy"));
           return;
         }
-        showToast("Менеджеру отправлено · " + (res.notified || 0) + " чел.");
+        try {
+          courierClientsCache.splice(index, 1);
+          refreshCourierSummary();
+          renderCourierClientsUi_();
+        } catch (eUi) {}
+        try {
+          apiCacheBustMem_("getCourier");
+          apiCacheBustMem_("getClients");
+          apiCacheBustMem_("getViewCompare");
+          apiCacheBustMem_("getMonthOverview");
+          apiCacheBustMem_("listDeferred");
+        } catch (eClr) {}
+        showToast("Снят с дня · в Переносах у менеджера");
       } catch (e) {
         await uiAlertAsync(e.message || "Ошибка сети");
       }
@@ -8178,6 +8202,60 @@
       }, 0);
       var go = await modalP;
       if (go !== "go") return;
+      var pickedDate = await uiPickMoveDate(it.clientNick || p.client || "", p.dateIso || p.date || "");
+      if (!pickedDate) return;
+      var target = await resolveMoveTargetFromDate_(pickedDate);
+      if (!target || !target.newDate) {
+        await uiAlertAsync("Не удалось определить дату");
+        return;
+      }
+      var cutRaw = "yes";
+      var cutP = openModal(
+        '<div class="modal-title">Перенос клиента</div>' +
+        '<div class="modal-text">Перенос <b>' + escapeHtml(it.clientNick || p.client || "") +
+        '</b> → <b>' + escapeHtml(target.newDate + (target.newDay ? (" · " + target.newDay) : " · календарь")) +
+        '</b>.<br><br>Нарезать сырьё на этого клиента в новом дне вместе со всеми?</div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-action btn-orange" type="button" id="modalCutYes">Да, резать</button>' +
+          '<button class="btn-action btn-blue" type="button" id="modalCutNo">Нет — только перенос</button>' +
+          '<button class="btn-action" type="button" id="modalCancel" style="background:#3a3a3c;">Отмена</button>' +
+        "</div>"
+      );
+      setTimeout(function () {
+        var y = document.getElementById("modalCutYes");
+        var n = document.getElementById("modalCutNo");
+        var c = document.getElementById("modalCancel");
+        if (y) y.onclick = function () { closeModal("yes"); };
+        if (n) n.onclick = function () { closeModal("no"); };
+        if (c) c.onclick = function () { closeModal(null); };
+      }, 0);
+      cutRaw = await cutP;
+      if (!cutRaw) return;
+      var placeRes = null;
+      try {
+        placeRes = await apiGet({
+          action: "placeTransferTask",
+          telegramId: tid,
+          id: id,
+          newDate: target.newDate,
+          newDay: target.newDay || "",
+          cutRaw: cutRaw === "yes" ? "1" : "0",
+          _: String(Date.now())
+        }, { timeoutMs: 45000, cacheTtlMs: 0 });
+      } catch (ePl) {}
+      if (placeRes && placeRes.status === "success") {
+        try {
+          apiCacheBustMem_("getClients");
+          apiCacheBustMem_("getViewCompare");
+          apiCacheBustMem_("getMonthOverview");
+          apiCacheBustMem_("getCourier");
+          apiCacheBustMem_("listDeferred");
+        } catch (eClr) {}
+        deferredCacheAt = 0;
+        try { renderTasksDrawer(true); } catch (eR) {}
+        showToast("Перенесено на " + (placeRes.newDate || target.newDate));
+        return;
+      }
       var moved = await performViewClientMove_({
         name: it.clientNick || p.client || "",
         matchKey: p.matchKey || "",
@@ -17883,6 +17961,7 @@
           "</div>" +
           (p.reason ? ('<div style="font-size:12px;margin-top:4px;color:#ff9f0a;">Причина: ' +
             escapeHtml(p.reason) + "</div>") : "") +
+          (p.parked ? '<div class="muted" style="font-size:12px;margin-top:4px;">Снят с дня · ждёт новую дату</div>' : "") +
           (preview ? ('<div class="muted" style="font-size:12px;margin-top:6px;">Состав: ' +
             escapeHtml(preview) + (basket.length > 6 ? "…" : "") + "</div>") : "") +
           (p.createdByName ? ('<div class="muted" style="font-size:11px;margin-top:4px;">от ' +
@@ -17979,7 +18058,7 @@
           return '<div class="tasks-item">' +
             '<div><b>⏰ ' + escapeHtml(it.title || "Напоминание") + '</b>' +
             '<div style="font-size:12px;margin-top:4px;color:#ffd60a;">' +
-            escapeHtml(remTxt) + (remSent ? " · уже отправили" : "") +
+            escapeHtml(remTxt) + (remSent ? " · отправили, завтра снимется само" : "") +
             "</div>" +
             (whoLine ? ('<div class="muted" style="font-size:12px;margin-top:2px;">' + escapeHtml(whoLine) + "</div>") : "") +
             "</div>" +
@@ -18186,7 +18265,14 @@
           var m = String(it.mode || "").toLowerCase();
           return m === "order" || m === "partner";
         });
-        var remindItems = openItems.filter(isDeferredRemindMode_);
+        var remindItems = openItems.filter(function (it) {
+          if (!isDeferredRemindMode_(it)) return false;
+          if (!it.remindSent && !(it.payload && it.payload.remindSent)) return true;
+          var sentAt = (it.payload && it.payload.remindSentAt) || "";
+          var sentMs = Date.parse(String(sentAt)) || Number(it.remindAtMs || (it.payload && it.payload.remindAtMs) || 0) || 0;
+          if (!sentMs) return true;
+          return (Date.now() - sentMs) < 86400000;
+        });
         var ppItems = openItems.filter(function (it) {
           var m = String(it.mode || "pp").toLowerCase();
           return m !== "remind" && m !== "order" && m !== "transfer" && m !== "buy" && m !== "bp_idle" && m !== "partner";
