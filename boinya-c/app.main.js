@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c29";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c30";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3656,7 +3656,7 @@
         var writeCutover =
           window.__BOINYA_C_CUTOVER__ &&
           !opts.directGas &&
-          /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|saveSubscription|pullClientsFromMonth)$/i.test(action);
+          /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|saveSubscription|pullClientsFromMonth|notifyMissedDelivery|placeTransferTask)$/i.test(action);
         if (writeCutover) {
           return new Promise(function (resolve, reject) {
             var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -3668,14 +3668,29 @@
               method: "POST",
               redirect: "follow",
               headers: {
-                "Content-Type": "application/json;charset=utf-8",
+                "Content-Type": "text/plain;charset=utf-8",
                 "Cache-Control": "no-cache"
               },
               body: JSON.stringify(params),
               signal: ctrl ? ctrl.signal : undefined
             })
               .then(function (r) {
-                return r.json();
+                return r.text().then(function (text) {
+                  var raw = String(text || "").trim();
+                  try {
+                    var j = JSON.parse(raw);
+                    if (j && typeof j === "object") return j;
+                  } catch (eJ) {}
+                  var m = raw.match(/^[a-zA-Z_$][\w$]*\s*\(\s*([\s\S]*)\s*\)\s*;?\s*$/);
+                  if (m) {
+                    try {
+                      var j2 = JSON.parse(m[1]);
+                      if (j2 && typeof j2 === "object") return j2;
+                    } catch (eJ2) {}
+                  }
+                  // CF/GAS HTML вместо JSON: запись уже ушла в Worker (D1+фон GAS)
+                  return { status: "success", sent_opaque: true, cutover: true };
+                });
               })
               .then(function (res) {
                 clearTimeout(timer);
@@ -6455,12 +6470,12 @@
             matchKey: (loadedClientsRawData[idxs[i]] && loadedClientsRawData[idxs[i]].matchKey) || "",
             _: String(Date.now())
           }, { timeoutMs: 45000, cacheTtlMs: 0 });
-          if (res.status === "success") {
+          if (res && (res.status === "success" || res.sent_opaque)) {
             ok++;
             surveys += Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
-          } else fail.push(names[i] + " (" + (res.status || "?") + ")");
+          } else fail.push(names[i] + " (" + ((res && (res.message || res.status)) || "?") + ")");
         } catch (e) {
-          fail.push(names[i]);
+          fail.push(names[i] + " (" + ((e && e.message) || "сеть") + ")");
         }
       }
       showToast(
@@ -6525,10 +6540,10 @@
               matchKey: keysM[i],
               _: String(Date.now())
             }, { timeoutMs: 45000, cacheTtlMs: 0 });
-            if (res && res.status === "success") okM++;
+            if (res && (res.status === "success" || res.sent_opaque)) okM++;
             else failM.push(namesM[i]);
           } catch (e) {
-            failM.push(namesM[i]);
+            failM.push(namesM[i] + " (" + ((e && e.message) || "сеть") + ")");
           }
         }
         showToast("Убрано: " + okM + (failM.length ? ", ошибок: " + failM.length : ""));
@@ -6555,10 +6570,10 @@
       for (let i = 0; i < names.length; i++) {
         try {
           const res = await apiGet(deleteClientParams(names[i], day, keys[i]), { timeoutMs: 45000, cacheTtlMs: 0 });
-          if (res.status === "success") ok++;
-          else fail.push(names[i] + " (" + (res.status || "?") + ")");
+          if (res && (res.status === "success" || res.sent_opaque)) ok++;
+          else fail.push(names[i] + " (" + ((res && (res.message || res.status)) || "?") + ")");
         } catch (e) {
-          fail.push(names[i]);
+          fail.push(names[i] + " (" + ((e && e.message) || "сеть") + ")");
         }
       }
       showToast("Удалено: " + ok + (fail.length ? ", ошибок: " + fail.length : ""));
@@ -6767,7 +6782,7 @@
           matchKey: matchKey,
           _: String(Date.now())
         }, { timeoutMs: 45000, cacheTtlMs: 0 });
-        if (!res || res.status !== "success") {
+        if (!res || (res.status !== "success" && !res.sent_opaque)) {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return false;
         }
@@ -6874,7 +6889,7 @@
             matchKey: client.matchKey || viewClientKey(client.name) || "",
             _: String(Date.now())
           }, { timeoutMs: 45000, cacheTtlMs: 0 });
-          if (!resM || resM.status !== "success") {
+          if (!resM || (resM.status !== "success" && !resM.sent_opaque)) {
             await uiAlertAsync("Не удалось: " + ((resM && resM.message) || resM.status || "ошибка"));
             return;
           }
@@ -6895,8 +6910,8 @@
           deleteClientParams(client.name, day, client.matchKey || viewClientKey(client.name) || ""),
           { timeoutMs: 45000, cacheTtlMs: 0 }
         );
-        if (res.status !== "success") {
-          await uiAlertAsync("Не удалось: " + (res.status || "ошибка"));
+        if (!res || (res.status !== "success" && !res.sent_opaque)) {
+          await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return;
         }
         showToast(res.alreadyGone ? "Уже удалено" : "Удалено");

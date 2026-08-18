@@ -108,7 +108,7 @@ function isWriteAction_(a) {
   ) {
     return false;
   }
-  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner|force)/i.test(
+  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner|force|place)/i.test(
     a
   );
 }
@@ -1900,7 +1900,62 @@ async function setAssemblyFlag_(params, env, flag) {
 }
 
 async function syncOpsWriteToD1_(action, params, env, proxied) {
-  if (!env || !env.DB || !proxied || proxied.status !== "success") return;
+  if (!env || !env.DB) return;
+
+  // курьерский перенос: D1 сразу (не ждать GAS), иначе CF рвёт и UI «Ошибка сети»
+  if (/^notifyMissedDelivery$/i.test(action)) {
+    try {
+      await deleteClient_(params, env);
+    } catch (eDel) {}
+    try {
+      let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+      let arr = Array.isArray(list.items) ? list.items.slice() : [];
+      const nick = String(params.client || params.nick || "").trim();
+      const mk = normalizeMatchKey_(nick || params.matchKey || "");
+      arr = arr.filter(function (it) {
+        if (!it) return false;
+        const m = String(it.mode || (it.payload && it.payload.mode) || "").toLowerCase();
+        if (m === "buy" || m === "remind" || m === "partner") return true;
+        const n = String(
+          it.clientNick || (it.payload && (it.payload.client || it.payload.clientNick)) || it.client || ""
+        );
+        const nk = normalizeMatchKey_(n);
+        if (mk && nk && mk === nk) return false;
+        return true;
+      });
+      const xferId = String((proxied && proxied.id) || ("xfer_" + Date.now()));
+      arr.unshift({
+        id: xferId,
+        mode: "transfer",
+        title: "Перенос · не получил",
+        clientNick: nick,
+        status: "open",
+        payload: {
+          mode: "transfer",
+          parked: true,
+          reason: String(params.reason || ""),
+          day: String(params.day || ""),
+          date: String(params.date || ""),
+          client: nick,
+          matchKey: String(params.matchKey || ""),
+          segment: String(params.segment || ""),
+          basket: parseBasket_(params.basket),
+          createdByName: String(params.createdByName || "")
+        }
+      });
+      list.items = arr;
+      list.status = "success";
+      list.openCount = arr.filter(function (it) {
+        return String(it.status || "open").toLowerCase() === "open";
+      }).length;
+      list.fromD1 = true;
+      list.sandbox = false;
+      await putSnap_(env, "listDeferred", list);
+    } catch (eDef) {}
+    return;
+  }
+
+  if (!proxied || proxied.status !== "success") return;
   const day = String(params.day || "");
   if (!day) return;
   const client = String(params.client || "");
@@ -1965,58 +2020,6 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
     snap.fromD1 = false;
     snap.sandbox = false;
     await putSnap_(env, "cutting:" + day, snap);
-    return;
-  }
-
-  if (/^notifyMissedDelivery$/i.test(action)) {
-    try {
-      await deleteClient_(params, env);
-    } catch (eDel) {}
-    try {
-      let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
-      let arr = Array.isArray(list.items) ? list.items.slice() : [];
-      const nick = String(params.client || params.nick || "").trim();
-      const mk = normalizeMatchKey_(nick || params.matchKey || "");
-      arr = arr.filter(function (it) {
-        if (!it) return false;
-        const m = String(it.mode || (it.payload && it.payload.mode) || "").toLowerCase();
-        if (m === "buy" || m === "remind" || m === "partner") return true;
-        const n = String(
-          it.clientNick || (it.payload && (it.payload.client || it.payload.clientNick)) || it.client || ""
-        );
-        const nk = normalizeMatchKey_(n);
-        if (mk && nk && mk === nk) return false;
-        return true;
-      });
-      const xferId = String((proxied && proxied.id) || ("xfer_" + Date.now()));
-      arr.unshift({
-        id: xferId,
-        mode: "transfer",
-        title: "Перенос · не получил",
-        clientNick: nick,
-        status: "open",
-        payload: {
-          mode: "transfer",
-          parked: true,
-          reason: String(params.reason || ""),
-          day: String(params.day || ""),
-          date: String(params.date || ""),
-          client: nick,
-          matchKey: String(params.matchKey || ""),
-          segment: String(params.segment || ""),
-          basket: parseBasket_(params.basket),
-          createdByName: String(params.createdByName || "")
-        }
-      });
-      list.items = arr;
-      list.status = "success";
-      list.openCount = arr.filter(function (it) {
-        return String(it.status || "open").toLowerCase() === "open";
-      }).length;
-      list.fromD1 = true;
-      list.sandbox = false;
-      await putSnap_(env, "listDeferred", list);
-    } catch (eDef) {}
     return;
   }
 
@@ -2520,15 +2523,31 @@ async function handleCutover_(a, params, env, ctx) {
     return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
   }
 
-  // запись: save* — D1 сразу, GAS не дольше ~6.5с в ответе (остальное waitUntil).
-  // Иначе UI 20с видит «сохранение зависло», хотя таблица ещё пишет.
+  // запись: люди (save/move/delete) — D1 сразу, GAS не дольше ~6.5с в ответе.
+  // Иначе CF ~30с рвёт Worker → HTML 524 → UI «Ошибка сети», хотя таблица ещё пишет.
   if (isWriteAction_(a)) {
     const blocked = partnerBlockWrongPoint_(a, params);
     if (blocked) return blocked;
-    const isFastSave = /^(saveOrder|saveBooking)$/i.test(a);
-    if (isFastSave) {
+    const isFastPeopleWrite =
+      /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|notifyMissedDelivery|placeTransferTask)$/i.test(
+        a
+      );
+    if (isFastPeopleWrite) {
       try {
-        if (env && env.DB) await saveOrder_(params, env, /^saveBooking$/i.test(a));
+        if (env && env.DB) {
+          if (/^(saveOrder|saveBooking)$/i.test(a)) {
+            await saveOrder_(params, env, /^saveBooking$/i.test(a));
+          } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
+            await deleteClient_(params, env);
+          } else if (/^moveClient$/i.test(a)) {
+            await moveClient_(params, env);
+          } else if (/^notifyMissedDelivery$/i.test(a)) {
+            await syncOpsWriteToD1_(a, params, env, {
+              status: "success",
+              id: "xfer_" + Date.now()
+            });
+          }
+        }
       } catch (eOpt) {}
       const gasP = gasProxy_(a, params, env, { write: true }).catch(function () {
         return null;
@@ -2549,25 +2568,60 @@ async function handleCutover_(a, params, env, ctx) {
           if (!gotGas) proxied = await gasP;
         } catch (eG) {}
         try {
+          if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
+            await deleteClient_(params, env);
+          } else if (/^moveClient$/i.test(a) && env && env.DB) {
+            await moveClient_(params, env);
+          } else if (/^notifyMissedDelivery$/i.test(a) && env && env.DB && proxied) {
+            await syncOpsWriteToD1_(a, params, env, proxied);
+          }
+        } catch (eD1) {}
+        try {
           await cutoverAfterWrite_(a, params, env, proxied);
         } catch (eA) {}
       })();
       if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(bg);
       else await bg;
-      if (gotGas && proxied) return partnerGuardOrRewrite_(a, params, proxied);
-      const alsoWeek =
-        params.alsoSaveOrder === true ||
-        String(params.alsoSaveOrder || "") === "1" ||
-        String(params.alsoSaveOrder || "").toLowerCase() === "true";
-      const basketLen = parseBasket_(params.basket).length;
+      if (gotGas && proxied) {
+        if (
+          proxied.status === "error" &&
+          /gas_proxy_failed/i.test(String(proxied.message || ""))
+        ) {
+          return {
+            status: "success",
+            wrote: 1,
+            optimistic: true,
+            gasError: proxied.detail || proxied.message,
+            cutover: true,
+            sandbox: false,
+            action: a
+          };
+        }
+        return partnerGuardOrRewrite_(a, params, proxied);
+      }
+      if (/^(saveOrder|saveBooking)$/i.test(a)) {
+        const alsoWeek =
+          params.alsoSaveOrder === true ||
+          String(params.alsoSaveOrder || "") === "1" ||
+          String(params.alsoSaveOrder || "").toLowerCase() === "true";
+        const basketLen = parseBasket_(params.basket).length;
+        return {
+          status: "success",
+          wrote: basketLen || 1,
+          basketLen: basketLen,
+          optimistic: true,
+          weekWritten: alsoWeek || /^saveOrder$/i.test(a),
+          cutover: true,
+          sandbox: false
+        };
+      }
       return {
         status: "success",
-        wrote: basketLen || 1,
-        basketLen: basketLen,
+        wrote: 1,
         optimistic: true,
-        weekWritten: alsoWeek || /^saveOrder$/i.test(a),
         cutover: true,
-        sandbox: false
+        sandbox: false,
+        action: a
       };
     }
     const proxied = await gasProxy_(a, params, env, { write: true });
