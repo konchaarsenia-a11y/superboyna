@@ -504,10 +504,11 @@
 
   <script>
 (function () {
-  var APP_VER = "3.2.0";
+  var APP_VER = "3.2.1";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
-  var SESSION_KEY = "gb_partner_session_v9";
+  var SESSION_KEY = "gb_partner_session_v10";
+  var ME_CACHE_KEY = "gb_partner_me_v1";
   var SETTINGS_KEY = "gb_partner_settings_v2";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
   var COUPON_BANNER = "assets/coupon-banner.png";
@@ -607,10 +608,15 @@
       DEMO_NETWORK = s.networkId || "";
       DEMO_USERNAME = normUser_(s.username || "");
       DEMO_POINT_IDS = ids;
-      if (!REMOTE_IS_OWNER_) {
+      if (Array.isArray(s.points) && s.points.length) POINTS = s.points;
+      if (Array.isArray(s.networks) && s.networks.length) NETWORKS = s.networks;
+      if (s.name) {
+        try { state.settings.displayName = state.settings.displayName || s.name; } catch (eN) {}
+      }
+      if (!REMOTE_IS_OWNER_ && POINTS && POINTS.length) {
         var keep = {};
         ids.forEach(function (id) { keep[id] = true; });
-        POINTS = (POINTS || []).filter(function (p) { return p && keep[p.id]; });
+        POINTS = POINTS.filter(function (p) { return p && keep[p.id]; });
       }
       return true;
     } catch (e) { return false; }
@@ -620,8 +626,11 @@
       sessionStorage.setItem(SESSION_KEY, JSON.stringify({
         role: DEMO_ROLE || "partner",
         username: DEMO_USERNAME,
+        name: (state.me && state.me.name) || "",
         networkId: DEMO_NETWORK,
         pointIds: DEMO_POINT_IDS.slice(),
+        points: (POINTS || []).slice(),
+        networks: (NETWORKS || []).slice(),
         isOwner: !!REMOTE_IS_OWNER_
       }));
     } catch (e) {}
@@ -633,6 +642,31 @@
     DEMO_POINT_IDS = [];
     REMOTE_IS_OWNER_ = false;
     try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
+  }
+  function clearMeCache_() {
+    try { localStorage.removeItem(ME_CACHE_KEY); } catch (e) {}
+  }
+  function saveMeCache_(u, acc) {
+    try {
+      localStorage.setItem(ME_CACHE_KEY, JSON.stringify({
+        at: Date.now(),
+        telegramId: String((u && u.telegramId) || (acc && acc.telegramId) || ""),
+        username: normUser_((u && u.username) || (acc && acc.username) || ""),
+        acc: acc
+      }));
+    } catch (e) {}
+  }
+  function loadMeCache_(u) {
+    try {
+      var s = JSON.parse(localStorage.getItem(ME_CACHE_KEY) || "null");
+      if (!s || !s.acc || !s.acc.pointIds) return null;
+      if (Date.now() - (s.at || 0) > 7 * 24 * 3600 * 1000) return null;
+      var tid = String((u && u.telegramId) || "").trim();
+      var uname = normUser_((u && u.username) || "");
+      if (tid && s.telegramId && String(s.telegramId) !== tid) return null;
+      if (uname && s.username && s.username !== uname) return null;
+      return s.acc;
+    } catch (e) { return null; }
   }
 
   function netById_(id) {
@@ -765,9 +799,9 @@
     var u = user();
     if (u.telegramId) return u;
     var i;
-    for (i = 0; i < 12; i++) {
+    for (i = 0; i < 4; i++) {
       try { if (tg && tg.ready) tg.ready(); } catch (eR) {}
-      await sleep_(120);
+      await sleep_(50);
       u = user();
       if (u.telegramId) return u;
     }
@@ -888,6 +922,7 @@
       }
     }
     saveSession_();
+    try { saveMeCache_(user(), acc); } catch (eC) {}
     state.cart = {};
     state.point = null;
     enterApp_();
@@ -919,6 +954,7 @@
 
   function demoLogout() {
     clearSession_();
+    clearMeCache_();
     pendingLogin_ = null;
     state.me = null;
     state.point = null;
@@ -1441,18 +1477,60 @@
 
   function boot() {
     state.catalog = normalizeCatalog_(state.catalog && state.catalog.length ? state.catalog : CATALOG);
-    show("screenBoot");
     if (!VARKA_WEBHOOK_URL) {
       renderLogin_();
       show("screenLogin");
       return;
     }
+    var u0 = user();
+    var cached = loadMeCache_(u0);
+    if (cached && loginWithAccess_(cached, cached.username || u0.username || "")) {
+      refreshPartnerMe_(u0);
+      return;
+    }
+    if (loadSession_() && DEMO_POINT_IDS.length) {
+      try { enterApp_(); } catch (eEnt) {}
+      refreshPartnerMe_(u0);
+      return;
+    }
+    show("screenBoot");
     bootFromApi_();
   }
 
   function apiGet_(params) {
+    var p = Object.assign({ cutover: "1" }, params || {});
+    var timeoutMs = p.action === "partnerGetMe" ? 8000 : 20000;
+    if (typeof fetch === "function") {
+      return new Promise(function (resolve, reject) {
+        var done = false;
+        var t = setTimeout(function () {
+          if (done) return;
+          done = true;
+          reject(new Error("timeout"));
+        }, timeoutMs);
+        fetch(VARKA_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(p)
+        }).then(function (r) { return r.json(); }).then(function (data) {
+          if (done) return;
+          done = true;
+          clearTimeout(t);
+          resolve(data);
+        }).catch(function () {
+          if (done) return;
+          done = true;
+          clearTimeout(t);
+          apiGetJsonp_(p).then(resolve, reject);
+        });
+      });
+    }
+    return apiGetJsonp_(p);
+  }
+
+  function apiGetJsonp_(params) {
     return new Promise(function (resolve, reject) {
-      var p = Object.assign({ cutover: "1" }, params || {});
+      var p = params || {};
       var qs = Object.keys(p).map(function (k) {
         return encodeURIComponent(k) + "=" + encodeURIComponent(p[k] == null ? "" : p[k]);
       }).join("&");
@@ -1478,7 +1556,7 @@
         done = true;
         try { delete window[cb]; } catch (e3) {}
         reject(new Error("timeout"));
-      }, 25000);
+      }, 12000);
     });
   }
 
@@ -1636,6 +1714,41 @@
     });
   }
 
+  function applyGetMe_(u, res) {
+    res = applyArseniyOnePoint_(u, res);
+    var ids = normalizePointIds_(res && res.pointIds);
+    var asOwner = !!(res && res.isOwner && !res.isPartner && res.role === "owner");
+    var asPartner = !asOwner && !!(res && (res.isPartner || res.role === "partner" || res.role === "staff"));
+    if (!(res && res.allowed && ids.length)) return false;
+    applyRemoteConfig_(res, asOwner ? null : { pointIds: ids });
+    loginWithAccess_({
+      name: res.name || (u && u.name) || "",
+      networkId: res.networkId,
+      pointIds: ids,
+      points: res.points || [],
+      networks: res.networks || [],
+      isOwner: asOwner,
+      isPartner: asPartner || !asOwner,
+      role: asOwner ? "owner" : (res.role || "partner"),
+      username: res.username || (u && u.username) || "",
+      telegramId: (u && u.telegramId) || res.telegramId || ""
+    }, res.username || (u && u.username) || "");
+    return true;
+  }
+
+  async function refreshPartnerMe_(u) {
+    try {
+      u = u || (await resolveUser_());
+      if (!u.telegramId && !u.username) return;
+      var res = await apiGet_({
+        action: "partnerGetMe",
+        username: u.username || "",
+        telegramId: u.telegramId || ""
+      });
+      applyGetMe_(u, res);
+    } catch (e) {}
+  }
+
   async function bootFromApi_() {
     document.getElementById("bootMsg").textContent = "Вход…";
     try {
@@ -1646,41 +1759,24 @@
         return;
       }
       try { localStorage.setItem("superboyna_tg_id", u.telegramId); } catch (eSt) {}
-
-      // initData в URL JSONP не шлём (длинный/ломает qs) — username уже вытащили на клиенте
+      var cached = loadMeCache_(u);
+      if (cached && loginWithAccess_(cached, cached.username || u.username || "")) {
+        refreshPartnerMe_(u);
+        return;
+      }
       var res = await apiGet_({
         action: "partnerGetMe",
         username: u.username || "",
-        telegramId: u.telegramId || "",
-        _: String(Date.now())
+        telegramId: u.telegramId || ""
       });
-      res = applyArseniyOnePoint_(u, res);
-      var ids = normalizePointIds_(res && res.pointIds);
-      var asOwner = !!(res && res.isOwner && !res.isPartner && res.role === "owner");
-      var asPartner = !asOwner && !!(res && (res.isPartner || res.role === "partner" || res.role === "staff"));
-      POINTS = [];
-      NETWORKS = [];
-      applyRemoteConfig_(res, asOwner ? null : { pointIds: ids });
-
-      if (res && res.allowed && ids.length) {
-        loginWithAccess_({
-          name: res.name || u.name,
-          networkId: res.networkId,
-          pointIds: ids,
-          points: res.points || [],
-          networks: res.networks || [],
-          isOwner: asOwner,
-          isPartner: asPartner || !asOwner,
-          role: asOwner ? "owner" : (res.role || "partner"),
-          username: res.username || u.username || ""
-        }, res.username || u.username || "");
-        return;
-      }
-
+      if (applyGetMe_(u, res)) return;
       clearSession_();
       renderLogin_();
       show("screenLogin");
     } catch (e) {
+      var u2 = user();
+      var cached2 = loadMeCache_(u2);
+      if (cached2 && loginWithAccess_(cached2, cached2.username || u2.username || "")) return;
       document.getElementById("bootMsg").textContent = "Не удалось связаться с сервером";
       renderLogin_();
       show("screenLogin");

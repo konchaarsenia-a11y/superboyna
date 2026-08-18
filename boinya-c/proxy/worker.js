@@ -102,6 +102,8 @@ function isWriteAction_(a) {
     a === "telegramStatus" ||
     a === "weekPullStatus" ||
     a === "partnerListAdmin" ||
+    a === "partnerGetMe" ||
+    a === "partnerListMyOrders" ||
     a === "composeWarehouseBuyMessage"
   ) {
     return false;
@@ -126,8 +128,11 @@ async function handleAction_(action, params, env, url, ctx) {
     };
   }
 
-  // Varka Mini App: всегда live Worker→GAS (не sandbox-заглушка partner*)
-  if (/^partner(GetMe|SubmitOrder|ListMyOrders)$/i.test(a)) {
+  // Varka: partnerGetMe — D1 сразу (не ждать GAS); записи по-прежнему в GAS
+  if (a === "partnerGetMe") {
+    return cutoverPartnerGetMe_(params, env, ctx);
+  }
+  if (/^partner(SubmitOrder|ListMyOrders|SetOrderStatus)$/i.test(a)) {
     return handleCutover_(a, Object.assign({}, params, { cutover: "1" }), env, ctx);
   }
 
@@ -2290,6 +2295,12 @@ const PARTNER_ARSENIY_POINT = {
   address: "Карского 23"
 };
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "" };
+const PARTNER_CATALOG_STATIC = [
+  { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
+  { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "г", active: true },
+  { id: "vr_c_piece", type: "coupon", name: "Купон", unit: "шт", active: true },
+  { id: "vr_c_banner", type: "coupon", name: "Баннер", unit: "шт", active: true }
+];
 
 function partnerNormUserWorker_(raw) {
   return String(raw || "")
@@ -2344,7 +2355,7 @@ function partnerArseniyGetMe_(json) {
         address: one.address || PARTNER_ARSENIY_POINT.address
       }
     ],
-    catalog: src.catalog,
+    catalog: Array.isArray(src.catalog) && src.catalog.length ? src.catalog : PARTNER_CATALOG_STATIC,
     cutover: true,
     partnerOverride: "arseniy_karskogo_23"
   });
@@ -2371,6 +2382,86 @@ function partnerGuardOrRewrite_(a, params, json) {
     });
   }
   return json;
+}
+
+function partnerMeSnapKey_(params) {
+  const tid = String((params && params.telegramId) || "").trim();
+  const u = partnerNormUserWorker_(params && params.username);
+  return "partnerMe:" + (tid || u || "anon");
+}
+
+async function cutoverPartnerGetMe_(params, env, ctx) {
+  params = params || {};
+  const snapKey = partnerMeSnapKey_(params);
+
+  async function fetchLive_() {
+    const live = await gasProxy_("partnerGetMe", params, env, { write: false });
+    const out = partnerGuardOrRewrite_("partnerGetMe", params, live);
+    if (out && out.status === "success" && env && env.DB) {
+      try {
+        await putSnap_(env, snapKey, Object.assign({}, out, { cachedAt: new Date().toISOString() }));
+      } catch (eS) {}
+    }
+    if (out && typeof out === "object") {
+      out.cutover = true;
+      out.fromGas = true;
+      out.sandbox = false;
+    }
+    return out;
+  }
+
+  if (isPartnerArseniy_(params)) {
+    let snap = null;
+    try {
+      snap = await getSnapRaw_(env, snapKey);
+    } catch (e0) {
+      snap = null;
+    }
+    const instant = partnerArseniyGetMe_(snap && snap.status === "success" ? snap : { status: "success" });
+    instant.cutover = true;
+    instant.swr = true;
+    instant.fromGas = false;
+    instant.sandbox = false;
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async function () {
+          try {
+            await fetchLive_();
+          } catch (eR) {}
+        })()
+      );
+    }
+    return instant;
+  }
+
+  let snap = null;
+  try {
+    snap = await getSnapRaw_(env, snapKey);
+  } catch (e1) {
+    snap = null;
+  }
+  const snapOk = snap && snap.status === "success" && snap.allowed && Array.isArray(snap.pointIds) && snap.pointIds.length;
+  if (snapOk) {
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async function () {
+          try {
+            await fetchLive_();
+          } catch (eR) {}
+        })()
+      );
+    }
+    const out = Object.assign({}, snap);
+    out.cutover = true;
+    out.swr = true;
+    out.fromGas = false;
+    out.sandbox = false;
+    return out;
+  }
+
+  const live = await fetchLive_();
+  if (live && typeof live === "object") return live;
+  return { status: "error", message: "gas_proxy_failed", cutover: true, action: "partnerGetMe" };
 }
 
 async function handleCutover_(a, params, env, ctx) {
