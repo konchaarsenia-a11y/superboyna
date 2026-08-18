@@ -118,7 +118,7 @@
 | `moveClient` | `client`, `oldDay`, `newDay`, `callback` | `{status}` |
 | `getCutting` | `day`, `callback` | `{status, date, items:[{row,name,dry,unit,raw,surplus,done}]}` |
 | `getCourier` | `day`, `callback` | `{status, date, clients:[{name,address,note,basket,delivered}]}` |
-| `submitGoodboyTry` | `name`, `phone`, `pet`, `note`, `mode` (`short`/`full`), `callback` | Заявка с сайта Goodboy (`try.html`). Полная анкета — 13 вопросов в `note` (POST). Лист `Goodboy_Заявки` + TG |
+| `submitGoodboyTry` | `name`, `phone`, `pet`, `note`, `mode` (`short`/`full`), `callback` | Заявка с сайта Goodboy (`try.html`). Полная анкета — 12 вопросов в `note` (POST). Лист `Goodboy_Заявки` + TG |
 
 ### POST (JSON body, Content-Type: text/plain)
 
