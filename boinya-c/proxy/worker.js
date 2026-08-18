@@ -231,6 +231,9 @@ async function handleAction_(action, params, env, url, ctx) {
   ) {
     const proxied = await gasRead_(a, params, env);
     if (proxied) return proxied;
+    if (a === "calcPrice" || a === "calcPpFact" || a === "getPpFactCost") {
+      return { status: "error", message: "gas_proxy_failed", action: a, sandbox: true };
+    }
     return { status: "success", items: [], suggestions: [], basket: [], total: 0, price: 0, sandbox: true };
   }
   if (a === "getTransferTask") {
@@ -2985,8 +2988,7 @@ function cutoverEmptyRead_(a, params) {
     return { status: "success", clients: [], day: day, cutover: true, swr: true, empty: true };
   }
   if (a === "calcPrice" || a === "calcPpFact" || a === "getPpFactCost" || a === "getPpOrderSuggest") {
-    // эти редко дергаются — пусть UI не висит; точный расчёт придёт после revalidate в mem
-    return { status: "success", items: [], basket: [], total: 0, price: 0, cutover: true, swr: true, empty: true };
+    return { status: "error", message: "calc_unavailable", action: a, cutover: true, empty: true };
   }
   if (a === "suggestAddress" || a === "lookupBpPartner") {
     return {
@@ -3352,11 +3354,14 @@ async function gasProxy_(action, params, env, opts) {
         k === "callback" ||
         k === "_" ||
         k === "cutover" ||
-        k === "mode" ||
         k === "allowDanger" ||
         params[k] == null ||
         params[k] === ""
       ) {
+        return;
+      }
+      // mode=live/sandbox — флаг Worker, не режим calcPrice (pp/retail)
+      if (k === "mode" && /^(live|sandbox|cutover)$/i.test(String(params[k]))) {
         return;
       }
       if (
@@ -3376,7 +3381,13 @@ async function gasProxy_(action, params, env, opts) {
     // sendCourierRoute: POST+redirect ломался; оставляем GET.
     const preferGet =
       /^(sendCourierRoute|sendDeficit|telegramStatus)$/i.test(action);
-    const mustPost = opts.write && !preferGet;
+    const preferPostRead = /^(calcPrice|calcPpFact|getPpFactCost)$/i.test(action);
+    const mustPost = ((opts.write && !preferGet) || preferPostRead);
+    if (preferPostRead && typeof clean.basket === "string") {
+      try {
+        clean.basket = JSON.parse(clean.basket);
+      } catch (eBask) {}
+    }
     if (mustPost) {
       const body = Object.assign({}, clean, { action: action });
       // Apps Script /exec часто отвечает 302; redirect:follow превращает POST→GET без body → «Бэкенд Жив».
