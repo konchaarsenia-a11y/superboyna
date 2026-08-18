@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c32";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c33";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3515,7 +3515,7 @@
         if (!obj || typeof obj !== "object") return;
         var now = Date.now();
         Object.keys(obj).forEach(function (k) {
-          if (/action=getCutting(\b|&|$)/.test(k) || k.indexOf("action=getCutting") >= 0) return;
+          if (k.indexOf("action=getCutting") >= 0 || k.indexOf("action=getViewCompare") >= 0 || k.indexOf("action=getClients") >= 0) return;
           var hit = obj[k];
           if (hit && hit.exp > now && hit.res) _apiGetMem[k] = hit;
         });
@@ -3523,7 +3523,7 @@
     }
     function apiSsSaveKey_(cacheKey, hit) {
       try {
-        if (cacheKey && String(cacheKey).indexOf("action=getCutting") >= 0) return;
+        if (cacheKey && /action=(getCutting|getViewCompare|getClients)/.test(String(cacheKey))) return;
         var raw = sessionStorage.getItem(_API_SS_KEY);
         var obj = raw ? JSON.parse(raw) : {};
         if (!obj || typeof obj !== "object") obj = {};
@@ -3627,7 +3627,7 @@
       if (!opts.bypassMem && cacheTtlMs > 0 && cacheKey) {
         try {
           var hit = _apiGetMem[cacheKey];
-          var skipStaleCut = action === "getCutting" || window._cuttingNeedRefresh;
+          var skipStaleCut = action === "getCutting" || action === "getViewCompare" || action === "getClients" || window._cuttingNeedRefresh;
           if (hit && hit.exp > Date.now()) return Promise.resolve(hit.res);
 
           if (!skipStaleCut && hit && hit.res && hit.exp > Date.now() - Math.max(cacheTtlMs * 4, 120000)) {

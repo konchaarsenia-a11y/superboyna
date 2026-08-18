@@ -3517,14 +3517,22 @@ function handleDeleteClient(ss, json, callback) {
   var clearedCols = 0;
   var block = getDayBlock(dayName);
   var clientRaw = String(json.client || "").trim();
+  var wantKey = String(json.matchKey || "").trim() || clientMatchKey_(clientRaw);
+  var wantKeyNorm = String(wantKey || "").toUpperCase().replace(/[._]/g, "");
   if (block && clientRaw) {
     var targetSheet = getTargetSheet(ss, block);
     if (targetSheet) {
       var nicksRowValues = targetSheet.getRange(block.nick, 3, 1, 15).getValues()[0];
-      // все столбцы с этим ником (дубликаты тоже) — через nicksMatch_
+      // все столбцы с этим ником (дубликаты тоже) — nicksMatch_ + matchKey
       for (var i = 0; i < 15; i++) {
         if (!String(nicksRowValues[i] || "").trim()) continue;
-        if (!nicksMatch_(nicksRowValues[i], clientRaw)) continue;
+        var nickKey = clientMatchKey_(nicksRowValues[i]);
+        var nickNorm = String(nickKey || "").toUpperCase().replace(/[._]/g, "");
+        if (
+          !nicksMatch_(nicksRowValues[i], clientRaw) &&
+          !(wantKey && nickKey && nickKey === wantKey) &&
+          !(wantKeyNorm && nickNorm && nickNorm === wantKeyNorm)
+        ) continue;
         var targetCol = i + 3;
         targetSheet.getRange(block.nick, targetCol).setValue("");
         targetSheet.getRange(block.start, targetCol, block.note - block.start + 1, 1).clearContent();

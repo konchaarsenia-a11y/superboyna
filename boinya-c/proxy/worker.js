@@ -478,26 +478,20 @@ async function findOrderRow_(env, matchKey, day, dateIso) {
   const mk = normalizeMatchKey_(matchKey);
   const mkLow = String(matchKey || "").trim().toLowerCase();
   if (day) {
-    let row = await env.DB.prepare(
+    return env.DB.prepare(
       "SELECT * FROM orders WHERE day_name = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?) LIMIT 1"
     )
       .bind(day, mk, mkLow, mkLow)
       .first();
-    if (row) return row;
   }
   if (dateIso) {
-    let row = await env.DB.prepare(
+    return env.DB.prepare(
       "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?) LIMIT 1"
     )
       .bind(dateIso, mk, mkLow, mkLow)
       .first();
-    if (row) return row;
   }
-  return env.DB.prepare(
-    "SELECT * FROM orders WHERE status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?) LIMIT 1"
-  )
-    .bind(mk, mkLow, mkLow)
-    .first();
+  return null;
 }
 
 async function getClients_(params, env) {
@@ -579,12 +573,8 @@ async function getViewCompare_(params, env) {
     if (dateIso && iso && dateIso !== iso) {
       // fall through to calendar-only for dateIso
     } else {
-      const week =
-        live.clients && live.clients.length
-          ? live.clients
-          : snap && Array.isArray(snap.week)
-            ? snap.week
-            : [];
+      const weekRaw = live && Array.isArray(live.clients) ? live.clients : (snap && Array.isArray(snap.week) ? snap.week : []);
+      const week = await filterTombstonedClients_(env, resolvedDay, weekRaw);
       const weekKeys = Object.create(null);
       (week || []).forEach(function (c) {
         weekKeys[normalizeMatchKey_(c.matchKey || c.name)] = true;
@@ -1793,22 +1783,72 @@ async function saveOrder_(params, env, asBooking) {
   };
 }
 
+async function putDeleteTombstone_(env, day, matchKey) {
+  const mk = normalizeMatchKey_(matchKey);
+  if (!env || !day || !mk) return;
+  const prev = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
+  const now = Date.now();
+  const items = (prev.items || []).filter(function (t) {
+    return t && now - Number(t.at || 0) < 180000;
+  });
+  items.push({ day: String(day), mk: mk, at: now });
+  await putSnap_(env, "deleteTombstones", { items: items });
+}
+
+function isTombstoned_(tomb, day, matchKey, name) {
+  const mk = normalizeMatchKey_(matchKey || name);
+  const now = Date.now();
+  return ((tomb && tomb.items) || []).some(function (t) {
+    if (!t || String(t.day) !== String(day)) return false;
+    if (now - Number(t.at || 0) > 180000) return false;
+    return t.mk === mk || nicksLooseMatch_(t.mk, name) || nicksLooseMatch_(t.mk, matchKey);
+  });
+}
+
+async function filterTombstonedClients_(env, day, list) {
+  if (!day || !list || !list.length) return list || [];
+  try {
+    const tomb = await getSnapRaw_(env, "deleteTombstones");
+    if (!tomb || !tomb.items || !tomb.items.length) return list;
+    return list.filter(function (c) {
+      return !isTombstoned_(tomb, day, c && (c.matchKey || c.name), c && (c.name || c.client));
+    });
+  } catch (eT) {
+    return list;
+  }
+}
+
 async function deleteClient_(params, env) {
   if (!env || !env.DB) return { status: "error", message: "no_d1" };
   const day = String(params.day || "");
   const dateIso = String(params.date || params.dateIso || "");
+  const clientLow = String(params.client || "").trim().toLowerCase();
   const matchKey = normalizeMatchKey_(params.matchKey || params.client || "");
+  const mkLow = String(params.matchKey || params.client || "").trim().toLowerCase();
   if (!matchKey && !params.client) return { status: "error", message: "no_client" };
+  if (!day && !dateIso) return { status: "error", message: "need_day_or_date" };
   const now = new Date().toISOString();
-  const row = await findOrderRow_(env, params.matchKey || params.client, day, dateIso);
-  if (!row) {
-    return { status: "success", sandbox: true, wrote: 0, missing: true };
+  let changed = 0;
+  if (day) {
+    const res = await env.DB.prepare(
+      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?)"
+    )
+      .bind(now, day, matchKey, mkLow, mkLow, clientLow)
+      .run();
+    changed = Number((res && res.meta && res.meta.changes) || 0);
+  } else if (dateIso) {
+    const res = await env.DB.prepare(
+      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND (match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?)"
+    )
+      .bind(now, dateIso, matchKey, mkLow, mkLow, clientLow)
+      .run();
+    changed = Number((res && res.meta && res.meta.changes) || 0);
   }
-  await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
-    .bind(now, row.id)
-    .run();
-  await invalidateDays_(env, [row.day_name, day].filter(Boolean));
-  return { status: "success", sandbox: true, wrote: 1 };
+  try {
+    await putDeleteTombstone_(env, day, matchKey || params.client);
+  } catch (eTomb) {}
+  await invalidateDays_(env, [day].filter(Boolean));
+  return { status: "success", sandbox: true, wrote: changed || 1, missing: changed === 0 };
 }
 
 async function moveClient_(params, env) {
@@ -1842,6 +1882,9 @@ async function moveClient_(params, env) {
   await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
     .bind(now, row.id)
     .run();
+  try {
+    await putDeleteTombstone_(env, oldDay || row.day_name, matchKey);
+  } catch (eTombM) {}
 
   let toLabel = "(calendar)";
   if (newDay) {
@@ -3257,16 +3300,15 @@ async function cutoverStoreRead_(a, params, env, payload) {
   // не кэшируем ошибки GAS (иначе listDeferred навсегда need_telegramId)
   if (payload.status && payload.status !== "success") return;
   if (a === "getClients" && params.day) {
-    const list = Array.isArray(payload.clients) ? payload.clients : [];
-    // всегда синхронизируем с GAS (в т.ч. пустой) — иначе в Просмотре живут seed/фантомы
+    let list = Array.isArray(payload.clients) ? payload.clients : [];
+    list = await filterTombstonedClients_(env, params.day, list);
+    payload = Object.assign({}, payload, { clients: list });
     await replaceDayOrdersFromClients_(env, params.day, list);
     return;
   }
   if (a === "getViewCompare" && (payload.day || params.day || payload.dateIso || params.date)) {
     const day = payload.day || params.day;
-    if (day && Array.isArray(payload.week)) {
-      await replaceDayOrdersFromClients_(env, day, payload.week);
-    }
+    // не затираем D1-заказы week-списком GAS: иначе удаление/перенос «воскресает» человека
     if (day) await putSnap_(env, "view:" + day, payload);
     const iso = payload.dateIso || dmyToIso_(payload.date) || params.date || "";
     if (iso) {
@@ -3537,14 +3579,21 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
             }
           } catch (eG) {}
           try {
+            const v = await getViewCompare_({ day: day }, env);
+            if (v && v.status === "success") {
+              await putSnap_(env, "view:" + day, v);
+              if (v.dateIso) await putSnap_(env, "viewDate:" + v.dateIso, v);
+            }
+          } catch (eV) {}
+          try {
             await rebuildCuttingDay_(env, day);
           } catch (eCutD1) {}
           const ops = [
-            cutoverRevalidate_("getViewCompare", { day: day }, env),
             cutoverRevalidate_("getCourier", { day: day }, env),
             cutoverRevalidate_("getAssembly", { day: day }, env)
           ];
           if (gasClientsFresh) {
+            ops.push(cutoverRevalidate_("getViewCompare", { day: day }, env));
             ops.push(cutoverRevalidate_("getCutting", { day: day }, env));
           } else {
             ops.push(
