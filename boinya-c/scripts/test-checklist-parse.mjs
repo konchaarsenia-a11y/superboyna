@@ -147,6 +147,7 @@ for (const s of samples) {
     sub: it.sub,
     cat: it.cat,
     needFrac: it.needFrac,
+    needPiece: !!it.needPiece,
     other: it.cat === "other",
   }));
   const sections = splitPriceChecklistByDogs_(s.raw);
@@ -155,3 +156,26 @@ for (const s of samples) {
   if (parsed.noteBits.length) console.log("unknown:", parsed.noteBits);
   console.log("sections:", sections.map((x) => ({ dog: x.dog, name: x.name, lines: (x.text || "").split("\n").length })));
 }
+
+const chewGrams = parseIgLinesToItems(`Бычий корень — 150 г (мал)
+Трахея — 100 г (средняя)
+Ушко — 1 шт (половинка)`);
+assert(chewGrams.items.length === 3, "chew grams: 3 items");
+const root = chewGrams.items.find((it) => it.name === "БЫЧИЙ КОРЕНЬ");
+const trach = chewGrams.items.find((it) => it.name === "ТРАХЕЯ");
+const ear = chewGrams.items.find((it) => it.name === "УХО Г");
+assert(root && root.needPiece && !(root.val > 0), "корень 150г must NOT write 150 шт");
+assert(trach && trach.needPiece && !(trach.val > 0), "трахея 100г must NOT write 100 шт");
+assert(ear && ear.val === 1 && !ear.needPiece, "ухо 1 шт stays 1");
+
+const chewPcs = parseIgLinesToItems(`Бычий корень — 2 шт (мал)
+Трахея средняя — 4 шт`);
+const root2 = chewPcs.items.find((it) => it.name === "БЫЧИЙ КОРЕНЬ");
+const trach2 = chewPcs.items.find((it) => it.name === "ТРАХЕЯ");
+assert(root2 && root2.val === 2 && !root2.needPiece, "корень 2 шт stays 2");
+assert(trach2 && trach2.val === 4 && !trach2.needPiece, "трахея 4 шт stays 4");
+
+const dogPrefix = parseIgLinesToItems("Рекс: Лёгкое — 200 г (средний кубик)");
+assert(dogPrefix.items[0] && dogPrefix.items[0].name === "ЛЁГКОЕ" && dogPrefix.items[0].val === 200, "strip Рекс: prefix");
+
+console.log("\nchew grams / pieces / dog-prefix asserts OK");

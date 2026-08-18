@@ -2,7 +2,7 @@
 
 ## LIVE (по умолчанию)
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71115830
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71115831
 
 Чтение из D1, запись в GAS. Бейдж **C · LIVE**. Тест: `zzz_test`.
 

@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c30";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c31";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3544,7 +3544,7 @@
       getClients: 35000,
       getViewCompare: 18000,
       getMonthOverview: 35000,
-      getCutting: 12000,
+      getCutting: 35000,
       getCourier: 30000,
       getAssembly: 30000,
       getWarehouse: 35000,
@@ -3590,7 +3590,7 @@
     }
 
     function apiCacheBustOrderViews_() {
-      ["getClients", "getViewCompare", "getWeekDayCounts", "getMonthOverview", "listBookings", "getAssembly", "getCourier"].forEach(function (a) {
+      ["getClients", "getViewCompare", "getWeekDayCounts", "getMonthOverview", "listBookings", "getAssembly", "getCourier", "getCutting", "getWarehouse"].forEach(function (a) {
         try { apiCacheBustMem_(a); } catch (e) {}
       });
     }
@@ -7037,13 +7037,19 @@
           action: "getCutting",
           day: day
         }, {
-          timeoutMs: hasCache ? 8000 : 10000,
+          timeoutMs: hasCache ? 18000 : 28000,
           retries: 0,
           cacheTtlMs: (opts.keepCompletion || opts.force) ? 0 : undefined
         });
         if (loadSeq !== _cuttingLoadSeq) return;
         var curDay = document.getElementById("cuttingDaySelect") && document.getElementById("cuttingDaySelect").value;
         if (String(curDay || "") !== String(day)) return;
+        if (res && (res.fromCalendar || res.fromD1) && !res.fromGas) {
+          if (!fromPoll && !(prevItems && prevItems.length)) {
+            box.innerHTML = loadingDanceHtml("Считаю нарезку по таблице…");
+          }
+          return;
+        }
         window._cuttingNeedRefresh = false;
         let completion = (res && res.completion) || null;
         if (res && res.date) {
@@ -13797,6 +13803,7 @@
         if (mult > 1) val = val * mult;
 
         if (/^(набор|состав|заказ|итого)/i.test(namePart)) return;
+        namePart = String(namePart || "").replace(/^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-']{1,24}\s*:\s*/, "").trim();
         if (/кг/i.test(unit)) val = Math.round(val * 1000);
 
         var up = namePart.toUpperCase().replace(/\s+/g, " ").trim();
@@ -13873,6 +13880,21 @@
         } else {
           frac = "";
         }
+        var needPiece = false;
+        var pieceHint = "";
+        var pieceSku = hit.cat === "chew" || (typeof isPieceSkuName === "function" && isPieceSkuName(hit.name));
+        if (pieceSku) {
+          var unitLow = String(unit || "").toLowerCase().replace(/\./g, "");
+          var gramUnit = /^(г|гр|грамм)$/i.test(unitLow);
+          var pcsInLine = String(line || "").match(/(\d+)\s*шт/i);
+          if (pcsInLine && gramUnit) {
+            val = Math.max(1, parseInt(pcsInLine[1], 10) || 1);
+          } else if ((gramUnit && val > 12) || (!unitLow && val > 20)) {
+            needPiece = true;
+            pieceHint = val + (gramUnit ? " г" : "");
+            val = 0;
+          }
+        }
         added.push({
           cat: hit.cat,
           main: hit.name,
@@ -13881,6 +13903,8 @@
           value: val,
           val: val,
           needFrac: !!needFrac,
+          needPiece: !!needPiece,
+          pieceHint: pieceHint,
           fractions: (hit.fractions || []).slice(),
           fracHint: fracSrc || ""
         });
@@ -13913,26 +13937,56 @@
       return String(picked);
     }
 
+    async function askChecklistPieceQty_(it, dogLabel) {
+      var main = prettyProductName(it.main || it.name);
+      var title = (dogLabel ? (dogLabel + " · ") : "") + main;
+      var msg = it.pieceHint
+        ? ("В чеклисте: «" + it.pieceHint + "». На лист жевалки пишем штуками. Сколько шт?")
+        : "Сколько штук?";
+      var choices = [1, 2, 3, 4, 5, 6, 8].map(function (n) {
+        return { label: String(n) + " шт", value: String(n), cls: n === 2 ? "btn-orange" : "btn-blue" };
+      });
+      choices.push({ label: "Другое", value: "__other__", cls: "" });
+      var picked = await uiChoiceAsync(title, msg, choices);
+      if (picked == null) return null;
+      if (picked === "__other__") {
+        var custom = await uiPromptAsync("Количество (шт) · " + main, "2");
+        if (custom == null) return null;
+        var n = parseInt(String(custom).replace(",", "."), 10);
+        return n > 0 ? n : null;
+      }
+      var n2 = parseInt(picked, 10);
+      return n2 > 0 ? n2 : null;
+    }
+
     async function resolveChecklistItemsFrac_(items, dogLabel) {
       var out = [];
       var asked = 0;
       for (var i = 0; i < (items || []).length; i++) {
         var it = items[i];
         var sub = it.sub || "";
+        var val = Number(it.val != null ? it.val : it.value) || 0;
         if (it.needFrac && it.fractions && it.fractions.length) {
           asked++;
           var picked = await askChecklistFraction_(it, dogLabel || "");
           if (picked == null) return { cancelled: true, items: out, asked: asked };
           sub = picked;
         }
+        if (it.needPiece) {
+          asked++;
+          var pcs = await askChecklistPieceQty_(it, dogLabel || "");
+          if (pcs == null) return { cancelled: true, items: out, asked: asked };
+          val = pcs;
+        }
+        if (!(val > 0)) continue;
         out.push({
           id: Date.now() + Math.random(),
           cat: it.cat,
           main: it.main,
           name: it.name,
           sub: sub,
-          value: it.val,
-          val: it.val
+          value: val,
+          val: val
         });
       }
       return { cancelled: false, items: out, asked: asked };

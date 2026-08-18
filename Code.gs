@@ -810,7 +810,7 @@ function recalculateCuttingForDate_(ss, dateText) {
   // 61+ строк: примечание «Будущей» на row 61 — раньше matrix=60 и skip [НЕ РЕЗАТЬ] не работал
   var matrixRows = sourceSheet === future ? 61 : 427;
   var matrix = sourceSheet ? sourceSheet.getRange(1, 3, matrixRows, 15).getValues() : null;
-  var skipCols = noCutSkipColsForBlock_(sourceSheet, block);
+  var skipCols = sheetColSkipForBlock_(sourceSheet, block);
   if (matrix && block && !Object.keys(skipCols).length) {
     var noteRowIdx = block.note - 1;
     if (noteRowIdx >= 0 && noteRowIdx < matrix.length) {
@@ -848,6 +848,60 @@ function noCutSkipColsForBlock_(sheet, block) {
       if (/\[НЕ\s*РЕЗАТЬ\]/i.test(String(notes[sc] || ""))) skip[sc] = true;
     }
   } catch (eN) {}
+  return skip;
+}
+
+/**
+ * Колонки, которые нельзя суммировать в нарезку/склад:
+ * пустой ник, [НЕ РЕЗАТЬ], дубль того же человека (как getClients — одна колонка).
+ * Иначе B на «Нарезке» больше, чем люди в Просмотре.
+ */
+function sheetColSkipForBlock_(sheet, block) {
+  var skip = noCutSkipColsForBlock_(sheet, block);
+  if (!sheet || !block) return skip;
+  var nicks = [];
+  try {
+    nicks = sheet.getRange(block.nick, 3, 1, 15).getValues()[0] || [];
+  } catch (eNick) {
+    return skip;
+  }
+  var qtyLen = [];
+  try {
+    var nRows = Math.max(1, block.end - block.start + 1);
+    var mat = sheet.getRange(block.start, 3, nRows, 15).getValues();
+    for (var c = 0; c < 15; c++) {
+      var n = 0;
+      for (var r = 0; r < mat.length; r++) {
+        if (Number(mat[r][c]) > 0) n++;
+      }
+      qtyLen[c] = n;
+    }
+  } catch (eQ) {
+    qtyLen = [];
+  }
+  var winner = {};
+  for (var i = 0; i < 15; i++) {
+    var nick = String(nicks[i] || "").trim();
+    if (!nick || !isCountableClientNick_(nick)) {
+      skip[i] = true;
+      continue;
+    }
+    var mk = clientMatchKey_(nick) || ("col:" + i);
+    var ql = qtyLen[i] || 0;
+    if (!Object.prototype.hasOwnProperty.call(winner, mk)) {
+      winner[mk] = i;
+      continue;
+    }
+    var pi = winner[mk];
+    var prevQ = qtyLen[pi] || 0;
+    var prevNick = String(nicks[pi] || "");
+    if (ql > prevQ || (ql === prevQ && nick.length > prevNick.length)) {
+      skip[pi] = true;
+      winner[mk] = i;
+    } else {
+      skip[i] = true;
+    }
+  }
   return skip;
 }
 
@@ -1029,7 +1083,7 @@ function finishFullWeekProduction(optSs, optOpts) {
       var di = Math.floor((st - 4) / 61);
       dayBlk = getDayBlock(MANAGER_DAY_NAMES_[di]);
     }
-    noCutByDayOffset[weekDaysGeo[nd].start] = noCutSkipColsForBlock_(sheetManager, dayBlk);
+    noCutByDayOffset[weekDaysGeo[nd].start] = sheetColSkipForBlock_(sheetManager, dayBlk);
   }
   for (var cRow = 3; cRow <= 48; cRow++) {
     var rowsToSum = itemMap[cRow.toString()];
@@ -4523,8 +4577,13 @@ function countClientsOnDayNickRow_(ss, dayName) {
     nicks = targetSheet.getRange(nickRow, 3, 1, colsToRead).getValues()[0] || [];
   } catch (eR) { nicks = []; }
   var n = 0;
+  var seenMk = {};
   for (var i = 0; i < nicks.length; i++) {
-    if (isCountableClientNick_(nicks[i])) n++;
+    if (!isCountableClientNick_(nicks[i])) continue;
+    var mk = clientMatchKey_(nicks[i]);
+    if (mk && Object.prototype.hasOwnProperty.call(seenMk, mk)) continue;
+    if (mk) seenMk[mk] = true;
+    n++;
   }
   var dateStr = "";
   try {
@@ -5494,7 +5553,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
   var noCutByDayOffset = {};
   for (var nd = 0; nd < weekDaysGeo.length; nd++) {
     var dayBlk = getDayBlock(MANAGER_DAY_NAMES_[nd]);
-    noCutByDayOffset[weekDaysGeo[nd].start] = noCutSkipColsForBlock_(sheetManager, dayBlk);
+    noCutByDayOffset[weekDaysGeo[nd].start] = sheetColSkipForBlock_(sheetManager, dayBlk);
   }
 
   var cuttingSurplusValues = [];
@@ -5557,7 +5616,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
     try {
       var futMatrix = futureDay.sheet.getRange(1, 3, 59, 15).getValues();
       var futBlk = getDayBlock("Будущая неделя");
-      var futSkip = noCutSkipColsForBlock_(futureDay.sheet, futBlk) || {};
+      var futSkip = sheetColSkipForBlock_(futureDay.sheet, futBlk) || {};
       for (var cRowF = 3; cRowF <= 48; cRowF++) {
         var rowsF = itemMap[String(cRowF)];
         if (!rowsF) continue;
