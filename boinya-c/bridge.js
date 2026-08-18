@@ -924,7 +924,9 @@
   try {
     function mountTurbo() {
       var b = document.getElementById("boinyaCBadge");
-      if (b && turboOn()) b.textContent = window.__BOINYA_C_CUTOVER__ ? "C · LIVE" : "C · D1";
+      if (!b) return;
+      b.textContent = window.__boinyaCBadgeLabel || (window.__BOINYA_C_CUTOVER__ ? "C · LIVE" : "C · D1");
+      if (window.__boinyaCBadgeTitle) b.title = window.__boinyaCBadgeTitle;
     }
     if (document.body) mountTurbo();
     else document.addEventListener("DOMContentLoaded", mountTurbo);

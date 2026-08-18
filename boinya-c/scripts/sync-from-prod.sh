@@ -38,7 +38,7 @@ if old in t:
 elif "GOOGLE_WEBHOOK_ORIGIN" not in t and "BOINYA_C_PROXY" not in t:
     raise SystemExit("webhook const not found — sync manually")
 
-t = t.replace("<title>Конвейер Бойня</title>", "<title>Бойня C · sandbox</title>", 1)
+t = t.replace("<title>Конвейер Бойня</title>", "<title>Бойня C</title>", 1)
 
 needle = '  <script src="https://telegram.org/js/telegram-web-app.js"></script>'
 inject = '''  <script src="client/config.js"></script>
@@ -46,16 +46,18 @@ inject = '''  <script src="client/config.js"></script>
   <script src="bridge.js"></script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script>
-    /* C badge — только копия, прод не трогаем */
+    /* C badge — LIVE по умолчанию; D1 только при ?sandbox=1 / ?cutover=0 */
     (function () {
       function mount() {
-        if (document.getElementById("boinyaCBadge")) return;
-        var b = document.createElement("div");
-        b.id = "boinyaCBadge";
-        b.textContent = "C · D1";
-        b.title = "Бойня C · полный клон на Worker/D1 (данные с GAS, запись в D1).";
-        b.style.cssText = "position:fixed;top:6px;right:8px;z-index:99998;font:700 10px/1 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:.06em;color:#06221f;background:#3dd6c6;padding:4px 7px;border-radius:4px;opacity:.9;pointer-events:none;";
-        document.body.appendChild(b);
+        var b = document.getElementById("boinyaCBadge");
+        if (!b) {
+          b = document.createElement("div");
+          b.id = "boinyaCBadge";
+          b.style.cssText = "position:fixed;top:6px;right:8px;z-index:99998;font:700 10px/1 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:.06em;color:#06221f;background:#3dd6c6;padding:4px 7px;border-radius:4px;opacity:.9;pointer-events:none;";
+          document.body.appendChild(b);
+        }
+        b.textContent = window.__boinyaCBadgeLabel || (window.__BOINYA_C_CUTOVER__ ? "C · LIVE" : "C · D1");
+        if (window.__boinyaCBadgeTitle) b.title = window.__boinyaCBadgeTitle;
       }
       if (document.body) mount();
       else document.addEventListener("DOMContentLoaded", mount);

@@ -1,14 +1,15 @@
-# Cutover LIVE (быстрый)
+# Cutover LIVE (по умолчанию)
 
 ## Как открыть
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=7111594
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71115825
 
-Hard refresh. Бейдж **C · LIVE**.
+Бейдж **C · LIVE**. Режим закреплён в URL (`cutover=1`) — не должен прыгать на **C · D1**.
 
-В Telegram Menu Button лучше сразу:
-`.../boinya-c/app.html?cutover=1&v=7111594`
-(без лишнего редиректа через index.html).
+В Telegram Menu Button:
+`.../boinya-c/app.html?cutover=1&v=71115825`
+
+Песочница (без записи в Sheets): `?sandbox=1` или `?cutover=0` → бейдж **C · D1**.
 
 ## Как это устроено сейчас
 
