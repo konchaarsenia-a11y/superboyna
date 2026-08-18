@@ -1929,6 +1929,37 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
     return;
   }
 
+  if (/^finishCutting$/i.test(action)) {
+    let snap = (await getSnapRaw_(env, "cutting:" + day)) || {
+      status: "success",
+      day: day,
+      items: [],
+      session: { active: false, day: "", startedAt: 0 }
+    };
+    const items = Array.isArray(snap.items) ? snap.items.slice() : [];
+    items.forEach(function (it) {
+      if (!it) return;
+      it.done = true;
+      it.laid = true;
+    });
+    snap.items = items;
+    snap.completion = proxied.completion || {
+      day: day,
+      dateText: snap.date || "",
+      date: snap.date || "",
+      elapsedMs: Number(params.elapsed) || 0,
+      finishedAt: new Date().toISOString(),
+      count: items.length,
+      items: items
+    };
+    snap.session = { active: false, day: "", startedAt: 0 };
+    snap.fromGas = true;
+    snap.fromD1 = false;
+    snap.sandbox = false;
+    await putSnap_(env, "cutting:" + day, snap);
+    return;
+  }
+
   if (/^setDelivered$/i.test(action)) {
     const delivered = toBool_(params.delivered);
     let snap = (await getSnapRaw_(env, "courier:" + day));
