@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c31";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c32";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3471,7 +3471,7 @@
     var _API_SS_KEY = "boinya_api_swr_v1";
     var _API_READ_TTL = {
       getClients: 45000,
-      getCutting: 60000,
+      getCutting: 8000,
       getCourier: 45000,
       getAssembly: 30000,
       getWarehouse: 60000,
@@ -3515,6 +3515,7 @@
         if (!obj || typeof obj !== "object") return;
         var now = Date.now();
         Object.keys(obj).forEach(function (k) {
+          if (/action=getCutting(\b|&|$)/.test(k) || k.indexOf("action=getCutting") >= 0) return;
           var hit = obj[k];
           if (hit && hit.exp > now && hit.res) _apiGetMem[k] = hit;
         });
@@ -3522,6 +3523,7 @@
     }
     function apiSsSaveKey_(cacheKey, hit) {
       try {
+        if (cacheKey && String(cacheKey).indexOf("action=getCutting") >= 0) return;
         var raw = sessionStorage.getItem(_API_SS_KEY);
         var obj = raw ? JSON.parse(raw) : {};
         if (!obj || typeof obj !== "object") obj = {};
@@ -3625,9 +3627,10 @@
       if (!opts.bypassMem && cacheTtlMs > 0 && cacheKey) {
         try {
           var hit = _apiGetMem[cacheKey];
+          var skipStaleCut = action === "getCutting" || window._cuttingNeedRefresh;
           if (hit && hit.exp > Date.now()) return Promise.resolve(hit.res);
 
-          if (hit && hit.res && hit.exp > Date.now() - Math.max(cacheTtlMs * 4, 120000)) {
+          if (!skipStaleCut && hit && hit.res && hit.exp > Date.now() - Math.max(cacheTtlMs * 4, 120000)) {
             var stale = hit.res;
             setTimeout(function () {
               try {
@@ -6343,16 +6346,32 @@
     }
     window.pullOneFromMonth = pullOneFromMonth;
 
-    async function refreshDayViews(dayHint) {
+    async function refreshDayViews(dayHint, opts) {
+      opts = opts || {};
       const viewDay = document.getElementById("viewDaySelect").value;
       const cutDay = document.getElementById("cuttingDaySelect").value;
       const courDay = document.getElementById("courierDaySelect").value;
       var jobs = [];
       if (dayHint && viewDay === dayHint) jobs.push(loadClientsForDay());
       else if (viewDay) jobs.push(loadClientsForDay());
-      if (cutDay && (!dayHint || cutDay === dayHint)) jobs.push(loadCutting());
+      if (cutDay && (!dayHint || cutDay === dayHint)) jobs.push(loadCutting({ force: !!opts.force }));
       if (courDay && (!dayHint || courDay === dayHint)) jobs.push(loadCourier(true));
       if (jobs.length) await Promise.all(jobs);
+    }
+
+    function afterPeopleMutationDays_(days) {
+      window._cuttingNeedRefresh = true;
+      try { apiCacheBustMem_("getCutting"); } catch (e0) {}
+      try { apiCacheBustMem_("getCourier"); } catch (e1) {}
+      try { apiCacheBustMem_("getAssembly"); } catch (e2) {}
+      try { apiCacheBustMem_("getClients"); } catch (e3) {}
+      try { apiCacheBustMem_("getViewCompare"); } catch (e4) {}
+      try { apiCacheBustMem_("getMonthOverview"); } catch (e5) {}
+      try { apiCacheBustMem_("getWeekDayCounts"); } catch (e6) {}
+      (days || []).forEach(function (d) {
+        if (!d) return;
+        try { invalidateOpsDayCaches_(d); } catch (eInv) {}
+      });
     }
 
     function getSelectedClientIndexes() {
@@ -6490,10 +6509,14 @@
         apiCacheBustMem_("getClients");
         apiCacheBustMem_("getMonthOverview");
         apiCacheBustMem_("listSurvey");
+        afterPeopleMutationDays_([oldDay, newDay]);
       } catch (eClr) {}
       viewMonthOverviewCache = null;
       await loadClientsForDay();
-      if (!calendarOnly && newDay && oldDay && newDay !== oldDay) await refreshDayViews(newDay);
+      try { await refreshDayViews(oldDay, { force: true }); } catch (eOld) {}
+      if (!calendarOnly && newDay && oldDay && newDay !== oldDay) {
+        try { await refreshDayViews(newDay, { force: true }); } catch (eNew) {}
+      }
       try { await ensureMonthOverviewLoaded_({ force: true }); } catch (eOv) {}
       recoverUiFocus();
     }
@@ -6578,7 +6601,8 @@
       }
       showToast("Удалено: " + ok + (fail.length ? ", ошибок: " + fail.length : ""));
       if (fail.length) await uiAlertAsync("Не удалось:\n" + fail.join("\n"));
-      await refreshDayViews(day);
+      try { afterPeopleMutationDays_([day]); } catch (eMut) {}
+      await refreshDayViews(day, { force: true });
       recoverUiFocus();
     }
     window.crmBatchDelete = crmBatchDelete;
@@ -6814,11 +6838,13 @@
           apiCacheBustMem_("getClients");
           apiCacheBustMem_("getMonthOverview");
           apiCacheBustMem_("listSurvey");
+          afterPeopleMutationDays_([oldDay, newDay]);
         } catch (eClr) {}
         viewMonthOverviewCache = null;
         await loadClientsForDay();
+        try { await refreshDayViews(oldDay, { force: true }); } catch (eR0) {}
         if (!calendarOnly && newDay && oldDay && newDay !== oldDay) {
-          try { await refreshDayViews(newDay); } catch (eR) {}
+          try { await refreshDayViews(newDay, { force: true }); } catch (eR) {}
         }
         try { await ensureMonthOverviewLoaded_({ force: true }); } catch (eOv) {}
         return true;
@@ -6915,7 +6941,8 @@
           return;
         }
         showToast(res.alreadyGone ? "Уже удалено" : "Удалено");
-        await refreshDayViews(day);
+        try { afterPeopleMutationDays_([day]); } catch (eMut) {}
+        await refreshDayViews(day, { force: true });
       } catch (err) {
         await uiAlertAsync(err.message || String(err));
       } finally {
@@ -7039,12 +7066,12 @@
         }, {
           timeoutMs: hasCache ? 18000 : 28000,
           retries: 0,
-          cacheTtlMs: (opts.keepCompletion || opts.force) ? 0 : undefined
+          cacheTtlMs: (opts.keepCompletion || opts.force || window._cuttingNeedRefresh) ? 0 : undefined
         });
         if (loadSeq !== _cuttingLoadSeq) return;
         var curDay = document.getElementById("cuttingDaySelect") && document.getElementById("cuttingDaySelect").value;
         if (String(curDay || "") !== String(day)) return;
-        if (res && (res.fromCalendar || res.fromD1) && !res.fromGas) {
+        if (res && res.fromCalendar && !res.fromGas && !res.fromOrders) {
           if (!fromPoll && !(prevItems && prevItems.length)) {
             box.innerHTML = loadingDanceHtml("Считаю нарезку по таблице…");
           }
@@ -11331,9 +11358,9 @@
         }
       } catch (eA) { assemblyCache = null; }
       try {
+        window._cuttingNeedRefresh = true;
         var cutDay = document.getElementById("cuttingDaySelect") && document.getElementById("cuttingDaySelect").value;
         if (!day || String(cutDay || "") === day) {
-          window._cuttingNeedRefresh = true;
           cuttingItemsCache = [];
           cuttingCompletionCache = null;
           if (cuttingSession) cuttingSession.fingerprint = "";

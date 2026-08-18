@@ -3499,6 +3499,7 @@ function isCancelledCalendarKey_(keys, client, matchKeyOpt) {
 }
 
 function handleDeleteClient(ss, json, callback) {
+  try { bustClientsCache_(); } catch (eEarlyDel) {}
   var tz = ss.getSpreadsheetTimeZone();
   var dayName = String(json.day || "").trim();
   var deliveryDate = parseFlexibleDate_(json.date || json.deliveryDate, tz);
@@ -3671,6 +3672,7 @@ function scrubFutureWeekOrphans_(ss, opts) {
 }
 
 function handleMoveClient(ss, json, callback) {
+  try { bustClientsCache_(); } catch (eEarlyMv) {}
   var srcBlock = getDayBlock(json.oldDay);
   var tz = ss.getSpreadsheetTimeZone();
   var clientName = String(json.client || "").trim();
@@ -4148,6 +4150,7 @@ function handleSaveOrder(ss, json, callback, fromPost) {
     return fromPost ? jsonpText(callback, obj) : jsonp(callback, obj);
   };
   json = json || {};
+  try { bustClientsCache_(); } catch (eEarlySv) {}
   var dayHintOrig = String(json.day || "").trim();
   var tzSo = ss.getSpreadsheetTimeZone();
   var dateGiven = !!parseFlexibleDate_(json.date || json.deliveryDate, tzSo);

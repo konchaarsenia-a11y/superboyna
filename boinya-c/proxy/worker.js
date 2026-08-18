@@ -943,6 +943,39 @@ function isPieceSku_(name, cat, unit) {
   return false;
 }
 
+/** Жевалка: «ТРАХЕЯ» + «СРЕД» → «ТРАХЕЯ СРЕД шт.» как на листе Нарезка. Дрессуру не дробим. */
+function chewSubToken_(sub) {
+  const u = String(sub || "")
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!u) return "";
+  if (/ПОЛОВИН/.test(u)) return "ПОЛОВИНКА";
+  if (/ОЧ\s*МАЛ|ОЧЕНЬ/.test(u)) return "ОЧ МАЛ";
+  if (/ОГР|ОГРОМ|ГИГАНТ|РОГАЛ/.test(u)) return "ОГР";
+  if (/ПАЛК|ПАЛОЧ/.test(u)) return "ПАЛК";
+  if (/ПЛАСТ/.test(u)) return "ПЛАСТ";
+  if (/БОЛ|БОЛЬШ/.test(u)) return "БОЛ";
+  if (/СРЕД/.test(u)) return "СРЕД";
+  if (/(^|[^А-ЯA-Z0-9])МАЛ([^А-ЯA-Z0-9]|$)|МЕЛК/.test(u)) return "МАЛ";
+  return u;
+}
+
+function cuttingNameFromBasketItem_(it) {
+  const name = String((it && (it.main || it.name)) || "").trim();
+  if (!name) return "";
+  const sub = String((it && it.sub) || "").trim();
+  const piece = isPieceSku_(name, it && it.cat, it && it.unit);
+  if (!piece || !sub) return name;
+  const nu = name.toUpperCase().replace(/Ё/g, "Е");
+  const tok = chewSubToken_(sub);
+  if (!tok) return name;
+  if (nu.indexOf(tok) >= 0) return name;
+  const base = name.replace(/\s*шт\.?\s*$/i, "").trim();
+  return base + " " + tok + " шт.";
+}
+
 function cuttingItemsFromPeople_(people, warehouseItems) {
   const coefByName = Object.create(null);
   const rowByName = Object.create(null);
@@ -956,7 +989,7 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
   (people || []).forEach(function (p) {
     if (p && (p.noCut || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(p.note || "")))) return;
     (p.basket || []).forEach(function (it) {
-      const name = String((it && (it.main || it.name)) || "").trim();
+      const name = cuttingNameFromBasketItem_(it);
       if (!name) return;
       const val = Number(it.value != null ? it.value : it.val) || 0;
       if (!(val > 0)) return;
@@ -1541,7 +1574,8 @@ async function rebuildCuttingDay_(env, day) {
     transferOnly: transferOnly,
     sandbox: true,
     source: "d1",
-    fromD1: true
+    fromD1: true,
+    fromOrders: true
   };
   await putSnap_(env, "cutting:" + day, payload);
   return payload;
@@ -1557,7 +1591,11 @@ async function invalidateDays_(env, days) {
     await delSnap_(env, "view:" + d);
     await rebuildCourierDay_(env, d);
     await rebuildAssemblyDay_(env, d);
-    await delSnap_(env, "cutting:" + d);
+    try {
+      await rebuildCuttingDay_(env, d);
+    } catch (eCutInv) {
+      await delSnap_(env, "cutting:" + d);
+    }
   }
   await rebuildWeekCounts_(env);
   await rebuildMonthOverview_(env);
@@ -1634,16 +1672,22 @@ async function getAssembly_(params, env) {
 
 async function getCutting_(params, env) {
   const day = String(params.day || "Понедельник");
-  const hit = await getSnapRaw_(env, "cutting:" + day);
-  if (!hit) return null;
   const info = await dayDateInfo_(env, day);
   const wantDate = String((info && info.date) || "");
-  const snapDate = String((hit && hit.date) || "");
-  const dateOk = !wantDate || !snapDate || snapDate === wantDate;
-  const staleDone = !!(hit && hit.completion && wantDate && snapDate !== wantDate);
-  if (!dateOk || staleDone) return null;
-  // Оценка из D1 теряет фракции (трахея мал/сред…) — только snap с GAS
-  if (hit.fromD1 || hit.fromCalendar) return null;
+  let hit = await getSnapRaw_(env, "cutting:" + day);
+  if (hit) {
+    const snapDate = String((hit && hit.date) || "");
+    const dateOk = !wantDate || !snapDate || snapDate === wantDate;
+    const staleDone = !!(hit && hit.completion && wantDate && snapDate !== wantDate);
+    if (!dateOk || staleDone) hit = null;
+  }
+  // Сразу из живых заказов D1 (после переноса/сейва). Оценка календаря без fromOrders — нет.
+  if (hit && (hit.fromOrders || hit.fromGas) && !hit.fromCalendar) return hit;
+  if (hit && !hit.fromD1 && !hit.fromCalendar) return hit;
+  try {
+    const rebuilt = await rebuildCuttingDay_(env, day);
+    if (rebuilt && rebuilt.status === "success") return rebuilt;
+  } catch (eReb) {}
   return hit;
 }
 
@@ -2827,17 +2871,20 @@ async function handleCutover_(a, params, env, ctx) {
     ctx.waitUntil(cutoverRevalidate_(a, params, env));
   }
 
-  // Нарезка: GAS-snap сразу + фоновое обновление. D1-оценку (fromD1) не отдаём — теряются фракции.
+  // Нарезка: сразу D1 (fromOrders, с фракциями жевалок) или GAS-snap. Календарную оценку без заказов не отдаём.
   if (a === "getCutting" && fast && typeof fast === "object") {
-    const isEstimate = !!(fast.fromD1 || fast.fromCalendar);
-    const hasGasSnap =
-      !isEstimate &&
-      ((Array.isArray(fast.items) && fast.items.length) || fast.completion);
-    if (hasGasSnap) {
+    const isCalendarGuess = !!(fast.fromCalendar && !fast.fromOrders && !fast.fromGas);
+    const canServe =
+      !isCalendarGuess &&
+      (fast.fromOrders ||
+        fast.fromGas ||
+        (Array.isArray(fast.items) && fast.items.length) ||
+        fast.completion);
+    if (canServe) {
       fast.cutover = true;
       fast.swr = true;
-      fast.fromGas = true;
-      if (fast.sandbox === true) fast.sandbox = false;
+      if (fast.fromGas) fast.fromGas = true;
+      if (fast.sandbox === true && (fast.fromOrders || fast.fromGas)) fast.sandbox = false;
       if (ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(cutoverRevalidate_(a, params, env));
       }
@@ -3417,18 +3464,24 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
       const day = uniq[i];
       jobs.push(
         (async function () {
+          let gasClientsFresh = false;
+          const wantClient = String(params.client || params.nick || "").trim();
+          const oldDay = String(params.oldDay || "");
+          const newDay = String(params.newDay || "");
           try {
             const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
             if (fresh && fresh.status === "success") {
               let list = Array.isArray(fresh.clients) ? fresh.clients : [];
-              const wantClient = String(params.client || params.nick || "").trim();
+              const inGas = wantClient
+                ? list.some(function (c) {
+                    return nicksLooseMatch_(c && (c.name || c.client), wantClient);
+                  })
+                : false;
               // merge optimistic row if GAS ещё не видит save
               if (
                 /^(saveOrder|saveBooking)$/i.test(a) &&
                 wantClient &&
-                !list.some(function (c) {
-                  return nicksLooseMatch_(c && (c.name || c.client), wantClient);
-                })
+                !inGas
               ) {
                 const basketArr = parseBasket_(params.basket);
                 list = list.concat([
@@ -3445,15 +3498,85 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                 ]);
                 fresh.clients = list;
               }
+              if (/^(deleteClient|removeCalendarClient)$/i.test(a) && wantClient && inGas) {
+                list = list.filter(function (c) {
+                  return !nicksLooseMatch_(c && (c.name || c.client), wantClient);
+                });
+                fresh.clients = list;
+              }
+              if (/^moveClient$/i.test(a) && wantClient) {
+                if (day && oldDay && day === oldDay && inGas) {
+                  list = list.filter(function (c) {
+                    return !nicksLooseMatch_(c && (c.name || c.client), wantClient);
+                  });
+                  fresh.clients = list;
+                }
+                if (day && newDay && day === newDay && !inGas) {
+                  try {
+                    const live = await getClients_({ day: day }, env);
+                    const fromD1 = ((live && live.clients) || []).find(function (c) {
+                      return nicksLooseMatch_(c && (c.name || c.client), wantClient);
+                    });
+                    if (fromD1) {
+                      list = list.concat([fromD1]);
+                      fresh.clients = list;
+                    }
+                  } catch (eKeep) {}
+                }
+              }
+              if (/^(saveOrder|saveBooking)$/i.test(a)) gasClientsFresh = inGas;
+              else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) gasClientsFresh = !inGas;
+              else if (/^moveClient$/i.test(a)) {
+                if (day === oldDay) gasClientsFresh = !inGas;
+                else if (day === newDay) gasClientsFresh = inGas;
+                else gasClientsFresh = true;
+              } else {
+                gasClientsFresh = true;
+              }
               await cutoverStoreRead_("getClients", { day: day }, env, fresh);
             }
           } catch (eG) {}
-          await Promise.all([
+          try {
+            await rebuildCuttingDay_(env, day);
+          } catch (eCutD1) {}
+          const ops = [
             cutoverRevalidate_("getViewCompare", { day: day }, env),
             cutoverRevalidate_("getCourier", { day: day }, env),
-            cutoverRevalidate_("getAssembly", { day: day }, env),
-            cutoverRevalidate_("getCutting", { day: day }, env)
-          ]);
+            cutoverRevalidate_("getAssembly", { day: day }, env)
+          ];
+          if (gasClientsFresh) {
+            ops.push(cutoverRevalidate_("getCutting", { day: day }, env));
+          } else {
+            ops.push(
+              (async function () {
+                await new Promise(function (r) {
+                  setTimeout(r, 8000);
+                });
+                try {
+                  await rebuildCuttingDay_(env, day);
+                } catch (eR2) {}
+                try {
+                  const again = await gasProxy_("getClients", { day: day }, env, { write: false });
+                  const list2 = (again && again.clients) || [];
+                  const inGas2 = wantClient
+                    ? list2.some(function (c) {
+                        return nicksLooseMatch_(c && (c.name || c.client), wantClient);
+                      })
+                    : false;
+                  let freshNow = false;
+                  if (/^(saveOrder|saveBooking)$/i.test(a)) freshNow = inGas2;
+                  else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) freshNow = !inGas2;
+                  else if (/^moveClient$/i.test(a)) {
+                    if (day === oldDay) freshNow = !inGas2;
+                    else if (day === newDay) freshNow = inGas2;
+                    else freshNow = true;
+                  }
+                  if (freshNow) await cutoverRevalidate_("getCutting", { day: day }, env);
+                } catch (eLate) {}
+              })()
+            );
+          }
+          await Promise.all(ops);
         })()
       );
     }
