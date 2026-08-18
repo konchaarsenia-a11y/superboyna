@@ -2788,7 +2788,8 @@ async function handleCutover_(a, params, env, ctx) {
       if (isWeekSkewed_(liveLike) || (counts && counts.fromCalendar && isWeekSkewed_(counts))) {
         if (!(sheet && !isWeekSkewed_(sheet))) {
           const cal = await applyCalendarWeekIfSkewed_(a, params, env, liveLike || counts);
-          if (cal) return cal;
+          // нарезку из календаря не отдаём — без фракций (трахея мал/сред…) и с дублями
+          if (cal && a !== "getCutting") return cal;
         }
       }
     } catch (eCalOps) {}
