@@ -15199,7 +15199,7 @@ function readPriceCosts_(mode) {
 
 function handleCalcPrice(json, callback, fromPost) {
   var mode = json.mode || "subscription";
-  var basket = json.basket || [];
+  var basket = normalizeBasketArg_(json.basket);
   var m = String(mode || "").toLowerCase();
   var isRetail = m.indexOf("розн") >= 0 || m === "retail";
 
@@ -15391,11 +15391,7 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
 /** Полный пересчёт ФАКТ СТОИМОСТЬ ПП по составу. */
 function handleCalcPpFact(json, callback, fromPost) {
   json = json || {};
-  var basket = json.basket || [];
-  if (typeof basket === "string") {
-    try { basket = JSON.parse(basket); } catch (e0) { basket = []; }
-  }
-  if (!Array.isArray(basket)) basket = [];
+  var basket = normalizeBasketArg_(json.basket);
   try {
     var priceInfo = readPriceCosts_("pp");
     var totalCost = 0;

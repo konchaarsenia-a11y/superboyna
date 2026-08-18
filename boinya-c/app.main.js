@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c28";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c29";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -15959,12 +15959,7 @@
 
         var pr = null;
         try {
-          pr = await apiGet({
-            action: "calcPrice",
-            mode: "pp",
-            basket: basketJson,
-            _: String(Date.now())
-          }, { timeoutMs: 28000, cacheTtlMs: 0 });
+          pr = await fetchPpCalcPrice_(slim, { timeoutMs: 28000 });
         } catch (e0) { pr = null; }
         if (seq !== _subDetailFactSeq) return;
 
@@ -16822,11 +16817,15 @@
       var subTotal = costSum * coef + PRICE_PP_FIXED_BYN + deliveryByn +
         packagesByn + fracMark.total;
       var msg = composePpClientMessage(list, deliveriesN, clientNote, retail.total, subTotal);
-      pricePpApiCache = {
-        fingerprint: priceBasketFingerprint(list) + "|N" + deliveriesN,
-        res: res,
-        retail: retail
-      };
+      if (Number(costSum) > 0 || !(list || []).length) {
+        pricePpApiCache = {
+          fingerprint: priceBasketFingerprint(list) + "|N" + deliveriesN,
+          res: res,
+          retail: retail
+        };
+      } else {
+        pricePpApiCache = null;
+      }
       var dogsHint = priceDogCount >= 2 ? " · 2 собаки, свет/доставка×1" : "";
       var retailHint = "товар " + roundRub(retail.goods) +
         (retail.delivery
@@ -17198,6 +17197,35 @@
     }
     window.setPriceMode = setPriceMode;
 
+    async function fetchPpCalcPrice_(slim, extra) {
+      extra = extra || {};
+      var mode = extra.mode || "pp";
+      var res = null;
+      try {
+        res = await apiPost({
+          action: "calcPrice",
+          mode: mode,
+          basket: slim
+        });
+      } catch (eP) { res = null; }
+      var ok = res && res.status === "success" && !res.empty;
+      if (!ok) {
+        try {
+          res = await apiGet({
+            action: "calcPrice",
+            mode: mode,
+            basket: JSON.stringify(slim || []),
+            _: String(Date.now())
+          }, { timeoutMs: extra.timeoutMs || 25000, cacheTtlMs: 0 });
+        } catch (eG) { res = null; }
+      }
+      if (!res || res.status !== "success" || res.empty) return null;
+      var hasCost = (Number(res.cost) || Number(res.rawCost) || 0) > 0 ||
+        (res.lines && res.lines.length);
+      if (!hasCost && (slim || []).length) return null;
+      return res;
+    }
+
     async function calcPriceFromBasket(opts) {
       opts = opts || {};
       var silent = !!opts.silent;
@@ -17241,13 +17269,9 @@
         var nPp = Math.max(1, Number(nElPp && nElPp.value) || 1);
         syncPricePacksFromBasket_();
         var retail = calcRetailBasketTotal(list, { deliveriesN: nPp });
-        var res = await apiGet({
-          action: "calcPrice",
-          mode: "pp",
-          basket: JSON.stringify(slim)
-        }, { timeoutMs: 25000 });
-        if (!res || res.status !== "success") {
-          if (box) box.innerHTML = '<p class="muted">Ошибка расчёта подписки</p>';
+        var res = await fetchPpCalcPrice_(slim);
+        if (!res) {
+          if (box) box.innerHTML = '<p class="muted">Ошибка расчёта подписки — себест не пришла. Нажми «Собрать сообщение» ещё раз.</p>';
           return null;
         }
         return renderPpResultFromApi(res, list, retail);
