@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c23";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c26";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -6915,6 +6915,7 @@
         (cuttingItemsCache && cuttingItemsCache.length) ||
         !!cuttingCompletionCache
       );
+      if (opts.keepCompletion && cuttingCompletionCache) hasCache = true;
       if (soft && hasCache && !window._cuttingNeedRefresh) {
         if (cuttingCompletionCache) {
           renderFinishedCuttingDay(cuttingCompletionCache);
@@ -6948,7 +6949,7 @@
           if (finishBtn) finishBtn.style.display = cuttingSession.active ? "block" : "none";
         }
       } else if (!fromPoll) {
-        if (!soft) {
+        if (!soft && !(opts.keepCompletion && cuttingCompletionCache)) {
           cuttingItemsCache = [];
           cuttingCompletionCache = null;
           cuttingDetailExpanded_ = false;
@@ -6957,7 +6958,9 @@
           if (sessionBox) sessionBox.innerHTML = "";
           if (finishBtn) finishBtn.style.display = "none";
         }
-        box.innerHTML = loadingDanceHtml("Считаю нарезку…");
+        if (!(opts.keepCompletion && cuttingCompletionCache)) {
+          box.innerHTML = loadingDanceHtml("Считаю нарезку…");
+        }
       }
       try {
         const res = await apiGet({
@@ -6965,22 +6968,41 @@
           day: day
         }, {
           timeoutMs: hasCache ? 8000 : 10000,
-          retries: 0
+          retries: 0,
+          cacheTtlMs: (opts.keepCompletion || opts.force) ? 0 : undefined
         });
         if (loadSeq !== _cuttingLoadSeq) return;
         var curDay = document.getElementById("cuttingDaySelect") && document.getElementById("cuttingDaySelect").value;
         if (String(curDay || "") !== String(day)) return;
         window._cuttingNeedRefresh = false;
         let completion = (res && res.completion) || null;
+        if (res && res.date) {
+          try { cuttingItemsCache._date = res.date; } catch (eDt) {}
+        }
+
+        if (!completion && cuttingCompletionCache && cacheDayOk) {
+          var localDate = String(cuttingCompletionCache.dateText || cuttingCompletionCache.date || "");
+          var resDate = String((res && res.date) || "");
+          if (!resDate || !localDate || resDate === localDate) {
+            completion = cuttingCompletionCache;
+          }
+        }
 
         if (completion) {
           cuttingCompletionCache = completion;
-          cuttingItemsCache = (res.items || []).slice();
+          cuttingItemsCache = (res.items && res.items.length ? res.items : (cuttingItemsCache || [])).slice();
           cuttingItemsCache._day = day;
           if (res.date) writeCutDoneLocal(day, res.date, completion);
           applyRemoteCuttingSession({ active: false, day: "", startedAt: 0 });
           if (finishBtn) finishBtn.style.display = "none";
           renderFinishedCuttingDay(completion);
+          stopCuttingPoll();
+          return;
+        }
+        if (opts.keepCompletion && cuttingCompletionCache && cacheDayOk) {
+          applyRemoteCuttingSession({ active: false, day: "", startedAt: 0 });
+          if (finishBtn) finishBtn.style.display = "none";
+          renderFinishedCuttingDay(cuttingCompletionCache);
           stopCuttingPoll();
           return;
         }
@@ -7033,7 +7055,9 @@
         if (loadSeq !== _cuttingLoadSeq) return;
         if (!fromPoll) {
 
-          if (prevItems.length) {
+          if (opts.keepCompletion && cuttingCompletionCache && cacheDayOk) {
+            renderFinishedCuttingDay(cuttingCompletionCache);
+          } else if (prevItems.length) {
             cuttingItemsCache = prevItems;
             try { cuttingItemsCache._day = day; } catch (eDay) {}
             sortCuttingItems();
@@ -7724,11 +7748,30 @@
           return;
         }
         stopCuttingTimer(true);
-        if (res && res.completion) {
-          cuttingCompletionCache = res.completion;
-          const dateKey = (res.completion && res.completion.dateText) || "";
-          writeCutDoneLocal(day, dateKey, res.completion);
+        applyRemoteCuttingSession({ active: false, day: "", startedAt: 0 });
+        var dateKey = (res.completion && (res.completion.dateText || res.completion.date)) ||
+          (cuttingItemsCache && cuttingItemsCache._date) || "";
+        var completion = res.completion || {
+          day: day,
+          dateText: dateKey,
+          date: dateKey,
+          elapsedMs: elapsed || 0,
+          finishedAt: new Date().toISOString(),
+          count: (cuttingItemsCache || []).length,
+          items: (cuttingItemsCache || []).slice()
+        };
+        if (!completion.items && cuttingItemsCache && cuttingItemsCache.length) {
+          completion.items = cuttingItemsCache.slice();
         }
+        if (!completion.count) completion.count = (completion.items || []).length || (cuttingItemsCache || []).length;
+        if (!completion.elapsedMs && elapsed) completion.elapsedMs = elapsed;
+        if (!completion.day) completion.day = day;
+        cuttingCompletionCache = completion;
+        cuttingDetailExpanded_ = false;
+        writeCutDoneLocal(day, dateKey, completion);
+        try { apiCacheBustMem_("getCutting"); } catch (eBust) {}
+        window._cuttingNeedRefresh = false;
+        renderFinishedCuttingDay(completion);
 
         try { if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); } catch (eH) {}
         if (missing.length) {
@@ -7738,7 +7781,9 @@
           showToast("Нарезка завершена за " + formatCutElapsed(elapsed));
         }
         cuttingSession.fingerprint = "";
-        await loadCutting(false);
+        try {
+          await loadCutting({ keepCompletion: true, force: true });
+        } catch (eLoad) {}
       } catch (err) {
         await uiAlertAsync(err.message || String(err));
       } finally {
