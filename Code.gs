@@ -21603,6 +21603,37 @@ function deferredRemindShouldAutoHide_(payload, mode, nowMs) {
   return (Number(nowMs) || Date.now()) - sentMs >= 86400000;
 }
 
+/** Курьерский перенос: убрать того же человека из «ожидания» (ПП / На потом / старый перенос). */
+function cancelWaitingDeferredForClient_(sh, client, keepId) {
+  sh = sh || deferredSheet_();
+  client = String(client || "").trim();
+  keepId = String(keepId || "").trim();
+  if (!client) return 0;
+  var data = sh.getDataRange().getValues();
+  var n = 0;
+  var now = new Date();
+  for (var r = 1; r < data.length; r++) {
+    var id = String(data[r][0] || "").trim();
+    if (keepId && id === keepId) continue;
+    var st = String(data[r][6] || "open").trim().toLowerCase();
+    if (st !== "open") continue;
+    var mode = String(data[r][3] || "").trim().toLowerCase();
+    if (mode === "buy" || mode === "remind" || mode === "partner") continue;
+    var nick = String(data[r][5] || "").trim();
+    var payload = {};
+    try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (eP) { payload = {}; }
+    var payloadClient = String((payload && (payload.client || payload.clientNick)) || "").trim();
+    if (!nicksMatch_(nick, client) && !nicksMatch_(payloadClient, client)) continue;
+    // pp / retail / order / transfer / пустой mode = «ожидание»
+    sh.getRange(r + 1, 7).setValue("cancelled");
+    try { sh.getRange(r + 1, 9).setValue(now); } catch (eU) {}
+    n++;
+    var ownerTid = String(data[r][2] || "").trim();
+    try { if (ownerTid) bustDeferredCache_(ownerTid); } catch (eC) {}
+  }
+  return n;
+}
+
 /** Снять клиента с дня доставки (лист + календарь + курьер), пока менеджер не выставит новую дату. */
 function parkClientFromDeliveryDay_(ss, opts) {
   opts = opts || {};
@@ -21757,6 +21788,7 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
   var sh = deferredSheet_();
   var now = new Date();
   sh.appendRow([id, now, tid, "transfer", title, client, "open", JSON.stringify(payloadObj), now]);
+  try { cancelWaitingDeferredForClient_(sh, client, id); } catch (eWait) {}
   bustDeferredCache_(tid);
   try {
     var mgrs = collectStaffTelegramIds_(["owner", "manager", "all"]);
