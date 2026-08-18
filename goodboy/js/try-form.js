@@ -177,8 +177,7 @@
       packQ(form, 9, "Расход в месяц", val(form, "q9_amount")),
       line("10", "Бюджет", val(form, "q10_budget")),
       packQ(form, 11, "Размер лакомств", val(form, "q11_size")),
-      line("12", "Доставка раз в месяц", val(form, "q12_monthly")),
-      line("13", "Кинолог в подписке", val(form, "q13_trainer"))
+      line("12", "Кинолог в подписке", val(form, "q13_trainer"))
     ];
     for (var i = 0; i < rows.length; i++) {
       if (rows[i]) parts.push(rows[i]);
