@@ -25,6 +25,42 @@ runInContext(`
 
 const { parseIgLinesToItems, normalizeChecklistRaw_, splitPriceChecklistByDogs_ } = ctx;
 
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg);
+}
+
+const orderBlankSectionSample = `Дрессура
+Лёгкое — 200 г (средний кубик)
+Рубец — 100 г (мелкое)
+
+Жевалки
+Бычий корень — 150 г (мал)
+Ушко — 1 шт (половинка)`;
+
+const orderSections = splitPriceChecklistByDogs_(orderBlankSectionSample, { forOrder: true });
+assert(orderSections.length === 1, "order: category sections must stay 1 dog, got " + orderSections.length);
+
+const priceSections = splitPriceChecklistByDogs_(orderBlankSectionSample);
+assert(priceSections.length === 1, "price: same text without dog markers stays 1 section");
+
+const twoDogNamed = `Рекс: Лёгкое — 200 г
+Пэни: Рубец — 100 г`;
+const orderNamed = splitPriceChecklistByDogs_(twoDogNamed, { forOrder: true });
+assert(orderNamed.length === 2, "order: named markers split 2 dogs");
+
+const nickFalsePositive = `Буся
+Лёгкое — 200 г
+Рубец — 100 г
+
+Марк
+Печень — 150 г`;
+const orderNick = splitPriceChecklistByDogs_(nickFalsePositive, { forOrder: true });
+assert(orderNick.length === 1, "order: dog nicknames without colon must not split");
+const priceNick = splitPriceChecklistByDogs_(nickFalsePositive);
+assert(priceNick.length === 2, "price: nicknames may split when set in расчёт");
+
+console.log("split order/price checks OK");
+
 const samples = [
   {
     name: "classic dash",

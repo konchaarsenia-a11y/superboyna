@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c23";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c24";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -2548,22 +2548,43 @@
     }
     window.setOrderDogCount = setOrderDogCount;
 
+    function orderSaveUsesTwoDogs_() {
+      var b1 = orderBaskets[1] || [];
+      var b2 = orderBaskets[2] || [];
+      return orderDogCount >= 2 && b1.length > 0 && b2.length > 0;
+    }
+
     function buildOrderSaveBasket_() {
       syncOrderBasketFromActive_();
       var out = [];
-      var maxD = orderDogCount >= 2 ? 2 : 1;
-      for (var d = 1; d <= maxD; d++) {
-        (orderBaskets[d] || []).forEach(function (x) {
-          var row = {
+      var twoDogs = orderSaveUsesTwoDogs_();
+      if (!twoDogs) {
+        var b1 = orderBaskets[1] || [];
+        var b2 = orderBaskets[2] || [];
+        var src = b1.length ? 1 : (b2.length ? 2 : (orderActiveDog || 1));
+        (orderBaskets[src] || []).forEach(function (x) {
+          out.push({
             cat: x.cat,
             main: x.main || x.name,
             name: x.main || x.name,
             sub: x.sub || "",
             value: x.value != null ? x.value : x.val,
             val: x.value != null ? x.value : x.val
-          };
-          if (maxD >= 2) row.dog = d;
-          out.push(row);
+          });
+        });
+        return out;
+      }
+      for (var d = 1; d <= 2; d++) {
+        (orderBaskets[d] || []).forEach(function (x) {
+          out.push({
+            cat: x.cat,
+            main: x.main || x.name,
+            name: x.main || x.name,
+            sub: x.sub || "",
+            value: x.value != null ? x.value : x.val,
+            val: x.value != null ? x.value : x.val,
+            dog: d
+          });
         });
       }
       return out;
@@ -2781,6 +2802,28 @@
         );
         if (ask) {
           basket = mapApiBasketToLocal(bask);
+          var hasDog1m = basket.some(function (x) { return Number(x.dog) === 1; });
+          var hasDog2m = basket.some(function (x) { return Number(x.dog) === 2; });
+          var hasDogSplit = hasDog1m && hasDog2m;
+          if (hasDogSplit) {
+            orderBaskets = { 1: [], 2: [] };
+            basket.forEach(function (x) {
+              var d = Number(x.dog) === 2 ? 2 : 1;
+              orderBaskets[d].push(x);
+            });
+            if (!orderBaskets[1].length && basket.length) {
+              orderBaskets[1] = basket.filter(function (x) { return Number(x.dog) !== 2; });
+            }
+            orderDogCount = 2;
+            orderActiveDog = 1;
+            basket = orderBaskets[1];
+            try { setOrderDogCount(2); } catch (eDogEdit) {}
+          } else {
+            orderDogCount = 1;
+            orderActiveDog = 1;
+            orderBaskets = { 1: basket.slice(), 2: [] };
+            try { setOrderDogCount(1); } catch (eDogM1) {}
+          }
           renderBasket();
           showToast("Состав вставлен (" + basket.length + " поз.)");
         } else {
@@ -3877,6 +3920,17 @@
         var b2 = document.getElementById("btnSecondDogOrder");
         if (b2) b2.style.display = "none";
       } else if (ownerContactSnapshot) {
+        orderBaskets = { 1: [], 2: [] };
+        orderDogCount = 2;
+        orderActiveDog = 2;
+        try { setOrderDogCount(2); setOrderActiveDog(2); } catch (eDog2) {}
+        var snap = ownerContactSnapshot;
+        if (snap.client && document.getElementById("client")) document.getElementById("client").value = snap.client;
+        if (snap.address && document.getElementById("addressInput")) {
+          fillAddressFieldsFromStored_(snap.address);
+        }
+        if (snap.phone && document.getElementById("phoneInput")) document.getElementById("phoneInput").value = snap.phone;
+        if (snap.geo) selectedAddressGeo = snap.geo;
         var b2ok = document.getElementById("btnSecondDogOrder");
         if (b2ok) b2ok.style.display = "none";
       }
@@ -6615,8 +6669,9 @@
         val: g.val != null ? g.val : g.value,
         dog: g.dog ? Number(g.dog) : 0
       }));
-      var hasDogSplit = basket.some(function (x) { return Number(x.dog) === 1 || Number(x.dog) === 2; })
-        || Number(client.dogCount) >= 2;
+      var hasDog1 = basket.some(function (x) { return Number(x.dog) === 1; });
+      var hasDog2 = basket.some(function (x) { return Number(x.dog) === 2; });
+      var hasDogSplit = hasDog1 && hasDog2;
       if (hasDogSplit) {
         orderBaskets = { 1: [], 2: [] };
         basket.forEach(function (x) {
@@ -13710,10 +13765,10 @@
       var raw = (document.getElementById("igChecklistPaste").value || "").trim();
       if (!raw) { showToast("Вставь текст чеклиста"); return; }
 
-      var sections = splitPriceChecklistByDogs_(raw);
+      var sections = splitPriceChecklistByDogs_(raw, { forOrder: true });
 
       if (typeof orderDogCount !== "undefined" && orderDogCount >= 2) {
-        sections = await ensureChecklistTwoDogSections_(raw, sections);
+        sections = await ensureChecklistTwoDogSections_(raw, sections, { forOrder: true });
         if (!sections) { showToast("Отменено"); return; }
       } else {
         var dogsProbe = {};
@@ -13721,7 +13776,7 @@
           dogsProbe[Number(sec.dog) === 2 ? 2 : 1] = true;
         });
         if (dogsProbe[1] && dogsProbe[2]) {
-          sections = await ensureChecklistTwoDogSections_(raw, sections);
+          sections = await ensureChecklistTwoDogSections_(raw, sections, { forOrder: true });
           if (!sections) { showToast("Отменено"); return; }
         }
       }
@@ -13765,6 +13820,15 @@
         return;
       }
 
+      if (multi && (!built[1].length || !built[2].length)) {
+        multi = false;
+        var mergedItems = built[1].length ? built[1] : built[2];
+        var mergedDog = built[1].length ? 1 : 2;
+        built = { 1: mergedItems, 2: [] };
+        dogsUsed = {};
+        dogsUsed[mergedDog] = true;
+      }
+
       if (multi) {
         try {
           if (typeof setOrderDogCount === "function") setOrderDogCount(2);
@@ -13780,7 +13844,11 @@
         }
         syncOrderBasketFromActive_();
         if (!orderBaskets[onlyDog]) orderBaskets[onlyDog] = [];
-        orderBaskets[onlyDog] = orderBaskets[onlyDog].concat(built[onlyDog] || built[1] || []);
+        var toAdd = built[onlyDog] || [];
+        if (!toAdd.length && built[1] && built[1].length && onlyDog === 2) {
+          toAdd = [];
+        }
+        orderBaskets[onlyDog] = orderBaskets[onlyDog].concat(toAdd);
         orderActiveDog = onlyDog;
         basket = orderBaskets[onlyDog];
       }
@@ -14008,6 +14076,16 @@
       return sections;
     }
 
+    function looksLikeOrderDogHeader_(line) {
+      var raw = normalizePriceDogHeaderLine_(line);
+      if (!raw) return false;
+      if (/^[-–—=*_]{3,}$/.test(raw)) return true;
+      var t = raw.replace(/[:：]\s*$/, "").replace(/[—\-–]\s*$/, "").trim();
+      if (/^собак/i.test(t) || /^dog\s*\d/i.test(t)) return true;
+      if (/^(для|состав|набор)\s+\S+/i.test(t)) return true;
+      return false;
+    }
+
     function looksLikePriceDogHeader_(line) {
       var raw = normalizePriceDogHeaderLine_(line);
       if (!raw) return false;
@@ -14111,7 +14189,9 @@
       return null;
     }
 
-    function splitPriceChecklistByDogs_(raw) {
+    function splitPriceChecklistByDogs_(raw, opts) {
+      opts = opts || {};
+      var forOrder = !!opts.forOrder;
       raw = normalizeChecklistRaw_(raw);
 
       var byMarks = splitChecklistByDogNameMarkers_(raw);
@@ -14135,7 +14215,8 @@
       }
       for (var i = 0; i < lines.length; i++) {
         var line = lines[i];
-        if (looksLikePriceDogHeader_(line)) {
+        var isHdr = forOrder ? looksLikeOrderDogHeader_(line) : looksLikePriceDogHeader_(line);
+        if (isHdr) {
           var hdr = resolvePriceDogHeader_(line);
           if (cur.lines.length || cur.name || cur.dog) pushCur();
           var dogN = hdr.dog;
@@ -14153,8 +14234,10 @@
       pushCur();
 
       if (sections.length <= 1 || headerHits === 0) {
-        var byBlank = splitRawByBlankBlocks_(raw);
-        if (byBlank) return byBlank;
+        if (!forOrder) {
+          var byBlank = splitRawByBlankBlocks_(raw);
+          if (byBlank) return byBlank;
+        }
         var bySep = splitRawBySepLine_(raw);
         if (bySep) return bySep;
 
@@ -14163,10 +14246,15 @@
       }
 
       if (!sections.length) {
-        return [{ dog: priceActiveDog || 1, name: "", text: String(raw || "").trim() }];
+        var fallbackDog = forOrder ? 1 : (priceActiveDog || 1);
+        return [{ dog: fallbackDog, name: "", text: String(raw || "").trim() }];
       }
       if (sections.length === 1 && !sections[0].name && !/собак|dog\s*[12]/i.test(String(raw || ""))) {
-        sections[0].dog = priceDogCount >= 2 ? (priceActiveDog || 1) : 1;
+        if (forOrder) {
+          sections[0].dog = (typeof orderActiveDog !== "undefined" && orderDogCount >= 2) ? (orderActiveDog || 1) : 1;
+        } else {
+          sections[0].dog = priceDogCount >= 2 ? (priceActiveDog || 1) : 1;
+        }
       }
       sections.forEach(function (sec) {
         if (!sec.name && localNames[sec.dog]) sec.name = localNames[sec.dog];
@@ -14174,7 +14262,9 @@
       return sections;
     }
 
-    async function ensureChecklistTwoDogSections_(raw, sections) {
+    async function ensureChecklistTwoDogSections_(raw, sections, opts) {
+      opts = opts || {};
+      var forOrder = !!opts.forOrder;
       var dogsUsed = {};
       sections.forEach(function (sec) {
         dogsUsed[Number(sec.dog) === 2 ? 2 : 1] = true;
@@ -14185,8 +14275,10 @@
       var byMarks = splitChecklistByDogNameMarkers_(raw);
       if (byMarks && byMarks.length >= 2) return byMarks;
 
-      var byBlank = splitRawByBlankBlocks_(raw);
-      if (byBlank) return byBlank;
+      if (!forOrder) {
+        var byBlank = splitRawByBlankBlocks_(raw);
+        if (byBlank) return byBlank;
+      }
       var bySep = splitRawBySepLine_(raw);
       if (bySep) return bySep;
 
@@ -14198,10 +14290,14 @@
         if (byMarks) return byMarks;
       }
 
-      var hintTwo = priceDogCount >= 2 ||
-        /собак\s*2|dog\s*2|втор(ая|ой)\s*собак|двух\s*собак|2\s*собак/i.test(raw) ||
-        (!!String(priceDogNames[1] || "").trim() && !!String(priceDogNames[2] || "").trim()) ||
-        named.length >= 2;
+      var hintTwo = forOrder
+        ? ((typeof orderDogCount !== "undefined" && orderDogCount >= 2) ||
+          /собак\s*2|dog\s*2|втор(ая|ой)\s*собак|двух\s*собак|2\s*собак/i.test(raw) ||
+          named.length >= 2)
+        : (priceDogCount >= 2 ||
+          /собак\s*2|dog\s*2|втор(ая|ой)\s*собак|двух\s*собак|2\s*собак/i.test(raw) ||
+          (!!String(priceDogNames[1] || "").trim() && !!String(priceDogNames[2] || "").trim()) ||
+          named.length >= 2);
       if (!hintTwo) return sections;
 
       var how = await uiChoiceAsync(
@@ -14215,7 +14311,8 @@
       );
       if (how == null || how === "cancel") return null;
       var dog = Number(how) === 2 ? 2 : 1;
-      return [{ dog: dog, name: priceDogNames[dog] || "", text: String(raw || "").trim() }];
+      var dogName = forOrder ? "" : (priceDogNames[dog] || "");
+      return [{ dog: dog, name: dogName, text: String(raw || "").trim() }];
     }
 
     async function parseIgChecklistIntoPrice() {
