@@ -7,7 +7,7 @@ https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71115831
 Бейдж **C · LIVE**. Режим закреплён в URL (`cutover=1`) — не должен прыгать на **C · D1**.
 
 В Telegram Menu Button:
-`.../boinya-c/app.html?cutover=1&v=71115830`
+`.../boinya-c/app.html?cutover=1&v=71115831`
 
 Песочница (без записи в Sheets): `?sandbox=1` или `?cutover=0` → бейдж **C · D1**.
 

@@ -8,7 +8,7 @@ https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71115831
 
 ## Sandbox снимок
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?sandbox=1&v=71115830
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?sandbox=1&v=71115831
 
 Бейдж **C · D1** (в таблицу не пишет).
 
