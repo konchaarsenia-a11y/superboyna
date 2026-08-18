@@ -2422,10 +2422,16 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 .about-story { padding-top: 56px; }
 .about-prose p {
-  margin: 0 0 18px;
+  margin: 0 0 20px;
   color: var(--gb-muted);
-  font-size: 1.08rem;
-  line-height: 1.7;
+  font-size: 1.12rem;
+  line-height: 1.75;
+  font-weight: 500;
+}
+.about-split-copy h2,
+.about-prose h2 {
+  text-transform: none;
+  letter-spacing: 0;
 }
 .about-quote {
   margin: 28px 0 0;
@@ -2456,16 +2462,18 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 .about-split-copy h2 {
   font-family: var(--gb-display);
-  text-transform: uppercase;
-  font-size: clamp(1.7rem, 4vw, 2.4rem);
-  line-height: 1.08;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: clamp(1.5rem, 4vw, 2.1rem);
+  line-height: 1.15;
   margin: 0 0 14px;
 }
 .about-split-copy p {
   margin: 0;
   color: var(--gb-muted);
-  font-size: 1.05rem;
-  line-height: 1.65;
+  font-size: 1.08rem;
+  line-height: 1.7;
+  font-weight: 500;
 }
 .about-split-photo {
   margin: 0;
