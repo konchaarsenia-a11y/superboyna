@@ -1960,6 +1960,13 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
     return;
   }
 
+  if (/^notifyMissedDelivery$/i.test(action)) {
+    try {
+      await deleteClient_(params, env);
+    } catch (eDel) {}
+    return;
+  }
+
   if (/^setDelivered$/i.test(action)) {
     const delivered = toBool_(params.delivered);
     let snap = (await getSnapRaw_(env, "courier:" + day));

@@ -2169,6 +2169,9 @@ function doGet(e) {
       segment: e.parameter.segment ? decodeURIComponent(e.parameter.segment) : "",
       matchKey: e.parameter.matchKey ? decodeURIComponent(e.parameter.matchKey) : "",
       basket: e.parameter.basket ? decodeURIComponent(e.parameter.basket) : "",
+      address: e.parameter.address ? decodeURIComponent(e.parameter.address) : "",
+      phone: e.parameter.phone ? decodeURIComponent(e.parameter.phone) : "",
+      note: e.parameter.note ? decodeURIComponent(e.parameter.note) : "",
       createdByName: e.parameter.createdByName ? decodeURIComponent(e.parameter.createdByName) : ""
     }, callback, false);
   }
@@ -2176,6 +2179,15 @@ function doGet(e) {
     return handleDeferredAction_("getTransferTask", {
       telegramId: e.parameter.telegramId ? decodeURIComponent(e.parameter.telegramId) : "",
       id: e.parameter.id ? decodeURIComponent(e.parameter.id) : ""
+    }, callback, false);
+  }
+  if (action === "placeTransferTask") {
+    return handleDeferredAction_("placeTransferTask", {
+      telegramId: e.parameter.telegramId ? decodeURIComponent(e.parameter.telegramId) : "",
+      id: e.parameter.id ? decodeURIComponent(e.parameter.id) : "",
+      newDate: e.parameter.newDate ? decodeURIComponent(e.parameter.newDate) : "",
+      newDay: e.parameter.newDay ? decodeURIComponent(e.parameter.newDay) : "",
+      cutRaw: e.parameter.cutRaw || "1"
     }, callback, false);
   }
   if (action === "saveDeferred") {
@@ -2668,7 +2680,7 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "listDeferred" || action === "saveDeferred" || action === "updateDeferred" ||
       action === "cancelDeferred" || action === "enrollDeferredToPp" || action === "setDeferredReminder" ||
-      action === "notifyMissedDelivery" || action === "getTransferTask") {
+      action === "notifyMissedDelivery" || action === "getTransferTask" || action === "placeTransferTask") {
     return handleDeferredAction_(action, json, callback, fromPost);
   }
   if (action === "submitGoodboyTry") {
@@ -21215,6 +21227,7 @@ function handleDeferredAction_(action, json, callback, fromPost) {
   if (action === "setDeferredReminder") return handleSetDeferredReminder_(json, callback, fromPost);
   if (action === "notifyMissedDelivery") return handleNotifyMissedDelivery_(json, callback, fromPost);
   if (action === "getTransferTask") return handleGetTransferTask_(json, callback, fromPost);
+  if (action === "placeTransferTask") return handlePlaceTransferTask_(json, callback, fromPost);
   var bad = { status: "unknown_action" };
   return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
 }
@@ -21223,7 +21236,7 @@ function handleListDeferred_(json, callback, fromPost) {
   var tid = String(json.telegramId || "").trim();
   var wantStatus = String(json.status || "open").trim().toLowerCase();
   var light = !(json.light === false || json.light === "0" || json.light === 0);
-  var cacheKey = "DEF:" + tid + ":" + wantStatus + (light ? ":L" : "") + ":T2";
+  var cacheKey = "DEF:" + tid + ":" + wantStatus + (light ? ":L" : "") + ":T3";
   var cached = cacheGetJson_(cacheKey);
   if (cached && cached.status === "success") {
     return fromPost ? jsonpText(callback, cached) : jsonp(callback, cached);
@@ -21250,6 +21263,7 @@ function handleListDeferred_(json, callback, fromPost) {
     }
     if (!visible) continue;
     var st = String(data[r][6] || "open").trim().toLowerCase();
+    if (st === "open" && deferredRemindShouldAutoHide_(payloadFull, modeRow, Date.now())) continue;
     if (st === "open") openN++;
     if (wantStatus && wantStatus !== "all" && st !== wantStatus) continue;
     var payload = payloadFull;
@@ -21265,6 +21279,7 @@ function handleListDeferred_(json, callback, fromPost) {
           matchKey: payload.matchKey || "",
           basket: payload.basket || [],
           client: payload.client || "",
+          parked: !!payload.parked,
           createdBy: payload.createdBy || ownerTid,
           createdByName: payload.createdByName || ""
         };
@@ -21568,6 +21583,96 @@ function handleCancelDeferred_(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
 }
 
+function deferredRemindSentMs_(payload) {
+  payload = payload || {};
+  if (payload.remindSentAt) {
+    var t = Date.parse(String(payload.remindSentAt));
+    if (!isNaN(t)) return t;
+  }
+  var due = Number(payload.remindAtMs) || 0;
+  return due > 0 ? due : 0;
+}
+
+/** Напоминалка: через сутки после отправки сама пропадает (без «Готово»). */
+function deferredRemindShouldAutoHide_(payload, mode, nowMs) {
+  if (String(mode || "").toLowerCase() !== "remind") return false;
+  payload = payload || {};
+  if (!payload.remindSent) return false;
+  var sentMs = deferredRemindSentMs_(payload);
+  if (!sentMs) return false;
+  return (Number(nowMs) || Date.now()) - sentMs >= 86400000;
+}
+
+/** Снять клиента с дня доставки (лист + календарь + курьер), пока менеджер не выставит новую дату. */
+function parkClientFromDeliveryDay_(ss, opts) {
+  opts = opts || {};
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var client = String(opts.client || "").trim();
+  var day = String(opts.day || "").trim();
+  var matchKey = String(opts.matchKey || "").trim();
+  var deliveryDate = opts.date instanceof Date ? opts.date : parseFlexibleDate_(opts.date, tz);
+  if (!deliveryDate && day) {
+    try { deliveryDate = parseFlexibleDate_(getDayDate_(ss, day), tz); } catch (eD) {}
+  }
+  var snap = {
+    client: client,
+    day: day,
+    matchKey: matchKey,
+    address: String(opts.address || ""),
+    phone: String(opts.phone || ""),
+    note: String(opts.note || ""),
+    segment: String(opts.segment || ""),
+    basket: Array.isArray(opts.basket) ? opts.basket : []
+  };
+  if (day && (!snap.address || !snap.basket.length || !snap.phone)) {
+    try {
+      var data = getClientsData_(ss, day);
+      for (var i = 0; i < (data.clients || []).length; i++) {
+        var c = data.clients[i];
+        if (!nicksMatch_(c.name, client) && !(matchKey && c.matchKey === matchKey)) continue;
+        if (!snap.address) snap.address = String(c.address || "");
+        if (!snap.phone) snap.phone = String(c.phone || "");
+        if (!snap.note) snap.note = String(c.note || "");
+        if (!snap.segment) snap.segment = String(c.segment || c.source || "");
+        if (!snap.basket.length) snap.basket = c.basket || [];
+        if (!snap.matchKey) snap.matchKey = String(c.matchKey || "");
+        break;
+      }
+    } catch (eG) {}
+  }
+  var clearedWeek = 0;
+  if (day) clearedWeek += clearClientColumnFromDay_(ss, day, client, snap.matchKey);
+  try { clearedWeek += clearClientFromWeekSheets_(ss, client, snap.matchKey, ""); } catch (eW) {}
+  var bookRes = { cancelled: 0 };
+  var calRes = { removed: 0 };
+  try {
+    if (deliveryDate) {
+      bookRes = cancelBookingsForClient_(ss, client, deliveryDate);
+      calRes = cancelCalendarClientOnDate_(ss, client, deliveryDate, snap.matchKey);
+    }
+  } catch (eBook) {}
+  try {
+    var courier = ss.getSheetByName("Доставки");
+    if (courier && deliveryDate) {
+      var dateText = formatSheetDate(deliveryDate, tz);
+      if (formatSheetDate(courier.getRange("A1").getValue(), tz) === dateText) {
+        var cCol = findCourierClientCol_(courier, client);
+        if (cCol > 0) {
+          courier.getRange(2, cCol).setValue(false);
+          courier.getRange(3, cCol).setValue("");
+        }
+      }
+    }
+  } catch (eCour) {}
+  try { bustClientsCache_(); } catch (eB) {}
+  return {
+    snap: snap,
+    clearedWeek: clearedWeek,
+    cancelledBookings: bookRes.cancelled || 0,
+    cancelledCalendar: calRes.removed || 0
+  };
+}
+
 /** Курьер: клиент сегодня не получил → задача «перенос» менеджеру. */
 function handleNotifyMissedDelivery_(json, callback, fromPost) {
   var tid = String(json.telegramId || "").trim();
@@ -21594,6 +21699,9 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
       try { basket = JSON.parse(json.basket); } catch (eB) { basket = []; }
     } else if (Array.isArray(json.basket)) basket = json.basket;
   }
+  var address = String(json.address || "").trim();
+  var phone = String(json.phone || "").trim();
+  var note = String(json.note || "").trim();
   if (!basket.length && day) {
     try {
       var data = getClientsData_(ss, day);
@@ -21601,6 +21709,10 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
         if (nicksMatch_(data.clients[i].name, client)) {
           basket = data.clients[i].basket || [];
           if (!segment) segment = data.clients[i].segment || "";
+          if (!address) address = String(data.clients[i].address || "");
+          if (!phone) phone = String(data.clients[i].phone || "");
+          if (!note) note = String(data.clients[i].note || "");
+          if (!matchKey) matchKey = String(data.clients[i].matchKey || "") || matchKey;
           break;
         }
       }
@@ -21636,7 +21748,11 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
     basket: basket.slice(0, 80),
     createdBy: tid,
     createdByName: creatorName,
-    client: client
+    client: client,
+    parked: true,
+    address: address,
+    phone: phone,
+    note: note
   };
   var sh = deferredSheet_();
   var now = new Date();
@@ -21646,6 +21762,31 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
     var mgrs = collectStaffTelegramIds_(["owner", "manager", "all"]);
     for (var m = 0; m < mgrs.length; m++) bustDeferredCache_(mgrs[m]);
   } catch (eB) {}
+
+  var parked = { clearedWeek: 0, cancelledCalendar: 0 };
+  try {
+    parked = parkClientFromDeliveryDay_(ss, {
+      client: client,
+      day: day,
+      date: dateValue,
+      matchKey: matchKey,
+      address: address,
+      phone: phone,
+      note: note,
+      segment: segment,
+      basket: basket
+    });
+    if (parked && parked.snap) {
+      if (!payloadObj.address && parked.snap.address) payloadObj.address = parked.snap.address;
+      if (!payloadObj.phone && parked.snap.phone) payloadObj.phone = parked.snap.phone;
+      if (!payloadObj.note && parked.snap.note) payloadObj.note = parked.snap.note;
+      if (!(payloadObj.basket || []).length && (parked.snap.basket || []).length) payloadObj.basket = parked.snap.basket;
+      try {
+        var last = sh.getLastRow();
+        sh.getRange(last, 8).setValue(JSON.stringify(payloadObj));
+      } catch (eUp) {}
+    }
+  } catch (ePark) {}
 
   var weekCounts = [];
   try { weekCounts = buildWeekDayCountsItems_(ss); } catch (eW2) {}
@@ -21664,7 +21805,7 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
     "Причина: " + reason + "\n" +
     (creatorName ? ("От курьера: " + creatorName + "\n") : "") +
     (basketPreview.length ? ("Состав: " + basketPreview.join(", ") + "\n") : "") +
-    "\nОткрой Переносы в мини-аппе и перенеси клиента.";
+    "\nВ Переносах у менеджера, пока не выставят новую дату.";
 
   var appUrl = miniAppPublicUrl_() + "?xfer=" + encodeURIComponent(id) + "&v=71131";
   var markup = {
@@ -21694,6 +21835,9 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
     id: id,
     client: client,
     notified: sent,
+    parked: true,
+    clearedWeek: parked.clearedWeek || 0,
+    cancelledCalendar: parked.cancelledCalendar || 0,
     weekCounts: weekCounts
   };
   return fromPost ? jsonpText(callback, okOut) : jsonp(callback, okOut);
@@ -21773,6 +21917,107 @@ function handleGetTransferTask_(json, callback, fromPost) {
     weekCounts: weekCounts
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePlaceTransferTask_(json, callback, fromPost) {
+  var tid = String(json.telegramId || "").trim();
+  var id = String(json.id || "").trim();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var newDate = parseFlexibleDate_(json.newDate || json.date || json.deliveryDate, tz);
+  if (!id) {
+    var bad = { status: "error", message: "need_id" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  if (!newDate) {
+    var needD = { status: "error", message: "need_date" };
+    return fromPost ? jsonpText(callback, needD) : jsonp(callback, needD);
+  }
+  var sh = deferredSheet_();
+  var data = sh.getDataRange().getValues();
+  var rowIdx = -1;
+  var payload = {};
+  var client = "";
+  var ownerTid = "";
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][0] || "").trim() !== id) continue;
+    var mode = String(data[r][3] || "").toLowerCase();
+    var st = String(data[r][6] || "open").toLowerCase();
+    if (mode !== "transfer") continue;
+    try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payload = {}; }
+    ownerTid = String(data[r][2] || "").trim();
+    var can = ownerTid === tid;
+    if (!can) {
+      try {
+        var acc = findAccessById_(tid);
+        var role = acc ? String(acc.role || "").toLowerCase() : "";
+        if (role === "owner" || role === "manager" || role === "all" || isOwnerId_(tid)) can = true;
+      } catch (eA) {}
+    }
+    if (!can) continue;
+    if (st !== "open") {
+      var closed = { status: "error", message: "not_open" };
+      return fromPost ? jsonpText(callback, closed) : jsonp(callback, closed);
+    }
+    rowIdx = r + 1;
+    client = String(data[r][5] || payload.client || "").trim();
+    break;
+  }
+  if (rowIdx < 0 || !client) {
+    var miss = { status: "error", message: "not_found" };
+    return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+  }
+  var matchKey = String(payload.matchKey || "").trim() || clientMatchKey_(client);
+  var basket = Array.isArray(payload.basket) ? payload.basket : [];
+  var address = String(payload.address || "").trim();
+  var phone = String(payload.phone || "").trim();
+  var note = String(payload.note || "").trim();
+  var cutRaw = !(json.cutRaw === false || json.cutRaw === "0" || json.cutRaw === 0 || json.cutRaw === "false");
+  note = String(note || "").replace(/\s*\[НЕ РЕЗАТЬ\]/gi, "").replace(/\s*\[РЕЗАТЬ\]/gi, "").trim();
+  note = (note ? note + " " : "") + (cutRaw ? "[РЕЗАТЬ]" : "[НЕ РЕЗАТЬ]");
+  var targetDayName = findDayNameForDate_(ss, newDate) || String(json.newDay || "").trim();
+  var weekWrite = null;
+  if (targetDayName) {
+    try {
+      weekWrite = writeBasketToDayColumn_(ss, targetDayName, client, address, note, basket, { overwriteMeta: true });
+    } catch (eW) {
+      weekWrite = { ok: false, message: String(eW) };
+    }
+  }
+  try {
+    upsertCalendarEntry_(ss, {
+      date: newDate,
+      client: client,
+      matchKey: matchKey,
+      basket: basket,
+      address: address,
+      phone: phone,
+      note: note,
+      segment: payload.segment || "",
+      dayName: targetDayName || "",
+      status: "planned",
+      source: "transfer"
+    });
+  } catch (eCal) {}
+  sh.getRange(rowIdx, 7).setValue("done");
+  try { sh.getRange(rowIdx, 9).setValue(new Date()); } catch (eUpd) {}
+  bustDeferredCache_(tid);
+  bustDeferredCache_(ownerTid);
+  try {
+    var mgrs = collectStaffTelegramIds_(["owner", "manager", "all"]);
+    for (var m = 0; m < mgrs.length; m++) bustDeferredCache_(mgrs[m]);
+  } catch (eB) {}
+  try { bustClientsCache_(); } catch (eC) {}
+  var okP = {
+    status: "success",
+    id: id,
+    client: client,
+    newDate: formatSheetDate(newDate, tz),
+    newDay: targetDayName || "",
+    weekWritten: !!(weekWrite && weekWrite.ok),
+    parkedPlaced: true
+  };
+  return fromPost ? jsonpText(callback, okP) : jsonp(callback, okP);
 }
 
 function parseDeferredRemindAt_(v) {
@@ -21914,15 +22159,20 @@ function tickDeferredReminders_() {
       var payload = {};
       try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payload = {}; }
       if (!payload) continue;
+      var mode = String(data[r][3] || "").trim().toLowerCase();
+      var ownerTid = String(data[r][2] || "").trim();
+      if (deferredRemindShouldAutoHide_(payload, mode, nowMs)) {
+        try { sh.getRange(r + 1, 7).setValue("done"); } catch (eDone) {}
+        if (ownerTid) changedTids[ownerTid] = true;
+        continue;
+      }
       var dueMs = remindDueMs_(payload);
       if (!dueMs || dueMs > nowMs) continue;
       if (payload.remindSent && !payload.remindSendError) continue;
       var fails = Number(payload.remindFailCount) || 0;
       if (fails >= 12) continue;
-      var ownerTid = String(data[r][2] || "").trim();
       var title = String(data[r][4] || "Отложенное").trim();
       var nick = String(data[r][5] || "").trim();
-      var mode = String(data[r][3] || "").trim().toLowerCase();
       var fromTid = String(payload.createdBy || ownerTid).trim() || ownerTid;
       var notifyTid = String(payload.targetTelegramId || payload.forTelegramId || ownerTid).trim() || ownerTid;
       var fromLabel = remindPersonLabel_(fromTid, payload.createdByName);
