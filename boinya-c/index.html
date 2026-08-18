@@ -6,8 +6,8 @@
   <meta name="robots" content="noindex">
   <title>Бойня C</title>
   <!-- Критический путь: НЕ грузим seed/bridge здесь (иначе двойная загрузка). -->
-  <link rel="preload" href="app.html?v=71115824" as="document">
-  <link rel="preload" href="app.main.js?v=71115824" as="script">
+  <link rel="preload" href="app.html?v=71115825" as="document">
+  <link rel="preload" href="app.main.js?v=71115825" as="script">
   <link rel="preload" href="client/config.js" as="script">
   <link rel="preload" href="seed-inline.js" as="script">
   <link rel="preload" href="bridge.js" as="script">
@@ -27,13 +27,17 @@
   <script>
     (function () {
       // Должен совпадать с APP_VER в app.html — иначе TG делает двойной reload ~1MB
-      var ver = "71115824";
+      var ver = "71115825";
       var q = "app.html?v=" + ver;
       try {
         var u = new URL(location.href);
         ["proxy", "allowWrite", "live", "cutover", "sandbox", "mode", "via", "tid", "telegramId"].forEach(function (k) {
           if (u.searchParams.get(k)) q += "&" + k + "=" + encodeURIComponent(u.searchParams.get(k));
         });
+        var sand = u.searchParams.get("sandbox") === "1" || u.searchParams.get("cutover") === "0";
+        if (!sand && !u.searchParams.get("cutover") && u.searchParams.get("mode") !== "live" && u.searchParams.get("live") !== "1") {
+          q += "&cutover=1";
+        }
       } catch (e) {}
       location.replace(q);
     })();
