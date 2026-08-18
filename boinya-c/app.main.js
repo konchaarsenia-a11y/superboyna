@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c27";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c28";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -8234,7 +8234,45 @@
           apiCacheBustMem_("getMonthOverview");
           apiCacheBustMem_("listDeferred");
         } catch (eClr) {}
-        showToast("Снят с дня · в Переносах у менеджера");
+        showToast("Снят с дня · только в Переносах");
+        try {
+          var xferId = (res && res.id) || ("xfer_" + Date.now());
+          var xferItem = {
+            id: xferId,
+            mode: "transfer",
+            title: "Перенос · не получил",
+            clientNick: client.name,
+            status: "open",
+            payload: {
+              mode: "transfer",
+              parked: true,
+              reason: reason,
+              day: day,
+              date: courierClientsCache._date || "",
+              client: client.name,
+              matchKey: client.matchKey || "",
+              segment: client.segment || "",
+              basket: client.basket || [],
+              createdByName: myName
+            }
+          };
+          var wantKey = "";
+          try { wantKey = viewClientKey(client.name || client.matchKey || ""); } catch (eK) {}
+          deferredCache = [xferItem].concat((deferredCache || []).filter(function (it) {
+            if (!it || String(it.id) === String(xferId)) return false;
+            var m = deferredItemMode_(it);
+            if (m === "buy" || m === "remind" || m === "partner") return true;
+            var nick = String(it.clientNick || (it.payload && (it.payload.client || it.payload.clientNick)) || it.client || "");
+            var key = "";
+            try { key = viewClientKey(nick); } catch (eN) {}
+            if (wantKey && key && wantKey === key) return false;
+            return true;
+          }));
+          deferredCacheAt = Date.now();
+          _tasksTab = "xfer";
+          _tasksAutoPickOnOpen = false;
+          try { renderTasksDrawer(false); } catch (ePaint) {}
+        } catch (eX) {}
       } catch (e) {
         await uiAlertAsync(e.message || "Ошибка сети");
       }
@@ -17266,16 +17304,27 @@
     }
     window.closeTasksDrawer = closeTasksDrawer;
 
+    function deferredItemMode_(it) {
+      var m = String((it && it.mode) || "").trim().toLowerCase();
+      if (m) return m;
+      m = String((it && it.payload && it.payload.mode) || "").trim().toLowerCase();
+      if (m) return m;
+      var title = String((it && it.title) || "");
+      if (/^перенос/i.test(title)) return "transfer";
+      return "pp";
+    }
+
     function pickBestTasksTab_(xferN, buyN, orderN, ppN, remindN) {
       var counts = {
+        xfer: Number(xferN) || 0,
         buy: Number(buyN) || 0,
         orders: Number(orderN) || 0,
-        xfer: Number(xferN) || 0,
         remind: Number(remindN) || 0,
         pp: Number(ppN) || 0
       };
+      if (counts.xfer > 0) return "xfer";
       if (counts[_tasksTab] > 0) return _tasksTab;
-      var prefer = ["buy", "orders", "xfer", "remind", "pp"];
+      var prefer = ["xfer", "buy", "orders", "remind", "pp"];
       for (var i = 0; i < prefer.length; i++) {
         if (counts[prefer[i]] > 0) return prefer[i];
       }
@@ -18399,17 +18448,18 @@
           return String(it.status || "open").toLowerCase() === "open";
         });
         var xferItems = openItems.filter(function (it) {
-          return String(it.mode || "").toLowerCase() === "transfer";
+          return deferredItemMode_(it) === "transfer";
         });
         var buyItems = openItems.filter(function (it) {
-          return String(it.mode || "").toLowerCase() === "buy";
+          return deferredItemMode_(it) === "buy";
         });
         var orderItems = openItems.filter(function (it) {
-          var m = String(it.mode || "").toLowerCase();
+          var m = deferredItemMode_(it);
           return m === "order" || m === "partner";
         });
         var remindItems = openItems.filter(function (it) {
           if (!isDeferredRemindMode_(it)) return false;
+          if (deferredItemMode_(it) === "transfer") return false;
           if (!it.remindSent && !(it.payload && it.payload.remindSent)) return true;
           var sentAt = (it.payload && it.payload.remindSentAt) || "";
           var sentMs = Date.parse(String(sentAt)) || Number(it.remindAtMs || (it.payload && it.payload.remindAtMs) || 0) || 0;
@@ -18417,7 +18467,7 @@
           return (Date.now() - sentMs) < 86400000;
         });
         var ppItems = openItems.filter(function (it) {
-          var m = String(it.mode || "pp").toLowerCase();
+          var m = deferredItemMode_(it);
           return m !== "remind" && m !== "order" && m !== "transfer" && m !== "buy" && m !== "bp_idle" && m !== "partner";
         });
         var idleItems = openItems.filter(function (it) {

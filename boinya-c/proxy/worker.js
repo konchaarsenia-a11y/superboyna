@@ -1964,6 +1964,51 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
     try {
       await deleteClient_(params, env);
     } catch (eDel) {}
+    try {
+      let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+      let arr = Array.isArray(list.items) ? list.items.slice() : [];
+      const nick = String(params.client || params.nick || "").trim();
+      const mk = normalizeMatchKey_(nick || params.matchKey || "");
+      arr = arr.filter(function (it) {
+        if (!it) return false;
+        const m = String(it.mode || (it.payload && it.payload.mode) || "").toLowerCase();
+        if (m === "buy" || m === "remind" || m === "partner") return true;
+        const n = String(
+          it.clientNick || (it.payload && (it.payload.client || it.payload.clientNick)) || it.client || ""
+        );
+        const nk = normalizeMatchKey_(n);
+        if (mk && nk && mk === nk) return false;
+        return true;
+      });
+      const xferId = String((proxied && proxied.id) || ("xfer_" + Date.now()));
+      arr.unshift({
+        id: xferId,
+        mode: "transfer",
+        title: "Перенос · не получил",
+        clientNick: nick,
+        status: "open",
+        payload: {
+          mode: "transfer",
+          parked: true,
+          reason: String(params.reason || ""),
+          day: String(params.day || ""),
+          date: String(params.date || ""),
+          client: nick,
+          matchKey: String(params.matchKey || ""),
+          segment: String(params.segment || ""),
+          basket: parseBasket_(params.basket),
+          createdByName: String(params.createdByName || "")
+        }
+      });
+      list.items = arr;
+      list.status = "success";
+      list.openCount = arr.filter(function (it) {
+        return String(it.status || "open").toLowerCase() === "open";
+      }).length;
+      list.fromD1 = true;
+      list.sandbox = false;
+      await putSnap_(env, "listDeferred", list);
+    } catch (eDef) {}
     return;
   }
 
