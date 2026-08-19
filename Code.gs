@@ -743,29 +743,86 @@ function isPieceWarehouseRow_(row, name) {
 }
 
 /**
- * Жевалки с градацией: учётные шт склада, база = ОГРОМНЫЙ (=1).
+ * Жевалки с фракцией → учётные шт склада. База = ОГРОМНЫЙ = 1.
  * 1 ОГР = 2 БОЛ = 4 СРЕД = 8 МАЛ = 16 ОЧ МАЛ.
- * ОГР=1, БОЛ=0.5, СРЕД=0.25, МАЛ=0.125, ОЧ МАЛ=0.0625.
- * Трахея ПЛАСТ ≈ СРЕД; жила ПАЛК ≈ МАЛ; половинка уха/аорты = 0.25.
+ *
+ * Нарезка A16:A35 (живой лист):
+ *  16 УХО Г              0.5   (целое = большой)
+ *  17 УХО Г ПОЛОВИНКА    0.25
+ *  19 корень ОЧ МАЛ      0.0625
+ *  20 корень МАЛ         0.125
+ *  21 корень СРЕД        0.25
+ *  22 корень БОЛ         0.5
+ *  23 корень ОГР         1
+ *  25 трахея МАЛ         0.125
+ *  26 трахея ПЛАСТ       0.25  (= сред)
+ *  27 трахея СРЕД        0.25
+ *  28 трахея БОЛ         0.5
+ *  29 трахея ОГР         1
+ *  31 жила ПАЛК          0.125 (= мал)
+ *  32 жила СРЕД          0.25
+ *  33 жила БОЛ           0.5   (у жилы нет огромного)
+ *  34 аорта ПОЛОВИНКА    0.25
+ *  35 аорта целая        0.5   (= большой)
+ * Без фракции (перепёлки/колени/хрящ/копыто/шеи/губы/носы) = 1 шт как есть.
  */
+var CHEW_STOCK_BY_CUT_ROW_ = {
+  16: 0.5,
+  17: 0.25,
+  19: 0.0625,
+  20: 0.125,
+  21: 0.25,
+  22: 0.5,
+  23: 1,
+  25: 0.125,
+  26: 0.25,
+  27: 0.25,
+  28: 0.5,
+  29: 1,
+  31: 0.125,
+  32: 0.25,
+  33: 0.5,
+  34: 0.25,
+  35: 0.5
+};
+
 function isGradedChewName_(name) {
   var u = String(name || "").toUpperCase().replace(/Ё/g, "Е");
   return /КОРЕН|ТРАХЕ|СТАНОВ|АОРТ|\bУХО\b|УХО\s*Г/.test(u);
 }
 
-function chewFractionStockFactor_(nameOrSub) {
+function chewSizeToken_(nameOrSub) {
   var u = String(nameOrSub || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
-  if (!u) return 0.5;
-  if (/ПОЛОВИН/.test(u)) return 0.25;
-  if (/ОЧ\s*МАЛ|ОЧЕНЬ\s*(МАЛ|МЕЛК)|СУПЕР\s*(МАЛ|МЕЛК)/.test(u)) return 0.0625;
-  if (/ОГР|ОГРОМ|ГИГАНТ|РОГАЛ/.test(u)) return 1;
-  if (/БОЛ|БОЛЬШ/.test(u)) return 0.5;
-  if (/ПАЛК|ПАЛОЧ/.test(u)) return 0.125;
-  if (/ПЛАСТ/.test(u)) return 0.25;
-  if (/СРЕД/.test(u)) return 0.25;
-  if (/(^|[^А-ЯA-Z0-9])МАЛ([^А-ЯA-Z0-9]|$)|МЕЛК/.test(u)) return 0.125;
-  // целая аорта / ухо без фракции ≈ большой = 0.5 огромного
+  if (!u) return "";
+  if (/ПОЛОВИН/.test(u)) return "ПОЛОВИНКА";
+  if (/ОЧ\s*МАЛ|ОЧЕНЬ\s*(МАЛ|МЕЛК)|СУПЕР\s*(МАЛ|МЕЛК)/.test(u)) return "ОЧ МАЛ";
+  if (/ОГР|ОГРОМ|ГИГАНТ|РОГАЛ/.test(u)) return "ОГР";
+  if (/ПАЛК|ПАЛОЧ/.test(u)) return "ПАЛК";
+  if (/ПЛАСТ/.test(u)) return "ПЛАСТ";
+  if (/БОЛ|БОЛЬШ/.test(u)) return "БОЛ";
+  if (/СРЕД/.test(u)) return "СРЕД";
+  if (/(^|[^А-ЯA-Z0-9])МАЛ([^А-ЯA-Z0-9]|$)|МЕЛК/.test(u)) return "МАЛ";
+  if (/ОБЫЧН/.test(u)) return "Обычное";
+  return "";
+}
+
+function chewFractionStockFactor_(nameOrSub) {
+  var tok = chewSizeToken_(nameOrSub);
+  if (tok === "ОГР") return 1;
+  if (tok === "БОЛ" || tok === "Обычное") return 0.5;
+  if (tok === "СРЕД" || tok === "ПЛАСТ") return 0.25;
+  if (tok === "МАЛ" || tok === "ПАЛК") return 0.125;
+  if (tok === "ОЧ МАЛ") return 0.0625;
+  if (tok === "ПОЛОВИНКА") return 0.25;
+  if (!isGradedChewName_(nameOrSub)) return 1;
+  // целое ухо / целая аорта без слова фракции
   return 0.5;
+}
+
+function chewStockFactorForCuttingRow_(cRow, cutName) {
+  var f = CHEW_STOCK_BY_CUT_ROW_[Number(cRow)];
+  if (f != null) return f;
+  return chewStockFactorForCuttingName_(cutName);
 }
 
 function chewStockFactorForCuttingName_(cutName) {
@@ -5531,7 +5588,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
   }
   var filterOn = !!(dateFrom || dateTo);
   var asOfKey = String(opts.asOf || opts.asOfDate || "").trim();
-  var cacheKey = "WH_PLAN_V8" + (filterOn
+  var cacheKey = "WH_PLAN_V9" + (filterOn)
     ? (":" + (dateFrom ? isoDateKey_(dateFrom) : "") + ":" + (dateTo ? isoDateKey_(dateTo) : ""))
     : "") + (asOfKey ? (":asOf:" + asOfKey) : "");
 
@@ -5687,7 +5744,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
     ensureWh_(wRow);
     var cutName = "";
     try { cutName = String((cutNames[cRow - 3] && cutNames[cRow - 3][0]) || ""); } catch (eN) {}
-    var sizeFactor = chewStockFactorForCuttingName_(cutName);
+    var sizeFactor = chewStockFactorForCuttingRow_(cRow, cutName);
     if (!filterOn || Object.keys(needDaysIdx).length >= 5) {
       try {
         if (cuttingSurplusValues && cuttingSurplusValues[cRow - 3]) {
@@ -5733,7 +5790,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
         ensureWh_(wRowF);
         var cutNameF = "";
         try { cutNameF = String((cutNames[cRowF - 3] && cutNames[cRowF - 3][0]) || ""); } catch (eNF) {}
-        var sizeFactorF = chewStockFactorForCuttingName_(cutNameF);
+        var sizeFactorF = chewStockFactorForCuttingRow_(cRowF, cutNameF);
         var dayGF = 0;
         for (var riF = 0; riF < rowsF.length; riF++) {
           var tIdxF = rowsF[riF] - 1;
@@ -5998,7 +6055,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
     note: (filterOn
       ? "Нужно = сырьё (сухое÷коэф). План: дни текущей/будущей недели с листа, остальные даты — из Календарь_Дат. Есть = F+B минус дни строго до выбранной даты (утро дня, до нарезки)."
       : "Нужно = сырьё (сухое÷коэф). План = граммы с «Приём». Есть = наличие на начало недели (F+B) минус дни строго до выбранной даты (по умолчанию сегодня).") +
-      " Жевалки с размером (корень/трахея/жила/аорта/ухо): учётные шт как на Складе, база ОГРОМНЫЙ=1 — ОГР=1, БОЛ=0.5, СРЕД=0.25, МАЛ=0.125, ОЧ МАЛ=0.0625 (1 огромный = 2 больших = 4 средних)."
+      " Жевалки: база огромный=1. Корень/трахея: ОГР=1, БОЛ=0.5, СРЕД=0.25, МАЛ=0.125, ОЧ МАЛ=0.0625; пласт трахеи = сред. Жила: палка=0.125, сред=0.25, бол=0.5. Ухо и аорта: целое=0.5, половинка=0.25. Без фракции (хрящ/колени/шеи/носы…) = 1 шт."
   };
   try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(out), 45); } catch (ePut) {}
   return out;
@@ -13013,6 +13070,7 @@ function handleSetWarehouseArrival(json, callback, fromPost) {
     cache.remove("wh_get_v1");
     cache.remove("WH_PLAN_V7");
     cache.remove("WH_PLAN_V8");
+    cache.remove("WH_PLAN_V9");
   } catch (eC) {}
   var ok = { status: "success", row: row, arrival: qty };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
@@ -13182,6 +13240,7 @@ function handleWarehousePreview(json, callback, fromPost) {
       CacheService.getScriptCache().remove("WH_PLAN_V6");
       CacheService.getScriptCache().remove("WH_PLAN_V7");
       CacheService.getScriptCache().remove("WH_PLAN_V8");
+      CacheService.getScriptCache().remove("WH_PLAN_V9");
     } catch (e) {}
   }
   var pack = computeWarehouseWeekPlan_(ss, opts);
@@ -13227,6 +13286,7 @@ function handleComposeWarehouseBuyMessage(json, callback, fromPost) {
       CacheService.getScriptCache().remove("WH_PLAN_V6");
       CacheService.getScriptCache().remove("WH_PLAN_V7");
       CacheService.getScriptCache().remove("WH_PLAN_V8");
+      CacheService.getScriptCache().remove("WH_PLAN_V9");
     } catch (e) {}
   }
   var pack = computeWarehouseWeekPlan_(ss, opts);
