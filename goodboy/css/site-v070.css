@@ -772,8 +772,9 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   fill: var(--gb-orange);
   opacity: 1;
 }
-.phone-callout-dot--end.is-on {
-  r: 4.5;
+@media (prefers-reduced-motion: reduce) {
+  .phone-callout-path,
+  .phone-callout-dot { transition: none; }
 }
 @media (min-width: 880px) {
   .phone-showcase-grid {

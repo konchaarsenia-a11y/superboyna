@@ -263,6 +263,7 @@
         layer.dotStart.setAttribute("cy", y1);
         layer.dotEnd.setAttribute("cx", x2);
         layer.dotEnd.setAttribute("cy", y2);
+        layer.dotEnd.setAttribute("r", on ? "4.5" : "3.5");
 
         var on = tab === active;
         layer.path.classList.toggle("is-on", on);
