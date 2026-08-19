@@ -560,15 +560,19 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   box-shadow: none;
 }
 .hf-ico {
-  width: 2rem;
-  height: 2rem;
+  width: 2.25rem;
+  height: 2.25rem;
   display: grid;
   place-items: center;
   border-radius: 10px;
   background: rgba(127, 168, 144, 0.16);
   color: var(--gb-sage);
-  font-size: 0.95rem;
-  line-height: 1;
+  flex-shrink: 0;
+}
+.hf-ico svg {
+  width: 1.28rem;
+  height: 1.28rem;
+  display: block;
 }
 .hf-card h3 {
   margin: 0 0 6px;
@@ -1799,11 +1803,12 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 
 .hf-ico {
-  transition: transform 0.35s var(--ease-bounce), background 0.3s ease;
+  transition: transform 0.35s var(--ease-bounce), background 0.3s ease, color 0.3s ease;
 }
 .hf-card:hover .hf-ico {
   transform: rotate(-8deg) scale(1.08);
   background: rgba(212, 161, 90, 0.18);
+  color: var(--gb-orange);
 }
 
 
