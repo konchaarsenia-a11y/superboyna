@@ -977,7 +977,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
     text-align: center;
     white-space: nowrap;
   }
-  .phone-pick-copy > span:not(.pick-label) {
+  .phone-pick-copy > span {
     display: none;
   }
   .phone-pick-blurb {

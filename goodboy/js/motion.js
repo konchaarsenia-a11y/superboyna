@@ -331,7 +331,7 @@
       blurb.textContent = "";
       if (!activePick || global.innerWidth >= 880) return;
 
-      var desc = activePick.querySelector(".phone-pick-copy span");
+      var desc = activePick.querySelector(".phone-pick-copy > span");
       if (desc) {
         var text = document.createElement("span");
         text.className = "phone-pick-blurb-text";
