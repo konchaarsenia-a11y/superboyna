@@ -9,6 +9,7 @@
 |-----|-----|
 | **Сайт** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/ |
 | **Подписка** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/subscription.html |
+| **Связь** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/contact.html |
 | **Кабинет** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html |
 | **Кабинет (кнопка на сайте)** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html |
 | **Mini App (для BotFather)** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html |
