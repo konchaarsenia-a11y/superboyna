@@ -202,6 +202,93 @@
     apply();
   }
 
+  function initPhoneCallouts(picks, getIndex) {
+    var grid = document.getElementById("phoneShowcaseGrid");
+    var svg = document.getElementById("phoneCallouts");
+    var phone = document.getElementById("heroPhone");
+    if (!grid || !svg || !phone || !picks.length) return null;
+
+    var NS = "http://www.w3.org/2000/svg";
+    var layers = [];
+    var targets = { 0: 0.26, 1: 0.42, 2: 0.58, 3: 0.74 };
+
+    picks.forEach(function (pick) {
+      var path = document.createElementNS(NS, "path");
+      path.setAttribute("class", "phone-callout-path");
+      path.setAttribute("data-tab", pick.getAttribute("data-tab"));
+      svg.appendChild(path);
+
+      var dotStart = document.createElementNS(NS, "circle");
+      dotStart.setAttribute("class", "phone-callout-dot phone-callout-dot--start");
+      dotStart.setAttribute("r", "3.5");
+      svg.appendChild(dotStart);
+
+      var dotEnd = document.createElementNS(NS, "circle");
+      dotEnd.setAttribute("class", "phone-callout-dot phone-callout-dot--end");
+      dotEnd.setAttribute("r", "4");
+      svg.appendChild(dotEnd);
+
+      layers.push({ pick: pick, path: path, dotStart: dotStart, dotEnd: dotEnd });
+    });
+
+    function update() {
+      var active = getIndex();
+      if (global.innerWidth < 880) {
+        svg.style.display = "none";
+        return;
+      }
+      svg.style.display = "block";
+      var gridRect = grid.getBoundingClientRect();
+      var w = Math.max(1, gridRect.width);
+      var h = Math.max(1, gridRect.height);
+      svg.setAttribute("width", w);
+      svg.setAttribute("height", h);
+      svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+
+      var phoneRect = phone.getBoundingClientRect();
+
+      layers.forEach(function (layer) {
+        var tab = Number(layer.pick.getAttribute("data-tab"));
+        var pickRect = layer.pick.getBoundingClientRect();
+        var x1 = pickRect.right - gridRect.left + 1;
+        var y1 = pickRect.top + pickRect.height * 0.5 - gridRect.top;
+        var x2 = phoneRect.left - gridRect.left - 1;
+        var y2 = phoneRect.top + phoneRect.height * (targets[tab] || 0.5) - gridRect.top;
+        var bend = Math.max(36, (x2 - x1) * 0.42);
+        var d = "M" + x1 + " " + y1 +
+          " C" + (x1 + bend) + " " + y1 + " " + (x2 - bend) + " " + y2 + " " + x2 + " " + y2;
+
+        layer.path.setAttribute("d", d);
+        layer.dotStart.setAttribute("cx", x1);
+        layer.dotStart.setAttribute("cy", y1);
+        layer.dotEnd.setAttribute("cx", x2);
+        layer.dotEnd.setAttribute("cy", y2);
+
+        var on = tab === active;
+        layer.path.classList.toggle("is-on", on);
+        layer.dotStart.classList.toggle("is-on", on);
+        layer.dotEnd.classList.toggle("is-on", on);
+      });
+    }
+
+    var resizeTimer;
+    global.addEventListener("resize", function () {
+      global.clearTimeout(resizeTimer);
+      resizeTimer = global.setTimeout(update, 80);
+    });
+
+    if (typeof global.ResizeObserver !== "undefined") {
+      var ro = new global.ResizeObserver(update);
+      ro.observe(grid);
+      ro.observe(phone);
+    }
+
+    global.setTimeout(update, 120);
+    global.setTimeout(update, 600);
+
+    return update;
+  }
+
   function initPhoneDemo() {
     var screen = document.getElementById("phoneScreen");
     var slides = document.querySelectorAll(".phone-slide");
@@ -214,6 +301,7 @@
     var total = slides.length;
     var timer = null;
     var manual = false;
+    var updateCallouts = initPhoneCallouts(picks, function () { return i; });
 
     function show(n) {
       i = ((n % total) + total) % total;
@@ -231,6 +319,7 @@
         p.classList.toggle("is-on", pickOn);
         p.setAttribute("aria-selected", pickOn ? "true" : "false");
       });
+      if (updateCallouts) updateCallouts();
     }
 
     function next() { show(i + 1); }

@@ -155,17 +155,9 @@
           <p class="sec-kicker">В кабинете</p>
           <h2>Всё рядом</h2>
         </div>
-        <div class="phone-showcase-grid">
+        <div class="phone-showcase-grid" id="phoneShowcaseGrid">
+          <svg class="phone-callouts" id="phoneCallouts" aria-hidden="true"></svg>
           <div class="phone-picks reveal" role="tablist" aria-label="Плюсы GOOD BOY">
-            <button type="button" class="phone-pick is-on" data-tab="1" role="tab" aria-selected="true" aria-controls="phoneScreen">
-              <span class="phone-pick-ico" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7.4 9.2h9.2l1.6 10.6H5.8L7.4 9.2Z"/><path d="M9.2 9.2V7.5A2.8 2.8 0 0 1 12 4.7a2.8 2.8 0 0 1 2.8 2.8v1.7"/><path d="M10.4 13.6h3.2"/><circle cx="12" cy="16.8" r="1.15"/></svg>
-              </span>
-              <span class="phone-pick-copy">
-                <strong>Подписка без заморочек</strong>
-                <span>Месячный набор сам приезжает. Дата, состав и&nbsp;статус&nbsp;— в&nbsp;кабинете.</span>
-              </span>
-            </button>
             <button type="button" class="phone-pick" data-tab="0" role="tab" aria-selected="false" aria-controls="phoneScreen">
               <span class="phone-pick-ico" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 10.8c-1.7-2.2-2.2-4.5-.8-5.3 1.5-.8 3.4.8 4.4 2.6"/><path d="M17.8 10.8c1.7-2.2 2.2-4.5.8-5.3-1.5-.8-3.4.8-4.4 2.6"/><path d="M7.2 11.6c0-2.8 2.1-5.1 4.8-5.1s4.8 2.3 4.8 5.1v4c0 2.3-2.1 4.1-4.8 4.1s-4.8-1.8-4.8-4.1v-4Z"/><circle cx="10.2" cy="13" r=".85" fill="currentColor" stroke="none"/><circle cx="13.8" cy="13" r=".85" fill="currentColor" stroke="none"/><path d="M12 13.6v1.2"/><path d="M10.6 16.4c.8.7 2 .7 2.8 0"/></svg>
@@ -173,6 +165,15 @@
               <span class="phone-pick-copy">
                 <strong>Карточка питомца</strong>
                 <span>Кличка, вес, аллергии&nbsp;— рацион и&nbsp;советы реальных специалистов.</span>
+              </span>
+            </button>
+            <button type="button" class="phone-pick is-on" data-tab="1" role="tab" aria-selected="true" aria-controls="phoneScreen">
+              <span class="phone-pick-ico" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7.4 9.2h9.2l1.6 10.6H5.8L7.4 9.2Z"/><path d="M9.2 9.2V7.5A2.8 2.8 0 0 1 12 4.7a2.8 2.8 0 0 1 2.8 2.8v1.7"/><path d="M10.4 13.6h3.2"/><circle cx="12" cy="16.8" r="1.15"/></svg>
+              </span>
+              <span class="phone-pick-copy">
+                <strong>Подписка без заморочек</strong>
+                <span>Месячный набор сам приезжает. Дата, состав и&nbsp;статус&nbsp;— в&nbsp;кабинете.</span>
               </span>
             </button>
             <button type="button" class="phone-pick" data-tab="2" role="tab" aria-selected="false" aria-controls="phoneScreen">
