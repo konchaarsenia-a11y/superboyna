@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/site-v070.css?v=115" />
+  <link rel="stylesheet" href="css/site-v070.css?v=116" />
   <style>
     html.gb-booting { overflow: hidden; }
     #gbBoot {
@@ -151,34 +151,48 @@
     </section>
 
     <section class="site-section sub-pack" id="pack">
-      <div class="inner sub-pack-intro reveal">
-        <p class="sec-kicker">В наборе</p>
-        <h2>Комфорт без лишней суматохи</h2>
-        <p class="sec-lead">Сушёные лакомства GOOD&nbsp;BOY&nbsp;— база подписки. Позже в&nbsp;продаже появятся корма и&nbsp;натуралка.</p>
+      <div class="inner sub-pack-grid">
+        <div class="sub-pack-copy reveal">
+          <p class="sec-kicker">В наборе</p>
+          <h2>Комфорт без лишней суматохи</h2>
+          <p class="sec-lead">Сушёные лакомства GOOD&nbsp;BOY&nbsp;— база подписки. Позже в&nbsp;продаже появятся корма и&nbsp;натуралка.</p>
+          <ul class="sub-pack-list">
+            <li>Только натуральный продукт</li>
+            <li>Никаких добавок</li>
+            <li>Три линии контроля качества</li>
+          </ul>
+        </div>
+        <figure class="sub-pack-visual reveal d1">
+          <img src="assets/shelf-pouches.jpg?v=094" width="1600" height="666" alt="Пакеты лакомств GOOD BOY" loading="lazy" decoding="async" />
+        </figure>
       </div>
-      <figure class="sub-pack-band reveal">
-        <img src="assets/shelf-pouches.jpg?v=094" width="1600" height="666" alt="Пакеты лакомств GOOD BOY" loading="lazy" decoding="async" />
-      </figure>
-      <ul class="inner sub-pack-facts">
-        <li class="reveal">Только натуральный продукт</li>
-        <li class="reveal d1">Никаких добавок</li>
-        <li class="reveal d2">Три линии контроля качества</li>
-      </ul>
     </section>
 
     <section class="site-section sub-paths" id="try">
       <div class="inner">
         <p class="sec-kicker reveal">С чего начать</p>
         <h2 class="reveal d1">Две дороги</h2>
-        <div class="sub-path-row">
-          <a class="sub-path-go reveal" href="try.html">
-            <em>Новый хвост</em>
-            <strong>Хочу попробовать</strong>
-          </a>
-          <a class="sub-path-go sub-path-go--alt reveal d1" href="app.html">
-            <em>Уже с нами</em>
-            <strong>Кабинет</strong>
-          </a>
+        <div class="sub-path-screens">
+          <article class="sub-screen reveal" aria-label="Путь 1 — написать нам">
+            <div class="sub-screen-bar" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+            <p class="sub-screen-path">Путь 1</p>
+            <p class="sub-path-kicker">Новый хвост</p>
+            <h3>Хочу попробовать</h3>
+            <p>Заполните короткую форму&nbsp;— подскажем набор под питомца и&nbsp;оформим знакомство без лишней бюрократии.</p>
+            <a class="sub-screen-cta" href="try.html">Заполнить форму</a>
+          </article>
+          <article class="sub-screen sub-screen--alt reveal d1" aria-label="Путь 2 — уже с нами">
+            <div class="sub-screen-bar" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+            <p class="sub-screen-path">Путь 2</p>
+            <p class="sub-path-kicker">Уже с нами</p>
+            <h3>У меня подписка</h3>
+            <p>Зайдите в&nbsp;кабинет: дата доставки, состав, статус и&nbsp;связь с&nbsp;менеджером&nbsp;— в&nbsp;одном месте.</p>
+            <a class="sub-screen-cta" href="app.html">Открыть кабинет</a>
+          </article>
         </div>
       </div>
     </section>
@@ -186,7 +200,7 @@
     <footer class="site-footer">
       GOOD BOY · <a href="https://www.instagram.com/goodboy_rb" target="_blank" rel="noopener">@goodboy_rb</a>
       · <a href="./">Главная</a>
-      · v0.9.22
+      · v0.9.9
     </footer>
   </div>
 
