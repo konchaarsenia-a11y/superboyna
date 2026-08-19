@@ -206,10 +206,11 @@
     var screen = document.getElementById("phoneScreen");
     var slides = document.querySelectorAll(".phone-slide");
     var tabs = document.querySelectorAll(".phone-tabs [data-tab], .phone-tabs span");
+    var picks = document.querySelectorAll(".phone-pick[data-tab]");
     var toast = document.getElementById("phoneToast");
     if (!slides.length) return;
 
-    var i = 0;
+    var i = 1;
     var total = slides.length;
     var timer = null;
     var manual = false;
@@ -223,6 +224,12 @@
         var key = t.getAttribute("data-tab");
         var on = key != null ? Number(key) === i : idx === i;
         t.classList.toggle("is-on", on);
+      });
+      picks.forEach(function (p) {
+        var pickKey = p.getAttribute("data-tab");
+        var pickOn = pickKey != null && Number(pickKey) === i;
+        p.classList.toggle("is-on", pickOn);
+        p.setAttribute("aria-selected", pickOn ? "true" : "false");
       });
     }
 
@@ -243,7 +250,7 @@
       timer = global.setInterval(next, 4200);
     }
 
-    show(0);
+    show(i);
 
     tabs.forEach(function (t) {
       t.addEventListener("click", function (e) {
@@ -251,6 +258,14 @@
         stopAuto();
         var key = t.getAttribute("data-tab");
         show(key != null ? Number(key) : Array.prototype.indexOf.call(tabs, t));
+      });
+    });
+
+    picks.forEach(function (p) {
+      p.addEventListener("click", function () {
+        stopAuto();
+        var key = p.getAttribute("data-tab");
+        if (key != null) show(Number(key));
       });
     });
 
