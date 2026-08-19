@@ -1832,6 +1832,13 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
+.invite-title--line {
+  text-transform: none;
+  font-size: clamp(1.35rem, 3.8vw, 2rem);
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  margin-bottom: 28px;
+}
 .invite-lead {
   margin: 0 0 28px;
   color: var(--gb-muted);
