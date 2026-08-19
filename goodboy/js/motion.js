@@ -327,12 +327,20 @@
     function updateMobilePickUi() {
       var blurb = document.getElementById("phonePickBlurb");
       var activePick = document.querySelector(".phone-pick.is-on");
-      if (blurb && activePick) {
-        var desc = activePick.querySelector(".phone-pick-copy span");
-        blurb.textContent = desc ? desc.textContent : "";
+      if (!blurb || !activePick || global.innerWidth >= 880) {
+        if (blurb) blurb.textContent = "";
+        return;
       }
-      if (global.innerWidth < 880 && activePick) {
-        activePick.scrollIntoView({ behavior: reduced() ? "auto" : "smooth", block: "nearest", inline: "center" });
+      var title = activePick.querySelector(".phone-pick-copy strong");
+      var desc = activePick.querySelector(".phone-pick-copy span");
+      blurb.textContent = "";
+      if (title) {
+        var heading = document.createElement("strong");
+        heading.textContent = title.textContent;
+        blurb.appendChild(heading);
+      }
+      if (desc) {
+        blurb.appendChild(document.createTextNode(desc.textContent));
       }
     }
 
