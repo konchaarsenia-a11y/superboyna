@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c39";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c40";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -14852,6 +14852,24 @@
       return warehouseTodayIso_();
     }
 
+    // yyyy-mm-dd -> yyyy-mm-dd (понедельник этой недели)
+    function mondayIsoFromIsoDate_(iso) {
+      try {
+        if (!iso) return "";
+        var d = new Date(String(iso) + "T00:00:00");
+        if (isNaN(d.getTime())) return "";
+        var day = d.getDay(); // 0=Вс ... 6=Сб
+        var diff = day === 0 ? -6 : 1 - day; // сдвиг до Пн
+        d.setDate(d.getDate() + diff);
+        var y = d.getFullYear();
+        var m = d.getMonth() + 1;
+        var dd = d.getDate();
+        return y + "-" + (m < 10 ? "0" : "") + m + "-" + (dd < 10 ? "0" : "") + dd;
+      } catch (e) {
+        return "";
+      }
+    }
+
     function syncWarehouseViewButtons_() {
       var view = window._whView || "asOf";
       var wBtn = document.getElementById("whViewWeekBtn");
@@ -15046,7 +15064,12 @@
         if (dates.dateFrom) params.dateFrom = dates.dateFrom;
         if (dates.dateTo) params.dateTo = dates.dateTo;
         var asOfPrev = getWarehouseAsOfIso_();
-        if (asOfPrev) params.asOf = asOfPrev;
+        var viewPrev = window._whView || "asOf";
+        if (asOfPrev) {
+          // «Начало недели» = остаток с Пн (то есть вычитаем 0 дней прошлого до выбранной даты)
+          if (viewPrev === "weekStart") params.asOf = mondayIsoFromIsoDate_(asOfPrev);
+          else params.asOf = asOfPrev;
+        }
         var res = await apiGet(params, { timeoutMs: 45000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
           if (box) box.innerHTML = '<p class="muted">' + escapeHtml((res && res.message) || "Ошибка preview") + "</p>";
