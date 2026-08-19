@@ -3999,7 +3999,15 @@ function handleMoveClient(ss, json, callback) {
   checkLiveDeficitAndNotify();
   var whAlertMove = null;
   try {
-    var packMove = computeWarehouseWeekPlan_(ss);
+    var tzWhM = ss.getSpreadsheetTimeZone();
+    var todayIsoWhM = isoDateKey_(new Date(), tzWhM);
+    var moveDayDate = newDate || getDayDate_(ss, targetDayName);
+    var moveIsoWh = moveDayDate ? isoDateKey_(moveDayDate, tzWhM) : todayIsoWhM;
+    var packMove = computeWarehouseWeekPlan_(ss, {
+      asOf: todayIsoWhM,
+      dateFrom: moveIsoWh,
+      dateTo: moveIsoWh
+    });
     if (packMove && packMove.deficits && packMove.deficits.length) {
       whAlertMove = {
         count: packMove.deficits.length,
@@ -4478,7 +4486,15 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   try {
     CacheService.getScriptCache().remove("WH_PLAN_V2");
     checkLiveDeficitAndNotify();
-    var packWh = computeWarehouseWeekPlan_(ss);
+    var tzWh = ss.getSpreadsheetTimeZone();
+    var todayIsoWh = isoDateKey_(new Date(), tzWh);
+    var orderDayDateWh = getDayDate_(ss, json.day) || parseFlexibleDate_(json.date, tzWh);
+    var orderIsoWh = orderDayDateWh ? isoDateKey_(orderDayDateWh, tzWh) : todayIsoWh;
+    var packWh = computeWarehouseWeekPlan_(ss, {
+      asOf: todayIsoWh,
+      dateFrom: orderIsoWh,
+      dateTo: orderIsoWh
+    });
     if (packWh && packWh.deficits && packWh.deficits.length) {
       whAlert = {
         count: packWh.deficits.length,
@@ -12948,7 +12964,7 @@ function handleGetWarehouse(json, callback, fromPost) {
     }
 
     var view = String((json && json.view) || "").trim();
-    if (view !== "asOf") view = "weekStart";
+    if (view !== "weekStart") view = "asOf";
     var asOf = String((json && (json.asOf || json.date)) || "").trim();
     var skipCache = !!(json && (json.force || json.nocache || json._ || view === "asOf" || asOf));
     var cacheKey = "wh_get_v2:" + view + ":" + asOf;
@@ -13232,10 +13248,12 @@ function applyWarehouseRevisionManual() {
 
 function handleWarehousePreview(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone();
+  var todayIso = isoDateKey_(new Date(), tz);
   var opts = {
     dateFrom: (json && (json.dateFrom || json.from)) || "",
     dateTo: (json && (json.dateTo || json.to)) || "",
-    asOf: (json && (json.asOf || json.asOfDate)) || "",
+    asOf: (json && (json.asOf || json.asOfDate)) || todayIso,
     force: !!(json && (json.force || json.refresh))
   };
   if (opts.force) {
@@ -13279,10 +13297,12 @@ function handleWarehousePreview(json, callback, fromPost) {
 
 function handleComposeWarehouseBuyMessage(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone();
+  var todayIso = isoDateKey_(new Date(), tz);
   var opts = {
     dateFrom: (json && (json.dateFrom || json.from)) || "",
     dateTo: (json && (json.dateTo || json.to)) || "",
-    asOf: (json && (json.asOf || json.asOfDate)) || "",
+    asOf: (json && (json.asOf || json.asOfDate)) || todayIso,
     force: !!(json && (json.force || json.refresh))
   };
   if (opts.force) {

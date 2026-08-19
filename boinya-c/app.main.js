@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c40";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c41";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -384,7 +384,7 @@
         "Курьер\n" +
         "• Точка выезда: склад или свой адрес.\n" +
         "• Сборка: long-press. Форматы пакетов можно выключить — «Итого» уменьшится.",
-      warehouseScreen: "Склад\n• Сырое/сухое, коэффициенты, снабжение.",
+      warehouseScreen: "Склад\n• Остаток на сегодня; «неделя» = F+B.",
       subsScreen: "Подписки\n• Пароль; Отмена → Заказ.\n• Карточка: мета + состав (ручной ввод) → Сохранить.\n• ПП: «Сообщение клиенту» — копировать текст и открыть Instagram.\n• ПП↔АФК / удалить.",
       subDetailScreen: "Карточка подписки\n• Правишь поля и состав → Сохранить.\n• ПП/АФК: «Сообщение клиенту» — текст как в Расчёте, копируй в Direct.",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
@@ -3121,7 +3121,10 @@
           } else {
             stopCuttingPoll();
           }
-          if (sid === "warehouseScreen") loadWarehouse({ soft: true });
+          if (sid === "warehouseScreen") {
+            loadWarehouse({ soft: true });
+            try { loadWarehousePreview({ soft: true }); } catch (eWhP) {}
+          }
           if (sid === "subsScreen") enterSubsScreen();
           if (sid === "statsScreen") loadStats({ soft: true });
           if (sid === "deferredScreen") openTasksDrawer();
@@ -14846,20 +14849,31 @@
       return d.getFullYear() + "-" + (m < 10 ? "0" : "") + m + "-" + (day < 10 ? "0" : "") + day;
     }
 
+    function formatWarehouseDayLabel_(iso) {
+      if (!iso) iso = warehouseTodayIso_();
+      try {
+        var d = new Date(String(iso) + "T00:00:00");
+        if (isNaN(d.getTime())) return iso;
+        var days = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+        var dd = d.getDate();
+        var mm = d.getMonth() + 1;
+        return days[d.getDay()] + " " + (dd < 10 ? "0" : "") + dd + "." + (mm < 10 ? "0" : "") + mm;
+      } catch (e) {
+        return iso;
+      }
+    }
+
     function getWarehouseAsOfIso_() {
-      var el = document.getElementById("whAsOfDate");
-      if (el && el.value) return String(el.value).trim();
       return warehouseTodayIso_();
     }
 
-    // yyyy-mm-dd -> yyyy-mm-dd (понедельник этой недели)
     function mondayIsoFromIsoDate_(iso) {
       try {
         if (!iso) return "";
         var d = new Date(String(iso) + "T00:00:00");
         if (isNaN(d.getTime())) return "";
-        var day = d.getDay(); // 0=Вс ... 6=Сб
-        var diff = day === 0 ? -6 : 1 - day; // сдвиг до Пн
+        var day = d.getDay();
+        var diff = day === 0 ? -6 : 1 - day;
         d.setDate(d.getDate() + diff);
         var y = d.getFullYear();
         var m = d.getMonth() + 1;
@@ -14873,19 +14887,23 @@
     function syncWarehouseViewButtons_() {
       var view = window._whView || "asOf";
       var wBtn = document.getElementById("whViewWeekBtn");
-      var aBtn = document.getElementById("whViewAsOfBtn");
       if (wBtn) wBtn.classList.toggle("active", view === "weekStart");
-      if (aBtn) aBtn.classList.toggle("active", view === "asOf");
-      var el = document.getElementById("whAsOfDate");
-      if (el && !el.value) el.value = warehouseTodayIso_();
+      var lab = document.getElementById("whDayLabel");
+      if (lab) {
+        lab.textContent = view === "weekStart"
+          ? "Неделя F+B"
+          : formatWarehouseDayLabel_(warehouseTodayIso_());
+      }
     }
 
-    function setWarehouseStockView_(view) {
-      window._whView = view === "weekStart" ? "weekStart" : "asOf";
+    function toggleWarehouseWeekView_() {
+      var next = (window._whView === "weekStart") ? "asOf" : "weekStart";
+      window._whView = next;
       syncWarehouseViewButtons_();
-      loadWarehouse({ force: 1, view: window._whView });
+      loadWarehouse({ force: 1, view: next });
+      loadWarehousePreview({ force: 1 });
     }
-    window.setWarehouseStockView_ = setWarehouseStockView_;
+    window.toggleWarehouseWeekView_ = toggleWarehouseWeekView_;
 
     async function loadWarehouse(opts) {
       opts = opts || {};
@@ -14969,10 +14987,9 @@
           } catch (ePrev) {}
         }
         var caption = view === "weekStart"
-          ? "Начало недели (F+B)"
-          : ("На утро " + asOf + " (до нарезки дня)");
-        var html = '<div class="muted" style="font-size:12px;margin-bottom:8px;">' + escapeHtml(caption) +
-          (res.asOfNote ? " · " + escapeHtml(String(res.asOfNote)) : "") + "</div>";
+          ? "F+B"
+          : formatWarehouseDayLabel_(asOf);
+        var html = '<div class="muted" style="font-size:12px;margin-bottom:8px;">' + escapeHtml(caption) + "</div>";
         html += (res.items || []).map(function (it) {
           var weekStart = it.weekStart != null ? Number(it.weekStart) : (Number(it.stock || 0) + Number(it.arrival || 0));
           if (byRowStart[it.row] != null) weekStart = Number(byRowStart[it.row]);
@@ -14981,14 +14998,9 @@
             shown = (it.asOfStock != null && gasAsOf) ? Number(it.asOfStock)
               : (byRowAvail[it.row] != null ? Number(byRowAvail[it.row]) : weekStart);
           }
-          var prior = it.priorRaw != null ? it.priorRaw : byRowPrior[it.row];
           return '<div class="card" style="margin-bottom:8px;">' +
             '<b>' + escapeHtml(it.name) + '</b> <span class="muted">' + escapeHtml(it.unit) + '</span>' +
-            '<div style="margin-top:6px;font-size:13px;">' + escapeHtml(view === "asOf" ? "Остаток" : "На начало") +
-            ': <b>' + formatWhNum(shown) + '</b>' +
-            (view === "asOf" ? ' · начало нед. ' + formatWhNum(weekStart) : '') +
-            (it.arrival ? ' · дозакуп B ' + formatWhNum(it.arrival) : '') +
-            (prior && view === "asOf" ? ' · списано до дня ' + formatWhNum(prior) : '') +
+            '<div style="margin-top:6px;font-size:13px;"><b>' + formatWhNum(shown) + '</b>' +
             (it.buy ? ' · <span style="color:var(--accent-color)">закупить</span>' : '') +
             '</div>' +
             '<div class="seg-row" style="margin-top:8px;">' +
@@ -15022,82 +15034,43 @@
     window.saveWarehouseArrival = saveWarehouseArrival;
 
     function getWarehouseDeficitDates_() {
-      var fromEl = document.getElementById("whDefFrom");
-      var toEl = document.getElementById("whDefTo");
-      return {
-        dateFrom: fromEl ? String(fromEl.value || "").trim() : "",
-        dateTo: toEl ? String(toEl.value || "").trim() : ""
-      };
+      var today = warehouseTodayIso_();
+      if (window._whView === "weekStart") {
+        return { dateFrom: "", dateTo: "" };
+      }
+      return { dateFrom: today, dateTo: today };
     }
-
-    function fillWarehouseDeficitDatesFromDays_(days) {
-      var fromEl = document.getElementById("whDefFrom");
-      var toEl = document.getElementById("whDefTo");
-      if (!fromEl || !toEl) return;
-      if (fromEl.value && toEl.value) return;
-      var list = (days || []).filter(function (d) { return d && d.dateIso; });
-      if (!list.length) return;
-      if (!fromEl.value) fromEl.value = list[0].dateIso;
-      if (!toEl.value) toEl.value = list[list.length - 1].dateIso;
-    }
-
-    function setWarehouseDeficitWholeWeek_() {
-      var fromEl = document.getElementById("whDefFrom");
-      var toEl = document.getElementById("whDefTo");
-      if (fromEl) fromEl.value = "";
-      if (toEl) toEl.value = "";
-      loadWarehousePreview({ prefWeek: 1 });
-    }
-    window.setWarehouseDeficitWholeWeek_ = setWarehouseDeficitWholeWeek_;
 
     async function loadWarehousePreview(opts) {
       opts = opts || {};
       var box = document.getElementById("warehousePreviewBox");
-      if (box) box.innerHTML = '<p class="muted">Считаю…</p>';
+      if (box && !opts.soft) box.innerHTML = '<p class="muted">Считаю…</p>';
       try {
         var dates = getWarehouseDeficitDates_();
+        var today = warehouseTodayIso_();
+        var viewPrev = window._whView || "asOf";
         var params = {
           action: "warehousePreview",
           force: "1",
+          asOf: viewPrev === "weekStart" ? mondayIsoFromIsoDate_(today) : today,
           _: String(Date.now())
         };
         if (dates.dateFrom) params.dateFrom = dates.dateFrom;
         if (dates.dateTo) params.dateTo = dates.dateTo;
-        var asOfPrev = getWarehouseAsOfIso_();
-        var viewPrev = window._whView || "asOf";
-        if (asOfPrev) {
-          // «Начало недели» = остаток с Пн (то есть вычитаем 0 дней прошлого до выбранной даты)
-          if (viewPrev === "weekStart") params.asOf = mondayIsoFromIsoDate_(asOfPrev);
-          else params.asOf = asOfPrev;
-        }
-        var res = await apiGet(params, { timeoutMs: 45000, cacheTtlMs: 0 });
+        var res = await apiGet(params, { timeoutMs: 45000, cacheTtlMs: opts.force ? 0 : 15000 });
         if (!res || res.status !== "success") {
-          if (box) box.innerHTML = '<p class="muted">' + escapeHtml((res && res.message) || "Ошибка preview") + "</p>";
+          if (box) box.innerHTML = '<p class="muted">' + escapeHtml((res && res.message) || "Ошибка") + "</p>";
           return;
         }
-        fillWarehouseDeficitDatesFromDays_(res.days || []);
-
-        if (opts.prefWeek && (!dates.dateFrom || !dates.dateTo)) {
-          var filled = getWarehouseDeficitDates_();
-          if (filled.dateFrom || filled.dateTo) {
-            return loadWarehousePreview({});
-          }
-        }
-        var rangeLab = res.rangeLabel ||
-          ((res.dateFrom || dates.dateFrom || "…") + " — " + (res.dateTo || dates.dateTo || "…"));
         var defs = res.deficits || [];
         var rows = (res.withPlan && res.withPlan.length) ? res.withPlan : defs;
         var rowsHtml = "";
         if (!rows.length) {
-          rowsHtml = '<div style="padding:10px 0;" class="muted">' +
-            ((dates.dateFrom || dates.dateTo)
-              ? "На эти даты в календаре/листе нет плана — или остаток покрывает всё."
-              : "На период плана нет — или остаток покрывает всё.") +
-            "</div>";
+          rowsHtml = '<div style="padding:10px 0;" class="muted">Нет плана или хватает.</div>';
         } else {
           rowsHtml =
             '<div style="display:grid;grid-template-columns:1.3fr 0.7fr 0.7fr 0.7fr;gap:6px 8px;font-size:11px;color:#8e8e93;margin:8px 0 4px;">' +
-            "<div>Позиция</div><div>План</div><div>Нужно сырья</div><div>Есть</div></div>" +
+            "<div>Позиция</div><div>План</div><div>Нужно</div><div>Есть</div></div>" +
             rows.map(function (d) {
               var unit = d.unit || "кг";
               var short = (Number(d.deficit) || 0) > 0;
@@ -15111,39 +15084,21 @@
               } else {
                 planTxt = "—";
               }
-              var dayBits = (d.byDay || []).filter(function (x) { return x.inNeed !== false && !x.past; }).map(function (x) {
-                return (x.day || "").split(" ")[0] + " " + formatWhNum(x.needRaw);
-              }).join(", ");
               return '<div style="display:grid;grid-template-columns:1.3fr 0.7fr 0.7fr 0.7fr;gap:6px 8px;padding:8px 0;border-top:1px solid rgba(255,255,255,0.08);font-size:13px;align-items:start;' +
                 (short ? "background:rgba(255,69,58,0.08);" : "") + '">' +
-                "<div><b" + (short ? ' style="color:#ff6961;"' : "") + ">" + escapeHtml(d.name || "") + "</b>" +
-                (dayBits ? '<div class="muted" style="font-size:11px;margin-top:2px;">' + escapeHtml(dayBits) + "</div>" : "") +
-                (d.coef && !d.piece ? '<div class="muted" style="font-size:10px;">коэф ' + escapeHtml(String(d.coef)) + "</div>" : "") +
-                "</div>" +
+                "<div><b" + (short ? ' style="color:#ff6961;"' : "") + ">" + escapeHtml(d.name || "") + "</b></div>" +
                 "<div>" + escapeHtml(planTxt) + "</div>" +
                 "<div><b>" + escapeHtml(formatWhNum(d.needRaw != null ? d.needRaw : d.need)) + "</b> " + escapeHtml(unit) + "</div>" +
                 "<div>" + escapeHtml(formatWhNum(d.available)) + " " + escapeHtml(unit) + "</div>" +
                 "</div>";
             }).join("");
         }
-        var chips = (res.days || []).map(function (d) {
-          var iso = d.dateIso || "";
-          if (!iso) return "";
-          var on = d.inNeed || (d.inRange !== false && !d.past);
-          return '<button type="button" class="seg-btn" style="padding:4px 8px;font-size:11px;' +
-            (on ? "background:#ff9f0a;border-color:#ff9f0a;color:#111;" : "background:#3a3a3c;") +
-            '" onclick="setWarehouseDeficitDayChip_(\'' + escapeHtml(iso) + '\')">' +
-            escapeHtml(d.name || "") + "</button>";
-        }).join("");
+        var dayLab = viewPrev === "weekStart" ? "неделя" : formatWarehouseDayLabel_(today);
         if (box) {
           box.innerHTML = '<div class="card" style="margin-top:0;">' +
-            "<b>Позиции · " + escapeHtml(String(rows.length)) + "</b>" +
-            (defs.length ? (' <span style="color:#ff6961;">· нехватка ' + escapeHtml(String(defs.length)) + "</span>") : "") +
-            '<div class="muted" style="margin-top:4px;font-size:12px;">' + escapeHtml(rangeLab) + "</div>" +
-            (chips ? '<div class="seg-row" style="margin-top:8px;flex-wrap:wrap;">' + chips +
-              '<button type="button" class="seg-btn" style="padding:4px 8px;font-size:11px;background:#3a3a3c;" onclick="setWarehouseDeficitWholeWeek_()">Остаток недели</button></div>' : "") +
+            "<b>" + escapeHtml(dayLab) + "</b>" +
+            (defs.length ? (' · <span style="color:#ff6961;">−' + escapeHtml(String(defs.length)) + "</span>") : "") +
             rowsHtml +
-            '<div class="muted" style="margin-top:10px;font-size:12px;">' + escapeHtml(res.note || "") + "</div>" +
             "</div>";
         }
       } catch (e) {
@@ -15151,25 +15106,6 @@
       }
     }
     window.loadWarehousePreview = loadWarehousePreview;
-
-    function setWarehouseDeficitDayChip_(iso) {
-      var fromEl = document.getElementById("whDefFrom");
-      var toEl = document.getElementById("whDefTo");
-      if (!fromEl || !toEl || !iso) return;
-
-      if (!fromEl.value && !toEl.value) {
-        fromEl.value = iso;
-        toEl.value = iso;
-      } else if (fromEl.value === toEl.value) {
-        if (iso < fromEl.value) fromEl.value = iso;
-        else toEl.value = iso;
-      } else {
-        fromEl.value = iso;
-        toEl.value = iso;
-      }
-      loadWarehousePreview({});
-    }
-    window.setWarehouseDeficitDayChip_ = setWarehouseDeficitDayChip_;
 
     const SUBS_VIEW_PASSWORD = "708080";
     const SUBS_UNLOCK_SS = "superboyna_subs_unlocked_session";
@@ -18355,9 +18291,12 @@
       showToast("Собираю сообщение…");
       try {
         var dates = (typeof getWarehouseDeficitDates_ === "function") ? getWarehouseDeficitDates_() : { dateFrom: "", dateTo: "" };
+        var today = warehouseTodayIso_();
+        var viewPrev = window._whView || "asOf";
         var params = {
           action: "composeWarehouseBuyMessage",
           force: "1",
+          asOf: viewPrev === "weekStart" ? mondayIsoFromIsoDate_(today) : today,
           _: String(Date.now())
         };
         if (dates.dateFrom) params.dateFrom = dates.dateFrom;
