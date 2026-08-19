@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c41";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c42";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -4524,12 +4524,12 @@
             (orderPrice != null ? (" · " + orderPrice + " BYN") : ""));
           try {
             var whA = saveRes && saveRes.warehouseAlert;
-            if (whA && (whA.count > 0 || (whA.deficits && whA.deficits.length))) {
-              var nDef = whA.count || (whA.deficits && whA.deficits.length) || 0;
+            if (whA && (whA.count > 0 || whA.clientCount > 0 ||
+                (whA.totalDeficits && whA.totalDeficits.length) ||
+                (whA.clientDeficits && whA.clientDeficits.length))) {
               setTimeout(function () {
-                showToast("СРОЧНО · склад: не хватает " + nDef + " поз. → Отложенные → Дозакуп");
-              }, 900);
-              try { refreshDeferredBadge(true); } catch (eBadge) {}
+                showWarehouseDeficitModal_(whA, clientName);
+              }, 600);
             }
           } catch (eWh) {}
         } else {
@@ -6829,11 +6829,12 @@
         }
         try {
           var whM = res.warehouseAlert;
-          if (whM && (whM.count > 0 || (whM.deficits && whM.deficits.length))) {
+          if (whM && (whM.count > 0 || whM.clientCount > 0 ||
+              (whM.totalDeficits && whM.totalDeficits.length) ||
+              (whM.clientDeficits && whM.clientDeficits.length))) {
             setTimeout(function () {
-              showToast("СРОЧНО · склад: не хватает " + (whM.count || whM.deficits.length) + " поз. → Дозакуп");
-            }, 900);
-            try { refreshDeferredBadge(true); } catch (eB2) {}
+              showWarehouseDeficitModal_(whM, clientName);
+            }, 600);
           }
         } catch (eWhM) {}
         try {
@@ -14841,6 +14842,94 @@
       showToast("Состав очищен");
     }
     window.clearPriceBasket = clearPriceBasket;
+
+    async function copyTextToClipboard_(text) {
+      var t = String(text || "");
+      if (!t) return false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(t);
+          return true;
+        }
+      } catch (e1) {}
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = t;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        return true;
+      } catch (e2) {}
+      return false;
+    }
+
+    async function showWarehouseDeficitModal_(whAlert, clientName) {
+      if (!whAlert) return;
+      var clientDefs = whAlert.clientDeficits || [];
+      var totalDefs = whAlert.totalDeficits || [];
+      if (!clientDefs.length && !totalDefs.length && !(whAlert.count > 0)) return;
+
+      var name = clientName || whAlert.client || "клиент";
+      var text = String(whAlert.messageText || "");
+
+      function rowHtml_(d, accent) {
+        return '<div style="padding:5px 0;line-height:1.35;' + (accent ? "color:#ff6961;" : "") + '">' +
+          "<b>" + escapeHtml(d.name || "") + "</b>: −" + escapeHtml(formatWhNum(d.deficit)) +
+          " " + escapeHtml(d.unit || "кг") +
+          '<div class="muted" style="font-size:10px;margin-top:1px;">нужно ' +
+          escapeHtml(formatWhNum(d.needRaw)) + " · есть " + escapeHtml(formatWhNum(d.available)) + "</div></div>";
+      }
+
+      var clientBlock = clientDefs.length
+        ? ('<div><div style="font-weight:700;margin-bottom:6px;font-size:13px;">' +
+          escapeHtml(name) + "</div>" + clientDefs.map(function (d) { return rowHtml_(d, true); }).join("") + "</div>")
+        : ('<div class="muted" style="font-size:13px;">У ' + escapeHtml(name) +
+          " по составу дефицита нет — см. общий.</div>");
+
+      var totalBlock = totalDefs.length
+        ? ('<div><div style="font-weight:700;margin-bottom:6px;font-size:13px;">Общий дефицит</div>' +
+          totalDefs.map(function (d) { return rowHtml_(d, false); }).join("") + "</div>")
+        : '<div class="muted" style="font-size:13px;">Общего дефицита нет.</div>';
+
+      var html = '<div class="modal-title">Дефицит сырья</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;align-items:start;">' +
+        clientBlock + totalBlock +
+        "</div>" +
+        '<div class="modal-actions row" style="margin-top:14px;flex-wrap:wrap;gap:8px;">' +
+        '<button class="btn-action btn-orange" type="button" id="whAlertCopy">Скопировать</button>' +
+        '<button class="btn-action btn-blue" type="button" id="whAlertShare">Отправить</button>' +
+        '<button class="btn-action" type="button" id="whAlertOk" style="background:#3a3a3c;">OK</button>' +
+        "</div>";
+
+      var p = openModal(html);
+      setTimeout(function () {
+        var ok = document.getElementById("whAlertOk");
+        var copyBtn = document.getElementById("whAlertCopy");
+        var shareBtn = document.getElementById("whAlertShare");
+        if (ok) ok.onclick = function () { closeModal(true); };
+        if (copyBtn) copyBtn.onclick = async function () {
+          if (await copyTextToClipboard_(text)) showToast("Скопировано");
+          else showToast("Не скопировалось");
+        };
+        if (shareBtn) shareBtn.onclick = async function () {
+          try {
+            if (navigator.share) {
+              await navigator.share({ text: text, title: "Дефицит сырья · " + name });
+              return;
+            }
+          } catch (eSh) {}
+          if (await copyTextToClipboard_(text)) showToast("Скопировано — вставь в чат");
+          else await uiAlertAsync(text);
+        };
+      }, 0);
+      await p;
+      try { refreshDeferredBadge(true); } catch (eBadge) {}
+    }
+    window.showWarehouseDeficitModal_ = showWarehouseDeficitModal_;
 
     function warehouseTodayIso_() {
       var d = new Date();

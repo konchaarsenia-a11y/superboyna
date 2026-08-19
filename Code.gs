@@ -4008,14 +4008,13 @@ function handleMoveClient(ss, json, callback) {
       dateFrom: moveIsoWh,
       dateTo: moveIsoWh
     });
-    if (packMove && packMove.deficits && packMove.deficits.length) {
-      whAlertMove = {
-        count: packMove.deficits.length,
-        top: packMove.deficits.slice(0, 5).map(function (d) {
-          return d.name + " −" + d.deficit + (d.unit || "кг");
-        })
-      };
-    }
+    var srcItems = sourceSheet.getRange(srcBlock.start, 1, srcBlock.end - srcBlock.start + 1, 1).getValues();
+    var movedBasket = basketFromMeatColumn_(srcItems, oldMeatValues);
+    whAlertMove = buildWarehouseAlertForOrder_(ss, movedBasket, packMove, {
+      client: clientName,
+      day: targetDayName,
+      dayDate: moveDayDate ? formatSheetDate(moveDayDate, tzWhM) : ""
+    });
   } catch (eWhM) {}
   bustClientsCache_();
   try { clearCrmSheetCache_(); } catch (eC) {}
@@ -4495,14 +4494,11 @@ function handleSaveOrder(ss, json, callback, fromPost) {
       dateFrom: orderIsoWh,
       dateTo: orderIsoWh
     });
-    if (packWh && packWh.deficits && packWh.deficits.length) {
-      whAlert = {
-        count: packWh.deficits.length,
-        top: packWh.deficits.slice(0, 5).map(function (d) {
-          return d.name + " −" + d.deficit + (d.unit || "кг");
-        })
-      };
-    }
+    whAlert = buildWarehouseAlertForOrder_(ss, basket, packWh, {
+      client: String(json.client || "").trim(),
+      day: String(json.day || "").trim(),
+      dayDate: orderDayDateWh ? formatSheetDate(orderDayDateWh, tzWh) : ""
+    });
   } catch (eWh) {}
   return reply({
     status: "success",
@@ -5581,6 +5577,153 @@ function warehouseRowFromBasketItem_(item, itemsInSheet, revMap, byNorm) {
 function basketItemDryQty_(item) {
   var val = Number(item && (item.val != null ? item.val : (item.value != null ? item.value : item.qty))) || 0;
   return val > 0 ? val : 0;
+}
+
+function basketFromMeatColumn_(itemsInSheet, meatValues) {
+  var basket = [];
+  if (!itemsInSheet || !meatValues) return basket;
+  for (var i = 0; i < meatValues.length && i < itemsInSheet.length; i++) {
+    var val = Number(meatValues[i] && meatValues[i][0]) || 0;
+    if (!(val > 0)) continue;
+    var rawName = String((itemsInSheet[i] && itemsInSheet[i][0]) || "").trim();
+    if (!rawName || rawName.indexOf("#") > -1) continue;
+    var name = rawName;
+    var sub = "";
+    if (rawName.indexOf(" / ") > -1) {
+      var parts = rawName.split(" / ");
+      name = parts[0].trim();
+      sub = parts[1] ? parts[1].trim() : "";
+    }
+    basket.push({ name: name, sub: sub, val: val });
+  }
+  return basket;
+}
+
+/** Дефицит по позициям корзины одного клиента (против плана дня). */
+function computeClientBasketDeficits_(ss, basket, packDay) {
+  if (!basket || !basket.length || !packDay || !packDay.plan) return [];
+  var wh = ss.getSheetByName("Склад");
+  if (!wh) return [];
+  var lastWh = Math.min(50, Math.max(2, wh.getLastRow()));
+  var matrix = wh.getRange(2, 1, lastWh - 1, 13).getValues();
+  var byNorm = buildWarehouseNameIndex_(matrix);
+  var sheetManager = ss.getSheetByName("Прием заказов");
+  var itemsInSheet = [];
+  try { itemsInSheet = sheetManager.getRange(4, 1, 59, 1).getValues(); } catch (e) {}
+  var revMap = reverseManagerRowToCutting_();
+  var planByRow = {};
+  (packDay.plan || []).forEach(function (p) { planByRow[p.row] = p; });
+  var clientNeedByRow = {};
+  var clientLabelByRow = {};
+  for (var i = 0; i < basket.length; i++) {
+    var it = basket[i];
+    if (!it) continue;
+    var noteTxt = String(it.note || it.name || it.main || "") + " " + String(it.sub || "");
+    if (/\[\s*НЕ\s*РЕЗАТЬ\s*\]/i.test(noteTxt)) continue;
+    var wRow = warehouseRowFromBasketItem_(it, itemsInSheet, revMap, byNorm);
+    if (!wRow) continue;
+    var g = basketItemDryQty_(it) * chewStockFactorForBasketItem_(it);
+    if (!(g > 0)) continue;
+    var whName = String((matrix[wRow - 2] && matrix[wRow - 2][0]) || "").trim();
+    var piece = isPieceWarehouseRow_(wRow, whName);
+    var coef = Number(matrix[wRow - 2][3]) || (piece ? 1 : 0.2);
+    if (!(coef > 0)) coef = piece ? 1 : 0.2;
+    var needRaw = piece ? g : ((g / 1000) / coef);
+    var label = String(it.name || it.main || whName || "").trim();
+    if (it.sub) label += " / " + String(it.sub).trim();
+    clientNeedByRow[wRow] = (clientNeedByRow[wRow] || 0) + needRaw;
+    clientLabelByRow[wRow] = label;
+  }
+  var out = [];
+  for (var rowKey in clientNeedByRow) {
+    var rowNum = Number(rowKey);
+    var planItem = planByRow[rowNum];
+    if (!planItem) continue;
+    var dayDeficit = Number(planItem.deficit) || 0;
+    if (!(dayDeficit > 0)) continue;
+    var need = clientNeedByRow[rowNum];
+    var available = Number(planItem.available) || 0;
+    var unit = planItem.unit || "кг";
+    var shortfall = Math.min(need, dayDeficit);
+    if (shortfall < (planItem.piece ? 0.05 : 0.01)) continue;
+    out.push({
+      row: rowNum,
+      name: clientLabelByRow[rowNum] || planItem.name,
+      skuName: planItem.name,
+      needRaw: round2_(need),
+      available: round2_(available),
+      deficit: round2_(shortfall),
+      dayDeficit: round2_(dayDeficit),
+      unit: unit
+    });
+  }
+  out.sort(function (a, b) { return (b.deficit || 0) - (a.deficit || 0); });
+  return out;
+}
+
+function composeWarehouseAlertMessage_(client, dayLabel, clientDefs, totalDefs) {
+  var lines = [];
+  lines.push("🚨 Дефицит сырья");
+  if (client) lines.push("Клиент: " + client);
+  if (dayLabel) lines.push("День: " + dayLabel);
+  lines.push("");
+  if (clientDefs && clientDefs.length) {
+    lines.push("На этого человека:");
+    for (var i = 0; i < clientDefs.length; i++) {
+      var c = clientDefs[i];
+      var u = c.unit || "кг";
+      lines.push("· " + c.name + " — нужно " + c.needRaw + " " + u +
+        ", есть " + c.available + " " + u + " (−" + c.deficit + ")");
+    }
+    lines.push("");
+  }
+  if (totalDefs && totalDefs.length) {
+    lines.push("Общий дефицит дня:");
+    for (var j = 0; j < totalDefs.length; j++) {
+      var d = totalDefs[j];
+      var u2 = d.unit || "кг";
+      lines.push("· " + d.name + " — −" + d.deficit + " " + u2 +
+        " (нужно " + d.needRaw + ", есть " + d.available + ")");
+    }
+  }
+  lines.push("");
+  lines.push("Бойня-Конвейер · склад");
+  return lines.join("\n");
+}
+
+function buildWarehouseAlertForOrder_(ss, basket, packDay, meta) {
+  meta = meta || {};
+  if (!packDay || !packDay.ok) return null;
+  var totalDefs = packDay.deficits || [];
+  var clientDefs = computeClientBasketDeficits_(ss, basket, packDay);
+  if (!totalDefs.length && !clientDefs.length) return null;
+  var client = String(meta.client || "").trim();
+  var day = String(meta.day || "").trim();
+  var dayDate = String(meta.dayDate || "").trim();
+  var dayLabel = day + (dayDate ? (" " + dayDate) : "");
+  var msg = composeWarehouseAlertMessage_(client, dayLabel, clientDefs, totalDefs);
+  return {
+    count: totalDefs.length,
+    clientCount: clientDefs.length,
+    client: client,
+    day: day,
+    dayDate: dayDate,
+    clientDeficits: clientDefs,
+    totalDeficits: totalDefs.map(function (d) {
+      return {
+        row: d.row,
+        name: d.name,
+        needRaw: d.needRaw,
+        available: d.available,
+        deficit: d.deficit,
+        unit: d.unit || "кг"
+      };
+    }),
+    top: totalDefs.slice(0, 8).map(function (d) {
+      return d.name + " −" + d.deficit + (d.unit || "кг");
+    }),
+    messageText: msg
+  };
 }
 
 function weekdayShortRu_(d) {
