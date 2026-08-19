@@ -2006,6 +2006,9 @@ function doGet(e) {
     var itemsG = e.parameter.items ? decodeURIComponent(e.parameter.items) : "[]";
     return handleApplyWarehouseRevision({ items: itemsG, note: e.parameter.note || "" }, callback, false);
   }
+  if (action === "zeroWarehouse") {
+    return handleZeroWarehouse({ telegramId: e.parameter.telegramId || "" }, callback, false);
+  }
   if (action === "warehousePreview") {
     return handleWarehousePreview({
       dateFrom: e.parameter.dateFrom || "",
@@ -2616,6 +2619,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "applyWarehouseRevision") {
     return handleApplyWarehouseRevision(json, callback, fromPost);
+  }
+  if (action === "zeroWarehouse") {
+    return handleZeroWarehouse(json, callback, fromPost);
   }
   if (action === "warehousePreview") {
     return handleWarehousePreview(json, callback, fromPost);
@@ -5402,6 +5408,35 @@ function syncWarehouseBuyDeferred_(ss, deficits) {
   try {
     PropertiesService.getScriptProperties().setProperty("DEF_CACHE_BUMP", String(Date.now()));
   } catch (eB) {}
+}
+
+/** Закрыть открытые задачи Дозакуп (mode=buy), без создания новых. */
+function closeOpenWarehouseBuyDeferred_() {
+  var sh = deferredSheet_();
+  if (!sh) return { closed: 0 };
+  var data = sh.getDataRange().getValues();
+  var n = 0;
+  var owners = {};
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][3] || "").toLowerCase() !== "buy") continue;
+    var st = String(data[r][6] || "open").toLowerCase();
+    if (st !== "open") continue;
+    sh.getRange(r + 1, 7).setValue("done");
+    sh.getRange(r + 1, 9).setValue(new Date());
+    n++;
+    var oid = String(data[r][2] || "").trim();
+    if (oid) owners[oid] = true;
+  }
+  try { CacheService.getScriptCache().remove("DEF:"); } catch (eC) {}
+  try {
+    PropertiesService.getScriptProperties().setProperty("DEF_CACHE_BUMP", String(Date.now()));
+  } catch (eB) {}
+  for (var oid2 in owners) {
+    if (owners.hasOwnProperty(oid2)) {
+      try { bustDeferredCache_(oid2); } catch (eB2) {}
+    }
+  }
+  return { closed: n };
 }
 
 /** Менеджер-строка Пн (4–59) → строка Нарезки (3–48). */
@@ -12971,8 +13006,10 @@ function applyWarehouseRevision_(items, meta) {
     var piece = isPieceWarehouseRow_(row, name);
     wh.getRange(row, 6).setValue(qty); // F остаток/ревизия
     wh.getRange(row, 2).setValue(0);   // B дозакуп сброс
-    if (piece) {
-      try { wh.getRange(row, 13).setValue(qty); } catch (eM) {} // M Остаток Вс
+    if (qty === 0) {
+      try {
+        if (!wh.getRange(row, 5).getFormula()) wh.getRange(row, 5).setValue(0);
+      } catch (eE) {}
     }
     try {
       getLedgerSheet_().appendRow([
@@ -12999,8 +13036,36 @@ function handleApplyWarehouseRevision(json, callback, fromPost) {
     by: (json && json.telegramId) || "",
     note: (json && json.note) || "revision"
   });
+  var allZero = true;
+  for (var zi = 0; zi < (r.updated || []).length; zi++) {
+    if (Number(r.updated[zi].qty) !== 0) { allZero = false; break; }
+  }
+  if (allZero && r.ok) {
+    try { closeOpenWarehouseBuyDeferred_(); } catch (eBuy) {}
+    try { setupWarehouseWeekendRemainCols_(true); } catch (eLm) {}
+  }
   var ok = { status: r.ok ? "success" : "error", result: r };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handleZeroWarehouse(json, callback, fromPost) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var wh = ss.getSheetByName("Склад");
+  if (!wh) {
+    var bad = { status: "error", message: "no_warehouse" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var last = Math.min(80, Math.max(2, wh.getLastRow()));
+  var names = wh.getRange(2, 1, last - 1, 1).getValues();
+  var items = [];
+  for (var i = 0; i < names.length; i++) {
+    if (String(names[i][0] || "").trim()) items.push({ row: i + 2, qty: 0 });
+  }
+  return handleApplyWarehouseRevision({
+    items: items,
+    note: "zero_all",
+    telegramId: (json && json.telegramId) || ""
+  }, callback, fromPost);
 }
 
 /** Ревизия 2026-08-05 (после нарезки вт) — Run в редакторе после вставки Code.gs. */
@@ -13063,10 +13128,7 @@ function handleWarehousePreview(json, callback, fromPost) {
     var bad = { status: "error", message: (pack && pack.message) || "no_warehouse" };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
-  // задачи Дозакуп — только для полного плана недели (без среза дат)
-  if (!opts.dateFrom && !opts.dateTo) {
-    try { syncWarehouseBuyDeferred_(ss, pack.deficits || []); } catch (eSync) {}
-  }
+  // задачи Дозакуп — только по явной кнопке «Собрать сообщение», не при каждом открытии склада
   var msg = "";
   try { msg = composeWarehouseBuyMessage_(pack); } catch (eM) {}
   var ok = {
