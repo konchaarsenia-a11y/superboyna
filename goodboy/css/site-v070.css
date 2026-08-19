@@ -559,6 +559,17 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   transform: translateX(3px);
   box-shadow: none;
 }
+.hf-card--jump {
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  text-align: left;
+}
+.hf-card--jump:focus-visible {
+  outline: 2px solid rgba(212, 161, 90, 0.55);
+  outline-offset: 3px;
+}
 .hf-ico {
   width: 2.25rem;
   height: 2.25rem;
@@ -693,6 +704,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 
 /* —— Phone block below shelves —— */
 .site-section--phone {
+  scroll-margin-top: 92px;
   padding-top: 56px;
   padding-bottom: 64px;
   background: transparent !important;
