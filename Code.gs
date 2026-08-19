@@ -5593,7 +5593,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
   }
   var filterOn = !!(dateFrom || dateTo);
   var asOfKey = String(opts.asOf || opts.asOfDate || "").trim();
-  var cacheKey = "WH_PLAN_V10" + (filterOn)
+  var cacheKey = "WH_PLAN_V10" + (filterOn
     ? (":" + (dateFrom ? isoDateKey_(dateFrom) : "") + ":" + (dateTo ? isoDateKey_(dateTo) : ""))
     : "") + (asOfKey ? (":asOf:" + asOfKey) : "");
 
