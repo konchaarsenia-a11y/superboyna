@@ -321,6 +321,19 @@
         p.setAttribute("aria-selected", pickOn ? "true" : "false");
       });
       if (updateCallouts) updateCallouts();
+      updateMobilePickUi();
+    }
+
+    function updateMobilePickUi() {
+      var blurb = document.getElementById("phonePickBlurb");
+      var activePick = document.querySelector(".phone-pick.is-on");
+      if (blurb && activePick) {
+        var desc = activePick.querySelector(".phone-pick-copy span");
+        blurb.textContent = desc ? desc.textContent : "";
+      }
+      if (global.innerWidth < 880 && activePick) {
+        activePick.scrollIntoView({ behavior: reduced() ? "auto" : "smooth", block: "nearest", inline: "center" });
+      }
     }
 
     function next() { show(i + 1); }

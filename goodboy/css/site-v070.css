@@ -820,6 +820,78 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 @media (max-width: 879px) {
   .phone-callouts { display: none; }
+  .phone-showcase-grid {
+    gap: 14px;
+  }
+  .phone-stage {
+    order: 1;
+    width: min(64vw, 210px);
+    margin: 0 auto;
+  }
+  .phone-picks {
+    order: 2;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 2px 2px 4px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .phone-picks::-webkit-scrollbar { display: none; }
+  .phone-pick {
+    flex: 0 0 auto;
+    width: 7.6rem;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    padding: 10px 8px;
+    gap: 6px;
+    scroll-snap-align: center;
+  }
+  .phone-pick:hover {
+    transform: none;
+  }
+  .phone-pick-ico {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 10px;
+  }
+  .phone-pick-ico svg {
+    width: 1.15rem;
+    height: 1.15rem;
+  }
+  .phone-pick-copy strong {
+    font-size: 0.72rem;
+    line-height: 1.2;
+    font-weight: 600;
+  }
+  .phone-pick-copy span {
+    display: none;
+  }
+  .phone-pick-blurb {
+    order: 3;
+    margin: 0;
+    padding: 0 6px;
+    text-align: center;
+    font-size: 0.88rem;
+    line-height: 1.45;
+    color: var(--gb-muted);
+    min-height: 2.8em;
+  }
+  .phone-toast {
+    display: none;
+  }
+  .phone-float {
+    animation: none;
+  }
+}
+@media (min-width: 880px) {
+  .phone-pick-blurb {
+    display: none;
+  }
 }
 .phone-picks {
   display: grid;
