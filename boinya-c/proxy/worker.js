@@ -1027,6 +1027,65 @@ function cutNameKey_(name) {
     .trim();
 }
 
+function cutFuzzyKey_(name) {
+  return cutNameKey_(name)
+    .replace(/ШТ\.?/g, "")
+    .replace(/[^A-ZА-Я0-9]+/g, "");
+}
+
+function cuttingFlagScore_(items) {
+  let n = 0;
+  (items || []).forEach(function (it) {
+    if (!it) return;
+    if (it.laid) n += 1;
+    if (it.done) n += 2;
+    if (it.outNext) n += 1;
+  });
+  return n;
+}
+
+function overlayCuttingKeepFlags_(newItems, prevItems, sameDate) {
+  if (!sameDate || !prevItems || !prevItems.length) {
+    return mergeCuttingFlags_(newItems, prevItems, sameDate);
+  }
+  const qtyByKey = Object.create(null);
+  const qtyByFuzzy = Object.create(null);
+  (newItems || []).forEach(function (it) {
+    if (!it) return;
+    qtyByKey[cutNameKey_(it.name)] = it;
+    const fz = cutFuzzyKey_(it.name);
+    if (fz) qtyByFuzzy[fz] = it;
+  });
+  const used = Object.create(null);
+  const out = [];
+  prevItems.forEach(function (p) {
+    if (!p) return;
+    const n = qtyByKey[cutNameKey_(p.name)] || qtyByFuzzy[cutFuzzyKey_(p.name)];
+    if (n) {
+      used[cutNameKey_(n.name)] = true;
+      used[cutFuzzyKey_(n.name)] = true;
+      out.push(
+        Object.assign({}, p, {
+          dry: n.dry,
+          raw: n.raw,
+          unit: n.unit || p.unit,
+          laid: !!p.laid,
+          done: !!p.done,
+          outNext: !!p.outNext
+        })
+      );
+    } else if (p.laid || p.done || p.outNext || Number(p.surplus) > 0) {
+      out.push(p);
+    }
+  });
+  (newItems || []).forEach(function (n) {
+    if (!n) return;
+    if (used[cutNameKey_(n.name)] || used[cutFuzzyKey_(n.name)]) return;
+    out.push(n);
+  });
+  return out;
+}
+
 function transferOnlyFromPeople_(people) {
   const map = Object.create(null);
   const clients = [];
@@ -1056,10 +1115,15 @@ function mergeCuttingFlags_(items, prevItems, sameDate) {
     if (!p) return;
     const k = cutNameKey_(p.name);
     if (k) byName[k] = p;
+    const fz = cutFuzzyKey_(p.name);
+    if (fz) byName[fz] = p;
     if (p.row != null) byRow[Number(p.row)] = p;
   });
   (items || []).forEach(function (it) {
-    const old = byName[cutNameKey_(it.name)] || (it.row != null ? byRow[Number(it.row)] : null);
+    const old =
+      byName[cutNameKey_(it.name)] ||
+      byName[cutFuzzyKey_(it.name)] ||
+      (it.row != null ? byRow[Number(it.row)] : null);
     if (!old) return;
     it.laid = !!old.laid;
     it.done = !!old.done;
@@ -1548,7 +1612,7 @@ async function rebuildCuttingDay_(env, day) {
   } catch (eCut) {
     items = [];
   }
-  items = mergeCuttingFlags_(items, (prev && prev.items) || [], sameDate);
+  items = overlayCuttingKeepFlags_(items, (prev && prev.items) || [], sameDate);
   let transferOnly = { clients: [], lines: [] };
   try {
     transferOnly = transferOnlyFromPeople_(live.clients || []);
@@ -1565,7 +1629,9 @@ async function rebuildCuttingDay_(env, day) {
     sandbox: true,
     source: "d1",
     fromD1: true,
-    fromOrders: true
+    fromOrders: true,
+    fromGas: !!(sameDate && prev && prev.fromGas),
+    flagsTouchedAt: sameDate ? (prev && prev.flagsTouchedAt) || 0 : 0
   };
   await putSnap_(env, "cutting:" + day, payload);
   return payload;
@@ -1671,8 +1737,9 @@ async function getCutting_(params, env) {
     const staleDone = !!(hit && hit.completion && wantDate && snapDate !== wantDate);
     if (!dateOk || staleDone) hit = null;
   }
-  // Сразу из живых заказов D1 (после переноса/сейва). Оценка календаря без fromOrders — нет.
-  if (hit && (hit.fromOrders || hit.fromGas) && !hit.fromCalendar) return hit;
+  // GAS-snap с галочками — не пересобирать из D1 на каждый poll
+  if (hit && hit.fromGas && !hit.fromCalendar) return hit;
+  if (hit && hit.fromOrders && !hit.fromCalendar) return hit;
   if (hit && !hit.fromD1 && !hit.fromCalendar) return hit;
   try {
     const rebuilt = await rebuildCuttingDay_(env, day);
@@ -2075,6 +2142,9 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
     snap.items = items;
     snap.fromGas = true;
     snap.fromD1 = false;
+    snap.fromOrders = false;
+    snap.flagsTouchedAt = Date.now();
+    snap.cachedAt = new Date().toISOString();
     await putSnap_(env, "cutting:" + day, snap);
     return;
   }
@@ -2175,6 +2245,10 @@ async function updateCutting_(params, env) {
   }
   snap.items = items;
   snap.sandbox = true;
+  snap.fromGas = true;
+  snap.fromOrders = false;
+  snap.flagsTouchedAt = Date.now();
+  snap.cachedAt = new Date().toISOString();
   await putSnap_(env, "cutting:" + day, snap);
   return { status: "success", sandbox: true, wrote: 1, day: day, row: rowNum };
 }
@@ -2928,9 +3002,6 @@ async function handleCutover_(a, params, env, ctx) {
       fast.swr = true;
       if (fast.fromGas) fast.fromGas = true;
       if (fast.sandbox === true && (fast.fromOrders || fast.fromGas)) fast.sandbox = false;
-      if (ctx && typeof ctx.waitUntil === "function") {
-        ctx.waitUntil(cutoverRevalidate_(a, params, env));
-      }
       return fast;
     }
   }
@@ -3330,10 +3401,22 @@ async function cutoverStoreRead_(a, params, env, payload) {
     return;
   }
   if (a === "getCutting" && params.day) {
+    const prev = await getSnapRaw_(env, "cutting:" + params.day);
+    let items = Array.isArray(payload.items) ? payload.items.slice() : [];
+    if (prev && Array.isArray(prev.items) && prev.items.length) {
+      const touched = Number(prev.flagsTouchedAt || 0);
+      const recent = !!(touched && Date.now() - touched < 60000);
+      if (recent || cuttingFlagScore_(prev.items) >= cuttingFlagScore_(items)) {
+        items = mergeCuttingFlags_(items, prev.items, true);
+      }
+    }
     const body = Object.assign({}, payload, {
+      items: items,
       fromGas: true,
       fromD1: false,
-      cachedAt: new Date().toISOString()
+      fromOrders: false,
+      cachedAt: new Date().toISOString(),
+      flagsTouchedAt: (prev && prev.flagsTouchedAt) || 0
     });
     await putSnap_(env, "cutting:" + params.day, body);
     return;
@@ -3485,6 +3568,13 @@ async function cutoverRefreshAllWeekDays_(env) {
 
 async function cutoverAfterWrite_(a, params, env, writeRes) {
   try {
+    if (
+      /^(updateCutting|startCuttingSession|stopCuttingSession|finishCutting|setDelivered|setAssembled)$/i.test(
+        a
+      )
+    ) {
+      return;
+    }
     const days = [];
     if (params.day) days.push(String(params.day));
     if (params.oldDay) days.push(String(params.oldDay));

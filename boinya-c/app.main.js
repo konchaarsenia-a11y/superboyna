@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c33";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c34";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -7127,15 +7127,18 @@
 
         applyLocalCuttingFlags_(items);
 
+        var flagScoreNew = cuttingFlagScore(items);
+        var flagScoreOld = cuttingFlagScore(prevItems);
         var guardFlags = Object.keys(cuttingLocalFlags || {}).length > 0 ||
           cuttingSession.pendingWrites > 0 ||
-          Date.now() < (cuttingSession.quietUntil || 0);
-        if (guardFlags && cuttingFlagScore(items) < cuttingFlagScore(prevItems)) {
+          Date.now() < (cuttingSession.quietUntil || 0) ||
+          flagScoreNew < flagScoreOld;
+        if (guardFlags && flagScoreNew < flagScoreOld) {
           mergeCuttingFlagsPreferLocal_(items, prevItems);
         }
         const fp = cuttingFingerprint(items, res.session);
         applyRemoteCuttingSession(res.session || { active: false, day: day, startedAt: 0 });
-        if (fromPoll && guardFlags && cuttingFlagScore(items) < cuttingFlagScore(prevItems)) {
+        if (fromPoll && cuttingFlagScore(items) < flagScoreOld) {
           tickCuttingTimer();
           return;
         }
@@ -7177,19 +7180,22 @@
 
     function mergeCuttingFlagsPreferLocal_(items, prevItems) {
       var prevMap = Object.create(null);
+      var prevByName = Object.create(null);
       (prevItems || []).forEach(function (p) {
-        if (p && p.row != null) prevMap[Number(p.row)] = p;
+        if (!p) return;
+        if (p.row != null) prevMap[Number(p.row)] = p;
+        var nk = String(p.name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+        if (nk) prevByName[nk] = p;
       });
       (items || []).forEach(function (it) {
-        var p = prevMap[Number(it.row)];
+        var p = prevMap[Number(it.row)] || prevByName[String(it.name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim()];
         if (!p) return;
         var loc = cuttingLocalFlags[Number(it.row)];
-
         if (loc) return;
-
         if (!it.laid && p.laid) it.laid = true;
         if (!it.done && p.done) it.done = true;
         if (!it.outNext && p.outNext) it.outNext = true;
+        if (p.row != null && (it.row == null || Number(it.row) >= 200)) it.row = p.row;
       });
     }
 
@@ -11359,12 +11365,8 @@
       } catch (eA) { assemblyCache = null; }
       try {
         window._cuttingNeedRefresh = true;
-        var cutDay = document.getElementById("cuttingDaySelect") && document.getElementById("cuttingDaySelect").value;
-        if (!day || String(cutDay || "") === day) {
-          cuttingItemsCache = [];
-          cuttingCompletionCache = null;
-          if (cuttingSession) cuttingSession.fingerprint = "";
-        }
+        // не обнулять cuttingItemsCache — иначе галочки слетают до ответа сервера
+        if (cuttingSession) cuttingSession.fingerprint = "";
       } catch (eCut) {}
     }
     window.invalidateOpsDayCaches_ = invalidateOpsDayCaches_;
