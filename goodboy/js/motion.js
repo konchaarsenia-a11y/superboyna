@@ -285,6 +285,31 @@
 
     startAuto();
 
+    document.querySelectorAll(".hf-card--jump[data-phone-tab]").forEach(function (card) {
+      function jumpToPhone() {
+        var tab = Number(card.getAttribute("data-phone-tab"));
+        if (isNaN(tab)) return;
+        stopAuto();
+        show(tab);
+        var section = document.getElementById("app");
+        if (section) {
+          section.scrollIntoView({
+            behavior: reduced() ? "auto" : "smooth",
+            block: "center"
+          });
+        }
+        var phone = document.getElementById("phoneScreen");
+        if (phone) phone.focus({ preventScroll: true });
+      }
+      card.addEventListener("click", jumpToPhone);
+      card.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          jumpToPhone();
+        }
+      });
+    });
+
     if (toast && !reduced()) {
       var toastOn = false;
       global.setTimeout(function () {
