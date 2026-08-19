@@ -968,12 +968,10 @@ function cuttingNameFromBasketItem_(it) {
 
 function cuttingItemsFromPeople_(people, warehouseItems) {
   const coefByName = Object.create(null);
-  const rowByName = Object.create(null);
   (warehouseItems || []).forEach(function (w) {
     const nm = String((w && w.name) || "").trim().toUpperCase();
     if (!nm) return;
     coefByName[nm] = Number(w.coef) || 0.2;
-    if (w.row != null) rowByName[nm] = Number(w.row);
   });
   const acc = Object.create(null);
   (people || []).forEach(function (p) {
@@ -1004,7 +1002,7 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
       const coef = coefByName[k] || 0.2;
       const raw = piece ? it.dry : it.dry / 1000 / (coef || 0.2);
       items.push({
-        row: rowByName[k] || 200 + i,
+        row: 0,
         name: it.name,
         dry: Math.round(it.dry * 100) / 100,
         unit: piece ? "шт" : "гр",
@@ -1042,6 +1040,139 @@ function cuttingFlagScore_(items) {
     if (it.outNext) n += 1;
   });
   return n;
+}
+
+function isCuttingSheetRow_(row) {
+  const n = Number(row);
+  return n >= 3 && n <= 48 && n % 1 === 0;
+}
+
+function sameCutDate_(a, b) {
+  const sa = String(a || "").trim();
+  const sb = String(b || "").trim();
+  if (!sa || !sb) return true;
+  if (sa === sb) return true;
+  function toIso(s) {
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    return dmyToIso_(s);
+  }
+  const ia = toIso(sa);
+  const ib = toIso(sb);
+  return !!(ia && ib && ia === ib);
+}
+
+function cuttingRowsMapFromItems_(items, into) {
+  const map = into || Object.create(null);
+  (items || []).forEach(function (it) {
+    if (!it || !isCuttingSheetRow_(it.row)) return;
+    const k = cutNameKey_(it.name);
+    const fz = cutFuzzyKey_(it.name);
+    if (k) map[k] = Number(it.row);
+    if (fz) map[fz] = Number(it.row);
+  });
+  return map;
+}
+
+function resolveCuttingSheetRows_(items, prevItems, catalogMap) {
+  const map = cuttingRowsMapFromItems_(prevItems, Object.assign(Object.create(null), catalogMap || {}));
+  (items || []).forEach(function (it) {
+    if (!it) return;
+    if (isCuttingSheetRow_(it.row)) return;
+    const hit = map[cutNameKey_(it.name)] || map[cutFuzzyKey_(it.name)];
+    it.row = isCuttingSheetRow_(hit) ? Number(hit) : 0;
+  });
+  return items;
+}
+
+function patchCuttingItemsFlags_(items, params, proxied) {
+  params = params || {};
+  const list = Array.isArray(items) ? items : [];
+  const rowNum = Number(params.row);
+  const wantName = cutNameKey_(params.name || "");
+  const wantFz = cutFuzzyKey_(params.name || "");
+  let idx = -1;
+  if (wantName || wantFz) {
+    for (let i = 0; i < list.length; i++) {
+      const n = cutNameKey_(list[i] && list[i].name);
+      const fz = cutFuzzyKey_(list[i] && list[i].name);
+      if ((wantName && n === wantName) || (wantFz && fz && fz === wantFz)) {
+        idx = i;
+        break;
+      }
+    }
+  }
+  if (idx < 0 && isCuttingSheetRow_(rowNum)) {
+    for (let i = 0; i < list.length; i++) {
+      if (Number(list[i].row) === rowNum) {
+        idx = i;
+        break;
+      }
+    }
+  }
+  if (idx < 0 && rowNum) {
+    for (let i = 0; i < list.length; i++) {
+      if (Number(list[i].row) === rowNum) {
+        idx = i;
+        break;
+      }
+    }
+  }
+  if (idx < 0) return { items: list, found: false, row: rowNum || 0 };
+  const it = list[idx];
+  function take(key) {
+    if (params[key] != null && params[key] !== "") return toBool_(params[key]);
+    if (proxied && proxied[key] !== undefined) return !!proxied[key];
+    return null;
+  }
+  const laid = take("laid");
+  const done = take("done");
+  const outNext = take("outNext");
+  if (laid !== null) it.laid = laid;
+  if (done !== null) it.done = done;
+  if (outNext !== null) it.outNext = outNext;
+  if (params.surplus != null && params.surplus !== "") it.surplus = Number(params.surplus) || 0;
+  if (params.noteInfo != null) it.noteInfo = String(params.noteInfo);
+  if (isCuttingSheetRow_(rowNum)) it.row = rowNum;
+  else if (proxied && isCuttingSheetRow_(proxied.row)) it.row = Number(proxied.row);
+  return { items: list, found: true, row: Number(it.row) || rowNum || 0 };
+}
+
+async function rememberCuttingRows_(env, items) {
+  if (!env || !env.DB) return;
+  const add = cuttingRowsMapFromItems_(items);
+  if (!Object.keys(add).length) return;
+  try {
+    const prev = (await getSnapRaw_(env, "cuttingRows")) || { map: {} };
+    const map = Object.assign({}, prev.map || {}, add);
+    await putSnap_(env, "cuttingRows", { map: map, cachedAt: new Date().toISOString() });
+  } catch (eCat) {}
+}
+
+async function applyCuttingFlagToSnap_(params, env, proxied) {
+  const day = String((params && params.day) || "");
+  if (!day) return null;
+  let snap = await getSnapRaw_(env, "cutting:" + day);
+  if (!snap || !Array.isArray(snap.items)) {
+    try {
+      snap = await getCutting_({ day: day }, env);
+    } catch (eCut) {
+      snap = { status: "success", day: day, items: [] };
+    }
+  }
+  const items = Array.isArray(snap.items) ? snap.items.slice() : [];
+  const patched = patchCuttingItemsFlags_(items, params, proxied);
+  snap.items = patched.items;
+  snap.fromGas = true;
+  snap.fromD1 = false;
+  snap.fromOrders = false;
+  snap.fromCalendar = false;
+  snap.flagsTouchedAt = Date.now();
+  snap.cachedAt = new Date().toISOString();
+  await putSnap_(env, "cutting:" + day, snap);
+  try {
+    await rememberCuttingRows_(env, snap.items);
+  } catch (eR) {}
+  return snap;
 }
 
 function overlayCuttingKeepFlags_(newItems, prevItems, sameDate) {
@@ -1129,7 +1260,7 @@ function mergeCuttingFlags_(items, prevItems, sameDate) {
     it.done = !!old.done;
     it.outNext = !!old.outNext;
     if (old.surplus != null && old.surplus !== "") it.surplus = Number(old.surplus) || 0;
-    if (old.row != null) it.row = old.row;
+    if (isCuttingSheetRow_(old.row)) it.row = Number(old.row);
     if (old.noteInfo) it.noteInfo = old.noteInfo;
   });
   return items;
@@ -1598,13 +1729,20 @@ async function rebuildCuttingDay_(env, day) {
   const live = await getClients_({ day: day }, env);
   const info = await dayDateInfo_(env, day);
   const prev = await getSnapRaw_(env, "cutting:" + day);
-  const sameDate = !!(prev && prev.date && info.date && String(prev.date) === String(info.date));
+  const sameDate = sameCutDate_(prev && prev.date, info.date);
   let wh = [];
   try {
     const wsnap = await getSnapRaw_(env, "warehouse");
     wh = (wsnap && (wsnap.items || wsnap.rows)) || [];
   } catch (eW) {
     wh = [];
+  }
+  let catalogMap = {};
+  try {
+    const cat = await getSnapRaw_(env, "cuttingRows");
+    catalogMap = (cat && cat.map) || {};
+  } catch (eCat) {
+    catalogMap = {};
   }
   let items = [];
   try {
@@ -1613,6 +1751,7 @@ async function rebuildCuttingDay_(env, day) {
     items = [];
   }
   items = overlayCuttingKeepFlags_(items, (prev && prev.items) || [], sameDate);
+  items = resolveCuttingSheetRows_(items, (prev && prev.items) || [], catalogMap);
   let transferOnly = { clients: [], lines: [] };
   try {
     transferOnly = transferOnlyFromPeople_(live.clients || []);
@@ -1634,6 +1773,9 @@ async function rebuildCuttingDay_(env, day) {
     flagsTouchedAt: sameDate ? (prev && prev.flagsTouchedAt) || 0 : 0
   };
   await putSnap_(env, "cutting:" + day, payload);
+  try {
+    await rememberCuttingRows_(env, items);
+  } catch (eRows) {}
   return payload;
 }
 
@@ -1737,7 +1879,9 @@ async function getCutting_(params, env) {
     const staleDone = !!(hit && hit.completion && wantDate && snapDate !== wantDate);
     if (!dateOk || staleDone) hit = null;
   }
-  // GAS-snap с галочками — не пересобирать из D1 на каждый poll
+  // свежие галочки / GAS-snap — не пересобирать из D1 на каждый poll
+  const touched = Number((hit && hit.flagsTouchedAt) || 0);
+  if (hit && touched && Date.now() - touched < 600000) return hit;
   if (hit && hit.fromGas && !hit.fromCalendar) return hit;
   if (hit && hit.fromOrders && !hit.fromCalendar) return hit;
   if (hit && !hit.fromD1 && !hit.fromCalendar) return hit;
@@ -2032,8 +2176,10 @@ async function setDelivered_(params, env) {
   (snap.clients || []).forEach(function (c) {
     if (normalizeMatchKey_(c.matchKey || c.name) === mk || c.name === client) {
       c.delivered = delivered;
+      if (params.paid) c.paid = params.paid;
     }
   });
+  snap.flagsTouchedAt = Date.now();
   await putSnap_(env, "courier:" + day, snap);
   return { status: "success", sandbox: true, wrote: 1, delivered: delivered };
 }
@@ -2049,6 +2195,7 @@ async function setAssemblyFlag_(params, env, flag) {
       c[flag] = val;
     }
   });
+  snap.flagsTouchedAt = Date.now();
   await putSnap_(env, "assembly:" + day, snap);
   return { status: "success", sandbox: true, wrote: 1, [flag]: val };
 }
@@ -2116,36 +2263,7 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
   const mk = normalizeMatchKey_(params.matchKey || client);
 
   if (/^updateCutting$/i.test(action)) {
-    const rowNum = Number(params.row);
-    if (!rowNum) return;
-    let snap = (await getSnapRaw_(env, "cutting:" + day)) || {
-      status: "success",
-      day: day,
-      items: [],
-      session: {}
-    };
-    const items = Array.isArray(snap.items) ? snap.items.slice() : [];
-    let found = false;
-    for (let i = 0; i < items.length; i++) {
-      if (Number(items[i].row) === rowNum) {
-        if (params.laid != null && params.laid !== "") items[i].laid = toBool_(params.laid);
-        else if (proxied.laid !== undefined) items[i].laid = !!proxied.laid;
-        if (params.done != null && params.done !== "") items[i].done = toBool_(params.done);
-        else if (proxied.done !== undefined) items[i].done = !!proxied.done;
-        if (params.outNext != null && params.outNext !== "") items[i].outNext = toBool_(params.outNext);
-        else if (proxied.outNext !== undefined) items[i].outNext = !!proxied.outNext;
-        if (params.surplus != null && params.surplus !== "") items[i].surplus = Number(params.surplus) || 0;
-        found = true;
-        break;
-      }
-    }
-    snap.items = items;
-    snap.fromGas = true;
-    snap.fromD1 = false;
-    snap.fromOrders = false;
-    snap.flagsTouchedAt = Date.now();
-    snap.cachedAt = new Date().toISOString();
-    await putSnap_(env, "cutting:" + day, snap);
+    await applyCuttingFlagToSnap_(params, env, proxied);
     return;
   }
 
@@ -2194,6 +2312,7 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
           if (params.paid) c.paid = params.paid;
         }
       });
+      snap.flagsTouchedAt = Date.now();
       await putSnap_(env, "courier:" + day, snap);
     }
     const info = await dayDateInfo_(env, day);
@@ -2223,6 +2342,7 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
           c[flag] = val;
         }
       });
+      snap.flagsTouchedAt = Date.now();
       await putSnap_(env, "assembly:" + day, snap);
     }
   }
@@ -2230,27 +2350,15 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
 
 async function updateCutting_(params, env) {
   const day = String(params.day || "");
-  const rowNum = Number(params.row);
-  const snap = await getCutting_({ day: day }, env);
-  const items = snap.items || [];
-  for (let i = 0; i < items.length; i++) {
-    if (Number(items[i].row) === rowNum) {
-      if (params.surplus != null && params.surplus !== "") items[i].surplus = Number(params.surplus) || 0;
-      if (params.done != null && params.done !== "") items[i].done = toBool_(params.done);
-      if (params.laid != null && params.laid !== "") items[i].laid = toBool_(params.laid);
-      if (params.outNext != null && params.outNext !== "") items[i].outNext = toBool_(params.outNext);
-      if (params.noteInfo != null) items[i].noteInfo = String(params.noteInfo);
-      break;
-    }
-  }
-  snap.items = items;
-  snap.sandbox = true;
-  snap.fromGas = true;
-  snap.fromOrders = false;
-  snap.flagsTouchedAt = Date.now();
-  snap.cachedAt = new Date().toISOString();
-  await putSnap_(env, "cutting:" + day, snap);
-  return { status: "success", sandbox: true, wrote: 1, day: day, row: rowNum };
+  await applyCuttingFlagToSnap_(params, env, null);
+  return {
+    status: "success",
+    sandbox: true,
+    wrote: 1,
+    day: day,
+    row: Number((params && params.row) || 0),
+    name: String((params && params.name) || "")
+  };
 }
 
 const GAS_ORIGIN =
@@ -2693,6 +2801,7 @@ async function handleCutover_(a, params, env, ctx) {
       /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|notifyMissedDelivery|placeTransferTask)$/i.test(
         a
       );
+    const isFastFlagWrite = /^(updateCutting|setDelivered|setAssembled|setPrinted)$/i.test(a);
     if (isFastPeopleWrite) {
       try {
         if (env && env.DB) {
@@ -2783,6 +2892,59 @@ async function handleCutover_(a, params, env, ctx) {
         cutover: true,
         sandbox: false,
         action: a
+      };
+    }
+    if (isFastFlagWrite) {
+      try {
+        if (env && env.DB) {
+          if (/^updateCutting$/i.test(a)) await applyCuttingFlagToSnap_(params, env, null);
+          else if (/^setDelivered$/i.test(a)) await setDelivered_(params, env);
+          else if (/^setAssembled$/i.test(a)) await setAssemblyFlag_(params, env, "assembled");
+          else if (/^setPrinted$/i.test(a)) await setAssemblyFlag_(params, env, "printed");
+        }
+      } catch (eFlag) {}
+      const gasP = gasProxy_(a, params, env, { write: true }).catch(function () {
+        return null;
+      });
+      let proxied = null;
+      let gotGas = false;
+      await Promise.race([
+        gasP.then(function (p) {
+          proxied = p;
+          gotGas = true;
+        }),
+        new Promise(function (r) {
+          setTimeout(r, 6500);
+        })
+      ]);
+      const bg = (async function () {
+        try {
+          if (!gotGas) proxied = await gasP;
+        } catch (eG) {}
+        try {
+          if (/^updateCutting$/i.test(a)) await applyCuttingFlagToSnap_(params, env, proxied);
+          else if (proxied) await syncOpsWriteToD1_(a, params, env, proxied);
+        } catch (eD1) {}
+      })();
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(bg);
+      else await bg;
+      if (
+        gotGas &&
+        proxied &&
+        proxied.status === "success" &&
+        !/gas_proxy_failed/i.test(String(proxied.message || ""))
+      ) {
+        return partnerGuardOrRewrite_(a, params, proxied);
+      }
+      return {
+        status: "success",
+        wrote: 1,
+        optimistic: true,
+        cutover: true,
+        sandbox: false,
+        action: a,
+        row: Number((params && params.row) || 0),
+        name: String((params && params.name) || "")
       };
     }
     const proxied = await gasProxy_(a, params, env, { write: true });
@@ -3263,6 +3425,16 @@ function cutoverNeedsRevalidate_(a, params, fast) {
   if (a === "getViewCompare" || a === "getClients" || a === "getMonthOverview") {
     minGap = empty ? 10000 : 45000;
   }
+  if (a === "getCutting") {
+    const touched = Number((fast && fast.flagsTouchedAt) || 0);
+    if (touched && now - touched < 600000) return false;
+    minGap = empty ? 60000 : 180000;
+  }
+  if (a === "getCourier" || a === "getAssembly") {
+    const touchedOps = Number((fast && fast.flagsTouchedAt) || 0);
+    if (touchedOps && now - touchedOps < 600000) return false;
+    minGap = empty ? 30000 : 120000;
+  }
   if (now - prev < minGap) return false;
   _revalCooldown.set(key, now);
   return true;
@@ -3405,23 +3577,46 @@ async function cutoverStoreRead_(a, params, env, payload) {
     let items = Array.isArray(payload.items) ? payload.items.slice() : [];
     if (prev && Array.isArray(prev.items) && prev.items.length) {
       const touched = Number(prev.flagsTouchedAt || 0);
-      const recent = !!(touched && Date.now() - touched < 60000);
+      const recent = !!(touched && Date.now() - touched < 600000);
       if (recent || cuttingFlagScore_(prev.items) >= cuttingFlagScore_(items)) {
         items = mergeCuttingFlags_(items, prev.items, true);
       }
     }
+    items = resolveCuttingSheetRows_(items, (prev && prev.items) || [], null);
     const body = Object.assign({}, payload, {
       items: items,
       fromGas: true,
       fromD1: false,
       fromOrders: false,
+      fromCalendar: false,
       cachedAt: new Date().toISOString(),
       flagsTouchedAt: (prev && prev.flagsTouchedAt) || 0
     });
     await putSnap_(env, "cutting:" + params.day, body);
+    try {
+      await rememberCuttingRows_(env, items);
+    } catch (eRows) {}
     return;
   }
   if (a === "getCourier" && params.day) {
+    const prevC = await getSnapRaw_(env, "courier:" + params.day);
+    if (prevC && Array.isArray(prevC.clients) && Array.isArray(payload.clients)) {
+      const recentC = !!(Number(prevC.flagsTouchedAt || 0) && Date.now() - Number(prevC.flagsTouchedAt) < 600000);
+      const by = Object.create(null);
+      prevC.clients.forEach(function (c) {
+        if (!c) return;
+        by[normalizeMatchKey_(c.matchKey || c.name)] = c;
+      });
+      payload.clients.forEach(function (c) {
+        const old = by[normalizeMatchKey_(c.matchKey || c.name)];
+        if (!old) return;
+        if (recentC) {
+          c.delivered = !!old.delivered;
+          if (old.paid) c.paid = old.paid;
+        } else if (old.delivered) c.delivered = true;
+      });
+      payload.flagsTouchedAt = prevC.flagsTouchedAt || 0;
+    }
     await putSnap_(env, "courier:" + params.day, payload);
     return;
   }

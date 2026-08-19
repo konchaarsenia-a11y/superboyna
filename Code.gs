@@ -1637,6 +1637,7 @@ function doGet(e) {
     return handleUpdateCutting(SpreadsheetApp.getActiveSpreadsheet(), {
       day: e.parameter.day ? decodeURIComponent(e.parameter.day) : "",
       row: e.parameter.row,
+      name: e.parameter.name ? decodeURIComponent(e.parameter.name) : "",
       done: e.parameter.done,
       laid: e.parameter.laid,
       surplus: e.parameter.surplus,
@@ -2967,6 +2968,52 @@ function handleStopCuttingSession(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
+function resolveCuttingRow_(cutting, json) {
+  var row = Number(json && json.row);
+  var want = String((json && json.name) || "")
+    .replace(/ё/g, "е")
+    .replace(/Ё/g, "Е")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+  var fuzzyWant = want.replace(/ШТ\.?/g, "").replace(/[^A-ZА-Я0-9]+/g, "");
+  function normName_(s) {
+    return String(s || "")
+      .replace(/ё/g, "е")
+      .replace(/Ё/g, "Е")
+      .toUpperCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  function namesMatch_(cell) {
+    var n = normName_(cell);
+    if (!want || !n) return false;
+    if (n === want) return true;
+    var fz = n.replace(/ШТ\.?/g, "").replace(/[^A-ZА-Я0-9]+/g, "");
+    return !!(fz && fuzzyWant && fz === fuzzyWant);
+  }
+  if (row >= 3 && row <= 48 && row % 1 === 0) {
+    if (!want || !cutting) return row;
+    try {
+      if (namesMatch_(cutting.getRange("A" + row).getValue())) return row;
+    } catch (eCell) {
+      return row;
+    }
+  }
+  if (!want || !cutting) return 0;
+  var names = cutting.getRange("A3:A48").getValues();
+  var fuzzyHit = 0;
+  var i;
+  for (i = 0; i < names.length; i++) {
+    var n = normName_(names[i][0]);
+    if (!n) continue;
+    if (n === want) return i + 3;
+    var fz = n.replace(/ШТ\.?/g, "").replace(/[^A-ZА-Я0-9]+/g, "");
+    if (fz && fz === fuzzyWant) fuzzyHit = i + 3;
+  }
+  return fuzzyHit;
+}
+
 function handleUpdateCutting(ss, json, callback, fromPost) {
   if (fromPost === undefined) fromPost = true;
   var lock = LockService.getDocumentLock();
@@ -2980,9 +3027,9 @@ function handleUpdateCutting(ss, json, callback, fromPost) {
     var cutting = ss.getSheetByName("Нарезка");
     var memory = getMemoryCuttingSheet_();
     var tz = ss.getSpreadsheetTimeZone();
-    var row = Number(json.row);
+    var row = resolveCuttingRow_(cutting, json);
     var dateValue = getDayDate_(ss, json.day);
-    if (!cutting || !dateValue || row < 3 || row > 48 || row % 1 !== 0) {
+    if (!cutting || !dateValue || !row) {
       var bad = { status: "bad_request" };
       return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
     }
@@ -3025,7 +3072,7 @@ function handleUpdateCutting(ss, json, callback, fromPost) {
     try { SpreadsheetApp.flush(); } catch (eFl1) {}
     saveCuttingState_(cutting, memory, dateText, tz);
     try { bustCuttingCache_(json.day); } catch (eBc) {}
-    var ok = { status: "success", row: row, done: asBool_(cutting.getRange("F" + row).getValue()), laid: asBool_(cutting.getRange("E" + row).getValue()), outNext: asBool_(cutting.getRange("G" + row).getValue()) };
+    var ok = { status: "success", row: row, name: String(cutting.getRange("A" + row).getValue() || ""), done: asBool_(cutting.getRange("F" + row).getValue()), laid: asBool_(cutting.getRange("E" + row).getValue()), outNext: asBool_(cutting.getRange("G" + row).getValue()) };
     return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
   } finally {
     try { lock.releaseLock(); } catch (eRel) {}

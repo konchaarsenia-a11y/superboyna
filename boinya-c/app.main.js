@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c34";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c35";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -7184,50 +7184,67 @@
       (prevItems || []).forEach(function (p) {
         if (!p) return;
         if (p.row != null) prevMap[Number(p.row)] = p;
-        var nk = String(p.name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+        var nk = cutNameKeyUi_(p.name);
         if (nk) prevByName[nk] = p;
       });
       (items || []).forEach(function (it) {
-        var p = prevMap[Number(it.row)] || prevByName[String(it.name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim()];
+        var p = prevMap[Number(it.row)] || prevByName[cutNameKeyUi_(it.name)];
         if (!p) return;
-        var loc = cuttingLocalFlags[Number(it.row)];
+        var loc = cuttingLocalFlags[Number(it.row)] || cuttingLocalFlags["n:" + cutNameKeyUi_(it.name)];
         if (loc) return;
         if (!it.laid && p.laid) it.laid = true;
         if (!it.done && p.done) it.done = true;
         if (!it.outNext && p.outNext) it.outNext = true;
-        if (p.row != null && (it.row == null || Number(it.row) >= 200)) it.row = p.row;
+        if (p.row != null && Number(p.row) >= 3 && Number(p.row) <= 48) it.row = p.row;
       });
     }
 
-    function rememberCuttingLocalFlag_(row, patch) {
+    function cutNameKeyUi_(name) {
+      return String(name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+    }
+
+    function rememberCuttingLocalFlag_(row, patch, name) {
       row = Number(row);
-      if (!cuttingLocalFlags[row]) cuttingLocalFlags[row] = { ts: Date.now() };
-      var o = cuttingLocalFlags[row];
-      o.ts = Date.now();
-      if (patch.laid !== undefined) o.laid = !!patch.laid;
-      if (patch.done !== undefined) o.done = !!patch.done;
-      if (patch.outNext !== undefined) o.outNext = !!patch.outNext;
+      function apply(key) {
+        if (!key && key !== 0) return;
+        if (!cuttingLocalFlags[key]) cuttingLocalFlags[key] = { ts: Date.now() };
+        var o = cuttingLocalFlags[key];
+        o.ts = Date.now();
+        if (patch.laid !== undefined) o.laid = !!patch.laid;
+        if (patch.done !== undefined) o.done = !!patch.done;
+        if (patch.outNext !== undefined) o.outNext = !!patch.outNext;
+      }
+      if (row) apply(row);
+      if (name) apply("n:" + cutNameKeyUi_(name));
     }
 
     function clearCuttingLocalFlagIfMatch_(row, item) {
       row = Number(row);
-      var o = cuttingLocalFlags[row];
-      if (!o || !item) return;
-      var same =
-        (o.laid === undefined || !!o.laid === !!item.laid) &&
-        (o.done === undefined || !!o.done === !!item.done) &&
-        (o.outNext === undefined || !!o.outNext === !!item.outNext);
-      if (same) delete cuttingLocalFlags[row];
+      function clearIf(key) {
+        var o = cuttingLocalFlags[key];
+        if (!o || !item) return;
+        var same =
+          (o.laid === undefined || !!o.laid === !!item.laid) &&
+          (o.done === undefined || !!o.done === !!item.done) &&
+          (o.outNext === undefined || !!o.outNext === !!item.outNext);
+        if (same) delete cuttingLocalFlags[key];
+      }
+      clearIf(row);
+      if (item && item.name) clearIf("n:" + cutNameKeyUi_(item.name));
     }
 
     function applyLocalCuttingFlags_(items) {
       var now = Date.now();
       (items || []).forEach(function (it) {
         var row = Number(it.row);
-        var o = cuttingLocalFlags[row];
+        var oRow = cuttingLocalFlags[row];
+        var oName = cuttingLocalFlags["n:" + cutNameKeyUi_(it.name)];
+        var o = oRow;
+        if (oName && (!o || (oName.ts || 0) >= (o.ts || 0))) o = oName;
         if (!o) return;
         if ((now - (o.ts || 0)) > 1800000) {
-          delete cuttingLocalFlags[row];
+          if (oRow) delete cuttingLocalFlags[row];
+          if (oName) delete cuttingLocalFlags["n:" + cutNameKeyUi_(it.name)];
           return;
         }
 
@@ -7236,7 +7253,8 @@
           (o.done === undefined || !!o.done === !!it.done) &&
           (o.outNext === undefined || !!o.outNext === !!it.outNext);
         if (serverMatches) {
-          delete cuttingLocalFlags[row];
+          if (oRow) delete cuttingLocalFlags[row];
+          if (oName) delete cuttingLocalFlags["n:" + cutNameKeyUi_(it.name)];
           return;
         }
         if (o.laid !== undefined) it.laid = !!o.laid;
@@ -7252,7 +7270,9 @@
     async function persistCuttingFlag_(row, patch) {
       var day = document.getElementById("cuttingDaySelect").value;
       if (!day) return false;
-      rememberCuttingLocalFlag_(row, patch);
+      var cached = (cuttingItemsCache || []).find(function (x) { return Number(x.row) === Number(row); });
+      var itemName = (cached && cached.name) || "";
+      rememberCuttingLocalFlag_(row, patch, itemName);
       markCuttingWriteStart();
       var ok = false;
       var params = {
@@ -7261,6 +7281,7 @@
         row: String(row),
         _: String(Date.now())
       };
+      if (itemName) params.name = itemName;
       if (patch.laid !== undefined) params.laid = patch.laid ? "true" : "false";
       if (patch.done !== undefined) params.done = patch.done ? "true" : "false";
       if (patch.outNext !== undefined) params.outNext = patch.outNext ? "true" : "false";
@@ -7270,8 +7291,11 @@
           params._ = String(Date.now()) + "_" + attempt;
           try {
             var res = await apiGet(params, { timeoutMs: 22000, cacheTtlMs: 0 });
-            if (res && res.status === "success") {
+            if (res && (res.status === "success" || res.optimistic || res.wrote)) {
               ok = true;
+              if (cached && Number(res.row) >= 3 && Number(res.row) <= 48) {
+                cached.row = Number(res.row);
+              }
               break;
             }
             if (res && String(res.message || "") === "busy_retry") {
@@ -7282,11 +7306,13 @@
 
             try {
               var body = { action: "updateCutting", day: day, row: Number(row) };
+              if (itemName) body.name = itemName;
               if (patch.laid !== undefined) body.laid = !!patch.laid;
               if (patch.done !== undefined) body.done = !!patch.done;
               if (patch.outNext !== undefined) body.outNext = !!patch.outNext;
               if (patch.surplus !== undefined) body.surplus = patch.surplus;
-              await apiPost(body);
+              var postRes = await apiPost(body);
+              if (postRes && postRes.status === "error" && !postRes.optimistic) throw new Error(postRes.message || "post");
               ok = true;
               break;
             } catch (ePost) {}
@@ -7296,7 +7322,7 @@
       } finally {
         markCuttingWriteEnd();
 
-        cuttingSession.quietUntil = Math.max(cuttingSession.quietUntil, Date.now() + (ok ? 15000 : 25000));
+        cuttingSession.quietUntil = Math.max(cuttingSession.quietUntil, Date.now() + (ok ? 20000 : 25000));
       }
       if (!ok) {
         showToast("Галочка не сохранилась — нажми ещё раз");
@@ -7663,12 +7689,12 @@
       const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
       const prev = cached ? !!cached.laid : null;
       if (cached) cached.laid = !!laid;
-      rememberCuttingLocalFlag_(row, { laid: !!laid });
+      rememberCuttingLocalFlag_(row, { laid: !!laid }, cached && cached.name);
       reorderCuttingDom();
       const ok = await persistCuttingFlag_(row, { laid: !!laid });
       if (!ok && cached && prev !== null) {
         cached.laid = prev;
-        rememberCuttingLocalFlag_(row, { laid: prev });
+        rememberCuttingLocalFlag_(row, { laid: prev }, cached && cached.name);
         syncCutRowDomFromCache_(row);
         reorderCuttingDom();
       }
@@ -7679,7 +7705,7 @@
       const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
       const prev = cached ? !!cached.done : null;
       if (cached) cached.done = !!done;
-      rememberCuttingLocalFlag_(row, { done: !!done });
+      rememberCuttingLocalFlag_(row, { done: !!done }, cached && cached.name);
       reorderCuttingDom();
       if (done) {
         try { if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light"); } catch (e) {}
@@ -7687,7 +7713,7 @@
       const ok = await persistCuttingFlag_(row, { done: !!done });
       if (!ok && cached && prev !== null) {
         cached.done = prev;
-        rememberCuttingLocalFlag_(row, { done: prev });
+        rememberCuttingLocalFlag_(row, { done: prev }, cached && cached.name);
         syncCutRowDomFromCache_(row);
         reorderCuttingDom();
       }
@@ -7704,12 +7730,12 @@
       if (!okAsk) return;
       const prev = !!cached.outNext;
       cached.outNext = next;
-      rememberCuttingLocalFlag_(row, { outNext: next });
+      rememberCuttingLocalFlag_(row, { outNext: next }, cached && cached.name);
       syncCutRowDomFromCache_(row);
       const ok = await persistCuttingFlag_(row, { outNext: next });
       if (!ok) {
         cached.outNext = prev;
-        rememberCuttingLocalFlag_(row, { outNext: prev });
+        rememberCuttingLocalFlag_(row, { outNext: prev }, cached && cached.name);
         syncCutRowDomFromCache_(row);
         return;
       }
