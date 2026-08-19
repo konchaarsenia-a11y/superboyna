@@ -743,9 +743,10 @@ function isPieceWarehouseRow_(row, name) {
 }
 
 /**
- * Жевалки с градацией: учётные шт склада, база = БОЛЬШОЙ (=1),
- * как в формулах Склад (становая: ПАЛК*0.25 + СРЕД*0.5 + БОЛ*1).
+ * Жевалки с градацией: учётные шт склада, база = ОГРОМНЫЙ (=1).
  * 1 ОГР = 2 БОЛ = 4 СРЕД = 8 МАЛ = 16 ОЧ МАЛ.
+ * ОГР=1, БОЛ=0.5, СРЕД=0.25, МАЛ=0.125, ОЧ МАЛ=0.0625.
+ * Трахея ПЛАСТ ≈ СРЕД; жила ПАЛК ≈ МАЛ; половинка уха/аорты = 0.25.
  */
 function isGradedChewName_(name) {
   var u = String(name || "").toUpperCase().replace(/Ё/g, "Е");
@@ -754,17 +755,17 @@ function isGradedChewName_(name) {
 
 function chewFractionStockFactor_(nameOrSub) {
   var u = String(nameOrSub || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
-  if (!u) return 1;
-  if (/ПОЛОВИН/.test(u)) return 0.5;
-  if (/ОЧ\s*МАЛ|ОЧЕНЬ\s*(МАЛ|МЕЛК)|СУПЕР\s*(МАЛ|МЕЛК)/.test(u)) return 0.125;
-  if (/ОГР|ОГРОМ|ГИГАНТ|РОГАЛ/.test(u)) return 2;
-  if (/БОЛ|БОЛЬШ/.test(u)) return 1;
-  if (/ПАЛК|ПАЛОЧ/.test(u)) return 0.25;
-  if (/ПЛАСТ/.test(u)) return 0.5;
-  if (/СРЕД/.test(u)) return 0.5;
-  if (/(^|[^А-ЯA-Z0-9])МАЛ([^А-ЯA-Z0-9]|$)|МЕЛК/.test(u)) return 0.25;
-  // целая аорта / ухо без фракции = 1
-  return 1;
+  if (!u) return 0.5;
+  if (/ПОЛОВИН/.test(u)) return 0.25;
+  if (/ОЧ\s*МАЛ|ОЧЕНЬ\s*(МАЛ|МЕЛК)|СУПЕР\s*(МАЛ|МЕЛК)/.test(u)) return 0.0625;
+  if (/ОГР|ОГРОМ|ГИГАНТ|РОГАЛ/.test(u)) return 1;
+  if (/БОЛ|БОЛЬШ/.test(u)) return 0.5;
+  if (/ПАЛК|ПАЛОЧ/.test(u)) return 0.125;
+  if (/ПЛАСТ/.test(u)) return 0.25;
+  if (/СРЕД/.test(u)) return 0.25;
+  if (/(^|[^А-ЯA-Z0-9])МАЛ([^А-ЯA-Z0-9]|$)|МЕЛК/.test(u)) return 0.125;
+  // целая аорта / ухо без фракции ≈ большой = 0.5 огромного
+  return 0.5;
 }
 
 function chewStockFactorForCuttingName_(cutName) {
@@ -5530,7 +5531,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
   }
   var filterOn = !!(dateFrom || dateTo);
   var asOfKey = String(opts.asOf || opts.asOfDate || "").trim();
-  var cacheKey = "WH_PLAN_V7" + (filterOn
+  var cacheKey = "WH_PLAN_V8" + (filterOn
     ? (":" + (dateFrom ? isoDateKey_(dateFrom) : "") + ":" + (dateTo ? isoDateKey_(dateTo) : ""))
     : "") + (asOfKey ? (":asOf:" + asOfKey) : "");
 
@@ -5907,7 +5908,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
       byDay: byDay
     };
     plan.push(item);
-    if (needRaw > 0 && deficit >= (piece ? (gradedChew ? 0.2 : 0.5) : 0.05)) deficits.push(item);
+    if (needRaw > 0 && deficit >= (piece ? (gradedChew ? 0.1 : 0.5) : 0.05)) deficits.push(item);
   }
   deficits.sort(function (a, b) { return (b.deficit || 0) - (a.deficit || 0); });
 
@@ -5997,7 +5998,7 @@ function computeWarehouseWeekPlan_(ss, opts) {
     note: (filterOn
       ? "Нужно = сырьё (сухое÷коэф). План: дни текущей/будущей недели с листа, остальные даты — из Календарь_Дат. Есть = F+B минус дни строго до выбранной даты (утро дня, до нарезки)."
       : "Нужно = сырьё (сухое÷коэф). План = граммы с «Приём». Есть = наличие на начало недели (F+B) минус дни строго до выбранной даты (по умолчанию сегодня).") +
-      " Жевалки с размером (корень/трахея/жила/аорта/ухо): учётные шт как на Складе, база БОЛЬШОЙ=1 — ОГР=2, БОЛ=1, СРЕД=0.5, МАЛ=0.25, ОЧ МАЛ=0.125 (1 огромный = 4 средних)."
+      " Жевалки с размером (корень/трахея/жила/аорта/ухо): учётные шт как на Складе, база ОГРОМНЫЙ=1 — ОГР=1, БОЛ=0.5, СРЕД=0.25, МАЛ=0.125, ОЧ МАЛ=0.0625 (1 огромный = 2 больших = 4 средних)."
   };
   try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(out), 45); } catch (ePut) {}
   return out;
@@ -13011,6 +13012,7 @@ function handleSetWarehouseArrival(json, callback, fromPost) {
     var cache = CacheService.getScriptCache();
     cache.remove("wh_get_v1");
     cache.remove("WH_PLAN_V7");
+    cache.remove("WH_PLAN_V8");
   } catch (eC) {}
   var ok = { status: "success", row: row, arrival: qty };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
@@ -13179,6 +13181,7 @@ function handleWarehousePreview(json, callback, fromPost) {
       CacheService.getScriptCache().remove("WH_PLAN_V5");
       CacheService.getScriptCache().remove("WH_PLAN_V6");
       CacheService.getScriptCache().remove("WH_PLAN_V7");
+      CacheService.getScriptCache().remove("WH_PLAN_V8");
     } catch (e) {}
   }
   var pack = computeWarehouseWeekPlan_(ss, opts);
@@ -13223,6 +13226,7 @@ function handleComposeWarehouseBuyMessage(json, callback, fromPost) {
       CacheService.getScriptCache().remove("WH_PLAN_V5");
       CacheService.getScriptCache().remove("WH_PLAN_V6");
       CacheService.getScriptCache().remove("WH_PLAN_V7");
+      CacheService.getScriptCache().remove("WH_PLAN_V8");
     } catch (e) {}
   }
   var pack = computeWarehouseWeekPlan_(ss, opts);
