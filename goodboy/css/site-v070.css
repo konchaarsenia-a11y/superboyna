@@ -681,7 +681,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   margin-left: -28vw;
   margin-right: auto;
 }
-.shelf-from-left img { object-position: 50% 78%; } /* трое — по головам, не по ушам */
+.shelf-from-left img { object-position: 50% 88%; } /* трое — кадр ниже, по головам */
 .photo-shelves .shelf:nth-child(3) img { object-position: 50% 52%; } /* боковой вид Vector */
 
 @media (max-width: 640px) {
