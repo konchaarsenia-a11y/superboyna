@@ -7,6 +7,7 @@ window.GB_CONFIG = {
   webhookUrl: "",
   /** Заявки «Хочу попробовать» с try.html */
   leadWebhookUrl: "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec",
+  contactEmail: "hello@goodboy.by",
   partnerSlugVarok: "varok",
   storageKey: "goodboy_v1"
 };
