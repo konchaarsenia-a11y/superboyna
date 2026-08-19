@@ -331,14 +331,7 @@
       blurb.textContent = "";
       if (!activePick || global.innerWidth >= 880) return;
 
-      var title = activePick.querySelector(".phone-pick-copy strong");
       var desc = activePick.querySelector(".phone-pick-copy span");
-      if (title) {
-        var heading = document.createElement("span");
-        heading.className = "phone-pick-blurb-title";
-        heading.textContent = title.textContent;
-        blurb.appendChild(heading);
-      }
       if (desc) {
         var text = document.createElement("span");
         text.className = "phone-pick-blurb-text";
