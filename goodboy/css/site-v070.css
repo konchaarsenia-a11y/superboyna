@@ -737,9 +737,9 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 .phone-showcase-grid {
   position: relative;
-  display: grid;
-  gap: 36px;
-  align-items: center;
+}
+.phone-showcase-body {
+  display: block;
 }
 .phone-callouts {
   position: absolute;
@@ -777,15 +777,14 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   .phone-callout-dot { transition: none; }
 }
 @media (min-width: 880px) {
-  .phone-showcase-grid {
+  .phone-showcase-body {
+    display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 0 20px;
     align-items: stretch;
   }
-  .phone-showcase-grid .phone-stage {
-    position: sticky;
-    top: 96px;
-    align-self: start;
+  .phone-column {
+    display: contents;
   }
   .phone-picks,
   .phone-stage {
@@ -793,12 +792,21 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
     z-index: 3;
   }
   .phone-picks {
+    grid-column: 1;
+    grid-row: 1;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     min-height: min(560px, 72vh);
     padding: 18px 0;
     gap: 12px;
+  }
+  .phone-stage {
+    grid-column: 2;
+    grid-row: 1;
+    position: sticky;
+    top: 96px;
+    align-self: start;
   }
   .phone-pick {
     flex: 0 0 auto;
@@ -817,80 +825,91 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
     transform: none;
     border-color: rgba(212, 161, 90, 0.22);
   }
+  .phone-pick-blurb {
+    display: none;
+  }
 }
 @media (max-width: 879px) {
   .phone-callouts { display: none; }
-  .phone-showcase-grid {
-    gap: 14px;
+  .phone-column {
+    position: sticky;
+    top: 52px;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 0 0 16px;
+    margin: 0 -8px;
+    background: linear-gradient(180deg, var(--gb-black) 0%, var(--gb-black) 88%, transparent 100%);
   }
   .phone-stage {
-    order: 1;
-    width: min(64vw, 210px);
+    width: min(76vw, 252px);
     margin: 0 auto;
   }
   .phone-picks {
-    order: 2;
-    display: flex;
-    flex-direction: row;
-    flex-wrap: nowrap;
-    gap: 8px;
-    overflow-x: auto;
-    padding: 2px 2px 4px;
-    scroll-snap-type: x proximity;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    width: 100%;
+    max-width: min(100%, 360px);
+    margin: 0 auto;
+    padding: 0 4px;
   }
-  .phone-picks::-webkit-scrollbar { display: none; }
   .phone-pick {
-    flex: 0 0 auto;
-    width: 7.6rem;
+    width: auto;
+    min-width: 0;
+    padding: 8px 4px;
+    gap: 5px;
     grid-template-columns: 1fr;
     justify-items: center;
     text-align: center;
-    padding: 10px 8px;
-    gap: 6px;
-    scroll-snap-align: center;
+    border-radius: 12px;
   }
   .phone-pick:hover {
     transform: none;
   }
   .phone-pick-ico {
-    width: 2rem;
-    height: 2rem;
+    width: 1.85rem;
+    height: 1.85rem;
     border-radius: 10px;
   }
   .phone-pick-ico svg {
-    width: 1.15rem;
-    height: 1.15rem;
+    width: 1.1rem;
+    height: 1.1rem;
   }
   .phone-pick-copy strong {
-    font-size: 0.72rem;
-    line-height: 1.2;
+    font-size: 0.58rem;
+    line-height: 1.15;
+    display: block;
     font-weight: 600;
   }
   .phone-pick-copy span {
     display: none;
   }
   .phone-pick-blurb {
-    order: 3;
-    margin: 0;
-    padding: 0 6px;
+    display: block;
+    max-width: min(100%, 360px);
+    margin: 0 auto;
+    padding: 0 8px;
     text-align: center;
-    font-size: 0.88rem;
-    line-height: 1.45;
+    font-size: 0.84rem;
+    line-height: 1.42;
     color: var(--gb-muted);
-    min-height: 2.8em;
+    min-height: 2.5em;
+  }
+  .phone-pick-blurb strong {
+    display: block;
+    color: var(--gb-cream);
+    font-size: 0.92rem;
+    font-weight: 700;
+    margin-bottom: 4px;
   }
   .phone-toast {
     display: none;
   }
   .phone-float {
     animation: none;
-  }
-}
-@media (min-width: 880px) {
-  .phone-pick-blurb {
-    display: none;
   }
 }
 .phone-picks {
