@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115835" as="script">
+  <link rel="preload" href="app.main.js?v=71115836" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v7.11.158c35";
+      var APP_VER = "v7.11.158c36";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1983,7 +1983,16 @@
     <!-- СКЛАД -->
     <div id="warehouseScreen" class="screen">
       <div class="card">
-        <button class="btn-action btn-blue" type="button" onclick="loadWarehouse()">Обновить склад</button>
+        <div class="seg-row" style="margin-bottom:8px;">
+          <button type="button" class="seg-btn" id="whViewWeekBtn" onclick="setWarehouseStockView_('weekStart')">Начало недели</button>
+          <button type="button" class="seg-btn active" id="whViewAsOfBtn" onclick="setWarehouseStockView_('asOf')">На выбранный день</button>
+        </div>
+        <div class="form-group" style="margin:0 0 8px;">
+          <label>День остатка (утро, до нарезки этого дня)</label>
+          <input type="date" id="whAsOfDate" onchange="setWarehouseStockView_('asOf')">
+        </div>
+        <button class="btn-action btn-blue" type="button" onclick="loadWarehouse({force:1})">Обновить склад</button>
+        <div class="muted" style="font-size:12px;margin-top:6px;">«Начало недели» = F+B (как уйдёт в закрытие недели). «На выбранный день» = F+B минус Пн…день-1. Галочки нарезки F не списывают.</div>
         <div class="section-title" style="margin:14px 0 8px;font-size:14px;">Дефицит по датам</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
           <div class="form-group" style="margin:0;">
@@ -2717,6 +2726,6 @@
   </div>
   <div class="toast" id="appToast"></div>
 
-  <script src="app.main.js?v=71115835" defer></script>
+  <script src="app.main.js?v=71115836" defer></script>
 </body>
 </html>

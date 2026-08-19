@@ -3504,8 +3504,12 @@ async function cutoverFastRead_(a, params, env) {
     if (a === "getCutting") return getCutting_(params, env);
     if (a === "getCourier") return getCourier_(params, env);
     if (a === "getAssembly") return getAssembly_(params, env);
-    if (a === "getWarehouse") return getSnapRaw_(env, "warehouse");
+    if (a === "getWarehouse") {
+      if (params.view || params.asOf || String(params.force || "") === "1") return null;
+      return getSnapRaw_(env, "warehouse");
+    }
     if (a === "warehousePreview") {
+      if (params.dateFrom || params.dateTo || params.asOf || String(params.force || "") === "1") return null;
       return (await getSnapRaw_(env, "warehousePreview")) || (await getSnapRaw_(env, "warehouse"));
     }
     if (a === "resolveDayForDate") return resolveDay_(params, env);

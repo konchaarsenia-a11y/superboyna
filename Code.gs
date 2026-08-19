@@ -2000,7 +2000,11 @@ function doGet(e) {
     return handleListReminderPeople_({ telegramId: e.parameter.telegramId || "" }, callback, false);
   }
   if (action === "getWarehouse") {
-    return handleGetWarehouse({}, callback, false);
+    return handleGetWarehouse({
+      view: e.parameter.view || "",
+      asOf: e.parameter.asOf || e.parameter.date || "",
+      force: e.parameter.force || e.parameter._ || ""
+    }, callback, false);
   }
   if (action === "applyWarehouseRevision") {
     var itemsG = e.parameter.items ? decodeURIComponent(e.parameter.items) : "[]";
@@ -2013,6 +2017,7 @@ function doGet(e) {
     return handleWarehousePreview({
       dateFrom: e.parameter.dateFrom || "",
       dateTo: e.parameter.dateTo || "",
+      asOf: e.parameter.asOf || "",
       force: e.parameter.force || ""
     }, callback, false);
   }
@@ -5524,9 +5529,10 @@ function computeWarehouseWeekPlan_(ss, opts) {
     dateTo = swap;
   }
   var filterOn = !!(dateFrom || dateTo);
-  var cacheKey = "WH_PLAN_V6" + (filterOn
+  var asOfKey = String(opts.asOf || opts.asOfDate || "").trim();
+  var cacheKey = "WH_PLAN_V7" + (filterOn
     ? (":" + (dateFrom ? isoDateKey_(dateFrom) : "") + ":" + (dateTo ? isoDateKey_(dateTo) : ""))
-    : "");
+    : "") + (asOfKey ? (":asOf:" + asOfKey) : "");
 
   if (!(opts.force || opts.refresh || opts.noCache)) {
     try {
@@ -5595,10 +5601,18 @@ function computeWarehouseWeekPlan_(ss, opts) {
   }
 
   var todayTs = 0;
+  var asOfIsoUsed = "";
   try {
-    var todayIso = isoDateKey_(new Date(), tz);
-    var todayD = parseFlexibleDate_(todayIso, tz);
-    if (todayD) todayTs = todayD.getTime();
+    var asOfD = parseFlexibleDate_(opts.asOf || opts.asOfDate || "", tz);
+    if (asOfD) {
+      asOfIsoUsed = isoDateKey_(asOfD, tz);
+      todayTs = asOfD.getTime();
+    } else {
+      var todayIso = isoDateKey_(new Date(), tz);
+      var todayD = parseFlexibleDate_(todayIso, tz);
+      if (todayD) todayTs = todayD.getTime();
+      asOfIsoUsed = todayIso;
+    }
   } catch (eToday) {}
 
   function dayIsPast_(day) {
@@ -5979,9 +5993,10 @@ function computeWarehouseWeekPlan_(ss, opts) {
     dateTo: dateTo ? isoDateKey_(dateTo, tz) : "",
     rangeLabel: rangeLabel,
     source: filterOn ? "calendar+sheets" : "week",
+    asOf: asOfIsoUsed || "",
     note: (filterOn
-      ? "Нужно = сырьё (сухое÷коэф). План: дни текущей/будущей недели с листа, остальные даты — из Календарь_Дат. Есть = F+B минус прошедшие дни текущей недели."
-      : "Нужно = сырьё (сухое÷коэф). План = граммы с «Приём» (остаток недели с сегодня). Есть = F+B минус уже прошедшие дни недели.") +
+      ? "Нужно = сырьё (сухое÷коэф). План: дни текущей/будущей недели с листа, остальные даты — из Календарь_Дат. Есть = F+B минус дни строго до выбранной даты (утро дня, до нарезки)."
+      : "Нужно = сырьё (сухое÷коэф). План = граммы с «Приём». Есть = наличие на начало недели (F+B) минус дни строго до выбранной даты (по умолчанию сегодня).") +
       " Жевалки с размером (корень/трахея/жила/аорта/ухо): учётные шт как на Складе, база БОЛЬШОЙ=1 — ОГР=2, БОЛ=1, СРЕД=0.5, МАЛ=0.25, ОЧ МАЛ=0.125 (1 огромный = 4 средних)."
   };
   try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(out), 45); } catch (ePut) {}
@@ -12869,11 +12884,14 @@ function handleGetWarehouse(json, callback, fromPost) {
       return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
     }
 
-    // короткий кэш — меньше таймаутов при частом открытии вкладки
-    var cacheKey = "wh_get_v1";
+    var view = String((json && json.view) || "").trim();
+    if (view !== "asOf") view = "weekStart";
+    var asOf = String((json && (json.asOf || json.date)) || "").trim();
+    var skipCache = !!(json && (json.force || json.nocache || json._ || view === "asOf" || asOf));
+    var cacheKey = "wh_get_v2:" + view + ":" + asOf;
     try {
       var cached = CacheService.getScriptCache().get(cacheKey);
-      if (cached && !(json && (json.force || json.nocache || json._))) {
+      if (cached && !skipCache) {
         var parsed = JSON.parse(cached);
         if (parsed && parsed.status === "success") {
           return fromPost ? jsonpText(callback, parsed) : jsonp(callback, parsed);
@@ -12894,17 +12912,42 @@ function handleGetWarehouse(json, callback, fromPost) {
         var row = i + 2;
         var piece = isPieceWarehouseRow_(row, name);
         var mVal = matrix[i][12];
+        var fVal = round2_(matrix[i][5]);
+        var bVal = round2_(matrix[i][1]);
         items.push({
           row: row,
           name: name,
-          arrival: round2_(matrix[i][1]),
+          arrival: bVal,
           coef: round2_(matrix[i][3]),
-          stock: round2_(matrix[i][5]),
+          stock: fVal,
+          weekStart: round2_(fVal + bVal),
+          asOfStock: round2_(fVal + bVal),
+          priorRaw: 0,
           buy: !!matrix[i][6],
           unit: piece ? "шт" : "кг",
           stockPcs: piece ? round2_(mVal) : null
         });
       }
+    }
+
+    if (view === "asOf") {
+      try {
+        var pack = computeWarehouseWeekPlan_(ss, {
+          asOf: asOf,
+          force: !!(json && (json.force || json._))
+        });
+        var priorMap = {};
+        var planRows = (pack && pack.plan) || [];
+        for (var pi = 0; pi < planRows.length; pi++) {
+          priorMap[planRows[pi].row] = Number(planRows[pi].priorRaw) || 0;
+        }
+        if (pack && pack.asOf) asOf = pack.asOf;
+        for (var ii = 0; ii < items.length; ii++) {
+          var pr = priorMap[items[ii].row] || 0;
+          items[ii].priorRaw = round2_(pr);
+          items[ii].asOfStock = round2_(Math.max(0, (items[ii].weekStart || 0) - pr));
+        }
+      } catch (eAsOf) {}
     }
 
     var ledger = [];
@@ -12931,9 +12974,18 @@ function handleGetWarehouse(json, callback, fromPost) {
       }
     } catch (e2) {}
 
-    var ok = { status: "success", items: items, ledger: ledger };
+    var ok = {
+      status: "success",
+      items: items,
+      ledger: ledger,
+      view: view,
+      asOf: asOf || "",
+      asOfNote: view === "asOf"
+        ? "Остаток на утро выбранного дня: F+B минус нарезка дней строго до этой даты. Галочки нарезки F не списывают."
+        : "Начало недели = F (остаток с прошлой) + B (дозакуп этой недели). Реальный остаток «сейчас» — кнопка «На выбранный день»."
+    };
     try {
-      CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 60);
+      CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 45);
     } catch (ePut) {}
     return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
   } catch (eAll) {
@@ -12953,9 +13005,13 @@ function handleSetWarehouseArrival(json, callback, fromPost) {
   }
   wh.getRange(row, 2).setValue(qty);
   try {
-    getLedgerSheet_().appendRow([new Date(), "", row, "arrival", qty, "кг", JSON.stringify({ by: json.telegramId || "" })]);
+    getLedgerSheet_().appendRow([new Date(), "", row, "arrival", qty, "кг", JSON.stringify({ by: json.telegramId || "", note: json.note || "" })]);
   } catch (e) {}
-  try { CacheService.getScriptCache().remove("wh_get_v1"); } catch (eC) {}
+  try {
+    var cache = CacheService.getScriptCache();
+    cache.remove("wh_get_v1");
+    cache.remove("WH_PLAN_V7");
+  } catch (eC) {}
   var ok = { status: "success", row: row, arrival: qty };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
@@ -13113,6 +13169,7 @@ function handleWarehousePreview(json, callback, fromPost) {
   var opts = {
     dateFrom: (json && (json.dateFrom || json.from)) || "",
     dateTo: (json && (json.dateTo || json.to)) || "",
+    asOf: (json && (json.asOf || json.asOfDate)) || "",
     force: !!(json && (json.force || json.refresh))
   };
   if (opts.force) {
@@ -13121,6 +13178,7 @@ function handleWarehousePreview(json, callback, fromPost) {
       CacheService.getScriptCache().remove("WH_PLAN_V4");
       CacheService.getScriptCache().remove("WH_PLAN_V5");
       CacheService.getScriptCache().remove("WH_PLAN_V6");
+      CacheService.getScriptCache().remove("WH_PLAN_V7");
     } catch (e) {}
   }
   var pack = computeWarehouseWeekPlan_(ss, opts);
@@ -13141,6 +13199,7 @@ function handleWarehousePreview(json, callback, fromPost) {
     activeDays: pack.activeDays || [],
     dateFrom: pack.dateFrom || "",
     dateTo: pack.dateTo || "",
+    asOf: pack.asOf || opts.asOf || "",
     rangeLabel: pack.rangeLabel || "",
     note: pack.note || "",
     messageText: msg,
@@ -13154,6 +13213,7 @@ function handleComposeWarehouseBuyMessage(json, callback, fromPost) {
   var opts = {
     dateFrom: (json && (json.dateFrom || json.from)) || "",
     dateTo: (json && (json.dateTo || json.to)) || "",
+    asOf: (json && (json.asOf || json.asOfDate)) || "",
     force: !!(json && (json.force || json.refresh))
   };
   if (opts.force) {
@@ -13162,6 +13222,7 @@ function handleComposeWarehouseBuyMessage(json, callback, fromPost) {
       CacheService.getScriptCache().remove("WH_PLAN_V4");
       CacheService.getScriptCache().remove("WH_PLAN_V5");
       CacheService.getScriptCache().remove("WH_PLAN_V6");
+      CacheService.getScriptCache().remove("WH_PLAN_V7");
     } catch (e) {}
   }
   var pack = computeWarehouseWeekPlan_(ss, opts);

@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c35";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c36";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -14839,11 +14839,46 @@
     }
     window.clearPriceBasket = clearPriceBasket;
 
+    function warehouseTodayIso_() {
+      var d = new Date();
+      var m = d.getMonth() + 1;
+      var day = d.getDate();
+      return d.getFullYear() + "-" + (m < 10 ? "0" : "") + m + "-" + (day < 10 ? "0" : "") + day;
+    }
+
+    function getWarehouseAsOfIso_() {
+      var el = document.getElementById("whAsOfDate");
+      if (el && el.value) return String(el.value).trim();
+      return warehouseTodayIso_();
+    }
+
+    function syncWarehouseViewButtons_() {
+      var view = window._whView || "asOf";
+      var wBtn = document.getElementById("whViewWeekBtn");
+      var aBtn = document.getElementById("whViewAsOfBtn");
+      if (wBtn) wBtn.classList.toggle("active", view === "weekStart");
+      if (aBtn) aBtn.classList.toggle("active", view === "asOf");
+      var el = document.getElementById("whAsOfDate");
+      if (el && !el.value) el.value = warehouseTodayIso_();
+    }
+
+    function setWarehouseStockView_(view) {
+      window._whView = view === "weekStart" ? "weekStart" : "asOf";
+      syncWarehouseViewButtons_();
+      loadWarehouse({ force: 1, view: window._whView });
+    }
+    window.setWarehouseStockView_ = setWarehouseStockView_;
+
     async function loadWarehouse(opts) {
       opts = opts || {};
       var box = document.getElementById("warehouseContainer");
       var led = document.getElementById("warehouseLedger");
-      if (opts.soft && window._whCacheHtml) {
+      if (opts.view) window._whView = opts.view === "weekStart" ? "weekStart" : "asOf";
+      if (!window._whView) window._whView = "asOf";
+      syncWarehouseViewButtons_();
+      var view = window._whView;
+      var asOf = getWarehouseAsOfIso_();
+      if (opts.soft && window._whCacheHtml && window._whCacheView === view && window._whCacheAsOf === asOf) {
         box.innerHTML = window._whCacheHtml;
         if (led && window._whCacheLed) led.innerHTML = window._whCacheLed;
         return;
@@ -14852,9 +14887,10 @@
       else if (!window._whCacheHtml) box.innerHTML = '<p class="muted">Загрузка…</p>';
 
       async function fetchOnce_() {
-        var q = { action: "getWarehouse" };
+        var q = { action: "getWarehouse", view: view };
+        if (view === "asOf") q.asOf = asOf;
         if (opts.force) q._ = String(Date.now());
-        return apiGet(q, { timeoutMs: 35000, cacheTtlMs: opts.force ? 0 : 20000 });
+        return apiGet(q, { timeoutMs: 45000, cacheTtlMs: opts.force ? 0 : 15000 });
       }
 
       var res = null;
@@ -14886,11 +14922,55 @@
       }
 
       try {
-        var html = (res.items || []).map(function (it) {
+        var byRowAvail = {};
+        var byRowStart = {};
+        var byRowPrior = {};
+        var gasAsOf = !!(res.view === "asOf" && res.items && res.items.some(function (it) {
+          return it.asOfStock != null;
+        }));
+        var gasWeek = !!(res.view === "weekStart" && res.items && res.items.some(function (it) {
+          return it.weekStart != null;
+        }));
+        if ((view === "asOf" && !gasAsOf) || (view === "weekStart" && !gasWeek)) {
+          try {
+            var prevQ = {
+              action: "warehousePreview",
+              force: "1",
+              _: String(Date.now())
+            };
+            if (view === "asOf") {
+              prevQ.dateFrom = asOf;
+              prevQ.dateTo = asOf;
+            }
+            var prev = await apiGet(prevQ, { timeoutMs: 45000, cacheTtlMs: 0 });
+            (prev && (prev.plan || [])).forEach(function (p) {
+              byRowAvail[p.row] = p.available;
+              byRowStart[p.row] = p.stockStart;
+              byRowPrior[p.row] = p.priorRaw;
+            });
+          } catch (ePrev) {}
+        }
+        var caption = view === "weekStart"
+          ? "Начало недели (F+B)"
+          : ("На утро " + asOf + " (до нарезки дня)");
+        var html = '<div class="muted" style="font-size:12px;margin-bottom:8px;">' + escapeHtml(caption) +
+          (res.asOfNote ? " · " + escapeHtml(String(res.asOfNote)) : "") + "</div>";
+        html += (res.items || []).map(function (it) {
+          var weekStart = it.weekStart != null ? Number(it.weekStart) : (Number(it.stock || 0) + Number(it.arrival || 0));
+          if (byRowStart[it.row] != null) weekStart = Number(byRowStart[it.row]);
+          var shown = weekStart;
+          if (view === "asOf") {
+            shown = (it.asOfStock != null && gasAsOf) ? Number(it.asOfStock)
+              : (byRowAvail[it.row] != null ? Number(byRowAvail[it.row]) : weekStart);
+          }
+          var prior = it.priorRaw != null ? it.priorRaw : byRowPrior[it.row];
           return '<div class="card" style="margin-bottom:8px;">' +
             '<b>' + escapeHtml(it.name) + '</b> <span class="muted">' + escapeHtml(it.unit) + '</span>' +
-            '<div style="margin-top:6px;font-size:13px;">Остаток: <b>' + formatWhNum(it.stock) + '</b>' +
-            (it.arrival ? ' · дозакуп: ' + formatWhNum(it.arrival) : '') +
+            '<div style="margin-top:6px;font-size:13px;">' + escapeHtml(view === "asOf" ? "Остаток" : "На начало") +
+            ': <b>' + formatWhNum(shown) + '</b>' +
+            (view === "asOf" ? ' · начало нед. ' + formatWhNum(weekStart) : '') +
+            (it.arrival ? ' · дозакуп B ' + formatWhNum(it.arrival) : '') +
+            (prior && view === "asOf" ? ' · списано до дня ' + formatWhNum(prior) : '') +
             (it.buy ? ' · <span style="color:var(--accent-color)">закупить</span>' : '') +
             '</div>' +
             '<div class="seg-row" style="margin-top:8px;">' +
@@ -14904,6 +14984,8 @@
         window._whCacheHtml = html;
         window._whCacheLed = ledHtml;
         window._whCacheAt = Date.now();
+        window._whCacheView = view;
+        window._whCacheAsOf = asOf;
         box.innerHTML = html;
         if (led) led.innerHTML = ledHtml;
       } catch (eRender) {
@@ -14963,6 +15045,8 @@
         };
         if (dates.dateFrom) params.dateFrom = dates.dateFrom;
         if (dates.dateTo) params.dateTo = dates.dateTo;
+        var asOfPrev = getWarehouseAsOfIso_();
+        if (asOfPrev) params.asOf = asOfPrev;
         var res = await apiGet(params, { timeoutMs: 45000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
           if (box) box.innerHTML = '<p class="muted">' + escapeHtml((res && res.message) || "Ошибка preview") + "</p>";
