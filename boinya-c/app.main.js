@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c45";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c46";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -6934,6 +6934,72 @@
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return false;
         }
+
+        // cutover: optimistic «успех» ≠ человек реально ушёл со старого дня
+        if (!calendarOnly && !dateOnly && oldDay && newDay && oldDay !== newDay) {
+          async function clientOnDay_(dayName) {
+            try {
+              var chk = await apiGet({
+                action: "getClients",
+                day: dayName,
+                force: "1",
+                _: String(Date.now())
+              }, { timeoutMs: 16000, cacheTtlMs: 0 });
+              var list = (chk && chk.clients) || [];
+              var want = String(clientName || "").trim().toUpperCase();
+              for (var ci = 0; ci < list.length; ci++) {
+                var nm = String(list[ci].name || list[ci].client || "").trim().toUpperCase();
+                if (!nm) continue;
+                if (nm === want || nm.indexOf(want) >= 0 || want.indexOf(nm) >= 0) return true;
+              }
+            } catch (eChk) {}
+            return false;
+          }
+          var onOld = await clientOnDay_(oldDay);
+          var onNew = await clientOnDay_(newDay);
+          if (onOld || !onNew) {
+            try {
+              await apiGet({
+                action: "moveClient",
+                client: clientName,
+                oldDay: oldDay || "",
+                newDay: newDay,
+                oldDate: oldDate || "",
+                newDate: target.newDate,
+                dateOnly: "0",
+                calendarOnly: "0",
+                cutRaw: cutRaw === "yes" ? "1" : "0",
+                matchKey: matchKey,
+                force: "1",
+                _: String(Date.now())
+              }, { timeoutMs: 22000, cacheTtlMs: 0 });
+            } catch (eRetryM) {}
+            try { await apiPost({
+              action: "moveClient",
+              client: clientName,
+              oldDay: oldDay || "",
+              newDay: newDay,
+              oldDate: oldDate || "",
+              newDate: target.newDate,
+              dateOnly: false,
+              calendarOnly: false,
+              cutRaw: cutRaw === "yes" ? "1" : "0",
+              matchKey: matchKey
+            }); } catch (ePostM) {}
+            await new Promise(function (r) { setTimeout(r, 700); });
+            onOld = await clientOnDay_(oldDay);
+            onNew = await clientOnDay_(newDay);
+          }
+          if (onOld || !onNew) {
+            await uiAlertAsync(
+              "Перенос не закрепился: «" + clientName + "» " +
+              (onOld ? "ещё на «" + oldDay + "»" : "нет на «" + newDay + "»") +
+              ". Сохрани/перенеси ещё раз."
+            );
+            return false;
+          }
+        }
+
         var svN = Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
         var bpMetaN = Number((res.dateSync && res.dateSync.bpMeta) || 0) || 0;
         var baseMsg = calendarOnly

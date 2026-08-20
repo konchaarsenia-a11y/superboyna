@@ -523,6 +523,12 @@ async function getClients_(params, env) {
     rows = q.results || [];
   }
   if (!dateDmy && dateIso) dateDmy = isoToDmy_(dateIso);
+  let clientsOut = rows.map(clientFromRow_);
+  if (day) {
+    try {
+      clientsOut = await filterTombstonedClients_(env, day, clientsOut);
+    } catch (eTombG) {}
+  }
   return {
     status: "success",
     sandbox: true,
@@ -530,7 +536,7 @@ async function getClients_(params, env) {
     date: dateDmy || "",
     dateIso: dateIso || "",
     source: "d1",
-    clients: rows.map(clientFromRow_)
+    clients: clientsOut
   };
 }
 
@@ -1994,13 +2000,16 @@ async function saveOrder_(params, env, asBooking) {
   };
 }
 
+// Перенос/удаление: GAS часто отстаёт — tombstone держит D1 от «воскрешения» дольше protect
+const TOMBSTONE_MS = 20 * 60 * 1000;
+
 async function putDeleteTombstone_(env, day, matchKey) {
   const mk = normalizeMatchKey_(matchKey);
   if (!env || !day || !mk) return;
   const prev = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
   const now = Date.now();
   const items = (prev.items || []).filter(function (t) {
-    return t && now - Number(t.at || 0) < 180000;
+    return t && now - Number(t.at || 0) < TOMBSTONE_MS;
   });
   items.push({ day: String(day), mk: mk, at: now });
   await putSnap_(env, "deleteTombstones", { items: items });
@@ -2011,7 +2020,7 @@ function isTombstoned_(tomb, day, matchKey, name) {
   const now = Date.now();
   return ((tomb && tomb.items) || []).some(function (t) {
     if (!t || String(t.day) !== String(day)) return false;
-    if (now - Number(t.at || 0) > 180000) return false;
+    if (now - Number(t.at || 0) > TOMBSTONE_MS) return false;
     return t.mk === mk || nicksLooseMatch_(t.mk, name) || nicksLooseMatch_(t.mk, matchKey);
   });
 }
@@ -2073,6 +2082,7 @@ async function moveClient_(params, env) {
   const client = String(params.client || "");
   const matchKeyRaw = params.matchKey || client;
   const matchKey = normalizeMatchKey_(matchKeyRaw);
+  const clientLow = client.trim().toLowerCase();
   const now = new Date().toISOString();
   const cutRaw = String(params.cutRaw == null ? "1" : params.cutRaw);
 
@@ -2081,7 +2091,35 @@ async function moveClient_(params, env) {
     if (r.onWeek && r.dayName) newDay = r.dayName;
   }
 
-  const row = await findOrderRow_(env, matchKeyRaw, oldDay, oldDate);
+  let row = await findOrderRow_(env, matchKeyRaw, oldDay, oldDate);
+  // уже перенесён (повтор после store / retry) — не ошибка
+  if (!row && newDay) {
+    const already = await findOrderRow_(env, matchKeyRaw, newDay, newDate);
+    if (already) {
+      try {
+        await putDeleteTombstone_(env, oldDay, matchKey);
+      } catch (eT0) {}
+      if (oldDay) {
+        try {
+          await env.DB.prepare(
+            "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR lower(client) = ?)"
+          )
+            .bind(now, oldDay, matchKey, clientLow || matchKey)
+            .run();
+        } catch (eDelOld) {}
+      }
+      return {
+        status: "success",
+        sandbox: true,
+        wrote: 1,
+        alreadyMoved: true,
+        from: oldDay,
+        to: newDay,
+        newDate: newDate,
+        calendarOnly: false
+      };
+    }
+  }
   if (!row) {
     return { status: "error", message: "not_found", sandbox: true };
   }
@@ -2090,11 +2128,21 @@ async function moveClient_(params, env) {
   if (cutRaw === "0" || cutRaw === "no") meta.noCut = true;
   else if (cutRaw === "1" || cutRaw === "yes") meta.noCut = false;
 
-  await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
-    .bind(now, row.id)
-    .run();
+  const fromDay = oldDay || row.day_name || "";
+  // все дубли на старом дне — иначе один id уходит, второй «остаётся»
+  if (fromDay) {
+    await env.DB.prepare(
+      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR lower(client) = ?)"
+    )
+      .bind(now, fromDay, matchKey, clientLow || String(row.client || "").toLowerCase())
+      .run();
+  } else {
+    await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
+      .bind(now, row.id)
+      .run();
+  }
   try {
-    await putDeleteTombstone_(env, oldDay || row.day_name, matchKey);
+    await putDeleteTombstone_(env, fromDay, matchKey);
   } catch (eTombM) {}
 
   let toLabel = "(calendar)";
@@ -2141,14 +2189,14 @@ async function moveClient_(params, env) {
     toLabel = newDate;
   }
 
-  await invalidateDays_(env, [oldDay || row.day_name, newDay].filter(Boolean));
+  await invalidateDays_(env, [fromDay, newDay].filter(Boolean));
 
   return {
     status: "success",
     sandbox: true,
     wrote: 1,
     local: false,
-    from: oldDay || row.day_name,
+    from: fromDay,
     to: toLabel,
     newDate: newDate,
     calendarOnly: !newDay && !!newDate
@@ -3824,11 +3872,20 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
   // Не затирать свежие D1-записи старым GAS (edit ещё не доехал / таймаут)
   const protectMs = opts.protectMs != null ? Number(opts.protectMs) : 12 * 60 * 1000;
 
+  let tomb = null;
+  try {
+    tomb = await getSnapRaw_(env, "deleteTombstones");
+  } catch (eTombLoad) {
+    tomb = null;
+  }
+
   const byMk = Object.create(null);
   (clients || []).forEach(function (c) {
     if (!c) return;
     const mk = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
     if (!mk) return;
+    // перенос/удаление: GAS ещё держит человека — не возвращать
+    if (isTombstoned_(tomb, day, mk, c.name || c.client)) return;
     byMk[mk] = c;
   });
 
@@ -3844,6 +3901,11 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       if (!row) continue;
       const mk = normalizeMatchKey_(row.match_key || row.client || "");
       if (!mk) continue;
+      // tombstone важнее protect — иначе перенос «откатывается»
+      if (isTombstoned_(tomb, day, mk, row.client)) {
+        delete byMk[mk];
+        continue;
+      }
       const updatedMs = Date.parse(String(row.updated_at || "")) || 0;
       if (!(updatedMs && nowMs - updatedMs < protectMs)) continue;
       const gasC = byMk[mk];
@@ -3871,6 +3933,7 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
     const c = merged[i];
     const mk = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
     if (!mk) continue;
+    if (isTombstoned_(tomb, day, mk, c.name || c.client)) continue;
     const basket = JSON.stringify(c.basket || []);
     const meta = {
       orderPrice: c.orderPrice,
@@ -4141,6 +4204,16 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                 try {
                   await saveOrder_(params, env, /^saveBooking$/i.test(a));
                 } catch (eResave) {}
+              }
+              if (/^(deleteClient|removeCalendarClient)$/i.test(a) && wantClient) {
+                try {
+                  await deleteClient_(params, env);
+                } catch (eRedel) {}
+              }
+              if (/^moveClient$/i.test(a) && wantClient) {
+                try {
+                  await moveClient_(params, env);
+                } catch (eRemov) {}
               }
             }
           } catch (eG) {}
