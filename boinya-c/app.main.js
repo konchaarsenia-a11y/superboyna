@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c43";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c44";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -9167,17 +9167,35 @@
       return String(s || "")
         .toUpperCase()
         .replace(/Ё/g, "Е")
+        .replace(/І/g, "И")
+        .replace(/Ў/g, "У")
+        .replace(/['’ʻ]/g, "")
         .replace(/\bУЛ\.?\b/g, " ")
         .replace(/\bУЛИЦ[АЫ]\b/g, " ")
+        .replace(/\bВУЛ\.?\b/g, " ")
+        .replace(/\bВУЛІЦ[АЫЕУ]?\b/g, " ")
         .replace(/\bПР\.?-?\s*Т\.?\b/g, " ")
         .replace(/\bПРОСПЕКТ(Е|А|У)?\b/g, " ")
+        .replace(/\bПРАСПЕКТ(Е|А|У)?\b/g, " ")
         .replace(/\bПР\.?\b/g, " ")
         .replace(/\bПЕР\.?\b/g, " ")
         .replace(/\bПЕРЕУЛОК\b/g, " ")
+        .replace(/\bЗАВУЛАК\b/g, " ")
         .replace(/\bБУЛ\.?\b/g, " ")
         .replace(/\bБУЛЬВАР\b/g, " ")
+        .replace(/\bПЛ\.?\b/g, " ")
+        .replace(/\bПЛОЩАД[ЬИ]\b/g, " ")
+        .replace(/\bПЛОШЧ[АЫЕУ]?\b/g, " ")
         .replace(/\bМИНСК\b/g, " ")
+        .replace(/\bМІНСК\b/g, " ")
         .replace(/\bБЕЛАРУСЬ\b/g, " ")
+        .replace(/ОВСКОГО\b/g, "ОВСКОГО")
+        .replace(/АЎСКАГА\b/g, "ОВСКОГО")
+        .replace(/АУСКАГА\b/g, "ОВСКОГО")
+        .replace(/СКОГО\b/g, "СКОГО")
+        .replace(/СКАГА\b/g, "СКОГО")
+        .replace(/ОВА\b/g, "ОВА")
+        .replace(/АВА\b/g, "ОВА")
         .replace(/[.,«»"']/g, " ")
         .replace(/\s+/g, " ")
         .trim();
@@ -9267,7 +9285,38 @@
       return formatStreetHouse(core) || core;
     }
 
-    function streetNameMatchesQuery_(resultTitle, queryText) {
+    function streetTokensFuzzyOk_(qStreet, aStreet) {
+      var qWords = String(qStreet || "").split(" ").filter(function (w) {
+        return w.length >= 4 && !/^\d/.test(w);
+      });
+      var aWords = String(aStreet || "").split(" ").filter(function (w) {
+        return w.length >= 3 && !/^\d/.test(w);
+      });
+      if (!qWords.length) return true;
+      if (!aWords.length) return false;
+      qWords.sort(function (a, b) { return b.length - a.length; });
+      for (var i = 0; i < qWords.length; i++) {
+        var qw = qWords[i];
+        for (var j = 0; j < aWords.length; j++) {
+          var aw = aWords[j];
+          if (aw.indexOf(qw) >= 0 || qw.indexOf(aw) >= 0) return true;
+          var n = Math.min(5, qw.length, aw.length);
+          if (n >= 4 && qw.slice(0, n) === aw.slice(0, n)) return true;
+          // RU↔BY: Независимости / Незалежнасці, Сурганова / Сурганава
+          if (qw.length >= 6 && aw.length >= 6) {
+            var same = 0;
+            var lim = Math.min(qw.length, aw.length, 10);
+            for (var k = 0; k < lim; k++) {
+              if (qw.charAt(k) === aw.charAt(k)) same++;
+            }
+            if (same >= Math.max(4, Math.floor(lim * 0.55))) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function streetNameMatchesQuery_(resultTitle, queryText, resultHouse) {
       var want = parseSearchStreetHouse_(queryText);
       var qStreet = normalizeLocalityTypo_(normalizeAddrSearchKey(want.street || queryText));
       var aStreet = normalizeLocalityTypo_(normalizeAddrSearchKey(resultTitle));
@@ -9278,15 +9327,13 @@
         var prefLoc = locN.slice(0, Math.min(6, locN.length));
         if (prefLoc.length >= 4 && aStreet.indexOf(prefLoc) >= 0) return true;
       }
-      var qWords = qStreet.split(" ").filter(function (w) {
-        return w.length >= 4 && !/^\d/.test(w);
-      });
-      if (!qWords.length) return true;
-      qWords.sort(function (a, b) { return b.length - a.length; });
-      var main = qWords[0];
-      if (aStreet.indexOf(main) >= 0 || main.indexOf(aStreet.split(" ")[0] || "") === 0) return true;
-      var pref = main.slice(0, Math.min(6, main.length));
-      if (pref.length >= 5 && aStreet.indexOf(pref) >= 0) return true;
+      if (streetTokensFuzzyOk_(qStreet, aStreet)) return true;
+      // дом совпал — не отбрасывать из‑за RU/BY написания улицы в OSM
+      var wantH = normalizeHouseKey_(want.house);
+      var gotH = normalizeHouseKey_(resultHouse || houseFromSuggestTitle_(resultTitle));
+      if (wantH && gotH && (gotH === wantH || gotH.indexOf(wantH) === 0 || wantH.indexOf(gotH) === 0)) {
+        return true;
+      }
       return false;
     }
 
@@ -9315,7 +9362,7 @@
       var order = [];
       (list || []).forEach(function (it) {
         if (!it) return;
-        if (!streetNameMatchesQuery_(it.address || it.title || "", q)) return;
+        if (!streetNameMatchesQuery_(it.address || it.title || "", q, it.house)) return;
         var key = suggestDedupeKey_(it);
         if (!key) return;
         if (!byKey[key]) {
@@ -9453,6 +9500,7 @@
       if (a === qu) return 100;
       if (a.indexOf(qu) === 0) return 94;
       if (a.indexOf(qu) >= 0) return 86;
+      if (streetTokensFuzzyOk_(qu, a)) return 70;
       var qWords = qu.split(" ").filter(function (w) { return w.length >= 2 || /^\d/.test(w); });
       if (!qWords.length) return 0;
       var hit = 0;
@@ -9603,7 +9651,7 @@
         var title = buildAddressSuggestTitle_(street, house, locality);
         if (!title && p.name) title = formatStreetHouse(String(p.name));
         if (!title) return;
-        if (!streetNameMatchesQuery_(title, text)) return;
+        if (!streetNameMatchesQuery_(title, text, house)) return;
         var minScore = wantH ? 14 : (locWant ? 12 : 28);
         if (scoreAddress(title, text) < minScore && !otherOk) {
           if (!(wantH && house && normalizeHouseKey_(house) === wantH)) return;
@@ -9643,7 +9691,7 @@
         var title = buildAddressSuggestTitle_(street, house, locality);
         if (!title) title = formatStreetHouse(row.display_name || "");
         if (!title) return;
-        if (!streetNameMatchesQuery_(title, text)) return;
+        if (!streetNameMatchesQuery_(title, text, house)) return;
         var wantH = normalizeHouseKey_(parseSearchStreetHouse_(text).house);
         var minScore = wantH ? 14 : (locWant ? 12 : 22);
         if (scoreAddress(title, text) < minScore && !otherOk) {

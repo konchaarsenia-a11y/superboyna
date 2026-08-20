@@ -3357,39 +3357,172 @@ async function suggestAddressCutover_(params, env) {
 }
 
 async function nominatimSuggestWorker_(text) {
-  const q = String(text || "").trim();
-  if (q.length < 2) return [];
-  try {
-    const u =
-      "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=by&accept-language=ru&q=" +
-      encodeURIComponent(q + ", Минск");
-    const res = await fetch(u, {
-      headers: {
-        "User-Agent": "boinya-c-worker/1.0 (cutover address suggest)",
-        Accept: "application/json"
+  const q0 = String(text || "").trim();
+  if (q0.length < 2) return [];
+
+  function parseHouse_(s) {
+    const raw = String(s || "").trim().replace(/\s+/g, " ");
+    let m = raw.match(/^(.*?)(?:,\s*|\s+)(?:д\.?|дом)\s*([0-9]+[а-яa-z]?(?:\s*[\/кk]\s*[0-9]+[а-яa-z]?)?)\s*$/i);
+    if (m && /[а-яa-z]/i.test(m[1])) {
+      return { street: String(m[1]).trim(), house: String(m[2]).replace(/\s+/g, "") };
+    }
+    m = raw.match(/^(.*?)(?:,\s*|\s+)([0-9]+[а-яa-z]?(?:\s*[\/кk]\s*[0-9]+[а-яa-z]?)?)\s*$/i);
+    if (m && /[а-яa-z]/i.test(m[1]) && !/^\d{5,6}$/.test(m[2])) {
+      return { street: String(m[1]).trim().replace(/[,\s]+$/g, ""), house: String(m[2]).replace(/\s+/g, "") };
+    }
+    return { street: raw, house: "" };
+  }
+
+  function foldKey_(s) {
+    return String(s || "")
+      .toUpperCase()
+      .replace(/Ё/g, "Е")
+      .replace(/І/g, "И")
+      .replace(/Ў/g, "У")
+      .replace(/['’ʻ]/g, "")
+      .replace(/\bУЛ\.?\b/g, " ")
+      .replace(/\bУЛИЦ[АЫ]\b/g, " ")
+      .replace(/\bВУЛ\.?\b/g, " ")
+      .replace(/\bВУЛІЦ[АЫЕУ]?\b/g, " ")
+      .replace(/\bПРОСПЕКТ(Е|А|У)?\b/g, " ")
+      .replace(/\bПРАСПЕКТ(Е|А|У)?\b/g, " ")
+      .replace(/\bПР\.?\b/g, " ")
+      .replace(/\bМИНСК\b/g, " ")
+      .replace(/\bМІНСК\b/g, " ")
+      .replace(/АЎСКАГА\b/g, "ОВСКОГО")
+      .replace(/АУСКАГА\b/g, "ОВСКОГО")
+      .replace(/СКАГА\b/g, "СКОГО")
+      .replace(/АВА\b/g, "ОВА")
+      .replace(/[.,«»"']/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function fuzzyStreet_(qStreet, aStreet) {
+    const qw = foldKey_(qStreet).split(" ").filter(function (w) { return w.length >= 4 && !/^\d/.test(w); });
+    const aw = foldKey_(aStreet).split(" ").filter(function (w) { return w.length >= 3 && !/^\d/.test(w); });
+    if (!qw.length) return true;
+    if (!aw.length) return false;
+    for (let i = 0; i < qw.length; i++) {
+      for (let j = 0; j < aw.length; j++) {
+        if (aw[j].indexOf(qw[i]) >= 0 || qw[i].indexOf(aw[j]) >= 0) return true;
+        const n = Math.min(5, qw[i].length, aw[j].length);
+        if (n >= 4 && qw[i].slice(0, n) === aw[j].slice(0, n)) return true;
+        if (qw[i].length >= 6 && aw[j].length >= 6) {
+          let same = 0;
+          const lim = Math.min(qw[i].length, aw[j].length, 10);
+          for (let k = 0; k < lim; k++) if (qw[i].charAt(k) === aw[j].charAt(k)) same++;
+          if (same >= Math.max(4, Math.floor(lim * 0.55))) return true;
+        }
       }
-    });
-    if (!res.ok) return [];
-    const arr = await res.json();
+    }
+    return false;
+  }
+
+  function mapRows_(arr, want) {
     if (!Array.isArray(arr)) return [];
-    return arr.map(function (it) {
+    const out = [];
+    const seen = {};
+    for (let i = 0; i < arr.length; i++) {
+      const it = arr[i];
       const lat = Number(it.lat);
       const lon = Number(it.lon);
-      const title = String(it.display_name || it.name || "").split(",")[0] || String(it.display_name || "");
-      return {
+      if (!isFinite(lat) || !isFinite(lon)) continue;
+      if (!(lat >= 53.65 && lat <= 54.15 && lon >= 27.15 && lon <= 28.05) &&
+          !(lat >= 51.2 && lat <= 56.3 && lon >= 23.1 && lon <= 32.9)) continue;
+      const ad = it.address || {};
+      const street = String(ad.road || ad.pedestrian || ad.street || ad.avenue || "").trim();
+      const house = String(ad.house_number || "").trim();
+      let title = street && house ? street + ", " + house : street || house || String(it.display_name || "").split(",")[0];
+      title = String(title || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Мінск).*$/i, "").trim();
+      if (!title) continue;
+      const wantH = String(want.house || "").toLowerCase().replace(/\s+/g, "");
+      const gotH = house.toLowerCase().replace(/\s+/g, "");
+      if (wantH) {
+        if (gotH && (gotH === wantH || gotH.indexOf(wantH) === 0 || wantH.indexOf(gotH) === 0)) {
+          // ok — house match, keep even if BY street spelling
+        } else if (!fuzzyStreet_(want.street || q0, title)) {
+          continue;
+        }
+      } else if (!fuzzyStreet_(want.street || q0, title)) {
+        continue;
+      }
+      const key = foldKey_(title) + "#" + gotH;
+      if (seen[key]) continue;
+      seen[key] = true;
+      out.push({
         title: title,
         subtitle: String(it.display_name || ""),
         address: title,
-        house: (it.address && (it.address.house_number || "")) || "",
-        kind: it.type || it.class || "",
+        house: house,
+        kind: it.type || it.class || it.addresstype || "",
         lat: lat,
         lon: lon,
         yandexUrl:
           isFinite(lat) && isFinite(lon)
             ? "https://yandex.ru/maps/?pt=" + lon + "," + lat + "&z=17&l=map"
             : ""
-      };
+      });
+    }
+    if (want.house) {
+      out.sort(function (a, b) {
+        const ah = String(a.house || "").toLowerCase() === String(want.house).toLowerCase() ? 1 : 0;
+        const bh = String(b.house || "").toLowerCase() === String(want.house).toLowerCase() ? 1 : 0;
+        return bh - ah;
+      });
+    }
+    return out.slice(0, 8);
+  }
+
+  async function fetchJson_(url) {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "boinya-c-worker/1.1 (cutover address suggest)",
+        Accept: "application/json"
+      }
     });
+    if (!res.ok) return [];
+    const arr = await res.json();
+    return Array.isArray(arr) ? arr : [];
+  }
+
+  try {
+    const want = parseHouse_(q0);
+    const queries = [];
+    if (want.house && want.street) {
+      const bare = want.street
+        .replace(/^(ул\.?|улица|пр\.?-?\s*т\.?|проспект|пер\.?|переулок|бул\.?|бульвар)\s+/i, "")
+        .trim();
+      const stVariants = [want.street];
+      if (bare && bare !== want.street) stVariants.push(bare);
+      if (!/^(ул\.?|улица|пр)/i.test(want.street)) stVariants.push("улица " + bare, "проспект " + bare);
+      for (let si = 0; si < stVariants.length; si++) {
+        const streetParam = want.house + " " + stVariants[si];
+        const rows = await fetchJson_(
+          "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=by&accept-language=ru" +
+            "&street=" + encodeURIComponent(streetParam) +
+            "&city=" + encodeURIComponent("Минск") +
+            "&viewbox=" + encodeURIComponent("27.15,54.15,28.05,53.65") + "&bounded=0"
+        );
+        const mapped = mapRows_(rows, want);
+        if (mapped.length) return mapped;
+      }
+      queries.push("Минск, " + want.street + ", " + want.house);
+      queries.push("Минск, " + bare + ", " + want.house);
+      queries.push(want.street + " " + want.house + ", Минск");
+    }
+    queries.push(q0 + ", Минск");
+    queries.push("Минск, " + q0);
+    for (let qi = 0; qi < queries.length; qi++) {
+      const rows = await fetchJson_(
+        "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=by&accept-language=ru&q=" +
+          encodeURIComponent(queries[qi]) +
+          "&viewbox=" + encodeURIComponent("27.15,54.15,28.05,53.65")
+      );
+      const mapped = mapRows_(rows, want);
+      if (mapped.length) return mapped;
+    }
+    return [];
   } catch (e) {
     return [];
   }

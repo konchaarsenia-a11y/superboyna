@@ -6939,21 +6939,68 @@ function inMinskBboxGs_(lat, lon) {
   return inGreaterMinskRegionGs_(lat, lon);
 }
 
-function streetNameMatchesQueryGs_(resultTitle, queryText) {
+function streetTokensFuzzyOkGs_(qStreet, aStreet) {
+  var qWords = String(qStreet || "").split(" ").filter(function (w) {
+    return w.length >= 4 && !/^\d/.test(w);
+  });
+  var aWords = String(aStreet || "").split(" ").filter(function (w) {
+    return w.length >= 3 && !/^\d/.test(w);
+  });
+  if (!qWords.length) return true;
+  if (!aWords.length) return false;
+  qWords.sort(function (a, b) { return b.length - a.length; });
+  for (var i = 0; i < qWords.length; i++) {
+    var qw = qWords[i];
+    for (var j = 0; j < aWords.length; j++) {
+      var aw = aWords[j];
+      if (aw.indexOf(qw) >= 0 || qw.indexOf(aw) >= 0) return true;
+      var n = Math.min(5, qw.length, aw.length);
+      if (n >= 4 && qw.slice(0, n) === aw.slice(0, n)) return true;
+      if (qw.length >= 6 && aw.length >= 6) {
+        var same = 0;
+        var lim = Math.min(qw.length, aw.length, 10);
+        for (var k = 0; k < lim; k++) {
+          if (qw.charAt(k) === aw.charAt(k)) same++;
+        }
+        if (same >= Math.max(4, Math.floor(lim * 0.55))) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function streetNameMatchesQueryGs_(resultTitle, queryText, resultHouse) {
   var want = parseSearchStreetHouseGs_(queryText);
   function norm(s) {
     return normalizeLocalityTypoGs_(String(s || "")
       .toUpperCase()
       .replace(/Ё/g, "Е")
+      .replace(/І/g, "И")
+      .replace(/Ў/g, "У")
+      .replace(/['’ʻ]/g, "")
       .replace(/\bУЛ\.?\b/g, " ")
       .replace(/\bУЛИЦ[АЫ]\b/g, " ")
+      .replace(/\bВУЛ\.?\b/g, " ")
+      .replace(/\bВУЛІЦ[АЫЕУ]?\b/g, " ")
       .replace(/\bПР\.?-?\s*Т\.?\b/g, " ")
       .replace(/\bПРОСПЕКТ(Е|А|У)?\b/g, " ")
+      .replace(/\bПРАСПЕКТ(Е|А|У)?\b/g, " ")
       .replace(/\bПР\.?\b/g, " ")
       .replace(/\bПЕР\.?\b/g, " ")
       .replace(/\bПЕРЕУЛОК\b/g, " ")
+      .replace(/\bЗАВУЛАК\b/g, " ")
+      .replace(/\bБУЛ\.?\b/g, " ")
+      .replace(/\bБУЛЬВАР\b/g, " ")
+      .replace(/\bПЛ\.?\b/g, " ")
+      .replace(/\bПЛОЩАД[ЬИ]\b/g, " ")
+      .replace(/\bПЛОШЧ[АЫЕУ]?\b/g, " ")
       .replace(/\bМИНСК\b/g, " ")
+      .replace(/\bМІНСК\b/g, " ")
       .replace(/\bБЕЛАРУСЬ\b/g, " ")
+      .replace(/АЎСКАГА\b/g, "ОВСКОГО")
+      .replace(/АУСКАГА\b/g, "ОВСКОГО")
+      .replace(/СКАГА\b/g, "СКОГО")
+      .replace(/АВА\b/g, "ОВА")
       .replace(/[.,«»"']/g, " ")
       .replace(/\s+/g, " ")
       .trim());
@@ -6967,15 +7014,12 @@ function streetNameMatchesQueryGs_(resultTitle, queryText) {
     var prefLoc = locN.slice(0, Math.min(6, locN.length));
     if (prefLoc.length >= 4 && aStreet.indexOf(prefLoc) >= 0) return true;
   }
-  var qWords = qStreet.split(" ").filter(function (w) {
-    return w.length >= 4 && !/^\d/.test(w);
-  });
-  if (!qWords.length) return true;
-  qWords.sort(function (a, b) { return b.length - a.length; });
-  var main = qWords[0];
-  if (aStreet.indexOf(main) >= 0) return true;
-  var pref = main.slice(0, Math.min(6, main.length));
-  if (pref.length >= 5 && aStreet.indexOf(pref) >= 0) return true;
+  if (streetTokensFuzzyOkGs_(qStreet, aStreet)) return true;
+  var wantH = normalizeHouseKeyGs_(want.house);
+  var gotH = normalizeHouseKeyGs_(resultHouse || houseFromSuggestTitleGs_(resultTitle));
+  if (wantH && gotH && (gotH === wantH || gotH.indexOf(wantH) === 0 || wantH.indexOf(gotH) === 0)) {
+    return true;
+  }
   return false;
 }
 
@@ -7008,7 +7052,7 @@ function finalizeAddressSuggestsGs_(list, q) {
   for (var i = 0; i < (list || []).length; i++) {
     var it = list[i];
     if (!it) continue;
-    if (!streetNameMatchesQueryGs_(it.address || it.title || "", q)) continue;
+    if (!streetNameMatchesQueryGs_(it.address || it.title || "", q, it.house)) continue;
     var key = suggestDedupeKeyGs_(it);
     if (!key) continue;
     if (!byKey[key]) {
@@ -7080,15 +7124,27 @@ function scoreAddressGs_(addr, q) {
     return String(s || "")
       .toUpperCase()
       .replace(/Ё/g, "Е")
+      .replace(/І/g, "И")
+      .replace(/Ў/g, "У")
+      .replace(/['’ʻ]/g, "")
       .replace(/\bУЛ\.?\b/g, " ")
       .replace(/\bУЛИЦ[АЫ]\b/g, " ")
+      .replace(/\bВУЛ\.?\b/g, " ")
+      .replace(/\bВУЛІЦ[АЫЕУ]?\b/g, " ")
       .replace(/\bПР\.?-?\s*Т\.?\b/g, " ")
       .replace(/\bПРОСПЕКТ(Е|А|У)?\b/g, " ")
+      .replace(/\bПРАСПЕКТ(Е|А|У)?\b/g, " ")
       .replace(/\bПР\.?\b/g, " ")
       .replace(/\bПЕР\.?\b/g, " ")
       .replace(/\bПЕРЕУЛОК\b/g, " ")
+      .replace(/\bЗАВУЛАК\b/g, " ")
       .replace(/\bМИНСК\b/g, " ")
+      .replace(/\bМІНСК\b/g, " ")
       .replace(/\bБЕЛАРУСЬ\b/g, " ")
+      .replace(/АЎСКАГА\b/g, "ОВСКОГО")
+      .replace(/АУСКАГА\b/g, "ОВСКОГО")
+      .replace(/СКАГА\b/g, "СКОГО")
+      .replace(/АВА\b/g, "ОВА")
       .replace(/[.,«»"']/g, " ")
       .replace(/\s+/g, " ")
       .trim();
@@ -7296,7 +7352,7 @@ function photonSuggest_(text) {
       if (!title && p.name) title = String(p.name);
       title = String(title || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Минская область|Мінск).*$/i, "").trim();
       if (!title) continue;
-      if (!streetNameMatchesQueryGs_(title, text)) continue;
+      if (!streetNameMatchesQueryGs_(title, text, house)) continue;
       var item = {
         title: title,
         subtitle: "",
@@ -7378,7 +7434,7 @@ function nominatimPushRowsGs_(data, text, seen, out) {
     }
     title = String(title || "").replace(/,\s*(Беларусь|Belarus|Минск|Minsk|Мінск).*$/i, "").trim();
     if (!title) continue;
-    if (!streetNameMatchesQueryGs_(title, text)) continue;
+    if (!streetNameMatchesQueryGs_(title, text, house)) continue;
     var item = {
       title: title,
       subtitle: "",
