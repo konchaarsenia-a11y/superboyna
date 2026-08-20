@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c42";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c43";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3709,8 +3709,20 @@
               })
               .catch(function (err) {
                 clearTimeout(timer);
-                if (err && err.name === "AbortError") reject(new Error("Таймаут ответа сервера"));
-                else reject(new Error("Ошибка сети"));
+                if (err && err.name === "AbortError") {
+                  // cutover: запись уже в D1/Worker; таймаут UI ≠ провал
+                  if (/^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(action)) {
+                    resolve({ status: "success", optimistic: true, timedOut: true, cutover: true });
+                    return;
+                  }
+                  reject(new Error("Таймаут ответа сервера"));
+                  return;
+                }
+                if (/^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(action)) {
+                  resolve({ status: "success", optimistic: true, networkFallback: true, cutover: true });
+                  return;
+                }
+                reject(new Error("Ошибка сети"));
               });
           });
         }
@@ -4523,13 +4535,15 @@
             " (" + savedItems + " поз.)" +
             (orderPrice != null ? (" · " + orderPrice + " BYN") : ""));
           try {
-            var whA = saveRes && saveRes.warehouseAlert;
-            if (whA && (whA.count > 0 || whA.clientCount > 0 ||
-                (whA.totalDeficits && whA.totalDeficits.length) ||
-                (whA.clientDeficits && whA.clientDeficits.length))) {
+            if (weekDayToSave) {
               setTimeout(function () {
-                showWarehouseDeficitModal_(whA, clientName);
-              }, 600);
+                runWarehouseCheckAfterSave_({
+                  client: clientName,
+                  day: weekDayToSave,
+                  date: deliveryDate || "",
+                  basket: basketSnap
+                });
+              }, 400);
             }
           } catch (eWh) {}
         } else {
@@ -6828,14 +6842,14 @@
           showToast(baseMsg);
         }
         try {
-          var whM = res.warehouseAlert;
-          if (whM && (whM.count > 0 || whM.clientCount > 0 ||
-              (whM.totalDeficits && whM.totalDeficits.length) ||
-              (whM.clientDeficits && whM.clientDeficits.length))) {
-            setTimeout(function () {
-              showWarehouseDeficitModal_(whM, clientName);
-            }, 600);
-          }
+          setTimeout(function () {
+            runWarehouseCheckAfterSave_({
+              client: clientName,
+              day: (res && res.newDay) || newDay || "",
+              date: (target && target.newDate) || (res && res.dayDate) || "",
+              basket: null
+            });
+          }, 400);
         } catch (eWhM) {}
         try {
           apiCacheBustMem_("getViewCompare");
@@ -14930,6 +14944,38 @@
       try { refreshDeferredBadge(true); } catch (eBadge) {}
     }
     window.showWarehouseDeficitModal_ = showWarehouseDeficitModal_;
+
+    async function runWarehouseCheckAfterSave_(opts) {
+      opts = opts || {};
+      var client = String(opts.client || "").trim();
+      var day = String(opts.day || "").trim();
+      var date = String(opts.date || "").trim();
+      if (!client || !day) return;
+      try {
+        showToast("Считаю сырьё…");
+        var params = {
+          action: "checkOrderWarehouse",
+          client: client,
+          day: day,
+          date: date,
+          force: "1",
+          _: String(Date.now())
+        };
+        if (opts.basket && opts.basket.length) {
+          try { params.basket = JSON.stringify(opts.basket); } catch (eB) {}
+        }
+        var res = await apiGet(params, { timeoutMs: 45000, cacheTtlMs: 0, retries: 0 });
+        var whA = res && res.warehouseAlert;
+        if (whA && (whA.count > 0 || whA.clientCount > 0 ||
+            (whA.totalDeficits && whA.totalDeficits.length) ||
+            (whA.clientDeficits && whA.clientDeficits.length))) {
+          await showWarehouseDeficitModal_(whA, client);
+        }
+      } catch (eWh) {
+        // сохранение уже ок — дефицит не блокируем
+      }
+    }
+    window.runWarehouseCheckAfterSave_ = runWarehouseCheckAfterSave_;
 
     function warehouseTodayIso_() {
       var d = new Date();

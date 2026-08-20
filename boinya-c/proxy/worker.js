@@ -96,7 +96,7 @@ function isCutoverLive_(params, env, url) {
 function isWriteAction_(a) {
   if (!a) return false;
   // явные чтения / списки — не write (даже если имя начинается с partner*)
-  if (/^(get|list|resolve|calc|suggest|lookup|ping|keepWarm|warehousePreview)/i.test(a)) return false;
+  if (/^(get|list|resolve|calc|suggest|lookup|ping|keepWarm|warehousePreview|checkOrderWarehouse)/i.test(a)) return false;
   if (
     a === "getMyAccess" ||
     a === "telegramStatus" ||

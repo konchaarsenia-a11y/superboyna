@@ -2084,6 +2084,16 @@ function doGet(e) {
       force: e.parameter.force || ""
     }, callback, false);
   }
+  if (action === "checkOrderWarehouse") {
+    var baskG = e.parameter.basket ? decodeURIComponent(e.parameter.basket) : "[]";
+    return handleCheckOrderWarehouse({
+      client: e.parameter.client || "",
+      day: e.parameter.day || "",
+      date: e.parameter.date || e.parameter.dayDate || "",
+      basket: baskG,
+      force: e.parameter.force || e.parameter._ || ""
+    }, callback, false);
+  }
   if (action === "composeWarehouseBuyMessage") {
     return handleComposeWarehouseBuyMessage({
       force: e.parameter.force || "",
@@ -2693,6 +2703,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "warehousePreview") {
     return handleWarehousePreview(json, callback, fromPost);
+  }
+  if (action === "checkOrderWarehouse") {
+    return handleCheckOrderWarehouse(json, callback, fromPost);
   }
   if (action === "composeWarehouseBuyMessage") {
     return handleComposeWarehouseBuyMessage(json, callback, fromPost);
@@ -3996,26 +4009,7 @@ function handleMoveClient(ss, json, callback) {
 
   try { scrubFutureWeekOrphans_(ss, { force: true }); } catch (eScrub2) {}
   try { CacheService.getScriptCache().remove("WH_PLAN_V2"); } catch (eWhC) {}
-  checkLiveDeficitAndNotify();
-  var whAlertMove = null;
-  try {
-    var tzWhM = ss.getSpreadsheetTimeZone();
-    var todayIsoWhM = isoDateKey_(new Date(), tzWhM);
-    var moveDayDate = newDate || getDayDate_(ss, targetDayName);
-    var moveIsoWh = moveDayDate ? isoDateKey_(moveDayDate, tzWhM) : todayIsoWhM;
-    var packMove = computeWarehouseWeekPlan_(ss, {
-      asOf: todayIsoWhM,
-      dateFrom: moveIsoWh,
-      dateTo: moveIsoWh
-    });
-    var srcItems = sourceSheet.getRange(srcBlock.start, 1, srcBlock.end - srcBlock.start + 1, 1).getValues();
-    var movedBasket = basketFromMeatColumn_(srcItems, oldMeatValues);
-    whAlertMove = buildWarehouseAlertForOrder_(ss, movedBasket, packMove, {
-      client: clientName,
-      day: targetDayName,
-      dayDate: moveDayDate ? formatSheetDate(moveDayDate, tzWhM) : ""
-    });
-  } catch (eWhM) {}
+  // дефицит — отдельно checkOrderWarehouse (не блокируем move)
   bustClientsCache_();
   try { clearCrmSheetCache_(); } catch (eC) {}
   return jsonp(callback, {
@@ -4027,7 +4021,11 @@ function handleMoveClient(ss, json, callback) {
     crmMoved: dateSync.crm || 0,
     surveysMoved: dateSync.surveys || 0,
     dateSync: dateSync,
-    warehouseAlert: whAlertMove
+    warehouseAlert: null,
+    warehouseCheckPending: true,
+    client: clientName,
+    day: targetDayName,
+    dayDate: newDate ? formatSheetDate(newDate, tz) : ""
   });
 }
 
@@ -4480,26 +4478,8 @@ function handleSaveOrder(ss, json, callback, fromPost) {
     CacheService.getScriptCache().remove("ASM:" + dayU);
     CacheService.getScriptCache().remove("COUR:" + dayU);
   } catch (eAsm) {}
-  // после записи в неделю — пересчитать дефицит, задачи «Дозакуп», TG СРОЧНО (с антиспамом)
-  var whAlert = null;
-  try {
-    CacheService.getScriptCache().remove("WH_PLAN_V2");
-    checkLiveDeficitAndNotify();
-    var tzWh = ss.getSpreadsheetTimeZone();
-    var todayIsoWh = isoDateKey_(new Date(), tzWh);
-    var orderDayDateWh = getDayDate_(ss, json.day) || parseFlexibleDate_(json.date, tzWh);
-    var orderIsoWh = orderDayDateWh ? isoDateKey_(orderDayDateWh, tzWh) : todayIsoWh;
-    var packWh = computeWarehouseWeekPlan_(ss, {
-      asOf: todayIsoWh,
-      dateFrom: orderIsoWh,
-      dateTo: orderIsoWh
-    });
-    whAlert = buildWarehouseAlertForOrder_(ss, basket, packWh, {
-      client: String(json.client || "").trim(),
-      day: String(json.day || "").trim(),
-      dayDate: orderDayDateWh ? formatSheetDate(orderDayDateWh, tzWh) : ""
-    });
-  } catch (eWh) {}
+  // после записи — ответ сразу. Дефицит склада UI дергает отдельно (checkOrderWarehouse),
+  // иначе GAS > CF 30с / cutover 18с → «Ошибка сети».
   return reply({
     status: "success",
     wrote: wrote,
@@ -4514,7 +4494,8 @@ function handleSaveOrder(ss, json, callback, fromPost) {
     deliveryAfter: normalizeTimeHm_(json.deliveryAfter),
     deliveryBefore: normalizeTimeHm_(json.deliveryBefore),
     redirected: !!(writeDay && dayHintOrig && writeDay !== dayHintOrig),
-    warehouseAlert: whAlert
+    warehouseAlert: null,
+    warehouseCheckPending: true
   });
 }
 
@@ -13436,6 +13417,59 @@ function handleWarehousePreview(json, callback, fromPost) {
     writeOffNote: "Галочки нарезки НЕ списывают склад. Списание F — только при Завершить неделю."
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/** Отдельная проверка дефицита после save/move — не блокирует запись. */
+function handleCheckOrderWarehouse(json, callback, fromPost) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tz = ss.getSpreadsheetTimeZone();
+    var todayIso = isoDateKey_(new Date(), tz);
+    var dayName = String((json && json.day) || "").trim();
+    var client = String((json && json.client) || "").trim();
+    var dayDate = getDayDate_(ss, dayName) || parseFlexibleDate_((json && (json.date || json.dayDate)) || "", tz);
+    var dayIso = dayDate ? isoDateKey_(dayDate, tz) : todayIso;
+    var basket = normalizeBasketArg_((json && json.basket) || []);
+    if (!basket.length && dayName && client) {
+      try {
+        var block = getDayBlock(dayName);
+        var sh = block && getTargetSheet(ss, block);
+        if (sh) {
+          var nicks = sh.getRange(block.nick, 3, 1, 15).getValues()[0];
+          var col = -1;
+          for (var i = 0; i < 15; i++) {
+            if (nicksMatch_(nicks[i], client)) { col = i + 3; break; }
+          }
+          if (col > 0) {
+            var items = sh.getRange(block.start, 1, block.end - block.start + 1, 1).getValues();
+            var meat = sh.getRange(block.start, col, block.end - block.start + 1, 1).getValues();
+            basket = basketFromMeatColumn_(items, meat);
+          }
+        }
+      } catch (eB) {}
+    }
+    var pack = computeWarehouseWeekPlan_(ss, {
+      asOf: todayIso,
+      dateFrom: dayIso,
+      dateTo: dayIso,
+      force: !!(json && (json.force || json._))
+    });
+    var alert = buildWarehouseAlertForOrder_(ss, basket, pack, {
+      client: client,
+      day: dayName,
+      dayDate: dayDate ? formatSheetDate(dayDate, tz) : ""
+    });
+    try { checkLiveDeficitAndNotify(); } catch (eN) {}
+    var out = {
+      status: "success",
+      warehouseAlert: alert,
+      hasDeficit: !!(alert && (alert.count > 0 || alert.clientCount > 0))
+    };
+    return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+  } catch (e) {
+    var bad = { status: "error", message: String(e && e.message ? e.message : e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
 }
 
 function handleComposeWarehouseBuyMessage(json, callback, fromPost) {
