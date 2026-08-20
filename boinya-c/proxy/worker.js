@@ -2837,8 +2837,11 @@ async function handleCutover_(a, params, env, ctx) {
         try {
           if (!gotGas) proxied = await gasP;
         } catch (eG) {}
+        // GAS мог не успеть / упасть — D1 всё равно источник правды для UI
         try {
-          if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
+          if (/^(saveOrder|saveBooking)$/i.test(a) && env && env.DB) {
+            await saveOrder_(params, env, /^saveBooking$/i.test(a));
+          } else if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
             await deleteClient_(params, env);
           } else if (/^moveClient$/i.test(a) && env && env.DB) {
             await moveClient_(params, env);
@@ -2846,6 +2849,24 @@ async function handleCutover_(a, params, env, ctx) {
             await syncOpsWriteToD1_(a, params, env, proxied);
           }
         } catch (eD1) {}
+        // если GAS не ответил — ретрай записи один раз
+        if (
+          /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(a) &&
+          (!proxied || proxied.status !== "success" || /gas_proxy_failed/i.test(String((proxied && proxied.message) || "")))
+        ) {
+          try {
+            await new Promise(function (r) {
+              setTimeout(r, 1200);
+            });
+            const again = await gasProxy_(a, params, env, { write: true });
+            if (again && again.status === "success") proxied = again;
+          } catch (eRetry) {}
+          try {
+            if (/^(saveOrder|saveBooking)$/i.test(a) && env && env.DB) {
+              await saveOrder_(params, env, /^saveBooking$/i.test(a));
+            }
+          } catch (eD1b) {}
+        }
         try {
           await cutoverAfterWrite_(a, params, env, proxied);
         } catch (eA) {}
@@ -3794,18 +3815,61 @@ async function cutoverStoreRead_(a, params, env, payload) {
   }
 }
 
-async function replaceDayOrdersFromClients_(env, day, clients) {
+async function replaceDayOrdersFromClients_(env, day, clients, opts) {
+  opts = opts || {};
   await ensureMetaColumn_(env);
   const info = await dayDateInfo_(env, day);
   const now = new Date().toISOString();
+  const nowMs = Date.now();
+  // Не затирать свежие D1-записи старым GAS (edit ещё не доехал / таймаут)
+  const protectMs = opts.protectMs != null ? Number(opts.protectMs) : 12 * 60 * 1000;
+
+  const byMk = Object.create(null);
+  (clients || []).forEach(function (c) {
+    if (!c) return;
+    const mk = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
+    if (!mk) return;
+    byMk[mk] = c;
+  });
+
+  try {
+    const q = await env.DB.prepare(
+      "SELECT * FROM orders WHERE day_name = ? AND status = 'active'"
+    )
+      .bind(day)
+      .all();
+    const existing = (q && q.results) || [];
+    for (let ei = 0; ei < existing.length; ei++) {
+      const row = existing[ei];
+      if (!row) continue;
+      const mk = normalizeMatchKey_(row.match_key || row.client || "");
+      if (!mk) continue;
+      const updatedMs = Date.parse(String(row.updated_at || "")) || 0;
+      if (!(updatedMs && nowMs - updatedMs < protectMs)) continue;
+      const gasC = byMk[mk];
+      const d1Sig = basketSig_(row.basket_json);
+      const gasSig = basketSig_(gasC && gasC.basket);
+      // GAS нет человека / другой состав → оставляем D1 (локальный save важнее)
+      if (!gasC || (d1Sig && d1Sig !== gasSig)) {
+        const kept = clientFromRow_(row);
+        kept.updated_at = row.updated_at;
+        byMk[mk] = kept;
+      }
+    }
+  } catch (eProt) {}
+
+  const merged = Object.keys(byMk).map(function (k) {
+    return byMk[k];
+  });
+
   await env.DB.prepare(
     "UPDATE orders SET status = 'deleted', updated_at = ? WHERE day_name = ? AND status = 'active'"
   )
     .bind(now, day)
     .run();
-  for (let i = 0; i < (clients || []).length; i++) {
-    const c = clients[i];
-    const mk = normalizeMatchKey_(c.matchKey || c.name || "");
+  for (let i = 0; i < merged.length; i++) {
+    const c = merged[i];
+    const mk = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
     if (!mk) continue;
     const basket = JSON.stringify(c.basket || []);
     const meta = {
@@ -3815,13 +3879,23 @@ async function replaceDayOrdersFromClients_(env, day, clients) {
       ppPartner: c.ppPartner,
       noCut: !!c.noCut,
       dogCount: c.dogCount,
-      geo: c.geo
+      geo: c.geo,
+      deliveryAfter: c.deliveryAfter,
+      deliveryBefore: c.deliveryBefore,
+      couponsQty: c.couponsQty,
+      couponPrice: c.couponPrice
     };
+    const keepUpdated =
+      (c.updated_at || c.updatedAt) &&
+      Date.parse(String(c.updated_at || c.updatedAt)) &&
+      nowMs - Date.parse(String(c.updated_at || c.updatedAt)) < protectMs
+        ? String(c.updated_at || c.updatedAt)
+        : now;
     await upsertOrderRow_(env, {
       id: day + ":" + mk,
       date_iso: info.iso || c.dateIso || "",
       day_name: day,
-      client: c.name,
+      client: c.name || c.client || "",
       match_key: mk,
       address: c.address || "",
       note: c.note || "",
@@ -3830,11 +3904,71 @@ async function replaceDayOrdersFromClients_(env, day, clients) {
       segment: c.segment || "",
       source: c.source || "",
       status: "active",
-      updated_at: now,
+      updated_at: keepUpdated,
       meta_json: JSON.stringify(meta)
     });
   }
   await rebuildWeekCounts_(env);
+}
+
+function basketSig_(basketOrJson) {
+  try {
+    let arr = basketOrJson;
+    if (typeof arr === "string") arr = JSON.parse(arr || "[]");
+    if (!Array.isArray(arr)) return "";
+    return arr
+      .map(function (it) {
+        const name = String((it && (it.name || it.main)) || "").trim().toUpperCase();
+        const sub = String((it && it.sub) || "").trim().toUpperCase();
+        const val = Number(it && (it.val != null ? it.val : it.value)) || 0;
+        return name + "|" + sub + "|" + val;
+      })
+      .filter(Boolean)
+      .sort()
+      .join(";");
+  } catch (e) {
+    return "";
+  }
+}
+
+function overlayWriteClientOnList_(list, params) {
+  const wantClient = String((params && (params.client || params.nick)) || "").trim();
+  if (!wantClient) return list || [];
+  const mk = normalizeMatchKey_((params && params.matchKey) || wantClient);
+  const basketArr = parseBasket_(params && params.basket);
+  const row = {
+    name: wantClient,
+    matchKey: mk,
+    address: String((params && params.address) || ""),
+    note: String((params && params.note) || ""),
+    phone: String((params && params.phone) || ""),
+    basket: basketArr,
+    segment: String((params && (params.segment || params.orderType)) || ""),
+    source: String((params && params.source) || ""),
+    orderPrice: params && params.orderPrice,
+    ppSlot: params && (params.ppSlot || params.deliverySlot),
+    ppPartner: params && params.ppPartner,
+    deliveryAfter: params && params.deliveryAfter,
+    deliveryBefore: params && params.deliveryBefore,
+    couponsQty: params && params.couponsQty,
+    couponPrice: params && params.couponPrice,
+    updated_at: new Date().toISOString()
+  };
+  let found = false;
+  const out = (list || []).map(function (c) {
+    if (
+      nicksLooseMatch_(c && (c.name || c.client), wantClient) ||
+      normalizeMatchKey_(c && c.matchKey) === mk
+    ) {
+      found = true;
+      return Object.assign({}, c, row, {
+        basket: basketArr.length ? basketArr : c.basket || []
+      });
+    }
+    return c;
+  });
+  if (!found) out.push(row);
+  return out;
 }
 
 async function cutoverRevalidate_(a, params, env) {
@@ -3935,69 +4069,79 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
           try {
             const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
             if (fresh && fresh.status === "success") {
-              let list = Array.isArray(fresh.clients) ? fresh.clients : [];
+              let list = Array.isArray(fresh.clients) ? fresh.clients.slice() : [];
+              let gasClientRow = null;
               const inGas = wantClient
                 ? list.some(function (c) {
-                    return nicksLooseMatch_(c && (c.name || c.client), wantClient);
+                    if (nicksLooseMatch_(c && (c.name || c.client), wantClient)) {
+                      gasClientRow = c;
+                      return true;
+                    }
+                    return false;
                   })
                 : false;
-              // merge optimistic row if GAS ещё не видит save
-              if (
-                /^(saveOrder|saveBooking)$/i.test(a) &&
-                wantClient &&
-                !inGas
-              ) {
-                const basketArr = parseBasket_(params.basket);
-                list = list.concat([
-                  {
-                    name: wantClient,
-                    matchKey: normalizeMatchKey_(params.matchKey || wantClient),
-                    address: String(params.address || ""),
-                    note: String(params.note || ""),
-                    phone: String(params.phone || ""),
-                    basket: basketArr,
-                    segment: String(params.segment || params.orderType || ""),
-                    source: String(params.source || "")
-                  }
-                ]);
+              const gasBasketMatchesWrite =
+                !wantClient ||
+                !/^(saveOrder|saveBooking)$/i.test(a) ||
+                (basketSig_(params && params.basket) &&
+                  basketSig_(params.basket) === basketSig_(gasClientRow && gasClientRow.basket));
+              // всегда накладываем состав из write — иначе edit затирается старым GAS
+              if (/^(saveOrder|saveBooking)$/i.test(a) && wantClient) {
+                list = overlayWriteClientOnList_(list, params);
                 fresh.clients = list;
               }
-              if (/^(deleteClient|removeCalendarClient)$/i.test(a) && wantClient && inGas) {
+              if (/^(deleteClient|removeCalendarClient)$/i.test(a) && wantClient) {
                 list = list.filter(function (c) {
                   return !nicksLooseMatch_(c && (c.name || c.client), wantClient);
                 });
                 fresh.clients = list;
               }
               if (/^moveClient$/i.test(a) && wantClient) {
-                if (day && oldDay && day === oldDay && inGas) {
+                if (day && oldDay && day === oldDay) {
                   list = list.filter(function (c) {
                     return !nicksLooseMatch_(c && (c.name || c.client), wantClient);
                   });
                   fresh.clients = list;
                 }
-                if (day && newDay && day === newDay && !inGas) {
+                if (day && newDay && day === newDay) {
                   try {
                     const live = await getClients_({ day: day }, env);
                     const fromD1 = ((live && live.clients) || []).find(function (c) {
                       return nicksLooseMatch_(c && (c.name || c.client), wantClient);
                     });
                     if (fromD1) {
+                      list = list.filter(function (c) {
+                        return !nicksLooseMatch_(c && (c.name || c.client), wantClient);
+                      });
                       list = list.concat([fromD1]);
                       fresh.clients = list;
                     }
                   } catch (eKeep) {}
                 }
               }
-              if (/^(saveOrder|saveBooking)$/i.test(a)) gasClientsFresh = inGas;
-              else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) gasClientsFresh = !inGas;
+              const writeOk =
+                writeRes &&
+                writeRes.status === "success" &&
+                !writeRes.gasError &&
+                !/gas_proxy_failed/i.test(String(writeRes.message || ""));
+              // save: GAS «свежий» только если человек есть И состав уже совпал (иначе cutting с листа сотрёт D1-план)
+              if (/^(saveOrder|saveBooking)$/i.test(a))
+                gasClientsFresh = !!(writeOk && inGas && gasBasketMatchesWrite);
+              else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) gasClientsFresh = !!(writeOk && !inGas);
               else if (/^moveClient$/i.test(a)) {
-                if (day === oldDay) gasClientsFresh = !inGas;
-                else if (day === newDay) gasClientsFresh = inGas;
-                else gasClientsFresh = true;
+                if (day === oldDay) gasClientsFresh = !!(writeOk && !inGas);
+                else if (day === newDay) gasClientsFresh = !!(writeOk && inGas);
+                else gasClientsFresh = !!writeOk;
               } else {
                 gasClientsFresh = true;
               }
               await cutoverStoreRead_("getClients", { day: day }, env, fresh);
+              // после возможного merge — ещё раз зафиксировать write в D1
+              if (/^(saveOrder|saveBooking)$/i.test(a) && wantClient) {
+                try {
+                  await saveOrder_(params, env, /^saveBooking$/i.test(a));
+                } catch (eResave) {}
+              }
             }
           } catch (eG) {}
           try {

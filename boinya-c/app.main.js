@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c44";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c45";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -4355,19 +4355,121 @@
         var bookRes = null;
         var saveRes = null;
 
-        async function verifyWeekBasket_() {
-          if (!weekDayToSave) return 0;
+        function weekBasketSig_(arr) {
           try {
-            var chk = await apiGet({ action: "getClients", day: weekDayToSave }, { timeoutMs: 22000, cacheTtlMs: 0 });
+            return (arr || [])
+              .map(function (it) {
+                var name = String((it && (it.name || it.main)) || "").trim().toUpperCase();
+                var sub = String((it && it.sub) || "").trim().toUpperCase();
+                var val = Number(it && (it.val != null ? it.val : it.value)) || 0;
+                return name + "|" + sub + "|" + val;
+              })
+              .filter(Boolean)
+              .sort()
+              .join(";");
+          } catch (eSig) {
+            return "";
+          }
+        }
+
+        async function verifyWeekBasket_() {
+          if (!weekDayToSave) return { found: false, len: 0, match: false };
+          var wantSig = weekBasketSig_(basketSnap);
+          try {
+            var chk = await apiGet({
+              action: "getClients",
+              day: weekDayToSave,
+              force: "1",
+              _: String(Date.now())
+            }, { timeoutMs: 18000, cacheTtlMs: 0 });
             var list = (chk && chk.clients) || [];
+            var want = String(clientName || "").trim().toUpperCase();
             for (var i = 0; i < list.length; i++) {
-              if (String(list[i].name || "").toUpperCase() === clientName.toUpperCase() ||
-                  String(list[i].name || "").toLowerCase().indexOf(clientName.toLowerCase()) >= 0) {
-                return (list[i].basket || []).length;
+              var nm = String(list[i].name || list[i].client || "").trim().toUpperCase();
+              if (!nm) continue;
+              if (nm === want || nm.indexOf(want) >= 0 || want.indexOf(nm) >= 0) {
+                var gotBasket = list[i].basket || [];
+                var gotSig = weekBasketSig_(gotBasket);
+                return {
+                  found: true,
+                  len: gotBasket.length,
+                  match: !!(wantSig && gotSig && wantSig === gotSig) ||
+                    (!wantSig && gotBasket.length === 0)
+                };
               }
             }
-          } catch (eV) {}
-          return -1;
+            return { found: false, len: 0, match: false };
+          } catch (eV) {
+            return { found: false, len: -1, match: false };
+          }
+        }
+
+        async function ensureWeekWriteStuck_() {
+          if (!weekDayToSave || !basketSnap.length) return saveRes;
+          var chk = await verifyWeekBasket_();
+          if (chk && chk.match) {
+            return {
+              status: "success",
+              wrote: chk.len,
+              basketLen: basketSnap.length,
+              verified: true
+            };
+          }
+          var retryParams = {
+            action: "saveOrder",
+            day: weekDayToSave,
+            date: deliveryDate,
+            client: clientName,
+            editClient: editClientSnap,
+            originalClient: editClientSnap,
+            matchKey: editKeySnap,
+            address: clientAddress,
+            phone: phone || "",
+            note: clientNote || "",
+            permanentNote: permanentNote || "",
+            orderType: orderTypeSnap || "",
+            orderPrice: orderPrice != null ? String(orderPrice) : "",
+            deliverySlot: ppSlotPayload.deliverySlot ? String(ppSlotPayload.deliverySlot) : "",
+            ppSlot: ppSlotPayload.ppSlot || "",
+            deliveryAfter: deliveryAfter || "",
+            deliveryBefore: deliveryBefore || "",
+            ppPartner: ppPartnerVal || "",
+            couponsQty: String(couponsPayload.couponsQty || 0),
+            couponPrice: String(couponsPayload.couponPrice || 0),
+            basket: basketJson,
+            force: "1",
+            _: String(Date.now())
+          };
+          if (geoJson) retryParams.geo = geoJson;
+          try {
+            payload.day = weekDayToSave;
+            payload.date = deliveryDate;
+            await apiPost(payload);
+          } catch (eP1) {}
+          try {
+            await apiGet(retryParams, {
+              timeoutMs: window.__BOINYA_C_CUTOVER__ ? 22000 : 60000,
+              cacheTtlMs: 0
+            });
+          } catch (eG1) {}
+          await new Promise(function (r) { setTimeout(r, 800); });
+          chk = await verifyWeekBasket_();
+          if (chk && chk.match) {
+            return {
+              status: "success",
+              wrote: chk.len,
+              basketLen: basketSnap.length,
+              verified: true,
+              retried: true
+            };
+          }
+          return {
+            status: "error",
+            wrote: Math.max(0, chk && chk.len > 0 ? chk.len : 0),
+            message: chk && chk.found
+              ? "состав не закрепился — сохрани ещё раз"
+              : "не вижу человека после сохранения — сохрани ещё раз"
+          };
         }
 
         if (useJsonpSave) {
@@ -4431,14 +4533,19 @@
             payload.day = weekDayToSave;
             payload.date = deliveryDate;
             try { await apiPost(payload); } catch (ePost) {}
-            var verified = window.__BOINYA_C_CUTOVER__ ? (basketSnap.length || 1) : await verifyWeekBasket_();
-            if (verified > 0) {
-              saveRes = { status: "success", wrote: verified, basketLen: basketSnap.length };
-            } else if (!saveRes || saveRes.status !== "success") {
-              saveRes = { status: verified === 0 ? "error" : "sent_opaque", wrote: Math.max(0, verified), message: verified === 0 ? "состав не появился на листе" : "" };
-            }
           } else if (!bookRes || bookRes.status !== "success") {
             bookRes = { status: "sent_opaque" };
+          }
+        }
+
+        // cutover: не верить optimistic — проверить D1/лист и при необходимости дописать
+        if (weekDayToSave && basketSnap.length) {
+          try {
+            saveRes = await ensureWeekWriteStuck_();
+          } catch (eEns) {
+            if (!saveRes || saveRes.status !== "success") {
+              saveRes = { status: "error", message: (eEns && eEns.message) || "verify_failed" };
+            }
           }
         }
 
