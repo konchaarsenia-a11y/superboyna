@@ -1,7 +1,7 @@
 /**
  * Бойня C — Worker + D1.
- * По умолчанию: sandbox (D1, Sheets не пишет).
- * Cutover live: ?cutover=1 / mode=live → прокси в боевой GAS (чтение+запись).
+ * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
+ * Песочница только явно: ?sandbox=1 / ?cutover=0 (записи в Sheets запрещены).
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -45,20 +45,29 @@ export default {
       return json({
         status: "ok",
         service: "boinya-c",
-        sandbox: true,
-        cutover: "cutover=1 → D1 fast read + GAS write/revalidate",
+        sandbox: false,
+        cutover: "LIVE by default; ?sandbox=1 / ?cutover=0 → D1 only",
         d1: !!(env && env.DB),
-        tip: "?action=getClients&day=Понедельник&cutover=1"
+        tip: "?action=getClients&day=Понедельник"
       });
     }
 
     try {
       let params = Object.fromEntries(url.searchParams.entries());
       if (request.method === "POST") {
-        const body = await request.json().catch(function () {
-          return {};
+        // text/plain из Mini App: request.json() иногда пустой — парсим text
+        const raw = await request.text().catch(function () {
+          return "";
         });
-        params = Object.assign({}, params, body || {});
+        let body = {};
+        try {
+          body = raw ? JSON.parse(raw) : {};
+        } catch (eParse) {
+          body = {};
+        }
+        if (body && typeof body === "object") {
+          params = Object.assign({}, params, body);
+        }
       }
       const act = String(params.action || action || "");
       const cb = params.callback;
@@ -82,15 +91,30 @@ export default {
 };
 
 function isCutoverLive_(params, env, url) {
-  if (env && (env.CUTOVER === "1" || env.CUTOVER === "true")) return true;
   const p = params || {};
-  // UI/JSON иногда шлёт число 1, не строку "1"
-  if (p.cutover === "1" || p.cutover === "true" || p.cutover === 1 || p.cutover === true) return true;
-  if (p.mode === "live") return true;
+  // явный sandbox / cutover=0 — только D1
+  if (
+    p.sandbox === "1" ||
+    p.sandbox === 1 ||
+    p.sandbox === true ||
+    p.cutover === "0" ||
+    p.cutover === 0 ||
+    p.cutover === false ||
+    p.cutover === "false" ||
+    p.mode === "sandbox"
+  ) {
+    return false;
+  }
   try {
-    if (url && url.searchParams.get("cutover") === "1") return true;
-  } catch (e) {}
-  return false;
+    if (url && (url.searchParams.get("sandbox") === "1" || url.searchParams.get("cutover") === "0")) {
+      return false;
+    }
+  } catch (eUrl) {}
+  if (env && (env.CUTOVER === "0" || env.CUTOVER === "false" || env.SANDBOX === "1")) {
+    return false;
+  }
+  // LIVE по умолчанию: иначе UI без cutover=1 пишет только в D1 → «успех», листы не меняются
+  return true;
 }
 
 function isWriteAction_(a) {
@@ -140,6 +164,16 @@ async function handleAction_(action, params, env, url, ctx) {
   if (live) {
     return handleCutover_(a, params, env, ctx);
   }
+  // sandbox: write не маскируем под успех — иначе «сохранено», а листы ПП/Приём пустые
+  if (isWriteAction_(a)) {
+    return {
+      status: "error",
+      message: "sandbox_no_write",
+      tip: "Открой с cutover=1 (LIVE). Сейчас Worker в песочнице и в Google Sheets не пишет.",
+      sandbox: true,
+      action: a
+    };
+  }
   if (a === "getClients") return getClients_(params, env);
   if (a === "getViewCompare") return getViewCompare_(params, env);
   if (a === "getWeekDayCounts") return rebuildWeekCounts_(env);
@@ -169,10 +203,7 @@ async function handleAction_(action, params, env, url, ctx) {
       sandbox: true
     };
   }
-  if (a === "saveOrder") return saveOrder_(params, env, false);
-  if (a === "saveBooking") return saveOrder_(params, env, true);
-  if (a === "deleteClient" || a === "removeCalendarClient") return deleteClient_(params, env);
-  if (a === "moveClient") return moveClient_(params, env);
+  // save*/move*/delete* — выше (sandbox_no_write); сюда не доходим
   if (a === "setDelivered") return setDelivered_(params, env);
   if (a === "setAssembled") return setAssemblyFlag_(params, env, "assembled");
   if (a === "setPrinted") return setAssemblyFlag_(params, env, "printed");
@@ -2878,7 +2909,7 @@ async function handleCutover_(a, params, env, ctx) {
           gotGas = true;
         }),
         new Promise(function (r) {
-          setTimeout(r, 6500);
+          setTimeout(r, 14000);
         })
       ]);
       const bg = (async function () {
@@ -2983,7 +3014,7 @@ async function handleCutover_(a, params, env, ctx) {
           gotGas = true;
         }),
         new Promise(function (r) {
-          setTimeout(r, 6500);
+          setTimeout(r, 14000);
         })
       ]);
       const bg = (async function () {

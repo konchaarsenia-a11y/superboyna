@@ -2828,6 +2828,27 @@ function handleApiAction(json, callback, fromPost) {
   if (action === "submitGoodboyTry") {
     return handleSubmitGoodboyTry(json, callback, fromPost);
   }
+  // POST-чтение (Worker cutoverAfterWrite / verify) — иначе unknown_action
+  if (action === "getClients") {
+    return handleGetClients(
+      String(json.day || "").trim(),
+      callback,
+      String(json.date || "").trim()
+    );
+  }
+  if (action === "getCutting") {
+    return handleGetCutting(String(json.day || "").trim(), callback);
+  }
+  if (action === "getCourier") {
+    return handleGetCourier(String(json.day || "").trim(), callback);
+  }
+  if (action === "getAssembly") {
+    return handleGetAssembly(
+      { day: String(json.day || "").trim(), date: String(json.date || "").trim() },
+      callback,
+      true
+    );
+  }
   return fromPost ? jsonpText(callback, { status: "unknown_action" }) : jsonp(callback, { status: "unknown_action" });
 }
 

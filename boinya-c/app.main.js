@@ -17121,13 +17121,21 @@
           saveBody.basketBp1 = subDetailBasketBp1;
           saveBody.basketBp2 = subDetailBasketBp2;
         }
-        await apiPost(saveBody);
+        var postRes = await apiPost(saveBody);
+        if (postRes && postRes.status === "error") {
+          showToast(
+            postRes.message === "sandbox_no_write"
+              ? "Не LIVE — лист ПП не меняется. Открой с cutover=1"
+              : (postRes.message || "ошибка записи")
+          );
+          return;
+        }
         try { apiCacheBustMem_(); } catch (eClr) {}
 
         var ok = false;
         var last = null;
-        for (var attempt = 0; attempt < 4; attempt++) {
-          await new Promise(function (r) { setTimeout(r, attempt === 0 ? 900 : 700); });
+        for (var attempt = 0; attempt < 5; attempt++) {
+          await new Promise(function (r) { setTimeout(r, attempt === 0 ? 600 : 900); });
           try {
             last = await apiGet({
               action: "getSubscription",
@@ -17135,21 +17143,30 @@
               subId: (document.getElementById("subDetailSubId").value || "").trim(),
               segment: sheet,
               sheet: sheet,
+              force: "1",
               _: String(Date.now())
-            }, { timeoutMs: 18000, cacheTtlMs: 0 });
+            }, { timeoutMs: 22000, cacheTtlMs: 0 });
           } catch (eG) { last = null; }
           if (last && last.status === "success") {
             var gotFp = basketFingerprint_(last.basket || []);
             if (gotFp === wantFp) { ok = true; break; }
-
+            // wishes/marker тоже сигнал что лист обновился
+            if (sheet === "ПП" && wishesSave && String(last.wishes || "").indexOf(wishesSave.slice(0, 12)) >= 0 &&
+                gotFp && wantFp && (last.basket || []).length === (basketPayload || []).length) {
+              ok = true; break;
+            }
+          }
+          if (last && last.message === "sandbox_no_write") {
+            showToast("Не LIVE — в лист ПП не пишет. Открой с cutover=1");
+            return;
           }
         }
         if (ok) {
           subDetailBasket = mapApiBasketToLocal((last && last.basket) || basketPayload);
           renderSubDetailBasket();
-          showToast("Сохранено (" + subDetailBasket.length + " поз.)");
+          showToast("Сохранено в лист " + sheet + " (" + subDetailBasket.length + " поз.)");
         } else {
-          showToast("Отправлено. Если состав не обновился — Deploy Code.gs и обнови карточку");
+          showToast("Не закрепилось в листе " + sheet + " — сохрани ещё раз (нужен Worker Deploy)");
         }
       } catch (e) {
         showToast(e.message || "Ошибка");
