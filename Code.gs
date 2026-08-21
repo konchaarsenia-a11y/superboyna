@@ -2828,6 +2828,27 @@ function handleApiAction(json, callback, fromPost) {
   if (action === "submitGoodboyTry") {
     return handleSubmitGoodboyTry(json, callback, fromPost);
   }
+  // POST-чтение (Worker cutoverAfterWrite / verify) — иначе unknown_action
+  if (action === "getClients") {
+    return handleGetClients(
+      String(json.day || "").trim(),
+      callback,
+      String(json.date || "").trim()
+    );
+  }
+  if (action === "getCutting") {
+    return handleGetCutting(String(json.day || "").trim(), callback);
+  }
+  if (action === "getCourier") {
+    return handleGetCourier(String(json.day || "").trim(), callback);
+  }
+  if (action === "getAssembly") {
+    return handleGetAssembly(
+      { day: String(json.day || "").trim(), date: String(json.date || "").trim() },
+      callback,
+      true
+    );
+  }
   return fromPost ? jsonpText(callback, { status: "unknown_action" }) : jsonp(callback, { status: "unknown_action" });
 }
 
@@ -3291,10 +3312,10 @@ function handleGetCourier(dayName, callback) {
           } else if (deliveriesN === 1) {
             ppHint = "ПП N=1";
           }
-          // N=2: спросить оплату на 1-й; на 2-й — только если на 1-й сказали «нет» или ещё не фиксировали
-          if (deliveriesN >= 2) {
+          // Оплата: спросить пока нет paid=yes (N=1 — всегда; N=2 — на 1-й, на 2-й только если ещё не «да»)
+          if (deliveriesN >= 1) {
             if (paidCycle === "yes") askPaid = false;
-            else if (deliverySlot <= 1) askPaid = true;
+            else if (deliveriesN === 1 || deliverySlot <= 1) askPaid = true;
             else askPaid = (paidCycle === "no" || !paidCycle);
           }
         } catch (ePaid) {}
@@ -3315,6 +3336,10 @@ function handleGetCourier(dayName, callback) {
       if (!ppHint && ppSlotOut) ppHint = "ПП " + ppSlotOut;
       if (ppHint && /GMT|[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}/.test(ppHint)) ppHint = "";
     }
+    var ppPaidYes = isPpOrder && String(paidCycle || "").toLowerCase() === "yes";
+    var orderPriceOut = client.orderPrice != null ? client.orderPrice : "";
+    // уже оплачено в этом месяце — цену не светим (бейдж «оплачено»)
+    if (ppPaidYes) orderPriceOut = "";
     clients.push({
       name: client.name,
       address: client.address,
@@ -3329,10 +3354,11 @@ function handleGetCourier(dayName, callback) {
       courierCol: courierCol,
       deliveriesN: isPpOrder ? deliveriesN : 0,
       paid: paidCycle,
+      ppPaid: ppPaidYes,
       deliverySlot: isPpOrder ? deliverySlot : 0,
       ppSlot: ppSlotOut,
       ppHint: ppHint,
-      orderPrice: client.orderPrice != null ? client.orderPrice : "",
+      orderPrice: orderPriceOut,
       segment: client.segment || "",
       source: client.source || "",
       deliveryAfter: client.deliveryAfter || "",
@@ -4365,6 +4391,20 @@ function handleSaveOrder(ss, json, callback, fromPost) {
     var legacyPrice = extractOrderPriceFromNote_(String(json.note || ""));
     if (segSave !== "БП" && legacyPrice !== "") orderPriceSave = legacyPrice;
   }
+  // ПП уже оплачен в этом месяце — не дублируем цену на 2-й доставке / повторном save
+  if (segSave === "ПП" && orderPriceSave !== "") {
+    try {
+      var tzPpPaid = ss.getSpreadsheetTimeZone();
+      var datePpPaid = parseFlexibleDate_(json.date || json.deliveryDate, tzPpPaid) || getDayDate_(ss, json.day);
+      if (datePpPaid) {
+        var memPp = getMemoryCourierSheet_();
+        var cycPp = getPpCycleEntry_(memPp, datePpPaid, tzPpPaid, json.client);
+        if (cycPp && String(cycPp.paid || "").toLowerCase() === "yes") {
+          orderPriceSave = "";
+        }
+      }
+    } catch (ePpPaid) {}
+  }
   var phoneSave = String(json.phone || "").trim();
   if (!phoneSave) phoneSave = extractPhoneFromNote_(String(json.note || ""));
   var explicitPpSlot = !!(
@@ -4795,15 +4835,43 @@ function handleGetMonthOverview(json, callback, fromPost) {
       if (wd) wIso = isoDateKey_(wd, tz);
       if (!wIso || wIso.indexOf(monthStr) !== 0) continue;
       var wCount = Number(wrow.count) || 0;
+      var wSegs = { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 };
+      try {
+        var wData = getClientsData_(ss, weekNames[wi]);
+        var seenW = {};
+        ((wData && wData.clients) || []).forEach(function (cl) {
+          if (!cl) return;
+          var mkW = "";
+          try { mkW = clientMatchKey_(cl.name || cl.client || "") || String(cl.name || "").trim().toUpperCase(); } catch (eMkW) {
+            mkW = String(cl.name || "").trim().toUpperCase();
+          }
+          if (!mkW || seenW[mkW]) return;
+          seenW[mkW] = true;
+          var sg = String(cl.segment || "").trim().toUpperCase();
+          if (sg === "ПП" || sg === "PP" || sg === "АФК" || sg === "AFK") wSegs["ПП"]++;
+          else if (sg === "БП" || sg === "BP") wSegs["БП"]++;
+          else if (sg === "Р" || sg === "R" || sg === "RETAIL" || sg === "РОЗНИЦА") wSegs["Р"]++;
+          else if (sg.indexOf("ПАРТ") === 0 || sg === "PARTNER" || sg === "ВАРКА") wSegs["ПАРТНЁР"]++;
+          else {
+            var srcL = String(cl.source || "").toLowerCase();
+            if (srcL === "pp" || srcL === "subscription") wSegs["ПП"]++;
+            else if (srcL === "bp") wSegs["БП"]++;
+            else if (srcL === "retail") wSegs["Р"]++;
+            else if (srcL === "partner") wSegs["ПАРТНЁР"]++;
+            else wSegs.other++;
+          }
+        });
+      } catch (eSegW) {}
       if (!byDate[wIso]) {
         byDate[wIso] = {
           dateIso: wIso,
           count: wCount,
-          segments: { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 },
+          segments: wSegs,
           fromWeekSheet: true
         };
       } else {
         byDate[wIso].count = wCount;
+        byDate[wIso].segments = wSegs;
         byDate[wIso].fromWeekSheet = true;
       }
     }
@@ -15320,9 +15388,9 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
   }
 
   var askPaid = false;
-  if (deliveriesN >= 2) {
+  if (deliveriesN >= 1) {
     if (paid === "yes") askPaid = false;
-    else if (slot <= 1) askPaid = true;
+    else if (deliveriesN === 1 || slot <= 1) askPaid = true;
     else askPaid = (paid === "no" || !paid);
   }
 
@@ -17095,9 +17163,17 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (src === 'other' && calendarRowPrice_(row) > 0) src = 'retail';
     out.bySource[src] = (out.bySource[src] || 0) + 1;
     var price = calendarRowPrice_(row);
-    if (!(price > 0) && src !== 'bp') out.missingPrice++;
-    out.revenueBySource[src] = Math.round(((out.revenueBySource[src] || 0) + price) * 100) / 100;
-    out.revenueActual += price;
+    // ПП: выручку в календарный оборот не кладём — только подтверждённая оплата (collectPpActualOut_)
+    var revenueAdd = 0;
+    if (src === "pp" && ck) {
+      var prevPpPrice = Number(out.ppPriceByKey[ck]) || 0;
+      if (price > prevPpPrice) out.ppPriceByKey[ck] = price;
+    } else if (src !== "bp") {
+      revenueAdd = price;
+      if (!(price > 0)) out.missingPrice++;
+    }
+    out.revenueBySource[src] = Math.round(((out.revenueBySource[src] || 0) + revenueAdd) * 100) / 100;
+    out.revenueActual += revenueAdd;
     var bask = row.basket;
     if ((!bask || !bask.length) && row.basketJson) {
       try { bask = JSON.parse(String(row.basketJson)); } catch (eB2) { bask = []; }
@@ -17129,7 +17205,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     out.costActual += costWithAll;
     if (src === 'pp' && ck) {
       out.ppDeliveredKeys[ck] = true;
-      out.ppPriceByKey[ck] = Math.round(((out.ppPriceByKey[ck] || 0) + price) * 100) / 100;
+      // ppPriceByKey уже max выше
       out.ppBasketCost = Math.round(((out.ppBasketCost || 0) + product) * 100) / 100;
       out.ppDeliveryCost = Math.round(((out.ppDeliveryCost || 0) + deliveryFee) * 100) / 100;
       out.ppLightCost = Math.round(((out.ppLightCost || 0) + lightFee) * 100) / 100;
@@ -17153,6 +17229,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (seenKeys[bk]) continue;
     ingestRow_(bookByKey[bk]);
   }
+  // ПП без цены / без оплаты — не в missingPrice (в статистику только paid=yes → collectPpActualOut_)
   out.revenueActual = Math.round(out.revenueActual * 100) / 100;
   out.costActual = Math.round(out.costActual * 100) / 100;
   out.productCost = Math.round((out.productCost || 0) * 100) / 100;
@@ -17173,14 +17250,15 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   return out;
 }
 
-/** Сколько реально «вышло» с ПП: [ЦЕНА] по доставкам, иначе fact с листа при paid=yes. */
+/** Выручка ПП: только подтверждённая оплата (paid=yes). Без «да» — не в статистику. */
 function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
   var out = {
     actual: 0,
     fromPriceTags: 0,
     fromPaidCycle: 0,
     clientsCounted: 0,
-    clientsMissingPrice: 0
+    clientsMissingPrice: 0,
+    clientsUnpaid: 0
   };
   var byKey = (ppStats && ppStats.byKey) || {};
   var priceByKey = (monthCal && monthCal.ppPriceByKey) || {};
@@ -17201,37 +17279,44 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
     return true;
   }
 
-  // 1) суммы [ЦЕНА] по клиентам ПП
-  for (var pk in priceByKey) {
-    if (!priceByKey.hasOwnProperty(pk)) continue;
-    var p = Number(priceByKey[pk]) || 0;
-    if (p > 0) {
-      out.fromPriceTags += p;
-      out.actual += p;
-      mark_(pk);
-    }
+  function isPaidYes_(ck) {
+    var ent = cycleStore[ck];
+    if (!ent || typeof ent !== "object") return false;
+    return String(ent.paid || "").toLowerCase() === "yes";
   }
 
-  // 2) paid=yes в цикле месяца без цены в календаре → fact с листа ПП
-  for (var ck in cycleStore) {
-    if (!cycleStore.hasOwnProperty(ck)) continue;
-    var ent = cycleStore[ck];
-    if (!ent || typeof ent !== "object") continue;
-    if (String(ent.paid || "").toLowerCase() !== "yes") continue;
-    if (priceByKey[ck] > 0) continue;
+  // только paid=yes: цена с календаря (max) или fact с листа ПП
+  for (var ck in delivered) {
+    if (!delivered.hasOwnProperty(ck)) continue;
+    if (!isPaidYes_(ck)) {
+      out.clientsUnpaid++;
+      continue;
+    }
+    var p = Number(priceByKey[ck]) || 0;
     var fact = byKey[ck] ? Number(byKey[ck].fact) || 0 : 0;
-    if (!(fact > 0)) continue;
-    out.fromPaidCycle += fact;
-    out.actual += fact;
+    var amt = p > 0 ? p : fact;
+    if (!(amt > 0)) {
+      out.clientsMissingPrice++;
+      mark_(ck);
+      continue;
+    }
+    if (p > 0) out.fromPriceTags += p;
+    else out.fromPaidCycle += fact;
+    out.actual += amt;
     mark_(ck);
   }
 
-  // клиенты с доставкой ПП, но без цены и без paid
-  for (var dk in delivered) {
-    if (!delivered.hasOwnProperty(dk)) continue;
-    if (counted[dk]) continue;
-    if ((Number(priceByKey[dk]) || 0) > 0) continue;
-    out.clientsMissingPrice++;
+  // paid=yes без доставки в календаре (редко) — всё равно fact
+  for (var ck2 in cycleStore) {
+    if (!cycleStore.hasOwnProperty(ck2)) continue;
+    if (!isPaidYes_(ck2)) continue;
+    if (counted[ck2]) continue;
+    if (delivered[ck2]) continue;
+    var fact2 = byKey[ck2] ? Number(byKey[ck2].fact) || 0 : 0;
+    if (!(fact2 > 0)) continue;
+    out.fromPaidCycle += fact2;
+    out.actual += fact2;
+    mark_(ck2);
   }
 
   out.actual = Math.round(out.actual * 100) / 100;
@@ -18943,8 +19028,8 @@ function handleGetStats(json, callback, fromPost) {
   // —— Факт через приложение (календарь/брони, уже прошедшие даты) ——
   var retail = Number(month.retailRevenue) || 0;
   var partner = Number(month.partnerRevenue) || 0;
-  var ppActual = Number(month.revenueBySource && month.revenueBySource.pp) || 0;
-  if (!(ppActual > 0) && Number(ppOut.actual) > 0) ppActual = Number(ppOut.actual) || 0;
+  // ПП — только подтверждённая оплата (paid=yes)
+  var ppActual = Number(ppOut.actual) || 0;
   var calTurnover = Math.round((ppActual + retail + partner) * 100) / 100;
   var bpSpend = Number(month.bpCost) || 0;
   var costActual = Number(month.costActual) || 0;
@@ -19075,6 +19160,7 @@ function handleGetStats(json, callback, fromPost) {
         fromPaidCycle: ppOut.fromPaidCycle,
         clientsCounted: ppOut.clientsCounted,
         clientsMissingPrice: ppOut.clientsMissingPrice,
+        clientsUnpaid: ppOut.clientsUnpaid || 0,
         clientsDelivered: month.ppClientsDelivered
       }
     },
