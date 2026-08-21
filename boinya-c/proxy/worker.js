@@ -2111,6 +2111,11 @@ async function saveOrder_(params, env, asBooking) {
     meta_json: JSON.stringify(meta)
   });
 
+  // новый save снимает tombstone — иначе повторный внос после delete «не виден»
+  try {
+    await clearTombstonesForMatch_(env, matchKey, day || "");
+  } catch (eClrT) {}
+
   await invalidateDays_(env, day ? [day] : []);
   return {
     status: "success",
@@ -2131,8 +2136,6 @@ const TOMBSTONE_MS = 20 * 60 * 1000;
 async function putDeleteTombstone_(env, day, matchKey) {
   const mk = normalizeMatchKey_(matchKey);
   if (!env || !day || !mk) return;
-  // zzz_test — без tombstone, иначе live QA / повторный save «пропадает» на 20 мин
-  if (mk === "zzz_test") return;
   const prev = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
   const now = Date.now();
   const items = (prev.items || []).filter(function (t) {
@@ -2142,10 +2145,23 @@ async function putDeleteTombstone_(env, day, matchKey) {
   await putSnap_(env, "deleteTombstones", { items: items });
 }
 
+async function clearTombstonesForMatch_(env, matchKey, day) {
+  const mk = normalizeMatchKey_(matchKey);
+  if (!env || !mk) return;
+  try {
+    const prev = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
+    const now = Date.now();
+    const items = (prev.items || []).filter(function (t) {
+      if (!t || now - Number(t.at || 0) >= TOMBSTONE_MS) return false;
+      if (t.mk !== mk) return true;
+      if (day && String(t.day) !== String(day)) return true;
+      return false; // снять tombstone этого mk (на day или на всех днях если day пуст)
+    });
+    await putSnap_(env, "deleteTombstones", { items: items });
+  } catch (eClr) {}
+}
+
 function isTombstoned_(tomb, day, matchKey, name) {
-  // тестовый клиент — можно сразу писать снова после delete (QA / live smoke)
-  const nm = String(name || matchKey || "").trim().toLowerCase();
-  if (nm === "zzz_test" || normalizeMatchKey_(matchKey) === "zzz_test") return false;
   const mk = normalizeMatchKey_(matchKey || name);
   const now = Date.now();
   return ((tomb && tomb.items) || []).some(function (t) {
