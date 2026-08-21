@@ -17055,6 +17055,17 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   }
 
   var seenKeys = {};
+  // партнёры, которые платят себестоимость БП — наша затрата = 0
+  var partnerPaysCost_ = {};
+  try {
+    var partnersPay = readAllPartners_();
+    for (var ppi = 0; ppi < partnersPay.length; ppi++) {
+      var pnm = String(partnersPay[ppi].name || "").trim();
+      if (!pnm) continue;
+      if (partnersPay[ppi].paysCost) partnerPaysCost_[pnm.toLowerCase()] = true;
+    }
+  } catch (ePayMap) {}
+
   function ingestRow_(row) {
     if (!row) return;
     var st = String(row.status || '').toLowerCase();
@@ -17117,11 +17128,16 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
         out.ppLightPeople = (out.ppLightPeople || 0) + 1;
       }
     }
-    var costWithAll = Math.round((product + coupons + deliveryFee + lightFee) * 100) / 100;
+    var pnBp = (src === "bp") ? String(row.ppPartner || "").trim() : "";
+    var partnerCoversCost = !!(pnBp && partnerPaysCost_[pnBp.toLowerCase()]);
+    var productForCost = partnerCoversCost ? 0 : product;
+    var couponsForCost = partnerCoversCost ? 0 : coupons;
+    var deliveryForCost = partnerCoversCost ? 0 : deliveryFee;
+    var costWithAll = Math.round((productForCost + couponsForCost + deliveryForCost + lightFee) * 100) / 100;
     if (!(product > 0) && bask && bask.length) out.missingBasketCost++;
-    out.productCost = Math.round(((out.productCost || 0) + product) * 100) / 100;
-    out.couponsCost = Math.round(((out.couponsCost || 0) + coupons) * 100) / 100;
-    if (coupons > 0) {
+    out.productCost = Math.round(((out.productCost || 0) + productForCost) * 100) / 100;
+    out.couponsCost = Math.round(((out.couponsCost || 0) + couponsForCost) * 100) / 100;
+    if (couponsForCost > 0) {
       out.couponsQty = (out.couponsQty || 0) + normalizeCouponsQty_(row.couponsQty);
       out.couponsOrders = (out.couponsOrders || 0) + 1;
     }
@@ -17136,13 +17152,23 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     }
     if (src === 'bp') {
       out.bpDeliveries++;
-      out.bpCost += Math.round((product + deliveryFee) * 100) / 100;
-      out.bpBasketCost = Math.round(((out.bpBasketCost || 0) + product) * 100) / 100;
-      out.bpDeliveryCost = Math.round(((out.bpDeliveryCost || 0) + deliveryFee) * 100) / 100;
-      var pn = String(row.ppPartner || "").trim();
-      // партнёр пришёл на БП (не на ПП)
-      if (pn) {
-        out.partnerRows.push({ name: pn, deliveries: 1, revenue: price, cost: costWithAll });
+      var bpCostAdd = Math.round((productForCost + deliveryForCost) * 100) / 100;
+      var bpCostRaw = Math.round((product + deliveryFee) * 100) / 100;
+      out.bpCost += bpCostAdd;
+      out.bpBasketCost = Math.round(((out.bpBasketCost || 0) + productForCost) * 100) / 100;
+      out.bpDeliveryCost = Math.round(((out.bpDeliveryCost || 0) + deliveryForCost) * 100) / 100;
+      // партнёр привёл на БП (не на ПП)
+      if (pnBp) {
+        out.partnerRows.push({
+          name: pnBp,
+          clientKey: ck || "",
+          client: String(row.client || ""),
+          deliveries: 1,
+          revenue: price,
+          cost: bpCostAdd,
+          costRaw: bpCostRaw,
+          paysCost: partnerCoversCost
+        });
       }
     }
   }
@@ -17242,7 +17268,7 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
 
 
 /* ========== Партнёры (источник ПП) ========== */
-var PARTNERS_HEADERS_ = ["id", "name", "note", "active", "createdAt", "updatedAt"];
+var PARTNERS_HEADERS_ = ["id", "name", "note", "active", "createdAt", "updatedAt", "paysCost"];
 
 function getPartnersSheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -17264,6 +17290,8 @@ function readAllPartners_() {
   for (var r = 1; r < data.length; r++) {
     var name = String(data[r][1] || "").trim();
     if (!name) continue;
+    var paysRaw = String(data[r][6] != null ? data[r][6] : "").trim().toLowerCase();
+    var paysCost = (paysRaw === "yes" || paysRaw === "1" || paysRaw === "true" || paysRaw === "да");
     out.push({
       rowIndex: r + 1,
       id: String(data[r][0] || ""),
@@ -17271,7 +17299,8 @@ function readAllPartners_() {
       note: String(data[r][2] || ""),
       active: String(data[r][3] || "yes").toLowerCase() !== "no",
       createdAt: data[r][4],
-      updatedAt: data[r][5]
+      updatedAt: data[r][5],
+      paysCost: paysCost
     });
   }
   out.sort(function (a, b) {
@@ -17307,10 +17336,18 @@ function handleSavePartner(json, callback, fromPost) {
     if (!id && String(all[i].name).toLowerCase() === name.toLowerCase()) { hit = all[i]; break; }
   }
   if (!id) id = hit ? hit.id : ("p_" + Utilities.getUuid().slice(0, 8));
-  var vals = [id, name, note, active, hit ? hit.createdAt : now, now];
+  var paysCost = "no";
+  if (json && (json.paysCost === true || json.paysCost === "yes" || json.paysCost === 1 || json.paysCost === "1" || json.paysCost === "да")) {
+    paysCost = "yes";
+  } else if (json && (json.paysCost === false || json.paysCost === "no" || json.paysCost === 0 || json.paysCost === "0")) {
+    paysCost = "no";
+  } else if (hit) {
+    paysCost = hit.paysCost ? "yes" : "no";
+  }
+  var vals = [id, name, note, active, hit ? hit.createdAt : now, now, paysCost];
   if (hit) sh.getRange(hit.rowIndex, 1, 1, PARTNERS_HEADERS_.length).setValues([vals]);
   else sh.appendRow(vals);
-  var ok = { status: "success", id: id, name: name, active: active === "yes" };
+  var ok = { status: "success", id: id, name: name, active: active === "yes", paysCost: paysCost === "yes" };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
@@ -18863,25 +18900,70 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
   return out;
 }
 
-function collectPartnerStatsFromMonth_(monthCal) {
+function collectPartnerStatsFromMonth_(monthCal, convAll) {
   var map = {};
   var rows = (monthCal && monthCal.partnerRows) || [];
+  var convertKeys = {};
+  var convKeys = (convAll && convAll.keys) || [];
+  for (var ci = 0; ci < convKeys.length; ci++) {
+    var ck0 = String(convKeys[ci] || "").trim();
+    if (ck0) convertKeys[ck0] = true;
+  }
+  var priceByKey = (monthCal && monthCal.ppPriceByKey) || {};
+
   for (var i = 0; i < rows.length; i++) {
     var pr = rows[i];
     var name = String(pr.name || "").trim();
     if (!name || name.indexOf("без партн") >= 0) continue;
-    if (!map[name]) map[name] = { name: name, deliveries: 0, revenue: 0, cost: 0, profit: 0 };
-    map[name].deliveries += Number(pr.deliveries) || 0;
-    map[name].revenue += Number(pr.revenue) || 0;
-    map[name].cost += Number(pr.cost) || 0;
+    if (!map[name]) {
+      map[name] = {
+        name: name,
+        deliveries: 0,
+        bpClients: 0,
+        convertedToPp: 0,
+        revenue: 0,
+        ppRevenue: 0,
+        cost: 0,
+        costRaw: 0,
+        profit: 0,
+        paysCost: false,
+        _clients: {},
+        _converted: {}
+      };
+    }
+    var m = map[name];
+    m.deliveries += Number(pr.deliveries) || 0;
+    m.cost += Number(pr.cost) || 0;
+    m.costRaw += Number(pr.costRaw != null ? pr.costRaw : pr.cost) || 0;
+    m.revenue += Number(pr.revenue) || 0;
+    if (pr.paysCost) m.paysCost = true;
+    var ck = String(pr.clientKey || "").trim();
+    if (!ck && pr.client) ck = clientMatchKey_(pr.client) || String(pr.client || "").toUpperCase();
+    if (ck) m._clients[ck] = true;
   }
+
   var list = [];
   for (var k in map) {
     if (!map.hasOwnProperty(k)) continue;
     var x = map[k];
-    x.revenue = Math.round(x.revenue * 100) / 100;
+    var clients = Object.keys(x._clients);
+    x.bpClients = clients.length;
+    var ppRev = 0;
+    for (var j = 0; j < clients.length; j++) {
+      var ckey = clients[j];
+      if (!convertKeys[ckey]) continue;
+      x._converted[ckey] = true;
+      ppRev += Number(priceByKey[ckey]) || 0;
+    }
+    x.convertedToPp = Object.keys(x._converted).length;
+    x.ppRevenue = Math.round(ppRev * 100) / 100;
     x.cost = Math.round(x.cost * 100) / 100;
-    x.profit = Math.round((x.revenue - x.cost) * 100) / 100;
+    x.costRaw = Math.round(x.costRaw * 100) / 100;
+    x.revenue = Math.round(x.revenue * 100) / 100;
+    // прибыль = выручка ПП с перешедших − наша затрата на БП (0 если платит себест)
+    x.profit = Math.round((x.ppRevenue - x.cost) * 100) / 100;
+    delete x._clients;
+    delete x._converted;
     list.push(x);
   }
   list.sort(function (a, b) { return (b.profit || 0) - (a.profit || 0); });
@@ -18908,7 +18990,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS15:" + monthKey;
+  var cacheKey = "STATS16:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -18956,7 +19038,10 @@ function handleGetStats(json, callback, fromPost) {
   var profitFact = calTurnover; // прибыль = общий приход = оборот
   var cleanFact = Math.round((calTurnover - costActual) * 100) / 100;
   var byPartner = [];
-  try { byPartner = collectPartnerStatsFromMonth_(month); } catch (eP) { byPartner = []; }
+  try {
+    var convAllPartners = collectBpToPpConversions_(ss, crm, "", { allTime: true });
+    byPartner = collectPartnerStatsFromMonth_(month, convAllPartners);
+  } catch (eP) { byPartner = []; }
   var bpLife = {
     converted: 0, bpDeliveries: 0, bpCost: 0, bpBasketCost: 0, bpDeliveryCost: 0,
     ppRevenue: 0, ppDeliveries: 0, profit: 0, costPerConvert: null, nicks: []

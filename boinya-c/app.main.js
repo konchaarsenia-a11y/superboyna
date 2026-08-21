@@ -12972,7 +12972,7 @@
 
       html += '<div class="card" id="statsPartnersCard" style="border:1px solid rgba(100,210,255,0.35);background:linear-gradient(160deg,#1a2228 0%,#1c1c1e 100%);">';
       html += '<div class="section-title" style="margin-top:0;color:#64d2ff;">Партнёры</div>';
-      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">Кто привёл в БП · выгода = выручка − себест (по БП-заказам с партнёром)</div>';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">БП от партнёра → сколько стало ПП · прибыль = выручка ПП − затрата БП (если платит себест — затрата 0)</div>';
       if (!partners.length) {
         html += '<div style="padding:14px;border-radius:12px;background:rgba(100,210,255,0.08);text-align:center;">';
         html += '<div style="font-size:14px;margin-bottom:6px;">Пока пусто</div>';
@@ -12983,13 +12983,21 @@
         partners.forEach(function (p) {
           var good = Number(p.profit) || 0;
           var goodColor = good >= 0 ? "#30d158" : "#ff453a";
+          var bpCame = (p.bpClients != null) ? p.bpClients : (p.deliveries || 0);
+          var becamePp = (p.convertedToPp != null) ? p.convertedToPp : 0;
+          var ppRev = (p.ppRevenue != null) ? p.ppRevenue : (p.revenue || 0);
+          var costShow = (p.cost != null) ? p.cost : 0;
           html += '<div style="margin:0 0 10px;padding:12px;border-radius:12px;background:rgba(100,210,255,0.1);border:1px solid rgba(100,210,255,0.2);">';
-          html += '<div style="font-weight:800;font-size:15px;color:#64d2ff;">' + escapeHtml(p.name) + "</div>";
+          html += '<div style="font-weight:800;font-size:15px;color:#64d2ff;">' + escapeHtml(p.name) +
+            (p.paysCost ? ' <span class="client-badge" style="background:rgba(48,209,88,0.25);color:#30d158;font-weight:600;">платит себест</span>' : "") +
+            "</div>";
           html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;font-size:12px;">';
-          html += '<div><span class="muted">Доставок</span><div style="font-weight:700;">' + (p.deliveries || 0) + "</div></div>";
-          html += '<div><span class="muted">Выручка</span><div style="font-weight:700;color:#30d158;">' + (p.revenue || 0) + "</div></div>";
-          html += '<div><span class="muted">Затраты</span><div style="font-weight:700;color:#ff9f0a;">' + (p.cost || 0) + "</div></div>";
-          html += '<div><span class="muted">Выгода</span><div style="font-weight:700;color:' + goodColor + ';">' + good + "</div></div>";
+          html += '<div><span class="muted">БП пришло</span><div style="font-weight:700;">' + bpCame + "</div></div>";
+          html += '<div><span class="muted">Стало ПП</span><div style="font-weight:700;">' + becamePp + "</div></div>";
+          html += '<div><span class="muted">Выручка ПП</span><div style="font-weight:700;color:#30d158;">' + ppRev + "</div></div>";
+          html += '<div><span class="muted">Затраты БП</span><div style="font-weight:700;color:#ff9f0a;">' +
+            (p.paysCost ? "0 (платит)" : costShow) + "</div></div>";
+          html += '<div style="grid-column:1/-1;"><span class="muted">Прибыль</span><div style="font-weight:800;font-size:16px;color:' + goodColor + ';">' + good + " BYN</div></div>";
           html += "</div></div>";
         });
         html += '<button type="button" class="btn-action btn-blue" style="margin:4px 0 0;" onclick="switchTab(\'peopleScreen\',{focus:\'partners\'})">Управлять партнёрами</button>';
@@ -19334,6 +19342,7 @@
         return '<div class="card" style="margin-bottom:8px;padding:10px;">' +
           '<b>' + escapeHtml(p.name) + '</b>' +
           (p.active ? '' : ' <span class="muted">(выкл)</span>') +
+          (p.paysCost ? ' <span class="client-badge" style="background:rgba(48,209,88,0.25);color:#30d158;">платит себест</span>' : "") +
           (p.note ? ('<div class="muted" style="font-size:12px;">' + escapeHtml(p.note) + "</div>") : "") +
           '<div class="seg-row" style="margin-top:8px;flex-wrap:wrap;">' +
           '<button type="button" class="seg-btn" onclick="editPartnerUi_(\'' + idEsc + '\')">Изменить</button>' +
@@ -19351,12 +19360,14 @@
       var idEl = document.getElementById("partnerEditId");
       var nameEl = document.getElementById("partnerNameInput");
       var noteEl = document.getElementById("partnerNoteInput");
+      var paysEl = document.getElementById("partnerPaysCostInput");
       var saveBtn = document.getElementById("btnPartnerSave");
       var cancelBtn = document.getElementById("btnPartnerEditCancel");
       if (on && partner) {
         if (idEl) idEl.value = partner.id || "";
         if (nameEl) nameEl.value = partner.name || "";
         if (noteEl) noteEl.value = partner.note || "";
+        if (paysEl) paysEl.checked = !!partner.paysCost;
         if (saveBtn) saveBtn.textContent = "Сохранить";
         if (cancelBtn) cancelBtn.style.display = "";
         try {
@@ -19369,6 +19380,7 @@
         if (idEl) idEl.value = "";
         if (nameEl) nameEl.value = "";
         if (noteEl) noteEl.value = "";
+        if (paysEl) paysEl.checked = false;
         if (saveBtn) saveBtn.textContent = "Добавить";
         if (cancelBtn) cancelBtn.style.display = "none";
       }
@@ -19398,12 +19410,14 @@
       var name = String((document.getElementById("partnerNameInput") || {}).value || "").trim();
       var note = String((document.getElementById("partnerNoteInput") || {}).value || "").trim();
       var editId = String((document.getElementById("partnerEditId") || {}).value || "").trim();
+      var paysCost = !!(document.getElementById("partnerPaysCostInput") || {}).checked;
       if (!name) { showToast("Укажите имя партнёра"); return; }
       try {
         var body = {
           action: "savePartner",
           name: name,
           note: note,
+          paysCost: paysCost ? "yes" : "no",
           active: "yes",
           telegramId: myTelegramId,
           _: String(Date.now())
@@ -19444,6 +19458,7 @@
           id: id,
           name: hit.name,
           note: hit.note || "",
+          paysCost: hit.paysCost ? "yes" : "no",
           active: makeActive ? "yes" : "no",
           telegramId: myTelegramId,
           _: String(Date.now())
