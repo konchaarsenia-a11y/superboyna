@@ -2127,6 +2127,8 @@ const TOMBSTONE_MS = 20 * 60 * 1000;
 async function putDeleteTombstone_(env, day, matchKey) {
   const mk = normalizeMatchKey_(matchKey);
   if (!env || !day || !mk) return;
+  // zzz_test — без tombstone, иначе live QA / повторный save «пропадает» на 20 мин
+  if (mk === "zzz_test") return;
   const prev = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
   const now = Date.now();
   const items = (prev.items || []).filter(function (t) {
@@ -2137,6 +2139,9 @@ async function putDeleteTombstone_(env, day, matchKey) {
 }
 
 function isTombstoned_(tomb, day, matchKey, name) {
+  // тестовый клиент — можно сразу писать снова после delete (QA / live smoke)
+  const nm = String(name || matchKey || "").trim().toLowerCase();
+  if (nm === "zzz_test" || normalizeMatchKey_(matchKey) === "zzz_test") return false;
   const mk = normalizeMatchKey_(matchKey || name);
   const now = Date.now();
   return ((tomb && tomb.items) || []).some(function (t) {
