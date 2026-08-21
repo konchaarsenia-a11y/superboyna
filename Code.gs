@@ -4816,15 +4816,43 @@ function handleGetMonthOverview(json, callback, fromPost) {
       if (wd) wIso = isoDateKey_(wd, tz);
       if (!wIso || wIso.indexOf(monthStr) !== 0) continue;
       var wCount = Number(wrow.count) || 0;
+      var wSegs = { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 };
+      try {
+        var wData = getClientsData_(ss, weekNames[wi]);
+        var seenW = {};
+        ((wData && wData.clients) || []).forEach(function (cl) {
+          if (!cl) return;
+          var mkW = "";
+          try { mkW = clientMatchKey_(cl.name || cl.client || "") || String(cl.name || "").trim().toUpperCase(); } catch (eMkW) {
+            mkW = String(cl.name || "").trim().toUpperCase();
+          }
+          if (!mkW || seenW[mkW]) return;
+          seenW[mkW] = true;
+          var sg = String(cl.segment || "").trim().toUpperCase();
+          if (sg === "ПП" || sg === "PP" || sg === "АФК" || sg === "AFK") wSegs["ПП"]++;
+          else if (sg === "БП" || sg === "BP") wSegs["БП"]++;
+          else if (sg === "Р" || sg === "R" || sg === "RETAIL" || sg === "РОЗНИЦА") wSegs["Р"]++;
+          else if (sg.indexOf("ПАРТ") === 0 || sg === "PARTNER" || sg === "ВАРКА") wSegs["ПАРТНЁР"]++;
+          else {
+            var srcL = String(cl.source || "").toLowerCase();
+            if (srcL === "pp" || srcL === "subscription") wSegs["ПП"]++;
+            else if (srcL === "bp") wSegs["БП"]++;
+            else if (srcL === "retail") wSegs["Р"]++;
+            else if (srcL === "partner") wSegs["ПАРТНЁР"]++;
+            else wSegs.other++;
+          }
+        });
+      } catch (eSegW) {}
       if (!byDate[wIso]) {
         byDate[wIso] = {
           dateIso: wIso,
           count: wCount,
-          segments: { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 },
+          segments: wSegs,
           fromWeekSheet: true
         };
       } else {
         byDate[wIso].count = wCount;
+        byDate[wIso].segments = wSegs;
         byDate[wIso].fromWeekSheet = true;
       }
     }

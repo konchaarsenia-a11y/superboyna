@@ -378,6 +378,18 @@ function parseMeta_(raw) {
 function clientFromRow_(r) {
   const basket = parseBasket_(r.basket_json);
   const meta = parseMeta_(r.meta_json);
+  const segNorm = normalizeSegmentLabel_(r.segment || meta.segment || meta.orderType || "");
+  const srcNorm =
+    String(r.source || meta.source || "").trim() ||
+    (segNorm === "ПП"
+      ? "pp"
+      : segNorm === "БП"
+        ? "bp"
+        : segNorm === "Р"
+          ? "retail"
+          : segNorm === "ПАРТНЁР"
+            ? "partner"
+            : "");
   const out = Object.assign({}, meta, {
     name: r.client,
     matchKey: r.match_key,
@@ -385,8 +397,8 @@ function clientFromRow_(r) {
     note: r.note || meta.note || "",
     phone: r.phone || meta.phone || "",
     basket: basket,
-    segment: r.segment || meta.segment || "",
-    source: r.source || meta.source || "",
+    segment: segNorm,
+    source: srcNorm,
     orderCount: Array.isArray(basket) ? basket.length : Number(meta.orderCount) || 0,
     updatedAt: r.updated_at,
     dateIso: r.date_iso || "",
@@ -394,6 +406,39 @@ function clientFromRow_(r) {
     noCut: !!meta.noCut
   });
   return out;
+}
+
+/** ПП/БП/Р/ПАРТНЁР из segment | orderType | source */
+function normalizeSegmentLabel_(raw) {
+  const s = String(raw || "").trim().toUpperCase();
+  if (!s) return "";
+  if (s === "ПП" || s === "PP" || s === "АФК" || s === "AFK" || s === "SUBSCRIPTION") return "ПП";
+  if (s === "БП" || s === "BP") return "БП";
+  if (s === "Р" || s === "R" || s === "RETAIL" || s === "РОЗНИЦА") return "Р";
+  if (s.indexOf("ПАРТ") === 0 || s === "PARTNER" || s === "ВАРКА") return "ПАРТНЁР";
+  if (s === "PP" || s.toLowerCase() === "pp") return "ПП";
+  return "";
+}
+
+function segmentFromOrderParams_(params) {
+  params = params || {};
+  let seg = normalizeSegmentLabel_(params.segment);
+  if (seg) return seg;
+  const ot = String(params.orderType || params.source || "").trim().toLowerCase();
+  if (ot === "pp" || ot === "subscription" || ot === "afk" || ot === "пп") return "ПП";
+  if (ot === "bp" || ot === "бп") return "БП";
+  if (ot === "retail" || ot === "розница" || ot === "r") return "Р";
+  if (ot === "partner" || ot.indexOf("парт") === 0 || ot === "варка") return "ПАРТНЁР";
+  seg = normalizeSegmentLabel_(ot);
+  return seg || "";
+}
+
+function sourceFromSegment_(seg) {
+  if (seg === "ПП") return "pp";
+  if (seg === "БП") return "bp";
+  if (seg === "Р") return "retail";
+  if (seg === "ПАРТНЁР") return "partner";
+  return "";
 }
 
 async function ensureMetaColumn_(env) {
@@ -775,9 +820,35 @@ async function overlayWeekSheetCountsOnMonth_(env, body) {
     if (!it) return;
     const iso = dmyToIso_(it.date);
     if (!iso) return;
-    weekMap[iso] = Number(it.count) || 0;
+    weekMap[iso] = { count: Number(it.count) || 0, day: String(it.day || "") };
   });
   if (!Object.keys(weekMap).length) return body;
+
+  // сегменты с D1 по date_iso (count уже с листа)
+  const segByIso = Object.create(null);
+  try {
+    const isos = Object.keys(weekMap);
+    for (let si = 0; si < isos.length; si++) {
+      const iso = isos[si];
+      const q = await env.DB.prepare(
+        "SELECT segment, source, COUNT(*) AS c FROM orders WHERE status = 'active' AND date_iso = ? GROUP BY segment, source"
+      )
+        .bind(iso)
+        .all();
+      const segments = { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 };
+      ((q && q.results) || []).forEach(function (r) {
+        const c = Number(r.c) || 0;
+        const seg =
+          normalizeSegmentLabel_(r.segment) || normalizeSegmentLabel_(r.source) || "";
+        if (seg === "ПП") segments["ПП"] += c;
+        else if (seg === "БП") segments["БП"] += c;
+        else if (seg === "Р") segments["Р"] += c;
+        else if (seg === "ПАРТНЁР") segments["ПАРТНЁР"] += c;
+        else segments.other += c;
+      });
+      segByIso[iso] = segments;
+    }
+  } catch (eSeg) {}
 
   const byIso = Object.create(null);
   ((body.days || []) || []).forEach(function (d) {
@@ -786,22 +857,29 @@ async function overlayWeekSheetCountsOnMonth_(env, body) {
       dateIso: d.dateIso,
       count: Number(d.count) || 0,
       segments: d.segments || {},
-      fromWeekSheet: !!d.fromWeekSheet
+      fromWeekSheet: !!d.fromWeekSheet,
+      fromView: !!d.fromView
     };
   });
   const bodyMonth = String(body.month || "").slice(0, 7);
   Object.keys(weekMap).forEach(function (iso) {
     // не вклеивать «Приём» 07.09 в обзор августа — лист уехал вперёд
     if (bodyMonth && String(iso).slice(0, 7) !== bodyMonth) return;
+    const wCount = weekMap[iso].count;
+    const segs = segByIso[iso] || { "ПП": 0, "БП": 0, "Р": 0, "ПАРТНЁР": 0, other: 0 };
     if (!byIso[iso]) {
       byIso[iso] = {
         dateIso: iso,
-        count: weekMap[iso],
-        segments: {},
+        count: wCount,
+        segments: segs,
         fromWeekSheet: true
       };
+    } else if (byIso[iso].fromView) {
+      // уже сверено с Просмотром — только помечаем week
+      byIso[iso].fromWeekSheet = true;
     } else {
-      byIso[iso].count = weekMap[iso];
+      byIso[iso].count = wCount;
+      byIso[iso].segments = segs;
       byIso[iso].fromWeekSheet = true;
     }
   });
@@ -1432,11 +1510,15 @@ function countPeopleFromViewPayload_(payload) {
     if (!mk || seen[mk]) return;
     seen[mk] = true;
     n++;
-    const seg = String(c.segment || c.source || "").trim().toUpperCase();
-    if (seg === "ПП" || seg === "PP" || seg === "АФК" || seg === "AFK") segments["ПП"]++;
-    else if (seg === "БП" || seg === "BP") segments["БП"]++;
-    else if (seg === "Р" || seg === "R" || seg === "RETAIL" || seg === "РОЗНИЦА") segments["Р"]++;
-    else if (seg.indexOf("ПАРТ") === 0 || seg === "PARTNER" || seg === "ВАРКА") segments["ПАРТНЁР"]++;
+    const seg =
+      normalizeSegmentLabel_(c.segment) ||
+      normalizeSegmentLabel_(c.orderType) ||
+      normalizeSegmentLabel_(c.source) ||
+      "";
+    if (seg === "ПП") segments["ПП"]++;
+    else if (seg === "БП") segments["БП"]++;
+    else if (seg === "Р") segments["Р"]++;
+    else if (seg === "ПАРТНЁР") segments["ПАРТНЁР"]++;
     else if (/partner/i.test(String(c.source || ""))) segments["ПАРТНЁР"]++;
     else segments.other++;
   });
@@ -1463,10 +1545,12 @@ async function patchMonthOverviewDayFromView_(env, iso, payload) {
     body.days = (body.days || []).map(function (d) {
       if (!d || d.dateIso !== iso) return d;
       found = true;
+      // факт Просмотра важнее и Календаря, и nick-row (там часто дубли/дыры)
       return Object.assign({}, d, {
         count: tallied.count,
         segments: tallied.segments,
-        fromView: true
+        fromView: true,
+        fromWeekSheet: !!d.fromWeekSheet
       });
     });
     if (!found) {
@@ -1514,15 +1598,14 @@ async function reconcileMonthOverviewWithViewSnaps_(env, body) {
       } catch (eP) {
         return;
       }
-      // week-sheet дни не трогаем (fromWeekSheet) — там источник Приём
-      if (byIso[iso] && byIso[iso].fromWeekSheet) return;
       const tallied = countPeopleFromViewPayload_(payload);
-      byIso[iso] = {
+      byIso[iso] = Object.assign({}, byIso[iso] || {}, {
         dateIso: iso,
         count: tallied.count,
         segments: tallied.segments,
-        fromView: true
-      };
+        fromView: true,
+        fromWeekSheet: !!(byIso[iso] && byIso[iso].fromWeekSheet)
+      });
     });
     body.days = Object.keys(byIso)
       .sort()
@@ -1981,6 +2064,9 @@ async function saveOrder_(params, env, asBooking) {
   const id = (day || "CAL") + ":" + matchKey + (day ? "" : ":" + dateIso);
   const basketArr = parseBasket_(params.basket);
   const basket = JSON.stringify(basketArr);
+  const segSave = segmentFromOrderParams_(params);
+  const srcSave =
+    String(params.source || "").trim() || sourceFromSegment_(segSave) || "";
   const meta = {
     orderPrice: params.orderPrice,
     ppSlot: params.ppSlot,
@@ -1992,7 +2078,9 @@ async function saveOrder_(params, env, asBooking) {
     geo: params.geo,
     noCut: toBool_(params.noCut),
     couponsQty: params.couponsQty,
-    couponPrice: params.couponPrice
+    couponPrice: params.couponPrice,
+    segment: segSave,
+    orderType: params.orderType || srcSave
   };
 
   // soft-delete duplicates with other key forms
@@ -2012,8 +2100,8 @@ async function saveOrder_(params, env, asBooking) {
     note: String(params.note || ""),
     phone: String(params.phone || ""),
     basket_json: basket,
-    segment: String(params.segment || ""),
-    source: String(params.source || ""),
+    segment: segSave,
+    source: srcSave,
     status: "active",
     updated_at: now,
     meta_json: JSON.stringify(meta)
@@ -2027,6 +2115,8 @@ async function saveOrder_(params, env, asBooking) {
     basketLen: basketArr.length,
     weekWritten: !!day,
     id: id,
+    segment: segSave,
+    source: srcSave,
     updatedAt: now
   };
 }
@@ -3966,6 +4056,8 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
     if (!mk) continue;
     if (isTombstoned_(tomb, day, mk, c.name || c.client)) continue;
     const basket = JSON.stringify(c.basket || []);
+    const segC = normalizeSegmentLabel_(c.segment || c.orderType || c.source || "");
+    const srcC = String(c.source || "").trim() || sourceFromSegment_(segC);
     const meta = {
       orderPrice: c.orderPrice,
       ppSlot: c.ppSlot,
@@ -3977,7 +4069,8 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       deliveryAfter: c.deliveryAfter,
       deliveryBefore: c.deliveryBefore,
       couponsQty: c.couponsQty,
-      couponPrice: c.couponPrice
+      couponPrice: c.couponPrice,
+      segment: segC
     };
     const keepUpdated =
       (c.updated_at || c.updatedAt) &&
@@ -3995,8 +4088,8 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       note: c.note || "",
       phone: c.phone || "",
       basket_json: basket,
-      segment: c.segment || "",
-      source: c.source || "",
+      segment: segC,
+      source: srcC,
       status: "active",
       updated_at: keepUpdated,
       meta_json: JSON.stringify(meta)
@@ -4030,6 +4123,9 @@ function overlayWriteClientOnList_(list, params) {
   if (!wantClient) return list || [];
   const mk = normalizeMatchKey_((params && params.matchKey) || wantClient);
   const basketArr = parseBasket_(params && params.basket);
+  const segSave = segmentFromOrderParams_(params);
+  const srcSave =
+    String((params && params.source) || "").trim() || sourceFromSegment_(segSave) || "";
   const row = {
     name: wantClient,
     matchKey: mk,
@@ -4037,8 +4133,8 @@ function overlayWriteClientOnList_(list, params) {
     note: String((params && params.note) || ""),
     phone: String((params && params.phone) || ""),
     basket: basketArr,
-    segment: String((params && (params.segment || params.orderType)) || ""),
-    source: String((params && params.source) || ""),
+    segment: segSave,
+    source: srcSave,
     orderPrice: params && params.orderPrice,
     ppSlot: params && (params.ppSlot || params.deliverySlot),
     ppPartner: params && params.ppPartner,

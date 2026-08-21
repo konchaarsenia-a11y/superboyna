@@ -4229,6 +4229,8 @@
         note: clientNote,
         permanentNote: permanentNote,
         orderType: orderTypeSnap,
+        segment: orderTypeToSegment_(orderTypeSnap) || "",
+        source: orderTypeSnap === "bp" ? "bp" : (orderTypeSnap === "pp" ? "pp" : (orderTypeSnap === "partner" ? "partner" : "retail")),
         orderPrice: orderPrice,
         deliverySlot: ppSlotPayload.deliverySlot || "",
         ppSlot: ppSlotPayload.ppSlot || "",
@@ -4258,6 +4260,8 @@
         address: clientAddress,
         phone: phone,
         note: clientNote,
+        orderType: orderTypeSnap,
+        segment: orderTypeToSegment_(orderTypeSnap) || "",
         orderPrice: orderPrice,
         deliverySlot: ppSlotPayload.deliverySlot || "",
         ppSlot: ppSlotPayload.ppSlot || "",
@@ -4336,6 +4340,7 @@
           note: clientNote || "",
           permanentNote: permanentNote || "",
           orderType: orderTypeSnap || "",
+          segment: orderTypeToSegment_(orderTypeSnap) || "",
           orderPrice: orderPrice != null ? String(orderPrice) : "",
           deliverySlot: ppSlotPayload.deliverySlot ? String(ppSlotPayload.deliverySlot) : "",
           ppSlot: ppSlotPayload.ppSlot || "",
@@ -4428,6 +4433,7 @@
             note: clientNote || "",
             permanentNote: permanentNote || "",
             orderType: orderTypeSnap || "",
+            segment: orderTypeToSegment_(orderTypeSnap) || "",
             orderPrice: orderPrice != null ? String(orderPrice) : "",
             deliverySlot: ppSlotPayload.deliverySlot ? String(ppSlotPayload.deliverySlot) : "",
             ppSlot: ppSlotPayload.ppSlot || "",
@@ -4500,6 +4506,8 @@
               note: clientNote || "",
               permanentNote: permanentNote || "",
               orderType: orderTypeSnap || "",
+              segment: orderTypeToSegment_(orderTypeSnap) || "",
+              source: orderTypeSnap === "bp" ? "bp" : (orderTypeSnap === "pp" ? "pp" : (orderTypeSnap === "partner" ? "partner" : "retail")),
               orderPrice: orderPrice != null ? String(orderPrice) : "",
               deliverySlot: ppSlotPayload.deliverySlot ? String(ppSlotPayload.deliverySlot) : "",
               ppSlot: ppSlotPayload.ppSlot || "",
@@ -6174,26 +6182,24 @@
         if (loadSeq !== _viewClientsLoadSeq) return;
 
         loadedClientsRawData = week.map(function (c) {
+          var otW = resolveClientOrderType_(c);
           if (!c.segment) {
             var sm = String(c.note || "").match(/\[SEG:([^\]]+)\]/i);
             if (sm) c.segment = String(sm[1] || "").trim();
           }
-          if (!c.source) {
-            var otW = resolveClientOrderType_(c);
-            if (otW) c.source = otW;
-          }
+          if (!c.segment && otW) c.segment = orderTypeToSegment_(otW);
+          if (!c.source && otW) c.source = otW;
           c.gaps = clientGaps(c);
           return c;
         });
         monthClientsCache = month.map(function (c) {
+          var otM = resolveClientOrderType_(c);
           if (!c.segment) {
             var smM = String(c.note || "").match(/\[SEG:([^\]]+)\]/i);
             if (smM) c.segment = String(smM[1] || "").trim();
           }
-          if (!c.source) {
-            var otM = resolveClientOrderType_(c);
-            if (otM) c.source = otM;
-          }
+          if (!c.segment && otM) c.segment = orderTypeToSegment_(otM);
+          if (!c.source && otM) c.source = otM;
           if (!c.orderCount && c.basket) c.orderCount = c.basket.length;
           c.gaps = clientGaps(c);
           return c;
@@ -6290,7 +6296,8 @@
         if (!mk || seen[mk]) return;
         seen[mk] = true;
         n++;
-        var seg = String(c.segment || c.source || "").trim().toUpperCase();
+        var seg = orderTypeToSegment_(resolveClientOrderType_(c)) ||
+          String(c.segment || "").trim().toUpperCase();
         if (seg === "ПП" || seg === "PP" || seg === "АФК" || seg === "AFK") segments["ПП"]++;
         else if (seg === "БП" || seg === "BP") segments["БП"]++;
         else if (seg === "Р" || seg === "R" || seg === "RETAIL" || seg === "РОЗНИЦА") segments["Р"]++;
@@ -6308,10 +6315,14 @@
       var found = false;
       viewMonthOverviewCache.days = (viewMonthOverviewCache.days || []).map(function (d) {
         if (!d || d.dateIso !== iso) return d;
-        // лист недели не затираем сырым календарём
-        if (d.fromWeekSheet) return d;
         found = true;
-        return Object.assign({}, d, { count: n, segments: segments, fromView: true });
+        // список Просмотра = факт (в т.ч. для fromWeekSheet: иначе бейдж 9, в дне 6)
+        return Object.assign({}, d, {
+          count: n,
+          segments: segments,
+          fromView: true,
+          fromWeekSheet: !!d.fromWeekSheet
+        });
       });
       if (!found) {
         viewMonthOverviewCache.days.push({
@@ -9205,14 +9216,13 @@
     }
     function clientTechBadgesHtml_(client) {
       var bits = [];
-      var seg = String((client && (client.segment || client.orderType)) || "").trim().toUpperCase();
-      if (!seg && client && client.source) {
-        var src = String(client.source).toLowerCase();
-        if (src === "bp") seg = "БП";
-        else if (src === "pp" || src === "subscription") seg = "ПП";
-        else if (src === "partner") seg = "ПАРТНЁР";
-        else if (src === "retail") seg = "Р";
+      var seg = String((client && client.segment) || "").trim().toUpperCase();
+      if (!(seg === "ПП" || seg === "БП" || seg === "Р" || seg.indexOf("ПАРТ") === 0 || seg === "АФК")) {
+        seg = orderTypeToSegment_(resolveClientOrderType_(client)) || "";
       }
+      if (seg === "AFK" || seg === "АФК") seg = "ПП";
+      if (seg === "PP") seg = "ПП";
+      if (seg === "BP") seg = "БП";
       if (seg) bits.push('<span class="client-badge" style="background:rgba(94,92,230,0.25);color:#bfbfff;">' + escapeHtml(seg) + "</span>");
 
       var price = resolveClientOrderPrice(client);
