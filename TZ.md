@@ -1,3 +1,6 @@
+- [~] **Запись в никуда / лист ПП 2026-08-20:** Worker LIVE по умолчанию (без cutover больше не врёт sandbox-успех); POST body через text; sandbox write → error; getClients в doPost; wait GAS 14с · Pages `v=71115847` · **обязателен Worker Deploy** · **Deploy Code.gs** (getClients POST)
+- [~] **Перенос «успех» но на месте 2026-08-20:** protect не воскрешает tombstone; tombstone 20м; move удаляет все дубли + idempotent re-apply; UI verify old/new · Pages `v=71115846` · **обязателен Worker Deploy**
+- [~] **Запись откатывается 2026-08-20:** cutover больше не затирает свежий D1 старым GAS (protect 12м + overlay состава на edit); после store — re-save в D1; UI verify+retry состава; gasClientsFresh только при совпавшем basket · Pages `v=71115845` · **обязателен Worker Deploy**
 - [~] **Code.gs синтаксис 2026-08-19:** сломан ternary cacheKey WH_PLAN_V10 (лишняя `)` после filterOn) — починен · **нужен Deploy Code.gs**
 - [~] **Жевалки единица SKU 2026-08-19:** жила 1шт=большая; ухо/аорта 1шт=целое; корень/трахея 1шт=огромный · Pages `v=71115839` · **нужен Deploy Code.gs**
 - [~] **Жевалки построчно 2026-08-19:** явная карта Нарезка A16–A35 (корень/трахея/жила/ухо/аорта) база огромный=1; пласт=сред, палка=мал, целое ухо/аорта=бол · Pages `v=71115838` · **нужен Deploy Code.gs**

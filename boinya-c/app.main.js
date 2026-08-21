@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c44";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c46";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -4355,19 +4355,121 @@
         var bookRes = null;
         var saveRes = null;
 
-        async function verifyWeekBasket_() {
-          if (!weekDayToSave) return 0;
+        function weekBasketSig_(arr) {
           try {
-            var chk = await apiGet({ action: "getClients", day: weekDayToSave }, { timeoutMs: 22000, cacheTtlMs: 0 });
+            return (arr || [])
+              .map(function (it) {
+                var name = String((it && (it.name || it.main)) || "").trim().toUpperCase();
+                var sub = String((it && it.sub) || "").trim().toUpperCase();
+                var val = Number(it && (it.val != null ? it.val : it.value)) || 0;
+                return name + "|" + sub + "|" + val;
+              })
+              .filter(Boolean)
+              .sort()
+              .join(";");
+          } catch (eSig) {
+            return "";
+          }
+        }
+
+        async function verifyWeekBasket_() {
+          if (!weekDayToSave) return { found: false, len: 0, match: false };
+          var wantSig = weekBasketSig_(basketSnap);
+          try {
+            var chk = await apiGet({
+              action: "getClients",
+              day: weekDayToSave,
+              force: "1",
+              _: String(Date.now())
+            }, { timeoutMs: 18000, cacheTtlMs: 0 });
             var list = (chk && chk.clients) || [];
+            var want = String(clientName || "").trim().toUpperCase();
             for (var i = 0; i < list.length; i++) {
-              if (String(list[i].name || "").toUpperCase() === clientName.toUpperCase() ||
-                  String(list[i].name || "").toLowerCase().indexOf(clientName.toLowerCase()) >= 0) {
-                return (list[i].basket || []).length;
+              var nm = String(list[i].name || list[i].client || "").trim().toUpperCase();
+              if (!nm) continue;
+              if (nm === want || nm.indexOf(want) >= 0 || want.indexOf(nm) >= 0) {
+                var gotBasket = list[i].basket || [];
+                var gotSig = weekBasketSig_(gotBasket);
+                return {
+                  found: true,
+                  len: gotBasket.length,
+                  match: !!(wantSig && gotSig && wantSig === gotSig) ||
+                    (!wantSig && gotBasket.length === 0)
+                };
               }
             }
-          } catch (eV) {}
-          return -1;
+            return { found: false, len: 0, match: false };
+          } catch (eV) {
+            return { found: false, len: -1, match: false };
+          }
+        }
+
+        async function ensureWeekWriteStuck_() {
+          if (!weekDayToSave || !basketSnap.length) return saveRes;
+          var chk = await verifyWeekBasket_();
+          if (chk && chk.match) {
+            return {
+              status: "success",
+              wrote: chk.len,
+              basketLen: basketSnap.length,
+              verified: true
+            };
+          }
+          var retryParams = {
+            action: "saveOrder",
+            day: weekDayToSave,
+            date: deliveryDate,
+            client: clientName,
+            editClient: editClientSnap,
+            originalClient: editClientSnap,
+            matchKey: editKeySnap,
+            address: clientAddress,
+            phone: phone || "",
+            note: clientNote || "",
+            permanentNote: permanentNote || "",
+            orderType: orderTypeSnap || "",
+            orderPrice: orderPrice != null ? String(orderPrice) : "",
+            deliverySlot: ppSlotPayload.deliverySlot ? String(ppSlotPayload.deliverySlot) : "",
+            ppSlot: ppSlotPayload.ppSlot || "",
+            deliveryAfter: deliveryAfter || "",
+            deliveryBefore: deliveryBefore || "",
+            ppPartner: ppPartnerVal || "",
+            couponsQty: String(couponsPayload.couponsQty || 0),
+            couponPrice: String(couponsPayload.couponPrice || 0),
+            basket: basketJson,
+            force: "1",
+            _: String(Date.now())
+          };
+          if (geoJson) retryParams.geo = geoJson;
+          try {
+            payload.day = weekDayToSave;
+            payload.date = deliveryDate;
+            await apiPost(payload);
+          } catch (eP1) {}
+          try {
+            await apiGet(retryParams, {
+              timeoutMs: window.__BOINYA_C_CUTOVER__ ? 22000 : 60000,
+              cacheTtlMs: 0
+            });
+          } catch (eG1) {}
+          await new Promise(function (r) { setTimeout(r, 800); });
+          chk = await verifyWeekBasket_();
+          if (chk && chk.match) {
+            return {
+              status: "success",
+              wrote: chk.len,
+              basketLen: basketSnap.length,
+              verified: true,
+              retried: true
+            };
+          }
+          return {
+            status: "error",
+            wrote: Math.max(0, chk && chk.len > 0 ? chk.len : 0),
+            message: chk && chk.found
+              ? "состав не закрепился — сохрани ещё раз"
+              : "не вижу человека после сохранения — сохрани ещё раз"
+          };
         }
 
         if (useJsonpSave) {
@@ -4431,14 +4533,19 @@
             payload.day = weekDayToSave;
             payload.date = deliveryDate;
             try { await apiPost(payload); } catch (ePost) {}
-            var verified = window.__BOINYA_C_CUTOVER__ ? (basketSnap.length || 1) : await verifyWeekBasket_();
-            if (verified > 0) {
-              saveRes = { status: "success", wrote: verified, basketLen: basketSnap.length };
-            } else if (!saveRes || saveRes.status !== "success") {
-              saveRes = { status: verified === 0 ? "error" : "sent_opaque", wrote: Math.max(0, verified), message: verified === 0 ? "состав не появился на листе" : "" };
-            }
           } else if (!bookRes || bookRes.status !== "success") {
             bookRes = { status: "sent_opaque" };
+          }
+        }
+
+        // cutover: не верить optimistic — проверить D1/лист и при необходимости дописать
+        if (weekDayToSave && basketSnap.length) {
+          try {
+            saveRes = await ensureWeekWriteStuck_();
+          } catch (eEns) {
+            if (!saveRes || saveRes.status !== "success") {
+              saveRes = { status: "error", message: (eEns && eEns.message) || "verify_failed" };
+            }
           }
         }
 
@@ -6827,6 +6934,72 @@
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return false;
         }
+
+        // cutover: optimistic «успех» ≠ человек реально ушёл со старого дня
+        if (!calendarOnly && !dateOnly && oldDay && newDay && oldDay !== newDay) {
+          async function clientOnDay_(dayName) {
+            try {
+              var chk = await apiGet({
+                action: "getClients",
+                day: dayName,
+                force: "1",
+                _: String(Date.now())
+              }, { timeoutMs: 16000, cacheTtlMs: 0 });
+              var list = (chk && chk.clients) || [];
+              var want = String(clientName || "").trim().toUpperCase();
+              for (var ci = 0; ci < list.length; ci++) {
+                var nm = String(list[ci].name || list[ci].client || "").trim().toUpperCase();
+                if (!nm) continue;
+                if (nm === want || nm.indexOf(want) >= 0 || want.indexOf(nm) >= 0) return true;
+              }
+            } catch (eChk) {}
+            return false;
+          }
+          var onOld = await clientOnDay_(oldDay);
+          var onNew = await clientOnDay_(newDay);
+          if (onOld || !onNew) {
+            try {
+              await apiGet({
+                action: "moveClient",
+                client: clientName,
+                oldDay: oldDay || "",
+                newDay: newDay,
+                oldDate: oldDate || "",
+                newDate: target.newDate,
+                dateOnly: "0",
+                calendarOnly: "0",
+                cutRaw: cutRaw === "yes" ? "1" : "0",
+                matchKey: matchKey,
+                force: "1",
+                _: String(Date.now())
+              }, { timeoutMs: 22000, cacheTtlMs: 0 });
+            } catch (eRetryM) {}
+            try { await apiPost({
+              action: "moveClient",
+              client: clientName,
+              oldDay: oldDay || "",
+              newDay: newDay,
+              oldDate: oldDate || "",
+              newDate: target.newDate,
+              dateOnly: false,
+              calendarOnly: false,
+              cutRaw: cutRaw === "yes" ? "1" : "0",
+              matchKey: matchKey
+            }); } catch (ePostM) {}
+            await new Promise(function (r) { setTimeout(r, 700); });
+            onOld = await clientOnDay_(oldDay);
+            onNew = await clientOnDay_(newDay);
+          }
+          if (onOld || !onNew) {
+            await uiAlertAsync(
+              "Перенос не закрепился: «" + clientName + "» " +
+              (onOld ? "ещё на «" + oldDay + "»" : "нет на «" + newDay + "»") +
+              ". Сохрани/перенеси ещё раз."
+            );
+            return false;
+          }
+        }
+
         var svN = Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
         var bpMetaN = Number((res.dateSync && res.dateSync.bpMeta) || 0) || 0;
         var baseMsg = calendarOnly
@@ -16948,13 +17121,21 @@
           saveBody.basketBp1 = subDetailBasketBp1;
           saveBody.basketBp2 = subDetailBasketBp2;
         }
-        await apiPost(saveBody);
+        var postRes = await apiPost(saveBody);
+        if (postRes && postRes.status === "error") {
+          showToast(
+            postRes.message === "sandbox_no_write"
+              ? "Не LIVE — лист ПП не меняется. Открой с cutover=1"
+              : (postRes.message || "ошибка записи")
+          );
+          return;
+        }
         try { apiCacheBustMem_(); } catch (eClr) {}
 
         var ok = false;
         var last = null;
-        for (var attempt = 0; attempt < 4; attempt++) {
-          await new Promise(function (r) { setTimeout(r, attempt === 0 ? 900 : 700); });
+        for (var attempt = 0; attempt < 5; attempt++) {
+          await new Promise(function (r) { setTimeout(r, attempt === 0 ? 600 : 900); });
           try {
             last = await apiGet({
               action: "getSubscription",
@@ -16962,21 +17143,30 @@
               subId: (document.getElementById("subDetailSubId").value || "").trim(),
               segment: sheet,
               sheet: sheet,
+              force: "1",
               _: String(Date.now())
-            }, { timeoutMs: 18000, cacheTtlMs: 0 });
+            }, { timeoutMs: 22000, cacheTtlMs: 0 });
           } catch (eG) { last = null; }
           if (last && last.status === "success") {
             var gotFp = basketFingerprint_(last.basket || []);
             if (gotFp === wantFp) { ok = true; break; }
-
+            // wishes/marker тоже сигнал что лист обновился
+            if (sheet === "ПП" && wishesSave && String(last.wishes || "").indexOf(wishesSave.slice(0, 12)) >= 0 &&
+                gotFp && wantFp && (last.basket || []).length === (basketPayload || []).length) {
+              ok = true; break;
+            }
+          }
+          if (last && last.message === "sandbox_no_write") {
+            showToast("Не LIVE — в лист ПП не пишет. Открой с cutover=1");
+            return;
           }
         }
         if (ok) {
           subDetailBasket = mapApiBasketToLocal((last && last.basket) || basketPayload);
           renderSubDetailBasket();
-          showToast("Сохранено (" + subDetailBasket.length + " поз.)");
+          showToast("Сохранено в лист " + sheet + " (" + subDetailBasket.length + " поз.)");
         } else {
-          showToast("Отправлено. Если состав не обновился — Deploy Code.gs и обнови карточку");
+          showToast("Не закрепилось в листе " + sheet + " — сохрани ещё раз (нужен Worker Deploy)");
         }
       } catch (e) {
         showToast(e.message || "Ошибка");
