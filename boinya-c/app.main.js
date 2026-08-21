@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c46";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c49";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -9208,6 +9208,12 @@
       return extractOrderPrice(clientOrNote);
     }
     function formatOrderPriceHtml(noteOrPrice, opts) {
+      // ПП уже оплачен — цену не пишем (бейдж «оплачено» в clientTechBadgesHtml_)
+      if (noteOrPrice && typeof noteOrPrice === "object") {
+        if (noteOrPrice.ppPaid || String(noteOrPrice.paid || "").toLowerCase() === "yes") {
+          return "";
+        }
+      }
       var price = (typeof noteOrPrice === "number") ? noteOrPrice : resolveClientOrderPrice(noteOrPrice);
       if (price == null) return "";
       var br = opts && opts.br ? "<br>" : "";
@@ -9225,8 +9231,14 @@
       if (seg === "BP") seg = "БП";
       if (seg) bits.push('<span class="client-badge" style="background:rgba(94,92,230,0.25);color:#bfbfff;">' + escapeHtml(seg) + "</span>");
 
-      var price = resolveClientOrderPrice(client);
-      if (price != null) bits.push('<span class="client-badge" style="background:rgba(48,209,88,0.2);color:#30d158;">' + escapeHtml(String(price)) + " BYN</span>");
+      var ppPaid = !!(client && (client.ppPaid || String(client.paid || "").toLowerCase() === "yes"));
+      var isPpSeg = (seg === "ПП" || seg === "АФК");
+      if (ppPaid && isPpSeg) {
+        bits.push('<span class="client-badge" style="background:rgba(48,209,88,0.28);color:#30d158;">оплачено</span>');
+      } else {
+        var price = resolveClientOrderPrice(client);
+        if (price != null) bits.push('<span class="client-badge" style="background:rgba(48,209,88,0.2);color:#30d158;">' + escapeHtml(String(price)) + " BYN</span>");
+      }
       var aft = String((client && client.deliveryAfter) || "").trim();
       var bef = String((client && client.deliveryBefore) || "").trim();
       if (aft) bits.push('<span class="client-badge" style="background:rgba(255,159,10,0.2);color:#ffd60a;">≥' + escapeHtml(aft) + "</span>");

@@ -3312,10 +3312,10 @@ function handleGetCourier(dayName, callback) {
           } else if (deliveriesN === 1) {
             ppHint = "ПП N=1";
           }
-          // N=2: спросить оплату на 1-й; на 2-й — только если на 1-й сказали «нет» или ещё не фиксировали
-          if (deliveriesN >= 2) {
+          // Оплата: спросить пока нет paid=yes (N=1 — всегда; N=2 — на 1-й, на 2-й только если ещё не «да»)
+          if (deliveriesN >= 1) {
             if (paidCycle === "yes") askPaid = false;
-            else if (deliverySlot <= 1) askPaid = true;
+            else if (deliveriesN === 1 || deliverySlot <= 1) askPaid = true;
             else askPaid = (paidCycle === "no" || !paidCycle);
           }
         } catch (ePaid) {}
@@ -3336,6 +3336,10 @@ function handleGetCourier(dayName, callback) {
       if (!ppHint && ppSlotOut) ppHint = "ПП " + ppSlotOut;
       if (ppHint && /GMT|[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}/.test(ppHint)) ppHint = "";
     }
+    var ppPaidYes = isPpOrder && String(paidCycle || "").toLowerCase() === "yes";
+    var orderPriceOut = client.orderPrice != null ? client.orderPrice : "";
+    // уже оплачено в этом месяце — цену не светим (бейдж «оплачено»)
+    if (ppPaidYes) orderPriceOut = "";
     clients.push({
       name: client.name,
       address: client.address,
@@ -3350,10 +3354,11 @@ function handleGetCourier(dayName, callback) {
       courierCol: courierCol,
       deliveriesN: isPpOrder ? deliveriesN : 0,
       paid: paidCycle,
+      ppPaid: ppPaidYes,
       deliverySlot: isPpOrder ? deliverySlot : 0,
       ppSlot: ppSlotOut,
       ppHint: ppHint,
-      orderPrice: client.orderPrice != null ? client.orderPrice : "",
+      orderPrice: orderPriceOut,
       segment: client.segment || "",
       source: client.source || "",
       deliveryAfter: client.deliveryAfter || "",
@@ -4385,6 +4390,20 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   } else {
     var legacyPrice = extractOrderPriceFromNote_(String(json.note || ""));
     if (segSave !== "БП" && legacyPrice !== "") orderPriceSave = legacyPrice;
+  }
+  // ПП уже оплачен в этом месяце — не дублируем цену на 2-й доставке / повторном save
+  if (segSave === "ПП" && orderPriceSave !== "") {
+    try {
+      var tzPpPaid = ss.getSpreadsheetTimeZone();
+      var datePpPaid = parseFlexibleDate_(json.date || json.deliveryDate, tzPpPaid) || getDayDate_(ss, json.day);
+      if (datePpPaid) {
+        var memPp = getMemoryCourierSheet_();
+        var cycPp = getPpCycleEntry_(memPp, datePpPaid, tzPpPaid, json.client);
+        if (cycPp && String(cycPp.paid || "").toLowerCase() === "yes") {
+          orderPriceSave = "";
+        }
+      }
+    } catch (ePpPaid) {}
   }
   var phoneSave = String(json.phone || "").trim();
   if (!phoneSave) phoneSave = extractPhoneFromNote_(String(json.note || ""));
@@ -15369,9 +15388,9 @@ function buildPpOrderSuggest_(ss, nick, dayName, dateStr, opts) {
   }
 
   var askPaid = false;
-  if (deliveriesN >= 2) {
+  if (deliveriesN >= 1) {
     if (paid === "yes") askPaid = false;
-    else if (slot <= 1) askPaid = true;
+    else if (deliveriesN === 1 || slot <= 1) askPaid = true;
     else askPaid = (paid === "no" || !paid);
   }
 
@@ -17144,19 +17163,14 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (src === 'other' && calendarRowPrice_(row) > 0) src = 'retail';
     out.bySource[src] = (out.bySource[src] || 0) + 1;
     var price = calendarRowPrice_(row);
-    // ПП N=2: одна и та же месячная ЦЕНА часто стоит на 1-й и 2-й доставке —
-    // в выручку берём max по клиенту за месяц, не сумму (иначе ×2).
-    var revenueAdd = price;
+    // ПП: выручку в календарный оборот не кладём — только подтверждённая оплата (collectPpActualOut_)
+    var revenueAdd = 0;
     if (src === "pp" && ck) {
       var prevPpPrice = Number(out.ppPriceByKey[ck]) || 0;
-      if (price > prevPpPrice) {
-        revenueAdd = Math.round((price - prevPpPrice) * 100) / 100;
-        out.ppPriceByKey[ck] = price;
-      } else {
-        revenueAdd = 0;
-      }
-    } else if (src !== "bp" && !(price > 0)) {
-      out.missingPrice++;
+      if (price > prevPpPrice) out.ppPriceByKey[ck] = price;
+    } else if (src !== "bp") {
+      revenueAdd = price;
+      if (!(price > 0)) out.missingPrice++;
     }
     out.revenueBySource[src] = Math.round(((out.revenueBySource[src] || 0) + revenueAdd) * 100) / 100;
     out.revenueActual += revenueAdd;
@@ -17215,11 +17229,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (seenKeys[bk]) continue;
     ingestRow_(bookByKey[bk]);
   }
-  // ПП без цены ни на одной доставке месяца
-  for (var ppMiss in out.ppDeliveredKeys) {
-    if (!out.ppDeliveredKeys.hasOwnProperty(ppMiss)) continue;
-    if (!(Number(out.ppPriceByKey[ppMiss]) > 0)) out.missingPrice++;
-  }
+  // ПП без цены / без оплаты — не в missingPrice (в статистику только paid=yes → collectPpActualOut_)
   out.revenueActual = Math.round(out.revenueActual * 100) / 100;
   out.costActual = Math.round(out.costActual * 100) / 100;
   out.productCost = Math.round((out.productCost || 0) * 100) / 100;
@@ -17240,14 +17250,15 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   return out;
 }
 
-/** Сколько реально «вышло» с ПП: [ЦЕНА] раз на клиента/месяц (не сумма слотов), иначе fact с листа при paid=yes. */
+/** Выручка ПП: только подтверждённая оплата (paid=yes). Без «да» — не в статистику. */
 function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
   var out = {
     actual: 0,
     fromPriceTags: 0,
     fromPaidCycle: 0,
     clientsCounted: 0,
-    clientsMissingPrice: 0
+    clientsMissingPrice: 0,
+    clientsUnpaid: 0
   };
   var byKey = (ppStats && ppStats.byKey) || {};
   var priceByKey = (monthCal && monthCal.ppPriceByKey) || {};
@@ -17268,37 +17279,44 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
     return true;
   }
 
-  // 1) месячная [ЦЕНА] по клиентам ПП (уже max за месяц в collectMonthCalendarStats_)
-  for (var pk in priceByKey) {
-    if (!priceByKey.hasOwnProperty(pk)) continue;
-    var p = Number(priceByKey[pk]) || 0;
-    if (p > 0) {
-      out.fromPriceTags += p;
-      out.actual += p;
-      mark_(pk);
-    }
+  function isPaidYes_(ck) {
+    var ent = cycleStore[ck];
+    if (!ent || typeof ent !== "object") return false;
+    return String(ent.paid || "").toLowerCase() === "yes";
   }
 
-  // 2) paid=yes в цикле месяца без цены в календаре → fact с листа ПП
-  for (var ck in cycleStore) {
-    if (!cycleStore.hasOwnProperty(ck)) continue;
-    var ent = cycleStore[ck];
-    if (!ent || typeof ent !== "object") continue;
-    if (String(ent.paid || "").toLowerCase() !== "yes") continue;
-    if (priceByKey[ck] > 0) continue;
+  // только paid=yes: цена с календаря (max) или fact с листа ПП
+  for (var ck in delivered) {
+    if (!delivered.hasOwnProperty(ck)) continue;
+    if (!isPaidYes_(ck)) {
+      out.clientsUnpaid++;
+      continue;
+    }
+    var p = Number(priceByKey[ck]) || 0;
     var fact = byKey[ck] ? Number(byKey[ck].fact) || 0 : 0;
-    if (!(fact > 0)) continue;
-    out.fromPaidCycle += fact;
-    out.actual += fact;
+    var amt = p > 0 ? p : fact;
+    if (!(amt > 0)) {
+      out.clientsMissingPrice++;
+      mark_(ck);
+      continue;
+    }
+    if (p > 0) out.fromPriceTags += p;
+    else out.fromPaidCycle += fact;
+    out.actual += amt;
     mark_(ck);
   }
 
-  // клиенты с доставкой ПП, но без цены и без paid
-  for (var dk in delivered) {
-    if (!delivered.hasOwnProperty(dk)) continue;
-    if (counted[dk]) continue;
-    if ((Number(priceByKey[dk]) || 0) > 0) continue;
-    out.clientsMissingPrice++;
+  // paid=yes без доставки в календаре (редко) — всё равно fact
+  for (var ck2 in cycleStore) {
+    if (!cycleStore.hasOwnProperty(ck2)) continue;
+    if (!isPaidYes_(ck2)) continue;
+    if (counted[ck2]) continue;
+    if (delivered[ck2]) continue;
+    var fact2 = byKey[ck2] ? Number(byKey[ck2].fact) || 0 : 0;
+    if (!(fact2 > 0)) continue;
+    out.fromPaidCycle += fact2;
+    out.actual += fact2;
+    mark_(ck2);
   }
 
   out.actual = Math.round(out.actual * 100) / 100;
@@ -19010,8 +19028,8 @@ function handleGetStats(json, callback, fromPost) {
   // —— Факт через приложение (календарь/брони, уже прошедшие даты) ——
   var retail = Number(month.retailRevenue) || 0;
   var partner = Number(month.partnerRevenue) || 0;
-  var ppActual = Number(month.revenueBySource && month.revenueBySource.pp) || 0;
-  if (!(ppActual > 0) && Number(ppOut.actual) > 0) ppActual = Number(ppOut.actual) || 0;
+  // ПП — только подтверждённая оплата (paid=yes)
+  var ppActual = Number(ppOut.actual) || 0;
   var calTurnover = Math.round((ppActual + retail + partner) * 100) / 100;
   var bpSpend = Number(month.bpCost) || 0;
   var costActual = Number(month.costActual) || 0;
@@ -19142,6 +19160,7 @@ function handleGetStats(json, callback, fromPost) {
         fromPaidCycle: ppOut.fromPaidCycle,
         clientsCounted: ppOut.clientsCounted,
         clientsMissingPrice: ppOut.clientsMissingPrice,
+        clientsUnpaid: ppOut.clientsUnpaid || 0,
         clientsDelivered: month.ppClientsDelivered
       }
     },
