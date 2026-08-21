@@ -1439,12 +1439,16 @@ async function applyCalendarWeekIfSkewed_(a, params, env, sheetCounts) {
   });
   const sheetMonday = String((sheetCounts && sheetCounts.sheetMonday) || mondayDmyFromCounts_(sheetCounts) || "");
   if (a === "getClients") {
+    let clientsOut = clients;
+    try {
+      clientsOut = await filterTombstonedClients_(env, day, clients);
+    } catch (eT) {}
     return {
       status: "success",
       day: day,
       date: dmy,
       dateIso: iso,
-      clients: clients,
+      clients: clientsOut,
       fromCalendar: true,
       calendarMonday: isoToDmy_(mondayIso),
       sheetMonday: sheetMonday,
@@ -2162,6 +2166,30 @@ async function filterTombstonedClients_(env, day, list) {
   } catch (eT) {
     return list;
   }
+}
+
+/** Есть ли свежий tombstone на день (удаление/перенос ещё не «устарел»). */
+async function dayHasFreshTombstone_(env, day) {
+  if (!env || !day) return false;
+  try {
+    const tomb = await getSnapRaw_(env, "deleteTombstones");
+    const now = Date.now();
+    return ((tomb && tomb.items) || []).some(function (t) {
+      return t && String(t.day) === String(day) && now - Number(t.at || 0) < TOMBSTONE_MS;
+    });
+  } catch (e) {
+    return false;
+  }
+}
+
+/** GAS getClients → убрать tombstone, иначе UI сразу «воскрешает» удалённых. */
+async function sanitizeGasClientsPayload_(env, day, live) {
+  if (!live || typeof live !== "object") return live;
+  if (!day || !Array.isArray(live.clients)) return live;
+  try {
+    live.clients = await filterTombstonedClients_(env, day, live.clients);
+  } catch (eS) {}
+  return live;
 }
 
 async function deleteClient_(params, env) {
@@ -3363,7 +3391,8 @@ async function handleCutover_(a, params, env, ctx) {
     }
   }
 
-  // Приёмка: если D1 count ≠ getWeekDayCounts — сразу GAS (иначе «на Будущей 6 вместо 2»)
+  // Приёмка: если D1 count ≠ getWeekDayCounts — GAS, но НЕ отдаём сырой список:
+  // после delete/move GAS ещё держит человека → UI «не удалилось».
   if (a === "getClients" && fast && params && params.day) {
     try {
       const counts = await getSnapRaw_(env, "weekDayCounts");
@@ -3373,8 +3402,21 @@ async function handleCutover_(a, params, env, ctx) {
       });
       const got = Array.isArray(fast.clients) ? fast.clients.length : -1;
       if (expect != null && got !== expect) {
+        const hasTomb = await dayHasFreshTombstone_(env, params.day);
+        // свежие удаления/переносы: D1 + tombstone важнее отстающего GAS
+        if (hasTomb) {
+          if (needGas && ctx && typeof ctx.waitUntil === "function") {
+            ctx.waitUntil(cutoverRevalidate_(a, params, env));
+          }
+          fast.cutover = true;
+          fast.swr = true;
+          fast.fromGas = false;
+          if (fast.sandbox === true) fast.sandbox = false;
+          return fast;
+        }
         const live = await gasProxy_(a, params, env, { write: false });
         if (live && live.status === "success") {
+          await sanitizeGasClientsPayload_(env, params.day, live);
           try {
             await cutoverStoreRead_(a, params, env, live);
           } catch (eStore) {}
@@ -3509,6 +3551,9 @@ async function handleCutover_(a, params, env, ctx) {
   try {
     const live = await gasProxy_(a, params, env, { write: false });
     if (live && typeof live === "object") {
+      if (a === "getClients" && params && params.day) {
+        await sanitizeGasClientsPayload_(env, params.day, live);
+      }
       live.cutover = true;
       live.fromGas = true;
       if (live.status === "success" && ctx && typeof ctx.waitUntil === "function") {
