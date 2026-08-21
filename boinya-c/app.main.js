@@ -5253,6 +5253,44 @@
       return s.toUpperCase().replace(/Ё/g, "Е");
     }
 
+    /** Личность клиента как в Code.gs clientMatchKey_: handle|кличка — две собаки одного IG не сливаются. */
+    function clientPersonKey_(raw) {
+      var display = String(raw || "").replace(/\s+/g, " ").trim();
+      if (!display) return "";
+      if (display.indexOf("|") >= 0) {
+        var pipe = display.split("|");
+        var ph = String(pipe[0] || "").toUpperCase().replace(/Ё/g, "Е").replace(/[._]/g, "");
+        var pd = String(pipe[1] || "").toUpperCase().replace(/Ё/g, "Е").replace(/[._\s]+/g, "");
+        return pd ? (ph + "|" + pd) : ph;
+      }
+      var at = display.match(/@([A-Za-z0-9._]{2,})/);
+      var handle = "";
+      if (at) handle = at[1];
+      else {
+        var cleaned = display.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s*\b(АФК|ПП|БП|Р)\b\s*/gi, " ").replace(/\s+/g, " ").trim();
+        var toks = cleaned.split(/\s+/);
+        for (var i = 0; i < toks.length; i++) {
+          var t = toks[i].replace(/^[.,;:]+|[.,;:]+$/g, "");
+          if (/^[A-Za-z0-9._]{3,}$/.test(t) && /[A-Za-z]/.test(t)) { handle = t; break; }
+        }
+      }
+      var base = handle || display.replace(/\s*\b(АФК|ПП|БП|Р)\b\s*/gi, " ").replace(/\s+/g, " ").trim();
+      var key = String(base || "").toUpperCase().replace(/Ё/g, "Е");
+      if (handle || /^[A-Z0-9._]+$/i.test(base)) key = key.replace(/[._]/g, "");
+      if (handle) {
+        var esc = String(handle).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        var mAfter = display.match(new RegExp("@?" + esc + "\\s+(.+)$", "i"));
+        var dog = mAfter ? String(mAfter[1] || "").trim() : "";
+        dog = dog.replace(/\s*\b(АФК|ПП|БП|Р)\b\s*/gi, " ").replace(/\s+/g, " ").trim();
+        if (dog && dog.length <= 24 &&
+            !/доставк|напис|уточн|втор(ая|ой)|через|европочт/i.test(dog) &&
+            /[а-яА-ЯёЁA-Za-z0-9]/.test(dog)) {
+          key = key + "|" + dog.toUpperCase().replace(/Ё/g, "Е").replace(/[._\s]+/g, "");
+        }
+      }
+      return key;
+    }
+
     function segmentToOrderType_(seg) {
       var s = String(seg || "").trim().toUpperCase();
       if (!s) return "";
@@ -8291,7 +8329,11 @@
           routePlanState.routes = [[], []];
           return;
         }
-        courierClientsCache = res.clients;
+        courierClientsCache = (res.clients || []).map(function (c) {
+          if (!c) return c;
+          if (!c.matchKey) c.matchKey = clientPersonKey_(c.name) || "";
+          return c;
+        });
         courierClientsCache._date = res.date || day;
         courierClientsCache._day = day;
         refreshCourierSummary();
@@ -8469,8 +8511,12 @@
         showToast("Уже отмечен доставленным");
         return;
       }
+      // снимок личности ДО await: после диалога кэш/индексы могут смениться
+      var targetName = String(client.name || "").trim();
+      var targetMk = String(client.matchKey || "").trim() || clientPersonKey_(targetName) || "";
+      var targetRef = client;
       var reason = await uiChoiceAsync(
-        "Не получил · " + client.name,
+        "Не получил · " + targetName,
         "Коротко: почему не вручили? Менеджер получит задачу на перенос.",
         [
           { label: "Не открыл / не дома", value: "не дома", cls: "btn-orange" },
@@ -8501,12 +8547,12 @@
         var body = {
           action: "notifyMissedDelivery",
           telegramId: tid,
-          client: client.name,
+          client: targetName,
           day: day,
           date: courierClientsCache._date || "",
           reason: reason,
           segment: client.segment || "",
-          matchKey: client.matchKey || "",
+          matchKey: targetMk,
           basket: client.basket || [],
           address: client.address || "",
           phone: client.phone || "",
@@ -8528,7 +8574,16 @@
           return;
         }
         try {
-          courierClientsCache.splice(index, 1);
+          var rmAt = -1;
+          for (var ri = 0; ri < (courierClientsCache || []).length; ri++) {
+            var rc = courierClientsCache[ri];
+            if (!rc) continue;
+            if (rc === targetRef) { rmAt = ri; break; }
+            var rmk = String(rc.matchKey || "").trim() || clientPersonKey_(rc.name) || "";
+            if (targetMk && rmk && targetMk === rmk) { rmAt = ri; break; }
+            if (String(rc.name || "").trim() === targetName) { rmAt = ri; break; }
+          }
+          if (rmAt >= 0) courierClientsCache.splice(rmAt, 1);
           refreshCourierSummary();
           renderCourierClientsUi_();
         } catch (eUi) {}
@@ -8546,7 +8601,7 @@
             id: xferId,
             mode: "transfer",
             title: "Перенос · не получил",
-            clientNick: client.name,
+            clientNick: targetName,
             status: "open",
             payload: {
               mode: "transfer",
@@ -8554,23 +8609,21 @@
               reason: reason,
               day: day,
               date: courierClientsCache._date || "",
-              client: client.name,
-              matchKey: client.matchKey || "",
+              client: targetName,
+              matchKey: targetMk,
               segment: client.segment || "",
               basket: client.basket || [],
               createdByName: myName
             }
           };
-          var wantKey = "";
-          try { wantKey = viewClientKey(client.name || client.matchKey || ""); } catch (eK) {}
           deferredCache = [xferItem].concat((deferredCache || []).filter(function (it) {
             if (!it || String(it.id) === String(xferId)) return false;
             var m = deferredItemMode_(it);
             if (m === "buy" || m === "remind" || m === "partner") return true;
             var nick = String(it.clientNick || (it.payload && (it.payload.client || it.payload.clientNick)) || it.client || "");
-            var key = "";
-            try { key = viewClientKey(nick); } catch (eN) {}
-            if (wantKey && key && wantKey === key) return false;
+            var pmk = String((it.payload && it.payload.matchKey) || "").trim() || clientPersonKey_(nick) || "";
+            if (targetMk && pmk && targetMk === pmk) return false;
+            if (nick && nick === targetName) return false;
             return true;
           }));
           deferredCacheAt = Date.now();
