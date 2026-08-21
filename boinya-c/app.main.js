@@ -7144,7 +7144,30 @@
         }
         showToast(res.alreadyGone ? "Уже удалено" : "Удалено");
         try { afterPeopleMutationDays_([day]); } catch (eMut) {}
+        // оптимистично убрать из локального списка до рефетча
+        try {
+          loadedClientsRawData = (loadedClientsRawData || []).filter(function (c) {
+            return !nicksMatchClient_(c && c.name, client.name);
+          });
+        } catch (eOpt) {}
         await refreshDayViews(day, { force: true });
+        try {
+          var still = (loadedClientsRawData || []).some(function (c) {
+            return nicksMatchClient_(c && c.name, client.name);
+          });
+          if (still) {
+            await apiGet(deleteClientParams(client.name, day, client.matchKey || viewClientKey(client.name) || ""), {
+              timeoutMs: 45000,
+              cacheTtlMs: 0
+            });
+            try { afterPeopleMutationDays_([day]); } catch (e2) {}
+            await refreshDayViews(day, { force: true });
+            still = (loadedClientsRawData || []).some(function (c) {
+              return nicksMatchClient_(c && c.name, client.name);
+            });
+            if (still) showToast("Удаление не закрепилось — обновите список");
+          }
+        } catch (eVer) {}
       } catch (err) {
         await uiAlertAsync(err.message || String(err));
       } finally {
