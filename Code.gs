@@ -17144,9 +17144,22 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (src === 'other' && calendarRowPrice_(row) > 0) src = 'retail';
     out.bySource[src] = (out.bySource[src] || 0) + 1;
     var price = calendarRowPrice_(row);
-    if (!(price > 0) && src !== 'bp') out.missingPrice++;
-    out.revenueBySource[src] = Math.round(((out.revenueBySource[src] || 0) + price) * 100) / 100;
-    out.revenueActual += price;
+    // ПП N=2: одна и та же месячная ЦЕНА часто стоит на 1-й и 2-й доставке —
+    // в выручку берём max по клиенту за месяц, не сумму (иначе ×2).
+    var revenueAdd = price;
+    if (src === "pp" && ck) {
+      var prevPpPrice = Number(out.ppPriceByKey[ck]) || 0;
+      if (price > prevPpPrice) {
+        revenueAdd = Math.round((price - prevPpPrice) * 100) / 100;
+        out.ppPriceByKey[ck] = price;
+      } else {
+        revenueAdd = 0;
+      }
+    } else if (src !== "bp" && !(price > 0)) {
+      out.missingPrice++;
+    }
+    out.revenueBySource[src] = Math.round(((out.revenueBySource[src] || 0) + revenueAdd) * 100) / 100;
+    out.revenueActual += revenueAdd;
     var bask = row.basket;
     if ((!bask || !bask.length) && row.basketJson) {
       try { bask = JSON.parse(String(row.basketJson)); } catch (eB2) { bask = []; }
@@ -17178,7 +17191,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     out.costActual += costWithAll;
     if (src === 'pp' && ck) {
       out.ppDeliveredKeys[ck] = true;
-      out.ppPriceByKey[ck] = Math.round(((out.ppPriceByKey[ck] || 0) + price) * 100) / 100;
+      // ppPriceByKey уже max выше
       out.ppBasketCost = Math.round(((out.ppBasketCost || 0) + product) * 100) / 100;
       out.ppDeliveryCost = Math.round(((out.ppDeliveryCost || 0) + deliveryFee) * 100) / 100;
       out.ppLightCost = Math.round(((out.ppLightCost || 0) + lightFee) * 100) / 100;
@@ -17202,6 +17215,11 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (seenKeys[bk]) continue;
     ingestRow_(bookByKey[bk]);
   }
+  // ПП без цены ни на одной доставке месяца
+  for (var ppMiss in out.ppDeliveredKeys) {
+    if (!out.ppDeliveredKeys.hasOwnProperty(ppMiss)) continue;
+    if (!(Number(out.ppPriceByKey[ppMiss]) > 0)) out.missingPrice++;
+  }
   out.revenueActual = Math.round(out.revenueActual * 100) / 100;
   out.costActual = Math.round(out.costActual * 100) / 100;
   out.productCost = Math.round((out.productCost || 0) * 100) / 100;
@@ -17222,7 +17240,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   return out;
 }
 
-/** Сколько реально «вышло» с ПП: [ЦЕНА] по доставкам, иначе fact с листа при paid=yes. */
+/** Сколько реально «вышло» с ПП: [ЦЕНА] раз на клиента/месяц (не сумма слотов), иначе fact с листа при paid=yes. */
 function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
   var out = {
     actual: 0,
@@ -17250,7 +17268,7 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
     return true;
   }
 
-  // 1) суммы [ЦЕНА] по клиентам ПП
+  // 1) месячная [ЦЕНА] по клиентам ПП (уже max за месяц в collectMonthCalendarStats_)
   for (var pk in priceByKey) {
     if (!priceByKey.hasOwnProperty(pk)) continue;
     var p = Number(priceByKey[pk]) || 0;

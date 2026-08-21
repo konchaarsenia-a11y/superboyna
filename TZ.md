@@ -1,3 +1,4 @@
+- [~] **Статистика ПП ×2 2026-08-21:** выручка ПП — max цены за клиента/месяц, не сумма 1-й+2-й (цена часто на обеих доставках) · **нужен Deploy Code.gs**
 - [~] **Просмотр тип + календарь 2026-08-21:** save пишет segment/source в D1; бейдж типа из resolve; числа календаря = список Просмотра (не сырой Календарь/пустой fromWeekSheet) · Pages `v=71115848` · **Worker Deploy** · **Deploy Code.gs**
 - [~] **Запись в никуда / лист ПП 2026-08-20:** Worker LIVE по умолчанию (без cutover больше не врёт sandbox-успех); POST body через text; sandbox write → error; getClients в doPost; wait GAS 14с · Pages `v=71115847` · **обязателен Worker Deploy** · **Deploy Code.gs** (getClients POST)
 - [~] **Перенос «успех» но на месте 2026-08-20:** protect не воскрешает tombstone; tombstone 20м; move удаляет все дубли + idempotent re-apply; UI verify old/new · Pages `v=71115846` · **обязателен Worker Deploy**
