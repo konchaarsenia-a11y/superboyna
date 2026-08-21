@@ -17255,7 +17255,11 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (seenKeys[bk]) continue;
     ingestRow_(bookByKey[bk]);
   }
-  // ПП без цены ни на одной доставке — missing; paid=no учитывается в collectPpActualOut_
+  // ПП без цены ни на одной доставке месяца
+  for (var ppMiss in out.ppDeliveredKeys) {
+    if (!out.ppDeliveredKeys.hasOwnProperty(ppMiss)) continue;
+    if (!(Number(out.ppPriceByKey[ppMiss]) > 0)) out.missingPrice++;
+  }
   out.revenueActual = Math.round(out.revenueActual * 100) / 100;
   out.costActual = Math.round(out.costActual * 100) / 100;
   out.productCost = Math.round((out.productCost || 0) * 100) / 100;
@@ -19252,6 +19256,7 @@ function handleGetStats(json, callback, fromPost) {
         clientsCounted: ppOut.clientsCounted,
         clientsMissingPrice: ppOut.clientsMissingPrice,
         clientsUnpaid: ppOut.clientsUnpaid || 0,
+        clientsPaidYes: ppOut.clientsPaidYes || 0,
         clientsDelivered: month.ppClientsDelivered
       }
     },
