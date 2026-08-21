@@ -17174,7 +17174,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (src === 'other' && calendarRowPrice_(row) > 0) src = 'retail';
     out.bySource[src] = (out.bySource[src] || 0) + 1;
     var price = calendarRowPrice_(row);
-    // ПП: выручку в календарный оборот не кладём — только подтверждённая оплата (collectPpActualOut_)
+    // ПП: в календарный оборот не кладём (иначе ×N слотов) — раз через collectPpActualOut_ (max/мес)
     var revenueAdd = 0;
     if (src === "pp" && ck) {
       var prevPpPrice = Number(out.ppPriceByKey[ck]) || 0;
@@ -17255,7 +17255,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (seenKeys[bk]) continue;
     ingestRow_(bookByKey[bk]);
   }
-  // ПП без цены / без оплаты — не в missingPrice (в статистику только paid=yes → collectPpActualOut_)
+  // ПП без цены ни на одной доставке — missing; paid=no учитывается в collectPpActualOut_
   out.revenueActual = Math.round(out.revenueActual * 100) / 100;
   out.costActual = Math.round(out.costActual * 100) / 100;
   out.productCost = Math.round((out.productCost || 0) * 100) / 100;
@@ -17276,7 +17276,9 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   return out;
 }
 
-/** Выручка ПП: только подтверждённая оплата (paid=yes). Без «да» — не в статистику. */
+/** Выручка ПП за месяц: max [ЦЕНА] на клиента (не сумма слотов).
+ *  В статистику НЕ идёт только явный отказ paid=no.
+ *  paid=yes / ещё не спрашивали / пусто — считаем цену с календаря (или fact). */
 function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
   var out = {
     actual: 0,
@@ -17284,7 +17286,8 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
     fromPaidCycle: 0,
     clientsCounted: 0,
     clientsMissingPrice: 0,
-    clientsUnpaid: 0
+    clientsUnpaid: 0,
+    clientsPaidYes: 0
   };
   var byKey = (ppStats && ppStats.byKey) || {};
   var priceByKey = (monthCal && monthCal.ppPriceByKey) || {};
@@ -17305,19 +17308,21 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
     return true;
   }
 
-  function isPaidYes_(ck) {
+  function paidStatus_(ck) {
     var ent = cycleStore[ck];
-    if (!ent || typeof ent !== "object") return false;
-    return String(ent.paid || "").toLowerCase() === "yes";
+    if (!ent || typeof ent !== "object") return "";
+    return String(ent.paid || "").toLowerCase();
   }
 
-  // только paid=yes: цена с календаря (max) или fact с листа ПП
+  // доставленные ПП: один раз max цена; paid=no — мимо
   for (var ck in delivered) {
     if (!delivered.hasOwnProperty(ck)) continue;
-    if (!isPaidYes_(ck)) {
+    var st = paidStatus_(ck);
+    if (st === "no") {
       out.clientsUnpaid++;
       continue;
     }
+    if (st === "yes") out.clientsPaidYes++;
     var p = Number(priceByKey[ck]) || 0;
     var fact = byKey[ck] ? Number(byKey[ck].fact) || 0 : 0;
     var amt = p > 0 ? p : fact;
@@ -17332,16 +17337,17 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
     mark_(ck);
   }
 
-  // paid=yes без доставки в календаре (редко) — всё равно fact
+  // paid=yes без строки доставки в календаре — fact с листа
   for (var ck2 in cycleStore) {
     if (!cycleStore.hasOwnProperty(ck2)) continue;
-    if (!isPaidYes_(ck2)) continue;
+    if (paidStatus_(ck2) !== "yes") continue;
     if (counted[ck2]) continue;
     if (delivered[ck2]) continue;
     var fact2 = byKey[ck2] ? Number(byKey[ck2].fact) || 0 : 0;
     if (!(fact2 > 0)) continue;
     out.fromPaidCycle += fact2;
     out.actual += fact2;
+    out.clientsPaidYes++;
     mark_(ck2);
   }
 
@@ -19075,7 +19081,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS16:" + monthKey;
+  var cacheKey = "STATS17:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -19110,7 +19116,7 @@ function handleGetStats(json, callback, fromPost) {
   // —— Факт через приложение (календарь/брони, уже прошедшие даты) ——
   var retail = Number(month.retailRevenue) || 0;
   var partner = Number(month.partnerRevenue) || 0;
-  // ПП — только подтверждённая оплата (paid=yes)
+  // ПП — max цена/мес; явный paid=no не считаем
   var ppActual = Number(ppOut.actual) || 0;
   var calTurnover = Math.round((ppActual + retail + partner) * 100) / 100;
   var bpSpend = Number(month.bpCost) || 0;
