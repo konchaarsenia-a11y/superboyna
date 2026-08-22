@@ -6910,9 +6910,15 @@
         await uiAlertAsync("Нет исходной даты для переноса");
         return false;
       }
-      var pickedDate = await uiPickMoveDate(clientName, oldDate);
-      if (!pickedDate) return false;
-      var target = await resolveMoveTargetFromDate_(pickedDate);
+      var pickedDate = opts.pickedDate ? String(opts.pickedDate).trim() : "";
+      if (!pickedDate) {
+        pickedDate = await uiPickMoveDate(clientName, oldDate);
+        if (!pickedDate) return false;
+      }
+      var target = opts.target || null;
+      if (!target || !target.newDate) {
+        target = await resolveMoveTargetFromDate_(pickedDate);
+      }
       if (!target || !target.newDate) {
         await uiAlertAsync("Не удалось определить дату");
         return false;
@@ -6931,9 +6937,9 @@
       var cutLabel = calendarOnly
         ? (target.newDate + (oldDay ? (" · с «" + oldDay + "»") : "") + " · календарь")
         : (target.newDate + (newDay ? (" · " + newDay) : ""));
-      var cutRaw = "yes";
+      var cutRaw = opts.cutRaw != null ? String(opts.cutRaw) : "";
 
-      if (!dateOnly) {
+      if (!cutRaw && !dateOnly) {
         var cutP = openModal(
           '<div class="modal-title">Перенос клиента</div>' +
           '<div class="modal-text">Перенос <b>' + escapeHtml(clientName) + '</b> → <b>' + escapeHtml(cutLabel) + '</b>.<br><br>' +
@@ -6956,6 +6962,7 @@
         cutRaw = await cutP;
         if (!cutRaw) return false;
       }
+      if (!cutRaw) cutRaw = "yes";
       try {
         var res = await apiGet({
           action: "moveClient",
@@ -6977,6 +6984,7 @@
 
         // cutover: главное — человек на новом дне; старый лист GAS может отставать
         if (!calendarOnly && !dateOnly && oldDay && newDay && oldDay !== newDay) {
+          var moveTrusted = !!(res && (res.d1Verified || res.alreadyMoved) && res.status === "success");
           async function clientOnDay_(dayName) {
             try {
               var chk = await apiGet({
@@ -6997,7 +7005,7 @@
           }
           var onOld = await clientOnDay_(oldDay);
           var onNew = await clientOnDay_(newDay);
-          if (!onNew) {
+          if (!onNew && !moveTrusted) {
             try {
               await apiGet({
                 action: "moveClient",
@@ -7030,13 +7038,15 @@
             onOld = await clientOnDay_(oldDay);
             onNew = await clientOnDay_(newDay);
           }
-          if (!onNew) {
+          if (!onNew && !moveTrusted) {
             await uiAlertAsync(
               "Перенос не закрепился: «" + clientName + "» нет на «" + newDay + "». Сохрани/перенеси ещё раз."
             );
             return false;
           }
-          if (onOld) {
+          if (!onNew && moveTrusted) {
+            showToast("Перенос отправлен — список «" + newDay + "» обновится через минуту");
+          } else if (onOld) {
             showToast("На «" + oldDay + "» ещё виден в листе — обновится через минуту");
           }
         }
@@ -8676,79 +8686,35 @@
       }, 0);
       var go = await modalP;
       if (go !== "go") return;
-      var pickedDate = await uiPickMoveDate(it.clientNick || p.client || "", p.dateIso || p.date || "");
-      if (!pickedDate) return;
-      var target = await resolveMoveTargetFromDate_(pickedDate);
-      if (!target || !target.newDate) {
-        await uiAlertAsync("Не удалось определить дату");
-        return;
-      }
-      var cutRaw = "yes";
-      var cutP = openModal(
-        '<div class="modal-title">Перенос клиента</div>' +
-        '<div class="modal-text">Перенос <b>' + escapeHtml(it.clientNick || p.client || "") +
-        '</b> → <b>' + escapeHtml(target.newDate + (target.newDay ? (" · " + target.newDay) : " · календарь")) +
-        '</b>.<br><br>Нарезать сырьё на этого клиента в новом дне вместе со всеми?</div>' +
-        '<div class="modal-actions">' +
-          '<button class="btn-action btn-orange" type="button" id="modalCutYes">Да, резать</button>' +
-          '<button class="btn-action btn-blue" type="button" id="modalCutNo">Нет — только перенос</button>' +
-          '<button class="btn-action" type="button" id="modalCancel" style="background:#3a3a3c;">Отмена</button>' +
-        "</div>"
-      );
-      setTimeout(function () {
-        var y = document.getElementById("modalCutYes");
-        var n = document.getElementById("modalCutNo");
-        var c = document.getElementById("modalCancel");
-        if (y) y.onclick = function () { closeModal("yes"); };
-        if (n) n.onclick = function () { closeModal("no"); };
-        if (c) c.onclick = function () { closeModal(null); };
-      }, 0);
-      cutRaw = await cutP;
-      if (!cutRaw) return;
-      var placeRes = null;
-      try {
-        placeRes = await apiGet({
-          action: "placeTransferTask",
-          telegramId: tid,
-          id: id,
-          newDate: target.newDate,
-          newDay: target.newDay || "",
-          cutRaw: cutRaw === "yes" ? "1" : "0",
-          _: String(Date.now())
-        }, { timeoutMs: 45000, cacheTtlMs: 0 });
-      } catch (ePl) {}
-      if (placeRes && placeRes.status === "success") {
-        try {
-          apiCacheBustMem_("getClients");
-          apiCacheBustMem_("getViewCompare");
-          apiCacheBustMem_("getMonthOverview");
-          apiCacheBustMem_("getCourier");
-          apiCacheBustMem_("listDeferred");
-        } catch (eClr) {}
-        deferredCacheAt = 0;
-        try { renderTasksDrawer(true); } catch (eR) {}
-        showToast("Перенесено на " + (placeRes.newDate || target.newDate));
-        return;
-      }
       var moved = await performViewClientMove_({
         name: it.clientNick || p.client || "",
         matchKey: p.matchKey || "",
         oldDay: p.day || "",
         oldDate: p.dateIso || p.date || ""
       });
-      if (moved) {
-        try {
-          await apiGet({
-            action: "cancelDeferred",
-            telegramId: tid,
-            id: id,
-            _: String(Date.now())
-          }, { timeoutMs: 15000, cacheTtlMs: 0 });
-        } catch (eCan) {}
-        deferredCacheAt = 0;
-        try { renderTasksDrawer(true); } catch (eR) {}
-        showToast("Перенос готов");
-      }
+      if (!moved) return;
+      try {
+        await apiGet({
+          action: "placeTransferTask",
+          telegramId: tid,
+          id: id,
+          newDate: (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "",
+          newDay: (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) || "",
+          cutRaw: "1",
+          _: String(Date.now())
+        }, { timeoutMs: 20000, cacheTtlMs: 0 });
+      } catch (ePl) {}
+      try {
+        await apiGet({
+          action: "cancelDeferred",
+          telegramId: tid,
+          id: id,
+          _: String(Date.now())
+        }, { timeoutMs: 15000, cacheTtlMs: 0 });
+      } catch (eCan) {}
+      deferredCacheAt = 0;
+      try { renderTasksDrawer(true); } catch (eR) {}
+      showToast("Перенос готов");
     }
     window.openTransferTask_ = openTransferTask_;
 
