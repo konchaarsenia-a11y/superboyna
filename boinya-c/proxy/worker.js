@@ -3715,6 +3715,45 @@ async function handleCutover_(a, params, env, ctx) {
       }
     } catch (eCut) {}
   }
+  // Подписки CRM: пустой/битый snap или force=1 — сразу полный GAS (без sheet=),
+  // иначе UI кэширует «Пусто в ПП/АФК/БП» и soft больше не ходит в сеть.
+  {
+    const forceSubs =
+      a === "listSubscriptions" &&
+      (String((params && params.force) || "") === "1" ||
+        (params && (params.force === true || params.force === 1)));
+    const emptySubs =
+      a === "listSubscriptions" &&
+      (!fast ||
+        !Array.isArray(fast.subscriptions) ||
+        !fast.subscriptions.length);
+    if (forceSubs || emptySubs) {
+      try {
+        const liveSubs = await gasProxy_(
+          "listSubscriptions",
+          {},
+          env,
+          { write: false }
+        );
+        if (
+          liveSubs &&
+          liveSubs.status === "success" &&
+          Array.isArray(liveSubs.subscriptions) &&
+          liveSubs.subscriptions.length
+        ) {
+          try {
+            await cutoverStoreRead_("listSubscriptions", {}, env, liveSubs);
+          } catch (eSubStore) {}
+          liveSubs.cutover = true;
+          liveSubs.fromGas = true;
+          liveSubs.swr = true;
+          liveSubs.sandbox = false;
+          return liveSubs;
+        }
+      } catch (eSubLive) {}
+    }
+  }
+
   // склад / отложенные / просмотр без snap — подтянуть GAS
   if (
     fast &&
@@ -4273,6 +4312,72 @@ async function cutoverStoreRead_(a, params, env, payload) {
     await putSnap_(env, "listTemplates:" + params.kind, payload);
     return;
   }
+  if (a === "listSubscriptions") {
+    const sheetFilter = String((params && (params.sheet || params.segment)) || "").trim();
+    const incoming = Array.isArray(payload.subscriptions) ? payload.subscriptions : [];
+    let prevArr = [];
+    try {
+      const prev = await getSnapRaw_(env, "listSubscriptions");
+      prevArr = prev && Array.isArray(prev.subscriptions) ? prev.subscriptions : [];
+    } catch (ePrev) {
+      prevArr = [];
+    }
+    // Пустым ответом полный snap не затираем
+    if (!incoming.length && prevArr.length) return;
+    // Ответ с фильтром sheet=… — не класть как весь список (иначе ПП/АФК/БП пустеют)
+    if (sheetFilter) {
+      const sheetsSeen = Object.create(null);
+      incoming.forEach(function (s) {
+        const sh = String((s && s.sheet) || "").trim();
+        if (sh) sheetsSeen[sh] = 1;
+      });
+      const multiSheet = Object.keys(sheetsSeen).length > 1;
+      if (!multiSheet) {
+        // merge: заменить только этот sheet, остальное из prev
+        const keep = prevArr.filter(function (s) {
+          return String((s && s.sheet) || "").trim() !== sheetFilter;
+        });
+        const add = incoming.filter(function (s) {
+          const sh = String((s && s.sheet) || "").trim();
+          return !sh || sh === sheetFilter;
+        });
+        const merged = keep.concat(add);
+        if (!merged.length && prevArr.length) return;
+        if (merged.length < prevArr.length && add.length === 0) return;
+        await putSnap_(
+          env,
+          "listSubscriptions",
+          Object.assign({}, payload, {
+            subscriptions: merged,
+            count: merged.length,
+            sheet: "all",
+            mergedSheet: sheetFilter
+          })
+        );
+        return;
+      }
+    }
+    // Полный ответ короче prev больше чем вдвое — подозрительно, не затираем
+    if (prevArr.length >= 10 && incoming.length < Math.floor(prevArr.length * 0.5)) return;
+    await putSnap_(
+      env,
+      a,
+      Object.assign({}, payload, {
+        subscriptions: incoming,
+        count: incoming.length,
+        sheet: sheetFilter && Object.keys(
+          incoming.reduce(function (acc, s) {
+            const sh = String((s && s.sheet) || "").trim();
+            if (sh) acc[sh] = 1;
+            return acc;
+          }, Object.create(null))
+        ).length > 1
+          ? "all"
+          : payload.sheet || "all"
+      })
+    );
+    return;
+  }
   if (
     a.indexOf("list") === 0 ||
     a === "getCouriers" ||
@@ -4474,8 +4579,18 @@ function overlayWriteClientOnList_(list, params) {
 
 async function cutoverRevalidate_(a, params, env) {
   try {
-    const fresh = await gasProxy_(a, params, env, { write: false });
-    if (fresh && fresh.status === "success") await cutoverStoreRead_(a, params, env, fresh);
+    // listSubscriptions: всегда полный список в snap.
+    // UI/GAS с sheet=ПП|АФК|БП иначе перезаписывают snap урезанным → другие вкладки «Пусто».
+    let p = params || {};
+    if (a === "listSubscriptions") {
+      p = Object.assign({}, p);
+      delete p.sheet;
+      delete p.segment;
+      delete p.force;
+      delete p._;
+    }
+    const fresh = await gasProxy_(a, p, env, { write: false });
+    if (fresh && fresh.status === "success") await cutoverStoreRead_(a, p, env, fresh);
   } catch (e) {}
 }
 

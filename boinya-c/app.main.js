@@ -15951,58 +15951,87 @@
       var wantSheet = subsSegment;
       if (!window._subsBySheet) window._subsBySheet = Object.create(null);
       var cachedSheet = window._subsBySheet[wantSheet];
-      if (!force && cachedSheet && cachedSheet.loaded) {
+      // Пустой кэш НЕ считаем loaded — иначе soft «Пусто в ПП/АФК/БП» навсегда
+      var cacheHasRows = !!(cachedSheet && cachedSheet.loaded && (cachedSheet.list || []).length);
+      if (!force && cacheHasRows) {
         window._subsListFull = cachedSheet.list || [];
         window._subsListSheet = wantSheet;
         renderSubsList();
         if (soft) return;
-      } else if (!force && window._subsListFull && window._subsListSheet === wantSheet && window._subsListLoadedSheet === wantSheet) {
+      } else if (
+        !force &&
+        window._subsListFull &&
+        window._subsListFull.length &&
+        window._subsListSheet === wantSheet &&
+        window._subsListLoadedSheet === wantSheet
+      ) {
         renderSubsList();
         if (soft) return;
       } else {
-        box.innerHTML = '<p class="muted">Загрузка…</p>';
+        if (box) box.innerHTML = '<p class="muted">Загрузка…</p>';
       }
+      // soft + пусто → всё равно сеть с force (оживляем после битого snap/кэша)
+      if (soft && !force && !cacheHasRows) force = true;
       try {
         if (force) {
           try { apiCacheBustMem_("listSubscriptions"); } catch (eMem) {}
         }
-        var params = {
-          action: "listSubscriptions",
-          sheet: wantSheet,
-          segment: wantSheet
-        };
-        if (force) params._ = String(Date.now());
+        // Полный список без sheet= — иначе Worker/GAS кладут урезанный snap
+        var params = { action: "listSubscriptions" };
+        if (force) {
+          params.force = "1";
+          params._ = String(Date.now());
+        }
         var res = await apiGet(params, {
-          timeoutMs: 22000,
-          cacheTtlMs: force ? 0 : 30000
+          timeoutMs: 28000,
+          cacheTtlMs: force ? 0 : 30000,
+          __boinyaNoSnap: !!force
         });
         if (seq !== _subsLoadSeq || wantSheet !== subsSegment) return;
         if (!res || res.status !== "success") {
-          if (!(cachedSheet && cachedSheet.loaded)) {
+          if (!(cachedSheet && cachedSheet.loaded && (cachedSheet.list || []).length)) {
             window._subsListFull = [];
             window._subsListCache = [];
             window._subsListSheet = "";
             var why = (res && (res.message || res.detail)) ? String(res.message || res.detail) : "нет ответа";
-            box.innerHTML = '<p class="muted">CRM: ' + escapeHtml(why) + '. Нужен Deploy Code.gs (v7.10.52+)</p>';
+            if (box) box.innerHTML = '<p class="muted">CRM: ' + escapeHtml(why) + '. Нужен Deploy Code.gs (v7.10.52+)</p>';
           }
           return;
         }
-        var list = (res.subscriptions || []).filter(function (s) {
-          return !wantSheet || s.sheet === wantSheet;
+        var allSubs = Array.isArray(res.subscriptions) ? res.subscriptions : [];
+        // Разложить по вкладкам сразу — переключение ПП/АФК/БП без повторного «Пусто»
+        ["ПП", "АФК", "БП"].forEach(function (sh) {
+          var rows = allSubs.filter(function (s) {
+            return String((s && s.sheet) || "") === sh;
+          });
+          if (sh === "БП") rows = groupBpSubscriptions_(rows);
+          if (rows.length) {
+            window._subsBySheet[sh] = { list: rows, at: Date.now(), loaded: true };
+          } else if (!(window._subsBySheet[sh] && (window._subsBySheet[sh].list || []).length)) {
+            // пустое — не loaded, чтобы soft снова сходил в сеть
+            window._subsBySheet[sh] = { list: [], at: Date.now(), loaded: false };
+          }
+        });
+        var list = allSubs.filter(function (s) {
+          return !wantSheet || String((s && s.sheet) || "") === wantSheet;
         });
         if (wantSheet === "БП") list = groupBpSubscriptions_(list);
         window._subsListFull = list;
         window._subsListSheet = wantSheet;
         window._subsListLoadedSheet = wantSheet;
-        window._subsBySheet[wantSheet] = { list: list, at: Date.now(), loaded: true };
+        window._subsBySheet[wantSheet] = {
+          list: list,
+          at: Date.now(),
+          loaded: list.length > 0
+        };
         renderSubsList();
       } catch (e) {
         if (seq !== _subsLoadSeq) return;
-        if (!(cachedSheet && cachedSheet.loaded)) {
+        if (!(cachedSheet && cachedSheet.loaded && (cachedSheet.list || []).length)) {
           window._subsListFull = [];
           window._subsListCache = [];
           window._subsListSheet = "";
-          box.innerHTML = '<p class="muted">Ошибка загрузки подписок. Deploy Code.gs v7.10.52+</p>';
+          if (box) box.innerHTML = '<p class="muted">Ошибка загрузки подписок. Deploy Code.gs v7.10.52+</p>';
         }
       }
     }
