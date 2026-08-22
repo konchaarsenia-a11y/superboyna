@@ -63,15 +63,6 @@
       from { opacity: 0; transform: translateY(8px); }
       to { opacity: 1; transform: none; }
     }
-    .hero {
-      display: flex; flex-direction: column; align-items: center;
-      gap: 10px; margin: 8px 0 6px; text-align: center;
-    }
-    .hero img.mark {
-      width: 140px; height: 140px; object-fit: contain;
-      border-radius: 22px;
-    }
-    .hero img.mark.sm { width: 72px; height: 72px; border-radius: 16px; }
     .brand {
       font-family: var(--display); font-size: 28px; letter-spacing: 0.04em;
       margin: 4px 0 0; text-align: center;
@@ -90,10 +81,6 @@
       min-height: 72vh;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       text-align: center; gap: 0;
-    }
-    .locked-screen .hero { margin: 0 0 8px; }
-    .locked-screen .hero img.mark {
-      width: 168px; height: 168px; border-radius: 28px;
     }
     .maint-sign {
       margin-top: 28px;
@@ -154,10 +141,6 @@
       opacity: 0.42; filter: grayscale(1); cursor: not-allowed;
       border-color: rgba(255,255,255,0.08);
     }
-    .loc .logo, .login-pick img {
-      width: 44px; height: 44px; border-radius: 12px; object-fit: cover;
-      background: #111; flex-shrink: 0; border: 1px solid var(--line);
-    }
     .loc .name { font-weight: 800; }
     .loc .addr, .login-pick .hint { display: block; color: var(--muted); font-size: 12px; font-weight: 500; margin-top: 3px; }
     .loc .badge-lock {
@@ -201,22 +184,13 @@
     .item .title { font-weight: 800; font-size: 15px; }
     .item .unit { color: var(--muted); font-size: 13px; margin-top: 2px; }
     .coupon-card {
+      display: flex; align-items: center; gap: 12px;
       background: linear-gradient(145deg, var(--bg2), #1a140f);
       border: 1px solid rgba(245,154,46,0.28);
       border-radius: 18px; padding: 12px; margin-bottom: 10px;
     }
     html[data-theme="light"] .coupon-card {
       background: linear-gradient(145deg, #fff, #f8efe3);
-    }
-    .coupon-banner, .coupon-preview {
-      width: 100%; border-radius: 12px; display: block; background: #111;
-      border: 1px solid rgba(245,154,46,0.25); object-fit: cover; margin-bottom: 10px;
-    }
-    .coupon-banner { aspect-ratio: 3 / 1; }
-    .coupon-preview { aspect-ratio: 16 / 9; }
-    .coupon-row {
-      display: flex; align-items: center; gap: 12px;
-      padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.12);
     }
     .stepper { display: flex; align-items: center; gap: 8px; }
     .stepper button {
@@ -252,10 +226,10 @@
     .qty-custom .u {
       font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap;
     }
-    .item.qty-item, .coupon-row.qty-item {
+    .item.qty-item, .coupon-card.qty-item {
       align-items: flex-start;
     }
-    .item.qty-item .meta, .coupon-row.qty-item .meta { padding-top: 2px; }
+    .item.qty-item .meta, .coupon-card.qty-item .meta { padding-top: 2px; }
 
     .field {
       width: 100%; background: var(--bg3); border: 1px solid var(--line);
@@ -325,11 +299,6 @@
       border-radius: 50%; background: var(--text); transition: left 0.15s;
     }
     .switch.on i { left: 21px; background: var(--accent); }
-    .pair {
-      display: flex; align-items: center; justify-content: center; gap: 12px; margin: 4px 0 10px;
-    }
-    .pair img { width: 56px; height: 56px; object-fit: contain; border-radius: 12px; }
-    .pair .x { color: var(--muted); font-weight: 700; opacity: 0.6; }
     .note {
       font-size: 12px; color: var(--muted); text-align: center; margin-top: 18px; line-height: 1.4;
     }
@@ -339,17 +308,11 @@
   <div class="wrap">
     <!-- Boot -->
     <div id="screenBoot" class="screen on">
-      <div class="hero">
-        <img class="mark" src="assets/goodboy-logo.png" alt="Good Boy">
-      </div>
       <p class="empty" id="bootMsg">Вход…</p>
     </div>
 
     <!-- Нет доступа -->
     <div id="screenLogin" class="screen">
-      <div class="hero">
-        <img class="mark" src="assets/goodboy-logo.png" alt="Good Boy">
-      </div>
       <div class="pill wrap-c">Партнёрское пополнение</div>
       <div class="sub" id="loginTgHint">Нет доступа. Напишите в Good Boy — выдадим точки в Бойне.</div>
     </div>
@@ -357,9 +320,6 @@
     <!-- Техработы (ручной режим) -->
     <div id="screenLocked" class="screen">
       <div class="locked-screen">
-        <div class="hero">
-          <img class="mark" src="assets/goodboy-logo.png" alt="Good Boy">
-        </div>
         <div class="maint-sign" aria-label="Технические работы">
           <div class="maint-glyph" aria-hidden="true">
             <svg viewBox="0 0 72 64" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -375,9 +335,6 @@
 
     <!-- Личный кабинет (главный экран после входа) -->
     <div id="screenHome" class="screen">
-      <div class="hero">
-        <img class="mark sm" src="assets/goodboy-logo.png" alt="Good Boy">
-      </div>
       <div class="session" id="sessionBar">
         <div>
           <div class="who" id="sessionWho">—</div>
@@ -411,11 +368,6 @@
 
     <!-- Каталог (шаг 1 заказа) -->
     <div id="screenOrder" class="screen">
-      <div class="pair" id="orderPair">
-        <img id="orderPartnerLogo" src="assets/goodboy-logo.png" alt="">
-        <span class="x">×</span>
-        <img src="assets/goodboy-logo.png" alt="Good Boy">
-      </div>
       <div class="toprow">
         <div>
           <div class="title" id="orderTitle" style="font-size:18px;">Заявка</div>
@@ -504,14 +456,12 @@
 
   <script>
 (function () {
-  var APP_VER = "3.2.2";
+  var APP_VER = "3.2.3";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
   var ME_CACHE_KEY = "gb_partner_me_v1";
   var SETTINGS_KEY = "gb_partner_settings_v2";
-  var COUPON_IMG = "assets/coupon-varka-goodboy.png";
-  var COUPON_BANNER = "assets/coupon-banner.png";
   // Owner Бойни — все точки; партнёр — Partner_Access. Точки с сервера.
   var OWNERS_ONLY_MODE_ = false;
   var REMOTE_IS_OWNER_ = false;
@@ -725,14 +675,6 @@
     });
     return out;
   }
-  function logoFor_(net) {
-    if (net && net.logo) return net.logo;
-    var label = String((net && net.name) || "?").slice(0, 10);
-    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" rx="40" fill="#1a1a1a"/><circle cx="128" cy="120" r="70" fill="#f59a2e"/><text x="128" y="130" text-anchor="middle" fill="#111" font-family="Arial" font-size="28" font-weight="700">' +
-      label.replace(/&/g,"&amp;").replace(/</g,"&lt;") + "</text></svg>";
-    return "data:image/svg+xml," + encodeURIComponent(svg);
-  }
-
   function buildMe_() {
     var net = netById_(DEMO_NETWORK);
     var pts = myPoints_();
@@ -998,11 +940,8 @@
         (REMOTE_IS_OWNER_ ? " · owner" : "") +
         " · v" + APP_VER;
     }
-    var img = document.getElementById("orderPartnerLogo");
-    var net = netById_(state.me.networkId);
-    if (img) { img.src = logoFor_(net); img.alt = (net && net.name) || ""; }
     var ot = document.getElementById("orderTitle");
-    if (ot) ot.textContent = (net ? net.name + " × Good Boy" : "Заявка");
+    if (ot) ot.textContent = "Заявка";
     show("screenHome");
   }
 
@@ -1043,11 +982,9 @@
     if (list.length === 1) ensurePoint_();
     box.innerHTML = '<div class="sub" style="text-align:left;margin:0 0 10px;">Доступно точек: <b>' +
       list.length + "</b></div>" + list.map(function (pt) {
-      var net = netById_(pt.networkId);
       var on = state.point && state.point.id === pt.id;
       return '<button class="loc" type="button" style="' +
         (on ? "border-color:var(--accent);" : "") + '" onclick="pickPointForOrder(\'' + esc(pt.id) + '\')">' +
-        '<img class="logo" src="' + logoFor_(net) + '" alt="">' +
         '<div><div class="name">' + esc(pt.name) + "</div>" +
         '<div class="addr">' + esc(pt.address || "") + "</div></div></button>";
     }).join("");
@@ -1239,24 +1176,14 @@
       var q = Number(state.cart[it.id]) || 0;
       var unit = unitFor_(it);
       var ste = renderQtyControls_(it, q);
-      // «г» у позиций не показываем — только число, если выбрано
       var selected = q ? (" · " + q + (unit && unit !== "г" ? (" " + unit) : "")) : "";
-      if (it.id === "vr_c_banner") {
-        return '<div class="coupon-card">' +
-          '<img class="coupon-banner" src="' + COUPON_BANNER + '" alt="">' +
-          '<div class="coupon-row qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
-          '</div><div class="unit">только 1 шт' + selected +
-          "</div></div>" + ste + "</div></div>";
-      }
-      if (it.type === "coupon") {
-        return '<div class="coupon-card">' +
-          '<img class="coupon-preview" src="' + COUPON_IMG + '" alt="">' +
-          '<div class="coupon-row qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
-          '</div><div class="unit">пресеты или своё' + selected +
-          "</div></div>" + ste + "</div></div>";
-      }
-      return '<div class="item qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
-        '</div><div class="unit">пресеты или своё' + selected + "</div></div>" + ste + "</div>";
+      var hint = it.id === "vr_c_banner"
+        ? "только 1 шт"
+        : (it.type === "coupon" ? "пресеты или своё" : "пресеты или своё");
+      var wrap = (it.type === "coupon" || it.id === "vr_c_banner") ? "coupon-card" : "item";
+      return '<div class="' + wrap + ' qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
+        '</div><div class="unit">' + hint + selected +
+        "</div></div>" + ste + "</div>";
     }).join("");
   }
 
