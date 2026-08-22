@@ -475,6 +475,194 @@ async function putSnap_(env, key, payload) {
     .run();
 }
 
+function deferredItemModeOf_(it) {
+  if (!it) return "";
+  var m = String(it.mode || "").trim().toLowerCase();
+  if (m) return m;
+  m = String((it.payload && it.payload.mode) || "").trim().toLowerCase();
+  if (m) return m;
+  var title = String(it.title || "");
+  if (/^перенос/i.test(title)) return "transfer";
+  return "";
+}
+
+function deferredItemIsProtectedTransfer_(it) {
+  if (!it) return false;
+  var st = String(it.status || "open").toLowerCase();
+  if (st && st !== "open") return false;
+  var m = deferredItemModeOf_(it);
+  if (m === "transfer") return true;
+  if (it.fromD1 && (it.payload && it.payload.parked)) return true;
+  if (it.payload && it.payload.parked && m !== "buy" && m !== "remind" && m !== "partner") return true;
+  return false;
+}
+
+function deferredTransferClientKey_(it) {
+  if (!it) return "";
+  var nick =
+    it.clientNick ||
+    it.client ||
+    (it.payload && (it.payload.client || it.payload.clientNick)) ||
+    "";
+  var mk = (it.payload && it.payload.matchKey) || it.matchKey || nick;
+  return normalizeMatchKey_(mk || nick);
+}
+
+/** Слить listDeferred: open transfer из D1 не убивать ответом GAS без них. */
+async function mergeListDeferredPayload_(env, payload) {
+  if (!payload || typeof payload !== "object") return null;
+  if (payload.status && payload.status !== "success") return null;
+  var incoming = Array.isArray(payload.items) ? payload.items.slice() : [];
+  var prevArr = [];
+  try {
+    var prev = await getSnapRaw_(env, "listDeferred");
+    prevArr = prev && Array.isArray(prev.items) ? prev.items : [];
+  } catch (ePrev) {
+    prevArr = [];
+  }
+  if (!incoming.length && !prevArr.length) {
+    return Object.assign({}, payload, { items: [], openCount: 0 });
+  }
+  // пустой GAS при непустом prev — не затираем
+  if (!incoming.length && prevArr.length) return null;
+
+  var byId = Object.create(null);
+  var xferKeys = Object.create(null);
+  incoming.forEach(function (it) {
+    if (!it) return;
+    if (it.id != null && String(it.id)) byId[String(it.id)] = it;
+    if (deferredItemIsProtectedTransfer_(it)) {
+      var k = deferredTransferClientKey_(it);
+      if (k) xferKeys[k] = true;
+    }
+  });
+
+  prevArr.forEach(function (it) {
+    if (!deferredItemIsProtectedTransfer_(it)) return;
+    var id = it && it.id != null ? String(it.id) : "";
+    var k = deferredTransferClientKey_(it);
+    if (id && byId[id]) {
+      var inc = byId[id];
+      var st = String((inc && inc.status) || "open").toLowerCase();
+      // явная отмена/закрытие из GAS — уважаем
+      if (st === "cancelled" || st === "canceled" || st === "done" || st === "closed") return;
+      return;
+    }
+    if (k && xferKeys[k]) return; // уже есть transfer на этого клиента
+    // вернуть D1-задачу, которую GAS «забыл»
+    var kept = Object.assign({}, it, { fromD1: true, keptFromD1: true });
+    incoming.unshift(kept);
+    if (id) byId[id] = kept;
+    if (k) xferKeys[k] = true;
+  });
+
+  var openCount = incoming.filter(function (it) {
+    return String((it && it.status) || "open").toLowerCase() === "open";
+  }).length;
+  return Object.assign({}, payload, {
+    status: "success",
+    items: incoming,
+    openCount: openCount,
+    mergedTransfers: true
+  });
+}
+
+/** Восстановить задачи переноса из недавно удалённых заказов (после затирания snap). */
+async function repairParkedTransfersFromOrders_(env) {
+  if (!env || !env.DB) return;
+  var since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  var q;
+  try {
+    q = await env.DB.prepare(
+      "SELECT day_name, client, match_key, basket_json, address, note, phone, segment, source, updated_at FROM orders WHERE status = 'deleted' AND updated_at >= ? ORDER BY updated_at DESC LIMIT 100"
+    )
+      .bind(since)
+      .all();
+  } catch (eQ) {
+    return;
+  }
+  var rows = (q && q.results) || [];
+  if (!rows.length) return;
+
+  var list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+  var items = Array.isArray(list.items) ? list.items.slice() : [];
+  var xferKeys = Object.create(null);
+  items.forEach(function (it) {
+    if (!deferredItemIsProtectedTransfer_(it)) return;
+    var k = deferredTransferClientKey_(it);
+    if (k) xferKeys[k] = true;
+  });
+
+  var activeKeys = Object.create(null);
+  try {
+    var aq = await env.DB.prepare(
+      "SELECT match_key, lower(client) AS cl FROM orders WHERE status = 'active'"
+    ).all();
+    ((aq && aq.results) || []).forEach(function (r) {
+      var mk = normalizeMatchKey_(r.match_key || r.cl || "");
+      if (mk) activeKeys[mk] = true;
+      var cl = normalizeMatchKey_(r.cl || "");
+      if (cl) activeKeys[cl] = true;
+    });
+  } catch (eA) {}
+
+  var added = 0;
+  var seen = Object.create(null);
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (!r) continue;
+    var nick = String(r.client || "").trim();
+    var mk = normalizeMatchKey_(r.match_key || nick);
+    if (!nick || !mk || seen[mk]) continue;
+    seen[mk] = true;
+    if (activeKeys[mk]) continue; // уже снова на дне
+    if (xferKeys[mk]) continue;
+    var basket = [];
+    try {
+      basket = JSON.parse(r.basket_json || "[]");
+    } catch (eB) {
+      basket = [];
+    }
+    if (!Array.isArray(basket)) basket = [];
+    var xferId = "xfer_repair_" + mk.slice(0, 24) + "_" + String(r.updated_at || "").slice(0, 10);
+    items.unshift({
+      id: xferId,
+      mode: "transfer",
+      title: "Перенос · восстановлен",
+      clientNick: nick,
+      status: "open",
+      fromD1: true,
+      repaired: true,
+      payload: {
+        mode: "transfer",
+        parked: true,
+        reason: "восстановлено после сбоя задач",
+        day: String(r.day_name || ""),
+        date: "",
+        client: nick,
+        matchKey: mk,
+        segment: String(r.segment || ""),
+        basket: basket,
+        address: String(r.address || ""),
+        phone: String(r.phone || ""),
+        note: String(r.note || ""),
+        createdByName: "system-repair"
+      }
+    });
+    xferKeys[mk] = true;
+    added++;
+  }
+  if (!added) return;
+  list.items = items;
+  list.status = "success";
+  list.openCount = items.filter(function (it) {
+    return String((it && it.status) || "open").toLowerCase() === "open";
+  }).length;
+  list.repairedTransfers = added;
+  list.fromD1 = true;
+  await putSnap_(env, "listDeferred", list);
+}
+
 async function delSnap_(env, key) {
   if (!env || !env.DB) return;
   await env.DB.prepare("DELETE FROM snap_cache WHERE cache_key = ?").bind(key).run();
@@ -2488,6 +2676,7 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
         title: "Перенос · не получил",
         clientNick: nick,
         status: "open",
+        fromD1: true,
         payload: {
           mode: "transfer",
           parked: true,
@@ -3754,6 +3943,67 @@ async function handleCutover_(a, params, env, ctx) {
     }
   }
 
+  // Переносы/задачи: force или пустой snap — GAS + merge D1.
+  // (snap с pp/remind но без transfer НЕ блокируем на GAS каждый раз — repair в фоне)
+  {
+    const forceDef =
+      a === "listDeferred" &&
+      (String((params && params.force) || "") === "1" ||
+        (params && (params.force === true || params.force === 1)));
+    const snapXferN =
+      a === "listDeferred" && fast && Array.isArray(fast.items)
+        ? fast.items.filter(function (it) {
+            return deferredItemIsProtectedTransfer_(it);
+          }).length
+        : 0;
+    const emptyDef =
+      a === "listDeferred" &&
+      (!fast || !Array.isArray(fast.items) || !fast.items.length);
+    if (forceDef || emptyDef) {
+      try {
+        await repairParkedTransfersFromOrders_(env);
+      } catch (eRep0) {}
+      try {
+        const liveDef = await gasProxy_("listDeferred", params || {}, env, { write: false });
+        if (liveDef && liveDef.status === "success") {
+          const mergedDef = await mergeListDeferredPayload_(env, liveDef);
+          if (mergedDef) {
+            try {
+              await putSnap_(env, "listDeferred", mergedDef);
+            } catch (eDefStore) {}
+            mergedDef.cutover = true;
+            mergedDef.fromGas = true;
+            mergedDef.swr = true;
+            mergedDef.sandbox = false;
+            return mergedDef;
+          }
+        }
+      } catch (eDefLive) {}
+      try {
+        const after = await getSnapRaw_(env, "listDeferred");
+        if (after && Array.isArray(after.items) && after.items.length) {
+          after.cutover = true;
+          after.fromD1 = true;
+          after.swr = true;
+          after.sandbox = false;
+          return after;
+        }
+      } catch (eAfter) {}
+    } else if (a === "listDeferred" && snapXferN === 0 && ctx && typeof ctx.waitUntil === "function") {
+      // в фоне: восстановить transfer из deleted orders + merge GAS, не тормозя UI
+      ctx.waitUntil(
+        (async function () {
+          try {
+            await repairParkedTransfersFromOrders_(env);
+          } catch (eR) {}
+          try {
+            await cutoverRevalidate_("listDeferred", params || {}, env);
+          } catch (eV) {}
+        })()
+      );
+    }
+  }
+
   // склад / отложенные / просмотр без snap — подтянуть GAS
   if (
     fast &&
@@ -4310,6 +4560,14 @@ async function cutoverStoreRead_(a, params, env, payload) {
   }
   if (a === "listTemplates" && params.kind) {
     await putSnap_(env, "listTemplates:" + params.kind, payload);
+    return;
+  }
+  if (a === "listDeferred") {
+    // Критично: GAS/SWR без tid или до дописки строки затирали D1-задачи mode=transfer.
+    // Клиента уже сняли с дня («Не получил») → человек «просто пропал».
+    payload = await mergeListDeferredPayload_(env, payload);
+    if (!payload) return;
+    await putSnap_(env, "listDeferred", payload);
     return;
   }
   if (a === "listSubscriptions") {

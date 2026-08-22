@@ -21996,6 +21996,10 @@ function handleListDeferred_(json, callback, fromPost) {
     var targetTid = String(payloadFull.targetTelegramId || payloadFull.forTelegramId || "").trim();
     var modeRow = String(data[r][3] || "").trim().toLowerCase();
     var visible = (ownerTid === tid) || (targetTid && targetTid === tid);
+    // Worker cutover без tid раньше отфильтровывал ВСЕ transfer → D1 snap затирал задачи переноса
+    if (!tid && (modeRow === "transfer" || modeRow === "buy" || modeRow === "partner")) {
+      visible = true;
+    }
     // переносы (не получил доставку) — видят manager/owner
     if (!visible && (modeRow === "transfer" || modeRow === "buy" || modeRow === "partner")) {
       try {

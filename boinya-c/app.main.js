@@ -17975,8 +17975,9 @@
       try { document.body.classList.add("tasks-open"); } catch (eBody2) {}
       try { loadReminderPeople_(); } catch (ePeop) {}
       renderTasksDrawer(false);
-      var stale = !deferredCacheAt || (Date.now() - deferredCacheAt) > 15000;
-      if (stale) renderTasksDrawer(true);
+      // всегда force при открытии — подтянуть/восстановить transfer после D1/GAS рассинхрона
+      try { deferredCacheAt = 0; } catch (eStale) {}
+      renderTasksDrawer(true);
 
       setTimeout(function () {
         try {

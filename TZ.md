@@ -1,3 +1,4 @@
+- [x] **Пропали из Переносов 2026-08-22:** «Не получил» снимал с дня, а SWR listDeferred затирал D1-задачи transfer → merge+repair из deleted orders · Pages `v=71115859` · Worker Deploy OK
 - [x] **Пусто в ПП/АФК/БП 2026-08-22:** soft-кэш пустого + snap listSubscriptions затирался `sheet=` → полный список; UI force при пусто; Worker merge/не затирать · Pages `v=71115858` · Worker Deploy OK
 - [x] **Перенос без ложного «не закрепился» 2026-08-22:** UI больше не блокирует после success; Pages `v=71115857`
 - [x] **Перенос без двойных диалогов 2026-08-22:** задача курьера → один раз дата+резать; D1 move + tombstone · Pages `v=71115856` · Worker Deploy OK
