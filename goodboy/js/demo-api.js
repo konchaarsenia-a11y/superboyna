@@ -9,7 +9,7 @@
   for (var i = 1; i <= 12; i++) {
     VAROK_LOCATIONS.push({
       id: "varok_" + i,
-      name: "Варок · точка " + i,
+      name: "VARKA · точка " + i,
       address: "Адрес уточняется",
       city: "Минск",
       active: true
@@ -38,14 +38,14 @@
       partnerSlug: "varok",
       eligible: hasPp,
       reason: hasPp ? "ok" : "need_pp",
-      title: "Скидка Варок",
-      offerText: "Условия скидки уточняются с сетью Варок",
+      title: "Скидка VARKA",
+      offerText: "Условия скидки уточняются с сетью VARKA",
       code: hasPp ? ("GB-" + String((link && link.matchKey) || "DEMO").slice(0, 6).toUpperCase()) : "",
       codeLabel: hasPp ? "Покажите код бариста" : "",
       validUntil: hasPp ? "сегодня" : "",
       howTo: [
         "Откройте карточку скидки в Goodboy",
-        "Покажите бариста в кофейне Варок",
+        "Покажите бариста в кофейне VARKA",
         "Скидка для активных подписчиков ПП (после согласования условий)"
       ],
       locations: VAROK_LOCATIONS
@@ -56,7 +56,7 @@
     return [{
       id: "varok",
       slug: "varok",
-      name: "Варок",
+      name: "VARKA",
       blurb: "12 кофеен в Минске — лакомства Бойни уже на витрине",
       locationsCount: 12
     }];

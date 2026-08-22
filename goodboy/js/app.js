@@ -120,7 +120,7 @@
       GBUI.render();
       GBUI.toast(res.link && res.link.clientNick ? "Привязано: " + res.link.clientNick : "Привязка обновлена");
       if (res.privilege && res.privilege.eligible) {
-        setTimeout(function () { GBUI.toast("Скидка Варок открыта"); }, 500);
+        setTimeout(function () { GBUI.toast("Скидка VARKA открыта"); }, 500);
       }
     });
   }
