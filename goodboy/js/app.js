@@ -4,6 +4,7 @@
   var wired = false;
 
   function applyBootstrap(payload, session) {
+    var prev = global.GBStore.get() || {};
     global.GBStore.set({
       demo: !!(payload && payload.demo) || ((global.GB_CONFIG && global.GB_CONFIG.mode) !== "live"),
       user: Object.assign({}, session.user, payload.user || {}),
@@ -14,9 +15,9 @@
       privilege: payload.privilege || null,
       link: payload.link || null,
       bootError: "",
-      page: "profile",
-      mapFilter: "all",
-      mapPlaceId: "p2"
+      page: prev.page || "profile",
+      mapFilter: prev.mapFilter || "all",
+      mapPlaceId: prev.mapPlaceId || "p2"
     });
     GBUI.render();
   }
@@ -205,7 +206,8 @@
 
   function start() {
     wire();
-    GBUI.setPage("profile");
+    var st = GBStore.get();
+    if (!st.page) GBStore.set({ page: "profile" });
     GBUI.render();
     bootstrap();
   }

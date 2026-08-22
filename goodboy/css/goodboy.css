@@ -625,6 +625,11 @@ body.mode-app.gb-site {
 
 .gb-cabinet .ps-kicker { color: #7fa890; }
 .gb-cabinet .ps-tip { margin-top: 0; }
+.gb-cabinet .ps-bar i { width: var(--w, 70%); }
+.gb-cabinet .cabinet-map .ps-pin {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
 .gb-cabinet .toast {
   bottom: calc(72px + var(--safe-b));
 }
