@@ -17062,6 +17062,61 @@ function calendarRowPrice_(row) {
   return 0;
 }
 
+/** Доп. доставки для статистики: лист недели, если в Календарь_Дат нет (или cancelled).
+ *  Галочка курьера / paid=yes не нужны — факт = человек стоит на дне. */
+function collectWeekSheetStatsFallback_(ss, monthKey, opts, seenKeys, ingestFn) {
+  opts = opts || {};
+  seenKeys = seenKeys || {};
+  if (typeof ingestFn !== "function") return 0;
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var todayIso = opts.todayIso || Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+  var onlyPast = opts.onlyPast === true;
+  var want = String(monthKey || opts.monthKey || "").slice(0, 7);
+  var days = MANAGER_DAY_NAMES_.concat(["Будущая неделя"]);
+  var added = 0;
+  for (var di = 0; di < days.length; di++) {
+    var dayName = days[di];
+    var dv = null;
+    try { dv = getDayDate_(ss, dayName); } catch (eD) { dv = null; }
+    if (!dv) continue;
+    var iso = Utilities.formatDate(dv, tz, "yyyy-MM-dd");
+    if (want && iso.slice(0, 7) !== want) continue;
+    if (onlyPast && iso > todayIso) continue;
+    var data = null;
+    try { data = getClientsData_(ss, dayName); } catch (eG) { data = null; }
+    if (!data || data.status !== "success" || !data.clients) continue;
+    for (var ci = 0; ci < data.clients.length; ci++) {
+      var c = data.clients[ci];
+      if (!c || !String(c.name || "").trim()) continue;
+      var ck = String(c.matchKey || "").trim() || clientMatchKey_(c.name) || String(c.name || "").toUpperCase();
+      var dedupe = iso + "|" + ck;
+      if (seenKeys[dedupe]) continue;
+      var basket = c.basket || [];
+      var priceProbe = { orderPrice: c.orderPrice, note: c.note || "" };
+      if (!(basket.length > 0) && !(calendarRowPrice_(priceProbe) > 0)) continue;
+      ingestFn({
+        client: c.name,
+        matchKey: ck,
+        dateIso: iso,
+        date: formatSheetDate(dv, tz),
+        segment: c.segment || "",
+        source: c.source || "",
+        basket: basket,
+        orderPrice: c.orderPrice,
+        note: c.note || "",
+        phone: c.phone || "",
+        ppPartner: c.ppPartner || "",
+        couponsQty: c.couponsQty,
+        couponPrice: c.couponPrice,
+        status: "planned",
+        fromWeekSheet: true
+      });
+      added++;
+    }
+  }
+  return added;
+}
+
 function collectMonthCalendarStats_(ss, monthKey, opts) {
   opts = opts || {};
   var out = {
@@ -17255,6 +17310,14 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (seenKeys[bk]) continue;
     ingestRow_(bookByKey[bk]);
   }
+  var weekSheetAdded = 0;
+  try {
+    weekSheetAdded = collectWeekSheetStatsFallback_(ss, monthKey, {
+      todayIso: todayIso,
+      onlyPast: onlyPast,
+      monthKey: want
+    }, seenKeys, ingestRow_);
+  } catch (eWeekFb) { weekSheetAdded = 0; }
   // ПП без цены ни на одной доставке месяца
   for (var ppMiss in out.ppDeliveredKeys) {
     if (!out.ppDeliveredKeys.hasOwnProperty(ppMiss)) continue;
@@ -17277,6 +17340,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   out.fromIso = fromIso;
   out.toIso = toIso;
   out.onlyPast = onlyPast;
+  out.weekSheetFallback = weekSheetAdded || 0;
   return out;
 }
 
@@ -19085,7 +19149,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS17:" + monthKey;
+  var cacheKey = "STATS18:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -19235,6 +19299,7 @@ function handleGetStats(json, callback, fromPost) {
       bpDeliveries: month.bpDeliveries,
       missingPrice: month.missingPrice || 0,
       missingBasketCost: month.missingBasketCost || 0,
+      weekSheetFallback: Number(month.weekSheetFallback) || 0,
       byPartner: byPartner
     },
     byPartner: byPartner,

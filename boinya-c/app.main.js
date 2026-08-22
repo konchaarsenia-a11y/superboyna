@@ -13147,12 +13147,15 @@
       html += tile_("Затраты", costActual, "rgba(100,210,255,0.16)", "#64d2ff");
       html += tile_("Доставок", deliveries, "rgba(191,90,242,0.16)", "#bf5af2");
       html += "</div>";
+      var wsf = Number(fact.weekSheetFallback) || 0;
       html += '<div class="muted" style="font-size:12px;margin-top:12px;">ПП ' + (by.pp || 0) +
         " · БП " + (by.bp || 0) +
         " · розница " + (by.retail || 0) +
         " · партнёр-заказ " + (by.partner || 0) +
         ((by.other || 0) ? (" · прочее " + by.other) : "") +
+        (wsf ? (" · +лист " + wsf) : "") +
         "</div>";
+      html += '<div class="muted" style="font-size:11px;margin-top:6px;">Факт = календарь + лист недели. Галочка курьера не обязательна; у розницы «оплачено» не спрашиваем. ПП в деньги — если курьер не нажал «нет».</div>';
       html += "</div>";
 
       html += '<div class="card">';
