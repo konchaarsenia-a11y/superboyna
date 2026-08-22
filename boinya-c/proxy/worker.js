@@ -550,24 +550,39 @@ function dayForDateFromCounts_(counts, dateIso) {
   return "";
 }
 
-async function findOrderRow_(env, matchKey, day, dateIso) {
+async function findOrderRow_(env, matchKey, day, dateIso, clientName) {
   const mk = normalizeMatchKey_(matchKey);
   const mkLow = String(matchKey || "").trim().toLowerCase();
+  const clientLow = String(clientName || "").trim().toLowerCase();
+  let row = null;
   if (day) {
-    return env.DB.prepare(
+    row = await env.DB.prepare(
       "SELECT * FROM orders WHERE day_name = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?) LIMIT 1"
     )
-      .bind(day, mk, mkLow, mkLow)
+      .bind(day, mk, mkLow, mkLow || clientLow)
       .first();
-  }
-  if (dateIso) {
-    return env.DB.prepare(
+    if (!row && clientLow) {
+      row = await env.DB.prepare(
+        "SELECT * FROM orders WHERE day_name = ? AND status = 'active' AND lower(client) = ? LIMIT 1"
+      )
+        .bind(day, clientLow)
+        .first();
+    }
+  } else if (dateIso) {
+    row = await env.DB.prepare(
       "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?) LIMIT 1"
     )
-      .bind(dateIso, mk, mkLow, mkLow)
+      .bind(dateIso, mk, mkLow, mkLow || clientLow)
       .first();
+    if (!row && clientLow) {
+      row = await env.DB.prepare(
+        "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' AND lower(client) = ? LIMIT 1"
+      )
+        .bind(dateIso, clientLow)
+        .first();
+    }
   }
-  return null;
+  return row;
 }
 
 async function getClients_(params, env) {
@@ -2253,6 +2268,7 @@ async function moveClient_(params, env) {
   const matchKeyRaw = params.matchKey || client;
   const matchKey = normalizeMatchKey_(matchKeyRaw);
   const clientLow = client.trim().toLowerCase();
+  const mkLow = String(matchKeyRaw || "").trim().toLowerCase();
   const now = new Date().toISOString();
   const cutRaw = String(params.cutRaw == null ? "1" : params.cutRaw);
 
@@ -2261,10 +2277,10 @@ async function moveClient_(params, env) {
     if (r.onWeek && r.dayName) newDay = r.dayName;
   }
 
-  let row = await findOrderRow_(env, matchKeyRaw, oldDay, oldDate);
+  let row = await findOrderRow_(env, matchKeyRaw, oldDay, oldDate, client);
   // уже перенесён (повтор после store / retry) — не ошибка
   if (!row && newDay) {
-    const already = await findOrderRow_(env, matchKeyRaw, newDay, newDate);
+    const already = await findOrderRow_(env, matchKeyRaw, newDay, newDate, client);
     if (already) {
       try {
         await putDeleteTombstone_(env, oldDay, matchKey);
@@ -2299,16 +2315,16 @@ async function moveClient_(params, env) {
   else if (cutRaw === "1" || cutRaw === "yes") meta.noCut = false;
 
   const fromDay = oldDay || row.day_name || "";
-  // все дубли на старом дне — иначе один id уходит, второй «остаётся»
+  // удалить исходную строку по id — надёжнее OR по match_key
+  await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
+    .bind(now, row.id)
+    .run();
+  // все дубли на старом дне
   if (fromDay) {
     await env.DB.prepare(
-      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR lower(client) = ?)"
+      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?)"
     )
-      .bind(now, fromDay, matchKey, clientLow || String(row.client || "").toLowerCase())
-      .run();
-  } else {
-    await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
-      .bind(now, row.id)
+      .bind(now, fromDay, matchKey, mkLow, clientLow, String(row.client || "").toLowerCase())
       .run();
   }
   try {
@@ -2317,6 +2333,9 @@ async function moveClient_(params, env) {
 
   let toLabel = "(calendar)";
   if (newDay) {
+    try {
+      await clearTombstonesForMatch_(env, matchKey, newDay);
+    } catch (eClrPre) {}
     const info = await dayDateInfo_(env, newDay);
     const iso = newDate || info.iso || row.date_iso || "";
     const newId = newDay + ":" + matchKey;
@@ -2337,6 +2356,9 @@ async function moveClient_(params, env) {
       meta_json: JSON.stringify(meta)
     });
     toLabel = newDay;
+    try {
+      await clearTombstonesForMatch_(env, matchKey, newDay);
+    } catch (eClrT) {}
   } else if (newDate) {
     // календарь вне недели
     const newId = "CAL:" + matchKey + ":" + newDate;
@@ -2357,6 +2379,9 @@ async function moveClient_(params, env) {
       meta_json: JSON.stringify(meta)
     });
     toLabel = newDate;
+    try {
+      await clearTombstonesForMatch_(env, matchKey, "");
+    } catch (eClrTc) {}
   }
 
   await invalidateDays_(env, [fromDay, newDay].filter(Boolean));
@@ -2368,8 +2393,10 @@ async function moveClient_(params, env) {
     local: false,
     from: fromDay,
     to: toLabel,
+    newDay: newDay,
     newDate: newDate,
-    calendarOnly: !newDay && !!newDate
+    calendarOnly: !newDay && !!newDate,
+    d1Verified: true
   };
 }
 
@@ -2864,6 +2891,47 @@ function partnerBlockWrongPoint_(a, params) {
   return null;
 }
 
+/** GAS moveClient мог не успеть — если D1 уже перенёс, UI не должен видеть ошибку. */
+async function patchMoveWithD1_(params, proxied, env, d1Res) {
+  if (!proxied || proxied.status !== "success") {
+    if (d1Res && d1Res.status === "success") {
+      return Object.assign({}, d1Res, {
+        cutover: true,
+        sandbox: false,
+        d1Verified: true,
+        gasPending: true
+      });
+    }
+    return proxied;
+  }
+  if (!/^moveClient$/i.test(String((params && params.action) || "moveClient"))) return proxied;
+  if (d1Res && d1Res.status === "success") {
+    return Object.assign({}, proxied, {
+      newDay: proxied.newDay || d1Res.newDay || params.newDay || "",
+      newDate: proxied.newDate || d1Res.newDate || params.newDate || "",
+      d1Verified: true,
+      alreadyMoved: !!(proxied.alreadyMoved || d1Res.alreadyMoved)
+    });
+  }
+  const newDay = String((params && params.newDay) || "").trim();
+  const client = String((params && params.client) || "").trim();
+  if (!newDay || !client || !env || !env.DB) return proxied;
+  try {
+    const live = await getClients_({ day: newDay }, env);
+    const onNew = ((live && live.clients) || []).some(function (c) {
+      return nicksLooseMatch_(c && (c.name || c.client), client);
+    });
+    if (onNew) {
+      return Object.assign({}, proxied, {
+        d1Verified: true,
+        newDay: newDay,
+        newDate: params.newDate || proxied.newDate || ""
+      });
+    }
+  } catch (eChk) {}
+  return proxied;
+}
+
 /** GAS saveOrder может вернуть wrote:0/missed, хотя D1 уже записал — не ломать UI. */
 async function patchSaveWithD1_(params, proxied, env) {
   if (!proxied || proxied.status !== "success" || !env || !env.DB) return proxied;
@@ -3064,14 +3132,15 @@ async function handleCutover_(a, params, env, ctx) {
       );
     const isFastFlagWrite = /^(updateCutting|setDelivered|setAssembled|setPrinted)$/i.test(a);
     if (isFastPeopleWrite) {
+      let d1WriteRes = null;
       try {
         if (env && env.DB) {
           if (/^(saveOrder|saveBooking)$/i.test(a)) {
-            await saveOrder_(params, env, /^saveBooking$/i.test(a));
+            d1WriteRes = await saveOrder_(params, env, /^saveBooking$/i.test(a));
           } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
-            await deleteClient_(params, env);
+            d1WriteRes = await deleteClient_(params, env);
           } else if (/^moveClient$/i.test(a)) {
-            await moveClient_(params, env);
+            d1WriteRes = await moveClient_(params, env);
           } else if (/^notifyMissedDelivery$/i.test(a)) {
             await syncOpsWriteToD1_(a, params, env, {
               status: "success",
@@ -3079,7 +3148,9 @@ async function handleCutover_(a, params, env, ctx) {
             });
           }
         }
-      } catch (eOpt) {}
+      } catch (eOpt) {
+        d1WriteRes = { status: "error", message: String((eOpt && eOpt.message) || eOpt) };
+      }
       const gasP = gasProxy_(a, params, env, { write: true }).catch(function () {
         return null;
       });
@@ -3139,6 +3210,15 @@ async function handleCutover_(a, params, env, ctx) {
           proxied.status === "error" &&
           /gas_proxy_failed/i.test(String(proxied.message || ""))
         ) {
+          if (d1WriteRes && d1WriteRes.status === "success") {
+            return Object.assign({}, d1WriteRes, {
+              cutover: true,
+              sandbox: false,
+              d1Verified: true,
+              gasError: proxied.detail || proxied.message,
+              action: a
+            });
+          }
           return {
             status: "success",
             wrote: 1,
@@ -3149,7 +3229,32 @@ async function handleCutover_(a, params, env, ctx) {
             action: a
           };
         }
-        return partnerGuardOrRewrite_(a, params, await patchSaveWithD1_(params, proxied, env));
+        if (/^(saveOrder|saveBooking)$/i.test(a)) {
+          return partnerGuardOrRewrite_(a, params, await patchSaveWithD1_(params, proxied, env));
+        }
+        if (/^moveClient$/i.test(a)) {
+          return partnerGuardOrRewrite_(
+            a,
+            params,
+            await patchMoveWithD1_(params, proxied, env, d1WriteRes)
+          );
+        }
+        return partnerGuardOrRewrite_(a, params, proxied);
+      }
+      if (/^moveClient$/i.test(a) && d1WriteRes) {
+        if (d1WriteRes.status === "success") {
+          return Object.assign({}, d1WriteRes, {
+            cutover: true,
+            sandbox: false,
+            d1Verified: true,
+            optimistic: !gotGas,
+            action: a
+          });
+        }
+        return Object.assign({}, d1WriteRes, { cutover: true, sandbox: false, action: a });
+      }
+      if (/^(deleteClient|removeCalendarClient)$/i.test(a) && d1WriteRes && d1WriteRes.status === "success") {
+        return Object.assign({}, d1WriteRes, { cutover: true, sandbox: false, action: a });
       }
       if (/^(saveOrder|saveBooking)$/i.test(a)) {
         const alsoWeek =
@@ -3266,6 +3371,22 @@ async function handleCutover_(a, params, env, ctx) {
   }
   if (a === "getMonthOverview") {
     return cutoverGetMonthOverview_(params, env, ctx);
+  }
+  if (a === "getClients") {
+    const forceClientsEarly =
+      String((params && params.force) || "") === "1" ||
+      (params && (params.force === true || params.force === 1));
+    if (forceClientsEarly && params && params.day) {
+      const live = await getClients_(params, env);
+      if (live && typeof live === "object") {
+        live.cutover = true;
+        live.swr = true;
+        live.source = live.source || "d1";
+        live.force = true;
+        live.sandbox = false;
+        return live;
+      }
+    }
   }
   // listSurvey / week meta — тоже тяжёлые; D1+SWR
   if (a === "listSurvey") {
@@ -3996,6 +4117,19 @@ async function cutoverStoreRead_(a, params, env, payload) {
     let list = Array.isArray(payload.clients) ? payload.clients : [];
     list = await filterTombstonedClients_(env, params.day, list);
     payload = Object.assign({}, payload, { clients: list });
+    // после move/delete не заливать GAS на день-источник — иначе «призрак» на старом дне
+    const tomb = await getSnapRaw_(env, "deleteTombstones");
+    const freshTomb = ((tomb && tomb.items) || []).some(function (t) {
+      return t && String(t.day) === String(params.day) && Date.now() - Number(t.at || 0) < TOMBSTONE_MS;
+    });
+    if (freshTomb) {
+      await putSnap_(env, "clients:" + params.day, payload);
+      return;
+    }
+    if (payload._d1MoveKeep) {
+      await putSnap_(env, "clients:" + params.day, payload);
+      return;
+    }
     await replaceDayOrdersFromClients_(env, params.day, list);
     return;
   }
@@ -4418,16 +4552,21 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                 }
                 if (day && newDay && day === newDay) {
                   try {
-                    const live = await getClients_({ day: day }, env);
-                    const fromD1 = ((live && live.clients) || []).find(function (c) {
-                      return nicksLooseMatch_(c && (c.name || c.client), wantClient);
-                    });
+                    const rowD1 = await findOrderRow_(
+                      env,
+                      params.matchKey || wantClient,
+                      day,
+                      params.newDate || "",
+                      wantClient
+                    );
+                    const fromD1 = rowD1 ? clientFromRow_(rowD1) : null;
                     if (fromD1) {
                       list = list.filter(function (c) {
                         return !nicksLooseMatch_(c && (c.name || c.client), wantClient);
                       });
                       list = list.concat([fromD1]);
                       fresh.clients = list;
+                      fresh._d1MoveKeep = true;
                     }
                   } catch (eKeep) {}
                 }
@@ -4459,11 +4598,6 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                 try {
                   await deleteClient_(params, env);
                 } catch (eRedel) {}
-              }
-              if (/^moveClient$/i.test(a) && wantClient) {
-                try {
-                  await moveClient_(params, env);
-                } catch (eRemov) {}
               }
             }
           } catch (eG) {}
