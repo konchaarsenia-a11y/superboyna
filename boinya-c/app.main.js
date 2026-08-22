@@ -4311,6 +4311,9 @@
         } else if (isEdit && editDaySnap) {
           weekDayToSave = editDaySnap;
           dateOnWeek = true;
+        } else if (day) {
+          weekDayToSave = day;
+          dateOnWeek = true;
         }
 
         if (isEdit && editClientSnap) {
@@ -4577,7 +4580,8 @@
         }
 
         if (weekDayToSave && saveRes && saveRes.status === "success" &&
-            Number(saveRes.wrote || 0) === 0 && basketSnap.length > 0) {
+            Number(saveRes.wrote || 0) === 0 && basketSnap.length > 0 &&
+            !saveRes.verified && !saveRes.d1Verified && !saveRes.partial) {
           await uiAlertAsync(
             "Человек на листе есть, но состав не записался (" + basketSnap.length + " поз.).\n" +
             "Попробуй ещё раз или проверь названия продуктов.\n" +
@@ -4585,8 +4589,14 @@
           );
         } else if (weekDayToSave && saveRes && saveRes.status &&
             saveRes.status !== "success" && saveRes.status !== "sent" && saveRes.status !== "sent_opaque") {
-          await uiAlertAsync("Не удалось сохранить «" + clientName + "»: " + (saveRes.message || saveRes.status));
-          return;
+          if (saveRes.partial || saveRes.verified) {
+            showToast("Сохранено с предупреждением — лист Google может догнать через минуту");
+          } else {
+            await uiAlertAsync("Не удалось сохранить «" + clientName + "»: " + (saveRes.message || saveRes.status));
+            return;
+          }
+        } else if (weekDayToSave && saveRes && saveRes.partial) {
+          showToast("Состав в приложении ок · лист Google может отставать");
         }
 
         try { apiCacheBustMem_(); } catch (eClr) {}

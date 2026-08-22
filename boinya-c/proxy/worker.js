@@ -2864,6 +2864,49 @@ function partnerBlockWrongPoint_(a, params) {
   return null;
 }
 
+/** GAS saveOrder может вернуть wrote:0/missed, хотя D1 уже записал — не ломать UI. */
+async function patchSaveWithD1_(params, proxied, env) {
+  if (!proxied || proxied.status !== "success" || !env || !env.DB) return proxied;
+  const a = String((params && params.action) || "saveOrder");
+  if (!/^(saveOrder|saveBooking)$/i.test(a)) return proxied;
+  const basketLen = parseBasket_(params && params.basket).length;
+  const wrote = Number(proxied.wrote) || 0;
+  const missed = Array.isArray(proxied.missed) ? proxied.missed : [];
+  if (wrote > 0 && !missed.length) return proxied;
+  let day = String((params && params.day) || "").trim();
+  if (!day) {
+    const dateIso = String(
+      (params && (params.date || params.dateIso || params.deliveryDate)) || ""
+    ).trim();
+    if (dateIso) {
+      try {
+        const r = await resolveDay_({ date: dateIso }, env);
+        if (r && r.onWeek && r.dayName) day = r.dayName;
+      } catch (eRd) {}
+    }
+  }
+  if (!day) return proxied;
+  try {
+    const live = await getClients_({ day: day }, env);
+    const want = String((params && params.client) || "").trim();
+    const row = ((live && live.clients) || []).find(function (c) {
+      return nicksLooseMatch_(c && (c.name || c.client), want);
+    });
+    const gotLen = row && Array.isArray(row.basket) ? row.basket.length : 0;
+    if (gotLen > 0) {
+      return Object.assign({}, proxied, {
+        wrote: gotLen,
+        basketLen: basketLen || gotLen,
+        d1Verified: true,
+        verified: true,
+        gasSheetMissed: missed.length ? missed : undefined,
+        missed: wrote === 0 && missed.length ? missed : []
+      });
+    }
+  } catch (eD1) {}
+  return proxied;
+}
+
 function partnerGuardOrRewrite_(a, params, json) {
   if (!isPartnerArseniy_(params)) return json;
   if (a === "partnerGetMe") return partnerArseniyGetMe_(json);
@@ -3106,7 +3149,7 @@ async function handleCutover_(a, params, env, ctx) {
             action: a
           };
         }
-        return partnerGuardOrRewrite_(a, params, proxied);
+        return partnerGuardOrRewrite_(a, params, await patchSaveWithD1_(params, proxied, env));
       }
       if (/^(saveOrder|saveBooking)$/i.test(a)) {
         const alsoWeek =
