@@ -4412,11 +4412,20 @@
         async function ensureWeekWriteStuck_() {
           if (!weekDayToSave || !basketSnap.length) return saveRes;
           var chk = await verifyWeekBasket_();
-          if (chk && chk.match) {
+          if (chk && (chk.match || (chk.found && chk.len > 0))) {
             return {
               status: "success",
               wrote: chk.len,
               basketLen: basketSnap.length,
+              verified: true,
+              partial: !!(chk.found && !chk.match)
+            };
+          }
+          if (chk && chk.found && basketSnap.length === 0) {
+            return {
+              status: "success",
+              wrote: 0,
+              basketLen: 0,
               verified: true
             };
           }
@@ -4458,13 +4467,23 @@
               cacheTtlMs: 0
             });
           } catch (eG1) {}
-          await new Promise(function (r) { setTimeout(r, 800); });
+          await new Promise(function (r) { setTimeout(r, 1200); });
           chk = await verifyWeekBasket_();
-          if (chk && chk.match) {
+          if (chk && (chk.match || (chk.found && chk.len > 0))) {
             return {
               status: "success",
               wrote: chk.len,
               basketLen: basketSnap.length,
+              verified: true,
+              retried: true,
+              partial: !!(chk.found && !chk.match)
+            };
+          }
+          if (chk && chk.found && basketSnap.length === 0) {
+            return {
+              status: "success",
+              wrote: 0,
+              basketLen: 0,
               verified: true,
               retried: true
             };
@@ -6946,7 +6965,7 @@
           return false;
         }
 
-        // cutover: optimistic «успех» ≠ человек реально ушёл со старого дня
+        // cutover: главное — человек на новом дне; старый лист GAS может отставать
         if (!calendarOnly && !dateOnly && oldDay && newDay && oldDay !== newDay) {
           async function clientOnDay_(dayName) {
             try {
@@ -6968,7 +6987,7 @@
           }
           var onOld = await clientOnDay_(oldDay);
           var onNew = await clientOnDay_(newDay);
-          if (onOld || !onNew) {
+          if (!onNew) {
             try {
               await apiGet({
                 action: "moveClient",
@@ -6997,17 +7016,18 @@
               cutRaw: cutRaw === "yes" ? "1" : "0",
               matchKey: matchKey
             }); } catch (ePostM) {}
-            await new Promise(function (r) { setTimeout(r, 700); });
+            await new Promise(function (r) { setTimeout(r, 900); });
             onOld = await clientOnDay_(oldDay);
             onNew = await clientOnDay_(newDay);
           }
-          if (onOld || !onNew) {
+          if (!onNew) {
             await uiAlertAsync(
-              "Перенос не закрепился: «" + clientName + "» " +
-              (onOld ? "ещё на «" + oldDay + "»" : "нет на «" + newDay + "»") +
-              ". Сохрани/перенеси ещё раз."
+              "Перенос не закрепился: «" + clientName + "» нет на «" + newDay + "». Сохрани/перенеси ещё раз."
             );
             return false;
+          }
+          if (onOld) {
+            showToast("На «" + oldDay + "» ещё виден в листе — обновится через минуту");
           }
         }
 

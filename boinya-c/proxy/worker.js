@@ -3407,10 +3407,14 @@ async function handleCutover_(a, params, env, ctx) {
     }
   }
 
-  // Приёмка: если D1 count ≠ getWeekDayCounts — GAS, но НЕ отдаём сырой список:
-  // после delete/move GAS ещё держит человека → UI «не удалилось».
+  // Приёмка: если D1 count ≠ getWeekDayCounts — осторожно с GAS.
+  // got > expect = свежий save в D1 — НЕ подменять GAS (иначе UI «не закрепилось»).
+  // got < expect + tombstone = delete/move — D1 важнее.
   if (a === "getClients" && fast && params && params.day) {
     try {
+      const forceClients =
+        String((params && params.force) || "") === "1" ||
+        (params && (params.force === true || params.force === 1));
       const counts = await getSnapRaw_(env, "weekDayCounts");
       let expect = null;
       ((counts && counts.items) || []).forEach(function (it) {
@@ -3419,14 +3423,24 @@ async function handleCutover_(a, params, env, ctx) {
       const got = Array.isArray(fast.clients) ? fast.clients.length : -1;
       if (expect != null && got !== expect) {
         const hasTomb = await dayHasFreshTombstone_(env, params.day);
-        // свежие удаления/переносы: D1 + tombstone важнее отстающего GAS
-        if (hasTomb) {
+        // D1 впереди счётчика / force после save — источник правды D1, не отстающий лист
+        if (forceClients || got > expect || hasTomb) {
+          if (got > expect) {
+            try {
+              if (ctx && typeof ctx.waitUntil === "function") {
+                ctx.waitUntil(rebuildWeekCounts_(env));
+              } else {
+                await rebuildWeekCounts_(env);
+              }
+            } catch (eRc) {}
+          }
           if (needGas && ctx && typeof ctx.waitUntil === "function") {
             ctx.waitUntil(cutoverRevalidate_(a, params, env));
           }
           fast.cutover = true;
           fast.swr = true;
           fast.fromGas = false;
+          fast.source = fast.source || "d1";
           if (fast.sandbox === true) fast.sandbox = false;
           return fast;
         }
