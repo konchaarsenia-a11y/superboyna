@@ -75,23 +75,23 @@
   }
 
   function renderProfilePage(st, pet) {
-    var p = petView(pet);
     var hasPet = !!pet;
+    var p = hasPet ? pet : DEMO_PET;
     var sub = [p.breed, p.weightKg ? p.weightKg + " кг" : "", p.ageYears ? p.ageYears + " года" : ""]
       .filter(Boolean).join(" · ");
     var chips = petChips(p);
     var user = st.user || {};
     return (
       "<div class=\"cabinet-block\">" +
-        "<div class=\"cabinet-pet-hero\">" +
-          "<div class=\"ps-avatar cabinet-pet-avatar\">" + esc(petInitial(p.name)) + "</div>" +
-          "<div class=\"cabinet-pet-copy\">" +
-            "<h2>" + esc(p.name || "Добавьте питомца") + "</h2>" +
-            "<p>" + esc(hasPet ? sub : "Заполните карточку — подберём лакомства точнее") + "</p>" +
-          "</div>" +
-        "</div>" +
         (hasPet
-          ? "<div class=\"ps-stats cabinet-stats\">" +
+          ? "<div class=\"cabinet-pet-hero\">" +
+              "<div class=\"ps-avatar cabinet-pet-avatar\">" + esc(petInitial(p.name)) + "</div>" +
+              "<div class=\"cabinet-pet-copy\">" +
+                "<h2>" + esc(p.name) + "</h2>" +
+                "<p>" + esc(sub) + "</p>" +
+              "</div>" +
+            "</div>" +
+            "<div class=\"ps-stats cabinet-stats\">" +
               "<div><b>Вес</b><span>" + esc(p.weightKg ? p.weightKg + " кг" : "—") + "</span></div>" +
               "<div><b>Активность</b><span>" + esc(p.activity || "Высокая") + "</span></div>" +
               "<div><b>Рацион</b><span>" + esc(p.diet || p.allergies || "—") + "</span></div>" +
@@ -99,14 +99,25 @@
             "<div class=\"ps-chips\">" + chips.map(function (c) {
               return "<span>" + esc(c) + "</span>";
             }).join("") + "</div>"
-          : "<p class=\"cabinet-hint\">Пока демо-карточка Бима. Сохраните своего питомца ниже.</p>") +
+          : "<div class=\"cabinet-empty-pet\">" +
+              "<div class=\"ps-avatar cabinet-pet-avatar\">?</div>" +
+              "<h2>Добавьте питомца</h2>" +
+              "<p>Карточка помогает подобрать лакомства и вести подписку. Ниже — пример, как это выглядит.</p>" +
+            "</div>" +
+            "<div class=\"cabinet-demo-preview\" aria-label=\"Пример карточки\">" +
+              "<p class=\"cabinet-demo-label\">Пример</p>" +
+              "<div class=\"cabinet-pet-hero is-muted\">" +
+                "<div class=\"ps-avatar cabinet-pet-avatar\">" + esc(petInitial(DEMO_PET.name)) + "</div>" +
+                "<div class=\"cabinet-pet-copy\"><h2>" + esc(DEMO_PET.name) + "</h2><p>Корги · 12 кг · 3 года</p></div>" +
+              "</div>" +
+            "</div>") +
         "<div class=\"ps-tip\">" +
           "<b>Подсказка недели</b>" +
           "<span>После прогулки&nbsp;— 2&nbsp;шт сушёного лёгкого, не&nbsp;натощак.</span>" +
         "</div>" +
       "</div>" +
 
-      "<details class=\"cabinet-details\" id=\"petEditDetails\">" +
+      "<details class=\"cabinet-details\" id=\"petEditDetails\"" + (hasPet ? "" : " open") + ">" +
         "<summary>Редактировать питомца</summary>" +
         "<form id=\"petForm\" class=\"cabinet-form\">" +
           "<div class=\"field\"><label>Кличка</label><input name=\"name\" required placeholder=\"Бим\" autocomplete=\"off\" /></div>" +
@@ -225,7 +236,7 @@
       "<div class=\"cabinet-block\">" +
         "<div class=\"privilege-card\" id=\"privilegeCard\">" +
           "<p class=\"badge\">" + esc(pr.title || "Скидка VARKA") + "</p>" +
-          "<div class=\"code\">" + esc(code || "GB-DEMO") + "</div>" +
+          "<div class=\"code\">" + esc(code || "••••") + "</div>" +
           "<p class=\"hint\">" + esc(pr.offerText || "Для активных подписчиков ПП") + "</p>" +
           (pr.eligible
             ? "<button type=\"button\" class=\"btn cabinet-copy-btn\" id=\"copyPrivilege\">Скопировать код</button>"
@@ -273,6 +284,7 @@
     global.GBStore.set({ page: name });
     applyPageState(name);
     if (changed) {
+      GBUI.render();
       try { window.scrollTo(0, 0); } catch (e) {}
     }
   }
@@ -280,6 +292,9 @@
   function render() {
     var st = global.GBStore.get();
     var pet = global.GBStore.activePet();
+    var page = st.page || "profile";
+    var details = document.getElementById("petEditDetails");
+    var detailsOpen = details ? details.open : false;
 
     var demoEl = document.getElementById("demoBanner");
     if (demoEl) demoEl.style.display = st.demo ? "" : "none";
@@ -291,15 +306,19 @@
       meta.title = (st.user && st.user.name) || "Аккаунт";
     }
 
-    var pageProfile = document.getElementById("pageProfile");
-    var pageMap = document.getElementById("pageMap");
-    var pageSubscription = document.getElementById("pageSubscription");
-    var pagePartners = document.getElementById("pagePartners");
-
-    if (pageProfile) pageProfile.innerHTML = renderProfilePage(st, pet);
-    if (pageMap) pageMap.innerHTML = renderMapPage(st);
-    if (pageSubscription) pageSubscription.innerHTML = renderSubscriptionPage(st);
-    if (pagePartners) pagePartners.innerHTML = renderPartnersPage(st);
+    if (page === "profile") {
+      var pageProfile = document.getElementById("pageProfile");
+      if (pageProfile) pageProfile.innerHTML = renderProfilePage(st, pet);
+    } else if (page === "map") {
+      var pageMap = document.getElementById("pageMap");
+      if (pageMap) pageMap.innerHTML = renderMapPage(st);
+    } else if (page === "subscription") {
+      var pageSubscription = document.getElementById("pageSubscription");
+      if (pageSubscription) pageSubscription.innerHTML = renderSubscriptionPage(st);
+    } else if (page === "partners") {
+      var pagePartners = document.getElementById("pagePartners");
+      if (pagePartners) pagePartners.innerHTML = renderPartnersPage(st);
+    }
 
     var form = document.getElementById("petForm");
     if (form) {
@@ -315,7 +334,10 @@
     var linkPhone = document.getElementById("linkPhone");
     if (linkPhone && st.user && st.user.phone) linkPhone.value = st.user.phone;
 
-    applyPageState(st.page || "profile");
+    details = document.getElementById("petEditDetails");
+    if (details && detailsOpen) details.open = true;
+
+    applyPageState(page);
   }
 
   global.GBUI = {
