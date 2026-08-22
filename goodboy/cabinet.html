@@ -10,62 +10,51 @@
     <button type="button" class="btn" id="enterDemo">Открыть демо</button>
   </section>
 
-  <div id="cabinet" class="cabinet-shell">
-    <div class="cabinet-screen phone-screen" id="cabinetScreen" tabindex="0" aria-label="Кабинет GOOD BOY">
-      <div class="phone-status">
-        <span>9:41</span>
-        <span class="phone-status-dots" aria-hidden="true"></span>
+  <div id="cabinet" class="cabinet-app">
+    <header class="cabinet-header">
+      <div class="cabinet-header-brand">
+        <img src="assets/logo-mark-v3.png?v=087" width="28" height="28" alt="" />
+        <div>
+          <span class="cabinet-header-kicker">GOOD&nbsp;BOY</span>
+          <h1 class="cabinet-title" id="cabinetTitle">Профиль</h1>
+        </div>
       </div>
-      <div class="phone-brand">
-        <img src="assets/logo-mark-v3.png?v=087" width="22" height="22" alt="" />
-        <span>GOOD&nbsp;BOY</span>
-      </div>
+      <div class="cabinet-header-user" id="topMeta" title="Аккаунт">Гость</div>
+    </header>
 
-      <div class="phone-slides cabinet-slides">
-        <article class="phone-slide is-on" data-slide="0" id="slidePet" aria-label="Питомец"></article>
-        <article class="phone-slide" data-slide="1" id="slideDelivery" aria-label="Доставка"></article>
-        <article class="phone-slide" data-slide="2" id="slideCity" aria-label="Город"></article>
-        <article class="phone-slide" data-slide="3" id="slidePartners" aria-label="Партнёры"></article>
-      </div>
+    <main class="cabinet-pages" id="cabinetPages">
+      <section class="cabinet-page is-active" data-page="profile" id="pageProfile" aria-label="Профиль"></section>
+      <section class="cabinet-page" data-page="map" id="pageMap" aria-label="Карта"></section>
+      <section class="cabinet-page" data-page="subscription" id="pageSubscription" aria-label="Подписка"></section>
+      <section class="cabinet-page" data-page="partners" id="pagePartners" aria-label="Партнёры"></section>
+    </main>
 
-      <div class="phone-tabs cabinet-tabs" role="tablist" aria-label="Экраны кабинета">
-        <button type="button" class="is-on" data-tab="0" aria-label="Питомец"></button>
-        <button type="button" data-tab="1" aria-label="Доставка"></button>
-        <button type="button" data-tab="2" aria-label="Город"></button>
-        <button type="button" data-tab="3" aria-label="Партнёры"></button>
-      </div>
-    </div>
-  </div>
-
-  <div class="cabinet-overlay" id="petOverlay" hidden>
-    <div class="cabinet-overlay-card">
-      <button type="button" class="cabinet-overlay-close" id="petOverlayClose" aria-label="Закрыть">×</button>
-      <h2>Питомец</h2>
-      <p class="lead">Карточка — центр Goodboy.</p>
-      <form id="petForm">
-        <div class="field"><label>Кличка</label><input name="name" required placeholder="Бим" autocomplete="off" /></div>
-        <div class="field"><label>Порода</label><input name="breed" placeholder="Корги" /></div>
-        <div class="field"><label>Вес, кг</label><input name="weightKg" type="number" min="0" step="0.1" inputmode="decimal" /></div>
-        <div class="field"><label>Возраст, лет</label><input name="ageYears" type="number" min="0" step="0.5" inputmode="decimal" /></div>
-        <div class="field"><label>Аллергии / не ест</label><textarea name="allergies" rows="2" placeholder="Курица…"></textarea></div>
-        <div class="field"><label>Заметки</label><textarea name="notes" rows="2"></textarea></div>
-        <button type="submit" class="btn">Сохранить</button>
-      </form>
-    </div>
-  </div>
-
-  <div class="cabinet-overlay" id="linkOverlay" hidden>
-    <div class="cabinet-overlay-card">
-      <button type="button" class="cabinet-overlay-close" id="linkOverlayClose" aria-label="Закрыть">×</button>
-      <h2>Подписка</h2>
-      <p class="lead">Привязка к доставке Бойни — демо по телефону или нику.</p>
-      <div id="subDetail"></div>
-      <form id="linkForm" style="margin-top:16px;">
-        <div class="field"><label>Телефон</label><input id="linkPhone" name="phone" placeholder="+375…" inputmode="tel" /></div>
-        <div class="field"><label>Ник / Instagram</label><input id="linkNick" name="nick" placeholder="@nick" autocomplete="off" /></div>
-        <button type="submit" class="btn">Найти и привязать</button>
-      </form>
-    </div>
+    <nav class="cabinet-nav" role="tablist" aria-label="Разделы кабинета">
+      <button type="button" class="is-active" data-page="profile" role="tab" aria-selected="true">
+        <span class="cabinet-nav-ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.8"/><path d="M5 20c0-3.3 3.1-6 7-6s7 2.7 7 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </span>
+        <span class="cabinet-nav-label">Профиль</span>
+      </button>
+      <button type="button" data-page="map" role="tab" aria-selected="false">
+        <span class="cabinet-nav-ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 21s7-4.6 7-11a7 7 0 10-14 0c0 6.4 7 11 7 11z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="10" r="2.2" stroke="currentColor" stroke-width="1.8"/></svg>
+        </span>
+        <span class="cabinet-nav-label">Карта</span>
+      </button>
+      <button type="button" data-page="subscription" role="tab" aria-selected="false">
+        <span class="cabinet-nav-ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4 8h16v11a2 2 0 01-2 2H6a2 2 0 01-2-2V8z" stroke="currentColor" stroke-width="1.8"/><path d="M8 8V6a4 4 0 018 0v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </span>
+        <span class="cabinet-nav-label">Подписка</span>
+      </button>
+      <button type="button" data-page="partners" role="tab" aria-selected="false">
+        <span class="cabinet-nav-ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 15.8 7.2 18l.9-5.4-3.9-3.8 5.4-.8L12 3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="cabinet-nav-label">Партнёры</span>
+      </button>
+    </nav>
   </div>
 </div>
 

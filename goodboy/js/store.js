@@ -4,7 +4,9 @@
   var KEY = (global.GB_CONFIG && global.GB_CONFIG.storageKey) || "goodboy_v1";
   var state = {
     screen: "home",
-    tab: 0,
+    page: "profile",
+    mapFilter: "all",
+    mapPlaceId: "p2",
     demo: false,
     user: null,
     pets: [],

@@ -3,14 +3,6 @@
 
   var wired = false;
 
-  function reduced() {
-    try {
-      return global.matchMedia && global.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    } catch (e) {
-      return false;
-    }
-  }
-
   function applyBootstrap(payload, session) {
     global.GBStore.set({
       demo: !!(payload && payload.demo) || ((global.GB_CONFIG && global.GB_CONFIG.mode) !== "live"),
@@ -22,7 +14,9 @@
       privilege: payload.privilege || null,
       link: payload.link || null,
       bootError: "",
-      tab: 0
+      page: "profile",
+      mapFilter: "all",
+      mapPlaceId: "p2"
     });
     GBUI.render();
   }
@@ -97,7 +91,8 @@
       if (!found) pets.push(saved);
       GBStore.set({ pets: pets, activePetId: saved.id });
       GBUI.render();
-      GBUI.closeOverlay("petOverlay");
+      var details = document.getElementById("petEditDetails");
+      if (details) details.open = false;
       GBUI.toast("Питомец сохранён");
     });
   }
@@ -111,6 +106,11 @@
       return;
     }
     var st = GBStore.get();
+    var btn = ev.target.querySelector('button[type="submit"]');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Ищем…";
+    }
     GBApi.get({
       action: "gbLinkClient",
       telegramId: (st.user && st.user.telegramId) || "",
@@ -128,92 +128,70 @@
         user: Object.assign({}, st.user, { phone: phone || (st.user && st.user.phone) || "" })
       });
       GBUI.render();
-      GBUI.closeOverlay("linkOverlay");
       GBUI.toast(res.link && res.link.clientNick ? "Привязано: " + res.link.clientNick : "Привязка обновлена");
       if (res.privilege && res.privilege.eligible) {
         setTimeout(function () { GBUI.toast("Скидка VARKA открыта"); }, 500);
       }
+    }).finally(function () {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = (GBStore.get().link && GBStore.get().link.status === "linked")
+          ? "Обновить привязку" : "Найти и привязать";
+      }
     });
   }
 
-  function initCabinetTabs() {
-    var screen = document.getElementById("cabinetScreen");
-    var slides = document.querySelectorAll(".cabinet-slides .phone-slide");
-    var tabs = document.querySelectorAll(".cabinet-tabs [data-tab]");
-    if (!slides.length) return;
-
-    var i = Number((GBStore.get() || {}).tab) || 0;
-
-    function show(n) {
-      GBUI.setTab(n);
-      i = Number((GBStore.get() || {}).tab) || 0;
+  function copyPrivilegeCode() {
+    var st = GBStore.get();
+    var pr = st.privilege || {};
+    var code = pr.eligible && pr.code ? pr.code : "GB-DEMO";
+    function ok() { GBUI.toast("Код скопирован"); }
+    if (global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText) {
+      global.navigator.clipboard.writeText(code).then(ok).catch(function () {
+        GBUI.toast(code);
+      });
+    } else {
+      GBUI.toast(code);
     }
-
-    function next() { show(i + 1); }
-    function prev() { show(i - 1); }
-
-    tabs.forEach(function (t) {
-      t.addEventListener("click", function (e) {
-        e.preventDefault();
-        show(Number(t.getAttribute("data-tab")) || 0);
-      });
-    });
-
-    if (screen) {
-      var startX = 0;
-      var startY = 0;
-      var tracking = false;
-
-      screen.addEventListener("pointerdown", function (e) {
-        if (e.target.closest(".cabinet-overlay, .cabinet-overlay-card, button.ps-pet--btn, button.ps-card--btn")) return;
-        tracking = true;
-        startX = e.clientX;
-        startY = e.clientY;
-        try { screen.setPointerCapture(e.pointerId); } catch (err) {}
-      });
-
-      screen.addEventListener("pointerup", function (e) {
-        if (!tracking) return;
-        tracking = false;
-        var dx = e.clientX - startX;
-        var dy = e.clientY - startY;
-        if (Math.abs(dx) < 36 || Math.abs(dx) < Math.abs(dy)) return;
-        if (dx < 0) next();
-        else prev();
-      });
-
-      screen.addEventListener("keydown", function (e) {
-        if (e.key === "ArrowRight") next();
-        if (e.key === "ArrowLeft") prev();
-      });
-    }
-
-    show(i);
   }
 
-  function initOverlays() {
-    document.addEventListener("click", function (e) {
-      if (e.target.id === "openPetEdit" || e.target.closest("#openPetEdit")) {
-        GBUI.openOverlay("petOverlay");
+  function initNavigation() {
+    document.querySelectorAll(".cabinet-nav [data-page]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        GBUI.setPage(btn.getAttribute("data-page"));
+      });
+    });
+  }
+
+  function initDelegatedActions() {
+    var root = document.getElementById("gbAppShell") || document;
+    root.addEventListener("click", function (e) {
+      var filterBtn = e.target.closest("[data-map-filter]");
+      if (filterBtn) {
+        GBStore.set({ mapFilter: filterBtn.getAttribute("data-map-filter") });
+        GBUI.render();
+        return;
       }
-      if (e.target.id === "openLinkForm" || e.target.closest("#openLinkForm")) {
-        GBUI.openOverlay("linkOverlay");
+      var placeBtn = e.target.closest("[data-place]");
+      if (placeBtn) {
+        GBStore.set({ mapPlaceId: placeBtn.getAttribute("data-place") });
+        GBUI.render();
+        return;
       }
-      if (e.target.id === "petOverlayClose") GBUI.closeOverlay("petOverlay");
-      if (e.target.id === "linkOverlayClose") GBUI.closeOverlay("linkOverlay");
-      if (e.target.classList && e.target.classList.contains("cabinet-overlay") && !e.target.hidden) {
-        e.target.hidden = true;
+      if (e.target.id === "copyPrivilege" || e.target.closest("#copyPrivilege")) {
+        copyPrivilegeCode();
       }
+    });
+
+    root.addEventListener("submit", function (e) {
+      if (e.target && e.target.id === "petForm") savePetFromForm(e);
+      if (e.target && e.target.id === "linkForm") linkByPhone(e);
     });
   }
 
   function wire() {
     if (wired) return;
     wired = true;
-    var petForm = document.getElementById("petForm");
-    if (petForm) petForm.addEventListener("submit", savePetFromForm);
-    var linkForm = document.getElementById("linkForm");
-    if (linkForm) linkForm.addEventListener("submit", linkByPhone);
     var enterDemo = document.getElementById("enterDemo");
     if (enterDemo) {
       enterDemo.addEventListener("click", function () {
@@ -221,13 +199,13 @@
         bootstrap();
       });
     }
-    initOverlays();
-    initCabinetTabs();
+    initNavigation();
+    initDelegatedActions();
   }
 
   function start() {
     wire();
-    GBUI.setTab(0);
+    GBUI.setPage("profile");
     GBUI.render();
     bootstrap();
   }
