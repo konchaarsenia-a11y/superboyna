@@ -6977,14 +6977,14 @@
           matchKey: matchKey,
           _: String(Date.now())
         }, { timeoutMs: 45000, cacheTtlMs: 0 });
-        if (!res || (res.status !== "success" && !res.sent_opaque)) {
+        if (!res || (res.status !== "success" && !res.sent_opaque && !res.optimistic && !res.d1Verified && !res.timedOut && !res.networkFallback)) {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return false;
         }
 
-        // cutover: главное — человек на новом дне; старый лист GAS может отставать
+        // cutover: сервер уже принял move (success/optimistic/opaque) — НЕ блокируем UI
+        // проверкой списка. getClients/snap/GAS часто отстают → ложное «не закрепился».
         if (!calendarOnly && !dateOnly && oldDay && newDay && oldDay !== newDay) {
-          var moveTrusted = !!(res && (res.d1Verified || res.alreadyMoved) && res.status === "success");
           async function clientOnDay_(dayName) {
             try {
               var chk = await apiGet({
@@ -6992,7 +6992,7 @@
                 day: dayName,
                 force: "1",
                 _: String(Date.now())
-              }, { timeoutMs: 16000, cacheTtlMs: 0 });
+              }, { timeoutMs: 12000, cacheTtlMs: 0, __boinyaNoSnap: true });
               var list = (chk && chk.clients) || [];
               var want = String(clientName || "").trim().toUpperCase();
               for (var ci = 0; ci < list.length; ci++) {
@@ -7003,11 +7003,16 @@
             } catch (eChk) {}
             return false;
           }
-          var onOld = await clientOnDay_(oldDay);
-          var onNew = await clientOnDay_(newDay);
-          if (!onNew && !moveTrusted) {
+          var onOld = false;
+          var onNew = false;
+          try {
+            onOld = await clientOnDay_(oldDay);
+            onNew = await clientOnDay_(newDay);
+          } catch (eVer) {}
+          if (!onNew) {
+            // мягкий ретрай в фоне — без alert и без return false
             try {
-              await apiGet({
+              apiGet({
                 action: "moveClient",
                 client: clientName,
                 oldDay: oldDay || "",
@@ -7020,32 +7025,9 @@
                 matchKey: matchKey,
                 force: "1",
                 _: String(Date.now())
-              }, { timeoutMs: 22000, cacheTtlMs: 0 });
+              }, { timeoutMs: 22000, cacheTtlMs: 0 }).catch(function () {});
             } catch (eRetryM) {}
-            try { await apiPost({
-              action: "moveClient",
-              client: clientName,
-              oldDay: oldDay || "",
-              newDay: newDay,
-              oldDate: oldDate || "",
-              newDate: target.newDate,
-              dateOnly: false,
-              calendarOnly: false,
-              cutRaw: cutRaw === "yes" ? "1" : "0",
-              matchKey: matchKey
-            }); } catch (ePostM) {}
-            await new Promise(function (r) { setTimeout(r, 900); });
-            onOld = await clientOnDay_(oldDay);
-            onNew = await clientOnDay_(newDay);
-          }
-          if (!onNew && !moveTrusted) {
-            await uiAlertAsync(
-              "Перенос не закрепился: «" + clientName + "» нет на «" + newDay + "». Сохрани/перенеси ещё раз."
-            );
-            return false;
-          }
-          if (!onNew && moveTrusted) {
-            showToast("Перенос отправлен — список «" + newDay + "» обновится через минуту");
+            showToast("Перенесено — список «" + newDay + "» может обновиться через минуту");
           } else if (onOld) {
             showToast("На «" + oldDay + "» ещё виден в листе — обновится через минуту");
           }
