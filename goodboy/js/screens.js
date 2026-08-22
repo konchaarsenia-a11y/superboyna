@@ -315,12 +315,13 @@
     var linkPhone = document.getElementById("linkPhone");
     if (linkPhone && st.user && st.user.phone) linkPhone.value = st.user.phone;
 
-    setPage(st.page || "profile");
+    applyPageState(st.page || "profile");
   }
 
   global.GBUI = {
     toast: toast,
     setPage: setPage,
+    applyPageState: applyPageState,
     render: render,
     esc: esc,
     PAGES: PAGES
