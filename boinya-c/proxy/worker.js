@@ -731,6 +731,80 @@ async function getTransferTaskCutover_(params, env) {
   };
 }
 
+/** Поставить клиента на новый день из задачи переноса (клиент уже снят с листа). */
+async function placeTransferTaskD1_(params, env) {
+  const id = String((params && params.id) || "").trim();
+  if (!id) return { status: "error", message: "need_id", cutover: true };
+  const hit = await findDeferredSnapItem_(env, id);
+  if (!hit) return { status: "error", message: "not_found", cutover: true };
+  const st = String(hit.status || "open").toLowerCase();
+  if (st && st !== "open") return { status: "error", message: "not_open", cutover: true };
+
+  const p = hit.payload || {};
+  const client = String(hit.clientNick || p.client || p.clientNick || "").trim();
+  if (!client) return { status: "error", message: "no_client", cutover: true };
+  const matchKey = normalizeMatchKey_(p.matchKey || client);
+
+  let newDate = String(params.newDate || params.date || params.deliveryDate || "").trim();
+  let newDay = String(params.newDay || "").trim();
+  if (!newDate && newDay) {
+    const info = await dayDateInfo_(env, newDay);
+    newDate = info.iso || "";
+  }
+  if (!newDate) return { status: "error", message: "need_date", cutover: true };
+  if (!newDay) {
+    const r = await resolveDay_({ date: newDate }, env);
+    if (r.onWeek && r.dayName) newDay = r.dayName;
+  }
+
+  const cutRaw = !(
+    params.cutRaw === false ||
+    params.cutRaw === "0" ||
+    params.cutRaw === 0 ||
+    params.cutRaw === "false"
+  );
+  let note = String(p.note || "").trim();
+  note = note.replace(/\s*\[НЕ РЕЗАТЬ\]/gi, "").replace(/\s*\[РЕЗАТЬ\]/gi, "").trim();
+  note = (note ? note + " " : "") + (cutRaw ? "[РЕЗАТЬ]" : "[НЕ РЕЗАТЬ]");
+
+  const basket = Array.isArray(p.basket) ? p.basket : [];
+  const saveRes = await saveOrder_(
+    {
+      client: client,
+      matchKey: matchKey,
+      day: newDay,
+      date: newDate,
+      address: String(p.address || ""),
+      phone: String(p.phone || ""),
+      note: note,
+      basket: JSON.stringify(basket),
+      segment: String(p.segment || ""),
+      source: "transfer"
+    },
+    env,
+    false
+  );
+  if (!saveRes || saveRes.status !== "success") {
+    return Object.assign({}, saveRes || { status: "error", message: "save_failed" }, { cutover: true });
+  }
+
+  await deleteFromList_(env, "listDeferred", "items", params, "id");
+
+  return {
+    status: "success",
+    id: id,
+    client: client,
+    newDate: newDate,
+    newDay: newDay,
+    weekWritten: !!newDay,
+    parkedPlaced: true,
+    fromD1: true,
+    cutover: true,
+    sandbox: false,
+    wrote: saveRes.wrote || 1
+  };
+}
+
 async function delSnap_(env, key) {
   if (!env || !env.DB) return;
   await env.DB.prepare("DELETE FROM snap_cache WHERE cache_key = ?").bind(key).run();
@@ -3416,11 +3490,7 @@ async function handleCutover_(a, params, env, ctx) {
               id: "xfer_" + Date.now()
             });
           } else if (/^placeTransferTask$/i.test(a)) {
-            d1WriteRes = await deleteFromList_(env, "listDeferred", "items", params, "id");
-            if (d1WriteRes) {
-              d1WriteRes.cutover = true;
-              d1WriteRes.sandbox = false;
-            }
+            d1WriteRes = await placeTransferTaskD1_(params, env);
           }
         }
       } catch (eOpt) {
@@ -3513,6 +3583,19 @@ async function handleCutover_(a, params, env, ctx) {
             params,
             await patchMoveWithD1_(params, proxied, env, d1WriteRes)
           );
+        }
+        if (
+          /^placeTransferTask$/i.test(a) &&
+          d1WriteRes &&
+          d1WriteRes.status === "success"
+        ) {
+          return Object.assign({}, d1WriteRes, {
+            cutover: true,
+            sandbox: false,
+            optimistic: proxied.status !== "success",
+            gasError: proxied.status !== "success" ? proxied.message || proxied.status : "",
+            action: a
+          });
         }
         return partnerGuardOrRewrite_(a, params, proxied);
       }
