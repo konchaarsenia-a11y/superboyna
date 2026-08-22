@@ -504,7 +504,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.2.1";
+  var APP_VER = "3.2.2";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -812,6 +812,22 @@
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function fmtOrderDateShort_(raw) {
+    if (!raw) return "";
+    var s = String(raw).trim();
+    if (!s) return "";
+    var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return iso[3] + "." + iso[2];
+    if (/^\d{1,2}\.\d{1,2}/.test(s)) return s.split(/[,\s]/)[0];
+    try {
+      var d = new Date(s);
+      if (!isNaN(d.getTime())) {
+        return String(d.getDate()).padStart(2, "0") + "." + String(d.getMonth() + 1).padStart(2, "0");
+      }
+    } catch (e) {}
+    return s.split(" ")[0] || s;
   }
 
   function show(id) {
@@ -1334,8 +1350,9 @@
         var lines = (o.basket || []).map(function (b) {
           return esc(b.name) + " × " + b.qty + (b.unit && b.unit !== "г" ? (" " + b.unit) : "");
         }).join("<br>");
-        var eta = [o.deliverDateLabel, o.deliverTimeLabel].filter(Boolean).join(", ");
-        return '<div class="order"><div class="h"><span>' + esc(o.dateIso) + '</span><span class="badge">' +
+        var dateTxt = fmtOrderDateShort_(o.dateIso) || fmtOrderDateShort_(o.deliverDateIso) || "—";
+        var eta = o.deliverDateLabel || "";
+        return '<div class="order"><div class="h"><span>' + esc(dateTxt) + '</span><span class="badge">' +
           esc(statusRu_(o.status)) + '</span></div><div class="lines">' + lines +
           '</div><div class="h" style="margin-top:8px;"><span>' + esc(o.locationName) +
           '</span><span>бесплатно</span></div>' +
