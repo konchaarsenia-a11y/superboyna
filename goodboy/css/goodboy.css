@@ -279,3 +279,95 @@ h2 { font-size: 1.25rem; }
   padding: 28px 12px;
   color: var(--gb-muted);
 }
+
+/* —— Кабинет = макет телефона с главной —— */
+body.mode-app.gb-site {
+  background: #151a18;
+}
+.app.gb-cabinet {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 0;
+  min-height: 100dvh;
+}
+.gb-cabinet .gate {
+  min-height: 100dvh;
+  padding: 24px 16px calc(24px + var(--safe-b));
+}
+.cabinet-shell {
+  min-height: 100dvh;
+}
+.cabinet-screen.phone-screen {
+  aspect-ratio: unset;
+  min-height: 100dvh;
+  border-radius: 0;
+  max-width: 480px;
+  margin: 0 auto;
+  padding:
+    max(28px, env(safe-area-inset-top, 0px))
+    16px
+    max(12px, env(safe-area-inset-bottom, 0px));
+  background:
+    radial-gradient(80% 50% at 50% 0%, rgba(212,161,90,0.18), transparent 55%),
+    #151a18;
+  color: #ede8df;
+  touch-action: pan-y;
+}
+.cabinet-slides {
+  position: relative;
+  min-height: calc(100dvh - 132px);
+}
+.gb-cabinet .ps-kicker { color: #7fa890; }
+.ps-pet--btn,
+.ps-card--btn {
+  appearance: none;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.ps-card--btn {
+  display: grid;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(237,232,223,0.04);
+  border: 1px solid rgba(237,232,223,0.1);
+}
+.cabinet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: end center;
+  padding: 16px 16px calc(16px + var(--safe-b));
+  background: rgba(7, 7, 7, 0.72);
+  backdrop-filter: blur(6px);
+}
+.cabinet-overlay[hidden] { display: none !important; }
+.cabinet-overlay-card {
+  width: min(480px, 100%);
+  max-height: min(88dvh, 720px);
+  overflow: auto;
+  border-radius: 22px 22px 18px 18px;
+  padding: 18px 16px 20px;
+  background:
+    linear-gradient(160deg, rgba(232,165,75,0.12), transparent 40%),
+    #16120e;
+  border: 1px solid var(--gb-border);
+}
+.cabinet-overlay-close {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--gb-muted);
+  font-size: 1.6rem;
+  line-height: 1;
+  float: right;
+  cursor: pointer;
+  padding: 0 0 8px 8px;
+}
+.gb-cabinet .toast {
+  bottom: calc(24px + var(--safe-b));
+}

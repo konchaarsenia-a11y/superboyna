@@ -1,10 +1,5 @@
 <!-- Фрагмент кабинета: сайт и TG Mini App монтируют одно и то же -->
-<div class="app" id="gbAppShell">
-  <header class="topbar">
-    <h1 class="brand">Good<span>boy</span></h1>
-    <div class="top-meta" id="topMeta">…</div>
-  </header>
-
+<div class="app gb-cabinet" id="gbAppShell">
   <div id="demoBanner" class="demo-banner" style="display:none;">
     Черновик кабинета · демо-данные на этом устройстве
   </div>
@@ -15,27 +10,37 @@
     <button type="button" class="btn" id="enterDemo">Открыть демо</button>
   </section>
 
-  <div id="cabinet">
-    <section class="screen is-active" data-screen="home">
-      <div class="hero-pet" id="homeHero"></div>
-      <div class="panel" id="homeSub"></div>
-      <div class="panel" id="homePriv">
-        <div class="panel-row">
-          <div>
-            <div class="label">Скидка VARKA</div>
-            <div class="value">—</div>
-          </div>
-          <button type="button" class="btn" style="width:auto;padding:10px 14px;" data-go="privilege">Открыть</button>
-        </div>
+  <div id="cabinet" class="cabinet-shell">
+    <div class="cabinet-screen phone-screen" id="cabinetScreen" tabindex="0" aria-label="Кабинет GOOD BOY">
+      <div class="phone-status">
+        <span>9:41</span>
+        <span class="phone-status-dots" aria-hidden="true"></span>
       </div>
-      <div class="btn-row">
-        <button type="button" class="btn btn-ghost" data-go="pet">Карточка питомца</button>
-        <button type="button" class="btn btn-ghost" data-go="sub">Подписка</button>
+      <div class="phone-brand">
+        <img src="assets/logo-mark-v3.png?v=087" width="22" height="22" alt="" />
+        <span>GOOD&nbsp;BOY</span>
       </div>
-    </section>
 
-    <section class="screen" data-screen="pet">
-      <h1>Питомец</h1>
+      <div class="phone-slides cabinet-slides">
+        <article class="phone-slide is-on" data-slide="0" id="slidePet" aria-label="Питомец"></article>
+        <article class="phone-slide" data-slide="1" id="slideDelivery" aria-label="Доставка"></article>
+        <article class="phone-slide" data-slide="2" id="slideCity" aria-label="Город"></article>
+        <article class="phone-slide" data-slide="3" id="slidePartners" aria-label="Партнёры"></article>
+      </div>
+
+      <div class="phone-tabs cabinet-tabs" role="tablist" aria-label="Экраны кабинета">
+        <button type="button" class="is-on" data-tab="0" aria-label="Питомец"></button>
+        <button type="button" data-tab="1" aria-label="Доставка"></button>
+        <button type="button" data-tab="2" aria-label="Город"></button>
+        <button type="button" data-tab="3" aria-label="Партнёры"></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="cabinet-overlay" id="petOverlay" hidden>
+    <div class="cabinet-overlay-card">
+      <button type="button" class="cabinet-overlay-close" id="petOverlayClose" aria-label="Закрыть">×</button>
+      <h2>Питомец</h2>
       <p class="lead">Карточка — центр Goodboy.</p>
       <form id="petForm">
         <div class="field"><label>Кличка</label><input name="name" required placeholder="Бим" autocomplete="off" /></div>
@@ -46,50 +51,22 @@
         <div class="field"><label>Заметки</label><textarea name="notes" rows="2"></textarea></div>
         <button type="submit" class="btn">Сохранить</button>
       </form>
-    </section>
+    </div>
+  </div>
 
-    <section class="screen" data-screen="sub">
-      <h1>Подписка</h1>
-      <p class="lead">Привязка к доставке Бойни — позже. Сейчас демо по телефону или нику.</p>
+  <div class="cabinet-overlay" id="linkOverlay" hidden>
+    <div class="cabinet-overlay-card">
+      <button type="button" class="cabinet-overlay-close" id="linkOverlayClose" aria-label="Закрыть">×</button>
+      <h2>Подписка</h2>
+      <p class="lead">Привязка к доставке Бойни — демо по телефону или нику.</p>
       <div id="subDetail"></div>
       <form id="linkForm" style="margin-top:16px;">
-        <h2>Привязать заказ</h2>
         <div class="field"><label>Телефон</label><input id="linkPhone" name="phone" placeholder="+375…" inputmode="tel" /></div>
         <div class="field"><label>Ник / Instagram</label><input id="linkNick" name="nick" placeholder="@nick" autocomplete="off" /></div>
         <button type="submit" class="btn">Найти и привязать</button>
       </form>
-    </section>
-
-    <section class="screen" data-screen="partners">
-      <h1>Партнёры</h1>
-      <p class="lead">Привилегии для подписчиков в Минске.</p>
-      <div class="list" id="partnersList"></div>
-    </section>
-
-    <section class="screen" data-screen="privilege">
-      <h1>VARKA</h1>
-      <p class="lead">Скидка в сети кофеен. Карточка уже в кабинете.</p>
-      <div class="privilege-card" id="privilegeCard"></div>
-      <h2>Точки</h2>
-      <div id="varokLocations"></div>
-      <button type="button" class="btn btn-ghost" data-go="partners" style="margin-top:12px;">Все партнёры</button>
-    </section>
-
-    <section class="screen" data-screen="profile">
-      <h1>Профиль</h1>
-      <p class="lead">Ваш аккаунт Goodboy.</p>
-      <div id="profileBox"></div>
-      <p class="muted" style="margin-top:16px;">Рефералка — следующим пунктом.</p>
-    </section>
+    </div>
   </div>
 </div>
-
-<nav class="nav" aria-label="Кабинет Goodboy">
-  <button type="button" data-go="home" class="is-active"><span class="ico">●</span>Дом</button>
-  <button type="button" data-go="pet"><span class="ico">◇</span>Пёс</button>
-  <button type="button" data-go="sub"><span class="ico">◎</span>Подписка</button>
-  <button type="button" data-go="partners"><span class="ico">★</span>Партнёры</button>
-  <button type="button" data-go="profile"><span class="ico">○</span>Профиль</button>
-</nav>
 
 <div class="toast" id="gbToast" role="status"></div>
