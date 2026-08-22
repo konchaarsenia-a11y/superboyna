@@ -5428,6 +5428,7 @@
       var split = document.querySelector(".view-split");
 
       var weekOnly = !viewDateOnlyMonth;
+      if ((viewMonthDayOpen || viewWeekDayOpen) && !viewDateOnlyMonth) weekOnly = true;
       if (split) {
         split.classList.toggle("is-month-only", !!viewDateOnlyMonth);
         split.classList.toggle("is-week-only", !!weekOnly);
@@ -5715,7 +5716,8 @@
       if (!resolveClientOrderType_(staged)) {
         try { editDraftClient(viewTransferDraft.length - 1); } catch (eEd) {}
       } else if (resolveClientOrderType_(staged) === "bp" && !String(staged.ppPartner || "").trim()) {
-        try { editDraftClient(viewTransferDraft.length - 1); } catch (eEd2) {}
+        staged.ppPartner = "Другое";
+        staged.gaps = clientGaps(staged);
       } else if (resolveClientOrderType_(staged) === "pp") {
         try { await ensureDraftClientPpSlot_(staged); } catch (ePp) {}
       }
@@ -5910,8 +5912,7 @@
           return;
         }
         if (draftOt === "bp" && !String(client.ppPartner || "").trim()) {
-          showToast("Для БП укажите партнёра");
-          return;
+          client.ppPartner = "Другое";
         }
         closeModal();
         renderViewLists();
@@ -5924,8 +5925,7 @@
           return;
         }
         if (draftOt === "bp" && !String(client.ppPartner || "").trim()) {
-          showToast("Для БП укажите партнёра");
-          return;
+          client.ppPartner = "Другое";
         }
         closeModal();
         var day = document.getElementById("viewDaySelect").value;
@@ -6022,12 +6022,11 @@
         return ot === "bp" && !String(c.ppPartner || "").trim();
       });
       if (noPartner.length) {
-        await uiAlertAsync(
-          "У " + noPartner.length + " БП не указан партнёр (кто привёл).\n" +
-          "Открой карточку (✏️) и выбери партнёра или «Другое»."
-        );
-        try { editDraftClient(viewTransferDraft.indexOf(noPartner[0])); } catch (eP) {}
-        return;
+        noPartner.forEach(function (c) {
+          c.ppPartner = "Другое";
+          c.gaps = clientGaps(c);
+        });
+        showToast("БП без партнёра → «Другое» (" + noPartner.length + ")");
       }
       var red = viewTransferDraft.filter(function (c) { return clientGaps(c).length; });
       if (red.length) {

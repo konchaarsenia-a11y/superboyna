@@ -574,7 +574,7 @@ async function repairParkedTransfersFromOrders_(env) {
   var q;
   try {
     q = await env.DB.prepare(
-      "SELECT day_name, client, match_key, basket_json, address, note, phone, segment, source, updated_at FROM orders WHERE status = 'deleted' AND updated_at >= ? ORDER BY updated_at DESC LIMIT 100"
+      "SELECT day_name, client, match_key, basket_json, address, note, phone, segment, source, updated_at, meta_json FROM orders WHERE status = 'deleted' AND updated_at >= ? ORDER BY updated_at DESC LIMIT 100"
     )
       .bind(since)
       .all();
@@ -624,6 +624,11 @@ async function repairParkedTransfersFromOrders_(env) {
       basket = [];
     }
     if (!Array.isArray(basket)) basket = [];
+    var ppPartner = "";
+    try {
+      var metaDel = parseMeta_(r.meta_json);
+      ppPartner = String(metaDel.ppPartner || "").trim();
+    } catch (eMp) {}
     var xferId = "xfer_repair_" + mk.slice(0, 24) + "_" + String(r.updated_at || "").slice(0, 10);
     items.unshift({
       id: xferId,
@@ -642,6 +647,7 @@ async function repairParkedTransfersFromOrders_(env) {
         client: nick,
         matchKey: mk,
         segment: String(r.segment || ""),
+        ppPartner: ppPartner,
         basket: basket,
         address: String(r.address || ""),
         phone: String(r.phone || ""),
@@ -672,7 +678,7 @@ async function appendRecentPlacedTransfers_(env, list) {
   var rows = [];
   try {
     var q = await env.DB.prepare(
-      "SELECT day_name, date_iso, client, match_key, basket_json, address, note, phone, segment, updated_at FROM orders WHERE status = 'active' AND source = 'transfer' AND updated_at >= ? ORDER BY updated_at DESC LIMIT 40"
+      "SELECT day_name, date_iso, client, match_key, basket_json, address, note, phone, segment, updated_at, meta_json FROM orders WHERE status = 'active' AND source = 'transfer' AND updated_at >= ? ORDER BY updated_at DESC LIMIT 40"
     )
       .bind(since)
       .all();
@@ -709,6 +715,10 @@ async function appendRecentPlacedTransfers_(env, list) {
       basket = [];
     }
     if (!Array.isArray(basket)) basket = [];
+    var ppPartner = "";
+    try {
+      ppPartner = String(parseMeta_(r.meta_json).ppPartner || "").trim();
+    } catch (eMp) {}
     var placedDay = String(r.day_name || "");
     var placedDate = String(r.date_iso || "");
     items.unshift({
@@ -733,6 +743,7 @@ async function appendRecentPlacedTransfers_(env, list) {
         client: nick,
         matchKey: mk,
         segment: String(r.segment || ""),
+        ppPartner: ppPartner,
         basket: basket,
         address: String(r.address || ""),
         phone: String(r.phone || ""),
@@ -768,6 +779,38 @@ async function finalizeListDeferredPayload_(env, payload) {
     }).length;
   }
   return payload;
+}
+
+async function resolveBpPartnerForClient_(env, client, matchKey, payloadPartner, segment) {
+  let p = String(payloadPartner || "").trim();
+  if (p) return p;
+  const seg = normalizeSegmentLabel_(segment || "");
+  if (seg !== "БП") return "";
+  const mk = normalizeMatchKey_(matchKey || client);
+  const cl = String(client || "").trim().toLowerCase();
+  try {
+    const del = await env.DB.prepare(
+      "SELECT meta_json FROM orders WHERE status = 'deleted' AND (match_key = ? OR lower(client) = ?) ORDER BY updated_at DESC LIMIT 1"
+    )
+      .bind(mk, cl)
+      .first();
+    if (del && del.meta_json) {
+      p = String(parseMeta_(del.meta_json).ppPartner || "").trim();
+      if (p) return p;
+    }
+  } catch (eDel) {}
+  try {
+    const act = await env.DB.prepare(
+      "SELECT meta_json FROM orders WHERE status = 'active' AND (match_key = ? OR lower(client) = ?) ORDER BY updated_at DESC LIMIT 1"
+    )
+      .bind(mk, cl)
+      .first();
+    if (act && act.meta_json) {
+      p = String(parseMeta_(act.meta_json).ppPartner || "").trim();
+      if (p) return p;
+    }
+  } catch (eAct) {}
+  return "Другое";
 }
 
 async function findDeferredSnapItem_(env, id) {
@@ -875,6 +918,8 @@ async function placeTransferTaskD1_(params, env) {
   note = (note ? note + " " : "") + (cutRaw ? "[РЕЗАТЬ]" : "[НЕ РЕЗАТЬ]");
 
   const basket = Array.isArray(p.basket) ? p.basket : [];
+  const seg = String(p.segment || "");
+  const ppPartner = await resolveBpPartnerForClient_(env, client, matchKey, p.ppPartner, seg);
   const saveRes = await saveOrder_(
     {
       client: client,
@@ -885,8 +930,9 @@ async function placeTransferTaskD1_(params, env) {
       phone: String(p.phone || ""),
       note: note,
       basket: JSON.stringify(basket),
-      segment: String(p.segment || ""),
-      source: "transfer"
+      segment: seg,
+      source: "transfer",
+      ppPartner: ppPartner
     },
     env,
     false
@@ -2956,6 +3002,13 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
         return true;
       });
       const xferId = String((proxied && proxied.id) || ("xfer_" + Date.now()));
+      const ppPartner = await resolveBpPartnerForClient_(
+        env,
+        nick,
+        mk,
+        params.ppPartner,
+        params.segment
+      );
       arr.unshift({
         id: xferId,
         mode: "transfer",
@@ -2972,6 +3025,7 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
           client: nick,
           matchKey: String(params.matchKey || ""),
           segment: String(params.segment || ""),
+          ppPartner: ppPartner,
           basket: parseBasket_(params.basket),
           createdByName: String(params.createdByName || "")
         }
