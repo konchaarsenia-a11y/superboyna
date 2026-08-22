@@ -2864,6 +2864,49 @@ function partnerBlockWrongPoint_(a, params) {
   return null;
 }
 
+/** GAS saveOrder может вернуть wrote:0/missed, хотя D1 уже записал — не ломать UI. */
+async function patchSaveWithD1_(params, proxied, env) {
+  if (!proxied || proxied.status !== "success" || !env || !env.DB) return proxied;
+  const a = String((params && params.action) || "saveOrder");
+  if (!/^(saveOrder|saveBooking)$/i.test(a)) return proxied;
+  const basketLen = parseBasket_(params && params.basket).length;
+  const wrote = Number(proxied.wrote) || 0;
+  const missed = Array.isArray(proxied.missed) ? proxied.missed : [];
+  if (wrote > 0 && !missed.length) return proxied;
+  let day = String((params && params.day) || "").trim();
+  if (!day) {
+    const dateIso = String(
+      (params && (params.date || params.dateIso || params.deliveryDate)) || ""
+    ).trim();
+    if (dateIso) {
+      try {
+        const r = await resolveDay_({ date: dateIso }, env);
+        if (r && r.onWeek && r.dayName) day = r.dayName;
+      } catch (eRd) {}
+    }
+  }
+  if (!day) return proxied;
+  try {
+    const live = await getClients_({ day: day }, env);
+    const want = String((params && params.client) || "").trim();
+    const row = ((live && live.clients) || []).find(function (c) {
+      return nicksLooseMatch_(c && (c.name || c.client), want);
+    });
+    const gotLen = row && Array.isArray(row.basket) ? row.basket.length : 0;
+    if (gotLen > 0) {
+      return Object.assign({}, proxied, {
+        wrote: gotLen,
+        basketLen: basketLen || gotLen,
+        d1Verified: true,
+        verified: true,
+        gasSheetMissed: missed.length ? missed : undefined,
+        missed: wrote === 0 && missed.length ? missed : []
+      });
+    }
+  } catch (eD1) {}
+  return proxied;
+}
+
 function partnerGuardOrRewrite_(a, params, json) {
   if (!isPartnerArseniy_(params)) return json;
   if (a === "partnerGetMe") return partnerArseniyGetMe_(json);
@@ -3106,7 +3149,7 @@ async function handleCutover_(a, params, env, ctx) {
             action: a
           };
         }
-        return partnerGuardOrRewrite_(a, params, proxied);
+        return partnerGuardOrRewrite_(a, params, await patchSaveWithD1_(params, proxied, env));
       }
       if (/^(saveOrder|saveBooking)$/i.test(a)) {
         const alsoWeek =
@@ -3407,10 +3450,14 @@ async function handleCutover_(a, params, env, ctx) {
     }
   }
 
-  // Приёмка: если D1 count ≠ getWeekDayCounts — GAS, но НЕ отдаём сырой список:
-  // после delete/move GAS ещё держит человека → UI «не удалилось».
+  // Приёмка: если D1 count ≠ getWeekDayCounts — осторожно с GAS.
+  // got > expect = свежий save в D1 — НЕ подменять GAS (иначе UI «не закрепилось»).
+  // got < expect + tombstone = delete/move — D1 важнее.
   if (a === "getClients" && fast && params && params.day) {
     try {
+      const forceClients =
+        String((params && params.force) || "") === "1" ||
+        (params && (params.force === true || params.force === 1));
       const counts = await getSnapRaw_(env, "weekDayCounts");
       let expect = null;
       ((counts && counts.items) || []).forEach(function (it) {
@@ -3419,14 +3466,24 @@ async function handleCutover_(a, params, env, ctx) {
       const got = Array.isArray(fast.clients) ? fast.clients.length : -1;
       if (expect != null && got !== expect) {
         const hasTomb = await dayHasFreshTombstone_(env, params.day);
-        // свежие удаления/переносы: D1 + tombstone важнее отстающего GAS
-        if (hasTomb) {
+        // D1 впереди счётчика / force после save — источник правды D1, не отстающий лист
+        if (forceClients || got > expect || hasTomb) {
+          if (got > expect) {
+            try {
+              if (ctx && typeof ctx.waitUntil === "function") {
+                ctx.waitUntil(rebuildWeekCounts_(env));
+              } else {
+                await rebuildWeekCounts_(env);
+              }
+            } catch (eRc) {}
+          }
           if (needGas && ctx && typeof ctx.waitUntil === "function") {
             ctx.waitUntil(cutoverRevalidate_(a, params, env));
           }
           fast.cutover = true;
           fast.swr = true;
           fast.fromGas = false;
+          fast.source = fast.source || "d1";
           if (fast.sandbox === true) fast.sandbox = false;
           return fast;
         }
