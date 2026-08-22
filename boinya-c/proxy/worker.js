@@ -344,11 +344,38 @@ function normalizeMatchKey_(raw) {
     .replace(/\s+/g, " ")
     .trim();
   if (!s) return "";
+  // уже ключ handle|dog — сохраняем кличку (две собаки одного IG)
+  if (s.indexOf("|") >= 0) {
+    var parts = s.split("|");
+    var hh = String(parts[0] || "").toUpperCase().replace(/Ё/g, "Е").replace(/[._]/g, "");
+    var dd = String(parts[1] || "").toUpperCase().replace(/Ё/g, "Е").replace(/[._\s]+/g, "");
+    return dd ? hh + "|" + dd : hh;
+  }
   var at = s.match(/@([A-Za-z0-9._]{2,})/);
   var handle = "";
   if (at) handle = at[1];
-  else if (/^[A-Za-z0-9._]{3,}$/.test(s) && /[A-Za-z]/.test(s)) handle = s;
-  if (handle) return handle.toUpperCase().replace(/[._]/g, "");
+  else {
+    var cleaned = s.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s*\b(АФК|ПП|БП|Р)\b\s*/gi, " ").replace(/\s+/g, " ").trim();
+    var toks = cleaned.split(/\s+/);
+    for (var i = 0; i < toks.length; i++) {
+      var t = toks[i].replace(/^[.,;:]+|[.,;:]+$/g, "");
+      if (/^[A-Za-z0-9._]{3,}$/.test(t) && /[A-Za-z]/.test(t)) { handle = t; break; }
+    }
+    if (!handle && /^[A-Za-z0-9._]{3,}$/.test(s) && /[A-Za-z]/.test(s)) handle = s;
+  }
+  if (handle) {
+    var key = handle.toUpperCase().replace(/[._]/g, "");
+    var esc = String(handle).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    var mAfter = s.match(new RegExp("@?" + esc + "\\s+(.+)$", "i"));
+    var dog = mAfter ? String(mAfter[1] || "").trim() : "";
+    dog = dog.replace(/\s*\b(АФК|ПП|БП|Р)\b\s*/gi, " ").replace(/\s+/g, " ").trim();
+    if (dog && dog.length <= 24 &&
+        !/доставк|напис|уточн|втор(ая|ой)|через|европочт/i.test(dog) &&
+        /[а-яА-ЯёЁA-Za-z0-9]/.test(dog)) {
+      key = key + "|" + dog.toUpperCase().replace(/Ё/g, "Е").replace(/[._\s]+/g, "");
+    }
+    return key;
+  }
   return s.toUpperCase().replace(/Ё/g, "Е");
 }
 
@@ -2430,7 +2457,7 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
       let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
       let arr = Array.isArray(list.items) ? list.items.slice() : [];
       const nick = String(params.client || params.nick || "").trim();
-      const mk = normalizeMatchKey_(nick || params.matchKey || "");
+      const mk = normalizeMatchKey_(params.matchKey || nick || "");
       arr = arr.filter(function (it) {
         if (!it) return false;
         const m = String(it.mode || (it.payload && it.payload.mode) || "").toLowerCase();

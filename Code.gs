@@ -3188,15 +3188,19 @@ function handleUpdateCutting(ss, json, callback, fromPost) {
 }
 
 /** На листе «Доставки» ники клиентов в строке 3, галочки в строке 2. Столбец C часто «итого» — ищем ник по имени. */
-function findCourierClientCol_(courierSheet, clientName) {
+function findCourierClientCol_(courierSheet, clientName, matchKeyOpt) {
   if (!courierSheet) return -1;
+  var wantMk = String(matchKeyOpt || "").trim() || clientMatchKey_(clientName) || "";
+  var strictDog = wantMk.indexOf("|") >= 0;
   var nicks = courierSheet.getRange(3, 3, 1, 16).getValues()[0];
   for (var i = 0; i < nicks.length; i++) {
     var nick = String(nicks[i] || "").trim();
     if (!nick) continue;
     var up = nick.toUpperCase();
     if (up === "ИТОГО НА ДЕНЬ" || up === "ИТОГО" || up === "ФАКТ СНЯТОЕ") continue;
-    if (nicksMatch_(nick, clientName)) return i + 3; // 1-based column
+    var nickMk = clientMatchKey_(nick) || "";
+    if (wantMk && nickMk && nickMk === wantMk) return i + 3;
+    if (!strictDog && nicksMatch_(nick, clientName)) return i + 3; // 1-based column
   }
   return -1;
 }
@@ -3237,13 +3241,17 @@ function handleGetCourier(dayName, callback) {
       courierDone = courier.getRange(2, 3, 1, 16).getValues()[0] || [];
     } catch (eR) {}
   }
-  function courierColFor_(name) {
+  function courierColFor_(name, matchKeyOpt) {
+    var wantMk = String(matchKeyOpt || "").trim() || clientMatchKey_(name) || "";
+    var strictDog = wantMk.indexOf("|") >= 0;
     for (var i = 0; i < courierNicks.length; i++) {
       var nick = String(courierNicks[i] || "").trim();
       if (!nick) continue;
       var up = nick.toUpperCase();
       if (up === "ИТОГО НА ДЕНЬ" || up === "ИТОГО" || up === "ФАКТ СНЯТОЕ") continue;
-      if (nicksMatch_(nick, name)) return i;
+      var nickMk = clientMatchKey_(nick) || "";
+      if (wantMk && nickMk && nickMk === wantMk) return i;
+      if (!strictDog && nicksMatch_(nick, name)) return i;
     }
     return -1;
   }
@@ -3252,7 +3260,7 @@ function handleGetCourier(dayName, callback) {
   for (var i = 0; i < clientData.clients.length; i++) {
     var client = clientData.clients[i];
     var delivered = false;
-    var ci = courierColFor_(client.name);
+    var ci = courierColFor_(client.name, client.matchKey || clientMatchKey_(client.name));
     var courierCol = ci >= 0 ? ci + 3 : -1;
     if (sheetActive && ci >= 0) {
       delivered = courierDone[ci] === true;
@@ -3342,6 +3350,7 @@ function handleGetCourier(dayName, callback) {
     if (ppPaidYes) orderPriceOut = "";
     clients.push({
       name: client.name,
+      matchKey: client.matchKey || clientMatchKey_(client.name) || "",
       address: client.address,
       note: client.note,
       phone: client.phone || "",
@@ -3757,13 +3766,20 @@ function clearClientColumnFromDay_(ss, dayName, client, matchKeyOpt) {
   var sh = getTargetSheet(ss, block);
   if (!sh) return 0;
   var wantKey = String(matchKeyOpt || "").trim() || clientMatchKey_(client) || "";
+  // ключ с кличкой (handle|dog) — только точное совпадение, иначе снимем «вторую собаку»
+  var strictDog = wantKey.indexOf("|") >= 0;
   var nicks = sh.getRange(block.nick, 3, 1, 15).getValues()[0];
   var cleared = 0;
   for (var i = 0; i < 15; i++) {
     var nick = nicks[i];
     if (!String(nick || "").trim()) continue;
-    var hit = nicksMatch_(nick, client);
-    if (!hit && wantKey) hit = clientMatchKey_(nick) === wantKey;
+    var nickKey = clientMatchKey_(nick) || "";
+    var hit = false;
+    if (wantKey && nickKey && nickKey === wantKey) hit = true;
+    else if (!strictDog) {
+      hit = nicksMatch_(nick, client);
+      if (!hit && wantKey) hit = nickKey === wantKey;
+    }
     if (!hit) continue;
     var col = i + 3;
     sh.getRange(block.nick, col).setValue("");
@@ -22347,11 +22363,13 @@ function deferredRemindShouldAutoHide_(payload, mode, nowMs) {
 }
 
 /** Курьерский перенос: убрать того же человека из «ожидания» (ПП / На потом / старый перенос). */
-function cancelWaitingDeferredForClient_(sh, client, keepId) {
+function cancelWaitingDeferredForClient_(sh, client, keepId, matchKeyOpt) {
   sh = sh || deferredSheet_();
   client = String(client || "").trim();
   keepId = String(keepId || "").trim();
   if (!client) return 0;
+  var wantMk = String(matchKeyOpt || "").trim() || clientMatchKey_(client) || "";
+  var strictDog = wantMk.indexOf("|") >= 0;
   var data = sh.getDataRange().getValues();
   var n = 0;
   var now = new Date();
@@ -22366,7 +22384,15 @@ function cancelWaitingDeferredForClient_(sh, client, keepId) {
     var payload = {};
     try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (eP) { payload = {}; }
     var payloadClient = String((payload && (payload.client || payload.clientNick)) || "").trim();
-    if (!nicksMatch_(nick, client) && !nicksMatch_(payloadClient, client)) continue;
+    var payloadMk = String((payload && payload.matchKey) || "").trim() || clientMatchKey_(payloadClient || nick) || "";
+    var hit = false;
+    if (strictDog) {
+      hit = (payloadMk === wantMk) || (clientMatchKey_(nick) === wantMk) || (clientMatchKey_(payloadClient) === wantMk);
+    } else {
+      hit = nicksMatch_(nick, client) || nicksMatch_(payloadClient, client);
+      if (!hit && wantMk) hit = payloadMk === wantMk;
+    }
+    if (!hit) continue;
     // pp / retail / order / transfer / пустой mode = «ожидание»
     sh.getRange(r + 1, 7).setValue("cancelled");
     try { sh.getRange(r + 1, 9).setValue(now); } catch (eU) {}
@@ -22403,13 +22429,17 @@ function parkClientFromDeliveryDay_(ss, opts) {
       var data = getClientsData_(ss, day);
       for (var i = 0; i < (data.clients || []).length; i++) {
         var c = data.clients[i];
-        if (!nicksMatch_(c.name, client) && !(matchKey && c.matchKey === matchKey)) continue;
+        var cMk = String(c.matchKey || clientMatchKey_(c.name) || "");
+        var samePark = false;
+        if (matchKey && matchKey.indexOf("|") >= 0) samePark = (cMk === matchKey);
+        else samePark = nicksMatch_(c.name, client) || (matchKey && cMk === matchKey);
+        if (!samePark) continue;
         if (!snap.address) snap.address = String(c.address || "");
         if (!snap.phone) snap.phone = String(c.phone || "");
         if (!snap.note) snap.note = String(c.note || "");
         if (!snap.segment) snap.segment = String(c.segment || c.source || "");
         if (!snap.basket.length) snap.basket = c.basket || [];
-        if (!snap.matchKey) snap.matchKey = String(c.matchKey || "");
+        if (!snap.matchKey) snap.matchKey = cMk || String(c.matchKey || "");
         break;
       }
     } catch (eG) {}
@@ -22430,7 +22460,7 @@ function parkClientFromDeliveryDay_(ss, opts) {
     if (courier && deliveryDate) {
       var dateText = formatSheetDate(deliveryDate, tz);
       if (formatSheetDate(courier.getRange("A1").getValue(), tz) === dateText) {
-        var cCol = findCourierClientCol_(courier, client);
+        var cCol = findCourierClientCol_(courier, client, snap.matchKey || matchKey);
         if (cCol > 0) {
           courier.getRange(2, cCol).setValue(false);
           courier.getRange(3, cCol).setValue("");
@@ -22480,15 +22510,22 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
     try {
       var data = getClientsData_(ss, day);
       for (var i = 0; i < (data.clients || []).length; i++) {
-        if (nicksMatch_(data.clients[i].name, client)) {
-          basket = data.clients[i].basket || [];
-          if (!segment) segment = data.clients[i].segment || "";
-          if (!address) address = String(data.clients[i].address || "");
-          if (!phone) phone = String(data.clients[i].phone || "");
-          if (!note) note = String(data.clients[i].note || "");
-          if (!matchKey) matchKey = String(data.clients[i].matchKey || "") || matchKey;
-          break;
+        var row = data.clients[i];
+        var rowMk = String(row.matchKey || clientMatchKey_(row.name) || "");
+        var same = false;
+        if (matchKey && matchKey.indexOf("|") >= 0) {
+          same = (rowMk === matchKey);
+        } else {
+          same = nicksMatch_(row.name, client) || (matchKey && rowMk === matchKey);
         }
+        if (!same) continue;
+        basket = row.basket || [];
+        if (!segment) segment = row.segment || "";
+        if (!address) address = String(row.address || "");
+        if (!phone) phone = String(row.phone || "");
+        if (!note) note = String(row.note || "");
+        if (!matchKey) matchKey = rowMk || matchKey;
+        break;
       }
     } catch (eG) {}
   }
@@ -22496,11 +22533,14 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
     try {
       var cal = readCalendarForDate_(ss, dateValue) || [];
       for (var c = 0; c < cal.length; c++) {
-        if (nicksMatch_(cal[c].client, client) || (matchKey && cal[c].matchKey === matchKey)) {
-          segment = cal[c].segment || segment;
-          if (!basket.length) basket = cal[c].basket || [];
-          break;
-        }
+        var calMk = String(cal[c].matchKey || clientMatchKey_(cal[c].client) || "");
+        var sameCal = false;
+        if (matchKey && matchKey.indexOf("|") >= 0) sameCal = (calMk === matchKey);
+        else sameCal = nicksMatch_(cal[c].client, client) || (matchKey && calMk === matchKey);
+        if (!sameCal) continue;
+        segment = cal[c].segment || segment;
+        if (!basket.length) basket = cal[c].basket || [];
+        break;
       }
     } catch (eC) {}
   }
@@ -22531,7 +22571,7 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
   var sh = deferredSheet_();
   var now = new Date();
   sh.appendRow([id, now, tid, "transfer", title, client, "open", JSON.stringify(payloadObj), now]);
-  try { cancelWaitingDeferredForClient_(sh, client, id); } catch (eWait) {}
+  try { cancelWaitingDeferredForClient_(sh, client, id, matchKey); } catch (eWait) {}
   bustDeferredCache_(tid);
   try {
     var mgrs = collectStaffTelegramIds_(["owner", "manager", "all"]);
