@@ -456,7 +456,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.2.3";
+  var APP_VER = "3.2.4";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -772,6 +772,29 @@
     return s.split(" ")[0] || s;
   }
 
+  function pointAddrRedundant_(name, address) {
+    var n = String(name || "").trim().toLowerCase();
+    var a = String(address || "").trim().toLowerCase();
+    if (!a) return true;
+    if (n === a) return true;
+    return n.indexOf(a) >= 0;
+  }
+
+  function pointLine_(pt) {
+    if (!pt) return "";
+    var name = String(pt.name || "").trim();
+    var address = String(pt.address || "").trim();
+    if (!address || pointAddrRedundant_(name, address)) return name;
+    return name + " · " + address;
+  }
+
+  function pointSubline_(pt) {
+    if (!pt) return "";
+    var address = String(pt.address || "").trim();
+    if (!address || pointAddrRedundant_(pt.name, address)) return "";
+    return address;
+  }
+
   function show(id) {
     ["screenBoot", "screenLogin", "screenLocked", "screenHome", "screenPoints", "screenOrder", "screenMyOrders", "screenCabinet"].forEach(function (s) {
       var el = document.getElementById(s);
@@ -803,7 +826,7 @@
     if (one) {
       state.point = one;
       var loc = document.getElementById("orderLocName");
-      if (loc) loc.textContent = one.name + (one.address ? " · " + one.address : "");
+      if (loc) loc.textContent = pointLine_(one);
     }
     return state.point;
   }
@@ -932,7 +955,10 @@
     if (meta) {
       var n = (state.me.pointIds || []).length;
       var ptsLab = (state.me.points || []).map(function (p) {
-        return (p && (p.address || p.name)) || "";
+        if (!p) return "";
+        var address = String(p.address || "").trim();
+        if (address && pointAddrRedundant_(p.name, address)) return address;
+        return String(p.name || address || "").trim();
       }).filter(Boolean).slice(0, 6).join(", ");
       meta.textContent = (state.me.username ? ("@" + state.me.username + " · ") : "") +
         n + " точ." +
@@ -959,7 +985,7 @@
     var one = onlyPoint_();
     if (one) {
       state.point = one;
-      if (loc) loc.textContent = one.name + (one.address ? " · " + one.address : "");
+      if (loc) loc.textContent = pointLine_(one);
     } else if (loc) {
       loc.textContent = "Сначала выберите позиции · точку укажете дальше";
     }
@@ -986,7 +1012,8 @@
       return '<button class="loc" type="button" style="' +
         (on ? "border-color:var(--accent);" : "") + '" onclick="pickPointForOrder(\'' + esc(pt.id) + '\')">' +
         '<div><div class="name">' + esc(pt.name) + "</div>" +
-        '<div class="addr">' + esc(pt.address || "") + "</div></div></button>";
+        (pointSubline_(pt) ? ('<div class="addr">' + esc(pointSubline_(pt)) + "</div>") : "") +
+        "</div></button>";
     }).join("");
     show("screenPoints");
   }
@@ -1005,7 +1032,7 @@
     if (!pt) return;
     state.point = pt;
     var loc = document.getElementById("orderLocName");
-    if (loc) loc.textContent = pt.name + (pt.address ? " · " + pt.address : "");
+    if (loc) loc.textContent = pointLine_(pt);
     goPointsForOrder_();
     updateCartButton_();
   }
