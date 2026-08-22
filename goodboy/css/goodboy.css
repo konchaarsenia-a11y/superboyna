@@ -414,6 +414,37 @@ body.mode-app.gb-site {
   color: var(--gb-muted);
   line-height: 1.4;
 }
+.cabinet-empty-pet {
+  text-align: center;
+  padding: 8px 8px 16px;
+}
+.cabinet-empty-pet h2 {
+  margin: 10px 0 6px;
+  font-family: var(--gb-display);
+  font-size: 1.25rem;
+}
+.cabinet-empty-pet p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--gb-muted);
+  line-height: 1.45;
+}
+.cabinet-demo-preview {
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px dashed rgba(237,232,223,0.14);
+  background: rgba(237,232,223,0.03);
+}
+.cabinet-demo-label {
+  margin: 0 0 8px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gb-muted);
+}
+.cabinet-pet-hero.is-muted { opacity: 0.72; }
 .cabinet-stats { margin-bottom: 10px; }
 
 .cabinet-details {
