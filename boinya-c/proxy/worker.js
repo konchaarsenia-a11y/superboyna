@@ -2384,6 +2384,18 @@ async function moveClient_(params, env) {
     } catch (eClrTc) {}
   }
 
+  // жёстко: ещё раз снести со старого дня (фон GAS/protect мог вернуть)
+  if (fromDay) {
+    try {
+      await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?)"
+      )
+        .bind(now, fromDay, matchKey, mkLow, clientLow, String(row.client || "").toLowerCase())
+        .run();
+      await putDeleteTombstone_(env, fromDay, matchKey);
+    } catch (eHardDel) {}
+  }
+
   await invalidateDays_(env, [fromDay, newDay].filter(Boolean));
 
   return {
@@ -4122,15 +4134,47 @@ async function cutoverStoreRead_(a, params, env, payload) {
     const freshTomb = ((tomb && tomb.items) || []).some(function (t) {
       return t && String(t.day) === String(params.day) && Date.now() - Number(t.at || 0) < TOMBSTONE_MS;
     });
-    if (freshTomb) {
+    if (freshTomb || payload._d1MoveKeep) {
       await putSnap_(env, "clients:" + params.day, payload);
+      // на дне-источнике переноса дополнительно снести drop-клиента из D1
+      if (payload._moveDropClient) {
+        try {
+          const dropMk = normalizeMatchKey_(payload._moveDropClient);
+          const dropLow = String(payload._moveDropClient || "").trim().toLowerCase();
+          const nowDrop = new Date().toISOString();
+          await env.DB.prepare(
+            "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR lower(client) = ?)"
+          )
+            .bind(nowDrop, params.day, dropMk, dropLow)
+            .run();
+          await putDeleteTombstone_(env, params.day, dropMk || payload._moveDropClient);
+        } catch (eDrop) {}
+      }
       return;
     }
-    if (payload._d1MoveKeep) {
-      await putSnap_(env, "clients:" + params.day, payload);
-      return;
+    const replaceOpts = {};
+    if (payload._skipProtectMissing) replaceOpts.skipProtectMissing = true;
+    if (payload._moveDropClient) {
+      const dropMk2 = normalizeMatchKey_(payload._moveDropClient);
+      replaceOpts.dropMks = {};
+      if (dropMk2) replaceOpts.dropMks[dropMk2] = true;
+      replaceOpts.dropMks[String(payload._moveDropClient).trim().toLowerCase()] = true;
+      replaceOpts.skipProtectMissing = true;
     }
-    await replaceDayOrdersFromClients_(env, params.day, list);
+    await replaceDayOrdersFromClients_(env, params.day, list, replaceOpts);
+    if (payload._moveDropClient) {
+      try {
+        const dropMk3 = normalizeMatchKey_(payload._moveDropClient);
+        const dropLow3 = String(payload._moveDropClient || "").trim().toLowerCase();
+        const nowDrop3 = new Date().toISOString();
+        await env.DB.prepare(
+          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR lower(client) = ?)"
+        )
+          .bind(nowDrop3, params.day, dropMk3, dropLow3)
+          .run();
+        await putDeleteTombstone_(env, params.day, dropMk3 || payload._moveDropClient);
+      } catch (eDrop3) {}
+    }
     return;
   }
   if (a === "getViewCompare" && (payload.day || params.day || payload.dateIso || params.date)) {
@@ -4284,12 +4328,22 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
         delete byMk[mk];
         continue;
       }
+      // явный drop (move oldDay) — не «защищать» призрака
+      if (opts.dropMks && (opts.dropMks[mk] || opts.dropMks[String(row.client || "").toLowerCase()])) {
+        delete byMk[mk];
+        continue;
+      }
       const updatedMs = Date.parse(String(row.updated_at || "")) || 0;
       if (!(updatedMs && nowMs - updatedMs < protectMs)) continue;
       const gasC = byMk[mk];
       const d1Sig = basketSig_(row.basket_json);
       const gasSig = basketSig_(gasC && gasC.basket);
       // GAS нет человека / другой состав → оставляем D1 (локальный save важнее)
+      // но не возвращаем тех, кого только что убрали из списка (move/delete overlay)
+      if (!gasC && opts.skipProtectMissing) {
+        delete byMk[mk];
+        continue;
+      }
       if (!gasC || (d1Sig && d1Sig !== gasSig)) {
         const kept = clientFromRow_(row);
         kept.updated_at = row.updated_at;
@@ -4549,6 +4603,8 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                     return !nicksLooseMatch_(c && (c.name || c.client), wantClient);
                   });
                   fresh.clients = list;
+                  fresh._moveDropClient = wantClient;
+                  fresh._skipProtectMissing = true;
                 }
                 if (day && newDay && day === newDay) {
                   try {
@@ -4598,6 +4654,20 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                 try {
                   await deleteClient_(params, env);
                 } catch (eRedel) {}
+              }
+              // move: после GAS-store ещё раз убрать с oldDay (protect/GAS могут вернуть)
+              if (/^moveClient$/i.test(a) && wantClient && day && oldDay && day === oldDay) {
+                try {
+                  await deleteClient_(
+                    {
+                      client: wantClient,
+                      day: oldDay,
+                      matchKey: params.matchKey || wantClient,
+                      force: "1"
+                    },
+                    env
+                  );
+                } catch (eMoveDel) {}
               }
             }
           } catch (eG) {}
