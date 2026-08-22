@@ -192,6 +192,23 @@
     html[data-theme="light"] .coupon-card {
       background: linear-gradient(145deg, #fff, #f8efe3);
     }
+    .coupon-card.banner-card {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+    .coupon-banner {
+      width: 100%;
+      border-radius: 12px;
+      display: block;
+      background: #111;
+      border: 1px solid rgba(245,154,46,0.25);
+      object-fit: contain;
+    }
+    .coupon-row {
+      display: flex; align-items: center; gap: 12px;
+      width: 100%;
+    }
     .stepper { display: flex; align-items: center; gap: 8px; }
     .stepper button {
       width: 34px; height: 34px; border-radius: 11px; border: 1px solid var(--line);
@@ -456,12 +473,13 @@
 
   <script>
 (function () {
-  var APP_VER = "3.2.4";
+  var APP_VER = "3.2.5";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
   var ME_CACHE_KEY = "gb_partner_me_v1";
   var SETTINGS_KEY = "gb_partner_settings_v2";
+  var BANNER_IMG = "assets/coupon-poster.png";
   // Owner Бойни — все точки; партнёр — Partner_Access. Точки с сервера.
   var OWNERS_ONLY_MODE_ = false;
   var REMOTE_IS_OWNER_ = false;
@@ -1204,10 +1222,15 @@
       var unit = unitFor_(it);
       var ste = renderQtyControls_(it, q);
       var selected = q ? (" · " + q + (unit && unit !== "г" ? (" " + unit) : "")) : "";
-      var hint = it.id === "vr_c_banner"
-        ? "только 1 шт"
-        : (it.type === "coupon" ? "пресеты или своё" : "пресеты или своё");
-      var wrap = (it.type === "coupon" || it.id === "vr_c_banner") ? "coupon-card" : "item";
+      if (it.id === "vr_c_banner") {
+        return '<div class="coupon-card banner-card">' +
+          '<img class="coupon-banner" src="' + BANNER_IMG + '" alt="Varka × Good Boy">' +
+          '<div class="coupon-row qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
+          '</div><div class="unit">только 1 шт' + selected +
+          "</div></div>" + ste + "</div></div>";
+      }
+      var hint = it.type === "coupon" ? "пресеты или своё" : "пресеты или своё";
+      var wrap = it.type === "coupon" ? "coupon-card" : "item";
       return '<div class="' + wrap + ' qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
         '</div><div class="unit">' + hint + selected +
         "</div></div>" + ste + "</div>";
