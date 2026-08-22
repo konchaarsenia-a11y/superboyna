@@ -574,7 +574,7 @@ async function repairParkedTransfersFromOrders_(env) {
   var q;
   try {
     q = await env.DB.prepare(
-      "SELECT day_name, client, match_key, basket_json, address, note, phone, segment, source, updated_at FROM orders WHERE status = 'deleted' AND updated_at >= ? ORDER BY updated_at DESC LIMIT 100"
+      "SELECT day_name, client, match_key, basket_json, address, note, phone, segment, source, updated_at, meta_json FROM orders WHERE status = 'deleted' AND updated_at >= ? ORDER BY updated_at DESC LIMIT 100"
     )
       .bind(since)
       .all();
@@ -624,6 +624,11 @@ async function repairParkedTransfersFromOrders_(env) {
       basket = [];
     }
     if (!Array.isArray(basket)) basket = [];
+    var ppPartner = "";
+    try {
+      var metaDel = parseMeta_(r.meta_json);
+      ppPartner = String(metaDel.ppPartner || "").trim();
+    } catch (eMp) {}
     var xferId = "xfer_repair_" + mk.slice(0, 24) + "_" + String(r.updated_at || "").slice(0, 10);
     items.unshift({
       id: xferId,
@@ -642,6 +647,7 @@ async function repairParkedTransfersFromOrders_(env) {
         client: nick,
         matchKey: mk,
         segment: String(r.segment || ""),
+        ppPartner: ppPartner,
         basket: basket,
         address: String(r.address || ""),
         phone: String(r.phone || ""),
@@ -661,6 +667,332 @@ async function repairParkedTransfersFromOrders_(env) {
   list.repairedTransfers = added;
   list.fromD1 = true;
   await putSnap_(env, "listDeferred", list);
+}
+
+/** Недавно поставленные через перенос (source=transfer) — чтобы не «пропадали» из вкладки. */
+async function appendRecentPlacedTransfers_(env, list) {
+  if (!env || !env.DB) return list;
+  if (!list || typeof list !== "object") list = { status: "success", items: [] };
+  var items = Array.isArray(list.items) ? list.items.slice() : [];
+  var since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  var rows = [];
+  try {
+    var q = await env.DB.prepare(
+      "SELECT day_name, date_iso, client, match_key, basket_json, address, note, phone, segment, updated_at, meta_json FROM orders WHERE status = 'active' AND source = 'transfer' AND updated_at >= ? ORDER BY updated_at DESC LIMIT 40"
+    )
+      .bind(since)
+      .all();
+    rows = (q && q.results) || [];
+  } catch (eQ) {
+    return list;
+  }
+  if (!rows.length) return list;
+
+  var openXferKeys = Object.create(null);
+  var doneIds = Object.create(null);
+  items.forEach(function (it) {
+    if (!it) return;
+    if (deferredItemIsProtectedTransfer_(it)) {
+      var k = deferredTransferClientKey_(it);
+      if (k) openXferKeys[k] = true;
+    }
+    if (it.id != null) doneIds[String(it.id)] = true;
+  });
+
+  var added = 0;
+  rows.forEach(function (r) {
+    if (!r) return;
+    var nick = String(r.client || "").trim();
+    var mk = normalizeMatchKey_(r.match_key || nick);
+    if (!nick || !mk) return;
+    if (openXferKeys[mk]) return;
+    var placedId = "xfer_placed_" + mk.slice(0, 24);
+    if (doneIds[placedId]) return;
+    var basket = [];
+    try {
+      basket = JSON.parse(r.basket_json || "[]");
+    } catch (eB) {
+      basket = [];
+    }
+    if (!Array.isArray(basket)) basket = [];
+    var ppPartner = "";
+    try {
+      ppPartner = String(parseMeta_(r.meta_json).ppPartner || "").trim();
+    } catch (eMp) {}
+    var placedDay = String(r.day_name || "");
+    var placedDate = String(r.date_iso || "");
+    items.unshift({
+      id: placedId,
+      mode: "transfer",
+      title: "Перенесён · " + (placedDay || placedDate || "новый день"),
+      clientNick: nick,
+      status: "done",
+      fromD1: true,
+      placed: true,
+      placedAt: String(r.updated_at || ""),
+      placedDay: placedDay,
+      placedDate: placedDate,
+      payload: {
+        mode: "transfer",
+        parked: false,
+        placed: true,
+        placedDay: placedDay,
+        placedDate: placedDate,
+        day: placedDay,
+        date: placedDate,
+        client: nick,
+        matchKey: mk,
+        segment: String(r.segment || ""),
+        ppPartner: ppPartner,
+        basket: basket,
+        address: String(r.address || ""),
+        phone: String(r.phone || ""),
+        note: String(r.note || "")
+      }
+    });
+    doneIds[placedId] = true;
+    added++;
+  });
+
+  if (!added) return list;
+  list.items = items;
+  list.recentPlacedTransfers = added;
+  list.fromD1 = true;
+  return list;
+}
+
+async function finalizeListDeferredPayload_(env, payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  try {
+    await repairParkedTransfersFromOrders_(env);
+  } catch (eR) {}
+  try {
+    var snap = (await getSnapRaw_(env, "listDeferred")) || payload;
+    if (snap && Array.isArray(snap.items)) {
+      payload = Object.assign({}, payload, { items: snap.items.slice() });
+    }
+  } catch (eS) {}
+  payload = await appendRecentPlacedTransfers_(env, payload);
+  if (Array.isArray(payload.items)) {
+    payload.openCount = payload.items.filter(function (it) {
+      return String((it && it.status) || "open").toLowerCase() === "open";
+    }).length;
+  }
+  return payload;
+}
+
+async function resolveBpPartnerForClient_(env, client, matchKey, payloadPartner, segment) {
+  let p = String(payloadPartner || "").trim();
+  if (p) return p;
+  const seg = normalizeSegmentLabel_(segment || "");
+  if (seg !== "БП") return "";
+  const mk = normalizeMatchKey_(matchKey || client);
+  const cl = String(client || "").trim().toLowerCase();
+  try {
+    const del = await env.DB.prepare(
+      "SELECT meta_json FROM orders WHERE status = 'deleted' AND (match_key = ? OR lower(client) = ?) ORDER BY updated_at DESC LIMIT 1"
+    )
+      .bind(mk, cl)
+      .first();
+    if (del && del.meta_json) {
+      p = String(parseMeta_(del.meta_json).ppPartner || "").trim();
+      if (p) return p;
+    }
+  } catch (eDel) {}
+  try {
+    const act = await env.DB.prepare(
+      "SELECT meta_json FROM orders WHERE status = 'active' AND (match_key = ? OR lower(client) = ?) ORDER BY updated_at DESC LIMIT 1"
+    )
+      .bind(mk, cl)
+      .first();
+    if (act && act.meta_json) {
+      p = String(parseMeta_(act.meta_json).ppPartner || "").trim();
+      if (p) return p;
+    }
+  } catch (eAct) {}
+  return "Другое";
+}
+
+async function findDeferredSnapItem_(env, id) {
+  id = String(id || "").trim();
+  if (!id) return null;
+  try {
+    const list = await getSnapRaw_(env, "listDeferred");
+    const arr = (list && list.items) || [];
+    for (let i = 0; i < arr.length; i++) {
+      if (String((arr[i] && arr[i].id) || "") === id) return arr[i];
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function weekCountsForTransfer_(env) {
+  try {
+    let counts = await getSnapRaw_(env, "weekDayCounts");
+    if (!counts || !Array.isArray(counts.items) || !counts.items.length) {
+      counts = await rebuildWeekCounts_(env);
+    }
+    return (counts && counts.items) || [];
+  } catch (e) {}
+  return [];
+}
+
+async function getTransferTaskCutover_(params, env) {
+  const id = String((params && params.id) || "").trim();
+  if (!id) return { status: "error", message: "need_id", cutover: true };
+  const hit = await findDeferredSnapItem_(env, id);
+  if (hit) {
+    const st = String(hit.status || "open").toLowerCase();
+    if (st && st !== "open") {
+      return { status: "error", message: "not_open", cutover: true };
+    }
+    const weekCounts = await weekCountsForTransfer_(env);
+    return {
+      status: "success",
+      item: {
+        id: hit.id,
+        mode: deferredItemModeOf_(hit) || "transfer",
+        title: String(hit.title || ""),
+        clientNick: String(
+          hit.clientNick || (hit.payload && (hit.payload.client || hit.payload.clientNick)) || ""
+        ),
+        status: st || "open",
+        payload: hit.payload || {},
+        at: hit.at || ""
+      },
+      weekCounts: weekCounts,
+      cutover: true,
+      fromD1: !!hit.fromD1,
+      sandbox: false
+    };
+  }
+  const live = await gasProxy_("getTransferTask", params, env, { write: false });
+  if (live && live.status === "success" && live.item) {
+    live.cutover = true;
+    live.fromGas = true;
+    live.sandbox = false;
+    return live;
+  }
+  return {
+    status: "error",
+    message: (live && live.message) || "not_found",
+    cutover: true,
+    action: "getTransferTask"
+  };
+}
+
+/** Поставить клиента на новый день из задачи переноса (клиент уже снят с листа). */
+async function placeTransferTaskD1_(params, env) {
+  const id = String((params && params.id) || "").trim();
+  if (!id) return { status: "error", message: "need_id", cutover: true };
+  const hit = await findDeferredSnapItem_(env, id);
+  if (!hit) return { status: "error", message: "not_found", cutover: true };
+  const st = String(hit.status || "open").toLowerCase();
+  if (st && st !== "open") return { status: "error", message: "not_open", cutover: true };
+
+  const p = hit.payload || {};
+  const client = String(hit.clientNick || p.client || p.clientNick || "").trim();
+  if (!client) return { status: "error", message: "no_client", cutover: true };
+  const matchKey = normalizeMatchKey_(p.matchKey || client);
+
+  let newDate = String(params.newDate || params.date || params.deliveryDate || "").trim();
+  let newDay = String(params.newDay || "").trim();
+  if (!newDate && newDay) {
+    const info = await dayDateInfo_(env, newDay);
+    newDate = info.iso || "";
+  }
+  if (!newDate) return { status: "error", message: "need_date", cutover: true };
+  if (!newDay) {
+    const r = await resolveDay_({ date: newDate }, env);
+    if (r.onWeek && r.dayName) newDay = r.dayName;
+  }
+
+  const cutRaw = !(
+    params.cutRaw === false ||
+    params.cutRaw === "0" ||
+    params.cutRaw === 0 ||
+    params.cutRaw === "false"
+  );
+  let note = String(p.note || "").trim();
+  note = note.replace(/\s*\[НЕ РЕЗАТЬ\]/gi, "").replace(/\s*\[РЕЗАТЬ\]/gi, "").trim();
+  note = (note ? note + " " : "") + (cutRaw ? "[РЕЗАТЬ]" : "[НЕ РЕЗАТЬ]");
+
+  const basket = Array.isArray(p.basket) ? p.basket : [];
+  const seg = String(p.segment || "");
+  const ppPartner = await resolveBpPartnerForClient_(env, client, matchKey, p.ppPartner, seg);
+  const saveRes = await saveOrder_(
+    {
+      client: client,
+      matchKey: matchKey,
+      day: newDay,
+      date: newDate,
+      address: String(p.address || ""),
+      phone: String(p.phone || ""),
+      note: note,
+      basket: JSON.stringify(basket),
+      segment: seg,
+      source: "transfer",
+      ppPartner: ppPartner
+    },
+    env,
+    false
+  );
+  if (!saveRes || saveRes.status !== "success") {
+    return Object.assign({}, saveRes || { status: "error", message: "save_failed" }, { cutover: true });
+  }
+
+  // не удалять — пометить done (иначе «пропали из переносов» сразу после клика)
+  try {
+    const list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+    const arr = Array.isArray(list.items) ? list.items.slice() : [];
+    const nowIso = new Date().toISOString();
+    let found = false;
+    const next = arr.map(function (it) {
+      if (!it || String(it.id || "") !== id) return it;
+      found = true;
+      const p2 = it.payload || {};
+      return Object.assign({}, it, {
+        status: "done",
+        placed: true,
+        placedAt: nowIso,
+        placedDay: newDay,
+        placedDate: newDate,
+        title: "Перенесён · " + (newDay || newDate),
+        payload: Object.assign({}, p2, {
+          placed: true,
+          placedDay: newDay,
+          placedDate: newDate,
+          parked: false
+        })
+      });
+    });
+    if (found) {
+      list.items = next;
+      list.status = "success";
+      list.openCount = next.filter(function (it) {
+        return String((it && it.status) || "open").toLowerCase() === "open";
+      }).length;
+      list.fromD1 = true;
+      list.sandbox = false;
+      await putSnap_(env, "listDeferred", list);
+    } else {
+      await deleteFromList_(env, "listDeferred", "items", params, "id");
+    }
+  } catch (eDone) {}
+
+  return {
+    status: "success",
+    id: id,
+    client: client,
+    newDate: newDate,
+    newDay: newDay,
+    weekWritten: !!newDay,
+    parkedPlaced: true,
+    fromD1: true,
+    cutover: true,
+    sandbox: false,
+    wrote: saveRes.wrote || 1
+  };
 }
 
 async function delSnap_(env, key) {
@@ -2670,6 +3002,13 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
         return true;
       });
       const xferId = String((proxied && proxied.id) || ("xfer_" + Date.now()));
+      const ppPartner = await resolveBpPartnerForClient_(
+        env,
+        nick,
+        mk,
+        params.ppPartner,
+        params.segment
+      );
       arr.unshift({
         id: xferId,
         mode: "transfer",
@@ -2686,6 +3025,7 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
           client: nick,
           matchKey: String(params.matchKey || ""),
           segment: String(params.segment || ""),
+          ppPartner: ppPartner,
           basket: parseBasket_(params.basket),
           createdByName: String(params.createdByName || "")
         }
@@ -3347,6 +3687,8 @@ async function handleCutover_(a, params, env, ctx) {
               status: "success",
               id: "xfer_" + Date.now()
             });
+          } else if (/^placeTransferTask$/i.test(a)) {
+            d1WriteRes = await placeTransferTaskD1_(params, env);
           }
         }
       } catch (eOpt) {
@@ -3440,6 +3782,19 @@ async function handleCutover_(a, params, env, ctx) {
             await patchMoveWithD1_(params, proxied, env, d1WriteRes)
           );
         }
+        if (
+          /^placeTransferTask$/i.test(a) &&
+          d1WriteRes &&
+          d1WriteRes.status === "success"
+        ) {
+          return Object.assign({}, d1WriteRes, {
+            cutover: true,
+            sandbox: false,
+            optimistic: proxied.status !== "success",
+            gasError: proxied.status !== "success" ? proxied.message || proxied.status : "",
+            action: a
+          });
+        }
         return partnerGuardOrRewrite_(a, params, proxied);
       }
       if (/^moveClient$/i.test(a) && d1WriteRes) {
@@ -3472,6 +3827,15 @@ async function handleCutover_(a, params, env, ctx) {
           cutover: true,
           sandbox: false
         };
+      }
+      if (/^placeTransferTask$/i.test(a) && d1WriteRes && d1WriteRes.status === "success") {
+        return Object.assign({}, d1WriteRes, {
+          cutover: true,
+          sandbox: false,
+          optimistic: !gotGas,
+          parkedPlaced: true,
+          action: a
+        });
       }
       return {
         status: "success",
@@ -3534,6 +3898,25 @@ async function handleCutover_(a, params, env, ctx) {
         row: Number((params && params.row) || 0),
         name: String((params && params.name) || "")
       };
+    }
+    if (/^cancelDeferred$/i.test(a)) {
+      let d1Res = { status: "success", wrote: 0, cutover: true, sandbox: false, action: a };
+      try {
+        d1Res = await deleteFromList_(env, "listDeferred", "items", params, "id");
+        d1Res.cutover = true;
+        d1Res.sandbox = false;
+        d1Res.action = a;
+      } catch (eCan) {}
+      const gasCanP = gasProxy_(a, params, env, { write: true }).catch(function () {
+        return null;
+      });
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasCanP);
+      else {
+        try {
+          await gasCanP;
+        } catch (eG) {}
+      }
+      return d1Res;
     }
     const proxied = await gasProxy_(a, params, env, { write: true });
     if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
@@ -3691,6 +4074,9 @@ async function handleCutover_(a, params, env, ctx) {
   ) {
     if (a === "suggestAddress") {
       return suggestAddressCutover_(params, env);
+    }
+    if (a === "getTransferTask") {
+      return getTransferTaskCutover_(params, env);
     }
     const live = await gasProxy_(a, params, env, { write: false });
     if (live && typeof live === "object") {
@@ -3968,25 +4354,30 @@ async function handleCutover_(a, params, env, ctx) {
         if (liveDef && liveDef.status === "success") {
           const mergedDef = await mergeListDeferredPayload_(env, liveDef);
           if (mergedDef) {
+            const finalDef = await finalizeListDeferredPayload_(env, mergedDef);
             try {
-              await putSnap_(env, "listDeferred", mergedDef);
+              await putSnap_(env, "listDeferred", finalDef);
             } catch (eDefStore) {}
-            mergedDef.cutover = true;
-            mergedDef.fromGas = true;
-            mergedDef.swr = true;
-            mergedDef.sandbox = false;
-            return mergedDef;
+            finalDef.cutover = true;
+            finalDef.fromGas = true;
+            finalDef.swr = true;
+            finalDef.sandbox = false;
+            return finalDef;
           }
         }
       } catch (eDefLive) {}
       try {
         const after = await getSnapRaw_(env, "listDeferred");
-        if (after && Array.isArray(after.items) && after.items.length) {
-          after.cutover = true;
-          after.fromD1 = true;
-          after.swr = true;
-          after.sandbox = false;
-          return after;
+        if (after && Array.isArray(after.items)) {
+          const finalAfter = await finalizeListDeferredPayload_(env, after);
+          try {
+            await putSnap_(env, "listDeferred", finalAfter);
+          } catch (eFa) {}
+          finalAfter.cutover = true;
+          finalAfter.fromD1 = true;
+          finalAfter.swr = true;
+          finalAfter.sandbox = false;
+          return finalAfter;
         }
       } catch (eAfter) {}
     } else if (a === "listDeferred" && snapXferN === 0 && ctx && typeof ctx.waitUntil === "function") {
@@ -4035,6 +4426,11 @@ async function handleCutover_(a, params, env, ctx) {
     } catch (eCut) {}
   }
   if (fast && typeof fast === "object") {
+    if (a === "listDeferred") {
+      try {
+        fast = await finalizeListDeferredPayload_(env, fast);
+      } catch (eFinDef) {}
+    }
     fast.cutover = true;
     fast.swr = true;
     // D1-ответ для LIVE: не путать UI флагом sandbox
@@ -4567,6 +4963,7 @@ async function cutoverStoreRead_(a, params, env, payload) {
     // Клиента уже сняли с дня («Не получил») → человек «просто пропал».
     payload = await mergeListDeferredPayload_(env, payload);
     if (!payload) return;
+    payload = await finalizeListDeferredPayload_(env, payload);
     await putSnap_(env, "listDeferred", payload);
     return;
   }

@@ -5428,6 +5428,7 @@
       var split = document.querySelector(".view-split");
 
       var weekOnly = !viewDateOnlyMonth;
+      if ((viewMonthDayOpen || viewWeekDayOpen) && !viewDateOnlyMonth) weekOnly = true;
       if (split) {
         split.classList.toggle("is-month-only", !!viewDateOnlyMonth);
         split.classList.toggle("is-week-only", !!weekOnly);
@@ -5715,7 +5716,8 @@
       if (!resolveClientOrderType_(staged)) {
         try { editDraftClient(viewTransferDraft.length - 1); } catch (eEd) {}
       } else if (resolveClientOrderType_(staged) === "bp" && !String(staged.ppPartner || "").trim()) {
-        try { editDraftClient(viewTransferDraft.length - 1); } catch (eEd2) {}
+        staged.ppPartner = "Другое";
+        staged.gaps = clientGaps(staged);
       } else if (resolveClientOrderType_(staged) === "pp") {
         try { await ensureDraftClientPpSlot_(staged); } catch (ePp) {}
       }
@@ -5910,8 +5912,7 @@
           return;
         }
         if (draftOt === "bp" && !String(client.ppPartner || "").trim()) {
-          showToast("Для БП укажите партнёра");
-          return;
+          client.ppPartner = "Другое";
         }
         closeModal();
         renderViewLists();
@@ -5924,8 +5925,7 @@
           return;
         }
         if (draftOt === "bp" && !String(client.ppPartner || "").trim()) {
-          showToast("Для БП укажите партнёра");
-          return;
+          client.ppPartner = "Другое";
         }
         closeModal();
         var day = document.getElementById("viewDaySelect").value;
@@ -6022,12 +6022,11 @@
         return ot === "bp" && !String(c.ppPartner || "").trim();
       });
       if (noPartner.length) {
-        await uiAlertAsync(
-          "У " + noPartner.length + " БП не указан партнёр (кто привёл).\n" +
-          "Открой карточку (✏️) и выбери партнёра или «Другое»."
-        );
-        try { editDraftClient(viewTransferDraft.indexOf(noPartner[0])); } catch (eP) {}
-        return;
+        noPartner.forEach(function (c) {
+          c.ppPartner = "Другое";
+          c.gaps = clientGaps(c);
+        });
+        showToast("БП без партнёра → «Другое» (" + noPartner.length + ")");
       }
       var red = viewTransferDraft.filter(function (c) { return clientGaps(c).length; });
       if (red.length) {
@@ -8668,35 +8667,68 @@
       }, 0);
       var go = await modalP;
       if (go !== "go") return;
-      var moved = await performViewClientMove_({
-        name: it.clientNick || p.client || "",
-        matchKey: p.matchKey || "",
-        oldDay: p.day || "",
-        oldDate: p.dateIso || p.date || ""
-      });
-      if (!moved) return;
+      var clientName = it.clientNick || p.client || "";
+      var pickedDate = await uiPickMoveDate(clientName, p.dateIso || p.date || "");
+      if (!pickedDate) return;
+      var target = await resolveMoveTargetFromDate_(pickedDate);
+      if (!target || !target.newDate) {
+        await uiAlertAsync("Не удалось определить дату");
+        return;
+      }
+      var cutLabel = target.newDate + (target.newDay ? (" · " + target.newDay) : " · календарь");
+      var cutP = openModal(
+        '<div class="modal-title">Перенос клиента</div>' +
+        '<div class="modal-text">Перенос <b>' + escapeHtml(clientName) + '</b> → <b>' + escapeHtml(cutLabel) + '</b>.<br><br>' +
+        'Нарезать сырьё на этого клиента в новом дне вместе со всеми?</div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-action btn-orange" type="button" id="modalCutYes">Да, резать</button>' +
+          '<button class="btn-action btn-blue" type="button" id="modalCutNo">Нет — только перенос</button>' +
+          '<button class="btn-action" type="button" id="modalCancel" style="background:#3a3a3c;">Отмена</button>' +
+        "</div>"
+      );
+      setTimeout(function () {
+        var y = document.getElementById("modalCutYes");
+        var n = document.getElementById("modalCutNo");
+        var c = document.getElementById("modalCancel");
+        if (y) y.onclick = function () { closeModal("yes"); };
+        if (n) n.onclick = function () { closeModal("no"); };
+        if (c) c.onclick = function () { closeModal(null); };
+      }, 0);
+      var cutRaw = await cutP;
+      if (!cutRaw) return;
+      var placed = null;
       try {
-        await apiGet({
+        placed = await apiGet({
           action: "placeTransferTask",
           telegramId: tid,
           id: id,
-          newDate: (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "",
-          newDay: (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) || "",
-          cutRaw: "1",
+          newDate: target.newDate,
+          newDay: target.newDay || "",
+          cutRaw: cutRaw === "yes" ? "1" : "0",
           _: String(Date.now())
-        }, { timeoutMs: 20000, cacheTtlMs: 0 });
-      } catch (ePl) {}
-      try {
-        await apiGet({
-          action: "cancelDeferred",
-          telegramId: tid,
-          id: id,
-          _: String(Date.now())
-        }, { timeoutMs: 15000, cacheTtlMs: 0 });
-      } catch (eCan) {}
+        }, { timeoutMs: 30000, cacheTtlMs: 0 });
+      } catch (ePl) {
+        await uiAlertAsync(ePl.message || "Ошибка сети");
+        return;
+      }
+      if (!placed || placed.status !== "success") {
+        await uiAlertAsync("Не удалось: " + ((placed && (placed.message || placed.status)) || "ошибка"));
+        return;
+      }
       deferredCacheAt = 0;
+      try {
+        apiCacheBustMem_("getClients");
+        apiCacheBustMem_("getViewCompare");
+        apiCacheBustMem_("getMonthOverview");
+        apiCacheBustMem_("listDeferred");
+        afterPeopleMutationDays_(target.newDay ? [target.newDay] : []);
+      } catch (eClr) {}
+      try { await loadClientsForDay(); } catch (eLd) {}
+      if (target.newDay) {
+        try { await refreshDayViews(target.newDay, { force: true }); } catch (eR) {}
+      }
       try { renderTasksDrawer(true); } catch (eR) {}
-      showToast("Перенос готов");
+      showToast("Перенесено на " + (target.newDay || target.newDate));
     }
     window.openTransferTask_ = openTransferTask_;
 
@@ -18768,10 +18800,27 @@
       box.innerHTML = items.map(function (it) {
         var p = it.payload || {};
         var safeId = String(it.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        var isDone = String(it.status || "open").toLowerCase() === "done" || !!(it.placed || p.placed);
+        var placedDay = String(it.placedDay || p.placedDay || p.day || "").trim();
+        var placedDate = String(it.placedDate || p.placedDate || p.date || "").trim();
         var basket = Array.isArray(p.basket) ? p.basket : [];
         var preview = basket.slice(0, 6).map(function (x) {
           return String(x.name || x.main || "").trim();
         }).filter(Boolean).join(", ");
+        if (isDone) {
+          var goDay = placedDay.replace(/'/g, "\\'");
+          return '<div class="tasks-item" style="border:1px solid rgba(48,209,88,0.35);background:rgba(48,209,88,0.08);">' +
+            '<div><b style="color:#30d158;">✓ ' + escapeHtml(it.title || "Перенесён") + '</b>' +
+            '<div class="muted" style="font-size:12px;margin-top:4px;">' +
+            escapeHtml(it.clientNick || p.client || "—") +
+            (placedDay ? (" · " + escapeHtml(placedDay)) : "") +
+            (placedDate ? (" · " + escapeHtml(placedDate)) : "") +
+            "</div></div>" +
+            (placedDay ? ('<div class="seg-row" style="margin-top:10px;">' +
+              '<button type="button" class="seg-btn" style="background:#30d158;border-color:#30d158;color:#111;" onclick="goToDayFromXfer_(\'' + goDay + '\')">Открыть день</button>' +
+              "</div>") : "") +
+            "</div>";
+        }
         return '<div class="tasks-item is-hot">' +
           '<div><b>' + escapeHtml(it.title || "Перенос") + '</b>' +
           '<div class="muted" style="font-size:12px;margin-top:4px;">' +
@@ -18793,6 +18842,22 @@
           "</div></div>";
       }).join("");
     }
+
+    function goToDayFromXfer_(dayName) {
+      dayName = String(dayName || "").trim();
+      if (!dayName) return;
+      try { closeTasksDrawer(); } catch (eC) {}
+      try {
+        var sel = document.getElementById("viewDaySelect");
+        if (sel) {
+          sel.value = dayName;
+          sel.dispatchEvent(new Event("change"));
+        }
+      } catch (eS) {}
+      try { switchTab("viewScreen"); } catch (eT) {}
+      try { loadClientsForDay(); } catch (eL) {}
+    }
+    window.goToDayFromXfer_ = goToDayFromXfer_;
 
     function renderTasksPpCards(items) {
       var html;
@@ -19078,6 +19143,12 @@
         var xferItems = openItems.filter(function (it) {
           return deferredItemMode_(it) === "transfer";
         });
+        var doneXferItems = (deferredCache || []).filter(function (it) {
+          if (deferredItemMode_(it) !== "transfer") return false;
+          var st = String(it.status || "open").toLowerCase();
+          return st === "done" || !!(it.placed || (it.payload && it.payload.placed));
+        });
+        var xferPaint = xferItems.concat(doneXferItems);
         var buyItems = openItems.filter(function (it) {
           return deferredItemMode_(it) === "buy";
         });
@@ -19105,8 +19176,8 @@
         ppItems = ppItems.concat(idleItems);
         deferredOpenCount = xferItems.length + buyItems.length + orderItems.length + remindItems.length + ppItems.length;
         updateTasksBadge();
-        updateTasksTabCounts_(xferItems.length, buyItems.length, orderItems.length, ppItems.length, remindItems.length);
-        renderTasksXferCards(xferItems);
+        updateTasksTabCounts_(xferPaint.length, buyItems.length, orderItems.length, ppItems.length, remindItems.length);
+        renderTasksXferCards(xferPaint);
         renderTasksBuyCards(buyItems);
         renderTasksOrderCards(orderItems);
         renderTasksRemindCards(remindItems);
@@ -19114,7 +19185,7 @@
         try {
           if (_tasksAutoPickOnOpen) {
             setTasksTab(pickBestTasksTab_(
-              xferItems.length, buyItems.length, orderItems.length, ppItems.length, remindItems.length
+              xferPaint.length, buyItems.length, orderItems.length, ppItems.length, remindItems.length
             ));
             if (deferredOpenCount > 0) _tasksAutoPickOnOpen = false;
           } else {
