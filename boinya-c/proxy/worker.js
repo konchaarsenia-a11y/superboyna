@@ -663,6 +663,74 @@ async function repairParkedTransfersFromOrders_(env) {
   await putSnap_(env, "listDeferred", list);
 }
 
+async function findDeferredSnapItem_(env, id) {
+  id = String(id || "").trim();
+  if (!id) return null;
+  try {
+    const list = await getSnapRaw_(env, "listDeferred");
+    const arr = (list && list.items) || [];
+    for (let i = 0; i < arr.length; i++) {
+      if (String((arr[i] && arr[i].id) || "") === id) return arr[i];
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function weekCountsForTransfer_(env) {
+  try {
+    let counts = await getSnapRaw_(env, "weekDayCounts");
+    if (!counts || !Array.isArray(counts.items) || !counts.items.length) {
+      counts = await rebuildWeekCounts_(env);
+    }
+    return (counts && counts.items) || [];
+  } catch (e) {}
+  return [];
+}
+
+async function getTransferTaskCutover_(params, env) {
+  const id = String((params && params.id) || "").trim();
+  if (!id) return { status: "error", message: "need_id", cutover: true };
+  const hit = await findDeferredSnapItem_(env, id);
+  if (hit) {
+    const st = String(hit.status || "open").toLowerCase();
+    if (st && st !== "open") {
+      return { status: "error", message: "not_open", cutover: true };
+    }
+    const weekCounts = await weekCountsForTransfer_(env);
+    return {
+      status: "success",
+      item: {
+        id: hit.id,
+        mode: deferredItemModeOf_(hit) || "transfer",
+        title: String(hit.title || ""),
+        clientNick: String(
+          hit.clientNick || (hit.payload && (hit.payload.client || hit.payload.clientNick)) || ""
+        ),
+        status: st || "open",
+        payload: hit.payload || {},
+        at: hit.at || ""
+      },
+      weekCounts: weekCounts,
+      cutover: true,
+      fromD1: !!hit.fromD1,
+      sandbox: false
+    };
+  }
+  const live = await gasProxy_("getTransferTask", params, env, { write: false });
+  if (live && live.status === "success" && live.item) {
+    live.cutover = true;
+    live.fromGas = true;
+    live.sandbox = false;
+    return live;
+  }
+  return {
+    status: "error",
+    message: (live && live.message) || "not_found",
+    cutover: true,
+    action: "getTransferTask"
+  };
+}
+
 async function delSnap_(env, key) {
   if (!env || !env.DB) return;
   await env.DB.prepare("DELETE FROM snap_cache WHERE cache_key = ?").bind(key).run();
@@ -3347,6 +3415,12 @@ async function handleCutover_(a, params, env, ctx) {
               status: "success",
               id: "xfer_" + Date.now()
             });
+          } else if (/^placeTransferTask$/i.test(a)) {
+            d1WriteRes = await deleteFromList_(env, "listDeferred", "items", params, "id");
+            if (d1WriteRes) {
+              d1WriteRes.cutover = true;
+              d1WriteRes.sandbox = false;
+            }
           }
         }
       } catch (eOpt) {
@@ -3473,6 +3547,15 @@ async function handleCutover_(a, params, env, ctx) {
           sandbox: false
         };
       }
+      if (/^placeTransferTask$/i.test(a) && d1WriteRes && d1WriteRes.status === "success") {
+        return Object.assign({}, d1WriteRes, {
+          cutover: true,
+          sandbox: false,
+          optimistic: !gotGas,
+          parkedPlaced: true,
+          action: a
+        });
+      }
       return {
         status: "success",
         wrote: 1,
@@ -3534,6 +3617,25 @@ async function handleCutover_(a, params, env, ctx) {
         row: Number((params && params.row) || 0),
         name: String((params && params.name) || "")
       };
+    }
+    if (/^cancelDeferred$/i.test(a)) {
+      let d1Res = { status: "success", wrote: 0, cutover: true, sandbox: false, action: a };
+      try {
+        d1Res = await deleteFromList_(env, "listDeferred", "items", params, "id");
+        d1Res.cutover = true;
+        d1Res.sandbox = false;
+        d1Res.action = a;
+      } catch (eCan) {}
+      const gasCanP = gasProxy_(a, params, env, { write: true }).catch(function () {
+        return null;
+      });
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasCanP);
+      else {
+        try {
+          await gasCanP;
+        } catch (eG) {}
+      }
+      return d1Res;
     }
     const proxied = await gasProxy_(a, params, env, { write: true });
     if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
@@ -3691,6 +3793,9 @@ async function handleCutover_(a, params, env, ctx) {
   ) {
     if (a === "suggestAddress") {
       return suggestAddressCutover_(params, env);
+    }
+    if (a === "getTransferTask") {
+      return getTransferTaskCutover_(params, env);
     }
     const live = await gasProxy_(a, params, env, { write: false });
     if (live && typeof live === "object") {
