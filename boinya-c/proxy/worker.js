@@ -2223,7 +2223,7 @@ async function rebuildMonthOverview_(env) {
     (prev && prev.month) ||
     new Date().toISOString().slice(0, 7);
   const q = await env.DB.prepare(
-    "SELECT date_iso, segment, COUNT(*) AS c FROM orders WHERE status = 'active' AND date_iso != '' GROUP BY date_iso, segment"
+    "SELECT date_iso, match_key, client, segment, source FROM orders WHERE status = 'active' AND date_iso != ''"
   ).all();
   const byDate = Object.create(null);
   // стартуем с полного календарного snap (GAS), иначе пропадут даты вне недели
@@ -2240,11 +2240,23 @@ async function rebuildMonthOverview_(env) {
   (q.results || []).forEach(function (r) {
     const iso = r.date_iso;
     if (!iso || iso.slice(0, 7) !== month) return;
-    if (!orderByDate[iso]) orderByDate[iso] = { count: 0, segments: {} };
-    const c = Number(r.c) || 0;
-    orderByDate[iso].count += c;
-    const seg = r.segment || "";
-    if (seg) orderByDate[iso].segments[seg] = (orderByDate[iso].segments[seg] || 0) + c;
+    const mk = normalizeMatchKey_(r.match_key || r.client);
+    if (!mk) return;
+    if (!orderByDate[iso]) {
+      orderByDate[iso] = { seen: Object.create(null), count: 0, segments: {} };
+    }
+    if (orderByDate[iso].seen[mk]) return;
+    orderByDate[iso].seen[mk] = true;
+    orderByDate[iso].count++;
+    const seg =
+      normalizeSegmentLabel_(r.segment) ||
+      normalizeSegmentLabel_(r.source) ||
+      "";
+    if (seg === "ПП") orderByDate[iso].segments["ПП"] = (orderByDate[iso].segments["ПП"] || 0) + 1;
+    else if (seg === "БП") orderByDate[iso].segments["БП"] = (orderByDate[iso].segments["БП"] || 0) + 1;
+    else if (seg === "Р") orderByDate[iso].segments["Р"] = (orderByDate[iso].segments["Р"] || 0) + 1;
+    else if (seg === "ПАРТНЁР") orderByDate[iso].segments["ПАРТНЁР"] = (orderByDate[iso].segments["ПАРТНЁР"] || 0) + 1;
+    else orderByDate[iso].segments.other = (orderByDate[iso].segments.other || 0) + 1;
   });
   Object.keys(orderByDate).forEach(function (iso) {
     const o = orderByDate[iso];

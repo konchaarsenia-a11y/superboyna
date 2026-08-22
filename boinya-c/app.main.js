@@ -4926,10 +4926,42 @@
       return '<div class="ios-cal-dots">' + dots.slice(0, 4).join("") + "</div>";
     }
 
+    function viewTodayIsoLocal_() {
+      var d = new Date();
+      return d.getFullYear() + "-" + pad2Month_(d.getMonth() + 1) + "-" + pad2Month_(d.getDate());
+    }
+
+    function weekCountsMondayIso_(week) {
+      var items = (week && week.items) || [];
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        if (!it) continue;
+        if (it.day === "Понедельник" || it.short === "Пн") {
+          var m = String(it.date || "").trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+          if (m) {
+            return m[3] + "-" + pad2Month_(Number(m[2])) + "-" + pad2Month_(Number(m[1]));
+          }
+        }
+      }
+      return "";
+    }
+
+    function isWeekCountsFresh_(week) {
+      if (!week || !Array.isArray(week.items) || !week.items.length) return false;
+      var wMon = weekCountsMondayIso_(week);
+      var cMon = mondayIsoFromIsoDate_(viewTodayIsoLocal_());
+      if (!wMon || !cMon) return true;
+      return wMon === cMon;
+    }
+
     function overlayWeekCountsOnMonthData_(data) {
       if (!data || typeof data !== "object") return data;
+      // Worker уже отдал бейджи (D1 + лист недели) — не затирать seed/кэшем
+      if (data.weekOverlay && Array.isArray(data.days) && data.days.length) return data;
       var week = viewWeekOverviewCache;
       if (!week || !Array.isArray(week.items) || !week.items.length) return data;
+      if (!isWeekCountsFresh_(week)) return data;
+      var month = String(data.month || "").slice(0, 7);
       var byIso = {};
       ((data.days || []) || []).forEach(function (d) {
         if (!d || !d.dateIso) return;
@@ -4937,30 +4969,36 @@
           dateIso: d.dateIso,
           count: Number(d.count) || 0,
           segments: d.segments || {},
-          fromWeekSheet: !!d.fromWeekSheet
+          fromWeekSheet: !!d.fromWeekSheet,
+          fromView: !!d.fromView
         };
       });
       week.items.forEach(function (it) {
         if (!it) return;
         var m = String(it.date || "").trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
         if (!m) return;
-        var iso = m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
+        var iso = m[3] + "-" + pad2Month_(Number(m[2])) + "-" + pad2Month_(Number(m[1]));
+        if (month && iso.slice(0, 7) !== month) return;
         var c = Number(it.count) || 0;
-        if (!byIso[iso]) {
+        var prev = byIso[iso];
+        if (prev && prev.fromView) {
+          prev.fromWeekSheet = true;
+          return;
+        }
+        if (!prev) {
           byIso[iso] = { dateIso: iso, count: c, segments: {}, fromWeekSheet: true };
         } else {
-          byIso[iso].count = c;
-          byIso[iso].fromWeekSheet = true;
+          prev.count = c;
+          prev.fromWeekSheet = true;
         }
       });
       var days = Object.keys(byIso).sort().map(function (k) { return byIso[k]; });
       var total = 0;
       for (var i = 0; i < days.length; i++) total += Number(days[i].count) || 0;
-      return Object.assign({}, data, { days: days, total: total, weekOverlay: true });
+      return Object.assign({}, data, { days: days, total: total, weekOverlay: true, clientOverlay: true });
     }
 
     function renderMonthOverviewList_(data) {
-      data = overlayWeekCountsOnMonthData_(data);
       var box = document.getElementById("viewMonthOverviewList");
       if (!box) return;
       var month = (data && data.month) || (document.getElementById("viewMonthPick") && document.getElementById("viewMonthPick").value) || "";
@@ -5073,12 +5111,17 @@
       var box = document.getElementById("viewMonthOverviewList");
       if (box && !opts.soft) box.innerHTML = viewLoadingSkeletonHtml();
       try {
-        // для бейджей текущей недели нужен getWeekDayCounts (лист «Прием», не Календарь_Дат)
+        // свежие счётчики недели — иначе seed 10–16.08 затирает 17–23.08 на сетке
         try {
-          await ensureWeekOverviewLoaded_({ soft: true });
+          await ensureWeekOverviewLoaded_({
+            force: !!(opts.force || !isWeekCountsFresh_(viewWeekOverviewCache))
+          });
         } catch (eWov) {}
         var params = { action: "getMonthOverview", month: month };
-        if (opts.force) params._ = String(Date.now());
+        if (opts.force) {
+          params.force = "1";
+          params._ = String(Date.now());
+        }
         var res = await apiGet(
           params,
           { timeoutMs: opts.soft ? 22000 : 35000, retries: opts.soft ? 0 : 1, cacheTtlMs: opts.force ? 0 : undefined }
@@ -5154,7 +5197,7 @@
 
     async function ensureWeekOverviewLoaded_(opts) {
       opts = opts || {};
-      if (opts.soft && viewWeekOverviewCache) {
+      if (opts.soft && viewWeekOverviewCache && isWeekCountsFresh_(viewWeekOverviewCache)) {
         renderWeekOverviewList_(viewWeekOverviewCache);
         return;
       }
@@ -5171,6 +5214,9 @@
           { timeoutMs: opts.soft ? 15000 : 25000, retries: opts.soft ? 0 : 1, cacheTtlMs: opts.force ? 0 : undefined }
         );
         if (res && res.status === "success") {
+          if (!isWeekCountsFresh_(res) && !opts.force) {
+            return ensureWeekOverviewLoaded_({ force: true });
+          }
           viewWeekOverviewCache = res;
           renderWeekOverviewList_(res);
         } else if (box) {
