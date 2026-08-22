@@ -18801,10 +18801,27 @@
       box.innerHTML = items.map(function (it) {
         var p = it.payload || {};
         var safeId = String(it.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        var isDone = String(it.status || "open").toLowerCase() === "done" || !!(it.placed || p.placed);
+        var placedDay = String(it.placedDay || p.placedDay || p.day || "").trim();
+        var placedDate = String(it.placedDate || p.placedDate || p.date || "").trim();
         var basket = Array.isArray(p.basket) ? p.basket : [];
         var preview = basket.slice(0, 6).map(function (x) {
           return String(x.name || x.main || "").trim();
         }).filter(Boolean).join(", ");
+        if (isDone) {
+          var goDay = placedDay.replace(/'/g, "\\'");
+          return '<div class="tasks-item" style="border:1px solid rgba(48,209,88,0.35);background:rgba(48,209,88,0.08);">' +
+            '<div><b style="color:#30d158;">✓ ' + escapeHtml(it.title || "Перенесён") + '</b>' +
+            '<div class="muted" style="font-size:12px;margin-top:4px;">' +
+            escapeHtml(it.clientNick || p.client || "—") +
+            (placedDay ? (" · " + escapeHtml(placedDay)) : "") +
+            (placedDate ? (" · " + escapeHtml(placedDate)) : "") +
+            "</div></div>" +
+            (placedDay ? ('<div class="seg-row" style="margin-top:10px;">' +
+              '<button type="button" class="seg-btn" style="background:#30d158;border-color:#30d158;color:#111;" onclick="goToDayFromXfer_(\'' + goDay + '\')">Открыть день</button>' +
+              "</div>") : "") +
+            "</div>";
+        }
         return '<div class="tasks-item is-hot">' +
           '<div><b>' + escapeHtml(it.title || "Перенос") + '</b>' +
           '<div class="muted" style="font-size:12px;margin-top:4px;">' +
@@ -18826,6 +18843,22 @@
           "</div></div>";
       }).join("");
     }
+
+    function goToDayFromXfer_(dayName) {
+      dayName = String(dayName || "").trim();
+      if (!dayName) return;
+      try { closeTasksDrawer(); } catch (eC) {}
+      try {
+        var sel = document.getElementById("viewDaySelect");
+        if (sel) {
+          sel.value = dayName;
+          sel.dispatchEvent(new Event("change"));
+        }
+      } catch (eS) {}
+      try { switchTab("viewScreen"); } catch (eT) {}
+      try { loadClientsForDay(); } catch (eL) {}
+    }
+    window.goToDayFromXfer_ = goToDayFromXfer_;
 
     function renderTasksPpCards(items) {
       var html;
@@ -19111,6 +19144,12 @@
         var xferItems = openItems.filter(function (it) {
           return deferredItemMode_(it) === "transfer";
         });
+        var doneXferItems = (deferredCache || []).filter(function (it) {
+          if (deferredItemMode_(it) !== "transfer") return false;
+          var st = String(it.status || "open").toLowerCase();
+          return st === "done" || !!(it.placed || (it.payload && it.payload.placed));
+        });
+        var xferPaint = xferItems.concat(doneXferItems);
         var buyItems = openItems.filter(function (it) {
           return deferredItemMode_(it) === "buy";
         });
@@ -19138,8 +19177,8 @@
         ppItems = ppItems.concat(idleItems);
         deferredOpenCount = xferItems.length + buyItems.length + orderItems.length + remindItems.length + ppItems.length;
         updateTasksBadge();
-        updateTasksTabCounts_(xferItems.length, buyItems.length, orderItems.length, ppItems.length, remindItems.length);
-        renderTasksXferCards(xferItems);
+        updateTasksTabCounts_(xferPaint.length, buyItems.length, orderItems.length, ppItems.length, remindItems.length);
+        renderTasksXferCards(xferPaint);
         renderTasksBuyCards(buyItems);
         renderTasksOrderCards(orderItems);
         renderTasksRemindCards(remindItems);
@@ -19147,7 +19186,7 @@
         try {
           if (_tasksAutoPickOnOpen) {
             setTasksTab(pickBestTasksTab_(
-              xferItems.length, buyItems.length, orderItems.length, ppItems.length, remindItems.length
+              xferPaint.length, buyItems.length, orderItems.length, ppItems.length, remindItems.length
             ));
             if (deferredOpenCount > 0) _tasksAutoPickOnOpen = false;
           } else {
