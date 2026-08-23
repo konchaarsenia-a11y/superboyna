@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c50";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c67";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -7027,8 +7027,8 @@
           return false;
         }
 
-        // cutover: сервер уже принял move (success/optimistic/opaque) — НЕ блокируем UI
-        // проверкой списка. getClients/snap/GAS часто отстают → ложное «не закрепился».
+        // cutover: сервер принял move — проверяем списки. Если человек всё ещё на старом
+        // и нет на новом — НЕ врём «Перенесено» (типично es_furman / ФИО+nick).
         if (!calendarOnly && !dateOnly && oldDay && newDay && oldDay !== newDay) {
           async function clientOnDay_(dayName) {
             try {
@@ -7039,11 +7039,15 @@
                 _: String(Date.now())
               }, { timeoutMs: 12000, cacheTtlMs: 0, __boinyaNoSnap: true });
               var list = (chk && chk.clients) || [];
-              var want = String(clientName || "").trim().toUpperCase();
+              var wantKey = viewClientKey(clientName);
+              var wantName = String(clientName || "").trim().toUpperCase();
               for (var ci = 0; ci < list.length; ci++) {
-                var nm = String(list[ci].name || list[ci].client || "").trim().toUpperCase();
+                var nm = String(list[ci].name || list[ci].client || "").trim();
                 if (!nm) continue;
-                if (nm === want || nm.indexOf(want) >= 0 || want.indexOf(nm) >= 0) return true;
+                var nk = viewClientKey(nm);
+                if (wantKey && nk && wantKey === nk) return true;
+                var nu = nm.toUpperCase();
+                if (nu === wantName || nu.indexOf(wantName) >= 0 || wantName.indexOf(nu) >= 0) return true;
               }
             } catch (eChk) {}
             return false;
@@ -7054,10 +7058,9 @@
             onOld = await clientOnDay_(oldDay);
             onNew = await clientOnDay_(newDay);
           } catch (eVer) {}
-          if (!onNew) {
-            // мягкий ретрай в фоне — без alert и без return false
+          if (!onNew && onOld) {
             try {
-              apiGet({
+              await apiGet({
                 action: "moveClient",
                 client: clientName,
                 oldDay: oldDay || "",
@@ -7070,8 +7073,25 @@
                 matchKey: matchKey,
                 force: "1",
                 _: String(Date.now())
-              }, { timeoutMs: 22000, cacheTtlMs: 0 }).catch(function () {});
+              }, { timeoutMs: 22000, cacheTtlMs: 0 });
+              onOld = await clientOnDay_(oldDay);
+              onNew = await clientOnDay_(newDay);
             } catch (eRetryM) {}
+          }
+          if (!onNew && onOld) {
+            await uiAlertAsync(
+              "Не перенеслось: «" + clientName + "» всё ещё на «" + oldDay + "» и нет на «" + newDay + "».\n" +
+              "Попробуй ещё раз или обнови список."
+            );
+            try {
+              apiCacheBustMem_("getClients");
+              await loadClientsForDay();
+              try { await refreshDayViews(oldDay, { force: true }); } catch (eR) {}
+              try { await refreshDayViews(newDay, { force: true }); } catch (eR2) {}
+            } catch (eReload) {}
+            return false;
+          }
+          if (!onNew) {
             showToast("Перенесено — список «" + newDay + "» может обновиться через минуту");
           } else if (onOld) {
             showToast("На «" + oldDay + "» ещё виден в листе — обновится через минуту");
@@ -7089,6 +7109,10 @@
           showToast(baseMsg + " · опрос " + svN + (bpMetaN ? (" · meta БП " + bpMetaN) : ""));
         } else if (res.dateSync && res.dateSync.surveyError) {
           showToast(baseMsg + " · опрос не сдвинут (ошибка)");
+        } else if (!calendarOnly && !dateOnly && oldDay && newDay && oldDay !== newDay) {
+          // soft-toast уже был при !onNew / onOld; чистый успех (на новом, нет на старом) — обычный
+          if (typeof onNew !== "undefined" && onNew && !onOld) showToast(baseMsg);
+          else if (typeof onNew === "undefined") showToast(baseMsg);
         } else {
           showToast(baseMsg);
         }
@@ -7416,6 +7440,7 @@
           return;
         }
         var items = (res.items || []).slice();
+        items.forEach(normalizeCutFlagsUi_);
 
         applyLocalCuttingFlags_(items);
 
@@ -7470,29 +7495,50 @@
       }
     }
 
+    function cutNameKeyUi_(name) {
+      return String(name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+    }
+
+    function cutFuzzyKeyUi_(name) {
+      return cutNameKeyUi_(name)
+        .replace(/ШТ\.?/g, "")
+        .replace(/[^A-ZА-Я0-9]+/g, "");
+    }
+
+    function normalizeCutFlagsUi_(it) {
+      if (!it || typeof it !== "object") return it;
+      it.laid = !!(it.laid === true || it.laid === 1 || it.laid === "1" || String(it.laid).toLowerCase() === "true");
+      it.done = !!(it.done === true || it.done === 1 || it.done === "1" || String(it.done).toLowerCase() === "true");
+      it.outNext = !!(it.outNext === true || it.outNext === 1 || it.outNext === "1" || String(it.outNext).toLowerCase() === "true");
+      return it;
+    }
+
+    function findPrevCuttingUi_(prevItems, item) {
+      var nk = cutNameKeyUi_(item && item.name);
+      var fz = cutFuzzyKeyUi_(item && item.name);
+      if (!nk && !fz) return null;
+      for (var i = 0; i < (prevItems || []).length; i++) {
+        var p = prevItems[i];
+        if (!p) continue;
+        if (nk && cutNameKeyUi_(p.name) === nk) return p;
+        if (fz && cutFuzzyKeyUi_(p.name) === fz) return p;
+      }
+      return null;
+    }
+
     function mergeCuttingFlagsPreferLocal_(items, prevItems) {
-      var prevMap = Object.create(null);
-      var prevByName = Object.create(null);
-      (prevItems || []).forEach(function (p) {
-        if (!p) return;
-        if (p.row != null) prevMap[Number(p.row)] = p;
-        var nk = cutNameKeyUi_(p.name);
-        if (nk) prevByName[nk] = p;
-      });
       (items || []).forEach(function (it) {
-        var p = prevMap[Number(it.row)] || prevByName[cutNameKeyUi_(it.name)];
+        var p = findPrevCuttingUi_(prevItems, it);
         if (!p) return;
-        var loc = cuttingLocalFlags[Number(it.row)] || cuttingLocalFlags["n:" + cutNameKeyUi_(it.name)];
+        var loc =
+          cuttingLocalFlags[Number(it.row)] ||
+          cuttingLocalFlags["n:" + cutNameKeyUi_(it.name)];
         if (loc) return;
         if (!it.laid && p.laid) it.laid = true;
         if (!it.done && p.done) it.done = true;
         if (!it.outNext && p.outNext) it.outNext = true;
-        if (p.row != null && Number(p.row) >= 3 && Number(p.row) <= 48) it.row = p.row;
       });
-    }
-
-    function cutNameKeyUi_(name) {
-      return String(name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+      (items || []).forEach(normalizeCutFlagsUi_);
     }
 
     function rememberCuttingLocalFlag_(row, patch, name) {
@@ -7502,6 +7548,7 @@
         if (!cuttingLocalFlags[key]) cuttingLocalFlags[key] = { ts: Date.now() };
         var o = cuttingLocalFlags[key];
         o.ts = Date.now();
+        if (name) o.name = cutNameKeyUi_(name);
         if (patch.laid !== undefined) o.laid = !!patch.laid;
         if (patch.done !== undefined) o.done = !!patch.done;
         if (patch.outNext !== undefined) o.outNext = !!patch.outNext;
@@ -7529,14 +7576,17 @@
       var now = Date.now();
       (items || []).forEach(function (it) {
         var row = Number(it.row);
+        var nk = cutNameKeyUi_(it.name);
         var oRow = cuttingLocalFlags[row];
-        var oName = cuttingLocalFlags["n:" + cutNameKeyUi_(it.name)];
+        var oName = cuttingLocalFlags["n:" + nk];
+        // row переиспользован другой позицией — не брать флаг по row
+        if (oRow && oRow.name && oRow.name !== nk) oRow = null;
         var o = oRow;
         if (oName && (!o || (oName.ts || 0) >= (o.ts || 0))) o = oName;
         if (!o) return;
         if ((now - (o.ts || 0)) > 1800000) {
           if (oRow) delete cuttingLocalFlags[row];
-          if (oName) delete cuttingLocalFlags["n:" + cutNameKeyUi_(it.name)];
+          if (oName) delete cuttingLocalFlags["n:" + nk];
           return;
         }
 
@@ -7546,12 +7596,13 @@
           (o.outNext === undefined || !!o.outNext === !!it.outNext);
         if (serverMatches) {
           if (oRow) delete cuttingLocalFlags[row];
-          if (oName) delete cuttingLocalFlags["n:" + cutNameKeyUi_(it.name)];
+          if (oName) delete cuttingLocalFlags["n:" + nk];
           return;
         }
         if (o.laid !== undefined) it.laid = !!o.laid;
         if (o.done !== undefined) it.done = !!o.done;
         if (o.outNext !== undefined) it.outNext = !!o.outNext;
+        normalizeCutFlagsUi_(it);
       });
     }
 
@@ -7923,15 +7974,19 @@
     }
 
     function cutRowClass(item) {
+      var laid = !!(item && item.laid);
+      var done = !!(item && item.done);
+      var outNext = !!(item && item.outNext);
       var cls = "cut-row";
-      if (item.done && item.laid) cls += " done";
-      else if (item.laid && !item.done) cls += " laid-only";
-      else if (item.done) cls += " done";
-      if (item.outNext) cls += " out-next";
+      if (done && laid) cls += " done";
+      else if (laid && !done) cls += " laid-only";
+      else if (done) cls += " done";
+      if (outNext) cls += " out-next";
       return cls;
     }
 
     function renderCutRowHtml(item) {
+      normalizeCutFlagsUi_(item);
       const dryLabel = item.unit === "шт" ? (item.dry + " шт") : (item.dry + " гр сухого");
       const rawLabel = item.unit === "шт"
         ? (item.raw + " шт")
@@ -19347,7 +19402,9 @@
       if (!tid) return;
 
       deferredCache = (deferredCache || []).filter(function (it) {
-        return String(it.id) !== id;
+        if (!it) return false;
+        if (String(it.id) === id) return false;
+        return true;
       });
       deferredCacheAt = Date.now();
       try { renderTasksDrawer(false); } catch (e0) {}

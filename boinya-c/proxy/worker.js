@@ -292,8 +292,29 @@ async function handleAction_(action, params, env, url, ctx) {
   if (a === "deleteSubscription" || a === "deleteSubscriptionBatch") return deleteSubscription_(params, env);
   if (a === "saveSurvey") return upsertInList_(env, "listSurvey", "items", params, "id");
   if (a === "deleteSurvey" || a === "deleteSurveyBatch") return deleteFromList_(env, "listSurvey", "items", params, "id");
-  if (a === "saveDeferred") return upsertInList_(env, "listDeferred", "items", params, "id");
-  if (a === "cancelDeferred") return deleteFromList_(env, "listDeferred", "items", params, "id");
+  if (a === "saveDeferred") {
+    try {
+      await clearDeferredCancelTombstone_(
+        env,
+        params && params.id,
+        (params && (params.matchKey || params.client || params.clientNick)) || ""
+      );
+    } catch (eClrS) {}
+    return upsertInList_(env, "listDeferred", "items", params, "id");
+  }
+  if (a === "cancelDeferred") {
+    try {
+      var sid = String((params && params.id) || "").trim();
+      var smk = "";
+      try {
+        var shit = await findDeferredSnapItem_(env, sid);
+        if (shit) smk = deferredTransferClientKey_(shit);
+      } catch (eSh) {}
+      if (!smk) smk = normalizeMatchKey_((params && (params.matchKey || params.client || params.clientNick)) || "");
+      await putDeferredCancelTombstone_(env, sid, smk);
+    } catch (eTomb) {}
+    return deleteFromList_(env, "listDeferred", "items", params, "id");
+  }
   if (a === "savePartner" || a === "deletePartner") return mutatePartners_(a, params, env);
   if (a === "saveTemplate" || a === "deleteTemplate") return mutateTemplates_(a, params, env);
   if (a === "setAccessRole" || a === "setAccessTimezone" || a === "requestAccess") {
@@ -346,10 +367,72 @@ function normalizeMatchKey_(raw) {
   if (!s) return "";
   var at = s.match(/@([A-Za-z0-9._]{2,})/);
   var handle = "";
-  if (at) handle = at[1];
-  else if (/^[A-Za-z0-9._]{3,}$/.test(s) && /[A-Za-z]/.test(s)) handle = s;
+  if (at) {
+    handle = at[1];
+  } else if (/^[A-Za-z0-9._]{3,}$/.test(s) && /[A-Za-z]/.test(s)) {
+    handle = s;
+  } else {
+    // «ЕВГЕНИЯ es_furman» / «Имя nick» — брать латинский handle с конца (как viewClientKey / extractInstagramNick_)
+    s = s
+      .replace(/\s*\([^)]*\)\s*/g, " ")
+      .replace(/\s*\b(АФК|ПП|БП|Р)\b\s*/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    var parts = s.split(/\s+/);
+    for (var i = parts.length - 1; i >= 0; i--) {
+      var p = parts[i].replace(/^[.,;:]+|[.,;:]+$/g, "");
+      if (/^[A-Za-z0-9._]{3,}$/.test(p) && /[A-Za-z]/.test(p)) {
+        handle = p;
+        break;
+      }
+    }
+  }
   if (handle) return handle.toUpperCase().replace(/[._]/g, "");
   return s.toUpperCase().replace(/Ё/g, "Е");
+}
+
+/** Все ключи матча: nick + legacy full upper (до извлечения handle). Иначе галочки/tomb «слетают». */
+function matchKeyAliases_(raw) {
+  var out = [];
+  var seen = Object.create(null);
+  function add(k) {
+    k = String(k || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!k || seen[k]) return;
+    seen[k] = true;
+    out.push(k);
+  }
+  add(normalizeMatchKey_(raw));
+  var legacy = String(raw || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е");
+  add(legacy);
+  if (legacy) add(legacy.replace(/\s+/g, ""));
+  return out;
+}
+
+function indexByMatchAliases_(list, pick) {
+  var by = Object.create(null);
+  (list || []).forEach(function (c) {
+    if (!c) return;
+    var raw = pick ? pick(c) : c.matchKey || c.name || c.client;
+    matchKeyAliases_(raw).forEach(function (k) {
+      by[k] = c;
+    });
+  });
+  return by;
+}
+
+function lookupByMatchAliases_(by, raw) {
+  if (!by) return null;
+  var aliases = matchKeyAliases_(raw);
+  for (var i = 0; i < aliases.length; i++) {
+    if (by[aliases[i]]) return by[aliases[i]];
+  }
+  return null;
 }
 
 function parseBasket_(raw) {
@@ -508,6 +591,72 @@ function deferredTransferClientKey_(it) {
   return normalizeMatchKey_(mk || nick);
 }
 
+
+/** Cancel tombstone: GAS/SWR и repair иначе возвращают задачу после «Убрать». */
+const DEFERRED_CANCEL_TOMBSTONE_MS = 48 * 3600 * 1000;
+
+async function putDeferredCancelTombstone_(env, id, matchKey) {
+  if (!env) return;
+  var tid = String(id || "").trim();
+  var mk = normalizeMatchKey_(matchKey || "");
+  if (!tid && !mk) return;
+  try {
+    var prev = (await getSnapRaw_(env, "deferredCancelTombstones")) || { items: [] };
+    var now = Date.now();
+    var items = (prev.items || []).filter(function (t) {
+      return t && now - Number(t.at || 0) < DEFERRED_CANCEL_TOMBSTONE_MS;
+    });
+    items.push({ id: tid, mk: mk, at: now });
+    await putSnap_(env, "deferredCancelTombstones", { items: items });
+  } catch (eT) {}
+}
+
+async function clearDeferredCancelTombstone_(env, id, matchKey) {
+  if (!env) return;
+  var tid = String(id || "").trim();
+  var mk = normalizeMatchKey_(matchKey || "");
+  try {
+    var prev = (await getSnapRaw_(env, "deferredCancelTombstones")) || { items: [] };
+    var now = Date.now();
+    var items = (prev.items || []).filter(function (t) {
+      if (!t || now - Number(t.at || 0) >= DEFERRED_CANCEL_TOMBSTONE_MS) return false;
+      if (tid && String(t.id || "") === tid) return false;
+      if (mk && String(t.mk || "") === mk) return false;
+      return true;
+    });
+    await putSnap_(env, "deferredCancelTombstones", { items: items });
+  } catch (eC) {}
+}
+
+function isDeferredCancelTombstoned_(tomb, id, matchKey) {
+  var tid = String(id || "").trim();
+  var mk = normalizeMatchKey_(matchKey || "");
+  var now = Date.now();
+  return ((tomb && tomb.items) || []).some(function (t) {
+    if (!t || now - Number(t.at || 0) > DEFERRED_CANCEL_TOMBSTONE_MS) return false;
+    if (tid && String(t.id || "") === tid) return true;
+    if (mk && String(t.mk || "") && String(t.mk) === mk) return true;
+    return false;
+  });
+}
+
+async function filterDeferredCancelTombstones_(env, items) {
+  if (!items || !items.length) return items || [];
+  try {
+    var tomb = await getSnapRaw_(env, "deferredCancelTombstones");
+    if (!tomb || !tomb.items || !tomb.items.length) return items;
+    return items.filter(function (it) {
+      if (!it) return false;
+      var id = it.id != null ? String(it.id) : "";
+      var mk = deferredTransferClientKey_(it);
+      return !isDeferredCancelTombstoned_(tomb, id, mk);
+    });
+  } catch (eF) {
+    return items;
+  }
+}
+
+
 /** Слить listDeferred: open transfer из D1 не убивать ответом GAS без них. */
 async function mergeListDeferredPayload_(env, payload) {
   if (!payload || typeof payload !== "object") return null;
@@ -556,6 +705,9 @@ async function mergeListDeferredPayload_(env, payload) {
     if (k) xferKeys[k] = true;
   });
 
+  try {
+    incoming = await filterDeferredCancelTombstones_(env, incoming);
+  } catch (eMT) {}
   var openCount = incoming.filter(function (it) {
     return String((it && it.status) || "open").toLowerCase() === "open";
   }).length;
@@ -617,6 +769,10 @@ async function repairParkedTransfersFromOrders_(env) {
     seen[mk] = true;
     if (activeKeys[mk]) continue; // уже снова на дне
     if (xferKeys[mk]) continue;
+    try {
+      var tombR = await getSnapRaw_(env, "deferredCancelTombstones");
+      if (isDeferredCancelTombstoned_(tombR, "", mk)) continue; // юзер убрал задачу
+    } catch (eTR) {}
     var basket = [];
     try {
       basket = JSON.parse(r.basket_json || "[]");
@@ -774,6 +930,9 @@ async function finalizeListDeferredPayload_(env, payload) {
   } catch (eS) {}
   payload = await appendRecentPlacedTransfers_(env, payload);
   if (Array.isArray(payload.items)) {
+    try {
+      payload.items = await filterDeferredCancelTombstones_(env, payload.items);
+    } catch (eFT) {}
     payload.openCount = payload.items.filter(function (it) {
       return String((it && it.status) || "open").toLowerCase() === "open";
     }).length;
@@ -978,6 +1137,9 @@ async function placeTransferTaskD1_(params, env) {
     } else {
       await deleteFromList_(env, "listDeferred", "items", params, "id");
     }
+    try {
+      await putDeferredCancelTombstone_(env, id, matchKey || client);
+    } catch (eTombPlace) {}
   } catch (eDone) {}
 
   return {
@@ -1070,36 +1232,65 @@ function dayForDateFromCounts_(counts, dateIso) {
   return "";
 }
 
+function orderRowLooseMatch_(row, matchKey, clientName) {
+  if (!row) return false;
+  return (
+    nicksLooseMatch_(matchKey, row.match_key) ||
+    nicksLooseMatch_(matchKey, row.client) ||
+    nicksLooseMatch_(clientName, row.match_key) ||
+    nicksLooseMatch_(clientName, row.client)
+  );
+}
+
 async function findOrderRow_(env, matchKey, day, dateIso, clientName) {
   const mk = normalizeMatchKey_(matchKey);
+  const mkClient = normalizeMatchKey_(clientName);
   const mkLow = String(matchKey || "").trim().toLowerCase();
   const clientLow = String(clientName || "").trim().toLowerCase();
   let row = null;
   if (day) {
     row = await env.DB.prepare(
-      "SELECT * FROM orders WHERE day_name = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?) LIMIT 1"
+      "SELECT * FROM orders WHERE day_name = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?) LIMIT 1"
     )
-      .bind(day, mk, mkLow, mkLow || clientLow)
+      .bind(day, mk, mkLow, mkClient || mk, mkLow || clientLow, clientLow || mkLow)
       .first();
-    if (!row && clientLow) {
-      row = await env.DB.prepare(
-        "SELECT * FROM orders WHERE day_name = ? AND status = 'active' AND lower(client) = ? LIMIT 1"
-      )
-        .bind(day, clientLow)
-        .first();
+    if (!row) {
+      try {
+        const all = await env.DB.prepare(
+          "SELECT * FROM orders WHERE day_name = ? AND status = 'active' LIMIT 120"
+        )
+          .bind(day)
+          .all();
+        const list = (all && all.results) || [];
+        for (var i = 0; i < list.length; i++) {
+          if (orderRowLooseMatch_(list[i], matchKey, clientName)) {
+            row = list[i];
+            break;
+          }
+        }
+      } catch (eScan) {}
     }
   } else if (dateIso) {
     row = await env.DB.prepare(
-      "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?) LIMIT 1"
+      "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?) LIMIT 1"
     )
-      .bind(dateIso, mk, mkLow, mkLow || clientLow)
+      .bind(dateIso, mk, mkLow, mkClient || mk, mkLow || clientLow, clientLow || mkLow)
       .first();
-    if (!row && clientLow) {
-      row = await env.DB.prepare(
-        "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' AND lower(client) = ? LIMIT 1"
-      )
-        .bind(dateIso, clientLow)
-        .first();
+    if (!row) {
+      try {
+        const all = await env.DB.prepare(
+          "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' LIMIT 120"
+        )
+          .bind(dateIso)
+          .all();
+        const list = (all && all.results) || [];
+        for (var j = 0; j < list.length; j++) {
+          if (orderRowLooseMatch_(list[j], matchKey, clientName)) {
+            row = list[j];
+            break;
+          }
+        }
+      } catch (eScan2) {}
     }
   }
   return row;
@@ -1692,6 +1883,34 @@ function cuttingFlagScore_(items) {
   return n;
 }
 
+function normalizeCuttingItemFlags_(it) {
+  if (!it || typeof it !== "object") return it;
+  it.laid = toBool_(it.laid);
+  it.done = toBool_(it.done);
+  it.outNext = toBool_(it.outNext);
+  return it;
+}
+
+function normalizeCuttingItems_(items) {
+  return (items || []).map(function (it) {
+    return normalizeCuttingItemFlags_(it);
+  });
+}
+
+function findPrevCuttingByName_(prevItems, item) {
+  if (!item) return null;
+  const nk = cutNameKey_(item.name);
+  const fz = cutFuzzyKey_(item.name);
+  if (!nk && !fz) return null;
+  for (let i = 0; i < (prevItems || []).length; i++) {
+    const p = prevItems[i];
+    if (!p) continue;
+    if (nk && cutNameKey_(p.name) === nk) return p;
+    if (fz && cutFuzzyKey_(p.name) === fz) return p;
+  }
+  return null;
+}
+
 function isCuttingSheetRow_(row) {
   const n = Number(row);
   return n >= 3 && n <= 48 && n % 1 === 0;
@@ -1751,7 +1970,8 @@ function patchCuttingItemsFlags_(items, params, proxied) {
       }
     }
   }
-  if (idx < 0 && isCuttingSheetRow_(rowNum)) {
+  // row — только если имя не задано (иначе галочка на другой позиции с тем же row)
+  if (idx < 0 && !wantName && !wantFz && isCuttingSheetRow_(rowNum)) {
     for (let i = 0; i < list.length; i++) {
       if (Number(list[i].row) === rowNum) {
         idx = i;
@@ -1759,7 +1979,7 @@ function patchCuttingItemsFlags_(items, params, proxied) {
       }
     }
   }
-  if (idx < 0 && rowNum) {
+  if (idx < 0 && rowNum && !wantName && !wantFz) {
     for (let i = 0; i < list.length; i++) {
       if (Number(list[i].row) === rowNum) {
         idx = i;
@@ -1827,7 +2047,7 @@ async function applyCuttingFlagToSnap_(params, env, proxied) {
 
 function overlayCuttingKeepFlags_(newItems, prevItems, sameDate) {
   if (!sameDate || !prevItems || !prevItems.length) {
-    return mergeCuttingFlags_(newItems, prevItems, sameDate);
+    return normalizeCuttingItems_(mergeCuttingFlags_(newItems, prevItems, sameDate));
   }
   const qtyByKey = Object.create(null);
   const qtyByFuzzy = Object.create(null);
@@ -1845,24 +2065,25 @@ function overlayCuttingKeepFlags_(newItems, prevItems, sameDate) {
     if (n) {
       used[cutNameKey_(n.name)] = true;
       used[cutFuzzyKey_(n.name)] = true;
+      // база — свежий план (row/qty); флаги только от той же позиции по имени
       out.push(
-        Object.assign({}, p, {
-          dry: n.dry,
-          raw: n.raw,
-          unit: n.unit || p.unit,
-          laid: !!p.laid,
-          done: !!p.done,
-          outNext: !!p.outNext
-        })
+        normalizeCuttingItemFlags_(
+          Object.assign({}, n, {
+            laid: !!p.laid,
+            done: !!p.done,
+            outNext: !!p.outNext,
+            surplus: p.surplus != null && p.surplus !== "" ? Number(p.surplus) || 0 : n.surplus,
+            noteInfo: p.noteInfo || n.noteInfo
+          })
+        )
       );
-    } else if (p.laid || p.done || p.outNext || Number(p.surplus) > 0) {
-      out.push(p);
     }
+    // не тащить «призраков» с флагами — иначе синий/зелёный без позиции в плане
   });
   (newItems || []).forEach(function (n) {
     if (!n) return;
     if (used[cutNameKey_(n.name)] || used[cutFuzzyKey_(n.name)]) return;
-    out.push(n);
+    out.push(normalizeCuttingItemFlags_(n));
   });
   return out;
 }
@@ -1889,31 +2110,19 @@ function transferOnlyFromPeople_(people) {
 }
 
 function mergeCuttingFlags_(items, prevItems, sameDate) {
-  if (!sameDate || !prevItems || !prevItems.length) return items || [];
-  const byName = Object.create(null);
-  const byRow = Object.create(null);
-  prevItems.forEach(function (p) {
-    if (!p) return;
-    const k = cutNameKey_(p.name);
-    if (k) byName[k] = p;
-    const fz = cutFuzzyKey_(p.name);
-    if (fz) byName[fz] = p;
-    if (p.row != null) byRow[Number(p.row)] = p;
-  });
+  if (!sameDate || !prevItems || !prevItems.length) return normalizeCuttingItems_(items);
   (items || []).forEach(function (it) {
-    const old =
-      byName[cutNameKey_(it.name)] ||
-      byName[cutFuzzyKey_(it.name)] ||
-      (it.row != null ? byRow[Number(it.row)] : null);
+    const old = findPrevCuttingByName_(prevItems, it);
     if (!old) return;
-    it.laid = !!old.laid;
-    it.done = !!old.done;
-    it.outNext = !!old.outNext;
+    // только по имени — row меняется при пересборке, иначе цвет ≠ галочка
+    if (old.laid) it.laid = true;
+    if (old.done) it.done = true;
+    if (old.outNext) it.outNext = true;
     if (old.surplus != null && old.surplus !== "") it.surplus = Number(old.surplus) || 0;
-    if (isCuttingSheetRow_(old.row)) it.row = Number(old.row);
     if (old.noteInfo) it.noteInfo = old.noteInfo;
+    if (isCuttingSheetRow_(old.row) && isCuttingSheetRow_(it.row)) it.row = Number(it.row) || Number(old.row);
   });
-  return items;
+  return normalizeCuttingItems_(items);
 }
 
 async function calendarWeekPlan_(env, sheetCounts) {
@@ -2305,15 +2514,11 @@ async function rebuildCourierDay_(env, day) {
   // а дата новая — иначе «Доставки завершены» тянется со старой недели.
   const sameDate =
     !!(prev && prev.date && info.date && String(prev.date) === String(info.date));
-  const prevBy = Object.create(null);
-  if (sameDate) {
-    ((prev && prev.clients) || []).forEach(function (c) {
-      prevBy[normalizeMatchKey_(c.matchKey || c.name)] = c;
-    });
-  }
+  const prevBy = sameDate
+    ? indexByMatchAliases_((prev && prev.clients) || [])
+    : Object.create(null);
   const clients = (live.clients || []).map(function (c) {
-    const mk = normalizeMatchKey_(c.matchKey || c.name);
-    const old = prevBy[mk] || {};
+    const old = (sameDate && lookupByMatchAliases_(prevBy, c.matchKey || c.name)) || {};
     return Object.assign({}, c, {
       delivered: sameDate ? !!old.delivered : false,
       assembled: sameDate ? !!old.assembled : false,
@@ -2331,11 +2536,20 @@ async function rebuildCourierDay_(env, day) {
       .all();
     const flags = Object.create(null);
     (dq.results || []).forEach(function (r) {
-      flags[normalizeMatchKey_(r.match_key)] = !!r.delivered;
+      // и nick, и legacy ключ строки deliveries
+      matchKeyAliases_(r.match_key).forEach(function (k) {
+        flags[k] = !!r.delivered;
+      });
+      flags[String(r.match_key || "")] = !!r.delivered;
     });
     clients.forEach(function (c) {
-      const mk = normalizeMatchKey_(c.matchKey || c.name);
-      if (mk in flags) c.delivered = !!flags[mk];
+      const aliases = matchKeyAliases_(c.matchKey || c.name);
+      for (var ai = 0; ai < aliases.length; ai++) {
+        if (aliases[ai] in flags) {
+          c.delivered = !!flags[aliases[ai]];
+          break;
+        }
+      }
     });
   }
   await putSnap_(env, "courier:" + day, {
@@ -2344,7 +2558,9 @@ async function rebuildCourierDay_(env, day) {
     date: info.date,
     clients: clients,
     sandbox: true,
-    source: "d1"
+    source: "d1",
+    // иначе после invalidate SWR getCourier/getAssembly сразу перетирает галочки с GAS
+    flagsTouchedAt: sameDate ? Number((prev && prev.flagsTouchedAt) || 0) : 0
   });
 }
 
@@ -2355,15 +2571,11 @@ async function rebuildAssemblyDay_(env, day) {
   const prev = await getSnapRaw_(env, "assembly:" + day);
   const sameDate =
     !!(prev && prev.date && info.date && String(prev.date) === String(info.date));
-  const prevBy = Object.create(null);
-  if (sameDate) {
-    ((prev && prev.clients) || []).forEach(function (c) {
-      prevBy[normalizeMatchKey_(c.matchKey || c.name)] = c;
-    });
-  }
+  const prevBy = sameDate
+    ? indexByMatchAliases_((prev && prev.clients) || [])
+    : Object.create(null);
   const clients = (live.clients || []).map(function (c) {
-    const mk = normalizeMatchKey_(c.matchKey || c.name);
-    const old = prevBy[mk] || {};
+    const old = (sameDate && lookupByMatchAliases_(prevBy, c.matchKey || c.name)) || {};
     return Object.assign({}, {
       name: c.name,
       address: c.address,
@@ -2391,7 +2603,8 @@ async function rebuildAssemblyDay_(env, day) {
     lightByFraction: sameDate ? (prev && prev.lightByFraction) || {} : {},
     lightGramsTotal: sameDate ? (prev && prev.lightGramsTotal) || 0 : 0,
     sandbox: true,
-    source: "d1"
+    source: "d1",
+    flagsTouchedAt: sameDate ? Number((prev && prev.flagsTouchedAt) || 0) : 0
   });
 }
 
@@ -2432,7 +2645,7 @@ async function rebuildCuttingDay_(env, day) {
     day: day,
     date: info.date || "",
     dateIso: info.iso || "",
-    items: items,
+    items: normalizeCuttingItems_(items),
     session: sameDate ? (prev && prev.session) || {} : {},
     completion: sameDate ? (prev && prev.completion) || null : null,
     transferOnly: transferOnly,
@@ -2552,10 +2765,22 @@ async function getCutting_(params, env) {
   }
   // свежие галочки / GAS-snap — не пересобирать из D1 на каждый poll
   const touched = Number((hit && hit.flagsTouchedAt) || 0);
-  if (hit && touched && Date.now() - touched < 600000) return hit;
-  if (hit && hit.fromGas && !hit.fromCalendar) return hit;
-  if (hit && hit.fromOrders && !hit.fromCalendar) return hit;
-  if (hit && !hit.fromD1 && !hit.fromCalendar) return hit;
+  if (touched && Date.now() - touched < 600000) {
+    if (hit && Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
+    return hit;
+  }
+  if (hit && hit.fromGas && !hit.fromCalendar) {
+    if (Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
+    return hit;
+  }
+  if (hit && hit.fromOrders && !hit.fromCalendar) {
+    if (Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
+    return hit;
+  }
+  if (hit && !hit.fromD1 && !hit.fromCalendar) {
+    if (Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
+    return hit;
+  }
   try {
     const rebuilt = await rebuildCuttingDay_(env, day);
     if (rebuilt && rebuilt.status === "success") return rebuilt;
@@ -2658,9 +2883,9 @@ async function saveOrder_(params, env, asBooking) {
     meta_json: JSON.stringify(meta)
   });
 
-  // новый save снимает tombstone — иначе повторный внос после delete «не виден»
+  // новый save снимает tombstone только на этом дне (не на всех — иначе ломает move)
   try {
-    await clearTombstonesForMatch_(env, matchKey, day || "");
+    if (day) await clearTombstonesForMatch_(env, matchKey, day);
   } catch (eClrT) {}
 
   await invalidateDays_(env, day ? [day] : []);
@@ -2683,49 +2908,284 @@ const TOMBSTONE_MS = 20 * 60 * 1000;
 async function putDeleteTombstone_(env, day, matchKey) {
   const mk = normalizeMatchKey_(matchKey);
   if (!env || !day || !mk) return;
-  const prev = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
   const now = Date.now();
-  const items = (prev.items || []).filter(function (t) {
-    return t && now - Number(t.at || 0) < TOMBSTONE_MS;
-  });
-  items.push({ day: String(day), mk: mk, at: now });
-  await putSnap_(env, "deleteTombstones", { items: items });
+  var keys = [mk];
+  var rawUp = String(matchKey || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е");
+  if (rawUp && rawUp !== mk) keys.push(rawUp);
+  // per-key snap — переживает RMW-гонку списка deleteTombstones
+  for (var ki = 0; ki < keys.length; ki++) {
+    if (!keys[ki]) continue;
+    try {
+      await putSnap_(env, "delTomb:" + String(day) + ":" + keys[ki], {
+        day: String(day),
+        mk: keys[ki],
+        at: now
+      });
+    } catch (ePK) {}
+  }
+  // день с свежим tomb — чтобы getClients не уходил в GAS при RMW-потере списка
+  try {
+    await putSnap_(env, "tombDay:" + String(day), { day: String(day), at: now });
+  } catch (eTD) {}
+  // legacy list (best-effort merge, 2 попытки)
+  for (var attempt = 0; attempt < 2; attempt++) {
+    try {
+      const prev = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
+      const items = (prev.items || []).filter(function (t) {
+        return t && now - Number(t.at || 0) < TOMBSTONE_MS;
+      });
+      keys.forEach(function (k) {
+        if (!k) return;
+        var exists = items.some(function (t) {
+          return t && String(t.day) === String(day) && t.mk === k;
+        });
+        if (!exists) items.push({ day: String(day), mk: k, at: now });
+      });
+      await putSnap_(env, "deleteTombstones", { items: items });
+      break;
+    } catch (eList) {}
+  }
 }
 
-async function clearTombstonesForMatch_(env, matchKey, day) {
+async function clearTombstonesForMatch_(env, matchKey, day, clientName) {
   const mk = normalizeMatchKey_(matchKey);
-  if (!env || !mk) return;
+  if (!env || (!mk && !matchKey && !clientName)) return;
   try {
     const prev = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
     const now = Date.now();
+    // putDeleteTombstone_ пишет и нормализованный handle, и «СЫРОЕ ИМЯ» —
+    // иначе обратный перенос на день с tombstone «ЕВГЕНИЯ ZZZ_…» прячет клиента из getClients.
+    var clearKeys = Object.create(null);
+    function addKey_(raw) {
+      var n = normalizeMatchKey_(raw);
+      if (n) clearKeys[n] = true;
+      var up = String(raw || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toUpperCase()
+        .replace(/Ё/g, "Е");
+      if (up) clearKeys[up] = true;
+    }
+    addKey_(matchKey);
+    addKey_(mk);
+    addKey_(clientName);
     const items = (prev.items || []).filter(function (t) {
       if (!t || now - Number(t.at || 0) >= TOMBSTONE_MS) return false;
-      if (t.mk !== mk) return true;
-      if (day && String(t.day) !== String(day)) return true;
-      return false; // снять tombstone этого mk (на day или на всех днях если day пуст)
+      // day="" — только «календарные» tomb (пустой day), НЕ все дни матча
+      if (day) {
+        if (String(t.day) !== String(day)) return true;
+      } else {
+        if (String(t.day || "") !== "") return true;
+      }
+      if (t.mk && clearKeys[t.mk]) return false;
+      if (
+        nicksLooseMatch_(t.mk, matchKey) ||
+        nicksLooseMatch_(t.mk, mk) ||
+        nicksLooseMatch_(t.mk, clientName)
+      ) {
+        return false;
+      }
+      return true;
     });
-    await putSnap_(env, "deleteTombstones", { items: items });
+    
+    if (day) {
+      var keyList = Object.keys(clearKeys);
+      for (var ck = 0; ck < keyList.length; ck++) {
+        try {
+          await env.DB.prepare("DELETE FROM snap_cache WHERE cache_key = ?")
+            .bind("delTomb:" + String(day) + ":" + keyList[ck])
+            .run();
+        } catch (ePKD) {}
+      }
+    }
+await putSnap_(env, "deleteTombstones", { items: items });
   } catch (eClr) {}
 }
 
-function isTombstoned_(tomb, day, matchKey, name) {
+function isTombstoned_(tomb, day, matchKey, name, protect) {
   const mk = normalizeMatchKey_(matchKey || name);
+  const mkName = normalizeMatchKey_(name);
   const now = Date.now();
-  return ((tomb && tomb.items) || []).some(function (t) {
+  var tombAt = 0;
+  var hit = ((tomb && tomb.items) || []).some(function (t) {
     if (!t || String(t.day) !== String(day)) return false;
     if (now - Number(t.at || 0) > TOMBSTONE_MS) return false;
-    return t.mk === mk || nicksLooseMatch_(t.mk, name) || nicksLooseMatch_(t.mk, matchKey);
+    var matched =
+      t.mk === mk ||
+      (mkName && t.mk === mkName) ||
+      nicksLooseMatch_(t.mk, name) ||
+      nicksLooseMatch_(t.mk, matchKey);
+    if (matched) tombAt = Math.max(tombAt, Number(t.at || 0));
+    return matched;
   });
+  if (!hit) return false;
+  // protect побеждает только если новее tombstone (свежий приход), не старый protect с прошлого визита
+  if (isMoveArriveProtectedNewerThan_(protect, day, matchKey, name, tombAt)) return false;
+  return true;
+}
+
+/** Короткий protect после upsert на день назначения — переживает гонку tombstone/фонового delete. */
+const MOVE_ARRIVE_PROTECT_MS = 3 * 60 * 1000;
+
+async function putMoveArriveProtect_(env, day, matchKey, clientName) {
+  if (!env || !day) return;
+  var mk = normalizeMatchKey_(matchKey || clientName);
+  if (!mk) return;
+  try {
+    var prev = (await getSnapRaw_(env, "moveArriveProtect")) || { items: [] };
+    var now = Date.now();
+    var items = (prev.items || []).filter(function (t) {
+      return t && now - Number(t.at || 0) < MOVE_ARRIVE_PROTECT_MS;
+    });
+    items.push({
+      day: String(day),
+      mk: mk,
+      raw: String(clientName || matchKey || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toUpperCase()
+        .replace(/Ё/g, "Е"),
+      at: now
+    });
+    await putSnap_(env, "moveArriveProtect", { items: items });
+  } catch (eP) {}
+}
+
+function isMoveArriveProtected_(protect, day, matchKey, name) {
+  var mk = normalizeMatchKey_(matchKey || name);
+  var mkName = normalizeMatchKey_(name);
+  var now = Date.now();
+  return ((protect && protect.items) || []).some(function (t) {
+    if (!t || String(t.day) !== String(day)) return false;
+    if (now - Number(t.at || 0) > MOVE_ARRIVE_PROTECT_MS) return false;
+    if (t.mk && (t.mk === mk || (mkName && t.mk === mkName))) return true;
+    return (
+      nicksLooseMatch_(t.mk, name) ||
+      nicksLooseMatch_(t.mk, matchKey) ||
+      nicksLooseMatch_(t.raw, name) ||
+      nicksLooseMatch_(t.raw, matchKey)
+    );
+  });
+}
+
+/** Клиент только что приехал на другой день — не возвращать на этот день из GAS. */
+function isMoveArriveProtectedElsewhere_(protect, day, matchKey, name) {
+  var mk = normalizeMatchKey_(matchKey || name);
+  var mkName = normalizeMatchKey_(name);
+  var now = Date.now();
+  return ((protect && protect.items) || []).some(function (t) {
+    if (!t || !t.day || String(t.day) === String(day)) return false;
+    if (now - Number(t.at || 0) > MOVE_ARRIVE_PROTECT_MS) return false;
+    if (t.mk && (t.mk === mk || (mkName && t.mk === mkName))) return true;
+    return (
+      nicksLooseMatch_(t.mk, name) ||
+      nicksLooseMatch_(t.mk, matchKey) ||
+      nicksLooseMatch_(t.raw, name) ||
+      nicksLooseMatch_(t.raw, matchKey)
+    );
+  });
+}
+
+/** protect перекрывает tombstone только если он новее (только что пришли), не старый protect. */
+function isMoveArriveProtectedNewerThan_(protect, day, matchKey, name, tombAt) {
+  var mk = normalizeMatchKey_(matchKey || name);
+  var mkName = normalizeMatchKey_(name);
+  var now = Date.now();
+  var tombMs = Number(tombAt || 0);
+  return ((protect && protect.items) || []).some(function (t) {
+    if (!t || String(t.day) !== String(day)) return false;
+    var at = Number(t.at || 0);
+    if (now - at > MOVE_ARRIVE_PROTECT_MS) return false;
+    if (tombMs && at < tombMs) return false;
+    if (t.mk && (t.mk === mk || (mkName && t.mk === mkName))) return true;
+    return (
+      nicksLooseMatch_(t.mk, name) ||
+      nicksLooseMatch_(t.mk, matchKey) ||
+      nicksLooseMatch_(t.raw, name) ||
+      nicksLooseMatch_(t.raw, matchKey)
+    );
+  });
+}
+
+/** Снять arrive-protect при уходе с дня — иначе protect перекрывает tombstone и GAS возвращает человека. */
+async function clearMoveArriveProtect_(env, day, matchKey, clientName, onlyAtOrBefore) {
+  if (!env || !day) return;
+  var mk = normalizeMatchKey_(matchKey || clientName);
+  if (!mk && !clientName) return;
+  var cutoff = Number(onlyAtOrBefore || 0) || 0;
+  try {
+    var prev = (await getSnapRaw_(env, "moveArriveProtect")) || { items: [] };
+    var now = Date.now();
+    var items = (prev.items || []).filter(function (t) {
+      if (!t || now - Number(t.at || 0) >= MOVE_ARRIVE_PROTECT_MS) return false;
+      if (String(t.day) !== String(day)) return true;
+      var at = Number(t.at || 0);
+      // stale clear старого move не снимает более новый arrive (обратный перенос)
+      if (cutoff && at && at > cutoff) return true;
+      if (t.mk && (t.mk === mk || nicksLooseMatch_(t.mk, matchKey) || nicksLooseMatch_(t.mk, clientName)))
+        return false;
+      if (nicksLooseMatch_(t.raw, matchKey) || nicksLooseMatch_(t.raw, clientName)) return false;
+      return true;
+    });
+    await putSnap_(env, "moveArriveProtect", { items: items });
+  } catch (eClrP) {}
 }
 
 async function filterTombstonedClients_(env, day, list) {
   if (!day || !list || !list.length) return list || [];
   try {
-    const tomb = await getSnapRaw_(env, "deleteTombstones");
-    if (!tomb || !tomb.items || !tomb.items.length) return list;
-    return list.filter(function (c) {
-      return !isTombstoned_(tomb, day, c && (c.matchKey || c.name), c && (c.name || c.client));
-    });
+    var tomb = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
+    var items = (tomb.items || []).slice();
+    // подмешать per-key delTomb:* (устойчивы к RMW)
+    try {
+      for (var fi = 0; fi < list.length; fi++) {
+        var c0 = list[fi];
+        if (!c0) continue;
+        var mk0 = normalizeMatchKey_(c0.matchKey || c0.name || c0.client || "");
+        if (!mk0) continue;
+        var pk = await getSnapRaw_(env, "delTomb:" + String(day) + ":" + mk0);
+        if (pk && pk.mk && !pk.cleared && Number(pk.at || 0) > 0) items.push(pk);
+      }
+    } catch (ePK) {}
+    tomb = { items: items };
+    var protect = null;
+    try {
+      protect = await getSnapRaw_(env, "moveArriveProtect");
+    } catch (ePr) {
+      protect = null;
+    }
+    var out = [];
+    for (var fi2 = 0; fi2 < list.length; fi2++) {
+      var c = list[fi2];
+      if (!c) continue;
+      if (
+        items.length &&
+        isTombstoned_(
+          tomb,
+          day,
+          c.matchKey || c.name,
+          c.name || c.client,
+          protect
+        )
+      ) {
+        continue;
+      }
+      // moveEpoch: клиент уже на другом дне — не показывать / не заливать с GAS
+      // (даже если список tombstones пуст после RMW)
+      try {
+        var mkEp = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
+        if (mkEp) {
+          var ep = await getSnapRaw_(env, "moveEpoch:" + mkEp);
+          if (ep && ep.to && String(ep.to) !== String(day)) continue;
+        }
+      } catch (eEpF) {}
+      out.push(c);
+    }
+    return out;
   } catch (eT) {
     return list;
   }
@@ -2735,8 +3195,12 @@ async function filterTombstonedClients_(env, day, list) {
 async function dayHasFreshTombstone_(env, day) {
   if (!env || !day) return false;
   try {
-    const tomb = await getSnapRaw_(env, "deleteTombstones");
     const now = Date.now();
+    try {
+      const td = await getSnapRaw_(env, "tombDay:" + String(day));
+      if (td && now - Number(td.at || 0) < TOMBSTONE_MS) return true;
+    } catch (eTd) {}
+    const tomb = await getSnapRaw_(env, "deleteTombstones");
     return ((tomb && tomb.items) || []).some(function (t) {
       return t && String(t.day) === String(day) && now - Number(t.at || 0) < TOMBSTONE_MS;
     });
@@ -2764,6 +3228,15 @@ async function deleteClient_(params, env) {
   const mkLow = String(params.matchKey || params.client || "").trim().toLowerCase();
   if (!matchKey && !params.client) return { status: "error", message: "no_client" };
   if (!day && !dateIso) return { status: "error", message: "need_day_or_date" };
+  // не сносить свежий приход другого move (stale bg delete после A→B убивает B→A→B)
+  if (day && !toBool_(params.forceUnprotect)) {
+    try {
+      var protDel = await getSnapRaw_(env, "moveArriveProtect");
+      if (isMoveArriveProtected_(protDel, day, matchKey, params.client)) {
+        return { status: "success", sandbox: true, wrote: 0, skippedProtect: true };
+      }
+    } catch (eProtDel) {}
+  }
   const now = new Date().toISOString();
   let changed = 0;
   if (day) {
@@ -2790,6 +3263,7 @@ async function deleteClient_(params, env) {
 
 async function moveClient_(params, env) {
   await ensureMetaColumn_(env);
+  const moveStartedAt = Date.now();
   if (!env || !env.DB) return { status: "error", message: "no_d1" };
   const oldDay = String(params.oldDay || "");
   let newDay = String(params.newDay || "");
@@ -2847,27 +3321,66 @@ async function moveClient_(params, env) {
   else if (cutRaw === "1" || cutRaw === "yes") meta.noCut = false;
 
   const fromDay = oldDay || row.day_name || "";
+  const clearName = row.client || client;
+  try {
+    await putSnap_(env, "moveEpoch:" + matchKey, {
+      at: moveStartedAt,
+      from: fromDay,
+      to: newDay || newDate || "",
+      client: clearName
+    });
+  } catch (eEp) {}
+  // СНАЧАЛА protect на newDay + tombstone на fromDay — иначе параллельный GAS-revalidate
+  // между await вставляет человека обратно на старый день (RMW/гонка).
+  if (newDay) {
+    try {
+      await putMoveArriveProtect_(env, newDay, matchKey, clearName);
+    } catch (eProtEarly) {}
+    try {
+      await clearTombstonesForMatch_(env, matchKey, newDay, clearName);
+    } catch (eClrPre) {}
+  }
+  if (fromDay) {
+    try {
+      await putDeleteTombstone_(env, fromDay, matchKey);
+      await putDeleteTombstone_(env, fromDay, clearName);
+      await clearMoveArriveProtect_(env, fromDay, matchKey, clearName, moveStartedAt);
+    } catch (eTombEarly) {}
+  }
   // удалить исходную строку по id — надёжнее OR по match_key
   await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
     .bind(now, row.id)
     .run();
-  // все дубли на старом дне
+  // все дубли на старом дне (в т.ч. старый match_key «ЕВГЕНИЯ ES_FURMAN»)
   if (fromDay) {
     await env.DB.prepare(
       "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?)"
     )
       .bind(now, fromDay, matchKey, mkLow, clientLow, String(row.client || "").toLowerCase())
       .run();
+    try {
+      const left = await env.DB.prepare(
+        "SELECT id, client, match_key FROM orders WHERE status = 'active' AND day_name = ? LIMIT 120"
+      )
+        .bind(fromDay)
+        .all();
+      const leftList = (left && left.results) || [];
+      for (var li = 0; li < leftList.length; li++) {
+        if (orderRowLooseMatch_(leftList[li], matchKeyRaw, client) || orderRowLooseMatch_(leftList[li], matchKey, row.client)) {
+          await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
+            .bind(now, leftList[li].id)
+            .run();
+        }
+      }
+    } catch (eLooseDel) {}
+    try {
+      await putDeleteTombstone_(env, fromDay, matchKey);
+      await putDeleteTombstone_(env, fromDay, clearName);
+    } catch (eTombM) {}
   }
-  try {
-    await putDeleteTombstone_(env, fromDay, matchKey);
-  } catch (eTombM) {}
 
   let toLabel = "(calendar)";
   if (newDay) {
-    try {
-      await clearTombstonesForMatch_(env, matchKey, newDay);
-    } catch (eClrPre) {}
     const info = await dayDateInfo_(env, newDay);
     const iso = newDate || info.iso || row.date_iso || "";
     const newId = newDay + ":" + matchKey;
@@ -2889,8 +3402,11 @@ async function moveClient_(params, env) {
     });
     toLabel = newDay;
     try {
-      await clearTombstonesForMatch_(env, matchKey, newDay);
+      await clearTombstonesForMatch_(env, matchKey, newDay, clearName);
     } catch (eClrT) {}
+    try {
+      await putMoveArriveProtect_(env, newDay, matchKey, clearName);
+    } catch (eProt) {}
   } else if (newDate) {
     // календарь вне недели
     const newId = "CAL:" + matchKey + ":" + newDate;
@@ -2912,8 +3428,11 @@ async function moveClient_(params, env) {
     });
     toLabel = newDate;
     try {
-      await clearTombstonesForMatch_(env, matchKey, "");
+      await clearTombstonesForMatch_(env, matchKey, "", clearName);
     } catch (eClrTc) {}
+    try {
+      await putMoveArriveProtect_(env, "", matchKey, clearName);
+    } catch (eProtC) {}
   }
 
   // жёстко: ещё раз снести со старого дня (фон GAS/protect мог вернуть)
@@ -2925,7 +3444,36 @@ async function moveClient_(params, env) {
         .bind(now, fromDay, matchKey, mkLow, clientLow, String(row.client || "").toLowerCase())
         .run();
       await putDeleteTombstone_(env, fromDay, matchKey);
+      try {
+        await clearMoveArriveProtect_(env, fromDay, matchKey, row.client || client, moveStartedAt);
+      } catch (eClrAP) {}
     } catch (eHardDel) {}
+  }
+
+  // финальный re-upsert: параллельный after-write/GAS мог снести newDay в ту же мс
+  if (newDay) {
+    try {
+      const info2 = await dayDateInfo_(env, newDay);
+      const iso2 = newDate || info2.iso || row.date_iso || "";
+      await upsertOrderRow_(env, {
+        id: newDay + ":" + matchKey,
+        date_iso: iso2,
+        day_name: newDay,
+        client: row.client,
+        match_key: matchKey,
+        address: row.address || "",
+        note: row.note || "",
+        phone: row.phone || "",
+        basket_json: row.basket_json || "[]",
+        segment: row.segment || "",
+        source: row.source || "",
+        status: "active",
+        updated_at: new Date().toISOString(),
+        meta_json: JSON.stringify(meta)
+      });
+      await putMoveArriveProtect_(env, newDay, matchKey, clearName);
+      await clearTombstonesForMatch_(env, matchKey, newDay, clearName);
+    } catch (eFinal) {}
   }
 
   await invalidateDays_(env, [fromDay, newDay].filter(Boolean));
@@ -2951,19 +3499,39 @@ async function setDelivered_(params, env) {
   const delivered = toBool_(params.delivered);
   const info = await dayDateInfo_(env, day);
   const iso = info.iso || String(params.date || "");
-  const mk = normalizeMatchKey_(params.matchKey || client);
+  const rawKey = params.matchKey || client;
+  const mk = normalizeMatchKey_(rawKey);
+  const aliases = matchKeyAliases_(rawKey);
+  if (client) {
+    matchKeyAliases_(client).forEach(function (k) {
+      if (aliases.indexOf(k) < 0) aliases.push(k);
+    });
+  }
   const now = new Date().toISOString();
   if (iso) {
-    await env.DB.prepare(
-      `INSERT INTO deliveries (date_iso, match_key, delivered, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(date_iso, match_key) DO UPDATE SET delivered=excluded.delivered, updated_at=excluded.updated_at`
-    )
-      .bind(iso, mk, delivered ? 1 : 0, now)
-      .run();
+    for (var ai = 0; ai < aliases.length; ai++) {
+      try {
+        await env.DB.prepare(
+          `INSERT INTO deliveries (date_iso, match_key, delivered, updated_at) VALUES (?, ?, ?, ?)
+           ON CONFLICT(date_iso, match_key) DO UPDATE SET delivered=excluded.delivered, updated_at=excluded.updated_at`
+        )
+          .bind(iso, aliases[ai], delivered ? 1 : 0, now)
+          .run();
+      } catch (eDelW) {}
+    }
   }
   const snap = await getCourier_({ day: day }, env);
   (snap.clients || []).forEach(function (c) {
-    if (normalizeMatchKey_(c.matchKey || c.name) === mk || c.name === client) {
+    var hit =
+      !!lookupByMatchAliases_(
+        indexByMatchAliases_([{ matchKey: mk, name: client }]),
+        c.matchKey || c.name
+      ) ||
+      c.name === client ||
+      matchKeyAliases_(c.matchKey || c.name).some(function (k) {
+        return aliases.indexOf(k) >= 0;
+      });
+    if (hit) {
       c.delivered = delivered;
       if (params.paid) c.paid = params.paid;
     }
@@ -2976,13 +3544,22 @@ async function setDelivered_(params, env) {
 async function setAssemblyFlag_(params, env, flag) {
   const day = String(params.day || "");
   const client = String(params.client || "");
-  const mk = normalizeMatchKey_(params.matchKey || client);
+  const rawKey = params.matchKey || client;
+  const aliases = matchKeyAliases_(rawKey);
+  if (client) {
+    matchKeyAliases_(client).forEach(function (k) {
+      if (aliases.indexOf(k) < 0) aliases.push(k);
+    });
+  }
   const val = toBool_(params[flag] != null ? params[flag] : params.value);
   const snap = await getAssembly_({ day: day }, env);
   (snap.clients || []).forEach(function (c) {
-    if (normalizeMatchKey_(c.matchKey || c.name) === mk || c.name === client) {
-      c[flag] = val;
-    }
+    var hit =
+      c.name === client ||
+      matchKeyAliases_(c.matchKey || c.name).some(function (k) {
+        return aliases.indexOf(k) >= 0;
+      });
+    if (hit) c[flag] = val;
   });
   snap.flagsTouchedAt = Date.now();
   await putSnap_(env, "assembly:" + day, snap);
@@ -3098,6 +3675,12 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
 
   if (/^setDelivered$/i.test(action)) {
     const delivered = toBool_(params.delivered);
+    const aliases = matchKeyAliases_(params.matchKey || client);
+    if (client) {
+      matchKeyAliases_(client).forEach(function (k) {
+        if (aliases.indexOf(k) < 0) aliases.push(k);
+      });
+    }
     let snap = (await getSnapRaw_(env, "courier:" + day));
     if (!snap) {
       await rebuildCourierDay_(env, day);
@@ -3105,7 +3688,12 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
     }
     if (snap && Array.isArray(snap.clients)) {
       snap.clients.forEach(function (c) {
-        if (c.name === client || normalizeMatchKey_(c.matchKey || c.name) === mk) {
+        var hit =
+          c.name === client ||
+          matchKeyAliases_(c.matchKey || c.name).some(function (k) {
+            return aliases.indexOf(k) >= 0;
+          });
+        if (hit) {
           c.delivered = delivered;
           if (params.paid) c.paid = params.paid;
         }
@@ -3114,14 +3702,18 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
       await putSnap_(env, "courier:" + day, snap);
     }
     const info = await dayDateInfo_(env, day);
-    if (info.iso && mk) {
+    if (info.iso && aliases.length) {
       const now = new Date().toISOString();
-      await env.DB.prepare(
-        `INSERT INTO deliveries (date_iso, match_key, delivered, updated_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT(date_iso, match_key) DO UPDATE SET delivered=excluded.delivered, updated_at=excluded.updated_at`
-      )
-        .bind(info.iso, mk, delivered ? 1 : 0, now)
-        .run();
+      for (var di = 0; di < aliases.length; di++) {
+        try {
+          await env.DB.prepare(
+            `INSERT INTO deliveries (date_iso, match_key, delivered, updated_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT(date_iso, match_key) DO UPDATE SET delivered=excluded.delivered, updated_at=excluded.updated_at`
+          )
+            .bind(info.iso, aliases[di], delivered ? 1 : 0, now)
+            .run();
+        } catch (eDw) {}
+      }
     }
     return;
   }
@@ -3129,6 +3721,12 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
   if (/^set(Assembled|Printed)$/i.test(action)) {
     const flag = /^setAssembled$/i.test(action) ? "assembled" : "printed";
     const val = toBool_(params[flag] != null ? params[flag] : params.value);
+    const aliasesA = matchKeyAliases_(params.matchKey || client);
+    if (client) {
+      matchKeyAliases_(client).forEach(function (k) {
+        if (aliasesA.indexOf(k) < 0) aliasesA.push(k);
+      });
+    }
     let snap = (await getSnapRaw_(env, "assembly:" + day));
     if (!snap) {
       await rebuildAssemblyDay_(env, day);
@@ -3136,9 +3734,12 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
     }
     if (snap && Array.isArray(snap.clients)) {
       snap.clients.forEach(function (c) {
-        if (c.name === client || normalizeMatchKey_(c.matchKey || c.name) === mk) {
-          c[flag] = val;
-        }
+        var hit =
+          c.name === client ||
+          matchKeyAliases_(c.matchKey || c.name).some(function (k) {
+            return aliasesA.indexOf(k) >= 0;
+          });
+        if (hit) c[flag] = val;
       });
       snap.flagsTouchedAt = Date.now();
       await putSnap_(env, "assembly:" + day, snap);
@@ -3731,7 +4332,20 @@ async function handleCutover_(a, params, env, ctx) {
           } else if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
             await deleteClient_(params, env);
           } else if (/^moveClient$/i.test(a) && env && env.DB) {
-            await moveClient_(params, env);
+            // повторный move в фоне ломает быстрые A↔B↔A: stale params старого move
+            if (!(d1WriteRes && d1WriteRes.status === "success")) {
+              await moveClient_(params, env);
+            } else {
+              try {
+                var bgMk = normalizeMatchKey_(params.matchKey || params.client || "");
+                var bgNew = String(params.newDay || "");
+                var bgEp = bgMk ? await getSnapRaw_(env, "moveEpoch:" + bgMk) : null;
+                // Только если epoch всё ещё указывает на этот newDay (не уехали дальше).
+                if (bgNew && (!bgEp || !bgEp.to || String(bgEp.to) === bgNew)) {
+                  await putMoveArriveProtect_(env, bgNew, bgMk, params.client);
+                }
+              } catch (eProtBg) {}
+            }
           } else if (/^notifyMissedDelivery$/i.test(a) && env && env.DB && proxied) {
             await syncOpsWriteToD1_(a, params, env, proxied);
           }
@@ -3773,6 +4387,17 @@ async function handleCutover_(a, params, env, ctx) {
               gasError: proxied.detail || proxied.message,
               action: a
             });
+          }
+          // move/delete без D1 — не врать «успех» (GAS упал, в D1 ничего нет)
+          if (/^(moveClient|deleteClient|removeCalendarClient)$/i.test(a)) {
+            return {
+              status: "error",
+              message: "d1_and_gas_failed",
+              gasError: proxied.detail || proxied.message,
+              cutover: true,
+              sandbox: false,
+              action: a
+            };
           }
           return {
             status: "success",
@@ -3914,10 +4539,24 @@ async function handleCutover_(a, params, env, ctx) {
     if (/^cancelDeferred$/i.test(a)) {
       let d1Res = { status: "success", wrote: 0, cutover: true, sandbox: false, action: a };
       try {
+        var cancelId = String((params && (params.id || params.taskId)) || "").trim();
+        var cancelMk = "";
+        try {
+          var hitCan = await findDeferredSnapItem_(env, cancelId);
+          if (hitCan) cancelMk = deferredTransferClientKey_(hitCan);
+        } catch (eHit) {}
+        if (!cancelMk) {
+          cancelMk = normalizeMatchKey_(
+            (params && (params.matchKey || params.client || params.clientNick)) || ""
+          );
+        }
+        await putDeferredCancelTombstone_(env, cancelId, cancelMk);
         d1Res = await deleteFromList_(env, "listDeferred", "items", params, "id");
         d1Res.cutover = true;
         d1Res.sandbox = false;
         d1Res.action = a;
+        d1Res.cancelled = true;
+        d1Res.tombstone = true;
       } catch (eCan) {}
       const gasCanP = gasProxy_(a, params, env, { write: true }).catch(function () {
         return null;
@@ -3939,7 +4578,15 @@ async function handleCutover_(a, params, env, ctx) {
       if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
         await deleteClient_(params, env);
       } else if (/^moveClient$/i.test(a) && env && env.DB) {
-        await moveClient_(params, env);
+        // сюда move почти не попадает (fast-path выше); повторный move со stale params опасен
+        try {
+          var optMk = normalizeMatchKey_(params.matchKey || params.client || "");
+          var optNew = String(params.newDay || "");
+          var optEp = optMk ? await getSnapRaw_(env, "moveEpoch:" + optMk) : null;
+          if (optNew && (!optEp || !optEp.to || String(optEp.to) === optNew)) {
+            await putMoveArriveProtect_(env, optNew, optMk, params.client);
+          }
+        } catch (eProtOpt) {}
       } else if (/^(deleteSubscription|deleteSubscriptionBatch)$/i.test(a) && env && env.DB) {
         await deleteSubscription_(params, env);
       }
@@ -4836,6 +5483,17 @@ async function cutoverStoreRead_(a, params, env, payload) {
       // на дне-источнике переноса дополнительно снести drop-клиента из D1
       if (payload._moveDropClient) {
         try {
+          // stale after-write старого move не должен сносить свежий arrive на этот день
+          var protDrop = await getSnapRaw_(env, "moveArriveProtect");
+          if (isMoveArriveProtected_(protDrop, params.day, payload._moveDropClient, payload._moveDropClient)) {
+            return;
+          }
+          try {
+            var epNow = await getSnapRaw_(env, "moveEpoch:" + normalizeMatchKey_(payload._moveDropClient || ""));
+            if (epNow && String(epNow.to || "") === String(params.day || "")) {
+              return;
+            }
+          } catch (eEpG) {}
           const dropMk = normalizeMatchKey_(payload._moveDropClient);
           const dropLow = String(payload._moveDropClient || "").trim().toLowerCase();
           const nowDrop = new Date().toISOString();
@@ -4851,7 +5509,22 @@ async function cutoverStoreRead_(a, params, env, payload) {
     }
     const replaceOpts = {};
     if (payload._skipProtectMissing) replaceOpts.skipProtectMissing = true;
+    var skipDropArrive = false;
     if (payload._moveDropClient) {
+      try {
+        var protDrop2 = await getSnapRaw_(env, "moveArriveProtect");
+        if (isMoveArriveProtected_(protDrop2, params.day, payload._moveDropClient, payload._moveDropClient)) {
+          skipDropArrive = true;
+        }
+      } catch (ePD2) {}
+      try {
+        var epNow2 = await getSnapRaw_(env, "moveEpoch:" + normalizeMatchKey_(payload._moveDropClient || ""));
+        if (epNow2 && String(epNow2.to || "") === String(params.day || "")) {
+          skipDropArrive = true;
+        }
+      } catch (eEp2) {}
+    }
+    if (payload._moveDropClient && !skipDropArrive) {
       const dropMk2 = normalizeMatchKey_(payload._moveDropClient);
       replaceOpts.dropMks = {};
       if (dropMk2) replaceOpts.dropMks[dropMk2] = true;
@@ -4859,7 +5532,7 @@ async function cutoverStoreRead_(a, params, env, payload) {
       replaceOpts.skipProtectMissing = true;
     }
     await replaceDayOrdersFromClients_(env, params.day, list, replaceOpts);
-    if (payload._moveDropClient) {
+    if (payload._moveDropClient && !skipDropArrive) {
       try {
         const dropMk3 = normalizeMatchKey_(payload._moveDropClient);
         const dropLow3 = String(payload._moveDropClient || "").trim().toLowerCase();
@@ -4908,6 +5581,7 @@ async function cutoverStoreRead_(a, params, env, payload) {
       }
     }
     items = resolveCuttingSheetRows_(items, (prev && prev.items) || [], null);
+    items = normalizeCuttingItems_(items);
     const body = Object.assign({}, payload, {
       items: items,
       fromGas: true,
@@ -4927,25 +5601,62 @@ async function cutoverStoreRead_(a, params, env, payload) {
     const prevC = await getSnapRaw_(env, "courier:" + params.day);
     if (prevC && Array.isArray(prevC.clients) && Array.isArray(payload.clients)) {
       const recentC = !!(Number(prevC.flagsTouchedAt || 0) && Date.now() - Number(prevC.flagsTouchedAt) < 600000);
-      const by = Object.create(null);
-      prevC.clients.forEach(function (c) {
-        if (!c) return;
-        by[normalizeMatchKey_(c.matchKey || c.name)] = c;
-      });
+      const by = indexByMatchAliases_(prevC.clients);
       payload.clients.forEach(function (c) {
-        const old = by[normalizeMatchKey_(c.matchKey || c.name)];
+        const old = lookupByMatchAliases_(by, c.matchKey || c.name);
         if (!old) return;
         if (recentC) {
           c.delivered = !!old.delivered;
           if (old.paid) c.paid = old.paid;
-        } else if (old.delivered) c.delivered = true;
+          if (old.assembled) c.assembled = true;
+        } else {
+          if (old.delivered) c.delivered = true;
+          if (old.assembled) c.assembled = true;
+        }
       });
+      // GAS иногда без части людей — не терять проставленные галочки
+      if (recentC) {
+        const inGas = indexByMatchAliases_(payload.clients);
+        prevC.clients.forEach(function (pc) {
+          if (!pc || !(pc.delivered || pc.assembled)) return;
+          if (!lookupByMatchAliases_(inGas, pc.matchKey || pc.name)) payload.clients.push(pc);
+        });
+      }
       payload.flagsTouchedAt = prevC.flagsTouchedAt || 0;
     }
     await putSnap_(env, "courier:" + params.day, payload);
     return;
   }
   if (a === "getAssembly" && params.day) {
+    const prevA = await getSnapRaw_(env, "assembly:" + params.day);
+    if (prevA && Array.isArray(prevA.clients) && Array.isArray(payload.clients)) {
+      const recentA = !!(Number(prevA.flagsTouchedAt || 0) && Date.now() - Number(prevA.flagsTouchedAt) < 600000);
+      const byA = indexByMatchAliases_(prevA.clients);
+      payload.clients.forEach(function (c) {
+        const old = lookupByMatchAliases_(byA, c.matchKey || c.name);
+        if (!old) return;
+        if (recentA) {
+          c.assembled = !!old.assembled;
+          c.printed = !!old.printed;
+          if (old.packs) c.packs = old.packs;
+          if (old.totalBags != null) c.totalBags = old.totalBags;
+          if (old.craftBags != null) c.craftBags = old.craftBags;
+        } else {
+          if (old.assembled) c.assembled = true;
+          if (old.printed) c.printed = true;
+        }
+      });
+      if (recentA) {
+        const inGasA = indexByMatchAliases_(payload.clients);
+        prevA.clients.forEach(function (pc) {
+          if (!pc || !(pc.assembled || pc.printed)) return;
+          if (!lookupByMatchAliases_(inGasA, pc.matchKey || pc.name)) payload.clients.push(pc);
+        });
+      }
+      payload.flagsTouchedAt = prevA.flagsTouchedAt || 0;
+      if (prevA.typeTotals && !payload.typeTotals) payload.typeTotals = prevA.typeTotals;
+      if (prevA.counterTotals && !payload.counterTotals) payload.counterTotals = prevA.counterTotals;
+    }
     await putSnap_(env, "assembly:" + params.day, payload);
     return;
   }
@@ -5072,16 +5783,35 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
   } catch (eTombLoad) {
     tomb = null;
   }
+  if (!tomb) tomb = { items: [] };
+  tomb.items = (tomb.items || []).slice();
+  let arriveProtect = null;
+  try {
+    arriveProtect = await getSnapRaw_(env, "moveArriveProtect");
+  } catch (eAP) {
+    arriveProtect = null;
+  }
 
   const byMk = Object.create(null);
-  (clients || []).forEach(function (c) {
-    if (!c) return;
-    const mk = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
-    if (!mk) return;
+  for (var ci = 0; ci < (clients || []).length; ci++) {
+    var c = clients[ci];
+    if (!c) continue;
+    var mk = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
+    if (!mk) continue;
+    try {
+      var pkT = await getSnapRaw_(env, "delTomb:" + String(day) + ":" + mk);
+      if (pkT && pkT.mk && !pkT.cleared && Number(pkT.at || 0) > 0) tomb.items.push(pkT);
+    } catch (ePKT) {}
     // перенос/удаление: GAS ещё держит человека — не возвращать
-    if (isTombstoned_(tomb, day, mk, c.name || c.client)) return;
+    if (isTombstoned_(tomb, day, mk, c.name || c.client)) continue;
+    // только что уехал на другой день (arrive-protect там) — не воскрешать здесь
+    if (isMoveArriveProtectedElsewhere_(arriveProtect, day, mk, c.name || c.client)) continue;
+    try {
+      var epRep = await getSnapRaw_(env, "moveEpoch:" + mk);
+      if (epRep && epRep.to && String(epRep.to) !== String(day)) continue;
+    } catch (eEpR) {}
     byMk[mk] = c;
-  });
+  }
 
   try {
     const q = await env.DB.prepare(
@@ -5097,6 +5827,10 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       if (!mk) continue;
       // tombstone важнее protect — иначе перенос «откатывается»
       if (isTombstoned_(tomb, day, mk, row.client)) {
+        delete byMk[mk];
+        continue;
+      }
+      if (isMoveArriveProtectedElsewhere_(arriveProtect, day, mk, row.client)) {
         delete byMk[mk];
         continue;
       }
@@ -5390,23 +6124,67 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                 }
                 if (day && newDay && day === newDay) {
                   try {
-                    const rowD1 = await findOrderRow_(
-                      env,
-                      params.matchKey || wantClient,
-                      day,
-                      params.newDate || "",
-                      wantClient
-                    );
-                    const fromD1 = rowD1 ? clientFromRow_(rowD1) : null;
-                    if (fromD1) {
+                    var mkEpochNew = normalizeMatchKey_(params.matchKey || wantClient);
+                    var epNew = await getSnapRaw_(env, "moveEpoch:" + mkEpochNew);
+                    // Обратный перенос уже увёл клиента с этого newDay — не воскрешать.
+                    var stillDest =
+                      !epNew ||
+                      !epNew.to ||
+                      String(epNew.to || "") === String(day || "");
+                    if (!stillDest) {
+                      list = list.filter(function (c) {
+                        return !nicksLooseMatch_(c && (c.name || c.client), wantClient);
+                      });
+                      fresh.clients = list;
+                      fresh._moveStaleSkip = true;
+                    } else {
+                      var rowD1 = await findOrderRow_(
+                        env,
+                        params.matchKey || wantClient,
+                        day,
+                        params.newDate || "",
+                        wantClient
+                      );
+                      // GAS на newDay почти всегда без человека — не давать replaceDayOrders снести D1.
+                      // Если строки нет (гонка) — восстановить из writeRes/params.
+                      if (!rowD1 && writeRes && writeRes.status === "success") {
+                        try {
+                          var mkKeep = normalizeMatchKey_(params.matchKey || wantClient);
+                          await upsertOrderRow_(env, {
+                            id: day + ":" + mkKeep,
+                            date_iso: String(params.newDate || ""),
+                            day_name: day,
+                            client: wantClient,
+                            match_key: mkKeep,
+                            address: "",
+                            note: "",
+                            phone: "",
+                            basket_json: "[]",
+                            segment: "",
+                            source: "",
+                            status: "active",
+                            updated_at: new Date().toISOString(),
+                            meta_json: "{}"
+                          });
+                          rowD1 = await findOrderRow_(env, params.matchKey || wantClient, day, params.newDate || "", wantClient);
+                        } catch (eRe) {}
+                      }
+                      const fromD1 = rowD1 ? clientFromRow_(rowD1) : {
+                        name: wantClient,
+                        client: wantClient,
+                        matchKey: normalizeMatchKey_(params.matchKey || wantClient)
+                      };
                       list = list.filter(function (c) {
                         return !nicksLooseMatch_(c && (c.name || c.client), wantClient);
                       });
                       list = list.concat([fromD1]);
                       fresh.clients = list;
                       fresh._d1MoveKeep = true;
+                      fresh._skipProtectMissing = false;
                     }
-                  } catch (eKeep) {}
+                  } catch (eKeep) {
+                    fresh._d1MoveKeep = true;
+                  }
                 }
               }
               const writeOk =
@@ -5425,7 +6203,74 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
               } else {
                 gasClientsFresh = true;
               }
-              await cutoverStoreRead_("getClients", { day: day }, env, fresh);
+              // moveClient: НИКОГДА не cutoverStoreRead/replaceDayOrders — только точечный delete на oldDay.
+              if (/^moveClient$/i.test(a)) {
+                if (newDay && day === newDay) {
+                  try {
+                    var mkFix = normalizeMatchKey_(params.matchKey || wantClient);
+                    var epFix = await getSnapRaw_(env, "moveEpoch:" + mkFix);
+                    // Stale after-write прошлого move: клиент уже на другом дне — не protect/upsert сюда.
+                    if (epFix && epFix.to && String(epFix.to) !== String(newDay)) {
+                      // skip
+                    } else {
+                      try {
+                        await putMoveArriveProtect_(
+                          env,
+                          newDay,
+                          mkFix,
+                          wantClient
+                        );
+                      } catch (eP2) {}
+                      // убедиться что arrive жив в D1
+                      try {
+                        var liveNew = await findOrderRow_(env, params.matchKey || wantClient, newDay, params.newDate || "", wantClient);
+                        if (!liveNew) {
+                          await upsertOrderRow_(env, {
+                            id: newDay + ":" + mkFix,
+                            date_iso: String(params.newDate || ""),
+                            day_name: newDay,
+                            client: wantClient,
+                            match_key: mkFix,
+                            address: "",
+                            note: "",
+                            phone: "",
+                            basket_json: "[]",
+                            segment: "",
+                            source: "",
+                            status: "active",
+                            updated_at: new Date().toISOString(),
+                            meta_json: "{}"
+                          });
+                        }
+                      } catch (eFix) {}
+                    }
+                  } catch (eFixOuter) {}
+                } else if (oldDay && day === oldDay) {
+                  try {
+                    var epLive0 = await getSnapRaw_(
+                      env,
+                      "moveEpoch:" + normalizeMatchKey_(params.matchKey || wantClient)
+                    );
+                    if (epLive0 && String(epLive0.to || "") === String(oldDay)) {
+                      // новый move уже сюда приехал — не сносить
+                    } else {
+                      // epoch говорит «не здесь» → protect на oldDay устарел (фон прошлого move).
+                      // Игнорим protect и жёстко сносим.
+                      await deleteClient_(
+                        {
+                          client: wantClient,
+                          day: oldDay,
+                          matchKey: params.matchKey || wantClient,
+                          force: "1"
+                        },
+                        env
+                      );
+                    }
+                  } catch (eOldOnly) {}
+                }
+              } else {
+                await cutoverStoreRead_("getClients", { day: day }, env, fresh);
+              }
               // после возможного merge — ещё раз зафиксировать write в D1
               if (/^(saveOrder|saveBooking)$/i.test(a) && wantClient) {
                 try {
@@ -5437,20 +6282,7 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                   await deleteClient_(params, env);
                 } catch (eRedel) {}
               }
-              // move: после GAS-store ещё раз убрать с oldDay (protect/GAS могут вернуть)
-              if (/^moveClient$/i.test(a) && wantClient && day && oldDay && day === oldDay) {
-                try {
-                  await deleteClient_(
-                    {
-                      client: wantClient,
-                      day: oldDay,
-                      matchKey: params.matchKey || wantClient,
-                      force: "1"
-                    },
-                    env
-                  );
-                } catch (eMoveDel) {}
-              }
+
             }
           } catch (eG) {}
           try {
