@@ -1,3 +1,4 @@
+- [~] **save/move/delete «не работает» 2026-08-23:** stale afterWrite save откатывал move; moveEpoch+replaceDayOrders; D1 приоритет над GAS no_free_columns/alreadyGone · Worker `7b2a4f67` · **Worker Deploy OK**
 - [~] **Задачи переноса не удаляются + ложный «перенесено» 2026-08-23:** cancel tombstone 48ч (merge/repair/GAS не воскрешают); move verify + nick-key; placeTransfer tombstone · Pages `v=71115867` · **Worker Deploy OK**
 - [~] **Перенос «успех» но на месте (es_furman) 2026-08-23:** normalizeMatchKey_ как viewClientKey (ФИО+nick); tombstone оба ключа; delete loose-match; UI не врёт если всё ещё на старом · Pages `v=71115866` · **Worker Deploy OK**
 - [~] **БП «нет партнёра» при переносе 2026-08-22:** auto «Другое» + ppPartner из meta при placeTransferTask · Pages `v=71115863` · **Worker Deploy**
