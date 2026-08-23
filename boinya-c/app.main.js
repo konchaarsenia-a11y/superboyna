@@ -1012,11 +1012,10 @@
     const catalog = {
       dressura: {
         title: "Дрессура",
-        items: ["ЛЁГКОЕ", "СЕРДЦЕ", "ПОЧКИ", "РУБЕЦ Т", "БАРАНЬЕ ЛЁГКОЕ"],
+        items: ["ЛЁГКОЕ", "СЕРДЦЕ", "РУБЕЦ Т", "БАРАНЬЕ ЛЁГКОЕ"],
         fractions: {
           "ЛЁГКОЕ": ["Мелкое", "Среднее", "Большое", "Целое"],
           "СЕРДЦЕ": ["Мелкое", "Целое"],
-          "ПОЧКИ": ["Мелкое", "Целое"],
           "РУБЕЦ Т": ["Мелкое", "Среднее", "Крупное", "Целое"],
           "БАРАНЬЕ ЛЁГКОЕ": ["Мелкое", "Среднее", "Целое"]
         }
@@ -1034,8 +1033,10 @@
       },
       other: {
         title: "Другое",
-        items: ["ПЕЧЕНЬ", "СВЕТЛЫЙ РУБЕЦ", "ИНДЕЙКА", "МЯСНЫЕ ЛОМТИКИ", "КНИЖКА", "ВЫМЯ", "СЕМЕННИКИ", "ПИКАЛЬНОЕ МЯСО"],
-        fractions: {}
+        items: ["ПЕЧЕНЬ", "СВЕТЛЫЙ РУБЕЦ", "ИНДЕЙКА", "МЯСНЫЕ ЛОМТИКИ", "КНИЖКА", "ВЫМЯ", "ПОЧКИ", "СЕМЕННИКИ", "ПИКАЛЬНОЕ МЯСО"],
+        fractions: {
+          "ПОЧКИ": ["Мелкое", "Целое"]
+        }
       },
       powder: {
         title: "Присыпки",
@@ -4311,9 +4312,6 @@
         } else if (isEdit && editDaySnap) {
           weekDayToSave = editDaySnap;
           dateOnWeek = true;
-        } else if (day) {
-          weekDayToSave = day;
-          dateOnWeek = true;
         }
 
         if (isEdit && editClientSnap) {
@@ -6178,13 +6176,19 @@
         var compareParams = { action: "getViewCompare" };
         if (dateStr) compareParams.date = dateStr;
         else compareParams.day = day;
+        var forcePeopleList = !!window._peopleListForceFresh;
+        if (forcePeopleList) {
+          compareParams.force = "1";
+          compareParams._ = String(Date.now());
+        }
 
         var compareRes = null;
         try {
           compareRes = await apiGet(compareParams, {
             timeoutMs: window.__BOINYA_C_CUTOVER__ ? 18000 : 45000,
-            cacheTtlMs: window.__BOINYA_C_CUTOVER__ ? 20000 : 0
+            cacheTtlMs: forcePeopleList ? 0 : (window.__BOINYA_C_CUTOVER__ ? 20000 : 0)
           });
+          if (forcePeopleList) window._peopleListForceFresh = false;
         } catch (eC) {
           compareRes = null;
         }
@@ -6219,6 +6223,10 @@
             else if (day) weekParams.day = day;
             else if (dateStr) weekParams.date = dateStr;
             if (weekParams.day || weekParams.date) {
+              if (forcePeopleList) {
+                weekParams.force = "1";
+                weekParams._ = String(Date.now());
+              }
               try {
                 weekRes = await apiGet(weekParams, { timeoutMs: 22000, cacheTtlMs: 0 });
               } catch (eW) {
@@ -6569,6 +6577,7 @@
     }
 
     function afterPeopleMutationDays_(days) {
+      window._peopleListForceFresh = true;
       window._cuttingNeedRefresh = true;
       try { apiCacheBustMem_("getCutting"); } catch (e0) {}
       try { apiCacheBustMem_("getCourier"); } catch (e1) {}
@@ -7091,8 +7100,18 @@
             } catch (eReload) {}
             return false;
           }
-          if (!onNew) {
-            showToast("Перенесено — список «" + newDay + "» может обновиться через минуту");
+          if (!onNew && !onOld) {
+            await uiAlertAsync(
+              "Не перенеслось: «" + clientName + "» нет ни на «" + oldDay + "», ни на «" + newDay + "».\n" +
+              "Проверь список или попробуй ещё раз."
+            );
+            try {
+              apiCacheBustMem_("getClients");
+              apiCacheBustMem_("getViewCompare");
+              afterPeopleMutationDays_([oldDay, newDay]);
+              await loadClientsForDay();
+            } catch (eReload) {}
+            return false;
           } else if (onOld) {
             showToast("На «" + oldDay + "» ещё виден в листе — обновится через минуту");
           }
@@ -7229,9 +7248,38 @@
           deleteClientParams(client.name, day, client.matchKey || viewClientKey(client.name) || ""),
           { timeoutMs: 45000, cacheTtlMs: 0 }
         );
-        if (!res || (res.status !== "success" && !res.sent_opaque)) {
+        if (!res || (res.status !== "success" && !res.sent_opaque && !res.d1Verified)) {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return;
+        }
+        if (res.missing && !res.alreadyGone) {
+          await uiAlertAsync("Не удалось удалить «" + client.name + "» — не найден на этом дне.");
+          return;
+        }
+        var goneOk = !!res.alreadyGone;
+        if (!goneOk && day) {
+          try {
+            var chkDel = await apiGet({
+              action: "getClients",
+              day: day,
+              force: "1",
+              _: String(Date.now())
+            }, { timeoutMs: 12000, cacheTtlMs: 0 });
+            var listDel = (chkDel && chkDel.clients) || [];
+            var stillThere = listDel.some(function (c) {
+              return nicksMatchClient_(c && (c.name || c.client), client.name);
+            });
+            if (stillThere) {
+              await uiAlertAsync("Не удалилось: «" + client.name + "» всё ещё в списке. Попробуй ещё раз.");
+              try {
+                apiCacheBustMem_("getViewCompare");
+                apiCacheBustMem_("getClients");
+                afterPeopleMutationDays_([day]);
+                await loadClientsForDay();
+              } catch (eReloadDel) {}
+              return;
+            }
+          } catch (eChkDel) {}
         }
         showToast(res.alreadyGone ? "Уже удалено" : "Удалено");
         try { afterPeopleMutationDays_([day]); } catch (eMut) {}
@@ -13060,8 +13108,9 @@
           apiGet({
             action: "getStats",
             period: "month",
+            force: "1",
             _: String(Date.now())
-          }, { timeoutMs: 60000, cacheTtlMs: 120000, retries: 0 }).then(function (res) {
+          }, { timeoutMs: 60000, cacheTtlMs: 0, retries: 0 }).then(function (res) {
             try { applyStatsRes_(res); } catch (eBg) {}
           }).catch(function () {});
           return;
@@ -16924,6 +16973,26 @@
         fillSubDetailDogFields_(dogParsed);
         document.getElementById("subDetailAddress").value = res.address || "";
         document.getElementById("subDetailPhone").value = res.phone || "";
+        if (!res.address || !res.phone) {
+          try {
+            var profRes = await apiGet({ action: "listClientProfiles", _: String(Date.now()) }, { timeoutMs: 15000, cacheTtlMs: 0 });
+            var profs = (profRes && profRes.clients) || [];
+            var wantNick = String(res.nick || s.nick || "").trim().toLowerCase().replace(/^@/, "");
+            for (var pi = 0; pi < profs.length; pi++) {
+              var pn = String(profs[pi].nick || "").trim().toLowerCase().replace(/^@/, "");
+              if (!pn || pn !== wantNick) continue;
+              if (!res.address && profs[pi].address) {
+                document.getElementById("subDetailAddress").value = profs[pi].address;
+                res.address = profs[pi].address;
+              }
+              if (!res.phone && profs[pi].phone) {
+                document.getElementById("subDetailPhone").value = profs[pi].phone;
+                res.phone = profs[pi].phone;
+              }
+              break;
+            }
+          } catch (eProf) {}
+        }
 
         var statedFromSheet = (res.statedCost != null && res.statedCost !== "")
           ? res.statedCost
@@ -17747,8 +17816,6 @@
       var byCat = {};
       (list || []).forEach(function (it) {
         var c = it.cat || "other";
-
-        if (c === "other") c = "dressura";
         if (!byCat[c]) byCat[c] = [];
         byCat[c].push(it);
       });
