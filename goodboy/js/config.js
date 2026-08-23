@@ -9,5 +9,7 @@ window.GB_CONFIG = {
   leadWebhookUrl: "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec",
   contactEmail: "hello@goodboy.by",
   partnerSlugVarok: "varok",
-  storageKey: "goodboy_v1"
+  storageKey: "goodboy_v1",
+  /** Не входить автоматически в демо — сначала экран входа */
+  allowDemoFallback: false
 };

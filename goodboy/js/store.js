@@ -5,6 +5,7 @@
   var state = {
     screen: "home",
     page: "profile",
+    intent: "",
     mapFilter: "all",
     mapPlaceId: "p2",
     demo: false,
@@ -39,6 +40,7 @@
         partners: state.partners,
         privilege: state.privilege,
         link: state.link,
+        intent: state.intent,
         demo: state.demo
       }));
     } catch (e2) {}
@@ -68,6 +70,7 @@
     if (loc.partners) state.partners = loc.partners;
     if (loc.privilege) state.privilege = loc.privilege;
     if (loc.link) state.link = loc.link;
+    if (loc.intent) state.intent = loc.intent;
     if (loc.demo) state.demo = !!loc.demo;
   }
 

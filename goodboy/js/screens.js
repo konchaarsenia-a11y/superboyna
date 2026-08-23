@@ -137,6 +137,7 @@
         "<div class=\"cabinet-kv\"><span>Имя</span><strong>" + esc(user.name || "Гость") + "</strong></div>" +
         "<div class=\"cabinet-kv\"><span>Telegram</span><strong>" + esc(user.username ? "@" + user.username : "—") + "</strong></div>" +
         "<div class=\"cabinet-kv\"><span>Телефон</span><strong>" + esc(user.phone || "не указан") + "</strong></div>" +
+        "<button type=\"button\" class=\"btn btn-ghost\" id=\"gbLogout\" style=\"margin-top:14px;\">Выйти</button>" +
       "</div>"
     );
   }

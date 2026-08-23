@@ -3,10 +3,90 @@
 
   var wired = false;
 
+  function showGate(view) {
+    var gate = document.getElementById("gate");
+    var cabinet = document.getElementById("cabinet");
+    if (gate) {
+      gate.hidden = false;
+      gate.style.display = "";
+    }
+    if (cabinet) {
+      cabinet.hidden = true;
+      cabinet.style.display = "none";
+    }
+    setGateView(view || "welcome");
+    refreshTelegramBlock();
+  }
+
+  function showCabinet() {
+    var gate = document.getElementById("gate");
+    var cabinet = document.getElementById("cabinet");
+    if (gate) {
+      gate.hidden = true;
+      gate.style.display = "none";
+    }
+    if (cabinet) {
+      cabinet.hidden = false;
+      cabinet.style.display = "";
+    }
+  }
+
+  function setGateView(name) {
+    document.querySelectorAll(".gate-panel").forEach(function (panel) {
+      var on = panel.getAttribute("data-gate-view") === name;
+      panel.hidden = !on;
+    });
+    ["gateLoginError", "gateRegisterError"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) {
+        el.hidden = true;
+        el.textContent = "";
+      }
+    });
+  }
+
+  function refreshTelegramBlock() {
+    var block = document.getElementById("gateTgBlock");
+    var btn = document.getElementById("enterTelegram");
+    var hint = document.getElementById("gateTgHint");
+    if (!block || !btn) return;
+    var tg = GBAuth.readTelegramUser();
+    if (tg) {
+      block.hidden = false;
+      btn.textContent = "Продолжить как " + (tg.name || "Telegram");
+      if (hint) {
+        hint.hidden = false;
+        hint.textContent = tg.username ? "@" + tg.username : "Вход через Telegram Mini App";
+      }
+    } else {
+      block.hidden = true;
+    }
+  }
+
+  function pageForIntent(intent) {
+    if (intent === "city") return "map";
+    if (intent === "try" || intent === "pp") return "subscription";
+    return "profile";
+  }
+
+  function enterWithUser(user, opts) {
+    opts = opts || {};
+    var intent = user.intent || opts.intent || "";
+    GBStore.set({
+      user: user,
+      demo: !!user.isDemo || !!user.isGuest || ((GB_CONFIG && GB_CONFIG.mode) !== "live"),
+      intent: intent,
+      page: opts.page || pageForIntent(intent)
+    });
+    showCabinet();
+    loadCabinet(user, opts);
+  }
+
   function applyBootstrap(payload, session) {
     var prev = global.GBStore.get() || {};
+    var intent = (session.user && session.user.intent) || prev.intent || "";
     global.GBStore.set({
-      demo: !!(payload && payload.demo) || ((global.GB_CONFIG && global.GB_CONFIG.mode) !== "live"),
+      demo: !!(payload && payload.demo) || !!session.user.isGuest || !!session.user.isDemo || ((global.GB_CONFIG && global.GB_CONFIG.mode) !== "live"),
       user: Object.assign({}, session.user, payload.user || {}),
       pets: payload.pets || [],
       activePetId: payload.activePetId || (payload.pets && payload.pets[0] && payload.pets[0].id) || null,
@@ -15,39 +95,60 @@
       privilege: payload.privilege || null,
       link: payload.link || null,
       bootError: "",
-      page: prev.page || "profile",
+      intent: intent,
+      page: prev.page || pageForIntent(intent),
       mapFilter: prev.mapFilter || "all",
       mapPlaceId: prev.mapPlaceId || "p2"
     });
     GBUI.render();
   }
 
-  function bootstrap() {
-    var gate = document.getElementById("gate");
-    var cabinet = document.getElementById("cabinet");
-    var session = GBAuth.resolveSession();
-    if (!session.user) {
-      if (gate) gate.style.display = "";
-      if (cabinet) cabinet.style.display = "none";
-      return;
-    }
-    if (gate) gate.style.display = "none";
-    if (cabinet) cabinet.style.display = "";
-
+  function loadCabinet(user, opts) {
+    opts = opts || {};
     GBApi.get({
       action: "gbMe",
-      telegramId: session.user.telegramId || "",
-      name: session.user.name || "",
-      username: session.user.username || ""
+      telegramId: user.telegramId || "",
+      name: user.name || "",
+      username: user.username || ""
     }).then(function (res) {
       if (!res || res.status !== "success") {
         throw new Error((res && res.message) || "gbMe failed");
       }
-      applyBootstrap(res, session);
+      applyBootstrap(res, { user: user });
+      if (opts.needsLink && (user.phone || user.username)) {
+        return GBApi.get({
+          action: "gbLinkClient",
+          telegramId: user.telegramId || "",
+          phone: user.phone || "",
+          nick: user.username || ""
+        }).then(function (linkRes) {
+          if (linkRes && linkRes.status === "success") {
+            GBStore.set({
+              link: linkRes.link || null,
+              subscription: linkRes.subscription || GBStore.get().subscription,
+              privilege: linkRes.privilege || GBStore.get().privilege
+            });
+            GBUI.render();
+            GBUI.toast(linkRes.link && linkRes.link.clientNick
+              ? "Подписка: " + linkRes.link.clientNick
+              : "Вход выполнен");
+          }
+        });
+      }
     }).catch(function (err) {
       GBStore.set({ bootError: String(err && err.message || err) });
       GBUI.toast("Не удалось загрузить кабинет");
     });
+  }
+
+  function bootstrap() {
+    var session = GBAuth.resolveSession();
+    if (!session.user) {
+      showGate("welcome");
+      return;
+    }
+    showCabinet();
+    loadCabinet(session.user);
   }
 
   function savePetFromForm(ev) {
@@ -130,9 +231,6 @@
       });
       GBUI.render();
       GBUI.toast(res.link && res.link.clientNick ? "Привязано: " + res.link.clientNick : "Привязка обновлена");
-      if (res.privilege && res.privilege.eligible) {
-        setTimeout(function () { GBUI.toast("Скидка VARKA открыта"); }, 500);
-      }
     }).finally(function () {
       if (btn) {
         btn.disabled = false;
@@ -145,7 +243,11 @@
   function copyPrivilegeCode() {
     var st = GBStore.get();
     var pr = st.privilege || {};
-    var code = pr.eligible && pr.code ? pr.code : "GB-DEMO";
+    var code = pr.eligible && pr.code ? pr.code : "";
+    if (!code) {
+      GBUI.toast("Сначала привяжите подписку");
+      return;
+    }
     function ok() { GBUI.toast("Код скопирован"); }
     if (global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText) {
       global.navigator.clipboard.writeText(code).then(ok).catch(function () {
@@ -153,6 +255,101 @@
       });
     } else {
       GBUI.toast(code);
+    }
+  }
+
+  function doLogout() {
+    GBAuth.logout();
+    showGate("welcome");
+    GBUI.toast("Вы вышли");
+  }
+
+  function initGate() {
+    var root = document.getElementById("gbAppShell") || document;
+
+    root.addEventListener("click", function (e) {
+      var pathBtn = e.target.closest("[data-gate-path]");
+      if (pathBtn) {
+        var path = pathBtn.getAttribute("data-gate-path");
+        if (path === "pp") setGateView("login");
+        else if (path === "register") {
+          var regClear = document.getElementById("gateRegisterForm");
+          if (regClear) regClear.removeAttribute("data-intent");
+          setGateView("register");
+        } else if (path === "try") {
+          // Регистрация с намерением попробовать; позже можно вести на try.html
+          setGateView("register");
+          var form = document.getElementById("gateRegisterForm");
+          if (form) form.setAttribute("data-intent", "try");
+        } else if (path === "city") {
+          enterWithUser(GBAuth.guestUser("city"), { page: "map" });
+          GBUI.toast("Гостевой просмотр карты");
+        }
+        return;
+      }
+
+      if (e.target.closest("[data-gate-back]")) {
+        var regForm = document.getElementById("gateRegisterForm");
+        if (regForm) regForm.removeAttribute("data-intent");
+        setGateView("welcome");
+        return;
+      }
+
+      if (e.target.id === "enterTelegram" || e.target.closest("#enterTelegram")) {
+        var tg = GBAuth.readTelegramUser();
+        if (!tg) {
+          GBUI.toast("Откройте кабинет из Telegram");
+          return;
+        }
+        enterWithUser(tg, { page: "profile" });
+      }
+    });
+
+    var loginForm = document.getElementById("gateLoginForm");
+    if (loginForm) {
+      loginForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var err = document.getElementById("gateLoginError");
+        var res = GBAuth.loginUser({
+          phone: loginForm.phone.value,
+          nick: loginForm.nick.value,
+          intent: "pp"
+        });
+        if (!res.ok) {
+          if (err) {
+            err.hidden = false;
+            err.textContent = res.message;
+          }
+          return;
+        }
+        enterWithUser(res.user, { page: "subscription", needsLink: !!res.needsLink });
+      });
+    }
+
+    var registerForm = document.getElementById("gateRegisterForm");
+    if (registerForm) {
+      registerForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var err = document.getElementById("gateRegisterError");
+        var intent = registerForm.getAttribute("data-intent") || "register";
+        var res = GBAuth.registerUser({
+          name: registerForm.name.value,
+          phone: registerForm.phone.value,
+          nick: registerForm.nick.value,
+          intent: intent
+        });
+        if (!res.ok) {
+          if (err) {
+            err.hidden = false;
+            err.textContent = res.message;
+          }
+          return;
+        }
+        enterWithUser(res.user, {
+          page: intent === "try" ? "subscription" : "profile"
+        });
+        GBUI.toast(intent === "try" ? "Аккаунт создан — оформите знакомство" : "Аккаунт создан");
+      });
     }
   }
 
@@ -181,6 +378,10 @@
       }
       if (e.target.id === "copyPrivilege" || e.target.closest("#copyPrivilege")) {
         copyPrivilegeCode();
+        return;
+      }
+      if (e.target.id === "gbLogout" || e.target.closest("#gbLogout")) {
+        doLogout();
       }
     });
 
@@ -193,13 +394,7 @@
   function wire() {
     if (wired) return;
     wired = true;
-    var enterDemo = document.getElementById("enterDemo");
-    if (enterDemo) {
-      enterDemo.addEventListener("click", function () {
-        GBStore.set({ user: GBAuth.demoUser(), demo: true });
-        bootstrap();
-      });
-    }
+    initGate();
     initNavigation();
     initDelegatedActions();
   }
@@ -208,9 +403,13 @@
     wire();
     var st = GBStore.get();
     if (!st.page) GBStore.set({ page: "profile" });
-    GBUI.render();
     bootstrap();
   }
 
-  global.GBBoot = { start: start, bootstrap: bootstrap };
+  global.GBBoot = {
+    start: start,
+    bootstrap: bootstrap,
+    showGate: showGate,
+    logout: doLogout
+  };
 })(window);
