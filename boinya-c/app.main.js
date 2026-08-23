@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c50";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c62";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3710,16 +3710,16 @@
               .catch(function (err) {
                 clearTimeout(timer);
                 if (err && err.name === "AbortError") {
-                  // cutover: запись уже в D1/Worker; таймаут UI ≠ провал
-                  if (/^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(action)) {
-                    resolve({ status: "success", optimistic: true, timedOut: true, cutover: true });
+                  // cutover: не врать success на таймауте записи — UI обязан проверить D1
+                  if (/^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|placeTransferTask)$/i.test(action)) {
+                    resolve({ status: "pending", optimistic: true, timedOut: true, cutover: true, message: "timeout_pending_verify" });
                     return;
                   }
                   reject(new Error("Таймаут ответа сервера"));
                   return;
                 }
-                if (/^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(action)) {
-                  resolve({ status: "success", optimistic: true, networkFallback: true, cutover: true });
+                if (/^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|placeTransferTask)$/i.test(action)) {
+                  resolve({ status: "pending", optimistic: true, networkFallback: true, cutover: true, message: "network_pending_verify" });
                   return;
                 }
                 reject(new Error("Ошибка сети"));
@@ -4414,6 +4414,61 @@
 
         async function ensureWeekWriteStuck_() {
           if (!weekDayToSave || !basketSnap.length) return saveRes;
+          // жёсткий отказ листа — не маскировать D1-verify как success
+          var hardSheetFail = saveRes && /no_?free_?columns|client_not_found|bad_day|no_client/i.test(String(saveRes.status || ""));
+          if (hardSheetFail) {
+            // ретрай как новый столбец (без matchKey) — обход бага GAS
+            var insertParams = {
+              action: "saveOrder",
+              day: weekDayToSave,
+              date: deliveryDate,
+              client: clientName,
+              address: clientAddress,
+              phone: phone || "",
+              note: clientNote || "",
+              permanentNote: permanentNote || "",
+              orderType: orderTypeSnap || "",
+              segment: orderTypeToSegment_(orderTypeSnap) || "",
+              orderPrice: orderPrice != null ? String(orderPrice) : "",
+              deliverySlot: ppSlotPayload.deliverySlot ? String(ppSlotPayload.deliverySlot) : "",
+              ppSlot: ppSlotPayload.ppSlot || "",
+              deliveryAfter: deliveryAfter || "",
+              deliveryBefore: deliveryBefore || "",
+              ppPartner: ppPartnerVal || "",
+              couponsQty: String(couponsPayload.couponsQty || 0),
+              couponPrice: String(couponsPayload.couponPrice || 0),
+              basket: basketJson,
+              force: "1",
+              _retryInsert: "1",
+              _: String(Date.now())
+            };
+            if (geoJson) insertParams.geo = geoJson;
+            try {
+              var insRes = await apiGet(insertParams, {
+                timeoutMs: window.__BOINYA_C_CUTOVER__ ? 22000 : 60000,
+                cacheTtlMs: 0
+              });
+              if (insRes && insRes.status === "success") {
+                saveRes = insRes;
+              } else if (insRes && insRes.d1Verified && insRes.status === "success") {
+                saveRes = insRes;
+              } else if (!(insRes && (insRes.d1Verified || insRes.gasPending))) {
+                return {
+                  status: "error",
+                  message: "Лист не принял заказ (" + (saveRes.status || "ошибка") + "). Попробуй ещё раз.",
+                  sheetStatus: saveRes.status
+                };
+              } else {
+                saveRes = insRes;
+              }
+            } catch (eIns) {
+              return {
+                status: "error",
+                message: "Лист не принял заказ (" + (saveRes.status || "ошибка") + ")",
+                sheetStatus: saveRes.status
+              };
+            }
+          }
           var chk = await verifyWeekBasket_();
           if (chk && (chk.match || (chk.found && chk.len > 0))) {
             return {
@@ -4421,7 +4476,8 @@
               wrote: chk.len,
               basketLen: basketSnap.length,
               verified: true,
-              partial: !!(chk.found && !chk.match)
+              partial: !!(chk.found && !chk.match),
+              gasPending: !!(saveRes && saveRes.gasPending)
             };
           }
           if (chk && chk.found && basketSnap.length === 0) {
@@ -7022,13 +7078,16 @@
           matchKey: matchKey,
           _: String(Date.now())
         }, { timeoutMs: 45000, cacheTtlMs: 0 });
-        if (!res || (res.status !== "success" && !res.sent_opaque && !res.optimistic && !res.d1Verified && !res.timedOut && !res.networkFallback)) {
+        if (!res || (res.status !== "success" && !res.sent_opaque && !res.d1Verified)) {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return false;
         }
+        // timedOut/optimistic без d1Verified — не считаем перенос готовым
+        if ((res.timedOut || res.networkFallback || res.optimistic) && !res.d1Verified && res.status === "success") {
+          // fall through to verify below
+        }
 
-        // cutover: сервер уже принял move (success/optimistic/opaque) — НЕ блокируем UI
-        // проверкой списка. getClients/snap/GAS часто отстают → ложное «не закрепился».
+        // cutover: обязаны увидеть человека на новом дне в D1
         if (!calendarOnly && !dateOnly && oldDay && newDay && oldDay !== newDay) {
           async function clientOnDay_(dayName) {
             try {
@@ -7050,31 +7109,41 @@
           }
           var onOld = false;
           var onNew = false;
-          try {
-            onOld = await clientOnDay_(oldDay);
-            onNew = await clientOnDay_(newDay);
-          } catch (eVer) {}
-          if (!onNew) {
-            // мягкий ретрай в фоне — без alert и без return false
+          for (var attempt = 0; attempt < 3; attempt++) {
             try {
-              apiGet({
-                action: "moveClient",
-                client: clientName,
-                oldDay: oldDay || "",
-                newDay: newDay,
-                oldDate: oldDate || "",
-                newDate: target.newDate,
-                dateOnly: "0",
-                calendarOnly: "0",
-                cutRaw: cutRaw === "yes" ? "1" : "0",
-                matchKey: matchKey,
-                force: "1",
-                _: String(Date.now())
-              }, { timeoutMs: 22000, cacheTtlMs: 0 }).catch(function () {});
-            } catch (eRetryM) {}
-            showToast("Перенесено — список «" + newDay + "» может обновиться через минуту");
-          } else if (onOld) {
-            showToast("На «" + oldDay + "» ещё виден в листе — обновится через минуту");
+              onOld = await clientOnDay_(oldDay);
+              onNew = await clientOnDay_(newDay);
+            } catch (eVer) {}
+            if (onNew && !onOld) break;
+            if (onNew) break;
+            await new Promise(function (r) { setTimeout(r, 700); });
+            if (!onNew) {
+              try {
+                await apiGet({
+                  action: "moveClient",
+                  client: clientName,
+                  oldDay: oldDay || "",
+                  newDay: newDay,
+                  oldDate: oldDate || "",
+                  newDate: target.newDate,
+                  dateOnly: "0",
+                  calendarOnly: "0",
+                  cutRaw: cutRaw === "yes" ? "1" : "0",
+                  matchKey: attempt === 0 ? matchKey : "",
+                  force: "1",
+                  _: String(Date.now())
+                }, { timeoutMs: 22000, cacheTtlMs: 0 });
+              } catch (eRetryM) {}
+            }
+          }
+          if (!onNew) {
+            await uiAlertAsync(
+              "Перенос не закрепился на «" + newDay + "». Попробуй ещё раз — человек не появился в списке дня."
+            );
+            return false;
+          }
+          if (onOld) {
+            showToast("На «" + oldDay + "» ещё виден — обновится через минуту");
           }
         }
 
