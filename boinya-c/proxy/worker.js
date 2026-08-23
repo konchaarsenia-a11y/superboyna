@@ -558,6 +558,53 @@ async function putSnap_(env, key, payload) {
     .run();
 }
 
+async function setMoveEpochDay_(env, matchKey, day, client) {
+  const mk = normalizeMatchKey_(matchKey);
+  if (!env || !env.DB || !mk || !day) return;
+  try {
+    await putSnap_(env, "moveEpoch:" + mk, {
+      at: Date.now(),
+      from: "",
+      to: day,
+      client: String(client || "")
+    });
+  } catch (eEpSet) {}
+}
+
+async function clearMoveEpoch_(env, matchKey) {
+  const mk = normalizeMatchKey_(matchKey);
+  if (!env || !env.DB || !mk) return;
+  try {
+    await env.DB.prepare("DELETE FROM snap_cache WHERE cache_key = ?")
+      .bind("moveEpoch:" + mk)
+      .run();
+  } catch (eEpClr) {}
+}
+
+async function clientMovedAwayFromDay_(env, matchKey, clientName, day) {
+  if (!day) return false;
+  try {
+    const mk = normalizeMatchKey_(matchKey || clientName);
+    if (!mk) return false;
+    const ep = await getSnapRaw_(env, "moveEpoch:" + mk);
+    return !!(ep && ep.to && String(ep.to) !== String(day));
+  } catch (eEpAway) {
+    return false;
+  }
+}
+
+async function saveOrderUnlessMovedAway_(params, env, asBooking) {
+  const day = String((params && params.day) || "");
+  const client = String((params && params.client) || "");
+  if (
+    day &&
+    (await clientMovedAwayFromDay_(env, (params && params.matchKey) || client, client, day))
+  ) {
+    return { status: "success", skippedStaleDay: true };
+  }
+  return saveOrder_(params, env, asBooking);
+}
+
 function deferredItemModeOf_(it) {
   if (!it) return "";
   var m = String(it.mode || "").trim().toLowerCase();
@@ -1328,7 +1375,7 @@ async function getClients_(params, env) {
   let clientsOut = rows.map(clientFromRow_);
   if (day) {
     try {
-      clientsOut = await filterTombstonedClients_(env, day, clientsOut);
+      clientsOut = await filterTombstonedClients_(env, day, clientsOut, { skipMoveEpoch: true });
     } catch (eTombG) {}
   }
   return {
@@ -2887,6 +2934,19 @@ async function saveOrder_(params, env, asBooking) {
   try {
     if (day) await clearTombstonesForMatch_(env, matchKey, day);
   } catch (eClrT) {}
+  // клиент только на одном дне недели; иначе stale moveEpoch прячет из getClients
+  if (day && matchKey) {
+    try {
+      await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name != ? AND day_name != '' AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
+      )
+        .bind(now, day, matchKey, client.toLowerCase(), client.toLowerCase())
+        .run();
+    } catch (eDelOther) {}
+    try {
+      await setMoveEpochDay_(env, matchKey, day, client);
+    } catch (eEpSave) {}
+  }
 
   await invalidateDays_(env, day ? [day] : []);
   return {
@@ -3135,7 +3195,8 @@ async function clearMoveArriveProtect_(env, day, matchKey, clientName, onlyAtOrB
   } catch (eClrP) {}
 }
 
-async function filterTombstonedClients_(env, day, list) {
+async function filterTombstonedClients_(env, day, list, opts) {
+  opts = opts || {};
   if (!day || !list || !list.length) return list || [];
   try {
     var tomb = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
@@ -3174,15 +3235,16 @@ async function filterTombstonedClients_(env, day, list) {
       ) {
         continue;
       }
-      // moveEpoch: клиент уже на другом дне — не показывать / не заливать с GAS
-      // (даже если список tombstones пуст после RMW)
-      try {
-        var mkEp = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
-        if (mkEp) {
-          var ep = await getSnapRaw_(env, "moveEpoch:" + mkEp);
-          if (ep && ep.to && String(ep.to) !== String(day)) continue;
-        }
-      } catch (eEpF) {}
+      // moveEpoch: скрывать с чужого дня при merge GAS; D1-строка day уже authoritative
+      if (!opts.skipMoveEpoch) {
+        try {
+          var mkEp = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
+          if (mkEp) {
+            var ep = await getSnapRaw_(env, "moveEpoch:" + mkEp);
+            if (ep && ep.to && String(ep.to) !== String(day)) continue;
+          }
+        } catch (eEpF) {}
+      }
       out.push(c);
     }
     return out;
@@ -3254,6 +3316,12 @@ async function deleteClient_(params, env) {
   try {
     await putDeleteTombstone_(env, day, matchKey || params.client);
   } catch (eTomb) {}
+  // Явное удаление пользователя — сброс epoch; фоновый cleanup после move — не трогать.
+  if (!toBool_(params._keepMoveEpoch) && !toBool_(params.keepMoveEpoch)) {
+    try {
+      await clearMoveEpoch_(env, matchKey);
+    } catch (eEpDel) {}
+  }
   await invalidateDays_(env, [day].filter(Boolean));
   return { status: "success", sandbox: true, wrote: changed || 1, missing: changed === 0 };
 }
@@ -4325,7 +4393,7 @@ async function handleCutover_(a, params, env, ctx) {
         // GAS мог не успеть / упасть — D1 всё равно источник правды для UI
         try {
           if (/^(saveOrder|saveBooking)$/i.test(a) && env && env.DB) {
-            await saveOrder_(params, env, /^saveBooking$/i.test(a));
+            await saveOrderUnlessMovedAway_(params, env, /^saveBooking$/i.test(a));
           } else if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
             await deleteClient_(params, env);
           } else if (/^moveClient$/i.test(a) && env && env.DB) {
@@ -4361,7 +4429,7 @@ async function handleCutover_(a, params, env, ctx) {
           } catch (eRetry) {}
           try {
             if (/^(saveOrder|saveBooking)$/i.test(a) && env && env.DB) {
-              await saveOrder_(params, env, /^saveBooking$/i.test(a));
+              await saveOrderUnlessMovedAway_(params, env, /^saveBooking$/i.test(a));
             }
           } catch (eD1b) {}
         }
@@ -4394,6 +4462,15 @@ async function handleCutover_(a, params, env, ctx) {
                 action: a
               });
             }
+          }
+          if (/^moveClient$/i.test(a)) {
+            return Object.assign({}, d1WriteRes, {
+              cutover: true,
+              sandbox: false,
+              d1Verified: true,
+              gasNote: proxied.message || proxied.status || "",
+              action: a
+            });
           }
         }
         if (
@@ -5855,6 +5932,13 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
         delete byMk[mk];
         continue;
       }
+      try {
+        var epRow = await getSnapRaw_(env, "moveEpoch:" + mk);
+        if (epRow && epRow.to && String(epRow.to) !== String(day)) {
+          delete byMk[mk];
+          continue;
+        }
+      } catch (eEpRow) {}
       // явный drop (move oldDay) — не «защищать» призрака
       if (opts.dropMks && (opts.dropMks[mk] || opts.dropMks[String(row.client || "").toLowerCase()])) {
         delete byMk[mk];
@@ -6282,7 +6366,8 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                           client: wantClient,
                           day: oldDay,
                           matchKey: params.matchKey || wantClient,
-                          force: "1"
+                          force: "1",
+                          _keepMoveEpoch: "1"
                         },
                         env
                       );
@@ -6290,12 +6375,28 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                   } catch (eOldOnly) {}
                 }
               } else {
-                await cutoverStoreRead_("getClients", { day: day }, env, fresh);
+                var staleSaveDay = false;
+                if (
+                  /^(saveOrder|saveBooking)$/i.test(a) &&
+                  wantClient &&
+                  params.day &&
+                  String(day) === String(params.day)
+                ) {
+                  staleSaveDay = await clientMovedAwayFromDay_(
+                    env,
+                    params.matchKey || wantClient,
+                    wantClient,
+                    day
+                  );
+                }
+                if (!staleSaveDay) {
+                  await cutoverStoreRead_("getClients", { day: day }, env, fresh);
+                }
               }
               // после возможного merge — ещё раз зафиксировать write в D1
               if (/^(saveOrder|saveBooking)$/i.test(a) && wantClient) {
                 try {
-                  await saveOrder_(params, env, /^saveBooking$/i.test(a));
+                  await saveOrderUnlessMovedAway_(params, env, /^saveBooking$/i.test(a));
                 } catch (eResave) {}
               }
               if (/^(deleteClient|removeCalendarClient)$/i.test(a) && wantClient) {
