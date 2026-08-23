@@ -3228,14 +3228,11 @@ async function deleteClient_(params, env) {
   const mkLow = String(params.matchKey || params.client || "").trim().toLowerCase();
   if (!matchKey && !params.client) return { status: "error", message: "no_client" };
   if (!day && !dateIso) return { status: "error", message: "need_day_or_date" };
-  // не сносить свежий приход другого move (stale bg delete после A→B убивает B→A→B)
-  if (day && !toBool_(params.forceUnprotect)) {
+  // Явное удаление пользователя — protect только для stale bg delete в after-write.
+  if (day) {
     try {
-      var protDel = await getSnapRaw_(env, "moveArriveProtect");
-      if (isMoveArriveProtected_(protDel, day, matchKey, params.client)) {
-        return { status: "success", sandbox: true, wrote: 0, skippedProtect: true };
-      }
-    } catch (eProtDel) {}
+      await clearMoveArriveProtect_(env, day, matchKey, params.client, Date.now());
+    } catch (eClrProt) {}
   }
   const now = new Date().toISOString();
   let changed = 0;
@@ -4375,6 +4372,30 @@ async function handleCutover_(a, params, env, ctx) {
       if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(bg);
       else await bg;
       if (gotGas && proxied) {
+        // D1 — источник правды: GAS no_free_columns / alreadyGone не должны ломать UI.
+        if (d1WriteRes && d1WriteRes.status === "success" && !d1WriteRes.skippedProtect) {
+          if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
+            return Object.assign({}, d1WriteRes, {
+              cutover: true,
+              sandbox: false,
+              d1Verified: true,
+              gasNote: proxied.alreadyGone ? "alreadyGone" : proxied.message || proxied.status || "",
+              action: a
+            });
+          }
+          if (/^(saveOrder|saveBooking)$/i.test(a)) {
+            const gasOk = proxied.status === "success" && String(proxied.status || "") !== "no_free_columns";
+            if (!gasOk || Number(proxied.wrote || 0) === 0) {
+              return Object.assign({}, d1WriteRes, {
+                cutover: true,
+                sandbox: false,
+                d1Verified: true,
+                gasError: proxied.message || proxied.status || "gas_missed",
+                action: a
+              });
+            }
+          }
+        }
         if (
           proxied.status === "error" &&
           /gas_proxy_failed/i.test(String(proxied.message || ""))
