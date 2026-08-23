@@ -1,3 +1,5 @@
+- [~] **Примечание + автоподтяг 2026-08-23:** notesList больше не уничтожается closeModal; авто `materializeWeek` onlyMissing (без dropExtras) при входе · Pages `v=71115870` · **нужен Deploy Code.gs** (dropExtras в GET)
+- [~] **Задачи не удаляются 2026-08-23:** cancelDeferred → tombstone 48ч; merge/repair/listDeferred не воскрешают; новый save/place снимает tombstone · **Worker Deploy OK** — проверить в миниаппе
 - [~] **БП «нет партнёра» при переносе 2026-08-22:** auto «Другое» + ppPartner из meta при placeTransferTask · Pages `v=71115863` · **Worker Deploy**
 - [~] **Календарь-сетка: бейджи с числами 2026-08-22:** не затирать Worker устаревшим seed недели 10–16.08; счёт = уникальные люди D1 · Pages `v=71115864` · **Worker Deploy**
 - [~] **Календарь пустой при клике на день 2026-08-22:** день недели из календаря → список людей (не пустая колонка «Месяц») · Pages `v=71115863`

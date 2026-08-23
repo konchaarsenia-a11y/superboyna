@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c50";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c61";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -807,7 +807,34 @@
       setTimeout(function () { wrap.remove(); }, 800);
     }
 
+    function ensureNotesListEl_() {
+      var list = document.getElementById("notesList");
+      if (list) return list;
+      list = document.createElement("div");
+      list.id = "notesList";
+      list.style.display = "none";
+      var wrap = document.getElementById("btnOpenNotes");
+      if (wrap && wrap.parentElement) wrap.parentElement.appendChild(list);
+      else document.body.appendChild(list);
+      return list;
+    }
+
+    /** notesList живёт в карточке; в модалку его только временно переносим — не дать closeModal уничтожить. */
+    function rescueNotesListFromModal_() {
+      var list = document.getElementById("notesList");
+      if (!list) return ensureNotesListEl_();
+      var parent = list.parentElement;
+      if (parent && (parent.id === "notesModalBody" || parent.id === "modalSheet" || (parent.closest && parent.closest("#modalSheet")))) {
+        var wrap = document.getElementById("btnOpenNotes");
+        if (wrap && wrap.parentElement) wrap.parentElement.appendChild(list);
+        else document.body.appendChild(list);
+        list.style.display = "none";
+      }
+      return list;
+    }
+
     function closeModal(result) {
+      try { rescueNotesListFromModal_(); } catch (eRescue) {}
       const overlay = document.getElementById("modalOverlay");
       overlay.classList.remove("open");
       overlay.style.display = "none";
@@ -2472,6 +2499,7 @@
 
     async function openNotesModal() {
       if (!orderNotes.length) orderNotes = [defaultOrderNote()];
+      try { ensureNotesListEl_(); } catch (eEns) {}
       renderOrderNotes();
       var html = '<div class="modal-title">Примечания</div>' +
         '<div id="notesModalBody"></div>' +
@@ -2482,25 +2510,21 @@
       openModal(html);
       setTimeout(function () {
         var body = document.getElementById("notesModalBody");
-        var list = document.getElementById("notesList");
+        var list = ensureNotesListEl_();
+        renderOrderNotes();
         if (body && list) {
           body.appendChild(list);
           list.style.display = "";
+          try {
+            var first = list.querySelector("input.note-text, textarea.note-text");
+            if (first && first.focus) first.focus();
+          } catch (eF) {}
         }
         var add = document.getElementById("notesAddMore");
         if (add) add.onclick = function () { addOrderNote(); };
         var done = document.getElementById("notesDone");
         if (done) done.onclick = function () {
-          var hidden = document.querySelector(".card #notesListHost") || document.getElementById("btnOpenNotes");
-
-          var host = document.getElementById("notesList");
-          if (host && host.parentElement && host.parentElement.id === "notesModalBody") {
-            var wrap = document.getElementById("btnOpenNotes");
-            if (wrap && wrap.parentElement) {
-              wrap.parentElement.appendChild(host);
-              host.style.display = "none";
-            }
-          }
+          try { rescueNotesListFromModal_(); } catch (eR2) {}
           updateNotesSummary();
           closeModal(true);
         };
@@ -13344,10 +13368,27 @@
     }
     window.openBugReport = openBugReport;
 
-    async function maybeAskWeekPullFromMonth() {
+    var _weekAutoPullInFlight = false;
+    var _weekAutoPullLastAt = 0;
 
+    /** Всегда дописывать людей из месяца на неделю (onlyMissing), без снятия уже стоящих. */
+    async function maybeAskWeekPullFromMonth() {
       try { refreshWeekBanners({ soft: true }); } catch (e) {}
       try { refreshOrderDayCounts_({ soft: true }); } catch (e2) {}
+      try {
+        if (_weekAutoPullInFlight) return;
+        // курьер/партнёр/без доступа — не трогаем неделю; остальные (owner/all/manager/cutter/logistics) — автодопись
+        if (APP_ROLE === "courier" || APP_ROLE === "partner" || APP_ROLE === "none" || APP_ROLE === "pending" || APP_ROLE === "denied") return;
+        var now = Date.now();
+        // не чаще раза в 3 мин (сеть/GAS), но при каждом входе в сессию — да
+        if (_weekAutoPullLastAt && now - _weekAutoPullLastAt < 3 * 60 * 1000) return;
+        _weekAutoPullInFlight = true;
+        _weekAutoPullLastAt = now;
+        await runMaterializeWeek(true);
+      } catch (ePull) {
+      } finally {
+        _weekAutoPullInFlight = false;
+      }
     }
 
     async function runMaterializeWeek(quiet) {
@@ -13358,7 +13399,8 @@
           action: "materializeWeek",
           onlyMissing: "1",
           includeFuture: "1",
-          dropExtras: "1",
+          // не снимать уже стоящих на неделе — иначе теряются заказы
+          dropExtras: "0",
           confirm: "1",
           weekKey: wk,
           _: String(Date.now())

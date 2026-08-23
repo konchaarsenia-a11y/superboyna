@@ -1797,6 +1797,7 @@ function doGet(e) {
     return handleMaterializeWeek({
       onlyMissing: e.parameter.onlyMissing,
       includeFuture: e.parameter.includeFuture,
+      dropExtras: e.parameter.dropExtras,
       weekKey: e.parameter.weekKey ? decodeURIComponent(e.parameter.weekKey) : ""
     }, callback, false);
   }
