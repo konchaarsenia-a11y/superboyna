@@ -18,20 +18,20 @@
 
       <div class="gate-paths" role="group" aria-label="С чего начать">
         <button type="button" class="gate-path" data-gate-path="pp">
-          <strong>У меня подписка</strong>
+          <strong>У меня есть подписка</strong>
           <span>Войти по телефону или нику</span>
         </button>
         <button type="button" class="gate-path" data-gate-path="register">
-          <strong>Создать аккаунт</strong>
-          <span>Имя и телефон — займёт минуту</span>
+          <strong>Регистрация</strong>
+          <span>Новый аккаунт — с подпиской или без</span>
         </button>
         <button type="button" class="gate-path gate-path--soft" data-gate-path="try">
           <strong>Хочу попробовать</strong>
-          <span>Бесплатный тестовый набор</span>
+          <span>Заполнить анкету на тестовый набор</span>
         </button>
         <button type="button" class="gate-path gate-path--soft" data-gate-path="city">
           <strong>Посмотреть город</strong>
-          <span>Карта без регистрации</span>
+          <span>Только карта — без аккаунта</span>
         </button>
       </div>
 
@@ -46,7 +46,7 @@
     <div class="gate-panel" data-gate-view="login" id="gateLogin" hidden>
       <button type="button" class="gate-back" data-gate-back aria-label="Назад">←</button>
       <h1 class="gate-title">Вход</h1>
-      <p class="gate-lead">Телефон или ник из заказа Бойни.</p>
+      <p class="gate-lead">Авторизация для тех, у кого уже есть подписка.</p>
       <form id="gateLoginForm" class="gate-form" novalidate>
         <div class="field">
           <label for="gateLoginPhone">Телефон</label>
@@ -59,14 +59,25 @@
         <p class="gate-error" id="gateLoginError" hidden></p>
         <button type="submit" class="btn">Войти</button>
       </form>
-      <button type="button" class="gate-link" data-gate-path="register">Нет аккаунта — создать</button>
+      <button type="button" class="gate-link" data-gate-path="register">Нет аккаунта — регистрация</button>
     </div>
 
     <div class="gate-panel" data-gate-view="register" id="gateRegister" hidden>
       <button type="button" class="gate-back" data-gate-back aria-label="Назад">←</button>
       <h1 class="gate-title">Регистрация</h1>
-      <p class="gate-lead">Сохраним на этом устройстве. Позже свяжем с Telegram.</p>
+      <p class="gate-lead">Сначала скажите, есть ли у вас подписка.</p>
       <form id="gateRegisterForm" class="gate-form" novalidate>
+        <fieldset class="gate-fieldset">
+          <legend>Есть подписка GOOD&nbsp;BOY?</legend>
+          <label class="gate-radio">
+            <input type="radio" name="hasSub" value="yes" required />
+            <span>Да — полный кабинет после входа</span>
+          </label>
+          <label class="gate-radio">
+            <input type="radio" name="hasSub" value="no" />
+            <span>Нет — аккаунт с ограниченным доступом</span>
+          </label>
+        </fieldset>
         <div class="field">
           <label for="gateRegName">Как к вам обращаться</label>
           <input id="gateRegName" name="name" required autocomplete="name" placeholder="Имя" />
@@ -79,10 +90,12 @@
           <label for="gateRegNick">Ник <span class="gate-opt">(необязательно)</span></label>
           <input id="gateRegNick" name="nick" autocomplete="username" placeholder="@nick" />
         </div>
+        <p class="gate-hint" id="gateRegHint">Без подписки доступны профиль и карта. Скидки и доставка — после оформления.</p>
         <p class="gate-error" id="gateRegisterError" hidden></p>
         <button type="submit" class="btn">Создать аккаунт</button>
       </form>
       <button type="button" class="gate-link" data-gate-path="pp">Уже есть аккаунт — войти</button>
+      <button type="button" class="gate-link" data-gate-path="try">Нет подписки? Хочу попробовать</button>
     </div>
   </section>
 

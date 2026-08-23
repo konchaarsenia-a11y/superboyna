@@ -9,6 +9,23 @@
     partners: "Партнёры"
   };
 
+  /** Какие вкладки видны при уровне доступа */
+  function allowedPages(access) {
+    if (access === "city") return ["map"];
+    if (access === "limited") return ["profile", "map"];
+    return PAGES.slice();
+  }
+
+  function currentAccess(st) {
+    if (st && st.access) return st.access;
+    var u = st && st.user;
+    if (!u) return "full";
+    if (u.access) return u.access;
+    if (u.isGuest || u.intent === "city") return "city";
+    if (u.hasSubscription === false || u.intent === "limited") return "limited";
+    return "full";
+  }
+
   var DEMO_PET = {
     name: "Бим",
     breed: "Корги",
@@ -77,11 +94,16 @@
   function renderProfilePage(st, pet) {
     var hasPet = !!pet;
     var p = hasPet ? pet : DEMO_PET;
+    var access = currentAccess(st);
     var sub = [p.breed, p.weightKg ? p.weightKg + " кг" : "", p.ageYears ? p.ageYears + " года" : ""]
       .filter(Boolean).join(" · ");
     var chips = petChips(p);
     var user = st.user || {};
+    var limitBanner = access === "limited"
+      ? "<div class=\"cabinet-access-banner\">Ограниченный доступ · <a href=\"try.html\">оформить подписку</a></div>"
+      : "";
     return (
+      limitBanner +
       "<div class=\"cabinet-block\">" +
         (hasPet
           ? "<div class=\"cabinet-pet-hero\">" +
@@ -143,6 +165,7 @@
   }
 
   function renderMapPage(st) {
+    var access = currentAccess(st);
     var filter = st.mapFilter || "all";
     var activeId = st.mapPlaceId || "p2";
     var places = DEMO_PLACES.filter(function (pl) {
@@ -156,7 +179,14 @@
       return "<button type=\"button\" class=\"" + cls + "\" data-place=\"" + pl.id + "\" style=\"--x:" + pl.x + "%;--y:" + pl.y + "%\" aria-label=\"" + esc(pl.name) + "\"></button>";
     }).join("");
     var nearest = places.find(function (pl) { return pl.id === activeId; }) || places[0];
+    var cityBar = access === "city"
+      ? "<div class=\"cabinet-access-banner cabinet-access-banner--row\">" +
+          "<span>Только карта</span>" +
+          "<button type=\"button\" class=\"btn\" id=\"gbLogout\" style=\"width:auto;padding:8px 12px;font-size:0.8rem;\">Войти</button>" +
+        "</div>"
+      : "";
     return (
+      cityBar +
       "<div class=\"cabinet-filters\" role=\"tablist\" aria-label=\"Фильтр мест\">" +
         MAP_FILTERS.map(function (f) {
           return "<button type=\"button\" class=\"cabinet-chip" + (filter === f.id ? " is-on" : "") + "\" data-map-filter=\"" + f.id + "\">" + esc(f.label) + "</button>";
@@ -181,6 +211,17 @@
   }
 
   function renderSubscriptionPage(st) {
+    var access = currentAccess(st);
+    if (access === "limited" || access === "city") {
+      return (
+        "<div class=\"cabinet-lock\">" +
+          "<h2>Подписка</h2>" +
+          "<p>Доставка и состав набора доступны после оформления подписки.</p>" +
+          "<a class=\"btn\" href=\"try.html\">Хочу попробовать</a>" +
+          "<button type=\"button\" class=\"btn btn-ghost\" id=\"lockGoLogin\" style=\"margin-top:10px;\">У меня есть подписка — войти</button>" +
+        "</div>"
+      );
+    }
     var sub = st.subscription || {};
     var link = st.link || {};
     var linked = link.status === "linked";
@@ -207,7 +248,7 @@
         "</div>" +
         (linked
           ? "<div class=\"ps-tip\"><b>Осталось 8 дней</b><span>Следующий набор соберём автоматически&nbsp;— можно поменять состав до&nbsp;среды.</span></div>"
-          : "<p class=\"cabinet-hint\">Демо: введите телефон или ник из заказа Бойни.</p>") +
+          : "<p class=\"cabinet-hint\">Введите телефон или ник из заказа Бойни.</p>") +
       "</div>" +
 
       "<div class=\"cabinet-block\">" +
@@ -222,12 +263,21 @@
           "<div class=\"field\"><label>Ник / Instagram</label><input id=\"linkNick\" name=\"nick\" placeholder=\"@nick\" autocomplete=\"off\" /></div>" +
           "<button type=\"submit\" class=\"btn\">" + (linked ? "Обновить привязку" : "Найти и привязать") + "</button>" +
         "</form>" +
-        "<a class=\"btn btn-ghost cabinet-cta-link\" href=\"try.html\">Хочу попробовать подписку</a>" +
       "</div>"
     );
   }
 
   function renderPartnersPage(st) {
+    var access = currentAccess(st);
+    if (access === "limited" || access === "city") {
+      return (
+        "<div class=\"cabinet-lock\">" +
+          "<h2>Партнёры</h2>" +
+          "<p>Скидки партнёров открываются с активной подпиской.</p>" +
+          "<a class=\"btn\" href=\"try.html\">Хочу попробовать</a>" +
+        "</div>"
+      );
+    }
     var pr = st.privilege || {};
     var partners = st.partners || [];
     var code = pr.eligible && pr.code ? pr.code : "";
@@ -260,8 +310,35 @@
     );
   }
 
+  function applyNavAccess(access) {
+    var allow = allowedPages(access);
+    var nav = document.querySelector(".cabinet-nav");
+    var app = document.getElementById("cabinet");
+    if (nav) {
+      nav.classList.toggle("is-city-only", access === "city");
+      nav.classList.toggle("is-limited", access === "limited");
+      document.querySelectorAll(".cabinet-nav [data-page]").forEach(function (btn) {
+        var page = btn.getAttribute("data-page");
+        var ok = allow.indexOf(page) >= 0;
+        btn.hidden = !ok;
+        btn.style.display = ok ? "" : "none";
+      });
+      if (access === "city") nav.style.gridTemplateColumns = "1fr";
+      else if (access === "limited") nav.style.gridTemplateColumns = "1fr 1fr";
+      else nav.style.gridTemplateColumns = "repeat(4, 1fr)";
+    }
+    if (app) {
+      app.classList.toggle("access-city", access === "city");
+      app.classList.toggle("access-limited", access === "limited");
+      app.classList.toggle("access-full", access === "full");
+    }
+  }
+
   function applyPageState(name) {
-    if (PAGES.indexOf(name) < 0) name = "profile";
+    var st = global.GBStore.get() || {};
+    var access = currentAccess(st);
+    var allow = allowedPages(access);
+    if (allow.indexOf(name) < 0) name = allow[0] || "profile";
     document.querySelectorAll(".cabinet-page").forEach(function (el) {
       var on = el.getAttribute("data-page") === name;
       el.classList.toggle("is-active", on);
@@ -276,12 +353,20 @@
     if (title) title.textContent = TITLES[name] || "Кабинет";
     var pages = document.getElementById("cabinetPages");
     if (pages) pages.setAttribute("data-active", name);
+    applyNavAccess(access);
   }
 
   function setPage(name) {
     var st = global.GBStore.get();
+    var access = currentAccess(st);
+    var allow = allowedPages(access);
+    if (allow.indexOf(name) < 0) {
+      GBUI.toast(access === "city"
+        ? "В гостевом режиме доступна только карта"
+        : "Раздел откроется с подпиской");
+      name = allow[0] || "map";
+    }
     var changed = st.page !== name;
-    if (PAGES.indexOf(name) < 0) name = "profile";
     global.GBStore.set({ page: name });
     applyPageState(name);
     if (changed) {
@@ -293,7 +378,10 @@
   function render() {
     var st = global.GBStore.get();
     var pet = global.GBStore.activePet();
+    var access = currentAccess(st);
+    var allow = allowedPages(access);
     var page = st.page || "profile";
+    if (allow.indexOf(page) < 0) page = allow[0] || "map";
     var details = document.getElementById("petEditDetails");
     var detailsOpen = details ? details.open : false;
 

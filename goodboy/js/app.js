@@ -63,20 +63,31 @@
     }
   }
 
-  function pageForIntent(intent) {
-    if (intent === "city") return "map";
-    if (intent === "try" || intent === "pp") return "subscription";
+  function pageForIntent(intent, access) {
+    if (access === "city" || intent === "city") return "map";
+    if (intent === "pp") return "subscription";
+    if (access === "limited") return "profile";
     return "profile";
+  }
+
+  function accessOf(user) {
+    if (!user) return "full";
+    if (user.access) return user.access;
+    if (user.isGuest || user.intent === "city") return "city";
+    if (user.hasSubscription === false || user.intent === "limited") return "limited";
+    return "full";
   }
 
   function enterWithUser(user, opts) {
     opts = opts || {};
     var intent = user.intent || opts.intent || "";
+    var access = accessOf(user);
     GBStore.set({
       user: user,
       demo: !!user.isDemo || !!user.isGuest || ((GB_CONFIG && GB_CONFIG.mode) !== "live"),
       intent: intent,
-      page: opts.page || pageForIntent(intent)
+      access: access,
+      page: opts.page || pageForIntent(intent, access)
     });
     showCabinet();
     loadCabinet(user, opts);
@@ -84,10 +95,14 @@
 
   function applyBootstrap(payload, session) {
     var prev = global.GBStore.get() || {};
-    var intent = (session.user && session.user.intent) || prev.intent || "";
+    var user = Object.assign({}, session.user, payload.user || {});
+    var intent = user.intent || prev.intent || "";
+    var access = accessOf(user);
+    var page = prev.page || pageForIntent(intent, access);
+    if (access === "city") page = "map";
     global.GBStore.set({
-      demo: !!(payload && payload.demo) || !!session.user.isGuest || !!session.user.isDemo || ((global.GB_CONFIG && global.GB_CONFIG.mode) !== "live"),
-      user: Object.assign({}, session.user, payload.user || {}),
+      demo: !!(payload && payload.demo) || !!user.isGuest || !!user.isDemo || ((global.GB_CONFIG && global.GB_CONFIG.mode) !== "live"),
+      user: user,
       pets: payload.pets || [],
       activePetId: payload.activePetId || (payload.pets && payload.pets[0] && payload.pets[0].id) || null,
       subscription: payload.subscription || null,
@@ -96,7 +111,8 @@
       link: payload.link || null,
       bootError: "",
       intent: intent,
-      page: prev.page || pageForIntent(intent),
+      access: access,
+      page: page,
       mapFilter: prev.mapFilter || "all",
       mapPlaceId: prev.mapPlaceId || "p2"
     });
@@ -258,10 +274,11 @@
     }
   }
 
-  function doLogout() {
+  function doLogout(opts) {
+    opts = opts || {};
     GBAuth.logout();
-    showGate("welcome");
-    GBUI.toast("Вы вышли");
+    showGate(opts.view || "welcome");
+    if (!opts.silent) GBUI.toast("Вы вышли");
   }
 
   function initGate() {
@@ -272,25 +289,17 @@
       if (pathBtn) {
         var path = pathBtn.getAttribute("data-gate-path");
         if (path === "pp") setGateView("login");
-        else if (path === "register") {
-          var regClear = document.getElementById("gateRegisterForm");
-          if (regClear) regClear.removeAttribute("data-intent");
-          setGateView("register");
-        } else if (path === "try") {
-          // Регистрация с намерением попробовать; позже можно вести на try.html
-          setGateView("register");
-          var form = document.getElementById("gateRegisterForm");
-          if (form) form.setAttribute("data-intent", "try");
+        else if (path === "register") setGateView("register");
+        else if (path === "try") {
+          global.location.href = "try.html";
+          return;
         } else if (path === "city") {
           enterWithUser(GBAuth.guestUser("city"), { page: "map" });
-          GBUI.toast("Гостевой просмотр карты");
         }
         return;
       }
 
       if (e.target.closest("[data-gate-back]")) {
-        var regForm = document.getElementById("gateRegisterForm");
-        if (regForm) regForm.removeAttribute("data-intent");
         setGateView("welcome");
         return;
       }
@@ -301,6 +310,8 @@
           GBUI.toast("Откройте кабинет из Telegram");
           return;
         }
+        tg.hasSubscription = true;
+        tg.access = "full";
         enterWithUser(tg, { page: "profile" });
       }
     });
@@ -323,6 +334,7 @@
           return;
         }
         enterWithUser(res.user, { page: "subscription", needsLink: !!res.needsLink });
+        GBUI.toast("Вход выполнен");
       });
     }
 
@@ -331,12 +343,20 @@
       registerForm.addEventListener("submit", function (e) {
         e.preventDefault();
         var err = document.getElementById("gateRegisterError");
-        var intent = registerForm.getAttribute("data-intent") || "register";
+        var hasSubEl = registerForm.querySelector('input[name="hasSub"]:checked');
+        if (!hasSubEl) {
+          if (err) {
+            err.hidden = false;
+            err.textContent = "Укажите, есть ли у вас подписка";
+          }
+          return;
+        }
+        var hasSub = hasSubEl.value === "yes";
         var res = GBAuth.registerUser({
           name: registerForm.name.value,
           phone: registerForm.phone.value,
           nick: registerForm.nick.value,
-          intent: intent
+          hasSubscription: hasSub
         });
         if (!res.ok) {
           if (err) {
@@ -346,9 +366,12 @@
           return;
         }
         enterWithUser(res.user, {
-          page: intent === "try" ? "subscription" : "profile"
+          page: hasSub ? "subscription" : "profile",
+          needsLink: hasSub
         });
-        GBUI.toast(intent === "try" ? "Аккаунт создан — оформите знакомство" : "Аккаунт создан");
+        GBUI.toast(hasSub
+          ? "Аккаунт создан — привяжите заказ"
+          : "Аккаунт создан · доступ ограничен");
       });
     }
   }
@@ -382,6 +405,10 @@
       }
       if (e.target.id === "gbLogout" || e.target.closest("#gbLogout")) {
         doLogout();
+        return;
+      }
+      if (e.target.id === "lockGoLogin" || e.target.closest("#lockGoLogin")) {
+        doLogout({ view: "login", silent: true });
       }
     });
 

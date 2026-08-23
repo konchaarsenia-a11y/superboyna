@@ -6,6 +6,7 @@
     screen: "home",
     page: "profile",
     intent: "",
+    access: "full",
     mapFilter: "all",
     mapPlaceId: "p2",
     demo: false,
@@ -41,6 +42,7 @@
         privilege: state.privilege,
         link: state.link,
         intent: state.intent,
+        access: state.access,
         demo: state.demo
       }));
     } catch (e2) {}
@@ -71,6 +73,12 @@
     if (loc.privilege) state.privilege = loc.privilege;
     if (loc.link) state.link = loc.link;
     if (loc.intent) state.intent = loc.intent;
+    if (loc.access) state.access = loc.access;
+    else if (loc.user) {
+      if (loc.user.access) state.access = loc.user.access;
+      else if (loc.user.isGuest) state.access = "city";
+      else if (loc.user.hasSubscription === false) state.access = "limited";
+    }
     if (loc.demo) state.demo = !!loc.demo;
   }
 

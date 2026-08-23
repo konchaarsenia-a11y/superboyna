@@ -429,6 +429,71 @@ h2 { font-size: 1.25rem; }
   text-transform: none;
   letter-spacing: 0;
 }
+.gate-fieldset {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(237, 232, 223, 0.12);
+  border-radius: 14px;
+  background: rgba(237, 232, 223, 0.03);
+}
+.gate-fieldset legend {
+  padding: 0 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #7fa890;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.gate-radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 8px 0;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.gate-radio input {
+  margin-top: 3px;
+  accent-color: var(--gb-accent);
+}
+.gate-hint {
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+  color: var(--gb-muted);
+  line-height: 1.4;
+}
+
+.cabinet-access-banner {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(212, 161, 90, 0.12);
+  border: 1px solid rgba(212, 161, 90, 0.28);
+  font-size: 0.82rem;
+  color: var(--gb-accent-2);
+}
+.cabinet-access-banner a { color: inherit; font-weight: 700; }
+.cabinet-access-banner--row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.cabinet-lock {
+  text-align: center;
+  padding: 28px 12px;
+}
+.cabinet-lock h2 {
+  margin: 0 0 8px;
+  font-family: var(--gb-display);
+}
+.cabinet-lock p {
+  margin: 0 0 16px;
+  color: var(--gb-muted);
+  line-height: 1.45;
+  font-size: 0.92rem;
+}
 
 /* —— Кабинет: 4 страницы —— */
 body.mode-app.gb-site {

@@ -38,6 +38,7 @@
     var name = String((data && data.name) || "").trim();
     var phone = normalizePhone(data && data.phone);
     var nick = normalizeNick(data && data.nick);
+    var hasSub = !!(data && data.hasSubscription);
     if (!name) return { ok: false, message: "Укажите имя" };
     if (!phone || phone.length < 9) return { ok: false, message: "Укажите телефон" };
     var user = {
@@ -47,7 +48,9 @@
       phone: phone,
       photoUrl: "",
       initData: "",
-      intent: (data && data.intent) || "register",
+      intent: hasSub ? "pp" : "limited",
+      hasSubscription: hasSub,
+      access: hasSub ? "full" : "limited",
       createdAt: new Date().toISOString()
     };
     return { ok: true, user: user };
@@ -66,14 +69,15 @@
         return {
           ok: true,
           user: Object.assign({}, saved, {
-            intent: (data && data.intent) || "pp",
+            intent: "pp",
+            hasSubscription: true,
+            access: "full",
             phone: phone || saved.phone || "",
             username: nick || saved.username || ""
           })
         };
       }
     }
-    // Демо-вход: создаём сессию по телефону/нику (позже — поиск в Бойне)
     var user = {
       telegramId: uid("login"),
       name: nick || "Подписчик",
@@ -81,7 +85,9 @@
       phone: phone,
       photoUrl: "",
       initData: "",
-      intent: (data && data.intent) || "pp",
+      intent: "pp",
+      hasSubscription: true,
+      access: "full",
       createdAt: new Date().toISOString()
     };
     return { ok: true, user: user, needsLink: true };
@@ -90,13 +96,15 @@
   function guestUser(intent) {
     return {
       telegramId: uid("guest"),
-      name: intent === "city" ? "Гость" : "Гость",
+      name: "Гость",
       username: "",
       phone: "",
       photoUrl: "",
       initData: "",
       intent: intent || "city",
       isGuest: true,
+      hasSubscription: false,
+      access: "city",
       createdAt: new Date().toISOString()
     };
   }
