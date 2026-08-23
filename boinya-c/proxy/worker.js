@@ -1883,6 +1883,34 @@ function cuttingFlagScore_(items) {
   return n;
 }
 
+function normalizeCuttingItemFlags_(it) {
+  if (!it || typeof it !== "object") return it;
+  it.laid = toBool_(it.laid);
+  it.done = toBool_(it.done);
+  it.outNext = toBool_(it.outNext);
+  return it;
+}
+
+function normalizeCuttingItems_(items) {
+  return (items || []).map(function (it) {
+    return normalizeCuttingItemFlags_(it);
+  });
+}
+
+function findPrevCuttingByName_(prevItems, item) {
+  if (!item) return null;
+  const nk = cutNameKey_(item.name);
+  const fz = cutFuzzyKey_(item.name);
+  if (!nk && !fz) return null;
+  for (let i = 0; i < (prevItems || []).length; i++) {
+    const p = prevItems[i];
+    if (!p) continue;
+    if (nk && cutNameKey_(p.name) === nk) return p;
+    if (fz && cutFuzzyKey_(p.name) === fz) return p;
+  }
+  return null;
+}
+
 function isCuttingSheetRow_(row) {
   const n = Number(row);
   return n >= 3 && n <= 48 && n % 1 === 0;
@@ -1942,7 +1970,8 @@ function patchCuttingItemsFlags_(items, params, proxied) {
       }
     }
   }
-  if (idx < 0 && isCuttingSheetRow_(rowNum)) {
+  // row — только если имя не задано (иначе галочка на другой позиции с тем же row)
+  if (idx < 0 && !wantName && !wantFz && isCuttingSheetRow_(rowNum)) {
     for (let i = 0; i < list.length; i++) {
       if (Number(list[i].row) === rowNum) {
         idx = i;
@@ -1950,7 +1979,7 @@ function patchCuttingItemsFlags_(items, params, proxied) {
       }
     }
   }
-  if (idx < 0 && rowNum) {
+  if (idx < 0 && rowNum && !wantName && !wantFz) {
     for (let i = 0; i < list.length; i++) {
       if (Number(list[i].row) === rowNum) {
         idx = i;
@@ -2018,7 +2047,7 @@ async function applyCuttingFlagToSnap_(params, env, proxied) {
 
 function overlayCuttingKeepFlags_(newItems, prevItems, sameDate) {
   if (!sameDate || !prevItems || !prevItems.length) {
-    return mergeCuttingFlags_(newItems, prevItems, sameDate);
+    return normalizeCuttingItems_(mergeCuttingFlags_(newItems, prevItems, sameDate));
   }
   const qtyByKey = Object.create(null);
   const qtyByFuzzy = Object.create(null);
@@ -2036,24 +2065,25 @@ function overlayCuttingKeepFlags_(newItems, prevItems, sameDate) {
     if (n) {
       used[cutNameKey_(n.name)] = true;
       used[cutFuzzyKey_(n.name)] = true;
+      // база — свежий план (row/qty); флаги только от той же позиции по имени
       out.push(
-        Object.assign({}, p, {
-          dry: n.dry,
-          raw: n.raw,
-          unit: n.unit || p.unit,
-          laid: !!p.laid,
-          done: !!p.done,
-          outNext: !!p.outNext
-        })
+        normalizeCuttingItemFlags_(
+          Object.assign({}, n, {
+            laid: !!p.laid,
+            done: !!p.done,
+            outNext: !!p.outNext,
+            surplus: p.surplus != null && p.surplus !== "" ? Number(p.surplus) || 0 : n.surplus,
+            noteInfo: p.noteInfo || n.noteInfo
+          })
+        )
       );
-    } else if (p.laid || p.done || p.outNext || Number(p.surplus) > 0) {
-      out.push(p);
     }
+    // не тащить «призраков» с флагами — иначе синий/зелёный без позиции в плане
   });
   (newItems || []).forEach(function (n) {
     if (!n) return;
     if (used[cutNameKey_(n.name)] || used[cutFuzzyKey_(n.name)]) return;
-    out.push(n);
+    out.push(normalizeCuttingItemFlags_(n));
   });
   return out;
 }
@@ -2080,31 +2110,19 @@ function transferOnlyFromPeople_(people) {
 }
 
 function mergeCuttingFlags_(items, prevItems, sameDate) {
-  if (!sameDate || !prevItems || !prevItems.length) return items || [];
-  const byName = Object.create(null);
-  const byRow = Object.create(null);
-  prevItems.forEach(function (p) {
-    if (!p) return;
-    const k = cutNameKey_(p.name);
-    if (k) byName[k] = p;
-    const fz = cutFuzzyKey_(p.name);
-    if (fz) byName[fz] = p;
-    if (p.row != null) byRow[Number(p.row)] = p;
-  });
+  if (!sameDate || !prevItems || !prevItems.length) return normalizeCuttingItems_(items);
   (items || []).forEach(function (it) {
-    const old =
-      byName[cutNameKey_(it.name)] ||
-      byName[cutFuzzyKey_(it.name)] ||
-      (it.row != null ? byRow[Number(it.row)] : null);
+    const old = findPrevCuttingByName_(prevItems, it);
     if (!old) return;
-    it.laid = !!old.laid;
-    it.done = !!old.done;
-    it.outNext = !!old.outNext;
+    // только по имени — row меняется при пересборке, иначе цвет ≠ галочка
+    if (old.laid) it.laid = true;
+    if (old.done) it.done = true;
+    if (old.outNext) it.outNext = true;
     if (old.surplus != null && old.surplus !== "") it.surplus = Number(old.surplus) || 0;
-    if (isCuttingSheetRow_(old.row)) it.row = Number(old.row);
     if (old.noteInfo) it.noteInfo = old.noteInfo;
+    if (isCuttingSheetRow_(old.row) && isCuttingSheetRow_(it.row)) it.row = Number(it.row) || Number(old.row);
   });
-  return items;
+  return normalizeCuttingItems_(items);
 }
 
 async function calendarWeekPlan_(env, sheetCounts) {
@@ -2627,7 +2645,7 @@ async function rebuildCuttingDay_(env, day) {
     day: day,
     date: info.date || "",
     dateIso: info.iso || "",
-    items: items,
+    items: normalizeCuttingItems_(items),
     session: sameDate ? (prev && prev.session) || {} : {},
     completion: sameDate ? (prev && prev.completion) || null : null,
     transferOnly: transferOnly,
@@ -2747,10 +2765,22 @@ async function getCutting_(params, env) {
   }
   // свежие галочки / GAS-snap — не пересобирать из D1 на каждый poll
   const touched = Number((hit && hit.flagsTouchedAt) || 0);
-  if (hit && touched && Date.now() - touched < 600000) return hit;
-  if (hit && hit.fromGas && !hit.fromCalendar) return hit;
-  if (hit && hit.fromOrders && !hit.fromCalendar) return hit;
-  if (hit && !hit.fromD1 && !hit.fromCalendar) return hit;
+  if (touched && Date.now() - touched < 600000) {
+    if (hit && Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
+    return hit;
+  }
+  if (hit && hit.fromGas && !hit.fromCalendar) {
+    if (Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
+    return hit;
+  }
+  if (hit && hit.fromOrders && !hit.fromCalendar) {
+    if (Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
+    return hit;
+  }
+  if (hit && !hit.fromD1 && !hit.fromCalendar) {
+    if (Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
+    return hit;
+  }
   try {
     const rebuilt = await rebuildCuttingDay_(env, day);
     if (rebuilt && rebuilt.status === "success") return rebuilt;
@@ -5551,6 +5581,7 @@ async function cutoverStoreRead_(a, params, env, payload) {
       }
     }
     items = resolveCuttingSheetRows_(items, (prev && prev.items) || [], null);
+    items = normalizeCuttingItems_(items);
     const body = Object.assign({}, payload, {
       items: items,
       fromGas: true,
