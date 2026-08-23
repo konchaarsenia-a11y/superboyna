@@ -1,3 +1,4 @@
+- [x] **Запись/перенос/удаление «успех» без листа 2026-08-23:** GAS no_free_columns при matchKey → ретрай insert; D1 source of truth; move не воскрешает из GAS на oldDay; parseBasket object; UI pending при сети · Pages `v=71115866` · Worker Deploy OK · **нужен Deploy Code.gs** (alloc колонки)
 - [~] **БП «нет партнёра» при переносе 2026-08-22:** auto «Другое» + ppPartner из meta при placeTransferTask · Pages `v=71115863` · **Worker Deploy**
 - [~] **Календарь-сетка: бейджи с числами 2026-08-22:** не затирать Worker устаревшим seed недели 10–16.08; счёт = уникальные люди D1 · Pages `v=71115864` · **Worker Deploy**
 - [~] **Календарь пустой при клике на день 2026-08-22:** день недели из календаря → список людей (не пустая колонка «Месяц») · Pages `v=71115863`

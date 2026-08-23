@@ -4354,8 +4354,10 @@ function handleSaveOrder(ss, json, callback, fromPost) {
       }
     }
   }
-  // 3) новая колонка — только если не правка (нет editClient/matchKey)
-  if (clientCol === -1 && !(editClient || wantMatchKey)) {
+  // 3) новая колонка — всегда, если человек не найден на листе.
+  // Раньше при matchKey/editClient без колонки возвращали no_free_columns →
+  // D1 писал, Sheets нет → UI «сохранено», через SWR всё откатывалось.
+  if (clientCol === -1) {
     for (var colIdx = 3; colIdx <= 17; colIdx++) {
       if (String(targetSheet.getRange(block.nick, colIdx).getValue() || "").trim() === "") {
         clientCol = colIdx;
