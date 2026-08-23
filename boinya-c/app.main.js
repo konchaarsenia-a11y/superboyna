@@ -7027,8 +7027,8 @@
           return false;
         }
 
-        // cutover: сервер уже принял move (success/optimistic/opaque) — НЕ блокируем UI
-        // проверкой списка. getClients/snap/GAS часто отстают → ложное «не закрепился».
+        // cutover: сервер принял move — проверяем списки. Если человек всё ещё на старом
+        // и нет на новом — НЕ врём «Перенесено» (типично es_furman / ФИО+nick).
         if (!calendarOnly && !dateOnly && oldDay && newDay && oldDay !== newDay) {
           async function clientOnDay_(dayName) {
             try {
@@ -7039,11 +7039,15 @@
                 _: String(Date.now())
               }, { timeoutMs: 12000, cacheTtlMs: 0, __boinyaNoSnap: true });
               var list = (chk && chk.clients) || [];
-              var want = String(clientName || "").trim().toUpperCase();
+              var wantKey = viewClientKey(clientName);
+              var wantName = String(clientName || "").trim().toUpperCase();
               for (var ci = 0; ci < list.length; ci++) {
-                var nm = String(list[ci].name || list[ci].client || "").trim().toUpperCase();
+                var nm = String(list[ci].name || list[ci].client || "").trim();
                 if (!nm) continue;
-                if (nm === want || nm.indexOf(want) >= 0 || want.indexOf(nm) >= 0) return true;
+                var nk = viewClientKey(nm);
+                if (wantKey && nk && wantKey === nk) return true;
+                var nu = nm.toUpperCase();
+                if (nu === wantName || nu.indexOf(wantName) >= 0 || wantName.indexOf(nu) >= 0) return true;
               }
             } catch (eChk) {}
             return false;
@@ -7054,10 +7058,9 @@
             onOld = await clientOnDay_(oldDay);
             onNew = await clientOnDay_(newDay);
           } catch (eVer) {}
-          if (!onNew) {
-            // мягкий ретрай в фоне — без alert и без return false
+          if (!onNew && onOld) {
             try {
-              apiGet({
+              await apiGet({
                 action: "moveClient",
                 client: clientName,
                 oldDay: oldDay || "",
@@ -7070,8 +7073,25 @@
                 matchKey: matchKey,
                 force: "1",
                 _: String(Date.now())
-              }, { timeoutMs: 22000, cacheTtlMs: 0 }).catch(function () {});
+              }, { timeoutMs: 22000, cacheTtlMs: 0 });
+              onOld = await clientOnDay_(oldDay);
+              onNew = await clientOnDay_(newDay);
             } catch (eRetryM) {}
+          }
+          if (!onNew && onOld) {
+            await uiAlertAsync(
+              "Не перенеслось: «" + clientName + "» всё ещё на «" + oldDay + "» и нет на «" + newDay + "».\n" +
+              "Попробуй ещё раз или обнови список."
+            );
+            try {
+              apiCacheBustMem_("getClients");
+              await loadClientsForDay();
+              try { await refreshDayViews(oldDay, { force: true }); } catch (eR) {}
+              try { await refreshDayViews(newDay, { force: true }); } catch (eR2) {}
+            } catch (eReload) {}
+            return false;
+          }
+          if (!onNew) {
             showToast("Перенесено — список «" + newDay + "» может обновиться через минуту");
           } else if (onOld) {
             showToast("На «" + oldDay + "» ещё виден в листе — обновится через минуту");
@@ -7089,6 +7109,10 @@
           showToast(baseMsg + " · опрос " + svN + (bpMetaN ? (" · meta БП " + bpMetaN) : ""));
         } else if (res.dateSync && res.dateSync.surveyError) {
           showToast(baseMsg + " · опрос не сдвинут (ошибка)");
+        } else if (!calendarOnly && !dateOnly && oldDay && newDay && oldDay !== newDay) {
+          // soft-toast уже был при !onNew / onOld; чистый успех (на новом, нет на старом) — обычный
+          if (typeof onNew !== "undefined" && onNew && !onOld) showToast(baseMsg);
+          else if (typeof onNew === "undefined") showToast(baseMsg);
         } else {
           showToast(baseMsg);
         }

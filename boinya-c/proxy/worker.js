@@ -346,8 +346,26 @@ function normalizeMatchKey_(raw) {
   if (!s) return "";
   var at = s.match(/@([A-Za-z0-9._]{2,})/);
   var handle = "";
-  if (at) handle = at[1];
-  else if (/^[A-Za-z0-9._]{3,}$/.test(s) && /[A-Za-z]/.test(s)) handle = s;
+  if (at) {
+    handle = at[1];
+  } else if (/^[A-Za-z0-9._]{3,}$/.test(s) && /[A-Za-z]/.test(s)) {
+    handle = s;
+  } else {
+    // «ЕВГЕНИЯ es_furman» / «Имя nick» — брать латинский handle с конца (как viewClientKey / extractInstagramNick_)
+    s = s
+      .replace(/\s*\([^)]*\)\s*/g, " ")
+      .replace(/\s*\b(АФК|ПП|БП|Р)\b\s*/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    var parts = s.split(/\s+/);
+    for (var i = parts.length - 1; i >= 0; i--) {
+      var p = parts[i].replace(/^[.,;:]+|[.,;:]+$/g, "");
+      if (/^[A-Za-z0-9._]{3,}$/.test(p) && /[A-Za-z]/.test(p)) {
+        handle = p;
+        break;
+      }
+    }
+  }
   if (handle) return handle.toUpperCase().replace(/[._]/g, "");
   return s.toUpperCase().replace(/Ё/g, "Е");
 }
@@ -1070,36 +1088,65 @@ function dayForDateFromCounts_(counts, dateIso) {
   return "";
 }
 
+function orderRowLooseMatch_(row, matchKey, clientName) {
+  if (!row) return false;
+  return (
+    nicksLooseMatch_(matchKey, row.match_key) ||
+    nicksLooseMatch_(matchKey, row.client) ||
+    nicksLooseMatch_(clientName, row.match_key) ||
+    nicksLooseMatch_(clientName, row.client)
+  );
+}
+
 async function findOrderRow_(env, matchKey, day, dateIso, clientName) {
   const mk = normalizeMatchKey_(matchKey);
+  const mkClient = normalizeMatchKey_(clientName);
   const mkLow = String(matchKey || "").trim().toLowerCase();
   const clientLow = String(clientName || "").trim().toLowerCase();
   let row = null;
   if (day) {
     row = await env.DB.prepare(
-      "SELECT * FROM orders WHERE day_name = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?) LIMIT 1"
+      "SELECT * FROM orders WHERE day_name = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?) LIMIT 1"
     )
-      .bind(day, mk, mkLow, mkLow || clientLow)
+      .bind(day, mk, mkLow, mkClient || mk, mkLow || clientLow, clientLow || mkLow)
       .first();
-    if (!row && clientLow) {
-      row = await env.DB.prepare(
-        "SELECT * FROM orders WHERE day_name = ? AND status = 'active' AND lower(client) = ? LIMIT 1"
-      )
-        .bind(day, clientLow)
-        .first();
+    if (!row) {
+      try {
+        const all = await env.DB.prepare(
+          "SELECT * FROM orders WHERE day_name = ? AND status = 'active' LIMIT 120"
+        )
+          .bind(day)
+          .all();
+        const list = (all && all.results) || [];
+        for (var i = 0; i < list.length; i++) {
+          if (orderRowLooseMatch_(list[i], matchKey, clientName)) {
+            row = list[i];
+            break;
+          }
+        }
+      } catch (eScan) {}
     }
   } else if (dateIso) {
     row = await env.DB.prepare(
-      "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?) LIMIT 1"
+      "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?) LIMIT 1"
     )
-      .bind(dateIso, mk, mkLow, mkLow || clientLow)
+      .bind(dateIso, mk, mkLow, mkClient || mk, mkLow || clientLow, clientLow || mkLow)
       .first();
-    if (!row && clientLow) {
-      row = await env.DB.prepare(
-        "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' AND lower(client) = ? LIMIT 1"
-      )
-        .bind(dateIso, clientLow)
-        .first();
+    if (!row) {
+      try {
+        const all = await env.DB.prepare(
+          "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' LIMIT 120"
+        )
+          .bind(dateIso)
+          .all();
+        const list = (all && all.results) || [];
+        for (var j = 0; j < list.length; j++) {
+          if (orderRowLooseMatch_(list[j], matchKey, clientName)) {
+            row = list[j];
+            break;
+          }
+        }
+      } catch (eScan2) {}
     }
   }
   return row;
@@ -2688,7 +2735,21 @@ async function putDeleteTombstone_(env, day, matchKey) {
   const items = (prev.items || []).filter(function (t) {
     return t && now - Number(t.at || 0) < TOMBSTONE_MS;
   });
-  items.push({ day: String(day), mk: mk, at: now });
+  // оба ключа: нормализованный handle и «сырое» имя — иначе GAS «ЕВГЕНИЯ es_furman» воскрешает
+  var keys = [mk];
+  var rawUp = String(matchKey || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е");
+  if (rawUp && rawUp !== mk) keys.push(rawUp);
+  keys.forEach(function (k) {
+    if (!k) return;
+    var exists = items.some(function (t) {
+      return t && String(t.day) === String(day) && t.mk === k;
+    });
+    if (!exists) items.push({ day: String(day), mk: k, at: now });
+  });
   await putSnap_(env, "deleteTombstones", { items: items });
 }
 
@@ -2710,11 +2771,13 @@ async function clearTombstonesForMatch_(env, matchKey, day) {
 
 function isTombstoned_(tomb, day, matchKey, name) {
   const mk = normalizeMatchKey_(matchKey || name);
+  const mkName = normalizeMatchKey_(name);
   const now = Date.now();
   return ((tomb && tomb.items) || []).some(function (t) {
     if (!t || String(t.day) !== String(day)) return false;
     if (now - Number(t.at || 0) > TOMBSTONE_MS) return false;
-    return t.mk === mk || nicksLooseMatch_(t.mk, name) || nicksLooseMatch_(t.mk, matchKey);
+    if (t.mk === mk || (mkName && t.mk === mkName)) return true;
+    return nicksLooseMatch_(t.mk, name) || nicksLooseMatch_(t.mk, matchKey);
   });
 }
 
@@ -2851,16 +2914,32 @@ async function moveClient_(params, env) {
   await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
     .bind(now, row.id)
     .run();
-  // все дубли на старом дне
+  // все дубли на старом дне (в т.ч. старый match_key «ЕВГЕНИЯ ES_FURMAN»)
   if (fromDay) {
     await env.DB.prepare(
       "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?)"
     )
       .bind(now, fromDay, matchKey, mkLow, clientLow, String(row.client || "").toLowerCase())
       .run();
+    try {
+      const left = await env.DB.prepare(
+        "SELECT id, client, match_key FROM orders WHERE status = 'active' AND day_name = ? LIMIT 120"
+      )
+        .bind(fromDay)
+        .all();
+      const leftList = (left && left.results) || [];
+      for (var li = 0; li < leftList.length; li++) {
+        if (orderRowLooseMatch_(leftList[li], matchKeyRaw, client) || orderRowLooseMatch_(leftList[li], matchKey, row.client)) {
+          await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
+            .bind(now, leftList[li].id)
+            .run();
+        }
+      }
+    } catch (eLooseDel) {}
   }
   try {
     await putDeleteTombstone_(env, fromDay, matchKey);
+    await putDeleteTombstone_(env, fromDay, row.client || client);
   } catch (eTombM) {}
 
   let toLabel = "(calendar)";
@@ -3773,6 +3852,17 @@ async function handleCutover_(a, params, env, ctx) {
               gasError: proxied.detail || proxied.message,
               action: a
             });
+          }
+          // move/delete без D1 — не врать «успех» (GAS упал, в D1 ничего нет)
+          if (/^(moveClient|deleteClient|removeCalendarClient)$/i.test(a)) {
+            return {
+              status: "error",
+              message: "d1_and_gas_failed",
+              gasError: proxied.detail || proxied.message,
+              cutover: true,
+              sandbox: false,
+              action: a
+            };
           }
           return {
             status: "success",
