@@ -4792,6 +4792,7 @@
     let viewTransferDraft = []; // черновик переноса: визуально слева, в таблицу после «Сохранить»
     let viewDateOnlyMonth = false; // дата вне текущей недели — только колонка месяца
     let viewFutureWrongDate = false; // «Будущая неделя» сейчас на другой дате
+    let viewResolvedDayName = ""; // фактический день из getViewCompare (может ≠ select)
     let lastViewDateIso = ""; // последняя дата Просмотра (для edit → Заказ)
     let viewSub = "month"; // month | week
     let viewMonthOverviewCache = null; // { month, days, total }
@@ -6246,6 +6247,7 @@
 
         const daySel = document.getElementById("viewDaySelect");
         var resolvedDay = (compareRes && compareRes.day) || (weekRes && weekRes.day) || (!dateStr ? day : "") || "";
+        viewResolvedDayName = resolvedDay || "";
 
         if (futureWrongDate) resolvedDay = "";
 
@@ -6741,7 +6743,7 @@
     window.crmBatchMove = crmBatchMove;
 
     function deleteClientParams(clientName, day, matchKey) {
-      const params = { action: "deleteClient", client: clientName, day: day || "" };
+      const params = { action: "deleteClient", client: clientName, day: day || viewResolvedDayName || "" };
       const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "";
       if (dateStr) params.date = dateStr;
       if (matchKey) params.matchKey = matchKey;
@@ -7208,10 +7210,32 @@
     }
     window.crmMoveMonthClient = crmMoveMonthClient;
 
+    async function clientStillOnDayAfterDelete_(dayName, clientName) {
+      for (var attempt = 0; attempt < 6; attempt++) {
+        if (attempt) {
+          await new Promise(function (r) { setTimeout(r, 400); });
+        }
+        try {
+          var chk = await apiGet({
+            action: "getClients",
+            day: dayName,
+            force: "1",
+            _: String(Date.now())
+          }, { timeoutMs: 12000, cacheTtlMs: 0 });
+          var list = (chk && chk.clients) || [];
+          var hit = list.some(function (c) {
+            return nicksMatchClient_(c && (c.name || c.client), clientName);
+          });
+          if (!hit) return false;
+        } catch (eChk) {}
+      }
+      return true;
+    }
+
     async function crmDeleteClient(index, event) {
       event.stopPropagation();
       const client = loadedClientsRawData[index];
-      const day = document.getElementById("viewDaySelect").value;
+      const day = viewResolvedDayName || document.getElementById("viewDaySelect").value;
       const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
       if (viewDateOnlyMonth) {
         const okM = await uiConfirmAsync(
@@ -7258,28 +7282,26 @@
         }
         var goneOk = !!res.alreadyGone;
         if (!goneOk && day) {
-          try {
-            var chkDel = await apiGet({
-              action: "getClients",
-              day: day,
-              force: "1",
-              _: String(Date.now())
-            }, { timeoutMs: 12000, cacheTtlMs: 0 });
-            var listDel = (chkDel && chkDel.clients) || [];
-            var stillThere = listDel.some(function (c) {
-              return nicksMatchClient_(c && (c.name || c.client), client.name);
-            });
-            if (stillThere) {
-              await uiAlertAsync("Не удалилось: «" + client.name + "» всё ещё в списке. Попробуй ещё раз.");
-              try {
-                apiCacheBustMem_("getViewCompare");
-                apiCacheBustMem_("getClients");
-                afterPeopleMutationDays_([day]);
-                await loadClientsForDay();
-              } catch (eReloadDel) {}
-              return;
-            }
-          } catch (eChkDel) {}
+          var stillThere = await clientStillOnDayAfterDelete_(day, client.name);
+          if (stillThere) {
+            try {
+              await apiGet(
+                deleteClientParams(client.name, day, client.matchKey || viewClientKey(client.name) || ""),
+                { timeoutMs: 45000, cacheTtlMs: 0 }
+              );
+              stillThere = await clientStillOnDayAfterDelete_(day, client.name);
+            } catch (eRetryDel) {}
+          }
+          if (stillThere) {
+            await uiAlertAsync("Не удалилось: «" + client.name + "» всё ещё в списке. Попробуй ещё раз.");
+            try {
+              apiCacheBustMem_("getViewCompare");
+              apiCacheBustMem_("getClients");
+              afterPeopleMutationDays_([day]);
+              await loadClientsForDay();
+            } catch (eReloadDel) {}
+            return;
+          }
         }
         showToast(res.alreadyGone ? "Уже удалено" : "Удалено");
         try { afterPeopleMutationDays_([day]); } catch (eMut) {}

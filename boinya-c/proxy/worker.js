@@ -3293,44 +3293,76 @@ async function deleteClient_(params, env) {
   if (!env || !env.DB) return { status: "error", message: "no_d1" };
   const day = String(params.day || "");
   const dateIso = String(params.date || params.dateIso || "");
-  const clientLow = String(params.client || "").trim().toLowerCase();
-  const matchKey = normalizeMatchKey_(params.matchKey || params.client || "");
-  const mkLow = String(params.matchKey || params.client || "").trim().toLowerCase();
-  if (!matchKey && !params.client) return { status: "error", message: "no_client" };
+  const client = String(params.client || "").trim();
+  const matchKeyRaw = params.matchKey || client;
+  if (!normalizeMatchKey_(matchKeyRaw) && !client) return { status: "error", message: "no_client" };
   if (!day && !dateIso) return { status: "error", message: "need_day_or_date" };
-  // Явное удаление пользователя — protect только для stale bg delete в after-write.
   if (day) {
     try {
-      await clearMoveArriveProtect_(env, day, matchKey, params.client, Date.now());
+      await clearMoveArriveProtect_(env, day, matchKeyRaw, client, Date.now());
     } catch (eClrProt) {}
   }
   const now = new Date().toISOString();
   let changed = 0;
-  if (day) {
-    const res = await env.DB.prepare(
-      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?)"
-    )
-      .bind(now, day, matchKey, mkLow, mkLow, clientLow)
-      .run();
-    changed = Number((res && res.meta && res.meta.changes) || 0);
-  } else if (dateIso) {
-    const res = await env.DB.prepare(
-      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND (match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?)"
-    )
-      .bind(now, dateIso, matchKey, mkLow, mkLow, clientLow)
-      .run();
-    changed = Number((res && res.meta && res.meta.changes) || 0);
+  const touchedIds = Object.create(null);
+
+  async function softDeleteRow_(row) {
+    if (!row || !row.id || touchedIds[row.id]) return;
+    touchedIds[row.id] = true;
+    try {
+      const res = await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+      )
+        .bind(now, row.id)
+        .run();
+      changed += Number((res && res.meta && res.meta.changes) || 0);
+    } catch (eRow) {}
   }
+
+  async function softDeleteScan_(whereSql, bindArgs) {
+    try {
+      const all = await env.DB.prepare(
+        "SELECT * FROM orders WHERE status = 'active' AND " + whereSql + " LIMIT 200"
+      )
+        .bind.apply(null, bindArgs)
+        .all();
+      const list = (all && all.results) || [];
+      for (let i = 0; i < list.length; i++) {
+        if (orderRowLooseMatch_(list[i], matchKeyRaw, client)) {
+          await softDeleteRow_(list[i]);
+        }
+      }
+    } catch (eScan) {}
+  }
+
+  if (day) {
+    await softDeleteScan_("day_name = ?", [day]);
+    // явное удаление с листа недели — снять и calendar-only дубли того же клиента
+    if (!toBool_(params.calendarOnly)) {
+      await softDeleteScan_("day_name = ''", []);
+    }
+  }
+  if (dateIso) {
+    await softDeleteScan_("date_iso = ?", [dateIso]);
+  }
+
   try {
-    await putDeleteTombstone_(env, day, matchKey || params.client);
+    if (day) await putDeleteTombstone_(env, day, matchKeyRaw || client);
+    if (dateIso && !day) await putDeleteTombstone_(env, "", matchKeyRaw || client);
   } catch (eTomb) {}
-  // Явное удаление пользователя — сброс epoch; фоновый cleanup после move — не трогать.
   if (!toBool_(params._keepMoveEpoch) && !toBool_(params.keepMoveEpoch)) {
     try {
-      await clearMoveEpoch_(env, matchKey);
+      await clearMoveEpoch_(env, matchKeyRaw);
     } catch (eEpDel) {}
   }
   await invalidateDays_(env, [day].filter(Boolean));
+  if (changed === 0) {
+    // строка могла быть только в D1 с «чужим» match_key — последняя попытка через findOrderRow_
+    try {
+      const row = await findOrderRow_(env, matchKeyRaw, day, dateIso, client);
+      if (row) await softDeleteRow_(row);
+    } catch (eFind) {}
+  }
   if (changed === 0) {
     return {
       status: "success",
@@ -5632,31 +5664,36 @@ async function cutoverStoreRead_(a, params, env, payload) {
     const freshTomb = ((tomb && tomb.items) || []).some(function (t) {
       return t && String(t.day) === String(params.day) && Date.now() - Number(t.at || 0) < TOMBSTONE_MS;
     });
-    if (freshTomb || payload._d1MoveKeep) {
+    const explicitDrop = !!(payload._explicitDelete || payload._moveDropClient);
+    if (freshTomb || payload._d1MoveKeep || explicitDrop) {
       await putSnap_(env, "clients:" + params.day, payload);
-      // на дне-источнике переноса дополнительно снести drop-клиента из D1
-      if (payload._moveDropClient) {
+      // на дне-источнике переноса / явном delete — снести drop-клиента из D1
+      if (payload._moveDropClient || payload._explicitDelete) {
+        const dropWho = payload._moveDropClient || payload._explicitDeleteClient || "";
         try {
           // stale after-write старого move не должен сносить свежий arrive на этот день
           var protDrop = await getSnapRaw_(env, "moveArriveProtect");
-          if (isMoveArriveProtected_(protDrop, params.day, payload._moveDropClient, payload._moveDropClient)) {
+          if (
+            !payload._explicitDelete &&
+            isMoveArriveProtected_(protDrop, params.day, dropWho, dropWho)
+          ) {
             return;
           }
           try {
-            var epNow = await getSnapRaw_(env, "moveEpoch:" + normalizeMatchKey_(payload._moveDropClient || ""));
-            if (epNow && String(epNow.to || "") === String(params.day || "")) {
+            var epNow = await getSnapRaw_(env, "moveEpoch:" + normalizeMatchKey_(dropWho || ""));
+            if (!payload._explicitDelete && epNow && String(epNow.to || "") === String(params.day || "")) {
               return;
             }
           } catch (eEpG) {}
-          const dropMk = normalizeMatchKey_(payload._moveDropClient);
-          const dropLow = String(payload._moveDropClient || "").trim().toLowerCase();
-          const nowDrop = new Date().toISOString();
-          await env.DB.prepare(
-            "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR lower(client) = ?)"
-          )
-            .bind(nowDrop, params.day, dropMk, dropLow)
-            .run();
-          await putDeleteTombstone_(env, params.day, dropMk || payload._moveDropClient);
+          await deleteClient_(
+            {
+              client: dropWho,
+              day: params.day,
+              matchKey: normalizeMatchKey_(dropWho),
+              _keepMoveEpoch: payload._explicitDelete ? "" : "1"
+            },
+            env
+          );
         } catch (eDrop) {}
       }
       return;
@@ -6273,6 +6310,10 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                   return !nicksLooseMatch_(c && (c.name || c.client), wantClient);
                 });
                 fresh.clients = list;
+                fresh._explicitDelete = true;
+                fresh._explicitDeleteClient = wantClient;
+                fresh._moveDropClient = wantClient;
+                fresh._skipProtectMissing = true;
               }
               if (/^moveClient$/i.test(a) && wantClient) {
                 if (day && oldDay && day === oldDay) {
