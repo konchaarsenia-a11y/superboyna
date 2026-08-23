@@ -391,6 +391,50 @@ function normalizeMatchKey_(raw) {
   return s.toUpperCase().replace(/Ё/g, "Е");
 }
 
+/** Все ключи матча: nick + legacy full upper (до извлечения handle). Иначе галочки/tomb «слетают». */
+function matchKeyAliases_(raw) {
+  var out = [];
+  var seen = Object.create(null);
+  function add(k) {
+    k = String(k || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!k || seen[k]) return;
+    seen[k] = true;
+    out.push(k);
+  }
+  add(normalizeMatchKey_(raw));
+  var legacy = String(raw || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е");
+  add(legacy);
+  if (legacy) add(legacy.replace(/\s+/g, ""));
+  return out;
+}
+
+function indexByMatchAliases_(list, pick) {
+  var by = Object.create(null);
+  (list || []).forEach(function (c) {
+    if (!c) return;
+    var raw = pick ? pick(c) : c.matchKey || c.name || c.client;
+    matchKeyAliases_(raw).forEach(function (k) {
+      by[k] = c;
+    });
+  });
+  return by;
+}
+
+function lookupByMatchAliases_(by, raw) {
+  if (!by) return null;
+  var aliases = matchKeyAliases_(raw);
+  for (var i = 0; i < aliases.length; i++) {
+    if (by[aliases[i]]) return by[aliases[i]];
+  }
+  return null;
+}
+
 function parseBasket_(raw) {
   if (Array.isArray(raw)) return raw;
   if (typeof raw === "string") {
@@ -2452,15 +2496,11 @@ async function rebuildCourierDay_(env, day) {
   // а дата новая — иначе «Доставки завершены» тянется со старой недели.
   const sameDate =
     !!(prev && prev.date && info.date && String(prev.date) === String(info.date));
-  const prevBy = Object.create(null);
-  if (sameDate) {
-    ((prev && prev.clients) || []).forEach(function (c) {
-      prevBy[normalizeMatchKey_(c.matchKey || c.name)] = c;
-    });
-  }
+  const prevBy = sameDate
+    ? indexByMatchAliases_((prev && prev.clients) || [])
+    : Object.create(null);
   const clients = (live.clients || []).map(function (c) {
-    const mk = normalizeMatchKey_(c.matchKey || c.name);
-    const old = prevBy[mk] || {};
+    const old = (sameDate && lookupByMatchAliases_(prevBy, c.matchKey || c.name)) || {};
     return Object.assign({}, c, {
       delivered: sameDate ? !!old.delivered : false,
       assembled: sameDate ? !!old.assembled : false,
@@ -2478,11 +2518,20 @@ async function rebuildCourierDay_(env, day) {
       .all();
     const flags = Object.create(null);
     (dq.results || []).forEach(function (r) {
-      flags[normalizeMatchKey_(r.match_key)] = !!r.delivered;
+      // и nick, и legacy ключ строки deliveries
+      matchKeyAliases_(r.match_key).forEach(function (k) {
+        flags[k] = !!r.delivered;
+      });
+      flags[String(r.match_key || "")] = !!r.delivered;
     });
     clients.forEach(function (c) {
-      const mk = normalizeMatchKey_(c.matchKey || c.name);
-      if (mk in flags) c.delivered = !!flags[mk];
+      const aliases = matchKeyAliases_(c.matchKey || c.name);
+      for (var ai = 0; ai < aliases.length; ai++) {
+        if (aliases[ai] in flags) {
+          c.delivered = !!flags[aliases[ai]];
+          break;
+        }
+      }
     });
   }
   await putSnap_(env, "courier:" + day, {
@@ -2491,7 +2540,9 @@ async function rebuildCourierDay_(env, day) {
     date: info.date,
     clients: clients,
     sandbox: true,
-    source: "d1"
+    source: "d1",
+    // иначе после invalidate SWR getCourier/getAssembly сразу перетирает галочки с GAS
+    flagsTouchedAt: sameDate ? Number((prev && prev.flagsTouchedAt) || 0) : 0
   });
 }
 
@@ -2502,15 +2553,11 @@ async function rebuildAssemblyDay_(env, day) {
   const prev = await getSnapRaw_(env, "assembly:" + day);
   const sameDate =
     !!(prev && prev.date && info.date && String(prev.date) === String(info.date));
-  const prevBy = Object.create(null);
-  if (sameDate) {
-    ((prev && prev.clients) || []).forEach(function (c) {
-      prevBy[normalizeMatchKey_(c.matchKey || c.name)] = c;
-    });
-  }
+  const prevBy = sameDate
+    ? indexByMatchAliases_((prev && prev.clients) || [])
+    : Object.create(null);
   const clients = (live.clients || []).map(function (c) {
-    const mk = normalizeMatchKey_(c.matchKey || c.name);
-    const old = prevBy[mk] || {};
+    const old = (sameDate && lookupByMatchAliases_(prevBy, c.matchKey || c.name)) || {};
     return Object.assign({}, {
       name: c.name,
       address: c.address,
@@ -2538,7 +2585,8 @@ async function rebuildAssemblyDay_(env, day) {
     lightByFraction: sameDate ? (prev && prev.lightByFraction) || {} : {},
     lightGramsTotal: sameDate ? (prev && prev.lightGramsTotal) || 0 : 0,
     sandbox: true,
-    source: "d1"
+    source: "d1",
+    flagsTouchedAt: sameDate ? Number((prev && prev.flagsTouchedAt) || 0) : 0
   });
 }
 
@@ -3421,19 +3469,39 @@ async function setDelivered_(params, env) {
   const delivered = toBool_(params.delivered);
   const info = await dayDateInfo_(env, day);
   const iso = info.iso || String(params.date || "");
-  const mk = normalizeMatchKey_(params.matchKey || client);
+  const rawKey = params.matchKey || client;
+  const mk = normalizeMatchKey_(rawKey);
+  const aliases = matchKeyAliases_(rawKey);
+  if (client) {
+    matchKeyAliases_(client).forEach(function (k) {
+      if (aliases.indexOf(k) < 0) aliases.push(k);
+    });
+  }
   const now = new Date().toISOString();
   if (iso) {
-    await env.DB.prepare(
-      `INSERT INTO deliveries (date_iso, match_key, delivered, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(date_iso, match_key) DO UPDATE SET delivered=excluded.delivered, updated_at=excluded.updated_at`
-    )
-      .bind(iso, mk, delivered ? 1 : 0, now)
-      .run();
+    for (var ai = 0; ai < aliases.length; ai++) {
+      try {
+        await env.DB.prepare(
+          `INSERT INTO deliveries (date_iso, match_key, delivered, updated_at) VALUES (?, ?, ?, ?)
+           ON CONFLICT(date_iso, match_key) DO UPDATE SET delivered=excluded.delivered, updated_at=excluded.updated_at`
+        )
+          .bind(iso, aliases[ai], delivered ? 1 : 0, now)
+          .run();
+      } catch (eDelW) {}
+    }
   }
   const snap = await getCourier_({ day: day }, env);
   (snap.clients || []).forEach(function (c) {
-    if (normalizeMatchKey_(c.matchKey || c.name) === mk || c.name === client) {
+    var hit =
+      !!lookupByMatchAliases_(
+        indexByMatchAliases_([{ matchKey: mk, name: client }]),
+        c.matchKey || c.name
+      ) ||
+      c.name === client ||
+      matchKeyAliases_(c.matchKey || c.name).some(function (k) {
+        return aliases.indexOf(k) >= 0;
+      });
+    if (hit) {
       c.delivered = delivered;
       if (params.paid) c.paid = params.paid;
     }
@@ -3446,13 +3514,22 @@ async function setDelivered_(params, env) {
 async function setAssemblyFlag_(params, env, flag) {
   const day = String(params.day || "");
   const client = String(params.client || "");
-  const mk = normalizeMatchKey_(params.matchKey || client);
+  const rawKey = params.matchKey || client;
+  const aliases = matchKeyAliases_(rawKey);
+  if (client) {
+    matchKeyAliases_(client).forEach(function (k) {
+      if (aliases.indexOf(k) < 0) aliases.push(k);
+    });
+  }
   const val = toBool_(params[flag] != null ? params[flag] : params.value);
   const snap = await getAssembly_({ day: day }, env);
   (snap.clients || []).forEach(function (c) {
-    if (normalizeMatchKey_(c.matchKey || c.name) === mk || c.name === client) {
-      c[flag] = val;
-    }
+    var hit =
+      c.name === client ||
+      matchKeyAliases_(c.matchKey || c.name).some(function (k) {
+        return aliases.indexOf(k) >= 0;
+      });
+    if (hit) c[flag] = val;
   });
   snap.flagsTouchedAt = Date.now();
   await putSnap_(env, "assembly:" + day, snap);
@@ -3568,6 +3645,12 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
 
   if (/^setDelivered$/i.test(action)) {
     const delivered = toBool_(params.delivered);
+    const aliases = matchKeyAliases_(params.matchKey || client);
+    if (client) {
+      matchKeyAliases_(client).forEach(function (k) {
+        if (aliases.indexOf(k) < 0) aliases.push(k);
+      });
+    }
     let snap = (await getSnapRaw_(env, "courier:" + day));
     if (!snap) {
       await rebuildCourierDay_(env, day);
@@ -3575,7 +3658,12 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
     }
     if (snap && Array.isArray(snap.clients)) {
       snap.clients.forEach(function (c) {
-        if (c.name === client || normalizeMatchKey_(c.matchKey || c.name) === mk) {
+        var hit =
+          c.name === client ||
+          matchKeyAliases_(c.matchKey || c.name).some(function (k) {
+            return aliases.indexOf(k) >= 0;
+          });
+        if (hit) {
           c.delivered = delivered;
           if (params.paid) c.paid = params.paid;
         }
@@ -3584,14 +3672,18 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
       await putSnap_(env, "courier:" + day, snap);
     }
     const info = await dayDateInfo_(env, day);
-    if (info.iso && mk) {
+    if (info.iso && aliases.length) {
       const now = new Date().toISOString();
-      await env.DB.prepare(
-        `INSERT INTO deliveries (date_iso, match_key, delivered, updated_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT(date_iso, match_key) DO UPDATE SET delivered=excluded.delivered, updated_at=excluded.updated_at`
-      )
-        .bind(info.iso, mk, delivered ? 1 : 0, now)
-        .run();
+      for (var di = 0; di < aliases.length; di++) {
+        try {
+          await env.DB.prepare(
+            `INSERT INTO deliveries (date_iso, match_key, delivered, updated_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT(date_iso, match_key) DO UPDATE SET delivered=excluded.delivered, updated_at=excluded.updated_at`
+          )
+            .bind(info.iso, aliases[di], delivered ? 1 : 0, now)
+            .run();
+        } catch (eDw) {}
+      }
     }
     return;
   }
@@ -3599,6 +3691,12 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
   if (/^set(Assembled|Printed)$/i.test(action)) {
     const flag = /^setAssembled$/i.test(action) ? "assembled" : "printed";
     const val = toBool_(params[flag] != null ? params[flag] : params.value);
+    const aliasesA = matchKeyAliases_(params.matchKey || client);
+    if (client) {
+      matchKeyAliases_(client).forEach(function (k) {
+        if (aliasesA.indexOf(k) < 0) aliasesA.push(k);
+      });
+    }
     let snap = (await getSnapRaw_(env, "assembly:" + day));
     if (!snap) {
       await rebuildAssemblyDay_(env, day);
@@ -3606,9 +3704,12 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
     }
     if (snap && Array.isArray(snap.clients)) {
       snap.clients.forEach(function (c) {
-        if (c.name === client || normalizeMatchKey_(c.matchKey || c.name) === mk) {
-          c[flag] = val;
-        }
+        var hit =
+          c.name === client ||
+          matchKeyAliases_(c.matchKey || c.name).some(function (k) {
+            return aliasesA.indexOf(k) >= 0;
+          });
+        if (hit) c[flag] = val;
       });
       snap.flagsTouchedAt = Date.now();
       await putSnap_(env, "assembly:" + day, snap);
@@ -5469,25 +5570,62 @@ async function cutoverStoreRead_(a, params, env, payload) {
     const prevC = await getSnapRaw_(env, "courier:" + params.day);
     if (prevC && Array.isArray(prevC.clients) && Array.isArray(payload.clients)) {
       const recentC = !!(Number(prevC.flagsTouchedAt || 0) && Date.now() - Number(prevC.flagsTouchedAt) < 600000);
-      const by = Object.create(null);
-      prevC.clients.forEach(function (c) {
-        if (!c) return;
-        by[normalizeMatchKey_(c.matchKey || c.name)] = c;
-      });
+      const by = indexByMatchAliases_(prevC.clients);
       payload.clients.forEach(function (c) {
-        const old = by[normalizeMatchKey_(c.matchKey || c.name)];
+        const old = lookupByMatchAliases_(by, c.matchKey || c.name);
         if (!old) return;
         if (recentC) {
           c.delivered = !!old.delivered;
           if (old.paid) c.paid = old.paid;
-        } else if (old.delivered) c.delivered = true;
+          if (old.assembled) c.assembled = true;
+        } else {
+          if (old.delivered) c.delivered = true;
+          if (old.assembled) c.assembled = true;
+        }
       });
+      // GAS иногда без части людей — не терять проставленные галочки
+      if (recentC) {
+        const inGas = indexByMatchAliases_(payload.clients);
+        prevC.clients.forEach(function (pc) {
+          if (!pc || !(pc.delivered || pc.assembled)) return;
+          if (!lookupByMatchAliases_(inGas, pc.matchKey || pc.name)) payload.clients.push(pc);
+        });
+      }
       payload.flagsTouchedAt = prevC.flagsTouchedAt || 0;
     }
     await putSnap_(env, "courier:" + params.day, payload);
     return;
   }
   if (a === "getAssembly" && params.day) {
+    const prevA = await getSnapRaw_(env, "assembly:" + params.day);
+    if (prevA && Array.isArray(prevA.clients) && Array.isArray(payload.clients)) {
+      const recentA = !!(Number(prevA.flagsTouchedAt || 0) && Date.now() - Number(prevA.flagsTouchedAt) < 600000);
+      const byA = indexByMatchAliases_(prevA.clients);
+      payload.clients.forEach(function (c) {
+        const old = lookupByMatchAliases_(byA, c.matchKey || c.name);
+        if (!old) return;
+        if (recentA) {
+          c.assembled = !!old.assembled;
+          c.printed = !!old.printed;
+          if (old.packs) c.packs = old.packs;
+          if (old.totalBags != null) c.totalBags = old.totalBags;
+          if (old.craftBags != null) c.craftBags = old.craftBags;
+        } else {
+          if (old.assembled) c.assembled = true;
+          if (old.printed) c.printed = true;
+        }
+      });
+      if (recentA) {
+        const inGasA = indexByMatchAliases_(payload.clients);
+        prevA.clients.forEach(function (pc) {
+          if (!pc || !(pc.assembled || pc.printed)) return;
+          if (!lookupByMatchAliases_(inGasA, pc.matchKey || pc.name)) payload.clients.push(pc);
+        });
+      }
+      payload.flagsTouchedAt = prevA.flagsTouchedAt || 0;
+      if (prevA.typeTotals && !payload.typeTotals) payload.typeTotals = prevA.typeTotals;
+      if (prevA.counterTotals && !payload.counterTotals) payload.counterTotals = prevA.counterTotals;
+    }
     await putSnap_(env, "assembly:" + params.day, payload);
     return;
   }
