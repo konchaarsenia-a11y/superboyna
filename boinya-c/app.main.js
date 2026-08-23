@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c50";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c65";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -2294,8 +2294,32 @@
       return street;
     }
 
+    // Граница токена без JS \b: после цифр/латиницы кириллица («кв.12а») ломала \b и кв. оставалась в улице.
+    var ADDR_TOKEN_END_ = "(?=$|[·|;,\\s•∙●])";
+
+    function normalizeAddressSeparators_(raw) {
+      return String(raw || "")
+        .replace(/[•∙●]/g, "·")
+        .replace(/\s*[·|;]\s*/g, " · ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+    }
+
+    function stripKnownFlatFromStreet_(street, flat) {
+      var s = String(street || "").trim();
+      var ft = String(flat || "").replace(/^(квартира|кв\.?)\s*/i, "").trim();
+      if (!s || !ft) return s;
+      var esc = ft.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      s = s.replace(new RegExp("(?:^|[·|;,\\s])(?:квартира|кв\\.?)\\s*" + esc + ADDR_TOKEN_END_, "gi"), " ");
+      s = s.replace(new RegExp("(?:^|[·|;,\\s])" + esc + "\\s*кв\\.?" + ADDR_TOKEN_END_, "gi"), " ");
+      // «дом-кв» / «дом/кв» только в конце, если кв уже в отдельном поле
+      s = s.replace(new RegExp("([0-9]+[а-яa-z]?)\\s*[\\-/]\\s*" + esc + "\\s*$", "i"), "$1");
+      s = s.replace(new RegExp("(?:[,·|;]\\s*)" + esc + "\\s*$", "i"), "");
+      return s.replace(/\s*[·|;,]\s*/g, " · ").replace(/\s{2,}/g, " ").replace(/^[·|;,\s]+|[·|;,\s]+$/g, "").trim();
+    }
+
     function parseDeliveryAddress(raw) {
-      var s = String(raw || "").trim();
+      var s = normalizeAddressSeparators_(raw);
       var entrance = "";
       var floor = "";
       var flat = "";
@@ -2310,22 +2334,24 @@
         return val;
       }
 
-      entrance = take(/(?:^|[·|;,\s])(?:подъезд|под\.)\s*([0-9]+[а-яa-z]?)\b/i);
+      entrance = take(new RegExp("(?:^|[·|;,\\s])(?:подъезд|под\\.?|пд\\.?)\\s*([0-9]+[а-яa-z]?)" + ADDR_TOKEN_END_, "i"));
       if (!entrance) {
-
-        entrance = take(/(?:^|[·|;,\s])п\.\s*([0-9]+[а-яa-z]?)\b/i);
+        // «п.Под 2» / «п. подъезд 2» из старых записей
+        entrance = take(new RegExp("(?:^|[·|;,\\s])п\\.?\\s*под(?:ъезд)?\\.?\\s*([0-9]+[а-яa-z]?)" + ADDR_TOKEN_END_, "i"));
       }
       if (!entrance) {
-
-        entrance = take(/(?:^|[·|;,\s])п\s+([0-9]+[а-яa-z]?)\b/i);
+        entrance = take(new RegExp("(?:^|[·|;,\\s])п\\.\\s*([0-9]+[а-яa-z]?)" + ADDR_TOKEN_END_, "i"));
       }
-      floor = take(/(?:^|[·|;,\s])(?:этаж|эт\.)\s*([0-9]+[а-яa-z]?)\b/i);
-      if (!floor) floor = take(/(?:^|[·|;,\s])эт\s+([0-9]+[а-яa-z]?)\b/i);
-      if (!floor) floor = take(/(?:^|[·|;,\s])эт\.?\s*([0-9]+[а-яa-z]?)\b/i);
+      if (!entrance) {
+        entrance = take(new RegExp("(?:^|[·|;,\\s])п\\s+([0-9]+[а-яa-z]?)" + ADDR_TOKEN_END_, "i"));
+      }
+      floor = take(new RegExp("(?:^|[·|;,\\s])(?:этаж|эт\\.)\\s*([0-9]+[а-яa-z]?)" + ADDR_TOKEN_END_, "i"));
+      if (!floor) floor = take(new RegExp("(?:^|[·|;,\\s])эт\\s+([0-9]+[а-яa-z]?)" + ADDR_TOKEN_END_, "i"));
+      if (!floor) floor = take(new RegExp("(?:^|[·|;,\\s])эт\\.?\\s*([0-9]+[а-яa-z]?)" + ADDR_TOKEN_END_, "i"));
 
-      flat = take(/(?:^|[·|;,\s])(?:квартира|кв\.?)\s*([0-9]+[а-яa-z\-\/]*)\b/i);
-      if (!flat) flat = take(/(?:^|[·|;,\s])кв\s+([0-9]+[а-яa-z\-\/]*)\b/i);
-      if (!flat) flat = take(/(?:^|[·|;,\s])([0-9]+[а-яa-z\-\/]*)\s*кв\.?\b/i);
+      flat = take(new RegExp("(?:^|[·|;,\\s])(?:квартира|кв\\.?)\\s*([0-9]+[а-яa-z\\-/]*)" + ADDR_TOKEN_END_, "i"));
+      if (!flat) flat = take(new RegExp("(?:^|[·|;,\\s])кв\\s+([0-9]+[а-яa-z\\-/]*)" + ADDR_TOKEN_END_, "i"));
+      if (!flat) flat = take(new RegExp("(?:^|[·|;,\\s])([0-9]+[а-яa-z\\-/]*)\\s*кв\\.?" + ADDR_TOKEN_END_, "i"));
 
       var dm = s.match(/(?:^|[·|;,\s])домофон\s*([^\s·|;,]{1,24})/i);
       if (dm) {
@@ -2334,20 +2360,30 @@
         if (dval) entrance = entrance ? (entrance + ", домофон " + dval) : ("домофон " + dval);
       }
 
+      if (flat) s = stripKnownFlatFromStreet_(s, flat);
+
       var street = formatStreetHouse(s) || s.replace(/\s*[·|]\s*/g, ", ").replace(/\s{2,}/g, " ").trim();
+      if (flat) street = stripKnownFlatFromStreet_(street, flat);
       return { street: street, entrance: entrance, floor: floor, flat: flat };
     }
     window.parseDeliveryAddress = parseDeliveryAddress;
 
     function composeDeliveryAddress(street, entrance, floor, flat) {
-      var st = formatStreetHouse(street) || String(street || "").trim();
-      var parts = [];
-      if (st) parts.push(st);
       var ent = String(entrance || "").trim();
       var fl = String(floor || "").trim();
-      var ft = String(flat || "").trim();
+      var ft = String(flat || "").replace(/^(квартира|кв\.?)\s*/i, "").trim();
+      // Сначала вытащить кв/эт/п из строки улицы, чтобы не дублировать в «адресной строке» формы и в листе.
+      var pre = parseDeliveryAddress(street);
+      var st = pre.street || formatStreetHouse(street) || String(street || "").trim();
+      if (!ent && pre.entrance) ent = pre.entrance;
+      if (!fl && pre.floor) fl = pre.floor;
+      if (!ft && pre.flat) ft = pre.flat;
+      if (ft) st = stripKnownFlatFromStreet_(st, ft);
+      st = formatStreetHouse(st) || st;
+      var parts = [];
+      if (st) parts.push(st);
       if (ent) {
-        if (/^(подъезд|п\.|домофон)/i.test(ent)) parts.push(ent);
+        if (/^(подъезд|под\.?|п\.|пд\.?|домофон)/i.test(ent)) parts.push(ent);
         else parts.push("п." + ent);
       }
       if (fl) {
@@ -2355,7 +2391,6 @@
         else parts.push("эт." + fl);
       }
       if (ft) {
-        ft = ft.replace(/^(квартира|кв\.?)\s*/i, "").trim();
         if (/^(квартира|кв\.)/i.test(ft)) parts.push(ft);
         else parts.push("кв." + ft);
       }
@@ -2372,9 +2407,11 @@
       var ftEl = document.getElementById("flatInput");
       if (!addrEl) return;
       var parsed = parseDeliveryAddress(addrEl.value);
-      if (parsed.street && (force || String(addrEl.value || "").trim() !== parsed.street)) {
-
-        if (parsed.entrance || parsed.floor || parsed.flat) addrEl.value = parsed.street;
+      var flatNow = (ftEl && String(ftEl.value || "").trim()) || parsed.flat || "";
+      var streetClean = parsed.street || String(addrEl.value || "").trim();
+      if (flatNow) streetClean = stripKnownFlatFromStreet_(streetClean, flatNow);
+      if (streetClean && (force || parsed.entrance || parsed.floor || parsed.flat || flatNow || String(addrEl.value || "").trim() !== streetClean)) {
+        addrEl.value = streetClean;
       }
       if (entEl && parsed.entrance && (force || !String(entEl.value || "").trim())) entEl.value = parsed.entrance;
       if (flEl && parsed.floor && (force || !String(flEl.value || "").trim())) flEl.value = parsed.floor;
@@ -2389,6 +2426,7 @@
       var flEl = document.getElementById("floorInput");
       var ftEl = document.getElementById("flatInput");
       var street = parsed.street || formatStreetHouse(raw) || String(raw || "");
+      if (parsed.flat) street = stripKnownFlatFromStreet_(street, parsed.flat);
       if (addrEl) addrEl.value = street;
       if (entEl) entEl.value = parsed.entrance || "";
       if (flEl) flEl.value = parsed.floor || "";
@@ -2453,9 +2491,10 @@
       var joined = out.join(", ") || s;
 
       joined = joined
-        .replace(/(?:^|[·|;,\s])(?:квартира|кв\.?)\s*[0-9]+[а-яa-z\-\/]*/gi, " ")
-        .replace(/(?:^|[·|;,\s])[0-9]+[а-яa-z\-\/]*\s*кв\.?\b/gi, " ")
-        .replace(/(?:^|[·|;,\s])(?:этаж|эт\.?)\s*[0-9]+[а-яa-z]?/gi, " ")
+        .replace(new RegExp("(?:^|[·|;,\\s])(?:квартира|кв\\.?)\\s*[0-9]+[а-яa-z\\-/]*" + ADDR_TOKEN_END_, "gi"), " ")
+        .replace(new RegExp("(?:^|[·|;,\\s])[0-9]+[а-яa-z\\-/]*\\s*кв\\.?" + ADDR_TOKEN_END_, "gi"), " ")
+        .replace(new RegExp("(?:^|[·|;,\\s])(?:этаж|эт\\.?)\\s*[0-9]+[а-яa-z]?" + ADDR_TOKEN_END_, "gi"), " ")
+        .replace(new RegExp("(?:^|[·|;,\\s])(?:подъезд|под\\.?|пд\\.?)\\s*[0-9]+[а-яa-z]?" + ADDR_TOKEN_END_, "gi"), " ")
         .replace(/\s{2,}/g, " ")
         .replace(/^[·|;,\s]+|[·|;,\s]+$/g, "")
         .trim();
@@ -3961,6 +4000,16 @@
         if (snap.client && document.getElementById("client")) document.getElementById("client").value = snap.client;
         if (snap.address && document.getElementById("addressInput")) {
           fillAddressFieldsFromStored_(snap.address);
+        }
+        // Улица в snap без кв — вернуть подъезд/этаж/кв отдельно (fill из одной строки их не восстановит).
+        if (snap.entrance && document.getElementById("entranceInput")) document.getElementById("entranceInput").value = snap.entrance;
+        if (snap.floor && document.getElementById("floorInput")) document.getElementById("floorInput").value = snap.floor;
+        if (snap.flat && document.getElementById("flatInput")) {
+          document.getElementById("flatInput").value = snap.flat;
+          try {
+            var a2 = document.getElementById("addressInput");
+            if (a2) a2.value = stripKnownFlatFromStreet_(a2.value, snap.flat);
+          } catch (eFlat2) {}
         }
         if (snap.phone && document.getElementById("phoneInput")) document.getElementById("phoneInput").value = snap.phone;
         if (snap.geo) selectedAddressGeo = snap.geo;
@@ -6016,7 +6065,12 @@
       var idx = window._viewDraftEditIndex;
       if (idx == null || !viewTransferDraft[idx]) return false;
       var client = viewTransferDraft[idx];
-      client.address = (document.getElementById("addressInput") && document.getElementById("addressInput").value) || client.address;
+      try { autofillAddressDetailFields_(); } catch (eAfDraft) {}
+      var streetDraft = (document.getElementById("addressInput") && document.getElementById("addressInput").value) || "";
+      var entDraft = (document.getElementById("entranceInput") && document.getElementById("entranceInput").value) || "";
+      var flDraft = (document.getElementById("floorInput") && document.getElementById("floorInput").value) || "";
+      var ftDraft = (document.getElementById("flatInput") && document.getElementById("flatInput").value) || "";
+      client.address = composeDeliveryAddress(streetDraft, entDraft, flDraft, ftDraft) || streetDraft || client.address;
       var phoneEl = document.getElementById("phoneInput");
       if (phoneEl) client.phone = phoneEl.value || client.phone;
       client.basket = (basket || []).map(function (g) {
@@ -9490,10 +9544,10 @@
       var raw0 = String(text || "").trim().replace(/\s+/g, " ");
       if (!raw0) return "";
       return raw0
-        .replace(/(?:^|[·|;,\s])(?:подъезд|под\.|п\.)\s*[0-9]+[а-яa-z]?/gi, " ")
-        .replace(/(?:^|[·|;,\s])(?:этаж|эт\.?)\s*[0-9]+[а-яa-z]?/gi, " ")
-        .replace(/(?:^|[·|;,\s])(?:квартира|кв\.?)\s*[0-9]+[а-яa-z\-\/]*/gi, " ")
-        .replace(/(?:^|[·|;,\s])[0-9]+[а-яa-z\-\/]*\s*кв\.?\b/gi, " ")
+        .replace(new RegExp("(?:^|[·|;,\\s])(?:подъезд|под\\.?|пд\\.?|п\\.)\\s*[0-9]+[а-яa-z]?" + ADDR_TOKEN_END_, "gi"), " ")
+        .replace(new RegExp("(?:^|[·|;,\\s])(?:этаж|эт\\.?)\\s*[0-9]+[а-яa-z]?" + ADDR_TOKEN_END_, "gi"), " ")
+        .replace(new RegExp("(?:^|[·|;,\\s])(?:квартира|кв\\.?)\\s*[0-9]+[а-яa-z\\-/]*" + ADDR_TOKEN_END_, "gi"), " ")
+        .replace(new RegExp("(?:^|[·|;,\\s])[0-9]+[а-яa-z\\-/]*\\s*кв\\.?" + ADDR_TOKEN_END_, "gi"), " ")
         .replace(/(?:^|[·|;,\s])домофон\s*[^\s·|;,]{1,24}/gi, " ")
         .replace(/\s{2,}/g, " ")
         .trim() || raw0;
