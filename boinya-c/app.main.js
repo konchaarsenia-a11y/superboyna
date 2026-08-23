@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c50";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v7.11.158c67";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -19371,7 +19371,9 @@
       if (!tid) return;
 
       deferredCache = (deferredCache || []).filter(function (it) {
-        return String(it.id) !== id;
+        if (!it) return false;
+        if (String(it.id) === id) return false;
+        return true;
       });
       deferredCacheAt = Date.now();
       try { renderTasksDrawer(false); } catch (e0) {}

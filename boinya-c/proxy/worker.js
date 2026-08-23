@@ -292,8 +292,29 @@ async function handleAction_(action, params, env, url, ctx) {
   if (a === "deleteSubscription" || a === "deleteSubscriptionBatch") return deleteSubscription_(params, env);
   if (a === "saveSurvey") return upsertInList_(env, "listSurvey", "items", params, "id");
   if (a === "deleteSurvey" || a === "deleteSurveyBatch") return deleteFromList_(env, "listSurvey", "items", params, "id");
-  if (a === "saveDeferred") return upsertInList_(env, "listDeferred", "items", params, "id");
-  if (a === "cancelDeferred") return deleteFromList_(env, "listDeferred", "items", params, "id");
+  if (a === "saveDeferred") {
+    try {
+      await clearDeferredCancelTombstone_(
+        env,
+        params && params.id,
+        (params && (params.matchKey || params.client || params.clientNick)) || ""
+      );
+    } catch (eClrS) {}
+    return upsertInList_(env, "listDeferred", "items", params, "id");
+  }
+  if (a === "cancelDeferred") {
+    try {
+      var sid = String((params && params.id) || "").trim();
+      var smk = "";
+      try {
+        var shit = await findDeferredSnapItem_(env, sid);
+        if (shit) smk = deferredTransferClientKey_(shit);
+      } catch (eSh) {}
+      if (!smk) smk = normalizeMatchKey_((params && (params.matchKey || params.client || params.clientNick)) || "");
+      await putDeferredCancelTombstone_(env, sid, smk);
+    } catch (eTomb) {}
+    return deleteFromList_(env, "listDeferred", "items", params, "id");
+  }
   if (a === "savePartner" || a === "deletePartner") return mutatePartners_(a, params, env);
   if (a === "saveTemplate" || a === "deleteTemplate") return mutateTemplates_(a, params, env);
   if (a === "setAccessRole" || a === "setAccessTimezone" || a === "requestAccess") {
@@ -526,6 +547,72 @@ function deferredTransferClientKey_(it) {
   return normalizeMatchKey_(mk || nick);
 }
 
+
+/** Cancel tombstone: GAS/SWR и repair иначе возвращают задачу после «Убрать». */
+const DEFERRED_CANCEL_TOMBSTONE_MS = 48 * 3600 * 1000;
+
+async function putDeferredCancelTombstone_(env, id, matchKey) {
+  if (!env) return;
+  var tid = String(id || "").trim();
+  var mk = normalizeMatchKey_(matchKey || "");
+  if (!tid && !mk) return;
+  try {
+    var prev = (await getSnapRaw_(env, "deferredCancelTombstones")) || { items: [] };
+    var now = Date.now();
+    var items = (prev.items || []).filter(function (t) {
+      return t && now - Number(t.at || 0) < DEFERRED_CANCEL_TOMBSTONE_MS;
+    });
+    items.push({ id: tid, mk: mk, at: now });
+    await putSnap_(env, "deferredCancelTombstones", { items: items });
+  } catch (eT) {}
+}
+
+async function clearDeferredCancelTombstone_(env, id, matchKey) {
+  if (!env) return;
+  var tid = String(id || "").trim();
+  var mk = normalizeMatchKey_(matchKey || "");
+  try {
+    var prev = (await getSnapRaw_(env, "deferredCancelTombstones")) || { items: [] };
+    var now = Date.now();
+    var items = (prev.items || []).filter(function (t) {
+      if (!t || now - Number(t.at || 0) >= DEFERRED_CANCEL_TOMBSTONE_MS) return false;
+      if (tid && String(t.id || "") === tid) return false;
+      if (mk && String(t.mk || "") === mk) return false;
+      return true;
+    });
+    await putSnap_(env, "deferredCancelTombstones", { items: items });
+  } catch (eC) {}
+}
+
+function isDeferredCancelTombstoned_(tomb, id, matchKey) {
+  var tid = String(id || "").trim();
+  var mk = normalizeMatchKey_(matchKey || "");
+  var now = Date.now();
+  return ((tomb && tomb.items) || []).some(function (t) {
+    if (!t || now - Number(t.at || 0) > DEFERRED_CANCEL_TOMBSTONE_MS) return false;
+    if (tid && String(t.id || "") === tid) return true;
+    if (mk && String(t.mk || "") && String(t.mk) === mk) return true;
+    return false;
+  });
+}
+
+async function filterDeferredCancelTombstones_(env, items) {
+  if (!items || !items.length) return items || [];
+  try {
+    var tomb = await getSnapRaw_(env, "deferredCancelTombstones");
+    if (!tomb || !tomb.items || !tomb.items.length) return items;
+    return items.filter(function (it) {
+      if (!it) return false;
+      var id = it.id != null ? String(it.id) : "";
+      var mk = deferredTransferClientKey_(it);
+      return !isDeferredCancelTombstoned_(tomb, id, mk);
+    });
+  } catch (eF) {
+    return items;
+  }
+}
+
+
 /** Слить listDeferred: open transfer из D1 не убивать ответом GAS без них. */
 async function mergeListDeferredPayload_(env, payload) {
   if (!payload || typeof payload !== "object") return null;
@@ -574,6 +661,9 @@ async function mergeListDeferredPayload_(env, payload) {
     if (k) xferKeys[k] = true;
   });
 
+  try {
+    incoming = await filterDeferredCancelTombstones_(env, incoming);
+  } catch (eMT) {}
   var openCount = incoming.filter(function (it) {
     return String((it && it.status) || "open").toLowerCase() === "open";
   }).length;
@@ -635,6 +725,10 @@ async function repairParkedTransfersFromOrders_(env) {
     seen[mk] = true;
     if (activeKeys[mk]) continue; // уже снова на дне
     if (xferKeys[mk]) continue;
+    try {
+      var tombR = await getSnapRaw_(env, "deferredCancelTombstones");
+      if (isDeferredCancelTombstoned_(tombR, "", mk)) continue; // юзер убрал задачу
+    } catch (eTR) {}
     var basket = [];
     try {
       basket = JSON.parse(r.basket_json || "[]");
@@ -792,6 +886,9 @@ async function finalizeListDeferredPayload_(env, payload) {
   } catch (eS) {}
   payload = await appendRecentPlacedTransfers_(env, payload);
   if (Array.isArray(payload.items)) {
+    try {
+      payload.items = await filterDeferredCancelTombstones_(env, payload.items);
+    } catch (eFT) {}
     payload.openCount = payload.items.filter(function (it) {
       return String((it && it.status) || "open").toLowerCase() === "open";
     }).length;
@@ -996,6 +1093,9 @@ async function placeTransferTaskD1_(params, env) {
     } else {
       await deleteFromList_(env, "listDeferred", "items", params, "id");
     }
+    try {
+      await putDeferredCancelTombstone_(env, id, matchKey || client);
+    } catch (eTombPlace) {}
   } catch (eDone) {}
 
   return {
@@ -4004,10 +4104,24 @@ async function handleCutover_(a, params, env, ctx) {
     if (/^cancelDeferred$/i.test(a)) {
       let d1Res = { status: "success", wrote: 0, cutover: true, sandbox: false, action: a };
       try {
+        var cancelId = String((params && (params.id || params.taskId)) || "").trim();
+        var cancelMk = "";
+        try {
+          var hitCan = await findDeferredSnapItem_(env, cancelId);
+          if (hitCan) cancelMk = deferredTransferClientKey_(hitCan);
+        } catch (eHit) {}
+        if (!cancelMk) {
+          cancelMk = normalizeMatchKey_(
+            (params && (params.matchKey || params.client || params.clientNick)) || ""
+          );
+        }
+        await putDeferredCancelTombstone_(env, cancelId, cancelMk);
         d1Res = await deleteFromList_(env, "listDeferred", "items", params, "id");
         d1Res.cutover = true;
         d1Res.sandbox = false;
         d1Res.action = a;
+        d1Res.cancelled = true;
+        d1Res.tombstone = true;
       } catch (eCan) {}
       const gasCanP = gasProxy_(a, params, env, { write: true }).catch(function () {
         return null;
