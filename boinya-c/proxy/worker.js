@@ -2943,6 +2943,14 @@ async function saveOrder_(params, env, asBooking) {
         .bind(now, day, matchKey, client.toLowerCase(), client.toLowerCase())
         .run();
     } catch (eDelOther) {}
+    // календарь-only (day_name пустой) — иначе дубль «неделя + дата»
+    try {
+      await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = '' AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
+      )
+        .bind(now, matchKey, client.toLowerCase(), client.toLowerCase())
+        .run();
+    } catch (eDelCal) {}
     try {
       await setMoveEpochDay_(env, matchKey, day, client);
     } catch (eEpSave) {}
@@ -3323,7 +3331,17 @@ async function deleteClient_(params, env) {
     } catch (eEpDel) {}
   }
   await invalidateDays_(env, [day].filter(Boolean));
-  return { status: "success", sandbox: true, wrote: changed || 1, missing: changed === 0 };
+  if (changed === 0) {
+    return {
+      status: "success",
+      sandbox: true,
+      wrote: 0,
+      missing: true,
+      alreadyGone: true,
+      d1Verified: true
+    };
+  }
+  return { status: "success", sandbox: true, wrote: changed, missing: false, d1Verified: true };
 }
 
 async function moveClient_(params, env) {
@@ -3921,6 +3939,9 @@ async function cutoverGetStats_(params, env, ctx) {
 
   const snap = await getSnapRaw_(env, "getStats");
   const snapOk = snap && snap.status === "success" && (snap.fact || snap.bp || snap.month);
+  const snapAgeMs =
+    snap && snap.cachedAt ? Date.now() - Date.parse(String(snap.cachedAt)) : Number.POSITIVE_INFINITY;
+  const snapStale = snapAgeMs > 6 * 60 * 60 * 1000;
 
   async function fetchLive_() {
     const live = await gasProxy_("getStats", params || {}, env, { write: false });
@@ -3937,7 +3958,7 @@ async function cutoverGetStats_(params, env, ctx) {
     return live;
   }
 
-  if (snapOk) {
+  if (snapOk && !snapStale) {
     if (ctx && typeof ctx.waitUntil === "function") {
       ctx.waitUntil(
         (async function () {
@@ -3953,6 +3974,25 @@ async function cutoverGetStats_(params, env, ctx) {
     out.fromGas = false;
     out.sandbox = false;
     return out;
+  }
+
+  if (snapOk && snapStale) {
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async function () {
+          try {
+            await fetchLive_();
+          } catch (eR) {}
+        })()
+      );
+    }
+    const outStale = Object.assign({}, snap);
+    outStale.cutover = true;
+    outStale.swr = true;
+    outStale.fromGas = false;
+    outStale.snapStale = true;
+    outStale.sandbox = false;
+    return outStale;
   }
 
   const live = await fetchLive_();
@@ -4726,6 +4766,22 @@ async function handleCutover_(a, params, env, ctx) {
         live.force = true;
         live.sandbox = false;
         return live;
+      }
+    }
+  }
+  if (a === "getViewCompare") {
+    const forceViewEarly =
+      String((params && params.force) || "") === "1" ||
+      (params && (params.force === true || params.force === 1));
+    if (forceViewEarly) {
+      const liveVc = await getViewCompare_(params, env);
+      if (liveVc && typeof liveVc === "object") {
+        liveVc.cutover = true;
+        liveVc.swr = true;
+        liveVc.source = liveVc.source || "d1";
+        liveVc.force = true;
+        liveVc.sandbox = false;
+        return liveVc;
       }
     }
   }
@@ -6625,6 +6681,19 @@ async function getSubscription_(params, env) {
   }
   if (!found) {
     return { status: "success", found: false, nick: nick, segment: segment, sandbox: true };
+  }
+  if ((!found.address || !found.phone) && env) {
+    try {
+      const profSnap = await getSnapRaw_(env, "listClientProfiles");
+      const profs = (profSnap && profSnap.clients) || [];
+      for (let pi = 0; pi < profs.length; pi++) {
+        const p = profs[pi];
+        if (normalizeMatchKey_(p.nick || "") !== nickKey) continue;
+        if (!found.address && p.address) found.address = p.address;
+        if (!found.phone && p.phone) found.phone = p.phone;
+        break;
+      }
+    } catch (eProf) {}
   }
   return Object.assign({}, found, {
     status: "success",
