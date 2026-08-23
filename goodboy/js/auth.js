@@ -151,7 +151,8 @@
       link: null,
       demo: false,
       page: "profile",
-      intent: ""
+      intent: "",
+      access: "full"
     });
     try {
       var key = (global.GB_CONFIG && global.GB_CONFIG.storageKey) || "goodboy_v1";
