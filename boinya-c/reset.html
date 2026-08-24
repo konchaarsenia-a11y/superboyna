@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+  <title>Сброс кэша Бойня C</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; background:#0a0a0a; color:#f5f5f7;
+      display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;text-align:center }
+    .box { max-width:360px }
+    h1 { font-size:18px; margin:0 0 12px }
+    p { color:#9a9a9a; font-size:14px; line-height:1.4 }
+    .ok { color:#30d158; font-weight:700 }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Сброс кэша Бойня C</h1>
+    <p id="st">Сношу Service Worker и старый JS…</p>
+  </div>
+  <script>
+    (async function () {
+      var st = document.getElementById("st");
+      function say(t) { if (st) st.textContent = t; }
+      try {
+        if ("serviceWorker" in navigator) {
+          var regs = await navigator.serviceWorker.getRegistrations();
+          for (var i = 0; i < regs.length; i++) {
+            await regs[i].unregister();
+          }
+          say("SW снят (" + regs.length + "). Чищу Cache Storage…");
+        }
+      } catch (e1) {}
+      try {
+        if (caches && caches.keys) {
+          var keys = await caches.keys();
+          for (var k = 0; k < keys.length; k++) {
+            if (/boinya/i.test(keys[k])) await caches.delete(keys[k]);
+          }
+        }
+      } catch (e2) {}
+      try {
+        localStorage.removeItem("boinya_c_cutover");
+        localStorage.setItem("boinya_c_sw_want", "boinya-c-sw-v12-71115873");
+      } catch (e3) {}
+      try {
+        if (indexedDB && indexedDB.databases) {
+          var dbs = await indexedDB.databases();
+          for (var d = 0; d < (dbs || []).length; d++) {
+            var name = dbs[d] && dbs[d].name;
+            if (name && /boinya/i.test(name)) indexedDB.deleteDatabase(name);
+          }
+        }
+      } catch (e4) {}
+      say("Готово. Открываю приложение v71115873…");
+      setTimeout(function () {
+        location.replace("./app.html?cutover=1&v=71115873&_reset=" + Date.now());
+      }, 600);
+    })();
+  </script>
+</body>
+</html>
