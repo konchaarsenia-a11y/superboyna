@@ -7272,7 +7272,17 @@
           });
           renderViewLists();
         } catch (eOpt) {}
-        showToast(res.alreadyGone ? "Уже удалено" : "Удалено");
+        showToast(
+          (res.alreadyGone ? "Уже удалено" : "Удалено") +
+          (day ? (" · " + day) : "") +
+          (dateStr ? (" · " + dateStr) : "")
+        );
+        try {
+          if (day) {
+            var daySelDel = document.getElementById("viewDaySelect");
+            if (daySelDel) setSelectDayValue(daySelDel, day);
+          }
+        } catch (eSel) {}
         try { afterPeopleMutationDays_([day]); } catch (eMut) {}
         try {
           await refreshDayViews(day, { force: true });
