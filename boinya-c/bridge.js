@@ -102,7 +102,10 @@
 
   try {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register(BASE + "sw.js", { scope: BASE }).catch(function () {});
+      // ?v= — иначе TG/браузер держит старый SW без network-first
+      navigator.serviceWorker
+        .register(BASE + "sw.js?v=12-71115873", { scope: BASE })
+        .catch(function () {});
     }
   } catch (eSw) {}
 
