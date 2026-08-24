@@ -4404,10 +4404,12 @@
           }
         } else if (dateOnWeek && resolvedDayName) {
           weekDayToSave = resolvedDayName;
-        } else if (isEdit && editDaySnap) {
+        } else if (isEdit && editDaySnap && dateOnWeek) {
+          // edit только если дата всё ещё в неделе — иначе уходим в календарь
           weekDayToSave = editDaySnap;
           dateOnWeek = true;
         }
+        // дата вне незакрытой недели: НЕ подставлять day из селекта (иначе внос в старый Вт/Пн)
 
         if (isEdit && editClientSnap) {
           var nickChanged = String(editClientSnap).trim().toUpperCase() !== clientName.toUpperCase();
@@ -4425,8 +4427,9 @@
         var bookParams = {
           action: "saveBooking",
           date: deliveryDate,
-          day: weekDayToSave || day || editDaySnap || "",
+          day: weekDayToSave || "",
           alsoSaveOrder: weekDayToSave ? "1" : "0",
+          calendarOnly: weekDayToSave ? "0" : "1",
           client: clientName,
           editClient: editClientSnap,
           originalClient: editClientSnap,
@@ -4646,8 +4649,9 @@
         var needPost = !useJsonpSave ||
           (weekDayToSave && basketSnap.length && (!saveRes || saveRes.status !== "success" || Number(saveRes.wrote || 0) === 0));
         if (needPost) {
-          bookingPayload.day = weekDayToSave || day || editDaySnap || "";
+          bookingPayload.day = weekDayToSave || "";
           bookingPayload.alsoSaveOrder = !!weekDayToSave;
+          bookingPayload.calendarOnly = weekDayToSave ? false : true;
           bookingPayload.permanentNote = permanentNote || "";
           bookingPayload.orderType = orderTypeSnap || "";
           if (surveyMeta) bookingPayload.survey = surveyMeta;
@@ -4656,8 +4660,19 @@
             payload.day = weekDayToSave;
             payload.date = deliveryDate;
             try { await apiPost(payload); } catch (ePost) {}
-          } else if (!bookRes || bookRes.status !== "success") {
-            bookRes = { status: "sent_opaque" };
+          } else {
+            // вне недели — явный calendar save (без day из селекта)
+            try {
+              await apiPost(Object.assign({}, payload, {
+                action: "saveOrder",
+                day: "",
+                date: deliveryDate,
+                calendarOnly: true
+              }));
+            } catch (ePostCal) {}
+            if (!bookRes || bookRes.status !== "success") {
+              bookRes = { status: "sent_opaque" };
+            }
           }
         }
 
@@ -4784,8 +4799,11 @@
             }
           } catch (eWh) {}
         } else {
-          showToast("Бронь на " + deliveryDate +
-            " · состав " + savedItems + " поз. В нужный день — «Доукомплектовать»");
+          showToast(
+            "В календарь " + deliveryDate +
+            " · " + savedItems + " поз." +
+            (dateOnWeek ? "" : " · неделя ещё не закрыта — слот Пн–Вс старый")
+          );
         }
         if (orderTypeSnap === "bp" && surveyMeta && surveyMeta.createCard) {
           if (surveyMeta._bpWarn) showToast("Заказ ок, БП-карточку проверь вручную");
@@ -5109,6 +5127,8 @@
     function renderMonthOverviewList_(data) {
       var box = document.getElementById("viewMonthOverviewList");
       if (!box) return;
+      // не затирать сетку пустотой после move/delete (кэш сбросили, GAS ещё не пришёл)
+      if (!data || !Array.isArray(data.days)) return;
       var month = (data && data.month) || (document.getElementById("viewMonthPick") && document.getElementById("viewMonthPick").value) || "";
       if (!/^\d{4}-\d{2}$/.test(month)) {
         var now0 = new Date();
@@ -6875,7 +6895,6 @@
         apiCacheBustMem_("listSurvey");
         afterPeopleMutationDays_([oldDay, newDay]);
       } catch (eClr) {}
-      viewMonthOverviewCache = null;
       await loadClientsForDay();
       try { await refreshDayViews(oldDay, { force: true }); } catch (eOld) {}
       if (!calendarOnly && newDay && oldDay && newDay !== oldDay) {
@@ -7344,7 +7363,6 @@
           apiCacheBustMem_("listSurvey");
           afterPeopleMutationDays_([oldDay, newDay]);
         } catch (eClr) {}
-        viewMonthOverviewCache = null;
         await loadClientsForDay();
         try { await refreshDayViews(oldDay, { force: true }); } catch (eR0) {}
         if (!calendarOnly && newDay && oldDay && newDay !== oldDay) {

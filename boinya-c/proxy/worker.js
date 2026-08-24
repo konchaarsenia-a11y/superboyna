@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-24 explicit-delete-vs-stale-guard
+ * deploy-marker: 2026-08-25 unfinished-week-calendar-save
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -2985,12 +2985,26 @@ async function saveOrder_(params, env, asBooking) {
 
   let day = String(params.day || "").trim();
   let dateIso = String(params.date || params.dateIso || params.newDate || params.deliveryDate || "").trim();
-  if (!day && dateIso) {
-    const r = await resolveDay_({ date: dateIso }, env);
-    if (r.onWeek && r.dayName) day = r.dayName;
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(dateIso)) dateIso = dmyToIso_(dateIso) || dateIso;
+
+  // Дата вне текущей (возможно незакрытой) недели → только календарь.
+  // Иначе day=Вт из селекта + date=25.08 писало в слот старой недели / в Понедельник.
+  let dateOnWeek = false;
+  if (dateIso) {
+    try {
+      const r = await resolveDay_({ date: dateIso }, env);
+      if (r && r.onWeek && r.dayName) {
+        dateOnWeek = true;
+        day = String(r.dayName);
+      } else {
+        day = "";
+      }
+    } catch (eResDay) {
+      day = "";
+    }
   }
-  if (!asBooking && !day) day = "Понедельник";
-  if (asBooking && !day && !dateIso) {
+  if (!asBooking && !day && !dateIso) day = "Понедельник";
+  if (!day && !dateIso) {
     return { status: "error", message: "no_day_or_date" };
   }
 
@@ -3037,6 +3051,17 @@ async function saveOrder_(params, env, asBooking) {
   )
     .bind(now, day || "", matchKey, client.toLowerCase(), id)
     .run();
+
+  // календарь-only: снести дубли на той же date_iso (в т.ч. ошибочно записанные в Пн/Вт)
+  if (!day && dateIso) {
+    try {
+      await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND (match_key = ? OR lower(client) = ?) AND id != ?"
+      )
+        .bind(now, dateIso, matchKey, client.toLowerCase(), id)
+        .run();
+    } catch (eCalDup) {}
+  }
 
   await upsertOrderRow_(env, {
     id: id,
@@ -3101,6 +3126,8 @@ async function saveOrder_(params, env, asBooking) {
     wrote: basketArr.length || 1,
     basketLen: basketArr.length,
     weekWritten: !!day,
+    calendarOnly: !day && !!dateIso,
+    dateOnWeek: dateOnWeek,
     id: id,
     segment: segSave,
     source: srcSave,
@@ -3113,7 +3140,9 @@ const TOMBSTONE_MS = 48 * 60 * 60 * 1000;
 
 async function putDeleteTombstone_(env, day, matchKey) {
   const mk = normalizeMatchKey_(matchKey);
-  if (!env || !day || !mk) return;
+  // day="" — календарный tomb (дата вне недели)
+  if (!env || !mk) return;
+  if (day == null) return;
   const now = Date.now();
   var keys = [mk];
   var rawUp = String(matchKey || "")
@@ -3496,8 +3525,25 @@ async function deleteClient_(params, env) {
   );
   // move afterWrite: только указанный день — НЕ искать клиента на newDay и не сносить arrive
   const strictDay = toBool_(params._strictDay) || toBool_(params.strictDay);
+  let calendarOnly =
+    toBool_(params.calendarOnly) ||
+    toBool_(params._calendarOnly) ||
+    /^removeCalendarClient$/i.test(String((params && params.action) || ""));
   if (!mk && !client) return { status: "error", message: "no_client" };
   if (!day && !dateIso) return { status: "error", message: "need_day_or_date" };
+
+  // removeCalendar / дата вне недели: не тащить day=Вт из UI — сносим по date_iso
+  if (dateIso) {
+    try {
+      const rCal = await resolveDay_({ date: dateIso }, env);
+      if (!(rCal && rCal.onWeek && rCal.dayName)) {
+        calendarOnly = true;
+        day = "";
+      }
+    } catch (eCalDay) {
+      if (calendarOnly) day = "";
+    }
+  }
 
   // Сегодняшний пн часто = «Будущая неделя»: UI мог прислать day=Понедельник + date=сегодня.
   // Ищем реальный слот клиента и tombstone'им все кандидаты, иначе success без эффекта.
@@ -3506,8 +3552,8 @@ async function deleteClient_(params, env) {
     d = String(d || "").trim();
     if (d && daysToClear.indexOf(d) < 0) daysToClear.push(d);
   }
-  addDay_(day);
-  if (dateIso && !strictDay) {
+  if (!calendarOnly) addDay_(day);
+  if (dateIso && !strictDay && !calendarOnly) {
     try {
       const r = await resolveDay_({ date: dateIso }, env);
       if (r && r.onWeek && r.dayName) addDay_(r.dayName);
@@ -3522,14 +3568,14 @@ async function deleteClient_(params, env) {
 
   let homeRow = null;
   try {
-    if (day) homeRow = await findOrderRow_(env, matchKeyRaw, day, "", client);
-    if (!homeRow && dateIso && !strictDay) homeRow = await findOrderRow_(env, matchKeyRaw, "", dateIso, client);
-    // НЕ findActiveOrderByMatch_ при strictDay — иначе move afterWrite сносит newDay
-    if (!homeRow && !strictDay) homeRow = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+    if (day && !calendarOnly) homeRow = await findOrderRow_(env, matchKeyRaw, day, "", client);
+    if (!homeRow && dateIso) homeRow = await findOrderRow_(env, matchKeyRaw, "", dateIso, client);
+    // НЕ findActiveOrderByMatch_ при strictDay / calendarOnly — иначе снос чужого слота
+    if (!homeRow && !strictDay && !calendarOnly) homeRow = await findActiveOrderByMatch_(env, matchKeyRaw, client);
   } catch (eHome) {
     homeRow = null;
   }
-  if (homeRow && !strictDay) {
+  if (homeRow && !strictDay && !calendarOnly) {
     if (homeRow.day_name) addDay_(homeRow.day_name);
     if (!dateIso && homeRow.date_iso) dateIso = String(homeRow.date_iso || "");
     // канонический day для GAS afterWrite — где человек реально сидит
@@ -3658,9 +3704,9 @@ async function deleteClient_(params, env) {
       changed += Number((res2 && res2.meta && res2.meta.changes) || 0);
     } catch (eSql) {}
   }
-  if (!toBool_(params.calendarOnly)) {
-    await softDeleteScan_("day_name = ''", []);
-  }
+  // обычный delete: ещё снести calendar-only строки клиента
+  // calendarOnly: тоже снести day_name='' (раньше пропускали — removeCalendar «успех» без эффекта)
+  await softDeleteScan_("day_name = ''", []);
   if (dateIso) {
     await softDeleteScan_("date_iso = ?", [dateIso]);
     try {
@@ -3674,7 +3720,25 @@ async function deleteClient_(params, env) {
           .run();
         changed += Number((resD && resD.meta && resD.meta.changes) || 0);
       }
+      const resD2 = await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND lower(client) = ?"
+      )
+        .bind(now, dateIso, client.toLowerCase())
+        .run();
+      changed += Number((resD2 && resD2.meta && resD2.meta.changes) || 0);
     } catch (eSqlD) {}
+  }
+  // calendar remove: tombstone по дате (пустой day), чтобы getViewCompare month не воскрешал
+  if (calendarOnly && dateIso) {
+    try {
+      await putDeleteTombstone_(env, "", matchKeyRaw || client);
+      await putSnap_(env, "delTomb:CAL:" + dateIso + ":" + mk, {
+        day: "",
+        dateIso: dateIso,
+        mk: mk,
+        at: Date.now()
+      });
+    } catch (eTombCal) {}
   }
 
   if (!toBool_(params._keepMoveEpoch) && !toBool_(params.keepMoveEpoch)) {
@@ -3690,10 +3754,15 @@ async function deleteClient_(params, env) {
   // VERIFY: ещё active где угодно по нику / дате — снести; иначе «удалился и вернулся»
   // НЕ трогать строку, если это свежий save после старта этого delete (writeGuard).
   // strictDay (move afterWrite): только этот день — не трогать arrive на newDay.
+  // calendarOnly: только эта date_iso — не сносить другие дни недели.
   let still = null;
   try {
-    still = await findOrderRow_(env, matchKeyRaw, day, strictDay ? "" : dateIso, client);
-    if (!still && !strictDay) still = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+    if (calendarOnly && dateIso) {
+      still = await findOrderRow_(env, matchKeyRaw, "", dateIso, client);
+    } else {
+      still = await findOrderRow_(env, matchKeyRaw, day, strictDay ? "" : dateIso, client);
+      if (!still && !strictDay) still = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+    }
     if (
       still &&
       (await deleteWouldEraseFreshWrite_(env, params, still, day, mk, deleteStartedAt))
@@ -3712,6 +3781,13 @@ async function deleteClient_(params, env) {
       // strictDay: если нашли не на этом дне — не сносить
       if (strictDay && still.day_name && String(still.day_name) !== String(day)) {
         still = null;
+      } else if (
+        calendarOnly &&
+        dateIso &&
+        still.date_iso &&
+        String(still.date_iso) !== String(dateIso)
+      ) {
+        still = null;
       } else {
         await softDeleteRow_(still);
         if (still.day_name) {
@@ -3719,8 +3795,12 @@ async function deleteClient_(params, env) {
             await putDeleteTombstone_(env, still.day_name, matchKeyRaw || client);
           } catch (eT2) {}
         }
-        still = await findOrderRow_(env, matchKeyRaw, day, strictDay ? "" : dateIso, client);
-        if (!still && !strictDay) still = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+        if (calendarOnly && dateIso) {
+          still = await findOrderRow_(env, matchKeyRaw, "", dateIso, client);
+        } else {
+          still = await findOrderRow_(env, matchKeyRaw, day, strictDay ? "" : dateIso, client);
+          if (!still && !strictDay) still = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+        }
       }
     }
   } catch (eVer) {}
@@ -4872,10 +4952,15 @@ async function handleCutover_(a, params, env, ctx) {
       const peopleWriteParams =
         /^(deleteClient|removeCalendarClient)$/i.test(a) && params
           ? Object.assign({}, params, {
+              action: a,
               // UI-delete: не давать move afterWrite сорвать удаление через skippedStaleDelete
               _explicitDelete: params._explicitDelete != null ? params._explicitDelete : "1",
               _userDelete: "1",
-              _deleteStartedAt: String(Date.now())
+              _deleteStartedAt: String(Date.now()),
+              calendarOnly:
+                /^removeCalendarClient$/i.test(a) || toBool_(params.calendarOnly)
+                  ? "1"
+                  : params.calendarOnly || ""
             })
           : params;
       try {
