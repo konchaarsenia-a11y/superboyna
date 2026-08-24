@@ -6912,7 +6912,8 @@
       const idxs = getSelectedClientIndexes();
       if (!idxs.length) { showToast("Никого не выбрано"); return; }
       const day = viewResolvedDayName || document.getElementById("viewDaySelect").value;
-      const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
+      const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) ||
+        (viewDateOnlyMonth ? (lastViewDateIso || "") : "");
       if (viewDateOnlyMonth) {
         if (!dateStr) {
           await uiAlertAsync("Нет даты для удаления из календаря.");
