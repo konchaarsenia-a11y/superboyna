@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-24 verify-delete-move-no-gas-resurrect
+ * deploy-marker: 2026-08-24 calendar-view-merge-live-d1
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -1565,45 +1565,48 @@ async function getViewCompare_(params, env) {
     }
   }
 
-  // вне недели — snap по дате / orders по date_iso
+  // вне недели — snap по дате + live D1 orders (snap без CAL-строк врёт «пусто» после move)
   if (dateIso) {
-    const byDate = await getSnapRaw_(env, "viewDate:" + dateIso);
-    if (byDate && byDate.status === "success") {
-      const month = Array.isArray(byDate.month)
-        ? byDate.month
-        : Array.isArray(byDate.week)
-          ? byDate.week
-          : [];
-      return {
-        status: "success",
-        day: "",
-        dateIso: dateIso,
-        date: byDate.date || isoToDmy_(dateIso),
-        dateNotInWeek: true,
-        calendarOnly: true,
-        week: [],
-        month: month,
-        calendar: true,
-        monthSheet: byDate.monthSheet || "Календарь_Дат",
-        sandbox: true,
-        source: "snap",
-        fromSnap: true
-      };
-    }
     const live = await getClients_({ date: dateIso }, env);
+    const liveClients = (live && live.clients) || [];
+    const byDate = await getSnapRaw_(env, "viewDate:" + dateIso);
+    let month = [];
+    if (byDate && byDate.status === "success") {
+      month = Array.isArray(byDate.month)
+        ? byDate.month.slice()
+        : Array.isArray(byDate.week)
+          ? byDate.week.slice()
+          : [];
+    }
+    const seen = Object.create(null);
+    month.forEach(function (c) {
+      const k = normalizeMatchKey_((c && (c.matchKey || c.name)) || "");
+      if (k) seen[k] = true;
+    });
+    liveClients.forEach(function (c) {
+      const k = normalizeMatchKey_((c && (c.matchKey || c.name)) || "");
+      if (k && seen[k]) return;
+      if (k) seen[k] = true;
+      month.push(c);
+    });
+    // tombstone / deleted — убрать из month
+    try {
+      month = await filterTombstonedClients_(env, "", month);
+    } catch (eTombCal) {}
     return {
       status: "success",
       day: "",
       dateIso: dateIso,
-      date: isoToDmy_(dateIso),
+      date: (byDate && byDate.date) || isoToDmy_(dateIso),
       dateNotInWeek: true,
       calendarOnly: true,
       week: [],
-      month: live.clients || [],
+      month: month,
       calendar: true,
-      monthSheet: "D1",
+      monthSheet: (byDate && byDate.monthSheet) || "D1",
       sandbox: true,
-      source: "d1"
+      source: liveClients.length ? "d1+snap" : byDate ? "snap" : "d1",
+      fromSnap: !!byDate
     };
   }
 
