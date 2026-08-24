@@ -3440,40 +3440,44 @@
       return String(a || "").toUpperCase() === String(b || "").toUpperCase();
     }
 
-    /** Список Просмотра: клиент есть на day/date? null = сеть не ответила. */
+    /** Клиент есть в D1 на day и/или date? null = сеть не ответила. */
     async function clientVisibleOnView_(clientName, day, dateStr) {
       day = String(day || "").trim();
       dateStr = String(dateStr || "").trim();
+      // day не должен быть ISO-датой (calendar move to=YYYY-MM-DD)
+      if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+        if (!dateStr) dateStr = day;
+        day = "";
+      }
       if (!clientName || (!day && !dateStr)) return null;
-      try {
-        var vc = await apiGet({
-          action: "getViewCompare",
-          day: day || undefined,
-          date: dateStr || undefined,
-          force: "1",
-          _: String(Date.now())
-        }, { timeoutMs: 20000, cacheTtlMs: 0, __boinyaNoSnap: true });
-        var lists = []
-          .concat(Array.isArray(vc && vc.week) ? vc.week : [])
-          .concat(Array.isArray(vc && vc.month) ? vc.month : []);
-        return lists.some(function (c) {
-          return nicksMatchClient_(c && c.name, clientName);
+      async function listHas_(list) {
+        return (list || []).some(function (c) {
+          return nicksMatchClient_(c && (c.name || c.client), clientName);
         });
-      } catch (eVc) {
-        try {
-          var gc = await apiGet({
+      }
+      try {
+        // только getClients (force) — getViewCompare.month из snap давал ложный «ещё в списке»
+        if (day) {
+          var gcDay = await apiGet({
             action: "getClients",
-            day: day || undefined,
-            date: dateStr || undefined,
+            day: day,
             force: "1",
             _: String(Date.now())
-          }, { timeoutMs: 20000, cacheTtlMs: 0, __boinyaNoSnap: true });
-          return ((gc && gc.clients) || []).some(function (c) {
-            return nicksMatchClient_(c && c.name, clientName);
-          });
-        } catch (eGc) {
-          return null;
+          }, { timeoutMs: 16000, cacheTtlMs: 0, __boinyaNoSnap: true });
+          if (await listHas_((gcDay && gcDay.clients) || [])) return true;
         }
+        if (dateStr) {
+          var gcDate = await apiGet({
+            action: "getClients",
+            date: dateStr,
+            force: "1",
+            _: String(Date.now())
+          }, { timeoutMs: 16000, cacheTtlMs: 0, __boinyaNoSnap: true });
+          if (await listHas_((gcDate && gcDate.clients) || [])) return true;
+        }
+        return false;
+      } catch (eGc) {
+        return null;
       }
     }
 
@@ -3790,7 +3794,10 @@
             }
             resolve(res);
           };
-          var q = Object.keys(params).map(function (k) {
+          var q = Object.keys(params).filter(function (k) {
+            var v = params[k];
+            return v != null && v !== "" && v !== undefined;
+          }).map(function (k) {
             return k + "=" + encodeURIComponent(params[k]);
           }).join("&");
           // finishFullWeek и т.п.: напрямую в GAS — Worker CF рвёт долгие запросы (~30с)
@@ -7092,6 +7099,16 @@
       if (oldDay && target.onWeek && target.newDay && !viewDateOnlyMonth && !opts.forceCalendarOnly) {
         calendarOnly = false;
       }
+      // есть целевой слот недели — не уводить в calendarOnly из‑за пустого oldDay
+      if (!opts.forceCalendarOnly && !viewDateOnlyMonth && target.onWeek && target.newDay) {
+        calendarOnly = false;
+        if (!oldDay && oldDate) {
+          try {
+            var fromT = await resolveMoveTargetFromDate_(oldDate);
+            if (fromT && fromT.onWeek && fromT.newDay) oldDay = String(fromT.newDay);
+          } catch (eFrom) {}
+        }
+      }
       var newDay = calendarOnly ? "" : (target.newDay || "");
       var dateOnly = !!(!calendarOnly && newDay && oldDay && newDay === oldDay);
       var cutLabel = calendarOnly
@@ -7144,7 +7161,11 @@
 
         var moveOk = true;
         var effectiveOldDay = String((res && (res.from || res.oldDay)) || oldDay || "").trim();
-        var effectiveNewDay = String((res && (res.to || res.newDay)) || newDay || "").trim();
+        var effectiveNewDay = String((res && (res.newDay || (res.to && !/^\d{4}-\d{2}-\d{2}$/.test(String(res.to)) ? res.to : ""))) || newDay || "").trim();
+        var effectiveNewDate = String((res && (res.newDate || (res.to && /^\d{4}-\d{2}-\d{2}$/.test(String(res.to)) ? res.to : ""))) || target.newDate || "").trim();
+        var destLabel = effectiveNewDay || effectiveNewDate || "новую дату";
+        var wroteOk = !!(res && (res.d1Verified || Number(res.wrote) > 0) && !res.sent_opaque && !res.networkFallback && !res.timedOut);
+
         if (!calendarOnly && !dateOnly && effectiveOldDay && effectiveNewDay && effectiveOldDay !== effectiveNewDay) {
           async function clientOnDay_(dayName) {
             try {
@@ -7155,15 +7176,8 @@
                 _: String(Date.now())
               }, { timeoutMs: 12000, cacheTtlMs: 0, __boinyaNoSnap: true });
               var list = (chk && chk.clients) || [];
-              var wantKey = viewClientKey(clientName);
-              var wantName = String(clientName || "").trim().toUpperCase();
               for (var ci = 0; ci < list.length; ci++) {
-                var nm = String(list[ci].name || list[ci].client || "").trim();
-                if (!nm) continue;
-                var nk = viewClientKey(nm);
-                if (wantKey && nk && wantKey === nk) return true;
-                var nu = nm.toUpperCase();
-                if (nu === wantName || nu.indexOf(wantName) >= 0 || wantName.indexOf(nu) >= 0) return true;
+                if (nicksMatchClient_(list[ci].name || list[ci].client, clientName)) return true;
               }
               return false;
             } catch (eChk) {
@@ -7192,21 +7206,35 @@
               onNew = await clientOnDay_(effectiveNewDay);
             } catch (eRetryM) {}
           }
-          if (onNew === false && onOld === true) {
+          if (onNew === true && onOld === false) {
+            moveOk = true;
+          } else if (onNew === false && onOld === true) {
             moveOk = false;
-          } else if (onNew === true && onOld === false) {
+          } else if (wroteOk && onOld === false) {
+            // ушёл со старого — считаем успехом (новый день мог ещё догонять)
             moveOk = true;
           } else if (onNew === null || onOld === null) {
-            // сеть — не врём «перенеслось», если явный провал
-            moveOk = !(onNew === false && onOld === true);
+            moveOk = wroteOk;
           }
         } else if (calendarOnly || dateOnly) {
-          var onTarget = await clientVisibleOnView_(clientName, effectiveNewDay || newDay, target.newDate || oldDate);
-          if (onTarget === false) moveOk = false;
+          var stillOld = effectiveOldDay
+            ? await clientVisibleOnView_(clientName, effectiveOldDay, oldDate || "")
+            : null;
+          var onTarget = await clientVisibleOnView_(clientName, effectiveNewDay, effectiveNewDate || target.newDate || "");
+          if (onTarget === true) {
+            moveOk = true;
+          } else if (stillOld === true && onTarget === false) {
+            moveOk = false;
+          } else if (wroteOk && stillOld === false) {
+            moveOk = true;
+          } else if (onTarget === false && stillOld !== false && !wroteOk) {
+            moveOk = false;
+          }
         }
         if (!moveOk) {
           await uiAlertAsync(
-            "Не перенеслось: «" + clientName + "» всё ещё на «" + effectiveOldDay + "» и нет на «" + effectiveNewDay + "».\n" +
+            "Не перенеслось: «" + clientName + "» всё ещё на «" + (effectiveOldDay || oldDate || "?") +
+            "» и нет на «" + destLabel + "».\n" +
             "Попробуй ещё раз или обнови список."
           );
           try {
@@ -7353,18 +7381,46 @@
           await uiAlertAsync("Не удалось: " + (res.message || res.status || "ошибка"));
           return;
         }
-        var delOk = false;
+        var verifyDay = String((res && res.day) || delParams.day || day || "").trim();
+        var verifyDate = String(delParams.date || dateStr || "").trim();
+        var daysCleared = Array.isArray(res && res.daysCleared) ? res.daysCleared : [];
         async function verifyGone_() {
-          var vis = await clientVisibleOnView_(client.name, delParams.day || day, delParams.date || dateStr);
-          if (vis === true) return false;
-          if (vis === false) return true;
-          return false;
+          // проверить все слоты, которые Worker чистил (+ исходный day/date)
+          var slots = [];
+          function addSlot_(d) {
+            d = String(d || "").trim();
+            if (d && slots.indexOf(d) < 0) slots.push(d);
+          }
+          addSlot_(verifyDay);
+          daysCleared.forEach(addSlot_);
+          addSlot_(day);
+          for (var si = 0; si < slots.length; si++) {
+            var vis = await clientVisibleOnView_(client.name, slots[si], "");
+            if (vis === true) return false;
+            if (vis === null) return false;
+          }
+          if (verifyDate) {
+            var visD = await clientVisibleOnView_(client.name, "", verifyDate);
+            if (visD === true) return false;
+            if (visD === null) return false;
+          }
+          return true;
         }
-        delOk = await verifyGone_();
+        var delOk = await verifyGone_();
         if (!delOk) {
           try {
-            await apiGet(Object.assign({}, delParams, { force: "1" }), { timeoutMs: 20000, cacheTtlMs: 0 });
+            await apiGet(Object.assign({}, delParams, {
+              day: verifyDay || delParams.day,
+              force: "1",
+              _: String(Date.now())
+            }), { timeoutMs: 20000, cacheTtlMs: 0 });
           } catch (eR) {}
+          delOk = await verifyGone_();
+        }
+        // opaque/timeout без факта «ещё на месте» — не врём успех; если wrote — ок
+        if (!delOk && res && Number(res.wrote) > 0 && res.d1Verified) {
+          // повторная проверка через 400мс (snap/race)
+          try { await new Promise(function (r) { setTimeout(r, 400); }); } catch (eW) {}
           delOk = await verifyGone_();
         }
         if (!delOk) {
