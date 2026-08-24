@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115883";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115885";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -6892,7 +6892,9 @@
       const params = {
         action: "deleteClient",
         client: clientName,
-        day: day || resolved || ""
+        day: day || resolved || "",
+        _explicitDelete: "1",
+        _userDelete: "1"
       };
       // дата только из поля Просмотра — НЕ lastViewDateIso (залипает с другого дня → снос не того слота)
       const dateStr =
