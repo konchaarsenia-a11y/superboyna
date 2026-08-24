@@ -6952,12 +6952,20 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                       // skip
                     } else {
                       try {
-                        await putMoveArriveProtect_(
+                        var tombFix0 = await hasFreshDeleteTombstone_(
                           env,
                           newDay,
                           mkFix,
                           wantClient
                         );
+                        if (!tombFix0) {
+                          await putMoveArriveProtect_(
+                            env,
+                            newDay,
+                            mkFix,
+                            wantClient
+                          );
+                        }
                       } catch (eP2) {}
                       // убедиться что arrive жив в D1 (не если уже удалили)
                       try {
