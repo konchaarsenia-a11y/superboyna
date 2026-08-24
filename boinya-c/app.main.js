@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115882";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115883";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3697,7 +3697,11 @@
         } catch (eHit) {}
       }
 
-      if (cacheKey && _apiGetInflight[cacheKey]) return _apiGetInflight[cacheKey];
+      // delete/move/save: не coalesce inflight — иначе JSONP-retry ждёт сам себя и UI «молчит»
+      var noInflight =
+        !!opts.bypassInflight ||
+        /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(action);
+      if (cacheKey && !noInflight && _apiGetInflight[cacheKey]) return _apiGetInflight[cacheKey];
 
       var retries = opts.retries;
       if (retries == null) {
@@ -3798,15 +3802,19 @@
                 res.wrote == null &&
                 !res.alreadyGone &&
                 !res.alreadyMoved);
-            // JSONP GET только для delete/move — saveOrder basket слишком длинный для URL
+            // JSONP GET retry. ВАЖНО: bypassInflight — иначе ждём сами себя (hang).
             if (weak && isPeopleMut && !opts._retriedJsonp) {
-              return apiGet(params, Object.assign({}, opts, {
-                forceJsonpGet: true,
-                _retriedJsonp: true,
-                bypassMem: true,
-                cacheTtlMs: 0,
-                __boinyaNoSnap: true
-              }));
+              return apiGet(
+                Object.assign({}, params, { _: String(Date.now()) + "_j" }),
+                Object.assign({}, opts, {
+                  forceJsonpGet: true,
+                  _retriedJsonp: true,
+                  bypassMem: true,
+                  bypassInflight: true,
+                  cacheTtlMs: 0,
+                  __boinyaNoSnap: true
+                })
+              );
             }
             return res;
           });
@@ -3867,7 +3875,7 @@
         });
       }
       var p = run_(retries);
-      if (cacheKey) {
+      if (cacheKey && !noInflight) {
         _apiGetInflight[cacheKey] = p.then(function (res) {
           delete _apiGetInflight[cacheKey];
           return res;
@@ -7179,6 +7187,7 @@
       }
       if (!cutRaw) cutRaw = "yes";
       try {
+        showToast("Переношу…");
         var res = await apiGet({
           action: "moveClient",
           client: clientName,
@@ -7191,7 +7200,7 @@
           cutRaw: cutRaw === "yes" ? "1" : "0",
           matchKey: matchKey,
           _: String(Date.now())
-        }, { timeoutMs: 45000, cacheTtlMs: 0 });
+        }, { timeoutMs: 45000, cacheTtlMs: 0, bypassInflight: true });
         if (!res || (res.status !== "success" && !res.sent_opaque && !res.optimistic && !res.d1Verified && !res.timedOut && !res.networkFallback)) {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return false;
@@ -7429,10 +7438,11 @@
       const ok = await uiConfirmAsync("Удалить клиента " + client.name + "?\n\nУйдёт у всех: неделя + Календарь_Дат + бронь на дату.");
       if (!ok) return;
       try {
+        showToast("Удаляю…");
         try { apiCacheBustMem_(); } catch (eMem) {}
         const mk = client.matchKey || viewClientKey(client.name) || "";
         const delParams = deleteClientParams(client.name, day, mk);
-        const res = await apiGet(delParams, { timeoutMs: 45000, cacheTtlMs: 0 });
+        const res = await apiGet(delParams, { timeoutMs: 45000, cacheTtlMs: 0, bypassInflight: true });
         if (res && res.status === "error" && !res.optimistic && !res.networkFallback && !res.timedOut) {
           await uiAlertAsync("Не удалось: " + (res.message || res.status || "ошибка"));
           return;
