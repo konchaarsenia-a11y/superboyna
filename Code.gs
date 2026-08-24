@@ -4373,8 +4373,10 @@ function handleSaveOrder(ss, json, callback, fromPost) {
       }
     }
   }
-  // 3) новая колонка — только если не правка (нет editClient/matchKey)
-  if (clientCol === -1 && !(editClient || wantMatchKey)) {
+  // 3) новая колонка — если не нашли по нику/matchKey.
+  // ВАЖНО: matchKey сам по себе НЕ значит «правка» (Worker всегда шлёт matchKey).
+  // Раньше при matchKey + новый клиент → no_free_columns → лист «Будущая» не писался.
+  if (clientCol === -1 && !editClient) {
     for (var colIdx = 3; colIdx <= 17; colIdx++) {
       if (String(targetSheet.getRange(block.nick, colIdx).getValue() || "").trim() === "") {
         clientCol = colIdx;
