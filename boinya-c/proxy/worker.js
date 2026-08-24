@@ -3045,6 +3045,16 @@ async function saveOrder_(params, env, asBooking) {
       await clearTombstonesForMatch_(env, matchKey, day);
     }
   } catch (eClrT) {}
+  // метка свежей записи — фоновый deleteClient из waitUntil не должен сносить save
+  try {
+    if (day && matchKey) {
+      await putSnap_(env, "writeGuard:" + String(day) + ":" + matchKey, {
+        day: String(day),
+        mk: matchKey,
+        at: Date.now()
+      });
+    }
+  } catch (eWg) {}
   // клиент только на одном дне недели; иначе stale moveEpoch прячет из getClients
   if (day && matchKey) {
     try {
@@ -3400,6 +3410,25 @@ async function sanitizeGasClientsPayload_(env, day, live) {
   return live;
 }
 
+/** Фоновый delete (waitUntil) не должен сносить D1-строку, записанную save ПОСЛЕ старта delete. */
+async function deleteWouldEraseFreshWrite_(env, params, liveRow, day, mk, deleteStartedAt) {
+  if (!env || !liveRow || String(liveRow.status || "") !== "active") return false;
+  const started = Number(
+    deleteStartedAt || (params && (params._deleteStartedAt || params.deleteStartedAt)) || 0
+  );
+  if (!started) return false;
+  const rowDay = String(liveRow.day_name || day || "");
+  const rowMk = normalizeMatchKey_(liveRow.match_key || mk);
+  let guardAt = 0;
+  try {
+    const g = await getSnapRaw_(env, "writeGuard:" + rowDay + ":" + rowMk);
+    guardAt = Number((g && g.at) || 0);
+  } catch (eG) {}
+  const rowAt = Date.parse(String(liveRow.updated_at || "")) || 0;
+  const freshMs = Math.max(rowAt, guardAt);
+  return !!(freshMs && freshMs >= started - 250);
+}
+
 async function deleteClient_(params, env) {
   if (!env || !env.DB) return { status: "error", message: "no_d1" };
   let day = String(params.day || "");
@@ -3408,6 +3437,9 @@ async function deleteClient_(params, env) {
   const client = String(params.client || "").trim();
   const matchKeyRaw = params.matchKey || client;
   const mk = normalizeMatchKey_(matchKeyRaw);
+  const deleteStartedAt = Number(
+    (params && (params._deleteStartedAt || params.deleteStartedAt)) || 0
+  );
   if (!mk && !client) return { status: "error", message: "no_client" };
   if (!day && !dateIso) return { status: "error", message: "need_day_or_date" };
 
@@ -3471,6 +3503,28 @@ async function deleteClient_(params, env) {
       await clearMoveArriveProtect_(env, daysToClear[ti], matchKeyRaw, client, Date.now());
     } catch (eClrProt) {}
   }
+
+  // waitUntil/afterWrite delete, начатый до save — не трогать свежую D1-запись
+  try {
+    let liveGuard =
+      homeRow ||
+      (day ? await findOrderRow_(env, matchKeyRaw, day, dateIso, client) : null) ||
+      (await findActiveOrderByMatch_(env, matchKeyRaw, client));
+    if (
+      liveGuard &&
+      (await deleteWouldEraseFreshWrite_(env, params, liveGuard, day, mk, deleteStartedAt))
+    ) {
+      return {
+        status: "success",
+        sandbox: true,
+        wrote: 0,
+        skippedStaleDelete: true,
+        d1Verified: true,
+        day: day,
+        daysCleared: daysToClear
+      };
+    }
+  } catch (eStaleDel) {}
 
   const now = new Date().toISOString();
   let changed = 0;
@@ -4728,12 +4782,16 @@ async function handleCutover_(a, params, env, ctx) {
     const isFastFlagWrite = /^(updateCutting|setDelivered|setAssembled|setPrinted)$/i.test(a);
     if (isFastPeopleWrite) {
       let d1WriteRes = null;
+      const peopleWriteParams =
+        /^(deleteClient|removeCalendarClient)$/i.test(a) && params
+          ? Object.assign({}, params, { _deleteStartedAt: String(Date.now()) })
+          : params;
       try {
         if (env && env.DB) {
           if (/^(saveOrder|saveBooking)$/i.test(a)) {
             d1WriteRes = await saveOrder_(params, env, /^saveBooking$/i.test(a));
           } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
-            d1WriteRes = await deleteClient_(params, env);
+            d1WriteRes = await deleteClient_(peopleWriteParams, env);
           } else if (/^moveClient$/i.test(a)) {
             d1WriteRes = await moveClient_(params, env);
           } else if (/^notifyMissedDelivery$/i.test(a)) {
@@ -4770,7 +4828,7 @@ async function handleCutover_(a, params, env, ctx) {
                   /^saveBooking$/i.test(a)
                 );
               } else if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
-                await deleteClient_(params, env);
+                await deleteClient_(peopleWriteParams, env);
               } else if (/^moveClient$/i.test(a) && env && env.DB) {
                 if (!(d1WriteRes && d1WriteRes.status === "success")) {
                   await moveClient_(params, env);
@@ -4809,12 +4867,12 @@ async function handleCutover_(a, params, env, ctx) {
                     /^saveBooking$/i.test(a)
                   );
                 } else if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
-                  await deleteClient_(params, env);
+                  await deleteClient_(peopleWriteParams, env);
                 }
               } catch (eD1b) {}
             }
             try {
-              await cutoverAfterWrite_(a, params, env, proxied || d1WriteRes);
+              await cutoverAfterWrite_(a, peopleWriteParams || params, env, proxied || d1WriteRes);
             } catch (eA) {}
           })()
         );
