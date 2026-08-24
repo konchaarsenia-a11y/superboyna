@@ -8693,7 +8693,8 @@ function miniAppPublicUrl_() {
     var u = PropertiesService.getScriptProperties().getProperty("MINI_APP_URL");
     if (u && String(u).trim()) return String(u).trim().replace(/\/$/, "");
   } catch (e) {}
-  return "https://konchaarsenia-a11y.github.io/superboyna/app.html";
+  // Бойня C (Worker+D1). Старый /app.html без Worker ломал delete/move на «Будущая неделя».
+  return "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/app.html";
 }
 
 /** Вчерашние доставленные: только ПП (любые) и БП1. */
@@ -10474,7 +10475,7 @@ function ensureFutureWeekForDate_(ss, deliveryDate, write) {
   return {
     day: "Будущая неделя",
     date: deliveryDate,
-    dateNotInWeek: true,
+    dateNotInWeek: false,
     futureSlot: true,
     futureDateMatches: matches
   };
@@ -10492,7 +10493,8 @@ function resolveViewDeliveryDate_(ss, json) {
       return {
         date: deliveryDate,
         day: byDate,
-        dateNotInWeek: byDate === "Будущая неделя",
+        // «Будущая» — полноценный слот листа, не «вне недели» (иначе UI уходит в calendar-only)
+        dateNotInWeek: false,
         futureSlot: byDate === "Будущая неделя",
         futureDateMatches: byDate === "Будущая неделя" ? true : undefined
       };
