@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115878" as="script">
+  <link rel="preload" href="app.main.js?v=71115879" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115878";
+      var APP_VER = "v71115879";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -30,7 +30,7 @@
     /* Снести залипший SW cache-first (v11), иначе delete/move вечно на старом JS */
     (function () {
       if (!("serviceWorker" in navigator)) return;
-      var WANT = "boinya-c-sw-v12-71115878";
+      var WANT = "boinya-c-sw-v12-71115879";
       navigator.serviceWorker.getRegistrations().then(function (regs) {
         regs.forEach(function (reg) {
           try {
@@ -2743,6 +2743,6 @@
   </div>
   <div class="toast" id="appToast"></div>
 
-  <script src="app.main.js?v=71115878" defer></script>
+  <script src="app.main.js?v=71115879" defer></script>
 </body>
 </html>
