@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115880";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115882";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3709,6 +3709,7 @@
         var writeCutover =
           window.__BOINYA_C_CUTOVER__ &&
           !opts.directGas &&
+          !opts.forceJsonpGet &&
           /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|saveSubscription|pullClientsFromMonth|notifyMissedDelivery|placeTransferTask)$/i.test(action);
         if (writeCutover) {
           return new Promise(function (resolve, reject) {
@@ -3717,7 +3718,18 @@
               try { if (ctrl) ctrl.abort(); } catch (eAb) {}
               reject(new Error("Таймаут ответа сервера"));
             }, timeoutMs);
-            fetch(GOOGLE_WEBHOOK_URL, {
+            // TG WebView иногда глотает POST body → дублируем ключевые поля в query
+            var qWrite = "";
+            try {
+              qWrite = Object.keys(params).filter(function (k) {
+                var v = params[k];
+                return v != null && v !== "";
+              }).map(function (k) {
+                return k + "=" + encodeURIComponent(params[k]);
+              }).join("&");
+            } catch (eQ) { qWrite = ""; }
+            var postUrl = GOOGLE_WEBHOOK_URL + (qWrite ? ("?" + qWrite) : "");
+            fetch(postUrl, {
               method: "POST",
               redirect: "follow",
               headers: {
@@ -3771,6 +3783,32 @@
                 }
                 reject(new Error("Ошибка сети"));
               });
+          }).then(function (res) {
+            var isPeopleMut =
+              /^(deleteClient|removeCalendarClient|moveClient)$/i.test(action);
+            var weak = !res ||
+              res.sent_opaque ||
+              res.networkFallback ||
+              res.timedOut ||
+              res.status === "online" ||
+              /жив/i.test(String(res.msg || res.message || "")) ||
+              (isPeopleMut &&
+                res.status === "success" &&
+                res.d1Verified == null &&
+                res.wrote == null &&
+                !res.alreadyGone &&
+                !res.alreadyMoved);
+            // JSONP GET только для delete/move — saveOrder basket слишком длинный для URL
+            if (weak && isPeopleMut && !opts._retriedJsonp) {
+              return apiGet(params, Object.assign({}, opts, {
+                forceJsonpGet: true,
+                _retriedJsonp: true,
+                bypassMem: true,
+                cacheTtlMs: 0,
+                __boinyaNoSnap: true
+              }));
+            }
+            return res;
           });
         }
         return new Promise(function (resolve, reject) {
@@ -7164,7 +7202,11 @@
         var effectiveNewDay = String((res && (res.newDay || (res.to && !/^\d{4}-\d{2}-\d{2}$/.test(String(res.to)) ? res.to : ""))) || newDay || "").trim();
         var effectiveNewDate = String((res && (res.newDate || (res.to && /^\d{4}-\d{2}-\d{2}$/.test(String(res.to)) ? res.to : ""))) || target.newDate || "").trim();
         var destLabel = effectiveNewDay || effectiveNewDate || "новую дату";
-        var wroteOk = !!(res && (res.d1Verified || Number(res.wrote) > 0) && !res.sent_opaque && !res.networkFallback && !res.timedOut);
+        var wroteOk = !!(res && res.status === "success" && (
+          Number(res.wrote) > 0 ||
+          res.d1Verified ||
+          res.alreadyMoved
+        ) && !res.sent_opaque && res.status !== "online" && !/жив/i.test(String(res.msg || "")));
 
         if (!calendarOnly && !dateOnly && effectiveOldDay && effectiveNewDay && effectiveOldDay !== effectiveNewDay) {
           async function clientOnDay_(dayName) {
@@ -7186,7 +7228,8 @@
           }
           var onOld = await clientOnDay_(effectiveOldDay);
           var onNew = await clientOnDay_(effectiveNewDay);
-          if (onNew === false && onOld === true) {
+          // явный провал: всё ещё на старом и нет на новом
+          if (onOld === true && onNew === false) {
             try {
               await apiGet({
                 action: "moveClient",
@@ -7206,29 +7249,42 @@
               onNew = await clientOnDay_(effectiveNewDay);
             } catch (eRetryM) {}
           }
-          if (onNew === true && onOld === false) {
-            moveOk = true;
-          } else if (onNew === false && onOld === true) {
+          if (onOld === true && onNew === false) {
             moveOk = false;
-          } else if (wroteOk && onOld === false) {
-            // ушёл со старого — считаем успехом (новый день мог ещё догонять)
-            moveOk = true;
-          } else if (onNew === null || onOld === null) {
-            moveOk = wroteOk;
+          } else {
+            moveOk = true; // wroteOk или сеть — не блокируем ложным fail
           }
         } else if (calendarOnly || dateOnly) {
           var stillOld = effectiveOldDay
-            ? await clientVisibleOnView_(clientName, effectiveOldDay, oldDate || "")
+            ? await clientVisibleOnView_(clientName, effectiveOldDay, "")
             : null;
           var onTarget = await clientVisibleOnView_(clientName, effectiveNewDay, effectiveNewDate || target.newDate || "");
-          if (onTarget === true) {
-            moveOk = true;
-          } else if (stillOld === true && onTarget === false) {
+          if (stillOld === true && onTarget === false) {
+            try {
+              await apiGet({
+                action: "moveClient",
+                client: clientName,
+                oldDay: oldDay || "",
+                newDay: newDay || "",
+                oldDate: oldDate || "",
+                newDate: target.newDate,
+                dateOnly: dateOnly ? "1" : "0",
+                calendarOnly: calendarOnly ? "1" : "0",
+                cutRaw: cutRaw === "yes" ? "1" : "0",
+                matchKey: matchKey,
+                force: "1",
+                _: String(Date.now())
+              }, { timeoutMs: 22000, cacheTtlMs: 0 });
+              stillOld = effectiveOldDay
+                ? await clientVisibleOnView_(clientName, effectiveOldDay, "")
+                : null;
+              onTarget = await clientVisibleOnView_(clientName, effectiveNewDay, effectiveNewDate || target.newDate || "");
+            } catch (eCalR) {}
+          }
+          if (stillOld === true && onTarget === false && !wroteOk) {
             moveOk = false;
-          } else if (wroteOk && stillOld === false) {
+          } else {
             moveOk = true;
-          } else if (onTarget === false && stillOld !== false && !wroteOk) {
-            moveOk = false;
           }
         }
         if (!moveOk) {
@@ -7381,11 +7437,19 @@
           await uiAlertAsync("Не удалось: " + (res.message || res.status || "ошибка"));
           return;
         }
+        if (res && (res.status === "online" || /жив/i.test(String(res.msg || res.message || "")))) {
+          await uiAlertAsync("Не удалось удалить — сервер не принял запрос. Обнови через reset.html и попробуй ещё раз.");
+          return;
+        }
         var verifyDay = String((res && res.day) || delParams.day || day || "").trim();
-        var verifyDate = String(delParams.date || dateStr || "").trim();
         var daysCleared = Array.isArray(res && res.daysCleared) ? res.daysCleared : [];
-        async function verifyGone_() {
-          // проверить все слоты, которые Worker чистил (+ исходный day/date)
+        var writeSolid = !!(res && res.status === "success" && !res.sent_opaque && (
+          Number(res.wrote) > 0 ||
+          (res.d1Verified && !res.skippedStaleDelete) ||
+          res.alreadyGone
+        ));
+        async function stillOnPrimaryDay_() {
+          // только главный день — date/month snap давал ложные «ещё в списке»
           var slots = [];
           function addSlot_(d) {
             d = String(d || "").trim();
@@ -7394,39 +7458,34 @@
           addSlot_(verifyDay);
           daysCleared.forEach(addSlot_);
           addSlot_(day);
+          if (!slots.length) return null;
           for (var si = 0; si < slots.length; si++) {
             var vis = await clientVisibleOnView_(client.name, slots[si], "");
-            if (vis === true) return false;
-            if (vis === null) return false;
+            if (vis === true) return true;
           }
-          if (verifyDate) {
-            var visD = await clientVisibleOnView_(client.name, "", verifyDate);
-            if (visD === true) return false;
-            if (visD === null) return false;
-          }
-          return true;
+          return false;
         }
-        var delOk = await verifyGone_();
-        if (!delOk) {
+        var still = await stillOnPrimaryDay_();
+        if (still === true) {
           try {
             await apiGet(Object.assign({}, delParams, {
               day: verifyDay || delParams.day,
               force: "1",
               _: String(Date.now())
-            }), { timeoutMs: 20000, cacheTtlMs: 0 });
+            }), { timeoutMs: 25000, cacheTtlMs: 0 });
           } catch (eR) {}
-          delOk = await verifyGone_();
+          still = await stillOnPrimaryDay_();
         }
-        // opaque/timeout без факта «ещё на месте» — не врём успех; если wrote — ок
-        if (!delOk && res && Number(res.wrote) > 0 && res.d1Verified) {
-          // повторная проверка через 400мс (snap/race)
-          try { await new Promise(function (r) { setTimeout(r, 400); }); } catch (eW) {}
-          delOk = await verifyGone_();
-        }
-        if (!delOk) {
+        // ошибка только если ЯВНО всё ещё на дне после retry
+        if (still === true) {
           await uiAlertAsync("Не удалось удалить — человек всё ещё в списке. Обнови Просмотр и попробуй ещё раз.");
           try { window._peopleListForceFresh = true; } catch (eF0) {}
           try { await loadClientsForDay(); } catch (eL0) {}
+          return;
+        }
+        // сеть неизвестна — если Worker не подтвердил запись, тоже fail
+        if (still === null && !writeSolid && !(res && (res.d1Verified || Number(res.wrote) > 0 || res.alreadyGone))) {
+          await uiAlertAsync("Не удалось удалить — нет подтверждения сервера. Проверь сеть и попробуй ещё раз.");
           return;
         }
         // D1 уже ответил success — убираем из UI сразу (не ждём GAS / не врём «не удалилось»).
