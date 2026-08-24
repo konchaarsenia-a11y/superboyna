@@ -40,6 +40,9 @@
       margin: 0; padding: 0; min-height: 100%;
       background: var(--bg); color: var(--text);
       font-family: var(--font);
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
     }
     body {
       background:
@@ -47,6 +50,9 @@
         radial-gradient(70% 50% at 0% 0%, rgba(255,255,255,0.04), transparent 45%),
         var(--bg);
       padding-bottom: calc(24px + var(--safe-b));
+    }
+    body.has-cart {
+      padding-bottom: calc(120px + var(--safe-b));
     }
     body::before {
       content: "";
@@ -57,6 +63,9 @@
       mix-blend-mode: soft-light;
     }
     .wrap { position: relative; z-index: 1; max-width: 440px; margin: 0 auto; padding: 18px 16px 0; }
+    body.has-cart .wrap { padding-bottom: 28px; }
+    #catalogList, #pointsList, #myOrdersList { padding-bottom: 8px; }
+    body.has-cart #catalogList, body.has-cart #pointsList { padding-bottom: 16px; }
     .screen { display: none; animation: in 0.28s cubic-bezier(0.22,1,0.36,1); }
     .screen.on { display: block; }
     @keyframes in {
@@ -197,7 +206,7 @@
       align-items: stretch;
       gap: 10px;
     }
-    .coupon-banner {
+    .coupon-banner, .coupon-preview {
       width: 100%;
       border-radius: 12px;
       display: block;
@@ -205,6 +214,7 @@
       border: 1px solid rgba(245,154,46,0.25);
       object-fit: contain;
     }
+    .coupon-preview { aspect-ratio: 3 / 2; object-fit: cover; }
     .coupon-row {
       display: flex; align-items: center; gap: 12px;
       width: 100%;
@@ -473,13 +483,14 @@
 
   <script>
 (function () {
-  var APP_VER = "3.2.9";
+  var APP_VER = "3.3.1";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
   var ME_CACHE_KEY = "gb_partner_me_v1";
   var SETTINGS_KEY = "gb_partner_settings_v2";
   var BANNER_IMG = "assets/coupon-poster.png";
+  var COUPON_IMG = "assets/coupon-varka-goodboy.png";
   // Owner Бойни — все точки; партнёр — Partner_Access. Точки с сервера.
   var OWNERS_ONLY_MODE_ = false;
   var REMOTE_IS_OWNER_ = false;
@@ -819,7 +830,9 @@
       if (el) el.classList.toggle("on", s === id);
     });
     var bar = document.getElementById("cartBar");
-    if (bar) bar.style.display = (id === "screenOrder" || id === "screenPoints") ? "" : "none";
+    var withCart = (id === "screenOrder" || id === "screenPoints");
+    if (bar) bar.style.display = withCart ? "" : "none";
+    try { document.body.classList.toggle("has-cart", !!withCart); } catch (eBar) {}
     updateCartButton_();
   }
 
@@ -1229,10 +1242,15 @@
           '</div><div class="unit">только 1 шт' + selected +
           "</div></div>" + ste + "</div></div>";
       }
-      var hint = it.type === "coupon" ? "пресеты или своё" : "пресеты или своё";
-      var wrap = it.type === "coupon" ? "coupon-card" : "item";
-      return '<div class="' + wrap + ' qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
-        '</div><div class="unit">' + hint + selected +
+      if (it.type === "coupon") {
+        return '<div class="coupon-card banner-card">' +
+          '<img class="coupon-preview" src="' + COUPON_IMG + '" alt="Varka × Good Boy">' +
+          '<div class="coupon-row qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
+          '</div><div class="unit">пресеты или своё' + selected +
+          "</div></div>" + ste + "</div></div>";
+      }
+      return '<div class="item qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
+        '</div><div class="unit">пресеты или своё' + selected +
         "</div></div>" + ste + "</div>";
     }).join("");
   }
