@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-24 move-afterwrite-strictDay
+ * deploy-marker: 2026-08-24 explicit-delete-vs-stale-guard
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -3427,9 +3427,18 @@ async function sanitizeGasClientsPayload_(env, day, live) {
   return live;
 }
 
-/** Фоновый delete (waitUntil) не должен сносить D1-строку, записанную save ПОСЛЕ старта delete. */
+/** Фоновый delete (waitUntil) не должен сносить D1-строку, записанную save ПОСЛЕ старта delete.
+ * Явный delete из UI / force — всегда сносить: иначе move afterWrite upsert → skippedStaleDelete
+ * и клиент «не удаляется» на Вт–Вс после недавнего переноса. */
 async function deleteWouldEraseFreshWrite_(env, params, liveRow, day, mk, deleteStartedAt) {
   if (!env || !liveRow || String(liveRow.status || "") !== "active") return false;
+  if (
+    toBool_(params && params._explicitDelete) ||
+    toBool_(params && params._userDelete) ||
+    toBool_(params && params.force)
+  ) {
+    return false;
+  }
   const started = Number(
     deleteStartedAt || (params && (params._deleteStartedAt || params.deleteStartedAt)) || 0
   );
@@ -3444,6 +3453,34 @@ async function deleteWouldEraseFreshWrite_(env, params, liveRow, day, mk, delete
   const rowAt = Date.parse(String(liveRow.updated_at || "")) || 0;
   const freshMs = Math.max(rowAt, guardAt);
   return !!(freshMs && freshMs >= started - 250);
+}
+
+/** Есть свежий delete-tombstone на день+клиент (не воскрешать из move afterWrite). */
+async function hasFreshDeleteTombstone_(env, day, matchKey, clientName) {
+  if (!env || !day) return false;
+  const mk = normalizeMatchKey_(matchKey || clientName);
+  if (!mk && !clientName) return false;
+  try {
+    const tomb = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
+    const items = (tomb.items || []).slice();
+    try {
+      const pk = await getSnapRaw_(env, "delTomb:" + String(day) + ":" + mk);
+      if (pk && pk.mk && !pk.cleared) items.push(pk);
+    } catch (ePk) {}
+    return isTombstoned_({ items: items }, day, mk, clientName, null);
+  } catch (e) {
+    return false;
+  }
+}
+
+async function clearWriteGuard_(env, day, matchKey) {
+  const mk = normalizeMatchKey_(matchKey);
+  if (!env || !env.DB || !day || !mk) return;
+  try {
+    await env.DB.prepare("DELETE FROM snap_cache WHERE cache_key = ?")
+      .bind("writeGuard:" + String(day) + ":" + mk)
+      .run();
+  } catch (e) {}
 }
 
 async function deleteClient_(params, env) {
@@ -3525,6 +3562,7 @@ async function deleteClient_(params, env) {
   }
 
   // waitUntil/afterWrite delete, начатый до save — не трогать свежую D1-запись
+  // (явный UI-delete сюда не попадает — deleteWouldEraseFreshWrite_ = false)
   try {
     let liveGuard =
       homeRow ||
@@ -3545,6 +3583,14 @@ async function deleteClient_(params, env) {
       };
     }
   } catch (eStaleDel) {}
+
+  // снять writeGuard на целевых днях — иначе concurrent afterWrite + verify снова «stale»
+  try {
+    for (let wg = 0; wg < daysToClear.length; wg++) {
+      await clearWriteGuard_(env, daysToClear[wg], matchKeyRaw || client);
+      if (client) await clearWriteGuard_(env, daysToClear[wg], client);
+    }
+  } catch (eWgClr) {}
 
   const now = new Date().toISOString();
   let changed = 0;
@@ -4825,7 +4871,12 @@ async function handleCutover_(a, params, env, ctx) {
       let d1WriteRes = null;
       const peopleWriteParams =
         /^(deleteClient|removeCalendarClient)$/i.test(a) && params
-          ? Object.assign({}, params, { _deleteStartedAt: String(Date.now()) })
+          ? Object.assign({}, params, {
+              // UI-delete: не давать move afterWrite сорвать удаление через skippedStaleDelete
+              _explicitDelete: params._explicitDelete != null ? params._explicitDelete : "1",
+              _userDelete: "1",
+              _deleteStartedAt: String(Date.now())
+            })
           : params;
       try {
         if (env && env.DB) {
@@ -6800,6 +6851,23 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                       fresh.clients = list;
                       fresh._moveStaleSkip = true;
                     } else {
+                      var mkKeep0 = normalizeMatchKey_(params.matchKey || wantClient);
+                      var tombArrive = await hasFreshDeleteTombstone_(
+                        env,
+                        day,
+                        mkKeep0,
+                        wantClient
+                      );
+                      if (tombArrive) {
+                        list = list.filter(function (c) {
+                          return !nicksLooseMatch_(c && (c.name || c.client), wantClient);
+                        });
+                        fresh.clients = list;
+                        fresh._moveDropClient = wantClient;
+                        fresh._explicitDelete = true;
+                        fresh._explicitDeleteClient = wantClient;
+                        fresh._skipProtectMissing = true;
+                      } else {
                       var rowD1 = await findOrderRow_(
                         env,
                         params.matchKey || wantClient,
@@ -6811,7 +6879,7 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                       // Если строки нет (гонка) — восстановить из writeRes/params.
                       if (!rowD1 && writeRes && writeRes.status === "success") {
                         try {
-                          var mkKeep = normalizeMatchKey_(params.matchKey || wantClient);
+                          var mkKeep = mkKeep0;
                           await upsertOrderRow_(env, {
                             id: day + ":" + mkKeep,
                             date_iso: String(params.newDate || ""),
@@ -6828,7 +6896,13 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                             updated_at: new Date().toISOString(),
                             meta_json: "{}"
                           });
-                          rowD1 = await findOrderRow_(env, params.matchKey || wantClient, day, params.newDate || "", wantClient);
+                          rowD1 = await findOrderRow_(
+                            env,
+                            params.matchKey || wantClient,
+                            day,
+                            params.newDate || "",
+                            wantClient
+                          );
                         } catch (eRe) {}
                       }
                       const fromD1 = rowD1 ? clientFromRow_(rowD1) : {
@@ -6843,6 +6917,7 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                       fresh.clients = list;
                       fresh._d1MoveKeep = true;
                       fresh._skipProtectMissing = false;
+                      }
                     }
                   } catch (eKeep) {
                     fresh._d1MoveKeep = true;
@@ -6884,10 +6959,11 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                           wantClient
                         );
                       } catch (eP2) {}
-                      // убедиться что arrive жив в D1
+                      // убедиться что arrive жив в D1 (не если уже удалили)
                       try {
                         var liveNew = await findOrderRow_(env, params.matchKey || wantClient, newDay, params.newDate || "", wantClient);
-                        if (!liveNew) {
+                        var tombFix = await hasFreshDeleteTombstone_(env, newDay, mkFix, wantClient);
+                        if (!liveNew && !tombFix) {
                           await upsertOrderRow_(env, {
                             id: newDay + ":" + mkFix,
                             date_iso: String(params.newDate || ""),
