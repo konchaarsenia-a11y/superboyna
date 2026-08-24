@@ -42,7 +42,7 @@
       } catch (e2) {}
       try {
         localStorage.removeItem("boinya_c_cutover");
-        localStorage.setItem("boinya_c_sw_want", "boinya-c-sw-v12-71115876");
+        localStorage.setItem("boinya_c_sw_want", "boinya-c-sw-v12-71115877");
       } catch (e3) {}
       try {
         if (indexedDB && indexedDB.databases) {
@@ -53,9 +53,9 @@
           }
         }
       } catch (e4) {}
-      say("Готово. Открываю приложение v71115876…");
+      say("Готово. Открываю приложение v71115877…");
       setTimeout(function () {
-        location.replace("./app.html?cutover=1&v=71115876&_reset=" + Date.now());
+        location.replace("./app.html?cutover=1&v=71115877&_reset=" + Date.now());
       }, 600);
     })();
   </script>

@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115873";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115877";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -7300,24 +7300,39 @@
         const res = await apiGet(delParams, { timeoutMs: 45000, cacheTtlMs: 0 });
         // opaque без d1Verified — не считаем успехом (иначе «удалено» а человек на месте)
         var delOk = !!(res && (res.d1Verified || (res.status === "success" && !res.sent_opaque && !res.alreadyGone)));
-        if (res && res.alreadyGone) delOk = false; // alreadyGone без проверки = часто «не нашли ключ»
         async function verifyGone_() {
           try {
             var vc = await apiGet({
-              action: "getClients",
+              action: "getViewCompare",
               day: delParams.day || day,
               date: delParams.date || dateStr,
               force: "1",
               _: String(Date.now())
             }, { timeoutMs: 20000, cacheTtlMs: 0 });
-            return !((vc && vc.clients) || []).some(function (c) {
+            var lists = []
+              .concat(Array.isArray(vc && vc.week) ? vc.week : [])
+              .concat(Array.isArray(vc && vc.month) ? vc.month : []);
+            return !lists.some(function (c) {
               return nicksMatchClient_(c && c.name, client.name);
             });
           } catch (eVer0) {
-            return false;
+            try {
+              var gc = await apiGet({
+                action: "getClients",
+                day: delParams.day || day,
+                date: delParams.date || dateStr,
+                force: "1",
+                _: String(Date.now())
+              }, { timeoutMs: 20000, cacheTtlMs: 0 });
+              return !((gc && gc.clients) || []).some(function (c) {
+                return nicksMatchClient_(c && c.name, client.name);
+              });
+            } catch (eVer1) {
+              return false;
+            }
           }
         }
-        if (!delOk || res.alreadyGone || res.sent_opaque) {
+        if (!delOk || res.alreadyGone || res.sent_opaque || res.skippedStaleDelete) {
           delOk = await verifyGone_();
           if (!delOk && res && res.status === "success") {
             // повторный delete
