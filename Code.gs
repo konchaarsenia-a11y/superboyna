@@ -2499,12 +2499,12 @@ function handleApiAction(json, callback, fromPost) {
   var action = json.action;
 
   if (action === "deleteClient") {
-    return handleDeleteClient(ss, json, callback);
+    return handleDeleteClient(ss, json, callback, fromPost);
   }
   if (action === "moveClient") {
     // для move: day в doPost = newDay; в GET передаём newDay отдельно
     if (!json.day && json.newDay) json.day = json.newDay;
-    return handleMoveClient(ss, json, callback);
+    return handleMoveClient(ss, json, callback, fromPost);
   }
   if (action === "saveOrder") {
     return handleSaveOrder(ss, json, callback, fromPost);
@@ -3658,7 +3658,11 @@ function isCancelledCalendarKey_(keys, client, matchKeyOpt) {
   return false;
 }
 
-function handleDeleteClient(ss, json, callback) {
+function handleDeleteClient(ss, json, callback, fromPost) {
+  if (fromPost === undefined) fromPost = false;
+  var reply = function (obj) {
+    return fromPost ? jsonpText(callback, obj) : jsonp(callback, obj);
+  };
   try { bustClientsCache_(); } catch (eEarlyDel) {}
   var tz = ss.getSpreadsheetTimeZone();
   var dayName = String(json.day || "").trim();
@@ -3735,7 +3739,7 @@ function handleDeleteClient(ss, json, callback) {
 
   if (clearedWeek || (bookRes && bookRes.cancelled > 0) || (calRes && calRes.removed > 0)) {
     bustClientsCache_();
-    return jsonp(callback, {
+    return reply({
       status: "success",
       clearedWeek: clearedWeek,
       clearedCols: clearedCols,
@@ -3746,7 +3750,7 @@ function handleDeleteClient(ss, json, callback) {
   }
   // уже нет ни в неделе, ни в бронях — не ошибка (повторное удаление / рассинхрон UI)
   bustClientsCache_();
-  return jsonp(callback, {
+  return reply({
     status: "success",
     alreadyGone: true,
     day: dayName || ""
@@ -3841,7 +3845,11 @@ function scrubFutureWeekOrphans_(ss, opts) {
   return { removed: removed };
 }
 
-function handleMoveClient(ss, json, callback) {
+function handleMoveClient(ss, json, callback, fromPost) {
+  if (fromPost === undefined) fromPost = false;
+  var reply = function (obj) {
+    return fromPost ? jsonpText(callback, obj) : jsonp(callback, obj);
+  };
   try { bustClientsCache_(); } catch (eEarlyMv) {}
   var tz = ss.getSpreadsheetTimeZone();
   var clientName = String(json.client || "").trim();
@@ -3883,8 +3891,8 @@ function handleMoveClient(ss, json, callback) {
 
   // дата дальше «Будущей» / вне недели — убрать с листа, оставить только календарь/бронь/CRM
   if (calendarOnly) {
-    if (!clientName) return jsonp(callback, { status: "no_client" });
-    if (!newDate) return jsonp(callback, { status: "need_date" });
+    if (!clientName) return reply({ status: "no_client" });
+    if (!newDate) return reply({ status: "need_date" });
     var cleared = 0;
     if (srcBlock) cleared += clearClientColumnFromDay_(ss, json.oldDay, clientName, matchKey);
     // на всякий случай снять и с «Будущей» / других дней
@@ -3916,7 +3924,7 @@ function handleMoveClient(ss, json, callback) {
     try { scrubFutureWeekOrphans_(ss, { force: true }); } catch (eScrub) {}
     bustClientsCache_();
     try { clearCrmSheetCache_(); } catch (eC0) {}
-    return jsonp(callback, {
+    return reply({
       status: "success",
       calendarOnly: true,
       clearedCols: cleared,
@@ -3929,13 +3937,13 @@ function handleMoveClient(ss, json, callback) {
   }
 
   var dstBlock = getDayBlock(targetDayName);
-  if (!srcBlock || !dstBlock) return jsonp(callback, { status: "bad_day" });
+  if (!srcBlock || !dstBlock) return reply({ status: "bad_day" });
 
   // тот же блок дня, но дата сменилась на другую, всё ещё на листе (A1 Будущей = newDate)
   if (dateOnly || String(json.oldDay || "").trim() === targetDayName) {
-    if (!oldDate || !newDate) return jsonp(callback, { status: "need_date" });
+    if (!oldDate || !newDate) return reply({ status: "need_date" });
     if (dateKey_(oldDate, tz) === dateKey_(newDate, tz)) {
-      return jsonp(callback, { status: "same_date" });
+      return reply({ status: "same_date" });
     }
     // если целевая дата уже не этот блок — calendarOnly выше; здесь блок совпал
     var noteOnly = "";
@@ -3963,7 +3971,7 @@ function handleMoveClient(ss, json, callback) {
     }
     bustClientsCache_();
     try { clearCrmSheetCache_(); } catch (eC1) {}
-    return jsonp(callback, {
+    return reply({
       status: "success",
       dateOnly: true,
       calendarMoved: dateSyncOnly.calendar || 0,
@@ -3976,7 +3984,7 @@ function handleMoveClient(ss, json, callback) {
 
   var sourceSheet = getTargetSheet(ss, srcBlock);
   var targetSheet = getTargetSheet(ss, dstBlock);
-  if (!sourceSheet || !targetSheet) return jsonp(callback, { status: "error" });
+  if (!sourceSheet || !targetSheet) return reply({ status: "error" });
 
   var want = clientName.toUpperCase();
   var oldClientCol = -1;
@@ -3997,7 +4005,7 @@ function handleMoveClient(ss, json, callback) {
       }
     }
   }
-  if (oldClientCol === -1) return jsonp(callback, { status: "src_client_not_found" });
+  if (oldClientCol === -1) return reply({ status: "src_client_not_found" });
 
   var oldMeatValues = sourceSheet.getRange(srcBlock.start, oldClientCol, srcBlock.end - srcBlock.start + 1, 1).getValues();
   var oldAddressValue = sourceSheet.getRange(srcBlock.addr, oldClientCol).getValue();
@@ -4027,7 +4035,7 @@ function handleMoveClient(ss, json, callback) {
       }
     }
   }
-  if (newClientCol === -1) return jsonp(callback, { status: "no_free_columns" });
+  if (newClientCol === -1) return reply({ status: "no_free_columns" });
 
   targetSheet.getRange(dstBlock.start, newClientCol, dstBlock.end - dstBlock.start + 1, 1).setValues(oldMeatValues);
   targetSheet.getRange(dstBlock.addr, newClientCol).setValue(oldAddressValue);
@@ -4057,7 +4065,7 @@ function handleMoveClient(ss, json, callback) {
   // дефицит — отдельно checkOrderWarehouse (не блокируем move)
   bustClientsCache_();
   try { clearCrmSheetCache_(); } catch (eC) {}
-  return jsonp(callback, {
+  return reply({
     status: "success",
     cutRaw: cutRaw,
     newDay: targetDayName,
