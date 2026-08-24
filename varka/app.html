@@ -40,6 +40,9 @@
       margin: 0; padding: 0; min-height: 100%;
       background: var(--bg); color: var(--text);
       font-family: var(--font);
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
     }
     body {
       background:
@@ -47,6 +50,9 @@
         radial-gradient(70% 50% at 0% 0%, rgba(255,255,255,0.04), transparent 45%),
         var(--bg);
       padding-bottom: calc(24px + var(--safe-b));
+    }
+    body.has-cart {
+      padding-bottom: calc(120px + var(--safe-b));
     }
     body::before {
       content: "";
@@ -57,6 +63,9 @@
       mix-blend-mode: soft-light;
     }
     .wrap { position: relative; z-index: 1; max-width: 440px; margin: 0 auto; padding: 18px 16px 0; }
+    body.has-cart .wrap { padding-bottom: 28px; }
+    #catalogList, #pointsList, #myOrdersList { padding-bottom: 8px; }
+    body.has-cart #catalogList, body.has-cart #pointsList { padding-bottom: 16px; }
     .screen { display: none; animation: in 0.28s cubic-bezier(0.22,1,0.36,1); }
     .screen.on { display: block; }
     @keyframes in {
@@ -474,7 +483,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.0";
+  var APP_VER = "3.3.1";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -821,7 +830,9 @@
       if (el) el.classList.toggle("on", s === id);
     });
     var bar = document.getElementById("cartBar");
-    if (bar) bar.style.display = (id === "screenOrder" || id === "screenPoints") ? "" : "none";
+    var withCart = (id === "screenOrder" || id === "screenPoints");
+    if (bar) bar.style.display = withCart ? "" : "none";
+    try { document.body.classList.toggle("has-cart", !!withCart); } catch (eBar) {}
     updateCartButton_();
   }
 
