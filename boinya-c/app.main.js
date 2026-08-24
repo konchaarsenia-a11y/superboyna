@@ -3606,7 +3606,7 @@
     function apiGet(params, opts) {
       opts = opts || {};
       params = params || {};
-      // Cutover LIVE: без cutover=1 Worker уходит в sandbox D1 → фантомы + кнопки «в никуда»
+      // Cutover LIVE: без cutover=1 Worker в sandbox — D1 пишет, Sheets нет
       if (window.__BOINYA_C_CUTOVER__ && params.cutover == null && params.mode !== "live") {
         params = Object.assign({}, params, { cutover: "1" });
       }
@@ -12359,7 +12359,7 @@
           msg = "Cutover заблокировал закрытие. Обнови Mini App (новая версия) и повтори.";
         }
         if (msg === "sandbox_no_prod_week") {
-          msg = "Открыто без cutover=1 (песочница) — в боевые Sheets не пишет. Открой с ?cutover=1";
+          msg = "Песочница D1 (нет cutover=1): люди в D1 ок, боевые Sheets не меняются. Открой ?cutover=1";
         }
         await uiAlertAsync("Не закрылось: " + msg + (res && res.tip && msg.indexOf(res.tip) < 0 ? ("\n" + res.tip) : ""));
         return;

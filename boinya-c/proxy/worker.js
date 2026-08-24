@@ -164,7 +164,58 @@ async function handleAction_(action, params, env, url, ctx) {
   if (live) {
     return handleCutover_(a, params, env, ctx);
   }
-  // sandbox: write не маскируем под успех — иначе «сохранено», а листы ПП/Приём пустые
+  // sandbox: люди (save/move/delete) — пишем в D1 (иначе бейдж «C · D1» = мёртвые кнопки).
+  // В Sheets не ходим; UI видит d1Verified. Для боевых листов нужен LIVE (cutover=1).
+  if (
+    /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|placeTransferTask|notifyMissedDelivery)$/i.test(
+      a
+    )
+  ) {
+    try {
+      let d1Res = null;
+      if (env && env.DB) {
+        if (/^(saveOrder|saveBooking)$/i.test(a)) {
+          d1Res = await saveOrder_(params, env, /^saveBooking$/i.test(a));
+        } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
+          d1Res = await deleteClient_(params, env);
+        } else if (/^moveClient$/i.test(a)) {
+          d1Res = await moveClient_(params, env);
+        } else if (/^placeTransferTask$/i.test(a)) {
+          d1Res = await placeTransferTaskD1_(params, env);
+        } else if (/^notifyMissedDelivery$/i.test(a)) {
+          d1Res = await syncOpsWriteToD1_(a, params, env, {
+            status: "success",
+            id: "xfer_" + Date.now()
+          });
+        }
+      }
+      if (d1Res && d1Res.status === "success") {
+        return Object.assign({}, d1Res, {
+          cutover: false,
+          sandbox: true,
+          d1Verified: true,
+          optimistic: true,
+          sheetsSkipped: true,
+          tip: "Песочница D1: в Google Sheets не пишем. Для листов открой с cutover=1 (LIVE).",
+          action: a
+        });
+      }
+      return {
+        status: "error",
+        message: (d1Res && d1Res.message) || "d1_write_failed",
+        sandbox: true,
+        action: a
+      };
+    } catch (eSand) {
+      return {
+        status: "error",
+        message: String((eSand && eSand.message) || eSand),
+        sandbox: true,
+        action: a
+      };
+    }
+  }
+  // прочие write в sandbox — явная ошибка (не маскируем под успех)
   if (isWriteAction_(a)) {
     return {
       status: "error",
@@ -4123,8 +4174,17 @@ const GAS_ORIGIN =
 
 function unwrapGas_(text) {
   const s = String(text || "").trim();
+  // HTML login / Page Not Found от Apps Script echo — не JSON
+  if (/^<!DOCTYPE|^<html/i.test(s)) {
+    throw new Error("gas_html_response");
+  }
   const m = s.match(/^[a-zA-Z_$][\w$]*\s*\(\s*([\s\S]*)\s*\)\s*;?\s*$/);
-  return JSON.parse(m ? m[1] : s);
+  const json = JSON.parse(m ? m[1] : s);
+  // POST→битый redirect иногда отдаёт doGet без action
+  if (json && typeof json === "object" && json.status === "online") {
+    throw new Error("gas_online_stub");
+  }
+  return json;
 }
 
 async function cutoverGetMyAccess_(params, env, ctx) {
@@ -6967,17 +7027,112 @@ async function gasProxy_(action, params, env, opts) {
     }
 
     let json;
+    let unwrapFailed = false;
     try {
       json = unwrapGas_(text);
     } catch (eUnwrap) {
-      json = JSON.parse(String(text || "").trim());
+      unwrapFailed = true;
+      try {
+        json = JSON.parse(String(text || "").trim());
+      } catch (eParse) {
+        json = null;
+      }
     }
     if (json && typeof json === "object") {
       if (opts.write) json.cutover = true;
       else json.sandboxProxy = true;
     }
+    // write: POST echo иногда «Бэкенд Жив» / HTML — для CRM пробуем GET JSONP
+    // (не трогаем реальные ошибки GAS вроде no_free_columns / src_client_not_found)
+    const postBroken =
+      !json ||
+      json.status === "online" ||
+      unwrapFailed && (!json || !json.status) ||
+      /gas_html_response|gas_online_stub/i.test(String((json && json.message) || ""));
+    if (
+      opts.write &&
+      postBroken &&
+      /^(deleteClient|removeCalendarClient|moveClient|saveOrder|saveBooking)$/i.test(action)
+    ) {
+      try {
+        const uGet = new URL(origin);
+        uGet.searchParams.set("action", action);
+        Object.keys(clean).forEach(function (k) {
+          var val = clean[k];
+          if (typeof val === "object") {
+            try {
+              val = JSON.stringify(val);
+            } catch (eJ2) {
+              val = String(val);
+            }
+          }
+          uGet.searchParams.set(k, String(val));
+        });
+        uGet.searchParams.set("callback", "cb");
+        const resGet = await fetch(uGet.toString(), {
+          redirect: "follow",
+          headers: { "Cache-Control": "no-cache" }
+        });
+        const textGet = await resGet.text();
+        const viaGet = unwrapGas_(textGet);
+        if (viaGet && viaGet.status === "success") {
+          viaGet.cutover = true;
+          viaGet.gasViaGet = true;
+          return viaGet;
+        }
+      } catch (eGetFb) {}
+    }
     return json;
   } catch (e) {
+    // write fallback GET при полном провале POST
+    if (
+      opts.write &&
+      /^(deleteClient|removeCalendarClient|moveClient|saveOrder|saveBooking)$/i.test(action)
+    ) {
+      try {
+        const origin2 = (env && env.GAS_ORIGIN) || GAS_ORIGIN;
+        const clean2 = {};
+        Object.keys(params || {}).forEach(function (k) {
+          if (
+            k === "action" ||
+            k === "callback" ||
+            k === "_" ||
+            k === "cutover" ||
+            k === "allowDanger" ||
+            params[k] == null ||
+            params[k] === ""
+          ) {
+            return;
+          }
+          if (k === "mode" && /^(live|sandbox|cutover)$/i.test(String(params[k]))) return;
+          clean2[k] = params[k];
+        });
+        const uGet2 = new URL(origin2);
+        uGet2.searchParams.set("action", action);
+        Object.keys(clean2).forEach(function (k) {
+          var val = clean2[k];
+          if (typeof val === "object") {
+            try {
+              val = JSON.stringify(val);
+            } catch (eJ3) {
+              val = String(val);
+            }
+          }
+          uGet2.searchParams.set(k, String(val));
+        });
+        uGet2.searchParams.set("callback", "cb");
+        const resGet2 = await fetch(uGet2.toString(), {
+          redirect: "follow",
+          headers: { "Cache-Control": "no-cache" }
+        });
+        const viaGet2 = unwrapGas_(await resGet2.text());
+        if (viaGet2 && viaGet2.status === "success") {
+          viaGet2.cutover = true;
+          viaGet2.gasViaGet = true;
+          return viaGet2;
+        }
+      } catch (eGet2) {}
+    }
     return {
       status: "error",
       message: "gas_proxy_failed",

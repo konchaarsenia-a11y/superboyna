@@ -82,7 +82,7 @@
   window.__boinyaCBadgeLabel = CUTOVER ? "C · LIVE" : "C · D1";
   window.__boinyaCBadgeTitle = CUTOVER
     ? "LIVE: чтение из D1, запись в боевые Google Sheets"
-    : "Песочница: только снимок D1, в таблицу не пишет";
+    : "Песочница D1: save/move/delete в D1; в Google Sheets не пишет (нужен LIVE)";
   // turbo оставляем: короткие таймауты / без bootIdle prefetch-шторма
   window.__BOINYA_C_ALLOW_WRITE__ = true;
   if (CUTOVER) {
