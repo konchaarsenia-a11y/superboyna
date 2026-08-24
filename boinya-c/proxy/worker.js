@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-24 stale-delete-guard
+ * deploy-marker: 2026-08-24 delete-no-waituntil-rerun
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -2998,6 +2998,19 @@ async function saveOrder_(params, env, asBooking) {
   const segSave = segmentFromOrderParams_(params);
   const srcSave =
     String(params.source || "").trim() || sourceFromSegment_(segSave) || "";
+  // writeGuard ДО upsert — иначе waitUntil-delete между upsert и guard сносит строку
+  try {
+    if (day && matchKey && !toBool_(params.fromAfterWrite)) {
+      await putSnap_(env, "writeGuard:" + String(day) + ":" + matchKey, {
+        day: String(day),
+        mk: matchKey,
+        at: Date.now()
+      });
+      try {
+        await putMoveArriveProtect_(env, day, matchKey, client);
+      } catch (eProtSave) {}
+    }
+  } catch (eWgEarly) {}
   const meta = {
     orderPrice: params.orderPrice,
     ppSlot: params.ppSlot,
@@ -3622,10 +3635,25 @@ async function deleteClient_(params, env) {
   } catch (eCntDel) {}
 
   // VERIFY: ещё active где угодно по нику / дате — снести; иначе «удалился и вернулся»
+  // НЕ трогать строку, если это свежий save после старта этого delete (writeGuard).
   let still = null;
   try {
     still = await findOrderRow_(env, matchKeyRaw, day, dateIso, client);
     if (!still) still = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+    if (
+      still &&
+      (await deleteWouldEraseFreshWrite_(env, params, still, day, mk, deleteStartedAt))
+    ) {
+      return {
+        status: "success",
+        sandbox: true,
+        wrote: changed,
+        skippedStaleDelete: true,
+        d1Verified: true,
+        day: day,
+        daysCleared: daysToClear
+      };
+    }
     if (still) {
       await softDeleteRow_(still);
       if (still.day_name) {
@@ -4828,7 +4856,8 @@ async function handleCutover_(a, params, env, ctx) {
                   /^saveBooking$/i.test(a)
                 );
               } else if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
-                await deleteClient_(peopleWriteParams, env);
+                // НЕ повторять deleteClient_ в waitUntil: sync уже снёс D1 + tombstone.
+                // Повторный вызов гоняется со свежим saveOrder и снова сносит запись.
               } else if (/^moveClient$/i.test(a) && env && env.DB) {
                 if (!(d1WriteRes && d1WriteRes.status === "success")) {
                   await moveClient_(params, env);
@@ -4866,9 +4895,8 @@ async function handleCutover_(a, params, env, ctx) {
                     env,
                     /^saveBooking$/i.test(a)
                   );
-                } else if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
-                  await deleteClient_(peopleWriteParams, env);
                 }
+                // delete: не rerun D1 в retry waitUntil (см. выше)
               } catch (eD1b) {}
             }
             try {
