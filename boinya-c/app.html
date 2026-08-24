@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115872" as="script">
+  <link rel="preload" href="app.main.js?v=71115873" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115872";
+      var APP_VER = "v71115873";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -24,6 +24,37 @@
         }
         location.replace(u.toString());
       } catch (e0) {}
+    })();
+  </script>
+  <script>
+    /* Снести залипший SW cache-first (v11), иначе delete/move вечно на старом JS */
+    (function () {
+      if (!("serviceWorker" in navigator)) return;
+      var WANT = "boinya-c-sw-v12-71115873";
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
+        regs.forEach(function (reg) {
+          try {
+            var scriptURL = (reg && reg.active && reg.active.scriptURL) ||
+              (reg && reg.waiting && reg.waiting.scriptURL) ||
+              (reg && reg.installing && reg.installing.scriptURL) || "";
+            if (scriptURL && scriptURL.indexOf("boinya-c/sw.js") >= 0) {
+              reg.update();
+            }
+          } catch (eU) {}
+        });
+      }).catch(function () {});
+      try {
+        if (caches && caches.keys) {
+          caches.keys().then(function (keys) {
+            keys.forEach(function (k) {
+              if (/boinya-c-shell-v1[01]|boinya-c-api-v1[01]|boinya-c-sw-v1[01]/.test(k)) {
+                caches.delete(k);
+              }
+            });
+          });
+        }
+      } catch (eC) {}
+      try { localStorage.setItem("boinya_c_sw_want", WANT); } catch (eL) {}
     })();
   </script>
   <script src="client/config.js"></script>
@@ -2712,6 +2743,6 @@
   </div>
   <div class="toast" id="appToast"></div>
 
-  <script src="app.main.js?v=71115872" defer></script>
+  <script src="app.main.js?v=71115873" defer></script>
 </body>
 </html>

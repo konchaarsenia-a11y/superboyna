@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115872";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115873";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3609,6 +3609,11 @@
       // Cutover LIVE: без cutover=1 Worker уходит в sandbox D1 → фантомы + кнопки «в никуда»
       if (window.__BOINYA_C_CUTOVER__ && params.cutover == null && params.mode !== "live") {
         params = Object.assign({}, params, { cutover: "1" });
+      }
+      var actionEarly = String((params && params.action) || "");
+      // delete/move/save — НИКОГДА не через bridge localDelete_/snap (иначе «успех» без Worker)
+      if (/^(deleteClient|removeCalendarClient|moveClient|saveOrder|saveBooking)$/i.test(actionEarly)) {
+        opts = Object.assign({}, opts, { __boinyaNoSnap: true });
       }
       if (!opts.__boinyaNoSnap && typeof window.__boinyaCTrySnap === "function") {
         var _cHit = window.__boinyaCTrySnap(params, opts);
