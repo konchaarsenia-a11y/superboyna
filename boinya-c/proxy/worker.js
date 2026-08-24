@@ -596,11 +596,24 @@ async function clientMovedAwayFromDay_(env, matchKey, clientName, day) {
 async function saveOrderUnlessMovedAway_(params, env, asBooking) {
   const day = String((params && params.day) || "");
   const client = String((params && params.client) || "");
+  const mk = normalizeMatchKey_((params && params.matchKey) || client);
   if (
     day &&
     (await clientMovedAwayFromDay_(env, (params && params.matchKey) || client, client, day))
   ) {
     return { status: "success", skippedStaleDay: true };
+  }
+  // свежий delete/move поставил tombstone — не воскрешать из фонового afterWrite save
+  if (day && mk) {
+    try {
+      const tomb = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
+      const pk = await getSnapRaw_(env, "delTomb:" + String(day) + ":" + mk);
+      const items = (tomb.items || []).slice();
+      if (pk && pk.mk && !pk.cleared) items.push(pk);
+      if (isTombstoned_({ items: items }, day, mk, client, null)) {
+        return { status: "success", skippedTombstone: true };
+      }
+    } catch (eTomb) {}
   }
   return saveOrder_(params, env, asBooking);
 }
@@ -2931,8 +2944,11 @@ async function saveOrder_(params, env, asBooking) {
   });
 
   // новый save снимает tombstone только на этом дне (не на всех — иначе ломает move)
+  // afterWrite/повтор не снимает свежий tombstone удаления
   try {
-    if (day) await clearTombstonesForMatch_(env, matchKey, day);
+    if (day && !toBool_(params._keepTombstone) && !toBool_(params.fromAfterWrite)) {
+      await clearTombstonesForMatch_(env, matchKey, day);
+    }
   } catch (eClrT) {}
   // клиент только на одном дне недели; иначе stale moveEpoch прячет из getClients
   if (day && matchKey) {
@@ -3321,11 +3337,11 @@ async function deleteClient_(params, env) {
 
   async function softDeleteScan_(whereSql, bindArgs) {
     try {
-      const all = await env.DB.prepare(
+      const stmt = env.DB.prepare(
         "SELECT * FROM orders WHERE status = 'active' AND " + whereSql + " LIMIT 200"
-      )
-        .bind.apply(null, bindArgs)
-        .all();
+      );
+      const bound = bindArgs && bindArgs.length ? stmt.bind.apply(stmt, bindArgs) : stmt;
+      const all = await bound.all();
       const list = (all && all.results) || [];
       for (let i = 0; i < list.length; i++) {
         if (orderRowLooseMatch_(list[i], matchKeyRaw, client)) {
@@ -4433,10 +4449,13 @@ async function handleCutover_(a, params, env, ctx) {
           } else if (/^moveClient$/i.test(a)) {
             d1WriteRes = await moveClient_(params, env);
           } else if (/^notifyMissedDelivery$/i.test(a)) {
-            await syncOpsWriteToD1_(a, params, env, {
+            d1WriteRes = await syncOpsWriteToD1_(a, params, env, {
               status: "success",
               id: "xfer_" + Date.now()
             });
+            if (!d1WriteRes || typeof d1WriteRes !== "object") {
+              d1WriteRes = { status: "success", wrote: 1 };
+            }
           } else if (/^placeTransferTask$/i.test(a)) {
             d1WriteRes = await placeTransferTaskD1_(params, env);
           }
@@ -4444,210 +4463,150 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eOpt) {
         d1WriteRes = { status: "error", message: String((eOpt && eOpt.message) || eOpt) };
       }
-      const gasP = gasProxy_(a, params, env, { write: true }).catch(function () {
-        return null;
-      });
-      let proxied = null;
-      let gotGas = false;
-      await Promise.race([
-        gasP.then(function (p) {
-          proxied = p;
-          gotGas = true;
-        }),
-        new Promise(function (r) {
-          setTimeout(r, 14000);
-        })
-      ]);
-      const bg = (async function () {
-        try {
-          if (!gotGas) proxied = await gasP;
-        } catch (eG) {}
-        // GAS мог не успеть / упасть — D1 всё равно источник правды для UI
-        try {
-          if (/^(saveOrder|saveBooking)$/i.test(a) && env && env.DB) {
-            await saveOrderUnlessMovedAway_(params, env, /^saveBooking$/i.test(a));
-          } else if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
-            await deleteClient_(params, env);
-          } else if (/^moveClient$/i.test(a) && env && env.DB) {
-            // повторный move в фоне ломает быстрые A↔B↔A: stale params старого move
-            if (!(d1WriteRes && d1WriteRes.status === "success")) {
-              await moveClient_(params, env);
-            } else {
-              try {
-                var bgMk = normalizeMatchKey_(params.matchKey || params.client || "");
-                var bgNew = String(params.newDay || "");
-                var bgEp = bgMk ? await getSnapRaw_(env, "moveEpoch:" + bgMk) : null;
-                // Только если epoch всё ещё указывает на этот newDay (не уехали дальше).
-                if (bgNew && (!bgEp || !bgEp.to || String(bgEp.to) === bgNew)) {
-                  await putMoveArriveProtect_(env, bgNew, bgMk, params.client);
+
+      // GAS + afterWrite только через waitUntil — иначе runtime ждёт GAS до конца ответа (~8с).
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(
+          (async function () {
+            let proxied = null;
+            try {
+              proxied = await gasProxy_(a, params, env, { write: true });
+            } catch (eG) {
+              proxied = null;
+            }
+            try {
+              if (/^(saveOrder|saveBooking)$/i.test(a) && env && env.DB) {
+                await saveOrderUnlessMovedAway_(
+                  Object.assign({}, params, { fromAfterWrite: "1" }),
+                  env,
+                  /^saveBooking$/i.test(a)
+                );
+              } else if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
+                await deleteClient_(params, env);
+              } else if (/^moveClient$/i.test(a) && env && env.DB) {
+                if (!(d1WriteRes && d1WriteRes.status === "success")) {
+                  await moveClient_(params, env);
+                } else {
+                  try {
+                    var bgMk = normalizeMatchKey_(params.matchKey || params.client || "");
+                    var bgNew = String(params.newDay || "");
+                    var bgEp = bgMk ? await getSnapRaw_(env, "moveEpoch:" + bgMk) : null;
+                    if (bgNew && (!bgEp || !bgEp.to || String(bgEp.to) === bgNew)) {
+                      await putMoveArriveProtect_(env, bgNew, bgMk, params.client);
+                    }
+                  } catch (eProtBg) {}
                 }
-              } catch (eProtBg) {}
+              } else if (/^notifyMissedDelivery$/i.test(a) && env && env.DB && proxied) {
+                await syncOpsWriteToD1_(a, params, env, proxied);
+              }
+            } catch (eD1) {}
+            if (
+              /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(a) &&
+              (!proxied ||
+                proxied.status !== "success" ||
+                /gas_proxy_failed/i.test(String((proxied && proxied.message) || "")))
+            ) {
+              try {
+                await new Promise(function (r) {
+                  setTimeout(r, 1200);
+                });
+                const again = await gasProxy_(a, params, env, { write: true });
+                if (again && again.status === "success") proxied = again;
+              } catch (eRetry) {}
+              try {
+                if (/^(saveOrder|saveBooking)$/i.test(a) && env && env.DB) {
+                  await saveOrderUnlessMovedAway_(
+                    Object.assign({}, params, { fromAfterWrite: "1" }),
+                    env,
+                    /^saveBooking$/i.test(a)
+                  );
+                } else if (/^(deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
+                  await deleteClient_(params, env);
+                }
+              } catch (eD1b) {}
             }
-          } else if (/^notifyMissedDelivery$/i.test(a) && env && env.DB && proxied) {
-            await syncOpsWriteToD1_(a, params, env, proxied);
-          }
-        } catch (eD1) {}
-        // если GAS не ответил — ретрай записи один раз
-        if (
-          /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(a) &&
-          (!proxied || proxied.status !== "success" || /gas_proxy_failed/i.test(String((proxied && proxied.message) || "")))
-        ) {
-          try {
-            await new Promise(function (r) {
-              setTimeout(r, 1200);
-            });
-            const again = await gasProxy_(a, params, env, { write: true });
-            if (again && again.status === "success") proxied = again;
-          } catch (eRetry) {}
-          try {
-            if (/^(saveOrder|saveBooking)$/i.test(a) && env && env.DB) {
-              await saveOrderUnlessMovedAway_(params, env, /^saveBooking$/i.test(a));
-            }
-          } catch (eD1b) {}
-        }
-        try {
-          await cutoverAfterWrite_(a, params, env, proxied);
-        } catch (eA) {}
-      })();
-      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(bg);
-      else await bg;
-      if (gotGas && proxied) {
-        // D1 — источник правды: GAS no_free_columns / alreadyGone не должны ломать UI.
-        if (d1WriteRes && d1WriteRes.status === "success" && !d1WriteRes.skippedProtect) {
-          if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
-            return Object.assign({}, d1WriteRes, {
-              cutover: true,
-              sandbox: false,
-              d1Verified: true,
-              gasNote: proxied.alreadyGone ? "alreadyGone" : proxied.message || proxied.status || "",
-              action: a
-            });
-          }
-          if (/^(saveOrder|saveBooking)$/i.test(a)) {
-            const gasOk = proxied.status === "success" && String(proxied.status || "") !== "no_free_columns";
-            if (!gasOk || Number(proxied.wrote || 0) === 0) {
-              return Object.assign({}, d1WriteRes, {
-                cutover: true,
-                sandbox: false,
-                d1Verified: true,
-                gasError: proxied.message || proxied.status || "gas_missed",
-                action: a
-              });
-            }
-          }
-          if (/^moveClient$/i.test(a)) {
-            return Object.assign({}, d1WriteRes, {
-              cutover: true,
-              sandbox: false,
-              d1Verified: true,
-              gasNote: proxied.message || proxied.status || "",
-              action: a
-            });
-          }
-        }
-        if (
-          proxied.status === "error" &&
-          /gas_proxy_failed/i.test(String(proxied.message || ""))
-        ) {
-          if (d1WriteRes && d1WriteRes.status === "success") {
-            return Object.assign({}, d1WriteRes, {
-              cutover: true,
-              sandbox: false,
-              d1Verified: true,
-              gasError: proxied.detail || proxied.message,
-              action: a
-            });
-          }
-          // move/delete без D1 — не врать «успех» (GAS упал, в D1 ничего нет)
-          if (/^(moveClient|deleteClient|removeCalendarClient)$/i.test(a)) {
-            return {
-              status: "error",
-              message: "d1_and_gas_failed",
-              gasError: proxied.detail || proxied.message,
-              cutover: true,
-              sandbox: false,
-              action: a
-            };
-          }
-          return {
-            status: "success",
-            wrote: 1,
-            optimistic: true,
-            gasError: proxied.detail || proxied.message,
-            cutover: true,
-            sandbox: false,
-            action: a
-          };
-        }
-        if (/^(saveOrder|saveBooking)$/i.test(a)) {
-          return partnerGuardOrRewrite_(a, params, await patchSaveWithD1_(params, proxied, env));
-        }
-        if (/^moveClient$/i.test(a)) {
-          return partnerGuardOrRewrite_(
-            a,
-            params,
-            await patchMoveWithD1_(params, proxied, env, d1WriteRes)
-          );
-        }
-        if (
-          /^placeTransferTask$/i.test(a) &&
-          d1WriteRes &&
-          d1WriteRes.status === "success"
-        ) {
-          return Object.assign({}, d1WriteRes, {
-            cutover: true,
-            sandbox: false,
-            optimistic: proxied.status !== "success",
-            gasError: proxied.status !== "success" ? proxied.message || proxied.status : "",
-            action: a
-          });
-        }
-        return partnerGuardOrRewrite_(a, params, proxied);
+            try {
+              await cutoverAfterWrite_(a, params, env, proxied || d1WriteRes);
+            } catch (eA) {}
+          })()
+        );
       }
-      if (/^moveClient$/i.test(a) && d1WriteRes) {
-        if (d1WriteRes.status === "success") {
+
+      if (d1WriteRes && d1WriteRes.status === "success") {
+        if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
           return Object.assign({}, d1WriteRes, {
             cutover: true,
             sandbox: false,
             d1Verified: true,
-            optimistic: !gotGas,
+            optimistic: true,
             action: a
           });
         }
-        return Object.assign({}, d1WriteRes, { cutover: true, sandbox: false, action: a });
-      }
-      if (/^(deleteClient|removeCalendarClient)$/i.test(a) && d1WriteRes && d1WriteRes.status === "success") {
-        return Object.assign({}, d1WriteRes, { cutover: true, sandbox: false, action: a });
-      }
-      if (/^(saveOrder|saveBooking)$/i.test(a)) {
-        const alsoWeek =
-          params.alsoSaveOrder === true ||
-          String(params.alsoSaveOrder || "") === "1" ||
-          String(params.alsoSaveOrder || "").toLowerCase() === "true";
-        const basketLen = parseBasket_(params.basket).length;
-        return {
-          status: "success",
-          wrote: basketLen || 1,
-          basketLen: basketLen,
-          optimistic: true,
-          weekWritten: alsoWeek || /^saveOrder$/i.test(a),
-          cutover: true,
-          sandbox: false
-        };
-      }
-      if (/^placeTransferTask$/i.test(a) && d1WriteRes && d1WriteRes.status === "success") {
+        if (/^moveClient$/i.test(a)) {
+          return Object.assign({}, d1WriteRes, {
+            cutover: true,
+            sandbox: false,
+            d1Verified: true,
+            optimistic: true,
+            action: a
+          });
+        }
+        if (/^(saveOrder|saveBooking)$/i.test(a)) {
+          const alsoWeek =
+            params.alsoSaveOrder === true ||
+            String(params.alsoSaveOrder || "") === "1" ||
+            String(params.alsoSaveOrder || "").toLowerCase() === "true";
+          const basketLen = parseBasket_(params.basket).length;
+          return Object.assign({}, d1WriteRes, {
+            cutover: true,
+            sandbox: false,
+            d1Verified: true,
+            optimistic: true,
+            weekWritten: alsoWeek || /^saveOrder$/i.test(a),
+            wrote: d1WriteRes.wrote != null ? d1WriteRes.wrote : basketLen || 1,
+            basketLen: basketLen,
+            action: a
+          });
+        }
+        if (/^placeTransferTask$/i.test(a)) {
+          return Object.assign({}, d1WriteRes, {
+            cutover: true,
+            sandbox: false,
+            d1Verified: true,
+            optimistic: true,
+            parkedPlaced: true,
+            action: a
+          });
+        }
         return Object.assign({}, d1WriteRes, {
           cutover: true,
           sandbox: false,
-          optimistic: !gotGas,
-          parkedPlaced: true,
+          d1Verified: true,
+          optimistic: true,
           action: a
         });
       }
+
+      // D1 не записал — короткий wait GAS (не 14с)
+      let proxiedFail = null;
+      try {
+        proxiedFail = await Promise.race([
+          gasProxy_(a, params, env, { write: true }).catch(function () {
+            return null;
+          }),
+          new Promise(function (r) {
+            setTimeout(function () {
+              r(null);
+            }, 4000);
+          })
+        ]);
+      } catch (eFail) {}
+      if (proxiedFail && proxiedFail.status === "success") {
+        return partnerGuardOrRewrite_(a, params, proxiedFail);
+      }
       return {
-        status: "success",
-        wrote: 1,
-        optimistic: true,
+        status: "error",
+        message: (d1WriteRes && d1WriteRes.message) || "d1_write_failed",
         cutover: true,
         sandbox: false,
         action: a
@@ -6493,7 +6452,11 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
               // после возможного merge — ещё раз зафиксировать write в D1
               if (/^(saveOrder|saveBooking)$/i.test(a) && wantClient) {
                 try {
-                  await saveOrderUnlessMovedAway_(params, env, /^saveBooking$/i.test(a));
+                  await saveOrderUnlessMovedAway_(
+                    Object.assign({}, params, { fromAfterWrite: "1" }),
+                    env,
+                    /^saveBooking$/i.test(a)
+                  );
                 } catch (eResave) {}
               }
               if (/^(deleteClient|removeCalendarClient)$/i.test(a) && wantClient) {

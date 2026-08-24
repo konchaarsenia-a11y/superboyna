@@ -7038,9 +7038,8 @@
           return false;
         }
 
-        // cutover: сервер принял move — проверяем списки. Если человек всё ещё на старом
-        // и нет на новом — НЕ врём «Перенесено» (типично es_furman / ФИО+nick).
-        if (!calendarOnly && !dateOnly && oldDay && newDay && oldDay !== newDay) {
+        // D1 уже перенёс — не блокируем UI долгими verify (раньше ложные «не перенеслось»).
+        if (!calendarOnly && !dateOnly && oldDay && newDay && oldDay !== newDay && res.d1Verified !== true) {
           async function clientOnDay_(dayName) {
             try {
               var chk = await apiGet({
@@ -7060,16 +7059,14 @@
                 var nu = nm.toUpperCase();
                 if (nu === wantName || nu.indexOf(wantName) >= 0 || wantName.indexOf(nu) >= 0) return true;
               }
-            } catch (eChk) {}
-            return false;
+              return false;
+            } catch (eChk) {
+              return null; // сеть — неизвестно, не считаем провалом
+            }
           }
-          var onOld = false;
-          var onNew = false;
-          try {
-            onOld = await clientOnDay_(oldDay);
-            onNew = await clientOnDay_(newDay);
-          } catch (eVer) {}
-          if (!onNew && onOld) {
+          var onOld = await clientOnDay_(oldDay);
+          var onNew = await clientOnDay_(newDay);
+          if (onNew === false && onOld === true) {
             try {
               await apiGet({
                 action: "moveClient",
@@ -7089,33 +7086,17 @@
               onNew = await clientOnDay_(newDay);
             } catch (eRetryM) {}
           }
-          if (!onNew && onOld) {
+          if (onNew === false && onOld === true) {
             await uiAlertAsync(
               "Не перенеслось: «" + clientName + "» всё ещё на «" + oldDay + "» и нет на «" + newDay + "».\n" +
               "Попробуй ещё раз или обнови список."
             );
             try {
               apiCacheBustMem_("getClients");
-              await loadClientsForDay();
-              try { await refreshDayViews(oldDay, { force: true }); } catch (eR) {}
-              try { await refreshDayViews(newDay, { force: true }); } catch (eR2) {}
-            } catch (eReload) {}
-            return false;
-          }
-          if (!onNew && !onOld) {
-            await uiAlertAsync(
-              "Не перенеслось: «" + clientName + "» нет ни на «" + oldDay + "», ни на «" + newDay + "».\n" +
-              "Проверь список или попробуй ещё раз."
-            );
-            try {
-              apiCacheBustMem_("getClients");
-              apiCacheBustMem_("getViewCompare");
               afterPeopleMutationDays_([oldDay, newDay]);
               await loadClientsForDay();
             } catch (eReload) {}
             return false;
-          } else if (onOld) {
-            showToast("На «" + oldDay + "» ещё виден в листе — обновится через минуту");
           }
         }
 
@@ -7130,10 +7111,6 @@
           showToast(baseMsg + " · опрос " + svN + (bpMetaN ? (" · meta БП " + bpMetaN) : ""));
         } else if (res.dateSync && res.dateSync.surveyError) {
           showToast(baseMsg + " · опрос не сдвинут (ошибка)");
-        } else if (!calendarOnly && !dateOnly && oldDay && newDay && oldDay !== newDay) {
-          // soft-toast уже был при !onNew / onOld; чистый успех (на новом, нет на старом) — обычный
-          if (typeof onNew !== "undefined" && onNew && !onOld) showToast(baseMsg);
-          else if (typeof onNew === "undefined") showToast(baseMsg);
         } else {
           showToast(baseMsg);
         }
@@ -7179,11 +7156,12 @@
       await performViewClientMove_({
         name: client.name,
         matchKey: client.matchKey || "",
-        oldDay: oldDay,
+        oldDay: viewResolvedDayName || oldDay,
         oldDate: oldDate,
         forceCalendarOnly: !!viewDateOnlyMonth && !oldDay
       });
     }
+    window.crmMoveClient = crmMoveClient;
 
     async function crmMoveMonthClient(index, event) {
       if (event) event.stopPropagation();
@@ -7210,31 +7188,10 @@
     }
     window.crmMoveMonthClient = crmMoveMonthClient;
 
-    async function clientStillOnDayAfterDelete_(dayName, clientName) {
-      for (var attempt = 0; attempt < 6; attempt++) {
-        if (attempt) {
-          await new Promise(function (r) { setTimeout(r, 400); });
-        }
-        try {
-          var chk = await apiGet({
-            action: "getClients",
-            day: dayName,
-            force: "1",
-            _: String(Date.now())
-          }, { timeoutMs: 12000, cacheTtlMs: 0 });
-          var list = (chk && chk.clients) || [];
-          var hit = list.some(function (c) {
-            return nicksMatchClient_(c && (c.name || c.client), clientName);
-          });
-          if (!hit) return false;
-        } catch (eChk) {}
-      }
-      return true;
-    }
-
     async function crmDeleteClient(index, event) {
       event.stopPropagation();
       const client = loadedClientsRawData[index];
+      if (!client) return;
       const day = viewResolvedDayName || document.getElementById("viewDaySelect").value;
       const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
       if (viewDateOnlyMonth) {
@@ -7251,7 +7208,7 @@
             matchKey: client.matchKey || viewClientKey(client.name) || "",
             _: String(Date.now())
           }, { timeoutMs: 45000, cacheTtlMs: 0 });
-          if (!resM || (resM.status !== "success" && !resM.sent_opaque)) {
+          if (!resM || (resM.status !== "success" && !resM.sent_opaque && !resM.d1Verified)) {
             await uiAlertAsync("Не удалось: " + ((resM && resM.message) || resM.status || "ошибка"));
             return;
           }
@@ -7264,69 +7221,50 @@
         }
         return;
       }
+      if (!day && !dateStr) {
+        await uiAlertAsync("Сначала открой день или дату в Просмотре.");
+        return;
+      }
       const ok = await uiConfirmAsync("Удалить клиента " + client.name + "?\n\nУйдёт у всех: неделя + Календарь_Дат + бронь на дату.");
       if (!ok) return;
       try {
         try { apiCacheBustMem_(); } catch (eMem) {}
+        const mk = client.matchKey || viewClientKey(client.name) || "";
         const res = await apiGet(
-          deleteClientParams(client.name, day, client.matchKey || viewClientKey(client.name) || ""),
+          deleteClientParams(client.name, day, mk),
           { timeoutMs: 45000, cacheTtlMs: 0 }
         );
         if (!res || (res.status !== "success" && !res.sent_opaque && !res.d1Verified)) {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return;
         }
-        if (res.missing && !res.alreadyGone) {
-          await uiAlertAsync("Не удалось удалить «" + client.name + "» — не найден на этом дне.");
-          return;
-        }
-        var goneOk = !!res.alreadyGone;
-        if (!goneOk && day) {
-          var stillThere = await clientStillOnDayAfterDelete_(day, client.name);
-          if (stillThere) {
-            try {
-              await apiGet(
-                deleteClientParams(client.name, day, client.matchKey || viewClientKey(client.name) || ""),
-                { timeoutMs: 45000, cacheTtlMs: 0 }
-              );
-              stillThere = await clientStillOnDayAfterDelete_(day, client.name);
-            } catch (eRetryDel) {}
-          }
-          if (stillThere) {
-            await uiAlertAsync("Не удалилось: «" + client.name + "» всё ещё в списке. Попробуй ещё раз.");
-            try {
-              apiCacheBustMem_("getViewCompare");
-              apiCacheBustMem_("getClients");
-              afterPeopleMutationDays_([day]);
-              await loadClientsForDay();
-            } catch (eReloadDel) {}
-            return;
-          }
-        }
-        showToast(res.alreadyGone ? "Уже удалено" : "Удалено");
-        try { afterPeopleMutationDays_([day]); } catch (eMut) {}
-        // оптимистично убрать из локального списка до рефетча
+        // D1 уже ответил success — убираем из UI сразу (не ждём GAS / не врём «не удалилось»).
         try {
           loadedClientsRawData = (loadedClientsRawData || []).filter(function (c) {
             return !nicksMatchClient_(c && c.name, client.name);
           });
+          renderViewLists();
         } catch (eOpt) {}
-        await refreshDayViews(day, { force: true });
+        showToast(res.alreadyGone ? "Уже удалено" : "Удалено");
+        try { afterPeopleMutationDays_([day]); } catch (eMut) {}
+        try {
+          await refreshDayViews(day, { force: true });
+        } catch (eRef) {
+          try { await loadClientsForDay(); } catch (eL) {}
+        }
+        // мягкая дочистка, если список ещё показывает
         try {
           var still = (loadedClientsRawData || []).some(function (c) {
             return nicksMatchClient_(c && c.name, client.name);
           });
           if (still) {
-            await apiGet(deleteClientParams(client.name, day, client.matchKey || viewClientKey(client.name) || ""), {
-              timeoutMs: 45000,
-              cacheTtlMs: 0
+            await apiGet(deleteClientParams(client.name, day, mk), { timeoutMs: 20000, cacheTtlMs: 0 });
+            afterPeopleMutationDays_([day]);
+            loadedClientsRawData = (loadedClientsRawData || []).filter(function (c) {
+              return !nicksMatchClient_(c && c.name, client.name);
             });
-            try { afterPeopleMutationDays_([day]); } catch (e2) {}
-            await refreshDayViews(day, { force: true });
-            still = (loadedClientsRawData || []).some(function (c) {
-              return nicksMatchClient_(c && c.name, client.name);
-            });
-            if (still) showToast("Удаление не закрепилось — обновите список");
+            try { renderViewLists(); } catch (eR2) {}
+            await loadClientsForDay();
           }
         } catch (eVer) {}
       } catch (err) {
@@ -7335,6 +7273,7 @@
         recoverUiFocus();
       }
     }
+    window.crmDeleteClient = crmDeleteClient;
 
     function cutDoneStorageKey(day, dateText) {
       return "cutDone_" + String(day || "") + "_" + String(dateText || "");
