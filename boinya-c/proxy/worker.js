@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-24 calendar-view-merge-live-d1
+ * deploy-marker: 2026-08-24 move-afterwrite-strictDay
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -1537,7 +1537,8 @@ async function getViewCompare_(params, env) {
       // fall through to calendar-only for dateIso
     } else {
       const weekRaw = live && Array.isArray(live.clients) ? live.clients : (snap && Array.isArray(snap.week) ? snap.week : []);
-      const week = await filterTombstonedClients_(env, resolvedDay, weekRaw);
+      // live D1 уже authoritative — moveEpoch только для GAS-merge, иначе прячет arrive после переноса
+      const week = await filterTombstonedClients_(env, resolvedDay, weekRaw, { skipMoveEpoch: true });
       const weekKeys = Object.create(null);
       (week || []).forEach(function (c) {
         weekKeys[normalizeMatchKey_(c.matchKey || c.name)] = true;
@@ -3456,6 +3457,8 @@ async function deleteClient_(params, env) {
   const deleteStartedAt = Number(
     (params && (params._deleteStartedAt || params.deleteStartedAt)) || 0
   );
+  // move afterWrite: только указанный день — НЕ искать клиента на newDay и не сносить arrive
+  const strictDay = toBool_(params._strictDay) || toBool_(params.strictDay);
   if (!mk && !client) return { status: "error", message: "no_client" };
   if (!day && !dateIso) return { status: "error", message: "need_day_or_date" };
 
@@ -3467,7 +3470,7 @@ async function deleteClient_(params, env) {
     if (d && daysToClear.indexOf(d) < 0) daysToClear.push(d);
   }
   addDay_(day);
-  if (dateIso) {
+  if (dateIso && !strictDay) {
     try {
       const r = await resolveDay_({ date: dateIso }, env);
       if (r && r.onWeek && r.dayName) addDay_(r.dayName);
@@ -3483,19 +3486,20 @@ async function deleteClient_(params, env) {
   let homeRow = null;
   try {
     if (day) homeRow = await findOrderRow_(env, matchKeyRaw, day, "", client);
-    if (!homeRow && dateIso) homeRow = await findOrderRow_(env, matchKeyRaw, "", dateIso, client);
-    if (!homeRow) homeRow = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+    if (!homeRow && dateIso && !strictDay) homeRow = await findOrderRow_(env, matchKeyRaw, "", dateIso, client);
+    // НЕ findActiveOrderByMatch_ при strictDay — иначе move afterWrite сносит newDay
+    if (!homeRow && !strictDay) homeRow = await findActiveOrderByMatch_(env, matchKeyRaw, client);
   } catch (eHome) {
     homeRow = null;
   }
-  if (homeRow) {
+  if (homeRow && !strictDay) {
     if (homeRow.day_name) addDay_(homeRow.day_name);
     if (!dateIso && homeRow.date_iso) dateIso = String(homeRow.date_iso || "");
     // канонический day для GAS afterWrite — где человек реально сидит
     if (homeRow.day_name) day = String(homeRow.day_name);
   } else if (!day && daysToClear.length) {
     day = daysToClear[0];
-  } else if (day && daysToClear.length > 1 && daysToClear.indexOf(day) >= 0) {
+  } else if (day && daysToClear.length > 1 && daysToClear.indexOf(day) >= 0 && !strictDay) {
     // если дата указывает на другой слот (Будущая) — предпочитаем его при отсутствии home
     for (let di = 0; di < daysToClear.length; di++) {
       if (daysToClear[di] === "Будущая неделя") {
@@ -3639,10 +3643,11 @@ async function deleteClient_(params, env) {
 
   // VERIFY: ещё active где угодно по нику / дате — снести; иначе «удалился и вернулся»
   // НЕ трогать строку, если это свежий save после старта этого delete (writeGuard).
+  // strictDay (move afterWrite): только этот день — не трогать arrive на newDay.
   let still = null;
   try {
-    still = await findOrderRow_(env, matchKeyRaw, day, dateIso, client);
-    if (!still) still = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+    still = await findOrderRow_(env, matchKeyRaw, day, strictDay ? "" : dateIso, client);
+    if (!still && !strictDay) still = await findActiveOrderByMatch_(env, matchKeyRaw, client);
     if (
       still &&
       (await deleteWouldEraseFreshWrite_(env, params, still, day, mk, deleteStartedAt))
@@ -3658,14 +3663,19 @@ async function deleteClient_(params, env) {
       };
     }
     if (still) {
-      await softDeleteRow_(still);
-      if (still.day_name) {
-        try {
-          await putDeleteTombstone_(env, still.day_name, matchKeyRaw || client);
-        } catch (eT2) {}
+      // strictDay: если нашли не на этом дне — не сносить
+      if (strictDay && still.day_name && String(still.day_name) !== String(day)) {
+        still = null;
+      } else {
+        await softDeleteRow_(still);
+        if (still.day_name) {
+          try {
+            await putDeleteTombstone_(env, still.day_name, matchKeyRaw || client);
+          } catch (eT2) {}
+        }
+        still = await findOrderRow_(env, matchKeyRaw, day, strictDay ? "" : dateIso, client);
+        if (!still && !strictDay) still = await findActiveOrderByMatch_(env, matchKeyRaw, client);
       }
-      still = await findOrderRow_(env, matchKeyRaw, day, dateIso, client);
-      if (!still) still = await findActiveOrderByMatch_(env, matchKeyRaw, client);
     }
   } catch (eVer) {}
 
@@ -6051,7 +6061,8 @@ async function cutoverStoreRead_(a, params, env, payload) {
               client: dropWho,
               day: params.day,
               matchKey: normalizeMatchKey_(dropWho),
-              _keepMoveEpoch: payload._explicitDelete ? "" : "1"
+              _keepMoveEpoch: payload._explicitDelete ? "" : "1",
+              _strictDay: payload._explicitDelete ? "" : "1"
             },
             env
           );
@@ -6915,6 +6926,7 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                           matchKey: params.matchKey || wantClient,
                           force: "1",
                           _keepMoveEpoch: "1",
+                          _strictDay: "1",
                           _deleteStartedAt: String(params._deleteStartedAt || Date.now())
                         },
                         env

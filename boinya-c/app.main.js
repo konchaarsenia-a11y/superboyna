@@ -6798,7 +6798,7 @@
       const idxs = getSelectedClientIndexes();
       if (!idxs.length) { showToast("Никого не выбрано"); return; }
       const oldDay = viewResolvedDayName || (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) || "";
-      const oldDate = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
+      const oldDate = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "";
       if (!oldDate && !oldDay) {
         await uiAlertAsync("Сначала открой дату или день в Просмотре.");
         return;
@@ -6894,9 +6894,9 @@
         client: clientName,
         day: day || resolved || ""
       };
+      // дата только из поля Просмотра — НЕ lastViewDateIso (залипает с другого дня → снос не того слота)
       const dateStr =
         (document.getElementById("viewDate") && document.getElementById("viewDate").value) ||
-        lastViewDateIso ||
         "";
       if (dateStr) params.date = dateStr;
       // если дата есть, а day похож на «чужой» weekday — подставить resolved
@@ -7362,7 +7362,7 @@
       const client = loadedClientsRawData[index];
       if (!client) return;
       const oldDay = viewResolvedDayName || (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) || "";
-      const oldDate = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
+      const oldDate = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "";
       await performViewClientMove_({
         name: client.name,
         matchKey: client.matchKey || "",
@@ -7387,7 +7387,7 @@
       var client = visible[index];
       if (!client) return;
       var oldDay = viewResolvedDayName || (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) || "";
-      var oldDate = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
+      var oldDate = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "";
       await performViewClientMove_({
         name: client.name,
         matchKey: client.matchKey || viewClientKey(client.name) || "",
@@ -7403,7 +7403,7 @@
       const client = loadedClientsRawData[index];
       if (!client) return;
       const day = viewResolvedDayName || document.getElementById("viewDaySelect").value;
-      const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
+      const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "";
       if (viewDateOnlyMonth) {
         const okM = await uiConfirmAsync(
           "Убрать «" + client.name + "» из календаря на " + (dateStr || "эту дату") + "?\n\nЛист недели не трогаем (даты нет в текущей неделе)."
