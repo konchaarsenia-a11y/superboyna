@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-25 unfinished-week-calendar-save
+ * deploy-marker: 2026-08-25 unfinished-week-calendar-move
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -3891,7 +3891,12 @@ async function moveClient_(params, env) {
       row = await findOrderRow_(env, matchKeyRaw, fromDays[fi], "", client);
     }
   }
-  if (!row) row = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+  // calendar-only: не искать week-слот через findActiveOrderByMatch_ —
+  // иначе «переносим» Пн, а CAL на oldDate остаётся
+  if (!row && oldDate) {
+    row = await findOrderRow_(env, matchKeyRaw, "", oldDate, client);
+  }
+  if (!row && !calendarOnly) row = await findActiveOrderByMatch_(env, matchKeyRaw, client);
 
   // уже перенесён (повтор после store / retry) — не ошибка
   if (!row && newDay) {
@@ -4061,8 +4066,44 @@ async function moveClient_(params, env) {
       await clearTombstonesForMatch_(env, matchKey, "", clearName);
     } catch (eClrTc) {}
     try {
-      await putMoveArriveProtect_(env, "", matchKey, clearName);
-    } catch (eProtC) {}
+      await putDeleteTombstone_(env, "", matchKey);
+      if (oldDate) {
+        await putSnap_(env, "delTomb:CAL:" + oldDate + ":" + matchKey, {
+          day: "",
+          dateIso: oldDate,
+          mk: matchKey,
+          at: Date.now()
+        });
+      }
+    } catch (eTombCalMv) {}
+    // повторно снести oldDate (фон save мог вернуть) + финальный upsert newDate
+    if (oldDate) {
+      try {
+        await env.DB.prepare(
+          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND (match_key = ? OR match_key = ? OR lower(client) = ?) AND id != ?"
+        )
+          .bind(now, oldDate, matchKey, mkLow, clientLow, newId)
+          .run();
+      } catch (eOldWipe) {}
+    }
+    try {
+      await upsertOrderRow_(env, {
+        id: newId,
+        date_iso: newDate,
+        day_name: "",
+        client: row.client,
+        match_key: matchKey,
+        address: row.address || "",
+        note: row.note || "",
+        phone: row.phone || "",
+        basket_json: row.basket_json || "[]",
+        segment: row.segment || "",
+        source: row.source || "",
+        status: "active",
+        updated_at: new Date().toISOString(),
+        meta_json: JSON.stringify(meta)
+      });
+    } catch (eFinalCal) {}
   }
 
   // жёстко: ещё раз снести со старых дней (фон GAS/protect мог вернуть)
