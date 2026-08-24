@@ -6667,7 +6667,7 @@
     async function crmBatchMove() {
       const idxs = getSelectedClientIndexes();
       if (!idxs.length) { showToast("Никого не выбрано"); return; }
-      const oldDay = (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) || "";
+      const oldDay = viewResolvedDayName || (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) || "";
       const oldDate = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
       if (!oldDate && !oldDay) {
         await uiAlertAsync("Сначала открой дату или день в Просмотре.");
@@ -7178,12 +7178,12 @@
       if (event) event.stopPropagation();
       const client = loadedClientsRawData[index];
       if (!client) return;
-      const oldDay = (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) || "";
+      const oldDay = viewResolvedDayName || (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) || "";
       const oldDate = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
       await performViewClientMove_({
         name: client.name,
         matchKey: client.matchKey || "",
-        oldDay: viewResolvedDayName || oldDay,
+        oldDay: oldDay,
         oldDate: oldDate,
         forceCalendarOnly: !!viewDateOnlyMonth && !oldDay
       });
@@ -7203,7 +7203,7 @@
       });
       var client = visible[index];
       if (!client) return;
-      var oldDay = (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) || "";
+      var oldDay = viewResolvedDayName || (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) || "";
       var oldDate = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
       await performViewClientMove_({
         name: client.name,

@@ -3843,13 +3843,30 @@ function scrubFutureWeekOrphans_(ss, opts) {
 
 function handleMoveClient(ss, json, callback) {
   try { bustClientsCache_(); } catch (eEarlyMv) {}
-  var srcBlock = getDayBlock(json.oldDay);
   var tz = ss.getSpreadsheetTimeZone();
   var clientName = String(json.client || "").trim();
   var matchKey = String(json.matchKey || "").trim();
+  var srcDayName = String(json.oldDay || "").trim();
   var oldDate = parseFlexibleDate_(json.oldDate || json.fromDate, tz) ||
-    (srcBlock ? parseFlexibleDate_(getDayDate_(ss, json.oldDay), tz) : null);
+    (srcDayName ? parseFlexibleDate_(getDayDate_(ss, srcDayName), tz) : null);
   var newDate = parseFlexibleDate_(json.newDate || json.date || json.toDate, tz);
+
+  // сегодняшний пн = «Будущая неделя»: UI мог прислать oldDay=Понедельник
+  if (oldDate) {
+    var mappedOld = "";
+    try { mappedOld = findDayNameForDate_(ss, oldDate) || ""; } catch (eMap) {}
+    if (mappedOld && mappedOld !== srcDayName) {
+      var onMapped = false;
+      var onSrc = false;
+      try { onMapped = !!clientNickOnDay_(ss, mappedOld, clientName); } catch (e1) {}
+      try { onSrc = srcDayName ? !!clientNickOnDay_(ss, srcDayName, clientName) : false; } catch (e2) {}
+      if (onMapped && !onSrc) srcDayName = mappedOld;
+      else if (!srcDayName) srcDayName = mappedOld;
+      else if (mappedOld === "Будущая неделя" && !onSrc) srcDayName = mappedOld;
+    }
+  }
+  if (srcDayName) json.oldDay = srcDayName;
+  var srcBlock = getDayBlock(srcDayName);
 
   // целевой день ТОЛЬКО если дата реально стоит на листе (Пн–Пт / A1 Будущей)
   var targetDayName = "";

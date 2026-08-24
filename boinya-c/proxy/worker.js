@@ -3568,10 +3568,12 @@ async function moveClient_(params, env) {
   await ensureMetaColumn_(env);
   const moveStartedAt = Date.now();
   if (!env || !env.DB) return { status: "error", message: "no_d1" };
-  const oldDay = String(params.oldDay || "");
+  let oldDay = String(params.oldDay || "");
   let newDay = String(params.newDay || "");
-  const oldDate = String(params.oldDate || "");
-  const newDate = String(params.newDate || "");
+  let oldDate = String(params.oldDate || "").trim();
+  let newDate = String(params.newDate || "").trim();
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(oldDate)) oldDate = dmyToIso_(oldDate) || oldDate;
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(newDate)) newDate = dmyToIso_(newDate) || newDate;
   const calendarOnly = toBool_(params.calendarOnly) || (!newDay && !!newDate);
   const client = String(params.client || "");
   const matchKeyRaw = params.matchKey || client;
@@ -3586,20 +3588,48 @@ async function moveClient_(params, env) {
     if (r.onWeek && r.dayName) newDay = r.dayName;
   }
 
+  // сегодняшний пн = «Будущая неделя»: UI мог прислать oldDay=Понедельник
+  const fromDays = [];
+  function addFromDay_(d) {
+    d = String(d || "").trim();
+    if (d && fromDays.indexOf(d) < 0) fromDays.push(d);
+  }
+  addFromDay_(oldDay);
+  if (oldDate) {
+    try {
+      const rOld = await resolveDay_({ date: oldDate }, env);
+      if (rOld && rOld.onWeek && rOld.dayName) addFromDay_(rOld.dayName);
+    } catch (eRO) {}
+    try {
+      let counts = await getSnapRaw_(env, "weekDayCountsSheet");
+      if (!counts || !Array.isArray(counts.items)) counts = await getSnapRaw_(env, "weekDayCounts");
+      const byC = dayForDateFromCounts_(counts, oldDate);
+      if (byC) addFromDay_(byC);
+    } catch (eC) {}
+  }
+
   let row = await findOrderRow_(env, matchKeyRaw, oldDay, oldDate, client);
+  if (!row) {
+    for (let fi = 0; fi < fromDays.length && !row; fi++) {
+      if (fromDays[fi] === oldDay) continue;
+      row = await findOrderRow_(env, matchKeyRaw, fromDays[fi], "", client);
+    }
+  }
+  if (!row) row = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+
   // уже перенесён (повтор после store / retry) — не ошибка
   if (!row && newDay) {
     const already = await findOrderRow_(env, matchKeyRaw, newDay, newDate, client);
     if (already) {
-      try {
-        await putDeleteTombstone_(env, oldDay, matchKey);
-      } catch (eT0) {}
-      if (oldDay) {
+      for (let ti = 0; ti < fromDays.length; ti++) {
+        try {
+          await putDeleteTombstone_(env, fromDays[ti], matchKey);
+        } catch (eT0) {}
         try {
           await env.DB.prepare(
             "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR lower(client) = ?)"
           )
-            .bind(now, oldDay, matchKey, clientLow || matchKey)
+            .bind(now, fromDays[ti], matchKey, clientLow || matchKey)
             .run();
         } catch (eDelOld) {}
       }
@@ -3608,7 +3638,7 @@ async function moveClient_(params, env) {
         sandbox: true,
         wrote: 1,
         alreadyMoved: true,
-        from: oldDay,
+        from: fromDays[0] || oldDay,
         to: newDay,
         newDate: newDate,
         calendarOnly: false
@@ -3623,7 +3653,18 @@ async function moveClient_(params, env) {
   if (cutRaw === "0" || cutRaw === "no") meta.noCut = true;
   else if (cutRaw === "1" || cutRaw === "yes") meta.noCut = false;
 
-  const fromDay = oldDay || row.day_name || "";
+  // канонический from = где человек реально сидит (не «Пн» при слоте «Будущая»)
+  if (row.day_name) addFromDay_(row.day_name);
+  const fromDay = String(row.day_name || oldDay || fromDays[0] || "");
+  oldDay = fromDay;
+  if (!oldDate && row.date_iso) oldDate = String(row.date_iso || "");
+  try {
+    params.oldDay = fromDay;
+    if (oldDate) params.oldDate = oldDate;
+    if (newDay) params.newDay = newDay;
+    if (newDate) params.newDate = newDate;
+  } catch (ePar) {}
+
   const clearName = row.client || client;
   try {
     await putSnap_(env, "moveEpoch:" + matchKey, {
@@ -3643,29 +3684,30 @@ async function moveClient_(params, env) {
       await clearTombstonesForMatch_(env, matchKey, newDay, clearName);
     } catch (eClrPre) {}
   }
-  if (fromDay) {
+  for (let tj = 0; tj < fromDays.length; tj++) {
     try {
-      await putDeleteTombstone_(env, fromDay, matchKey);
-      await putDeleteTombstone_(env, fromDay, clearName);
-      await clearMoveArriveProtect_(env, fromDay, matchKey, clearName, moveStartedAt);
+      await putDeleteTombstone_(env, fromDays[tj], matchKey);
+      await putDeleteTombstone_(env, fromDays[tj], clearName);
+      await clearMoveArriveProtect_(env, fromDays[tj], matchKey, clearName, moveStartedAt);
     } catch (eTombEarly) {}
   }
   // удалить исходную строку по id — надёжнее OR по match_key
   await env.DB.prepare("UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?")
     .bind(now, row.id)
     .run();
-  // все дубли на старом дне (в т.ч. старый match_key «ЕВГЕНИЯ ES_FURMAN»)
-  if (fromDay) {
+  // все дубли на старых днях-кандидатах (Пн + Будущая)
+  for (let dj = 0; dj < fromDays.length; dj++) {
+    const dClear = fromDays[dj];
     await env.DB.prepare(
       "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?)"
     )
-      .bind(now, fromDay, matchKey, mkLow, clientLow, String(row.client || "").toLowerCase())
+      .bind(now, dClear, matchKey, mkLow, clientLow, String(row.client || "").toLowerCase())
       .run();
     try {
       const left = await env.DB.prepare(
         "SELECT id, client, match_key FROM orders WHERE status = 'active' AND day_name = ? LIMIT 120"
       )
-        .bind(fromDay)
+        .bind(dClear)
         .all();
       const leftList = (left && left.results) || [];
       for (var li = 0; li < leftList.length; li++) {
@@ -3677,9 +3719,18 @@ async function moveClient_(params, env) {
       }
     } catch (eLooseDel) {}
     try {
-      await putDeleteTombstone_(env, fromDay, matchKey);
-      await putDeleteTombstone_(env, fromDay, clearName);
+      await putDeleteTombstone_(env, dClear, matchKey);
+      await putDeleteTombstone_(env, dClear, clearName);
     } catch (eTombM) {}
+  }
+  if (oldDate) {
+    try {
+      await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
+      )
+        .bind(now, oldDate, matchKey, mkLow, clientLow)
+        .run();
+    } catch (eDateDel) {}
   }
 
   let toLabel = "(calendar)";
@@ -3738,17 +3789,17 @@ async function moveClient_(params, env) {
     } catch (eProtC) {}
   }
 
-  // жёстко: ещё раз снести со старого дня (фон GAS/protect мог вернуть)
-  if (fromDay) {
+  // жёстко: ещё раз снести со старых дней (фон GAS/protect мог вернуть)
+  for (let hj = 0; hj < fromDays.length; hj++) {
     try {
       await env.DB.prepare(
         "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?)"
       )
-        .bind(now, fromDay, matchKey, mkLow, clientLow, String(row.client || "").toLowerCase())
+        .bind(now, fromDays[hj], matchKey, mkLow, clientLow, String(row.client || "").toLowerCase())
         .run();
-      await putDeleteTombstone_(env, fromDay, matchKey);
+      await putDeleteTombstone_(env, fromDays[hj], matchKey);
       try {
-        await clearMoveArriveProtect_(env, fromDay, matchKey, row.client || client, moveStartedAt);
+        await clearMoveArriveProtect_(env, fromDays[hj], matchKey, row.client || client, moveStartedAt);
       } catch (eClrAP) {}
     } catch (eHardDel) {}
   }
@@ -3779,7 +3830,7 @@ async function moveClient_(params, env) {
     } catch (eFinal) {}
   }
 
-  await invalidateDays_(env, [fromDay, newDay].filter(Boolean));
+  await invalidateDays_(env, fromDays.concat([newDay]).filter(Boolean));
 
   return {
     status: "success",
@@ -3787,6 +3838,7 @@ async function moveClient_(params, env) {
     wrote: 1,
     local: false,
     from: fromDay,
+    fromDays: fromDays,
     to: toLabel,
     newDay: newDay,
     newDate: newDate,
