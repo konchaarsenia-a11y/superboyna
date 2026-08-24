@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-24 delete-no-waituntil-rerun
+ * deploy-marker: 2026-08-24 afterwrite-no-replace-on-delete
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -6836,6 +6836,7 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                 gasClientsFresh = true;
               }
               // moveClient: НИКОГДА не cutoverStoreRead/replaceDayOrders — только точечный delete на oldDay.
+              // deleteClient: то же — sync уже снёс D1; replaceDayOrders из GAS убивает свежий saveOrder.
               if (/^moveClient$/i.test(a)) {
                 if (newDay && day === newDay) {
                   try {
@@ -6894,13 +6895,17 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                           day: oldDay,
                           matchKey: params.matchKey || wantClient,
                           force: "1",
-                          _keepMoveEpoch: "1"
+                          _keepMoveEpoch: "1",
+                          _deleteStartedAt: String(params._deleteStartedAt || Date.now())
                         },
                         env
                       );
                     }
                   } catch (eOldOnly) {}
                 }
+              } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
+                // sync delete уже сделал D1+tombstone. cutoverStoreRead/replaceDayOrders
+                // из GAS затирал бы параллельный saveOrder; повторный deleteClient_ — тоже.
               } else {
                 var staleSaveDay = false;
                 if (
@@ -6930,11 +6935,7 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                   );
                 } catch (eResave) {}
               }
-              if (/^(deleteClient|removeCalendarClient)$/i.test(a) && wantClient) {
-                try {
-                  await deleteClient_(params, env);
-                } catch (eRedel) {}
-              }
+              // delete: НЕ rerun deleteClient_ здесь (гонка со свежим save)
 
             }
           } catch (eG) {}
