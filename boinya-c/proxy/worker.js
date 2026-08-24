@@ -3311,7 +3311,8 @@ async function deleteClient_(params, env) {
   const dateIso = String(params.date || params.dateIso || "");
   const client = String(params.client || "").trim();
   const matchKeyRaw = params.matchKey || client;
-  if (!normalizeMatchKey_(matchKeyRaw) && !client) return { status: "error", message: "no_client" };
+  const mk = normalizeMatchKey_(matchKeyRaw);
+  if (!mk && !client) return { status: "error", message: "no_client" };
   if (!day && !dateIso) return { status: "error", message: "need_day_or_date" };
   if (day) {
     try {
@@ -3327,11 +3328,11 @@ async function deleteClient_(params, env) {
     touchedIds[row.id] = true;
     try {
       const res = await env.DB.prepare(
-        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?"
       )
         .bind(now, row.id)
         .run();
-      changed += Number((res && res.meta && res.meta.changes) || 0);
+      changed += Number((res && res.meta && res.meta.changes) || 0) || 1;
     } catch (eRow) {}
   }
 
@@ -3351,33 +3352,72 @@ async function deleteClient_(params, env) {
     } catch (eScan) {}
   }
 
+  // СНАЧАЛА tombstone — параллельный GAS-merge не успеет вернуть до soft-delete
+  try {
+    if (day) {
+      await putDeleteTombstone_(env, day, matchKeyRaw || client);
+      if (client && normalizeMatchKey_(client) !== mk) {
+        await putDeleteTombstone_(env, day, client);
+      }
+    }
+    if (dateIso && !day) await putDeleteTombstone_(env, "", matchKeyRaw || client);
+  } catch (eTomb0) {}
+
   if (day) {
     await softDeleteScan_("day_name = ?", [day]);
-    // явное удаление с листа недели — снять и calendar-only дубли того же клиента
     if (!toBool_(params.calendarOnly)) {
       await softDeleteScan_("day_name = ''", []);
     }
+    // прямой SQL по нормализованному ключу (на случай если loose-match не сработал)
+    try {
+      const aliases = matchKeyAliases_(matchKeyRaw).concat(matchKeyAliases_(client));
+      for (let ai = 0; ai < aliases.length; ai++) {
+        if (!aliases[ai]) continue;
+        const res = await env.DB.prepare(
+          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND match_key = ?"
+        )
+          .bind(now, day, aliases[ai])
+          .run();
+        changed += Number((res && res.meta && res.meta.changes) || 0);
+      }
+      const res2 = await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND lower(client) = ?"
+      )
+        .bind(now, day, client.toLowerCase())
+        .run();
+      changed += Number((res2 && res2.meta && res2.meta.changes) || 0);
+    } catch (eSql) {}
   }
   if (dateIso) {
     await softDeleteScan_("date_iso = ?", [dateIso]);
   }
 
-  try {
-    if (day) await putDeleteTombstone_(env, day, matchKeyRaw || client);
-    if (dateIso && !day) await putDeleteTombstone_(env, "", matchKeyRaw || client);
-  } catch (eTomb) {}
   if (!toBool_(params._keepMoveEpoch) && !toBool_(params.keepMoveEpoch)) {
     try {
       await clearMoveEpoch_(env, matchKeyRaw);
     } catch (eEpDel) {}
   }
   await invalidateDays_(env, [day].filter(Boolean));
-  if (changed === 0) {
-    // строка могла быть только в D1 с «чужим» match_key — последняя попытка через findOrderRow_
-    try {
-      const row = await findOrderRow_(env, matchKeyRaw, day, dateIso, client);
-      if (row) await softDeleteRow_(row);
-    } catch (eFind) {}
+
+  // VERIFY: если ещё active — ещё раз снести; иначе «удалился и вернулся»
+  let still = null;
+  try {
+    still = await findOrderRow_(env, matchKeyRaw, day, dateIso, client);
+    if (still) {
+      await softDeleteRow_(still);
+      still = await findOrderRow_(env, matchKeyRaw, day, dateIso, client);
+    }
+  } catch (eVer) {}
+
+  if (still) {
+    return {
+      status: "error",
+      message: "delete_not_sticky",
+      sandbox: true,
+      wrote: changed,
+      stillPresent: true,
+      d1Verified: false
+    };
   }
   if (changed === 0) {
     return {
@@ -5620,9 +5660,15 @@ async function cutoverStoreRead_(a, params, env, payload) {
     payload = Object.assign({}, payload, { clients: list });
     // после move/delete не заливать GAS на день-источник — иначе «призрак» на старом дне
     const tomb = await getSnapRaw_(env, "deleteTombstones");
-    const freshTomb = ((tomb && tomb.items) || []).some(function (t) {
+    let freshTomb = ((tomb && tomb.items) || []).some(function (t) {
       return t && String(t.day) === String(params.day) && Date.now() - Number(t.at || 0) < TOMBSTONE_MS;
     });
+    if (!freshTomb) {
+      try {
+        const td = await getSnapRaw_(env, "tombDay:" + String(params.day));
+        if (td && Date.now() - Number(td.at || 0) < TOMBSTONE_MS) freshTomb = true;
+      } catch (eTd2) {}
+    }
     const explicitDrop = !!(payload._explicitDelete || payload._moveDropClient);
     if (freshTomb || payload._d1MoveKeep || explicitDrop) {
       await putSnap_(env, "clients:" + params.day, payload);
@@ -5926,6 +5972,8 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
   const nowMs = Date.now();
   // Не затирать свежие D1-записи старым GAS (edit ещё не доехал / таймаут)
   const protectMs = opts.protectMs != null ? Number(opts.protectMs) : 12 * 60 * 1000;
+  // По умолчанию D1 — источник правды: GAS не может «вернуть» удалённого.
+  const allowGasInsert = opts.allowGasInsert === true;
 
   let tomb = null;
   try {
@@ -5935,6 +5983,13 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
   }
   if (!tomb) tomb = { items: [] };
   tomb.items = (tomb.items || []).slice();
+  try {
+    const td = await getSnapRaw_(env, "tombDay:" + String(day));
+    if (td && td.at && Date.now() - Number(td.at) < TOMBSTONE_MS) {
+      // маркер дня с недавним delete/move — не заливать GAS-only людей
+      tomb._dayFresh = true;
+    }
+  } catch (eTd) {}
   let arriveProtect = null;
   try {
     arriveProtect = await getSnapRaw_(env, "moveArriveProtect");
@@ -5942,7 +5997,7 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
     arriveProtect = null;
   }
 
-  const byMk = Object.create(null);
+  const gasByMk = Object.create(null);
   for (var ci = 0; ci < (clients || []).length; ci++) {
     var c = clients[ci];
     if (!c) continue;
@@ -5952,17 +6007,17 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       var pkT = await getSnapRaw_(env, "delTomb:" + String(day) + ":" + mk);
       if (pkT && pkT.mk && !pkT.cleared && Number(pkT.at || 0) > 0) tomb.items.push(pkT);
     } catch (ePKT) {}
-    // перенос/удаление: GAS ещё держит человека — не возвращать
     if (isTombstoned_(tomb, day, mk, c.name || c.client)) continue;
-    // только что уехал на другой день (arrive-protect там) — не воскрешать здесь
     if (isMoveArriveProtectedElsewhere_(arriveProtect, day, mk, c.name || c.client)) continue;
     try {
       var epRep = await getSnapRaw_(env, "moveEpoch:" + mk);
       if (epRep && epRep.to && String(epRep.to) !== String(day)) continue;
     } catch (eEpR) {}
-    byMk[mk] = c;
+    gasByMk[mk] = c;
   }
 
+  const byMk = Object.create(null);
+  let existingCount = 0;
   try {
     const q = await env.DB.prepare(
       "SELECT * FROM orders WHERE day_name = ? AND status = 'active'"
@@ -5970,50 +6025,48 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       .bind(day)
       .all();
     const existing = (q && q.results) || [];
+    existingCount = existing.length;
+
+    // 1) Сначала все живые D1 (минус tomb/drop) — база правды
     for (let ei = 0; ei < existing.length; ei++) {
       const row = existing[ei];
       if (!row) continue;
       const mk = normalizeMatchKey_(row.match_key || row.client || "");
       if (!mk) continue;
-      // tombstone важнее protect — иначе перенос «откатывается»
-      if (isTombstoned_(tomb, day, mk, row.client)) {
-        delete byMk[mk];
-        continue;
-      }
-      if (isMoveArriveProtectedElsewhere_(arriveProtect, day, mk, row.client)) {
-        delete byMk[mk];
-        continue;
-      }
+      if (isTombstoned_(tomb, day, mk, row.client)) continue;
+      if (isMoveArriveProtectedElsewhere_(arriveProtect, day, mk, row.client)) continue;
       try {
         var epRow = await getSnapRaw_(env, "moveEpoch:" + mk);
-        if (epRow && epRow.to && String(epRow.to) !== String(day)) {
-          delete byMk[mk];
-          continue;
-        }
+        if (epRow && epRow.to && String(epRow.to) !== String(day)) continue;
       } catch (eEpRow) {}
-      // явный drop (move oldDay) — не «защищать» призрака
       if (opts.dropMks && (opts.dropMks[mk] || opts.dropMks[String(row.client || "").toLowerCase()])) {
-        delete byMk[mk];
         continue;
       }
+      const gasC = gasByMk[mk];
       const updatedMs = Date.parse(String(row.updated_at || "")) || 0;
-      if (!(updatedMs && nowMs - updatedMs < protectMs)) continue;
-      const gasC = byMk[mk];
+      const d1Fresh = !!(updatedMs && nowMs - updatedMs < protectMs);
       const d1Sig = basketSig_(row.basket_json);
       const gasSig = basketSig_(gasC && gasC.basket);
-      // GAS нет человека / другой состав → оставляем D1 (локальный save важнее)
-      // но не возвращаем тех, кого только что убрали из списка (move/delete overlay)
-      if (!gasC && opts.skipProtectMissing) {
-        delete byMk[mk];
-        continue;
-      }
-      if (!gasC || (d1Sig && d1Sig !== gasSig)) {
+      // свежий D1 / нет GAS / другой состав → оставляем D1
+      if (d1Fresh || !gasC || (d1Sig && d1Sig !== gasSig) || opts.skipProtectMissing) {
         const kept = clientFromRow_(row);
         kept.updated_at = row.updated_at;
         byMk[mk] = kept;
+      } else {
+        byMk[mk] = gasC;
       }
     }
   } catch (eProt) {}
+
+  // 2) GAS-only: только если день в D1 пуст (bootstrap) ИЛИ явно allowGasInsert
+  //    иначе удаление «исчезает на секунду и возвращается» из листа Google
+  const canInsertGas =
+    allowGasInsert || (existingCount === 0 && !tomb._dayFresh && !opts.skipProtectMissing);
+  if (canInsertGas) {
+    Object.keys(gasByMk).forEach(function (mk) {
+      if (!byMk[mk]) byMk[mk] = gasByMk[mk];
+    });
+  }
 
   const merged = Object.keys(byMk).map(function (k) {
     return byMk[k];
