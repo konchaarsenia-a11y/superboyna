@@ -7299,8 +7299,9 @@
         const delParams = deleteClientParams(client.name, day, mk);
         const res = await apiGet(delParams, { timeoutMs: 45000, cacheTtlMs: 0 });
         // opaque без d1Verified — не считаем успехом (иначе «удалено» а человек на месте)
-        var delOk = !!(res && (res.d1Verified || res.alreadyGone || (res.status === "success" && !res.sent_opaque)));
-        if (!delOk && res && res.sent_opaque) {
+        var delOk = !!(res && (res.d1Verified || (res.status === "success" && !res.sent_opaque && !res.alreadyGone)));
+        if (res && res.alreadyGone) delOk = false; // alreadyGone без проверки = часто «не нашли ключ»
+        async function verifyGone_() {
           try {
             var vc = await apiGet({
               action: "getClients",
@@ -7309,14 +7310,27 @@
               force: "1",
               _: String(Date.now())
             }, { timeoutMs: 20000, cacheTtlMs: 0 });
-            var left = ((vc && vc.clients) || []).some(function (c) {
+            return !((vc && vc.clients) || []).some(function (c) {
               return nicksMatchClient_(c && c.name, client.name);
             });
-            delOk = !left;
-          } catch (eVer0) {}
+          } catch (eVer0) {
+            return false;
+          }
+        }
+        if (!delOk || res.alreadyGone || res.sent_opaque) {
+          delOk = await verifyGone_();
+          if (!delOk && res && res.status === "success") {
+            // повторный delete
+            try {
+              await apiGet(delParams, { timeoutMs: 20000, cacheTtlMs: 0 });
+            } catch (eR) {}
+            delOk = await verifyGone_();
+          }
         }
         if (!delOk) {
-          await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
+          await uiAlertAsync("Не удалось удалить — человек всё ещё в списке. Обнови Просмотр и попробуй ещё раз.");
+          try { window._peopleListForceFresh = true; } catch (eF0) {}
+          try { await loadClientsForDay(); } catch (eL0) {}
           return;
         }
         // D1 уже ответил success — убираем из UI сразу (не ждём GAS / не врём «не удалилось»).

@@ -104,7 +104,7 @@
     if ("serviceWorker" in navigator) {
       // ?v= — иначе TG/браузер держит старый SW без network-first
       navigator.serviceWorker
-        .register(BASE + "sw.js?v=12-71115874", { scope: BASE })
+        .register(BASE + "sw.js?v=12-71115875", { scope: BASE })
         .catch(function () {});
     }
   } catch (eSw) {}

@@ -3029,8 +3029,8 @@ async function saveOrder_(params, env, asBooking) {
   };
 }
 
-// Перенос/удаление: GAS часто отстаёт — tombstone держит D1 от «воскрешения» дольше protect
-const TOMBSTONE_MS = 20 * 60 * 1000;
+// Перенос/удаление: GAS часто отстаёт — tombstone держит D1/UI от «воскрешения»
+const TOMBSTONE_MS = 48 * 60 * 60 * 1000;
 
 async function putDeleteTombstone_(env, day, matchKey) {
   const mk = normalizeMatchKey_(matchKey);
@@ -3511,6 +3511,9 @@ async function deleteClient_(params, env) {
     } catch (eEpDel) {}
   }
   await invalidateDays_(env, daysToClear.filter(Boolean));
+  try {
+    await rebuildWeekCounts_(env);
+  } catch (eCntDel) {}
 
   // VERIFY: ещё active где угодно по нику / дате — снести; иначе «удалился и вернулся»
   let still = null;
@@ -5189,6 +5192,8 @@ async function handleCutover_(a, params, env, ctx) {
   // Приёмка: если D1 count ≠ getWeekDayCounts — осторожно с GAS.
   // got > expect = свежий save в D1 — НЕ подменять GAS (иначе UI «не закрепилось»).
   // got < expect + tombstone = delete/move — D1 важнее.
+  // КРИТИЧНО: НИКОГДА не return live (сырой GAS) в UI — удалённый «возвращается» мгновенно,
+  // даже если D1 уже чистый. Ответ всегда D1; недостающих (не tombstone) — upsert в фоне.
   if (a === "getClients" && fast && params && params.day) {
     try {
       const forceClients =
@@ -5202,9 +5207,9 @@ async function handleCutover_(a, params, env, ctx) {
       const got = Array.isArray(fast.clients) ? fast.clients.length : -1;
       if (expect != null && got !== expect) {
         const hasTomb = await dayHasFreshTombstone_(env, params.day);
-        // D1 впереди счётчика / force после save — источник правды D1, не отстающий лист
-        if (forceClients || got > expect || hasTomb) {
-          if (got > expect) {
+        // D1 — источник правды для ответа UI
+        if (forceClients || got > expect || hasTomb || got >= 0) {
+          if (got > expect || hasTomb) {
             try {
               if (ctx && typeof ctx.waitUntil === "function") {
                 ctx.waitUntil(rebuildWeekCounts_(env));
@@ -5213,7 +5218,20 @@ async function handleCutover_(a, params, env, ctx) {
               }
             } catch (eRc) {}
           }
-          if (needGas && ctx && typeof ctx.waitUntil === "function") {
+          // фон: подтянуть только недостающих (не tombstone), без подмены ответа
+          if (!hasTomb && got < expect && ctx && typeof ctx.waitUntil === "function") {
+            ctx.waitUntil(
+              (async function () {
+                try {
+                  const live = await gasProxy_(a, params, env, { write: false });
+                  if (!(live && live.status === "success")) return;
+                  await sanitizeGasClientsPayload_(env, params.day, live);
+                  await upsertMissingClientsFromGas_(env, params.day, live.clients || []);
+                  await rebuildWeekCounts_(env);
+                } catch (eBg) {}
+              })()
+            );
+          } else if (needGas && ctx && typeof ctx.waitUntil === "function") {
             ctx.waitUntil(cutoverRevalidate_(a, params, env));
           }
           fast.cutover = true;
@@ -5222,18 +5240,6 @@ async function handleCutover_(a, params, env, ctx) {
           fast.source = fast.source || "d1";
           if (fast.sandbox === true) fast.sandbox = false;
           return fast;
-        }
-        const live = await gasProxy_(a, params, env, { write: false });
-        if (live && live.status === "success") {
-          await sanitizeGasClientsPayload_(env, params.day, live);
-          try {
-            await cutoverStoreRead_(a, params, env, live);
-          } catch (eStore) {}
-          live.cutover = true;
-          live.fromGas = true;
-          live.swr = true;
-          live.sandbox = false;
-          return live;
         }
       }
     } catch (eMis) {}
@@ -5911,7 +5917,15 @@ async function cutoverStoreRead_(a, params, env, payload) {
       replaceOpts.dropMks[String(payload._moveDropClient).trim().toLowerCase()] = true;
       replaceOpts.skipProtectMissing = true;
     }
-    await replaceDayOrdersFromClients_(env, params.day, list, replaceOpts);
+    // Явный delete/move-drop — точечный replace+drop.
+    // Обычный GAS revalidate — только upsert недостающих (полный replace воскрешал delete в UI/D1).
+    if (payload._explicitDelete || payload._moveDropClient || payload._d1MoveKeep) {
+      await replaceDayOrdersFromClients_(env, params.day, list, replaceOpts);
+    } else {
+      await putSnap_(env, "clients:" + params.day, payload);
+      await upsertMissingClientsFromGas_(env, params.day, list);
+      return;
+    }
     if (payload._moveDropClient && !skipDropArrive) {
       try {
         const dropMk3 = normalizeMatchKey_(payload._moveDropClient);
@@ -6148,6 +6162,65 @@ async function cutoverStoreRead_(a, params, env, payload) {
   }
 }
 
+/** Добавить в D1 только тех, кого нет (и нет tombstone). Не трогает уже активных. */
+async function upsertMissingClientsFromGas_(env, day, clients) {
+  if (!env || !env.DB || !day || !Array.isArray(clients) || !clients.length) return 0;
+  await ensureMetaColumn_(env);
+  const info = await dayDateInfo_(env, day);
+  const dateIso = (info && info.iso) || "";
+  const now = new Date().toISOString();
+  let tomb = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
+  tomb.items = (tomb.items || []).slice();
+  try {
+    const td = await getSnapRaw_(env, "tombDay:" + String(day));
+    if (td && td.at && Date.now() - Number(td.at) < TOMBSTONE_MS) tomb._dayFresh = true;
+  } catch (eTd) {}
+  let added = 0;
+  for (let i = 0; i < clients.length; i++) {
+    const c = clients[i];
+    if (!c) continue;
+    const name = String(c.name || c.client || "").trim();
+    const mk = normalizeMatchKey_(c.matchKey || name);
+    if (!mk || !name) continue;
+    try {
+      const pkT = await getSnapRaw_(env, "delTomb:" + String(day) + ":" + mk);
+      if (pkT && pkT.mk && !pkT.cleared && Number(pkT.at || 0) > 0) tomb.items.push(pkT);
+    } catch (ePK) {}
+    if (isTombstoned_(tomb, day, mk, name)) continue;
+    try {
+      const ep = await getSnapRaw_(env, "moveEpoch:" + mk);
+      if (ep && ep.to && String(ep.to) !== String(day)) continue;
+    } catch (eEp) {}
+    let exists = null;
+    try {
+      exists = await findOrderRow_(env, mk, day, dateIso, name);
+    } catch (eF) {
+      exists = null;
+    }
+    if (exists && String(exists.status || "") === "active") continue;
+    try {
+      await upsertOrderRow_(env, {
+        id: day + ":" + mk,
+        date_iso: dateIso,
+        day_name: day,
+        client: name,
+        match_key: mk,
+        address: String(c.address || ""),
+        note: String(c.note || ""),
+        phone: String(c.phone || ""),
+        basket_json: JSON.stringify(c.basket || []),
+        segment: normalizeSegmentLabel_(c.segment || c.orderType || c.source || ""),
+        source: String(c.source || ""),
+        status: "active",
+        updated_at: now,
+        meta_json: "{}"
+      });
+      added++;
+    } catch (eUp) {}
+  }
+  return added;
+}
+
 async function replaceDayOrdersFromClients_(env, day, clients, opts) {
   opts = opts || {};
   await ensureMetaColumn_(env);
@@ -6242,10 +6315,10 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
     }
   } catch (eProt) {}
 
-  // 2) GAS-only: только если день в D1 пуст (bootstrap) ИЛИ явно allowGasInsert
-  //    иначе удаление «исчезает на секунду и возвращается» из листа Google
-  const canInsertGas =
-    allowGasInsert || (existingCount === 0 && !tomb._dayFresh && !opts.skipProtectMissing);
+  // 2) GAS-only: ТОЛЬКО при явном allowGasInsert (bootstrap).
+  //    Никогда не заливать лист в D1 при existingCount===0 — иначе delete «вернулся»
+  //    и параллельно «пропадали» люди при гонке replace.
+  const canInsertGas = allowGasInsert === true;
   if (canInsertGas) {
     Object.keys(gasByMk).forEach(function (mk) {
       if (!byMk[mk]) byMk[mk] = gasByMk[mk];
@@ -6385,7 +6458,17 @@ async function cutoverRevalidate_(a, params, env) {
       delete p._;
     }
     const fresh = await gasProxy_(a, p, env, { write: false });
-    if (fresh && fresh.status === "success") await cutoverStoreRead_(a, p, env, fresh);
+    if (!(fresh && fresh.status === "success")) return;
+    if (a === "getClients" && p.day) {
+      await sanitizeGasClientsPayload_(env, p.day, fresh);
+      // не full-replace из GAS (воскрешает delete) — только недостающие
+      await upsertMissingClientsFromGas_(env, p.day, fresh.clients || []);
+      try {
+        await putSnap_(env, "clients:" + p.day, fresh);
+      } catch (eSnap) {}
+      return;
+    }
+    await cutoverStoreRead_(a, p, env, fresh);
   } catch (e) {}
 }
 
@@ -6420,7 +6503,11 @@ async function cutoverRefreshAllWeekDays_(env) {
     try {
       const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
       if (fresh && fresh.status === "success") {
-        await cutoverStoreRead_("getClients", { day: day }, env, fresh);
+        await sanitizeGasClientsPayload_(env, day, fresh);
+        await upsertMissingClientsFromGas_(env, day, fresh.clients || []);
+        try {
+          await putSnap_(env, "clients:" + day, fresh);
+        } catch (eS) {}
       }
     } catch (eDay) {}
     // курьер/сборка — чистый rebuild по новым датам (без старых галочек)
