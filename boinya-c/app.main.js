@@ -4768,7 +4768,21 @@
       var dateEl = document.getElementById("viewDate");
       if (!daySel) return;
       if (daySel.value || (dateEl && dateEl.value)) return;
-      var day = (typeof opsWeekdayNameNow === "function") ? opsWeekdayNameNow() : "";
+      // после вс без закрытия недели сегодняшний пн = слот «Будущая неделя» (не Пн листа 17–23)
+      var todayIso = (typeof viewTodayIsoLocal_ === "function") ? viewTodayIsoLocal_() : "";
+      var week = viewWeekOverviewCache;
+      var futureDay = "";
+      try {
+        var items = (week && week.items) || [];
+        for (var i = 0; i < items.length; i++) {
+          if (!items[i] || items[i].day !== "Будущая неделя") continue;
+          var m = String(items[i].date || "").trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+          if (!m) continue;
+          var iso = m[3] + "-" + pad2Month_(Number(m[2])) + "-" + pad2Month_(Number(m[1]));
+          if (todayIso && iso === todayIso) futureDay = "Будущая неделя";
+        }
+      } catch (eFut) {}
+      var day = futureDay || ((typeof opsWeekdayNameNow === "function") ? opsWeekdayNameNow() : "");
       if (day) setSelectDayValue(daySel, day);
     }
 
@@ -6743,9 +6757,22 @@
     window.crmBatchMove = crmBatchMove;
 
     function deleteClientParams(clientName, day, matchKey) {
-      const params = { action: "deleteClient", client: clientName, day: day || viewResolvedDayName || "" };
-      const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "";
+      // всегда resolved-слот (сегодняшний пн = «Будущая неделя»), не сырой select «Понедельник»
+      const resolved = viewResolvedDayName || "";
+      const params = {
+        action: "deleteClient",
+        client: clientName,
+        day: day || resolved || ""
+      };
+      const dateStr =
+        (document.getElementById("viewDate") && document.getElementById("viewDate").value) ||
+        lastViewDateIso ||
+        "";
       if (dateStr) params.date = dateStr;
+      // если дата есть, а day похож на «чужой» weekday — подставить resolved
+      if (resolved && params.day && params.day !== resolved && dateStr) {
+        params.day = resolved;
+      }
       if (matchKey) params.matchKey = matchKey;
       params._ = String(Date.now());
       return params;
@@ -6754,7 +6781,7 @@
     async function crmBatchDelete() {
       const idxs = getSelectedClientIndexes();
       if (!idxs.length) { showToast("Никого не выбрано"); return; }
-      const day = document.getElementById("viewDaySelect").value;
+      const day = viewResolvedDayName || document.getElementById("viewDaySelect").value;
       const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
       if (viewDateOnlyMonth) {
         if (!dateStr) {

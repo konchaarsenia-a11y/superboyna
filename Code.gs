@@ -3675,30 +3675,32 @@ function handleDeleteClient(ss, json, callback) {
 
   var clearedWeek = false;
   var clearedCols = 0;
-  var block = getDayBlock(dayName);
   var clientRaw = String(json.client || "").trim();
   var wantKey = String(json.matchKey || "").trim() || clientMatchKey_(clientRaw);
-  var wantKeyNorm = String(wantKey || "").toUpperCase().replace(/[._]/g, "");
-  if (block && clientRaw) {
-    var targetSheet = getTargetSheet(ss, block);
-    if (targetSheet) {
-      var nicksRowValues = targetSheet.getRange(block.nick, 3, 1, 15).getValues()[0];
-      // все столбцы с этим ником (дубликаты тоже) — nicksMatch_ + matchKey
-      for (var i = 0; i < 15; i++) {
-        if (!String(nicksRowValues[i] || "").trim()) continue;
-        var nickKey = clientMatchKey_(nicksRowValues[i]);
-        var nickNorm = String(nickKey || "").toUpperCase().replace(/[._]/g, "");
-        if (
-          !nicksMatch_(nicksRowValues[i], clientRaw) &&
-          !(wantKey && nickKey && nickKey === wantKey) &&
-          !(wantKeyNorm && nickNorm && nickNorm === wantKeyNorm)
-        ) continue;
-        var targetCol = i + 3;
-        targetSheet.getRange(block.nick, targetCol).setValue("");
-        targetSheet.getRange(block.start, targetCol, block.note - block.start + 1, 1).clearContent();
-        clearedWeek = true;
-        clearedCols++;
-      }
+  // Сегодняшний пн часто = лист «Будущая неделя»: UI мог прислать day=Понедельник + date=сегодня.
+  // Чистим и day, и слот по дате (и оба, если разошлись).
+  var daysToClear = [];
+  function addDelDay_(d) {
+    d = String(d || "").trim();
+    if (!d) return;
+    for (var ai = 0; ai < daysToClear.length; ai++) {
+      if (daysToClear[ai] === d) return;
+    }
+    daysToClear.push(d);
+  }
+  addDelDay_(dayName);
+  if (deliveryDate) {
+    try {
+      addDelDay_(findDayNameForDate_(ss, deliveryDate) || "");
+    } catch (eMap) {}
+  }
+  if (!daysToClear.length && dayName) daysToClear.push(dayName);
+  for (var di = 0; di < daysToClear.length; di++) {
+    var nClear = clearClientColumnFromDay_(ss, daysToClear[di], clientRaw, wantKey);
+    if (nClear > 0) {
+      clearedWeek = true;
+      clearedCols += nClear;
+      dayName = daysToClear[di];
     }
   }
 

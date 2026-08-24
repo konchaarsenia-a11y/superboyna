@@ -1330,7 +1330,9 @@ async function findOrderRow_(env, matchKey, day, dateIso, clientName) {
         }
       } catch (eScan) {}
     }
-  } else if (dateIso) {
+  }
+  // день мог быть «Пн», а человек на «Будущая неделя» с date=сегодня — не врать d1Verified
+  if (!row && dateIso) {
     row = await env.DB.prepare(
       "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' AND (match_key = ? OR match_key = ? OR match_key = ? OR lower(client) = ? OR lower(client) = ?) LIMIT 1"
     )
@@ -1354,6 +1356,47 @@ async function findOrderRow_(env, matchKey, day, dateIso, clientName) {
     }
   }
   return row;
+}
+
+/** Живая строка по нику на любом дне недели (сегодняшний пн = «Будущая неделя»). */
+async function findActiveOrderByMatch_(env, matchKey, clientName) {
+  if (!env || !env.DB) return null;
+  const aliases = matchKeyAliases_(matchKey).concat(matchKeyAliases_(clientName));
+  const seen = Object.create(null);
+  for (let ai = 0; ai < aliases.length; ai++) {
+    const a = aliases[ai];
+    if (!a || seen[a]) continue;
+    seen[a] = true;
+    try {
+      const row = await env.DB.prepare(
+        "SELECT * FROM orders WHERE status = 'active' AND match_key = ? LIMIT 1"
+      )
+        .bind(a)
+        .first();
+      if (row) return row;
+    } catch (eMk) {}
+  }
+  const clientLow = String(clientName || "").trim().toLowerCase();
+  if (clientLow) {
+    try {
+      const row2 = await env.DB.prepare(
+        "SELECT * FROM orders WHERE status = 'active' AND lower(client) = ? LIMIT 1"
+      )
+        .bind(clientLow)
+        .first();
+      if (row2) return row2;
+    } catch (eCl) {}
+  }
+  try {
+    const all = await env.DB.prepare(
+      "SELECT * FROM orders WHERE status = 'active' AND day_name != '' LIMIT 400"
+    ).all();
+    const list = (all && all.results) || [];
+    for (let i = 0; i < list.length; i++) {
+      if (orderRowLooseMatch_(list[i], matchKey, clientName)) return list[i];
+    }
+  } catch (eScan) {}
+  return null;
 }
 
 async function getClients_(params, env) {
@@ -3307,18 +3350,76 @@ async function sanitizeGasClientsPayload_(env, day, live) {
 
 async function deleteClient_(params, env) {
   if (!env || !env.DB) return { status: "error", message: "no_d1" };
-  const day = String(params.day || "");
-  const dateIso = String(params.date || params.dateIso || "");
+  let day = String(params.day || "");
+  let dateIso = String(params.date || params.dateIso || "").trim();
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(dateIso)) dateIso = dmyToIso_(dateIso) || dateIso;
   const client = String(params.client || "").trim();
   const matchKeyRaw = params.matchKey || client;
   const mk = normalizeMatchKey_(matchKeyRaw);
   if (!mk && !client) return { status: "error", message: "no_client" };
   if (!day && !dateIso) return { status: "error", message: "need_day_or_date" };
-  if (day) {
+
+  // Сегодняшний пн часто = «Будущая неделя»: UI мог прислать day=Понедельник + date=сегодня.
+  // Ищем реальный слот клиента и tombstone'им все кандидаты, иначе success без эффекта.
+  const daysToClear = [];
+  function addDay_(d) {
+    d = String(d || "").trim();
+    if (d && daysToClear.indexOf(d) < 0) daysToClear.push(d);
+  }
+  addDay_(day);
+  if (dateIso) {
     try {
-      await clearMoveArriveProtect_(env, day, matchKeyRaw, client, Date.now());
+      const r = await resolveDay_({ date: dateIso }, env);
+      if (r && r.onWeek && r.dayName) addDay_(r.dayName);
+    } catch (eRes) {}
+    try {
+      let counts = await getSnapRaw_(env, "weekDayCountsSheet");
+      if (!counts || !Array.isArray(counts.items)) counts = await getSnapRaw_(env, "weekDayCounts");
+      const byC = dayForDateFromCounts_(counts, dateIso);
+      if (byC) addDay_(byC);
+    } catch (eC) {}
+  }
+
+  let homeRow = null;
+  try {
+    if (day) homeRow = await findOrderRow_(env, matchKeyRaw, day, "", client);
+    if (!homeRow && dateIso) homeRow = await findOrderRow_(env, matchKeyRaw, "", dateIso, client);
+    if (!homeRow) homeRow = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+  } catch (eHome) {
+    homeRow = null;
+  }
+  if (homeRow) {
+    if (homeRow.day_name) addDay_(homeRow.day_name);
+    if (!dateIso && homeRow.date_iso) dateIso = String(homeRow.date_iso || "");
+    // канонический day для GAS afterWrite — где человек реально сидит
+    if (homeRow.day_name) day = String(homeRow.day_name);
+  } else if (!day && daysToClear.length) {
+    day = daysToClear[0];
+  } else if (day && daysToClear.length > 1 && daysToClear.indexOf(day) >= 0) {
+    // если дата указывает на другой слот (Будущая) — предпочитаем его при отсутствии home
+    for (let di = 0; di < daysToClear.length; di++) {
+      if (daysToClear[di] === "Будущая неделя") {
+        day = "Будущая неделя";
+        break;
+      }
+    }
+  }
+
+  // чтобы waitUntil → GAS deleteClient шёл в правильный лист
+  try {
+    params.day = day;
+    if (dateIso) {
+      params.date = dateIso;
+      params.dateIso = dateIso;
+    }
+  } catch (ePar) {}
+
+  for (let ti = 0; ti < daysToClear.length; ti++) {
+    try {
+      await clearMoveArriveProtect_(env, daysToClear[ti], matchKeyRaw, client, Date.now());
     } catch (eClrProt) {}
   }
+
   const now = new Date().toISOString();
   let changed = 0;
   const touchedIds = Object.create(null);
@@ -3352,23 +3453,20 @@ async function deleteClient_(params, env) {
     } catch (eScan) {}
   }
 
-  // СНАЧАЛА tombstone — параллельный GAS-merge не успеет вернуть до soft-delete
+  // СНАЧАЛА tombstone на ВСЕХ слотах-кандидатах (Пн + Будущая)
   try {
-    if (day) {
-      await putDeleteTombstone_(env, day, matchKeyRaw || client);
+    for (let tj = 0; tj < daysToClear.length; tj++) {
+      await putDeleteTombstone_(env, daysToClear[tj], matchKeyRaw || client);
       if (client && normalizeMatchKey_(client) !== mk) {
-        await putDeleteTombstone_(env, day, client);
+        await putDeleteTombstone_(env, daysToClear[tj], client);
       }
     }
-    if (dateIso && !day) await putDeleteTombstone_(env, "", matchKeyRaw || client);
+    if (dateIso && !daysToClear.length) await putDeleteTombstone_(env, "", matchKeyRaw || client);
   } catch (eTomb0) {}
 
-  if (day) {
-    await softDeleteScan_("day_name = ?", [day]);
-    if (!toBool_(params.calendarOnly)) {
-      await softDeleteScan_("day_name = ''", []);
-    }
-    // прямой SQL по нормализованному ключу (на случай если loose-match не сработал)
+  for (let dj = 0; dj < daysToClear.length; dj++) {
+    const dClear = daysToClear[dj];
+    await softDeleteScan_("day_name = ?", [dClear]);
     try {
       const aliases = matchKeyAliases_(matchKeyRaw).concat(matchKeyAliases_(client));
       for (let ai = 0; ai < aliases.length; ai++) {
@@ -3376,20 +3474,35 @@ async function deleteClient_(params, env) {
         const res = await env.DB.prepare(
           "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND match_key = ?"
         )
-          .bind(now, day, aliases[ai])
+          .bind(now, dClear, aliases[ai])
           .run();
         changed += Number((res && res.meta && res.meta.changes) || 0);
       }
       const res2 = await env.DB.prepare(
         "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND lower(client) = ?"
       )
-        .bind(now, day, client.toLowerCase())
+        .bind(now, dClear, client.toLowerCase())
         .run();
       changed += Number((res2 && res2.meta && res2.meta.changes) || 0);
     } catch (eSql) {}
   }
+  if (!toBool_(params.calendarOnly)) {
+    await softDeleteScan_("day_name = ''", []);
+  }
   if (dateIso) {
     await softDeleteScan_("date_iso = ?", [dateIso]);
+    try {
+      const aliasesD = matchKeyAliases_(matchKeyRaw).concat(matchKeyAliases_(client));
+      for (let adi = 0; adi < aliasesD.length; adi++) {
+        if (!aliasesD[adi]) continue;
+        const resD = await env.DB.prepare(
+          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND match_key = ?"
+        )
+          .bind(now, dateIso, aliasesD[adi])
+          .run();
+        changed += Number((resD && resD.meta && resD.meta.changes) || 0);
+      }
+    } catch (eSqlD) {}
   }
 
   if (!toBool_(params._keepMoveEpoch) && !toBool_(params.keepMoveEpoch)) {
@@ -3397,15 +3510,22 @@ async function deleteClient_(params, env) {
       await clearMoveEpoch_(env, matchKeyRaw);
     } catch (eEpDel) {}
   }
-  await invalidateDays_(env, [day].filter(Boolean));
+  await invalidateDays_(env, daysToClear.filter(Boolean));
 
-  // VERIFY: если ещё active — ещё раз снести; иначе «удалился и вернулся»
+  // VERIFY: ещё active где угодно по нику / дате — снести; иначе «удалился и вернулся»
   let still = null;
   try {
     still = await findOrderRow_(env, matchKeyRaw, day, dateIso, client);
+    if (!still) still = await findActiveOrderByMatch_(env, matchKeyRaw, client);
     if (still) {
       await softDeleteRow_(still);
+      if (still.day_name) {
+        try {
+          await putDeleteTombstone_(env, still.day_name, matchKeyRaw || client);
+        } catch (eT2) {}
+      }
       still = await findOrderRow_(env, matchKeyRaw, day, dateIso, client);
+      if (!still) still = await findActiveOrderByMatch_(env, matchKeyRaw, client);
     }
   } catch (eVer) {}
 
@@ -3416,7 +3536,9 @@ async function deleteClient_(params, env) {
       sandbox: true,
       wrote: changed,
       stillPresent: true,
-      d1Verified: false
+      d1Verified: false,
+      day: day,
+      daysCleared: daysToClear
     };
   }
   if (changed === 0) {
@@ -3426,10 +3548,20 @@ async function deleteClient_(params, env) {
       wrote: 0,
       missing: true,
       alreadyGone: true,
-      d1Verified: true
+      d1Verified: true,
+      day: day,
+      daysCleared: daysToClear
     };
   }
-  return { status: "success", sandbox: true, wrote: changed, missing: false, d1Verified: true };
+  return {
+    status: "success",
+    sandbox: true,
+    wrote: changed,
+    missing: false,
+    d1Verified: true,
+    day: day,
+    daysCleared: daysToClear
+  };
 }
 
 async function moveClient_(params, env) {
