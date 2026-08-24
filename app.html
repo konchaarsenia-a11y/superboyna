@@ -19,18 +19,18 @@
         var dest = u.origin + destPath;
         var q = new URLSearchParams(u.search);
         if (!q.get("cutover")) q.set("cutover", "1");
-        q.set("v", "71115873");
+        q.set("v", "71115874");
         q.set("_from", "legacy-app");
         location.replace(dest + "?" + q.toString());
       } catch (e) {
-        location.replace("./boinya-c/app.html?cutover=1&v=71115873");
+        location.replace("./boinya-c/app.html?cutover=1&v=71115874");
       }
     })();
   </script>
 </head>
 <body style="background:#0a0a0a;color:#f5f5f7;font-family:sans-serif;padding:24px;text-align:center">
   <p>Открываю Бойню C…</p>
-  <p><a style="color:#3dd6c6" href="./boinya-c/app.html?cutover=1&v=71115873">Если не открылось — нажми сюда</a></p>
+  <p><a style="color:#3dd6c6" href="./boinya-c/app.html?cutover=1&v=71115874">Если не открылось — нажми сюда</a></p>
   <p><a style="color:#9a9a9a" href="./boinya-c/reset.html">Сброс кэша</a></p>
 </body>
 </html>

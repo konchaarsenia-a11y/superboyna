@@ -5203,7 +5203,7 @@
       box.innerHTML = items.map(function (it) {
         var day = it.day || "";
         var dateBit = it.date ? (" · " + escapeHtml(String(it.date))) : "";
-        return '<div class="view-ov-row" data-day="' + escapeHtml(day) + '" onclick="openViewWeekDay(this.getAttribute(\'data-day\'))">' +
+        return '<div class="view-ov-row" data-day="' + escapeHtml(day) + '" data-date="' + escapeHtml(String(it.date || "")) + '" onclick="openViewWeekDay(this.getAttribute(\'data-day\'), this.getAttribute(\'data-date\'))">' +
           '<div class="view-ov-left">' +
             '<div class="view-ov-date">' + escapeHtml(it.short || day) + " · " + escapeHtml(day) + "</div>" +
             '<div class="view-ov-meta">' + dateBit + "</div>" +
@@ -5251,7 +5251,7 @@
     }
     window.refreshViewWeekOverview = refreshViewWeekOverview;
 
-    async function openViewWeekDay(dayName) {
+    async function openViewWeekDay(dayName, dateHint) {
       dayName = String(dayName || "").trim();
       if (!dayName) return;
       viewWeekDayOpen = true;
@@ -5266,8 +5266,32 @@
           }
         }
       }
+      // дата слота из счётчиков / data-date (Будущая = 24.08) — иначе delete без date путает Пн
       var pickDate = document.getElementById("viewDate");
-      if (pickDate) pickDate.value = "";
+      var slotIso = "";
+      function dmyToIsoLocal_(dmy) {
+        dmy = String(dmy || "").trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dmy)) return dmy;
+        if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(dmy)) {
+          var p = dmy.split(".");
+          return p[2] + "-" + ("0" + p[1]).slice(-2) + "-" + ("0" + p[0]).slice(-2);
+        }
+        return "";
+      }
+      slotIso = dmyToIsoLocal_(dateHint);
+      if (!slotIso) {
+        try {
+          var items = (viewWeekOverviewCache && viewWeekOverviewCache.items) || [];
+          for (var wi = 0; wi < items.length; wi++) {
+            if (items[wi] && String(items[wi].day) === dayName) {
+              slotIso = dmyToIsoLocal_(items[wi].date);
+              break;
+            }
+          }
+        } catch (eIso) {}
+      }
+      if (pickDate) pickDate.value = slotIso || "";
+      try { window._peopleListForceFresh = true; } catch (eF) {}
       setViewSub("week");
       await loadClientsForDay();
     }
@@ -6226,27 +6250,37 @@
         viewFutureWrongDate = futureWrongDate;
 
         var linkedToWeek = !!(compareRes && compareRes.day) && !futureWrongDate;
+        // «Будущая» / явный resolved day — не уводить в calendar-only
+        // (иначе delete → removeCalendarClient и человек остаётся на листе недели).
+        if (!futureWrongDate) {
+          if (futureSlot || day === "Будущая неделя" || (compareRes && compareRes.day)) {
+            linkedToWeek = true;
+          }
+        }
 
         viewDateOnlyMonth = !!(dateStr && !linkedToWeek);
         if (!dateStr && day) viewDateOnlyMonth = false;
+        if (!futureWrongDate && (futureSlot || day === "Будущая неделя" || (compareRes && compareRes.day))) {
+          viewDateOnlyMonth = false;
+        }
 
         var week = [];
         var weekRes = null;
         if (!viewDateOnlyMonth && !futureWrongDate) {
 
-          if (compareRes && compareRes.status === "success" && Array.isArray(compareRes.week)) {
+          if (compareRes && compareRes.status === "success" && Array.isArray(compareRes.week) && compareRes.week.length) {
             week = compareRes.week;
             weekRes = { status: "success", day: compareRes.day || day, clients: week };
           } else {
+            // пустой week[] из SWR/snap — НЕ считать ответом; добираем getClients (force)
             var weekParams = { action: "getClients" };
             if (dateStr && compareRes && compareRes.day) weekParams.day = compareRes.day;
             else if (day) weekParams.day = day;
+            else if (compareRes && compareRes.day) weekParams.day = compareRes.day;
             else if (dateStr) weekParams.date = dateStr;
             if (weekParams.day || weekParams.date) {
-              if (forcePeopleList) {
-                weekParams.force = "1";
-                weekParams._ = String(Date.now());
-              }
+              weekParams.force = "1";
+              weekParams._ = String(Date.now());
               try {
                 weekRes = await apiGet(weekParams, { timeoutMs: 22000, cacheTtlMs: 0 });
               } catch (eW) {
@@ -7262,11 +7296,26 @@
       try {
         try { apiCacheBustMem_(); } catch (eMem) {}
         const mk = client.matchKey || viewClientKey(client.name) || "";
-        const res = await apiGet(
-          deleteClientParams(client.name, day, mk),
-          { timeoutMs: 45000, cacheTtlMs: 0 }
-        );
-        if (!res || (res.status !== "success" && !res.sent_opaque && !res.d1Verified)) {
+        const delParams = deleteClientParams(client.name, day, mk);
+        const res = await apiGet(delParams, { timeoutMs: 45000, cacheTtlMs: 0 });
+        // opaque без d1Verified — не считаем успехом (иначе «удалено» а человек на месте)
+        var delOk = !!(res && (res.d1Verified || res.alreadyGone || (res.status === "success" && !res.sent_opaque)));
+        if (!delOk && res && res.sent_opaque) {
+          try {
+            var vc = await apiGet({
+              action: "getClients",
+              day: delParams.day || day,
+              date: delParams.date || dateStr,
+              force: "1",
+              _: String(Date.now())
+            }, { timeoutMs: 20000, cacheTtlMs: 0 });
+            var left = ((vc && vc.clients) || []).some(function (c) {
+              return nicksMatchClient_(c && c.name, client.name);
+            });
+            delOk = !left;
+          } catch (eVer0) {}
+        }
+        if (!delOk) {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return;
         }
@@ -7279,7 +7328,7 @@
         } catch (eOpt) {}
         showToast(
           (res.alreadyGone ? "Уже удалено" : "Удалено") +
-          (day ? (" · " + day) : "") +
+          (delParams.day || day ? (" · " + (delParams.day || day)) : "") +
           (dateStr ? (" · " + dateStr) : "")
         );
         try {
@@ -7289,6 +7338,7 @@
           }
         } catch (eSel) {}
         try { afterPeopleMutationDays_([day]); } catch (eMut) {}
+        try { window._peopleListForceFresh = true; } catch (eForce) {}
         try {
           await refreshDayViews(day, { force: true });
         } catch (eRef) {
@@ -7306,6 +7356,7 @@
               return !nicksMatchClient_(c && c.name, client.name);
             });
             try { renderViewLists(); } catch (eR2) {}
+            try { window._peopleListForceFresh = true; } catch (eF2) {}
             await loadClientsForDay();
           }
         } catch (eVer) {}
