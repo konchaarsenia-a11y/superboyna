@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-24 afterwrite-no-replace-on-delete
+ * deploy-marker: 2026-08-24 verify-delete-move-no-gas-resurrect
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -5589,6 +5589,22 @@ async function handleCutover_(a, params, env, ctx) {
       (Array.isArray(fast.rows) && !fast.rows.length && a === "getWarehouse") ||
       (a === "listDeferred" && Array.isArray(fast.items) && !fast.items.length))
   ) {
+    // delete/move: пустой D1 + tombstone — не воскрешать из GAS в Просмотре
+    if (a === "getViewCompare") {
+      const dayHint = String((params && params.day) || (fast && fast.day) || "");
+      if (dayHint) {
+        try {
+          if (await dayHasFreshTombstone_(env, dayHint)) {
+            fast.cutover = true;
+            fast.swr = true;
+            fast.fromGas = false;
+            fast.source = fast.source || "d1";
+            if (fast.sandbox === true) fast.sandbox = false;
+            return fast;
+          }
+        } catch (eTombVc) {}
+      }
+    }
     try {
       const live = await gasProxy_(a, params, env, { write: false });
       if (live && live.status === "success") {

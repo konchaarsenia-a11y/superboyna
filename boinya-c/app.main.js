@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115879";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115880";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3440,6 +3440,43 @@
       return String(a || "").toUpperCase() === String(b || "").toUpperCase();
     }
 
+    /** Список Просмотра: клиент есть на day/date? null = сеть не ответила. */
+    async function clientVisibleOnView_(clientName, day, dateStr) {
+      day = String(day || "").trim();
+      dateStr = String(dateStr || "").trim();
+      if (!clientName || (!day && !dateStr)) return null;
+      try {
+        var vc = await apiGet({
+          action: "getViewCompare",
+          day: day || undefined,
+          date: dateStr || undefined,
+          force: "1",
+          _: String(Date.now())
+        }, { timeoutMs: 20000, cacheTtlMs: 0, __boinyaNoSnap: true });
+        var lists = []
+          .concat(Array.isArray(vc && vc.week) ? vc.week : [])
+          .concat(Array.isArray(vc && vc.month) ? vc.month : []);
+        return lists.some(function (c) {
+          return nicksMatchClient_(c && c.name, clientName);
+        });
+      } catch (eVc) {
+        try {
+          var gc = await apiGet({
+            action: "getClients",
+            day: day || undefined,
+            date: dateStr || undefined,
+            force: "1",
+            _: String(Date.now())
+          }, { timeoutMs: 20000, cacheTtlMs: 0, __boinyaNoSnap: true });
+          return ((gc && gc.clients) || []).some(function (c) {
+            return nicksMatchClient_(c && c.name, clientName);
+          });
+        } catch (eGc) {
+          return null;
+        }
+      }
+    }
+
     function deleteBasketItem(id) {
       basket = basket.filter(x => x.id !== id);
       renderBasket();
@@ -6221,7 +6258,8 @@
         if (dateStr) compareParams.date = dateStr;
         else compareParams.day = day;
         var forcePeopleList = !!window._peopleListForceFresh;
-        if (forcePeopleList) {
+        // LIVE: всегда force — иначе 20с mem-cache «воскрешает» после delete/move
+        if (forcePeopleList || window.__BOINYA_C_CUTOVER__) {
           compareParams.force = "1";
           compareParams._ = String(Date.now());
         }
@@ -6230,7 +6268,7 @@
         try {
           compareRes = await apiGet(compareParams, {
             timeoutMs: window.__BOINYA_C_CUTOVER__ ? 18000 : 45000,
-            cacheTtlMs: forcePeopleList ? 0 : (window.__BOINYA_C_CUTOVER__ ? 20000 : 0)
+            cacheTtlMs: 0
           });
           if (forcePeopleList) window._peopleListForceFresh = false;
         } catch (eC) {
@@ -7104,8 +7142,10 @@
           return false;
         }
 
-        // D1 уже перенёс — не блокируем UI долгими verify (раньше ложные «не перенеслось»).
-        if (!calendarOnly && !dateOnly && oldDay && newDay && oldDay !== newDay && res.d1Verified !== true) {
+        var moveOk = true;
+        var effectiveOldDay = String((res && (res.from || res.oldDay)) || oldDay || "").trim();
+        var effectiveNewDay = String((res && (res.to || res.newDay)) || newDay || "").trim();
+        if (!calendarOnly && !dateOnly && effectiveOldDay && effectiveNewDay && effectiveOldDay !== effectiveNewDay) {
           async function clientOnDay_(dayName) {
             try {
               var chk = await apiGet({
@@ -7127,18 +7167,18 @@
               }
               return false;
             } catch (eChk) {
-              return null; // сеть — неизвестно, не считаем провалом
+              return null;
             }
           }
-          var onOld = await clientOnDay_(oldDay);
-          var onNew = await clientOnDay_(newDay);
+          var onOld = await clientOnDay_(effectiveOldDay);
+          var onNew = await clientOnDay_(effectiveNewDay);
           if (onNew === false && onOld === true) {
             try {
               await apiGet({
                 action: "moveClient",
                 client: clientName,
-                oldDay: oldDay || "",
-                newDay: newDay,
+                oldDay: effectiveOldDay || "",
+                newDay: effectiveNewDay,
                 oldDate: oldDate || "",
                 newDate: target.newDate,
                 dateOnly: "0",
@@ -7148,22 +7188,33 @@
                 force: "1",
                 _: String(Date.now())
               }, { timeoutMs: 22000, cacheTtlMs: 0 });
-              onOld = await clientOnDay_(oldDay);
-              onNew = await clientOnDay_(newDay);
+              onOld = await clientOnDay_(effectiveOldDay);
+              onNew = await clientOnDay_(effectiveNewDay);
             } catch (eRetryM) {}
           }
           if (onNew === false && onOld === true) {
-            await uiAlertAsync(
-              "Не перенеслось: «" + clientName + "» всё ещё на «" + oldDay + "» и нет на «" + newDay + "».\n" +
-              "Попробуй ещё раз или обнови список."
-            );
-            try {
-              apiCacheBustMem_("getClients");
-              afterPeopleMutationDays_([oldDay, newDay]);
-              await loadClientsForDay();
-            } catch (eReload) {}
-            return false;
+            moveOk = false;
+          } else if (onNew === true && onOld === false) {
+            moveOk = true;
+          } else if (onNew === null || onOld === null) {
+            // сеть — не врём «перенеслось», если явный провал
+            moveOk = !(onNew === false && onOld === true);
           }
+        } else if (calendarOnly || dateOnly) {
+          var onTarget = await clientVisibleOnView_(clientName, effectiveNewDay || newDay, target.newDate || oldDate);
+          if (onTarget === false) moveOk = false;
+        }
+        if (!moveOk) {
+          await uiAlertAsync(
+            "Не перенеслось: «" + clientName + "» всё ещё на «" + effectiveOldDay + "» и нет на «" + effectiveNewDay + "».\n" +
+            "Попробуй ещё раз или обнови список."
+          );
+          try {
+            apiCacheBustMem_("getClients");
+            afterPeopleMutationDays_([effectiveOldDay, effectiveNewDay]);
+            await loadClientsForDay();
+          } catch (eReload) {}
+          return false;
         }
 
         var svN = Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
@@ -7298,49 +7349,23 @@
         const mk = client.matchKey || viewClientKey(client.name) || "";
         const delParams = deleteClientParams(client.name, day, mk);
         const res = await apiGet(delParams, { timeoutMs: 45000, cacheTtlMs: 0 });
-        // opaque без d1Verified — не считаем успехом (иначе «удалено» а человек на месте)
-        var delOk = !!(res && (res.d1Verified || (res.status === "success" && !res.sent_opaque && !res.alreadyGone)));
-        async function verifyGone_() {
-          try {
-            var vc = await apiGet({
-              action: "getViewCompare",
-              day: delParams.day || day,
-              date: delParams.date || dateStr,
-              force: "1",
-              _: String(Date.now())
-            }, { timeoutMs: 20000, cacheTtlMs: 0 });
-            var lists = []
-              .concat(Array.isArray(vc && vc.week) ? vc.week : [])
-              .concat(Array.isArray(vc && vc.month) ? vc.month : []);
-            return !lists.some(function (c) {
-              return nicksMatchClient_(c && c.name, client.name);
-            });
-          } catch (eVer0) {
-            try {
-              var gc = await apiGet({
-                action: "getClients",
-                day: delParams.day || day,
-                date: delParams.date || dateStr,
-                force: "1",
-                _: String(Date.now())
-              }, { timeoutMs: 20000, cacheTtlMs: 0 });
-              return !((gc && gc.clients) || []).some(function (c) {
-                return nicksMatchClient_(c && c.name, client.name);
-              });
-            } catch (eVer1) {
-              return false;
-            }
-          }
+        if (res && res.status === "error" && !res.optimistic && !res.networkFallback && !res.timedOut) {
+          await uiAlertAsync("Не удалось: " + (res.message || res.status || "ошибка"));
+          return;
         }
-        if (!delOk || res.alreadyGone || res.sent_opaque || res.skippedStaleDelete) {
+        var delOk = false;
+        async function verifyGone_() {
+          var vis = await clientVisibleOnView_(client.name, delParams.day || day, delParams.date || dateStr);
+          if (vis === true) return false;
+          if (vis === false) return true;
+          return false;
+        }
+        delOk = await verifyGone_();
+        if (!delOk) {
+          try {
+            await apiGet(Object.assign({}, delParams, { force: "1" }), { timeoutMs: 20000, cacheTtlMs: 0 });
+          } catch (eR) {}
           delOk = await verifyGone_();
-          if (!delOk && res && res.status === "success") {
-            // повторный delete
-            try {
-              await apiGet(delParams, { timeoutMs: 20000, cacheTtlMs: 0 });
-            } catch (eR) {}
-            delOk = await verifyGone_();
-          }
         }
         if (!delOk) {
           await uiAlertAsync("Не удалось удалить — человек всё ещё в списке. Обнови Просмотр и попробуй ещё раз.");
