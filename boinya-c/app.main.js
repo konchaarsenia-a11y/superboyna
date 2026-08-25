@@ -6850,8 +6850,15 @@
       orderActiveDog = 1;
       orderBaskets = { 1: basket.slice(), 2: [] };
       try { setOrderDogCount(1); } catch (eDog1) {}
-      renderBasket();
-      switchTab("orderScreen");
+      try { renderBasket(); } catch (eBasket) {}
+      try { switchTab("orderScreen"); } catch (eTab) {}
+      try {
+        var os = document.getElementById("orderScreen");
+        if (os && !os.classList.contains("active")) {
+          getScreenNodes_().forEach(function (el) { el.classList.remove("active"); });
+          os.classList.add("active");
+        }
+      } catch (eAct) {}
       recoverUiFocus();
       if (viewDateOnlyMonth) {
         showToast("Правка в календаре · " + dateStr);
@@ -7301,8 +7308,20 @@
         orderBaskets = { 1: basket.slice(), 2: [] };
         try { setOrderDogCount(1); } catch (eDog1) {}
       }
-      renderBasket();
-      switchTab("orderScreen");
+      try {
+        renderBasket();
+      } catch (eBasket) {}
+      try {
+        switchTab("orderScreen");
+      } catch (eTab) {}
+      try {
+        // flyout/async loadClients мог снять .active — добиваем
+        var os = document.getElementById("orderScreen");
+        if (os && !os.classList.contains("active")) {
+          getScreenNodes_().forEach(function (el) { el.classList.remove("active"); });
+          os.classList.add("active");
+        }
+      } catch (eAct) {}
       recoverUiFocus();
     }
 
