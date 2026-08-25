@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115890";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115891";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -5764,9 +5764,13 @@
           '<button class="crm-mini-btn crm-move" title="Вернуть в месяц" onclick="unstageDraftClient(' + index + ', event)">←</button>' +
           "</div>";
       } else {
+        // вне недели карточки тоже week-layout, но правим через calendar edit (без day слота)
+        var editOnclick = viewDateOnlyMonth
+          ? ("crmEditMonthClient(" + index + ", event)")
+          : ("crmEditClient(" + index + ", event)");
         actions =
           '<div class="client-right-block" onclick="event.stopPropagation()">' +
-          '<button class="crm-mini-btn crm-edit" onclick="crmEditClient(' + index + ', event)">✏️</button>' +
+          '<button class="crm-mini-btn crm-edit" title="Редактировать заказ" onclick="' + editOnclick + '">✏️</button>' +
           '<button class="crm-mini-btn crm-move" title="Перенести на дату" onclick="crmMoveClient(' + index + ', event)">🔄</button>' +
           '<button class="crm-mini-btn crm-delete" onclick="crmDeleteClient(' + index + ', event)">🗑️</button>' +
           "</div>";
@@ -6757,7 +6761,10 @@
       editOriginalMatchKey = client.matchKey || (typeof viewClientKey === "function" ? viewClientKey(client.name) : "") || "";
       document.getElementById("appHeaderTitle").innerText = "Изменение: " + client.name;
       document.getElementById("btnMainSave").innerText = "Обновить заказ";
+      // пустой day обязателен для calendar-only — иначе saveBooking утащит в старый день недели
       if (document.getElementById("day")) document.getElementById("day").value = dayForEdit || "";
+      var daySelEdit = document.getElementById("viewDaySelect");
+      if (!dayForEdit && daySelEdit) daySelEdit.selectedIndex = 0;
       if (dateStr && document.getElementById("deliveryDate")) {
         document.getElementById("deliveryDate").value = dateStr;
       }
@@ -7171,6 +7178,12 @@
     async function crmEditClient(index, event) {
       event.stopPropagation();
       const client = loadedClientsRawData[index];
+      if (!client) return;
+      // календарь вне недели — тот же путь, что ✏️ на month-карточке
+      if (viewDateOnlyMonth) {
+        await crmEditMonthClient(index, event);
+        return;
+      }
       const day = document.getElementById("viewDaySelect").value;
       const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
       document.getElementById("isEditMode").value = "true";
@@ -7179,7 +7192,8 @@
       editOriginalMatchKey = client.matchKey || (typeof viewClientKey === "function" ? viewClientKey(client.name) : "") || "";
       document.getElementById("appHeaderTitle").innerText = "Изменение: " + client.name;
       document.getElementById("btnMainSave").innerText = "Обновить заказ";
-      if (day) document.getElementById("day").value = day;
+      // всегда выставляем day (в т.ч. пустой) — иначе остаётся вчерашний слот и save уезжает не туда
+      if (document.getElementById("day")) document.getElementById("day").value = day || "";
       if (dateStr && document.getElementById("deliveryDate")) {
         document.getElementById("deliveryDate").value = dateStr;
       }
