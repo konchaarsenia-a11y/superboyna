@@ -692,6 +692,20 @@ function deferredItemIsProtectedTransfer_(it) {
   return false;
 }
 
+/** Напоминалки/заказы из D1 не затирать GAS listDeferred (как transfer). */
+function deferredItemIsProtectedD1Keep_(it) {
+  if (!it) return false;
+  var st = String(it.status || "open").toLowerCase();
+  if (st && st !== "open") return false;
+  if (deferredItemIsProtectedTransfer_(it)) return true;
+  var m = deferredItemModeOf_(it);
+  if (m === "remind" || m === "order" || m === "buy") return true;
+  // D1 id df_* — создать из Mini App, GAS мог не успеть
+  var id = String(it.id || "");
+  if (it.fromD1 || it.keptFromD1 || /^df_/i.test(id)) return true;
+  return false;
+}
+
 function deferredTransferClientKey_(it) {
   if (!it) return "";
   var nick =
@@ -769,7 +783,7 @@ async function filterDeferredCancelTombstones_(env, items) {
 }
 
 
-/** Слить listDeferred: open transfer из D1 не убивать ответом GAS без них. */
+/** Слить listDeferred: open transfer/remind/df_* из D1 не убивать ответом GAS без них. */
 async function mergeListDeferredPayload_(env, payload) {
   if (!payload || typeof payload !== "object") return null;
   if (payload.status && payload.status !== "success") return null;
@@ -789,6 +803,15 @@ async function mergeListDeferredPayload_(env, payload) {
 
   var byId = Object.create(null);
   var xferKeys = Object.create(null);
+  var remindKeys = Object.create(null);
+  function remindKey_(it) {
+    if (!it) return "";
+    var title = String(it.title || it.text || "").trim().toLowerCase();
+    var at = String(it.remindAtMs || it.remindAt || it.due || "");
+    var tid = String(it.telegramId || (it.payload && it.payload.telegramId) || "");
+    if (!title) return "";
+    return title + "|" + at + "|" + tid;
+  }
   incoming.forEach(function (it) {
     if (!it) return;
     if (it.id != null && String(it.id)) byId[String(it.id)] = it;
@@ -796,12 +819,15 @@ async function mergeListDeferredPayload_(env, payload) {
       var k = deferredTransferClientKey_(it);
       if (k) xferKeys[k] = true;
     }
+    var rk = remindKey_(it);
+    if (rk) remindKeys[rk] = true;
   });
 
   prevArr.forEach(function (it) {
-    if (!deferredItemIsProtectedTransfer_(it)) return;
+    if (!deferredItemIsProtectedD1Keep_(it)) return;
     var id = it && it.id != null ? String(it.id) : "";
     var k = deferredTransferClientKey_(it);
+    var rk = remindKey_(it);
     if (id && byId[id]) {
       var inc = byId[id];
       var st = String((inc && inc.status) || "open").toLowerCase();
@@ -809,12 +835,14 @@ async function mergeListDeferredPayload_(env, payload) {
       if (st === "cancelled" || st === "canceled" || st === "done" || st === "closed") return;
       return;
     }
-    if (k && xferKeys[k]) return; // уже есть transfer на этого клиента
+    if (k && deferredItemIsProtectedTransfer_(it) && xferKeys[k]) return;
+    if (rk && remindKeys[rk]) return;
     // вернуть D1-задачу, которую GAS «забыл»
     var kept = Object.assign({}, it, { fromD1: true, keptFromD1: true });
     incoming.unshift(kept);
     if (id) byId[id] = kept;
     if (k) xferKeys[k] = true;
+    if (rk) remindKeys[rk] = true;
   });
 
   try {
@@ -827,7 +855,8 @@ async function mergeListDeferredPayload_(env, payload) {
     status: "success",
     items: incoming,
     openCount: openCount,
-    mergedTransfers: true
+    mergedTransfers: true,
+    mergedRemind: true
   });
 }
 
@@ -1742,7 +1771,7 @@ async function getViewCompare_(params, env) {
     });
     // tombstone / deleted — убрать из month
     try {
-      month = await filterTombstonedClients_(env, "", month);
+      month = await filterTombstonedClients_(env, "", month, { dateIso: dateIso });
     } catch (eTombCal) {}
     return {
       status: "success",
@@ -3522,7 +3551,12 @@ async function clearMoveArriveProtect_(env, day, matchKey, clientName, onlyAtOrB
 
 async function filterTombstonedClients_(env, day, list, opts) {
   opts = opts || {};
-  if (!day || !list || !list.length) return list || [];
+  if (!list || !list.length) return list || [];
+  var dayKey = String(day || "").trim();
+  var dateIso = String(opts.dateIso || opts.date || "").trim();
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(dateIso)) dateIso = dmyToIso_(dateIso) || dateIso;
+  // calendar-only: day пустой — всё равно фильтруем по delTomb:CAL:dateIso
+  if (!dayKey && !dateIso) return list || [];
   try {
     var tomb = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
     var items = (tomb.items || []).slice();
@@ -3533,8 +3567,14 @@ async function filterTombstonedClients_(env, day, list, opts) {
         if (!c0) continue;
         var mk0 = normalizeMatchKey_(c0.matchKey || c0.name || c0.client || "");
         if (!mk0) continue;
-        var pk = await getSnapRaw_(env, "delTomb:" + String(day) + ":" + mk0);
-        if (pk && pk.mk && !pk.cleared && Number(pk.at || 0) > 0) items.push(pk);
+        if (dayKey) {
+          var pk = await getSnapRaw_(env, "delTomb:" + String(dayKey) + ":" + mk0);
+          if (pk && pk.mk && !pk.cleared && Number(pk.at || 0) > 0) items.push(pk);
+        }
+        if (dateIso) {
+          var pkCal = await getSnapRaw_(env, "delTomb:CAL:" + dateIso + ":" + mk0);
+          if (pkCal && pkCal.mk && !pkCal.cleared && Number(pkCal.at || 0) > 0) items.push(pkCal);
+        }
       }
     } catch (ePK) {}
     tomb = { items: items };
@@ -3550,9 +3590,10 @@ async function filterTombstonedClients_(env, day, list, opts) {
       if (!c) continue;
       if (
         items.length &&
+        dayKey &&
         isTombstoned_(
           tomb,
-          day,
+          dayKey,
           c.matchKey || c.name,
           c.name || c.client,
           protect
@@ -3560,13 +3601,23 @@ async function filterTombstonedClients_(env, day, list, opts) {
       ) {
         continue;
       }
+      // calendar-only tomb: delTomb:CAL:dateIso:mk
+      if (dateIso) {
+        try {
+          var mkC = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
+          if (mkC) {
+            var pkDirect = await getSnapRaw_(env, "delTomb:CAL:" + dateIso + ":" + mkC);
+            if (pkDirect && pkDirect.mk && !pkDirect.cleared && Number(pkDirect.at || 0) > 0) continue;
+          }
+        } catch (eD) {}
+      }
       // moveEpoch: скрывать с чужого дня при merge GAS; D1-строка day уже authoritative
-      if (!opts.skipMoveEpoch) {
+      if (!opts.skipMoveEpoch && dayKey) {
         try {
           var mkEp = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
           if (mkEp) {
             var ep = await getSnapRaw_(env, "moveEpoch:" + mkEp);
-            if (ep && ep.to && String(ep.to) !== String(day)) continue;
+            if (ep && ep.to && String(ep.to) !== String(dayKey)) continue;
           }
         } catch (eEpF) {}
       }
@@ -4076,6 +4127,100 @@ async function moveClient_(params, env) {
       };
     }
   }
+  // уже на newDate (calendar retry)
+  if (!row && calendarOnly && newDate) {
+    const alreadyCal = await findOrderRow_(env, matchKeyRaw, "", newDate, client);
+    if (alreadyCal) {
+      if (oldDate) {
+        try {
+          await putSnap_(env, "delTomb:CAL:" + oldDate + ":" + matchKey, {
+            mk: matchKey,
+            at: Date.now(),
+            dateIso: oldDate,
+            scope: "CAL"
+          });
+        } catch (eTCal) {}
+        try {
+          await env.DB.prepare(
+            "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND (day_name = '' OR day_name IS NULL) AND date_iso = ? AND (match_key = ? OR lower(client) = ?)"
+          )
+            .bind(now, oldDate, matchKey, clientLow || matchKey)
+            .run();
+        } catch (eDelCal) {}
+        try { await delSnap_(env, "viewDate:" + oldDate); } catch (eV0) {}
+      }
+      try { await delSnap_(env, "viewDate:" + newDate); } catch (eV1) {}
+      return {
+        status: "success",
+        sandbox: true,
+        wrote: 1,
+        alreadyMoved: true,
+        from: oldDate || "",
+        to: "",
+        newDate: newDate,
+        calendarOnly: true
+      };
+    }
+  }
+  // calendar-only без D1-строки: создать на newDate (человек мог быть только в snap/Sheets)
+  if (!row && calendarOnly && newDate) {
+    if (oldDate) {
+      try {
+        await putSnap_(env, "delTomb:CAL:" + oldDate + ":" + matchKey, {
+          mk: matchKey,
+          at: Date.now(),
+          dateIso: oldDate,
+          scope: "CAL"
+        });
+      } catch (eTOld) {}
+      try {
+        await env.DB.prepare(
+          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND (day_name = '' OR day_name IS NULL) AND date_iso = ? AND (match_key = ? OR lower(client) = ?)"
+        )
+          .bind(now, oldDate, matchKey, clientLow || matchKey)
+          .run();
+      } catch (eDelO) {}
+      try { await delSnap_(env, "viewDate:" + oldDate); } catch (eVo) {}
+    }
+    let created = null;
+    try {
+      created = await saveOrder_(
+        Object.assign({}, params, {
+          day: "",
+          date: newDate,
+          dateIso: newDate,
+          calendarOnly: true,
+          client: client,
+          matchKey: matchKeyRaw,
+          fromAfterWrite: "1"
+        }),
+        env,
+        true
+      );
+    } catch (eSo) {
+      created = { status: "error", message: String(eSo && eSo.message || eSo) };
+    }
+    if (!created || created.status !== "success") {
+      return {
+        status: "error",
+        message: (created && created.message) || "not_found",
+        sandbox: true,
+        calendarOnly: true
+      };
+    }
+    try { await delSnap_(env, "viewDate:" + newDate); } catch (eVn) {}
+    try { await rebuildMonthOverview_(env); } catch (eMo) {}
+    return {
+      status: "success",
+      sandbox: true,
+      wrote: 1,
+      from: oldDate || "",
+      to: "",
+      newDate: newDate,
+      calendarOnly: true,
+      createdCalendar: true
+    };
+  }
   if (!row) {
     return { status: "error", message: "not_found", sandbox: true };
   }
@@ -4298,6 +4443,18 @@ async function moveClient_(params, env) {
   }
 
   await invalidateDays_(env, fromDays.concat([newDay]).filter(Boolean));
+  // calendar-only: сбросить snap по датам (иначе Просмотр врёт)
+  try {
+    if (oldDate) await delSnap_(env, "viewDate:" + oldDate);
+  } catch (eVo2) {}
+  try {
+    if (newDate) await delSnap_(env, "viewDate:" + newDate);
+  } catch (eVn2) {}
+  try {
+    if (calendarOnly || (newDate && !newDay) || (oldDate && !fromDay)) {
+      await rebuildMonthOverview_(env);
+    }
+  } catch (eMo2) {}
 
   return {
     status: "success",
@@ -7403,6 +7560,38 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
       );
     }
     await Promise.all(jobs);
+
+    // calendar-only writes: обновить viewDate snap (иначе Просмотр пустой / старый)
+    try {
+      if (/^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(a)) {
+        var dateIsos = [];
+        function addIso_(x) {
+          x = String(x || "").trim();
+          if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(x)) x = dmyToIso_(x) || x;
+          if (/^\d{4}-\d{2}-\d{2}$/.test(x) && dateIsos.indexOf(x) < 0) dateIsos.push(x);
+        }
+        addIso_(params.date || params.dateIso || params.deliveryDate);
+        addIso_(params.oldDate);
+        addIso_(params.newDate);
+        addIso_(writeRes && (writeRes.dateIso || writeRes.newDate || writeRes.date));
+        for (var di = 0; di < dateIsos.length; di++) {
+          var iso = dateIsos[di];
+          try {
+            await delSnap_(env, "viewDate:" + iso);
+          } catch (eDelV) {}
+          try {
+            var vc = await getViewCompare_({ date: iso }, env);
+            if (vc && vc.status === "success") {
+              await putSnap_(env, "viewDate:" + iso, vc);
+            }
+          } catch (eVc) {}
+        }
+        if (dateIsos.length) {
+          try { await rebuildMonthOverview_(env); } catch (eMo3) {}
+        }
+      }
+    } catch (eCalAw) {}
+
     await Promise.all([
       cutoverRevalidate_("getWeekDayCounts", {}, env),
       cutoverRevalidate_("getWarehouse", {}, env),
