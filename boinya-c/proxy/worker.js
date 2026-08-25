@@ -4967,6 +4967,41 @@ async function handleCutover_(a, params, env, ctx) {
     } catch (eFinGuard) {}
   }
 
+  // Закрытие / откат дат / материализация — долгий GAS + обязательный resync D1
+  if (/^(finishFullWeek|repairWeekMonday|materializeWeek)$/i.test(a)) {
+    const proxiedFin = await gasProxy_(a, params, env, { write: true });
+    const okFin =
+      proxiedFin &&
+      (proxiedFin.status === "success" ||
+        /week_already_finished|week_monday_repaired/i.test(String(proxiedFin.message || "")));
+    // Даже при gas_proxy_failed Sheets мог уже закрыть — тянем актуальные даты/людей
+    const refreshJob = cutoverRefreshAllWeekDays_(env).catch(function () {
+      return null;
+    });
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(refreshJob);
+    else {
+      try {
+        await refreshJob;
+      } catch (eRf) {}
+    }
+    if (!proxiedFin) {
+      return {
+        status: "error",
+        message: "gas_proxy_failed",
+        tip: "GAS мог уже отработать — проверь getWeekDayCounts (force=1). D1 sync запущен в фоне.",
+        cutover: true,
+        action: a,
+        d1ResyncStarted: true
+      };
+    }
+    if (okFin && proxiedFin) {
+      proxiedFin.cutover = true;
+      proxiedFin.d1ResyncStarted = true;
+      proxiedFin.sandbox = false;
+    }
+    return partnerGuardOrRewrite_(a, params, proxiedFin);
+  }
+
   if (a === "getSubscription") {
     const liveSub = await gasProxy_(a, params, env, { write: false });
     if (liveSub && typeof liveSub === "object") {
@@ -6584,7 +6619,9 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
   // Не затирать свежие D1-записи старым GAS (edit ещё не доехал / таймаут)
   const protectMs = opts.protectMs != null ? Number(opts.protectMs) : 12 * 60 * 1000;
   // По умолчанию D1 — источник правды: GAS не может «вернуть» удалённого.
-  const allowGasInsert = opts.allowGasInsert === true;
+  // gasAuthoritative: после finishFullWeek / force week sync — список GAS = правда дня.
+  const gasAuthoritative = opts.gasAuthoritative === true;
+  const allowGasInsert = opts.allowGasInsert === true || gasAuthoritative;
 
   let tomb = null;
   try {
@@ -6638,7 +6675,7 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
     const existing = (q && q.results) || [];
     existingCount = existing.length;
 
-    // 1) Сначала все живые D1 (минус tomb/drop) — база правды
+    // 1) Живые D1 — база правды (кроме gasAuthoritative: тогда только пересечение с GAS)
     for (let ei = 0; ei < existing.length; ei++) {
       const row = existing[ei];
       if (!row) continue;
@@ -6654,6 +6691,12 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
         continue;
       }
       const gasC = gasByMk[mk];
+      if (gasAuthoritative) {
+        // после смены недели: нет в GAS → выкинуть; есть → взять GAS (дата/состав листа)
+        if (!gasC) continue;
+        byMk[mk] = gasC;
+        continue;
+      }
       const updatedMs = Date.parse(String(row.updated_at || "")) || 0;
       const d1Fresh = !!(updatedMs && nowMs - updatedMs < protectMs);
       const d1Sig = basketSig_(row.basket_json);
@@ -6858,7 +6901,14 @@ async function cutoverRefreshAllWeekDays_(env) {
       const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
       if (fresh && fresh.status === "success") {
         await sanitizeGasClientsPayload_(env, day, fresh);
-        await upsertMissingClientsFromGas_(env, day, fresh.clients || []);
+        // После закрытия недели day_name в D1 ещё держит людей прошлой недели —
+        // upsertMissing только дописывает, не чистит. GAS = правда слота.
+        await replaceDayOrdersFromClients_(env, day, fresh.clients || [], {
+          gasAuthoritative: true,
+          allowGasInsert: true,
+          protectMs: 0,
+          skipProtectMissing: true
+        });
         try {
           await putSnap_(env, "clients:" + day, fresh);
         } catch (eS) {}
@@ -6879,9 +6929,25 @@ async function cutoverRefreshAllWeekDays_(env) {
       }
     } catch (eCut) {}
   }
+  // даты уже из GAS weekDayCounts — не перетирать rebuild из старых order.date_iso
   try {
-    await rebuildWeekCounts_(env);
-  } catch (eC) {}
+    const sheetCounts = await getSnapRaw_(env, "weekDayCountsSheet");
+    if (sheetCounts && Array.isArray(sheetCounts.items) && sheetCounts.items.length) {
+      await putSnap_(env, "weekDayCounts", sheetCounts);
+      const dateToDay = Object.create(null);
+      sheetCounts.items.forEach(function (it) {
+        const iso = dmyToIso_(it && it.date);
+        if (iso && it.day) dateToDay[iso] = it.day;
+      });
+      await putSnap_(env, "dateToDay", { map: dateToDay });
+    } else {
+      await rebuildWeekCounts_(env);
+    }
+  } catch (eC) {
+    try {
+      await rebuildWeekCounts_(env);
+    } catch (eC2) {}
+  }
 }
 
 async function cutoverAfterWrite_(a, params, env, writeRes) {
