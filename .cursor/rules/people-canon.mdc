@@ -1,0 +1,19 @@
+---
+description: Бойня C — канон людей Sheets-first. Всегда применять при правках Worker/UI CRM.
+alwaysApply: true
+---
+
+# People Canon (Бойня C)
+
+Перед правками `boinya-c/proxy/worker.js` или people-write в `boinya-c/app.main.js` читай `boinya-c/docs/PEOPLE_CANON.md`.
+
+## Нельзя (без явного ОК владельца «полный D1»)
+
+- D1-first optimistic success для `saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient` в LIVE
+- UI toast success по `optimistic` / `timedOut` / `networkFallback` без `sheetsVerified` или verify списка
+- «Обходы» гонок новым fake-success вместо фикса GAS/маппинга
+
+## Нужно
+
+- LIVE people-write: await GAS → sync D1 → `sheetsVerified: true`, `optimistic: false`
+- Тест только `zzz_test`; ping → `peopleCanon: sheets-first` после Worker Deploy

@@ -72,6 +72,7 @@ alwaysApply: true
 9. Отдавать готовые файлы + короткую инструкцию «куда вставить», не сырые догадки.
 10. Приоритет — незакрытые пункты чеклиста в `TZ.md` (особенно брони/материализация и навигация).
 11. **Пуш сам, без спроса:** как только фича/фикс в `app.html` / `Code.gs` / `TZ.md` готовы — сразу `git commit` + `git push origin HEAD` (Pages). Не писать «сказать пуш» / «залить?». Напомнить только про **Deploy Code.gs**, если менялся бэкенд. Секреты не коммитить.
+12. **People canon (Бойня C LIVE):** `saveOrder` / `saveBooking` / `deleteClient` / `removeCalendarClient` / `moveClient` — сначала GAS/Sheets, потом D1. Запрещено optimistic-success до Sheets и D1-first dual-write для этих action без явного ОК владельца. См. `boinya-c/docs/PEOPLE_CANON.md`.
 
 ## Стиль ответа пользователю
 

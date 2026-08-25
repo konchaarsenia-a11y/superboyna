@@ -2,22 +2,27 @@
 
 ## Как открыть
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71115851
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71115897
 
 Бейдж **C · LIVE**. Режим закреплён в URL (`cutover=1`) — не должен прыгать на **C · D1**.
 
 В Telegram Menu Button:
-`.../boinya-c/app.html?cutover=1&v=71115851`
+`.../boinya-c/app.html?cutover=1&v=71115897`
 
 Песочница (без записи в Sheets): `?sandbox=1` или `?cutover=0` → бейдж **C · D1**.
+
+После смены версии — один раз `boinya-c/reset.html`.
 
 ## Как это устроено сейчас
 
 | | |
 |--|--|
 | **Чтение** | сразу из D1 (быстро), в фоне подтягивается GAS |
-| **Запись** | в боевой GAS/Sheets, потом D1 обновляется |
+| **Запись людей** | **Sheets/GAS first** → потом sync D1 (`sheetsVerified`). См. [PEOPLE_CANON.md](./PEOPLE_CANON.md) |
+| Флаги / deferred / transfer park | D1-first OK |
 | Опасные week-actions | UI «Завершить неделю» после 3 подтверждений шлёт `allowDanger=1` → GAS |
+
+Проверка Worker: `?action=ping` → `peopleCanon: "sheets-first"`.
 
 ## Закрыть неделю
 
@@ -30,6 +35,6 @@ https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71115851
 
 ## Если снова тормозит
 
-1. Hard refresh / смени `v=`
+1. Hard refresh / `reset.html` / смени `v=`
 2. Не используй `?via=direct` — это медленный путь напрямую в GAS
-3. Sandbox без записи: `?cutover=0` или `?sandbox=1`
+3. Sandbox без записи в Sheets: `?cutover=0` или `?sandbox=1`

@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115895";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115897";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3780,16 +3780,30 @@
               .catch(function (err) {
                 clearTimeout(timer);
                 if (err && err.name === "AbortError") {
-                  // cutover: запись уже в D1/Worker; таймаут UI ≠ провал
+                  // PEOPLE CANON: таймаут ≠ успех. Sheets-first — без подтверждения не врать «сохранено».
                   if (/^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(action)) {
-                    resolve({ status: "success", optimistic: true, timedOut: true, cutover: true });
+                    resolve({
+                      status: "error",
+                      message: "timeout_waiting_sheets",
+                      sheetsVerified: false,
+                      optimistic: false,
+                      timedOut: true,
+                      cutover: true
+                    });
                     return;
                   }
                   reject(new Error("Таймаут ответа сервера"));
                   return;
                 }
                 if (/^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(action)) {
-                  resolve({ status: "success", optimistic: true, networkFallback: true, cutover: true });
+                  resolve({
+                    status: "error",
+                    message: "network_waiting_sheets",
+                    sheetsVerified: false,
+                    optimistic: false,
+                    networkFallback: true,
+                    cutover: true
+                  });
                   return;
                 }
                 reject(new Error("Ошибка сети"));
@@ -3805,6 +3819,7 @@
               /жив/i.test(String(res.msg || res.message || "")) ||
               (isPeopleMut &&
                 res.status === "success" &&
+                !res.sheetsVerified &&
                 res.d1Verified == null &&
                 res.wrote == null &&
                 !res.alreadyGone &&
@@ -4696,7 +4711,7 @@
 
         if (weekDayToSave && saveRes && saveRes.status === "success" &&
             Number(saveRes.wrote || 0) === 0 && basketSnap.length > 0 &&
-            !saveRes.verified && !saveRes.d1Verified && !saveRes.partial) {
+            !saveRes.verified && !saveRes.sheetsVerified && !saveRes.d1Verified && !saveRes.partial) {
           await uiAlertAsync(
             "Человек на листе есть, но состав не записался (" + basketSnap.length + " поз.).\n" +
             "Попробуй ещё раз или проверь названия продуктов.\n" +
@@ -7421,7 +7436,7 @@
           matchKey: matchKey,
           _: String(Date.now())
         }, { timeoutMs: 45000, cacheTtlMs: 0, bypassInflight: true });
-        if (!res || (res.status !== "success" && !res.sent_opaque && !res.optimistic && !res.d1Verified && !res.timedOut && !res.networkFallback)) {
+        if (!res || (res.status !== "success" && !res.sent_opaque && !res.sheetsVerified && !res.d1Verified)) {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return false;
         }
@@ -7431,10 +7446,12 @@
         var effectiveNewDay = String((res && (res.newDay || (res.to && !/^\d{4}-\d{2}-\d{2}$/.test(String(res.to)) ? res.to : ""))) || newDay || "").trim();
         var effectiveNewDate = String((res && (res.newDate || (res.to && /^\d{4}-\d{2}-\d{2}$/.test(String(res.to)) ? res.to : ""))) || target.newDate || "").trim();
         var destLabel = effectiveNewDay || effectiveNewDate || "новую дату";
+        // PEOPLE CANON: sheetsVerified = канон; d1Verified alone без Sheets — слабо
         var wroteOk = !!(res && res.status === "success" && (
           Number(res.wrote) > 0 ||
-          res.d1Verified ||
-          res.alreadyMoved
+          res.sheetsVerified ||
+          res.alreadyMoved ||
+          (res.d1Verified && !res.optimistic)
         ) && !res.sent_opaque && res.status !== "online" && !/жив/i.test(String(res.msg || "")));
 
         if (!calendarOnly && !dateOnly && effectiveOldDay && effectiveNewDay && effectiveOldDay !== effectiveNewDay) {
@@ -7637,7 +7654,7 @@
             matchKey: client.matchKey || viewClientKey(client.name) || "",
             _: String(Date.now())
           }, { timeoutMs: 45000, cacheTtlMs: 0 });
-          if (!resM || (resM.status !== "success" && !resM.sent_opaque && !resM.d1Verified)) {
+          if (!resM || (resM.status !== "success" && !resM.sent_opaque && !resM.sheetsVerified && !resM.d1Verified)) {
             await uiAlertAsync("Не удалось: " + ((resM && resM.message) || resM.status || "ошибка"));
             return;
           }
@@ -7662,7 +7679,7 @@
         const mk = client.matchKey || viewClientKey(client.name) || "";
         const delParams = deleteClientParams(client.name, day, mk);
         const res = await apiGet(delParams, { timeoutMs: 45000, cacheTtlMs: 0, bypassInflight: true });
-        if (res && res.status === "error" && !res.optimistic && !res.networkFallback && !res.timedOut) {
+        if (res && res.status === "error") {
           await uiAlertAsync("Не удалось: " + (res.message || res.status || "ошибка"));
           return;
         }
@@ -7674,7 +7691,8 @@
         var daysCleared = Array.isArray(res && res.daysCleared) ? res.daysCleared : [];
         var writeSolid = !!(res && res.status === "success" && !res.sent_opaque && (
           Number(res.wrote) > 0 ||
-          (res.d1Verified && !res.skippedStaleDelete) ||
+          res.sheetsVerified ||
+          (res.d1Verified && !res.skippedStaleDelete && !res.optimistic) ||
           res.alreadyGone
         ));
         async function stillOnPrimaryDay_() {
@@ -7713,11 +7731,11 @@
           return;
         }
         // сеть неизвестна — если Worker не подтвердил запись, тоже fail
-        if (still === null && !writeSolid && !(res && (res.d1Verified || Number(res.wrote) > 0 || res.alreadyGone))) {
-          await uiAlertAsync("Не удалось удалить — нет подтверждения сервера. Проверь сеть и попробуй ещё раз.");
+        if (still === null && !writeSolid && !(res && (res.sheetsVerified || res.d1Verified || Number(res.wrote) > 0 || res.alreadyGone))) {
+          await uiAlertAsync("Не удалось удалить — нет подтверждения таблицы. Проверь сеть и попробуй ещё раз.");
           return;
         }
-        // D1 уже ответил success — убираем из UI сразу (не ждём GAS / не врём «не удалилось»).
+        // Sheets/Worker подтвердили — убираем из UI сразу.
         try {
           loadedClientsRawData = (loadedClientsRawData || []).filter(function (c) {
             return !nicksMatchClient_(c && c.name, client.name);

@@ -1,3 +1,4 @@
+- [~] **People canon Sheets-first 2026-08-25:** LIVE save/move/delete ждут GAS → sync D1 (`sheetsVerified`); UI без fake-optimistic на timeout; docs PEOPLE_CANON · Pages `v71115897` · **нужен Worker Deploy** (merge→CI) · потом live `zzz_test`
 - [~] **ПП: мясные ломтики не пишутся (vi.minaeva_nails) 2026-08-25:** нет/не матчится колонка → silent drop. Fix: broader map + product overwrite formulas + `[XTRA:…]` overflow + missed в ответе · Pages `v71115896` · **Deploy Code.gs**
 - [~] **ПП: снова «не закрепилось» после save 2026-08-25:** verify ложно падал (кэш getSubscription / fingerprint). Fix: trust GAS success + force live read + мягче сверка · Pages `v71115895` · **Deploy Code.gs**
 - [~] **ПП: ложный «не сохранилось в лист» 2026-08-25:** после save сверка fingerprint падала: пустая фракция → в листе «Мелкое», Ё/Е и alias. Fix: `basketsMatchAfterSave_` + лучший soft-score колонок · Pages `v71115894` · **Deploy Code.gs**
