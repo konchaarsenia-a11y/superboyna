@@ -17980,6 +17980,39 @@ function partnerMigrateProdV8_() {
   return { migrated: true, username: uname, pointIds: pointIds };
 }
 
+/**
+ * V9: @nan_animal_clinic (NaN clinic) — одна точка Янковского 34.
+ */
+function partnerMigrateProdV9_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V9") === "1") return { migrated: false };
+  try { partnerMigrateProdV8_(); } catch (e8) {}
+  var now = new Date();
+  var acSh = getPartnerAccessSheet_();
+  var uname = "nan_animal_clinic";
+  var pointIds = ["pt_nan_1"];
+  var rows = readPartnerAccessRows_();
+  var hit = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].username === uname) { hit = rows[i]; break; }
+  }
+  var vals = [
+    hit ? hit.id : ("pa_" + uname),
+    uname,
+    hit ? hit.telegramId : "",
+    "NaN clinic",
+    "net_nan",
+    JSON.stringify(pointIds),
+    "partner",
+    "active",
+    now
+  ];
+  if (hit) acSh.getRange(hit.rowIndex, 1, 1, PARTNER_ACCESS_HEADERS_.length).setValues([vals]);
+  else acSh.appendRow(vals);
+  props.setProperty("PARTNER_PROD_V9", "1");
+  return { migrated: true, username: uname, pointIds: pointIds };
+}
+
 function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV3_(); } catch (eMig) {}
   try { partnerMigrateProdV4_(); } catch (eMig4) {}
@@ -17987,6 +18020,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV6_(); } catch (eMig6) {}
   try { partnerMigrateProdV7_(); } catch (eMig7) {}
   try { partnerMigrateProdV8_(); } catch (eMig8) {}
+  try { partnerMigrateProdV9_(); } catch (eMig9) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
