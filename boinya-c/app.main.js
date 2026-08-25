@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115893";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115894";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -17384,14 +17384,53 @@
       });
     }
 
+    /** Нормализация позиции для сверки после save (alias, Ё→Е, округление). */
+    function basketItemKeyParts_(it) {
+      var name = String(it.main || it.name || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+      try {
+        if (typeof igAliasResolve === "function") {
+          name = String(igAliasResolve(name) || name).toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+        }
+      } catch (eAl) {}
+      var sub = String(it.sub || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+      var val = Number(it.val != null ? it.val : it.value) || 0;
+      val = Math.round(val * 1000) / 1000;
+      return { name: name, sub: sub, val: val };
+    }
+
     function basketFingerprint_(list) {
       return (list || []).map(function (it) {
-        return [
-          String(it.main || it.name || "").toUpperCase(),
-          String(it.sub || "").toUpperCase(),
-          Number(it.val != null ? it.val : it.value) || 0
-        ].join("|");
+        var p = basketItemKeyParts_(it);
+        return [p.name, p.sub, p.val].join("|");
       }).sort().join(";");
+    }
+
+    /**
+     * Сверка want↔got после записи в лист ПП.
+     * GAS soft-match пишет пустую фракцию в колонку «Мелкое»/дефолт — read-back
+     * возвращает sub, хотя отправили "". Строгий fingerprint тогда ложно орёт.
+     * Совместимы: одинаковый sub ИЛИ пустой sub с одной стороны.
+     */
+    function basketsMatchAfterSave_(want, got) {
+      if (basketFingerprint_(want) === basketFingerprint_(got)) return true;
+      var A = (want || []).map(basketItemKeyParts_);
+      var B = (got || []).map(basketItemKeyParts_).slice();
+      if (A.length !== B.length) return false;
+      for (var i = 0; i < A.length; i++) {
+        var a = A[i];
+        var found = -1;
+        for (var j = 0; j < B.length; j++) {
+          var b = B[j];
+          if (a.name !== b.name) continue;
+          if (Math.abs(a.val - b.val) > 0.51) continue;
+          if (a.sub && b.sub && a.sub !== b.sub) continue;
+          found = j;
+          break;
+        }
+        if (found < 0) return false;
+        B.splice(found, 1);
+      }
+      return B.length === 0;
     }
 
     async function openSubDetail(index) {
@@ -17920,9 +17959,9 @@
             }, { timeoutMs: 22000, cacheTtlMs: 0 });
           } catch (eG) { last = null; }
           if (last && last.status === "success") {
+            if (basketsMatchAfterSave_(basketPayload, last.basket || [])) { ok = true; break; }
+            // wishes/marker тоже сигнал что лист обновился (мягкий фолбэк)
             var gotFp = basketFingerprint_(last.basket || []);
-            if (gotFp === wantFp) { ok = true; break; }
-            // wishes/marker тоже сигнал что лист обновился
             if (sheet === "ПП" && wishesSave && String(last.wishes || "").indexOf(wishesSave.slice(0, 12)) >= 0 &&
                 gotFp && wantFp && (last.basket || []).length === (basketPayload || []).length) {
               ok = true; break;
@@ -17938,7 +17977,7 @@
           renderSubDetailBasket();
           showToast("Сохранено в лист " + sheet + " (" + subDetailBasket.length + " поз.)");
         } else {
-          showToast("Не закрепилось в листе " + sheet + " — сохрани ещё раз (нужен Worker Deploy)");
+          showToast("Не закрепилось в листе " + sheet + " — сохрани ещё раз");
         }
       } catch (e) {
         showToast(e.message || "Ошибка");

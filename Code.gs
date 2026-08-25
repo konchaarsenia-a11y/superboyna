@@ -23563,8 +23563,8 @@ function writePpBasketToRowValues_(headers, basket, nick, subId, deliveriesN, st
     var val = Number(it.val != null ? it.val : it.value) || 0;
     if (!iname || val <= 0) continue;
     try { iname = String(normalizeProductAlias_(iname) || iname).toUpperCase().replace(/Ё/g, "Е"); } catch (eAl) {}
-    var matched = false;
-    var softIdx = -1;
+    var bestIdx = -1;
+    var bestScore = -1;
     for (var c = 6; c < headers.length; c++) {
       var map = mapCrmHeaderToItem_(headers[c]);
       if (!map) continue;
@@ -23572,27 +23572,22 @@ function writePpBasketToRowValues_(headers, basket, nick, subId, deliveriesN, st
       var msub = String(map.sub || "").toUpperCase().replace(/Ё/g, "Е");
       try { mname = String(normalizeProductAlias_(mname) || mname).toUpperCase().replace(/Ё/g, "Е"); } catch (eAl2) {}
       if (mname !== iname) continue;
-      // точный матч фракции
-      if (msub && isub && msub === isub) {
-        softIdx = c;
-        matched = true;
-        break;
-      }
-      if (!msub && !isub) {
-        softIdx = c;
-        matched = true;
-        break;
-      }
-      // мягкий: имя совпало, фракция только с одной стороны
-      if (softIdx < 0 && ((msub && !isub) || (!msub && isub))) {
-        softIdx = c;
+      var score = -1;
+      if (msub && isub && msub === isub) score = 100;
+      else if (!msub && !isub) score = 90;
+      else if (!isub && msub) {
+        // пустая фракция в UI → предпочитаем дефолтные колонки листа (Мелкое/Среднее)
+        if (/^МЕЛК/.test(msub)) score = 70;
+        else if (/^СРЕД/.test(msub)) score = 55;
+        else score = 40;
+      } else if (isub && !msub) score = 35;
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = c;
       }
     }
-    if (!matched && softIdx >= 0) {
-      matched = true;
-    }
-    if (!matched || softIdx < 0) continue;
-    var mapW = mapCrmHeaderToItem_(headers[softIdx]);
+    if (bestIdx < 0 || bestScore < 0) continue;
+    var mapW = mapCrmHeaderToItem_(headers[bestIdx]);
     var sheetVal;
     if (mapW && mapW.grams) {
       sheetVal = Math.round((val / 100) * 1000) / 1000;
@@ -23600,7 +23595,7 @@ function writePpBasketToRowValues_(headers, basket, nick, subId, deliveriesN, st
     } else {
       sheetVal = Math.round(val);
     }
-    row[softIdx] = sheetVal;
+    row[bestIdx] = sheetVal;
   }
   if (factCost != null && factCost !== "") {
     for (var fc = 0; fc < headers.length; fc++) {
