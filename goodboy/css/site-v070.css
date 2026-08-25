@@ -388,7 +388,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .promise-hero .promise-rest {
   display: inline;
 }
-/* подчёркивание на «хвостика» */
+/* подчёркивание на «питомца» */
 .promise-hero .promise-accent {
   position: relative;
   color: var(--gb-orange);
