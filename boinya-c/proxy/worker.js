@@ -5261,6 +5261,16 @@ const PARTNER_ARSENIY_POINT = {
   address: "Карского 23"
 };
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "" };
+
+/** @nan_animal_clinic — NaN clinic, одна точка Янковского. */
+const PARTNER_NAN_USER = "nan_animal_clinic";
+const PARTNER_NAN_POINT = {
+  id: "pt_nan_1",
+  networkId: "net_nan",
+  name: "nan_animal_clinic",
+  address: "ул. Янковского, 34"
+};
+const PARTNER_NAN_NET = { id: "net_nan", name: "NaN clinic", logo: "assets/partners/nan.png" };
 const PARTNER_CATALOG_STATIC = [
   { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
   { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "г", active: true },
@@ -5281,24 +5291,28 @@ function isPartnerArseniy_(params) {
   return u === PARTNER_ARSENIY_USER || tid === PARTNER_ARSENIY_TID;
 }
 
-function partnerArseniyGetMe_(json) {
+function isPartnerNan_(params) {
+  return partnerNormUserWorker_(params && params.username) === PARTNER_NAN_USER;
+}
+
+function partnerScopedGetMe_(json, point, net, fallbackName, fallbackUser, fallbackTid, overrideKey) {
   const src = json && typeof json === "object" && json.status !== "error" ? json : {};
   const pts = Array.isArray(src.points) ? src.points : [];
   let one = null;
   for (let i = 0; i < pts.length; i++) {
-    if (pts[i] && pts[i].id === PARTNER_ARSENIY_POINT.id) {
+    if (pts[i] && pts[i].id === point.id) {
       one = pts[i];
       break;
     }
   }
-  if (!one) one = PARTNER_ARSENIY_POINT;
+  if (!one) one = point;
   const nets = Array.isArray(src.networks)
     ? src.networks.filter(function (n) {
-        return n && n.id === "net_varka";
+        return n && n.id === net.id;
       })
     : [];
   const allowedPointIds = {};
-  allowedPointIds[PARTNER_ARSENIY_POINT.id] = true;
+  allowedPointIds[point.id] = true;
   return Object.assign({}, src, {
     status: "success",
     allowed: true,
@@ -5306,34 +5320,62 @@ function partnerArseniyGetMe_(json) {
     role: "partner",
     isPartner: true,
     isOwner: false,
-    name: src.name && src.name !== "Владелец Good Boy" ? src.name : "Арсений Хотько",
-    username: src.username || PARTNER_ARSENIY_USER,
-    telegramId: src.telegramId || PARTNER_ARSENIY_TID,
-    networkId: "net_varka",
-    pointIds: [PARTNER_ARSENIY_POINT.id],
+    name: src.name && src.name !== "Владелец Good Boy" ? src.name : fallbackName,
+    username: src.username || fallbackUser,
+    telegramId: src.telegramId || fallbackTid || "",
+    networkId: net.id,
+    pointIds: [point.id],
     allowedPointIds: allowedPointIds,
-    networks: nets.length ? nets : [PARTNER_ARSENIY_NET],
+    networks: nets.length ? nets : [net],
     points: [
       {
-        id: one.id || PARTNER_ARSENIY_POINT.id,
-        networkId: one.networkId || "net_varka",
-        name: one.name || PARTNER_ARSENIY_POINT.name,
-        address: one.address || PARTNER_ARSENIY_POINT.address
+        id: one.id || point.id,
+        networkId: one.networkId || net.id,
+        name: one.name || point.name,
+        address: one.address || point.address
       }
     ],
     catalog: Array.isArray(src.catalog) && src.catalog.length ? src.catalog : PARTNER_CATALOG_STATIC,
     cutover: true,
-    partnerOverride: "arseniy_karskogo_23"
+    partnerOverride: overrideKey
   });
 }
 
+function partnerArseniyGetMe_(json) {
+  return partnerScopedGetMe_(
+    json,
+    PARTNER_ARSENIY_POINT,
+    PARTNER_ARSENIY_NET,
+    "Арсений Хотько",
+    PARTNER_ARSENIY_USER,
+    PARTNER_ARSENIY_TID,
+    "arseniy_karskogo_23"
+  );
+}
+
+function partnerNanGetMe_(json) {
+  return partnerScopedGetMe_(
+    json,
+    PARTNER_NAN_POINT,
+    PARTNER_NAN_NET,
+    "NaN clinic",
+    PARTNER_NAN_USER,
+    "",
+    "nan_yankovskogo_34"
+  );
+}
+
 function partnerBlockWrongPoint_(a, params) {
-  if (a !== "partnerSubmitOrder" || !isPartnerArseniy_(params)) return null;
+  if (a !== "partnerSubmitOrder") return null;
+  let pointId = "";
+  if (isPartnerArseniy_(params)) pointId = PARTNER_ARSENIY_POINT.id;
+  else if (isPartnerNan_(params)) pointId = PARTNER_NAN_POINT.id;
+  else return null;
   const loc = String((params && (params.locationId || params.pointId)) || "").trim();
-  if (loc && loc !== PARTNER_ARSENIY_POINT.id) {
+  if (loc && loc !== pointId) {
     return { status: "error", message: "forbidden_point", cutover: true };
   }
-  if (!loc && params) params.locationId = PARTNER_ARSENIY_POINT.id;
+  if (!loc && params) params.locationId = pointId;
   return null;
 }
 
@@ -5422,12 +5464,16 @@ async function patchSaveWithD1_(params, proxied, env) {
 }
 
 function partnerGuardOrRewrite_(a, params, json) {
-  if (!isPartnerArseniy_(params)) return json;
-  if (a === "partnerGetMe") return partnerArseniyGetMe_(json);
+  const scoped =
+    isPartnerArseniy_(params) ? { getMe: partnerArseniyGetMe_, pointId: PARTNER_ARSENIY_POINT.id } :
+    isPartnerNan_(params) ? { getMe: partnerNanGetMe_, pointId: PARTNER_NAN_POINT.id } :
+    null;
+  if (!scoped) return json;
+  if (a === "partnerGetMe") return scoped.getMe(json);
   if (a === "partnerListMyOrders" && json && json.status === "success" && Array.isArray(json.orders)) {
     return Object.assign({}, json, {
       orders: json.orders.filter(function (o) {
-        return String((o && (o.locationId || o.pointId)) || "") === PARTNER_ARSENIY_POINT.id;
+        return String((o && (o.locationId || o.pointId)) || "") === scoped.pointId;
       })
     });
   }
@@ -5460,14 +5506,18 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
     return out;
   }
 
-  if (isPartnerArseniy_(params)) {
+  const instantGetMe =
+    isPartnerArseniy_(params) ? partnerArseniyGetMe_ :
+    isPartnerNan_(params) ? partnerNanGetMe_ :
+    null;
+  if (instantGetMe) {
     let snap = null;
     try {
       snap = await getSnapRaw_(env, snapKey);
     } catch (e0) {
       snap = null;
     }
-    const instant = partnerArseniyGetMe_(snap && snap.status === "success" ? snap : { status: "success" });
+    const instant = instantGetMe(snap && snap.status === "success" ? snap : { status: "success" });
     instant.cutover = true;
     instant.swr = true;
     instant.fromGas = false;

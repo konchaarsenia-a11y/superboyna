@@ -483,7 +483,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.1";
+  var APP_VER = "3.3.2";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -1692,23 +1692,20 @@
     return { ok: false };
   }
 
-  function applyArseniyOnePoint_(u, res) {
+  function applyPartnerOnePoint_(u, res, matchUser, matchTid, point, net, displayName, fallbackUser, fallbackTid) {
     var uname = normUser_((u && u.username) || (res && res.username) || "");
     var tid = String((u && u.telegramId) || (res && res.telegramId) || "").trim();
-    if (uname !== "arseniyhotko" && tid !== "650923866") return res;
-    var POINT_ID = "pt_varka_karskogo_23";
+    if (uname !== matchUser && tid !== matchTid) return res;
     var pts = (res && res.points) || [];
     var one = null;
     for (var i = 0; i < pts.length; i++) {
-      if (pts[i] && pts[i].id === POINT_ID) { one = pts[i]; break; }
+      if (pts[i] && pts[i].id === point.id) { one = pts[i]; break; }
     }
-    if (!one) {
-      one = { id: POINT_ID, networkId: "net_varka", name: "Varka · Карского 23", address: "Карского 23" };
-    }
+    if (!one) one = point;
     var nets = ((res && res.networks) || []).filter(function (n) {
-      return n && n.id === "net_varka";
+      return n && n.id === net.id;
     });
-    if (!nets.length) nets = [{ id: "net_varka", name: "Varka", logo: "" }];
+    if (!nets.length) nets = [net];
     return Object.assign({}, res || {}, {
       status: "success",
       allowed: true,
@@ -1716,18 +1713,37 @@
       role: "partner",
       isPartner: true,
       isOwner: false,
-      name: (res && res.name && res.name !== "Владелец Good Boy") ? res.name : "Арсений Хотько",
-      username: (res && res.username) || "arseniyhotko",
-      telegramId: tid || "650923866",
-      networkId: "net_varka",
-      pointIds: [POINT_ID],
+      name: (res && res.name && res.name !== "Владелец Good Boy") ? res.name : displayName,
+      username: (res && res.username) || fallbackUser,
+      telegramId: tid || fallbackTid || "",
+      networkId: net.id,
+      pointIds: [point.id],
       points: [one],
       networks: nets
     });
   }
 
+  function applyArseniyOnePoint_(u, res) {
+    return applyPartnerOnePoint_(
+      u, res, "arseniyhotko", "650923866",
+      { id: "pt_varka_karskogo_23", networkId: "net_varka", name: "Varka · Карского 23", address: "Карского 23" },
+      { id: "net_varka", name: "Varka", logo: "" },
+      "Арсений Хотько", "arseniyhotko", "650923866"
+    );
+  }
+
+  function applyNanOnePoint_(u, res) {
+    return applyPartnerOnePoint_(
+      u, res, "nan_animal_clinic", "",
+      { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34" },
+      { id: "net_nan", name: "NaN clinic", logo: "assets/partners/nan.png" },
+      "NaN clinic", "nan_animal_clinic", ""
+    );
+  }
+
   function applyGetMe_(u, res) {
     res = applyArseniyOnePoint_(u, res);
+    res = applyNanOnePoint_(u, res);
     var ids = normalizePointIds_(res && res.pointIds);
     var asOwner = !!(res && res.isOwner && !res.isPartner && res.role === "owner");
     var asPartner = !asOwner && !!(res && (res.isPartner || res.role === "partner" || res.role === "staff"));
