@@ -10872,6 +10872,14 @@ function handleGetViewCompare(json, callback, fromPost) {
   var tz = ss.getSpreadsheetTimeZone();
   try { scrubFutureWeekOrphans_(ss); } catch (eScrubV) {}
   try { scrubWeekDayOrphans_(ss); } catch (eScrubW) {}
+  // после Deploy сам снимет ложный pulled у дат вне недели (без ручного scrubWeekOrphans)
+  try {
+    var cacheU = CacheService.getScriptCache();
+    if (cacheU.get("UNPULL_BEYOND_V1") !== "1") {
+      unpullBeyondWeekBookings_(ss);
+      cacheU.put("UNPULL_BEYOND_V1", "1", 600);
+    }
+  } catch (eUnp) {}
   var resolved = resolveViewDeliveryDate_(ss, json || {});
   if (!resolved || (!resolved.day && !resolved.date)) {
     var need = { status: "error", message: "need_day_or_date", week: [], month: [] };
