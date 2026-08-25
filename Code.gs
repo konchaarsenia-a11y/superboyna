@@ -1470,6 +1470,11 @@ function handleRepairWeekMonday(json, callback, fromPost) {
       } catch (eCourFlags) {}
     }
     SpreadsheetApp.flush();
+    var scrubInfo = null;
+    try { scrubInfo = scrubWeekDayOrphans_(ss, { force: true }); } catch (eScrubR) {
+      scrubInfo = { removed: 0, message: String(eScrubR) };
+    }
+    try { scrubFutureWeekOrphans_(ss, { force: true }); } catch (eScrubF) {}
     try { bustClientsCache_(); } catch (eB2) {}
     var counts = [];
     try {
@@ -1486,6 +1491,7 @@ function handleRepairWeekMonday(json, callback, fromPost) {
       message: "week_monday_repaired",
       mondayDate: monStr,
       futureDate: futStr,
+      scrubbedOrphans: scrubInfo ? (Number(scrubInfo.removed) || 0) : 0,
       items: counts
     };
     return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
@@ -1798,6 +1804,11 @@ function doGet(e) {
       onlyMissing: e.parameter.onlyMissing,
       includeFuture: e.parameter.includeFuture,
       weekKey: e.parameter.weekKey ? decodeURIComponent(e.parameter.weekKey) : ""
+    }, callback, false);
+  }
+  if (action === "scrubWeekOrphans") {
+    return handleScrubWeekOrphans({
+      force: e.parameter.force || "1"
     }, callback, false);
   }
   if (action === "weekPullStatus") {
@@ -2549,6 +2560,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "materializeWeek") {
     return handleMaterializeWeek(json, callback, fromPost);
+  }
+  if (action === "scrubWeekOrphans") {
+    return handleScrubWeekOrphans(json, callback, fromPost);
   }
   if (action === "weekPullStatus") {
     return handleWeekPullStatus(json, callback, fromPost);
@@ -3854,6 +3868,132 @@ function scrubFutureWeekOrphans_(ss, opts) {
   }
   try { CacheService.getScriptCache().put("SCRUB_FUT_V1", "1", 600); } catch (ePut) {}
   return { removed: removed };
+}
+
+/**
+ * Пн–Вс: убрать с колонки дня людей, чья бронь/календарь на другую дату.
+ * Типичный кейс: finish ускакал (Ср=02.09) → materialize подтянул сентябрь →
+ * repairWeekMonday откатил даты на 24.08, а колонки не почистил → дубль «Ср 26.08 + 02.09».
+ */
+function scrubWeekDayOrphans_(ss, opts) {
+  opts = opts || {};
+  var force = !!(opts.force === true || opts.force === "1" || opts.force === 1);
+  if (!force) {
+    try {
+      if (CacheService.getScriptCache().get("SCRUB_WEEK_V1") === "1") {
+        return { removed: 0, skipped: true, unpulled: 0 };
+      }
+    } catch (eSkip) {}
+  }
+  var tz = ss.getSpreadsheetTimeZone();
+  var days = getWeekDayDates_(ss);
+  var allCal = [];
+  try { allCal = readAllCalendarRows_(); } catch (eC) { allCal = []; }
+  var allBook = [];
+  try { allBook = readAllBookings_(); } catch (eB) { allBook = []; }
+  var removed = 0;
+  var unpulled = 0;
+  var names = [];
+
+  function clientDateKeys_(nick, mk) {
+    var keys = [];
+    var seen = {};
+    function addKey(k) {
+      k = String(k || "").trim();
+      if (!k || seen[k]) return;
+      seen[k] = true;
+      keys.push(k);
+    }
+    for (var c = 0; c < allCal.length; c++) {
+      var st = String(allCal[c].status || "").toLowerCase();
+      if (st === "cancelled") continue;
+      if (!nicksMatch_(allCal[c].client, nick) &&
+          !(mk && allCal[c].matchKey && allCal[c].matchKey === mk)) continue;
+      var bd = parseFlexibleDate_(allCal[c].date, tz) || parseFlexibleDate_(allCal[c].dateIso, tz);
+      if (bd) addKey(dateKey_(bd, tz));
+    }
+    for (var b = 0; b < allBook.length; b++) {
+      if (String(allBook[b].status) === "cancelled") continue;
+      if (!nicksMatch_(allBook[b].client, nick)) continue;
+      var bd2 = parseFlexibleDate_(allBook[b].date, tz);
+      if (bd2) addKey(dateKey_(bd2, tz));
+    }
+    return keys;
+  }
+
+  function unpullMismatchedBookings_(nick, dayName, dayKey) {
+    var sh = null;
+    try { sh = getBookingsSheet_(); } catch (eSh) { return 0; }
+    if (!sh) return 0;
+    var n = 0;
+    for (var i = 0; i < allBook.length; i++) {
+      var row = allBook[i];
+      if (String(row.status) !== "pulled") continue;
+      if (!nicksMatch_(row.client, nick)) continue;
+      var bd = parseFlexibleDate_(row.date, tz);
+      var bk = bd ? dateKey_(bd, tz) : "";
+      // бронь на другую дату, но помечена pulled в этот день недели
+      if (bk && dayKey && bk === dayKey) continue;
+      var dn = String(row.dayName || "").trim();
+      if (dn && dn !== dayName && bk) continue;
+      try {
+        sh.getRange(row.rowIndex, 9).setValue("planned");
+        sh.getRange(row.rowIndex, 10).setValue("");
+        sh.getRange(row.rowIndex, 12).setValue("");
+        row.status = "planned";
+        row.dayName = "";
+        n++;
+      } catch (eUp) {}
+    }
+    return n;
+  }
+
+  for (var di = 0; di < days.length; di++) {
+    var dayName = days[di].day;
+    var dayKey = days[di].date || "";
+    if (!dayKey || !dayName) continue;
+    var block = getDayBlock(dayName);
+    if (!block) continue;
+    var shDay = getTargetSheet(ss, block);
+    if (!shDay) continue;
+    var nicks = shDay.getRange(block.nick, 3, 1, 15).getValues()[0];
+    for (var i = 0; i < 15; i++) {
+      var nick = String(nicks[i] || "").trim();
+      if (!nick) continue;
+      var mk = clientMatchKey_(nick);
+      var dateKeys = clientDateKeys_(nick, mk);
+      // нет дат в календаре/бронях — не трогаем (разовый заказ только на листе)
+      if (!dateKeys.length) continue;
+      if (dateKeys.indexOf(dayKey) >= 0) continue;
+      // есть дата(ы), но не дата этого блока — сирота после отката/сдвига недели
+      shDay.getRange(block.nick, i + 3).setValue("");
+      shDay.getRange(block.start, i + 3, block.note - block.start + 1, 1).clearContent();
+      removed++;
+      names.push(nick + "@" + dayName);
+      unpulled += unpullMismatchedBookings_(nick, dayName, dayKey);
+    }
+  }
+
+  if (removed) {
+    try { bustClientsCache_(); } catch (eBust) {}
+  }
+  try { CacheService.getScriptCache().put("SCRUB_WEEK_V1", "1", 600); } catch (ePut) {}
+  return { removed: removed, unpulled: unpulled, names: names };
+}
+
+function handleScrubWeekOrphans(json, callback, fromPost) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var week = scrubWeekDayOrphans_(ss, { force: true });
+  var fut = { removed: 0 };
+  try { fut = scrubFutureWeekOrphans_(ss, { force: true }); } catch (eF) {}
+  var out = {
+    status: "success",
+    weekRemoved: week.removed || 0,
+    weekUnpulled: week.unpulled || 0,
+    weekNames: week.names || [],
+    futureRemoved: fut.removed || 0
+  };
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }
 
 function handleMoveClient(ss, json, callback, fromPost) {
@@ -10107,6 +10247,13 @@ function handleSaveBooking(ss, json, callback, fromPost) {
 
   var oldBasket = existing ? existing.basket : [];
   var wasPulled = existing && String(existing.status) === "pulled";
+  // дата вне недели — не держим «pulled»/dayName чужого слота
+  if (!dayName) wasPulled = false;
+  var forceStatus = String(json.status || "").trim().toLowerCase();
+  if (forceStatus === "planned" || json.unpull === true || json.unpull === "1" || json.unpull === 1) {
+    wasPulled = false;
+  }
+  if (forceStatus === "pulled") wasPulled = true;
   var id = existing ? existing.id : ("b" + Date.now() + "_" + Math.floor(Math.random() * 1e5));
   var now = new Date();
   if (!subIdSave && existing) subIdSave = existing.subId || "";
@@ -10122,14 +10269,16 @@ function handleSaveBooking(ss, json, callback, fromPost) {
   var couponPriceSave = json.couponPrice != null
     ? normalizeCouponUnitPrice_(json.couponPrice)
     : normalizeCouponUnitPrice_(existing && existing.couponPrice);
+  var statusSave = wasPulled ? "pulled" : "planned";
+  var dayNameSave = wasPulled ? dayName : (dayName || "");
   var rowVals = [
     id, dateStr, client,
     subIdSave,
     String(json.address != null ? json.address : (existing && existing.address) || ""),
     note, JSON.stringify(basket),
     String(json.source || (existing && existing.source) || "retail"),
-    wasPulled ? "pulled" : "planned",
-    dayName, now,
+    statusSave,
+    dayNameSave, now,
     wasPulled ? (existing.pulledAt || "") : "",
     segSave,
     phoneSave || (existing && existing.phone) || "",
@@ -10159,8 +10308,8 @@ function handleSaveBooking(ss, json, callback, fromPost) {
       basket: basket,
       subId: subIdSave,
       source: String(json.orderType || json.source || (existing && existing.source) || "retail").trim().toLowerCase() || "retail",
-      status: wasPulled ? "pulled" : "planned",
-      dayName: dayName,
+      status: statusSave,
+      dayName: dayNameSave,
       pulledAt: wasPulled ? (existing.pulledAt || "") : "",
       legacyRef: "booking:" + id,
       orderPrice: orderPriceSave,
@@ -10518,13 +10667,17 @@ function resolveViewDeliveryDate_(ss, json) {
         futureDateMatches: byDate === "Будущая неделя" ? true : undefined
       };
     }
-    if (dayHint && dayHint !== "Будущая неделя") {
-      var d2 = parseFlexibleDate_(getDayDate_(ss, dayHint), tz);
-      if (d2) return { date: d2, day: dayHint, dateNotInWeek: false };
+    // НЕ подменять date=02.09 на дату dayHint=Среда (26.08) — иначе дубль на чужой день.
+    // Дальше A1 «Будущей» — только calendar-only (не лист «Будущая» и не Пн–Вс).
+    var futDate = null;
+    try {
+      var futSh = ss.getSheetByName("Будущая неделя");
+      if (futSh) futDate = parseFlexibleDate_(futSh.getRange("A1").getValue(), tz);
+    } catch (eFut) {}
+    if (futDate && dateKey_(deliveryDate, tz) === dateKey_(futDate, tz)) {
+      var fut = ensureFutureWeekForDate_(ss, deliveryDate, writeFuture);
+      if (fut) return fut;
     }
-    // вне текущей недели — всегда цель «Будущая неделя» (не «нет такого дня»)
-    var fut = ensureFutureWeekForDate_(ss, deliveryDate, writeFuture);
-    if (fut) return fut;
     return { date: deliveryDate, day: "", dateNotInWeek: true };
   }
   if (dayHint) {
@@ -10615,6 +10768,7 @@ function handleGetViewCompare(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = ss.getSpreadsheetTimeZone();
   try { scrubFutureWeekOrphans_(ss); } catch (eScrubV) {}
+  try { scrubWeekDayOrphans_(ss); } catch (eScrubW) {}
   var resolved = resolveViewDeliveryDate_(ss, json || {});
   if (!resolved || (!resolved.day && !resolved.date)) {
     var need = { status: "error", message: "need_day_or_date", week: [], month: [] };
@@ -10628,7 +10782,7 @@ function handleGetViewCompare(json, callback, fromPost) {
   if (resolved.futureSlot && resolved.futureDateMatches === false) showWeek = false;
   // дата на листе → сироты календаря сразу на колонку недели
   var syncedOrphans = null;
-  if (showWeek && resolved.date && resolved.day) {
+  if (showWeek && resolved.date && resolved.day && !resolved.dateNotInWeek) {
     try { syncedOrphans = syncOnWeekCalendarToSheet_(ss, resolved.date, resolved.day); } catch (eSync) {}
   }
   if (showWeek) {
@@ -11097,26 +11251,17 @@ function handleEnsureDayMaterialized(json, callback, fromPost) {
   var tz = ss.getSpreadsheetTimeZone();
   var dayHint = String(json.day || "").trim();
   var deliveryDate = parseFlexibleDate_(json.deliveryDate || json.date, tz);
-  // Если переданы и дата, и день — сверяем. Несовпадение / дата не в неделе → день из листа.
+  // Дата — главный ключ. Вне недели НЕ подменять на дату dayHint (иначе 02.09→Ср 26.08).
   if (deliveryDate) {
     var byDate = findDayNameForDate_(ss, deliveryDate);
     if (byDate) {
       if (dayHint && byDate !== dayHint) {
-        // явный день важнее «залетевшей» даты
-        var dayDate = getDayDate_(ss, dayHint);
-        var parsedDayDate = parseFlexibleDate_(dayDate, tz);
-        if (parsedDayDate) deliveryDate = parsedDayDate;
-      }
-    } else if (dayHint) {
-      var d2 = parseFlexibleDate_(getDayDate_(ss, dayHint), tz);
-      if (d2) deliveryDate = d2;
-      else {
-        var badDate = { status: "error", result: { ok: false, message: "date_not_in_week", date: dateKey_(deliveryDate, tz) } };
-        return fromPost ? jsonpText(callback, badDate) : jsonp(callback, badDate);
+        // дата есть на листе — день берём из даты, dayHint игнорируем
+        dayHint = byDate;
       }
     } else {
-      var badDate2 = { status: "error", result: { ok: false, message: "date_not_in_week", date: dateKey_(deliveryDate, tz) } };
-      return fromPost ? jsonpText(callback, badDate2) : jsonp(callback, badDate2);
+      var badDate = { status: "error", result: { ok: false, message: "date_not_in_week", date: dateKey_(deliveryDate, tz) } };
+      return fromPost ? jsonpText(callback, badDate) : jsonp(callback, badDate);
     }
   } else if (dayHint) {
     deliveryDate = getDayDate_(ss, dayHint);

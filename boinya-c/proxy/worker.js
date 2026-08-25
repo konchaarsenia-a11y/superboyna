@@ -1562,6 +1562,26 @@ async function getClients_(params, env) {
       .bind(day)
       .all();
     rows = q.results || [];
+    // сироты после отката дат недели: day=Среда но date_iso=02.09 при Ср=26.08
+    if (dateIso && rows.length) {
+      const keep = [];
+      const nowDel = new Date().toISOString();
+      for (let ri = 0; ri < rows.length; ri++) {
+        const rIso = String(rows[ri].date_iso || "").trim();
+        if (rIso && rIso !== dateIso) {
+          try {
+            await env.DB.prepare(
+              "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?"
+            )
+              .bind(nowDel, rows[ri].id)
+              .run();
+          } catch (eOrphan) {}
+          continue;
+        }
+        keep.push(rows[ri]);
+      }
+      rows = keep;
+    }
   } else if (dateIso) {
     const q = await env.DB.prepare(
       "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' ORDER BY client"
