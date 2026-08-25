@@ -2229,6 +2229,14 @@ function doGet(e) {
       sheet: e.parameter.sheet ? decodeURIComponent(e.parameter.sheet) : ""
     }, callback, false);
   }
+  if (action === "recordBpToPpConversion") {
+    return handleRecordBpToPpConversion({
+      nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
+      label: e.parameter.label ? decodeURIComponent(e.parameter.label) : "",
+      subId: e.parameter.subId ? decodeURIComponent(e.parameter.subId) : "",
+      telegramId: e.parameter.telegramId || ""
+    }, callback, false);
+  }
   if (action === "deleteSubscription") {
     return handleDeleteSubscription({
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
@@ -2750,6 +2758,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "moveSubscription") {
     return handleMoveSubscription(json, callback, fromPost);
+  }
+  if (action === "recordBpToPpConversion") {
+    return handleRecordBpToPpConversion(json, callback, fromPost);
   }
   if (action === "deleteSubscription") {
     return handleDeleteSubscription(json, callback, fromPost);
@@ -16898,17 +16909,85 @@ function appendStatsConversion_(ss, opts) {
   var now = opts.at instanceof Date ? opts.at : new Date();
   var ymd = String(opts.ymd || "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) ymd = Utilities.formatDate(now, tz, "yyyy-MM-dd");
+  var nick = String(opts.nick || "").trim();
+  var label = String(opts.label || opts.nick || "").trim();
+  var monthKey = ymd.slice(0, 7);
+  var wantKey = clientMatchKey_(nick || label);
+  // не дублировать тот же переход в том же месяце
+  try {
+    if (wantKey && sh.getLastRow() >= 2) {
+      var data = sh.getDataRange().getValues();
+      for (var r = 1; r < data.length; r++) {
+        var mk = String(data[r][2] || "").slice(0, 7);
+        var y = String(data[r][1] || "").slice(0, 10);
+        if (mk !== monthKey && y.slice(0, 7) !== monthKey) continue;
+        var fromS = String(data[r][5] || "").toUpperCase();
+        var toS = String(data[r][6] || "").toUpperCase();
+        if (fromS.indexOf("БП") < 0 || toS.indexOf("ПП") < 0) continue;
+        var rowKey = clientMatchKey_(data[r][3] || data[r][4] || "");
+        if (rowKey && rowKey === wantKey) {
+          return { status: "success", deduped: true, ymd: ymd, nick: nick };
+        }
+      }
+    }
+  } catch (eDed) {}
   sh.appendRow([
     now,
     ymd,
-    ymd.slice(0, 7),
-    String(opts.nick || "").trim(),
-    String(opts.label || opts.nick || "").trim(),
+    monthKey,
+    nick,
+    label,
     String(opts.fromSheet || "БП").trim(),
     String(opts.toSheet || "ПП").trim(),
     String(opts.subId || "").trim(),
     String(opts.note || "").trim()
   ]);
+  return { status: "success", ymd: ymd, nick: nick };
+}
+
+/** Явная запись БП→ПП из карточки (если moveSubscription не сработал / уже в ПП). */
+function handleRecordBpToPpConversion(json, callback, fromPost) {
+  if (fromPost === undefined) fromPost = false;
+  var reply = function (obj) {
+    return fromPost ? jsonpText(callback, obj) : jsonp(callback, obj);
+  };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var nick = String(json.nick || json.client || "").trim();
+    var label = String(json.label || nick).trim();
+    var subId = String(json.subId || "").trim();
+    if (!nick && !label) return reply({ status: "error", message: "need_nick" });
+    var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+    var ymd = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+    // штамп [FROMBP:…] в ПП wishes если строка есть
+    try {
+      var crmSs = getCrmSpreadsheet_();
+      var sheets = listCrmSheetCandidates_(crmSs, "ПП");
+      for (var s = 0; s < sheets.length; s++) {
+        var sh = sheets[s];
+        var idxs = findAllSubscriptionRowIndexes_(sh, label || nick, subId);
+        if (!idxs.length) idxs = findAllSubscriptionRowIndexes_(sh, nick, "");
+        if (!idxs.length) continue;
+        var row1 = idxs[0] + 1;
+        var wishes = String(sh.getRange(row1, 5).getValue() || "");
+        sh.getRange(row1, 5).setValue(stampFromBpIntoWishes_(wishes, ymd));
+        if (!subId) subId = sanitizeSubId_(sh.getRange(row1, 2).getValue());
+        break;
+      }
+    } catch (eStamp) {}
+    var res = appendStatsConversion_(ss, {
+      nick: extractInstagramNick_(label || nick) || nick,
+      label: label || nick,
+      fromSheet: "БП",
+      toSheet: "ПП",
+      subId: subId,
+      ymd: ymd,
+      note: "recordBpToPpConversion"
+    });
+    return reply(Object.assign({ status: "success" }, res || {}));
+  } catch (err) {
+    return reply({ status: "error", message: String(err) });
+  }
 }
 
 /** Кол-во купонов (≥0, целое). */

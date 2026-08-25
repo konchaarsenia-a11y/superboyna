@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-25 unfinished-week-calendar-move
+ * deploy-marker: 2026-08-25 deferred-purge-bp-stats
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -352,7 +352,7 @@ async function handleAction_(action, params, env, url, ctx) {
         (params && (params.matchKey || params.client || params.clientNick)) || ""
       );
     } catch (eClrS) {}
-    return upsertInList_(env, "listDeferred", "items", params, "id");
+    return saveDeferredD1_(params, env);
   }
   if (a === "cancelDeferred") {
     try {
@@ -831,31 +831,17 @@ async function mergeListDeferredPayload_(env, payload) {
   });
 }
 
-/** Восстановить задачи переноса из недавно удалённых заказов (после затирания snap). */
+/**
+ * Раньше: любой deleted order за 48ч → xfer_repair_* («Перенос · восстановлен»).
+ * После чистки D1 / закрытия недели это плодило ~70 ложных переносов и затирало
+ * нормальные отложенные (finalize подменял GAS snap’ом).
+ * Теперь: только чистим фантомы; новые задачи — из notifyMissedDelivery / placeTransfer.
+ */
 async function repairParkedTransfersFromOrders_(env) {
   if (!env || !env.DB) return;
-  var since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
-  var q;
-  try {
-    q = await env.DB.prepare(
-      "SELECT day_name, client, match_key, basket_json, address, note, phone, segment, source, updated_at, meta_json FROM orders WHERE status = 'deleted' AND updated_at >= ? ORDER BY updated_at DESC LIMIT 100"
-    )
-      .bind(since)
-      .all();
-  } catch (eQ) {
-    return;
-  }
-  var rows = (q && q.results) || [];
-  if (!rows.length) return;
-
   var list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
   var items = Array.isArray(list.items) ? list.items.slice() : [];
-  var xferKeys = Object.create(null);
-  items.forEach(function (it) {
-    if (!deferredItemIsProtectedTransfer_(it)) return;
-    var k = deferredTransferClientKey_(it);
-    if (k) xferKeys[k] = true;
-  });
+  if (!items.length) return;
 
   var activeKeys = Object.create(null);
   try {
@@ -870,71 +856,150 @@ async function repairParkedTransfersFromOrders_(env) {
     });
   } catch (eA) {}
 
-  var added = 0;
-  var seen = Object.create(null);
-  for (var i = 0; i < rows.length; i++) {
-    var r = rows[i];
-    if (!r) continue;
-    var nick = String(r.client || "").trim();
-    var mk = normalizeMatchKey_(r.match_key || nick);
-    if (!nick || !mk || seen[mk]) continue;
-    seen[mk] = true;
-    if (activeKeys[mk]) continue; // уже снова на дне
-    if (xferKeys[mk]) continue;
-    try {
-      var tombR = await getSnapRaw_(env, "deferredCancelTombstones");
-      if (isDeferredCancelTombstoned_(tombR, "", mk)) continue; // юзер убрал задачу
-    } catch (eTR) {}
-    var basket = [];
-    try {
-      basket = JSON.parse(r.basket_json || "[]");
-    } catch (eB) {
-      basket = [];
+  var before = items.length;
+  items = items.filter(function (it) {
+    if (!it) return false;
+    var id = String(it.id || "");
+    var isRepair = !!it.repaired || id.indexOf("xfer_repair_") === 0;
+    if (!isRepair) return true;
+    // фантом repair — всегда убрать
+    return false;
+  });
+  // open transfer, клиент снова active на дне — закрыть (уже вернули)
+  items = items.map(function (it) {
+    if (!deferredItemIsProtectedTransfer_(it)) return it;
+    if (String(it.status || "open").toLowerCase() !== "open") return it;
+    var k = deferredTransferClientKey_(it);
+    if (k && activeKeys[k]) {
+      return Object.assign({}, it, {
+        status: "done",
+        title: "Перенесён · на дне",
+        autoClosedActive: true
+      });
     }
-    if (!Array.isArray(basket)) basket = [];
-    var ppPartner = "";
-    try {
-      var metaDel = parseMeta_(r.meta_json);
-      ppPartner = String(metaDel.ppPartner || "").trim();
-    } catch (eMp) {}
-    var xferId = "xfer_repair_" + mk.slice(0, 24) + "_" + String(r.updated_at || "").slice(0, 10);
-    items.unshift({
-      id: xferId,
-      mode: "transfer",
-      title: "Перенос · восстановлен",
-      clientNick: nick,
-      status: "open",
-      fromD1: true,
-      repaired: true,
-      payload: {
-        mode: "transfer",
-        parked: true,
-        reason: "восстановлено после сбоя задач",
-        day: String(r.day_name || ""),
-        date: "",
-        client: nick,
-        matchKey: mk,
-        segment: String(r.segment || ""),
-        ppPartner: ppPartner,
-        basket: basket,
-        address: String(r.address || ""),
-        phone: String(r.phone || ""),
-        note: String(r.note || ""),
-        createdByName: "system-repair"
-      }
-    });
-    xferKeys[mk] = true;
-    added++;
+    return it;
+  });
+  if (items.length === before && !items.some(function (it) { return it && it.autoClosedActive; })) {
+    return;
   }
-  if (!added) return;
   list.items = items;
   list.status = "success";
   list.openCount = items.filter(function (it) {
     return String((it && it.status) || "open").toLowerCase() === "open";
   }).length;
-  list.repairedTransfers = added;
+  list.purgedRepairs = before - items.filter(function (it) {
+    var id = String((it && it.id) || "");
+    return !(it && (it.repaired || id.indexOf("xfer_repair_") === 0));
+  }).length;
   list.fromD1 = true;
   await putSnap_(env, "listDeferred", list);
+}
+
+/** Убрать xfer_repair / repaired из массива задач (на чтении). */
+function stripRepairedTransfers_(items) {
+  if (!Array.isArray(items)) return [];
+  return items.filter(function (it) {
+    if (!it) return false;
+    var id = String(it.id || "");
+    if (it.repaired) return false;
+    if (id.indexOf("xfer_repair_") === 0) return false;
+    return true;
+  });
+}
+
+function buildDeferredItemFromParams_(params) {
+  params = params || {};
+  var id = String(params.id || "").trim() || ("df_" + Date.now());
+  var mode = String(params.mode || "pp").trim().toLowerCase();
+  if (
+    mode !== "retail" &&
+    mode !== "remind" &&
+    mode !== "order" &&
+    mode !== "buy" &&
+    mode !== "transfer" &&
+    mode !== "partner"
+  ) {
+    mode = "pp";
+  }
+  var payload = params.payload;
+  if (payload && typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch (eP) {
+      payload = {};
+    }
+  }
+  if (!payload || typeof payload !== "object") payload = {};
+  var nowIso = new Date().toISOString();
+  var item = {
+    id: id,
+    at: nowIso,
+    telegramId: String(params.telegramId || "").trim(),
+    mode: mode,
+    title: String(params.title || "").trim(),
+    clientNick: String(params.clientNick || params.client || "").trim(),
+    status: String(params.status || "open").trim() || "open",
+    payload: payload,
+    remindAt: String(params.remindAt || payload.remindAt || "").trim(),
+    remindAtMs: Number(params.remindAtMs != null ? params.remindAtMs : payload.remindAtMs) || 0,
+    remindSent: !!payload.remindSent,
+    targetTelegramId: String(
+      params.targetTelegramId || payload.targetTelegramId || payload.forTelegramId || ""
+    ).trim(),
+    fromD1: true,
+    updatedAt: nowIso
+  };
+  if (!item.title) {
+    item.title =
+      (mode === "retail" ? "Розница" : mode === "order" ? "Заказ" : mode === "remind" ? "Напоминание" : "ПП") +
+      (item.clientNick ? " · " + item.clientNick : "");
+  }
+  return item;
+}
+
+async function saveDeferredD1_(params, env) {
+  if (!env || !env.DB) return { status: "error", message: "no_db", cutover: true };
+  try {
+    await clearDeferredCancelTombstone_(
+      env,
+      params && params.id,
+      (params && (params.matchKey || params.client || params.clientNick)) || ""
+    );
+  } catch (eClr) {}
+  var item = buildDeferredItemFromParams_(params);
+  var list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+  var items = Array.isArray(list.items) ? list.items.slice() : [];
+  items = stripRepairedTransfers_(items);
+  var idx = -1;
+  for (var i = 0; i < items.length; i++) {
+    if (String((items[i] && items[i].id) || "") === item.id) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx >= 0) {
+    items[idx] = Object.assign({}, items[idx], item, { at: items[idx].at || item.at });
+  } else {
+    items.unshift(item);
+  }
+  list.items = items;
+  list.status = "success";
+  list.openCount = items.filter(function (it) {
+    return String((it && it.status) || "open").toLowerCase() === "open";
+  }).length;
+  list.fromD1 = true;
+  list.sandbox = false;
+  await putSnap_(env, "listDeferred", list);
+  return {
+    status: "success",
+    id: item.id,
+    created: idx < 0,
+    updated: idx >= 0,
+    mode: item.mode,
+    cutover: true,
+    sandbox: false,
+    d1Verified: true
+  };
 }
 
 /** Недавно поставленные через перенос (source=transfer) — чтобы не «пропадали» из вкладки. */
@@ -1031,17 +1096,43 @@ async function appendRecentPlacedTransfers_(env, list) {
 
 async function finalizeListDeferredPayload_(env, payload) {
   if (!payload || typeof payload !== "object") return payload;
+  // НЕ подменять GAS/merged items целиком snap’ом — иначе saveDeferred «не пишется»,
+  // а xfer_repair затирает реальные задачи.
   try {
     await repairParkedTransfersFromOrders_(env);
   } catch (eR) {}
+  var items = Array.isArray(payload.items) ? payload.items.slice() : [];
+  items = stripRepairedTransfers_(items);
+  // дописать protected transfer из snap, которых нет в payload (после «Не получил»)
   try {
-    var snap = (await getSnapRaw_(env, "listDeferred")) || payload;
-    if (snap && Array.isArray(snap.items)) {
-      payload = Object.assign({}, payload, { items: snap.items.slice() });
-    }
+    var snap = await getSnapRaw_(env, "listDeferred");
+    var snapArr = snap && Array.isArray(snap.items) ? snap.items : [];
+    var byId = Object.create(null);
+    var xferKeys = Object.create(null);
+    items.forEach(function (it) {
+      if (!it) return;
+      if (it.id != null) byId[String(it.id)] = true;
+      if (deferredItemIsProtectedTransfer_(it)) {
+        var k0 = deferredTransferClientKey_(it);
+        if (k0) xferKeys[k0] = true;
+      }
+    });
+    snapArr.forEach(function (it) {
+      if (!deferredItemIsProtectedTransfer_(it)) return;
+      if (it.repaired || String(it.id || "").indexOf("xfer_repair_") === 0) return;
+      var id = it && it.id != null ? String(it.id) : "";
+      var k = deferredTransferClientKey_(it);
+      if (id && byId[id]) return;
+      if (k && xferKeys[k]) return;
+      items.unshift(Object.assign({}, it, { fromD1: true, keptFromD1: true }));
+      if (id) byId[id] = true;
+      if (k) xferKeys[k] = true;
+    });
   } catch (eS) {}
+  payload = Object.assign({}, payload, { items: items });
   payload = await appendRecentPlacedTransfers_(env, payload);
   if (Array.isArray(payload.items)) {
+    payload.items = stripRepairedTransfers_(payload.items);
     try {
       payload.items = await filterDeferredCancelTombstones_(env, payload.items);
     } catch (eFT) {}
@@ -4984,7 +5075,7 @@ async function handleCutover_(a, params, env, ctx) {
     const blocked = partnerBlockWrongPoint_(a, params);
     if (blocked) return blocked;
     const isFastPeopleWrite =
-      /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|notifyMissedDelivery|placeTransferTask)$/i.test(
+      /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|notifyMissedDelivery|placeTransferTask|saveDeferred)$/i.test(
         a
       );
     const isFastFlagWrite = /^(updateCutting|setDelivered|setAssembled|setPrinted)$/i.test(a);
@@ -5022,6 +5113,8 @@ async function handleCutover_(a, params, env, ctx) {
             }
           } else if (/^placeTransferTask$/i.test(a)) {
             d1WriteRes = await placeTransferTaskD1_(params, env);
+          } else if (/^saveDeferred$/i.test(a)) {
+            d1WriteRes = await saveDeferredD1_(params, env);
           }
         }
       } catch (eOpt) {
@@ -5139,6 +5232,15 @@ async function handleCutover_(a, params, env, ctx) {
             d1Verified: true,
             optimistic: true,
             parkedPlaced: true,
+            action: a
+          });
+        }
+        if (/^saveDeferred$/i.test(a)) {
+          return Object.assign({}, d1WriteRes, {
+            cutover: true,
+            sandbox: false,
+            d1Verified: true,
+            optimistic: true,
             action: a
           });
         }
