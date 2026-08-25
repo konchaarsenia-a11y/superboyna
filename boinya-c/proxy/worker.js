@@ -5251,26 +5251,16 @@ async function cutoverSwrGas_(action, params, env, ctx, opts) {
   return { status: "error", message: "gas_proxy_failed", cutover: true, action: action };
 }
 
-/** @arseniyhotko — одна точка в мини-апп Varka (роль owner Бойни не трогаем). */
+/** @arseniyhotko — NaN clinic, одна точка (роль owner Бойни не трогаем). */
 const PARTNER_ARSENIY_USER = "arseniyhotko";
 const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_POINT = {
-  id: "pt_varka_karskogo_23",
-  networkId: "net_varka",
-  name: "Varka · Карского 23",
-  address: "Карского 23"
-};
-const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "" };
-
-/** @nan_animal_clinic — NaN clinic, одна точка Янковского. */
-const PARTNER_NAN_USER = "nan_animal_clinic";
-const PARTNER_NAN_POINT = {
   id: "pt_nan_1",
   networkId: "net_nan",
-  name: "nan_animal_clinic",
+  name: "NaN · Янковского",
   address: "ул. Янковского, 34"
 };
-const PARTNER_NAN_NET = { id: "net_nan", name: "NaN clinic", logo: "assets/partners/nan.png" };
+const PARTNER_ARSENIY_NET = { id: "net_nan", name: "NaN clinic", logo: "assets/partners/nan.png" };
 const PARTNER_CATALOG_STATIC = [
   { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
   { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "г", active: true },
@@ -5289,10 +5279,6 @@ function isPartnerArseniy_(params) {
   const u = partnerNormUserWorker_(params && params.username);
   const tid = String((params && params.telegramId) || "").trim();
   return u === PARTNER_ARSENIY_USER || tid === PARTNER_ARSENIY_TID;
-}
-
-function isPartnerNan_(params) {
-  return partnerNormUserWorker_(params && params.username) === PARTNER_NAN_USER;
 }
 
 function partnerScopedGetMe_(json, point, net, fallbackName, fallbackUser, fallbackTid, overrideKey) {
@@ -5349,28 +5335,13 @@ function partnerArseniyGetMe_(json) {
     "Арсений Хотько",
     PARTNER_ARSENIY_USER,
     PARTNER_ARSENIY_TID,
-    "arseniy_karskogo_23"
-  );
-}
-
-function partnerNanGetMe_(json) {
-  return partnerScopedGetMe_(
-    json,
-    PARTNER_NAN_POINT,
-    PARTNER_NAN_NET,
-    "NaN clinic",
-    PARTNER_NAN_USER,
-    "",
-    "nan_yankovskogo_34"
+    "arseniy_nan_yankovskogo"
   );
 }
 
 function partnerBlockWrongPoint_(a, params) {
-  if (a !== "partnerSubmitOrder") return null;
-  let pointId = "";
-  if (isPartnerArseniy_(params)) pointId = PARTNER_ARSENIY_POINT.id;
-  else if (isPartnerNan_(params)) pointId = PARTNER_NAN_POINT.id;
-  else return null;
+  if (a !== "partnerSubmitOrder" || !isPartnerArseniy_(params)) return null;
+  const pointId = PARTNER_ARSENIY_POINT.id;
   const loc = String((params && (params.locationId || params.pointId)) || "").trim();
   if (loc && loc !== pointId) {
     return { status: "error", message: "forbidden_point", cutover: true };
@@ -5464,16 +5435,12 @@ async function patchSaveWithD1_(params, proxied, env) {
 }
 
 function partnerGuardOrRewrite_(a, params, json) {
-  const scoped =
-    isPartnerArseniy_(params) ? { getMe: partnerArseniyGetMe_, pointId: PARTNER_ARSENIY_POINT.id } :
-    isPartnerNan_(params) ? { getMe: partnerNanGetMe_, pointId: PARTNER_NAN_POINT.id } :
-    null;
-  if (!scoped) return json;
-  if (a === "partnerGetMe") return scoped.getMe(json);
+  if (!isPartnerArseniy_(params)) return json;
+  if (a === "partnerGetMe") return partnerArseniyGetMe_(json);
   if (a === "partnerListMyOrders" && json && json.status === "success" && Array.isArray(json.orders)) {
     return Object.assign({}, json, {
       orders: json.orders.filter(function (o) {
-        return String((o && (o.locationId || o.pointId)) || "") === scoped.pointId;
+        return String((o && (o.locationId || o.pointId)) || "") === PARTNER_ARSENIY_POINT.id;
       })
     });
   }
@@ -5506,18 +5473,14 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
     return out;
   }
 
-  const instantGetMe =
-    isPartnerArseniy_(params) ? partnerArseniyGetMe_ :
-    isPartnerNan_(params) ? partnerNanGetMe_ :
-    null;
-  if (instantGetMe) {
+  if (isPartnerArseniy_(params)) {
     let snap = null;
     try {
       snap = await getSnapRaw_(env, snapKey);
     } catch (e0) {
       snap = null;
     }
-    const instant = instantGetMe(snap && snap.status === "success" ? snap : { status: "success" });
+    const instant = partnerArseniyGetMe_(snap && snap.status === "success" ? snap : { status: "success" });
     instant.cutover = true;
     instant.swr = true;
     instant.fromGas = false;

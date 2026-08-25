@@ -18556,6 +18556,52 @@ function partnerMigrateProdV9_() {
   return { migrated: true, username: uname, pointIds: pointIds };
 }
 
+/**
+ * V10: @arseniyhotko — NaN clinic, одна точка Янковского 34 (вместо Карского 23).
+ * Снимаем ошибочный доступ @nan_animal_clinic (V9).
+ */
+function partnerMigrateProdV10_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V10") === "1") return { migrated: false };
+  try { partnerMigrateProdV9_(); } catch (e9) {}
+  var now = new Date();
+  var acSh = getPartnerAccessSheet_();
+  var uname = "arseniyhotko";
+  var tid = "650923866";
+  var pointIds = ["pt_nan_1"];
+  var rows = readPartnerAccessRows_();
+  var hit = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].username === uname || String(rows[i].telegramId || "") === tid) {
+      hit = rows[i];
+      break;
+    }
+  }
+  var vals = [
+    hit ? hit.id : ("pa_" + uname),
+    uname,
+    tid,
+    "Арсений Хотько",
+    "net_nan",
+    JSON.stringify(pointIds),
+    "partner",
+    "active",
+    now
+  ];
+  if (hit) acSh.getRange(hit.rowIndex, 1, 1, PARTNER_ACCESS_HEADERS_.length).setValues([vals]);
+  else acSh.appendRow(vals);
+  rows = readPartnerAccessRows_();
+  rows.forEach(function (a) {
+    if (a.username !== "nan_animal_clinic" && a.id !== "pa_nan_animal_clinic") return;
+    try {
+      acSh.getRange(a.rowIndex, 8).setValue("inactive");
+      acSh.getRange(a.rowIndex, 9).setValue(now);
+    } catch (eRev) {}
+  });
+  props.setProperty("PARTNER_PROD_V10", "1");
+  return { migrated: true, username: uname, pointIds: pointIds };
+}
+
 function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV3_(); } catch (eMig) {}
   try { partnerMigrateProdV4_(); } catch (eMig4) {}
@@ -18564,6 +18610,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV7_(); } catch (eMig7) {}
   try { partnerMigrateProdV8_(); } catch (eMig8) {}
   try { partnerMigrateProdV9_(); } catch (eMig9) {}
+  try { partnerMigrateProdV10_(); } catch (eMig10) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого

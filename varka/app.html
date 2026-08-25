@@ -483,7 +483,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.2";
+  var APP_VER = "3.3.3";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -1271,7 +1271,7 @@
       goPointsForOrder_();
       return;
     }
-    if (state.point && state.point.id !== "pt_varka_karskogo_23") {
+    if (state.point && state.point.id !== "pt_nan_1") {
       var uname = normUser_((state.me && state.me.username) || (user() && user().username) || "");
       var tid = String((state.me && state.me.telegramId) || (user() && user().telegramId) || "").trim();
       if (uname === "arseniyhotko" || tid === "650923866") {
@@ -1726,24 +1726,14 @@
   function applyArseniyOnePoint_(u, res) {
     return applyPartnerOnePoint_(
       u, res, "arseniyhotko", "650923866",
-      { id: "pt_varka_karskogo_23", networkId: "net_varka", name: "Varka · Карского 23", address: "Карского 23" },
-      { id: "net_varka", name: "Varka", logo: "" },
-      "Арсений Хотько", "arseniyhotko", "650923866"
-    );
-  }
-
-  function applyNanOnePoint_(u, res) {
-    return applyPartnerOnePoint_(
-      u, res, "nan_animal_clinic", "",
-      { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34" },
+      { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34" },
       { id: "net_nan", name: "NaN clinic", logo: "assets/partners/nan.png" },
-      "NaN clinic", "nan_animal_clinic", ""
+      "Арсений Хотько", "arseniyhotko", "650923866"
     );
   }
 
   function applyGetMe_(u, res) {
     res = applyArseniyOnePoint_(u, res);
-    res = applyNanOnePoint_(u, res);
     var ids = normalizePointIds_(res && res.pointIds);
     var asOwner = !!(res && res.isOwner && !res.isPartner && res.role === "owner");
     var asPartner = !asOwner && !!(res && (res.isPartner || res.role === "partner" || res.role === "staff"));
