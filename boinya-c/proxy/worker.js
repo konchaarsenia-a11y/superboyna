@@ -2223,9 +2223,12 @@ async function overlayWeekSheetCountsOnMonth_(env, body) {
     } else if (byIso[iso].fromView) {
       // уже сверено с Просмотром — только помечаем week
       byIso[iso].fromWeekSheet = true;
-    } else {
+    } else if (!byIso[iso].count || byIso[iso].fromWeekSheet) {
       byIso[iso].count = wCount;
       byIso[iso].segments = segs;
+      byIso[iso].fromWeekSheet = true;
+    } else {
+      // D1/календарь уже посчитали уникальных — не затирать nick-row
       byIso[iso].fromWeekSheet = true;
     }
   });
@@ -2999,7 +3002,9 @@ async function cutoverGetMonthOverview_(params, env, ctx) {
     if (live && live.status === "success" && env && env.DB) {
       try {
         let body = Object.assign({}, live, { cachedAt: new Date().toISOString() });
-        body = await overlayWeekSheetCountsOnMonth_(env, body);
+        if (!live.weekOverlay) {
+          body = await overlayWeekSheetCountsOnMonth_(env, body);
+        }
         body = await reconcileMonthOverviewWithViewSnaps_(env, body);
         await putSnap_(env, "monthOverview", body);
         if (body.month) await putSnap_(env, "monthOverview:" + body.month, body);
