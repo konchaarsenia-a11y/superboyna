@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115897";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115898";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -793,6 +793,85 @@
       clearTimeout(showToast._t);
       showToast._t = setTimeout(function () { el.classList.remove("show"); }, 2200);
     }
+
+    /** People write: accepted → poll → «Точно …». Не врать success до sheetsVerified. */
+    async function confirmPeopleWriteSheets_(res, opts) {
+      opts = opts || {};
+      var doneMsg = opts.doneMsg || "Точно внесено";
+      var pendingMsg = opts.pendingMsg || "Вношу в таблицу…";
+      var failMsg = opts.failMsg || "Не закрепилось в Google-таблице";
+      var timeoutMs = opts.timeoutMs != null ? opts.timeoutMs : 48000;
+      var block = !!opts.block;
+
+      if (!res) return { ok: false, res: res };
+      if (res.status === "error" && !res.pendingSheets) {
+        return { ok: false, res: res, message: res.message || "error" };
+      }
+      if (res.sheetsVerified && (res.status === "success" || res.status === "accepted")) {
+        try { showToast(doneMsg); } catch (eT0) {}
+        return { ok: true, res: Object.assign({}, res, { status: "success", sheetsVerified: true }) };
+      }
+
+      var writeId = String(res.writeId || "").trim();
+      if (!(res.pendingSheets || res.status === "accepted") || !writeId) {
+        // старый Worker без writeId — если success+d1, мягко ждать нельзя
+        if (res.status === "success" && (res.sheetsVerified || res.d1Verified)) {
+          try { showToast(doneMsg); } catch (eT1) {}
+          return { ok: true, res: res };
+        }
+        return { ok: false, res: res, message: res.message || "no_writeId" };
+      }
+
+      try { showToast(pendingMsg); } catch (ePend) {}
+
+      async function pollOnce_() {
+        try {
+          return await apiGet({
+            action: "pollPeopleWrite",
+            writeId: writeId,
+            _: String(Date.now())
+          }, { timeoutMs: 10000, cacheTtlMs: 0, bypassInflight: true });
+        } catch (eP) {
+          return null;
+        }
+      }
+
+      async function runPoll_() {
+        var deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+          await new Promise(function (r) { setTimeout(r, 1100); });
+          var p = await pollOnce_();
+          if (p && p.sheetsVerified && (p.status === "success" || p.status === "accepted")) {
+            var merged = Object.assign({}, res, p, {
+              status: "success",
+              sheetsVerified: true,
+              pendingSheets: false
+            });
+            try { showToast(doneMsg); } catch (eT2) {}
+            return { ok: true, res: merged };
+          }
+          if (p && p.status === "error" && p.sheetsVerified === false && !p.pendingSheets) {
+            try { showToast(failMsg + (p.message ? (": " + p.message) : "")); } catch (eTf) {}
+            return { ok: false, res: p, message: p.message || failMsg };
+          }
+        }
+        try {
+          showToast("Ещё пишется в Google… проверь через минуту");
+        } catch (eTo) {}
+        return {
+          ok: false,
+          softTimeout: true,
+          res: Object.assign({}, res, { pendingSheets: true, softTimeout: true }),
+          message: "sheets_confirm_timeout"
+        };
+      }
+
+      if (block) return await runPoll_();
+      // фон: UI уже свободен
+      runPoll_().catch(function () {});
+      return { ok: true, pending: true, res: res };
+    }
+    window.confirmPeopleWriteSheets_ = confirmPeopleWriteSheets_;
 
     function celebrateSuccess(kind, opts) {
       try { if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); } catch (e) {}
@@ -4620,17 +4699,21 @@
 
         if (useJsonpSave) {
           try {
-            bookRes = await apiGet(bookParams, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 18000 : 90000, cacheTtlMs: 0 });
+            bookRes = await apiGet(bookParams, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 12000 : 90000, cacheTtlMs: 0 });
           } catch (eBook) {
             bookRes = { status: "error", message: eBook.message || String(eBook) };
           }
 
-          if (weekDayToSave && bookRes && bookRes.status === "success" && bookRes.weekWritten) {
+          if (weekDayToSave && bookRes && (bookRes.status === "success" || bookRes.status === "accepted") && (bookRes.weekWritten || bookRes.d1Verified || bookRes.pendingSheets || bookRes.sheetsVerified)) {
             saveRes = {
-              status: "success",
+              status: bookRes.status === "accepted" ? "accepted" : "success",
               wrote: bookRes.wrote != null ? Number(bookRes.wrote) : basketSnap.length,
               basketLen: basketSnap.length,
-              missed: bookRes.missed || []
+              missed: bookRes.missed || [],
+              sheetsVerified: !!bookRes.sheetsVerified,
+              pendingSheets: !!bookRes.pendingSheets,
+              writeId: bookRes.writeId || "",
+              d1Verified: !!bookRes.d1Verified
             };
           } else if (weekDayToSave) {
             var orderParams = {
@@ -4661,7 +4744,7 @@
             if (geoJson) orderParams.geo = geoJson;
             if (surveyMeta) orderParams.survey = JSON.stringify(surveyMeta);
             try {
-              saveRes = await apiGet(orderParams, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 18000 : 90000, cacheTtlMs: 0 });
+              saveRes = await apiGet(orderParams, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 14000 : 90000, cacheTtlMs: 0 });
             } catch (eWeek) {
               saveRes = { status: "error", message: eWeek.message || String(eWeek) };
             }
@@ -4669,7 +4752,7 @@
         }
 
         var needPost = !useJsonpSave ||
-          (weekDayToSave && basketSnap.length && (!saveRes || saveRes.status !== "success" || Number(saveRes.wrote || 0) === 0));
+          (weekDayToSave && basketSnap.length && (!saveRes || (saveRes.status !== "success" && saveRes.status !== "accepted") || (Number(saveRes.wrote || 0) === 0 && !saveRes.pendingSheets && !saveRes.d1Verified && !saveRes.sheetsVerified)));
         if (needPost) {
           bookingPayload.day = weekDayToSave || "";
           bookingPayload.alsoSaveOrder = !!weekDayToSave;
@@ -4692,33 +4775,33 @@
                 calendarOnly: true
               }));
             } catch (ePostCal) {}
-            if (!bookRes || bookRes.status !== "success") {
+            if (!bookRes || (bookRes.status !== "success" && bookRes.status !== "accepted")) {
               bookRes = { status: "sent_opaque" };
             }
           }
         }
 
-        // cutover: не верить optimistic — проверить D1/лист и при необходимости дописать
-        if (weekDayToSave && basketSnap.length) {
+        // cutover: при pendingSheets не гоняем тяжёлый ensure (D1 уже принял)
+        if (weekDayToSave && basketSnap.length && !(saveRes && (saveRes.pendingSheets || saveRes.sheetsVerified || saveRes.writeId))) {
           try {
             saveRes = await ensureWeekWriteStuck_();
           } catch (eEns) {
-            if (!saveRes || saveRes.status !== "success") {
+            if (!saveRes || (saveRes.status !== "success" && saveRes.status !== "accepted")) {
               saveRes = { status: "error", message: (eEns && eEns.message) || "verify_failed" };
             }
           }
         }
 
-        if (weekDayToSave && saveRes && saveRes.status === "success" &&
+        if (weekDayToSave && saveRes && (saveRes.status === "success" || saveRes.status === "accepted") &&
             Number(saveRes.wrote || 0) === 0 && basketSnap.length > 0 &&
-            !saveRes.verified && !saveRes.sheetsVerified && !saveRes.d1Verified && !saveRes.partial) {
+            !saveRes.verified && !saveRes.sheetsVerified && !saveRes.d1Verified && !saveRes.pendingSheets && !saveRes.partial) {
           await uiAlertAsync(
             "Человек на листе есть, но состав не записался (" + basketSnap.length + " поз.).\n" +
             "Попробуй ещё раз или проверь названия продуктов.\n" +
             ((saveRes.missed && saveRes.missed.length) ? saveRes.missed.join(", ") : "")
           );
         } else if (weekDayToSave && saveRes && saveRes.status &&
-            saveRes.status !== "success" && saveRes.status !== "sent" && saveRes.status !== "sent_opaque") {
+            saveRes.status !== "success" && saveRes.status !== "accepted" && saveRes.status !== "sent" && saveRes.status !== "sent_opaque") {
           if (saveRes.partial || saveRes.verified) {
             showToast("Сохранено с предупреждением — лист Google может догнать через минуту");
           } else {
@@ -4727,6 +4810,19 @@
           }
         } else if (weekDayToSave && saveRes && saveRes.partial) {
           showToast("Состав в приложении ок · лист Google может отставать");
+        }
+
+        // Prefer writeId из bookRes если saveRes без него
+        if (bookRes && bookRes.writeId && (!saveRes || !saveRes.writeId)) {
+          saveRes = Object.assign({}, saveRes || {}, {
+            writeId: bookRes.writeId,
+            pendingSheets: bookRes.pendingSheets,
+            sheetsVerified: bookRes.sheetsVerified,
+            status: saveRes && saveRes.status ? saveRes.status : bookRes.status,
+            d1Verified: !!(saveRes && saveRes.d1Verified) || !!bookRes.d1Verified
+          });
+        } else if (bookRes && !weekDayToSave) {
+          saveRes = saveRes || bookRes;
         }
 
         try { apiCacheBustMem_(); } catch (eClr) {}
@@ -4804,22 +4900,23 @@
 
         hideSaveLoading();
 
-        if (dateOnWeek && inWeek) {
+        var confirmSrc = (saveRes && (saveRes.writeId || saveRes.sheetsVerified || saveRes.pendingSheets))
+          ? saveRes
+          : (bookRes && (bookRes.writeId || bookRes.sheetsVerified || bookRes.pendingSheets) ? bookRes : saveRes || bookRes);
+        var doneLabel = dateOnWeek && inWeek
+          ? ("Точно внесено · " + clientName + (savedItems ? (" · " + savedItems + " поз.") : ""))
+          : ("Точно в календаре · " + deliveryDate);
+        if (confirmSrc && (confirmSrc.writeId || confirmSrc.pendingSheets || confirmSrc.sheetsVerified)) {
+          await confirmPeopleWriteSheets_(confirmSrc, {
+            doneMsg: doneLabel,
+            pendingMsg: "Вношу «" + clientName + "» в таблицу…",
+            failMsg: "Не закрепилось в таблице",
+            block: false
+          });
+        } else if (dateOnWeek && inWeek) {
           showToast((isEdit ? "Обновлён" : "Сохранён") + " " + clientName +
             " (" + savedItems + " поз.)" +
             (orderPrice != null ? (" · " + orderPrice + " BYN") : ""));
-          try {
-            if (weekDayToSave) {
-              setTimeout(function () {
-                runWarehouseCheckAfterSave_({
-                  client: clientName,
-                  day: weekDayToSave,
-                  date: deliveryDate || "",
-                  basket: basketSnap
-                });
-              }, 400);
-            }
-          } catch (eWh) {}
         } else {
           showToast(
             "В календарь " + deliveryDate +
@@ -4827,6 +4924,18 @@
             (dateOnWeek ? "" : " · неделя ещё не закрыта — слот Пн–Вс старый")
           );
         }
+        try {
+          if (weekDayToSave && dateOnWeek && inWeek) {
+            setTimeout(function () {
+              runWarehouseCheckAfterSave_({
+                client: clientName,
+                day: weekDayToSave,
+                date: deliveryDate || "",
+                basket: basketSnap
+              });
+            }, 400);
+          }
+        } catch (eWh) {}
         if (orderTypeSnap === "bp" && surveyMeta && surveyMeta.createCard) {
           if (surveyMeta._bpWarn) showToast("Заказ ок, БП-карточку проверь вручную");
           else if (surveyMeta._bpToast) showToast(surveyMeta._bpToast);
@@ -7435,8 +7544,8 @@
           cutRaw: cutRaw === "yes" ? "1" : "0",
           matchKey: matchKey,
           _: String(Date.now())
-        }, { timeoutMs: 45000, cacheTtlMs: 0, bypassInflight: true });
-        if (!res || (res.status !== "success" && !res.sent_opaque && !res.sheetsVerified && !res.d1Verified)) {
+        }, { timeoutMs: 16000, cacheTtlMs: 0, bypassInflight: true });
+        if (!res || (res.status !== "success" && res.status !== "accepted" && !res.sent_opaque && !res.sheetsVerified && !res.d1Verified)) {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return false;
         }
@@ -7446,10 +7555,11 @@
         var effectiveNewDay = String((res && (res.newDay || (res.to && !/^\d{4}-\d{2}-\d{2}$/.test(String(res.to)) ? res.to : ""))) || newDay || "").trim();
         var effectiveNewDate = String((res && (res.newDate || (res.to && /^\d{4}-\d{2}-\d{2}$/.test(String(res.to)) ? res.to : ""))) || target.newDate || "").trim();
         var destLabel = effectiveNewDay || effectiveNewDate || "новую дату";
-        // PEOPLE CANON: sheetsVerified = канон; d1Verified alone без Sheets — слабо
-        var wroteOk = !!(res && res.status === "success" && (
+        // D1 accept или sheetsVerified — ок для UI; «Точно» через confirm
+        var wroteOk = !!(res && (res.status === "success" || res.status === "accepted") && (
           Number(res.wrote) > 0 ||
           res.sheetsVerified ||
+          res.pendingSheets ||
           res.alreadyMoved ||
           (res.d1Verified && !res.optimistic)
         ) && !res.sent_opaque && res.status !== "online" && !/жив/i.test(String(res.msg || "")));
@@ -7550,16 +7660,21 @@
         var svN = Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
         var bpMetaN = Number((res.dateSync && res.dateSync.bpMeta) || 0) || 0;
         var baseMsg = calendarOnly
-          ? ("Перенесено на " + target.newDate)
+          ? ("Точно перенесено на " + target.newDate)
           : (dateOnly
-            ? ("Дата → " + target.newDate)
-            : (cutRaw === "yes" ? "Перенесено (резать)" : "Перенесено без резки"));
-        if (svN || bpMetaN) {
-          showToast(baseMsg + " · опрос " + svN + (bpMetaN ? (" · meta БП " + bpMetaN) : ""));
-        } else if (res.dateSync && res.dateSync.surveyError) {
-          showToast(baseMsg + " · опрос не сдвинут (ошибка)");
+            ? ("Точно дата → " + target.newDate)
+            : (cutRaw === "yes" ? "Точно перенесено (резать)" : "Точно перенесено"));
+        if (svN || bpMetaN) baseMsg += " · опрос " + svN + (bpMetaN ? (" · meta БП " + bpMetaN) : "");
+        else if (res.dateSync && res.dateSync.surveyError) baseMsg += " · опрос не сдвинут";
+        if (res.writeId || res.pendingSheets || res.sheetsVerified) {
+          await confirmPeopleWriteSheets_(res, {
+            doneMsg: baseMsg,
+            pendingMsg: "Переношу в таблицу…",
+            failMsg: "Перенос не закрепился в таблице",
+            block: false
+          });
         } else {
-          showToast(baseMsg);
+          showToast(baseMsg.replace(/^Точно /, ""));
         }
         try {
           setTimeout(function () {
@@ -7653,12 +7768,21 @@
             client: client.name,
             matchKey: client.matchKey || viewClientKey(client.name) || "",
             _: String(Date.now())
-          }, { timeoutMs: 45000, cacheTtlMs: 0 });
-          if (!resM || (resM.status !== "success" && !resM.sent_opaque && !resM.sheetsVerified && !resM.d1Verified)) {
+          }, { timeoutMs: 16000, cacheTtlMs: 0 });
+          if (!resM || (resM.status !== "success" && resM.status !== "accepted" && !resM.sent_opaque && !resM.sheetsVerified && !resM.d1Verified)) {
             await uiAlertAsync("Не удалось: " + ((resM && resM.message) || resM.status || "ошибка"));
             return;
           }
-          showToast("Убрано из календаря");
+          if (resM.writeId || resM.pendingSheets || resM.sheetsVerified) {
+            await confirmPeopleWriteSheets_(resM, {
+              doneMsg: "Точно убрано из календаря",
+              pendingMsg: "Убираю из календаря…",
+              failMsg: "Не убралось из таблицы",
+              block: false
+            });
+          } else {
+            showToast("Убрано из календаря");
+          }
           await loadClientsForDay();
         } catch (err) {
           await uiAlertAsync(err.message || String(err));
@@ -7678,8 +7802,8 @@
         try { apiCacheBustMem_(); } catch (eMem) {}
         const mk = client.matchKey || viewClientKey(client.name) || "";
         const delParams = deleteClientParams(client.name, day, mk);
-        const res = await apiGet(delParams, { timeoutMs: 45000, cacheTtlMs: 0, bypassInflight: true });
-        if (res && res.status === "error") {
+        const res = await apiGet(delParams, { timeoutMs: 16000, cacheTtlMs: 0, bypassInflight: true });
+        if (res && res.status === "error" && !res.pendingSheets) {
           await uiAlertAsync("Не удалось: " + (res.message || res.status || "ошибка"));
           return;
         }
@@ -7689,9 +7813,10 @@
         }
         var verifyDay = String((res && res.day) || delParams.day || day || "").trim();
         var daysCleared = Array.isArray(res && res.daysCleared) ? res.daysCleared : [];
-        var writeSolid = !!(res && res.status === "success" && !res.sent_opaque && (
+        var writeSolid = !!(res && (res.status === "success" || res.status === "accepted") && !res.sent_opaque && (
           Number(res.wrote) > 0 ||
           res.sheetsVerified ||
+          res.pendingSheets ||
           (res.d1Verified && !res.skippedStaleDelete && !res.optimistic) ||
           res.alreadyGone
         ));
@@ -7735,18 +7860,26 @@
           await uiAlertAsync("Не удалось удалить — нет подтверждения таблицы. Проверь сеть и попробуй ещё раз.");
           return;
         }
-        // Sheets/Worker подтвердили — убираем из UI сразу.
+        // D1/accept — убираем из UI сразу; «Точно удалено» после Sheets
         try {
           loadedClientsRawData = (loadedClientsRawData || []).filter(function (c) {
             return !nicksMatchClient_(c && c.name, client.name);
           });
           renderViewLists();
         } catch (eOpt) {}
-        showToast(
-          (res.alreadyGone ? "Уже удалено" : "Удалено") +
+        var delDone = (res.alreadyGone ? "Точно уже удалено" : "Точно удалено") +
           (delParams.day || day ? (" · " + (delParams.day || day)) : "") +
-          (dateStr ? (" · " + dateStr) : "")
-        );
+          (dateStr ? (" · " + dateStr) : "");
+        if (res.writeId || res.pendingSheets || res.sheetsVerified) {
+          await confirmPeopleWriteSheets_(res, {
+            doneMsg: delDone,
+            pendingMsg: "Удаляю из таблицы…",
+            failMsg: "Удаление не закрепилось в таблице",
+            block: false
+          });
+        } else {
+          showToast(delDone.replace(/^Точно /, ""));
+        }
         try {
           if (day) {
             var daySelDel = document.getElementById("viewDaySelect");

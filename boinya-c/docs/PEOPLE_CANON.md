@@ -1,31 +1,34 @@
-# People Canon (LIVE) — Sheets first
+# People Canon (LIVE) — быстрый accept + подтверждение Sheets
 
-**Канон людей (save / move / delete) = Google Sheets через GAS.**  
-D1 — быстрый кэш UI, не источник истины для состава/присутствия.
+**Канон людей = Google Sheets.** D1 — быстрый кэш UI.
+
+## Как работает запись (save / move / delete)
+
+1. Worker сразу пишет **D1** → UI свободен (~1–2 с).
+2. GAS/Sheets уходит **в фон** (`waitUntil`).
+3. Ответ клиенту:
+   - если GAS успел за ~2.2 с → `status=success`, `sheetsVerified=true` → toast «Точно внесено»;
+   - иначе → `status=accepted`, `pendingSheets=true`, `writeId=…` → toast «Вношу в таблицу…».
+4. UI поллит `pollPeopleWrite` → при успехе **«Точно внесено / перенесено / удалено»**.
+5. При ошибке Sheets — честный fail toast (не врать success).
 
 ## Жёсткое правило (агентам)
 
-| Action | Порядок записи | UI success |
-|--------|----------------|------------|
-| `saveOrder` / `saveBooking` | 1) await GAS → 2) sync D1 → 3) afterWrite фон | только `status=success` + `sheetsVerified=true` |
-| `deleteClient` / `removeCalendarClient` | то же | то же (+ verify списка) |
-| `moveClient` | то же | то же (+ verify old/new) |
-| `placeTransferTask` / `saveDeferred` / `notifyMissedDelivery` | D1-first OK (не колонки Приёма) | `d1Verified` |
-| флаги нарезки/курьера | D1 сразу + GAS | как сейчас |
+| Action | Порядок | Финальный toast |
+|--------|---------|-----------------|
+| `saveOrder` / `saveBooking` / `deleteClient` / `removeCalendarClient` / `moveClient` | D1 accept → фон GAS → poll | только при `sheetsVerified` («Точно …») |
+| `placeTransferTask` / `saveDeferred` / `notifyMissedDelivery` | D1-first OK | `d1Verified` |
+| флаги нарезки/курьера | D1 + GAS | как сейчас |
 
 **Запрещено** без явного ОК владельца «полный D1-канон»:
 
-1. Возвращать `status: success` / `optimistic: true` по people-write **до** ответа GAS.
-2. Писать D1 → GAS в `waitUntil` для `saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient` как единственный путь записи.
-3. В UI выдавать toast «Сохранено / Удалено / Перенесено» по одному `optimistic` / `timedOut` / `networkFallback` без `sheetsVerified` (или явного verify списка).
-4. «Чинить» конфликты новым optimistic-обходом вместо починки GAS/маппинга колонок.
+1. Показывать «Точно внесено / Сохранено / Удалено» **до** `sheetsVerified` (или явного verify списка).
+2. Возвращать `status: success` + `optimistic: true` без Sheets как финальный канон.
+3. Убирать `pollPeopleWrite` / `pendingSheets` и снова блокировать UI на 20–40 с await GAS.
+4. «Чинить» гонки новым fake-success вместо фикса GAS/маппинга.
 
-См. также `CUTOVER.md`. Маркер Worker: `deployMarker: people-canon-sheets-first` в `?action=ping`.
-
-## Почему так
-
-Dual-write D1-first (cutover ~17–24.08) давал гонки: tombstone, afterWrite съедал save, UI врал success. Sheets остаются бизнес-каноном (Приём / Будущая / Календарь_Дат / ПП).
+См. `CUTOVER.md`. Маркер: `peopleCanon: "sheets-confirm-bg"` в `?action=ping`.
 
 ## Полный перевод на D1
 
-Отдельное решение владельца после стабилизации. Не начинать «по пути» в PR с багфиксами.
+Отдельное решение владельца после стабилизации.

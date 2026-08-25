@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-25 people-canon-sheets-first
+ * deploy-marker: 2026-08-25 people-canon-fast-confirm
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -121,7 +121,7 @@ function isCutoverLive_(params, env, url) {
 function isWriteAction_(a) {
   if (!a) return false;
   // явные чтения / списки — не write (даже если имя начинается с partner*)
-  if (/^(get|list|resolve|calc|suggest|lookup|ping|keepWarm|warehousePreview|checkOrderWarehouse)/i.test(a)) return false;
+  if (/^(get|list|resolve|calc|suggest|lookup|ping|keepWarm|poll|warehousePreview|checkOrderWarehouse)/i.test(a)) return false;
   if (
     a === "getMyAccess" ||
     a === "telegramStatus" ||
@@ -150,9 +150,25 @@ async function handleAction_(action, params, env, url, ctx) {
       live: !!live,
       swr: !!live,
       d1: !!(env && env.DB),
-      peopleCanon: "sheets-first",
-      deployMarker: "2026-08-25 people-canon-sheets-first"
+      peopleCanon: "sheets-confirm-bg",
+      deployMarker: "2026-08-25 people-canon-fast-confirm"
     };
+  }
+
+  if (/^pollPeopleWrite$/i.test(a)) {
+    const wid = String((params && params.writeId) || "").trim();
+    if (!wid || !env || !env.DB) {
+      return { status: "error", message: "need_writeId", sheetsVerified: false };
+    }
+    const job = await getSnapRaw_(env, "peopleWrite:" + wid);
+    if (!job) {
+      return { status: "pending", pendingSheets: true, sheetsVerified: false, writeId: wid };
+    }
+    return Object.assign({}, job, {
+      writeId: wid,
+      cutover: !!live,
+      sandbox: !live
+    });
   }
 
   // Varka: partnerGetMe — D1 сразу (не ждать GAS); записи по-прежнему в GAS
@@ -5292,10 +5308,9 @@ async function handleCutover_(a, params, env, ctx) {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // PEOPLE CANON (LIVE): Sheets/GAS first → затем D1. Без optimistic-лжи.
-  // D1 — кэш UI; канон людей = Google Sheets. Не возвращать success,
-  // пока GAS не подтвердил save/move/delete (saveOrder|Booking|delete|move).
-  // placeTransfer/saveDeferred/notifyMissed — по-прежнему D1-first (не колонки Приёма).
+  // PEOPLE CANON (LIVE): быстро принять в D1 → GAS в фоне → UI поллит
+  // «Точно внесено» только при sheetsVerified. Не врать success до Sheets.
+  // placeTransfer/saveDeferred/notifyMissed — по-прежнему D1-first.
   // ═══════════════════════════════════════════════════════════════════
   if (isWriteAction_(a)) {
     const blocked = partnerBlockWrongPoint_(a, params);
@@ -5323,72 +5338,21 @@ async function handleCutover_(a, params, env, ctx) {
             })
           : params;
 
-      // --- CORE PEOPLE: Sheets-first ---
+      // --- CORE PEOPLE: D1 accept + фон Sheets (poll → sheetsVerified) ---
       if (isCorePeopleWrite) {
         const gasWriteParams = peopleWriteParams;
-        async function awaitGasPeopleWrite_() {
-          let proxied = null;
-          try {
-            proxied = await Promise.race([
-              gasProxy_(a, gasWriteParams, env, { write: true }).catch(function () {
-                return null;
-              }),
-              new Promise(function (r) {
-                setTimeout(function () {
-                  r({ status: "error", message: "gas_timeout" });
-                }, 18000);
-              })
-            ]);
-          } catch (eG0) {
-            proxied = { status: "error", message: String((eG0 && eG0.message) || eG0) };
-          }
-          if (
-            proxied &&
-            proxied.status === "success" &&
-            !/gas_proxy_failed|gas_timeout/i.test(String(proxied.message || ""))
-          ) {
-            return proxied;
-          }
-          try {
-            await new Promise(function (r) {
-              setTimeout(r, 900);
-            });
-            const again = await Promise.race([
-              gasProxy_(a, gasWriteParams, env, { write: true }).catch(function () {
-                return null;
-              }),
-              new Promise(function (r) {
-                setTimeout(function () {
-                  r(null);
-                }, 12000);
-              })
-            ]);
-            if (
-              again &&
-              again.status === "success" &&
-              !/gas_proxy_failed/i.test(String(again.message || ""))
-            ) {
-              return again;
-            }
-            if (again) proxied = again;
-          } catch (eG1) {}
-          return proxied || { status: "error", message: "sheets_write_failed" };
-        }
+        const writeId =
+          "pw_" +
+          Date.now().toString(36) +
+          "_" +
+          Math.random().toString(36).slice(2, 8);
+        const alsoWeek =
+          gasWriteParams.alsoSaveOrder === true ||
+          String(gasWriteParams.alsoSaveOrder || "") === "1" ||
+          String(gasWriteParams.alsoSaveOrder || "").toLowerCase() === "true";
+        const basketLen = parseBasket_(gasWriteParams.basket).length;
 
-        const sheetsRes = await awaitGasPeopleWrite_();
-        if (!sheetsRes || sheetsRes.status !== "success") {
-          return {
-            status: "error",
-            message: (sheetsRes && sheetsRes.message) || "sheets_write_failed",
-            cutover: true,
-            sandbox: false,
-            sheetsVerified: false,
-            optimistic: false,
-            action: a
-          };
-        }
-
-        // Sheets OK → синхронизировать D1 под факт таблицы
+        // 1) D1 сразу — UI не ждёт GAS
         let d1WriteRes = null;
         try {
           if (env && env.DB) {
@@ -5400,63 +5364,185 @@ async function handleCutover_(a, params, env, ctx) {
               d1WriteRes = await moveClient_(gasWriteParams, env);
             }
           }
-        } catch (eD1Sync) {
+        } catch (eD1Fast) {
           d1WriteRes = {
             status: "error",
-            message: String((eD1Sync && eD1Sync.message) || eD1Sync)
+            message: String((eD1Fast && eD1Fast.message) || eD1Fast)
+          };
+        }
+        if (!d1WriteRes || d1WriteRes.status !== "success") {
+          return {
+            status: "error",
+            message: (d1WriteRes && d1WriteRes.message) || "d1_write_failed",
+            cutover: true,
+            sandbox: false,
+            sheetsVerified: false,
+            optimistic: false,
+            pendingSheets: false,
+            action: a
           };
         }
 
-        if (ctx && typeof ctx.waitUntil === "function") {
-          ctx.waitUntil(
-            (async function () {
-              try {
-                await cutoverAfterWrite_(a, gasWriteParams, env, sheetsRes);
-              } catch (eA) {}
-            })()
-          );
-        } else {
-          try {
-            await cutoverAfterWrite_(a, gasWriteParams, env, sheetsRes);
-          } catch (eA2) {}
+        try {
+          await putSnap_(env, "peopleWrite:" + writeId, {
+            status: "pending",
+            pendingSheets: true,
+            sheetsVerified: false,
+            action: a,
+            client: String(gasWriteParams.client || gasWriteParams.nick || ""),
+            day: String(gasWriteParams.day || gasWriteParams.newDay || ""),
+            startedAt: Date.now()
+          });
+        } catch (eJob0) {}
+
+        function buildAcceptedBase_(extra) {
+          const base = Object.assign({}, d1WriteRes, extra || {}, {
+            cutover: true,
+            sandbox: false,
+            optimistic: false,
+            d1Verified: true,
+            writeId: writeId,
+            action: a
+          });
+          if (/^(saveOrder|saveBooking)$/i.test(a)) {
+            base.weekWritten =
+              d1WriteRes.weekWritten != null
+                ? !!d1WriteRes.weekWritten
+                : alsoWeek ||
+                  (!toBool_(d1WriteRes.calendarOnly) && /^saveOrder$/i.test(a));
+            base.wrote =
+              d1WriteRes.wrote != null ? d1WriteRes.wrote : basketLen || 1;
+            base.basketLen = basketLen;
+          }
+          return base;
         }
 
-        const alsoWeek =
-          gasWriteParams.alsoSaveOrder === true ||
-          String(gasWriteParams.alsoSaveOrder || "") === "1" ||
-          String(gasWriteParams.alsoSaveOrder || "").toLowerCase() === "true";
-        const basketLen = parseBasket_(gasWriteParams.basket).length;
-        // sheetsRes поверх D1 — не дать d1WriteRes перетереть status/message канона
-        const base = Object.assign({}, d1WriteRes || {}, sheetsRes, {
-          cutover: true,
-          sandbox: false,
-          sheetsVerified: true,
-          optimistic: false,
-          d1Verified: !!(d1WriteRes && d1WriteRes.status === "success"),
-          action: a
+        // 2) GAS: короткий race (~2.2с) — если успел, сразу «точно»; иначе фон + poll
+        const gasP = gasProxy_(a, gasWriteParams, env, { write: true }).catch(function (eG) {
+          return {
+            status: "error",
+            message: String((eG && eG.message) || eG || "gas_proxy_failed")
+          };
         });
-        if (/^(saveOrder|saveBooking)$/i.test(a)) {
-          base.weekWritten =
-            d1WriteRes && d1WriteRes.weekWritten != null
-              ? !!d1WriteRes.weekWritten
-              : alsoWeek ||
-                (!toBool_(d1WriteRes && d1WriteRes.calendarOnly) && /^saveOrder$/i.test(a));
-          // wrote: факт GAS (если есть), иначе длина корзины — не врать 0 после Sheets OK
-          if (sheetsRes.wrote != null && Number(sheetsRes.wrote) > 0) {
-            base.wrote = Number(sheetsRes.wrote);
-          } else if (d1WriteRes && d1WriteRes.wrote != null) {
-            base.wrote = d1WriteRes.wrote;
-          } else {
-            base.wrote = basketLen || 1;
+
+        let earlySheets = null;
+        let gotEarly = false;
+        await Promise.race([
+          gasP.then(function (p) {
+            earlySheets = p;
+            gotEarly = true;
+          }),
+          new Promise(function (r) {
+            setTimeout(r, 2200);
+          })
+        ]);
+
+        async function finishPeopleSheetsJob_(sheetsRes) {
+          const ok =
+            sheetsRes &&
+            sheetsRes.status === "success" &&
+            !/gas_proxy_failed|gas_timeout/i.test(String(sheetsRes.message || ""));
+          try {
+            await putSnap_(env, "peopleWrite:" + writeId, {
+              status: ok ? "success" : "error",
+              pendingSheets: false,
+              sheetsVerified: !!ok,
+              action: a,
+              message: ok ? "" : (sheetsRes && sheetsRes.message) || "sheets_write_failed",
+              wrote: sheetsRes && sheetsRes.wrote,
+              finishedAt: Date.now(),
+              gas: sheetsRes || null
+            });
+          } catch (eJob1) {}
+          try {
+            await cutoverAfterWrite_(a, gasWriteParams, env, ok ? sheetsRes : d1WriteRes);
+          } catch (eA) {}
+          return ok;
+        }
+
+        if (
+          gotEarly &&
+          earlySheets &&
+          earlySheets.status === "success" &&
+          !/gas_proxy_failed|gas_timeout/i.test(String(earlySheets.message || ""))
+        ) {
+          await finishPeopleSheetsJob_(earlySheets);
+          const base = buildAcceptedBase_({
+            status: "success",
+            sheetsVerified: true,
+            pendingSheets: false
+          });
+          Object.assign(base, earlySheets, {
+            status: "success",
+            sheetsVerified: true,
+            pendingSheets: false,
+            d1Verified: true,
+            optimistic: false,
+            writeId: writeId,
+            action: a
+          });
+          if (/^(saveOrder|saveBooking)$/i.test(a)) {
+            if (earlySheets.wrote != null && Number(earlySheets.wrote) > 0) {
+              base.wrote = Number(earlySheets.wrote);
+            }
           }
-          base.basketLen = basketLen;
+          return partnerGuardOrRewrite_(a, gasWriteParams, base);
         }
-        // D1 sync fail после Sheets OK — всё равно success (канон записан), но флаг
-        if (d1WriteRes && d1WriteRes.status !== "success") {
-          base.d1SyncWarning = d1WriteRes.message || "d1_sync_failed";
-          base.status = "success";
+
+        // фон: дождаться GAS (если ещё не пришёл) + retry один раз
+        const bg = (async function () {
+          let sheetsRes = gotEarly ? earlySheets : null;
+          try {
+            if (!gotEarly) sheetsRes = await gasP;
+          } catch (eBg0) {
+            sheetsRes = {
+              status: "error",
+              message: String((eBg0 && eBg0.message) || eBg0)
+            };
+          }
+          const ok1 =
+            sheetsRes &&
+            sheetsRes.status === "success" &&
+            !/gas_proxy_failed|gas_timeout/i.test(String(sheetsRes.message || ""));
+          if (!ok1) {
+            try {
+              await new Promise(function (r) {
+                setTimeout(r, 800);
+              });
+              const again = await Promise.race([
+                gasProxy_(a, gasWriteParams, env, { write: true }).catch(function () {
+                  return null;
+                }),
+                new Promise(function (r) {
+                  setTimeout(function () {
+                    r(null);
+                  }, 14000);
+                })
+              ]);
+              if (again) sheetsRes = again;
+            } catch (eBg1) {}
+          }
+          await finishPeopleSheetsJob_(sheetsRes);
+        })();
+
+        if (ctx && typeof ctx.waitUntil === "function") {
+          ctx.waitUntil(bg);
+        } else {
+          try {
+            await bg;
+          } catch (eFg) {}
         }
-        return partnerGuardOrRewrite_(a, gasWriteParams, base);
+
+        return partnerGuardOrRewrite_(
+          a,
+          gasWriteParams,
+          buildAcceptedBase_({
+            status: "accepted",
+            sheetsVerified: false,
+            pendingSheets: true,
+            message: "pending_sheets"
+          })
+        );
       }
 
       // --- non-core (deferred / transfer park): D1-first OK ---

@@ -2,12 +2,12 @@
 
 ## Как открыть
 
-https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71115897
+https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71115898
 
 Бейдж **C · LIVE**. Режим закреплён в URL (`cutover=1`) — не должен прыгать на **C · D1**.
 
 В Telegram Menu Button:
-`.../boinya-c/app.html?cutover=1&v=71115897`
+`.../boinya-c/app.html?cutover=1&v=71115898`
 
 Песочница (без записи в Sheets): `?sandbox=1` или `?cutover=0` → бейдж **C · D1**.
 
@@ -18,11 +18,11 @@ https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71115897
 | | |
 |--|--|
 | **Чтение** | сразу из D1 (быстро), в фоне подтягивается GAS |
-| **Запись людей** | **Sheets/GAS first** → потом sync D1 (`sheetsVerified`). См. [PEOPLE_CANON.md](./PEOPLE_CANON.md) |
+| **Запись людей** | D1 сразу → GAS в фоне → UI поллит → toast **«Точно внесено»** только при `sheetsVerified`. См. [PEOPLE_CANON.md](./PEOPLE_CANON.md) |
 | Флаги / deferred / transfer park | D1-first OK |
 | Опасные week-actions | UI «Завершить неделю» после 3 подтверждений шлёт `allowDanger=1` → GAS |
 
-Проверка Worker: `?action=ping` → `peopleCanon: "sheets-first"`.
+Проверка Worker: `?action=ping` → `peopleCanon: "sheets-confirm-bg"`.
 
 ## Закрыть неделю
 

@@ -33,7 +33,7 @@ Environment: `.cursor/environment.json`.
 - Не запускать `finishFullWeekProduction` без явного ОК.
 - Deploy Apps Script делает владелец; в git код пушить сам, напоминать только про Deploy.
 - Environment/Builds/Secrets — в [Cloud Agents dashboard](https://cursor.com/dashboard/cloud-agents#environments); секреты не коммитить.
-- **People canon:** LIVE `saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient` = Sheets/GAS first, потом D1. Не возвращать optimistic-success до GAS. Подробно: [boinya-c/docs/PEOPLE_CANON.md](./boinya-c/docs/PEOPLE_CANON.md). Полный D1-канон — только по явному решению владельца.
+- **People canon:** LIVE people-write = D1 accept + фон GAS + `pollPeopleWrite`; toast «Точно …» только при `sheetsVerified`. Не блокировать UI полным await GAS и не врать success до Sheets. Подробно: [boinya-c/docs/PEOPLE_CANON.md](./boinya-c/docs/PEOPLE_CANON.md).
 
 ## Automations
 
