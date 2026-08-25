@@ -5454,10 +5454,17 @@ async function handleCutover_(a, params, env, ctx) {
               gas: sheetsRes || null
             });
           } catch (eJob1) {}
-          try {
-            await cutoverAfterWrite_(a, gasWriteParams, env, ok ? sheetsRes : d1WriteRes);
-          } catch (eA) {}
           return ok;
+        }
+
+        function scheduleAfterWrite_(sheetsRes) {
+          const run = (async function () {
+            try {
+              await cutoverAfterWrite_(a, gasWriteParams, env, sheetsRes || d1WriteRes);
+            } catch (eA) {}
+          })();
+          if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run);
+          return run;
         }
 
         if (
@@ -5467,6 +5474,7 @@ async function handleCutover_(a, params, env, ctx) {
           !/gas_proxy_failed|gas_timeout/i.test(String(earlySheets.message || ""))
         ) {
           await finishPeopleSheetsJob_(earlySheets);
+          scheduleAfterWrite_(earlySheets);
           const base = buildAcceptedBase_({
             status: "success",
             sheetsVerified: true,
@@ -5523,14 +5531,16 @@ async function handleCutover_(a, params, env, ctx) {
             } catch (eBg1) {}
           }
           await finishPeopleSheetsJob_(sheetsRes);
+          await scheduleAfterWrite_(
+            sheetsRes && sheetsRes.status === "success" ? sheetsRes : d1WriteRes
+          );
         })();
 
         if (ctx && typeof ctx.waitUntil === "function") {
           ctx.waitUntil(bg);
         } else {
-          try {
-            await bg;
-          } catch (eFg) {}
+          // без waitUntil не ждём GAS на запросе — иначе UI снова 10–40с
+          bg.catch(function () {});
         }
 
         return partnerGuardOrRewrite_(
