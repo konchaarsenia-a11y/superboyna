@@ -676,6 +676,114 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
   } catch (eLock) {}
 
   let d1WriteRes = job.d1Res || null;
+  const sheetsFirst = /^(moveClient|deleteClient|removeCalendarClient)$/i.test(a);
+
+  // move/delete: сначала Sheets (иначе D1 унесёт → GAS src_client_not_found)
+  if (sheetsFirst && !job.sheetsVerified) {
+    let sheetsRes = null;
+    try {
+      sheetsRes = await gasProxy_(a, gasWriteParams, env, { write: true });
+    } catch (eG0) {
+      sheetsRes = {
+        status: "error",
+        message: String((eG0 && eG0.message) || eG0 || "gas_proxy_failed")
+      };
+    }
+    let ok =
+      sheetsRes &&
+      sheetsRes.status === "success" &&
+      !/gas_proxy_failed|gas_timeout/i.test(String(sheetsRes.message || ""));
+    if (!ok) {
+      try {
+        await new Promise(function (r) {
+          setTimeout(r, 700);
+        });
+        const again = await Promise.race([
+          gasProxy_(a, gasWriteParams, env, { write: true }).catch(function () {
+            return null;
+          }),
+          new Promise(function (r) {
+            setTimeout(function () {
+              r(null);
+            }, 14000);
+          })
+        ]);
+        if (again) {
+          sheetsRes = again;
+          ok =
+            sheetsRes &&
+            sheetsRes.status === "success" &&
+            !/gas_proxy_failed/i.test(String(sheetsRes.message || ""));
+        }
+      } catch (eRetry) {}
+    }
+    // мягкий ok: already gone / already moved
+    if (
+      !ok &&
+      sheetsRes &&
+      /already|not_found|src_client_not_found|same_/i.test(
+        String(sheetsRes.status || "") + " " + String(sheetsRes.message || "")
+      )
+    ) {
+      ok = true;
+      sheetsRes = Object.assign({}, sheetsRes, { status: "success", softSheets: true });
+    }
+
+    if (!ok) {
+      const fail = {
+        status: "error",
+        pendingSheets: false,
+        sheetsVerified: false,
+        d1Verified: !!job.d1Verified,
+        action: a,
+        params: gasWriteParams,
+        message: (sheetsRes && (sheetsRes.message || sheetsRes.status)) || "sheets_write_failed",
+        finishedAt: Date.now(),
+        gas: sheetsRes || null
+      };
+      await putSnap_(env, "peopleWrite:" + writeId, fail);
+      return fail;
+    }
+
+    // Sheets OK → D1
+    try {
+      if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
+        d1WriteRes = await deleteClient_(gasWriteParams, env);
+      } else if (/^moveClient$/i.test(a)) {
+        d1WriteRes = await moveClient_(gasWriteParams, env);
+      }
+    } catch (eD1) {
+      d1WriteRes = {
+        status: "error",
+        message: String((eD1 && eD1.message) || eD1)
+      };
+    }
+
+    const done = {
+      status: "success",
+      pendingSheets: false,
+      sheetsVerified: true,
+      d1Verified: !!(d1WriteRes && d1WriteRes.status === "success"),
+      action: a,
+      params: gasWriteParams,
+      message: d1WriteRes && d1WriteRes.status !== "success" ? "sheets_ok_d1_lag" : "",
+      wrote: (d1WriteRes && d1WriteRes.wrote) != null ? d1WriteRes.wrote : sheetsRes.wrote,
+      finishedAt: Date.now(),
+      gas: sheetsRes || null,
+      d1SyncWarning:
+        d1WriteRes && d1WriteRes.status !== "success"
+          ? d1WriteRes.message || "d1_sync_failed"
+          : undefined
+    };
+    try {
+      await putSnap_(env, "peopleWrite:" + writeId, done);
+    } catch (eDone) {}
+    try {
+      await cutoverAfterWrite_(a, gasWriteParams, env, sheetsRes);
+    } catch (eA) {}
+    return done;
+  }
+
   if (!job.d1Verified) {
     try {
       if (/^(saveOrder|saveBooking)$/i.test(a)) {
