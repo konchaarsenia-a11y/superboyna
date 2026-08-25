@@ -1,215 +1,133 @@
 #!/usr/bin/env bash
 # Live people-canon smoke via Worker (zzz_test only).
 # Fast-confirm: accepted + pollPeopleWrite → sheetsVerified.
-# Usage: bash scripts/test-people-canon.sh
 set -euo pipefail
 
 W="${WORKER_URL:-https://boinya-c.konchaarsenia.workers.dev}"
 CLIENT="zzz_test"
 DAY="${1:-Понедельник}"
 TS="$(date +%s)"
+export W CLIENT DAY TS
 
-json_get() {
-  local qs="$1"
-  curl -fsSL --max-time 60 "${W}/?cutover=1&${qs}"
-}
+python3 - <<'PY'
+import json, urllib.request, urllib.parse, time, os, sys
 
-json_post() {
-  local body="$1"
-  curl -fsSL --max-time 90 -X POST "${W}/?cutover=1" \
-    -H "Content-Type: text/plain;charset=UTF-8" \
-    --data-binary "$body"
-}
+W = os.environ["W"].rstrip("/")
+CLIENT = os.environ["CLIENT"]
+DAY = os.environ["DAY"]
+TS = os.environ["TS"]
 
-poll_until_sheets() {
-  local wid="$1"
-  local label="$2"
-  python3 - <<PY
-import json, urllib.request, time, sys
-W = ${W@Q}
-wid = ${wid@Q}
-label = ${label@Q}
-for i in range(45):
-    time.sleep(1.1)
-    raw = urllib.request.urlopen(
-        W + "/?cutover=1&action=pollPeopleWrite&writeId=" + wid, timeout=15
-    ).read().decode()
-    p = json.loads(raw)
-    print("poll", label, i, p.get("status"), p.get("sheetsVerified"), p.get("message"))
-    if p.get("sheetsVerified") and p.get("status") == "success":
-        print(label, "SHEETS OK")
-        sys.exit(0)
-    if p.get("status") == "error" and not p.get("pendingSheets"):
-        print(label, "FAIL", p)
-        sys.exit(3)
-print(label, "TIMEOUT")
-sys.exit(4)
-PY
-}
+def get(qs, timeout=60):
+    with urllib.request.urlopen(f"{W}/?cutover=1&{qs}", timeout=timeout) as r:
+        return json.loads(r.read().decode())
 
-assert_people_write() {
-  local raw="$1"
-  local label="$2"
-  python3 - <<PY
-import json, sys
-d = json.loads('''$(echo "$raw" | python3 -c 'import sys,json; print(json.dumps(json.load(sys.stdin)))')''')
-print(label, {k: d.get(k) for k in ("status","sheetsVerified","optimistic","d1Verified","wrote","writeId","pendingSheets","message","action")})
-assert d.get("optimistic") is not True, d
-assert d.get("status") in ("success", "accepted"), d
-assert d.get("d1Verified") is True or d.get("sheetsVerified") is True, d
-if d.get("sheetsVerified") and d.get("status") == "success":
-    print(label, "instant sheets OK")
-    open("/tmp/pw_writeid","w").write("")
-else:
+def post(body, timeout=90):
+    req = urllib.request.Request(
+        f"{W}/?cutover=1",
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "text/plain;charset=UTF-8"},
+        method="POST",
+    )
+    t0 = time.time()
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        data = json.loads(r.read().decode())
+    ms = int((time.time() - t0) * 1000)
+    return data, ms
+
+def poll_sheets(wid, label):
+    for i in range(45):
+        time.sleep(1.1)
+        p = get("action=pollPeopleWrite&writeId=" + urllib.parse.quote(wid), timeout=15)
+        print("poll", label, i, p.get("status"), p.get("sheetsVerified"), p.get("message"))
+        if p.get("sheetsVerified") and p.get("status") == "success":
+            print(label, "SHEETS OK")
+            return
+        if p.get("status") == "error" and not p.get("pendingSheets"):
+            raise SystemExit(f"{label} sheets fail: {p}")
+    raise SystemExit(f"{label} poll timeout")
+
+def assert_write(d, label, http_ms):
+    print(label, "http_ms=", http_ms, {k: d.get(k) for k in (
+        "status","sheetsVerified","optimistic","d1Verified","wrote","writeId","pendingSheets","message","action")})
+    assert d.get("optimistic") is not True, d
+    assert d.get("status") in ("success", "accepted"), d
+    assert d.get("d1Verified") is True or d.get("sheetsVerified") is True, d
+    if http_ms > 8000:
+        print("WARN: slow accept", http_ms, "ms (want <~3–5s)")
+    if d.get("sheetsVerified") and d.get("status") == "success":
+        print(label, "instant sheets OK")
+        return
     wid = d.get("writeId") or ""
     assert wid, d
-    open("/tmp/pw_writeid","w").write(wid)
-    print(label, "accepted, will poll", wid)
+    poll_sheets(wid, label)
+
+print("=== ping ===")
+ping = get("action=ping")
+print(ping)
+assert ping.get("live") is True
+assert ping.get("peopleCanon") in ("sheets-confirm-bg", "sheets-first")
+
+print("=== saveOrder ===")
+basket = json.dumps([{"cat":"Мясо","main":"ГОВЯДИНА","sub":"Мелкое","value":50}])
+save, ms = post({
+    "action": "saveOrder", "client": CLIENT, "day": DAY,
+    "address": f"test addr {TS}", "note": f"canon {TS}",
+    "basket": basket, "matchKey": CLIENT, "_": TS,
+})
+assert_write(save, "SAVE", ms)
+
+day_q = urllib.parse.quote(DAY)
+gc = get(f"action=getClients&day={day_q}&force=1&_={TS}")
+ok = any("zzz_test" in (c.get("name") or c.get("client") or "").lower() for c in (gc.get("clients") or []))
+print("on day:", ok, "n=", len(gc.get("clients") or []))
+assert ok
+
+print("=== moveClient → Вторник ===")
+move, ms = post({
+    "action": "moveClient", "client": CLIENT, "oldDay": DAY, "newDay": "Вторник",
+    "cutRaw": "0", "matchKey": CLIENT, "_": TS + "m",
+})
+assert_write(move, "MOVE", ms)
+time.sleep(1)
+vt = urllib.parse.quote("Вторник")
+gc2 = get(f"action=getClients&day={vt}&force=1&_={TS}2")
+ok2 = any("zzz_test" in (c.get("name") or c.get("client") or "").lower() for c in (gc2.get("clients") or []))
+print("on Вторник:", ok2)
+assert ok2
+
+print("=== deleteClient ===")
+dele, ms = post({
+    "action": "deleteClient", "client": CLIENT, "day": "Вторник",
+    "matchKey": CLIENT, "_explicitDelete": "1", "_userDelete": "1", "_": TS + "d",
+})
+assert_write(dele, "DELETE", ms)
+time.sleep(1)
+gc3 = get(f"action=getClients&day={vt}&force=1&_={TS}3")
+still = any("zzz_test" in (c.get("name") or c.get("client") or "").lower() for c in (gc3.get("clients") or []))
+print("still:", still)
+assert not still
+
+print("=== calendar booking/move/remove ===")
+d1, d2 = "2026-09-20", "2026-09-21"
+book, ms = post({
+    "action": "saveBooking", "client": CLIENT, "day": "", "date": d1,
+    "alsoSaveOrder": "0", "calendarOnly": "1",
+    "address": f"cal {TS}", "note": f"cal {TS}",
+    "basket": json.dumps([{"cat":"Мясо","main":"ГОВЯДИНА","sub":"Мелкое","value":20}]),
+    "matchKey": CLIENT, "_": TS + "b",
+})
+assert_write(book, "CAL_BOOK", ms)
+m2, ms = post({
+    "action": "moveClient", "client": CLIENT, "oldDay": "", "newDay": "",
+    "oldDate": d1, "newDate": d2, "calendarOnly": "1", "dateOnly": "1",
+    "cutRaw": "0", "matchKey": CLIENT, "_": TS + "cm",
+})
+assert_write(m2, "CAL_MOVE", ms)
+r2, ms = post({
+    "action": "removeCalendarClient", "client": CLIENT, "date": d2,
+    "matchKey": CLIENT, "_explicitDelete": "1", "_userDelete": "1", "_": TS + "cr",
+})
+assert_write(r2, "CAL_REMOVE", ms)
+
+print("ALL PEOPLE-CANON LIVE CHECKS PASSED")
 PY
-  local wid
-  wid="$(cat /tmp/pw_writeid)"
-  if [[ -n "$wid" ]]; then
-    poll_until_sheets "$wid" "$label"
-  fi
-}
-
-echo "=== ping (expect sheets-confirm-bg) ==="
-PING="$(json_get "action=ping")"
-echo "$PING" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d); assert d.get("live") is True; pc=d.get("peopleCanon");
-print("peopleCanon:", pc);
-raise SystemExit(0 if pc in ("sheets-confirm-bg","sheets-first") else 2)'
-
-echo
-echo "=== saveOrder $CLIENT → $DAY ==="
-BASKET='[{"cat":"Мясо","main":"ГОВЯДИНА","sub":"Мелкое","value":50}]'
-SAVE_BODY="$(python3 - <<PY
-import json
-print(json.dumps({
-  "action": "saveOrder",
-  "client": "$CLIENT",
-  "day": "$DAY",
-  "address": "test addr $TS",
-  "note": "canon $TS",
-  "basket": json.dumps($BASKET),
-  "matchKey": "$CLIENT",
-  "_": "$TS"
-}, ensure_ascii=False))
-PY
-)"
-t0=$(date +%s%3N)
-SAVE="$(json_post "$SAVE_BODY")"
-t1=$(date +%s%3N)
-echo "save_http_ms=$((t1-t0))"
-assert_people_write "$SAVE" "SAVE"
-
-echo
-echo "=== getClients verify present ==="
-DAY_ENC="$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$DAY")"
-GC="$(json_get "action=getClients&day=${DAY_ENC}&force=1&_=${TS}")"
-echo "$GC" | python3 -c 'import sys,json; d=json.load(sys.stdin); clients=d.get("clients") or [];
-names=[(c.get("name") or c.get("client") or "") for c in clients];
-ok=any("zzz_test" in n.lower() for n in names);
-print("clients", len(clients), "zzz_test" if ok else "MISSING");
-raise SystemExit(0 if ok else 3)'
-
-echo
-echo "=== moveClient $DAY → Вторник ==="
-MOVE_BODY="$(python3 - <<PY
-import json
-print(json.dumps({
-  "action": "moveClient",
-  "client": "$CLIENT",
-  "oldDay": "$DAY",
-  "newDay": "Вторник",
-  "cutRaw": "0",
-  "matchKey": "$CLIENT",
-  "_": "${TS}m"
-}, ensure_ascii=False))
-PY
-)"
-t0=$(date +%s%3N)
-MOVE="$(json_post "$MOVE_BODY")"
-t1=$(date +%s%3N)
-echo "move_http_ms=$((t1-t0))"
-assert_people_write "$MOVE" "MOVE"
-
-sleep 1
-VT_ENC="$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"Вторник\"))")"
-GC2="$(json_get "action=getClients&day=${VT_ENC}&force=1&_=${TS}2")"
-echo "$GC2" | python3 -c 'import sys,json; d=json.load(sys.stdin); clients=d.get("clients") or [];
-ok=any("zzz_test" in (c.get("name") or c.get("client") or "").lower() for c in clients);
-print("on Вторник:", ok); raise SystemExit(0 if ok else 4)'
-
-echo
-echo "=== deleteClient Вторник ==="
-DEL_BODY="$(python3 - <<PY
-import json
-print(json.dumps({
-  "action": "deleteClient",
-  "client": "$CLIENT",
-  "day": "Вторник",
-  "matchKey": "$CLIENT",
-  "_explicitDelete": "1",
-  "_userDelete": "1",
-  "_": "${TS}d"
-}, ensure_ascii=False))
-PY
-)"
-t0=$(date +%s%3N)
-DEL="$(json_post "$DEL_BODY")"
-t1=$(date +%s%3N)
-echo "delete_http_ms=$((t1-t0))"
-assert_people_write "$DEL" "DELETE"
-
-sleep 1
-GC3="$(json_get "action=getClients&day=${VT_ENC}&force=1&_=${TS}3")"
-echo "$GC3" | python3 -c 'import sys,json; d=json.load(sys.stdin); clients=d.get("clients") or [];
-still=any("zzz_test" in (c.get("name") or c.get("client") or "").lower() for c in clients);
-print("still on Вторник:", still); raise SystemExit(0 if not still else 5)'
-
-echo
-echo "=== calendar saveBooking → move → remove ==="
-DATE1="2026-09-20"
-DATE2="2026-09-21"
-BOOK="$(json_post "$(python3 - <<PY
-import json
-print(json.dumps({
-  "action": "saveBooking",
-  "client": "$CLIENT",
-  "day": "",
-  "date": "$DATE1",
-  "alsoSaveOrder": "0",
-  "calendarOnly": "1",
-  "address": "cal $TS",
-  "note": "cal $TS",
-  "basket": json.dumps([{"cat":"Мясо","main":"ГОВЯДИНА","sub":"Мелкое","value":20}]),
-  "matchKey": "$CLIENT",
-  "_": "${TS}b"
-}, ensure_ascii=False))
-PY
-)")"
-assert_people_write "$BOOK" "CAL_BOOK"
-
-M2="$(json_post "$(python3 - <<PY
-import json
-print(json.dumps({
-  "action":"moveClient","client":"$CLIENT","oldDay":"","newDay":"",
-  "oldDate":"$DATE1","newDate":"$DATE2","calendarOnly":"1","dateOnly":"1",
-  "cutRaw":"0","matchKey":"$CLIENT","_":"${TS}cm"
-}, ensure_ascii=False))
-PY
-)")"
-assert_people_write "$M2" "CAL_MOVE"
-
-R2="$(json_post "$(python3 - <<PY
-import json
-print(json.dumps({
-  "action":"removeCalendarClient","client":"$CLIENT","date":"$DATE2",
-  "matchKey":"$CLIENT","_explicitDelete":"1","_userDelete":"1","_":"${TS}cr"
-}, ensure_ascii=False))
-PY
-)")"
-assert_people_write "$R2" "CAL_REMOVE"
-
-echo
-echo "ALL PEOPLE-CANON LIVE CHECKS PASSED"
