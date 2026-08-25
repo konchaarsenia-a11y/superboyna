@@ -5239,7 +5239,11 @@ async function handleCutover_(a, params, env, ctx) {
             sandbox: false,
             d1Verified: true,
             optimistic: true,
-            weekWritten: alsoWeek || /^saveOrder$/i.test(a),
+            // не врать weekWritten=true для calendar-only (date вне недели)
+            weekWritten:
+              d1WriteRes.weekWritten != null
+                ? !!d1WriteRes.weekWritten
+                : alsoWeek || (!toBool_(d1WriteRes.calendarOnly) && /^saveOrder$/i.test(a)),
             wrote: d1WriteRes.wrote != null ? d1WriteRes.wrote : basketLen || 1,
             basketLen: basketLen,
             action: a
