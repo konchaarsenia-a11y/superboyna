@@ -1253,6 +1253,13 @@ function finishFullWeekProduction(optSs, optOpts) {
   } catch (eMat) {
     materializeInfo = { ok: false, message: String(eMat), totalAdded: 0 };
   }
+  // страховочный scrub: если даты/колонки разъехались — сирот не оставляем
+  try {
+    clearScrubOrphanCaches_();
+    scrubWeekDayOrphans_(ss, { force: true });
+    scrubFutureWeekOrphans_(ss, { force: true });
+    unpullBeyondWeekBookings_(ss);
+  } catch (eScrubClose) {}
 
   var sheetMemory = getMemoryCuttingSheet_();
   if (sheetMemory && sheetMemory.getLastRow() > 0) {
@@ -1470,11 +1477,17 @@ function handleRepairWeekMonday(json, callback, fromPost) {
       } catch (eCourFlags) {}
     }
     SpreadsheetApp.flush();
+    clearScrubOrphanCaches_();
     var scrubInfo = null;
     try { scrubInfo = scrubWeekDayOrphans_(ss, { force: true }); } catch (eScrubR) {
       scrubInfo = { removed: 0, message: String(eScrubR) };
     }
-    try { scrubFutureWeekOrphans_(ss, { force: true }); } catch (eScrubF) {}
+    var scrubFut = null;
+    try { scrubFut = scrubFutureWeekOrphans_(ss, { force: true }); } catch (eScrubF) {
+      scrubFut = { removed: 0 };
+    }
+    var beyondPull = null;
+    try { beyondPull = unpullBeyondWeekBookings_(ss); } catch (eBeyond) {}
     try { bustClientsCache_(); } catch (eB2) {}
     var counts = [];
     try {
@@ -1491,7 +1504,9 @@ function handleRepairWeekMonday(json, callback, fromPost) {
       message: "week_monday_repaired",
       mondayDate: monStr,
       futureDate: futStr,
-      scrubbedOrphans: scrubInfo ? (Number(scrubInfo.removed) || 0) : 0,
+      scrubbedOrphans: (scrubInfo ? (Number(scrubInfo.removed) || 0) : 0) +
+        (scrubFut ? (Number(scrubFut.removed) || 0) : 0),
+      beyondUnpulled: beyondPull ? (Number(beyondPull.unpulled) || 0) : 0,
       items: counts
     };
     return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
@@ -3816,10 +3831,18 @@ function clearClientFromWeekSheets_(ss, client, matchKeyOpt, keepDay) {
   return total;
 }
 
+function clearScrubOrphanCaches_() {
+  try {
+    var cache = CacheService.getScriptCache();
+    cache.remove("SCRUB_FUT_V1");
+    cache.remove("SCRUB_WEEK_V1");
+  } catch (eClr) {}
+}
+
 /**
- * На «Будущей» не должны висеть люди, чья дата в календаре ≠ A1 «Будущей»
- * (типичный баг: перенос «дальше будущей» писал колонку на лист).
- * Тяжёлый (весь Календарь_Дат) — не чаще раза в 10 мин, иначе таймауты в мини-аппе.
+ * На «Будущей» не должны висеть люди, чья дата в календаре/бронях ≠ A1 «Будущей»
+ * (типичный баг: перенос «дальше будущей» / откат дат после materialize).
+ * Тяжёлый (весь Календарь_Дат + Брони) — не чаще раза в 10 мин, иначе таймауты.
  */
 function scrubFutureWeekOrphans_(ss, opts) {
   opts = opts || {};
@@ -3827,47 +3850,144 @@ function scrubFutureWeekOrphans_(ss, opts) {
   if (!force) {
     try {
       if (CacheService.getScriptCache().get("SCRUB_FUT_V1") === "1") {
-        return { removed: 0, skipped: true };
+        return { removed: 0, skipped: true, unpulled: 0 };
       }
     } catch (eSkip) {}
   }
   var future = ss.getSheetByName("Будущая неделя");
-  if (!future) return { removed: 0 };
+  if (!future) return { removed: 0, unpulled: 0 };
   var tz = ss.getSpreadsheetTimeZone();
   var futDate = parseFlexibleDate_(future.getRange("A1").getValue(), tz);
   var futKey = futDate ? dateKey_(futDate, tz) : "";
   var block = getDayBlock("Будущая неделя");
-  if (!block) return { removed: 0 };
+  if (!block) return { removed: 0, unpulled: 0 };
   var nicks = future.getRange(block.nick, 3, 1, 15).getValues()[0];
   var removed = 0;
+  var unpulled = 0;
+  var names = [];
   var allCal = [];
   try { allCal = readAllCalendarRows_(); } catch (eC) { allCal = []; }
-  for (var i = 0; i < 15; i++) {
-    var nick = String(nicks[i] || "").trim();
-    if (!nick) continue;
-    var mk = clientMatchKey_(nick);
-    var dates = [];
+  var allBook = [];
+  try { allBook = readAllBookings_(); } catch (eB) { allBook = []; }
+
+  function clientDateKeys_(nick, mk) {
+    var keys = [];
+    var seen = {};
+    function addKey(k) {
+      k = String(k || "").trim();
+      if (!k || seen[k]) return;
+      seen[k] = true;
+      keys.push(k);
+    }
     for (var c = 0; c < allCal.length; c++) {
       var st = String(allCal[c].status || "").toLowerCase();
       if (st === "cancelled") continue;
       if (!nicksMatch_(allCal[c].client, nick) &&
           !(mk && allCal[c].matchKey && allCal[c].matchKey === mk)) continue;
       var bd = parseFlexibleDate_(allCal[c].date, tz) || parseFlexibleDate_(allCal[c].dateIso, tz);
-      if (bd) dates.push(dateKey_(bd, tz));
+      if (bd) addKey(dateKey_(bd, tz));
     }
+    for (var b = 0; b < allBook.length; b++) {
+      if (String(allBook[b].status) === "cancelled") continue;
+      if (!nicksMatch_(allBook[b].client, nick)) continue;
+      var bd2 = parseFlexibleDate_(allBook[b].date, tz);
+      if (bd2) addKey(dateKey_(bd2, tz));
+    }
+    return keys;
+  }
+
+  for (var i = 0; i < 15; i++) {
+    var nick = String(nicks[i] || "").trim();
+    if (!nick) continue;
+    var mk = clientMatchKey_(nick);
+    var dates = clientDateKeys_(nick, mk);
     if (!dates.length) continue;
-    var onFut = futKey && dates.indexOf(futKey) >= 0;
-    if (onFut) continue;
-    // есть дата(ы) в календаре, но не A1 «Будущей» — колонка-сирота
+    if (futKey && dates.indexOf(futKey) >= 0) continue;
+    // есть дата(ы), но не A1 «Будущей» — колонка-сирота
     future.getRange(block.nick, i + 3).setValue("");
     future.getRange(block.start, i + 3, block.note - block.start + 1, 1).clearContent();
     removed++;
+    names.push(nick);
+    try { unpulled += unpullStalePulledBookingsForClient_(ss, nick, "Будущая неделя", futKey, allBook); } catch (eUp) {}
   }
   if (removed) {
     try { bustClientsCache_(); } catch (eB) {}
   }
   try { CacheService.getScriptCache().put("SCRUB_FUT_V1", "1", 600); } catch (ePut) {}
-  return { removed: removed };
+  return { removed: removed, unpulled: unpulled, names: names };
+}
+
+/**
+ * Сбросить status=pulled у броней, чья дата больше не совпадает со слотом недели.
+ * Иначе после отката дат бронь остаётся «pulled · Среда» на 02.09.
+ */
+function unpullStalePulledBookingsForClient_(ss, nick, dayName, dayKey, allBookOpt) {
+  var tz = ss.getSpreadsheetTimeZone();
+  var sh = null;
+  try { sh = getBookingsSheet_(); } catch (eSh) { return 0; }
+  if (!sh) return 0;
+  var allBook = allBookOpt;
+  if (!allBook) {
+    try { allBook = readAllBookings_(); } catch (eB) { return 0; }
+  }
+  var n = 0;
+  for (var i = 0; i < allBook.length; i++) {
+    var row = allBook[i];
+    if (String(row.status) !== "pulled") continue;
+    if (!nicksMatch_(row.client, nick)) continue;
+    var bd = parseFlexibleDate_(row.date, tz);
+    var bk = bd ? dateKey_(bd, tz) : "";
+    if (bk && dayKey && bk === dayKey) continue;
+    var dn = String(row.dayName || "").trim();
+    // только если dayName пустой или совпадает с очищаемым слотом / дата вне недели
+    var matchedDay = "";
+    try { matchedDay = bd ? (findDayNameForDate_(ss, bd) || "") : ""; } catch (eM) {}
+    if (matchedDay && matchedDay === dn && bk && dayKey && bk === dayKey) continue;
+    if (dn && dayName && dn !== dayName && matchedDay) continue;
+    try {
+      sh.getRange(row.rowIndex, 9).setValue("planned");
+      sh.getRange(row.rowIndex, 10).setValue("");
+      sh.getRange(row.rowIndex, 12).setValue("");
+      row.status = "planned";
+      row.dayName = "";
+      n++;
+    } catch (eUp) {}
+  }
+  return n;
+}
+
+/** Все pulled-брони, чья дата не на текущей неделе / Будущей — вернуть в planned. */
+function unpullBeyondWeekBookings_(ss) {
+  var tz = ss.getSpreadsheetTimeZone();
+  var sh = null;
+  try { sh = getBookingsSheet_(); } catch (eSh) { return { unpulled: 0 }; }
+  if (!sh) return { unpulled: 0 };
+  var allBook = [];
+  try { allBook = readAllBookings_(); } catch (eB) { return { unpulled: 0 }; }
+  var n = 0;
+  var names = [];
+  for (var i = 0; i < allBook.length; i++) {
+    var row = allBook[i];
+    if (String(row.status) !== "pulled") continue;
+    var bd = parseFlexibleDate_(row.date, tz);
+    if (!bd) continue;
+    var matched = "";
+    try { matched = findDayNameForDate_(ss, bd) || ""; } catch (eM) {}
+    if (matched) {
+      // дата на листе — dayName должен совпадать
+      var dn = String(row.dayName || "").trim();
+      if (!dn || dn === matched) continue;
+    }
+    // дата вне недели, но status=pulled / dayName чужого слота
+    try {
+      sh.getRange(row.rowIndex, 9).setValue("planned");
+      sh.getRange(row.rowIndex, 10).setValue("");
+      sh.getRange(row.rowIndex, 12).setValue("");
+      n++;
+      names.push(String(row.client || "") + "@" + dateKey_(bd, tz));
+    } catch (eUp) {}
+  }
+  return { unpulled: n, names: names };
 }
 
 /**
@@ -3922,30 +4042,7 @@ function scrubWeekDayOrphans_(ss, opts) {
   }
 
   function unpullMismatchedBookings_(nick, dayName, dayKey) {
-    var sh = null;
-    try { sh = getBookingsSheet_(); } catch (eSh) { return 0; }
-    if (!sh) return 0;
-    var n = 0;
-    for (var i = 0; i < allBook.length; i++) {
-      var row = allBook[i];
-      if (String(row.status) !== "pulled") continue;
-      if (!nicksMatch_(row.client, nick)) continue;
-      var bd = parseFlexibleDate_(row.date, tz);
-      var bk = bd ? dateKey_(bd, tz) : "";
-      // бронь на другую дату, но помечена pulled в этот день недели
-      if (bk && dayKey && bk === dayKey) continue;
-      var dn = String(row.dayName || "").trim();
-      if (dn && dn !== dayName && bk) continue;
-      try {
-        sh.getRange(row.rowIndex, 9).setValue("planned");
-        sh.getRange(row.rowIndex, 10).setValue("");
-        sh.getRange(row.rowIndex, 12).setValue("");
-        row.status = "planned";
-        row.dayName = "";
-        n++;
-      } catch (eUp) {}
-    }
-    return n;
+    return unpullStalePulledBookingsForClient_(ss, nick, dayName, dayKey, allBook);
   }
 
   for (var di = 0; di < days.length; di++) {
@@ -3983,15 +4080,21 @@ function scrubWeekDayOrphans_(ss, opts) {
 
 function handleScrubWeekOrphans(json, callback, fromPost) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  clearScrubOrphanCaches_();
   var week = scrubWeekDayOrphans_(ss, { force: true });
-  var fut = { removed: 0 };
+  var fut = { removed: 0, unpulled: 0 };
   try { fut = scrubFutureWeekOrphans_(ss, { force: true }); } catch (eF) {}
+  var beyond = { unpulled: 0 };
+  try { beyond = unpullBeyondWeekBookings_(ss); } catch (eU) {}
   var out = {
     status: "success",
     weekRemoved: week.removed || 0,
     weekUnpulled: week.unpulled || 0,
     weekNames: week.names || [],
-    futureRemoved: fut.removed || 0
+    futureRemoved: fut.removed || 0,
+    futureUnpulled: fut.unpulled || 0,
+    beyondUnpulled: beyond.unpulled || 0,
+    beyondNames: beyond.names || []
   };
   return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }

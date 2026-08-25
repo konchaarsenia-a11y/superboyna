@@ -1542,6 +1542,55 @@ async function findActiveOrderByMatch_(env, matchKey, clientName) {
   return null;
 }
 
+async function scrubMismatchedDayOrders_(env, day, wantIso) {
+  if (!env || !env.DB || !day || !wantIso) return 0;
+  let n = 0;
+  try {
+    const q = await env.DB.prepare(
+      "SELECT id, date_iso FROM orders WHERE day_name = ? AND status = 'active' AND date_iso != '' AND date_iso != ? LIMIT 200"
+    )
+      .bind(day, wantIso)
+      .all();
+    const list = (q && q.results) || [];
+    const nowDel = new Date().toISOString();
+    for (let i = 0; i < list.length; i++) {
+      try {
+        await env.DB.prepare(
+          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?"
+        )
+          .bind(nowDel, list[i].id)
+          .run();
+        n++;
+      } catch (e1) {}
+    }
+  } catch (e0) {}
+  return n;
+}
+
+/** После смены дат недели (GAS weekDayCounts) — выкинуть D1-сирот с чужим date_iso. */
+async function scrubAllDayDateMismatches_(env, countsPayload) {
+  if (!env || !env.DB || !countsPayload) return { scrubbed: 0 };
+  const items = countsPayload.items || [];
+  let scrubbed = 0;
+  for (let i = 0; i < items.length; i++) {
+    const day = String((items[i] && items[i].day) || "").trim();
+    const iso = dmyToIso_((items[i] && items[i].date) || "") || "";
+    if (!day || !iso) continue;
+    scrubbed += await scrubMismatchedDayOrders_(env, day, iso);
+  }
+  if (scrubbed) {
+    try {
+      await invalidateDays_(
+        env,
+        items.map(function (it) {
+          return it && it.day;
+        }).filter(Boolean)
+      );
+    } catch (eInv) {}
+  }
+  return { scrubbed: scrubbed };
+}
+
 async function getClients_(params, env) {
   await ensureMetaColumn_(env);
   const day = String(params.day || "");
@@ -1564,23 +1613,13 @@ async function getClients_(params, env) {
     rows = q.results || [];
     // сироты после отката дат недели: day=Среда но date_iso=02.09 при Ср=26.08
     if (dateIso && rows.length) {
-      const keep = [];
-      const nowDel = new Date().toISOString();
-      for (let ri = 0; ri < rows.length; ri++) {
-        const rIso = String(rows[ri].date_iso || "").trim();
-        if (rIso && rIso !== dateIso) {
-          try {
-            await env.DB.prepare(
-              "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?"
-            )
-              .bind(nowDel, rows[ri].id)
-              .run();
-          } catch (eOrphan) {}
-          continue;
-        }
-        keep.push(rows[ri]);
-      }
-      rows = keep;
+      await scrubMismatchedDayOrders_(env, day, dateIso);
+      const q2 = await env.DB.prepare(
+        "SELECT * FROM orders WHERE day_name = ? AND status = 'active' ORDER BY client"
+      )
+        .bind(day)
+        .all();
+      rows = (q2 && q2.results) || [];
     }
   } else if (dateIso) {
     const q = await env.DB.prepare(
@@ -5485,6 +5524,9 @@ async function handleCutover_(a, params, env, ctx) {
       try {
         await putSnap_(env, "weekDayCountsSheet", live);
       } catch (eS) {}
+      try {
+        await scrubAllDayDateMismatches_(env, live);
+      } catch (eScrub) {}
       if (isWeekSkewed_(live)) {
         return await applyCalendarWeekIfSkewed_("getWeekDayCounts", params, env, live);
       }
@@ -5536,6 +5578,9 @@ async function handleCutover_(a, params, env, ctx) {
           await applyCalendarWeekIfSkewed_("getWeekDayCounts", params, e, live);
           return;
         }
+        try {
+          await scrubAllDayDateMismatches_(e, live);
+        } catch (eScrub2) {}
         if (ctx && typeof ctx.waitUntil === "function") {
           ctx.waitUntil(cutoverRefreshAllWeekDays_(e));
         }
