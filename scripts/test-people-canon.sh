@@ -42,9 +42,14 @@ def post(body, timeout=90):
     return data, ms
 
 def poll_sheets(wid, label):
-    for i in range(45):
-        time.sleep(1.1)
-        p = get("action=pollPeopleWrite&writeId=" + urllib.parse.quote(wid), timeout=15)
+    for i in range(50):
+        time.sleep(1.2)
+        to = 45 if i >= 6 else 20
+        try:
+            p = get("action=pollPeopleWrite&writeId=" + urllib.parse.quote(wid), timeout=to)
+        except Exception as e:
+            print("poll", label, i, "err", e)
+            continue
         print("poll", label, i, p.get("status"), p.get("sheetsVerified"), p.get("message"))
         if p.get("sheetsVerified") and p.get("status") == "success":
             print(label, "SHEETS OK")

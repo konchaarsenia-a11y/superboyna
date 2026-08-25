@@ -164,14 +164,18 @@ async function handleAction_(action, params, env, url, ctx) {
     if (!job) {
       return { status: "pending", pendingSheets: true, sheetsVerified: false, writeId: wid };
     }
-    // waitUntil мог оборваться — дожимаем на poll (есть полный бюджет запроса)
-    if (
-      job &&
+    // waitUntil мог оборваться — дожимаем на poll только если job «завис» (≥8с)
+    const ageMs = Date.now() - (Number(job.startedAt || job._runningAt || 0) || 0);
+    const runningFresh =
+      !!(job._running && job._runningAt && Date.now() - Number(job._runningAt) < 20000);
+    const stale =
       (job.status === "pending" || job.pendingSheets) &&
       !job.sheetsVerified &&
       job.params &&
-      job.action
-    ) {
+      job.action &&
+      ageMs >= 8000 &&
+      !runningFresh;
+    if (stale) {
       try {
         job = await runPeopleWriteJob_(wid, job, env, ctx);
       } catch (eCont) {
@@ -661,11 +665,12 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
   if (!writeId || !env || !env.DB || !job) return job;
   if (job.sheetsVerified && job.status === "success") return job;
   if (job.status === "error" && !job.pendingSheets) return job;
-  if (job._running) return job;
+  const runAt = Number(job._runningAt || 0) || 0;
+  if (job._running && runAt && Date.now() - runAt < 25000) return job;
 
   const a = String(job.action || "");
   const gasWriteParams = job.params || {};
-  job = Object.assign({}, job, { _running: true });
+  job = Object.assign({}, job, { _running: true, _runningAt: Date.now() });
   try {
     await putSnap_(env, "peopleWrite:" + writeId, job);
   } catch (eLock) {}

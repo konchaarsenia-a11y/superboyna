@@ -830,7 +830,7 @@
             action: "pollPeopleWrite",
             writeId: writeId,
             _: String(Date.now())
-          }, { timeoutMs: 10000, cacheTtlMs: 0, bypassInflight: true });
+          }, { timeoutMs: 35000, cacheTtlMs: 0, bypassInflight: true });
         } catch (eP) {
           return null;
         }
