@@ -3903,7 +3903,21 @@ function scrubFutureWeekOrphans_(ss, opts) {
     var dates = clientDateKeys_(nick, mk);
     if (!dates.length) continue;
     if (futKey && dates.indexOf(futKey) >= 0) continue;
-    // есть дата(ы), но не A1 «Будущей» — колонка-сирота
+    // сирота только если есть pulled-бронь «Будущая» на другую дату
+    var smokingGun = false;
+    for (var bi = 0; bi < allBook.length; bi++) {
+      var brow = allBook[bi];
+      if (String(brow.status) !== "pulled") continue;
+      if (!nicksMatch_(brow.client, nick)) continue;
+      if (String(brow.dayName || "").trim() !== "Будущая неделя") continue;
+      var bbd = parseFlexibleDate_(brow.date, tz);
+      var bbk = bbd ? dateKey_(bbd, tz) : "";
+      if (bbk && futKey && bbk !== futKey) {
+        smokingGun = true;
+        break;
+      }
+    }
+    if (!smokingGun) continue;
     future.getRange(block.nick, i + 3).setValue("");
     future.getRange(block.start, i + 3, block.note - block.start + 1, 1).clearContent();
     removed++;
@@ -4059,10 +4073,25 @@ function scrubWeekDayOrphans_(ss, opts) {
       if (!nick) continue;
       var mk = clientMatchKey_(nick);
       var dateKeys = clientDateKeys_(nick, mk);
-      // нет дат в календаре/бронях — не трогаем (разовый заказ только на листе)
+      // нет дат / есть дата этого слота — колонка легитимна (разовый заказ на листе OK)
       if (!dateKeys.length) continue;
       if (dateKeys.indexOf(dayKey) >= 0) continue;
-      // есть дата(ы), но не дата этого блока — сирота после отката/сдвига недели
+      // сирота только при «улике»: pulled-бронь с dayName=этот день, но date≠слот
+      // (иначе прошлые брони Пн/Вт… съедали бы живой заказ на сегодняшнем дне)
+      var smokingGun = false;
+      for (var bi = 0; bi < allBook.length; bi++) {
+        var brow = allBook[bi];
+        if (String(brow.status) !== "pulled") continue;
+        if (!nicksMatch_(brow.client, nick)) continue;
+        if (String(brow.dayName || "").trim() !== dayName) continue;
+        var bbd = parseFlexibleDate_(brow.date, tz);
+        var bbk = bbd ? dateKey_(bbd, tz) : "";
+        if (bbk && bbk !== dayKey) {
+          smokingGun = true;
+          break;
+        }
+      }
+      if (!smokingGun) continue;
       shDay.getRange(block.nick, i + 3).setValue("");
       shDay.getRange(block.start, i + 3, block.note - block.start + 1, 1).clearContent();
       removed++;

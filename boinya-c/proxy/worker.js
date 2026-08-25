@@ -1542,6 +1542,10 @@ async function findActiveOrderByMatch_(env, matchKey, clientName) {
   return null;
 }
 
+/**
+ * Soft-delete D1 orders on a weekday column whose date_iso ≠ that day's week date.
+ * Keep empty date_iso (sheet sync without booking stamp) — never infer orphans from CRM alone.
+ */
 async function scrubMismatchedDayOrders_(env, day, wantIso) {
   if (!env || !env.DB || !day || !wantIso) return 0;
   let n = 0;

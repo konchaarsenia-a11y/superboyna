@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115888";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115890";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -5817,11 +5817,12 @@
         : '<button type="button" class="view-card-act view-card-act-go" onclick="stageMonthClient(' + index + ')">→</button>';
       var remBtn = '<button type="button" class="view-card-act" title="Убрать из календаря" onclick="removeMonthClient(' + index + ',event)">✕</button>';
       var moveBtn = '<button type="button" class="view-card-act" title="Перенести на другую дату" onclick="crmMoveMonthClient(' + index + ',event)">🔄</button>';
+      var editBtn = '<button type="button" class="view-card-act" title="Редактировать заказ" onclick="crmEditMonthClient(' + index + ',event)">✏️</button>';
       return '<div class="client-item-card view-month-card' + gapClass + '" id="monthCard_' + index + '">' +
         '<div class="client-main-row" onclick="toggleMonthDetail(' + index + ', event)">' +
         '<div class="client-title-wrap"><span class="client-title">' + escapeHtml(nick) + "</span></div>" +
         '<div class="client-right-block" onclick="event.stopPropagation()">' +
-        moveBtn + remBtn + stageBtn + "</div>" +
+        editBtn + moveBtn + remBtn + stageBtn + "</div>" +
         "</div>" +
         addrHtml +
         phoneHtml +
@@ -6688,11 +6689,168 @@
       var client = visible[index];
       if (!client) return;
 
+      // вне недели — сразу в заказ (calendar-only), без stage на Пн–Пт
+      if (viewDateOnlyMonth) {
+        await crmEditMonthClient(index);
+        return;
+      }
       stageMonthClient(index);
       var di = viewTransferDraft.length - 1;
       if (di >= 0) editDraftClient(di);
     }
     window.editMonthClientGaps = editMonthClientGaps;
+
+    async function crmEditMonthClient(index, event) {
+      if (event) event.stopPropagation();
+      var draftKeys = {};
+      viewTransferDraft.forEach(function (d) {
+        var k = d.matchKey || viewClientKey(d.name);
+        if (k) draftKeys[k] = true;
+      });
+      var visible = (monthClientsCache || []).filter(function (c) {
+        var k = c.matchKey || viewClientKey(c.name);
+        return !(k && draftKeys[k]);
+      });
+      var client = visible[index];
+      if (!client) return;
+      var dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || lastViewDateIso || "";
+      // подтянуть состав, если в карточке месяца его ещё нет
+      if (!(client.basket && client.basket.length) && client._detailHtml) {
+        try {
+          await toggleMonthDetail(index, { preventDefault: function () {}, stopPropagation: function () {} });
+          client = visible[index] || client;
+        } catch (eDet) {}
+      }
+      if (!(client.basket && client.basket.length)) {
+        try {
+          var packed = await apiGet({
+            action: "getClients",
+            date: dateStr,
+            date_iso: dateStr,
+            _: String(Date.now())
+          }, { timeoutMs: 25000, cacheTtlMs: 0 });
+          var list = (packed && packed.clients) || [];
+          for (var li = 0; li < list.length; li++) {
+            if (viewClientKey(list[li].name) === viewClientKey(client.name) || list[li].name === client.name) {
+              if (list[li].basket && list[li].basket.length) client.basket = list[li].basket;
+              if (!client.address && list[li].address) client.address = list[li].address;
+              if (!client.phone && list[li].phone) client.phone = list[li].phone;
+              if (!client.note && list[li].note) client.note = list[li].note;
+              if (!client.segment && list[li].segment) client.segment = list[li].segment;
+              if (!client.source && list[li].source) client.source = list[li].source;
+              break;
+            }
+          }
+        } catch (ePack) {}
+      }
+      // день слота только если дата на текущей неделе
+      var dayForEdit = "";
+      if (!viewDateOnlyMonth) {
+        try {
+          var resolved = await resolveMoveTargetFromDate_(dateStr);
+          if (resolved && resolved.onWeek && resolved.newDay) dayForEdit = String(resolved.newDay);
+        } catch (eRes) {}
+      }
+      document.getElementById("isEditMode").value = "true";
+      editOriginalClient = client.name || "";
+      editOriginalDay = dayForEdit || "";
+      editOriginalMatchKey = client.matchKey || (typeof viewClientKey === "function" ? viewClientKey(client.name) : "") || "";
+      document.getElementById("appHeaderTitle").innerText = "Изменение: " + client.name;
+      document.getElementById("btnMainSave").innerText = "Обновить заказ";
+      if (document.getElementById("day")) document.getElementById("day").value = dayForEdit || "";
+      if (dateStr && document.getElementById("deliveryDate")) {
+        document.getElementById("deliveryDate").value = dateStr;
+      }
+      var afterInp = document.getElementById("deliveryAfterInput");
+      if (afterInp) afterInp.value = client.deliveryAfter || "";
+      var beforeInp = document.getElementById("deliveryBeforeInput");
+      if (beforeInp) beforeInp.value = client.deliveryBefore || "";
+      document.getElementById("client").value = client.name;
+      document.getElementById("client").readOnly = false;
+      fillAddressFieldsFromStored_(client.address || "");
+      const rawNote = client.note || "";
+      const phoneEl = document.getElementById("phoneInput");
+      if (phoneEl) phoneEl.value = client.phone || extractPhone(rawNote) || "";
+      hideClientSuggest();
+      const geoFromNote = parseGeoFromNote(rawNote);
+      const geo = client.geo || geoFromNote;
+      selectedAddressGeo = geo ? {
+        lat: geo.lat,
+        lon: geo.lon,
+        address: client.address || "",
+        yandexUrl: geo.yandexUrl || parseYandexUrlFromNote(rawNote) || ("https://yandex.ru/maps/?pt=" + geo.lon + "," + geo.lat + "&z=17&l=map")
+      } : null;
+      setAddressPickedHint(!!selectedAddressGeo);
+      loadOrderNotesFromRaw(rawNote);
+      const dm = parseDeliveryMethod(rawNote);
+      selectedDeliveryMethod = dm;
+      const office = parseOfficeAddress(rawNote);
+      const poInput = document.getElementById("postOfficeInput");
+      if (poInput) poInput.value = office || "";
+      selectedPostOfficeGeo = null;
+      if (dm) {
+        document.getElementById("deliveryMethodGroup").style.display = "block";
+        try { setOrderFoldOpen_("details", true); } catch (eFoldDm) {}
+        setDeliveryMethod(dm);
+      } else {
+        document.getElementById("deliveryMethodGroup").style.display = "none";
+        document.getElementById("postOfficeGroup").style.display = "none";
+      }
+      var ot = resolveClientOrderType_(client);
+      if (!ot) {
+        try { ot = await guessOrderTypeFromCrm_(client.name); } catch (eG) { ot = ""; }
+      }
+      if (ot) {
+        try { setOrderType(ot); } catch (eOt) {}
+      } else {
+        showToast("Тип заказа не найден — выбери ПП / БП / Розница / Партнёр");
+      }
+      if (ot === "bp") {
+        try { await ensurePpPartnerOptions_(client.ppPartner || ""); } catch (ePar) {}
+      }
+      if (ot === "partner") {
+        try { applyPartnerCouponsFromClient_(client); } catch (eCoup) {}
+      }
+      var priceVal = resolveClientOrderPrice(client);
+      var priceInp = document.getElementById("orderPriceInput");
+      if (priceInp && priceVal != null && ot !== "bp") {
+        priceInp.value = String(priceVal);
+        if (ot === "retail") retailPriceManual = true;
+      }
+      if (ot === "pp") {
+        var slotFromClient = 0;
+        if (client.deliverySlot) slotFromClient = Number(client.deliverySlot) || 0;
+        if (!slotFromClient && client.ppSlot) {
+          var mSlot = String(client.ppSlot).match(/(\d+)/);
+          if (mSlot) slotFromClient = Number(mSlot[1]) || 0;
+        }
+        if (slotFromClient === 1 || slotFromClient === 2) setPpDeliverySlot(slotFromClient);
+        try { await refreshPpFactPrice(); } catch (ePpRef) {}
+      }
+      basket = (client.basket || []).map(function (g) {
+        return {
+          id: Date.now() + Math.random(),
+          cat: g.cat || "other",
+          main: g.name || g.main,
+          name: g.name || g.main,
+          sub: g.sub || "",
+          value: g.val != null ? g.val : g.value,
+          val: g.val != null ? g.val : g.value,
+          dog: g.dog ? Number(g.dog) : 0
+        };
+      });
+      orderDogCount = 1;
+      orderActiveDog = 1;
+      orderBaskets = { 1: basket.slice(), 2: [] };
+      try { setOrderDogCount(1); } catch (eDog1) {}
+      renderBasket();
+      switchTab("orderScreen");
+      recoverUiFocus();
+      if (viewDateOnlyMonth) {
+        showToast("Правка в календаре · " + dateStr);
+      }
+    }
+    window.crmEditMonthClient = crmEditMonthClient;
 
     async function pullOneFromMonth(clientName) {
 
