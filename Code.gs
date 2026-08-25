@@ -12741,7 +12741,9 @@ function mapCrmHeaderToItem_(header) {
     var is = dressSub_(h);
     return { name: "ИНДЕЙКА", sub: is, cat: "other", grams: true };
   }
-  if (/МЯСН.*ЛОМТ|ЛОМТИК/.test(h)) return { name: "МЯСНЫЕ ЛОМТИКИ", sub: "", cat: "other", grams: true };
+  if (/МЯСН.*ЛОМТ|ЛОМТИК/.test(h) || (/ЛОМТ/.test(h) && !/СЕРДЦ|ЛЕГК|ПОЧК|РУБЕЦ|БАРАН|КРОШК/.test(h))) {
+    return { name: "МЯСНЫЕ ЛОМТИКИ", sub: "", cat: "other", grams: true };
+  }
   if (/ВЫМЯ/.test(h)) return { name: "ВЫМЯ", sub: "", cat: "other", grams: true };
   if (/СЕМЕН/.test(h)) return { name: "СЕМЕННИКИ", sub: "", cat: "other", grams: true };
   if (/ПИКАЛЬН/.test(h)) return { name: "ПИКАЛЬНОЕ МЯСО", sub: "", cat: "other", grams: true };
@@ -14440,6 +14442,12 @@ function handleGetSubscription(json, callback, fromPost) {
     }
   } catch (eRow) {}
   var wishesOut = found.wishes || "";
+  var xtraBasket = [];
+  try { xtraBasket = parsePpXtraBasketFromWishes_(wishesOut); } catch (eX) { xtraBasket = []; }
+  if (xtraBasket.length) {
+    found.basket = mergeBasketItemsForPp_((found.basket || []).concat(xtraBasket));
+  }
+  wishesOut = stripPpXtraFromWishes_(wishesOut);
   var bpMetaGet = /^БП$/i.test(String(found.sheet || segment || "")) ? parseBpMetaFromWishes_(wishesOut) : null;
   if (/^БП$/i.test(String(found.sheet || segment || ""))) status = normalizeBpStage_(status);
   var dogGet = parseDogFromWishesGs_(wishesOut);
@@ -14450,6 +14458,7 @@ function handleGetSubscription(json, callback, fromPost) {
     subId: found.subId || subId,
     basket: found.basket || [],
     wishes: wishesOut,
+    xtraCount: xtraBasket.length,
     address: contact.address || "",
     phone: contact.phone || "",
     note: contact.note || "",
@@ -14537,6 +14546,7 @@ function handleSaveSubscription(json, callback, fromPost) {
     if (nicksMatch_(data[r][0], nick) || nicksMatch_(data[r][0], label)) { rowIdx = r; break; }
   }
   var createdNew = false;
+  var writeMeta = { missed: [], wrote: 0 };
   if (rowIdx < 0) {
     if (basket != null && Array.isArray(basket) && (/^ПП$/i.test(sheetName) || /^БП$/i.test(sheetName))) {
       if (!subId) { try { subId = nextSubscriptionIdForSheet_(sh); } catch (e) {} }
@@ -14544,7 +14554,7 @@ function handleSaveSubscription(json, callback, fromPost) {
         headers, basket, label, subId,
         deliveriesN || 1,
         ppStatus || (/^БП$/i.test(sheetName) ? "БП1" : "ПП1"),
-        wishes, factCost, packCountsOpt
+        wishes, factCost, packCountsOpt, writeMeta
       );
       var up = upsertSubscriptionProductRow_(sh, headers, createVals, basket, nick || label);
       rowIdx = (up && up.row ? up.row : 1) - 1;
@@ -14559,7 +14569,7 @@ function handleSaveSubscription(json, callback, fromPost) {
       deliveriesN || Number(data[rowIdx][2]) || 1,
       ppStatus || String(data[rowIdx][3] || "") || "ПП1",
       wishes || String(data[rowIdx][4] || ""),
-      factCost, packCountsOpt
+      factCost, packCountsOpt, writeMeta
     );
     while (rowVals.length < headers.length) rowVals.push("");
     applyPpRowValuesPreservingFormulas_(sh, rowIdx + 1, headers, rowVals);
@@ -14649,6 +14659,18 @@ function handleSaveSubscription(json, callback, fromPost) {
     } catch (eBpPp) {}
   }
 
+  // Позиции без колонки на листе ПП → [XTRA:…] в пожеланиях (иначе «сохранилось», а ломтиков нет)
+  if (basket != null && Array.isArray(basket) && rowIdx >= 0) {
+    try {
+      var missedItems = (writeMeta && writeMeta.missed) ? writeMeta.missed : [];
+      var wishesWithXtra = stampPpXtraBasketIntoWishes_(wishes, missedItems);
+      if (wishesWithXtra !== wishes) {
+        wishes = wishesWithXtra;
+        if (headers.length > 4) sh.getRange(rowIdx + 1, 5).setValue(wishes);
+      }
+    } catch (eXtra) {}
+  }
+
   var ok = {
     status: "success",
     nick: extractInstagramNick_(label) || nick,
@@ -14659,7 +14681,9 @@ function handleSaveSubscription(json, callback, fromPost) {
     ppStatus: ppStatus,
     survey: surveySync && surveySync.survey ? surveySync.survey : null,
     bpToPp: bpToPp || null,
-    basketLen: Array.isArray(basket) ? basket.length : 0
+    basketLen: Array.isArray(basket) ? basket.length : 0,
+    wrote: writeMeta && writeMeta.wrote != null ? writeMeta.wrote : null,
+    missed: (writeMeta && writeMeta.missed) ? writeMeta.missed : []
   };
   try { SpreadsheetApp.flush(); } catch (eFlush) {}
   try { clearCrmSheetCache_(sheetName); clearCrmSheetCache_("БП"); clearCrmSheetCache_("Контакты"); clearCrmSheetCache_("Опросник"); } catch (eClr) {}
@@ -22068,6 +22092,55 @@ function stampPpCoefIntoWishesGs_(wishes, coef) {
   return (base + (base ? " " : "") + tag).trim();
 }
 
+/** Позиции, для которых нет колонки на листе ПП — храним в пожеланиях. */
+function stripPpXtraFromWishes_(wishes) {
+  return String(wishes || "").replace(/\s*\[XTRA:[^\]]*\]/gi, "").replace(/\s+/g, " ").trim();
+}
+
+function stampPpXtraBasketIntoWishes_(wishes, items) {
+  var base = stripPpXtraFromWishes_(wishes);
+  items = items || [];
+  var parts = [];
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i] || {};
+    var n = String(it.main || it.name || "").trim();
+    var s = String(it.sub || "").trim();
+    var v = Number(it.val != null ? it.val : it.value) || 0;
+    if (!n || v <= 0) continue;
+    parts.push(n + (s ? "/" + s : "") + "=" + v);
+  }
+  if (!parts.length) return base;
+  var tag = "[XTRA:" + parts.join("|") + "]";
+  return (base + (base ? " " : "") + tag).trim();
+}
+
+function parsePpXtraBasketFromWishes_(wishes) {
+  var m = String(wishes || "").match(/\[XTRA:([^\]]*)\]/i);
+  if (!m) return [];
+  var out = [];
+  String(m[1] || "").split("|").forEach(function (part) {
+    part = String(part || "").trim();
+    if (!part) return;
+    var eq = part.lastIndexOf("=");
+    if (eq < 1) return;
+    var left = part.slice(0, eq).trim();
+    var val = Number(String(part.slice(eq + 1)).replace(",", ".")) || 0;
+    if (!left || val <= 0) return;
+    var slash = left.indexOf("/");
+    var name = slash >= 0 ? left.slice(0, slash).trim() : left;
+    var sub = slash >= 0 ? left.slice(slash + 1).trim() : "";
+    out.push({
+      cat: /ЛОМТ|ПЕЧЕН|ИНДЕЙ|КНИЖ|ВЫМЯ|СЕМЕН|ПИКАЛ|СВЕТЛ/.test(String(name).toUpperCase()) ? "other" : "",
+      main: name,
+      name: name,
+      sub: sub,
+      val: val,
+      value: val
+    });
+  });
+  return out;
+}
+
 function parseDogFromWishesGs_(wishes) {
   var m = String(wishes || "").match(/\[DOG:([^\]]*)\]/i);
   if (!m) return { name: "", breed: "", weight: "" };
@@ -23578,7 +23651,12 @@ function mergeBasketItemsForPp_(items) {
   return out;
 }
 
-function writePpBasketToRowValues_(headers, basket, nick, subId, deliveriesN, status, wishes, factCost, packCountsOpt) {
+function writePpBasketToRowValues_(headers, basket, nick, subId, deliveriesN, status, wishes, factCost, packCountsOpt, outMeta) {
+  outMeta = outMeta || null;
+  if (outMeta) {
+    outMeta.missed = [];
+    outMeta.wrote = 0;
+  }
   var row = [];
   var i;
   for (i = 0; i < headers.length; i++) row.push("");
@@ -23607,7 +23685,6 @@ function writePpBasketToRowValues_(headers, basket, nick, subId, deliveriesN, st
       if (msub && isub && msub === isub) score = 100;
       else if (!msub && !isub) score = 90;
       else if (!isub && msub) {
-        // пустая фракция в UI → предпочитаем дефолтные колонки листа (Мелкое/Среднее)
         if (/^МЕЛК/.test(msub)) score = 70;
         else if (/^СРЕД/.test(msub)) score = 55;
         else score = 40;
@@ -23617,16 +23694,35 @@ function writePpBasketToRowValues_(headers, basket, nick, subId, deliveriesN, st
         bestIdx = c;
       }
     }
-    if (bestIdx < 0 || bestScore < 0) continue;
-    var mapW = mapCrmHeaderToItem_(headers[bestIdx]);
+    // fallback: заголовок с «ЛОМТ», даже если mapCrm не сматчил имя 1:1
+    if ((bestIdx < 0 || bestScore < 0) && /ЛОМТ/.test(iname)) {
+      for (var c2 = 6; c2 < headers.length; c2++) {
+        if (isPpMetaOrFinanceHeader_(headers[c2])) continue;
+        var hu = String(headers[c2] || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ");
+        if (!/ЛОМТ/.test(hu)) continue;
+        if (/СЕРДЦ|ЛЕГК|ПОЧК|РУБЕЦ|БАРАН|КРОШК|СЕБЕСТОИМ|СТОИМОСТ/.test(hu)) continue;
+        bestIdx = c2;
+        bestScore = 25;
+        break;
+      }
+    }
+    if (bestIdx < 0 || bestScore < 0) {
+      if (outMeta) outMeta.missed.push({ main: iname, name: iname, sub: isub, val: val });
+      continue;
+    }
+    var mapW = mapCrmHeaderToItem_(headers[bestIdx]) || { grams: /ЛОМТ|ПЕЧЕН|ИНДЕЙ|КНИЖ|ВЫМЯ|СЕМЕН|ПИКАЛ|РУБЕЦ|КРОШК|БАНАН|ЯБЛОК|ГРУШ|МОРКОВ|ТЫКВ|БАТАТ|ЛЕГК|СЕРДЦ|ПОЧК/.test(iname) };
     var sheetVal;
     if (mapW && mapW.grams) {
       sheetVal = Math.round((val / 100) * 1000) / 1000;
-      if (!(sheetVal > 0)) continue;
+      if (!(sheetVal > 0)) {
+        if (outMeta) outMeta.missed.push({ main: iname, name: iname, sub: isub, val: val, reason: "grams" });
+        continue;
+      }
     } else {
       sheetVal = Math.round(val);
     }
     row[bestIdx] = sheetVal;
+    if (outMeta) outMeta.wrote = (outMeta.wrote || 0) + 1;
   }
   if (factCost != null && factCost !== "") {
     for (var fc = 0; fc < headers.length; fc++) {
@@ -23704,7 +23800,8 @@ function isPpFinancePreserveHeader_(header) {
 
 /**
  * Запись строки ПП/БП без сноса формул (ОБЩАЯ СЕБЕСТОИМОСТЬ / ВЫХЛОП / ИТОГОВАЯ…).
- * Любая ячейка с формулой — не трогаем; пустые finance-колонки — тоже.
+ * Товарные колонки (mapCrm) пишем всегда — даже если в ячейке застряла формула.
+ * Финансовые формулы — не трогаем.
  */
 function applyPpRowValuesPreservingFormulas_(sh, row1, headers, rowVals) {
   if (!sh || !(row1 >= 2) || !headers || !rowVals) return;
@@ -23713,7 +23810,9 @@ function applyPpRowValuesPreservingFormulas_(sh, row1, headers, rowVals) {
   var formulas = sh.getRange(row1, 1, 1, n).getFormulas()[0] || [];
   for (var c = 0; c < n; c++) {
     var formula = String(formulas[c] || "");
-    if (formula) continue;
+    var isProduct = c >= 6 && !!mapCrmHeaderToItem_(headers[c]);
+    // товарные qty — можно перезаписать формулу; finance/meta формулы — сохраняем
+    if (formula && !isProduct) continue;
     var v = rowVals[c];
     if ((v === "" || v == null) && isPpFinancePreserveHeader_(headers[c])) continue;
     if (v === null || v === undefined) continue;

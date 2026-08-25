@@ -17953,6 +17953,7 @@
         }
         try { apiCacheBustMem_(); } catch (eClr) {}
 
+        var missedSave = (postRes && postRes.missed) || [];
         var ok = false;
         var last = null;
         for (var attempt = 0; attempt < 4; attempt++) {
@@ -17970,13 +17971,11 @@
           } catch (eG) { last = null; }
           if (last && last.status === "success") {
             if (basketsMatchAfterSave_(basketPayload, last.basket || [])) { ok = true; break; }
-            // wishes/marker — лист точно обновился
             var wishNeedle = String(wishesSave || "").replace(/\s+/g, " ").trim().slice(0, 16);
             if (wishNeedle && String(last.wishes || "").indexOf(wishNeedle.slice(0, 12)) >= 0) {
               ok = true; break;
             }
             if ((last.basket || []).length > 0 && (basketPayload || []).length > 0) {
-              // частичное совпадение имён — всё равно считаем ок при GAS success
               var wantNames = {};
               (basketPayload || []).forEach(function (it) {
                 var p = basketItemKeyParts_(it);
@@ -17997,14 +17996,21 @@
             return;
           }
         }
-        // GAS saveSubscription уже вернул success — лист записан. Verify только освежает UI.
         if (last && last.status === "success" && (last.basket || []).length) {
           subDetailBasket = mapApiBasketToLocal(last.basket);
         } else {
           subDetailBasket = mapApiBasketToLocal(basketPayload);
         }
         renderSubDetailBasket();
-        showToast("Сохранено в лист " + sheet + " (" + subDetailBasket.length + " поз.)");
+        try { if (sheet === "ПП") recalcSubDetailFactCost_(); } catch (eRec2) {}
+        if (missedSave.length) {
+          var missNames = missedSave.map(function (m) {
+            return String((m && (m.main || m.name)) || "?").slice(0, 24);
+          }).join(", ");
+          showToast("Сохранено, без колонки в листе: " + missNames + " (в XTRA)");
+        } else {
+          showToast("Сохранено в лист " + sheet + " (" + subDetailBasket.length + " поз.)");
+        }
       } catch (e) {
         showToast(e.message || "Ошибка");
       }
