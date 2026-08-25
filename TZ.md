@@ -1,4 +1,4 @@
-- [~] **People write fast-confirm 2026-08-25:** мгновенный `accepted`+`writeId`; D1+GAS в фоне; poll → «Точно внесено» · Pages `v71115898` · **нужен Worker Deploy**
+- [~] **People write fast-confirm 2026-08-25:** мгновенный `accepted` (~0.2с) + D1/GAS в фоне; poll → «Точно внесено»; move/delete в фоне Sheets→D1 · Pages `v71115898` · **Worker Deploy OK** · live `zzz_test` OK
 - [~] **People canon Sheets-first 2026-08-25:** LIVE save/move/delete ждут GAS → sync D1 (`sheetsVerified`); UI без fake-optimistic на timeout; docs PEOPLE_CANON · Pages `v71115897` · **Worker Deploy OK** · live week save/move/delete + calendar saveBooking/move/remove на `zzz_test` OK · `reset.html`
 - [~] **ПП: мясные ломтики не пишутся (vi.minaeva_nails) 2026-08-25:** нет/не матчится колонка → silent drop. Fix: broader map + product overwrite formulas + `[XTRA:…]` overflow + missed в ответе · Pages `v71115896` · **Deploy Code.gs**
 - [~] **ПП: снова «не закрепилось» после save 2026-08-25:** verify ложно падал (кэш getSubscription / fingerprint). Fix: trust GAS success + force live read + мягче сверка · Pages `v71115895` · **Deploy Code.gs**
