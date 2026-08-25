@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115885";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115888";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -13230,16 +13230,65 @@
 
     async function bpCardTransferToPp() {
       var nick = (document.getElementById("subDetailNick").value || document.getElementById("subDetailLabel").value || "").trim();
-      if (!nick) { showToast("Нет ника"); return; }
+      var label = (document.getElementById("subDetailLabel").value || nick || "").trim();
+      var subId = (document.getElementById("subDetailSubId").value || "").trim();
+      if (!nick && !label) { showToast("Нет ника"); return; }
       syncBpBasketFromTab_();
-      var ok = await uiConfirmAsync("Перейти к расчёту ПП для «" + nick + "»?");
+      var ok = await uiConfirmAsync(
+        "Перевести «" + (label || nick) + "» с БП в ПП?\nПопадёт в статистику «стало ПП», затем откроется расчёт."
+      );
       if (!ok) return;
       try {
+        showToast("БП → ПП…");
+        var res = await apiGet({
+          action: "moveSubscription",
+          nick: label || nick,
+          subId: subId,
+          fromSheet: "БП",
+          toSheet: "ПП",
+          sheet: "БП",
+          _: String(Date.now())
+        }, { timeoutMs: 30000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          // уже в ПП / нет строки — всё равно журнал перехода + штамп
+          try {
+            await apiGet({
+              action: "recordBpToPpConversion",
+              nick: label || nick,
+              label: label || nick,
+              subId: subId,
+              telegramId: String(myTelegramId || "").trim(),
+              _: String(Date.now())
+            }, { timeoutMs: 20000, cacheTtlMs: 0 });
+          } catch (eRec) {}
+          var why = (res && res.message) || "ошибка";
+          if (why === "unknown_action") {
+            showToast("Нужен Deploy Code.gs (moveSubscription)");
+          } else {
+            showToast("Переход записан в статистику · открой расчёт");
+          }
+        } else {
+          try { apiCacheBustMem_(); } catch (eClr) {}
+          // дубль-страховка: move мог не дописать Stats_Переходы на старом Deploy
+          try {
+            await apiGet({
+              action: "recordBpToPpConversion",
+              nick: label || nick,
+              label: label || nick,
+              subId: (res && res.subId) || subId,
+              telegramId: String(myTelegramId || "").trim(),
+              _: String(Date.now())
+            }, { timeoutMs: 20000, cacheTtlMs: 0 });
+          } catch (eRec2) {}
+          var shEl = document.getElementById("subDetailSheet");
+          if (shEl) shEl.value = "ПП";
+          showToast("В ПП · учтено в статистике БП→ПП");
+        }
+        window._enrollFromBp = { nick: label || nick, subId: subId, at: Date.now() };
         setOrderType("pp");
         switchTab("priceScreen");
         var nameEl = document.getElementById("enrollDisplayName") || document.getElementById("client");
-        if (nameEl) nameEl.value = nick;
-        showToast("Открой расчёт ПП / зачисление");
+        if (nameEl) nameEl.value = label || nick;
       } catch (e) { showToast(e.message || "Ошибка"); }
     }
     window.bpCardTransferToPp = bpCardTransferToPp;
@@ -17636,6 +17685,11 @@
           saveBody.ownerName = own.name;
           saveBody.basketBp1 = subDetailBasketBp1;
           saveBody.basketBp2 = subDetailBasketBp2;
+        }
+        if (sheet === "ПП" && window._enrollFromBp) {
+          saveBody.fromBp = "1";
+          saveBody.fromBpCard = "1";
+          saveBody.recordBpConversion = "1";
         }
         var postRes = await apiPost(saveBody);
         if (postRes && postRes.status === "error") {
