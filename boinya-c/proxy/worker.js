@@ -5433,7 +5433,7 @@ async function handleCutover_(a, params, env, ctx) {
             gotEarly = true;
           }),
           new Promise(function (r) {
-            setTimeout(r, 2200);
+            setTimeout(r, 1500);
           })
         ]);
 

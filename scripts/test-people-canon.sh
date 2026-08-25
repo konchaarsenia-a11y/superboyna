@@ -18,14 +18,21 @@ DAY = os.environ["DAY"]
 TS = os.environ["TS"]
 
 def get(qs, timeout=60):
-    with urllib.request.urlopen(f"{W}/?cutover=1&{qs}", timeout=timeout) as r:
+    req = urllib.request.Request(
+        f"{W}/?cutover=1&{qs}",
+        headers={"User-Agent": "boinya-people-canon-smoke/1"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
 
 def post(body, timeout=90):
     req = urllib.request.Request(
         f"{W}/?cutover=1",
         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "text/plain;charset=UTF-8"},
+        headers={
+            "Content-Type": "text/plain;charset=UTF-8",
+            "User-Agent": "boinya-people-canon-smoke/1",
+        },
         method="POST",
     )
     t0 = time.time()
