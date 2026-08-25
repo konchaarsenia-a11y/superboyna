@@ -14371,7 +14371,36 @@ function handleGetSubscription(json, callback, fromPost) {
   var nick = String(json.nick || json.client || "").trim();
   var subId = String(json.subId || "").trim();
   var segment = String(json.segment || json.sheet || "ПП").trim() || "ПП";
+  var forceLive = !!(json.force === "1" || json.force === 1 || json.force === true || json.nocache === "1");
+  if (forceLive) {
+    try { clearCrmSheetCache_(segment); clearCrmSheetCache_("ПП"); clearCrmSheetCache_("БП"); clearCrmSheetCache_("АФК"); } catch (eClrG) {}
+  }
   var found = findSubscriberBasket_(crmSs, nick || subId, segment);
+  // после save UI шлёт force=1 — перечитать строку live, без CacheService 60с
+  if (forceLive && nick) {
+    try {
+      var shLive = findSheetByBaseName_(crmSs, found.sheet || segment);
+      if (shLive && shLive.getLastRow() >= 3) {
+        var headersLive = shLive.getRange(1, 1, 1, shLive.getLastColumn()).getValues()[0];
+        var lastR = getCrmSheetScanLastRow_(shLive);
+        var dataLive = shLive.getRange(1, 1, lastR, headersLive.length).getValues();
+        for (var rl = 2; rl < dataLive.length; rl++) {
+          var cellL = String(dataLive[rl][0] || "");
+          if (!cellL.trim()) continue;
+          if (subId && String(dataLive[rl][1] || "").trim() === subId) {
+            // ok
+          } else if (!nicksMatch_(cellL, nick)) continue;
+          found = {
+            basket: basketFromSubscriberRow_(headersLive, dataLive[rl]),
+            subId: String(dataLive[rl][1] || "").trim(),
+            wishes: String(dataLive[rl][4] || "").trim(),
+            sheet: found.sheet || segment
+          };
+          break;
+        }
+      }
+    } catch (eLive) {}
+  }
   var contact = lookupContactAddress_(crmSs, nick);
   var deliveries = 0;
   var status = "";
@@ -14629,8 +14658,10 @@ function handleSaveSubscription(json, callback, fromPost) {
     created: createdNew,
     ppStatus: ppStatus,
     survey: surveySync && surveySync.survey ? surveySync.survey : null,
-    bpToPp: bpToPp || null
+    bpToPp: bpToPp || null,
+    basketLen: Array.isArray(basket) ? basket.length : 0
   };
+  try { SpreadsheetApp.flush(); } catch (eFlush) {}
   try { clearCrmSheetCache_(sheetName); clearCrmSheetCache_("БП"); clearCrmSheetCache_("Контакты"); clearCrmSheetCache_("Опросник"); } catch (eClr) {}
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }

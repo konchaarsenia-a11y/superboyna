@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115894";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115895";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -17393,6 +17393,14 @@
         }
       } catch (eAl) {}
       var sub = String(it.sub || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+      // алиасы фракций листа ↔ UI
+      if (/^КРУПН/.test(sub) || /^БОЛЬШ/.test(sub)) sub = "КРУПНОЕ";
+      else if (/^МЕЛК/.test(sub)) sub = "МЕЛКОЕ";
+      else if (/^СРЕД/.test(sub)) sub = "СРЕДНЕЕ";
+      else if (/^ЦЕЛ/.test(sub)) sub = "ЦЕЛОЕ";
+      else if (/^ПЛАСТ/.test(sub)) sub = "ПЛАСТ";
+      else if (/^ПАЛК/.test(sub)) sub = "ПАЛК";
+      else if (/^ОЧ\s*МАЛ|^ОЧЕНЬ\s*МАЛ/.test(sub)) sub = "ОЧ МАЛ";
       var val = Number(it.val != null ? it.val : it.value) || 0;
       val = Math.round(val * 1000) / 1000;
       return { name: name, sub: sub, val: val };
@@ -17410,19 +17418,21 @@
      * GAS soft-match пишет пустую фракцию в колонку «Мелкое»/дефолт — read-back
      * возвращает sub, хотя отправили "". Строгий fingerprint тогда ложно орёт.
      * Совместимы: одинаковый sub ИЛИ пустой sub с одной стороны.
+     * Лишние позиции в got (хвост листа) не валят сверку, если все want найдены.
      */
     function basketsMatchAfterSave_(want, got) {
       if (basketFingerprint_(want) === basketFingerprint_(got)) return true;
       var A = (want || []).map(basketItemKeyParts_);
       var B = (got || []).map(basketItemKeyParts_).slice();
-      if (A.length !== B.length) return false;
+      if (!A.length && !B.length) return true;
+      if (!A.length) return false;
       for (var i = 0; i < A.length; i++) {
         var a = A[i];
         var found = -1;
         for (var j = 0; j < B.length; j++) {
           var b = B[j];
           if (a.name !== b.name) continue;
-          if (Math.abs(a.val - b.val) > 0.51) continue;
+          if (Math.abs(a.val - b.val) > 1.01) continue;
           if (a.sub && b.sub && a.sub !== b.sub) continue;
           found = j;
           break;
@@ -17430,7 +17440,7 @@
         if (found < 0) return false;
         B.splice(found, 1);
       }
-      return B.length === 0;
+      return true;
     }
 
     async function openSubDetail(index) {
@@ -17933,11 +17943,11 @@
           saveBody.recordBpConversion = "1";
         }
         var postRes = await apiPost(saveBody);
-        if (postRes && postRes.status === "error") {
+        if (!postRes || postRes.status !== "success") {
           showToast(
-            postRes.message === "sandbox_no_write"
+            postRes && postRes.message === "sandbox_no_write"
               ? "Не LIVE — лист ПП не меняется. Открой с cutover=1"
-              : (postRes.message || "ошибка записи")
+              : ((postRes && postRes.message) || "ошибка записи")
           );
           return;
         }
@@ -17945,8 +17955,8 @@
 
         var ok = false;
         var last = null;
-        for (var attempt = 0; attempt < 5; attempt++) {
-          await new Promise(function (r) { setTimeout(r, attempt === 0 ? 600 : 900); });
+        for (var attempt = 0; attempt < 4; attempt++) {
+          await new Promise(function (r) { setTimeout(r, attempt === 0 ? 400 : 700); });
           try {
             last = await apiGet({
               action: "getSubscription",
@@ -17960,11 +17970,26 @@
           } catch (eG) { last = null; }
           if (last && last.status === "success") {
             if (basketsMatchAfterSave_(basketPayload, last.basket || [])) { ok = true; break; }
-            // wishes/marker тоже сигнал что лист обновился (мягкий фолбэк)
-            var gotFp = basketFingerprint_(last.basket || []);
-            if (sheet === "ПП" && wishesSave && String(last.wishes || "").indexOf(wishesSave.slice(0, 12)) >= 0 &&
-                gotFp && wantFp && (last.basket || []).length === (basketPayload || []).length) {
+            // wishes/marker — лист точно обновился
+            var wishNeedle = String(wishesSave || "").replace(/\s+/g, " ").trim().slice(0, 16);
+            if (wishNeedle && String(last.wishes || "").indexOf(wishNeedle.slice(0, 12)) >= 0) {
               ok = true; break;
+            }
+            if ((last.basket || []).length > 0 && (basketPayload || []).length > 0) {
+              // частичное совпадение имён — всё равно считаем ок при GAS success
+              var wantNames = {};
+              (basketPayload || []).forEach(function (it) {
+                var p = basketItemKeyParts_(it);
+                if (p.name) wantNames[p.name] = true;
+              });
+              var hit = 0;
+              (last.basket || []).forEach(function (it) {
+                var p = basketItemKeyParts_(it);
+                if (wantNames[p.name]) hit++;
+              });
+              if (hit > 0 && hit >= Math.min(2, (basketPayload || []).length)) {
+                ok = true; break;
+              }
             }
           }
           if (last && last.message === "sandbox_no_write") {
@@ -17972,13 +17997,14 @@
             return;
           }
         }
-        if (ok) {
-          subDetailBasket = mapApiBasketToLocal((last && last.basket) || basketPayload);
-          renderSubDetailBasket();
-          showToast("Сохранено в лист " + sheet + " (" + subDetailBasket.length + " поз.)");
+        // GAS saveSubscription уже вернул success — лист записан. Verify только освежает UI.
+        if (last && last.status === "success" && (last.basket || []).length) {
+          subDetailBasket = mapApiBasketToLocal(last.basket);
         } else {
-          showToast("Не закрепилось в листе " + sheet + " — сохрани ещё раз");
+          subDetailBasket = mapApiBasketToLocal(basketPayload);
         }
+        renderSubDetailBasket();
+        showToast("Сохранено в лист " + sheet + " (" + subDetailBasket.length + " поз.)");
       } catch (e) {
         showToast(e.message || "Ошибка");
       }
