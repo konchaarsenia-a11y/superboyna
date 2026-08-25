@@ -14296,6 +14296,25 @@ function handleSaveSubscription(json, callback, fromPost) {
       }
     } catch (eSvSync) {}
   }
+
+  // ПП из карточки БП / новый ПП при живой строке на БП → всегда в Stats_Переходы
+  var bpToPp = null;
+  if (/^ПП$/i.test(sheetName)) {
+    try {
+      bpToPp = maybeRecordBpToPpOnPpSave_(crmSs, {
+        nick: nick,
+        label: label,
+        subId: subId || (rowIdx >= 0 ? String(data[rowIdx][1] || "") : ""),
+        wishes: wishes,
+        rowIdx: rowIdx,
+        sheet: sh,
+        createdNew: createdNew,
+        force: !!(json.fromBp || json.fromBpCard || json.recordBpConversion || json.bpToPp)
+      });
+      if (bpToPp && bpToPp.wishes) wishes = bpToPp.wishes;
+    } catch (eBpPp) {}
+  }
+
   var ok = {
     status: "success",
     nick: extractInstagramNick_(label) || nick,
@@ -14304,10 +14323,85 @@ function handleSaveSubscription(json, callback, fromPost) {
     row: rowIdx + 1,
     created: createdNew,
     ppStatus: ppStatus,
-    survey: surveySync && surveySync.survey ? surveySync.survey : null
+    survey: surveySync && surveySync.survey ? surveySync.survey : null,
+    bpToPp: bpToPp || null
   };
-  try { clearCrmSheetCache_(sheetName); clearCrmSheetCache_("Контакты"); clearCrmSheetCache_("Опросник"); } catch (eClr) {}
+  try { clearCrmSheetCache_(sheetName); clearCrmSheetCache_("БП"); clearCrmSheetCache_("Контакты"); clearCrmSheetCache_("Опросник"); } catch (eClr) {}
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/**
+ * При сохранении в ПП: если человек ещё на БП (или UI сказал fromBp) —
+ * штамп [FROMBP:…] + строка в Stats_Переходы + убрать строку с БП.
+ */
+function maybeRecordBpToPpOnPpSave_(crmSs, opts) {
+  opts = opts || {};
+  var nick = String(opts.nick || "").trim();
+  var label = String(opts.label || nick).trim();
+  var subId = String(opts.subId || "").trim();
+  var wishes = String(opts.wishes || "").trim();
+  var force = !!opts.force;
+  var out = { recorded: false, deletedBp: 0, wishes: wishes };
+
+  var hadBp = false;
+  try {
+    var bpSh = findSheetByBaseName_(crmSs, "БП");
+    if (bpSh) {
+      var bpIdx = findSubscriptionRowIndex_(bpSh, label || nick, "");
+      if (bpIdx < 0 && nick && nick !== label) bpIdx = findSubscriptionRowIndex_(bpSh, nick, "");
+      if (bpIdx >= 0) hadBp = true;
+    }
+  } catch (eFind) {}
+
+  if (!force && !hadBp && !opts.createdNew) {
+    // уже давно в ПП без БП и без флага — не трогаем
+    if (parseFromBpYmd_(wishes)) return out;
+    return out;
+  }
+  if (!force && !hadBp && opts.createdNew) {
+    // новый ПП без следа БП — обычная розница/зачисление, не конверсия
+    return out;
+  }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var ymd = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+  if (!parseFromBpYmd_(wishes)) {
+    wishes = stampFromBpIntoWishes_(wishes, ymd);
+    out.wishes = wishes;
+    try {
+      if (opts.sheet && opts.rowIdx >= 0) {
+        opts.sheet.getRange(opts.rowIdx + 1, 5).setValue(wishes);
+      }
+    } catch (eW) {}
+  } else {
+    ymd = parseFromBpYmd_(wishes) || ymd;
+  }
+
+  try {
+    appendStatsConversion_(ss, {
+      nick: extractInstagramNick_(label || nick) || nick,
+      label: label || nick,
+      fromSheet: "БП",
+      toSheet: "ПП",
+      subId: subId,
+      ymd: ymd,
+      note: force ? "saveSubscription_fromBp" : "saveSubscription_hadBp"
+    });
+    out.recorded = true;
+  } catch (eA) {}
+
+  if (hadBp) {
+    try {
+      var del = deleteSubscriptionRowsFast_(crmSs, "БП", label || nick, "");
+      out.deletedBp = (del && del.total) || 0;
+      if (!out.deletedBp && nick && nick !== label) {
+        del = deleteSubscriptionRowsFast_(crmSs, "БП", nick, "");
+        out.deletedBp = (del && del.total) || 0;
+      }
+    } catch (eDel) {}
+  }
+  return out;
 }
 
 function findSubscriptionRowIndex_(sh, nick, subId) {

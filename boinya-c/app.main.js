@@ -13269,6 +13269,17 @@
           }
         } else {
           try { apiCacheBustMem_(); } catch (eClr) {}
+          // дубль-страховка: move мог не дописать Stats_Переходы на старом Deploy
+          try {
+            await apiGet({
+              action: "recordBpToPpConversion",
+              nick: label || nick,
+              label: label || nick,
+              subId: (res && res.subId) || subId,
+              telegramId: String(myTelegramId || "").trim(),
+              _: String(Date.now())
+            }, { timeoutMs: 20000, cacheTtlMs: 0 });
+          } catch (eRec2) {}
           var shEl = document.getElementById("subDetailSheet");
           if (shEl) shEl.value = "ПП";
           showToast("В ПП · учтено в статистике БП→ПП");
@@ -17674,6 +17685,11 @@
           saveBody.ownerName = own.name;
           saveBody.basketBp1 = subDetailBasketBp1;
           saveBody.basketBp2 = subDetailBasketBp2;
+        }
+        if (sheet === "ПП" && window._enrollFromBp) {
+          saveBody.fromBp = "1";
+          saveBody.fromBpCard = "1";
+          saveBody.recordBpConversion = "1";
         }
         var postRes = await apiPost(saveBody);
         if (postRes && postRes.status === "error") {
