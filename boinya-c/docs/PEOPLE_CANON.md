@@ -4,13 +4,10 @@
 
 ## Как работает запись (save / move / delete)
 
-1. Worker сразу пишет **D1** → UI свободен (~1–2 с).
-2. GAS/Sheets уходит **в фон** (`waitUntil`).
-3. Ответ клиенту:
-   - если GAS успел за ~2.2 с → `status=success`, `sheetsVerified=true` → toast «Точно внесено»;
-   - иначе → `status=accepted`, `pendingSheets=true`, `writeId=…` → toast «Вношу в таблицу…».
-4. UI поллит `pollPeopleWrite` → при успехе **«Точно внесено / перенесено / удалено»**.
-5. При ошибке Sheets — честный fail toast (не врать success).
+1. Worker сразу отвечает `accepted` + `writeId` (~мгновенно).
+2. В фоне: D1 → GAS/Sheets.
+3. UI: «Вношу в таблицу…» → poll `pollPeopleWrite` → **«Точно внесено»** только при `sheetsVerified`.
+4. При ошибке D1/Sheets — честный fail toast.
 
 ## Жёсткое правило (агентам)
 

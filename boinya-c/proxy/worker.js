@@ -160,10 +160,38 @@ async function handleAction_(action, params, env, url, ctx) {
     if (!wid || !env || !env.DB) {
       return { status: "error", message: "need_writeId", sheetsVerified: false };
     }
-    const job = await getSnapRaw_(env, "peopleWrite:" + wid);
+    let job = await getSnapRaw_(env, "peopleWrite:" + wid);
     if (!job) {
       return { status: "pending", pendingSheets: true, sheetsVerified: false, writeId: wid };
     }
+    // waitUntil мог оборваться — дожимаем на poll (есть полный бюджет запроса)
+    if (
+      job &&
+      (job.status === "pending" || job.pendingSheets) &&
+      !job.sheetsVerified &&
+      job.params &&
+      job.action
+    ) {
+      try {
+        job = await runPeopleWriteJob_(wid, job, env, ctx);
+      } catch (eCont) {
+        try {
+          await putSnap_(env, "peopleWrite:" + wid, Object.assign({}, job, {
+            status: "error",
+            pendingSheets: false,
+            sheetsVerified: false,
+            message: String((eCont && eCont.message) || eCont),
+            finishedAt: Date.now()
+          }));
+          job = await getSnapRaw_(env, "peopleWrite:" + wid);
+        } catch (e2) {}
+      }
+    }
+    job = job || (await getSnapRaw_(env, "peopleWrite:" + wid)) || {
+      status: "pending",
+      pendingSheets: true,
+      sheetsVerified: false
+    };
     return Object.assign({}, job, {
       writeId: wid,
       cutover: !!live,
@@ -626,6 +654,125 @@ async function putSnap_(env, key, payload) {
   )
     .bind(key, JSON.stringify(payload), now)
     .run();
+}
+
+/** Дожать people-write (D1→GAS). Вызывается из waitUntil и из pollPeopleWrite. */
+async function runPeopleWriteJob_(writeId, job, env, ctx) {
+  if (!writeId || !env || !env.DB || !job) return job;
+  if (job.sheetsVerified && job.status === "success") return job;
+  if (job.status === "error" && !job.pendingSheets) return job;
+  if (job._running) return job;
+
+  const a = String(job.action || "");
+  const gasWriteParams = job.params || {};
+  job = Object.assign({}, job, { _running: true });
+  try {
+    await putSnap_(env, "peopleWrite:" + writeId, job);
+  } catch (eLock) {}
+
+  let d1WriteRes = job.d1Res || null;
+  if (!job.d1Verified) {
+    try {
+      if (/^(saveOrder|saveBooking)$/i.test(a)) {
+        d1WriteRes = await saveOrder_(gasWriteParams, env, /^saveBooking$/i.test(a));
+      } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
+        d1WriteRes = await deleteClient_(gasWriteParams, env);
+      } else if (/^moveClient$/i.test(a)) {
+        d1WriteRes = await moveClient_(gasWriteParams, env);
+      }
+    } catch (eD1) {
+      d1WriteRes = {
+        status: "error",
+        message: String((eD1 && eD1.message) || eD1)
+      };
+    }
+    if (!d1WriteRes || d1WriteRes.status !== "success") {
+      const fail = {
+        status: "error",
+        pendingSheets: false,
+        sheetsVerified: false,
+        d1Verified: false,
+        action: a,
+        params: gasWriteParams,
+        message: (d1WriteRes && d1WriteRes.message) || "d1_write_failed",
+        finishedAt: Date.now()
+      };
+      await putSnap_(env, "peopleWrite:" + writeId, fail);
+      return fail;
+    }
+    try {
+      await putSnap_(env, "peopleWrite:" + writeId, {
+        status: "pending",
+        pendingSheets: true,
+        sheetsVerified: false,
+        d1Verified: true,
+        action: a,
+        params: gasWriteParams,
+        d1Res: { status: "success", wrote: d1WriteRes.wrote },
+        wrote: d1WriteRes.wrote,
+        startedAt: job.startedAt || Date.now()
+      });
+    } catch (eMid) {}
+  }
+
+  let sheetsRes = null;
+  try {
+    sheetsRes = await gasProxy_(a, gasWriteParams, env, { write: true });
+  } catch (eG0) {
+    sheetsRes = {
+      status: "error",
+      message: String((eG0 && eG0.message) || eG0 || "gas_proxy_failed")
+    };
+  }
+  let ok =
+    sheetsRes &&
+    sheetsRes.status === "success" &&
+    !/gas_proxy_failed|gas_timeout/i.test(String(sheetsRes.message || ""));
+  if (!ok) {
+    try {
+      await new Promise(function (r) {
+        setTimeout(r, 700);
+      });
+      const again = await Promise.race([
+        gasProxy_(a, gasWriteParams, env, { write: true }).catch(function () {
+          return null;
+        }),
+        new Promise(function (r) {
+          setTimeout(function () {
+            r(null);
+          }, 14000);
+        })
+      ]);
+      if (again) {
+        sheetsRes = again;
+        ok =
+          sheetsRes &&
+          sheetsRes.status === "success" &&
+          !/gas_proxy_failed/i.test(String(sheetsRes.message || ""));
+      }
+    } catch (eRetry) {}
+  }
+
+  const done = {
+    status: ok ? "success" : "error",
+    pendingSheets: false,
+    sheetsVerified: !!ok,
+    d1Verified: true,
+    action: a,
+    params: gasWriteParams,
+    message: ok ? "" : (sheetsRes && sheetsRes.message) || "sheets_write_failed",
+    wrote: (sheetsRes && sheetsRes.wrote) != null ? sheetsRes.wrote : (d1WriteRes && d1WriteRes.wrote),
+    finishedAt: Date.now(),
+    gas: sheetsRes || null
+  };
+  try {
+    await putSnap_(env, "peopleWrite:" + writeId, done);
+  } catch (eDone) {}
+
+  try {
+    await cutoverAfterWrite_(a, gasWriteParams, env, ok ? sheetsRes : d1WriteRes || done);
+  } catch (eA) {}
+  return done;
 }
 
 async function setMoveEpochDay_(env, matchKey, day, client) {
@@ -5352,6 +5499,8 @@ async function handleCutover_(a, params, env, ctx) {
           String(gasWriteParams.alsoSaveOrder || "").toLowerCase() === "true";
         const basketLen = parseBasket_(gasWriteParams.basket).length;
 
+        // компактные params для продолжения на poll (без огромного basket duplicate если можно)
+        const jobParams = Object.assign({}, gasWriteParams);
         try {
           await putSnap_(env, "peopleWrite:" + writeId, {
             status: "pending",
@@ -5359,6 +5508,7 @@ async function handleCutover_(a, params, env, ctx) {
             sheetsVerified: false,
             d1Verified: false,
             action: a,
+            params: jobParams,
             client: String(gasWriteParams.client || gasWriteParams.nick || ""),
             day: String(gasWriteParams.day || gasWriteParams.newDay || gasWriteParams.oldDay || ""),
             startedAt: Date.now()
@@ -5366,111 +5516,32 @@ async function handleCutover_(a, params, env, ctx) {
         } catch (eJob0) {}
 
         const bg = (async function () {
-          let d1WriteRes = null;
           try {
-            if (env && env.DB) {
-              if (/^(saveOrder|saveBooking)$/i.test(a)) {
-                d1WriteRes = await saveOrder_(gasWriteParams, env, /^saveBooking$/i.test(a));
-              } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
-                d1WriteRes = await deleteClient_(gasWriteParams, env);
-              } else if (/^moveClient$/i.test(a)) {
-                d1WriteRes = await moveClient_(gasWriteParams, env);
-              }
-            }
-          } catch (eD1Fast) {
-            d1WriteRes = {
-              status: "error",
-              message: String((eD1Fast && eD1Fast.message) || eD1Fast)
-            };
-          }
-
-          if (!d1WriteRes || d1WriteRes.status !== "success") {
+            await runPeopleWriteJob_(
+              writeId,
+              {
+                status: "pending",
+                pendingSheets: true,
+                action: a,
+                params: jobParams,
+                startedAt: Date.now()
+              },
+              env,
+              ctx
+            );
+          } catch (eBg) {
             try {
               await putSnap_(env, "peopleWrite:" + writeId, {
                 status: "error",
                 pendingSheets: false,
                 sheetsVerified: false,
-                d1Verified: false,
                 action: a,
-                message: (d1WriteRes && d1WriteRes.message) || "d1_write_failed",
+                params: jobParams,
+                message: String((eBg && eBg.message) || eBg),
                 finishedAt: Date.now()
               });
-            } catch (eFailD1) {}
-            return;
+            } catch (eFail) {}
           }
-
-          try {
-            await putSnap_(env, "peopleWrite:" + writeId, {
-              status: "pending",
-              pendingSheets: true,
-              sheetsVerified: false,
-              d1Verified: true,
-              action: a,
-              wrote: d1WriteRes.wrote,
-              startedAt: Date.now()
-            });
-          } catch (eMid) {}
-
-          let sheetsRes = null;
-          try {
-            sheetsRes = await gasProxy_(a, gasWriteParams, env, { write: true });
-          } catch (eG0) {
-            sheetsRes = {
-              status: "error",
-              message: String((eG0 && eG0.message) || eG0 || "gas_proxy_failed")
-            };
-          }
-          let ok =
-            sheetsRes &&
-            sheetsRes.status === "success" &&
-            !/gas_proxy_failed|gas_timeout/i.test(String(sheetsRes.message || ""));
-          if (!ok) {
-            try {
-              await new Promise(function (r) {
-                setTimeout(r, 800);
-              });
-              const again = await Promise.race([
-                gasProxy_(a, gasWriteParams, env, { write: true }).catch(function () {
-                  return null;
-                }),
-                new Promise(function (r) {
-                  setTimeout(function () {
-                    r(null);
-                  }, 16000);
-                })
-              ]);
-              if (again) {
-                sheetsRes = again;
-                ok =
-                  sheetsRes &&
-                  sheetsRes.status === "success" &&
-                  !/gas_proxy_failed/i.test(String(sheetsRes.message || ""));
-              }
-            } catch (eRetry) {}
-          }
-
-          try {
-            await putSnap_(env, "peopleWrite:" + writeId, {
-              status: ok ? "success" : "error",
-              pendingSheets: false,
-              sheetsVerified: !!ok,
-              d1Verified: true,
-              action: a,
-              message: ok ? "" : (sheetsRes && sheetsRes.message) || "sheets_write_failed",
-              wrote: (sheetsRes && sheetsRes.wrote) != null ? sheetsRes.wrote : d1WriteRes.wrote,
-              finishedAt: Date.now(),
-              gas: sheetsRes || null
-            });
-          } catch (eJob1) {}
-
-          try {
-            await cutoverAfterWrite_(
-              a,
-              gasWriteParams,
-              env,
-              ok ? sheetsRes : d1WriteRes
-            );
-          } catch (eA) {}
         })();
 
         if (ctx && typeof ctx.waitUntil === "function") {

@@ -7817,6 +7817,7 @@
           Number(res.wrote) > 0 ||
           res.sheetsVerified ||
           res.pendingSheets ||
+          res.writeId ||
           (res.d1Verified && !res.skippedStaleDelete && !res.optimistic) ||
           res.alreadyGone
         ));
