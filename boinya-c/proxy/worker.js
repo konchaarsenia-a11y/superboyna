@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-25 people-canon-fast-confirm
+ * deploy-marker: 2026-08-25 people-canon-instant-accept
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -151,7 +151,7 @@ async function handleAction_(action, params, env, url, ctx) {
       swr: !!live,
       d1: !!(env && env.DB),
       peopleCanon: "sheets-confirm-bg",
-      deployMarker: "2026-08-25 people-canon-fast-confirm"
+      deployMarker: "2026-08-25 people-canon-instant-accept"
     };
   }
 
@@ -5338,7 +5338,7 @@ async function handleCutover_(a, params, env, ctx) {
             })
           : params;
 
-      // --- CORE PEOPLE: D1 accept + фон Sheets (poll → sheetsVerified) ---
+      // --- CORE PEOPLE: мгновенный accept → D1+GAS в фоне → poll «Точно» ---
       if (isCorePeopleWrite) {
         const gasWriteParams = peopleWriteParams;
         const writeId =
@@ -5352,167 +5352,79 @@ async function handleCutover_(a, params, env, ctx) {
           String(gasWriteParams.alsoSaveOrder || "").toLowerCase() === "true";
         const basketLen = parseBasket_(gasWriteParams.basket).length;
 
-        // 1) D1 сразу — UI не ждёт GAS
-        let d1WriteRes = null;
-        try {
-          if (env && env.DB) {
-            if (/^(saveOrder|saveBooking)$/i.test(a)) {
-              d1WriteRes = await saveOrder_(gasWriteParams, env, /^saveBooking$/i.test(a));
-            } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
-              d1WriteRes = await deleteClient_(gasWriteParams, env);
-            } else if (/^moveClient$/i.test(a)) {
-              d1WriteRes = await moveClient_(gasWriteParams, env);
-            }
-          }
-        } catch (eD1Fast) {
-          d1WriteRes = {
-            status: "error",
-            message: String((eD1Fast && eD1Fast.message) || eD1Fast)
-          };
-        }
-        if (!d1WriteRes || d1WriteRes.status !== "success") {
-          return {
-            status: "error",
-            message: (d1WriteRes && d1WriteRes.message) || "d1_write_failed",
-            cutover: true,
-            sandbox: false,
-            sheetsVerified: false,
-            optimistic: false,
-            pendingSheets: false,
-            action: a
-          };
-        }
-
         try {
           await putSnap_(env, "peopleWrite:" + writeId, {
             status: "pending",
             pendingSheets: true,
             sheetsVerified: false,
+            d1Verified: false,
             action: a,
             client: String(gasWriteParams.client || gasWriteParams.nick || ""),
-            day: String(gasWriteParams.day || gasWriteParams.newDay || ""),
+            day: String(gasWriteParams.day || gasWriteParams.newDay || gasWriteParams.oldDay || ""),
             startedAt: Date.now()
           });
         } catch (eJob0) {}
 
-        function buildAcceptedBase_(extra) {
-          const base = Object.assign({}, d1WriteRes, extra || {}, {
-            cutover: true,
-            sandbox: false,
-            optimistic: false,
-            d1Verified: true,
-            writeId: writeId,
-            action: a
-          });
-          if (/^(saveOrder|saveBooking)$/i.test(a)) {
-            base.weekWritten =
-              d1WriteRes.weekWritten != null
-                ? !!d1WriteRes.weekWritten
-                : alsoWeek ||
-                  (!toBool_(d1WriteRes.calendarOnly) && /^saveOrder$/i.test(a));
-            base.wrote =
-              d1WriteRes.wrote != null ? d1WriteRes.wrote : basketLen || 1;
-            base.basketLen = basketLen;
-          }
-          return base;
-        }
-
-        // 2) GAS: короткий race (~2.2с) — если успел, сразу «точно»; иначе фон + poll
-        const gasP = gasProxy_(a, gasWriteParams, env, { write: true }).catch(function (eG) {
-          return {
-            status: "error",
-            message: String((eG && eG.message) || eG || "gas_proxy_failed")
-          };
-        });
-
-        let earlySheets = null;
-        let gotEarly = false;
-        await Promise.race([
-          gasP.then(function (p) {
-            earlySheets = p;
-            gotEarly = true;
-          }),
-          new Promise(function (r) {
-            setTimeout(r, 1500);
-          })
-        ]);
-
-        async function finishPeopleSheetsJob_(sheetsRes) {
-          const ok =
-            sheetsRes &&
-            sheetsRes.status === "success" &&
-            !/gas_proxy_failed|gas_timeout/i.test(String(sheetsRes.message || ""));
-          try {
-            await putSnap_(env, "peopleWrite:" + writeId, {
-              status: ok ? "success" : "error",
-              pendingSheets: false,
-              sheetsVerified: !!ok,
-              action: a,
-              message: ok ? "" : (sheetsRes && sheetsRes.message) || "sheets_write_failed",
-              wrote: sheetsRes && sheetsRes.wrote,
-              finishedAt: Date.now(),
-              gas: sheetsRes || null
-            });
-          } catch (eJob1) {}
-          return ok;
-        }
-
-        function scheduleAfterWrite_(sheetsRes) {
-          const run = (async function () {
-            try {
-              await cutoverAfterWrite_(a, gasWriteParams, env, sheetsRes || d1WriteRes);
-            } catch (eA) {}
-          })();
-          if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run);
-          return run;
-        }
-
-        if (
-          gotEarly &&
-          earlySheets &&
-          earlySheets.status === "success" &&
-          !/gas_proxy_failed|gas_timeout/i.test(String(earlySheets.message || ""))
-        ) {
-          await finishPeopleSheetsJob_(earlySheets);
-          scheduleAfterWrite_(earlySheets);
-          const base = buildAcceptedBase_({
-            status: "success",
-            sheetsVerified: true,
-            pendingSheets: false
-          });
-          Object.assign(base, earlySheets, {
-            status: "success",
-            sheetsVerified: true,
-            pendingSheets: false,
-            d1Verified: true,
-            optimistic: false,
-            writeId: writeId,
-            action: a
-          });
-          if (/^(saveOrder|saveBooking)$/i.test(a)) {
-            if (earlySheets.wrote != null && Number(earlySheets.wrote) > 0) {
-              base.wrote = Number(earlySheets.wrote);
-            }
-          }
-          return partnerGuardOrRewrite_(a, gasWriteParams, base);
-        }
-
-        // фон: дождаться GAS (если ещё не пришёл) + retry один раз
         const bg = (async function () {
-          let sheetsRes = gotEarly ? earlySheets : null;
+          let d1WriteRes = null;
           try {
-            if (!gotEarly) sheetsRes = await gasP;
-          } catch (eBg0) {
-            sheetsRes = {
+            if (env && env.DB) {
+              if (/^(saveOrder|saveBooking)$/i.test(a)) {
+                d1WriteRes = await saveOrder_(gasWriteParams, env, /^saveBooking$/i.test(a));
+              } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
+                d1WriteRes = await deleteClient_(gasWriteParams, env);
+              } else if (/^moveClient$/i.test(a)) {
+                d1WriteRes = await moveClient_(gasWriteParams, env);
+              }
+            }
+          } catch (eD1Fast) {
+            d1WriteRes = {
               status: "error",
-              message: String((eBg0 && eBg0.message) || eBg0)
+              message: String((eD1Fast && eD1Fast.message) || eD1Fast)
             };
           }
-          const ok1 =
+
+          if (!d1WriteRes || d1WriteRes.status !== "success") {
+            try {
+              await putSnap_(env, "peopleWrite:" + writeId, {
+                status: "error",
+                pendingSheets: false,
+                sheetsVerified: false,
+                d1Verified: false,
+                action: a,
+                message: (d1WriteRes && d1WriteRes.message) || "d1_write_failed",
+                finishedAt: Date.now()
+              });
+            } catch (eFailD1) {}
+            return;
+          }
+
+          try {
+            await putSnap_(env, "peopleWrite:" + writeId, {
+              status: "pending",
+              pendingSheets: true,
+              sheetsVerified: false,
+              d1Verified: true,
+              action: a,
+              wrote: d1WriteRes.wrote,
+              startedAt: Date.now()
+            });
+          } catch (eMid) {}
+
+          let sheetsRes = null;
+          try {
+            sheetsRes = await gasProxy_(a, gasWriteParams, env, { write: true });
+          } catch (eG0) {
+            sheetsRes = {
+              status: "error",
+              message: String((eG0 && eG0.message) || eG0 || "gas_proxy_failed")
+            };
+          }
+          let ok =
             sheetsRes &&
             sheetsRes.status === "success" &&
             !/gas_proxy_failed|gas_timeout/i.test(String(sheetsRes.message || ""));
-          if (!ok1) {
+          if (!ok) {
             try {
               await new Promise(function (r) {
                 setTimeout(r, 800);
@@ -5524,35 +5436,76 @@ async function handleCutover_(a, params, env, ctx) {
                 new Promise(function (r) {
                   setTimeout(function () {
                     r(null);
-                  }, 14000);
+                  }, 16000);
                 })
               ]);
-              if (again) sheetsRes = again;
-            } catch (eBg1) {}
+              if (again) {
+                sheetsRes = again;
+                ok =
+                  sheetsRes &&
+                  sheetsRes.status === "success" &&
+                  !/gas_proxy_failed/i.test(String(sheetsRes.message || ""));
+              }
+            } catch (eRetry) {}
           }
-          await finishPeopleSheetsJob_(sheetsRes);
-          await scheduleAfterWrite_(
-            sheetsRes && sheetsRes.status === "success" ? sheetsRes : d1WriteRes
-          );
+
+          try {
+            await putSnap_(env, "peopleWrite:" + writeId, {
+              status: ok ? "success" : "error",
+              pendingSheets: false,
+              sheetsVerified: !!ok,
+              d1Verified: true,
+              action: a,
+              message: ok ? "" : (sheetsRes && sheetsRes.message) || "sheets_write_failed",
+              wrote: (sheetsRes && sheetsRes.wrote) != null ? sheetsRes.wrote : d1WriteRes.wrote,
+              finishedAt: Date.now(),
+              gas: sheetsRes || null
+            });
+          } catch (eJob1) {}
+
+          try {
+            await cutoverAfterWrite_(
+              a,
+              gasWriteParams,
+              env,
+              ok ? sheetsRes : d1WriteRes
+            );
+          } catch (eA) {}
         })();
 
         if (ctx && typeof ctx.waitUntil === "function") {
           ctx.waitUntil(bg);
         } else {
-          // без waitUntil не ждём GAS на запросе — иначе UI снова 10–40с
           bg.catch(function () {});
         }
 
-        return partnerGuardOrRewrite_(
-          a,
-          gasWriteParams,
-          buildAcceptedBase_({
-            status: "accepted",
-            sheetsVerified: false,
-            pendingSheets: true,
-            message: "pending_sheets"
-          })
-        );
+        const accepted = {
+          status: "accepted",
+          cutover: true,
+          sandbox: false,
+          optimistic: false,
+          pendingSheets: true,
+          sheetsVerified: false,
+          d1Verified: false,
+          d1Pending: true,
+          writeId: writeId,
+          action: a,
+          message: "pending_sheets"
+        };
+        if (/^(saveOrder|saveBooking)$/i.test(a)) {
+          accepted.weekWritten =
+            alsoWeek ||
+            (!toBool_(gasWriteParams.calendarOnly) && /^saveOrder$/i.test(a));
+          accepted.wrote = basketLen || 1;
+          accepted.basketLen = basketLen;
+        }
+        if (/^moveClient$/i.test(a)) {
+          accepted.newDay = gasWriteParams.newDay || "";
+          accepted.newDate = gasWriteParams.newDate || "";
+          accepted.from = gasWriteParams.oldDay || "";
+          accepted.to = gasWriteParams.newDay || gasWriteParams.newDate || "";
+        }
+        return partnerGuardOrRewrite_(a, gasWriteParams, accepted);
       }
 
       // --- non-core (deferred / transfer park): D1-first OK ---

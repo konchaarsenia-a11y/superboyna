@@ -58,9 +58,13 @@ def assert_write(d, label, http_ms):
         "status","sheetsVerified","optimistic","d1Verified","wrote","writeId","pendingSheets","message","action")})
     assert d.get("optimistic") is not True, d
     assert d.get("status") in ("success", "accepted"), d
-    assert d.get("d1Verified") is True or d.get("sheetsVerified") is True, d
-    if http_ms > 8000:
-        print("WARN: slow accept", http_ms, "ms (want <~3–5s)")
+    assert (
+        d.get("d1Verified") is True
+        or d.get("sheetsVerified") is True
+        or (d.get("writeId") and d.get("pendingSheets"))
+    ), d
+    if http_ms > 4000:
+        print("WARN: slow accept", http_ms, "ms (want <~1–2s)")
     if d.get("sheetsVerified") and d.get("status") == "success":
         print(label, "instant sheets OK")
         return

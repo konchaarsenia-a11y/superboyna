@@ -4704,7 +4704,7 @@
             bookRes = { status: "error", message: eBook.message || String(eBook) };
           }
 
-          if (weekDayToSave && bookRes && (bookRes.status === "success" || bookRes.status === "accepted") && (bookRes.weekWritten || bookRes.d1Verified || bookRes.pendingSheets || bookRes.sheetsVerified)) {
+          if (weekDayToSave && bookRes && (bookRes.status === "success" || bookRes.status === "accepted") && (bookRes.weekWritten || bookRes.d1Verified || bookRes.pendingSheets || bookRes.sheetsVerified || bookRes.writeId)) {
             saveRes = {
               status: bookRes.status === "accepted" ? "accepted" : "success",
               wrote: bookRes.wrote != null ? Number(bookRes.wrote) : basketSnap.length,
@@ -7545,7 +7545,7 @@
           matchKey: matchKey,
           _: String(Date.now())
         }, { timeoutMs: 16000, cacheTtlMs: 0, bypassInflight: true });
-        if (!res || (res.status !== "success" && res.status !== "accepted" && !res.sent_opaque && !res.sheetsVerified && !res.d1Verified)) {
+        if (!res || (res.status !== "success" && res.status !== "accepted" && !res.sent_opaque && !res.sheetsVerified && !res.d1Verified && !res.writeId)) {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return false;
         }
@@ -7555,11 +7555,11 @@
         var effectiveNewDay = String((res && (res.newDay || (res.to && !/^\d{4}-\d{2}-\d{2}$/.test(String(res.to)) ? res.to : ""))) || newDay || "").trim();
         var effectiveNewDate = String((res && (res.newDate || (res.to && /^\d{4}-\d{2}-\d{2}$/.test(String(res.to)) ? res.to : ""))) || target.newDate || "").trim();
         var destLabel = effectiveNewDay || effectiveNewDate || "новую дату";
-        // D1 accept или sheetsVerified — ок для UI; «Точно» через confirm
         var wroteOk = !!(res && (res.status === "success" || res.status === "accepted") && (
           Number(res.wrote) > 0 ||
           res.sheetsVerified ||
           res.pendingSheets ||
+          res.writeId ||
           res.alreadyMoved ||
           (res.d1Verified && !res.optimistic)
         ) && !res.sent_opaque && res.status !== "online" && !/жив/i.test(String(res.msg || "")));
