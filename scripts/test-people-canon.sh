@@ -116,4 +116,52 @@ still=any("zzz_test" in (c.get("name") or c.get("client") or "").lower() for c i
 print("still on Вторник:", still); raise SystemExit(0 if not still else 5)'
 
 echo
+echo "=== calendar saveBooking → move → remove ==="
+DATE1="2026-09-20"
+DATE2="2026-09-21"
+BOOK_BODY="$(python3 - <<PY
+import json
+print(json.dumps({
+  "action": "saveBooking",
+  "client": "$CLIENT",
+  "day": "",
+  "date": "$DATE1",
+  "alsoSaveOrder": "0",
+  "calendarOnly": "1",
+  "address": "cal $TS",
+  "note": "cal $TS",
+  "basket": json.dumps([{"cat":"Мясо","main":"ГОВЯДИНА","sub":"Мелкое","value":20}]),
+  "matchKey": "$CLIENT",
+  "_": "${TS}b"
+}, ensure_ascii=False))
+PY
+)"
+BOOK="$(json_post "$BOOK_BODY")"
+echo "$BOOK" | python3 -c 'import sys,json; d=json.load(sys.stdin); print({k:d.get(k) for k in ("status","sheetsVerified","optimistic","calendarOnly")});
+assert d.get("status")=="success" and d.get("sheetsVerified") is True; print("CAL BOOK OK")'
+
+M2="$(json_post "$(python3 - <<PY
+import json
+print(json.dumps({
+  "action":"moveClient","client":"$CLIENT","oldDay":"","newDay":"",
+  "oldDate":"$DATE1","newDate":"$DATE2","calendarOnly":"1","dateOnly":"1",
+  "cutRaw":"0","matchKey":"$CLIENT","_":"${TS}cm"
+}, ensure_ascii=False))
+PY
+)")"
+echo "$M2" | python3 -c 'import sys,json; d=json.load(sys.stdin); print({k:d.get(k) for k in ("status","sheetsVerified","newDate")});
+assert d.get("status")=="success" and d.get("sheetsVerified") is True; print("CAL MOVE OK")'
+
+R2="$(json_post "$(python3 - <<PY
+import json
+print(json.dumps({
+  "action":"removeCalendarClient","client":"$CLIENT","date":"$DATE2",
+  "matchKey":"$CLIENT","_explicitDelete":"1","_userDelete":"1","_":"${TS}cr"
+}, ensure_ascii=False))
+PY
+)")"
+echo "$R2" | python3 -c 'import sys,json; d=json.load(sys.stdin); print({k:d.get(k) for k in ("status","sheetsVerified","wrote","alreadyGone")});
+assert d.get("status")=="success" and (d.get("sheetsVerified") is True or d.get("alreadyGone")); print("CAL REMOVE OK")'
+
+echo
 echo "ALL PEOPLE-CANON LIVE CHECKS PASSED"
