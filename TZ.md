@@ -1,4 +1,14 @@
-- [~] **Скушало Вт + нет ✏️ в календаре 2026-08-25:** scrub съел `_madmazelka_` (прошлые брони ≠ «сирота»). Live восстановлена. Fix: scrub только smoking gun `pulled+dayName≠date`; calendar-only → `crmEditMonthClient` (week-карточки тоже); clear `#day` при правке. Pages `v71115891` · **Deploy Code.gs** · Worker CI
+- [~] **Скушало Вт + нет ✏️ в календаре 2026-08-25:** scrub съел `_madmazelka_` (прошлые брони ≠ «сирота»). Live восстановлена. Fix: scrub только smoking gun `pulled+dayName≠date`; calendar-only → `crmEditMonthClient` (week-карточки тоже); clear `#day` при правке. Pages `v71115893` · **Deploy Code.gs** · Worker CI
+- [ ] **ПП: адрес + телефон на листе 2026-08-25:** править/синхронизировать адрес и номер в листе ПП (карточка ↔ колонки)
+- [ ] **ML подсчёт пакетов 2026-08-25:** машинное обучение / умный автоподсчёт пакетов (после фикса «ручные пакеты не трогать»)
+- [~] **ПП: составы не редактируются у части клиентов 2026-08-25:** normalize basket + alias/мягкий матч колонок + doGet basket · Pages `v71115893` · **Deploy Code.gs**
+- [~] **Внос дальше «Будущей» 2026-08-25:** afterWrite обновляет viewDate snap · Pages/Worker `v71115893` · **Worker Deploy**
+- [~] **Перенос/удаление дальше «Будущей» 2026-08-25:** calendar move без D1-строки; tomb CAL + invalidate viewDate · Worker `v71115893`
+- [~] **Груши пропадают при сохранении расчёта 2026-08-25:** ГРУШЫ↔ГРУШИ alias в writePp + igAlias · Pages+**Deploy Code.gs** `v71115893`
+- [~] **ПОЧКИ в «Другое» 2026-08-25:** вернули в дрессуру · Pages `v71115893`
+- [~] **Напоминалки не заносятся 2026-08-25:** merge listDeferred сохраняет remind/df_* · Worker `v71115893`
+- [~] **Ручные пакеты затирает авто 2026-08-25:** пакеты с листа = manual · Pages `v71115893`
+- [~] **Галочка курьера слетела 2026-08-25:** getCourier OR memory+C2 · **Deploy Code.gs** `v71115893`
 - [~] **Дубль Ср/вся неделя ↔ сентябрь 2026-08-25:** live сироты сняты (Вт/Пт/Будущая/Ср). Код: scrub+unpull авто при Просмотре/repair/закрытии недели; Worker date_iso≠дня. **Только Deploy Code.gs** (ветка в main) · Worker CI после merge
 - [~] **БП→ПП в статистике 2026-08-25:** Карпуша+Aleksi.anna дописаны live (`recordBpToPpConversion`+штамп); дубли БП сняты. Авто: saveSubscription ПП при живом БП/`fromBp` → журнал. Карточка БП дублирует record. Pages `v71115889` · **Deploy Code.gs**
 - [~] **Отложенные + 73 переноса + БП→ПП 2026-08-25:** фантомы `xfer_repair_*` после чистки D1 затирали задачи; `finalizeListDeferred` подменял GAS snap’ом. Fix: не плодить repair; purge; saveDeferred D1 сразу; карточка БП → moveSubscription + `recordBpToPpConversion` · Pages `v71115888` · **нужен Worker Deploy** · **Deploy Code.gs**

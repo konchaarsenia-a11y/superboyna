@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115891";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115893";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -1012,12 +1012,13 @@
     const catalog = {
       dressura: {
         title: "Дрессура",
-        items: ["ЛЁГКОЕ", "СЕРДЦЕ", "РУБЕЦ Т", "БАРАНЬЕ ЛЁГКОЕ"],
+        items: ["ЛЁГКОЕ", "СЕРДЦЕ", "РУБЕЦ Т", "БАРАНЬЕ ЛЁГКОЕ", "ПОЧКИ"],
         fractions: {
           "ЛЁГКОЕ": ["Мелкое", "Среднее", "Большое", "Целое"],
           "СЕРДЦЕ": ["Мелкое", "Целое"],
           "РУБЕЦ Т": ["Мелкое", "Среднее", "Крупное", "Целое"],
-          "БАРАНЬЕ ЛЁГКОЕ": ["Мелкое", "Среднее", "Целое"]
+          "БАРАНЬЕ ЛЁГКОЕ": ["Мелкое", "Среднее", "Целое"],
+          "ПОЧКИ": ["Мелкое", "Целое"]
         }
       },
       chew: {
@@ -1033,10 +1034,8 @@
       },
       other: {
         title: "Другое",
-        items: ["ПЕЧЕНЬ", "СВЕТЛЫЙ РУБЕЦ", "ИНДЕЙКА", "МЯСНЫЕ ЛОМТИКИ", "КНИЖКА", "ВЫМЯ", "ПОЧКИ", "СЕМЕННИКИ", "ПИКАЛЬНОЕ МЯСО"],
-        fractions: {
-          "ПОЧКИ": ["Мелкое", "Целое"]
-        }
+        items: ["ПЕЧЕНЬ", "СВЕТЛЫЙ РУБЕЦ", "ИНДЕЙКА", "МЯСНЫЕ ЛОМТИКИ", "КНИЖКА", "ВЫМЯ", "СЕМЕННИКИ", "ПИКАЛЬНОЕ МЯСО"],
+        fractions: {}
       },
       powder: {
         title: "Присыпки",
@@ -2206,11 +2205,19 @@
 
     function mapApiBasketToLocal(list) {
       return (list || []).map(function (x) {
+        var main = String(x.main || x.name || "").trim();
+        var mainUp = main.toUpperCase().replace(/Ё/g, "Е");
+        var cat = x.cat || "dressura";
+        if (/^ПОЧКИ$/.test(mainUp)) cat = "dressura";
+        if (/^ГРУШ/.test(mainUp)) {
+          main = "ГРУШЫ";
+          cat = "veg";
+        }
         return {
           id: Date.now() + Math.random(),
-          cat: x.cat || "dressura",
-          main: x.main || x.name || "",
-          name: x.name || x.main || "",
+          cat: cat,
+          main: main,
+          name: x.name || x.main || main,
           sub: x.sub || "",
           value: x.val != null ? x.val : x.value,
           val: x.val != null ? x.val : x.value
@@ -14653,7 +14660,9 @@
         "УШКО ГОВЯЖЬЕ": "УХО Г",
         "УХО": "УХО Г",
         "КАБАЧКИ": "КАБАЧОК",
-        "ГРУШЫ": "ГРУШЫ",
+        "ГРУШЫ": "ГРУШИ",
+        "ГРУШИ": "ГРУШИ",
+        "ГРУША": "ГРУШИ",
         "БАРАНЬЯ ПЕЧЕНЬ": "БАРАНЬЯ ПЕЧЕНЬ",
         "ЛОПАТЧНЫЙ ХРЯЩ": "ЛОП ХРЯЩ ШТ.",
         "ЛОПАТОЧНЫЙ ХРЯЩ": "ЛОП ХРЯЩ ШТ.",
@@ -17123,13 +17132,14 @@
       }
 
       try {
+        // состав изменился, но пакеты не manual — авто; иначе не force-сбрасывать
         if (!_subDetailOpenedFp || (fp && fp !== _subDetailOpenedFp)) {
-          syncSubDetailPacksFromBasket_({ force: true });
+          if (!subDetailPacksManual) syncSubDetailPacksFromBasket_();
           return {
             packagesByn: packagesBynFromUCountsLocal_(subDetailPackCounts),
             hint: packHintFromU_(subDetailPackCounts),
             fromSheet: false,
-            fromManual: false
+            fromManual: !!subDetailPacksManual
           };
         }
       } catch (eAuto) {}
@@ -17517,7 +17527,8 @@
           var hasSheetPacks = (Number(pc0.u1) || 0) + (Number(pc0.u2) || 0) +
             (Number(pc0.u3) || 0) + (Number(pc0.up4) || 0) > 0;
           if (hasSheetPacks) {
-            setSubDetailPackCounts_(pc0, { resetManual: true });
+            // пакеты с листа = ручные: не затирать автопри правке состава
+            setSubDetailPackCounts_(pc0, { manual: true });
             _subDetailCostCache.packagesByn = packagesBynFromUCountsLocal_(pc0);
           } else {
             syncSubDetailPacksFromBasket_({ force: true });

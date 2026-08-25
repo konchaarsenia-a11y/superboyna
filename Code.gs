@@ -2165,7 +2165,22 @@ function doGet(e) {
       phone: e.parameter.phone ? decodeURIComponent(e.parameter.phone) : "",
       note: e.parameter.note ? decodeURIComponent(e.parameter.note) : "",
       factCost: e.parameter.factCost || "",
-      statedCost: e.parameter.statedCost || ""
+      statedCost: e.parameter.statedCost || "",
+      basket: (function () {
+        try {
+          return e.parameter.basket ? JSON.parse(decodeURIComponent(e.parameter.basket)) : null;
+        } catch (eB) {
+          return null;
+        }
+      })(),
+      packCounts: (function () {
+        try {
+          return e.parameter.packCounts ? JSON.parse(decodeURIComponent(e.parameter.packCounts)) : null;
+        } catch (eP) {
+          return null;
+        }
+      })(),
+      coef: e.parameter.coef || ""
     }, callback, false);
   }
   
@@ -3294,16 +3309,20 @@ function handleGetCourier(dayName, callback) {
     var delivered = false;
     var ci = courierColFor_(client.name);
     var courierCol = ci >= 0 ? ci + 3 : -1;
-    if (sheetActive && ci >= 0) {
-      delivered = courierDone[ci] === true;
-    } else if (memFlags && typeof memFlags === "object") {
+    var memDelivered = false;
+    if (memFlags && typeof memFlags === "object") {
       if (Object.prototype.toString.call(memFlags) === "[object Array]") {
-        delivered = memFlags[client.col] === true;
+        memDelivered = memFlags[client.col] === true;
       } else {
-        delivered = normalizeMemDelivered_(memFlagEntry_(memFlags, client.name)) ||
+        memDelivered = normalizeMemDelivered_(memFlagEntry_(memFlags, client.name)) ||
           normalizeMemDelivered_(memFlags[clientMatchKey_(client.name)]) ||
           normalizeMemDelivered_(memFlags[String(client.name).toUpperCase()]);
       }
+    }
+    if (sheetActive && ci >= 0) {
+      delivered = courierDone[ci] === true || memDelivered;
+    } else {
+      delivered = memDelivered;
     }
     var memE = memFlagEntry_(memFlags, client.name);
     var assembled = !!(memE && memE.assembled);
@@ -14475,7 +14494,8 @@ function handleSaveSubscription(json, callback, fromPost) {
   var factCost = json.factCost != null && json.factCost !== "" ? json.factCost : null;
   // указанная стоимость (ручная) — приоритет над старым factCost
   if (json.statedCost != null && json.statedCost !== "") factCost = json.statedCost;
-  var basket = Array.isArray(json.basket) ? json.basket : null;
+  var basket = normalizeBasketArg_(json.basket);
+  if (basket && !Array.isArray(basket)) basket = null;
   var packCountsOpt = json.packCounts || null;
   if (typeof packCountsOpt === "string") {
     try { packCountsOpt = JSON.parse(packCountsOpt); } catch (ePc) { packCountsOpt = null; }
@@ -23542,26 +23562,45 @@ function writePpBasketToRowValues_(headers, basket, nick, subId, deliveriesN, st
     var isub = String(it.sub || "").trim().toUpperCase().replace(/Ё/g, "Е");
     var val = Number(it.val != null ? it.val : it.value) || 0;
     if (!iname || val <= 0) continue;
+    try { iname = String(normalizeProductAlias_(iname) || iname).toUpperCase().replace(/Ё/g, "Е"); } catch (eAl) {}
+    var matched = false;
+    var softIdx = -1;
     for (var c = 6; c < headers.length; c++) {
       var map = mapCrmHeaderToItem_(headers[c]);
       if (!map) continue;
       var mname = String(map.name || "").toUpperCase().replace(/Ё/g, "Е");
       var msub = String(map.sub || "").toUpperCase().replace(/Ё/g, "Е");
+      try { mname = String(normalizeProductAlias_(mname) || mname).toUpperCase().replace(/Ё/g, "Е"); } catch (eAl2) {}
       if (mname !== iname) continue;
-      if (msub && isub && msub !== isub) continue;
-      if (msub && !isub) continue;
-      if (!msub && isub) continue;
-      // Корзина в граммах/шт; на листе ПП сыпучее: 1 = 100г
-      var sheetVal;
-      if (map.grams) {
-        sheetVal = Math.round((val / 100) * 1000) / 1000;
-        if (!(sheetVal > 0)) continue;
-      } else {
-        sheetVal = Math.round(val);
+      // точный матч фракции
+      if (msub && isub && msub === isub) {
+        softIdx = c;
+        matched = true;
+        break;
       }
-      row[c] = sheetVal;
-      break;
+      if (!msub && !isub) {
+        softIdx = c;
+        matched = true;
+        break;
+      }
+      // мягкий: имя совпало, фракция только с одной стороны
+      if (softIdx < 0 && ((msub && !isub) || (!msub && isub))) {
+        softIdx = c;
+      }
     }
+    if (!matched && softIdx >= 0) {
+      matched = true;
+    }
+    if (!matched || softIdx < 0) continue;
+    var mapW = mapCrmHeaderToItem_(headers[softIdx]);
+    var sheetVal;
+    if (mapW && mapW.grams) {
+      sheetVal = Math.round((val / 100) * 1000) / 1000;
+      if (!(sheetVal > 0)) continue;
+    } else {
+      sheetVal = Math.round(val);
+    }
+    row[softIdx] = sheetVal;
   }
   if (factCost != null && factCost !== "") {
     for (var fc = 0; fc < headers.length; fc++) {
