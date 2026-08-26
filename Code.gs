@@ -5140,7 +5140,14 @@ function normalizeProductAlias_(nameU) {
     "ГОВЯЖЬИ УШИ": "УХО Г",
     "УТИНЫЕШЕИ": "УТИНЫЕ ШЕИ",
     "УТИНАЯ ШЕЯ": "УТИНЫЕ ШЕИ",
-    "УТИНАЯШЕЯ": "УТИНЫЕ ШЕИ"
+    "УТИНАЯШЕЯ": "УТИНЫЕ ШЕИ",
+    "ЛОМТИКИ": "МЯСНЫЕ ЛОМТИКИ",
+    "ЛОМТИК": "МЯСНЫЕ ЛОМТИКИ",
+    "ЛОМТ": "МЯСНЫЕ ЛОМТИКИ",
+    "МЯС ЛОМТИКИ": "МЯСНЫЕ ЛОМТИКИ",
+    "МЯС. ЛОМТИКИ": "МЯСНЫЕ ЛОМТИКИ",
+    "МЯСНЫЕ ЛОМТ": "МЯСНЫЕ ЛОМТИКИ",
+    "МЯСН ЛОМТИКИ": "МЯСНЫЕ ЛОМТИКИ"
   };
   if (aliases[n]) return aliases[n];
   var n2 = n.replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
@@ -5148,6 +5155,8 @@ function normalizeProductAlias_(nameU) {
   if (/^БАРАНЬ?Е?\s*ЛЕГК/.test(n2)) return "БАРАНЬЕ ЛЁГКОЕ";
   if (n2 === "ЛЕГКОЕ") return "ЛЁГКОЕ";
   if (/^УТИН/.test(n2) && /ШЕ/.test(n2)) return "УТИНЫЕ ШЕИ";
+  if (/^ЛОМТИК/.test(n2) || n2 === "ЛОМТ") return "МЯСНЫЕ ЛОМТИКИ";
+  if (/^МЯСН?\s*ЛОМТ/.test(n2)) return "МЯСНЫЕ ЛОМТИКИ";
   return n2;
 }
 
@@ -10443,6 +10452,9 @@ function mergeBasketQtyForSheet_(basket) {
   var order = [];
   (basket || []).forEach(function (it) {
     var name = String(it.name || it.main || "").trim();
+    try {
+      name = String(normalizeProductAlias_(name.toUpperCase().replace(/Ё/g, "Е")) || name).trim();
+    } catch (eCanon) {}
     var sub = String(it.sub || "").trim();
     var val = Number(it.val != null ? it.val : it.value) || 0;
     if (!name || val <= 0) return;
