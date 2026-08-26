@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-25 people-canon-instant-accept
+ * deploy-marker: 2026-08-26 d1-primary-canon
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -163,6 +163,17 @@ function isCutoverLive_(params, env, url) {
   return true;
 }
 
+/** D1 = источник правды; Sheets — фоновое зеркало (без обратного upsert). Откат: env PEOPLE_CANON=sheets-confirm-bg */
+function isD1PrimaryCanon_(env) {
+  const v = env && env.PEOPLE_CANON ? String(env.PEOPLE_CANON).trim().toLowerCase() : "";
+  if (v === "sheets-confirm-bg" || v === "sheets" || v === "sheets-first") return false;
+  return true;
+}
+
+function peopleCanonLabel_(env) {
+  return isD1PrimaryCanon_(env) ? "d1-primary" : "sheets-confirm-bg";
+}
+
 function isWriteAction_(a) {
   if (!a) return false;
   // явные чтения / списки — не write (даже если имя начинается с partner*)
@@ -195,8 +206,8 @@ async function handleAction_(action, params, env, url, ctx) {
       live: !!live,
       swr: !!live,
       d1: !!(env && env.DB),
-      peopleCanon: "sheets-confirm-bg",
-      deployMarker: "2026-08-26 cal-move-type"
+      peopleCanon: peopleCanonLabel_(env),
+      deployMarker: "2026-08-26 d1-primary-canon"
     };
   }
 
@@ -759,8 +770,168 @@ async function putSnap_(env, key, payload) {
     .run();
 }
 
+/** D1-primary: D1 → success для UI; Sheets только зеркало (ошибка листа не откатывает D1). */
+async function runPeopleWriteJobD1Primary_(writeId, job, env, ctx) {
+  if (!writeId || !env || !env.DB || !job) return job;
+  if (job.verified && job.d1Verified && job.status === "success") return job;
+  if (job.status === "error" && job.d1Verified) return job;
+  const runAt = Number(job._runningAt || 0) || 0;
+  if (job._running && runAt && Date.now() - runAt < 25000) return job;
+
+  const a = String(job.action || "");
+  const gasWriteParams = job.params || {};
+  job = Object.assign({}, job, { _running: true, _runningAt: Date.now() });
+  try {
+    await putSnap_(env, "peopleWrite:" + writeId, job);
+  } catch (eLock) {}
+
+  let gasAction = a;
+  let gasParams = gasWriteParams;
+  if (
+    /^saveOrder$/i.test(a) &&
+    (toBool_(gasWriteParams.calendarOnly) ||
+      (!String(gasWriteParams.day || "").trim() &&
+        String(gasWriteParams.date || gasWriteParams.dateIso || gasWriteParams.deliveryDate || "").trim()))
+  ) {
+    gasAction = "saveBooking";
+    gasParams = Object.assign({}, gasWriteParams, {
+      action: "saveBooking",
+      alsoSaveOrder: "0",
+      calendarOnly: "1",
+      day: ""
+    });
+  }
+
+  function sheetsOk_(sheetsRes) {
+    if (!sheetsRes) return false;
+    if (/gas_proxy_failed|gas_timeout/i.test(String(sheetsRes.message || ""))) return false;
+    if (sheetsRes.status === "success") return true;
+    if (
+      /beyond_week|date_not_on_week/i.test(
+        String(sheetsRes.status || "") + " " + String(sheetsRes.message || "")
+      ) &&
+      (toBool_(gasParams.calendarOnly) || !String(gasParams.day || "").trim())
+    ) {
+      return true;
+    }
+    if (
+      /already|not_found|src_client_not_found|same_/i.test(
+        String(sheetsRes.status || "") + " " + String(sheetsRes.message || "")
+      )
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  let d1WriteRes = job.d1Res || null;
+  if (!job.d1Verified) {
+    try {
+      if (/^(saveOrder|saveBooking)$/i.test(a)) {
+        d1WriteRes = await saveOrder_(gasWriteParams, env, /^saveBooking$/i.test(a));
+      } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
+        d1WriteRes = await deleteClient_(gasWriteParams, env);
+      } else if (/^moveClient$/i.test(a)) {
+        d1WriteRes = await moveClient_(gasWriteParams, env);
+      }
+    } catch (eD1) {
+      d1WriteRes = { status: "error", message: String((eD1 && eD1.message) || eD1) };
+    }
+    if (!d1WriteRes || d1WriteRes.status !== "success") {
+      const fail = {
+        status: "error",
+        pendingSheets: false,
+        sheetsVerified: false,
+        d1Verified: false,
+        verified: false,
+        action: a,
+        params: gasWriteParams,
+        message: (d1WriteRes && d1WriteRes.message) || "d1_write_failed",
+        finishedAt: Date.now()
+      };
+      await putSnap_(env, "peopleWrite:" + writeId, fail);
+      return fail;
+    }
+  } else {
+    d1WriteRes = job.d1Res || d1WriteRes || { status: "success" };
+  }
+
+  const verified = {
+    status: "success",
+    verified: true,
+    pendingSheets: false,
+    pendingSheetsMirror: true,
+    sheetsVerified: false,
+    d1Verified: true,
+    action: a,
+    params: gasWriteParams,
+    wrote: (d1WriteRes && d1WriteRes.wrote) != null ? d1WriteRes.wrote : job.wrote,
+    finishedAt: Date.now(),
+    d1Res: d1WriteRes
+  };
+  try {
+    await putSnap_(env, "peopleWrite:" + writeId, verified);
+  } catch (eMid) {}
+
+  let sheetsRes = null;
+  let mirrorOk = false;
+  try {
+    sheetsRes = await gasProxy_(gasAction, gasParams, env, { write: true });
+    mirrorOk = sheetsOk_(sheetsRes);
+    if (!mirrorOk) {
+      await new Promise(function (r) {
+        setTimeout(r, 700);
+      });
+      const again = await Promise.race([
+        gasProxy_(gasAction, gasParams, env, { write: true }).catch(function () {
+          return null;
+        }),
+        new Promise(function (r) {
+          setTimeout(function () {
+            r(null);
+          }, 14000);
+        })
+      ]);
+      if (again) {
+        sheetsRes = again;
+        mirrorOk = sheetsOk_(sheetsRes);
+      }
+    }
+  } catch (eG) {
+    sheetsRes = { status: "error", message: String((eG && eG.message) || eG || "gas_proxy_failed") };
+  }
+  if (mirrorOk && sheetsRes && sheetsRes.status !== "success") {
+    sheetsRes = Object.assign({}, sheetsRes, { status: "success", softSheets: true });
+  }
+
+  const done = Object.assign({}, verified, {
+    pendingSheetsMirror: false,
+    sheetsVerified: !!mirrorOk,
+    sheetsMirrorFailed: !mirrorOk,
+    sheetsMirrorMessage: mirrorOk ? "" : (sheetsRes && (sheetsRes.message || sheetsRes.status)) || "sheets_mirror_failed",
+    gas: sheetsRes || null,
+    finishedAt: Date.now()
+  });
+  try {
+    await putSnap_(env, "peopleWrite:" + writeId, done);
+  } catch (eDone) {}
+
+  try {
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(rebuildWeekCounts_(env));
+    } else {
+      await rebuildWeekCounts_(env);
+    }
+  } catch (eCnt) {}
+
+  return done;
+}
+
 /** Дожать people-write (D1→GAS). Вызывается из waitUntil и из pollPeopleWrite. */
 async function runPeopleWriteJob_(writeId, job, env, ctx) {
+  if (isD1PrimaryCanon_(env)) {
+    return runPeopleWriteJobD1Primary_(writeId, job, env, ctx);
+  }
   if (!writeId || !env || !env.DB || !job) return job;
   if (job.sheetsVerified && job.status === "success") return job;
   if (job.status === "error" && !job.pendingSheets) return job;
@@ -6108,12 +6279,15 @@ async function handleCutover_(a, params, env, ctx) {
 
         // компактные params для продолжения на poll (без огромного basket duplicate если можно)
         const jobParams = Object.assign({}, gasWriteParams);
-        // move/delete: сразу D1 — иначе UI 8–20с ждёт sheetsFirst и список «мигает» пустым
+        // D1-primary: все core writes сразу в D1; Sheets — только зеркало в фоне
         let d1Early = null;
-        if (/^(moveClient|deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
+        const d1Primary = isD1PrimaryCanon_(env);
+        if (env && env.DB && (d1Primary || /^(moveClient|deleteClient|removeCalendarClient)$/i.test(a))) {
           try {
-            if (/^moveClient$/i.test(a)) d1Early = await moveClient_(jobParams, env);
-            else d1Early = await deleteClient_(jobParams, env);
+            if (/^(saveOrder|saveBooking)$/i.test(a)) {
+              d1Early = await saveOrder_(jobParams, env, /^saveBooking$/i.test(a));
+            } else if (/^moveClient$/i.test(a)) d1Early = await moveClient_(jobParams, env);
+            else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) d1Early = await deleteClient_(jobParams, env);
           } catch (eD1Early) {
             d1Early = {
               status: "error",
@@ -6121,12 +6295,15 @@ async function handleCutover_(a, params, env, ctx) {
             };
           }
         }
+        const d1Ok = !!(d1Early && d1Early.status === "success");
         try {
           await putSnap_(env, "peopleWrite:" + writeId, {
-            status: "pending",
-            pendingSheets: true,
+            status: d1Primary && d1Ok ? "success" : "pending",
+            verified: !!(d1Primary && d1Ok),
+            pendingSheets: !(d1Primary && d1Ok),
+            pendingSheetsMirror: !!(d1Primary && d1Ok),
             sheetsVerified: false,
-            d1Verified: !!(d1Early && d1Early.status === "success"),
+            d1Verified: d1Ok,
             d1Res: d1Early || null,
             action: a,
             params: jobParams,
@@ -6141,9 +6318,11 @@ async function handleCutover_(a, params, env, ctx) {
             await runPeopleWriteJob_(
               writeId,
               {
-                status: "pending",
-                pendingSheets: true,
-                d1Verified: !!(d1Early && d1Early.status === "success"),
+                status: d1Primary && d1Ok ? "success" : "pending",
+                verified: !!(d1Primary && d1Ok),
+                pendingSheets: !(d1Primary && d1Ok),
+                pendingSheetsMirror: !!(d1Primary && d1Ok),
+                d1Verified: d1Ok,
                 d1Res: d1Early || null,
                 action: a,
                 params: jobParams,
@@ -6178,13 +6357,16 @@ async function handleCutover_(a, params, env, ctx) {
           cutover: true,
           sandbox: false,
           optimistic: false,
-          pendingSheets: true,
+          peopleCanon: peopleCanonLabel_(env),
+          pendingSheets: !(d1Primary && d1Ok),
+          pendingSheetsMirror: !!(d1Primary && d1Ok),
           sheetsVerified: false,
-          d1Verified: !!(d1Early && d1Early.status === "success"),
-          d1Pending: !(d1Early && d1Early.status === "success"),
+          verified: !!(d1Primary && d1Ok),
+          d1Verified: d1Ok,
+          d1Pending: !d1Ok,
           writeId: writeId,
           action: a,
-          message: "pending_sheets"
+          message: d1Primary && d1Ok ? "d1_saved" : "pending_sheets"
         };
         if (d1Early && d1Early.status === "success") {
           if (d1Early.wrote != null) accepted.wrote = d1Early.wrote;
@@ -6606,7 +6788,7 @@ async function handleCutover_(a, params, env, ctx) {
     } catch (eCal) {}
   }
 
-  const needGas = cutoverNeedsRevalidate_(a, params, fast);
+  const needGas = cutoverNeedsRevalidate_(a, params, fast, env);
   if (needGas && ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(cutoverRevalidate_(a, params, env));
   }
@@ -6659,7 +6841,7 @@ async function handleCutover_(a, params, env, ctx) {
             } catch (eRc) {}
           }
           // фон: подтянуть только недостающих (не tombstone), без подмены ответа
-          if (!hasTomb && got < expect && ctx && typeof ctx.waitUntil === "function") {
+          if (!hasTomb && got < expect && !isD1PrimaryCanon_(env) && ctx && typeof ctx.waitUntil === "function") {
             ctx.waitUntil(
               (async function () {
                 try {
@@ -7150,7 +7332,18 @@ async function nominatimSuggestWorker_(text) {
 }
 
 const _revalCooldown = new Map();
-function cutoverNeedsRevalidate_(a, params, fast) {
+function cutoverNeedsRevalidate_(a, params, fast, env) {
+  if (isD1PrimaryCanon_(env) && a === "getClients") {
+    const empty = !fast || !Array.isArray(fast.clients) || !fast.clients.length;
+    if (!empty) return false;
+  }
+  if (isD1PrimaryCanon_(env) && a === "getViewCompare") {
+    const empty =
+      !fast ||
+      ((!Array.isArray(fast.week) || !fast.week.length) &&
+        (!Array.isArray(fast.month) || !fast.month.length));
+    if (!empty) return false;
+  }
   // calc/ping/suggest — не гоняем в GAS из UI
   if (/^(calc|ping|keepWarm|suggest|lookup)/i.test(a)) return false;
   const key =
@@ -7989,6 +8182,7 @@ async function cutoverRefreshAllWeekDays_(env) {
 
 async function cutoverAfterWrite_(a, params, env, writeRes) {
   try {
+    if (isD1PrimaryCanon_(env)) return;
     if (
       /^(updateCutting|startCuttingSession|stopCuttingSession|finishCutting|setDelivered|setAssembled)$/i.test(
         a

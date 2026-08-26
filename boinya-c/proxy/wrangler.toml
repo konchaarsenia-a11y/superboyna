@@ -5,6 +5,9 @@ name = "boinya-c"
 main = "worker.js"
 compatibility_date = "2024-11-01"
 
+[vars]
+PEOPLE_CANON = "d1-primary"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "boinya-c"

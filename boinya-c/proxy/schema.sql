@@ -50,3 +50,17 @@ CREATE TABLE IF NOT EXISTS snap_cache (
   payload TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- Очередь зеркалирования D1 → Sheets (d1-primary canon)
+CREATE TABLE IF NOT EXISTS sheet_outbox (
+  id TEXT PRIMARY KEY,
+  action TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT DEFAULT 'pending',
+  attempts INTEGER DEFAULT 0,
+  last_error TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sheet_outbox_status ON sheet_outbox(status);
