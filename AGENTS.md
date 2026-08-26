@@ -62,6 +62,23 @@ Cloud Agent **не может** сохранить Automation за владел�
 
 ---
 
+## ⚠️ Handoff: Goodboy GB_* (клиентский кабинет, 2026-08-26)
+
+Клиентский сайт/кабинет Goodboy связан с Бойней через **отдельные** листы и `gb*`-actions.
+
+| Что | Детали |
+|-----|--------|
+| Инструкция | **[MERGE_GOODBOY_GB.md](./MERGE_GOODBOY_GB.md)** |
+| Сниппет | [`goodboy/CODE_GS_GOODBOY.snippet.gs`](./goodboy/CODE_GS_GOODBOY.snippet.gs) |
+| Листы (запись) | только `GB_Пользователи`, `GB_Связки`, `GB_Питомцы` |
+| CRM / Календарь_Дат | **только чтение** |
+| Не трогать | заказы, нарезка, склад, Доступы, materialize/week, натив `gbi_` |
+
+Владельцу после merge в `main`: вставить весь `Code.gs` → Deploy → `?action=gbEnsureSheets`.  
+Агенту Бойни при расхождении Script↔git: вливать **патч** по `MERGE_GOODBOY_GB.md`, не затирать файл.
+
+---
+
 ## ⚠️ Handoff: правки `Code.gs` от нативного агента (2026-07-24)
 
 Параллельно делается **натив GBI** (`native/`, см. [NATIVE.md](./NATIVE.md)).  
