@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115906";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115910";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -2666,10 +2666,11 @@
         var b2 = orderBaskets[2] || [];
         var src = b1.length ? 1 : (b2.length ? 2 : (orderActiveDog || 1));
         (orderBaskets[src] || []).forEach(function (x) {
+          var main = canonicalProductMain_(x.main || x.name);
           out.push({
             cat: x.cat,
-            main: x.main || x.name,
-            name: x.main || x.name,
+            main: main,
+            name: main,
             sub: x.sub || "",
             value: x.value != null ? x.value : x.val,
             val: x.value != null ? x.value : x.val
@@ -2679,10 +2680,11 @@
       }
       for (var d = 1; d <= 2; d++) {
         (orderBaskets[d] || []).forEach(function (x) {
+          var main = canonicalProductMain_(x.main || x.name);
           out.push({
             cat: x.cat,
-            main: x.main || x.name,
-            name: x.main || x.name,
+            main: main,
+            name: main,
             sub: x.sub || "",
             value: x.value != null ? x.value : x.val,
             val: x.value != null ? x.value : x.val,
@@ -15343,10 +15345,26 @@
         "ТРАХЕИ": "ТРАХЕЯ",
         "ТРАХЕЮ": "ТРАХЕЯ",
         "СТАНОВАЯ ЖИЛА": "СТАНОВАЯ ЖИЛА",
-        "ИНДЕЙКА": "ИНДЕЙКА"
+        "ИНДЕЙКА": "ИНДЕЙКА",
+        "ЛОМТИКИ": "МЯСНЫЕ ЛОМТИКИ",
+        "ЛОМТИК": "МЯСНЫЕ ЛОМТИКИ",
+        "ЛОМТ": "МЯСНЫЕ ЛОМТИКИ",
+        "МЯС ЛОМТИКИ": "МЯСНЫЕ ЛОМТИКИ",
+        "МЯС. ЛОМТИКИ": "МЯСНЫЕ ЛОМТИКИ",
+        "МЯСНЫЕ ЛОМТ": "МЯСНЫЕ ЛОМТИКИ",
+        "МЯСН ЛОМТИКИ": "МЯСНЫЕ ЛОМТИКИ",
+        "МЯСНЫЕ ЛОМТИКИ": "МЯСНЫЕ ЛОМТИКИ"
       };
       if (aliases[key]) return aliases[key];
+      if (/^ЛОМТИК/.test(key) || key === "ЛОМТ") return "МЯСНЫЕ ЛОМТИКИ";
+      if (/^МЯСН?\s*ЛОМТ/.test(key)) return "МЯСНЫЕ ЛОМТИКИ";
       return key;
+    }
+
+    function canonicalProductMain_(raw) {
+      var up = String(raw || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+      if (!up) return "";
+      return igAliasResolve(up);
     }
 
     function cleanChecklistLine_(line) {
@@ -15486,15 +15504,21 @@
           up = peeled.name;
         }
         var fracHit = up.match(/((?:СРЕДН[\p{L}\p{N}_]*|СРЕДНЕВАТ[\p{L}\p{N}_]*|МЕЛК[\p{L}\p{N}_]*|МАЛЕНЬК[\p{L}\p{N}_]*|МАЛЮСЕНЬК[\p{L}\p{N}_]*|КРУПН[\p{L}\p{N}_]*|БОЛЬШ[\p{L}\p{N}_]*|ОЧЕНЬ\s*(?:МАЛ|МЕЛК)[\p{L}\p{N}_]*|СУПЕР\s*(?:МАЛ|МЕЛК)[\p{L}\p{N}_]*)\s+(?:КУБИК[\p{L}\p{N}_]*|КУСОЧК[\p{L}\p{N}_]*)|(?:КУБИК[\p{L}\p{N}_]*|КУСОЧК[\p{L}\p{N}_]*)\s+(?:СРЕДН[\p{L}\p{N}_]*|СРЕДНЕВАТ[\p{L}\p{N}_]*|МЕЛК[\p{L}\p{N}_]*|МАЛЕНЬК[\p{L}\p{N}_]*|КРУПН[\p{L}\p{N}_]*|БОЛЬШ[\p{L}\p{N}_]*)|ОЧ\s*МАЛ|ОЧЕНЬ\s*(?:МАЛ|МЕЛК)[\p{L}\p{N}_]*|СУПЕР\s*(?:МАЛ|МЕЛК)[\p{L}\p{N}_]*|МАЛЮСЕНЬК[\p{L}\p{N}_]*|МАХОНЬК[\p{L}\p{N}_]*|КРОШЕЧН[\p{L}\p{N}_]*|КРОХОТН[\p{L}\p{N}_]*|МИНИАТЮР[\p{L}\p{N}_]*|МАЛЕНЬК[\p{L}\p{N}_]*|МЕЛК[\p{L}\p{N}_]*|СРЕДНЕВАТ[\p{L}\p{N}_]*|СРЕДН[\p{L}\p{N}_]*|БОЛЬШ[\p{L}\p{N}_]*|КРУПН[\p{L}\p{N}_]*|ЗДОРОВЕНН[\p{L}\p{N}_]*|ОГРОМ[\p{L}\p{N}_]*|ГИГАНТ[\p{L}\p{N}_]*|ЦЕЛИКОМ|ЦЕЛ[\p{L}\p{N}_]*|ПОЛОВИН[\p{L}\p{N}_]*|ПАЛОЧ[\p{L}\p{N}_]*|ПАЛК|ПЛАСТИН[\p{L}\p{N}_]*|ПЛАСТ|КУБИК[\p{L}\p{N}_]*|КУСОЧК[\p{L}\p{N}_]*|ЛОМТ[\p{L}\p{N}_]*|ПОЛОСК[\p{L}\p{N}_]*|РОГАЛИК|СРЕД(?![\p{L}])|МАЛ(?![\p{L}])|БОЛ(?![\p{L}])|ОГР|МИНИ(?![\p{L}])|НОРМ(?![\p{L}]))/u);
-        if (fracHit) {
+        var protectMeatSlices = /МЯСН[\p{L}\p{N}_]*\s*ЛОМТ|^ЛОМТИК/u.test(up);
+        if (fracHit && !protectMeatSlices) {
           fracSrc = fracSrc || fracHit[0];
           up = up.replace(fracHit[0], "").replace(/\s+/g, " ").trim();
         }
         up = igAliasResolve(up);
         var hit = matchKnown(up);
         if (!hit) {
+          var canonTry = canonicalProductMain_(namePart.trim());
+          if (canonTry && canonTry !== up) hit = matchKnown(canonTry);
+        }
+        if (!hit) {
           noteBits.push(namePart.trim() + " " + val + (unit || ""));
-          added.push({ cat: "other", main: namePart.trim(), name: namePart.trim(), sub: "", value: val, val: val });
+          var fallbackMain = canonicalProductMain_(namePart.trim()) || namePart.trim();
+          added.push({ cat: "other", main: fallbackMain, name: fallbackMain, sub: "", value: val, val: val });
           return;
         }
         if (fracSrc) {
@@ -18033,10 +18057,11 @@
 
     function subDetailBasketPayload_() {
       return (subDetailBasket || []).map(function (x) {
+        var main = canonicalProductMain_(x.main || x.name);
         return {
           cat: x.cat,
-          main: x.main || x.name,
-          name: x.name || x.main,
+          main: main,
+          name: main,
           sub: x.sub || "",
           value: x.val != null ? x.val : x.value,
           val: x.val != null ? x.val : x.value
