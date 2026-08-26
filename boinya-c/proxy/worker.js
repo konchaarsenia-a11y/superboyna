@@ -196,7 +196,7 @@ async function handleAction_(action, params, env, url, ctx) {
       swr: !!live,
       d1: !!(env && env.DB),
       peopleCanon: "sheets-confirm-bg",
-      deployMarker: "2026-08-26 cal-move-payload"
+      deployMarker: "2026-08-26 cal-move-type"
     };
   }
 
@@ -669,6 +669,60 @@ function sourceFromSegment_(seg) {
   if (seg === "Р") return "retail";
   if (seg === "ПАРТНЁР") return "partner";
   return "";
+}
+
+function segmentSourceFromMovePayload_(payload, params) {
+  params = params || {};
+  const meta = payload && payload.meta_json ? parseMeta_(payload.meta_json) : {};
+  const note = String(
+    (params && params.note) || (payload && payload.note) || meta.note || ""
+  );
+  let segment = segmentFromOrderParams_({
+    segment: (params && params.segment) || (payload && payload.segment) || meta.segment || "",
+    orderType:
+      (params && params.orderType) ||
+      meta.orderType ||
+      (payload && payload.source) ||
+      "",
+    source:
+      (params && params.source) ||
+      (payload && payload.source) ||
+      meta.source ||
+      meta.orderType ||
+      ""
+  });
+  if (!segment && note) {
+    const segTag = note.match(/\[SEG:([^\]]+)\]/i);
+    if (segTag) segment = normalizeSegmentLabel_(segTag[1]);
+  }
+  let source =
+    String(
+      (params && params.source) ||
+        (payload && payload.source) ||
+        meta.source ||
+        meta.orderType ||
+        ""
+    ).trim() || sourceFromSegment_(segment);
+  if (!segment && source) {
+    segment = segmentFromOrderParams_({ source: source, orderType: source });
+  }
+  return { segment: segment || "", source: source || "" };
+}
+
+function enrichOrderRowSegment_(row) {
+  if (!row) return row;
+  const got = segmentSourceFromMovePayload_(row, {});
+  if (!got.segment && !got.source) return row;
+  const meta = parseMeta_(row.meta_json);
+  const nextMeta = Object.assign({}, meta, {
+    segment: got.segment || meta.segment || "",
+    orderType: meta.orderType || got.source || sourceFromSegment_(got.segment) || ""
+  });
+  return Object.assign({}, row, {
+    segment: got.segment || row.segment || "",
+    source: got.source || row.source || "",
+    meta_json: JSON.stringify(nextMeta)
+  });
 }
 
 async function ensureMetaColumn_(env) {
@@ -4641,7 +4695,8 @@ async function loadMovePayloadFromViewSnap_(env, oldDate, matchKeyRaw, client) {
         phone: c.phone || "",
         note: c.note || "",
         basket_json: JSON.stringify(c.basket || []),
-        segment: c.segment || ""
+        segment: c.segment || "",
+        source: c.source || ""
       };
     }
   } catch (e) {}
@@ -4820,6 +4875,7 @@ async function moveClient_(params, env) {
       try { await delSnap_(env, "viewDate:" + oldDate); } catch (eVo) {}
     }
     let created = null;
+    const segSrc = segmentSourceFromMovePayload_(srcPayload, params);
     try {
       created = await saveOrder_(
         Object.assign({}, params, {
@@ -4833,6 +4889,17 @@ async function moveClient_(params, env) {
           phone: (srcPayload && srcPayload.phone) || params.phone || "",
           note: (srcPayload && srcPayload.note) || params.note || "",
           basket: srcBasket.length ? srcBasket : params.basket || [],
+          segment: segSrc.segment,
+          orderType:
+            params.orderType ||
+            segSrc.source ||
+            sourceFromSegment_(segSrc.segment) ||
+            "",
+          source:
+            params.source ||
+            segSrc.source ||
+            sourceFromSegment_(segSrc.segment) ||
+            "",
           fromAfterWrite: "1"
         }),
         env,
@@ -4885,6 +4952,8 @@ async function moveClient_(params, env) {
   if (!row) {
     return { status: "error", message: "not_found", sandbox: true };
   }
+
+  row = enrichOrderRowSegment_(row);
 
   const meta = parseMeta_(row.meta_json);
   if (cutRaw === "0" || cutRaw === "no") meta.noCut = true;
