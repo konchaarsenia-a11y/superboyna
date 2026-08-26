@@ -193,43 +193,50 @@
     .item .title { font-weight: 800; font-size: 15px; }
     .item .unit { color: var(--muted); font-size: 13px; margin-top: 2px; }
     .coupon-card {
-      display: flex; align-items: center; gap: 12px;
+      display: flex; align-items: center; gap: 10px;
       background: linear-gradient(145deg, var(--bg2), #1a140f);
       border: 1px solid rgba(245,154,46,0.28);
-      border-radius: 18px; padding: 12px; margin-bottom: 10px;
+      border-radius: 14px; padding: 8px 10px; margin-bottom: 8px;
     }
     html[data-theme="light"] .coupon-card {
       background: linear-gradient(145deg, #fff, #f8efe3);
     }
     .coupon-card.banner-card {
-      flex-direction: column;
-      align-items: stretch;
+      flex-direction: row;
+      align-items: center;
       gap: 10px;
     }
     .coupon-banner, .coupon-preview {
-      width: 100%;
-      border-radius: 12px;
+      width: 92px;
+      height: 58px;
+      flex: 0 0 auto;
+      border-radius: 8px;
       display: block;
       background: #111;
       border: 1px solid rgba(245,154,46,0.25);
-      object-fit: contain;
+      object-fit: cover;
     }
-    .coupon-preview { aspect-ratio: 3 / 2; object-fit: cover; }
+    .coupon-card.banner-card .coupon-banner {
+      width: 92px;
+      height: 58px;
+    }
     .coupon-row {
-      display: flex; align-items: center; gap: 12px;
+      display: flex; align-items: center; gap: 8px;
       width: 100%;
+      min-width: 0;
+      flex: 1;
     }
     .coupon-hint {
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 500;
-      margin-top: 3px;
+      margin-top: 2px;
       opacity: 0.55;
-      line-height: 1.3;
+      line-height: 1.25;
     }
     .coupon-hint.nfc {
       opacity: 0.38;
-      font-size: 11.5px;
+      font-size: 11px;
     }
     .stepper { display: flex; align-items: center; gap: 8px; }
     .stepper button {
@@ -495,7 +502,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.11";
+  var APP_VER = "3.3.12";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
