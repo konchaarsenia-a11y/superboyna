@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115902";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115903";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -5016,12 +5016,24 @@
 
         try {
           if (calendarOnlySave && deliveryDate) {
-            // открыть Просмотр на эту дату — иначе кажется, что «не внеслось» (смотрели Пн)
+            // Просмотр = clientsScreen (не viewScreen — такого id нет → чёрный экран)
+            try {
+              var mmSave = String(deliveryDate).slice(0, 7);
+              if (/^\d{4}-\d{2}$/.test(mmSave)) {
+                try { delete viewMonthOverviewByMonth[mmSave]; } catch (eDelM) {}
+                if (viewMonthOverviewCache && String(viewMonthOverviewCache.month || "").slice(0, 7) === mmSave) {
+                  viewMonthOverviewCache = null;
+                }
+                var pickSave = document.getElementById("viewMonthPick");
+                if (pickSave) pickSave.value = mmSave;
+              }
+            } catch (eMm) {}
             try {
               var vd = document.getElementById("viewDate");
               if (vd) vd.value = deliveryDate;
               lastViewDateIso = deliveryDate;
             } catch (eVd) {}
+            try { switchTab("clientsScreen"); } catch (eTab) {}
             try {
               if (typeof openViewMonthDay === "function") {
                 await openViewMonthDay(deliveryDate);
@@ -5031,7 +5043,6 @@
             } catch (eOpenCal) {
               try { await loadClientsForDay(); } catch (eL2) {}
             }
-            try { switchTab("viewScreen"); } catch (eTab) {}
           } else {
             refreshDayViews(weekDayToSave || day).catch(function () {});
           }
@@ -5467,9 +5478,10 @@
       ) {
         renderMonthOverviewList_(viewMonthOverviewCache, { wantMonth: wantMonth });
         if (opts.refresh) {
+          // фон: D1 snap (без force GAS) — сетка не ждёт 6–7с
           apiGet(
-            { action: "getMonthOverview", month: wantMonth, force: "1", _: String(Date.now()) },
-            { timeoutMs: 45000, retries: 0, cacheTtlMs: 0 }
+            { action: "getMonthOverview", month: wantMonth, _: String(Date.now()) },
+            { timeoutMs: 22000, retries: 0, cacheTtlMs: 0 }
           ).then(function (res) {
             if (seq !== _monthOverviewLoadSeq) return;
             if (!(res && res.status === "success")) return;
@@ -5486,41 +5498,55 @@
       var box = document.getElementById("viewMonthOverviewList");
       if (box && !opts.soft) box.innerHTML = viewLoadingSkeletonHtml();
       try {
-        // свежие счётчики недели — иначе seed 10–16.08 затирает 17–23.08 на сетке
+        // неделю не блокируем: overlay поверх snap; force недели только при явной кнопке «Обновить»
         try {
-          await ensureWeekOverviewLoaded_({
-            force: !!(opts.force || !isWeekCountsFresh_(viewWeekOverviewCache))
-          });
+          if (opts.force) {
+            await ensureWeekOverviewLoaded_({ force: true });
+          } else if (!viewWeekOverviewCache || !isWeekCountsFresh_(viewWeekOverviewCache)) {
+            ensureWeekOverviewLoaded_({ soft: true }).catch(function () {});
+          }
         } catch (eWov) {}
         if (seq !== _monthOverviewLoadSeq) return;
         var params = { action: "getMonthOverview", month: wantMonth };
-        // смена месяца без кэша — всегда force, иначе SWR отдаёт залипший prev.month
-        if (opts.force || opts.needMonth) {
+        // force только по кнопке «Обновить» — иначе ‹› ждёт GAS ~6с
+        if (opts.force) {
           params.force = "1";
           params._ = String(Date.now());
         }
         var res = await apiGet(
           params,
-          { timeoutMs: opts.soft ? 22000 : 45000, retries: opts.soft ? 0 : 1, cacheTtlMs: (opts.force || opts.needMonth) ? 0 : undefined }
+          { timeoutMs: opts.soft ? 22000 : 45000, retries: opts.soft ? 0 : 1, cacheTtlMs: opts.force ? 0 : undefined }
         );
         if (seq !== _monthOverviewLoadSeq) return;
         if (res && res.status === "success") {
           var gotM = String(res.month || "").slice(0, 7);
           if (gotM && gotM !== wantMonth) {
-            // ещё раз строго за нужный месяц
+            // сначала без GAS force — Worker уже умеет monthOverview:yyyy-mm
             try {
               res = await apiGet(
-                { action: "getMonthOverview", month: wantMonth, force: "1", _: String(Date.now()) },
-                { timeoutMs: 45000, retries: 0, cacheTtlMs: 0 }
+                { action: "getMonthOverview", month: wantMonth, _: String(Date.now()) },
+                { timeoutMs: 22000, retries: 0, cacheTtlMs: 0 }
               );
-            } catch (eForce) {
+            } catch (eRetry) {
               res = null;
             }
             if (seq !== _monthOverviewLoadSeq) return;
             gotM = res ? String(res.month || "").slice(0, 7) : "";
             if (gotM && gotM !== wantMonth) {
-              if (box) box.innerHTML = '<div class="view-idle">Не удалось открыть ' + escapeHtml(wantMonth) + "</div>";
-              return;
+              try {
+                res = await apiGet(
+                  { action: "getMonthOverview", month: wantMonth, force: "1", _: String(Date.now()) },
+                  { timeoutMs: 45000, retries: 0, cacheTtlMs: 0 }
+                );
+              } catch (eForce) {
+                res = null;
+              }
+              if (seq !== _monthOverviewLoadSeq) return;
+              gotM = res ? String(res.month || "").slice(0, 7) : "";
+              if (gotM && gotM !== wantMonth) {
+                if (box) box.innerHTML = '<div class="view-idle">Не удалось открыть ' + escapeHtml(wantMonth) + "</div>";
+                return;
+              }
             }
           }
           var bodyOk = Object.assign({}, res, { month: wantMonth });
@@ -5530,7 +5556,8 @@
         } else {
           if (box) {
             box.innerHTML = '<div class="view-idle">Не удалось загрузить месяц' +
-              (res && res.message === "Unknown action" ? " — нужен Deploy Code.gs" : "") + "</div>";
+              (res && res.message === "Unknown action" ? " — нужен Deploy Code.gs" : "") +
+              "</div>";
           }
         }
       } catch (e) {
@@ -5550,7 +5577,8 @@
         return;
       }
       viewMonthOverviewCache = null;
-      ensureMonthOverviewLoaded_({ soft: false, needMonth: true, force: true });
+      // D1 snap нужного месяца — без force GAS (‹› мгновенно / ~1–3с)
+      ensureMonthOverviewLoaded_({ soft: false, needMonth: true });
     }
     window.onViewMonthPickChange = onViewMonthPickChange;
 
@@ -20009,7 +20037,7 @@
           sel.dispatchEvent(new Event("change"));
         }
       } catch (eS) {}
-      try { switchTab("viewScreen"); } catch (eT) {}
+      try { switchTab("clientsScreen"); } catch (eT) {}
       try { loadClientsForDay(); } catch (eL) {}
     }
     window.goToDayFromXfer_ = goToDayFromXfer_;
