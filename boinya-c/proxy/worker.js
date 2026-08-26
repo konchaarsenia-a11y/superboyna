@@ -5328,7 +5328,7 @@ const PARTNER_CATALOG_STATIC = [
     type: "coupon",
     kind: "nfc",
     name: "Купон NFC",
-    hint: "приложить к телефону клиента",
+    hint: "приложить к телефону клиента · 1 на точку",
     unit: "шт",
     active: true
   },

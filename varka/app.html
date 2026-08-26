@@ -238,6 +238,19 @@
       opacity: 0.38;
       font-size: 11px;
     }
+    .nfc-reasons {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      width: 100%;
+      margin-top: 6px;
+    }
+    .nfc-reason-chip {
+      border: 1px solid var(--line); background: var(--bg3); color: var(--muted);
+      border-radius: 999px; padding: 6px 10px; font-size: 11px; font-weight: 700;
+      cursor: pointer; font-family: inherit; line-height: 1.2;
+    }
+    .nfc-reason-chip.on {
+      color: #1a0f00; background: var(--accent); border-color: var(--accent);
+    }
     .stepper { display: flex; align-items: center; gap: 8px; }
     .stepper button {
       width: 34px; height: 34px; border-radius: 11px; border: 1px solid var(--line);
@@ -502,7 +515,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.12";
+  var APP_VER = "3.3.13";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -553,9 +566,21 @@
     vr_t_heart: { presets: [50, 100, 150, 200], unit: "г", custom: true },
     vr_t_lung: { presets: [50, 100, 150, 200], unit: "г", custom: true },
     vr_c_piece: { presets: [48, 73, 96, 120], unit: "шт", custom: true },
-    vr_c_nfc: { presets: [48, 73, 96, 120], unit: "шт", custom: true },
+    vr_c_nfc: { presets: [1], unit: "шт", custom: false, nfc: true, max: 2 },
     vr_c_banner: { presets: [1], unit: "шт", custom: false, fixed: true }
   };
+
+  /** Причина второго NFC на точку (поломка / потеря / нужен второй). */
+  var NFC_EXTRA_REASONS_ = [
+    { id: "break", label: "Поломка" },
+    { id: "lost", label: "Потеря" },
+    { id: "second_cash", label: "Второй на кассу" },
+    { id: "second_display", label: "Второй на витрину" },
+    { id: "second_staff", label: "Второй сотруднику" }
+  ];
+  var NFC_ID_ = "vr_c_nfc";
+  var nfcExtraReason_ = "";
+  var nfcPickReasonOpen_ = false;
 
   var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   if (tg) {
@@ -587,7 +612,7 @@
       type: "coupon",
       kind: "nfc",
       name: "Купон NFC",
-      hint: "приложить к телефону клиента",
+      hint: "приложить к телефону клиента · 1 на точку",
       unit: "шт",
       active: true
     },
@@ -1142,6 +1167,10 @@
     if (!pt) return;
     state.point = pt;
     stripBannerIfNeeded_();
+    if ((Number(state.cart[NFC_ID_]) || 0) > 1 && !nfcExtraReason_) {
+      state.cart[NFC_ID_] = 1;
+      clearNfcExtra_();
+    }
     var loc = document.getElementById("orderLocName");
     if (loc) loc.textContent = pointLine_(pt);
     goPointsForOrder_();
@@ -1185,8 +1214,36 @@
     if (String(it.name || "").toLowerCase().indexOf("баннер") >= 0) {
       return { presets: [1], unit: "шт", custom: false, fixed: true };
     }
+    if (it.id === NFC_ID_ || String(it.kind || "").toLowerCase() === "nfc") {
+      return { presets: [1], unit: "шт", custom: false, nfc: true, max: 2 };
+    }
     if (it.type === "coupon") return { presets: [48, 73, 96, 120], unit: it.unit || "шт", custom: true };
     return { presets: [], unit: it.unit || "шт", custom: true };
+  }
+
+  function nfcReasonLabel_(id) {
+    for (var i = 0; i < NFC_EXTRA_REASONS_.length; i++) {
+      if (NFC_EXTRA_REASONS_[i].id === id) return NFC_EXTRA_REASONS_[i].label;
+    }
+    return "";
+  }
+
+  function clearNfcExtra_() {
+    nfcExtraReason_ = "";
+    nfcPickReasonOpen_ = false;
+  }
+
+  function pickNfcReason(reasonId) {
+    var hit = null;
+    for (var i = 0; i < NFC_EXTRA_REASONS_.length; i++) {
+      if (NFC_EXTRA_REASONS_[i].id === reasonId) { hit = NFC_EXTRA_REASONS_[i]; break; }
+    }
+    if (!hit) return;
+    nfcExtraReason_ = hit.id;
+    nfcPickReasonOpen_ = false;
+    state.cart[NFC_ID_] = 2;
+    renderCatalog();
+    refreshCart();
   }
 
   function unitFor_(it) {
@@ -1198,6 +1255,28 @@
     var it = null;
     state.catalog.forEach(function (c) { if (c.id === id) it = c; });
     var rule = qtyRuleFor_(it);
+    if (rule.nfc) {
+      var curN = Number(state.cart[id]) || 0;
+      if (delta > 0) {
+        if (curN <= 0) {
+          state.cart[id] = 1;
+          clearNfcExtra_();
+        } else if (curN === 1) {
+          nfcPickReasonOpen_ = true;
+        }
+      } else {
+        if (curN >= 2) {
+          state.cart[id] = 1;
+          clearNfcExtra_();
+        } else {
+          delete state.cart[id];
+          clearNfcExtra_();
+        }
+      }
+      renderCatalog();
+      refreshCart();
+      return;
+    }
     if (rule.fixed) {
       var curF = Number(state.cart[id]) || 0;
       if (delta > 0) state.cart[id] = rule.presets[0] || 1;
@@ -1221,6 +1300,26 @@
     state.catalog.forEach(function (c) { if (c.id === id) it = c; });
     var rule = qtyRuleFor_(it);
     var cur = Number(state.cart[id]) || 0;
+    if (rule.nfc) {
+      if (n <= 0) {
+        delete state.cart[id];
+        clearNfcExtra_();
+      } else if (n === 1) {
+        if (cur === 1) {
+          delete state.cart[id];
+          clearNfcExtra_();
+        } else {
+          state.cart[id] = 1;
+          clearNfcExtra_();
+        }
+      } else {
+        nfcPickReasonOpen_ = true;
+        if (cur < 1) state.cart[id] = 1;
+      }
+      renderCatalog();
+      refreshCart();
+      return;
+    }
     if (rule.fixed) {
       if (cur > 0 && n > 0) delete state.cart[id];
       else if (n > 0) state.cart[id] = rule.presets[0] || 1;
@@ -1237,6 +1336,7 @@
   }
 
   function onQtyCustomInput(id, el) {
+    if (id === NFC_ID_) return;
     var raw = String((el && el.value) || "").replace(/[^\d]/g, "");
     if (el && el.value !== raw) el.value = raw;
     if (raw === "") {
@@ -1258,6 +1358,7 @@
   }
 
   function onQtyCustomBlur(id, el) {
+    if (id === NFC_ID_) return;
     var n = Math.max(0, parseInt(String((el && el.value) || "").replace(/[^\d]/g, ""), 10) || 0);
     pickQty(id, n);
   }
@@ -1267,6 +1368,28 @@
     var unit = unitFor_(it);
     var showUnit = unit && unit !== "г";
     var isPreset = rule.presets.indexOf(q) >= 0;
+    if (rule.nfc) {
+      var on1 = q === 1;
+      var on2 = q >= 2;
+      var html = '<div class="qty-box">' +
+        '<div class="qty-presets">' +
+        '<button type="button" class="qty-chip' + (on1 ? " on" : "") +
+        '" data-qty-id="' + it.id + '" data-qty-val="1" onclick="pickQty(\'' + it.id + '\',1)">1</button>' +
+        '<button type="button" class="qty-chip' + (on2 ? " on" : "") +
+        '" data-qty-id="' + it.id + '" data-qty-val="2" onclick="pickQty(\'' + it.id + '\',2)">+ещё</button>' +
+        "</div>";
+      if (on2 || nfcPickReasonOpen_) {
+        html += '<div class="nfc-reasons">' +
+          NFC_EXTRA_REASONS_.map(function (r) {
+            return '<button type="button" class="nfc-reason-chip' +
+              (nfcExtraReason_ === r.id ? " on" : "") +
+              '" onclick="pickNfcReason(\'' + r.id + '\')">' + esc(r.label) + "</button>";
+          }).join("") +
+          "</div>";
+      }
+      html += "</div>";
+      return html;
+    }
     if (rule.fixed) {
       var on = q > 0;
       return '<div class="qty-box">' +
@@ -1282,7 +1405,7 @@
         '" onclick="pickQty(\'' + it.id + '\',' + p + ')">' + p +
         (showUnit ? (" " + esc(unit)) : "") + "</button>";
     }).join("");
-    var customVal = q && !isPreset ? String(q) : (q && isPreset ? "" : "");
+    var customVal = "";
     // если выбран пресет — поле пустое; если своё число — показываем его
     if (q && !isPreset) customVal = String(q);
     else customVal = "";
@@ -1363,10 +1486,15 @@
           "</div></div>" + ste + "</div></div>";
       }
       if (it.id === "vr_c_nfc" || kind === "nfc") {
-        return '<div class="coupon-card qty-item">' +
+        var reasonLab = nfcReasonLabel_(nfcExtraReason_);
+        var nfcSub = hint || "приложить к телефону клиента";
+        if (q >= 2 && reasonLab) nfcSub = "2 шт · " + reasonLab;
+        else if (q >= 2) nfcSub = "выберите причину второго";
+        else if (q === 1) nfcSub = "1 на точку · " + nfcSub;
+        return '<div class="coupon-card qty-item" style="flex-wrap:wrap;">' +
           '<div class="coupon-row">' +
           '<div class="meta" style="flex:1;min-width:0"><div class="title">' + esc(it.name) +
-          '</div><div class="coupon-hint nfc">' + esc(hint || "приложить к телефону клиента") + selected +
+          '</div><div class="coupon-hint nfc">' + esc(nfcSub) + selected +
           "</div></div>" + ste + "</div></div>";
       }
       if (it.type === "coupon") {
@@ -1408,10 +1536,32 @@
     }
     var basket = [];
     stripBannerIfNeeded_();
+    var nfcQty = Number(state.cart[NFC_ID_]) || 0;
+    if (nfcQty > 1 && !nfcExtraReason_) {
+      alert("Для второго NFC выберите причину: поломка, потеря или цель второго");
+      nfcPickReasonOpen_ = true;
+      state.cat = "coupon";
+      document.querySelectorAll(".tab").forEach(function (el) {
+        el.classList.toggle("on", el.getAttribute("data-cat") === "coupon");
+      });
+      renderCatalog();
+      return;
+    }
+    if (nfcQty > 2) {
+      alert("NFC: максимум 2 шт на заявку (1 + ещё с причиной)");
+      return;
+    }
     state.catalog.forEach(function (it) {
       if (it.id === "vr_c_banner" && !networkHasBanner_()) return;
       var q = Number(state.cart[it.id]) || 0;
-      if (q > 0) basket.push({ id: it.id, type: it.type, name: it.name, qty: q, unit: unitFor_(it) });
+      if (q <= 0) return;
+      var row = { id: it.id, type: it.type, name: it.name, qty: q, unit: unitFor_(it) };
+      if (it.id === NFC_ID_ && q > 1 && nfcExtraReason_) {
+        row.reason = nfcExtraReason_;
+        row.reasonLabel = nfcReasonLabel_(nfcExtraReason_);
+        row.note = "NFC +ещё: " + (row.reasonLabel || nfcExtraReason_);
+      }
+      basket.push(row);
     });
     var u = user();
     var payload = {
@@ -1435,6 +1585,7 @@
       var slot = (ord.deliverDateLabel || "") +
         (ord.deliverTimeLabel ? (", " + ord.deliverTimeLabel) : "");
       state.cart = {};
+      clearNfcExtra_();
       state.point = onlyPoint_() || null;
       refreshCart();
       show("screenHome");
@@ -1954,6 +2105,7 @@
   window.setCat = setCat;
   window.setQty = setQty;
   window.pickQty = pickQty;
+  window.pickNfcReason = pickNfcReason;
   window.onQtyCustomInput = onQtyCustomInput;
   window.onQtyCustomBlur = onQtyCustomBlur;
   window.submitOrder = submitOrder;

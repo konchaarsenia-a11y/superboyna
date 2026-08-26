@@ -18769,7 +18769,7 @@ function partnerCatalogStatic_() {
       type: "coupon",
       kind: "nfc",
       name: "Купон NFC",
-      hint: "приложить к телефону клиента",
+      hint: "приложить к телефону клиента · 1 на точку",
       unit: "шт",
       active: true
     },
@@ -18798,7 +18798,11 @@ function partnerNotifyNewOrder_(order) {
     var ids = getPartnerOrderNotifyIds_();
     if (!ids || !ids.length) return;
     var lines = (order.basket || []).map(function (b) {
-      return "• " + (b.name || b.id) + " — " + b.qty + " " + (b.unit || "");
+      var extra = "";
+      if (String(b.id || "") === "vr_c_nfc" && (b.reasonLabel || b.reason || b.note)) {
+        extra = " (" + (b.reasonLabel || b.reason || b.note) + ")";
+      }
+      return "• " + (b.name || b.id) + " — " + b.qty + " " + (b.unit || "") + extra;
     }).join("\n");
     var slot = (order.deliverDateLabel || "") +
       (order.deliverTimeLabel ? (", " + order.deliverTimeLabel) : "");
@@ -18995,6 +18999,23 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
   if (!basket.length) {
     var badB = { status: "error", message: "empty_basket" };
     return fromPost ? jsonpText(callback, badB) : jsonp(callback, badB);
+  }
+  // NFC: максимум 2; второй только с причиной (поломка / потеря / цель)
+  for (var bi = 0; bi < basket.length; bi++) {
+    var bb = basket[bi];
+    if (!bb || String(bb.id || "") !== "vr_c_nfc") continue;
+    var nq = Number(bb.qty) || 0;
+    if (nq > 2) {
+      var badNfcMax = { status: "error", message: "nfc_max_2" };
+      return fromPost ? jsonpText(callback, badNfcMax) : jsonp(callback, badNfcMax);
+    }
+    if (nq > 1) {
+      var reason = String(bb.reason || bb.reasonLabel || bb.note || "").trim();
+      if (!reason) {
+        var badNfc = { status: "error", message: "nfc_need_reason" };
+        return fromPost ? jsonpText(callback, badNfc) : jsonp(callback, badNfc);
+      }
+    }
   }
 
   var isOwner = false;

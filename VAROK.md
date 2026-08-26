@@ -101,6 +101,7 @@ Worker: `@arseniyhotko` / `650923866` видит только **NaN clinic · Я
 - [x] **v3.3.10:** купон **BOW Wow Collar** (`assets/partners/bowwow-coupon.png`) · **Pages**
 - [x] **v3.3.11:** подписи купонов без дублей; NFC — полупрозрачная подсказка · **Pages**
 - [x] **v3.3.12:** купоны компактнее (мини-превью слева) · **Pages**
+- [x] **v3.3.13:** NFC — 1 на точку; второй только с причиной (поломка/потеря/цель) · **Pages** · **нужен Deploy Code.gs**
 - [ ] **v3.3.2:** ~~`@nan_animal_clinic`~~ — отменено, доступ у `@arseniyhotko`
 - [x] **v3.0.9:** у позиций лакомств убрана буква «г» — **Pages**
 - [x] **v3.0.8:** как было — owner first (все точки); `@one_more_person_228` обычный owner; allowlist/тест-Access сняты (`PARTNER_PROD_V7`) · **Pages** · **нужен Deploy Code.gs**
