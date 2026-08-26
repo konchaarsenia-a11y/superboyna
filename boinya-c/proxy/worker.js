@@ -2090,34 +2090,50 @@ async function getViewCompare_(params, env) {
     }
   }
 
-  // вне недели — snap по дате + live D1 orders (snap без CAL-строк врёт «пусто» после move)
+  // вне недели — D1 live authoritative; snap только добирает (не затирает)
   if (dateIso) {
     const live = await getClients_({ date: dateIso }, env);
     const liveClients = (live && live.clients) || [];
     const byDate = await getSnapRaw_(env, "viewDate:" + dateIso);
-    let month = [];
-    if (byDate && byDate.status === "success") {
-      month = Array.isArray(byDate.month)
-        ? byDate.month.slice()
-        : Array.isArray(byDate.week)
-          ? byDate.week.slice()
-          : [];
-    }
+    let month = liveClients.slice();
     const seen = Object.create(null);
     month.forEach(function (c) {
       const k = normalizeMatchKey_((c && (c.matchKey || c.name)) || "");
       if (k) seen[k] = true;
     });
-    liveClients.forEach(function (c) {
+    let snapList = [];
+    if (byDate && byDate.status === "success") {
+      snapList = Array.isArray(byDate.month)
+        ? byDate.month.slice()
+        : Array.isArray(byDate.week)
+          ? byDate.week.slice()
+          : [];
+    }
+    snapList.forEach(function (c) {
       const k = normalizeMatchKey_((c && (c.matchKey || c.name)) || "");
       if (k && seen[k]) return;
       if (k) seen[k] = true;
       month.push(c);
     });
-    // tombstone / deleted — убрать из month
+    // tombstone / deleted — убрать из month (но D1 active уже в списке —
+    // clearCalendarTombstone_ на save должен снять CAL tomb)
     try {
       month = await filterTombstonedClients_(env, "", month, { dateIso: dateIso });
     } catch (eTombCal) {}
+    // если tombstone спрятал живую D1-строку — вернуть (save важнее stale tomb)
+    if (liveClients.length) {
+      const seen2 = Object.create(null);
+      month.forEach(function (c) {
+        const k = normalizeMatchKey_((c && (c.matchKey || c.name)) || "");
+        if (k) seen2[k] = true;
+      });
+      liveClients.forEach(function (c) {
+        const k = normalizeMatchKey_((c && (c.matchKey || c.name)) || "");
+        if (!k || seen2[k]) return;
+        seen2[k] = true;
+        month.push(c);
+      });
+    }
     return {
       status: "success",
       day: "",
@@ -2963,6 +2979,20 @@ function countPeopleFromViewPayload_(payload) {
 async function patchMonthOverviewDayFromView_(env, iso, payload) {
   if (!env || !env.DB || !iso) return;
   const tallied = countPeopleFromViewPayload_(payload);
+  let viewCount = tallied.count;
+  let segments = tallied.segments;
+  // пустой view-snap не должен обнулять день, если в D1 уже есть люди
+  if (viewCount === 0) {
+    try {
+      const q = await env.DB.prepare(
+        "SELECT COUNT(DISTINCT match_key) AS c FROM orders WHERE status = 'active' AND date_iso = ?"
+      )
+        .bind(iso)
+        .first();
+      const d1c = Number(q && q.c) || 0;
+      if (d1c > 0) return;
+    } catch (eD1) {}
+  }
   const month = String(iso).slice(0, 7);
   const keys = ["monthOverview:" + month, "monthOverview"];
   for (let i = 0; i < keys.length; i++) {
@@ -2979,10 +3009,14 @@ async function patchMonthOverviewDayFromView_(env, iso, payload) {
     body.days = (body.days || []).map(function (d) {
       if (!d || d.dateIso !== iso) return d;
       found = true;
-      // факт Просмотра важнее и Календаря, и nick-row (там часто дубли/дыры)
+      const prev = Number(d.count) || 0;
+      // не затирать больший count меньшим (гонка пустого snap)
+      if (viewCount < prev) {
+        return Object.assign({}, d, { fromView: true });
+      }
       return Object.assign({}, d, {
-        count: tallied.count,
-        segments: tallied.segments,
+        count: viewCount,
+        segments: segments,
         fromView: true,
         fromWeekSheet: !!d.fromWeekSheet
       });
@@ -2990,19 +3024,17 @@ async function patchMonthOverviewDayFromView_(env, iso, payload) {
     if (!found) {
       body.days.push({
         dateIso: iso,
-        count: tallied.count,
-        segments: tallied.segments,
+        count: viewCount,
+        segments: segments,
         fromView: true
       });
       body.days.sort(function (a, b) {
         return String(a.dateIso).localeCompare(String(b.dateIso));
       });
     }
-    body.total = body.days.reduce(function (s, d) {
+    body.total = (body.days || []).reduce(function (s, d) {
       return s + (Number(d.count) || 0);
     }, 0);
-    body.month = body.month || month;
-    body.status = "success";
     await putSnap_(env, key, body);
   }
 }
@@ -3022,25 +3054,37 @@ async function reconcileMonthOverviewWithViewSnaps_(env, body) {
     ((body.days || []) || []).forEach(function (d) {
       if (d && d.dateIso) byIso[d.dateIso] = Object.assign({}, d);
     });
-    (q.results || []).forEach(function (row) {
+    for (let ri = 0; ri < (q.results || []).length; ri++) {
+      const row = q.results[ri];
       const key = String(row.cache_key || "");
       const iso = key.indexOf("viewDate:") === 0 ? key.slice(9) : "";
-      if (!iso) return;
+      if (!iso) continue;
       let payload = null;
       try {
         payload = JSON.parse(row.payload || "{}");
       } catch (eP) {
-        return;
+        continue;
       }
       const tallied = countPeopleFromViewPayload_(payload);
-      byIso[iso] = Object.assign({}, byIso[iso] || {}, {
+      let viewCount = tallied.count;
+      let segments = tallied.segments;
+      const prev = byIso[iso];
+      const prevCount = Number(prev && prev.count) || 0;
+      // пустой/урезанный view-snap не должен обнулять бейдж месяца
+      if (viewCount === 0 && prevCount > 0) continue;
+      if (viewCount < prevCount) {
+        // D1/календарь уже больше — оставить, только пометить fromView
+        byIso[iso] = Object.assign({}, prev, { fromView: true });
+        continue;
+      }
+      byIso[iso] = Object.assign({}, prev || {}, {
         dateIso: iso,
-        count: tallied.count,
-        segments: tallied.segments,
+        count: viewCount,
+        segments: segments,
         fromView: true,
-        fromWeekSheet: !!(byIso[iso] && byIso[iso].fromWeekSheet)
+        fromWeekSheet: !!(prev && prev.fromWeekSheet)
       });
-    });
+    }
     body.days = Object.keys(byIso)
       .sort()
       .map(function (k) {
@@ -3633,8 +3677,14 @@ async function saveOrder_(params, env, asBooking) {
   // новый save снимает tombstone только на этом дне (не на всех — иначе ломает move)
   // afterWrite/повтор не снимает свежий tombstone удаления
   try {
-    if (day && !toBool_(params._keepTombstone) && !toBool_(params.fromAfterWrite)) {
-      await clearTombstonesForMatch_(env, matchKey, day);
+    if (!toBool_(params._keepTombstone) && !toBool_(params.fromAfterWrite)) {
+      if (day) {
+        await clearTombstonesForMatch_(env, matchKey, day, client);
+      }
+      // calendar-only: иначе remove→save «невидим» в getViewCompare (force)
+      if (dateIso) {
+        await clearCalendarTombstone_(env, dateIso, matchKey, client);
+      }
     }
   } catch (eClrT) {}
   // метка свежей записи — фоновый deleteClient из waitUntil не должен сносить save
@@ -3789,6 +3839,37 @@ async function clearTombstonesForMatch_(env, matchKey, day, clientName) {
     }
 await putSnap_(env, "deleteTombstones", { items: items });
   } catch (eClr) {}
+}
+
+/** Снять calendar tomb после saveBooking на date_iso (иначе Просмотр force пустой). */
+async function clearCalendarTombstone_(env, dateIso, matchKey, clientName) {
+  var iso = String(dateIso || "").trim();
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(iso)) iso = dmyToIso_(iso) || iso;
+  if (!env || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+  var clearKeys = Object.create(null);
+  function addKey_(raw) {
+    var n = normalizeMatchKey_(raw);
+    if (n) clearKeys[n] = true;
+    var up = String(raw || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toUpperCase()
+      .replace(/Ё/g, "Е");
+    if (up) clearKeys[up] = true;
+  }
+  addKey_(matchKey);
+  addKey_(clientName);
+  var keys = Object.keys(clearKeys);
+  for (var i = 0; i < keys.length; i++) {
+    try {
+      await env.DB.prepare("DELETE FROM snap_cache WHERE cache_key = ?")
+        .bind("delTomb:CAL:" + iso + ":" + keys[i])
+        .run();
+    } catch (eDel) {}
+  }
+  try {
+    await clearTombstonesForMatch_(env, matchKey, "", clientName);
+  } catch (eList) {}
 }
 
 function isTombstoned_(tomb, day, matchKey, name, protect) {
@@ -7969,7 +8050,10 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
           } catch (eVc) {}
         }
         if (dateIsos.length) {
-          try { await rebuildMonthOverview_(env); } catch (eMo3) {}
+          try {
+            var mo = String(dateIsos[0] || "").slice(0, 7);
+            await rebuildMonthOverview_(env, /^\d{4}-\d{2}$/.test(mo) ? mo : undefined);
+          } catch (eMo3) {}
         }
       }
     } catch (eCalAw) {}
