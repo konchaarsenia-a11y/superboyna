@@ -3031,6 +3031,10 @@ async function cutoverGetMonthOverview_(params, env, ctx) {
 
   let body = await getMonthOverview_(params, env);
   body = await reconcileMonthOverviewWithViewSnaps_(env, body);
+  // SWR чужого месяца (залипший авг) — сразу GAS за запрошенный
+  if (month && body && body.month && String(body.month).slice(0, 7) !== month) {
+    return (await fromGas_()) || { status: "success", month: month, days: [], total: 0, cutover: true };
+  }
   if (body && body.status === "success" && Array.isArray(body.days) && body.days.length) {
     if (ctx && typeof ctx.waitUntil === "function") {
       ctx.waitUntil(
@@ -3050,12 +3054,17 @@ async function cutoverGetMonthOverview_(params, env, ctx) {
   return (await fromGas_()) || { status: "success", month: month, days: [], total: 0, cutover: true };
 }
 
-async function rebuildMonthOverview_(env) {
+async function rebuildMonthOverview_(env, monthWanted) {
   if (!env || !env.DB) return { status: "success", month: "", days: [], total: 0, sandbox: true };
-  const prev = await getSnapRaw_(env, "monthOverview");
+  const want = String(monthWanted || "").trim();
+  const prevGlobal = await getSnapRaw_(env, "monthOverview");
   const month =
-    (prev && prev.month) ||
+    (/^\d{4}-\d{2}$/.test(want) ? want : "") ||
+    (prevGlobal && prevGlobal.month) ||
     new Date().toISOString().slice(0, 7);
+  // seed именно запрошенного месяца — иначе авг-snap «залипает» при переключении на сен
+  let prev = month ? await getSnapRaw_(env, "monthOverview:" + month) : null;
+  if (!prev || !Array.isArray(prev.days)) prev = prevGlobal;
   const q = await env.DB.prepare(
     "SELECT date_iso, match_key, client, segment, source FROM orders WHERE status = 'active' AND date_iso != ''"
   ).all();
@@ -3311,20 +3320,28 @@ async function invalidateDays_(env, days) {
 async function getMonthOverview_(params, env) {
   const month = String(params.month || "");
   const hitM = month ? await getSnapRaw_(env, "monthOverview:" + month) : null;
-  const hit = hitM || (await getSnapRaw_(env, "monthOverview"));
-  // полный календарь с GAS — отдаём сразу (merge week-дат сделает rebuild без потери)
-  if (hit && Array.isArray(hit.days) && hit.days.length >= 10) {
-    const body = await rebuildMonthOverview_(env);
+  // есть snap нужного месяца — rebuild только его (не prev.month с другого месяца)
+  if (hitM && Array.isArray(hitM.days) && hitM.days.length) {
+    const body = await rebuildMonthOverview_(env, month || hitM.month);
+    if (body && Array.isArray(body.days) && String(body.month || "") === String(month || body.month || "")) {
+      return overlayWeekSheetCountsOnMonth_(env, body);
+    }
+    return overlayWeekSheetCountsOnMonth_(env, hitM);
+  }
+  const hit = await getSnapRaw_(env, "monthOverview");
+  // чужой месяц в глобальном snap — не подсовывать его как ответ на сентябрь
+  if (hit && Array.isArray(hit.days) && hit.days.length >= 10 && (!month || hit.month === month)) {
+    const body = await rebuildMonthOverview_(env, month || hit.month);
     if (body && Array.isArray(body.days) && body.days.length >= hit.days.length) {
       return overlayWeekSheetCountsOnMonth_(env, body);
     }
     return overlayWeekSheetCountsOnMonth_(env, hit);
   }
-  const body = await rebuildMonthOverview_(env);
+  const body = await rebuildMonthOverview_(env, month);
   if (body && (!month || body.month === month || !body.month)) {
     return overlayWeekSheetCountsOnMonth_(env, body);
   }
-  if (hit) return overlayWeekSheetCountsOnMonth_(env, hit);
+  if (hit && (!month || hit.month === month)) return overlayWeekSheetCountsOnMonth_(env, hit);
   return body || { status: "success", month: month, days: [], total: 0, sandbox: true, source: "d1" };
 }
 
