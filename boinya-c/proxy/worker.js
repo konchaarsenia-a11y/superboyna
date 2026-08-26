@@ -196,7 +196,7 @@ async function handleAction_(action, params, env, url, ctx) {
       swr: !!live,
       d1: !!(env && env.DB),
       peopleCanon: "sheets-confirm-bg",
-      deployMarker: "2026-08-26 cal-save-contact-post"
+      deployMarker: "2026-08-26 ops-move-asm-flags"
     };
   }
 
@@ -817,12 +817,41 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
       return fail;
     }
 
-    // Sheets OK → D1
+    // Sheets OK → D1 (если ещё не сделали early D1 на accept)
     try {
-      if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
+      if (job.d1Verified && job.d1Res && job.d1Res.status === "success") {
+        d1WriteRes = job.d1Res;
+      } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
         d1WriteRes = await deleteClient_(gasWriteParams, env);
       } else if (/^moveClient$/i.test(a)) {
         d1WriteRes = await moveClient_(gasWriteParams, env);
+        // после Sheets человек уже на newDay в D1 (early) → not_found ок
+        if (
+          d1WriteRes &&
+          d1WriteRes.status !== "success" &&
+          /not_found/i.test(String(d1WriteRes.message || ""))
+        ) {
+          try {
+            const mk = gasWriteParams.matchKey || gasWriteParams.client;
+            const onNew = gasWriteParams.newDay
+              ? await findOrderRow_(
+                  env,
+                  mk,
+                  gasWriteParams.newDay,
+                  gasWriteParams.newDate || "",
+                  gasWriteParams.client
+                )
+              : null;
+            if (onNew) {
+              d1WriteRes = {
+                status: "success",
+                wrote: 1,
+                alreadyMoved: true,
+                sandbox: true
+              };
+            }
+          } catch (eAlready) {}
+        }
       }
     } catch (eD1) {
       d1WriteRes = {
@@ -2066,7 +2095,16 @@ async function getViewCompare_(params, env) {
     if (dateIso && iso && dateIso !== iso) {
       // fall through to calendar-only for dateIso
     } else {
-      const weekRaw = live && Array.isArray(live.clients) ? live.clients : (snap && Array.isArray(snap.week) ? snap.week : []);
+      // пустой live[] на мгновение (replaceDay / race) не должен обнулять Просмотр —
+      // иначе «все пропали на 20с». Snap + tombstone filter.
+      let weekRaw =
+        live && Array.isArray(live.clients) && live.clients.length
+          ? live.clients
+          : snap && Array.isArray(snap.week) && snap.week.length
+            ? snap.week.slice()
+            : live && Array.isArray(live.clients)
+              ? live.clients
+              : [];
       // live D1 уже authoritative — moveEpoch только для GAS-merge, иначе прячет arrive после переноса
       const week = await filterTombstonedClients_(env, resolvedDay, weekRaw, { skipMoveEpoch: true });
       const weekKeys = Object.create(null);
@@ -3311,6 +3349,29 @@ async function rebuildCourierDay_(env, day) {
   });
 }
 
+function splitBasketByDogWorker_(basket) {
+  var d1 = [];
+  var d2 = [];
+  var rest = [];
+  (basket || []).forEach(function (it) {
+    var d = Number(it && it.dog) || 0;
+    if (d === 2) d2.push(it);
+    else if (d === 1) d1.push(it);
+    else rest.push(it);
+  });
+  if (!d2.length) return null;
+  if (rest.length) d1 = d1.concat(rest);
+  return { dog1: d1, dog2: d2 };
+}
+
+function dogNickFromMeta_(meta, part, fallback) {
+  meta = meta || {};
+  var names = meta.dogNames || meta.dog_names || {};
+  var n = String((names && (names[part] || names[String(part)])) || "").trim();
+  if (n) return n;
+  return fallback || ("Собака " + part);
+}
+
 async function rebuildAssemblyDay_(env, day) {
   if (!day) return;
   const live = await getClients_({ day: day }, env);
@@ -3321,23 +3382,82 @@ async function rebuildAssemblyDay_(env, day) {
   const prevBy = sameDate
     ? indexByMatchAliases_((prev && prev.clients) || [])
     : Object.create(null);
-  const clients = (live.clients || []).map(function (c) {
-    const old = (sameDate && lookupByMatchAliases_(prevBy, c.matchKey || c.name)) || {};
-    return Object.assign({}, {
-      name: c.name,
-      address: c.address,
-      note: c.note,
-      basket: c.basket,
-      packs: sameDate ? old.packs || [] : [],
-      totalBags: sameDate ? old.totalBags || 0 : 0,
-      craftBags: sameDate ? old.craftBags || 0 : 0,
-      lightByFraction: sameDate ? old.lightByFraction || {} : {},
-      lightBagsByCounter: sameDate ? old.lightBagsByCounter || {} : {},
-      assembled: sameDate ? !!old.assembled : false,
-      printed: sameDate ? !!old.printed : false,
-      dogPart: sameDate ? old.dogPart || "" : "",
-      ownerName: old.ownerName || c.name,
-      matchKey: c.matchKey
+  const clients = [];
+  (live.clients || []).forEach(function (c) {
+    const baseName = String(c.name || "").replace(/\s*[·•#]\s*2\s*$/i, "").trim() || String(c.name || "");
+    const meta = Object.assign(
+      {},
+      parseMeta_(c.meta_json || c.meta || {}),
+      c.dogNames ? { dogNames: c.dogNames } : {}
+    );
+    const parts = splitBasketByDogWorker_(c.basket || []);
+    const entries = [];
+    if (parts && parts.dog2 && parts.dog2.length) {
+      entries.push({
+        name: baseName,
+        displayName: dogNickFromMeta_(meta, 1, baseName),
+        basket: parts.dog1 || [],
+        dogPart: 1,
+        dogName: dogNickFromMeta_(meta, 1, "Собака 1")
+      });
+      entries.push({
+        name: baseName + " · 2",
+        displayName: dogNickFromMeta_(meta, 2, baseName + " · 2"),
+        basket: parts.dog2,
+        dogPart: 2,
+        dogName: dogNickFromMeta_(meta, 2, "Собака 2")
+      });
+    } else {
+      entries.push({
+        name: c.name,
+        displayName: c.name,
+        basket: c.basket || [],
+        dogPart: 0,
+        dogName: ""
+      });
+    }
+    entries.forEach(function (ent) {
+      const old =
+        (sameDate &&
+          (lookupByMatchAliases_(prevBy, ent.name) ||
+            lookupByMatchAliases_(prevBy, c.matchKey || c.name) ||
+            lookupByMatchAliases_(prevBy, baseName + (ent.dogPart === 2 ? " · 2" : "")))) ||
+        {};
+      // flags: prefer exact card name, then owner+part
+      let assembled = sameDate ? !!old.assembled : false;
+      let printed = sameDate ? !!old.printed : false;
+      if (sameDate && ent.dogPart) {
+        const prevList = (prev && prev.clients) || [];
+        for (var pi = 0; pi < prevList.length; pi++) {
+          var pc = prevList[pi];
+          if (
+            Number(pc.dogPart || 0) === Number(ent.dogPart) &&
+            normalizeMatchKey_(pc.ownerName || pc.name) === normalizeMatchKey_(baseName)
+          ) {
+            assembled = !!pc.assembled;
+            printed = !!pc.printed;
+            break;
+          }
+        }
+      }
+      clients.push({
+        name: ent.name,
+        displayName: ent.displayName,
+        dogName: ent.dogName || "",
+        address: c.address,
+        note: c.note,
+        basket: ent.basket,
+        packs: sameDate ? old.packs || [] : [],
+        totalBags: sameDate ? old.totalBags || 0 : 0,
+        craftBags: sameDate ? old.craftBags || 0 : 0,
+        lightByFraction: sameDate ? old.lightByFraction || {} : {},
+        lightBagsByCounter: sameDate ? old.lightBagsByCounter || {} : {},
+        assembled: assembled,
+        printed: printed,
+        dogPart: ent.dogPart || 0,
+        ownerName: baseName,
+        matchKey: c.matchKey
+      });
     });
   });
   await putSnap_(env, "assembly:" + day, {
@@ -3637,6 +3757,7 @@ async function saveOrder_(params, env, asBooking) {
     deliveryAfter: params.deliveryAfter,
     deliveryBefore: params.deliveryBefore,
     dogCount: params.dogCount,
+    dogNames: params.dogNames || null,
     geo: params.geo,
     noCut: toBool_(params.noCut),
     couponsQty: params.couponsQty,
@@ -4678,6 +4799,26 @@ async function moveClient_(params, env) {
       calendarOnly: true,
       createdCalendar: true
     };
+  }
+  if (!row) {
+    // sheets-first: строка могла остаться под другим day_name / без oldDay в params
+    try {
+      row = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+    } catch (eFindAny) {
+      row = null;
+    }
+    if (row && newDay && String(row.day_name || "") === String(newDay)) {
+      return {
+        status: "success",
+        sandbox: true,
+        wrote: 1,
+        alreadyMoved: true,
+        from: oldDay || "",
+        to: newDay,
+        newDate: newDate,
+        calendarOnly: false
+      };
+    }
   }
   if (!row) {
     return { status: "error", message: "not_found", sandbox: true };
@@ -5828,12 +5969,26 @@ async function handleCutover_(a, params, env, ctx) {
 
         // компактные params для продолжения на poll (без огромного basket duplicate если можно)
         const jobParams = Object.assign({}, gasWriteParams);
+        // move/delete: сразу D1 — иначе UI 8–20с ждёт sheetsFirst и список «мигает» пустым
+        let d1Early = null;
+        if (/^(moveClient|deleteClient|removeCalendarClient)$/i.test(a) && env && env.DB) {
+          try {
+            if (/^moveClient$/i.test(a)) d1Early = await moveClient_(jobParams, env);
+            else d1Early = await deleteClient_(jobParams, env);
+          } catch (eD1Early) {
+            d1Early = {
+              status: "error",
+              message: String((eD1Early && eD1Early.message) || eD1Early)
+            };
+          }
+        }
         try {
           await putSnap_(env, "peopleWrite:" + writeId, {
             status: "pending",
             pendingSheets: true,
             sheetsVerified: false,
-            d1Verified: false,
+            d1Verified: !!(d1Early && d1Early.status === "success"),
+            d1Res: d1Early || null,
             action: a,
             params: jobParams,
             client: String(gasWriteParams.client || gasWriteParams.nick || ""),
@@ -5849,6 +6004,8 @@ async function handleCutover_(a, params, env, ctx) {
               {
                 status: "pending",
                 pendingSheets: true,
+                d1Verified: !!(d1Early && d1Early.status === "success"),
+                d1Res: d1Early || null,
                 action: a,
                 params: jobParams,
                 startedAt: Date.now()
@@ -5884,12 +6041,22 @@ async function handleCutover_(a, params, env, ctx) {
           optimistic: false,
           pendingSheets: true,
           sheetsVerified: false,
-          d1Verified: false,
-          d1Pending: true,
+          d1Verified: !!(d1Early && d1Early.status === "success"),
+          d1Pending: !(d1Early && d1Early.status === "success"),
           writeId: writeId,
           action: a,
           message: "pending_sheets"
         };
+        if (d1Early && d1Early.status === "success") {
+          if (d1Early.wrote != null) accepted.wrote = d1Early.wrote;
+          if (d1Early.alreadyMoved) accepted.alreadyMoved = true;
+          if (d1Early.alreadyGone) accepted.alreadyGone = true;
+          if (d1Early.from) accepted.from = d1Early.from;
+          if (d1Early.to) accepted.to = d1Early.to;
+          if (d1Early.newDay) accepted.newDay = d1Early.newDay;
+          if (d1Early.newDate) accepted.newDate = d1Early.newDate;
+          if (d1Early.daysCleared) accepted.daysCleared = d1Early.daysCleared;
+        }
         if (/^(saveOrder|saveBooking)$/i.test(a)) {
           accepted.weekWritten =
             alsoWeek ||

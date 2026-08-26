@@ -79,6 +79,8 @@
     let cuttingCompletionCache = null;
     let cuttingDetailExpanded_ = false;
     let cuttingLocalFlags = Object.create(null); // row -> {laid, done, outNext, ts}
+    let assemblyLocalFlags = Object.create(null); // nameKey -> {assembled, printed, ts}
+    let courierLocalFlags = Object.create(null); // nameKey -> {delivered, ts}
     let cuttingSession = {
       active: false,
       startedAt: 0,
@@ -6712,9 +6714,15 @@
       }
       if (summary) summary.innerHTML = "";
       if (deployHint) { deployHint.style.display = "none"; deployHint.textContent = ""; }
-      var skel = viewLoadingSkeletonHtml();
-      box.innerHTML = skel;
-      if (monthBox) monthBox.innerHTML = skel;
+      // после move/delete не затираем список скелетоном — иначе «все пропали на 20с»
+      var keepPeopleDom = !!window._peopleListKeepDom;
+      if (keepPeopleDom) {
+        try { window._peopleListKeepDom = false; } catch (eKeep) {}
+      } else {
+        var skel = viewLoadingSkeletonHtml();
+        box.innerHTML = skel;
+        if (monthBox) monthBox.innerHTML = skel;
+      }
       try {
         // cutover: не сбрасываем кэш на каждый клик — D1 отвечает быстро; после save и так bust
         if (!window.__BOINYA_C_CUTOVER__) {
@@ -7882,28 +7890,35 @@
         else if (res.dateSync && res.dateSync.surveyError) baseMsg += " · опрос не сдвинут";
 
         var pendingWrite = !!(res.writeId || res.pendingSheets) && !res.sheetsVerified;
+        // сразу убрать с текущего экрана — не ждать Sheets
+        try {
+          loadedClientsRawData = (loadedClientsRawData || []).filter(function (c) {
+            return !nicksMatchClient_(c && c.name, clientName);
+          });
+          monthClientsCache = (monthClientsCache || []).filter(function (c) {
+            return !nicksMatchClient_(c && c.name, clientName);
+          });
+          renderViewLists();
+        } catch (eOptMv) {}
         if (pendingWrite) {
           var confirmMv = await confirmPeopleWriteSheets_(res, {
             doneMsg: baseMsg,
             pendingMsg: "Переношу в таблицу…",
             failMsg: "Перенос не закрепился в таблице",
-            block: true
+            block: false
           });
-          if (!confirmMv.ok) {
-            if (confirmMv.softTimeout) {
-              showToast("Перенос ещё пишется… обнови список через минуту");
-            } else {
-              await uiAlertAsync(
-                "Перенос не закрепился: «" + clientName + "».\n" +
-                ((confirmMv.message || confirmMv.res && confirmMv.res.message) || "попробуй ещё раз")
-              );
-              try {
-                apiCacheBustMem_("getClients");
-                afterPeopleMutationDays_([oldDay, newDay]);
-                await loadClientsForDay();
-              } catch (eReloadP) {}
-              return false;
-            }
+          if (!confirmMv.ok && !confirmMv.softTimeout) {
+            await uiAlertAsync(
+              "Перенос не закрепился: «" + clientName + "».\n" +
+              ((confirmMv.message || confirmMv.res && confirmMv.res.message) || "попробуй ещё раз")
+            );
+            try {
+              apiCacheBustMem_("getClients");
+              afterPeopleMutationDays_([oldDay, newDay]);
+              window._peopleListKeepDom = true;
+              await loadClientsForDay();
+            } catch (eReloadP) {}
+            return false;
           }
           if (confirmMv.res) res = confirmMv.res;
         }
@@ -8042,11 +8057,13 @@
           apiCacheBustMem_("listSurvey");
           afterPeopleMutationDays_([oldDay, newDay]);
         } catch (eClr) {}
+        try { window._peopleListKeepDom = true; window._peopleListForceFresh = true; } catch (eK) {}
         await loadClientsForDay();
-        try { await refreshDayViews(oldDay, { force: true }); } catch (eR0) {}
-        if (!calendarOnly && newDay && oldDay && newDay !== oldDay) {
-          try { await refreshDayViews(newDay, { force: true }); } catch (eR) {}
-        }
+        // один мягкий refresh без второго скелетона
+        try {
+          window._peopleListKeepDom = true;
+          await refreshDayViews(oldDay || newDay, { force: false });
+        } catch (eR0) {}
         try { await ensureMonthOverviewLoaded_({ force: true }); } catch (eOv) {}
         return true;
       } catch (err) {
@@ -8188,7 +8205,7 @@
             doneMsg: delDone,
             pendingMsg: "Удаляю из таблицы…",
             failMsg: "Удаление не закрепилось в таблице",
-            block: true
+            block: false
           });
           if (!confirmDel.ok) {
             if (confirmDel.softTimeout) {
@@ -8198,7 +8215,7 @@
                 "Не удалось удалить — запись не закрепилась в таблице.\n" +
                 ((confirmDel.message || (confirmDel.res && confirmDel.res.message)) || "попробуй ещё раз")
               );
-              try { window._peopleListForceFresh = true; } catch (eF0) {}
+              try { window._peopleListForceFresh = true; window._peopleListKeepDom = true; } catch (eF0) {}
               try { await loadClientsForDay(); } catch (eL0) {}
               return;
             }
@@ -8263,11 +8280,11 @@
           }
         } catch (eSel) {}
         try { afterPeopleMutationDays_([day]); } catch (eMut) {}
-        try { window._peopleListForceFresh = true; } catch (eForce) {}
+        try { window._peopleListForceFresh = true; window._peopleListKeepDom = true; } catch (eForce) {}
         try {
-          await refreshDayViews(day, { force: true });
+          await refreshDayViews(day, { force: false });
         } catch (eRef) {
-          try { await loadClientsForDay(); } catch (eL) {}
+          try { window._peopleListKeepDom = true; await loadClientsForDay(); } catch (eL) {}
         }
         // мягкая дочистка, если список ещё показывает
         try {
@@ -9090,6 +9107,17 @@
         rememberCuttingLocalFlag_(row, { done: prev }, cached && cached.name);
         syncCutRowDomFromCache_(row);
         reorderCuttingDom();
+        return;
+      }
+      // все нарезано → предложить завершить (как авто-экран сборки/курьера)
+      if (ok && done && cuttingSession.active) {
+        var left = (cuttingItemsCache || []).filter(function (x) { return !x.done; }).length;
+        if (left === 0) {
+          try {
+            var go = await uiConfirmAsync("Все позиции отмечены. Завершить нарезку?");
+            if (go) await finishCutting();
+          } catch (eFin) {}
+        }
       }
     }
     window.toggleCutDone = toggleCutDone;
@@ -9443,6 +9471,7 @@
         courierClientsCache = res.clients;
         courierClientsCache._date = res.date || day;
         courierClientsCache._day = day;
+        try { applyCourierLocalFlags_(courierClientsCache); } catch (eCf) {}
         refreshCourierSummary();
         renderCourierClientsUi_();
       } catch (err) {
@@ -9453,6 +9482,28 @@
 
     var courierDetailExpanded_ = false;
     var assemblyDetailExpanded_ = false;
+
+    function courFlagKey_(name) {
+      return String(name || "").trim().toUpperCase();
+    }
+    function rememberCourierLocalFlag_(name, delivered) {
+      var k = courFlagKey_(name);
+      if (!k) return;
+      courierLocalFlags[k] = { delivered: !!delivered, ts: Date.now() };
+    }
+    function applyCourierLocalFlags_(clients) {
+      var now = Date.now();
+      (clients || []).forEach(function (c) {
+        var k = courFlagKey_(c && c.name);
+        var o = k && courierLocalFlags[k];
+        if (!o) return;
+        if ((now - (o.ts || 0)) > 1800000) {
+          delete courierLocalFlags[k];
+          return;
+        }
+        if (o.delivered !== undefined) c.delivered = !!o.delivered;
+      });
+    }
 
     function courierAllDelivered_() {
       var list = courierClientsCache || [];
@@ -9591,6 +9642,7 @@
       }
       client.delivered = delivered;
       if (paidAnswer) client.paid = paidAnswer;
+      rememberCourierLocalFlag_(client.name, delivered);
       if (!delivered) courierDetailExpanded_ = true;
       refreshCourierSummary();
       renderCourierClientsUi_();
@@ -9604,6 +9656,7 @@
         try { apiCacheBustMem_("getCourier"); } catch (eClr) {}
       } catch (e) {
         client.delivered = !delivered;
+        rememberCourierLocalFlag_(client.name, !delivered);
         refreshCourierSummary();
         renderCourierClientsUi_();
         showToast("Не удалось сохранить галочку");
@@ -14611,6 +14664,7 @@
           box.innerHTML = '<p class="muted">Не удалось загрузить</p>';
           return;
         }
+        try { applyAssemblyLocalFlags_(res.clients || []); } catch (eAf) {}
         assemblyCache = res;
         renderAssemblyView();
       } catch (e) {
@@ -15025,13 +15079,23 @@
             }).join("<br>") + "</div>")
           : "";
 
+        var titleName = c.displayName || c.name || "";
+        if (c.dogPart && c.dogName) {
+          titleName = (c.ownerName || String(c.name || "").replace(/\s*[·•#]\s*2\s*$/i, "").trim()) +
+            " · " + c.dogName;
+        } else if (Number(c.dogPart) === 1) {
+          titleName = (c.ownerName || c.name) + " · Собака 1";
+        } else if (Number(c.dogPart) === 2) {
+          titleName = (c.ownerName || String(c.name || "").replace(/\s*[·•#]\s*2\s*$/i, "").trim()) +
+            " · Собака 2";
+        }
         var safeName = String(c.name || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
         return '<div class="card' + (c.assembled ? " is-delivered" : "") + '" style="margin-bottom:10px;' +
           (c.assembled ? "opacity:.72;" : "") + '" id="asmCard_' + idx + '">' +
           '<label class="check-line" style="margin-bottom:4px;">' +
           '<input type="checkbox" ' + (c.assembled ? "checked" : "") +
           ' onchange="toggleAssembledByName(\'' + safeName + '\', this.checked)">' +
-          '<span class="cut-title">' + escapeHtml(c.name) + '</span>' +
+          '<span class="cut-title">' + escapeHtml(titleName) + '</span>' +
           ' <span class="muted">· ' + bags + " пак.</span>" +
           (c.assembled ? ' <span class="client-badge" style="margin-left:6px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>' : "") +
           (c.printed ? ' <span class="client-badge" style="margin-left:6px;background:rgba(10,132,255,0.22);color:#64d2ff;">пропечатано</span>' : "") +
@@ -15088,6 +15152,33 @@
     window.showAssemblyDoneDetails_ = showAssemblyDoneDetails_;
     window.loadAssembly = loadAssembly;
 
+    function asmFlagKey_(name) {
+      return String(name || "").trim().toUpperCase();
+    }
+    function rememberAssemblyLocalFlag_(name, patch) {
+      var k = asmFlagKey_(name);
+      if (!k) return;
+      var o = assemblyLocalFlags[k] || { ts: Date.now() };
+      if (patch.assembled !== undefined) o.assembled = !!patch.assembled;
+      if (patch.printed !== undefined) o.printed = !!patch.printed;
+      o.ts = Date.now();
+      assemblyLocalFlags[k] = o;
+    }
+    function applyAssemblyLocalFlags_(clients) {
+      var now = Date.now();
+      (clients || []).forEach(function (c) {
+        var k = asmFlagKey_(c && c.name);
+        var o = k && assemblyLocalFlags[k];
+        if (!o) return;
+        if ((now - (o.ts || 0)) > 1800000) {
+          delete assemblyLocalFlags[k];
+          return;
+        }
+        if (o.assembled !== undefined) c.assembled = !!o.assembled;
+        if (o.printed !== undefined) c.printed = !!o.printed;
+      });
+    }
+
     async function toggleAssembledByName(clientName, assembled) {
       var res = assemblyCache;
       if (!res || !res.clients) return;
@@ -15100,23 +15191,26 @@
       var day = document.getElementById("assemblyDaySelect").value || document.getElementById("courierDaySelect").value;
       var next = assembled === undefined ? !client.assembled : !!assembled;
       client.assembled = next;
+      rememberAssemblyLocalFlag_(client.name, { assembled: next });
       if (!next) assemblyDetailExpanded_ = true;
       renderAssemblyView();
-      try { apiCacheBustMem_(); } catch (eClr) {}
       try {
         var asmRes = await apiPost({
           action: "setAssembled",
           day: day,
           client: client.name,
           matchKey: client.matchKey || "",
+          dogPart: client.dogPart || "",
           assembled: next
         });
         if (!asmRes || (asmRes.status !== "success" && asmRes.status !== "sent_opaque")) {
           throw new Error((asmRes && asmRes.message) || "save_failed");
         }
-        showToast(next ? ("Собран: " + client.name) : ("Снято: " + client.name));
+        try { apiCacheBustMem_("getAssembly"); } catch (eClr) {}
+        showToast(next ? ("Собран: " + (client.dogName || client.name)) : ("Снято: " + (client.dogName || client.name)));
       } catch (e) {
         client.assembled = !next;
+        rememberAssemblyLocalFlag_(client.name, { assembled: !next });
         showToast("Не удалось сохранить");
         renderAssemblyView();
       }
@@ -15134,13 +15228,15 @@
       var day = document.getElementById("assemblyDaySelect").value || document.getElementById("courierDaySelect").value;
       var next = printed === undefined ? !client.printed : !!printed;
       client.printed = next;
+      rememberAssemblyLocalFlag_(client.name, { printed: next });
       renderAssemblyView();
-      try { apiCacheBustMem_("getAssembly"); } catch (eClr) {}
       try {
         await apiPost({ action: "setPrinted", day: day, client: client.name, printed: next });
+        try { apiCacheBustMem_("getAssembly"); } catch (eClr) {}
         showToast(next ? ("Пропечатано без лакомств: " + client.name) : ("Печать сброшена: " + client.name));
       } catch (e) {
         client.printed = !next;
+        rememberAssemblyLocalFlag_(client.name, { printed: !next });
         showToast("Не удалось сохранить");
         renderAssemblyView();
       }
