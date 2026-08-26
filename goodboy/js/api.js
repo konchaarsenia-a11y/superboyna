@@ -6,12 +6,26 @@
    * mode=demo → локальный GBDemoApi (параллельно Бойне).
    * mode=live → JSONP на webhookUrl (когда свяжем).
    */
+  function useDemo() {
+    var mode = (global.GB_CONFIG && global.GB_CONFIG.mode) || "demo";
+    return mode !== "live" || !(global.GB_CONFIG && global.GB_CONFIG.webhookUrl);
+  }
+
+  function maybeFallbackDemo(action, params, res) {
+    var allow = global.GB_CONFIG && global.GB_CONFIG.fallbackDemoOnUnknown;
+    if (!allow || !global.GBDemoApi) return res;
+    var msg = String((res && res.message) || (res && res.status) || "");
+    if (res && (res.status === "unknown_action" || msg.indexOf("unknown") >= 0)) {
+      return global.GBDemoApi.call(action, params);
+    }
+    return res;
+  }
+
   function apiGet(params, opts) {
     opts = opts || {};
     var action = String((params && params.action) || "");
-    var mode = (global.GB_CONFIG && global.GB_CONFIG.mode) || "demo";
 
-    if (mode !== "live" || !(global.GB_CONFIG && global.GB_CONFIG.webhookUrl)) {
+    if (useDemo()) {
       return global.GBDemoApi.call(action, params);
     }
 
@@ -31,7 +45,7 @@
       }
       global[cb] = function (res) {
         cleanup();
-        resolve(res);
+        Promise.resolve(maybeFallbackDemo(action, params, res)).then(resolve);
       };
       var q = Object.keys(params || {}).map(function (k) {
         return k + "=" + encodeURIComponent(params[k] == null ? "" : params[k]);
@@ -39,9 +53,13 @@
       var script = document.createElement("script");
       script.id = cb;
       script.async = true;
-      script.src = url + "?" + q + "&callback=" + cb;
+      script.src = url + "?" + q + "&callback=" + cb + "&_=" + Date.now();
       script.onerror = function () {
         cleanup();
+        if (global.GB_CONFIG && global.GB_CONFIG.fallbackDemoOnUnknown && global.GBDemoApi) {
+          global.GBDemoApi.call(action, params).then(resolve).catch(reject);
+          return;
+        }
         reject(new Error("Ошибка сети"));
       };
       (document.head || document.body).appendChild(script);

@@ -209,12 +209,64 @@
     };
   }
 
+  function handleRegister(params) {
+    var db = loadDb();
+    var name = String(params.name || "").trim();
+    var phone = String(params.phone || "").trim();
+    var nick = String(params.nick || params.username || "").trim().replace(/^@/, "");
+    var hasSub = String(params.hasSubscription || "") === "1" || params.hasSubscription === true;
+    if (!name) return { status: "error", message: "Укажите имя" };
+    if (!phone || phone.replace(/\D/g, "").length < 9) return { status: "error", message: "Укажите телефон" };
+    var tg = String(params.telegramId || "").trim() || uid("web");
+    var user = ensureUser(db, tg, { name: name, username: nick });
+    user.phone = phone;
+    user.access = hasSub ? "full" : "limited";
+    db.users[tg] = user;
+    saveDb(db);
+    var me = handleMe({ telegramId: tg, name: name, username: nick });
+    me.user = Object.assign({}, me.user, { access: user.access, hasSubscription: hasSub, phone: phone });
+    me.needsLink = hasSub;
+    me.registered = true;
+    return me;
+  }
+
+  function handleLogin(params) {
+    var phone = String(params.phone || "").trim();
+    var nick = String(params.nick || params.username || "").trim().replace(/^@/, "");
+    if (!phone && !nick) return { status: "error", message: "Укажите телефон или ник" };
+    var tg = String(params.telegramId || "").trim() || uid("login");
+    var linkRes = handleLinkClient({
+      telegramId: tg,
+      phone: phone,
+      nick: nick
+    });
+    if (linkRes.status !== "success") {
+      // demo: всё равно пускаем с needsLink
+      var db = loadDb();
+      var user = ensureUser(db, tg, { name: nick || "Подписчик", username: nick });
+      if (phone) user.phone = phone;
+      user.access = "full";
+      db.users[tg] = user;
+      saveDb(db);
+      var me = handleMe({ telegramId: tg, name: user.name, username: nick });
+      me.needsLink = true;
+      me.loggedIn = true;
+      return me;
+    }
+    linkRes.needsLink = false;
+    linkRes.loggedIn = true;
+    if (linkRes.user) linkRes.user.access = "full";
+    return linkRes;
+  }
+
   function dispatch(action, params) {
     params = params || {};
     if (action === "gbMe") return handleMe(params);
     if (action === "gbSavePet") return handleSavePet(params);
     if (action === "gbLinkClient") return handleLinkClient(params);
-    if (action === "gbBootstrap") {
+    if (action === "gbRegister") return handleRegister(params);
+    if (action === "gbLogin") return handleLogin(params);
+    if (action === "gbEnsureSheets" || action === "gbBootstrap") {
       return { status: "success", demo: true, message: "local ok", partners: partnersList() };
     }
     return { status: "error", message: "unknown_action:" + action };

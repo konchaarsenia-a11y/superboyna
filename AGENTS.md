@@ -10,7 +10,8 @@
 6. [VAROK.md](./VAROK.md) — Varka: бесплатное пополнение (точки / каталог)
 7. **[boinya-c/docs/PEOPLE_CANON.md](./boinya-c/docs/PEOPLE_CANON.md)** — канон save/move/delete (Sheets-confirm); **не ломать**
 8. **[boinya-c/docs/WEEK_CALENDAR_CANON.md](./boinya-c/docs/WEEK_CALENDAR_CANON.md)** — неделя vs календарь при незакрытой неделе
-8. **Handoff** ниже — если трогаешь `Code.gs`
+9. **[MERGE_GOODBOY_GB.md](./MERGE_GOODBOY_GB.md)** — листы `GB_*` / actions `gb*` (клиентский кабинет); **не писать в CRM/неделю**
+10. **Handoff** ниже — если трогаешь `Code.gs`
 
 ## Skills (Cursor Agent)
 
@@ -58,6 +59,23 @@ Cloud Agent **не может** сохранить Automation за владел�
 
 Тест: `scripts/test-api.ps1`, клиент `zzz_test`.  
 Не закрывать неделю без явного ОК владельца.
+
+---
+
+## ⚠️ Handoff: Goodboy GB_* (клиентский кабинет, 2026-08-26)
+
+Клиентский сайт/кабинет Goodboy связан с Бойней через **отдельные** листы и `gb*`-actions.
+
+| Что | Детали |
+|-----|--------|
+| Инструкция | **[MERGE_GOODBOY_GB.md](./MERGE_GOODBOY_GB.md)** |
+| Сниппет | [`goodboy/CODE_GS_GOODBOY.snippet.gs`](./goodboy/CODE_GS_GOODBOY.snippet.gs) |
+| Листы (запись) | только `GB_Пользователи`, `GB_Связки`, `GB_Питомцы` |
+| CRM / Календарь_Дат | **только чтение** |
+| Не трогать | заказы, нарезка, склад, Доступы, materialize/week, натив `gbi_` |
+
+Владельцу после merge в `main`: вставить весь `Code.gs` → Deploy → `?action=gbEnsureSheets`.  
+Агенту Бойни при расхождении Script↔git: вливать **патч** по `MERGE_GOODBOY_GB.md`, не затирать файл.
 
 ---
 
