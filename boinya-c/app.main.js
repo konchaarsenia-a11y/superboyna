@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115899";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115900";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -96,6 +96,7 @@
     var _assemblyLoadSeq = 0;
     var _viewClientsLoadSeq = 0;
     var _deliveryDateResolveSeq = 0;
+    var _monthOverviewLoadSeq = 0;
     let routePlanState = {
       courierCount: 1,
       routes: [[], []],
@@ -5252,17 +5253,25 @@
       return Object.assign({}, data, { days: days, total: total, weekOverlay: true, clientOverlay: true });
     }
 
-    function renderMonthOverviewList_(data) {
+    function renderMonthOverviewList_(data, opts) {
+      opts = opts || {};
       var box = document.getElementById("viewMonthOverviewList");
       if (!box) return;
       // не затирать сетку пустотой после move/delete (кэш сбросили, GAS ещё не пришёл)
       if (!data || !Array.isArray(data.days)) return;
-      var month = (data && data.month) || (document.getElementById("viewMonthPick") && document.getElementById("viewMonthPick").value) || "";
+      var pickEl = document.getElementById("viewMonthPick");
+      var pickMonth = (pickEl && pickEl.value) || "";
+      var dataMonth = String((data && data.month) || "").slice(0, 7);
+      // приоритет: явный want → выбранный пикер → data.month (не откатывать пикер чужим месяцем)
+      var month = String(opts.wantMonth || "").slice(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(month) && /^\d{4}-\d{2}$/.test(pickMonth)) month = pickMonth;
+      if (!/^\d{4}-\d{2}$/.test(month)) month = dataMonth;
       if (!/^\d{4}-\d{2}$/.test(month)) {
         var now0 = new Date();
         month = now0.getFullYear() + "-" + pad2Month_(now0.getMonth() + 1);
       }
-      var pickEl = document.getElementById("viewMonthPick");
+      // если ответ про другой месяц — не трогаем пикер и не рисуем чужую сетку
+      if (dataMonth && dataMonth !== month) return;
       if (pickEl && pickEl.value !== month) pickEl.value = month;
 
       var byIso = {};
@@ -5360,18 +5369,28 @@
         month = now.getFullYear() + "-" + pad2Month_(now.getMonth() + 1);
         if (pick) pick.value = month;
       }
-      if (opts.soft && viewMonthOverviewCache && viewMonthOverviewCache.month === month) {
-        renderMonthOverviewList_(viewMonthOverviewCache);
+      var wantMonth = month;
+      var seq = ++_monthOverviewLoadSeq;
+      if (
+        opts.soft &&
+        viewMonthOverviewCache &&
+        viewMonthOverviewCache.month === wantMonth &&
+        Array.isArray(viewMonthOverviewCache.days)
+      ) {
+        renderMonthOverviewList_(viewMonthOverviewCache, { wantMonth: wantMonth });
         if (opts.refresh) {
           apiGet(
-            { action: "getMonthOverview", month: month, _: String(Date.now()) },
+            { action: "getMonthOverview", month: wantMonth, force: "1", _: String(Date.now()) },
             { timeoutMs: 45000, retries: 0, cacheTtlMs: 0 }
           ).then(function (res) {
-            if (res && res.status === "success") {
-              viewMonthOverviewCache = overlayWeekCountsOnMonthData_(res);
-              viewMonthOverviewByMonth[month] = viewMonthOverviewCache;
-              renderMonthOverviewList_(viewMonthOverviewCache);
-            }
+            if (seq !== _monthOverviewLoadSeq) return;
+            if (!(res && res.status === "success")) return;
+            var got = String(res.month || "").slice(0, 7);
+            if (got && got !== wantMonth) return;
+            var body = Object.assign({}, res, { month: wantMonth });
+            viewMonthOverviewCache = overlayWeekCountsOnMonthData_(body);
+            viewMonthOverviewByMonth[wantMonth] = viewMonthOverviewCache;
+            renderMonthOverviewList_(viewMonthOverviewCache, { wantMonth: wantMonth });
           }).catch(function () {});
         }
         return;
@@ -5385,19 +5404,41 @@
             force: !!(opts.force || !isWeekCountsFresh_(viewWeekOverviewCache))
           });
         } catch (eWov) {}
-        var params = { action: "getMonthOverview", month: month };
-        if (opts.force) {
+        if (seq !== _monthOverviewLoadSeq) return;
+        var params = { action: "getMonthOverview", month: wantMonth };
+        // смена месяца без кэша — всегда force, иначе SWR отдаёт залипший prev.month
+        if (opts.force || opts.needMonth) {
           params.force = "1";
           params._ = String(Date.now());
         }
         var res = await apiGet(
           params,
-          { timeoutMs: opts.soft ? 22000 : 35000, retries: opts.soft ? 0 : 1, cacheTtlMs: opts.force ? 0 : undefined }
+          { timeoutMs: opts.soft ? 22000 : 45000, retries: opts.soft ? 0 : 1, cacheTtlMs: (opts.force || opts.needMonth) ? 0 : undefined }
         );
+        if (seq !== _monthOverviewLoadSeq) return;
         if (res && res.status === "success") {
-          viewMonthOverviewCache = overlayWeekCountsOnMonthData_(res);
-          viewMonthOverviewByMonth[month] = viewMonthOverviewCache;
-          renderMonthOverviewList_(viewMonthOverviewCache);
+          var gotM = String(res.month || "").slice(0, 7);
+          if (gotM && gotM !== wantMonth) {
+            // ещё раз строго за нужный месяц
+            try {
+              res = await apiGet(
+                { action: "getMonthOverview", month: wantMonth, force: "1", _: String(Date.now()) },
+                { timeoutMs: 45000, retries: 0, cacheTtlMs: 0 }
+              );
+            } catch (eForce) {
+              res = null;
+            }
+            if (seq !== _monthOverviewLoadSeq) return;
+            gotM = res ? String(res.month || "").slice(0, 7) : "";
+            if (gotM && gotM !== wantMonth) {
+              if (box) box.innerHTML = '<div class="view-idle">Не удалось открыть ' + escapeHtml(wantMonth) + "</div>";
+              return;
+            }
+          }
+          var bodyOk = Object.assign({}, res, { month: wantMonth });
+          viewMonthOverviewCache = overlayWeekCountsOnMonthData_(bodyOk);
+          viewMonthOverviewByMonth[wantMonth] = viewMonthOverviewCache;
+          renderMonthOverviewList_(viewMonthOverviewCache, { wantMonth: wantMonth });
         } else {
           if (box) {
             box.innerHTML = '<div class="view-idle">Не удалось загрузить месяц' +
@@ -5405,6 +5446,7 @@
           }
         }
       } catch (e) {
+        if (seq !== _monthOverviewLoadSeq) return;
         if (box) box.innerHTML = '<div class="view-idle">Ошибка: ' + escapeHtml(e.message || String(e)) + "</div>";
       }
     }
@@ -5412,14 +5454,15 @@
     function onViewMonthPickChange() {
       var pick = document.getElementById("viewMonthPick");
       var month = (pick && pick.value) || "";
-      if (month && viewMonthOverviewByMonth[month]) {
-        viewMonthOverviewCache = viewMonthOverviewByMonth[month];
-        renderMonthOverviewList_(viewMonthOverviewCache);
+      var cached = month ? viewMonthOverviewByMonth[month] : null;
+      if (cached && cached.month === month && Array.isArray(cached.days)) {
+        viewMonthOverviewCache = cached;
+        renderMonthOverviewList_(cached, { wantMonth: month });
         ensureMonthOverviewLoaded_({ soft: true, refresh: true });
         return;
       }
       viewMonthOverviewCache = null;
-      ensureMonthOverviewLoaded_({ soft: false });
+      ensureMonthOverviewLoaded_({ soft: false, needMonth: true, force: true });
     }
     window.onViewMonthPickChange = onViewMonthPickChange;
 
