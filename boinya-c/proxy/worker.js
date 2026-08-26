@@ -3344,28 +3344,32 @@ async function invalidateDays_(env, days) {
 async function getMonthOverview_(params, env) {
   const month = String(params.month || "");
   const hitM = month ? await getSnapRaw_(env, "monthOverview:" + month) : null;
-  // есть snap нужного месяца — rebuild только его (не prev.month с другого месяца)
+  // быстрый путь: snap нужного месяца + overlay недели (полный rebuild — на write / SWR GAS)
   if (hitM && Array.isArray(hitM.days) && hitM.days.length) {
-    const body = await rebuildMonthOverview_(env, month || hitM.month);
-    if (body && Array.isArray(body.days) && String(body.month || "") === String(month || body.month || "")) {
-      return overlayWeekSheetCountsOnMonth_(env, body);
+    const snapMonth = String(hitM.month || "").slice(0, 7);
+    if (!month || !snapMonth || snapMonth === month) {
+      return overlayWeekSheetCountsOnMonth_(
+        env,
+        Object.assign({}, hitM, { month: month || snapMonth || hitM.month, source: hitM.source || "snap" })
+      );
     }
-    return overlayWeekSheetCountsOnMonth_(env, hitM);
   }
   const hit = await getSnapRaw_(env, "monthOverview");
   // чужой месяц в глобальном snap — не подсовывать его как ответ на сентябрь
-  if (hit && Array.isArray(hit.days) && hit.days.length >= 10 && (!month || hit.month === month)) {
-    const body = await rebuildMonthOverview_(env, month || hit.month);
-    if (body && Array.isArray(body.days) && body.days.length >= hit.days.length) {
-      return overlayWeekSheetCountsOnMonth_(env, body);
-    }
-    return overlayWeekSheetCountsOnMonth_(env, hit);
+  if (hit && Array.isArray(hit.days) && hit.days.length && (!month || String(hit.month || "").slice(0, 7) === month)) {
+    return overlayWeekSheetCountsOnMonth_(
+      env,
+      Object.assign({}, hit, { month: month || hit.month, source: hit.source || "snap" })
+    );
   }
+  // нет snap этого месяца — собрать из D1 (не GAS)
   const body = await rebuildMonthOverview_(env, month);
   if (body && (!month || body.month === month || !body.month)) {
     return overlayWeekSheetCountsOnMonth_(env, body);
   }
-  if (hit && (!month || hit.month === month)) return overlayWeekSheetCountsOnMonth_(env, hit);
+  if (hit && (!month || String(hit.month || "").slice(0, 7) === month)) {
+    return overlayWeekSheetCountsOnMonth_(env, hit);
+  }
   return body || { status: "success", month: month, days: [], total: 0, sandbox: true, source: "d1" };
 }
 
