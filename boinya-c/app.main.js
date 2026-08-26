@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115900";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115901";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -4035,7 +4035,13 @@
           if (seq !== _deliveryDateResolveSeq) return;
           if (!el.value || el.value !== wantDate) return;
           var name = (res && res.onWeek && res.dayName) ? res.dayName : "";
-          if (!name) return;
+          if (!name) {
+            // дата дальше «Будущей» / вне листа — не оставлять залипший Пн/Вт
+            daySel.selectedIndex = 0;
+            daySel.value = "";
+            try { onOrderDaySelectChange_(); } catch (eClr) {}
+            return;
+          }
           for (let i = 0; i < daySel.options.length; i++) {
             if (daySel.options[i].text === name || daySel.options[i].value === name) {
               daySel.selectedIndex = i;
@@ -4047,15 +4053,9 @@
         .catch(function () {
           if (seq !== _deliveryDateResolveSeq) return;
           if (!el.value || el.value !== wantDate) return;
-          var names = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
-          var wd = names[d.getDay()];
-          if (d.getDay() === 0 || d.getDay() === 6) return;
-          for (let i = 0; i < daySel.options.length; i++) {
-            if (daySel.options[i].text === wd || daySel.options[i].value === wd) {
-              daySel.selectedIndex = i;
-              break;
-            }
-          }
+          // без resolve не угадываем день недели — иначе сентябрь → «Вторник» и конфликт с календарём
+          daySel.selectedIndex = 0;
+          daySel.value = "";
           try { onOrderDaySelectChange_(); } catch (eOd2) {}
         });
       try { if (orderType === "pp") refreshPpFactPrice(); } catch (e) {}
@@ -4757,22 +4757,63 @@
           bookingPayload.permanentNote = permanentNote || "";
           bookingPayload.orderType = orderTypeSnap || "";
           if (surveyMeta) bookingPayload.survey = surveyMeta;
-          try { await apiPost(bookingPayload); } catch (ePostB) {}
+          try {
+            var postBook = await apiPost(bookingPayload);
+            if (postBook && (postBook.writeId || postBook.status === "accepted" || postBook.status === "success")) {
+              bookRes = postBook;
+            }
+          } catch (ePostB) {}
           if (weekDayToSave) {
             payload.day = weekDayToSave;
             payload.date = deliveryDate;
-            try { await apiPost(payload); } catch (ePost) {}
-          } else {
-            // вне недели — явный calendar save (без day из селекта)
             try {
-              await apiPost(Object.assign({}, payload, {
-                action: "saveOrder",
-                day: "",
+              var postOrd = await apiPost(payload);
+              if (postOrd && (postOrd.writeId || postOrd.status === "accepted" || postOrd.status === "success")) {
+                saveRes = Object.assign({}, saveRes || {}, postOrd);
+              }
+            } catch (ePost) {}
+          } else {
+            // вне недели — явный calendar save через GET (writeId + poll), не opaque POST
+            try {
+              var calGet = await apiGet({
+                action: "saveBooking",
                 date: deliveryDate,
-                calendarOnly: true
-              }));
-            } catch (ePostCal) {}
-            if (!bookRes || (bookRes.status !== "success" && bookRes.status !== "accepted")) {
+                day: "",
+                alsoSaveOrder: "0",
+                calendarOnly: "1",
+                client: clientName,
+                editClient: editClientSnap,
+                originalClient: editClientSnap,
+                matchKey: editKeySnap,
+                address: clientAddress,
+                phone: phone || "",
+                note: clientNote || "",
+                permanentNote: permanentNote || "",
+                orderType: orderTypeSnap || "",
+                segment: orderTypeToSegment_(orderTypeSnap) || "",
+                orderPrice: orderPrice != null ? String(orderPrice) : "",
+                source: orderTypeSnap === "bp" ? "bp" : (orderTypeSnap === "pp" ? "pp" : (orderTypeSnap === "partner" ? "partner" : "retail")),
+                basket: basketJson,
+                _: String(Date.now())
+              }, { timeoutMs: 20000, cacheTtlMs: 0, bypassInflight: true });
+              if (calGet && (calGet.writeId || calGet.status === "accepted" || calGet.status === "success")) {
+                bookRes = calGet;
+              }
+            } catch (eCalGet) {}
+            if (!bookRes || (bookRes.status !== "success" && bookRes.status !== "accepted" && !bookRes.writeId)) {
+              try {
+                var postCal = await apiPost(Object.assign({}, payload, {
+                  action: "saveOrder",
+                  day: "",
+                  date: deliveryDate,
+                  calendarOnly: true
+                }));
+                if (postCal && (postCal.writeId || postCal.status === "accepted" || postCal.status === "success")) {
+                  bookRes = postCal;
+                }
+              } catch (ePostCal) {}
+            }
+            if (!bookRes || (bookRes.status !== "success" && bookRes.status !== "accepted" && !bookRes.writeId)) {
               bookRes = { status: "sent_opaque" };
             }
           }
@@ -4897,29 +4938,39 @@
 
         hideSaveLoading();
 
+        // календарь-only: сбросить день недели в форме (не оставлять Пн)
+        if (!weekDayToSave) {
+          try {
+            var dayClr = document.getElementById("day");
+            if (dayClr) { dayClr.selectedIndex = 0; dayClr.value = ""; }
+          } catch (eDayClr) {}
+        }
+
         var confirmSrc = (saveRes && (saveRes.writeId || saveRes.sheetsVerified || saveRes.pendingSheets))
           ? saveRes
           : (bookRes && (bookRes.writeId || bookRes.sheetsVerified || bookRes.pendingSheets) ? bookRes : saveRes || bookRes);
-        var doneLabel = dateOnWeek && inWeek
+        var calendarOnlySave = !weekDayToSave;
+        var doneLabel = !calendarOnlySave && dateOnWeek && inWeek
           ? ("Точно внесено · " + clientName + (savedItems ? (" · " + savedItems + " поз.") : ""))
-          : ("Точно в календаре · " + deliveryDate);
+          : ("Точно в календаре · " + deliveryDate + (savedItems ? (" · " + savedItems + " поз.") : ""));
         if (confirmSrc && (confirmSrc.writeId || confirmSrc.pendingSheets || confirmSrc.sheetsVerified)) {
           await confirmPeopleWriteSheets_(confirmSrc, {
             doneMsg: doneLabel,
-            pendingMsg: "Вношу «" + clientName + "» в таблицу…",
+            pendingMsg: calendarOnlySave
+              ? ("Пишу в календарь «" + clientName + "»…")
+              : ("Вношу «" + clientName + "» в таблицу…"),
             failMsg: "Не закрепилось в таблице",
-            block: false
+            // календарь: дождаться «Точно», чтобы не путать с ошибкой
+            block: !!calendarOnlySave
           });
-        } else if (dateOnWeek && inWeek) {
+        } else if (!calendarOnlySave && dateOnWeek && inWeek) {
           showToast((isEdit ? "Обновлён" : "Сохранён") + " " + clientName +
             " (" + savedItems + " поз.)" +
             (orderPrice != null ? (" · " + orderPrice + " BYN") : ""));
         } else {
-          showToast(
-            "В календарь " + deliveryDate +
-            " · " + savedItems + " поз." +
-            (dateOnWeek ? "" : " · неделя ещё не закрыта — слот Пн–Вс старый")
-          );
+          showToast("В календаре · " + deliveryDate + " · " + clientName +
+            (savedItems ? (" · " + savedItems + " поз.") : "") +
+            " · ок (не на листе Пн–Вс)");
         }
         try {
           if (weekDayToSave && dateOnWeek && inWeek) {
@@ -4946,7 +4997,26 @@
         }
 
         try {
-          refreshDayViews(day).catch(function () {});
+          if (calendarOnlySave && deliveryDate) {
+            // открыть Просмотр на эту дату — иначе кажется, что «не внеслось» (смотрели Пн)
+            try {
+              var vd = document.getElementById("viewDate");
+              if (vd) vd.value = deliveryDate;
+              lastViewDateIso = deliveryDate;
+            } catch (eVd) {}
+            try {
+              if (typeof openViewMonthDay === "function") {
+                await openViewMonthDay(deliveryDate);
+              } else {
+                await loadClientsForDay();
+              }
+            } catch (eOpenCal) {
+              try { await loadClientsForDay(); } catch (eL2) {}
+            }
+            try { switchTab("viewScreen"); } catch (eTab) {}
+          } else {
+            refreshDayViews(weekDayToSave || day).catch(function () {});
+          }
         } catch (eRef) {}
       } catch (err) {
         hideSaveLoading();
