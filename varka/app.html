@@ -1487,12 +1487,12 @@
       }
       if (it.id === "vr_c_nfc" || kind === "nfc") {
         var reasonLab = nfcReasonLabel_(nfcExtraReason_);
-        var nfcSub = hint || "приложить к телефону клиента";
+        var nfcSub = hint || "приложить к телефону клиента · 1 на точку";
         if (q >= 2 && reasonLab) nfcSub = "2 шт · " + reasonLab;
-        else if (q >= 2) nfcSub = "выберите причину второго";
-        else if (q === 1) nfcSub = "1 на точку · " + nfcSub;
-        return '<div class="coupon-card qty-item" style="flex-wrap:wrap;">' +
-          '<div class="coupon-row">' +
+        else if (q >= 2 || nfcPickReasonOpen_) nfcSub = "выберите причину второго";
+        else if (q === 1) nfcSub = "1 на точку";
+        return '<div class="coupon-card qty-item" style="flex-wrap:wrap;align-items:flex-start;">' +
+          '<div class="coupon-row" style="width:100%;">' +
           '<div class="meta" style="flex:1;min-width:0"><div class="title">' + esc(it.name) +
           '</div><div class="coupon-hint nfc">' + esc(nfcSub) + selected +
           "</div></div>" + ste + "</div></div>";
