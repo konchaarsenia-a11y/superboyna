@@ -26,6 +26,7 @@ resolveDayForDate(date) → onWeek?
 2. Считать `accepted` ошибкой (batch раньше смотрел только `success`).
 3. Toast «неделя ещё не закрыта» как fail — это **успех календаря**.
 4. После save обновлять Просмотр по `#day=Пн`, а не по `deliveryDate`.
+5. `switchTab("viewScreen")` — **нет такого экрана**, нужен `clientsScreen` (иначе все `.screen` без `.active` = чёрный экран после calendar-save).
 
 ## Почему баги повторяются
 
