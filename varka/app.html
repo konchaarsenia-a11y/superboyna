@@ -483,7 +483,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.3";
+  var APP_VER = "3.3.4";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -491,6 +491,19 @@
   var SETTINGS_KEY = "gb_partner_settings_v2";
   var BANNER_IMG = "assets/coupon-poster.png";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
+  /** Картинки купона/баннера по сети (Varka-дефолт — иначе чужой бренд). */
+  var PARTNER_MEDIA_ = {
+    net_varka: {
+      coupon: "assets/coupon-varka-goodboy.png",
+      banner: "assets/coupon-poster.png",
+      alt: "Varka × Good Boy"
+    },
+    net_nan: {
+      coupon: "assets/partners/nan-coupon.png",
+      banner: "assets/partners/nan-coupon.png",
+      alt: "NaN clinic × Good Boy"
+    }
+  };
   // Owner Бойни — все точки; партнёр — Partner_Access. Точки с сервера.
   var OWNERS_ONLY_MODE_ = false;
   var REMOTE_IS_OWNER_ = false;
@@ -1217,8 +1230,26 @@
       "</div></div>";
   }
 
+  function currentNetworkId_() {
+    if (state.point && state.point.networkId) return String(state.point.networkId);
+    if (state.me && state.me.networkId) return String(state.me.networkId);
+    return String(DEMO_NETWORK || "");
+  }
+
+  function partnerMedia_() {
+    var nid = currentNetworkId_();
+    var hit = PARTNER_MEDIA_[nid];
+    if (hit) return hit;
+    return {
+      coupon: COUPON_IMG,
+      banner: BANNER_IMG,
+      alt: "Good Boy"
+    };
+  }
+
   function renderCatalog() {
     var box = document.getElementById("catalogList");
+    var media = partnerMedia_();
     var items = state.catalog.filter(function (it) {
       if (it.active === false) return false;
       if (state.cat === "coupon") {
@@ -1237,14 +1268,14 @@
       var selected = q ? (" · " + q + (unit && unit !== "г" ? (" " + unit) : "")) : "";
       if (it.id === "vr_c_banner") {
         return '<div class="coupon-card banner-card">' +
-          '<img class="coupon-banner" src="' + BANNER_IMG + '" alt="Varka × Good Boy">' +
+          '<img class="coupon-banner" src="' + media.banner + '" alt="' + esc(media.alt) + '">' +
           '<div class="coupon-row qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
           '</div><div class="unit">только 1 шт' + selected +
           "</div></div>" + ste + "</div></div>";
       }
       if (it.type === "coupon") {
         return '<div class="coupon-card banner-card">' +
-          '<img class="coupon-preview" src="' + COUPON_IMG + '" alt="Varka × Good Boy">' +
+          '<img class="coupon-preview" src="' + media.coupon + '" alt="' + esc(media.alt) + '">' +
           '<div class="coupon-row qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
           '</div><div class="unit">пресеты или своё' + selected +
           "</div></div>" + ste + "</div></div>";
