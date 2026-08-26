@@ -435,7 +435,7 @@ function gbFindCrmSubscriber_(nick, phone) {
   return { ambiguous: false, hit: hits[0], candidates: hits.slice(0, 5) };
 }
 
-/** Лёгкое чтение следующей даты: свой проход по Календарь_Дат, без мутаций. */
+/** Лёгкое чтение следующей/текущей доставки: свой проход по Календарь_Дат, без мутаций. */
 function gbNextDelivery_(matchKey, clientNick) {
   var mk = String(matchKey || "").trim();
   var nick = String(clientNick || "").trim();
@@ -445,8 +445,10 @@ function gbNextDelivery_(matchKey, clientNick) {
     tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || tz;
   } catch (eTz) {}
   var today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
-  var best = null;
-  var bestIso = "";
+  var bestFuture = null;
+  var bestFutureIso = "";
+  var bestToday = null;
+  var recentDelivered = null;
   try {
     var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Календарь_Дат");
     if (!sh || sh.getLastRow() < 2) return null;
@@ -456,7 +458,7 @@ function gbNextDelivery_(matchKey, clientNick) {
     for (var i = 0; i < data.length; i++) {
       var client = String(data[i][2] || "").trim();
       if (!client) continue;
-      var st = String(data[i][11] || "").toLowerCase();
+      var st = String(data[i][11] || "").toLowerCase().trim();
       if (st === "cancelled") continue;
       var rowMk = String(data[i][3] || "");
       var same = false;
@@ -470,36 +472,175 @@ function gbNextDelivery_(matchKey, clientNick) {
           if (bd) iso = isoDateKey_(bd, tz);
         } catch (eD) {}
       }
-      if (!iso || iso < today) continue;
-      if (!bestIso || iso < bestIso) {
-        bestIso = iso;
-        best = {
-          dateIso: iso,
-          address: String(data[i][5] || ""),
-          phone: String(data[i][6] || ""),
-          segment: String(data[i][4] || ""),
-          date: data[i][0]
-        };
+      if (!iso) continue;
+      var rowObj = {
+        dateIso: iso,
+        address: String(data[i][5] || ""),
+        phone: String(data[i][6] || ""),
+        segment: String(data[i][4] || ""),
+        calStatus: st || "planned",
+        date: data[i][0]
+      };
+      if (iso === today) bestToday = rowObj;
+      if (iso < today && (st === "delivered" || st === "done" || st === "получен")) {
+        if (!recentDelivered || iso > recentDelivered.dateIso) recentDelivered = rowObj;
+      }
+      if (iso >= today) {
+        if (!bestFutureIso || iso < bestFutureIso) {
+          bestFutureIso = iso;
+          bestFuture = rowObj;
+        }
       }
     }
   } catch (eCal) {
     return null;
   }
-  if (!best) return null;
-  var label = bestIso;
+  var best = bestFuture || bestToday || null;
+  if (!best) {
+    if (recentDelivered) {
+      return {
+        nextDate: "",
+        nextDateLabel: "",
+        address: recentDelivered.address || "",
+        phone: recentDelivered.phone || "",
+        basket: [],
+        segment: recentDelivered.segment || "",
+        subId: "",
+        calStatus: recentDelivered.calStatus || "delivered",
+        daysUntil: null,
+        recentDelivered: true
+      };
+    }
+    return null;
+  }
+  var label = best.dateIso;
+  var daysUntil = null;
   try {
     var d = parseFlexibleDate_(best.dateIso || best.date, tz);
     if (d) label = Utilities.formatDate(d, tz, "d MMMM");
+    var t0 = Utilities.parseDate(today, tz, "yyyy-MM-dd").getTime();
+    var t1 = Utilities.parseDate(best.dateIso, tz, "yyyy-MM-dd").getTime();
+    daysUntil = Math.round((t1 - t0) / 86400000);
   } catch (eL) {}
   return {
-    nextDate: bestIso,
-    nextDateLabel: label || bestIso,
+    nextDate: best.dateIso,
+    nextDateLabel: label || best.dateIso,
     address: best.address || "",
     phone: best.phone || "",
     basket: [],
     segment: best.segment || "",
-    subId: ""
+    subId: "",
+    calStatus: best.calStatus || "planned",
+    daysUntil: daysUntil,
+    recentDelivered: false
   };
+}
+
+/** Клиентские стадии подписки (тексты для кабинета Goodboy). */
+function gbClientStageCatalog_() {
+  return {
+    unlinked: {
+      id: "unlinked",
+      badge: "не привязана",
+      title: "Привяжите заказ",
+      text: "Укажите телефон или Instagram-ник из Бойни — покажем дату и состав.",
+      progress: 8
+    },
+    waiting_stock: {
+      id: "waiting_stock",
+      badge: "ждём",
+      title: "Ждём, пока Барни сократит запасы лакомств",
+      text: "Пока доедаете текущий набор — новый не торопим. Когда пора готовить, статус обновится.",
+      progress: 22
+    },
+    scheduled: {
+      id: "scheduled",
+      badge: "в плане",
+      title: "Доставка уже в календаре",
+      text: "Дата зафиксирована. Скоро начнём заготовку лакомств.",
+      progress: 38
+    },
+    preparing: {
+      id: "preparing",
+      badge: "готовим",
+      title: "Заготавливаем новые лакомства",
+      text: "Сушим и комплектуем набор под вашего питомца.",
+      progress: 55
+    },
+    packing: {
+      id: "packing",
+      badge: "собираем",
+      title: "Собираем ваш набор",
+      text: "Упаковываем позиции и готовим к передаче курьеру.",
+      progress: 72
+    },
+    on_the_way: {
+      id: "on_the_way",
+      badge: "в пути",
+      title: "Набор уже в пути",
+      text: "Курьер везёт доставку по вашему адресу.",
+      progress: 88
+    },
+    delivered: {
+      id: "delivered",
+      badge: "получен",
+      title: "Набор у вас",
+      text: "Приятного аппетита питомцу. Следующий цикл начнём вовремя.",
+      progress: 100
+    },
+    trial: {
+      id: "trial",
+      badge: "пробный",
+      title: "Пробный период",
+      text: "Идёт тестовый набор. После него можно перейти на постоянную подписку.",
+      progress: 40
+    },
+    paused: {
+      id: "paused",
+      badge: "пауза",
+      title: "Подписка на паузе",
+      text: "Доставки временно не планируем. Напишите нам, когда возобновить.",
+      progress: 15
+    }
+  };
+}
+
+function gbResolveClientStage_(opts) {
+  opts = opts || {};
+  var cat = gbClientStageCatalog_();
+  var linked = !!opts.linked;
+  var segment = String(opts.segment || "").toUpperCase();
+  var calStatus = String(opts.calStatus || "").toLowerCase().trim();
+  var daysUntil = opts.daysUntil;
+  var recentDelivered = !!opts.recentDelivered;
+  var subStatus = String(opts.subStatus || "");
+
+  if (!linked) return cat.unlinked;
+  if (subStatus === "paused") return cat.paused;
+
+  if (calStatus === "delivered" || calStatus === "done" || calStatus === "получен" || recentDelivered) {
+    // если ближайшая доставка — сегодня и уже delivered
+    if (daysUntil == null || daysUntil <= 0 || recentDelivered) return cat.delivered;
+  }
+  if (/ship|transit|courier|delivering|в\s*пути|едет/.test(calStatus)) return cat.on_the_way;
+  if (/assembl|packed|сбор|готов к/.test(calStatus)) return cat.packing;
+
+  if (daysUntil == null || daysUntil === "" || isNaN(Number(daysUntil))) {
+    if (segment === "БП" || segment === "BP") return cat.trial;
+    return cat.waiting_stock;
+  }
+  daysUntil = Number(daysUntil);
+  if (daysUntil <= 0) return cat.on_the_way;
+  if (daysUntil <= 1) return cat.on_the_way;
+  if (daysUntil <= 3) return cat.packing;
+  if (daysUntil <= 9) return cat.preparing;
+  if (daysUntil <= 16) return cat.scheduled;
+  if (segment === "БП" || segment === "BP") {
+    var trial = cat.trial;
+    // сохраняем прогресс «ждём/готовим» но бейдж пробный, если далеко
+    if (daysUntil > 16) return trial;
+  }
+  return cat.waiting_stock;
 }
 
 function gbSubscriptionPayload_(linkRow, crmHit) {
@@ -536,20 +677,38 @@ function gbSubscriptionPayload_(linkRow, crmHit) {
 
   var nextDateLabel = "Привяжите подписку";
   if (status === "active" || status === "trial" || status === "linked") {
-    nextDateLabel = (next && next.nextDateLabel) || "Дата появится после ближайшей доставки";
+    nextDateLabel = (next && next.nextDateLabel) || "Дата появится, когда пора готовить набор";
   }
+
+  var linked = !!(linkRow && String(linkRow.status || "") === "linked");
+  var stage = gbResolveClientStage_({
+    linked: linked,
+    segment: segment,
+    subStatus: status,
+    calStatus: (next && next.calStatus) || "",
+    daysUntil: next ? next.daysUntil : null,
+    recentDelivered: !!(next && next.recentDelivered)
+  });
 
   return {
     status: status,
     segment: segment,
     nextDate: (next && next.nextDate) || "",
     nextDateLabel: nextDateLabel,
+    daysUntil: next && next.daysUntil != null ? next.daysUntil : null,
+    calStatus: (next && next.calStatus) || "",
     address: address,
     basket: basket,
     subId: subId,
     clientNick: clientNick,
     matchKey: matchKey,
-    wishes: wishes
+    wishes: wishes,
+    stage: stage,
+    stageId: stage.id,
+    stageBadge: stage.badge,
+    stageTitle: stage.title,
+    stageText: stage.text,
+    stageProgress: stage.progress
   };
 }
 

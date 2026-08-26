@@ -225,36 +225,57 @@
     var sub = st.subscription || {};
     var link = st.link || {};
     var linked = link.status === "linked";
-    var items = (sub.basket && sub.basket.length)
+    var stage = (global.GBSubStatus && GBSubStatus.resolve(sub, link)) || {
+      id: linked ? "waiting_stock" : "unlinked",
+      badge: linked ? "ждём" : "не привязана",
+      title: linked ? "Ждём, пока Барни сократит запасы лакомств" : "Привяжите заказ",
+      text: linked
+        ? "Пока доедаете текущий набор — новый не торопим."
+        : "Укажите телефон или ник из заказа Бойни.",
+      progress: linked ? 22 : 8
+    };
+    var tip = (global.GBSubStatus && GBSubStatus.tipMeta(stage, sub)) || {
+      title: stage.title,
+      text: stage.text,
+      when: "",
+      progress: stage.progress
+    };
+    var hasBasket = !!(sub.basket && sub.basket.length);
+    var items = hasBasket
       ? sub.basket.map(function (b) {
           return (b.name || b.main || "Позиция") + (b.val || b.value ? " · " + (b.val || b.value) + (b.unit || " г") : "");
         })
-      : ["Лёгкое говяжье · 100 г", "Рубец · 80 г", "Треска сушёная · 60 г"];
-    var badge = linked && sub.status === "active" ? "в пути" : (linked ? esc(sub.status || "активна") : "не привязана");
-    var when = linked
-      ? esc(sub.nextDateLabel || sub.nextDate || "Дата уточняется") + (link.address || sub.address ? " · " + esc(link.address || sub.address) : "")
+      : [];
+    var whenLine = linked
+      ? (sub.nextDateLabel || tip.when || "Дата уточняется") +
+        (link.address || sub.address ? " · " + (link.address || sub.address) : "")
       : "Привяжите заказ — покажем дату и состав";
-    var progress = linked ? 78 : 12;
 
     return (
       "<div class=\"cabinet-block\">" +
-        "<div class=\"ps-card ps-card--rich cabinet-sub-card\">" +
-          "<div class=\"ps-row\"><strong>Месячный набор</strong><em class=\"ps-badge\">" + badge + "</em></div>" +
-          "<span>" + when + "</span>" +
-          "<div class=\"ps-bar\"><i style=\"--w:" + progress + "%\"></i></div>" +
-          "<div class=\"ps-list\">" + items.map(function (line) {
-            return "<span>" + esc(line) + "</span>";
-          }).join("") + "</div>" +
+        "<div class=\"ps-card ps-card--rich cabinet-sub-card\" data-stage=\"" + esc(stage.id) + "\">" +
+          "<div class=\"ps-row\"><strong>Месячный набор</strong><em class=\"ps-badge ps-badge--" + esc(stage.id) + "\">" + esc(stage.badge) + "</em></div>" +
+          "<p class=\"cabinet-stage-title\">" + esc(stage.title) + "</p>" +
+          "<span class=\"cabinet-stage-when\">" + esc(whenLine) + "</span>" +
+          "<div class=\"ps-bar\" aria-hidden=\"true\"><i style=\"--w:" + (tip.progress || stage.progress || 20) + "%\"></i></div>" +
+          (items.length
+            ? "<div class=\"ps-list\">" + items.map(function (line) {
+                return "<span>" + esc(line) + "</span>";
+              }).join("") + "</div>"
+            : (linked
+              ? "<p class=\"cabinet-hint\">Состав набора появится ближе к сборке.</p>"
+              : "")) +
         "</div>" +
         (linked
-          ? "<div class=\"ps-tip\"><b>Осталось 8 дней</b><span>Следующий набор соберём автоматически&nbsp;— можно поменять состав до&nbsp;среды.</span></div>"
+          ? "<div class=\"ps-tip\"><b>" + esc(tip.when || stage.badge) + "</b><span>" + esc(stage.text) + "</span></div>"
           : "<p class=\"cabinet-hint\">Введите телефон или ник из заказа Бойни.</p>") +
       "</div>" +
 
       "<div class=\"cabinet-block\">" +
         "<h3 class=\"cabinet-block-title\">" + (linked ? "Детали подписки" : "Привязать заказ") + "</h3>" +
         (linked
-          ? "<div class=\"cabinet-kv\"><span>Сегмент</span><strong>" + esc(sub.segment || "—") + "</strong></div>" +
+          ? "<div class=\"cabinet-kv\"><span>Статус</span><strong>" + esc(stage.title) + "</strong></div>" +
+            "<div class=\"cabinet-kv\"><span>Сегмент</span><strong>" + esc(sub.segment || "—") + "</strong></div>" +
             "<div class=\"cabinet-kv\"><span>Клиент</span><strong>" + esc(link.clientNick || "—") + "</strong></div>" +
             "<div class=\"cabinet-kv\"><span>Адрес</span><strong>" + esc(link.address || sub.address || "—") + "</strong></div>"
           : "") +

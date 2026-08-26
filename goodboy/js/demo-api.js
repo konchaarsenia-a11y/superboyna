@@ -89,6 +89,57 @@
     return out;
   }
 
+  function resolveDemoStage(link, subscription) {
+    var linked = !!(link && link.status === "linked");
+    var seg = String((subscription && subscription.segment) || (link && link.segment) || "").toUpperCase();
+    var days = subscription && subscription.daysUntil;
+    if (days == null && subscription && subscription.nextDate) {
+      try {
+        var m = String(subscription.nextDate).match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (m) {
+          var target = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+          var now = new Date();
+          var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          days = Math.round((target - today) / 86400000);
+        }
+      } catch (eD) {}
+    }
+    var catalog = {
+      unlinked: { id: "unlinked", badge: "не привязана", title: "Привяжите заказ", text: "Укажите телефон или Instagram-ник из Бойни.", progress: 8 },
+      waiting_stock: { id: "waiting_stock", badge: "ждём", title: "Ждём, пока Барни сократит запасы лакомств", text: "Пока доедаете текущий набор — новый не торопим.", progress: 22 },
+      scheduled: { id: "scheduled", badge: "в плане", title: "Доставка уже в календаре", text: "Дата зафиксирована. Скоро начнём заготовку.", progress: 38 },
+      preparing: { id: "preparing", badge: "готовим", title: "Заготавливаем новые лакомства", text: "Сушим и комплектуем набор под вашего питомца.", progress: 55 },
+      packing: { id: "packing", badge: "собираем", title: "Собираем ваш набор", text: "Упаковываем и готовим к курьеру.", progress: 72 },
+      on_the_way: { id: "on_the_way", badge: "в пути", title: "Набор уже в пути", text: "Курьер везёт доставку по адресу.", progress: 88 },
+      delivered: { id: "delivered", badge: "получен", title: "Набор у вас", text: "Следующий цикл начнём вовремя.", progress: 100 },
+      trial: { id: "trial", badge: "пробный", title: "Пробный период", text: "Идёт тестовый набор.", progress: 40 }
+    };
+    if (!linked) return catalog.unlinked;
+    if (days == null || isNaN(days)) {
+      return (seg === "БП" || seg === "BP") ? catalog.trial : catalog.waiting_stock;
+    }
+    if (days <= 1) return catalog.on_the_way;
+    if (days <= 3) return catalog.packing;
+    if (days <= 9) return catalog.preparing;
+    if (days <= 16) return catalog.scheduled;
+    if (seg === "БП" || seg === "BP") return catalog.trial;
+    return catalog.waiting_stock;
+  }
+
+  function attachStage(payload) {
+    var stage = resolveDemoStage(payload.link, payload.subscription);
+    payload.subscription = Object.assign({}, payload.subscription || {}, {
+      daysUntil: payload.subscription && payload.subscription.daysUntil,
+      stage: stage,
+      stageId: stage.id,
+      stageBadge: stage.badge,
+      stageTitle: stage.title,
+      stageText: stage.text,
+      stageProgress: stage.progress
+    });
+    return payload;
+  }
+
   function handleMe(params) {
     var db = loadDb();
     var user = ensureUser(db, params.telegramId, {
@@ -113,24 +164,26 @@
     }
     var link = db.links[user.telegramId] || { matchKey: "", clientNick: "", status: "unlinked", segment: "" };
     saveDb(db);
-    return {
+    var subscription = {
+      status: link.status === "linked" ? "active" : "unlinked",
+      segment: link.segment || "",
+      nextDate: link.nextDate || "",
+      nextDateLabel: link.nextDateLabel || (link.status === "linked" ? "Дата появится, когда пора готовить набор" : "Привяжите подписку"),
+      daysUntil: link.daysUntil != null ? link.daysUntil : (link.status === "linked" ? 18 : null),
+      address: link.address || "",
+      basket: link.basket || []
+    };
+    return attachStage({
       status: "success",
       demo: true,
       user: user,
       pets: pets,
       activePetId: pets[0] ? pets[0].id : null,
       link: link,
-      subscription: {
-        status: link.status === "linked" ? "active" : "unlinked",
-        segment: link.segment || "",
-        nextDate: link.nextDate || "",
-        nextDateLabel: link.nextDateLabel || (link.status === "linked" ? "Дата появится после связки" : "Привяжите подписку"),
-        address: link.address || "",
-        basket: link.basket || []
-      },
+      subscription: subscription,
       partners: partnersList(),
       privilege: privilegeFor(link)
-    };
+    });
   }
 
   function handleSavePet(params) {
@@ -193,20 +246,22 @@
     if (phone) user.phone = phone;
     db.users[tg] = user;
     saveDb(db);
-    return {
+    return attachStage({
       status: "success",
       demo: true,
       link: link,
+      user: user,
       subscription: {
         status: "active",
         segment: link.segment,
         nextDate: "",
         nextDateLabel: link.nextDateLabel,
+        daysUntil: 18,
         address: link.address,
         basket: []
       },
       privilege: privilegeFor(link)
-    };
+    });
   }
 
   function handleRegister(params) {
