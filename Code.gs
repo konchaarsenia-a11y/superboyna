@@ -18129,7 +18129,6 @@ function partnerDefaultSeedPack_() {
       { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" },
       { id: "net_nan", name: "NaN clinic", logo: "assets/partners/nan.png" },
       { id: "net_fundog", name: "Fundog", logo: "assets/partners/fundog.png" },
-      { id: "net_firedog", name: "Firedog", logo: "assets/partners/firedog.png" },
       { id: "net_polotno", name: "Polotno", logo: "" },
       { id: "net_indixvost", name: "Indixvost", logo: "" },
       { id: "net_bobwow", name: "Bob Wow Collar", logo: "" }
@@ -18148,7 +18147,6 @@ function partnerDefaultSeedPack_() {
       { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka · Шевченко 1", address: "Шевченко 1" },
       { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34" },
       { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
-      { id: "pt_firedog_1", networkId: "net_firedog", name: "Firedog · точка 1", address: "Минск" },
       { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—" },
       { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—" },
       { id: "pt_bob_1", networkId: "net_bobwow", name: "Bob Wow Collar · точка 1", address: "—" }
@@ -18630,6 +18628,41 @@ function partnerMigrateProdV11_() {
   return { migrated: true, pointId: id };
 }
 
+/** V12: убрать Firedog из партнёров (сеть + точка inactive). */
+function partnerMigrateProdV12_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V12") === "1") return { migrated: false };
+  try { partnerMigrateProdV11_(); } catch (e11) {}
+  var now = new Date();
+  var netSh = getPartnerNetworksSheet_();
+  var ptSh = getPartnerPointsSheet_();
+  var acSh = getPartnerAccessSheet_();
+  readPartnerNetworks_().forEach(function (n) {
+    if (n.id !== "net_firedog" && String(n.id || "").indexOf("firedog") < 0) return;
+    try {
+      netSh.getRange(n.rowIndex, 4).setValue("no");
+      netSh.getRange(n.rowIndex, 5).setValue(now);
+    } catch (e1) {}
+  });
+  readPartnerPoints_().forEach(function (p) {
+    if (p.id !== "pt_firedog_1" && String(p.networkId || "") !== "net_firedog" &&
+        String(p.id || "").indexOf("firedog") < 0) return;
+    try {
+      ptSh.getRange(p.rowIndex, 5).setValue("no");
+      ptSh.getRange(p.rowIndex, 6).setValue(now);
+    } catch (e2) {}
+  });
+  readPartnerAccessRows_().forEach(function (a) {
+    if (String(a.networkId || "") !== "net_firedog") return;
+    try {
+      acSh.getRange(a.rowIndex, 8).setValue("inactive");
+      acSh.getRange(a.rowIndex, 9).setValue(now);
+    } catch (e3) {}
+  });
+  props.setProperty("PARTNER_PROD_V12", "1");
+  return { migrated: true };
+}
+
 function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV3_(); } catch (eMig) {}
   try { partnerMigrateProdV4_(); } catch (eMig4) {}
@@ -18640,6 +18673,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV9_(); } catch (eMig9) {}
   try { partnerMigrateProdV10_(); } catch (eMig10) {}
   try { partnerMigrateProdV11_(); } catch (eMig11) {}
+  try { partnerMigrateProdV12_(); } catch (eMig12) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
@@ -18694,8 +18728,33 @@ function partnerCatalogStatic_() {
   return [
     { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
     { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "г", active: true },
-    { id: "vr_c_piece", type: "coupon", name: "Купон", unit: "шт", active: true },
-    { id: "vr_c_banner", type: "coupon", name: "Баннер", unit: "шт", active: true }
+    {
+      id: "vr_c_piece",
+      type: "coupon",
+      kind: "paper",
+      name: "Купон бумажный",
+      hint: "бумажный с ламинацией",
+      unit: "шт",
+      active: true
+    },
+    {
+      id: "vr_c_nfc",
+      type: "coupon",
+      kind: "nfc",
+      name: "Купон NFC",
+      hint: "срабатывает, если приложить к телефону клиента",
+      unit: "шт",
+      active: true
+    },
+    {
+      id: "vr_c_banner",
+      type: "coupon",
+      kind: "paper",
+      name: "Баннер",
+      hint: "бумажный с ламинацией",
+      unit: "шт",
+      active: true
+    }
   ];
 }
 
@@ -19303,10 +19362,10 @@ function handlePartnerGetMe(json, callback, fromPost) {
   } catch (eInit) {}
 
   var nets = readPartnerNetworks_().filter(function (n) {
-    return n.active && n.id !== "net_bowwow";
+    return n.active && n.id !== "net_bowwow" && n.id !== "net_firedog";
   });
   var pts = readPartnerPoints_().filter(function (p) {
-    return p.active && p.networkId !== "net_bowwow";
+    return p.active && p.networkId !== "net_bowwow" && p.networkId !== "net_firedog" && p.id !== "pt_firedog_1";
   });
 
   var isBoynaOwner = false;

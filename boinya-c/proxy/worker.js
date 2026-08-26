@@ -5310,8 +5310,33 @@ const PARTNER_ARSENIY_NET = { id: "net_nan", name: "NaN clinic", logo: "assets/p
 const PARTNER_CATALOG_STATIC = [
   { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
   { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "г", active: true },
-  { id: "vr_c_piece", type: "coupon", name: "Купон", unit: "шт", active: true },
-  { id: "vr_c_banner", type: "coupon", name: "Баннер", unit: "шт", active: true }
+  {
+    id: "vr_c_piece",
+    type: "coupon",
+    kind: "paper",
+    name: "Купон бумажный",
+    hint: "бумажный с ламинацией",
+    unit: "шт",
+    active: true
+  },
+  {
+    id: "vr_c_nfc",
+    type: "coupon",
+    kind: "nfc",
+    name: "Купон NFC",
+    hint: "срабатывает, если приложить к телефону клиента",
+    unit: "шт",
+    active: true
+  },
+  {
+    id: "vr_c_banner",
+    type: "coupon",
+    kind: "paper",
+    name: "Баннер",
+    hint: "бумажный с ламинацией",
+    unit: "шт",
+    active: true
+  }
 ];
 
 function partnerNormUserWorker_(raw) {

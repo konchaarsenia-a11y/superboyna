@@ -483,7 +483,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.7";
+  var APP_VER = "3.3.8";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -528,6 +528,7 @@
     vr_t_heart: { presets: [50, 100, 150, 200], unit: "г", custom: true },
     vr_t_lung: { presets: [50, 100, 150, 200], unit: "г", custom: true },
     vr_c_piece: { presets: [48, 73, 96, 120], unit: "шт", custom: true },
+    vr_c_nfc: { presets: [48, 73, 96, 120], unit: "шт", custom: true },
     vr_c_banner: { presets: [1], unit: "шт", custom: false, fixed: true }
   };
 
@@ -547,8 +548,33 @@
   var CATALOG = [
     { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
     { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "г", active: true },
-    { id: "vr_c_piece", type: "coupon", name: "Купон", unit: "шт", active: true },
-    { id: "vr_c_banner", type: "coupon", name: "Баннер", unit: "шт", active: true }
+    {
+      id: "vr_c_piece",
+      type: "coupon",
+      kind: "paper",
+      name: "Купон бумажный",
+      hint: "бумажный с ламинацией",
+      unit: "шт",
+      active: true
+    },
+    {
+      id: "vr_c_nfc",
+      type: "coupon",
+      kind: "nfc",
+      name: "Купон NFC",
+      hint: "срабатывает, если приложить к телефону клиента",
+      unit: "шт",
+      active: true
+    },
+    {
+      id: "vr_c_banner",
+      type: "coupon",
+      kind: "paper",
+      name: "Баннер",
+      hint: "бумажный с ламинацией",
+      unit: "шт",
+      active: true
+    }
   ];
 
   var DEMO = { orders: [], staffAccess: [] };
@@ -1281,18 +1307,27 @@
       var unit = unitFor_(it);
       var ste = renderQtyControls_(it, q);
       var selected = q ? (" · " + q + (unit && unit !== "г" ? (" " + unit) : "")) : "";
+      var hint = String(it.hint || "").trim();
+      var kind = String(it.kind || "").toLowerCase();
       if (it.id === "vr_c_banner") {
         return '<div class="coupon-card banner-card">' +
           '<img class="coupon-banner" src="' + media.banner + '" alt="' + esc(media.alt) + '">' +
           '<div class="coupon-row qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
-          '</div><div class="unit">только 1 шт' + selected +
+          '</div><div class="unit">' + esc(hint || "бумажный с ламинацией") + " · только 1 шт" + selected +
+          "</div></div>" + ste + "</div></div>";
+      }
+      if (it.id === "vr_c_nfc" || kind === "nfc") {
+        return '<div class="coupon-card qty-item" style="padding:14px 14px 10px;">' +
+          '<div class="coupon-row" style="align-items:flex-start;gap:10px;">' +
+          '<div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
+          '</div><div class="unit">' + esc(hint || "срабатывает, если приложить к телефону клиента") + selected +
           "</div></div>" + ste + "</div></div>";
       }
       if (it.type === "coupon") {
         return '<div class="coupon-card banner-card">' +
           '<img class="coupon-preview" src="' + media.coupon + '" alt="' + esc(media.alt) + '">' +
           '<div class="coupon-row qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
-          '</div><div class="unit">пресеты или своё' + selected +
+          '</div><div class="unit">' + esc(hint || "бумажный с ламинацией") + selected +
           "</div></div>" + ste + "</div></div>";
       }
       return '<div class="item qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
@@ -1625,7 +1660,9 @@
       var row = {
         id: it.id,
         type: it.type === "treat" ? "treat" : "coupon",
+        kind: it.kind || "",
         name: it.name || it.id,
+        hint: it.hint || "",
         unit: it.unit || "шт",
         active: it.active !== false
       };
@@ -1634,12 +1671,21 @@
     });
     // гарантируем базовые позиции даже на старом Deploy
     CATALOG.forEach(function (base) {
-      if (!byId[base.id]) byId[base.id] = {
-        id: base.id, type: base.type, name: base.name, unit: base.unit, active: true
-      };
-      else {
+      if (!byId[base.id]) {
+        byId[base.id] = {
+          id: base.id,
+          type: base.type,
+          kind: base.kind || "",
+          name: base.name,
+          hint: base.hint || "",
+          unit: base.unit,
+          active: true
+        };
+      } else {
         if (QTY_RULES_[base.id]) byId[base.id].unit = QTY_RULES_[base.id].unit;
-        if (!byId[base.id].name) byId[base.id].name = base.name;
+        if (base.name) byId[base.id].name = base.name;
+        if (base.hint) byId[base.id].hint = base.hint;
+        if (base.kind) byId[base.id].kind = base.kind;
       }
     });
     return Object.keys(byId).map(function (k) { return byId[k]; });
@@ -1647,13 +1693,13 @@
 
   function isProdNetwork_(n) {
     var id = String((n && n.id) || "");
-    if (!id || id === "net_bowwow") return false;
+    if (!id || id === "net_bowwow" || id === "net_firedog") return false;
     return true;
   }
   function isProdPoint_(p) {
     var id = String((p && p.id) || "");
     var nid = String((p && p.networkId) || "");
-    if (!id || nid === "net_bowwow") return false;
+    if (!id || nid === "net_bowwow" || nid === "net_firedog" || id === "pt_firedog_1") return false;
     return true;
   }
 
