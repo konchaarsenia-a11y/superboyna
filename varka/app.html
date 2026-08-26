@@ -515,7 +515,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.13";
+  var APP_VER = "3.3.14";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -570,13 +570,12 @@
     vr_c_banner: { presets: [1], unit: "шт", custom: false, fixed: true }
   };
 
-  /** Причина второго NFC на точку (поломка / потеря / нужен второй). */
+  /** Причина второго NFC на точку. */
   var NFC_EXTRA_REASONS_ = [
-    { id: "break", label: "Поломка" },
-    { id: "lost", label: "Потеря" },
-    { id: "second_cash", label: "Второй на кассу" },
-    { id: "second_display", label: "Второй на витрину" },
-    { id: "second_staff", label: "Второй сотруднику" }
+    { id: "break", label: "Поломка", noPenalty: true },
+    { id: "lost", label: "Потеря", noPenalty: true },
+    { id: "second_work", label: "Второй для работы" },
+    { id: "staff_many", label: "Несколько сотрудников — нужен ещё" }
   ];
   var NFC_ID_ = "vr_c_nfc";
   var nfcExtraReason_ = "";
@@ -1385,6 +1384,9 @@
               (nfcExtraReason_ === r.id ? " on" : "") +
               '" onclick="pickNfcReason(\'' + r.id + '\')">' + esc(r.label) + "</button>";
           }).join("") +
+          "</div>" +
+          '<div class="coupon-hint nfc" style="text-align:right;max-width:220px;margin-top:4px;">' +
+          "При поломке и потере штрафов нет" +
           "</div>";
       }
       html += "</div>";
@@ -1538,7 +1540,7 @@
     stripBannerIfNeeded_();
     var nfcQty = Number(state.cart[NFC_ID_]) || 0;
     if (nfcQty > 1 && !nfcExtraReason_) {
-      alert("Для второго NFC выберите причину: поломка, потеря или цель второго");
+      alert("Для второго NFC выберите причину: поломка, потеря, второй для работы или несколько сотрудников. При поломке и потере штрафов нет.");
       nfcPickReasonOpen_ = true;
       state.cat = "coupon";
       document.querySelectorAll(".tab").forEach(function (el) {
