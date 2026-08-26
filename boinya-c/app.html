@@ -9,7 +9,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115900";
+      var APP_VER = "v71115901";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1764,6 +1764,7 @@
           <div class="form-group">
             <label>День недели</label>
             <select id="day" onchange="onOrderDaySelectChange_()">
+              <option value="">— календарь / вне недели —</option>
               <option>Понедельник</option><option>Вторник</option><option>Среда</option>
               <option>Четверг</option><option>Пятница</option><option>Суббота</option>
               <option>Воскресенье</option><option>Будущая неделя</option>
