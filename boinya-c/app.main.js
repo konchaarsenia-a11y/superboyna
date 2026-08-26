@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115898";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115899";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -74,6 +74,7 @@
     let postOfficeSuggestSeq = 0;
     let addressSuggestTimer = null;
     let addressSuggestSeq = 0;
+    let addressSuggestPaused = false;
     let cuttingItemsCache = [];
     let cuttingCompletionCache = null;
     let cuttingDetailExpanded_ = false;
@@ -2483,12 +2484,7 @@
 
       selectedAddressGeo = null;
       try { setAddressPickedHint(false); } catch (eHint) {}
-      if (street && street.length >= 2) {
-        clearTimeout(addressSuggestTimer);
-        addressSuggestTimer = setTimeout(function () {
-          try { fetchAddressSuggest(street); } catch (eSug) {}
-        }, 80);
-      }
+      pauseAddressSuggest_();
     }
     window.fillAddressFieldsFromStored_ = fillAddressFieldsFromStored_;
 
@@ -5054,6 +5050,7 @@
     let lastViewDateIso = ""; // последняя дата Просмотра (для edit → Заказ)
     let viewSub = "month"; // month | week
     let viewMonthOverviewCache = null; // { month, days, total }
+    let viewMonthOverviewByMonth = Object.create(null); // yyyy-mm → cache
     let viewWeekOverviewCache = null; // { items, total }
     let viewMonthDayOpen = false;
     let viewWeekDayOpen = false;
@@ -5365,6 +5362,18 @@
       }
       if (opts.soft && viewMonthOverviewCache && viewMonthOverviewCache.month === month) {
         renderMonthOverviewList_(viewMonthOverviewCache);
+        if (opts.refresh) {
+          apiGet(
+            { action: "getMonthOverview", month: month, _: String(Date.now()) },
+            { timeoutMs: 45000, retries: 0, cacheTtlMs: 0 }
+          ).then(function (res) {
+            if (res && res.status === "success") {
+              viewMonthOverviewCache = overlayWeekCountsOnMonthData_(res);
+              viewMonthOverviewByMonth[month] = viewMonthOverviewCache;
+              renderMonthOverviewList_(viewMonthOverviewCache);
+            }
+          }).catch(function () {});
+        }
         return;
       }
       var box = document.getElementById("viewMonthOverviewList");
@@ -5387,6 +5396,7 @@
         );
         if (res && res.status === "success") {
           viewMonthOverviewCache = overlayWeekCountsOnMonthData_(res);
+          viewMonthOverviewByMonth[month] = viewMonthOverviewCache;
           renderMonthOverviewList_(viewMonthOverviewCache);
         } else {
           if (box) {
@@ -5400,8 +5410,16 @@
     }
 
     function onViewMonthPickChange() {
+      var pick = document.getElementById("viewMonthPick");
+      var month = (pick && pick.value) || "";
+      if (month && viewMonthOverviewByMonth[month]) {
+        viewMonthOverviewCache = viewMonthOverviewByMonth[month];
+        renderMonthOverviewList_(viewMonthOverviewCache);
+        ensureMonthOverviewLoaded_({ soft: true, refresh: true });
+        return;
+      }
       viewMonthOverviewCache = null;
-      ensureMonthOverviewLoaded_({ force: true });
+      ensureMonthOverviewLoaded_({ soft: false });
     }
     window.onViewMonthPickChange = onViewMonthPickChange;
 
@@ -5989,13 +6007,22 @@
           client: client.name,
           matchKey: client.matchKey || "",
           _: String(Date.now())
-        }, { timeoutMs: 30000, cacheTtlMs: 0 });
-        if (!res || res.status !== "success") {
-          showToast("Не вышло: " + ((res && res.message) || "Deploy?"));
+        }, { timeoutMs: 30000, cacheTtlMs: 0, bypassInflight: true });
+        if (!res || (res.status !== "success" && res.status !== "accepted" && !res.writeId && !res.sheetsVerified && !res.d1Verified)) {
+          showToast("Не вышло: " + ((res && res.message) || res.status || "Deploy?"));
           return;
         }
+        if (res.writeId || res.pendingSheets || res.sheetsVerified) {
+          await confirmPeopleWriteSheets_(res, {
+            doneMsg: "Точно убрано из календаря",
+            pendingMsg: "Убираю из календаря…",
+            failMsg: "Не убралось из таблицы",
+            block: !!(res.writeId || res.pendingSheets) && !res.sheetsVerified
+          });
+        } else {
+          showToast("Убрано из календаря");
+        }
         try { apiCacheBustMem_(); } catch (eMem) {}
-        showToast("Убрано из календаря");
         await loadClientsForDay();
       } catch (e) {
         showToast(e.message || "Ошибка");
@@ -7550,6 +7577,43 @@
           return false;
         }
 
+        var svN = Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
+        var bpMetaN = Number((res.dateSync && res.dateSync.bpMeta) || 0) || 0;
+        var baseMsg = calendarOnly
+          ? ("Точно перенесено на " + target.newDate)
+          : (dateOnly
+            ? ("Точно дата → " + target.newDate)
+            : (cutRaw === "yes" ? "Точно перенесено (резать)" : "Точно перенесено"));
+        if (svN || bpMetaN) baseMsg += " · опрос " + svN + (bpMetaN ? (" · meta БП " + bpMetaN) : "");
+        else if (res.dateSync && res.dateSync.surveyError) baseMsg += " · опрос не сдвинут";
+
+        var pendingWrite = !!(res.writeId || res.pendingSheets) && !res.sheetsVerified;
+        if (pendingWrite) {
+          var confirmMv = await confirmPeopleWriteSheets_(res, {
+            doneMsg: baseMsg,
+            pendingMsg: "Переношу в таблицу…",
+            failMsg: "Перенос не закрепился в таблице",
+            block: true
+          });
+          if (!confirmMv.ok) {
+            if (confirmMv.softTimeout) {
+              showToast("Перенос ещё пишется… обнови список через минуту");
+            } else {
+              await uiAlertAsync(
+                "Перенос не закрепился: «" + clientName + "».\n" +
+                ((confirmMv.message || confirmMv.res && confirmMv.res.message) || "попробуй ещё раз")
+              );
+              try {
+                apiCacheBustMem_("getClients");
+                afterPeopleMutationDays_([oldDay, newDay]);
+                await loadClientsForDay();
+              } catch (eReloadP) {}
+              return false;
+            }
+          }
+          if (confirmMv.res) res = confirmMv.res;
+        }
+
         var moveOk = true;
         var effectiveOldDay = String((res && (res.from || res.oldDay)) || oldDay || "").trim();
         var effectiveNewDay = String((res && (res.newDay || (res.to && !/^\d{4}-\d{2}-\d{2}$/.test(String(res.to)) ? res.to : ""))) || newDay || "").trim();
@@ -7564,7 +7628,7 @@
           (res.d1Verified && !res.optimistic)
         ) && !res.sent_opaque && res.status !== "online" && !/жив/i.test(String(res.msg || "")));
 
-        if (!calendarOnly && !dateOnly && effectiveOldDay && effectiveNewDay && effectiveOldDay !== effectiveNewDay) {
+        if (!pendingWrite && !calendarOnly && !dateOnly && effectiveOldDay && effectiveNewDay && effectiveOldDay !== effectiveNewDay) {
           async function clientOnDay_(dayName) {
             try {
               var chk = await apiGet({
@@ -7610,7 +7674,7 @@
           } else {
             moveOk = true; // wroteOk или сеть — не блокируем ложным fail
           }
-        } else if (calendarOnly || dateOnly) {
+        } else if (!pendingWrite && (calendarOnly || dateOnly)) {
           var stillOld = effectiveOldDay
             ? await clientVisibleOnView_(clientName, effectiveOldDay, "")
             : null;
@@ -7657,23 +7721,14 @@
           return false;
         }
 
-        var svN = Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
-        var bpMetaN = Number((res.dateSync && res.dateSync.bpMeta) || 0) || 0;
-        var baseMsg = calendarOnly
-          ? ("Точно перенесено на " + target.newDate)
-          : (dateOnly
-            ? ("Точно дата → " + target.newDate)
-            : (cutRaw === "yes" ? "Точно перенесено (резать)" : "Точно перенесено"));
-        if (svN || bpMetaN) baseMsg += " · опрос " + svN + (bpMetaN ? (" · meta БП " + bpMetaN) : "");
-        else if (res.dateSync && res.dateSync.surveyError) baseMsg += " · опрос не сдвинут";
-        if (res.writeId || res.pendingSheets || res.sheetsVerified) {
+        if (!pendingWrite && (res.writeId || res.pendingSheets || res.sheetsVerified)) {
           await confirmPeopleWriteSheets_(res, {
             doneMsg: baseMsg,
             pendingMsg: "Переношу в таблицу…",
             failMsg: "Перенос не закрепился в таблице",
             block: false
           });
-        } else {
+        } else if (!pendingWrite) {
           showToast(baseMsg.replace(/^Точно /, ""));
         }
         try {
@@ -7821,6 +7876,42 @@
           (res.d1Verified && !res.skippedStaleDelete && !res.optimistic) ||
           res.alreadyGone
         ));
+        var delDone = (res.alreadyGone ? "Точно уже удалено" : "Точно удалено") +
+          (delParams.day || day ? (" · " + (delParams.day || day)) : "") +
+          (dateStr ? (" · " + dateStr) : "");
+        var pendingDel = !!(res.writeId || res.pendingSheets) && !res.sheetsVerified;
+
+        // убираем из UI сразу после accept
+        try {
+          loadedClientsRawData = (loadedClientsRawData || []).filter(function (c) {
+            return !nicksMatchClient_(c && c.name, client.name);
+          });
+          renderViewLists();
+        } catch (eOpt0) {}
+
+        if (pendingDel) {
+          var confirmDel = await confirmPeopleWriteSheets_(res, {
+            doneMsg: delDone,
+            pendingMsg: "Удаляю из таблицы…",
+            failMsg: "Удаление не закрепилось в таблице",
+            block: true
+          });
+          if (!confirmDel.ok) {
+            if (confirmDel.softTimeout) {
+              showToast("Удаление ещё пишется… обнови список через минуту");
+            } else {
+              await uiAlertAsync(
+                "Не удалось удалить — запись не закрепилась в таблице.\n" +
+                ((confirmDel.message || (confirmDel.res && confirmDel.res.message)) || "попробуй ещё раз")
+              );
+              try { window._peopleListForceFresh = true; } catch (eF0) {}
+              try { await loadClientsForDay(); } catch (eL0) {}
+              return;
+            }
+          }
+          if (confirmDel.res) res = confirmDel.res;
+        }
+
         async function stillOnPrimaryDay_() {
           // только главный день — date/month snap давал ложные «ещё в списке»
           var slots = [];
@@ -7838,8 +7929,8 @@
           }
           return false;
         }
-        var still = await stillOnPrimaryDay_();
-        if (still === true) {
+        var still = pendingDel ? false : await stillOnPrimaryDay_();
+        if (!pendingDel && still === true) {
           try {
             await apiGet(Object.assign({}, delParams, {
               day: verifyDay || delParams.day,
@@ -7850,35 +7941,25 @@
           still = await stillOnPrimaryDay_();
         }
         // ошибка только если ЯВНО всё ещё на дне после retry
-        if (still === true) {
+        if (!pendingDel && still === true) {
           await uiAlertAsync("Не удалось удалить — человек всё ещё в списке. Обнови Просмотр и попробуй ещё раз.");
           try { window._peopleListForceFresh = true; } catch (eF0) {}
           try { await loadClientsForDay(); } catch (eL0) {}
           return;
         }
         // сеть неизвестна — если Worker не подтвердил запись, тоже fail
-        if (still === null && !writeSolid && !(res && (res.sheetsVerified || res.d1Verified || Number(res.wrote) > 0 || res.alreadyGone))) {
+        if (!pendingDel && still === null && !writeSolid && !(res && (res.sheetsVerified || res.d1Verified || Number(res.wrote) > 0 || res.alreadyGone))) {
           await uiAlertAsync("Не удалось удалить — нет подтверждения таблицы. Проверь сеть и попробуй ещё раз.");
           return;
         }
-        // D1/accept — убираем из UI сразу; «Точно удалено» после Sheets
-        try {
-          loadedClientsRawData = (loadedClientsRawData || []).filter(function (c) {
-            return !nicksMatchClient_(c && c.name, client.name);
-          });
-          renderViewLists();
-        } catch (eOpt) {}
-        var delDone = (res.alreadyGone ? "Точно уже удалено" : "Точно удалено") +
-          (delParams.day || day ? (" · " + (delParams.day || day)) : "") +
-          (dateStr ? (" · " + dateStr) : "");
-        if (res.writeId || res.pendingSheets || res.sheetsVerified) {
+        if (!pendingDel && (res.writeId || res.pendingSheets || res.sheetsVerified)) {
           await confirmPeopleWriteSheets_(res, {
             doneMsg: delDone,
             pendingMsg: "Удаляю из таблицы…",
             failMsg: "Удаление не закрепилось в таблице",
             block: false
           });
-        } else {
+        } else if (!pendingDel) {
           showToast(delDone.replace(/^Точно /, ""));
         }
         try {
@@ -10546,7 +10627,15 @@
       }
     }
 
+    function pauseAddressSuggest_() {
+      addressSuggestPaused = true;
+      addressSuggestSeq++;
+      clearTimeout(addressSuggestTimer);
+      clearAddressSuggest();
+    }
+
     function onAddressInput() {
+      addressSuggestPaused = false;
       selectedAddressGeo = null;
       setAddressPickedHint(false);
       var q = document.getElementById("addressInput").value.trim();
@@ -10580,7 +10669,7 @@
       setTimeout(function () {
         var a = document.activeElement;
         if (a && a.closest && a.closest("#addressSuggest")) return;
-        clearAddressSuggest();
+        pauseAddressSuggest_();
         onAddressBlur();
       }, 280);
     }
@@ -10797,6 +10886,7 @@
     }
 
     async function fetchAddressSuggest(q) {
+      if (addressSuggestPaused) return;
       var seq = ++addressSuggestSeq;
       var box = document.getElementById("addressSuggest");
       if (!box) return;
@@ -10859,8 +10949,9 @@
         photonList = settledTxt[1] || [];
         serverList = settledTxt[2] || [];
       } catch (e1) {}
-      if (seq !== addressSuggestSeq) return;
+      if (seq !== addressSuggestSeq || addressSuggestPaused) return;
       var list = finalizeAddressSuggests_(mergeSuggestLists(nomiList, serverList, photonList), q);
+      if (addressSuggestPaused || seq !== addressSuggestSeq) return;
       if (!list.length) {
         box.innerHTML = '<div class="addr-suggest-item" style="color:#8e8e93;">Ничего не найдено — можно ввести адрес вручную или 📍 координаты</div>';
         box.classList.add("open");
