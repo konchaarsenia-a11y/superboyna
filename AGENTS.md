@@ -8,7 +8,8 @@
 4. [NATIVE.md](./NATIVE.md) — нативка параллельно с вебом  
 5. [GOODBOY.md](./GOODBOY.md) — клиентская экосистема (сайт + TG; не конвейер)
 6. [VAROK.md](./VAROK.md) — Varka: бесплатное пополнение (точки / каталог)
-7. **[boinya-c/docs/PEOPLE_CANON.md](./boinya-c/docs/PEOPLE_CANON.md)** — канон save/move/delete (Sheets-first); **не ломать**
+7. **[boinya-c/docs/PEOPLE_CANON.md](./boinya-c/docs/PEOPLE_CANON.md)** — канон save/move/delete (Sheets-confirm); **не ломать**
+8. **[boinya-c/docs/WEEK_CALENDAR_CANON.md](./boinya-c/docs/WEEK_CALENDAR_CANON.md)** — неделя vs календарь при незакрытой неделе
 8. **Handoff** ниже — если трогаешь `Code.gs`
 
 ## Skills (Cursor Agent)
@@ -33,7 +34,7 @@ Environment: `.cursor/environment.json`.
 - Не запускать `finishFullWeekProduction` без явного ОК.
 - Deploy Apps Script делает владелец; в git код пушить сам, напоминать только про Deploy.
 - Environment/Builds/Secrets — в [Cloud Agents dashboard](https://cursor.com/dashboard/cloud-agents#environments); секреты не коммитить.
-- **People canon:** LIVE people-write = D1 accept + фон GAS + `pollPeopleWrite`; toast «Точно …» только при `sheetsVerified`. Не блокировать UI полным await GAS и не врать success до Sheets. Подробно: [boinya-c/docs/PEOPLE_CANON.md](./boinya-c/docs/PEOPLE_CANON.md).
+- **People canon:** LIVE people-write = D1 accept + фон GAS + `pollPeopleWrite`; toast «Точно …» только при `sheetsVerified`. Не блокировать UI полным await GAS и не врать success до Sheets. Off-week → только calendar/`saveBooking`. Подробно: [PEOPLE_CANON.md](./boinya-c/docs/PEOPLE_CANON.md), [WEEK_CALENDAR_CANON.md](./boinya-c/docs/WEEK_CALENDAR_CANON.md).
 
 ## Automations
 

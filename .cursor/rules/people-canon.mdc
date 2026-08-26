@@ -5,7 +5,9 @@ alwaysApply: true
 
 # People Canon (Бойня C)
 
-Перед правками `boinya-c/proxy/worker.js` или people-write в `boinya-c/app.main.js` читай `boinya-c/docs/PEOPLE_CANON.md`.
+Перед правками `boinya-c/proxy/worker.js` или people-write в `boinya-c/app.main.js` читай:
+- `boinya-c/docs/PEOPLE_CANON.md`
+- `boinya-c/docs/WEEK_CALENDAR_CANON.md` (неделя vs календарь)
 
 ## Нельзя
 
@@ -13,9 +15,11 @@ alwaysApply: true
 - Fake `optimistic: true` success без Sheets как финал
 - Снова блокировать UI 20–40с полным await GAS для people-write
 - Удалять `pollPeopleWrite` / `pendingSheets` / `writeId`
+- Off-week: `saveOrder` вместо `saveBooking`; batch только на `status===success` (нужен `accepted`)
 
 ## Нужно
 
 - LIVE: D1 accept → фон GAS → `accepted`+`writeId` или быстрый `sheetsVerified`
-- UI: «Вношу…» → poll → «Точно …»
+- UI: «Вношу…» → poll → «Точно …»; batch → `isPeopleWriteAccepted_`
+- Off-week → calendarOnly / saveBooking only
 - ping → `peopleCanon: sheets-confirm-bg`
