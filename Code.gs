@@ -6805,6 +6805,15 @@ function handleTelegramUpdate_(update) {
           return;
         }
       }
+      // Goodboy OTP: /start gbotp_<challengeId> — привязка TG и выдача кода (не трогает Доступы)
+      if (/^gbotp_/i.test(payload)) {
+        try {
+          gbBindOtpChallengeFromTelegram_(payload.replace(/^gbotp_/i, ""), from, chat.id, name);
+        } catch (eOtp) {
+          try { telegramSendText_(chat.id, "Не удалось выдать код входа. Запросите новый на сайте."); } catch (eO2) {}
+        }
+        return;
+      }
       // Обычный /start — одно приветствие на 24ч (+ защита от ретраев webhook)
       var startLock = null;
       try {
@@ -24340,7 +24349,10 @@ var GB_ACTIONS_ = {
   gbRegister: 1,
   gbLogin: 1,
   gbLinkClient: 1,
-  gbSavePet: 1
+  gbSavePet: 1,
+  gbRequestOtp: 1,
+  gbVerifyOtp: 1,
+  gbAuthTelegram: 1
 };
 
 function gbParamsFromGet_(e) {
@@ -24361,6 +24373,9 @@ function gbParamsFromGet_(e) {
     intent: dec("intent"),
     petJson: dec("petJson"),
     initData: dec("initData"),
+    code: dec("code"),
+    challengeId: dec("challengeId"),
+    purpose: dec("purpose"),
     force: p.force || ""
   };
 }
@@ -24390,6 +24405,9 @@ function dispatchGoodboyAction_(action, json, callback, fromPost) {
     if (action === "gbLogin") return handleGbLogin_(json, callback, fromPost);
     if (action === "gbLinkClient") return handleGbLinkClient_(json, callback, fromPost);
     if (action === "gbSavePet") return handleGbSavePet_(json, callback, fromPost);
+    if (action === "gbRequestOtp") return handleGbRequestOtp_(json, callback, fromPost);
+    if (action === "gbVerifyOtp") return handleGbVerifyOtp_(json, callback, fromPost);
+    if (action === "gbAuthTelegram") return handleGbAuthTelegram_(json, callback, fromPost);
   } catch (eRun) {
     var fail = { status: "error", message: "gb_error", detail: String(eRun) };
     return fromPost ? jsonpText(callback, fail) : jsonp(callback, fail);
@@ -24860,7 +24878,7 @@ function gbClientStageCatalog_() {
     waiting_stock: {
       id: "waiting_stock",
       badge: "ждём",
-      title: "Ждём, пока Барни сократит запасы лакомств",
+      title: "Ждём, пока питомец сократит запасы лакомств",
       text: "Пока доедаете текущий набор — новый не торопим. Когда пора готовить, статус обновится.",
       progress: 22
     },
@@ -24925,37 +24943,63 @@ function gbResolveClientStage_(opts) {
   var daysUntil = opts.daysUntil;
   var recentDelivered = !!opts.recentDelivered;
   var subStatus = String(opts.subStatus || "");
+  var isTrial = segment === "БП" || segment === "BP" || subStatus === "trial";
 
-  if (!linked) return cat.unlinked;
-  if (subStatus === "paused") return cat.paused;
+  function withTrial(stage) {
+    var out = {};
+    for (var k in stage) {
+      if (stage.hasOwnProperty(k)) out[k] = stage[k];
+    }
+    out.isTrial = !!isTrial;
+    out.trialLabel = isTrial ? "пробный" : "";
+    return out;
+  }
+
+  if (!linked) return withTrial(cat.unlinked);
+  if (subStatus === "paused") return withTrial(cat.paused);
 
   if (calStatus === "delivered" || calStatus === "done" || calStatus === "получен" || recentDelivered) {
-    // если ближайшая доставка — сегодня и уже delivered
-    if (daysUntil == null || daysUntil <= 0 || recentDelivered) return cat.delivered;
+    if (daysUntil == null || daysUntil <= 0 || recentDelivered) return withTrial(cat.delivered);
   }
-  if (/ship|transit|courier|delivering|в\s*пути|едет/.test(calStatus)) return cat.on_the_way;
-  if (/assembl|packed|сбор|готов к/.test(calStatus)) return cat.packing;
+  if (/ship|transit|courier|delivering|в\s*пути|едет/.test(calStatus)) return withTrial(cat.on_the_way);
+  if (/assembl|packed|сбор|готов к/.test(calStatus)) return withTrial(cat.packing);
 
   if (daysUntil == null || daysUntil === "" || isNaN(Number(daysUntil))) {
-    if (segment === "БП" || segment === "BP") return cat.trial;
-    return cat.waiting_stock;
+    return withTrial(cat.waiting_stock);
   }
   daysUntil = Number(daysUntil);
   // «В пути» только в день доставки
-  if (daysUntil === 0) return cat.on_the_way;
-  if (daysUntil < 0) return cat.on_the_way;
-  if (daysUntil <= 3) return cat.packing;
-  if (daysUntil <= 9) return cat.preparing;
-  if (daysUntil <= 16) return cat.scheduled;
-  if (segment === "БП" || segment === "BP") {
-    var trial = cat.trial;
-    // сохраняем прогресс «ждём/готовим» но бейдж пробный, если далеко
-    if (daysUntil > 16) return trial;
-  }
-  return cat.waiting_stock;
+  if (daysUntil === 0) return withTrial(cat.on_the_way);
+  if (daysUntil < 0) return withTrial(cat.on_the_way);
+  if (daysUntil <= 3) return withTrial(cat.packing);
+  if (daysUntil <= 9) return withTrial(cat.preparing);
+  if (daysUntil <= 16) return withTrial(cat.scheduled);
+  return withTrial(cat.waiting_stock);
 }
 
-function gbSubscriptionPayload_(linkRow, crmHit) {
+/** Подставить кличку в тексты стадии. */
+function gbPersonalizeStage_(stage, petName) {
+  stage = stage || {};
+  var out = {};
+  for (var k in stage) {
+    if (stage.hasOwnProperty(k)) out[k] = stage[k];
+  }
+  var pet = String(petName || "").trim();
+  if (!pet) pet = "питомец";
+  if (out.id === "waiting_stock") {
+    out.title = "Ждём, пока " + pet + " сократит запасы лакомств";
+    out.text = "Пока " + pet + " доедает текущий набор — новый не торопим. Когда пора готовить, статус обновится.";
+  } else if (out.id === "preparing") {
+    out.text = "Сушим и комплектуем набор под " + (pet === "питомец" ? "вашего питомца" : pet) + ".";
+  } else if (out.id === "delivered") {
+    out.text = pet === "питомец"
+      ? "Приятного аппетита питомцу. Следующий цикл начнём вовремя."
+      : ("Приятного аппетита, " + pet + "! Следующий цикл начнём вовремя.");
+  }
+  return out;
+}
+
+function gbSubscriptionPayload_(linkRow, crmHit, petName) {
   var segment = String((linkRow && linkRow.segment) || (crmHit && crmHit.segment) || "").toUpperCase();
   var status = "unlinked";
   if (segment === "ПП" || segment === "PP" || segment === "АФК" || segment === "AFK") status = "active";
@@ -25001,10 +25045,13 @@ function gbSubscriptionPayload_(linkRow, crmHit) {
     daysUntil: next ? next.daysUntil : null,
     recentDelivered: !!(next && next.recentDelivered)
   });
+  stage = gbPersonalizeStage_(stage, petName);
 
   return {
     status: status,
     segment: segment,
+    isTrial: !!stage.isTrial,
+    trialLabel: stage.trialLabel || "",
     nextDate: (next && next.nextDate) || "",
     nextDateLabel: nextDateLabel,
     daysUntil: next && next.daysUntil != null ? next.daysUntil : null,
@@ -25015,6 +25062,7 @@ function gbSubscriptionPayload_(linkRow, crmHit) {
     clientNick: clientNick,
     matchKey: matchKey,
     wishes: wishes,
+    petName: String(petName || "").trim(),
     stage: stage,
     stageId: stage.id,
     stageBadge: stage.badge,
@@ -25081,8 +25129,20 @@ function gbLinkPublic_(linkRow, subscription) {
 
 function gbBuildMePayload_(user, opts) {
   opts = opts || {};
+  var pets = gbPetsFor_(user.telegramId);
+  var petName = "";
+  if (pets && pets.length) {
+    var wantId = String(opts.activePetId || "");
+    for (var pi = 0; pi < pets.length; pi++) {
+      if (wantId && String(pets[pi].id) === wantId) {
+        petName = String(pets[pi].name || "").trim();
+        break;
+      }
+    }
+    if (!petName) petName = String(pets[0].name || "").trim();
+  }
   var linkRow = gbFindLinkByTelegram_(user.telegramId);
-  var subscription = gbSubscriptionPayload_(linkRow, null);
+  var subscription = gbSubscriptionPayload_(linkRow, null, petName);
   if (linkRow && String(linkRow.status || "") === "linked" && !subscription.segment && linkRow.clientNick) {
     try {
       var refresh = gbFindCrmSubscriber_(linkRow.clientNick, linkRow.phone || user.phone);
@@ -25098,7 +25158,7 @@ function gbBuildMePayload_(user, opts) {
           verifyMethod: "refresh",
           phone: user.phone || ""
         });
-        subscription = gbSubscriptionPayload_(linkRow, refresh.hit);
+        subscription = gbSubscriptionPayload_(linkRow, refresh.hit, petName);
       }
     } catch (eRef) {}
   }
@@ -25115,7 +25175,6 @@ function gbBuildMePayload_(user, opts) {
       });
     }
   } catch (eAcc) {}
-  var pets = gbPetsFor_(user.telegramId);
   var link = gbLinkPublic_(linkRow, subscription);
   return {
     status: "success",
@@ -25364,4 +25423,295 @@ function handleGbSavePet_(json, callback, fromPost) {
   }
   var ok = { status: "success", demo: false, pet: saved.pet };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/** —— Goodboy OTP / Telegram auth (клиенты, не Доступы) —— */
+
+function gbOtpCacheKey_(challengeId) {
+  return "gb_otp_ch_" + String(challengeId || "").trim();
+}
+
+function gbPutOtpChallenge_(challengeId, data, ttlSec) {
+  try {
+    CacheService.getScriptCache().put(
+      gbOtpCacheKey_(challengeId),
+      JSON.stringify(data || {}),
+      Math.max(60, ttlSec || 600)
+    );
+  } catch (e) {}
+}
+
+function gbGetOtpChallenge_(challengeId) {
+  try {
+    var raw = CacheService.getScriptCache().get(gbOtpCacheKey_(challengeId)) || "";
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) {
+    return null;
+  }
+}
+
+function gbIsRealTelegramId_(id) {
+  return /^\d{5,15}$/.test(String(id || "").trim());
+}
+
+function gbMakeOtpCode_() {
+  var n = Math.floor(Math.random() * 1000000);
+  var s = String(n);
+  while (s.length < 6) s = "0" + s;
+  return s;
+}
+
+function gbBotDeepLink_(payload) {
+  var u = "";
+  try { u = String(getTelegramBotUsername_() || "").replace(/^@/, ""); } catch (e) { u = ""; }
+  if (!u) return "";
+  return "https://t.me/" + u + "?start=" + encodeURIComponent(payload);
+}
+
+function gbSendOtpToTelegram_(telegramId, code) {
+  if (!gbIsRealTelegramId_(telegramId)) return { ok: false, reason: "bad_tg" };
+  try {
+    var res = telegramSendText_(
+      telegramId,
+      "🔐 GOOD BOY · код входа: " + code + "\n\nДействует 10 минут. Никому не пересылайте."
+    );
+    return { ok: !!(res && res.ok !== false), raw: res };
+  } catch (e) {
+    return { ok: false, reason: String(e) };
+  }
+}
+
+function gbBindOtpChallengeFromTelegram_(challengeId, from, chatId, name) {
+  var id = String(challengeId || "").trim();
+  if (!id) {
+    telegramSendText_(chatId, "Ссылка устарела. Запросите новый код на сайте GOOD BOY.");
+    return;
+  }
+  var ch = gbGetOtpChallenge_(id);
+  if (!ch || !ch.code) {
+    telegramSendText_(chatId, "Код уже недействителен. Запросите новый на сайте / в кабинете.");
+    return;
+  }
+  ch.telegramId = String((from && from.id) || chatId || "");
+  ch.tgName = String(name || "");
+  ch.tgUsername = String((from && from.username) || "");
+  ch.boundAt = gbNowIso_();
+  gbPutOtpChallenge_(id, ch, 600);
+  try {
+    gbUpsertUser_({
+      telegramId: ch.telegramId,
+      name: ch.tgName || ch.name || "",
+      username: ch.tgUsername || ch.nick || "",
+      phone: ch.phone || "",
+      access: "limited"
+    });
+  } catch (eU) {}
+  telegramSendText_(
+    chatId,
+    "✅ Telegram привязан к входу GOOD BOY.\n\nВаш код: " + ch.code + "\n\nВернитесь на сайт и введите его."
+  );
+}
+
+function handleGbRequestOtp_(json, callback, fromPost) {
+  var phone = String((json && json.phone) || "").trim();
+  var nick = String((json && (json.nick || json.username)) || "").trim().replace(/^@/, "");
+  var purpose = String((json && json.purpose) || "login").toLowerCase();
+  var hasSub = json && (json.hasSubscription === true || json.hasSubscription === "true" || json.hasSubscription === "1" || json.hasSubscription === "yes");
+  var name = String((json && json.name) || "").trim();
+  var telegramId = String((json && json.telegramId) || "").trim();
+
+  if (purpose === "register") {
+    if (!name) {
+      var badN = { status: "error", message: "Укажите имя" };
+      return fromPost ? jsonpText(callback, badN) : jsonp(callback, badN);
+    }
+    if (!phone || gbPhoneDigits_(phone).length < 9) {
+      var badP = { status: "error", message: "Укажите телефон" };
+      return fromPost ? jsonpText(callback, badP) : jsonp(callback, badP);
+    }
+  } else {
+    if (!phone && !nick) {
+      var bad = { status: "error", message: "Укажите телефон или ник" };
+      return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+    }
+  }
+
+  var found = null;
+  var needCrm = purpose !== "register" || hasSub;
+  if (needCrm) {
+    try { found = gbFindCrmSubscriber_(nick, phone); } catch (eF) { found = null; }
+    if (found && found.ambiguous) {
+      var amb = {
+        status: "error",
+        message: "Несколько совпадений — уточните Instagram-ник",
+        code: "ambiguous"
+      };
+      return fromPost ? jsonpText(callback, amb) : jsonp(callback, amb);
+    }
+    if (needCrm && purpose !== "register" && !(found && found.hit)) {
+      var miss = { status: "error", message: "Подписка не найдена. Проверьте телефон/ник.", code: "not_found" };
+      return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+    }
+    if (purpose === "register" && hasSub && !(found && found.hit)) {
+      var miss2 = { status: "error", message: "Подписка не найдена — проверьте данные или выберите «без подписки».", code: "not_found" };
+      return fromPost ? jsonpText(callback, miss2) : jsonp(callback, miss2);
+    }
+  }
+
+  // если TG id не передан — попробуем найти существующего пользователя по телефону
+  if (!gbIsRealTelegramId_(telegramId) && phone) {
+    try {
+      var ex = gbFindUserByPhoneOrNick_(phone, nick);
+      if (ex && gbIsRealTelegramId_(ex.telegramId)) telegramId = String(ex.telegramId);
+    } catch (eEx) {}
+  }
+
+  var challengeId = Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+  var code = gbMakeOtpCode_();
+  var ch = {
+    code: code,
+    phone: phone,
+    nick: nick,
+    name: name,
+    purpose: purpose,
+    hasSubscription: !!hasSub,
+    telegramId: gbIsRealTelegramId_(telegramId) ? telegramId : "",
+    matchKey: found && found.hit ? found.hit.matchKey : "",
+    clientNick: found && found.hit ? found.hit.clientNick : "",
+    segment: found && found.hit ? found.hit.segment : "",
+    subId: found && found.hit ? found.hit.subId : "",
+    attempts: 0,
+    createdAt: gbNowIso_()
+  };
+  gbPutOtpChallenge_(challengeId, ch, 600);
+
+  var delivery = "bot_link";
+  var sent = false;
+  if (gbIsRealTelegramId_(ch.telegramId)) {
+    var sendRes = gbSendOtpToTelegram_(ch.telegramId, code);
+    sent = !!sendRes.ok;
+    if (sent) delivery = "telegram";
+  }
+  var botUser = "";
+  try { botUser = String(getTelegramBotUsername_() || "").replace(/^@/, ""); } catch (eB) {}
+  var botLink = gbBotDeepLink_("gbotp_" + challengeId);
+
+  var ok = {
+    status: "success",
+    challengeId: challengeId,
+    delivery: delivery,
+    sent: sent,
+    botUsername: botUser,
+    botLink: botLink,
+    expiresInSec: 600,
+    message: sent
+      ? "Код отправлен в Telegram"
+      : "Откройте бота по ссылке — пришлём код входа"
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handleGbVerifyOtp_(json, callback, fromPost) {
+  var challengeId = String((json && json.challengeId) || "").trim();
+  var code = String((json && json.code) || "").replace(/\D/g, "");
+  if (!challengeId || code.length < 4) {
+    var bad = { status: "error", message: "Введите код из Telegram" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var ch = gbGetOtpChallenge_(challengeId);
+  if (!ch || !ch.code) {
+    var exp = { status: "error", message: "Код устарел — запросите новый", code: "expired" };
+    return fromPost ? jsonpText(callback, exp) : jsonp(callback, exp);
+  }
+  ch.attempts = Number(ch.attempts || 0) + 1;
+  if (ch.attempts > 8) {
+    try { CacheService.getScriptCache().remove(gbOtpCacheKey_(challengeId)); } catch (eR) {}
+    var locked = { status: "error", message: "Слишком много попыток — запросите новый код", code: "locked" };
+    return fromPost ? jsonpText(callback, locked) : jsonp(callback, locked);
+  }
+  if (String(ch.code) !== code) {
+    gbPutOtpChallenge_(challengeId, ch, 600);
+    var wrong = { status: "error", message: "Неверный код", code: "bad_code" };
+    return fromPost ? jsonpText(callback, wrong) : jsonp(callback, wrong);
+  }
+  if (!gbIsRealTelegramId_(ch.telegramId)) {
+    var needTg = {
+      status: "error",
+      message: "Сначала откройте бота по ссылке — привяжем Telegram",
+      code: "need_telegram",
+      botLink: gbBotDeepLink_("gbotp_" + challengeId)
+    };
+    return fromPost ? jsonpText(callback, needTg) : jsonp(callback, needTg);
+  }
+
+  try { CacheService.getScriptCache().remove(gbOtpCacheKey_(challengeId)); } catch (eRm) {}
+
+  var wantFull = ch.purpose === "login" || !!ch.hasSubscription;
+  var user = gbUpsertUser_({
+    telegramId: ch.telegramId,
+    name: ch.name || ch.tgName || ch.clientNick || ch.nick || "Друг",
+    username: ch.nick || ch.tgUsername || "",
+    phone: ch.phone || "",
+    access: wantFull ? "full" : "limited"
+  });
+
+  if (wantFull && (ch.clientNick || ch.matchKey || ch.phone || ch.nick)) {
+    var found = null;
+    try { found = gbFindCrmSubscriber_(ch.nick || ch.clientNick, ch.phone); } catch (eF) {}
+    if (found && found.hit) {
+      gbUpsertLink_({
+        userId: user.userId,
+        telegramId: user.telegramId,
+        matchKey: found.hit.matchKey,
+        clientNick: found.hit.clientNick,
+        subId: found.hit.subId,
+        segment: found.hit.segment,
+        status: "linked",
+        verifyMethod: "otp",
+        phone: ch.phone || ""
+      });
+      user = gbUpsertUser_({
+        telegramId: user.telegramId,
+        name: user.name,
+        username: user.username,
+        phone: user.phone,
+        access: found.hit.segment ? "full" : "limited"
+      });
+    }
+  }
+
+  var payload = gbBuildMePayload_(user);
+  payload.verified = true;
+  payload.auth = "otp";
+  return fromPost ? jsonpText(callback, payload) : jsonp(callback, payload);
+}
+
+function handleGbAuthTelegram_(json, callback, fromPost) {
+  var init = validateInitDataSoft_(json && json.initData || "");
+  var token = "";
+  try { token = PropertiesService.getScriptProperties().getProperty("TELEGRAM_BOT_TOKEN") || ""; } catch (eT) {}
+  if (token && init && init.soft === false && !init.ok) {
+    var badSig = { status: "error", message: "Не удалось проверить Telegram. Откройте кабинет из бота.", code: "bad_init" };
+    return fromPost ? jsonpText(callback, badSig) : jsonp(callback, badSig);
+  }
+  var tgUser = (init && init.user) || {};
+  var telegramId = String((json && json.telegramId) || tgUser.id || "").trim();
+  if (!gbIsRealTelegramId_(telegramId)) {
+    var badId = { status: "error", message: "Откройте кабинет через Telegram", code: "need_telegram" };
+    return fromPost ? jsonpText(callback, badId) : jsonp(callback, badId);
+  }
+  var name = String((json && json.name) || [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ") || "").trim();
+  var username = String((json && (json.username || json.nick)) || tgUser.username || "").trim();
+  var user = gbUpsertUser_({
+    telegramId: telegramId,
+    name: name || "Друг",
+    username: username,
+    phone: (json && json.phone) || "",
+    access: undefined
+  });
+  var payload = gbBuildMePayload_(user);
+  payload.auth = "telegram";
+  payload.initOk = !!(init && init.ok);
+  return fromPost ? jsonpText(callback, payload) : jsonp(callback, payload);
 }

@@ -1,6 +1,6 @@
 /**
  * Стадии подписки для кабинета Goodboy.
- * Сервер (gbMe) присылает stage*; здесь — fallback, если Deploy ещё старый.
+ * Сервер (gbMe) присылает stage*; здесь — fallback + кличка + метка «пробный».
  */
 (function (global) {
   "use strict";
@@ -16,7 +16,7 @@
     waiting_stock: {
       id: "waiting_stock",
       badge: "ждём",
-      title: "Ждём, пока Барни сократит запасы лакомств",
+      title: "Ждём, пока питомец сократит запасы лакомств",
       text: "Пока доедаете текущий набор — новый не торопим. Когда пора готовить, статус обновится.",
       progress: 22
     },
@@ -55,13 +55,6 @@
       text: "Приятного аппетита питомцу. Следующий цикл начнём вовремя.",
       progress: 100
     },
-    trial: {
-      id: "trial",
-      badge: "пробный",
-      title: "Пробный период",
-      text: "Идёт тестовый набор. После него можно перейти на постоянную подписку.",
-      progress: 40
-    },
     paused: {
       id: "paused",
       badge: "пауза",
@@ -81,43 +74,62 @@
     return Math.round((target - today) / 86400000);
   }
 
-  function resolveFromSub(sub, link) {
+  function personalize(stage, petName) {
+    stage = Object.assign({}, stage || {});
+    var pet = String(petName || "").trim() || "питомец";
+    if (stage.id === "waiting_stock") {
+      stage.title = "Ждём, пока " + pet + " сократит запасы лакомств";
+      stage.text = "Пока " + pet + " доедает текущий набор — новый не торопим. Когда пора готовить, статус обновится.";
+    } else if (stage.id === "preparing") {
+      stage.text = "Сушим и комплектуем набор под " + (pet === "питомец" ? "вашего питомца" : pet) + ".";
+    } else if (stage.id === "delivered") {
+      stage.text = pet === "питомец"
+        ? "Приятного аппетита питомцу. Следующий цикл начнём вовремя."
+        : ("Приятного аппетита, " + pet + "! Следующий цикл начнём вовремя.");
+    }
+    return stage;
+  }
+
+  function resolveFromSub(sub, link, petName) {
     sub = sub || {};
     link = link || {};
-    if (sub.stage && sub.stage.id && sub.stage.title) return sub.stage;
-    if (sub.stageId && CATALOG[sub.stageId]) {
-      return Object.assign({}, CATALOG[sub.stageId], {
+    var pet = petName || sub.petName || "";
+    var isTrial = !!(sub.isTrial || sub.trialLabel || String(sub.segment || "").toUpperCase() === "БП" ||
+      String(sub.segment || "").toUpperCase() === "BP" || sub.status === "trial");
+
+    var stage;
+    if (sub.stage && sub.stage.id && sub.stage.title && sub.stage.id !== "trial") {
+      stage = Object.assign({}, sub.stage);
+    } else if (sub.stageId && sub.stageId !== "trial" && CATALOG[sub.stageId]) {
+      stage = Object.assign({}, CATALOG[sub.stageId], {
         badge: sub.stageBadge || CATALOG[sub.stageId].badge,
         title: sub.stageTitle || CATALOG[sub.stageId].title,
         text: sub.stageText || CATALOG[sub.stageId].text,
         progress: sub.stageProgress != null ? sub.stageProgress : CATALOG[sub.stageId].progress
       });
+    } else {
+      var linked = link.status === "linked";
+      var calStatus = String(sub.calStatus || "").toLowerCase();
+      var days = sub.daysUntil != null ? Number(sub.daysUntil) : daysUntilIso(sub.nextDate);
+      var status = String(sub.status || "");
+
+      if (!linked) stage = CATALOG.unlinked;
+      else if (status === "paused") stage = CATALOG.paused;
+      else if (calStatus === "delivered" || calStatus === "done") stage = CATALOG.delivered;
+      else if (/ship|transit|courier|delivering|пути|едет/.test(calStatus)) stage = CATALOG.on_the_way;
+      else if (/assembl|packed|сбор/.test(calStatus)) stage = CATALOG.packing;
+      else if (days == null || isNaN(days)) stage = CATALOG.waiting_stock;
+      else if (days === 0 || days < 0) stage = CATALOG.on_the_way;
+      else if (days <= 3) stage = CATALOG.packing;
+      else if (days <= 9) stage = CATALOG.preparing;
+      else if (days <= 16) stage = CATALOG.scheduled;
+      else stage = CATALOG.waiting_stock;
     }
 
-    var linked = link.status === "linked";
-    var segment = String(sub.segment || "").toUpperCase();
-    var calStatus = String(sub.calStatus || "").toLowerCase();
-    var days = sub.daysUntil != null ? Number(sub.daysUntil) : daysUntilIso(sub.nextDate);
-    var status = String(sub.status || "");
-
-    if (!linked) return CATALOG.unlinked;
-    if (status === "paused") return CATALOG.paused;
-    if (calStatus === "delivered" || calStatus === "done") return CATALOG.delivered;
-    if (/ship|transit|courier|delivering|пути|едет/.test(calStatus)) return CATALOG.on_the_way;
-    if (/assembl|packed|сбор/.test(calStatus)) return CATALOG.packing;
-
-    if (days == null || isNaN(days)) {
-      return (segment === "БП" || segment === "BP" || status === "trial")
-        ? CATALOG.trial
-        : CATALOG.waiting_stock;
-    }
-    // «В пути» только в день доставки
-    if (days === 0 || days < 0) return CATALOG.on_the_way;
-    if (days <= 3) return CATALOG.packing;
-    if (days <= 9) return CATALOG.preparing;
-    if (days <= 16) return CATALOG.scheduled;
-    if (segment === "БП" || segment === "BP" || status === "trial") return CATALOG.trial;
-    return CATALOG.waiting_stock;
+    stage = personalize(stage, pet);
+    stage.isTrial = isTrial;
+    stage.trialLabel = isTrial ? (sub.trialLabel || "пробный") : "";
+    return stage;
   }
 
   function tipMeta(stage, sub) {
@@ -141,6 +153,7 @@
     catalog: CATALOG,
     resolve: resolveFromSub,
     tipMeta: tipMeta,
+    personalize: personalize,
     daysUntilIso: daysUntilIso
   };
 })(window);

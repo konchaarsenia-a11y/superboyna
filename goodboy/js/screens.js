@@ -225,14 +225,18 @@
     var sub = st.subscription || {};
     var link = st.link || {};
     var linked = link.status === "linked";
-    var stage = (global.GBSubStatus && GBSubStatus.resolve(sub, link)) || {
+    var pet = GBStore.activePet && GBStore.activePet();
+    var petName = (pet && pet.name) || sub.petName || "";
+    var stage = (global.GBSubStatus && GBSubStatus.resolve(sub, link, petName)) || {
       id: linked ? "waiting_stock" : "unlinked",
       badge: linked ? "ждём" : "не привязана",
-      title: linked ? "Ждём, пока Барни сократит запасы лакомств" : "Привяжите заказ",
-      text: linked
-        ? "Пока доедаете текущий набор — новый не торопим."
-        : "Укажите телефон или ник из заказа Бойни.",
-      progress: linked ? 22 : 8
+      title: linked
+        ? ("Ждём, пока " + (petName || "питомец") + " сократит запасы лакомств")
+        : "Привяжите заказ",
+      text: "Пока доедаете текущий набор — новый не торопим.",
+      progress: linked ? 22 : 8,
+      isTrial: !!(sub.isTrial || sub.status === "trial"),
+      trialLabel: sub.trialLabel || (sub.status === "trial" ? "пробный" : "")
     };
     var tip = (global.GBSubStatus && GBSubStatus.tipMeta(stage, sub)) || {
       title: stage.title,
@@ -250,11 +254,16 @@
       ? (sub.nextDateLabel || tip.when || "Дата уточняется") +
         (link.address || sub.address ? " · " + (link.address || sub.address) : "")
       : "Привяжите заказ — покажем дату и состав";
+    var badges =
+      "<em class=\"ps-badge ps-badge--" + esc(stage.id) + "\">" + esc(stage.badge) + "</em>" +
+      (stage.isTrial
+        ? "<em class=\"ps-badge ps-badge--trial\">" + esc(stage.trialLabel || "пробный") + "</em>"
+        : "");
 
     return (
       "<div class=\"cabinet-block\">" +
         "<div class=\"ps-card ps-card--rich cabinet-sub-card\" data-stage=\"" + esc(stage.id) + "\">" +
-          "<div class=\"ps-row\"><strong>Месячный набор</strong><em class=\"ps-badge ps-badge--" + esc(stage.id) + "\">" + esc(stage.badge) + "</em></div>" +
+          "<div class=\"ps-row\"><strong>Месячный набор</strong><span class=\"ps-badges\">" + badges + "</span></div>" +
           "<p class=\"cabinet-stage-title\">" + esc(stage.title) + "</p>" +
           "<span class=\"cabinet-stage-when\">" + esc(whenLine) + "</span>" +
           "<div class=\"ps-bar\" aria-hidden=\"true\"><i style=\"--w:" + (tip.progress || stage.progress || 20) + "%\"></i></div>" +
@@ -275,6 +284,7 @@
         "<h3 class=\"cabinet-block-title\">" + (linked ? "Детали подписки" : "Привязать заказ") + "</h3>" +
         (linked
           ? "<div class=\"cabinet-kv\"><span>Статус</span><strong>" + esc(stage.title) + "</strong></div>" +
+            (stage.isTrial ? "<div class=\"cabinet-kv\"><span>Тип</span><strong>Пробный</strong></div>" : "") +
             "<div class=\"cabinet-kv\"><span>Сегмент</span><strong>" + esc(sub.segment || "—") + "</strong></div>" +
             "<div class=\"cabinet-kv\"><span>Клиент</span><strong>" + esc(link.clientNick || "—") + "</strong></div>" +
             "<div class=\"cabinet-kv\"><span>Адрес</span><strong>" + esc(link.address || sub.address || "—") + "</strong></div>"

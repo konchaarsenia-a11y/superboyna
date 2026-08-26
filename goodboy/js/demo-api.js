@@ -315,6 +315,50 @@
     return linkRes;
   }
 
+  function handleRequestOtp(params) {
+    var purpose = String(params.purpose || "login");
+    var phone = String(params.phone || "").trim();
+    var nick = String(params.nick || "").trim().replace(/^@/, "");
+    if (purpose === "login" && !phone && !nick) {
+      return { status: "error", message: "Укажите телефон или ник" };
+    }
+    if (purpose === "register") {
+      if (!String(params.name || "").trim()) return { status: "error", message: "Укажите имя" };
+      if (!phone || phone.replace(/\D/g, "").length < 9) return { status: "error", message: "Укажите телефон" };
+    }
+    var challengeId = "demo_" + Date.now();
+    return {
+      status: "success",
+      challengeId: challengeId,
+      delivery: "demo",
+      sent: true,
+      botLink: "",
+      message: "Демо: введите код 000000",
+      demoCode: "000000"
+    };
+  }
+
+  function handleVerifyOtp(params) {
+    var code = String(params.code || "").replace(/\D/g, "");
+    if (code !== "000000") return { status: "error", message: "Демо: код 000000" };
+    var phone = "";
+    var nick = "";
+    // pending живёт на клиенте; здесь просто пускаем
+    return handleLogin({
+      phone: phone || "375000000000",
+      nick: nick || "demo",
+      telegramId: uid("otp")
+    });
+  }
+
+  function handleAuthTelegram(params) {
+    return handleMe({
+      telegramId: params.telegramId || uid("tg"),
+      name: params.name || "Telegram",
+      username: params.username || ""
+    });
+  }
+
   function dispatch(action, params) {
     params = params || {};
     if (action === "gbMe") return handleMe(params);
@@ -322,6 +366,9 @@
     if (action === "gbLinkClient") return handleLinkClient(params);
     if (action === "gbRegister") return handleRegister(params);
     if (action === "gbLogin") return handleLogin(params);
+    if (action === "gbRequestOtp") return handleRequestOtp(params);
+    if (action === "gbVerifyOtp") return handleVerifyOtp(params);
+    if (action === "gbAuthTelegram") return handleAuthTelegram(params);
     if (action === "gbEnsureSheets" || action === "gbBootstrap") {
       return { status: "success", demo: true, message: "local ok", partners: partnersList() };
     }

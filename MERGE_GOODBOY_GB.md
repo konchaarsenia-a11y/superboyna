@@ -47,21 +47,33 @@
 
 | id | Бейдж | Заголовок |
 |----|-------|-----------|
-| `waiting_stock` | ждём | Ждём, пока Барни сократит запасы лакомств |
+| `waiting_stock` | ждём | Ждём, пока **{кличка}** сократит запасы лакомств |
 | `scheduled` | в плане | Доставка уже в календаре |
 | `preparing` | готовим | Заготавливаем новые лакомства |
 | `packing` | собираем | Собираем ваш набор |
-| `on_the_way` | в пути | Набор уже в пути |
+| `on_the_way` | в пути | Набор уже в пути (**только день доставки**) |
 | `delivered` | получен | Набор у вас |
-| `trial` / `paused` / `unlinked` | … | пробный / пауза / не привязана |
 
-Логика: дни до следующей даты в `Календарь_Дат` + `calStatus` (read-only). Фронт: `goodboy/js/subscription-status.js`.
+Сегмент **БП** → метка `пробный` рядом со статусом (стадия всё равно видна).  
+Кличка берётся из `GB_Питомцы` (активный питомец).
+
+Менеджеру вкладка в Бойне **не нужна** — хватит листов `GB_*` в таблице при необходимости.
+
+### Вход (нормальный)
+
+| Action | Суть |
+|--------|------|
+| `gbRequestOtp` | телефон/ник → challenge; код в TG или ссылка `t.me/bot?start=gbotp_…` |
+| `gbVerifyOtp` | код + challenge → аккаунт + связка CRM |
+| `gbAuthTelegram` | Mini App `initData` → вход |
+
+`/start gbotp_<id>` в боте **не** трогает лист Доступы (только клиентский OTP).
 
 ---
 
 ## Actions (allowlist)
 
-`gbEnsureSheets` · `gbBootstrap` · `gbMe` · `gbRegister` · `gbLogin` · `gbLinkClient` · `gbSavePet`
+`gbEnsureSheets` · `gbBootstrap` · `gbMe` · `gbRegister` · `gbLogin` · `gbLinkClient` · `gbSavePet` · `gbRequestOtp` · `gbVerifyOtp` · `gbAuthTelegram`
 
 Роутинг только через `isGoodboyAction_(action)` — **не** через `action.indexOf("gb")`.
 
