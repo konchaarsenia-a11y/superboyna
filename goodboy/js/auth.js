@@ -34,7 +34,30 @@
     return String(nick || "").trim().replace(/^@/, "");
   }
 
-  function registerUser(data) {
+  function isLive() {
+    return global.GB_CONFIG && global.GB_CONFIG.mode === "live" && global.GB_CONFIG.webhookUrl;
+  }
+
+  function userFromApi(payload, extras) {
+    extras = extras || {};
+    var u = (payload && payload.user) || {};
+    var access = u.access || extras.access || "limited";
+    return {
+      telegramId: String(u.telegramId || extras.telegramId || uid("web")),
+      name: String(u.name || extras.name || "Друг"),
+      username: String(u.username || extras.username || ""),
+      phone: String(u.phone || extras.phone || ""),
+      photoUrl: "",
+      initData: "",
+      intent: extras.intent || (access === "full" ? "pp" : "limited"),
+      hasSubscription: access === "full" || !!u.hasSubscription,
+      access: access,
+      createdAt: u.createdAt || new Date().toISOString()
+    };
+  }
+
+  /** Локальная регистрация (demo / офлайн). */
+  function registerUserLocal(data) {
     var name = String((data && data.name) || "").trim();
     var phone = normalizePhone(data && data.phone);
     var nick = normalizeNick(data && data.nick);
@@ -53,10 +76,11 @@
       access: hasSub ? "full" : "limited",
       createdAt: new Date().toISOString()
     };
-    return { ok: true, user: user };
+    return { ok: true, user: user, needsLink: hasSub };
   }
 
-  function loginUser(data) {
+  /** Локальный вход (demo / офлайн). */
+  function loginUserLocal(data) {
     var phone = normalizePhone(data && data.phone);
     var nick = normalizeNick(data && data.nick);
     if (!phone && !nick) return { ok: false, message: "Укажите телефон или ник" };
@@ -74,7 +98,8 @@
             access: "full",
             phone: phone || saved.phone || "",
             username: nick || saved.username || ""
-          })
+          }),
+          needsLink: !(saved.hasSubscription && saved.access === "full")
         };
       }
     }
@@ -91,6 +116,79 @@
       createdAt: new Date().toISOString()
     };
     return { ok: true, user: user, needsLink: true };
+  }
+
+  function registerUser(data) {
+    if (!isLive() || !global.GBApi) return Promise.resolve(registerUserLocal(data));
+    var name = String((data && data.name) || "").trim();
+    var phone = normalizePhone(data && data.phone);
+    var nick = normalizeNick(data && data.nick);
+    var hasSub = !!(data && data.hasSubscription);
+    if (!name) return Promise.resolve({ ok: false, message: "Укажите имя" });
+    if (!phone || phone.length < 9) return Promise.resolve({ ok: false, message: "Укажите телефон" });
+    return global.GBApi.get({
+      action: "gbRegister",
+      name: name,
+      phone: phone,
+      nick: nick,
+      hasSubscription: hasSub ? "1" : "0",
+      telegramId: uid("web")
+    }).then(function (res) {
+      if (!res || res.status !== "success") {
+        return { ok: false, message: (res && res.message) || "Не удалось зарегистрироваться" };
+      }
+      var user = userFromApi(res, {
+        name: name,
+        phone: phone,
+        username: nick,
+        intent: hasSub ? "pp" : "limited"
+      });
+      return {
+        ok: true,
+        user: user,
+        needsLink: !!res.needsLink,
+        bootstrap: res
+      };
+    }).catch(function (err) {
+      var local = registerUserLocal(data);
+      if (local.ok) local.fromFallback = true;
+      return local.ok ? local : { ok: false, message: String(err && err.message || err) };
+    });
+  }
+
+  function loginUser(data) {
+    if (!isLive() || !global.GBApi) return Promise.resolve(loginUserLocal(data));
+    var phone = normalizePhone(data && data.phone);
+    var nick = normalizeNick(data && data.nick);
+    if (!phone && !nick) return Promise.resolve({ ok: false, message: "Укажите телефон или ник" });
+    var st = global.GBStore && global.GBStore.get();
+    var savedId = st && st.user && st.user.telegramId ? st.user.telegramId : uid("login");
+    return global.GBApi.get({
+      action: "gbLogin",
+      phone: phone,
+      nick: nick,
+      telegramId: savedId
+    }).then(function (res) {
+      if (!res || res.status !== "success") {
+        return { ok: false, message: (res && res.message) || "Подписка не найдена" };
+      }
+      var user = userFromApi(res, {
+        phone: phone,
+        username: nick,
+        intent: "pp",
+        access: "full"
+      });
+      return {
+        ok: true,
+        user: user,
+        needsLink: !!res.needsLink,
+        bootstrap: res
+      };
+    }).catch(function (err) {
+      var local = loginUserLocal(data);
+      if (local.ok) local.fromFallback = true;
+      return local.ok ? local : { ok: false, message: String(err && err.message || err) };
+    });
   }
 
   function guestUser(intent) {
@@ -166,6 +264,9 @@
     guestUser: guestUser,
     registerUser: registerUser,
     loginUser: loginUser,
+    registerUserLocal: registerUserLocal,
+    loginUserLocal: loginUserLocal,
+    userFromApi: userFromApi,
     resolveSession: resolveSession,
     logout: logout,
     normalizePhone: normalizePhone,

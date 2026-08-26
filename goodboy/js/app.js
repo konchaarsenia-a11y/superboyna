@@ -82,6 +82,29 @@
     opts = opts || {};
     var intent = user.intent || opts.intent || "";
     var access = accessOf(user);
+    if (opts.bootstrap && opts.bootstrap.status === "success") {
+      applyBootstrap(opts.bootstrap, { user: user });
+      showCabinet();
+      if (opts.needsLink && (user.phone || user.username) && !(opts.bootstrap.link && opts.bootstrap.link.status === "linked" && opts.bootstrap.link.segment)) {
+        GBApi.get({
+          action: "gbLinkClient",
+          telegramId: user.telegramId || "",
+          phone: user.phone || "",
+          nick: user.username || ""
+        }).then(function (linkRes) {
+          if (linkRes && linkRes.status === "success") {
+            GBStore.set({
+              link: linkRes.link || null,
+              subscription: linkRes.subscription || GBStore.get().subscription,
+              privilege: linkRes.privilege || GBStore.get().privilege,
+              access: (linkRes.user && linkRes.user.access) || GBStore.get().access
+            });
+            GBUI.render();
+          }
+        });
+      }
+      return;
+    }
     GBStore.set({
       user: user,
       demo: !!user.isDemo || !!user.isGuest || ((GB_CONFIG && GB_CONFIG.mode) !== "live"),
@@ -321,20 +344,35 @@
       loginForm.addEventListener("submit", function (e) {
         e.preventDefault();
         var err = document.getElementById("gateLoginError");
-        var res = GBAuth.loginUser({
+        var btn = loginForm.querySelector('button[type="submit"]');
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = "Входим…";
+        }
+        Promise.resolve(GBAuth.loginUser({
           phone: loginForm.phone.value,
           nick: loginForm.nick.value,
           intent: "pp"
-        });
-        if (!res.ok) {
-          if (err) {
-            err.hidden = false;
-            err.textContent = res.message;
+        })).then(function (res) {
+          if (!res.ok) {
+            if (err) {
+              err.hidden = false;
+              err.textContent = res.message;
+            }
+            return;
           }
-          return;
-        }
-        enterWithUser(res.user, { page: "subscription", needsLink: !!res.needsLink });
-        GBUI.toast("Вход выполнен");
+          enterWithUser(res.user, {
+            page: "subscription",
+            needsLink: !!res.needsLink,
+            bootstrap: res.bootstrap || null
+          });
+          GBUI.toast(res.fromFallback ? "Вход (офлайн)" : "Вход выполнен");
+        }).finally(function () {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = "Войти";
+          }
+        });
       });
     }
 
@@ -352,26 +390,38 @@
           return;
         }
         var hasSub = hasSubEl.value === "yes";
-        var res = GBAuth.registerUser({
+        var btn = registerForm.querySelector('button[type="submit"]');
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = "Создаём…";
+        }
+        Promise.resolve(GBAuth.registerUser({
           name: registerForm.name.value,
           phone: registerForm.phone.value,
           nick: registerForm.nick.value,
           hasSubscription: hasSub
-        });
-        if (!res.ok) {
-          if (err) {
-            err.hidden = false;
-            err.textContent = res.message;
+        })).then(function (res) {
+          if (!res.ok) {
+            if (err) {
+              err.hidden = false;
+              err.textContent = res.message;
+            }
+            return;
           }
-          return;
-        }
-        enterWithUser(res.user, {
-          page: hasSub ? "subscription" : "profile",
-          needsLink: hasSub
+          enterWithUser(res.user, {
+            page: hasSub ? "subscription" : "profile",
+            needsLink: hasSub && !!res.needsLink,
+            bootstrap: res.bootstrap || null
+          });
+          GBUI.toast(hasSub
+            ? (res.needsLink ? "Аккаунт создан — привяжите заказ" : "Аккаунт создан · подписка найдена")
+            : "Аккаунт создан · доступ ограничен");
+        }).finally(function () {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = "Создать аккаунт";
+          }
         });
-        GBUI.toast(hasSub
-          ? "Аккаунт создан — привяжите заказ"
-          : "Аккаунт создан · доступ ограничен");
       });
     }
   }

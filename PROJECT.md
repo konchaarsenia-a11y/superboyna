@@ -119,6 +119,28 @@
 | `getCutting` | `day`, `callback` | `{status, date, items:[{row,name,dry,unit,raw,surplus,done}]}` |
 | `getCourier` | `day`, `callback` | `{status, date, clients:[{name,address,note,basket,delivered}]}` |
 | `submitGoodboyTry` | `name`, `phone`, `pet`, `note`, `mode` (`short`/`full`), `callback` | Заявка с сайта Goodboy (`try.html`). Полная анкета — 12 вопросов в `note` (POST). Лист `Goodboy_Заявки` + TG |
+| `gbEnsureSheets` | — | Создать листы `GB_Пользователи`, `GB_Связки`, `GB_Питомцы` |
+| `gbBootstrap` | — | `{partners, sheets}` — проверка live |
+| `gbMe` | `telegramId`, `name?`, `username?` | Профиль + питомцы + связка + подписка (CRM + Календарь_Дат) + privilege |
+| `gbRegister` | `name`, `phone`, `nick?`, `hasSubscription`, `telegramId?` | Аккаунт в `GB_Пользователи`; при hasSub — поиск в CRM |
+| `gbLogin` | `phone` и/или `nick`, `telegramId?` | Вход подписчика: CRM → связка → `gbMe`-payload |
+| `gbLinkClient` | `telegramId`, `phone` и/или `nick` | Привязка аккаунта к CRM (`matchKey` / `subId` / сегмент) |
+| `gbSavePet` | `telegramId`, `petJson` | Карточка питомца → `GB_Питомцы` |
+
+### Goodboy: листы связки (клиентский кабинет)
+
+| Лист | Колонки | Назначение |
+|------|---------|------------|
+| `GB_Пользователи` | userId, telegramId, name, username, phone, access, createdAt, lastLoginAt | Аккаунты приложения (не сотрудники) |
+| `GB_Связки` | userId, telegramId, matchKey, clientNick, subId, segment, status, linkedAt, verifyMethod, phone | Аккаунт → подписка CRM |
+| `GB_Питомцы` | id, ownerTelegramId, name, breed, weightKg, ageYears, sex, allergies, notes, updatedAt | Карточки питомцев |
+| `Goodboy_Заявки` | Когда, Имя, Телефон, Питомец, Комментарий, Источник | Анкета «Хочу попробовать» |
+
+**Истина по подписке:** листы CRM `ПП` / `АФК` / `БП` + `Контакты` + следующая дата из `Календарь_Дат` (**только чтение**).  
+`gb*` **не пишет** в Прием заказов / Нарезка / Доставки / Склад / Доступы / Брони / CRM.  
+`access`: `full` если сегмент ПП/АФК/БП найден; иначе `limited`. Гость города — только на фронте (`city`).  
+После Deploy: один раз вызвать `?action=gbEnsureSheets` (или любой `gb*` — листы `GB_*` создадутся сами).  
+Сниппет для merge: [`goodboy/CODE_GS_GOODBOY.snippet.gs`](./goodboy/CODE_GS_GOODBOY.snippet.gs).
 
 ### POST (JSON body, Content-Type: text/plain)
 
