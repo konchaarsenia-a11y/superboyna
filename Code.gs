@@ -4203,17 +4203,22 @@ function handleMoveClient(ss, json, callback, fromPost) {
   if (calendarOnly) {
     if (!clientName) return reply({ status: "no_client" });
     if (!newDate) return reply({ status: "need_date" });
+    // СНАЧАЛА снимок состава/контакта — до clearClientColumnFromDay_
+    var movePayload = gatherClientMovePayload_(ss, clientName, matchKey, oldDate, srcDayName);
     var cleared = 0;
     if (srcBlock) cleared += clearClientColumnFromDay_(ss, json.oldDay, clientName, matchKey);
     // на всякий случай снять и с «Будущей» / других дней
     cleared += clearClientFromWeekSheets_(ss, clientName, matchKey, "");
-    var noteCal = "";
     var dateSyncCal = { calendar: 0, bookings: 0, crm: 0 };
     try {
       if (oldDate && newDate && dateKey_(oldDate, tz) !== dateKey_(newDate, tz)) {
         dateSyncCal = moveClientDeliveryDateEverywhere_(ss, clientName, oldDate, newDate, {
           matchKey: matchKey,
-          note: noteCal,
+          address: movePayload.address || "",
+          phone: movePayload.phone || "",
+          note: movePayload.note || "",
+          basket: movePayload.basket || [],
+          segment: movePayload.segment || "",
           dayName: ""
         });
       } else if (newDate) {
@@ -4222,11 +4227,31 @@ function handleMoveClient(ss, json, callback, fromPost) {
             date: newDate,
             client: clientName,
             matchKey: matchKey,
+            address: movePayload.address || "",
+            phone: movePayload.phone || "",
+            note: movePayload.note || "",
+            basket: movePayload.basket || [],
+            segment: movePayload.segment || "",
             dayName: "",
             status: "planned"
           });
           dateSyncCal.calendar = 1;
         } catch (eUp) {}
+      }
+      // дожать календарь на newDate полным payload (если строка была «пустая»)
+      if (newDate && (movePayload.basket.length || movePayload.address || movePayload.phone || movePayload.note)) {
+        try {
+          upsertCalendarEntry_(ss, {
+            date: newDate,
+            client: clientName,
+            matchKey: matchKey,
+            address: movePayload.address,
+            phone: movePayload.phone,
+            note: movePayload.note,
+            basket: movePayload.basket,
+            segment: movePayload.segment
+          });
+        } catch (eFill) {}
       }
     } catch (eSyncCal) {
       dateSyncCal.error = String(eSyncCal);
@@ -4392,6 +4417,113 @@ function handleMoveClient(ss, json, callback, fromPost) {
   });
 }
 
+/** Объединить поля переноса: не затирать непустое пустым. */
+function mergeMovePayload_(target, src) {
+  if (!target || !src) return target;
+  if (src.address && !String(target.address || "").trim()) target.address = String(src.address);
+  if (src.phone && !String(target.phone || "").trim()) target.phone = String(src.phone);
+  if (src.note && !String(target.note || "").trim()) target.note = String(src.note);
+  if (src.segment && !String(target.segment || "").trim()) target.segment = String(src.segment);
+  var sb = src.basket;
+  if (sb && sb.length && (!target.basket || !target.basket.length)) target.basket = sb;
+  return target;
+}
+
+/**
+ * Снять адрес/телефон/состав ДО clearClientColumnFromDay_ (calendar-only move).
+ */
+function gatherClientMovePayload_(ss, clientName, matchKey, oldDate, srcDayName) {
+  var out = { address: "", phone: "", note: "", basket: [], segment: "" };
+  if (!ss || !clientName) return out;
+  var tz = ss.getSpreadsheetTimeZone();
+  var mk = String(matchKey || "").trim() || clientMatchKey_(clientName);
+
+  if (oldDate) {
+    try {
+      var calList = readCalendarForDate_(ss, oldDate);
+      for (var ci = 0; ci < calList.length; ci++) {
+        var cal = calList[ci];
+        if (!nicksMatch_(cal.client, clientName) && !(mk && cal.matchKey === mk)) continue;
+        mergeMovePayload_(out, {
+          address: cal.address,
+          phone: cal.phone,
+          note: cal.note,
+          basket: cal.basket,
+          segment: cal.segment
+        });
+        break;
+      }
+    } catch (eCal) {}
+  }
+
+  var day = String(srcDayName || "").trim();
+  if (day) {
+    try {
+      var data = getClientsData_(ss, day);
+      for (var gi = 0; gi < (data.clients || []).length; gi++) {
+        var cl = data.clients[gi];
+        if (!nicksMatch_(cl.name, clientName) && !(mk && clientMatchKey_(cl.name) === mk)) continue;
+        mergeMovePayload_(out, {
+          address: cl.address,
+          phone: cl.phone,
+          note: cl.note,
+          basket: cl.basket
+        });
+        break;
+      }
+    } catch (eGd) {}
+    try {
+      var block = getDayBlock(day);
+      var sh = block && getTargetSheet(ss, block);
+      if (sh) {
+        var nicks = sh.getRange(block.nick, 3, 1, 15).getValues()[0];
+        var want = clientName.toUpperCase();
+        var col = -1;
+        for (var ni = 0; ni < 15; ni++) {
+          var nick = nicks[ni] ? String(nicks[ni]).trim().toUpperCase() : "";
+          if (nick === want || nicksMatch_(nicks[ni], clientName) ||
+              (mk && clientMatchKey_(nicks[ni]) === mk)) {
+            col = ni + 3;
+            break;
+          }
+        }
+        if (col > 0) {
+          var meatValues = sh.getRange(block.start, col, block.end - block.start + 1, 1).getValues();
+          var itemsInSheet = [];
+          try {
+            itemsInSheet = ss.getSheetByName("Прием заказов").getRange(4, 1, 59, 1).getValues();
+          } catch (eItems) {}
+          mergeMovePayload_(out, {
+            address: sh.getRange(block.addr, col).getValue(),
+            note: sh.getRange(block.note, col).getValue(),
+            basket: basketFromMeatColumn_(itemsInSheet, meatValues)
+          });
+        }
+      }
+    } catch (eW) {}
+  }
+
+  if (oldDate) {
+    try {
+      var crmSs = getCrmSpreadsheet_();
+      var oldSh = resolveCrmMonthSheet_(crmSs, oldDate);
+      if (oldSh) {
+        var found = findCrmMonthClientCell_(oldSh, oldDate, clientName, mk);
+        if (found && found.parsed) {
+          mergeMovePayload_(out, {
+            address: found.parsed.address,
+            phone: found.parsed.phone,
+            note: found.parsed.note,
+            basket: found.parsed.basket
+          });
+        }
+      }
+    } catch (eCrm) {}
+  }
+
+  return out;
+}
+
 /**
  * Перенос человека на другую дату доставки во всех таблицах даты:
  * Календарь_Дат, Брони_Заказов, CRM-месяц (Июль/Август…), открытые опросники (+meta БП).
@@ -4420,7 +4552,10 @@ function moveClientDeliveryDateEverywhere_(ss, client, oldDate, newDate, opts) {
         client: client,
         matchKey: opts.matchKey || clientMatchKey_(client),
         address: opts.address || "",
+        phone: opts.phone || "",
         note: opts.note || "",
+        basket: opts.basket || [],
+        segment: opts.segment || "",
         dayName: opts.dayName || findDayNameForDate_(ss, newDate) || "",
         source: "move",
         status: "planned"

@@ -196,7 +196,7 @@ async function handleAction_(action, params, env, url, ctx) {
       swr: !!live,
       d1: !!(env && env.DB),
       peopleCanon: "sheets-confirm-bg",
-      deployMarker: "2026-08-26 ops-move-asm-flags v2"
+      deployMarker: "2026-08-26 cal-move-payload"
     };
   }
 
@@ -4620,6 +4620,34 @@ async function deleteClient_(params, env) {
   };
 }
 
+async function loadMovePayloadFromViewSnap_(env, oldDate, matchKeyRaw, client) {
+  if (!env || !oldDate) return null;
+  try {
+    const snap = await getSnapRaw_(env, "viewDate:" + oldDate);
+    const list =
+      snap && snap.status === "success"
+        ? Array.isArray(snap.month)
+          ? snap.month
+          : Array.isArray(snap.week)
+            ? snap.week
+            : []
+        : [];
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (!orderRowLooseMatch_({ client: c.name, match_key: c.matchKey }, matchKeyRaw, client)) continue;
+      return {
+        client: c.name,
+        address: c.address || "",
+        phone: c.phone || "",
+        note: c.note || "",
+        basket_json: JSON.stringify(c.basket || []),
+        segment: c.segment || ""
+      };
+    }
+  } catch (e) {}
+  return null;
+}
+
 async function moveClient_(params, env) {
   await ensureMetaColumn_(env);
   const moveStartedAt = Date.now();
@@ -4743,6 +4771,36 @@ async function moveClient_(params, env) {
   }
   // calendar-only без D1-строки: создать на newDate (человек мог быть только в snap/Sheets)
   if (!row && calendarOnly && newDate) {
+    let srcPayload = null;
+    if (oldDate) {
+      srcPayload = await loadMovePayloadFromViewSnap_(env, oldDate, matchKeyRaw, client);
+    }
+    if (!srcPayload) {
+      try {
+        const anyRow = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+        if (anyRow) {
+          const dn = String(anyRow.day_name || "");
+          const di = String(anyRow.date_iso || "");
+          if (
+            (oldDate && di === oldDate) ||
+            (oldDay && dn === oldDay) ||
+            fromDays.indexOf(dn) >= 0
+          ) {
+            srcPayload = anyRow;
+          }
+        }
+      } catch (eAny) {}
+    }
+    let srcBasket = [];
+    if (srcPayload && srcPayload.basket_json) {
+      try {
+        srcBasket = JSON.parse(String(srcPayload.basket_json || "[]"));
+      } catch (eB) {
+        srcBasket = [];
+      }
+    } else if (srcPayload && Array.isArray(srcPayload.basket)) {
+      srcBasket = srcPayload.basket;
+    }
     if (oldDate) {
       try {
         await putSnap_(env, "delTomb:CAL:" + oldDate + ":" + matchKey, {
@@ -4771,6 +4829,10 @@ async function moveClient_(params, env) {
           calendarOnly: true,
           client: client,
           matchKey: matchKeyRaw,
+          address: (srcPayload && srcPayload.address) || params.address || "",
+          phone: (srcPayload && srcPayload.phone) || params.phone || "",
+          note: (srcPayload && srcPayload.note) || params.note || "",
+          basket: srcBasket.length ? srcBasket : params.basket || [],
           fromAfterWrite: "1"
         }),
         env,
