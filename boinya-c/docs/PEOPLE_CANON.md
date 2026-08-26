@@ -2,18 +2,22 @@
 
 **Канон людей = Google Sheets.** D1 — быстрый кэш UI.
 
+Неделя vs календарь (незакрытая неделя): **`WEEK_CALENDAR_CANON.md`** — обязателен при CRUD за «Будущей».
+
 ## Как работает запись (save / move / delete)
 
 1. Worker сразу отвечает `accepted` + `writeId` (~мгновенно).
 2. В фоне: D1 → GAS/Sheets.
 3. UI: «Вношу в таблицу…» → poll `pollPeopleWrite` → **«Точно внесено»** только при `sheetsVerified`.
 4. При ошибке D1/Sheets — честный fail toast.
+5. Дата **вне** слотов недели → только `saveBooking` / calendar move-remove (не `saveOrder`).
 
 ## Жёсткое правило (агентам)
 
 | Action | Порядок | Финальный toast |
 |--------|---------|-----------------|
 | `saveOrder` / `saveBooking` / `deleteClient` / `removeCalendarClient` / `moveClient` | D1 accept → фон GAS → poll | только при `sheetsVerified` («Точно …») |
+| batch move/delete | тот же accept; UI: `isPeopleWriteAccepted_` | poll в фоне |
 | `placeTransferTask` / `saveDeferred` / `notifyMissedDelivery` | D1-first OK | `d1Verified` |
 | флаги нарезки/курьера | D1 + GAS | как сейчас |
 
@@ -23,8 +27,9 @@
 2. Возвращать `status: success` + `optimistic: true` без Sheets как финальный канон.
 3. Убирать `pollPeopleWrite` / `pendingSheets` и снова блокировать UI на 20–40 с await GAS.
 4. «Чинить» гонки новым fake-success вместо фикса GAS/маппинга.
+5. Для off-week звать `saveOrder` (GAS → `beyond_week`, календарь пустой).
 
-См. `CUTOVER.md`. Маркер: `peopleCanon: "sheets-confirm-bg"` в `?action=ping`.
+См. `CUTOVER.md`, `WEEK_CALENDAR_CANON.md`. Маркер: `peopleCanon: "sheets-confirm-bg"` в `?action=ping`.
 
 ## Полный перевод на D1
 

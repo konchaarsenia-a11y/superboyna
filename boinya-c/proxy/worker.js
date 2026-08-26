@@ -678,28 +678,66 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
   let d1WriteRes = job.d1Res || null;
   const sheetsFirst = /^(moveClient|deleteClient|removeCalendarClient)$/i.test(a);
 
+  // calendar-only: Sheets пишет Календарь через saveBooking, НЕ saveOrder (beyond_week)
+  let gasAction = a;
+  let gasParams = gasWriteParams;
+  if (
+    /^saveOrder$/i.test(a) &&
+    (toBool_(gasWriteParams.calendarOnly) ||
+      (!String(gasWriteParams.day || "").trim() &&
+        String(gasWriteParams.date || gasWriteParams.dateIso || gasWriteParams.deliveryDate || "").trim()))
+  ) {
+    gasAction = "saveBooking";
+    gasParams = Object.assign({}, gasWriteParams, {
+      action: "saveBooking",
+      alsoSaveOrder: "0",
+      calendarOnly: "1",
+      day: ""
+    });
+  }
+
+  function sheetsOk_(sheetsRes) {
+    if (!sheetsRes) return false;
+    if (/gas_proxy_failed|gas_timeout/i.test(String(sheetsRes.message || ""))) return false;
+    if (sheetsRes.status === "success") return true;
+    // beyond_week на saveOrder = «не пишем в лист» — для calendar-only это успех маршрута
+    if (
+      /beyond_week|date_not_on_week/i.test(
+        String(sheetsRes.status || "") + " " + String(sheetsRes.message || "")
+      ) &&
+      (toBool_(gasParams.calendarOnly) || !String(gasParams.day || "").trim())
+    ) {
+      return true;
+    }
+    if (
+      /already|not_found|src_client_not_found|same_/i.test(
+        String(sheetsRes.status || "") + " " + String(sheetsRes.message || "")
+      )
+    ) {
+      return true;
+    }
+    return false;
+  }
+
   // move/delete: сначала Sheets (иначе D1 унесёт → GAS src_client_not_found)
   if (sheetsFirst && !job.sheetsVerified) {
     let sheetsRes = null;
     try {
-      sheetsRes = await gasProxy_(a, gasWriteParams, env, { write: true });
+      sheetsRes = await gasProxy_(gasAction, gasParams, env, { write: true });
     } catch (eG0) {
       sheetsRes = {
         status: "error",
         message: String((eG0 && eG0.message) || eG0 || "gas_proxy_failed")
       };
     }
-    let ok =
-      sheetsRes &&
-      sheetsRes.status === "success" &&
-      !/gas_proxy_failed|gas_timeout/i.test(String(sheetsRes.message || ""));
+    let ok = sheetsOk_(sheetsRes);
     if (!ok) {
       try {
         await new Promise(function (r) {
           setTimeout(r, 700);
         });
         const again = await Promise.race([
-          gasProxy_(a, gasWriteParams, env, { write: true }).catch(function () {
+          gasProxy_(gasAction, gasParams, env, { write: true }).catch(function () {
             return null;
           }),
           new Promise(function (r) {
@@ -710,22 +748,11 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
         ]);
         if (again) {
           sheetsRes = again;
-          ok =
-            sheetsRes &&
-            sheetsRes.status === "success" &&
-            !/gas_proxy_failed/i.test(String(sheetsRes.message || ""));
+          ok = sheetsOk_(sheetsRes);
         }
       } catch (eRetry) {}
     }
-    // мягкий ok: already gone / already moved
-    if (
-      !ok &&
-      sheetsRes &&
-      /already|not_found|src_client_not_found|same_/i.test(
-        String(sheetsRes.status || "") + " " + String(sheetsRes.message || "")
-      )
-    ) {
-      ok = true;
+    if (ok && sheetsRes && sheetsRes.status !== "success") {
       sheetsRes = Object.assign({}, sheetsRes, { status: "success", softSheets: true });
     }
 
@@ -830,24 +857,21 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
 
   let sheetsRes = null;
   try {
-    sheetsRes = await gasProxy_(a, gasWriteParams, env, { write: true });
+    sheetsRes = await gasProxy_(gasAction, gasParams, env, { write: true });
   } catch (eG0) {
     sheetsRes = {
       status: "error",
       message: String((eG0 && eG0.message) || eG0 || "gas_proxy_failed")
     };
   }
-  let ok =
-    sheetsRes &&
-    sheetsRes.status === "success" &&
-    !/gas_proxy_failed|gas_timeout/i.test(String(sheetsRes.message || ""));
+  let ok = sheetsOk_(sheetsRes);
   if (!ok) {
     try {
       await new Promise(function (r) {
         setTimeout(r, 700);
       });
       const again = await Promise.race([
-        gasProxy_(a, gasWriteParams, env, { write: true }).catch(function () {
+        gasProxy_(gasAction, gasParams, env, { write: true }).catch(function () {
           return null;
         }),
         new Promise(function (r) {
@@ -858,12 +882,12 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
       ]);
       if (again) {
         sheetsRes = again;
-        ok =
-          sheetsRes &&
-          sheetsRes.status === "success" &&
-          !/gas_proxy_failed/i.test(String(sheetsRes.message || ""));
+        ok = sheetsOk_(sheetsRes);
       }
     } catch (eRetry) {}
+  }
+  if (ok && sheetsRes && sheetsRes.status !== "success") {
+    sheetsRes = Object.assign({}, sheetsRes, { status: "success", softSheets: true });
   }
 
   const done = {

@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115901";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115902";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -874,6 +874,23 @@
       return { ok: true, pending: true, res: res };
     }
     window.confirmPeopleWriteSheets_ = confirmPeopleWriteSheets_;
+
+    /** Единый критерий «запись принята» (fast-confirm + legacy). */
+    function isPeopleWriteAccepted_(res) {
+      if (!res || typeof res !== "object") return false;
+      if (res.status === "error" && !res.pendingSheets && !res.writeId) return false;
+      if (res.status === "online" || /жив/i.test(String(res.msg || res.message || ""))) return false;
+      return !!(
+        res.status === "success" ||
+        res.status === "accepted" ||
+        res.writeId ||
+        res.sheetsVerified ||
+        res.pendingSheets ||
+        res.sent_opaque ||
+        res.d1Verified
+      );
+    }
+    window.isPeopleWriteAccepted_ = isPeopleWriteAccepted_;
 
     function celebrateSuccess(kind, opts) {
       try { if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); } catch (e) {}
@@ -4801,15 +4818,16 @@
               }
             } catch (eCalGet) {}
             if (!bookRes || (bookRes.status !== "success" && bookRes.status !== "accepted" && !bookRes.writeId)) {
+              // НЕ saveOrder: GAS ответит beyond_week и calendar не напишет
               try {
-                var postCal = await apiPost(Object.assign({}, payload, {
-                  action: "saveOrder",
+                var postBook2 = await apiPost(Object.assign({}, bookingPayload, {
                   day: "",
-                  date: deliveryDate,
-                  calendarOnly: true
+                  alsoSaveOrder: false,
+                  calendarOnly: true,
+                  date: deliveryDate
                 }));
-                if (postCal && (postCal.writeId || postCal.status === "accepted" || postCal.status === "success")) {
-                  bookRes = postCal;
+                if (postBook2 && (postBook2.writeId || postBook2.status === "accepted" || postBook2.status === "success")) {
+                  bookRes = postBook2;
                 }
               } catch (ePostCal) {}
             }
@@ -7315,10 +7333,20 @@
             cutRaw: cutFlag,
             matchKey: (loadedClientsRawData[idxs[i]] && loadedClientsRawData[idxs[i]].matchKey) || "",
             _: String(Date.now())
-          }, { timeoutMs: 45000, cacheTtlMs: 0 });
-          if (res && (res.status === "success" || res.sent_opaque)) {
+          }, { timeoutMs: 45000, cacheTtlMs: 0, bypassInflight: true });
+          if (isPeopleWriteAccepted_(res)) {
             ok++;
             surveys += Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
+            if (res.writeId || res.pendingSheets) {
+              try {
+                confirmPeopleWriteSheets_(res, {
+                  doneMsg: "Точно перенесено · " + names[i],
+                  pendingMsg: "Переношу «" + names[i] + "»…",
+                  failMsg: "Перенос не закрепился",
+                  block: false
+                });
+              } catch (eConf) {}
+            }
           } else fail.push(names[i] + " (" + ((res && (res.message || res.status)) || "?") + ")");
         } catch (e) {
           fail.push(names[i] + " (" + ((e && e.message) || "сеть") + ")");
@@ -7404,9 +7432,20 @@
               client: namesM[i],
               matchKey: keysM[i],
               _: String(Date.now())
-            }, { timeoutMs: 45000, cacheTtlMs: 0 });
-            if (res && (res.status === "success" || res.sent_opaque)) okM++;
-            else failM.push(namesM[i]);
+            }, { timeoutMs: 45000, cacheTtlMs: 0, bypassInflight: true });
+            if (isPeopleWriteAccepted_(res)) {
+              okM++;
+              if (res.writeId || res.pendingSheets) {
+                try {
+                  confirmPeopleWriteSheets_(res, {
+                    doneMsg: "Точно убрано · " + namesM[i],
+                    pendingMsg: "Убираю «" + namesM[i] + "»…",
+                    failMsg: "Не убралось",
+                    block: false
+                  });
+                } catch (eC0) {}
+              }
+            } else failM.push(namesM[i]);
           } catch (e) {
             failM.push(namesM[i] + " (" + ((e && e.message) || "сеть") + ")");
           }
@@ -7434,9 +7473,20 @@
       try { apiCacheBustMem_(); } catch (eMem) {}
       for (let i = 0; i < names.length; i++) {
         try {
-          const res = await apiGet(deleteClientParams(names[i], day, keys[i]), { timeoutMs: 45000, cacheTtlMs: 0 });
-          if (res && (res.status === "success" || res.sent_opaque)) ok++;
-          else fail.push(names[i] + " (" + ((res && (res.message || res.status)) || "?") + ")");
+          const res = await apiGet(deleteClientParams(names[i], day, keys[i]), { timeoutMs: 45000, cacheTtlMs: 0, bypassInflight: true });
+          if (isPeopleWriteAccepted_(res)) {
+            ok++;
+            if (res.writeId || res.pendingSheets) {
+              try {
+                confirmPeopleWriteSheets_(res, {
+                  doneMsg: "Точно удалено · " + names[i],
+                  pendingMsg: "Удаляю «" + names[i] + "»…",
+                  failMsg: "Удаление не закрепилось",
+                  block: false
+                });
+              } catch (eC1) {}
+            }
+          } else fail.push(names[i] + " (" + ((res && (res.message || res.status)) || "?") + ")");
         } catch (e) {
           fail.push(names[i] + " (" + ((e && e.message) || "сеть") + ")");
         }
