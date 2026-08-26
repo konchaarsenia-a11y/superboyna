@@ -1358,21 +1358,21 @@
       if (it.id === "vr_c_banner") {
         return '<div class="coupon-card banner-card">' +
           '<img class="coupon-banner" src="' + media.banner + '" alt="' + esc(media.alt) + '">' +
-          '<div class="coupon-row qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
+          '<div class="coupon-row qty-item"><div class="meta" style="flex:1;min-width:0"><div class="title">' + esc(it.name) +
           '</div><div class="coupon-hint">' + esc(hint || "с ламинацией") + " · 1 шт" + selected +
           "</div></div>" + ste + "</div></div>";
       }
       if (it.id === "vr_c_nfc" || kind === "nfc") {
-        return '<div class="coupon-card qty-item" style="padding:14px 14px 10px;">' +
-          '<div class="coupon-row" style="align-items:flex-start;gap:10px;">' +
-          '<div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
+        return '<div class="coupon-card qty-item">' +
+          '<div class="coupon-row">' +
+          '<div class="meta" style="flex:1;min-width:0"><div class="title">' + esc(it.name) +
           '</div><div class="coupon-hint nfc">' + esc(hint || "приложить к телефону клиента") + selected +
           "</div></div>" + ste + "</div></div>";
       }
       if (it.type === "coupon") {
         return '<div class="coupon-card banner-card">' +
           '<img class="coupon-preview" src="' + media.coupon + '" alt="' + esc(media.alt) + '">' +
-          '<div class="coupon-row qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
+          '<div class="coupon-row qty-item"><div class="meta" style="flex:1;min-width:0"><div class="title">' + esc(it.name) +
           '</div><div class="coupon-hint">' + esc(hint || "с ламинацией") + selected +
           "</div></div>" + ste + "</div></div>";
       }
