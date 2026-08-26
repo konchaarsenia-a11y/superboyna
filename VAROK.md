@@ -2,7 +2,12 @@
 
 Telegram Mini App для **партнёрских сетей**: бесплатная заявка на лакомства и купоны.
 
-**Живой URL:** https://konchaarsenia-a11y.github.io/superboyna/varka/
+**Живой URL (пока Pages залип):**  
+https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/varka/app.html  
+
+**Зеркало после merge Worker:** https://boinya-c.konchaarsenia.workers.dev/varka/  
+
+**Pages (часто отстаёт):** https://konchaarsenia-a11y.github.io/superboyna/varka/
 
 **Бот партнёров:** [@GOODBOY_LG](https://t.me/GOODBOY_LG)  
 (отдельный от бота Бойни; токен только в Script Properties / `secrets.local.md`, не в git)
@@ -16,8 +21,12 @@ Telegram Mini App для **партнёрских сетей**: бесплатн
 1. [@BotFather](https://t.me/BotFather) → `/mybots` → **GOODBOY_LG**
 2. **Bot Settings → Menu Button → Configure menu button**
    - Text: `Открыть`
-   - URL: `https://konchaarsenia-a11y.github.io/superboyna/varka/`
-3. Проверка: открыть [@GOODBOY_LG](https://t.me/GOODBOY_LG) → кнопка меню слева от поля ввода → должен открыться миниап с лого Good Boy.
+   - URL **сейчас (Pages broken, пресеты NFC на старом билде):**  
+     `https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/varka/app.html`  
+     или после deploy Worker: `https://boinya-c.konchaarsenia.workers.dev/varka/`
+   - Когда Pages снова отдаёт ≥ v3.3.16: можно вернуть  
+     `https://konchaarsenia-a11y.github.io/superboyna/varka/`
+3. Проверка: открыть [@GOODBOY_LG](https://t.me/GOODBOY_LG) → кнопка меню → в шапке **v3.3.16+**, у NFC только «Взять 1» / «+ещё» (без 48/73/96/120).
 
 Токен бота в репозиторий **не** писать. Для webhook/уведомлений позже — `PropertiesService` в своём Script.
 
@@ -78,7 +87,7 @@ Worker: `@arseniyhotko` / `650923866` видит только **NaN clinic · Я
 
 ## Чеклист
 
-- [x] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → `varka/` (Pages) — **OK**
+- [~] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → **временно CDN / Worker `/varka`** (Pages errored, отдаёт 3.3.12)
 - [x] Стиль Good Boy (IG)
 - [x] Вход по @username + свои точки
 - [x] Купоны поштучно + баннер
@@ -103,7 +112,8 @@ Worker: `@arseniyhotko` / `650923866` видит только **NaN clinic · Я
 - [x] **v3.3.12:** купоны компактнее (мини-превью слева) · **Pages**
 - [x] **v3.3.13:** NFC — 1 на точку; второй только с причиной (поломка/потеря/цель) · **Pages** · **нужен Deploy Code.gs**
 - [x] **v3.3.14:** NFC причины: поломка / потеря / второй для работы / несколько сотрудников; без штрафов при поломке и потере · **Pages**
-- [x] **v3.3.15:** NFC без пресетов 48/73/96/120 — только «Взять 1» / «+ещё» · **Pages**
+- [~] **v3.3.15:** NFC без пресетов — код в `main` / CDN · **Pages залип на 3.3.12**
+- [~] **v3.3.16:** CDN bootstrap + Worker `/varka` (обход Pages) · **нужен merge → Worker deploy** · Menu Button → CDN
 - [ ] **v3.3.2:** ~~`@nan_animal_clinic`~~ — отменено, доступ у `@arseniyhotko`
 - [x] **v3.0.9:** у позиций лакомств убрана буква «г» — **Pages**
 - [x] **v3.0.8:** как было — owner first (все точки); `@one_more_person_228` обычный owner; allowlist/тест-Access сняты (`PARTNER_PROD_V7`) · **Pages** · **нужен Deploy Code.gs**

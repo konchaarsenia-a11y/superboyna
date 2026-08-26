@@ -33,6 +33,34 @@ const DAY_SHORT = {
   "Будущая неделя": "Буд"
 };
 
+/** Varka Mini App с CDN (обход залипшего GitHub Pages). */
+const VARKA_CDN_BASE =
+  "https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/varka";
+
+async function serveVarkaApp_() {
+  try {
+    const upstream = await fetch(VARKA_CDN_BASE + "/app.html", {
+      cf: { cacheTtl: 60, cacheEverything: true }
+    });
+    if (!upstream.ok) {
+      return Response.redirect(VARKA_CDN_BASE + "/app.html", 302);
+    }
+    let html = await upstream.text();
+    // Относительные assets/* → абсолютные на CDN
+    html = html.replace(/(["'(])assets\//g, "$1" + VARKA_CDN_BASE + "/assets/");
+    return new Response(html, {
+      status: 200,
+      headers: {
+        ...CORS,
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store, max-age=0"
+      }
+    });
+  } catch (e) {
+    return Response.redirect(VARKA_CDN_BASE + "/app.html", 302);
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") {
@@ -40,6 +68,16 @@ export default {
     }
 
     const url = new URL(request.url);
+    // Обход GitHub Pages: Menu Button → https://boinya-c.konchaarsenia.workers.dev/varka/
+    if (
+      request.method === "GET" &&
+      (url.pathname === "/varka" ||
+        url.pathname === "/varka/" ||
+        url.pathname === "/varka/app.html")
+    ) {
+      return serveVarkaApp_();
+    }
+
     const action = String(url.searchParams.get("action") || "").trim();
 
     if (request.method === "GET" && (!action || action === "health")) {
@@ -49,7 +87,8 @@ export default {
         sandbox: false,
         cutover: "LIVE by default; ?sandbox=1 / ?cutover=0 → D1 only",
         d1: !!(env && env.DB),
-        tip: "?action=getClients&day=Понедельник"
+        tip: "?action=getClients&day=Понедельник",
+        varka: "/varka/ (CDN app, bypass Pages)"
       });
     }
 

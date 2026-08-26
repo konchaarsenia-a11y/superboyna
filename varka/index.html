@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>Good Boy · партнёры</title>
   <style>
     html, body {
@@ -11,15 +12,22 @@
       display: flex; align-items: center; justify-content: center;
       min-height: 100vh;
     }
+    a { color: #f59a2e; }
   </style>
   <script>
     (function () {
-      var ver = "345";
-      location.replace("app.html?v=" + ver);
+      // GitHub Pages часто залипает на старом app.html (пресеты NFC).
+      // Актуальный билд всегда с jsDelivr @main.
+      var CDN =
+        "https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/varka/app.html";
+      var bust = "346";
+      location.replace(CDN + "?v=" + bust);
     })();
   </script>
 </head>
 <body>
-  <p>Загрузка…</p>
+  <p>Загрузка…
+    <a href="https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/varka/app.html?v=346">открыть</a>
+  </p>
 </body>
 </html>
