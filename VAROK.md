@@ -94,6 +94,7 @@ Worker: `@arseniyhotko` / `650923866` видит только **NaN clinic · Я
 - [x] **v3.3.4:** купон **NaN clinic × Good Boy** по `networkId` (`assets/partners/nan-coupon.png`) · **Pages**
 - [x] **v3.3.5:** купон **Indixvost / Ди & Хвосты** (`assets/partners/indixvost-coupon.png`) · **Pages**
 - [x] **v3.3.6:** купон **Polotno** (`assets/partners/polotno-coupon.png`) · **Pages**
+- [x] **v3.3.7:** купон **Fundog / Fun Dogs Club** (`assets/partners/fundog-coupon.png`) · **Pages**
 - [ ] **v3.3.2:** ~~`@nan_animal_clinic`~~ — отменено, доступ у `@arseniyhotko`
 - [x] **v3.0.9:** у позиций лакомств убрана буква «г» — **Pages**
 - [x] **v3.0.8:** как было — owner first (все точки); `@one_more_person_228` обычный owner; allowlist/тест-Access сняты (`PARTNER_PROD_V7`) · **Pages** · **нужен Deploy Code.gs**
