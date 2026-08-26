@@ -26,7 +26,9 @@ resolveDayForDate(date) → onWeek?
 2. Считать `accepted` ошибкой (batch раньше смотрел только `success`).
 3. Toast «неделя ещё не закрыта» как fail — это **успех календаря**.
 4. После save обновлять Просмотр по `#day=Пн`, а не по `deliveryDate`.
-5. `switchTab("viewScreen")` — **нет такого экрана**, нужен `clientsScreen` (иначе все `.screen` без `.active` = чёрный экран после calendar-save).
+5. Не авто-`switchTab` в Просмотр после calendar-save (путаница + пустой force view). Toast «Точно в календаре» + остаться на Заказе.
+6. Calendar save обязан снять `delTomb:CAL:dateIso` — иначе Просмотр force прячет человека при живом D1.
+7. `reconcileMonthOverview` / view-snap **не** обнуляют бейдж, если D1/календарь уже больше.
 
 ## Почему баги повторяются
 

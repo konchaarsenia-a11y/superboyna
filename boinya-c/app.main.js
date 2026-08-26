@@ -5016,7 +5016,8 @@
 
         try {
           if (calendarOnlySave && deliveryDate) {
-            // Просмотр = clientsScreen (не viewScreen — такого id нет → чёрный экран)
+            // НЕ кидать в Просмотр — путаница «куда закинуло / люди пропали».
+            // Остаёмся на Заказе; в фоне обновляем кэш месяца этой даты.
             try {
               var mmSave = String(deliveryDate).slice(0, 7);
               if (/^\d{4}-\d{2}$/.test(mmSave)) {
@@ -5029,20 +5030,11 @@
               }
             } catch (eMm) {}
             try {
-              var vd = document.getElementById("viewDate");
-              if (vd) vd.value = deliveryDate;
               lastViewDateIso = deliveryDate;
             } catch (eVd) {}
-            try { switchTab("clientsScreen"); } catch (eTab) {}
             try {
-              if (typeof openViewMonthDay === "function") {
-                await openViewMonthDay(deliveryDate);
-              } else {
-                await loadClientsForDay();
-              }
-            } catch (eOpenCal) {
-              try { await loadClientsForDay(); } catch (eL2) {}
-            }
+              ensureMonthOverviewLoaded_({ soft: true, refresh: true }).catch(function () {});
+            } catch (eMo) {}
           } else {
             refreshDayViews(weekDayToSave || day).catch(function () {});
           }
@@ -6730,6 +6722,20 @@
         }
 
         var month = (!needDeploy && compareRes && Array.isArray(compareRes.month)) ? compareRes.month : [];
+
+        // calendar-only: если viewCompare.month пуст — добрать живой getClients по дате
+        if (viewDateOnlyMonth && dateStr && (!month || !month.length)) {
+          try {
+            var calClients = await apiGet(
+              { action: "getClients", date: dateStr, force: "1", _: String(Date.now()) },
+              { timeoutMs: 18000, cacheTtlMs: 0 }
+            );
+            if (loadSeq !== _viewClientsLoadSeq) return;
+            if (calClients && calClients.status === "success" && Array.isArray(calClients.clients) && calClients.clients.length) {
+              month = calClients.clients;
+            }
+          } catch (eCalCli) {}
+        }
 
         const daySel = document.getElementById("viewDaySelect");
         var resolvedDay = (compareRes && compareRes.day) || (weekRes && weekRes.day) || (!dateStr ? day : "") || "";
