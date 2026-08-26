@@ -7460,7 +7460,10 @@
       showToast("Переношу " + names.length + "…");
       for (let i = 0; i < names.length; i++) {
         try {
-          const res = await apiGet({
+          var srcCl = loadedClientsRawData[idxs[i]] || {};
+          var batchOt = resolveClientOrderType_(srcCl) || "";
+          var batchSeg = String(srcCl.segment || "").trim() || orderTypeToSegment_(batchOt) || "";
+          var batchParams = {
             action: "moveClient",
             client: names[i],
             oldDay: oldDay || "",
@@ -7470,9 +7473,15 @@
             dateOnly: dateOnly ? "1" : "0",
             calendarOnly: calendarOnly ? "1" : "0",
             cutRaw: cutFlag,
-            matchKey: (loadedClientsRawData[idxs[i]] && loadedClientsRawData[idxs[i]].matchKey) || "",
+            matchKey: srcCl.matchKey || "",
             _: String(Date.now())
-          }, { timeoutMs: 45000, cacheTtlMs: 0, bypassInflight: true });
+          };
+          if (batchSeg) batchParams.segment = batchSeg;
+          if (batchOt) {
+            batchParams.orderType = batchOt;
+            batchParams.source = batchOt;
+          }
+          const res = await apiGet(batchParams, { timeoutMs: 45000, cacheTtlMs: 0, bypassInflight: true });
           if (isPeopleWriteAccepted_(res)) {
             ok++;
             surveys += Number(res.surveysMoved || (res.dateSync && res.dateSync.surveys) || 0) || 0;
@@ -7859,9 +7868,19 @@
         if (!cutRaw) return false;
       }
       if (!cutRaw) cutRaw = "yes";
+      var moveClientRef = opts.client || null;
+      var moveSeg = String(opts.segment || "").trim();
+      var moveOt = String(opts.orderType || opts.source || "").trim();
+      if (moveClientRef && !moveSeg && !moveOt) {
+        moveOt = resolveClientOrderType_(moveClientRef) || "";
+        moveSeg =
+          String(moveClientRef.segment || "").trim() ||
+          orderTypeToSegment_(moveOt) ||
+          "";
+      }
       try {
         showToast("Переношу…");
-        var res = await apiGet({
+        var moveParams = {
           action: "moveClient",
           client: clientName,
           oldDay: oldDay || "",
@@ -7873,7 +7892,13 @@
           cutRaw: cutRaw === "yes" ? "1" : "0",
           matchKey: matchKey,
           _: String(Date.now())
-        }, { timeoutMs: 16000, cacheTtlMs: 0, bypassInflight: true });
+        };
+        if (moveSeg) moveParams.segment = moveSeg;
+        if (moveOt) {
+          moveParams.orderType = moveOt;
+          moveParams.source = moveOt;
+        }
+        var res = await apiGet(moveParams, { timeoutMs: 16000, cacheTtlMs: 0, bypassInflight: true });
         if (!res || (res.status !== "success" && res.status !== "accepted" && !res.sent_opaque && !res.sheetsVerified && !res.d1Verified && !res.writeId)) {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return false;
@@ -8085,7 +8110,8 @@
         matchKey: client.matchKey || "",
         oldDay: oldDay,
         oldDate: oldDate,
-        forceCalendarOnly: !!viewDateOnlyMonth && !oldDay
+        forceCalendarOnly: !!viewDateOnlyMonth && !oldDay,
+        client: client
       });
     }
     window.crmMoveClient = crmMoveClient;
@@ -8110,7 +8136,8 @@
         matchKey: client.matchKey || viewClientKey(client.name) || "",
         oldDay: oldDay,
         oldDate: oldDate,
-        forceCalendarOnly: !!viewDateOnlyMonth && !oldDay
+        forceCalendarOnly: !!viewDateOnlyMonth && !oldDay,
+        client: client
       });
     }
     window.crmMoveMonthClient = crmMoveMonthClient;

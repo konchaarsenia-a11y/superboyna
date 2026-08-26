@@ -4467,7 +4467,8 @@ function gatherClientMovePayload_(ss, clientName, matchKey, oldDate, srcDayName)
           address: cl.address,
           phone: cl.phone,
           note: cl.note,
-          basket: cl.basket
+          basket: cl.basket,
+          segment: cl.segment || segmentLabelFromOrderType_(cl.source) || ""
         });
         break;
       }
@@ -4514,7 +4515,8 @@ function gatherClientMovePayload_(ss, clientName, matchKey, oldDate, srcDayName)
             address: found.parsed.address,
             phone: found.parsed.phone,
             note: found.parsed.note,
-            basket: found.parsed.basket
+            basket: found.parsed.basket,
+            segment: found.parsed.segment || ""
           });
         }
       }
