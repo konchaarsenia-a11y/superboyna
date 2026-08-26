@@ -94,6 +94,7 @@
       celebrateCutQueued: 0
     };
     var _cuttingLoadSeq = 0;
+    var _cuttingFlagsRefreshTimer = null;
     var _courierLoadSeq = 0;
     var _assemblyLoadSeq = 0;
     var _viewClientsLoadSeq = 0;
@@ -3220,7 +3221,7 @@
           }
           if (sid === "cuttingScreen") {
             ensureCuttingDaySelected({ forceSmart: true });
-            try { loadCutting({ soft: true }); } catch (eCut) {}
+            try { loadCutting({ soft: true, refreshFlags: true }); } catch (eCut) {}
           } else {
             stopCuttingPoll();
           }
@@ -8373,7 +8374,8 @@
         !!cuttingCompletionCache
       );
       if (opts.keepCompletion && cuttingCompletionCache) hasCache = true;
-      if (soft && hasCache && !window._cuttingNeedRefresh) {
+      var flagsIncomplete = cacheDayOk && cuttingItemsCache.length && !cuttingItemsCache._flagsFromGas;
+      if (soft && hasCache && !window._cuttingNeedRefresh && !opts.refreshFlags && !flagsIncomplete) {
         if (cuttingCompletionCache) {
           renderFinishedCuttingDay(cuttingCompletionCache);
           if (finishBtn) finishBtn.style.display = "none";
@@ -8420,13 +8422,15 @@
         }
       }
       try {
+        var wantForce = !!(opts.force || opts.refreshFlags || flagsIncomplete || window._cuttingNeedRefresh);
         const res = await apiGet({
           action: "getCutting",
-          day: day
+          day: day,
+          force: wantForce ? "1" : undefined
         }, {
           timeoutMs: hasCache ? 18000 : 28000,
           retries: 0,
-          cacheTtlMs: (opts.keepCompletion || opts.force || window._cuttingNeedRefresh) ? 0 : undefined
+          cacheTtlMs: (opts.keepCompletion || opts.force || opts.refreshFlags || window._cuttingNeedRefresh) ? 0 : undefined
         });
         if (loadSeq !== _cuttingLoadSeq) return;
         var curDay = document.getElementById("cuttingDaySelect") && document.getElementById("cuttingDaySelect").value;
@@ -8508,15 +8512,27 @@
           return;
         }
         if (loadSeq !== _cuttingLoadSeq) return;
+        var domHasRows = !!(box && box.querySelector(".cut-row"));
+        var onlyFlagsGain =
+          domHasRows &&
+          items.length === (prevItems || []).length &&
+          flagScoreNew > flagScoreOld &&
+          !guardFlags;
         cuttingSession.fingerprint = fp;
         cuttingItemsCache = items;
         cuttingItemsCache._day = day;
+        cuttingItemsCache._flagsFromGas = !!(res.fromGas || flagScoreNew > 0);
         sortCuttingItems();
         renderCuttingSummary();
         renderCuttingSessionBox();
         var transferHtml = renderTransferOnlyHtml(res.transferOnly);
-        box.innerHTML = transferHtml + cuttingItemsCache.map(renderCutRowHtml).join("");
+        if (onlyFlagsGain) {
+          applyAllCuttingFlagsToDom_();
+        } else {
+          box.innerHTML = transferHtml + cuttingItemsCache.map(renderCutRowHtml).join("");
+        }
         if (finishBtn) finishBtn.style.display = cuttingSession.active ? "block" : "none";
+        if (!cuttingItemsCache._flagsFromGas) scheduleCuttingFlagsRefresh_();
         startCuttingPoll();
       } catch (err) {
         if (loadSeq !== _cuttingLoadSeq) return;
@@ -8850,21 +8866,51 @@
       if (finishBtn) finishBtn.style.display = cuttingSession.active ? "block" : "none";
     }
 
+    function cuttingFlagsComplete_() {
+      return !!(cuttingItemsCache && cuttingItemsCache._flagsFromGas);
+    }
+
+    function applyAllCuttingFlagsToDom_() {
+      (cuttingItemsCache || []).forEach(function (it) {
+        syncCutRowDomFromCache_(it.row);
+      });
+      reorderCuttingDom();
+    }
+
+    function scheduleCuttingFlagsRefresh_() {
+      if (_cuttingFlagsRefreshTimer) {
+        clearTimeout(_cuttingFlagsRefreshTimer);
+        _cuttingFlagsRefreshTimer = null;
+      }
+      if (cuttingFlagsComplete_()) return;
+      _cuttingFlagsRefreshTimer = setTimeout(function () {
+        _cuttingFlagsRefreshTimer = null;
+        var screen = document.getElementById("cuttingScreen");
+        if (!screen || !screen.classList.contains("active")) return;
+        loadCutting({ fromPoll: true, force: true });
+      }, 3500);
+    }
+
     function startCuttingPoll() {
       stopCuttingPoll();
       const day = document.getElementById("cuttingDaySelect").value;
       if (!day) return;
+      var pollMs = cuttingFlagsComplete_() ? 30000 : 4000;
       cuttingSession.pollId = setInterval(function () {
         const screen = document.getElementById("cuttingScreen");
         if (!screen || !screen.classList.contains("active")) return;
-        loadCutting(true);
-      }, 30000);
+        loadCutting({ fromPoll: true });
+      }, pollMs);
     }
 
     function stopCuttingPoll() {
       if (cuttingSession.pollId) {
         clearInterval(cuttingSession.pollId);
         cuttingSession.pollId = null;
+      }
+      if (_cuttingFlagsRefreshTimer) {
+        clearTimeout(_cuttingFlagsRefreshTimer);
+        _cuttingFlagsRefreshTimer = null;
       }
     }
 
@@ -9402,7 +9448,7 @@
       if (day) {
         try { localStorage.setItem("opsDayCutting", day); } catch (e) {}
       }
-      loadCutting(false);
+      loadCutting({ force: true });
     }
     window.onCuttingDayChange = onCuttingDayChange;
 
