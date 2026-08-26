@@ -10,7 +10,8 @@
 6. [VAROK.md](./VAROK.md) — Varka: бесплатное пополнение (точки / каталог)
 7. **[boinya-c/docs/PEOPLE_CANON.md](./boinya-c/docs/PEOPLE_CANON.md)** — канон save/move/delete (Sheets-confirm); **не ломать**
 8. **[boinya-c/docs/WEEK_CALENDAR_CANON.md](./boinya-c/docs/WEEK_CALENDAR_CANON.md)** — неделя vs календарь при незакрытой неделе
-8. **Handoff** ниже — если трогаешь `Code.gs`
+9. **[MERGE_GOODBOY_GB.md](./MERGE_GOODBOY_GB.md)** — листы `GB_*` / actions `gb*` (клиентский кабинет); **не писать в CRM/неделю**
+10. **Handoff** ниже — если трогаешь `Code.gs`
 
 ## Skills (Cursor Agent)
 

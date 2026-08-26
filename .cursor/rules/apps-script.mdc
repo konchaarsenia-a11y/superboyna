@@ -1,6 +1,6 @@
 ---
-description: Паттерны Code.gs / webhook — не ломать натив-auth, согласовывать actions с app.html.
-globs: Code.gs,native/**/*.gs,MERGE_NATIVE_AUTH.md
+description: Паттерны Code.gs / webhook — не ломать натив-auth и Goodboy GB_*, согласовывать actions с app.html.
+globs: Code.gs,native/**/*.gs,MERGE_NATIVE_AUTH.md,MERGE_GOODBOY_GB.md,goodboy/**/*.gs
 alwaysApply: false
 ---
 
@@ -14,10 +14,20 @@ alwaysApply: false
 
 Слияние только через `MERGE_NATIVE_AUTH.md` + сниппет — не подменять весь файл чужим `Code.gs`.
 
+## Не откатывать (Goodboy GB_*)
+
+- allowlist `isGoodboyAction_` + роутеры в `doGet` / `handleApiAction`
+- модуль в конце файла / `goodboy/CODE_GS_GOODBOY.snippet.gs`
+- листы `GB_Пользователи`, `GB_Связки`, `GB_Питомцы` (только они на запись из `gb*`)
+
+Слияние: `MERGE_GOODBOY_GB.md`.  
+`gb*` **не пишет** в CRM / неделю / нарезку / склад / Доступы.
+
 ## Контракт с фронтом
 
 - Имена `action` и форматы basket/ответов — как в `app.html` и `PROJECT.md`.
 - После смены API: обновить оба слоя и smoke через skill `test-api` (`zzz_test`).
+- Goodboy smoke: `scripts/test-goodboy-api.sh`.
 - Живой Deploy делает владелец; в ответах — `[~]` в `TZ.md`, пока не подтвердил.
 
 ## Безопасность
