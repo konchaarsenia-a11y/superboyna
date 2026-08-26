@@ -483,7 +483,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.8";
+  var APP_VER = "3.3.9";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -496,26 +496,27 @@
     net_varka: {
       coupon: "assets/coupon-varka-goodboy.png",
       banner: "assets/coupon-poster.png",
+      hasBanner: true,
       alt: "Varka × Good Boy"
     },
     net_nan: {
       coupon: "assets/partners/nan-coupon.png",
-      banner: "assets/partners/nan-coupon.png",
+      hasBanner: false,
       alt: "NaN clinic × Good Boy"
     },
     net_indixvost: {
       coupon: "assets/partners/indixvost-coupon.png",
-      banner: "assets/partners/indixvost-coupon.png",
+      hasBanner: false,
       alt: "Ди & Хвосты × Good Boy"
     },
     net_polotno: {
       coupon: "assets/partners/polotno-coupon.png",
-      banner: "assets/partners/polotno-coupon.png",
+      hasBanner: false,
       alt: "Polotno × Good Boy"
     },
     net_fundog: {
       coupon: "assets/partners/fundog-coupon.png",
-      banner: "assets/partners/fundog-coupon.png",
+      hasBanner: false,
       alt: "Fun Dogs Club × Good Boy"
     }
   };
@@ -1116,6 +1117,7 @@
     var pt = pointById_(id);
     if (!pt) return;
     state.point = pt;
+    stripBannerIfNeeded_();
     var loc = document.getElementById("orderLocName");
     if (loc) loc.textContent = pointLine_(pt);
     goPointsForOrder_();
@@ -1280,19 +1282,39 @@
   function partnerMedia_() {
     var nid = currentNetworkId_();
     var hit = PARTNER_MEDIA_[nid];
-    if (hit) return hit;
+    if (hit) {
+      return {
+        coupon: hit.coupon || COUPON_IMG,
+        banner: hit.hasBanner ? (hit.banner || BANNER_IMG) : "",
+        hasBanner: !!hit.hasBanner,
+        alt: hit.alt || "Good Boy"
+      };
+    }
     return {
       coupon: COUPON_IMG,
-      banner: BANNER_IMG,
+      banner: "",
+      hasBanner: false,
       alt: "Good Boy"
     };
+  }
+
+  function networkHasBanner_() {
+    return !!partnerMedia_().hasBanner || currentNetworkId_() === "net_varka";
+  }
+
+  function stripBannerIfNeeded_() {
+    if (networkHasBanner_()) return;
+    if (state.cart && state.cart.vr_c_banner) delete state.cart.vr_c_banner;
   }
 
   function renderCatalog() {
     var box = document.getElementById("catalogList");
     var media = partnerMedia_();
+    stripBannerIfNeeded_();
+    var allowBanner = networkHasBanner_();
     var items = state.catalog.filter(function (it) {
       if (it.active === false) return false;
+      if (it.id === "vr_c_banner" && !allowBanner) return false;
       if (state.cat === "coupon") {
         return it.type === "coupon" || it.id === "vr_c_banner";
       }
@@ -1361,7 +1383,9 @@
       }
     }
     var basket = [];
+    stripBannerIfNeeded_();
     state.catalog.forEach(function (it) {
+      if (it.id === "vr_c_banner" && !networkHasBanner_()) return;
       var q = Number(state.cart[it.id]) || 0;
       if (q > 0) basket.push({ id: it.id, type: it.type, name: it.name, qty: q, unit: unitFor_(it) });
     });
