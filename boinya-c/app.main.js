@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115903";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115905";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -6645,9 +6645,13 @@
         if (dateStr) compareParams.date = dateStr;
         else compareParams.day = day;
         var forcePeopleList = !!window._peopleListForceFresh;
-        // LIVE: всегда force — иначе 20с mem-cache «воскрешает» после delete/move
-        if (forcePeopleList || window.__BOINYA_C_CUTOVER__) {
+        // calendar-only дата: НЕ force — live Worker force отдаёт пустой month при живом D1/GAS
+        // (заказы «как будто не внеслись» дальше недели). Неделя — force как раньше.
+        var calendarDateLoad = !!(dateStr && !day);
+        if (!calendarDateLoad && (forcePeopleList || window.__BOINYA_C_CUTOVER__)) {
           compareParams.force = "1";
+          compareParams._ = String(Date.now());
+        } else if (calendarDateLoad) {
           compareParams._ = String(Date.now());
         }
 
@@ -6723,16 +6727,28 @@
 
         var month = (!needDeploy && compareRes && Array.isArray(compareRes.month)) ? compareRes.month : [];
 
-        // calendar-only: если viewCompare.month пуст — добрать живой getClients по дате
-        if (viewDateOnlyMonth && dateStr && (!month || !month.length)) {
+        // дальше недели / calendar-only: всегда добрать D1 getClients (force viewCompare часто пустой)
+        if (dateStr && (viewDateOnlyMonth || dateNotInWeek || calendarDateLoad || !(month && month.length))) {
           try {
             var calClients = await apiGet(
               { action: "getClients", date: dateStr, force: "1", _: String(Date.now()) },
               { timeoutMs: 18000, cacheTtlMs: 0 }
             );
             if (loadSeq !== _viewClientsLoadSeq) return;
-            if (calClients && calClients.status === "success" && Array.isArray(calClients.clients) && calClients.clients.length) {
-              month = calClients.clients;
+            if (calClients && calClients.status === "success" && Array.isArray(calClients.clients)) {
+              if (calClients.clients.length) {
+                var seenCal = Object.create(null);
+                (month || []).forEach(function (c) {
+                  var k = viewClientKey(c && (c.name || c.client));
+                  if (k) seenCal[k] = true;
+                });
+                calClients.clients.forEach(function (c) {
+                  var k = viewClientKey(c && (c.name || c.client));
+                  if (k && seenCal[k]) return;
+                  if (k) seenCal[k] = true;
+                  month = (month || []).concat([c]);
+                });
+              }
             }
           } catch (eCalCli) {}
         }
