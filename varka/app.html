@@ -251,6 +251,10 @@
     .nfc-reason-chip.on {
       color: #1a0f00; background: var(--accent); border-color: var(--accent);
     }
+    .nfc-actions {
+      display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px;
+    }
+    .nfc-qty .qty-presets, .nfc-qty .qty-custom { display: none !important; }
     .stepper { display: flex; align-items: center; gap: 8px; }
     .stepper button {
       width: 34px; height: 34px; border-radius: 11px; border: 1px solid var(--line);
@@ -515,7 +519,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.14";
+  var APP_VER = "3.3.15";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -1206,15 +1210,24 @@
     updateCartButton_();
   }
 
+  function isNfcItem_(it) {
+    if (!it) return false;
+    if (it.id === NFC_ID_) return true;
+    if (String(it.kind || "").toLowerCase() === "nfc") return true;
+    var name = String(it.name || "").toLowerCase();
+    return name.indexOf("nfc") >= 0;
+  }
+
   function qtyRuleFor_(it) {
     if (!it) return { presets: [], unit: "шт", custom: true };
+    // NFC раньше общего coupon — иначе тянутся пресеты 48/73/96/120
+    if (isNfcItem_(it)) {
+      return { presets: [1], unit: "шт", custom: false, nfc: true, max: 2 };
+    }
     if (QTY_RULES_[it.id]) return QTY_RULES_[it.id];
     if (it.type === "treat") return { presets: [50, 100, 150, 200], unit: it.unit || "г", custom: true };
-    if (String(it.name || "").toLowerCase().indexOf("баннер") >= 0) {
+    if (String(it.name || "").toLowerCase().indexOf("баннер") >= 0 || it.id === "vr_c_banner") {
       return { presets: [1], unit: "шт", custom: false, fixed: true };
-    }
-    if (it.id === NFC_ID_ || String(it.kind || "").toLowerCase() === "nfc") {
-      return { presets: [1], unit: "шт", custom: false, nfc: true, max: 2 };
     }
     if (it.type === "coupon") return { presets: [48, 73, 96, 120], unit: it.unit || "шт", custom: true };
     return { presets: [], unit: it.unit || "шт", custom: true };
@@ -1370,12 +1383,15 @@
     if (rule.nfc) {
       var on1 = q === 1;
       var on2 = q >= 2;
-      var html = '<div class="qty-box">' +
-        '<div class="qty-presets">' +
-        '<button type="button" class="qty-chip' + (on1 ? " on" : "") +
-        '" data-qty-id="' + it.id + '" data-qty-val="1" onclick="pickQty(\'' + it.id + '\',1)">1</button>' +
-        '<button type="button" class="qty-chip' + (on2 ? " on" : "") +
-        '" data-qty-id="' + it.id + '" data-qty-val="2" onclick="pickQty(\'' + it.id + '\',2)">+ещё</button>' +
+      var html = '<div class="qty-box nfc-qty">' +
+        '<div class="nfc-actions">' +
+        '<button type="button" class="nfc-reason-chip' + (on1 ? " on" : "") +
+        '" onclick="pickQty(\'' + it.id + '\',1)">Взять 1</button>' +
+        '<button type="button" class="nfc-reason-chip' + (on2 || nfcPickReasonOpen_ ? " on" : "") +
+        '" onclick="pickQty(\'' + it.id + '\',2)">+ещё</button>' +
+        (q > 0
+          ? '<button type="button" class="nfc-reason-chip" onclick="pickQty(\'' + it.id + '\',0)">снять</button>'
+          : "") +
         "</div>";
       if (on2 || nfcPickReasonOpen_) {
         html += '<div class="nfc-reasons">' +
@@ -1385,7 +1401,7 @@
               '" onclick="pickNfcReason(\'' + r.id + '\')">' + esc(r.label) + "</button>";
           }).join("") +
           "</div>" +
-          '<div class="coupon-hint nfc" style="text-align:right;max-width:220px;margin-top:4px;">' +
+          '<div class="coupon-hint nfc" style="text-align:right;max-width:240px;margin-top:4px;">' +
           "При поломке и потере штрафов нет" +
           "</div>";
       }
@@ -1487,7 +1503,7 @@
           '</div><div class="coupon-hint">' + esc(hint || "с ламинацией") + " · 1 шт" + selected +
           "</div></div>" + ste + "</div></div>";
       }
-      if (it.id === "vr_c_nfc" || kind === "nfc") {
+      if (it.id === "vr_c_nfc" || kind === "nfc" || isNfcItem_(it)) {
         var reasonLab = nfcReasonLabel_(nfcExtraReason_);
         var nfcSub = hint || "приложить к телефону клиента · 1 на точку";
         if (q >= 2 && reasonLab) nfcSub = "2 шт · " + reasonLab;
@@ -1867,6 +1883,7 @@
         unit: it.unit || "шт",
         active: it.active !== false
       };
+      if (isNfcItem_(row)) row.kind = "nfc";
       if (QTY_RULES_[row.id] && QTY_RULES_[row.id].unit) row.unit = QTY_RULES_[row.id].unit;
       byId[row.id] = row;
     });
@@ -1888,6 +1905,7 @@
         if (base.hint) byId[base.id].hint = base.hint;
         if (base.kind) byId[base.id].kind = base.kind;
       }
+      if (isNfcItem_(byId[base.id])) byId[base.id].kind = "nfc";
     });
     return Object.keys(byId).map(function (k) { return byId[k]; });
   }
