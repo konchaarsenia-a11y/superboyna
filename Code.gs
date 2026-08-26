@@ -18145,6 +18145,7 @@ function partnerDefaultSeedPack_() {
       { id: "pt_varka_matus_70", networkId: "net_varka", name: "Varka · Матусевича 70", address: "Матусевича 70" },
       { id: "pt_varka_tsvirko_100", networkId: "net_varka", name: "Varka · Цвирко 100", address: "Цвирко 100" },
       { id: "pt_varka_skrip_1", networkId: "net_varka", name: "Varka · Скрипникова 1", address: "Скрипникова 1" },
+      { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka · Шевченко 1", address: "Шевченко 1" },
       { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34" },
       { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
       { id: "pt_firedog_1", networkId: "net_firedog", name: "Firedog · точка 1", address: "Минск" },
@@ -18602,6 +18603,33 @@ function partnerMigrateProdV10_() {
   return { migrated: true, username: uname, pointIds: pointIds };
 }
 
+/** V11: Varka · Шевченко 1 (11-я точка сети). */
+function partnerMigrateProdV11_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V11") === "1") return { migrated: false };
+  try { partnerMigrateProdV10_(); } catch (e10) {}
+  var now = new Date();
+  var ptSh = getPartnerPointsSheet_();
+  var id = "pt_varka_shevchenko_1";
+  var networkId = "net_varka";
+  var name = "Varka · Шевченко 1";
+  var address = "Шевченко 1";
+  var pts = readPartnerPoints_();
+  var hit = null;
+  for (var i = 0; i < pts.length; i++) {
+    if (pts[i].id === id) { hit = pts[i]; break; }
+  }
+  if (hit) {
+    try {
+      ptSh.getRange(hit.rowIndex, 2, 1, 4).setValues([[networkId, name, address, "yes"]]);
+    } catch (e1) {}
+  } else {
+    ptSh.appendRow([id, networkId, name, address, "yes", now]);
+  }
+  props.setProperty("PARTNER_PROD_V11", "1");
+  return { migrated: true, pointId: id };
+}
+
 function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV3_(); } catch (eMig) {}
   try { partnerMigrateProdV4_(); } catch (eMig4) {}
@@ -18611,6 +18639,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV8_(); } catch (eMig8) {}
   try { partnerMigrateProdV9_(); } catch (eMig9) {}
   try { partnerMigrateProdV10_(); } catch (eMig10) {}
+  try { partnerMigrateProdV11_(); } catch (eMig11) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого

@@ -89,6 +89,7 @@ Worker: `@arseniyhotko` / `650923866` видит только **NaN clinic · Я
 - [x] Qty-пресеты: лёгкое/сердце 50–200 г; купоны 48/73/96/120; баннер только 1 шт · **Pages**
 - [x] **Prod v3.0.0:** без демо · партнёры из Access · `partnerSubmitOrder` · **Pages** · **нужен Deploy**
 - [x] **Varka точки v3.0.1:** 10 адресов (Репина…Скрипникова) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V4`)
+- [~] **Varka точки v3.0.2:** + **Шевченко 1** (`pt_varka_shevchenko_1`) · уже в живой таблице · **нужен Deploy Code.gs** (`PARTNER_PROD_V11`)
 - [~] **v3.1.0 / v3.3.3:** `@arseniyhotko` — 1 точка **NaN clinic · Янковского 34** (не owner в мини-апп) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V10`) · Worker
 - [ ] **v3.3.2:** ~~`@nan_animal_clinic`~~ — отменено, доступ у `@arseniyhotko`
 - [x] **v3.0.9:** у позиций лакомств убрана буква «г» — **Pages**
