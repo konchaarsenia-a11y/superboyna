@@ -30,7 +30,7 @@ Telegram Mini App для **партнёрских сетей**: бесплатн
 
 | Лист | Что |
 |------|-----|
-| `Partner_Networks` | Сети: **Varka**, NaN clinic, Fundog, Polotno, Indixvost, Bob Wow Collar (~~Firedog~~ убран) |
+| `Partner_Networks` | Сети: **Varka**, NaN clinic, Fundog, Polotno, Indixvost, BOW Wow Collar (~~Firedog~~ убран) |
 | `Partner_Points` | Точки сети |
 | `Partner_Access` | Доступ: `@username` / Telegram ID → точки |
 | `Partner_Orders` | Заявки партнёров |
@@ -96,6 +96,7 @@ Worker: `@arseniyhotko` / `650923866` видит только **NaN clinic · Я
 - [x] **v3.3.6:** купон **Polotno** (`assets/partners/polotno-coupon.png`) · **Pages**
 - [x] **v3.3.7:** купон **Fundog / Fun Dogs Club** (`assets/partners/fundog-coupon.png`) · **Pages**
 - [x] **v3.3.8:** Firedog убран · купоны: бумажный с ламинацией + NFC (к телефону клиента) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V12`)
+- [~] **v3.3.9:** **BOW** Wow Collar (не Bob) · **нужен Deploy Code.gs** (`PARTNER_PROD_V13`)
 - [ ] **v3.3.2:** ~~`@nan_animal_clinic`~~ — отменено, доступ у `@arseniyhotko`
 - [x] **v3.0.9:** у позиций лакомств убрана буква «г» — **Pages**
 - [x] **v3.0.8:** как было — owner first (все точки); `@one_more_person_228` обычный owner; allowlist/тест-Access сняты (`PARTNER_PROD_V7`) · **Pages** · **нужен Deploy Code.gs**

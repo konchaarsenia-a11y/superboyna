@@ -18131,7 +18131,7 @@ function partnerDefaultSeedPack_() {
       { id: "net_fundog", name: "Fundog", logo: "assets/partners/fundog.png" },
       { id: "net_polotno", name: "Polotno", logo: "" },
       { id: "net_indixvost", name: "Indixvost", logo: "" },
-      { id: "net_bobwow", name: "Bob Wow Collar", logo: "" }
+      { id: "net_bobwow", name: "BOW Wow Collar", logo: "" }
     ],
     points: [
       { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka · Репина 4", address: "Репина 4" },
@@ -18149,7 +18149,7 @@ function partnerDefaultSeedPack_() {
       { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
       { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—" },
       { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—" },
-      { id: "pt_bob_1", networkId: "net_bobwow", name: "Bob Wow Collar · точка 1", address: "—" }
+      { id: "pt_bob_1", networkId: "net_bobwow", name: "BOW Wow Collar · точка 1", address: "—" }
     ],
     // доступы партнёров — только через вкладку Партнёры в Бойне
     access: []
@@ -18663,6 +18663,32 @@ function partnerMigrateProdV12_() {
   return { migrated: true };
 }
 
+/** V13: Bob Wow Collar → BOW Wow Collar (опечатка в названии). */
+function partnerMigrateProdV13_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V13") === "1") return { migrated: false };
+  try { partnerMigrateProdV12_(); } catch (e12) {}
+  var now = new Date();
+  var netSh = getPartnerNetworksSheet_();
+  var ptSh = getPartnerPointsSheet_();
+  readPartnerNetworks_().forEach(function (n) {
+    if (n.id !== "net_bobwow") return;
+    try {
+      netSh.getRange(n.rowIndex, 2).setValue("BOW Wow Collar");
+      netSh.getRange(n.rowIndex, 5).setValue(now);
+    } catch (e1) {}
+  });
+  readPartnerPoints_().forEach(function (p) {
+    if (p.id !== "pt_bob_1" && p.networkId !== "net_bobwow") return;
+    try {
+      ptSh.getRange(p.rowIndex, 3).setValue("BOW Wow Collar");
+      ptSh.getRange(p.rowIndex, 6).setValue(now);
+    } catch (e2) {}
+  });
+  props.setProperty("PARTNER_PROD_V13", "1");
+  return { migrated: true };
+}
+
 function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV3_(); } catch (eMig) {}
   try { partnerMigrateProdV4_(); } catch (eMig4) {}
@@ -18674,6 +18700,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV10_(); } catch (eMig10) {}
   try { partnerMigrateProdV11_(); } catch (eMig11) {}
   try { partnerMigrateProdV12_(); } catch (eMig12) {}
+  try { partnerMigrateProdV13_(); } catch (eMig13) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
