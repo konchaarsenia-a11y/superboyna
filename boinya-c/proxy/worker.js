@@ -190,7 +190,7 @@ async function handleAction_(action, params, env, url, ctx) {
       swr: !!live,
       d1: !!(env && env.DB),
       peopleCanon: "sheets-confirm-bg",
-      deployMarker: "2026-08-25 people-canon-instant-accept"
+      deployMarker: "2026-08-26 beyond-week-cal-visible"
     };
   }
 
