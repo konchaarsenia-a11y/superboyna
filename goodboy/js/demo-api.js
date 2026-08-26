@@ -110,7 +110,7 @@
       scheduled: { id: "scheduled", badge: "в плане", title: "Доставка уже в календаре", text: "Дата зафиксирована. Скоро начнём заготовку.", progress: 38 },
       preparing: { id: "preparing", badge: "готовим", title: "Заготавливаем новые лакомства", text: "Сушим и комплектуем набор под вашего питомца.", progress: 55 },
       packing: { id: "packing", badge: "собираем", title: "Собираем ваш набор", text: "Упаковываем и готовим к курьеру.", progress: 72 },
-      on_the_way: { id: "on_the_way", badge: "в пути", title: "Набор уже в пути", text: "Курьер везёт доставку по адресу.", progress: 88 },
+      on_the_way: { id: "on_the_way", badge: "в пути", title: "Набор уже в пути", text: "Сегодня день доставки — курьер везёт набор по адресу.", progress: 88 },
       delivered: { id: "delivered", badge: "получен", title: "Набор у вас", text: "Следующий цикл начнём вовремя.", progress: 100 },
       trial: { id: "trial", badge: "пробный", title: "Пробный период", text: "Идёт тестовый набор.", progress: 40 }
     };
@@ -118,7 +118,8 @@
     if (days == null || isNaN(days)) {
       return (seg === "БП" || seg === "BP") ? catalog.trial : catalog.waiting_stock;
     }
-    if (days <= 1) return catalog.on_the_way;
+    // «В пути» только в день доставки
+    if (days === 0 || days < 0) return catalog.on_the_way;
     if (days <= 3) return catalog.packing;
     if (days <= 9) return catalog.preparing;
     if (days <= 16) return catalog.scheduled;

@@ -45,7 +45,7 @@
       id: "on_the_way",
       badge: "в пути",
       title: "Набор уже в пути",
-      text: "Курьер везёт доставку по вашему адресу.",
+      text: "Сегодня день доставки — курьер везёт набор по адресу.",
       progress: 88
     },
     delivered: {
@@ -111,7 +111,8 @@
         ? CATALOG.trial
         : CATALOG.waiting_stock;
     }
-    if (days <= 1) return CATALOG.on_the_way;
+    // «В пути» только в день доставки
+    if (days === 0 || days < 0) return CATALOG.on_the_way;
     if (days <= 3) return CATALOG.packing;
     if (days <= 9) return CATALOG.preparing;
     if (days <= 16) return CATALOG.scheduled;

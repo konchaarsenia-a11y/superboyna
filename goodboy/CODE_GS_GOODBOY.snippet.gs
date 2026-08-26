@@ -578,7 +578,7 @@ function gbClientStageCatalog_() {
       id: "on_the_way",
       badge: "в пути",
       title: "Набор уже в пути",
-      text: "Курьер везёт доставку по вашему адресу.",
+      text: "Сегодня день доставки — курьер везёт набор по адресу.",
       progress: 88
     },
     delivered: {
@@ -630,8 +630,9 @@ function gbResolveClientStage_(opts) {
     return cat.waiting_stock;
   }
   daysUntil = Number(daysUntil);
-  if (daysUntil <= 0) return cat.on_the_way;
-  if (daysUntil <= 1) return cat.on_the_way;
+  // «В пути» только в день доставки
+  if (daysUntil === 0) return cat.on_the_way;
+  if (daysUntil < 0) return cat.on_the_way;
   if (daysUntil <= 3) return cat.packing;
   if (daysUntil <= 9) return cat.preparing;
   if (daysUntil <= 16) return cat.scheduled;
