@@ -106,7 +106,13 @@ export default {
           body = {};
         }
         if (body && typeof body === "object") {
-          params = Object.assign({}, params, body);
+          // body побеждает query; для контакта/корзины — явный приоритет body
+          // (короткий/битый basket в URL не должен затирать полный JSON)
+          const merged = Object.assign({}, params, body);
+          ["basket", "address", "phone", "note", "permanentNote", "geo", "survey"].forEach(function (k) {
+            if (body[k] != null && body[k] !== "") merged[k] = body[k];
+          });
+          params = merged;
         }
       }
       const act = String(params.action || action || "");
@@ -190,7 +196,7 @@ async function handleAction_(action, params, env, url, ctx) {
       swr: !!live,
       d1: !!(env && env.DB),
       peopleCanon: "sheets-confirm-bg",
-      deployMarker: "2026-08-26 beyond-week-cal-visible"
+      deployMarker: "2026-08-26 cal-save-contact-post"
     };
   }
 

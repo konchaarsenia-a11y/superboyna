@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115905";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115906";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3822,10 +3822,17 @@
               try { if (ctrl) ctrl.abort(); } catch (eAb) {}
               reject(new Error("Таймаут ответа сервера"));
             }, timeoutMs);
-            // TG WebView иногда глотает POST body → дублируем ключевые поля в query
+            // TG WebView иногда глотает POST body → короткий identity-query.
+            // НЕ дублировать basket/address/phone/note в URL: длинный query режется →
+            // «сохранено», а контакт/состав пустые (календарь дальше Будущей).
             var qWrite = "";
             try {
+              var qSkip = {
+                basket: 1, note: 1, permanentNote: 1, address: 1, phone: 1,
+                geo: 1, survey: 1, addressFull: 1
+              };
               qWrite = Object.keys(params).filter(function (k) {
+                if (qSkip[k]) return false;
                 var v = params[k];
                 return v != null && v !== "";
               }).map(function (k) {
@@ -4613,13 +4620,60 @@
                   found: true,
                   len: gotBasket.length,
                   match: !!(wantSig && gotSig && wantSig === gotSig) ||
-                    (!wantSig && gotBasket.length === 0)
+                    (!wantSig && gotBasket.length === 0),
+                  address: String(list[i].address || ""),
+                  phone: String(list[i].phone || "")
                 };
               }
             }
             return { found: false, len: 0, match: false };
           } catch (eV) {
             return { found: false, len: -1, match: false };
+          }
+        }
+
+        async function verifyCalendarSave_() {
+          if (weekDayToSave || !deliveryDate) return { found: false, ok: false };
+          var wantSig = weekBasketSig_(basketSnap);
+          var wantAddr = String(clientAddress || "").trim();
+          var wantPhone = String(phone || "").trim();
+          try {
+            var chk = await apiGet({
+              action: "getClients",
+              date: deliveryDate,
+              date_iso: deliveryDate,
+              _: String(Date.now())
+            }, { timeoutMs: 18000, cacheTtlMs: 0 });
+            var list = (chk && chk.clients) || [];
+            var want = String(clientName || "").trim().toUpperCase();
+            for (var i = 0; i < list.length; i++) {
+              var nm = String(list[i].name || list[i].client || "").trim().toUpperCase();
+              if (!nm) continue;
+              if (!(nm === want || nm.indexOf(want) >= 0 || want.indexOf(nm) >= 0)) continue;
+              var gotBasket = list[i].basket || [];
+              var gotSig = weekBasketSig_(gotBasket);
+              var gotAddr = String(list[i].address || "").trim();
+              var gotPhone = String(list[i].phone || "").trim();
+              var basketOk = !!(wantSig && gotSig && wantSig === gotSig) ||
+                (!wantSig && gotBasket.length === 0) ||
+                (basketSnap.length > 0 && gotBasket.length >= basketSnap.length);
+              var addrOk = !wantAddr || gotAddr.indexOf(wantAddr.slice(0, Math.min(12, wantAddr.length))) >= 0 ||
+                wantAddr.indexOf(gotAddr.slice(0, Math.min(12, gotAddr.length || 1))) >= 0;
+              var phoneOk = !wantPhone || gotPhone.replace(/\D/g, "").slice(-9) === wantPhone.replace(/\D/g, "").slice(-9);
+              return {
+                found: true,
+                ok: !!(basketOk && addrOk && phoneOk),
+                len: gotBasket.length,
+                address: gotAddr,
+                phone: gotPhone,
+                basketOk: basketOk,
+                addrOk: addrOk,
+                phoneOk: phoneOk
+              };
+            }
+            return { found: false, ok: false, len: 0 };
+          } catch (eVc) {
+            return { found: false, ok: false, len: -1 };
           }
         }
 
@@ -4711,7 +4765,10 @@
           };
         }
 
-        if (useJsonpSave) {
+        // календарь-only: сразу полный JSON POST (адрес/телефон/корзина).
+        // JSONP/query-путь режет длинный basket → «ок», контакт не пишется.
+        var calendarOnlySavePath = !weekDayToSave;
+        if (useJsonpSave && !calendarOnlySavePath) {
           try {
             bookRes = await apiGet(bookParams, { timeoutMs: window.__BOINYA_C_CUTOVER__ ? 12000 : 90000, cacheTtlMs: 0 });
           } catch (eBook) {
@@ -4765,7 +4822,7 @@
           }
         }
 
-        var needPost = !useJsonpSave ||
+        var needPost = calendarOnlySavePath || !useJsonpSave ||
           (weekDayToSave && basketSnap.length && (!saveRes || (saveRes.status !== "success" && saveRes.status !== "accepted") || (Number(saveRes.wrote || 0) === 0 && !saveRes.pendingSheets && !saveRes.d1Verified && !saveRes.sheetsVerified)));
         if (needPost) {
           bookingPayload.day = weekDayToSave || "";
@@ -4790,35 +4847,21 @@
               }
             } catch (ePost) {}
           } else {
-            // вне недели — явный calendar save через GET (writeId + poll), не opaque POST
-            try {
-              var calGet = await apiGet({
-                action: "saveBooking",
-                date: deliveryDate,
-                day: "",
-                alsoSaveOrder: "0",
-                calendarOnly: "1",
-                client: clientName,
-                editClient: editClientSnap,
-                originalClient: editClientSnap,
-                matchKey: editKeySnap,
-                address: clientAddress,
-                phone: phone || "",
-                note: clientNote || "",
-                permanentNote: permanentNote || "",
-                orderType: orderTypeSnap || "",
-                segment: orderTypeToSegment_(orderTypeSnap) || "",
-                orderPrice: orderPrice != null ? String(orderPrice) : "",
-                source: orderTypeSnap === "bp" ? "bp" : (orderTypeSnap === "pp" ? "pp" : (orderTypeSnap === "partner" ? "partner" : "retail")),
-                basket: basketJson,
-                _: String(Date.now())
-              }, { timeoutMs: 20000, cacheTtlMs: 0, bypassInflight: true });
-              if (calGet && (calGet.writeId || calGet.status === "accepted" || calGet.status === "success")) {
-                bookRes = calGet;
-              }
-            } catch (eCalGet) {}
+            // календарь: apiPost уже выше; fallback — writeCutover apiGet БЕЗ basket в query
             if (!bookRes || (bookRes.status !== "success" && bookRes.status !== "accepted" && !bookRes.writeId)) {
-              // НЕ saveOrder: GAS ответит beyond_week и calendar не напишет
+              try {
+                var calGet = await apiGet(Object.assign({}, bookParams, {
+                  day: "",
+                  alsoSaveOrder: "0",
+                  calendarOnly: "1",
+                  _: String(Date.now())
+                }), { timeoutMs: 20000, cacheTtlMs: 0, bypassInflight: true });
+                if (calGet && (calGet.writeId || calGet.status === "accepted" || calGet.status === "success")) {
+                  bookRes = calGet;
+                }
+              } catch (eCalGet) {}
+            }
+            if (!bookRes || (bookRes.status !== "success" && bookRes.status !== "accepted" && !bookRes.writeId)) {
               try {
                 var postBook2 = await apiPost(Object.assign({}, bookingPayload, {
                   day: "",
@@ -4879,6 +4922,43 @@
           });
         } else if (bookRes && !weekDayToSave) {
           saveRes = saveRes || bookRes;
+        }
+
+        // календарь: дожать контакт/состав если D1 ещё пустой после POST
+        if (!weekDayToSave && basketSnap.length) {
+          try {
+            await new Promise(function (r) { setTimeout(r, 900); });
+            var calChk = await verifyCalendarSave_();
+            if (!calChk || !calChk.ok) {
+              try {
+                var retryCal = await apiPost(Object.assign({}, bookingPayload, {
+                  day: "",
+                  alsoSaveOrder: false,
+                  calendarOnly: true,
+                  date: deliveryDate,
+                  force: "1",
+                  _: String(Date.now())
+                }));
+                if (retryCal && (retryCal.writeId || retryCal.status === "accepted" || retryCal.status === "success")) {
+                  bookRes = retryCal;
+                  saveRes = Object.assign({}, saveRes || {}, retryCal);
+                }
+              } catch (eRetryCal) {}
+              await new Promise(function (r) { setTimeout(r, 1100); });
+              calChk = await verifyCalendarSave_();
+            }
+            if (calChk && calChk.found && !calChk.ok) {
+              await uiAlertAsync(
+                "В календаре вижу «" + clientName + "», но не всё закрепилось" +
+                (!calChk.addrOk ? " (адрес)" : "") +
+                (!calChk.phoneOk ? " (телефон)" : "") +
+                (!calChk.basketOk ? " (состав)" : "") +
+                ".\nСохрани ещё раз."
+              );
+            } else if (calChk && !calChk.found) {
+              await uiAlertAsync("Не вижу «" + clientName + "» в календаре после сохранения — сохрани ещё раз.");
+            }
+          } catch (eCalV) {}
         }
 
         try { apiCacheBustMem_(); } catch (eClr) {}
@@ -7045,6 +7125,7 @@
 
     async function crmEditMonthClient(index, event) {
       if (event) event.stopPropagation();
+      try { window._viewDraftEditIndex = null; } catch (eDraft) {}
       var draftKeys = {};
       viewTransferDraft.forEach(function (d) {
         var k = d.matchKey || viewClientKey(d.name);
