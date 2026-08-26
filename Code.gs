@@ -18759,8 +18759,8 @@ function partnerCatalogStatic_() {
       id: "vr_c_piece",
       type: "coupon",
       kind: "paper",
-      name: "Купон бумажный",
-      hint: "бумажный с ламинацией",
+      name: "Купон",
+      hint: "с ламинацией",
       unit: "шт",
       active: true
     },
@@ -18769,7 +18769,7 @@ function partnerCatalogStatic_() {
       type: "coupon",
       kind: "nfc",
       name: "Купон NFC",
-      hint: "срабатывает, если приложить к телефону клиента",
+      hint: "приложить к телефону клиента",
       unit: "шт",
       active: true
     },
@@ -18778,7 +18778,7 @@ function partnerCatalogStatic_() {
       type: "coupon",
       kind: "paper",
       name: "Баннер",
-      hint: "бумажный с ламинацией",
+      hint: "с ламинацией",
       unit: "шт",
       active: true
     }
