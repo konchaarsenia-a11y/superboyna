@@ -1,36 +1,35 @@
-# People Canon (LIVE) — быстрый accept + подтверждение Sheets
+# People Canon — D1-primary (LIVE)
 
-**Канон людей = Google Sheets.** D1 — быстрый кэш UI.
+**Канон людей = Cloudflare D1.** Google Sheets — **фоновое зеркало** (без обратного upsert в D1).
 
-Неделя vs календарь (незакрытая неделя): **`WEEK_CALENDAR_CANON.md`** — обязателен при CRUD за «Будущей».
+Неделя vs календарь: **`WEEK_CALENDAR_CANON.md`**.
 
 ## Как работает запись (save / move / delete)
 
-1. Worker сразу отвечает `accepted` + `writeId` (~мгновенно).
-2. В фоне: D1 → GAS/Sheets.
-3. UI: «Вношу в таблицу…» → poll `pollPeopleWrite` → **«Точно внесено»** только при `sheetsVerified`.
-4. При ошибке D1/Sheets — честный fail toast.
-5. Дата **вне** слотов недели → только `saveBooking` / calendar move-remove (не `saveOrder`).
+1. Worker сразу пишет в **D1** и отвечает `accepted` + `d1Verified` + `writeId`.
+2. В фоне: **D1 → GAS/Sheets** (зеркало). Ошибка листа **не откатывает** D1.
+3. UI: poll `pollPeopleWrite` → **«Сохранено»** при `d1Verified` / `verified`.
+4. Если зеркало Sheets не успело — toast «Лист Google догонит в фоне» (данные в приложении уже верные).
+5. Дата **вне** слотов недели → только `saveBooking` / calendar move-remove.
 
 ## Жёсткое правило (агентам)
 
 | Action | Порядок | Финальный toast |
 |--------|---------|-----------------|
-| `saveOrder` / `saveBooking` / `deleteClient` / `removeCalendarClient` / `moveClient` | D1 accept → фон GAS → poll | только при `sheetsVerified` («Точно …») |
-| batch move/delete | тот же accept; UI: `isPeopleWriteAccepted_` | poll в фоне |
-| `placeTransferTask` / `saveDeferred` / `notifyMissedDelivery` | D1-first OK | `d1Verified` |
+| `saveOrder` / `saveBooking` / `deleteClient` / `removeCalendarClient` / `moveClient` | **D1 сразу** → фон Sheets | при `d1Verified` («Сохранено») |
+| batch move/delete | тот же accept | poll в фоне |
+| `placeTransferTask` / `saveDeferred` / `notifyMissedDelivery` | D1-first | `d1Verified` |
 | флаги нарезки/курьера | D1 + GAS | как сейчас |
 
-**Запрещено** без явного ОК владельца «полный D1-канон»:
+**Запрещено** без явного отката (`PEOPLE_CANON=sheets-confirm-bg`):
 
-1. Показывать «Точно внесено / Сохранено / Удалено» **до** `sheetsVerified` (или явного verify списка).
-2. Возвращать `status: success` + `optimistic: true` без Sheets как финальный канон.
-3. Убирать `pollPeopleWrite` / `pendingSheets` и снова блокировать UI на 20–40 с await GAS.
-4. «Чинить» гонки новым fake-success вместо фикса GAS/маппинга.
-5. Для off-week звать `saveOrder` (GAS → `beyond_week`, календарь пустой).
+1. Ждать `sheetsVerified` для UI success при живом D1.
+2. `cutoverAfterWrite_` / `upsertMissingClientsFromGas_` — перезаписывают D1 из GAS.
+3. `sheetsFirst` для move/delete.
+4. Off-week через `saveOrder` (только `saveBooking`).
 
-См. `CUTOVER.md`, `WEEK_CALENDAR_CANON.md`. Маркер: `peopleCanon: "sheets-confirm-bg"` в `?action=ping`.
+Откат на Sheets-канон: Worker env `PEOPLE_CANON=sheets-confirm-bg`.
 
-## Полный перевод на D1
+Маркер: `peopleCanon: "d1-primary"` в `?action=ping`.
 
-Отдельное решение владельца после стабилизации.
+См. `CUTOVER.md`, `WEEK_CALENDAR_CANON.md`.

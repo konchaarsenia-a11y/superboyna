@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115910";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115911";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -798,28 +798,35 @@
       showToast._t = setTimeout(function () { el.classList.remove("show"); }, 2200);
     }
 
-    /** People write: accepted → poll → «Точно …». Не врать success до sheetsVerified. */
+    /** People write: accepted → poll → «Точно …». D1-primary: success при d1Verified; Sheets — зеркало в фоне. */
     async function confirmPeopleWriteSheets_(res, opts) {
       opts = opts || {};
-      var doneMsg = opts.doneMsg || "Точно внесено";
-      var pendingMsg = opts.pendingMsg || "Вношу в таблицу…";
-      var failMsg = opts.failMsg || "Не закрепилось в Google-таблице";
-      var timeoutMs = opts.timeoutMs != null ? opts.timeoutMs : 48000;
+      var d1Canon = !!(res && (res.peopleCanon === "d1-primary" || res.verified || res.message === "d1_saved"));
+      var doneMsg = opts.doneMsg || (d1Canon ? "Сохранено" : "Точно внесено");
+      var pendingMsg = opts.pendingMsg || (d1Canon ? "Записываю…" : "Вношу в таблицу…");
+      var failMsg = opts.failMsg || (d1Canon ? "Не удалось записать" : "Не закрепилось в Google-таблице");
+      var timeoutMs = opts.timeoutMs != null ? opts.timeoutMs : (d1Canon ? 12000 : 48000);
       var block = !!opts.block;
 
       if (!res) return { ok: false, res: res };
-      if (res.status === "error" && !res.pendingSheets) {
+      if (res.status === "error" && !res.pendingSheets && !res.pendingSheetsMirror) {
         return { ok: false, res: res, message: res.message || "error" };
       }
-      if (res.sheetsVerified && (res.status === "success" || res.status === "accepted")) {
+      if ((res.verified && res.d1Verified) || (res.sheetsVerified && (res.status === "success" || res.status === "accepted"))) {
         try { showToast(doneMsg); } catch (eT0) {}
-        return { ok: true, res: Object.assign({}, res, { status: "success", sheetsVerified: true }) };
+        return {
+          ok: true,
+          res: Object.assign({}, res, {
+            status: "success",
+            d1Verified: true,
+            sheetsVerified: !!res.sheetsVerified
+          })
+        };
       }
 
       var writeId = String(res.writeId || "").trim();
-      if (!(res.pendingSheets || res.status === "accepted") || !writeId) {
-        // старый Worker без writeId — если success+d1, мягко ждать нельзя
-        if (res.status === "success" && (res.sheetsVerified || res.d1Verified)) {
+      if (!(res.pendingSheets || res.pendingSheetsMirror || res.status === "accepted") || !writeId) {
+        if (res.status === "success" && (res.sheetsVerified || res.d1Verified || res.verified)) {
           try { showToast(doneMsg); } catch (eT1) {}
           return { ok: true, res: res };
         }
@@ -843,35 +850,43 @@
       async function runPoll_() {
         var deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
-          await new Promise(function (r) { setTimeout(r, 1100); });
+          await new Promise(function (r) { setTimeout(r, d1Canon ? 600 : 1100); });
           var p = await pollOnce_();
-          if (p && p.sheetsVerified && (p.status === "success" || p.status === "accepted")) {
+          if (p && ((p.verified && p.d1Verified) || p.sheetsVerified) && (p.status === "success" || p.status === "accepted")) {
             var merged = Object.assign({}, res, p, {
               status: "success",
-              sheetsVerified: true,
-              pendingSheets: false
+              d1Verified: !!p.d1Verified,
+              verified: !!p.verified || !!p.d1Verified,
+              pendingSheets: false,
+              pendingSheetsMirror: false
             });
             try { showToast(doneMsg); } catch (eT2) {}
+            if (p.sheetsMirrorFailed && d1Canon) {
+              try { showToast("Лист Google догонит в фоне"); } catch (eMir) {}
+            }
             return { ok: true, res: merged };
           }
-          if (p && p.status === "error" && p.sheetsVerified === false && !p.pendingSheets) {
+          if (p && p.status === "error" && !p.d1Verified && !p.pendingSheets && !p.pendingSheetsMirror) {
             try { showToast(failMsg + (p.message ? (": " + p.message) : "")); } catch (eTf) {}
             return { ok: false, res: p, message: p.message || failMsg };
           }
         }
+        if (d1Canon && res.d1Verified) {
+          try { showToast(doneMsg); } catch (eSoft) {}
+          return { ok: true, softTimeout: true, res: Object.assign({}, res, { verified: true, d1Verified: true }) };
+        }
         try {
-          showToast("Ещё пишется в Google… проверь через минуту");
+          showToast(d1Canon ? "D1 записано · лист может отставать" : "Ещё пишется в Google… проверь через минуту");
         } catch (eTo) {}
         return {
           ok: false,
           softTimeout: true,
           res: Object.assign({}, res, { pendingSheets: true, softTimeout: true }),
-          message: "sheets_confirm_timeout"
+          message: d1Canon ? "d1_confirm_timeout" : "sheets_confirm_timeout"
         };
       }
 
       if (block) return await runPoll_();
-      // фон: UI уже свободен
       runPoll_().catch(function () {});
       return { ok: true, pending: true, res: res };
     }

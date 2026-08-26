@@ -18,11 +18,11 @@ https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71115898
 | | |
 |--|--|
 | **Чтение** | сразу из D1 (быстро), в фоне подтягивается GAS |
-| **Запись людей** | D1 сразу → GAS в фоне → UI поллит → toast **«Точно внесено»** только при `sheetsVerified`. См. [PEOPLE_CANON.md](./PEOPLE_CANON.md) |
+| **Запись людей** | **D1 сразу** (источник правды) → Sheets зеркало в фоне → UI «Сохранено» при `d1Verified`. См. [PEOPLE_CANON.md](./PEOPLE_CANON.md) |
 | Флаги / deferred / transfer park | D1-first OK |
 | Опасные week-actions | UI «Завершить неделю» после 3 подтверждений шлёт `allowDanger=1` → GAS |
 
-Проверка Worker: `?action=ping` → `peopleCanon: "sheets-confirm-bg"`.
+Проверка Worker: `?action=ping` → `peopleCanon: "d1-primary"`.
 
 ## Закрыть неделю
 
