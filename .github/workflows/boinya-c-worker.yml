@@ -2,6 +2,7 @@
 # Secrets (repo Settings → Secrets → Actions):
 #   CLOUDFLARE_API_TOKEN — Workers Scripts Edit + D1
 #   CLOUDFLARE_ACCOUNT_ID — optional if token is account-scoped
+# Retrigger: calendar save vanish fix v71115904
 name: boinya-c-worker
 
 on:
