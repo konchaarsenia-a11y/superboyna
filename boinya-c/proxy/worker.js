@@ -5131,14 +5131,22 @@ async function setAssemblyFlag_(params, env, flag) {
   }
   const val = toBool_(params[flag] != null ? params[flag] : params.value);
   const snap = await getAssembly_({ day: day }, env);
+  let exact = false;
   (snap.clients || []).forEach(function (c) {
-    var hit =
-      c.name === client ||
-      matchKeyAliases_(c.matchKey || c.name).some(function (k) {
+    if (String(c.name || "") === client) {
+      c[flag] = val;
+      exact = true;
+    }
+  });
+  // без точного имени (старые карточки) — по matchKey, но не трогать обе собаки разом
+  if (!exact) {
+    (snap.clients || []).forEach(function (c) {
+      var hit = matchKeyAliases_(c.matchKey || c.name).some(function (k) {
         return aliases.indexOf(k) >= 0;
       });
-    if (hit) c[flag] = val;
-  });
+      if (hit && !c.dogPart) c[flag] = val;
+    });
+  }
   snap.flagsTouchedAt = Date.now();
   await putSnap_(env, "assembly:" + day, snap);
   return { status: "success", sandbox: true, wrote: 1, [flag]: val };
