@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-25 people-canon-instant-accept
+ * deploy-marker: 2026-08-26 cut-flags-batch
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -196,7 +196,7 @@ async function handleAction_(action, params, env, url, ctx) {
       swr: !!live,
       d1: !!(env && env.DB),
       peopleCanon: "sheets-confirm-bg",
-      deployMarker: "2026-08-26 cal-move-payload"
+      deployMarker: "2026-08-26 cut-flags-batch"
     };
   }
 
@@ -2832,6 +2832,66 @@ function overlayCuttingKeepFlags_(newItems, prevItems, sameDate) {
     out.push(normalizeCuttingItemFlags_(n));
   });
   return out;
+}
+
+function cuttingNeedsGasFlags_(fast, params) {
+  if (!fast || typeof fast !== "object") return false;
+  if (fast.completion) return false;
+  const force =
+    String((params && params.force) || "") === "1" ||
+    (params && (params.force === true || params.force === 1));
+  if (force) return true;
+  if (fast.fromGas) return false;
+  const touched = Number(fast.flagsTouchedAt || 0);
+  if (touched && Date.now() - touched < 600000) return false;
+  const items = fast.items;
+  if (!Array.isArray(items) || !items.length) return false;
+  if (fast.fromOrders || fast.fromD1 || fast.source === "d1") return true;
+  return cuttingFlagScore_(items) === 0;
+}
+
+async function hydrateCuttingFlagsFromGas_(fast, params, env, ctx) {
+  if (!cuttingNeedsGasFlags_(fast, params)) return fast;
+  try {
+    const live = await gasProxy_("getCutting", params || {}, env, { write: false });
+    if (!(live && live.status === "success" && Array.isArray(live.items))) return fast;
+    const sameDate = sameCutDate_(fast.date, live.date);
+    let items = overlayCuttingKeepFlags_(fast.items || [], live.items, sameDate);
+    items = resolveCuttingSheetRows_(items, live.items, null);
+    items = normalizeCuttingItems_(items);
+    const out = Object.assign({}, fast, {
+      items: items,
+      session: live.session || fast.session || {},
+      transferOnly:
+        (fast.transferOnly && (fast.transferOnly.lines || []).length
+          ? fast.transferOnly
+          : live.transferOnly) || { clients: [], lines: [] },
+      cutterNotes: live.cutterNotes || fast.cutterNotes || [],
+      fromGas: true,
+      fromOrders: !!fast.fromOrders,
+      fromD1: !!fast.fromD1,
+      source: fast.source ? String(fast.source) + "+gas" : "d1+gas",
+      sandbox: false
+    });
+    if (live.completion) out.completion = live.completion;
+    if (live.date && !out.date) out.date = live.date;
+    const store = Object.assign({}, live, {
+      items: items,
+      fromGas: true,
+      fromOrders: !!fast.fromOrders,
+      fromD1: !!fast.fromD1
+    });
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(cutoverStoreRead_("getCutting", params || {}, env, store));
+    } else {
+      try {
+        await cutoverStoreRead_("getCutting", params || {}, env, store);
+      } catch (eSt) {}
+    }
+    return out;
+  } catch (eHydr) {
+    return fast;
+  }
 }
 
 function transferOnlyFromPeople_(people) {
@@ -6537,12 +6597,7 @@ async function handleCutover_(a, params, env, ctx) {
     } catch (eCal) {}
   }
 
-  const needGas = cutoverNeedsRevalidate_(a, params, fast);
-  if (needGas && ctx && typeof ctx.waitUntil === "function") {
-    ctx.waitUntil(cutoverRevalidate_(a, params, env));
-  }
-
-  // Нарезка: сразу D1 (fromOrders, с фракциями жевалок) или GAS-snap. Календарную оценку без заказов не отдаём.
+  // Нарезка: D1 сразу, но галочки — одним запросом GAS до ответа UI (не по одной в фоне).
   if (a === "getCutting" && fast && typeof fast === "object") {
     const isCalendarGuess = !!(fast.fromCalendar && !fast.fromOrders && !fast.fromGas);
     const canServe =
@@ -6552,12 +6607,18 @@ async function handleCutover_(a, params, env, ctx) {
         (Array.isArray(fast.items) && fast.items.length) ||
         fast.completion);
     if (canServe) {
+      fast = await hydrateCuttingFlagsFromGas_(fast, params, env, ctx);
       fast.cutover = true;
       fast.swr = true;
       if (fast.fromGas) fast.fromGas = true;
       if (fast.sandbox === true && (fast.fromOrders || fast.fromGas)) fast.sandbox = false;
       return fast;
     }
+  }
+
+  const needGas = cutoverNeedsRevalidate_(a, params, fast);
+  if (needGas && ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(cutoverRevalidate_(a, params, env));
   }
 
   // Приёмка: если D1 count ≠ getWeekDayCounts — осторожно с GAS.
