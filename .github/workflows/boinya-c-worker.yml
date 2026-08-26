@@ -9,9 +9,10 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - "boinya-c/proxy/**"
-      - ".github/workflows/boinya-c-worker.yml"
+    # временно без paths — иначе после fail CI не поднимается на proxy-only push
+    # paths:
+    #   - "boinya-c/proxy/**"
+    #   - ".github/workflows/boinya-c-worker.yml"
 
 concurrency:
   group: boinya-c-worker
