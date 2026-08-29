@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-26 d1-primary-canon
+ * deploy-marker: 2026-08-29 ops-flags-d1-primary
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -174,6 +174,18 @@ function peopleCanonLabel_(env) {
   return isD1PrimaryCanon_(env) ? "d1-primary" : "sheets-confirm-bg";
 }
 
+/** Галочки нарезки/курьера/сборки: D1 правда, Sheets зеркало. Откат: OPS_CANON=sheets */
+function isOpsD1PrimaryCanon_(env) {
+  const v = env && env.OPS_CANON ? String(env.OPS_CANON).trim().toLowerCase() : "";
+  if (v === "sheets" || v === "sheets-first" || v === "sheets-confirm-bg") return false;
+  if (v === "d1-primary" || v === "d1") return true;
+  return isD1PrimaryCanon_(env);
+}
+
+function opsCanonLabel_(env) {
+  return isOpsD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
+}
+
 function isWriteAction_(a) {
   if (!a) return false;
   // явные чтения / списки — не write (даже если имя начинается с partner*)
@@ -207,7 +219,8 @@ async function handleAction_(action, params, env, url, ctx) {
       swr: !!live,
       d1: !!(env && env.DB),
       peopleCanon: peopleCanonLabel_(env),
-      deployMarker: "2026-08-26 d1-primary-canon"
+      opsCanon: opsCanonLabel_(env),
+      deployMarker: "2026-08-29 ops-flags-d1-primary"
     };
   }
 
@@ -2989,6 +3002,101 @@ async function rememberCuttingRows_(env, items) {
   } catch (eCat) {}
 }
 
+/** Durable cutting flags in D1 table (done/surplus + laid/out_next via ALTER). */
+async function ensureCuttingFlagsColumns_(env) {
+  if (!env || !env.DB) return;
+  try {
+    await env.DB.prepare(
+      "ALTER TABLE cutting_flags ADD COLUMN laid INTEGER DEFAULT 0"
+    ).run();
+  } catch (e1) {}
+  try {
+    await env.DB.prepare(
+      "ALTER TABLE cutting_flags ADD COLUMN out_next INTEGER DEFAULT 0"
+    ).run();
+  } catch (e2) {}
+}
+
+async function persistCuttingFlagsTable_(env, day, items) {
+  if (!env || !env.DB || !day || !Array.isArray(items)) return;
+  await ensureCuttingFlagsColumns_(env);
+  const info = await dayDateInfo_(env, day);
+  const iso = (info && info.iso) || "";
+  if (!iso) return;
+  const now = new Date().toISOString();
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (!it) continue;
+    const key = cutNameKey_(it.name) || ("row:" + String(it.row || i));
+    if (!key) continue;
+    try {
+      await env.DB.prepare(
+        `INSERT INTO cutting_flags (date_iso, row_key, surplus, done, laid, out_next, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(date_iso, row_key) DO UPDATE SET
+           surplus=excluded.surplus, done=excluded.done, laid=excluded.laid,
+           out_next=excluded.out_next, updated_at=excluded.updated_at`
+      )
+        .bind(
+          iso,
+          key,
+          Number(it.surplus) || 0,
+          it.done ? 1 : 0,
+          it.laid ? 1 : 0,
+          it.outNext ? 1 : 0,
+          now
+        )
+        .run();
+    } catch (eIns) {}
+  }
+}
+
+async function loadCuttingFlagsTable_(env, day) {
+  if (!env || !env.DB || !day) return {};
+  await ensureCuttingFlagsColumns_(env);
+  const info = await dayDateInfo_(env, day);
+  const iso = (info && info.iso) || "";
+  if (!iso) return {};
+  try {
+    const rs = await env.DB.prepare(
+      "SELECT row_key, surplus, done, laid, out_next FROM cutting_flags WHERE date_iso = ?"
+    )
+      .bind(iso)
+      .all();
+    const map = Object.create(null);
+    ((rs && rs.results) || []).forEach(function (r) {
+      if (!r || !r.row_key) return;
+      map[String(r.row_key)] = {
+        surplus: Number(r.surplus) || 0,
+        done: !!Number(r.done),
+        laid: !!Number(r.laid),
+        outNext: !!Number(r.out_next)
+      };
+    });
+    return map;
+  } catch (eLoad) {
+    return {};
+  }
+}
+
+function overlayCuttingFlagsFromTable_(items, flagMap) {
+  if (!flagMap || !Object.keys(flagMap).length) return items;
+  return (items || []).map(function (it) {
+    if (!it) return it;
+    const key = cutNameKey_(it.name);
+    const f = (key && flagMap[key]) || null;
+    if (!f) return it;
+    return normalizeCuttingItemFlags_(
+      Object.assign({}, it, {
+        laid: !!f.laid,
+        done: !!f.done,
+        outNext: !!f.outNext,
+        surplus: f.surplus != null ? f.surplus : it.surplus
+      })
+    );
+  });
+}
+
 async function applyCuttingFlagToSnap_(params, env, proxied) {
   const day = String((params && params.day) || "");
   if (!day) return null;
@@ -3003,9 +3111,9 @@ async function applyCuttingFlagToSnap_(params, env, proxied) {
   const items = Array.isArray(snap.items) ? snap.items.slice() : [];
   const patched = patchCuttingItemsFlags_(items, params, proxied);
   snap.items = patched.items;
-  snap.fromGas = true;
-  snap.fromD1 = false;
-  snap.fromOrders = false;
+  snap.fromGas = false;
+  snap.fromD1 = true;
+  snap.fromOrders = !!snap.fromOrders;
   snap.fromCalendar = false;
   snap.flagsTouchedAt = Date.now();
   snap.cachedAt = new Date().toISOString();
@@ -3013,7 +3121,10 @@ async function applyCuttingFlagToSnap_(params, env, proxied) {
   try {
     await rememberCuttingRows_(env, snap.items);
   } catch (eR) {}
-  return snap;
+  try {
+    await persistCuttingFlagsTable_(env, day, snap.items);
+  } catch (eTbl) {}
+  return Object.assign({ status: "success", wrote: patched.found ? 1 : 0, row: patched.row }, snap);
 }
 
 function overlayCuttingKeepFlags_(newItems, prevItems, sameDate) {
@@ -3727,6 +3838,10 @@ async function rebuildCuttingDay_(env, day) {
     items = [];
   }
   items = overlayCuttingKeepFlags_(items, (prev && prev.items) || [], sameDate);
+  try {
+    const tbl = await loadCuttingFlagsTable_(env, day);
+    items = overlayCuttingFlagsFromTable_(items, tbl);
+  } catch (eTblOv) {}
   items = resolveCuttingSheetRows_(items, (prev && prev.items) || [], catalogMap);
   let transferOnly = { clients: [], lines: [] };
   try {
@@ -6456,14 +6571,51 @@ async function handleCutover_(a, params, env, ctx) {
       };
     }
     if (isFastFlagWrite) {
+      const opsPrimary = isOpsD1PrimaryCanon_(env);
+      let d1FlagRes = null;
       try {
         if (env && env.DB) {
-          if (/^updateCutting$/i.test(a)) await applyCuttingFlagToSnap_(params, env, null);
-          else if (/^setDelivered$/i.test(a)) await setDelivered_(params, env);
-          else if (/^setAssembled$/i.test(a)) await setAssemblyFlag_(params, env, "assembled");
-          else if (/^setPrinted$/i.test(a)) await setAssemblyFlag_(params, env, "printed");
+          if (/^updateCutting$/i.test(a)) d1FlagRes = await applyCuttingFlagToSnap_(params, env, null);
+          else if (/^setDelivered$/i.test(a)) d1FlagRes = await setDelivered_(params, env);
+          else if (/^setAssembled$/i.test(a)) d1FlagRes = await setAssemblyFlag_(params, env, "assembled");
+          else if (/^setPrinted$/i.test(a)) d1FlagRes = await setAssemblyFlag_(params, env, "printed");
         }
-      } catch (eFlag) {}
+      } catch (eFlag) {
+        d1FlagRes = { status: "error", message: String((eFlag && eFlag.message) || eFlag) };
+      }
+      // D1-primary: сразу success UI; Sheets только зеркало в фоне (не ждём 14с)
+      if (opsPrimary) {
+        const bgMirror = (async function () {
+          let proxied = null;
+          try {
+            proxied = await gasProxy_(a, params, env, { write: true });
+          } catch (eG) {
+            proxied = null;
+          }
+          try {
+            if (/^updateCutting$/i.test(a) && proxied) {
+              await applyCuttingFlagToSnap_(params, env, proxied);
+            }
+          } catch (eD1) {}
+        })();
+        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(bgMirror);
+        else bgMirror.catch(function () {});
+        return {
+          status: "success",
+          wrote: 1,
+          d1Verified: true,
+          optimistic: false,
+          opsCanon: "d1-primary",
+          cutover: true,
+          sandbox: false,
+          action: a,
+          row: Number((params && params.row) || 0) || (d1FlagRes && d1FlagRes.row) || 0,
+          name: String((params && params.name) || ""),
+          delivered: d1FlagRes && d1FlagRes.delivered,
+          assembled: d1FlagRes && d1FlagRes.assembled,
+          printed: d1FlagRes && d1FlagRes.printed
+        };
+      }
       const gasP = gasProxy_(a, params, env, { write: true }).catch(function () {
         return null;
       });
@@ -7617,19 +7769,27 @@ async function cutoverStoreRead_(a, params, env, payload) {
   if (a === "getCutting" && params.day) {
     const prev = await getSnapRaw_(env, "cutting:" + params.day);
     let items = Array.isArray(payload.items) ? payload.items.slice() : [];
-    if (prev && Array.isArray(prev.items) && prev.items.length) {
+    // ops d1-primary: структура может из GAS, флаги всегда из D1 snap/table
+    if (isOpsD1PrimaryCanon_(env) && prev && Array.isArray(prev.items) && prev.items.length) {
+      items = mergeCuttingFlags_(items, prev.items, true);
+      items = overlayCuttingKeepFlags_(items, prev.items, true);
+    } else if (prev && Array.isArray(prev.items) && prev.items.length) {
       const touched = Number(prev.flagsTouchedAt || 0);
       const recent = !!(touched && Date.now() - touched < 600000);
       if (recent || cuttingFlagScore_(prev.items) >= cuttingFlagScore_(items)) {
         items = mergeCuttingFlags_(items, prev.items, true);
       }
     }
+    try {
+      const tbl = await loadCuttingFlagsTable_(env, params.day);
+      items = overlayCuttingFlagsFromTable_(items, tbl);
+    } catch (eTblCut) {}
     items = resolveCuttingSheetRows_(items, (prev && prev.items) || [], null);
     items = normalizeCuttingItems_(items);
     const body = Object.assign({}, payload, {
       items: items,
-      fromGas: true,
-      fromD1: false,
+      fromGas: !isOpsD1PrimaryCanon_(env),
+      fromD1: !!isOpsD1PrimaryCanon_(env),
       fromOrders: false,
       fromCalendar: false,
       cachedAt: new Date().toISOString(),
@@ -7644,12 +7804,15 @@ async function cutoverStoreRead_(a, params, env, payload) {
   if (a === "getCourier" && params.day) {
     const prevC = await getSnapRaw_(env, "courier:" + params.day);
     if (prevC && Array.isArray(prevC.clients) && Array.isArray(payload.clients)) {
-      const recentC = !!(Number(prevC.flagsTouchedAt || 0) && Date.now() - Number(prevC.flagsTouchedAt) < 600000);
+      const opsP = isOpsD1PrimaryCanon_(env);
+      const recentC =
+        opsP ||
+        !!(Number(prevC.flagsTouchedAt || 0) && Date.now() - Number(prevC.flagsTouchedAt) < 600000);
       const by = indexByMatchAliases_(prevC.clients);
       payload.clients.forEach(function (c) {
         const old = lookupByMatchAliases_(by, c.matchKey || c.name);
         if (!old) return;
-        if (recentC) {
+        if (recentC || opsP) {
           c.delivered = !!old.delivered;
           if (old.paid) c.paid = old.paid;
           if (old.assembled) c.assembled = true;
@@ -7658,8 +7821,7 @@ async function cutoverStoreRead_(a, params, env, payload) {
           if (old.assembled) c.assembled = true;
         }
       });
-      // GAS иногда без части людей — не терять проставленные галочки
-      if (recentC) {
+      if (recentC || opsP) {
         const inGas = indexByMatchAliases_(payload.clients);
         prevC.clients.forEach(function (pc) {
           if (!pc || !(pc.delivered || pc.assembled)) return;
@@ -7674,12 +7836,15 @@ async function cutoverStoreRead_(a, params, env, payload) {
   if (a === "getAssembly" && params.day) {
     const prevA = await getSnapRaw_(env, "assembly:" + params.day);
     if (prevA && Array.isArray(prevA.clients) && Array.isArray(payload.clients)) {
-      const recentA = !!(Number(prevA.flagsTouchedAt || 0) && Date.now() - Number(prevA.flagsTouchedAt) < 600000);
+      const opsPa = isOpsD1PrimaryCanon_(env);
+      const recentA =
+        opsPa ||
+        !!(Number(prevA.flagsTouchedAt || 0) && Date.now() - Number(prevA.flagsTouchedAt) < 600000);
       const byA = indexByMatchAliases_(prevA.clients);
       payload.clients.forEach(function (c) {
         const old = lookupByMatchAliases_(byA, c.matchKey || c.name);
         if (!old) return;
-        if (recentA) {
+        if (recentA || opsPa) {
           c.assembled = !!old.assembled;
           c.printed = !!old.printed;
           if (old.packs) c.packs = old.packs;
@@ -7690,7 +7855,7 @@ async function cutoverStoreRead_(a, params, env, payload) {
           if (old.printed) c.printed = true;
         }
       });
-      if (recentA) {
+      if (recentA || opsPa) {
         const inGasA = indexByMatchAliases_(payload.clients);
         prevA.clients.forEach(function (pc) {
           if (!pc || !(pc.assembled || pc.printed)) return;
