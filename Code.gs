@@ -2326,7 +2326,10 @@ function doGet(e) {
       deliveriesN: e.parameter.deliveriesN || e.parameter.deliveries || "",
       fullFact: e.parameter.fullFact || "",
       coef: e.parameter.coef || e.parameter.markup || "",
-      markup: e.parameter.markup || e.parameter.coef || ""
+      markup: e.parameter.markup || e.parameter.coef || "",
+      scheme: e.parameter.scheme || "",
+      wishes: e.parameter.wishes ? decodeURIComponent(e.parameter.wishes) : "",
+      forNew: e.parameter.forNew || ""
     }, callback, false);
   }
   if (action === "calcPpFact") {
@@ -2334,7 +2337,18 @@ function doGet(e) {
       basket: e.parameter.basket ? JSON.parse(decodeURIComponent(e.parameter.basket)) : [],
       deliveriesN: e.parameter.deliveriesN || e.parameter.deliveries || "1",
       coef: e.parameter.coef || e.parameter.markup || "",
-      packCounts: e.parameter.packCounts ? JSON.parse(decodeURIComponent(e.parameter.packCounts)) : null
+      packCounts: e.parameter.packCounts ? JSON.parse(decodeURIComponent(e.parameter.packCounts)) : null,
+      scheme: e.parameter.scheme || "",
+      wishes: e.parameter.wishes ? decodeURIComponent(e.parameter.wishes) : "",
+      forNew: e.parameter.forNew || ""
+    }, callback, false);
+  }
+  if (action === "migratePpToRaw26Scheme") {
+    return handleMigratePpToRaw26Scheme({
+      nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
+      subId: e.parameter.subId ? decodeURIComponent(e.parameter.subId) : "",
+      telegramId: e.parameter.telegramId ? decodeURIComponent(e.parameter.telegramId) : "",
+      applyStated: e.parameter.applyStated || "1"
     }, callback, false);
   }
   if (action === "listDeferred") {
@@ -2824,6 +2838,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "calcPpFact") {
     return handleCalcPpFact(json, callback, fromPost);
+  }
+  if (action === "migratePpToRaw26Scheme") {
+    return handleMigratePpToRaw26Scheme(json, callback, fromPost);
   }
   if (action === "getAssembly") {
     return handleGetAssembly(json, callback, fromPost);
@@ -14608,6 +14625,8 @@ function handleGetSubscription(json, callback, fromPost) {
   var bpMetaGet = /^БП$/i.test(String(found.sheet || segment || "")) ? parseBpMetaFromWishes_(wishesOut) : null;
   if (/^БП$/i.test(String(found.sheet || segment || ""))) status = normalizeBpStage_(status);
   var dogGet = parseDogFromWishesGs_(wishesOut);
+  var schemeGet = parsePpSchemeFromWishes_(wishesOut) || "LEGACY";
+  var coefGet = parsePpCoefFromWishesGs_(wishesOut);
   var ok = {
     status: "success",
     nick: extractInstagramNick_(label) || nick,
@@ -14627,6 +14646,9 @@ function handleGetSubscription(json, callback, fromPost) {
     statedCost: factCost,
     packCounts: packCounts,
     packagesByn: packagesBynFromUCounts_(packCounts),
+    ppScheme: schemeGet,
+    scheme: schemeGet,
+    coef: coefGet,
     dogName: dogGet.name,
     dogBreed: dogGet.breed,
     dogWeight: dogGet.weight,
@@ -14669,6 +14691,17 @@ function handleSaveSubscription(json, callback, fromPost) {
   if (/^ПП$/i.test(sheetName) && (json.coef != null && json.coef !== "")) {
     wishes = stampPpCoefIntoWishesGs_(wishes, json.coef);
   }
+  if (/^ПП$/i.test(sheetName)) {
+    // явная scheme с клиента / уже в wishes; default для НОВЫХ — после поиска rowIdx
+    var schemeSaveEarly = normalizePpScheme_(json.scheme);
+    if (!schemeSaveEarly) schemeSaveEarly = parsePpSchemeFromWishes_(wishes);
+    // не ставить LEGACY-тег на старые карточки без тега (они и так LEGACY по умолчанию)
+    if (schemeSaveEarly && schemeSaveEarly !== "LEGACY") {
+      wishes = stampPpSchemeIntoWishesGs_(wishes, schemeSaveEarly);
+    } else if (schemeSaveEarly === "LEGACY" && parsePpSchemeFromWishes_(wishes)) {
+      wishes = stampPpSchemeIntoWishesGs_(wishes, "LEGACY");
+    }
+  }
   if (json.dogName != null || json.dogBreed != null || json.dogWeight != null || json.dog) {
     wishes = stampDogIntoWishesGs_(wishes, {
       name: json.dogName != null ? json.dogName : (json.dog && json.dog.name),
@@ -14701,6 +14734,16 @@ function handleSaveSubscription(json, callback, fromPost) {
   for (var r = 2; r < data.length; r++) {
     if (subId && String(data[r][1] || "").trim() === subId) { rowIdx = r; break; }
     if (nicksMatch_(data[r][0], nick) || nicksMatch_(data[r][0], label)) { rowIdx = r; break; }
+  }
+  if (/^ПП$/i.test(sheetName) && rowIdx < 0 && !parsePpSchemeFromWishes_(wishes)) {
+    wishes = stampPpSchemeIntoWishesGs_(wishes, defaultPpSchemeForNew_());
+    if (!parsePpCoefFromWishesGs_(wishes) && !(json.coef != null && json.coef !== "")) {
+      var defSch = parsePpSchemeFromWishes_(wishes);
+      wishes = stampPpCoefIntoWishesGs_(
+        wishes,
+        defSch === "RAW26" ? PP_RAW26_COEF_DEFAULT_ : PP_LEGACY_COEF_DEFAULT_
+      );
+    }
   }
   var createdNew = false;
   var writeMeta = { missed: [], wrote: 0 };
@@ -16410,9 +16453,9 @@ var PRICE_SS_MEM_ = null;
 var PRICE_COSTS_MEM_ = {};
 /** Логистика одной БП-доставки (BYN), входит в себестоимость БП / CAC. */
 var BP_DELIVERY_COST_BYN_ = 6;
-/** ПП: свет на человека (BYN) — как в computePpFactFromCost_ (fixed=11). */
+/** ПП LEGACY: свет на человека (BYN) — fixed=11 в computePpFactFromCost_. */
 var PP_LIGHT_COST_BYN_ = 11;
-/** ПП: логистика одной доставки (BYN) — как 6×N в computePpFactFromCost_. */
+/** ПП LEGACY: логистика одной доставки (BYN) — 6×N; RAW26 использует 9×N. */
 var PP_DELIVERY_COST_BYN_ = 6;
 
 function getPriceSpreadsheet_() {
@@ -16478,9 +16521,102 @@ function readPriceCosts_(mode) {
       piece: map.grams === false || map.cat === "chew"
     };
   }
+  if (memKey === "pp" || memKey === "bp") applyPpRawCostOverrides_(costs);
   var out = { costs: costs, sheet: sheetName, costRowLabel: costRowLabel, costRowPriority: costPri };
   PRICE_COSTS_MEM_[memKey] = out;
   return out;
+}
+
+/**
+ * Новые сырьевые себесы (artifacts/product-costs/cost-table.csv → cost_new).
+ * Поверх листа «Подписка», чтобы калькулятор не ждал ручной правки таблицы.
+ * Указанная цена старых ПП на листе CRM не трогается.
+ */
+var PP_RAW_COST_OVERRIDE_BYN_ = {
+  "ЛЁГКОЕ / Мелкое": { v: 2.25, piece: false },
+  "ЛЁГКОЕ / Среднее": { v: 2.25, piece: false },
+  "ЛЁГКОЕ / Целое": { v: 2.25, piece: false },
+  "СЕРДЦЕ / Мелкое": { v: 4.0, piece: false },
+  "СЕРДЦЕ / Целое": { v: 4.0, piece: false },
+  "ПОЧКИ / Мелкое": { v: 3.0, piece: false },
+  "ПОЧКИ / Целое": { v: 3.0, piece: false },
+  "РУБЕЦ Т / Мелкое": { v: 2.0, piece: false },
+  "РУБЕЦ Т / Среднее": { v: 2.0, piece: false },
+  "РУБЕЦ Т / Крупное": { v: 2.0, piece: false },
+  "РУБЕЦ Т / Целое": { v: 2.0, piece: false },
+  "БАРАНЬЕ ЛЁГКОЕ / Мелкое": { v: 8.4, piece: false },
+  "БАРАНЬЕ ЛЁГКОЕ / Среднее": { v: 8.4, piece: false },
+  "БАРАНЬЕ ЛЁГКОЕ / Целое": { v: 8.4, piece: false },
+  "ИНДЕЙКА": { v: 7.5, piece: false },
+  "ПЕЧЕНЬ": { v: 2.76, piece: false },
+  "ВЫМЯ": { v: 1.5, piece: false },
+  "СЕМЕННИКИ": { v: 4.17, piece: false },
+  "МЯСНЫЕ ЛОМТИКИ": { v: 7.55, piece: false },
+  "КРОШКА ЛЁГКОГО": { v: 2.25, piece: true },
+  "КРОШКА ПОЧЕК": { v: 3.0, piece: true },
+  "КРОШКА РУБЕЦ": { v: 2.0, piece: true },
+  "БЫЧИЙ КОРЕНЬ / ОГР": { v: 7.65, piece: true },
+  "БЫЧИЙ КОРЕНЬ / Большое": { v: 3.83, piece: true },
+  "БЫЧИЙ КОРЕНЬ / Среднее": { v: 1.91, piece: true },
+  "БЫЧИЙ КОРЕНЬ / МАЛ": { v: 0.96, piece: true },
+  "БЫЧИЙ КОРЕНЬ / ОЧ МАЛ": { v: 0.48, piece: true },
+  "ТРАХЕЯ / ОГР": { v: 3.5, piece: true },
+  "ТРАХЕЯ / Большое": { v: 1.75, piece: true },
+  "ТРАХЕЯ / Среднее": { v: 0.88, piece: true },
+  "ТРАХЕЯ / ПЛАСТ": { v: 0.88, piece: true },
+  "ТРАХЕЯ / МАЛ": { v: 0.44, piece: true },
+  "СТАНОВАЯ ЖИЛА / Большое": { v: 0.75, piece: true },
+  "СТАНОВАЯ ЖИЛА / Среднее": { v: 0.38, piece: true },
+  "СТАНОВАЯ ЖИЛА / ПАЛК": { v: 0.19, piece: true },
+  "УХО Г / Обычное": { v: 0.88, piece: true },
+  "УХО Г / ПОЛОВИНКА": { v: 0.44, piece: true },
+  "АОРТА / Обычная": { v: 0.94, piece: true },
+  "АОРТА / ПОЛОВИНКА": { v: 0.47, piece: true },
+  "КОЛЕНИ шт.": { v: 1.17, piece: true },
+  "ЛОП ХРЯЩ шт.": { v: 1.0, piece: true },
+  "НОСЫ шт.": { v: 1.23, piece: true },
+  "УТИНЫЕ ШЕИ шт.": { v: 0.78, piece: true },
+  "ПЕРЕПЁЛКИ шт.": { v: 0.81, piece: true },
+  "ТЫКВА": { v: 5.33, piece: false },
+  "ЯБЛОКИ": { v: 3.0, piece: false },
+  "МОРКОВЬ": { v: 2.3, piece: false },
+  "БАТАТ": { v: 10.0, piece: false },
+  "БАНАНЫ": { v: 5.0, piece: false },
+  "ГРУШИ": { v: 6.67, piece: false }
+};
+
+function applyPpRawCostOverrides_(costs) {
+  costs = costs || {};
+  var o = PP_RAW_COST_OVERRIDE_BYN_ || {};
+  for (var key in o) {
+    if (!Object.prototype.hasOwnProperty.call(o, key)) continue;
+    var info = o[key];
+    var v = Number(info && info.v);
+    if (!isFinite(v) || v < 0) continue;
+    var piece = !!(info && info.piece);
+    var parts = String(key).split(" / ");
+    var name = parts[0] || key;
+    var sub = parts.length > 1 ? parts.slice(1).join(" / ") : "";
+    if (costs[key]) {
+      costs[key].unitPrice = v;
+      costs[key].per100 = v;
+      if (piece) {
+        costs[key].piece = true;
+        costs[key].grams = false;
+      }
+    } else {
+      costs[key] = {
+        per100: v,
+        unitPrice: v,
+        name: name,
+        sub: sub,
+        grams: !piece,
+        cat: piece ? "chew" : "",
+        piece: piece
+      };
+    }
+  }
+  return costs;
 }
 
 function handleCalcPrice(json, callback, fromPost) {
@@ -16590,12 +16726,19 @@ function handleCalcPrice(json, callback, fromPost) {
     markup: refMarkup,
     total: total
   };
-  // полный факт ПП: сырая себест × coef (+11 +6×N …). coef ЗАМЕНЯЕТ 2.3, не множится сверху.
+  // полный факт ПП: сырая себест × coef (+ схема LEGACY/RAW26). coef ЗАМЕНЯЕТ 2.3/2.6, не множится сверху.
   if (json.fullFact === true || json.fullFact === "1" || json.fullFact === 1 ||
       String(mode || "").toLowerCase() === "pp" && (json.deliveriesN || json.deliveries)) {
     try {
       var coefIn = json.coef != null && json.coef !== "" ? json.coef : null;
-      var fact = computePpFactFromCost_(rawCost, basket, json.deliveriesN || json.deliveries, coefIn);
+      var schemeFact = resolvePpScheme_({
+        scheme: json.scheme,
+        wishes: json.wishes,
+        forNew: json.forNew === true || json.forNew === "1" || json.forNew === 1
+      });
+      var fact = computePpFactFromCost_(
+        rawCost, basket, json.deliveriesN || json.deliveries, coefIn, null, schemeFact, lines, null
+      );
       for (var fk in fact) {
         if (Object.prototype.hasOwnProperty.call(fact, fk)) ok[fk] = fact[fk];
       }
@@ -16603,6 +16746,7 @@ function handleCalcPrice(json, callback, fromPost) {
       ok.cost = rawCost;
       ok.rawCost = rawCost;
       ok.markup = fact.coef;
+      ok.scheme = fact.scheme;
       ok.total = Math.round(rawCost * fact.coef * 100) / 100;
     } catch (eF) {}
   }
@@ -16645,12 +16789,114 @@ function packagesBynFromUCounts_(pc) {
   ) / 100;
 }
 
-function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCountsOpt) {
+/* ----- Схемы цены ПП -----
+ * LEGACY: сырьё×coef + 11 + 6×N + пакеты + фракции  (старые карточки без тега)
+ * RAW26:  сырьё×coef + recover + 9×N + пакеты + фракции
+ *   recover_100г=3.90 · recover_шт/пак=0.50 · coef по умолчанию 2.6
+ * Новые зачисления с 2026-08-31 → RAW26; старые без изменений, пока не migratePpToRaw26Scheme.
+ * Календарь доставок / уже выставленные цены в доставках не трогаем.
+ */
+var PP_SCHEME_CUTOFF_YMD_ = "2026-08-31";
+var PP_RAW26_COEF_DEFAULT_ = 2.6;
+var PP_RAW26_RECOVER_100_ = 3.90;
+var PP_RAW26_RECOVER_PIECE_ = 0.50;
+var PP_RAW26_DELIVERY_PER_ = 9;
+var PP_RAW26_RETAIL_CAP_ = 0.92;
+var PP_LEGACY_COEF_DEFAULT_ = 2.3;
+var PP_LEGACY_FIXED_ = 11;
+var PP_LEGACY_DELIVERY_PER_ = 6;
+
+function todayYmdMinsk_() {
+  try {
+    return Utilities.formatDate(new Date(), "Europe/Minsk", "yyyy-MM-dd");
+  } catch (e) {
+    return Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Europe/Minsk", "yyyy-MM-dd");
+  }
+}
+
+function defaultPpSchemeForNew_() {
+  return todayYmdMinsk_() >= PP_SCHEME_CUTOFF_YMD_ ? "RAW26" : "LEGACY";
+}
+
+function normalizePpScheme_(s) {
+  var u = String(s || "").trim().toUpperCase();
+  if (u === "RAW26" || u === "RAW" || u === "NEW" || u === "V2") return "RAW26";
+  if (u === "LEGACY" || u === "OLD" || u === "V1") return "LEGACY";
+  return "";
+}
+
+function parsePpSchemeFromWishes_(wishes) {
+  var m = String(wishes || "").match(/\[SCHEME:([^\]]+)\]/i);
+  if (!m) return "";
+  return normalizePpScheme_(m[1]);
+}
+
+function stampPpSchemeIntoWishesGs_(wishes, scheme) {
+  var base = String(wishes || "").replace(/\[SCHEME:[^\]]*\]/gi, "").replace(/\s+/g, " ").trim();
+  var sch = normalizePpScheme_(scheme);
+  if (!sch) return base;
+  var tag = "[SCHEME:" + sch + "]";
+  return (base + (base ? " " : "") + tag).trim();
+}
+
+function resolvePpScheme_(opt) {
+  opt = opt || {};
+  var fromIn = normalizePpScheme_(opt.scheme);
+  if (fromIn) return fromIn;
+  var fromW = parsePpSchemeFromWishes_(opt.wishes);
+  if (fromW) return fromW;
+  if (opt.forNew) return defaultPpSchemeForNew_();
+  return "LEGACY";
+}
+
+/** recover по линиям (piece|grams). lines: [{piece,val}] или basket+piece-detect. */
+function recoverBynFromPpLines_(lines) {
+  var sum = 0;
+  for (var i = 0; i < (lines || []).length; i++) {
+    var L = lines[i] || {};
+    var val = Number(L.val != null ? L.val : L.value) || 0;
+    if (val <= 0) continue;
+    var piece = !!L.piece;
+    if (!piece) {
+      var cat = String(L.cat || "").toLowerCase();
+      var name = String(L.name || L.main || "");
+      if (cat === "chew" || cat === "chews" || cat === "powder") piece = true;
+      else if (isPieceSkuName_(name) || /шт/i.test(name) || /крошка/i.test(name)) piece = true;
+    }
+    if (piece) sum += PP_RAW26_RECOVER_PIECE_ * val;
+    else sum += PP_RAW26_RECOVER_100_ * (val / 100);
+  }
+  return Math.round(sum * 100) / 100;
+}
+
+function retailGoodsBynFromBasket_(basket) {
+  var sum = 0;
+  for (var i = 0; i < (basket || []).length; i++) {
+    var it = basket[i] || {};
+    var name = String(it.name || it.main || "").trim();
+    var sub = String(it.sub || "").trim();
+    var val = Number(it.val != null ? it.val : it.value) || 0;
+    if (!name || val <= 0) continue;
+    var rc = retailLineCost_(name, sub, val, it.cat);
+    sum += Number(rc.cost) || 0;
+  }
+  return Math.round(sum * 100) / 100;
+}
+
+/**
+ * @param {number} costSum сырьё
+ * @param {Array} basket
+ * @param {*} deliveriesN
+ * @param {*} coefIn
+ * @param {Object=} packCountsOpt
+ * @param {string=} schemeOpt LEGACY|RAW26
+ * @param {Array=} linesOpt линии с piece/val (для recover)
+ * @param {number=} retailGoodsOpt Σ розницы (потолок 92% товарной части)
+ */
+function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCountsOpt, schemeOpt, linesOpt, retailGoodsOpt) {
+  var scheme = normalizePpScheme_(schemeOpt) || "LEGACY";
   var n = Math.max(1, Number(deliveriesN) || 1);
   var coef = Number(coefIn);
-  if (!isFinite(coef) || coef <= 0) coef = 2.3;
-  var fixed = 11;
-  var delivery = 6 * n;
   var pc = packCountsOpt && typeof packCountsOpt === "object"
     ? {
         u1: Number(packCountsOpt.u1) || 0,
@@ -16661,17 +16907,62 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
     : packCountsUFromBasket_(basket || []);
   var packagesByn = packagesBynFromUCounts_(pc);
   var fracMark = dressuraFractionMarkupFromBasket_(basket);
-  var factCost = Math.round((Number(costSum) * coef + fixed + delivery + packagesByn + fracMark) * 100) / 100;
-  return {
-    factCost: factCost,
-    deliveriesN: n,
-    coef: coef,
-    fixed: fixed,
-    deliveryByn: delivery,
-    packagesByn: packagesByn,
-    packCounts: pc,
-    fractionMarkup: fracMark
-  };
+  var raw = Number(costSum) || 0;
+  var out;
+
+  if (scheme === "RAW26") {
+    if (!isFinite(coef) || coef <= 0) coef = PP_RAW26_COEF_DEFAULT_;
+    var recover = recoverBynFromPpLines_(linesOpt && linesOpt.length ? linesOpt : basket);
+    var delivery = PP_RAW26_DELIVERY_PER_ * n;
+    var goods = Math.round((raw * coef + recover) * 100) / 100;
+    var retailGoods = retailGoodsOpt != null && retailGoodsOpt !== ""
+      ? Number(retailGoodsOpt)
+      : retailGoodsBynFromBasket_(basket);
+    var capped = false;
+    var capAt = 0;
+    if (isFinite(retailGoods) && retailGoods > 0) {
+      capAt = Math.round(retailGoods * PP_RAW26_RETAIL_CAP_ * 100) / 100;
+      if (goods > capAt) {
+        goods = capAt;
+        capped = true;
+      }
+    }
+    var factCost = Math.round((goods + delivery + packagesByn + fracMark) * 100) / 100;
+    out = {
+      scheme: "RAW26",
+      factCost: factCost,
+      deliveriesN: n,
+      coef: coef,
+      fixed: 0,
+      recoverByn: recover,
+      goodsByn: goods,
+      retailGoods: isFinite(retailGoods) ? retailGoods : 0,
+      retailCapped: capped,
+      retailCapAt: capAt,
+      deliveryByn: delivery,
+      packagesByn: packagesByn,
+      packCounts: pc,
+      fractionMarkup: fracMark
+    };
+  } else {
+    if (!isFinite(coef) || coef <= 0) coef = PP_LEGACY_COEF_DEFAULT_;
+    var fixed = PP_LEGACY_FIXED_;
+    var deliveryL = PP_LEGACY_DELIVERY_PER_ * n;
+    var factL = Math.round((raw * coef + fixed + deliveryL + packagesByn + fracMark) * 100) / 100;
+    out = {
+      scheme: "LEGACY",
+      factCost: factL,
+      deliveriesN: n,
+      coef: coef,
+      fixed: fixed,
+      recoverByn: 0,
+      deliveryByn: deliveryL,
+      packagesByn: packagesByn,
+      packCounts: pc,
+      fractionMarkup: fracMark
+    };
+  }
+  return out;
 }
 
 /** Полный пересчёт ФАКТ СТОИМОСТЬ ПП по составу. */
@@ -16715,13 +17006,21 @@ function handleCalcPpFact(json, callback, fromPost) {
     if (typeof packOpt === "string") {
       try { packOpt = JSON.parse(packOpt); } catch (ePc) { packOpt = null; }
     }
-    var fact = computePpFactFromCost_(totalCost, basket, json.deliveriesN || json.deliveries, coefIn, packOpt);
+    var schemeFact = resolvePpScheme_({
+      scheme: json.scheme,
+      wishes: json.wishes,
+      forNew: json.forNew === true || json.forNew === "1" || json.forNew === 1
+    });
+    var fact = computePpFactFromCost_(
+      totalCost, basket, json.deliveriesN || json.deliveries, coefIn, packOpt, schemeFact, lines, null
+    );
     var ok = {
       status: "success",
       cost: totalCost,
       rawCost: totalCost,
       lines: lines,
       markup: fact.coef,
+      scheme: fact.scheme,
       total: Math.round(totalCost * fact.coef * 100) / 100
     };
     for (var fk in fact) {
@@ -22466,6 +22765,13 @@ function stampPpCoefIntoWishesGs_(wishes, coef) {
   return (base + (base ? " " : "") + tag).trim();
 }
 
+function parsePpCoefFromWishesGs_(wishes) {
+  var m = String(wishes || "").match(/\[COEF:([0-9]+(?:[.,][0-9]+)?)\]/i);
+  if (!m) return null;
+  var v = Number(String(m[1]).replace(",", "."));
+  return (isFinite(v) && v > 0) ? v : null;
+}
+
 /** Позиции, для которых нет колонки на листе ПП — храним в пожеланиях. */
 function stripPpXtraFromWishes_(wishes) {
   return String(wishes || "").replace(/\s*\[XTRA:[^\]]*\]/gi, "").replace(/\s+/g, " ").trim();
@@ -24282,6 +24588,143 @@ function upsertSubscriptionProductRow_(sh, headers, rowVals, basket, nickForMatc
   return { row: newRow, created: true };
 }
 
+/**
+ * Ручной перевод старого ПП на схему RAW26.
+ * Обновляет wishes ([SCHEME:RAW26]+[COEF:2.6]) и столбец «Факт стоимость».
+ * Не трогает календарь / уже внесённые доставки.
+ */
+function handleMigratePpToRaw26Scheme(json, callback, fromPost) {
+  json = json || {};
+  try {
+    var crmSs = getCrmSpreadsheet_();
+    var nick = String(json.nick || json.client || "").trim();
+    var subId = String(json.subId || "").trim();
+    if (!nick && !subId) {
+      var need = { status: "error", message: "need_nick" };
+      return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+    }
+    var found = findSubscriberBasket_(crmSs, nick || subId, "ПП");
+    if (!found || !(found.basket && found.basket.length) && !found.subId && !found.wishes) {
+      // всё равно ищем строку по нику
+    }
+    var pp = findSheetByBaseName_(crmSs, "ПП");
+    if (!pp) {
+      var noPp = { status: "error", message: "pp_sheet_missing" };
+      return fromPost ? jsonpText(callback, noPp) : jsonp(callback, noPp);
+    }
+    var headers = pp.getRange(1, 1, 1, pp.getLastColumn()).getValues()[0];
+    var data = pp.getDataRange().getValues();
+    var rowIdx = -1;
+    var label = nick;
+    var deliveriesN = 1;
+    var wishes = "";
+    var packCounts = { u1: 0, u2: 0, u3: 0, up4: 0 };
+    for (var r = 2; r < data.length; r++) {
+      var cell = String(data[r][0] || "");
+      if (!cell.trim()) continue;
+      if (subId && String(data[r][1] || "").trim() === subId) {
+        // ok
+      } else if (!nicksMatch_(cell, nick)) continue;
+      rowIdx = r;
+      label = cell.replace(/\s+/g, " ").trim();
+      deliveriesN = Math.max(1, Number(data[r][2]) || 1);
+      wishes = String(data[r][4] || "").trim();
+      if (!subId) subId = String(data[r][1] || "").trim();
+      for (var fc = 0; fc < headers.length; fc++) {
+        var h = String(headers[fc] || "").toUpperCase().replace(/\s+/g, " ").trim();
+        if (h === "У1") packCounts.u1 = Number(data[r][fc]) || 0;
+        else if (h === "У2") packCounts.u2 = Number(data[r][fc]) || 0;
+        else if (h === "У3") packCounts.u3 = Number(data[r][fc]) || 0;
+        else if (h === "УП4") packCounts.up4 = Number(data[r][fc]) || 0;
+      }
+      break;
+    }
+    if (rowIdx < 0) {
+      var miss = { status: "error", message: "not_found" };
+      return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+    }
+    var prevScheme = parsePpSchemeFromWishes_(wishes) || "LEGACY";
+    var basket = (found && found.basket) ? found.basket : [];
+    if (!basket.length) {
+      try {
+        var again = findSubscriberBasket_(crmSs, nick || label, "ПП");
+        basket = (again && again.basket) || [];
+      } catch (eB) {}
+    }
+    var priceInfo = readPriceCosts_("pp");
+    var totalCost = 0;
+    var lines = [];
+    for (var i = 0; i < basket.length; i++) {
+      var it = basket[i] || {};
+      var name = String(it.name || it.main || "").trim();
+      var sub = String(it.sub || "").trim();
+      var val = Number(it.val != null ? it.val : it.value) || 0;
+      var cat = String(it.cat || "").trim();
+      if (!name || val <= 0) continue;
+      var key = name + (sub ? " / " + sub : "");
+      var info = priceInfo.costs[key];
+      if (!info) {
+        for (var k in priceInfo.costs) {
+          if (priceInfo.costs[k].name === name && (!sub || priceInfo.costs[k].sub === sub)) {
+            info = priceInfo.costs[k];
+            break;
+          }
+        }
+      }
+      var unitPrice = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
+      var piece = false;
+      if (info && info.piece) piece = true;
+      else if (cat === "chew" || cat === "chews" || cat === "powder") piece = true;
+      else if (isPieceSkuName_(name) || /шт/i.test(name) || /крошка/i.test(name)) piece = true;
+      else if (info && info.grams === false) piece = true;
+      var cost = piece ? (unitPrice * val) : ((val / 100) * unitPrice);
+      totalCost += cost;
+      lines.push({ name: name, sub: sub, val: val, unitPrice: unitPrice, piece: piece, cost: Math.round(cost * 100) / 100, cat: cat });
+    }
+    totalCost = Math.round(totalCost * 100) / 100;
+    var hasPacks = (packCounts.u1 + packCounts.u2 + packCounts.u3 + packCounts.up4) > 0;
+    var fact = computePpFactFromCost_(
+      totalCost, basket, deliveriesN, PP_RAW26_COEF_DEFAULT_,
+      hasPacks ? packCounts : null, "RAW26", lines, null
+    );
+    wishes = stampPpSchemeIntoWishesGs_(wishes, "RAW26");
+    wishes = stampPpCoefIntoWishesGs_(wishes, PP_RAW26_COEF_DEFAULT_);
+    pp.getRange(rowIdx + 1, 5).setValue(wishes);
+    var applyStated = !(json.applyStated === false || json.applyStated === "0" || json.applyStated === 0);
+    if (applyStated) {
+      for (var c = 0; c < headers.length; c++) {
+        var hh = String(headers[c] || "").toUpperCase();
+        if (hh.indexOf("ФАКТ") >= 0 && hh.indexOf("СТОИМ") >= 0) {
+          pp.getRange(rowIdx + 1, c + 1).setValue(fact.factCost);
+          break;
+        }
+      }
+    }
+    try { clearCrmSheetCache_("ПП"); } catch (eClr) {}
+    var ok = {
+      status: "success",
+      nick: extractInstagramNick_(label) || nick,
+      label: label,
+      subId: subId,
+      prevScheme: prevScheme,
+      scheme: "RAW26",
+      coef: PP_RAW26_COEF_DEFAULT_,
+      rawCost: totalCost,
+      factCost: fact.factCost,
+      statedApplied: applyStated,
+      recoverByn: fact.recoverByn,
+      deliveryByn: fact.deliveryByn,
+      packagesByn: fact.packagesByn,
+      calendarUntouched: true
+    };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (err) {
+    var bad = { status: "error", message: String(err) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+}
+
+
 function handleEnrollDeferredToPp_(json, callback, fromPost) {
   var tid = String(json.telegramId || "").trim();
   var id = String(json.id || "").trim();
@@ -24317,6 +24760,20 @@ function handleEnrollDeferredToPp_(json, callback, fromPost) {
     }
   } else {
     basket = mergeBasketItemsForPp_(basket);
+  }
+
+  // новое зачисление в ПП: схема по cutoff (с 2026-08-31 — RAW26), если не передали явно
+  var enrollScheme = resolvePpScheme_({
+    scheme: json.scheme,
+    wishes: wishes,
+    forNew: true
+  });
+  wishes = stampPpSchemeIntoWishesGs_(wishes, enrollScheme);
+  var enrollCoef = (json.coef != null && json.coef !== "")
+    ? Number(json.coef)
+    : (enrollScheme === "RAW26" ? PP_RAW26_COEF_DEFAULT_ : PP_LEGACY_COEF_DEFAULT_);
+  if (isFinite(enrollCoef) && enrollCoef > 0) {
+    wishes = stampPpCoefIntoWishesGs_(wishes, enrollCoef);
   }
 
   var crmSs;

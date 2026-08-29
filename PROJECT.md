@@ -272,7 +272,9 @@
 | `getWarehouse` / `setWarehouseArrival` / `warehousePreview` | Склад: остатки, дозакуп B, прогноз |
 | `listSubscriptions` / `getSubscription` / `pushSubscriptionToDay` | CRM-подписки → бронь на дату |
 | `crmInventory` / `seedCrmClients` | Инвентаризация CRM; заливка в «Клиенты» без потерь |
-| `calcPrice` | Калькулятор Подписка/Розница |
+| `calcPrice` | Калькулятор Подписка/Розница (ПП: dual-scheme LEGACY/RAW26) |
+| `calcPpFact` | Факт стоимость ПП; `scheme` / `wishes` / `forNew` |
+| `migratePpToRaw26Scheme` | Ручной перевод старого ПП на сырьё×2.6 (карточка; календарь не трогает) |
 | `getAssembly` | Пакеты сборки по клиентам дня |
 | `finishFullWeek` | Закрытие недели (owner, confirm=1): склад, даты+7, Future→Пн |
 | `ensureBpFromOrder` | БП-карта из заказа: basket в doGet через try/catch → [] |

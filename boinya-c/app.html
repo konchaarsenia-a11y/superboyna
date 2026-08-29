@@ -9,7 +9,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115911";
+      var APP_VER = "v71115912";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2172,7 +2172,9 @@
           </div>
 
           <div id="subDetailPpPriceBox" style="display:none;margin:12px 0;padding:12px;background:#1c1c1e;border-radius:12px;border:1px solid #3a3a3c;">
-            <div class="section-title" style="margin:0 0 8px;font-size:15px;">Цена ПП</div>
+            <div class="section-title" style="margin:0 0 8px;font-size:15px;">Цена ПП
+              <span id="subDetailSchemeBadge" class="muted" style="font-size:12px;font-weight:500;margin-left:8px;"></span>
+            </div>
             <div class="form-group" style="margin-bottom:10px;">
               <label>Факт стоимость — расчёт (BYN)</label>
               <input type="number" id="subDetailFact" step="0.01" inputmode="decimal" readonly
@@ -2185,6 +2187,12 @@
                 style="font-size:20px;font-weight:700;color:#ffd60a;"
                 placeholder="вручную" oninput="onSubDetailStatedPriceInput_()">
               <div class="muted" id="subDetailStatedHint" style="font-size:12px;margin-top:6px;">не пересчитывается · для старых карточек — из столбца «Факт стоимость» на листе ПП</div>
+            </div>
+            <button type="button" class="btn-action btn-orange" id="btnMigratePpScheme"
+              style="display:none;margin-top:10px;width:100%;"
+              onclick="migrateSubDetailToRaw26_()">Перевести на новую схему (сырьё×2.6)</button>
+            <div class="muted" id="subDetailSchemeHint" style="display:none;font-size:11px;margin-top:6px;">
+              Уже внесённые доставки в календаре не меняются — только цена карточки и новые зачисления.
             </div>
           </div>
 
@@ -2233,6 +2241,7 @@
                 <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2)">2.0</button>
                 <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2.3)">2.3</button>
                 <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2.5)">2.5</button>
+                <button type="button" class="btn-action" style="margin:0;padding:8px 10px;background:#3a3a3c;" onclick="setSubDetailCoef_(2.6)">2.6</button>
               </div>
             </div>
             <div class="form-group">
@@ -2433,7 +2442,7 @@
             <input type="number" id="priceDeliveriesN" value="1" min="1" max="8" inputmode="numeric" oninput="schedulePriceLiveUpdate()">
           </div>
           <div class="form-group">
-            <label>Коэффициент</label>
+            <label>Коэффициент <span class="muted" id="pricePpSchemeHint" style="font-size:11px;"></span></label>
             <input type="number" id="pricePpCoef" value="2.3" min="0.1" max="10" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
           </div>
           <div class="form-group">

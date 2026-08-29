@@ -446,12 +446,13 @@ async function handleAction_(action, params, env, url, ctx) {
     a === "getPpOrderSuggest" ||
     a === "calcPrice" ||
     a === "calcPpFact" ||
+    a === "migratePpToRaw26Scheme" ||
     a === "suggestAddress" ||
     a === "lookupBpPartner"
   ) {
     const proxied = await gasRead_(a, params, env);
     if (proxied) return proxied;
-    if (a === "calcPrice" || a === "calcPpFact" || a === "getPpFactCost") {
+    if (a === "calcPrice" || a === "calcPpFact" || a === "getPpFactCost" || a === "migratePpToRaw26Scheme") {
       return { status: "error", message: "gas_proxy_failed", action: a, sandbox: true };
     }
     return { status: "success", items: [], suggestions: [], basket: [], total: 0, price: 0, sandbox: true };
@@ -6889,6 +6890,7 @@ async function handleCutover_(a, params, env, ctx) {
     a === "lookupBpPartner" ||
     a === "calcPrice" ||
     a === "calcPpFact" ||
+    a === "migratePpToRaw26Scheme" ||
     a === "getPpFactCost" ||
     a === "getPpOrderSuggest" ||
     a === "exportStats" ||
@@ -7611,7 +7613,7 @@ function cutoverEmptyRead_(a, params) {
   if (a === "getCourier" || a === "getAssembly") {
     return { status: "success", clients: [], day: day, cutover: true, swr: true, empty: true };
   }
-  if (a === "calcPrice" || a === "calcPpFact" || a === "getPpFactCost" || a === "getPpOrderSuggest") {
+  if (a === "calcPrice" || a === "calcPpFact" || a === "migratePpToRaw26Scheme" || a === "getPpFactCost" || a === "getPpOrderSuggest") {
     return { status: "error", message: "calc_unavailable", action: a, cutover: true, empty: true };
   }
   if (a === "suggestAddress" || a === "lookupBpPartner") {
@@ -8858,7 +8860,7 @@ async function gasProxy_(action, params, env, opts) {
     // sendCourierRoute: POST+redirect ломался; оставляем GET.
     const preferGet =
       /^(sendCourierRoute|sendDeficit|telegramStatus)$/i.test(action);
-    const preferPostRead = /^(calcPrice|calcPpFact|getPpFactCost)$/i.test(action);
+    const preferPostRead = /^(calcPrice|calcPpFact|getPpFactCost|migratePpToRaw26Scheme)$/i.test(action);
     const mustPost = ((opts.write && !preferGet) || preferPostRead);
     if (preferPostRead && typeof clean.basket === "string") {
       try {

@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115911";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115912";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -17725,6 +17725,16 @@
       if (deepBtn) deepBtn.style.display = (isPp || String(sheet || "") === "БП") ? "" : "none";
       var extras = document.getElementById("subDetailDeepPpExtras");
       if (extras) extras.style.display = isPp ? "block" : "none";
+      if (isPp) {
+        try { syncSubDetailSchemeUi_(); } catch (eSchUi) {}
+      } else {
+        var btn = document.getElementById("btnMigratePpScheme");
+        var hint = document.getElementById("subDetailSchemeHint");
+        var badge = document.getElementById("subDetailSchemeBadge");
+        if (btn) btn.style.display = "none";
+        if (hint) hint.style.display = "none";
+        if (badge) badge.textContent = "";
+      }
     }
 
     function scheduleSubDetailFactRecalc_() {
@@ -17759,10 +17769,112 @@
       return (base + (base ? " " : "") + tag).trim();
     }
 
+    var PP_SCHEME_CUTOFF_YMD = "2026-08-31";
+    var PP_RAW26_COEF_DEFAULT = 2.6;
+    var PP_RAW26_RECOVER_100 = 3.90;
+    var PP_RAW26_RECOVER_PIECE = 0.50;
+    var PP_RAW26_DELIVERY_PER = 9;
+    var PP_LEGACY_COEF_DEFAULT = 2.3;
+    var PP_LEGACY_FIXED = 11;
+    var PP_LEGACY_DELIVERY_PER = 6;
+
+    function todayYmdLocal_() {
+      try {
+        var d = new Date();
+        var y = d.getFullYear();
+        var m = String(d.getMonth() + 1).padStart(2, "0");
+        var day = String(d.getDate()).padStart(2, "0");
+        return y + "-" + m + "-" + day;
+      } catch (e) {
+        return "";
+      }
+    }
+
+    function defaultPpSchemeForNewLocal_() {
+      return todayYmdLocal_() >= PP_SCHEME_CUTOFF_YMD ? "RAW26" : "LEGACY";
+    }
+
+    function normalizePpSchemeLocal_(s) {
+      var u = String(s || "").trim().toUpperCase();
+      if (u === "RAW26" || u === "RAW" || u === "NEW" || u === "V2") return "RAW26";
+      if (u === "LEGACY" || u === "OLD" || u === "V1") return "LEGACY";
+      return "";
+    }
+
+    function parsePpSchemeFromWishes_(wishes) {
+      var m = String(wishes || "").match(/\[SCHEME:([^\]]+)\]/i);
+      if (!m) return "";
+      return normalizePpSchemeLocal_(m[1]);
+    }
+
+    function stripPpSchemeFromWishes_(wishes) {
+      return String(wishes || "").replace(/\[SCHEME:[^\]]*\]/gi, "").replace(/\s+/g, " ").trim();
+    }
+
+    function stampPpSchemeIntoWishes_(wishes, scheme) {
+      var base = stripPpSchemeFromWishes_(wishes);
+      var sch = normalizePpSchemeLocal_(scheme);
+      if (!sch) return base;
+      return (base + (base ? " " : "") + "[SCHEME:" + sch + "]").trim();
+    }
+
+    function stripPpMetaFromWishes_(wishes) {
+      return stripPpSchemeFromWishes_(stripPpCoefFromWishes_(wishes));
+    }
+
+    function subDetailSchemeValue_() {
+      if (currentSubDetail && currentSubDetail.ppScheme) {
+        var s = normalizePpSchemeLocal_(currentSubDetail.ppScheme);
+        if (s) return s;
+      }
+      var w = "";
+      try {
+        w = (currentSubDetail && currentSubDetail.wishes) || "";
+      } catch (e0) {}
+      return parsePpSchemeFromWishes_(w) || "LEGACY";
+    }
+
+    function syncSubDetailSchemeUi_() {
+      var scheme = subDetailSchemeValue_();
+      var badge = document.getElementById("subDetailSchemeBadge");
+      var btn = document.getElementById("btnMigratePpScheme");
+      var hint = document.getElementById("subDetailSchemeHint");
+      if (badge) {
+        badge.textContent = scheme === "RAW26"
+          ? "· схема сырьё×2.6"
+          : "· старая схема ×2.3+11+6N";
+      }
+      var showMig = scheme !== "RAW26";
+      if (btn) btn.style.display = showMig ? "block" : "none";
+      if (hint) hint.style.display = showMig ? "block" : "none";
+    }
+
+    function recoverBynFromBasketLocal_(list) {
+      var sum = 0;
+      (list || []).forEach(function (it) {
+        var val = Number(it.val != null ? it.val : it.value) || 0;
+        if (val <= 0) return;
+        var cat = String(it.cat || "").toLowerCase();
+        var name = String(it.main || it.name || "");
+        var piece = cat === "chew" || cat === "chews" || cat === "powder";
+        try {
+          if (!piece && typeof unitForItem === "function" && unitForItem(cat || "other", name) === "шт") piece = true;
+        } catch (eU) {}
+        if (!piece && /шт/i.test(name)) piece = true;
+        if (!piece && /крошка/i.test(name)) piece = true;
+        if (piece) sum += PP_RAW26_RECOVER_PIECE * val;
+        else sum += PP_RAW26_RECOVER_100 * (val / 100);
+      });
+      return Math.round(sum * 100) / 100;
+    }
+
+
     function subDetailCoefValue_() {
       var el = document.getElementById("subDetailCoef");
-      var v = el ? Number(String(el.value || "").replace(",", ".")) : 2.3;
-      if (!isFinite(v) || v <= 0) v = 2.3;
+      var scheme = subDetailSchemeValue_();
+      var def = scheme === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT;
+      var v = el ? Number(String(el.value || "").replace(",", ".")) : def;
+      if (!isFinite(v) || v <= 0) v = def;
       return v;
     }
 
@@ -17783,16 +17895,26 @@
       if (hint && hintText) hint.textContent = hintText;
     }
 
-    function applyLocalPpFact_(costSum, coef, n, packagesByn, fracTotal, packHint) {
+    function applyLocalPpFact_(costSum, coef, n, packagesByn, fracTotal, packHint, listOpt) {
       costSum = Number(costSum) || 0;
-      coef = Number(coef) || 2.3;
+      var scheme = subDetailSchemeValue_();
+      coef = Number(coef) || (scheme === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT);
       n = Math.max(1, Number(n) || 1);
       packagesByn = Number(packagesByn) || 0;
       fracTotal = Number(fracTotal) || 0;
-      var marked = costSum * coef;
-      var total = Math.round((marked + 11 + 6 * n + packagesByn + fracTotal) * 100) / 100;
+      var total;
+      var hintCore;
+      if (scheme === "RAW26") {
+        var recover = recoverBynFromBasketLocal_(listOpt || subDetailBasketPayload_());
+        var delivery = PP_RAW26_DELIVERY_PER * n;
+        total = Math.round((costSum * coef + recover + delivery + packagesByn + fracTotal) * 100) / 100;
+        hintCore = "себест " + costSum + " ×" + coef + " +recover " + recover + " +9×" + n;
+      } else {
+        total = Math.round((costSum * coef + 11 + 6 * n + packagesByn + fracTotal) * 100) / 100;
+        hintCore = "себест " + costSum + " ×" + coef + " +11 +6×" + n;
+      }
       applySubDetailFact_(total,
-        "себест " + costSum + " ×" + coef + " +11 +6×" + n +
+        hintCore +
         (packagesByn ? (" +пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
         (fracTotal ? (" +фракт " + fracTotal) : "") +
         " → " + total + " BYN");
@@ -17905,11 +18027,11 @@
         var packsCached = (sheetPacks.fromManual || sheetPacks.fromSheet)
           ? sheetPacks.packagesByn
           : (Number(_subDetailCostCache.packagesByn) || sheetPacks.packagesByn || 0);
-        applyLocalPpFact_(_subDetailCostCache.cost, coef, n, packsCached, fracTotal, sheetPacks.hint);
+        applyLocalPpFact_(_subDetailCostCache.cost, coef, n, packsCached, fracTotal, sheetPacks.hint, list);
         return;
       }
 
-      if (hint) hint.textContent = "Считаю сырую себест… затем ×" + coef + " · N=" + n;
+      if (hint) hint.textContent = "Считаю сырую себест… затем ×" + coef + " · N=" + n + " · " + subDetailSchemeValue_();
       try {
         var slim = list.map(function (it) {
           return {
@@ -17941,6 +18063,7 @@
               action: "calcPpFact",
               deliveriesN: String(n),
               coef: String(coef),
+              scheme: subDetailSchemeValue_(),
               basket: basketJson,
               _: String(Date.now())
             };
@@ -17955,6 +18078,21 @@
                 if (!subDetailPacksManual) setSubDetailPackCounts_(pf.packCounts, { resetManual: true });
               }
               if (pf.fractionMarkup != null && !fracTotal) fracTotal = Number(pf.fractionMarkup) || 0;
+              if (pf.factCost != null && isFinite(Number(pf.factCost))) {
+                _subDetailCostCache = { fp: fp, cost: costSum, packagesByn: packagesByn };
+                if (seq !== _subDetailFactSeq) return;
+                var schHint = (pf.scheme === "RAW26")
+                  ? ("RAW26 · recover " + (pf.recoverByn || 0) + " · 9×" + n)
+                  : ("LEGACY · +11 +6×" + n);
+                applySubDetailFact_(
+                  Math.round(Number(pf.factCost) * 100) / 100,
+                  "себест " + (costSum != null ? costSum : "?") + " ×" + coef + " · " + schHint +
+                  (packagesByn ? (" +пакеты " + packagesByn) : "") +
+                  (fracTotal ? (" +фракт " + fracTotal) : "") +
+                  " → " + pf.factCost + " BYN"
+                );
+                return;
+              }
             }
           } catch (e1) {}
         }
@@ -17965,7 +18103,7 @@
         }
         _subDetailCostCache = { fp: fp, cost: costSum, packagesByn: packagesByn };
         if (seq !== _subDetailFactSeq) return;
-        applyLocalPpFact_(costSum, coef, n, packagesByn, fracTotal, packHint);
+        applyLocalPpFact_(costSum, coef, n, packagesByn, fracTotal, packHint, list);
       } catch (e) {
         if (seq !== _subDetailFactSeq) return;
         if (hint) hint.textContent = "Ошибка пересчёта: " + (e.message || e);
@@ -18163,8 +18301,9 @@
       applyBpStatusUi_(sheet, s.status || "");
       var wishesRaw0 = s.wishes || "";
       var coef0 = parsePpCoefFromWishes_(wishesRaw0);
+      var sch0 = parsePpSchemeFromWishes_(wishesRaw0) || "LEGACY";
       var dog0 = parseDogFromWishes_(wishesRaw0);
-      document.getElementById("subDetailWishes").value = stripDogFromWishes_(stripPpCoefFromWishes_(wishesRaw0));
+      document.getElementById("subDetailWishes").value = stripDogFromWishes_(stripPpMetaFromWishes_(wishesRaw0));
       fillSubDetailDogFields_(dog0);
       document.getElementById("subDetailAddress").value = "";
       document.getElementById("subDetailPhone").value = "";
@@ -18173,7 +18312,11 @@
       _subDetailStatedTouched = false;
       syncSubDetailPpPriceUi_(sheet);
       var coefEl0 = document.getElementById("subDetailCoef");
-      if (coefEl0) coefEl0.value = (coef0 != null) ? String(coef0) : "2.3";
+      if (coefEl0) {
+        coefEl0.value = (coef0 != null)
+          ? String(coef0)
+          : String(sch0 === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT);
+      }
       _subDetailCostCache = { fp: "", cost: null, packagesByn: 0 };
       _subDetailOpenedFp = "";
       _subDetailFactSeq++;
@@ -18191,7 +18334,8 @@
       var selCard = document.getElementById("subDetailSelectorCard");
       if (selCard) selCard.style.display = "none";
       syncSubDetailActions(sheet);
-      currentSubDetail = { nick: s.nick, label: s.label, subId: s.subId, sheet: sheet, wishes: s.wishes || "" };
+      currentSubDetail = { nick: s.nick, label: s.label, subId: s.subId, sheet: sheet, wishes: s.wishes || "", ppScheme: sch0, scheme: sch0 };
+      try { syncSubDetailSchemeUi_(); } catch (eSch0) {}
       try {
         var res = await apiGet({
           action: "getSubscription",
@@ -18218,11 +18362,16 @@
         document.getElementById("subDetailStatus").value = res.ppStatus || s.status || "";
         applyBpStatusUi_(res.sheet || sheet, res.ppStatus || s.status || "");
         var wishesRaw = res.wishes || s.wishes || "";
-        var cParsed = parsePpCoefFromWishes_(wishesRaw);
+        var cParsed = (res.coef != null && res.coef !== "") ? Number(res.coef) : parsePpCoefFromWishes_(wishesRaw);
+        if (!(isFinite(cParsed) && cParsed > 0)) cParsed = parsePpCoefFromWishes_(wishesRaw);
+        var schParsed = normalizePpSchemeLocal_(res.ppScheme || res.scheme) ||
+          parsePpSchemeFromWishes_(wishesRaw) || "LEGACY";
+        currentSubDetail.ppScheme = schParsed;
+        currentSubDetail.scheme = schParsed;
         var dogParsed = (res.dogName != null || res.dogBreed != null || res.dogWeight != null)
           ? { name: res.dogName || "", breed: res.dogBreed || "", weight: res.dogWeight || "" }
           : parseDogFromWishes_(wishesRaw);
-        document.getElementById("subDetailWishes").value = stripDogFromWishes_(stripPpCoefFromWishes_(wishesRaw));
+        document.getElementById("subDetailWishes").value = stripDogFromWishes_(stripPpMetaFromWishes_(wishesRaw));
         fillSubDetailDogFields_(dogParsed);
         document.getElementById("subDetailAddress").value = res.address || "";
         document.getElementById("subDetailPhone").value = res.phone || "";
@@ -18256,8 +18405,11 @@
         syncSubDetailPpPriceUi_(sheetNow);
         var coefEl = document.getElementById("subDetailCoef");
         if (coefEl && sheetNow === "ПП") {
-          coefEl.value = (cParsed != null) ? String(cParsed) : "2.3";
+          coefEl.value = (cParsed != null && isFinite(cParsed) && cParsed > 0)
+            ? String(cParsed)
+            : String(schParsed === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT);
         }
+        try { syncSubDetailSchemeUi_(); } catch (eSch) {}
         subDetailBasket = mapApiBasketToLocal(res.basket || []);
         if (!subDetailBasket.length && sheetNow !== "БП") {
           var emptyHint = document.getElementById("subDetailBasket");
@@ -18588,8 +18740,13 @@
         wishesSave = stampDogIntoWishes_(wishesSave, readSubDetailDogFields_());
         if (sheet === "ПП") {
           wishesSave = stampPpCoefIntoWishes_(wishesSave, subDetailCoefValue_());
+          var schSave = subDetailSchemeValue_();
+          // не вешаем [SCHEME:LEGACY] на старые карточки без тега — только RAW26 или уже был тег
+          if (schSave === "RAW26" || parsePpSchemeFromWishes_((currentSubDetail && currentSubDetail.wishes) || "")) {
+            wishesSave = stampPpSchemeIntoWishes_(wishesSave, schSave);
+          }
           var wEl = document.getElementById("subDetailWishes");
-          if (wEl) wEl.value = stripDogFromWishes_(stripPpCoefFromWishes_(wishesSave));
+          if (wEl) wEl.value = stripDogFromWishes_(stripPpMetaFromWishes_(wishesSave));
         }
         var dogSave = readSubDetailDogFields_();
         var statedSave = "";
@@ -18616,6 +18773,7 @@
           calcFactCost: sheet === "ПП" ? (document.getElementById("subDetailFact").value || "") : "",
           basket: basketPayload,
           coef: sheet === "ПП" ? String(subDetailCoefValue_()) : "",
+          scheme: sheet === "ПП" ? subDetailSchemeValue_() : "",
           dogName: dogSave.name,
           dogBreed: dogSave.breed,
           dogWeight: dogSave.weight,
@@ -18717,6 +18875,65 @@
     }
     window.saveSubDetail = saveSubDetail;
 
+    async function migrateSubDetailToRaw26_() {
+      var nick = (document.getElementById("subDetailNick").value || "").trim();
+      var label = (document.getElementById("subDetailLabel").value || "").trim();
+      var subId = (document.getElementById("subDetailSubId").value || "").trim();
+      var sheet = (document.getElementById("subDetailSheet").value || "").trim();
+      if (sheet !== "ПП") {
+        showToast("Только для ПП");
+        return;
+      }
+      if (!nick && !label && !subId) {
+        showToast("Нет ника");
+        return;
+      }
+      var ok = await uiConfirmAsync(
+        "Перевести на схему сырьё×2.6 + recover + 9×N?\n\n" +
+        "Указанная цена на карточке пересчитается.\n" +
+        "Уже стоящие доставки в календаре не меняются."
+      );
+      if (!ok) return;
+      try {
+        showToast("Перевожу…");
+        var tid = "";
+        try { tid = myTelegramId || readTelegramIdFromTg() || loadStoredTelegramId() || ""; } catch (eT) {}
+        var res = await apiGet({
+          action: "migratePpToRaw26Scheme",
+          nick: nick || label,
+          subId: subId,
+          telegramId: tid,
+          applyStated: "1",
+          _: String(Date.now())
+        }, { timeoutMs: 28000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          showToast((res && res.message) || "Не удалось — нужен Deploy Code.gs");
+          return;
+        }
+        if (currentSubDetail) {
+          currentSubDetail.ppScheme = "RAW26";
+          currentSubDetail.scheme = "RAW26";
+          currentSubDetail.wishes = stampPpSchemeIntoWishes_(
+            stampPpCoefIntoWishes_(stripPpMetaFromWishes_(currentSubDetail.wishes || ""), PP_RAW26_COEF_DEFAULT),
+            "RAW26"
+          );
+        }
+        var coefEl = document.getElementById("subDetailCoef");
+        if (coefEl) coefEl.value = String(res.coef || PP_RAW26_COEF_DEFAULT);
+        if (res.factCost != null) {
+          setSubDetailStatedPrice_(res.factCost);
+          applySubDetailFact_(res.factCost, "новая схема · " + res.factCost + " BYN");
+        }
+        syncSubDetailSchemeUi_();
+        _subDetailCostCache = { fp: "", cost: null, packagesByn: 0 };
+        try { await recalcSubDetailFactCost_(); } catch (eR) {}
+        showToast("Переведено · " + (res.factCost != null ? res.factCost + " BYN" : "ок"));
+      } catch (e) {
+        showToast("Ошибка сети / Deploy Code.gs");
+      }
+    }
+    window.migrateSubDetailToRaw26_ = migrateSubDetailToRaw26_;
+
     async function openSubDetailInOrder() {
       var nick = (document.getElementById("subDetailNick").value || document.getElementById("subDetailLabel").value || "").trim();
       if (!nick) return;
@@ -18748,9 +18965,11 @@
     var pricePpApiCache = null;
     var priceLiveTimer = null;
 
+    /** ПП: LEGACY сырьё×coef+11+6N · RAW26 сырьё×coef+recover+9N (с 2026-08-31 для новых) */
     var PRICE_PP_FIXED_BYN = 11;
     var PRICE_PP_DELIVERY_PER = 6;
     var PRICE_PP_COEF_DEFAULT = 2.3;
+    var pricePpScheme = "LEGACY";
 
     var PRICE_PACK_UNIT = { small: 0.34, medium: 0.56, large: 0.80, legs: 1.40 };
     var pricePackCounts = { small: 0, medium: 0, large: 0, legs: 0 };
@@ -18770,9 +18989,27 @@
 
     function getPricePpCoef() {
       var el = document.getElementById("pricePpCoef");
-      var v = el ? Number(el.value) : PRICE_PP_COEF_DEFAULT;
-      if (!isFinite(v) || v <= 0) v = PRICE_PP_COEF_DEFAULT;
+      var def = pricePpScheme === "RAW26" ? PP_RAW26_COEF_DEFAULT : PRICE_PP_COEF_DEFAULT;
+      var v = el ? Number(el.value) : def;
+      if (!isFinite(v) || v <= 0) v = def;
       return v;
+    }
+
+    function syncPricePpSchemeDefaults_() {
+      pricePpScheme = defaultPpSchemeForNewLocal_();
+      var hint = document.getElementById("pricePpSchemeHint");
+      if (hint) {
+        hint.textContent = pricePpScheme === "RAW26"
+          ? "· новые: сырьё×2.6 + recover + 9×N"
+          : "· пока старая схема (с " + PP_SCHEME_CUTOFF_YMD + " — новая)";
+      }
+      var cEl = document.getElementById("pricePpCoef");
+      if (cEl && !cEl.dataset.manual) {
+        cEl.value = String(pricePpScheme === "RAW26" ? PP_RAW26_COEF_DEFAULT : PRICE_PP_COEF_DEFAULT);
+      }
+      PRICE_PP_FIXED_BYN = pricePpScheme === "RAW26" ? 0 : 11;
+      PRICE_PP_DELIVERY_PER = pricePpScheme === "RAW26" ? PP_RAW26_DELIVERY_PER : PP_LEGACY_DELIVERY_PER;
+      PRICE_PP_COEF_DEFAULT = pricePpScheme === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT;
     }
 
     function updatePricePackModeHint_() {
@@ -18871,7 +19108,8 @@
       syncPricePacksFromBasket_();
       var nEl = document.getElementById("priceDeliveriesN");
       var deliveriesN = Math.max(1, Number(nEl && nEl.value) || 1);
-      var fp = priceBasketFingerprint(list) + "|N" + deliveriesN;
+      syncPricePpSchemeDefaults_();
+      var fp = priceBasketFingerprint(list) + "|N" + deliveriesN + "|S" + pricePpScheme;
       if (pricePpApiCache && pricePpApiCache.fingerprint === fp && pricePpApiCache.res) {
         renderPpResultFromApi(pricePpApiCache.res, list, null);
         return;
@@ -18883,6 +19121,7 @@
     function renderPpResultFromApi(res, list, retailCached) {
       var nEl = document.getElementById("priceDeliveriesN");
       var deliveriesN = Math.max(1, Number(nEl && nEl.value) || 1);
+      syncPricePpSchemeDefaults_();
       var coef = getPricePpCoef();
       var packagesByn = calcPricePacksByn();
       var packHint = pricePacksSummary();
@@ -18894,15 +19133,31 @@
         retail = calcRetailBasketTotal(list, { deliveriesN: deliveriesN });
       }
       var costSum = recalcPpCostSum(res, list);
-      var deliveryByn = PRICE_PP_DELIVERY_PER * deliveriesN;
       var fracMark = calcDressuraFractionMarkup(list, getPriceFracRates());
-
-      var subTotal = costSum * coef + PRICE_PP_FIXED_BYN + deliveryByn +
-        packagesByn + fracMark.total;
+      var subTotal;
+      var formulaHint;
+      if (pricePpScheme === "RAW26") {
+        var recover = recoverBynFromBasketLocal_(list);
+        var deliveryByn = PP_RAW26_DELIVERY_PER * deliveriesN;
+        subTotal = costSum * coef + recover + deliveryByn + packagesByn + fracMark.total;
+        formulaHint = "сырьё " + costSum + " × " + coef +
+          " + recover " + recover +
+          " + 9×" + deliveriesN + "(" + deliveryByn + ")" +
+          (packagesByn ? (" + пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
+          (fracMark.total ? (" + фракции " + fracMark.total) : "");
+      } else {
+        var deliveryL = PP_LEGACY_DELIVERY_PER * deliveriesN;
+        subTotal = costSum * coef + PP_LEGACY_FIXED + deliveryL + packagesByn + fracMark.total;
+        formulaHint = "себест. " + costSum + " × " + coef +
+          " + " + PP_LEGACY_FIXED +
+          " + 6×" + deliveriesN + "(" + deliveryL + ")" +
+          (packagesByn ? (" + пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
+          (fracMark.total ? (" + фракции " + fracMark.total) : "");
+      }
       var msg = composePpClientMessage(list, deliveriesN, clientNote, retail.total, subTotal);
       if (Number(costSum) > 0 || !(list || []).length) {
         pricePpApiCache = {
-          fingerprint: priceBasketFingerprint(list) + "|N" + deliveriesN,
+          fingerprint: priceBasketFingerprint(list) + "|N" + deliveriesN + "|S" + pricePpScheme,
           res: res,
           retail: retail
         };
@@ -18917,12 +19172,9 @@
           : " · дост. 0 (доля ≥" + (retail.freeFrom || 50) + ")") +
         " = <b>" + roundRub(retail.total) + " BYN</b>";
       renderPriceMessageBox(msg,
-        '<div class="card" style="margin-bottom:8px;font-size:13px;"><b>ПП</b>' + dogsHint + '<br>' +
-        "себест. " + costSum + " × " + coef +
-        " + " + PRICE_PP_FIXED_BYN +
-        " + 6×" + deliveriesN + "(" + deliveryByn + ")" +
-        (packagesByn ? (" + пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
-        (fracMark.total ? (" + фракции " + fracMark.total) : "") +
+        '<div class="card" style="margin-bottom:8px;font-size:13px;"><b>ПП</b>' +
+        (pricePpScheme === "RAW26" ? " · новая" : " · старая") + dogsHint + '<br>' +
+        formulaHint +
         " → <b>" + roundRub(subTotal) + " BYN/мес</b>" +
         (fracMark.details.length
           ? ('<div class="muted" style="margin-top:4px;font-size:12px;">' +
@@ -18931,7 +19183,8 @@
         "<br>розница " + retailHint + "</div>");
       return {
         pp: res, retail: retail, subTotal: subTotal, coef: coef,
-        costSum: costSum, fracMark: fracMark, packagesByn: packagesByn, message: msg
+        costSum: costSum, fracMark: fracMark, packagesByn: packagesByn,
+        scheme: pricePpScheme, message: msg
       };
     }
 
@@ -19253,6 +19506,9 @@
       if (bp) bp.style.display = "none";
       if (ret) ret.classList.toggle("active", mode === "retail");
       if (extras) extras.style.display = mode === "retail" ? "none" : "";
+      if (mode !== "retail") {
+        try { syncPricePpSchemeDefaults_(); } catch (eSchP) {}
+      }
       var toPpBtn = document.getElementById("btnPriceToPp");
       if (toPpBtn && !window._enrollDeferredId && !window._enrollDirect) {
         toPpBtn.style.display = mode === "retail" ? "none" : "";
@@ -20962,6 +21218,10 @@
       var deliveriesN = Number((document.getElementById("enrollDeliveriesN") || {}).value) ||
         Number((document.getElementById("priceDeliveriesN") || {}).value) || 1;
       try {
+        syncPricePpSchemeDefaults_();
+        var enrollScheme = pricePpScheme || defaultPpSchemeForNewLocal_();
+        var enrollCoef = getPricePpCoef();
+        wishes = stampPpSchemeIntoWishes_(stampPpCoefIntoWishes_(wishes, enrollCoef), enrollScheme);
         var body = {
           action: "enrollDeferredToPp",
           telegramId: tid,
@@ -20970,6 +21230,8 @@
           deliveriesN: deliveriesN,
           wishes: wishes,
           note: wishes,
+          scheme: enrollScheme,
+          coef: String(enrollCoef),
           address: (document.getElementById("enrollAddress") || {}).value || "",
           phone: (document.getElementById("enrollPhone") || {}).value || "",
           factCost: fact,
