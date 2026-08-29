@@ -7538,6 +7538,10 @@ function cutoverNeedsRevalidate_(a, params, fast, env) {
         (!Array.isArray(fast.month) || !fast.month.length));
     if (!empty) return false;
   }
+  if (isDeferredD1PrimaryCanon_(env) && a === "listDeferred") {
+    const empty = !fast || !Array.isArray(fast.items) || !fast.items.length;
+    if (!empty) return false;
+  }
   // calc/ping/suggest — не гоняем в GAS из UI
   if (/^(calc|ping|keepWarm|suggest|lookup)/i.test(a)) return false;
   const key =
