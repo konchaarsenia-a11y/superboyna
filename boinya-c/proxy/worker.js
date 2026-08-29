@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-29 ops-flags-d1-primary
+ * deploy-marker: 2026-08-29 deferred-d1-primary
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -186,6 +186,18 @@ function opsCanonLabel_(env) {
   return isOpsD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
 }
 
+/** Отложенные / переносы: D1 правда, Sheets зеркало. Откат: DEFERRED_CANON=sheets */
+function isDeferredD1PrimaryCanon_(env) {
+  const v = env && env.DEFERRED_CANON ? String(env.DEFERRED_CANON).trim().toLowerCase() : "";
+  if (v === "sheets" || v === "sheets-first" || v === "sheets-confirm-bg") return false;
+  if (v === "d1-primary" || v === "d1") return true;
+  return isD1PrimaryCanon_(env);
+}
+
+function deferredCanonLabel_(env) {
+  return isDeferredD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
+}
+
 function isWriteAction_(a) {
   if (!a) return false;
   // явные чтения / списки — не write (даже если имя начинается с partner*)
@@ -220,7 +232,8 @@ async function handleAction_(action, params, env, url, ctx) {
       d1: !!(env && env.DB),
       peopleCanon: peopleCanonLabel_(env),
       opsCanon: opsCanonLabel_(env),
-      deployMarker: "2026-08-29 ops-flags-d1-primary"
+      deferredCanon: deferredCanonLabel_(env),
+      deployMarker: "2026-08-29 deferred-d1-primary"
     };
   }
 
@@ -6511,6 +6524,7 @@ async function handleCutover_(a, params, env, ctx) {
 
       // --- non-core (deferred / transfer park): D1-first OK ---
       let d1WriteRes = null;
+      const deferredPrimary = isDeferredD1PrimaryCanon_(env);
       try {
         if (env && env.DB) {
           if (/^notifyMissedDelivery$/i.test(a)) {
@@ -6540,14 +6554,17 @@ async function handleCutover_(a, params, env, ctx) {
             } catch (eG) {
               proxied = null;
             }
-            try {
-              if (/^notifyMissedDelivery$/i.test(a) && env && env.DB && proxied) {
-                await syncOpsWriteToD1_(a, params, env, proxied);
-              }
-            } catch (eD1) {}
-            try {
-              await cutoverAfterWrite_(a, params, env, proxied || d1WriteRes);
-            } catch (eA) {}
+            // d1-primary: не подменять D1 id на GAS df_* и не revalidate list из Sheets
+            if (!deferredPrimary) {
+              try {
+                if (/^notifyMissedDelivery$/i.test(a) && env && env.DB && proxied) {
+                  await syncOpsWriteToD1_(a, params, env, proxied);
+                }
+              } catch (eD1) {}
+              try {
+                await cutoverAfterWrite_(a, params, env, proxied || d1WriteRes);
+              } catch (eA) {}
+            }
           })()
         );
       }
@@ -6557,7 +6574,8 @@ async function handleCutover_(a, params, env, ctx) {
           cutover: true,
           sandbox: false,
           d1Verified: true,
-          optimistic: true,
+          optimistic: !deferredPrimary,
+          deferredCanon: deferredCanonLabel_(env),
           action: a,
           parkedPlaced: /^placeTransferTask$/i.test(a) ? true : undefined
         });
@@ -6681,6 +6699,9 @@ async function handleCutover_(a, params, env, ctx) {
         d1Res.action = a;
         d1Res.cancelled = true;
         d1Res.tombstone = true;
+        d1Res.d1Verified = true;
+        d1Res.deferredCanon = deferredCanonLabel_(env);
+        d1Res.optimistic = false;
       } catch (eCan) {}
       const gasCanP = gasProxy_(a, params, env, { write: true }).catch(function () {
         return null;
@@ -7157,6 +7178,24 @@ async function handleCutover_(a, params, env, ctx) {
       try {
         await repairParkedTransfersFromOrders_(env);
       } catch (eRep0) {}
+      // d1-primary: сначала finalize D1 snap; GAS только cold-start
+      if (isDeferredD1PrimaryCanon_(env)) {
+        try {
+          const afterD1 = await getSnapRaw_(env, "listDeferred");
+          if (afterD1 && Array.isArray(afterD1.items) && afterD1.items.length) {
+            const finalD1 = await finalizeListDeferredPayload_(env, afterD1);
+            try {
+              await putSnap_(env, "listDeferred", finalD1);
+            } catch (eFaD1) {}
+            finalD1.cutover = true;
+            finalD1.fromD1 = true;
+            finalD1.deferredCanon = "d1-primary";
+            finalD1.swr = true;
+            finalD1.sandbox = false;
+            return finalD1;
+          }
+        } catch (eAfterD1) {}
+      }
       try {
         const liveDef = await gasProxy_("listDeferred", params || {}, env, { write: false });
         if (liveDef && liveDef.status === "success") {
@@ -7167,7 +7206,8 @@ async function handleCutover_(a, params, env, ctx) {
               await putSnap_(env, "listDeferred", finalDef);
             } catch (eDefStore) {}
             finalDef.cutover = true;
-            finalDef.fromGas = true;
+            finalDef.fromGas = !isDeferredD1PrimaryCanon_(env);
+            finalDef.fromD1 = !!isDeferredD1PrimaryCanon_(env);
             finalDef.swr = true;
             finalDef.sandbox = false;
             return finalDef;
@@ -7189,15 +7229,17 @@ async function handleCutover_(a, params, env, ctx) {
         }
       } catch (eAfter) {}
     } else if (a === "listDeferred" && snapXferN === 0 && ctx && typeof ctx.waitUntil === "function") {
-      // в фоне: восстановить transfer из deleted orders + merge GAS, не тормозя UI
+      // в фоне: восстановить transfer из deleted orders; GAS merge только без deferredCanon
       ctx.waitUntil(
         (async function () {
           try {
             await repairParkedTransfersFromOrders_(env);
           } catch (eR) {}
-          try {
-            await cutoverRevalidate_("listDeferred", params || {}, env);
-          } catch (eV) {}
+          if (!isDeferredD1PrimaryCanon_(env)) {
+            try {
+              await cutoverRevalidate_("listDeferred", params || {}, env);
+            } catch (eV) {}
+          }
         })()
       );
     }
@@ -7207,7 +7249,7 @@ async function handleCutover_(a, params, env, ctx) {
   if (
     fast &&
     (a === "getWarehouse" ||
-      a === "listDeferred" ||
+      (a === "listDeferred" && !isDeferredD1PrimaryCanon_(env)) ||
       (a === "getViewCompare" && !fast.fromSnap)) &&
     ((Array.isArray(fast.items) && !fast.items.length) ||
       (a === "getViewCompare" &&
@@ -7891,6 +7933,18 @@ async function cutoverStoreRead_(a, params, env, payload) {
     return;
   }
   if (a === "listDeferred") {
+    // d1-primary: snap меняют только write-handlers; GAS не затирает D1
+    if (isDeferredD1PrimaryCanon_(env)) {
+      try {
+        const prev = await getSnapRaw_(env, "listDeferred");
+        if (prev && Array.isArray(prev.items) && prev.items.length) {
+          const finalPrev = await finalizeListDeferredPayload_(env, prev);
+          await putSnap_(env, "listDeferred", finalPrev);
+          return;
+        }
+      } catch (ePrevDef) {}
+      // cold-start: только если snap пуст — один раз принять GAS
+    }
     // Критично: GAS/SWR без tid или до дописки строки затирали D1-задачи mode=transfer.
     // Клиента уже сняли с дня («Не получил») → человек «просто пропал».
     payload = await mergeListDeferredPayload_(env, payload);
@@ -8736,7 +8790,9 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
     ]);
     if (/subscription/i.test(a)) await cutoverRevalidate_("listSubscriptions", {}, env);
     if (/deferred|remind|missed|transfer/i.test(a)) {
-      await cutoverRevalidate_("listDeferred", params, env);
+      if (!isDeferredD1PrimaryCanon_(env)) {
+        await cutoverRevalidate_("listDeferred", params, env);
+      }
     }
     if (/cutting|warehouse|composeWarehouse|setWarehouse/i.test(a)) {
       await cutoverRevalidate_("warehousePreview", {}, env);
