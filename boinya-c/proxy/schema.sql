@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS cutting_flags (
   row_key TEXT NOT NULL,
   surplus REAL DEFAULT 0,
   done INTEGER DEFAULT 0,
+  laid INTEGER DEFAULT 0,
+  out_next INTEGER DEFAULT 0,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (date_iso, row_key)
 );
