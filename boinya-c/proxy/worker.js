@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-30 subs-d1-primary
+ * deploy-marker: 2026-08-30 warehouse-d1-primary
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -210,6 +210,18 @@ function subsCanonLabel_(env) {
   return isSubsD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
 }
 
+/** Склад: arrival (B) / ревизия F — D1 правда, Sheets зеркало. Preview/compose — GAS. Откат: WAREHOUSE_CANON=sheets */
+function isWarehouseD1PrimaryCanon_(env) {
+  const v = env && env.WAREHOUSE_CANON ? String(env.WAREHOUSE_CANON).trim().toLowerCase() : "";
+  if (v === "sheets" || v === "sheets-first" || v === "sheets-confirm-bg") return false;
+  if (v === "d1-primary" || v === "d1") return true;
+  return isD1PrimaryCanon_(env);
+}
+
+function warehouseCanonLabel_(env) {
+  return isWarehouseD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
+}
+
 /**
  * После finishFullWeek / force week sync: слоты дней в D1 = список GAS (replace).
  * Обычные save/move/delete не трогаем. Откат: WEEK_D1_SYNC=upsert
@@ -260,8 +272,9 @@ async function handleAction_(action, params, env, url, ctx) {
       opsCanon: opsCanonLabel_(env),
       deferredCanon: deferredCanonLabel_(env),
       subsCanon: subsCanonLabel_(env),
+      warehouseCanon: warehouseCanonLabel_(env),
       weekD1Sync: weekD1SyncLabel_(env),
-      deployMarker: "2026-08-30 subs-d1-primary"
+      deployMarker: "2026-08-30 warehouse-d1-primary"
     };
   }
 
@@ -6389,7 +6402,15 @@ async function handleCutover_(a, params, env, ctx) {
       proxiedFin &&
       (proxiedFin.status === "success" ||
         /week_already_finished|week_monday_repaired/i.test(String(proxiedFin.message || "")));
-    const refreshJob = cutoverRefreshAllWeekDays_(env).catch(function () {
+    const refreshJob = (async function () {
+      try {
+        await cutoverRefreshAllWeekDays_(env);
+      } catch (eRf0) {}
+      // склад после закрытия недели — GAS-authoritative replace snap
+      try {
+        await cutoverRevalidate_("getWarehouse", { force: "1" }, env);
+      } catch (eWhRf) {}
+    })().catch(function () {
       return null;
     });
     if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(refreshJob);
@@ -6822,6 +6843,48 @@ async function handleCutover_(a, params, env, ctx) {
         } catch (eG) {}
       }
       return d1Res;
+    }
+    // Склад: arrival/ревизия — D1 правда → Sheets зеркало (preview/compose остаются GAS)
+    if (
+      isWarehouseD1PrimaryCanon_(env) &&
+      /^(setWarehouseArrival|applyWarehouseRevision|zeroWarehouse)$/i.test(a)
+    ) {
+      let d1Wh = null;
+      try {
+        if (env && env.DB) {
+          if (/^setWarehouseArrival$/i.test(a)) d1Wh = await setWarehouseArrival_(params, env);
+          else if (/^applyWarehouseRevision$/i.test(a)) d1Wh = await applyWarehouseRevisionD1_(params, env);
+          else d1Wh = await zeroWarehouseD1_(params, env);
+        }
+      } catch (eWh) {
+        d1Wh = { status: "error", message: String((eWh && eWh.message) || eWh) };
+      }
+      const gasWhP = gasProxy_(a, params, env, { write: true }).catch(function () {
+        return null;
+      });
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasWhP);
+      else {
+        try {
+          await gasWhP;
+        } catch (eGWh) {}
+      }
+      if (d1Wh && d1Wh.status === "success") {
+        return Object.assign({}, d1Wh, {
+          cutover: true,
+          sandbox: false,
+          d1Verified: true,
+          optimistic: false,
+          warehouseCanon: warehouseCanonLabel_(env),
+          action: a
+        });
+      }
+      return {
+        status: "error",
+        message: (d1Wh && d1Wh.message) || "d1_write_failed",
+        cutover: true,
+        sandbox: false,
+        action: a
+      };
     }
     // Подписки ПП/АФК/БП: D1 правда → Sheets зеркало в фоне
     if (
@@ -7473,6 +7536,10 @@ async function handleCutover_(a, params, env, ctx) {
       fast.fromGas = false;
       fast.subsCanon = "d1-primary";
     }
+    if (a === "getWarehouse" && isWarehouseD1PrimaryCanon_(env)) {
+      fast.warehouseCanon = "d1-primary";
+      fast.fromD1 = true;
+    }
     fast.cutover = true;
     fast.swr = true;
     // D1-ответ для LIVE: не путать UI флагом sandbox
@@ -8096,6 +8163,15 @@ async function cutoverStoreRead_(a, params, env, payload) {
     return;
   }
   if (a === "getWarehouse") {
+    // d1-primary: не затирать arrival/stock, которые только что писал D1
+    if (isWarehouseD1PrimaryCanon_(env)) {
+      try {
+        const prevWh = await getSnapRaw_(env, "warehouse");
+        if (prevWh) {
+          payload = mergeWarehousePreserveD1_(prevWh, payload);
+        }
+      } catch (eWhMerge) {}
+    }
     await putSnap_(env, "warehouse", payload);
     return;
   }
@@ -9656,20 +9732,172 @@ async function mutateAccess_(action, params, env) {
 }
 
 async function setWarehouseArrival_(params, env) {
-  let wh = (await getSnapRaw_(env, "warehouse")) || { status: "success", items: [] };
-  const items = wh.items || wh.rows || [];
+  let wh = (await getSnapRaw_(env, "warehouse")) || { status: "success", rows: [], items: [] };
+  const items = (wh.rows || wh.items || []).slice();
   const row = Number(params.row);
-  const qty = Number(params.qty) || 0;
+  const qty = Number(params.qty != null ? params.qty : params.arrival) || 0;
+  if (!(row >= 2)) {
+    return { status: "error", message: "bad_row", row: row };
+  }
+  let hit = false;
   for (let i = 0; i < items.length; i++) {
     if (Number(items[i].row) === row) {
-      items[i].arrival = qty;
+      items[i] = Object.assign({}, items[i], {
+        arrival: qty,
+        _d1ArrivalAt: Date.now()
+      });
+      hit = true;
       break;
     }
   }
+  if (!hit) {
+    items.push({
+      row: row,
+      name: String(params.name || ""),
+      arrival: qty,
+      stock: 0,
+      coef: 0,
+      _d1ArrivalAt: Date.now()
+    });
+  }
+  wh.rows = items;
   wh.items = items;
-  wh.sandbox = true;
+  wh.status = "success";
+  wh._d1TouchedAt = Date.now();
   await putSnap_(env, "warehouse", wh);
-  return { status: "success", sandbox: true, wrote: 1 };
+  return { status: "success", wrote: 1, row: row, arrival: qty, d1Verified: true };
+}
+
+function warehouseRows_(wh) {
+  if (!wh) return [];
+  return (wh.rows || wh.items || []).slice();
+}
+
+/** GAS getWarehouse не должен откатывать свежие D1 arrival/stock. */
+function mergeWarehousePreserveD1_(prevWh, gasPayload) {
+  const prevRows = warehouseRows_(prevWh);
+  const gasRows = warehouseRows_(gasPayload);
+  if (!prevRows.length) return gasPayload;
+  const byRow = Object.create(null);
+  prevRows.forEach(function (r) {
+    if (r && r.row != null) byRow[Number(r.row)] = r;
+  });
+  const touched = Number((prevWh && prevWh._d1TouchedAt) || 0);
+  const freshMs = 15 * 60 * 1000;
+  const outRows = gasRows.map(function (g) {
+    const p = byRow[Number(g.row)];
+    if (!p) return g;
+    const out = Object.assign({}, g);
+    const pArrAt = Number(p._d1ArrivalAt || touched || 0);
+    if (pArrAt && Date.now() - pArrAt < freshMs && p.arrival != null) {
+      out.arrival = p.arrival;
+      out._d1ArrivalAt = pArrAt;
+    }
+    const pStAt = Number(p._d1StockAt || 0);
+    if (pStAt && Date.now() - pStAt < freshMs && p.stock != null) {
+      out.stock = p.stock;
+      out._d1StockAt = pStAt;
+      if (p.arrival === 0 || p.arrival === "0") out.arrival = 0;
+    }
+    return out;
+  });
+  // строки только в D1 (ещё не в GAS ответе)
+  prevRows.forEach(function (p) {
+    if (!p || p.row == null) return;
+    if (!outRows.some(function (g) {
+      return Number(g.row) === Number(p.row);
+    })) {
+      outRows.push(p);
+    }
+  });
+  const out = Object.assign({}, gasPayload, {
+    rows: outRows,
+    items: outRows,
+    _d1TouchedAt: touched || gasPayload._d1TouchedAt
+  });
+  return out;
+}
+
+async function applyWarehouseRevisionD1_(params, env) {
+  let wh = (await getSnapRaw_(env, "warehouse")) || { status: "success", rows: [], items: [] };
+  let items = warehouseRows_(wh);
+  let rev = params.items || params.rows || params.revisions || [];
+  if (typeof rev === "string") {
+    try {
+      rev = JSON.parse(rev);
+    } catch (eJ) {
+      rev = [];
+    }
+  }
+  if (!Array.isArray(rev)) rev = [];
+  const now = Date.now();
+  const updated = [];
+  for (let i = 0; i < rev.length; i++) {
+    const it = rev[i] || {};
+    let row = Number(it.row) || 0;
+    const qty = Number(it.qty != null ? it.qty : it.stock) || 0;
+    const nameKey = String(it.name || "")
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, " ");
+    let idx = -1;
+    for (let j = 0; j < items.length; j++) {
+      if (row >= 2 && Number(items[j].row) === row) {
+        idx = j;
+        break;
+      }
+      if (
+        nameKey &&
+        String(items[j].name || "")
+          .trim()
+          .toUpperCase()
+          .replace(/\s+/g, " ") === nameKey
+      ) {
+        idx = j;
+        row = Number(items[j].row) || row;
+        break;
+      }
+    }
+    if (idx < 0 && row >= 2) {
+      items.push({ row: row, name: it.name || "", stock: qty, arrival: 0, _d1StockAt: now });
+      updated.push({ row: row, qty: qty });
+      continue;
+    }
+    if (idx < 0) continue;
+    items[idx] = Object.assign({}, items[idx], {
+      stock: qty,
+      arrival: 0,
+      _d1StockAt: now,
+      _d1ArrivalAt: now
+    });
+    updated.push({ row: Number(items[idx].row), qty: qty });
+  }
+  wh.rows = items;
+  wh.items = items;
+  wh.status = "success";
+  wh._d1TouchedAt = now;
+  await putSnap_(env, "warehouse", wh);
+  return { status: "success", wrote: updated.length, updated: updated, d1Verified: true };
+}
+
+async function zeroWarehouseD1_(params, env) {
+  let wh = (await getSnapRaw_(env, "warehouse")) || { status: "success", rows: [], items: [] };
+  const items = warehouseRows_(wh).map(function (r) {
+    return Object.assign({}, r, {
+      stock: 0,
+      arrival: 0,
+      weekStart: 0,
+      asOfStock: 0,
+      _d1StockAt: Date.now(),
+      _d1ArrivalAt: Date.now()
+    });
+  });
+  wh.rows = items;
+  wh.items = items;
+  wh.status = "success";
+  wh._d1TouchedAt = Date.now();
+  await putSnap_(env, "warehouse", wh);
+  return { status: "success", wrote: items.length, zeroed: true, d1Verified: true };
 }
 
 function json(obj, status) {
