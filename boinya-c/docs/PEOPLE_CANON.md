@@ -22,13 +22,17 @@
 | флаги нарезки/курьера/сборки | **D1 сразу** → Sheets зеркало | `d1Verified` / `opsCanon: d1-primary` |
 | отложенные / переносы (`listDeferred`, notifyMissed, place, cancel) | **D1 сразу** → Sheets зеркало; GAS не затирает snap | `deferredCanon: d1-primary` |
 | подписки ПП/АФК/БП (`list`/`get`/`save`/`move`/`delete`) | **D1 сразу** → Sheets зеркало; GAS не затирает snap | `subsCanon: d1-primary` |
-| склад arrival/ревизия (`setWarehouseArrival`, `applyWarehouseRevision`, `zeroWarehouse`) | **D1 сразу** → Sheets зеркало; preview/compose/finish F/B — GAS | `warehouseCanon: d1-primary` |
+| склад arrival/ревизия + **preview/check/compose** | **D1 compute** (stock+arrival, dry÷coef); finish F/B — GAS | `warehouseCanon: d1-primary` |
+| `setWeekBannerState` / cutting sessions | **D1** + Sheets фон | ops/meta |
+| `lookupBpPartner` | **D1** из подписок; miss → GAS | — |
+| `finishFullWeek` / materialize / pull | **GAS** (закрытие недели); D1 resync + protectMs 5м | `weekD1Sync` |
+| TG / Goodboy `gb*` / Varka | **GAS** | — |
 | доступы / шаблоны / опросники CRUD | **D1 сразу** → Sheets зеркало; `forceSurveyRemind`/TG — GAS | `metaCanon: d1-primary` |
 | структура нарезки (план items) | **D1 fromOrders** / rebuild; флаги — ops; finish → rebuild + row-map GAS | `cuttingStructCanon: d1-primary` |
 | розничный прайс + `calcPrice(retail)` + ПП `calcPpFact`/`calcPrice(pp)` | **D1** (ПП: кэш unit costs + формула; cold GAS warm) | `priceCanon: d1-primary` |
 | `getPpFactCost` / `getPpOrderSuggest` (в т.ч. N≥2) / `migratePpToRaw26Scheme` | **D1** (слоты/half-basket из orders+якорь); cold miss/`force` → GAS; migrate Sheets в фоне | `priceCanon` / `subsCanon` |
-| `warehousePreview` / `composeWarehouseBuyMessage` | **D1 snap-first** + SWR; `force`/miss → GAS (формулы листа) | `warehouseCanon` |
-| `finishFullWeek` / materialize / pull | **GAS** исполняет; D1 resync gas-authoritative **с protectMs 5м** (свежие D1 save не сносит) | `weekD1Sync` |
+| `warehousePreview` / `checkOrderWarehouse` / `composeWarehouseBuyMessage` | **D1 compute** (не формулы листа); cold empty warehouse → GAS | `warehouseCanon` |
+| `finishFullWeek` / materialize / pull | **GAS** (закрытие недели); D1 resync + protectMs 5м | `weekD1Sync` |
 | TG / Goodboy `gb*` / Varka partner writes | **GAS** (отдельные продукты) | — |
 
 **Запрещено** без явного отката (`PEOPLE_CANON=sheets-confirm-bg`):

@@ -210,7 +210,7 @@ function subsCanonLabel_(env) {
   return isSubsD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
 }
 
-/** Склад: arrival (B) / ревизия F — D1 правда, Sheets зеркало. Preview/compose — GAS. Откат: WAREHOUSE_CANON=sheets */
+/** Склад: arrival/ревизия/zero + preview/check/compose — D1 compute; finish F/B — GAS. Откат: WAREHOUSE_CANON=sheets */
 function isWarehouseD1PrimaryCanon_(env) {
   const v = env && env.WAREHOUSE_CANON ? String(env.WAREHOUSE_CANON).trim().toLowerCase() : "";
   if (v === "sheets" || v === "sheets-first" || v === "sheets-confirm-bg") return false;
@@ -313,7 +313,7 @@ async function handleAction_(action, params, env, url, ctx) {
       cuttingStructCanon: cuttingStructCanonLabel_(env),
       priceCanon: priceCanonLabel_(env),
       weekD1Sync: weekD1SyncLabel_(env),
-      deployMarker: "2026-08-30 zero-conflict-d1"
+      deployMarker: "2026-08-30 warehouse-plan-d1"
     };
   }
 
@@ -7156,6 +7156,78 @@ async function handleCutover_(a, params, env, ctx) {
       proxiedPull.d1SyncStarted = true;
       return partnerGuardOrRewrite_(a, params, proxiedPull);
     }
+    // Баннер недели + сессии нарезки — D1 (не week-close)
+    if (/^setWeekBannerState$/i.test(a)) {
+      const body = {
+        status: "success",
+        finished: !!toBool_(params.finished),
+        pulled: !!toBool_(params.pulled),
+        refused: !!toBool_(params.refused),
+        weekKey: params.weekKey || "",
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        sandbox: false,
+        d1Verified: true,
+        _savedAt: Date.now()
+      };
+      await putSnap_(env, "weekBanner", body);
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(
+          gasProxy_(a, params, env, { write: true }).catch(function () {
+            return null;
+          })
+        );
+      }
+      return body;
+    }
+    if (/^(startCuttingSession|stopCuttingSession|finishCutting|prepareFinishCutting)$/i.test(a)) {
+      const day = String((params && params.day) || "").trim() || "Понедельник";
+      let cut = (await getSnapRaw_(env, "cutting:" + day)) || {
+        status: "success",
+        day: day,
+        items: [],
+        clients: []
+      };
+      const now = Date.now();
+      const sess = Object.assign({}, cut.session || {}, {
+        action: a,
+        at: now,
+        active: /^startCuttingSession$/i.test(a),
+        finished: /^finishCutting$/i.test(a),
+        prepared: /^prepareFinishCutting$/i.test(a)
+      });
+      cut.session = sess;
+      cut.status = "success";
+      cut.day = day;
+      await putSnap_(env, "cutting:" + day, cut);
+      const okSess = {
+        status: "success",
+        action: a,
+        day: day,
+        session: sess,
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        sandbox: false,
+        d1Verified: true,
+        pendingSheets: true
+      };
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(
+          gasProxy_(a, params, env, { write: true })
+            .then(async function (live) {
+              try {
+                await syncOpsWriteToD1_(a, params, env, live || {});
+              } catch (e) {}
+            })
+            .catch(function () {
+              return null;
+            })
+        );
+      }
+      return okSess;
+    }
     const proxied = await gasProxy_(a, params, env, { write: true });
     if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
     try {
@@ -7355,6 +7427,9 @@ async function handleCutover_(a, params, env, ctx) {
     }
     if (a === "getTransferTask") {
       return getTransferTaskCutover_(params, env);
+    }
+    if (a === "lookupBpPartner") {
+      return lookupBpPartnerD1_(params, env, ctx);
     }
     // Розница: прайс + calc из D1
     if (isPriceD1PrimaryCanon_(env) && a === "getRetailPriceList") {
@@ -11206,44 +11281,366 @@ async function migratePpToRaw26SchemeD1_(params, env, ctx) {
 }
 
 
+
+function matchWarehouseRowD1_(rows, cutName) {
+  const want = cutNameKey_(cutName);
+  const fuzzy = cutFuzzyKey_(cutName);
+  let best = null;
+  for (let i = 0; i < (rows || []).length; i++) {
+    const r = rows[i];
+    const nm = cutNameKey_(r && r.name);
+    if (!nm) continue;
+    if (nm === want) return r;
+    if (cutFuzzyKey_(r.name) === fuzzy) best = best || r;
+  }
+  return best;
+}
+
+function todayIsoMinskD1_() {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Minsk",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(new Date());
+  } catch (e) {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+async function loadWeekDayMetasD1_(env) {
+  const days = [];
+  for (let i = 0; i < WEEK_DAYS.length; i++) {
+    const day = WEEK_DAYS[i];
+    const info = await dayDateInfo_(env, day);
+    days.push({
+      day: day,
+      date: (info && info.date) || "",
+      iso: (info && info.iso) || ""
+    });
+  }
+  return days;
+}
+
+async function loadPeopleForDaysD1_(env, dayMetas) {
+  const people = [];
+  if (!env || !env.DB) return people;
+  for (let i = 0; i < (dayMetas || []).length; i++) {
+    const meta = dayMetas[i];
+    const day = meta.day;
+    const iso = meta.iso;
+    try {
+      let rows = [];
+      if (day) {
+        const q = await env.DB.prepare(
+          "SELECT client, match_key, basket_json, note, date_iso, day_name FROM orders WHERE status = 'active' AND day_name = ? LIMIT 200"
+        )
+          .bind(day)
+          .all();
+        rows = (q && q.results) || [];
+      }
+      if (iso) {
+        const q2 = await env.DB.prepare(
+          "SELECT client, match_key, basket_json, note, date_iso, day_name FROM orders WHERE status = 'active' AND date_iso = ? AND (day_name = '' OR day_name IS NULL) LIMIT 200"
+        )
+          .bind(iso)
+          .all();
+        rows = rows.concat((q2 && q2.results) || []);
+      }
+      rows.forEach(function (r) {
+        let basket = [];
+        try {
+          basket = JSON.parse(r.basket_json || "[]");
+        } catch (eB) {
+          basket = [];
+        }
+        people.push({
+          name: r.client,
+          matchKey: r.match_key,
+          basket: basket,
+          note: r.note || "",
+          noCut: /\[НЕ\s*РЕЗАТЬ\]/i.test(String(r.note || "")),
+          dateIso: r.date_iso || iso || "",
+          day: r.day_name || day || ""
+        });
+      });
+    } catch (eDay) {}
+  }
+  return people;
+}
+
+function accumulateDryNeedD1_(people, warehouseRows) {
+  const dryByKey = Object.create(null);
+  const metaByKey = Object.create(null);
+  (people || []).forEach(function (p) {
+    if (p && (p.noCut || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(p.note || "")))) return;
+    (p.basket || []).forEach(function (it) {
+      const cname = cuttingNameFromBasketItem_(it);
+      if (!cname) return;
+      const val = Number(it.value != null ? it.value : it.val) || 0;
+      if (!(val > 0)) return;
+      const wh = matchWarehouseRowD1_(warehouseRows, cname) || matchWarehouseRowD1_(warehouseRows, it.main || it.name);
+      const key = wh ? cutNameKey_(wh.name) : cutNameKey_(cname);
+      if (!key) return;
+      dryByKey[key] = (dryByKey[key] || 0) + val;
+      if (!metaByKey[key]) {
+        metaByKey[key] = {
+          name: (wh && wh.name) || cname,
+          row: wh ? wh.row : 0,
+          unit: wh ? wh.unit : isPieceSku_(cname, it.cat, it.unit) ? "шт" : "кг",
+          coef: wh ? Number(wh.coef) || 0.2 : 0.2,
+          piece: isPieceSku_((wh && wh.name) || cname, it.cat, (wh && wh.unit) || it.unit),
+          stock: wh ? Number(wh.stock) || 0 : 0,
+          arrival: wh ? Number(wh.arrival) || 0 : 0
+        };
+      }
+    });
+  });
+  return { dryByKey: dryByKey, metaByKey: metaByKey };
+}
+
+async function surplusByWarehouseD1_(env, dayMetas, warehouseRows) {
+  const out = Object.create(null);
+  for (let i = 0; i < (dayMetas || []).length; i++) {
+    const day = dayMetas[i].day;
+    try {
+      const cut = await getSnapRaw_(env, "cutting:" + day);
+      (cut && cut.items ? cut.items : []).forEach(function (it) {
+        const sur = Number(it.surplus) || 0;
+        if (!(sur > 0)) return;
+        const wh = matchWarehouseRowD1_(warehouseRows, it.name);
+        const key = wh ? cutNameKey_(wh.name) : cutNameKey_(it.name);
+        if (!key) return;
+        out[key] = (out[key] || 0) + sur;
+      });
+    } catch (eC) {}
+  }
+  return out;
+}
+
+function round2_(n) {
+  return Math.round(Number(n) * 100) / 100;
+}
+
+async function computeWarehouseWeekPlanD1_(env, opts) {
+  opts = opts || {};
+  let wh = await getSnapRaw_(env, "warehouse");
+  if (!wh || !warehouseRows_(wh).length) {
+    try {
+      const live = await gasProxy_("getWarehouse", {}, env, { write: false });
+      if (live && live.status === "success") {
+        wh = live;
+        try {
+          await putSnap_(env, "warehouse", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+        } catch (eS) {}
+      }
+    } catch (eW) {}
+  }
+  const rows = warehouseRows_(wh);
+  if (!rows.length) return { ok: false, message: "no_warehouse" };
+
+  const asOf = String(opts.asOf || todayIsoMinskD1_()).slice(0, 10);
+  const dateFrom = String(opts.dateFrom || "").slice(0, 10);
+  const dateTo = String(opts.dateTo || "").slice(0, 10);
+  const dayMetas = await loadWeekDayMetasD1_(env);
+  const activeDays = dayMetas.filter(function (d) {
+    return !!d.iso;
+  });
+  const needMetas = activeDays.filter(function (d) {
+    if (dateFrom && d.iso < dateFrom) return false;
+    if (dateTo && d.iso > dateTo) return false;
+    return d.iso >= asOf;
+  });
+  const priorMetas = activeDays.filter(function (d) {
+    return d.iso && d.iso < asOf && (!dateFrom || d.iso >= dateFrom);
+  });
+
+  const needPeople = await loadPeopleForDaysD1_(env, needMetas.length ? needMetas : activeDays);
+  const priorPeople = await loadPeopleForDaysD1_(env, priorMetas);
+  // optional extra basket (check order)
+  if (opts.extraBasket && opts.extraBasket.length) {
+    needPeople.push({
+      name: opts.extraClient || "order",
+      basket: opts.extraBasket,
+      note: "",
+      dateIso: opts.extraDateIso || asOf,
+      day: opts.extraDay || ""
+    });
+  }
+
+  const needAcc = accumulateDryNeedD1_(needPeople, rows);
+  const priorAcc = accumulateDryNeedD1_(priorPeople, rows);
+  const surplus = await surplusByWarehouseD1_(env, activeDays, rows);
+
+  const plan = [];
+  const deficits = [];
+  const buyList = [];
+  const withPlan = [];
+
+  rows.forEach(function (r) {
+    const key = cutNameKey_(r.name);
+    const meta = needAcc.metaByKey[key] || {
+      name: r.name,
+      row: r.row,
+      unit: r.unit || "кг",
+      coef: Number(r.coef) || 0.2,
+      piece: isPieceSku_(r.name, "", r.unit),
+      stock: Number(r.stock) || 0,
+      arrival: Number(r.arrival) || 0
+    };
+    const dryG = Number(needAcc.dryByKey[key]) || 0;
+    const priorDryG = Number(priorAcc.dryByKey[key]) || 0;
+    const sur = Number(surplus[key]) || 0;
+    const coef = Number(meta.coef) || Number(r.coef) || 0.2;
+    const piece = !!meta.piece || isPieceSku_(r.name, "", r.unit);
+    const stockStart = (Number(r.stock) || 0) + (Number(r.arrival) || 0);
+    let needRaw = 0;
+    let priorRaw = 0;
+    if (piece) {
+      needRaw = dryG + sur;
+      priorRaw = priorDryG;
+    } else {
+      needRaw = (dryG / 1000) / (coef || 0.2) + sur;
+      priorRaw = (priorDryG / 1000) / (coef || 0.2);
+    }
+    needRaw = round2_(needRaw);
+    priorRaw = round2_(priorRaw);
+    const available = round2_(Math.max(0, stockStart - priorRaw));
+    const deficit = round2_(Math.max(0, needRaw - available));
+    const rowPlan = {
+      row: r.row,
+      name: r.name,
+      unit: piece ? "шт" : r.unit || "кг",
+      piece: piece,
+      coef: coef,
+      stock: Number(r.stock) || 0,
+      arrival: Number(r.arrival) || 0,
+      stockStart: round2_(stockStart),
+      dryG: round2_(dryG),
+      priorDryG: round2_(priorDryG),
+      surplus: round2_(sur),
+      needRaw: needRaw,
+      priorRaw: priorRaw,
+      available: available,
+      deficit: deficit,
+      buy: !!r.buy
+    };
+    plan.push(rowPlan);
+    if (needRaw > 0 || dryG > 0) withPlan.push(rowPlan);
+    if (deficit > 0) {
+      deficits.push(rowPlan);
+      buyList.push({
+        name: r.name,
+        need: deficit,
+        needRaw: deficit,
+        available: available,
+        unit: rowPlan.unit,
+        row: r.row
+      });
+    }
+  });
+
+  const isos = activeDays.map(function (d) {
+    return d.iso;
+  }).filter(Boolean);
+  const rangeFrom = dateFrom || (isos.length ? isos.slice().sort()[0] : asOf);
+  const rangeTo = dateTo || (isos.length ? isos.slice().sort().slice(-1)[0] : asOf);
+
+  return {
+    ok: true,
+    deficits: deficits,
+    plan: plan,
+    withPlan: withPlan,
+    buyList: buyList,
+    days: activeDays,
+    activeDays: needMetas,
+    dateFrom: rangeFrom,
+    dateTo: rangeTo,
+    asOf: asOf,
+    rangeLabel: rangeFrom + " — " + rangeTo,
+    note: "D1 plan: stock+arrival − prior, need = dry÷coef (+surplus cutting)",
+    writeOffNote: "Галочки нарезки НЕ списывают склад. Списание F — только при Завершить неделю.",
+    fromD1Compute: true
+  };
+}
+
+function composeWarehouseBuyMessageFromPlanD1_(pack) {
+  pack = pack || {};
+  const defs = pack.deficits || [];
+  const lines = [];
+  lines.push("🛒 Дозакуп сырья");
+  let rangeLab = "";
+  if (pack.dateFrom || pack.dateTo) rangeLab = String(pack.dateFrom || "…") + " — " + String(pack.dateTo || "…");
+  else if (pack.rangeLabel) rangeLab = String(pack.rangeLabel);
+  if (rangeLab) lines.push("Период: " + rangeLab);
+  else lines.push("Под план выбранных дат:");
+  lines.push("«Нужно» = сырьё (сухое ÷ коэф усушки), не граммы с заказа.");
+  lines.push("");
+  if (!defs.length) {
+    lines.push("Нехватки нет (остаток покрывает план).");
+    return lines.join("\n");
+  }
+  defs.forEach(function (d) {
+    const unit = d.unit || "кг";
+    let line =
+      "· " + d.name + " — нужно " + d.needRaw + " " + unit + ", есть " + d.available + " " + unit;
+    if (!d.piece && d.dryG > 0) {
+      line +=
+        " (план " +
+        (d.dryG >= 1000 ? round2_(d.dryG / 1000) + " кг" : round2_(d.dryG) + " г") +
+        " сухого)";
+    }
+    lines.push(line);
+  });
+  lines.push("");
+  lines.push("Бойня-Конвейер · склад");
+  return lines.join("\n");
+}
+
 async function warehousePreviewD1_(params, env, ctx) {
   const force =
     String((params && params.force) || "") === "1" ||
     (params && (params.force === true || params.force === 1 || params.refresh));
-  const hasRange = !!(params && (params.dateFrom || params.from || params.dateTo || params.to || params.asOf));
-  if (!force) {
-    const snap = await getSnapRaw_(env, "warehousePreview");
-    if (snap && snap.status === "success" && (Array.isArray(snap.deficits) || Array.isArray(snap.plan))) {
-      if (ctx && typeof ctx.waitUntil === "function" && !hasRange) {
-        ctx.waitUntil(
-          gasProxy_("warehousePreview", params || {}, env, { write: false })
-            .then(async function (live) {
-              if (live && live.status === "success") {
-                try {
-                  await putSnap_(
-                    env,
-                    "warehousePreview",
-                    Object.assign({}, live, { cachedAt: new Date().toISOString() })
-                  );
-                } catch (e) {}
-              }
-            })
-            .catch(function () {
-              return null;
-            })
-        );
-      }
-      return Object.assign({}, snap, {
+  // D1 compute — основной путь (force тоже D1, без GAS)
+  try {
+    const pack = await computeWarehouseWeekPlanD1_(env, {
+      asOf: (params && (params.asOf || params.asOfDate)) || "",
+      dateFrom: (params && (params.dateFrom || params.from)) || "",
+      dateTo: (params && (params.dateTo || params.to)) || ""
+    });
+    if (pack && pack.ok) {
+      const msg = composeWarehouseBuyMessageFromPlanD1_(pack);
+      const out = {
+        status: "success",
+        deficits: pack.deficits || [],
+        plan: pack.plan || [],
+        withPlan: pack.withPlan || [],
+        buyList: pack.buyList || [],
+        days: pack.days || [],
+        activeDays: pack.activeDays || [],
+        dateFrom: pack.dateFrom || "",
+        dateTo: pack.dateTo || "",
+        asOf: pack.asOf || "",
+        rangeLabel: pack.rangeLabel || "",
+        note: pack.note || "",
+        messageText: msg,
+        writeOffNote: pack.writeOffNote || "",
         cutover: true,
         fromD1: true,
         fromGas: false,
         sandbox: false,
         warehouseCanon: "d1-primary",
         d1Verified: true,
-        swr: true
-      });
+        fromD1Compute: true
+      };
+      try {
+        await putSnap_(env, "warehousePreview", Object.assign({}, out, { cachedAt: new Date().toISOString() }));
+      } catch (eS) {}
+      return out;
     }
-  }
+  } catch (eComp) {}
+  // cold: нет склада в D1 — один раз GAS
   const live = await gasProxy_("warehousePreview", params || {}, env, { write: false });
   if (live && live.status === "success" && env && env.DB) {
     try {
@@ -11261,34 +11658,52 @@ async function warehousePreviewD1_(params, env, ctx) {
 }
 
 async function checkOrderWarehouseD1_(params, env, ctx) {
-  const force =
-    String((params && params.force) || "") === "1" ||
-    (params && (params.force === true || params.force === 1));
-  // Дефицит по формулам недели — пока GAS. D1: быстрый soft «нет данных» не врём.
-  // Если есть свежий warehousePreview без дефицитов по тем же asOf — можно сказать ok.
-  if (!force) {
-    const snap = await getSnapRaw_(env, "warehousePreview");
-    if (
-      snap &&
-      snap.status === "success" &&
-      Array.isArray(snap.deficits) &&
-      snap.deficits.length === 0 &&
-      (!params || !params.basket)
-    ) {
+  let basket = params && params.basket;
+  if (typeof basket === "string") {
+    try {
+      basket = JSON.parse(basket);
+    } catch (eB) {
+      basket = [];
+    }
+  }
+  if (!Array.isArray(basket)) basket = [];
+  try {
+    const pack = await computeWarehouseWeekPlanD1_(env, {
+      asOf: todayIsoMinskD1_(),
+      dateFrom: (params && (params.date || params.dayDate)) || "",
+      dateTo: (params && (params.date || params.dayDate)) || "",
+      extraBasket: basket,
+      extraClient: (params && params.client) || "",
+      extraDay: (params && params.day) || ""
+    });
+    if (pack && pack.ok) {
+      const defs = pack.deficits || [];
+      const alert =
+        defs.length > 0
+          ? {
+              count: defs.length,
+              clientCount: defs.length,
+              items: defs.slice(0, 12).map(function (d) {
+                return { name: d.name, need: d.deficit, unit: d.unit };
+              }),
+              client: (params && params.client) || "",
+              day: (params && params.day) || ""
+            }
+          : null;
       return {
         status: "success",
-        warehouseAlert: null,
-        hasDeficit: false,
+        warehouseAlert: alert,
+        hasDeficit: defs.length > 0,
         cutover: true,
         fromD1: true,
         fromGas: false,
         sandbox: false,
         warehouseCanon: "d1-primary",
         d1Verified: true,
-        soft: true
+        fromD1Compute: true
       };
     }
-  }
+  } catch (eC) {}
   const live = await gasProxy_("checkOrderWarehouse", params || {}, env, { write: false });
   if (live && typeof live === "object") {
     live.cutover = true;
@@ -11301,38 +11716,30 @@ async function checkOrderWarehouseD1_(params, env, ctx) {
 }
 
 async function composeWarehouseBuyMessageD1_(params, env, ctx) {
-  // Текст дозакупа строится из plan/deficits preview. Если snap есть — собрать локально.
-  const snap = await getSnapRaw_(env, "warehousePreview");
-  if (snap && snap.status === "success") {
-    const buy = Array.isArray(snap.buyList) ? snap.buyList : [];
-    const deficits = Array.isArray(snap.deficits) ? snap.deficits : [];
-    let msg = String(snap.messageText || "").trim();
-    if (!msg) {
-      const lines = [];
-      (buy.length ? buy : deficits).forEach(function (it) {
-        const name = (it && (it.name || it.item || it.sku)) || "";
-        const need = it && (it.need != null ? it.need : it.qty != null ? it.qty : it.deficit);
-        if (!name) return;
-        lines.push("• " + name + (need != null ? " — " + need : ""));
-      });
-      if (lines.length) msg = "Дозакуп:\\n" + lines.join("\\n");
-    }
-    if (msg) {
+  try {
+    const pack = await computeWarehouseWeekPlanD1_(env, {
+      asOf: (params && (params.asOf || params.asOfDate)) || "",
+      dateFrom: (params && (params.dateFrom || params.from)) || "",
+      dateTo: (params && (params.dateTo || params.to)) || ""
+    });
+    if (pack && pack.ok) {
+      const msg = composeWarehouseBuyMessageFromPlanD1_(pack);
       return {
         status: "success",
         messageText: msg,
         message: msg,
-        buyList: buy,
-        deficits: deficits,
+        buyList: pack.buyList || [],
+        deficits: pack.deficits || [],
         cutover: true,
         fromD1: true,
         fromGas: false,
         sandbox: false,
         warehouseCanon: "d1-primary",
-        d1Verified: true
+        d1Verified: true,
+        fromD1Compute: true
       };
     }
-  }
+  } catch (e) {}
   const live = await gasProxy_("composeWarehouseBuyMessage", params || {}, env, { write: false });
   if (live && typeof live === "object") {
     live.cutover = true;
@@ -11341,6 +11748,46 @@ async function composeWarehouseBuyMessageD1_(params, env, ctx) {
     live.sandbox = false;
   }
   return live || { status: "error", message: "gas_proxy_failed", cutover: true, action: "composeWarehouseBuyMessage" };
+}
+
+async function lookupBpPartnerD1_(params, env, ctx) {
+  const nick = String((params && (params.nick || params.client || params.q || params.query)) || "")
+    .trim()
+    .toLowerCase();
+  if (!nick) {
+    return { status: "success", partner: "", items: [], cutover: true, fromD1: true };
+  }
+  try {
+    const list = await getSnapRaw_(env, "listSubscriptions");
+    const arr = (list && (list.subscriptions || list.items)) || [];
+    for (let i = 0; i < arr.length; i++) {
+      const s = arr[i];
+      const n = String(s.nick || s.label || "").toLowerCase();
+      if (!n) continue;
+      if (n === nick || n.indexOf(nick) >= 0 || nick.indexOf(n) >= 0) {
+        const partner = String(s.ppPartner || s.partner || s.ownerName || "").trim();
+        if (partner) {
+          return {
+            status: "success",
+            partner: partner,
+            nick: s.nick || s.label,
+            sheet: s.sheet || "",
+            cutover: true,
+            fromD1: true,
+            fromGas: false,
+            d1Verified: true
+          };
+        }
+      }
+    }
+  } catch (e) {}
+  const live = await gasProxy_("lookupBpPartner", params || {}, env, { write: false });
+  if (live && typeof live === "object") {
+    live.cutover = true;
+    live.fromGas = true;
+    live.fromD1 = false;
+  }
+  return live || { status: "success", partner: "", cutover: true, fromD1: false };
 }
 
 function isPpCalcMode_(params) {
