@@ -198,6 +198,20 @@ function deferredCanonLabel_(env) {
   return isDeferredD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
 }
 
+/**
+ * После finishFullWeek / force week sync: слоты дней в D1 = список GAS (replace).
+ * Обычные save/move/delete не трогаем. Откат: WEEK_D1_SYNC=upsert
+ */
+function isWeekD1GasAuthoritative_(env) {
+  const v = env && env.WEEK_D1_SYNC ? String(env.WEEK_D1_SYNC).trim().toLowerCase() : "";
+  if (v === "upsert" || v === "missing-only" || v === "off") return false;
+  return true;
+}
+
+function weekD1SyncLabel_(env) {
+  return isWeekD1GasAuthoritative_(env) ? "gas-authoritative" : "upsert";
+}
+
 function isWriteAction_(a) {
   if (!a) return false;
   // явные чтения / списки — не write (даже если имя начинается с partner*)
@@ -233,7 +247,8 @@ async function handleAction_(action, params, env, url, ctx) {
       peopleCanon: peopleCanonLabel_(env),
       opsCanon: opsCanonLabel_(env),
       deferredCanon: deferredCanonLabel_(env),
-      deployMarker: "2026-08-29 deferred-d1-primary"
+      weekD1Sync: weekD1SyncLabel_(env),
+      deployMarker: "2026-08-30 week-close-d1-resync"
     };
   }
 
@@ -6351,6 +6366,41 @@ async function handleCutover_(a, params, env, ctx) {
     } catch (eFinGuard) {}
   }
 
+  // Закрытие / откат дат / материализация — GAS + обязательный D1 resync (gas-authoritative)
+  if (/^(finishFullWeek|repairWeekMonday|materializeWeek)$/i.test(a)) {
+    const proxiedFin = await gasProxy_(a, params, env, { write: true });
+    const okFin =
+      proxiedFin &&
+      (proxiedFin.status === "success" ||
+        /week_already_finished|week_monday_repaired/i.test(String(proxiedFin.message || "")));
+    const refreshJob = cutoverRefreshAllWeekDays_(env).catch(function () {
+      return null;
+    });
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(refreshJob);
+    else {
+      try {
+        await refreshJob;
+      } catch (eRf) {}
+    }
+    if (!proxiedFin) {
+      return {
+        status: "error",
+        message: "gas_proxy_failed",
+        tip: "GAS мог уже отработать — проверь getWeekDayCounts (force=1). D1 sync запущен в фоне.",
+        cutover: true,
+        action: a,
+        d1ResyncStarted: true
+      };
+    }
+    if (okFin && proxiedFin) {
+      proxiedFin.cutover = true;
+      proxiedFin.d1ResyncStarted = true;
+      proxiedFin.sandbox = false;
+      proxiedFin.weekD1Sync = weekD1SyncLabel_(env);
+    }
+    return partnerGuardOrRewrite_(a, params, proxiedFin);
+  }
+
   if (a === "getSubscription") {
     const liveSub = await gasProxy_(a, params, env, { write: false });
     if (liveSub && typeof liveSub === "object") {
@@ -8107,7 +8157,9 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
   // Не затирать свежие D1-записи старым GAS (edit ещё не доехал / таймаут)
   const protectMs = opts.protectMs != null ? Number(opts.protectMs) : 12 * 60 * 1000;
   // По умолчанию D1 — источник правды: GAS не может «вернуть» удалённого.
-  const allowGasInsert = opts.allowGasInsert === true;
+  // gasAuthoritative: после finishFullWeek / force week sync — список GAS = правда дня.
+  const gasAuthoritative = opts.gasAuthoritative === true;
+  const allowGasInsert = opts.allowGasInsert === true || gasAuthoritative;
 
   let tomb = null;
   try {
@@ -8177,6 +8229,12 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
         continue;
       }
       const gasC = gasByMk[mk];
+      if (gasAuthoritative) {
+        // после смены недели: нет в GAS → выкинуть; есть → взять GAS (дата/состав листа)
+        if (!gasC) continue;
+        byMk[mk] = gasC;
+        continue;
+      }
       const updatedMs = Date.parse(String(row.updated_at || "")) || 0;
       const d1Fresh = !!(updatedMs && nowMs - updatedMs < protectMs);
       const d1Sig = basketSig_(row.basket_json);
@@ -8365,6 +8423,7 @@ async function cutoverResetOpsSnaps_(env) {
 
 async function cutoverRefreshAllWeekDays_(env) {
   if (!env || !env.DB) return;
+  const gasAuth = isWeekD1GasAuthoritative_(env);
   // сначала актуальные даты недели, потом сброс ops (сравнение date в rebuildCourier)
   try {
     const liveCounts = await gasProxy_("getWeekDayCounts", {}, env, { write: false });
@@ -8381,7 +8440,18 @@ async function cutoverRefreshAllWeekDays_(env) {
       const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
       if (fresh && fresh.status === "success") {
         await sanitizeGasClientsPayload_(env, day, fresh);
-        await upsertMissingClientsFromGas_(env, day, fresh.clients || []);
+        if (gasAuth) {
+          // После закрытия недели day_name в D1 ещё держит людей прошлой недели —
+          // upsertMissing только дописывает, не чистит. GAS = правда слота.
+          await replaceDayOrdersFromClients_(env, day, fresh.clients || [], {
+            gasAuthoritative: true,
+            allowGasInsert: true,
+            protectMs: 0,
+            skipProtectMissing: true
+          });
+        } else {
+          await upsertMissingClientsFromGas_(env, day, fresh.clients || []);
+        }
         try {
           await putSnap_(env, "clients:" + day, fresh);
         } catch (eS) {}
@@ -8402,8 +8472,20 @@ async function cutoverRefreshAllWeekDays_(env) {
       }
     } catch (eCut) {}
   }
+  // даты уже из GAS weekDayCounts — не перетирать rebuild из старых order.date_iso
   try {
-    await rebuildWeekCounts_(env);
+    const sheetCounts = await getSnapRaw_(env, "weekDayCountsSheet");
+    if (sheetCounts && Array.isArray(sheetCounts.items) && sheetCounts.items.length) {
+      await putSnap_(env, "weekDayCounts", sheetCounts);
+      const dateToDay = Object.create(null);
+      sheetCounts.items.forEach(function (it) {
+        const iso = dmyToIso_(it && it.date);
+        if (iso && it.day) dateToDay[iso] = it.day;
+      });
+      await putSnap_(env, "dateToDay", { map: dateToDay });
+    } else {
+      await rebuildWeekCounts_(env);
+    }
   } catch (eC) {}
 }
 

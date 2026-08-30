@@ -20,9 +20,10 @@ https://konchaarsenia-a11y.github.io/superboyna/boinya-c/?cutover=1&v=71115898
 | **Чтение** | сразу из D1 (быстро), в фоне подтягивается GAS |
 | **Запись людей** | **D1 сразу** (источник правды) → Sheets зеркало в фоне → UI «Сохранено» при `d1Verified`. См. [PEOPLE_CANON.md](./PEOPLE_CANON.md) |
 | Флаги / deferred / transfer park | D1-first OK |
+| **После закрытия недели** | `getWeekDayCounts?force=1` / finish через Worker → `cutoverRefreshAllWeekDays_` **gas-authoritative** replace слотов из GAS (`WEEK_D1_SYNC`). Откат: `WEEK_D1_SYNC=upsert` |
 | Опасные week-actions | UI «Завершить неделю» после 3 подтверждений шлёт `allowDanger=1` → GAS |
 
-Проверка Worker: `?action=ping` → `peopleCanon: "d1-primary"`.
+Проверка Worker: `?action=ping` → `peopleCanon: "d1-primary"`, `weekD1Sync: "gas-authoritative"`.
 
 ## Закрыть неделю
 
