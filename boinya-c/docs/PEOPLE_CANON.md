@@ -26,9 +26,9 @@
 | доступы / шаблоны / опросники CRUD | **D1 сразу** → Sheets зеркало; `forceSurveyRemind`/TG — GAS | `metaCanon: d1-primary` |
 | структура нарезки (план items) | **D1 fromOrders** / rebuild; флаги — ops; finish → rebuild + row-map GAS | `cuttingStructCanon: d1-primary` |
 | розничный прайс + `calcPrice(retail)` + ПП `calcPpFact`/`calcPrice(pp)` | **D1** (ПП: кэш unit costs + формула; cold GAS warm) | `priceCanon: d1-primary` |
-| `getPpFactCost` / `getPpOrderSuggest` (N=1) / `migratePpToRaw26Scheme` | **D1** + fallback GAS (N≥2 suggest/slots → GAS; migrate Sheets в фоне) | `priceCanon` / `subsCanon` |
+| `getPpFactCost` / `getPpOrderSuggest` (в т.ч. N≥2) / `migratePpToRaw26Scheme` | **D1** (слоты/half-basket из orders+якорь); cold miss/`force` → GAS; migrate Sheets в фоне | `priceCanon` / `subsCanon` |
 | `warehousePreview` / `composeWarehouseBuyMessage` | **D1 snap-first** + SWR; `force`/miss → GAS (формулы листа) | `warehouseCanon` |
-| `finishFullWeek` / materialize / pull | **GAS** (опасно); D1 после = gas-authoritative replace | `weekD1Sync` |
+| `finishFullWeek` / materialize / pull | **GAS** исполняет; D1 resync gas-authoritative **с protectMs 5м** (свежие D1 save не сносит) | `weekD1Sync` |
 | TG / Goodboy `gb*` / Varka partner writes | **GAS** (отдельные продукты) | — |
 
 **Запрещено** без явного отката (`PEOPLE_CANON=sheets-confirm-bg`):

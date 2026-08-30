@@ -313,7 +313,7 @@ async function handleAction_(action, params, env, url, ctx) {
       cuttingStructCanon: cuttingStructCanonLabel_(env),
       priceCanon: priceCanonLabel_(env),
       weekD1Sync: weekD1SyncLabel_(env),
-      deployMarker: "2026-08-30 remain-reads-d1-careful-fix"
+      deployMarker: "2026-08-30 zero-conflict-d1"
     };
   }
 
@@ -4256,6 +4256,19 @@ async function saveOrder_(params, env, asBooking) {
     updated_at: now,
     meta_json: JSON.stringify(meta)
   });
+
+  // якорь ПП 1/2 в D1 — suggest N≥2 без GAS
+  try {
+    const slotRaw = params.ppSlot != null ? params.ppSlot : params.deliverySlot;
+    if (slotRaw != null && String(slotRaw).trim() !== "" && matchKey) {
+      await putSnap_(env, "ppSlotAnchor:" + matchKey, {
+        mk: matchKey,
+        nick: client,
+        slot: String(slotRaw),
+        at: Date.now()
+      });
+    }
+  } catch (eAnc) {}
 
   // новый save снимает tombstone только на этом дне (не на всех — иначе ломает move)
   // afterWrite/повтор не снимает свежий tombstone удаления
@@ -8757,9 +8770,27 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       }
       const gasC = gasByMk[mk];
       if (gasAuthoritative) {
-        // после смены недели: нет в GAS → выкинуть; есть → взять GAS (дата/состав листа)
-        if (!gasC) continue;
-        byMk[mk] = gasC;
+        // после смены недели: GAS = структура дня, но свежие D1-записи (ещё не в листе) не сносим
+        const updatedMsGa = Date.parse(String(row.updated_at || "")) || 0;
+        const d1FreshGa = !!(protectMs > 0 && updatedMsGa && nowMs - updatedMsGa < protectMs);
+        if (!gasC) {
+          if (d1FreshGa) {
+            const keptMiss = clientFromRow_(row);
+            keptMiss.updated_at = row.updated_at;
+            byMk[mk] = keptMiss;
+          }
+          continue;
+        }
+        if (d1FreshGa) {
+          const keptGa = clientFromRow_(row);
+          keptGa.updated_at = row.updated_at;
+          // дата слота недели — с GAS, состав/контакт — свежий D1
+          if (gasC.date) keptGa.date = gasC.date;
+          if (gasC.dateIso) keptGa.dateIso = gasC.dateIso;
+          byMk[mk] = keptGa;
+        } else {
+          byMk[mk] = gasC;
+        }
         continue;
       }
       const updatedMs = Date.parse(String(row.updated_at || "")) || 0;
@@ -8973,7 +9004,8 @@ async function cutoverRefreshAllWeekDays_(env) {
           await replaceDayOrdersFromClients_(env, day, fresh.clients || [], {
             gasAuthoritative: true,
             allowGasInsert: true,
-            protectMs: 0,
+            // 5 мин: параллельный save/move в D1 не съедается resync
+            protectMs: 5 * 60 * 1000,
             skipProtectMissing: true
           });
         } else {
@@ -10617,6 +10649,253 @@ async function getPpFactCostD1_(params, env, ctx) {
   return (await fromGas_()) || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getPpFactCost" };
 }
 
+
+function ppBasketItemKeyD1_(it) {
+  const cat = String((it && it.cat) || "").trim().toLowerCase();
+  const name = String((it && (it.main || it.name)) || "")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е");
+  const sub = String((it && it.sub) || "")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е");
+  return cat + "|" + name + "|" + sub;
+}
+
+function isPpChewItemD1_(it) {
+  const cat = String((it && it.cat) || "").toLowerCase();
+  if (cat === "chews" || cat === "chew") return true;
+  if (cat === "dressura") return false;
+  const name = String((it && (it.main || it.name)) || "");
+  return /шт\.?|колен|копыт|нос|ухо|уши|шея|хрящ|лоп|хвост|рога?|сустав|быч|трахе|аорт|станова|переп|губ|утин/i.test(
+    name
+  );
+}
+
+function clonePpBasketD1_(list) {
+  const out = [];
+  for (let i = 0; i < (list || []).length; i++) {
+    const it = list[i] || {};
+    const v = Number(it.value != null ? it.value : it.val) || 0;
+    if (v <= 0) continue;
+    out.push({
+      cat: it.cat || (isPpChewItemD1_(it) ? "chews" : "dressura"),
+      main: it.main || it.name || "",
+      name: it.name || it.main || "",
+      sub: it.sub || "",
+      value: v,
+      val: v
+    });
+  }
+  return out;
+}
+
+function splitQtyForPpSlotD1_(qty, isChew, slot) {
+  const v = Number(qty) || 0;
+  if (v <= 0) return 0;
+  let first = isChew ? Math.ceil(v / 2) : Math.floor(v / 2);
+  if (first <= 0 && v > 0) first = v;
+  if (slot <= 1) return first;
+  return Math.max(0, v - first);
+}
+
+function remainderPpBasketD1_(monthly, delivered) {
+  const left = Object.create(null);
+  const meta = Object.create(null);
+  let i;
+  for (i = 0; i < (monthly || []).length; i++) {
+    const m = monthly[i] || {};
+    const k = ppBasketItemKeyD1_(m);
+    const v = Number(m.value != null ? m.value : m.val) || 0;
+    left[k] = (left[k] || 0) + v;
+    if (!meta[k]) meta[k] = m;
+  }
+  for (i = 0; i < (delivered || []).length; i++) {
+    const d = delivered[i] || {};
+    const kd = ppBasketItemKeyD1_(d);
+    const vd = Number(d.value != null ? d.value : d.val) || 0;
+    left[kd] = (left[kd] || 0) - vd;
+  }
+  const out = [];
+  Object.keys(left).forEach(function (key) {
+    const rem = left[key];
+    if (!(rem > 0)) return;
+    const src = meta[key] || {};
+    out.push({
+      cat: src.cat || "dressura",
+      main: src.main || src.name || "",
+      name: src.name || src.main || "",
+      sub: src.sub || "",
+      value: rem,
+      val: rem
+    });
+  });
+  return out;
+}
+
+function proposePpSlotBasketD1_(monthly, slot, deliveriesN, slot1Basket) {
+  const full = clonePpBasketD1_(monthly);
+  if (!full.length) return [];
+  if (!(Number(deliveriesN) >= 2)) return full;
+  const s = Number(slot) || 1;
+  if (s >= 2 && slot1Basket && slot1Basket.length) {
+    return remainderPpBasketD1_(full, slot1Basket);
+  }
+  const out = [];
+  for (let i = 0; i < full.length; i++) {
+    const it = full[i];
+    const chew = isPpChewItemD1_(it);
+    const part = splitQtyForPpSlotD1_(it.value, chew, s <= 1 ? 1 : 2);
+    if (part <= 0) continue;
+    out.push({
+      cat: it.cat,
+      main: it.main,
+      name: it.name,
+      sub: it.sub,
+      value: part,
+      val: part
+    });
+  }
+  return out;
+}
+
+function parseForcedPpSlotD1_(raw, deliveriesN) {
+  if (raw == null || raw === "") return 0;
+  const s = String(raw).trim();
+  const m = s.match(/(\d+)/);
+  const n = m ? Number(m[1]) : Number(s);
+  if (!isFinite(n) || n < 1) return 0;
+  const max = Math.max(1, Number(deliveriesN) || 1);
+  return Math.min(max, Math.floor(n));
+}
+
+function formatPpSlotLabelD1_(slot, deliveriesN) {
+  const s = Number(slot) || 1;
+  const n = Math.max(1, Number(deliveriesN) || 1);
+  if (n <= 1) return String(s);
+  return s + "/" + n;
+}
+
+function resolveAsOfIsoD1_(params) {
+  const raw = String((params && (params.date || params.deliveryDate || params.dateIso)) || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (raw) {
+    const iso = dmyToIso_(raw);
+    if (iso) return iso;
+  }
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Minsk",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(new Date());
+  } catch (e) {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+async function hasPpSlotAnchorD1_(env, matchKey) {
+  if (!env || !matchKey) return false;
+  try {
+    const a = await getSnapRaw_(env, "ppSlotAnchor:" + matchKey);
+    if (a && (a.mk || a.at || a.slot)) return true;
+  } catch (e) {}
+  return false;
+}
+
+async function countPpPriorDeliveriesMonthD1_(env, nick, matchKey, asOfIso) {
+  if (!env || !env.DB || !asOfIso) return { count: 0, slot1Basket: [], lastSlot: 0, lastDate: "" };
+  const ym = asOfIso.slice(0, 7);
+  const mk = matchKey || normalizeMatchKey_(nick);
+  const nickL = String(nick || "").toLowerCase();
+  const seen = Object.create(null);
+  let slot1Basket = [];
+  let lastSlot = 0;
+  let lastDate = "";
+  try {
+    const q = await env.DB.prepare(
+      `SELECT date_iso, segment, source, basket_json, meta_json FROM orders
+       WHERE status = 'active' AND date_iso != '' AND date_iso LIKE ? AND date_iso < ?
+         AND (match_key = ? OR lower(client) = ?)
+       ORDER BY date_iso ASC LIMIT 60`
+    )
+      .bind(ym + "%", asOfIso, mk, nickL)
+      .all();
+    const rows = (q && q.results) || [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const seg = String(r.segment || "").toUpperCase();
+      const src = String(r.source || "").toLowerCase();
+      const meta = parseMeta_(r.meta_json);
+      const slotMeta = String(meta.ppSlot || meta.deliverySlot || "").trim();
+      let isPp =
+        seg === "ПП" ||
+        seg === "PP" ||
+        seg === "АФК" ||
+        src === "pp" ||
+        src === "subscription" ||
+        !!slotMeta;
+      if (!isPp) continue;
+      const di = String(r.date_iso || "");
+      if (!di || seen[di]) continue;
+      seen[di] = true;
+      const forced = parseForcedPpSlotD1_(slotMeta, 2);
+      if (forced >= 1) {
+        lastSlot = forced;
+        lastDate = di;
+      }
+      if (forced === 1 || (!slot1Basket.length && Object.keys(seen).length === 1)) {
+        try {
+          const b = JSON.parse(r.basket_json || "[]");
+          if (Array.isArray(b) && b.length) slot1Basket = clonePpBasketD1_(b);
+        } catch (eB) {}
+      }
+    }
+  } catch (eO) {}
+  // delivered flags same month before asOf
+  try {
+    const dq = await env.DB.prepare(
+      `SELECT date_iso FROM deliveries WHERE delivered = 1 AND date_iso LIKE ? AND date_iso < ?
+         AND (match_key = ? OR lower(match_key) = ?) LIMIT 40`
+    )
+      .bind(ym + "%", asOfIso, mk, nickL)
+      .all();
+    ((dq && dq.results) || []).forEach(function (r) {
+      const di = String(r.date_iso || "");
+      if (di) seen[di] = true;
+    });
+  } catch (eD) {}
+  return {
+    count: Object.keys(seen).length,
+    slot1Basket: slot1Basket,
+    lastSlot: lastSlot,
+    lastDate: lastDate
+  };
+}
+
+async function lookupStoredPpSlotDateD1_(env, nick, matchKey, dateIso) {
+  if (!env || !env.DB || !dateIso) return 0;
+  const mk = matchKey || normalizeMatchKey_(nick);
+  const nickL = String(nick || "").toLowerCase();
+  try {
+    const q = await env.DB.prepare(
+      `SELECT meta_json FROM orders WHERE status = 'active' AND date_iso = ?
+         AND (match_key = ? OR lower(client) = ?) LIMIT 5`
+    )
+      .bind(dateIso, mk, nickL)
+      .all();
+    const rows = (q && q.results) || [];
+    for (let i = 0; i < rows.length; i++) {
+      const meta = parseMeta_(rows[i].meta_json);
+      const forced = parseForcedPpSlotD1_(meta.ppSlot || meta.deliverySlot, 2);
+      if (forced >= 1) return forced;
+    }
+  } catch (e) {}
+  return 0;
+}
+
 async function getPpOrderSuggestD1_(params, env, ctx) {
   const force =
     String((params && params.force) || "") === "1" ||
@@ -10633,9 +10912,26 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
             sheet: live.sheet || "ПП",
             basket: live.monthlyBasket || live.proposedBasket || live.basket,
             factCost: live.factCost,
-            deliveries: live.deliveriesN != null ? live.deliveriesN : live.deliveries
+            deliveries: live.deliveriesN != null ? live.deliveriesN : live.deliveries,
+            needManualSlot: live.needManualSlot,
+            ppSlot: live.ppSlot,
+            deliverySlot: live.deliverySlot,
+            suggestedSlot: live.suggestedSlot,
+            hasPpSlotAnchor: live.hasPpSlotAnchor
           })
         );
+        if (live.hasPpSlotAnchor) {
+          const mk = normalizeMatchKey_(live.nick || nick);
+          if (mk) {
+            await putSnap_(env, "ppSlotAnchor:" + mk, {
+              mk: mk,
+              nick: live.nick || nick,
+              slot: live.deliverySlot || live.ppSlot || 1,
+              at: Date.now(),
+              fromGas: true
+            });
+          }
+        }
       } catch (eM) {}
     }
     if (live && typeof live === "object") {
@@ -10659,21 +10955,72 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
     );
   } catch (eL) {}
 
-  const basket = (local && Array.isArray(local.basket) && local.basket.length && local.basket) || null;
-  const deliveriesN = Math.max(0, Number(local && local.deliveries) || 0);
-  // N≥2 / нет состава — слоты и half-basket только в GAS (история/память)
-  if (!local || !local.found || !basket || deliveriesN >= 2) {
+  let basket = (local && Array.isArray(local.basket) && local.basket.length && local.basket) || null;
+  // нет состава в snap — один раз GAS warm (не конфликт, cold start)
+  if (!local || !local.found || !basket) {
     return (await fromGas_()) || { status: "error", message: "gas_proxy_failed", cutover: true };
   }
 
+  const deliveriesN = Math.max(1, Number(local.deliveries) || 1);
+  const matchKey = normalizeMatchKey_(local.nick || nick);
+  const asOfIso = resolveAsOfIsoD1_(params);
   const factRaw = local.factCost;
   const factCost =
     factRaw == null || factRaw === ""
       ? null
       : Number(String(factRaw).replace(",", ".").replace(/[^\d.-]/g, "")) || 0;
-  const proposed = basket.map(function (it) {
-    return Object.assign({}, it);
-  });
+
+  const monthly = clonePpBasketD1_(basket);
+  let slot = 1;
+  let suggestedSlot = 1;
+  let needManualSlot = false;
+  let hasAnchor = false;
+  let slot1Basket = [];
+  let prior = { count: 0, slot1Basket: [], lastSlot: 0, lastDate: "" };
+
+  if (deliveriesN >= 2) {
+    hasAnchor = await hasPpSlotAnchorD1_(env, matchKey);
+    if (!hasAnchor && local.hasPpSlotAnchor) hasAnchor = true;
+    needManualSlot = !hasAnchor;
+    prior = await countPpPriorDeliveriesMonthD1_(env, local.nick || nick, matchKey, asOfIso);
+    slot1Basket = prior.slot1Basket || [];
+    const stored = await lookupStoredPpSlotDateD1_(env, local.nick || nick, matchKey, asOfIso);
+    const forced = parseForcedPpSlotD1_(
+      (params && (params.deliverySlot != null ? params.deliverySlot : params.slot != null ? params.slot : params.ppSlot)) ||
+        "",
+      deliveriesN
+    );
+    if (forced >= 1) {
+      slot = forced;
+      suggestedSlot = forced;
+      needManualSlot = false;
+    } else if (stored >= 1) {
+      slot = stored;
+      suggestedSlot = stored;
+    } else {
+      suggestedSlot = Math.min(deliveriesN, (Number(prior.count) || 0) + 1);
+      if (prior.lastSlot >= 1 && prior.count <= 0) suggestedSlot = prior.lastSlot >= 2 ? 1 : 2;
+      slot = needManualSlot ? suggestedSlot : suggestedSlot;
+    }
+  }
+
+  const proposed = proposePpSlotBasketD1_(monthly, slot, deliveriesN, slot1Basket);
+  const remaining =
+    deliveriesN >= 2 && slot <= 1
+      ? proposePpSlotBasketD1_(monthly, 2, deliveriesN, proposed)
+      : remainderPpBasketD1_(monthly, slot1Basket.length ? slot1Basket : slot >= 2 ? proposed : []);
+
+  let askPaid = true;
+  if (deliveriesN >= 1) {
+    if (deliveriesN === 1 || slot <= 1) askPaid = true;
+    else askPaid = true;
+  }
+
+  const hint =
+    deliveriesN <= 1
+      ? "ПП N=1 · состав целиком · d1"
+      : "ПП N=" + deliveriesN + " · слот " + slot + (needManualSlot ? " · спросить" : "") + " · d1";
+
   return {
     status: "success",
     nick: local.nick || nick,
@@ -10683,22 +11030,26 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
     address: local.address || "",
     note: local.note || "",
     phone: local.phone || "",
-    date: (params && (params.date || params.deliveryDate)) || "",
+    date: (params && (params.date || params.deliveryDate)) || asOfIso,
     day: (params && params.day) || "",
-    deliveriesN: Math.max(1, deliveriesN || 1),
-    deliverySlot: 1,
-    ppSlot: "1",
-    suggestedSlot: 1,
-    needManualSlot: false,
-    hasPpSlotAnchor: true,
+    deliveriesN: deliveriesN,
+    deliverySlot: slot,
+    ppSlot: formatPpSlotLabelD1_(slot, deliveriesN),
+    suggestedSlot: suggestedSlot,
+    needManualSlot: needManualSlot,
+    hasPpSlotAnchor: hasAnchor || !needManualSlot,
+    everSeenInApp: true,
+    daysSinceLastDelivery: prior.lastDate ? null : null,
+    lastSlot: prior.lastSlot || 0,
+    lastDeliveryDate: prior.lastDate || "",
     paid: null,
-    askPaid: true,
+    askPaid: askPaid,
     factCost: factCost,
-    monthlyBasket: proposed,
+    monthlyBasket: monthly,
     proposedBasket: proposed,
-    slot1Basket: [],
-    remainingBasket: proposed,
-    hint: "ПП N=1 · состав целиком · d1",
+    slot1Basket: slot1Basket,
+    remainingBasket: remaining,
+    hint: hint,
     cutover: true,
     fromD1: true,
     fromGas: false,
