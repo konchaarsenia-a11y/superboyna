@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115913";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115914";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -172,8 +172,8 @@
     }
     window.ensureTelegramId = ensureTelegramId;
     const ROLE_TABS = {
-      all: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen", "partnerHubScreen"],
-      owner: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen", "partnerHubScreen"],
+      all: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "retailPriceScreen", "peopleScreen", "partnerHubScreen"],
+      owner: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "retailPriceScreen", "peopleScreen", "partnerHubScreen"],
       manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen"],
       cutter: ["cuttingScreen"],
       courier: ["courierScreen"],
@@ -194,7 +194,7 @@
       "крафт": true
     };
     let assemblyCache = null;
-    const FLYOUT_SCREENS = ["clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "peopleScreen"];
+    const FLYOUT_SCREENS = ["clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "retailPriceScreen", "peopleScreen"];
     let deferredCache = [];
     let deferredOpenCount = 0;
     let deferredCacheAt = 0;
@@ -232,6 +232,13 @@
         } catch (e) {}
       }
     } catch (e) {}
+
+    
+    (function bootSyncRetailPrice_() {
+      setTimeout(function () {
+        try { syncRetailPriceFromServer_({ soft: true }); } catch (eB) {}
+      }, 1200);
+    })();
 
     (function installButtonPressFeedback_() {
       var SEL = "button,.btn-action,.btn-save,.seg-btn,.tab-link,.crm-mini-btn,.route-mini," +
@@ -395,6 +402,7 @@
       priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• Чеклист: 1–2 собаки; неясная фракция — спросит.\n• 2 собаки: кличка + состав; примечание и цены общие.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
       templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ — скоро.",
+      retailPriceScreen: "Прайс розницы\n• Только владелец.\n• Меняет цены новых расчётов/заказов.\n• Уже сохранённые orderPrice не трогает.",
       peopleScreen: "Доступы\n• Завершить неделю / подтянуть из месяца — сверху.\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника.",
       partnerHubScreen: "Партнёры (мини-апп varka)\n• Люди — доступы к точкам.\n• Точки / Сети — справочник.\n• Пуши — кому слать заявки.\n• Не путать с партнёрами БП в Доступах."
     };
@@ -1978,6 +1986,135 @@
         sheet: "розница 2026-08-30"
       };
     }
+
+    function applyRetailPriceMapToUi_(items, delivery) {
+      var next = {};
+      (items || []).forEach(function (it) {
+        if (!it || !it.key) return;
+        var kind = String(it.kind || "per100").toLowerCase();
+        var price = Number(it.price);
+        if (!isFinite(price) || price < 0) return;
+        if (kind === "perpiece" || kind === "piece" || kind === "шт") next[it.key] = { perPiece: price };
+        else if (kind === "pack" || kind === "packs") next[it.key] = { per100: price, packs: { 100: price } };
+        else next[it.key] = { per100: price };
+      });
+      if (Object.keys(next).length) {
+        Object.keys(RETAIL_PRICE).forEach(function (k) { delete RETAIL_PRICE[k]; });
+        Object.keys(next).forEach(function (k) { RETAIL_PRICE[k] = next[k]; });
+      }
+      if (delivery) {
+        if (delivery.fee != null && isFinite(Number(delivery.fee))) PRICE_RETAIL_DELIVERY_BYN = Number(delivery.fee);
+        if (delivery.freeFrom != null && isFinite(Number(delivery.freeFrom))) PRICE_RETAIL_FREE_FROM = Number(delivery.freeFrom);
+      }
+    }
+
+    async function syncRetailPriceFromServer_(opts) {
+      opts = opts || {};
+      try {
+        var tid = "";
+        try { tid = myTelegramId || readTelegramIdFromTg() || loadStoredTelegramId() || ""; } catch (eT) {}
+        var res = await apiGet({
+          action: "getRetailPriceList",
+          telegramId: tid,
+          _: String(Date.now())
+        }, { timeoutMs: 20000, cacheTtlMs: opts.soft ? 60000 : 0 });
+        if (res && res.status === "success") {
+          applyRetailPriceMapToUi_(res.items || [], res.delivery || null);
+          return res;
+        }
+      } catch (e) {}
+      return null;
+    }
+
+    async function loadRetailPriceAdmin_(opts) {
+      opts = opts || {};
+      var box = document.getElementById("retailPriceAdminList");
+      var st = document.getElementById("retailPriceAdminStatus");
+      if (box && !opts.soft) box.innerHTML = '<p class="muted">Загрузка…</p>';
+      var res = await syncRetailPriceFromServer_({ soft: !!opts.soft });
+      if (!res || res.status !== "success") {
+        if (box) box.innerHTML = '<p class="muted">Не удалось загрузить. Нужен Deploy Code.gs.</p>';
+        if (st) st.textContent = "ошибка загрузки";
+        return;
+      }
+      var feeEl = document.getElementById("retailPriceFeeInput");
+      var freeEl = document.getElementById("retailPriceFreeFromInput");
+      if (feeEl) feeEl.value = String((res.delivery && res.delivery.fee) != null ? res.delivery.fee : PRICE_RETAIL_DELIVERY_BYN);
+      if (freeEl) freeEl.value = String((res.delivery && res.delivery.freeFrom) != null ? res.delivery.freeFrom : PRICE_RETAIL_FREE_FROM);
+      var items = res.items || [];
+      if (!box) return;
+      if (!items.length) {
+        box.innerHTML = '<p class="muted">Пусто</p>';
+        return;
+      }
+      var html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+      items.forEach(function (it, idx) {
+        html += '<div class="batch-bar-row" style="gap:6px;margin:0;align-items:center;">' +
+          '<div style="flex:1.6;font-size:12px;word-break:break-word;">' + escapeHtml(it.key) +
+          '<div class="muted" style="font-size:11px;">' + escapeHtml(it.kind || "") + '</div></div>' +
+          '<input type="number" step="0.01" min="0" data-rp-idx="' + idx + '" data-rp-key="' + escapeHtml(it.key) +
+          '" data-rp-kind="' + escapeHtml(it.kind || "per100") + '" value="' + (Number(it.price) || 0) +
+          '" style="flex:0.8;min-width:72px;">' +
+          '</div>';
+      });
+      html += '</div>';
+      box.innerHTML = html;
+      box._retailItems = items;
+      if (st) st.textContent = items.length + " позиций · доставка <" +
+        ((res.delivery && res.delivery.freeFrom) || PRICE_RETAIL_FREE_FROM) + " → +" +
+        ((res.delivery && res.delivery.fee) || PRICE_RETAIL_DELIVERY_BYN);
+    }
+    window.loadRetailPriceAdmin_ = loadRetailPriceAdmin_;
+
+    async function saveRetailPriceAdmin_() {
+      var box = document.getElementById("retailPriceAdminList");
+      var st = document.getElementById("retailPriceAdminStatus");
+      var inputs = box ? box.querySelectorAll("input[data-rp-key]") : [];
+      var items = [];
+      inputs.forEach(function (inp) {
+        items.push({
+          key: inp.getAttribute("data-rp-key"),
+          kind: inp.getAttribute("data-rp-kind") || "per100",
+          price: Number(inp.value)
+        });
+      });
+      if (!items.length) {
+        showToast("Нечего сохранять");
+        return;
+      }
+      var fee = Number(document.getElementById("retailPriceFeeInput") && document.getElementById("retailPriceFeeInput").value);
+      var freeFrom = Number(document.getElementById("retailPriceFreeFromInput") && document.getElementById("retailPriceFreeFromInput").value);
+      var tid = "";
+      try { tid = myTelegramId || readTelegramIdFromTg() || loadStoredTelegramId() || ""; } catch (eT) {}
+      if (!tid) {
+        showToast("Нет telegramId");
+        return;
+      }
+      try {
+        showToast("Сохраняю прайс…");
+        if (st) st.textContent = "сохранение…";
+        var res = await apiPost({
+          action: "saveRetailPrices",
+          telegramId: tid,
+          items: items,
+          delivery: { fee: fee, freeFrom: freeFrom }
+        });
+        if (!res || res.status !== "success") {
+          showToast((res && res.message) || "Не сохранилось — Deploy Code.gs?");
+          if (st) st.textContent = (res && res.message) || "ошибка";
+          return;
+        }
+        applyRetailPriceMapToUi_(res.items || items, res.delivery || { fee: fee, freeFrom: freeFrom });
+        showToast("Прайс сохранён · " + (res.saved || items.length));
+        await loadRetailPriceAdmin_({});
+      } catch (e) {
+        showToast("Сеть / Deploy Code.gs");
+        if (st) st.textContent = "ошибка сети";
+      }
+    }
+    window.saveRetailPriceAdmin_ = saveRetailPriceAdmin_;
+
+
     window.calcRetailBasketTotal = calcRetailBasketTotal;
 
     function formatRetailDeliveryHint_(retail) {
@@ -3229,6 +3366,15 @@
         if (screenId === "partnerHubScreen") {
           document.getElementById("appHeaderTitle").innerText = "Партнёры · " + APP_VERSION;
         }
+        if (screenId === "retailPriceScreen") {
+          document.getElementById("appHeaderTitle").innerText = "Прайс · " + APP_VERSION;
+        }
+        if (screenId === "statsScreen") {
+          document.getElementById("appHeaderTitle").innerText = "Статистика · " + APP_VERSION;
+        }
+        if (screenId === "peopleScreen") {
+          document.getElementById("appHeaderTitle").innerText = "Доступы · " + APP_VERSION;
+        }
       } catch (e) {}
 
       var sid = screenId;
@@ -3252,6 +3398,7 @@
           }
           if (sid === "subsScreen") enterSubsScreen();
           if (sid === "statsScreen") loadStats({ soft: true });
+          if (sid === "retailPriceScreen") try { loadRetailPriceAdmin_({ soft: true }); } catch (eRp) {}
           if (sid === "deferredScreen") openTasksDrawer();
           if (sid === "priceScreen") try { syncPriceEnrollUi(); } catch (eEn) {}
           if (sid === "orderScreen") {

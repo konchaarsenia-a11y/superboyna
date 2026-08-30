@@ -2319,6 +2319,18 @@ function doGet(e) {
   if (action === "seedCrmClients") {
     return handleSeedCrmClients({}, callback, false);
   }
+  if (action === "getRetailPriceList") {
+    return handleGetRetailPriceList({
+      telegramId: e.parameter.telegramId || ""
+    }, callback, false);
+  }
+  if (action === "saveRetailPrices") {
+    return handleSaveRetailPrices({
+      telegramId: e.parameter.telegramId || "",
+      items: e.parameter.items ? JSON.parse(decodeURIComponent(e.parameter.items)) : [],
+      delivery: e.parameter.delivery ? JSON.parse(decodeURIComponent(e.parameter.delivery)) : null
+    }, callback, false);
+  }
   if (action === "calcPrice") {
     return handleCalcPrice({
       mode: e.parameter.mode || "subscription",
@@ -2832,6 +2844,12 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "pushSubscriptionToDay") {
     return handlePushSubscriptionToDay(json, callback, fromPost);
+  }
+  if (action === "getRetailPriceList") {
+    return handleGetRetailPriceList(json, callback, fromPost);
+  }
+  if (action === "saveRetailPrices") {
+    return handleSaveRetailPrices(json, callback, fromPost);
   }
   if (action === "calcPrice") {
     return handleCalcPrice(json, callback, fromPost);
@@ -16344,6 +16362,223 @@ var RETAIL_PRICE_BYN_ = {
 };
 
 
+
+var RETAIL_PRICE_LIVE_MEM_ = null;
+var RETAIL_DELIVERY_MEM_ = null;
+var RETAIL_PRICE_SHEET_NAME_ = "Розница_Цены";
+
+function cloneRetailDefaultsMap_() {
+  var out = {};
+  var src = RETAIL_PRICE_BYN_ || {};
+  for (var k in src) {
+    if (!Object.prototype.hasOwnProperty.call(src, k)) continue;
+    var info = src[k] || {};
+    var copy = {};
+    if (info.per100 != null) copy.per100 = Number(info.per100);
+    if (info.perPiece != null) copy.perPiece = Number(info.perPiece);
+    if (info.packs && typeof info.packs === "object") {
+      copy.packs = {};
+      for (var pk in info.packs) {
+        if (Object.prototype.hasOwnProperty.call(info.packs, pk)) copy.packs[pk] = Number(info.packs[pk]);
+      }
+    }
+    out[k] = copy;
+  }
+  return out;
+}
+
+function getRetailDeliveryLive_() {
+  if (RETAIL_DELIVERY_MEM_) return RETAIL_DELIVERY_MEM_;
+  var fee = 9;
+  var freeFrom = 80;
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var raw = props.getProperty("RETAIL_DELIVERY_JSON");
+    if (raw) {
+      var o = JSON.parse(raw);
+      if (o && isFinite(Number(o.fee))) fee = Number(o.fee);
+      if (o && isFinite(Number(o.freeFrom))) freeFrom = Number(o.freeFrom);
+    }
+  } catch (eD) {}
+  RETAIL_DELIVERY_MEM_ = { fee: fee, freeFrom: freeFrom };
+  return RETAIL_DELIVERY_MEM_;
+}
+
+function setRetailDeliveryLive_(fee, freeFrom) {
+  fee = Number(fee);
+  freeFrom = Number(freeFrom);
+  if (!isFinite(fee) || fee < 0) fee = 9;
+  if (!isFinite(freeFrom) || freeFrom < 0) freeFrom = 80;
+  PropertiesService.getScriptProperties().setProperty(
+    "RETAIL_DELIVERY_JSON",
+    JSON.stringify({ fee: fee, freeFrom: freeFrom })
+  );
+  RETAIL_DELIVERY_MEM_ = { fee: fee, freeFrom: freeFrom };
+  return RETAIL_DELIVERY_MEM_;
+}
+
+function getRetailPriceLiveMap_() {
+  if (RETAIL_PRICE_LIVE_MEM_) return RETAIL_PRICE_LIVE_MEM_;
+  var map = null;
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty("RETAIL_PRICE_LIVE_JSON");
+    if (raw) map = JSON.parse(raw);
+  } catch (eR) { map = null; }
+  if (!map || typeof map !== "object" || !Object.keys(map).length) {
+    map = cloneRetailDefaultsMap_();
+    try {
+      PropertiesService.getScriptProperties().setProperty("RETAIL_PRICE_LIVE_JSON", JSON.stringify(map));
+    } catch (eW) {}
+  }
+  RETAIL_PRICE_LIVE_MEM_ = map;
+  return map;
+}
+
+function setRetailPriceLiveMap_(map) {
+  map = map || {};
+  PropertiesService.getScriptProperties().setProperty("RETAIL_PRICE_LIVE_JSON", JSON.stringify(map));
+  RETAIL_PRICE_LIVE_MEM_ = map;
+  return map;
+}
+
+function retailPriceItemsFromMap_(map) {
+  var items = [];
+  map = map || {};
+  Object.keys(map).sort().forEach(function (key) {
+    var info = map[key] || {};
+    var kind = "per100";
+    var price = 0;
+    if (info.perPiece != null) {
+      kind = "perPiece";
+      price = Number(info.perPiece) || 0;
+    } else if (info.packs && info.packs["100"] != null) {
+      kind = "pack";
+      price = Number(info.packs["100"]) || Number(info.per100) || 0;
+    } else {
+      kind = "per100";
+      price = Number(info.per100) || 0;
+    }
+    items.push({ key: key, kind: kind, price: price });
+  });
+  return items;
+}
+
+function retailMapFromItems_(items) {
+  var map = {};
+  (items || []).forEach(function (it) {
+    if (!it) return;
+    var key = String(it.key || "").trim();
+    if (!key) return;
+    var kind = String(it.kind || it.unit || "per100").toLowerCase();
+    var price = Number(it.price);
+    if (!isFinite(price) || price < 0) return;
+    if (kind === "piece" || kind === "perpiece" || kind === "шт") {
+      map[key] = { perPiece: price };
+    } else if (kind === "pack" || kind === "packs" || kind === "пак") {
+      map[key] = { per100: price, packs: { "100": price } };
+    } else {
+      map[key] = { per100: price };
+    }
+  });
+  return map;
+}
+
+function actorIsOwnerForRetail_(actor) {
+  actor = String(actor || "").trim();
+  if (!actor) return false;
+  try {
+    if (isOwnerId_(actor)) return true;
+  } catch (eO) {}
+  try {
+    var row = findAccessById_(actor);
+    if (row && String(row.role || "").toLowerCase() === "owner") return true;
+  } catch (eA) {}
+  return false;
+}
+
+function handleGetRetailPriceList(json, callback, fromPost) {
+  json = json || {};
+  try {
+    var map = getRetailPriceLiveMap_();
+    var del = getRetailDeliveryLive_();
+    var ok = {
+      status: "success",
+      version: "retail-live",
+      items: retailPriceItemsFromMap_(map),
+      delivery: { fee: del.fee, freeFrom: del.freeFrom },
+      defaultsSeeded: true
+    };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (e) {
+    var bad = { status: "error", message: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+}
+
+function handleSaveRetailPrices(json, callback, fromPost) {
+  json = json || {};
+  try {
+    var actor = String(json.telegramId || json.actorId || "").trim();
+    if (!actorIsOwnerForRetail_(actor)) {
+      var forbid = { status: "error", message: "owner_only" };
+      return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+    }
+    var items = json.items;
+    if (typeof items === "string") {
+      try { items = JSON.parse(items); } catch (eP) { items = null; }
+    }
+    if (!items || !items.length) {
+      var need = { status: "error", message: "need_items" };
+      return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+    }
+    var map = retailMapFromItems_(items);
+    if (!Object.keys(map).length) {
+      var empty = { status: "error", message: "empty_map" };
+      return fromPost ? jsonpText(callback, empty) : jsonp(callback, empty);
+    }
+    setRetailPriceLiveMap_(map);
+    var delIn = json.delivery || {};
+    if (typeof delIn === "string") {
+      try { delIn = JSON.parse(delIn); } catch (eD) { delIn = {}; }
+    }
+    var del = setRetailDeliveryLive_(
+      delIn.fee != null ? delIn.fee : getRetailDeliveryLive_().fee,
+      delIn.freeFrom != null ? delIn.freeFrom : getRetailDeliveryLive_().freeFrom
+    );
+    // зеркало на лист прайса (если книга доступна) — best effort
+    try { mirrorRetailPricesToSheet_(map, del); } catch (eM) {}
+    var ok = {
+      status: "success",
+      items: retailPriceItemsFromMap_(map),
+      delivery: { fee: del.fee, freeFrom: del.freeFrom },
+      saved: Object.keys(map).length
+    };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (e) {
+    var bad = { status: "error", message: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+}
+
+function mirrorRetailPricesToSheet_(map, del) {
+  var ss = getPriceSpreadsheet_();
+  var sh = ss.getSheetByName(RETAIL_PRICE_SHEET_NAME_);
+  if (!sh) {
+    sh = ss.insertSheet(RETAIL_PRICE_SHEET_NAME_);
+  }
+  sh.clearContents();
+  sh.getRange(1, 1, 1, 4).setValues([["key", "kind", "price", "updated"]]);
+  var rows = [["__DELIVERY_FEE__", "meta", Number(del && del.fee) || 9, new Date()],
+              ["__DELIVERY_FREE_FROM__", "meta", Number(del && del.freeFrom) || 80, new Date()]];
+  Object.keys(map || {}).sort().forEach(function (key) {
+    var info = map[key] || {};
+    if (info.perPiece != null) rows.push([key, "perPiece", Number(info.perPiece) || 0, new Date()]);
+    else rows.push([key, "per100", Number(info.per100) || 0, new Date()]);
+  });
+  if (rows.length) sh.getRange(2, 1, 1 + rows.length, 4).setValues(rows);
+}
+
+
 function retailNormalizeSub_(name, sub) {
   var s = String(sub || "").trim();
   if (!s) return "";
@@ -16409,7 +16644,8 @@ function retailLineCost_(name, sub, val, cat) {
   var n = retailNormalizeName_(name);
   var s = retailNormalizeSub_(n, sub);
   var key = n + (s ? "|" + s : "");
-  var info = RETAIL_PRICE_BYN_[key] || RETAIL_PRICE_BYN_[n];
+  var live = getRetailPriceLiveMap_();
+  var info = (live && (live[key] || live[n])) || RETAIL_PRICE_BYN_[key] || RETAIL_PRICE_BYN_[n];
   var v = Number(val) || 0;
   if (!info || v <= 0) return { cost: 0, per: 0, found: !!info };
   if (info.packs) {
@@ -16623,8 +16859,9 @@ function handleCalcPrice(json, callback, fromPost) {
     var rN = Math.max(1, Number(json.deliveriesN) || 1);
     var rPer = rTotal / rN;
     var rDelivTimes = 0;
-    var RETAIL_DELIVERY_FEE_ = 9;
-    var RETAIL_FREE_FROM_ = 80;
+    var delLive = getRetailDeliveryLive_();
+    var RETAIL_DELIVERY_FEE_ = Number(delLive.fee) || 9;
+    var RETAIL_FREE_FROM_ = Number(delLive.freeFrom) || 80;
     if (rTotal > 0) {
       for (var rdi = 0; rdi < rN; rdi++) {
         if (rPer < RETAIL_FREE_FROM_) rDelivTimes++;
