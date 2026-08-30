@@ -23,6 +23,8 @@
 | отложенные / переносы (`listDeferred`, notifyMissed, place, cancel) | **D1 сразу** → Sheets зеркало; GAS не затирает snap | `deferredCanon: d1-primary` |
 | подписки ПП/АФК/БП (`list`/`get`/`save`/`move`/`delete`) | **D1 сразу** → Sheets зеркало; GAS не затирает snap | `subsCanon: d1-primary` |
 | склад arrival/ревизия (`setWarehouseArrival`, `applyWarehouseRevision`, `zeroWarehouse`) | **D1 сразу** → Sheets зеркало; preview/compose/finish F/B — GAS | `warehouseCanon: d1-primary` |
+| доступы / шаблоны / опросники CRUD | **D1 сразу** → Sheets зеркало; `forceSurveyRemind`/TG — GAS | `metaCanon: d1-primary` |
+| структура нарезки (план items) | **D1 fromOrders** / rebuild; флаги — ops; finish → rebuild + row-map GAS | `cuttingStructCanon: d1-primary` |
 
 **Запрещено** без явного отката (`PEOPLE_CANON=sheets-confirm-bg`):
 
