@@ -25,7 +25,7 @@
 | склад arrival/ревизия (`setWarehouseArrival`, `applyWarehouseRevision`, `zeroWarehouse`) | **D1 сразу** → Sheets зеркало; preview/compose/finish F/B — GAS | `warehouseCanon: d1-primary` |
 | доступы / шаблоны / опросники CRUD | **D1 сразу** → Sheets зеркало; `forceSurveyRemind`/TG — GAS | `metaCanon: d1-primary` |
 | структура нарезки (план items) | **D1 fromOrders** / rebuild; флаги — ops; finish → rebuild + row-map GAS | `cuttingStructCanon: d1-primary` |
-| розничный прайс + `calcPrice(retail)` | **D1 сразу**; ПП/`calcPpFact` — GAS | `priceCanon: d1-primary` |
+| розничный прайс + `calcPrice(retail)` + ПП `calcPpFact`/`calcPrice(pp)` | **D1** (ПП: кэш unit costs + формула; cold GAS warm); migrate/getPpFactCost — GAS | `priceCanon: d1-primary` |
 
 **Запрещено** без явного отката (`PEOPLE_CANON=sheets-confirm-bg`):
 
