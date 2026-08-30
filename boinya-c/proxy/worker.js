@@ -10220,6 +10220,8 @@ async function zeroWarehouseD1_(params, env) {
 
 function isRetailCalcMode_(params) {
   const m = String((params && params.mode) || "").toLowerCase();
+  // mode=live/sandbox/cutover — флаги Worker, не режим calc
+  if (!m || m === "live" || m === "sandbox" || m === "cutover") return false;
   return m.indexOf("розн") >= 0 || m === "retail";
 }
 
