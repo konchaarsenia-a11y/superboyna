@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-30 pull-month-d1-sync
+ * deploy-marker: 2026-08-30 price-d1-primary
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -246,6 +246,18 @@ function cuttingStructCanonLabel_(env) {
   return isCuttingStructD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
 }
 
+/** Розничный прайс + calcPrice(retail): D1 правда. ПП/calcPpFact — GAS. Откат: PRICE_CANON=sheets */
+function isPriceD1PrimaryCanon_(env) {
+  const v = env && env.PRICE_CANON ? String(env.PRICE_CANON).trim().toLowerCase() : "";
+  if (v === "sheets" || v === "sheets-first" || v === "sheets-confirm-bg") return false;
+  if (v === "d1-primary" || v === "d1") return true;
+  return isD1PrimaryCanon_(env);
+}
+
+function priceCanonLabel_(env) {
+  return isPriceD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
+}
+
 /**
  * После finishFullWeek / force week sync: слоты дней в D1 = список GAS (replace).
  * Обычные save/move/delete не трогаем. Откат: WEEK_D1_SYNC=upsert
@@ -299,8 +311,9 @@ async function handleAction_(action, params, env, url, ctx) {
       warehouseCanon: warehouseCanonLabel_(env),
       metaCanon: metaCanonLabel_(env),
       cuttingStructCanon: cuttingStructCanonLabel_(env),
+      priceCanon: priceCanonLabel_(env),
       weekD1Sync: weekD1SyncLabel_(env),
-      deployMarker: "2026-08-30 pull-month-d1-sync"
+      deployMarker: "2026-08-30 price-d1-primary"
     };
   }
 
@@ -7041,6 +7054,57 @@ async function handleCutover_(a, params, env, ctx) {
         action: a
       };
     }
+    // Розничный прайс: D1 правда → Script Properties/лист через GAS
+    if (isPriceD1PrimaryCanon_(env) && /^saveRetailPrices$/i.test(a)) {
+      let d1Price = null;
+      try {
+        const ownerOk = await actorIsOwnerRetail_(params, env);
+        if (!ownerOk) {
+          // нет snap доступа — пусть GAS решит (owner_only)
+          const gasOnly = await gasProxy_(a, params, env, { write: true });
+          if (gasOnly && gasOnly.status === "success") {
+            try {
+              await putSnap_(env, "retailPrices", Object.assign({}, gasOnly, { cachedAt: new Date().toISOString() }));
+            } catch (eStoreP) {}
+          }
+          if (gasOnly && typeof gasOnly === "object") {
+            gasOnly.cutover = true;
+            gasOnly.sandbox = false;
+            gasOnly.priceCanon = priceCanonLabel_(env);
+          }
+          return gasOnly || { status: "error", message: "owner_only", cutover: true, action: a };
+        }
+        d1Price = await saveRetailPricesD1_(params, env);
+      } catch (ePr) {
+        d1Price = { status: "error", message: String((ePr && ePr.message) || ePr) };
+      }
+      const gasPrP = gasProxy_(a, params, env, { write: true }).catch(function () {
+        return null;
+      });
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasPrP);
+      else {
+        try {
+          await gasPrP;
+        } catch (eGPr) {}
+      }
+      if (d1Price && d1Price.status === "success") {
+        return Object.assign({}, d1Price, {
+          cutover: true,
+          sandbox: false,
+          d1Verified: true,
+          optimistic: false,
+          priceCanon: priceCanonLabel_(env),
+          action: a
+        });
+      }
+      return {
+        status: "error",
+        message: (d1Price && d1Price.message) || "d1_write_failed",
+        cutover: true,
+        sandbox: false,
+        action: a
+      };
+    }
     // pullClientsFromMonth: GAS пишет Sheets; d1-primary afterWrite skip → явно догоняем D1+нарезку
     if (/^pullClientsFromMonth$/i.test(a)) {
       const proxiedPull = await gasProxy_(a, params, env, { write: true });
@@ -7273,6 +7337,13 @@ async function handleCutover_(a, params, env, ctx) {
     if (a === "getTransferTask") {
       return getTransferTaskCutover_(params, env);
     }
+    // Розница: прайс + calc из D1
+    if (isPriceD1PrimaryCanon_(env) && a === "getRetailPriceList") {
+      return getRetailPriceListD1_(params, env, ctx);
+    }
+    if (isPriceD1PrimaryCanon_(env) && a === "calcPrice" && isRetailCalcMode_(params)) {
+      return calcPriceRetailD1_(params, env, ctx);
+    }
     const live = await gasProxy_(a, params, env, { write: false });
     if (live && typeof live === "object") {
       live.cutover = true;
@@ -7281,6 +7352,11 @@ async function handleCutover_(a, params, env, ctx) {
         try {
           await cutoverStoreRead_(a, params, env, live);
         } catch (eSv) {}
+      }
+      if (a === "getRetailPriceList" && live.status === "success" && env && env.DB) {
+        try {
+          await putSnap_(env, "retailPrices", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+        } catch (eRp) {}
       }
       return live;
     }
@@ -10140,6 +10216,314 @@ async function zeroWarehouseD1_(params, env) {
   wh._d1TouchedAt = Date.now();
   await putSnap_(env, "warehouse", wh);
   return { status: "success", wrote: items.length, zeroed: true, d1Verified: true };
+}
+
+function isRetailCalcMode_(params) {
+  const m = String((params && params.mode) || "").toLowerCase();
+  return m.indexOf("розн") >= 0 || m === "retail";
+}
+
+function retailMapFromItemsD1_(items) {
+  const map = Object.create(null);
+  (items || []).forEach(function (it) {
+    if (!it || !it.key) return;
+    const kind = String(it.kind || "per100").toLowerCase();
+    const price = Number(it.price);
+    if (!isFinite(price) || price < 0) return;
+    if (kind === "perpiece" || kind === "piece" || kind === "шт") map[it.key] = { perPiece: price };
+    else if (kind === "pack" || kind === "packs") map[it.key] = { per100: price, packs: { "100": price } };
+    else map[it.key] = { per100: price };
+  });
+  return map;
+}
+
+function retailItemsFromMapD1_(map) {
+  const items = [];
+  Object.keys(map || {})
+    .sort()
+    .forEach(function (key) {
+      const info = map[key] || {};
+      if (info.perPiece != null) items.push({ key: key, kind: "perPiece", price: Number(info.perPiece) || 0 });
+      else if (info.packs && info.packs["100"] != null) {
+        items.push({
+          key: key,
+          kind: "pack",
+          price: Number(info.packs["100"]) || Number(info.per100) || 0
+        });
+      } else items.push({ key: key, kind: "per100", price: Number(info.per100) || 0 });
+    });
+  return items;
+}
+
+function retailNormalizeNameD1_(name) {
+  const n = String(name || "").trim();
+  const u = n
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/\s+/g, " ");
+  const aliases = {
+    ЛЕГКОЕ: "ЛЁГКОЕ",
+    "БАРАНЬЕ ЛЕГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
+    "КРОШКА ЛЕГКОГО": "КРОШКА ЛЁГКОГО",
+    "ПЕРЕПЕЛКИ ШТ.": "ПЕРЕПЁЛКИ шт.",
+    "ПЕРЕПЕЛКИ ШТ": "ПЕРЕПЁЛКИ шт.",
+    "КОПЫТО ШТ.": "КОПЫТО шт.",
+    "КОЛЕНИ ШТ.": "КОЛЕНИ шт.",
+    "НОСЫ ШТ.": "НОСЫ шт.",
+    "ЛОП ХРЯЩ ШТ.": "ЛОП ХРЯЩ шт.",
+    "УТИНЫЕ ШЕИ ШТ.": "УТИНЫЕ ШЕИ шт.",
+    "ГУБЫ ШТ.": "ГУБЫ шт.",
+    "ГУБЫ ШТ": "ГУБЫ шт.",
+    КАБАЧКИ: "КАБАЧОК",
+    ГРУШЫ: "ГРУШИ",
+    "РУБЕЦ С": "СВЕТЛЫЙ РУБЕЦ"
+  };
+  if (aliases[u]) return aliases[u];
+  if (u.indexOf("КРОШКА РУБ") === 0) return "КРОШКА РУБЕЦ";
+  return n;
+}
+
+function retailNormalizeSubD1_(name, sub) {
+  const s = String(sub || "").trim();
+  if (!s) return "";
+  const u = s
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/\s+/g, " ");
+  const n = String(name || "").toUpperCase();
+  if (/БЫЧИЙ КОРЕН|ТРАХЕ|СТАНОВ/.test(n)) {
+    if (/ОЧЕНЬ\s*МАЛ|ОЧ\s*МАЛ|СУПЕР/.test(u)) return "ОЧ МАЛ";
+    if (/ОГРОМ|РОГАЛ|ОГР/.test(u)) return "ОГР";
+    if (/БОЛЬШ|БОЛ/.test(u)) return "БОЛ";
+    if (/СРЕД/.test(u)) return /ПАЛ/.test(u) ? "ПАЛК" : "СРЕД";
+    if (/ПАЛОЧ|ПАЛК/.test(u)) return "ПАЛК";
+    if (/ПЛАСТ/.test(u)) return "ПЛАСТ";
+    if (/МАЛ/.test(u)) return "МАЛ";
+  }
+  if (/УХО|УШК/.test(n)) return /ПОЛОВИН/.test(u) ? "ПОЛОВИНКА" : "Обычное";
+  if (/АОРТ/.test(n)) return /ПОЛОВИН/.test(u) ? "ПОЛОВИНКА" : "Обычная";
+  if (/МЕЛК/.test(u)) return "Мелкое";
+  if (/СРЕД|КУСОЧ|КУБИК/.test(u) && !/МЕЛК|БОЛЬШ|ЦЕЛ|ЛОМТ|ПОЛОСК/.test(u)) return "Среднее";
+  if (/КРУПН/.test(u)) return "Крупное";
+  if (/БОЛЬШ|ПОЛОСК/.test(u)) return "Большое";
+  if (/ЦЕЛ|ЛОМТ/.test(u)) return "Целое";
+  return s;
+}
+
+function retailLineCostD1_(map, name, sub, val, cat) {
+  const n = retailNormalizeNameD1_(name);
+  const s = retailNormalizeSubD1_(n, sub);
+  const key = n + (s ? "|" + s : "");
+  const info = (map && (map[key] || map[n])) || null;
+  const v = Number(val) || 0;
+  if (!info || v <= 0) return { cost: 0, per: 0, found: !!info };
+  if (info.packs) {
+    const g = String(Math.round(v));
+    if (info.packs[g] != null) return { cost: Number(info.packs[g]), per: Number(info.packs[g]), found: true };
+    const p100 = info.packs["100"] != null ? Number(info.packs["100"]) : Number(info.per100 || 0);
+    const c = p100 * (v / 100);
+    return { cost: Math.round(c * 100) / 100, per: p100, found: true };
+  }
+  if (info.perPiece != null || String(cat || "") === "chew" || String(cat || "") === "chews" || /шт/i.test(n)) {
+    const pp = Number(info.perPiece || 0);
+    return { cost: Math.round(pp * v * 100) / 100, per: pp, found: true };
+  }
+  const p = Number(info.per100 || 0);
+  return { cost: Math.round((v / 100) * p * 100) / 100, per: p, found: true };
+}
+
+async function actorIsOwnerRetail_(params, env) {
+  const tid = String((params && (params.telegramId || params.actorId)) || "").trim();
+  if (!tid) return false;
+  try {
+    const acc = await getSnapRaw_(env, "access:" + tid);
+    if (acc && /^(owner|all)$/i.test(String(acc.role || ""))) return true;
+  } catch (eA) {}
+  try {
+    const list = await getSnapRaw_(env, "listAccess");
+    const people = (list && list.people) || [];
+    for (let i = 0; i < people.length; i++) {
+      if (
+        String(people[i].telegramId) === tid &&
+        /^(owner|all)$/i.test(String(people[i].role || ""))
+      ) {
+        return true;
+      }
+    }
+  } catch (eL) {}
+  return false;
+}
+
+async function ensureRetailPricesSnap_(env, ctx) {
+  let snap = await getSnapRaw_(env, "retailPrices");
+  if (snap && snap.status === "success" && Array.isArray(snap.items) && snap.items.length) return snap;
+  const live = await gasProxy_("getRetailPriceList", {}, env, { write: false });
+  if (live && live.status === "success" && Array.isArray(live.items) && live.items.length) {
+    snap = Object.assign({}, live, { cachedAt: new Date().toISOString(), fromGas: true });
+    try {
+      await putSnap_(env, "retailPrices", snap);
+    } catch (eS) {}
+    return snap;
+  }
+  return snap || null;
+}
+
+async function getRetailPriceListD1_(params, env, ctx) {
+  const force =
+    String((params && params.force) || "") === "1" ||
+    (params && (params.force === true || params.force === 1));
+  if (!force) {
+    const snap = await getSnapRaw_(env, "retailPrices");
+    if (snap && snap.status === "success" && Array.isArray(snap.items) && snap.items.length) {
+      return Object.assign({}, snap, {
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        sandbox: false,
+        priceCanon: "d1-primary",
+        d1Verified: true
+      });
+    }
+  }
+  const live = await gasProxy_("getRetailPriceList", params || {}, env, { write: false });
+  if (live && live.status === "success") {
+    try {
+      await putSnap_(env, "retailPrices", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+    } catch (e) {}
+    live.cutover = true;
+    live.fromGas = true;
+    live.fromD1 = false;
+    live.sandbox = false;
+    live.priceCanon = "d1-primary";
+    return live;
+  }
+  const fallback = await getSnapRaw_(env, "retailPrices");
+  if (fallback && fallback.status === "success") {
+    return Object.assign({}, fallback, {
+      cutover: true,
+      fromD1: true,
+      sandbox: false,
+      priceCanon: "d1-primary"
+    });
+  }
+  return { status: "error", message: "gas_proxy_failed", cutover: true, action: "getRetailPriceList" };
+}
+
+async function saveRetailPricesD1_(params, env) {
+  let items = params.items;
+  if (typeof items === "string") {
+    try {
+      items = JSON.parse(items);
+    } catch (eJ) {
+      items = null;
+    }
+  }
+  if (!items || !items.length) return { status: "error", message: "need_items" };
+  const map = retailMapFromItemsD1_(items);
+  if (!Object.keys(map).length) return { status: "error", message: "empty_map" };
+  let delIn = params.delivery || {};
+  if (typeof delIn === "string") {
+    try {
+      delIn = JSON.parse(delIn);
+    } catch (eD) {
+      delIn = {};
+    }
+  }
+  const prev = (await getSnapRaw_(env, "retailPrices")) || {};
+  const prevDel = (prev && prev.delivery) || { fee: 9, freeFrom: 80 };
+  const delivery = {
+    fee: delIn.fee != null ? Number(delIn.fee) : Number(prevDel.fee) || 9,
+    freeFrom: delIn.freeFrom != null ? Number(delIn.freeFrom) : Number(prevDel.freeFrom) || 80
+  };
+  const outItems = retailItemsFromMapD1_(map);
+  const body = {
+    status: "success",
+    version: "retail-d1",
+    items: outItems,
+    delivery: delivery,
+    saved: outItems.length,
+    cachedAt: new Date().toISOString(),
+    _d1SavedAt: Date.now()
+  };
+  await putSnap_(env, "retailPrices", body);
+  return {
+    status: "success",
+    items: outItems,
+    delivery: delivery,
+    saved: outItems.length,
+    d1Verified: true
+  };
+}
+
+async function calcPriceRetailD1_(params, env, ctx) {
+  const snap = await ensureRetailPricesSnap_(env, ctx);
+  if (!snap || !Array.isArray(snap.items) || !snap.items.length) {
+    // fallback GAS
+    const live = await gasProxy_("calcPrice", params, env, { write: false });
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+      live.sandbox = false;
+      return live;
+    }
+    return { status: "error", message: "retail_prices_missing", cutover: true, action: "calcPrice" };
+  }
+  const map = retailMapFromItemsD1_(snap.items);
+  const del = snap.delivery || { fee: 9, freeFrom: 80 };
+  let basket = params.basket;
+  if (typeof basket === "string") {
+    try {
+      basket = JSON.parse(basket);
+    } catch (eB) {
+      basket = [];
+    }
+  }
+  if (!Array.isArray(basket)) basket = [];
+  const rLines = [];
+  let rTotal = 0;
+  for (let ri = 0; ri < basket.length; ri++) {
+    const rit = basket[ri] || {};
+    const rname = String(rit.name || rit.main || "").trim();
+    const rsub = String(rit.sub || "").trim();
+    const rval = Number(rit.val != null ? rit.val : rit.value) || 0;
+    if (!rname || rval <= 0) continue;
+    const rc = retailLineCostD1_(map, rname, rsub, rval, rit.cat);
+    rTotal += rc.cost;
+    rLines.push({ name: rname, sub: rsub, val: rval, per100: rc.per, cost: rc.cost, found: rc.found });
+  }
+  rTotal = Math.round(rTotal * 100) / 100;
+  const rN = Math.max(1, Number(params.deliveriesN) || 1);
+  const rPer = rTotal / rN;
+  const fee = Number(del.fee) || 9;
+  const freeFrom = Number(del.freeFrom) || 80;
+  let rDelivTimes = 0;
+  if (rTotal > 0) {
+    for (let rdi = 0; rdi < rN; rdi++) {
+      if (rPer < freeFrom) rDelivTimes++;
+    }
+  }
+  const rDeliv = Math.round(rDelivTimes * fee * 100) / 100;
+  const rGrand = Math.round((rTotal + rDeliv) * 100) / 100;
+  return {
+    status: "success",
+    mode: params.mode || "retail",
+    sheet: "розница d1",
+    lines: rLines,
+    cost: rTotal,
+    goods: rTotal,
+    delivery: rDeliv,
+    deliveryTimes: rDelivTimes,
+    perDelivery: Math.round(rPer * 100) / 100,
+    deliveriesN: rN,
+    markup: 1,
+    total: rGrand,
+    cutover: true,
+    fromD1: true,
+    fromGas: false,
+    sandbox: false,
+    priceCanon: "d1-primary",
+    d1Verified: true
+  };
 }
 
 function json(obj, status) {
