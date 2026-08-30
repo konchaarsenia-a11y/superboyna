@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-30 meta-cutting-d1-primary
+ * deploy-marker: 2026-08-30 pull-month-d1-sync
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -300,7 +300,7 @@ async function handleAction_(action, params, env, url, ctx) {
       metaCanon: metaCanonLabel_(env),
       cuttingStructCanon: cuttingStructCanonLabel_(env),
       weekD1Sync: weekD1SyncLabel_(env),
-      deployMarker: "2026-08-30 meta-cutting-d1-primary"
+      deployMarker: "2026-08-30 pull-month-d1-sync"
     };
   }
 
@@ -7040,6 +7040,44 @@ async function handleCutover_(a, params, env, ctx) {
         sandbox: false,
         action: a
       };
+    }
+    // pullClientsFromMonth: GAS пишет Sheets; d1-primary afterWrite skip → явно догоняем D1+нарезку
+    if (/^pullClientsFromMonth$/i.test(a)) {
+      const proxiedPull = await gasProxy_(a, params, env, { write: true });
+      if (!proxiedPull) {
+        return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
+      }
+      const dayPull = String((proxiedPull && proxiedPull.day) || (params && params.day) || "");
+      const bgPull = (async function () {
+        try {
+          if (!(dayPull && env && env.DB)) return;
+          const fresh = await gasProxy_("getClients", { day: dayPull, force: "1" }, env, {
+            write: false
+          });
+          if (fresh && fresh.status === "success") {
+            await sanitizeGasClientsPayload_(env, dayPull, fresh);
+            await upsertMissingClientsFromGas_(env, dayPull, fresh.clients || []);
+            try {
+              await putSnap_(env, "clients:" + dayPull, fresh);
+            } catch (eS) {}
+          }
+          if (isCuttingStructD1PrimaryCanon_(env) || isOpsD1PrimaryCanon_(env)) {
+            try {
+              await rebuildCuttingDay_(env, dayPull);
+            } catch (eCutP) {}
+          }
+        } catch (ePullD1) {}
+      })();
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(bgPull);
+      else {
+        try {
+          await bgPull;
+        } catch (eBgP) {}
+      }
+      proxiedPull.cutover = true;
+      proxiedPull.sandbox = false;
+      proxiedPull.d1SyncStarted = true;
+      return partnerGuardOrRewrite_(a, params, proxiedPull);
     }
     const proxied = await gasProxy_(a, params, env, { write: true });
     if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
