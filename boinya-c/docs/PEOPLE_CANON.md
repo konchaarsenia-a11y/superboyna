@@ -22,6 +22,7 @@
 | флаги нарезки/курьера/сборки | **D1 сразу** → Sheets зеркало | `d1Verified` / `opsCanon: d1-primary` |
 | отложенные / переносы (`listDeferred`, notifyMissed, place, cancel) | **D1 сразу** → Sheets зеркало; GAS не затирает snap | `deferredCanon: d1-primary` |
 | подписки ПП/АФК/БП (`list`/`get`/`save`/`move`/`delete`) | **D1 сразу** → Sheets зеркало; GAS не затирает snap | `subsCanon: d1-primary` |
+| склад arrival/ревизия (`setWarehouseArrival`, `applyWarehouseRevision`, `zeroWarehouse`) | **D1 сразу** → Sheets зеркало; preview/compose/finish F/B — GAS | `warehouseCanon: d1-primary` |
 
 **Запрещено** без явного отката (`PEOPLE_CANON=sheets-confirm-bg`):
 
