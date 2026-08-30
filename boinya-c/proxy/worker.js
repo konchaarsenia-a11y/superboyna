@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-29 deferred-d1-primary
+ * deploy-marker: 2026-08-30 subs-d1-primary
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -198,6 +198,18 @@ function deferredCanonLabel_(env) {
   return isDeferredD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
 }
 
+/** Подписки ПП/АФК/БП: D1 правда, Sheets зеркало. Откат: SUBS_CANON=sheets */
+function isSubsD1PrimaryCanon_(env) {
+  const v = env && env.SUBS_CANON ? String(env.SUBS_CANON).trim().toLowerCase() : "";
+  if (v === "sheets" || v === "sheets-first" || v === "sheets-confirm-bg") return false;
+  if (v === "d1-primary" || v === "d1") return true;
+  return isD1PrimaryCanon_(env);
+}
+
+function subsCanonLabel_(env) {
+  return isSubsD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
+}
+
 /**
  * После finishFullWeek / force week sync: слоты дней в D1 = список GAS (replace).
  * Обычные save/move/delete не трогаем. Откат: WEEK_D1_SYNC=upsert
@@ -247,8 +259,9 @@ async function handleAction_(action, params, env, url, ctx) {
       peopleCanon: peopleCanonLabel_(env),
       opsCanon: opsCanonLabel_(env),
       deferredCanon: deferredCanonLabel_(env),
+      subsCanon: subsCanonLabel_(env),
       weekD1Sync: weekD1SyncLabel_(env),
-      deployMarker: "2026-08-30 week-close-d1-resync"
+      deployMarker: "2026-08-30 subs-d1-primary"
     };
   }
 
@@ -449,7 +462,10 @@ async function handleAction_(action, params, env, url, ctx) {
       empty: true
     };
   }
-  if (a === "getSubscription") return getSubscription_(params, env);
+  if (a === "getSubscription") {
+    const gSub = await getSubscription_(params, env);
+    return Object.assign({}, gSub || { status: "success", found: false }, { sandbox: true });
+  }
   if (a === "exportStats") {
     const st = await getSnapRaw_(env, "getStats");
     if (st) return Object.assign({}, st, { format: params.format || "", sandbox: true });
@@ -6402,6 +6418,47 @@ async function handleCutover_(a, params, env, ctx) {
   }
 
   if (a === "getSubscription") {
+    if (isSubsD1PrimaryCanon_(env) && env && env.DB) {
+      try {
+        const local = await getSubscription_(params, env);
+        const hasDetail =
+          !!(local &&
+            local.found &&
+            (local._d1Detail ||
+              local._savedAt ||
+              (Array.isArray(local.basket) && local.basket.length > 0)));
+        if (hasDetail) {
+          return Object.assign({}, local, {
+            cutover: true,
+            fromD1: true,
+            fromGas: false,
+            sandbox: false,
+            subsCanon: "d1-primary",
+            d1Verified: true
+          });
+        }
+        const liveSub = await gasProxy_(a, params, env, { write: false });
+        if (liveSub && typeof liveSub === "object" && liveSub.status === "success") {
+          try {
+            await mergeSubscriptionDetailIntoSnap_(env, liveSub);
+          } catch (eMergeSub) {}
+          liveSub.cutover = true;
+          liveSub.fromGas = true;
+          liveSub.sandbox = false;
+          liveSub.subsCanon = "d1-primary";
+          return liveSub;
+        }
+        if (local && local.found) {
+          return Object.assign({}, local, {
+            cutover: true,
+            fromD1: true,
+            fromGas: false,
+            sandbox: false,
+            subsCanon: "d1-primary"
+          });
+        }
+      } catch (eSubD1) {}
+    }
     const liveSub = await gasProxy_(a, params, env, { write: false });
     if (liveSub && typeof liveSub === "object") {
       liveSub.cutover = true;
@@ -6766,6 +6823,51 @@ async function handleCutover_(a, params, env, ctx) {
       }
       return d1Res;
     }
+    // Подписки ПП/АФК/БП: D1 правда → Sheets зеркало в фоне
+    if (
+      isSubsD1PrimaryCanon_(env) &&
+      /^(saveSubscription|moveSubscription|deleteSubscription|deleteSubscriptionBatch)$/i.test(a)
+    ) {
+      let d1SubRes = null;
+      try {
+        if (env && env.DB) {
+          if (/^(saveSubscription|moveSubscription)$/i.test(a)) {
+            d1SubRes = await upsertSubscription_(params, env);
+          } else {
+            d1SubRes = await deleteSubscription_(params, env);
+          }
+        }
+      } catch (eSubW) {
+        d1SubRes = { status: "error", message: String((eSubW && eSubW.message) || eSubW) };
+      }
+      const gasSubP = gasProxy_(a, params, env, { write: true }).catch(function () {
+        return null;
+      });
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(gasSubP);
+      } else {
+        try {
+          await gasSubP;
+        } catch (eGSub) {}
+      }
+      if (d1SubRes && d1SubRes.status === "success") {
+        return Object.assign({}, d1SubRes, {
+          cutover: true,
+          sandbox: false,
+          d1Verified: true,
+          optimistic: false,
+          subsCanon: subsCanonLabel_(env),
+          action: a
+        });
+      }
+      return {
+        status: "error",
+        message: (d1SubRes && d1SubRes.message) || "d1_write_failed",
+        cutover: true,
+        sandbox: false,
+        action: a
+      };
+    }
     const proxied = await gasProxy_(a, params, env, { write: true });
     if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
     try {
@@ -6786,6 +6888,8 @@ async function handleCutover_(a, params, env, ctx) {
         } catch (eProtOpt) {}
       } else if (/^(deleteSubscription|deleteSubscriptionBatch)$/i.test(a) && env && env.DB) {
         await deleteSubscription_(params, env);
+      } else if (/^(saveSubscription|moveSubscription)$/i.test(a) && env && env.DB) {
+        await upsertSubscription_(params, env);
       }
     } catch (eOpt) {}
     if (ctx && typeof ctx.waitUntil === "function") {
@@ -7173,8 +7277,8 @@ async function handleCutover_(a, params, env, ctx) {
       }
     } catch (eCut) {}
   }
-  // Подписки CRM: пустой/битый snap или force=1 — сразу полный GAS (без sheet=),
-  // иначе UI кэширует «Пусто в ПП/АФК/БП» и soft больше не ходит в сеть.
+  // Подписки CRM: d1-primary — D1 snap; GAS только cold-start (пустой snap).
+  // Иначе force/пустой → полный GAS (без sheet=), чтобы UI не кэшировал «Пусто».
   {
     const forceSubs =
       a === "listSubscriptions" &&
@@ -7185,6 +7289,17 @@ async function handleCutover_(a, params, env, ctx) {
       (!fast ||
         !Array.isArray(fast.subscriptions) ||
         !fast.subscriptions.length);
+    if (a === "listSubscriptions" && isSubsD1PrimaryCanon_(env) && !emptySubs) {
+      const outSubs = Object.assign({}, fast, {
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        subsCanon: "d1-primary",
+        swr: true,
+        sandbox: false
+      });
+      return outSubs;
+    }
     if (forceSubs || emptySubs) {
       try {
         const liveSubs = await gasProxy_(
@@ -7203,7 +7318,9 @@ async function handleCutover_(a, params, env, ctx) {
             await cutoverStoreRead_("listSubscriptions", {}, env, liveSubs);
           } catch (eSubStore) {}
           liveSubs.cutover = true;
-          liveSubs.fromGas = true;
+          liveSubs.fromGas = !isSubsD1PrimaryCanon_(env);
+          liveSubs.fromD1 = !!isSubsD1PrimaryCanon_(env);
+          liveSubs.subsCanon = subsCanonLabel_(env);
           liveSubs.swr = true;
           liveSubs.sandbox = false;
           return liveSubs;
@@ -7350,6 +7467,11 @@ async function handleCutover_(a, params, env, ctx) {
       try {
         fast = await finalizeListDeferredPayload_(env, fast);
       } catch (eFinDef) {}
+    }
+    if (a === "listSubscriptions" && isSubsD1PrimaryCanon_(env)) {
+      fast.fromD1 = true;
+      fast.fromGas = false;
+      fast.subsCanon = "d1-primary";
     }
     fast.cutover = true;
     fast.swr = true;
@@ -7594,6 +7716,10 @@ function cutoverNeedsRevalidate_(a, params, fast, env) {
   }
   if (isDeferredD1PrimaryCanon_(env) && a === "listDeferred") {
     const empty = !fast || !Array.isArray(fast.items) || !fast.items.length;
+    if (!empty) return false;
+  }
+  if (isSubsD1PrimaryCanon_(env) && a === "listSubscriptions") {
+    const empty = !fast || !Array.isArray(fast.subscriptions) || !fast.subscriptions.length;
     if (!empty) return false;
   }
   // calc/ping/suggest — не гоняем в GAS из UI
@@ -8012,6 +8138,16 @@ async function cutoverStoreRead_(a, params, env, payload) {
     return;
   }
   if (a === "listSubscriptions") {
+    // d1-primary: snap меняют только write/detail-merge; GAS не затирает D1
+    if (isSubsD1PrimaryCanon_(env)) {
+      try {
+        const prevKeep = await getSnapRaw_(env, "listSubscriptions");
+        if (prevKeep && Array.isArray(prevKeep.subscriptions) && prevKeep.subscriptions.length) {
+          return;
+        }
+      } catch (ePrevSub) {}
+      // cold-start: только если snap пуст — один раз принять GAS
+    }
     const sheetFilter = String((params && (params.sheet || params.segment)) || "").trim();
     const incoming = Array.isArray(payload.subscriptions) ? payload.subscriptions : [];
     let prevArr = [];
@@ -8040,7 +8176,7 @@ async function cutoverStoreRead_(a, params, env, payload) {
           const sh = String((s && s.sheet) || "").trim();
           return !sh || sh === sheetFilter;
         });
-        const merged = keep.concat(add);
+        const merged = keep.concat(enrichSubsPreserveDetail_(prevArr, add));
         if (!merged.length && prevArr.length) return;
         if (merged.length < prevArr.length && add.length === 0) return;
         await putSnap_(
@@ -8058,12 +8194,13 @@ async function cutoverStoreRead_(a, params, env, payload) {
     }
     // Полный ответ короче prev больше чем вдвое — подозрительно, не затираем
     if (prevArr.length >= 10 && incoming.length < Math.floor(prevArr.length * 0.5)) return;
+    const fullIncoming = enrichSubsPreserveDetail_(prevArr, incoming);
     await putSnap_(
       env,
       a,
       Object.assign({}, payload, {
-        subscriptions: incoming,
-        count: incoming.length,
+        subscriptions: fullIncoming,
+        count: fullIncoming.length,
         sheet: sheetFilter && Object.keys(
           incoming.reduce(function (acc, s) {
             const sh = String((s && s.sheet) || "").trim();
@@ -8878,7 +9015,11 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
       cutoverRevalidate_("getWarehouse", {}, env),
       cutoverRevalidate_("getStats", {}, env)
     ]);
-    if (/subscription/i.test(a)) await cutoverRevalidate_("listSubscriptions", {}, env);
+    if (/subscription/i.test(a)) {
+      if (!isSubsD1PrimaryCanon_(env)) {
+        await cutoverRevalidate_("listSubscriptions", {}, env);
+      }
+    }
     if (/deferred|remind|missed|transfer/i.test(a)) {
       if (!isDeferredD1PrimaryCanon_(env)) {
         await cutoverRevalidate_("listDeferred", params, env);
@@ -9115,27 +9256,145 @@ async function gasProxy_(action, params, env, opts) {
   }
 }
 
+function parseMaybeJson_(v) {
+  if (v == null || v === "") return v;
+  if (typeof v !== "string") return v;
+  try {
+    return JSON.parse(v);
+  } catch (eJ) {
+    return v;
+  }
+}
+
+function subscriptionSheetKey_(it) {
+  return String((it && (it.sheet || it.segment || it.kind)) || "")
+    .trim()
+    .toUpperCase();
+}
+
+function subscriptionMatch_(it, nickKey, sheetWant, subId) {
+  if (!it) return false;
+  const n = normalizeMatchKey_(it.nick || it.name || it.label || "");
+  const sid = String(it.subId || it.id || "").trim();
+  const wantSid = String(subId || "").trim();
+  if (wantSid && sid && sid === wantSid) {
+    if (!sheetWant) return true;
+    const sh = subscriptionSheetKey_(it);
+    return !sh || sh === sheetWant;
+  }
+  if (!nickKey || n !== nickKey) return false;
+  if (!sheetWant) return true;
+  const sh = subscriptionSheetKey_(it);
+  return !sh || sh === sheetWant;
+}
+
+/** При merge GAS→snap сохранить basket/detail из prev (list GAS без состава). */
+function enrichSubsPreserveDetail_(prevArr, incoming) {
+  const prev = Array.isArray(prevArr) ? prevArr : [];
+  const add = Array.isArray(incoming) ? incoming : [];
+  return add.map(function (s) {
+    if (!s) return s;
+    const nickKey = normalizeMatchKey_(s.nick || s.name || s.label || "");
+    const sheetWant = subscriptionSheetKey_(s);
+    const subId = String(s.subId || s.id || "").trim();
+    let old = null;
+    for (let i = 0; i < prev.length; i++) {
+      if (subscriptionMatch_(prev[i], nickKey, sheetWant, subId)) {
+        old = prev[i];
+        break;
+      }
+    }
+    if (!old) return s;
+    const out = Object.assign({}, s);
+    const richKeys = [
+      "basket",
+      "basketBp1",
+      "basketBp2",
+      "address",
+      "phone",
+      "note",
+      "factCost",
+      "statedCost",
+      "calcFactCost",
+      "coef",
+      "scheme",
+      "ppScheme",
+      "packCounts",
+      "dogName",
+      "dogBreed",
+      "dogWeight",
+      "packagesByn",
+      "xtraCount",
+      "_d1Detail",
+      "_savedAt"
+    ];
+    for (let k = 0; k < richKeys.length; k++) {
+      const key = richKeys[k];
+      const hasNew =
+        out[key] != null &&
+        out[key] !== "" &&
+        !(Array.isArray(out[key]) && !out[key].length && Array.isArray(old[key]) && old[key].length);
+      if (!hasNew && old[key] != null && old[key] !== "") out[key] = old[key];
+    }
+    return out;
+  });
+}
+
+async function mergeSubscriptionDetailIntoSnap_(env, detail) {
+  if (!env || !env.DB || !detail) return;
+  let list = (await getSnapRaw_(env, "listSubscriptions")) || {
+    status: "success",
+    subscriptions: []
+  };
+  const arr = (list.subscriptions || list.items || []).slice();
+  const nickKey = normalizeMatchKey_(detail.nick || detail.label || detail.name || "");
+  const sheetWant = subscriptionSheetKey_(detail);
+  const subId = String(detail.subId || "").trim();
+  let idx = -1;
+  for (let i = 0; i < arr.length; i++) {
+    if (subscriptionMatch_(arr[i], nickKey, sheetWant, subId)) {
+      idx = i;
+      break;
+    }
+  }
+  const merged = Object.assign({}, idx >= 0 ? arr[idx] : {}, detail, {
+    _d1Detail: true,
+    _savedAt: Date.now(),
+    sheet: detail.sheet || (idx >= 0 && arr[idx].sheet) || sheetWant || "ПП",
+    nick: detail.nick || (idx >= 0 && arr[idx].nick) || detail.label || ""
+  });
+  delete merged.action;
+  delete merged.cutover;
+  delete merged.fromGas;
+  delete merged.fromD1;
+  delete merged.sandbox;
+  delete merged.subsCanon;
+  delete merged.swr;
+  if (idx >= 0) arr[idx] = merged;
+  else arr.push(merged);
+  list.subscriptions = arr;
+  list.count = arr.length;
+  list.status = "success";
+  await putSnap_(env, "listSubscriptions", list);
+}
+
 async function getSubscription_(params, env) {
-  const nick = String(params.nick || "").trim();
-  const segment = String(params.segment || "").trim();
+  const nick = String(params.nick || params.label || "").trim();
+  const segment = String(params.segment || params.sheet || "").trim();
+  const subId = String(params.subId || "").trim();
   const list = await getSnapRaw_(env, "listSubscriptions");
   const arr = (list && (list.subscriptions || list.items || list.list)) || [];
   const nickKey = normalizeMatchKey_(nick);
+  const sheetWant = segment ? segment.toUpperCase() : "";
   let found = null;
   for (let i = 0; i < arr.length; i++) {
-    const it = arr[i];
-    const n = normalizeMatchKey_(it.nick || it.name || "");
-    if (n !== nickKey) continue;
-    if (segment) {
-      const seg = String(it.segment || it.sheet || it.kind || "").toUpperCase();
-      const want = segment.toUpperCase();
-      if (seg !== want && seg.indexOf(want) < 0) continue;
+    if (subscriptionMatch_(arr[i], nickKey, sheetWant, subId)) {
+      found = arr[i];
+      break;
     }
-    found = it;
-    break;
   }
   if (!found) {
-    return { status: "success", found: false, nick: nick, segment: segment, sandbox: true };
+    return { status: "success", found: false, nick: nick, segment: segment };
   }
   if ((!found.address || !found.phone) && env) {
     try {
@@ -9153,44 +9412,87 @@ async function getSubscription_(params, env) {
   return Object.assign({}, found, {
     status: "success",
     found: true,
-    nick: nick,
+    nick: nick || found.nick,
     segment: segment || found.sheet || "",
-    subStatus: found.status,
-    sandbox: true
+    sheet: found.sheet || segment || "",
+    subStatus: found.status
   });
 }
 
 async function upsertSubscription_(params, env) {
   let list = (await getSnapRaw_(env, "listSubscriptions")) || {
     status: "success",
-    subscriptions: [],
-    sandbox: true
+    subscriptions: []
   };
-  const arr = list.subscriptions || list.items || [];
-  const nick = String(params.nick || params.client || "").trim();
+  const arr = (list.subscriptions || list.items || []).slice();
+  const nick = String(params.nick || params.client || params.label || "").trim();
   const mk = normalizeMatchKey_(nick);
+  const isMove =
+    !!(params.toSheet && params.fromSheet) ||
+    String(params.action || "").toLowerCase() === "movesubscription";
+  const findSheet = String(
+    (isMove ? params.fromSheet : params.sheet || params.segment) || ""
+  )
+    .trim()
+    .toUpperCase();
+  const toSheet = String(
+    (isMove ? params.toSheet : params.sheet || params.segment || findSheet) || "ПП"
+  ).trim() || "ПП";
+  const subId = String(params.subId || "").trim();
   let idx = -1;
   for (let i = 0; i < arr.length; i++) {
-    if (normalizeMatchKey_(arr[i].nick || arr[i].name) === mk) {
+    if (subscriptionMatch_(arr[i], mk, findSheet, subId)) {
       idx = i;
       break;
     }
   }
-  const row = Object.assign({}, idx >= 0 ? arr[idx] : {}, params, { nick: nick || (arr[idx] && arr[idx].nick) });
+  const row = Object.assign({}, idx >= 0 ? arr[idx] : {}, params);
   delete row.action;
+  delete row.fromSheet;
+  delete row.toSheet;
+  delete row._;
+  delete row.callback;
+  delete row.cutover;
+  delete row.mode;
+  row.nick = nick || (arr[idx] && arr[idx].nick) || "";
+  row.label = String(params.label || row.label || row.nick).trim();
+  row.sheet = toSheet;
+  row.segment = toSheet;
+  if (subId) row.subId = subId;
+  else if (arr[idx] && arr[idx].subId) row.subId = arr[idx].subId;
+  if (params.basket != null) row.basket = parseMaybeJson_(params.basket);
+  if (params.packCounts != null) row.packCounts = parseMaybeJson_(params.packCounts);
+  if (params.basketBp1 != null) row.basketBp1 = parseMaybeJson_(params.basketBp1);
+  if (params.basketBp2 != null) row.basketBp2 = parseMaybeJson_(params.basketBp2);
+  if (params.ppStatus) {
+    row.status = params.ppStatus;
+    row.stage = params.ppStatus;
+  }
+  row._d1Detail = true;
+  row._savedAt = Date.now();
   if (idx >= 0) arr[idx] = row;
   else arr.push(row);
   list.subscriptions = arr;
   list.count = arr.length;
   list.status = "success";
-  list.sandbox = true;
   await putSnap_(env, "listSubscriptions", list);
-  return { status: "success", sandbox: true, wrote: 1, nick: nick };
+  return {
+    status: "success",
+    wrote: 1,
+    nick: row.nick,
+    label: row.label,
+    subId: row.subId || "",
+    sheet: row.sheet,
+    deliveries: row.deliveries,
+    statusText: row.status || row.stage || "",
+    wishes: row.wishes || "",
+    d1Verified: true
+  };
 }
 
 async function deleteSubscription_(params, env) {
   let list = (await getSnapRaw_(env, "listSubscriptions")) || { status: "success", subscriptions: [] };
-  let arr = list.subscriptions || list.items || [];
+  let arr = (list.subscriptions || list.items || []).slice();
   let items = params.items || params.targets || params.nicks || [];
   if (typeof items === "string") {
     try {
@@ -9208,28 +9510,52 @@ async function deleteSubscription_(params, env) {
       }),
       params.nicks || [],
       params.nick ? [params.nick] : [],
+      params.label ? [params.label] : [],
       params.ids || []
     )
     .map(String)
     .filter(Boolean);
   const keys = nicks.map(normalizeMatchKey_);
-  if (!keys.length) {
-    return { status: "error", message: "need_nick", sandbox: true };
+  const subId = String(params.subId || "").trim();
+  if (!keys.length && !subId && !items.length) {
+    return { status: "error", message: "need_nick" };
   }
   const before = arr.length;
   const sheetWant = String(params.sheet || params.segment || "").trim().toUpperCase();
   arr = arr.filter(function (it) {
-    const k = normalizeMatchKey_(it.nick || it.name || it.subId || it.id);
-    if (keys.indexOf(k) < 0) return true;
+    const k = normalizeMatchKey_(it.nick || it.name || it.label || it.subId || it.id);
+    const sid = String(it.subId || it.id || "").trim();
+    let hit = false;
+    if (subId && sid && sid === subId) hit = true;
+    if (!hit && keys.length && keys.indexOf(k) >= 0) hit = true;
+    if (!hit && items.length) {
+      for (let ii = 0; ii < items.length; ii++) {
+        const itm = items[ii];
+        if (typeof itm === "string") continue;
+        const ink = normalizeMatchKey_((itm && (itm.nick || itm.label)) || "");
+        const isid = String((itm && itm.subId) || "").trim();
+        const ish = String((itm && (itm.sheet || itm.segment)) || "")
+          .trim()
+          .toUpperCase();
+        if (isid && sid && isid === sid) {
+          hit = !ish || !subscriptionSheetKey_(it) || ish === subscriptionSheetKey_(it);
+          if (hit) break;
+        }
+        if (ink && ink === k) {
+          hit = !ish || !subscriptionSheetKey_(it) || ish === subscriptionSheetKey_(it);
+          if (hit) break;
+        }
+      }
+    }
+    if (!hit) return true;
     if (!sheetWant) return false;
-    const sh = String(it.sheet || it.segment || "").trim().toUpperCase();
+    const sh = subscriptionSheetKey_(it);
     return sh && sh !== sheetWant;
   });
   list.subscriptions = arr;
   list.count = arr.length;
-  list.sandbox = true;
   await putSnap_(env, "listSubscriptions", list);
-  return { status: "success", sandbox: true, wrote: before - arr.length };
+  return { status: "success", wrote: before - arr.length, deletedPeople: before - arr.length };
 }
 
 async function upsertInList_(env, snapKey, arrKey, params, idField) {

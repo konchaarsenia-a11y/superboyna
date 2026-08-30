@@ -9,6 +9,7 @@ compatibility_date = "2024-11-01"
 PEOPLE_CANON = "d1-primary"
 OPS_CANON = "d1-primary"
 DEFERRED_CANON = "d1-primary"
+SUBS_CANON = "d1-primary"
 WEEK_D1_SYNC = "gas-authoritative"
 
 [[d1_databases]]
