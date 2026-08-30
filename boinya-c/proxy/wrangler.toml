@@ -16,6 +16,9 @@ CUTTING_STRUCT_CANON = "d1-primary"
 PRICE_CANON = "d1-primary"
 WEEK_D1_SYNC = "gas-authoritative"
 
+# Secret (не в vars): wrangler secret put TELEGRAM_BOT_TOKEN
+# Без секрета sendCourier/forceSurvey → GAS fallback
+
 [[d1_databases]]
 binding = "DB"
 database_name = "boinya-c"

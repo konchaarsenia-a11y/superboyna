@@ -313,7 +313,9 @@ async function handleAction_(action, params, env, url, ctx) {
       cuttingStructCanon: cuttingStructCanonLabel_(env),
       priceCanon: priceCanonLabel_(env),
       weekD1Sync: weekD1SyncLabel_(env),
-      deployMarker: "2026-08-30 warehouse-plan-d1"
+      telegramCanon: hasTelegramToken_(env) ? "worker" : "sheets-fallback",
+      hasTelegramToken: hasTelegramToken_(env),
+      deployMarker: "2026-08-30 telegram-worker-d1"
     };
   }
 
@@ -7228,6 +7230,16 @@ async function handleCutover_(a, params, env, ctx) {
       }
       return okSess;
     }
+    // Telegram: Worker + D1 tickets (токен = secret TELEGRAM_BOT_TOKEN). Нет токена → GAS.
+    if (/^prepareCourierRoute$/i.test(a)) {
+      return prepareCourierRouteD1_(params, env);
+    }
+    if (/^(sendCourierRoute|sendDeficit)$/i.test(a)) {
+      return sendCourierRouteD1_(params, env, a);
+    }
+    if (/^forceSurveyRemind$/i.test(a)) {
+      return forceSurveyRemindD1_(params, env, ctx);
+    }
     const proxied = await gasProxy_(a, params, env, { write: true });
     if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
     try {
@@ -7266,6 +7278,9 @@ async function handleCutover_(a, params, env, ctx) {
   // getWeekDayCounts — всегда GAS: после finishFullWeek D1 иначе месяцами врёт даты
   // getMyAccess — отдельно: D1 snap по telegramId + SWR (иначе TG ждёт GAS ~4с на каждый вход)
   // getViewCompare — D1+SWR ниже
+  if (a === "telegramStatus") {
+    return telegramStatusD1_(params, env);
+  }
   if (a === "getMyAccess") {
     return cutoverGetMyAccess_(params, env, ctx);
   }
@@ -12558,6 +12573,314 @@ async function calcPriceRetailD1_(params, env, ctx) {
     d1Verified: true
   };
 }
+
+
+function hasTelegramToken_(env) {
+  const t = env && (env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_TOKEN);
+  return !!(t && String(t).trim());
+}
+
+function getTelegramTokenWorker_(env) {
+  return String((env && (env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_TOKEN)) || "").trim();
+}
+
+async function telegramSendTextWorker_(env, chatId, text, markup) {
+  const token = getTelegramTokenWorker_(env);
+  const id = chatId != null ? String(chatId).trim() : "";
+  if (!token) {
+    return { ok: false, error: "no_token", message: "no_token", description: "Нет TELEGRAM_BOT_TOKEN в Worker secrets" };
+  }
+  if (!id) {
+    return { ok: false, error: "no_chat", message: "no_chat", description: "Пустой chat id" };
+  }
+  const payload = {
+    chat_id: id,
+    text: String(text || "").slice(0, 3500),
+    disable_web_page_preview: false
+  };
+  if (markup) payload.reply_markup = markup;
+  try {
+    const res = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const body = await res.json();
+    return body;
+  } catch (e) {
+    return { ok: false, error: String(e && e.message ? e.message : e) };
+  }
+}
+
+async function telegramStatusD1_(params, env) {
+  if (hasTelegramToken_(env)) {
+    return {
+      status: "success",
+      hasToken: true,
+      telegramCanon: "worker",
+      cutover: true,
+      fromD1: true,
+      fromGas: false,
+      sandbox: false,
+      d1Verified: true
+    };
+  }
+  // fallback GAS (токен только в Script Properties)
+  const live = await gasProxy_("telegramStatus", params || {}, env, { write: false });
+  if (live && typeof live === "object") {
+    live.cutover = true;
+    live.fromGas = true;
+    live.fromD1 = false;
+    live.telegramCanon = "sheets-fallback";
+  }
+  return live || { status: "success", hasToken: false, telegramCanon: "none", cutover: true };
+}
+
+async function prepareCourierRouteD1_(params, env) {
+  const text = String((params && params.text) || "");
+  if (!text) return { status: "error", message: "empty_text", cutover: true };
+  let ticket = params && params.ticket ? String(params.ticket).replace(/[^a-zA-Z0-9_:-]/g, "").slice(0, 64) : "";
+  if (!ticket) ticket = String(Date.now()) + "_" + String(Math.floor(Math.random() * 1e6));
+  await putSnap_(env, "routeTicket:" + ticket, {
+    text: text.slice(0, 90000),
+    at: Date.now(),
+    status: "success"
+  });
+  return {
+    status: "success",
+    ticket: ticket,
+    cutover: true,
+    fromD1: true,
+    fromGas: false,
+    sandbox: false,
+    d1Verified: true
+  };
+}
+
+async function sendCourierRouteD1_(params, env, actionName) {
+  const chatId = (params && (params.telegramId || params.chatId || params.id)) || "";
+  let text = String((params && params.text) || "");
+  const ticket = params && params.ticket ? String(params.ticket) : "";
+  if (ticket) {
+    try {
+      const cached = await getSnapRaw_(env, "routeTicket:" + ticket);
+      if (cached && cached.text) text = String(cached.text);
+    } catch (eT) {}
+  }
+  if (!chatId) {
+    return {
+      status: "error",
+      message: "no_chat",
+      description: "Пустой chat id курьера",
+      cutover: true
+    };
+  }
+  if (!text) {
+    // ticket мог быть только в GAS Cache — fallback
+    if (!hasTelegramToken_(env) || ticket) {
+      const live = await gasProxy_(actionName || "sendCourierRoute", params || {}, env, { write: true });
+      if (live && typeof live === "object") {
+        live.cutover = true;
+        live.fromGas = true;
+        live.fromD1 = false;
+      }
+      return live || { status: "error", message: "need_id_and_text", cutover: true };
+    }
+    return {
+      status: "error",
+      message: "need_id_and_text",
+      description: "Нет текста маршрута",
+      cutover: true
+    };
+  }
+  if (!hasTelegramToken_(env)) {
+    const live = await gasProxy_(actionName || "sendCourierRoute", params || {}, env, { write: true });
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+      live.fromD1 = false;
+      live.telegramCanon = "sheets-fallback";
+    }
+    return live || { status: "error", message: "no_token", cutover: true };
+  }
+  const result = await telegramSendTextWorker_(env, chatId, text, null);
+  if (result && result.ok) {
+    return {
+      status: "success",
+      cutover: true,
+      fromD1: true,
+      fromGas: false,
+      sandbox: false,
+      d1Verified: true,
+      telegramCanon: "worker",
+      action: actionName || "sendCourierRoute"
+    };
+  }
+  return {
+    status: "error",
+    message: (result && (result.description || result.message || result.error)) || "send_failed",
+    raw: result,
+    cutover: true,
+    fromD1: true,
+    telegramCanon: "worker"
+  };
+}
+
+function personalizeSurveyBodyD1_(body, nick) {
+  const n = String(nick || "").trim();
+  let t = String(body || "");
+  if (n) t = t.replace(/!\s/, n + "! ").replace(/Здравствуйте,\s*!/, "Здравствуйте, " + n + "!");
+  return t;
+}
+
+async function forceSurveyRemindD1_(params, env, ctx) {
+  if (!hasTelegramToken_(env)) {
+    const live = await gasProxy_("forceSurveyRemind", params || {}, env, { write: true });
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+      live.fromD1 = false;
+      live.telegramCanon = "sheets-fallback";
+    }
+    return live || { status: "error", message: "no_token", cutover: true };
+  }
+  const onlyNick = String((params && (params.nick || params.client)) || "").trim();
+  const today = todayIsoMinskD1_();
+  const sentKey = "bp_survey_remind_" + today;
+  let already = {};
+  try {
+    already = (await getSnapRaw_(env, sentKey)) || {};
+    if (already && already.map) already = already.map;
+  } catch (eA) {
+    already = {};
+  }
+  if (!already || typeof already !== "object") already = {};
+
+  let surveys = [];
+  try {
+    const snap = await getSnapRaw_(env, "listSurvey");
+    surveys = (snap && (snap.items || snap.surveys || snap.list)) || [];
+  } catch (eS) {
+    surveys = [];
+  }
+  if (!surveys.length) {
+    // cold
+    try {
+      const liveList = await gasProxy_("listSurvey", {}, env, { write: false });
+      if (liveList && liveList.status === "success") {
+        surveys = liveList.items || liveList.surveys || [];
+        try {
+          await putSnap_(env, "listSurvey", Object.assign({}, liveList, { cachedAt: new Date().toISOString() }));
+        } catch (eP) {}
+      }
+    } catch (eL) {}
+  }
+
+  let templates = [];
+  try {
+    const tpl =
+      (await getSnapRaw_(env, "listTemplates:survey")) || (await getSnapRaw_(env, "listTemplates"));
+    templates = (tpl && (tpl.items || tpl.templates || tpl.list)) || [];
+  } catch (eT) {
+    templates = [];
+  }
+
+  function tplBody(id, nick) {
+    const want = String(id || "").toLowerCase();
+    for (let i = 0; i < templates.length; i++) {
+      if (String(templates[i].id || "").toLowerCase() === want) {
+        return personalizeSurveyBodyD1_(templates[i].body || "", nick);
+      }
+    }
+    return "";
+  }
+
+  const sent = [];
+  const skipped = [];
+  for (let i = 0; i < surveys.length; i++) {
+    const obj = surveys[i] || {};
+    const nick = String(obj.nick || "").trim();
+    if (!nick) continue;
+    if (onlyNick && !nicksMatchLooseD1_(nick, onlyNick)) continue;
+    const st = String(obj.status || "").toLowerCase();
+    if (st && st !== "due" && st !== "planned" && st !== "open") {
+      skipped.push({ nick: nick, reason: "status:" + st });
+      continue;
+    }
+    const due = String(obj.dueDate || "").slice(0, 10);
+    if (due && due > today && !onlyNick) {
+      skipped.push({ nick: nick, reason: "due_future:" + due });
+      continue;
+    }
+    const tid = String(obj.ownerTelegramId || "").trim();
+    if (!tid) {
+      skipped.push({ nick: nick, reason: "no_target" });
+      continue;
+    }
+    const kindKey = /final/i.test(String(obj.kind || "")) ? "survey_final" : "survey_bp2";
+    const dedupe = normalizeMatchKey_(nick) + "|" + kindKey + "|" + due + "|" + tid;
+    if (already[dedupe]) {
+      skipped.push({ nick: nick, reason: "already_day", tid: tid });
+      continue;
+    }
+    const body =
+      tplBody(obj.templateId, nick) ||
+      tplBody(kindKey, nick) ||
+      ("Опросник для " + nick);
+    const kindLabel = kindKey === "survey_final" ? "ПП (финал)" : "БП2";
+    const text =
+      "📋 Опросник · " +
+      kindLabel +
+      "\nКому отправить: " +
+      nick +
+      "\n" +
+      (obj.stage ? "Этап: " + obj.stage + "\n" : "") +
+      "Дата: " +
+      (due || today) +
+      "\n⚡ forceSurveyRemind · worker\n\nТекст опросника:\n" +
+      body;
+    let markup = null;
+    if (obj.id) {
+      markup = {
+        inline_keyboard: [[{ text: "✅ Отправлено", callback_data: ("svsent:" + String(obj.id)).slice(0, 64) }]]
+      };
+    }
+    const sendRes = await telegramSendTextWorker_(env, tid, text, markup);
+    already[dedupe] = 1;
+    sent.push({
+      nick: nick,
+      tid: tid,
+      id: obj.id || "",
+      ok: !!(sendRes && sendRes.ok !== false),
+      raw: sendRes
+    });
+  }
+
+  try {
+    await putSnap_(env, sentKey, Object.assign({}, already, { _savedAt: Date.now(), day: today }));
+  } catch (eSave) {}
+
+  return {
+    status: "success",
+    sent: sent,
+    skipped: skipped,
+    force: true,
+    cutover: true,
+    fromD1: true,
+    fromGas: false,
+    sandbox: false,
+    d1Verified: true,
+    telegramCanon: "worker"
+  };
+}
+
+function nicksMatchLooseD1_(a, b) {
+  const x = normalizeMatchKey_(a);
+  const y = normalizeMatchKey_(b);
+  if (!x || !y) return false;
+  return x === y || x.indexOf(y) >= 0 || y.indexOf(x) >= 0;
+}
+
 
 function json(obj, status) {
   return new Response(JSON.stringify(obj), {
