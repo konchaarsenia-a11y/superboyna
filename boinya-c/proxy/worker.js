@@ -313,7 +313,7 @@ async function handleAction_(action, params, env, url, ctx) {
       cuttingStructCanon: cuttingStructCanonLabel_(env),
       priceCanon: priceCanonLabel_(env),
       weekD1Sync: weekD1SyncLabel_(env),
-      deployMarker: "2026-08-30 remain-reads-d1-careful"
+      deployMarker: "2026-08-30 remain-reads-d1-careful-fix"
     };
   }
 
@@ -7368,6 +7368,20 @@ async function handleCutover_(a, params, env, ctx) {
     if (isWarehouseD1PrimaryCanon_(env) && a === "composeWarehouseBuyMessage") {
       return composeWarehouseBuyMessageD1_(params, env, ctx);
     }
+    if (a === "getExpectedProfit" || a === "exportStats") {
+      const st = await getSnapRaw_(env, "getStats");
+      if (st && st.status === "success" && String((params && params.force) || "") !== "1") {
+        return Object.assign({}, st, {
+          cutover: true,
+          fromD1: true,
+          fromGas: false,
+          sandbox: false,
+          action: a,
+          d1Verified: true,
+          statsFromSnap: true
+        });
+      }
+    }
     const live = await gasProxy_(a, params, env, { write: false });
     if (live && typeof live === "object") {
       live.cutover = true;
@@ -10840,11 +10854,6 @@ async function migratePpToRaw26SchemeD1_(params, env, ctx) {
   return ok;
 }
 
-function parsePpSchemeFromWishesD1_(wishes) {
-  const m = String(wishes || "").match(/\[SCHEME:([^\]]+)\]/i);
-  if (!m) return "";
-  return normalizePpSchemeD1_(m[1]);
-}
 
 async function warehousePreviewD1_(params, env, ctx) {
   const force =
