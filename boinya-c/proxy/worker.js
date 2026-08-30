@@ -246,7 +246,7 @@ function cuttingStructCanonLabel_(env) {
   return isCuttingStructD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
 }
 
-/** Розничный прайс + calcPrice(retail): D1 правда. ПП/calcPpFact — GAS. Откат: PRICE_CANON=sheets */
+/** Прайс: retail + calcPpFact/calcPrice(pp) D1 правда (unit costs кэш + формула). migrate/getPpFactCost — GAS. Откат: PRICE_CANON=sheets */
 function isPriceD1PrimaryCanon_(env) {
   const v = env && env.PRICE_CANON ? String(env.PRICE_CANON).trim().toLowerCase() : "";
   if (v === "sheets" || v === "sheets-first" || v === "sheets-confirm-bg") return false;
@@ -313,7 +313,7 @@ async function handleAction_(action, params, env, url, ctx) {
       cuttingStructCanon: cuttingStructCanonLabel_(env),
       priceCanon: priceCanonLabel_(env),
       weekD1Sync: weekD1SyncLabel_(env),
-      deployMarker: "2026-08-30 price-retail-mode-fix"
+      deployMarker: "2026-08-30 pp-calc-d1-primary"
     };
   }
 
@@ -7344,6 +7344,12 @@ async function handleCutover_(a, params, env, ctx) {
     if (isPriceD1PrimaryCanon_(env) && a === "calcPrice" && isRetailCalcMode_(params)) {
       return calcPriceRetailD1_(params, env, ctx);
     }
+    if (isPriceD1PrimaryCanon_(env) && a === "calcPpFact") {
+      return calcPpFactD1_(params, env, ctx);
+    }
+    if (isPriceD1PrimaryCanon_(env) && a === "calcPrice" && isPpCalcMode_(params)) {
+      return calcPricePpD1_(params, env, ctx);
+    }
     const live = await gasProxy_(a, params, env, { write: false });
     if (live && typeof live === "object") {
       live.cutover = true;
@@ -7357,6 +7363,17 @@ async function handleCutover_(a, params, env, ctx) {
         try {
           await putSnap_(env, "retailPrices", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
         } catch (eRp) {}
+      }
+      if (
+        (a === "calcPpFact" || (a === "calcPrice" && isPpCalcMode_(params))) &&
+        live.status === "success" &&
+        Array.isArray(live.lines) &&
+        env &&
+        env.DB
+      ) {
+        try {
+          await mergePriceCostsPpFromLinesD1_(env, live.lines);
+        } catch (ePp) {}
       }
       return live;
     }
@@ -10455,6 +10472,705 @@ async function saveRetailPricesD1_(params, env) {
     saved: outItems.length,
     d1Verified: true
   };
+}
+
+
+function isPpCalcMode_(params) {
+  const m = String((params && params.mode) || "").toLowerCase();
+  if (!m || m === "live" || m === "sandbox" || m === "cutover") return false;
+  return (
+    m === "pp" ||
+    m === "subscription" ||
+    m.indexOf("подп") >= 0 ||
+    m === "факт" ||
+    m === "fact"
+  );
+}
+
+function isPieceSkuNameD1_(name) {
+  const n = String(name || "");
+  if (!n) return false;
+  if (/шт/i.test(n)) return true;
+  if (/ХРЯЩ|ЛОПАТ|ЛОП\s*ХРЯЩ/i.test(n)) return true;
+  if (/КОЛЕН|КОПЫТ|НОСЫ|НОС\b|УХО|УШК|ШЕИ|ШЕЯ|ГУБЫ|ПЕРЕП[ЕЁ]?Л|АОРТ|ТРАХЕ|СТАНОВ|УТИН/i.test(n)) {
+    return true;
+  }
+  if (/БЫЧ.*КОРЕН|КОРЕНЬ/i.test(n)) return true;
+  return false;
+}
+
+const PP_SCHEME_CUTOFF_YMD_D1_ = "2026-08-31";
+const PP_RAW26_COEF_DEFAULT_D1_ = 2.6;
+const PP_RAW26_RECOVER_100_D1_ = 3.9;
+const PP_RAW26_RECOVER_PIECE_D1_ = 0.5;
+const PP_RAW26_DELIVERY_PER_D1_ = 9;
+const PP_RAW26_RETAIL_CAP_D1_ = 0.92;
+const PP_LEGACY_COEF_DEFAULT_D1_ = 2.3;
+const PP_LEGACY_FIXED_D1_ = 11;
+const PP_LEGACY_DELIVERY_PER_D1_ = 6;
+const PACK_CAP_PRODUCT_D1_ = { small: 20, medium: 100, large: 250 };
+const PACK_CAP_LIGHT_D1_ = { small: 15, medium: 80, large: 190 };
+const PACK_CRAFT_HOLDS_D1_ = { large: 4, medium: 7, small: 35 };
+const PACK_CHEW_FEW_D1_ = 2;
+const PACK_CHEW_PER_BIG_D1_ = 4;
+
+function todayYmdMinskD1_() {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Minsk",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(new Date());
+  } catch (e) {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function normalizePpSchemeD1_(s) {
+  const u = String(s || "").trim().toUpperCase();
+  if (u === "RAW26" || u === "RAW" || u === "NEW" || u === "V2") return "RAW26";
+  if (u === "LEGACY" || u === "OLD" || u === "V1") return "LEGACY";
+  return "";
+}
+
+function parsePpSchemeFromWishesD1_(wishes) {
+  const m = String(wishes || "").match(/\[SCHEME:([^\]]+)\]/i);
+  if (!m) return "";
+  return normalizePpSchemeD1_(m[1]);
+}
+
+function resolvePpSchemeD1_(opt) {
+  opt = opt || {};
+  const fromIn = normalizePpSchemeD1_(opt.scheme);
+  if (fromIn) return fromIn;
+  const fromW = parsePpSchemeFromWishesD1_(opt.wishes);
+  if (fromW) return fromW;
+  if (opt.forNew) return todayYmdMinskD1_() >= PP_SCHEME_CUTOFF_YMD_D1_ ? "RAW26" : "LEGACY";
+  return "LEGACY";
+}
+
+function isLargeChewFractionD1_(sub) {
+  const u = String(sub || "").trim().toUpperCase();
+  if (!u) return false;
+  if (/ОГР|ОГРОМ|ГИГАНТ|КРУПН|БОЛЬШ|БОЛ/.test(u)) return true;
+  if (/^ОБЫЧН/.test(u)) return true;
+  return false;
+}
+
+function packFormatOnD1_(enabled, key) {
+  if (!enabled) return true;
+  return enabled[key] !== false;
+}
+
+function packGramsIntoDoypacksD1_(grams, caps, enabled) {
+  const out = { маленький: 0, средний: 0, большой: 0 };
+  const g = Number(grams) || 0;
+  if (g <= 0) return out;
+  const levels = [];
+  if (packFormatOnD1_(enabled, "большой")) levels.push({ key: "большой", cap: caps.large });
+  if (packFormatOnD1_(enabled, "средний")) levels.push({ key: "средний", cap: caps.medium });
+  if (packFormatOnD1_(enabled, "маленький")) levels.push({ key: "маленький", cap: caps.small });
+  if (!levels.length) {
+    levels.push(
+      { key: "большой", cap: caps.large },
+      { key: "средний", cap: caps.medium },
+      { key: "маленький", cap: caps.small }
+    );
+  }
+  let rem = g;
+  const largest = levels[0];
+  const nFull = Math.floor(rem / largest.cap);
+  if (nFull > 0) {
+    out[largest.key] += nFull;
+    rem -= nFull * largest.cap;
+  }
+  if (rem <= 0) return out;
+  for (let i = levels.length - 1; i >= 0; i--) {
+    if (rem <= levels[i].cap) {
+      out[levels[i].key]++;
+      return out;
+    }
+  }
+  out[largest.key] += Math.ceil(rem / largest.cap);
+  return out;
+}
+
+function packChewsIntoDoypacksD1_(val, sub, enabled) {
+  const out = { маленький: 0, средний: 0, большой: 0 };
+  const n = Number(val) || 0;
+  if (n <= 0) return out;
+  const chewLarge = isLargeChewFractionD1_(sub);
+  const wantMed = n <= PACK_CHEW_FEW_D1_ && !chewLarge;
+  const canM = packFormatOnD1_(enabled, "средний");
+  const canL = packFormatOnD1_(enabled, "большой");
+  if (wantMed && canM) {
+    out["средний"] = 1;
+    return out;
+  }
+  const bags = Math.max(1, Math.ceil(n / PACK_CHEW_PER_BIG_D1_));
+  if (canL) {
+    out["большой"] = bags;
+    return out;
+  }
+  if (canM) {
+    out["средний"] = bags;
+    return out;
+  }
+  out["большой"] = bags;
+  return out;
+}
+
+function craftBagsForDoypacksD1_(doyByKey) {
+  const s = Number(doyByKey["маленький"]) || 0;
+  const m = Number(doyByKey["средний"]) || 0;
+  const l = (Number(doyByKey["большой"]) || 0) + (Number(doyByKey["целое"]) || 0);
+  if (s + m + l <= 0) return 0;
+  const fill =
+    l / PACK_CRAFT_HOLDS_D1_.large +
+    m / PACK_CRAFT_HOLDS_D1_.medium +
+    s / PACK_CRAFT_HOLDS_D1_.small;
+  return Math.max(1, Math.ceil(fill - 1e-12));
+}
+
+function appendDoyDistToPacksD1_(packs, doyByKey, lightBagsByCounter, dist, meta) {
+  const order = ["большой", "средний", "маленький"];
+  for (let i = 0; i < order.length; i++) {
+    const key = order[i];
+    const n = Number(dist[key]) || 0;
+    if (n <= 0) continue;
+    doyByKey[key] = (doyByKey[key] || 0) + n;
+    if (meta.type === "light") {
+      lightBagsByCounter[key] = (lightBagsByCounter[key] || 0) + n;
+    }
+    packs.push({
+      name: meta.name,
+      sub: meta.sub,
+      val: meta.val,
+      unit: meta.unit,
+      bags: n,
+      rule: meta.rulePrefix + " → " + key,
+      type: meta.type,
+      counterKey: key,
+      label: meta.name + (meta.sub ? " / " + meta.sub : "") + " → " + n + " дойп. (" + key + ")"
+    });
+  }
+}
+
+function buildAssemblyForBasketD1_(basket, enabledOpt) {
+  const enabled = enabledOpt || null;
+  const packs = [];
+  let totalBags = 0;
+  const typeCounts = { light: 0, bulk: 0, chew: 0, craft: 0, other: 0 };
+  const lightMap = {};
+  const lightBagsByCounter = {};
+  const doyByKey = { маленький: 0, средний: 0, большой: 0, целое: 0 };
+  (basket || []).forEach(function (it) {
+    const name = String(it.name || it.main || "").trim();
+    const sub = String(it.sub || "").trim();
+    const val = Number(it.val != null ? it.val : it.value) || 0;
+    const cat = String(it.cat || "").toLowerCase();
+    const unit =
+      String(it.unit || "").trim() ||
+      (isPieceSkuNameD1_(name) || cat === "chew" || cat === "chews" ? "шт" : "гр");
+    if (!name || val <= 0) return;
+    let dist = null;
+    let type = "other";
+    let rulePrefix = "дойпак";
+    if (/л[её]гк/i.test(name) && !/баран/i.test(name) && !/крошк/i.test(name)) {
+      dist = packGramsIntoDoypacksD1_(val, PACK_CAP_LIGHT_D1_, enabled);
+      type = "light";
+      rulePrefix = "дойпак лёгкое";
+      const fk = sub || "Среднее";
+      lightMap[fk] = (lightMap[fk] || 0) + val;
+    } else if (/баран/i.test(name) && /л[её]гк/i.test(name)) {
+      dist = packGramsIntoDoypacksD1_(val, PACK_CAP_PRODUCT_D1_, enabled);
+      type = "bulk";
+      rulePrefix = "дойпак баранье лёгкое";
+    } else if (cat === "chew" || cat === "chews" || isPieceSkuNameD1_(name)) {
+      dist = packChewsIntoDoypacksD1_(val, sub, enabled);
+      type = "chew";
+      rulePrefix = "дойпак жевалки";
+    } else {
+      dist = packGramsIntoDoypacksD1_(val, PACK_CAP_PRODUCT_D1_, enabled);
+      type = cat === "other" ? "other" : "bulk";
+      rulePrefix = "дойпак";
+    }
+    const lineBags =
+      (dist["маленький"] || 0) + (dist["средний"] || 0) + (dist["большой"] || 0);
+    totalBags += lineBags;
+    typeCounts[type] = (typeCounts[type] || 0) + lineBags;
+    appendDoyDistToPacksD1_(packs, doyByKey, lightBagsByCounter, dist, {
+      name: name,
+      sub: sub,
+      val: val,
+      unit: unit,
+      type: type,
+      rulePrefix: rulePrefix
+    });
+  });
+  let craftBags = 0;
+  if (packFormatOnD1_(enabled, "крафт")) {
+    craftBags = craftBagsForDoypacksD1_(doyByKey);
+  }
+  typeCounts.craft = craftBags;
+  totalBags += craftBags;
+  if (craftBags > 0) {
+    packs.push({
+      name: "КРАФТ",
+      sub: "",
+      val: craftBags,
+      unit: "пак",
+      bags: craftBags,
+      rule:
+        "крафт клиента (вмест. " +
+        PACK_CRAFT_HOLDS_D1_.large +
+        "бол/" +
+        PACK_CRAFT_HOLDS_D1_.medium +
+        "сред/" +
+        PACK_CRAFT_HOLDS_D1_.small +
+        "мал)",
+      type: "craft",
+      counterKey: "крафт",
+      label: "КРАФТ → " + craftBags + " пак."
+    });
+  }
+  return {
+    packs: packs,
+    totalBags: totalBags,
+    typeCounts: typeCounts,
+    craftBags: craftBags,
+    doyByKey: doyByKey
+  };
+}
+
+function packCountsUFromBasketD1_(basket) {
+  const asm = buildAssemblyForBasketD1_(basket || []);
+  let u1 = 0;
+  let u2 = 0;
+  let u3 = 0;
+  (asm.packs || []).forEach(function (p) {
+    if (p.type === "craft" || p.counterKey === "крафт") return;
+    const bags = Number(p.bags) || 0;
+    if (bags <= 0) return;
+    const k = String(p.counterKey || "");
+    if (k === "маленький") u1 += bags;
+    else if (k === "средний") u2 += bags;
+    else if (k === "большой") u3 += bags;
+    else if (k === "целое") u3 += bags;
+  });
+  const up4 = Number(asm.craftBags) || 0;
+  return { u1: u1, u2: u2, u3: u3, up4: up4 };
+}
+
+function packagesBynFromUCountsD1_(pc) {
+  pc = pc || {};
+  return (
+    Math.round(
+      ((Number(pc.u1) || 0) * 0.34 +
+        (Number(pc.u2) || 0) * 0.56 +
+        (Number(pc.u3) || 0) * 0.8 +
+        (Number(pc.up4) || 0) * 1.4) *
+        100
+    ) / 100
+  );
+}
+
+function dressuraFractionMarkupFromBasketD1_(basket, rates) {
+  rates = rates || { whole: 0, large: 1, medium: 2, small: 3 };
+  let sum = 0;
+  for (let i = 0; i < (basket || []).length; i++) {
+    const it = basket[i] || {};
+    const cat = String(it.cat || "").toLowerCase();
+    if (cat && cat !== "dressura") continue;
+    const sub = String(it.sub || "")
+      .toUpperCase()
+      .replace(/\s+/g, " ")
+      .trim();
+    let size = "";
+    if (/^ЦЕЛ/.test(sub)) size = "whole";
+    else if (/^БОЛЬ|^КРУП|^БОЛ\b/.test(sub) || sub === "БОЛ") size = "large";
+    else if (/^СРЕД/.test(sub)) size = "medium";
+    else if (/^МЕЛК|^МАЛ/.test(sub) && !/ОЧ/.test(sub)) size = "small";
+    else if (/КУБИК/.test(sub) && /МЕЛК/.test(sub)) size = "small";
+    else if (/КУБИК/.test(sub) && /КРУП/.test(sub)) size = "large";
+    if (!size) continue;
+    const rate = Number(rates[size]);
+    if (!isFinite(rate)) continue;
+    const grams = Number(it.val != null ? it.val : it.value) || 0;
+    if (grams <= 0) continue;
+    sum += (grams / 100) * rate;
+  }
+  return Math.round(sum * 100) / 100;
+}
+
+function recoverBynFromPpLinesD1_(lines) {
+  let sum = 0;
+  for (let i = 0; i < (lines || []).length; i++) {
+    const L = lines[i] || {};
+    const val = Number(L.val != null ? L.val : L.value) || 0;
+    if (val <= 0) continue;
+    let piece = !!L.piece;
+    if (!piece) {
+      const cat = String(L.cat || "").toLowerCase();
+      const name = String(L.name || L.main || "");
+      if (cat === "chew" || cat === "chews" || cat === "powder") piece = true;
+      else if (isPieceSkuNameD1_(name) || /шт/i.test(name) || /крошка/i.test(name)) piece = true;
+    }
+    if (piece) sum += PP_RAW26_RECOVER_PIECE_D1_ * val;
+    else sum += PP_RAW26_RECOVER_100_D1_ * (val / 100);
+  }
+  return Math.round(sum * 100) / 100;
+}
+
+function retailGoodsBynFromBasketD1_(map, basket) {
+  let sum = 0;
+  for (let i = 0; i < (basket || []).length; i++) {
+    const it = basket[i] || {};
+    const name = String(it.name || it.main || "").trim();
+    const sub = String(it.sub || "").trim();
+    const val = Number(it.val != null ? it.val : it.value) || 0;
+    if (!name || val <= 0) continue;
+    const rc = retailLineCostD1_(map, name, sub, val, it.cat);
+    sum += Number(rc.cost) || 0;
+  }
+  return Math.round(sum * 100) / 100;
+}
+
+function computePpFactFromCostD1_(
+  costSum,
+  basket,
+  deliveriesN,
+  coefIn,
+  packCountsOpt,
+  schemeOpt,
+  linesOpt,
+  retailGoodsOpt
+) {
+  const scheme = normalizePpSchemeD1_(schemeOpt) || "LEGACY";
+  const n = Math.max(1, Number(deliveriesN) || 1);
+  let coef = Number(coefIn);
+  const pc =
+    packCountsOpt && typeof packCountsOpt === "object"
+      ? {
+          u1: Number(packCountsOpt.u1) || 0,
+          u2: Number(packCountsOpt.u2) || 0,
+          u3: Number(packCountsOpt.u3) || 0,
+          up4: Number(packCountsOpt.up4) || 0
+        }
+      : packCountsUFromBasketD1_(basket || []);
+  const packagesByn = packagesBynFromUCountsD1_(pc);
+  const fracMark = dressuraFractionMarkupFromBasketD1_(basket);
+  const raw = Number(costSum) || 0;
+  let out;
+  if (scheme === "RAW26") {
+    if (!isFinite(coef) || coef <= 0) coef = PP_RAW26_COEF_DEFAULT_D1_;
+    const recover = recoverBynFromPpLinesD1_(linesOpt && linesOpt.length ? linesOpt : basket);
+    const delivery = PP_RAW26_DELIVERY_PER_D1_ * n;
+    let goods = Math.round((raw * coef + recover) * 100) / 100;
+    const retailGoods =
+      retailGoodsOpt != null && retailGoodsOpt !== ""
+        ? Number(retailGoodsOpt)
+        : 0;
+    let capped = false;
+    let capAt = 0;
+    if (isFinite(retailGoods) && retailGoods > 0) {
+      capAt = Math.round(retailGoods * PP_RAW26_RETAIL_CAP_D1_ * 100) / 100;
+      if (goods > capAt) {
+        goods = capAt;
+        capped = true;
+      }
+    }
+    const factCost = Math.round((goods + delivery + packagesByn + fracMark) * 100) / 100;
+    out = {
+      scheme: "RAW26",
+      factCost: factCost,
+      deliveriesN: n,
+      coef: coef,
+      fixed: 0,
+      recoverByn: recover,
+      goodsByn: goods,
+      retailGoods: isFinite(retailGoods) ? retailGoods : 0,
+      retailCapped: capped,
+      retailCapAt: capAt,
+      deliveryByn: delivery,
+      packagesByn: packagesByn,
+      packCounts: pc,
+      fractionMarkup: fracMark
+    };
+  } else {
+    if (!isFinite(coef) || coef <= 0) coef = PP_LEGACY_COEF_DEFAULT_D1_;
+    const fixed = PP_LEGACY_FIXED_D1_;
+    const deliveryL = PP_LEGACY_DELIVERY_PER_D1_ * n;
+    const factL =
+      Math.round((raw * coef + fixed + deliveryL + packagesByn + fracMark) * 100) / 100;
+    out = {
+      scheme: "LEGACY",
+      factCost: factL,
+      deliveriesN: n,
+      coef: coef,
+      fixed: fixed,
+      recoverByn: 0,
+      deliveryByn: deliveryL,
+      packagesByn: packagesByn,
+      packCounts: pc,
+      fractionMarkup: fracMark
+    };
+  }
+  return out;
+}
+
+function parseBasketParamD1_(params) {
+  let basket = params && params.basket;
+  if (typeof basket === "string") {
+    try {
+      basket = JSON.parse(basket);
+    } catch (eB) {
+      basket = [];
+    }
+  }
+  if (!Array.isArray(basket)) basket = [];
+  return basket;
+}
+
+function parsePackCountsParamD1_(params) {
+  let packOpt = params && params.packCounts;
+  if (typeof packOpt === "string") {
+    try {
+      packOpt = JSON.parse(packOpt);
+    } catch (ePc) {
+      packOpt = null;
+    }
+  }
+  return packOpt && typeof packOpt === "object" ? packOpt : null;
+}
+
+function lookupPpCostInfoD1_(costs, name, sub) {
+  costs = costs || {};
+  const key = name + (sub ? " / " + sub : "");
+  if (costs[key]) return costs[key];
+  const keys = Object.keys(costs);
+  for (let i = 0; i < keys.length; i++) {
+    const info = costs[keys[i]];
+    if (!info) continue;
+    if (info.name === name && (!sub || info.sub === sub)) return info;
+  }
+  if (!sub && costs[name]) return costs[name];
+  return null;
+}
+
+async function mergePriceCostsPpFromLinesD1_(env, lines) {
+  if (!env || !env.DB || !lines || !lines.length) return;
+  let snap = (await getSnapRaw_(env, "priceCostsPp")) || { status: "success", costs: {} };
+  if (!snap.costs || typeof snap.costs !== "object") snap.costs = {};
+  for (let i = 0; i < lines.length; i++) {
+    const L = lines[i] || {};
+    const name = String(L.name || "").trim();
+    if (!name) continue;
+    const sub = String(L.sub || "").trim();
+    const unitPrice = Number(L.unitPrice != null ? L.unitPrice : L.per100) || 0;
+    const piece = !!L.piece;
+    const key = name + (sub ? " / " + sub : "");
+    const row = { name: name, sub: sub, unitPrice: unitPrice, piece: piece };
+    snap.costs[key] = row;
+    if (!sub) snap.costs[name] = row;
+  }
+  snap.status = "success";
+  snap.cachedAt = new Date().toISOString();
+  snap._d1TouchedAt = Date.now();
+  try {
+    await putSnap_(env, "priceCostsPp", snap);
+  } catch (eM) {}
+}
+
+function buildPpLinesFromCostsD1_(basket, costs) {
+  const lines = [];
+  let totalCost = 0;
+  let missing = 0;
+  for (let i = 0; i < (basket || []).length; i++) {
+    const it = basket[i] || {};
+    const name = String(it.name || it.main || "").trim();
+    const sub = String(it.sub || "").trim();
+    const val = Number(it.val != null ? it.val : it.value) || 0;
+    const cat = String(it.cat || "").trim();
+    if (!name || val <= 0) continue;
+    const info = lookupPpCostInfoD1_(costs, name, sub);
+    const unitPrice = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
+    if (!info || !(unitPrice > 0)) missing++;
+    let piece = false;
+    if (info && info.piece) piece = true;
+    else if (cat === "chew" || cat === "chews") piece = true;
+    else if (isPieceSkuNameD1_(name) || /шт/i.test(name)) piece = true;
+    else if (info && info.grams === false) piece = true;
+    const cost = piece ? unitPrice * val : (val / 100) * unitPrice;
+    totalCost += cost;
+    lines.push({
+      name: name,
+      sub: sub,
+      val: val,
+      per100: unitPrice,
+      unitPrice: unitPrice,
+      piece: piece,
+      cat: cat,
+      cost: Math.round(cost * 100) / 100
+    });
+  }
+  return {
+    lines: lines,
+    rawCost: Math.round(totalCost * 100) / 100,
+    missing: missing
+  };
+}
+
+async function calcPpFactFromD1Costs_(params, env, ctx, costs) {
+  const basket = parseBasketParamD1_(params);
+  const built = buildPpLinesFromCostsD1_(basket, costs);
+  if (built.missing > 0 || !built.lines.length) return null;
+  const schemeFact = resolvePpSchemeD1_({
+    scheme: params.scheme,
+    wishes: params.wishes,
+    forNew: params.forNew === true || params.forNew === "1" || params.forNew === 1
+  });
+  const coefIn = params.coef != null && params.coef !== "" ? params.coef : null;
+  const packOpt = parsePackCountsParamD1_(params);
+  let retailGoods = 0;
+  try {
+    const retailSnap = await ensureRetailPricesSnap_(env, ctx);
+    if (retailSnap && Array.isArray(retailSnap.items) && retailSnap.items.length) {
+      retailGoods = retailGoodsBynFromBasketD1_(retailMapFromItemsD1_(retailSnap.items), basket);
+    }
+  } catch (eR) {}
+  const fact = computePpFactFromCostD1_(
+    built.rawCost,
+    basket,
+    params.deliveriesN || params.deliveries,
+    coefIn,
+    packOpt,
+    schemeFact,
+    built.lines,
+    retailGoods
+  );
+  const ok = {
+    status: "success",
+    cost: built.rawCost,
+    rawCost: built.rawCost,
+    lines: built.lines,
+    markup: fact.coef,
+    scheme: fact.scheme,
+    total: Math.round(built.rawCost * fact.coef * 100) / 100,
+    cutover: true,
+    fromD1: true,
+    fromGas: false,
+    sandbox: false,
+    priceCanon: "d1-primary",
+    d1Verified: true
+  };
+  Object.keys(fact).forEach(function (fk) {
+    ok[fk] = fact[fk];
+  });
+  ok.cost = built.rawCost;
+  ok.rawCost = built.rawCost;
+  ok.markup = fact.coef;
+  ok.scheme = fact.scheme;
+  ok.total = Math.round(built.rawCost * fact.coef * 100) / 100;
+  return ok;
+}
+
+async function warmPpCostsFromGas_(params, env, ctx) {
+  const live = await gasProxy_("calcPpFact", params, env, { write: false });
+  if (live && live.status === "success" && Array.isArray(live.lines)) {
+    try {
+      await mergePriceCostsPpFromLinesD1_(env, live.lines);
+    } catch (eW) {}
+  }
+  if (live && typeof live === "object") {
+    live.cutover = true;
+    live.fromGas = true;
+    live.fromD1 = false;
+    live.sandbox = false;
+    live.priceCanon = "d1-primary";
+  }
+  return live;
+}
+
+async function calcPpFactD1_(params, env, ctx) {
+  const force =
+    String((params && params.force) || "") === "1" ||
+    (params && (params.force === true || params.force === 1));
+  if (!force) {
+    const snap = await getSnapRaw_(env, "priceCostsPp");
+    if (snap && snap.costs && typeof snap.costs === "object") {
+      const local = await calcPpFactFromD1Costs_(params, env, ctx, snap.costs);
+      if (local) return local;
+    }
+  }
+  return warmPpCostsFromGas_(params, env, ctx);
+}
+
+async function calcPricePpD1_(params, env, ctx) {
+  const force =
+    String((params && params.force) || "") === "1" ||
+    (params && (params.force === true || params.force === 1));
+  const wantFact =
+    params.fullFact === true ||
+    params.fullFact === "1" ||
+    params.fullFact === 1 ||
+    !!(params.deliveriesN || params.deliveries);
+  if (!force) {
+    const snap = await getSnapRaw_(env, "priceCostsPp");
+    if (snap && snap.costs && typeof snap.costs === "object") {
+      const basket = parseBasketParamD1_(params);
+      const built = buildPpLinesFromCostsD1_(basket, snap.costs);
+      if (built.missing === 0 && built.lines.length) {
+        const refMarkup = 2.3;
+        const ok = {
+          status: "success",
+          mode: params.mode || "pp",
+          sheet: "пп d1",
+          costRowLabel: "",
+          lines: built.lines,
+          cost: built.rawCost,
+          rawCost: built.rawCost,
+          markup: refMarkup,
+          total: Math.round(built.rawCost * refMarkup * 100) / 100,
+          cutover: true,
+          fromD1: true,
+          fromGas: false,
+          sandbox: false,
+          priceCanon: "d1-primary",
+          d1Verified: true
+        };
+        if (wantFact) {
+          const factFull = await calcPpFactFromD1Costs_(params, env, ctx, snap.costs);
+          if (factFull) {
+            Object.keys(factFull).forEach(function (fk) {
+              if (fk === "mode" || fk === "sheet") return;
+              ok[fk] = factFull[fk];
+            });
+            ok.cost = built.rawCost;
+            ok.rawCost = built.rawCost;
+            ok.mode = params.mode || "pp";
+            ok.sheet = "пп d1";
+          }
+        }
+        return ok;
+      }
+    }
+  }
+  const live = await gasProxy_("calcPrice", params, env, { write: false });
+  if (live && live.status === "success" && Array.isArray(live.lines)) {
+    try {
+      await mergePriceCostsPpFromLinesD1_(env, live.lines);
+    } catch (eW2) {}
+  }
+  if (live && typeof live === "object") {
+    live.cutover = true;
+    live.fromGas = true;
+    live.fromD1 = false;
+    live.sandbox = false;
+    live.priceCanon = "d1-primary";
+  }
+  return live || { status: "error", message: "gas_proxy_failed", cutover: true, action: "calcPrice" };
 }
 
 async function calcPriceRetailD1_(params, env, ctx) {
