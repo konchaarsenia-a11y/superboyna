@@ -1,4 +1,4 @@
-- [~] **Прайс D1-primary 2026-08-30:** getRetailPriceList / saveRetailPrices / calcPrice(retail) — D1 правда; ПП calcPpFact — GAS. `PRICE_CANON=d1-primary` · **нужен Worker Deploy**
+- [x] **Прайс D1-primary 2026-08-30:** getRetailPriceList / saveRetailPrices / calcPrice(retail) — D1 правда; ПП calcPpFact — GAS. `PRICE_CANON=d1-primary` · **Worker Deploy OK** · smoke calc retail fromD1 11+9=20
 - [x] **pullClientsFromMonth D1 sync 2026-08-30:** после GAS pull — upsertMissing + rebuildCutting (дыра d1-primary afterWrite skip). · **Worker Deploy OK** · marker `pull-month-d1-sync`
 - [x] **Access/Templates/Survey + cutting struct D1-primary 2026-08-30:** meta CRUD (access/templates/survey) + структура нарезки fromOrders; флаги ops; finish→rebuild. `META_CANON` + `CUTTING_STRUCT_CANON` · **Worker Deploy OK** · smoke survey/template CRUD + getCutting fromOrders
 - [x] **Склад D1-primary 2026-08-30:** arrival/ревизия/zero — D1 правда; preview/compose/check — GAS; после finish — GAS resnap. `WAREHOUSE_CANON=d1-primary` · **Worker Deploy OK** · smoke setArrival 0.27с `d1Verified` + get fromD1
