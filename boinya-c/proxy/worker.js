@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-30 price-d1-primary
+ * deploy-marker: 2026-08-30 price-retail-mode-fix
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -313,7 +313,7 @@ async function handleAction_(action, params, env, url, ctx) {
       cuttingStructCanon: cuttingStructCanonLabel_(env),
       priceCanon: priceCanonLabel_(env),
       weekD1Sync: weekD1SyncLabel_(env),
-      deployMarker: "2026-08-30 price-d1-primary"
+      deployMarker: "2026-08-30 price-retail-mode-fix"
     };
   }
 
@@ -10220,6 +10220,8 @@ async function zeroWarehouseD1_(params, env) {
 
 function isRetailCalcMode_(params) {
   const m = String((params && params.mode) || "").toLowerCase();
+  // mode=live/sandbox/cutover — флаги Worker, не режим calc
+  if (!m || m === "live" || m === "sandbox" || m === "cutover") return false;
   return m.indexOf("розн") >= 0 || m === "retail";
 }
 
