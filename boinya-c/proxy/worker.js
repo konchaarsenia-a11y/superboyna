@@ -445,6 +445,7 @@ async function handleAction_(action, params, env, url, ctx) {
     a === "getPpFactCost" ||
     a === "getPpOrderSuggest" ||
     a === "calcPrice" ||
+    a === "getRetailPriceList" ||
     a === "calcPpFact" ||
     a === "migratePpToRaw26Scheme" ||
     a === "suggestAddress" ||
@@ -6889,6 +6890,7 @@ async function handleCutover_(a, params, env, ctx) {
     a === "suggestAddress" ||
     a === "lookupBpPartner" ||
     a === "calcPrice" ||
+    a === "getRetailPriceList" ||
     a === "calcPpFact" ||
     a === "migratePpToRaw26Scheme" ||
     a === "getPpFactCost" ||
@@ -7613,7 +7615,7 @@ function cutoverEmptyRead_(a, params) {
   if (a === "getCourier" || a === "getAssembly") {
     return { status: "success", clients: [], day: day, cutover: true, swr: true, empty: true };
   }
-  if (a === "calcPrice" || a === "calcPpFact" || a === "migratePpToRaw26Scheme" || a === "getPpFactCost" || a === "getPpOrderSuggest") {
+  if (a === "calcPrice" || a === "calcPpFact" || a === "migratePpToRaw26Scheme" || a === "getPpFactCost" || a === "getPpOrderSuggest" || a === "getRetailPriceList") {
     return { status: "error", message: "calc_unavailable", action: a, cutover: true, empty: true };
   }
   if (a === "suggestAddress" || a === "lookupBpPartner") {
@@ -8860,7 +8862,7 @@ async function gasProxy_(action, params, env, opts) {
     // sendCourierRoute: POST+redirect ломался; оставляем GET.
     const preferGet =
       /^(sendCourierRoute|sendDeficit|telegramStatus)$/i.test(action);
-    const preferPostRead = /^(calcPrice|calcPpFact|getPpFactCost|migratePpToRaw26Scheme)$/i.test(action);
+    const preferPostRead = /^(calcPrice|calcPpFact|getPpFactCost|migratePpToRaw26Scheme|getRetailPriceList)$/i.test(action);
     const mustPost = ((opts.write && !preferGet) || preferPostRead);
     if (preferPostRead && typeof clean.basket === "string") {
       try {

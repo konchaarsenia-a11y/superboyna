@@ -1,8 +1,9 @@
 # Розничный прайс — NEW (витрина) · handoff для агента
 
 Дата: 2026-08-30  
-Статус: **согласован с владельцем**, в live `RETAIL_PRICE_BYN_` / `boinya-c` **ещё не залит**.  
-Источник расчёта: `artifacts/product-costs/RETAIL-PRICE-TABLE.md` + CSV рядом.
+Статус: **согласован с владельцем** · залит в `RETAIL_PRICE_BYN_` / `RETAIL_PRICE` (Pages `v71115914` + вкладка **Прайс** (owner)) · доставка `<80 → 9` · **нужен Deploy Code.gs** для GAS `calcPrice` / `getRetailPriceList` / `saveRetailPrices`.  
+Уже сохранённые `orderPrice` / доставки **не пересчитываются**.  
+Источник: этот handoff + `RETAIL-PRICE-NEW.json` / `.csv`.
 
 ## Задача агенту
 

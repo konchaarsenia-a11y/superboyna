@@ -2319,6 +2319,18 @@ function doGet(e) {
   if (action === "seedCrmClients") {
     return handleSeedCrmClients({}, callback, false);
   }
+  if (action === "getRetailPriceList") {
+    return handleGetRetailPriceList({
+      telegramId: e.parameter.telegramId || ""
+    }, callback, false);
+  }
+  if (action === "saveRetailPrices") {
+    return handleSaveRetailPrices({
+      telegramId: e.parameter.telegramId || "",
+      items: e.parameter.items ? JSON.parse(decodeURIComponent(e.parameter.items)) : [],
+      delivery: e.parameter.delivery ? JSON.parse(decodeURIComponent(e.parameter.delivery)) : null
+    }, callback, false);
+  }
   if (action === "calcPrice") {
     return handleCalcPrice({
       mode: e.parameter.mode || "subscription",
@@ -2832,6 +2844,12 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "pushSubscriptionToDay") {
     return handlePushSubscriptionToDay(json, callback, fromPost);
+  }
+  if (action === "getRetailPriceList") {
+    return handleGetRetailPriceList(json, callback, fromPost);
+  }
+  if (action === "saveRetailPrices") {
+    return handleSaveRetailPrices(json, callback, fromPost);
   }
   if (action === "calcPrice") {
     return handleCalcPrice(json, callback, fromPost);
@@ -16282,87 +16300,284 @@ function countDeliveredThisWeek_(ss, clientName, dateValue, tz) {
 /** Розничный прайс с витрины IG (2026-07), BYN за 100г / шт / пакеты */
 var RETAIL_PRICE_BYN_ = {
   "ЛЁГКОЕ|Мелкое": { per100: 12 },
-  "ЛЁГКОЕ|Среднее": { per100: 10 },
-  "ЛЁГКОЕ|Большое": { per100: 9 },
-  "ЛЁГКОЕ|Целое": { per100: 8 },
-  "ЛЁГКОЕ": { per100: 10 },
-  "СЕРДЦЕ|Мелкое": { per100: 13 },
-  "СЕРДЦЕ|Среднее": { per100: 12 },
-  "СЕРДЦЕ|Большое": { per100: 11 },
-  "СЕРДЦЕ|Целое": { per100: 10 },
-  "СЕРДЦЕ": { per100: 12 },
+  "ЛЁГКОЕ|Среднее": { per100: 11 },
+  "ЛЁГКОЕ|Целое": { per100: 9 },
+  "СЕРДЦЕ|Мелкое": { per100: 14 },
+  "СЕРДЦЕ|Целое": { per100: 12 },
+  "ПОЧКИ|Мелкое": { per100: 12 },
+  "ПОЧКИ|Целое": { per100: 11 },
   "РУБЕЦ Т|Мелкое": { per100: 13 },
   "РУБЕЦ Т|Среднее": { per100: 12 },
   "РУБЕЦ Т|Крупное": { per100: 11 },
   "РУБЕЦ Т|Целое": { per100: 10 },
-  "РУБЕЦ Т": { per100: 12 },
-  "ПОЧКИ|Мелкое": { per100: 11 },
-  "ПОЧКИ|Целое": { per100: 10 },
-  "ПОЧКИ": { per100: 10 },
-  "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 15 },
-  "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 14 },
-  "БАРАНЬЕ ЛЁГКОЕ|Большое": { per100: 13 },
-  "БАРАНЬЕ ЛЁГКОЕ|Целое": { per100: 12 },
-  "БАРАНЬЕ ЛЁГКОЕ": { per100: 14 },
-  "ПЕЧЕНЬ": { per100: 9 },
-  "СВЕТЛЫЙ РУБЕЦ": { per100: 9 },
-  "КНИЖКА": { per100: 9 },
-  "ВЫМЯ": { per100: 9 },
-  "СЕМЕННИКИ": { per100: 12 },
-  "МЯСНЫЕ ЛОМТИКИ": { per100: 13 },
-  "ПИКАЛЬНОЕ МЯСО": { per100: 10 },
-  "ИНДЕЙКА|Мелкое": { per100: 17 },
-  "ИНДЕЙКА|Среднее": { per100: 16 },
-  "ИНДЕЙКА|Целое": { per100: 15 },
-  "ИНДЕЙКА": { per100: 16 },
-  "БАРАНЬЯ ПЕЧЕНЬ|Мелкое": { per100: 18 },
-  "БАРАНЬЯ ПЕЧЕНЬ|Среднее": { per100: 17 },
-  "БАРАНЬЯ ПЕЧЕНЬ|Целое": { per100: 16 },
-  "БАРАНЬЯ ПЕЧЕНЬ": { per100: 17 },
-  "КРОШКА ЛЁГКОГО": { packs: { "20": 5, "50": 7, "100": 10 }, per100: 10 },
-  "КРОШКА ПОЧЕК": { packs: { "20": 5, "50": 7, "100": 10 }, per100: 10 },
-  "КРОШКА СЕРДЦА": { packs: { "20": 7, "50": 9, "100": 12 }, per100: 12 },
-  "КРОШКА РУБЕЦ": { packs: { "20": 7, "50": 9, "100": 12 }, per100: 12 },
-  "КРОШКА МИКС": { packs: { "20": 6, "50": 8, "100": 11 }, per100: 11 },
-  "БАНАНЫ": { per100: 10 },
-  "ЯБЛОКИ": { per100: 9 },
-  "ГРУШИ": { per100: 10 },
-  "КЛУБНИКА": { per100: 10 },
-  "МОРКОВЬ": { per100: 10 },
-  "ТЫКВА": { per100: 12 },
-  "БАТАТ": { per100: 11 },
-  "КАБАЧОК": { per100: 12 },
-  "СВЕКЛА": { per100: 10 },
-  "КОПЫТО шт.": { perPiece: 9 },
-  "КОЛЕНИ шт.": { perPiece: 6 },
-  "НОСЫ шт.": { perPiece: 7 },
-  "ЛОП ХРЯЩ шт.": { perPiece: 4 },
-  "УТИНЫЕ ШЕИ шт.": { perPiece: 3 },
-  "ПЕРЕПЁЛКИ шт.": { perPiece: 4 },
-  "ГУБЫ шт.": { perPiece: 4 },
-  "ТРАХЕЯ|МАЛ": { perPiece: 4 },
-  "ТРАХЕЯ|СРЕД": { perPiece: 7 },
-  "ТРАХЕЯ|БОЛ": { perPiece: 12 },
-  "ТРАХЕЯ|ПЛАСТ": { perPiece: 7 },
-  "ТРАХЕЯ|ОГР": { perPiece: 12 },
-  "ТРАХЕЯ": { perPiece: 7 },
+  "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 18 },
+  "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 17 },
+  "БАРАНЬЕ ЛЁГКОЕ|Целое": { per100: 16 },
+  "ИНДЕЙКА": { per100: 18 },
+  "ПЕЧЕНЬ": { per100: 11 },
+  "ВЫМЯ": { per100: 10 },
+  "СЕМЕННИКИ": { per100: 13 },
+  "МЯСНЫЕ ЛОМТИКИ": { per100: 16 },
+  "КРОШКА ЛЁГКОГО": { per100: 11 },
+  "КРОШКА ПОЧЕК": { per100: 11 },
+  "КРОШКА РУБЕЦ": { per100: 12 },
   "БЫЧИЙ КОРЕНЬ|ОЧ МАЛ": { perPiece: 6 },
-  "БЫЧИЙ КОРЕНЬ|МАЛ": { perPiece: 6 },
-  "БЫЧИЙ КОРЕНЬ|СРЕД": { perPiece: 11 },
-  "БЫЧИЙ КОРЕНЬ|БОЛ": { perPiece: 21 },
-  "БЫЧИЙ КОРЕНЬ|ОГР": { perPiece: 25 },
-  "БЫЧИЙ КОРЕНЬ": { perPiece: 11 },
-  "УХО Г|ПОЛОВИНКА": { perPiece: 4 },
-  "УХО Г|Обычное": { perPiece: 6 },
-  "УХО Г": { perPiece: 6 },
-  "АОРТА|ПОЛОВИНКА": { perPiece: 2 },
-  "АОРТА|Обычная": { perPiece: 4 },
-  "АОРТА": { perPiece: 4 },
-  "СТАНОВАЯ ЖИЛА|ПАЛК": { perPiece: 1 },
-  "СТАНОВАЯ ЖИЛА|СРЕД": { perPiece: 4 },
-  "СТАНОВАЯ ЖИЛА|БОЛ": { perPiece: 6 },
-  "СТАНОВАЯ ЖИЛА": { perPiece: 4 }
+  "БЫЧИЙ КОРЕНЬ|МАЛ": { perPiece: 7 },
+  "БЫЧИЙ КОРЕНЬ|СРЕД": { perPiece: 12 },
+  "БЫЧИЙ КОРЕНЬ|БОЛ": { perPiece: 20 },
+  "БЫЧИЙ КОРЕНЬ|ОГР": { perPiece: 26 },
+  "ТРАХЕЯ|МАЛ": { perPiece: 5 },
+  "ТРАХЕЯ|СРЕД": { perPiece: 8 },
+  "ТРАХЕЯ|БОЛ": { perPiece: 12 },
+  "ТРАХЕЯ|ПЛАСТ": { perPiece: 8 },
+  "ТРАХЕЯ|ОГР": { perPiece: 14 },
+  "СТАНОВАЯ ЖИЛА|СРЕД": { perPiece: 5 },
+  "СТАНОВАЯ ЖИЛА|БОЛ": { perPiece: 7 },
+  "СТАНОВАЯ ЖИЛА|ПАЛК": { perPiece: 3 },
+  "УХО Г|Обычное": { perPiece: 7 },
+  "УХО Г|ПОЛОВИНКА": { perPiece: 5 },
+  "АОРТА|Обычная": { perPiece: 5 },
+  "АОРТА|ПОЛОВИНКА": { perPiece: 3 },
+  "КОЛЕНИ шт.": { perPiece: 7 },
+  "НОСЫ шт.": { perPiece: 8 },
+  "ЛОП ХРЯЩ шт.": { perPiece: 5 },
+  "УТИНЫЕ ШЕИ шт.": { perPiece: 4 },
+  "ПЕРЕПЁЛКИ шт.": { perPiece: 5 },
+  "ТЫКВА": { per100: 14 },
+  "БАТАТ": { per100: 15 },
+  "ГРУШИ": { per100: 13 },
+  "БАНАНЫ": { per100: 12 },
+  "ЯБЛОКИ": { per100: 11 },
+  "МОРКОВЬ": { per100: 11 },
+  "ЛЁГКОЕ": { per100: 11 },
+  "СЕРДЦЕ": { per100: 14 },
+  "ПОЧКИ": { per100: 12 },
+  "РУБЕЦ Т": { per100: 12 },
+  "БАРАНЬЕ ЛЁГКОЕ": { per100: 17 },
+  "БЫЧИЙ КОРЕНЬ": { perPiece: 12 },
+  "ТРАХЕЯ": { perPiece: 8 },
+  "УХО Г": { perPiece: 7 },
+  "АОРТА": { perPiece: 5 },
+  "СТАНОВАЯ ЖИЛА": { perPiece: 5 }
 };
+
+
+
+var RETAIL_PRICE_LIVE_MEM_ = null;
+var RETAIL_DELIVERY_MEM_ = null;
+var RETAIL_PRICE_SHEET_NAME_ = "Розница_Цены";
+
+function cloneRetailDefaultsMap_() {
+  var out = {};
+  var src = RETAIL_PRICE_BYN_ || {};
+  for (var k in src) {
+    if (!Object.prototype.hasOwnProperty.call(src, k)) continue;
+    var info = src[k] || {};
+    var copy = {};
+    if (info.per100 != null) copy.per100 = Number(info.per100);
+    if (info.perPiece != null) copy.perPiece = Number(info.perPiece);
+    if (info.packs && typeof info.packs === "object") {
+      copy.packs = {};
+      for (var pk in info.packs) {
+        if (Object.prototype.hasOwnProperty.call(info.packs, pk)) copy.packs[pk] = Number(info.packs[pk]);
+      }
+    }
+    out[k] = copy;
+  }
+  return out;
+}
+
+function getRetailDeliveryLive_() {
+  if (RETAIL_DELIVERY_MEM_) return RETAIL_DELIVERY_MEM_;
+  var fee = 9;
+  var freeFrom = 80;
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var raw = props.getProperty("RETAIL_DELIVERY_JSON");
+    if (raw) {
+      var o = JSON.parse(raw);
+      if (o && isFinite(Number(o.fee))) fee = Number(o.fee);
+      if (o && isFinite(Number(o.freeFrom))) freeFrom = Number(o.freeFrom);
+    }
+  } catch (eD) {}
+  RETAIL_DELIVERY_MEM_ = { fee: fee, freeFrom: freeFrom };
+  return RETAIL_DELIVERY_MEM_;
+}
+
+function setRetailDeliveryLive_(fee, freeFrom) {
+  fee = Number(fee);
+  freeFrom = Number(freeFrom);
+  if (!isFinite(fee) || fee < 0) fee = 9;
+  if (!isFinite(freeFrom) || freeFrom < 0) freeFrom = 80;
+  PropertiesService.getScriptProperties().setProperty(
+    "RETAIL_DELIVERY_JSON",
+    JSON.stringify({ fee: fee, freeFrom: freeFrom })
+  );
+  RETAIL_DELIVERY_MEM_ = { fee: fee, freeFrom: freeFrom };
+  return RETAIL_DELIVERY_MEM_;
+}
+
+function getRetailPriceLiveMap_() {
+  if (RETAIL_PRICE_LIVE_MEM_) return RETAIL_PRICE_LIVE_MEM_;
+  var map = null;
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty("RETAIL_PRICE_LIVE_JSON");
+    if (raw) map = JSON.parse(raw);
+  } catch (eR) { map = null; }
+  if (!map || typeof map !== "object" || !Object.keys(map).length) {
+    map = cloneRetailDefaultsMap_();
+    try {
+      PropertiesService.getScriptProperties().setProperty("RETAIL_PRICE_LIVE_JSON", JSON.stringify(map));
+    } catch (eW) {}
+  }
+  RETAIL_PRICE_LIVE_MEM_ = map;
+  return map;
+}
+
+function setRetailPriceLiveMap_(map) {
+  map = map || {};
+  PropertiesService.getScriptProperties().setProperty("RETAIL_PRICE_LIVE_JSON", JSON.stringify(map));
+  RETAIL_PRICE_LIVE_MEM_ = map;
+  return map;
+}
+
+function retailPriceItemsFromMap_(map) {
+  var items = [];
+  map = map || {};
+  Object.keys(map).sort().forEach(function (key) {
+    var info = map[key] || {};
+    var kind = "per100";
+    var price = 0;
+    if (info.perPiece != null) {
+      kind = "perPiece";
+      price = Number(info.perPiece) || 0;
+    } else if (info.packs && info.packs["100"] != null) {
+      kind = "pack";
+      price = Number(info.packs["100"]) || Number(info.per100) || 0;
+    } else {
+      kind = "per100";
+      price = Number(info.per100) || 0;
+    }
+    items.push({ key: key, kind: kind, price: price });
+  });
+  return items;
+}
+
+function retailMapFromItems_(items) {
+  var map = {};
+  (items || []).forEach(function (it) {
+    if (!it) return;
+    var key = String(it.key || "").trim();
+    if (!key) return;
+    var kind = String(it.kind || it.unit || "per100").toLowerCase();
+    var price = Number(it.price);
+    if (!isFinite(price) || price < 0) return;
+    if (kind === "piece" || kind === "perpiece" || kind === "шт") {
+      map[key] = { perPiece: price };
+    } else if (kind === "pack" || kind === "packs" || kind === "пак") {
+      map[key] = { per100: price, packs: { "100": price } };
+    } else {
+      map[key] = { per100: price };
+    }
+  });
+  return map;
+}
+
+function actorIsOwnerForRetail_(actor) {
+  actor = String(actor || "").trim();
+  if (!actor) return false;
+  try {
+    if (isOwnerId_(actor)) return true;
+  } catch (eO) {}
+  try {
+    var row = findAccessById_(actor);
+    if (row && String(row.role || "").toLowerCase() === "owner") return true;
+  } catch (eA) {}
+  return false;
+}
+
+function handleGetRetailPriceList(json, callback, fromPost) {
+  json = json || {};
+  try {
+    var map = getRetailPriceLiveMap_();
+    var del = getRetailDeliveryLive_();
+    var ok = {
+      status: "success",
+      version: "retail-live",
+      items: retailPriceItemsFromMap_(map),
+      delivery: { fee: del.fee, freeFrom: del.freeFrom },
+      defaultsSeeded: true
+    };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (e) {
+    var bad = { status: "error", message: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+}
+
+function handleSaveRetailPrices(json, callback, fromPost) {
+  json = json || {};
+  try {
+    var actor = String(json.telegramId || json.actorId || "").trim();
+    if (!actorIsOwnerForRetail_(actor)) {
+      var forbid = { status: "error", message: "owner_only" };
+      return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+    }
+    var items = json.items;
+    if (typeof items === "string") {
+      try { items = JSON.parse(items); } catch (eP) { items = null; }
+    }
+    if (!items || !items.length) {
+      var need = { status: "error", message: "need_items" };
+      return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+    }
+    var map = retailMapFromItems_(items);
+    if (!Object.keys(map).length) {
+      var empty = { status: "error", message: "empty_map" };
+      return fromPost ? jsonpText(callback, empty) : jsonp(callback, empty);
+    }
+    setRetailPriceLiveMap_(map);
+    var delIn = json.delivery || {};
+    if (typeof delIn === "string") {
+      try { delIn = JSON.parse(delIn); } catch (eD) { delIn = {}; }
+    }
+    var del = setRetailDeliveryLive_(
+      delIn.fee != null ? delIn.fee : getRetailDeliveryLive_().fee,
+      delIn.freeFrom != null ? delIn.freeFrom : getRetailDeliveryLive_().freeFrom
+    );
+    // зеркало на лист прайса (если книга доступна) — best effort
+    try { mirrorRetailPricesToSheet_(map, del); } catch (eM) {}
+    var ok = {
+      status: "success",
+      items: retailPriceItemsFromMap_(map),
+      delivery: { fee: del.fee, freeFrom: del.freeFrom },
+      saved: Object.keys(map).length
+    };
+    return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+  } catch (e) {
+    var bad = { status: "error", message: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+}
+
+function mirrorRetailPricesToSheet_(map, del) {
+  var ss = getPriceSpreadsheet_();
+  var sh = ss.getSheetByName(RETAIL_PRICE_SHEET_NAME_);
+  if (!sh) {
+    sh = ss.insertSheet(RETAIL_PRICE_SHEET_NAME_);
+  }
+  sh.clearContents();
+  sh.getRange(1, 1, 1, 4).setValues([["key", "kind", "price", "updated"]]);
+  var rows = [["__DELIVERY_FEE__", "meta", Number(del && del.fee) || 9, new Date()],
+              ["__DELIVERY_FREE_FROM__", "meta", Number(del && del.freeFrom) || 80, new Date()]];
+  Object.keys(map || {}).sort().forEach(function (key) {
+    var info = map[key] || {};
+    if (info.perPiece != null) rows.push([key, "perPiece", Number(info.perPiece) || 0, new Date()]);
+    else rows.push([key, "per100", Number(info.per100) || 0, new Date()]);
+  });
+  if (rows.length) sh.getRange(2, 1, 1 + rows.length, 4).setValues(rows);
+}
+
 
 function retailNormalizeSub_(name, sub) {
   var s = String(sub || "").trim();
@@ -16429,7 +16644,8 @@ function retailLineCost_(name, sub, val, cat) {
   var n = retailNormalizeName_(name);
   var s = retailNormalizeSub_(n, sub);
   var key = n + (s ? "|" + s : "");
-  var info = RETAIL_PRICE_BYN_[key] || RETAIL_PRICE_BYN_[n];
+  var live = getRetailPriceLiveMap_();
+  var info = (live && (live[key] || live[n])) || RETAIL_PRICE_BYN_[key] || RETAIL_PRICE_BYN_[n];
   var v = Number(val) || 0;
   if (!info || v <= 0) return { cost: 0, per: 0, found: !!info };
   if (info.packs) {
@@ -16643,17 +16859,20 @@ function handleCalcPrice(json, callback, fromPost) {
     var rN = Math.max(1, Number(json.deliveriesN) || 1);
     var rPer = rTotal / rN;
     var rDelivTimes = 0;
+    var delLive = getRetailDeliveryLive_();
+    var RETAIL_DELIVERY_FEE_ = Number(delLive.fee) || 9;
+    var RETAIL_FREE_FROM_ = Number(delLive.freeFrom) || 80;
     if (rTotal > 0) {
       for (var rdi = 0; rdi < rN; rdi++) {
-        if (rPer < 50) rDelivTimes++;
+        if (rPer < RETAIL_FREE_FROM_) rDelivTimes++;
       }
     }
-    var rDeliv = Math.round(rDelivTimes * 5 * 100) / 100;
+    var rDeliv = Math.round(rDelivTimes * RETAIL_DELIVERY_FEE_ * 100) / 100;
     var rGrand = Math.round((rTotal + rDeliv) * 100) / 100;
     var rok = {
       status: "success",
       mode: mode,
-      sheet: "витрина IG",
+      sheet: "розница 2026-08-30",
       lines: rLines,
       cost: rTotal,
       goods: rTotal,

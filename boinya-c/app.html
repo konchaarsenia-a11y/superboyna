@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115909" as="script">
+  <link rel="preload" href="app.main.js?v=71115914" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115912";
+      var APP_VER = "v71115914";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1538,6 +1538,7 @@
           <button type="button" class="order-flyout-btn" data-fly="templatesScreen" data-fly-roles="manager,owner,all">Шаблоны</button>
           <button type="button" class="order-flyout-btn" data-fly="subsScreen" data-fly-roles="owner,all">Подписки</button>
           <button type="button" class="order-flyout-btn" data-fly="statsScreen" data-fly-roles="owner,all">Статистика</button>
+          <button type="button" class="order-flyout-btn" data-fly="retailPriceScreen" data-fly-roles="owner,all">Прайс</button>
           <button type="button" class="order-flyout-btn" data-fly="peopleScreen" data-fly-roles="owner,all">Доступы</button>
         </div>
         <div class="courier-flyout" id="courierFlyout">
@@ -2591,6 +2592,34 @@
       </div>
     </div>
 
+    <!-- ПРАЙС РОЗНИЦЫ (owner) -->
+    <div id="retailPriceScreen" class="screen">
+      <div class="card">
+        <div class="section-title" style="margin-top:0;">Прайс розницы</div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">
+          Рабочие цены для новых расчётов и заказов. Уже сохранённые заказы (<code>orderPrice</code>) не меняются.
+        </div>
+        <div class="batch-bar-row" style="gap:8px;margin:0 0 10px;">
+          <div class="form-group" style="flex:1;margin:0;">
+            <label>Доставка BYN</label>
+            <input type="number" id="retailPriceFeeInput" step="1" min="0" placeholder="9">
+          </div>
+          <div class="form-group" style="flex:1;margin:0;">
+            <label>Бесплатно от</label>
+            <input type="number" id="retailPriceFreeFromInput" step="1" min="0" placeholder="80">
+          </div>
+        </div>
+        <div class="batch-bar-row" style="gap:8px;margin:0 0 8px;">
+          <button class="btn-action btn-blue" type="button" style="flex:1;margin:0;" onclick="loadRetailPriceAdmin_()">Обновить</button>
+          <button class="btn-action btn-purple" type="button" style="flex:1.2;margin:0;" onclick="saveRetailPriceAdmin_()">Сохранить</button>
+        </div>
+        <div class="muted" style="font-size:12px;" id="retailPriceAdminStatus">—</div>
+      </div>
+      <div class="card" style="padding:10px;">
+        <div id="retailPriceAdminList"><p class="muted">Загрузка…</p></div>
+      </div>
+    </div>
+
     <!-- ДОСТУПЫ -->
     <div id="peopleScreen" class="screen">
       <div class="card" id="finishWeekPeopleCard">
@@ -2753,6 +2782,6 @@
   </div>
   <div class="toast" id="appToast"></div>
 
-  <script src="app.main.js?v=71115909" defer></script>
+  <script src="app.main.js?v=71115914" defer></script>
 </body>
 </html>
