@@ -1,4 +1,4 @@
-- [~] **pullClientsFromMonth D1 sync 2026-08-30:** после GAS pull — upsertMissing + rebuildCutting (дыра d1-primary afterWrite skip). · **нужен Worker Deploy**
+- [x] **pullClientsFromMonth D1 sync 2026-08-30:** после GAS pull — upsertMissing + rebuildCutting (дыра d1-primary afterWrite skip). · **Worker Deploy OK** · marker `pull-month-d1-sync`
 - [x] **Access/Templates/Survey + cutting struct D1-primary 2026-08-30:** meta CRUD (access/templates/survey) + структура нарезки fromOrders; флаги ops; finish→rebuild. `META_CANON` + `CUTTING_STRUCT_CANON` · **Worker Deploy OK** · smoke survey/template CRUD + getCutting fromOrders
 - [x] **Склад D1-primary 2026-08-30:** arrival/ревизия/zero — D1 правда; preview/compose/check — GAS; после finish — GAS resnap. `WAREHOUSE_CANON=d1-primary` · **Worker Deploy OK** · smoke setArrival 0.27с `d1Verified` + get fromD1
 - [x] **Подписки D1-primary 2026-08-30:** list/get/save/move/delete — D1 правда; Sheets зеркало в фоне; GAS не затирает snap; get подтягивает состав в snap. `SUBS_CANON=d1-primary` · **Worker Deploy OK** · smoke `zzz_test` save 0.28с `d1Verified` + get fromD1
