@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-30 warehouse-d1-primary
+ * deploy-marker: 2026-08-30 meta-cutting-d1-primary
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -222,6 +222,30 @@ function warehouseCanonLabel_(env) {
   return isWarehouseD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
 }
 
+/** Доступы / шаблоны / опросники CRUD: D1 правда. TG remind — GAS. Откат: META_CANON=sheets */
+function isMetaD1PrimaryCanon_(env) {
+  const v = env && env.META_CANON ? String(env.META_CANON).trim().toLowerCase() : "";
+  if (v === "sheets" || v === "sheets-first" || v === "sheets-confirm-bg") return false;
+  if (v === "d1-primary" || v === "d1") return true;
+  return isD1PrimaryCanon_(env);
+}
+
+function metaCanonLabel_(env) {
+  return isMetaD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
+}
+
+/** Структура плана нарезки из D1 orders; флаги — OPS. После finish — rebuild. Откат: CUTTING_STRUCT_CANON=sheets */
+function isCuttingStructD1PrimaryCanon_(env) {
+  const v = env && env.CUTTING_STRUCT_CANON ? String(env.CUTTING_STRUCT_CANON).trim().toLowerCase() : "";
+  if (v === "sheets" || v === "sheets-first" || v === "sheets-confirm-bg") return false;
+  if (v === "d1-primary" || v === "d1") return true;
+  return isD1PrimaryCanon_(env);
+}
+
+function cuttingStructCanonLabel_(env) {
+  return isCuttingStructD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
+}
+
 /**
  * После finishFullWeek / force week sync: слоты дней в D1 = список GAS (replace).
  * Обычные save/move/delete не трогаем. Откат: WEEK_D1_SYNC=upsert
@@ -273,8 +297,10 @@ async function handleAction_(action, params, env, url, ctx) {
       deferredCanon: deferredCanonLabel_(env),
       subsCanon: subsCanonLabel_(env),
       warehouseCanon: warehouseCanonLabel_(env),
+      metaCanon: metaCanonLabel_(env),
+      cuttingStructCanon: cuttingStructCanonLabel_(env),
       weekD1Sync: weekD1SyncLabel_(env),
-      deployMarker: "2026-08-30 warehouse-d1-primary"
+      deployMarker: "2026-08-30 meta-cutting-d1-primary"
     };
   }
 
@@ -4041,10 +4067,28 @@ async function getCutting_(params, env) {
     const staleDone = !!(hit && hit.completion && wantDate && snapDate !== wantDate);
     if (!dateOk || staleDone) hit = null;
   }
-  // свежие галочки / GAS-snap — не пересобирать из D1 на каждый poll
+  // свежие галочки — не пересобирать из D1 на каждый poll
   const touched = Number((hit && hit.flagsTouchedAt) || 0);
   if (touched && Date.now() - touched < 600000) {
     if (hit && Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
+    return hit;
+  }
+  // struct d1-primary: план из orders; GAS-snap не приоритетнее
+  if (isCuttingStructD1PrimaryCanon_(env)) {
+    if (hit && hit.fromOrders && !hit.fromCalendar) {
+      if (Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
+      return hit;
+    }
+    try {
+      const rebuilt = await rebuildCuttingDay_(env, day);
+      if (rebuilt && rebuilt.status === "success" && Array.isArray(rebuilt.items) && rebuilt.items.length) {
+        return rebuilt;
+      }
+    } catch (eRebS) {}
+    if (hit && Array.isArray(hit.items)) {
+      hit.items = normalizeCuttingItems_(hit.items);
+      return hit;
+    }
     return hit;
   }
   if (hit && hit.fromGas && !hit.fromCalendar) {
@@ -6000,12 +6044,28 @@ async function cutoverSwrGas_(action, params, env, ctx, opts) {
     const live = await gasProxy_(action, params || {}, env, { write: false });
     if (live && live.status === "success" && env && env.DB) {
       try {
-        const toStore = Object.assign({}, live, { cachedAt: new Date().toISOString() });
-        await putSnap_(env, snapKey, toStore);
-        if (typeof opts.afterStore === "function") {
+        // meta d1-primary: не затирать D1 snap фоновым GAS
+        let skipStore = false;
+        if (
+          isMetaD1PrimaryCanon_(env) &&
+          /^(listSurvey|listAccess|listTemplates)$/i.test(action)
+        ) {
           try {
-            await opts.afterStore(live, env);
-          } catch (eA) {}
+            const prevMeta = await getSnapRaw_(env, snapKey);
+            const arr =
+              (prevMeta && (prevMeta.items || prevMeta.people || prevMeta.list || prevMeta.templates)) ||
+              [];
+            if (prevMeta && Array.isArray(arr) && arr.length) skipStore = true;
+          } catch (ePrevM) {}
+        }
+        if (!skipStore) {
+          const toStore = Object.assign({}, live, { cachedAt: new Date().toISOString() });
+          await putSnap_(env, snapKey, toStore);
+          if (typeof opts.afterStore === "function") {
+            try {
+              await opts.afterStore(live, env);
+            } catch (eA) {}
+          }
         }
       } catch (eS) {}
     }
@@ -6881,6 +6941,56 @@ async function handleCutover_(a, params, env, ctx) {
       return {
         status: "error",
         message: (d1Wh && d1Wh.message) || "d1_write_failed",
+        cutover: true,
+        sandbox: false,
+        action: a
+      };
+    }
+    // Доступы / шаблоны / опросники CRUD — D1 правда (TG remind остаётся GAS)
+    if (
+      isMetaD1PrimaryCanon_(env) &&
+      /^(setAccessRole|setAccessTimezone|requestAccess|saveTemplate|deleteTemplate|saveSurvey|deleteSurvey|deleteSurveyBatch)$/i.test(
+        a
+      )
+    ) {
+      let d1Meta = null;
+      try {
+        if (env && env.DB) {
+          if (/^(setAccessRole|setAccessTimezone|requestAccess)$/i.test(a)) {
+            d1Meta = await mutateAccess_(a, params, env);
+          } else if (/^(saveTemplate|deleteTemplate)$/i.test(a)) {
+            d1Meta = await mutateTemplates_(a, params, env);
+          } else if (/^saveSurvey$/i.test(a)) {
+            d1Meta = await upsertInList_(env, "listSurvey", "items", params, "id");
+          } else {
+            d1Meta = await deleteFromList_(env, "listSurvey", "items", params, "id");
+          }
+        }
+      } catch (eMeta) {
+        d1Meta = { status: "error", message: String((eMeta && eMeta.message) || eMeta) };
+      }
+      const gasMetaP = gasProxy_(a, params, env, { write: true }).catch(function () {
+        return null;
+      });
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasMetaP);
+      else {
+        try {
+          await gasMetaP;
+        } catch (eGM) {}
+      }
+      if (d1Meta && d1Meta.status === "success") {
+        return Object.assign({}, d1Meta, {
+          cutover: true,
+          sandbox: false,
+          d1Verified: true,
+          optimistic: false,
+          metaCanon: metaCanonLabel_(env),
+          action: a
+        });
+      }
+      return {
+        status: "error",
+        message: (d1Meta && d1Meta.message) || "d1_write_failed",
         cutover: true,
         sandbox: false,
         action: a
@@ -7789,6 +7899,14 @@ function cutoverNeedsRevalidate_(a, params, fast, env) {
     const empty = !fast || !Array.isArray(fast.subscriptions) || !fast.subscriptions.length;
     if (!empty) return false;
   }
+  if (isMetaD1PrimaryCanon_(env) && /^(listAccess|listSurvey|listTemplates)$/i.test(a)) {
+    let empty = !fast;
+    if (fast) {
+      const arr = fast.items || fast.people || fast.list || fast.templates || fast.surveys || [];
+      empty = !Array.isArray(arr) || !arr.length;
+    }
+    if (!empty) return false;
+  }
   // calc/ping/suggest — не гоняем в GAS из UI
   if (/^(calc|ping|keepWarm|suggest|lookup)/i.test(a)) return false;
   const key =
@@ -8061,6 +8179,21 @@ async function cutoverStoreRead_(a, params, env, payload) {
   }
   if (a === "getCutting" && params.day) {
     const prev = await getSnapRaw_(env, "cutting:" + params.day);
+    // struct d1-primary: не затирать план fromOrders GAS-ом (только row-map)
+    if (
+      isCuttingStructD1PrimaryCanon_(env) &&
+      prev &&
+      prev.fromOrders &&
+      Array.isArray(prev.items) &&
+      prev.items.length
+    ) {
+      try {
+        if (Array.isArray(payload.items) && payload.items.length) {
+          await rememberCuttingRows_(env, payload.items);
+        }
+      } catch (eRowsKeep) {}
+      return;
+    }
     let items = Array.isArray(payload.items) ? payload.items.slice() : [];
     // ops d1-primary: структура может из GAS, флаги всегда из D1 snap/table
     if (isOpsD1PrimaryCanon_(env) && prev && Array.isArray(prev.items) && prev.items.length) {
@@ -8081,8 +8214,8 @@ async function cutoverStoreRead_(a, params, env, payload) {
     items = normalizeCuttingItems_(items);
     const body = Object.assign({}, payload, {
       items: items,
-      fromGas: !isOpsD1PrimaryCanon_(env),
-      fromD1: !!isOpsD1PrimaryCanon_(env),
+      fromGas: !isOpsD1PrimaryCanon_(env) && !isCuttingStructD1PrimaryCanon_(env),
+      fromD1: !!(isOpsD1PrimaryCanon_(env) || isCuttingStructD1PrimaryCanon_(env)),
       fromOrders: false,
       fromCalendar: false,
       cachedAt: new Date().toISOString(),
@@ -8189,8 +8322,25 @@ async function cutoverStoreRead_(a, params, env, payload) {
     return;
   }
   if (a === "listTemplates" && params.kind) {
+    if (isMetaD1PrimaryCanon_(env)) {
+      try {
+        const prevT = await getSnapRaw_(env, "listTemplates:" + params.kind);
+        if (prevT && Array.isArray(prevT.items) && prevT.items.length) return;
+      } catch (eT) {}
+    }
     await putSnap_(env, "listTemplates:" + params.kind, payload);
     return;
+  }
+  if (a === "listAccess" || a === "listSurvey" || a === "listTemplates") {
+    if (isMetaD1PrimaryCanon_(env)) {
+      try {
+        const prevM = await getSnapRaw_(env, a);
+        const arr =
+          (prevM && (prevM.items || prevM.people || prevM.list || prevM.templates || prevM.surveys)) ||
+          [];
+        if (prevM && Array.isArray(arr) && arr.length) return;
+      } catch (eMetaStore) {}
+    }
   }
   if (a === "listDeferred") {
     // d1-primary: snap меняют только write-handlers; GAS не затирает D1
@@ -8677,11 +8827,21 @@ async function cutoverRefreshAllWeekDays_(env) {
     try {
       await rebuildAssemblyDay_(env, day);
     } catch (eAsm) {}
-    // нарезка — только живой GAS (completion/laid не из старого snap)
+    // нарезка: struct d1-primary → rebuild из orders; иначе живой GAS
     try {
-      const cut = await gasProxy_("getCutting", { day: day }, env, { write: false });
-      if (cut && cut.status === "success") {
-        await cutoverStoreRead_("getCutting", { day: day }, env, cut);
+      if (isCuttingStructD1PrimaryCanon_(env)) {
+        await rebuildCuttingDay_(env, day);
+        try {
+          const cutGas = await gasProxy_("getCutting", { day: day }, env, { write: false });
+          if (cutGas && Array.isArray(cutGas.items) && cutGas.items.length) {
+            await rememberCuttingRows_(env, cutGas.items);
+          }
+        } catch (eRowsG) {}
+      } else {
+        const cut = await gasProxy_("getCutting", { day: day }, env, { write: false });
+        if (cut && cut.status === "success") {
+          await cutoverStoreRead_("getCutting", { day: day }, env, cut);
+        }
       }
     } catch (eCut) {}
   }
@@ -9104,11 +9264,15 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
     if (/cutting|warehouse|composeWarehouse|setWarehouse/i.test(a)) {
       await cutoverRevalidate_("warehousePreview", {}, env);
     }
-    if (/survey/i.test(a)) {
-      await cutoverRevalidate_("listSurvey", { activeOnly: "1" }, env);
+    if (/survey/i.test(a) && !/forceSurveyRemind/i.test(a)) {
+      if (!isMetaD1PrimaryCanon_(env)) {
+        await cutoverRevalidate_("listSurvey", { activeOnly: "1" }, env);
+      }
     }
     if (/access|Access/i.test(a)) {
-      await cutoverRevalidate_("listAccess", {}, env);
+      if (!isMetaD1PrimaryCanon_(env)) {
+        await cutoverRevalidate_("listAccess", {}, env);
+      }
     }
   } catch (e) {}
 }
@@ -9704,14 +9868,20 @@ async function mutatePartners_(action, params, env) {
 
 async function mutateTemplates_(action, params, env) {
   const kind = params.kind ? "listTemplates:" + String(params.kind) : "listTemplates";
-  if (action === "deleteTemplate") return deleteFromList_(env, kind, "items", params, "id");
-  return upsertInList_(env, kind, "items", params, "id");
+  let res;
+  if (action === "deleteTemplate") res = await deleteFromList_(env, kind, "items", params, "id");
+  else res = await upsertInList_(env, kind, "items", params, "id");
+  if (res && res.status === "success") {
+    res.sandbox = false;
+    res.d1Verified = true;
+  }
+  return res;
 }
 
 async function mutateAccess_(action, params, env) {
   let list = (await getSnapRaw_(env, "listAccess")) || { status: "success", people: [] };
-  let people = list.people || [];
-  const tid = String(params.telegramId || "");
+  let people = (list.people || []).slice();
+  const tid = String(params.telegramId || params.id || "");
   let idx = -1;
   for (let i = 0; i < people.length; i++) {
     if (String(people[i].telegramId) === tid) {
@@ -9720,15 +9890,49 @@ async function mutateAccess_(action, params, env) {
     }
   }
   if (action === "requestAccess") {
-    if (idx < 0) people.push({ telegramId: tid, name: params.name || "", role: "pending", status: "pending" });
+    if (idx < 0) {
+      people.push({
+        telegramId: tid,
+        name: params.name || "",
+        role: "pending",
+        status: "pending"
+      });
+    }
   } else if (idx >= 0) {
     if (params.role != null) people[idx].role = params.role;
     if (params.timezone != null) people[idx].timezone = params.timezone;
+    if (params.status != null) people[idx].status = params.status;
+  } else if (tid && params.role != null) {
+    people.push({
+      telegramId: tid,
+      name: params.name || "",
+      role: params.role,
+      timezone: params.timezone || "",
+      status: "active"
+    });
   }
   list.people = people;
-  list.sandbox = true;
+  list.status = "success";
   await putSnap_(env, "listAccess", list);
-  return { status: "success", sandbox: true, wrote: 1 };
+  if (tid) {
+    try {
+      const person = people.find(function (p) {
+        return String(p.telegramId) === tid;
+      });
+      if (person) {
+        await putSnap_(env, "access:" + tid, {
+          status: "success",
+          telegramId: tid,
+          name: person.name || "",
+          role: person.role || "",
+          access: person.status === "pending" ? "pending" : "active",
+          timezone: person.timezone || "",
+          cachedAt: new Date().toISOString()
+        });
+      }
+    } catch (eAcc) {}
+  }
+  return { status: "success", wrote: 1, telegramId: tid, d1Verified: true };
 }
 
 async function setWarehouseArrival_(params, env) {

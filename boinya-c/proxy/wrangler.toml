@@ -11,6 +11,8 @@ OPS_CANON = "d1-primary"
 DEFERRED_CANON = "d1-primary"
 SUBS_CANON = "d1-primary"
 WAREHOUSE_CANON = "d1-primary"
+META_CANON = "d1-primary"
+CUTTING_STRUCT_CANON = "d1-primary"
 WEEK_D1_SYNC = "gas-authoritative"
 
 [[d1_databases]]
