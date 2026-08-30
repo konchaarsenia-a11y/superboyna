@@ -313,7 +313,7 @@ async function handleAction_(action, params, env, url, ctx) {
       cuttingStructCanon: cuttingStructCanonLabel_(env),
       priceCanon: priceCanonLabel_(env),
       weekD1Sync: weekD1SyncLabel_(env),
-      deployMarker: "2026-08-30 pp-calc-d1-primary"
+      deployMarker: "2026-08-30 remain-reads-d1-careful"
     };
   }
 
@@ -7315,6 +7315,13 @@ async function handleCutover_(a, params, env, ctx) {
       }
     });
   }
+  // Склад preview: D1 snap-first (формулы листа — GAS только force/miss). Не списывает склад.
+  if (isWarehouseD1PrimaryCanon_(env) && a === "warehousePreview") {
+    return warehousePreviewD1_(params, env, ctx);
+  }
+  if (isWarehouseD1PrimaryCanon_(env) && a === "checkOrderWarehouse") {
+    return checkOrderWarehouseD1_(params, env, ctx);
+  }
   if (
     a === "suggestAddress" ||
     a === "lookupBpPartner" ||
@@ -7328,7 +7335,6 @@ async function handleCutover_(a, params, env, ctx) {
     a === "getExpectedProfit" ||
     a === "getTransferTask" ||
     a === "composeWarehouseBuyMessage" ||
-    a === "listBookings" ||
     a === "partnerListAdmin"
   ) {
     if (a === "suggestAddress") {
@@ -7349,6 +7355,18 @@ async function handleCutover_(a, params, env, ctx) {
     }
     if (isPriceD1PrimaryCanon_(env) && a === "calcPrice" && isPpCalcMode_(params)) {
       return calcPricePpD1_(params, env, ctx);
+    }
+    if (isPriceD1PrimaryCanon_(env) && a === "getPpFactCost") {
+      return getPpFactCostD1_(params, env, ctx);
+    }
+    if (isPriceD1PrimaryCanon_(env) && a === "getPpOrderSuggest") {
+      return getPpOrderSuggestD1_(params, env, ctx);
+    }
+    if (isSubsD1PrimaryCanon_(env) && a === "migratePpToRaw26Scheme") {
+      return migratePpToRaw26SchemeD1_(params, env, ctx);
+    }
+    if (isWarehouseD1PrimaryCanon_(env) && a === "composeWarehouseBuyMessage") {
+      return composeWarehouseBuyMessageD1_(params, env, ctx);
     }
     const live = await gasProxy_(a, params, env, { write: false });
     if (live && typeof live === "object") {
@@ -8168,6 +8186,7 @@ async function cutoverFastRead_(a, params, env) {
       a === "listClientProfiles" ||
       a === "listReminderPeople" ||
       a === "listBpIdle" ||
+      a === "listBookings" ||
       a === "getCouriers" ||
       a === "partnerListAdmin" ||
       a === "getStats" ||
@@ -10474,6 +10493,495 @@ async function saveRetailPricesD1_(params, env) {
   };
 }
 
+
+
+/** stamp [SCHEME:RAW26] into wishes string (mirror GAS). */
+function stampPpSchemeIntoWishesD1_(wishes, scheme) {
+  const base = String(wishes || "")
+    .replace(/\[SCHEME:[^\]]*\]/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const sch = String(scheme || "").trim().toUpperCase();
+  if (!sch) return base;
+  const tag = "[SCHEME:" + sch + "]";
+  return (base + (base ? " " : "") + tag).trim();
+}
+
+function stampPpCoefIntoWishesD1_(wishes, coef) {
+  const c = Number(coef);
+  if (!isFinite(c) || c <= 0) return String(wishes || "");
+  const base = String(wishes || "")
+    .replace(/\[COEF:[^\]]*\]/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const tag = "[COEF:" + c + "]";
+  return (base + (base ? " " : "") + tag).trim();
+}
+
+async function getPpFactCostD1_(params, env, ctx) {
+  const force =
+    String((params && params.force) || "") === "1" ||
+    (params && (params.force === true || params.force === 1));
+  const nick = String((params && (params.nick || params.client || params.name)) || "").trim();
+  async function fromGas_() {
+    const live = await gasProxy_("getPpFactCost", params || {}, env, { write: false });
+    if (live && live.status === "success" && env && env.DB && nick) {
+      try {
+        await mergeSubscriptionDetailIntoSnap_(env, {
+          nick: live.nick || nick,
+          sheet: "ПП",
+          factCost: live.factCost,
+          deliveries: live.deliveries,
+          ppSlot: live.ppSlot,
+          deliverySlot: live.deliverySlot,
+          needManualSlot: live.needManualSlot,
+          suggestedSlot: live.suggestedSlot
+        });
+      } catch (eM) {}
+    }
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+      live.fromD1 = false;
+      live.sandbox = false;
+      live.priceCanon = "d1-primary";
+    }
+    return live;
+  }
+  if (force || !nick) return (await fromGas_()) || { status: "error", message: "need_nick", cutover: true };
+
+  let local = null;
+  try {
+    local = await getSubscription_(
+      { nick: nick, sheet: "ПП", segment: "ПП", subId: (params && params.subId) || "" },
+      env
+    );
+  } catch (eL) {}
+
+  const hasFact =
+    local &&
+    local.found &&
+    local.factCost != null &&
+    local.factCost !== "";
+  const hasDeliv = local && local.found && local.deliveries != null && local.deliveries !== "";
+  if (hasFact || hasDeliv) {
+    const deliveries = Math.max(0, Number(local.deliveries) || 0);
+    const factRaw = local.factCost;
+    const factCost =
+      factRaw == null || factRaw === ""
+        ? null
+        : Number(String(factRaw).replace(",", ".").replace(/[^\d.-]/g, "")) || 0;
+    const out = {
+      status: "success",
+      nick: local.nick || nick,
+      factCost: factCost,
+      deliveries: deliveries,
+      deliverySlot: Number(local.deliverySlot || local.suggestedSlot) || 1,
+      needManualSlot: deliveries >= 2 ? !!local.needManualSlot || local.needManualSlot == null : false,
+      ppSlot: local.ppSlot || "",
+      suggestedSlot: Number(local.suggestedSlot || local.deliverySlot) || 1,
+      cutover: true,
+      fromD1: true,
+      fromGas: false,
+      sandbox: false,
+      priceCanon: "d1-primary",
+      d1Verified: true
+    };
+    // N≥2 без явного слота в snap — безопаснее спросить / добрать GAS в фоне
+    if (deliveries >= 2 && (local.needManualSlot == null || local.ppSlot == null || local.ppSlot === "")) {
+      out.needManualSlot = true;
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(
+          fromGas_().catch(function () {
+            return null;
+          })
+        );
+      }
+    }
+    return out;
+  }
+  return (await fromGas_()) || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getPpFactCost" };
+}
+
+async function getPpOrderSuggestD1_(params, env, ctx) {
+  const force =
+    String((params && params.force) || "") === "1" ||
+    (params && (params.force === true || params.force === 1));
+  const nick = String((params && (params.nick || params.client)) || "").trim();
+  async function fromGas_() {
+    const live = await gasProxy_("getPpOrderSuggest", params || {}, env, { write: false });
+    if (live && live.status === "success" && env && env.DB) {
+      try {
+        await mergeSubscriptionDetailIntoSnap_(
+          env,
+          Object.assign({}, live, {
+            nick: live.nick || nick,
+            sheet: live.sheet || "ПП",
+            basket: live.monthlyBasket || live.proposedBasket || live.basket,
+            factCost: live.factCost,
+            deliveries: live.deliveriesN != null ? live.deliveriesN : live.deliveries
+          })
+        );
+      } catch (eM) {}
+    }
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+      live.fromD1 = false;
+      live.sandbox = false;
+      live.priceCanon = "d1-primary";
+    }
+    return live;
+  }
+  if (force || !nick) {
+    return (await fromGas_()) || { status: "error", message: "need_nick", cutover: true };
+  }
+
+  let local = null;
+  try {
+    local = await getSubscription_(
+      { nick: nick, sheet: "ПП", segment: "ПП", subId: (params && params.subId) || "" },
+      env
+    );
+  } catch (eL) {}
+
+  const basket = (local && Array.isArray(local.basket) && local.basket.length && local.basket) || null;
+  const deliveriesN = Math.max(0, Number(local && local.deliveries) || 0);
+  // N≥2 / нет состава — слоты и half-basket только в GAS (история/память)
+  if (!local || !local.found || !basket || deliveriesN >= 2) {
+    return (await fromGas_()) || { status: "error", message: "gas_proxy_failed", cutover: true };
+  }
+
+  const factRaw = local.factCost;
+  const factCost =
+    factRaw == null || factRaw === ""
+      ? null
+      : Number(String(factRaw).replace(",", ".").replace(/[^\d.-]/g, "")) || 0;
+  const proposed = basket.map(function (it) {
+    return Object.assign({}, it);
+  });
+  return {
+    status: "success",
+    nick: local.nick || nick,
+    subId: local.subId || "",
+    sheet: local.sheet || "ПП",
+    wishes: local.wishes || "",
+    address: local.address || "",
+    note: local.note || "",
+    phone: local.phone || "",
+    date: (params && (params.date || params.deliveryDate)) || "",
+    day: (params && params.day) || "",
+    deliveriesN: Math.max(1, deliveriesN || 1),
+    deliverySlot: 1,
+    ppSlot: "1",
+    suggestedSlot: 1,
+    needManualSlot: false,
+    hasPpSlotAnchor: true,
+    paid: null,
+    askPaid: true,
+    factCost: factCost,
+    monthlyBasket: proposed,
+    proposedBasket: proposed,
+    slot1Basket: [],
+    remainingBasket: proposed,
+    hint: "ПП N=1 · состав целиком · d1",
+    cutover: true,
+    fromD1: true,
+    fromGas: false,
+    sandbox: false,
+    priceCanon: "d1-primary",
+    d1Verified: true
+  };
+}
+
+async function migratePpToRaw26SchemeD1_(params, env, ctx) {
+  const nick = String((params && (params.nick || params.client)) || "").trim();
+  const subId = String((params && params.subId) || "").trim();
+  if (!nick && !subId) return { status: "error", message: "need_nick", cutover: true };
+
+  let local = null;
+  try {
+    local = await getSubscription_({ nick: nick, sheet: "ПП", segment: "ПП", subId: subId }, env);
+  } catch (eL) {}
+
+  // без состава в D1 — только GAS (нужен лист)
+  const basket = local && Array.isArray(local.basket) ? local.basket : [];
+  if (!(local && local.found && basket.length)) {
+    const live = await gasProxy_("migratePpToRaw26Scheme", params || {}, env, { write: true });
+    if (live && live.status === "success" && env && env.DB) {
+      try {
+        await mergeSubscriptionDetailIntoSnap_(
+          env,
+          Object.assign({}, live, {
+            nick: live.nick || nick,
+            sheet: "ПП",
+            factCost: live.factCost,
+            wishes: live.wishes,
+            scheme: "RAW26",
+            ppScheme: "RAW26",
+            coef: live.coef
+          })
+        );
+      } catch (eM) {}
+    }
+    if (live && typeof live === "object") {
+      live.cutover = true;
+      live.fromGas = true;
+      live.fromD1 = false;
+      live.sandbox = false;
+    }
+    return live || { status: "error", message: "gas_proxy_failed", cutover: true };
+  }
+
+  const deliveriesN = Math.max(1, Number(local.deliveries) || 1);
+  const costsSnap = (await getSnapRaw_(env, "priceCostsPp")) || { costs: {} };
+  const built = buildPpLinesFromCostsD1_(basket, costsSnap.costs || {});
+  let rawCost = built.rawCost;
+  let lines = built.lines;
+  if (built.missing > 0) {
+    // cold unit costs
+    try {
+      const warm = await gasProxy_(
+        "calcPpFact",
+        { basket: basket, scheme: "RAW26", deliveriesN: deliveriesN, coef: 2.6 },
+        env,
+        { write: false }
+      );
+      if (warm && warm.status === "success") {
+        rawCost = Number(warm.cost) || rawCost;
+        lines = warm.lines || lines;
+        try {
+          await mergePriceCostsPpFromLinesD1_(env, lines);
+        } catch (eW) {}
+      }
+    } catch (eC) {}
+  }
+  let packOpt = local.packCounts || null;
+  if (typeof packOpt === "string") {
+    try {
+      packOpt = JSON.parse(packOpt);
+    } catch (eP) {
+      packOpt = null;
+    }
+  }
+  let retailGoods = 0;
+  try {
+    const retailSnap = await ensureRetailPricesSnap_(env, ctx);
+    if (retailSnap && Array.isArray(retailSnap.items)) {
+      retailGoods = retailGoodsBynFromBasketD1_(retailMapFromItemsD1_(retailSnap.items), basket);
+    }
+  } catch (eR) {}
+  const fact = computePpFactFromCostD1_(
+    rawCost,
+    basket,
+    deliveriesN,
+    PP_RAW26_COEF_DEFAULT_D1_,
+    packOpt,
+    "RAW26",
+    lines,
+    retailGoods
+  );
+  let wishes = stampPpSchemeIntoWishesD1_(local.wishes || "", "RAW26");
+  wishes = stampPpCoefIntoWishesD1_(wishes, PP_RAW26_COEF_DEFAULT_D1_);
+  const applyStated = !(
+    params.applyStated === false ||
+    params.applyStated === "0" ||
+    params.applyStated === 0
+  );
+  const detail = Object.assign({}, local, {
+    nick: local.nick || nick,
+    sheet: "ПП",
+    wishes: wishes,
+    scheme: "RAW26",
+    ppScheme: "RAW26",
+    coef: PP_RAW26_COEF_DEFAULT_D1_,
+    factCost: applyStated ? fact.factCost : local.factCost,
+    _d1Detail: true,
+    _savedAt: Date.now()
+  });
+  try {
+    await mergeSubscriptionDetailIntoSnap_(env, detail);
+  } catch (eS) {}
+
+  const ok = {
+    status: "success",
+    nick: local.nick || nick,
+    label: local.label || local.nick || nick,
+    subId: local.subId || subId,
+    prevScheme: parsePpSchemeFromWishesD1_(local.wishes) || local.ppScheme || local.scheme || "LEGACY",
+    scheme: "RAW26",
+    coef: PP_RAW26_COEF_DEFAULT_D1_,
+    rawCost: rawCost,
+    factCost: fact.factCost,
+    statedApplied: applyStated,
+    recoverByn: fact.recoverByn,
+    wishes: wishes,
+    cutover: true,
+    fromD1: true,
+    fromGas: false,
+    sandbox: false,
+    d1Verified: true,
+    pendingSheets: true,
+    subsCanon: "d1-primary"
+  };
+
+  // Sheets зеркало в фоне — не блокируем UI
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(
+      gasProxy_("migratePpToRaw26Scheme", params || {}, env, { write: true })
+        .then(function (live) {
+          return live;
+        })
+        .catch(function () {
+          return null;
+        })
+    );
+  }
+  return ok;
+}
+
+function parsePpSchemeFromWishesD1_(wishes) {
+  const m = String(wishes || "").match(/\[SCHEME:([^\]]+)\]/i);
+  if (!m) return "";
+  return normalizePpSchemeD1_(m[1]);
+}
+
+async function warehousePreviewD1_(params, env, ctx) {
+  const force =
+    String((params && params.force) || "") === "1" ||
+    (params && (params.force === true || params.force === 1 || params.refresh));
+  const hasRange = !!(params && (params.dateFrom || params.from || params.dateTo || params.to || params.asOf));
+  if (!force) {
+    const snap = await getSnapRaw_(env, "warehousePreview");
+    if (snap && snap.status === "success" && (Array.isArray(snap.deficits) || Array.isArray(snap.plan))) {
+      if (ctx && typeof ctx.waitUntil === "function" && !hasRange) {
+        ctx.waitUntil(
+          gasProxy_("warehousePreview", params || {}, env, { write: false })
+            .then(async function (live) {
+              if (live && live.status === "success") {
+                try {
+                  await putSnap_(
+                    env,
+                    "warehousePreview",
+                    Object.assign({}, live, { cachedAt: new Date().toISOString() })
+                  );
+                } catch (e) {}
+              }
+            })
+            .catch(function () {
+              return null;
+            })
+        );
+      }
+      return Object.assign({}, snap, {
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        sandbox: false,
+        warehouseCanon: "d1-primary",
+        d1Verified: true,
+        swr: true
+      });
+    }
+  }
+  const live = await gasProxy_("warehousePreview", params || {}, env, { write: false });
+  if (live && live.status === "success" && env && env.DB) {
+    try {
+      await putSnap_(env, "warehousePreview", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+    } catch (e) {}
+  }
+  if (live && typeof live === "object") {
+    live.cutover = true;
+    live.fromGas = true;
+    live.fromD1 = false;
+    live.sandbox = false;
+    live.warehouseCanon = "d1-primary";
+  }
+  return live || { status: "error", message: "gas_proxy_failed", cutover: true, action: "warehousePreview" };
+}
+
+async function checkOrderWarehouseD1_(params, env, ctx) {
+  const force =
+    String((params && params.force) || "") === "1" ||
+    (params && (params.force === true || params.force === 1));
+  // Дефицит по формулам недели — пока GAS. D1: быстрый soft «нет данных» не врём.
+  // Если есть свежий warehousePreview без дефицитов по тем же asOf — можно сказать ok.
+  if (!force) {
+    const snap = await getSnapRaw_(env, "warehousePreview");
+    if (
+      snap &&
+      snap.status === "success" &&
+      Array.isArray(snap.deficits) &&
+      snap.deficits.length === 0 &&
+      (!params || !params.basket)
+    ) {
+      return {
+        status: "success",
+        warehouseAlert: null,
+        hasDeficit: false,
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        sandbox: false,
+        warehouseCanon: "d1-primary",
+        d1Verified: true,
+        soft: true
+      };
+    }
+  }
+  const live = await gasProxy_("checkOrderWarehouse", params || {}, env, { write: false });
+  if (live && typeof live === "object") {
+    live.cutover = true;
+    live.fromGas = true;
+    live.fromD1 = false;
+    live.sandbox = false;
+    live.warehouseCanon = "d1-primary";
+  }
+  return live || { status: "error", message: "gas_proxy_failed", cutover: true, action: "checkOrderWarehouse" };
+}
+
+async function composeWarehouseBuyMessageD1_(params, env, ctx) {
+  // Текст дозакупа строится из plan/deficits preview. Если snap есть — собрать локально.
+  const snap = await getSnapRaw_(env, "warehousePreview");
+  if (snap && snap.status === "success") {
+    const buy = Array.isArray(snap.buyList) ? snap.buyList : [];
+    const deficits = Array.isArray(snap.deficits) ? snap.deficits : [];
+    let msg = String(snap.messageText || "").trim();
+    if (!msg) {
+      const lines = [];
+      (buy.length ? buy : deficits).forEach(function (it) {
+        const name = (it && (it.name || it.item || it.sku)) || "";
+        const need = it && (it.need != null ? it.need : it.qty != null ? it.qty : it.deficit);
+        if (!name) return;
+        lines.push("• " + name + (need != null ? " — " + need : ""));
+      });
+      if (lines.length) msg = "Дозакуп:\\n" + lines.join("\\n");
+    }
+    if (msg) {
+      return {
+        status: "success",
+        messageText: msg,
+        message: msg,
+        buyList: buy,
+        deficits: deficits,
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        sandbox: false,
+        warehouseCanon: "d1-primary",
+        d1Verified: true
+      };
+    }
+  }
+  const live = await gasProxy_("composeWarehouseBuyMessage", params || {}, env, { write: false });
+  if (live && typeof live === "object") {
+    live.cutover = true;
+    live.fromGas = true;
+    live.fromD1 = false;
+    live.sandbox = false;
+  }
+  return live || { status: "error", message: "gas_proxy_failed", cutover: true, action: "composeWarehouseBuyMessage" };
+}
 
 function isPpCalcMode_(params) {
   const m = String((params && params.mode) || "").toLowerCase();
