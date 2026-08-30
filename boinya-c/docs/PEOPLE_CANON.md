@@ -25,15 +25,14 @@
 | склад arrival/ревизия + **preview/check/compose** | **D1 compute** (stock+arrival, dry÷coef); finish F/B — GAS | `warehouseCanon: d1-primary` |
 | `setWeekBannerState` / cutting sessions | **D1** + Sheets фон | ops/meta |
 | `lookupBpPartner` | **D1** из подписок; miss → GAS | — |
+| TG send (`sendCourierRoute` / `sendDeficit` / `forceSurveyRemind`) | **Worker** + D1 tickets/dedupe; secret `TELEGRAM_BOT_TOKEN`; нет секрета → GAS | `telegramCanon: worker\|sheets-fallback` |
 | `finishFullWeek` / materialize / pull | **GAS** (закрытие недели); D1 resync + protectMs 5м | `weekD1Sync` |
-| TG / Goodboy `gb*` / Varka | **GAS** | — |
+| Goodboy `gb*` / Varka | **GAS** (отдельные продукты) | — |
 | доступы / шаблоны / опросники CRUD | **D1 сразу** → Sheets зеркало; `forceSurveyRemind`/TG — GAS | `metaCanon: d1-primary` |
 | структура нарезки (план items) | **D1 fromOrders** / rebuild; флаги — ops; finish → rebuild + row-map GAS | `cuttingStructCanon: d1-primary` |
 | розничный прайс + `calcPrice(retail)` + ПП `calcPpFact`/`calcPrice(pp)` | **D1** (ПП: кэш unit costs + формула; cold GAS warm) | `priceCanon: d1-primary` |
 | `getPpFactCost` / `getPpOrderSuggest` (в т.ч. N≥2) / `migratePpToRaw26Scheme` | **D1** (слоты/half-basket из orders+якорь); cold miss/`force` → GAS; migrate Sheets в фоне | `priceCanon` / `subsCanon` |
 | `warehousePreview` / `checkOrderWarehouse` / `composeWarehouseBuyMessage` | **D1 compute** (не формулы листа); cold empty warehouse → GAS | `warehouseCanon` |
-| `finishFullWeek` / materialize / pull | **GAS** (закрытие недели); D1 resync + protectMs 5м | `weekD1Sync` |
-| TG / Goodboy `gb*` / Varka partner writes | **GAS** (отдельные продукты) | — |
 
 **Запрещено** без явного отката (`PEOPLE_CANON=sheets-confirm-bg`):
 
