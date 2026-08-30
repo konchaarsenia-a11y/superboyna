@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115912";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115913";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -1380,90 +1380,67 @@
     var RETAIL_PRICE = {
 
       "ЛЁГКОЕ|Мелкое": { per100: 12 },
-      "ЛЁГКОЕ|Среднее": { per100: 10 },
-      "ЛЁГКОЕ|Большое": { per100: 9 },
-      "ЛЁГКОЕ|Целое": { per100: 8 },
-      "ЛЁГКОЕ": { per100: 10 },
-      "СЕРДЦЕ|Мелкое": { per100: 13 },
-      "СЕРДЦЕ|Среднее": { per100: 12 },
-      "СЕРДЦЕ|Большое": { per100: 11 },
-      "СЕРДЦЕ|Целое": { per100: 10 },
-      "СЕРДЦЕ": { per100: 12 },
+      "ЛЁГКОЕ|Среднее": { per100: 11 },
+      "ЛЁГКОЕ|Целое": { per100: 9 },
+      "СЕРДЦЕ|Мелкое": { per100: 14 },
+      "СЕРДЦЕ|Целое": { per100: 12 },
+      "ПОЧКИ|Мелкое": { per100: 12 },
+      "ПОЧКИ|Целое": { per100: 11 },
       "РУБЕЦ Т|Мелкое": { per100: 13 },
       "РУБЕЦ Т|Среднее": { per100: 12 },
       "РУБЕЦ Т|Крупное": { per100: 11 },
       "РУБЕЦ Т|Целое": { per100: 10 },
-      "РУБЕЦ Т": { per100: 12 },
-      "ПОЧКИ|Мелкое": { per100: 11 },
-      "ПОЧКИ|Целое": { per100: 10 },
-      "ПОЧКИ": { per100: 10 },
-      "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 15 },
-      "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 14 },
-      "БАРАНЬЕ ЛЁГКОЕ|Целое": { per100: 12 },
-      "БАРАНЬЕ ЛЁГКОЕ": { per100: 14 },
-
-      "ПЕЧЕНЬ": { per100: 9 },
-      "СВЕТЛЫЙ РУБЕЦ": { per100: 9 },
-      "КНИЖКА": { per100: 9 },
-      "ВЫМЯ": { per100: 9 },
-      "СЕМЕННИКИ": { per100: 12 },
-      "МЯСНЫЕ ЛОМТИКИ": { per100: 13 },
-      "ПИКАЛЬНОЕ МЯСО": { per100: 10 },
-      "ИНДЕЙКА|Мелкое": { per100: 17 },
-      "ИНДЕЙКА|Среднее": { per100: 16 },
-      "ИНДЕЙКА|Целое": { per100: 15 },
-      "ИНДЕЙКА": { per100: 16 },
-      "БАРАНЬЯ ПЕЧЕНЬ|Мелкое": { per100: 18 },
-      "БАРАНЬЯ ПЕЧЕНЬ|Среднее": { per100: 17 },
-      "БАРАНЬЯ ПЕЧЕНЬ|Целое": { per100: 16 },
-      "БАРАНЬЯ ПЕЧЕНЬ": { per100: 17 },
-
-      "КРОШКА ЛЁГКОГО": { packs: { 20: 5, 50: 7, 100: 10 }, per100: 10 },
-      "КРОШКА ПОЧЕК": { packs: { 20: 5, 50: 7, 100: 10 }, per100: 10 },
-      "КРОШКА СЕРДЦА": { packs: { 20: 7, 50: 9, 100: 12 }, per100: 12 },
-      "КРОШКА РУБЕЦ": { packs: { 20: 7, 50: 9, 100: 12 }, per100: 12 },
-      "КРОШКА МИКС": { packs: { 20: 6, 50: 8, 100: 11 }, per100: 11 },
-
-      "БАНАНЫ": { per100: 10 },
-      "ЯБЛОКИ": { per100: 9 },
-      "ГРУШИ": { per100: 10 },
-      "КЛУБНИКА": { per100: 10 },
-      "МОРКОВЬ": { per100: 10 },
-      "ТЫКВА": { per100: 12 },
-      "БАТАТ": { per100: 11 },
-      "КАБАЧОК": { per100: 12 },
-      "СВЕКЛА": { per100: 10 },
-
-      "КОПЫТО шт.": { perPiece: 9 },
-      "КОЛЕНИ шт.": { perPiece: 6 },
-      "НОСЫ шт.": { perPiece: 7 },
-      "ЛОП ХРЯЩ шт.": { perPiece: 4 },
-      "УТИНЫЕ ШЕИ шт.": { perPiece: 3 },
-      "ПЕРЕПЁЛКИ шт.": { perPiece: 4 },
-      "ГУБЫ шт.": { perPiece: 4 },
-      "ТРАХЕЯ|МАЛ": { perPiece: 4 },
-      "ТРАХЕЯ|СРЕД": { perPiece: 7 },
-      "ТРАХЕЯ|БОЛ": { perPiece: 12 },
-      "ТРАХЕЯ|ПЛАСТ": { perPiece: 7 },
-      "ТРАХЕЯ|ОГР": { perPiece: 12 },
-      "ТРАХЕЯ": { perPiece: 7 },
+      "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 18 },
+      "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 17 },
+      "БАРАНЬЕ ЛЁГКОЕ|Целое": { per100: 16 },
+      "ИНДЕЙКА": { per100: 18 },
+      "ПЕЧЕНЬ": { per100: 11 },
+      "ВЫМЯ": { per100: 10 },
+      "СЕМЕННИКИ": { per100: 13 },
+      "МЯСНЫЕ ЛОМТИКИ": { per100: 16 },
+      "КРОШКА ЛЁГКОГО": { per100: 11 },
+      "КРОШКА ПОЧЕК": { per100: 11 },
+      "КРОШКА РУБЕЦ": { per100: 12 },
       "БЫЧИЙ КОРЕНЬ|ОЧ МАЛ": { perPiece: 6 },
-      "БЫЧИЙ КОРЕНЬ|МАЛ": { perPiece: 6 },
-      "БЫЧИЙ КОРЕНЬ|СРЕД": { perPiece: 11 },
-      "БЫЧИЙ КОРЕНЬ|БОЛ": { perPiece: 21 },
-      "БЫЧИЙ КОРЕНЬ|ОГР": { perPiece: 25 },
-      "БЫЧИЙ КОРЕНЬ": { perPiece: 11 },
-      "УХО Г|ПОЛОВИНКА": { perPiece: 4 },
-      "УХО Г|Обычное": { perPiece: 6 },
-      "УХО Г": { perPiece: 6 },
-      "АОРТА|ПОЛОВИНКА": { perPiece: 2 },
-      "АОРТА|Обычная": { perPiece: 4 },
-      "АОРТА": { perPiece: 4 },
-      "СТАНОВАЯ ЖИЛА|ПАЛК": { perPiece: 1 },
-      "СТАНОВАЯ ЖИЛА|СРЕД": { perPiece: 4 },
-      "СТАНОВАЯ ЖИЛА|БОЛ": { perPiece: 6 },
-      "СТАНОВАЯ ЖИЛА": { perPiece: 4 }
+      "БЫЧИЙ КОРЕНЬ|МАЛ": { perPiece: 7 },
+      "БЫЧИЙ КОРЕНЬ|СРЕД": { perPiece: 12 },
+      "БЫЧИЙ КОРЕНЬ|БОЛ": { perPiece: 20 },
+      "БЫЧИЙ КОРЕНЬ|ОГР": { perPiece: 26 },
+      "ТРАХЕЯ|МАЛ": { perPiece: 5 },
+      "ТРАХЕЯ|СРЕД": { perPiece: 8 },
+      "ТРАХЕЯ|БОЛ": { perPiece: 12 },
+      "ТРАХЕЯ|ПЛАСТ": { perPiece: 8 },
+      "ТРАХЕЯ|ОГР": { perPiece: 14 },
+      "СТАНОВАЯ ЖИЛА|СРЕД": { perPiece: 5 },
+      "СТАНОВАЯ ЖИЛА|БОЛ": { perPiece: 7 },
+      "СТАНОВАЯ ЖИЛА|ПАЛК": { perPiece: 3 },
+      "УХО Г|Обычное": { perPiece: 7 },
+      "УХО Г|ПОЛОВИНКА": { perPiece: 5 },
+      "АОРТА|Обычная": { perPiece: 5 },
+      "АОРТА|ПОЛОВИНКА": { perPiece: 3 },
+      "КОЛЕНИ шт.": { perPiece: 7 },
+      "НОСЫ шт.": { perPiece: 8 },
+      "ЛОП ХРЯЩ шт.": { perPiece: 5 },
+      "УТИНЫЕ ШЕИ шт.": { perPiece: 4 },
+      "ПЕРЕПЁЛКИ шт.": { perPiece: 5 },
+      "ТЫКВА": { per100: 14 },
+      "БАТАТ": { per100: 15 },
+      "ГРУШИ": { per100: 13 },
+      "БАНАНЫ": { per100: 12 },
+      "ЯБЛОКИ": { per100: 11 },
+      "МОРКОВЬ": { per100: 11 },
+      "ЛЁГКОЕ": { per100: 11 },
+      "СЕРДЦЕ": { per100: 14 },
+      "ПОЧКИ": { per100: 12 },
+      "РУБЕЦ Т": { per100: 12 },
+      "БАРАНЬЕ ЛЁГКОЕ": { per100: 17 },
+      "БЫЧИЙ КОРЕНЬ": { perPiece: 12 },
+      "ТРАХЕЯ": { perPiece: 8 },
+      "УХО Г": { perPiece: 7 },
+      "АОРТА": { perPiece: 5 },
+      "СТАНОВАЯ ЖИЛА": { perPiece: 5 }
     };
+
 
     function retailLookupKey_(name, sub) {
       var n = String(name || "").toUpperCase().trim().replace(/Ё/g, "Е").replace(/\s+/g, " ");
@@ -1931,8 +1908,36 @@
     }
     window.editProductCardBlurb_ = editProductCardBlurb_;
 
-    var PRICE_RETAIL_DELIVERY_BYN = 5;
-    var PRICE_RETAIL_FREE_FROM = 50;
+    var PRICE_RETAIL_DELIVERY_BYN = 9;
+    var PRICE_RETAIL_FREE_FROM = 80;
+    /** Убрано с новой витрины (RETAIL-PRICE-NEW) — в рознице не предлагаем. */
+    var RETAIL_REMOVED_NAMES = {
+      "СВЕТЛЫЙ РУБЕЦ": 1,
+      "КНИЖКА": 1,
+      "ПИКАЛЬНОЕ МЯСО": 1,
+      "КОПЫТО шт.": 1,
+      "ГУБЫ шт.": 1,
+      "КАБАЧОК": 1,
+      "КЛУБНИКА": 1,
+      "СВЕКЛА": 1
+    };
+
+    function catalogItemsForUi_(catKey) {
+      var cat = catalog[catKey] || {};
+      var items = cat.items || [];
+      if (orderType !== "retail") return items.slice();
+      return items.filter(function (n) { return !RETAIL_REMOVED_NAMES[n]; });
+    }
+
+    function catalogFractionsForUi_(catKey, name) {
+      var cat = catalog[catKey] || {};
+      var fr = (cat.fractions && cat.fractions[name]) ? cat.fractions[name].slice() : [];
+      if (orderType !== "retail") return fr;
+      return fr.filter(function (f) {
+        var meta = retailLookupKey_(name, f);
+        return !!(RETAIL_PRICE[meta.key] || RETAIL_PRICE[meta.name]);
+      });
+    }
 
     function calcRetailBasketTotal(list, opts) {
       opts = opts || {};
@@ -1970,7 +1975,7 @@
         deliveryFee: PRICE_RETAIL_DELIVERY_BYN,
         lines: lines,
         markup: 1,
-        sheet: "витрина IG"
+        sheet: "розница 2026-08-30"
       };
     }
     window.calcRetailBasketTotal = calcRetailBasketTotal;
@@ -3416,7 +3421,7 @@
       document.getElementById("selectorTitle").innerText = cat.title;
       document.getElementById("selectorCard").style.display = "block";
       let html = '<option value="">-- Выбрать --</option>';
-      cat.items.forEach(n => { html += `<option value="${n}">${n}</option>`; });
+      catalogItemsForUi_(catKey).forEach(n => { html += `<option value="${n}">${n}</option>`; });
       document.getElementById("mainSelect").innerHTML = html;
       document.getElementById("fractionGroup").style.display = "none";
       document.getElementById("volumeInput").value = "";
@@ -3428,10 +3433,11 @@
       const cat = catalog[currentCategory];
       document.getElementById("valueLabel").innerText =
         unitForItem(currentCategory, mainVal) === "шт" ? "Количество (шт)" : "Вес (гр)";
-      if (cat.fractions && cat.fractions[mainVal]) {
+      var frUi = catalogFractionsForUi_(currentCategory, mainVal);
+      if (frUi.length) {
         document.getElementById("fractionGroup").style.display = "block";
         document.getElementById("fractionSelect").innerHTML =
-          cat.fractions[mainVal].map(f => `<option value="${f}">${f}</option>`).join("");
+          frUi.map(f => `<option value="${f}">${f}</option>`).join("");
       } else {
         document.getElementById("fractionGroup").style.display = "none";
         document.getElementById("fractionSelect").innerHTML = "";
@@ -3445,12 +3451,13 @@
       if (!mainVal) { await uiAlertAsync("Выберите наименование"); return; }
       if (inputVal <= 0) { await uiAlertAsync("Укажите количество больше нуля"); return; }
       const cat = catalog[currentCategory];
-      const needFrac = cat && cat.fractions && cat.fractions[mainVal] && cat.fractions[mainVal].length;
+      const frNeed = catalogFractionsForUi_(currentCategory, mainVal);
+      const needFrac = frNeed && frNeed.length;
       if (needFrac && !fracVal) {
         await uiAlertAsync("Выберите фракцию / тип");
         return;
       }
-      if (needFrac && cat.fractions[mainVal].indexOf(fracVal) < 0) {
+      if (needFrac && frNeed.indexOf(fracVal) < 0) {
         await uiAlertAsync("Такой фракции нет для «" + mainVal + "»");
         return;
       }
@@ -16367,7 +16374,11 @@
       document.getElementById("priceSelectorTitle").innerText = cat.title;
       document.getElementById("priceSelectorCard").style.display = "block";
       var html = '<option value="">-- Выбрать --</option>';
-      cat.items.forEach(function (n) { html += '<option value="' + n + '">' + n + "</option>"; });
+      var priceModeRetail = (typeof priceMode !== "undefined" && priceMode === "retail");
+      var items = priceModeRetail
+        ? (cat.items || []).filter(function (n) { return !RETAIL_REMOVED_NAMES[n]; })
+        : (cat.items || []);
+      items.forEach(function (n) { html += '<option value="' + n + '">' + n + "</option>"; });
       document.getElementById("priceMainSelect").innerHTML = html;
       document.getElementById("priceFractionGroup").style.display = "none";
       document.getElementById("priceVolumeInput").value = "";
@@ -16380,10 +16391,18 @@
       var cat = catalog[priceManualCategory];
       document.getElementById("priceValueLabel").innerText =
         unitForItem(priceManualCategory, mainVal) === "шт" ? "Количество (шт)" : "Вес (гр)";
-      if (cat.fractions && cat.fractions[mainVal]) {
+      var priceModeRetail = (typeof priceMode !== "undefined" && priceMode === "retail");
+      var frUi = (cat.fractions && cat.fractions[mainVal]) ? cat.fractions[mainVal].slice() : [];
+      if (priceModeRetail) {
+        frUi = frUi.filter(function (f) {
+          var meta = retailLookupKey_(mainVal, f);
+          return !!(RETAIL_PRICE[meta.key] || RETAIL_PRICE[meta.name]);
+        });
+      }
+      if (frUi.length) {
         document.getElementById("priceFractionGroup").style.display = "block";
         document.getElementById("priceFractionSelect").innerHTML =
-          cat.fractions[mainVal].map(function (f) { return '<option value="' + f + '">' + f + "</option>"; }).join("");
+          frUi.map(function (f) { return '<option value="' + f + '">' + f + "</option>"; }).join("");
       } else {
         document.getElementById("priceFractionGroup").style.display = "none";
         document.getElementById("priceFractionSelect").innerHTML = "";
