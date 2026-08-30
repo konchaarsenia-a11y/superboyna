@@ -10283,6 +10283,33 @@ function retailNormalizeNameD1_(name) {
   return n;
 }
 
+function retailNormalizeSubD1_(name, sub) {
+  const s = String(sub || "").trim();
+  if (!s) return "";
+  const u = s
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/\s+/g, " ");
+  const n = String(name || "").toUpperCase();
+  if (/БЫЧИЙ КОРЕН|ТРАХЕ|СТАНОВ/.test(n)) {
+    if (/ОЧЕНЬ\s*МАЛ|ОЧ\s*МАЛ|СУПЕР/.test(u)) return "ОЧ МАЛ";
+    if (/ОГРОМ|РОГАЛ|ОГР/.test(u)) return "ОГР";
+    if (/БОЛЬШ|БОЛ/.test(u)) return "БОЛ";
+    if (/СРЕД/.test(u)) return /ПАЛ/.test(u) ? "ПАЛК" : "СРЕД";
+    if (/ПАЛОЧ|ПАЛК/.test(u)) return "ПАЛК";
+    if (/ПЛАСТ/.test(u)) return "ПЛАСТ";
+    if (/МАЛ/.test(u)) return "МАЛ";
+  }
+  if (/УХО|УШК/.test(n)) return /ПОЛОВИН/.test(u) ? "ПОЛОВИНКА" : "Обычное";
+  if (/АОРТ/.test(n)) return /ПОЛОВИН/.test(u) ? "ПОЛОВИНКА" : "Обычная";
+  if (/МЕЛК/.test(u)) return "Мелкое";
+  if (/СРЕД|КУСОЧ|КУБИК/.test(u) && !/МЕЛК|БОЛЬШ|ЦЕЛ|ЛОМТ|ПОЛОСК/.test(u)) return "Среднее";
+  if (/КРУПН/.test(u)) return "Крупное";
+  if (/БОЛЬШ|ПОЛОСК/.test(u)) return "Большое";
+  if (/ЦЕЛ|ЛОМТ/.test(u)) return "Целое";
+  return s;
+}
+
 function retailLineCostD1_(map, name, sub, val, cat) {
   const n = retailNormalizeNameD1_(name);
   const s = retailNormalizeSubD1_(n, sub);
