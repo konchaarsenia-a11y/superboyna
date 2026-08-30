@@ -25,7 +25,11 @@
 | склад arrival/ревизия (`setWarehouseArrival`, `applyWarehouseRevision`, `zeroWarehouse`) | **D1 сразу** → Sheets зеркало; preview/compose/finish F/B — GAS | `warehouseCanon: d1-primary` |
 | доступы / шаблоны / опросники CRUD | **D1 сразу** → Sheets зеркало; `forceSurveyRemind`/TG — GAS | `metaCanon: d1-primary` |
 | структура нарезки (план items) | **D1 fromOrders** / rebuild; флаги — ops; finish → rebuild + row-map GAS | `cuttingStructCanon: d1-primary` |
-| розничный прайс + `calcPrice(retail)` + ПП `calcPpFact`/`calcPrice(pp)` | **D1** (ПП: кэш unit costs + формула; cold GAS warm); migrate/getPpFactCost — GAS | `priceCanon: d1-primary` |
+| розничный прайс + `calcPrice(retail)` + ПП `calcPpFact`/`calcPrice(pp)` | **D1** (ПП: кэш unit costs + формула; cold GAS warm) | `priceCanon: d1-primary` |
+| `getPpFactCost` / `getPpOrderSuggest` (N=1) / `migratePpToRaw26Scheme` | **D1** + fallback GAS (N≥2 suggest/slots → GAS; migrate Sheets в фоне) | `priceCanon` / `subsCanon` |
+| `warehousePreview` / `composeWarehouseBuyMessage` | **D1 snap-first** + SWR; `force`/miss → GAS (формулы листа) | `warehouseCanon` |
+| `finishFullWeek` / materialize / pull | **GAS** (опасно); D1 после = gas-authoritative replace | `weekD1Sync` |
+| TG / Goodboy `gb*` / Varka partner writes | **GAS** (отдельные продукты) | — |
 
 **Запрещено** без явного отката (`PEOPLE_CANON=sheets-confirm-bg`):
 
