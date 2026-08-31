@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-08-31 people-no-wipe-h1"
+      deployMarker: "2026-08-31 people-harden-b2"
     };
   }
 
@@ -2201,8 +2201,11 @@ function isoToDmy_(iso) {
 }
 
 async function dateMap_(env) {
-  // маппинг дата→слот листа: не брать overlay календаря (иначе 17.08 = «Пн» листа 07.09)
-  let counts = await getSnapRaw_(env, "weekDayCountsSheet");
+  // Актуальные слоты недели: сначала D1 weekDayCounts (даты+onWeek), Sheet — fallback.
+  let counts = await getSnapRaw_(env, "weekDayCounts");
+  if (!counts || !Array.isArray(counts.items) || !counts.items.length || (counts && counts.fromCalendar)) {
+    counts = await getSnapRaw_(env, "weekDayCountsSheet");
+  }
   if (!counts || !Array.isArray(counts.items) || !counts.items.length) {
     counts = await getSnapRaw_(env, "weekDayCounts");
     if (counts && counts.fromCalendar) counts = null;
@@ -2522,17 +2525,14 @@ async function getViewCompare_(params, env) {
     if (dateIso && iso && dateIso !== iso) {
       // fall through to calendar-only for dateIso
     } else {
-      // пустой live[] на мгновение (replaceDay / race) не должен обнулять Просмотр —
-      // иначе «все пропали на 20с». Snap + tombstone filter.
-      let weekRaw =
-        live && Array.isArray(live.clients) && live.clients.length
-          ? live.clients
-          : snap && Array.isArray(snap.week) && snap.week.length
-            ? snap.week.slice()
-            : live && Array.isArray(live.clients)
-              ? live.clients
-              : [];
-      // live D1 уже authoritative — moveEpoch только для GAS-merge, иначе прячет arrive после переноса
+      // D1 live success (в т.ч. []) = правда. Snap только если live сломался —
+      // иначе после delete всех/последних UI снова показывает призраков из view:day.
+      let weekRaw = [];
+      if (live && Array.isArray(live.clients)) {
+        weekRaw = live.clients;
+      } else if (snap && Array.isArray(snap.week) && snap.week.length) {
+        weekRaw = snap.week.slice();
+      }      // live D1 уже authoritative — moveEpoch только для GAS-merge, иначе прячет arrive после переноса
       // d1-primary: не прятать active tomb-фильтром (строка active = правда)
       const week = isD1PrimaryCanon_(env)
         ? weekRaw
@@ -4815,9 +4815,14 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
   diag.got = got;
   let expect = null;
   try {
-    let counts = await getSnapRaw_(env, "weekDayCountsSheet");
-    if (!(counts && Array.isArray(counts.items) && counts.items.length)) {
-      counts = await getSnapRaw_(env, "weekDayCounts");
+    // D1 counts = правда после delete/save; Sheet counts отстают и ложно жгут sparse→resurrect
+    let counts = await getSnapRaw_(env, "weekDayCounts");
+    if (!(counts && Array.isArray(counts.items) && counts.items.length) || (counts && counts.fromCalendar)) {
+      try {
+        counts = await rebuildWeekCounts_(env);
+      } catch (eRb) {
+        counts = await getSnapRaw_(env, "weekDayCountsSheet");
+      }
     }
     ((counts && counts.items) || []).forEach(function (it) {
       if (it && String(it.day) === String(day)) expect = Number(it.count) || 0;
@@ -4889,26 +4894,29 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
     if (d1Payload && typeof d1Payload === "object") d1Payload.healDiag = diag;
     return d1Payload;
   }
-  // Сначала снять tomb — иначе upsertMissing / getClients_ снова прячут
-  try {
-    for (var ciT0 = 0; ciT0 < live.clients.length; ciT0++) {
-      var cT0 = live.clients[ciT0];
-      if (!cT0) continue;
-      var nmT0 = String(cT0.name || cT0.client || cT0.nick || "");
-      var mkT0 = normalizeMatchKey_(cT0.matchKey || nmT0);
-      try {
-        await clearTombstonesForMatch_(env, mkT0 || nmT0, day, nmT0);
-      } catch (eCT0) {}
-      try {
-        await putMoveArriveProtect_(env, day, mkT0 || nmT0, nmT0);
-      } catch (eAP0) {}
-    }
+  // got===0 (настоящий провал D1): чистим tomb и можем ignoreTombstones.
+  // got>0 (частичный день после save): НЕ сносим personal delTomb — иначе delete «воскресает».
+  if (got === 0) {
     try {
-      await putSnap_(env, "tombDay:" + String(day), { day: String(day), at: 0, cleared: true });
-    } catch (eClrT0) {}
-    diag.tombsCleared = live.clients.length;
-  } catch (eClrAll0) {
-    diag.tombClrErr = String((eClrAll0 && eClrAll0.message) || eClrAll0);
+      for (var ciT0 = 0; ciT0 < live.clients.length; ciT0++) {
+        var cT0 = live.clients[ciT0];
+        if (!cT0) continue;
+        var nmT0 = String(cT0.name || cT0.client || cT0.nick || "");
+        var mkT0 = normalizeMatchKey_(cT0.matchKey || nmT0);
+        try {
+          await clearTombstonesForMatch_(env, mkT0 || nmT0, day, nmT0);
+        } catch (eCT0) {}
+        try {
+          await putMoveArriveProtect_(env, day, mkT0 || nmT0, nmT0);
+        } catch (eAP0) {}
+      }
+      try {
+        await putSnap_(env, "tombDay:" + String(day), { day: String(day), at: 0, cleared: true });
+      } catch (eClrT0) {}
+      diag.tombsCleared = live.clients.length;
+    } catch (eClrAll0) {
+      diag.tombClrErr = String((eClrAll0 && eClrAll0.message) || eClrAll0);
+    }
   }
   try {
     if (got === 0 && (isWeekD1GasAuthoritative_(env) || opts.replace)) {
@@ -4927,9 +4935,9 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
         diag.wrote = "replace";
       }
     } else {
-      // Есть люди в D1 (в т.ч. только что внесённые) — только дописать с листа, НЕ replace
+      // Есть люди в D1 — дописать с листа; respect personal tombs (не ignore)
       await upsertMissingClientsFromGas_(env, day, live.clients || [], {
-        ignoreTombstones: true
+        ignoreTombstones: false
       });
       diag.wrote = "upsert";
     }
@@ -5214,9 +5222,16 @@ async function deleteClient_(params, env) {
       changed += Number((res2 && res2.meta && res2.meta.changes) || 0);
     } catch (eSql) {}
   }
-  // обычный delete: ещё снести calendar-only строки клиента
-  // calendarOnly: тоже снести day_name='' (раньше пропускали — removeCalendar «успех» без эффекта)
-  await softDeleteScan_("day_name = ''", []);
+  // week delete: не сканировать ВСЕ calendar-only (day_name='') — loose-match может
+  // задеть ту же кличку на другой date_iso. CAL трогаем только при calendarOnly / явной dateIso.
+  if (calendarOnly || dateIso) {
+    if (calendarOnly && !dateIso) {
+      await softDeleteScan_("day_name = ''", []);
+    }
+    if (dateIso) {
+      await softDeleteScan_("date_iso = ? AND day_name = ''", [dateIso]);
+    }
+  }
   if (dateIso) {
     await softDeleteScan_("date_iso = ?", [dateIso]);
     try {
@@ -5389,7 +5404,7 @@ async function moveClient_(params, env) {
   let newDate = String(params.newDate || "").trim();
   if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(oldDate)) oldDate = dmyToIso_(oldDate) || oldDate;
   if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(newDate)) newDate = dmyToIso_(newDate) || newDate;
-  const calendarOnly = toBool_(params.calendarOnly) || (!newDay && !!newDate);
+  let calendarOnly = toBool_(params.calendarOnly);
   const client = String(params.client || "");
   const matchKeyRaw = params.matchKey || client;
   const matchKey = normalizeMatchKey_(matchKeyRaw);
@@ -5398,11 +5413,27 @@ async function moveClient_(params, env) {
   const now = new Date().toISOString();
   const cutRaw = String(params.cutRaw == null ? "1" : params.cutRaw);
 
+  // Сначала resolve даты — не форсить calendarOnly только из «есть date, нет day»
+  if (newDate) {
+    try {
+      const rNew = await resolveDay_({ date: newDate }, env);
+      if (rNew && rNew.onWeek && rNew.dayName) {
+        if (!newDay) newDay = rNew.dayName;
+        if (!toBool_(params.calendarOnly)) calendarOnly = false;
+      } else if (!newDay) {
+        calendarOnly = true;
+      }
+    } catch (eResNew) {
+      if (!newDay && newDate) calendarOnly = true;
+    }
+  } else if (!newDay && !calendarOnly) {
+    return { status: "error", message: "no_new_day_or_date" };
+  }
+
   if (!newDay && newDate && !calendarOnly) {
     const r = await resolveDay_({ date: newDate }, env);
     if (r.onWeek && r.dayName) newDay = r.dayName;
   }
-
   // сегодняшний пн = «Будущая неделя»: UI мог прислать oldDay=Понедельник
   const fromDays = [];
   function addFromDay_(d) {
@@ -7915,8 +7946,55 @@ async function handleCutover_(a, params, env, ctx) {
       if (isWeekSkewed_(live)) {
         return await applyCalendarWeekIfSkewed_("getWeekDayCounts", params, env, live);
       }
+      // Даты слотов — с листа; count — из D1 (иначе stale Sheet count → false sparse heal)
+      let d1Body = null;
       try {
-        await putSnap_(env, "weekDayCounts", live);
+        d1Body = await rebuildWeekCounts_(env);
+      } catch (eRb) {
+        d1Body = null;
+      }
+      const sheetDate = Object.create(null);
+      ((live.items || []) || []).forEach(function (it) {
+        if (it && it.day && it.date) sheetDate[String(it.day)] = String(it.date);
+      });
+      const items = ((d1Body && d1Body.items) || []).map(function (it) {
+        const dayN = String((it && it.day) || "");
+        const date = sheetDate[dayN] || (it && it.date) || "";
+        return Object.assign({}, it, { date: date });
+      });
+      // если D1 пуст по дням — всё равно проставь даты слотов с листа (count 0)
+      if (!items.length && Array.isArray(live.items)) {
+        (live.items || []).forEach(function (it) {
+          if (!it || !it.day) return;
+          items.push({
+            day: it.day,
+            short: it.short || DAY_SHORT[it.day] || it.day,
+            count: 0,
+            date: it.date || ""
+          });
+        });
+      }
+      const dateToDay = Object.create(null);
+      let total = 0;
+      items.forEach(function (it) {
+        total += Number(it.count) || 0;
+        const iso = dmyToIso_(it.date);
+        if (iso && it.day) dateToDay[iso] = it.day;
+      });
+      const out = {
+        status: "success",
+        items: items,
+        total: total,
+        cutover: true,
+        fromGas: false,
+        fromD1: true,
+        datesFromSheet: true,
+        fromCalendar: false,
+        sandbox: false
+      };
+      try {
+        await putSnap_(env, "weekDayCounts", out);
+        await putSnap_(env, "dateToDay", { map: dateToDay });
       } catch (eP) {}
       // Не full week-replace на каждый getWeekDayCounts — иначе неполный GAS вайпает D1.
       // Full resync только после finish (runWeekD1Resync_) или явном weekResync=1.
@@ -7925,11 +8003,7 @@ async function handleCutover_(a, params, env, ctx) {
           ctx.waitUntil(cutoverRefreshAllWeekDays_(env));
         }
       }
-      live.cutover = true;
-      live.fromGas = true;
-      live.fromCalendar = false;
-      live.sandbox = false;
-      return live;
+      return out;
     }
     // overlay на устаревшем snap не должен прятать свежий A1 после смены даты
     if (force || (snap && snap.fromCalendar)) {
@@ -7960,17 +8034,44 @@ async function handleCutover_(a, params, env, ctx) {
         return Array.isArray(s.items) && s.items.length > 0 && !s.fromCalendar;
       },
       afterStore: async function (live, e) {
+        try {
+          await putSnap_(e, "weekDayCountsSheet", live);
+        } catch (eSh) {}
         if (isWeekSkewed_(live)) {
-          try {
-            await putSnap_(e, "weekDayCountsSheet", live);
-          } catch (eSh) {}
           await applyCalendarWeekIfSkewed_("getWeekDayCounts", params, e, live);
           return;
         }
         try {
           await scrubAllDayDateMismatches_(e, live);
         } catch (eScrub2) {}
-        // SWR counts — только stamp дат (scrub выше). Full replace → weekResync/finish.
+        // перезаписать weekDayCounts D1-counts (cutoverSwrGas уже положил GAS — откатываем)
+        try {
+          const d1Body = await rebuildWeekCounts_(e);
+          const sheetDate = Object.create(null);
+          ((live && live.items) || []).forEach(function (it) {
+            if (it && it.day && it.date) sheetDate[String(it.day)] = String(it.date);
+          });
+          const items = ((d1Body && d1Body.items) || []).map(function (it) {
+            const dayN = String((it && it.day) || "");
+            return Object.assign({}, it, { date: sheetDate[dayN] || (it && it.date) || "" });
+          });
+          const map = Object.create(null);
+          let total = 0;
+          items.forEach(function (it) {
+            total += Number(it.count) || 0;
+            const iso = dmyToIso_(it.date);
+            if (iso && it.day) map[iso] = it.day;
+          });
+          await putSnap_(e, "weekDayCounts", {
+            status: "success",
+            items: items,
+            total: total,
+            fromD1: true,
+            datesFromSheet: true,
+            sandbox: false
+          });
+          await putSnap_(e, "dateToDay", { map: map });
+        } catch (eMerge) {}
         if (String((params && params.weekResync) || "") === "1") {
           if (ctx && typeof ctx.waitUntil === "function") {
             ctx.waitUntil(cutoverRefreshAllWeekDays_(e));
@@ -9036,12 +9137,43 @@ async function cutoverStoreRead_(a, params, env, payload) {
     return;
   }
   if (a === "getWeekDayCounts") {
-    await putSnap_(env, "weekDayCounts", payload);
-    const map = Object.create(null);
+    // Sheet — только даты слотов; count всегда из D1 (иначе stale Sheet → false sparse heal)
+    try {
+      await putSnap_(env, "weekDayCountsSheet", payload);
+    } catch (eShCnt) {}
+    try {
+      await scrubAllDayDateMismatches_(env, payload);
+    } catch (eScr) {}
+    let d1Body = null;
+    try {
+      d1Body = await rebuildWeekCounts_(env);
+    } catch (eRb2) {
+      d1Body = null;
+    }
+    const sheetDate = Object.create(null);
     ((payload && payload.items) || []).forEach(function (it) {
+      if (it && it.day && it.date) sheetDate[String(it.day)] = String(it.date);
+    });
+    const items = ((d1Body && d1Body.items) || []).map(function (it) {
+      const dayN = String((it && it.day) || "");
+      return Object.assign({}, it, { date: sheetDate[dayN] || (it && it.date) || "" });
+    });
+    const map = Object.create(null);
+    let total = 0;
+    items.forEach(function (it) {
+      total += Number(it.count) || 0;
       const iso = dmyToIso_(it && it.date);
       if (iso && it.day) map[iso] = it.day;
     });
+    const out = {
+      status: "success",
+      items: items,
+      total: total,
+      fromD1: true,
+      datesFromSheet: true,
+      sandbox: false
+    };
+    await putSnap_(env, "weekDayCounts", out);
     await putSnap_(env, "dateToDay", { map: map });
     return;
   }
@@ -9593,12 +9725,8 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       } catch (eDelRow) {}
     }
   } catch (eDelScan) {
-    // fallback: старый day-wide только если скана нет (не должно)
-    await env.DB.prepare(
-      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE day_name = ? AND status = 'active'"
-    )
-      .bind(now, day)
-      .run();
+    // НЕ day-wide wipe: скан упал — abort, люди в D1 остаются
+    return { aborted: true, reason: "del_scan_failed", existingCount: existingCount, gasN: gasN };
   }
   for (let i = 0; i < merged.length; i++) {
     const c = merged[i];

@@ -8452,7 +8452,7 @@
         // ошибка только если ЯВНО всё ещё на дне после retry
         if (!pendingDel && still === true) {
           await uiAlertAsync("Не удалось удалить — человек всё ещё в списке. Обнови Просмотр и попробуй ещё раз.");
-          try { window._peopleListForceFresh = true; } catch (eF0) {}
+          try { window._peopleListForceFresh = true; window._peopleListKeepDom = true; } catch (eF0) {}
           try { await loadClientsForDay(); } catch (eL0) {}
           return;
         }
@@ -8496,7 +8496,7 @@
               return !nicksMatchClient_(c && c.name, client.name);
             });
             try { renderViewLists(); } catch (eR2) {}
-            try { window._peopleListForceFresh = true; } catch (eF2) {}
+            try { window._peopleListForceFresh = true; window._peopleListKeepDom = true; } catch (eF2) {}
             await loadClientsForDay();
           }
         } catch (eVer) {}
