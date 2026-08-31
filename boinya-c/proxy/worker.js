@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-08-31 d1-empty-clients-heal4"
+      deployMarker: "2026-08-31 d1-empty-clients-heal5"
     };
   }
 
@@ -4900,11 +4900,29 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
     diag.writeErr = String((eUp && eUp.message) || eUp);
   }
   try {
-    // сбросить day-tomb после успешного heal пустого слота — иначе следующий force снова пустой
-    if (got === 0 && expectPos) {
-      await putSnap_(env, "tombDay:" + String(day), { day: String(day), at: 0, cleared: true });
+    // сбросить day-tomb + персональные tomb на клиентов с листа (иначе getClients_
+    // читает D1 и filterTombstonedClients_ снова отдаёт [])
+    if (got === 0) {
+      try {
+        await putSnap_(env, "tombDay:" + String(day), { day: String(day), at: 0, cleared: true });
+      } catch (eClrT) {}
+      for (var ciT = 0; ciT < live.clients.length; ciT++) {
+        var cT = live.clients[ciT];
+        if (!cT) continue;
+        var nmT = String(cT.name || cT.client || cT.nick || "");
+        var mkT = normalizeMatchKey_(cT.matchKey || nmT);
+        try {
+          await clearTombstonesForMatch_(env, mkT || nmT, day, nmT);
+        } catch (eCT) {}
+        try {
+          await putMoveArriveProtect_(env, day, mkT || nmT, nmT);
+        } catch (eAP) {}
+      }
+      diag.tombsCleared = live.clients.length;
     }
-  } catch (eClrT) {}
+  } catch (eClrAll) {
+    diag.tombClrErr = String((eClrAll && eClrAll.message) || eClrAll);
+  }
   try {
     await putSnap_(env, "clients:" + day, Object.assign({}, live, { cachedAt: new Date().toISOString() }));
   } catch (eSnap) {}
