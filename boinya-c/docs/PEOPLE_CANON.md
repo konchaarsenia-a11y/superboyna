@@ -26,7 +26,8 @@
 | `setWeekBannerState` / cutting sessions | **D1** + Sheets фон | ops/meta |
 | `lookupBpPartner` | **D1** из подписок; miss → GAS | — |
 | TG send (`sendCourierRoute` / `sendDeficit` / `forceSurveyRemind`) | **Worker** + D1 tickets/dedupe; secret `TELEGRAM_BOT_TOKEN`; нет секрета → GAS | `telegramCanon: worker\|sheets-fallback` |
-| `finishFullWeek` / materialize / pull | **GAS** (закрытие недели); D1 resync + protectMs 5м | `weekD1Sync` |
+| `finishFullWeek` / materialize / pull / repair | **GAS Sheets** (склад F/B) → Worker **ждёт** полный D1 resync до success (`WEEK_CLOSE_CANON=d1-sync`); откат `gas-async` | `weekCloseCanon: d1-sync` |
+| Goodboy `submitGoodboyTry` | **D1 snap** + TG Worker + Sheets зеркало | `gbCanon` |
 | Varka `partner*` | **D1/snap сразу** → Sheets+TG/deferred зеркало GAS | `partnerCanon: d1-primary` |
 | Goodboy `gb*` | **D1/snap сразу** → Sheets зеркало; CRM read-only (subs D1) | `gbCanon: d1-primary` |
 | доступы / шаблоны / опросники CRUD | **D1 сразу** → Sheets зеркало; remind send — Worker TG | `metaCanon: d1-primary` |

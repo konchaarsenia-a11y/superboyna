@@ -296,6 +296,22 @@ function weekD1SyncLabel_(env) {
   return isWeekD1GasAuthoritative_(env) ? "gas-authoritative" : "upsert";
 }
 
+/**
+ * Закрытие недели / materialize / repair: GAS делает Sheets (склад F/B),
+ * Worker ждёт полный D1 resync до ответа (не только waitUntil).
+ * Откат: WEEK_CLOSE_CANON=gas-async (старое поведение d1ResyncStarted).
+ */
+function isWeekCloseD1SyncCanon_(env) {
+  const v = env && env.WEEK_CLOSE_CANON ? String(env.WEEK_CLOSE_CANON).trim().toLowerCase() : "";
+  if (v === "gas-async" || v === "async" || v === "sheets") return false;
+  if (v === "d1-sync" || v === "d1-primary" || v === "d1" || v === "blocking") return true;
+  return true; // default: careful blocking sync
+}
+
+function weekCloseCanonLabel_(env) {
+  return isWeekCloseD1SyncCanon_(env) ? "d1-sync" : "gas-async";
+}
+
 function isWriteAction_(a) {
   if (!a) return false;
   // явные чтения / списки — не write (даже если имя начинается с partner*)
@@ -314,7 +330,7 @@ function isWriteAction_(a) {
   }
   // Goodboy writes
   if (/^(gbMe|gbRegister|gbLogin|gbLinkClient|gbSavePet|gbEnsureSheets)$/i.test(a)) return true;
-  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner|force|place)/i.test(
+  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner|force|place|submit)/i.test(
     a
   );
 }
@@ -344,7 +360,8 @@ async function handleAction_(action, params, env, url, ctx) {
       hasTelegramToken: hasTelegramToken_(env),
       partnerCanon: partnerCanonLabel_(env),
       gbCanon: gbCanonLabel_(env),
-      deployMarker: "2026-08-31 partner-gb-d1"
+      weekCloseCanon: weekCloseCanonLabel_(env),
+      deployMarker: "2026-08-31 week-close-d1-careful"
     };
   }
 
@@ -400,7 +417,7 @@ async function handleAction_(action, params, env, url, ctx) {
   if (a === "partnerGetMe") {
     return cutoverPartnerGetMe_(params, env, ctx);
   }
-  if (/^partner/i.test(a) || /^gb/i.test(a)) {
+  if (/^partner/i.test(a) || /^gb/i.test(a) || a === "submitGoodboyTry") {
     return handleCutover_(a, Object.assign({}, params, { cutover: "1" }), env, ctx);
   }
 
@@ -6517,45 +6534,106 @@ async function handleCutover_(a, params, env, ctx) {
     } catch (eFinGuard) {}
   }
 
-  // Закрытие / откат дат / материализация — GAS + обязательный D1 resync (gas-authoritative)
+  // Закрытие / откат дат / материализация — GAS (Sheets склад) + D1 resync
   if (/^(finishFullWeek|repairWeekMonday|materializeWeek)$/i.test(a)) {
+    // finish/repair — только owner (materialize можно менеджеру; GAS всё равно проверит)
+    if (/^(finishFullWeek|repairWeekMonday)$/i.test(a)) {
+      const ownerOk = await actorIsOwnerRetail_(params, env);
+      if (!ownerOk) {
+        // cold access snap — пусть GAS решит owner_only
+        const tid = String((params && params.telegramId) || "").trim();
+        if (tid) {
+          try {
+            const liveAcc = await gasProxy_("getMyAccess", { telegramId: tid }, env, { write: false });
+            if (liveAcc && liveAcc.status === "success") {
+              try {
+                await putSnap_(env, "access:" + tid, Object.assign({}, liveAcc, { cachedAt: new Date().toISOString() }));
+              } catch (eA) {}
+              if (!/^(owner|all)$/i.test(String(liveAcc.role || ""))) {
+                return {
+                  status: "error",
+                  message: "owner_only",
+                  cutover: true,
+                  action: a,
+                  weekCloseCanon: weekCloseCanonLabel_(env)
+                };
+              }
+            }
+          } catch (eOwn) {}
+        }
+      }
+    }
     const proxiedFin = await gasProxy_(a, params, env, { write: true });
     const okFin =
       proxiedFin &&
       (proxiedFin.status === "success" ||
         /week_already_finished|week_monday_repaired/i.test(String(proxiedFin.message || "")));
-    const refreshJob = (async function () {
+    async function runWeekD1Resync_() {
       try {
         await cutoverRefreshAllWeekDays_(env);
       } catch (eRf0) {}
-      // склад после закрытия недели — GAS-authoritative replace snap
       try {
         await cutoverRevalidate_("getWarehouse", { force: "1" }, env);
       } catch (eWhRf) {}
-    })().catch(function () {
-      return null;
-    });
-    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(refreshJob);
-    else {
       try {
-        await refreshJob;
-      } catch (eRf) {}
+        await putSnap_(env, "weekBanner", {
+          status: "success",
+          finished: /^finishFullWeek$/i.test(a) && okFin,
+          pulled: true,
+          refused: false,
+          weekKey: (proxiedFin && proxiedFin.weekKey) || (params && params.weekKey) || "",
+          action: a,
+          syncedAt: new Date().toISOString(),
+          cutover: true,
+          fromD1: true
+        });
+      } catch (eBan) {}
+    }
+    let d1Synced = false;
+    if (okFin && isWeekCloseD1SyncCanon_(env)) {
+      // careful: UI не видит «успех», пока D1 не догнал Sheets
+      try {
+        await runWeekD1Resync_();
+        d1Synced = true;
+      } catch (eSync) {
+        d1Synced = false;
+      }
+    } else {
+      const refreshJob = runWeekD1Resync_().catch(function () {
+        return null;
+      });
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(refreshJob);
+      else {
+        try {
+          await refreshJob;
+          d1Synced = true;
+        } catch (eRf) {}
+      }
     }
     if (!proxiedFin) {
       return {
         status: "error",
         message: "gas_proxy_failed",
-        tip: "GAS мог уже отработать — проверь getWeekDayCounts (force=1). D1 sync запущен в фоне.",
+        tip: "GAS мог уже отработать — проверь getWeekDayCounts (force=1).",
         cutover: true,
         action: a,
-        d1ResyncStarted: true
+        d1ResyncStarted: !d1Synced,
+        d1Verified: d1Synced,
+        weekCloseCanon: weekCloseCanonLabel_(env)
       };
     }
-    if (okFin && proxiedFin) {
+    if (proxiedFin) {
       proxiedFin.cutover = true;
-      proxiedFin.d1ResyncStarted = true;
       proxiedFin.sandbox = false;
       proxiedFin.weekD1Sync = weekD1SyncLabel_(env);
+      proxiedFin.weekCloseCanon = weekCloseCanonLabel_(env);
+      if (d1Synced) {
+        proxiedFin.d1Verified = true;
+        proxiedFin.d1ResyncStarted = false;
+        proxiedFin.fromD1 = true;
+      } else {
+        proxiedFin.d1ResyncStarted = true;
+      }
     }
     return partnerGuardOrRewrite_(a, params, proxiedFin);
   }
@@ -7181,15 +7259,25 @@ async function handleCutover_(a, params, env, ctx) {
           }
         } catch (ePullD1) {}
       })();
-      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(bgPull);
-      else {
+      let pullSynced = false;
+      if (isWeekCloseD1SyncCanon_(env)) {
         try {
           await bgPull;
+          pullSynced = true;
         } catch (eBgP) {}
+      } else if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(bgPull);
+      } else {
+        try {
+          await bgPull;
+          pullSynced = true;
+        } catch (eBgP2) {}
       }
       proxiedPull.cutover = true;
       proxiedPull.sandbox = false;
-      proxiedPull.d1SyncStarted = true;
+      proxiedPull.d1SyncStarted = !pullSynced;
+      proxiedPull.d1Verified = pullSynced;
+      proxiedPull.weekCloseCanon = weekCloseCanonLabel_(env);
       return partnerGuardOrRewrite_(a, params, proxiedPull);
     }
     // Баннер недели + сессии нарезки — D1 (не week-close)
@@ -7386,6 +7474,43 @@ async function handleCutover_(a, params, env, ctx) {
           message: (d1G && d1G.message) || String((eFallG && eFallG.message) || eFallG),
           cutover: true,
           action: a
+        };
+      }
+    }
+    // Goodboy заявка с сайта — D1 snap + TG Worker + GAS зеркало листа
+    if (isGbD1PrimaryCanon_(env) && /^submitGoodboyTry$/i.test(a)) {
+      let d1Try = null;
+      try {
+        if (env && env.DB) d1Try = await submitGoodboyTryD1_(params, env);
+      } catch (eTry) {
+        d1Try = { status: "error", message: String((eTry && eTry.message) || eTry) };
+      }
+      const gasTry = gasProxy_(a, params, env, { write: true }).catch(function () {
+        return null;
+      });
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasTry);
+      if (d1Try && (d1Try.status === "ok" || d1Try.status === "success")) {
+        return Object.assign({}, d1Try, {
+          cutover: true,
+          sandbox: false,
+          d1Verified: true,
+          gbCanon: gbCanonLabel_(env),
+          action: a
+        });
+      }
+      try {
+        const liveOnly = await gasTry;
+        if (liveOnly && typeof liveOnly === "object") {
+          liveOnly.cutover = true;
+          liveOnly.fromGas = true;
+          liveOnly.gbCanon = gbCanonLabel_(env);
+        }
+        return liveOnly || { status: "error", message: (d1Try && d1Try.message) || "try_failed", cutover: true };
+      } catch (eFallT) {
+        return {
+          status: "error",
+          message: (d1Try && d1Try.message) || String((eFallT && eFallT.message) || eFallT),
+          cutover: true
         };
       }
     }
@@ -13964,6 +14089,55 @@ async function refreshGbSnapsFromGas_(action, params, env, live) {
     else pack.pets.push(live.pet);
   }
   await gbSavePack_(env, pack);
+}
+
+
+
+async function submitGoodboyTryD1_(params, env) {
+  const name = String((params && params.name) || "").trim();
+  const phone = String((params && params.phone) || "").trim();
+  const pet = String((params && params.pet) || "").trim();
+  const note = String((params && params.note) || "").trim();
+  const mode = String((params && params.mode) || "").trim();
+  if (!name || !phone || !pet) {
+    return { status: "error", message: "need_fields" };
+  }
+  const when = new Date().toISOString();
+  const source = mode === "full" ? "try-full" : "try-short";
+  const row = {
+    id: "try_" + Date.now().toString(36),
+    when: when,
+    name: name,
+    phone: phone,
+    pet: pet,
+    note: note,
+    source: source
+  };
+  let pack = (await getSnapRaw_(env, "goodboyLeads")) || { status: "success", items: [] };
+  pack.items = Array.isArray(pack.items) ? pack.items.slice() : [];
+  pack.items.unshift(row);
+  if (pack.items.length > 500) pack.items = pack.items.slice(0, 500);
+  pack.status = "success";
+  pack._d1TouchedAt = Date.now();
+  await putSnap_(env, "goodboyLeads", pack);
+  // TG команде — бот Бойни (тот же TELEGRAM_BOT_TOKEN)
+  try {
+    const chat =
+      String((env && (env.TELEGRAM_CHAT_ID || env.TELEGRAM_NOTIFY_CHAT)) || "").trim() ||
+      "";
+    if (chat && hasTelegramToken_(env)) {
+      const text =
+        "🐾 GOOD BOY · заявка с сайта (worker)\n" +
+        name +
+        " · " +
+        phone +
+        "\nПитомец: " +
+        pet +
+        (note ? "\n" + note.slice(0, 3200) : "");
+      await telegramSendTextWorker_(env, chat, text, null);
+    }
+  } catch (eTg) {}
+  return { status: "ok", message: "saved", id: row.id, d1Verified: true, fromD1: true };
 }
 
 
