@@ -1134,55 +1134,58 @@ function finishFullWeekProduction(optSs, optOpts) {
     itemMap[key] = rawMap[key].split(",").map(Number);
   }
 
-  var cuttingSurplusValues = sheetCutting.getRange("C3:C60").getValues();
-  // один read матрицы на все дни + skip [НЕ РЕЗАТЬ]
-  var fullManagerMatrix = sheetManager.getRange(1, 3, 427, 15).getValues();
-  var noCutByDayOffset = {};
-  for (var nd = 0; nd < weekDaysGeo.length; nd++) {
-    var dayBlk = getDayBlock(weekDaysGeo[nd].name || weekDaysGeo[nd].day);
-    if (!dayBlk) {
-      // weekDaysGeo may use .start only — resolve by start row
-      var st = Number(weekDaysGeo[nd].start) || 4;
-      var di = Math.floor((st - 4) / 61);
-      dayBlk = getDayBlock(MANAGER_DAY_NAMES_[di]);
+  var skipWhClose = !!(opts.skipWarehouseClose === true || opts.skipWarehouseClose === "1" || opts.skipWarehouseClose === 1 || opts.skipWarehouseClose === "true");
+  if (!skipWhClose) {
+    var cuttingSurplusValues = sheetCutting.getRange("C3:C60").getValues();
+    // один read матрицы на все дни + skip [НЕ РЕЗАТЬ]
+    var fullManagerMatrix = sheetManager.getRange(1, 3, 427, 15).getValues();
+    var noCutByDayOffset = {};
+    for (var nd = 0; nd < weekDaysGeo.length; nd++) {
+      var dayBlk = getDayBlock(weekDaysGeo[nd].name || weekDaysGeo[nd].day);
+      if (!dayBlk) {
+        // weekDaysGeo may use .start only — resolve by start row
+        var st = Number(weekDaysGeo[nd].start) || 4;
+        var di = Math.floor((st - 4) / 61);
+        dayBlk = getDayBlock(MANAGER_DAY_NAMES_[di]);
+      }
+      noCutByDayOffset[weekDaysGeo[nd].start] = sheetColSkipForBlock_(sheetManager, dayBlk);
     }
-    noCutByDayOffset[weekDaysGeo[nd].start] = sheetColSkipForBlock_(sheetManager, dayBlk);
-  }
-  for (var cRow = 3; cRow <= 48; cRow++) {
-    var rowsToSum = itemMap[cRow.toString()];
-    if (rowsToSum) {
-      var wRow = getWarehouseRowForCuttingRow_(cRow);
-      if (!wRow) continue;
-      var totalGramsWeek = 0;
-      weekDaysGeo.forEach(function (day) {
-        var dayOffset = day.start - 4;
-        var skipCols = noCutByDayOffset[day.start] || {};
-        rowsToSum.forEach(function (rNum) {
-          var targetRowIdx = rNum + dayOffset - 1;
-          if (targetRowIdx < 0 || targetRowIdx >= fullManagerMatrix.length) return;
-          for (var colM = 0; colM < 15; colM++) {
-            if (skipCols[colM]) continue;
-            totalGramsWeek += Number(fullManagerMatrix[targetRowIdx][colM]) || 0;
-          }
+    for (var cRow = 3; cRow <= 48; cRow++) {
+      var rowsToSum = itemMap[cRow.toString()];
+      if (rowsToSum) {
+        var wRow = getWarehouseRowForCuttingRow_(cRow);
+        if (!wRow) continue;
+        var totalGramsWeek = 0;
+        weekDaysGeo.forEach(function (day) {
+          var dayOffset = day.start - 4;
+          var skipCols = noCutByDayOffset[day.start] || {};
+          rowsToSum.forEach(function (rNum) {
+            var targetRowIdx = rNum + dayOffset - 1;
+            if (targetRowIdx < 0 || targetRowIdx >= fullManagerMatrix.length) return;
+            for (var colM = 0; colM < 15; colM++) {
+              if (skipCols[colM]) continue;
+              totalGramsWeek += Number(fullManagerMatrix[targetRowIdx][colM]) || 0;
+            }
+          });
         });
-      });
-      if (wRow <= 35 && wRow !== 10 && (wRow < 15 || wRow > 25)) {
-        var dryPlanKg = totalGramsWeek / 1000;
-        var currentLiveCoef = sheetWarehouse.getRange("D" + wRow).getValue() || 0.2;
-        var cuttingSurplusKg = Number(cuttingSurplusValues[cRow - 3][0]) || 0;
-        var totalRawSpentKg = dryPlanKg / currentLiveCoef + cuttingSurplusKg;
-        var currentArrival = Number(sheetWarehouse.getRange("B" + wRow).getValue()) || 0;
-        var currentRevision = Number(sheetWarehouse.getRange("F" + wRow).getValue()) || 0;
-        sheetWarehouse.getRange("F" + wRow).setValue(Math.max(0, currentRevision + currentArrival - totalRawSpentKg));
-        sheetWarehouse.getRange("B" + wRow).setValue(0);
+        if (wRow <= 35 && wRow !== 10 && (wRow < 15 || wRow > 25)) {
+          var dryPlanKg = totalGramsWeek / 1000;
+          var currentLiveCoef = sheetWarehouse.getRange("D" + wRow).getValue() || 0.2;
+          var cuttingSurplusKg = Number(cuttingSurplusValues[cRow - 3][0]) || 0;
+          var totalRawSpentKg = dryPlanKg / currentLiveCoef + cuttingSurplusKg;
+          var currentArrival = Number(sheetWarehouse.getRange("B" + wRow).getValue()) || 0;
+          var currentRevision = Number(sheetWarehouse.getRange("F" + wRow).getValue()) || 0;
+          sheetWarehouse.getRange("F" + wRow).setValue(Math.max(0, currentRevision + currentArrival - totalRawSpentKg));
+          sheetWarehouse.getRange("B" + wRow).setValue(0);
+        }
       }
     }
-  }
 
-  // шт-остаток: неделя до Вс → в F берём Остаток Вс (M), не Пт (K)
-  var pieceStockValues = sheetWarehouse.getRange("M15:M25").getValues();
-  sheetWarehouse.getRange("F15:F25").setValues(pieceStockValues);
-  sheetWarehouse.getRange("B15:B25").setValue(0);
+    // шт-остаток: неделя до Вс → в F берём Остаток Вс (M), не Пт (K)
+    var pieceStockValues = sheetWarehouse.getRange("M15:M25").getValues();
+    sheetWarehouse.getRange("F15:F25").setValues(pieceStockValues);
+    sheetWarehouse.getRange("B15:B25").setValue(0);
+  }
 
   // Даты Вт–Вс = формулы =A1+N → двигаем только понедельник (+7)
   var mondayCell = sheetManager.getRange("A1");
@@ -1369,7 +1372,7 @@ function handleFinishFullWeek(json, callback, fromPost) {
     if (already) {
       return fromPost ? jsonpText(callback, already) : jsonp(callback, already);
     }
-    var result = finishFullWeekProduction(ss, { silent: true });
+    var result = finishFullWeekProduction(ss, { silent: true, skipWarehouseClose: !!(json.skipWarehouseClose === true || json.skipWarehouseClose === "1" || json.skipWarehouseClose === 1 || json.skipWarehouseClose === "true") });
     if (result && result.status === "success" && a1Key) {
       try { props.setProperty(finishWeekLockKey_(a1Key), "1"); } catch (eProp) {}
     }
