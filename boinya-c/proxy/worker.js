@@ -9342,7 +9342,8 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
         tomb._dayFresh = true;
       }
     } catch (eTd) {}
-  }  let arriveProtect = null;
+  }
+  let arriveProtect = null;
   try {
     arriveProtect = await getSnapRaw_(env, "moveArriveProtect");
   } catch (eAP) {
