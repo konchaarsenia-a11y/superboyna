@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-08-31 save-wipe-heal7b"
+      deployMarker: "2026-08-31 people-no-wipe-h1"
     };
   }
 
@@ -2465,7 +2465,9 @@ async function getClients_(params, env) {
   }
   if (!dateDmy && dateIso) dateDmy = isoToDmy_(dateIso);
   let clientsOut = rows.map(clientFromRow_);
-  if (day) {
+  // D1-primary: active row в D1 = правда UI. Tomb после delete обязан сначала
+  // soft-delete строку; иначе stale delTomb прячет живых (ложные «пропажи»).
+  if (day && !isD1PrimaryCanon_(env)) {
     try {
       clientsOut = await filterTombstonedClients_(env, day, clientsOut, { skipMoveEpoch: true });
     } catch (eTombG) {}
@@ -2531,7 +2533,10 @@ async function getViewCompare_(params, env) {
               ? live.clients
               : [];
       // live D1 уже authoritative — moveEpoch только для GAS-merge, иначе прячет arrive после переноса
-      const week = await filterTombstonedClients_(env, resolvedDay, weekRaw, { skipMoveEpoch: true });
+      // d1-primary: не прятать active tomb-фильтром (строка active = правда)
+      const week = isD1PrimaryCanon_(env)
+        ? weekRaw
+        : await filterTombstonedClients_(env, resolvedDay, weekRaw, { skipMoveEpoch: true });
       const weekKeys = Object.create(null);
       (week || []).forEach(function (c) {
         weekKeys[normalizeMatchKey_(c.matchKey || c.name)] = true;
@@ -4907,14 +4912,20 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
   }
   try {
     if (got === 0 && (isWeekD1GasAuthoritative_(env) || opts.replace)) {
-      await replaceDayOrdersFromClients_(env, day, live.clients || [], {
+      const repHeal = await replaceDayOrdersFromClients_(env, day, live.clients || [], {
         gasAuthoritative: true,
         allowGasInsert: true,
         protectMs: 0,
         skipProtectMissing: true,
         ignoreTombstones: true
       });
-      diag.wrote = "replace";
+      if (repHeal && repHeal.aborted) {
+        await upsertMissingClientsFromGas_(env, day, live.clients || [], { ignoreTombstones: true });
+        diag.wrote = "upsert_after_abort";
+        diag.abortReason = repHeal.reason || "aborted";
+      } else {
+        diag.wrote = "replace";
+      }
     } else {
       // Есть люди в D1 (в т.ч. только что внесённые) — только дописать с листа, НЕ replace
       await upsertMissingClientsFromGas_(env, day, live.clients || [], {
@@ -7907,8 +7918,12 @@ async function handleCutover_(a, params, env, ctx) {
       try {
         await putSnap_(env, "weekDayCounts", live);
       } catch (eP) {}
-      if (ctx && typeof ctx.waitUntil === "function") {
-        ctx.waitUntil(cutoverRefreshAllWeekDays_(env));
+      // Не full week-replace на каждый getWeekDayCounts — иначе неполный GAS вайпает D1.
+      // Full resync только после finish (runWeekD1Resync_) или явном weekResync=1.
+      if (String((params && params.weekResync) || "") === "1") {
+        if (ctx && typeof ctx.waitUntil === "function") {
+          ctx.waitUntil(cutoverRefreshAllWeekDays_(env));
+        }
       }
       live.cutover = true;
       live.fromGas = true;
@@ -7955,8 +7970,11 @@ async function handleCutover_(a, params, env, ctx) {
         try {
           await scrubAllDayDateMismatches_(e, live);
         } catch (eScrub2) {}
-        if (ctx && typeof ctx.waitUntil === "function") {
-          ctx.waitUntil(cutoverRefreshAllWeekDays_(e));
+        // SWR counts — только stamp дат (scrub выше). Full replace → weekResync/finish.
+        if (String((params && params.weekResync) || "") === "1") {
+          if (ctx && typeof ctx.waitUntil === "function") {
+            ctx.waitUntil(cutoverRefreshAllWeekDays_(e));
+          }
         }
       }
     });
@@ -9509,11 +9527,79 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
     return byMk[k];
   });
 
-  await env.DB.prepare(
-    "UPDATE orders SET status = 'deleted', updated_at = ? WHERE day_name = ? AND status = 'active'"
-  )
-    .bind(now, day)
-    .run();
+  // КРИТ: не сжимать день пустым/частичным GAS (таймаут листа / stale sanitize).
+  // Иначе casual week-refresh или finish с неполным getClients вайпает D1.
+  const gasN = Object.keys(gasByMk).length;
+  const mergedN = merged.length;
+  if (gasAuthoritative && existingCount > 0) {
+    if (gasN === 0) {
+      // лист пуст/не ответил — только выровнять date_iso, людей не трогать
+      try {
+        if (info && info.iso) await scrubMismatchedDayOrders_(env, day, info.iso);
+      } catch (eStamp0) {}
+      return { aborted: true, reason: "gas_empty", existingCount: existingCount, gasN: 0 };
+    }
+    // merged сильно меньше D1 и меньше GAS — что-то отфильтровало (tomb/epoch); не day-wipe
+    if (mergedN < existingCount && mergedN < gasN) {
+      try {
+        await upsertMissingClientsFromGas_(env, day, clients || [], { ignoreTombstones: true });
+        if (info && info.iso) await scrubMismatchedDayOrders_(env, day, info.iso);
+      } catch (ePart) {}
+      return {
+        aborted: true,
+        reason: "partial_merge",
+        existingCount: existingCount,
+        gasN: gasN,
+        mergedN: mergedN
+      };
+    }
+  }
+
+  // Точечный soft-delete: только тех, кого нет в merged (не вайп всего дня → race «все пропали»).
+  const keepMks = Object.create(null);
+  for (let ki = 0; ki < merged.length; ki++) {
+    const cK = merged[ki];
+    if (!cK) continue;
+    const mkK = normalizeMatchKey_(cK.matchKey || cK.name || cK.client || cK.nick || "");
+    if (mkK) keepMks[mkK] = true;
+  }
+  try {
+    const qDel = await env.DB.prepare(
+      "SELECT id, match_key, client, updated_at FROM orders WHERE day_name = ? AND status = 'active'"
+    )
+      .bind(day)
+      .all();
+    const toCheck = (qDel && qDel.results) || [];
+    for (let di = 0; di < toCheck.length; di++) {
+      const rowD = toCheck[di];
+      if (!rowD) continue;
+      const mkD = normalizeMatchKey_(rowD.match_key || rowD.client || "");
+      if (mkD && keepMks[mkD]) continue;
+      // свежий writeGuard / свежая запись — не сносить
+      try {
+        if (mkD) {
+          const wg = await getSnapRaw_(env, "writeGuard:" + String(day) + ":" + mkD);
+          if (wg && Date.now() - Number(wg.at || 0) < Math.max(protectMs, 3 * 60 * 1000)) continue;
+        }
+      } catch (eWg) {}
+      const updatedMsD = Date.parse(String(rowD.updated_at || "")) || 0;
+      if (protectMs > 0 && updatedMsD && nowMs - updatedMsD < protectMs) continue;
+      try {
+        await env.DB.prepare(
+          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+        )
+          .bind(now, rowD.id)
+          .run();
+      } catch (eDelRow) {}
+    }
+  } catch (eDelScan) {
+    // fallback: старый day-wide только если скана нет (не должно)
+    await env.DB.prepare(
+      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE day_name = ? AND status = 'active'"
+    )
+      .bind(now, day)
+      .run();
+  }
   for (let i = 0; i < merged.length; i++) {
     const c = merged[i];
     const mk = normalizeMatchKey_(c.matchKey || c.name || c.client || c.nick || "");
@@ -9562,6 +9648,7 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
     });
   }
   await rebuildWeekCounts_(env);
+  return { aborted: false, existingCount: existingCount, gasN: gasN, mergedN: mergedN };
 }
 
 function basketSig_(basketOrJson) {
@@ -9686,19 +9773,27 @@ async function cutoverRefreshAllWeekDays_(env) {
     try {
       const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
       if (fresh && fresh.status === "success") {
-        await sanitizeGasClientsPayload_(env, day, fresh);
+        // не sanitize tomb: иначе partial GAS → replace сжимает день
+        const gasList = Array.isArray(fresh.clients) ? fresh.clients : [];
+        let rep = null;
         if (gasAuth) {
-          // После закрытия недели day_name в D1 ещё держит людей прошлой недели —
-          // upsertMissing только дописывает, не чистит. GAS = правда слота.
-          await replaceDayOrdersFromClients_(env, day, fresh.clients || [], {
+          // После закрытия недели GAS = правда слота, но пустой/битый ответ не вайпает D1.
+          rep = await replaceDayOrdersFromClients_(env, day, gasList, {
             gasAuthoritative: true,
             allowGasInsert: true,
-            // 5 мин: параллельный save/move в D1 не съедается resync
             protectMs: 5 * 60 * 1000,
-            skipProtectMissing: true
+            skipProtectMissing: true,
+            ignoreTombstones: true
           });
+          if (rep && rep.aborted) {
+            await upsertMissingClientsFromGas_(env, day, gasList, { ignoreTombstones: true });
+            try {
+              const infoDay = await dayDateInfo_(env, day);
+              if (infoDay && infoDay.iso) await scrubMismatchedDayOrders_(env, day, infoDay.iso);
+            } catch (eSt) {}
+          }
         } else {
-          await upsertMissingClientsFromGas_(env, day, fresh.clients || []);
+          await upsertMissingClientsFromGas_(env, day, gasList, { ignoreTombstones: true });
         }
         try {
           await putSnap_(env, "clients:" + day, fresh);
@@ -9741,6 +9836,10 @@ async function cutoverRefreshAllWeekDays_(env) {
         if (iso && it.day) dateToDay[iso] = it.day;
       });
       await putSnap_(env, "dateToDay", { map: dateToDay });
+      // финальный stamp date_iso по слотам — даже если какой-то replace aborted
+      try {
+        await scrubAllDayDateMismatches_(env, sheetCounts);
+      } catch (eScrubEnd) {}
     } else {
       await rebuildWeekCounts_(env);
     }
