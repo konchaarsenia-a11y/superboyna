@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-08-31 d1-empty-clients-heal3"
+      deployMarker: "2026-08-31 d1-empty-clients-heal4"
     };
   }
 
@@ -2213,12 +2213,26 @@ async function dayDateInfo_(env, day) {
     const sheet = await getSnapRaw_(env, "weekDayCountsSheet");
     if (sheet && Array.isArray(sheet.items)) counts = sheet;
   }
-  const items = (counts && counts.items) || [];
-  for (let i = 0; i < items.length; i++) {
-    if (items[i].day === day) {
-      return { date: items[i].date || "", iso: dmyToIso_(items[i].date) };
+  function fromItems_(items) {
+    items = items || [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].day === day) {
+        const date = items[i].date || "";
+        const iso = dmyToIso_(date) || String(items[i].dateIso || "");
+        if (date || iso) return { date: date || isoToDmy_(iso), iso: iso };
+      }
     }
+    return null;
   }
+  let hit = fromItems_((counts && counts.items) || []);
+  // после пустого D1-rebuild в weekDayCounts может не быть даты — бери sheet
+  if (!hit || !hit.iso) {
+    try {
+      const sheet = await getSnapRaw_(env, "weekDayCountsSheet");
+      hit = fromItems_((sheet && sheet.items) || []) || hit;
+    } catch (eSh) {}
+  }
+  if (hit && hit.iso) return hit;
   // дата из живых orders этого дня
   if (env && env.DB && day) {
     const row = await env.DB.prepare(
@@ -4835,6 +4849,23 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
     if (!c.name && (c.nick || c.client)) c.name = c.nick || c.client;
     return c;
   });
+  // дата слота обязательна: иначе replace пишет date_iso="" и scrubMismatched сносит строки
+  try {
+    const infoHeal = await dayDateInfo_(env, day);
+    diag.slotIso = (infoHeal && infoHeal.iso) || "";
+    if (infoHeal && infoHeal.iso) {
+      live.clients = live.clients.map(function (c) {
+        if (!c || typeof c !== "object") return c;
+        if (!c.dateIso) c.dateIso = infoHeal.iso;
+        if (!c.date && infoHeal.date) c.date = infoHeal.date;
+        return c;
+      });
+      if (!live.date) live.date = infoHeal.date || "";
+      if (!live.dateIso) live.dateIso = infoHeal.iso;
+    }
+  } catch (eIso) {
+    diag.isoErr = String((eIso && eIso.message) || eIso);
+  }
   // Пустой D1 + люди на листе: не режем tomb sanitize (иначе stale tombDay/персональные
   // tomb после finish/scrub оставляют UI пустым). Частичный D1 — sanitize как раньше.
   if (got > 0) {
