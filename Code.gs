@@ -1228,6 +1228,15 @@ function finishFullWeekProduction(optSs, optOpts) {
     var futureData = sheetFuture.getRange("C3:Q61").getValues();
     sheetManager.getRange("C3:Q61").setValues(futureData);
     sheetFuture.getRange("C3:Q61").clearContent();
+    // A1 «Будущей» = новый Пн + 7 (раньше оставался = Пн → дубль дат)
+    try {
+      var futMon = sheetManager.getRange("A1").getValue();
+      if (futMon instanceof Date && !isNaN(futMon.getTime())) {
+        var futNext = new Date(futMon.getTime());
+        futNext.setDate(futNext.getDate() + 7);
+        sheetFuture.getRange("A1").setValue(Utilities.formatDate(futNext, tz, "dd.MM.yyyy"));
+      }
+    } catch (eFutA1) {}
   }
 
   sheetCourier.getRange("C2:Q2").setValue(false);
@@ -1318,7 +1327,24 @@ function weekAlreadyAdvanced_(ss) {
   if (!a1) return false;
   var calKey = currentWeekKeyServer_();
   var a1Key = isoDayKeyMinsk_(a1, tz);
-  return !!(a1Key && calKey && a1Key > calKey);
+  if (!a1Key || !calKey) return false;
+  if (a1Key > calKey) return true;
+  // Пн после закрытия: лист уже = календарный Пн (не >). Блокируем повтор,
+  // если предыдущий Пн (cal−7) помечен WEEK_FINISHED_*. В вс лист=cal — не блокируем.
+  if (a1Key === calKey) {
+    try {
+      var now = new Date();
+      var dow = Number(Utilities.formatDate(now, tz, "u")); // 1=Mon … 7=Sun
+      if (dow === 1) {
+        var prev = new Date(a1.getTime());
+        prev.setDate(prev.getDate() - 7);
+        var prevKey = isoDayKeyMinsk_(prev, tz);
+        var props = PropertiesService.getScriptProperties();
+        if (prevKey && props.getProperty(finishWeekLockKey_(prevKey)) === "1") return true;
+      }
+    } catch (eAdvMon) {}
+  }
+  return false;
 }
 
 function finishWeekLockKey_(mondayIso) {

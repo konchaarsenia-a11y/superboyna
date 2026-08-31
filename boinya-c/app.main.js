@@ -13328,36 +13328,118 @@
       var realClosed = localStorage.getItem(FINISH_REAL_LS + wk) === "1";
       var hidden = localStorage.getItem(FINISH_HIDE_LS + wk) === "1";
       var refused = refuseSnoozeActive_(wk);
+
+      // Пн утро: лист уже на календарном Пн (только что закрыли) → считать закрытой,
+      // даже если кто-то снёс серверный finished:0 в том же окне. Не на вс — иначе
+      // кнопка «Завершить» не появится всю неделю (лист Пн == weekKey).
+      var sheetMonIso = "";
+      try {
+        var cntItems =
+          (_orderDayCountsCache && _orderDayCountsCache.items) ||
+          (viewWeekOverviewCache && viewWeekOverviewCache.days) ||
+          null;
+        if (cntItems && cntItems.length) {
+          for (var ci = 0; ci < cntItems.length; ci++) {
+            if (String(cntItems[ci].day || "") !== "Понедельник") continue;
+            var rawMon = cntItems[ci].date;
+            var dm = String(rawMon || "").match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+            if (dm) {
+              sheetMonIso =
+                dm[3] + "-" + ("0" + dm[2]).slice(-2) + "-" + ("0" + dm[1]).slice(-2);
+            } else if (/^\d{4}-\d{2}-\d{2}$/.test(String(rawMon || ""))) {
+              sheetMonIso = String(rawMon).slice(0, 10);
+            }
+            break;
+          }
+        }
+      } catch (eAdv) {}
+      if (
+        isMondayMorning() &&
+        sheetMonIso &&
+        wk &&
+        sheetMonIso >= String(wk) &&
+        !realClosed
+      ) {
+        try {
+          localStorage.setItem(FINISH_REAL_LS + wk, "1");
+          localStorage.setItem(FINISH_DONE_LS + wk, "1");
+          localStorage.setItem(FINISH_HIDE_LS + wk, "1");
+          localStorage.setItem(WEEK_PULL_LS + wk, "pulled");
+        } catch (eLsAdv) {}
+        realClosed = true;
+        var needHealBanner = !_weekBannerState.finished;
+        if (needHealBanner) {
+          _weekBannerState.finished = true;
+          _weekBannerState.pulled = true;
+          _weekBannerState.weekKey = wk;
+          // Восстановить серверный баннер, если его снёс старый wipe
+          try {
+            apiGet(
+              {
+                action: "setWeekBannerState",
+                weekKey: wk,
+                finished: "1",
+                pulled: "1",
+                telegramId: String(myTelegramId || ""),
+                _: String(Date.now())
+              },
+              { timeoutMs: 12000, cacheTtlMs: 0 }
+            ).catch(function () {});
+          } catch (eRest) {}
+        }
+      }
+
+      // Старый wipe: в окне вс/пн при canFinish слал finished:0 и сносил баннер
+      // сразу после реального закрытия. Сбрасываем только УСТАРЕВший finished
+      // (до старта текущего окна) — чтобы в следующее вс снова можно было закрыть.
+      if (
+        isFinishWeekWindow_() &&
+        !realClosed &&
+        (_weekBannerState.finished || _weekBannerState.pulled || _weekBannerState.refused)
+      ) {
+        var finAtMs = Date.parse(String(_weekBannerState.finishedAt || "")) || 0;
+        var winStart = (function () {
+          var d = new Date();
+          var day = d.getDay();
+          var back = day === 0 ? 0 : day;
+          var sun = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back);
+          sun.setHours(0, 0, 0, 0);
+          return sun.getTime();
+        })();
+        var freshInWindow = finAtMs > 0 && finAtMs >= winStart;
+        if (!freshInWindow) {
+          _weekBannerState.finished = false;
+          _weekBannerState.pulled = false;
+          _weekBannerState.refused = false;
+          _weekBannerState.finishedAt = "";
+          try {
+            localStorage.removeItem(FINISH_DONE_LS + wk);
+            localStorage.removeItem(WEEK_PULL_LS + wk);
+            localStorage.removeItem(FINISH_REFUSE_LS + wk);
+          } catch (eLs) {}
+          try {
+            apiGet(
+              {
+                action: "setWeekBannerState",
+                weekKey: wk,
+                finished: "0",
+                pulled: "0",
+                refused: "0",
+                telegramId: String(myTelegramId || ""),
+                _: String(Date.now())
+              },
+              { timeoutMs: 12000, cacheTtlMs: 0 }
+            ).catch(function () {});
+          } catch (eClr) {}
+        }
+      }
+
       var finished = realClosed || !!_weekBannerState.finished;
       var pulled = realClosed || !!_weekBannerState.pulled || localStorage.getItem(WEEK_PULL_LS + wk) === "pulled";
 
       var canFinish = false;
       if ((APP_ROLE === "owner" || APP_ROLE === "all") && isFinishWeekWindow_()) {
-        if (!realClosed && !hidden && !refused) canFinish = true;
-      }
-
-      if (canFinish && (_weekBannerState.finished || _weekBannerState.pulled || _weekBannerState.refused)) {
-        _weekBannerState.finished = false;
-        _weekBannerState.pulled = false;
-        _weekBannerState.refused = false;
-        try {
-          localStorage.removeItem(FINISH_DONE_LS + wk);
-          localStorage.removeItem(WEEK_PULL_LS + wk);
-          localStorage.removeItem(FINISH_REFUSE_LS + wk);
-        } catch (eLs) {}
-        try {
-          apiGet({
-            action: "setWeekBannerState",
-            weekKey: wk,
-            finished: "0",
-            pulled: "0",
-            refused: "0",
-            telegramId: String(myTelegramId || ""),
-            _: String(Date.now())
-          }, { timeoutMs: 12000, cacheTtlMs: 0 }).catch(function () {});
-        } catch (eClr) {}
-        finished = false;
-        pulled = false;
+        if (!realClosed && !finished && !hidden && !refused) canFinish = true;
       }
 
       fin.style.display = canFinish ? "" : "none";
