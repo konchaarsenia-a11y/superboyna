@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-08-31 d1-empty-clients-heal6"
+      deployMarker: "2026-08-31 save-wipe-heal7"
     };
   }
 
@@ -2361,8 +2361,10 @@ async function findActiveOrderByMatch_(env, matchKey, clientName) {
 }
 
 /**
- * Soft-delete D1 orders on a weekday column whose date_iso ≠ that day's week date.
- * Keep empty date_iso (sheet sync without booking stamp) — never infer orphans from CRM alone.
+ * Align D1 orders on a weekday column to that day's week date_iso.
+ * Prefer UPDATE stamp over soft-delete — otherwise a force getClients after
+ * saveOrder (new client with correct iso) wiped peers still stamped with the
+ * previous week's date and left only the newcomer in UI.
  */
 async function scrubMismatchedDayOrders_(env, day, wantIso) {
   if (!env || !env.DB || !day || !wantIso) return 0;
@@ -2374,13 +2376,13 @@ async function scrubMismatchedDayOrders_(env, day, wantIso) {
       .bind(day, wantIso)
       .all();
     const list = (q && q.results) || [];
-    const nowDel = new Date().toISOString();
+    const nowFix = new Date().toISOString();
     for (let i = 0; i < list.length; i++) {
       try {
         await env.DB.prepare(
-          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ?"
+          "UPDATE orders SET date_iso = ?, updated_at = ? WHERE id = ? AND status = 'active'"
         )
-          .bind(nowDel, list[i].id)
+          .bind(wantIso, nowFix, list[i].id)
           .run();
         n++;
       } catch (e1) {}
@@ -4822,12 +4824,9 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
     hasTomb = await dayHasFreshTombstone_(env, day);
   } catch (eT) {}
   diag.hasTomb = hasTomb;
-  // частичный список после delete — не воскрешаем; полный провал D1 при expect>0 — heal
-  if (hasTomb && got > 0) {
-    diag.step = "tomb_partial";
-    if (d1Payload && typeof d1Payload === "object") d1Payload.healDiag = diag;
-    return d1Payload;
-  }
+  // got>0 и tomb: НЕ выходим — добираем недостающих с листа через upsert
+  // (раньше tomb_partial оставлял UI с 1 человеком после save, пока Sheet ждал 2+).
+  // replace только если D1 полностью пуст.
   let live = null;
   try {
     live = await gasProxy_("getClients", { day: day }, env, { write: false });
@@ -4866,15 +4865,8 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
   } catch (eIso) {
     diag.isoErr = String((eIso && eIso.message) || eIso);
   }
-  // Пустой D1 + люди на листе: не режем tomb sanitize (иначе stale tombDay/персональные
-  // tomb после finish/scrub оставляют UI пустым). Частичный D1 — sanitize как раньше.
-  if (got > 0) {
-    try {
-      await sanitizeGasClientsPayload_(env, day, live);
-    } catch (eSan) {
-      diag.sanErr = String((eSan && eSan.message) || eSan);
-    }
-  }
+  // Sparse heal: НЕ sanitize до upsert — иначе stale delTomb выкидывает с листа
+  // людей, которых как раз надо вернуть (после save нового клиента UI оставался с 1).
   const gasN = live.clients.length;
   diag.gasN = gasN;
   if (!gasN) {
@@ -4882,46 +4874,46 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
     if (d1Payload && typeof d1Payload === "object") d1Payload.healDiag = diag;
     return d1Payload;
   }
+  // Сначала снять tomb — иначе upsertMissing / getClients_ снова прячут
   try {
-    if (isWeekD1GasAuthoritative_(env) && (got === 0 || opts.replace)) {
+    for (var ciT0 = 0; ciT0 < live.clients.length; ciT0++) {
+      var cT0 = live.clients[ciT0];
+      if (!cT0) continue;
+      var nmT0 = String(cT0.name || cT0.client || cT0.nick || "");
+      var mkT0 = normalizeMatchKey_(cT0.matchKey || nmT0);
+      try {
+        await clearTombstonesForMatch_(env, mkT0 || nmT0, day, nmT0);
+      } catch (eCT0) {}
+      try {
+        await putMoveArriveProtect_(env, day, mkT0 || nmT0, nmT0);
+      } catch (eAP0) {}
+    }
+    try {
+      await putSnap_(env, "tombDay:" + String(day), { day: String(day), at: 0, cleared: true });
+    } catch (eClrT0) {}
+    diag.tombsCleared = live.clients.length;
+  } catch (eClrAll0) {
+    diag.tombClrErr = String((eClrAll0 && eClrAll0.message) || eClrAll0);
+  }
+  try {
+    if (got === 0 && (isWeekD1GasAuthoritative_(env) || opts.replace)) {
       await replaceDayOrdersFromClients_(env, day, live.clients || [], {
         gasAuthoritative: true,
         allowGasInsert: true,
         protectMs: 0,
         skipProtectMissing: true,
-        ignoreTombstones: got === 0
+        ignoreTombstones: true
       });
       diag.wrote = "replace";
     } else {
-      await upsertMissingClientsFromGas_(env, day, live.clients || []);
+      // Есть люди в D1 (в т.ч. только что внесённые) — только дописать с листа, НЕ replace
+      await upsertMissingClientsFromGas_(env, day, live.clients || [], {
+        ignoreTombstones: true
+      });
       diag.wrote = "upsert";
     }
   } catch (eUp) {
     diag.writeErr = String((eUp && eUp.message) || eUp);
-  }
-  try {
-    // сбросить day-tomb + персональные tomb на клиентов с листа (иначе getClients_
-    // читает D1 и filterTombstonedClients_ снова отдаёт [])
-    if (got === 0) {
-      try {
-        await putSnap_(env, "tombDay:" + String(day), { day: String(day), at: 0, cleared: true });
-      } catch (eClrT) {}
-      for (var ciT = 0; ciT < live.clients.length; ciT++) {
-        var cT = live.clients[ciT];
-        if (!cT) continue;
-        var nmT = String(cT.name || cT.client || cT.nick || "");
-        var mkT = normalizeMatchKey_(cT.matchKey || nmT);
-        try {
-          await clearTombstonesForMatch_(env, mkT || nmT, day, nmT);
-        } catch (eCT) {}
-        try {
-          await putMoveArriveProtect_(env, day, mkT || nmT, nmT);
-        } catch (eAP) {}
-      }
-      diag.tombsCleared = live.clients.length;
-    }
-  } catch (eClrAll) {
-    diag.tombClrErr = String((eClrAll && eClrAll.message) || eClrAll);
   }
   try {
     await putSnap_(env, "clients:" + day, Object.assign({}, live, { cachedAt: new Date().toISOString() }));
@@ -9301,18 +9293,23 @@ async function cutoverStoreRead_(a, params, env, payload) {
 }
 
 /** Добавить в D1 только тех, кого нет (и нет tombstone). Не трогает уже активных. */
-async function upsertMissingClientsFromGas_(env, day, clients) {
+async function upsertMissingClientsFromGas_(env, day, clients, opts) {
+  opts = opts || {};
   if (!env || !env.DB || !day || !Array.isArray(clients) || !clients.length) return 0;
   await ensureMetaColumn_(env);
   const info = await dayDateInfo_(env, day);
   const dateIso = (info && info.iso) || "";
   const now = new Date().toISOString();
-  let tomb = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
-  tomb.items = (tomb.items || []).slice();
-  try {
-    const td = await getSnapRaw_(env, "tombDay:" + String(day));
-    if (td && td.at && Date.now() - Number(td.at) < TOMBSTONE_MS) tomb._dayFresh = true;
-  } catch (eTd) {}
+  const ignoreTombs = opts.ignoreTombstones === true;
+  let tomb = { items: [] };
+  if (!ignoreTombs) {
+    tomb = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
+    tomb.items = (tomb.items || []).slice();
+    try {
+      const td = await getSnapRaw_(env, "tombDay:" + String(day));
+      if (td && td.at && Date.now() - Number(td.at) < TOMBSTONE_MS) tomb._dayFresh = true;
+    } catch (eTd) {}
+  }
   let added = 0;
   for (let i = 0; i < clients.length; i++) {
     const c = clients[i];
@@ -9320,11 +9317,13 @@ async function upsertMissingClientsFromGas_(env, day, clients) {
     const name = String(c.name || c.client || "").trim();
     const mk = normalizeMatchKey_(c.matchKey || name);
     if (!mk || !name) continue;
-    try {
-      const pkT = await getSnapRaw_(env, "delTomb:" + String(day) + ":" + mk);
-      if (pkT && pkT.mk && !pkT.cleared && Number(pkT.at || 0) > 0) tomb.items.push(pkT);
-    } catch (ePK) {}
-    if (isTombstoned_(tomb, day, mk, name)) continue;
+    if (!ignoreTombs) {
+      try {
+        const pkT = await getSnapRaw_(env, "delTomb:" + String(day) + ":" + mk);
+        if (pkT && pkT.mk && !pkT.cleared && Number(pkT.at || 0) > 0) tomb.items.push(pkT);
+      } catch (ePK) {}
+      if (isTombstoned_(tomb, day, mk, name)) continue;
+    }
     try {
       const ep = await getSnapRaw_(env, "moveEpoch:" + mk);
       if (ep && ep.to && String(ep.to) !== String(day)) continue;
