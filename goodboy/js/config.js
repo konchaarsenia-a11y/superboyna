@@ -9,8 +9,8 @@ window.GB_CONFIG = {
   mode: "live",
   /** Бойня C Worker (D1-primary gb*); не сырой /exec */
   webhookUrl: "https://boinya-c.konchaarsenia.workers.dev",
-  /** Заявки «Хочу попробовать» с try.html — пока GAS submitGoodboyTry */
-  leadWebhookUrl: "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec",
+  /** Заявки «Хочу попробовать» — тот же Worker (submitGoodboyTry → D1 + GAS) */
+  leadWebhookUrl: "https://boinya-c.konchaarsenia.workers.dev",
   contactEmail: "hello@goodboy.by",
   partnerSlugVarok: "varok",
   storageKey: "goodboy_v1",
