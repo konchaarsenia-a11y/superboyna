@@ -1,3 +1,4 @@
+- [~] **КРИТ: anti-wipe people harden 2026-08-31:** неполный GAS / counts-refresh / tomb больше не сжимают день. replace abort+surgical delete; counts без full refresh; D1-active не прятать tomb; marker `people-no-wipe-h1` · **нужен Worker Deploy**
 - [x] **КРИТ: save нового клиента сносит день 2026-08-31:** после «Ксюша Кинолог» пропали sorokalife_/daria.nsv. Fix: scrub → UPDATE date_iso; heal upsert+ignoreTombstones; poll дожимает Sheets mirror. marker `save-wipe-heal7b` · **Worker Deploy OK** · smoke save `zzz_test` KEEP_OK · Mon = 3
 
 - [x] **КРИТ: Пн пустой потом появляется 2026-08-31:** после finish D1 пустел при Sheets с людьми; force отдавал []. Fix healFromGas + ignoreTombstones/delTomb + date_iso. marker `d1-empty-clients-heal6` · **Worker Deploy OK** · smoke Mon n=2 immediate, 2nd hit D1

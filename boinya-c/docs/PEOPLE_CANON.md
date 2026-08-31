@@ -40,12 +40,20 @@
 **Запрещено** без явного отката (`PEOPLE_CANON=sheets-confirm-bg`):
 
 1. Ждать `sheetsVerified` для UI success при живом D1.
-2. `cutoverAfterWrite_` / `upsertMissingClientsFromGas_` — перезаписывают D1 из GAS.
+2. `cutoverAfterWrite_` / полный day-replace из GAS на обычном revalidate (сжимает день).
 3. `sheetsFirst` для move/delete.
 4. Off-week через `saveOrder` (только `saveBooking`).
+5. Soft-delete всего дня / scrub-delete по чужому `date_iso` (только UPDATE stamp).
+6. Прятать **active** D1-строки tomb-фильтром в live `getClients`.
+
+**Anti-wipe (Worker):**
+
+- `replaceDayOrdersFromClients_`: abort если GAS пуст/partial при non-empty D1; soft-delete только mk∉merged.
+- `getWeekDayCounts`: **не** зовёт full week-refresh (только stamp); full → finish / `weekResync=1`.
+- Heal sparse: upsert missing, не `tomb_partial` bail.
 
 Откат на Sheets-канон: Worker env `PEOPLE_CANON=sheets-confirm-bg`.
 
-Маркер: `peopleCanon: "d1-primary"` в `?action=ping`.
+Маркер: `peopleCanon: "d1-primary"` в `?action=ping` (+ `deployMarker` people-no-wipe).
 
 См. `CUTOVER.md`, `WEEK_CALENDAR_CANON.md`.
