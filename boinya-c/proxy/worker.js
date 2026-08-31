@@ -947,8 +947,18 @@ async function putSnap_(env, key, payload) {
 /** D1-primary: D1 → success для UI; Sheets только зеркало (ошибка листа не откатывает D1). */
 async function runPeopleWriteJobD1Primary_(writeId, job, env, ctx) {
   if (!writeId || !env || !env.DB || !job) return job;
-  if (job.verified && job.d1Verified && job.status === "success") return job;
-  if (job.status === "error" && job.d1Verified) return job;
+  // Не выходим, пока зеркало Sheets не дожато (иначе poll после обрыва waitUntil
+  // навсегда оставляет pendingSheetsMirror и человека нет на листе).
+  if (
+    job.verified &&
+    job.d1Verified &&
+    job.status === "success" &&
+    (job.sheetsVerified || job.sheetsMirrorFailed) &&
+    !job.pendingSheetsMirror
+  ) {
+    return job;
+  }
+  if (job.status === "error" && job.d1Verified && !job.pendingSheetsMirror) return job;
   const runAt = Number(job._runningAt || 0) || 0;
   if (job._running && runAt && Date.now() - runAt < 25000) return job;
 
