@@ -1228,6 +1228,15 @@ function finishFullWeekProduction(optSs, optOpts) {
     var futureData = sheetFuture.getRange("C3:Q61").getValues();
     sheetManager.getRange("C3:Q61").setValues(futureData);
     sheetFuture.getRange("C3:Q61").clearContent();
+    // A1 «Будущей» = новый Пн + 7 (раньше оставался = Пн → дубль дат)
+    try {
+      var futMon = sheetManager.getRange("A1").getValue();
+      if (futMon instanceof Date && !isNaN(futMon.getTime())) {
+        var futNext = new Date(futMon.getTime());
+        futNext.setDate(futNext.getDate() + 7);
+        sheetFuture.getRange("A1").setValue(Utilities.formatDate(futNext, tz, "dd.MM.yyyy"));
+      }
+    } catch (eFutA1) {}
   }
 
   sheetCourier.getRange("C2:Q2").setValue(false);
@@ -1318,7 +1327,24 @@ function weekAlreadyAdvanced_(ss) {
   if (!a1) return false;
   var calKey = currentWeekKeyServer_();
   var a1Key = isoDayKeyMinsk_(a1, tz);
-  return !!(a1Key && calKey && a1Key > calKey);
+  if (!a1Key || !calKey) return false;
+  if (a1Key > calKey) return true;
+  // Пн после закрытия: лист уже = календарный Пн (не >). Блокируем повтор,
+  // если предыдущий Пн (cal−7) помечен WEEK_FINISHED_*. В вс лист=cal — не блокируем.
+  if (a1Key === calKey) {
+    try {
+      var now = new Date();
+      var dow = Number(Utilities.formatDate(now, tz, "u")); // 1=Mon … 7=Sun
+      if (dow === 1) {
+        var prev = new Date(a1.getTime());
+        prev.setDate(prev.getDate() - 7);
+        var prevKey = isoDayKeyMinsk_(prev, tz);
+        var props = PropertiesService.getScriptProperties();
+        if (prevKey && props.getProperty(finishWeekLockKey_(prevKey)) === "1") return true;
+      }
+    } catch (eAdvMon) {}
+  }
+  return false;
 }
 
 function finishWeekLockKey_(mondayIso) {
@@ -1407,6 +1433,7 @@ function handleFinishFullWeek(json, callback, fromPost) {
  * Откат/установка даты понедельника на листе «Прием» (без очистки людей).
  * Нужно если finishFullWeek нажали несколько раз и даты ускакали вперёд.
  * monday: yyyy-MM-dd или dd.MM.yyyy
+ * futureOnly=1 — только A1 «Будущая» = Пн+7 (текущий Пн не трогать).
  */
 function handleRepairWeekMonday(json, callback, fromPost) {
   json = json || {};
@@ -1423,11 +1450,11 @@ function handleRepairWeekMonday(json, callback, fromPost) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
-    var monday = parseFlexibleDate_(json.monday || json.mondayDate || json.date, tz);
-    if (!monday) {
-      var badD = { status: "error", message: "need_monday_date" };
-      return fromPost ? jsonpText(callback, badD) : jsonp(callback, badD);
-    }
+    var futureOnly =
+      json.futureOnly === true ||
+      json.futureOnly === 1 ||
+      json.futureOnly === "1" ||
+      json.futureOnly === "true";
     var sheetManager = ss.getSheetByName("Прием заказов") || ss.getSheetByName("Приём заказов");
     var sheetFuture = ss.getSheetByName("Будущая неделя");
     var sheetCourier = ss.getSheetByName("Доставки");
@@ -1436,7 +1463,31 @@ function handleRepairWeekMonday(json, callback, fromPost) {
       var no = { status: "error", message: "no_manager_sheet" };
       return fromPost ? jsonpText(callback, no) : jsonp(callback, no);
     }
+    var monday = parseFlexibleDate_(json.monday || json.mondayDate || json.date, tz);
+    if (!monday && futureOnly) {
+      monday = sheetMondayDateObj_(ss);
+    }
+    if (!monday) {
+      var badD = { status: "error", message: "need_monday_date" };
+      return fromPost ? jsonpText(callback, badD) : jsonp(callback, badD);
+    }
     var monStr = Utilities.formatDate(monday, tz, "dd.MM.yyyy");
+    var fut = new Date(monday.getTime());
+    fut.setDate(fut.getDate() + 7);
+    var futStr = Utilities.formatDate(fut, tz, "dd.MM.yyyy");
+    if (futureOnly) {
+      if (sheetFuture) sheetFuture.getRange("A1").setValue(futStr);
+      SpreadsheetApp.flush();
+      try { bustClientsCache_(); } catch (eBFut) {}
+      var futOk = {
+        status: "success",
+        message: "future_monday_repaired",
+        mondayDate: monStr,
+        futureDate: futStr,
+        futureOnly: true
+      };
+      return fromPost ? jsonpText(callback, futOk) : jsonp(callback, futOk);
+    }
     sheetManager.getRange("A1").setValue(monStr);
     try {
       PropertiesService.getScriptProperties().deleteProperty(
