@@ -9403,18 +9403,20 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
   for (var ci = 0; ci < (clients || []).length; ci++) {
     var c = clients[ci];
     if (!c) continue;
-    var mk = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
+    var mk = normalizeMatchKey_(c.matchKey || c.name || c.client || c.nick || "");
     if (!mk) continue;
-    try {
-      var pkT = await getSnapRaw_(env, "delTomb:" + String(day) + ":" + mk);
-      if (pkT && pkT.mk && !pkT.cleared && Number(pkT.at || 0) > 0) tomb.items.push(pkT);
-    } catch (ePKT) {}
-    if (isTombstoned_(tomb, day, mk, c.name || c.client)) continue;
-    if (isMoveArriveProtectedElsewhere_(arriveProtect, day, mk, c.name || c.client)) continue;
-    try {
-      var epRep = await getSnapRaw_(env, "moveEpoch:" + mk);
-      if (epRep && epRep.to && String(epRep.to) !== String(day)) continue;
-    } catch (eEpR) {}
+    if (opts.ignoreTombstones !== true) {
+      try {
+        var pkT = await getSnapRaw_(env, "delTomb:" + String(day) + ":" + mk);
+        if (pkT && pkT.mk && !pkT.cleared && Number(pkT.at || 0) > 0) tomb.items.push(pkT);
+      } catch (ePKT) {}
+      if (isTombstoned_(tomb, day, mk, c.name || c.client || c.nick)) continue;
+      if (isMoveArriveProtectedElsewhere_(arriveProtect, day, mk, c.name || c.client || c.nick)) continue;
+      try {
+        var epRep = await getSnapRaw_(env, "moveEpoch:" + mk);
+        if (epRep && epRep.to && String(epRep.to) !== String(day)) continue;
+      } catch (eEpR) {}
+    }
     gasByMk[mk] = c;
   }
 
