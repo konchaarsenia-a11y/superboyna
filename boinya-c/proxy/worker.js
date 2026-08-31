@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-08-31 d1-empty-clients-heal2"
+      deployMarker: "2026-08-31 d1-empty-clients-heal3"
     };
   }
 
@@ -4857,7 +4857,8 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
         gasAuthoritative: true,
         allowGasInsert: true,
         protectMs: 0,
-        skipProtectMissing: true
+        skipProtectMissing: true,
+        ignoreTombstones: got === 0
       });
       diag.wrote = "replace";
     } else {
@@ -9330,14 +9331,18 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
   }
   if (!tomb) tomb = { items: [] };
   tomb.items = (tomb.items || []).slice();
-  try {
-    const td = await getSnapRaw_(env, "tombDay:" + String(day));
-    if (td && td.at && Date.now() - Number(td.at) < TOMBSTONE_MS) {
-      // маркер дня с недавним delete/move — не заливать GAS-only людей
-      tomb._dayFresh = true;
-    }
-  } catch (eTd) {}
-  let arriveProtect = null;
+  // Heal пустого слота после finish: stale tomb не должен блокировать залитие с листа
+  if (opts.ignoreTombstones === true) {
+    tomb = { items: [] };
+  } else {
+    try {
+      const td = await getSnapRaw_(env, "tombDay:" + String(day));
+      if (td && td.at && Date.now() - Number(td.at) < TOMBSTONE_MS) {
+        // маркер дня с недавним delete/move — не заливать GAS-only людей
+        tomb._dayFresh = true;
+      }
+    } catch (eTd) {}
+  }  let arriveProtect = null;
   try {
     arriveProtect = await getSnapRaw_(env, "moveArriveProtect");
   } catch (eAP) {
