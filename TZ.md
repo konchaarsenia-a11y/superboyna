@@ -1,3 +1,4 @@
+- [~] **КРИТ: people harden batch2 2026-08-31:** D1 counts (не Sheet) для heal; view не отдаёт snap-призраков; move resolve до calendarOnly; delete не сканит весь CAL; counts merge D1+dates; UI keepDom; marker `people-harden-b2` · Pages `v71115916` · **нужен Worker Deploy**
 - [x] **КРИТ: anti-wipe people harden 2026-08-31:** неполный GAS / counts-refresh / tomb больше не сжимают день. replace abort+surgical delete; counts без full refresh; D1-active не прятать tomb; marker `people-no-wipe-h1` · **Worker Deploy OK** · smoke SAVE/COUNTS/MOVE/FINAL=1
 - [x] **КРИТ: save нового клиента сносит день 2026-08-31:** после «Ксюша Кинолог» пропали sorokalife_/daria.nsv. Fix: scrub → UPDATE date_iso; heal upsert+ignoreTombstones; poll дожимает Sheets mirror. marker `save-wipe-heal7b` · **Worker Deploy OK** · smoke save `zzz_test` KEEP_OK · Mon = 3
 

@@ -48,12 +48,15 @@
 
 **Anti-wipe (Worker):**
 
-- `replaceDayOrdersFromClients_`: abort если GAS пуст/partial при non-empty D1; soft-delete только mk∉merged.
-- `getWeekDayCounts`: **не** зовёт full week-refresh (только stamp); full → finish / `weekResync=1`.
-- Heal sparse: upsert missing, не `tomb_partial` bail.
+- `replaceDayOrdersFromClients_`: abort если GAS пуст/partial при non-empty D1; soft-delete только mk∉merged; **нет** day-wide fallback.
+- `getWeekDayCounts`: **не** зовёт full week-refresh; `weekDayCounts` = D1 counts + даты с листа (`weekDayCountsSheet`).
+- Heal sparse: expect из D1 counts; partial day не clear-all tombs / не ignoreTombstones.
+- `getViewCompare`: live `[]` важнее stale `view:` snap.
+- `moveClient_`: resolve `newDate` до calendarOnly.
+- Week `deleteClient`: не сканирует все `day_name=''` без dateIso.
 
 Откат на Sheets-канон: Worker env `PEOPLE_CANON=sheets-confirm-bg`.
 
-Маркер: `peopleCanon: "d1-primary"` в `?action=ping` (+ `deployMarker` people-no-wipe).
+Маркер: `peopleCanon: "d1-primary"` (+ `deployMarker` people-harden-b2).
 
 См. `CUTOVER.md`, `WEEK_CALENDAR_CANON.md`.
