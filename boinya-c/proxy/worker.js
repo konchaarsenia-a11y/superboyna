@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-08-31 d1-empty-clients-heal5"
+      deployMarker: "2026-08-31 d1-empty-clients-heal6"
     };
   }
 
@@ -9507,9 +9507,11 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
     .run();
   for (let i = 0; i < merged.length; i++) {
     const c = merged[i];
-    const mk = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
+    const mk = normalizeMatchKey_(c.matchKey || c.name || c.client || c.nick || "");
     if (!mk) continue;
-    if (isTombstoned_(tomb, day, mk, c.name || c.client)) continue;
+    if (opts.ignoreTombstones !== true && isTombstoned_(tomb, day, mk, c.name || c.client || c.nick)) {
+      continue;
+    }
     const basket = JSON.stringify(c.basket || []);
     const segC = normalizeSegmentLabel_(c.segment || c.orderType || c.source || "");
     const srcC = String(c.source || "").trim() || sourceFromSegment_(segC);
@@ -9537,7 +9539,7 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       id: day + ":" + mk,
       date_iso: info.iso || c.dateIso || "",
       day_name: day,
-      client: c.name || c.client || "",
+      client: c.name || c.client || c.nick || "",
       match_key: mk,
       address: c.address || "",
       note: c.note || "",
