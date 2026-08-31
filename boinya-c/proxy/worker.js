@@ -312,6 +312,19 @@ function weekCloseCanonLabel_(env) {
   return isWeekCloseD1SyncCanon_(env) ? "d1-sync" : "gas-async";
 }
 
+/** Списание склада при закрытии недели: D1 compute. Откат: WAREHOUSE_CLOSE_CANON=sheets */
+function isWarehouseCloseD1Canon_(env) {
+  const v = env && env.WAREHOUSE_CLOSE_CANON ? String(env.WAREHOUSE_CLOSE_CANON).trim().toLowerCase() : "";
+  if (v === "sheets" || v === "gas" || v === "off") return false;
+  if (v === "d1" || v === "d1-compute" || v === "d1-primary") return true;
+  return false; // default off until smoke preview OK — set wrangler to d1-compute to enable
+}
+
+function warehouseCloseCanonLabel_(env) {
+  return isWarehouseCloseD1Canon_(env) ? "d1-compute" : "sheets";
+}
+
+
 function isWriteAction_(a) {
   if (!a) return false;
   // явные чтения / списки — не write (даже если имя начинается с partner*)
@@ -324,13 +337,14 @@ function isWriteAction_(a) {
     a === "partnerGetMe" ||
     a === "partnerListMyOrders" ||
     a === "composeWarehouseBuyMessage" ||
+    a === "previewWeekCloseWarehouse" ||
     a === "gbBootstrap"
   ) {
     return false;
   }
   // Goodboy writes
   if (/^(gbMe|gbRegister|gbLogin|gbLinkClient|gbSavePet|gbEnsureSheets)$/i.test(a)) return true;
-  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner|force|place|submit)/i.test(
+  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner|force|place|submit|apply)/i.test(
     a
   );
 }
@@ -361,7 +375,8 @@ async function handleAction_(action, params, env, url, ctx) {
       partnerCanon: partnerCanonLabel_(env),
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
-      deployMarker: "2026-08-31 week-close-d1-careful"
+      warehouseCloseCanon: warehouseCloseCanonLabel_(env),
+      deployMarker: "2026-08-31 warehouse-close-d1"
     };
   }
 
@@ -6563,17 +6578,54 @@ async function handleCutover_(a, params, env, ctx) {
         }
       }
     }
-    const proxiedFin = await gasProxy_(a, params, env, { write: true });
+    let whClosePack = null;
+    const gasFinParams = Object.assign({}, params || {});
+    if (/^finishFullWeek$/i.test(a) && isWarehouseCloseD1Canon_(env)) {
+      try {
+        whClosePack = await computeWarehouseCloseD1_(env);
+      } catch (eWhC) {
+        whClosePack = { ok: false, message: String((eWhC && eWhC.message) || eWhC) };
+      }
+      if (whClosePack && whClosePack.ok) {
+        gasFinParams.skipWarehouseClose = "1";
+      }
+    }
+    const proxiedFin = await gasProxy_(a, gasFinParams, env, { write: true });
     const okFin =
       proxiedFin &&
       (proxiedFin.status === "success" ||
         /week_already_finished|week_monday_repaired/i.test(String(proxiedFin.message || "")));
+    if (
+      okFin &&
+      /^finishFullWeek$/i.test(a) &&
+      isWarehouseCloseD1Canon_(env) &&
+      whClosePack &&
+      whClosePack.ok
+    ) {
+      try {
+        await applyWarehouseCloseD1_(env, whClosePack);
+        if (proxiedFin && typeof proxiedFin === "object") {
+          proxiedFin.warehouseClose = {
+            fromD1: true,
+            rows: (whClosePack.updates || []).length,
+            pieceRows: (whClosePack.pieceUpdates || []).length
+          };
+          proxiedFin.warehouseCloseCanon = warehouseCloseCanonLabel_(env);
+        }
+      } catch (eApply) {
+        if (proxiedFin && typeof proxiedFin === "object") {
+          proxiedFin.warehouseCloseError = String((eApply && eApply.message) || eApply);
+        }
+      }
+    }
     async function runWeekD1Resync_() {
       try {
         await cutoverRefreshAllWeekDays_(env);
       } catch (eRf0) {}
       try {
-        await cutoverRevalidate_("getWarehouse", { force: "1" }, env);
+        if (!(isWarehouseCloseD1Canon_(env) && /^finishFullWeek$/i.test(a) && whClosePack && whClosePack.ok)) {
+          await cutoverRevalidate_("getWarehouse", { force: "1" }, env);
+        }
       } catch (eWhRf) {}
       try {
         await putSnap_(env, "weekBanner", {
@@ -7721,7 +7773,8 @@ async function handleCutover_(a, params, env, ctx) {
     a === "composeWarehouseBuyMessage" ||
     a === "partnerListAdmin" ||
     a === "partnerListMyOrders" ||
-    a === "gbBootstrap"
+    a === "gbBootstrap" ||
+    a === "previewWeekCloseWarehouse"
   ) {
     if (a === "suggestAddress") {
       return suggestAddressCutover_(params, env);
@@ -7770,6 +7823,10 @@ async function handleCutover_(a, params, env, ctx) {
           statsFromSnap: true
         });
       }
+    }
+
+    if (a === "previewWeekCloseWarehouse") {
+      return previewWeekCloseWarehouseD1_(params, env, ctx);
     }
     if (isPartnerD1PrimaryCanon_(env) && a === "partnerListAdmin") {
       const adminFast = await partnerListAdminD1_(params, env, ctx);
@@ -14138,6 +14195,174 @@ async function submitGoodboyTryD1_(params, env) {
     }
   } catch (eTg) {}
   return { status: "ok", message: "saved", id: row.id, d1Verified: true, fromD1: true };
+}
+
+
+
+async function computeWarehouseCloseD1_(env) {
+  let wh = await getSnapRaw_(env, "warehouse");
+  if (!wh || !warehouseRows_(wh).length) {
+    try {
+      const live = await gasProxy_("getWarehouse", {}, env, { write: false });
+      if (live && live.status === "success") {
+        wh = live;
+        try {
+          await putSnap_(env, "warehouse", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+        } catch (eS) {}
+      }
+    } catch (eW) {}
+  }
+  const rows = warehouseRows_(wh);
+  if (!rows.length) return { ok: false, message: "no_warehouse" };
+  const dayMetas = await loadWeekDayMetasD1_(env);
+  const activeDays = (dayMetas || []).filter(function (d) {
+    return !!d.iso;
+  });
+  if (!activeDays.length) return { ok: false, message: "no_week_days" };
+  const people = await loadPeopleForDaysD1_(env, activeDays);
+  const acc = accumulateDryNeedD1_(people, rows);
+  const surplus = await surplusByWarehouseD1_(env, activeDays, rows);
+  const updates = [];
+  const pieceUpdates = [];
+  const skipped = [];
+  rows.forEach(function (r) {
+    const row = Number(r.row) || 0;
+    if (!(row >= 2 && row <= 35)) return;
+    const key = cutNameKey_(r.name);
+    const piece = isPieceSku_(r.name, "", r.unit) || row === 10 || (row >= 15 && row <= 25);
+    if (piece && row >= 15 && row <= 25) {
+      // Sheets: F = M (остаток Вс). В D1 stockPcs ≈ M, stock ≈ F.
+      const sun = r.stockPcs != null && r.stockPcs !== "" ? Number(r.stockPcs) : Number(r.stock) || 0;
+      pieceUpdates.push({
+        row: row,
+        name: r.name,
+        beforeStock: Number(r.stock) || 0,
+        beforeArrival: Number(r.arrival) || 0,
+        afterStock: sun,
+        afterArrival: 0,
+        mode: "piece_sunday"
+      });
+      return;
+    }
+    if (row === 10 || (row >= 15 && row <= 25)) {
+      skipped.push({ row: row, name: r.name, reason: "piece_special" });
+      return;
+    }
+    const dryG = Number(acc.dryByKey[key]) || 0;
+    const sur = Number(surplus[key]) || 0;
+    const coef = Number(r.coef) || 0.2;
+    const dryPlanKg = dryG / 1000;
+    const totalRaw = dryPlanKg / (coef || 0.2) + sur;
+    const arrival = Number(r.arrival) || 0;
+    const revision = Number(r.stock) || 0;
+    const after = Math.max(0, revision + arrival - totalRaw);
+    updates.push({
+      row: row,
+      name: r.name,
+      coef: coef,
+      dryG: round2_(dryG),
+      surplus: round2_(sur),
+      totalRaw: round2_(totalRaw),
+      beforeStock: revision,
+      beforeArrival: arrival,
+      afterStock: round2_(after),
+      afterArrival: 0,
+      mode: "raw_spend"
+    });
+  });
+  return {
+    ok: true,
+    days: activeDays.map(function (d) {
+      return { day: d.day, iso: d.iso };
+    }),
+    people: (people || []).length,
+    updates: updates,
+    pieceUpdates: pieceUpdates,
+    skipped: skipped,
+    computedAt: new Date().toISOString()
+  };
+}
+
+async function applyWarehouseCloseD1_(env, pack) {
+  if (!pack || !pack.ok) return { status: "error", message: "bad_pack" };
+  let wh = (await getSnapRaw_(env, "warehouse")) || { status: "success", rows: [], items: [] };
+  const items = (wh.rows || wh.items || []).slice();
+  const byRow = Object.create(null);
+  items.forEach(function (it, idx) {
+    byRow[Number(it.row)] = idx;
+  });
+  function applyOne(u) {
+    const idx = byRow[Number(u.row)];
+    if (idx == null) {
+      items.push({
+        row: u.row,
+        name: u.name || "",
+        stock: u.afterStock,
+        arrival: u.afterArrival,
+        coef: u.coef != null ? u.coef : 0.2,
+        _d1CloseAt: Date.now()
+      });
+      byRow[Number(u.row)] = items.length - 1;
+      return;
+    }
+    items[idx] = Object.assign({}, items[idx], {
+      stock: u.afterStock,
+      arrival: u.afterArrival,
+      _d1CloseAt: Date.now()
+    });
+  }
+  (pack.updates || []).forEach(applyOne);
+  (pack.pieceUpdates || []).forEach(applyOne);
+  wh.rows = items;
+  wh.items = items;
+  wh.status = "success";
+  wh._d1CloseAt = Date.now();
+  wh.warehouseCloseCanon = "d1-compute";
+  await putSnap_(env, "warehouse", wh);
+  try {
+    await putSnap_(env, "warehouseCloseLast", Object.assign({}, pack, { appliedAt: new Date().toISOString() }));
+  } catch (eL) {}
+  return { status: "success", wrote: (pack.updates || []).length + (pack.pieceUpdates || []).length };
+}
+
+async function previewWeekCloseWarehouseD1_(params, env, ctx) {
+  const pack = await computeWarehouseCloseD1_(env);
+  if (!pack || !pack.ok) {
+    return {
+      status: "error",
+      message: (pack && pack.message) || "compute_failed",
+      cutover: true,
+      warehouseCloseCanon: warehouseCloseCanonLabel_(env)
+    };
+  }
+  try {
+    await putSnap_(env, "warehouseClosePreview", Object.assign({}, pack, { cachedAt: new Date().toISOString() }));
+  } catch (eP) {}
+  return {
+    status: "success",
+    preview: true,
+    days: pack.days,
+    people: pack.people,
+    updates: pack.updates,
+    pieceUpdates: pack.pieceUpdates,
+    skipped: pack.skipped,
+    totals: {
+      rawRows: (pack.updates || []).length,
+      pieceRows: (pack.pieceUpdates || []).length,
+      spentRaw: round2_(
+        (pack.updates || []).reduce(function (s, u) {
+          return s + (Number(u.totalRaw) || 0);
+        }, 0)
+      )
+    },
+    cutover: true,
+    fromD1: true,
+    fromGas: false,
+    sandbox: false,
+    d1Verified: true,
+    warehouseCloseCanon: warehouseCloseCanonLabel_(env),
+    tip: "Dry-run. Apply only on finish when WAREHOUSE_CLOSE_CANON=d1-compute (+ Deploy Code.gs skipWarehouseClose)."
+  };
 }
 
 

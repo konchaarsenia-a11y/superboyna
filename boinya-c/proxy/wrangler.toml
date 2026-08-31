@@ -18,6 +18,8 @@ PARTNER_CANON = "d1-primary"
 GB_CANON = "d1-primary"
 WEEK_D1_SYNC = "gas-authoritative"
 WEEK_CLOSE_CANON = "d1-sync"
+# После Deploy Code.gs (skipWarehouseClose): раскомментируй /
+# WAREHOUSE_CLOSE_CANON = "d1-compute"
 
 # Secret (не в vars): wrangler secret put TELEGRAM_BOT_TOKEN
 # Без секрета sendCourier/forceSurvey → GAS fallback
