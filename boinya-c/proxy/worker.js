@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-08-31 warehouse-close-d1"
+      deployMarker: "2026-08-31 d1-empty-clients-heal"
     };
   }
 
@@ -4768,6 +4768,89 @@ async function sanitizeGasClientsPayload_(env, day, live) {
   return live;
 }
 
+/**
+ * После закрытия недели / failed resync D1 может быть пустым, а Sheets уже с людьми.
+ * UI (force getClients) раньше сразу отдавал [] из D1 → «пропали, потом появились».
+ * Heal: если D1 реже expect (weekDayCountsSheet/counts) и нет свежего delete-tomb —
+ * тянем GAS, пишем в D1, отдаём полный список.
+ */
+async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
+  opts = opts || {};
+  if (!env || !env.DB || !day) return d1Payload;
+  const got = Array.isArray(d1Payload && d1Payload.clients) ? d1Payload.clients.length : 0;
+  let expect = null;
+  try {
+    let counts = await getSnapRaw_(env, "weekDayCountsSheet");
+    if (!(counts && Array.isArray(counts.items) && counts.items.length)) {
+      counts = await getSnapRaw_(env, "weekDayCounts");
+    }
+    ((counts && counts.items) || []).forEach(function (it) {
+      if (it && String(it.day) === String(day)) expect = Number(it.count) || 0;
+    });
+  } catch (eExp) {}
+  const expectPos = expect != null && expect > 0;
+  const sparse = got === 0 ? !!opts.force || expectPos : expect != null && got < expect;
+  if (!sparse) return d1Payload;
+  let hasTomb = false;
+  try {
+    hasTomb = await dayHasFreshTombstone_(env, day);
+  } catch (eT) {}
+  // после delete/move D1 может быть короче counts — не воскрешаем
+  if (hasTomb && got > 0) return d1Payload;
+  if (hasTomb && got === 0 && !expectPos && !opts.force) return d1Payload;
+  let live = null;
+  try {
+    live = await gasProxy_("getClients", { day: day }, env, { write: false });
+  } catch (eG) {
+    return d1Payload;
+  }
+  if (!(live && live.status === "success" && Array.isArray(live.clients))) return d1Payload;
+  try {
+    await sanitizeGasClientsPayload_(env, day, live);
+  } catch (eSan) {}
+  const gasN = live.clients.length;
+  if (!gasN) {
+    if (got === 0) return d1Payload;
+    return d1Payload;
+  }
+  if (gasN <= got && !opts.force) return d1Payload;
+  try {
+    if (isWeekD1GasAuthoritative_(env) && (got === 0 || opts.replace)) {
+      await replaceDayOrdersFromClients_(env, day, live.clients || [], {
+        gasAuthoritative: true,
+        allowGasInsert: true,
+        protectMs: 5 * 60 * 1000,
+        skipProtectMissing: true
+      });
+    } else {
+      await upsertMissingClientsFromGas_(env, day, live.clients || []);
+    }
+  } catch (eUp) {}
+  try {
+    await putSnap_(env, "clients:" + day, Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+  } catch (eSnap) {}
+  try {
+    await rebuildWeekCounts_(env);
+  } catch (eRc) {}
+  let healed = null;
+  try {
+    healed = await getClients_({ day: day }, env);
+  } catch (eReread) {
+    healed = null;
+  }
+  if (healed && Array.isArray(healed.clients) && healed.clients.length) {
+    healed.healedFromGas = true;
+    healed.source = healed.source || "d1";
+    healed.sandbox = false;
+    return healed;
+  }
+  live.healedFromGas = true;
+  live.source = "gas-heal";
+  live.sandbox = false;
+  live.cutover = true;
+  return live;
+}
+
 /** Фоновый delete (waitUntil) не должен сносить D1-строку, записанную save ПОСЛЕ старта delete.
  * Явный delete из UI / force — всегда сносить: иначе move afterWrite upsert → skippedStaleDelete
  * и клиент «не удаляется» на Вт–Вс после недавнего переноса. */
@@ -7632,7 +7715,12 @@ async function handleCutover_(a, params, env, ctx) {
       String((params && params.force) || "") === "1" ||
       (params && (params.force === true || params.force === 1));
     if (forceClientsEarly && params && params.day) {
-      const live = await getClients_(params, env);
+      let live = await getClients_(params, env);
+      try {
+        live = await healWeekClientsFromGasIfSparse_(env, String(params.day), live, {
+          force: true
+        });
+      } catch (eHealF) {}
       if (live && typeof live === "object") {
         live.cutover = true;
         live.swr = true;
@@ -7648,7 +7736,35 @@ async function handleCutover_(a, params, env, ctx) {
       String((params && params.force) || "") === "1" ||
       (params && (params.force === true || params.force === 1));
     if (forceViewEarly) {
-      const liveVc = await getViewCompare_(params, env);
+      let liveVc = await getViewCompare_(params, env);
+      try {
+        const dayVc = String(
+          (liveVc && liveVc.day) ||
+            (liveVc && liveVc.targetDay) ||
+            (params && params.day) ||
+            ""
+        );
+        const weekEmpty =
+          !liveVc || !Array.isArray(liveVc.week) || !liveVc.week.length;
+        if (dayVc && weekEmpty && !(liveVc && liveVc.dateNotInWeek)) {
+          const healed = await healWeekClientsFromGasIfSparse_(
+            env,
+            dayVc,
+            { status: "success", day: dayVc, clients: [] },
+            { force: true }
+          );
+          if (healed && Array.isArray(healed.clients) && healed.clients.length) {
+            liveVc = liveVc && typeof liveVc === "object" ? liveVc : {};
+            liveVc.status = "success";
+            liveVc.day = dayVc;
+            liveVc.targetDay = dayVc;
+            liveVc.week = healed.clients.slice();
+            liveVc.healedFromGas = true;
+            if (healed.date) liveVc.date = healed.date;
+            if (healed.dateIso) liveVc.dateIso = healed.dateIso;
+          }
+        }
+      } catch (eHealVc) {}
       if (liveVc && typeof liveVc === "object") {
         liveVc.cutover = true;
         liveVc.swr = true;
@@ -7964,19 +8080,28 @@ async function handleCutover_(a, params, env, ctx) {
               }
             } catch (eRc) {}
           }
-          // фон: подтянуть только недостающих (не tombstone), без подмены ответа
-          if (!hasTomb && got < expect && !isD1PrimaryCanon_(env) && ctx && typeof ctx.waitUntil === "function") {
-            ctx.waitUntil(
-              (async function () {
-                try {
-                  const live = await gasProxy_(a, params, env, { write: false });
-                  if (!(live && live.status === "success")) return;
-                  await sanitizeGasClientsPayload_(env, params.day, live);
-                  await upsertMissingClientsFromGas_(env, params.day, live.clients || []);
-                  await rebuildWeekCounts_(env);
-                } catch (eBg) {}
-              })()
-            );
+          // D1 реже листа (часто пусто после finish) — heal из GAS до ответа UI
+          if (!hasTomb && got < expect) {
+            try {
+              const healedFast = await healWeekClientsFromGasIfSparse_(
+                env,
+                params.day,
+                fast,
+                { force: got === 0 }
+              );
+              if (
+                healedFast &&
+                Array.isArray(healedFast.clients) &&
+                healedFast.clients.length > got
+              ) {
+                healedFast.cutover = true;
+                healedFast.swr = true;
+                healedFast.fromGas = !!healedFast.healedFromGas;
+                healedFast.source = healedFast.source || "d1";
+                if (healedFast.sandbox === true) healedFast.sandbox = false;
+                return healedFast;
+              }
+            } catch (eHealMis) {}
           } else if (needGas && ctx && typeof ctx.waitUntil === "function") {
             ctx.waitUntil(cutoverRevalidate_(a, params, env));
           }
