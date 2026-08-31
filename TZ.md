@@ -1,3 +1,4 @@
+- [~] **Partner+GB D1 2026-08-31:** Varka partner* + Goodboy gb* — D1/snap primary, Sheets зеркало; Goodboy webhook → Worker; marker `partner-gb-d1` · **нужен Worker Deploy**
 - [x] **Telegram Worker/D1 2026-08-30:** prepare/send/deficit/forceSurvey через Worker+D1; secret `TELEGRAM_BOT_TOKEN` · marker `telegram-worker-d1` · **Worker Deploy OK** · owner Promote secret · smoke `telegramCanon: worker` + hasTelegramToken true
 - [x] **Warehouse plan D1 2026-08-30:** preview/check/compose D1 compute; banner/sessions/lookupBp D1; finish/pull/materialize/TG/GB — GAS. marker `warehouse-plan-d1` · **Worker Deploy OK** · smoke plan 34/def 10 fromD1Compute + compose/check/banner/session OK
 - [x] **Zero-conflict D1 2026-08-30:** getPpOrderSuggest N≥2 из D1 (orders+якорь); week resync protectMs 5м; finish/формулы склада/TG/GB — GAS. marker `zero-conflict-d1` · **Worker Deploy OK** · smoke dasha_2135 N=2 fromD1 slot2 needManual + retail/pp OK

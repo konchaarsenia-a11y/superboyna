@@ -7,8 +7,9 @@ window.GB_CONFIG = {
    * Конвейер Бойни (getClients/saveOrder/…) этим режимом не затрагивается.
    */
   mode: "live",
-  webhookUrl: "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec",
-  /** Заявки «Хочу попробовать» с try.html */
+  /** Бойня C Worker (D1-primary gb*); не сырой /exec */
+  webhookUrl: "https://boinya-c.konchaarsenia.workers.dev",
+  /** Заявки «Хочу попробовать» с try.html — пока GAS submitGoodboyTry */
   leadWebhookUrl: "https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec",
   contactEmail: "hello@goodboy.by",
   partnerSlugVarok: "varok",

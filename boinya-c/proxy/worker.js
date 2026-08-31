@@ -258,6 +258,30 @@ function priceCanonLabel_(env) {
   return isPriceD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
 }
 
+/** Varka Partner_* : D1/snap правда → Sheets зеркало. Side effects TG/deferred — в GAS mirror. Откат: PARTNER_CANON=sheets */
+function isPartnerD1PrimaryCanon_(env) {
+  const v = env && env.PARTNER_CANON ? String(env.PARTNER_CANON).trim().toLowerCase() : "";
+  if (v === "sheets" || v === "sheets-first" || v === "sheets-confirm-bg") return false;
+  if (v === "d1-primary" || v === "d1") return true;
+  return isD1PrimaryCanon_(env);
+}
+
+function partnerCanonLabel_(env) {
+  return isPartnerD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
+}
+
+/** Goodboy GB_* : D1/snap правда → Sheets зеркало; CRM только read (subs D1). Откат: GB_CANON=sheets */
+function isGbD1PrimaryCanon_(env) {
+  const v = env && env.GB_CANON ? String(env.GB_CANON).trim().toLowerCase() : "";
+  if (v === "sheets" || v === "sheets-first" || v === "sheets-confirm-bg") return false;
+  if (v === "d1-primary" || v === "d1") return true;
+  return isD1PrimaryCanon_(env);
+}
+
+function gbCanonLabel_(env) {
+  return isGbD1PrimaryCanon_(env) ? "d1-primary" : "sheets-mirror";
+}
+
 /**
  * После finishFullWeek / force week sync: слоты дней в D1 = список GAS (replace).
  * Обычные save/move/delete не трогаем. Откат: WEEK_D1_SYNC=upsert
@@ -283,10 +307,13 @@ function isWriteAction_(a) {
     a === "partnerListAdmin" ||
     a === "partnerGetMe" ||
     a === "partnerListMyOrders" ||
-    a === "composeWarehouseBuyMessage"
+    a === "composeWarehouseBuyMessage" ||
+    a === "gbBootstrap"
   ) {
     return false;
   }
+  // Goodboy writes
+  if (/^(gbMe|gbRegister|gbLogin|gbLinkClient|gbSavePet|gbEnsureSheets)$/i.test(a)) return true;
   return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner|force|place)/i.test(
     a
   );
@@ -315,7 +342,9 @@ async function handleAction_(action, params, env, url, ctx) {
       weekD1Sync: weekD1SyncLabel_(env),
       telegramCanon: hasTelegramToken_(env) ? "worker" : "sheets-fallback",
       hasTelegramToken: hasTelegramToken_(env),
-      deployMarker: "2026-08-30 telegram-worker-d1"
+      partnerCanon: partnerCanonLabel_(env),
+      gbCanon: gbCanonLabel_(env),
+      deployMarker: "2026-08-31 partner-gb-d1"
     };
   }
 
@@ -367,11 +396,11 @@ async function handleAction_(action, params, env, url, ctx) {
     });
   }
 
-  // Varka: partnerGetMe — D1 сразу (не ждать GAS); записи по-прежнему в GAS
+  // Varka + Goodboy: всегда LIVE cutover (D1-primary при PARTNER_CANON/GB_CANON)
   if (a === "partnerGetMe") {
     return cutoverPartnerGetMe_(params, env, ctx);
   }
-  if (/^partner(SubmitOrder|ListMyOrders|SetOrderStatus)$/i.test(a)) {
+  if (/^partner/i.test(a) || /^gb/i.test(a)) {
     return handleCutover_(a, Object.assign({}, params, { cutover: "1" }), env, ctx);
   }
 
@@ -6383,6 +6412,7 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
       out.cutover = true;
       out.fromGas = true;
       out.sandbox = false;
+      out.partnerCanon = partnerCanonLabel_(env);
     }
     return out;
   }
@@ -6398,7 +6428,9 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
     instant.cutover = true;
     instant.swr = true;
     instant.fromGas = false;
+    instant.fromD1 = true;
     instant.sandbox = false;
+    instant.partnerCanon = partnerCanonLabel_(env);
     if (ctx && typeof ctx.waitUntil === "function") {
       ctx.waitUntil(
         (async function () {
@@ -6432,7 +6464,9 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
     out.cutover = true;
     out.swr = true;
     out.fromGas = false;
+    out.fromD1 = true;
     out.sandbox = false;
+    out.partnerCanon = partnerCanonLabel_(env);
     return out;
   }
 
@@ -7230,6 +7264,131 @@ async function handleCutover_(a, params, env, ctx) {
       }
       return okSess;
     }
+    // Varka Partner_* — D1/snap правда → GAS зеркало (TG/deferred в GAS)
+    if (
+      isPartnerD1PrimaryCanon_(env) &&
+      /^(partnerSaveNetwork|partnerSavePoint|partnerSaveAccess|partnerRevokeAccess|partnerSeedDefaults|partnerSetNotifyRecipients|partnerSubmitOrder|partnerSetOrderStatus)$/i.test(
+        a
+      )
+    ) {
+      let d1P = null;
+      try {
+        if (env && env.DB) d1P = await mutatePartnerD1_(a, params, env);
+      } catch (eP) {
+        d1P = { status: "error", message: String((eP && eP.message) || eP) };
+      }
+      const gasP = gasProxy_(a, params, env, { write: true }).catch(function () {
+        return null;
+      });
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(
+          gasP.then(async function (live) {
+            try {
+              if (live && live.status === "success") await refreshPartnerSnapsFromGas_(a, params, env, live);
+            } catch (eR) {}
+            return live;
+          })
+        );
+      } else {
+        try {
+          const live = await gasP;
+          if (live && live.status === "success") await refreshPartnerSnapsFromGas_(a, params, env, live);
+        } catch (eG) {}
+      }
+      if (d1P && d1P.status === "success") {
+        return Object.assign({}, d1P, {
+          cutover: true,
+          sandbox: false,
+          d1Verified: true,
+          optimistic: false,
+          partnerCanon: partnerCanonLabel_(env),
+          action: a
+        });
+      }
+      // cold / validation miss — дождаться уже запущенного GAS (без второго вызова)
+      try {
+        const liveOnly = await gasP;
+        if (liveOnly && liveOnly.status === "success" && env && env.DB) {
+          try {
+            await refreshPartnerSnapsFromGas_(a, params, env, liveOnly);
+          } catch (eS) {}
+        }
+        if (liveOnly && typeof liveOnly === "object") {
+          liveOnly.cutover = true;
+          liveOnly.fromGas = true;
+          liveOnly.partnerCanon = partnerCanonLabel_(env);
+        }
+        return liveOnly || { status: "error", message: (d1P && d1P.message) || "partner_write_failed", cutover: true };
+      } catch (eFall) {
+        return {
+          status: "error",
+          message: (d1P && d1P.message) || String((eFall && eFall.message) || eFall),
+          cutover: true,
+          action: a
+        };
+      }
+    }
+    // Goodboy GB_* — D1/snap правда → GAS зеркало (CRM read-only)
+    if (
+      isGbD1PrimaryCanon_(env) &&
+      /^(gbEnsureSheets|gbMe|gbRegister|gbLogin|gbLinkClient|gbSavePet)$/i.test(a)
+    ) {
+      let d1G = null;
+      try {
+        if (env && env.DB) d1G = await mutateGbD1_(a, params, env);
+      } catch (eG0) {
+        d1G = { status: "error", message: String((eG0 && eG0.message) || eG0) };
+      }
+      const gasG = gasProxy_(a, params, env, { write: true }).catch(function () {
+        return null;
+      });
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(
+          gasG.then(async function (live) {
+            try {
+              if (live && live.status === "success") await refreshGbSnapsFromGas_(a, params, env, live);
+            } catch (eR) {}
+            return live;
+          })
+        );
+      } else {
+        try {
+          const live = await gasG;
+          if (live && live.status === "success") await refreshGbSnapsFromGas_(a, params, env, live);
+        } catch (eG1) {}
+      }
+      if (d1G && d1G.status === "success") {
+        return Object.assign({}, d1G, {
+          cutover: true,
+          sandbox: false,
+          d1Verified: true,
+          optimistic: false,
+          gbCanon: gbCanonLabel_(env),
+          action: a
+        });
+      }
+      try {
+        const liveOnly = await gasG;
+        if (liveOnly && liveOnly.status === "success" && env && env.DB) {
+          try {
+            await refreshGbSnapsFromGas_(a, params, env, liveOnly);
+          } catch (eS) {}
+        }
+        if (liveOnly && typeof liveOnly === "object") {
+          liveOnly.cutover = true;
+          liveOnly.fromGas = true;
+          liveOnly.gbCanon = gbCanonLabel_(env);
+        }
+        return liveOnly || { status: "error", message: (d1G && d1G.message) || "gb_write_failed", cutover: true };
+      } catch (eFallG) {
+        return {
+          status: "error",
+          message: (d1G && d1G.message) || String((eFallG && eFallG.message) || eFallG),
+          cutover: true,
+          action: a
+        };
+      }
+    }
     // Telegram: Worker + D1 tickets (токен = secret TELEGRAM_BOT_TOKEN). Нет токена → GAS.
     if (/^prepareCourierRoute$/i.test(a)) {
       return prepareCourierRouteD1_(params, env);
@@ -7435,7 +7594,9 @@ async function handleCutover_(a, params, env, ctx) {
     a === "getExpectedProfit" ||
     a === "getTransferTask" ||
     a === "composeWarehouseBuyMessage" ||
-    a === "partnerListAdmin"
+    a === "partnerListAdmin" ||
+    a === "partnerListMyOrders" ||
+    a === "gbBootstrap"
   ) {
     if (a === "suggestAddress") {
       return suggestAddressCutover_(params, env);
@@ -7484,6 +7645,17 @@ async function handleCutover_(a, params, env, ctx) {
           statsFromSnap: true
         });
       }
+    }
+    if (isPartnerD1PrimaryCanon_(env) && a === "partnerListAdmin") {
+      const adminFast = await partnerListAdminD1_(params, env, ctx);
+      if (adminFast) return adminFast;
+    }
+    if (isPartnerD1PrimaryCanon_(env) && a === "partnerListMyOrders") {
+      const ordFast = await partnerListMyOrdersD1_(params, env, ctx);
+      if (ordFast) return ordFast;
+    }
+    if (isGbD1PrimaryCanon_(env) && a === "gbBootstrap") {
+      return gbBootstrapD1_(params, env);
     }
     const live = await gasProxy_(a, params, env, { write: false });
     if (live && typeof live === "object") {
@@ -12879,6 +13051,919 @@ function nicksMatchLooseD1_(a, b) {
   const y = normalizeMatchKey_(b);
   if (!x || !y) return false;
   return x === y || x.indexOf(y) >= 0 || y.indexOf(x) >= 0;
+}
+
+
+
+/* —— Varka / Goodboy D1-primary (snap) —— */
+
+async function ensurePartnerAdminSnap_(env, ctx) {
+  let admin = await getSnapRaw_(env, "partnerListAdmin");
+  if (admin && admin.status === "success" && Array.isArray(admin.networks)) return admin;
+  try {
+    const live = await gasProxy_("partnerListAdmin", {}, env, { write: false });
+    if (live && live.status === "success") {
+      await putSnap_(env, "partnerListAdmin", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+      return live;
+    }
+  } catch (e) {}
+  return admin || { status: "success", networks: [], points: [], access: [], catalog: PARTNER_CATALOG_STATIC };
+}
+
+async function partnerListAdminD1_(params, env, ctx) {
+  let admin = await getSnapRaw_(env, "partnerListAdmin");
+  const force = String((params && params.force) || "") === "1";
+  const ok =
+    admin &&
+    admin.status === "success" &&
+    Array.isArray(admin.networks) &&
+    !force;
+  if (ok) {
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async function () {
+          try {
+            const live = await gasProxy_("partnerListAdmin", params || {}, env, { write: false });
+            if (live && live.status === "success") {
+              await putSnap_(env, "partnerListAdmin", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+            }
+          } catch (e) {}
+        })()
+      );
+    }
+    return Object.assign({}, admin, {
+      cutover: true,
+      fromD1: true,
+      fromGas: false,
+      sandbox: false,
+      d1Verified: true,
+      partnerCanon: partnerCanonLabel_(env)
+    });
+  }
+  const live = await gasProxy_("partnerListAdmin", params || {}, env, { write: false });
+  if (live && live.status === "success" && env && env.DB) {
+    try {
+      await putSnap_(env, "partnerListAdmin", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+    } catch (eS) {}
+  }
+  if (live && typeof live === "object") {
+    live.cutover = true;
+    live.fromGas = true;
+    live.fromD1 = false;
+    live.partnerCanon = partnerCanonLabel_(env);
+  }
+  return live;
+}
+
+async function partnerListMyOrdersD1_(params, env, ctx) {
+  const tid = String((params && params.telegramId) || "").trim();
+  const user = partnerNormUserWorker_(params && params.username);
+  let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
+  let orders = Array.isArray(pack.orders) ? pack.orders.slice() : [];
+  if (orders.length || String((params && params.force) || "") !== "1") {
+    if (isPartnerArseniy_(params)) {
+      orders = orders.filter(function (o) {
+        return String((o && (o.locationId || o.pointId)) || "") === PARTNER_ARSENIY_POINT.id;
+      });
+    } else if (tid || user) {
+      orders = orders.filter(function (o) {
+        const ot = String((o && o.telegramId) || "").trim();
+        const ou = partnerNormUserWorker_(o && o.username);
+        return (tid && ot === tid) || (user && ou === user);
+      });
+    }
+    if (orders.length || (pack && pack._d1TouchedAt)) {
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(
+          (async function () {
+            try {
+              const live = await gasProxy_("partnerListMyOrders", params || {}, env, { write: false });
+              if (live && live.status === "success" && Array.isArray(live.orders)) {
+                // merge into global pack by id
+                let all = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
+                const byId = {};
+                (all.orders || []).forEach(function (o) {
+                  if (o && o.id) byId[o.id] = o;
+                });
+                live.orders.forEach(function (o) {
+                  if (o && o.id) byId[o.id] = o;
+                });
+                all.orders = Object.keys(byId).map(function (k) {
+                  return byId[k];
+                });
+                all.status = "success";
+                await putSnap_(env, "partnerOrders", all);
+              }
+            } catch (e) {}
+          })()
+        );
+      }
+      return {
+        status: "success",
+        orders: orders,
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        sandbox: false,
+        d1Verified: true,
+        partnerCanon: partnerCanonLabel_(env)
+      };
+    }
+  }
+  const live = await gasProxy_("partnerListMyOrders", params || {}, env, { write: false });
+  if (live && live.status === "success" && env && env.DB) {
+    try {
+      let all = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
+      const byId = {};
+      (all.orders || []).forEach(function (o) {
+        if (o && o.id) byId[o.id] = o;
+      });
+      (live.orders || []).forEach(function (o) {
+        if (o && o.id) byId[o.id] = o;
+      });
+      all.orders = Object.keys(byId).map(function (k) {
+        return byId[k];
+      });
+      all.status = "success";
+      await putSnap_(env, "partnerOrders", all);
+    } catch (eS) {}
+    live.cutover = true;
+    live.fromGas = true;
+    live.partnerCanon = partnerCanonLabel_(env);
+  }
+  return partnerGuardOrRewrite_("partnerListMyOrders", params, live);
+}
+
+function partnerUid_(prefix) {
+  return String(prefix || "po") + "_" + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+}
+
+function partnerDefaultSlotWorker_() {
+  const now = new Date();
+  // Europe/Minsk approx: UTC+3
+  const minsk = new Date(now.getTime() + 3 * 3600 * 1000);
+  let d = new Date(Date.UTC(minsk.getUTCFullYear(), minsk.getUTCMonth(), minsk.getUTCDate() + 1));
+  // skip Sunday (0)
+  if (d.getUTCDay() === 0) d = new Date(d.getTime() + 86400000);
+  const iso = d.toISOString().slice(0, 10);
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return {
+    dateIso: iso,
+    dateLabel: dd + "." + mm,
+    timeFrom: "12:00",
+    timeTo: "18:00",
+    timeLabel: "12:00–18:00"
+  };
+}
+
+async function mutatePartnerD1_(action, params, env) {
+  const a = String(action || "");
+  if (/^partnerSeedDefaults$/i.test(a)) {
+    // seed — только GAS (миграции V3…V13); D1 подтянет после
+    return { status: "error", message: "seed_via_gas" };
+  }
+  let admin = await ensurePartnerAdminSnap_(env, null);
+  admin = Object.assign({ status: "success", networks: [], points: [], access: [], notifyRecipients: [], catalog: PARTNER_CATALOG_STATIC }, admin || {});
+  admin.networks = Array.isArray(admin.networks) ? admin.networks.slice() : [];
+  admin.points = Array.isArray(admin.points) ? admin.points.slice() : [];
+  admin.access = Array.isArray(admin.access) ? admin.access.slice() : [];
+  admin.notifyRecipients = Array.isArray(admin.notifyRecipients) ? admin.notifyRecipients.slice() : [];
+
+  if (/^partnerSaveNetwork$/i.test(a)) {
+    const name = String((params && params.name) || "").trim();
+    if (!name) return { status: "error", message: "need_name" };
+    const id = String((params && params.id) || "").trim() || partnerUid_("net");
+    const logo = String((params && params.logo) || "").trim();
+    const active = !(params && (params.active === false || params.active === "no" || params.active === 0 || params.active === "0"));
+    let hit = -1;
+    for (let i = 0; i < admin.networks.length; i++) {
+      if (String(admin.networks[i].id) === id) {
+        hit = i;
+        break;
+      }
+    }
+    const row = { id: id, name: name, logo: logo, active: active };
+    if (hit >= 0) admin.networks[hit] = Object.assign({}, admin.networks[hit], row);
+    else admin.networks.push(row);
+    await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    return { status: "success", id: id, name: name, active: active, d1Verified: true };
+  }
+
+  if (/^partnerSavePoint$/i.test(a)) {
+    const name = String((params && params.name) || "").trim();
+    const networkId = String((params && params.networkId) || "").trim();
+    if (!name || !networkId) return { status: "error", message: "need_name_network" };
+    const id = String((params && params.id) || "").trim() || partnerUid_("pt");
+    const address = String((params && params.address) || "").trim();
+    const active = !(params && (params.active === false || params.active === "no" || params.active === 0 || params.active === "0"));
+    let hit = -1;
+    for (let i = 0; i < admin.points.length; i++) {
+      if (String(admin.points[i].id) === id) {
+        hit = i;
+        break;
+      }
+    }
+    const row = { id: id, networkId: networkId, name: name, address: address, active: active };
+    if (hit >= 0) admin.points[hit] = Object.assign({}, admin.points[hit], row);
+    else admin.points.push(row);
+    await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    return { status: "success", id: id, name: name, networkId: networkId, active: active, d1Verified: true };
+  }
+
+  if (/^partnerSaveAccess$/i.test(a)) {
+    const username = partnerNormUserWorker_(params && params.username);
+    const telegramId = String((params && params.telegramId) || "").trim();
+    if (!username && !telegramId) return { status: "error", message: "need_user" };
+    const id = String((params && params.id) || "").trim() || partnerUid_("pa");
+    let pointIds = params && params.pointIds;
+    if (typeof pointIds === "string") {
+      try {
+        pointIds = JSON.parse(pointIds);
+      } catch (e) {
+        pointIds = String(pointIds)
+          .split(",")
+          .map(function (s) {
+            return s.trim();
+          })
+          .filter(Boolean);
+      }
+    }
+    if (!Array.isArray(pointIds)) pointIds = [];
+    const row = {
+      id: id,
+      username: username,
+      telegramId: telegramId,
+      name: String((params && params.name) || "").trim(),
+      networkId: String((params && params.networkId) || "").trim(),
+      pointIds: pointIds,
+      role: String((params && params.role) || "partner").trim() || "partner",
+      status: String((params && params.status) || "active").trim() || "active"
+    };
+    let hit = -1;
+    for (let i = 0; i < admin.access.length; i++) {
+      if (String(admin.access[i].id) === id) {
+        hit = i;
+        break;
+      }
+    }
+    if (hit < 0 && username) {
+      for (let j = 0; j < admin.access.length; j++) {
+        if (partnerNormUserWorker_(admin.access[j].username) === username) {
+          hit = j;
+          row.id = admin.access[j].id || id;
+          break;
+        }
+      }
+    }
+    if (hit >= 0) admin.access[hit] = Object.assign({}, admin.access[hit], row);
+    else admin.access.push(row);
+    await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    return { status: "success", id: row.id, d1Verified: true };
+  }
+
+  if (/^partnerRevokeAccess$/i.test(a)) {
+    const id = String((params && (params.id || params.accessId)) || "").trim();
+    const username = partnerNormUserWorker_(params && params.username);
+    let changed = 0;
+    for (let i = 0; i < admin.access.length; i++) {
+      const row = admin.access[i];
+      if ((id && String(row.id) === id) || (username && partnerNormUserWorker_(row.username) === username)) {
+        admin.access[i] = Object.assign({}, row, { status: "revoked" });
+        changed++;
+      }
+    }
+    if (!changed) return { status: "error", message: "not_found" };
+    await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    return { status: "success", revoked: changed, d1Verified: true };
+  }
+
+  if (/^partnerSetNotifyRecipients$/i.test(a)) {
+    let raw = params && params.recipients != null ? params.recipients : "[]";
+    let parsed = [];
+    if (Array.isArray(raw)) parsed = raw;
+    else {
+      try {
+        parsed = JSON.parse(String(raw || "[]"));
+      } catch (e) {
+        parsed = [];
+      }
+    }
+    const list = [];
+    for (let i = 0; i < parsed.length; i++) {
+      const it = parsed[i];
+      const id = String((it && (it.telegramId || it.id)) || it || "").trim();
+      if (!id) continue;
+      list.push({ telegramId: id, name: (it && it.name) || "" });
+    }
+    admin.notifyRecipients = list;
+    await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    return { status: "success", notifyRecipients: list, count: list.length, d1Verified: true };
+  }
+
+  if (/^partnerSubmitOrder$/i.test(a)) {
+    const tid = String((params && params.telegramId) || "").trim();
+    const username = partnerNormUserWorker_(params && params.username);
+    if (!tid && !username) return { status: "error", message: "need_user" };
+    const locationId = String((params && params.locationId) || "").trim();
+    if (!locationId) return { status: "error", message: "need_location" };
+    if (isPartnerArseniy_(params) && locationId !== PARTNER_ARSENIY_POINT.id) {
+      return { status: "error", message: "forbidden_point" };
+    }
+    let basket = params && (params.basket || params.basketJson);
+    if (typeof basket === "string") {
+      try {
+        basket = JSON.parse(basket);
+      } catch (e) {
+        basket = [];
+      }
+    }
+    if (!Array.isArray(basket)) basket = [];
+    basket = basket.filter(function (b) {
+      return b && (Number(b.qty) || 0) > 0;
+    });
+    if (!basket.length) return { status: "error", message: "empty_basket" };
+    // NFC rules
+    for (let bi = 0; bi < basket.length; bi++) {
+      const bb = basket[bi];
+      if (!bb || String(bb.id || "") !== "vr_c_nfc") continue;
+      const nq = Number(bb.qty) || 0;
+      if (nq > 2) return { status: "error", message: "nfc_max_2" };
+      if (nq > 1) {
+        const reason = String(bb.reason || bb.reasonLabel || bb.note || "").trim();
+        if (!reason) return { status: "error", message: "nfc_need_reason" };
+      }
+    }
+    let allowed = false;
+    let networkId = String((params && params.networkId) || "").trim();
+    let locationName = String((params && params.locationName) || "").trim();
+    const access = admin.access || [];
+    for (let i = 0; i < access.length; i++) {
+      const row = access[i];
+      if (String(row.status || "active").toLowerCase() === "revoked") continue;
+      const matchU = username && partnerNormUserWorker_(row.username) === username;
+      const matchT = tid && String(row.telegramId || "") === tid;
+      if (!(matchU || matchT)) continue;
+      const pids = row.pointIds || [];
+      if (pids.indexOf(locationId) >= 0) {
+        allowed = true;
+        if (!networkId) networkId = row.networkId || "";
+        break;
+      }
+    }
+    // owner without access row: allow if admin snap empty access check fails — GAS will validate
+    if (!allowed && !(admin.access || []).length) {
+      return { status: "error", message: "need_admin_snap" };
+    }
+    if (!allowed) {
+      // let GAS decide (owner Бойни)
+      return { status: "error", message: "forbidden_point_or_owner_gas" };
+    }
+    for (let p = 0; p < (admin.points || []).length; p++) {
+      if (String(admin.points[p].id) === locationId) {
+        if (!locationName) locationName = admin.points[p].name || "";
+        if (!networkId) networkId = admin.points[p].networkId || "";
+        break;
+      }
+    }
+    const slot = partnerDefaultSlotWorker_();
+    const id = partnerUid_("po");
+    const order = {
+      id: id,
+      dateIso: new Date().toISOString().slice(0, 10),
+      locationId: locationId,
+      locationName: locationName,
+      networkId: networkId,
+      telegramId: tid,
+      userName: String((params && params.userName) || "").trim(),
+      username: username,
+      basket: basket,
+      status: "new",
+      createdAt: new Date().toISOString(),
+      deliverDateIso: slot.dateIso,
+      deliverDateLabel: slot.dateLabel,
+      deliverTimeFrom: slot.timeFrom,
+      deliverTimeTo: slot.timeTo,
+      deliverTimeLabel: slot.timeLabel,
+      deferredId: ""
+    };
+    let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
+    pack.orders = Array.isArray(pack.orders) ? pack.orders.slice() : [];
+    pack.orders.unshift(order);
+    pack.status = "success";
+    pack._d1TouchedAt = Date.now();
+    await putSnap_(env, "partnerOrders", pack);
+    return { status: "success", order: order, id: id, deferredId: "", d1Verified: true, pendingSheets: true };
+  }
+
+  if (/^partnerSetOrderStatus$/i.test(a)) {
+    const id = String((params && (params.id || params.orderId)) || "").trim();
+    const st = String((params && params.status) || "").trim().toLowerCase();
+    if (!id || !st) return { status: "error", message: "need_id_status" };
+    let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
+    pack.orders = Array.isArray(pack.orders) ? pack.orders.slice() : [];
+    let hit = -1;
+    for (let i = 0; i < pack.orders.length; i++) {
+      if (String(pack.orders[i].id) === id) {
+        hit = i;
+        break;
+      }
+    }
+    if (hit < 0) return { status: "error", message: "not_found" };
+    pack.orders[hit] = Object.assign({}, pack.orders[hit], { status: st, statusAt: new Date().toISOString() });
+    pack._d1TouchedAt = Date.now();
+    await putSnap_(env, "partnerOrders", pack);
+    return { status: "success", id: id, status: st, order: pack.orders[hit], d1Verified: true, pendingSheets: true };
+  }
+
+  return { status: "error", message: "unsupported_partner_action" };
+}
+
+async function refreshPartnerSnapsFromGas_(action, params, env, live) {
+  if (!env || !env.DB || !live) return;
+  if (/^partnerSubmitOrder$/i.test(action) && live.order) {
+    let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
+    pack.orders = Array.isArray(pack.orders) ? pack.orders.slice() : [];
+    const oid = String(live.order.id || live.id || "");
+    let replaced = false;
+    for (let i = 0; i < pack.orders.length; i++) {
+      if (String(pack.orders[i].id) === oid || (live.order && pack.orders[i]._tmp && pack.orders[i].locationId === live.order.locationId)) {
+        pack.orders[i] = live.order;
+        replaced = true;
+        break;
+      }
+    }
+    if (!replaced && live.order) pack.orders.unshift(live.order);
+    pack.status = "success";
+    await putSnap_(env, "partnerOrders", pack);
+  }
+  if (/^partnerSetOrderStatus$/i.test(action) && (live.order || live.id)) {
+    let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
+    pack.orders = Array.isArray(pack.orders) ? pack.orders.slice() : [];
+    const oid = String((live.order && live.order.id) || live.id || params.id || "");
+    for (let i = 0; i < pack.orders.length; i++) {
+      if (String(pack.orders[i].id) === oid) {
+        pack.orders[i] = live.order || Object.assign({}, pack.orders[i], { status: live.status || params.status });
+        break;
+      }
+    }
+    await putSnap_(env, "partnerOrders", pack);
+  }
+  if (/^partner(Save|Revoke|SetNotify|Seed)/i.test(action)) {
+    try {
+      const admin = await gasProxy_("partnerListAdmin", { telegramId: params && params.telegramId }, env, { write: false });
+      if (admin && admin.status === "success") {
+        await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString() }));
+      }
+    } catch (e) {}
+  }
+}
+
+function gbPartnersStatic_() {
+  return [
+    {
+      id: "varok",
+      slug: "varok",
+      name: "VARKA",
+      blurb: "12 кофеен в Минске — лакомства Бойни уже на витрине",
+      locationsCount: 12
+    }
+  ];
+}
+
+function gbBootstrapD1_(params, env) {
+  return {
+    status: "success",
+    demo: false,
+    message: "live ok",
+    partners: gbPartnersStatic_(),
+    sheets: ["GB_Пользователи", "GB_Связки", "GB_Питомцы"],
+    cutover: true,
+    fromD1: true,
+    fromGas: false,
+    sandbox: false,
+    d1Verified: true,
+    gbCanon: gbCanonLabel_(env)
+  };
+}
+
+function gbPhoneDigitsWorker_(phone) {
+  let d = String(phone || "").replace(/\D/g, "");
+  if (!d) return "";
+  if (d.length === 12 && d.indexOf("375") === 0) return d;
+  if (d.length === 11 && d.charAt(0) === "8") return "375" + d.slice(1);
+  if (d.length === 9) return "375" + d;
+  return d;
+}
+
+function gbPhonesMatchWorker_(a, b) {
+  const da = gbPhoneDigitsWorker_(a);
+  const db = gbPhoneDigitsWorker_(b);
+  if (!da || !db) return false;
+  if (da === db) return true;
+  if (da.length >= 9 && db.length >= 9 && da.slice(-9) === db.slice(-9)) return true;
+  return false;
+}
+
+function gbUidWorker_(prefix) {
+  return String(prefix || "gb") + "_" + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+}
+
+async function gbLoadPack_(env) {
+  const users = (await getSnapRaw_(env, "gbUsers")) || { status: "success", users: [] };
+  const links = (await getSnapRaw_(env, "gbLinks")) || { status: "success", links: [] };
+  const pets = (await getSnapRaw_(env, "gbPets")) || { status: "success", pets: [] };
+  return {
+    users: Array.isArray(users.users) ? users.users.slice() : [],
+    links: Array.isArray(links.links) ? links.links.slice() : [],
+    pets: Array.isArray(pets.pets) ? pets.pets.slice() : []
+  };
+}
+
+async function gbSavePack_(env, pack) {
+  await putSnap_(env, "gbUsers", { status: "success", users: pack.users || [], _d1TouchedAt: Date.now() });
+  await putSnap_(env, "gbLinks", { status: "success", links: pack.links || [], _d1TouchedAt: Date.now() });
+  await putSnap_(env, "gbPets", { status: "success", pets: pack.pets || [], _d1TouchedAt: Date.now() });
+}
+
+async function gbFindCrmFromD1_(nick, phone, env) {
+  const wantNick = String(nick || "")
+    .trim()
+    .replace(/^@/, "")
+    .toLowerCase();
+  const snap = await getSnapRaw_(env, "listSubscriptions");
+  const subs = (snap && (snap.subscriptions || snap.items || snap.list)) || [];
+  if (!Array.isArray(subs) || !subs.length) return null;
+  const hits = [];
+  for (let i = 0; i < subs.length; i++) {
+    const s = subs[i] || {};
+    const sn = String(s.client || s.nick || s.name || "")
+      .trim()
+      .replace(/^@/, "")
+      .toLowerCase();
+    const matchNick = wantNick && sn && (sn === wantNick || sn.indexOf(wantNick) >= 0 || wantNick.indexOf(sn) >= 0);
+    const matchPhone = phone && (gbPhonesMatchWorker_(s.phone, phone) || gbPhonesMatchWorker_(s.tel, phone));
+    if (matchNick || matchPhone) {
+      hits.push({
+        matchKey: s.matchKey || normalizeMatchKey_(s.client || s.nick || ""),
+        clientNick: s.client || s.nick || "",
+        subId: s.id || s.subId || "",
+        segment: s.segment || s.type || ""
+      });
+    }
+  }
+  if (!hits.length) return { hit: null, ambiguous: false };
+  if (hits.length > 1) return { hit: null, ambiguous: true, candidates: hits.slice(0, 5) };
+  return { hit: hits[0], ambiguous: false };
+}
+
+function gbBuildMeFromPack_(user, pack, subscription) {
+  const tid = String((user && user.telegramId) || "");
+  const pets = (pack.pets || []).filter(function (p) {
+    return String(p.ownerTelegramId || "") === tid;
+  });
+  let link = null;
+  for (let i = 0; i < (pack.links || []).length; i++) {
+    if (String(pack.links[i].telegramId || "") === tid || String(pack.links[i].userId || "") === String(user.userId || "")) {
+      link = pack.links[i];
+      break;
+    }
+  }
+  return {
+    status: "success",
+    user: {
+      userId: user.userId,
+      telegramId: user.telegramId,
+      name: user.name || "",
+      username: user.username || "",
+      phone: user.phone || "",
+      access: user.access || "limited"
+    },
+    pets: pets,
+    activePetId: pets[0] ? pets[0].id : null,
+    link: link,
+    subscription: subscription || null,
+    partners: gbPartnersStatic_(),
+    privilege: subscription && String(subscription.segment || "").toUpperCase().indexOf("ПП") >= 0
+      ? { active: true }
+      : { active: false }
+  };
+}
+
+async function mutateGbD1_(action, params, env) {
+  const a = String(action || "");
+  if (/^gbEnsureSheets$/i.test(a)) {
+    return {
+      status: "success",
+      sheets: ["GB_Пользователи", "GB_Связки", "GB_Питомцы"],
+      d1Verified: true
+    };
+  }
+  let pack = await gbLoadPack_(env);
+  const now = new Date().toISOString();
+
+  function upsertUser(opts) {
+    const tid = String((opts && opts.telegramId) || "").trim();
+    if (!tid) return null;
+    let idx = -1;
+    for (let i = 0; i < pack.users.length; i++) {
+      if (String(pack.users[i].telegramId) === tid) {
+        idx = i;
+        break;
+      }
+    }
+    const base =
+      idx >= 0
+        ? Object.assign({}, pack.users[idx])
+        : {
+            userId: gbUidWorker_("u"),
+            telegramId: tid,
+            createdAt: now,
+            access: "limited"
+          };
+    if (opts.name != null && String(opts.name).trim()) base.name = String(opts.name).trim();
+    if (opts.username != null && String(opts.username).trim()) base.username = String(opts.username).trim().replace(/^@/, "");
+    if (opts.phone != null && String(opts.phone).trim()) base.phone = String(opts.phone).trim();
+    if (opts.access != null) base.access = String(opts.access);
+    base.lastLoginAt = now;
+    if (idx >= 0) pack.users[idx] = base;
+    else pack.users.push(base);
+    return base;
+  }
+
+  if (/^gbMe$/i.test(a)) {
+    const tid = String((params && params.telegramId) || "").trim();
+    if (!tid) return { status: "error", message: "need_telegramId" };
+    if (!pack.users.length) return { status: "error", message: "cold_gb" };
+    const user = upsertUser({
+      telegramId: tid,
+      name: (params && params.name) || "",
+      username: (params && (params.username || params.nick)) || "",
+      phone: (params && params.phone) || ""
+    });
+    await gbSavePack_(env, pack);
+    return Object.assign({}, gbBuildMeFromPack_(user, pack, null), { d1Verified: true });
+  }
+
+  if (/^gbRegister$/i.test(a)) {
+    const name = String((params && params.name) || "").trim();
+    const phone = String((params && params.phone) || "").trim();
+    const nick = String((params && (params.nick || params.username)) || "").trim().replace(/^@/, "");
+    const hasSub =
+      params &&
+      (params.hasSubscription === true ||
+        params.hasSubscription === "true" ||
+        params.hasSubscription === "1" ||
+        params.hasSubscription === "yes");
+    if (!name) return { status: "error", message: "Укажите имя" };
+    if (!phone || gbPhoneDigitsWorker_(phone).length < 9) return { status: "error", message: "Укажите телефон" };
+    const telegramId = String((params && params.telegramId) || "").trim() || gbUidWorker_("web");
+    let user = upsertUser({
+      telegramId: telegramId,
+      name: name,
+      username: nick,
+      phone: phone,
+      access: hasSub ? "full" : "limited"
+    });
+    let needsLink = !!hasSub;
+    if (hasSub) {
+      const found = await gbFindCrmFromD1_(nick, phone, env);
+      if (found && found.hit && !found.ambiguous) {
+        const link = {
+          userId: user.userId,
+          telegramId: user.telegramId,
+          matchKey: found.hit.matchKey,
+          clientNick: found.hit.clientNick,
+          subId: found.hit.subId,
+          segment: found.hit.segment,
+          status: "linked",
+          verifyMethod: nick ? "nick" : "phone",
+          phone: phone,
+          linkedAt: now
+        };
+        let li = -1;
+        for (let i = 0; i < pack.links.length; i++) {
+          if (String(pack.links[i].telegramId) === telegramId) {
+            li = i;
+            break;
+          }
+        }
+        if (li >= 0) pack.links[li] = Object.assign({}, pack.links[li], link);
+        else pack.links.push(link);
+        user = upsertUser({
+          telegramId: telegramId,
+          name: name,
+          username: nick,
+          phone: phone,
+          access: found.hit.segment ? "full" : "limited"
+        });
+        needsLink = !found.hit.segment;
+      }
+    }
+    await gbSavePack_(env, pack);
+    const payload = gbBuildMeFromPack_(user, pack, null);
+    payload.needsLink = needsLink && !(payload.link && payload.link.status === "linked" && payload.link.segment);
+    payload.registered = true;
+    payload.d1Verified = true;
+    return payload;
+  }
+
+  if (/^gbLogin$/i.test(a)) {
+    const phone = String((params && params.phone) || "").trim();
+    const nick = String((params && (params.nick || params.username)) || "").trim().replace(/^@/, "");
+    if (!phone && !nick) return { status: "error", message: "Укажите телефон или ник" };
+    if (!pack.users.length) return { status: "error", message: "cold_gb" };
+    let telegramId = String((params && params.telegramId) || "").trim();
+    let existing = null;
+    if (telegramId) {
+      for (let i = 0; i < pack.users.length; i++) {
+        if (String(pack.users[i].telegramId) === telegramId) {
+          existing = pack.users[i];
+          break;
+        }
+      }
+    }
+    if (!existing) {
+      for (let i = 0; i < pack.users.length; i++) {
+        const row = pack.users[i];
+        if (phone && gbPhonesMatchWorker_(row.phone, phone)) {
+          existing = row;
+          break;
+        }
+        const un = String(row.username || "")
+          .trim()
+          .replace(/^@/, "")
+          .toLowerCase();
+        if (nick && un && un === nick.toLowerCase()) {
+          existing = row;
+          break;
+        }
+      }
+    }
+    if (!existing) return { status: "error", message: "cold_or_not_found" };
+    telegramId = String(existing.telegramId);
+    const user = upsertUser({
+      telegramId: telegramId,
+      phone: phone || existing.phone,
+      username: nick || existing.username,
+      name: (params && params.name) || existing.name
+    });
+    await gbSavePack_(env, pack);
+    const payload = gbBuildMeFromPack_(user, pack, null);
+    payload.loggedIn = true;
+    payload.d1Verified = true;
+    return payload;
+  }
+
+  if (/^gbLinkClient$/i.test(a)) {
+    const telegramId = String((params && params.telegramId) || "").trim();
+    if (!telegramId) return { status: "error", message: "need_telegramId" };
+    const phone = String((params && params.phone) || "").trim();
+    const nick = String((params && (params.nick || params.username)) || "").trim().replace(/^@/, "");
+    if (!phone && !nick) return { status: "error", message: "Укажите телефон или ник" };
+    const found = await gbFindCrmFromD1_(nick, phone, env);
+    if (!found) return { status: "error", message: "cold_crm" };
+    if (found.ambiguous) {
+      return {
+        status: "error",
+        message: "Несколько совпадений — уточните Instagram-ник",
+        code: "ambiguous",
+        candidates: found.candidates || []
+      };
+    }
+    if (!found.hit) return { status: "error", message: "Клиент не найден в подписках", code: "not_found" };
+    const user = upsertUser({
+      telegramId: telegramId,
+      phone: phone || undefined,
+      username: nick || undefined,
+      name: (params && params.name) || found.hit.clientNick,
+      access: found.hit.segment ? "full" : "limited"
+    });
+    const link = {
+      userId: user.userId,
+      telegramId: user.telegramId,
+      matchKey: found.hit.matchKey,
+      clientNick: found.hit.clientNick,
+      subId: found.hit.subId,
+      segment: found.hit.segment,
+      status: "linked",
+      verifyMethod: nick ? "nick" : "phone",
+      phone: phone,
+      linkedAt: now
+    };
+    let li = -1;
+    for (let i = 0; i < pack.links.length; i++) {
+      if (String(pack.links[i].telegramId) === telegramId) {
+        li = i;
+        break;
+      }
+    }
+    if (li >= 0) pack.links[li] = Object.assign({}, pack.links[li], link);
+    else pack.links.push(link);
+    await gbSavePack_(env, pack);
+    const payload = gbBuildMeFromPack_(user, pack, null);
+    payload.link = link;
+    payload.d1Verified = true;
+    return payload;
+  }
+
+  if (/^gbSavePet$/i.test(a)) {
+    const telegramId = String((params && params.telegramId) || "").trim();
+    if (!telegramId) return { status: "error", message: "need_telegramId" };
+    let pet = null;
+    if (params && params.pet && typeof params.pet === "object") pet = params.pet;
+    else if (params && params.petJson) {
+      try {
+        pet = JSON.parse(String(params.petJson));
+      } catch (eJ) {
+        pet = null;
+      }
+    } else pet = params;
+    if (!pet || typeof pet !== "object") return { status: "error", message: "need_pet" };
+    upsertUser({ telegramId: telegramId });
+    const id = String(pet.id || "").trim() || gbUidWorker_("pet");
+    const row = {
+      id: id,
+      ownerTelegramId: telegramId,
+      name: String(pet.name || "").trim(),
+      breed: String(pet.breed || "").trim(),
+      weightKg: pet.weightKg != null ? Number(pet.weightKg) : "",
+      ageYears: pet.ageYears != null ? Number(pet.ageYears) : "",
+      sex: String(pet.sex || "").trim(),
+      allergies: String(pet.allergies || "").trim(),
+      notes: String(pet.notes || "").trim(),
+      updatedAt: now
+    };
+    let pi = -1;
+    for (let i = 0; i < pack.pets.length; i++) {
+      if (String(pack.pets[i].id) === id) {
+        pi = i;
+        break;
+      }
+    }
+    if (pi >= 0) pack.pets[pi] = Object.assign({}, pack.pets[pi], row);
+    else pack.pets.push(row);
+    await gbSavePack_(env, pack);
+    return { status: "success", pet: row, d1Verified: true };
+  }
+
+  return { status: "error", message: "unsupported_gb_action" };
+}
+
+async function refreshGbSnapsFromGas_(action, params, env, live) {
+  if (!env || !env.DB || !live || live.status !== "success") return;
+  // merge user/pets/link from live payload into snaps
+  let pack = await gbLoadPack_(env);
+  if (live.user) {
+    const tid = String(live.user.telegramId || "");
+    let idx = -1;
+    for (let i = 0; i < pack.users.length; i++) {
+      if (String(pack.users[i].telegramId) === tid) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx >= 0) pack.users[idx] = Object.assign({}, pack.users[idx], live.user);
+    else pack.users.push(live.user);
+  }
+  if (live.link) {
+    const tid = String(live.link.telegramId || (live.user && live.user.telegramId) || "");
+    let idx = -1;
+    for (let i = 0; i < pack.links.length; i++) {
+      if (String(pack.links[i].telegramId) === tid) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx >= 0) pack.links[idx] = Object.assign({}, pack.links[idx], live.link);
+    else pack.links.push(live.link);
+  }
+  if (Array.isArray(live.pets)) {
+    live.pets.forEach(function (p) {
+      if (!p || !p.id) return;
+      let idx = -1;
+      for (let i = 0; i < pack.pets.length; i++) {
+        if (String(pack.pets[i].id) === String(p.id)) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx >= 0) pack.pets[idx] = Object.assign({}, pack.pets[idx], p);
+      else pack.pets.push(p);
+    });
+  }
+  if (live.pet && live.pet.id) {
+    let idx = -1;
+    for (let i = 0; i < pack.pets.length; i++) {
+      if (String(pack.pets[i].id) === String(live.pet.id)) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx >= 0) pack.pets[idx] = Object.assign({}, pack.pets[idx], live.pet);
+    else pack.pets.push(live.pet);
+  }
+  await gbSavePack_(env, pack);
 }
 
 

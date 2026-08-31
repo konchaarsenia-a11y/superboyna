@@ -14,6 +14,8 @@ WAREHOUSE_CANON = "d1-primary"
 META_CANON = "d1-primary"
 CUTTING_STRUCT_CANON = "d1-primary"
 PRICE_CANON = "d1-primary"
+PARTNER_CANON = "d1-primary"
+GB_CANON = "d1-primary"
 WEEK_D1_SYNC = "gas-authoritative"
 
 # Secret (не в vars): wrangler secret put TELEGRAM_BOT_TOKEN

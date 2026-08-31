@@ -27,7 +27,8 @@
 | `lookupBpPartner` | **D1** из подписок; miss → GAS | — |
 | TG send (`sendCourierRoute` / `sendDeficit` / `forceSurveyRemind`) | **Worker** + D1 tickets/dedupe; secret `TELEGRAM_BOT_TOKEN`; нет секрета → GAS | `telegramCanon: worker\|sheets-fallback` |
 | `finishFullWeek` / materialize / pull | **GAS** (закрытие недели); D1 resync + protectMs 5м | `weekD1Sync` |
-| Goodboy `gb*` / Varka | **GAS** (отдельные продукты) | — |
+| Varka `partner*` | **D1/snap сразу** → Sheets+TG/deferred зеркало GAS | `partnerCanon: d1-primary` |
+| Goodboy `gb*` | **D1/snap сразу** → Sheets зеркало; CRM read-only (subs D1) | `gbCanon: d1-primary` |
 | доступы / шаблоны / опросники CRUD | **D1 сразу** → Sheets зеркало; remind send — Worker TG | `metaCanon: d1-primary` |
 | структура нарезки (план items) | **D1 fromOrders** / rebuild; флаги — ops; finish → rebuild + row-map GAS | `cuttingStructCanon: d1-primary` |
 | розничный прайс + `calcPrice(retail)` + ПП `calcPpFact`/`calcPrice(pp)` | **D1** (ПП: кэш unit costs + формула; cold GAS warm) | `priceCanon: d1-primary` |
