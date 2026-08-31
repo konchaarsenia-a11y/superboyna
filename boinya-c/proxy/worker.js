@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-08-31 d1-empty-clients-heal"
+      deployMarker: "2026-08-31 d1-empty-clients-heal2"
     };
   }
 
@@ -4771,13 +4771,17 @@ async function sanitizeGasClientsPayload_(env, day, live) {
 /**
  * После закрытия недели / failed resync D1 может быть пустым, а Sheets уже с людьми.
  * UI (force getClients) раньше сразу отдавал [] из D1 → «пропали, потом появились».
- * Heal: если D1 реже expect (weekDayCountsSheet/counts) и нет свежего delete-tomb —
- * тянем GAS, пишем в D1, отдаём полный список.
+ * Heal: если D1 пустой/реже expect — тянем GAS, пишем в D1, в UI всегда отдаём GAS-список.
  */
 async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
   opts = opts || {};
-  if (!env || !env.DB || !day) return d1Payload;
+  const diag = { day: String(day || ""), got: 0, expect: null, sparse: false, gasN: -1, step: "init" };
+  if (!env || !env.DB || !day) {
+    if (d1Payload && typeof d1Payload === "object") d1Payload.healDiag = diag;
+    return d1Payload;
+  }
   const got = Array.isArray(d1Payload && d1Payload.clients) ? d1Payload.clients.length : 0;
+  diag.got = got;
   let expect = null;
   try {
     let counts = await getSnapRaw_(env, "weekDayCountsSheet");
@@ -4787,45 +4791,88 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
     ((counts && counts.items) || []).forEach(function (it) {
       if (it && String(it.day) === String(day)) expect = Number(it.count) || 0;
     });
-  } catch (eExp) {}
+  } catch (eExp) {
+    diag.expectErr = String((eExp && eExp.message) || eExp);
+  }
+  diag.expect = expect;
   const expectPos = expect != null && expect > 0;
-  const sparse = got === 0 ? !!opts.force || expectPos : expect != null && got < expect;
-  if (!sparse) return d1Payload;
+  const sparse = got === 0 ? !!(opts.force || expectPos) : expect != null && got < expect;
+  diag.sparse = sparse;
+  if (!sparse) {
+    diag.step = "not_sparse";
+    if (d1Payload && typeof d1Payload === "object") d1Payload.healDiag = diag;
+    return d1Payload;
+  }
   let hasTomb = false;
   try {
     hasTomb = await dayHasFreshTombstone_(env, day);
   } catch (eT) {}
-  // после delete/move D1 может быть короче counts — не воскрешаем
-  if (hasTomb && got > 0) return d1Payload;
-  if (hasTomb && got === 0 && !expectPos && !opts.force) return d1Payload;
+  diag.hasTomb = hasTomb;
+  // частичный список после delete — не воскрешаем; полный провал D1 при expect>0 — heal
+  if (hasTomb && got > 0) {
+    diag.step = "tomb_partial";
+    if (d1Payload && typeof d1Payload === "object") d1Payload.healDiag = diag;
+    return d1Payload;
+  }
   let live = null;
   try {
     live = await gasProxy_("getClients", { day: day }, env, { write: false });
   } catch (eG) {
+    diag.step = "gas_throw";
+    diag.gasErr = String((eG && eG.message) || eG);
+    if (d1Payload && typeof d1Payload === "object") d1Payload.healDiag = diag;
     return d1Payload;
   }
-  if (!(live && live.status === "success" && Array.isArray(live.clients))) return d1Payload;
-  try {
-    await sanitizeGasClientsPayload_(env, day, live);
-  } catch (eSan) {}
+  diag.gasStatus = live && live.status;
+  if (!(live && live.status === "success" && Array.isArray(live.clients))) {
+    diag.step = "gas_bad";
+    if (d1Payload && typeof d1Payload === "object") d1Payload.healDiag = diag;
+    return d1Payload;
+  }
+  // нормализуем nick → name (на всякий)
+  live.clients = live.clients.map(function (c) {
+    if (!c || typeof c !== "object") return c;
+    if (!c.name && (c.nick || c.client)) c.name = c.nick || c.client;
+    return c;
+  });
+  // Пустой D1 + люди на листе: не режем tomb sanitize (иначе stale tombDay/персональные
+  // tomb после finish/scrub оставляют UI пустым). Частичный D1 — sanitize как раньше.
+  if (got > 0) {
+    try {
+      await sanitizeGasClientsPayload_(env, day, live);
+    } catch (eSan) {
+      diag.sanErr = String((eSan && eSan.message) || eSan);
+    }
+  }
   const gasN = live.clients.length;
+  diag.gasN = gasN;
   if (!gasN) {
-    if (got === 0) return d1Payload;
+    diag.step = "gas_empty";
+    if (d1Payload && typeof d1Payload === "object") d1Payload.healDiag = diag;
     return d1Payload;
   }
-  if (gasN <= got && !opts.force) return d1Payload;
   try {
     if (isWeekD1GasAuthoritative_(env) && (got === 0 || opts.replace)) {
       await replaceDayOrdersFromClients_(env, day, live.clients || [], {
         gasAuthoritative: true,
         allowGasInsert: true,
-        protectMs: 5 * 60 * 1000,
+        protectMs: 0,
         skipProtectMissing: true
       });
+      diag.wrote = "replace";
     } else {
       await upsertMissingClientsFromGas_(env, day, live.clients || []);
+      diag.wrote = "upsert";
     }
-  } catch (eUp) {}
+  } catch (eUp) {
+    diag.writeErr = String((eUp && eUp.message) || eUp);
+  }
+  try {
+    // сбросить day-tomb после успешного heal пустого слота — иначе следующий force снова пустой
+    if (got === 0 && expectPos) {
+      await putSnap_(env, "tombDay:" + String(day), { day: String(day), at: 0, cleared: true });
+    }
+  } catch (eClrT) {}
   try {
     await putSnap_(env, "clients:" + day, Object.assign({}, live, { cachedAt: new Date().toISOString() }));
   } catch (eSnap) {}
@@ -4838,16 +4885,21 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
   } catch (eReread) {
     healed = null;
   }
+  diag.d1After = healed && Array.isArray(healed.clients) ? healed.clients.length : -1;
+  diag.step = "ok";
   if (healed && Array.isArray(healed.clients) && healed.clients.length) {
     healed.healedFromGas = true;
     healed.source = healed.source || "d1";
     healed.sandbox = false;
+    healed.healDiag = diag;
     return healed;
   }
+  // D1 всё ещё пуст — всё равно отдать GAS в UI (главное: не показывать пусто)
   live.healedFromGas = true;
   live.source = "gas-heal";
   live.sandbox = false;
   live.cutover = true;
+  live.healDiag = diag;
   return live;
 }
 
