@@ -32,10 +32,12 @@
     items.forEach(function (item) {
       if (item === except) return;
       var btn = item.querySelector(".trial-step-card");
+      var wrap = item.querySelector(".trial-step-detail-wrap");
       var panel = item.querySelector(".trial-step-detail");
       item.classList.remove("is-open");
       if (btn) btn.setAttribute("aria-expanded", "false");
-      if (panel) panel.hidden = true;
+      if (wrap) wrap.setAttribute("aria-hidden", "true");
+      if (panel) panel.setAttribute("aria-hidden", "true");
     });
   }
 
@@ -47,8 +49,9 @@
       var key = item.getAttribute("data-step");
       var step = STEPS[key];
       var btn = item.querySelector(".trial-step-card");
+      var wrap = item.querySelector(".trial-step-detail-wrap");
       var panel = item.querySelector(".trial-step-detail");
-      if (!step || !btn || !panel) return;
+      if (!step || !btn || !wrap || !panel) return;
 
       panel.textContent = step.body;
 
@@ -58,7 +61,8 @@
         closeAll(items, open ? item : null);
         item.classList.toggle("is-open", open);
         btn.setAttribute("aria-expanded", open ? "true" : "false");
-        panel.hidden = !open;
+        wrap.setAttribute("aria-hidden", open ? "false" : "true");
+        panel.setAttribute("aria-hidden", open ? "false" : "true");
         if (open) {
           global.setTimeout(function () {
             item.scrollIntoView({ behavior: "smooth", block: "nearest" });

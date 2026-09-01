@@ -3456,6 +3456,15 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   transform-origin: 72px 28px;
   animation: trialDogEar 1.1s ease-in-out infinite;
 }
+.trial-dog-gift,
+.gb-boot-gift {
+  transform-origin: 98px 62px;
+  animation: trialGiftBob 1.4s ease-in-out infinite alternate;
+}
+@keyframes trialGiftBob {
+  from { transform: rotate(-6deg) translateY(0); }
+  to { transform: rotate(6deg) translateY(-2px); }
+}
 .trial-dog--1 {
   top: 6%;
   left: -8%;
@@ -3548,6 +3557,11 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   background: rgba(44, 51, 48, 0.5);
   border: 1px solid rgba(237, 232, 223, 0.08);
   overflow: hidden;
+  transition: border-color 0.22s ease, background 0.22s ease;
+}
+.trial-step-item.reveal {
+  transform: none;
+  filter: none;
 }
 .trial-step-item.is-open {
   border-color: rgba(212, 161, 90, 0.45);
@@ -3602,21 +3616,38 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   line-height: 1;
   font-weight: 700;
   opacity: 0.55;
-  transition: transform 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+  transition: transform 0.22s ease, color 0.22s ease, opacity 0.22s ease;
 }
 .trial-step-item.is-open .trial-step-chevron {
   transform: rotate(90deg);
   color: var(--gb-orange-2);
   opacity: 1;
 }
+.trial-step-detail-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.trial-step-item.is-open .trial-step-detail-wrap {
+  grid-template-rows: 1fr;
+}
 .trial-step-detail {
-  padding: 0 16px 14px 74px;
+  overflow: hidden;
+  min-height: 0;
+  margin: 0;
+  padding: 0 16px;
   color: var(--gb-muted);
   font-size: 0.92rem;
   line-height: 1.55;
   white-space: pre-line;
+  opacity: 0;
+  transition: opacity 0.24s ease, padding 0.32s ease;
 }
-.trial-step-detail[hidden] { display: none; }
+.trial-step-item.is-open .trial-step-detail {
+  padding: 12px 16px 16px;
+  border-top: 1px solid rgba(237, 232, 223, 0.1);
+  opacity: 1;
+}
 .trial-step-ico {
   display: grid;
   place-items: center;
@@ -3653,7 +3684,13 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 @media (prefers-reduced-motion: reduce) {
   .trial-dog-body,
   .trial-dog-tail,
-  .trial-dog-ear {
+  .trial-dog-ear,
+  .trial-dog-gift,
+  .gb-boot-gift {
     animation: none !important;
+  }
+  .trial-step-detail-wrap,
+  .trial-step-detail {
+    transition: none !important;
   }
 }
