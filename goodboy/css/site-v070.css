@@ -3320,7 +3320,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   padding: 28px 22px 26px;
   border-radius: 28px;
   background:
-    linear-gradient(165deg, rgba(52, 48, 40, 0.55) 0%, rgba(30, 36, 33, 0.88) 100%);
+    linear-gradient(165deg, rgba(52, 48, 40, 0.97) 0%, rgba(30, 36, 33, 0.98) 100%);
   border: 1px solid rgba(212, 161, 90, 0.35);
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.35),
@@ -3392,7 +3392,10 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 
 .trial-dogs {
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  top: 52%;
+  bottom: 0;
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
@@ -3430,10 +3433,10 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .trial-dog--left .trial-dog-body { animation-delay: 0.2s; }
 .trial-dog--center {
   left: 50%;
-  bottom: 2%;
-  transform: translateX(-50%) scale(1.15);
-  opacity: 0.38;
-  width: clamp(130px, 36vw, 200px);
+  bottom: 6%;
+  transform: translateX(-50%) scale(1.05);
+  opacity: 0.45;
+  width: clamp(120px, 34vw, 180px);
 }
 .trial-dog--right {
   right: -4%;
