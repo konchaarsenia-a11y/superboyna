@@ -2199,6 +2199,58 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .sub-claim--sell .sub-claim-note {
   margin: 0;
 }
+
+/* Trial page — centered hero, plain CTA */
+.sub-hero--center .sub-hero-inner--center {
+  width: min(520px, 100%);
+  margin: 0 auto;
+  text-align: center;
+}
+.sub-trial-title--center {
+  display: block;
+  margin: 0 auto 18px;
+  font-family: var(--gb-display);
+  font-size: clamp(2.2rem, 8vw, 3.4rem);
+  line-height: 0.98;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--gb-cream);
+}
+.sub-lead--center {
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 22rem;
+}
+.sub-lead-sub {
+  margin: 0 auto 24px;
+  max-width: 22rem;
+  color: var(--gb-muted);
+  font-size: clamp(1rem, 2.2vw, 1.1rem);
+  line-height: 1.5;
+}
+.sub-cta-row--center {
+  justify-content: center;
+}
+.sub-trial-cta {
+  min-width: min(100%, 16rem);
+  min-height: 3rem;
+  padding: 14px 28px;
+  font-size: 1rem;
+}
+.sub-back-link {
+  margin: 20px 0 0;
+  font-size: 0.9rem;
+}
+.sub-back-link a {
+  color: var(--gb-muted);
+  text-decoration: none;
+  font-weight: 600;
+}
+.sub-back-link a:hover { color: var(--gb-orange-2); }
+.sub-claim-inner--center {
+  justify-items: center;
+  text-align: center;
+}
 .sub-cta-row {
   display: flex;
   flex-wrap: wrap;
