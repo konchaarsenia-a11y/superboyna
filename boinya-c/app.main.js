@@ -5390,6 +5390,7 @@
     let monthClientsCache = [];
     let viewTransferDraft = []; // черновик переноса: визуально слева, в таблицу после «Сохранить»
     let viewDateOnlyMonth = false; // дата вне текущей недели — только колонка месяца
+    let viewDateOffWeek = false; // dateNotInWeek из getViewCompare (сентябрь и т.д.)
     let viewFutureWrongDate = false; // «Будущая неделя» сейчас на другой дате
     let viewResolvedDayName = ""; // фактический день из getViewCompare (может ≠ select)
     let lastViewDateIso = ""; // последняя дата Просмотра (для edit → Заказ)
@@ -6204,7 +6205,7 @@
 
       var monthCountEl2 = document.getElementById("viewMonthCount");
 
-      if (viewDateOnlyMonth) {
+      if (isViewCalendarDateOnly_()) {
 
         var aloneHtml = (loadedClientsRawData || []).map(function (c, i) {
           return renderWeekClientCard(c, i, false);
@@ -6429,6 +6430,7 @@
           showToast("Убрано из календаря");
         }
         try { apiCacheBustMem_(); } catch (eMem) {}
+        window._peopleListKeepDom = true;
         await loadClientsForDay();
       } catch (e) {
         showToast(e.message || "Ошибка");
@@ -6437,7 +6439,7 @@
     window.removeMonthClient = removeMonthClient;
 
     async function stageMonthClient(index) {
-      if (viewDateOnlyMonth) {
+      if (isViewCalendarDateOnly_()) {
         showToast("Дата вне недели — сначала выбери Пн–Пт");
         return;
       }
@@ -6540,7 +6542,7 @@
     }
 
     function stageAllFromMonth() {
-      if (viewDateOnlyMonth) {
+      if (isViewCalendarDateOnly_()) {
         showToast("Дата вне недели — сначала выбери Пн–Пт");
         return;
       }
@@ -6949,7 +6951,9 @@
         }
 
         viewDateOnlyMonth = !!(dateStr && !linkedToWeek);
+        viewDateOffWeek = !!(dateStr && dateNotInWeek);
         if (!dateStr && day) viewDateOnlyMonth = false;
+        if (!dateStr) viewDateOffWeek = false;
         if (!futureWrongDate && (futureSlot || day === "Будущая неделя" || (compareRes && compareRes.day))) {
           viewDateOnlyMonth = false;
         }
@@ -7058,7 +7062,7 @@
           return c;
         });
 
-        if (viewDateOnlyMonth) {
+        if (isViewCalendarDateOnly_()) {
           loadedClientsRawData = monthClientsCache.slice();
         }
 
@@ -7294,7 +7298,7 @@
       if (!client) return;
 
       // вне недели — сразу в заказ (calendar-only), без stage на Пн–Пт
-      if (viewDateOnlyMonth) {
+      if (isViewCalendarDateOnly_()) {
         await crmEditMonthClient(index);
         return;
       }
@@ -7461,7 +7465,7 @@
         }
       } catch (eAct) {}
       recoverUiFocus();
-      if (viewDateOnlyMonth) {
+      if (isViewCalendarDateOnly_()) {
         showToast("Правка в календаре · " + dateStr);
       }
     }
@@ -7699,7 +7703,25 @@
     }
     window.crmBatchMove = crmBatchMove;
 
+    function isViewCalendarDateOnly_() {
+      return !!(viewDateOnlyMonth || viewDateOffWeek);
+    }
+
     function deleteClientParams(clientName, day, matchKey) {
+      const dateStr =
+        (document.getElementById("viewDate") && document.getElementById("viewDate").value) ||
+        "";
+      if (isViewCalendarDateOnly_() && dateStr) {
+        return {
+          action: "removeCalendarClient",
+          client: clientName,
+          date: dateStr,
+          matchKey: matchKey || "",
+          _explicitDelete: "1",
+          _userDelete: "1",
+          _: String(Date.now())
+        };
+      }
       // всегда resolved-слот (сегодняшний пн = «Будущая неделя»), не сырой select «Понедельник»
       const resolved = viewResolvedDayName || "";
       const params = {
@@ -7729,7 +7751,7 @@
       const day = viewResolvedDayName || document.getElementById("viewDaySelect").value;
       const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) ||
         (viewDateOnlyMonth ? (lastViewDateIso || "") : "");
-      if (viewDateOnlyMonth) {
+      if (isViewCalendarDateOnly_()) {
         if (!dateStr) {
           await uiAlertAsync("Нет даты для удаления из календаря.");
           return;
@@ -7832,7 +7854,7 @@
       const client = loadedClientsRawData[index];
       if (!client) return;
       // календарь вне недели — тот же путь, что ✏️ на month-карточке
-      if (viewDateOnlyMonth) {
+      if (isViewCalendarDateOnly_()) {
         await crmEditMonthClient(index, event);
         return;
       }
@@ -8185,8 +8207,8 @@
             moveOk = true; // wroteOk или сеть — не блокируем ложным fail
           }
         } else if (!pendingWrite && (calendarOnly || dateOnly)) {
-          var stillOld = effectiveOldDay
-            ? await clientVisibleOnView_(clientName, effectiveOldDay, "")
+          var stillOld = effectiveOldDay || oldDate
+            ? await clientVisibleOnView_(clientName, effectiveOldDay, oldDate || "")
             : null;
           var onTarget = await clientVisibleOnView_(clientName, effectiveNewDay, effectiveNewDate || target.newDate || "");
           if (stillOld === true && onTarget === false) {
@@ -8205,8 +8227,8 @@
                 force: "1",
                 _: String(Date.now())
               }, { timeoutMs: 22000, cacheTtlMs: 0 });
-              stillOld = effectiveOldDay
-                ? await clientVisibleOnView_(clientName, effectiveOldDay, "")
+              stillOld = effectiveOldDay || oldDate
+                ? await clientVisibleOnView_(clientName, effectiveOldDay, oldDate || "")
                 : null;
               onTarget = await clientVisibleOnView_(clientName, effectiveNewDay, effectiveNewDate || target.newDate || "");
             } catch (eCalR) {}
@@ -8324,7 +8346,7 @@
       if (!client) return;
       const day = viewResolvedDayName || document.getElementById("viewDaySelect").value;
       const dateStr = (document.getElementById("viewDate") && document.getElementById("viewDate").value) || "";
-      if (viewDateOnlyMonth) {
+      if (isViewCalendarDateOnly_()) {
         const okM = await uiConfirmAsync(
           "Убрать «" + client.name + "» из календаря на " + (dateStr || "эту дату") + "?\n\nЛист недели не трогаем (даты нет в текущей неделе)."
         );
@@ -8338,7 +8360,7 @@
             matchKey: client.matchKey || viewClientKey(client.name) || "",
             _: String(Date.now())
           }, { timeoutMs: 16000, cacheTtlMs: 0 });
-          if (!resM || (resM.status !== "success" && resM.status !== "accepted" && !resM.sent_opaque && !resM.sheetsVerified && !resM.d1Verified)) {
+          if (!resM || !isPeopleWriteAccepted_(resM)) {
             await uiAlertAsync("Не удалось: " + ((resM && resM.message) || resM.status || "ошибка"));
             return;
           }
@@ -8428,6 +8450,9 @@
         }
 
         async function stillOnPrimaryDay_() {
+          if (isViewCalendarDateOnly_() && dateStr) {
+            return await clientVisibleOnView_(client.name, "", dateStr);
+          }
           // только главный день — date/month snap давал ложные «ещё в списке»
           var slots = [];
           function addSlot_(d) {

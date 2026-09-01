@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-08-31 people-harden-b3"
+      deployMarker: "2026-08-31 cal-offweek-crud"
     };
   }
 
@@ -2565,50 +2565,54 @@ async function getViewCompare_(params, env) {
     }
   }
 
-  // вне недели — D1 live authoritative; snap только добирает (не затирает)
+  // вне недели — D1 live authoritative; snap только метаданные (не воскрешать delete)
   if (dateIso) {
     const live = await getClients_({ date: dateIso }, env);
     const liveClients = (live && live.clients) || [];
     const byDate = await getSnapRaw_(env, "viewDate:" + dateIso);
     let month = liveClients.slice();
-    const seen = Object.create(null);
-    month.forEach(function (c) {
-      const k = normalizeMatchKey_((c && (c.matchKey || c.name)) || "");
-      if (k) seen[k] = true;
-    });
-    let snapList = [];
-    if (byDate && byDate.status === "success") {
-      snapList = Array.isArray(byDate.month)
-        ? byDate.month.slice()
-        : Array.isArray(byDate.week)
-          ? byDate.week.slice()
-          : [];
-    }
-    snapList.forEach(function (c) {
-      const k = normalizeMatchKey_((c && (c.matchKey || c.name)) || "");
-      if (k && seen[k]) return;
-      if (k) seen[k] = true;
-      month.push(c);
-    });
-    // D1-primary: active CAL row = правда; tomb только для sheets-rollback merge
-    if (!isD1PrimaryCanon_(env)) {
-      try {
-        month = await filterTombstonedClients_(env, "", month, { dateIso: dateIso });
-      } catch (eTombCal) {}
-    }
-    // если tombstone спрятал живую D1-строку — вернуть (save важнее stale tomb)
-    if (liveClients.length) {
-      const seen2 = Object.create(null);
+    const liveOk = !!(live && live.status === "success");
+    if (!liveOk || !isD1PrimaryCanon_(env)) {
+      const seen = Object.create(null);
       month.forEach(function (c) {
         const k = normalizeMatchKey_((c && (c.matchKey || c.name)) || "");
-        if (k) seen2[k] = true;
+        if (k) seen[k] = true;
       });
-      liveClients.forEach(function (c) {
+      let snapList = [];
+      if (byDate && byDate.status === "success") {
+        snapList = Array.isArray(byDate.month)
+          ? byDate.month.slice()
+          : Array.isArray(byDate.week)
+            ? byDate.week.slice()
+            : [];
+      }
+      try {
+        snapList = await filterCalTombFromList_(env, dateIso, snapList);
+      } catch (eFt) {}
+      snapList.forEach(function (c) {
         const k = normalizeMatchKey_((c && (c.matchKey || c.name)) || "");
-        if (!k || seen2[k]) return;
-        seen2[k] = true;
+        if (k && seen[k]) return;
+        if (k) seen[k] = true;
         month.push(c);
       });
+      if (!isD1PrimaryCanon_(env)) {
+        try {
+          month = await filterTombstonedClients_(env, "", month, { dateIso: dateIso });
+        } catch (eTombCal) {}
+      }
+      if (liveClients.length) {
+        const seen2 = Object.create(null);
+        month.forEach(function (c) {
+          const k = normalizeMatchKey_((c && (c.matchKey || c.name)) || "");
+          if (k) seen2[k] = true;
+        });
+        liveClients.forEach(function (c) {
+          const k = normalizeMatchKey_((c && (c.matchKey || c.name)) || "");
+          if (!k || seen2[k]) return;
+          seen2[k] = true;
+          month.push(c);
+        });
+      }
     }
     return {
       status: "success",
@@ -2622,8 +2626,8 @@ async function getViewCompare_(params, env) {
       calendar: true,
       monthSheet: (byDate && byDate.monthSheet) || "D1",
       sandbox: true,
-      source: liveClients.length ? "d1+snap" : byDate ? "snap" : "d1",
-      fromSnap: !!byDate
+      source: liveOk && liveClients.length ? "d1" : byDate ? "snap" : "d1",
+      fromSnap: !!byDate && !liveOk
     };
   }
 
@@ -4541,6 +4545,44 @@ await putSnap_(env, "deleteTombstones", { items: items });
   } catch (eClr) {}
 }
 
+/** Off-week Просмотр: live D1 без merge stale viewDate snap (иначе delete «воскресает»). */
+async function refreshViewDateSnap_(env, dateIso) {
+  var iso = String(dateIso || "").trim();
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(iso)) iso = dmyToIso_(iso) || iso;
+  if (!env || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+  try {
+    await delSnap_(env, "viewDate:" + iso);
+  } catch (eDel) {}
+  try {
+    const vc = await getViewCompare_({ date: iso }, env);
+    if (vc && vc.status === "success") await putSnap_(env, "viewDate:" + iso, vc);
+  } catch (eVc) {}
+  try {
+    await rebuildMonthOverview_(env, iso.slice(0, 7));
+  } catch (eMo) {}
+}
+
+async function filterCalTombFromList_(env, dateIso, list) {
+  if (!list || !list.length || !dateIso) return list || [];
+  var iso = String(dateIso || "").trim();
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(iso)) iso = dmyToIso_(iso) || iso;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return list || [];
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    var c = list[i];
+    if (!c) continue;
+    var mk = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
+    if (mk) {
+      try {
+        var pk = await getSnapRaw_(env, "delTomb:CAL:" + iso + ":" + mk);
+        if (pk && pk.mk && !pk.cleared && Number(pk.at || 0) > 0) continue;
+      } catch (ePk) {}
+    }
+    out.push(c);
+  }
+  return out;
+}
+
 /** Снять calendar tomb после saveBooking на date_iso (иначе Просмотр force пустой). */
 async function clearCalendarTombstone_(env, dateIso, matchKey, clientName) {
   var iso = String(dateIso || "").trim();
@@ -5274,6 +5316,9 @@ async function deleteClient_(params, env) {
         at: Date.now()
       });
     } catch (eTombCal) {}
+    try {
+      await refreshViewDateSnap_(env, dateIso);
+    } catch (eRefCal) {}
   }
 
   if (!toBool_(params._keepMoveEpoch) && !toBool_(params.keepMoveEpoch)) {
