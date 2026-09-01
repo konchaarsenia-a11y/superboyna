@@ -6,11 +6,11 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta name="theme-color" content="#1e2421" />
-  <title>Подписка — GOOD BOY</title>
-  <meta name="description" content="Месячная подписка GOOD BOY: натуральные лакомства сами приезжают. Состав под питомца, контроль в кабинете." />
-  <link rel="canonical" href="https://konchaarsenia-a11y.github.io/superboyna/goodboy/subscription.html" />
-  <meta property="og:title" content="Подписка — GOOD BOY" />
-  <meta property="og:description" content="Месячный набор сам приезжает. Бесплатный пробный период — отдельно." />
+  <title>Бесплатный период — GOOD BOY</title>
+  <meta name="description" content="Неделя лакомств, подобранных для вашего питомца — бесплатно. Попробуйте и решите, нравится ли вам такой подход." />
+  <link rel="canonical" href="https://konchaarsenia-a11y.github.io/superboyna/goodboy/trial.html" />
+  <meta property="og:title" content="Бесплатный период — GOOD BOY" />
+  <meta property="og:description" content="Набор лакомств под вашего питомца. Бесплатно. Напишите нам." />
   <meta property="og:type" content="website" />
   <meta property="og:image" content="https://konchaarsenia-a11y.github.io/superboyna/goodboy/assets/logo-wordmark-v3.png" />
   <link rel="icon" href="assets/logo-icon-v3.png?v=084" type="image/png" />
@@ -56,7 +56,7 @@
     }
   </style>
 </head>
-<body class="gb-site landing-only page-sub">
+<body class="gb-site landing-only page-sub page-sub--sell">
   <script>document.documentElement.classList.add("gb-booting");</script>
   <div id="gbBoot" role="status" aria-live="polite" aria-label="Загрузка GOOD BOY">
     <div class="gb-boot-inner">
@@ -96,112 +96,106 @@
     </div>
     <div class="nav-tabs" role="tablist" aria-label="Разделы сайта">
       <a href="./">Главная</a>
-      <a href="subscription.html" aria-current="page">Подписка</a>
+      <a href="subscription.html">Подписка</a>
       <a href="about.html">О проекте</a>
       <a href="contact.html">Связь</a>
     </div>
   </nav>
 
   <div class="site-main">
-    <header class="sub-hero">
+    <header class="sub-hero sub-hero--trial sub-hero--sell sub-hero--center">
       <div class="sub-hero-bg" aria-hidden="true"></div>
-      <div class="sub-hero-inner">
-        <p class="sub-brand">GOOD&nbsp;BOY</p>
-        <h1>Подписка</h1>
-        <p class="sub-lead">Месячный набор натуральных лакомств сам приезжает. Состав&nbsp;— под вашего питомца, статус&nbsp;— в&nbsp;кабинете.</p>
-        <div class="sub-cta-row">
-          <a class="invite-btn" href="trial.html">Бесплатный период</a>
-          <a class="btn-ghost" href="try.html">Хочу попробовать</a>
-          <a class="btn-ghost" href="app.html">Кабинет</a>
+      <div class="sub-hero-inner sub-hero-inner--center">
+        <h1 class="sub-trial-title sub-trial-title--center">неделя<br />бесплатно</h1>
+        <p class="sub-lead sub-lead--sell sub-lead--center">Набор лакомств, подобранный для вашего питомца. <strong>Бесплатно.</strong></p>
+        <p class="sub-lead-sub">Попробуете и&nbsp;решите, нравится&nbsp;ли вам такой подход.</p>
+        <div class="sub-cta-row sub-cta-row--center">
+          <a
+            class="invite-btn sub-trial-cta"
+            id="subIgBtn"
+            href="https://ig.me/m/goodboy_rb"
+            target="_blank"
+            rel="noopener"
+            data-ig-user="goodboy_rb"
+            data-ig-message="Привет! Хочу бесплатный период GOOD BOY — набор под моего питомца."
+          >Написать нам</a>
         </div>
+        <p class="sub-ig-hint" id="subIgHint" hidden>Текст скопирован — вставьте в чат.</p>
+        <p class="sub-back-link"><a href="subscription.html">← Подписка</a></p>
       </div>
     </header>
 
-    <section class="site-section sub-how" id="how">
+    <section class="site-section sub-perks" id="why">
       <div class="inner">
-        <p class="sec-kicker reveal">Три простых этапа</p>
-        <h2 class="reveal d1">Лакомства уже у&nbsp;вашего питомца</h2>
-        <ol class="sub-steps">
+        <ul class="sub-perk-grid">
+          <li class="reveal">
+            <span class="sub-perk-ico" aria-hidden="true">◎</span>
+            <strong>Индивидуально</strong>
+            <span>Не «для всех» — под кличку, вес и аллергии.</span>
+          </li>
+          <li class="reveal d1">
+            <span class="sub-perk-ico" aria-hidden="true">↻</span>
+            <strong>Просто</strong>
+            <span>Дальше набор сам приезжает — не надо каждый раз заказывать.</span>
+          </li>
+          <li class="reveal d2">
+            <span class="sub-perk-ico" aria-hidden="true">✓</span>
+            <strong>Удобно</strong>
+            <span>Состав и доставка — в кабинете, меняете когда нужно.</span>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="site-section sub-how sub-how--sell" id="how">
+      <div class="inner">
+        <p class="sec-kicker reveal">Три шага</p>
+        <h2 class="reveal d1 sub-how-title">Всё просто</h2>
+        <ol class="sub-steps sub-steps--sell">
           <li class="reveal">
             <span class="sub-step-n" aria-hidden="true">01</span>
             <div>
-              <h3>Зададим вопросы про питомца</h3>
-              <p>Кличка, вес, аллергии, что любит. Набор собираем не&nbsp;«для всех», а&nbsp;именно для вашего питомца.</p>
+              <h3>Расскажете про питомца</h3>
+              <p>Коротко — кто он и что важно учесть.</p>
             </div>
           </li>
           <li class="reveal d1">
             <span class="sub-step-n" aria-hidden="true">02</span>
             <div>
-              <h3>Бесплатно протестируете набор в&nbsp;течение недели</h3>
-              <p>Оцените реакцию питомца дома.</p>
+              <h3>Неделя бесплатно</h3>
+              <p>Пробный набор дома — смотрите, как заходит.</p>
             </div>
           </li>
           <li class="reveal d2">
             <span class="sub-step-n" aria-hidden="true">03</span>
             <div>
-              <h3>Подстроим набор под реакции</h3>
-              <p>По&nbsp;отклику питомца отредактируем состав и&nbsp;выберем удобное количество доставок.</p>
+              <h3>Подстроим и продолжим</h3>
+              <p>По реакции правим состав — подписка, если удобно.</p>
             </div>
           </li>
         </ol>
-        <aside class="sub-promise reveal d3">
-          <p class="sub-promise-lead"><strong>Главное:</strong> подписка учитывает все ваши пожелания и&nbsp;ограничения.</p>
-          <p>Состав можно менять в&nbsp;любое время в&nbsp;кабинете.</p>
-        </aside>
       </div>
     </section>
 
-    <section class="site-section sub-pack" id="pack">
-      <div class="inner sub-pack-grid">
-        <div class="sub-pack-copy reveal">
-          <p class="sec-kicker">В наборе</p>
-          <h2>Комфорт без лишней суматохи</h2>
-          <p class="sec-lead">Сушёные лакомства GOOD&nbsp;BOY&nbsp;— база подписки. Позже в&nbsp;продаже появятся корма и&nbsp;натуралка.</p>
-          <ul class="sub-pack-list">
-            <li>Только натуральный продукт</li>
-            <li>Никаких добавок</li>
-            <li>Три линии контроля качества</li>
-          </ul>
-        </div>
-        <figure class="sub-pack-visual reveal d1">
-          <img src="assets/shelf-pouches.jpg?v=094" width="1600" height="666" alt="Пакеты лакомств GOOD BOY" loading="lazy" decoding="async" />
-        </figure>
-      </div>
-    </section>
-
-    <section class="site-section sub-paths" id="try">
-      <div class="inner">
-        <p class="sec-kicker reveal">С чего начать</p>
-        <h2 class="reveal d1">Две дороги</h2>
-        <div class="sub-path-screens">
-          <article class="sub-screen reveal" aria-label="Бесплатный период">
-            <div class="sub-screen-bar" aria-hidden="true">
-              <span></span><span></span><span></span>
-            </div>
-            <p class="sub-screen-path">Путь 1</p>
-            <p class="sub-path-kicker">С купона или сайта</p>
-            <h3>Бесплатный период</h3>
-            <p>Неделя лакомств под вашего питомца&nbsp;— бесплатно. Попробуете и&nbsp;решите, подходит&nbsp;ли подход.</p>
-            <a class="sub-screen-cta" href="trial.html">Подробнее</a>
-          </article>
-          <article class="sub-screen sub-screen--alt reveal d1" aria-label="Уже с нами">
-            <div class="sub-screen-bar" aria-hidden="true">
-              <span></span><span></span><span></span>
-            </div>
-            <p class="sub-screen-path">Путь 2</p>
-            <p class="sub-path-kicker">Уже с нами</p>
-            <h3>У меня подписка</h3>
-            <p>Зайдите в&nbsp;кабинет: дата доставки, состав, статус&nbsp;— в&nbsp;одном месте.</p>
-            <a class="sub-screen-cta" href="app.html">Открыть кабинет</a>
-          </article>
-        </div>
+    <section class="site-section sub-claim sub-claim--sell" id="claim">
+      <div class="inner sub-claim-inner sub-claim-inner--center">
+        <a
+          class="invite-btn sub-trial-cta reveal"
+          id="subIgBtn2"
+          href="https://ig.me/m/goodboy_rb"
+          target="_blank"
+          rel="noopener"
+          data-ig-user="goodboy_rb"
+          data-ig-message="Привет! Хочу бесплатный период GOOD BOY — набор под моего питомца."
+        >Написать нам</a>
+        <p class="sub-claim-note reveal d1"><a href="app.html">Уже с нами — кабинет</a></p>
       </div>
     </section>
 
     <footer class="site-footer">
       GOOD BOY · <a href="https://www.instagram.com/goodboy_rb" target="_blank" rel="noopener">@goodboy_rb</a>
-      · <a href="./">Главная</a>
-      · v0.9.9
+      · <a href="subscription.html">Подписка</a>
+      · v0.10 · trial
     </footer>
   </div>
 
@@ -211,6 +205,24 @@
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.GBMotion) GBMotion.init();
+
+      function wireIg(btn, hint) {
+        if (!btn) return;
+        var msg = String(btn.getAttribute("data-ig-message") || "").trim();
+        var user = String(btn.getAttribute("data-ig-user") || "goodboy_rb").trim();
+        if (msg) {
+          btn.href = "https://ig.me/m/" + encodeURIComponent(user) + "?text=" + encodeURIComponent(msg);
+        }
+        btn.addEventListener("click", function () {
+          if (!msg || !navigator.clipboard || !navigator.clipboard.writeText) return;
+          navigator.clipboard.writeText(msg).then(function () {
+            if (hint) hint.hidden = false;
+          }).catch(function () {});
+        });
+      }
+
+      wireIg(document.getElementById("subIgBtn"), document.getElementById("subIgHint"));
+      wireIg(document.getElementById("subIgBtn2"), null);
     });
   </script>
 </body>

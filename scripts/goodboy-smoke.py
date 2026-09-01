@@ -68,28 +68,48 @@ def check_subscription(page, base: str, errors: list[str], shot_dir: Path | None
     body = page.locator("body")
     assert_true("page-sub" in (body.get_attribute("class") or ""), "subscription: body.page-sub", errors)
 
-    title = page.locator(".sub-trial-title")
-    assert_true(title.count() > 0, "subscription: .sub-trial-title present", errors)
-    if title.count():
-        text = title.inner_text().lower()
-        trial_ok = ("недел" in text) and ("бесплат" in text or "пробн" in text)
-        assert_true(trial_ok, "subscription: hero mentions free trial week", errors)
+    h1 = page.locator(".sub-hero h1").first
+    assert_true(h1.count() > 0, "subscription: h1 present", errors)
+    if h1.count():
+        assert_true("подписк" in h1.inner_text().lower(), "subscription: h1 is Подписка", errors)
+
+    trial_btn = page.locator('a[href*="trial.html"]')
+    assert_true(trial_btn.count() > 0, "subscription: link to trial.html", errors)
 
     steps = page.locator(".sub-steps li")
     assert_true(steps.count() == 3, f"subscription: expected 3 steps, got {steps.count()}", errors)
 
-    ig = page.locator("#subIgBtn, .sub-ig-btn").first
-    assert_true(ig.count() > 0, "subscription: Instagram CTA present", errors)
-    if ig.count():
-        href = ig.get_attribute("href") or ""
-        assert_true("ig.me/m/goodboy_rb" in href, f"subscription: IG href ok ({href[:80]})", errors)
-        assert_true("text=" in href, "subscription: IG href has prefilled text", errors)
-        box = ig.bounding_box()
-        if box:
-            assert_true(box["height"] >= 44, f"subscription: IG button height {box['height']:.0f}px < 44", errors)
-
     if shot_dir:
         page.screenshot(path=str(shot_dir / "subscription-390.png"), full_page=False)
+
+
+def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> None:
+    url = f"{base}/trial.html"
+    page.goto(url, wait_until="domcontentloaded")
+    page.wait_for_timeout(800)
+
+    title = page.locator(".sub-trial-title--center, .sub-trial-title")
+    assert_true(title.count() > 0, "trial: title present", errors)
+    if title.count():
+        text = title.inner_text().lower()
+        trial_ok = ("недел" in text) and ("бесплат" in text)
+        assert_true(trial_ok, "trial: hero mentions free week", errors)
+
+    steps = page.locator(".sub-steps li")
+    assert_true(steps.count() == 3, f"trial: expected 3 steps, got {steps.count()}", errors)
+
+    cta = page.locator("#subIgBtn.invite-btn, .sub-trial-cta").first
+    assert_true(cta.count() > 0, "trial: CTA present", errors)
+    if cta.count():
+        href = cta.get_attribute("href") or ""
+        assert_true("ig.me/m/goodboy_rb" in href, f"trial: IG href ok ({href[:80]})", errors)
+        assert_true("text=" in href, "trial: IG href has prefilled text", errors)
+        box = cta.bounding_box()
+        if box:
+            assert_true(box["height"] >= 44, f"trial: CTA height {box['height']:.0f}px < 44", errors)
+
+    if shot_dir:
+        page.screenshot(path=str(shot_dir / "trial-390.png"), full_page=False)
 
 
 def check_index(page, base: str, errors: list[str], shot_dir: Path | None) -> None:
@@ -112,6 +132,7 @@ def check_index(page, base: str, errors: list[str], shot_dir: Path | None) -> No
 
 CHECKS: list[tuple[str, Callable]] = [
     ("subscription.html", check_subscription),
+    ("trial.html", check_trial),
     ("index.html", check_index),
 ]
 
