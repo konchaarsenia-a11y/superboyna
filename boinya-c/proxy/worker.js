@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-08-31 cal-offweek-crud"
+      deployMarker: "2026-08-31 d1-final-h1"
     };
   }
 
@@ -5947,6 +5947,12 @@ async function moveClient_(params, env) {
   try {
     if (newDate) await delSnap_(env, "viewDate:" + newDate);
   } catch (eVn2) {}
+  try {
+    if (oldDate) await refreshViewDateSnap_(env, oldDate);
+  } catch (eRefOld) {}
+  try {
+    if (newDate) await refreshViewDateSnap_(env, newDate);
+  } catch (eRefNew) {}
   try {
     if (calendarOnly || (newDate && !newDay) || (oldDate && !fromDay)) {
       await rebuildMonthOverview_(env);
