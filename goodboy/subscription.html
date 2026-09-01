@@ -17,8 +17,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/site-v070.css?v=119" />
+  <link rel="stylesheet" href="css/site-v070.css?v=120" />
   <style>
+    /* critical sell layout — survives CSS cache */
+    .page-sub--sell .sub-ig-btn--hero { width: 100%; max-width: none; min-height: 5.6rem; }
+    .sub-perk-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+    .sub-perk-grid li { padding: 18px 16px; border-radius: 18px; background: rgba(44,51,48,.55); border: 1px solid rgba(237,232,223,.08); display: grid; gap: 4px; }
+    .sub-perk-grid strong { color: #ede8df; font-size: 1.05rem; }
+    .sub-perk-grid span { color: rgba(237,232,223,.68); font-size: .92rem; line-height: 1.4; }
+    .sub-perk-ico { color: #d4a15a; font-family: "Archivo Black", sans-serif; }
     html.gb-booting { overflow: hidden; }
     #gbBoot {
       position: fixed; inset: 0; z-index: 9999;
@@ -208,7 +215,7 @@
     <footer class="site-footer">
       GOOD BOY · <a href="https://www.instagram.com/goodboy_rb" target="_blank" rel="noopener">@goodboy_rb</a>
       · <a href="./">Главная</a>
-      · v0.9.9
+      · v0.10 · sell
     </footer>
   </div>
 
