@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/site-v070.css?v=129" />
+  <link rel="stylesheet" href="css/site-v070.css?v=130" />
   <style>
     html.gb-booting { overflow: hidden; }
     #gbBoot {
@@ -138,52 +138,61 @@
     </header>
 
     <section class="trial-flow" aria-label="Как это работает">
-      <p class="trial-flow-hint">Нажмите на шаг — откроется подробнее</p>
+      <p class="trial-flow-hint">Нажмите на шаг — карточка покажет подробнее</p>
       <ol class="sub-steps trial-steps">
         <li class="trial-step-item reveal" data-step="pet">
-          <button type="button" class="trial-step-card" aria-expanded="false" aria-controls="trialDetailPet">
+          <button type="button" class="trial-step-card" aria-expanded="false">
             <span class="trial-step-ico" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="8" r="3.5"/><path d="M6 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg>
             </span>
-            <span class="trial-step-copy">
-              <span class="trial-step-title">Питомец</span>
-              <span class="trial-step-lead">Расскажете, кто он</span>
+            <span class="trial-step-content">
+              <span class="trial-step-face trial-step-face--short">
+                <span class="trial-step-title">Питомец</span>
+                <span class="trial-step-lead">Расскажете, кто он</span>
+              </span>
+              <span class="trial-step-face trial-step-face--long" aria-hidden="true">
+                <span class="trial-step-title">Питомец</span>
+                <span class="trial-step-detail-text"></span>
+              </span>
             </span>
             <span class="trial-step-chevron" aria-hidden="true">›</span>
           </button>
-          <div class="trial-step-detail-wrap" aria-hidden="true">
-            <div class="trial-step-detail" id="trialDetailPet"></div>
-          </div>
         </li>
         <li class="trial-step-item reveal d1" data-step="try">
-          <button type="button" class="trial-step-card" aria-expanded="false" aria-controls="trialDetailTry">
+          <button type="button" class="trial-step-card" aria-expanded="false">
             <span class="trial-step-ico" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 14h16l-2 6H6l-2-6Z"/><path d="M8 14V9a4 4 0 118 0v5"/></svg>
             </span>
-            <span class="trial-step-copy">
-              <span class="trial-step-title">Пробуете</span>
-              <span class="trial-step-lead">Неделя бесплатно</span>
+            <span class="trial-step-content">
+              <span class="trial-step-face trial-step-face--short">
+                <span class="trial-step-title">Пробуете</span>
+                <span class="trial-step-lead">Неделя бесплатно</span>
+              </span>
+              <span class="trial-step-face trial-step-face--long" aria-hidden="true">
+                <span class="trial-step-title">Пробуете</span>
+                <span class="trial-step-detail-text"></span>
+              </span>
             </span>
             <span class="trial-step-chevron" aria-hidden="true">›</span>
           </button>
-          <div class="trial-step-detail-wrap" aria-hidden="true">
-            <div class="trial-step-detail" id="trialDetailTry"></div>
-          </div>
         </li>
         <li class="trial-step-item reveal d2" data-step="decide">
-          <button type="button" class="trial-step-card" aria-expanded="false" aria-controls="trialDetailDecide">
+          <button type="button" class="trial-step-card" aria-expanded="false">
             <span class="trial-step-ico" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M5 13l4 4L19 7"/></svg>
             </span>
-            <span class="trial-step-copy">
-              <span class="trial-step-title">Решаете</span>
-              <span class="trial-step-lead">Подходит — продолжим</span>
+            <span class="trial-step-content">
+              <span class="trial-step-face trial-step-face--short">
+                <span class="trial-step-title">Решаете</span>
+                <span class="trial-step-lead">Подходит — продолжим</span>
+              </span>
+              <span class="trial-step-face trial-step-face--long" aria-hidden="true">
+                <span class="trial-step-title">Решаете</span>
+                <span class="trial-step-detail-text"></span>
+              </span>
             </span>
             <span class="trial-step-chevron" aria-hidden="true">›</span>
           </button>
-          <div class="trial-step-detail-wrap" aria-hidden="true">
-            <div class="trial-step-detail" id="trialDetailDecide"></div>
-          </div>
         </li>
       </ol>
     </section>
@@ -194,11 +203,11 @@
     </footer>
   </div>
 
-  <script src="js/config.js?v=103"></script>
-  <script src="js/boot-loader.js?v=103"></script>
-  <script src="js/motion.js?v=103"></script>
-  <script src="js/trial-ig.js?v=103"></script>
-  <script src="js/trial-steps.js?v=103"></script>
+  <script src="js/config.js?v=104"></script>
+  <script src="js/boot-loader.js?v=104"></script>
+  <script src="js/motion.js?v=104"></script>
+  <script src="js/trial-ig.js?v=104"></script>
+  <script src="js/trial-steps.js?v=104"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.GBMotion) GBMotion.init();
