@@ -55,7 +55,7 @@ ping = get("action=ping")
 print("peopleCanon:", ping.get("peopleCanon"), "marker:", ping.get("deployMarker"))
 assert ping.get("live") is True
 assert ping.get("peopleCanon") == "d1-primary", ping
-assert "people-harden-b3" in str(ping.get("deployMarker") or "") or "cal-offweek" in str(ping.get("deployMarker") or "") or "d1-final" in str(ping.get("deployMarker") or ""), ping
+assert "people-harden-b3" in str(ping.get("deployMarker") or "") or "cal-offweek" in str(ping.get("deployMarker") or "") or "d1-final" in str(ping.get("deployMarker") or "") or "fix-dupe-heal" in str(ping.get("deployMarker") or "") or "cal-ops-truth" in str(ping.get("deployMarker") or ""), ping
 PASS.append("PING_B3")
 
 def cleanup_zzz():

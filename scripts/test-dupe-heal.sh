@@ -47,8 +47,8 @@ def has_client(data):
     )
 
 def count_day(day):
-    dq = urllib.parse.quote(day)
-    gc = get(f"action=getClients&day={dq}&force=1&_={TS}{day}")
+    qs = urllib.parse.urlencode({"action": "getClients", "day": day, "force": "1", "_": str(TS) + day})
+    gc = get(qs)
     return len(gc.get("clients") or []), gc
 
 print("=== PING ===")
