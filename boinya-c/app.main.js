@@ -9927,7 +9927,7 @@
             <label class="check-line" onclick="event.stopPropagation()">
               <input type="checkbox" ${c.delivered ? "checked" : ""} onchange="toggleDelivered(${idx}, this.checked)">
               <span class="cut-title">${idx + 1}. ${escapeHtml(c.name)}</span>
-              ${c.assembled ? ('<span class="client-badge" style="margin-left:8px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>') : ('<span class="client-badge" style="margin-left:8px;background:rgba(255,69,58,0.18);color:#ff6961;opacity:0.85;">не собран</span>')}
+              ${!c.delivered ? (c.assembled ? ('<span class="client-badge" style="margin-left:8px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>') : ('<span class="client-badge" style="margin-left:8px;background:rgba(255,69,58,0.18);color:#ff6961;opacity:0.85;">не собран</span>')) : (c.assembled ? ('<span class="client-badge" style="margin-left:8px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>') : "")}
               ${clientTechBadgesHtml_(c)}
             </label>
             <div class="courier-addr-main">${addrPublic ? ("Адрес: <b>" + escapeHtml(addrPublic) + "</b>") : "Адрес не указан"}
