@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-08-31 people-harden-b2"
+      deployMarker: "2026-08-31 people-harden-b3"
     };
   }
 
@@ -1424,7 +1424,8 @@ async function clientMovedAwayFromDay_(env, matchKey, clientName, day) {
     const mk = normalizeMatchKey_(matchKey || clientName);
     if (!mk) return false;
     const ep = await getSnapRaw_(env, "moveEpoch:" + mk);
-    return !!(ep && ep.to && String(ep.to) !== String(day));
+    if (!ep || !ep.to || String(ep.to) === String(day)) return false;
+    return moveEpochHidesFromDay_(ep, day);
   } catch (eEpAway) {
     return false;
   }
@@ -2589,11 +2590,12 @@ async function getViewCompare_(params, env) {
       if (k) seen[k] = true;
       month.push(c);
     });
-    // tombstone / deleted — убрать из month (но D1 active уже в списке —
-    // clearCalendarTombstone_ на save должен снять CAL tomb)
-    try {
-      month = await filterTombstonedClients_(env, "", month, { dateIso: dateIso });
-    } catch (eTombCal) {}
+    // D1-primary: active CAL row = правда; tomb только для sheets-rollback merge
+    if (!isD1PrimaryCanon_(env)) {
+      try {
+        month = await filterTombstonedClients_(env, "", month, { dateIso: dateIso });
+      } catch (eTombCal) {}
+    }
     // если tombstone спрятал живую D1-строку — вернуть (save важнее stale tomb)
     if (liveClients.length) {
       const seen2 = Object.create(null);
@@ -4427,6 +4429,14 @@ async function saveOrder_(params, env, asBooking) {
 
 // Перенос/удаление: GAS часто отстаёт — tombstone держит D1/UI от «воскрешения»
 const TOMBSTONE_MS = 48 * 60 * 60 * 1000;
+/** moveEpoch старше — не прячем клиента (stale after повторного переноса). */
+const MOVE_EPOCH_MS = 7 * 24 * 60 * 60 * 1000;
+
+function moveEpochHidesFromDay_(ep, day) {
+  if (!ep || !ep.to || String(ep.to) === String(day || "")) return false;
+  const epAge = Date.now() - Number(ep.at || 0);
+  return epAge >= 0 && epAge < MOVE_EPOCH_MS;
+}
 
 async function putDeleteTombstone_(env, day, matchKey) {
   const mk = normalizeMatchKey_(matchKey);
@@ -4759,7 +4769,7 @@ async function filterTombstonedClients_(env, day, list, opts) {
           var mkEp = normalizeMatchKey_(c.matchKey || c.name || c.client || "");
           if (mkEp) {
             var ep = await getSnapRaw_(env, "moveEpoch:" + mkEp);
-            if (ep && ep.to && String(ep.to) !== String(dayKey)) continue;
+            if (moveEpochHidesFromDay_(ep, dayKey)) continue;
           }
         } catch (eEpF) {}
       }
@@ -6849,7 +6859,7 @@ async function handleCutover_(a, params, env, ctx) {
     }
     async function runWeekD1Resync_() {
       try {
-        await cutoverRefreshAllWeekDays_(env);
+        await cutoverRefreshAllWeekDays_(env, { clearDayTombs: /^finishFullWeek$/i.test(a) });
       } catch (eRf0) {}
       try {
         if (!(isWarehouseCloseD1Canon_(env) && /^finishFullWeek$/i.test(a) && whClosePack && whClosePack.ok)) {
@@ -9027,8 +9037,10 @@ async function cutoverStoreRead_(a, params, env, payload) {
   if (payload.status && payload.status !== "success") return;
   if (a === "getClients" && params.day) {
     let list = Array.isArray(payload.clients) ? payload.clients : [];
-    list = await filterTombstonedClients_(env, params.day, list);
-    payload = Object.assign({}, payload, { clients: list });
+    if (!isD1PrimaryCanon_(env)) {
+      list = await filterTombstonedClients_(env, params.day, list);
+      payload = Object.assign({}, payload, { clients: list });
+    }
     // после move/delete не заливать GAS на день-источник — иначе «призрак» на старом дне
     const tomb = await getSnapRaw_(env, "deleteTombstones");
     let freshTomb = ((tomb && tomb.items) || []).some(function (t) {
@@ -9075,52 +9087,9 @@ async function cutoverStoreRead_(a, params, env, payload) {
       }
       return;
     }
-    const replaceOpts = {};
-    if (payload._skipProtectMissing) replaceOpts.skipProtectMissing = true;
-    var skipDropArrive = false;
-    if (payload._moveDropClient) {
-      try {
-        var protDrop2 = await getSnapRaw_(env, "moveArriveProtect");
-        if (isMoveArriveProtected_(protDrop2, params.day, payload._moveDropClient, payload._moveDropClient)) {
-          skipDropArrive = true;
-        }
-      } catch (ePD2) {}
-      try {
-        var epNow2 = await getSnapRaw_(env, "moveEpoch:" + normalizeMatchKey_(payload._moveDropClient || ""));
-        if (epNow2 && String(epNow2.to || "") === String(params.day || "")) {
-          skipDropArrive = true;
-        }
-      } catch (eEp2) {}
-    }
-    if (payload._moveDropClient && !skipDropArrive) {
-      const dropMk2 = normalizeMatchKey_(payload._moveDropClient);
-      replaceOpts.dropMks = {};
-      if (dropMk2) replaceOpts.dropMks[dropMk2] = true;
-      replaceOpts.dropMks[String(payload._moveDropClient).trim().toLowerCase()] = true;
-      replaceOpts.skipProtectMissing = true;
-    }
-    // Явный delete/move-drop — точечный replace+drop.
-    // Обычный GAS revalidate — только upsert недостающих (полный replace воскрешал delete в UI/D1).
-    if (payload._explicitDelete || payload._moveDropClient || payload._d1MoveKeep) {
-      await replaceDayOrdersFromClients_(env, params.day, list, replaceOpts);
-    } else {
-      await putSnap_(env, "clients:" + params.day, payload);
-      await upsertMissingClientsFromGas_(env, params.day, list);
-      return;
-    }
-    if (payload._moveDropClient && !skipDropArrive) {
-      try {
-        const dropMk3 = normalizeMatchKey_(payload._moveDropClient);
-        const dropLow3 = String(payload._moveDropClient || "").trim().toLowerCase();
-        const nowDrop3 = new Date().toISOString();
-        await env.DB.prepare(
-          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND day_name = ? AND (match_key = ? OR lower(client) = ?)"
-        )
-          .bind(nowDrop3, params.day, dropMk3, dropLow3)
-          .run();
-        await putDeleteTombstone_(env, params.day, dropMk3 || payload._moveDropClient);
-      } catch (eDrop3) {}
-    }
+    // Обычный GAS revalidate — только upsert недостающих (replace воскрешал delete / сжимал день).
+    await putSnap_(env, "clients:" + params.day, payload);
+    await upsertMissingClientsFromGas_(env, params.day, list);
     return;
   }
   if (a === "getViewCompare" && (payload.day || params.day || payload.dateIso || params.date)) {
@@ -9486,7 +9455,7 @@ async function upsertMissingClientsFromGas_(env, day, clients, opts) {
     }
     try {
       const ep = await getSnapRaw_(env, "moveEpoch:" + mk);
-      if (ep && ep.to && String(ep.to) !== String(day)) continue;
+      if (moveEpochHidesFromDay_(ep, day)) continue;
     } catch (eEp) {}
     let exists = null;
     try {
@@ -9516,6 +9485,21 @@ async function upsertMissingClientsFromGas_(env, day, clients, opts) {
     } catch (eUp) {}
   }
   return added;
+}
+
+/** Активных заказов на дне в D1 (anti-wipe guard для week-close resync). */
+async function countActiveOrdersForDay_(env, day) {
+  if (!env || !env.DB || !day) return 0;
+  try {
+    const q = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM orders WHERE day_name = ? AND status = 'active'"
+    )
+      .bind(day)
+      .first();
+    return Number(q && q.n) || 0;
+  } catch (eCnt) {
+    return 0;
+  }
 }
 
 async function replaceDayOrdersFromClients_(env, day, clients, opts) {
@@ -9573,7 +9557,7 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       if (isMoveArriveProtectedElsewhere_(arriveProtect, day, mk, c.name || c.client || c.nick)) continue;
       try {
         var epRep = await getSnapRaw_(env, "moveEpoch:" + mk);
-        if (epRep && epRep.to && String(epRep.to) !== String(day)) continue;
+        if (moveEpochHidesFromDay_(epRep, day)) continue;
       } catch (eEpR) {}
     }
     gasByMk[mk] = c;
@@ -9600,7 +9584,7 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       if (isMoveArriveProtectedElsewhere_(arriveProtect, day, mk, row.client)) continue;
       try {
         var epRow = await getSnapRaw_(env, "moveEpoch:" + mk);
-        if (epRow && epRow.to && String(epRow.to) !== String(day)) continue;
+        if (moveEpochHidesFromDay_(epRow, day)) continue;
       } catch (eEpRow) {}
       if (opts.dropMks && (opts.dropMks[mk] || opts.dropMks[String(row.client || "").toLowerCase()])) {
         continue;
@@ -9883,9 +9867,21 @@ async function cutoverResetOpsSnaps_(env) {
   }
 }
 
-async function cutoverRefreshAllWeekDays_(env) {
+async function cutoverRefreshAllWeekDays_(env, opts) {
+  opts = opts || {};
   if (!env || !env.DB) return;
   const gasAuth = isWeekD1GasAuthoritative_(env);
+  if (opts.clearDayTombs) {
+    for (let ti = 0; ti < WEEK_DAYS.length; ti++) {
+      try {
+        await putSnap_(env, "tombDay:" + WEEK_DAYS[ti], {
+          day: WEEK_DAYS[ti],
+          at: 0,
+          cleared: true
+        });
+      } catch (eClrT) {}
+    }
+  }
   // сначала актуальные даты недели, потом сброс ops (сравнение date в rebuildCourier)
   try {
     const liveCounts = await gasProxy_("getWeekDayCounts", {}, env, { write: false });
@@ -9901,10 +9897,23 @@ async function cutoverRefreshAllWeekDays_(env) {
     try {
       const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
       if (fresh && fresh.status === "success") {
-        // не sanitize tomb: иначе partial GAS → replace сжимает день
         const gasList = Array.isArray(fresh.clients) ? fresh.clients : [];
+        const d1Count = await countActiveOrdersForDay_(env, day);
+        const gasN = gasList.length;
         let rep = null;
         if (gasAuth) {
+          // GAS короче D1 — только upsert, без gas-authoritative replace (anti-shrink).
+          if (d1Count > 0 && gasN < d1Count) {
+            await upsertMissingClientsFromGas_(env, day, gasList, { ignoreTombstones: false });
+            try {
+              const infoDay = await dayDateInfo_(env, day);
+              if (infoDay && infoDay.iso) await scrubMismatchedDayOrders_(env, day, infoDay.iso);
+            } catch (eSt) {}
+            try {
+              await putSnap_(env, "clients:" + day, fresh);
+            } catch (eS0) {}
+            continue;
+          }
           // После закрытия недели GAS = правда слота, но пустой/битый ответ не вайпает D1.
           rep = await replaceDayOrdersFromClients_(env, day, gasList, {
             gasAuthoritative: true,
@@ -9914,7 +9923,7 @@ async function cutoverRefreshAllWeekDays_(env) {
             ignoreTombstones: true
           });
           if (rep && rep.aborted) {
-            await upsertMissingClientsFromGas_(env, day, gasList, { ignoreTombstones: true });
+            await upsertMissingClientsFromGas_(env, day, gasList, { ignoreTombstones: false });
             try {
               const infoDay = await dayDateInfo_(env, day);
               if (infoDay && infoDay.iso) await scrubMismatchedDayOrders_(env, day, infoDay.iso);

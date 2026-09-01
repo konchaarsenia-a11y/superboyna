@@ -54,9 +54,14 @@
 - `getViewCompare`: live `[]` важнее stale `view:` snap.
 - `moveClient_`: resolve `newDate` до calendarOnly.
 - Week `deleteClient`: не сканирует все `day_name=''` без dateIso.
+- `cutoverStoreRead_` revalidate: **только upsert** (replace dead path убран).
+- Week-close resync: `gasN < d1Count` → upsert-only; aborted fallback без `ignoreTombstones`.
+- `moveEpoch` старше 7д не прячет клиента.
+- Calendar month (D1-primary): без tomb-filter на live D1.
+- UI: `keepDom` на всех post-mutation reload (`afterPeopleMutationDays_`, `refreshDayViews`).
 
 Откат на Sheets-канон: Worker env `PEOPLE_CANON=sheets-confirm-bg`.
 
-Маркер: `peopleCanon: "d1-primary"` (+ `deployMarker` people-harden-b2).
+Маркер: `peopleCanon: "d1-primary"` (+ `deployMarker` people-harden-b3).
 
 См. `CUTOVER.md`, `WEEK_CALENDAR_CANON.md`.
