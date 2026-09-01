@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-08-31 d1-final-h1"
+      deployMarker: "2026-09-01 cal-ops-truth-h1"
     };
   }
 
@@ -2787,7 +2787,11 @@ async function overlayWeekSheetCountsOnMonth_(env, body) {
       byIso[iso].segments = segs;
       byIso[iso].fromWeekSheet = true;
     } else {
-      // D1/календарь уже посчитали уникальных — не затирать nick-row
+      const d1c = Number(byIso[iso].count) || 0;
+      byIso[iso].count = Math.max(d1c, wCount);
+      if (wCount >= d1c && Object.keys(segs).some(function (k) { return segs[k] > 0; })) {
+        byIso[iso].segments = segs;
+      }
       byIso[iso].fromWeekSheet = true;
     }
   });
@@ -3711,6 +3715,19 @@ async function cutoverGetMonthOverview_(params, env, ctx) {
   }
 
   if (force) {
+    if (isD1PrimaryCanon_(env)) {
+      let body = await rebuildMonthOverview_(env, month);
+      body = await overlayWeekSheetCountsOnMonth_(env, body);
+      body = await reconcileMonthOverviewWithViewSnaps_(env, body);
+      if (body && typeof body === "object") {
+        body.cutover = true;
+        body.fromD1 = true;
+        body.fromGas = false;
+        body.sandbox = false;
+        body.source = body.source || "d1-live";
+      }
+      return body || { status: "success", month: month, days: [], total: 0, cutover: true, source: "d1" };
+    }
     return (await fromGas_()) || { status: "error", message: "gas_proxy_failed", cutover: true };
   }
 
@@ -3754,16 +3771,7 @@ async function rebuildMonthOverview_(env, monthWanted) {
     "SELECT date_iso, match_key, client, segment, source FROM orders WHERE status = 'active' AND date_iso != ''"
   ).all();
   const byDate = Object.create(null);
-  // стартуем с полного календарного snap (GAS), иначе пропадут даты вне недели
-  ((prev && prev.days) || []).forEach(function (d) {
-    if (!d || !d.dateIso) return;
-    if (String(d.dateIso).slice(0, 7) !== month) return;
-    byDate[d.dateIso] = {
-      dateIso: d.dateIso,
-      count: Number(d.count) || 0,
-      segments: d.segments || {}
-    };
-  });
+  // D1-only counts (источник правды). Snap/GAS не сидят «призраков».
   const orderByDate = Object.create(null);
   (q.results || []).forEach(function (r) {
     const iso = r.date_iso;
@@ -3824,6 +3832,40 @@ async function rebuildMonthOverview_(env, monthWanted) {
   return body;
 }
 
+async function enrichCourierClientPp_(c, env, dateIso) {
+  if (!c) return c;
+  const seg = normalizeSegmentLabel_(c.segment || "");
+  const src = String(c.source || "").toLowerCase();
+  if (seg !== "ПП" && src !== "pp" && src !== "subscription") return c;
+  let deliveriesN = Math.max(0, Number(c.deliveriesN) || 0);
+  let deliverySlot = Number(c.deliverySlot) || 0;
+  let ppSlot = String(c.ppSlot || "").trim();
+  if (!deliveriesN) {
+    try {
+      const sub = await getSubscription_({ nick: c.name, sheet: "ПП", segment: "ПП" }, env);
+      if (sub && sub.found) deliveriesN = Math.max(1, Number(sub.deliveries) || 1);
+    } catch (eSub) {}
+  }
+  if (!deliverySlot && ppSlot) deliverySlot = parseForcedPpSlotD1_(ppSlot, deliveriesN || 2);
+  if (!ppSlot && deliverySlot >= 1 && deliveriesN >= 2) {
+    ppSlot = formatPpSlotLabelD1_(deliverySlot, deliveriesN);
+  }
+  if (!deliverySlot && dateIso && c.matchKey) {
+    try {
+      const stored = await lookupStoredPpSlotDateD1_(env, c.name, c.matchKey, dateIso);
+      if (stored >= 1) deliverySlot = stored;
+    } catch (eSt) {}
+  }
+  if (deliverySlot >= 1 && deliveriesN >= 2) {
+    ppSlot = formatPpSlotLabelD1_(deliverySlot, deliveriesN);
+    c.askPaid = true;
+  }
+  if (deliveriesN >= 1) c.deliveriesN = deliveriesN;
+  if (deliverySlot >= 1) c.deliverySlot = deliverySlot;
+  if (ppSlot) c.ppSlot = ppSlot;
+  return c;
+}
+
 async function rebuildCourierDay_(env, day) {
   if (!day) return;
   const live = await getClients_({ day: day }, env);
@@ -3836,17 +3878,41 @@ async function rebuildCourierDay_(env, day) {
   const prevBy = sameDate
     ? indexByMatchAliases_((prev && prev.clients) || [])
     : Object.create(null);
-  const clients = (live.clients || []).map(function (c) {
+  let asmSnap = null;
+  let asmBy = Object.create(null);
+  if (sameDate) {
+    try {
+      asmSnap = await getSnapRaw_(env, "assembly:" + day);
+      if (asmSnap && Array.isArray(asmSnap.clients)) {
+        asmBy = indexByMatchAliases_(asmSnap.clients);
+      }
+    } catch (eAsm) {}
+  }
+  const infoIso = info.iso || "";
+  const clients = [];
+  for (let ci = 0; ci < (live.clients || []).length; ci++) {
+    const c = live.clients[ci];
     const old = (sameDate && lookupByMatchAliases_(prevBy, c.matchKey || c.name)) || {};
-    return Object.assign({}, c, {
+    const asm = lookupByMatchAliases_(asmBy, c.matchKey || c.name);
+    const merged = Object.assign({}, c, {
       delivered: sameDate ? !!old.delivered : false,
-      assembled: sameDate ? !!old.assembled : false,
+      assembled: sameDate ? !!(old.assembled || (asm && asm.assembled)) : !!(asm && asm.assembled),
       paid: sameDate ? old.paid : null,
       col: old.col,
       courierCol: old.courierCol,
-      deliveriesN: old.deliveriesN,
-      askPaid: sameDate ? old.askPaid : false
+      deliveriesN: Number(c.deliveriesN) || Number(old.deliveriesN) || 0,
+      askPaid: sameDate ? !!old.askPaid : false
     });
+    try {
+      await enrichCourierClientPp_(merged, env, infoIso);
+    } catch (ePp) {}
+    clients.push(merged);
+  }
+  clients.sort(function (a, b) {
+    const da = a && a.delivered ? 1 : 0;
+    const db = b && b.delivered ? 1 : 0;
+    if (da !== db) return da - db;
+    return String((a && a.name) || "").localeCompare(String((b && b.name) || ""), "ru");
   });
   // merge deliveries table (только текущий date_iso)
   if (info.iso) {
@@ -4308,6 +4374,7 @@ async function saveOrder_(params, env, asBooking) {
   const meta = {
     orderPrice: params.orderPrice,
     ppSlot: params.ppSlot,
+    deliverySlot: params.deliverySlot,
     ppHint: params.ppHint,
     ppPartner: params.ppPartner,
     deliveryAfter: params.deliveryAfter,
@@ -6233,6 +6300,27 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
       });
       snap.flagsTouchedAt = Date.now();
       await putSnap_(env, "assembly:" + day, snap);
+    }
+    if (flag === "assembled") {
+      try {
+        let cour = await getSnapRaw_(env, "courier:" + day);
+        if (!cour) {
+          await rebuildCourierDay_(env, day);
+          cour = await getSnapRaw_(env, "courier:" + day);
+        }
+        if (cour && Array.isArray(cour.clients)) {
+          cour.clients.forEach(function (c) {
+            var hit =
+              c.name === client ||
+              matchKeyAliases_(c.matchKey || c.name).some(function (k) {
+                return aliasesA.indexOf(k) >= 0;
+              });
+            if (hit) c.assembled = val;
+          });
+          cour.flagsTouchedAt = Date.now();
+          await putSnap_(env, "courier:" + day, cour);
+        }
+      } catch (eCourAsm) {}
     }
   }
 }

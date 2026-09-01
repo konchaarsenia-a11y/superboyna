@@ -2779,6 +2779,9 @@
     let orderDogCount = 1;
     let orderActiveDog = 1;
     let orderBaskets = { 1: [], 2: [] };
+    let orderDogNames = { 1: "", 2: "" };
+    var orderMonthOverviewCache = null;
+    var _orderCalLoadSeq = 0;
 
     function syncOrderBasketFromActive_() {
       orderBaskets[orderActiveDog] = (basket || []).slice();
@@ -3357,6 +3360,7 @@
         if (screenId === "orderScreen" && document.getElementById("isEditMode").value === "false") {
           document.getElementById("appHeaderTitle").innerText = "Бойня-Конвейер " + APP_VERSION;
           document.getElementById("btnMainSave").innerText = "Сохранить заказ";
+          try { ensureOrderDateCal_({ soft: true }); } catch (eOrdCal) {}
         }
         if (screenId === "clientsScreen") {
           document.getElementById("appHeaderTitle").innerText = "Просмотр · " + APP_VERSION;
@@ -4229,6 +4233,7 @@
     function onDeliveryDateChange() {
       const el = document.getElementById("deliveryDate");
       if (!el || !el.value) return;
+      try { ensureOrderDateCal_({ soft: true }); } catch (eCal0) {}
       const d = new Date(el.value + "T12:00:00");
       if (isNaN(d.getTime())) return;
       const daySel = document.getElementById("day");
@@ -4644,7 +4649,14 @@
         flat: flat,
         survey: surveyMeta,
         geo: geoSnap,
-        basket: buildOrderSaveBasket_()
+        basket: buildOrderSaveBasket_(),
+        dogCount: orderSaveUsesTwoDogs_() ? 2 : 1,
+        dogNames: orderSaveUsesTwoDogs_()
+          ? {
+            1: String((document.getElementById("orderDogName1") && document.getElementById("orderDogName1").value) || orderDogNames[1] || "").trim(),
+            2: String((document.getElementById("orderDogName2") && document.getElementById("orderDogName2").value) || orderDogNames[2] || "").trim()
+          }
+          : null
       };
 
       const bookingPayload = {
@@ -5712,6 +5724,115 @@
       ensureMonthOverviewLoaded_({ force: true });
     }
     window.refreshViewMonthOverview = refreshViewMonthOverview;
+
+    function orderCalMonthFromDate_() {
+      var el = document.getElementById("deliveryDate");
+      var v = el && el.value ? String(el.value).slice(0, 7) : "";
+      if (/^\d{4}-\d{2}$/.test(v)) return v;
+      var now = new Date();
+      return now.getFullYear() + "-" + pad2Month_(now.getMonth() + 1);
+    }
+
+    function renderOrderDateCal_(data) {
+      var box = document.getElementById("orderDateCal");
+      if (!box) return;
+      var month = orderCalMonthFromDate_();
+      var dataMonth = String((data && data.month) || "").slice(0, 7);
+      if (dataMonth && dataMonth !== month) return;
+      var byIso = {};
+      ((data && data.days) || []).forEach(function (d) {
+        if (d && d.dateIso) byIso[d.dateIso] = d;
+      });
+      var y = Number(month.slice(0, 4));
+      var m = Number(month.slice(5, 7));
+      var first = new Date(y, m - 1, 1);
+      var daysInMonth = new Date(y, m, 0).getDate();
+      var startWeekday = (first.getDay() + 6) % 7;
+      var todayIso = viewTodayIsoLocal_();
+      var selectedIso = (document.getElementById("deliveryDate") && document.getElementById("deliveryDate").value) || "";
+      var html = '<div class="ios-cal ios-cal-compact">';
+      html += '<div class="ios-cal-nav">' +
+        '<button type="button" class="ios-cal-nav-btn" onclick="shiftOrderCalMonth_(-1)">‹</button>' +
+        '<div class="ios-cal-title">' + escapeHtml(monthTitleRu_(month)) + "</div>" +
+        '<button type="button" class="ios-cal-nav-btn" onclick="shiftOrderCalMonth_(1)">›</button>' +
+        "</div>";
+      html += '<div class="ios-cal-weekdays">' +
+        ["пн", "вт", "ср", "чт", "пт", "сб", "вс"].map(function (w) {
+          return '<div class="ios-cal-wd">' + w + "</div>";
+        }).join("") + "</div><div class=\"ios-cal-grid\">";
+      var cells = [];
+      var i;
+      for (i = 0; i < startWeekday; i++) cells.push({ out: true });
+      for (var d = 1; d <= daysInMonth; d++) {
+        var iso = month + "-" + pad2Month_(d);
+        cells.push({ out: false, day: d, iso: iso, info: byIso[iso] || null });
+      }
+      while (cells.length % 7 !== 0) cells.push({ out: true });
+      cells.forEach(function (cell) {
+        if (cell.out) {
+          html += '<div class="ios-cal-cell is-out"><div class="ios-cal-num"></div></div>';
+          return;
+        }
+        var info = cell.info;
+        var count = info ? (Number(info.count) || 0) : 0;
+        var cls = "ios-cal-cell";
+        if (cell.iso === todayIso) cls += " is-today";
+        if (selectedIso && cell.iso === selectedIso) cls += " is-selected";
+        if (count > 0) cls += " has-events";
+        html += '<button type="button" class="' + cls + '" data-iso="' + escapeHtml(cell.iso) + '"' +
+          ' onclick="pickOrderDateFromCal_(this.getAttribute(\'data-iso\'))">' +
+          '<div class="ios-cal-num">' + cell.day + "</div>" +
+          iosCalDotsHtml_(info && info.segments, count) +
+          (count > 0 ? ('<div class="ios-cal-badge">' + count + "</div>") : "") +
+          "</button>";
+      });
+      html += "</div></div>";
+      box.innerHTML = html;
+    }
+
+    function shiftOrderCalMonth_(delta) {
+      var el = document.getElementById("deliveryDate");
+      var month = orderCalMonthFromDate_();
+      var p = month.split("-");
+      var d = new Date(Number(p[0]), Number(p[1]) - 1 + Number(delta || 0), 1);
+      var next = d.getFullYear() + "-" + pad2Month_(d.getMonth() + 1) + "-01";
+      if (el) el.value = next;
+      ensureOrderDateCal_({ force: true });
+    }
+    window.shiftOrderCalMonth_ = shiftOrderCalMonth_;
+
+    function pickOrderDateFromCal_(iso) {
+      iso = String(iso || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+      var el = document.getElementById("deliveryDate");
+      if (el) el.value = iso;
+      try { onDeliveryDateChange(); } catch (eOd) {}
+      ensureOrderDateCal_({ soft: true });
+    }
+    window.pickOrderDateFromCal_ = pickOrderDateFromCal_;
+
+    async function ensureOrderDateCal_(opts) {
+      opts = opts || {};
+      var box = document.getElementById("orderDateCal");
+      if (!box) return;
+      var month = orderCalMonthFromDate_();
+      var seq = ++_orderCalLoadSeq;
+      if (opts.soft && orderMonthOverviewCache && orderMonthOverviewCache.month === month) {
+        renderOrderDateCal_(orderMonthOverviewCache);
+      }
+      try {
+        var res = await apiGet(
+          { action: "getMonthOverview", month: month, force: opts.force ? "1" : "", _: String(Date.now()) },
+          { timeoutMs: opts.force ? 22000 : 14000, cacheTtlMs: 0, retries: 0 }
+        );
+        if (seq !== _orderCalLoadSeq) return;
+        if (res && res.status === "success" && Array.isArray(res.days)) {
+          orderMonthOverviewCache = res;
+          renderOrderDateCal_(res);
+        }
+      } catch (eMo) {}
+    }
+    window.ensureOrderDateCal_ = ensureOrderDateCal_;
 
     async function ensureMonthOverviewLoaded_(opts) {
       opts = opts || {};
@@ -7538,6 +7659,7 @@
       try { apiCacheBustMem_("getClients"); } catch (e3) {}
       try { apiCacheBustMem_("getViewCompare"); } catch (e4) {}
       try { apiCacheBustMem_("getMonthOverview"); } catch (e5) {}
+      try { orderMonthOverviewCache = null; viewMonthOverviewCache = null; } catch (eMo0) {}
       try { apiCacheBustMem_("getWeekDayCounts"); } catch (e6) {}
       (days || []).forEach(function (d) {
         if (!d) return;
@@ -9706,6 +9828,12 @@
         courierClientsCache._date = res.date || day;
         courierClientsCache._day = day;
         try { applyCourierLocalFlags_(courierClientsCache); } catch (eCf) {}
+        courierClientsCache.sort(function (a, b) {
+          var da = a && a.delivered ? 1 : 0;
+          var db = b && b.delivered ? 1 : 0;
+          if (da !== db) return da - db;
+          return String((a && a.name) || "").localeCompare(String((b && b.name) || ""), "ru");
+        });
         refreshCourierSummary();
         renderCourierClientsUi_();
       } catch (err) {
@@ -9799,7 +9927,7 @@
             <label class="check-line" onclick="event.stopPropagation()">
               <input type="checkbox" ${c.delivered ? "checked" : ""} onchange="toggleDelivered(${idx}, this.checked)">
               <span class="cut-title">${idx + 1}. ${escapeHtml(c.name)}</span>
-              ${c.assembled ? ('<span class="client-badge" style="margin-left:8px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>') : ""}
+              ${!c.delivered ? (c.assembled ? ('<span class="client-badge" style="margin-left:8px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>') : ('<span class="client-badge" style="margin-left:8px;background:rgba(255,69,58,0.18);color:#ff6961;opacity:0.85;">не собран</span>')) : (c.assembled ? ('<span class="client-badge" style="margin-left:8px;background:rgba(255,159,10,0.25);color:#ffd60a;">собран</span>') : "")}
               ${clientTechBadgesHtml_(c)}
             </label>
             <div class="courier-addr-main">${addrPublic ? ("Адрес: <b>" + escapeHtml(addrPublic) + "</b>") : "Адрес не указан"}
@@ -10678,6 +10806,14 @@
       if (seg === "PP") seg = "ПП";
       if (seg === "BP") seg = "БП";
       if (seg) bits.push('<span class="client-badge" style="background:rgba(94,92,230,0.25);color:#bfbfff;">' + escapeHtml(seg) + "</span>");
+
+      var ppSlotLbl = String((client && client.ppSlot) || "").trim();
+      var delN = Number(client && client.deliveriesN) || 0;
+      var delSlot = Number(client && client.deliverySlot) || 0;
+      if (!ppSlotLbl && delN >= 2 && delSlot >= 1) ppSlotLbl = delSlot + "/" + delN;
+      if (ppSlotLbl && (seg === "ПП" || resolveClientOrderType_(client) === "pp")) {
+        bits.push('<span class="client-badge" style="background:rgba(255,159,10,0.28);color:#ffd60a;">ПП ' + escapeHtml(ppSlotLbl) + "</span>");
+      }
 
       var ppPaid = !!(client && (client.ppPaid || String(client.paid || "").toLowerCase() === "yes"));
       var isPpSeg = (seg === "ПП" || seg === "АФК");
@@ -15422,6 +15558,7 @@
           '<span>Пропечатано <span class="muted">(без лакомств)</span></span>' +
           "</label>" +
           (c.address ? '<div class="muted" style="font-size:12px;margin-top:4px;">' + escapeHtml(c.address) + "</div>" : "") +
+          ((c.dogPart && c.dogName) ? ('<div class="asm-dog-head" style="font-weight:700;margin-top:10px;font-size:15px;color:var(--accent-color,#3dd6c6);">' + escapeHtml(c.dogName) + "</div>") : "") +
           '<div style="margin-top:8px;"><b>Состав</b></div>' + composition +
           clientNotesHtml +
           '<div class="pack-line" style="margin-top:8px;"><b>Пакеты:</b> ' + escapeHtml(packSummary) +
