@@ -7272,7 +7272,8 @@
             (viewDateOnlyMonth
               ? ("Календарь (вне недели): " + month.length + dateLabel + wd + sheetHint + " · правка без листа недели")
               : ("Неделя: " + week.length + dayLabel + dateLabel + wd + futHint)) +
-            "</div>";
+            "</div>" +
+            formatDayCollectTotalHtml_(calcDayCollectTotal_(loadedClientsRawData));
         }
         if (deployHint && needDeploy) {
           deployHint.style.display = "block";
@@ -9916,6 +9917,7 @@
             '<div class="cut-done-meta">Клиентов: <b>' + list.length + "</b>" +
               (paidN ? (" · оплачено ПП: <b>" + paidN + "</b>") : "") +
             "</div>" +
+            formatDayCollectTotalHtml_(calcDayCollectTotal_(list)) +
           "</div>";
       }
       if (box) {
@@ -10001,7 +10003,10 @@
       }
       const doneCount = courierClientsCache.filter(c => c.delivered).length;
       const dateLabel = (courierClientsCache._date || day);
-      summary.innerHTML = `<div class="total-summary-badge">${escapeHtml(dateLabel)} · ${courierClientsCache.length} клиентов · доставлено <span style="color:var(--success-color)">${doneCount}</span></div>`;
+      const money = calcDayCollectTotal_(courierClientsCache);
+      summary.innerHTML =
+        `<div class="total-summary-badge">${escapeHtml(dateLabel)} · ${courierClientsCache.length} клиентов · доставлено <span style="color:var(--success-color)">${doneCount}</span></div>` +
+        formatDayCollectTotalHtml_(money);
     }
 
     async function toggleDelivered(index, delivered) {
@@ -10811,6 +10816,56 @@
       }
       return extractOrderPrice(clientOrNote);
     }
+
+    /** Сумма, которую курьер/менеджер ожидает получить с клиента в этот день. */
+    function clientCollectAmount_(client) {
+      client = client || {};
+      var ot = resolveClientOrderType_(client);
+      if (ot === "bp") return 0;
+      var seg = String(client.segment || "").trim().toUpperCase();
+      var isPp = ot === "pp" || seg === "ПП" || seg === "АФК" || seg === "AFK" || seg === "PP";
+      if (isPp) {
+        if (client.ppPaid || String(client.paid || "").toLowerCase() === "yes") return 0;
+      }
+      var price = resolveClientOrderPrice(client);
+      var amt = (price != null && !isNaN(Number(price)) && Number(price) > 0) ? Number(price) : 0;
+      var cq = Number(client.couponsQty) || 0;
+      var cp = Number(client.couponPrice) || 0;
+      if (cq > 0 && cp > 0) amt += cp;
+      return Math.round(amt * 100) / 100;
+    }
+
+    function calcDayCollectTotal_(clients) {
+      var total = 0;
+      var withPrice = 0;
+      (clients || []).forEach(function (c) {
+        var a = clientCollectAmount_(c);
+        if (a > 0) {
+          total += a;
+          withPrice++;
+        }
+      });
+      return {
+        total: Math.round(total * 100) / 100,
+        withPrice: withPrice,
+        clients: (clients || []).length
+      };
+    }
+
+    function formatDayCollectTotalHtml_(stats) {
+      if (!stats) return "";
+      if (!(stats.total > 0)) {
+        if (stats.clients > 0) {
+          return '<div class="total-summary-badge day-money-badge">К сбору: <b>0</b> BYN <span class="muted" style="font-weight:400;">· БП / оплаченные ПП</span></div>';
+        }
+        return "";
+      }
+      return '<div class="total-summary-badge day-money-badge">К сбору: <b style="color:#30d158;font-size:17px;">' +
+        escapeHtml(String(stats.total)) + '</b> BYN' +
+        (stats.withPrice ? (' <span class="muted" style="font-weight:400;">· ' + stats.withPrice + " с оплатой</span>") : "") +
+        "</div>";
+    }
+    window.calcDayCollectTotal_ = calcDayCollectTotal_;
     function formatOrderPriceHtml(noteOrPrice, opts) {
       // ПП уже оплачен — цену не пишем (бейдж «оплачено» в clientTechBadgesHtml_)
       if (noteOrPrice && typeof noteOrPrice === "object") {
