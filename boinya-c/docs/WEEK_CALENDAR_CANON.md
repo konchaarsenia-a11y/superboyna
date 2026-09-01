@@ -10,7 +10,7 @@
 | **Календарь** (`Календарь_Дат` + брони) | люди на **любой** date_iso | дата **вне** 8 слотов |
 | **D1** (`orders`) | кэш UI (`day_name` или `date_iso`+пустой day) | всегда после accept |
 
-Канон подтверждения записи людей: **Sheets** (`sheetsVerified`). D1 не финал.
+Канон подтверждения записи людей: **D1** (`d1Verified`). Sheets — фоновое зеркало; toast «лист догонит» если mirror отстаёт.
 
 ## Одно правило маршрута
 
@@ -44,7 +44,7 @@ resolveDayForDate(date) → onWeek?
 1. Перед people-write: один раз решить `onWeek` vs `calendarOnly` (UI + Worker + GAS одинаково).
 2. Вне недели → только `saveBooking` / `removeCalendarClient` / `moveClient?calendarOnly=1`.
 3. Любой UI-вход (форма, Просмотр, **batch**) → `isPeopleWriteAccepted_` (`success|accepted|writeId`).
-4. «Точно …» только после `sheetsVerified` (или явный soft: already/beyond_week+calendar).
+4. «Точно …» при `d1Verified` (D1-primary); Sheets mirror — фон, не блок UI.
 5. Не чинить гонку fake-success — чинить маршрут.
 
 См. также `PEOPLE_CANON.md`, `CUTOVER.md`.

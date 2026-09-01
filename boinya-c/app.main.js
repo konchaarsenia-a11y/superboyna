@@ -6415,16 +6415,16 @@
           matchKey: client.matchKey || "",
           _: String(Date.now())
         }, { timeoutMs: 30000, cacheTtlMs: 0, bypassInflight: true });
-        if (!res || (res.status !== "success" && res.status !== "accepted" && !res.writeId && !res.sheetsVerified && !res.d1Verified)) {
+        if (!res || !isPeopleWriteAccepted_(res)) {
           showToast("Не вышло: " + ((res && res.message) || res.status || "Deploy?"));
           return;
         }
-        if (res.writeId || res.pendingSheets || res.sheetsVerified) {
+        if (res.writeId || res.pendingSheets) {
           await confirmPeopleWriteSheets_(res, {
             doneMsg: "Точно убрано из календаря",
             pendingMsg: "Убираю из календаря…",
             failMsg: "Не убралось из таблицы",
-            block: !!(res.writeId || res.pendingSheets) && !res.sheetsVerified
+            block: false
           });
         } else {
           showToast("Убрано из календаря");
@@ -8094,7 +8094,7 @@
           moveParams.source = moveOt;
         }
         var res = await apiGet(moveParams, { timeoutMs: 16000, cacheTtlMs: 0, bypassInflight: true });
-        if (!res || (res.status !== "success" && res.status !== "accepted" && !res.sent_opaque && !res.sheetsVerified && !res.d1Verified && !res.writeId)) {
+        if (!res || !isPeopleWriteAccepted_(res)) {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return false;
         }
