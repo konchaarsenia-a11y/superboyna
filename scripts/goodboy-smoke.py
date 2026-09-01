@@ -103,7 +103,8 @@ def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> No
     if cta.count():
         href = cta.get_attribute("href") or ""
         assert_true("ig.me/m/goodboy_rb" in href, f"trial: IG href ok ({href[:80]})", errors)
-        assert_true("text=" in href, "trial: IG href has prefilled text", errors)
+        ig_js = page.locator('script[src*="trial-ig.js"]')
+        assert_true(ig_js.count() > 0, "trial: trial-ig.js loaded (clipboard for iOS)", errors)
         box = cta.bounding_box()
         if box:
             assert_true(box["height"] >= 44, f"trial: CTA height {box['height']:.0f}px < 44", errors)
