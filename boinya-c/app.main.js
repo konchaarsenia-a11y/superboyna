@@ -917,6 +917,14 @@
     }
     window.isPeopleWriteAccepted_ = isPeopleWriteAccepted_;
 
+    /** D1-primary: ждём poll только если D1 ещё не подтвердил (Sheets = зеркало). */
+    function isPeopleWritePendingMirror_(res) {
+      if (!res || typeof res !== "object") return false;
+      if (res.d1Verified || res.verified) return false;
+      return !!(res.writeId || res.pendingSheets || res.pendingSheetsMirror) && !res.sheetsVerified;
+    }
+    window.isPeopleWritePendingMirror_ = isPeopleWritePendingMirror_;
+
     function celebrateSuccess(kind, opts) {
       try { if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); } catch (e) {}
       opts = opts || {};
@@ -6419,7 +6427,7 @@
           showToast("Не вышло: " + ((res && res.message) || res.status || "Deploy?"));
           return;
         }
-        if (res.writeId || res.pendingSheets) {
+        if (isPeopleWritePendingMirror_(res)) {
           await confirmPeopleWriteSheets_(res, {
             doneMsg: "Точно убрано из календаря",
             pendingMsg: "Убираю из календаря…",
@@ -6427,7 +6435,7 @@
             block: false
           });
         } else {
-          showToast("Убрано из календаря");
+          showToast(res.d1Verified ? "Точно убрано из календаря" : "Убрано из календаря");
         }
         try { apiCacheBustMem_(); } catch (eMem) {}
         window._peopleListKeepDom = true;
@@ -8109,7 +8117,7 @@
         if (svN || bpMetaN) baseMsg += " · опрос " + svN + (bpMetaN ? (" · meta БП " + bpMetaN) : "");
         else if (res.dateSync && res.dateSync.surveyError) baseMsg += " · опрос не сдвинут";
 
-        var pendingWrite = !!(res.writeId || res.pendingSheets) && !res.sheetsVerified;
+        var pendingWrite = isPeopleWritePendingMirror_(res);
         // сразу убрать с текущего экрана — не ждать Sheets
         try {
           loadedClientsRawData = (loadedClientsRawData || []).filter(function (c) {
@@ -8413,7 +8421,7 @@
         var delDone = (res.alreadyGone ? "Точно уже удалено" : "Точно удалено") +
           (delParams.day || day ? (" · " + (delParams.day || day)) : "") +
           (dateStr ? (" · " + dateStr) : "");
-        var pendingDel = !!(res.writeId || res.pendingSheets) && !res.sheetsVerified;
+        var pendingDel = isPeopleWritePendingMirror_(res);
 
         // убираем из UI сразу после accept
         try {

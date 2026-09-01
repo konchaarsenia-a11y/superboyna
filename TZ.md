@@ -1,4 +1,4 @@
-- [~] **D1 final harden h1 2026-08-31:** move calendar refreshViewDateSnap; UI isPeopleWriteAccepted_; docs D1_STATUS; marker `d1-final-h1` · Pages `v71115920` · **Worker Deploy**
+- [x] **D1 final harden h1 2026-08-31:** move calendar refreshViewDateSnap; UI isPeopleWriteAccepted_; docs D1_STATUS; marker `d1-final-h1` · Pages `v71115921` (pending mirror fix) · **Worker Deploy OK** · smoke PING/SAVE/COUNTS/MOVE/VIEW/CAL/FINAL=1
 - [x] **КРИТ: calendar off-week + hotfix v71115919 2026-08-31:** stale viewDate snap; UI route; SyntaxError dateStr duplicate · marker `cal-offweek-crud` · Pages `v71115919` · **Worker Deploy OK**
 - [x] **КРИТ: people harden batch3 2026-08-31:** week-close gasN<d1Count upsert-only; cutoverStoreRead upsert-only; moveEpoch TTL 7d; calendar month без tomb; UI keepDom везде; marker `people-harden-b3` · Pages `v71115917` · **Worker Deploy OK** · smoke PING/SAVE/COUNTS/MOVE/VIEW/CAL/FINAL=1
 - [x] **КРИТ: people harden batch2 2026-08-31:** D1 counts для heal; view без snap-призраков; move resolve; delete не сканит весь CAL; UI keepDom; marker `people-harden-b2` · Pages `v71115916` · **Worker Deploy OK** · smoke save/counts/view/move/final=1
