@@ -1,5 +1,5 @@
 /**
- * Trial landing: подробности по тапу на карточки шагов.
+ * Trial landing: подробности по тапу на карточки шагов (аккордеон).
  */
 (function (global) {
   "use strict";
@@ -28,68 +28,45 @@
     }
   };
 
-  function init() {
-    var sheet = document.getElementById("trialStepSheet");
-    var cards = document.querySelectorAll(".trial-step-card[data-step]");
-    if (!sheet || !cards.length) return;
-
-    var backdrop = sheet.querySelector(".trial-sheet-backdrop");
-    var closeBtn = sheet.querySelector(".trial-sheet-close");
-    var titleEl = document.getElementById("trialSheetTitle");
-    var bodyEl = document.getElementById("trialSheetBody");
-    var activeCard = null;
-
-    function open(stepKey, card) {
-      var step = STEPS[stepKey];
-      if (!step) return;
-
-      if (activeCard) activeCard.setAttribute("aria-expanded", "false");
-      activeCard = card;
-      if (activeCard) activeCard.setAttribute("aria-expanded", "true");
-
-      titleEl.textContent = step.title;
-      bodyEl.textContent = step.body;
-
-      sheet.hidden = false;
-      sheet.setAttribute("aria-hidden", "false");
-      document.body.classList.add("trial-sheet-open");
-      requestAnimationFrame(function () {
-        sheet.classList.add("is-open");
-      });
-      closeBtn.focus();
-    }
-
-    function close() {
-      sheet.classList.remove("is-open");
-      sheet.setAttribute("aria-hidden", "true");
-      document.body.classList.remove("trial-sheet-open");
-      if (activeCard) {
-        activeCard.setAttribute("aria-expanded", "false");
-        activeCard.focus();
-        activeCard = null;
-      }
-      setTimeout(function () {
-        if (!sheet.classList.contains("is-open")) sheet.hidden = true;
-      }, 280);
-    }
-
-    cards.forEach(function (card) {
-      card.addEventListener("click", function () {
-        open(card.getAttribute("data-step"), card);
-      });
-      card.addEventListener("keydown", function (ev) {
-        if (ev.key === "Enter" || ev.key === " ") {
-          ev.preventDefault();
-          open(card.getAttribute("data-step"), card);
-        }
-      });
+  function closeAll(items, except) {
+    items.forEach(function (item) {
+      if (item === except) return;
+      var btn = item.querySelector(".trial-step-card");
+      var panel = item.querySelector(".trial-step-detail");
+      item.classList.remove("is-open");
+      if (btn) btn.setAttribute("aria-expanded", "false");
+      if (panel) panel.hidden = true;
     });
+  }
 
-    if (backdrop) backdrop.addEventListener("click", close);
-    if (closeBtn) closeBtn.addEventListener("click", close);
+  function init() {
+    var items = document.querySelectorAll(".trial-step-item[data-step]");
+    if (!items.length) return;
 
-    document.addEventListener("keydown", function (ev) {
-      if (ev.key === "Escape" && sheet.classList.contains("is-open")) close();
+    items.forEach(function (item) {
+      var key = item.getAttribute("data-step");
+      var step = STEPS[key];
+      var btn = item.querySelector(".trial-step-card");
+      var panel = item.querySelector(".trial-step-detail");
+      if (!step || !btn || !panel) return;
+
+      panel.textContent = step.body;
+
+      function toggle(ev) {
+        if (ev) ev.preventDefault();
+        var open = !item.classList.contains("is-open");
+        closeAll(items, open ? item : null);
+        item.classList.toggle("is-open", open);
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+        panel.hidden = !open;
+        if (open) {
+          global.setTimeout(function () {
+            item.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }, 80);
+        }
+      }
+
+      btn.addEventListener("click", toggle);
     });
   }
 
