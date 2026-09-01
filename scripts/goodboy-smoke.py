@@ -97,6 +97,9 @@ def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> No
 
     steps = page.locator(".sub-steps li")
     assert_true(steps.count() == 3, f"trial: expected 3 steps, got {steps.count()}", errors)
+    step_cards = page.locator(".trial-step-card[data-step]")
+    assert_true(step_cards.count() == 3, f"trial: expected 3 step cards, got {step_cards.count()}", errors)
+    assert_true(page.locator("#trialStepSheet").count() > 0, "trial: step detail sheet present", errors)
 
     cta = page.locator("#subIgBtn.invite-btn, .sub-trial-cta").first
     assert_true(cta.count() > 0, "trial: CTA present", errors)
