@@ -57,11 +57,12 @@
 - `cutoverStoreRead_` revalidate: **только upsert** (replace dead path убран).
 - Week-close resync: `gasN < d1Count` → upsert-only; aborted fallback без `ignoreTombstones`.
 - `moveEpoch` старше 7д не прячет клиента.
-- Calendar month (D1-primary): без tomb-filter на live D1.
-- UI: `keepDom` на всех post-mutation reload (`afterPeopleMutationDays_`, `refreshDayViews`).
+- Calendar month (D1-primary): без tomb-filter на live D1; **off-week month = только live D1** (snap не воскрешает delete).
+- `refreshViewDateSnap_` на calendar save/delete до ответа UI.
+- UI: `viewDateOffWeek` → `removeCalendarClient` вместо week delete.
 
 Откат на Sheets-канон: Worker env `PEOPLE_CANON=sheets-confirm-bg`.
 
-Маркер: `peopleCanon: "d1-primary"` (+ `deployMarker` people-harden-b3).
+Маркер: `peopleCanon: "d1-primary"` (+ `deployMarker` cal-offweek-crud).
 
 См. `CUTOVER.md`, `WEEK_CALENDAR_CANON.md`.

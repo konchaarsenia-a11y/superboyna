@@ -4416,6 +4416,11 @@ async function saveOrder_(params, env, asBooking) {
   }
 
   await invalidateDays_(env, day ? [day] : []);
+  if (dateIso && (!day || asBooking)) {
+    try {
+      await refreshViewDateSnap_(env, dateIso);
+    } catch (eRefSave) {}
+  }
   return {
     status: "success",
     sandbox: true,
