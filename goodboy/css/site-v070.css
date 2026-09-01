@@ -3458,12 +3458,16 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 }
 .trial-dog-gift,
 .gb-boot-gift {
-  transform-origin: 98px 62px;
-  animation: trialGiftBob 1.4s ease-in-out infinite alternate;
+  transform-origin: 93px 64px;
+  animation: trialGiftBob 1.15s ease-in-out infinite alternate;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.45));
+}
+.gb-boot-gift {
+  transform-origin: 92px 62px;
 }
 @keyframes trialGiftBob {
-  from { transform: rotate(-6deg) translateY(0); }
-  to { transform: rotate(6deg) translateY(-2px); }
+  from { transform: rotate(-10deg) translateY(0) scale(1); }
+  to { transform: rotate(10deg) translateY(-4px) scale(1.04); }
 }
 .trial-dog--1 {
   top: 6%;
