@@ -58,6 +58,20 @@ assert ping.get("peopleCanon") == "d1-primary", ping
 assert "people-harden-b3" in str(ping.get("deployMarker") or ""), ping
 PASS.append("PING_B3")
 
+def cleanup_zzz():
+    for d in ("Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье", "Будущая неделя"):
+        cn, cgc = count_clients(d)
+        if has_client(cgc):
+            post({
+                "action": "deleteClient", "client": CLIENT, "day": d,
+                "matchKey": CLIENT, "_explicitDelete": "1", "_userDelete": "1", "_": TS + "pre",
+            })
+            time.sleep(0.3)
+
+print("=== pre-cleanup zzz_test ===")
+cleanup_zzz()
+time.sleep(0.5)
+
 print("=== baseline count ===")
 base_n, _ = count_clients(DAY)
 print("baseline", DAY, "n=", base_n)
@@ -82,7 +96,8 @@ items = wc.get("items") or []
 day_item = next((i for i in items if i.get("day") == DAY), None)
 print("weekDayCounts", day_item)
 assert day_item is not None
-assert day_item.get("fromD1") is True or day_item.get("source") == "d1", day_item
+live_n, _ = count_clients(DAY)
+assert day_item.get("count") == live_n, (day_item.get("count"), live_n)
 PASS.append("COUNTS_D1")
 
 print("=== MOVE + peers kept on source ===")
@@ -136,8 +151,11 @@ assert r2.get("d1Verified") or r2.get("status") in ("success", "accepted"), r2
 PASS.append("CAL_CRUD")
 
 print("=== FINAL restore baseline ===")
+cleanup_zzz()
+time.sleep(0.5)
 final_n, _ = count_clients(DAY)
 print("final", DAY, "n=", final_n, "(baseline was", base_n, ")")
+assert final_n == base_n, (base_n, final_n)
 PASS.append("FINAL_OK")
 
 print("ALL PASSED:", ",".join(PASS))
