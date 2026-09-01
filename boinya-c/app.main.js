@@ -7732,9 +7732,6 @@
         _userDelete: "1"
       };
       // дата только из поля Просмотра — НЕ lastViewDateIso (залипает с другого дня → снос не того слота)
-      const dateStr =
-        (document.getElementById("viewDate") && document.getElementById("viewDate").value) ||
-        "";
       if (dateStr) params.date = dateStr;
       // если дата есть, а day похож на «чужой» weekday — подставить resolved
       if (resolved && params.day && params.day !== resolved && dateStr) {
