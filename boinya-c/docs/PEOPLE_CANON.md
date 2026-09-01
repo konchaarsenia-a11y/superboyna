@@ -63,6 +63,6 @@
 
 Откат на Sheets-канон: Worker env `PEOPLE_CANON=sheets-confirm-bg`.
 
-Маркер: `peopleCanon: "d1-primary"` (+ `deployMarker` cal-offweek-crud).
+Маркер: `peopleCanon: "d1-primary"` (+ `deployMarker` d1-final-h1).
 
-См. `CUTOVER.md`, `WEEK_CALENDAR_CANON.md`.
+Карта «что на D1 / что на Sheets»: **[D1_STATUS.md](./D1_STATUS.md)**.
