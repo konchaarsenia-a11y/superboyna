@@ -21,6 +21,8 @@
 |-------|--------|
 | `frontend-design` | Новый/смелый UI (лендинги, Goodboy); не ломать токены конвейера |
 | `ui-miniapp-pass` | Полировка Mini App / HTML без полного редизайна |
+| `goodboy-ui-build` | Новая/пересборка страницы сайта Goodboy |
+| `goodboy-smoke` | Playwright smoke goodboy после HTML/CSS |
 | `webapp-testing` | Playwright / локальный HTML UI smoke |
 | `test-api` | Smoke webhook на `zzz_test` (`scripts/test-api.sh`) |
 | `tz-checklist` | Галочки в `TZ.md` после работы / слов владельца |

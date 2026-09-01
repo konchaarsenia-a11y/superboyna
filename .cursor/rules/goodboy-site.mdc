@@ -1,0 +1,43 @@
+---
+description: Goodboy сайт — внешка, smoke-тесты, Instagram CTA. Для goodboy/**/*.html и css.
+globs: goodboy/**/*.html,goodboy/**/*.css,goodboy/js/**/*.js,scripts/goodboy-smoke.py
+alwaysApply: false
+---
+
+# Goodboy site (внешка + smoke)
+
+## Перед правками
+
+1. `GOODBOY.md` — продукт и границы (не писать в CRM/неделю Бойни).
+2. `.cursor/rules/ui-miniapp.mdc` — токены; не React/Tailwind.
+3. Новый экран / сильный редизайн → skill `frontend-design`.
+4. Полировка существующего → skill `ui-miniapp-pass`.
+
+## Сборка внешки
+
+- CSS: `goodboy/css/site-v070.css`, переменные `--gb-*`.
+- Hero = **один тезис**; CTA ≥44px tap target.
+- Mobile-first **390px** (Telegram WebView).
+- После правок CSS/HTML — **bump cache** (`?v=` в link/script).
+- Instagram DM: `https://ig.me/m/goodboy_rb?text=…` (+ копирование текста по клику, если нужно).
+- Не трогать `app.html` / `Code.gs` Бойни без явной просьбы.
+
+## Обязательно перед push (goodboy/*)
+
+```bash
+python3 scripts/goodboy-smoke.py --screenshot-dir /tmp/gb-smoke
+```
+
+- exit 0 — можно пушить;
+- exit 1 — чинить до зелёного;
+- скрин hero/CTA приложить в PR или ответ, если менялась вёрстка.
+
+API Goodboy — отдельно `bash scripts/test-goodboy-api.sh` / skill `test-api` (только `zzz_test` для Бойни).
+
+## Skills
+
+| Skill | Когда |
+|-------|--------|
+| `goodboy-ui-build` | новая/пересборка страницы сайта |
+| `goodboy-smoke` | проверка после HTML/CSS или перед сдачей |
+| `webapp-testing` | сложный Playwright-сценарий поверх smoke |
