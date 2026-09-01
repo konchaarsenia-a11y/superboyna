@@ -72,7 +72,8 @@ def check_subscription(page, base: str, errors: list[str], shot_dir: Path | None
     assert_true(title.count() > 0, "subscription: .sub-trial-title present", errors)
     if title.count():
         text = title.inner_text().lower()
-        assert_true("пробн" in text and "недел" in text, "subscription: hero mentions trial week", errors)
+        trial_ok = ("недел" in text) and ("бесплат" in text or "пробн" in text)
+        assert_true(trial_ok, "subscription: hero mentions free trial week", errors)
 
     steps = page.locator(".sub-steps li")
     assert_true(steps.count() == 3, f"subscription: expected 3 steps, got {steps.count()}", errors)

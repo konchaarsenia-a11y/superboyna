@@ -2104,6 +2104,101 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   text-decoration: none;
 }
 .sub-claim-note a:hover { text-decoration: underline; }
+
+/* —— Subscription sell (NFC / short copy) —— */
+.page-sub--sell .sub-hero--sell {
+  padding-bottom: 2.5rem;
+}
+.page-sub--sell .sub-brand { display: none; }
+.sub-lead--sell {
+  max-width: 22rem;
+  margin-bottom: 24px;
+  font-size: clamp(1.02rem, 2.2vw, 1.12rem);
+}
+.sub-ig-btn--hero {
+  max-width: none;
+  width: 100%;
+}
+.sub-perks {
+  padding-top: 8px;
+  padding-bottom: 12px;
+}
+.sub-perk-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+@media (min-width: 640px) {
+  .sub-perk-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+}
+.sub-perk-grid li {
+  display: grid;
+  gap: 4px;
+  padding: 18px 16px;
+  border-radius: 18px;
+  background: rgba(44, 51, 48, 0.55);
+  border: 1px solid rgba(237, 232, 223, 0.08);
+}
+.sub-perk-ico {
+  font-family: var(--gb-display);
+  font-size: 1.1rem;
+  color: var(--gb-orange);
+  line-height: 1;
+}
+.sub-perk-grid strong {
+  color: var(--gb-cream);
+  font-size: 1.05rem;
+}
+.sub-perk-grid span {
+  color: var(--gb-muted);
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+.sub-how--sell {
+  padding-top: 28px;
+}
+.sub-how-title {
+  margin-bottom: 0;
+}
+.sub-steps--sell li {
+  padding: 18px 0;
+}
+.sub-steps--sell h3 {
+  font-size: 1.08rem;
+  margin-bottom: 4px;
+}
+.sub-steps--sell p {
+  font-size: 0.94rem;
+}
+.sub-claim--sell {
+  padding-top: 20px;
+  padding-bottom: clamp(48px, 10vw, 72px);
+}
+.sub-claim-inner {
+  display: grid;
+  gap: 16px;
+  justify-items: start;
+}
+.sub-claim-tag {
+  margin: 0;
+  color: var(--gb-sage);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.sub-claim--sell .sub-ig-btn {
+  max-width: none;
+  width: 100%;
+}
+.sub-claim--sell .sub-claim-note {
+  margin: 0;
+}
 .sub-cta-row {
   display: flex;
   flex-wrap: wrap;
