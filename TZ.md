@@ -1,3 +1,4 @@
+- [~] **Fix dupe heal v71115923 2026-09-01:** edit/move не воскрешают клиента на старом дне — heal skip tomb+moveEpoch; UI await delete + oldDay; saveOrder tomb oldDay; marker `fix-dupe-heal-h1` · Pages `v71115923` · **Worker Deploy**
 - [~] **Calendar truth + ops labels v71115922 2026-09-01:** monthOverview D1-only counts; force refresh без GAS; order mini-cal с бейджами; courier assembled/ПП slot/доставленные вниз; assembly клички; marker `cal-ops-truth-h1` · Pages `v71115922` · **Worker Deploy**
 - [x] **D1 final harden h1 2026-08-31:** move calendar refreshViewDateSnap; UI isPeopleWriteAccepted_; docs D1_STATUS; marker `d1-final-h1` · Pages `v71115921` (pending mirror fix) · **Worker Deploy OK** · smoke PING/SAVE/COUNTS/MOVE/VIEW/CAL/FINAL=1
 - [x] **КРИТ: calendar off-week + hotfix v71115919 2026-08-31:** stale viewDate snap; UI route; SyntaxError dateStr duplicate · marker `cal-offweek-crud` · Pages `v71115919` · **Worker Deploy OK**

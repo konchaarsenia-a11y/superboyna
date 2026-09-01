@@ -925,6 +925,25 @@
     }
     window.isPeopleWritePendingMirror_ = isPeopleWritePendingMirror_;
 
+    /** Edit/move: дождаться delete на старом дне, иначе heal/GAS воскресит дубль. */
+    async function awaitPeopleDelete_(params, opts) {
+      opts = opts || {};
+      var res = await apiGet(params, { timeoutMs: opts.timeoutMs || 30000, cacheTtlMs: 0, bypassInflight: true });
+      if (!isPeopleWriteAccepted_(res)) return { ok: false, res: res };
+      if (isPeopleWritePendingMirror_(res)) {
+        var conf = await confirmPeopleWriteSheets_(res, {
+          doneMsg: opts.doneMsg || "Точно удалено",
+          pendingMsg: opts.pendingMsg || "Удаляю…",
+          failMsg: opts.failMsg || "Не удалось удалить",
+          block: false,
+          timeoutMs: opts.confirmTimeoutMs || 12000
+        });
+        return { ok: !!conf.ok, res: conf.res || res };
+      }
+      return { ok: true, res: res };
+    }
+    window.awaitPeopleDelete_ = awaitPeopleDelete_;
+
     function celebrateSuccess(kind, opts) {
       try { if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); } catch (e) {}
       opts = opts || {};
@@ -4624,6 +4643,7 @@
       const payload = {
         action: "saveOrder",
         day: day,
+        oldDay: editDaySnap || "",
         client: clientName,
         editClient: editClientSnap,
         originalClient: editClientSnap,
@@ -4663,6 +4683,7 @@
         action: "saveBooking",
         date: deliveryDate,
         day: day || editDaySnap || "",
+        oldDay: editDaySnap || "",
         alsoSaveOrder: false,
         client: clientName,
         editClient: editClientSnap,
@@ -4713,9 +4734,11 @@
         if (isEdit && dateOnWeek && resolvedDayName) {
           weekDayToSave = resolvedDayName;
           if (editDaySnap && String(editDaySnap) !== String(resolvedDayName)) {
-            try {
-              await apiGet(deleteClientParams(editClientSnap || clientName, editDaySnap, editKeySnap), { timeoutMs: 30000, cacheTtlMs: 0 });
-            } catch (eDelDay) {}
+            var delOld = await awaitPeopleDelete_(deleteClientParams(editClientSnap || clientName, editDaySnap, editKeySnap));
+            if (!delOld.ok) {
+              await uiAlertAsync("Не удалось убрать со старого дня — сохранение отменено.");
+              return;
+            }
           }
         } else if (dateOnWeek && resolvedDayName) {
           weekDayToSave = resolvedDayName;
@@ -4730,9 +4753,11 @@
           var nickChanged = String(editClientSnap).trim().toUpperCase() !== clientName.toUpperCase();
           var dayChanged = String(editDaySnap || "") !== String(weekDayToSave || day || "");
           if (nickChanged || (dayChanged && editDaySnap)) {
-            try {
-              await apiGet(deleteClientParams(editClientSnap, editDaySnap || day, editKeySnap), { timeoutMs: 30000, cacheTtlMs: 0 });
-            } catch (eDelOld) {}
+            var delRen = await awaitPeopleDelete_(deleteClientParams(editClientSnap, editDaySnap || day, editKeySnap));
+            if (!delRen.ok) {
+              await uiAlertAsync("Не удалось убрать старую запись — сохранение отменено.");
+              return;
+            }
           }
         }
 
@@ -4743,6 +4768,7 @@
           action: "saveBooking",
           date: deliveryDate,
           day: weekDayToSave || "",
+          oldDay: editDaySnap || "",
           alsoSaveOrder: weekDayToSave ? "1" : "0",
           calendarOnly: weekDayToSave ? "0" : "1",
           client: clientName,
@@ -4893,6 +4919,7 @@
           var retryParams = {
             action: "saveOrder",
             day: weekDayToSave,
+            oldDay: editDaySnap || "",
             date: deliveryDate,
             client: clientName,
             editClient: editClientSnap,
@@ -4983,6 +5010,7 @@
             var orderParams = {
               action: "saveOrder",
               day: weekDayToSave,
+              oldDay: editDaySnap || "",
               date: deliveryDate,
               client: clientName,
               editClient: editClientSnap,
