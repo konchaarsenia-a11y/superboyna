@@ -1,6 +1,6 @@
 /**
  * Trial NFC: Instagram DM — на iPhone ig.me не подставляет ?text=,
- * поэтому копируем текст в буфер по тапу и открываем Direct.
+ * поэтому копируем текст в буфер синхронно по тапу и открываем Direct.
  */
 (function (global) {
   "use strict";
@@ -14,30 +14,33 @@
     return /iPhone|iPad|iPod/i.test(global.navigator.userAgent || "");
   }
 
-  function copyText(text) {
-    return new Promise(function (resolve) {
-      function fallback() {
-        try {
-          var ta = document.createElement("textarea");
-          ta.value = text;
-          ta.setAttribute("readonly", "");
-          ta.style.position = "fixed";
-          ta.style.left = "-9999px";
-          document.body.appendChild(ta);
-          ta.select();
-          ta.setSelectionRange(0, text.length);
-          document.execCommand("copy");
-          document.body.removeChild(ta);
-        } catch (e) {}
-        resolve();
-      }
+  function copyTextSync(text) {
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.top = "0";
+      ta.style.left = "0";
+      ta.style.width = "2em";
+      ta.style.height = "2em";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, text.length);
+      var ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      if (ok) return true;
+    } catch (e) {}
 
-      if (global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText) {
-        global.navigator.clipboard.writeText(text).then(resolve).catch(fallback);
-      } else {
-        fallback();
-      }
-    });
+    if (global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText) {
+      try {
+        global.navigator.clipboard.writeText(text);
+        return true;
+      } catch (e2) {}
+    }
+    return false;
   }
 
   function ensureToast() {
@@ -70,17 +73,20 @@
     var btn = document.getElementById("subIgBtn");
     if (!btn) return;
 
-    btn.addEventListener("click", function (ev) {
+    function onTap(ev) {
       ev.preventDefault();
-      copyText(IG_MSG).then(function () {
-        showToast(
-          isIos()
-            ? "Текст скопирован — в Direct нажмите «Вставить» и отправьте"
-            : "Текст скопирован — вставьте в Direct, если не подставился сам"
-        );
-        setTimeout(openIg, isIos() ? 450 : 200);
-      });
-    });
+      var copied = copyTextSync(IG_MSG);
+      showToast(
+        copied
+          ? (isIos()
+            ? "Текст скопирован — в Direct нажмите «Вставить»"
+            : "Текст скопирован — вставьте в Direct")
+          : "Скопируйте текст вручную из подсказки ниже"
+      );
+      openIg();
+    }
+
+    btn.addEventListener("click", onTap);
   }
 
   global.GBTrialIg = { init: init, message: IG_MSG, url: IG_URL };
