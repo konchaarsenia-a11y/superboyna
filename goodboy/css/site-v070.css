@@ -3393,9 +3393,36 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   font-size: 1.02rem;
   border-radius: 16px;
 }
-.trial-hero-panel .sub-ig-hint {
+.trial-hero-panel .sub-ig-hint,
+.trial-ig-hint {
   margin: 10px 0 0;
   font-size: 0.85rem;
+  line-height: 1.35;
+}
+.trial-ig-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  z-index: 40;
+  transform: translateX(-50%) translateY(12px);
+  max-width: min(22rem, calc(100vw - 2rem));
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgba(30, 36, 33, 0.96);
+  border: 1px solid rgba(212, 161, 90, 0.45);
+  color: var(--gb-cream);
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease, transform 0.22s ease;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+.trial-ig-toast.is-on {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .trial-dogs {
