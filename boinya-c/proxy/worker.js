@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-01 cal-ops-truth-h1"
+      deployMarker: "2026-09-01 fix-dupe-heal-h1"
     };
   }
 
@@ -4351,6 +4351,8 @@ async function saveOrder_(params, env, asBooking) {
   }
 
   const matchKey = normalizeMatchKey_(params.matchKey || client);
+  const editClient = String(params.editClient || params.originalClient || "").trim();
+  const oldDayParam = String(params.oldDay || params.editDay || "").trim();
   const now = new Date().toISOString();
   const id = (day || "CAL") + ":" + matchKey + (day ? "" : ":" + dateIso);
   const basketArr = parseBasket_(params.basket);
@@ -4388,6 +4390,18 @@ async function saveOrder_(params, env, asBooking) {
     segment: segSave,
     orderType: params.orderType || srcSave
   };
+
+  // переименование при edit: снять старый nick (UI delete может не успеть)
+  if (editClient && editClient.toLowerCase() !== client.toLowerCase()) {
+    const editMk = normalizeMatchKey_(params.matchKey || editClient);
+    try {
+      await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND (match_key = ? OR match_key = ? OR lower(client) = ?)"
+      )
+        .bind(now, editMk, editClient.toLowerCase(), editClient.toLowerCase())
+        .run();
+    } catch (eRen) {}
+  }
 
   // soft-delete duplicates with other key forms
   await env.DB.prepare(
@@ -4482,7 +4496,19 @@ async function saveOrder_(params, env, asBooking) {
     } catch (eEpSave) {}
   }
 
-  await invalidateDays_(env, day ? [day] : []);
+  // edit/move: tomb на старом дне — иначе heal/GAS воскресит при force getClients
+  if (oldDayParam && day && oldDayParam !== day && matchKey) {
+    try {
+      await putDeleteTombstone_(env, oldDayParam, matchKey);
+      if (editClient && editClient.toLowerCase() !== client.toLowerCase()) {
+        await putDeleteTombstone_(env, oldDayParam, editClient);
+      }
+    } catch (eTombOld) {}
+  }
+
+  await invalidateDays_(env, [day, oldDayParam].filter(function (d, i, a) {
+    return d && a.indexOf(d) === i;
+  }));
   if (dateIso && (!day || asBooking)) {
     try {
       await refreshViewDateSnap_(env, dateIso);
@@ -4496,6 +4522,8 @@ async function saveOrder_(params, env, asBooking) {
     weekWritten: !!day,
     calendarOnly: !day && !!dateIso,
     dateOnWeek: dateOnWeek,
+    day: day || "",
+    dateIso: dateIso || (day ? (await dayDateInfo_(env, day)).iso : "") || "",
     id: id,
     segment: segSave,
     source: srcSave,
@@ -4968,9 +4996,19 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
     hasTomb = await dayHasFreshTombstone_(env, day);
   } catch (eT) {}
   diag.hasTomb = hasTomb;
-  // got>0 и tomb: НЕ выходим — добираем недостающих с листа через upsert
-  // (раньше tomb_partial оставлял UI с 1 человеком после save, пока Sheet ждал 2+).
-  // replace только если D1 полностью пуст.
+  // Пустой D1 + свежий tomb = delete/move/edit ушли — не воскрешать с GAS (главный источник дублей).
+  if (hasTomb && got === 0) {
+    diag.step = "tomb_skip_empty";
+    if (d1Payload && typeof d1Payload === "object") d1Payload.healDiag = diag;
+    return d1Payload;
+  }
+  // D1-primary: не заливать GAS на день, откуда клиент недавно уехал (moveEpoch).
+  if (isD1PrimaryCanon_(env) && got === 0 && !expectPos) {
+    diag.step = "d1_empty_no_expect";
+    if (d1Payload && typeof d1Payload === "object") d1Payload.healDiag = diag;
+    return d1Payload;
+  }
+  // got>0 и tomb: добираем недостающих с листа через upsert (не replace целиком).
   let live = null;
   try {
     live = await gasProxy_("getClients", { day: day }, env, { write: false });
@@ -5009,38 +5047,34 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
   } catch (eIso) {
     diag.isoErr = String((eIso && eIso.message) || eIso);
   }
-  // Sparse heal: НЕ sanitize до upsert — иначе stale delTomb выкидывает с листа
-  // людей, которых как раз надо вернуть (после save нового клиента UI оставался с 1).
+  // Sparse heal: фильтруем GAS до upsert — moveEpoch/tomb не должны воскрешать на старом дне.
+  let tombHeal = { items: [] };
+  try {
+    tombHeal = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
+    tombHeal.items = (tombHeal.items || []).slice();
+  } catch (eTHeal) {}
+  try {
+    const gasFiltered = [];
+    for (let gi = 0; gi < live.clients.length; gi++) {
+      const gc = live.clients[gi];
+      if (!gc) continue;
+      const gmk = normalizeMatchKey_(gc.matchKey || gc.name || gc.client || "");
+      const gname = String(gc.name || gc.client || "");
+      if (gmk) {
+        const epG = await getSnapRaw_(env, "moveEpoch:" + gmk);
+        if (moveEpochHidesFromDay_(epG, day)) continue;
+      }
+      if (isTombstoned_(tombHeal, day, gmk, gname)) continue;
+      gasFiltered.push(gc);
+    }
+    live.clients = gasFiltered;
+  } catch (eFilGas) {}
   const gasN = live.clients.length;
   diag.gasN = gasN;
   if (!gasN) {
-    diag.step = "gas_empty";
+    diag.step = "gas_filtered_empty";
     if (d1Payload && typeof d1Payload === "object") d1Payload.healDiag = diag;
     return d1Payload;
-  }
-  // got===0 (настоящий провал D1): чистим tomb и можем ignoreTombstones.
-  // got>0 (частичный день после save): НЕ сносим personal delTomb — иначе delete «воскресает».
-  if (got === 0) {
-    try {
-      for (var ciT0 = 0; ciT0 < live.clients.length; ciT0++) {
-        var cT0 = live.clients[ciT0];
-        if (!cT0) continue;
-        var nmT0 = String(cT0.name || cT0.client || cT0.nick || "");
-        var mkT0 = normalizeMatchKey_(cT0.matchKey || nmT0);
-        try {
-          await clearTombstonesForMatch_(env, mkT0 || nmT0, day, nmT0);
-        } catch (eCT0) {}
-        try {
-          await putMoveArriveProtect_(env, day, mkT0 || nmT0, nmT0);
-        } catch (eAP0) {}
-      }
-      try {
-        await putSnap_(env, "tombDay:" + String(day), { day: String(day), at: 0, cleared: true });
-      } catch (eClrT0) {}
-      diag.tombsCleared = live.clients.length;
-    } catch (eClrAll0) {
-      diag.tombClrErr = String((eClrAll0 && eClrAll0.message) || eClrAll0);
-    }
   }
   try {
     if (got === 0 && (isWeekD1GasAuthoritative_(env) || opts.replace)) {
@@ -5089,7 +5123,16 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
     healed.healDiag = diag;
     return healed;
   }
-  // D1 всё ещё пуст — всё равно отдать GAS в UI (главное: не показывать пусто)
+  // D1-primary: не отдавать сырой GAS — только D1 (пусто лучше, чем призрак на двух днях).
+  if (isD1PrimaryCanon_(env)) {
+    diag.step = "d1_primary_no_gas_fallback";
+    if (d1Payload && typeof d1Payload === "object") {
+      d1Payload.healDiag = diag;
+      return d1Payload;
+    }
+    return { status: "success", day: day, clients: [], source: "d1", sandbox: true, healDiag: diag };
+  }
+  // legacy: D1 пуст — отдать GAS (только не d1-primary)
   live.healedFromGas = true;
   live.source = "gas-heal";
   live.sandbox = false;
@@ -7179,6 +7222,13 @@ async function handleCutover_(a, params, env, ctx) {
           try {
             if (/^(saveOrder|saveBooking)$/i.test(a)) {
               d1Early = await saveOrder_(jobParams, env, /^saveBooking$/i.test(a));
+              if (d1Early && d1Early.status === "success") {
+                if (d1Early.day != null) jobParams.day = d1Early.day;
+                if (d1Early.dateIso) {
+                  jobParams.date = d1Early.dateIso;
+                  jobParams.dateIso = d1Early.dateIso;
+                }
+              }
             } else if (/^moveClient$/i.test(a)) d1Early = await moveClient_(jobParams, env);
             else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) d1Early = await deleteClient_(jobParams, env);
           } catch (eD1Early) {
