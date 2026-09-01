@@ -3459,15 +3459,15 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .trial-dog-gift,
 .gb-boot-gift {
   transform-origin: 93px 64px;
-  animation: trialGiftBob 1.15s ease-in-out infinite alternate;
-  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.45));
+  animation: trialGiftBob 1.25s ease-in-out infinite alternate;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.3));
 }
 .gb-boot-gift {
-  transform-origin: 92px 62px;
+  transform-origin: 93px 62px;
 }
 @keyframes trialGiftBob {
-  from { transform: rotate(-10deg) translateY(0) scale(1); }
-  to { transform: rotate(10deg) translateY(-4px) scale(1.04); }
+  from { transform: rotate(-6deg) translateY(0); }
+  to { transform: rotate(6deg) translateY(-2px); }
 }
 .trial-dog--1 {
   top: 6%;
@@ -3575,7 +3575,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 14px;
-  align-items: start;
+  align-items: center;
   width: 100%;
   padding: 14px 16px;
   border: none;
@@ -3586,6 +3586,9 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+}
+.trial-step-item.is-detail .trial-step-card {
+  align-items: start;
 }
 .trial-step-card:hover {
   background: rgba(52, 58, 55, 0.35);
@@ -3598,6 +3601,13 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   position: relative;
   min-width: 0;
   min-height: 2.65rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.trial-step-item.is-detail .trial-step-content {
+  justify-content: flex-start;
+  min-height: 0;
 }
 .trial-step-face {
   display: block;
@@ -3606,6 +3616,9 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .trial-step-face--short {
   opacity: 1;
   transform: translateY(0);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 .trial-step-face--long {
   position: absolute;
@@ -3655,10 +3668,12 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   line-height: 1;
   font-weight: 700;
   opacity: 0.55;
-  margin-top: 10px;
+  align-self: center;
   transition: transform 0.22s ease, color 0.22s ease, opacity 0.22s ease;
 }
 .trial-step-item.is-detail .trial-step-chevron {
+  align-self: start;
+  margin-top: 10px;
   transform: rotate(90deg);
   color: var(--gb-orange-2);
   opacity: 1;
