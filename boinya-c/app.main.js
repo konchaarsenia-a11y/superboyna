@@ -5967,6 +5967,8 @@
     window.closeViewWeekDay = closeViewWeekDay;
 
     function refreshViewWeekDay() {
+      window._peopleListKeepDom = true;
+      window._peopleListForceFresh = true;
       loadClientsForDay();
     }
     window.refreshViewWeekDay = refreshViewWeekDay;
@@ -7506,6 +7508,7 @@
       const cutDay = document.getElementById("cuttingDaySelect").value;
       const courDay = document.getElementById("courierDaySelect").value;
       var jobs = [];
+      if (viewDay) window._peopleListKeepDom = true;
       if (dayHint && viewDay === dayHint) jobs.push(loadClientsForDay());
       else if (viewDay) jobs.push(loadClientsForDay());
       if (cutDay && (!dayHint || cutDay === dayHint)) jobs.push(loadCutting({ force: !!opts.force }));
@@ -7514,6 +7517,7 @@
     }
 
     function afterPeopleMutationDays_(days) {
+      window._peopleListKeepDom = true;
       window._peopleListForceFresh = true;
       window._cuttingNeedRefresh = true;
       try { apiCacheBustMem_("getCutting"); } catch (e0) {}
@@ -7771,6 +7775,7 @@
         }
         showToast("Убрано: " + okM + (failM.length ? ", ошибок: " + failM.length : ""));
         if (failM.length) await uiAlertAsync("Не удалось:\n" + failM.join("\n"));
+        window._peopleListKeepDom = true;
         await loadClientsForDay();
         recoverUiFocus();
         return;
@@ -8347,6 +8352,7 @@
           } else {
             showToast("Убрано из календаря");
           }
+          window._peopleListKeepDom = true;
           await loadClientsForDay();
         } catch (err) {
           await uiAlertAsync(err.message || String(err));
@@ -10102,7 +10108,7 @@
         apiCacheBustMem_("listDeferred");
         afterPeopleMutationDays_(target.newDay ? [target.newDay] : []);
       } catch (eClr) {}
-      try { await loadClientsForDay(); } catch (eLd) {}
+      try { window._peopleListKeepDom = true; await loadClientsForDay(); } catch (eLd) {}
       if (target.newDay) {
         try { await refreshDayViews(target.newDay, { force: true }); } catch (eR) {}
       }
