@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115921" as="script">
+  <link rel="preload" href="app.main.js?v=71115922" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115921";
+      var APP_VER = "v71115922";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1681,6 +1681,7 @@
         <div class="form-group">
           <label>Дата</label>
           <input type="date" id="deliveryDate" onchange="onDeliveryDateChange()">
+          <div id="orderDateCal" class="ios-cal-compact-wrap" style="margin-top:10px;"></div>
         </div>
         <div class="form-group" style="display:flex;gap:8px;">
           <div style="flex:1;">
@@ -1706,6 +1707,10 @@
             <div class="seg-row">
               <button type="button" class="seg-btn active" id="orderDogTab1" onclick="setOrderActiveDog(1)">Собака 1</button>
               <button type="button" class="seg-btn" id="orderDogTab2" onclick="setOrderActiveDog(2)">Собака 2</button>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+              <input type="text" id="orderDogName1" placeholder="Кличка 1" style="flex:1;" oninput="orderDogNames[1]=this.value">
+              <input type="text" id="orderDogName2" placeholder="Кличка 2" style="flex:1;" oninput="orderDogNames[2]=this.value">
             </div>
           </div>
         </div>
@@ -2782,6 +2787,6 @@
   </div>
   <div class="toast" id="appToast"></div>
 
-  <script src="app.main.js?v=71115921" defer></script>
+  <script src="app.main.js?v=71115922" defer></script>
 </body>
 </html>
