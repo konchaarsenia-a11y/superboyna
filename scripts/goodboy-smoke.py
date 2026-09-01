@@ -95,8 +95,17 @@ def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> No
         trial_ok = ("недел" in text) and ("бесплат" in text)
         assert_true(trial_ok, "trial: hero mentions free week", errors)
 
-    steps = page.locator(".sub-steps li")
+    steps = page.locator(".trial-steps li")
     assert_true(steps.count() == 3, f"trial: expected 3 steps, got {steps.count()}", errors)
+    first_title = page.locator(".trial-step-item[data-step='pet'] .trial-step-title").first
+    if first_title.count():
+        box = first_title.bounding_box()
+        card = page.locator(".trial-step-item[data-step='pet'] .trial-step-card").first.bounding_box()
+        if box and card:
+            title_cx = box["x"] + box["width"] / 2
+            card_cx = card["x"] + card["width"] / 2
+            drift = abs(title_cx - card_cx)
+            assert_true(drift < 28, f"trial: title not centered (drift {drift:.0f}px)", errors)
     step_items = page.locator(".trial-step-item[data-step]")
     assert_true(step_items.count() == 3, f"trial: expected 3 step items, got {step_items.count()}", errors)
     step_btns = page.locator(".trial-step-card")

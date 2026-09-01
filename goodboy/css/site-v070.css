@@ -3553,6 +3553,12 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   display: grid;
   gap: 10px;
 }
+.trial-steps li {
+  display: block;
+  padding: 0;
+  border: none;
+  gap: 0;
+}
 .trial-step-item {
   border-radius: 18px;
   background: rgba(44, 51, 48, 0.5);
@@ -3569,38 +3575,49 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   background: rgba(52, 58, 55, 0.82);
 }
 .trial-step-card {
-  position: relative;
-  display: block;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  grid-template-areas: "ico copy chev";
+  align-items: center;
+  gap: 0 8px;
   width: 100%;
-  padding: 14px 50px;
+  padding: 14px 10px;
   border: none;
   background: transparent;
   color: inherit;
-  text-align: center;
   font: inherit;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
+.trial-step-ico {
+  grid-area: ico;
+  justify-self: center;
+}
+.trial-step-content {
+  grid-area: copy;
+}
+.trial-step-chevron {
+  grid-area: chev;
+  justify-self: center;
+}
 .trial-step-item.is-detail .trial-step-card {
-  display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: 14px;
+  grid-template-areas: none;
   align-items: start;
+  gap: 14px;
   padding: 14px 16px;
   text-align: left;
 }
-.trial-step-item:not(.is-detail) .trial-step-ico {
-  position: absolute;
-  left: 14px;
-  top: 50%;
-  transform: translateY(-50%);
+.trial-step-item.is-detail .trial-step-ico,
+.trial-step-item.is-detail .trial-step-content,
+.trial-step-item.is-detail .trial-step-chevron {
+  grid-area: auto;
 }
+.trial-step-item:not(.is-detail) .trial-step-ico,
 .trial-step-item:not(.is-detail) .trial-step-chevron {
-  position: absolute;
-  right: 14px;
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
+  transform: none;
 }
 .trial-step-card:hover {
   background: rgba(52, 58, 55, 0.35);
@@ -3618,6 +3635,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   justify-content: center;
   align-items: center;
   text-align: center;
+  width: 100%;
 }
 .trial-step-item.is-detail .trial-step-content {
   justify-content: flex-start;
