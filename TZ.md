@@ -1,3 +1,4 @@
+- [~] **Статистика: прошлый месяц 2026-09-03:** ‹› навигация по месяцам; getStats?month=YYYY-MM; Worker snap `getStats:YYYY-MM` · marker `stats-month-nav-h1` · Pages `v71115926` · **Worker Deploy**
 - [~] **Stats RAW26 + PP pay-only + cut flags + maps + junk notes 2026-09-03:** статистика RAW26/LEGACY factCost; ПП цена только кто платит сейчас; галочки нарезки без sticky пустой даты; карты с домом; убрать GMT-приписки ppSlot; заказ без счётчиков/date input · marker `stats-cut-maps-h1` · Pages `v71115925` · **Worker Deploy** · **Deploy Code.gs**
 - [x] **Day money totals v71115924 2026-09-01:** просмотр + курьер — «К сбору: X BYN» за день · Pages `v71115924`
 - [x] **Fix dupe heal v71115923 2026-09-01:** edit/move не воскрешают клиента на старом дне — heal skip tomb+moveEpoch; UI await delete + oldDay; saveOrder tomb oldDay; marker `fix-dupe-heal-h1` · Pages `v71115923` · **Worker Deploy OK** · smoke dupe-heal + b3=1

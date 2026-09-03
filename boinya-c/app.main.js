@@ -3402,6 +3402,7 @@
         }
         if (screenId === "statsScreen") {
           document.getElementById("appHeaderTitle").innerText = "Статистика · " + APP_VERSION;
+          try { updateStatsMonthLabel_(); } catch (eSm) {}
         }
         if (screenId === "peopleScreen") {
           document.getElementById("appHeaderTitle").innerText = "Доступы · " + APP_VERSION;
@@ -14845,25 +14846,45 @@
       var box = document.getElementById("statsContainer");
       if (!box) return;
       try { ensureStatsExpectDates_(); } catch (eD) {}
-      var hasCache = !!window._statsCacheHtml;
+      var monthKey = ensureStatsMonthKey_();
+      try { updateStatsMonthLabel_(); } catch (eL) {}
+      if (!window._statsCacheByMonth) window._statsCacheByMonth = Object.create(null);
+      var cachedHtml = window._statsCacheByMonth[monthKey] || "";
+      var hasCache = !!cachedHtml;
+      // legacy single-slot cache — только для текущего выбранного месяца
+      if (!hasCache && window._statsCacheHtml && window._statsCacheMonthKey === monthKey) {
+        cachedHtml = window._statsCacheHtml;
+        hasCache = true;
+      }
 
       function applyStatsRes_(res) {
         if (!res || res.status !== "success") return false;
         if (!res.factCutoff) res._oldDeploy = true;
+        var resMonth = String(res.monthKey || "").trim();
+        if (resMonth && /^\d{4}-\d{2}$/.test(resMonth) && resMonth !== monthKey) {
+          // чужой месяц из SWR/snap — не рисуем
+          return false;
+        }
         var html = renderStatsDashboard_(res);
+        window._statsCacheByMonth[monthKey] = html;
         window._statsCacheHtml = html;
+        window._statsCacheMonthKey = monthKey;
         window._statsCacheAt = Date.now();
+        if (res.monthLabel) {
+          var lab = document.getElementById("statsMonthLabel");
+          if (lab) lab.textContent = res.monthLabel;
+        }
         box.innerHTML = html;
         return true;
       }
 
       if (!opts.force && hasCache) {
-        box.innerHTML = window._statsCacheHtml;
+        box.innerHTML = cachedHtml;
         if (opts.soft) {
-          // фон: обновить без лоадера
           apiGet({
             action: "getStats",
             period: "month",
+            month: monthKey,
             force: "1",
             _: String(Date.now())
           }, { timeoutMs: 60000, cacheTtlMs: 0, retries: 0 }).then(function (res) {
@@ -14872,13 +14893,13 @@
           return;
         }
       } else if (!hasCache) {
-        box.innerHTML = simpleLoadingHtml("Считаю месяц…");
+        box.innerHTML = simpleLoadingHtml("Считаю " + monthKey + "…");
       } else if (opts.force) {
         box.insertAdjacentHTML("afterbegin",
           '<div class="muted" id="statsRefreshHint" style="font-size:12px;margin-bottom:8px;">Обновляю…</div>');
       }
       try {
-        var statsParams = { action: "getStats", period: "month" };
+        var statsParams = { action: "getStats", period: "month", month: monthKey };
         if (opts.force) {
           statsParams.force = "1";
           statsParams._ = String(Date.now());
@@ -14901,6 +14922,62 @@
       }
     }
     window.loadStats = loadStats;
+
+    function currentStatsMonthKey_() {
+      var d = new Date();
+      var m = d.getMonth() + 1;
+      return d.getFullYear() + "-" + (m < 10 ? "0" : "") + m;
+    }
+
+    function ensureStatsMonthKey_() {
+      if (!window._statsMonthKey || !/^\d{4}-\d{2}$/.test(String(window._statsMonthKey))) {
+        window._statsMonthKey = currentStatsMonthKey_();
+      }
+      return String(window._statsMonthKey);
+    }
+
+    function statsMonthLabelRu_(monthKey) {
+      var mk = String(monthKey || "");
+      var parts = mk.split("-");
+      if (parts.length < 2) return mk || "—";
+      var y = Number(parts[0]);
+      var mo = Number(parts[1]);
+      var names = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+      var name = names[mo - 1] || mk;
+      return name.charAt(0).toUpperCase() + name.slice(1) + " " + y;
+    }
+
+    function updateStatsMonthLabel_() {
+      var lab = document.getElementById("statsMonthLabel");
+      if (!lab) return;
+      lab.textContent = statsMonthLabelRu_(ensureStatsMonthKey_());
+    }
+
+    function shiftStatsMonth_(delta) {
+      var mk = ensureStatsMonthKey_();
+      var parts = mk.split("-");
+      var d = new Date(Number(parts[0]), Number(parts[1]) - 1 + (Number(delta) || 0), 1);
+      var nm = d.getMonth() + 1;
+      var next = d.getFullYear() + "-" + (nm < 10 ? "0" : "") + nm;
+      var cur = currentStatsMonthKey_();
+      if (next > cur) {
+        try { showToast("Дальше текущего месяца нельзя"); } catch (eT) {}
+        return;
+      }
+      // не уходить раньше ~2 лет
+      var minD = new Date();
+      minD.setMonth(minD.getMonth() - 24);
+      var minKey = minD.getFullYear() + "-" + ((minD.getMonth() + 1) < 10 ? "0" : "") + (minD.getMonth() + 1);
+      if (next < minKey) {
+        try { showToast("Дальше назад нет"); } catch (eT2) {}
+        return;
+      }
+      window._statsMonthKey = next;
+      updateStatsMonthLabel_();
+      loadStats({ force: true });
+    }
+    window.shiftStatsMonth_ = shiftStatsMonth_;
+    window.updateStatsMonthLabel_ = updateStatsMonthLabel_;
 
     function ensureStatsExpectDates_() {
       var fromEl = document.getElementById("statsExpectFrom");
@@ -22694,7 +22771,9 @@
         }
         apiGet({ action: "getWeekDayCounts" }, { retries: 0, cacheTtlMs: 30000 }).catch(function () {});
         apiGet({ action: "getWeekBannerState" }, { retries: 0, cacheTtlMs: 30000 }).catch(function () {});
-        apiGet({ action: "getStats", period: "month" }, { retries: 0, cacheTtlMs: 120000 }).catch(function () {});
+        apiGet({ action: "getStats", period: "month", month: (function () {
+          try { return ensureStatsMonthKey_(); } catch (eM) { return ""; }
+        })() }, { retries: 0, cacheTtlMs: 120000 }).catch(function () {});
         apiGet({ action: "listSubscriptions" }, { retries: 0, cacheTtlMs: 60000 }).catch(function () {});
         if (APP_ROLE === "cutter" || APP_ROLE === "owner" || APP_ROLE === "all" || APP_ROLE === "courier") {
           var cutSel = document.getElementById("cuttingDaySelect");
