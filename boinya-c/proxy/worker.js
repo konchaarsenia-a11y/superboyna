@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-03 stats-cut-maps-h1"
+      deployMarker: "2026-09-03 fix-pp-slot-ndel-h1"
     };
   }
 
@@ -2473,6 +2473,20 @@ async function getClients_(params, env) {
   }
   if (!dateDmy && dateIso) dateDmy = isoToDmy_(dateIso);
   let clientsOut = rows.map(clientFromRow_);
+  // залипший «1/2» при N=1 с листа ПП (GMT→слот / Math.max(N,2))
+  try {
+    for (let hi = 0; hi < clientsOut.length; hi++) {
+      const c = clientsOut[hi];
+      const slotRaw = String((c && c.ppSlot) || "");
+      if (!c || slotRaw.indexOf("/") < 0) continue;
+      const seg = normalizeSegmentLabel_(c.segment || "");
+      const src = String(c.source || "").toLowerCase();
+      if (seg !== "ПП" && src !== "pp" && src !== "subscription") continue;
+      try {
+        await enrichCourierClientPp_(c, env, dateIso || c.dateIso || "");
+      } catch (eEn) {}
+    }
+  } catch (eHealSlot) {}
   // D1-primary: active row в D1 = правда UI. Tomb после delete обязан сначала
   // soft-delete строку; иначе stale delTomb прячет живых (ложные «пропажи»).
   if (day && !isD1PrimaryCanon_(env)) {
@@ -3852,17 +3866,18 @@ async function enrichCourierClientPp_(c, env, dateIso) {
     } catch (eSub) {}
   }
   if (!deliverySlot && ppSlot) deliverySlot = parseForcedPpSlotD1_(ppSlot, deliveriesN || 2);
-  if (!ppSlot && deliverySlot >= 1 && deliveriesN >= 2) {
-    ppSlot = formatPpSlotLabelD1_(deliverySlot, deliveriesN);
-  }
   if (!deliverySlot && dateIso && c.matchKey) {
     try {
       const stored = await lookupStoredPpSlotDateD1_(env, c.name, c.matchKey, dateIso);
       if (stored >= 1) deliverySlot = stored;
     } catch (eSt) {}
   }
-  if (deliverySlot >= 1 && deliveriesN >= 2) {
+  if (!deliverySlot) deliverySlot = 1;
+  // всегда пересобрать бейдж по реальному N с листа (не оставлять залипший «1/2» при N=1)
+  if (deliveriesN >= 1) {
     ppSlot = formatPpSlotLabelD1_(deliverySlot, deliveriesN);
+  } else {
+    ppSlot = "";
   }
   // платит сейчас: N=1 или слот 1; слот 2+ — только если явный отказ / ещё не оплачено и надо доспросить
   const paidL = String(c.paid || "").toLowerCase();
@@ -3877,6 +3892,8 @@ async function enrichCourierClientPp_(c, env, dateIso) {
   if (deliverySlot >= 1) c.deliverySlot = deliverySlot;
   if (ppSlot) c.ppSlot = ppSlot;
   else c.ppSlot = "";
+  if (deliveriesN === 1) c.ppHint = "ПП N=1";
+  else if (deliveriesN >= 2) c.ppHint = "ПП " + deliverySlot + "/" + deliveriesN;
   return c;
 }
 
@@ -11896,18 +11913,40 @@ function proposePpSlotBasketD1_(monthly, slot, deliveriesN, slot1Basket) {
 function parseForcedPpSlotD1_(raw, deliveriesN) {
   if (raw == null || raw === "") return 0;
   const s = String(raw).trim();
-  const m = s.match(/(\d+)/);
-  const n = m ? Number(m[1]) : Number(s);
-  if (!isFinite(n) || n < 1) return 0;
-  const max = Math.max(1, Number(deliveriesN) || 1);
-  return Math.min(max, Math.floor(n));
+  if (!s) return 0;
+  // Date.toString() «Mon Feb 02 …» — первая цифра 02 ≠ слот 2
+  if (/GMT|Standard Time|Daylight|Europe\/|UTC[+\-]|[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}/i.test(s)) {
+    return 0;
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(s) || /^\d{1,2}\.\d{1,2}\.\d{4}/.test(s)) return 0;
+  const mFrac = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+  if (mFrac) {
+    const a = Number(mFrac[1]) || 0;
+    if (a >= 1 && a <= 4) {
+      const max = Math.max(1, Number(deliveriesN) || Number(mFrac[2]) || 2);
+      return Math.min(max, a);
+    }
+    return 0;
+  }
+  if (/^[1-4]$/.test(s)) {
+    const max = Math.max(1, Number(deliveriesN) || 4);
+    return Math.min(max, Number(s));
+  }
+  const m2 = s.match(/(?:^|[\s:])(?:слот|slot|пп|pp|n)\s*[:=]?\s*([1-4])\b/i);
+  if (m2) {
+    const max = Math.max(1, Number(deliveriesN) || 4);
+    return Math.min(max, Number(m2[1]));
+  }
+  return 0;
 }
 
 function formatPpSlotLabelD1_(slot, deliveriesN) {
-  const s = Number(slot) || 1;
-  const n = Math.max(1, Number(deliveriesN) || 1);
-  if (n <= 1) return String(s);
-  return s + "/" + n;
+  const s = Number(slot) || 0;
+  const n = Math.max(0, Number(deliveriesN) || 0);
+  if (n < 1) return "";
+  if (n === 1) return "1";
+  if (s >= 1) return s + "/" + n;
+  return "";
 }
 
 /** Убрать Date.toString() / GMT-мусор из ppSlot (Sheets иногда пишет Date в ячейку). */
