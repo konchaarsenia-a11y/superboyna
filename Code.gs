@@ -16420,17 +16420,8 @@ var RETAIL_PRICE_BYN_ = {
   "ГРУШИ": { per100: 13 },
   "БАНАНЫ": { per100: 12 },
   "ЯБЛОКИ": { per100: 11 },
-  "МОРКОВЬ": { per100: 11 },
-  "ЛЁГКОЕ": { per100: 11 },
-  "СЕРДЦЕ": { per100: 14 },
-  "ПОЧКИ": { per100: 12 },
-  "РУБЕЦ Т": { per100: 12 },
-  "БАРАНЬЕ ЛЁГКОЕ": { per100: 17 },
-  "БЫЧИЙ КОРЕНЬ": { perPiece: 12 },
-  "ТРАХЕЯ": { perPiece: 8 },
-  "УХО Г": { perPiece: 7 },
-  "АОРТА": { perPiece: 5 },
-  "СТАНОВАЯ ЖИЛА": { perPiece: 5 }
+  "МОРКОВЬ": { per100: 11 }
+  // без голых ЛЁГКОЕ/АОРТА/… — только фракции (stripBareRetailParentsMap_)
 };
 
 
@@ -16456,7 +16447,36 @@ function cloneRetailDefaultsMap_() {
     }
     out[k] = copy;
   }
+  return stripBareRetailParentsMap_(out);
+}
+
+/** Убрать голый «АОРТА», если есть «АОРТА|Обычная» / «АОРТА|ПОЛОВИНКА». */
+function stripBareRetailParentsMap_(map) {
+  map = map || {};
+  var hasFrac = {};
+  Object.keys(map).forEach(function (k) {
+    var i = String(k).indexOf("|");
+    if (i > 0) hasFrac[String(k).slice(0, i)] = true;
+  });
+  var out = {};
+  Object.keys(map).forEach(function (k) {
+    if (String(k).indexOf("|") < 0 && hasFrac[k]) return;
+    out[k] = map[k];
+  });
   return out;
+}
+
+function retailDefaultSub_(name) {
+  var n = String(name || "").toUpperCase().replace(/Ё/g, "Е");
+  if (/АОРТ/.test(n)) return "Обычная";
+  if (/УХО|УШК/.test(n)) return "Обычное";
+  if (/БЫЧИЙ КОРЕН|ТРАХЕ|СТАНОВ/.test(n)) return "СРЕД";
+  if (/БАРАНЬЕ\s*Л[ЕЁ]ГК/.test(n)) return "Среднее";
+  if (/^Л[ЕЁ]ГКОЕ$/.test(n)) return "Среднее";
+  if (/СЕРДЦ/.test(n)) return "Мелкое";
+  if (/ПОЧК/.test(n)) return "Мелкое";
+  if (/^РУБЕЦ Т$/.test(n)) return "Среднее";
+  return "";
 }
 
 function getRetailDeliveryLive_() {
@@ -16501,13 +16521,23 @@ function getRetailPriceLiveMap_() {
     try {
       PropertiesService.getScriptProperties().setProperty("RETAIL_PRICE_LIVE_JSON", JSON.stringify(map));
     } catch (eW) {}
+  } else {
+    var cleaned = stripBareRetailParentsMap_(map);
+    if (Object.keys(cleaned).length !== Object.keys(map).length) {
+      map = cleaned;
+      try {
+        PropertiesService.getScriptProperties().setProperty("RETAIL_PRICE_LIVE_JSON", JSON.stringify(map));
+      } catch (eC) {}
+    } else {
+      map = cleaned;
+    }
   }
   RETAIL_PRICE_LIVE_MEM_ = map;
   return map;
 }
 
 function setRetailPriceLiveMap_(map) {
-  map = map || {};
+  map = stripBareRetailParentsMap_(map || {});
   PropertiesService.getScriptProperties().setProperty("RETAIL_PRICE_LIVE_JSON", JSON.stringify(map));
   RETAIL_PRICE_LIVE_MEM_ = map;
   return map;
@@ -16515,7 +16545,7 @@ function setRetailPriceLiveMap_(map) {
 
 function retailPriceItemsFromMap_(map) {
   var items = [];
-  map = map || {};
+  map = stripBareRetailParentsMap_(map || {});
   Object.keys(map).sort().forEach(function (key) {
     var info = map[key] || {};
     var kind = "per100";
@@ -16653,9 +16683,9 @@ function mirrorRetailPricesToSheet_(map, del) {
 
 function retailNormalizeSub_(name, sub) {
   var s = String(sub || "").trim();
-  if (!s) return "";
-  var u = s.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ");
   var n = String(name || "").toUpperCase().replace(/Ё/g, "Е");
+  if (!s) return retailDefaultSub_(name);
+  var u = s.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ");
   // жевалки — каталожные коды
   if (/БЫЧИЙ КОРЕН|ТРАХЕ|СТАНОВ/.test(n)) {
     if (/ОЧЕНЬ\s*МАЛ|ОЧ\s*МАЛ|СУПЕР/.test(u)) return "ОЧ МАЛ";
@@ -16715,6 +16745,7 @@ function retailNormalizeName_(name) {
 function retailLineCost_(name, sub, val, cat) {
   var n = retailNormalizeName_(name);
   var s = retailNormalizeSub_(n, sub);
+  if (!s) s = retailDefaultSub_(n);
   var key = n + (s ? "|" + s : "");
   var live = getRetailPriceLiveMap_();
   var info = (live && (live[key] || live[n])) || RETAIL_PRICE_BYN_[key] || RETAIL_PRICE_BYN_[n];
