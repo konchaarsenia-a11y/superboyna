@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115925" as="script">
+  <link rel="preload" href="app.main.js?v=71115927" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115925";
+      var APP_VER = "v71115927";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2348,7 +2348,12 @@
     <div id="statsScreen" class="screen">
       <div class="card">
         <div class="section-title" style="margin-top:0;">Статистика</div>
-        <div class="muted" style="font-size:12px;margin-bottom:10px;">Факт за месяц · даты ≤ сегодня</div>
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">Факт за выбранный месяц · даты ≤ сегодня</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <button type="button" class="ios-cal-nav-btn" onclick="shiftStatsMonth_(-1)" aria-label="Предыдущий месяц">‹</button>
+          <div id="statsMonthLabel" style="flex:1;text-align:center;font-weight:700;font-size:16px;">—</div>
+          <button type="button" class="ios-cal-nav-btn" onclick="shiftStatsMonth_(1)" aria-label="Следующий месяц">›</button>
+        </div>
         <button class="btn-action btn-blue" type="button" onclick="loadStats({force:true})">Обновить</button>
       </div>
       <div id="statsContainer"><p class="muted">—</p></div>
@@ -2780,6 +2785,6 @@
   </div>
   <div class="toast" id="appToast"></div>
 
-  <script src="app.main.js?v=71115925" defer></script>
+  <script src="app.main.js?v=71115927" defer></script>
 </body>
 </html>

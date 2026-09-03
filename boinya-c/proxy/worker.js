@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-03 stats-cut-maps-h1"
+      deployMarker: "2026-09-03 stats-month-nav-h1"
     };
   }
 
@@ -6475,6 +6475,10 @@ async function cutoverGetMyAccess_(params, env, ctx) {
 async function cutoverGetStats_(params, env, ctx) {
   const force = String((params && params.force) || "") === "1" || (params && params.force) === true;
   const mode = String((params && (params.mode || params.expected)) || "").toLowerCase();
+  const monthRaw = String((params && (params.month || params.monthKey)) || "").trim();
+  const monthKey = /^\d{4}-\d{2}$/.test(monthRaw) ? monthRaw : "";
+  const snapKey = monthKey ? "getStats:" + monthKey : "getStats";
+
   // expected/range — всегда живой GAS (другие даты)
   if (
     force ||
@@ -6487,7 +6491,15 @@ async function cutoverGetStats_(params, env, ctx) {
     const live = await gasProxy_("getStats", params, env, { write: false });
     if (live && live.status === "success" && env && env.DB && !mode && !params.dateFrom && !params.fromDate) {
       try {
-        await putSnap_(env, "getStats", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+        const mk =
+          String((live && live.monthKey) || monthKey || "").trim() ||
+          "";
+        const key = /^\d{4}-\d{2}$/.test(mk) ? "getStats:" + mk : snapKey;
+        await putSnap_(env, key, Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+        // legacy alias для текущего месяца без month в запросе
+        if (key.indexOf("getStats:") === 0) {
+          await putSnap_(env, "getStats", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+        }
       } catch (eS) {}
     }
     if (live && typeof live === "object") {
@@ -6496,6 +6508,62 @@ async function cutoverGetStats_(params, env, ctx) {
       live.sandbox = false;
     }
     return live || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
+  }
+
+  // чужой месяц без force — не отдавать snap текущего месяца
+  if (monthKey) {
+    const monthSnap = await getSnapRaw_(env, "getStats:" + monthKey);
+    const monthOk =
+      monthSnap &&
+      monthSnap.status === "success" &&
+      (monthSnap.fact || monthSnap.bp || monthSnap.month) &&
+      String(monthSnap.monthKey || "") === monthKey;
+    if (monthOk) {
+      const ageMs = monthSnap.cachedAt
+        ? Date.now() - Date.parse(String(monthSnap.cachedAt))
+        : Number.POSITIVE_INFINITY;
+      if (ageMs <= 6 * 60 * 60 * 1000) {
+        if (ctx && typeof ctx.waitUntil === "function") {
+          ctx.waitUntil(
+            (async function () {
+              try {
+                const liveBg = await gasProxy_("getStats", params || {}, env, { write: false });
+                if (liveBg && liveBg.status === "success" && env && env.DB) {
+                  await putSnap_(
+                    env,
+                    "getStats:" + monthKey,
+                    Object.assign({}, liveBg, { cachedAt: new Date().toISOString() })
+                  );
+                }
+              } catch (eR) {}
+            })()
+          );
+        }
+        return Object.assign({}, monthSnap, {
+          cutover: true,
+          swr: true,
+          fromGas: false,
+          sandbox: false
+        });
+      }
+    }
+    // нет валидного snap на этот месяц — живой GAS
+    const liveM = await gasProxy_("getStats", params || {}, env, { write: false });
+    if (liveM && liveM.status === "success" && env && env.DB) {
+      try {
+        await putSnap_(
+          env,
+          "getStats:" + monthKey,
+          Object.assign({}, liveM, { cachedAt: new Date().toISOString() })
+        );
+      } catch (eSM) {}
+    }
+    if (liveM && typeof liveM === "object") {
+      liveM.cutover = true;
+      liveM.fromGas = true;
+      liveM.sandbox = false;
+    }
+    return liveM || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getStats" };
   }
 
   const snap = await getSnapRaw_(env, "getStats");
@@ -6508,7 +6576,11 @@ async function cutoverGetStats_(params, env, ctx) {
     const live = await gasProxy_("getStats", params || {}, env, { write: false });
     if (live && live.status === "success" && env && env.DB) {
       try {
+        const mk = String((live && live.monthKey) || "").trim();
         await putSnap_(env, "getStats", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+        if (/^\d{4}-\d{2}$/.test(mk)) {
+          await putSnap_(env, "getStats:" + mk, Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+        }
       } catch (eS) {}
     }
     if (live && typeof live === "object") {
