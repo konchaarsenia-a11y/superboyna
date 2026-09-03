@@ -15134,6 +15134,7 @@
 
       html += '<div class="card" style="background:linear-gradient(160deg,#1c1c1e 0%,#252530 100%);">';
       html += '<div class="section-title" style="margin-top:0;color:#fff;">' + escapeHtml(res.monthLabel || res.title || "Месяц") + "</div>";
+      html += '<div class="muted" style="font-size:12px;margin:-4px 0 12px;">Оборот = ПП + розница + партнёр. <b style="color:#ff6961;">БП в оборот не входит</b> (пробник бесплатный).</div>';
       html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
       html += tile_("Прибыль (=оборот)", profitFact, "rgba(48,209,88,0.18)", "#30d158");
       html += tile_("Чистое", cleanFact, "rgba(255,159,10,0.18)", "#ff9f0a");
@@ -15141,7 +15142,7 @@
       html += tile_("Доставок", deliveries, "rgba(191,90,242,0.16)", "#bf5af2");
       html += "</div>";
       html += '<div class="muted" style="font-size:12px;margin-top:12px;">ПП ' + (by.pp || 0) +
-        " · БП " + (by.bp || 0) +
+        " · БП " + (by.bp || 0) + " дост. (0 BYN)" +
         " · розница " + (by.retail || 0) +
         " · партнёр-заказ " + (by.partner || 0) +
         ((by.other || 0) ? (" · прочее " + by.other) : "") +
@@ -15153,6 +15154,8 @@
       html += line_("ПП", ppActual + " BYN", "#bf5af2");
       html += line_("Розница", retail + " BYN", "#ff9f0a");
       html += line_("Заказы «Партнёр»", partnerOrd + " BYN", "#64d2ff");
+      html += line_("БП", "0 BYN · бесплатно", "#ff453a");
+      html += '<div class="muted" style="font-size:11px;margin-top:8px;">Деньги с БП появляются только после перехода в ПП — блок «БП» ниже.</div>';
       html += "</div>";
 
       html += '<div class="card">';
@@ -15169,16 +15172,26 @@
       html += '<div class="muted" style="font-size:11px;margin-top:8px;">ПП: состав + свет 11р/чел (раз в месяц) + 6р за доставку. БП: состав + 6р. Прайс — лист Розница / Подписка.</div>';
       html += "</div>";
 
+      var bpBasket = fact.bpBasketCost != null ? fact.bpBasketCost : (bp.basketCost || 0);
+      var bpDelivFee = fact.bpDeliveryCost != null ? fact.bpDeliveryCost : (bp.deliveryCost || 0);
+      var bpFeeEach = fact.bpDeliveryFeeEach != null ? fact.bpDeliveryFeeEach : (bp.deliveryFeeEach != null ? bp.deliveryFeeEach : 6);
       html += '<div class="card" style="border:1px solid rgba(255,69,58,0.35);">';
       html += '<div class="section-title" style="margin-top:0;color:#ff453a;">БП</div>';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">Пробник <b>не даёт оборот</b>. Считаем только затраты и переходы в ПП.</div>';
+      html += line_("Оборот с доставок БП", "0 BYN", "#ff453a");
+      html += line_("Доставок БП", bpDeliv, "#fff");
+      html += line_("Затраты месяца", bpSpend + " BYN", "#ff9f0a");
+      html += line_(" · состав", bpBasket + " BYN", "#ff6961");
+      html += line_(" · доставка (" + bpFeeEach + "р × " + bpDeliv + ")", bpDelivFee + " BYN", "#ff6961");
       html += line_("Переходов в ПП (месяц)", converted, "#fff");
-      html += line_("На одного (месяц)", cac != null ? (cac + " BYN") : "—", "#ff9f0a");
+      html += line_("CAC (затраты ÷ переходы)", cac != null ? (cac + " BYN") : "—", "#ff9f0a");
       html += '<div style="margin-top:10px;padding:10px;border-radius:12px;background:rgba(255,69,58,0.1);">';
-      html += '<div class="muted" style="font-size:12px;margin-bottom:6px;color:#ff6961;">За всё время</div>';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:6px;color:#ff6961;">За всё время · деньги после перехода в ПП</div>';
       html += line_("Перешло", life.converted || 0, "#fff");
-      html += line_("Затраты на БП", (life.bpCost || 0) + " BYN", "#ff453a");
+      html += line_("Затраты на все БП", (life.bpCost || 0) + " BYN", "#ff453a");
       html += line_("Выручка ПП с них", (life.ppRevenue || 0) + " BYN", "#30d158");
-      html += line_("Выхлоп", (life.profit || 0) + " BYN", "#ff9f0a");
+      html += line_("Выхлоп (выручка − затраты БП)", (life.profit || 0) + " BYN", "#ff9f0a");
+      html += '<div class="muted" style="font-size:11px;margin-top:8px;">«Выручка ПП с них» — это единственный «оборот от БП»: оплаты подписки после конверсии, не цена пробника.</div>';
       html += "</div></div>";
 
       html += '<div class="card" id="statsPartnersCard" style="border:1px solid rgba(100,210,255,0.35);background:linear-gradient(160deg,#1a2228 0%,#1c1c1e 100%);">';
