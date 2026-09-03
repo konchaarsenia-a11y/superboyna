@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-03 stats-cut-maps-h1"
+      deployMarker: "2026-09-03 retail-frac-dedupe-h1"
     };
   }
 
@@ -11451,11 +11451,43 @@ function retailMapFromItemsD1_(items) {
     else if (kind === "pack" || kind === "packs") map[it.key] = { per100: price, packs: { "100": price } };
     else map[it.key] = { per100: price };
   });
-  return map;
+  return stripBareRetailParentsMapD1_(map);
+}
+
+/** Голый «АОРТА» — дубль, если есть фракции «АОРТА|…». */
+function stripBareRetailParentsMapD1_(map) {
+  map = map || Object.create(null);
+  const hasFrac = Object.create(null);
+  Object.keys(map).forEach(function (k) {
+    const i = String(k).indexOf("|");
+    if (i > 0) hasFrac[String(k).slice(0, i)] = true;
+  });
+  const out = Object.create(null);
+  Object.keys(map).forEach(function (k) {
+    if (String(k).indexOf("|") < 0 && hasFrac[k]) return;
+    out[k] = map[k];
+  });
+  return out;
+}
+
+function retailDefaultSubD1_(name) {
+  const n = String(name || "")
+    .toUpperCase()
+    .replace(/Ё/g, "Е");
+  if (/АОРТ/.test(n)) return "Обычная";
+  if (/УХО|УШК/.test(n)) return "Обычное";
+  if (/БЫЧИЙ КОРЕН|ТРАХЕ|СТАНОВ/.test(n)) return "СРЕД";
+  if (/БАРАНЬЕ\s*Л[ЕЁ]ГК/.test(n)) return "Среднее";
+  if (/^Л[ЕЁ]ГКОЕ$/.test(n)) return "Среднее";
+  if (/СЕРДЦ/.test(n)) return "Мелкое";
+  if (/ПОЧК/.test(n)) return "Мелкое";
+  if (/^РУБЕЦ Т$/.test(n)) return "Среднее";
+  return "";
 }
 
 function retailItemsFromMapD1_(map) {
   const items = [];
+  map = stripBareRetailParentsMapD1_(map);
   Object.keys(map || {})
     .sort()
     .forEach(function (key) {
@@ -11502,12 +11534,12 @@ function retailNormalizeNameD1_(name) {
 
 function retailNormalizeSubD1_(name, sub) {
   const s = String(sub || "").trim();
-  if (!s) return "";
+  const n = String(name || "").toUpperCase();
+  if (!s) return retailDefaultSubD1_(name);
   const u = s
     .toUpperCase()
     .replace(/Ё/g, "Е")
     .replace(/\s+/g, " ");
-  const n = String(name || "").toUpperCase();
   if (/БЫЧИЙ КОРЕН|ТРАХЕ|СТАНОВ/.test(n)) {
     if (/ОЧЕНЬ\s*МАЛ|ОЧ\s*МАЛ|СУПЕР/.test(u)) return "ОЧ МАЛ";
     if (/ОГРОМ|РОГАЛ|ОГР/.test(u)) return "ОГР";
@@ -11529,7 +11561,8 @@ function retailNormalizeSubD1_(name, sub) {
 
 function retailLineCostD1_(map, name, sub, val, cat) {
   const n = retailNormalizeNameD1_(name);
-  const s = retailNormalizeSubD1_(n, sub);
+  let s = retailNormalizeSubD1_(n, sub);
+  if (!s) s = retailDefaultSubD1_(n);
   const key = n + (s ? "|" + s : "");
   const info = (map && (map[key] || map[n])) || null;
   const v = Number(val) || 0;
@@ -11589,10 +11622,29 @@ async function getRetailPriceListD1_(params, env, ctx) {
   const force =
     String((params && params.force) || "") === "1" ||
     (params && (params.force === true || params.force === 1));
+  function healRetailSnap_(snap) {
+    if (!snap || snap.status !== "success" || !Array.isArray(snap.items)) return snap;
+    const map = retailMapFromItemsD1_(snap.items);
+    const cleaned = retailItemsFromMapD1_(map);
+    if (cleaned.length === (snap.items || []).length) {
+      return Object.assign({}, snap, { items: cleaned });
+    }
+    return Object.assign({}, snap, {
+      items: cleaned,
+      strippedBareParents: true,
+      cachedAt: new Date().toISOString()
+    });
+  }
   if (!force) {
     const snap = await getSnapRaw_(env, "retailPrices");
     if (snap && snap.status === "success" && Array.isArray(snap.items) && snap.items.length) {
-      return Object.assign({}, snap, {
+      const healed = healRetailSnap_(snap);
+      if (healed.strippedBareParents) {
+        try {
+          await putSnap_(env, "retailPrices", healed);
+        } catch (eH) {}
+      }
+      return Object.assign({}, healed, {
         cutover: true,
         fromD1: true,
         fromGas: false,
@@ -11604,19 +11656,21 @@ async function getRetailPriceListD1_(params, env, ctx) {
   }
   const live = await gasProxy_("getRetailPriceList", params || {}, env, { write: false });
   if (live && live.status === "success") {
+    const healed = healRetailSnap_(live);
     try {
-      await putSnap_(env, "retailPrices", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+      await putSnap_(env, "retailPrices", Object.assign({}, healed, { cachedAt: new Date().toISOString() }));
     } catch (e) {}
-    live.cutover = true;
-    live.fromGas = true;
-    live.fromD1 = false;
-    live.sandbox = false;
-    live.priceCanon = "d1-primary";
-    return live;
+    healed.cutover = true;
+    healed.fromGas = true;
+    healed.fromD1 = false;
+    healed.sandbox = false;
+    healed.priceCanon = "d1-primary";
+    return healed;
   }
   const fallback = await getSnapRaw_(env, "retailPrices");
   if (fallback && fallback.status === "success") {
-    return Object.assign({}, fallback, {
+    const healed = healRetailSnap_(fallback);
+    return Object.assign({}, healed, {
       cutover: true,
       fromD1: true,
       sandbox: false,
