@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-01 fix-dupe-heal-h1"
+      deployMarker: "2026-09-03 stats-cut-maps-h1"
     };
   }
 
@@ -820,6 +820,10 @@ function clientFromRow_(r) {
     day: r.day_name || "",
     noCut: !!meta.noCut
   });
+  out.ppSlot = sanitizePpSlotLabel_(out.ppSlot || meta.ppSlot || meta.deliverySlot);
+  if (out.ppHint && /GMT|Standard Time|Europe\/|UTC[+\-]|[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}/i.test(String(out.ppHint))) {
+    out.ppHint = out.ppSlot ? ("ПП " + out.ppSlot) : "";
+  }
   return out;
 }
 
@@ -2936,7 +2940,7 @@ function calendarPersonToClient_(c, day, dateDmy, dateIso) {
     segment: (c && c.segment) || "",
     source: (c && c.source) || "calendar",
     orderPrice: c && c.orderPrice != null ? c.orderPrice : "",
-    ppSlot: (c && c.ppSlot) || "",
+    ppSlot: sanitizePpSlotLabel_(c && c.ppSlot),
     ppHint: (c && c.ppHint) || "",
     ppPartner: (c && c.ppPartner) || "",
     dogCount: Number(c && c.dogCount) || 1,
@@ -3105,7 +3109,8 @@ function isCuttingSheetRow_(row) {
 function sameCutDate_(a, b) {
   const sa = String(a || "").trim();
   const sb = String(b || "").trim();
-  if (!sa || !sb) return true;
+  // пустая дата ≠ «та же» — иначе галочки прошлой недели липнут на новый день
+  if (!sa || !sb) return false;
   if (sa === sb) return true;
   function toIso(s) {
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
@@ -3839,7 +3844,7 @@ async function enrichCourierClientPp_(c, env, dateIso) {
   if (seg !== "ПП" && src !== "pp" && src !== "subscription") return c;
   let deliveriesN = Math.max(0, Number(c.deliveriesN) || 0);
   let deliverySlot = Number(c.deliverySlot) || 0;
-  let ppSlot = String(c.ppSlot || "").trim();
+  let ppSlot = sanitizePpSlotLabel_(c.ppSlot);
   if (!deliveriesN) {
     try {
       const sub = await getSubscription_({ nick: c.name, sheet: "ПП", segment: "ПП" }, env);
@@ -3858,11 +3863,20 @@ async function enrichCourierClientPp_(c, env, dateIso) {
   }
   if (deliverySlot >= 1 && deliveriesN >= 2) {
     ppSlot = formatPpSlotLabelD1_(deliverySlot, deliveriesN);
-    c.askPaid = true;
   }
+  // платит сейчас: N=1 или слот 1; слот 2+ — только если явный отказ / ещё не оплачено и надо доспросить
+  const paidL = String(c.paid || "").toLowerCase();
+  let askPaid = false;
+  if (deliveriesN >= 1) {
+    if (paidL === "yes" || c.ppPaid) askPaid = false;
+    else if (deliveriesN === 1 || deliverySlot <= 1) askPaid = true;
+    else askPaid = paidL === "no";
+  }
+  c.askPaid = askPaid;
   if (deliveriesN >= 1) c.deliveriesN = deliveriesN;
   if (deliverySlot >= 1) c.deliverySlot = deliverySlot;
   if (ppSlot) c.ppSlot = ppSlot;
+  else c.ppSlot = "";
   return c;
 }
 
@@ -4375,7 +4389,7 @@ async function saveOrder_(params, env, asBooking) {
   } catch (eWgEarly) {}
   const meta = {
     orderPrice: params.orderPrice,
-    ppSlot: params.ppSlot,
+    ppSlot: sanitizePpSlotLabel_(params.ppSlot != null ? params.ppSlot : params.deliverySlot),
     deliverySlot: params.deliverySlot,
     ppHint: params.ppHint,
     ppPartner: params.ppPartner,
@@ -11894,6 +11908,24 @@ function formatPpSlotLabelD1_(slot, deliveriesN) {
   const n = Math.max(1, Number(deliveriesN) || 1);
   if (n <= 1) return String(s);
   return s + "/" + n;
+}
+
+/** Убрать Date.toString() / GMT-мусор из ppSlot (Sheets иногда пишет Date в ячейку). */
+function sanitizePpSlotLabel_(raw) {
+  const s = String(raw == null ? "" : raw).trim();
+  if (!s) return "";
+  if (/GMT|Standard Time|Daylight|Europe\/|UTC[+\-]|[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}/i.test(s)) {
+    return "";
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(s) || /^\d{1,2}\.\d{1,2}\.\d{4}/.test(s)) return "";
+  const forced = parseForcedPpSlotD1_(s, 4);
+  if (forced >= 1) {
+    const m = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (m) return Number(m[1]) + "/" + Number(m[2]);
+    return String(forced);
+  }
+  if (/^\d+$/.test(s) && Number(s) >= 1 && Number(s) <= 4) return s;
+  return "";
 }
 
 function resolveAsOfIsoD1_(params) {

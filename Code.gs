@@ -3468,11 +3468,11 @@ function handleGetCourier(dayName, callback) {
           } else if (deliveriesN === 1) {
             ppHint = "ПП N=1";
           }
-          // Оплата: спросить пока нет paid=yes (N=1 — всегда; N=2 — на 1-й, на 2-й только если ещё не «да»)
+          // Оплата: N=1 / слот 1 — спросить пока нет yes; слот 2+ — только при явном paid=no
           if (deliveriesN >= 1) {
             if (paidCycle === "yes") askPaid = false;
             else if (deliveriesN === 1 || deliverySlot <= 1) askPaid = true;
-            else askPaid = (paidCycle === "no" || !paidCycle);
+            else askPaid = (paidCycle === "no");
           }
         } catch (ePaid) {}
       }
@@ -3482,10 +3482,8 @@ function handleGetCourier(dayName, callback) {
     if (isPpOrder) {
       ppSlotOut = formatPpSlotLabel_(deliverySlot, deliveriesN);
       if (!ppSlotOut) {
-        var rawSlot = String(client.ppSlot || "").trim();
-        // не тащить Date.toString() («Sun Feb 01…») в бейдж
-        if (rawSlot && !/GMT|[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}/.test(rawSlot) &&
-            parseForcedPpSlot_(rawSlot, deliveriesN || 2) >= 1) {
+        var rawSlot = sanitizePpSlotLabel_(client.ppSlot);
+        if (rawSlot && parseForcedPpSlot_(rawSlot, deliveriesN || 2) >= 1) {
           ppSlotOut = rawSlot;
         }
       }
@@ -3494,8 +3492,11 @@ function handleGetCourier(dayName, callback) {
     }
     var ppPaidYes = isPpOrder && String(paidCycle || "").toLowerCase() === "yes";
     var orderPriceOut = client.orderPrice != null ? client.orderPrice : "";
-    // уже оплачено в этом месяце — цену не светим (бейдж «оплачено»)
+    // уже оплачено / слот 2+ (платил на 1-й) — цену не светим
     if (ppPaidYes) orderPriceOut = "";
+    else if (isPpOrder && deliveriesN >= 2 && deliverySlot >= 2 && String(paidCycle || "").toLowerCase() !== "no") {
+      orderPriceOut = "";
+    }
     clients.push({
       name: client.name,
       address: client.address,
@@ -10048,7 +10049,7 @@ function readAllCalendarRows_() {
       pulledAt: data[r][14],
       legacyRef: String(data[r][15] || ""),
       orderPrice: orderPrice,
-      ppSlot: String(data[r][17] != null ? data[r][17] : "").trim(),
+      ppSlot: sanitizePpSlotLabel_(data[r][17]),
       deliveryAfter: normalizeTimeHm_(data[r][18]),
       deliveryBefore: normalizeTimeHm_(data[r][19]),
       ppPartner: String(data[r][20] != null ? data[r][20] : "").trim(),
@@ -10104,7 +10105,7 @@ function upsertCalendarEntry_(ss, opts) {
   }
   if (priceVal !== "" && priceVal != null && !isNaN(Number(priceVal))) priceVal = Number(priceVal);
   else priceVal = "";
-  var ppSlot = String(opts.ppSlot != null ? opts.ppSlot : (existing && existing.ppSlot) || "").trim();
+  var ppSlot = sanitizePpSlotLabel_(opts.ppSlot != null ? opts.ppSlot : (existing && existing.ppSlot) || "");
   var afterT = normalizeTimeHm_(opts.deliveryAfter != null ? opts.deliveryAfter : (existing && existing.deliveryAfter) || "");
   var beforeT = normalizeTimeHm_(opts.deliveryBefore != null ? opts.deliveryBefore : (existing && existing.deliveryBefore) || "");
   var ppPartner = String(opts.ppPartner != null ? opts.ppPartner : (existing && existing.ppPartner) || "").trim();
@@ -12274,6 +12275,23 @@ function formatPpSlotLabel_(slot, deliveriesN) {
   if (deliveriesN >= 2 && slot >= 1) return String(slot) + "/" + deliveriesN;
   if (deliveriesN === 1) return "1";
   return slot >= 1 ? String(slot) : "";
+}
+
+/** Убрать Date.toString()/GMT из ячейки ppSlot (Sheets иногда автоконвертит). */
+function sanitizePpSlotLabel_(raw) {
+  if (raw instanceof Date) return "";
+  var s = String(raw == null ? "" : raw).trim();
+  if (!s) return "";
+  if (/GMT|Standard Time|Daylight|Europe\/|UTC[+\-]|[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}/i.test(s)) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(s) || /^\d{1,2}\.\d{1,2}\.\d{4}/.test(s)) return "";
+  var forced = parseForcedPpSlot_(s, 4);
+  if (forced >= 1) {
+    var m = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (m) return Number(m[1]) + "/" + Number(m[2]);
+    return String(forced);
+  }
+  if (/^\d+$/.test(s) && Number(s) >= 1 && Number(s) <= 4) return s;
+  return "";
 }
 
 /** Разбор ручного слота: 1 | 2 | "1/2" → номер слота. */
@@ -18467,11 +18485,22 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (src === 'other' && calendarRowPrice_(row) > 0) src = 'retail';
     out.bySource[src] = (out.bySource[src] || 0) + 1;
     var price = calendarRowPrice_(row);
-    // ПП: в календарный оборот не кладём (иначе ×N слотов) — раз через collectPpActualOut_ (max/мес)
+    // ПП: в календарный оборот не кладём по каждому слоту — раз через collectPpActualOut_
+    // (только кто платит сейчас: слот 1 / N=1 / paid=yes).
     var revenueAdd = 0;
+    var slotForced = parseForcedPpSlot_(sanitizePpSlotLabel_(row.ppSlot), 2);
     if (src === "pp" && ck) {
       var prevPpPrice = Number(out.ppPriceByKey[ck]) || 0;
       if (price > prevPpPrice) out.ppPriceByKey[ck] = price;
+      // слот доставки для фильтра «кто платит»
+      if (!out.ppSlotByKey) out.ppSlotByKey = {};
+      if (slotForced >= 1) {
+        var prevSlot = Number(out.ppSlotByKey[ck]) || 0;
+        // минимальный слот за месяц (= была 1-я доставка)
+        if (!prevSlot || slotForced < prevSlot) out.ppSlotByKey[ck] = slotForced;
+      } else {
+        if (out.ppSlotByKey[ck] == null) out.ppSlotByKey[ck] = 0;
+      }
     } else if (src !== "bp") {
       revenueAdd = price;
       if (!(price > 0)) out.missingPrice++;
@@ -18483,30 +18512,45 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       try { bask = JSON.parse(String(row.basketJson)); } catch (eB2) { bask = []; }
     }
     // продукция = себест состава из заказа; купоны = qty×цена;
-    // БП +6р доставка; ПП +6р доставка + свет 11р на человека (раз за месяц)
+    // БП +6р доставка; ПП — RAW26/LEGACY факт раз на человека (ниже), не 11+6 на слот
     var product = estimateBasketRawCost_(bask, src);
     var coupons = couponsCostFromRow_(row);
     var deliveryFee = 0;
     var lightFee = 0;
     if (src === "bp") deliveryFee = BP_DELIVERY_COST_BYN_;
     if (src === "pp") {
-      deliveryFee = PP_DELIVERY_COST_BYN_;
-      if (ck && !out.ppLightKeys[ck]) {
-        out.ppLightKeys[ck] = true;
-        lightFee = PP_LIGHT_COST_BYN_;
-        out.ppLightPeople = (out.ppLightPeople || 0) + 1;
+      // копить сырьё/корзину на клиента — финальный factCost в конце
+      if (ck) {
+        if (!out.ppRawByKey) out.ppRawByKey = {};
+        if (!out.ppBasketByKey) out.ppBasketByKey = {};
+        if (!out.ppSchemeByKey) out.ppSchemeByKey = {};
+        out.ppRawByKey[ck] = Math.round(((Number(out.ppRawByKey[ck]) || 0) + product) * 100) / 100;
+        if ((!out.ppBasketByKey[ck] || !out.ppBasketByKey[ck].length) && bask && bask.length) {
+          out.ppBasketByKey[ck] = bask;
+        }
+        try {
+          out.ppSchemeByKey[ck] = resolvePpScheme_({ wishes: row.note || "", forNew: false });
+        } catch (eSch) {
+          out.ppSchemeByKey[ck] = out.ppSchemeByKey[ck] || "LEGACY";
+        }
       }
+      // per-delivery fees не добавляем — иначе ×N и минус при нулевой выручке слота 2
     }
     var pnBp = (src === "bp") ? String(row.ppPartner || "").trim() : "";
     var partnerCoversCost = !!(pnBp && partnerPaysCost_[pnBp.toLowerCase()]);
     var productForCost = partnerCoversCost ? 0 : product;
     var couponsForCost = partnerCoversCost ? 0 : coupons;
     var deliveryForCost = partnerCoversCost ? 0 : deliveryFee;
-    var costWithAll = Math.round((productForCost + couponsForCost + deliveryForCost + lightFee) * 100) / 100;
+    // ПП: сырьё/факт копятся на клиента — в costActual попадёт раз в конце (RAW26/LEGACY)
+    var costWithAll = src === "pp"
+      ? 0
+      : Math.round((productForCost + couponsForCost + deliveryForCost + lightFee) * 100) / 100;
     if (!(product > 0) && bask && bask.length) out.missingBasketCost++;
-    out.productCost = Math.round(((out.productCost || 0) + productForCost) * 100) / 100;
-    out.couponsCost = Math.round(((out.couponsCost || 0) + couponsForCost) * 100) / 100;
-    if (couponsForCost > 0) {
+    if (src !== "pp") {
+      out.productCost = Math.round(((out.productCost || 0) + productForCost) * 100) / 100;
+      out.couponsCost = Math.round(((out.couponsCost || 0) + couponsForCost) * 100) / 100;
+    }
+    if (couponsForCost > 0 && src !== "pp") {
       out.couponsQty = (out.couponsQty || 0) + normalizeCouponsQty_(row.couponsQty);
       out.couponsOrders = (out.couponsOrders || 0) + 1;
     }
@@ -18514,10 +18558,6 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     out.costActual += costWithAll;
     if (src === 'pp' && ck) {
       out.ppDeliveredKeys[ck] = true;
-      // ppPriceByKey уже max выше
-      out.ppBasketCost = Math.round(((out.ppBasketCost || 0) + product) * 100) / 100;
-      out.ppDeliveryCost = Math.round(((out.ppDeliveryCost || 0) + deliveryFee) * 100) / 100;
-      out.ppLightCost = Math.round(((out.ppLightCost || 0) + lightFee) * 100) / 100;
     }
     if (src === 'bp') {
       out.bpDeliveries++;
@@ -18548,6 +18588,49 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (seenKeys[bk]) continue;
     ingestRow_(bookByKey[bk]);
   }
+  // ПП: один factCost на клиента (RAW26/LEGACY), не 11+6 на каждый слот
+  try {
+    out.ppRawByKey = out.ppRawByKey || {};
+    out.ppBasketByKey = out.ppBasketByKey || {};
+    out.ppSchemeByKey = out.ppSchemeByKey || {};
+    var ppCostSum = 0;
+    var ppBasketSum = 0;
+    var ppDelivSum = 0;
+    var ppLightSum = 0;
+    var ppPeople = 0;
+    for (var ppk in out.ppDeliveredKeys) {
+      if (!out.ppDeliveredKeys.hasOwnProperty(ppk)) continue;
+      var rawPp = Number(out.ppRawByKey[ppk]) || 0;
+      var baskPp = out.ppBasketByKey[ppk] || [];
+      var schPp = out.ppSchemeByKey[ppk] || "LEGACY";
+      var nDel = 1;
+      try {
+        // сколько доставок этого клиента в месяце (ключи дат в seen не храним — грубо 1 или 2 по слоту)
+        var minSlot = Number((out.ppSlotByKey && out.ppSlotByKey[ppk]) || 0);
+        nDel = minSlot >= 2 ? 2 : 1;
+      } catch (eN) { nDel = 1; }
+      var factPp = null;
+      try {
+        factPp = computePpFactFromCost_(rawPp, baskPp, nDel, null, null, schPp, baskPp, null);
+      } catch (eF) { factPp = null; }
+      var factCostPp = factPp && factPp.factCost != null ? Number(factPp.factCost) : Math.round(rawPp * 100) / 100;
+      ppCostSum += factCostPp;
+      ppBasketSum += rawPp;
+      if (factPp) {
+        ppDelivSum += Number(factPp.deliveryByn) || 0;
+        if (factPp.scheme === "LEGACY") ppLightSum += Number(factPp.fixed) || 0;
+        else ppLightSum += Number(factPp.recoverByn) || 0;
+      }
+      ppPeople++;
+    }
+    out.costBySource.pp = Math.round(ppCostSum * 100) / 100;
+    out.costActual = Math.round((Number(out.costActual) + ppCostSum) * 100) / 100;
+    out.productCost = Math.round((Number(out.productCost) + ppBasketSum) * 100) / 100;
+    out.ppBasketCost = Math.round(ppBasketSum * 100) / 100;
+    out.ppDeliveryCost = Math.round(ppDelivSum * 100) / 100;
+    out.ppLightCost = Math.round(ppLightSum * 100) / 100;
+    out.ppLightPeople = ppPeople;
+  } catch (ePpCost) {}
   // ПП без цены ни на одной доставке месяца
   for (var ppMiss in out.ppDeliveredKeys) {
     if (!out.ppDeliveredKeys.hasOwnProperty(ppMiss)) continue;
@@ -18611,7 +18694,8 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
     return String(ent.paid || "").toLowerCase();
   }
 
-  // доставленные ПП: один раз max цена; paid=no — мимо
+  // доставленные ПП: один раз max цена; paid=no — мимо;
+  // слот 2+ без paid=yes — не считаем (уже платил на 1-й / раньше)
   for (var ck in delivered) {
     if (!delivered.hasOwnProperty(ck)) continue;
     var st = paidStatus_(ck);
@@ -18619,6 +18703,11 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
       out.clientsUnpaid++;
       continue;
     }
+    var minSlot = 0;
+    try { minSlot = Number((monthCal && monthCal.ppSlotByKey && monthCal.ppSlotByKey[ck]) || 0); } catch (eS) {}
+    // платит сейчас: paid=yes ИЛИ был слот 1 / N=1 (minSlot<=1 или 0 неизвестен → считаем)
+    var paysNow = (st === "yes") || !(minSlot >= 2);
+    if (!paysNow) continue;
     if (st === "yes") out.clientsPaidYes++;
     var p = Number(priceByKey[ck]) || 0;
     var fact = byKey[ck] ? Number(byKey[ck].fact) || 0 : 0;

@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115924" as="script">
+  <link rel="preload" href="app.main.js?v=71115925" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115924";
+      var APP_VER = "v71115925";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1593,14 +1593,6 @@
 
     <!-- МЕНЕДЖЕР: ПРИЁМ -->
     <div id="orderScreen" class="screen active">
-      <div id="orderDayCounts" class="order-day-counts" aria-label="Люди по дням недели">
-        <button type="button" class="order-day-chip is-empty" disabled><span class="odc-label">Пн</span><span class="odc-count">·</span></button>
-        <button type="button" class="order-day-chip is-empty" disabled><span class="odc-label">Вт</span><span class="odc-count">·</span></button>
-        <button type="button" class="order-day-chip is-empty" disabled><span class="odc-label">Ср</span><span class="odc-count">·</span></button>
-        <button type="button" class="order-day-chip is-empty" disabled><span class="odc-label">Чт</span><span class="odc-count">·</span></button>
-        <button type="button" class="order-day-chip is-empty" disabled><span class="odc-label">Пт</span><span class="odc-count">·</span></button>
-        <button type="button" class="order-day-chip is-empty" disabled><span class="odc-label">Буд</span><span class="odc-count">·</span></button>
-      </div>
       <div id="weekSkewBanner" class="week-banner" style="display:none;border-color:#ff9f0a;">
         <h3 style="color:#ff9f0a;">Даты недели уехали</h3>
         <div class="muted" id="weekSkewText">На листе не та неделя. Нарезка/курьер/приём смотрят на неё.</div>
@@ -1681,8 +1673,8 @@
 
         <div class="form-group">
           <label>Дата</label>
-          <input type="date" id="deliveryDate" onchange="onDeliveryDateChange()">
-          <div id="orderDateCal" class="ios-cal-compact-wrap" style="margin-top:10px;"></div>
+          <input type="date" id="deliveryDate" onchange="onDeliveryDateChange()" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;">
+          <div id="orderDateCal" class="ios-cal-compact-wrap" style="margin-top:4px;"></div>
         </div>
         <div class="form-group" style="display:flex;gap:8px;">
           <div style="flex:1;">
@@ -2788,6 +2780,6 @@
   </div>
   <div class="toast" id="appToast"></div>
 
-  <script src="app.main.js?v=71115924" defer></script>
+  <script src="app.main.js?v=71115925" defer></script>
 </body>
 </html>

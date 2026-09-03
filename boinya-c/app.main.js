@@ -9857,6 +9857,7 @@
         courierClientsCache._date = res.date || day;
         courierClientsCache._day = day;
         try { applyCourierLocalFlags_(courierClientsCache); } catch (eCf) {}
+        try { maybeQueuePpPayAskReminders_(courierClientsCache); } catch (eAsk) {}
         courierClientsCache.sort(function (a, b) {
           var da = a && a.delivered ? 1 : 0;
           var db = b && b.delivered ? 1 : 0;
@@ -10004,9 +10005,75 @@
       const doneCount = courierClientsCache.filter(c => c.delivered).length;
       const dateLabel = (courierClientsCache._date || day);
       const money = calcDayCollectTotal_(courierClientsCache);
+      const payAsk = (courierClientsCache || []).filter(function (c) {
+        return !!(c && (c.askPaid || clientPaysNow_(c)) && !c.ppPaid && String(c.paid || "").toLowerCase() !== "yes" &&
+          (resolveClientOrderType_(c) === "pp" || String(c.segment || "").toUpperCase() === "ПП"));
+      });
+      var askHtml = "";
+      if (payAsk.length) {
+        askHtml = '<div class="total-summary-badge" style="border-color:#ff9f0a;margin-top:8px;font-weight:600;">' +
+          'Уточнить оплату ПП: <b style="color:#ffd60a;">' + payAsk.length + "</b> · " +
+          escapeHtml(payAsk.slice(0, 4).map(function (c) { return c.name; }).join(", ")) +
+          (payAsk.length > 4 ? "…" : "") +
+          "</div>";
+      }
       summary.innerHTML =
         `<div class="total-summary-badge">${escapeHtml(dateLabel)} · ${courierClientsCache.length} клиентов · доставлено <span style="color:var(--success-color)">${doneCount}</span></div>` +
-        formatDayCollectTotalHtml_(money);
+        formatDayCollectTotalHtml_(money) +
+        askHtml;
+    }
+
+    /** За 1–2 дня до доставки: напоминалка менеджеру, если оплата ПП неясна. */
+    async function maybeQueuePpPayAskReminders_(clients) {
+      clients = clients || [];
+      var dateLabel = String((clients && clients._date) || "").trim();
+      var iso = "";
+      if (/^\d{4}-\d{2}-\d{2}/.test(dateLabel)) iso = dateLabel.slice(0, 10);
+      else if (/^\d{1,2}\.\d{1,2}\.\d{4}/.test(dateLabel)) {
+        var p = dateLabel.split(".");
+        iso = p[2] + "-" + String(p[1]).padStart(2, "0") + "-" + String(p[0]).padStart(2, "0");
+      }
+      if (!iso) return;
+      var today = "";
+      try {
+        today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Minsk", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+      } catch (eT) {
+        today = new Date().toISOString().slice(0, 10);
+      }
+      var diffDays = Math.round((Date.parse(iso + "T12:00:00") - Date.parse(today + "T12:00:00")) / 86400000);
+      if (diffDays < 0 || diffDays > 2) return;
+      var unclear = clients.filter(function (c) {
+        if (!c) return false;
+        var isPp = resolveClientOrderType_(c) === "pp" || String(c.segment || "").toUpperCase() === "ПП";
+        if (!isPp) return false;
+        if (c.ppPaid || String(c.paid || "").toLowerCase() === "yes" || String(c.paid || "").toLowerCase() === "no") return false;
+        var n = Number(c.deliveriesN) || 0;
+        var slot = Number(c.deliverySlot) || 0;
+        // неясно: нет paid и (слот неизвестен или слот 1)
+        return n <= 1 || slot <= 1 || !slot;
+      });
+      if (!unclear.length) return;
+      var key = "ppPayAsk:" + iso;
+      try {
+        if (sessionStorage.getItem(key)) return;
+        sessionStorage.setItem(key, "1");
+      } catch (eS) {}
+      var names = unclear.slice(0, 8).map(function (c) { return c.name; }).join(", ");
+      showToast("ПП · уточни оплату за " + diffDays + "д: " + names + (unclear.length > 8 ? "…" : ""));
+      try {
+        var when = new Date();
+        when.setHours(10, 0, 0, 0);
+        await apiPost({
+          action: "saveDeferred",
+          kind: "remind",
+          client: "ПП оплата · " + iso,
+          note: "Уточнить оплату ПП (" + unclear.length + "): " + names,
+          day: clients._day || "",
+          date: iso,
+          remindAt: when.toISOString(),
+          remindAtMs: String(when.getTime())
+        });
+      } catch (eDef) {}
     }
 
     async function toggleDelivered(index, delivered) {
@@ -10014,7 +10081,7 @@
       const client = courierClientsCache[index];
       if (!client) return;
       var paidAnswer = null;
-      if (delivered && client.askPaid) {
+      if (delivered && (client.askPaid || clientPaysNow_(client)) && !client.ppPaid && String(client.paid || "").toLowerCase() !== "yes") {
         var slotLabel = (client.deliveriesN >= 2)
           ? (" доставка " + (client.deliverySlot || 1) + "/" + client.deliveriesN)
           : "";
@@ -10510,6 +10577,8 @@
         .replace(/ПП\s*N\s*=\s*\d+[^\n[]*/gi, "")
         .replace(/\[НЕ РЕЗАТЬ\]/gi, "")
         .replace(/\[РЕЗАТЬ\]/gi, "")
+        .replace(/\b[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+GMT[^\n|]*/gi, "")
+        .replace(/\([^)]*(?:Standard Time|Daylight|Europe\/)[^)]*\)/gi, "")
         .replace(/\|\|/g, " ")
         .replace(/\s{2,}/g, " ")
         .trim();
@@ -10818,15 +10887,42 @@
     }
 
     /** Сумма, которую курьер/менеджер ожидает получить с клиента в этот день. */
+    function sanitizePpSlotUi_(raw) {
+      var s = String(raw == null ? "" : raw).trim();
+      if (!s) return "";
+      if (/GMT|Standard Time|Daylight|Europe\/|UTC[+\-]|[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}/i.test(s)) return "";
+      if (/^\d{4}-\d{2}-\d{2}/.test(s) || /^\d{1,2}\.\d{1,2}\.\d{4}/.test(s)) return "";
+      var m = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+      if (m) return Number(m[1]) + "/" + Number(m[2]);
+      if (/^\d+$/.test(s) && Number(s) >= 1 && Number(s) <= 4) return s;
+      return "";
+    }
+
+    /** ПП платит сегодня? слот 1 / N=1 / paid=no; слот 2+ без отказа — уже платил. */
+    function clientPaysNow_(client) {
+      client = client || {};
+      var ot = resolveClientOrderType_(client);
+      var seg = String(client.segment || "").trim().toUpperCase();
+      var isPp = ot === "pp" || seg === "ПП" || seg === "АФК" || seg === "AFK" || seg === "PP";
+      if (!isPp) return true;
+      if (client.ppPaid || String(client.paid || "").toLowerCase() === "yes") return false;
+      if (String(client.paid || "").toLowerCase() === "no") return true;
+      var n = Number(client.deliveriesN) || 0;
+      var slot = Number(client.deliverySlot) || 0;
+      var slotLbl = sanitizePpSlotUi_(client.ppSlot);
+      if (!slot && slotLbl) {
+        var m = String(slotLbl).match(/^(\d+)/);
+        if (m) slot = Number(m[1]) || 0;
+      }
+      if (n >= 2 && slot >= 2) return false;
+      return true;
+    }
+
     function clientCollectAmount_(client) {
       client = client || {};
       var ot = resolveClientOrderType_(client);
       if (ot === "bp") return 0;
-      var seg = String(client.segment || "").trim().toUpperCase();
-      var isPp = ot === "pp" || seg === "ПП" || seg === "АФК" || seg === "AFK" || seg === "PP";
-      if (isPp) {
-        if (client.ppPaid || String(client.paid || "").toLowerCase() === "yes") return 0;
-      }
+      if (!clientPaysNow_(client)) return 0;
       var price = resolveClientOrderPrice(client);
       var amt = (price != null && !isNaN(Number(price)) && Number(price) > 0) ? Number(price) : 0;
       var cq = Number(client.couponsQty) || 0;
@@ -10867,8 +10963,9 @@
     }
     window.calcDayCollectTotal_ = calcDayCollectTotal_;
     function formatOrderPriceHtml(noteOrPrice, opts) {
-      // ПП уже оплачен — цену не пишем (бейдж «оплачено» в clientTechBadgesHtml_)
+      // ПП уже оплачен / слот 2 — цену не пишем
       if (noteOrPrice && typeof noteOrPrice === "object") {
+        if (!clientPaysNow_(noteOrPrice)) return "";
         if (noteOrPrice.ppPaid || String(noteOrPrice.paid || "").toLowerCase() === "yes") {
           return "";
         }
@@ -10890,7 +10987,7 @@
       if (seg === "BP") seg = "БП";
       if (seg) bits.push('<span class="client-badge" style="background:rgba(94,92,230,0.25);color:#bfbfff;">' + escapeHtml(seg) + "</span>");
 
-      var ppSlotLbl = String((client && client.ppSlot) || "").trim();
+      var ppSlotLbl = sanitizePpSlotUi_((client && client.ppSlot) || "");
       var delN = Number(client && client.deliveriesN) || 0;
       var delSlot = Number(client && client.deliverySlot) || 0;
       if (!ppSlotLbl && delN >= 2 && delSlot >= 1) ppSlotLbl = delSlot + "/" + delN;
@@ -10902,7 +10999,7 @@
       var isPpSeg = (seg === "ПП" || seg === "АФК");
       if (ppPaid && isPpSeg) {
         bits.push('<span class="client-badge" style="background:rgba(48,209,88,0.28);color:#30d158;">оплачено</span>');
-      } else {
+      } else if (clientPaysNow_(client)) {
         var price = resolveClientOrderPrice(client);
         if (price != null) bits.push('<span class="client-badge" style="background:rgba(48,209,88,0.2);color:#30d158;">' + escapeHtml(String(price)) + " BYN</span>");
       }
@@ -12276,11 +12373,36 @@
         if (cached) {
           const parsed = JSON.parse(cached);
           if (parsed && parsed.lat != null) {
-            routePlanState.geoCache[key] = parsed;
-            return parsed;
+            // кэш без дома при запросе с домом — не доверяем (улица без номера)
+            var wantH = "";
+            try { wantH = normalizeHouseKey_((parseSearchStreetHouse_(addr) || {}).house); } catch (eH) {}
+            if (wantH && (!parsed.house || normalizeHouseKey_(parsed.house) !== wantH)) {
+              // кэш без дома / другой дом — перегеокод
+            } else {
+              routePlanState.geoCache[key] = parsed;
+              return parsed;
+            }
           }
         }
       } catch (e) {}
+
+      // сначала structured Nominatim с домом — иначе часто точка на улице без номера
+      try {
+        var parsedAddr = parseSearchStreetHouse_(addr);
+        if (parsedAddr && parsedAddr.house && parsedAddr.street) {
+          var structured = await nominatimStructuredClient_(parsedAddr.street, parsedAddr.house, "Минск");
+          if (structured && structured[0] && structured[0].lat != null) {
+            var hit = {
+              lat: Number(structured[0].lat),
+              lon: Number(structured[0].lon),
+              house: structured[0].house || parsedAddr.house
+            };
+            routePlanState.geoCache[key] = hit;
+            try { localStorage.setItem("geo:" + key, JSON.stringify(hit)); } catch (e2) {}
+            return hit;
+          }
+        }
+      } catch (eSt) {}
 
       const variants = [query];
       const plain = String(addr || "").trim();
@@ -12291,14 +12413,19 @@
 
       for (let v = 0; v < variants.length; v++) {
         const q = encodeURIComponent(variants[v]);
-        const url = "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=by&q=" + q;
+        const url = "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=by&q=" + q;
         try {
           const res = await fetch(url, { headers: { "Accept": "application/json" } });
           if (!res.ok) continue;
           const data = await res.json();
           await new Promise(function (r) { setTimeout(r, 1100); });
           if (!data || !data[0]) continue;
-          const point = { lat: Number(data[0].lat), lon: Number(data[0].lon) };
+          const ad = data[0].address || {};
+          const point = {
+            lat: Number(data[0].lat),
+            lon: Number(data[0].lon),
+            house: ad.house_number || ""
+          };
           routePlanState.geoCache[key] = point;
           try { localStorage.setItem("geo:" + key, JSON.stringify(point)); } catch (e2) {}
           return point;
@@ -12632,11 +12759,14 @@
     function pointToYandexRtext(p) {
       if (p == null) return "";
       if (typeof p === "object") {
+        var addr = String(p.address || p.name || "").trim();
+        // если в адресе есть дом — лучше текст (координаты улицы без дома часто «кидают» на проезжую)
+        var hasHouse = !!(addr && /\d/.test(addr) && /[а-яa-z]/i.test(addr));
+        if (hasHouse) return addr;
         if (p.lat != null && p.lon != null && isFinite(Number(p.lat)) && isFinite(Number(p.lon))) {
-
           return Number(p.lat) + "," + Number(p.lon);
         }
-        return String(p.address || p.name || "").trim();
+        return addr;
       }
       return String(p).trim();
     }
