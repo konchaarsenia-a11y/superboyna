@@ -118,77 +118,134 @@
     return { ok: true, user: user, needsLink: true };
   }
 
-  function registerUser(data) {
-    if (!isLive() || !global.GBApi) return Promise.resolve(registerUserLocal(data));
-    var name = String((data && data.name) || "").trim();
-    var phone = normalizePhone(data && data.phone);
-    var nick = normalizeNick(data && data.nick);
-    var hasSub = !!(data && data.hasSubscription);
-    if (!name) return Promise.resolve({ ok: false, message: "Укажите имя" });
-    if (!phone || phone.length < 9) return Promise.resolve({ ok: false, message: "Укажите телефон" });
-    return global.GBApi.get({
-      action: "gbRegister",
-      name: name,
+  function requestOtp(data) {
+    data = data || {};
+    var purpose = data.purpose || "login";
+    var phone = normalizePhone(data.phone);
+    var nick = normalizeNick(data.nick);
+    var name = String(data.name || "").trim();
+    var hasSub = !!data.hasSubscription;
+    var tg = readTelegramUser();
+
+    if (!isLive() || !global.GBApi) {
+      // demo: мгновенный «код» 000000
+      return Promise.resolve({
+        ok: true,
+        challengeId: "demo_" + Date.now(),
+        delivery: "demo",
+        botLink: "",
+        message: "Демо-режим: введите код 000000",
+        demoCode: "000000",
+        pending: { purpose: purpose, phone: phone, nick: nick, name: name, hasSubscription: hasSub }
+      });
+    }
+
+    var payload = {
+      action: "gbRequestOtp",
+      purpose: purpose,
       phone: phone,
       nick: nick,
-      hasSubscription: hasSub ? "1" : "0",
-      telegramId: uid("web")
-    }).then(function (res) {
+      name: name,
+      hasSubscription: hasSub ? "1" : "0"
+    };
+    if (tg && tg.telegramId) {
+      payload.telegramId = tg.telegramId;
+      payload.initData = tg.initData || "";
+    }
+    return global.GBApi.get(payload).then(function (res) {
       if (!res || res.status !== "success") {
-        return { ok: false, message: (res && res.message) || "Не удалось зарегистрироваться" };
+        return { ok: false, message: (res && res.message) || "Не удалось отправить код" };
       }
-      var user = userFromApi(res, {
-        name: name,
-        phone: phone,
-        username: nick,
-        intent: hasSub ? "pp" : "limited"
-      });
       return {
         ok: true,
-        user: user,
-        needsLink: !!res.needsLink,
-        bootstrap: res
+        challengeId: res.challengeId,
+        delivery: res.delivery,
+        botLink: res.botLink || "",
+        botUsername: res.botUsername || "",
+        sent: !!res.sent,
+        message: res.message || "",
+        pending: { purpose: purpose, phone: phone, nick: nick, name: name, hasSubscription: hasSub }
       };
     }).catch(function (err) {
-      var local = registerUserLocal(data);
-      if (local.ok) local.fromFallback = true;
-      return local.ok ? local : { ok: false, message: String(err && err.message || err) };
+      return { ok: false, message: String(err && err.message || err) };
     });
   }
 
-  function loginUser(data) {
-    if (!isLive() || !global.GBApi) return Promise.resolve(loginUserLocal(data));
-    var phone = normalizePhone(data && data.phone);
-    var nick = normalizeNick(data && data.nick);
-    if (!phone && !nick) return Promise.resolve({ ok: false, message: "Укажите телефон или ник" });
-    var st = global.GBStore && global.GBStore.get();
-    var savedId = st && st.user && st.user.telegramId ? st.user.telegramId : uid("login");
+  function verifyOtp(data) {
+    data = data || {};
+    var code = String(data.code || "").replace(/\D/g, "");
+    var challengeId = String(data.challengeId || "");
+    if (!challengeId || code.length < 4) {
+      return Promise.resolve({ ok: false, message: "Введите код из Telegram" });
+    }
+
+    if (!isLive() || !global.GBApi || String(challengeId).indexOf("demo_") === 0) {
+      if (code !== "000000") return Promise.resolve({ ok: false, message: "Демо: код 000000" });
+      var pending = data.pending || {};
+      if (pending.purpose === "register") {
+        return Promise.resolve(registerUserLocal(pending));
+      }
+      return Promise.resolve(loginUserLocal(pending));
+    }
+
     return global.GBApi.get({
-      action: "gbLogin",
-      phone: phone,
-      nick: nick,
-      telegramId: savedId
+      action: "gbVerifyOtp",
+      challengeId: challengeId,
+      code: code
     }).then(function (res) {
       if (!res || res.status !== "success") {
-        return { ok: false, message: (res && res.message) || "Подписка не найдена" };
+        return {
+          ok: false,
+          message: (res && res.message) || "Неверный код",
+          botLink: res && res.botLink,
+          code: res && res.code
+        };
       }
       var user = userFromApi(res, {
-        phone: phone,
-        username: nick,
-        intent: "pp",
-        access: "full"
+        intent: (res.user && res.user.access === "full") ? "pp" : "limited"
       });
-      return {
-        ok: true,
-        user: user,
-        needsLink: !!res.needsLink,
-        bootstrap: res
-      };
+      return { ok: true, user: user, bootstrap: res, needsLink: false };
     }).catch(function (err) {
-      var local = loginUserLocal(data);
-      if (local.ok) local.fromFallback = true;
-      return local.ok ? local : { ok: false, message: String(err && err.message || err) };
+      return { ok: false, message: String(err && err.message || err) };
     });
+  }
+
+  function authTelegram() {
+    var tg = readTelegramUser();
+    if (!tg) return Promise.resolve({ ok: false, message: "Откройте кабинет из Telegram" });
+    if (!isLive() || !global.GBApi) {
+      tg.hasSubscription = true;
+      tg.access = "full";
+      return Promise.resolve({ ok: true, user: tg, needsLink: true });
+    }
+    return global.GBApi.get({
+      action: "gbAuthTelegram",
+      telegramId: tg.telegramId,
+      name: tg.name || "",
+      username: tg.username || "",
+      initData: tg.initData || ""
+    }).then(function (res) {
+      if (!res || res.status !== "success") {
+        return { ok: false, message: (res && res.message) || "Telegram не подтверждён" };
+      }
+      var user = userFromApi(res, {
+        telegramId: tg.telegramId,
+        intent: (res.user && res.user.access === "full") ? "pp" : "limited"
+      });
+      user.initData = tg.initData || "";
+      return { ok: true, user: user, bootstrap: res };
+    }).catch(function (err) {
+      return { ok: false, message: String(err && err.message || err) };
+    });
+  }
+
+  /** @deprecated прямой логин без OTP — оставлен для demo fallback */
+  function registerUser(data) {
+    return requestOtp(Object.assign({}, data, { purpose: "register" }));
+  }
+
+  function loginUser(data) {
+    return requestOtp(Object.assign({}, data, { purpose: "login" }));
   }
 
   function guestUser(intent) {
@@ -264,6 +321,9 @@
     guestUser: guestUser,
     registerUser: registerUser,
     loginUser: loginUser,
+    requestOtp: requestOtp,
+    verifyOtp: verifyOtp,
+    authTelegram: authTelegram,
     registerUserLocal: registerUserLocal,
     loginUserLocal: loginUserLocal,
     userFromApi: userFromApi,
