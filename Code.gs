@@ -17065,8 +17065,19 @@ function handleCalcPrice(json, callback, fromPost) {
     });
   }
   var rawCost = Math.round(totalCost * 100) / 100;
-  // markup здесь только справочно для «total» (= raw×2.3). Факт ПП считает coef отдельно — не домножать.
-  var refMarkup = 2.3;
+  // calcPrice без явной схемы = новые (вкладка Расчёт) → RAW26 после cutoff
+  if ((json.forNew == null || json.forNew === "") &&
+      !normalizePpScheme_(json.scheme) &&
+      !parsePpSchemeFromWishes_(json.wishes)) {
+    json.forNew = 1;
+  }
+  var schemeHintCp = resolvePpScheme_({
+    scheme: json.scheme,
+    wishes: json.wishes,
+    forNew: json.forNew === true || json.forNew === "1" || json.forNew === 1
+  });
+  // markup здесь только справочно для «total» (= raw×coef). Факт ПП считает coef отдельно — не домножать.
+  var refMarkup = schemeHintCp === "RAW26" ? PP_RAW26_COEF_DEFAULT_ : PP_LEGACY_COEF_DEFAULT_;
   var total = Math.round(rawCost * refMarkup * 100) / 100;
   var ok = {
     status: "success",
@@ -17077,6 +17088,7 @@ function handleCalcPrice(json, callback, fromPost) {
     cost: rawCost,
     rawCost: rawCost,
     markup: refMarkup,
+    scheme: schemeHintCp,
     total: total
   };
   // полный факт ПП: сырая себест × coef (+ схема LEGACY/RAW26). coef ЗАМЕНЯЕТ 2.3/2.6, не множится сверху.
