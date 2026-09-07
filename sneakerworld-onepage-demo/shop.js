@@ -225,9 +225,13 @@
     }
     els.activeFilters.innerHTML = chips.join('');
     if (els.pickLabel) {
-      els.pickLabel.textContent = appliedPick
-        ? 'Подборка: ' + (PICK_TITLES[appliedPick] || appliedPick)
-        : '';
+      if (appliedPick) {
+        els.pickLabel.textContent = 'Подборка: ' + (PICK_TITLES[appliedPick] || appliedPick);
+        els.pickLabel.hidden = false;
+      } else {
+        els.pickLabel.textContent = '';
+        els.pickLabel.hidden = true;
+      }
     }
   }
 
