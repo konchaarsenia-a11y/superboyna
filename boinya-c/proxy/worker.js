@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-07 fix-pp-slot-paid-ask-h1"
+      deployMarker: "2026-09-07 fix-price-tab-raw26-h1"
     };
   }
 
@@ -7152,7 +7152,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1 слоты недели перезаписаны из Sheets (пустые дни очищены).",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-07 fix-pp-slot-paid-ask-h1"
+        deployMarker: "2026-09-07 fix-price-tab-raw26-h1"
       };
     } catch (eResync) {
       return {
@@ -13949,21 +13949,37 @@ async function calcPpFactD1_(params, env, ctx) {
 }
 
 async function calcPricePpD1_(params, env, ctx) {
+  params = Object.assign({}, params || {});
   const force =
     String((params && params.force) || "") === "1" ||
     (params && (params.force === true || params.force === 1));
+  /* Вкладка Расчёт / calcPrice без явной схемы — новые → RAW26 после cutoff.
+   * calcPpFact для старых карточек остаётся LEGACY по умолчанию. */
+  if (
+    (params.forNew == null || params.forNew === "") &&
+    !normalizePpSchemeD1_(params.scheme) &&
+    !parsePpSchemeFromWishesD1_(params.wishes)
+  ) {
+    params.forNew = 1;
+  }
   const wantFact =
     params.fullFact === true ||
     params.fullFact === "1" ||
     params.fullFact === 1 ||
     !!(params.deliveriesN || params.deliveries);
+  const schemeHint = resolvePpSchemeD1_({
+    scheme: params.scheme,
+    wishes: params.wishes,
+    forNew: params.forNew === true || params.forNew === "1" || params.forNew === 1
+  });
+  const refMarkup =
+    schemeHint === "RAW26" ? PP_RAW26_COEF_DEFAULT_D1_ : PP_LEGACY_COEF_DEFAULT_D1_;
   if (!force) {
     const snap = await getSnapRaw_(env, "priceCostsPp");
     if (snap && snap.costs && typeof snap.costs === "object") {
       const basket = parseBasketParamD1_(params);
       const built = buildPpLinesFromCostsD1_(basket, snap.costs);
       if (built.missing === 0 && built.lines.length) {
-        const refMarkup = 2.3;
         const ok = {
           status: "success",
           mode: params.mode || "pp",
@@ -13973,6 +13989,7 @@ async function calcPricePpD1_(params, env, ctx) {
           cost: built.rawCost,
           rawCost: built.rawCost,
           markup: refMarkup,
+          scheme: schemeHint,
           total: Math.round(built.rawCost * refMarkup * 100) / 100,
           cutover: true,
           fromD1: true,

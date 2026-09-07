@@ -3474,7 +3474,10 @@
           if (sid === "statsScreen") loadStats({ soft: true });
           if (sid === "retailPriceScreen") try { loadRetailPriceAdmin_({ soft: true }); } catch (eRp) {}
           if (sid === "deferredScreen") openTasksDrawer();
-          if (sid === "priceScreen") try { syncPriceEnrollUi(); } catch (eEn) {}
+          if (sid === "priceScreen") {
+            try { syncPricePpSchemeDefaults_(); } catch (eSchTab) {}
+            try { syncPriceEnrollUi(); } catch (eEn) {}
+          }
           if (sid === "orderScreen") {
             try { refreshWeekBanners({ soft: true }); } catch (eO) {}
             try { refreshOrderDayCounts_({ soft: true }); } catch (eC) {}
@@ -18924,7 +18927,13 @@
 
         var pr = null;
         try {
-          pr = await fetchPpCalcPrice_(slim, { timeoutMs: 28000 });
+          pr = await fetchPpCalcPrice_(slim, {
+            timeoutMs: 28000,
+            scheme: subDetailSchemeValue_(),
+            coef: coef,
+            deliveriesN: n,
+            forNew: 0
+          });
         } catch (e0) { pr = null; }
         if (seq !== _subDetailFactSeq) return;
 
@@ -19842,10 +19851,10 @@
     var priceLiveTimer = null;
 
     /** ПП: LEGACY сырьё×coef+11+6N · RAW26 сырьё×coef+recover+9N (с 2026-08-31 для новых) */
-    var PRICE_PP_FIXED_BYN = 11;
-    var PRICE_PP_DELIVERY_PER = 6;
-    var PRICE_PP_COEF_DEFAULT = 2.3;
-    var pricePpScheme = "LEGACY";
+    var pricePpScheme = defaultPpSchemeForNewLocal_();
+    var PRICE_PP_FIXED_BYN = pricePpScheme === "RAW26" ? 0 : 11;
+    var PRICE_PP_DELIVERY_PER = pricePpScheme === "RAW26" ? PP_RAW26_DELIVERY_PER : PP_LEGACY_DELIVERY_PER;
+    var PRICE_PP_COEF_DEFAULT = pricePpScheme === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT;
 
     var PRICE_PACK_UNIT = { small: 0.34, medium: 0.56, large: 0.80, legs: 1.40 };
     var pricePackCounts = { small: 0, medium: 0, large: 0, legs: 0 };
@@ -20012,18 +20021,42 @@
       var fracMark = calcDressuraFractionMarkup(list, getPriceFracRates());
       var subTotal;
       var formulaHint;
+      var apiScheme = normalizePpSchemeLocal_(res && (res.scheme || res.ppScheme));
+      var useApiFact = apiScheme === pricePpScheme &&
+        res && res.factCost != null && isFinite(Number(res.factCost));
       if (pricePpScheme === "RAW26") {
-        var recover = recoverBynFromBasketLocal_(list);
+        var recover = useApiFact && res.recoverByn != null
+          ? Number(res.recoverByn) || 0
+          : recoverBynFromBasketLocal_(list);
         var deliveryByn = PP_RAW26_DELIVERY_PER * deliveriesN;
-        subTotal = costSum * coef + recover + deliveryByn + packagesByn + fracMark.total;
+        if (useApiFact && res.coef != null && isFinite(Number(res.coef)) && Number(res.coef) > 0) {
+          coef = Number(res.coef);
+        }
+        var goodsRaw = costSum * coef + recover;
+        var retailGoodsCap = Number(retail && retail.goods) || 0;
+        var capped = false;
+        var goodsByn = goodsRaw;
+        if (retailGoodsCap > 0) {
+          var capAt = Math.round(retailGoodsCap * 0.92 * 100) / 100;
+          if (goodsByn > capAt) {
+            goodsByn = capAt;
+            capped = true;
+          }
+        }
+        subTotal = useApiFact
+          ? Math.round(Number(res.factCost) * 100) / 100
+          : Math.round((goodsByn + deliveryByn + packagesByn + fracMark.total) * 100) / 100;
         formulaHint = "сырьё " + costSum + " × " + coef +
           " + recover " + recover +
+          (capped ? (" (cap 92% розн. " + Math.round(goodsByn * 100) / 100 + ")") : "") +
           " + 9×" + deliveriesN + "(" + deliveryByn + ")" +
           (packagesByn ? (" + пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
           (fracMark.total ? (" + фракции " + fracMark.total) : "");
       } else {
         var deliveryL = PP_LEGACY_DELIVERY_PER * deliveriesN;
-        subTotal = costSum * coef + PP_LEGACY_FIXED + deliveryL + packagesByn + fracMark.total;
+        subTotal = useApiFact
+          ? Math.round(Number(res.factCost) * 100) / 100
+          : costSum * coef + PP_LEGACY_FIXED + deliveryL + packagesByn + fracMark.total;
         formulaHint = "себест. " + costSum + " × " + coef +
           " + " + PP_LEGACY_FIXED +
           " + 6×" + deliveriesN + "(" + deliveryL + ")" +
@@ -20413,23 +20446,53 @@
     async function fetchPpCalcPrice_(slim, extra) {
       extra = extra || {};
       var mode = extra.mode || "pp";
+      var nElFetch = document.getElementById("priceDeliveriesN");
+      var deliveriesN = Math.max(
+        1,
+        Number(extra.deliveriesN) || Number(nElFetch && nElFetch.value) || 1
+      );
+      var forNew;
+      if (extra.forNew === 0 || extra.forNew === false || extra.forNew === "0") forNew = false;
+      else if (extra.forNew === 1 || extra.forNew === true || extra.forNew === "1") forNew = true;
+      else forNew = !extra.scheme; /* вкладка Расчёт — новые; карточка ПП передаёт scheme */
+      var scheme = normalizePpSchemeLocal_(extra.scheme) ||
+        (forNew ? (pricePpScheme || defaultPpSchemeForNewLocal_()) : "");
+      var coef = extra.coef != null && extra.coef !== ""
+        ? Number(extra.coef)
+        : getPricePpCoef();
+      if (!isFinite(coef) || coef <= 0) {
+        coef = scheme === "RAW26" ? PP_RAW26_COEF_DEFAULT : PP_LEGACY_COEF_DEFAULT;
+      }
+      var payload = {
+        action: "calcPrice",
+        mode: mode,
+        basket: slim,
+        deliveriesN: deliveriesN,
+        coef: coef,
+        fullFact: 1,
+        forNew: forNew ? 1 : 0
+      };
+      if (scheme) payload.scheme = scheme;
+      if (extra.packCounts) payload.packCounts = extra.packCounts;
       var res = null;
       try {
-        res = await apiPost({
-          action: "calcPrice",
-          mode: mode,
-          basket: slim
-        });
+        res = await apiPost(payload);
       } catch (eP) { res = null; }
       var ok = res && res.status === "success" && !res.empty;
       if (!ok) {
         try {
-          res = await apiGet({
+          var getPayload = {
             action: "calcPrice",
             mode: mode,
             basket: JSON.stringify(slim || []),
+            deliveriesN: String(deliveriesN),
+            coef: String(coef),
+            fullFact: "1",
+            forNew: forNew ? "1" : "0",
             _: String(Date.now())
-          }, { timeoutMs: extra.timeoutMs || 25000, cacheTtlMs: 0 });
+          };
+          if (scheme) getPayload.scheme = scheme;
+          res = await apiGet(getPayload, { timeoutMs: extra.timeoutMs || 25000, cacheTtlMs: 0 });
         } catch (eG) { res = null; }
       }
       if (!res || res.status !== "success" || res.empty) return null;
@@ -20481,8 +20544,21 @@
         var nElPp = document.getElementById("priceDeliveriesN");
         var nPp = Math.max(1, Number(nElPp && nElPp.value) || 1);
         syncPricePacksFromBasket_();
+        syncPricePpSchemeDefaults_();
         var retail = calcRetailBasketTotal(list, { deliveriesN: nPp });
-        var res = await fetchPpCalcPrice_(slim);
+        var res = await fetchPpCalcPrice_(slim, {
+          mode: "pp",
+          deliveriesN: nPp,
+          coef: getPricePpCoef(),
+          scheme: pricePpScheme || defaultPpSchemeForNewLocal_(),
+          forNew: 1,
+          packCounts: {
+            u1: pricePackCounts.small || 0,
+            u2: pricePackCounts.medium || 0,
+            u3: pricePackCounts.large || 0,
+            up4: pricePackCounts.legs || 0
+          }
+        });
         if (!res) {
           if (box) box.innerHTML = '<p class="muted">Ошибка расчёта подписки — себест не пришла. Нажми «Собрать сообщение» ещё раз.</p>';
           return null;
@@ -20681,8 +20757,20 @@
           var deliveriesN = Math.max(1, Number(nEl && nEl.value) || Number(s.deliveriesN) || 1);
           var packagesByn = calcPricePacksByn();
           var fracMark = calcDressuraFractionMarkup(list, getPriceFracRates());
-          subHint = costSum * coef + PRICE_PP_FIXED_BYN + PRICE_PP_DELIVERY_PER * deliveriesN +
-            packagesByn + fracMark.total;
+          syncPricePpSchemeDefaults_();
+          if (pricePpScheme === "RAW26") {
+            var recoverSnap = recoverBynFromBasketLocal_(list);
+            var goodsSnap = costSum * coef + recoverSnap;
+            var retailSnapG = Number(calcRetailBasketTotal(list, { deliveriesN: deliveriesN }).goods) || 0;
+            if (retailSnapG > 0) {
+              var capSnap = Math.round(retailSnapG * 0.92 * 100) / 100;
+              if (goodsSnap > capSnap) goodsSnap = capSnap;
+            }
+            subHint = goodsSnap + PP_RAW26_DELIVERY_PER * deliveriesN + packagesByn + fracMark.total;
+          } else {
+            subHint = costSum * coef + PRICE_PP_FIXED_BYN + PRICE_PP_DELIVERY_PER * deliveriesN +
+              packagesByn + fracMark.total;
+          }
         } else if (priceMode === "retail") {
           subHint = calcRetailBasketTotal(list, { deliveriesN: 1 }).total;
         }
