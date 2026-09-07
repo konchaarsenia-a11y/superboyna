@@ -3031,17 +3031,50 @@ function chewSubToken_(sub) {
 }
 
 function cuttingNameFromBasketItem_(it) {
-  const name = String((it && (it.main || it.name)) || "").trim();
+  let name = String((it && (it.main || it.name)) || "").trim();
   if (!name) return "";
   const sub = String((it && it.sub) || "").trim();
+  // Старые присыпки / фракция «Крошка» → позиция-родитель (нарезка без отдельной крошки)
+  const crumbParent = crumbParentFromBasketName_(name);
+  if (crumbParent) name = crumbParent;
+  else if (/^КРОШК/i.test(sub)) {
+    // уже родитель + sub Крошка — оставляем name
+  }
   const piece = isPieceSku_(name, it && it.cat, it && it.unit);
-  if (!piece || !sub) return name;
+  if (!piece || !sub || /^КРОШК/i.test(sub)) return name;
   const nu = name.toUpperCase().replace(/Ё/g, "Е");
   const tok = chewSubToken_(sub);
   if (!tok) return name;
   if (nu.indexOf(tok) >= 0) return name;
   const base = name.replace(/\s*шт\.?\s*$/i, "").trim();
   return base + " " + tok + " шт.";
+}
+
+function crumbParentFromBasketName_(name) {
+  const n = String(name || "")
+    .trim()
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/\s+/g, " ");
+  if (!n || n.indexOf("КРОШКА") < 0) return "";
+  if (/ЛЕГК/.test(n)) return "ЛЁГКОЕ";
+  if (/ПОЧ/.test(n)) return "ПОЧКИ";
+  if (/РУБ/.test(n)) return "РУБЕЦ Т";
+  if (/СЕРДЦ/.test(n)) return "СЕРДЦЕ";
+  if (/БАРАН/.test(n)) return "БАРАНЬЕ ЛЁГКОЕ";
+  if (/ИНДЕЙ/.test(n)) return "ИНДЕЙКА";
+  if (/ПЕЧЕН/.test(n)) return "ПЕЧЕНЬ";
+  if (/ВЫМЯ/.test(n)) return "ВЫМЯ";
+  if (/СЕМЕН/.test(n)) return "СЕМЕННИКИ";
+  if (/ЛОМТ/.test(n)) return "МЯСНЫЕ ЛОМТИКИ";
+  if (/ЯБЛОК/.test(n)) return "ЯБЛОКИ";
+  if (/ТЫКВ/.test(n)) return "ТЫКВА";
+  if (/МОРКОВ/.test(n)) return "МОРКОВЬ";
+  if (/БАНАН/.test(n)) return "БАНАНЫ";
+  if (/ГРУШ/.test(n)) return "ГРУШИ";
+  if (/БАТАТ/.test(n)) return "БАТАТ";
+  if (/КАБАЧ/.test(n)) return "КАБАЧОК";
+  return "";
 }
 
 function cuttingItemsFromPeople_(people, warehouseItems) {
