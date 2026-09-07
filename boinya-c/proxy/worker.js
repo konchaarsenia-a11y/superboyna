@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-03 retail-frac-dedupe-h1"
+      deployMarker: "2026-09-07 fix-finish-week-d1-h1"
     };
   }
 
@@ -7078,6 +7078,60 @@ async function handleCutover_(a, params, env, ctx) {
     } catch (eFinGuard) {}
   }
 
+  // Heal: после кривого finish D1 «перенёс» людей +7 — без повторного закрытия недели.
+  // Только owner + confirm=1. Sheets не трогает.
+  if (/^forceWeekD1Resync$/i.test(a)) {
+    const ownerOk = await actorIsOwnerRetail_(params, env);
+    if (!ownerOk) {
+      return {
+        status: "error",
+        message: "owner_only",
+        tip: "Только владелец может сбросить D1 под лист недели.",
+        cutover: true,
+        action: a
+      };
+    }
+    if (
+      String(params.confirm || "") !== "1" &&
+      String(params.confirm || "").toLowerCase() !== "true" &&
+      String(params.allowDanger || "") !== "1"
+    ) {
+      return {
+        status: "error",
+        message: "need_confirm",
+        tip: "Нужен confirm=1",
+        cutover: true,
+        action: a
+      };
+    }
+    try {
+      await cutoverRefreshAllWeekDays_(env, {
+        clearDayTombs: true,
+        forceGasReplace: true
+      });
+      const counts =
+        (await getSnapRaw_(env, "weekDayCountsSheet")) || (await getSnapRaw_(env, "weekDayCounts"));
+      return {
+        status: "success",
+        action: "forceWeekD1Resync",
+        forceGasReplace: true,
+        weekDayCounts: counts || null,
+        tip: "D1 слоты недели перезаписаны из Sheets (пустые дни очищены).",
+        cutover: true,
+        d1Verified: true,
+        deployMarker: "2026-09-07 fix-finish-week-d1-h1"
+      };
+    } catch (eResync) {
+      return {
+        status: "error",
+        message: "resync_failed",
+        tip: String((eResync && eResync.message) || eResync),
+        cutover: true,
+        action: a
+      };
+    }
+  }
+
   // Закрытие / откат дат / материализация — GAS (Sheets склад) + D1 resync
   if (/^(finishFullWeek|repairWeekMonday|materializeWeek)$/i.test(a)) {
     // finish/repair — только owner (materialize можно менеджеру; GAS всё равно проверит)
@@ -7149,7 +7203,12 @@ async function handleCutover_(a, params, env, ctx) {
     }
     async function runWeekD1Resync_() {
       try {
-        await cutoverRefreshAllWeekDays_(env, { clearDayTombs: /^finishFullWeek$/i.test(a) });
+        // finish/repair: Sheets = правда слота (пустой день после очистки — ок).
+        // Без forceGasReplace anti-shrink + scrub date_iso «переносят» старых людей на +7.
+        await cutoverRefreshAllWeekDays_(env, {
+          clearDayTombs: /^finishFullWeek$/i.test(a),
+          forceGasReplace: /^(finishFullWeek|repairWeekMonday)$/i.test(a)
+        });
       } catch (eRf0) {}
       try {
         if (!(isWarehouseCloseD1Canon_(env) && /^finishFullWeek$/i.test(a) && whClosePack && whClosePack.ok)) {
@@ -9941,10 +10000,12 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
   });
 
   // КРИТ: не сжимать день пустым/частичным GAS (таймаут листа / stale sanitize).
-  // Иначе casual week-refresh или finish с неполным getClients вайпает D1.
+  // Иначе casual week-refresh вайпает D1. После finishFullWeek — наоборот: пустой лист = правда
+  // (очистка Пн–Вс), иначе scrub stamp date_iso «переносит» старых людей на новую неделю.
   const gasN = Object.keys(gasByMk).length;
   const mergedN = merged.length;
-  if (gasAuthoritative && existingCount > 0) {
+  const forceShrink = opts.forceShrink === true || opts.allowEmptyGasWipe === true;
+  if (gasAuthoritative && existingCount > 0 && !forceShrink) {
     if (gasN === 0) {
       // лист пуст/не ответил — только выровнять date_iso, людей не трогать
       try {
@@ -10168,6 +10229,7 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
   opts = opts || {};
   if (!env || !env.DB) return;
   const gasAuth = isWeekD1GasAuthoritative_(env);
+  const forceGasReplace = opts.forceGasReplace === true;
   if (opts.clearDayTombs) {
     for (let ti = 0; ti < WEEK_DAYS.length; ti++) {
       try {
@@ -10200,7 +10262,9 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
         let rep = null;
         if (gasAuth) {
           // GAS короче D1 — только upsert, без gas-authoritative replace (anti-shrink).
-          if (d1Count > 0 && gasN < d1Count) {
+          // ИСКЛЮЧЕНИЕ: после finish/repair Sheets = правда (пустой день ок) —
+          // иначе scrub stamp «переносит» старых людей на новую неделю.
+          if (!forceGasReplace && d1Count > 0 && gasN < d1Count) {
             await upsertMissingClientsFromGas_(env, day, gasList, { ignoreTombstones: false });
             try {
               const infoDay = await dayDateInfo_(env, day);
@@ -10211,15 +10275,19 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
             } catch (eS0) {}
             continue;
           }
-          // После закрытия недели GAS = правда слота, но пустой/битый ответ не вайпает D1.
+          // После закрытия недели GAS = правда слота, но пустой/битый ответ не вайпает D1
+          // (если не forceGasReplace).
           rep = await replaceDayOrdersFromClients_(env, day, gasList, {
             gasAuthoritative: true,
             allowGasInsert: true,
-            protectMs: 5 * 60 * 1000,
+            // finish: 0 — иначе свежезаштампованные date_iso не удаляются
+            protectMs: forceGasReplace ? 0 : 5 * 60 * 1000,
             skipProtectMissing: true,
-            ignoreTombstones: true
+            ignoreTombstones: true,
+            forceShrink: forceGasReplace,
+            allowEmptyGasWipe: forceGasReplace
           });
-          if (rep && rep.aborted) {
+          if (rep && rep.aborted && !forceGasReplace) {
             await upsertMissingClientsFromGas_(env, day, gasList, { ignoreTombstones: false });
             try {
               const infoDay = await dayDateInfo_(env, day);
@@ -10271,6 +10339,7 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
       });
       await putSnap_(env, "dateToDay", { map: dateToDay });
       // финальный stamp date_iso по слотам — даже если какой-то replace aborted
+      // После forceGasReplace лишних людей уже нет; stamp только для оставшихся.
       try {
         await scrubAllDayDateMismatches_(env, sheetCounts);
       } catch (eScrubEnd) {}

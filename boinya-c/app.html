@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115928" as="script">
+  <link rel="preload" href="app.main.js?v=71115929" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115928";
+      var APP_VER = "v71115929";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2630,6 +2630,7 @@
         <div class="muted" style="font-size:12px;margin-bottom:8px;">Закрытие недели: склад F/B, даты +7, очистка Пн–Вс, Будущая→Пн. Обычно вс (весь день) или пн до 12:00. Только владелец.</div>
         <div class="muted" style="font-size:12px;margin-bottom:10px;" id="finishWeekPeopleStatus">Статус: …</div>
         <button class="btn-action btn-orange" type="button" id="btnFinishWeekPeople" style="margin:0;" onclick="onFinishWeekClick()">Завершить неделю</button>
+        <button class="btn-action" type="button" id="btnResyncWeekD1People" style="margin-top:8px;background:#3a3a3c;" onclick="onForceWeekD1ResyncClick()">Синхронизировать D1 с листом</button>
         <button class="btn-action btn-blue" type="button" id="btnPullWeekPeople" style="margin-top:8px;display:none;" onclick="confirmPullWeekFromHome()">Подтянуть из месяца</button>
       </div>
       <div class="card">
@@ -2785,6 +2786,6 @@
   </div>
   <div class="toast" id="appToast"></div>
 
-  <script src="app.main.js?v=71115928" defer></script>
+  <script src="app.main.js?v=71115929" defer></script>
 </body>
 </html>

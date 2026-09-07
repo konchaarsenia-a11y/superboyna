@@ -1,3 +1,4 @@
+- [~] **КРИТ: finish из Доступов «переносит» людей +7 2026-09-07:** после закрытия anti-shrink + scrub date_iso оставляли старых в D1 на новых датах. Fix: forceGasReplace/forceShrink на finish/repair; action `forceWeekD1Resync`; кнопка в Доступах · marker `fix-finish-week-d1-h1` · Pages `v71115929` · **Worker Deploy**
 - [~] **Прайс: только фракции 2026-09-03:** убрать голые дубли «АОРТА»/«ЛЁГКОЕ»/… когда есть «АОРТА|Обычная»; дефолт-фракция при пустом sub; Worker heal snap · marker `retail-frac-dedupe-h1` live · Pages `v71115928` · **Worker Deploy OK** · **Deploy Code.gs** (ещё)
 - [x] **Статистика: оборот БП пояснён 2026-09-03:** в UI явно «БП = 0 BYN, не в обороте»; разбивка состав+6р; выручка только после ПП · Pages `v71115928`
 - [x] **Статистика: прошлый месяц 2026-09-03:** ‹› навигация по месяцам; getStats?month=YYYY-MM; Worker snap `getStats:YYYY-MM` · marker `stats-month-nav-h1` (в live `retail-frac-dedupe-h1`) · Pages `v71115928` · **Worker Deploy OK**
