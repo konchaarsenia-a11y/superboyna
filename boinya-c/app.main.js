@@ -1463,19 +1463,39 @@
       "ГРУШИ": { per100: 13 },
       "БАНАНЫ": { per100: 12 },
       "ЯБЛОКИ": { per100: 11 },
-      "МОРКОВЬ": { per100: 11 },
-      "ЛЁГКОЕ": { per100: 11 },
-      "СЕРДЦЕ": { per100: 14 },
-      "ПОЧКИ": { per100: 12 },
-      "РУБЕЦ Т": { per100: 12 },
-      "БАРАНЬЕ ЛЁГКОЕ": { per100: 17 },
-      "БЫЧИЙ КОРЕНЬ": { perPiece: 12 },
-      "ТРАХЕЯ": { perPiece: 8 },
-      "УХО Г": { perPiece: 7 },
-      "АОРТА": { perPiece: 5 },
-      "СТАНОВАЯ ЖИЛА": { perPiece: 5 }
+      "МОРКОВЬ": { per100: 11 }
+      // без голых ключей ЛЁГКОЕ/АОРТА/… — только фракции (см. stripBareRetailParents_)
     };
 
+
+    /** Голый ключ (АОРТА) — дубль, если есть фракции (АОРТА|Обычная). */
+    function stripBareRetailParentsMap_(map) {
+      map = map || {};
+      var hasFrac = Object.create(null);
+      Object.keys(map).forEach(function (k) {
+        var i = String(k).indexOf("|");
+        if (i > 0) hasFrac[String(k).slice(0, i)] = true;
+      });
+      var out = {};
+      Object.keys(map).forEach(function (k) {
+        if (String(k).indexOf("|") < 0 && hasFrac[k]) return;
+        out[k] = map[k];
+      });
+      return out;
+    }
+
+    function retailDefaultSub_(name) {
+      var n = String(name || "").toUpperCase().replace(/Ё/g, "Е");
+      if (/АОРТ/.test(n)) return "Обычная";
+      if (/УХО|УШК/.test(n)) return "Обычное";
+      if (/БЫЧИЙ КОРЕН|ТРАХЕ|СТАНОВ/.test(n)) return "СРЕД";
+      if (/БАРАНЬЕ\s*Л[ЕЁ]ГК/.test(n)) return "Среднее";
+      if (/^Л[ЕЁ]ГКОЕ$/.test(n) || n === "ЛЁГКОЕ") return "Среднее";
+      if (/СЕРДЦ/.test(n)) return "Мелкое";
+      if (/ПОЧК/.test(n)) return "Мелкое";
+      if (/^РУБЕЦ Т$/.test(n) || n === "РУБЕЦ Т") return "Среднее";
+      return "";
+    }
 
     function retailLookupKey_(name, sub) {
       var n = String(name || "").toUpperCase().trim().replace(/Ё/g, "Е").replace(/\s+/g, " ");
@@ -1507,16 +1527,19 @@
         else if (/ПЛАСТ/.test(su)) s = "ПЛАСТ";
         else if (/СРЕД/.test(su)) s = "СРЕД";
         else if (/МАЛ/.test(su)) s = "МАЛ";
+        else if (!s) s = retailDefaultSub_(n);
       } else if (/УХО|УШК/.test(n)) {
-        s = /ПОЛОВИН/.test(su) ? "ПОЛОВИНКА" : (s ? "Обычное" : "");
+        s = /ПОЛОВИН/.test(su) ? "ПОЛОВИНКА" : "Обычное";
       } else if (/АОРТ/.test(n)) {
-        s = /ПОЛОВИН/.test(su) ? "ПОЛОВИНКА" : (s ? "Обычная" : "");
+        s = /ПОЛОВИН/.test(su) ? "ПОЛОВИНКА" : "Обычная";
       } else if (s) {
         if (/МЕЛК/.test(su)) s = "Мелкое";
         else if (/КРУПН/.test(su)) s = "Крупное";
         else if (/БОЛЬШ|ПОЛОСК/.test(su)) s = "Большое";
         else if (/ЦЕЛ|ЛОМТ/.test(su)) s = "Целое";
         else if (/СРЕД|КУСОЧ|КУБИК/.test(su)) s = "Среднее";
+      } else {
+        s = retailDefaultSub_(n);
       }
       return { name: n, sub: s, key: n + (s ? "|" + s : "") };
     }
@@ -2025,6 +2048,7 @@
         else if (kind === "pack" || kind === "packs") next[it.key] = { per100: price, packs: { 100: price } };
         else next[it.key] = { per100: price };
       });
+      next = stripBareRetailParentsMap_(next);
       if (Object.keys(next).length) {
         Object.keys(RETAIL_PRICE).forEach(function (k) { delete RETAIL_PRICE[k]; });
         Object.keys(next).forEach(function (k) { RETAIL_PRICE[k] = next[k]; });
@@ -2068,7 +2092,19 @@
       var freeEl = document.getElementById("retailPriceFreeFromInput");
       if (feeEl) feeEl.value = String((res.delivery && res.delivery.fee) != null ? res.delivery.fee : PRICE_RETAIL_DELIVERY_BYN);
       if (freeEl) freeEl.value = String((res.delivery && res.delivery.freeFrom) != null ? res.delivery.freeFrom : PRICE_RETAIL_FREE_FROM);
-      var items = res.items || [];
+      var items = (res.items || []).filter(function (it) {
+        return it && it.key;
+      });
+      // не показывать голый «АОРТА», если есть «АОРТА|Обычная»
+      var fracBases = Object.create(null);
+      items.forEach(function (it) {
+        var i = String(it.key).indexOf("|");
+        if (i > 0) fracBases[String(it.key).slice(0, i)] = true;
+      });
+      items = items.filter(function (it) {
+        var k = String(it.key);
+        return k.indexOf("|") >= 0 || !fracBases[k];
+      });
       if (!box) return;
       if (!items.length) {
         box.innerHTML = '<p class="muted">Пусто</p>';

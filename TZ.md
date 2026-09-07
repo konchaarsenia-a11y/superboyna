@@ -1,3 +1,4 @@
+- [~] **Прайс: только фракции 2026-09-03:** убрать голые дубли «АОРТА»/«ЛЁГКОЕ»/… когда есть «АОРТА|Обычная»; дефолт-фракция при пустом sub; Worker heal snap · marker `retail-frac-dedupe-h1` · Pages `v71115926` · **Worker Deploy** · **Deploy Code.gs**
 - [~] **Статистика: оборот БП пояснён 2026-09-03:** в UI явно «БП = 0 BYN, не в обороте»; разбивка состав+6р; выручка только после ПП · Pages `v71115927`
 - [~] **Статистика: прошлый месяц 2026-09-03:** ‹› навигация по месяцам; getStats?month=YYYY-MM; Worker snap `getStats:YYYY-MM` · marker `stats-month-nav-h1` · Pages `v71115926` · **Worker Deploy**
 - [~] **ПП слот N=1 → ложные 2 доставки 2026-09-03:** GMT/Date в ppSlot + `Math.max(N,2)` писали «1/2»; статистика nDel=minSlot≥2. Fix: жёсткий parse слота; nDel=число доставок; бейдж по N с листа · marker `fix-pp-slot-ndel-h1` · **Worker Deploy** · **Deploy Code.gs** · Дарья Волчок
