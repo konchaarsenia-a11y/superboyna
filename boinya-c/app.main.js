@@ -2250,13 +2250,19 @@
     function currentPpSlotPayload_() {
       if (orderType !== "pp") return { deliverySlot: "", ppSlot: "" };
       var slot = ppDeliverySlotManual;
-      if (!(slot >= 1) && ppDeliveriesN >= 2 && !ppNeedManualSlot) slot = 1;
+      var n = Number(ppDeliveriesN) || 0;
+      // N=1: никогда не писать «1/2» / «2/2»
+      if (n === 1) {
+        return { deliverySlot: 1, ppSlot: "1" };
+      }
+      if (n >= 2) {
+        if (!(slot >= 1) && !ppNeedManualSlot) slot = 1;
+        if (!(slot >= 1)) return { deliverySlot: "", ppSlot: "" };
+        return { deliverySlot: slot, ppSlot: slot + "/" + n };
+      }
+      // N ещё неизвестен — не выдумывать знаменатель 2
       if (!(slot >= 1)) return { deliverySlot: "", ppSlot: "" };
-      var n = ppDeliveriesN >= 2 ? ppDeliveriesN : 2;
-      return {
-        deliverySlot: slot,
-        ppSlot: slot + "/" + n
-      };
+      return { deliverySlot: slot, ppSlot: String(slot) };
     }
 
     function setOrderType(t) {
@@ -6703,8 +6709,13 @@
       if (!res || res.status !== "success") return true;
       var n = Number(res.deliveries) || 0;
       if (!(n >= 2) || !res.needManualSlot) {
-        if (res.deliverySlot >= 1 && n >= 2) {
+        if (n === 1) {
+          client.deliverySlot = 1;
+          client.deliveriesN = 1;
+          client.ppSlot = "1";
+        } else if (res.deliverySlot >= 1 && n >= 2) {
           client.deliverySlot = Number(res.deliverySlot);
+          client.deliveriesN = n;
           client.ppSlot = res.ppSlot || (client.deliverySlot + "/" + n);
         }
         return true;
@@ -6721,6 +6732,7 @@
       if (!picked) return false;
       var slot = Number(picked) || 1;
       client.deliverySlot = slot;
+      client.deliveriesN = n;
       client.ppSlot = slot + "/" + n;
       return true;
     }
@@ -7434,7 +7446,15 @@
       if (hn) html += '<div class="delivery-line">Примечание: ' + escapeHtml(hn) + "</div>";
       if (client.segment) html += '<div class="delivery-line">Сегмент: ' + escapeHtml(client.segment) + "</div>";
       if (client.ppHint || client.ppSlot) {
-        html += '<div class="delivery-line">Слот: ' + escapeHtml(client.ppHint || ("ПП " + client.ppSlot)) + "</div>";
+        var slotShow = client.ppHint || "";
+        if (!slotShow) {
+          var nShow = Number(client.deliveriesN) || 0;
+          var rawSlot = sanitizePpSlotUi_(client.ppSlot);
+          if (nShow === 1) slotShow = "ПП N=1";
+          else if (nShow >= 2 && rawSlot) slotShow = "ПП " + rawSlot;
+          else if (rawSlot && rawSlot.indexOf("/") < 0) slotShow = "ПП " + rawSlot;
+        }
+        if (slotShow) html += '<div class="delivery-line">Слот: ' + escapeHtml(slotShow) + "</div>";
       }
       if (client.ppPartner) {
         html += '<div class="delivery-line">Партнёр: ' + escapeHtml(client.ppPartner) + "</div>";
@@ -10118,13 +10138,31 @@
       const client = courierClientsCache[index];
       if (!client) return;
       var paidAnswer = null;
-      if (delivered && (client.askPaid || clientPaysNow_(client)) && !client.ppPaid && String(client.paid || "").toLowerCase() !== "yes") {
-        var slotLabel = (client.deliveriesN >= 2)
-          ? (" доставка " + (client.deliverySlot || 1) + "/" + client.deliveriesN)
-          : "";
+      var otPay = resolveClientOrderType_(client);
+      var segPay = String(client.segment || "").trim().toUpperCase();
+      var askPaidHere =
+        otPay === "pp" ||
+        otPay === "retail" ||
+        segPay === "ПП" ||
+        segPay === "Р" ||
+        segPay === "РОЗНИЦА";
+      // БП и партнёрам вопрос «Оплачено?» не задаём
+      if (
+        delivered &&
+        askPaidHere &&
+        (client.askPaid || (otPay === "retail" || segPay === "Р" || segPay === "РОЗНИЦА" ? true : clientPaysNow_(client))) &&
+        !client.ppPaid &&
+        String(client.paid || "").toLowerCase() !== "yes"
+      ) {
+        var nDel = Number(client.deliveriesN) || 0;
+        var slotLabel = (nDel >= 2)
+          ? (" доставка " + (client.deliverySlot || 1) + "/" + nDel)
+          : (nDel === 1 ? " · 1 доставка/мес" : "");
+        var whoLabel = (otPay === "retail" || segPay === "Р" || segPay === "РОЗНИЦА") ? "розница" : "ПП";
+        var nTxt = nDel >= 1 ? ("N=" + nDel) : "";
         var picked = await uiChoiceAsync(
           "Оплата",
-          "Клиент " + client.name + " (ПП, N=" + (client.deliveriesN || 2) + slotLabel + "). Оплачено?",
+          "Клиент " + client.name + " (" + whoLabel + (nTxt ? (", " + nTxt) : "") + slotLabel + "). Оплачено?",
           [
             { label: "Да, оплачено", value: "yes", cls: "btn-green" },
             { label: "Нет", value: "no", cls: "btn-orange" },
@@ -11027,7 +11065,19 @@
       var ppSlotLbl = sanitizePpSlotUi_((client && client.ppSlot) || "");
       var delN = Number(client && client.deliveriesN) || 0;
       var delSlot = Number(client && client.deliverySlot) || 0;
-      if (!ppSlotLbl && delN >= 2 && delSlot >= 1) ppSlotLbl = delSlot + "/" + delN;
+      // N=1: никогда не показывать «1/2» / «2/2»
+      if (delN === 1) {
+        ppSlotLbl = "N=1";
+      } else if (delN >= 2) {
+        if (!ppSlotLbl && delSlot >= 1) ppSlotLbl = delSlot + "/" + delN;
+        else if (ppSlotLbl && ppSlotLbl.indexOf("/") < 0 && delSlot >= 1) {
+          ppSlotLbl = delSlot + "/" + delN;
+        }
+      } else if (ppSlotLbl && ppSlotLbl.indexOf("/") >= 0) {
+        // N неизвестен, но залипший «x/2» — не врём знаменателем без N с листа
+        var mFracUi = String(ppSlotLbl).match(/^(\d+)\s*\/\s*(\d+)$/);
+        if (mFracUi && Number(mFracUi[2]) >= 2) ppSlotLbl = "";
+      }
       if (ppSlotLbl && (seg === "ПП" || resolveClientOrderType_(client) === "pp")) {
         bits.push('<span class="client-badge" style="background:rgba(255,159,10,0.28);color:#ffd60a;">ПП ' + escapeHtml(ppSlotLbl) + "</span>");
       }
