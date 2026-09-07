@@ -5032,9 +5032,16 @@ function handleSaveOrder(ss, json, callback, fromPost) {
     var inputVal = Number(orderItem.val != null ? orderItem.val : orderItem.value) || 0;
     if (!rawName || inputVal <= 0) return;
 
-    var targetRowOffset = findSheetRowForItem(itemsInSheet, rawName, rawSub);
-    if (targetRowOffset >= 0) {
-      targetSheet.getRange(block.start + targetRowOffset, clientCol).setValue(inputVal);
+    var hit = findSheetRowForItemDetailed_(itemsInSheet, rawName, rawSub);
+    if (hit && hit.idx >= 0) {
+      var cell = targetSheet.getRange(block.start + hit.idx, clientCol);
+      // soft (новые фракции / крошка без строки) — прибавляем к родительской позиции
+      if (hit.score < 10) {
+        var prev = Number(cell.getValue()) || 0;
+        cell.setValue(prev + inputVal);
+      } else {
+        cell.setValue(inputVal);
+      }
       wrote++;
     } else {
       missed.push(rawName + (rawSub ? (" / " + rawSub) : ""));
@@ -5117,16 +5124,30 @@ function handleSaveOrder(ss, json, callback, fromPost) {
 
 /** Сопоставление позиции мини-аппа со строкой листа (с фракцией). */
 function findSheetRowForItem(itemsInSheet, rawName, rawSub) {
+  var hit = findSheetRowForItemDetailed_(itemsInSheet, rawName, rawSub);
+  return hit && hit.idx >= 0 ? hit.idx : -1;
+}
+
+/** @returns {{idx:number, score:number}} score 10 = точная фракция; <10 = soft (новые фракции / крошка → родитель). */
+function findSheetRowForItemDetailed_(itemsInSheet, rawName, rawSub) {
   var nameU = normalizeProductAlias_(String(rawName || "").toUpperCase().replace(/\s*ШТ\.?/g, "").trim());
   if (nameU.indexOf(" / ") > -1) {
     var parts = nameU.split(" / ");
     nameU = parts[0].trim();
     if (!rawSub) rawSub = parts[1] ? parts[1].trim() : "";
   }
+  // старые присыпки → родитель + крошка
+  var crumbParent = crumbParentNameGs_(nameU);
+  if (crumbParent) {
+    nameU = crumbParent;
+    rawSub = "Крошка";
+  }
 
   var subNorm = normalizeFraction(rawSub);
   var bestIdx = -1;
   var bestScore = -1;
+  var softIdx = -1;
+  var softPref = -1;
 
   for (var r = 0; r < itemsInSheet.length; r++) {
     var sheetRaw = itemsInSheet[r][0];
@@ -5189,8 +5210,45 @@ function findSheetRowForItem(itemsInSheet, rawName, rawSub) {
       bestScore = score;
       bestIdx = r;
     }
+
+    // soft-кандидат: та же база (для крошки / новых фракций без строки на листе)
+    var pref = 0;
+    if (!sheetFrac) pref = 5;
+    else if (sheetFrac === "СРЕД" || sheetFrac === "СРЕДНЕЕ") pref = 4;
+    else if (sheetFrac === "МАЛ" || sheetFrac === "МЕЛКОЕ") pref = 3;
+    else pref = 1;
+    if (pref > softPref) {
+      softPref = pref;
+      softIdx = r;
+    }
   }
-  return bestScore > 0 ? bestIdx : -1;
+  if (bestScore > 0) return { idx: bestIdx, score: bestScore };
+  // soft: неизвестная фракция / крошка → пишем в родительскую позицию
+  if (subNorm && softIdx >= 0) return { idx: softIdx, score: 3 };
+  return { idx: -1, score: 0 };
+}
+
+function crumbParentNameGs_(nameU) {
+  var n = String(nameU || "").trim().toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ");
+  if (!n || n.indexOf("КРОШКА") < 0) return "";
+  if (/ЛЕГК/.test(n)) return "ЛЁГКОЕ";
+  if (/ПОЧ/.test(n)) return "ПОЧКИ";
+  if (/РУБ/.test(n)) return "РУБЕЦ Т";
+  if (/СЕРДЦ/.test(n)) return "СЕРДЦЕ";
+  if (/БАРАН/.test(n)) return "БАРАНЬЕ ЛЁГКОЕ";
+  if (/ИНДЕЙ/.test(n)) return "ИНДЕЙКА";
+  if (/ПЕЧЕН/.test(n)) return "ПЕЧЕНЬ";
+  if (/ВЫМЯ/.test(n)) return "ВЫМЯ";
+  if (/СЕМЕН/.test(n)) return "СЕМЕННИКИ";
+  if (/ЛОМТ/.test(n)) return "МЯСНЫЕ ЛОМТИКИ";
+  if (/ЯБЛОК/.test(n)) return "ЯБЛОКИ";
+  if (/ТЫКВ/.test(n)) return "ТЫКВА";
+  if (/МОРКОВ/.test(n)) return "МОРКОВЬ";
+  if (/БАНАН/.test(n)) return "БАНАНЫ";
+  if (/ГРУШ/.test(n)) return "ГРУШИ";
+  if (/БАТАТ/.test(n)) return "БАТАТ";
+  if (/КАБАЧ/.test(n)) return "КАБАЧОК";
+  return "";
 }
 
 /**
@@ -5263,8 +5321,15 @@ function normalizeProductAlias_(nameU) {
 function normalizeFraction(s) {
   if (!s) return "";
   var u = String(s).trim().toUpperCase().replace(/\s+/g, " ").replace(/Ё/g, "Е");
-  // сначала «очень мелкое» — иначе «МАЛ» внутри «ОЧ МАЛ» перехватит
-  if (u === "ОЧ МАЛ" || u === "ОЧЕНЬ МЕЛКОЕ" || /ОЧ\s*МАЛ|ОЧЕНЬ\s*(МАЛ|МЕЛК)|СУПЕР\s*(МАЛ|МЕЛК)/.test(u)) return "ОЧ МАЛ";
+  // крошка / новые фракции дрессуры — до «ОЧ МАЛ», иначе «ОЧЕНЬ МЕЛКОЕ» схлопнется в жевалку
+  if (/^КРОШК/.test(u)) return "КРОШКА";
+  if (u === "ОЧЕНЬ МЕЛКОЕ" || /^ОЧЕНЬ\s*МЕЛК/.test(u)) return "ОЧЕНЬ МЕЛКОЕ";
+  if (/^ЛОМТИК/.test(u) || u === "ЛОМТ") return "ЛОМТИКИ";
+  if (/^ПОЛОСК/.test(u) || u === "ПОЛОСКИ") return "ПОЛОСКИ";
+  if (/^МЕЛК\w*\s*КУСОЧ/.test(u) || u === "МЕЛКИЕ КУСОЧКИ") return "МЕЛКИЕ КУСОЧКИ";
+  if (/^КУСОЧК/.test(u) || u === "КУСОЧКИ") return "КУСОЧКИ";
+  // сначала «очень мелкое» жевалок — иначе «МАЛ» внутри «ОЧ МАЛ» перехватит
+  if (u === "ОЧ МАЛ" || /ОЧ\s*МАЛ|СУПЕР\s*(МАЛ|МЕЛК)/.test(u)) return "ОЧ МАЛ";
   if (u === "МЕЛКОЕ" || u === "МАЛ" || u === "МАЛЕНЬКИЙ" || u === "МАЛЕНЬКОЕ" || u === "МЕЛКИЙ" || u === "МЕЛКАЯ") return "МАЛ";
   if (u === "СРЕДНЕЕ" || u === "СРЕД" || u === "СРЕДНИЙ") return "СРЕД";
   if (u === "БОЛЬШОЕ" || u === "БОЛ" || u === "БОЛЬШОЙ") return "БОЛ";
@@ -5833,9 +5898,14 @@ function parseSheetItemName(currentItemName, rIdx) {
     unit = "шт";
   }
 
-  var vegList = ["БАНАНЫ", "ЯБЛОКИ", "ГРУШИ", "ГРУШЫ", "МОРКОВЬ", "ТЫКВА", "БАТАТ"];
+  var vegList = ["БАНАНЫ", "ЯБЛОКИ", "ГРУШИ", "ГРУШЫ", "МОРКОВЬ", "ТЫКВА", "БАТАТ", "КАБАЧОК"];
   if (upper.indexOf("КРОШКА") > -1) {
-    cat = "powder";
+    // legacy присыпка → родитель + фракция Крошка (нарезка не видит отдельную крошку)
+    var parentCrumb = crumbParentNameGs_(upper);
+    if (parentCrumb) {
+      return { cat: "dressura", name: parentCrumb, sub: "Крошка", unit: "гр" };
+    }
+    cat = "other";
     unit = "гр";
   } else if (vegList.indexOf(upper) > -1 || vegList.some(function (v) { return upper === v; })) {
     cat = "veg";
@@ -5888,9 +5958,10 @@ function parseSheetItemName(currentItemName, rIdx) {
     var splitIdx = rawName.indexOf(" / ");
     cleanNameOnly = rawName.substring(0, splitIdx).trim();
     var subText = rawName.substring(splitIdx + 3).trim();
-    // дрессура: оставляем Мелкое/Среднее/… как в листе; жевалки — нормализуем
-    if (/^(Мелкое|Среднее|Большое|Крупное|Целое)$/i.test(subText)) frac = subText;
-    else frac = normalizeFraction(subText) || subText;
+    // дрессура: оставляем Мелкое/Среднее/… / новые фракции; жевалки — нормализуем
+    if (/^(Мелкое|Среднее|Большое|Крупное|Целое|Очень мелкое|Ломтики|Полоски|Кусочки|Мелкие кусочки|Крошка)$/i.test(subText)) {
+      frac = subText;
+    } else frac = normalizeFraction(subText) || subText;
   } else {
     frac = extractEmbeddedFraction(upper);
     cleanNameOnly = rawName
@@ -10926,9 +10997,15 @@ function writeBasketToDayColumn_(ss, dayName, client, address, note, basket, opt
     var rawSub = String(orderItem.sub || "").trim();
     var inputVal = Number(orderItem.val != null ? orderItem.val : orderItem.value) || 0;
     if (!rawName || inputVal <= 0) return;
-    var targetRowOffset = findSheetRowForItem(itemsInSheet, rawName, rawSub);
-    if (targetRowOffset >= 0) {
-      targetSheet.getRange(block.start + targetRowOffset, clientCol).setValue(inputVal);
+    var hit = findSheetRowForItemDetailed_(itemsInSheet, rawName, rawSub);
+    if (hit && hit.idx >= 0) {
+      var cell2 = targetSheet.getRange(block.start + hit.idx, clientCol);
+      if (hit.score < 10) {
+        var prev2 = Number(cell2.getValue()) || 0;
+        cell2.setValue(prev2 + inputVal);
+      } else {
+        cell2.setValue(inputVal);
+      }
     }
   });
   return { ok: true, col: clientCol, created: created, wrote: basketItems.length };
