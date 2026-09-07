@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-07 fix-enroll-pp-list-h1"
+      deployMarker: "2026-09-07 fix-pp-delete-stick-h1"
     };
   }
 
@@ -7185,7 +7185,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1 слоты недели перезаписаны из Sheets (пустые дни очищены).",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-07 fix-enroll-pp-list-h1"
+        deployMarker: "2026-09-07 fix-pp-delete-stick-h1"
       };
     } catch (eResync) {
       return {
@@ -11476,7 +11476,9 @@ async function mergeSubscriptionDetailIntoSnap_(env, detail) {
   await putSnap_(env, "listSubscriptions", list);
 }
 
-/** force listSubscriptions: добавить/обновить из GAS, не затирая D1-detail. */
+/** force listSubscriptions: добавить/обновить из GAS, не затирая D1-detail.
+ * Не воскрешать только что удалённых (tombstones) — иначе force после delete
+ * возвращает строки из Sheets, пока GAS delete ещё в фоне. */
 async function mergeListSubscriptionsFromGas_(env, gasPayload) {
   const prev = (await getSnapRaw_(env, "listSubscriptions")) || {
     status: "success",
@@ -11493,6 +11495,12 @@ async function mergeListSubscriptionsFromGas_(env, gasPayload) {
       count: prevArr.length
     });
   }
+  let tombs = [];
+  try {
+    tombs = await listSubDeleteTombstones_(env);
+  } catch (eT) {
+    tombs = [];
+  }
   const arr = prevArr.slice();
   for (let i = 0; i < incoming.length; i++) {
     const inc = incoming[i];
@@ -11500,6 +11508,7 @@ async function mergeListSubscriptionsFromGas_(env, gasPayload) {
     const mk = normalizeMatchKey_(inc.nick || inc.label || inc.name || "");
     const sheet = subscriptionSheetKey_(inc);
     const subId = String(inc.subId || inc.id || "").trim();
+    if (isSubDeleteTombstoned_(tombs, mk, sheet, subId)) continue;
     let idx = -1;
     for (let j = 0; j < arr.length; j++) {
       if (subscriptionMatch_(arr[j], mk, sheet, subId)) {
@@ -11537,10 +11546,17 @@ async function mergeListSubscriptionsFromGas_(env, gasPayload) {
       );
     }
   }
+  // убрать из D1 тех, кто в tomb (на случай гонки)
+  const pruned = arr.filter(function (it) {
+    const mk = normalizeMatchKey_(it.nick || it.label || it.name || "");
+    const sheet = subscriptionSheetKey_(it);
+    const subId = String(it.subId || it.id || "").trim();
+    return !isSubDeleteTombstoned_(tombs, mk, sheet, subId);
+  });
   const out = {
     status: "success",
-    subscriptions: arr,
-    count: arr.length,
+    subscriptions: pruned,
+    count: pruned.length,
     sheet: "all"
   };
   await putSnap_(env, "listSubscriptions", out);
@@ -11691,6 +11707,7 @@ async function deleteSubscription_(params, env) {
   }
   const before = arr.length;
   const sheetWant = String(params.sheet || params.segment || "").trim().toUpperCase();
+  const removed = [];
   arr = arr.filter(function (it) {
     const k = normalizeMatchKey_(it.nick || it.name || it.label || it.subId || it.id);
     const sid = String(it.subId || it.id || "").trim();
@@ -11717,14 +11734,86 @@ async function deleteSubscription_(params, env) {
       }
     }
     if (!hit) return true;
-    if (!sheetWant) return false;
-    const sh = subscriptionSheetKey_(it);
-    return sh && sh !== sheetWant;
+    if (sheetWant) {
+      const sh = subscriptionSheetKey_(it);
+      if (sh && sh !== sheetWant) return true;
+    }
+    removed.push(it);
+    return false;
   });
   list.subscriptions = arr;
   list.count = arr.length;
   await putSnap_(env, "listSubscriptions", list);
-  return { status: "success", wrote: before - arr.length, deletedPeople: before - arr.length };
+  // tombstones: force merge GAS→D1 не должен вернуть удалённых, пока Sheets догоняет
+  for (let ri = 0; ri < removed.length; ri++) {
+    try {
+      await putSubDeleteTombstone_(env, removed[ri]);
+    } catch (eTomb) {}
+  }
+  if (!removed.length && (keys.length || subId)) {
+    // D1 уже без строки — всё равно tomb на входной nick, чтобы force не воскресил
+    try {
+      await putSubDeleteTombstone_(env, {
+        nick: nicks[0] || "",
+        sheet: sheetWant || "ПП",
+        subId: subId
+      });
+    } catch (eT2) {}
+  }
+  return {
+    status: "success",
+    wrote: before - arr.length,
+    deletedPeople: before - arr.length,
+    tombstoned: removed.length || (keys.length || subId ? 1 : 0)
+  };
+}
+
+const SUB_DELETE_TOMB_TTL_MS_ = 15 * 60 * 1000;
+
+async function putSubDeleteTombstone_(env, row) {
+  if (!env || !env.DB || !row) return;
+  const nick = String(row.nick || row.label || row.name || "").trim();
+  const mk = normalizeMatchKey_(nick);
+  const sheet = subscriptionSheetKey_(row) || "ПП";
+  const subId = String(row.subId || row.id || "").trim();
+  if (!mk && !subId) return;
+  let bag = (await getSnapRaw_(env, "subDeleteTombstones")) || { items: [] };
+  let items = Array.isArray(bag.items) ? bag.items.slice() : [];
+  const now = Date.now();
+  items = items.filter(function (it) {
+    return it && now - (Number(it.at) || 0) < SUB_DELETE_TOMB_TTL_MS_;
+  });
+  items = items.filter(function (it) {
+    if (subId && String(it.subId || "") === subId && String(it.sheet || "") === sheet) return false;
+    if (mk && String(it.mk || "") === mk && String(it.sheet || "") === sheet) return false;
+    return true;
+  });
+  items.push({ nick: nick, mk: mk, sheet: sheet, subId: subId, at: now });
+  if (items.length > 200) items = items.slice(-200);
+  await putSnap_(env, "subDeleteTombstones", { items: items, updatedAt: now });
+}
+
+async function listSubDeleteTombstones_(env) {
+  const bag = (await getSnapRaw_(env, "subDeleteTombstones")) || { items: [] };
+  const now = Date.now();
+  return (Array.isArray(bag.items) ? bag.items : []).filter(function (it) {
+    return it && now - (Number(it.at) || 0) < SUB_DELETE_TOMB_TTL_MS_;
+  });
+}
+
+function isSubDeleteTombstoned_(tombs, mk, sheet, subId) {
+  const sh = String(sheet || "").trim().toUpperCase() || "ПП";
+  const wantMk = String(mk || "");
+  const wantSid = String(subId || "").trim();
+  for (let i = 0; i < (tombs || []).length; i++) {
+    const t = tombs[i];
+    if (!t) continue;
+    const tSh = String(t.sheet || "").trim().toUpperCase() || "ПП";
+    if (tSh !== sh) continue;
+    if (wantSid && String(t.subId || "") === wantSid) return true;
+    if (wantMk && String(t.mk || "") === wantMk) return true;
+  }
+  return false;
 }
 
 async function upsertInList_(env, snapKey, arrKey, params, idField) {

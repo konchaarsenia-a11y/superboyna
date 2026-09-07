@@ -14852,7 +14852,7 @@
           } else {
             showToast("Удалено: " + okN);
           }
-          await loadSubscriptions();
+          await reloadSubsAfterMutation_();
           return;
         }
         await uiAlertAsync("Не удалилось. Нужен Deploy Code.gs v7.11.23 (deleteSubscriptionBatch).\n" +
@@ -14872,7 +14872,7 @@
       } else {
         showToast("Удалено: " + deleted + (res.surveysCancelled ? (" · опросн.−" + res.surveysCancelled) : ""));
       }
-      await loadSubscriptions();
+      await reloadSubsAfterMutation_();
     }
     window.bpBatchDelete = bpBatchDelete;
 
@@ -18457,6 +18457,25 @@
     }
     window.onSubsSearchInput = onSubsSearchInput;
 
+    function bustSubsListCache_() {
+      try {
+        window._subsBySheet = Object.create(null);
+        window._subsListFull = [];
+        window._subsListCache = [];
+        window._subsListSheet = "";
+        window._subsListLoadedSheet = "";
+      } catch (e0) {}
+      try { apiCacheBustMem_("listSubscriptions"); } catch (e1) {}
+    }
+
+    async function reloadSubsAfterMutation_() {
+      bustSubsListCache_();
+      try { window._subsSkipNextEnterLoad = true; } catch (e2) {}
+      try {
+        await loadSubscriptions({ force: true });
+      } catch (e3) {}
+    }
+
     function isSubDeleteSuccess_(res) {
       if (!res || res.status !== "success") return false;
       return !!(
@@ -19652,11 +19671,16 @@
           await uiAlertAsync("Не удалилось: " + msg + "\nDeploy Code.gs v7.11.23");
           return;
         }
-        try { apiCacheBustMem_(); } catch (eClr) {}
         var delN = Number(res.deletedCount || res.deletedPeople || res.wrote || 1) || 1;
         showToast("Удалено" + (delN > 1 ? (" (" + delN + ")") : ""));
-        switchTab("subsScreen");
-        await loadSubscriptions();
+        try { apiCacheBustMem_(); } catch (eClr) {}
+        try {
+          await reloadSubsAfterMutation_();
+        } catch (eRel) {}
+        try {
+          window._subsSkipNextEnterLoad = true;
+          switchTab("subsScreen");
+        } catch (eTab) {}
       } catch (e) {
         showToast(e.message || "Ошибка");
       }
