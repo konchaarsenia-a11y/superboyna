@@ -14107,6 +14107,61 @@
     window.onFinishWeekClick = onFinishWeekClick;
     window.refuseFinishWeek = refuseFinishWeek;
 
+    async function onForceWeekD1ResyncClick() {
+      if (!(APP_ROLE === "owner" || APP_ROLE === "all")) {
+        await uiAlertAsync("Только владелец.");
+        return;
+      }
+      var ok = await uiConfirmAsync(
+        "Синхронизировать D1 с листом недели?\n\n" +
+        "• Не закрывает неделю и не двигает даты\n" +
+        "• Перезапишет людей в D1 по колонкам Sheets\n" +
+        "• Пустые дни на листе очистятся в приложении\n\n" +
+        "Нужно, если после «Завершить неделю» люди «переехали» на +7."
+      );
+      if (!ok) return;
+      var tid = String(myTelegramId || "").trim();
+      if (!tid) {
+        try {
+          var tg = window.Telegram && Telegram.WebApp;
+          var u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+          if (u && u.id) tid = String(u.id);
+        } catch (e0) {}
+      }
+      showToast("Синхронизируем D1…");
+      var res = null;
+      try {
+        res = await apiGet(
+          {
+            action: "forceWeekD1Resync",
+            telegramId: tid,
+            confirm: "1",
+            allowDanger: "1",
+            _: String(Date.now())
+          },
+          { timeoutMs: 180000, cacheTtlMs: 0 }
+        );
+      } catch (e1) {
+        await uiAlertAsync("Ошибка сети: " + (e1 && e1.message ? e1.message : e1));
+        return;
+      }
+      if (!res || res.status !== "success") {
+        await uiAlertAsync("Не вышло: " + ((res && res.message) || "resync_failed"));
+        return;
+      }
+      try { apiCacheBustMem_(); } catch (eClr) {}
+      viewWeekOverviewCache = null;
+      try {
+        await apiGet({ action: "getWeekDayCounts", force: "1", _: String(Date.now()) }, { timeoutMs: 45000, cacheTtlMs: 0 });
+      } catch (eCnt) {}
+      try { await ensureWeekOverviewLoaded_({ force: true }); } catch (eW) {}
+      showToast("D1 синхронизирован с листом");
+      try {
+        await uiAlertAsync("Готово. D1 слоты недели = Sheets.\nЕсли экран старый — закрой Mini App и открой снова.");
+      } catch (eA) {}
+    }
+    window.onForceWeekD1ResyncClick = onForceWeekD1ResyncClick;
+
     async function dismissPullWeekBanner() {
       var wk = currentWeekKeyLocal();
       try {
