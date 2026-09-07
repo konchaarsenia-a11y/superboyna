@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-07 fix-price-tab-raw26-h1"
+      deployMarker: "2026-09-07 fix-enroll-pp-list-h1"
     };
   }
 
@@ -7185,7 +7185,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1 слоты недели перезаписаны из Sheets (пустые дни очищены).",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-07 fix-price-tab-raw26-h1"
+        deployMarker: "2026-09-07 fix-enroll-pp-list-h1"
       };
     } catch (eResync) {
       return {
@@ -7889,6 +7889,110 @@ async function handleCutover_(a, params, env, ctx) {
       return {
         status: "error",
         message: (d1SubRes && d1SubRes.message) || "d1_write_failed",
+        cutover: true,
+        sandbox: false,
+        action: a
+      };
+    }
+    // Занос в ПП из Расчёта: раньше только GAS → listSubscriptions (D1) не видел новичка
+    if (isSubsD1PrimaryCanon_(env) && /^enrollDeferredToPp$/i.test(a)) {
+      const enrollNick = String(
+        (params && (params.clientNick || params.nick || params.client)) || ""
+      ).trim();
+      if (!enrollNick) {
+        return { status: "error", message: "need_nick", cutover: true, action: a };
+      }
+      let d1Enroll = null;
+      try {
+        d1Enroll = await upsertSubscription_(
+          {
+            nick: enrollNick,
+            label: String((params && (params.displayName || params.label)) || enrollNick).trim(),
+            sheet: "ПП",
+            segment: "ПП",
+            basket: params && params.basket,
+            deliveries: params && (params.deliveriesN || params.deliveries),
+            factCost: params && (params.factCost != null ? params.factCost : params.subTotal),
+            wishes: params && (params.wishes || params.note),
+            note: params && (params.note || params.wishes),
+            address: params && params.address,
+            phone: params && params.phone,
+            ppStatus: (params && params.ppStatus) || "ПП1",
+            scheme: params && params.scheme,
+            coef: params && params.coef,
+            displayName: params && params.displayName
+          },
+          env
+        );
+      } catch (eEnD1) {
+        d1Enroll = { status: "error", message: String((eEnD1 && eEnD1.message) || eEnD1) };
+      }
+      const gasEnrollP = gasProxy_(a, params, env, { write: true })
+        .then(async function (liveEn) {
+          if (liveEn && liveEn.status === "success" && env && env.DB) {
+            try {
+              await mergeSubscriptionDetailIntoSnap_(env, {
+                nick: liveEn.nick || enrollNick,
+                label: String((params && params.displayName) || liveEn.nick || enrollNick).trim(),
+                sheet: "ПП",
+                segment: "ПП",
+                subId: liveEn.subId || "",
+                row: liveEn.row || 0,
+                basket: params && params.basket,
+                deliveries: liveEn.deliveriesN || (params && params.deliveriesN) || 1,
+                factCost: params && (params.factCost != null ? params.factCost : params.subTotal),
+                wishes: params && (params.wishes || params.note),
+                address: params && params.address,
+                phone: params && params.phone,
+                ppStatus: (params && params.ppStatus) || "ПП1",
+                status: (params && params.ppStatus) || "ПП1",
+                stage: (params && params.ppStatus) || "ПП1",
+                scheme: params && params.scheme,
+                coef: params && params.coef
+              });
+            } catch (eMergeEn) {}
+          }
+          return liveEn;
+        })
+        .catch(function () {
+          return null;
+        });
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(gasEnrollP);
+      } else {
+        try {
+          await gasEnrollP;
+        } catch (eGEn) {}
+      }
+      if (d1Enroll && d1Enroll.status === "success") {
+        return Object.assign({}, d1Enroll, {
+          cutover: true,
+          sandbox: false,
+          d1Verified: true,
+          pendingSheets: true,
+          created: true,
+          nick: enrollNick,
+          deliveriesN: Number((params && (params.deliveriesN || params.deliveries)) || 1) || 1,
+          subsCanon: subsCanonLabel_(env),
+          action: a
+        });
+      }
+      // D1 не вышло — ждём GAS
+      try {
+        const liveOnly = await gasEnrollP;
+        if (liveOnly && liveOnly.status === "success") {
+          return Object.assign({}, liveOnly, {
+            cutover: true,
+            fromGas: true,
+            sandbox: false,
+            subsCanon: subsCanonLabel_(env),
+            action: a
+          });
+        }
+      } catch (eLiveEn) {}
+      return {
+        status: "error",
+        message: (d1Enroll && d1Enroll.message) || "enroll_failed",
         cutover: true,
         sandbox: false,
         action: a
@@ -8862,7 +8966,8 @@ async function handleCutover_(a, params, env, ctx) {
       (!fast ||
         !Array.isArray(fast.subscriptions) ||
         !fast.subscriptions.length);
-    if (a === "listSubscriptions" && isSubsD1PrimaryCanon_(env) && !emptySubs) {
+    // d1-primary без force — сразу D1; force=1 мержит GAS→D1 (новые заносы)
+    if (a === "listSubscriptions" && isSubsD1PrimaryCanon_(env) && !emptySubs && !forceSubs) {
       const outSubs = Object.assign({}, fast, {
         cutover: true,
         fromD1: true,
@@ -8887,6 +8992,23 @@ async function handleCutover_(a, params, env, ctx) {
           Array.isArray(liveSubs.subscriptions) &&
           liveSubs.subscriptions.length
         ) {
+          if (isSubsD1PrimaryCanon_(env) && forceSubs) {
+            try {
+              const mergedForce = await mergeListSubscriptionsFromGas_(env, liveSubs);
+              if (mergedForce && mergedForce.status === "success") {
+                return Object.assign({}, mergedForce, {
+                  cutover: true,
+                  fromD1: true,
+                  fromGas: true,
+                  mergedFromGas: true,
+                  force: true,
+                  subsCanon: subsCanonLabel_(env),
+                  swr: true,
+                  sandbox: false
+                });
+              }
+            } catch (eMergeF) {}
+          }
           try {
             await cutoverStoreRead_("listSubscriptions", {}, env, liveSubs);
           } catch (eSubStore) {}
@@ -11352,6 +11474,77 @@ async function mergeSubscriptionDetailIntoSnap_(env, detail) {
   list.count = arr.length;
   list.status = "success";
   await putSnap_(env, "listSubscriptions", list);
+}
+
+/** force listSubscriptions: добавить/обновить из GAS, не затирая D1-detail. */
+async function mergeListSubscriptionsFromGas_(env, gasPayload) {
+  const prev = (await getSnapRaw_(env, "listSubscriptions")) || {
+    status: "success",
+    subscriptions: []
+  };
+  const prevArr = Array.isArray(prev.subscriptions) ? prev.subscriptions.slice() : [];
+  const incoming = Array.isArray(gasPayload && gasPayload.subscriptions)
+    ? gasPayload.subscriptions
+    : [];
+  if (!incoming.length) {
+    return Object.assign({}, prev, {
+      status: "success",
+      subscriptions: prevArr,
+      count: prevArr.length
+    });
+  }
+  const arr = prevArr.slice();
+  for (let i = 0; i < incoming.length; i++) {
+    const inc = incoming[i];
+    if (!inc) continue;
+    const mk = normalizeMatchKey_(inc.nick || inc.label || inc.name || "");
+    const sheet = subscriptionSheetKey_(inc);
+    const subId = String(inc.subId || inc.id || "").trim();
+    let idx = -1;
+    for (let j = 0; j < arr.length; j++) {
+      if (subscriptionMatch_(arr[j], mk, sheet, subId)) {
+        idx = j;
+        break;
+      }
+    }
+    if (idx >= 0) {
+      const old = arr[idx] || {};
+      arr[idx] = Object.assign({}, old, {
+        nick: inc.nick || old.nick,
+        label: inc.label || old.label || inc.nick || old.nick,
+        sheet: inc.sheet || old.sheet || sheet || "ПП",
+        segment: inc.segment || old.segment || inc.sheet || old.sheet,
+        deliveries:
+          inc.deliveries != null && inc.deliveries !== ""
+            ? inc.deliveries
+            : old.deliveries,
+        status: inc.status || inc.stage || old.status || old.stage,
+        stage: inc.stage || inc.status || old.stage || old.status,
+        factCost:
+          inc.factCost != null && inc.factCost !== "" ? inc.factCost : old.factCost,
+        subId: subId || old.subId || "",
+        wishes: inc.wishes || old.wishes || "",
+        _savedAt: Date.now()
+      });
+      if (old.basket && (!inc.basket || !inc.basket.length)) arr[idx].basket = old.basket;
+      if (old._d1Detail) arr[idx]._d1Detail = true;
+    } else {
+      arr.push(
+        Object.assign({}, inc, {
+          sheet: inc.sheet || sheet || "ПП",
+          _savedAt: Date.now()
+        })
+      );
+    }
+  }
+  const out = {
+    status: "success",
+    subscriptions: arr,
+    count: arr.length,
+    sheet: "all"
+  };
+  await putSnap_(env, "listSubscriptions", out);
+  return out;
 }
 
 async function getSubscription_(params, env) {
