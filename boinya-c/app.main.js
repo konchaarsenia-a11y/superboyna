@@ -22283,12 +22283,35 @@
           basket: items
         };
         if (id) body.id = id;
-        await apiPost(body);
-        showToast(id ? "Отправлено в ПП" : "Внесено в ПП");
+        var resEn = await apiPost(body);
+        if (!resEn || resEn.status !== "success") {
+          showToast(
+            "Не внеслось в ПП: " +
+              ((resEn && (resEn.message || resEn.detail)) || "ошибка / Deploy")
+          );
+          return;
+        }
+        showToast(id ? "Отправлено в ПП" : "Внесено в ПП · " + nick);
         exitPriceEnrollMode();
         deferredCacheAt = 0;
+        try { apiCacheBustMem_("listSubscriptions"); } catch (eClr0) {}
+        try { apiCacheBustMem_("listDeferred"); } catch (eClr1) {}
         try { apiCacheBustMem_(); } catch (eClr) {}
-        setTimeout(function () { refreshDeferredBadge(true); }, 600);
+        try {
+          window._subsBySheet = Object.create(null);
+          window._subsListFull = [];
+          window._subsListCache = [];
+          window._subsListSheet = "";
+          window._subsListLoadedSheet = "";
+        } catch (eCache) {}
+        try {
+          await loadSubscriptions({ force: true });
+        } catch (eLoad) {}
+        setTimeout(function () { refreshDeferredBadge(true); }, 400);
+        try {
+          if (typeof switchTab === "function") switchTab("subsScreen");
+          else if (typeof enterSubsScreen === "function") enterSubsScreen();
+        } catch (eTab) {}
       } catch (e) {
         showToast("Ошибка сети / Deploy");
       }
