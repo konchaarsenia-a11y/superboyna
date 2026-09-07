@@ -8,7 +8,7 @@
   var IG_USER = "goodboy_rb";
   var IG_URL = "https://ig.me/m/" + IG_USER;
   var IG_MSG =
-    "Привет! Хочу бесплатный период GOOD BOY — набор под моего питомца.";
+    "Привет! Хочу бесплатный период GOOD BOY — 2 доставки под моего питомца.";
 
   function isIos() {
     return /iPhone|iPad|iPod/i.test(global.navigator.userAgent || "");
