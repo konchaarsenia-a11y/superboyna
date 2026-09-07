@@ -3451,7 +3451,7 @@ function handleGetCourier(dayName, callback) {
           deliveriesN = resolved.deliveriesN || deliveriesN;
           deliverySlot = resolved.slot || 1;
           // если в заказе уже стоит слот — он побеждает (и для бейджа, и для оплаты)
-          var forcedCour = parseForcedPpSlot_(client.ppSlot, deliveriesN);
+          var forcedCour = parseForcedPpSlot_(sanitizePpSlotLabel_(client.ppSlot), deliveriesN);
           if (forcedCour >= 1) deliverySlot = forcedCour;
           var cycle = resolved.cycle;
           if (cycle && cycle.paid) paidCycle = cycle.paid;
@@ -4978,14 +4978,24 @@ function handleSaveOrder(ss, json, callback, fromPost) {
     (json.deliverySlot != null && json.deliverySlot !== "") ||
     (json.slot != null && json.slot !== "")
   );
-  var ppSlotSave = String(json.ppSlot || "").trim();
+  var ppSlotSave = sanitizePpSlotLabel_(String(json.ppSlot || "").trim());
   if (!ppSlotSave && (json.deliverySlot != null && json.deliverySlot !== "" || json.slot)) {
-    var forcedSave = parseForcedPpSlot_(json.deliverySlot != null ? json.deliverySlot : json.slot, 2);
+    var forcedSave = parseForcedPpSlot_(json.deliverySlot != null ? json.deliverySlot : json.slot, 4);
     if (forcedSave >= 1) {
-      var dnSave = 2;
-      try { dnSave = lookupPpDeliveries_(json.client) || 2; } catch (eDnS) {}
-      ppSlotSave = formatPpSlotLabel_(forcedSave, Math.max(dnSave, 2));
+      var dnSave = 1;
+      try { dnSave = lookupPpDeliveries_(json.client) || 1; } catch (eDnS) {}
+      dnSave = Math.max(1, Number(dnSave) || 1);
+      ppSlotSave = formatPpSlotLabel_(forcedSave, dnSave);
     }
+  }
+  if (ppSlotSave && segSave === "ПП") {
+    try {
+      var dnNorm = lookupPpDeliveries_(json.client) || 1;
+      dnNorm = Math.max(1, Number(dnNorm) || 1);
+      var slotNorm = parseForcedPpSlot_(ppSlotSave, dnNorm);
+      if (slotNorm >= 1) ppSlotSave = formatPpSlotLabel_(slotNorm, dnNorm);
+      else ppSlotSave = "";
+    } catch (eNormS) {}
   }
   if (!ppSlotSave && segSave === "ПП") {
     try {
@@ -10613,14 +10623,24 @@ function handleSaveBooking(ss, json, callback, fromPost) {
   }
   var phoneSave = String(json.phone || "").trim() || extractPhoneFromNote_(String(json.note || ""));
   var subIdSave = String(json.subId || "").trim() || extractSubIdFromNote_(String(json.note || ""));
-  var ppSlotSave = String(json.ppSlot || "").trim();
+  var ppSlotSave = sanitizePpSlotLabel_(String(json.ppSlot || "").trim());
   if (!ppSlotSave && (json.deliverySlot != null && json.deliverySlot !== "" || json.slot)) {
-    var forcedBk = parseForcedPpSlot_(json.deliverySlot != null ? json.deliverySlot : json.slot, 2);
+    var forcedBk = parseForcedPpSlot_(json.deliverySlot != null ? json.deliverySlot : json.slot, 4);
     if (forcedBk >= 1) {
-      var dnBk = 2;
-      try { dnBk = lookupPpDeliveries_(client) || 2; } catch (eDnB) {}
-      ppSlotSave = formatPpSlotLabel_(forcedBk, Math.max(dnBk, 2));
+      var dnBk = 1;
+      try { dnBk = lookupPpDeliveries_(client) || 1; } catch (eDnB) {}
+      dnBk = Math.max(1, Number(dnBk) || 1);
+      ppSlotSave = formatPpSlotLabel_(forcedBk, dnBk);
     }
+  }
+  if (ppSlotSave && (segSave === "ПП" || String(json.source || "").toLowerCase().indexOf("sub") >= 0)) {
+    try {
+      var dnNormB = lookupPpDeliveries_(client) || 1;
+      dnNormB = Math.max(1, Number(dnNormB) || 1);
+      var slotNormB = parseForcedPpSlot_(ppSlotSave, dnNormB);
+      if (slotNormB >= 1) ppSlotSave = formatPpSlotLabel_(slotNormB, dnNormB);
+      else ppSlotSave = "";
+    } catch (eNormB) {}
   }
   if (!ppSlotSave && (segSave === "ПП" || String(json.source || "").toLowerCase().indexOf("sub") >= 0)) {
     try {
@@ -11469,13 +11489,14 @@ function pullCrmClientsToDay_(ss, deliveryDate, dayName, clients) {
     var name = String(req.client || "").trim();
     var key = clientMatchKey_(name);
     var onWeek = key && weekKeys[key] ? weekKeys[key] : null;
-    var earlyPpSlot = String(req.ppSlot || "").trim();
+    var earlyPpSlot = sanitizePpSlotLabel_(String(req.ppSlot || "").trim());
     if (!earlyPpSlot && req.deliverySlot != null && req.deliverySlot !== "") {
-      var forcedEarly = parseForcedPpSlot_(req.deliverySlot, 2);
+      var forcedEarly = parseForcedPpSlot_(req.deliverySlot, 4);
       if (forcedEarly >= 1) {
-        var dnEarly = 2;
-        try { dnEarly = lookupPpDeliveries_(name) || 2; } catch (eDnE) {}
-        earlyPpSlot = formatPpSlotLabel_(forcedEarly, Math.max(dnEarly, 2));
+        var dnEarly = 1;
+        try { dnEarly = lookupPpDeliveries_(name) || 1; } catch (eDnE) {}
+        dnEarly = Math.max(1, Number(dnEarly) || 1);
+        earlyPpSlot = formatPpSlotLabel_(forcedEarly, dnEarly);
       }
     }
     if (earlyPpSlot) req.ppSlot = earlyPpSlot;
@@ -12294,17 +12315,27 @@ function sanitizePpSlotLabel_(raw) {
   return "";
 }
 
-/** Разбор ручного слота: 1 | 2 | "1/2" → номер слота. */
+/** Разбор ручного слота: 1 | 2 | "1/2" → номер слота.
+ *  НЕльзя склеивать все цифры строки: Date.toString() «Feb 02 …» иначе → слот 2. */
 function parseForcedPpSlot_(raw, deliveriesN) {
   if (raw == null || raw === "") return 0;
+  if (raw instanceof Date) return 0;
   var s = String(raw).trim();
-  var m = s.match(/(\d+)\s*\/\s*\d+/);
+  if (!s) return 0;
+  if (/GMT|Standard Time|Daylight|Europe\/|UTC[+\-]|[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}/i.test(s)) return 0;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s) || /^\d{1,2}\.\d{1,2}\.\d{4}/.test(s)) return 0;
+  var m = s.match(/^(\d+)\s*\/\s*(\d+)$/);
   if (m) {
     var a = Number(m[1]) || 0;
-    if (a >= 1) return Math.min(a, Math.max(1, Number(deliveriesN) || 2));
+    if (a >= 1 && a <= 4) return Math.min(a, Math.max(1, Number(deliveriesN) || Number(m[2]) || 2));
+    return 0;
   }
-  var n = Number(s.replace(/[^\d]/g, ""));
-  if (n >= 1) return Math.min(n, Math.max(1, Number(deliveriesN) || 2));
+  if (/^[1-4]$/.test(s)) {
+    return Math.min(Number(s), Math.max(1, Number(deliveriesN) || 4));
+  }
+  // «ПП 2», «слот 2», «N=2» — только одна цифра 1–4
+  var m2 = s.match(/(?:^|[\s:])(?:слот|slot|пп|pp|n)\s*[:=]?\s*([1-4])\b/i);
+  if (m2) return Math.min(Number(m2[1]), Math.max(1, Number(deliveriesN) || 4));
   return 0;
 }
 
@@ -18558,6 +18589,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     out.costActual += costWithAll;
     if (src === 'pp' && ck) {
       out.ppDeliveredKeys[ck] = true;
+      if (!out.ppDeliveryCountByKey) out.ppDeliveryCountByKey = {};
+      out.ppDeliveryCountByKey[ck] = (Number(out.ppDeliveryCountByKey[ck]) || 0) + 1;
     }
     if (src === 'bp') {
       out.bpDeliveries++;
@@ -18603,12 +18636,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       var rawPp = Number(out.ppRawByKey[ppk]) || 0;
       var baskPp = out.ppBasketByKey[ppk] || [];
       var schPp = out.ppSchemeByKey[ppk] || "LEGACY";
-      var nDel = 1;
-      try {
-        // сколько доставок этого клиента в месяце (ключи дат в seen не храним — грубо 1 или 2 по слоту)
-        var minSlot = Number((out.ppSlotByKey && out.ppSlotByKey[ppk]) || 0);
-        nDel = minSlot >= 2 ? 2 : 1;
-      } catch (eN) { nDel = 1; }
+      // реальное число доставок клиента в месяце (не «minSlot≥2 → 2»)
+      var nDel = Math.max(1, Number((out.ppDeliveryCountByKey && out.ppDeliveryCountByKey[ppk]) || 0) || 1);
       var factPp = null;
       try {
         factPp = computePpFactFromCost_(rawPp, baskPp, nDel, null, null, schPp, baskPp, null);
