@@ -21,7 +21,6 @@
         --warm-soft:#fff3e4;
         --mint:#e6f5f0;
         --shadow:0 8px 24px rgba(24,32,42,.07);
-        --radius:18px;
         --pad:16px;
         --safe-b:env(safe-area-inset-bottom,0px);
       }
@@ -46,8 +45,9 @@
         background-size:160px 160px;
         mix-blend-mode:soft-light;
       }
-      .app,header,footer{position:relative;z-index:1}
+      .app,header,footer,.sheet,.toast{position:relative;z-index:1}
       a{color:inherit;text-decoration:none}
+      button{font:inherit;color:inherit;cursor:pointer}
       img{display:block;max-width:100%}
       .app{width:min(480px,100%);margin:0 auto;padding:0 var(--pad)}
 
@@ -71,11 +71,16 @@
         font-size:13px;letter-spacing:.05em;text-transform:uppercase;
       }
       .brand small{display:block;margin-top:1px;color:var(--muted);font-size:11px;font-weight:600}
-      .call{
-        display:inline-flex;align-items:center;justify-content:center;
-        min-height:40px;padding:0 14px;border-radius:999px;
+      .cart-btn{
+        display:inline-flex;align-items:center;justify-content:center;gap:6px;
+        min-height:40px;padding:0 12px;border-radius:999px;
         background:var(--surface);border:1px solid var(--line);
         font-weight:800;font-size:13px;
+      }
+      .cart-count{
+        min-width:18px;height:18px;border-radius:999px;padding:0 5px;
+        display:inline-flex;align-items:center;justify-content:center;
+        background:var(--accent);color:#fff;font-size:11px;font-weight:800;
       }
 
       .chips{
@@ -88,7 +93,6 @@
         background:var(--surface);border:1px solid var(--line);
         font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap;
       }
-      .chips a:hover,.chips a:focus{color:var(--ink);border-color:#cfd8e2}
 
       .hero{padding:14px 0 8px}
       .hero-card{
@@ -126,13 +130,9 @@
         color:#fff;border-color:transparent;
         box-shadow:0 8px 18px rgba(31,122,102,.22);
       }
-      .btn-warm{
-        background:var(--warm-soft);border-color:#f0d7b0;color:#7a4f18;
-      }
+      .btn-warm{background:var(--warm-soft);border-color:#f0d7b0;color:#7a4f18}
 
-      .stats{
-        display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;
-      }
+      .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
       .stat{
         background:rgba(255,255,255,.78);border:1px solid var(--line);
         border-radius:14px;padding:11px 12px;
@@ -164,6 +164,13 @@
       .prod-body{padding:13px 14px 14px;display:grid;gap:10px}
       .title{font-weight:800;font-size:15px;line-height:1.25}
       .subt{margin-top:2px;color:var(--muted);font-size:12px;font-weight:600}
+      .sizes{display:flex;gap:6px;flex-wrap:wrap}
+      .size{
+        min-width:40px;height:34px;padding:0 8px;border-radius:10px;
+        border:1px solid var(--line);background:var(--soft);
+        font-weight:800;font-size:12px;
+      }
+      .size.active{background:var(--mint);border-color:#bfe5d8;color:#1b5a4a}
       .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
       .price{font-weight:800;font-size:16px}
       .buy{
@@ -190,9 +197,7 @@
       .hit-body h4{margin:0;font-size:14px;font-family:Sora,Manrope,sans-serif}
       .hit-body p{margin:5px 0 10px;color:var(--muted);font-size:12px}
 
-      .brands{
-        display:grid;grid-template-columns:1fr 1fr;gap:8px;
-      }
+      .brands{display:grid;grid-template-columns:1fr 1fr;gap:8px}
       .brand-chip{
         background:var(--surface);border:1px solid var(--line);
         border-radius:14px;min-height:48px;
@@ -219,7 +224,6 @@
         background:var(--surface);border:1px solid var(--line);
         border-radius:18px;padding:14px;box-shadow:var(--shadow);
       }
-      .panel + .panel{margin-top:10px}
       .check-list{margin:0;padding:0;list-style:none;display:grid;gap:8px}
       .check-list li{
         display:flex;gap:8px;align-items:flex-start;
@@ -230,13 +234,10 @@
         display:inline-flex;align-items:center;justify-content:center;
         background:var(--mint);color:var(--accent);font-size:11px;font-weight:900;
       }
-
       .contacts .phone{font-weight:800}
       .map{
         margin-top:10px;height:150px;border-radius:14px;border:1px solid var(--line);
-        background:
-          linear-gradient(145deg,rgba(31,122,102,.08),rgba(232,163,92,.10)),
-          #e8eef2;
+        background:linear-gradient(145deg,rgba(31,122,102,.08),rgba(232,163,92,.10)),#e8eef2;
         display:flex;align-items:center;justify-content:center;
         color:var(--muted);font-weight:800;font-size:13px;
       }
@@ -254,9 +255,39 @@
       }
       .dock .btn{min-height:48px;width:100%}
 
-      footer{
-        margin-top:18px;padding:18px 0 10px;color:var(--muted);font-size:12px;text-align:center;
+      .sheet-bg{
+        position:fixed;inset:0;z-index:50;background:rgba(24,32,42,.35);
+        display:none;
       }
+      .sheet-bg.open{display:block}
+      .sheet{
+        position:fixed;left:0;right:0;bottom:0;z-index:51;
+        width:min(480px,100%);margin:0 auto;
+        background:#fff;border-radius:20px 20px 0 0;
+        border:1px solid var(--line);border-bottom:0;
+        padding:14px 16px calc(18px + var(--safe-b));
+        transform:translateY(110%);transition:transform .22s ease;
+        max-height:78vh;overflow:auto;
+      }
+      .sheet.open{transform:translateY(0)}
+      .sheet h3{margin:0 0 10px;font-family:Sora,Manrope,sans-serif;font-size:18px}
+      .cart-item{
+        display:flex;justify-content:space-between;gap:10px;align-items:flex-start;
+        padding:10px 0;border-bottom:1px solid var(--line);
+      }
+      .cart-item:last-child{border-bottom:0}
+      .cart-empty{color:var(--muted);font-size:14px;padding:10px 0 16px}
+      .toast{
+        position:fixed;left:50%;bottom:calc(86px + var(--safe-b));z-index:60;
+        transform:translateX(-50%) translateY(12px);
+        background:#18202a;color:#fff;border-radius:999px;
+        padding:10px 14px;font-size:13px;font-weight:700;
+        opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s ease;
+        white-space:nowrap;
+      }
+      .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+      footer{margin-top:18px;padding:18px 0 10px;color:var(--muted);font-size:12px;text-align:center}
 
       @media (min-width:720px){
         .app{width:min(720px,100%)}
@@ -267,6 +298,7 @@
       }
       @media (prefers-reduced-motion:reduce){
         html{scroll-behavior:auto}
+        .sheet{transition:none}
       }
     </style>
   </head>
@@ -278,15 +310,17 @@
             <div class="logo" aria-hidden="true"></div>
             <div>
               <h1>Sneakerworld</h1>
-              <small>Минск · доставка по РБ</small>
+              <small>Каталог · Минск</small>
             </div>
           </div>
-          <a class="call" href="tel:+375297904993">Позвонить</a>
+          <button class="cart-btn" type="button" id="openCartTop" aria-label="Корзина">
+            Корзина <span class="cart-count" id="cartCountTop">0</span>
+          </button>
         </div>
         <nav class="chips" aria-label="Разделы">
-          <a href="#new">Новинки</a>
+          <a href="#catalog">Каталог</a>
           <a href="#hits">Хиты</a>
-          <a href="#order">Как заказать</a>
+          <a href="#how">Как купить</a>
           <a href="#delivery">Доставка</a>
           <a href="#contacts">Контакты</a>
         </nav>
@@ -297,19 +331,19 @@
           <div class="hero-card">
             <div class="hero-photo">
               <img src="assets/clean4.jpg" alt="Кроссовки крупным планом" />
-              <span class="badge">Подбор размера за 1 минуту</span>
+              <span class="badge">Весь ассортимент на сайте</span>
             </div>
             <div class="hero-body">
               <div class="pills">
-                <span class="pill">Самовывоз</span>
-                <span class="pill">Доставка РБ</span>
-                <span class="pill warm">WhatsApp заказ</span>
+                <span class="pill">Каталог онлайн</span>
+                <span class="pill">Размеры в карточке</span>
+                <span class="pill warm">Оформление на сайте</span>
               </div>
-              <h2>Выбрать кроссовки с телефона — быстро и понятно.</h2>
-              <p class="lead">Большие фото, понятные кнопки и заказ в один тап.</p>
+              <h2>Выбирайте кроссовки в каталоге — без переписки.</h2>
+              <p class="lead">Фото, размеры и цена сразу на сайте. В корзину — в один тап.</p>
               <div class="hero-actions">
-                <a class="btn btn-accent" href="#new">Смотреть модели</a>
-                <a class="btn btn-warm" href="#order">Как заказать</a>
+                <a class="btn btn-accent" href="#catalog">Открыть каталог</a>
+                <a class="btn btn-warm" href="#how">Как купить</a>
               </div>
               <div class="stats">
                 <div class="stat"><strong>10:00–20:00</strong><span>ежедневно</span></div>
@@ -319,59 +353,77 @@
           </div>
         </section>
 
-        <section id="new" aria-label="Новинки">
+        <section id="catalog" aria-label="Каталог">
           <div class="head">
-            <h3>Новинки</h3>
-            <p>Тап «Купить» — сразу в WhatsApp.</p>
+            <h3>Каталог</h3>
+            <p>Выберите размер и добавьте в корзину.</p>
           </div>
           <div class="list">
-            <article class="prod">
+            <article class="prod" data-id="nike-air-max" data-name="NIKE AIR MAX · White/Red" data-price="160">
               <div class="prod-img">
                 <span class="tag">NEW</span>
-                <img src="assets/clean1.jpg" alt="Nike — новинка" loading="lazy" />
+                <img src="assets/clean1.jpg" alt="Nike Air Max" loading="lazy" />
               </div>
               <div class="prod-body">
                 <div>
                   <div class="title">NIKE AIR MAX · White/Red</div>
-                  <div class="subt">Размер уточним при заказе</div>
+                  <div class="subt">Выберите размер</div>
+                </div>
+                <div class="sizes" data-sizes>
+                  <button class="size active" type="button">41</button>
+                  <button class="size" type="button">42</button>
+                  <button class="size" type="button">43</button>
+                  <button class="size" type="button">44</button>
                 </div>
                 <div class="row">
                   <div class="price">160 BYN</div>
-                  <a class="buy" href="https://wa.me/375297904993?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D0%B2%D1%83%21%20%D0%A5%D0%BE%D1%87%D1%83%20Nike%20Air%20Max">Купить</a>
+                  <button class="buy" type="button" data-add>В корзину</button>
                 </div>
               </div>
             </article>
 
-            <article class="prod">
+            <article class="prod" data-id="adidas-ultra" data-name="ADIDAS ULTRABOOST · Grey" data-price="150">
               <div class="prod-img">
                 <span class="tag">DROP</span>
-                <img src="assets/clean2.jpg" alt="Adidas — drop" loading="lazy" />
+                <img src="assets/clean2.jpg" alt="Adidas Ultraboost" loading="lazy" />
               </div>
               <div class="prod-body">
                 <div>
                   <div class="title">ADIDAS ULTRABOOST · Grey</div>
-                  <div class="subt">На каждый день</div>
+                  <div class="subt">Выберите размер</div>
+                </div>
+                <div class="sizes" data-sizes>
+                  <button class="size active" type="button">40</button>
+                  <button class="size" type="button">41</button>
+                  <button class="size" type="button">42</button>
+                  <button class="size" type="button">43</button>
                 </div>
                 <div class="row">
                   <div class="price">150 BYN</div>
-                  <a class="buy" href="https://wa.me/375297904993?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D0%B2%D1%83%21%20%D0%A5%D0%BE%D1%87%D1%83%20Adidas%20Ultraboost">Купить</a>
+                  <button class="buy" type="button" data-add>В корзину</button>
                 </div>
               </div>
             </article>
 
-            <article class="prod">
+            <article class="prod" data-id="converse-chuck" data-name="CONVERSE CHUCK · Classic" data-price="145">
               <div class="prod-img">
                 <span class="tag">HOT</span>
-                <img src="assets/h2.jpg" alt="Converse / lifestyle" loading="lazy" />
+                <img src="assets/h2.jpg" alt="Converse Chuck" loading="lazy" />
               </div>
               <div class="prod-body">
                 <div>
                   <div class="title">CONVERSE CHUCK · Classic</div>
-                  <div class="subt">Свободный стиль</div>
+                  <div class="subt">Выберите размер</div>
+                </div>
+                <div class="sizes" data-sizes>
+                  <button class="size active" type="button">39</button>
+                  <button class="size" type="button">40</button>
+                  <button class="size" type="button">41</button>
+                  <button class="size" type="button">42</button>
                 </div>
                 <div class="row">
                   <div class="price">145 BYN</div>
-                  <a class="buy" href="https://wa.me/375297904993?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D0%B2%D1%83%21%20%D0%A5%D0%BE%D1%87%D1%83%20Converse%20Chuck">Купить</a>
+                  <button class="buy" type="button" data-add>В корзину</button>
                 </div>
               </div>
             </article>
@@ -381,31 +433,52 @@
         <section id="hits" aria-label="Хиты">
           <div class="head">
             <h3>Хиты недели</h3>
-            <p>Листай вбок — как в сторис.</p>
+            <p>Листай вбок — быстро найти популярное.</p>
           </div>
           <div class="hits">
-            <article class="hit">
-              <img src="assets/h1.jpg" alt="Хит Nike" loading="lazy" />
+            <article class="hit prod" data-id="af1" data-name="NIKE AIR FORCE 1" data-price="155">
+              <img src="assets/h1.jpg" alt="Nike Air Force 1" loading="lazy" />
               <div class="hit-body">
                 <h4>NIKE AIR FORCE 1</h4>
-                <p>База в гардероб</p>
-                <a class="buy" href="https://wa.me/375297904993?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D0%B2%D1%83%21%20%D0%A5%D0%BE%D1%87%D1%83%20Nike%20Air%20Force%201">Уточнить</a>
+                <p>База в гардероб · от 155 BYN</p>
+                <div class="sizes" data-sizes>
+                  <button class="size active" type="button">41</button>
+                  <button class="size" type="button">42</button>
+                  <button class="size" type="button">43</button>
+                </div>
+                <div style="margin-top:10px">
+                  <button class="buy" type="button" data-add>В корзину</button>
+                </div>
               </div>
             </article>
-            <article class="hit">
-              <img src="assets/p6.jpg" alt="Хит бежевые кроссовки" loading="lazy" />
+            <article class="hit prod" data-id="nb550" data-name="NEW BALANCE 550" data-price="165">
+              <img src="assets/p6.jpg" alt="New Balance 550" loading="lazy" />
               <div class="hit-body">
                 <h4>NEW BALANCE 550</h4>
-                <p>Часто берут на выход</p>
-                <a class="buy" href="https://wa.me/375297904993?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D0%B2%D1%83%21%20%D0%A5%D0%BE%D1%87%D1%83%20New%20Balance%20550">Уточнить</a>
+                <p>Часто берут · от 165 BYN</p>
+                <div class="sizes" data-sizes>
+                  <button class="size active" type="button">40</button>
+                  <button class="size" type="button">41</button>
+                  <button class="size" type="button">42</button>
+                </div>
+                <div style="margin-top:10px">
+                  <button class="buy" type="button" data-add>В корзину</button>
+                </div>
               </div>
             </article>
-            <article class="hit">
-              <img src="assets/clean3.jpg" alt="Хит Jordan" loading="lazy" />
+            <article class="hit prod" data-id="aj1" data-name="AIR JORDAN 1 LOW" data-price="170">
+              <img src="assets/clean3.jpg" alt="Air Jordan 1 Low" loading="lazy" />
               <div class="hit-body">
                 <h4>AIR JORDAN 1 LOW</h4>
-                <p>Подберём размер</p>
-                <a class="buy" href="https://wa.me/375297904993?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D0%B2%D1%83%21%20%D0%A5%D0%BE%D1%87%D1%83%20Air%20Jordan%201%20Low">Уточнить</a>
+                <p>В наличии · от 170 BYN</p>
+                <div class="sizes" data-sizes>
+                  <button class="size active" type="button">41</button>
+                  <button class="size" type="button">42</button>
+                  <button class="size" type="button">44</button>
+                </div>
+                <div style="margin-top:10px">
+                  <button class="buy" type="button" data-add>В корзину</button>
+                </div>
               </div>
             </article>
           </div>
@@ -414,7 +487,7 @@
         <section id="brands" aria-label="Бренды">
           <div class="head">
             <h3>Бренды</h3>
-            <p>Быстрый ориентир по ассортименту.</p>
+            <p>Ориентир по ассортименту на сайте.</p>
           </div>
           <div class="brands">
             <div class="brand-chip">NIKE</div>
@@ -426,26 +499,26 @@
           </div>
         </section>
 
-        <section id="order" aria-label="Как заказать">
+        <section id="how" aria-label="Как купить">
           <div class="head">
-            <h3>Как заказать</h3>
-            <p>Три шага — без лишних форм.</p>
+            <h3>Как купить</h3>
+            <p>Всё на сайте — от выбора до оформления.</p>
           </div>
           <div class="steps">
-            <div class="step"><span class="num">1</span><div><span class="b">Выбираете модель</span><span class="s">Скрин или название + размер.</span></div></div>
-            <div class="step"><span class="num">2</span><div><span class="b">Мы подтверждаем</span><span class="s">Наличие и размер в WhatsApp.</span></div></div>
-            <div class="step"><span class="num">3</span><div><span class="b">Забираете / получаете</span><span class="s">Самовывоз в Минске или доставка по РБ.</span></div></div>
+            <div class="step"><span class="num">1</span><div><span class="b">Выбираете модель и размер</span><span class="s">В карточке товара на сайте.</span></div></div>
+            <div class="step"><span class="num">2</span><div><span class="b">Добавляете в корзину</span><span class="s">Можно несколько пар сразу.</span></div></div>
+            <div class="step"><span class="num">3</span><div><span class="b">Оформляете заказ</span><span class="s">Самовывоз или доставка — прямо на сайте.</span></div></div>
           </div>
         </section>
 
         <section id="delivery" aria-label="Доставка">
           <div class="head">
             <h3>Доставка и возврат</h3>
-            <p>Коротко и спокойно.</p>
+            <p>Условия видны до оформления.</p>
           </div>
           <div class="panel">
             <ul class="check-list">
-              <li><span class="ok">✓</span><div><span class="b">Доставка по РБ</span><span class="s">Сроки скажем при подтверждении.</span></div></li>
+              <li><span class="ok">✓</span><div><span class="b">Доставка по РБ</span><span class="s">Срок покажем на оформлении.</span></div></li>
               <li><span class="ok">✓</span><div><span class="b">Самовывоз</span><span class="s">ТЦ «Силуэт», 2 этаж.</span></div></li>
               <li><span class="ok">✓</span><div><span class="b">Возврат 14 дней</span><span class="s">Если размер не подошёл.</span></div></li>
             </ul>
@@ -455,7 +528,7 @@
         <section id="contacts" class="contacts" aria-label="Контакты">
           <div class="head">
             <h3>Контакты</h3>
-            <p>Всё важное в одном месте.</p>
+            <p>Магазин и поддержка.</p>
           </div>
           <div class="panel">
             <div class="b">Sneakerworld.by</div>
@@ -469,16 +542,144 @@
         </section>
       </main>
 
-      <footer>
-        Sneakerworld · демо для телефона
-      </footer>
+      <footer>Sneakerworld · каталог на телефоне</footer>
     </div>
 
     <div class="dock" aria-label="Быстрые действия">
       <div class="dock-inner">
-        <a class="btn" href="tel:+375297904993">Позвонить</a>
-        <a class="btn btn-accent" href="https://wa.me/375297904993?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D0%B2%D1%83%21%20%D0%A5%D0%BE%D1%87%D1%83%20%D0%BF%D0%BE%D0%B4%D0%BE%D0%B1%D1%80%D0%B0%D1%82%D1%8C%20%D0%BA%D1%80%D0%BE%D1%81%D1%81%D0%BE%D0%B2%D0%BA%D0%B8">Написать в WhatsApp</a>
+        <a class="btn" href="#catalog">Каталог</a>
+        <button class="btn btn-accent" type="button" id="openCartDock">Корзина · <span id="cartCountDock">0</span></button>
       </div>
     </div>
+
+    <div class="sheet-bg" id="sheetBg" aria-hidden="true"></div>
+    <aside class="sheet" id="cartSheet" aria-label="Корзина" aria-hidden="true">
+      <h3>Корзина</h3>
+      <div id="cartList"></div>
+      <div class="row" style="margin:12px 0 14px">
+        <div class="b">Итого</div>
+        <div class="price" id="cartTotal">0 BYN</div>
+      </div>
+      <button class="btn btn-accent" type="button" id="checkoutBtn" style="width:100%">Оформить заказ</button>
+    </aside>
+
+    <div class="toast" id="toast" role="status">Добавлено в корзину</div>
+
+    <script>
+      const cart = [];
+      const els = {
+        list: document.getElementById('cartList'),
+        total: document.getElementById('cartTotal'),
+        countTop: document.getElementById('cartCountTop'),
+        countDock: document.getElementById('cartCountDock'),
+        sheet: document.getElementById('cartSheet'),
+        bg: document.getElementById('sheetBg'),
+        toast: document.getElementById('toast'),
+      };
+
+      function selectedSize(root){
+        const active = root.querySelector('.size.active');
+        return active ? active.textContent.trim() : '';
+      }
+
+      function renderCart(){
+        const count = cart.reduce((n, i) => n + i.qty, 0);
+        els.countTop.textContent = String(count);
+        els.countDock.textContent = String(count);
+        if(!cart.length){
+          els.list.innerHTML = '<div class="cart-empty">Корзина пуста. Добавьте модель из каталога.</div>';
+          els.total.textContent = '0 BYN';
+          return;
+        }
+        els.list.innerHTML = cart.map((i, idx) => `
+          <div class="cart-item">
+            <div>
+              <div class="b">${i.name}</div>
+              <div class="s">Размер ${i.size} · ${i.qty} шт.</div>
+            </div>
+            <div style="text-align:right">
+              <div class="price">${i.price * i.qty} BYN</div>
+              <button class="buy" type="button" data-remove="${idx}" style="margin-top:6px">Убрать</button>
+            </div>
+          </div>
+        `).join('');
+        const sum = cart.reduce((n, i) => n + i.price * i.qty, 0);
+        els.total.textContent = sum + ' BYN';
+      }
+
+      function openCart(){
+        els.sheet.classList.add('open');
+        els.bg.classList.add('open');
+        els.sheet.setAttribute('aria-hidden','false');
+        els.bg.setAttribute('aria-hidden','false');
+        renderCart();
+      }
+      function closeCart(){
+        els.sheet.classList.remove('open');
+        els.bg.classList.remove('open');
+        els.sheet.setAttribute('aria-hidden','true');
+        els.bg.setAttribute('aria-hidden','true');
+      }
+      function showToast(text){
+        els.toast.textContent = text;
+        els.toast.classList.add('show');
+        clearTimeout(showToast._t);
+        showToast._t = setTimeout(() => els.toast.classList.remove('show'), 1600);
+      }
+
+      document.querySelectorAll('[data-sizes]').forEach(group => {
+        group.addEventListener('click', (e) => {
+          const btn = e.target.closest('.size');
+          if(!btn) return;
+          group.querySelectorAll('.size').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+        });
+      });
+
+      document.querySelectorAll('[data-add]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const card = btn.closest('.prod');
+          if(!card) return;
+          const size = selectedSize(card);
+          if(!size){
+            showToast('Сначала выберите размер');
+            return;
+          }
+          const id = card.dataset.id + '-' + size;
+          const found = cart.find(i => i.id === id);
+          if(found) found.qty += 1;
+          else cart.push({
+            id,
+            name: card.dataset.name,
+            price: Number(card.dataset.price || 0),
+            size,
+            qty: 1,
+          });
+          renderCart();
+          showToast('Добавлено в корзину');
+        });
+      });
+
+      els.list.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-remove]');
+        if(!btn) return;
+        cart.splice(Number(btn.dataset.remove), 1);
+        renderCart();
+      });
+
+      document.getElementById('openCartTop').addEventListener('click', openCart);
+      document.getElementById('openCartDock').addEventListener('click', openCart);
+      els.bg.addEventListener('click', closeCart);
+      document.getElementById('checkoutBtn').addEventListener('click', () => {
+        if(!cart.length){
+          showToast('Корзина пуста');
+          return;
+        }
+        showToast('Демо: оформление на сайте');
+        closeCart();
+      });
+
+      renderCart();
+    </script>
   </body>
 </html>
