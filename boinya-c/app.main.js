@@ -14631,7 +14631,7 @@
                 segment: "БП",
                 _: String(Date.now()) + "_" + i
               }, { timeoutMs: 25000, cacheTtlMs: 0 });
-              if (one && one.status === "success" && (one.deletedCount > 0 || one.deletedRow)) okN++;
+              if (isSubDeleteSuccess_(one)) okN++;
               else fail.push((t.nick || t.label || "?") + ": " + ((one && one.message) || "err"));
             } catch (e1) {
               fail.push((t.nick || t.label || "?") + ": сеть");
@@ -18149,6 +18149,16 @@
     }
     window.onSubsSearchInput = onSubsSearchInput;
 
+    function isSubDeleteSuccess_(res) {
+      if (!res || res.status !== "success") return false;
+      return !!(
+        (Number(res.deletedCount) || 0) > 0 ||
+        !!res.deletedRow ||
+        (Number(res.deletedPeople) || 0) > 0 ||
+        (Number(res.wrote) || 0) > 0
+      );
+    }
+
     var currentSubDetail = null;
     var subDetailBasket = [];
     var subDetailManualCategory = "dressura";
@@ -19298,7 +19308,7 @@
           segment: sheet,
           _: String(Date.now())
         }, { timeoutMs: 35000, cacheTtlMs: 0 });
-        if (!res || res.status !== "success" || !(res.deletedCount > 0 || res.deletedRow)) {
+        if (!isSubDeleteSuccess_(res)) {
 
           if (nick && nick !== label) {
             res = await apiGet({
@@ -19311,7 +19321,7 @@
             }, { timeoutMs: 35000, cacheTtlMs: 0 });
           }
         }
-        if (!res || res.status !== "success" || !(res.deletedCount > 0 || res.deletedRow)) {
+        if (!isSubDeleteSuccess_(res)) {
           var msg = (res && res.message) || "ошибка";
           if (msg === "unknown_action") {
             await uiAlertAsync("Нужен Deploy Code.gs (deleteSubscription)");
@@ -19321,7 +19331,8 @@
           return;
         }
         try { apiCacheBustMem_(); } catch (eClr) {}
-        showToast("Удалено" + (res.deletedCount > 1 ? (" (" + res.deletedCount + ")") : ""));
+        var delN = Number(res.deletedCount || res.deletedPeople || res.wrote || 1) || 1;
+        showToast("Удалено" + (delN > 1 ? (" (" + delN + ")") : ""));
         switchTab("subsScreen");
         await loadSubscriptions();
       } catch (e) {
