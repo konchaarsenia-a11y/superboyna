@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-07 fix-polotno-cut-flags-h1"
+      deployMarker: "2026-09-07 fix-pp-slot-paid-ask-h1"
     };
   }
 
@@ -2473,18 +2473,51 @@ async function getClients_(params, env) {
   }
   if (!dateDmy && dateIso) dateDmy = isoToDmy_(dateIso);
   let clientsOut = rows.map(clientFromRow_);
-  // залипший «1/2» при N=1 с листа ПП (GMT→слот / Math.max(N,2))
+  // залипший «1/2» при N=1 с листа ПП (GMT→слот / Math.max(N,2) / UI payload)
   try {
     for (let hi = 0; hi < clientsOut.length; hi++) {
       const c = clientsOut[hi];
       const slotRaw = String((c && c.ppSlot) || "");
-      if (!c || slotRaw.indexOf("/") < 0) continue;
+      if (!c) continue;
       const seg = normalizeSegmentLabel_(c.segment || "");
       const src = String(c.source || "").toLowerCase();
       if (seg !== "ПП" && src !== "pp" && src !== "subscription") continue;
+      const needsHeal = slotRaw.indexOf("/") >= 0 || !c.deliveriesN;
+      if (!needsHeal) continue;
       try {
         await enrichCourierClientPp_(c, env, dateIso || c.dateIso || "");
       } catch (eEn) {}
+      // закрепить исправленный ppSlot в D1 (иначе снова «1/2» из meta)
+      try {
+        if (c.deliveriesN === 1 && String(c.ppSlot || "").indexOf("/") < 0 && rows[hi] && rows[hi].id) {
+          const meta = parseMeta_(rows[hi].meta_json) || {};
+          meta.ppSlot = c.ppSlot || "1";
+          meta.deliveriesN = 1;
+          meta.deliverySlot = 1;
+          meta.ppHint = "ПП N=1";
+          await env.DB.prepare(
+            "UPDATE orders SET meta_json = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+          )
+            .bind(JSON.stringify(meta), new Date().toISOString(), rows[hi].id)
+            .run();
+        } else if (
+          c.deliveriesN >= 2 &&
+          rows[hi] &&
+          rows[hi].id &&
+          String(c.ppSlot || "") &&
+          String(c.ppSlot) !== slotRaw
+        ) {
+          const meta2 = parseMeta_(rows[hi].meta_json) || {};
+          meta2.ppSlot = c.ppSlot;
+          meta2.deliveriesN = c.deliveriesN;
+          if (c.deliverySlot) meta2.deliverySlot = c.deliverySlot;
+          await env.DB.prepare(
+            "UPDATE orders SET meta_json = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+          )
+            .bind(JSON.stringify(meta2), new Date().toISOString(), rows[hi].id)
+            .run();
+        }
+      } catch (ePersist) {}
     }
   } catch (eHealSlot) {}
   // D1-primary: active row в D1 = правда UI. Tomb после delete обязан сначала
@@ -7119,7 +7152,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1 слоты недели перезаписаны из Sheets (пустые дни очищены).",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-07 fix-polotno-cut-flags-h1"
+        deployMarker: "2026-09-07 fix-pp-slot-paid-ask-h1"
       };
     } catch (eResync) {
       return {
