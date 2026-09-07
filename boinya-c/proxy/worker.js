@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-07 fix-finish-week-d1-h1"
+      deployMarker: "2026-09-07 fix-polotno-cut-flags-h1"
     };
   }
 
@@ -7119,7 +7119,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1 слоты недели перезаписаны из Sheets (пустые дни очищены).",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-07 fix-finish-week-d1-h1"
+        deployMarker: "2026-09-07 fix-polotno-cut-flags-h1"
       };
     } catch (eResync) {
       return {
@@ -10225,6 +10225,133 @@ async function cutoverResetOpsSnaps_(env) {
   }
 }
 
+/**
+ * Сброс durable галочек нарезки по date_iso слотов недели.
+ * Sheets E/F/G чистит finishFullWeek, но D1 cutting_flags оставались →
+ * новый Пн (бывшая Будущая) открывался уже с done/laid.
+ */
+async function clearCuttingFlagsForWeekDates_(env, countsPayload) {
+  if (!env || !env.DB) return { cleared: 0, isos: [] };
+  await ensureCuttingFlagsColumns_(env);
+  const isos = [];
+  const seen = Object.create(null);
+  const items = (countsPayload && countsPayload.items) || [];
+  for (let i = 0; i < items.length; i++) {
+    const iso = dmyToIso_((items[i] && items[i].date) || "") || "";
+    if (!iso || seen[iso]) continue;
+    seen[iso] = true;
+    isos.push(iso);
+  }
+  if (!isos.length) {
+    try {
+      for (let di = 0; di < WEEK_DAYS.length; di++) {
+        const info = await dayDateInfo_(env, WEEK_DAYS[di]);
+        const iso2 = (info && info.iso) || "";
+        if (iso2 && !seen[iso2]) {
+          seen[iso2] = true;
+          isos.push(iso2);
+        }
+      }
+    } catch (eInfo) {}
+  }
+  let cleared = 0;
+  for (let j = 0; j < isos.length; j++) {
+    try {
+      const rs = await env.DB.prepare("DELETE FROM cutting_flags WHERE date_iso = ?")
+        .bind(isos[j])
+        .run();
+      cleared += Number((rs && rs.meta && rs.meta.changes) || 0) || 0;
+    } catch (eDel) {
+      try {
+        await env.DB.prepare("DELETE FROM cutting_flags WHERE date_iso = ?").bind(isos[j]).run();
+        cleared += 1;
+      } catch (e2) {}
+    }
+  }
+  return { cleared: cleared, isos: isos };
+}
+
+/**
+ * Один клиент на двух днях одной недели (типично: Будущая→Пн + materialize брони на Вт).
+ * Оставляем самый ранний date_iso, остальные soft-delete в D1.
+ */
+async function scrubWeekClientDupes_(env) {
+  if (!env || !env.DB) return { removed: 0, kept: [], dropped: [] };
+  let rows = [];
+  try {
+    const q = await env.DB.prepare(
+      "SELECT id, match_key, client, day_name, date_iso FROM orders WHERE status = 'active' AND day_name != '' AND day_name IS NOT NULL LIMIT 500"
+    ).all();
+    rows = (q && q.results) || [];
+  } catch (eQ) {
+    return { removed: 0, kept: [], dropped: [] };
+  }
+  const byMk = Object.create(null);
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r) continue;
+    const mk = normalizeMatchKey_(r.match_key || r.client || "");
+    if (!mk) continue;
+    if (!byMk[mk]) byMk[mk] = [];
+    byMk[mk].push(r);
+  }
+  const now = new Date().toISOString();
+  let removed = 0;
+  const kept = [];
+  const dropped = [];
+  const mks = Object.keys(byMk);
+  for (let mi = 0; mi < mks.length; mi++) {
+    const list = byMk[mks[mi]] || [];
+    if (list.length < 2) continue;
+    list.sort(function (a, b) {
+      return String(a.date_iso || "").localeCompare(String(b.date_iso || ""));
+    });
+    const keep = list[0];
+    kept.push({
+      mk: mks[mi],
+      day: keep.day_name,
+      dateIso: keep.date_iso,
+      client: keep.client
+    });
+    for (let di = 1; di < list.length; di++) {
+      const drop = list[di];
+      try {
+        await env.DB.prepare(
+          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+        )
+          .bind(now, drop.id)
+          .run();
+        removed++;
+        dropped.push({
+          mk: mks[mi],
+          day: drop.day_name,
+          dateIso: drop.date_iso,
+          client: drop.client
+        });
+        try {
+          await putSnap_(env, "delTomb:" + String(drop.day_name) + ":" + mks[mi], {
+            mk: mks[mi],
+            day: drop.day_name,
+            at: Date.now(),
+            reason: "week_dupe_scrub"
+          });
+        } catch (eT) {}
+      } catch (eDel) {}
+    }
+  }
+  if (removed) {
+    try {
+      await invalidateDays_(
+        env,
+        dropped.map(function (d) {
+          return d.day;
+        })
+      );
+    } catch (eInv) {}
+  }
+  return { removed: removed, kept: kept, dropped: dropped };
+}
+
 async function cutoverRefreshAllWeekDays_(env, opts) {
   opts = opts || {};
   if (!env || !env.DB) return;
@@ -10251,6 +10378,14 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
   try {
     await cutoverResetOpsSnaps_(env);
   } catch (eOps) {}
+  // finish/repair: сбросить D1 cutting_flags по новым датам (Sheets уже чистые)
+  if (forceGasReplace) {
+    try {
+      const countsForFlags =
+        (await getSnapRaw_(env, "weekDayCountsSheet")) || (await getSnapRaw_(env, "weekDayCounts"));
+      await clearCuttingFlagsForWeekDates_(env, countsForFlags);
+    } catch (eClrFlags) {}
+  }
   for (let i = 0; i < WEEK_DAYS.length; i++) {
     const day = WEEK_DAYS[i];
     try {
@@ -10347,6 +10482,54 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
       await rebuildWeekCounts_(env);
     }
   } catch (eC) {}
+  if (forceGasReplace) {
+    try {
+      const dupe = await scrubWeekClientDupes_(env);
+      const dropped = (dupe && dupe.dropped) || [];
+      for (let di = 0; di < dropped.length; di++) {
+        const d = dropped[di];
+        if (!d) continue;
+        try {
+          await gasProxy_(
+            "deleteClient",
+            {
+              day: d.day,
+              client: d.client,
+              date: d.dateIso,
+              matchKey: d.mk,
+              confirm: "1"
+            },
+            env,
+            { write: true }
+          );
+        } catch (eGasDel) {}
+        try {
+          await gasProxy_(
+            "removeCalendarClient",
+            {
+              client: d.client,
+              date: d.dateIso,
+              matchKey: d.mk,
+              calendarOnly: "1"
+            },
+            env,
+            { write: true }
+          );
+        } catch (eGasCal) {}
+      }
+      // пересобрать snaps дней после dupe-scrub
+      if (dropped.length) {
+        for (let ri = 0; ri < WEEK_DAYS.length; ri++) {
+          try {
+            await rebuildCuttingDay_(env, WEEK_DAYS[ri]);
+          } catch (eRc) {}
+        }
+        try {
+          await rebuildWeekCounts_(env);
+        } catch (eRw) {}
+      }
+    } catch (eDupe) {}
+  }
 }
 
 async function cutoverAfterWrite_(a, params, env, writeRes) {
