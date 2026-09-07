@@ -287,6 +287,75 @@
       }
       .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
+      .filter-bar{
+        display:flex;gap:8px;align-items:center;margin:0 0 12px;
+      }
+      .filter-bar .btn{min-height:42px;flex:1;font-size:13px}
+      .filter-bar .btn.ghost{
+        flex:0 0 auto;min-width:42px;padding:0 12px;
+        background:var(--soft);
+      }
+      .active-filters{
+        display:flex;gap:6px;flex-wrap:wrap;margin:-2px 0 12px;
+      }
+      .active-filters:empty{display:none}
+      .af-chip{
+        display:inline-flex;align-items:center;gap:6px;
+        padding:6px 10px;border-radius:999px;
+        background:var(--mint);border:1px solid #d3ebe3;
+        color:#1b5a4a;font-size:12px;font-weight:800;
+      }
+      .af-chip button{
+        all:unset;cursor:pointer;opacity:.75;font-weight:900;
+      }
+      .af-chip button:hover{opacity:1}
+      .catalog-empty{
+        display:none;padding:18px 14px;border-radius:16px;
+        background:var(--surface);border:1px dashed var(--line);
+        color:var(--muted);font-size:14px;text-align:center;
+      }
+      .catalog-empty.show{display:block}
+      .prod.hidden-by-size,.hit.hidden-by-size{display:none !important}
+
+      .sheet-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 0 12px}
+      .sheet-tab{
+        min-height:40px;border-radius:12px;border:1px solid var(--line);
+        background:var(--soft);font-weight:800;font-size:13px;
+      }
+      .sheet-tab.active{
+        background:var(--mint);border-color:#bfe5d8;color:#1b5a4a;
+      }
+      .sheet-pane{display:none}
+      .sheet-pane.active{display:block}
+      .size-grid-pick{
+        display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
+      }
+      .size-pick{
+        min-height:44px;border-radius:12px;border:1px solid var(--line);
+        background:var(--surface);font-weight:800;font-size:14px;
+      }
+      .size-pick.on{
+        background:linear-gradient(135deg,var(--accent),var(--accent-2));
+        color:#fff;border-color:transparent;
+      }
+      .grid-table{
+        width:100%;border-collapse:collapse;font-size:12px;
+        background:var(--soft);border-radius:14px;overflow:hidden;
+      }
+      .grid-table th,.grid-table td{
+        padding:10px 8px;text-align:center;border-bottom:1px solid var(--line);
+      }
+      .grid-table th{
+        background:rgba(255,255,255,.7);font-weight:800;color:var(--muted);
+        font-size:11px;letter-spacing:.03em;
+      }
+      .grid-table tr:last-child td{border-bottom:0}
+      .grid-table tr.hl td{
+        background:var(--mint);font-weight:800;color:#1b5a4a;
+      }
+      .sheet-actions{display:grid;grid-template-columns:1fr 1.2fr;gap:8px;margin-top:14px}
+      .sheet-note{margin:0 0 10px;color:var(--muted);font-size:13px}
+
       footer{margin-top:18px;padding:18px 0 10px;color:var(--muted);font-size:12px;text-align:center}
 
       @media (min-width:720px){
@@ -319,6 +388,7 @@
         </div>
         <nav class="chips" aria-label="Разделы">
           <a href="#catalog">Каталог</a>
+          <button type="button" id="openSizePanelChip" style="flex:0 0 auto;padding:8px 12px;border-radius:999px;background:var(--mint);border:1px solid #d3ebe3;font-size:12px;font-weight:800;color:#1b5a4a;white-space:nowrap">Размеры</button>
           <a href="#hits">Хиты</a>
           <a href="#how">Как купить</a>
           <a href="#delivery">Доставка</a>
@@ -356,10 +426,16 @@
         <section id="catalog" aria-label="Каталог">
           <div class="head">
             <h3>Каталог</h3>
-            <p>Выберите размер и добавьте в корзину.</p>
+            <p>Фильтр по размерной сетке — в отдельной панели.</p>
           </div>
-          <div class="list">
-            <article class="prod" data-id="nike-air-max" data-name="NIKE AIR MAX · White/Red" data-price="160">
+          <div class="filter-bar">
+            <button class="btn btn-accent" type="button" id="openSizePanel">Поиск по размерам</button>
+            <button class="btn ghost" type="button" id="clearSizes" title="Сбросить">✕</button>
+          </div>
+          <div class="active-filters" id="activeFilters" aria-live="polite"></div>
+          <div class="catalog-empty" id="catalogEmpty">Нет моделей под выбранные размеры. Сбросьте фильтр или выберите другой размер.</div>
+          <div class="list" id="catalogList">
+            <article class="prod" data-id="nike-air-max" data-name="NIKE AIR MAX · White/Red" data-price="160" data-avail="41,42,43,44">
               <div class="prod-img">
                 <span class="tag">NEW</span>
                 <img src="assets/clean1.jpg" alt="Nike Air Max" loading="lazy" />
@@ -382,7 +458,7 @@
               </div>
             </article>
 
-            <article class="prod" data-id="adidas-ultra" data-name="ADIDAS ULTRABOOST · Grey" data-price="150">
+            <article class="prod" data-id="adidas-ultra" data-name="ADIDAS ULTRABOOST · Grey" data-price="150" data-avail="40,41,42,43">
               <div class="prod-img">
                 <span class="tag">DROP</span>
                 <img src="assets/clean2.jpg" alt="Adidas Ultraboost" loading="lazy" />
@@ -405,7 +481,7 @@
               </div>
             </article>
 
-            <article class="prod" data-id="converse-chuck" data-name="CONVERSE CHUCK · Classic" data-price="145">
+            <article class="prod" data-id="converse-chuck" data-name="CONVERSE CHUCK · Classic" data-price="145" data-avail="39,40,41,42">
               <div class="prod-img">
                 <span class="tag">HOT</span>
                 <img src="assets/h2.jpg" alt="Converse Chuck" loading="lazy" />
@@ -435,8 +511,8 @@
             <h3>Хиты недели</h3>
             <p>Листай вбок — быстро найти популярное.</p>
           </div>
-          <div class="hits">
-            <article class="hit prod" data-id="af1" data-name="NIKE AIR FORCE 1" data-price="155">
+          <div class="hits" id="hitsList">
+            <article class="hit prod" data-id="af1" data-name="NIKE AIR FORCE 1" data-price="155" data-avail="41,42,43">
               <img src="assets/h1.jpg" alt="Nike Air Force 1" loading="lazy" />
               <div class="hit-body">
                 <h4>NIKE AIR FORCE 1</h4>
@@ -451,7 +527,7 @@
                 </div>
               </div>
             </article>
-            <article class="hit prod" data-id="nb550" data-name="NEW BALANCE 550" data-price="165">
+            <article class="hit prod" data-id="nb550" data-name="NEW BALANCE 550" data-price="165" data-avail="40,41,42">
               <img src="assets/p6.jpg" alt="New Balance 550" loading="lazy" />
               <div class="hit-body">
                 <h4>NEW BALANCE 550</h4>
@@ -466,7 +542,7 @@
                 </div>
               </div>
             </article>
-            <article class="hit prod" data-id="aj1" data-name="AIR JORDAN 1 LOW" data-price="170">
+            <article class="hit prod" data-id="aj1" data-name="AIR JORDAN 1 LOW" data-price="170" data-avail="41,42,44">
               <img src="assets/clean3.jpg" alt="Air Jordan 1 Low" loading="lazy" />
               <div class="hit-body">
                 <h4>AIR JORDAN 1 LOW</h4>
@@ -563,23 +639,75 @@
       <button class="btn btn-accent" type="button" id="checkoutBtn" style="width:100%">Оформить заказ</button>
     </aside>
 
+    <aside class="sheet" id="sizeSheet" aria-label="Размеры" aria-hidden="true">
+      <h3>Размеры</h3>
+      <div class="sheet-tabs" role="tablist">
+        <button type="button" class="sheet-tab active" data-size-tab="find" role="tab" aria-selected="true">Поиск</button>
+        <button type="button" class="sheet-tab" data-size-tab="grids" role="tab" aria-selected="false">Сетки EU/US/UK</button>
+      </div>
+      <div class="sheet-pane active" data-size-pane="find">
+        <p class="sheet-note">Выбери один или несколько EU — в каталоге останутся модели с этими размерами в наличии.</p>
+        <div class="size-grid-pick" id="sizePick"></div>
+        <div class="sheet-actions">
+          <button type="button" class="btn" id="sizeClearBtn">Сбросить</button>
+          <button type="button" class="btn btn-accent" id="sizeApplyBtn">Показать</button>
+        </div>
+      </div>
+      <div class="sheet-pane" data-size-pane="grids">
+        <p class="sheet-note">Ориентир Nike / Jordan / Adidas. Точный размер — по стельке или примерке в ТЦ «Силуэт».</p>
+        <table class="grid-table" id="sizeGridTable">
+          <thead>
+            <tr><th>EU</th><th>US M</th><th>UK</th><th>см</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </aside>
+
     <div class="toast" id="toast" role="status">Добавлено в корзину</div>
 
     <script>
       const cart = [];
+      const draftSizes = new Set();
+      let appliedSizes = [];
+
+      const SIZE_OPTIONS = ['39','40','41','42','43','44','45'];
+      const SIZE_GRID = [
+        {eu:'39', us:'6.5', uk:'6', cm:'24.5'},
+        {eu:'40', us:'7', uk:'6.5', cm:'25'},
+        {eu:'41', us:'8', uk:'7', cm:'26'},
+        {eu:'42', us:'8.5', uk:'7.5', cm:'26.5'},
+        {eu:'43', us:'9.5', uk:'8.5', cm:'27.5'},
+        {eu:'44', us:'10', uk:'9', cm:'28'},
+        {eu:'45', us:'11', uk:'10', cm:'29'},
+      ];
+
       const els = {
         list: document.getElementById('cartList'),
         total: document.getElementById('cartTotal'),
         countTop: document.getElementById('cartCountTop'),
         countDock: document.getElementById('cartCountDock'),
-        sheet: document.getElementById('cartSheet'),
+        cartSheet: document.getElementById('cartSheet'),
+        sizeSheet: document.getElementById('sizeSheet'),
         bg: document.getElementById('sheetBg'),
         toast: document.getElementById('toast'),
+        sizePick: document.getElementById('sizePick'),
+        gridBody: document.querySelector('#sizeGridTable tbody'),
+        activeFilters: document.getElementById('activeFilters'),
+        catalogEmpty: document.getElementById('catalogEmpty'),
+        catalogList: document.getElementById('catalogList'),
       };
 
       function selectedSize(root){
         const active = root.querySelector('.size.active');
         return active ? active.textContent.trim() : '';
+      }
+
+      function availSet(card){
+        return new Set(String(card.dataset.avail || '')
+          .split(',')
+          .map(s => s.trim())
+          .filter(Boolean));
       }
 
       function renderCart(){
@@ -607,25 +735,177 @@
         els.total.textContent = sum + ' BYN';
       }
 
-      function openCart(){
-        els.sheet.classList.add('open');
+      function openBg(){
         els.bg.classList.add('open');
-        els.sheet.setAttribute('aria-hidden','false');
         els.bg.setAttribute('aria-hidden','false');
-        renderCart();
       }
-      function closeCart(){
-        els.sheet.classList.remove('open');
+      function closeBgIfIdle(){
+        if(els.cartSheet.classList.contains('open') || els.sizeSheet.classList.contains('open')) return;
         els.bg.classList.remove('open');
-        els.sheet.setAttribute('aria-hidden','true');
         els.bg.setAttribute('aria-hidden','true');
       }
+      function closeCart(){
+        els.cartSheet.classList.remove('open');
+        els.cartSheet.setAttribute('aria-hidden','true');
+        closeBgIfIdle();
+      }
+      function closeSize(){
+        els.sizeSheet.classList.remove('open');
+        els.sizeSheet.setAttribute('aria-hidden','true');
+        closeBgIfIdle();
+      }
+      function closeAllSheets(){
+        closeCart();
+        closeSize();
+      }
+      function openCart(){
+        closeSize();
+        els.cartSheet.classList.add('open');
+        els.cartSheet.setAttribute('aria-hidden','false');
+        openBg();
+        renderCart();
+      }
+      function openSize(){
+        closeCart();
+        draftSizes.clear();
+        appliedSizes.forEach(s => draftSizes.add(s));
+        renderSizePick();
+        highlightGrid();
+        els.sizeSheet.classList.add('open');
+        els.sizeSheet.setAttribute('aria-hidden','false');
+        openBg();
+      }
+
       function showToast(text){
         els.toast.textContent = text;
         els.toast.classList.add('show');
         clearTimeout(showToast._t);
         showToast._t = setTimeout(() => els.toast.classList.remove('show'), 1600);
       }
+
+      function renderSizePick(){
+        els.sizePick.innerHTML = SIZE_OPTIONS.map(sz =>
+          `<button type="button" class="size-pick${draftSizes.has(sz) ? ' on' : ''}" data-eu="${sz}">${sz}</button>`
+        ).join('');
+      }
+
+      function renderGridTable(){
+        els.gridBody.innerHTML = SIZE_GRID.map(r =>
+          `<tr data-eu="${r.eu}"><td>${r.eu}</td><td>${r.us}</td><td>${r.uk}</td><td>${r.cm}</td></tr>`
+        ).join('');
+      }
+
+      function highlightGrid(){
+        const active = draftSizes.size ? draftSizes : new Set(appliedSizes);
+        els.gridBody.querySelectorAll('tr').forEach(tr => {
+          tr.classList.toggle('hl', active.has(tr.dataset.eu));
+        });
+      }
+
+      function syncCardSizes(preferred){
+        document.querySelectorAll('.prod').forEach(card => {
+          const avail = availSet(card);
+          const match = preferred.find(sz => avail.has(sz));
+          if(!match) return;
+          const group = card.querySelector('[data-sizes]');
+          if(!group) return;
+          group.querySelectorAll('.size').forEach(btn => {
+            btn.classList.toggle('active', btn.textContent.trim() === match);
+          });
+        });
+      }
+
+      function renderActiveFilters(){
+        if(!appliedSizes.length){
+          els.activeFilters.innerHTML = '';
+          return;
+        }
+        els.activeFilters.innerHTML = appliedSizes.map(sz =>
+          `<span class="af-chip">EU ${sz} <button type="button" aria-label="Убрать ${sz}" data-remove-size="${sz}">✕</button></span>`
+        ).join('') + `<span class="af-chip" style="background:var(--soft);border-color:var(--line);color:var(--muted)"><button type="button" id="clearSizesInline" style="all:unset;cursor:pointer;font-weight:800">Сбросить все</button></span>`;
+      }
+
+      function applySizeFilter(sizes){
+        appliedSizes = [...sizes].sort((a,b) => Number(a) - Number(b));
+        const filter = new Set(appliedSizes);
+        let visibleCatalog = 0;
+        document.querySelectorAll('.prod').forEach(card => {
+          const avail = availSet(card);
+          const show = !filter.size || [...filter].some(sz => avail.has(sz));
+          card.classList.toggle('hidden-by-size', !show);
+          if(show && els.catalogList.contains(card)) visibleCatalog += 1;
+        });
+        els.catalogEmpty.classList.toggle('show', filter.size > 0 && visibleCatalog === 0);
+        renderActiveFilters();
+        if(appliedSizes.length) syncCardSizes(appliedSizes);
+      }
+
+      function clearSizeFilter(){
+        draftSizes.clear();
+        applySizeFilter([]);
+        renderSizePick();
+        highlightGrid();
+      }
+
+      renderGridTable();
+      renderSizePick();
+
+      els.sizePick.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-eu]');
+        if(!btn) return;
+        const sz = btn.dataset.eu;
+        if(draftSizes.has(sz)) draftSizes.delete(sz);
+        else draftSizes.add(sz);
+        btn.classList.toggle('on', draftSizes.has(sz));
+        highlightGrid();
+      });
+
+      document.querySelectorAll('[data-size-tab]').forEach(tab => {
+        tab.addEventListener('click', () => {
+          const name = tab.dataset.sizeTab;
+          document.querySelectorAll('[data-size-tab]').forEach(t => {
+            const on = t === tab;
+            t.classList.toggle('active', on);
+            t.setAttribute('aria-selected', on ? 'true' : 'false');
+          });
+          document.querySelectorAll('[data-size-pane]').forEach(pane => {
+            pane.classList.toggle('active', pane.dataset.sizePane === name);
+          });
+        });
+      });
+
+      document.getElementById('sizeApplyBtn').addEventListener('click', () => {
+        applySizeFilter(draftSizes);
+        closeSize();
+        document.getElementById('catalog').scrollIntoView({behavior:'smooth', block:'start'});
+        showToast(appliedSizes.length
+          ? 'Фильтр: EU ' + appliedSizes.join(', ')
+          : 'Показаны все размеры');
+      });
+      document.getElementById('sizeClearBtn').addEventListener('click', () => {
+        clearSizeFilter();
+        showToast('Фильтр сброшен');
+      });
+      document.getElementById('clearSizes').addEventListener('click', () => {
+        clearSizeFilter();
+        showToast('Фильтр сброшен');
+      });
+      document.getElementById('openSizePanel').addEventListener('click', openSize);
+      document.getElementById('openSizePanelChip').addEventListener('click', openSize);
+
+      els.activeFilters.addEventListener('click', (e) => {
+        const one = e.target.closest('[data-remove-size]');
+        if(one){
+          const next = appliedSizes.filter(s => s !== one.dataset.removeSize);
+          draftSizes.clear();
+          next.forEach(s => draftSizes.add(s));
+          applySizeFilter(next);
+          renderSizePick();
+          highlightGrid();
+          return;
+        }
+        if(e.target.closest('#clearSizesInline')) clearSizeFilter();
+      });
 
       document.querySelectorAll('[data-sizes]').forEach(group => {
         group.addEventListener('click', (e) => {
@@ -669,7 +949,7 @@
 
       document.getElementById('openCartTop').addEventListener('click', openCart);
       document.getElementById('openCartDock').addEventListener('click', openCart);
-      els.bg.addEventListener('click', closeCart);
+      els.bg.addEventListener('click', closeAllSheets);
       document.getElementById('checkoutBtn').addEventListener('click', () => {
         if(!cart.length){
           showToast('Корзина пуста');
