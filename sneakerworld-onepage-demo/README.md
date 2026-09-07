@@ -1,14 +1,16 @@
 # Sneakerworld — one-page демо
 
-Готовый файл для GitHub Pages: `index.html`
+**Живой URL (GitHub Pages, как Goodboy):**  
+https://konchaarsenia-a11y.github.io/superboyna/sneakerworld-onepage-demo/
 
-## Как обновить на GitHub (копипаст)
+## Как работаем дальше (без копипаста)
 
-1. Открой в Cursor: `sneakerworld-onepage-demo/index.html`
-2. `Ctrl+A` → `Ctrl+C`
-3. GitHub → файл `index.html` → **Edit**
-4. Удали старое → `Ctrl+V` → **Commit changes**
-5. Если Pages включён (`main` / root) — через 1–3 минуты обновится сайт
+1. Правки пишешь в чат
+2. Агент правит `sneakerworld-onepage-demo/index.html`
+3. Агент сам `commit` + `push` на `main`
+4. Через 1–3 минуты обновляется Pages
+
+Отдельный репозиторий клиента больше не нужен для правок демо.
 
 ## Что внутри сейчас
 
