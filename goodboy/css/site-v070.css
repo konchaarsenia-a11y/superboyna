@@ -3746,6 +3746,13 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .trial-steps li:first-child { border-top: none; }
 .trial-steps .sub-step-n { display: none; }
 
+.trial-terms {
+  margin: 14px 4px 0;
+  color: var(--gb-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  text-align: center;
+}
 .trial-footer {
   text-align: center;
   padding-bottom: 1rem;
