@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body>
+  <body class="page-catalog">
     <div class="overscroll-toys" aria-hidden="true">
       <span class="toy t1"><img src="assets/h1.jpg" alt="" /></span>
       <span class="toy t2"><img src="assets/clean1.jpg" alt="" /></span>
@@ -28,16 +28,25 @@
           </div>
         </a>
       </div>
+      <div class="top-nav-slot wrap is-open">
+        <nav class="nav nav-top" aria-label="Категории">
+          <a href="index.html">Главная</a>
+          <a href="index.html#him">Ему</a>
+          <a href="index.html#her">Ей</a>
+          <a class="sale" href="index.html#sale">Скидки</a>
+          <a href="index.html#contacts">Контакты</a>
+        </nav>
+      </div>
     </header>
 
     <main class="wrap">
-      <section style="padding-top:18px">
+      <section class="catalog-section">
         <div class="head">
           <h3>Каталог</h3>
-          <p>Фильтры по разделу, бренду и скидкам.</p>
+          <p>Фильтры по разделу, бренду и размерам.</p>
         </div>
 
-        <div class="filters" id="catalogFilters">
+        <div class="filters sticky-filters" id="catalogFilters">
           <div class="filter-row" aria-label="Раздел">
             <button type="button" class="chip" data-filter="gender" data-value="">Все</button>
             <button type="button" class="chip" data-filter="gender" data-value="men">Ему</button>
@@ -46,12 +55,39 @@
             <button type="button" class="chip" data-filter="type" data-value="apparel">Одежда</button>
             <button type="button" class="chip" data-filter="sale" data-value="1">Скидки</button>
           </div>
-          <div class="filter-row" aria-label="Бренды">
-            <button type="button" class="brand-chip" data-filter="brand" data-value="">Все бренды</button>
-            <button type="button" class="brand-chip" data-filter="brand" data-value="nike">Nike</button>
-            <button type="button" class="brand-chip" data-filter="brand" data-value="adidas">Adidas</button>
-            <button type="button" class="brand-chip" data-filter="brand" data-value="jordan">Jordan</button>
-            <button type="button" class="brand-chip" data-filter="brand" data-value="ws">WS Wear</button>
+
+          <div class="filter-toggles">
+            <button type="button" class="chip toggle" id="toggleBrands" aria-expanded="false">Бренды</button>
+            <button type="button" class="chip toggle" id="toggleSizes" aria-expanded="false">Размеры</button>
+          </div>
+
+          <div class="filter-panel" id="brandsPanel" hidden>
+            <div class="filter-row" aria-label="Бренды">
+              <button type="button" class="brand-chip" data-filter="brand" data-value="">Все бренды</button>
+              <button type="button" class="brand-chip" data-filter="brand" data-value="nike">Nike</button>
+              <button type="button" class="brand-chip" data-filter="brand" data-value="adidas">Adidas</button>
+              <button type="button" class="brand-chip" data-filter="brand" data-value="jordan">Jordan</button>
+              <button type="button" class="brand-chip" data-filter="brand" data-value="ws">WS Wear</button>
+            </div>
+          </div>
+
+          <div class="filter-panel" id="sizesPanel" hidden>
+            <div class="filter-row" aria-label="Размеры">
+              <button type="button" class="chip size-chip" data-filter="size" data-value="">Все</button>
+              <button type="button" class="chip size-chip" data-filter="size" data-value="36">36</button>
+              <button type="button" class="chip size-chip" data-filter="size" data-value="37">37</button>
+              <button type="button" class="chip size-chip" data-filter="size" data-value="38">38</button>
+              <button type="button" class="chip size-chip" data-filter="size" data-value="39">39</button>
+              <button type="button" class="chip size-chip" data-filter="size" data-value="40">40</button>
+              <button type="button" class="chip size-chip" data-filter="size" data-value="41">41</button>
+              <button type="button" class="chip size-chip" data-filter="size" data-value="42">42</button>
+              <button type="button" class="chip size-chip" data-filter="size" data-value="43">43</button>
+              <button type="button" class="chip size-chip" data-filter="size" data-value="44">44</button>
+              <button type="button" class="chip size-chip" data-filter="size" data-value="S">S</button>
+              <button type="button" class="chip size-chip" data-filter="size" data-value="M">M</button>
+              <button type="button" class="chip size-chip" data-filter="size" data-value="L">L</button>
+              <button type="button" class="chip size-chip" data-filter="size" data-value="XL">XL</button>
+            </div>
           </div>
         </div>
 
@@ -215,26 +251,13 @@
       </section>
     </main>
 
-    <footer class="wrap"><a href="index.html">← На главную</a> · пр-т Дзержинского 19, 2-й этаж</footer>
-
-    <div class="dock-stack">
-      <div class="bottom-nav-wrap">
-        <nav class="nav nav-bottom" aria-label="Категории">
-          <a href="index.html">Главная</a>
-          <a href="index.html#him">Ему</a>
-          <a href="index.html#her">Ей</a>
-          <a class="sale" href="index.html#sale">Скидки</a>
-          <a class="cat" href="catalog.html">Каталог</a>
-        </nav>
-      </div>
-      <div class="dock">
-        <div class="dock-inner">
-          <a class="btn-catalog" href="index.html">Главная</a>
-          <button class="btn btn-rug cart-dock" type="button" id="openCartDock" aria-label="Корзина">
-            Корзина
-            <span class="cart-sticker" id="cartSticker" hidden>0</span>
-          </button>
-        </div>
+    <div class="dock">
+      <div class="dock-inner">
+        <a class="btn-catalog" href="index.html">Главная</a>
+        <button class="btn btn-rug cart-dock" type="button" id="openCartDock" aria-label="Корзина">
+          Корзина
+          <span class="cart-sticker" id="cartSticker" hidden>0</span>
+        </button>
       </div>
     </div>
 

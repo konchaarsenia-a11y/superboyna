@@ -148,7 +148,7 @@
   }
 
   function getFilterState() {
-    var state = { gender: "", type: "", brand: "", sale: "" };
+    var state = { gender: "", type: "", brand: "", sale: "", size: "" };
     document.querySelectorAll("#catalogFilters .chip.on, #catalogFilters .brand-chip.on").forEach(function (btn) {
       var key = btn.getAttribute("data-filter");
       var val = btn.getAttribute("data-value") || "";
@@ -167,10 +167,10 @@
       if (key === "gender") on = (state.gender || "") === val;
       else if (key === "type") on = (state.type || "") === val;
       else if (key === "brand") on = (state.brand || "") === val;
+      else if (key === "size") on = (state.size || "") === val;
       else if (key === "sale") on = state.sale === "1" && val === "1";
       btn.classList.toggle("on", on);
     });
-    // ensure defaults for empty gender/brand
     if (!state.gender) {
       var gAll = document.querySelector('#catalogFilters [data-filter="gender"][data-value=""]');
       if (gAll) gAll.classList.add("on");
@@ -179,6 +179,19 @@
       var bAll = document.querySelector('#catalogFilters [data-filter="brand"][data-value=""]');
       if (bAll) bAll.classList.add("on");
     }
+    if (!state.size) {
+      var sAll = document.querySelector('#catalogFilters [data-filter="size"][data-value=""]');
+      if (sAll) sAll.classList.add("on");
+    }
+  }
+
+  function cardHasSize(card, size) {
+    if (!size) return true;
+    var found = false;
+    card.querySelectorAll(".size").forEach(function (btn) {
+      if (btn.textContent.trim() === size) found = true;
+    });
+    return found;
   }
 
   function applyFilters() {
@@ -196,6 +209,7 @@
       if (state.type && card.getAttribute("data-type") !== state.type) ok = false;
       if (state.brand && card.getAttribute("data-brand") !== state.brand) ok = false;
       if (state.sale === "1" && card.getAttribute("data-sale") !== "1") ok = false;
+      if (state.size && !cardHasSize(card, state.size)) ok = false;
       card.classList.toggle("hidden", !ok);
       if (ok) visible += 1;
     });
@@ -207,20 +221,52 @@
       gender: qs("gender"),
       type: qs("type"),
       brand: qs("brand"),
+      size: qs("size"),
       sale: qs("sale") === "1" || qs("sale") === "true" ? "1" : "",
     };
-    // normalize brand aliases
     if (state.brand === "WS Wear") state.brand = "ws";
     if (state.brand === "Nike") state.brand = "nike";
     if (state.brand === "Adidas") state.brand = "adidas";
     if (state.brand === "Jordan") state.brand = "jordan";
     syncFilterButtons(state);
+    if (state.brand) openPanel("brandsPanel", "toggleBrands", true);
+    if (state.size) openPanel("sizesPanel", "toggleSizes", true);
     applyFilters();
+  }
+
+  function openPanel(panelId, toggleId, forceOpen) {
+    var panel = document.getElementById(panelId);
+    var toggle = document.getElementById(toggleId);
+    if (!panel || !toggle) return;
+    var open = forceOpen === true ? true : forceOpen === false ? false : panel.hidden;
+    panel.hidden = !open;
+    toggle.classList.toggle("on", open);
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function bindFilterPanels() {
+    var brandsBtn = document.getElementById("toggleBrands");
+    var sizesBtn = document.getElementById("toggleSizes");
+    if (brandsBtn) {
+      brandsBtn.addEventListener("click", function () {
+        var panel = document.getElementById("brandsPanel");
+        openPanel("brandsPanel", "toggleBrands", panel && panel.hidden);
+        openPanel("sizesPanel", "toggleSizes", false);
+      });
+    }
+    if (sizesBtn) {
+      sizesBtn.addEventListener("click", function () {
+        var panel = document.getElementById("sizesPanel");
+        openPanel("sizesPanel", "toggleSizes", panel && panel.hidden);
+        openPanel("brandsPanel", "toggleBrands", false);
+      });
+    }
   }
 
   function bindFilters() {
     var root = document.getElementById("catalogFilters");
     if (!root) return;
+    bindFilterPanels();
     initFiltersFromUrl();
     root.addEventListener("click", function (e) {
       var btn = e.target.closest("[data-filter]");
@@ -237,6 +283,8 @@
         state.gender = val;
       } else if (key === "brand") {
         state.brand = val;
+      } else if (key === "size") {
+        state.size = val;
       }
 
       syncFilterButtons(state);
@@ -246,6 +294,7 @@
       if (state.gender) params.set("gender", state.gender);
       if (state.type) params.set("type", state.type);
       if (state.brand) params.set("brand", state.brand);
+      if (state.size) params.set("size", state.size);
       if (state.sale === "1") params.set("sale", "1");
       var q = params.toString();
       history.replaceState(null, "", "catalog.html" + (q ? "?" + q : ""));
@@ -296,11 +345,11 @@
   function bindHomeScrollBrand() {
     if (!document.body.classList.contains("page-home")) return;
     var hero = document.querySelector(".hero");
-    var him = document.getElementById("him");
+    var cats = document.getElementById("catsAnchor");
     function sync() {
       var y = window.scrollY || 0;
       var logoAt = hero ? Math.max(120, hero.offsetHeight * 0.42) : 140;
-      var navAt = him ? him.offsetTop - 80 : logoAt + 180;
+      var navAt = cats ? cats.offsetTop - 24 : logoAt + 180;
       document.body.classList.toggle("is-scrolled", y > logoAt);
       document.body.classList.toggle("is-nav", y > navAt);
     }
