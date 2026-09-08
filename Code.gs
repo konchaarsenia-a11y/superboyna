@@ -2113,7 +2113,8 @@ function doGet(e) {
       locationId: e.parameter.locationId || "",
       locationName: e.parameter.locationName ? decodeURIComponent(e.parameter.locationName) : "",
       networkId: e.parameter.networkId || "",
-      basket: e.parameter.basket ? decodeURIComponent(e.parameter.basket) : (e.parameter.basketJson ? decodeURIComponent(e.parameter.basketJson) : "[]")
+      basket: e.parameter.basket ? decodeURIComponent(e.parameter.basket) : (e.parameter.basketJson ? decodeURIComponent(e.parameter.basketJson) : "[]"),
+      note: e.parameter.note ? decodeURIComponent(e.parameter.note) : (e.parameter.orderNote ? decodeURIComponent(e.parameter.orderNote) : "")
     }, callback, false);
   }
   if (action === "partnerListMyOrders") {
@@ -19019,7 +19020,7 @@ var PARTNER_ACCESS_HEADERS_ = ["id", "username", "telegramId", "name", "networkI
 var PARTNER_ORDER_HEADERS_ = [
   "id", "dateIso", "locationId", "locationName", "networkId", "telegramId",
   "userName", "username", "basketJson", "status", "createdAt",
-  "deliverDateIso", "deliverTimeFrom", "deliverTimeTo", "deferredId"
+  "deliverDateIso", "deliverTimeFrom", "deliverTimeTo", "deferredId", "note"
 ];
 
 function partnerNormUser_(u) {
@@ -19670,6 +19671,49 @@ function partnerMigrateProdV13_() {
   return { migrated: true };
 }
 
+/**
+ * V14: @arseniyhotko — 4 точки Варки Александры
+ * (2× Рокоссовского, Голодеда, Казинца). NaN-only доступ снимаем.
+ */
+function partnerMigrateProdV14_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V14") === "1") return { migrated: false };
+  try { partnerMigrateProdV13_(); } catch (e13) {}
+  var now = new Date();
+  var acSh = getPartnerAccessSheet_();
+  var uname = "arseniyhotko";
+  var tid = "650923866";
+  var pointIds = [
+    "pt_varka_rokoss_80",
+    "pt_varka_rokoss_150b",
+    "pt_varka_golodeda_15",
+    "pt_varka_kazintsa_120"
+  ];
+  var rows = readPartnerAccessRows_();
+  var hit = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].username === uname || String(rows[i].telegramId || "") === tid) {
+      hit = rows[i];
+      break;
+    }
+  }
+  var vals = [
+    hit ? hit.id : ("pa_" + uname),
+    uname,
+    tid,
+    "Арсений Хотько",
+    "net_varka",
+    JSON.stringify(pointIds),
+    "partner",
+    "active",
+    now
+  ];
+  if (hit) acSh.getRange(hit.rowIndex, 1, 1, PARTNER_ACCESS_HEADERS_.length).setValues([vals]);
+  else acSh.appendRow(vals);
+  props.setProperty("PARTNER_PROD_V14", "1");
+  return { migrated: true, username: uname, pointIds: pointIds };
+}
+
 function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV3_(); } catch (eMig) {}
   try { partnerMigrateProdV4_(); } catch (eMig4) {}
@@ -19682,6 +19726,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV11_(); } catch (eMig11) {}
   try { partnerMigrateProdV12_(); } catch (eMig12) {}
   try { partnerMigrateProdV13_(); } catch (eMig13) {}
+  try { partnerMigrateProdV14_(); } catch (eMig14) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
@@ -19789,6 +19834,7 @@ function partnerNotifyNewOrder_(order) {
       (order.locationName || order.locationId || "") + "\n" +
       (order.userName || order.username || order.telegramId || "") + "\n" +
       lines +
+      (order.note ? ("\n📝 " + order.note) : "") +
       "\n\nНазначьте дату: Партнёры → Заказы";
     for (var i = 0; i < ids.length; i++) {
       try { telegramSendMarkup_(ids[i], text, null); } catch (eN) {}
@@ -19878,6 +19924,8 @@ function partnerEnqueueDeferred_(order) {
     locationName: order.locationName,
     networkId: order.networkId,
     basket: order.basket || [],
+    note: order.note || "",
+    partnerNote: order.note || "",
     needsSlot: !order.deliverDateIso,
     deliverDateIso: order.deliverDateIso || "",
     deliverDateLabel: order.deliverDateLabel || "",
@@ -20033,6 +20081,7 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
   var id = "po_" + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
   var now = new Date();
   var dateIso = Utilities.formatDate(now, "Europe/Minsk", "yyyy-MM-dd");
+  var orderNote = String((json && (json.note || json.orderNote)) || "").trim().slice(0, 400);
   // Дату назначает менеджер в Бойне (Партнёры → Заказы)
   var order = {
     id: id,
@@ -20044,6 +20093,7 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     userName: String((json && json.userName) || "").trim(),
     username: username,
     basket: basket,
+    note: orderNote,
     status: "new",
     needsSlot: true,
     createdAt: now,
@@ -20071,7 +20121,8 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     order.deliverDateIso,
     order.deliverTimeFrom,
     order.deliverTimeTo,
-    deferredId
+    deferredId,
+    orderNote
   ]);
   try { partnerNotifyNewOrder_(order); } catch (eN2) {}
   try { partnerNotifyPartnerStatus_(order, "received"); } catch (eP) {}
@@ -20128,7 +20179,8 @@ function handlePartnerListMyOrders(json, callback, fromPost) {
       deliverTimeFrom: timeFrom,
       deliverTimeTo: timeTo,
       deliverTimeLabel: timeLabel,
-      deferredId: String(data[r][14] || "")
+      deferredId: String(data[r][14] || ""),
+      note: String(data[r][15] || "").trim()
     });
     if (out.length >= 100) break;
   }
