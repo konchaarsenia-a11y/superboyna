@@ -498,6 +498,12 @@
         <button class="tab" type="button" data-cat="coupon" onclick="setCat('coupon')">Купоны</button>
       </div>
       <div id="catalogList"></div>
+      <div class="card" style="margin-top:4px;padding:12px;">
+        <label class="lbl" for="orderNoteInput" style="margin-top:0;">Примечание к заявке</label>
+        <textarea class="field" id="orderNoteInput" rows="2" maxlength="400"
+          placeholder="Например: позвонить за час, оставить у охраны…"
+          style="resize:vertical;min-height:64px;margin-bottom:0;"></textarea>
+      </div>
     </div>
 
     <!-- Точки (шаг 2 заказа — после корзины) -->
@@ -579,7 +585,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.19";
+  var APP_VER = "3.3.20";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -1628,14 +1634,6 @@
       goPointsForOrder_();
       return;
     }
-    if (state.point && state.point.id !== "pt_nan_1") {
-      var uname = normUser_((state.me && state.me.username) || (user() && user().username) || "");
-      var tid = String((state.me && state.me.telegramId) || (user() && user().telegramId) || "").trim();
-      if (uname === "arseniyhotko" || tid === "650923866") {
-        alert("Нет доступа к этой точке");
-        return;
-      }
-    }
     var basket = [];
     stripBannerIfNeeded_();
     var nfcQty = Number(state.cart[NFC_ID_]) || 0;
@@ -1665,6 +1663,8 @@
       }
       basket.push(row);
     });
+    var noteEl = document.getElementById("orderNoteInput");
+    var orderNote = noteEl ? String(noteEl.value || "").trim().slice(0, 400) : "";
     var u = user();
     var payload = {
       action: "partnerSubmitOrder",
@@ -1675,6 +1675,8 @@
       locationName: state.point.name || "",
       networkId: state.point.networkId || "",
       basket: JSON.stringify(basket),
+      note: orderNote,
+      orderNote: orderNote,
       _: String(Date.now())
     };
     try {
@@ -1686,6 +1688,7 @@
       var ord = res.order || {};
       state.cart = {};
       clearNfcExtra_();
+      if (noteEl) noteEl.value = "";
       state.point = onlyPoint_() || null;
       refreshCart();
       goOrderFlow();
@@ -1725,10 +1728,12 @@
         }).join("<br>");
         var dateTxt = fmtOrderDateShort_(o.dateIso) || fmtOrderDateShort_(o.deliverDateIso) || "—";
         var eta = o.deliverDateLabel || "";
+        var noteTxt = String(o.note || o.orderNote || "").trim();
         return '<div class="order"><div class="h"><span>' + esc(dateTxt) + '</span><span class="badge">' +
           esc(statusRu_(o.status)) + '</span></div><div class="lines">' + lines +
           '</div><div class="h" style="margin-top:8px;"><span>' + esc(o.locationName) +
           '</span><span>бесплатно</span></div>' +
+          (noteTxt ? ('<div class="unit" style="margin-top:6px;">📝 ' + esc(noteTxt) + "</div>") : "") +
           (eta && !hist ? ('<div class="unit" style="margin-top:6px;">Привезём: ' + esc(eta) + "</div>") : "") +
           "</div>";
       }
@@ -2083,16 +2088,26 @@
     return { ok: false };
   }
 
-  function applyPartnerOnePoint_(u, res, matchUser, matchTid, point, net, displayName, fallbackUser, fallbackTid) {
+  function applyPartnerPoints_(u, res, matchUser, matchTid, points, net, displayName, fallbackUser, fallbackTid) {
     var uname = normUser_((u && u.username) || (res && res.username) || "");
     var tid = String((u && u.telegramId) || (res && res.telegramId) || "").trim();
     if (uname !== matchUser && tid !== matchTid) return res;
-    var pts = (res && res.points) || [];
-    var one = null;
-    for (var i = 0; i < pts.length; i++) {
-      if (pts[i] && pts[i].id === point.id) { one = pts[i]; break; }
+    var ptsSrc = (res && res.points) || [];
+    var byId = {};
+    for (var i = 0; i < ptsSrc.length; i++) {
+      if (ptsSrc[i] && ptsSrc[i].id) byId[ptsSrc[i].id] = ptsSrc[i];
     }
-    if (!one) one = point;
+    var pointIds = [];
+    var pointsOut = (points || []).map(function (p) {
+      pointIds.push(p.id);
+      var one = byId[p.id] || p;
+      return {
+        id: one.id || p.id,
+        networkId: one.networkId || net.id,
+        name: one.name || p.name,
+        address: one.address || p.address || ""
+      };
+    });
     var nets = ((res && res.networks) || []).filter(function (n) {
       return n && n.id === net.id;
     });
@@ -2108,23 +2123,28 @@
       username: (res && res.username) || fallbackUser,
       telegramId: tid || fallbackTid || "",
       networkId: net.id,
-      pointIds: [point.id],
-      points: [one],
+      pointIds: pointIds,
+      points: pointsOut,
       networks: nets
     });
   }
 
-  function applyArseniyOnePoint_(u, res) {
-    return applyPartnerOnePoint_(
+  function applyArseniyAlexVarka_(u, res) {
+    return applyPartnerPoints_(
       u, res, "arseniyhotko", "650923866",
-      { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34" },
-      { id: "net_nan", name: "NaN clinic", logo: "assets/partners/nan.png" },
+      [
+        { id: "pt_varka_rokoss_80", networkId: "net_varka", name: "Varka · Рокоссовского 80", address: "Рокоссовского 80" },
+        { id: "pt_varka_rokoss_150b", networkId: "net_varka", name: "Varka · Рокоссовского 150Б", address: "Рокоссовского 150Б" },
+        { id: "pt_varka_golodeda_15", networkId: "net_varka", name: "Varka · Голодеда 15", address: "Голодеда 15" },
+        { id: "pt_varka_kazintsa_120", networkId: "net_varka", name: "Varka · Казинца 120", address: "Казинца 120" }
+      ],
+      { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" },
       "Арсений Хотько", "arseniyhotko", "650923866"
     );
   }
 
   function applyGetMe_(u, res) {
-    res = applyArseniyOnePoint_(u, res);
+    res = applyArseniyAlexVarka_(u, res);
     var ids = normalizePointIds_(res && res.pointIds);
     var asOwner = !!(res && res.isOwner && !res.isPartner && res.role === "owner");
     var asPartner = !asOwner && !!(res && (res.isPartner || res.role === "partner" || res.role === "staff"));

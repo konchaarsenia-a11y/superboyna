@@ -6806,16 +6806,36 @@ async function cutoverSwrGas_(action, params, env, ctx, opts) {
   return { status: "error", message: "gas_proxy_failed", cutover: true, action: action };
 }
 
-/** @arseniyhotko — NaN clinic, одна точка (роль owner Бойни не трогаем). */
+/** @arseniyhotko — 4 Варки Александры (2× Рокоссовского, Голодеда, Казинца). */
 const PARTNER_ARSENIY_USER = "arseniyhotko";
 const PARTNER_ARSENIY_TID = "650923866";
-const PARTNER_ARSENIY_POINT = {
-  id: "pt_nan_1",
-  networkId: "net_nan",
-  name: "NaN · Янковского",
-  address: "ул. Янковского, 34"
-};
-const PARTNER_ARSENIY_NET = { id: "net_nan", name: "NaN clinic", logo: "assets/partners/nan.png" };
+const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
+const PARTNER_ARSENIY_POINTS = [
+  {
+    id: "pt_varka_rokoss_80",
+    networkId: "net_varka",
+    name: "Varka · Рокоссовского 80",
+    address: "Рокоссовского 80"
+  },
+  {
+    id: "pt_varka_rokoss_150b",
+    networkId: "net_varka",
+    name: "Varka · Рокоссовского 150Б",
+    address: "Рокоссовского 150Б"
+  },
+  {
+    id: "pt_varka_golodeda_15",
+    networkId: "net_varka",
+    name: "Varka · Голодеда 15",
+    address: "Голодеда 15"
+  },
+  {
+    id: "pt_varka_kazintsa_120",
+    networkId: "net_varka",
+    name: "Varka · Казинца 120",
+    address: "Казинца 120"
+  }
+];
 const PARTNER_CATALOG_STATIC = [
   { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
   { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "г", active: true },
@@ -6861,24 +6881,40 @@ function isPartnerArseniy_(params) {
   return u === PARTNER_ARSENIY_USER || tid === PARTNER_ARSENIY_TID;
 }
 
-function partnerScopedGetMe_(json, point, net, fallbackName, fallbackUser, fallbackTid, overrideKey) {
-  const src = json && typeof json === "object" && json.status !== "error" ? json : {};
-  const pts = Array.isArray(src.points) ? src.points : [];
-  let one = null;
-  for (let i = 0; i < pts.length; i++) {
-    if (pts[i] && pts[i].id === point.id) {
-      one = pts[i];
-      break;
-    }
+function partnerArseniyAllowedPointId_(id) {
+  const want = String(id || "").trim();
+  if (!want) return false;
+  for (let i = 0; i < PARTNER_ARSENIY_POINTS.length; i++) {
+    if (PARTNER_ARSENIY_POINTS[i].id === want) return true;
   }
-  if (!one) one = point;
+  return false;
+}
+
+function partnerScopedGetMeMulti_(json, points, net, fallbackName, fallbackUser, fallbackTid, overrideKey) {
+  const src = json && typeof json === "object" && json.status !== "error" ? json : {};
+  const ptsSrc = Array.isArray(src.points) ? src.points : [];
+  const byId = {};
+  for (let i = 0; i < ptsSrc.length; i++) {
+    if (ptsSrc[i] && ptsSrc[i].id) byId[ptsSrc[i].id] = ptsSrc[i];
+  }
+  const allowedPointIds = {};
+  const pointIds = [];
+  const pointsOut = (points || []).map(function (p) {
+    allowedPointIds[p.id] = true;
+    pointIds.push(p.id);
+    const one = byId[p.id] || p;
+    return {
+      id: one.id || p.id,
+      networkId: one.networkId || net.id,
+      name: one.name || p.name,
+      address: one.address || p.address || ""
+    };
+  });
   const nets = Array.isArray(src.networks)
     ? src.networks.filter(function (n) {
         return n && n.id === net.id;
       })
     : [];
-  const allowedPointIds = {};
-  allowedPointIds[point.id] = true;
   return Object.assign({}, src, {
     status: "success",
     allowed: true,
@@ -6890,17 +6926,10 @@ function partnerScopedGetMe_(json, point, net, fallbackName, fallbackUser, fallb
     username: src.username || fallbackUser,
     telegramId: src.telegramId || fallbackTid || "",
     networkId: net.id,
-    pointIds: [point.id],
+    pointIds: pointIds,
     allowedPointIds: allowedPointIds,
     networks: nets.length ? nets : [net],
-    points: [
-      {
-        id: one.id || point.id,
-        networkId: one.networkId || net.id,
-        name: one.name || point.name,
-        address: one.address || point.address
-      }
-    ],
+    points: pointsOut,
     catalog: Array.isArray(src.catalog) && src.catalog.length ? src.catalog : PARTNER_CATALOG_STATIC,
     cutover: true,
     partnerOverride: overrideKey
@@ -6908,25 +6937,30 @@ function partnerScopedGetMe_(json, point, net, fallbackName, fallbackUser, fallb
 }
 
 function partnerArseniyGetMe_(json) {
-  return partnerScopedGetMe_(
+  return partnerScopedGetMeMulti_(
     json,
-    PARTNER_ARSENIY_POINT,
+    PARTNER_ARSENIY_POINTS,
     PARTNER_ARSENIY_NET,
     "Арсений Хотько",
     PARTNER_ARSENIY_USER,
     PARTNER_ARSENIY_TID,
-    "arseniy_nan_yankovskogo"
+    "arseniy_varka_alexandra_4"
   );
 }
 
 function partnerBlockWrongPoint_(a, params) {
   if (a !== "partnerSubmitOrder" || !isPartnerArseniy_(params)) return null;
-  const pointId = PARTNER_ARSENIY_POINT.id;
+  const allowed = {};
+  for (let i = 0; i < PARTNER_ARSENIY_POINTS.length; i++) {
+    allowed[PARTNER_ARSENIY_POINTS[i].id] = true;
+  }
   const loc = String((params && (params.locationId || params.pointId)) || "").trim();
-  if (loc && loc !== pointId) {
+  if (loc && !allowed[loc]) {
     return { status: "error", message: "forbidden_point", cutover: true };
   }
-  if (!loc && params) params.locationId = pointId;
+  if (!loc && params && PARTNER_ARSENIY_POINTS[0]) {
+    params.locationId = PARTNER_ARSENIY_POINTS[0].id;
+  }
   return null;
 }
 
@@ -7020,7 +7054,7 @@ function partnerGuardOrRewrite_(a, params, json) {
   if (a === "partnerListMyOrders" && json && json.status === "success" && Array.isArray(json.orders)) {
     return Object.assign({}, json, {
       orders: json.orders.filter(function (o) {
-        return String((o && (o.locationId || o.pointId)) || "") === PARTNER_ARSENIY_POINT.id;
+        return partnerArseniyAllowedPointId_((o && (o.locationId || o.pointId)) || "");
       })
     });
   }
@@ -14918,7 +14952,7 @@ async function partnerListMyOrdersD1_(params, env, ctx) {
   if (orders.length || String((params && params.force) || "") !== "1") {
     if (isPartnerArseniy_(params)) {
       orders = orders.filter(function (o) {
-        return String((o && (o.locationId || o.pointId)) || "") === PARTNER_ARSENIY_POINT.id;
+        return partnerArseniyAllowedPointId_((o && (o.locationId || o.pointId)) || "");
       });
     } else if (tid || user) {
       orders = orders.filter(function (o) {
@@ -15162,7 +15196,7 @@ async function mutatePartnerD1_(action, params, env) {
     if (!tid && !username) return { status: "error", message: "need_user" };
     const locationId = String((params && params.locationId) || "").trim();
     if (!locationId) return { status: "error", message: "need_location" };
-    if (isPartnerArseniy_(params) && locationId !== PARTNER_ARSENIY_POINT.id) {
+    if (isPartnerArseniy_(params) && !partnerArseniyAllowedPointId_(locationId)) {
       return { status: "error", message: "forbidden_point" };
     }
     let basket = params && (params.basket || params.basketJson);
@@ -15232,6 +15266,7 @@ async function mutatePartnerD1_(action, params, env) {
       userName: String((params && params.userName) || "").trim(),
       username: username,
       basket: basket,
+      note: String((params && (params.note || params.orderNote)) || "").trim().slice(0, 400),
       status: "new",
       needsSlot: true,
       createdAt: new Date().toISOString(),

@@ -48,7 +48,7 @@ API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerS
 - Нет Access и owner Бойни → все точки  
 - Админка — вкладка **Партнёры** в Бойне  
 
-Worker: `@arseniyhotko` / `650923866` видит только **NaN clinic · Янковского 34** (роль owner в Бойне не трогаем). Deploy — **Worker**, не вставка `Code.gs`.
+Worker: `@arseniyhotko` / `650923866` — **4 Варки Александры** (Рокоссовского 80 / 150Б, Голодеда 15, Казинца 120). Роль owner в Бойне не трогаем. Deploy — **Worker** + **Code.gs** (`PARTNER_PROD_V14`).
 
 Ответственные за пуши: Script Property `PARTNER_ORDER_NOTIFY_IDS`.
 
@@ -94,7 +94,7 @@ Worker: `@arseniyhotko` / `650923866` видит только **NaN clinic · Я
 - [x] **Prod v3.0.0:** без демо · партнёры из Access · `partnerSubmitOrder` · **Pages** · **нужен Deploy**
 - [x] **Varka точки v3.0.1:** 10 адресов (Репина…Скрипникова) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V4`)
 - [~] **Varka точки v3.0.2:** + **Шевченко 1** (`pt_varka_shevchenko_1`) · уже в живой таблице · **нужен Deploy Code.gs** (`PARTNER_PROD_V11`)
-- [~] **v3.1.0 / v3.3.3:** `@arseniyhotko` — 1 точка **NaN clinic · Янковского 34** (не owner в мини-апп) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V10`) · Worker
+- [~] **v3.1.0 / v3.3.3:** ~~`@arseniyhotko` → NaN~~ · с **v3.3.20 / V14** — 4 Варки Александры · **нужен Deploy Code.gs** (`PARTNER_PROD_V14`) · Worker
 - [x] **v3.3.4:** купон **NaN clinic × Good Boy** по `networkId` (`assets/partners/nan-coupon.png`) · **Pages**
 - [x] **v3.3.5:** купон **Indixvost / Ди & Хвосты** (`assets/partners/indixvost-coupon.png`) · **Pages**
 - [x] **v3.3.6:** купон **Polotno** (`assets/partners/polotno-coupon.png`) · **Pages**
@@ -111,6 +111,7 @@ Worker: `@arseniyhotko` / `650923866` видит только **NaN clinic · Я
 - [x] **v3.3.17:** убран редирект на jsDelivr (`text/plain` = «просто код» без картинок) · снова локальный `app.html` на Pages
 - [x] **v3.3.18:** главная = заказ сразу; сверху История / Кабинет · чуть мягче UI · **Pages**
 - [~] **v3.3.19:** кнопка «К заказу»; без версии в шапке; заявка без даты → уведомление позже; Бойня Партнёры→Заказы · **Pages** · **нужен Deploy Code.gs** + Worker
+- [~] **v3.3.20:** примечание к заявке · `@arseniyhotko` → 4 Варки Александры (Рокоссовского×2, Голодеда, Казинца) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V14`) + Worker
 - [ ] **v3.3.2:** ~~`@nan_animal_clinic`~~ — отменено, доступ у `@arseniyhotko`
 - [x] **v3.0.9:** у позиций лакомств убрана буква «г» — **Pages**
 - [x] **v3.0.8:** как было — owner first (все точки); `@one_more_person_228` обычный owner; allowlist/тест-Access сняты (`PARTNER_PROD_V7`) · **Pages** · **нужен Deploy Code.gs**

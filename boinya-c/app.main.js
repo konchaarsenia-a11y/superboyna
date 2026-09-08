@@ -21367,6 +21367,7 @@
               return escapeHtml(b.name || b.id) + " × " + escapeHtml(String(b.qty)) +
                 (b.unit && b.unit !== "г" ? (" " + escapeHtml(b.unit)) : "");
             }).join("<br>");
+            var noteTxt = String(pl.note || pl.partnerNote || "").trim();
             var eta = [pl.deliverDateLabel, pl.deliverTimeLabel].filter(Boolean).join(", ");
             var st = String(pl.orderStatus || "new").toLowerCase();
             var needSlot = !!(pl.needsSlot || !String(pl.deliverDateIso || "").trim());
@@ -21380,6 +21381,7 @@
               (eta ? (" · " + escapeHtml(eta)) : "") +
               "</div>" +
               (lines ? ('<div class="muted" style="white-space:normal;font-size:12px;margin-top:8px;">' + lines + "</div>") : "") +
+              (noteTxt ? ('<div style="margin-top:8px;font-size:12px;color:#ffd60a;">📝 ' + escapeHtml(noteTxt) + "</div>") : "") +
               "</div>" +
               '<div class="seg-row" style="margin-top:10px;flex-wrap:wrap;">' +
               (needSlot
@@ -22703,6 +22705,7 @@
           return escapeHtml(b.name || b.id) + " × " + escapeHtml(String(b.qty)) +
             (b.unit && b.unit !== "г" ? (" " + escapeHtml(b.unit)) : "");
         }).join("<br>");
+        var noteTxt = String(pl.note || pl.partnerNote || "").trim();
         var st = String(pl.orderStatus || "new").toLowerCase();
         var stRu = st === "in_transit" ? "в пути" : (st === "delivered" ? "доставлено" : (need ? "нужна дата" : "дата есть"));
         var eta = [pl.deliverDateLabel, pl.deliverTimeLabel].filter(Boolean).join(", ");
@@ -22716,6 +22719,7 @@
           (eta ? (" · " + escapeHtml(eta)) : "") +
           "</div>" +
           (lines ? ('<div class="muted" style="white-space:normal;font-size:12px;margin-top:8px;">' + lines + "</div>") : "") +
+          (noteTxt ? ('<div style="margin-top:8px;font-size:12px;color:#ffd60a;">📝 ' + escapeHtml(noteTxt) + "</div>") : "") +
           "</div>";
         if (need && st !== "delivered") {
           html += '<div style="margin-top:10px;">' +
@@ -22804,9 +22808,11 @@
       var noteLines = (pl.basket || []).map(function (b) {
         return (b.name || b.id) + " × " + b.qty + (b.unit && b.unit !== "г" ? (" " + b.unit) : "");
       });
+      var pNote = String(pl.note || pl.partnerNote || "").trim();
       orderNotes = [{
         text: "Партнёрский заказ · " + (pl.locationName || "") +
-          (noteLines.length ? ("\n" + noteLines.join("\n")) : ""),
+          (noteLines.length ? ("\n" + noteLines.join("\n")) : "") +
+          (pNote ? ("\n📝 " + pNote) : ""),
         ts: Date.now()
       }];
       try { renderOrderNotes(); updateNotesSummary(); } catch (eN) {}
