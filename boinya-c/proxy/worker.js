@@ -376,7 +376,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-07 fix-pp-delete-stick-h1"
+      deployMarker: "2026-09-08 fix-pp-suggest-ghosts-h1"
     };
   }
 
@@ -7185,7 +7185,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1 слоты недели перезаписаны из Sheets (пустые дни очищены).",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-07 fix-pp-delete-stick-h1"
+        deployMarker: "2026-09-08 fix-pp-suggest-ghosts-h1"
       };
     } catch (eResync) {
       return {
@@ -7365,7 +7365,12 @@ async function handleCutover_(a, params, env, ctx) {
           });
         }
         const liveSub = await gasProxy_(a, params, env, { write: false });
-        if (liveSub && typeof liveSub === "object" && liveSub.status === "success") {
+        if (
+          liveSub &&
+          typeof liveSub === "object" &&
+          liveSub.status === "success" &&
+          liveSub.found !== false
+        ) {
           try {
             await mergeSubscriptionDetailIntoSnap_(env, liveSub);
           } catch (eMergeSub) {}
@@ -8968,6 +8973,15 @@ async function handleCutover_(a, params, env, ctx) {
         !fast.subscriptions.length);
     // d1-primary без force — сразу D1; force=1 мержит GAS→D1 (новые заносы)
     if (a === "listSubscriptions" && isSubsD1PrimaryCanon_(env) && !emptySubs && !forceSubs) {
+      try {
+        const scrubbed = await scrubPpGhostStubsFromSnap_(env);
+        if (scrubbed > 0) {
+          const after = await getSnapRaw_(env, "listSubscriptions");
+          if (after && Array.isArray(after.subscriptions)) {
+            fast = after;
+          }
+        }
+      } catch (eScrub) {}
       const outSubs = Object.assign({}, fast, {
         cutover: true,
         fromD1: true,
@@ -11440,12 +11454,15 @@ function enrichSubsPreserveDetail_(prevArr, incoming) {
 
 async function mergeSubscriptionDetailIntoSnap_(env, detail) {
   if (!env || !env.DB || !detail) return;
+  // getSubscription found:false — не создавать строку
+  if (detail.found === false) return;
   let list = (await getSnapRaw_(env, "listSubscriptions")) || {
     status: "success",
     subscriptions: []
   };
   const arr = (list.subscriptions || list.items || []).slice();
   const nickKey = normalizeMatchKey_(detail.nick || detail.label || detail.name || "");
+  if (!nickKey && !String(detail.subId || "").trim()) return;
   const sheetWant = subscriptionSheetKey_(detail);
   const subId = String(detail.subId || "").trim();
   let idx = -1;
@@ -11454,6 +11471,11 @@ async function mergeSubscriptionDetailIntoSnap_(env, detail) {
       idx = i;
       break;
     }
+  }
+  // Не создавать «призраков» ПП из getPpOrderSuggest/getPpFactCost при наборе ника:
+  // только deliverySlot без basket/subId/fact — раньше так появились Be / B. / B.e.l
+  if (idx < 0 && !subscriptionDetailHasSubstance_(detail)) {
+    return;
   }
   const merged = Object.assign({}, idx >= 0 ? arr[idx] : {}, detail, {
     _d1Detail: true,
@@ -11468,12 +11490,76 @@ async function mergeSubscriptionDetailIntoSnap_(env, detail) {
   delete merged.sandbox;
   delete merged.subsCanon;
   delete merged.swr;
+  delete merged.found;
+  delete merged.status; // API status success не должен затирать ПП1
+  if (detail.ppStatus) {
+    merged.status = detail.ppStatus;
+    merged.stage = detail.ppStatus;
+  } else if (detail.stage) {
+    merged.status = detail.stage;
+    merged.stage = detail.stage;
+  } else if (idx >= 0 && arr[idx] && (arr[idx].status || arr[idx].stage)) {
+    merged.status = arr[idx].status || arr[idx].stage;
+    merged.stage = arr[idx].stage || arr[idx].status;
+  }
   if (idx >= 0) arr[idx] = merged;
   else arr.push(merged);
   list.subscriptions = arr;
   list.count = arr.length;
   list.status = "success";
   await putSnap_(env, "listSubscriptions", list);
+}
+
+/** Есть ли признаки реальной CRM-карточки (не stub от suggest при наборе ника). */
+function subscriptionDetailHasSubstance_(detail) {
+  if (!detail || typeof detail !== "object") return false;
+  if (detail._allowCreate === true) return true;
+  if (String(detail.subId || detail.id || "").trim()) return true;
+  if (Number(detail.row) > 0 || Number(detail.rowIndex) > 0) return true;
+  if (Array.isArray(detail.basket) && detail.basket.length) return true;
+  if (Array.isArray(detail.monthlyBasket) && detail.monthlyBasket.length) return true;
+  if (Array.isArray(detail.proposedBasket) && detail.proposedBasket.length) return true;
+  const fact = detail.factCost;
+  const deliv = Number(detail.deliveries != null ? detail.deliveries : detail.deliveriesN) || 0;
+  if (fact != null && fact !== "" && deliv > 0) return true;
+  if (String(detail.wishes || detail.note || "").trim().length >= 3 && deliv > 0) return true;
+  return false;
+}
+
+/** Пустые D1-stub ПП без CRM (Be / B. / B.e.l) — вычистить из snap. */
+function isPpGhostStub_(s) {
+  if (!s) return false;
+  const sh = subscriptionSheetKey_(s);
+  if (sh && sh !== "ПП") return false;
+  if (String(s.subId || s.id || "").trim()) return false;
+  if (Number(s.row) > 0 || Number(s.rowIndex) > 0) return false;
+  if (Array.isArray(s.basket) && s.basket.length) return false;
+  if (s.factCost != null && s.factCost !== "") return false;
+  if ((Number(s.deliveries) || 0) > 0) return false;
+  if (String(s.wishes || s.note || "").trim()) return false;
+  // только ник + слот/мета suggest
+  return !!(s.nick || s.label);
+}
+
+async function scrubPpGhostStubsFromSnap_(env) {
+  if (!env || !env.DB) return 0;
+  const list = (await getSnapRaw_(env, "listSubscriptions")) || { status: "success", subscriptions: [] };
+  const arr = Array.isArray(list.subscriptions) ? list.subscriptions : [];
+  const kept = [];
+  let removed = 0;
+  for (let i = 0; i < arr.length; i++) {
+    if (isPpGhostStub_(arr[i])) {
+      removed++;
+      continue;
+    }
+    kept.push(arr[i]);
+  }
+  if (!removed) return 0;
+  list.subscriptions = kept;
+  list.count = kept.length;
+  list.status = "success";
+  await putSnap_(env, "listSubscriptions", list);
+  return removed;
 }
 
 /** force listSubscriptions: добавить/обновить из GAS, не затирая D1-detail.
@@ -12447,7 +12533,21 @@ async function getPpFactCostD1_(params, env, ctx) {
   const nick = String((params && (params.nick || params.client || params.name)) || "").trim();
   async function fromGas_() {
     const live = await gasProxy_("getPpFactCost", params || {}, env, { write: false });
-    if (live && live.status === "success" && env && env.DB && nick) {
+    if (
+      live &&
+      live.status === "success" &&
+      env &&
+      env.DB &&
+      nick &&
+      live.found !== false &&
+      subscriptionDetailHasSubstance_(
+        Object.assign({}, live, {
+          nick: live.nick || nick,
+          sheet: "ПП",
+          deliveries: live.deliveries
+        })
+      )
+    ) {
       try {
         await mergeSubscriptionDetailIntoSnap_(env, {
           nick: live.nick || nick,
@@ -12819,7 +12919,21 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
   const nick = String((params && (params.nick || params.client)) || "").trim();
   async function fromGas_() {
     const live = await gasProxy_("getPpOrderSuggest", params || {}, env, { write: false });
-    if (live && live.status === "success" && env && env.DB) {
+    if (
+      live &&
+      live.status === "success" &&
+      env &&
+      env.DB &&
+      live.found !== false &&
+      subscriptionDetailHasSubstance_(
+        Object.assign({}, live, {
+          nick: live.nick || nick,
+          sheet: live.sheet || "ПП",
+          basket: live.monthlyBasket || live.proposedBasket || live.basket,
+          deliveries: live.deliveriesN != null ? live.deliveriesN : live.deliveries
+        })
+      )
+    ) {
       try {
         await mergeSubscriptionDetailIntoSnap_(
           env,
