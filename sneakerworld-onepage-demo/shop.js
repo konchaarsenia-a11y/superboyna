@@ -203,6 +203,10 @@
     daily: 'На каждый день',
     jordan: 'Jordan / баскет',
     sale: 'Скидки недели',
+    men: 'Ему · обувь',
+    'men-apparel': 'Ему · одежда',
+    women: 'Ей · обувь',
+    'women-apparel': 'Ей · одежда',
   };
 
   function renderActiveFilters() {
