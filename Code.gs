@@ -18770,7 +18770,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (seenKeys[bk]) continue;
     ingestRow_(bookByKey[bk]);
   }
-  // ПП: один factCost на клиента (RAW26/LEGACY), не 11+6 на каждый слот
+  // ПП затраты в статистике = сырьё + свет/доставка/пакеты, БЕЗ наценки (coef 2.3/2.6).
+  // coef — формула цены клиенту; если множить сырьё на coef, «чистое/выхлоп» уезжает в минус.
   try {
     out.ppRawByKey = out.ppRawByKey || {};
     out.ppBasketByKey = out.ppBasketByKey || {};
@@ -18789,7 +18790,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       var nDel = Math.max(1, Number((out.ppDeliveryCountByKey && out.ppDeliveryCountByKey[ppk]) || 0) || 1);
       var factPp = null;
       try {
-        factPp = computePpFactFromCost_(rawPp, baskPp, nDel, null, null, schPp, baskPp, null);
+        // coef=1 → без наценки; свет/доставка/пакеты как в схеме
+        factPp = computePpFactFromCost_(rawPp, baskPp, nDel, 1, null, schPp, baskPp, null);
       } catch (eF) { factPp = null; }
       var factCostPp = factPp && factPp.factCost != null ? Number(factPp.factCost) : Math.round(rawPp * 100) / 100;
       ppCostSum += factCostPp;
@@ -20854,6 +20856,9 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
   var tz = ss.getSpreadsheetTimeZone();
   var fee = BP_DELIVERY_COST_BYN_;
 
+  // выручка ПП: max цена на клиента×месяц (не сумма слотов 1+2)
+  var ppRevByMonthClient = {};
+
   function ingest_(row) {
     if (!row || String(row.status || "").toLowerCase() === "cancelled") return;
     var iso = String(row.dateIso || "").slice(0, 10);
@@ -20869,6 +20874,9 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
       try { bask = JSON.parse(String(row.basketJson)); } catch (e1) { bask = []; }
     }
     if (src === "bp") {
+      // Выхлоп «после перехода» — только БП тех, кто стал ПП.
+      // Иначе все пробники мира минус выручка 5 человек → вечный минус.
+      if (!ck || !convertKeys[ck]) return;
       var raw = estimateBasketRawCost_(bask, "bp");
       var withFee = Math.round((raw + fee) * 100) / 100;
       out.bpDeliveries++;
@@ -20880,7 +20888,11 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
       var cy = convertYmd[ck] || "";
       if (cy && iso < cy) return;
       var price = calendarRowPrice_(row);
-      out.ppRevenue += price;
+      if (!(price > 0)) return;
+      var mk = iso.slice(0, 7);
+      var rk = mk + "|" + ck;
+      var prev = Number(ppRevByMonthClient[rk]) || 0;
+      if (price > prev) ppRevByMonthClient[rk] = price;
       out.ppDeliveries++;
     }
   }
@@ -20905,10 +20917,15 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
     ingest_(b);
   }
 
+  var ppRevSum = 0;
+  for (var prk in ppRevByMonthClient) {
+    if (!ppRevByMonthClient.hasOwnProperty(prk)) continue;
+    ppRevSum += Number(ppRevByMonthClient[prk]) || 0;
+  }
+  out.ppRevenue = Math.round(ppRevSum * 100) / 100;
   out.bpCost = Math.round(out.bpCost * 100) / 100;
   out.bpBasketCost = Math.round(out.bpBasketCost * 100) / 100;
   out.bpDeliveryCost = Math.round(out.bpDeliveryCost * 100) / 100;
-  out.ppRevenue = Math.round(out.ppRevenue * 100) / 100;
   out.profit = Math.round((out.ppRevenue - out.bpCost) * 100) / 100;
   if (out.converted > 0) out.costPerConvert = Math.round((out.bpCost / out.converted) * 100) / 100;
   return out;
