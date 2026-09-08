@@ -110,12 +110,25 @@ def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> No
         assert_true("BYN" in badge_text, "trial: badge uses BYN", errors)
         assert_true("₽" not in badge.inner_text(), "trial: badge must not use ₽", errors)
 
-    how = page.locator(".trial-how-list li")
-    assert_true(how.count() == 3, f"trial: expected 3 how-items, got {how.count()}", errors)
+    how = page.locator(".trial-step-item[data-step]")
+    assert_true(how.count() == 3, f"trial: expected 3 cards, got {how.count()}", errors)
     if how.count() == 3:
-        assert_true("Перед сборкой бесплатного набора" in how.nth(0).inner_text(), "trial: exact how #1", errors)
-        assert_true("Питомец дегустирует набор в течение недели" in how.nth(1).inner_text(), "trial: exact how #2", errors)
-        assert_true("Вы делитесь обратной связью: что понравилось, что нет" in how.nth(2).inner_text(), "trial: exact how #3", errors)
+        assert_true(
+            "Перед сборкой бесплатного набора" in how.nth(0).inner_text(),
+            "trial: exact how #1 in card",
+            errors,
+        )
+        assert_true(
+            "Питомец дегустирует набор в течение недели" in how.nth(1).inner_text(),
+            "trial: exact how #2 in card",
+            errors,
+        )
+        assert_true(
+            "Вы делитесь обратной связью: что понравилось, что нет" in how.nth(2).inner_text(),
+            "trial: exact how #3 in card",
+            errors,
+        )
+    assert_true(page.locator(".trial-step-card").count() == 3, "trial: 3 step buttons", errors)
     after = page.locator(".trial-after")
     assert_true(after.count() > 0, "trial: after line present", errors)
     if after.count():
