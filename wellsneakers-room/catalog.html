@@ -28,65 +28,53 @@
           </div>
         </a>
       </div>
-      <div class="top-nav-slot wrap is-open">
-        <nav class="nav nav-top" aria-label="Категории">
-          <a href="index.html">Главная</a>
-          <a href="index.html#him">Ему</a>
-          <a href="index.html#her">Ей</a>
-          <a class="sale" href="index.html#sale">Скидки</a>
-          <a href="index.html#contacts">Контакты</a>
-        </nav>
-      </div>
     </header>
 
     <main class="wrap">
       <section class="catalog-section">
         <div class="head">
           <h3>Каталог</h3>
-          <p>Фильтры по разделу, бренду и размерам.</p>
+          <p>Выбери бренд и размер.</p>
         </div>
 
         <div class="filters sticky-filters" id="catalogFilters">
-          <div class="filter-row" aria-label="Раздел">
-            <button type="button" class="chip" data-filter="gender" data-value="">Все</button>
-            <button type="button" class="chip" data-filter="gender" data-value="men">Ему</button>
-            <button type="button" class="chip" data-filter="gender" data-value="women">Ей</button>
-            <button type="button" class="chip" data-filter="type" data-value="shoes">Кроссовки</button>
-            <button type="button" class="chip" data-filter="type" data-value="apparel">Одежда</button>
-            <button type="button" class="chip" data-filter="sale" data-value="1">Скидки</button>
+          <div class="street-toggles">
+            <button type="button" class="street-drop" id="toggleBrands" aria-expanded="false">
+              <span class="street-drop-label" id="brandsLabel">Все бренды</span>
+              <span class="street-drop-ico" aria-hidden="true">▾</span>
+            </button>
+            <button type="button" class="street-drop" id="toggleSizes" aria-expanded="false">
+              <span class="street-drop-label" id="sizesLabel">Все размеры</span>
+              <span class="street-drop-ico" aria-hidden="true">▾</span>
+            </button>
           </div>
 
-          <div class="filter-toggles">
-            <button type="button" class="chip toggle" id="toggleBrands" aria-expanded="false">Бренды</button>
-            <button type="button" class="chip toggle" id="toggleSizes" aria-expanded="false">Размеры</button>
-          </div>
-
-          <div class="filter-panel" id="brandsPanel" hidden>
+          <div class="filter-panel street-panel" id="brandsPanel" hidden>
             <div class="filter-row" aria-label="Бренды">
-              <button type="button" class="brand-chip" data-filter="brand" data-value="">Все бренды</button>
-              <button type="button" class="brand-chip" data-filter="brand" data-value="nike">Nike</button>
-              <button type="button" class="brand-chip" data-filter="brand" data-value="adidas">Adidas</button>
-              <button type="button" class="brand-chip" data-filter="brand" data-value="jordan">Jordan</button>
-              <button type="button" class="brand-chip" data-filter="brand" data-value="ws">WS Wear</button>
+              <button type="button" class="street-opt on" data-filter="brand" data-value="" data-label="Все бренды">Все бренды</button>
+              <button type="button" class="street-opt" data-filter="brand" data-value="nike" data-label="Nike">Nike</button>
+              <button type="button" class="street-opt" data-filter="brand" data-value="adidas" data-label="Adidas">Adidas</button>
+              <button type="button" class="street-opt" data-filter="brand" data-value="jordan" data-label="Jordan">Jordan</button>
+              <button type="button" class="street-opt" data-filter="brand" data-value="ws" data-label="WS Wear">WS Wear</button>
             </div>
           </div>
 
-          <div class="filter-panel" id="sizesPanel" hidden>
+          <div class="filter-panel street-panel" id="sizesPanel" hidden>
             <div class="filter-row" aria-label="Размеры">
-              <button type="button" class="chip size-chip" data-filter="size" data-value="">Все</button>
-              <button type="button" class="chip size-chip" data-filter="size" data-value="36">36</button>
-              <button type="button" class="chip size-chip" data-filter="size" data-value="37">37</button>
-              <button type="button" class="chip size-chip" data-filter="size" data-value="38">38</button>
-              <button type="button" class="chip size-chip" data-filter="size" data-value="39">39</button>
-              <button type="button" class="chip size-chip" data-filter="size" data-value="40">40</button>
-              <button type="button" class="chip size-chip" data-filter="size" data-value="41">41</button>
-              <button type="button" class="chip size-chip" data-filter="size" data-value="42">42</button>
-              <button type="button" class="chip size-chip" data-filter="size" data-value="43">43</button>
-              <button type="button" class="chip size-chip" data-filter="size" data-value="44">44</button>
-              <button type="button" class="chip size-chip" data-filter="size" data-value="S">S</button>
-              <button type="button" class="chip size-chip" data-filter="size" data-value="M">M</button>
-              <button type="button" class="chip size-chip" data-filter="size" data-value="L">L</button>
-              <button type="button" class="chip size-chip" data-filter="size" data-value="XL">XL</button>
+              <button type="button" class="street-opt on" data-filter="size" data-value="" data-label="Все размеры">Все размеры</button>
+              <button type="button" class="street-opt" data-filter="size" data-value="36" data-label="EU 36">36</button>
+              <button type="button" class="street-opt" data-filter="size" data-value="37" data-label="EU 37">37</button>
+              <button type="button" class="street-opt" data-filter="size" data-value="38" data-label="EU 38">38</button>
+              <button type="button" class="street-opt" data-filter="size" data-value="39" data-label="EU 39">39</button>
+              <button type="button" class="street-opt" data-filter="size" data-value="40" data-label="EU 40">40</button>
+              <button type="button" class="street-opt" data-filter="size" data-value="41" data-label="EU 41">41</button>
+              <button type="button" class="street-opt" data-filter="size" data-value="42" data-label="EU 42">42</button>
+              <button type="button" class="street-opt" data-filter="size" data-value="43" data-label="EU 43">43</button>
+              <button type="button" class="street-opt" data-filter="size" data-value="44" data-label="EU 44">44</button>
+              <button type="button" class="street-opt" data-filter="size" data-value="S" data-label="S">S</button>
+              <button type="button" class="street-opt" data-filter="size" data-value="M" data-label="M">M</button>
+              <button type="button" class="street-opt" data-filter="size" data-value="L" data-label="L">L</button>
+              <button type="button" class="street-opt" data-filter="size" data-value="XL" data-label="XL">XL</button>
             </div>
           </div>
         </div>

@@ -148,12 +148,12 @@
   }
 
   function getFilterState() {
-    var state = { gender: "", type: "", brand: "", sale: "", size: "" };
-    document.querySelectorAll("#catalogFilters .chip.on, #catalogFilters .brand-chip.on").forEach(function (btn) {
+    var state = { gender: qs("gender"), type: qs("type"), brand: "", sale: "", size: "" };
+    if (qs("sale") === "1" || qs("sale") === "true") state.sale = "1";
+    document.querySelectorAll("#catalogFilters [data-filter].on").forEach(function (btn) {
       var key = btn.getAttribute("data-filter");
       var val = btn.getAttribute("data-value") || "";
       if (!key) return;
-      if (val === "") return;
       state[key] = val;
     });
     return state;
@@ -164,17 +164,10 @@
       var key = btn.getAttribute("data-filter");
       var val = btn.getAttribute("data-value") || "";
       var on = false;
-      if (key === "gender") on = (state.gender || "") === val;
-      else if (key === "type") on = (state.type || "") === val;
-      else if (key === "brand") on = (state.brand || "") === val;
+      if (key === "brand") on = (state.brand || "") === val;
       else if (key === "size") on = (state.size || "") === val;
-      else if (key === "sale") on = state.sale === "1" && val === "1";
       btn.classList.toggle("on", on);
     });
-    if (!state.gender) {
-      var gAll = document.querySelector('#catalogFilters [data-filter="gender"][data-value=""]');
-      if (gAll) gAll.classList.add("on");
-    }
     if (!state.brand) {
       var bAll = document.querySelector('#catalogFilters [data-filter="brand"][data-value=""]');
       if (bAll) bAll.classList.add("on");
@@ -182,6 +175,26 @@
     if (!state.size) {
       var sAll = document.querySelector('#catalogFilters [data-filter="size"][data-value=""]');
       if (sAll) sAll.classList.add("on");
+    }
+    updateDropLabels(state);
+  }
+
+  function updateDropLabels(state) {
+    var brandsLabel = document.getElementById("brandsLabel");
+    var sizesLabel = document.getElementById("sizesLabel");
+    var brandBtn = document.querySelector(
+      '#catalogFilters [data-filter="brand"][data-value="' + (state.brand || "") + '"]'
+    );
+    var sizeBtn = document.querySelector(
+      '#catalogFilters [data-filter="size"][data-value="' + (state.size || "") + '"]'
+    );
+    if (brandsLabel) {
+      brandsLabel.textContent =
+        (brandBtn && brandBtn.getAttribute("data-label")) || (state.brand ? state.brand : "Все бренды");
+    }
+    if (sizesLabel) {
+      sizesLabel.textContent =
+        (sizeBtn && sizeBtn.getAttribute("data-label")) || (state.size ? state.size : "Все размеры");
     }
   }
 
@@ -275,27 +288,21 @@
       var val = btn.getAttribute("data-value") || "";
       var state = getFilterState();
 
-      if (key === "sale") {
-        state.sale = state.sale === "1" ? "" : "1";
-      } else if (key === "type") {
-        state.type = state.type === val ? "" : val;
-      } else if (key === "gender") {
-        state.gender = val;
-      } else if (key === "brand") {
-        state.brand = val;
-      } else if (key === "size") {
-        state.size = val;
-      }
+      if (key === "brand") state.brand = val;
+      else if (key === "size") state.size = val;
+      else return;
 
       syncFilterButtons(state);
       applyFilters();
+      // collapse after pick
+      if (key === "brand") openPanel("brandsPanel", "toggleBrands", false);
+      if (key === "size") openPanel("sizesPanel", "toggleSizes", false);
 
-      var params = new URLSearchParams();
-      if (state.gender) params.set("gender", state.gender);
-      if (state.type) params.set("type", state.type);
+      var params = new URLSearchParams(window.location.search);
       if (state.brand) params.set("brand", state.brand);
+      else params.delete("brand");
       if (state.size) params.set("size", state.size);
-      if (state.sale === "1") params.set("sale", "1");
+      else params.delete("size");
       var q = params.toString();
       history.replaceState(null, "", "catalog.html" + (q ? "?" + q : ""));
     });
