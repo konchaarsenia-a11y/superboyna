@@ -1,4 +1,4 @@
-# Sneakerworld — демо сайта
+# wellsneakers — демо сайта
 
 **Живой URL (GitHub Pages):**  
 https://konchaarsenia-a11y.github.io/superboyna/sneakerworld-onepage-demo/
