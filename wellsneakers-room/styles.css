@@ -65,6 +65,7 @@ img{display:block;max-width:100%}
   letter-spacing:.04em;font-weight:400;
   border:1px solid #5a0a10;box-shadow:2px 2px 0 #5a0a10;
 }
+.cart-count[hidden]{display:none !important}
 
 .nav{
   display:flex;gap:6px;overflow-x:auto;padding:0 0 12px;

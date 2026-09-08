@@ -84,6 +84,7 @@ img{display:block;max-width:100%}
   font-size:14px;font-weight:600;letter-spacing:.03em;
   border:1px solid var(--accent-deep);box-shadow:2px 2px 0 rgba(158,28,28,.35);
 }
+.cart-count[hidden]{display:none !important}
 
 .main-nav{
   display:flex;gap:8px;overflow-x:auto;
