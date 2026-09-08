@@ -88,11 +88,13 @@ def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> No
     page.goto(url, wait_until="domcontentloaded")
     page.wait_for_timeout(800)
 
-    title = page.locator(".trial-offer-title, .sub-trial-title--center, .sub-trial-title")
+    title = page.locator(".trial-headline, .sub-trial-title--center, .sub-trial-title")
     assert_true(title.count() > 0, "trial: title present", errors)
     if title.count():
         text = title.inner_text().lower()
-        assert_true("пробный период" in text and "бесплат" in text, "trial: exact offer title", errors)
+        assert_true("недел" in text and "бесплат" in text, "trial: hero 1 week free", errors)
+    qty = page.locator(".trial-qty")
+    assert_true(qty.count() > 0 and qty.first.inner_text().strip() == "1", "trial: hero qty is 1", errors)
     intro = page.locator(".trial-intro")
     assert_true(intro.count() > 0, "trial: intro present", errors)
     if intro.count():
