@@ -10,6 +10,14 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body class="page-home">
+    <div class="overscroll-toys" aria-hidden="true">
+      <span class="toy t1"><img src="assets/h1.jpg" alt="" /></span>
+      <span class="toy t2"><img src="assets/clean1.jpg" alt="" /></span>
+      <span class="toy t3"><img src="assets/h2.jpg" alt="" /></span>
+      <span class="toy t4"><img src="assets/clean2.jpg" alt="" /></span>
+      <span class="toy t5"><img src="assets/clean3.jpg" alt="" /></span>
+    </div>
+
     <header class="top" id="siteHeader">
       <div class="top-inner">
         <a class="brand" href="index.html">
@@ -20,8 +28,8 @@
           </div>
         </a>
       </div>
-      <div class="wrap">
-        <nav class="nav" aria-label="Меню">
+      <div class="top-nav-slot wrap">
+        <nav class="nav nav-top" aria-label="Меню сверху" id="navTop">
           <a href="#him">Ему</a>
           <a href="#her">Ей</a>
           <a class="sale" href="#sale">Скидки</a>
@@ -130,12 +138,24 @@
 
     <footer class="wrap">wellsneakers · пр-т Дзержинского 19, 2-й этаж</footer>
 
-    <div class="dock">
-      <div class="dock-inner">
-        <a class="btn-catalog" href="catalog.html">Каталог</a>
-        <button class="btn btn-rug cart-dock" type="button" id="openCartDock" aria-label="Корзина">
-          Корзина <span class="cart-dot" id="cartDot" hidden></span>
-        </button>
+    <div class="dock-stack">
+      <div class="bottom-nav-wrap">
+        <nav class="nav nav-bottom" aria-label="Категории">
+          <a href="#him">Ему</a>
+          <a href="#her">Ей</a>
+          <a class="sale" href="#sale">Скидки</a>
+          <a class="cat" href="catalog.html">Каталог</a>
+          <a href="#contacts">Контакты</a>
+        </nav>
+      </div>
+      <div class="dock">
+        <div class="dock-inner">
+          <a class="btn-catalog" href="catalog.html">Каталог</a>
+          <button class="btn btn-rug cart-dock" type="button" id="openCartDock" aria-label="Корзина">
+            Корзина
+            <span class="cart-sticker" id="cartSticker" hidden>0</span>
+          </button>
+        </div>
       </div>
     </div>
 

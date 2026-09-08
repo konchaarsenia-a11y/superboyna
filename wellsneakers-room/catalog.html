@@ -10,7 +10,15 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="top">
+    <div class="overscroll-toys" aria-hidden="true">
+      <span class="toy t1"><img src="assets/h1.jpg" alt="" /></span>
+      <span class="toy t2"><img src="assets/clean1.jpg" alt="" /></span>
+      <span class="toy t3"><img src="assets/h2.jpg" alt="" /></span>
+      <span class="toy t4"><img src="assets/clean2.jpg" alt="" /></span>
+      <span class="toy t5"><img src="assets/clean3.jpg" alt="" /></span>
+    </div>
+
+    <header class="top" id="siteHeader">
       <div class="top-inner">
         <a class="brand" href="index.html">
           <img class="logo-img" src="assets/logo.png" alt="" width="40" height="40" />
@@ -19,15 +27,6 @@
             <small>Каталог</small>
           </div>
         </a>
-      </div>
-      <div class="wrap">
-        <nav class="nav" aria-label="Меню">
-          <a href="index.html">Главная</a>
-          <a href="index.html#him">Ему</a>
-          <a href="index.html#her">Ей</a>
-          <a class="sale" href="index.html#sale">Скидки</a>
-          <a class="cat" href="catalog.html">Каталог</a>
-        </nav>
       </div>
     </header>
 
@@ -218,12 +217,24 @@
 
     <footer class="wrap"><a href="index.html">← На главную</a> · пр-т Дзержинского 19, 2-й этаж</footer>
 
-    <div class="dock">
-      <div class="dock-inner">
-        <a class="btn-catalog" href="index.html">Главная</a>
-        <button class="btn btn-rug cart-dock" type="button" id="openCartDock" aria-label="Корзина">
-          Корзина <span class="cart-dot" id="cartDot" hidden></span>
-        </button>
+    <div class="dock-stack">
+      <div class="bottom-nav-wrap">
+        <nav class="nav nav-bottom" aria-label="Категории">
+          <a href="index.html">Главная</a>
+          <a href="index.html#him">Ему</a>
+          <a href="index.html#her">Ей</a>
+          <a class="sale" href="index.html#sale">Скидки</a>
+          <a class="cat" href="catalog.html">Каталог</a>
+        </nav>
+      </div>
+      <div class="dock">
+        <div class="dock-inner">
+          <a class="btn-catalog" href="index.html">Главная</a>
+          <button class="btn btn-rug cart-dock" type="button" id="openCartDock" aria-label="Корзина">
+            Корзина
+            <span class="cart-sticker" id="cartSticker" hidden>0</span>
+          </button>
+        </div>
       </div>
     </div>
 
