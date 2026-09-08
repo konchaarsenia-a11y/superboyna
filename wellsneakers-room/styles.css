@@ -337,5 +337,6 @@ footer{padding:22px 0 10px;text-align:center;color:var(--muted);font-size:13px}
 }
 @media (prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
-  .sheet,.toast{transition:none}
+  .sheet,.toast,.brand{transition:none}
+  .cart-dot{animation:none}
 }
