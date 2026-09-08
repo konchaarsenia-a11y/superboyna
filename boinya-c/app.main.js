@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115936";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115937";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -15278,6 +15278,102 @@
       return '<span style="color:' + color + ';font-size:11px;">' + sign + abs + pct + "</span>";
     }
 
+    function renderStatsStaffCard_(res) {
+      var st = res.staff || {};
+      var items = (st.items || (res.fact && res.fact.staff) || []).slice();
+      var floor = st.floorMonth || (res.fact && res.fact.staffFloorMonth) || "2026-09";
+      var monthKey = String(res.monthKey || ensureStatsMonthKey_() || "");
+      var html = '<div class="card" id="statsStaffCard" style="border:1px solid rgba(255,214,10,0.35);">';
+      html += '<div class="section-title" style="margin-top:0;color:#ffd60a;">Сотрудники (ЗП)</div>';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">ЗП попадает в себест <b>только после добавления</b> и только с месяца «с». Август 2026 и раньше — без ЗП (пол ' + escapeHtml(floor) + ').</div>';
+      if (!items.length) {
+        html += '<div class="muted" style="font-size:13px;margin-bottom:10px;">Пока никого нет — в затратах ЗП = 0.</div>';
+      } else {
+        items.forEach(function (p) {
+          html += '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06);">';
+          html += '<div style="min-width:0;"><b>' + escapeHtml(p.name || "") + '</b>';
+          html += '<div class="muted" style="font-size:11px;">с ' + escapeHtml(p.fromMonth || "—");
+          if (p.toMonth) html += " по " + escapeHtml(p.toMonth);
+          html += "</div></div>";
+          html += '<div style="text-align:right;"><b style="color:#ffd60a;">' + escapeHtml(String(p.salary != null ? p.salary : 0)) + " BYN</b>";
+          html += '<div><button type="button" class="btn-action" style="margin:4px 0 0;padding:4px 10px;font-size:12px;background:#3a3a3c;" onclick="deleteStatsStaff_(\'' +
+            escapeHtml(String(p.id || "")).replace(/'/g, "") + "')\">Убрать</button></div></div>";
+          html += "</div>";
+        });
+      }
+      html += '<div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
+      html += '<div class="form-group" style="margin:0;"><label>Имя</label><input type="text" id="statsStaffName" placeholder="Имя"></div>';
+      html += '<div class="form-group" style="margin:0;"><label>ЗП / мес (BYN)</label><input type="number" id="statsStaffSalary" step="0.01" min="0" inputmode="decimal" placeholder="0"></div>';
+      html += '<div class="form-group" style="margin:0;"><label>С месяца</label><input type="month" id="statsStaffFrom" value="' + escapeHtml(monthKey >= floor ? monthKey : floor) + '"></div>';
+      html += '<div class="form-group" style="margin:0;"><label>По месяц (опц.)</label><input type="month" id="statsStaffTo" value=""></div>';
+      html += "</div>";
+      html += '<button type="button" class="btn-action btn-orange" style="margin-top:10px;" onclick="saveStatsStaff_()">Добавить сотрудника</button>';
+      html += "</div>";
+      return html;
+    }
+
+    async function saveStatsStaff_() {
+      var nameEl = document.getElementById("statsStaffName");
+      var salEl = document.getElementById("statsStaffSalary");
+      var fromEl = document.getElementById("statsStaffFrom");
+      var toEl = document.getElementById("statsStaffTo");
+      var name = nameEl ? String(nameEl.value || "").trim() : "";
+      var salary = salEl ? Number(salEl.value) : NaN;
+      var fromMonth = fromEl ? String(fromEl.value || "").trim() : "";
+      var toMonth = toEl ? String(toEl.value || "").trim() : "";
+      if (!name) { try { showToast("Укажи имя"); } catch (e0) {} return; }
+      if (!isFinite(salary) || salary < 0) { try { showToast("Укажи ЗП"); } catch (e1) {} return; }
+      try { showToast("Сохраняю…"); } catch (eT) {}
+      try {
+        var res = await apiPost({
+          action: "saveStatsStaff",
+          name: name,
+          salary: salary,
+          fromMonth: fromMonth,
+          toMonth: toMonth,
+          active: "yes",
+          telegramId: myTelegramId || ""
+        });
+        if (!res || res.status !== "success") {
+          try { showToast((res && res.message) || "Не сохранилось — Deploy Code.gs"); } catch (e2) {}
+          return;
+        }
+        try { showToast("Сотрудник добавлен"); } catch (e3) {}
+        if (nameEl) nameEl.value = "";
+        if (salEl) salEl.value = "";
+        window._statsCacheByMonth = Object.create(null);
+        window._statsCacheHtml = "";
+        loadStats({ force: true });
+      } catch (e) {
+        try { showToast("Ошибка сохранения"); } catch (e4) {}
+      }
+    }
+    window.saveStatsStaff_ = saveStatsStaff_;
+
+    async function deleteStatsStaff_(id) {
+      id = String(id || "").trim();
+      if (!id) return;
+      if (!confirm("Убрать сотрудника из статистики? ЗП перестанет вычитаться.")) return;
+      try {
+        var res = await apiPost({
+          action: "deleteStatsStaff",
+          id: id,
+          telegramId: myTelegramId || ""
+        });
+        if (!res || res.status !== "success") {
+          try { showToast((res && res.message) || "Не удалилось — Deploy Code.gs"); } catch (e0) {}
+          return;
+        }
+        try { showToast("Убран"); } catch (e1) {}
+        window._statsCacheByMonth = Object.create(null);
+        window._statsCacheHtml = "";
+        loadStats({ force: true });
+      } catch (e) {
+        try { showToast("Ошибка"); } catch (e2) {}
+      }
+    }
+    window.deleteStatsStaff_ = deleteStatsStaff_;
+
     function renderStatsDashboard_(res) {
       var pp = res.pp || {};
       var bp = res.bp || {};
@@ -15372,9 +15468,14 @@
       html += line_("Свет ПП (" + ppLightEach + "р × " + ppLightPeople + " чел)", ppLightCost + " BYN", "#bf5af2");
       html += line_("Доставки ПП (" + ppDelivEach + "р × " + ppDelivN + ")", ppDeliveryCost + " BYN", "#bf5af2");
       html += line_("БП (состав + 6р)", bpSpend + " BYN · " + bpDeliv + " дост.", "#ff453a");
+      var staffCost = fact.staffCost != null ? fact.staffCost : ((res.staff && res.staff.cost) || 0);
+      var staffCount = fact.staffCount != null ? fact.staffCount : ((res.staff && res.staff.count) || 0);
+      html += line_("ЗП сотрудников", staffCost + " BYN · " + staffCount + " чел.", "#ffd60a");
       html += line_("Всего", costActual + " BYN", "#64d2ff");
-      html += '<div class="muted" style="font-size:11px;margin-top:8px;">ПП: состав (без наценки) + свет 11р/чел + 6р за доставку. БП: состав + 6р. Прайс — лист Розница / Подписка.</div>';
+      html += '<div class="muted" style="font-size:11px;margin-top:8px;">ПП: состав (без наценки) + свет 11р/чел + 6р за доставку. БП: состав + 6р. ЗП — только если сотрудник добавлен и месяц ≥ «с».</div>';
       html += "</div>";
+
+      html += renderStatsStaffCard_(res);
 
       var bpBasket = fact.bpBasketCost != null ? fact.bpBasketCost : (bp.basketCost || 0);
       var bpDelivFee = fact.bpDeliveryCost != null ? fact.bpDeliveryCost : (bp.deliveryCost || 0);
