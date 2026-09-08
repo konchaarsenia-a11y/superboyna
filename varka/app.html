@@ -62,7 +62,7 @@
       background-size: 180px 180px;
       mix-blend-mode: soft-light;
     }
-    .wrap { position: relative; z-index: 1; max-width: 440px; margin: 0 auto; padding: 18px 16px 0; }
+    .wrap { position: relative; z-index: 1; max-width: 440px; margin: 0 auto; padding: 12px 16px 0; }
     body.has-cart .wrap { padding-bottom: 28px; }
     #catalogList, #pointsList, #myOrdersList { padding-bottom: 8px; }
     body.has-cart #catalogList, body.has-cart #pointsList { padding-bottom: 16px; }
@@ -71,6 +71,51 @@
     @keyframes in {
       from { opacity: 0; transform: translateY(8px); }
       to { opacity: 1; transform: none; }
+    }
+    .app-nav {
+      display: none;
+      position: sticky; top: 0; z-index: 4;
+      margin: 0 -4px 14px;
+      padding: 8px 4px 10px;
+      background: linear-gradient(180deg, var(--bg) 55%, transparent);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    body.has-nav .app-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .app-nav-brand {
+      display: flex; align-items: center; gap: 10px; min-width: 0;
+      border: 0; background: transparent; color: inherit; padding: 0; cursor: pointer;
+      font-family: inherit; text-align: left;
+    }
+    .app-nav-brand .mark {
+      flex: 0 0 auto;
+      width: 36px; height: 36px; border-radius: 12px;
+      display: grid; place-items: center;
+      font-family: var(--display); font-size: 13px; letter-spacing: 0.04em;
+      color: #1a0f00; background: linear-gradient(145deg, var(--accent2), var(--accent));
+      box-shadow: 0 6px 16px rgba(245,154,46,0.22);
+    }
+    .app-nav-brand .lab { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .app-nav-brand strong {
+      font-family: var(--display); font-size: 15px; letter-spacing: 0.03em;
+      font-weight: 400; line-height: 1.1;
+    }
+    .app-nav-brand em {
+      font-style: normal; color: var(--muted); font-size: 11px; font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;
+    }
+    .app-nav-links { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .nav-link {
+      border: 1px solid transparent; background: rgba(255,255,255,0.04);
+      color: var(--muted); border-radius: 999px; padding: 8px 12px;
+      font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    html[data-theme="light"] .nav-link { background: rgba(0,0,0,0.04); }
+    .nav-link:active { transform: scale(0.97); }
+    .nav-link.on {
+      color: var(--accent2); border-color: var(--line);
+      background: rgba(245,154,46,0.12);
     }
     .brand {
       font-family: var(--display); font-size: 28px; letter-spacing: 0.04em;
@@ -176,28 +221,39 @@
     .chip.on { color: var(--accent2); border-color: var(--accent); }
 
     .tabs {
-      display: flex; gap: 6px; background: var(--bg2); padding: 4px;
-      border-radius: 14px; margin-bottom: 14px; border: 1px solid var(--line);
+      display: flex; gap: 4px; background: rgba(255,255,255,0.03); padding: 4px;
+      border-radius: 16px; margin-bottom: 14px; border: 1px solid var(--line);
     }
+    html[data-theme="light"] .tabs { background: rgba(0,0,0,0.03); }
     .tab {
       flex: 1; border: 0; background: transparent; color: var(--muted);
-      padding: 10px; border-radius: 11px; font-size: 14px; font-weight: 700; cursor: pointer;
+      padding: 11px 10px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer;
+      transition: background 0.15s, color 0.15s;
     }
-    .tab.on { background: var(--bg3); color: var(--accent2); }
+    .tab.on {
+      background: linear-gradient(145deg, rgba(245,154,46,0.22), rgba(245,154,46,0.08));
+      color: var(--accent2);
+    }
 
     .item {
       display: flex; align-items: center; gap: 12px;
-      background: var(--bg2); border: 1px solid var(--line);
-      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px;
+      background: linear-gradient(160deg, var(--bg2), var(--bg3));
+      border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+      transition: border-color 0.15s, transform 0.12s;
     }
+    .item:active { transform: scale(0.995); }
     .item .title { font-weight: 800; font-size: 15px; }
     .item .unit { color: var(--muted); font-size: 13px; margin-top: 2px; }
     .coupon-card {
       display: flex; align-items: center; gap: 10px;
       background: linear-gradient(145deg, var(--bg2), #1a140f);
       border: 1px solid rgba(245,154,46,0.28);
-      border-radius: 14px; padding: 8px 10px; margin-bottom: 8px;
+      border-radius: 14px; padding: 8px 10px; margin-bottom: 10px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+      transition: transform 0.12s, border-color 0.15s;
     }
+    .coupon-card:active { transform: scale(0.995); }
     html[data-theme="light"] .coupon-card {
       background: linear-gradient(145deg, #fff, #f8efe3);
     }
@@ -314,7 +370,7 @@
     .bar {
       position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
       padding: 12px 16px calc(12px + var(--safe-b));
-      background: linear-gradient(to top, var(--bg) 70%, transparent);
+      background: linear-gradient(to top, var(--bg) 62%, transparent);
       pointer-events: none;
     }
     .bar-inner {
@@ -322,8 +378,10 @@
       display: flex; gap: 10px; align-items: center;
     }
     .cart-sum {
-      flex: 1; background: var(--bg2); border: 1px solid var(--line);
+      flex: 1; background: linear-gradient(145deg, var(--bg2), var(--bg3));
+      border: 1px solid var(--line);
       border-radius: 14px; padding: 12px 14px; font-size: 14px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.18);
     }
     .cart-sum b { color: var(--accent2); }
 
@@ -369,6 +427,20 @@
 </head>
 <body>
   <div class="wrap">
+    <nav class="app-nav" id="appNav" aria-label="Разделы">
+      <button type="button" class="app-nav-brand" onclick="goOrderFlow()" title="К заказу">
+        <span class="mark">GB</span>
+        <span class="lab">
+          <strong id="navTitle">Заказ</strong>
+          <em id="navWho">—</em>
+        </span>
+      </button>
+      <div class="app-nav-links">
+        <button type="button" class="nav-link" data-nav="orders" onclick="showMyOrders()">История</button>
+        <button type="button" class="nav-link" data-nav="cabinet" onclick="goCabinet()">Кабинет</button>
+      </div>
+    </nav>
+
     <!-- Boot -->
     <div id="screenBoot" class="screen on">
       <p class="empty" id="bootMsg">Вход…</p>
@@ -396,47 +468,13 @@
       </div>
     </div>
 
-    <!-- Личный кабинет (главный экран после входа) -->
-    <div id="screenHome" class="screen">
-      <div class="session" id="sessionBar">
-        <div>
-          <div class="who" id="sessionWho">—</div>
-          <div class="meta" id="sessionMeta">—</div>
-        </div>
-        <button class="chip" type="button" onclick="demoLogout()">Выйти</button>
-      </div>
-      <div class="sub" style="margin-top:0;">Личный кабинет</div>
-      <button class="door" type="button" onclick="goOrderFlow()">
-        <div class="ico">1</div>
-        <div>
-          <div class="t">Сделать заказ</div>
-          <div class="d">Сначала лакомства и купоны · потом ваша точка</div>
-        </div>
-      </button>
-      <button class="door" type="button" onclick="showMyOrders()">
-        <div class="ico">2</div>
-        <div>
-          <div class="t">Мои заказы</div>
-          <div class="d">Текущие и история</div>
-        </div>
-      </button>
-      <button class="door" type="button" onclick="goCabinet()">
-        <div class="ico">3</div>
-        <div>
-          <div class="t">Настройки</div>
-          <div class="d">Тема, имя, доступ сотруднику</div>
-        </div>
-      </button>
-    </div>
-
-    <!-- Каталог (шаг 1 заказа) -->
+    <!-- Каталог (главный экран после входа) -->
     <div id="screenOrder" class="screen">
-      <div class="toprow">
+      <div class="toprow" style="margin-bottom:10px;">
         <div>
-          <div class="title" id="orderTitle" style="font-size:18px;">Заявка</div>
-          <div class="sub" style="text-align:left;margin:2px 0 0;" id="orderLocName">Сначала выберите позиции</div>
+          <div class="title" id="orderTitle" style="font-size:18px;">Бесплатная заявка</div>
+          <div class="sub" style="text-align:left;margin:4px 0 0;" id="orderLocName">Выберите лакомства и купоны</div>
         </div>
-        <button class="chip" type="button" onclick="goHome()">Кабинет</button>
       </div>
       <div class="tabs">
         <button class="tab on" type="button" data-cat="treat" onclick="setCat('treat')">Лакомства</button>
@@ -458,17 +496,24 @@
 
     <div id="screenMyOrders" class="screen">
       <div class="toprow">
-        <div class="title">Мои заказы</div>
-        <button class="chip" type="button" onclick="goHome()">Кабинет</button>
+        <div class="title">История заказов</div>
+        <button class="chip on" type="button" onclick="goOrderFlow()">К заказу</button>
       </div>
       <div id="myOrdersList"></div>
     </div>
 
-    <!-- Настройки -->
+    <!-- Настройки / кабинет -->
     <div id="screenCabinet" class="screen">
       <div class="toprow">
-        <div class="title">Настройки</div>
-        <button class="chip" type="button" onclick="goHome()">Кабинет</button>
+        <div class="title">Кабинет</div>
+        <button class="chip on" type="button" onclick="goOrderFlow()">К заказу</button>
+      </div>
+      <div class="session" id="sessionBar" style="margin-top:2px;">
+        <div>
+          <div class="who" id="sessionWho">—</div>
+          <div class="meta" id="sessionMeta">—</div>
+        </div>
+        <button class="chip" type="button" onclick="demoLogout()">Выйти</button>
       </div>
       <div class="card">
         <h3>Ваш доступ</h3>
@@ -519,7 +564,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.17";
+  var APP_VER = "3.3.18";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -932,14 +977,32 @@
   }
 
   function show(id) {
-    ["screenBoot", "screenLogin", "screenLocked", "screenHome", "screenPoints", "screenOrder", "screenMyOrders", "screenCabinet"].forEach(function (s) {
+    ["screenBoot", "screenLogin", "screenLocked", "screenPoints", "screenOrder", "screenMyOrders", "screenCabinet"].forEach(function (s) {
       var el = document.getElementById(s);
       if (el) el.classList.toggle("on", s === id);
     });
     var bar = document.getElementById("cartBar");
     var withCart = (id === "screenOrder" || id === "screenPoints");
     if (bar) bar.style.display = withCart ? "" : "none";
-    try { document.body.classList.toggle("has-cart", !!withCart); } catch (eBar) {}
+    var authed = (id === "screenOrder" || id === "screenPoints" ||
+      id === "screenMyOrders" || id === "screenCabinet");
+    try {
+      document.body.classList.toggle("has-cart", !!withCart);
+      document.body.classList.toggle("has-nav", !!authed);
+    } catch (eBar) {}
+    var navTitle = document.getElementById("navTitle");
+    if (navTitle) {
+      if (id === "screenMyOrders") navTitle.textContent = "История";
+      else if (id === "screenCabinet") navTitle.textContent = "Кабинет";
+      else if (id === "screenPoints") navTitle.textContent = "Точка";
+      else navTitle.textContent = "Заказ";
+    }
+    document.querySelectorAll(".nav-link").forEach(function (el) {
+      var key = el.getAttribute("data-nav");
+      var on = (key === "orders" && id === "screenMyOrders") ||
+        (key === "cabinet" && id === "screenCabinet");
+      el.classList.toggle("on", !!on);
+    });
     updateCartButton_();
   }
 
@@ -1089,7 +1152,13 @@
     state.me = buildMe_();
     var who = document.getElementById("sessionWho");
     var meta = document.getElementById("sessionMeta");
-    if (who) who.textContent = state.me.name;
+    var navWho = document.getElementById("navWho");
+    var whoTxt = state.me.name || "Партнёр";
+    if (who) who.textContent = whoTxt;
+    if (navWho) {
+      navWho.textContent = (state.me.username ? ("@" + state.me.username) : whoTxt) +
+        " · v" + APP_VER;
+    }
     if (meta) {
       var n = (state.me.pointIds || []).length;
       var ptsLab = (state.me.points || []).map(function (p) {
@@ -1105,12 +1174,12 @@
         " · v" + APP_VER;
     }
     var ot = document.getElementById("orderTitle");
-    if (ot) ot.textContent = "Заявка";
-    show("screenHome");
+    if (ot) ot.textContent = "Бесплатная заявка";
+    goOrderFlow();
   }
 
   function goHome() {
-    show("screenHome");
+    goOrderFlow();
   }
 
   function goOrderFlow() {
@@ -1606,7 +1675,7 @@
       clearNfcExtra_();
       state.point = onlyPoint_() || null;
       refreshCart();
-      show("screenHome");
+      goOrderFlow();
       alert(slot
         ? ("Заявка принята.\nПривезём: " + slot)
         : (res.id ? ("Заявка № " + res.id + " принята.") : "Заявка принята."));

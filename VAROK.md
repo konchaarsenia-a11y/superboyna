@@ -21,7 +21,7 @@ Telegram Mini App для **партнёрских сетей**: бесплатн
 2. **Bot Settings → Menu Button → Configure menu button**
    - Text: `Открыть`
    - URL: `https://konchaarsenia-a11y.github.io/superboyna/varka/`
-3. Проверка: открыть [@GOODBOY_LG](https://t.me/GOODBOY_LG) → кнопка меню → шапка **v3.3.17+**, купоны с картинками, NFC без пресетов 48/73/96/120.
+3. Проверка: открыть [@GOODBOY_LG](https://t.me/GOODBOY_LG) → кнопка меню → сразу **заказ** (каталог), сверху **История** / **Кабинет**, шапка **v3.3.18+**.
 
 Токен бота в репозиторий **не** писать. Для webhook/уведомлений позже — `PropertiesService` в своём Script.
 
@@ -109,6 +109,7 @@ Worker: `@arseniyhotko` / `650923866` видит только **NaN clinic · Я
 - [x] **v3.3.14:** NFC причины: поломка / потеря / второй для работы / несколько сотрудников; без штрафов при поломке и потере · **Pages**
 - [x] **v3.3.15:** NFC без пресетов 48/73/96/120 — только «Взять 1» / «+ещё» · **Pages**
 - [x] **v3.3.17:** убран редирект на jsDelivr (`text/plain` = «просто код» без картинок) · снова локальный `app.html` на Pages
+- [x] **v3.3.18:** главная = заказ сразу; сверху История / Кабинет · чуть мягче UI · **Pages**
 - [ ] **v3.3.2:** ~~`@nan_animal_clinic`~~ — отменено, доступ у `@arseniyhotko`
 - [x] **v3.0.9:** у позиций лакомств убрана буква «г» — **Pages**
 - [x] **v3.0.8:** как было — owner first (все точки); `@one_more_person_228` обычный owner; allowlist/тест-Access сняты (`PARTNER_PROD_V7`) · **Pages** · **нужен Deploy Code.gs**
