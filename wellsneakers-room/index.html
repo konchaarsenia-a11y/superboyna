@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <title>wellsneakers — Минск</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      :root{
+        --wall:#0b0b0c;
+        --wall-2:#141416;
+        --panel:#1c1d21;
+        --concrete:#9a9b9f;
+        --glow:#f3e7cf;
+        --glow-soft:rgba(243,231,207,.22);
+        --floor:#cfc3b4;
+        --rug:#c41e2a;
+        --rug-deep:#8e121c;
+        --ink:#f5f2ec;
+        --muted:#a7a29b;
+        --line:rgba(255,255,255,.10);
+        --pad:18px;
+        --safe-b:env(safe-area-inset-bottom,0px);
+        --max:1100px;
+        --shadow:0 18px 40px rgba(0,0,0,.45);
+      }
+      *{box-sizing:border-box}
+      html{scroll-behavior:smooth}
+      body{
+        margin:0;
+        font-family:Barlow,system-ui,sans-serif;
+        color:var(--ink);
+        background:
+          radial-gradient(900px 420px at 50% -10%, rgba(243,231,207,.08), transparent 55%),
+          linear-gradient(180deg, var(--wall) 0%, var(--wall-2) 100%);
+        line-height:1.4;
+        padding-bottom:calc(88px + var(--safe-b));
+      }
+      a{color:inherit;text-decoration:none}
+      button{font:inherit;color:inherit;cursor:pointer}
+      img{display:block;max-width:100%}
+
+      .wrap{width:min(var(--max),100%);margin:0 auto;padding:0 var(--pad)}
+
+      .top{
+        position:sticky;top:0;z-index:40;
+        background:rgba(11,11,12,.88);
+        backdrop-filter:blur(14px);
+        border-bottom:1px solid var(--line);
+      }
+      .top-inner{
+        width:min(var(--max),100%);margin:0 auto;padding:14px var(--pad);
+        display:flex;align-items:center;justify-content:space-between;gap:14px;
+      }
+      .brand{display:flex;align-items:center;gap:12px;min-width:0}
+      .logo{
+        width:52px;height:52px;border-radius:50%;flex:0 0 auto;
+        background:
+          radial-gradient(circle at 35% 30%, #fff 0 8%, transparent 9%),
+          conic-gradient(from 210deg, #e8b84a, #c41e2a, #2f6fed, #3bb273, #e8b84a);
+        padding:3px;
+        box-shadow:0 0 0 1px rgba(243,231,207,.25), 0 0 24px rgba(243,231,207,.18);
+      }
+      .logo span{
+        display:grid;place-items:center;width:100%;height:100%;border-radius:50%;
+        background:#111;font-family:Oswald,sans-serif;font-size:15px;font-weight:700;letter-spacing:.04em;
+      }
+      .brand h1{
+        margin:0;font-family:Oswald,sans-serif;font-size:clamp(22px,4vw,30px);
+        font-weight:600;letter-spacing:.04em;text-transform:lowercase;
+      }
+      .brand small{display:block;margin-top:2px;color:var(--muted);font-size:13px;font-weight:600}
+      .cart-btn{
+        min-height:44px;padding:0 14px;border-radius:999px;
+        border:1px solid var(--line);background:var(--panel);
+        font-weight:700;font-size:14px;
+        display:inline-flex;align-items:center;gap:8px;
+      }
+      .cart-count{
+        min-width:20px;height:20px;border-radius:999px;padding:0 6px;
+        display:inline-flex;align-items:center;justify-content:center;
+        background:var(--rug);font-size:12px;font-weight:800;
+      }
+
+      .nav{
+        display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
+        padding:0 0 14px;
+      }
+      .nav a{
+        min-height:46px;border-radius:999px;
+        display:inline-flex;align-items:center;justify-content:center;
+        border:1px solid var(--line);background:rgba(28,29,33,.9);
+        font-family:Oswald,sans-serif;font-size:15px;font-weight:600;letter-spacing:.03em;
+      }
+      .nav a.sale{
+        background:linear-gradient(180deg, rgba(196,30,42,.25), rgba(196,30,42,.12));
+        border-color:rgba(196,30,42,.45);color:#ffd0d4;
+      }
+
+      .hero{
+        padding:18px 0 8px;
+      }
+      .hero-card{
+        position:relative;border-radius:22px;overflow:hidden;
+        border:1px solid var(--line);
+        box-shadow:var(--shadow), 0 0 0 1px rgba(243,231,207,.08), 0 0 40px rgba(243,231,207,.08);
+        min-height:420px;
+        display:grid;
+      }
+      .hero-photo{position:relative;min-height:420px;background:#111}
+      .hero-photo img{
+        position:absolute;inset:0;width:100%;height:100%;
+        object-fit:cover;object-position:center 35%;
+      }
+      .hero-shade{
+        position:absolute;inset:0;
+        background:linear-gradient(180deg, rgba(11,11,12,.15) 10%, rgba(11,11,12,.88) 100%);
+      }
+      .hero-copy{
+        position:absolute;left:0;right:0;bottom:0;z-index:1;
+        padding:22px 20px 24px;
+      }
+      .hero-copy h2{
+        margin:0;font-family:Oswald,sans-serif;
+        font-size:clamp(32px,7vw,54px);line-height:1;letter-spacing:.02em;text-transform:uppercase;
+      }
+      .hero-copy p{margin:10px 0 0;color:var(--floor);font-size:16px;font-weight:600;max-width:34ch}
+      .hero-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+      .btn{
+        display:inline-flex;align-items:center;justify-content:center;
+        min-height:48px;padding:0 18px;border-radius:999px;
+        border:1px solid var(--line);background:var(--panel);
+        font-weight:700;font-size:15px;
+      }
+      .btn-rug{
+        background:linear-gradient(180deg, var(--rug), var(--rug-deep));
+        border-color:transparent;color:#fff;
+        box-shadow:0 10px 24px rgba(196,30,42,.35);
+      }
+      .btn-glow{
+        background:rgba(243,231,207,.08);
+        border-color:rgba(243,231,207,.35);
+        color:var(--glow);
+      }
+
+      section{padding:28px 0 6px}
+      .head{margin-bottom:14px}
+      .head h3{
+        margin:0;font-family:Oswald,sans-serif;
+        font-size:clamp(24px,4vw,34px);letter-spacing:.04em;text-transform:uppercase;
+      }
+
+      .grid{display:grid;gap:12px}
+      .tile{
+        position:relative;min-height:220px;border-radius:18px;overflow:hidden;
+        border:1px solid var(--line);
+        box-shadow:0 0 0 1px rgba(243,231,207,.06), 0 0 28px rgba(243,231,207,.08), var(--shadow);
+      }
+      .tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+      .tile-shade{
+        position:absolute;inset:0;
+        background:linear-gradient(180deg, transparent 35%, rgba(0,0,0,.82));
+      }
+      .tile-body{
+        position:relative;z-index:1;min-height:220px;padding:18px;
+        display:flex;align-items:flex-end;
+      }
+      .tile-body strong{
+        font-family:Oswald,sans-serif;font-size:24px;letter-spacing:.03em;text-transform:uppercase;
+      }
+
+      .promo{
+        display:grid;grid-template-columns:1.2fr .8fr;gap:0;
+        border-radius:18px;overflow:hidden;border:1px solid var(--line);
+        background:var(--panel);box-shadow:var(--shadow);
+      }
+      .promo-copy{padding:20px 18px;display:flex;flex-direction:column;justify-content:center;gap:10px}
+      .promo-copy h4{
+        margin:0;font-family:Oswald,sans-serif;font-size:24px;letter-spacing:.03em;text-transform:uppercase;
+      }
+      .promo-copy a{color:#ffb4ba;font-weight:700}
+      .promo-media{position:relative;min-height:140px;background:#111}
+      .promo-media img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+      .promo + .promo{margin-top:12px}
+      .promo.red .promo-copy{
+        background:linear-gradient(160deg, rgba(196,30,42,.28), rgba(28,29,33,.95));
+      }
+
+      .hits{
+        display:grid;grid-auto-flow:column;grid-auto-columns:78%;
+        gap:12px;overflow-x:auto;padding-bottom:4px;
+        scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+      }
+      .hits::-webkit-scrollbar{display:none}
+      .hit{
+        scroll-snap-align:start;border-radius:18px;overflow:hidden;
+        background:var(--panel);border:1px solid var(--line);
+        box-shadow:0 0 24px rgba(243,231,207,.06);
+      }
+      .hit img{width:100%;height:160px;object-fit:cover;background:#111}
+      .hit-body{padding:14px}
+      .hit-body h4{margin:0;font-family:Oswald,sans-serif;font-size:18px;letter-spacing:.03em}
+      .hit-body p{margin:6px 0 12px;color:var(--muted);font-size:14px;font-weight:600}
+      .sizes{display:flex;gap:6px;flex-wrap:wrap}
+      .size{
+        min-width:40px;height:34px;padding:0 8px;border-radius:10px;
+        border:1px solid var(--line);background:#121316;font-weight:700;font-size:13px;
+      }
+      .size.on{border-color:rgba(243,231,207,.55);background:rgba(243,231,207,.12);color:var(--glow)}
+      .buy{
+        margin-top:12px;width:100%;min-height:42px;border-radius:999px;
+        border:0;background:var(--rug);color:#fff;font-weight:800;
+      }
+
+      .contacts{
+        border-radius:18px;padding:18px;border:1px solid var(--line);
+        background:
+          linear-gradient(180deg, rgba(243,231,207,.05), transparent 40%),
+          var(--panel);
+        box-shadow:0 0 30px rgba(243,231,207,.06);
+      }
+      .contacts .b{font-family:Oswald,sans-serif;font-size:22px;letter-spacing:.04em}
+      .contacts .s{margin-top:10px;color:var(--muted);font-size:15px;font-weight:600}
+      .contacts a.phone{color:var(--ink);font-weight:800}
+      .meta{display:grid;gap:8px;margin-top:14px}
+      .meta div{
+        padding:12px 14px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid var(--line);
+        font-weight:700;
+      }
+
+      footer{padding:24px 0 10px;text-align:center;color:var(--muted);font-size:13px}
+
+      .dock{
+        position:fixed;left:0;right:0;bottom:0;z-index:50;
+        padding:10px 16px calc(10px + var(--safe-b));
+        background:rgba(11,11,12,.92);border-top:1px solid var(--line);
+        backdrop-filter:blur(12px);
+      }
+      .dock-inner{
+        width:min(var(--max),100%);margin:0 auto;
+        display:grid;grid-template-columns:1fr 1.2fr;gap:10px;
+      }
+      .dock .btn{width:100%;min-height:50px}
+
+      .sheet-bg{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);display:none}
+      .sheet-bg.open{display:block}
+      .sheet{
+        position:fixed;left:0;right:0;bottom:0;z-index:61;
+        width:min(480px,100%);margin:0 auto;
+        background:#151618;border:1px solid var(--line);border-bottom:0;
+        border-radius:20px 20px 0 0;padding:16px 18px calc(20px + var(--safe-b));
+        transform:translateY(110%);transition:transform .22s ease;max-height:75vh;overflow:auto;
+      }
+      .sheet.open{transform:translateY(0)}
+      .sheet h3{margin:0 0 12px;font-family:Oswald,sans-serif;letter-spacing:.04em}
+      .cart-item{display:flex;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
+      .cart-empty{color:var(--muted);padding:8px 0 16px}
+      .toast{
+        position:fixed;left:50%;bottom:calc(92px + var(--safe-b));z-index:70;
+        transform:translateX(-50%) translateY(10px);
+        background:#f5f2ec;color:#111;border-radius:999px;padding:10px 14px;
+        font-size:13px;font-weight:700;opacity:0;pointer-events:none;
+        transition:opacity .2s, transform .2s;
+      }
+      .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+      @media (min-width:860px){
+        .top-inner{padding:16px var(--pad)}
+        .nav{max-width:560px;margin-left:auto}
+        .top-grid{
+          width:min(var(--max),100%);margin:0 auto;padding:0 var(--pad) 14px;
+          display:grid;grid-template-columns:1fr auto;align-items:center;gap:16px;
+        }
+        .hero-card{min-height:520px;grid-template-columns:1.05fr .95fr}
+        .hero-photo{min-height:520px}
+        .hero-copy{
+          position:relative;padding:40px 36px;
+          display:flex;flex-direction:column;justify-content:center;
+          background:
+            linear-gradient(180deg, rgba(243,231,207,.05), transparent 40%),
+            var(--panel);
+        }
+        .hero-shade{display:none}
+        .hero-copy h2{font-size:56px}
+        .grid{grid-template-columns:1fr 1fr;gap:16px}
+        .tile,.tile-body{min-height:280px}
+        .hits{grid-auto-columns:31%}
+        .promo{grid-template-columns:1.3fr .7fr}
+      }
+      @media (prefers-reduced-motion:reduce){
+        html{scroll-behavior:auto}
+        .sheet,.toast{transition:none}
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="top-inner">
+        <a class="brand" href="#top">
+          <div class="logo" aria-hidden="true"><span>WS</span></div>
+          <div>
+            <h1>wellsneakers</h1>
+            <small>Минск</small>
+          </div>
+        </a>
+        <button class="cart-btn" type="button" id="openCart" aria-label="Корзина">
+          Корзина <span class="cart-count" id="cartCount">0</span>
+        </button>
+      </div>
+      <div class="wrap">
+        <nav class="nav" aria-label="Меню">
+          <a href="#him">Ему</a>
+          <a href="#her">Ей</a>
+          <a class="sale" href="#sale">Скидки</a>
+          <a href="#contacts">Контакты</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="wrap" id="top">
+      <section class="hero" aria-label="Главный экран">
+        <div class="hero-card">
+          <div class="hero-photo">
+            <img src="assets/store.png" alt="Магазин wellsneakers" />
+            <div class="hero-shade"></div>
+          </div>
+          <div class="hero-copy">
+            <h2>Кроссовки<br />и одежда</h2>
+            <p>Магазин на Дзержинского 19. Размеры и цены — ниже.</p>
+            <div class="hero-actions">
+              <a class="btn btn-rug" href="#hits">Смотреть модели</a>
+              <a class="btn btn-glow" href="#sale">Скидки</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="him">
+        <div class="head"><h3>Ему</h3></div>
+        <div class="grid">
+          <a class="tile" href="#hits">
+            <img src="assets/h1.jpg" alt="Мужские кроссовки" loading="lazy" />
+            <div class="tile-shade"></div>
+            <div class="tile-body"><strong>Мужские кроссовки</strong></div>
+          </a>
+          <a class="tile" href="#hits">
+            <img src="assets/clean2.jpg" alt="Мужская одежда" loading="lazy" />
+            <div class="tile-shade"></div>
+            <div class="tile-body"><strong>Мужская одежда</strong></div>
+          </a>
+        </div>
+      </section>
+
+      <section id="her">
+        <div class="head"><h3>Ей</h3></div>
+        <div class="grid">
+          <a class="tile" href="#hits">
+            <img src="assets/clean1.jpg" alt="Женские кроссовки" loading="lazy" />
+            <div class="tile-shade"></div>
+            <div class="tile-body"><strong>Женские кроссовки</strong></div>
+          </a>
+          <a class="tile" href="#hits">
+            <img src="assets/h2.jpg" alt="Женская одежда" loading="lazy" />
+            <div class="tile-shade"></div>
+            <div class="tile-body"><strong>Женская одежда</strong></div>
+          </a>
+        </div>
+      </section>
+
+      <section id="sale">
+        <div class="head"><h3>Скидки</h3></div>
+        <a class="promo red" href="#hits">
+          <div class="promo-copy">
+            <h4>Белые кроссовки −15%</h4>
+            <span class="promo-deal">Смотреть →</span>
+          </div>
+          <div class="promo-media"><img src="assets/clean1.jpg" alt="Белые кроссовки" loading="lazy" /></div>
+        </a>
+        <a class="promo" href="#hits">
+          <div class="promo-copy">
+            <h4>Товары со скидкой</h4>
+            <span class="promo-deal">Смотреть →</span>
+          </div>
+          <div class="promo-media"><img src="assets/p6.jpg" alt="Скидки" loading="lazy" /></div>
+        </a>
+      </section>
+
+      <section id="hits">
+        <div class="head"><h3>Модели</h3></div>
+        <div class="hits" id="productList">
+          <article class="hit prod" data-id="af1" data-name="Nike Air Force 1" data-price="155">
+            <img src="assets/h1.jpg" alt="Nike Air Force 1" loading="lazy" />
+            <div class="hit-body">
+              <h4>Nike Air Force 1</h4>
+              <p>155 BYN</p>
+              <div class="sizes" data-sizes>
+                <button class="size on" type="button">41</button>
+                <button class="size" type="button">42</button>
+                <button class="size" type="button">43</button>
+              </div>
+              <button class="buy" type="button" data-add>В корзину</button>
+            </div>
+          </article>
+          <article class="hit prod" data-id="ultra" data-name="Adidas Ultraboost" data-price="150">
+            <img src="assets/clean2.jpg" alt="Adidas Ultraboost" loading="lazy" />
+            <div class="hit-body">
+              <h4>Adidas Ultraboost</h4>
+              <p>150 BYN</p>
+              <div class="sizes" data-sizes>
+                <button class="size on" type="button">40</button>
+                <button class="size" type="button">41</button>
+                <button class="size" type="button">42</button>
+              </div>
+              <button class="buy" type="button" data-add>В корзину</button>
+            </div>
+          </article>
+          <article class="hit prod" data-id="jordan" data-name="Air Jordan 1 Low" data-price="170">
+            <img src="assets/clean3.jpg" alt="Air Jordan 1 Low" loading="lazy" />
+            <div class="hit-body">
+              <h4>Air Jordan 1 Low</h4>
+              <p>170 BYN</p>
+              <div class="sizes" data-sizes>
+                <button class="size on" type="button">41</button>
+                <button class="size" type="button">42</button>
+                <button class="size" type="button">44</button>
+              </div>
+              <button class="buy" type="button" data-add>В корзину</button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="contacts">
+        <div class="head"><h3>Контакты</h3></div>
+        <div class="contacts">
+          <div class="b">wellsneakers</div>
+          <p class="s">
+            <a class="phone" href="tel:+375297904993">+375 29 790-49-93</a><br />
+            пр-т Дзержинского 19, 2-й этаж<br />
+            11:00–21:00
+          </p>
+          <div class="meta">
+            <div>Доставка по РБ</div>
+            <div>Самовывоз</div>
+            <div>Возврат 14 дней</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="wrap">wellsneakers · пр-т Дзержинского 19</footer>
+
+    <div class="dock">
+      <div class="dock-inner">
+        <a class="btn btn-glow" href="#hits">Модели</a>
+        <button class="btn btn-rug" type="button" id="openCartDock">Корзина · <span id="cartCountDock">0</span></button>
+      </div>
+    </div>
+
+    <div class="sheet-bg" id="sheetBg"></div>
+    <aside class="sheet" id="cartSheet" aria-hidden="true">
+      <h3>Корзина</h3>
+      <div id="cartList"></div>
+      <div style="display:flex;justify-content:space-between;margin:12px 0 14px;font-weight:800">
+        <span>Итого</span><span id="cartTotal">0 BYN</span>
+      </div>
+      <button class="btn btn-rug" type="button" id="checkout" style="width:100%">Оформить заказ</button>
+    </aside>
+    <div class="toast" id="toast"></div>
+
+    <script>
+      const cart = [];
+      const els = {
+        list: document.getElementById('cartList'),
+        total: document.getElementById('cartTotal'),
+        count: document.getElementById('cartCount'),
+        countDock: document.getElementById('cartCountDock'),
+        sheet: document.getElementById('cartSheet'),
+        bg: document.getElementById('sheetBg'),
+        toast: document.getElementById('toast'),
+      };
+
+      function toast(t){
+        els.toast.textContent = t;
+        els.toast.classList.add('show');
+        clearTimeout(toast._t);
+        toast._t = setTimeout(() => els.toast.classList.remove('show'), 1500);
+      }
+      function render(){
+        const n = cart.reduce((a,i)=>a+i.qty,0);
+        els.count.textContent = String(n);
+        els.countDock.textContent = String(n);
+        if(!cart.length){
+          els.list.innerHTML = '<div class="cart-empty">Корзина пуста</div>';
+          els.total.textContent = '0 BYN';
+          return;
+        }
+        els.list.innerHTML = cart.map((i,idx)=>`
+          <div class="cart-item">
+            <div><strong>${i.name}</strong><div style="color:var(--muted);font-size:13px">Размер ${i.size} · ${i.qty} шт.</div></div>
+            <div style="text-align:right">
+              <div>${i.price*i.qty} BYN</div>
+              <button type="button" data-rm="${idx}" style="margin-top:6px;background:transparent;border:1px solid var(--line);border-radius:999px;padding:6px 10px;color:var(--muted)">Убрать</button>
+            </div>
+          </div>`).join('');
+        els.total.textContent = cart.reduce((a,i)=>a+i.price*i.qty,0) + ' BYN';
+      }
+      function openCart(){ els.sheet.classList.add('open'); els.bg.classList.add('open'); els.sheet.setAttribute('aria-hidden','false'); render(); }
+      function closeCart(){ els.sheet.classList.remove('open'); els.bg.classList.remove('open'); els.sheet.setAttribute('aria-hidden','true'); }
+
+      document.querySelectorAll('[data-sizes]').forEach(g=>{
+        g.addEventListener('click', e=>{
+          const b = e.target.closest('.size'); if(!b) return;
+          g.querySelectorAll('.size').forEach(x=>x.classList.remove('on'));
+          b.classList.add('on');
+        });
+      });
+      document.querySelectorAll('[data-add]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const card = btn.closest('.prod');
+          const size = card.querySelector('.size.on')?.textContent.trim();
+          if(!size){ toast('Выберите размер'); return; }
+          const id = card.dataset.id + '-' + size;
+          const found = cart.find(i=>i.id===id);
+          if(found) found.qty += 1;
+          else cart.push({id, name:card.dataset.name, price:Number(card.dataset.price), size, qty:1});
+          render(); toast('В корзине');
+        });
+      });
+      els.list.addEventListener('click', e=>{
+        const b = e.target.closest('[data-rm]'); if(!b) return;
+        cart.splice(Number(b.dataset.rm),1); render();
+      });
+      document.getElementById('openCart').addEventListener('click', openCart);
+      document.getElementById('openCartDock').addEventListener('click', openCart);
+      els.bg.addEventListener('click', closeCart);
+      document.getElementById('checkout').addEventListener('click', ()=>{
+        if(!cart.length){ toast('Корзина пуста'); return; }
+        toast('Демо: заказ принят'); closeCart();
+      });
+      render();
+    </script>
+  </body>
+</html>
