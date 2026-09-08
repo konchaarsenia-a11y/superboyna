@@ -2132,6 +2132,17 @@ function doGet(e) {
       orderStatus: e.parameter.orderStatus || e.parameter.status || ""
     }, callback, false);
   }
+  if (action === "partnerSetOrderSlot") {
+    return handlePartnerSetOrderSlot({
+      telegramId: e.parameter.telegramId || "",
+      id: e.parameter.id || "",
+      partnerOrderId: e.parameter.partnerOrderId || e.parameter.orderId || "",
+      deferredId: e.parameter.deferredId || "",
+      deliverDateIso: e.parameter.deliverDateIso || "",
+      deliverTimeFrom: e.parameter.deliverTimeFrom || "",
+      deliverTimeTo: e.parameter.deliverTimeTo || ""
+    }, callback, false);
+  }
   if (action === "setAccessTimezone") {
     return handleSetAccessTimezone({
       actorId: e.parameter.actorId || e.parameter.telegramId || "",
@@ -2815,6 +2826,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "partnerSetOrderStatus") {
     return handlePartnerSetOrderStatus(json, callback, fromPost);
+  }
+  if (action === "partnerSetOrderSlot") {
+    return handlePartnerSetOrderSlot(json, callback, fromPost);
   }
   if (action === "listReminderPeople") {
     return handleListReminderPeople_(json, callback, fromPost);
@@ -19771,14 +19785,11 @@ function partnerNotifyNewOrder_(order) {
       }
       return "• " + (b.name || b.id) + " — " + b.qty + " " + (b.unit || "") + extra;
     }).join("\n");
-    var slot = (order.deliverDateLabel || "") +
-      (order.deliverTimeLabel ? (", " + order.deliverTimeLabel) : "");
-    var text = "🛍 Заявка партнёра " + (order.id || "") + "\n" +
+    var text = "🛍 Новая заявка партнёра " + (order.id || "") + "\n" +
       (order.locationName || order.locationId || "") + "\n" +
       (order.userName || order.username || order.telegramId || "") + "\n" +
-      (slot ? ("Слот: " + slot + "\n") : "") +
       lines +
-      "\n\nОтложенные → Заказы";
+      "\n\nНазначьте дату: Партнёры → Заказы";
     for (var i = 0; i < ids.length; i++) {
       try { telegramSendMarkup_(ids[i], text, null); } catch (eN) {}
     }
@@ -19867,6 +19878,7 @@ function partnerEnqueueDeferred_(order) {
     locationName: order.locationName,
     networkId: order.networkId,
     basket: order.basket || [],
+    needsSlot: !order.deliverDateIso,
     deliverDateIso: order.deliverDateIso || "",
     deliverDateLabel: order.deliverDateLabel || "",
     deliverTimeFrom: order.deliverTimeFrom || "",
@@ -19933,9 +19945,13 @@ function partnerNotifyPartnerStatus_(order, kind) {
   var slot = ((order && order.deliverDateLabel) || "") +
     ((order && order.deliverTimeLabel) ? (", " + order.deliverTimeLabel) : "");
   var text = "";
-  if (kind === "accepted") {
-    text = "✅ Заявка принята\n" + loc + "\n" +
-      "Привезём: " + (slot || "ближайший слот") + "\n" +
+  if (kind === "received" || kind === "submitted") {
+    text = "✅ Заявка отправлена\n" + loc + "\n" +
+      "Скоро придёт уведомление о дате доставки\n" +
+      partnerBasketLines_(order.basket);
+  } else if (kind === "accepted" || kind === "scheduled") {
+    text = "✅ Дата доставки назначена\n" + loc + "\n" +
+      "Привезём: " + (slot || "уточним") + "\n" +
       partnerBasketLines_(order.basket);
   } else if (kind === "in_transit") {
     text = "🚚 Курьер уже в пути\n" + loc + "\n" +
@@ -20017,7 +20033,7 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
   var id = "po_" + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
   var now = new Date();
   var dateIso = Utilities.formatDate(now, "Europe/Minsk", "yyyy-MM-dd");
-  var slot = partnerDefaultSlot_(now);
+  // Дату назначает менеджер в Бойне (Партнёры → Заказы)
   var order = {
     id: id,
     dateIso: dateIso,
@@ -20029,12 +20045,13 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     username: username,
     basket: basket,
     status: "new",
+    needsSlot: true,
     createdAt: now,
-    deliverDateIso: slot.dateIso,
-    deliverDateLabel: slot.dateLabel,
-    deliverTimeFrom: slot.timeFrom,
-    deliverTimeTo: slot.timeTo,
-    deliverTimeLabel: slot.timeLabel
+    deliverDateIso: "",
+    deliverDateLabel: "",
+    deliverTimeFrom: "",
+    deliverTimeTo: "",
+    deliverTimeLabel: ""
   };
   var deferredId = "";
   try { deferredId = partnerEnqueueDeferred_(order); } catch (eDf) { deferredId = ""; }
@@ -20057,7 +20074,7 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     deferredId
   ]);
   try { partnerNotifyNewOrder_(order); } catch (eN2) {}
-  try { partnerNotifyPartnerStatus_(order, "accepted"); } catch (eP) {}
+  try { partnerNotifyPartnerStatus_(order, "received"); } catch (eP) {}
   var ok = { status: "success", order: order, id: id, deferredId: deferredId };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
@@ -20193,6 +20210,94 @@ function handlePartnerSetOrderStatus(json, callback, fromPost) {
   } catch (eN) {}
   var okSt = { status: "success", id: order.id, orderStatus: status };
   return fromPost ? jsonpText(callback, okSt) : jsonp(callback, okSt);
+}
+
+/** Менеджер назначает дату доставки по заявке партнёра. */
+function handlePartnerSetOrderSlot(json, callback, fromPost) {
+  var actor = String((json && json.telegramId) || "").trim();
+  if (!partnerStaffCanAct_(actor)) {
+    var forbid = { status: "error", message: "forbidden" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var dateIso = String((json && json.deliverDateIso) || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) {
+    var badDate = { status: "error", message: "need_date" };
+    return fromPost ? jsonpText(callback, badDate) : jsonp(callback, badDate);
+  }
+  var timeFrom = String((json && json.deliverTimeFrom) || "12:00").trim() || "12:00";
+  var timeTo = String((json && json.deliverTimeTo) || "18:00").trim() || "18:00";
+  var orderId = String((json && (json.partnerOrderId || json.orderId)) || "").trim();
+  var deferredId = String((json && json.deferredId) || "").trim();
+  var rawId = String((json && json.id) || "").trim();
+  if (!orderId && rawId && !/^df_/i.test(rawId)) orderId = rawId;
+  if (!deferredId && /^df_/i.test(rawId)) deferredId = rawId;
+  var hit = null;
+  if (orderId) hit = partnerFindOrderRow_(orderId);
+  if (!hit && deferredId) {
+    var df0 = partnerFindDeferredByOrderId_(deferredId);
+    if (df0 && df0.payload && df0.payload.partnerOrderId) {
+      hit = partnerFindOrderRow_(df0.payload.partnerOrderId);
+      orderId = df0.payload.partnerOrderId;
+    }
+  }
+  if (!hit) {
+    var miss = { status: "error", message: "order_not_found" };
+    return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+  }
+  var row = hit.data;
+  var basket = partnerParseBasket_(row[8]);
+  var dateLabel = "";
+  try {
+    var p = dateIso.split("-");
+    if (p.length === 3) {
+      var slotDate = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])));
+      var dow = Number(Utilities.formatDate(slotDate, "Europe/Minsk", "u"));
+      var names = ["", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"];
+      dateLabel = (names[dow] || "") + ", " + p[2] + "." + p[1];
+    }
+  } catch (eDl) {
+    dateLabel = dateIso;
+  }
+  var timeLabel = "с " + timeFrom + " до " + timeTo;
+  hit.sh.getRange(hit.rowIndex, 12, hit.rowIndex, 14).setValues([[dateIso, timeFrom, timeTo]]);
+  var order = {
+    id: String(row[0] || ""),
+    locationId: String(row[2] || ""),
+    locationName: String(row[3] || ""),
+    telegramId: String(row[5] || ""),
+    userName: String(row[6] || ""),
+    username: partnerNormUser_(row[7]),
+    basket: basket,
+    status: String(row[9] || "new"),
+    deliverDateIso: dateIso,
+    deliverDateLabel: dateLabel,
+    deliverTimeFrom: timeFrom,
+    deliverTimeTo: timeTo,
+    deliverTimeLabel: timeLabel,
+    needsSlot: false
+  };
+  var df = partnerFindDeferredByOrderId_(order.id);
+  if (df) {
+    var payload = df.payload || {};
+    payload.deliverDateIso = dateIso;
+    payload.deliverDateLabel = dateLabel;
+    payload.deliverTimeFrom = timeFrom;
+    payload.deliverTimeTo = timeTo;
+    payload.deliverTimeLabel = timeLabel;
+    payload.needsSlot = false;
+    df.sh.getRange(df.rowIndex, 8).setValue(JSON.stringify(payload));
+    try { bustDeferredCache_(String(df.data[2] || "")); } catch (eB) {}
+  }
+  try { partnerNotifyPartnerStatus_(order, "scheduled"); } catch (eN) {}
+  var okSlot = {
+    status: "success",
+    id: order.id,
+    order: order,
+    deliverDateIso: dateIso,
+    deliverDateLabel: dateLabel,
+    deliverTimeLabel: timeLabel
+  };
+  return fromPost ? jsonpText(callback, okSlot) : jsonp(callback, okSlot);
 }
 
 /** Кому слать TG о заявках партнёров (Script Properties). */
