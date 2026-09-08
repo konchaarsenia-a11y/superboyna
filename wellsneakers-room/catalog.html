@@ -19,9 +19,6 @@
             <small>Каталог</small>
           </div>
         </a>
-        <button class="cart-btn" type="button" id="openCart" aria-label="Корзина">
-          Корзина <span class="cart-count" id="cartCount" hidden>0</span>
-        </button>
       </div>
       <div class="wrap">
         <nav class="nav" aria-label="Меню">
@@ -223,8 +220,10 @@
 
     <div class="dock">
       <div class="dock-inner">
-        <a class="btn btn-glow" href="index.html">Главная</a>
-        <button class="btn btn-rug" type="button" id="openCartDock">Корзина · <span id="cartCountDock">0</span></button>
+        <a class="btn-catalog" href="index.html">Главная</a>
+        <button class="btn btn-rug cart-dock" type="button" id="openCartDock" aria-label="Корзина">
+          Корзина <span class="cart-dot" id="cartDot" hidden></span>
+        </button>
       </div>
     </div>
 
