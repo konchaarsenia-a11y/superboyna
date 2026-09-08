@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115933";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115936";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -15373,7 +15373,7 @@
       html += line_("Доставки ПП (" + ppDelivEach + "р × " + ppDelivN + ")", ppDeliveryCost + " BYN", "#bf5af2");
       html += line_("БП (состав + 6р)", bpSpend + " BYN · " + bpDeliv + " дост.", "#ff453a");
       html += line_("Всего", costActual + " BYN", "#64d2ff");
-      html += '<div class="muted" style="font-size:11px;margin-top:8px;">ПП: состав + свет 11р/чел (раз в месяц) + 6р за доставку. БП: состав + 6р. Прайс — лист Розница / Подписка.</div>';
+      html += '<div class="muted" style="font-size:11px;margin-top:8px;">ПП: состав (без наценки) + свет 11р/чел + 6р за доставку. БП: состав + 6р. Прайс — лист Розница / Подписка.</div>';
       html += "</div>";
 
       var bpBasket = fact.bpBasketCost != null ? fact.bpBasketCost : (bp.basketCost || 0);
@@ -15394,8 +15394,8 @@
       html += line_("Перешло", life.converted || 0, "#fff");
       html += line_("Затраты на все БП", (life.bpCost || 0) + " BYN", "#ff453a");
       html += line_("Выручка ПП с них", (life.ppRevenue || 0) + " BYN", "#30d158");
-      html += line_("Выхлоп (выручка − затраты БП)", (life.profit || 0) + " BYN", "#ff9f0a");
-      html += '<div class="muted" style="font-size:11px;margin-top:8px;">«Выручка ПП с них» — это единственный «оборот от БП»: оплаты подписки после конверсии, не цена пробника.</div>';
+      html += line_("Выхлоп (выручка − затраты БП перешедших)", (life.profit || 0) + " BYN", "#ff9f0a");
+      html += '<div class="muted" style="font-size:11px;margin-top:8px;">Только БП тех, кто стал ПП. Оплаты подписки после конверсии (не цена пробника). Себест ПП в «Чистом» — без наценки 2.3/2.6.</div>';
       html += "</div></div>";
 
       html += '<div class="card" id="statsPartnersCard" style="border:1px solid rgba(100,210,255,0.35);background:linear-gradient(160deg,#1a2228 0%,#1c1c1e 100%);">';
