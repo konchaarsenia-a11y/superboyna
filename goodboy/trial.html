@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/site-v070.css?v=136" />
+  <link rel="stylesheet" href="css/site-v070.css?v=137" />
   <style>
     html.gb-booting { overflow: hidden; }
     #gbBoot {
@@ -133,16 +133,59 @@
     </header>
 
     <section class="trial-flow" aria-label="Как это работает">
-      <div class="trial-copy reveal">
-        <h2 class="trial-how-title">Как это работает:</h2>
-        <ul class="trial-how-list">
-          <li>Перед сборкой бесплатного набора мы попросим у вас информацию о вашем питомце: о его интересах, активности, аллергиях и других важных для подбора лакомств моментах</li>
-          <li>Питомец дегустирует набор в течение недели</li>
-          <li>Вы делитесь обратной связью: что понравилось, что нет</li>
-        </ul>
-        <p class="trial-after">После этого мы внесём правки и набор получится идеальным</p>
-        <p class="trial-terms">Если есть бумажный купон на руках — отдайте курьеру при доставке.</p>
-      </div>
+      <p class="trial-flow-hint">Как это работает:</p>
+      <ol class="trial-steps">
+        <li class="trial-step-item reveal" data-step="ask">
+          <button type="button" class="trial-step-card" aria-expanded="false">
+            <span class="trial-step-ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="8" r="3.5"/><path d="M6 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg>
+            </span>
+            <span class="trial-step-content">
+              <span class="trial-step-face trial-step-face--short">
+                <span class="trial-step-lead trial-step-lead--clamp">Перед сборкой бесплатного набора мы попросим у вас информацию о вашем питомце: о его интересах, активности, аллергиях и других важных для подбора лакомств моментах</span>
+              </span>
+              <span class="trial-step-face trial-step-face--long" aria-hidden="true">
+                <span class="trial-step-detail-text"></span>
+              </span>
+            </span>
+            <span class="trial-step-chevron" aria-hidden="true">›</span>
+          </button>
+        </li>
+        <li class="trial-step-item reveal d1" data-step="week">
+          <button type="button" class="trial-step-card" aria-expanded="false">
+            <span class="trial-step-ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 14h16l-2 6H6l-2-6Z"/><path d="M8 14V9a4 4 0 118 0v5"/></svg>
+            </span>
+            <span class="trial-step-content">
+              <span class="trial-step-face trial-step-face--short">
+                <span class="trial-step-lead trial-step-lead--clamp">Питомец дегустирует набор в течение недели</span>
+              </span>
+              <span class="trial-step-face trial-step-face--long" aria-hidden="true">
+                <span class="trial-step-detail-text"></span>
+              </span>
+            </span>
+            <span class="trial-step-chevron" aria-hidden="true">›</span>
+          </button>
+        </li>
+        <li class="trial-step-item reveal d2" data-step="feedback">
+          <button type="button" class="trial-step-card" aria-expanded="false">
+            <span class="trial-step-ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M5 13l4 4L19 7"/></svg>
+            </span>
+            <span class="trial-step-content">
+              <span class="trial-step-face trial-step-face--short">
+                <span class="trial-step-lead trial-step-lead--clamp">Вы делитесь обратной связью: что понравилось, что нет</span>
+              </span>
+              <span class="trial-step-face trial-step-face--long" aria-hidden="true">
+                <span class="trial-step-detail-text"></span>
+              </span>
+            </span>
+            <span class="trial-step-chevron" aria-hidden="true">›</span>
+          </button>
+        </li>
+      </ol>
+      <p class="trial-after">После этого мы внесём правки и набор получится идеальным</p>
+      <p class="trial-terms">Если есть бумажный купон на руках — отдайте курьеру при доставке.</p>
     </section>
 
     <footer class="site-footer trial-footer">
@@ -151,14 +194,16 @@
     </footer>
   </div>
 
-  <script src="js/config.js?v=107"></script>
-  <script src="js/boot-loader.js?v=107"></script>
-  <script src="js/motion.js?v=107"></script>
-  <script src="js/trial-ig.js?v=107"></script>
+  <script src="js/config.js?v=108"></script>
+  <script src="js/boot-loader.js?v=108"></script>
+  <script src="js/motion.js?v=108"></script>
+  <script src="js/trial-ig.js?v=108"></script>
+  <script src="js/trial-steps.js?v=108"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.GBMotion) GBMotion.init();
       if (window.GBTrialIg) GBTrialIg.init();
+      if (window.GBTrialSteps) GBTrialSteps.init();
     });
   </script>
 </body>
