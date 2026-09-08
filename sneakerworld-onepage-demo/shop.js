@@ -201,12 +201,12 @@
   const PICK_TITLES = {
     white: 'Белые кроссовки',
     daily: 'На каждый день',
-    jordan: 'Jordan / баскет',
-    sale: 'Скидки недели',
-    men: 'Ему · обувь',
-    'men-apparel': 'Ему · одежда',
-    women: 'Ей · обувь',
-    'women-apparel': 'Ей · одежда',
+    jordan: 'Jordan',
+    sale: 'Скидки',
+    men: 'Мужские кроссовки',
+    'men-apparel': 'Мужская одежда',
+    women: 'Женские кроссовки',
+    'women-apparel': 'Женская одежда',
   };
 
   function renderActiveFilters() {
@@ -230,7 +230,7 @@
     els.activeFilters.innerHTML = chips.join('');
     if (els.pickLabel) {
       if (appliedPick) {
-        els.pickLabel.textContent = 'Подборка: ' + (PICK_TITLES[appliedPick] || appliedPick);
+        els.pickLabel.textContent = PICK_TITLES[appliedPick] || appliedPick;
         els.pickLabel.hidden = false;
       } else {
         els.pickLabel.textContent = '';
