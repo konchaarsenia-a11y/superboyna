@@ -81,10 +81,13 @@
   function renderCart() {
     if (!els.list) return;
     const count = cart.reduce((n, i) => n + i.qty, 0);
-    if (els.countTop) els.countTop.textContent = String(count);
+    if (els.countTop) {
+      els.countTop.textContent = String(count);
+      els.countTop.hidden = count === 0;
+    }
     if (els.countDock) els.countDock.textContent = String(count);
     if (!cart.length) {
-      els.list.innerHTML = '<div class="cart-empty">Корзина пуста. Добавьте модель из каталога.</div>';
+      els.list.innerHTML = '<div class="cart-empty">Пока пусто — загляни в каталог</div>';
       if (els.total) els.total.textContent = '0 BYN';
       return;
     }
@@ -93,7 +96,7 @@
         (i, idx) => `
       <div class="cart-item">
         <div>
-          <div class="b">${i.name}</div>
+          <strong>${i.name}</strong>
           <div class="s">Размер ${i.size} · ${i.qty} шт.</div>
         </div>
         <div style="text-align:right">
