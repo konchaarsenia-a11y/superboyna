@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115935" as="script">
+  <link rel="preload" href="app.main.js?v=71115936" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115935";
+      var APP_VER = "v71115936";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2672,15 +2672,25 @@
           </div>
         </div>
         <div class="seg-row" id="phSubTabs" style="margin:0;">
-          <button type="button" class="seg-btn active" data-ph-tab="people" onclick="setPartnerHubTab_('people')">Люди</button>
+          <button type="button" class="seg-btn active" data-ph-tab="orders" onclick="setPartnerHubTab_('orders')">Заказы</button>
+          <button type="button" class="seg-btn" data-ph-tab="people" onclick="setPartnerHubTab_('people')">Люди</button>
           <button type="button" class="seg-btn" data-ph-tab="points" onclick="setPartnerHubTab_('points')">Точки</button>
           <button type="button" class="seg-btn" data-ph-tab="nets" onclick="setPartnerHubTab_('nets')">Сети</button>
           <button type="button" class="seg-btn" data-ph-tab="notify" onclick="setPartnerHubTab_('notify')">Пуши</button>
         </div>
       </div>
 
+      <!-- Заказы партнёров (назначить дату) -->
+      <div class="card ph-panel" id="phPanelOrders" style="margin-top:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+          <div class="muted" style="font-size:12px;margin:0;">Заявки из мини-аппа · назначьте дату</div>
+          <button type="button" class="seg-btn" style="margin:0;" onclick="refreshPartnerOrdersTab_({force:1})">↻</button>
+        </div>
+        <div id="phOrdersList"><p class="muted">—</p></div>
+      </div>
+
       <!-- Люди = доступы -->
-      <div class="card ph-panel" id="phPanelPeople" style="margin-top:10px;">
+      <div class="card ph-panel" id="phPanelPeople" style="margin-top:10px;display:none;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
           <div class="muted" style="font-size:12px;margin:0;">@username → точки мини-аппа</div>
           <button type="button" class="seg-btn" style="margin:0;" id="phAccToggleBtn" onclick="partnerHubToggleForm_('acc')">+ Выдать</button>
@@ -2783,6 +2793,6 @@
   </div>
   <div class="toast" id="appToast"></div>
 
-  <script src="app.main.js?v=71115935" defer></script>
+  <script src="app.main.js?v=71115936" defer></script>
 </body>
 </html>

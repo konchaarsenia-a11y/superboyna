@@ -174,7 +174,7 @@
     const ROLE_TABS = {
       all: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "retailPriceScreen", "peopleScreen", "partnerHubScreen"],
       owner: ["orderScreen", "cuttingScreen", "courierScreen", "warehouseScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "subsScreen", "subDetailScreen", "statsScreen", "retailPriceScreen", "peopleScreen", "partnerHubScreen"],
-      manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen"],
+      manager: ["orderScreen", "clientsScreen", "priceScreen", "deferredScreen", "templatesScreen", "partnerHubScreen"],
       cutter: ["cuttingScreen"],
       courier: ["courierScreen"],
       logistics: ["warehouseScreen"],
@@ -404,7 +404,7 @@
       templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ — скоро.",
       retailPriceScreen: "Прайс розницы\n• Только владелец.\n• Меняет цены новых расчётов/заказов.\n• Уже сохранённые orderPrice не трогает.",
       peopleScreen: "Доступы\n• Завершить неделю / подтянуть из месяца — сверху.\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника.",
-      partnerHubScreen: "Партнёры (мини-апп varka)\n• Люди — доступы к точкам.\n• Точки / Сети — справочник.\n• Пуши — кому слать заявки.\n• Не путать с партнёрами БП в Доступах."
+      partnerHubScreen: "Партнёры (мини-апп varka)\n• Заказы — назначить дату по заявкам.\n• Люди — доступы к точкам.\n• Точки / Сети — справочник.\n• Пуши — кому слать заявки.\n• Не путать с партнёрами БП в Доступах."
     };
 
     window._templatesSub = "texts";
@@ -1239,7 +1239,7 @@
           return;
         }
 
-        if (APP_ROLE === "manager" && screen !== "orderScreen") {
+        if (APP_ROLE === "manager" && screen !== "orderScreen" && screen !== "partnerHubScreen") {
           btn.style.display = "none";
           return;
         }
@@ -13491,6 +13491,9 @@
             restoreLastScreen();
           }
           maybeAskWeekPullFromMonth();
+          setTimeout(function () {
+            try { maybePromptPartnerOrdersOnEnter_(); } catch (ePoE) {}
+          }, 900);
           return;
         }
         var prevRole = APP_ROLE;
@@ -13522,6 +13525,7 @@
         }
         setTimeout(function () {
           try { refreshDeferredBadge(false); } catch (eDef) {}
+          try { maybePromptPartnerOrdersOnEnter_(); } catch (ePo) {}
         }, 800);
         maybeAskWeekPullFromMonth();
       } catch (e) {
@@ -13532,6 +13536,7 @@
         restoreLastScreen();
         setTimeout(function () {
           try { refreshDeferredBadge(false); } catch (eDef2) {}
+          try { maybePromptPartnerOrdersOnEnter_(); } catch (ePo2) {}
         }, 800);
         maybeAskWeekPullFromMonth();
       }
@@ -21364,7 +21369,8 @@
             }).join("<br>");
             var eta = [pl.deliverDateLabel, pl.deliverTimeLabel].filter(Boolean).join(", ");
             var st = String(pl.orderStatus || "new").toLowerCase();
-            var stRu = st === "in_transit" ? "в пути" : (st === "delivered" ? "доставлено" : "принят");
+            var needSlot = !!(pl.needsSlot || !String(pl.deliverDateIso || "").trim());
+            var stRu = st === "in_transit" ? "в пути" : (st === "delivered" ? "доставлено" : (needSlot ? "нужна дата" : "принят"));
             var poId = String(pl.partnerOrderId || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
             return '<div class="tasks-item is-hot" style="border:1px solid rgba(245,154,46,0.45);">' +
               '<div><b>🛍 ' + escapeHtml(it.title || pl.locationName || "Партнёр") + '</b>' +
@@ -21376,10 +21382,13 @@
               (lines ? ('<div class="muted" style="white-space:normal;font-size:12px;margin-top:8px;">' + lines + "</div>") : "") +
               "</div>" +
               '<div class="seg-row" style="margin-top:10px;flex-wrap:wrap;">' +
-              (st !== "in_transit" && st !== "delivered"
+              (needSlot
+                ? '<button type="button" class="seg-btn" style="background:#f59a2e;border-color:#f59a2e;color:#111;" onclick="switchTab(\'partnerHubScreen\');setPartnerHubTab_(\'orders\');">Назначить дату</button>'
+                : "") +
+              (!needSlot && st !== "in_transit" && st !== "delivered"
                 ? '<button type="button" class="seg-btn" style="background:#64d2ff;border-color:#64d2ff;color:#111;" onclick="partnerMarkInTransit_(\'' + safeId + '\',\'' + poId + '\')">В пути</button>'
                 : "") +
-              (st !== "delivered"
+              (!needSlot && st !== "delivered"
                 ? '<button type="button" class="seg-btn" style="background:#30d158;border-color:#30d158;color:#111;" onclick="partnerMarkDelivered_(\'' + safeId + '\',\'' + poId + '\')">Доставлено</button>'
                 : "") +
               '<button type="button" class="seg-btn" style="background:#3a3a3c;" onclick="cancelDeferredItem(\'' + safeId + '\')">Скрыть</button>' +
@@ -22616,11 +22625,16 @@
     window.ensurePpPartnerOptions_ = ensurePpPartnerOptions_;
 
     var partnerHubCache_ = null;
-    var partnerHubTab_ = "people";
+    var partnerHubTab_ = "orders";
+    var partnerOrdersPrompted_ = false;
 
     function setPartnerHubTab_(tab) {
-      partnerHubTab_ = tab === "points" || tab === "nets" || tab === "notify" ? tab : "people";
+      partnerHubTab_ =
+        tab === "points" || tab === "nets" || tab === "notify" || tab === "people" || tab === "orders"
+          ? tab
+          : "orders";
       var map = {
+        orders: "phPanelOrders",
         people: "phPanelPeople",
         points: "phPanelPoints",
         nets: "phPanelNets",
@@ -22633,8 +22647,207 @@
       document.querySelectorAll("#phSubTabs [data-ph-tab]").forEach(function (btn) {
         btn.classList.toggle("active", btn.getAttribute("data-ph-tab") === partnerHubTab_);
       });
+      if (partnerHubTab_ === "orders") {
+        try { refreshPartnerOrdersTab_({ soft: true }); } catch (eOrd) {}
+      }
     }
     window.setPartnerHubTab_ = setPartnerHubTab_;
+
+    function partnerPendingSlotItems_() {
+      return (deferredCache || []).filter(function (it) {
+        if (!it || String(it.status || "open").toLowerCase() === "done") return false;
+        var pl = it.payload || {};
+        var isPartner = String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
+          String(pl.orderType || "") === "partner";
+        if (!isPartner) return false;
+        if (String(pl.orderStatus || "").toLowerCase() === "delivered") return false;
+        return !!(pl.needsSlot || !String(pl.deliverDateIso || "").trim());
+      });
+    }
+
+    function partnerOrderDayName_(iso) {
+      try {
+        var p = String(iso || "").split("-");
+        if (p.length !== 3) return "";
+        var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+        var names = ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
+        return names[d.getDay()] || "";
+      } catch (e) { return ""; }
+    }
+
+    async function refreshPartnerOrdersTab_(opts) {
+      opts = opts || {};
+      var box = document.getElementById("phOrdersList");
+      if (!box) return;
+      if (opts.force) {
+        try { await refreshDeferredBadge(true); } catch (eF) {}
+      } else if (!deferredCacheAt || !(deferredCache || []).length) {
+        try { await refreshDeferredBadge(false); } catch (eS) {}
+      }
+      var items = (deferredCache || []).filter(function (it) {
+        if (!it || String(it.status || "open").toLowerCase() === "done") return false;
+        var pl = it.payload || {};
+        return String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
+          String(pl.orderType || "") === "partner";
+      });
+      if (!items.length) {
+        box.innerHTML = '<p class="muted">Заявок пока нет</p>';
+        return;
+      }
+      box.innerHTML = items.map(function (it) {
+        var pl = it.payload || {};
+        var safeId = String(it.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        var poId = String(pl.partnerOrderId || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        var need = !!(pl.needsSlot || !String(pl.deliverDateIso || "").trim());
+        var lines = (pl.basket || []).map(function (b) {
+          return escapeHtml(b.name || b.id) + " × " + escapeHtml(String(b.qty)) +
+            (b.unit && b.unit !== "г" ? (" " + escapeHtml(b.unit)) : "");
+        }).join("<br>");
+        var st = String(pl.orderStatus || "new").toLowerCase();
+        var stRu = st === "in_transit" ? "в пути" : (st === "delivered" ? "доставлено" : (need ? "нужна дата" : "дата есть"));
+        var eta = [pl.deliverDateLabel, pl.deliverTimeLabel].filter(Boolean).join(", ");
+        var dateVal = String(pl.deliverDateIso || "").trim();
+        var html = '<div class="tasks-item' + (need ? " is-hot" : "") + '" style="border:1px solid ' +
+          (need ? "rgba(245,154,46,0.55)" : "var(--border-color)") + ';margin-bottom:10px;">' +
+          '<div><b>🛍 ' + escapeHtml(it.title || pl.locationName || "Партнёр") + '</b>' +
+          '<div class="muted" style="font-size:12px;margin-top:4px;">' +
+          escapeHtml(stRu) +
+          (pl.partnerName || pl.partnerUsername ? (" · " + escapeHtml(pl.partnerName || ("@" + pl.partnerUsername))) : "") +
+          (eta ? (" · " + escapeHtml(eta)) : "") +
+          "</div>" +
+          (lines ? ('<div class="muted" style="white-space:normal;font-size:12px;margin-top:8px;">' + lines + "</div>") : "") +
+          "</div>";
+        if (need && st !== "delivered") {
+          html += '<div style="margin-top:10px;">' +
+            '<label class="muted" style="font-size:12px;">Дата доставки</label>' +
+            '<input type="date" id="phSlot_' + safeId + '" value="' + escapeHtml(dateVal) +
+            '" style="width:100%;margin-top:4px;padding:10px;border-radius:10px;border:1px solid var(--border-color);background:#111;color:#fff;">' +
+            '<div class="seg-row" style="margin-top:8px;flex-wrap:wrap;">' +
+            '<button type="button" class="seg-btn" style="background:#f59a2e;border-color:#f59a2e;color:#111;" onclick="partnerAssignSlotUi_(\'' +
+            safeId + '\',\'' + poId + '\')">Назначить дату</button>' +
+            '<button type="button" class="seg-btn" style="background:#64d2ff;border-color:#64d2ff;color:#111;" onclick="partnerOpenOrderForSlot_(\'' +
+            safeId + '\')">Открыть в заказе</button>' +
+            "</div></div>";
+        } else if (st !== "delivered") {
+          html += '<div class="seg-row" style="margin-top:10px;flex-wrap:wrap;">' +
+            (st !== "in_transit"
+              ? '<button type="button" class="seg-btn" style="background:#64d2ff;border-color:#64d2ff;color:#111;" onclick="partnerMarkInTransit_(\'' + safeId + '\',\'' + poId + '\')">В пути</button>'
+              : "") +
+            '<button type="button" class="seg-btn" style="background:#30d158;border-color:#30d158;color:#111;" onclick="partnerMarkDelivered_(\'' + safeId + '\',\'' + poId + '\')">Доставлено</button>' +
+            "</div>";
+        }
+        html += "</div>";
+        return html;
+      }).join("");
+    }
+    window.refreshPartnerOrdersTab_ = refreshPartnerOrdersTab_;
+
+    async function partnerAssignSlotUi_(deferredId, partnerOrderId) {
+      var inp = document.getElementById("phSlot_" + deferredId);
+      var dateIso = inp ? String(inp.value || "").trim() : "";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) {
+        showToast("Выберите дату");
+        return;
+      }
+      var tid = await ensureTelegramId();
+      if (!tid) {
+        showToast("Нужен Telegram");
+        return;
+      }
+      try {
+        var res = await apiGet({
+          action: "partnerSetOrderSlot",
+          telegramId: tid,
+          deferredId: deferredId || "",
+          partnerOrderId: partnerOrderId || "",
+          id: partnerOrderId || deferredId || "",
+          deliverDateIso: dateIso,
+          deliverTimeFrom: "12:00",
+          deliverTimeTo: "18:00",
+          _: String(Date.now())
+        }, { timeoutMs: 25000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          showToast((res && res.message) || "Не сохранилась дата · Deploy Code.gs?");
+          return;
+        }
+        deferredCacheAt = 0;
+        try { apiCacheBustDeferred_(); } catch (eClr) {}
+        showToast("Дата назначена · партнёру ушло уведомление");
+        await refreshDeferredBadge(true);
+        await refreshPartnerOrdersTab_({ force: false });
+      } catch (e) {
+        showToast("Сеть / Deploy Code.gs");
+      }
+    }
+    window.partnerAssignSlotUi_ = partnerAssignSlotUi_;
+
+    function partnerOpenOrderForSlot_(deferredId) {
+      var it = findDeferredCached(deferredId);
+      if (!it || !it.payload) {
+        showToast("Нет данных");
+        return;
+      }
+      var pl = it.payload || {};
+      resetOrderScreen();
+      try { setOrderType("partner"); } catch (eT) {}
+      var setVal = function (id, v) {
+        var el = document.getElementById(id);
+        if (el && v != null) el.value = v;
+      };
+      var who = pl.partnerName || (pl.partnerUsername ? ("@" + pl.partnerUsername) : "") || "Партнёр";
+      setVal("client", who);
+      setVal("addressInput", pl.locationName || "");
+      setVal("deliveryDate", pl.deliverDateIso || "");
+      setVal("deliveryAfterInput", pl.deliverTimeFrom || "12:00");
+      setVal("deliveryBeforeInput", pl.deliverTimeTo || "18:00");
+      setVal("orderPriceInput", "0");
+      var noteLines = (pl.basket || []).map(function (b) {
+        return (b.name || b.id) + " × " + b.qty + (b.unit && b.unit !== "г" ? (" " + b.unit) : "");
+      });
+      orderNotes = [{
+        text: "Партнёрский заказ · " + (pl.locationName || "") +
+          (noteLines.length ? ("\n" + noteLines.join("\n")) : ""),
+        ts: Date.now()
+      }];
+      try { renderOrderNotes(); updateNotesSummary(); } catch (eN) {}
+      window._orderDeferredId = deferredId;
+      window._partnerSlotDeferredId = deferredId;
+      window._partnerSlotOrderId = pl.partnerOrderId || "";
+      switchTab("orderScreen");
+      showToast("Данные подставлены — выберите дату и сохраните");
+      try {
+        var dd = document.getElementById("deliveryDate");
+        if (dd) {
+          dd.focus();
+          if (typeof dd.showPicker === "function") dd.showPicker();
+        }
+      } catch (eF) {}
+    }
+    window.partnerOpenOrderForSlot_ = partnerOpenOrderForSlot_;
+
+    async function maybePromptPartnerOrdersOnEnter_() {
+      if (partnerOrdersPrompted_) return;
+      if (!(APP_ROLE === "manager" || APP_ROLE === "owner" || APP_ROLE === "all")) return;
+      try { await refreshDeferredBadge(true); } catch (e) {}
+      var pending = partnerPendingSlotItems_();
+      if (!pending.length) return;
+      partnerOrdersPrompted_ = true;
+      var first = pending[0];
+      var pl = (first && first.payload) || {};
+      var title = pl.locationName || (first && first.title) || "партнёра";
+      showToast("Заявка от " + title + " — назначьте дату");
+      try {
+        switchTab("partnerHubScreen");
+        setPartnerHubTab_("orders");
+        await refreshPartnerOrdersTab_({ force: false });
+        if (pending.length === 1 && first && first.id) {
+          setTimeout(function () {
+            try { partnerOpenOrderForSlot_(String(first.id)); } catch (eOpen) {}
+          }, 350);
+        }
+      } catch (eNav) {}
+    }
+    window.maybePromptPartnerOrdersOnEnter_ = maybePromptPartnerOrdersOnEnter_;
 
     function partnerHubToggleForm_(kind) {
       var id = kind === "point" ? "phPointForm" : (kind === "net" ? "phNetForm" : "phAccForm");
@@ -22718,6 +22931,10 @@
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || "нет ответа — Deploy Code.gs?";
           if (boxA) boxA.innerHTML = '<p class="muted">' + escapeHtml(msg) + "</p>";
+          try {
+            setPartnerHubTab_("orders");
+            refreshPartnerOrdersTab_({ force: true });
+          } catch (eOrdFail) {}
           return;
         }
         partnerHubCache_ = res;

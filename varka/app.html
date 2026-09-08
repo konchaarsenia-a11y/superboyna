@@ -117,6 +117,19 @@
       color: var(--accent2); border-color: var(--line);
       background: rgba(245,154,46,0.12);
     }
+    .back-to-order {
+      display: none;
+      position: sticky; top: 52px; z-index: 3;
+      margin: 0 0 12px;
+      border: 1px solid rgba(245,154,46,0.4);
+      background: linear-gradient(145deg, rgba(245,154,46,0.22), rgba(245,154,46,0.08));
+      color: var(--accent2);
+      border-radius: 14px; padding: 12px 14px;
+      font-size: 14px; font-weight: 800; font-family: inherit;
+      width: 100%; text-align: left; cursor: pointer;
+    }
+    body.show-back-order .back-to-order { display: block; }
+    .back-to-order span { color: var(--muted); font-weight: 600; font-size: 12px; display: block; margin-top: 2px; }
     .brand {
       font-family: var(--display); font-size: 28px; letter-spacing: 0.04em;
       margin: 4px 0 0; text-align: center;
@@ -440,6 +453,10 @@
         <button type="button" class="nav-link" data-nav="cabinet" onclick="goCabinet()">Кабинет</button>
       </div>
     </nav>
+    <button type="button" class="back-to-order" id="backToOrderBtn" onclick="goOrderFlow()">
+      ← К заказу
+      <span>вернуться к заявке</span>
+    </button>
 
     <!-- Boot -->
     <div id="screenBoot" class="screen on">
@@ -497,7 +514,6 @@
     <div id="screenMyOrders" class="screen">
       <div class="toprow">
         <div class="title">История заказов</div>
-        <button class="chip on" type="button" onclick="goOrderFlow()">К заказу</button>
       </div>
       <div id="myOrdersList"></div>
     </div>
@@ -506,7 +522,6 @@
     <div id="screenCabinet" class="screen">
       <div class="toprow">
         <div class="title">Кабинет</div>
-        <button class="chip on" type="button" onclick="goOrderFlow()">К заказу</button>
       </div>
       <div class="session" id="sessionBar" style="margin-top:2px;">
         <div>
@@ -564,7 +579,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.18";
+  var APP_VER = "3.3.19";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -986,9 +1001,11 @@
     if (bar) bar.style.display = withCart ? "" : "none";
     var authed = (id === "screenOrder" || id === "screenPoints" ||
       id === "screenMyOrders" || id === "screenCabinet");
+    var awayOrder = (id === "screenMyOrders" || id === "screenCabinet");
     try {
       document.body.classList.toggle("has-cart", !!withCart);
       document.body.classList.toggle("has-nav", !!authed);
+      document.body.classList.toggle("show-back-order", !!awayOrder);
     } catch (eBar) {}
     var navTitle = document.getElementById("navTitle");
     if (navTitle) {
@@ -1156,8 +1173,7 @@
     var whoTxt = state.me.name || "Партнёр";
     if (who) who.textContent = whoTxt;
     if (navWho) {
-      navWho.textContent = (state.me.username ? ("@" + state.me.username) : whoTxt) +
-        " · v" + APP_VER;
+      navWho.textContent = state.me.username ? ("@" + state.me.username) : whoTxt;
     }
     if (meta) {
       var n = (state.me.pointIds || []).length;
@@ -1170,8 +1186,7 @@
       meta.textContent = (state.me.username ? ("@" + state.me.username + " · ") : "") +
         n + " точ." +
         (ptsLab ? (" · " + ptsLab) : "") +
-        (REMOTE_IS_OWNER_ ? " · owner" : "") +
-        " · v" + APP_VER;
+        (REMOTE_IS_OWNER_ ? " · owner" : "");
     }
     var ot = document.getElementById("orderTitle");
     if (ot) ot.textContent = "Бесплатная заявка";
@@ -1669,16 +1684,12 @@
         return;
       }
       var ord = res.order || {};
-      var slot = (ord.deliverDateLabel || "") +
-        (ord.deliverTimeLabel ? (", " + ord.deliverTimeLabel) : "");
       state.cart = {};
       clearNfcExtra_();
       state.point = onlyPoint_() || null;
       refreshCart();
       goOrderFlow();
-      alert(slot
-        ? ("Заявка принята.\nПривезём: " + slot)
-        : (res.id ? ("Заявка № " + res.id + " принята.") : "Заявка принята."));
+      alert("Заявка отправлена.\nСкоро придёт уведомление о дате доставки.");
     } catch (e) {
       alert("Сеть: не удалось отправить заявку");
     }

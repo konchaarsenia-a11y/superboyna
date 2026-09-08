@@ -8187,7 +8187,7 @@ async function handleCutover_(a, params, env, ctx) {
     // Varka Partner_* — D1/snap правда → GAS зеркало (TG/deferred в GAS)
     if (
       isPartnerD1PrimaryCanon_(env) &&
-      /^(partnerSaveNetwork|partnerSavePoint|partnerSaveAccess|partnerRevokeAccess|partnerSeedDefaults|partnerSetNotifyRecipients|partnerSubmitOrder|partnerSetOrderStatus)$/i.test(
+      /^(partnerSaveNetwork|partnerSavePoint|partnerSaveAccess|partnerRevokeAccess|partnerSeedDefaults|partnerSetNotifyRecipients|partnerSubmitOrder|partnerSetOrderStatus|partnerSetOrderSlot)$/i.test(
         a
       )
     ) {
@@ -15221,7 +15221,6 @@ async function mutatePartnerD1_(action, params, env) {
         break;
       }
     }
-    const slot = partnerDefaultSlotWorker_();
     const id = partnerUid_("po");
     const order = {
       id: id,
@@ -15234,12 +15233,13 @@ async function mutatePartnerD1_(action, params, env) {
       username: username,
       basket: basket,
       status: "new",
+      needsSlot: true,
       createdAt: new Date().toISOString(),
-      deliverDateIso: slot.dateIso,
-      deliverDateLabel: slot.dateLabel,
-      deliverTimeFrom: slot.timeFrom,
-      deliverTimeTo: slot.timeTo,
-      deliverTimeLabel: slot.timeLabel,
+      deliverDateIso: "",
+      deliverDateLabel: "",
+      deliverTimeFrom: "",
+      deliverTimeTo: "",
+      deliverTimeLabel: "",
       deferredId: ""
     };
     let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
@@ -15252,7 +15252,7 @@ async function mutatePartnerD1_(action, params, env) {
   }
 
   if (/^partnerSetOrderStatus$/i.test(a)) {
-    const id = String((params && (params.id || params.orderId)) || "").trim();
+    const id = String((params && (params.id || params.orderId || params.partnerOrderId)) || "").trim();
     const st = String((params && params.status) || "").trim().toLowerCase();
     if (!id || !st) return { status: "error", message: "need_id_status" };
     let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
@@ -15269,6 +15269,50 @@ async function mutatePartnerD1_(action, params, env) {
     pack._d1TouchedAt = Date.now();
     await putSnap_(env, "partnerOrders", pack);
     return { status: "success", id: id, status: st, order: pack.orders[hit], d1Verified: true, pendingSheets: true };
+  }
+
+  if (/^partnerSetOrderSlot$/i.test(a)) {
+    const id = String((params && (params.id || params.orderId || params.partnerOrderId)) || "").trim();
+    const dateIso = String((params && params.deliverDateIso) || "").trim();
+    if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) {
+      return { status: "error", message: "need_id_date" };
+    }
+    const timeFrom = String((params && params.deliverTimeFrom) || "12:00").trim() || "12:00";
+    const timeTo = String((params && params.deliverTimeTo) || "18:00").trim() || "18:00";
+    let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
+    pack.orders = Array.isArray(pack.orders) ? pack.orders.slice() : [];
+    let hit = -1;
+    for (let i = 0; i < pack.orders.length; i++) {
+      if (String(pack.orders[i].id) === id) {
+        hit = i;
+        break;
+      }
+    }
+    if (hit < 0) return { status: "error", message: "not_found" };
+    const parts = dateIso.split("-");
+    const dateLabel = parts.length === 3 ? parts[2] + "." + parts[1] : dateIso;
+    const timeLabel = "с " + timeFrom + " до " + timeTo;
+    pack.orders[hit] = Object.assign({}, pack.orders[hit], {
+      deliverDateIso: dateIso,
+      deliverDateLabel: dateLabel,
+      deliverTimeFrom: timeFrom,
+      deliverTimeTo: timeTo,
+      deliverTimeLabel: timeLabel,
+      needsSlot: false,
+      slotAt: new Date().toISOString()
+    });
+    pack._d1TouchedAt = Date.now();
+    await putSnap_(env, "partnerOrders", pack);
+    return {
+      status: "success",
+      id: id,
+      order: pack.orders[hit],
+      deliverDateIso: dateIso,
+      deliverDateLabel: dateLabel,
+      deliverTimeLabel: timeLabel,
+      d1Verified: true,
+      pendingSheets: true
+    };
   }
 
   return { status: "error", message: "unsupported_partner_action" };
@@ -15299,6 +15343,22 @@ async function refreshPartnerSnapsFromGas_(action, params, env, live) {
     for (let i = 0; i < pack.orders.length; i++) {
       if (String(pack.orders[i].id) === oid) {
         pack.orders[i] = live.order || Object.assign({}, pack.orders[i], { status: live.status || params.status });
+        break;
+      }
+    }
+    await putSnap_(env, "partnerOrders", pack);
+  }
+  if (/^partnerSetOrderSlot$/i.test(action) && (live.order || live.id)) {
+    let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
+    pack.orders = Array.isArray(pack.orders) ? pack.orders.slice() : [];
+    const oid = String((live.order && live.order.id) || live.id || params.partnerOrderId || params.id || "");
+    for (let i = 0; i < pack.orders.length; i++) {
+      if (String(pack.orders[i].id) === oid) {
+        pack.orders[i] = live.order || Object.assign({}, pack.orders[i], {
+          deliverDateIso: live.deliverDateIso || params.deliverDateIso,
+          deliverDateLabel: live.deliverDateLabel || "",
+          needsSlot: false
+        });
         break;
       }
     }
