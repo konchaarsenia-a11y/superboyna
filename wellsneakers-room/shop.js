@@ -1,0 +1,297 @@
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "ws_room_cart_v1";
+
+  function loadCart() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveCart(cart) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cart));
+  }
+
+  function cartCount(cart) {
+    return cart.reduce(function (n, line) {
+      return n + (line.qty || 1);
+    }, 0);
+  }
+
+  function money(n) {
+    return Number(n).toFixed(0) + " BYN";
+  }
+
+  function toast(msg) {
+    var el = document.getElementById("toast");
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () {
+      el.classList.remove("show");
+    }, 1800);
+  }
+
+  function updateBadges() {
+    var n = cartCount(loadCart());
+    ["cartCount", "cartCountDock"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = String(n);
+      if (el.classList.contains("cart-count")) {
+        el.hidden = n === 0;
+      }
+    });
+  }
+
+  function renderCart() {
+    var list = document.getElementById("cartList");
+    var totalEl = document.getElementById("cartTotal");
+    if (!list || !totalEl) return;
+    var cart = loadCart();
+    list.innerHTML = "";
+    var total = 0;
+    if (!cart.length) {
+      list.innerHTML = '<p class="cart-empty">Пока пусто — загляни в каталог</p>';
+    } else {
+      cart.forEach(function (line, idx) {
+        total += line.price * line.qty;
+        var row = document.createElement("div");
+        row.className = "cart-item";
+        row.innerHTML =
+          "<div><strong>" +
+          line.name +
+          "</strong><br><span style=\"color:var(--muted);font-size:13px\">" +
+          line.size +
+          " · " +
+          line.qty +
+          " шт</span></div>" +
+          "<div style=\"display:flex;align-items:center;gap:8px\">" +
+          money(line.price * line.qty) +
+          ' <button type="button" data-rm="' +
+          idx +
+          '" aria-label="Убрать" style="border:0;background:transparent;font-size:20px;line-height:1">×</button></div>';
+        list.appendChild(row);
+      });
+    }
+    totalEl.textContent = money(total);
+    list.querySelectorAll("[data-rm]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var cart2 = loadCart();
+        cart2.splice(Number(btn.getAttribute("data-rm")), 1);
+        saveCart(cart2);
+        updateBadges();
+        renderCart();
+      });
+    });
+  }
+
+  function openCart() {
+    var sheet = document.getElementById("cartSheet");
+    var bg = document.getElementById("sheetBg");
+    if (!sheet) return;
+    renderCart();
+    sheet.classList.add("open");
+    sheet.setAttribute("aria-hidden", "false");
+    if (bg) bg.classList.add("open");
+  }
+
+  function closeCart() {
+    var sheet = document.getElementById("cartSheet");
+    var bg = document.getElementById("sheetBg");
+    if (!sheet) return;
+    sheet.classList.remove("open");
+    sheet.setAttribute("aria-hidden", "true");
+    if (bg) bg.classList.remove("open");
+  }
+
+  function addFromCard(card) {
+    var sizeBtn = card.querySelector(".size.on");
+    if (!sizeBtn) {
+      toast("Выбери размер");
+      return;
+    }
+    var id = card.getAttribute("data-id");
+    var name = card.getAttribute("data-name");
+    var price = Number(card.getAttribute("data-price") || 0);
+    var size = sizeBtn.textContent.trim();
+    var cart = loadCart();
+    var found = cart.find(function (l) {
+      return l.id === id && l.size === size;
+    });
+    if (found) found.qty += 1;
+    else
+      cart.push({
+        id: id,
+        name: name,
+        size: size,
+        price: price,
+        qty: 1,
+      });
+    saveCart(cart);
+    updateBadges();
+    toast("В корзине");
+  }
+
+  function qs(name) {
+    return new URLSearchParams(window.location.search).get(name) || "";
+  }
+
+  function getFilterState() {
+    var state = { gender: "", type: "", brand: "", sale: "" };
+    document.querySelectorAll("#catalogFilters .chip.on, #catalogFilters .brand-chip.on").forEach(function (btn) {
+      var key = btn.getAttribute("data-filter");
+      var val = btn.getAttribute("data-value") || "";
+      if (!key) return;
+      if (val === "") return;
+      state[key] = val;
+    });
+    return state;
+  }
+
+  function syncFilterButtons(state) {
+    document.querySelectorAll("#catalogFilters [data-filter]").forEach(function (btn) {
+      var key = btn.getAttribute("data-filter");
+      var val = btn.getAttribute("data-value") || "";
+      var on = false;
+      if (key === "gender") on = (state.gender || "") === val;
+      else if (key === "type") on = (state.type || "") === val;
+      else if (key === "brand") on = (state.brand || "") === val;
+      else if (key === "sale") on = state.sale === "1" && val === "1";
+      btn.classList.toggle("on", on);
+    });
+    // ensure defaults for empty gender/brand
+    if (!state.gender) {
+      var gAll = document.querySelector('#catalogFilters [data-filter="gender"][data-value=""]');
+      if (gAll) gAll.classList.add("on");
+    }
+    if (!state.brand) {
+      var bAll = document.querySelector('#catalogFilters [data-filter="brand"][data-value=""]');
+      if (bAll) bAll.classList.add("on");
+    }
+  }
+
+  function applyFilters() {
+    var list = document.getElementById("catalogList");
+    var empty = document.getElementById("catalogEmpty");
+    if (!list) return;
+    var state = getFilterState();
+    var visible = 0;
+    list.querySelectorAll(".prod").forEach(function (card) {
+      var ok = true;
+      if (state.gender) {
+        var g = card.getAttribute("data-gender") || "";
+        if (g !== state.gender && g !== "uni") ok = false;
+      }
+      if (state.type && card.getAttribute("data-type") !== state.type) ok = false;
+      if (state.brand && card.getAttribute("data-brand") !== state.brand) ok = false;
+      if (state.sale === "1" && card.getAttribute("data-sale") !== "1") ok = false;
+      card.classList.toggle("hidden", !ok);
+      if (ok) visible += 1;
+    });
+    if (empty) empty.classList.toggle("show", visible === 0);
+  }
+
+  function initFiltersFromUrl() {
+    var state = {
+      gender: qs("gender"),
+      type: qs("type"),
+      brand: qs("brand"),
+      sale: qs("sale") === "1" || qs("sale") === "true" ? "1" : "",
+    };
+    // normalize brand aliases
+    if (state.brand === "WS Wear") state.brand = "ws";
+    if (state.brand === "Nike") state.brand = "nike";
+    if (state.brand === "Adidas") state.brand = "adidas";
+    if (state.brand === "Jordan") state.brand = "jordan";
+    syncFilterButtons(state);
+    applyFilters();
+  }
+
+  function bindFilters() {
+    var root = document.getElementById("catalogFilters");
+    if (!root) return;
+    initFiltersFromUrl();
+    root.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-filter]");
+      if (!btn || !root.contains(btn)) return;
+      var key = btn.getAttribute("data-filter");
+      var val = btn.getAttribute("data-value") || "";
+      var state = getFilterState();
+
+      if (key === "sale") {
+        state.sale = state.sale === "1" ? "" : "1";
+      } else if (key === "type") {
+        state.type = state.type === val ? "" : val;
+      } else if (key === "gender") {
+        state.gender = val;
+      } else if (key === "brand") {
+        state.brand = val;
+      }
+
+      syncFilterButtons(state);
+      applyFilters();
+
+      var params = new URLSearchParams();
+      if (state.gender) params.set("gender", state.gender);
+      if (state.type) params.set("type", state.type);
+      if (state.brand) params.set("brand", state.brand);
+      if (state.sale === "1") params.set("sale", "1");
+      var q = params.toString();
+      history.replaceState(null, "", "catalog.html" + (q ? "?" + q : ""));
+    });
+  }
+
+  function bindProducts() {
+    document.querySelectorAll(".prod").forEach(function (card) {
+      var sizes = card.querySelector("[data-sizes]");
+      if (sizes) {
+        sizes.addEventListener("click", function (e) {
+          var s = e.target.closest(".size");
+          if (!s) return;
+          sizes.querySelectorAll(".size").forEach(function (x) {
+            x.classList.remove("on");
+          });
+          s.classList.add("on");
+        });
+      }
+      var add = card.querySelector("[data-add]");
+      if (add) {
+        add.addEventListener("click", function () {
+          addFromCard(card);
+        });
+      }
+    });
+  }
+
+  function bindCartChrome() {
+    ["openCart", "openCartDock"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener("click", openCart);
+    });
+    var bg = document.getElementById("sheetBg");
+    if (bg) bg.addEventListener("click", closeCart);
+    var checkout = document.getElementById("checkout");
+    if (checkout) {
+      checkout.addEventListener("click", function () {
+        if (!loadCart().length) {
+          toast("Корзина пуста");
+          return;
+        }
+        toast("Демо: заказ не отправляется");
+      });
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    updateBadges();
+    bindCartChrome();
+    bindProducts();
+    bindFilters();
+  });
+})();

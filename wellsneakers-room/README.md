@@ -1,12 +1,8 @@
 # wellsneakers — вариант «комната»
 
-Одностраничный демо-сайт в цветах магазина:
-чёрные стены, тёплое свечение витрин, акцент красного ковра.
+- Главная: лого + разделы, без ассортимента
+- Каталог: `catalog.html` — фильтры, бренды, размеры, корзина
 
-**URL (после merge / Pages):**  
-https://konchaarsenia-a11y.github.io/superboyna/wellsneakers-room/
-
-Первый вариант (светлый каталог):  
-https://konchaarsenia-a11y.github.io/superboyna/sneakerworld-onepage-demo/
+**URL:** https://konchaarsenia-a11y.github.io/superboyna/wellsneakers-room/
 
 Адрес: пр-т Дзержинского 19, 2-й этаж.
