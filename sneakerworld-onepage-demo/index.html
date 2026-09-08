@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Figtree:wght@500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body>
+  <body class="page-home">
     <div class="app">
       <header class="top">
         <div class="top-inner">
@@ -27,9 +27,6 @@
             <a class="nav-item is-cat" href="catalog.html">Каталог</a>
             <a class="nav-item" href="#contacts">Контакты</a>
           </nav>
-          <button class="cart-btn" type="button" id="openCartTop" aria-label="Корзина">
-            Корзина <span class="cart-count" id="cartCountTop" hidden>0</span>
-          </button>
         </div>
       </header>
 
@@ -139,7 +136,9 @@
     <div class="dock" aria-label="Быстрые действия">
       <div class="dock-inner">
         <a class="btn-catalog btn-catalog-sm" href="catalog.html">Каталог</a>
-        <button class="btn btn-accent" type="button" id="openCartDock">Корзина · <span id="cartCountDock">0</span></button>
+        <button class="btn btn-accent cart-dock" type="button" id="openCartDock" aria-label="Корзина">
+          Корзина <span class="cart-dot" id="cartDot" hidden></span>
+        </button>
       </div>
     </div>
 

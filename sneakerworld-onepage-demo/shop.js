@@ -35,6 +35,7 @@
     total: document.getElementById('cartTotal'),
     countTop: document.getElementById('cartCountTop'),
     countDock: document.getElementById('cartCountDock'),
+    cartDot: document.getElementById('cartDot'),
     cartSheet: document.getElementById('cartSheet'),
     sizeSheet: document.getElementById('sizeSheet'),
     bg: document.getElementById('sheetBg'),
@@ -86,6 +87,9 @@
       els.countTop.hidden = count === 0;
     }
     if (els.countDock) els.countDock.textContent = String(count);
+    if (els.cartDot) {
+      els.cartDot.hidden = count === 0;
+    }
     if (!cart.length) {
       els.list.innerHTML = '<div class="cart-empty">Пока пусто — загляни в каталог</div>';
       if (els.total) els.total.textContent = '0 BYN';
@@ -330,6 +334,17 @@
   if (openCartTop) openCartTop.addEventListener('click', openCart);
   if (openCartDock) openCartDock.addEventListener('click', openCart);
   if (els.bg) els.bg.addEventListener('click', closeAllSheets);
+
+  if (document.body.classList.contains('page-home')) {
+    const hero = document.querySelector('.hero');
+    const syncBrand = () => {
+      const threshold = hero ? hero.offsetHeight * 0.45 : 120;
+      document.body.classList.toggle('is-scrolled', window.scrollY > threshold);
+    };
+    syncBrand();
+    window.addEventListener('scroll', syncBrand, { passive: true });
+    window.addEventListener('resize', syncBrand);
+  }
 
   const checkoutBtn = document.getElementById('checkoutBtn');
   if (checkoutBtn) {

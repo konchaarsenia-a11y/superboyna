@@ -39,14 +39,16 @@
 
   function updateBadges() {
     var n = cartCount(loadCart());
-    ["cartCount", "cartCountDock"].forEach(function (id) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      el.textContent = String(n);
-      if (el.classList.contains("cart-count")) {
-        el.hidden = n === 0;
+    var dot = document.getElementById("cartDot");
+    if (dot) {
+      if (n > 0) {
+        dot.hidden = false;
+        dot.setAttribute("aria-label", "В корзине есть товары");
+      } else {
+        dot.hidden = true;
+        dot.removeAttribute("aria-label");
       }
-    });
+    }
   }
 
   function renderCart() {
@@ -288,10 +290,23 @@
     }
   }
 
+  function bindHomeScrollBrand() {
+    if (!document.body.classList.contains("page-home")) return;
+    var hero = document.querySelector(".hero");
+    function sync() {
+      var threshold = hero ? hero.offsetHeight * 0.55 : 120;
+      document.body.classList.toggle("is-scrolled", window.scrollY > threshold);
+    }
+    sync();
+    window.addEventListener("scroll", sync, { passive: true });
+    window.addEventListener("resize", sync);
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     updateBadges();
     bindCartChrome();
     bindProducts();
     bindFilters();
+    bindHomeScrollBrand();
   });
 })();

@@ -9,8 +9,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body>
-    <header class="top">
+  <body class="page-home">
+    <header class="top" id="siteHeader">
       <div class="top-inner">
         <a class="brand" href="index.html">
           <img class="logo-img" src="assets/logo.png" alt="" width="40" height="40" />
@@ -19,9 +19,6 @@
             <small>Минск</small>
           </div>
         </a>
-        <button class="cart-btn" type="button" id="openCart" aria-label="Корзина">
-          Корзина <span class="cart-count" id="cartCount" hidden>0</span>
-        </button>
       </div>
       <div class="wrap">
         <nav class="nav" aria-label="Меню">
@@ -136,7 +133,9 @@
     <div class="dock">
       <div class="dock-inner">
         <a class="btn-catalog" href="catalog.html">Каталог</a>
-        <button class="btn btn-rug" type="button" id="openCartDock">Корзина · <span id="cartCountDock">0</span></button>
+        <button class="btn btn-rug cart-dock" type="button" id="openCartDock" aria-label="Корзина">
+          Корзина <span class="cart-dot" id="cartDot" hidden></span>
+        </button>
       </div>
     </div>
 
