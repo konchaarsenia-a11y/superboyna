@@ -98,7 +98,7 @@ export default {
         cutover: "LIVE by default; ?sandbox=1 / ?cutover=0 → D1 only",
         d1: !!(env && env.DB),
         tip: "?action=getClients&day=Понедельник",
-        varka: "/varka/ (CDN app, bypass Pages)"
+        varka: "/varka/ (Pages HTML + assets, not jsDelivr)"
       });
     }
 
