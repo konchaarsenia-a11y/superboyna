@@ -96,16 +96,9 @@ def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> No
     qty = page.locator(".trial-qty")
     assert_true(qty.count() > 0 and qty.first.inner_text().strip() == "1", "trial: hero qty is 1", errors)
     intro = page.locator(".trial-intro")
-    assert_true(intro.count() > 0, "trial: intro present", errors)
-    if intro.count():
-        intro_text = intro.inner_text()
-        assert_true("жёсткость сушки" in intro_text, "trial: exact intro text", errors)
+    assert_true(intro.count() == 0, "trial: intro removed from hero", errors)
     hook = page.locator(".trial-hook")
-    assert_true(hook.count() > 0, "trial: hook present", errors)
-    if hook.count():
-        hook_text = hook.inner_text()
-        assert_true("тест из одной доставки" in hook_text, "trial: exact hook text", errors)
-        assert_true("подобранных идеально" in hook_text, "trial: exact hook wording", errors)
+    assert_true(hook.count() == 0, "trial: hook removed from hero", errors)
     badge = page.locator(".trial-badge").first
     if badge.count():
         badge_text = badge.inner_text().upper()
@@ -115,21 +108,19 @@ def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> No
     how = page.locator(".trial-step-item[data-step]")
     assert_true(how.count() == 3, f"trial: expected 3 cards, got {how.count()}", errors)
     if how.count() == 3:
+        c0 = how.nth(0).inner_text()
+        c1 = how.nth(1).inner_text()
+        c2 = how.nth(2).inner_text()
+        assert_true("жёсткость сушки" in c0, "trial: intro text in card 1", errors)
+        assert_true("Перед сборкой бесплатного набора" in c0, "trial: how #1 in card 1 detail", errors)
+        assert_true("тест из одной доставки" in c1, "trial: hook text in card 2", errors)
+        assert_true("Питомец дегустирует набор в течение недели" in c1, "trial: how #2 in card 2 detail", errors)
         assert_true(
-            "Перед сборкой бесплатного набора" in how.nth(0).inner_text(),
-            "trial: exact how #1 in card",
+            "Вы делитесь обратной связью: что понравилось, что нет" in c2,
+            "trial: how #3 in card 3",
             errors,
         )
-        assert_true(
-            "Питомец дегустирует набор в течение недели" in how.nth(1).inner_text(),
-            "trial: exact how #2 in card",
-            errors,
-        )
-        assert_true(
-            "Вы делитесь обратной связью: что понравилось, что нет" in how.nth(2).inner_text(),
-            "trial: exact how #3 in card",
-            errors,
-        )
+        assert_true("набор получится идеальным" in c2, "trial: after in card 3 detail", errors)
     assert_true(page.locator(".trial-step-card").count() == 3, "trial: 3 step buttons", errors)
     after = page.locator(".trial-after")
     assert_true(after.count() > 0, "trial: after line present", errors)
