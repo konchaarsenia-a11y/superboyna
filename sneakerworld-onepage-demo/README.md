@@ -1,20 +1,19 @@
-# Sneakerworld — one-page демо
+# Sneakerworld — демо сайта
 
-**Живой URL (GitHub Pages, как Goodboy):**  
+**Живой URL (GitHub Pages):**  
 https://konchaarsenia-a11y.github.io/superboyna/sneakerworld-onepage-demo/
 
-## Как работаем дальше (без копипаста)
+## Структура
 
-1. Правки пишешь в чат
-2. Агент правит `sneakerworld-onepage-demo/index.html`
-3. Агент сам `commit` + `push` на `main`
-4. Через 1–3 минуты обновляется Pages
+| Страница | Содержание |
+|---|---|
+| `index.html` | Главная: акции и подборки (без полного ассортимента) |
+| `catalog.html` | Каталог: модели, размеры, поиск по сетке, корзина |
+| `styles.css` / `shop.js` | Общие стили и логика корзины |
 
-Отдельный репозиторий клиента больше не нужен для правок демо.
+Подборки с главной ведут в каталог с `?pick=white|daily|jordan|sale`.
 
-## Что внутри сейчас
+## Как правим
 
-- Светлый спокойный стиль (не тёмный неон)
-- Навигация якорями
-- WhatsApp CTA на +375 29 790-49-93
-- Контакты: ТЦ «Силуэт»
+1. Правки в чат → агент правит файлы в `sneakerworld-onepage-demo/`
+2. Commit + push → через 1–3 мин Pages
