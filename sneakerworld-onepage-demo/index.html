@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-    <title>wellsneakers — кроссовки и одежда</title>
+    <title>wellsneakers — Минск</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Sora:wght@600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Figtree:wght@500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -14,7 +14,7 @@
       <header class="top">
         <div class="top-inner">
           <a class="brand" href="index.html">
-            <div class="logo-mark" aria-hidden="true">WS</div>
+            <img class="logo-img" src="assets/logo.png" alt="" width="44" height="44" />
             <div>
               <h1>wellsneakers</h1>
               <small>Минск</small>
@@ -24,10 +24,11 @@
             <a class="nav-item" href="#him">Ему</a>
             <a class="nav-item" href="#her">Ей</a>
             <a class="nav-item is-sale" href="#sale">Скидки</a>
+            <a class="nav-item is-cat" href="catalog.html">Каталог</a>
             <a class="nav-item" href="#contacts">Контакты</a>
           </nav>
           <button class="cart-btn" type="button" id="openCartTop" aria-label="Корзина">
-            Корзина <span class="cart-count" id="cartCountTop">0</span>
+            Корзина <span class="cart-count" id="cartCountTop" hidden>0</span>
           </button>
         </div>
       </header>
@@ -39,90 +40,85 @@
               <img src="assets/clean4.jpg" alt="Кроссовки" />
             </div>
             <div class="hero-body">
-              <h2>Кроссовки и одежда</h2>
-              <p class="lead">Мужские и женские модели. Цены и размеры — в каталоге.</p>
+              <p class="eyebrow">Магазин в Минске</p>
+              <h2>wellsneakers</h2>
+              <p class="lead">Кроссовки и одежда. Цены и размеры — в каталоге.</p>
               <div class="hero-actions">
-                <a class="btn btn-accent" href="catalog.html">Каталог</a>
-                <a class="btn btn-warm" href="#sale">Скидки</a>
+                <a class="btn-catalog" href="catalog.html">Каталог</a>
+                <a class="btn btn-soft" href="#sale">Скидки</a>
               </div>
             </div>
           </div>
         </section>
 
-        <section id="him" aria-label="Ему">
-          <div class="head">
-            <h3>Ему</h3>
+        <section id="perks" aria-label="Преимущества">
+          <div class="perks">
+            <div class="perk">
+              <span class="perk-sticker cyan">fast</span>
+              Доставка по РБ
+            </div>
+            <div class="perk">
+              <span class="perk-sticker">spot</span>
+              Самовывоз
+            </div>
+            <div class="perk">
+              <span class="perk-sticker red">ok</span>
+              Возврат 14 дней
+            </div>
           </div>
+        </section>
+
+        <section id="him" aria-label="Ему">
+          <div class="head"><h3>Ему</h3></div>
           <div class="cat-grid">
             <a class="cat-card" href="catalog.html?pick=men">
               <img src="assets/h1.jpg" alt="Мужские кроссовки" loading="lazy" />
               <div class="cat-shade"></div>
-              <div class="cat-body">
-                <h4>Мужские кроссовки</h4>
-              </div>
+              <div class="cat-body"><h4>Мужские кроссовки</h4></div>
             </a>
             <a class="cat-card" href="catalog.html?pick=men-apparel">
-              <img src="assets/clean2.jpg" alt="Мужская одежда" loading="lazy" />
+              <img src="assets/hoodie.jpg" alt="Мужская одежда" loading="lazy" />
               <div class="cat-shade"></div>
-              <div class="cat-body">
-                <h4>Мужская одежда</h4>
-              </div>
+              <div class="cat-body"><h4>Мужская одежда</h4></div>
             </a>
           </div>
         </section>
 
         <section id="her" aria-label="Ей">
-          <div class="head">
-            <h3>Ей</h3>
-          </div>
+          <div class="head"><h3>Ей</h3></div>
           <div class="cat-grid">
             <a class="cat-card" href="catalog.html?pick=women">
               <img src="assets/clean1.jpg" alt="Женские кроссовки" loading="lazy" />
               <div class="cat-shade"></div>
-              <div class="cat-body">
-                <h4>Женские кроссовки</h4>
-              </div>
+              <div class="cat-body"><h4>Женские кроссовки</h4></div>
             </a>
             <a class="cat-card" href="catalog.html?pick=women-apparel">
-              <img src="assets/h2.jpg" alt="Женская одежда" loading="lazy" />
+              <img src="assets/hoodie-w.jpg" alt="Женская одежда" loading="lazy" />
               <div class="cat-shade"></div>
-              <div class="cat-body">
-                <h4>Женская одежда</h4>
-              </div>
+              <div class="cat-body"><h4>Женская одежда</h4></div>
             </a>
           </div>
         </section>
 
         <section id="sale" aria-label="Скидки">
-          <div class="head">
-            <h3>Скидки</h3>
-          </div>
-          <div class="promo-stack">
-            <a class="promo warm" href="catalog.html?pick=white">
-              <div class="promo-copy">
-                <h4>Белые кроссовки −15%</h4>
-                <span class="promo-deal">Смотреть →</span>
-              </div>
-              <div class="promo-media">
-                <img src="assets/clean1.jpg" alt="Белые кроссовки" loading="lazy" />
-              </div>
-            </a>
-            <a class="promo mint" href="catalog.html?pick=sale">
-              <div class="promo-copy">
-                <h4>Товары со скидкой</h4>
-                <span class="promo-deal">Смотреть →</span>
-              </div>
-              <div class="promo-media">
-                <img src="assets/p6.jpg" alt="Скидки" loading="lazy" />
-              </div>
-            </a>
+          <div class="head"><h3>Скидки</h3></div>
+          <a class="promo warm" href="catalog.html?pick=sale">
+            <div class="promo-copy">
+              <h4>Товары со скидкой</h4>
+              <span class="promo-deal">В каталог →</span>
+            </div>
+            <div class="promo-media">
+              <img src="assets/clean1.jpg" alt="Скидки" loading="lazy" />
+            </div>
+          </a>
+          <div class="catalog-cta">
+            <p>Все модели, бренды и размеры — на странице каталога.</p>
+            <a class="btn-catalog btn-catalog-sm" href="catalog.html">Открыть каталог</a>
           </div>
         </section>
 
         <section id="contacts" class="contacts" aria-label="Контакты">
-          <div class="head">
-            <h3>Контакты</h3>
-          </div>
+          <div class="head"><h3>Контакты</h3></div>
           <div class="contacts-grid">
             <div class="panel">
               <div class="b">wellsneakers</div>
@@ -131,23 +127,18 @@
                 пр-т Дзержинского 19, 2-й этаж<br />
                 11:00–21:00
               </p>
-              <ul class="check-list" style="margin-top:14px">
-                <li><span class="ok">✓</span><div><span class="b">Доставка по РБ</span></div></li>
-                <li><span class="ok">✓</span><div><span class="b">Самовывоз</span></div></li>
-                <li><span class="ok">✓</span><div><span class="b">Возврат 14 дней</span></div></li>
-              </ul>
             </div>
             <div class="map">Карта позже</div>
           </div>
         </section>
       </main>
 
-      <footer>wellsneakers · Минск</footer>
+      <footer>wellsneakers · пр-т Дзержинского 19, 2-й этаж</footer>
     </div>
 
     <div class="dock" aria-label="Быстрые действия">
       <div class="dock-inner">
-        <a class="btn" href="catalog.html">Каталог</a>
+        <a class="btn-catalog btn-catalog-sm" href="catalog.html">Каталог</a>
         <button class="btn btn-accent" type="button" id="openCartDock">Корзина · <span id="cartCountDock">0</span></button>
       </div>
     </div>
@@ -156,11 +147,11 @@
     <aside class="sheet" id="cartSheet" aria-label="Корзина" aria-hidden="true">
       <h3>Корзина</h3>
       <div id="cartList"></div>
-      <div class="row" style="margin:12px 0 14px">
-        <div class="b">Итого</div>
-        <div class="price" id="cartTotal">0 BYN</div>
+      <div class="sheet-total">
+        <span>Итого</span>
+        <span id="cartTotal">0 BYN</span>
       </div>
-      <button class="btn btn-accent" type="button" id="checkoutBtn" style="width:100%">Оформить заказ</button>
+      <button class="btn btn-accent" type="button" id="checkoutBtn" style="width:100%">Оформить</button>
     </aside>
 
     <div class="toast" id="toast" role="status"></div>

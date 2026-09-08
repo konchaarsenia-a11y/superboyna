@@ -66,16 +66,16 @@
         row.innerHTML =
           "<div><strong>" +
           line.name +
-          "</strong><br><span style=\"color:var(--muted);font-size:13px\">" +
+          '</strong><div class="meta">' +
           line.size +
           " · " +
           line.qty +
-          " шт</span></div>" +
-          "<div style=\"display:flex;align-items:center;gap:8px\">" +
+          " шт</div></div>" +
+          '<div class="sum" style="display:flex;align-items:center;gap:8px">' +
           money(line.price * line.qty) +
           ' <button type="button" data-rm="' +
           idx +
-          '" aria-label="Убрать" style="border:0;background:transparent;font-size:20px;line-height:1">×</button></div>';
+          '" aria-label="Убрать" style="border:0;background:transparent;color:var(--muted);font-size:22px;line-height:1;font-family:var(--display)">×</button></div>';
         list.appendChild(row);
       });
     }
