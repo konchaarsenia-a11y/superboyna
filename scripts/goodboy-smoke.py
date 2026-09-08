@@ -88,39 +88,43 @@ def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> No
     page.goto(url, wait_until="domcontentloaded")
     page.wait_for_timeout(800)
 
-    title = page.locator(".sub-trial-title--center, .sub-trial-title")
+    title = page.locator(".trial-offer-title, .sub-trial-title--center, .sub-trial-title")
     assert_true(title.count() > 0, "trial: title present", errors)
     if title.count():
         text = title.inner_text().lower()
-        trial_ok = ("недел" in text) and ("бесплат" in text)
-        assert_true(trial_ok, "trial: hero mentions free week", errors)
+        assert_true("пробный период" in text and "бесплат" in text, "trial: exact offer title", errors)
+    intro = page.locator(".trial-intro")
+    assert_true(intro.count() > 0, "trial: intro present", errors)
+    if intro.count():
+        intro_text = intro.inner_text()
+        assert_true("жёсткость сушки" in intro_text, "trial: exact intro text", errors)
+    hook = page.locator(".trial-hook")
+    assert_true(hook.count() > 0, "trial: hook present", errors)
+    if hook.count():
+        hook_text = hook.inner_text()
+        assert_true("тест из одной доставки" in hook_text, "trial: exact hook text", errors)
+        assert_true("подобранных идеально" in hook_text, "trial: exact hook wording", errors)
     badge = page.locator(".trial-badge").first
     if badge.count():
         badge_text = badge.inner_text().upper()
         assert_true("BYN" in badge_text, "trial: badge uses BYN", errors)
         assert_true("₽" not in badge.inner_text(), "trial: badge must not use ₽", errors)
 
-    steps = page.locator(".trial-steps li")
-    assert_true(steps.count() == 3, f"trial: expected 3 steps, got {steps.count()}", errors)
-    first_title = page.locator(".trial-step-item[data-step='ask'] .trial-step-title").first
-    if first_title.count():
-        box = first_title.bounding_box()
-        card = page.locator(".trial-step-item[data-step='ask'] .trial-step-card").first.bounding_box()
-        if box and card:
-            title_cx = box["x"] + box["width"] / 2
-            card_cx = card["x"] + card["width"] / 2
-            drift = abs(title_cx - card_cx)
-            assert_true(drift < 28, f"trial: title not centered (drift {drift:.0f}px)", errors)
+    how = page.locator(".trial-how-list li")
+    assert_true(how.count() == 3, f"trial: expected 3 how-items, got {how.count()}", errors)
+    if how.count() == 3:
+        assert_true("Перед сборкой бесплатного набора" in how.nth(0).inner_text(), "trial: exact how #1", errors)
+        assert_true("Питомец дегустирует набор в течение недели" in how.nth(1).inner_text(), "trial: exact how #2", errors)
+        assert_true("Вы делитесь обратной связью: что понравилось, что нет" in how.nth(2).inner_text(), "trial: exact how #3", errors)
+    after = page.locator(".trial-after")
+    assert_true(after.count() > 0, "trial: after line present", errors)
+    if after.count():
+        assert_true("набор получится идеальным" in after.inner_text(), "trial: exact after text", errors)
     terms = page.locator(".trial-terms")
     assert_true(terms.count() > 0, "trial: terms line present", errors)
     if terms.count():
         terms_text = terms.inner_text().lower()
         assert_true("бумажн" in terms_text, "trial: terms mention paper coupon", errors)
-    step_items = page.locator(".trial-step-item[data-step]")
-    assert_true(step_items.count() == 3, f"trial: expected 3 step items, got {step_items.count()}", errors)
-    step_btns = page.locator(".trial-step-card")
-    assert_true(step_btns.count() == 3, f"trial: expected 3 step buttons, got {step_btns.count()}", errors)
-    assert_true(page.locator(".trial-step-face--long").count() == 3, "trial: step detail faces", errors)
 
     cta = page.locator("#subIgBtn.invite-btn, .sub-trial-cta").first
     assert_true(cta.count() > 0, "trial: CTA present", errors)
