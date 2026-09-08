@@ -3727,6 +3727,19 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .trial-step-item.is-detail .trial-step-lead {
   text-align: left;
 }
+.trial-step-title {
+  display: block;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--gb-cream);
+  text-align: center;
+  width: 100%;
+}
+.trial-step-item.is-detail .trial-step-title {
+  margin: 0 0 8px;
+  text-align: left;
+}
 .trial-step-detail-text {
   display: block;
   margin: 0;
@@ -3734,6 +3747,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   color: var(--gb-muted);
   line-height: 1.45;
   text-align: left;
+  white-space: pre-line;
 }
 .trial-after {
   margin: 14px 4px 0;

@@ -108,24 +108,26 @@ def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> No
     how = page.locator(".trial-step-item[data-step]")
     assert_true(how.count() == 3, f"trial: expected 3 cards, got {how.count()}", errors)
     if how.count() == 3:
-        c0 = how.nth(0).inner_text()
-        c1 = how.nth(1).inner_text()
-        c2 = how.nth(2).inner_text()
-        assert_true("жёсткость сушки" in c0, "trial: intro text in card 1", errors)
+        titles = [how.nth(i).locator(".trial-step-face--short .trial-step-title").inner_text().strip() for i in range(3)]
+        assert_true(titles == ["Анкета", "Неделя", "Отзыв"], f"trial: short titles {titles}", errors)
+        # Closed face: titles only (no long copy on short face)
+        for i, name in enumerate(["Анкета", "Неделя", "Отзыв"]):
+            short = how.nth(i).locator(".trial-step-face--short").inner_text().strip()
+            assert_true(short == name, f"trial: closed card {i+1} is title only ({short!r})", errors)
+        c0 = how.nth(0).locator(".trial-step-detail-text").inner_text()
+        c1 = how.nth(1).locator(".trial-step-detail-text").inner_text()
+        c2 = how.nth(2).locator(".trial-step-detail-text").inner_text()
+        assert_true("жёсткость сушки" in c0, "trial: intro in card 1 detail", errors)
         assert_true("Перед сборкой бесплатного набора" in c0, "trial: how #1 in card 1 detail", errors)
-        assert_true("тест из одной доставки" in c1, "trial: hook text in card 2", errors)
+        assert_true("тест из одной доставки" in c1, "trial: hook in card 2 detail", errors)
         assert_true("Питомец дегустирует набор в течение недели" in c1, "trial: how #2 in card 2 detail", errors)
         assert_true(
             "Вы делитесь обратной связью: что понравилось, что нет" in c2,
-            "trial: how #3 in card 3",
+            "trial: how #3 in card 3 detail",
             errors,
         )
         assert_true("набор получится идеальным" in c2, "trial: after in card 3 detail", errors)
     assert_true(page.locator(".trial-step-card").count() == 3, "trial: 3 step buttons", errors)
-    after = page.locator(".trial-after")
-    assert_true(after.count() > 0, "trial: after line present", errors)
-    if after.count():
-        assert_true("набор получится идеальным" in after.inner_text(), "trial: exact after text", errors)
     terms = page.locator(".trial-terms")
     assert_true(terms.count() > 0, "trial: terms line present", errors)
     if terms.count():
