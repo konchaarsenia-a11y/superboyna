@@ -92,8 +92,8 @@ def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> No
     assert_true(title.count() > 0, "trial: title present", errors)
     if title.count():
         text = title.inner_text().lower()
-        trial_ok = ("бесплат" in text) and (("достав" in text) or ("недел" in text))
-        assert_true(trial_ok, "trial: hero mentions free trial", errors)
+        trial_ok = ("недел" in text) and ("бесплат" in text)
+        assert_true(trial_ok, "trial: hero mentions free week", errors)
     badge = page.locator(".trial-badge").first
     if badge.count():
         badge_text = badge.inner_text().upper()
@@ -102,16 +102,20 @@ def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> No
 
     steps = page.locator(".trial-steps li")
     assert_true(steps.count() == 3, f"trial: expected 3 steps, got {steps.count()}", errors)
-    first_title = page.locator(".trial-step-item[data-step='first'] .trial-step-title").first
+    first_title = page.locator(".trial-step-item[data-step='ask'] .trial-step-title").first
     if first_title.count():
         box = first_title.bounding_box()
-        card = page.locator(".trial-step-item[data-step='first'] .trial-step-card").first.bounding_box()
+        card = page.locator(".trial-step-item[data-step='ask'] .trial-step-card").first.bounding_box()
         if box and card:
             title_cx = box["x"] + box["width"] / 2
             card_cx = card["x"] + card["width"] / 2
             drift = abs(title_cx - card_cx)
             assert_true(drift < 28, f"trial: title not centered (drift {drift:.0f}px)", errors)
-    assert_true(page.locator(".trial-terms").count() > 0, "trial: terms line present", errors)
+    terms = page.locator(".trial-terms")
+    assert_true(terms.count() > 0, "trial: terms line present", errors)
+    if terms.count():
+        terms_text = terms.inner_text().lower()
+        assert_true("бумажн" in terms_text, "trial: terms mention paper coupon", errors)
     step_items = page.locator(".trial-step-item[data-step]")
     assert_true(step_items.count() == 3, f"trial: expected 3 step items, got {step_items.count()}", errors)
     step_btns = page.locator(".trial-step-card")
