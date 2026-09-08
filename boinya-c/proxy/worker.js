@@ -33,21 +33,31 @@ const DAY_SHORT = {
   "Будущая неделя": "Буд"
 };
 
-/** Varka Mini App с CDN (обход залипшего GitHub Pages). */
-const VARKA_CDN_BASE =
-  "https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/varka";
+/** Varka Mini App: HTML с правильным Content-Type (не jsDelivr — там text/plain). */
+const VARKA_PAGES_BASE =
+  "https://konchaarsenia-a11y.github.io/superboyna/varka";
+const VARKA_RAW_APP =
+  "https://raw.githubusercontent.com/konchaarsenia-a11y/superboyna/main/varka/app.html";
 
 async function serveVarkaApp_() {
   try {
-    const upstream = await fetch(VARKA_CDN_BASE + "/app.html", {
-      cf: { cacheTtl: 60, cacheEverything: true }
+    let upstream = await fetch(VARKA_PAGES_BASE + "/app.html", {
+      cf: { cacheTtl: 30, cacheEverything: true }
     });
     if (!upstream.ok) {
-      return Response.redirect(VARKA_CDN_BASE + "/app.html", 302);
+      upstream = await fetch(VARKA_RAW_APP, {
+        cf: { cacheTtl: 30, cacheEverything: true }
+      });
+    }
+    if (!upstream.ok) {
+      return Response.redirect(VARKA_PAGES_BASE + "/", 302);
     }
     let html = await upstream.text();
-    // Относительные assets/* → абсолютные на CDN
-    html = html.replace(/(["'(])assets\//g, "$1" + VARKA_CDN_BASE + "/assets/");
+    // Абсолютные assets с Pages (картинки купонов / баннеры)
+    html = html.replace(
+      /(["'(])assets\//g,
+      "$1" + VARKA_PAGES_BASE + "/assets/"
+    );
     return new Response(html, {
       status: 200,
       headers: {
@@ -57,7 +67,7 @@ async function serveVarkaApp_() {
       }
     });
   } catch (e) {
-    return Response.redirect(VARKA_CDN_BASE + "/app.html", 302);
+    return Response.redirect(VARKA_PAGES_BASE + "/", 302);
   }
 }
 

@@ -12,22 +12,17 @@
       display: flex; align-items: center; justify-content: center;
       min-height: 100vh;
     }
-    a { color: #f59a2e; }
   </style>
   <script>
     (function () {
-      // GitHub Pages часто залипает на старом app.html (пресеты NFC).
-      // Актуальный билд всегда с jsDelivr @main.
-      var CDN =
-        "https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/varka/app.html";
-      var bust = "346";
-      location.replace(CDN + "?v=" + bust);
+      // Только локальный app.html на Pages (text/html + assets/*).
+      // jsDelivr отдаёт .html как text/plain → «просто код» без картинок.
+      var ver = "347";
+      location.replace("app.html?v=" + ver);
     })();
   </script>
 </head>
 <body>
-  <p>Загрузка…
-    <a href="https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/varka/app.html?v=346">открыть</a>
-  </p>
+  <p>Загрузка…</p>
 </body>
 </html>

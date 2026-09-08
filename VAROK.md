@@ -2,12 +2,11 @@
 
 Telegram Mini App для **партнёрских сетей**: бесплатная заявка на лакомства и купоны.
 
-**Живой URL (пока Pages залип):**  
-https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/varka/app.html  
+**Живой URL:** https://konchaarsenia-a11y.github.io/superboyna/varka/  
 
-**Зеркало после merge Worker:** https://boinya-c.konchaarsenia.workers.dev/varka/  
+**Не использовать jsDelivr для Mini App** — `.html` там как `text/plain` («просто код», без картинок).
 
-**Pages (часто отстаёт):** https://konchaarsenia-a11y.github.io/superboyna/varka/
+**Зеркало Worker (после deploy):** https://boinya-c.konchaarsenia.workers.dev/varka/
 
 **Бот партнёров:** [@GOODBOY_LG](https://t.me/GOODBOY_LG)  
 (отдельный от бота Бойни; токен только в Script Properties / `secrets.local.md`, не в git)
@@ -21,12 +20,8 @@ https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/varka/app.html
 1. [@BotFather](https://t.me/BotFather) → `/mybots` → **GOODBOY_LG**
 2. **Bot Settings → Menu Button → Configure menu button**
    - Text: `Открыть`
-   - URL **сейчас (Pages broken, пресеты NFC на старом билде):**  
-     `https://cdn.jsdelivr.net/gh/konchaarsenia-a11y/superboyna@main/varka/app.html`  
-     или после deploy Worker: `https://boinya-c.konchaarsenia.workers.dev/varka/`
-   - Когда Pages снова отдаёт ≥ v3.3.16: можно вернуть  
-     `https://konchaarsenia-a11y.github.io/superboyna/varka/`
-3. Проверка: открыть [@GOODBOY_LG](https://t.me/GOODBOY_LG) → кнопка меню → в шапке **v3.3.16+**, у NFC только «Взять 1» / «+ещё» (без 48/73/96/120).
+   - URL: `https://konchaarsenia-a11y.github.io/superboyna/varka/`
+3. Проверка: открыть [@GOODBOY_LG](https://t.me/GOODBOY_LG) → кнопка меню → шапка **v3.3.17+**, купоны с картинками, NFC без пресетов 48/73/96/120.
 
 Токен бота в репозиторий **не** писать. Для webhook/уведомлений позже — `PropertiesService` в своём Script.
 
@@ -87,7 +82,7 @@ Worker: `@arseniyhotko` / `650923866` видит только **NaN clinic · Я
 
 ## Чеклист
 
-- [~] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → **временно CDN / Worker `/varka`** (Pages errored, отдаёт 3.3.12)
+- [x] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → `varka/` (Pages) — **OK** (не jsDelivr)
 - [x] Стиль Good Boy (IG)
 - [x] Вход по @username + свои точки
 - [x] Купоны поштучно + баннер
