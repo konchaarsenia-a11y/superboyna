@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-    <title>Sneakerworld — акции и подборки</title>
+    <title>Sneakerworld — кроссовки и одежда</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Sora:wght@600;700&display=swap" rel="stylesheet" />
@@ -12,65 +12,134 @@
   <body>
     <div class="app">
       <header class="top">
-        <div class="top-row">
+        <div class="top-inner">
           <a class="brand" href="index.html">
-            <div class="logo" aria-hidden="true"></div>
+            <div class="logo-mark" aria-hidden="true">SW</div>
             <div>
               <h1>Sneakerworld</h1>
-              <small>Акции · Минск</small>
+              <small>Кроссовки и одежда · Минск</small>
             </div>
           </a>
+          <nav class="main-nav" aria-label="Главное меню">
+            <a class="nav-item" href="#him"><strong>Ему</strong><span>обувь и одежда</span></a>
+            <a class="nav-item" href="#her"><strong>Ей</strong><span>обувь и одежда</span></a>
+            <a class="nav-item is-sale" href="#sale"><strong>Скидки</strong><span>акции недели</span></a>
+            <a class="nav-item" href="#contacts"><strong>Контакты</strong><span>магазин и доставка</span></a>
+          </nav>
           <button class="cart-btn" type="button" id="openCartTop" aria-label="Корзина">
             Корзина <span class="cart-count" id="cartCountTop">0</span>
           </button>
         </div>
-        <nav class="chips" aria-label="Разделы">
-          <a href="#promo">Акции</a>
-          <a href="#picks">Подборки</a>
-          <a href="catalog.html">Каталог</a>
-          <a href="#how">Как купить</a>
-          <a href="#contacts">Контакты</a>
-        </nav>
       </header>
 
       <main>
         <section class="hero" aria-label="Главный экран">
           <div class="hero-card">
             <div class="hero-photo">
-              <img src="assets/clean4.jpg" alt="Кроссовки крупным планом" />
-              <span class="badge">Сейчас на витрине — акции</span>
+              <img src="assets/clean4.jpg" alt="Кроссовки в магазине" />
+              <span class="badge">Обувь + одежда на сайте</span>
             </div>
             <div class="hero-body">
               <div class="pills">
-                <span class="pill warm">−15% на белые</span>
-                <span class="pill">Подборки недели</span>
+                <span class="pill">Для него и для неё</span>
+                <span class="pill warm">Скидки недели</span>
                 <span class="pill">Каталог отдельно</span>
               </div>
-              <h2>Акции и готовые подборки — без длинного ассортимента на главной.</h2>
-              <p class="lead">Здесь суть недели. Полный каталог и размеры — на отдельной странице.</p>
+              <h2>Выбирайте раздел — дальше уже модели и размеры.</h2>
+              <p class="lead">На главной только понятные направления. Полный ассортимент — в каталоге.</p>
               <div class="hero-actions">
-                <a class="btn btn-accent" href="#promo">Смотреть акции</a>
+                <a class="btn btn-accent" href="#sale">Смотреть скидки</a>
                 <a class="btn btn-warm" href="catalog.html">Весь каталог</a>
               </div>
               <div class="stats">
-                <div class="stat"><strong>до −20%</strong><span>на подборки</span></div>
+                <div class="stat"><strong>11:00–21:00</strong><span>ежедневно</span></div>
                 <div class="stat"><strong>14 дней</strong><span>возврат</span></div>
               </div>
             </div>
           </div>
         </section>
 
-        <section id="promo" aria-label="Акции">
+        <section id="him" aria-label="Ему">
           <div class="head">
-            <h3>Акции недели</h3>
-            <p>Только суть предложения — модели и размеры в каталоге.</p>
+            <h3>Ему</h3>
+            <p>Кроссовки и одежда — без длинного списка на главной.</p>
+          </div>
+          <div class="cat-grid">
+            <a class="cat-card" href="catalog.html?pick=men">
+              <img src="assets/h1.jpg" alt="Мужские кроссовки" loading="lazy" />
+              <div class="cat-shade"></div>
+              <div class="cat-body">
+                <div class="eyebrow">Мужское</div>
+                <h4>Обувь</h4>
+                <p>Nike, Adidas, Jordan, New Balance и другие.</p>
+                <div class="cat-tags"><span>Кроссовки</span><span>Размеры EU</span></div>
+              </div>
+            </a>
+            <a class="cat-card" href="catalog.html?pick=men-apparel">
+              <img src="assets/clean2.jpg" alt="Мужская одежда" loading="lazy" />
+              <div class="cat-shade"></div>
+              <div class="cat-body">
+                <div class="eyebrow">Мужское</div>
+                <h4>Одежда</h4>
+                <p>Худи, футболки, штаны — к паре или отдельно.</p>
+                <div class="cat-tags"><span>Худи</span><span>Футболки</span></div>
+              </div>
+            </a>
+          </div>
+          <div class="subcats">
+            <a class="subcat" href="catalog.html?pick=men"><strong>Кроссовки</strong><span>в каталог</span></a>
+            <a class="subcat" href="catalog.html?pick=daily"><strong>На каждый день</strong><span>подборка</span></a>
+            <a class="subcat" href="catalog.html?pick=jordan"><strong>Jordan</strong><span>баскет-вайб</span></a>
+            <a class="subcat" href="catalog.html?pick=men-apparel"><strong>Верх / низ</strong><span>одежда</span></a>
+          </div>
+        </section>
+
+        <section id="her" aria-label="Ей">
+          <div class="head">
+            <h3>Ей</h3>
+            <p>Женские модели и одежда — отдельным блоком.</p>
+          </div>
+          <div class="cat-grid">
+            <a class="cat-card" href="catalog.html?pick=women">
+              <img src="assets/clean1.jpg" alt="Женские кроссовки" loading="lazy" />
+              <div class="cat-shade"></div>
+              <div class="cat-body">
+                <div class="eyebrow">Женское</div>
+                <h4>Обувь</h4>
+                <p>Светлые и базовые пары под гардероб.</p>
+                <div class="cat-tags"><span>Кроссовки</span><span>Размеры EU</span></div>
+              </div>
+            </a>
+            <a class="cat-card" href="catalog.html?pick=women-apparel">
+              <img src="assets/h2.jpg" alt="Женская одежда" loading="lazy" />
+              <div class="cat-shade"></div>
+              <div class="cat-body">
+                <div class="eyebrow">Женское</div>
+                <h4>Одежда</h4>
+                <p>Лёгкий верх и комфортный низ к кроссовкам.</p>
+                <div class="cat-tags"><span>Топы</span><span>Худи</span></div>
+              </div>
+            </a>
+          </div>
+          <div class="subcats">
+            <a class="subcat" href="catalog.html?pick=women"><strong>Кроссовки</strong><span>в каталог</span></a>
+            <a class="subcat" href="catalog.html?pick=white"><strong>Белые пары</strong><span>акция</span></a>
+            <a class="subcat" href="catalog.html?pick=women-apparel"><strong>Одежда</strong><span>в каталог</span></a>
+            <a class="subcat" href="#sale"><strong>Скидки</strong><span>сейчас</span></a>
+          </div>
+        </section>
+
+        <section id="sale" aria-label="Скидки">
+          <div class="head">
+            <h3>Скидки</h3>
+            <p>Суть акции здесь — модели и размеры в каталоге.</p>
           </div>
           <div class="promo-stack">
             <a class="promo warm" href="catalog.html?pick=white">
               <div class="promo-copy">
                 <div class="promo-kicker">Акция</div>
                 <h4>Белые пары −15%</h4>
-                <p>Чистые силуэты на весну. Скидка до конца недели.</p>
+                <p>Чистые силуэты. Скидка до конца недели.</p>
                 <span class="promo-deal">Открыть подборку →</span>
               </div>
               <div class="promo-media">
@@ -79,60 +148,13 @@
             </a>
             <a class="promo mint" href="catalog.html?pick=sale">
               <div class="promo-copy">
-                <div class="promo-kicker">Drop</div>
+                <div class="promo-kicker">Sale</div>
                 <h4>Скидки на хиты</h4>
-                <p>Популярные модели со склада — цены ниже обычных.</p>
+                <p>Обувь и одежда со склада — цены ниже обычных.</p>
                 <span class="promo-deal">Смотреть в каталоге →</span>
               </div>
               <div class="promo-media">
-                <img src="assets/h1.jpg" alt="Хиты со скидкой" loading="lazy" />
-              </div>
-            </a>
-            <a class="promo" href="catalog.html?pick=jordan">
-              <div class="promo-copy">
-                <div class="promo-kicker">Подборка</div>
-                <h4>Jordan / баскет-вайб</h4>
-                <p>Низкие и классика — без перебора ассортимента здесь.</p>
-                <span class="promo-deal">Перейти →</span>
-              </div>
-              <div class="promo-media">
-                <img src="assets/clean3.jpg" alt="Jordan" loading="lazy" />
-              </div>
-            </a>
-          </div>
-        </section>
-
-        <section id="picks" aria-label="Подборки">
-          <div class="head">
-            <h3>Подборки</h3>
-            <p>Готовые сценарии. Тап — сразу в каталог с фильтром.</p>
-          </div>
-          <div class="picks">
-            <a class="pick" href="catalog.html?pick=daily">
-              <img src="assets/clean2.jpg" alt="На каждый день" loading="lazy" />
-              <div class="pick-shade"></div>
-              <div class="pick-body">
-                <span>Подборка</span>
-                <strong>На каждый день</strong>
-                <em>Ultraboost · Chuck · AF1</em>
-              </div>
-            </a>
-            <a class="pick" href="catalog.html?pick=white">
-              <img src="assets/h2.jpg" alt="Белые" loading="lazy" />
-              <div class="pick-shade"></div>
-              <div class="pick-body">
-                <span>Акция −15%</span>
-                <strong>Белые кроссовки</strong>
-                <em>Светлые силуэты</em>
-              </div>
-            </a>
-            <a class="pick" href="catalog.html?pick=jordan">
-              <img src="assets/p6.jpg" alt="Спорт и стиль" loading="lazy" />
-              <div class="pick-shade"></div>
-              <div class="pick-body">
-                <span>Стиль</span>
-                <strong>Спорт и баскет</strong>
-                <em>Jordan · NB 550</em>
+                <img src="assets/p6.jpg" alt="Хиты со скидкой" loading="lazy" />
               </div>
             </a>
           </div>
@@ -142,71 +164,37 @@
           <div class="catalog-cta">
             <div>
               <div class="b">Полный ассортимент — в каталоге</div>
-              <p>Там размеры, поиск по сетке EU/US/UK и корзина. На главной только акции и подборки.</p>
+              <p>Там размеры, сетка EU/US/UK и корзина. На главной — разделы и акции.</p>
             </div>
             <a class="btn btn-accent" href="catalog.html">Открыть каталог</a>
-          </div>
-        </section>
-
-        <section id="brands" aria-label="Бренды">
-          <div class="head">
-            <h3>Бренды</h3>
-            <p>Ориентир — подробности в каталоге.</p>
-          </div>
-          <div class="brands">
-            <a class="brand-chip" href="catalog.html">NIKE</a>
-            <a class="brand-chip" href="catalog.html">ADIDAS</a>
-            <a class="brand-chip" href="catalog.html">JORDAN</a>
-            <a class="brand-chip" href="catalog.html">NEW BALANCE</a>
-            <a class="brand-chip" href="catalog.html">CONVERSE</a>
-            <a class="brand-chip" href="catalog.html">ASICS</a>
-          </div>
-        </section>
-
-        <section id="how" aria-label="Как купить">
-          <div class="head">
-            <h3>Как купить</h3>
-            <p>От акции — к модели в каталоге.</p>
-          </div>
-          <div class="steps">
-            <div class="step"><span class="num">1</span><div><span class="b">Выбираете акцию или подборку</span><span class="s">На главной — только суть недели.</span></div></div>
-            <div class="step"><span class="num">2</span><div><span class="b">Открываете каталог</span><span class="s">Там размеры и весь ассортимент.</span></div></div>
-            <div class="step"><span class="num">3</span><div><span class="b">Оформляете заказ</span><span class="s">Самовывоз или доставка на сайте.</span></div></div>
-          </div>
-        </section>
-
-        <section id="delivery" aria-label="Доставка">
-          <div class="head">
-            <h3>Доставка и возврат</h3>
-            <p>Условия видны до оформления.</p>
-          </div>
-          <div class="panel">
-            <ul class="check-list">
-              <li><span class="ok">✓</span><div><span class="b">Доставка по РБ</span><span class="s">Срок покажем на оформлении.</span></div></li>
-              <li><span class="ok">✓</span><div><span class="b">Самовывоз</span><span class="s">ТЦ «Силуэт», 2 этаж.</span></div></li>
-              <li><span class="ok">✓</span><div><span class="b">Возврат 14 дней</span><span class="s">Если размер не подошёл.</span></div></li>
-            </ul>
           </div>
         </section>
 
         <section id="contacts" class="contacts" aria-label="Контакты">
           <div class="head">
             <h3>Контакты</h3>
-            <p>Магазин и поддержка.</p>
+            <p>Магазин, телефон и доставка.</p>
           </div>
-          <div class="panel">
-            <div class="b">Sneakerworld.by</div>
-            <p class="s" style="margin-top:8px">
-              Телефон: <a class="phone" href="tel:+375297904993">+375 29 790-49-93</a><br />
-              Адрес: ТЦ «Силуэт», 2-й этаж, 10 ряд, 9 место<br />
-              Время: 10:00–20:00
-            </p>
+          <div class="contacts-grid">
+            <div class="panel">
+              <div class="b">Sneakerworld.by</div>
+              <p class="s" style="margin-top:10px">
+                Телефон: <a class="phone" href="tel:+375297904993">+375 29 790-49-93</a><br />
+                Адрес: ТЦ «Силуэт», 2-й этаж, 10 ряд, 9 место<br />
+                Время: 11:00–21:00
+              </p>
+              <ul class="check-list" style="margin-top:14px">
+                <li><span class="ok">✓</span><div><span class="b">Доставка по РБ</span><span class="s">Срок на оформлении.</span></div></li>
+                <li><span class="ok">✓</span><div><span class="b">Самовывоз</span><span class="s">Примерка в магазине.</span></div></li>
+                <li><span class="ok">✓</span><div><span class="b">Возврат 14 дней</span><span class="s">Если размер не подошёл.</span></div></li>
+              </ul>
+            </div>
             <div class="map">Карта подключим позже</div>
           </div>
         </section>
       </main>
 
-      <footer>Sneakerworld · акции на главной · каталог отдельно</footer>
+      <footer>Sneakerworld · ему / ей · скидки · контакты</footer>
     </div>
 
     <div class="dock" aria-label="Быстрые действия">
