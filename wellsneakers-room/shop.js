@@ -39,15 +39,18 @@
 
   function updateBadges() {
     var n = cartCount(loadCart());
-    var dot = document.getElementById("cartDot");
-    if (dot) {
-      if (n > 0) {
-        dot.hidden = false;
-        dot.setAttribute("aria-label", "В корзине есть товары");
-      } else {
-        dot.hidden = true;
-        dot.removeAttribute("aria-label");
-      }
+    var sticker = document.getElementById("cartSticker");
+    if (!sticker) return;
+    if (n > 0) {
+      sticker.hidden = false;
+      sticker.textContent = String(n);
+      sticker.classList.add("hot");
+      sticker.setAttribute("aria-label", n + " в корзине");
+    } else {
+      sticker.hidden = true;
+      sticker.textContent = "0";
+      sticker.classList.remove("hot");
+      sticker.removeAttribute("aria-label");
     }
   }
 
@@ -293,9 +296,13 @@
   function bindHomeScrollBrand() {
     if (!document.body.classList.contains("page-home")) return;
     var hero = document.querySelector(".hero");
+    var him = document.getElementById("him");
     function sync() {
-      var threshold = hero ? hero.offsetHeight * 0.55 : 120;
-      document.body.classList.toggle("is-scrolled", window.scrollY > threshold);
+      var y = window.scrollY || 0;
+      var logoAt = hero ? Math.max(120, hero.offsetHeight * 0.42) : 140;
+      var navAt = him ? him.offsetTop - 80 : logoAt + 180;
+      document.body.classList.toggle("is-scrolled", y > logoAt);
+      document.body.classList.toggle("is-nav", y > navAt);
     }
     sync();
     window.addEventListener("scroll", sync, { passive: true });
