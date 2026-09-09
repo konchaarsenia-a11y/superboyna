@@ -386,7 +386,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-09 fix-cut-timer-uho-k-pp-h1"
+      deployMarker: "2026-09-09 stats-cutter-btn-h1"
     };
   }
 
@@ -7229,7 +7229,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1 слоты недели перезаписаны из Sheets (пустые дни очищены).",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-09 fix-cut-timer-uho-k-pp-h1"
+        deployMarker: "2026-09-09 stats-cutter-btn-h1"
       };
     } catch (eResync) {
       return {
@@ -8407,6 +8407,52 @@ async function handleCutover_(a, params, env, ctx) {
     if (/^forceSurveyRemind$/i.test(a)) {
       return forceSurveyRemindD1_(params, env, ctx);
     }
+    // Сотрудники статистики: ЗП в Sheets → сброс snap getStats
+    if (/^(saveStatsStaff|deleteStatsStaff|setStatsCutterEnabled)$/i.test(a)) {
+      const staffRes = await gasProxy_(a, params, env, { write: true });
+      if (!staffRes) {
+        return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
+      }
+      try {
+        if (env && env.DB) {
+          const liveList = await gasProxy_("listStatsStaff", { all: "1" }, env, { write: false });
+          if (liveList && liveList.status === "success") {
+            await putSnap_(
+              env,
+              "listStatsStaff",
+              Object.assign({}, liveList, { cachedAt: new Date().toISOString() })
+            );
+          }
+          // устаревшие getStats без ЗП — выкинуть
+          const now = new Date();
+          for (let si = 0; si < 14; si++) {
+            const d = new Date(now.getFullYear(), now.getMonth() - si, 1);
+            const mm = d.getMonth() + 1;
+            const mk = d.getFullYear() + "-" + (mm < 10 ? "0" : "") + mm;
+            try {
+              await putSnap_(env, "getStats:" + mk, {
+                status: "stale",
+                message: "staff_changed",
+                cachedAt: new Date().toISOString()
+              });
+            } catch (eSt) {}
+          }
+          try {
+            await putSnap_(env, "getStats", {
+              status: "stale",
+              message: "staff_changed",
+              cachedAt: new Date().toISOString()
+            });
+          } catch (eSt2) {}
+        }
+      } catch (eStaffSnap) {}
+      if (staffRes && typeof staffRes === "object") {
+        staffRes.cutover = true;
+        staffRes.fromGas = true;
+        staffRes.sandbox = false;
+      }
+      return staffRes;
+    }
     const proxied = await gasProxy_(a, params, env, { write: true });
     if (!proxied) return { status: "error", message: "gas_proxy_failed", cutover: true, action: a };
     try {
@@ -8454,6 +8500,13 @@ async function handleCutover_(a, params, env, ctx) {
   // getStats — тяжёлый GAS (~10с): D1 сразу + SWR в фоне (как getMyAccess)
   if (a === "getStats") {
     return cutoverGetStats_(params, env, ctx);
+  }
+  if (a === "listStatsStaff") {
+    return cutoverSwrGas_("listStatsStaff", params, env, ctx, {
+      isOk: function (s) {
+        return s && s.status === "success" && Array.isArray(s.staff);
+      }
+    });
   }
   if (a === "getMonthOverview") {
     return cutoverGetMonthOverview_(params, env, ctx);
@@ -9638,6 +9691,7 @@ async function cutoverFastRead_(a, params, env) {
       a === "listSurvey" ||
       a === "listSubscriptions" ||
       a === "listPartners" ||
+      a === "listStatsStaff" ||
       a === "listAccess" ||
       a === "listClientProfiles" ||
       a === "listReminderPeople" ||
