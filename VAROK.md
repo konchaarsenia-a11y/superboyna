@@ -48,7 +48,7 @@ API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerS
 - Нет Access и owner Бойни → все точки  
 - Админка — вкладка **Партнёры** в Бойне  
 
-Worker: `@one_more_person_228` — **живой прогон по 1 точке** (сейчас NaN clinic). `@arseniyhotko` — Варки сняты (`PARTNER_PROD_V17`). Deploy — **Worker** + **Code.gs**.
+Worker: `@one_more_person_228` — **живой прогон по 1 точке** (сейчас Fundog; Varka пропущены). `@arseniyhotko` — Варки сняты (`PARTNER_PROD_V17`). Deploy — **Worker** + **Code.gs**.
 
 ### Команда «следующая точка»
 
@@ -62,20 +62,9 @@ Worker: `@one_more_person_228` — **живой прогон по 1 точке**
 
 | # | id | Точка |
 |---|-----|--------|
-| **0** | `pt_nan_1` | **nan_animal_clinic** · ул. Янковского, 34 ← сейчас |
-| 1 | `pt_varka_repina_4` | Varka Репина 4 |
-| 2 | `pt_varka_avia_17` | Varka Авиационная 17 |
-| 3 | `pt_varka_karskogo_23` | Varka Карского 23 |
-| 4 | `pt_varka_golodeda_15` | Varka Голодеда 15 |
-| 5 | `pt_varka_rokoss_80` | Varka Рокоссовского 80 |
-| 6 | `pt_varka_rokoss_150b` | Varka Рокоссовского 150Б |
-| 7 | `pt_varka_kazintsa_120` | Varka Казинца 120 |
-| 8 | `pt_varka_matus_70` | Varka Матусевича 70 |
-| 9 | `pt_varka_tsvirko_100` | Varka Цвирко 100 |
-| 10 | `pt_varka_skrip_1` | Varka Скрипникова 1 |
-| 11 | `pt_varka_shevchenko_1` | Varka Шевченко 1 |
-| 12 | `pt_varka_mayakovskogo_14` | Varka Маяковского 14 |
-| 13 | `pt_fundog_1` | Fundog |
+| 0 | `pt_nan_1` | nan_animal_clinic · ул. Янковского, 34 · ✅ проверено |
+| 1–12 | `pt_varka_*` | Varka — **пропущены** (несколько точек отдельно) |
+| **13** | `pt_fundog_1` | **Fundog · точка 1** · Минск ← сейчас |
 | 14 | `pt_polotno_1` | Polotno |
 | 15 | `pt_indix_1` | Indixvost |
 | 16 | `pt_bob_1` | BOW Wow Collar |
@@ -146,6 +135,7 @@ Worker: `@one_more_person_228` — **живой прогон по 1 точке**
 - [~] **v3.3.20:** примечание к заявке · ~~`@arseniyhotko` → 4 Варки~~ (снято V17) · **Pages** · **Deploy Code.gs**
 - [~] **v3.3.21:** + точка **Varka Маяковского 14** (`pt_varka_mayakovskogo_14`, `PARTNER_PROD_V15`); в Бойне Удалить/Вернуть точку (`partnerDeletePoint`) · Pages Бойня `v71115940` · **нужен Deploy Code.gs** + Worker
 - [x] **v3.3.21b:** лист причин NFC; без дубля Маяковского и без «·»; soft-toast Отправить · Pages varka 3.3.21 · **Deploy Code.gs** (`PARTNER_PROD_V16`)
+- [~] **v3.3.29:** live-test → **Fundog** (`pt_fundog_1`); NaN ✅; Varka пропущены · Pages · **Deploy Code.gs** (`PARTNER_PROD_V20`) + Worker
 - [~] **v3.3.28:** точка NaN → название `nan_animal_clinic`, адрес Янковского ниже · Pages · **Deploy Code.gs** (`PARTNER_PROD_V19`) + Worker
 - [~] **v3.3.27:** уведомления снова через Worker; после даты заказ уходит из Партнёры→Заказы; убраны лишние подписи в заказе · Pages · **Deploy Code.gs** + Worker
 - [~] **v3.3.26:** шаг «Далее · точка» даже для 1 NaN; «Заявка отправлена» только партнёру в @GOODBOY_LG (не снабжение) · Pages · **Deploy Code.gs** + Worker
