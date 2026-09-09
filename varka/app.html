@@ -673,11 +673,34 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.22";
+  var APP_VER = "3.3.23";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
-  var SESSION_KEY = "gb_partner_session_v10";
-  var ME_CACHE_KEY = "gb_partner_me_v1";
+  var SESSION_KEY = "gb_partner_session_v11";
+  var ME_CACHE_KEY = "gb_partner_me_v2";
+  /** Живой прогон — держать IDX в sync с Code.gs / Worker PARTNER_LIVE_TEST_IDX. */
+  var LIVE_TEST_USER_ = "one_more_person_228";
+  var LIVE_TEST_TID_ = "827494606";
+  var LIVE_TEST_IDX_ = 0;
+  var LIVE_TEST_QUEUE_ = [
+    { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34", label: "NaN clinic · Янковского 34" },
+    { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka Репина 4", address: "Репина 4" },
+    { id: "pt_varka_avia_17", networkId: "net_varka", name: "Varka Авиационная 17", address: "Авиационная 17" },
+    { id: "pt_varka_karskogo_23", networkId: "net_varka", name: "Varka Карского 23", address: "Карского 23" },
+    { id: "pt_varka_golodeda_15", networkId: "net_varka", name: "Varka Голодеда 15", address: "Голодеда 15" },
+    { id: "pt_varka_rokoss_80", networkId: "net_varka", name: "Varka Рокоссовского 80", address: "Рокоссовского 80" },
+    { id: "pt_varka_rokoss_150b", networkId: "net_varka", name: "Varka Рокоссовского 150Б", address: "Рокоссовского 150Б" },
+    { id: "pt_varka_kazintsa_120", networkId: "net_varka", name: "Varka Казинца 120", address: "Казинца 120" },
+    { id: "pt_varka_matus_70", networkId: "net_varka", name: "Varka Матусевича 70", address: "Матусевича 70" },
+    { id: "pt_varka_tsvirko_100", networkId: "net_varka", name: "Varka Цвирко 100", address: "Цвирко 100" },
+    { id: "pt_varka_skrip_1", networkId: "net_varka", name: "Varka Скрипникова 1", address: "Скрипникова 1" },
+    { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka Шевченко 1", address: "Шевченко 1" },
+    { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14" },
+    { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
+    { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—" },
+    { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—" },
+    { id: "pt_bob_1", networkId: "net_bobwow", name: "BOW Wow Collar · точка 1", address: "—" }
+  ];
   var SETTINGS_KEY = "gb_partner_settings_v2";
   var BANNER_IMG = "assets/coupon-poster.png";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
@@ -837,13 +860,17 @@
     try {
       var s = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null");
       if (!s || (s.role !== "partner" && s.role !== "owner" && s.role !== "staff")) return false;
+      if (isLiveTestUser_({ username: s.username }, s) && (s.isOwner || (s.pointIds || []).length > 1)) {
+        clearSession_();
+        return false;
+      }
       var ids = normalizePointIds_(s.pointIds);
       if (!ids.length && s.pointId) ids = [String(s.pointId)];
       if (!ids.length || !s.networkId) {
         clearSession_();
         return false;
       }
-      REMOTE_IS_OWNER_ = !!s.isOwner && s.role === "owner";
+      REMOTE_IS_OWNER_ = !!s.isOwner && s.role === "owner" && !isLiveTestUser_({ username: s.username }, s);
       DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
       DEMO_NETWORK = s.networkId || "";
       DEMO_USERNAME = normUser_(s.username || "");
@@ -896,6 +923,54 @@
       }));
     } catch (e) {}
   }
+  function isLiveTestUser_(u, acc) {
+    var uname = normUser_((u && u.username) || (acc && acc.username) || DEMO_USERNAME || "");
+    var tid = String((u && u.telegramId) || (acc && acc.telegramId) || "").trim();
+    return uname === LIVE_TEST_USER_ || tid === LIVE_TEST_TID_;
+  }
+
+  function liveTestPointNow_() {
+    var q = LIVE_TEST_QUEUE_ || [];
+    var i = Number(LIVE_TEST_IDX_) || 0;
+    if (i < 0) i = 0;
+    if (i >= q.length) i = q.length - 1;
+    return q[i] || q[0] || null;
+  }
+
+  function applyLiveTestMe_(u, res) {
+    if (!res || res.status !== "success") return res;
+    if (!isLiveTestUser_(u, res)) return res;
+    var cur = liveTestPointNow_();
+    if (!cur) return res;
+    var netName = cur.networkId === "net_nan" ? "NaN clinic" :
+      (cur.networkId === "net_varka" ? "Varka" : cur.networkId);
+    var netLogo = cur.networkId === "net_nan" ? "assets/partners/nan.png" :
+      (cur.networkId === "net_varka" ? "assets/varka-logo.png" : "");
+    var pt = {
+      id: cur.id,
+      networkId: cur.networkId,
+      name: cur.name || cur.label || cur.id,
+      address: cur.address || ""
+    };
+    var allow = {};
+    allow[cur.id] = true;
+    return Object.assign({}, res, {
+      allowed: true,
+      ownersOnly: false,
+      role: "partner",
+      isPartner: true,
+      isOwner: false,
+      networkId: cur.networkId,
+      pointIds: [cur.id],
+      allowedPointIds: allow,
+      points: [pt],
+      networks: [{ id: cur.networkId, name: netName, logo: netLogo }],
+      liveTest: true,
+      liveTestPoint: cur.id,
+      liveTestLabel: cur.label || cur.name || cur.id
+    });
+  }
+
   function loadMeCache_(u) {
     try {
       var s = JSON.parse(localStorage.getItem(ME_CACHE_KEY) || "null");
@@ -905,6 +980,10 @@
       var uname = normUser_((u && u.username) || "");
       if (tid && s.telegramId && String(s.telegramId) !== tid) return null;
       if (uname && s.username && s.username !== uname) return null;
+      if (isLiveTestUser_(u, s.acc)) {
+        if (s.acc.isOwner || (s.acc.pointIds || []).length > 1) return null;
+        return applyLiveTestMe_(u, s.acc);
+      }
       return s.acc;
     } catch (e) { return null; }
   }
@@ -1253,11 +1332,13 @@
   }
 
   function loginWithAccess_(acc, username) {
+    acc = applyLiveTestMe_({ username: username }, acc || {});
     var ids = normalizePointIds_(acc && acc.pointIds);
     if (!ids.length) return false;
     // владелец Бойни (без Partner_Access) — все точки; партнёр/staff — только выданные
     REMOTE_IS_OWNER_ = !!acc.isOwner && !acc.isPartner &&
-      acc.role !== "partner" && acc.role !== "staff";
+      acc.role !== "partner" && acc.role !== "staff" &&
+      !isLiveTestUser_({ username: username }, acc);
     DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
     DEMO_NETWORK = (acc && acc.networkId) || "";
     DEMO_USERNAME = normUser_(username || (acc && acc.username) || "");
@@ -2387,6 +2468,7 @@
   }
 
   function applyGetMe_(u, res) {
+    res = applyLiveTestMe_(u, res);
     var ids = normalizePointIds_(res && res.pointIds);
     var asOwner = !!(res && res.isOwner && !res.isPartner && res.role === "owner");
     var asPartner = !asOwner && !!(res && (res.isPartner || res.role === "partner" || res.role === "staff"));

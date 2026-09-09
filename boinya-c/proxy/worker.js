@@ -6814,6 +6814,7 @@ const PARTNER_ARSENIY_POINTS = [];
 
 /** Живой прогон @one_more_person_228 — одна точка. «следующая точка» → сдвинуть IDX. */
 const PARTNER_LIVE_TEST_USER = "one_more_person_228";
+const PARTNER_LIVE_TEST_TID = "827494606";
 const PARTNER_LIVE_TEST_IDX = 0;
 const PARTNER_LIVE_TEST_QUEUE = [
   { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34", label: "NaN clinic · Янковского 34" },
@@ -6845,7 +6846,10 @@ function partnerLiveTestCurrentWorker_() {
 
 function isPartnerLiveTestUser_(params) {
   const u = partnerNormUserWorker_(params && params.username);
-  return u === PARTNER_LIVE_TEST_USER;
+  const tid = String((params && params.telegramId) || "").trim();
+  if (u === PARTNER_LIVE_TEST_USER) return true;
+  if (tid && tid === PARTNER_LIVE_TEST_TID) return true;
+  return false;
 }
 const PARTNER_CATALOG_STATIC = [
   { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
@@ -15364,7 +15368,7 @@ async function partnerEnsureLiveTestAccess_(env, admin) {
   const rowLt = {
     id: hit >= 0 ? access[hit].id : "pa_" + PARTNER_LIVE_TEST_USER,
     username: PARTNER_LIVE_TEST_USER,
-    telegramId: hit >= 0 ? String(access[hit].telegramId || "") : "",
+    telegramId: hit >= 0 && access[hit].telegramId ? String(access[hit].telegramId) : PARTNER_LIVE_TEST_TID,
     name: hit >= 0 && access[hit].name ? access[hit].name : "Live test",
     networkId: cur.networkId || "",
     pointIds: [cur.id],

@@ -19876,6 +19876,7 @@ function partnerMigrateProdV16_() {
  * Сейчас: 0 = NaN clinic.
  */
 var PARTNER_LIVE_TEST_USER_ = "one_more_person_228";
+var PARTNER_LIVE_TEST_TID_ = "827494606";
 var PARTNER_LIVE_TEST_IDX_ = 0;
 var PARTNER_LIVE_TEST_QUEUE_ = [
   { id: "pt_nan_1", networkId: "net_nan", label: "NaN clinic · Янковского 34" },
@@ -19903,6 +19904,75 @@ function partnerLiveTestCurrent_() {
   if (i < 0) i = 0;
   if (i >= q.length) i = q.length - 1;
   return q[i] || q[0] || null;
+}
+
+function partnerIsLiveTestUser_(username, tid) {
+  var u = partnerNormUser_(username);
+  var id = String(tid || "").trim();
+  if (u === PARTNER_LIVE_TEST_USER_) return true;
+  if (id && id === PARTNER_LIVE_TEST_TID_) return true;
+  return false;
+}
+
+/** Одна точка прогона — даже если owner Бойни (иначе все точки). */
+function partnerBuildLiveTestGetMe_(username, tid, nets, pts) {
+  var cur = partnerLiveTestCurrent_();
+  if (!cur) return null;
+  var allowedIds = [cur.id];
+  var allowed = {};
+  allowed[cur.id] = true;
+  var myPts = [];
+  for (var i = 0; i < pts.length; i++) {
+    if (pts[i].id === cur.id) {
+      myPts.push({
+        id: pts[i].id,
+        networkId: pts[i].networkId,
+        name: pts[i].name,
+        address: pts[i].address || ""
+      });
+      break;
+    }
+  }
+  if (!myPts.length) {
+    myPts.push({
+      id: cur.id,
+      networkId: cur.networkId || "net_nan",
+      name: cur.label || cur.id,
+      address: ""
+    });
+  }
+  var netNeed = {};
+  myPts.forEach(function (p) { netNeed[p.networkId] = true; });
+  var myNets = nets.filter(function (n) { return netNeed[n.id]; }).map(function (n) {
+    return { id: n.id, name: n.name, logo: n.logo || "" };
+  });
+  if (!myNets.length && cur.networkId) {
+    myNets.push({
+      id: cur.networkId,
+      name: cur.networkId === "net_nan" ? "NaN clinic" : (cur.networkId === "net_varka" ? "Varka" : cur.networkId),
+      logo: cur.networkId === "net_nan" ? "assets/partners/nan.png" : (cur.networkId === "net_varka" ? "assets/varka-logo.png" : "")
+    });
+  }
+  return {
+    status: "success",
+    allowed: true,
+    ownersOnly: false,
+    role: "partner",
+    isPartner: true,
+    isOwner: false,
+    name: username || tid || PARTNER_LIVE_TEST_USER_,
+    username: partnerNormUser_(username) || PARTNER_LIVE_TEST_USER_,
+    telegramId: String(tid || PARTNER_LIVE_TEST_TID_ || ""),
+    networkId: cur.networkId || (myPts[0] && myPts[0].networkId) || "",
+    pointIds: allowedIds,
+    allowedPointIds: allowed,
+    networks: myNets,
+    points: myPts,
+    catalog: partnerCatalogStatic_(),
+    liveTest: true,
+    liveTestPoint: cur.id,
+    liveTestLabel: cur.label || cur.id
+  };
 }
 
 /** Снять Варки у @arseniyhotko; @one_more_person_228 — только текущая точка прогона. */
@@ -19935,6 +20005,17 @@ function partnerMigrateProdV17_() {
   return { migrated: true, liveTestPoint: cur && cur.id, liveTestLabel: cur && cur.label };
 }
 
+/** Повторный sync live-test (tid + одна точка) — после фикса owner→all. */
+function partnerMigrateProdV18_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V18") === "1") return { migrated: false };
+  try { partnerMigrateProdV17_(); } catch (e17) {}
+  try { partnerSyncLiveTestAccess_(); } catch (eSync) {}
+  props.setProperty("PARTNER_PROD_V18", "1");
+  var cur = partnerLiveTestCurrent_();
+  return { migrated: true, liveTestPoint: cur && cur.id, tid: PARTNER_LIVE_TEST_TID_ };
+}
+
 function partnerSyncLiveTestAccess_() {
   var cur = partnerLiveTestCurrent_();
   if (!cur || !cur.id) return { ok: false };
@@ -19949,7 +20030,7 @@ function partnerSyncLiveTestAccess_() {
   var vals = [
     hit ? hit.id : ("pa_" + uname),
     uname,
-    hit ? (hit.telegramId || "") : "",
+    hit && hit.telegramId ? hit.telegramId : PARTNER_LIVE_TEST_TID_,
     hit && hit.name ? hit.name : "Live test",
     cur.networkId || "",
     JSON.stringify([cur.id]),
@@ -19978,6 +20059,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV15_(); } catch (eMig15) {}
   try { partnerMigrateProdV16_(); } catch (eMig16) {}
   try { partnerMigrateProdV17_(); } catch (eMig17) {}
+  try { partnerMigrateProdV18_(); } catch (eMig18) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
@@ -20827,6 +20909,14 @@ function handlePartnerGetMe(json, callback, fromPost) {
 
   var isBoynaOwner = false;
   try { isBoynaOwner = partnerRequireOwner_(tid); } catch (eOwn) { isBoynaOwner = false; }
+
+  // 0) Живой прогон @one_more_person_228 — одна точка, не owner-all.
+  if (partnerIsLiveTestUser_(username, tid)) {
+    var liveMe = partnerBuildLiveTestGetMe_(username, tid, nets, pts);
+    if (liveMe) {
+      return fromPost ? jsonpText(callback, liveMe) : jsonp(callback, liveMe);
+    }
+  }
 
   // 1) Есть Partner_Access — только выданные точки (даже если owner Бойни).
   var hit = partnerFindActiveAccess_(username, tid);
