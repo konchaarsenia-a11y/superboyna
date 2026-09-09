@@ -19870,6 +19870,98 @@ function partnerMigrateProdV16_() {
   return { migrated: true, killed: killed, renamed: renamed };
 }
 
+/**
+ * Живой прогон точек для @one_more_person_228.
+ * Команда владельца «следующая точка» → агент сдвигает IDX и деплоит.
+ * Сейчас: 0 = NaN clinic.
+ */
+var PARTNER_LIVE_TEST_USER_ = "one_more_person_228";
+var PARTNER_LIVE_TEST_IDX_ = 0;
+var PARTNER_LIVE_TEST_QUEUE_ = [
+  { id: "pt_nan_1", networkId: "net_nan", label: "NaN clinic · Янковского 34" },
+  { id: "pt_varka_repina_4", networkId: "net_varka", label: "Varka Репина 4" },
+  { id: "pt_varka_avia_17", networkId: "net_varka", label: "Varka Авиационная 17" },
+  { id: "pt_varka_karskogo_23", networkId: "net_varka", label: "Varka Карского 23" },
+  { id: "pt_varka_golodeda_15", networkId: "net_varka", label: "Varka Голодеда 15" },
+  { id: "pt_varka_rokoss_80", networkId: "net_varka", label: "Varka Рокоссовского 80" },
+  { id: "pt_varka_rokoss_150b", networkId: "net_varka", label: "Varka Рокоссовского 150Б" },
+  { id: "pt_varka_kazintsa_120", networkId: "net_varka", label: "Varka Казинца 120" },
+  { id: "pt_varka_matus_70", networkId: "net_varka", label: "Varka Матусевича 70" },
+  { id: "pt_varka_tsvirko_100", networkId: "net_varka", label: "Varka Цвирко 100" },
+  { id: "pt_varka_skrip_1", networkId: "net_varka", label: "Varka Скрипникова 1" },
+  { id: "pt_varka_shevchenko_1", networkId: "net_varka", label: "Varka Шевченко 1" },
+  { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", label: "Varka Маяковского 14" },
+  { id: "pt_fundog_1", networkId: "net_fundog", label: "Fundog · точка 1" },
+  { id: "pt_polotno_1", networkId: "net_polotno", label: "Polotno · точка 1" },
+  { id: "pt_indix_1", networkId: "net_indixvost", label: "Indixvost · точка 1" },
+  { id: "pt_bob_1", networkId: "net_bobwow", label: "BOW Wow Collar · точка 1" }
+];
+
+function partnerLiveTestCurrent_() {
+  var q = PARTNER_LIVE_TEST_QUEUE_ || [];
+  var i = Number(PARTNER_LIVE_TEST_IDX_) || 0;
+  if (i < 0) i = 0;
+  if (i >= q.length) i = q.length - 1;
+  return q[i] || q[0] || null;
+}
+
+/** Снять Варки у @arseniyhotko; @one_more_person_228 — только текущая точка прогона. */
+function partnerMigrateProdV17_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V17") === "1") {
+    try { partnerSyncLiveTestAccess_(); } catch (eSync0) {}
+    return { migrated: false };
+  }
+  try { partnerMigrateProdV16_(); } catch (e16) {}
+  var acSh = getPartnerAccessSheet_();
+  var rows = readPartnerAccessRows_();
+  var now = new Date();
+  // 1) revoke arseniy
+  for (var i = 0; i < rows.length; i++) {
+    var a = rows[i];
+    var u = String(a.username || "").toLowerCase();
+    var tid = String(a.telegramId || "");
+    if (u === "arseniyhotko" || tid === "650923866") {
+      try {
+        acSh.getRange(a.rowIndex, 8).setValue("inactive");
+        acSh.getRange(a.rowIndex, 9).setValue(now);
+      } catch (eR) {}
+    }
+  }
+  // 2) live-test access
+  try { partnerSyncLiveTestAccess_(); } catch (eSync) {}
+  props.setProperty("PARTNER_PROD_V17", "1");
+  var cur = partnerLiveTestCurrent_();
+  return { migrated: true, liveTestPoint: cur && cur.id, liveTestLabel: cur && cur.label };
+}
+
+function partnerSyncLiveTestAccess_() {
+  var cur = partnerLiveTestCurrent_();
+  if (!cur || !cur.id) return { ok: false };
+  var acSh = getPartnerAccessSheet_();
+  var rows = readPartnerAccessRows_();
+  var uname = PARTNER_LIVE_TEST_USER_;
+  var hit = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].username || "").toLowerCase() === uname) { hit = rows[i]; break; }
+  }
+  var now = new Date();
+  var vals = [
+    hit ? hit.id : ("pa_" + uname),
+    uname,
+    hit ? (hit.telegramId || "") : "",
+    hit && hit.name ? hit.name : "Live test",
+    cur.networkId || "",
+    JSON.stringify([cur.id]),
+    "partner",
+    "active",
+    now
+  ];
+  if (hit) acSh.getRange(hit.rowIndex, 1, 1, PARTNER_ACCESS_HEADERS_.length).setValues([vals]);
+  else acSh.appendRow(vals);
+  return { ok: true, pointId: cur.id, label: cur.label || cur.id };
+}
+
 function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV3_(); } catch (eMig) {}
   try { partnerMigrateProdV4_(); } catch (eMig4) {}
@@ -19885,6 +19977,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV14_(); } catch (eMig14) {}
   try { partnerMigrateProdV15_(); } catch (eMig15) {}
   try { partnerMigrateProdV16_(); } catch (eMig16) {}
+  try { partnerMigrateProdV17_(); } catch (eMig17) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого

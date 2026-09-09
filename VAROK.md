@@ -48,7 +48,39 @@ API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerS
 - Нет Access и owner Бойни → все точки  
 - Админка — вкладка **Партнёры** в Бойне  
 
-Worker: `@arseniyhotko` / `650923866` — **4 Варки Александры** (Рокоссовского 80 / 150Б, Голодеда 15, Казинца 120). Роль owner в Бойне не трогаем. Deploy — **Worker** + **Code.gs** (`PARTNER_PROD_V14`).
+Worker: `@one_more_person_228` — **живой прогон по 1 точке** (сейчас NaN clinic). `@arseniyhotko` — Варки сняты (`PARTNER_PROD_V17`). Deploy — **Worker** + **Code.gs**.
+
+### Команда «следующая точка»
+
+Когда владелец пишет **«следующая точка»**, агент:
+1. Сдвигает `PARTNER_LIVE_TEST_IDX_` (+1) в `Code.gs` и `PARTNER_LIVE_TEST_IDX` в Worker  
+2. Commit + push `main`  
+3. Напоминает **Deploy Code.gs**  
+4. Пишет, какая точка сейчас у `@one_more_person_228`
+
+Очередь (индекс 0 = сейчас):
+
+| # | id | Точка |
+|---|-----|--------|
+| **0** | `pt_nan_1` | **NaN clinic · Янковского 34** ← сейчас |
+| 1 | `pt_varka_repina_4` | Varka Репина 4 |
+| 2 | `pt_varka_avia_17` | Varka Авиационная 17 |
+| 3 | `pt_varka_karskogo_23` | Varka Карского 23 |
+| 4 | `pt_varka_golodeda_15` | Varka Голодеда 15 |
+| 5 | `pt_varka_rokoss_80` | Varka Рокоссовского 80 |
+| 6 | `pt_varka_rokoss_150b` | Varka Рокоссовского 150Б |
+| 7 | `pt_varka_kazintsa_120` | Varka Казинца 120 |
+| 8 | `pt_varka_matus_70` | Varka Матусевича 70 |
+| 9 | `pt_varka_tsvirko_100` | Varka Цвирко 100 |
+| 10 | `pt_varka_skrip_1` | Varka Скрипникова 1 |
+| 11 | `pt_varka_shevchenko_1` | Varka Шевченко 1 |
+| 12 | `pt_varka_mayakovskogo_14` | Varka Маяковского 14 |
+| 13 | `pt_fundog_1` | Fundog |
+| 14 | `pt_polotno_1` | Polotno |
+| 15 | `pt_indix_1` | Indixvost |
+| 16 | `pt_bob_1` | BOW Wow Collar |
+
+На каждой точке проверять: вход → каталог/кнопки → NFC → Отправить → пуш в бот → история.
 
 Ответственные за пуши: Script Property `PARTNER_ORDER_NOTIFY_IDS`.
 
@@ -94,7 +126,7 @@ Worker: `@arseniyhotko` / `650923866` — **4 Варки Александры** 
 - [x] **Prod v3.0.0:** без демо · партнёры из Access · `partnerSubmitOrder` · **Pages** · **нужен Deploy**
 - [x] **Varka точки v3.0.1:** 10 адресов (Репина…Скрипникова) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V4`)
 - [~] **Varka точки v3.0.2:** + **Шевченко 1** (`pt_varka_shevchenko_1`) · уже в живой таблице · **нужен Deploy Code.gs** (`PARTNER_PROD_V11`)
-- [~] **v3.1.0 / v3.3.3:** ~~`@arseniyhotko` → NaN~~ · с **v3.3.20 / V14** — 4 Варки Александры · **нужен Deploy Code.gs** (`PARTNER_PROD_V14`) · Worker
+- [~] **v3.1.0 / v3.3.3:** ~~`@arseniyhotko` → NaN / 4 Варки~~ · **V17: Варки сняты** · **нужен Deploy Code.gs** (`PARTNER_PROD_V17`) · Worker
 - [x] **v3.3.4:** купон **NaN clinic × Good Boy** по `networkId` (`assets/partners/nan-coupon.png`) · **Pages**
 - [x] **v3.3.5:** купон **Indixvost / Ди & Хвосты** (`assets/partners/indixvost-coupon.png`) · **Pages**
 - [x] **v3.3.6:** купон **Polotno** (`assets/partners/polotno-coupon.png`) · **Pages**
@@ -111,9 +143,10 @@ Worker: `@arseniyhotko` / `650923866` — **4 Варки Александры** 
 - [x] **v3.3.17:** убран редирект на jsDelivr (`text/plain` = «просто код» без картинок) · снова локальный `app.html` на Pages
 - [x] **v3.3.18:** главная = заказ сразу; сверху История / Кабинет · чуть мягче UI · **Pages**
 - [~] **v3.3.19:** кнопка «К заказу»; без версии в шапке; заявка без даты → уведомление позже; Бойня Партнёры→Заказы · **Pages** · **нужен Deploy Code.gs** + Worker
-- [~] **v3.3.20:** примечание к заявке · `@arseniyhotko` → 4 Варки Александры (Рокоссовского×2, Голодеда, Казинца) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V14`) + Worker
+- [~] **v3.3.20:** примечание к заявке · ~~`@arseniyhotko` → 4 Варки~~ (снято V17) · **Pages** · **Deploy Code.gs**
 - [~] **v3.3.21:** + точка **Varka Маяковского 14** (`pt_varka_mayakovskogo_14`, `PARTNER_PROD_V15`); в Бойне Удалить/Вернуть точку (`partnerDeletePoint`) · Pages Бойня `v71115940` · **нужен Deploy Code.gs** + Worker
 - [~] **v3.3.21b:** лист причин NFC; без дубля Маяковского и без «·»; soft-toast Отправить; быстрый TG Worker · Pages varka 3.3.21 · **нужен Deploy Code.gs** (`PARTNER_PROD_V16`) + Worker
+- [~] **v3.3.22:** `@arseniyhotko` без Варок; `@one_more_person_228` → NaN clinic; очередь «следующая точка» · Pages varka 3.3.22 · **нужен Deploy Code.gs** (`PARTNER_PROD_V17`) + Worker
 - [ ] **v3.3.2:** ~~`@nan_animal_clinic`~~ — отменено, доступ у `@arseniyhotko`
 - [x] **v3.0.9:** у позиций лакомств убрана буква «г» — **Pages**
 - [x] **v3.0.8:** как было — owner first (все точки); `@one_more_person_228` обычный owner; allowlist/тест-Access сняты (`PARTNER_PROD_V7`) · **Pages** · **нужен Deploy Code.gs**

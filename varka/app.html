@@ -673,7 +673,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.21";
+  var APP_VER = "3.3.22";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -2386,22 +2386,7 @@
     });
   }
 
-  function applyArseniyAlexVarka_(u, res) {
-    return applyPartnerPoints_(
-      u, res, "arseniyhotko", "650923866",
-      [
-        { id: "pt_varka_rokoss_80", networkId: "net_varka", name: "Varka · Рокоссовского 80", address: "Рокоссовского 80" },
-        { id: "pt_varka_rokoss_150b", networkId: "net_varka", name: "Varka · Рокоссовского 150Б", address: "Рокоссовского 150Б" },
-        { id: "pt_varka_golodeda_15", networkId: "net_varka", name: "Varka · Голодеда 15", address: "Голодеда 15" },
-        { id: "pt_varka_kazintsa_120", networkId: "net_varka", name: "Varka · Казинца 120", address: "Казинца 120" }
-      ],
-      { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" },
-      "Арсений Хотько", "arseniyhotko", "650923866"
-    );
-  }
-
   function applyGetMe_(u, res) {
-    res = applyArseniyAlexVarka_(u, res);
     var ids = normalizePointIds_(res && res.pointIds);
     var asOwner = !!(res && res.isOwner && !res.isPartner && res.role === "owner");
     var asPartner = !asOwner && !!(res && (res.isPartner || res.role === "partner" || res.role === "staff"));

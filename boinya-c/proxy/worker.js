@@ -6806,36 +6806,47 @@ async function cutoverSwrGas_(action, params, env, ctx, opts) {
   return { status: "error", message: "gas_proxy_failed", cutover: true, action: action };
 }
 
-/** @arseniyhotko — 4 Варки Александры (2× Рокоссовского, Голодеда, Казинца). */
+/** @arseniyhotko — override Варки снят (V17). Доступ только из Partner_Access. */
 const PARTNER_ARSENIY_USER = "arseniyhotko";
 const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
-const PARTNER_ARSENIY_POINTS = [
-  {
-    id: "pt_varka_rokoss_80",
-    networkId: "net_varka",
-    name: "Varka Рокоссовского 80",
-    address: "Рокоссовского 80"
-  },
-  {
-    id: "pt_varka_rokoss_150b",
-    networkId: "net_varka",
-    name: "Varka Рокоссовского 150Б",
-    address: "Рокоссовского 150Б"
-  },
-  {
-    id: "pt_varka_golodeda_15",
-    networkId: "net_varka",
-    name: "Varka Голодеда 15",
-    address: "Голодеда 15"
-  },
-  {
-    id: "pt_varka_kazintsa_120",
-    networkId: "net_varka",
-    name: "Varka Казинца 120",
-    address: "Казинца 120"
-  }
+const PARTNER_ARSENIY_POINTS = [];
+
+/** Живой прогон @one_more_person_228 — одна точка. «следующая точка» → сдвинуть IDX. */
+const PARTNER_LIVE_TEST_USER = "one_more_person_228";
+const PARTNER_LIVE_TEST_IDX = 0;
+const PARTNER_LIVE_TEST_QUEUE = [
+  { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34", label: "NaN clinic · Янковского 34" },
+  { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka Репина 4", address: "Репина 4", label: "Varka Репина 4" },
+  { id: "pt_varka_avia_17", networkId: "net_varka", name: "Varka Авиационная 17", address: "Авиационная 17", label: "Varka Авиационная 17" },
+  { id: "pt_varka_karskogo_23", networkId: "net_varka", name: "Varka Карского 23", address: "Карского 23", label: "Varka Карского 23" },
+  { id: "pt_varka_golodeda_15", networkId: "net_varka", name: "Varka Голодеда 15", address: "Голодеда 15", label: "Varka Голодеда 15" },
+  { id: "pt_varka_rokoss_80", networkId: "net_varka", name: "Varka Рокоссовского 80", address: "Рокоссовского 80", label: "Varka Рокоссовского 80" },
+  { id: "pt_varka_rokoss_150b", networkId: "net_varka", name: "Varka Рокоссовского 150Б", address: "Рокоссовского 150Б", label: "Varka Рокоссовского 150Б" },
+  { id: "pt_varka_kazintsa_120", networkId: "net_varka", name: "Varka Казинца 120", address: "Казинца 120", label: "Varka Казинца 120" },
+  { id: "pt_varka_matus_70", networkId: "net_varka", name: "Varka Матусевича 70", address: "Матусевича 70", label: "Varka Матусевича 70" },
+  { id: "pt_varka_tsvirko_100", networkId: "net_varka", name: "Varka Цвирко 100", address: "Цвирко 100", label: "Varka Цвирко 100" },
+  { id: "pt_varka_skrip_1", networkId: "net_varka", name: "Varka Скрипникова 1", address: "Скрипникова 1", label: "Varka Скрипникова 1" },
+  { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka Шевченко 1", address: "Шевченко 1", label: "Varka Шевченко 1" },
+  { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14", label: "Varka Маяковского 14" },
+  { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск", label: "Fundog · точка 1" },
+  { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—", label: "Polotno · точка 1" },
+  { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—", label: "Indixvost · точка 1" },
+  { id: "pt_bob_1", networkId: "net_bobwow", name: "BOW Wow Collar · точка 1", address: "—", label: "BOW Wow Collar · точка 1" }
 ];
+
+function partnerLiveTestCurrentWorker_() {
+  const q = PARTNER_LIVE_TEST_QUEUE;
+  let i = Number(PARTNER_LIVE_TEST_IDX) || 0;
+  if (i < 0) i = 0;
+  if (i >= q.length) i = q.length - 1;
+  return q[i] || q[0] || null;
+}
+
+function isPartnerLiveTestUser_(params) {
+  const u = partnerNormUserWorker_(params && params.username);
+  return u === PARTNER_LIVE_TEST_USER;
+}
 const PARTNER_CATALOG_STATIC = [
   { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
   { id: "vr_t_lung", type: "treat", name: "Лёгкое", unit: "г", active: true },
@@ -6876,9 +6887,8 @@ function partnerNormUserWorker_(raw) {
 }
 
 function isPartnerArseniy_(params) {
-  const u = partnerNormUserWorker_(params && params.username);
-  const tid = String((params && params.telegramId) || "").trim();
-  return u === PARTNER_ARSENIY_USER || tid === PARTNER_ARSENIY_TID;
+  // V17: override Варки выключен — Арсений только из Partner_Access (сейчас revoked)
+  return false;
 }
 
 function partnerArseniyAllowedPointId_(id) {
@@ -6944,12 +6954,50 @@ function partnerArseniyGetMe_(json) {
     "Арсений Хотько",
     PARTNER_ARSENIY_USER,
     PARTNER_ARSENIY_TID,
-    "arseniy_varka_alexandra_4"
+    "arseniy_varka_off_v17"
+  );
+}
+
+function partnerLiveTestGetMe_(json) {
+  const cur = partnerLiveTestCurrentWorker_();
+  if (!cur) return json;
+  const netId = cur.networkId || "net_nan";
+  const netName =
+    netId === "net_nan"
+      ? "NaN clinic"
+      : netId === "net_varka"
+        ? "Varka"
+        : netId === "net_fundog"
+          ? "Fundog"
+          : netId === "net_polotno"
+            ? "Polotno"
+            : netId === "net_indixvost"
+              ? "Indixvost"
+              : netId === "net_bobwow"
+                ? "BOW Wow Collar"
+                : netId;
+  return partnerScopedGetMeMulti_(
+    json,
+    [cur],
+    { id: netId, name: netName, logo: "" },
+    "Live test",
+    PARTNER_LIVE_TEST_USER,
+    "",
+    "live_test_one_point_" + (cur.id || "x")
   );
 }
 
 function partnerBlockWrongPoint_(a, params) {
-  if (a !== "partnerSubmitOrder" || !isPartnerArseniy_(params)) return null;
+  if (a !== "partnerSubmitOrder") return null;
+  if (isPartnerLiveTestUser_(params)) {
+    const cur = partnerLiveTestCurrentWorker_();
+    const loc = String((params && (params.locationId || params.pointId)) || "").trim();
+    if (cur && loc && loc !== cur.id) {
+      return { status: "error", message: "forbidden_point", cutover: true };
+    }
+    return null;
+  }
+  if (!isPartnerArseniy_(params)) return null;
   const allowed = {};
   for (let i = 0; i < PARTNER_ARSENIY_POINTS.length; i++) {
     allowed[PARTNER_ARSENIY_POINTS[i].id] = true;
@@ -7049,6 +7097,19 @@ async function patchSaveWithD1_(params, proxied, env) {
 }
 
 function partnerGuardOrRewrite_(a, params, json) {
+  if (isPartnerLiveTestUser_(params)) {
+    if (a === "partnerGetMe") return partnerLiveTestGetMe_(json);
+    if (a === "partnerListMyOrders" && json && json.status === "success" && Array.isArray(json.orders)) {
+      const cur = partnerLiveTestCurrentWorker_();
+      const want = cur && cur.id;
+      return Object.assign({}, json, {
+        orders: json.orders.filter(function (o) {
+          return !want || String((o && (o.locationId || o.pointId)) || "") === want;
+        })
+      });
+    }
+    return json;
+  }
   if (!isPartnerArseniy_(params)) return json;
   if (a === "partnerGetMe") return partnerArseniyGetMe_(json);
   if (a === "partnerListMyOrders" && json && json.status === "success" && Array.isArray(json.orders)) {
@@ -7086,6 +7147,32 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
       out.partnerCanon = partnerCanonLabel_(env);
     }
     return out;
+  }
+
+  if (isPartnerLiveTestUser_(params)) {
+    let snapLt = null;
+    try {
+      snapLt = await getSnapRaw_(env, snapKey);
+    } catch (eLt0) {
+      snapLt = null;
+    }
+    const instantLt = partnerLiveTestGetMe_(snapLt && snapLt.status === "success" ? snapLt : { status: "success" });
+    instantLt.cutover = true;
+    instantLt.swr = true;
+    instantLt.fromGas = false;
+    instantLt.fromD1 = true;
+    instantLt.sandbox = false;
+    instantLt.partnerCanon = partnerCanonLabel_(env);
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async function () {
+          try {
+            await fetchLive_();
+          } catch (eR) {}
+        })()
+      );
+    }
+    return instantLt;
   }
 
   if (isPartnerArseniy_(params)) {
@@ -15246,6 +15333,62 @@ async function partnerEnsureMayakovskyPoint_(env, admin) {
       await putSnap_(env, "partnerListAdmin", Object.assign({}, next, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
     } catch (eW) {}
   }
+  return partnerEnsureLiveTestAccess_(env, next);
+}
+
+/** V17: revoke arseniy; @one_more_person_228 → одна точка из очереди прогона. */
+async function partnerEnsureLiveTestAccess_(env, admin) {
+  if (!admin || typeof admin !== "object") return admin;
+  const cur = partnerLiveTestCurrentWorker_();
+  if (!cur) return admin;
+  let access = Array.isArray(admin.access) ? admin.access.slice() : [];
+  let changed = false;
+  for (let i = 0; i < access.length; i++) {
+    const row = access[i] || {};
+    const u = partnerNormUserWorker_(row.username);
+    const tid = String(row.telegramId || "");
+    if (u === PARTNER_ARSENIY_USER || tid === PARTNER_ARSENIY_TID) {
+      if (String(row.status || "") !== "inactive" && String(row.status || "") !== "revoked") {
+        access[i] = Object.assign({}, row, { status: "inactive", pointIds: [] });
+        changed = true;
+      }
+    }
+  }
+  let hit = -1;
+  for (let j = 0; j < access.length; j++) {
+    if (partnerNormUserWorker_(access[j].username) === PARTNER_LIVE_TEST_USER) {
+      hit = j;
+      break;
+    }
+  }
+  const rowLt = {
+    id: hit >= 0 ? access[hit].id : "pa_" + PARTNER_LIVE_TEST_USER,
+    username: PARTNER_LIVE_TEST_USER,
+    telegramId: hit >= 0 ? String(access[hit].telegramId || "") : "",
+    name: hit >= 0 && access[hit].name ? access[hit].name : "Live test",
+    networkId: cur.networkId || "",
+    pointIds: [cur.id],
+    role: "partner",
+    status: "active"
+  };
+  if (hit >= 0) {
+    const prev = access[hit];
+    const prevIds = JSON.stringify(prev.pointIds || []);
+    if (prevIds !== JSON.stringify([cur.id]) || String(prev.status || "") !== "active") {
+      access[hit] = Object.assign({}, prev, rowLt);
+      changed = true;
+    }
+  } else {
+    access.push(rowLt);
+    changed = true;
+  }
+  const flag = "live_test_" + cur.id + "_v17";
+  const next = Object.assign({}, admin, { access: access, _partnerLiveTest: flag });
+  if (changed && env && env.DB && admin._partnerLiveTest !== flag) {
+    try {
+      await putSnap_(env, "partnerListAdmin", Object.assign({}, next, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    } catch (eLt) {}
+  }
   return next;
 }
 
@@ -15309,7 +15452,17 @@ async function partnerListMyOrdersD1_(params, env, ctx) {
   let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
   let orders = Array.isArray(pack.orders) ? pack.orders.slice() : [];
   if (orders.length || String((params && params.force) || "") !== "1") {
-    if (isPartnerArseniy_(params)) {
+    if (isPartnerLiveTestUser_(params)) {
+      const cur = partnerLiveTestCurrentWorker_();
+      const want = cur && cur.id;
+      orders = orders.filter(function (o) {
+        const ot = String((o && o.telegramId) || "").trim();
+        const ou = partnerNormUserWorker_(o && o.username);
+        const sameUser = (tid && ot === tid) || (user && ou === user) || ou === PARTNER_LIVE_TEST_USER;
+        if (!sameUser) return false;
+        return !want || String((o && (o.locationId || o.pointId)) || "") === want;
+      });
+    } else if (isPartnerArseniy_(params)) {
       orders = orders.filter(function (o) {
         return partnerArseniyAllowedPointId_((o && (o.locationId || o.pointId)) || "");
       });
@@ -15580,6 +15733,10 @@ async function mutatePartnerD1_(action, params, env) {
     if (!tid && !username) return { status: "error", message: "need_user" };
     const locationId = String((params && params.locationId) || "").trim();
     if (!locationId) return { status: "error", message: "need_location" };
+    if (isPartnerLiveTestUser_({ username: username, telegramId: tid })) {
+      const cur = partnerLiveTestCurrentWorker_();
+      if (cur && locationId !== cur.id) return { status: "error", message: "forbidden_point" };
+    }
     if (isPartnerArseniy_(params) && !partnerArseniyAllowedPointId_(locationId)) {
       return { status: "error", message: "forbidden_point" };
     }
@@ -15625,6 +15782,14 @@ async function mutatePartnerD1_(action, params, env) {
       }
     }
     // owner without access row: allow if admin snap empty access check fails — GAS will validate
+    if (!allowed && isPartnerLiveTestUser_({ username: username, telegramId: tid })) {
+      const curLt = partnerLiveTestCurrentWorker_();
+      if (curLt && locationId === curLt.id) {
+        allowed = true;
+        if (!networkId) networkId = curLt.networkId || "";
+        if (!locationName) locationName = curLt.name || curLt.label || "";
+      }
+    }
     if (!allowed && !(admin.access || []).length) {
       return { status: "error", message: "need_admin_snap" };
     }
