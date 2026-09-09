@@ -139,8 +139,8 @@ Worker: `@one_more_person_228` — **ручной Access** (V24): **Репина
 - [~] **v3.3.20:** примечание к заявке · ~~`@arseniyhotko` → 4 Варки~~ (снято V17) · **Pages** · **Deploy Code.gs**
 - [~] **v3.3.21:** + точка **Varka Маяковского 14** (`pt_varka_mayakovskogo_14`, `PARTNER_PROD_V15`); в Бойне Удалить/Вернуть точку (`partnerDeletePoint`) · Pages Бойня `v71115940` · **нужен Deploy Code.gs** + Worker
 - [x] **v3.3.21b:** лист причин NFC; без дубля Маяковского и без «·»; soft-toast Отправить · Pages varka 3.3.21 · **Deploy Code.gs** (`PARTNER_PROD_V16`)
-- [~] **v3.3.33:** ручной Access `@one_more_person_228` → **Репина 4** + **Авиационная 17**; single live-test выкл. · **Deploy Code.gs** (`PARTNER_PROD_V24`) + Worker
-- [~] **v3.3.32:** live-test → **BOW Wow Collar** (`pt_bob_1`); Indixvost ✅ · Pages · **Deploy Code.gs** (`PARTNER_PROD_V23`) + Worker
+- [~] **v3.3.33:** ручной Access `@one_more_person_228` → **Репина 4** + **Авиационная 17**; single live-test выкл. (фронт+Worker+GAS) · Pages · **Deploy Code.gs** (`PARTNER_PROD_V24`) + Worker
+- [x] **v3.3.32:** live-test → **BOW Wow Collar** (`pt_bob_1`); Indixvost ✅ · Pages · **Deploy Code.gs** (`PARTNER_PROD_V23`) + Worker
 - [~] **v3.3.31:** live-test → **Indixvost** (`pt_indix_1`); Polotno ✅ · Pages · **Deploy Code.gs** (`PARTNER_PROD_V22`) + Worker
 - [~] **v3.3.30:** live-test → **Polotno** (`pt_polotno_1`); Fundog ✅ · Pages · **Deploy Code.gs** (`PARTNER_PROD_V21`) + Worker
 - [~] **v3.3.29:** live-test → **Fundog** (`pt_fundog_1`); NaN ✅; Varka пропущены · Pages · **Deploy Code.gs** (`PARTNER_PROD_V20`) + Worker

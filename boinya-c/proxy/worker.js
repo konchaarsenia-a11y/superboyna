@@ -7027,7 +7027,7 @@ function partnerLiveTestGetMe_(json) {
 }
 
 function partnerManualAccessGetMe_(json) {
-  return partnerScopedGetMeMulti_(
+  const out = partnerScopedGetMeMulti_(
     json,
     PARTNER_MANUAL_ACCESS_POINTS,
     PARTNER_MANUAL_ACCESS_NET,
@@ -7036,6 +7036,11 @@ function partnerManualAccessGetMe_(json) {
     PARTNER_LIVE_TEST_TID,
     "manual_repina_avia_v24"
   );
+  // Сбросить хвосты single live-test из старого snap
+  out.liveTest = false;
+  delete out.liveTestPoint;
+  delete out.liveTestLabel;
+  return out;
 }
 
 function partnerBlockWrongPoint_(a, params) {

@@ -673,12 +673,13 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.32";
+  var APP_VER = "3.3.33";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
-  var SESSION_KEY = "gb_partner_session_v11";
-  var ME_CACHE_KEY = "gb_partner_me_v2";
-  /** Живой прогон — держать IDX в sync с Code.gs / Worker PARTNER_LIVE_TEST_IDX. */
+  var SESSION_KEY = "gb_partner_session_v12";
+  var ME_CACHE_KEY = "gb_partner_me_v3";
+  /** Single-point прогон выкл. (V24) — точки с API / Partner_Access. */
+  var LIVE_TEST_ENABLED_ = false;
   var LIVE_TEST_USER_ = "one_more_person_228";
   var LIVE_TEST_TID_ = "827494606";
   var LIVE_TEST_IDX_ = 16;
@@ -941,6 +942,7 @@
     } catch (e) {}
   }
   function isLiveTestUser_(u, acc) {
+    if (!LIVE_TEST_ENABLED_) return false;
     var uname = normUser_((u && u.username) || (acc && acc.username) || DEMO_USERNAME || "");
     var tid = String((u && u.telegramId) || (acc && acc.telegramId) || "").trim();
     return uname === LIVE_TEST_USER_ || tid === LIVE_TEST_TID_;
