@@ -6821,13 +6821,13 @@ const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
 
-/** Живой прогон @one_more_person_228. V30: только Шевченко 1. */
+/** Живой прогон @one_more_person_228. V31: только Маяковского 14. */
 const PARTNER_LIVE_TEST_ENABLED = false;
 const PARTNER_LIVE_TEST_USER = "one_more_person_228";
 const PARTNER_LIVE_TEST_TID = "827494606";
 const PARTNER_LIVE_TEST_IDX = 16;
 const PARTNER_MANUAL_ACCESS_POINTS = [
-  { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka Шевченко 1", address: "Шевченко 1", label: "Varka Шевченко 1" }
+  { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14", label: "Varka Маяковского 14" }
 ];
 const PARTNER_MANUAL_ACCESS_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_LIVE_TEST_QUEUE = [
@@ -7033,7 +7033,7 @@ function partnerManualAccessGetMe_(json) {
     "Live test",
     PARTNER_LIVE_TEST_USER,
     PARTNER_LIVE_TEST_TID,
-    "manual_shevchenko_v30"
+    "manual_mayakovsky_v31"
   );
   // Сбросить хвосты single live-test из старого snap
   out.liveTest = false;
@@ -15587,7 +15587,7 @@ async function partnerEnsureManualAccess_(env, admin) {
     access.push(rowMa);
     changed = true;
   }
-  const flag = "manual_shevchenko_v30";
+  const flag = "manual_mayakovsky_v31";
   const next = Object.assign({}, admin, { access: access, _partnerLiveTest: flag });
   if (changed && env && env.DB && admin._partnerLiveTest !== flag) {
     try {
