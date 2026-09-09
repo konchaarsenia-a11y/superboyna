@@ -19872,15 +19872,20 @@ function partnerMigrateProdV16_() {
 
 /**
  * Живой прогон точек для @one_more_person_228.
- * V25: ручной Access — только Карского 23 (без Репина/Авиа).
+ * V26: Голодеда 15 + Рокоссовского 80/150Б + Казинца 120.
  * «следующая точка» / IDX — только при PARTNER_LIVE_TEST_ENABLED_ = true.
  */
 var PARTNER_LIVE_TEST_ENABLED_ = false;
 var PARTNER_LIVE_TEST_USER_ = "one_more_person_228";
 var PARTNER_LIVE_TEST_TID_ = "827494606";
 var PARTNER_LIVE_TEST_IDX_ = 16;
-/** Ручной набор точек, пока live-test single выкл. (V25). */
-var PARTNER_MANUAL_ACCESS_POINT_IDS_ = ["pt_varka_karskogo_23"];
+/** Ручной набор точек, пока live-test single выкл. (V26). */
+var PARTNER_MANUAL_ACCESS_POINT_IDS_ = [
+  "pt_varka_golodeda_15",
+  "pt_varka_rokoss_80",
+  "pt_varka_rokoss_150b",
+  "pt_varka_kazintsa_120"
+];
 var PARTNER_LIVE_TEST_QUEUE_ = [
   { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34", label: "nan_animal_clinic" },
   { id: "pt_varka_repina_4", networkId: "net_varka", label: "Varka Репина 4" },
@@ -20141,6 +20146,19 @@ function partnerMigrateProdV25_() {
   return { migrated: true, pointIds: PARTNER_MANUAL_ACCESS_POINT_IDS_ };
 }
 
+/** V26: Голодеда + Рокоссовского 80/150Б + Казинца. */
+function partnerMigrateProdV26_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V26") === "1") {
+    try { partnerSyncLiveTestAccess_(); } catch (e0) {}
+    return { migrated: false, pointIds: PARTNER_MANUAL_ACCESS_POINT_IDS_ };
+  }
+  try { partnerMigrateProdV25_(); } catch (e25) {}
+  try { partnerSyncLiveTestAccess_(); } catch (eSync) {}
+  props.setProperty("PARTNER_PROD_V26", "1");
+  return { migrated: true, pointIds: PARTNER_MANUAL_ACCESS_POINT_IDS_ };
+}
+
 function partnerSyncManualAccess_() {
   var ids = (PARTNER_MANUAL_ACCESS_POINT_IDS_ || []).slice();
   if (!ids.length) return { ok: false };
@@ -20222,6 +20240,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV23_(); } catch (eMig23) {}
   try { partnerMigrateProdV24_(); } catch (eMig24) {}
   try { partnerMigrateProdV25_(); } catch (eMig25) {}
+  try { partnerMigrateProdV26_(); } catch (eMig26) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
