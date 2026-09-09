@@ -5,6 +5,7 @@
 - [~] **Stats выхлоп без наценки 2026-09-08:** PP cost coef=1; life BP только перешедшие · **нужен Deploy Code.gs**
 - [~] **Таймер нарезки + Ухо К + доставка +9 + ПП детали 2026-09-09:** timer `startedAt=0` → эпоха; жевалка УХО К = УХО Г (розница/ПП/себест.); менеджер «Да (+9)»; list ПП тонкие из‑за `_savedAt` блокировал getSubscription GAS + soft force 28с. Fix Worker hasDetail+enrich фон; UI soft без force; Pages `v71115938` · marker `fix-cut-timer-uho-k-pp-h1` · **нужен Worker Deploy** · **Deploy Code.gs**
 - [~] **Varka note + Arseniy Varka×4 2026-09-08:** ~~`@arseniyhotko` → 4 Варки~~ · снято V17 · Pages varka 3.3.20 · **Deploy Code.gs**
+- [~] **Varka NaN name 2026-09-09:** точка `pt_nan_1` → `nan_animal_clinic` + адрес · Pages `3.3.28` · **Deploy Code.gs** V19 + Worker
 - [~] **Varka notify+slot UI 2026-09-09:** Worker TG снова; слот → done в Заказах; чистый UI без «сначала позиции/нажмите» · Pages `3.3.27` · **Deploy Code.gs** + Worker
 - [~] **Varka point-step + notify 2026-09-09:** явный выбор NaN; снабжению только «Новая заявка», партнёру «Заявка отправлена» · Pages `3.3.26` · **Deploy Code.gs** + Worker
 - [~] **Varka выбор точки NaN 2026-09-09:** `@one_more_person_228` после сырья видит шаг выбора (только NaN), не сразу submit · Pages `varka 3.3.25`

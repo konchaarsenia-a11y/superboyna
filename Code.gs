@@ -19196,7 +19196,7 @@ function partnerDefaultSeedPack_() {
       { id: "pt_varka_skrip_1", networkId: "net_varka", name: "Varka Скрипникова 1", address: "Скрипникова 1" },
       { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka Шевченко 1", address: "Шевченко 1" },
       { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14" },
-      { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34" },
+      { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34" },
       { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
       { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—" },
       { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—" },
@@ -19879,7 +19879,7 @@ var PARTNER_LIVE_TEST_USER_ = "one_more_person_228";
 var PARTNER_LIVE_TEST_TID_ = "827494606";
 var PARTNER_LIVE_TEST_IDX_ = 0;
 var PARTNER_LIVE_TEST_QUEUE_ = [
-  { id: "pt_nan_1", networkId: "net_nan", label: "NaN clinic · Янковского 34" },
+  { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34", label: "nan_animal_clinic" },
   { id: "pt_varka_repina_4", networkId: "net_varka", label: "Varka Репина 4" },
   { id: "pt_varka_avia_17", networkId: "net_varka", label: "Varka Авиационная 17" },
   { id: "pt_varka_karskogo_23", networkId: "net_varka", label: "Varka Карского 23" },
@@ -19937,8 +19937,8 @@ function partnerBuildLiveTestGetMe_(username, tid, nets, pts) {
     myPts.push({
       id: cur.id,
       networkId: cur.networkId || "net_nan",
-      name: cur.label || cur.id,
-      address: ""
+      name: cur.name || cur.label || cur.id,
+      address: cur.address || ""
     });
   }
   var netNeed = {};
@@ -20016,6 +20016,32 @@ function partnerMigrateProdV18_() {
   return { migrated: true, liveTestPoint: cur && cur.id, tid: PARTNER_LIVE_TEST_TID_ };
 }
 
+/** V19: название точки pt_nan_1 → nan_animal_clinic (адрес Янковского ниже). */
+function partnerMigrateProdV19_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V19") === "1") return { migrated: false };
+  try { partnerMigrateProdV18_(); } catch (e18) {}
+  var ptSh = getPartnerPointsSheet_();
+  var pts = readPartnerPoints_();
+  var id = "pt_nan_1";
+  var name = "nan_animal_clinic";
+  var address = "ул. Янковского, 34";
+  var hit = null;
+  for (var i = 0; i < pts.length; i++) {
+    if (pts[i].id === id) { hit = pts[i]; break; }
+  }
+  if (hit) {
+    try {
+      ptSh.getRange(hit.rowIndex, 2, 1, 4).setValues([[hit.networkId || "net_nan", name, address, hit.active === false ? "no" : "yes"]]);
+    } catch (e1) {}
+  } else {
+    ptSh.appendRow([id, "net_nan", name, address, "yes", new Date()]);
+  }
+  try { partnerSyncLiveTestAccess_(); } catch (eSync) {}
+  props.setProperty("PARTNER_PROD_V19", "1");
+  return { migrated: true, pointId: id, name: name };
+}
+
 function partnerSyncLiveTestAccess_() {
   var cur = partnerLiveTestCurrent_();
   if (!cur || !cur.id) return { ok: false };
@@ -20060,6 +20086,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV16_(); } catch (eMig16) {}
   try { partnerMigrateProdV17_(); } catch (eMig17) {}
   try { partnerMigrateProdV18_(); } catch (eMig18) {}
+  try { partnerMigrateProdV19_(); } catch (eMig19) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
