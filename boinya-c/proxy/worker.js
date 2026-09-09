@@ -1499,7 +1499,7 @@ function deferredItemIsProtectedD1Keep_(it) {
   if (st && st !== "open") return false;
   if (deferredItemIsProtectedTransfer_(it)) return true;
   var m = deferredItemModeOf_(it);
-  if (m === "remind" || m === "order" || m === "buy") return true;
+  if (m === "remind" || m === "order" || m === "buy" || m === "partner") return true;
   // D1 id df_* — создать из Mini App, GAS мог не успеть
   var id = String(it.id || "");
   if (it.fromD1 || it.keptFromD1 || /^df_/i.test(id)) return true;
@@ -1604,6 +1604,7 @@ async function mergeListDeferredPayload_(env, payload) {
   var byId = Object.create(null);
   var xferKeys = Object.create(null);
   var remindKeys = Object.create(null);
+  var partnerPoIds = Object.create(null);
   function remindKey_(it) {
     if (!it) return "";
     var title = String(it.title || it.text || "").trim().toLowerCase();
@@ -1621,6 +1622,10 @@ async function mergeListDeferredPayload_(env, payload) {
     }
     var rk = remindKey_(it);
     if (rk) remindKeys[rk] = true;
+    if (deferredItemModeOf_(it) === "partner") {
+      var po = String((it.payload && it.payload.partnerOrderId) || "");
+      if (po) partnerPoIds[po] = true;
+    }
   });
 
   prevArr.forEach(function (it) {
@@ -1628,6 +1633,10 @@ async function mergeListDeferredPayload_(env, payload) {
     var id = it && it.id != null ? String(it.id) : "";
     var k = deferredTransferClientKey_(it);
     var rk = remindKey_(it);
+    if (deferredItemModeOf_(it) === "partner") {
+      var poPrev = String((it.payload && it.payload.partnerOrderId) || "");
+      if (poPrev && partnerPoIds[poPrev]) return;
+    }
     if (id && byId[id]) {
       var inc = byId[id];
       var st = String((inc && inc.status) || "open").toLowerCase();
@@ -8342,17 +8351,7 @@ async function handleCutover_(a, params, env, ctx) {
       const gasP = gasProxy_(a, params, env, { write: true }).catch(function () {
         return null;
       });
-      // TG сразу из Worker (не ждать медленный GAS) — заявка уже в D1
-      if (
-        /^partnerSubmitOrder$/i.test(a) &&
-        d1P &&
-        d1P.status === "success" &&
-        d1P.order &&
-        ctx &&
-        typeof ctx.waitUntil === "function"
-      ) {
-        ctx.waitUntil(partnerNotifyOrderFastWorker_(d1P.order, env));
-      }
+      // TG только из GAS (partnerNotifyNewOrder_ / partnerNotifyPartnerStatus_) — без дублей
       if (ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(
           gasP.then(async function (live) {
@@ -8364,9 +8363,6 @@ async function handleCutover_(a, params, env, ctx) {
         );
       } else {
         try {
-          if (/^partnerSubmitOrder$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
-            await partnerNotifyOrderFastWorker_(d1P.order, env);
-          }
           const live = await gasP;
           if (live && live.status === "success") await refreshPartnerSnapsFromGas_(a, params, env, live);
         } catch (eG) {}
@@ -15543,6 +15539,89 @@ function partnerUid_(prefix) {
   return String(prefix || "po") + "_" + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
 }
 
+function partnerDeferredIdWorker_() {
+  return (
+    "df_" +
+    new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14) +
+    "_" +
+    Math.floor(Math.random() * 1e6)
+  );
+}
+
+/** Задача «Партнёры → Заказы» в D1 сразу — UI Бойни читает listDeferred, не partnerOrders. */
+async function partnerEnqueueDeferredD1Worker_(order, env) {
+  if (!order || !env || !env.DB) return "";
+  const id = partnerDeferredIdWorker_();
+  const title =
+    "Партнёр · " +
+    (order.locationName || order.locationId || "") +
+    (order.userName || order.username ? " · " + (order.userName || order.username) : "");
+  const payload = {
+    mode: "partner",
+    orderType: "partner",
+    partnerOrderId: order.id,
+    locationId: order.locationId,
+    locationName: order.locationName,
+    networkId: order.networkId,
+    basket: order.basket || [],
+    note: order.note || "",
+    partnerNote: order.note || "",
+    needsSlot: !order.deliverDateIso,
+    deliverDateIso: order.deliverDateIso || "",
+    deliverDateLabel: order.deliverDateLabel || "",
+    deliverTimeFrom: order.deliverTimeFrom || "",
+    deliverTimeTo: order.deliverTimeTo || "",
+    deliverTimeLabel: order.deliverTimeLabel || "",
+    partnerTelegramId: order.telegramId || "",
+    partnerUsername: order.username || "",
+    partnerName: order.userName || "",
+    orderStatus: order.status || "new"
+  };
+  let ownerTid = "";
+  try {
+    const admin = await getSnapRaw_(env, "partnerListAdmin");
+    const rec = (admin && admin.notifyRecipients) || [];
+    if (rec.length) {
+      ownerTid = String((rec[0] && (rec[0].telegramId || rec[0].id)) || rec[0] || "").trim();
+    }
+  } catch (eO) {}
+  const item = {
+    id: id,
+    at: new Date().toISOString(),
+    telegramId: ownerTid,
+    mode: "partner",
+    title: title,
+    clientNick: order.userName || order.username || "",
+    status: "open",
+    payload: payload,
+    fromD1: true,
+    updatedAt: new Date().toISOString()
+  };
+  let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+  let items = Array.isArray(list.items) ? list.items.slice() : [];
+  items = stripRepairedTransfers_(items);
+  const poId = String(order.id || "");
+  items = items.filter(function (it) {
+    if (!it) return false;
+    const pl = it.payload || {};
+    const isPartner =
+      String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
+      String(pl.orderType || "") === "partner";
+    if (!isPartner) return true;
+    return String(pl.partnerOrderId || "") !== poId;
+  });
+  items.unshift(item);
+  list.items = items;
+  list.status = "success";
+  list.openCount = items.filter(function (it) {
+    return String((it && it.status) || "open").toLowerCase() === "open";
+  }).length;
+  list.fromD1 = true;
+  list.sandbox = false;
+  await putSnap_(env, "listDeferred", list);
+  return id;
+}
+
 function partnerDefaultSlotWorker_() {
   const now = new Date();
   // Europe/Minsk approx: UTC+3
@@ -15836,7 +15915,21 @@ async function mutatePartnerD1_(action, params, env) {
     pack.status = "success";
     pack._d1TouchedAt = Date.now();
     await putSnap_(env, "partnerOrders", pack);
-    return { status: "success", order: order, id: id, deferredId: "", d1Verified: true, pendingSheets: true };
+    let deferredId = "";
+    try {
+      deferredId = await partnerEnqueueDeferredD1Worker_(order, env);
+    } catch (eDf) {
+      deferredId = "";
+    }
+    order.deferredId = deferredId;
+    return {
+      status: "success",
+      order: order,
+      id: id,
+      deferredId: deferredId,
+      d1Verified: true,
+      pendingSheets: true
+    };
   }
 
   if (/^partnerSetOrderStatus$/i.test(a)) {
@@ -15915,7 +16008,9 @@ async function refreshPartnerSnapsFromGas_(action, params, env, live) {
     let replaced = false;
     for (let i = 0; i < pack.orders.length; i++) {
       if (String(pack.orders[i].id) === oid || (live.order && pack.orders[i]._tmp && pack.orders[i].locationId === live.order.locationId)) {
-        pack.orders[i] = live.order;
+        pack.orders[i] = Object.assign({}, pack.orders[i], live.order, {
+          deferredId: live.deferredId || pack.orders[i].deferredId || ""
+        });
         replaced = true;
         break;
       }
@@ -15923,6 +16018,38 @@ async function refreshPartnerSnapsFromGas_(action, params, env, live) {
     if (!replaced && live.order) pack.orders.unshift(live.order);
     pack.status = "success";
     await putSnap_(env, "partnerOrders", pack);
+    const gasDefId = String(live.deferredId || "").trim();
+    if (gasDefId) {
+      try {
+        let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+        let items = Array.isArray(list.items) ? list.items.slice() : [];
+        let touched = false;
+        items = items.filter(function (it) {
+          if (!it) return false;
+          const pl = it.payload || {};
+          const isPartner =
+            String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
+            String(pl.orderType || "") === "partner";
+          if (!isPartner || String(pl.partnerOrderId || "") !== oid) return true;
+          if (String(it.id) === gasDefId) return true;
+          touched = true;
+          return false;
+        });
+        for (let j = 0; j < items.length; j++) {
+          const pl = items[j].payload || {};
+          if (String(pl.partnerOrderId || "") === oid && String(items[j].id) !== gasDefId) {
+            items[j] = Object.assign({}, items[j], { id: gasDefId, gasSynced: true });
+            touched = true;
+            break;
+          }
+        }
+        if (touched) {
+          list.items = items;
+          list.fromD1 = true;
+          await putSnap_(env, "listDeferred", list);
+        }
+      } catch (eDefSync) {}
+    }
   }
   if (/^partnerSetOrderStatus$/i.test(action) && (live.order || live.id)) {
     let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
