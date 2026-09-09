@@ -5,7 +5,8 @@
 - [~] **Stats выхлоп без наценки 2026-09-08:** PP cost coef=1; life BP только перешедшие · **нужен Deploy Code.gs**
 - [~] **Таймер нарезки + Ухо К + доставка +9 + ПП детали 2026-09-09:** timer `startedAt=0` → эпоха; жевалка УХО К = УХО Г (розница/ПП/себест.); менеджер «Да (+9)»; list ПП тонкие из‑за `_savedAt` блокировал getSubscription GAS + soft force 28с. Fix Worker hasDetail+enrich фон; UI soft без force; Pages `v71115938` · marker `fix-cut-timer-uho-k-pp-h1` · **нужен Worker Deploy** · **Deploy Code.gs**
 - [~] **Varka note + Arseniy Varka×4 2026-09-08:** ~~`@arseniyhotko` → 4 Варки~~ · снято V17 · Pages varka 3.3.20 · **Deploy Code.gs**
-- [~] **Varka Access Репина+Авиа 2026-09-09:** `@one_more_person_228` → Репина 4 + Авиационная 17; single live-test выкл. (фронт 3.3.33) · Pages · **Deploy Code.gs** V24 + Worker
+- [~] **Varka Access Карского 2026-09-09:** `@one_more_person_228` → только Карского 23 · **Deploy Code.gs** V25 + Worker
+- [x] **Varka Access Репина+Авиа 2026-09-09:** `@one_more_person_228` → Репина 4 + Авиационная 17; single live-test выкл. (фронт 3.3.33) · Pages · **Deploy Code.gs** V24 + Worker
 - [x] **Varka live-test BOW Wow 2026-09-09:** `@one_more_person_228` → BOW Wow Collar (`pt_bob_1`); Indixvost ✅ · Pages `3.3.32` · **Deploy Code.gs** V23 + Worker
 - [x] **Varka live-test Indixvost 2026-09-09:** `@one_more_person_228` → Indixvost (`pt_indix_1`); Polotno ✅ · Pages `3.3.31` · **Deploy Code.gs** V22 + Worker
 - [x] **Varka live-test Polotno 2026-09-09:** `@one_more_person_228` → Polotno (`pt_polotno_1`); Fundog ✅ · Pages `3.3.30` · **Deploy Code.gs** V21 + Worker

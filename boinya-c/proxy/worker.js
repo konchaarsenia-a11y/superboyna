@@ -6821,14 +6821,13 @@ const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
 
-/** Живой прогон @one_more_person_228. V24: single выкл. → ручной Access Репина+Авиа. */
+/** Живой прогон @one_more_person_228. V25: только Карского 23. */
 const PARTNER_LIVE_TEST_ENABLED = false;
 const PARTNER_LIVE_TEST_USER = "one_more_person_228";
 const PARTNER_LIVE_TEST_TID = "827494606";
 const PARTNER_LIVE_TEST_IDX = 16;
 const PARTNER_MANUAL_ACCESS_POINTS = [
-  { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka Репина 4", address: "Репина 4", label: "Varka Репина 4" },
-  { id: "pt_varka_avia_17", networkId: "net_varka", name: "Varka Авиационная 17", address: "Авиационная 17", label: "Varka Авиационная 17" }
+  { id: "pt_varka_karskogo_23", networkId: "net_varka", name: "Varka Карского 23", address: "Карского 23", label: "Varka Карского 23" }
 ];
 const PARTNER_MANUAL_ACCESS_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_LIVE_TEST_QUEUE = [
@@ -7034,7 +7033,7 @@ function partnerManualAccessGetMe_(json) {
     "Live test",
     PARTNER_LIVE_TEST_USER,
     PARTNER_LIVE_TEST_TID,
-    "manual_repina_avia_v24"
+    "manual_karskogo_v25"
   );
   // Сбросить хвосты single live-test из старого snap
   out.liveTest = false;
@@ -15588,7 +15587,7 @@ async function partnerEnsureManualAccess_(env, admin) {
     access.push(rowMa);
     changed = true;
   }
-  const flag = "manual_repina_avia_v24";
+  const flag = "manual_karskogo_v25";
   const next = Object.assign({}, admin, { access: access, _partnerLiveTest: flag });
   if (changed && env && env.DB && admin._partnerLiveTest !== flag) {
     try {
