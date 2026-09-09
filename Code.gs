@@ -2046,6 +2046,37 @@ function doGet(e) {
       name: e.parameter.name ? decodeURIComponent(e.parameter.name) : ""
     }, callback, false);
   }
+  if (action === "listStatsStaff") {
+    return handleListStatsStaff({
+      all: e.parameter.all || "",
+      month: e.parameter.month || e.parameter.monthKey || ""
+    }, callback, false);
+  }
+  if (action === "saveStatsStaff") {
+    return handleSaveStatsStaff({
+      id: e.parameter.id || "",
+      name: e.parameter.name ? decodeURIComponent(e.parameter.name) : "",
+      salary: e.parameter.salary,
+      fromMonth: e.parameter.fromMonth || e.parameter.from || "",
+      toMonth: e.parameter.toMonth || e.parameter.to || "",
+      active: e.parameter.active,
+      note: e.parameter.note ? decodeURIComponent(e.parameter.note) : ""
+    }, callback, false);
+  }
+  if (action === "deleteStatsStaff") {
+    return handleDeleteStatsStaff({
+      id: e.parameter.id || "",
+      name: e.parameter.name ? decodeURIComponent(e.parameter.name) : ""
+    }, callback, false);
+  }
+  if (action === "setStatsCutterEnabled") {
+    return handleSetStatsCutterEnabled({
+      enabled: e.parameter.enabled,
+      salary: e.parameter.salary,
+      fromMonth: e.parameter.fromMonth || e.parameter.from || "",
+      telegramId: e.parameter.telegramId || ""
+    }, callback, false);
+  }
   if (action === "partnerListAdmin") {
     return handlePartnerListAdmin({ telegramId: e.parameter.telegramId || "" }, callback, false);
   }
@@ -2794,6 +2825,18 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "deletePartner") {
     return handleDeletePartner(json, callback, fromPost);
+  }
+  if (action === "listStatsStaff") {
+    return handleListStatsStaff(json, callback, fromPost);
+  }
+  if (action === "saveStatsStaff") {
+    return handleSaveStatsStaff(json, callback, fromPost);
+  }
+  if (action === "deleteStatsStaff") {
+    return handleDeleteStatsStaff(json, callback, fromPost);
+  }
+  if (action === "setStatsCutterEnabled") {
+    return handleSetStatsCutterEnabled(json, callback, fromPost);
   }
   if (action === "partnerListAdmin") {
     return handlePartnerListAdmin(json, callback, fromPost);
@@ -18770,7 +18813,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (seenKeys[bk]) continue;
     ingestRow_(bookByKey[bk]);
   }
-  // ПП: один factCost на клиента (RAW26/LEGACY), не 11+6 на каждый слот
+  // ПП затраты в статистике = сырьё + свет/доставка/пакеты, БЕЗ наценки (coef 2.3/2.6).
+  // coef — формула цены клиенту; если множить сырьё на coef, «чистое/выхлоп» уезжает в минус.
   try {
     out.ppRawByKey = out.ppRawByKey || {};
     out.ppBasketByKey = out.ppBasketByKey || {};
@@ -18789,7 +18833,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       var nDel = Math.max(1, Number((out.ppDeliveryCountByKey && out.ppDeliveryCountByKey[ppk]) || 0) || 1);
       var factPp = null;
       try {
-        factPp = computePpFactFromCost_(rawPp, baskPp, nDel, null, null, schPp, baskPp, null);
+        // coef=1 → без наценки; свет/доставка/пакеты как в схеме
+        factPp = computePpFactFromCost_(rawPp, baskPp, nDel, 1, null, schPp, baskPp, null);
       } catch (eF) { factPp = null; }
       var factCostPp = factPp && factPp.factCost != null ? Number(factPp.factCost) : Math.round(rawPp * 100) / 100;
       ppCostSum += factCostPp;
@@ -20854,6 +20899,9 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
   var tz = ss.getSpreadsheetTimeZone();
   var fee = BP_DELIVERY_COST_BYN_;
 
+  // выручка ПП: max цена на клиента×месяц (не сумма слотов 1+2)
+  var ppRevByMonthClient = {};
+
   function ingest_(row) {
     if (!row || String(row.status || "").toLowerCase() === "cancelled") return;
     var iso = String(row.dateIso || "").slice(0, 10);
@@ -20869,6 +20917,9 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
       try { bask = JSON.parse(String(row.basketJson)); } catch (e1) { bask = []; }
     }
     if (src === "bp") {
+      // Выхлоп «после перехода» — только БП тех, кто стал ПП.
+      // Иначе все пробники мира минус выручка 5 человек → вечный минус.
+      if (!ck || !convertKeys[ck]) return;
       var raw = estimateBasketRawCost_(bask, "bp");
       var withFee = Math.round((raw + fee) * 100) / 100;
       out.bpDeliveries++;
@@ -20880,7 +20931,11 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
       var cy = convertYmd[ck] || "";
       if (cy && iso < cy) return;
       var price = calendarRowPrice_(row);
-      out.ppRevenue += price;
+      if (!(price > 0)) return;
+      var mk = iso.slice(0, 7);
+      var rk = mk + "|" + ck;
+      var prev = Number(ppRevByMonthClient[rk]) || 0;
+      if (price > prev) ppRevByMonthClient[rk] = price;
       out.ppDeliveries++;
     }
   }
@@ -20905,10 +20960,15 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
     ingest_(b);
   }
 
+  var ppRevSum = 0;
+  for (var prk in ppRevByMonthClient) {
+    if (!ppRevByMonthClient.hasOwnProperty(prk)) continue;
+    ppRevSum += Number(ppRevByMonthClient[prk]) || 0;
+  }
+  out.ppRevenue = Math.round(ppRevSum * 100) / 100;
   out.bpCost = Math.round(out.bpCost * 100) / 100;
   out.bpBasketCost = Math.round(out.bpBasketCost * 100) / 100;
   out.bpDeliveryCost = Math.round(out.bpDeliveryCost * 100) / 100;
-  out.ppRevenue = Math.round(out.ppRevenue * 100) / 100;
   out.profit = Math.round((out.ppRevenue - out.bpCost) * 100) / 100;
   if (out.converted > 0) out.costPerConvert = Math.round((out.bpCost / out.converted) * 100) / 100;
   return out;
@@ -20984,6 +21044,328 @@ function collectPartnerStatsFromMonth_(monthCal, convAll) {
   return list;
 }
 
+/* ========== Сотрудники в статистике (ЗП в себест с месяца «с») ========== */
+var STATS_STAFF_HEADERS_ = ["id", "name", "salary", "fromMonth", "toMonth", "active", "note", "createdAt", "updatedAt"];
+/** До этого месяца ЗП в статистику не входит (август 2026 и раньше — без сотрудника). */
+var STATS_STAFF_COST_FLOOR_MONTH_ = "2026-09";
+/** Пресет нарезчика: одна кнопка вкл/выкл. ЗП уже входит в себест getStats через staffCost. */
+var STATS_CUTTER_PRESET_ID_ = "cutter";
+var STATS_CUTTER_PRESET_NAME_ = "Нарезчик";
+/** Дефолт ЗП/мес (BYN); можно переопределить Script Property STATS_CUTTER_SALARY_BYN. */
+var STATS_CUTTER_DEFAULT_SALARY_BYN_ = 900;
+
+function getStatsCutterDefaultSalary_() {
+  var sal = STATS_CUTTER_DEFAULT_SALARY_BYN_;
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty("STATS_CUTTER_SALARY_BYN");
+    if (raw != null && raw !== "" && isFinite(Number(raw)) && Number(raw) >= 0) {
+      sal = Number(raw);
+    }
+  } catch (e0) {}
+  return Math.round(sal * 100) / 100;
+}
+
+function getStatsStaffSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("Stats_Сотрудники");
+  if (!sh) {
+    sh = ss.insertSheet("Stats_Сотрудники");
+    sh.getRange(1, 1, 1, STATS_STAFF_HEADERS_.length).setValues([STATS_STAFF_HEADERS_]);
+    sh.setFrozenRows(1);
+  } else {
+    ensureSheetHeadersAppend_(sh, STATS_STAFF_HEADERS_);
+  }
+  return sh;
+}
+
+function normalizeStatsMonthKey_(raw) {
+  var s = String(raw || "").trim();
+  if (/^\d{4}-\d{2}$/.test(s)) return s;
+  var m = s.match(/^(\d{4})[./-](\d{1,2})/);
+  if (m) {
+    var mo = Number(m[2]);
+    if (mo >= 1 && mo <= 12) return m[1] + "-" + (mo < 10 ? "0" : "") + mo;
+  }
+  return "";
+}
+
+function readAllStatsStaff_() {
+  var sh = getStatsStaffSheet_();
+  var data = sh.getDataRange().getValues();
+  var out = [];
+  for (var r = 1; r < data.length; r++) {
+    var name = String(data[r][1] || "").trim();
+    if (!name) continue;
+    var active = String(data[r][5] != null ? data[r][5] : "yes").toLowerCase() !== "no";
+    out.push({
+      rowIndex: r + 1,
+      id: String(data[r][0] || ""),
+      name: name,
+      salary: Math.round((Number(data[r][2]) || 0) * 100) / 100,
+      fromMonth: normalizeStatsMonthKey_(data[r][3]) || STATS_STAFF_COST_FLOOR_MONTH_,
+      toMonth: normalizeStatsMonthKey_(data[r][4]) || "",
+      active: active,
+      note: String(data[r][6] || ""),
+      createdAt: data[r][7],
+      updatedAt: data[r][8]
+    });
+  }
+  return out;
+}
+
+/** ЗП сотрудников за месяц: только active + fromMonth≤month + (to пусто|to≥month) + не раньше floor. */
+function collectStatsStaffForMonth_(monthKey) {
+  var mk = normalizeStatsMonthKey_(monthKey);
+  var out = { staff: [], cost: 0, count: 0, floorMonth: STATS_STAFF_COST_FLOOR_MONTH_ };
+  if (!mk) return out;
+  if (mk < STATS_STAFF_COST_FLOOR_MONTH_) return out;
+  var all = [];
+  try { all = readAllStatsStaff_(); } catch (e0) { all = []; }
+  for (var i = 0; i < all.length; i++) {
+    var s = all[i];
+    if (!s || !s.active) continue;
+    var fromM = normalizeStatsMonthKey_(s.fromMonth) || STATS_STAFF_COST_FLOOR_MONTH_;
+    if (fromM < STATS_STAFF_COST_FLOOR_MONTH_) fromM = STATS_STAFF_COST_FLOOR_MONTH_;
+    if (mk < fromM) continue;
+    var toM = normalizeStatsMonthKey_(s.toMonth);
+    if (toM && mk > toM) continue;
+    var sal = Number(s.salary) || 0;
+    if (!(sal > 0)) continue;
+    out.staff.push({
+      id: s.id,
+      name: s.name,
+      salary: sal,
+      fromMonth: fromM,
+      toMonth: toM || "",
+      note: s.note || ""
+    });
+    out.cost += sal;
+    out.count++;
+  }
+  out.cost = Math.round(out.cost * 100) / 100;
+  return out;
+}
+
+function invalidateStatsCache_() {
+  try {
+    var cache = CacheService.getScriptCache();
+    var keys = [];
+    var now = new Date();
+    for (var i = 0; i < 18; i++) {
+      var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      var mk = Utilities.formatDate(d, "Europe/Minsk", "yyyy-MM");
+      keys.push("STATS18:" + mk);
+      keys.push("STATS17:" + mk);
+    }
+    cache.removeAll(keys);
+  } catch (eInv) {}
+}
+
+function handleListStatsStaff(json, callback, fromPost) {
+  json = json || {};
+  var all = [];
+  try { all = readAllStatsStaff_(); } catch (e0) { all = []; }
+  var wantAll = !!(json.all === "1" || json.all === true || json.all === 1);
+  var month = normalizeStatsMonthKey_(json.month || json.monthKey || "");
+  var list = [];
+  for (var i = 0; i < all.length; i++) {
+    var s = all[i];
+    if (!wantAll && !s.active) continue;
+    list.push({
+      id: s.id,
+      name: s.name,
+      salary: s.salary,
+      fromMonth: s.fromMonth,
+      toMonth: s.toMonth,
+      active: s.active,
+      note: s.note || ""
+    });
+  }
+  var applied = month ? collectStatsStaffForMonth_(month) : null;
+  var cutter = null;
+  for (var ci = 0; ci < list.length; ci++) {
+    if (list[ci].id === STATS_CUTTER_PRESET_ID_ ||
+        String(list[ci].name || "").toLowerCase() === STATS_CUTTER_PRESET_NAME_.toLowerCase()) {
+      cutter = list[ci];
+      break;
+    }
+  }
+  var ok = {
+    status: "success",
+    staff: list,
+    count: list.length,
+    floorMonth: STATS_STAFF_COST_FLOOR_MONTH_,
+    month: month || "",
+    appliedCost: applied ? applied.cost : null,
+    appliedCount: applied ? applied.count : null,
+    cutter: {
+      id: STATS_CUTTER_PRESET_ID_,
+      name: STATS_CUTTER_PRESET_NAME_,
+      enabled: !!(cutter && cutter.active),
+      salary: cutter ? Number(cutter.salary) || getStatsCutterDefaultSalary_() : getStatsCutterDefaultSalary_(),
+      fromMonth: cutter ? cutter.fromMonth : STATS_STAFF_COST_FLOOR_MONTH_,
+      defaultSalary: getStatsCutterDefaultSalary_()
+    }
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handleSaveStatsStaff(json, callback, fromPost) {
+  json = json || {};
+  var name = String(json.name || "").trim();
+  if (!name) {
+    var bad = { status: "error", message: "Укажите имя сотрудника" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var salary = Number(json.salary);
+  if (!isFinite(salary) || salary < 0) {
+    var badSal = { status: "error", message: "Укажите ЗП (BYN ≥ 0)" };
+    return fromPost ? jsonpText(callback, badSal) : jsonp(callback, badSal);
+  }
+  salary = Math.round(salary * 100) / 100;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var nowMk = Utilities.formatDate(new Date(), tz, "yyyy-MM");
+  var fromMonth = normalizeStatsMonthKey_(json.fromMonth || json.from || "") || nowMk;
+  if (fromMonth < STATS_STAFF_COST_FLOOR_MONTH_) fromMonth = STATS_STAFF_COST_FLOOR_MONTH_;
+  var toMonth = normalizeStatsMonthKey_(json.toMonth || json.to || "");
+  if (toMonth && toMonth < fromMonth) toMonth = "";
+  var active = (json.active === false || json.active === "no" || json.active === 0 || json.active === "0") ? "no" : "yes";
+  var note = String(json.note || "").trim();
+  var id = String(json.id || "").trim();
+  var all = readAllStatsStaff_();
+  var hit = null;
+  for (var i = 0; i < all.length; i++) {
+    if (id && all[i].id === id) { hit = all[i]; break; }
+    if (!id && String(all[i].name).toLowerCase() === name.toLowerCase()) { hit = all[i]; break; }
+  }
+  if (!id) id = hit ? hit.id : ("st_" + Utilities.getUuid().slice(0, 8));
+  var now = new Date();
+  var vals = [id, name, salary, fromMonth, toMonth || "", active, note, hit ? hit.createdAt : now, now];
+  var sh = getStatsStaffSheet_();
+  if (hit) sh.getRange(hit.rowIndex, 1, 1, STATS_STAFF_HEADERS_.length).setValues([vals]);
+  else sh.appendRow(vals);
+  invalidateStatsCache_();
+  var ok = {
+    status: "success",
+    id: id,
+    name: name,
+    salary: salary,
+    fromMonth: fromMonth,
+    toMonth: toMonth || "",
+    active: active === "yes",
+    floorMonth: STATS_STAFF_COST_FLOOR_MONTH_
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handleDeleteStatsStaff(json, callback, fromPost) {
+  json = json || {};
+  var id = String(json.id || "").trim();
+  var name = String(json.name || "").trim();
+  var all = readAllStatsStaff_();
+  var hit = null;
+  for (var i = 0; i < all.length; i++) {
+    if (id && all[i].id === id) { hit = all[i]; break; }
+    if (name && String(all[i].name).toLowerCase() === name.toLowerCase()) { hit = all[i]; break; }
+  }
+  if (!hit) {
+    var bad = { status: "error", message: "Сотрудник не найден" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var sh = getStatsStaffSheet_();
+  sh.getRange(hit.rowIndex, 6).setValue("no");
+  sh.getRange(hit.rowIndex, 9).setValue(new Date());
+  invalidateStatsCache_();
+  var ok = { status: "success", id: hit.id, deleted: true };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/**
+ * Одна кнопка: включить/выключить нарезчика в статистике.
+ * enabled=1 → upsert id=cutter active; enabled=0 → active=no.
+ * ЗП сразу в себест getStats (staffCost) с fromMonth (≥ floor 2026-09).
+ */
+function handleSetStatsCutterEnabled(json, callback, fromPost) {
+  json = json || {};
+  var enRaw = json.enabled;
+  var enabled = !(
+    enRaw === false ||
+    enRaw === "no" ||
+    enRaw === "0" ||
+    enRaw === 0 ||
+    enRaw === "false" ||
+    enRaw === "off"
+  );
+  var salary = Number(json.salary);
+  if (!isFinite(salary) || salary < 0) salary = getStatsCutterDefaultSalary_();
+  salary = Math.round(salary * 100) / 100;
+  if (enabled && !(salary > 0)) {
+    var badSal = { status: "error", message: "Укажите ЗП нарезчика (BYN > 0)" };
+    return fromPost ? jsonpText(callback, badSal) : jsonp(callback, badSal);
+  }
+  try {
+    PropertiesService.getScriptProperties().setProperty(
+      "STATS_CUTTER_SALARY_BYN",
+      String(salary > 0 ? salary : getStatsCutterDefaultSalary_())
+    );
+  } catch (eProp) {}
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var nowMk = Utilities.formatDate(new Date(), tz, "yyyy-MM");
+  var fromMonth = normalizeStatsMonthKey_(json.fromMonth || json.from || "") || nowMk;
+  if (fromMonth < STATS_STAFF_COST_FLOOR_MONTH_) fromMonth = STATS_STAFF_COST_FLOOR_MONTH_;
+  var all = readAllStatsStaff_();
+  var hit = null;
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].id === STATS_CUTTER_PRESET_ID_) { hit = all[i]; break; }
+    if (String(all[i].name || "").toLowerCase() === STATS_CUTTER_PRESET_NAME_.toLowerCase()) {
+      hit = all[i];
+      break;
+    }
+  }
+  var now = new Date();
+  var id = STATS_CUTTER_PRESET_ID_;
+  var name = STATS_CUTTER_PRESET_NAME_;
+  var active = enabled ? "yes" : "no";
+  var note = "role:cutter";
+  var salWrite = salary > 0 ? salary : (hit ? Number(hit.salary) || getStatsCutterDefaultSalary_() : getStatsCutterDefaultSalary_());
+  var fromWrite = hit && hit.fromMonth ? hit.fromMonth : fromMonth;
+  if (enabled && !hit) fromWrite = fromMonth;
+  if (fromWrite < STATS_STAFF_COST_FLOOR_MONTH_) fromWrite = STATS_STAFF_COST_FLOOR_MONTH_;
+  var vals = [
+    id,
+    name,
+    salWrite,
+    fromWrite,
+    "",
+    active,
+    note,
+    hit ? hit.createdAt : now,
+    now
+  ];
+  var sh = getStatsStaffSheet_();
+  if (hit) sh.getRange(hit.rowIndex, 1, 1, STATS_STAFF_HEADERS_.length).setValues([vals]);
+  else sh.appendRow(vals);
+  invalidateStatsCache_();
+  var applied = collectStatsStaffForMonth_(nowMk);
+  var ok = {
+    status: "success",
+    id: id,
+    name: name,
+    role: "cutter",
+    enabled: enabled,
+    active: enabled,
+    salary: salWrite,
+    fromMonth: fromWrite,
+    floorMonth: STATS_STAFF_COST_FLOOR_MONTH_,
+    defaultSalary: getStatsCutterDefaultSalary_(),
+    appliedCost: applied.cost,
+    appliedCount: applied.count
+  };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
 function handleGetStats(json, callback, fromPost) {
   json = json || {};
   // ожидаемая прибыль по диапазону — тот же getStats (чтобы не зависеть от отдельного action на старом Deploy)
@@ -21004,7 +21386,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS17:" + monthKey;
+  var cacheKey = "STATS18:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -21044,6 +21426,10 @@ function handleGetStats(json, callback, fromPost) {
   var calTurnover = Math.round((ppActual + retail + partner) * 100) / 100;
   var bpSpend = Number(month.bpCost) || 0;
   var costActual = Number(month.costActual) || 0;
+  var staffMonth = { staff: [], cost: 0, count: 0, floorMonth: STATS_STAFF_COST_FLOOR_MONTH_ };
+  try { staffMonth = collectStatsStaffForMonth_(monthKey); } catch (eStaff) {}
+  var staffCost = Number(staffMonth.cost) || 0;
+  costActual = Math.round((costActual + staffCost) * 100) / 100;
   var converted = Number(conv.count) || 0;
   // CAC месяца: себестоимость БП-доставок месяца / число переходов БП→ПП в этом месяце
   var cac = null;
@@ -21154,7 +21540,38 @@ function handleGetStats(json, callback, fromPost) {
       bpDeliveries: month.bpDeliveries,
       missingPrice: month.missingPrice || 0,
       missingBasketCost: month.missingBasketCost || 0,
-      byPartner: byPartner
+      byPartner: byPartner,
+      staffCost: staffCost,
+      staffCount: Number(staffMonth.count) || 0,
+      staff: staffMonth.staff || [],
+      staffFloorMonth: STATS_STAFF_COST_FLOOR_MONTH_
+    },
+    staff: {
+      cost: staffCost,
+      count: Number(staffMonth.count) || 0,
+      items: staffMonth.staff || [],
+      floorMonth: STATS_STAFF_COST_FLOOR_MONTH_,
+      monthKey: monthKey,
+      cutter: (function () {
+        var hit = null;
+        var allS = [];
+        try { allS = readAllStatsStaff_(); } catch (eC) { allS = []; }
+        for (var si = 0; si < allS.length; si++) {
+          if (allS[si].id === STATS_CUTTER_PRESET_ID_ ||
+              String(allS[si].name || "").toLowerCase() === STATS_CUTTER_PRESET_NAME_.toLowerCase()) {
+            hit = allS[si];
+            break;
+          }
+        }
+        return {
+          id: STATS_CUTTER_PRESET_ID_,
+          name: STATS_CUTTER_PRESET_NAME_,
+          enabled: !!(hit && hit.active),
+          salary: hit ? Number(hit.salary) || getStatsCutterDefaultSalary_() : getStatsCutterDefaultSalary_(),
+          fromMonth: hit ? hit.fromMonth : STATS_STAFF_COST_FLOOR_MONTH_,
+          defaultSalary: getStatsCutterDefaultSalary_()
+        };
+      })()
     },
     byPartner: byPartner,
     pp: {
@@ -21220,7 +21637,8 @@ function handleGetStats(json, callback, fromPost) {
       turnover: calTurnover,
       cost: costActual,
       sheetTurnover: ppSheetTurnover,
-      bpSpend: bpSpend
+      bpSpend: bpSpend,
+      staffCost: staffCost
     },
     month: {
       deliveries: month.deliveriesTotal,
@@ -21273,7 +21691,7 @@ function handleGetStats(json, callback, fromPost) {
       ]
     },
     factCutoff: month.todayIso || "",
-    note: "Прибыль = оборот. Чистое = оборот − затраты. ПП затраты = состав + свет 11р/чел + доставка 6р. БП = состав + 6р."
+    note: "Прибыль = оборот. Чистое = оборот − затраты. ПП = состав без наценки + свет/доставка. БП = состав + 6р. ЗП сотрудников — только с месяца «с» (не раньше 2026-09)."
   };
   try {
     CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 600);
