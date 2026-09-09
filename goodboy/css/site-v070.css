@@ -649,7 +649,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   overflow: hidden;
   /* короче экрана — с другой стороны пусто, выступ за край виден */
   width: min(78vw, 920px);
-  height: clamp(120px, 18vw, 172px);
+  height: clamp(180px, 34vw, 280px);
   background: transparent;
   border-radius: 0;
   box-shadow: none;
@@ -674,15 +674,15 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   margin-right: -28vw;
   margin-left: auto;
 }
-.shelf-from-right img { object-position: 50% 50%; } /* пакеты — окна в кадре */
-/* 2 — из левого края: трое собак, морды */
+.shelf-from-right img { object-position: 55% 58%; } /* пакеты */
+/* 2 — из левого края: питомцы + пакет */
 .shelf-from-left {
   align-self: flex-start;
   margin-left: -28vw;
   margin-right: auto;
 }
-.shelf-from-left img { object-position: 50% 78%; } /* трое — по головам, не по ушам */
-.photo-shelves .shelf:nth-child(3) img { object-position: 50% 52%; } /* боковой вид Vector */
+.shelf-from-left img { object-position: 50% 62%; } /* морды + лого, без пустого верха */
+.photo-shelves .shelf:nth-child(3) img { object-position: 50% 68%; } /* морда */
 
 @media (max-width: 640px) {
   .photo-shelves {
@@ -691,7 +691,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   }
   .photo-shelves .shelf {
     width: 82vw;
-    height: clamp(96px, 26vw, 124px);
+    height: clamp(160px, 44vw, 210px);
   }
   .shelf-from-right { margin-right: -34vw; }
   .shelf-from-left { margin-left: -34vw; }
@@ -2737,9 +2737,9 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .about-hero-shot img {
   display: block;
   width: 100%;
-  height: clamp(220px, 42vw, 420px);
+  height: clamp(240px, 48vw, 440px);
   object-fit: cover;
-  object-position: 50% 42%;
+  object-position: 58% 38%;
 }
 .about-prose {
   max-width: 40rem;
@@ -2808,8 +2808,10 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 .about-split-photo img {
   display: block;
   width: 100%;
-  height: clamp(220px, 38vw, 380px);
+  height: auto;
+  aspect-ratio: 4 / 5;
   object-fit: cover;
+  object-position: 50% 28%;
 }
 .about-wide {
   margin: 8px auto 8px;
@@ -2821,7 +2823,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   width: 100%;
   height: clamp(180px, 32vw, 320px);
   object-fit: cover;
-  object-position: 50% 35%;
+  object-position: 50% 48%;
 }
 .about-beliefs {
   list-style: none;
