@@ -673,7 +673,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.25";
+  var APP_VER = "3.3.26";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v11";
@@ -817,6 +817,7 @@
   var state = {
     me: null,
     point: null,
+    orderStep: "catalog",
     catalog: CATALOG.slice(),
     cart: {},
     cat: "treat",
@@ -1370,11 +1371,11 @@
     var b = document.getElementById("btnSubmit");
     var n = cartCount();
     if (!b) return;
-    var onPoints = document.getElementById("screenPoints") &&
-      document.getElementById("screenPoints").classList.contains("on");
-    // На каталоге НЕ автовыбираем точку — иначе при 1 NaN сразу «Отправить»
-    if (onPoints) {
+    if (state.orderStep === "ready" && state.point) {
       b.textContent = "Отправить";
+      b.disabled = n <= 0;
+    } else if (state.orderStep === "point") {
+      b.textContent = state.point ? "Отправить" : "Выберите точку";
       b.disabled = n <= 0 || !state.point;
     } else {
       b.textContent = "Далее · точка";
@@ -1382,22 +1383,31 @@
     }
   }
 
+
+
   function onCartPrimary() {
     if (cartCount() <= 0) return;
-    var onPoints = document.getElementById("screenPoints") &&
-      document.getElementById("screenPoints").classList.contains("on");
-    if (onPoints) {
-      if (!state.point) {
-        softToast_("Выберите точку");
-        return;
-      }
+    if (state.orderStep === "catalog" || !state.orderStep) {
+      state.point = null;
+      state.orderStep = "point";
+      goPointsForOrder_();
+      return;
+    }
+    if (state.orderStep === "point" && !state.point) {
+      softToast_("Нажмите на точку ниже");
+      goPointsForOrder_();
+      return;
+    }
+    if (state.point && (state.orderStep === "ready" || state.orderStep === "point")) {
+      state.orderStep = "ready";
       submitOrder();
       return;
     }
-    // С каталога всегда экран выбора точки (даже если доступна только NaN)
-    state.point = null;
+    state.orderStep = "point";
     goPointsForOrder_();
   }
+
+
 
   function loginWithAccess_(acc, username) {
     acc = applyLiveTestMe_({ username: username }, acc || {});
@@ -1540,8 +1550,8 @@
   }
 
   function goOrderFlow() {
-    // Точку не автовыбираем — даже при 1 доступе (NaN) сначала «Далее · точка»
     state.point = null;
+    state.orderStep = "catalog";
     state.cat = "treat";
     document.querySelectorAll(".tab").forEach(function (el) {
       el.classList.toggle("on", el.getAttribute("data-cat") === "treat");
@@ -1556,32 +1566,58 @@
     showCatalogTab();
   }
 
+
+
   function goPointsForOrder_() {
+    state.orderStep = "point";
     var box = document.getElementById("pointsList");
     var hint = document.getElementById("pointsCartHint");
     var list = assignedPointsList_();
+    if (!list.length) {
+      var lt = (typeof liveTestPointObj_ === "function") ? liveTestPointObj_() : null;
+      if (lt) {
+        if (typeof ensureLiveTestPointInPoints_ === "function") ensureLiveTestPointInPoints_(lt);
+        list = [lt];
+      } else if (DEMO_POINT_IDS && DEMO_POINT_IDS.length) {
+        list = DEMO_POINT_IDS.map(function (id) {
+          return pointById_(id) || { id: id, networkId: DEMO_NETWORK, name: id, address: "" };
+        });
+      }
+    }
     if (hint) {
       hint.style.display = "";
       hint.innerHTML = list.length === 1
-        ? ("Ваша точка · нажмите, чтобы выбрать · в заявке <b>" + cartCount() + "</b> поз.")
+        ? ("Нажмите на точку · в заявке <b>" + cartCount() + "</b> поз.")
         : ("В заявке <b>" + cartCount() + "</b> поз. · выберите свою точку");
+    }
+    if (!box) {
+      show("screenPoints");
+      updateCartButton_();
+      return;
     }
     if (!list.length) {
       box.innerHTML = '<div class="err">Нет привязанных точек к вашему @username.</div>';
       show("screenPoints");
+      updateCartButton_();
       return;
     }
-    // 1 точка (NaN) — всё равно показываем кнопку выбора, без авто-submit
     box.innerHTML = '<div class="sub" style="text-align:left;margin:0 0 10px;">Доступно точек: <b>' +
-      list.length + "</b></div>" + list.map(function (pt) {
+      list.length + "</b> · нажмите, чтобы выбрать</div>" + list.map(function (pt) {
       var on = state.point && state.point.id === pt.id;
-      return '<button class="loc" type="button" style="' +
+      var title = displayPointName_(pt) || pt.label || pt.name || pt.id || "Точка";
+      var addr = String(pt.address || "").trim();
+      return '<button class="loc" type="button" style="width:100%;text-align:left;margin:0 0 10px;' +
         (on ? "border-color:var(--accent);" : "") + '" onclick="pickPointForOrder(\'' + esc(pt.id) + '\')">' +
-        '<div><div class="name">' + esc(displayPointName_(pt)) + "</div>" +
+        '<div><div class="name">' + esc(title) + "</div>" +
+        (addr && addr !== title ? ('<span class="addr">' + esc(addr) + "</span>") : "") +
+        (on ? '<span class="addr">✓ выбрано</span>' : '<span class="addr">Нажмите, чтобы выбрать</span>') +
         "</div></button>";
     }).join("");
     show("screenPoints");
+    updateCartButton_();
   }
+
+
 
   function pickPointForOrder(id) {
     var list = assignedPointsList_();
@@ -2112,6 +2148,7 @@
         }
       } catch (eH4) {}
       softToast_("Заявка отправлена — скоро уведомление о дате");
+      state.orderStep = "catalog";
       state.cart = {};
       clearNfcExtra_();
       if (noteEl) noteEl.value = "";
