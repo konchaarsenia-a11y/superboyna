@@ -1,3 +1,4 @@
+- [~] **Varka partner-fixes 3.3.34 2026-09-09:** rename 4 точек + V32; история без deliver; купон photo+qty; qty blur; Delete заявок; access pending/accept/notify; staff hide grant; empty-day speed · Pages varka 3.3.34 · **Deploy Code.gs** (`PARTNER_PROD_V32`) · Worker
 - [~] **Varka live-test NaN 2026-09-09:** `@one_more_person_228` owner→all fix (tid 827494606); только NaN (`pt_nan_1`); «следующая точка» · Pages varka 3.3.23 · **Deploy Code.gs** (`PARTNER_PROD_V18`) · Worker
 - [~] **Varka UX NFC/точки/submit 2026-09-09:** лист причин NFC; одна Маяковского без «·»; soft-toast + Отправляю…; быстрый TG из Worker · Pages varka 3.3.21 · **нужен Deploy Code.gs** (`PARTNER_PROD_V16`) · Worker
 - [~] **Varka Маяковского 14 + удаление точек 2026-09-09:** точка `pt_varka_mayakovskogo_14` (`PARTNER_PROD_V15`); в Бойне Партнёры→Точки кнопка Удалить/Вернуть (`partnerDeletePoint`) · Pages `v71115940` · **нужен Deploy Code.gs** · Worker

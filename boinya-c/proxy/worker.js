@@ -6844,10 +6844,10 @@ const PARTNER_LIVE_TEST_QUEUE = [
   { id: "pt_varka_skrip_1", networkId: "net_varka", name: "Varka Скрипникова 1", address: "Скрипникова 1", label: "Varka Скрипникова 1" },
   { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka Шевченко 1", address: "Шевченко 1", label: "Varka Шевченко 1" },
   { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14", label: "Varka Маяковского 14" },
-  { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск", label: "Fundog · точка 1" },
-  { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—", label: "Polotno · точка 1" },
-  { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—", label: "Indixvost · точка 1" },
-  { id: "pt_bob_1", networkId: "net_bobwow", name: "BOW Wow Collar · точка 1", address: "—", label: "BOW Wow Collar · точка 1" }
+  { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog", address: "Минск", label: "Fundog" },
+  { id: "pt_polotno_1", networkId: "net_polotno", name: "Чечота 11", address: "Чечота 11", label: "Чечота 11" },
+  { id: "pt_indix_1", networkId: "net_indixvost", name: "Проспект победителей 73/1", address: "Проспект победителей 73/1", label: "Проспект победителей 73/1" },
+  { id: "pt_bob_1", networkId: "net_bobwow", name: "bow_wow_collar", address: "Брест", label: "bow_wow_collar" }
 ];
 
 function partnerLiveTestCurrentWorker_() {
@@ -8424,7 +8424,7 @@ async function handleCutover_(a, params, env, ctx) {
     // Varka Partner_* — D1/snap правда → GAS зеркало (TG/deferred в GAS)
     if (
       isPartnerD1PrimaryCanon_(env) &&
-      /^(partnerSaveNetwork|partnerSavePoint|partnerDeletePoint|partnerSaveAccess|partnerRevokeAccess|partnerSeedDefaults|partnerSetNotifyRecipients|partnerSubmitOrder|partnerSetOrderStatus|partnerSetOrderSlot)$/i.test(
+      /^(partnerSaveNetwork|partnerSavePoint|partnerDeletePoint|partnerSaveAccess|partnerAcceptAccess|partnerRevokeAccess|partnerSeedDefaults|partnerSetNotifyRecipients|partnerSubmitOrder|partnerSetOrderStatus|partnerSetOrderSlot)$/i.test(
         a
       )
     ) {
@@ -15935,7 +15935,12 @@ async function mutatePartnerD1_(action, params, env) {
 
   if (/^partnerSaveAccess$/i.test(a)) {
     const username = partnerNormUserWorker_(params && params.username);
-    const telegramId = String((params && params.telegramId) || "").trim();
+    const actorTid = String((params && params.telegramId) || "").trim();
+    const targetTid = String(
+      (params && (params.targetTelegramId || params.staffTelegramId)) || ""
+    ).trim();
+    // staff row must use targetTelegramId; actor stays only for auth upstream
+    const telegramId = targetTid || actorTid;
     if (!username && !telegramId) return { status: "error", message: "need_user" };
     const id = String((params && params.id) || "").trim() || partnerUid_("pa");
     let pointIds = params && params.pointIds;
@@ -15978,10 +15983,72 @@ async function mutatePartnerD1_(action, params, env) {
         }
       }
     }
+    if (hit < 0 && telegramId) {
+      for (let k = 0; k < admin.access.length; k++) {
+        if (
+          String(admin.access[k].telegramId || "") === telegramId &&
+          String(admin.access[k].role || "") === row.role
+        ) {
+          hit = k;
+          row.id = admin.access[k].id || id;
+          break;
+        }
+      }
+    }
     if (hit >= 0) admin.access[hit] = Object.assign({}, admin.access[hit], row);
     else admin.access.push(row);
     await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
-    return { status: "success", id: row.id, d1Verified: true };
+    if (telegramId && String(row.status || "").toLowerCase() === "pending") {
+      try {
+        await telegramSendPartnerBot_(
+          env,
+          telegramId,
+          "Вам выдали доступ к точкам Good Boy. Откройте мини-апп и нажмите Принять."
+        );
+      } catch (eTg) {}
+    }
+    return {
+      status: "success",
+      id: row.id,
+      telegramId: telegramId,
+      accessStatus: row.status,
+      d1Verified: true
+    };
+  }
+
+  if (/^partnerAcceptAccess$/i.test(a)) {
+    const tid = String((params && params.telegramId) || "").trim();
+    const username = partnerNormUserWorker_(params && params.username);
+    if (!tid && !username) return { status: "error", message: "need_user" };
+    let hit = -1;
+    for (let i = 0; i < admin.access.length; i++) {
+      const row = admin.access[i];
+      if (String(row.status || "").toLowerCase() !== "pending") continue;
+      if (tid && String(row.telegramId || "") === tid) {
+        hit = i;
+        break;
+      }
+      if (username && partnerNormUserWorker_(row.username) === username) {
+        hit = i;
+        break;
+      }
+    }
+    if (hit < 0) return { status: "error", message: "pending_not_found" };
+    const prev = admin.access[hit];
+    admin.access[hit] = Object.assign({}, prev, {
+      status: "active",
+      telegramId: tid || prev.telegramId || ""
+    });
+    await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    return {
+      status: "success",
+      id: admin.access[hit].id,
+      accessStatus: "active",
+      role: admin.access[hit].role || "staff",
+      telegramId: admin.access[hit].telegramId || "",
+      pointIds: admin.access[hit].pointIds || [],
+      d1Verified: true
+    };
   }
 
   if (/^partnerRevokeAccess$/i.test(a)) {
@@ -16162,8 +16229,11 @@ async function mutatePartnerD1_(action, params, env) {
 
   if (/^partnerSetOrderStatus$/i.test(a)) {
     const id = String((params && (params.id || params.orderId || params.partnerOrderId)) || "").trim();
-    const st = String((params && params.status) || "").trim().toLowerCase();
-    if (!id || !st) return { status: "error", message: "need_id_status" };
+    const deferredId = String((params && params.deferredId) || "").trim();
+    let st = String((params && (params.status || params.orderStatus)) || "").trim().toLowerCase();
+    if (st === "canceled") st = "cancelled";
+    if (!id && !deferredId) return { status: "error", message: "need_id_status" };
+    if (!st) return { status: "error", message: "need_id_status" };
     let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
     pack.orders = Array.isArray(pack.orders) ? pack.orders.slice() : [];
     let hit = -1;
@@ -16173,11 +16243,61 @@ async function mutatePartnerD1_(action, params, env) {
         break;
       }
     }
+    if (hit < 0 && deferredId) {
+      try {
+        const list0 = (await getSnapRaw_(env, "listDeferred")) || {};
+        const arr0 = Array.isArray(list0.items) ? list0.items : [];
+        for (let k = 0; k < arr0.length; k++) {
+          const it = arr0[k];
+          if (!it || String(it.id) !== deferredId) continue;
+          const po = String((it.payload && it.payload.partnerOrderId) || "").trim();
+          if (!po) continue;
+          for (let j = 0; j < pack.orders.length; j++) {
+            if (String(pack.orders[j].id) === po) {
+              hit = j;
+              break;
+            }
+          }
+          break;
+        }
+      } catch (eDefFind) {}
+    }
     if (hit < 0) return { status: "error", message: "not_found" };
+    const oid = String(pack.orders[hit].id || id);
     pack.orders[hit] = Object.assign({}, pack.orders[hit], { status: st, statusAt: new Date().toISOString() });
     pack._d1TouchedAt = Date.now();
     await putSnap_(env, "partnerOrders", pack);
-    return { status: "success", id: id, status: st, order: pack.orders[hit], d1Verified: true, pendingSheets: true };
+    if (st === "delivered" || st === "cancelled") {
+      try {
+        let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+        let items = Array.isArray(list.items) ? list.items.slice() : [];
+        let touched = false;
+        items = items.map(function (it) {
+          if (!it) return it;
+          const pl = it.payload || {};
+          const isPartner =
+            String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
+            String(pl.orderType || "") === "partner";
+          if (!isPartner) return it;
+          if (String(it.id) !== deferredId && String(pl.partnerOrderId || "") !== oid) return it;
+          touched = true;
+          return Object.assign({}, it, {
+            status: "done",
+            payload: Object.assign({}, pl, { orderStatus: st }),
+            updatedAt: new Date().toISOString()
+          });
+        });
+        if (touched) {
+          list.items = items;
+          list.openCount = items.filter(function (it) {
+            return String((it && it.status) || "open").toLowerCase() === "open";
+          }).length;
+          list.fromD1 = true;
+          await putSnap_(env, "listDeferred", list);
+        }
+      } catch (eDefDone) {}
+    }
+    return { status: "success", id: oid, status: st, order: pack.orders[hit], d1Verified: true, pendingSheets: true };
   }
 
   if (/^partnerSetOrderSlot$/i.test(a)) {
@@ -16333,38 +16453,40 @@ async function refreshPartnerSnapsFromGas_(action, params, env, live) {
     if (!replaced && live.order) pack.orders.unshift(live.order);
     pack.status = "success";
     await putSnap_(env, "partnerOrders", pack);
-    const gasDefId = String(live.deferredId || "").trim();
-    if (gasDefId) {
-      try {
-        let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
-        let items = Array.isArray(list.items) ? list.items.slice() : [];
-        let touched = false;
-        items = items.filter(function (it) {
-          if (!it) return false;
-          const pl = it.payload || {};
-          const isPartner =
-            String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
-            String(pl.orderType || "") === "partner";
-          if (!isPartner || String(pl.partnerOrderId || "") !== oid) return true;
-          if (String(it.id) === gasDefId) return true;
-          touched = true;
-          return false;
-        });
-        for (let j = 0; j < items.length; j++) {
-          const pl = items[j].payload || {};
-          if (String(pl.partnerOrderId || "") === oid && String(items[j].id) !== gasDefId) {
-            items[j] = Object.assign({}, items[j], { id: gasDefId, gasSynced: true });
-            touched = true;
-            break;
-          }
+    let gasDefId = String(live.deferredId || (live.order && live.order.deferredId) || "").trim();
+    // GAS ok, D1 miss — поставить deferred в listDeferred из live order (Бойня Партнёры→Заказы)
+    try {
+      let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+      let items = Array.isArray(list.items) ? list.items.slice() : [];
+      let hasOpen = false;
+      for (let hi = 0; hi < items.length; hi++) {
+        const it = items[hi];
+        if (!it) continue;
+        const pl = it.payload || {};
+        const isPartner =
+          String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
+          String(pl.orderType || "") === "partner";
+        if (!isPartner) continue;
+        if (String(pl.partnerOrderId || "") !== oid) continue;
+        if (String(it.status || "open").toLowerCase() === "done") continue;
+        hasOpen = true;
+        if (gasDefId && String(it.id) !== gasDefId) {
+          items[hi] = Object.assign({}, it, { id: gasDefId, gasSynced: true });
         }
-        if (touched) {
-          list.items = items;
-          list.fromD1 = true;
-          await putSnap_(env, "listDeferred", list);
-        }
-      } catch (eDefSync) {}
-    }
+        break;
+      }
+      if (!hasOpen && live.order) {
+        const enqId = await partnerEnqueueDeferredD1Worker_(
+          Object.assign({}, live.order, { deferredId: gasDefId || live.order.deferredId || "" }),
+          env
+        );
+        if (enqId) gasDefId = enqId;
+      } else if (hasOpen) {
+        list.items = items;
+        list.fromD1 = true;
+        await putSnap_(env, "listDeferred", list);
+      }
+    } catch (eDefSync) {}
   }
   if (/^partnerSetOrderStatus$/i.test(action) && (live.order || live.id)) {
     let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };

@@ -2123,7 +2123,14 @@ function doGet(e) {
       pointIds: e.parameter.pointIds ? decodeURIComponent(e.parameter.pointIds) : "",
       role: e.parameter.role || "partner",
       status: e.parameter.status || "active",
-      actorRole: e.parameter.actorRole || ""
+      actorRole: e.parameter.actorRole || "",
+      actorUsername: e.parameter.actorUsername ? decodeURIComponent(e.parameter.actorUsername) : ""
+    }, callback, false);
+  }
+  if (action === "partnerAcceptAccess") {
+    return handlePartnerAcceptAccess({
+      telegramId: e.parameter.telegramId || "",
+      username: e.parameter.username ? decodeURIComponent(e.parameter.username) : ""
     }, callback, false);
   }
   if (action === "partnerRevokeAccess") {
@@ -2861,6 +2868,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "partnerSaveAccess") {
     return handlePartnerSaveAccess(json, callback, fromPost);
+  }
+  if (action === "partnerAcceptAccess") {
+    return handlePartnerAcceptAccess(json, callback, fromPost);
   }
   if (action === "partnerRevokeAccess") {
     return handlePartnerRevokeAccess(json, callback, fromPost);
@@ -19181,7 +19191,7 @@ function partnerDefaultSeedPack_() {
       { id: "net_fundog", name: "Fundog", logo: "assets/partners/fundog.png" },
       { id: "net_polotno", name: "Polotno", logo: "" },
       { id: "net_indixvost", name: "Indixvost", logo: "" },
-      { id: "net_bobwow", name: "BOW Wow Collar", logo: "" }
+      { id: "net_bobwow", name: "bow_wow_collar", logo: "" }
     ],
     points: [
       { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka Репина 4", address: "Репина 4" },
@@ -19197,10 +19207,10 @@ function partnerDefaultSeedPack_() {
       { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka Шевченко 1", address: "Шевченко 1" },
       { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14" },
       { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34" },
-      { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
-      { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—" },
-      { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—" },
-      { id: "pt_bob_1", networkId: "net_bobwow", name: "BOW Wow Collar · точка 1", address: "—" }
+      { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog", address: "Минск" },
+      { id: "pt_polotno_1", networkId: "net_polotno", name: "Чечота 11", address: "Чечота 11" },
+      { id: "pt_indix_1", networkId: "net_indixvost", name: "Проспект победителей 73/1", address: "Проспект победителей 73/1" },
+      { id: "pt_bob_1", networkId: "net_bobwow", name: "bow_wow_collar", address: "Брест" }
     ],
     // доступы партнёров — только через вкладку Партнёры в Бойне
     access: []
@@ -19296,6 +19306,25 @@ function partnerFindActiveAccess_(username, tid) {
     for (var j = 0; j < rows.length; j++) {
       if (String(rows[j].status || "") !== "active") continue;
       if (rows[j].telegramId && String(rows[j].telegramId) === id) return rows[j];
+    }
+  }
+  return null;
+}
+
+function partnerFindPendingAccess_(username, tid) {
+  var rows = readPartnerAccessRows_();
+  var u = partnerNormUser_(username);
+  var id = String(tid || "").trim();
+  if (id) {
+    for (var j = 0; j < rows.length; j++) {
+      if (String(rows[j].status || "").toLowerCase() !== "pending") continue;
+      if (rows[j].telegramId && String(rows[j].telegramId) === id) return rows[j];
+    }
+  }
+  if (u) {
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i].status || "").toLowerCase() !== "pending") continue;
+      if (rows[i].username === u) return rows[i];
     }
   }
   return null;
@@ -19895,10 +19924,10 @@ var PARTNER_LIVE_TEST_QUEUE_ = [
   { id: "pt_varka_skrip_1", networkId: "net_varka", label: "Varka Скрипникова 1" },
   { id: "pt_varka_shevchenko_1", networkId: "net_varka", label: "Varka Шевченко 1" },
   { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", label: "Varka Маяковского 14" },
-  { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск", label: "Fundog · точка 1" },
-  { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—", label: "Polotno · точка 1" },
-  { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—", label: "Indixvost · точка 1" },
-  { id: "pt_bob_1", networkId: "net_bobwow", name: "BOW Wow Collar · точка 1", address: "—", label: "BOW Wow Collar · точка 1" }
+  { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog", address: "Минск", label: "Fundog" },
+  { id: "pt_polotno_1", networkId: "net_polotno", name: "Чечота 11", address: "Чечота 11", label: "Чечота 11" },
+  { id: "pt_indix_1", networkId: "net_indixvost", name: "Проспект победителей 73/1", address: "Проспект победителей 73/1", label: "Проспект победителей 73/1" },
+  { id: "pt_bob_1", networkId: "net_bobwow", name: "bow_wow_collar", address: "Брест", label: "bow_wow_collar" }
 ];
 
 function partnerLiveTestCurrent_() {
@@ -20219,6 +20248,44 @@ function partnerMigrateProdV31_() {
   return { migrated: true, pointIds: PARTNER_MANUAL_ACCESS_POINT_IDS_ };
 }
 
+/** V32: имена/адреса Fundog, Чечота 11, Победителей 73/1, bow_wow_collar. */
+function partnerMigrateProdV32_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V32") === "1") {
+    try { partnerSyncLiveTestAccess_(); } catch (e0) {}
+    return { migrated: false };
+  }
+  try { partnerMigrateProdV31_(); } catch (e31) {}
+  var now = new Date();
+  var netSh = getPartnerNetworksSheet_();
+  var ptSh = getPartnerPointsSheet_();
+  var renamePts = {
+    pt_fundog_1: { name: "Fundog", address: "Минск" },
+    pt_polotno_1: { name: "Чечота 11", address: "Чечота 11" },
+    pt_indix_1: { name: "Проспект победителей 73/1", address: "Проспект победителей 73/1" },
+    pt_bob_1: { name: "bow_wow_collar", address: "Брест" }
+  };
+  readPartnerNetworks_().forEach(function (n) {
+    if (n.id !== "net_bobwow") return;
+    try {
+      netSh.getRange(n.rowIndex, 2).setValue("bow_wow_collar");
+      netSh.getRange(n.rowIndex, 5).setValue(now);
+    } catch (eN) {}
+  });
+  readPartnerPoints_().forEach(function (p) {
+    var want = renamePts[p.id];
+    if (!want) return;
+    try {
+      ptSh.getRange(p.rowIndex, 3).setValue(want.name);
+      ptSh.getRange(p.rowIndex, 4).setValue(want.address);
+      ptSh.getRange(p.rowIndex, 6).setValue(now);
+    } catch (eP) {}
+  });
+  try { partnerSyncLiveTestAccess_(); } catch (eSync) {}
+  props.setProperty("PARTNER_PROD_V32", "1");
+  return { migrated: true, points: Object.keys(renamePts) };
+}
+
 function partnerSyncManualAccess_() {
   var ids = (PARTNER_MANUAL_ACCESS_POINT_IDS_ || []).slice();
   if (!ids.length) return { ok: false };
@@ -20306,6 +20373,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV29_(); } catch (eMig29) {}
   try { partnerMigrateProdV30_(); } catch (eMig30) {}
   try { partnerMigrateProdV31_(); } catch (eMig31) {}
+  try { partnerMigrateProdV32_(); } catch (eMig32) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
@@ -20821,10 +20889,11 @@ function handlePartnerSetOrderStatus(json, callback, fromPost) {
   if (status === "assembled" || status === "on_the_way" || status === "way" || status === "courier") {
     status = "in_transit";
   }
-  if (status !== "in_transit" && status !== "delivered") {
+  if (status !== "in_transit" && status !== "delivered" && status !== "cancelled" && status !== "canceled") {
     var badSt = { status: "error", message: "bad_status" };
     return fromPost ? jsonpText(callback, badSt) : jsonp(callback, badSt);
   }
+  if (status === "canceled") status = "cancelled";
   var orderId = String((json && (json.partnerOrderId || json.orderId)) || "").trim();
   var deferredId = String((json && json.deferredId) || "").trim();
   var rawId = String((json && json.id) || "").trim();
@@ -20874,15 +20943,17 @@ function handlePartnerSetOrderStatus(json, callback, fromPost) {
     var payload = df.payload || {};
     payload.orderStatus = status;
     df.sh.getRange(df.rowIndex, 8).setValue(JSON.stringify(payload));
-    if (status === "delivered") {
+    if (status === "delivered" || status === "cancelled") {
       df.sh.getRange(df.rowIndex, 7).setValue("done");
       df.sh.getRange(df.rowIndex, 9).setValue(new Date());
     }
     try { bustDeferredCache_(String(df.data[2] || "")); } catch (eB) {}
   }
-  try {
-    partnerNotifyPartnerStatus_(order, status === "delivered" ? "delivered" : "in_transit");
-  } catch (eN) {}
+  if (status === "delivered" || status === "in_transit") {
+    try {
+      partnerNotifyPartnerStatus_(order, status === "delivered" ? "delivered" : "in_transit");
+    } catch (eN) {}
+  }
   var okSt = { status: "success", id: order.id, orderStatus: status };
   return fromPost ? jsonpText(callback, okSt) : jsonp(callback, okSt);
 }
@@ -21218,7 +21289,9 @@ function handlePartnerGetMe(json, callback, fromPost) {
       allowed: allowedIds.length > 0,
       ownersOnly: false,
       role: hit.role || "partner",
-      isPartner: true,
+      isPartner: String(hit.role || "partner").toLowerCase() !== "staff",
+      isStaff: String(hit.role || "").toLowerCase() === "staff",
+      accessStatus: "active",
       isOwner: false,
       name: hit.name || username || tid,
       username: hit.username || username,
@@ -21233,6 +21306,37 @@ function handlePartnerGetMe(json, callback, fromPost) {
       catalog: partnerCatalogStatic_()
     };
     return fromPost ? jsonpText(callback, okPartner) : jsonp(callback, okPartner);
+  }
+
+  // 1b) Pending staff invite — показать «Принять доступ»
+  var pending = partnerFindPendingAccess_(username, tid);
+  if (pending) {
+    var pendPts = pts.filter(function (p) {
+      return (pending.pointIds || []).indexOf(p.id) >= 0;
+    });
+    var pendOk = {
+      status: "success",
+      allowed: false,
+      ownersOnly: false,
+      role: pending.role || "staff",
+      isPartner: false,
+      isStaff: true,
+      accessStatus: "pending",
+      pendingAccept: true,
+      isOwner: false,
+      name: pending.name || username || tid,
+      username: pending.username || username,
+      telegramId: pending.telegramId || tid,
+      networkId: pending.networkId || "",
+      pointIds: pending.pointIds || [],
+      allowedPointIds: {},
+      networks: [],
+      points: pendPts.map(function (p) {
+        return { id: p.id, networkId: p.networkId, name: p.name, address: p.address };
+      }),
+      catalog: partnerCatalogStatic_()
+    };
+    return fromPost ? jsonpText(callback, pendOk) : jsonp(callback, pendOk);
   }
 
   // 2) Нет Access — владелец Бойни видит все точки
@@ -21393,7 +21497,8 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
     }
     if (!me) {
       for (var m2 = 0; m2 < meRows.length; m2++) {
-        if (meRows[m2].username && partnerNormUser_(json.actorUsername) === meRows[m2].username) {
+        if (meRows[m2].username && partnerNormUser_(json.actorUsername) === meRows[m2].username &&
+            String(meRows[m2].status || "") === "active") {
           me = meRows[m2]; break;
         }
       }
@@ -21401,6 +21506,15 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
     if (!me) {
       var noMe = { status: "error", message: "partner_not_found" };
       return fromPost ? jsonpText(callback, noMe) : jsonp(callback, noMe);
+    }
+    if (String(me.role || "").toLowerCase() === "staff") {
+      var staffForbid = { status: "error", message: "staff_cannot_grant" };
+      return fromPost ? jsonpText(callback, staffForbid) : jsonp(callback, staffForbid);
+    }
+    if (String(me.role || "partner").toLowerCase() !== "partner" &&
+        String(me.role || "").toLowerCase() !== "owner") {
+      var roleForbid = { status: "error", message: "forbidden" };
+      return fromPost ? jsonpText(callback, roleForbid) : jsonp(callback, roleForbid);
     }
     networkId = me.networkId;
     var allowed = {};
@@ -21441,7 +21555,45 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
   ];
   if (hit) sh.getRange(hit.rowIndex, 1, 1, PARTNER_ACCESS_HEADERS_.length).setValues([vals]);
   else sh.appendRow(vals);
-  var ok = { status: "success", id: id, username: username, telegramId: targetTid, pointIds: pointIds, role: role };
+  if (targetTid && status === "pending") {
+    try {
+      partnerTelegramSend_(
+        targetTid,
+        "Вам выдали доступ к точкам Good Boy. Откройте мини-апп и нажмите Принять."
+      );
+    } catch (eTg) {}
+  }
+  var ok = { status: "success", id: id, username: username, telegramId: targetTid, pointIds: pointIds, role: role, accessStatus: status };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+function handlePartnerAcceptAccess(json, callback, fromPost) {
+  var tid = String((json && json.telegramId) || "").trim();
+  var username = partnerNormUser_((json && json.username) || "");
+  if (!tid && !username) {
+    var bad = { status: "error", message: "need_user" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  try { ensurePartnerAppSeeded_(false); } catch (eSeed) {}
+  var hit = partnerFindPendingAccess_(username, tid);
+  if (!hit) {
+    var miss = { status: "error", message: "pending_not_found" };
+    return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+  }
+  var sh = getPartnerAccessSheet_();
+  sh.getRange(hit.rowIndex, 8).setValue("active");
+  sh.getRange(hit.rowIndex, 9).setValue(new Date());
+  if (tid && !hit.telegramId) {
+    try { sh.getRange(hit.rowIndex, 3).setValue(tid); } catch (eBind) {}
+  }
+  var ok = {
+    status: "success",
+    id: hit.id,
+    accessStatus: "active",
+    role: hit.role || "staff",
+    telegramId: tid || hit.telegramId || "",
+    pointIds: hit.pointIds || []
+  };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 

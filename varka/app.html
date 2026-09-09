@@ -89,7 +89,7 @@
     }
     .app-nav-brand .mark {
       flex: 0 0 auto;
-      width: 36px; height: 36px; border-radius: 12px;
+      width: 36px; height: 36px; border-radius: 50%;
       display: grid; place-items: center;
       font-family: var(--display); font-size: 13px; letter-spacing: 0.04em;
       color: #1a0f00; background: linear-gradient(145deg, var(--accent2), var(--accent));
@@ -104,18 +104,24 @@
       font-style: normal; color: var(--muted); font-size: 11px; font-weight: 600;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;
     }
-    .app-nav-links { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-    .nav-link {
-      border: 1px solid transparent; background: rgba(255,255,255,0.04);
-      color: var(--muted); border-radius: 999px; padding: 8px 12px;
-      font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
-      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    .app-nav-links {
+      display: flex; align-items: center; gap: 0; flex-shrink: 0;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px;
+      background: rgba(255,255,255,0.03);
     }
-    html[data-theme="light"] .nav-link { background: rgba(0,0,0,0.04); }
+    html[data-theme="light"] .app-nav-links { background: rgba(0,0,0,0.03); }
+    .nav-link {
+      border: 0; background: transparent;
+      color: var(--muted); border-radius: 999px; padding: 8px 14px;
+      font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+      transition: color 0.15s, background 0.15s;
+    }
     .nav-link:active { transform: scale(0.97); }
     .nav-link.on {
-      color: var(--accent2); border-color: var(--line);
-      background: rgba(245,154,46,0.12);
+      color: #1a0f00;
+      background: linear-gradient(145deg, var(--accent2), var(--accent));
     }
     .back-to-order {
       display: none;
@@ -641,7 +647,12 @@
         </div>
         <button class="btn block" type="button" onclick="saveSettings()">Сохранить</button>
       </div>
-      <div class="card">
+      <div class="card" id="pendingAccessCard" style="display:none;">
+        <h3>Приглашение</h3>
+        <p>Вам выдали доступ к точкам Good Boy.</p>
+        <button class="btn block" type="button" onclick="acceptStaffAccess()">Принять доступ</button>
+      </div>
+      <div class="card" id="grantStaffCard">
         <h3>Доступ сотруднику</h3>
         <p>Дайте доступ к своим точкам ответственному.</p>
         <label class="lbl">Telegram ID сотрудника</label>
@@ -673,7 +684,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.33";
+  var APP_VER = "3.3.34";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -697,10 +708,10 @@
     { id: "pt_varka_skrip_1", networkId: "net_varka", name: "Varka Скрипникова 1", address: "Скрипникова 1" },
     { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka Шевченко 1", address: "Шевченко 1" },
     { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14" },
-    { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
-    { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—" },
-    { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—" },
-    { id: "pt_bob_1", networkId: "net_bobwow", name: "BOW Wow Collar · точка 1", address: "—" }
+    { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog", address: "Минск", label: "Fundog" },
+    { id: "pt_polotno_1", networkId: "net_polotno", name: "Чечота 11", address: "Чечота 11", label: "Чечота 11" },
+    { id: "pt_indix_1", networkId: "net_indixvost", name: "Проспект победителей 73/1", address: "Проспект победителей 73/1", label: "Проспект победителей 73/1" },
+    { id: "pt_bob_1", networkId: "net_bobwow", name: "bow_wow_collar", address: "Брест", label: "bow_wow_collar" }
   ];
   var SETTINGS_KEY = "gb_partner_settings_v2";
   var BANNER_IMG = "assets/coupon-poster.png";
@@ -736,7 +747,7 @@
     net_bobwow: {
       coupon: "assets/partners/bowwow-coupon.png",
       hasBanner: false,
-      alt: "BOW Wow Collar × Good Boy"
+      alt: "bow_wow_collar × Good Boy"
     }
   };
   // Owner Бойни — все точки; партнёр — Partner_Access. Точки с сервера.
@@ -1880,7 +1891,13 @@
 
   function onQtyCustomBlur(id, el) {
     if (id === NFC_ID_) return;
-    var n = Math.max(0, parseInt(String((el && el.value) || "").replace(/[^\d]/g, ""), 10) || 0);
+    var raw = String((el && el.value) || "").replace(/[^\d]/g, "");
+    // пустой blur при re-render / смене вкладки — не сбрасывать корзину
+    if (raw === "") {
+      if ((Number(state.cart[id]) || 0) > 0) return;
+      return;
+    }
+    var n = Math.max(0, parseInt(raw, 10) || 0);
     pickQty(id, n);
   }
 
@@ -2001,9 +2018,7 @@
       if (it.id === "vr_c_banner") {
         return '<div class="coupon-card banner-card">' +
           '<img class="coupon-banner" src="' + media.banner + '" alt="' + esc(media.alt) + '">' +
-          '<div class="coupon-row qty-item"><div class="meta" style="flex:1;min-width:0"><div class="title">' + esc(it.name) +
-          '</div><div class="coupon-hint">' + esc(hint || "с ламинацией") + " · 1 шт" + selected +
-          "</div></div>" + ste + "</div></div>";
+          '<div class="coupon-row qty-item">' + ste + "</div></div>";
       }
       if (it.id === "vr_c_nfc" || kind === "nfc" || isNfcItem_(it)) {
         var reasonLab = nfcReasonLabel_(nfcExtraReason_);
@@ -2020,9 +2035,7 @@
       if (it.type === "coupon") {
         return '<div class="coupon-card banner-card">' +
           '<img class="coupon-preview" src="' + media.coupon + '" alt="' + esc(media.alt) + '">' +
-          '<div class="coupon-row qty-item"><div class="meta" style="flex:1;min-width:0"><div class="title">' + esc(it.name) +
-          '</div><div class="coupon-hint">' + esc(hint || "с ламинацией") + selected +
-          "</div></div>" + ste + "</div></div>";
+          '<div class="coupon-row qty-item">' + ste + "</div></div>";
       }
       return '<div class="item qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
         '</div><div class="unit">пресеты или своё' + selected +
@@ -2189,15 +2202,13 @@
         var lines = (o.basket || []).map(function (b) {
           return esc(b.name) + " × " + b.qty + (b.unit && b.unit !== "г" ? (" " + b.unit) : "");
         }).join("<br>");
-        var dateTxt = fmtOrderDateShort_(o.dateIso) || fmtOrderDateShort_(o.deliverDateIso) || "—";
-        var eta = o.deliverDateLabel || "";
+        var dateTxt = fmtOrderDateShort_(o.dateIso) || "—";
         var noteTxt = String(o.note || o.orderNote || "").trim();
         return '<div class="order"><div class="h"><span>' + esc(dateTxt) + '</span><span class="badge">' +
           esc(statusRu_(o.status)) + '</span></div><div class="lines">' + lines +
           '</div><div class="h" style="margin-top:8px;"><span>' + esc(o.locationName) +
           '</span><span>бесплатно</span></div>' +
           (noteTxt ? ('<div class="unit" style="margin-top:6px;">📝 ' + esc(noteTxt) + "</div>") : "") +
-          (eta && !hist ? ('<div class="unit" style="margin-top:6px;">Привезём: ' + esc(eta) + "</div>") : "") +
           "</div>";
       }
       var active = list.filter(function (o) {
@@ -2233,6 +2244,14 @@
         esc(state.me.networkName || "") +
         "<br><br><b>Ваши точки:</b><br>" + (pts || "—");
     }
+    var grantCard = document.getElementById("grantStaffCard");
+    var pendCard = document.getElementById("pendingAccessCard");
+    var canGrant = !!(state.me && state.me.isPartner && !state.me.isStaff &&
+      String(state.me.role || "") !== "staff");
+    if (grantCard) grantCard.style.display = canGrant ? "" : "none";
+    var needAccept = !!(state.me && state.me.isStaff &&
+      String(state.me.accessStatus || "").toLowerCase() === "pending");
+    if (pendCard) pendCard.style.display = needAccept ? "" : "none";
     renderStaffList_();
     show("screenCabinet");
   }
@@ -2258,7 +2277,7 @@
   }
 
   async function grantStaffAccess() {
-    if (!(state.me && (state.me.isPartner || state.me.isOwner))) {
+    if (!(state.me && state.me.isPartner && !state.me.isStaff)) {
       alert("Выдать доступ может партнёр своей точки");
       return;
     }
@@ -2281,7 +2300,7 @@
           networkId: state.me.networkId || "",
           pointIds: JSON.stringify(pointIds),
           role: "staff",
-          status: "active",
+          status: "pending",
           _: String(Date.now())
         });
         if (!res || res.status !== "success") {
@@ -2301,17 +2320,46 @@
       pointId: pts[0].id,
       pointName: pts.map(function (p) { return p.name; }).join(", "),
       networkId: state.me.networkId,
-      status: "active"
+      status: "pending"
     });
     document.getElementById("staffTid").value = "";
     document.getElementById("staffName").value = "";
     renderStaffList_();
-    alert(VARKA_WEBHOOK_URL ? "Доступ выдан" : "Доступ выдан (демо)");
+    alert(VARKA_WEBHOOK_URL ? "Приглашение отправлено" : "Доступ выдан (демо)");
+  }
+
+  async function acceptStaffAccess() {
+    var u = user();
+    if (!VARKA_WEBHOOK_URL) {
+      alert("Нет webhook");
+      return;
+    }
+    try {
+      var res = await apiGet_({
+        action: "partnerAcceptAccess",
+        telegramId: (u && u.telegramId) || (state.me && state.me.telegramId) || "",
+        username: (u && u.username) || (state.me && state.me.username) || "",
+        _: String(Date.now())
+      });
+      if (!res || res.status !== "success") {
+        alert((res && res.message) || "Не принялось — Deploy Code.gs?");
+        return;
+      }
+      softToast_("Доступ принят");
+      await refreshPartnerMe_(u);
+      goCabinet();
+    } catch (e) {
+      alert("Сеть: не удалось принять доступ");
+    }
   }
 
   function renderStaffList_() {
     var box = document.getElementById("staffList");
     if (!box) return;
+    if (!(state.me && state.me.isPartner && !state.me.isStaff)) {
+      box.innerHTML = "";
+      return;
+    }
     var list = DEMO.staffAccess.slice();
     if (state.me && state.me.isPartner) {
       var allowed = state.me.allowedPointIds || {};
@@ -2329,7 +2377,9 @@
     box.innerHTML = list.map(function (a) {
       return '<div class="item"><div class="meta"><div class="title">' + esc(a.name) +
         ' <span class="badge">staff</span></div><div class="unit">TG ' + esc(a.telegramId) +
-        " · " + esc(a.pointName) + "</div></div></div>";
+        " · " + esc(a.pointName) +
+        (a.status === "pending" ? " · ожидает" : "") +
+        "</div></div></div>";
     }).join("");
   }
 
@@ -2595,13 +2645,43 @@
 
   function applyGetMe_(u, res) {
     res = applyLiveTestMe_(u, res || { status: "success" });
+    var pending = !!(res && (res.pendingAccept || String(res.accessStatus || "").toLowerCase() === "pending"));
+    if (pending && String(res.role || "") === "staff") {
+      state.me = {
+        name: res.name || (u && u.name) || "Сотрудник",
+        username: res.username || (u && u.username) || "",
+        telegramId: (u && u.telegramId) || res.telegramId || "",
+        networkId: res.networkId || "",
+        networkName: "",
+        pointIds: normalizePointIds_(res.pointIds),
+        points: res.points || [],
+        allowedPointIds: {},
+        role: "staff",
+        isOwner: false,
+        isPartner: false,
+        isStaff: true,
+        accessStatus: "pending",
+        pendingAccept: true
+      };
+      try {
+        var pendCard = document.getElementById("pendingAccessCard");
+        var grantCard = document.getElementById("grantStaffCard");
+        if (pendCard) pendCard.style.display = "";
+        if (grantCard) grantCard.style.display = "none";
+        show("screenCabinet");
+      } catch (ePend) {}
+      return "pending";
+    }
     var ids = normalizePointIds_(res && res.pointIds);
     var asOwner = !!(res && res.isOwner && !res.isPartner && res.role === "owner");
-    var asPartner = !asOwner && !!(res && (res.isPartner || res.role === "partner" || res.role === "staff"));
+    var asStaff = !asOwner && !!(res && (res.isStaff || res.role === "staff"));
+    var asPartner = !asOwner && !asStaff && !!(res && (res.isPartner || res.role === "partner"));
     if (!(res && res.allowed && ids.length)) {
       if (isLiveTestUser_(u, res)) {
         res = applyLiveTestMe_(u, { status: "success" });
         ids = normalizePointIds_(res && res.pointIds);
+        asStaff = false;
+        asPartner = true;
       }
       if (!(res && res.allowed && ids.length)) return false;
     }
@@ -2613,11 +2693,19 @@
       points: res.points || [],
       networks: res.networks || [],
       isOwner: asOwner,
-      isPartner: asPartner || !asOwner,
-      role: asOwner ? "owner" : (res.role || "partner"),
+      isPartner: asPartner || (!asOwner && !asStaff),
+      isStaff: asStaff,
+      accessStatus: res.accessStatus || "active",
+      role: asOwner ? "owner" : (asStaff ? "staff" : (res.role || "partner")),
       username: res.username || (u && u.username) || "",
       telegramId: (u && u.telegramId) || res.telegramId || ""
     }, res.username || (u && u.username) || "");
+    if (state.me) {
+      state.me.isStaff = asStaff;
+      state.me.isPartner = asPartner || (!asOwner && !asStaff);
+      state.me.accessStatus = res.accessStatus || "active";
+      state.me.role = asOwner ? "owner" : (asStaff ? "staff" : (res.role || "partner"));
+    }
     return true;
   }
 
@@ -2695,6 +2783,7 @@
   window.toggleNotify = toggleNotify;
   window.saveSettings = saveSettings;
   window.grantStaffAccess = grantStaffAccess;
+  window.acceptStaffAccess = acceptStaffAccess;
 
   boot();
 })();

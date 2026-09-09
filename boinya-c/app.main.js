@@ -7249,6 +7249,16 @@
           if (compareRes && compareRes.status === "success" && Array.isArray(compareRes.week) && compareRes.week.length) {
             week = compareRes.week;
             weekRes = { status: "success", day: compareRes.day || day, clients: week };
+          } else if (
+            compareRes &&
+            compareRes.status === "success" &&
+            Array.isArray(compareRes.week) &&
+            compareRes.week.length === 0 &&
+            (compareRes.fromD1 || compareRes.d1Verified || compareRes.cutover || compareRes.source === "d1")
+          ) {
+            // явно пустой день из D1 — не ждать force getClients ~22с
+            week = [];
+            weekRes = { status: "success", day: compareRes.day || day, clients: [] };
           } else {
             // пустой week[] из SWR/snap — НЕ считать ответом; добираем getClients (force)
             var weekParams = { action: "getClients" };
@@ -7259,8 +7269,13 @@
             if (weekParams.day || weekParams.date) {
               weekParams.force = "1";
               weekParams._ = String(Date.now());
+              var emptyHint = !!(compareRes && compareRes.status === "success" &&
+                Array.isArray(compareRes.week) && !compareRes.week.length);
               try {
-                weekRes = await apiGet(weekParams, { timeoutMs: 22000, cacheTtlMs: 0 });
+                weekRes = await apiGet(weekParams, {
+                  timeoutMs: emptyHint ? 3500 : 22000,
+                  cacheTtlMs: 0
+                });
               } catch (eW) {
                 weekRes = { status: "error", message: eW.message || String(eW), clients: [] };
               }
@@ -21595,8 +21610,50 @@
     async function partnerMarkDelivered_(deferredId, partnerOrderId) {
       await partnerSetOrderStatusUi_(deferredId, partnerOrderId, "delivered");
     }
+    async function partnerDeleteOrderUi_(deferredId, partnerOrderId) {
+      if (!confirm("Удалить партнёрскую заявку?")) return;
+      var tid = await ensureTelegramId();
+      if (!tid) {
+        showToast("Нужен Telegram");
+        return;
+      }
+      try {
+        var res = await apiGet({
+          action: "partnerSetOrderStatus",
+          telegramId: tid,
+          deferredId: deferredId || "",
+          partnerOrderId: partnerOrderId || "",
+          id: partnerOrderId || deferredId || "",
+          orderStatus: "cancelled",
+          status: "cancelled",
+          _: String(Date.now())
+        }, { timeoutMs: 25000, cacheTtlMs: 0 });
+        if (!res || res.status !== "success") {
+          showToast((res && res.message) || "Не удалилось · Deploy Code.gs?");
+          return;
+        }
+        try {
+          deferredCache = (deferredCache || []).filter(function (it) {
+            if (!it) return false;
+            if (String(it.id) === String(deferredId)) return false;
+            if (String((it.payload || {}).partnerOrderId || "") === String(partnerOrderId || "")) return false;
+            return true;
+          });
+        } catch (eLoc) {}
+        deferredCacheAt = 0;
+        try { apiCacheBustDeferred_(); } catch (eClr) {}
+        showToast("Заявка удалена");
+        await refreshDeferredBadge(true);
+        try { await refreshPartnerOrdersTab_({ force: true }); } catch (eR) {}
+        var dr = document.getElementById("tasksDrawer");
+        if (dr && dr.classList.contains("open")) renderTasksDrawer(false);
+      } catch (e) {
+        showToast("Сеть / Deploy Code.gs");
+      }
+    }
     window.partnerMarkInTransit_ = partnerMarkInTransit_;
     window.partnerMarkDelivered_ = partnerMarkDelivered_;
+    window.partnerDeleteOrderUi_ = partnerDeleteOrderUi_;
 
     function setTasksTab(tab) {
       _tasksTab = (tab === "pp" || tab === "remind" || tab === "orders" || tab === "buy") ? tab : "xfer";
@@ -22860,8 +22917,8 @@
             '<div class="seg-row" style="margin-top:8px;flex-wrap:wrap;">' +
             '<button type="button" class="seg-btn" style="background:#f59a2e;border-color:#f59a2e;color:#111;" onclick="partnerAssignSlotUi_(\'' +
             safeId + '\',\'' + poId + '\')">Назначить дату</button>' +
-            '<button type="button" class="seg-btn" style="background:#64d2ff;border-color:#64d2ff;color:#111;" onclick="partnerOpenOrderForSlot_(\'' +
-            safeId + '\')">Открыть в заказе</button>' +
+            '<button type="button" class="seg-btn" style="background:#ff453a;border-color:#ff453a;color:#fff;" onclick="partnerDeleteOrderUi_(\'' +
+            safeId + '\',\'' + poId + '\')">Удалить</button>' +
             "</div></div>";
         } else if (st !== "delivered") {
           html += '<div class="seg-row" style="margin-top:10px;flex-wrap:wrap;">' +
@@ -22869,6 +22926,8 @@
               ? '<button type="button" class="seg-btn" style="background:#64d2ff;border-color:#64d2ff;color:#111;" onclick="partnerMarkInTransit_(\'' + safeId + '\',\'' + poId + '\')">В пути</button>'
               : "") +
             '<button type="button" class="seg-btn" style="background:#30d158;border-color:#30d158;color:#111;" onclick="partnerMarkDelivered_(\'' + safeId + '\',\'' + poId + '\')">Доставлено</button>' +
+            '<button type="button" class="seg-btn" style="background:#ff453a;border-color:#ff453a;color:#fff;" onclick="partnerDeleteOrderUi_(\'' +
+            safeId + '\',\'' + poId + '\')">Удалить</button>' +
             "</div>";
         }
         html += "</div>";
