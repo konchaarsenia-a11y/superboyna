@@ -19873,11 +19873,11 @@ function partnerMigrateProdV16_() {
 /**
  * Живой прогон точек для @one_more_person_228.
  * Команда владельца «следующая точка» → агент сдвигает IDX и деплоит.
- * Сейчас: 14 = Polotno (Fundog ✅; Varka пропущены).
+ * Сейчас: 15 = Indixvost (Polotno ✅; Varka пропущены).
  */
 var PARTNER_LIVE_TEST_USER_ = "one_more_person_228";
 var PARTNER_LIVE_TEST_TID_ = "827494606";
-var PARTNER_LIVE_TEST_IDX_ = 14;
+var PARTNER_LIVE_TEST_IDX_ = 15;
 var PARTNER_LIVE_TEST_QUEUE_ = [
   { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34", label: "nan_animal_clinic" },
   { id: "pt_varka_repina_4", networkId: "net_varka", label: "Varka Репина 4" },
@@ -19894,7 +19894,7 @@ var PARTNER_LIVE_TEST_QUEUE_ = [
   { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", label: "Varka Маяковского 14" },
   { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск", label: "Fundog · точка 1" },
   { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—", label: "Polotno · точка 1" },
-  { id: "pt_indix_1", networkId: "net_indixvost", label: "Indixvost · точка 1" },
+  { id: "pt_indix_1", networkId: "net_indixvost", name: "Indixvost · точка 1", address: "—", label: "Indixvost · точка 1" },
   { id: "pt_bob_1", networkId: "net_bobwow", label: "BOW Wow Collar · точка 1" }
 ];
 
@@ -20070,6 +20070,20 @@ function partnerMigrateProdV21_() {
   return { migrated: true, liveTestPoint: cur && cur.id, liveTestLabel: cur && (cur.label || cur.name) };
 }
 
+/** V22: live-test IDX→Indixvost. */
+function partnerMigrateProdV22_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V22") === "1") {
+    try { partnerSyncLiveTestAccess_(); } catch (e0) {}
+    return { migrated: false };
+  }
+  try { partnerMigrateProdV21_(); } catch (e21) {}
+  try { partnerSyncLiveTestAccess_(); } catch (eSync) {}
+  props.setProperty("PARTNER_PROD_V22", "1");
+  var cur = partnerLiveTestCurrent_();
+  return { migrated: true, liveTestPoint: cur && cur.id, liveTestLabel: cur && (cur.label || cur.name) };
+}
+
 function partnerSyncLiveTestAccess_() {
   var cur = partnerLiveTestCurrent_();
   if (!cur || !cur.id) return { ok: false };
@@ -20117,6 +20131,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV19_(); } catch (eMig19) {}
   try { partnerMigrateProdV20_(); } catch (eMig20) {}
   try { partnerMigrateProdV21_(); } catch (eMig21) {}
+  try { partnerMigrateProdV22_(); } catch (eMig22) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
