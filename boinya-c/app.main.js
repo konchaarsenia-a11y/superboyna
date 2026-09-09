@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115933";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115938";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -1183,12 +1183,13 @@
       },
       chew: {
         title: "Жевалки",
-        items: ["БЫЧИЙ КОРЕНЬ", "ТРАХЕЯ", "АОРТА", "УХО Г", "НОСЫ шт.", "СТАНОВАЯ ЖИЛА", "КОЛЕНИ шт.", "ПЕРЕПЁЛКИ шт.", "ЛОП ХРЯЩ шт.", "УТИНЫЕ ШЕИ шт.", "ГУБЫ шт."],
+        items: ["БЫЧИЙ КОРЕНЬ", "ТРАХЕЯ", "АОРТА", "УХО Г", "УХО К", "НОСЫ шт.", "СТАНОВАЯ ЖИЛА", "КОЛЕНИ шт.", "ПЕРЕПЁЛКИ шт.", "ЛОП ХРЯЩ шт.", "УТИНЫЕ ШЕИ шт.", "ГУБЫ шт."],
         fractions: {
           "БЫЧИЙ КОРЕНЬ": ["ОЧ МАЛ", "МАЛ", "СРЕД", "БОЛ", "ОГР"],
           "ТРАХЕЯ": ["МАЛ", "ПЛАСТ", "СРЕД", "БОЛ", "ОГР"],
           "СТАНОВАЯ ЖИЛА": ["ПАЛК", "СРЕД", "БОЛ"],
           "УХО Г": ["ПОЛОВИНКА", "Обычное"],
+          "УХО К": ["ПОЛОВИНКА", "Обычное"],
           "АОРТА": ["ПОЛОВИНКА", "Обычная"]
         }
       },
@@ -1463,6 +1464,8 @@
       "СТАНОВАЯ ЖИЛА|ПАЛК": { perPiece: 3 },
       "УХО Г|Обычное": { perPiece: 7 },
       "УХО Г|ПОЛОВИНКА": { perPiece: 5 },
+      "УХО К|Обычное": { perPiece: 7 },
+      "УХО К|ПОЛОВИНКА": { perPiece: 5 },
       "АОРТА|Обычная": { perPiece: 5 },
       "АОРТА|ПОЛОВИНКА": { perPiece: 3 },
       "КОЛЕНИ шт.": { perPiece: 7 },
@@ -1658,6 +1661,10 @@
         "Говяжье ухо — классическая погрызушка: хрящ + кожа, долго занимает.\n" +
         "Половинка — для помельче/покороче; целое («обычное») — полноценная сессия грызни.\n" +
         "Следим за остатком: когда ухо стало маленьким, лучше забрать.",
+      "УХО К":
+        "Ухо К — жевалка как говяжье ухо: хрящ + кожа, та же занятость.\n" +
+        "Половинка — для помельче/покороче; целое («обычное») — полноценная сессия грызни.\n" +
+        "Цена и себестоимость как у Ухо Г. Следим за остатком.",
       "НОСЫ шт.":
         "Носы — жевалка поштучно, дольше держит интерес у мелких и средних.\n" +
         "Хороший «трофей» в коробке без огромного размера.\n" +
@@ -2096,6 +2103,14 @@
         Object.keys(RETAIL_PRICE).forEach(function (k) { delete RETAIL_PRICE[k]; });
         Object.keys(next).forEach(function (k) { RETAIL_PRICE[k] = next[k]; });
       }
+      // УХО К зеркалит УХО Г, если сервер ещё без позиции
+      ["Обычное", "ПОЛОВИНКА"].forEach(function (sub) {
+        var gk = "УХО Г|" + sub;
+        var kk = "УХО К|" + sub;
+        if (RETAIL_PRICE[gk] && !RETAIL_PRICE[kk]) {
+          RETAIL_PRICE[kk] = Object.assign({}, RETAIL_PRICE[gk]);
+        }
+      });
       if (delivery) {
         if (delivery.fee != null && isFinite(Number(delivery.fee))) PRICE_RETAIL_DELIVERY_BYN = Number(delivery.fee);
         if (delivery.freeFrom != null && isFinite(Number(delivery.freeFrom))) PRICE_RETAIL_FREE_FROM = Number(delivery.freeFrom);
@@ -2226,7 +2241,7 @@
     function formatRetailDeliveryHint_(retail) {
       if (!retail || !(retail.delivery > 0)) return "";
       if (retail.deliveryTimes > 1) {
-        return " · доставка " + retail.deliveryTimes + "×" + (retail.deliveryFee || 5) +
+        return " · доставка " + retail.deliveryTimes + "×" + (retail.deliveryFee || 9) +
           " (доля " + retail.perDelivery + " < " + (retail.freeFrom || 50) + ")";
       }
       return " · доставка +" + retail.delivery +
@@ -2237,7 +2252,7 @@
     let secondDogMode = false; // legacy flag
     let ownerContactSnapshot = null;
     let retailPriceManual = false; // true = менеджер ввёл свою цену розницы
-    let retailPaidDelivery = false; // тумблер «платная доставка» +5 BYN
+    let retailPaidDelivery = false; // тумблер «платная доставка» +9 BYN
     let ppDeliverySlotManual = null; // 1 | 2 | null — ручной выбор при N=2
     let ppNeedManualSlot = false;
     let ppDeliveriesN = 0;
@@ -9334,7 +9349,12 @@
       session = session || {};
       const day = document.getElementById("cuttingDaySelect").value;
       const active = !!session.active && (!session.day || String(session.day) === String(day));
-      const startedAt = Number(session.startedAt) || 0;
+      let startedAt = Number(session.startedAt) || 0;
+      const nowTs = Date.now();
+      // startedAt=0 / эпоха / >12ч → огромный таймер; чиним на «сейчас»
+      if (active && (!startedAt || startedAt > nowTs + 60000 || nowTs - startedAt > 12 * 3600 * 1000)) {
+        startedAt = nowTs;
+      }
       const wasActive = cuttingSession.active;
       cuttingSession.active = active;
       cuttingSession.startedAt = active ? startedAt : 0;
@@ -9444,7 +9464,8 @@
     }
 
     function formatCutElapsed(ms) {
-      const totalSec = Math.max(0, Math.floor(ms / 1000));
+      // clamp: без отрицательных и без «эпохальных» суток на экране
+      const totalSec = Math.max(0, Math.min(Math.floor(Number(ms) / 1000) || 0, 12 * 3600));
       const h = Math.floor(totalSec / 3600);
       const m = Math.floor((totalSec % 3600) / 60);
       const s = totalSec % 60;
@@ -16264,6 +16285,11 @@
         "УШКО Г": "УХО Г",
         "УШКО ГОВЯЖЬЕ": "УХО Г",
         "УХО": "УХО Г",
+        "УХО Г": "УХО Г",
+        "УХО К": "УХО К",
+        "УШКО К": "УХО К",
+        "УХО КУР": "УХО К",
+        "КУРИНОЕ УХО": "УХО К",
         "КАБАЧКИ": "КАБАЧОК",
         "КАБАЧОК": "КАБАЧОК",
         "ГРУШЫ": "ГРУШИ",
@@ -16484,6 +16510,8 @@
           if (hit.name === "АОРТА" && /ЦЕЛ/.test(String(fracSrc).toUpperCase())) frac = "Обычная";
           if (hit.name === "УХО Г" && /ПОЛОВИН/.test(String(fracSrc).toUpperCase())) frac = "ПОЛОВИНКА";
           if (hit.name === "УХО Г" && /ЦЕЛ|ОБЫЧН/.test(String(fracSrc).toUpperCase())) frac = "Обычное";
+          if (hit.name === "УХО К" && /ПОЛОВИН/.test(String(fracSrc).toUpperCase())) frac = "ПОЛОВИНКА";
+          if (hit.name === "УХО К" && /ЦЕЛ|ОБЫЧН/.test(String(fracSrc).toUpperCase())) frac = "Обычное";
         }
         if (hit.fractions && hit.fractions.length) {
           if (!frac) {
@@ -18301,8 +18329,9 @@
       } else {
         if (box) box.innerHTML = '<p class="muted">Загрузка…</p>';
       }
-      // soft + пусто → всё равно сеть с force (оживляем после битого snap/кэша)
-      if (soft && !force && !cacheHasRows) force = true;
+      // soft без кэша: сначала быстрый D1 (без force), иначе 28с GAS на каждый вход
+      // force только если после soft список пуст
+      var softNeedForceIfEmpty = !!(soft && !force && !cacheHasRows);
       try {
         if (force) {
           try { apiCacheBustMem_("listSubscriptions"); } catch (eMem) {}
@@ -18314,10 +18343,21 @@
           params._ = String(Date.now());
         }
         var res = await apiGet(params, {
-          timeoutMs: 28000,
+          timeoutMs: force ? 28000 : 12000,
           cacheTtlMs: force ? 0 : 30000,
           __boinyaNoSnap: !!force
         });
+        if (
+          softNeedForceIfEmpty &&
+          (!res || res.status !== "success" || !(Array.isArray(res.subscriptions) && res.subscriptions.length))
+        ) {
+          try { apiCacheBustMem_("listSubscriptions"); } catch (eMem2) {}
+          force = true;
+          res = await apiGet(
+            { action: "listSubscriptions", force: "1", _: String(Date.now()) },
+            { timeoutMs: 28000, cacheTtlMs: 0, __boinyaNoSnap: true }
+          );
+        }
         if (seq !== _subsLoadSeq || wantSheet !== subsSegment) return;
         if (!res || res.status !== "success") {
           if (!(cachedSheet && cachedSheet.loaded && (cachedSheet.list || []).length)) {
@@ -20187,7 +20227,7 @@
       var dogsHint = priceDogCount >= 2 ? " · 2 собаки, свет/доставка×1" : "";
       var retailHint = "товар " + roundRub(retail.goods) +
         (retail.delivery
-          ? (" + дост. " + retail.deliveryTimes + "×" + (retail.deliveryFee || 5) +
+          ? (" + дост. " + retail.deliveryTimes + "×" + (retail.deliveryFee || 9) +
             " (доля " + roundRub(retail.perDelivery) + "<" + (retail.freeFrom || 50) + ")")
           : " · дост. 0 (доля ≥" + (retail.freeFrom || 50) + ")") +
         " = <b>" + roundRub(retail.total) + " BYN</b>";
@@ -20297,6 +20337,7 @@
         "БЫЧИЙ КОРЕНЬ": "Бычий корень",
         "СТАНОВАЯ ЖИЛА": "Становая жила",
         "УХО Г": "Ухо Г",
+        "УХО К": "Ухо К",
         "НОСЫ ШТ.": "Носы",
         "КОЛЕНИ ШТ.": "Колени",
         "КОПЫТО ШТ.": "Копыто",
