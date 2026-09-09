@@ -5,7 +5,8 @@
 - [~] **Stats выхлоп без наценки 2026-09-08:** PP cost coef=1; life BP только перешедшие · **нужен Deploy Code.gs**
 - [~] **Таймер нарезки + Ухо К + доставка +9 + ПП детали 2026-09-09:** timer `startedAt=0` → эпоха; жевалка УХО К = УХО Г (розница/ПП/себест.); менеджер «Да (+9)»; list ПП тонкие из‑за `_savedAt` блокировал getSubscription GAS + soft force 28с. Fix Worker hasDetail+enrich фон; UI soft без force; Pages `v71115938` · marker `fix-cut-timer-uho-k-pp-h1` · **нужен Worker Deploy** · **Deploy Code.gs**
 - [~] **Varka note + Arseniy Varka×4 2026-09-08:** ~~`@arseniyhotko` → 4 Варки~~ · снято V17 · Pages varka 3.3.20 · **Deploy Code.gs**
-- [~] **Varka Access Цвирко 2026-09-09:** `@one_more_person_228` → только Цвирко 100 · Worker · Deploy Code.gs V28 опционально
+- [~] **Varka Access Скрипникова 2026-09-09:** `@one_more_person_228` → только Скрипникова 1 · Worker · Deploy Code.gs V29 опционально
+- [x] **Varka Access Цвирко 2026-09-09:** `@one_more_person_228` → только Цвирко 100 · Worker · Deploy Code.gs V28 опционально
 - [x] **Varka Access Матусевича 2026-09-09:** `@one_more_person_228` → только Матусевича 70 · Worker · Deploy Code.gs V27 опционально
 - [x] **Varka Access Голодеда/Рокосс/Казинца 2026-09-09:** `@one_more_person_228` → 4 точки · Worker · Deploy Code.gs V26 опционально
 - [x] **Varka Access Карского 2026-09-09:** `@one_more_person_228` → только Карского 23 · **Deploy Code.gs** V25 + Worker
