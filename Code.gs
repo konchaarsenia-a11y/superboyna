@@ -19872,15 +19872,15 @@ function partnerMigrateProdV16_() {
 
 /**
  * Живой прогон точек для @one_more_person_228.
- * V29: только Скрипникова 1.
+ * V30: только Шевченко 1.
  * «следующая точка» / IDX — только при PARTNER_LIVE_TEST_ENABLED_ = true.
  */
 var PARTNER_LIVE_TEST_ENABLED_ = false;
 var PARTNER_LIVE_TEST_USER_ = "one_more_person_228";
 var PARTNER_LIVE_TEST_TID_ = "827494606";
 var PARTNER_LIVE_TEST_IDX_ = 16;
-/** Ручной набор точек, пока live-test single выкл. (V29). */
-var PARTNER_MANUAL_ACCESS_POINT_IDS_ = ["pt_varka_skrip_1"];
+/** Ручной набор точек, пока live-test single выкл. (V30). */
+var PARTNER_MANUAL_ACCESS_POINT_IDS_ = ["pt_varka_shevchenko_1"];
 var PARTNER_LIVE_TEST_QUEUE_ = [
   { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34", label: "nan_animal_clinic" },
   { id: "pt_varka_repina_4", networkId: "net_varka", label: "Varka Репина 4" },
@@ -20193,6 +20193,19 @@ function partnerMigrateProdV29_() {
   return { migrated: true, pointIds: PARTNER_MANUAL_ACCESS_POINT_IDS_ };
 }
 
+/** V30: только Шевченко 1. */
+function partnerMigrateProdV30_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V30") === "1") {
+    try { partnerSyncLiveTestAccess_(); } catch (e0) {}
+    return { migrated: false, pointIds: PARTNER_MANUAL_ACCESS_POINT_IDS_ };
+  }
+  try { partnerMigrateProdV29_(); } catch (e29) {}
+  try { partnerSyncLiveTestAccess_(); } catch (eSync) {}
+  props.setProperty("PARTNER_PROD_V30", "1");
+  return { migrated: true, pointIds: PARTNER_MANUAL_ACCESS_POINT_IDS_ };
+}
+
 function partnerSyncManualAccess_() {
   var ids = (PARTNER_MANUAL_ACCESS_POINT_IDS_ || []).slice();
   if (!ids.length) return { ok: false };
@@ -20278,6 +20291,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV27_(); } catch (eMig27) {}
   try { partnerMigrateProdV28_(); } catch (eMig28) {}
   try { partnerMigrateProdV29_(); } catch (eMig29) {}
+  try { partnerMigrateProdV30_(); } catch (eMig30) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого

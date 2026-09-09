@@ -48,7 +48,7 @@ API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerS
 - Нет Access и owner Бойни → все точки  
 - Админка — вкладка **Партнёры** в Бойне  
 
-Worker: `@one_more_person_228` — **ручной Access** (V29): только **Скрипникова 1**; single-point live-test выкл. `@arseniyhotko` — Варки сняты (`PARTNER_PROD_V17`). Deploy — **Worker** + **Code.gs**.
+Worker: `@one_more_person_228` — **ручной Access** (V30): только **Шевченко 1**; single-point live-test выкл. `@arseniyhotko` — Варки сняты (`PARTNER_PROD_V17`). Deploy — **Worker** + **Code.gs**.
 
 ### Команда «следующая точка»
 
@@ -71,7 +71,7 @@ Worker: `@one_more_person_228` — **ручной Access** (V29): только *
 | 15 | `pt_indix_1` | Indixvost · ✅ |
 | 16 | `pt_bob_1` | BOW Wow Collar · ✅ |
 
-**Сейчас у `@one_more_person_228`:** только `pt_varka_skrip_1` (Скрипникова 1).
+**Сейчас у `@one_more_person_228`:** только `pt_varka_shevchenko_1` (Шевченко 1).
 
 На каждой точке проверять: вход → каталог/кнопки → NFC → Отправить → пуш в бот → история.
 
@@ -139,6 +139,7 @@ Worker: `@one_more_person_228` — **ручной Access** (V29): только *
 - [~] **v3.3.20:** примечание к заявке · ~~`@arseniyhotko` → 4 Варки~~ (снято V17) · **Pages** · **Deploy Code.gs**
 - [~] **v3.3.21:** + точка **Varka Маяковского 14** (`pt_varka_mayakovskogo_14`, `PARTNER_PROD_V15`); в Бойне Удалить/Вернуть точку (`partnerDeletePoint`) · Pages Бойня `v71115940` · **нужен Deploy Code.gs** + Worker
 - [x] **v3.3.21b:** лист причин NFC; без дубля Маяковского и без «·»; soft-toast Отправить · Pages varka 3.3.21 · **Deploy Code.gs** (`PARTNER_PROD_V16`)
+- [~] **v3.3.39:** Access `@one_more_person_228` → только **Шевченко 1** · Worker · Deploy Code.gs V30 опционально
 - [~] **v3.3.38:** Access `@one_more_person_228` → только **Скрипникова 1** · Worker · Deploy Code.gs V29 опционально
 - [~] **v3.3.37:** Access `@one_more_person_228` → только **Цвирко 100** · Worker · Deploy Code.gs V28 опционально
 - [~] **v3.3.36:** Access `@one_more_person_228` → только **Матусевича 70** · Worker · Deploy Code.gs V27 опционально
