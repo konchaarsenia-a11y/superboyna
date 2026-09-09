@@ -961,7 +961,7 @@
         }
       }
       if (!p) p = pointById_(id);
-      if (p && allow[p.id]) out.push(p);
+      if (p && allow[p.id] && p.active !== false) out.push(p);
     });
     return dedupePartnerPoints_(out);
   }
