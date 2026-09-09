@@ -145,7 +145,8 @@ Worker: `@one_more_person_228` — **живой прогон по 1 точке**
 - [~] **v3.3.19:** кнопка «К заказу»; без версии в шапке; заявка без даты → уведомление позже; Бойня Партнёры→Заказы · **Pages** · **нужен Deploy Code.gs** + Worker
 - [~] **v3.3.20:** примечание к заявке · ~~`@arseniyhotko` → 4 Варки~~ (снято V17) · **Pages** · **Deploy Code.gs**
 - [~] **v3.3.21:** + точка **Varka Маяковского 14** (`pt_varka_mayakovskogo_14`, `PARTNER_PROD_V15`); в Бойне Удалить/Вернуть точку (`partnerDeletePoint`) · Pages Бойня `v71115940` · **нужен Deploy Code.gs** + Worker
-- [~] **v3.3.21b:** лист причин NFC; без дубля Маяковского и без «·»; soft-toast Отправить; быстрый TG Worker · Pages varka 3.3.21 · **нужен Deploy Code.gs** (`PARTNER_PROD_V16`) + Worker
+- [x] **v3.3.21b:** лист причин NFC; без дубля Маяковского и без «·»; soft-toast Отправить · Pages varka 3.3.21 · **Deploy Code.gs** (`PARTNER_PROD_V16`)
+- [~] **v3.3.24:** заявка без дублей TG (только GAS); сразу в Бойне Партнёры→Заказы (deferred D1) · **Worker Deploy**
 - [~] **v3.3.23:** fix owner→все точки у `@one_more_person_228` (tid 827494606); только NaN clinic · Pages varka 3.3.23 · **Deploy Code.gs** (`PARTNER_PROD_V18`) + Worker
 - [~] **v3.3.22:** `@arseniyhotko` без Варок; `@one_more_person_228` → NaN clinic; очередь «следующая точка» · **Deploy Code.gs** (`PARTNER_PROD_V17`) + Worker
 - [ ] **v3.3.2:** ~~`@nan_animal_clinic`~~ — отменено, доступ у `@arseniyhotko`
