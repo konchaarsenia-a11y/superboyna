@@ -20156,6 +20156,10 @@ function partnerNotifyNewOrder_(order) {
   try {
     var ids = getPartnerOrderNotifyIds_();
     if (!ids || !ids.length) return;
+    // Снабжению — только «Новая заявка». Не слать партнёру-заказчику в этот чат.
+    var partnerTid = String((order && order.telegramId) || "").trim();
+    ids = ids.filter(function (id) { return String(id || "").trim() && String(id).trim() !== partnerTid; });
+    if (!ids.length) return;
     var lines = (order.basket || []).map(function (b) {
       var extra = "";
       if (String(b.id || "") === "vr_c_nfc" && (b.reasonLabel || b.reason || b.note)) {
@@ -20204,10 +20208,11 @@ function partnerTelegramSendMany_(chatIds, text) {
 }
 
 function getPartnerBotToken_() {
+  // Только бот партнёров (@GOODBOY_LG). Не fallback на бота снабжения Бойни —
+  // иначе «Заявка отправлена» уходит через снабжение.
   var props = PropertiesService.getScriptProperties();
   return props.getProperty("PARTNER_BOT_TOKEN") ||
-    props.getProperty("GOODBOY_BOT_TOKEN") ||
-    getTelegramToken_() || "";
+    props.getProperty("GOODBOY_BOT_TOKEN") || "";
 }
 
 function partnerTelegramSend_(chatId, text) {
@@ -20370,6 +20375,8 @@ function partnerNotifyPartnerStatus_(order, kind) {
   } else {
     return;
   }
+  // Только @GOODBOY_LG → партнёру. Без токена партнёра — молчим (не через снабжение).
+  if (!getPartnerBotToken_()) return;
   try { partnerTelegramSend_(tid, text); } catch (eS) {}
 }
 

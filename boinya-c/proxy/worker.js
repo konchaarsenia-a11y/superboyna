@@ -14903,8 +14903,9 @@ async function telegramSendTextWorker_(env, chatId, text, markup) {
 
 /** Пуш партнёру (GOODBOY_LG) — быстрее, чем ждать GAS в фоне. */
 function getPartnerBotTokenWorker_(env) {
+  // Только партнёрский бот — не TELEGRAM_BOT_TOKEN снабжения
   return String(
-    (env && (env.PARTNER_BOT_TOKEN || env.GOODBOY_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_TOKEN)) || ""
+    (env && (env.PARTNER_BOT_TOKEN || env.GOODBOY_BOT_TOKEN)) || ""
   ).trim();
 }
 
@@ -14948,7 +14949,8 @@ async function partnerNotifyOrderFastWorker_(order, env) {
   const lines = partnerBasketLinesWorker_(order.basket);
   const partnerTid = String(order.telegramId || "").trim();
   const tasks = [];
-  if (partnerTid) {
+  // Партнёру — только через PARTNER_BOT (@GOODBOY_LG), не через снабжение
+  if (partnerTid && getPartnerBotTokenWorker_(env)) {
     const text =
       "✅ Заявка отправлена\n" +
       loc +
@@ -14972,7 +14974,7 @@ async function partnerNotifyOrderFastWorker_(order, env) {
       "\n\nНазначьте дату: Партнёры → Заказы";
     for (let i = 0; i < recipients.length; i++) {
       const rid = String((recipients[i] && (recipients[i].telegramId || recipients[i].id)) || recipients[i] || "").trim();
-      if (!rid) continue;
+      if (!rid || rid === partnerTid) continue;
       tasks.push(telegramSendTextWorker_(env, rid, teamText, null));
     }
   } catch (eR) {}
