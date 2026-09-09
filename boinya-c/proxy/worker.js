@@ -386,7 +386,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-08 fix-pp-suggest-ghosts-h1"
+      deployMarker: "2026-09-09 fix-cut-timer-uho-k-pp-h1"
     };
   }
 
@@ -7229,7 +7229,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1 слоты недели перезаписаны из Sheets (пустые дни очищены).",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-08 fix-pp-suggest-ghosts-h1"
+        deployMarker: "2026-09-09 fix-cut-timer-uho-k-pp-h1"
       };
     } catch (eResync) {
       return {
@@ -7392,12 +7392,9 @@ async function handleCutover_(a, params, env, ctx) {
     if (isSubsD1PrimaryCanon_(env) && env && env.DB) {
       try {
         const local = await getSubscription_(params, env);
-        const hasDetail =
-          !!(local &&
-            local.found &&
-            (local._d1Detail ||
-              local._savedAt ||
-              (Array.isArray(local.basket) && local.basket.length > 0)));
+        // Не считать _savedAt «деталью»: merge list GAS ставит _savedAt на тонкие
+        // строки → карточка без basket/пакетов и блокировала догрузку из Sheets.
+        const hasDetail = subscriptionLocalHasCrmDetail_(local);
         if (hasDetail) {
           return Object.assign({}, local, {
             cutover: true,
@@ -8180,9 +8177,29 @@ async function handleCutover_(a, params, env, ctx) {
         clients: []
       };
       const now = Date.now();
-      const sess = Object.assign({}, cut.session || {}, {
+      const prevSess = cut.session || {};
+      const prevStarted = Number(prevSess.startedAt) || 0;
+      const paramStarted = Number(params && params.startedAt) || 0;
+      let startedAt = 0;
+      if (/^startCuttingSession$/i.test(a)) {
+        // UI шлёт startedAt; без него — now. Не оставлять 0 → таймер «с эпохи».
+        startedAt =
+          paramStarted > 0
+            ? paramStarted
+            : prevStarted > 0 && prevSess.active
+              ? prevStarted
+              : now;
+      } else if (/^(stopCuttingSession|finishCutting)$/i.test(a)) {
+        startedAt = 0;
+      } else {
+        // prepareFinishCutting — сохранить старт
+        startedAt = prevStarted > 0 ? prevStarted : 0;
+      }
+      const sess = Object.assign({}, prevSess, {
         action: a,
         at: now,
+        day: day,
+        startedAt: startedAt,
         active: /^startCuttingSession$/i.test(a),
         finished: /^finishCutting$/i.test(a),
         prepared: /^prepareFinishCutting$/i.test(a)
@@ -9026,6 +9043,14 @@ async function handleCutover_(a, params, env, ctx) {
           }
         }
       } catch (eScrub) {}
+      // Фон: догрузить тонкие ПП (без basket) из GAS — UI сразу из D1, не ждём 28с
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(
+          enrichThinSubscriptionsFromGas_(env, { limit: 20 }).catch(function () {
+            return null;
+          })
+        );
+      }
       const outSubs = Object.assign({}, fast, {
         cutover: true,
         fromD1: true,
@@ -11481,6 +11506,7 @@ function enrichSubsPreserveDetail_(prevArr, incoming) {
       "dogWeight",
       "packagesByn",
       "xtraCount",
+      "wishes",
       "_d1Detail",
       "_savedAt"
     ];
@@ -11494,6 +11520,89 @@ function enrichSubsPreserveDetail_(prevArr, incoming) {
     }
     return out;
   });
+}
+
+/** Есть ли в локальной карточке ПП/АФК/БП реальный CRM-состав (не stub list). */
+function subscriptionLocalHasCrmDetail_(local) {
+  if (!local || local.found === false) return false;
+  if (local._d1Detail === true) {
+    // detail-merge уже был; но если basket пуст при ПП — всё равно догружаем GAS
+    const sh = subscriptionSheetKey_(local);
+    if (sh === "ПП" || sh === "АФК") {
+      const hasBasket =
+        (Array.isArray(local.basket) && local.basket.length > 0) ||
+        (Array.isArray(local.monthlyBasket) && local.monthlyBasket.length > 0);
+      if (!hasBasket) return false;
+    }
+    if (sh === "БП") {
+      const hasBp =
+        (Array.isArray(local.basket) && local.basket.length > 0) ||
+        (Array.isArray(local.basketBp1) && local.basketBp1.length > 0) ||
+        (Array.isArray(local.basketBp2) && local.basketBp2.length > 0);
+      if (!hasBp && !String(local.address || "").trim()) return false;
+    }
+    return true;
+  }
+  if (Array.isArray(local.basket) && local.basket.length > 0) return true;
+  if (Array.isArray(local.monthlyBasket) && local.monthlyBasket.length > 0) return true;
+  if (Array.isArray(local.basketBp1) && local.basketBp1.length > 0) return true;
+  if (Array.isArray(local.basketBp2) && local.basketBp2.length > 0) return true;
+  return false;
+}
+
+function subscriptionRowNeedsGasEnrich_(s) {
+  if (!s) return false;
+  const sh = subscriptionSheetKey_(s);
+  if (sh !== "ПП" && sh !== "АФК" && sh !== "БП") return false;
+  if (subscriptionLocalHasCrmDetail_(Object.assign({ found: true }, s))) return false;
+  const nick = String(s.nick || s.label || s.name || "").trim();
+  return !!nick;
+}
+
+/** Фон: догрузить тонкие карточки из GAS (list без basket). */
+async function enrichThinSubscriptionsFromGas_(env, opts) {
+  opts = opts || {};
+  if (!env || !env.DB) return { enriched: 0 };
+  const limit = Math.max(1, Math.min(40, Number(opts.limit) || 15));
+  const list = (await getSnapRaw_(env, "listSubscriptions")) || {
+    status: "success",
+    subscriptions: []
+  };
+  const arr = Array.isArray(list.subscriptions) ? list.subscriptions : [];
+  const thin = [];
+  for (let i = 0; i < arr.length; i++) {
+    if (subscriptionRowNeedsGasEnrich_(arr[i])) thin.push(arr[i]);
+  }
+  let enriched = 0;
+  for (let i = 0; i < thin.length && enriched < limit; i++) {
+    const s = thin[i];
+    try {
+      const liveSub = await gasProxy_(
+        "getSubscription",
+        {
+          nick: s.nick || s.label || "",
+          subId: s.subId || "",
+          segment: s.sheet || s.segment || "ПП",
+          sheet: s.sheet || s.segment || "ПП"
+        },
+        env,
+        { write: false }
+      );
+      if (
+        liveSub &&
+        typeof liveSub === "object" &&
+        liveSub.status === "success" &&
+        liveSub.found !== false &&
+        ((Array.isArray(liveSub.basket) && liveSub.basket.length) ||
+          (Array.isArray(liveSub.basketBp1) && liveSub.basketBp1.length) ||
+          String(liveSub.address || "").trim())
+      ) {
+        await mergeSubscriptionDetailIntoSnap_(env, liveSub);
+        enriched++;
+      }
+    } catch (eEn) {}
+  }
+  return { enriched: enriched, thin: thin.length };
 }
 
 async function mergeSubscriptionDetailIntoSnap_(env, detail) {
@@ -11648,7 +11757,7 @@ async function mergeListSubscriptionsFromGas_(env, gasPayload) {
     }
     if (idx >= 0) {
       const old = arr[idx] || {};
-      arr[idx] = Object.assign({}, old, {
+      const patched = Object.assign({}, old, {
         nick: inc.nick || old.nick,
         label: inc.label || old.label || inc.nick || old.nick,
         sheet: inc.sheet || old.sheet || sheet || "ПП",
@@ -11661,17 +11770,25 @@ async function mergeListSubscriptionsFromGas_(env, gasPayload) {
         stage: inc.stage || inc.status || old.stage || old.status,
         factCost:
           inc.factCost != null && inc.factCost !== "" ? inc.factCost : old.factCost,
+        statedCost:
+          inc.statedCost != null && inc.statedCost !== ""
+            ? inc.statedCost
+            : old.statedCost,
         subId: subId || old.subId || "",
         wishes: inc.wishes || old.wishes || "",
-        _savedAt: Date.now()
+        _listMergedAt: Date.now()
       });
-      if (old.basket && (!inc.basket || !inc.basket.length)) arr[idx].basket = old.basket;
-      if (old._d1Detail) arr[idx]._d1Detail = true;
+      // Сохранить basket/address/packs из D1, если GAS list их не прислал
+      const preserved = enrichSubsPreserveDetail_([old], [patched])[0] || patched;
+      arr[idx] = preserved;
+      if (old._d1Detail && subscriptionLocalHasCrmDetail_(Object.assign({ found: true }, preserved))) {
+        arr[idx]._d1Detail = true;
+      }
     } else {
       arr.push(
         Object.assign({}, inc, {
           sheet: inc.sheet || sheet || "ПП",
-          _savedAt: Date.now()
+          _listMergedAt: Date.now()
         })
       );
     }
@@ -12444,13 +12561,25 @@ async function getRetailPriceListD1_(params, env, ctx) {
   function healRetailSnap_(snap) {
     if (!snap || snap.status !== "success" || !Array.isArray(snap.items)) return snap;
     const map = retailMapFromItemsD1_(snap.items);
+    // УХО К = УХО Г, если в snap ещё нет позиции
+    ["Обычное", "ПОЛОВИНКА"].forEach(function (sub) {
+      const gk = "УХО Г|" + sub;
+      const kk = "УХО К|" + sub;
+      if (map[gk] && !map[kk]) map[kk] = Object.assign({}, map[gk]);
+    });
     const cleaned = retailItemsFromMapD1_(map);
-    if (cleaned.length === (snap.items || []).length) {
+    const changed =
+      cleaned.length !== (snap.items || []).length ||
+      !!(map["УХО К|Обычное"] && !(snap.items || []).some(function (it) {
+        return it && it.key === "УХО К|Обычное";
+      }));
+    if (!changed) {
       return Object.assign({}, snap, { items: cleaned });
     }
     return Object.assign({}, snap, {
       items: cleaned,
       strippedBareParents: true,
+      ensuredUhoK: true,
       cachedAt: new Date().toISOString()
     });
   }
@@ -14270,6 +14399,10 @@ function lookupPpCostInfoD1_(costs, name, sub) {
     if (info.name === name && (!sub || info.sub === sub)) return info;
   }
   if (!sub && costs[name]) return costs[name];
+  // УХО К = те же unit costs, что УХО Г (пока нет отдельной строки в priceCostsPp)
+  if (/^УХО\s*К$/i.test(String(name || "").trim())) {
+    return lookupPpCostInfoD1_(costs, "УХО Г", sub);
+  }
   return null;
 }
 

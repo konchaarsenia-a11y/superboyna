@@ -5311,6 +5311,11 @@ function normalizeProductAlias_(nameU) {
     "УХО ГОВ": "УХО Г",
     "ГОВЯЖЬЕ УХО": "УХО Г",
     "ГОВЯЖЬИ УШИ": "УХО Г",
+    "УХО К": "УХО К",
+    "УШКО К": "УХО К",
+    "УХО КУР": "УХО К",
+    "КУРИНОЕ УХО": "УХО К",
+    "КУРИНЫЕ УШИ": "УХО К",
     "УТИНЫЕШЕИ": "УТИНЫЕ ШЕИ",
     "УТИНАЯ ШЕЯ": "УТИНЫЕ ШЕИ",
     "УТИНАЯШЕЯ": "УТИНЫЕ ШЕИ",
@@ -13074,6 +13079,10 @@ function mapCrmHeaderToItem_(header) {
   }
   if (/УХО|УШК/.test(h)) {
     var earSub = /ПОЛОВИН/.test(h) ? "ПОЛОВИНКА" : "Обычное";
+    // УХО К (куриное) — отдельно от говяжьего УХО Г
+    if (/\bУХО\s*К\b|УШКО\s*К|КУРИН.*УХ|УХ.*КУР/.test(h) && !/ГОВ/.test(h)) {
+      return { name: "УХО К", sub: earSub, cat: "chew", grams: false };
+    }
     return { name: "УХО Г", sub: earSub, cat: "chew", grams: false };
   }
   if (/АОРТ/.test(h)) {
@@ -14205,6 +14214,7 @@ function applyWarehouseRevisionManual() {
     { name: "ТРАХЕЯ", qty: 12 },
     { name: "ПЕРЕПЁЛКИ", qty: 8 },
     { name: "УХО Г", qty: 0 },
+    { name: "УХО К", qty: 0 },
     { name: "КОЛЕНИ", qty: 6 },
     { name: "КОПЫТО", qty: 0 },
     { name: "СТАНОВАЯ ЖИЛА", qty: 80 },
@@ -16531,6 +16541,8 @@ var RETAIL_PRICE_BYN_ = {
   "СТАНОВАЯ ЖИЛА|ПАЛК": { perPiece: 3 },
   "УХО Г|Обычное": { perPiece: 7 },
   "УХО Г|ПОЛОВИНКА": { perPiece: 5 },
+  "УХО К|Обычное": { perPiece: 7 },
+  "УХО К|ПОЛОВИНКА": { perPiece: 5 },
   "АОРТА|Обычная": { perPiece: 5 },
   "АОРТА|ПОЛОВИНКА": { perPiece: 3 },
   "КОЛЕНИ шт.": { perPiece: 7 },
@@ -17012,6 +17024,8 @@ var PP_RAW_COST_OVERRIDE_BYN_ = {
   "СТАНОВАЯ ЖИЛА / ПАЛК": { v: 0.19, piece: true },
   "УХО Г / Обычное": { v: 0.88, piece: true },
   "УХО Г / ПОЛОВИНКА": { v: 0.44, piece: true },
+  "УХО К / Обычное": { v: 0.88, piece: true },
+  "УХО К / ПОЛОВИНКА": { v: 0.44, piece: true },
   "АОРТА / Обычная": { v: 0.94, piece: true },
   "АОРТА / ПОЛОВИНКА": { v: 0.47, piece: true },
   "КОЛЕНИ шт.": { v: 1.17, piece: true },
