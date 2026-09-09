@@ -5,6 +5,8 @@
 - [~] **Stats выхлоп без наценки 2026-09-08:** PP cost coef=1; life BP только перешедшие · **нужен Deploy Code.gs**
 - [~] **Таймер нарезки + Ухо К + доставка +9 + ПП детали 2026-09-09:** timer `startedAt=0` → эпоха; жевалка УХО К = УХО Г (розница/ПП/себест.); менеджер «Да (+9)»; list ПП тонкие из‑за `_savedAt` блокировал getSubscription GAS + soft force 28с. Fix Worker hasDetail+enrich фон; UI soft без force; Pages `v71115938` · marker `fix-cut-timer-uho-k-pp-h1` · **нужен Worker Deploy** · **Deploy Code.gs**
 - [~] **Varka note + Arseniy Varka×4 2026-09-08:** ~~`@arseniyhotko` → 4 Варки~~ · снято V17 · Pages varka 3.3.20 · **Deploy Code.gs**
+- [~] **Varka выбор точки NaN 2026-09-09:** `@one_more_person_228` после сырья видит шаг выбора (только NaN), не сразу submit · Pages `varka 3.3.25`
+- [~] **Varka live-test точка 2026-09-09:** `@one_more_person_228` видит/выбирает только NaN clinic · Pages `varka 3.3.24` · Worker
 - [~] **Varka/Бойня слот партнёра 2026-09-08:** заявка без авто-даты; партнёру «скоро уведомление»; менеджеру Партнёры→Заказы + промпт на входе; `partnerSetOrderSlot` · Pages varka 3.3.19 + Бойня `v71115936` · **нужен Deploy Code.gs** · Worker
 - [x] **Призраки ПП при наборе ника 2026-09-08:** getPpOrderSuggest/getPpFactCost писали в listSubscriptions пустые Be/B./B.e.l. Fix: merge только при CRM substance + scrub ghosts; heal удалён · marker `fix-pp-suggest-ghosts-h1` live · **Worker Deploy OK** · smoke suggest Xy без ghost
 - [x] **Удаление из ПП «удалено» но строки остаются 2026-09-07:** UI не сбрасывал кэш списка; force merge GAS→D1 воскрешал удалённых до Sheets. Fix: tombstones 15м + UI force reload · marker `fix-pp-delete-stick-h1` live · Pages `v71115935` · **Worker Deploy OK** · smoke delete+force no resurrect
