@@ -98,7 +98,13 @@ def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> No
     intro = page.locator(".trial-intro")
     assert_true(intro.count() == 0, "trial: intro removed from hero", errors)
     hook = page.locator(".trial-hook")
-    assert_true(hook.count() == 0, "trial: hook removed from hero", errors)
+    assert_true(hook.count() > 0, "trial: hook present", errors)
+    if hook.count():
+        hook_text = hook.inner_text().lower()
+        assert_true("подписк" in hook_text, "trial: hook mentions subscription", errors)
+        assert_true("натуральн" in hook_text, "trial: hook mentions natural treats", errors)
+        assert_true("индивидуальн" in hook_text, "trial: hook mentions individual pick", errors)
+        assert_true("бесплатн" in hook_text, "trial: hook mentions free", errors)
     badge = page.locator(".trial-badge").first
     if badge.count():
         badge_text = badge.inner_text().upper()
