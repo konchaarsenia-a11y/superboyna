@@ -8348,10 +8348,36 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eP) {
         d1P = { status: "error", message: String((eP && eP.message) || eP) };
       }
+      // Worker шлёт TG сразу; GAS зеркало без повторных пушей
+      if (/^partnerSubmitOrder$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
+        params = Object.assign({}, params, { skipPartnerNotify: "1" });
+      }
+      if (/^partnerSetOrderSlot$/i.test(a) && d1P && d1P.status === "success") {
+        params = Object.assign({}, params, { skipPartnerNotify: "1" });
+      }
       const gasP = gasProxy_(a, params, env, { write: true }).catch(function () {
         return null;
       });
-      // TG только из GAS (partnerNotifyNewOrder_ / partnerNotifyPartnerStatus_) — без дублей
+      if (
+        /^partnerSubmitOrder$/i.test(a) &&
+        d1P &&
+        d1P.status === "success" &&
+        d1P.order &&
+        ctx &&
+        typeof ctx.waitUntil === "function"
+      ) {
+        ctx.waitUntil(partnerNotifyOrderFastWorker_(d1P.order, env));
+      }
+      if (
+        /^partnerSetOrderSlot$/i.test(a) &&
+        d1P &&
+        d1P.status === "success" &&
+        d1P.order &&
+        ctx &&
+        typeof ctx.waitUntil === "function"
+      ) {
+        ctx.waitUntil(partnerNotifySlotFastWorker_(d1P.order, env));
+      }
       if (ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(
           gasP.then(async function (live) {
@@ -8363,6 +8389,12 @@ async function handleCutover_(a, params, env, ctx) {
         );
       } else {
         try {
+          if (/^partnerSubmitOrder$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
+            await partnerNotifyOrderFastWorker_(d1P.order, env);
+          }
+          if (/^partnerSetOrderSlot$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
+            await partnerNotifySlotFastWorker_(d1P.order, env);
+          }
           const live = await gasP;
           if (live && live.status === "success") await refreshPartnerSnapsFromGas_(a, params, env, live);
         } catch (eG) {}
@@ -14903,9 +14935,9 @@ async function telegramSendTextWorker_(env, chatId, text, markup) {
 
 /** Пуш партнёру (GOODBOY_LG) — быстрее, чем ждать GAS в фоне. */
 function getPartnerBotTokenWorker_(env) {
-  // Только партнёрский бот — не TELEGRAM_BOT_TOKEN снабжения
+  // Сначала PARTNER/GOODBOY (@GOODBOY_LG). Fallback TELEGRAM — чтобы пуш партнёру не молчал.
   return String(
-    (env && (env.PARTNER_BOT_TOKEN || env.GOODBOY_BOT_TOKEN)) || ""
+    (env && (env.PARTNER_BOT_TOKEN || env.GOODBOY_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_TOKEN)) || ""
   ).trim();
 }
 
@@ -14949,14 +14981,16 @@ async function partnerNotifyOrderFastWorker_(order, env) {
   const lines = partnerBasketLinesWorker_(order.basket);
   const partnerTid = String(order.telegramId || "").trim();
   const tasks = [];
-  // Партнёру — только через PARTNER_BOT (@GOODBOY_LG), не через снабжение
-  if (partnerTid && getPartnerBotTokenWorker_(env)) {
+  // Партнёру «Заявка отправлена» — PARTNER/GOODBOY bot (не текст снабжению)
+  if (partnerTid) {
     const text =
       "✅ Заявка отправлена\n" +
       loc +
       "\nСкоро придёт уведомление о дате доставки\n" +
       lines;
-    tasks.push(telegramSendPartnerBot_(env, partnerTid, text));
+    if (getPartnerBotTokenWorker_(env)) {
+      tasks.push(telegramSendPartnerBot_(env, partnerTid, text));
+    }
   }
   try {
     const admin = await getSnapRaw_(env, "partnerListAdmin");
@@ -14974,7 +15008,8 @@ async function partnerNotifyOrderFastWorker_(order, env) {
       "\n\nНазначьте дату: Партнёры → Заказы";
     for (let i = 0; i < recipients.length; i++) {
       const rid = String((recipients[i] && (recipients[i].telegramId || recipients[i].id)) || recipients[i] || "").trim();
-      if (!rid || rid === partnerTid) continue;
+      if (!rid) continue;
+      // Снабжению — только «Новая заявка» (через TELEGRAM_BOT_TOKEN)
       tasks.push(telegramSendTextWorker_(env, rid, teamText, null));
     }
   } catch (eR) {}
@@ -14983,6 +15018,27 @@ async function partnerNotifyOrderFastWorker_(order, env) {
       await Promise.all(tasks);
     } catch (eAll) {}
   }
+}
+
+/** Партнёру: дата доставки назначена (через PARTNER bot). */
+async function partnerNotifySlotFastWorker_(order, env) {
+  if (!order || !env) return;
+  const partnerTid = String(order.telegramId || "").trim();
+  if (!partnerTid || !getPartnerBotTokenWorker_(env)) return;
+  const loc = order.locationName || order.locationId || "";
+  const slot =
+    (order.deliverDateLabel || order.deliverDateIso || "") +
+    (order.deliverTimeLabel ? ", " + order.deliverTimeLabel : "");
+  const text =
+    "✅ Дата доставки назначена\n" +
+    loc +
+    "\nПривезём: " +
+    (slot || "уточним") +
+    "\n" +
+    partnerBasketLinesWorker_(order.basket);
+  try {
+    await telegramSendPartnerBot_(env, partnerTid, text);
+  } catch (e) {}
 }
 
 async function telegramStatusD1_(params, env) {
@@ -15955,13 +16011,34 @@ async function mutatePartnerD1_(action, params, env) {
   }
 
   if (/^partnerSetOrderSlot$/i.test(a)) {
-    const id = String((params && (params.id || params.orderId || params.partnerOrderId)) || "").trim();
+    let id = String((params && (params.partnerOrderId || params.orderId || params.id)) || "").trim();
+    const deferredId = String((params && params.deferredId) || "").trim();
     const dateIso = String((params && params.deliverDateIso) || "").trim();
-    if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) {
+    if ((!id && !deferredId) || !/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) {
       return { status: "error", message: "need_id_date" };
     }
     const timeFrom = String((params && params.deliverTimeFrom) || "12:00").trim() || "12:00";
     const timeTo = String((params && params.deliverTimeTo) || "18:00").trim() || "18:00";
+    async function resolvePartnerOrderIdFromDeferred_(wantDef, wantId) {
+      try {
+        const list0 = (await getSnapRaw_(env, "listDeferred")) || {};
+        const arr0 = Array.isArray(list0.items) ? list0.items : [];
+        for (let k = 0; k < arr0.length; k++) {
+          const it = arr0[k];
+          if (!it) continue;
+          const pl = it.payload || {};
+          if (wantDef && String(it.id) === wantDef) return { id: String(pl.partnerOrderId || "").trim(), it: it };
+          if (wantId && (String(it.id) === wantId || String(pl.partnerOrderId || "") === wantId)) {
+            return { id: String(pl.partnerOrderId || wantId).trim(), it: it };
+          }
+        }
+      } catch (eR0) {}
+      return { id: wantId, it: null };
+    }
+    if (!id || /^df_/i.test(id)) {
+      const resolved = await resolvePartnerOrderIdFromDeferred_(deferredId || id, id);
+      if (resolved.id) id = resolved.id;
+    }
     let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
     pack.orders = Array.isArray(pack.orders) ? pack.orders.slice() : [];
     let hit = -1;
@@ -15971,11 +16048,33 @@ async function mutatePartnerD1_(action, params, env) {
         break;
       }
     }
+    if (hit < 0) {
+      const resolved2 = await resolvePartnerOrderIdFromDeferred_(deferredId, id);
+      if (resolved2.it) {
+        const pl = resolved2.it.payload || {};
+        const oid = String(pl.partnerOrderId || id || ("po_" + Date.now().toString(36))).trim();
+        id = oid;
+        pack.orders.unshift({
+          id: oid,
+          locationId: pl.locationId || "",
+          locationName: pl.locationName || "",
+          telegramId: pl.partnerTelegramId || "",
+          userName: pl.partnerName || "",
+          username: pl.partnerUsername || "",
+          basket: pl.basket || [],
+          note: pl.note || pl.partnerNote || "",
+          status: "new",
+          needsSlot: true,
+          deferredId: String(resolved2.it.id)
+        });
+        hit = 0;
+      }
+    }
     if (hit < 0) return { status: "error", message: "not_found" };
     const parts = dateIso.split("-");
     const dateLabel = parts.length === 3 ? parts[2] + "." + parts[1] : dateIso;
     const timeLabel = "с " + timeFrom + " до " + timeTo;
-    pack.orders[hit] = Object.assign({}, pack.orders[hit], {
+    const updated = Object.assign({}, pack.orders[hit], {
       deliverDateIso: dateIso,
       deliverDateLabel: dateLabel,
       deliverTimeFrom: timeFrom,
@@ -15984,12 +16083,56 @@ async function mutatePartnerD1_(action, params, env) {
       needsSlot: false,
       slotAt: new Date().toISOString()
     });
+    pack.orders[hit] = updated;
     pack._d1TouchedAt = Date.now();
     await putSnap_(env, "partnerOrders", pack);
+    // Обновить deferred: дата есть → убрать из Партнёры→Заказы (status done)
+    try {
+      let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+      let items = Array.isArray(list.items) ? list.items.slice() : [];
+      const defId = String((params && params.deferredId) || updated.deferredId || "").trim();
+      let touched = false;
+      for (let j = 0; j < items.length; j++) {
+        const it = items[j];
+        if (!it) continue;
+        const pl = it.payload || {};
+        const isPartner =
+          String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
+          String(pl.orderType || "") === "partner";
+        if (!isPartner) continue;
+        const match =
+          (defId && String(it.id) === defId) ||
+          String(pl.partnerOrderId || "") === id ||
+          String(it.id) === id;
+        if (!match) continue;
+        items[j] = Object.assign({}, it, {
+          status: "done",
+          updatedAt: new Date().toISOString(),
+          payload: Object.assign({}, pl, {
+            deliverDateIso: dateIso,
+            deliverDateLabel: dateLabel,
+            deliverTimeFrom: timeFrom,
+            deliverTimeTo: timeTo,
+            deliverTimeLabel: timeLabel,
+            needsSlot: false,
+            orderStatus: pl.orderStatus || "scheduled"
+          })
+        });
+        touched = true;
+      }
+      if (touched) {
+        list.items = items;
+        list.openCount = items.filter(function (it) {
+          return String((it && it.status) || "open").toLowerCase() === "open";
+        }).length;
+        list.fromD1 = true;
+        await putSnap_(env, "listDeferred", list);
+      }
+    } catch (eDef) {}
     return {
       status: "success",
       id: id,
-      order: pack.orders[hit],
+      order: updated,
       deliverDateIso: dateIso,
       deliverDateLabel: dateLabel,
       deliverTimeLabel: timeLabel,

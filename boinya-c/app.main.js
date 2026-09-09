@@ -22814,11 +22814,14 @@
       } else if (!deferredCacheAt || !(deferredCache || []).length) {
         try { await refreshDeferredBadge(false); } catch (eS) {}
       }
+      // Только заявки без даты — после назначения даты уходят из списка
       var items = (deferredCache || []).filter(function (it) {
         if (!it || String(it.status || "open").toLowerCase() === "done") return false;
         var pl = it.payload || {};
-        return String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
+        var isPartner = String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
           String(pl.orderType || "") === "partner";
+        if (!isPartner) return false;
+        return !!(pl.needsSlot || !String(pl.deliverDateIso || "").trim());
       });
       if (!items.length) {
         box.innerHTML = '<p class="muted">Заявок пока нет</p>';
@@ -22902,11 +22905,28 @@
           showToast((res && res.message) || "Не сохранилась дата · Deploy Code.gs?");
           return;
         }
-        deferredCacheAt = 0;
+        // Сразу убрать из локального списка (не ждать GAS)
+        try {
+          deferredCache = (deferredCache || []).map(function (it) {
+            if (!it) return it;
+            if (String(it.id) !== String(deferredId) &&
+                String((it.payload || {}).partnerOrderId || "") !== String(partnerOrderId || "")) {
+              return it;
+            }
+            var pl = Object.assign({}, it.payload || {}, {
+              needsSlot: false,
+              deliverDateIso: dateIso,
+              deliverDateLabel: (res && res.deliverDateLabel) || dateIso
+            });
+            return Object.assign({}, it, { status: "done", payload: pl });
+          });
+          deferredCacheAt = Date.now();
+        } catch (eLoc) { deferredCacheAt = 0; }
         try { apiCacheBustDeferred_(); } catch (eClr) {}
         showToast("Дата назначена · партнёру ушло уведомление");
-        await refreshDeferredBadge(true);
         await refreshPartnerOrdersTab_({ force: false });
+        try { await refreshDeferredBadge(true); } catch (eB) {}
+        await refreshPartnerOrdersTab_({ force: true });
       } catch (e) {
         showToast("Сеть / Deploy Code.gs");
       }
