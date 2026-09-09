@@ -20427,6 +20427,12 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
       allowed = true;
       if (!networkId) networkId = hit.networkId || "";
     }
+  } else if (partnerIsLiveTestUser_(username, tid)) {
+    var curLt = partnerLiveTestCurrent_();
+    if (curLt && locationId === curLt.id) {
+      allowed = true;
+      if (!networkId) networkId = curLt.networkId || "";
+    }
   } else if (isOwner) {
     allowed = true;
   }
