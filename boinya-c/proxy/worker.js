@@ -6821,10 +6821,16 @@ const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
 
-/** Живой прогон @one_more_person_228 — одна точка. «следующая точка» → сдвинуть IDX. */
+/** Живой прогон @one_more_person_228. V24: single выкл. → ручной Access Репина+Авиа. */
+const PARTNER_LIVE_TEST_ENABLED = false;
 const PARTNER_LIVE_TEST_USER = "one_more_person_228";
 const PARTNER_LIVE_TEST_TID = "827494606";
 const PARTNER_LIVE_TEST_IDX = 16;
+const PARTNER_MANUAL_ACCESS_POINTS = [
+  { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka Репина 4", address: "Репина 4", label: "Varka Репина 4" },
+  { id: "pt_varka_avia_17", networkId: "net_varka", name: "Varka Авиационная 17", address: "Авиационная 17", label: "Varka Авиационная 17" }
+];
+const PARTNER_MANUAL_ACCESS_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_LIVE_TEST_QUEUE = [
   { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34", label: "nan_animal_clinic" },
   { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka Репина 4", address: "Репина 4", label: "Varka Репина 4" },
@@ -6854,10 +6860,30 @@ function partnerLiveTestCurrentWorker_() {
 }
 
 function isPartnerLiveTestUser_(params) {
+  if (!PARTNER_LIVE_TEST_ENABLED) return false;
   const u = partnerNormUserWorker_(params && params.username);
   const tid = String((params && params.telegramId) || "").trim();
   if (u === PARTNER_LIVE_TEST_USER) return true;
   if (tid && tid === PARTNER_LIVE_TEST_TID) return true;
+  return false;
+}
+
+function isPartnerManualAccessUser_(params) {
+  if (PARTNER_LIVE_TEST_ENABLED) return false;
+  if (!PARTNER_MANUAL_ACCESS_POINTS || !PARTNER_MANUAL_ACCESS_POINTS.length) return false;
+  const u = partnerNormUserWorker_(params && params.username);
+  const tid = String((params && params.telegramId) || "").trim();
+  if (u === PARTNER_LIVE_TEST_USER) return true;
+  if (tid && tid === PARTNER_LIVE_TEST_TID) return true;
+  return false;
+}
+
+function partnerManualAllowedPointId_(id) {
+  const want = String(id || "").trim();
+  if (!want) return false;
+  for (let i = 0; i < PARTNER_MANUAL_ACCESS_POINTS.length; i++) {
+    if (PARTNER_MANUAL_ACCESS_POINTS[i].id === want) return true;
+  }
   return false;
 }
 const PARTNER_CATALOG_STATIC = [
@@ -7000,12 +7026,31 @@ function partnerLiveTestGetMe_(json) {
   );
 }
 
+function partnerManualAccessGetMe_(json) {
+  return partnerScopedGetMeMulti_(
+    json,
+    PARTNER_MANUAL_ACCESS_POINTS,
+    PARTNER_MANUAL_ACCESS_NET,
+    "Live test",
+    PARTNER_LIVE_TEST_USER,
+    PARTNER_LIVE_TEST_TID,
+    "manual_repina_avia_v24"
+  );
+}
+
 function partnerBlockWrongPoint_(a, params) {
   if (a !== "partnerSubmitOrder") return null;
   if (isPartnerLiveTestUser_(params)) {
     const cur = partnerLiveTestCurrentWorker_();
     const loc = String((params && (params.locationId || params.pointId)) || "").trim();
     if (cur && loc && loc !== cur.id) {
+      return { status: "error", message: "forbidden_point", cutover: true };
+    }
+    return null;
+  }
+  if (isPartnerManualAccessUser_(params)) {
+    const loc = String((params && (params.locationId || params.pointId)) || "").trim();
+    if (loc && !partnerManualAllowedPointId_(loc)) {
       return { status: "error", message: "forbidden_point", cutover: true };
     }
     return null;
@@ -7123,6 +7168,17 @@ function partnerGuardOrRewrite_(a, params, json) {
     }
     return json;
   }
+  if (isPartnerManualAccessUser_(params)) {
+    if (a === "partnerGetMe") return partnerManualAccessGetMe_(json);
+    if (a === "partnerListMyOrders" && json && json.status === "success" && Array.isArray(json.orders)) {
+      return Object.assign({}, json, {
+        orders: json.orders.filter(function (o) {
+          return partnerManualAllowedPointId_((o && (o.locationId || o.pointId)) || "");
+        })
+      });
+    }
+    return json;
+  }
   if (!isPartnerArseniy_(params)) return json;
   if (a === "partnerGetMe") return partnerArseniyGetMe_(json);
   if (a === "partnerListMyOrders" && json && json.status === "success" && Array.isArray(json.orders)) {
@@ -7186,6 +7242,32 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
       );
     }
     return instantLt;
+  }
+
+  if (isPartnerManualAccessUser_(params)) {
+    let snapMa = null;
+    try {
+      snapMa = await getSnapRaw_(env, snapKey);
+    } catch (eMa0) {
+      snapMa = null;
+    }
+    const instantMa = partnerManualAccessGetMe_(snapMa && snapMa.status === "success" ? snapMa : { status: "success" });
+    instantMa.cutover = true;
+    instantMa.swr = true;
+    instantMa.fromGas = false;
+    instantMa.fromD1 = true;
+    instantMa.sandbox = false;
+    instantMa.partnerCanon = partnerCanonLabel_(env);
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async function () {
+          try {
+            await fetchLive_();
+          } catch (eR) {}
+        })()
+      );
+    }
+    return instantMa;
   }
 
   if (isPartnerArseniy_(params)) {
@@ -15394,9 +15476,12 @@ async function partnerEnsureMayakovskyPoint_(env, admin) {
   return partnerEnsureLiveTestAccess_(env, next);
 }
 
-/** V17: revoke arseniy; @one_more_person_228 → одна точка из очереди прогона. */
+/** V17/V24: revoke arseniy; @one_more_person_228 → live-test 1 точка или ручной Access. */
 async function partnerEnsureLiveTestAccess_(env, admin) {
   if (!admin || typeof admin !== "object") return admin;
+  if (!PARTNER_LIVE_TEST_ENABLED) {
+    return partnerEnsureManualAccess_(env, admin);
+  }
   const cur = partnerLiveTestCurrentWorker_();
   if (!cur) return admin;
   let access = Array.isArray(admin.access) ? admin.access.slice() : [];
@@ -15446,6 +15531,64 @@ async function partnerEnsureLiveTestAccess_(env, admin) {
     try {
       await putSnap_(env, "partnerListAdmin", Object.assign({}, next, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
     } catch (eLt) {}
+  }
+  return next;
+}
+
+async function partnerEnsureManualAccess_(env, admin) {
+  if (!admin || typeof admin !== "object") return admin;
+  const pts = PARTNER_MANUAL_ACCESS_POINTS || [];
+  if (!pts.length) return admin;
+  const ids = pts.map(function (p) {
+    return p.id;
+  });
+  let access = Array.isArray(admin.access) ? admin.access.slice() : [];
+  let changed = false;
+  for (let i = 0; i < access.length; i++) {
+    const row = access[i] || {};
+    const u = partnerNormUserWorker_(row.username);
+    const tid = String(row.telegramId || "");
+    if (u === PARTNER_ARSENIY_USER || tid === PARTNER_ARSENIY_TID) {
+      if (String(row.status || "") !== "inactive" && String(row.status || "") !== "revoked") {
+        access[i] = Object.assign({}, row, { status: "inactive", pointIds: [] });
+        changed = true;
+      }
+    }
+  }
+  let hit = -1;
+  for (let j = 0; j < access.length; j++) {
+    if (partnerNormUserWorker_(access[j].username) === PARTNER_LIVE_TEST_USER) {
+      hit = j;
+      break;
+    }
+  }
+  const rowMa = {
+    id: hit >= 0 ? access[hit].id : "pa_" + PARTNER_LIVE_TEST_USER,
+    username: PARTNER_LIVE_TEST_USER,
+    telegramId: hit >= 0 && access[hit].telegramId ? String(access[hit].telegramId) : PARTNER_LIVE_TEST_TID,
+    name: hit >= 0 && access[hit].name ? access[hit].name : "Live test",
+    networkId: "net_varka",
+    pointIds: ids,
+    role: "partner",
+    status: "active"
+  };
+  if (hit >= 0) {
+    const prev = access[hit];
+    const prevIds = JSON.stringify(prev.pointIds || []);
+    if (prevIds !== JSON.stringify(ids) || String(prev.status || "") !== "active") {
+      access[hit] = Object.assign({}, prev, rowMa);
+      changed = true;
+    }
+  } else {
+    access.push(rowMa);
+    changed = true;
+  }
+  const flag = "manual_repina_avia_v24";
+  const next = Object.assign({}, admin, { access: access, _partnerLiveTest: flag });
+  if (changed && env && env.DB && admin._partnerLiveTest !== flag) {
+    try {
+      await putSnap_(env, "partnerListAdmin", Object.assign({}, next, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    } catch (eMa) {}
   }
   return next;
 }
@@ -15519,6 +15662,14 @@ async function partnerListMyOrdersD1_(params, env, ctx) {
         const sameUser = (tid && ot === tid) || (user && ou === user) || ou === PARTNER_LIVE_TEST_USER;
         if (!sameUser) return false;
         return !want || String((o && (o.locationId || o.pointId)) || "") === want;
+      });
+    } else if (isPartnerManualAccessUser_(params)) {
+      orders = orders.filter(function (o) {
+        const ot = String((o && o.telegramId) || "").trim();
+        const ou = partnerNormUserWorker_(o && o.username);
+        const sameUser = (tid && ot === tid) || (user && ou === user) || ou === PARTNER_LIVE_TEST_USER;
+        if (!sameUser) return false;
+        return partnerManualAllowedPointId_((o && (o.locationId || o.pointId)) || "");
       });
     } else if (isPartnerArseniy_(params)) {
       orders = orders.filter(function (o) {
@@ -15878,6 +16029,9 @@ async function mutatePartnerD1_(action, params, env) {
       const cur = partnerLiveTestCurrentWorker_();
       if (cur && locationId !== cur.id) return { status: "error", message: "forbidden_point" };
     }
+    if (isPartnerManualAccessUser_({ username: username, telegramId: tid })) {
+      if (!partnerManualAllowedPointId_(locationId)) return { status: "error", message: "forbidden_point" };
+    }
     if (isPartnerArseniy_(params) && !partnerArseniyAllowedPointId_(locationId)) {
       return { status: "error", message: "forbidden_point" };
     }
@@ -15929,6 +16083,18 @@ async function mutatePartnerD1_(action, params, env) {
         allowed = true;
         if (!networkId) networkId = curLt.networkId || "";
         if (!locationName) locationName = curLt.name || curLt.label || "";
+      }
+    }
+    if (!allowed && isPartnerManualAccessUser_({ username: username, telegramId: tid })) {
+      if (partnerManualAllowedPointId_(locationId)) {
+        allowed = true;
+        if (!networkId) networkId = "net_varka";
+        for (let mi = 0; mi < PARTNER_MANUAL_ACCESS_POINTS.length; mi++) {
+          if (PARTNER_MANUAL_ACCESS_POINTS[mi].id === locationId) {
+            if (!locationName) locationName = PARTNER_MANUAL_ACCESS_POINTS[mi].name || PARTNER_MANUAL_ACCESS_POINTS[mi].label || "";
+            break;
+          }
+        }
       }
     }
     if (!allowed && !(admin.access || []).length) {

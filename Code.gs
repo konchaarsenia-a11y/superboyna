@@ -19872,12 +19872,15 @@ function partnerMigrateProdV16_() {
 
 /**
  * Живой прогон точек для @one_more_person_228.
- * Команда владельца «следующая точка» → агент сдвигает IDX и деплоит.
- * Сейчас: 16 = BOW Wow Collar (Indixvost ✅; Varka пропущены).
+ * V24: single-point выкл. — ручной Access (Репина 4 + Авиационная 17).
+ * «следующая точка» / IDX — только при PARTNER_LIVE_TEST_ENABLED_ = true.
  */
+var PARTNER_LIVE_TEST_ENABLED_ = false;
 var PARTNER_LIVE_TEST_USER_ = "one_more_person_228";
 var PARTNER_LIVE_TEST_TID_ = "827494606";
 var PARTNER_LIVE_TEST_IDX_ = 16;
+/** Ручной набор точек, пока live-test single выкл. (V24). */
+var PARTNER_MANUAL_ACCESS_POINT_IDS_ = ["pt_varka_repina_4", "pt_varka_avia_17"];
 var PARTNER_LIVE_TEST_QUEUE_ = [
   { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34", label: "nan_animal_clinic" },
   { id: "pt_varka_repina_4", networkId: "net_varka", label: "Varka Репина 4" },
@@ -19907,6 +19910,16 @@ function partnerLiveTestCurrent_() {
 }
 
 function partnerIsLiveTestUser_(username, tid) {
+  if (!PARTNER_LIVE_TEST_ENABLED_) return false;
+  var u = partnerNormUser_(username);
+  var id = String(tid || "").trim();
+  if (u === PARTNER_LIVE_TEST_USER_) return true;
+  if (id && id === PARTNER_LIVE_TEST_TID_) return true;
+  return false;
+}
+
+function partnerIsManualAccessUser_(username, tid) {
+  if (PARTNER_LIVE_TEST_ENABLED_) return false;
   var u = partnerNormUser_(username);
   var id = String(tid || "").trim();
   if (u === PARTNER_LIVE_TEST_USER_) return true;
@@ -20098,7 +20111,54 @@ function partnerMigrateProdV23_() {
   return { migrated: true, liveTestPoint: cur && cur.id, liveTestLabel: cur && (cur.label || cur.name) };
 }
 
+/** V24: ручной Access — Репина 4 + Авиационная 17; single live-test выкл. */
+function partnerMigrateProdV24_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V24") === "1") {
+    try { partnerSyncLiveTestAccess_(); } catch (e0) {}
+    return { migrated: false, pointIds: PARTNER_MANUAL_ACCESS_POINT_IDS_ };
+  }
+  try { partnerMigrateProdV23_(); } catch (e23) {}
+  try { partnerSyncLiveTestAccess_(); } catch (eSync) {}
+  props.setProperty("PARTNER_PROD_V24", "1");
+  return {
+    migrated: true,
+    liveTestEnabled: !!PARTNER_LIVE_TEST_ENABLED_,
+    pointIds: PARTNER_MANUAL_ACCESS_POINT_IDS_
+  };
+}
+
+function partnerSyncManualAccess_() {
+  var ids = (PARTNER_MANUAL_ACCESS_POINT_IDS_ || []).slice();
+  if (!ids.length) return { ok: false };
+  var acSh = getPartnerAccessSheet_();
+  var rows = readPartnerAccessRows_();
+  var uname = PARTNER_LIVE_TEST_USER_;
+  var hit = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].username || "").toLowerCase() === uname) { hit = rows[i]; break; }
+  }
+  var now = new Date();
+  var vals = [
+    hit ? hit.id : ("pa_" + uname),
+    uname,
+    hit && hit.telegramId ? hit.telegramId : PARTNER_LIVE_TEST_TID_,
+    hit && hit.name ? hit.name : "Live test",
+    "net_varka",
+    JSON.stringify(ids),
+    "partner",
+    "active",
+    now
+  ];
+  if (hit) acSh.getRange(hit.rowIndex, 1, 1, PARTNER_ACCESS_HEADERS_.length).setValues([vals]);
+  else acSh.appendRow(vals);
+  return { ok: true, pointIds: ids };
+}
+
 function partnerSyncLiveTestAccess_() {
+  if (!PARTNER_LIVE_TEST_ENABLED_) {
+    return partnerSyncManualAccess_();
+  }
   var cur = partnerLiveTestCurrent_();
   if (!cur || !cur.id) return { ok: false };
   var acSh = getPartnerAccessSheet_();
@@ -20147,6 +20207,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV21_(); } catch (eMig21) {}
   try { partnerMigrateProdV22_(); } catch (eMig22) {}
   try { partnerMigrateProdV23_(); } catch (eMig23) {}
+  try { partnerMigrateProdV24_(); } catch (eMig24) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого

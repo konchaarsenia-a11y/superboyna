@@ -48,26 +48,30 @@ API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerS
 - Нет Access и owner Бойни → все точки  
 - Админка — вкладка **Партнёры** в Бойне  
 
-Worker: `@one_more_person_228` — **живой прогон по 1 точке** (сейчас BOW Wow Collar; Varka пропущены). `@arseniyhotko` — Варки сняты (`PARTNER_PROD_V17`). Deploy — **Worker** + **Code.gs**.
+Worker: `@one_more_person_228` — **ручной Access** (V24): **Репина 4** + **Авиационная 17**; single-point live-test выкл. `@arseniyhotko` — Варки сняты (`PARTNER_PROD_V17`). Deploy — **Worker** + **Code.gs**.
 
 ### Команда «следующая точка»
 
-Когда владелец пишет **«следующая точка»**, агент:
+Сейчас single-point прогон **выключен** (`PARTNER_LIVE_TEST_ENABLED_=false`). Владелец выдаёт наборы адресов Varka вручную («дай доступ …»).
+
+Когда снова включат single и владелец пишет **«следующая точка»**, агент:
 1. Сдвигает `PARTNER_LIVE_TEST_IDX_` (+1) в `Code.gs` и `PARTNER_LIVE_TEST_IDX` в Worker  
 2. Commit + push `main`  
 3. Напоминает **Deploy Code.gs**  
 4. Пишет, какая точка сейчас у `@one_more_person_228`
 
-Очередь (индекс 0 = сейчас):
+Очередь (архив single-прогона):
 
 | # | id | Точка |
 |---|-----|--------|
-| 0 | `pt_nan_1` | nan_animal_clinic · ул. Янковского, 34 · ✅ проверено |
-| 1–12 | `pt_varka_*` | Varka — **пропущены** (несколько точек отдельно) |
-| 13 | `pt_fundog_1` | Fundog · точка 1 · Минск · ✅ проверено |
-| 14 | `pt_polotno_1` | Polotno · точка 1 · ✅ проверено |
-| 15 | `pt_indix_1` | Indixvost · точка 1 · ✅ проверено |
-| **16** | `pt_bob_1` | **BOW Wow Collar · точка 1** ← сейчас |
+| 0 | `pt_nan_1` | nan_animal_clinic · ул. Янковского, 34 · ✅ |
+| 1–12 | `pt_varka_*` | Varka — вручную по наборам |
+| 13 | `pt_fundog_1` | Fundog · ✅ |
+| 14 | `pt_polotno_1` | Polotno · ✅ |
+| 15 | `pt_indix_1` | Indixvost · ✅ |
+| 16 | `pt_bob_1` | BOW Wow Collar · ✅ |
+
+**Сейчас у `@one_more_person_228`:** `pt_varka_repina_4` (Репина 4) + `pt_varka_avia_17` (Авиационная 17).
 
 На каждой точке проверять: вход → каталог/кнопки → NFC → Отправить → пуш в бот → история.
 
@@ -135,6 +139,7 @@ Worker: `@one_more_person_228` — **живой прогон по 1 точке**
 - [~] **v3.3.20:** примечание к заявке · ~~`@arseniyhotko` → 4 Варки~~ (снято V17) · **Pages** · **Deploy Code.gs**
 - [~] **v3.3.21:** + точка **Varka Маяковского 14** (`pt_varka_mayakovskogo_14`, `PARTNER_PROD_V15`); в Бойне Удалить/Вернуть точку (`partnerDeletePoint`) · Pages Бойня `v71115940` · **нужен Deploy Code.gs** + Worker
 - [x] **v3.3.21b:** лист причин NFC; без дубля Маяковского и без «·»; soft-toast Отправить · Pages varka 3.3.21 · **Deploy Code.gs** (`PARTNER_PROD_V16`)
+- [~] **v3.3.33:** ручной Access `@one_more_person_228` → **Репина 4** + **Авиационная 17**; single live-test выкл. · **Deploy Code.gs** (`PARTNER_PROD_V24`) + Worker
 - [~] **v3.3.32:** live-test → **BOW Wow Collar** (`pt_bob_1`); Indixvost ✅ · Pages · **Deploy Code.gs** (`PARTNER_PROD_V23`) + Worker
 - [~] **v3.3.31:** live-test → **Indixvost** (`pt_indix_1`); Polotno ✅ · Pages · **Deploy Code.gs** (`PARTNER_PROD_V22`) + Worker
 - [~] **v3.3.30:** live-test → **Polotno** (`pt_polotno_1`); Fundog ✅ · Pages · **Deploy Code.gs** (`PARTNER_PROD_V21`) + Worker
