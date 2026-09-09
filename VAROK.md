@@ -48,7 +48,7 @@ API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerS
 - Нет Access и owner Бойни → все точки  
 - Админка — вкладка **Партнёры** в Бойне  
 
-Worker: `@one_more_person_228` — **ручной Access** (V26): Голодеда 15, Рокоссовского 80, Рокоссовского 150Б, Казинца 120; single-point live-test выкл. `@arseniyhotko` — Варки сняты (`PARTNER_PROD_V17`). Deploy — **Worker** + **Code.gs**.
+Worker: `@one_more_person_228` — **ручной Access** (V27): только **Матусевича 70**; single-point live-test выкл. `@arseniyhotko` — Варки сняты (`PARTNER_PROD_V17`). Deploy — **Worker** + **Code.gs**.
 
 ### Команда «следующая точка»
 
@@ -71,7 +71,7 @@ Worker: `@one_more_person_228` — **ручной Access** (V26): Голодед
 | 15 | `pt_indix_1` | Indixvost · ✅ |
 | 16 | `pt_bob_1` | BOW Wow Collar · ✅ |
 
-**Сейчас у `@one_more_person_228`:** Голодеда 15 + Рокоссовского 80 + Рокоссовского 150Б + Казинца 120.
+**Сейчас у `@one_more_person_228`:** только `pt_varka_matus_70` (Матусевича 70).
 
 На каждой точке проверять: вход → каталог/кнопки → NFC → Отправить → пуш в бот → история.
 
@@ -139,6 +139,7 @@ Worker: `@one_more_person_228` — **ручной Access** (V26): Голодед
 - [~] **v3.3.20:** примечание к заявке · ~~`@arseniyhotko` → 4 Варки~~ (снято V17) · **Pages** · **Deploy Code.gs**
 - [~] **v3.3.21:** + точка **Varka Маяковского 14** (`pt_varka_mayakovskogo_14`, `PARTNER_PROD_V15`); в Бойне Удалить/Вернуть точку (`partnerDeletePoint`) · Pages Бойня `v71115940` · **нужен Deploy Code.gs** + Worker
 - [x] **v3.3.21b:** лист причин NFC; без дубля Маяковского и без «·»; soft-toast Отправить · Pages varka 3.3.21 · **Deploy Code.gs** (`PARTNER_PROD_V16`)
+- [~] **v3.3.36:** Access `@one_more_person_228` → только **Матусевича 70** · Worker · Deploy Code.gs V27 опционально
 - [~] **v3.3.35:** Access `@one_more_person_228` → Голодеда / Рокосс 80 / 150Б / Казинца · Worker · **Deploy Code.gs** (`PARTNER_PROD_V26`) опционально
 - [~] **v3.3.34:** ручной Access `@one_more_person_228` → только **Карского 23** · **Deploy Code.gs** (`PARTNER_PROD_V25`) + Worker
 - [~] **v3.3.33:** ручной Access `@one_more_person_228` → **Репина 4** + **Авиационная 17**; single live-test выкл. (фронт+Worker+GAS) · Pages · **Deploy Code.gs** (`PARTNER_PROD_V24`) + Worker
