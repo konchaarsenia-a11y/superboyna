@@ -673,7 +673,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.26";
+  var APP_VER = "3.3.27";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v11";
@@ -1557,12 +1557,7 @@
       el.classList.toggle("on", el.getAttribute("data-cat") === "treat");
     });
     var loc = document.getElementById("orderLocName");
-    if (loc) {
-      var n = assignedPointsList_().length;
-      loc.textContent = n
-        ? ("Сначала позиции · затем выбор точки (" + n + ")")
-        : "Сначала выберите позиции · точку укажете дальше";
-    }
+    if (loc) loc.textContent = "Выберите лакомства и купоны";
     showCatalogTab();
   }
 
@@ -1586,9 +1581,7 @@
     }
     if (hint) {
       hint.style.display = "";
-      hint.innerHTML = list.length === 1
-        ? ("Нажмите на точку · в заявке <b>" + cartCount() + "</b> поз.")
-        : ("В заявке <b>" + cartCount() + "</b> поз. · выберите свою точку");
+      hint.innerHTML = "В заявке <b>" + cartCount() + "</b> поз.";
     }
     if (!box) {
       show("screenPoints");
@@ -1602,7 +1595,7 @@
       return;
     }
     box.innerHTML = '<div class="sub" style="text-align:left;margin:0 0 10px;">Доступно точек: <b>' +
-      list.length + "</b> · нажмите, чтобы выбрать</div>" + list.map(function (pt) {
+      list.length + "</b></div>" + list.map(function (pt) {
       var on = state.point && state.point.id === pt.id;
       var title = displayPointName_(pt) || pt.label || pt.name || pt.id || "Точка";
       var addr = String(pt.address || "").trim();
@@ -1610,7 +1603,7 @@
         (on ? "border-color:var(--accent);" : "") + '" onclick="pickPointForOrder(\'' + esc(pt.id) + '\')">' +
         '<div><div class="name">' + esc(title) + "</div>" +
         (addr && addr !== title ? ('<span class="addr">' + esc(addr) + "</span>") : "") +
-        (on ? '<span class="addr">✓ выбрано</span>' : '<span class="addr">Нажмите, чтобы выбрать</span>') +
+        (on ? '<span class="addr">✓ выбрано</span>' : '') +
         "</div></button>";
     }).join("");
     show("screenPoints");
