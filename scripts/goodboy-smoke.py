@@ -104,7 +104,7 @@ def check_trial(page, base: str, errors: list[str], shot_dir: Path | None) -> No
         assert_true("подписк" in hook_text, "trial: hook mentions subscription", errors)
         assert_true("натуральн" in hook_text, "trial: hook mentions natural treats", errors)
         assert_true("индивидуальн" in hook_text, "trial: hook mentions individual pick", errors)
-        assert_true("бесплатн" in hook_text, "trial: hook mentions free", errors)
+        assert_true("бесплатн" not in hook_text, "trial: hook without second бесплатно", errors)
     badge = page.locator(".trial-badge").first
     if badge.count():
         badge_text = badge.inner_text().upper()
