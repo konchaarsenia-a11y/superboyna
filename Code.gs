@@ -2106,6 +2106,12 @@ function doGet(e) {
       active: e.parameter.active
     }, callback, false);
   }
+  if (action === "partnerDeletePoint") {
+    return handlePartnerDeletePoint({
+      telegramId: e.parameter.telegramId || "",
+      id: e.parameter.id || ""
+    }, callback, false);
+  }
   if (action === "partnerSaveAccess") {
     return handlePartnerSaveAccess({
       telegramId: e.parameter.telegramId || "",
@@ -2849,6 +2855,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "partnerSavePoint") {
     return handlePartnerSavePoint(json, callback, fromPost);
+  }
+  if (action === "partnerDeletePoint") {
+    return handlePartnerDeletePoint(json, callback, fromPost);
   }
   if (action === "partnerSaveAccess") {
     return handlePartnerSaveAccess(json, callback, fromPost);
@@ -19186,6 +19195,7 @@ function partnerDefaultSeedPack_() {
       { id: "pt_varka_tsvirko_100", networkId: "net_varka", name: "Varka · Цвирко 100", address: "Цвирко 100" },
       { id: "pt_varka_skrip_1", networkId: "net_varka", name: "Varka · Скрипникова 1", address: "Скрипникова 1" },
       { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka · Шевченко 1", address: "Шевченко 1" },
+      { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka · Маяковского 14", address: "Маяковского 14" },
       { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34" },
       { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
       { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—" },
@@ -19773,6 +19783,33 @@ function partnerMigrateProdV14_() {
   return { migrated: true, username: uname, pointIds: pointIds };
 }
 
+/** V15: Varka · Маяковского 14. */
+function partnerMigrateProdV15_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V15") === "1") return { migrated: false };
+  try { partnerMigrateProdV14_(); } catch (e14) {}
+  var now = new Date();
+  var ptSh = getPartnerPointsSheet_();
+  var id = "pt_varka_mayakovskogo_14";
+  var networkId = "net_varka";
+  var name = "Varka · Маяковского 14";
+  var address = "Маяковского 14";
+  var pts = readPartnerPoints_();
+  var hit = null;
+  for (var i = 0; i < pts.length; i++) {
+    if (pts[i].id === id) { hit = pts[i]; break; }
+  }
+  if (hit) {
+    try {
+      ptSh.getRange(hit.rowIndex, 2, 1, 4).setValues([[networkId, name, address, "yes"]]);
+    } catch (e1) {}
+  } else {
+    ptSh.appendRow([id, networkId, name, address, "yes", now]);
+  }
+  props.setProperty("PARTNER_PROD_V15", "1");
+  return { migrated: true, pointId: id };
+}
+
 function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV3_(); } catch (eMig) {}
   try { partnerMigrateProdV4_(); } catch (eMig4) {}
@@ -19786,6 +19823,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV12_(); } catch (eMig12) {}
   try { partnerMigrateProdV13_(); } catch (eMig13) {}
   try { partnerMigrateProdV14_(); } catch (eMig14) {}
+  try { partnerMigrateProdV15_(); } catch (eMig15) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
@@ -20748,6 +20786,40 @@ function handlePartnerSavePoint(json, callback, fromPost) {
   else sh.appendRow(vals);
   var ok = { status: "success", id: id, networkId: networkId, name: name, active: active === "yes" };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/** Soft-delete точки (active=no). */
+function handlePartnerDeletePoint(json, callback, fromPost) {
+  if (!partnerRequireOwner_(json && json.telegramId)) {
+    var forbid = { status: "error", message: "owner_only" };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var id = String((json && json.id) || "").trim();
+  if (!id) {
+    var bad = { status: "error", message: "need_id" };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var sh = getPartnerPointsSheet_();
+  var all = readPartnerPoints_();
+  var hit = null;
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].id === id) { hit = all[i]; break; }
+  }
+  if (!hit) {
+    var miss = { status: "error", message: "not_found" };
+    return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+  }
+  sh.getRange(hit.rowIndex, 5).setValue("no");
+  sh.getRange(hit.rowIndex, 6).setValue(new Date());
+  var okDel = {
+    status: "success",
+    id: id,
+    deleted: true,
+    active: false,
+    name: hit.name || "",
+    networkId: hit.networkId || ""
+  };
+  return fromPost ? jsonpText(callback, okDel) : jsonp(callback, okDel);
 }
 
 function handlePartnerSaveAccess(json, callback, fromPost) {

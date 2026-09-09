@@ -8238,7 +8238,7 @@ async function handleCutover_(a, params, env, ctx) {
     // Varka Partner_* — D1/snap правда → GAS зеркало (TG/deferred в GAS)
     if (
       isPartnerD1PrimaryCanon_(env) &&
-      /^(partnerSaveNetwork|partnerSavePoint|partnerSaveAccess|partnerRevokeAccess|partnerSeedDefaults|partnerSetNotifyRecipients|partnerSubmitOrder|partnerSetOrderStatus|partnerSetOrderSlot)$/i.test(
+      /^(partnerSaveNetwork|partnerSavePoint|partnerDeletePoint|partnerSaveAccess|partnerRevokeAccess|partnerSeedDefaults|partnerSetNotifyRecipients|partnerSubmitOrder|partnerSetOrderStatus|partnerSetOrderSlot)$/i.test(
         a
       )
     ) {
@@ -15075,15 +15075,60 @@ function nicksMatchLooseD1_(a, b) {
 
 async function ensurePartnerAdminSnap_(env, ctx) {
   let admin = await getSnapRaw_(env, "partnerListAdmin");
-  if (admin && admin.status === "success" && Array.isArray(admin.networks)) return admin;
+  if (admin && admin.status === "success" && Array.isArray(admin.networks)) {
+    admin = await partnerEnsureMayakovskyPoint_(env, admin);
+    return admin;
+  }
   try {
     const live = await gasProxy_("partnerListAdmin", {}, env, { write: false });
     if (live && live.status === "success") {
-      await putSnap_(env, "partnerListAdmin", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
-      return live;
+      const fixed = await partnerEnsureMayakovskyPoint_(env, live);
+      await putSnap_(env, "partnerListAdmin", Object.assign({}, fixed, { cachedAt: new Date().toISOString() }));
+      return fixed;
     }
   } catch (e) {}
   return admin || { status: "success", networks: [], points: [], access: [], catalog: PARTNER_CATALOG_STATIC };
+}
+
+/** Varka · Маяковского 14 — upsert в snap (PARTNER_PROD_V15 зеркало до Deploy GAS). */
+async function partnerEnsureMayakovskyPoint_(env, admin) {
+  if (!admin || typeof admin !== "object") return admin;
+  const points = Array.isArray(admin.points) ? admin.points.slice() : [];
+  const id = "pt_varka_mayakovskogo_14";
+  let hit = -1;
+  for (let i = 0; i < points.length; i++) {
+    if (String(points[i].id) === id) {
+      hit = i;
+      break;
+    }
+  }
+  const row = {
+    id: id,
+    networkId: "net_varka",
+    name: "Varka · Маяковского 14",
+    address: "Маяковского 14",
+    active: true
+  };
+  if (hit >= 0) {
+    const prev = points[hit] || {};
+    // не поднимать вручную выключенную точку
+    if (prev.active === false) return admin;
+    points[hit] = Object.assign({}, prev, {
+      networkId: row.networkId,
+      name: row.name,
+      address: row.address,
+      active: prev.active !== false
+    });
+  } else {
+    points.push(row);
+  }
+  const next = Object.assign({}, admin, { points: points, _partnerMayakV15: 1 });
+  if (env && env.DB && !admin._partnerMayakV15) {
+    try {
+      await putSnap_(env, "partnerListAdmin", Object.assign({}, next, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    } catch (eW) {}
+  }
+  return next;
 }
 
 async function partnerListAdminD1_(params, env, ctx) {
@@ -15095,13 +15140,15 @@ async function partnerListAdminD1_(params, env, ctx) {
     Array.isArray(admin.networks) &&
     !force;
   if (ok) {
+    admin = await partnerEnsureMayakovskyPoint_(env, admin);
     if (ctx && typeof ctx.waitUntil === "function") {
       ctx.waitUntil(
         (async function () {
           try {
             const live = await gasProxy_("partnerListAdmin", params || {}, env, { write: false });
             if (live && live.status === "success") {
-              await putSnap_(env, "partnerListAdmin", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+              const fixed = await partnerEnsureMayakovskyPoint_(env, live);
+              await putSnap_(env, "partnerListAdmin", Object.assign({}, fixed, { cachedAt: new Date().toISOString() }));
             }
           } catch (e) {}
         })()
@@ -15119,7 +15166,14 @@ async function partnerListAdminD1_(params, env, ctx) {
   const live = await gasProxy_("partnerListAdmin", params || {}, env, { write: false });
   if (live && live.status === "success" && env && env.DB) {
     try {
-      await putSnap_(env, "partnerListAdmin", Object.assign({}, live, { cachedAt: new Date().toISOString() }));
+      const fixed = await partnerEnsureMayakovskyPoint_(env, live);
+      await putSnap_(env, "partnerListAdmin", Object.assign({}, fixed, { cachedAt: new Date().toISOString() }));
+      return Object.assign({}, fixed, {
+        cutover: true,
+        fromGas: true,
+        fromD1: false,
+        partnerCanon: partnerCanonLabel_(env)
+      });
     } catch (eS) {}
   }
   if (live && typeof live === "object") {
@@ -15285,6 +15339,31 @@ async function mutatePartnerD1_(action, params, env) {
     else admin.points.push(row);
     await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
     return { status: "success", id: id, name: name, networkId: networkId, active: active, d1Verified: true };
+  }
+
+  if (/^partnerDeletePoint$/i.test(a)) {
+    const id = String((params && params.id) || "").trim();
+    if (!id) return { status: "error", message: "need_id" };
+    let hit = -1;
+    for (let i = 0; i < admin.points.length; i++) {
+      if (String(admin.points[i].id) === id) {
+        hit = i;
+        break;
+      }
+    }
+    if (hit < 0) return { status: "error", message: "not_found" };
+    const prev = admin.points[hit];
+    admin.points[hit] = Object.assign({}, prev, { active: false });
+    await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    return {
+      status: "success",
+      id: id,
+      deleted: true,
+      active: false,
+      name: prev.name || "",
+      networkId: prev.networkId || "",
+      d1Verified: true
+    };
   }
 
   if (/^partnerSaveAccess$/i.test(a)) {

@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115939";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115940";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -23142,12 +23142,18 @@
         boxP.innerHTML = pts.length ? pts.map(function (p) {
           var idEsc = String(p.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
           var net = nets.filter(function (n) { return n.id === p.networkId; })[0];
+          var inactive = p.active === false;
           return '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid #222;">' +
             '<div style="min-width:0;"><b>' + escapeHtml(p.name) + "</b>" +
+            (inactive ? ' <span class="muted">(выкл)</span>' : "") +
             '<div class="muted" style="font-size:12px;margin-top:2px;">' + escapeHtml((net && net.name) || p.networkId) +
             (p.address ? (" · " + escapeHtml(p.address)) : "") + "</div></div>" +
-            '<button type="button" class="seg-btn" style="margin:0;flex-shrink:0;" onclick="partnerHubEditPoint_(\'' + idEsc + '\')">Изменить</button>' +
-            "</div>";
+            '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">' +
+            '<button type="button" class="seg-btn" style="margin:0;" onclick="partnerHubEditPoint_(\'' + idEsc + '\')">Изменить</button>' +
+            (inactive
+              ? '<button type="button" class="seg-btn" style="margin:0;" onclick="partnerHubRestorePoint_(\'' + idEsc + '\')">Вернуть</button>'
+              : '<button type="button" class="seg-btn" style="margin:0;color:#ff453a;" onclick="partnerHubDeletePoint_(\'' + idEsc + '\')">Удалить</button>') +
+            "</div></div>";
         }).join("") : '<p class="muted">Нет точек</p>';
       }
 
@@ -23340,6 +23346,48 @@
       showToast("Отозвано");
     }
 
+    async function partnerHubDeletePoint_(id) {
+      var p = (partnerHubCache_.points || []).filter(function (x) { return x.id === id; })[0];
+      var label = (p && p.name) || id;
+      var ok = await uiConfirmAsync("Удалить точку «" + label + "»? Из мини-аппа пропадёт (можно вернуть).");
+      if (!ok) return;
+      var res = await apiGet({
+        action: "partnerDeletePoint",
+        telegramId: myTelegramId,
+        id: id,
+        _: String(Date.now())
+      }, { timeoutMs: 15000, cacheTtlMs: 0 });
+      if (!res || res.status !== "success") {
+        showToast((res && res.message) || "Не удалилось — Deploy Code.gs?");
+        return;
+      }
+      partnerHubCache_ = null;
+      await loadPartnerHubUi_({ force: 1 });
+      showToast("Точка удалена");
+    }
+
+    async function partnerHubRestorePoint_(id) {
+      var p = (partnerHubCache_.points || []).filter(function (x) { return x.id === id; })[0];
+      if (!p) return;
+      var res = await apiGet({
+        action: "partnerSavePoint",
+        telegramId: myTelegramId,
+        id: p.id,
+        networkId: p.networkId || "",
+        name: p.name || "",
+        address: p.address || "",
+        active: "yes",
+        _: String(Date.now())
+      }, { timeoutMs: 20000, cacheTtlMs: 0 });
+      if (!res || res.status !== "success") {
+        showToast((res && res.message) || "Не вернулось — Deploy?");
+        return;
+      }
+      partnerHubCache_ = null;
+      await loadPartnerHubUi_({ force: 1 });
+      showToast("Точка возвращена");
+    }
+
     async function partnerHubSeedDefaults_() {
       var ok = await uiConfirmAsync("Залить демо-сети/точки/доступы из varka? Существующие перезапишутся только если листы пустые (force — отдельно).");
       if (!ok) return;
@@ -23397,6 +23445,8 @@
     window.partnerHubSavePoint_ = partnerHubSavePoint_;
     window.partnerHubSaveAccess_ = partnerHubSaveAccess_;
     window.partnerHubRevokeAccess_ = partnerHubRevokeAccess_;
+    window.partnerHubDeletePoint_ = partnerHubDeletePoint_;
+    window.partnerHubRestorePoint_ = partnerHubRestorePoint_;
     window.partnerHubSeedDefaults_ = partnerHubSeedDefaults_;
     window.partnerHubSaveNotify_ = partnerHubSaveNotify_;
 
