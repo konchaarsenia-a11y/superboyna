@@ -1,3 +1,4 @@
+- [~] **Varka UX NFC/точки/submit 2026-09-09:** лист причин NFC; одна Маяковского без «·»; soft-toast + Отправляю…; быстрый TG из Worker · Pages varka 3.3.21 · **нужен Deploy Code.gs** (`PARTNER_PROD_V16`) · Worker
 - [~] **Varka Маяковского 14 + удаление точек 2026-09-09:** точка `pt_varka_mayakovskogo_14` (`PARTNER_PROD_V15`); в Бойне Партнёры→Точки кнопка Удалить/Вернуть (`partnerDeletePoint`) · Pages `v71115940` · **нужен Deploy Code.gs** · Worker
 - [~] **Статистика: кнопка Нарезчик + ЗП 2026-09-09:** выхлоп без наценки; ЗП в себест; кнопка «Включить нарезчика» (preset cutter, дефолт 900 BYN, с ≥2026-09) · marker `stats-cutter-btn-h1` · Pages `v71115939` · **Worker Deploy** · **Deploy Code.gs**
 - [~] **Stats выхлоп без наценки 2026-09-08:** PP cost coef=1; life BP только перешедшие · **нужен Deploy Code.gs**

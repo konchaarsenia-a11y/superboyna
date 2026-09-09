@@ -19184,18 +19184,18 @@ function partnerDefaultSeedPack_() {
       { id: "net_bobwow", name: "BOW Wow Collar", logo: "" }
     ],
     points: [
-      { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka · Репина 4", address: "Репина 4" },
-      { id: "pt_varka_avia_17", networkId: "net_varka", name: "Varka · Авиационная 17", address: "Авиационная 17" },
-      { id: "pt_varka_karskogo_23", networkId: "net_varka", name: "Varka · Карского 23", address: "Карского 23" },
-      { id: "pt_varka_golodeda_15", networkId: "net_varka", name: "Varka · Голодеда 15", address: "Голодеда 15" },
-      { id: "pt_varka_rokoss_80", networkId: "net_varka", name: "Varka · Рокоссовского 80", address: "Рокоссовского 80" },
-      { id: "pt_varka_rokoss_150b", networkId: "net_varka", name: "Varka · Рокоссовского 150Б", address: "Рокоссовского 150Б" },
-      { id: "pt_varka_kazintsa_120", networkId: "net_varka", name: "Varka · Казинца 120", address: "Казинца 120" },
-      { id: "pt_varka_matus_70", networkId: "net_varka", name: "Varka · Матусевича 70", address: "Матусевича 70" },
-      { id: "pt_varka_tsvirko_100", networkId: "net_varka", name: "Varka · Цвирко 100", address: "Цвирко 100" },
-      { id: "pt_varka_skrip_1", networkId: "net_varka", name: "Varka · Скрипникова 1", address: "Скрипникова 1" },
-      { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka · Шевченко 1", address: "Шевченко 1" },
-      { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka · Маяковского 14", address: "Маяковского 14" },
+      { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka Репина 4", address: "Репина 4" },
+      { id: "pt_varka_avia_17", networkId: "net_varka", name: "Varka Авиационная 17", address: "Авиационная 17" },
+      { id: "pt_varka_karskogo_23", networkId: "net_varka", name: "Varka Карского 23", address: "Карского 23" },
+      { id: "pt_varka_golodeda_15", networkId: "net_varka", name: "Varka Голодеда 15", address: "Голодеда 15" },
+      { id: "pt_varka_rokoss_80", networkId: "net_varka", name: "Varka Рокоссовского 80", address: "Рокоссовского 80" },
+      { id: "pt_varka_rokoss_150b", networkId: "net_varka", name: "Varka Рокоссовского 150Б", address: "Рокоссовского 150Б" },
+      { id: "pt_varka_kazintsa_120", networkId: "net_varka", name: "Varka Казинца 120", address: "Казинца 120" },
+      { id: "pt_varka_matus_70", networkId: "net_varka", name: "Varka Матусевича 70", address: "Матусевича 70" },
+      { id: "pt_varka_tsvirko_100", networkId: "net_varka", name: "Varka Цвирко 100", address: "Цвирко 100" },
+      { id: "pt_varka_skrip_1", networkId: "net_varka", name: "Varka Скрипникова 1", address: "Скрипникова 1" },
+      { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka Шевченко 1", address: "Шевченко 1" },
+      { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14" },
       { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34" },
       { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog · точка 1", address: "Минск" },
       { id: "pt_polotno_1", networkId: "net_polotno", name: "Polotno · точка 1", address: "—" },
@@ -19792,7 +19792,7 @@ function partnerMigrateProdV15_() {
   var ptSh = getPartnerPointsSheet_();
   var id = "pt_varka_mayakovskogo_14";
   var networkId = "net_varka";
-  var name = "Varka · Маяковского 14";
+  var name = "Varka Маяковского 14";
   var address = "Маяковского 14";
   var pts = readPartnerPoints_();
   var hit = null;
@@ -19810,6 +19810,66 @@ function partnerMigrateProdV15_() {
   return { migrated: true, pointId: id };
 }
 
+/** Убрать дубль Маяковского + точки «·» в названиях Varka. */
+function partnerMigrateProdV16_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V16") === "1") return { migrated: false };
+  try { partnerMigrateProdV15_(); } catch (e15) {}
+  var ptSh = getPartnerPointsSheet_();
+  var pts = readPartnerPoints_();
+  var canonId = "pt_varka_mayakovskogo_14";
+  var killed = 0;
+  var renamed = 0;
+  for (var i = 0; i < pts.length; i++) {
+    var p = pts[i];
+    var id = String(p.id || "");
+    var name = String(p.name || "");
+    var address = String(p.address || "");
+    var net = String(p.networkId || "");
+    var low = (name + " " + address).toLowerCase();
+    var mayakHits = low.match(/маяковск/g);
+    var isMayak = !!(mayakHits && mayakHits.length);
+    var doubleMayak = !!(mayakHits && mayakHits.length >= 2);
+    if (isMayak && id !== canonId) {
+      try {
+        ptSh.getRange(p.rowIndex, 5).setValue("no");
+        ptSh.getRange(p.rowIndex, 6).setValue(new Date());
+        killed++;
+      } catch (eK) {}
+      continue;
+    }
+    if (id === canonId || (net === "net_varka" && name.indexOf("·") >= 0)) {
+      var cleanName = name.replace(/\s*[·.•]\s*/g, " ").replace(/\s+/g, " ").trim();
+      if (id === canonId) {
+        cleanName = "Varka Маяковского 14";
+        address = "Маяковского 14";
+      } else if (/^varka\b/i.test(cleanName) && address) {
+        cleanName = ("Varka " + address).replace(/\s+/g, " ").trim();
+      }
+      if (doubleMayak && id === canonId) cleanName = "Varka Маяковского 14";
+      if (cleanName !== name || (id === canonId && address !== String(p.address || ""))) {
+        try {
+          ptSh.getRange(p.rowIndex, 2, 1, 4).setValues([[net || "net_varka", cleanName, address, p.active ? "yes" : "no"]]);
+          renamed++;
+        } catch (eR) {}
+      }
+    }
+  }
+  // канон на всякий
+  var haveCanon = false;
+  pts = readPartnerPoints_();
+  for (var j = 0; j < pts.length; j++) {
+    if (pts[j].id === canonId) { haveCanon = true; break; }
+  }
+  if (!haveCanon) {
+    try {
+      ptSh.appendRow([canonId, "net_varka", "Varka Маяковского 14", "Маяковского 14", "yes", new Date()]);
+    } catch (eA) {}
+  }
+  props.setProperty("PARTNER_PROD_V16", "1");
+  return { migrated: true, killed: killed, renamed: renamed };
+}
+
 function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV3_(); } catch (eMig) {}
   try { partnerMigrateProdV4_(); } catch (eMig4) {}
@@ -19824,6 +19884,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV13_(); } catch (eMig13) {}
   try { partnerMigrateProdV14_(); } catch (eMig14) {}
   try { partnerMigrateProdV15_(); } catch (eMig15) {}
+  try { partnerMigrateProdV16_(); } catch (eMig16) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
@@ -19933,10 +19994,38 @@ function partnerNotifyNewOrder_(order) {
       lines +
       (order.note ? ("\n📝 " + order.note) : "") +
       "\n\nНазначьте дату: Партнёры → Заказы";
-    for (var i = 0; i < ids.length; i++) {
-      try { telegramSendMarkup_(ids[i], text, null); } catch (eN) {}
-    }
+    partnerTelegramSendMany_(ids, text);
   } catch (e) {}
+}
+
+function partnerTelegramSendMany_(chatIds, text) {
+  var token = getTelegramToken_();
+  if (!token) return;
+  var body = String(text || "").slice(0, 3500);
+  var reqs = [];
+  var seen = {};
+  for (var i = 0; i < (chatIds || []).length; i++) {
+    var id = chatIds[i] != null ? String(chatIds[i]).trim() : "";
+    if (!id || seen[id]) continue;
+    seen[id] = true;
+    reqs.push({
+      url: "https://api.telegram.org/bot" + token + "/sendMessage",
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        chat_id: id,
+        text: body,
+        disable_web_page_preview: true
+      }),
+      muteHttpExceptions: true
+    });
+  }
+  if (!reqs.length) return;
+  try { UrlFetchApp.fetchAll(reqs); } catch (eAll) {
+    for (var j = 0; j < reqs.length; j++) {
+      try { UrlFetchApp.fetch(reqs[j].url, reqs[j]); } catch (e1) {}
+    }
+  }
 }
 
 function getPartnerBotToken_() {
@@ -20110,7 +20199,12 @@ function partnerNotifyPartnerStatus_(order, kind) {
 }
 
 function handlePartnerSubmitOrder(json, callback, fromPost) {
-  try { ensurePartnerAppSeeded_(false); } catch (eSeed) {}
+  // seed не блокируем на каждый заказ — миграции уже в ensurePartnerAppSeeded_
+  try {
+    getPartnerOrdersSheet_();
+  } catch (eSeed) {
+    try { ensurePartnerAppSeeded_(false); } catch (e2) {}
+  }
   var tid = String((json && json.telegramId) || "").trim();
   var username = partnerNormUser_((json && json.username) || "");
   if (!tid && !username) {
@@ -20221,6 +20315,7 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     deferredId,
     orderNote
   ]);
+  // Пуши параллельно (не по одному) — быстрее доходит до бота
   try { partnerNotifyNewOrder_(order); } catch (eN2) {}
   try { partnerNotifyPartnerStatus_(order, "received"); } catch (eP) {}
   var ok = { status: "success", order: order, id: id, deferredId: deferredId };

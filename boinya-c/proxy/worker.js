@@ -6814,25 +6814,25 @@ const PARTNER_ARSENIY_POINTS = [
   {
     id: "pt_varka_rokoss_80",
     networkId: "net_varka",
-    name: "Varka · Рокоссовского 80",
+    name: "Varka Рокоссовского 80",
     address: "Рокоссовского 80"
   },
   {
     id: "pt_varka_rokoss_150b",
     networkId: "net_varka",
-    name: "Varka · Рокоссовского 150Б",
+    name: "Varka Рокоссовского 150Б",
     address: "Рокоссовского 150Б"
   },
   {
     id: "pt_varka_golodeda_15",
     networkId: "net_varka",
-    name: "Varka · Голодеда 15",
+    name: "Varka Голодеда 15",
     address: "Голодеда 15"
   },
   {
     id: "pt_varka_kazintsa_120",
     networkId: "net_varka",
-    name: "Varka · Казинца 120",
+    name: "Varka Казинца 120",
     address: "Казинца 120"
   }
 ];
@@ -8251,6 +8251,17 @@ async function handleCutover_(a, params, env, ctx) {
       const gasP = gasProxy_(a, params, env, { write: true }).catch(function () {
         return null;
       });
+      // TG сразу из Worker (не ждать медленный GAS) — заявка уже в D1
+      if (
+        /^partnerSubmitOrder$/i.test(a) &&
+        d1P &&
+        d1P.status === "success" &&
+        d1P.order &&
+        ctx &&
+        typeof ctx.waitUntil === "function"
+      ) {
+        ctx.waitUntil(partnerNotifyOrderFastWorker_(d1P.order, env));
+      }
       if (ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(
           gasP.then(async function (live) {
@@ -8262,6 +8273,9 @@ async function handleCutover_(a, params, env, ctx) {
         );
       } else {
         try {
+          if (/^partnerSubmitOrder$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
+            await partnerNotifyOrderFastWorker_(d1P.order, env);
+          }
           const live = await gasP;
           if (live && live.status === "success") await refreshPartnerSnapsFromGas_(a, params, env, live);
         } catch (eG) {}
@@ -14800,6 +14814,88 @@ async function telegramSendTextWorker_(env, chatId, text, markup) {
   }
 }
 
+/** Пуш партнёру (GOODBOY_LG) — быстрее, чем ждать GAS в фоне. */
+function getPartnerBotTokenWorker_(env) {
+  return String(
+    (env && (env.PARTNER_BOT_TOKEN || env.GOODBOY_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_TOKEN)) || ""
+  ).trim();
+}
+
+async function telegramSendPartnerBot_(env, chatId, text) {
+  const token = getPartnerBotTokenWorker_(env);
+  const id = chatId != null ? String(chatId).trim() : "";
+  if (!token || !id) return { ok: false, error: "no_token_or_chat" };
+  try {
+    const res = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: id,
+        text: String(text || "").slice(0, 3500),
+        disable_web_page_preview: true
+      })
+    });
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: String(e && e.message ? e.message : e) };
+  }
+}
+
+function partnerBasketLinesWorker_(basket) {
+  return (basket || [])
+    .map(function (b) {
+      if (!b) return "";
+      var extra = "";
+      if (String(b.id || "") === "vr_c_nfc" && (b.reasonLabel || b.reason || b.note)) {
+        extra = " (" + (b.reasonLabel || b.reason || b.note) + ")";
+      }
+      return "• " + (b.name || b.id) + " — " + b.qty + " " + (b.unit || "") + extra;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function partnerNotifyOrderFastWorker_(order, env) {
+  if (!order || !env) return;
+  const loc = order.locationName || order.locationId || "";
+  const lines = partnerBasketLinesWorker_(order.basket);
+  const partnerTid = String(order.telegramId || "").trim();
+  const tasks = [];
+  if (partnerTid) {
+    const text =
+      "✅ Заявка отправлена\n" +
+      loc +
+      "\nСкоро придёт уведомление о дате доставки\n" +
+      lines;
+    tasks.push(telegramSendPartnerBot_(env, partnerTid, text));
+  }
+  try {
+    const admin = await getSnapRaw_(env, "partnerListAdmin");
+    const recipients = (admin && admin.notifyRecipients) || [];
+    const teamText =
+      "🛍 Новая заявка партнёра " +
+      (order.id || "") +
+      "\n" +
+      loc +
+      "\n" +
+      (order.userName || order.username || order.telegramId || "") +
+      "\n" +
+      lines +
+      (order.note ? "\n📝 " + order.note : "") +
+      "\n\nНазначьте дату: Партнёры → Заказы";
+    for (let i = 0; i < recipients.length; i++) {
+      const rid = String((recipients[i] && (recipients[i].telegramId || recipients[i].id)) || recipients[i] || "").trim();
+      if (!rid) continue;
+      tasks.push(telegramSendTextWorker_(env, rid, teamText, null));
+    }
+  } catch (eR) {}
+  if (tasks.length) {
+    try {
+      await Promise.all(tasks);
+    } catch (eAll) {}
+  }
+}
+
 async function telegramStatusD1_(params, env) {
   if (hasTelegramToken_(env)) {
     return {
@@ -15090,11 +15186,18 @@ async function ensurePartnerAdminSnap_(env, ctx) {
   return admin || { status: "success", networks: [], points: [], access: [], catalog: PARTNER_CATALOG_STATIC };
 }
 
-/** Varka · Маяковского 14 — upsert в snap (PARTNER_PROD_V15 зеркало до Deploy GAS). */
+/** Varka Маяковского 14 — upsert + чистка дублей (PARTNER_PROD_V16). */
 async function partnerEnsureMayakovskyPoint_(env, admin) {
   if (!admin || typeof admin !== "object") return admin;
-  const points = Array.isArray(admin.points) ? admin.points.slice() : [];
+  let points = Array.isArray(admin.points) ? admin.points.slice() : [];
   const id = "pt_varka_mayakovskogo_14";
+  const row = {
+    id: id,
+    networkId: "net_varka",
+    name: "Varka Маяковского 14",
+    address: "Маяковского 14",
+    active: true
+  };
   let hit = -1;
   for (let i = 0; i < points.length; i++) {
     if (String(points[i].id) === id) {
@@ -15102,28 +15205,43 @@ async function partnerEnsureMayakovskyPoint_(env, admin) {
       break;
     }
   }
-  const row = {
-    id: id,
-    networkId: "net_varka",
-    name: "Varka · Маяковского 14",
-    address: "Маяковского 14",
-    active: true
-  };
   if (hit >= 0) {
     const prev = points[hit] || {};
-    // не поднимать вручную выключенную точку
-    if (prev.active === false) return admin;
-    points[hit] = Object.assign({}, prev, {
-      networkId: row.networkId,
-      name: row.name,
-      address: row.address,
-      active: prev.active !== false
-    });
+    if (prev.active === false) {
+      // keep soft-deleted; still scrub other dups below
+    } else {
+      points[hit] = Object.assign({}, prev, {
+        networkId: row.networkId,
+        name: row.name,
+        address: row.address,
+        active: true
+      });
+    }
   } else {
     points.push(row);
   }
-  const next = Object.assign({}, admin, { points: points, _partnerMayakV15: 1 });
-  if (env && env.DB && !admin._partnerMayakV15) {
+  // soft-delete other mayakovsky / double-name dups; strip · in Varka titles
+  const nextPts = [];
+  for (let j = 0; j < points.length; j++) {
+    const p = points[j] || {};
+    const pid = String(p.id || "");
+    const name = String(p.name || "");
+    const address = String(p.address || "");
+    const low = (name + " " + address).toLowerCase();
+    const mayaks = low.match(/маяковск/g);
+    if (mayaks && mayaks.length && pid !== id) {
+      nextPts.push(Object.assign({}, p, { active: false }));
+      continue;
+    }
+    let cleanName = name.replace(/\s*[·.•]\s*/g, " ").replace(/\s+/g, " ").trim();
+    if (pid === id) cleanName = "Varka Маяковского 14";
+    else if (String(p.networkId || "") === "net_varka" && /^varka\b/i.test(cleanName) && address) {
+      cleanName = ("Varka " + address).replace(/\s+/g, " ").trim();
+    }
+    nextPts.push(Object.assign({}, p, { name: cleanName, address: pid === id ? "Маяковского 14" : address }));
+  }
+  const next = Object.assign({}, admin, { points: nextPts, _partnerMayakV16: 1 });
+  if (env && env.DB && !admin._partnerMayakV16) {
     try {
       await putSnap_(env, "partnerListAdmin", Object.assign({}, next, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
     } catch (eW) {}

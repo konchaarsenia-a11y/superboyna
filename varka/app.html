@@ -308,14 +308,12 @@
       font-size: 11px;
     }
     .nfc-reasons {
-      display: flex; flex-wrap: wrap; gap: 6px;
-      width: 100%;
-      margin-top: 6px;
+      display: none; /* причины — в листе nfcReasonSheet */
     }
     .nfc-reason-chip {
       border: 1px solid var(--line); background: var(--bg3); color: var(--muted);
-      border-radius: 999px; padding: 6px 10px; font-size: 11px; font-weight: 700;
-      cursor: pointer; font-family: inherit; line-height: 1.2;
+      border-radius: 999px; padding: 8px 12px; font-size: 12px; font-weight: 700;
+      cursor: pointer; font-family: inherit; line-height: 1.25;
     }
     .nfc-reason-chip.on {
       color: #1a0f00; background: var(--accent); border-color: var(--accent);
@@ -324,6 +322,86 @@
       display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px;
     }
     .nfc-qty .qty-presets, .nfc-qty .qty-custom { display: none !important; }
+
+    /* Лист причины второго NFC — читаемый */
+    .nfc-sheet {
+      display: none; position: fixed; inset: 0; z-index: 40;
+      align-items: flex-end; justify-content: center;
+      background: rgba(0,0,0,0.55);
+      padding: 0 12px calc(12px + var(--safe-b));
+      box-sizing: border-box;
+    }
+    .nfc-sheet.on { display: flex; }
+    .nfc-sheet-card {
+      width: 100%; max-width: 420px;
+      background: var(--bg2);
+      border: 1px solid var(--line);
+      border-radius: 22px 22px 18px 18px;
+      padding: 18px 16px 14px;
+      box-shadow: 0 -8px 40px rgba(0,0,0,0.45);
+      animation: nfcSheetIn 0.28s ease-out;
+    }
+    @keyframes nfcSheetIn {
+      from { transform: translateY(18px); opacity: 0.6; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .nfc-sheet-title {
+      font-size: 17px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 6px;
+    }
+    .nfc-sheet-sub {
+      font-size: 13px; color: var(--muted); line-height: 1.4; margin: 0 0 14px;
+    }
+    .nfc-sheet-list {
+      display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;
+    }
+    .nfc-sheet-opt {
+      width: 100%; text-align: left;
+      border: 1px solid var(--line); background: var(--bg3); color: var(--text);
+      border-radius: 14px; padding: 14px 14px; font-size: 15px; font-weight: 700;
+      cursor: pointer; font-family: inherit; line-height: 1.3;
+      transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+    }
+    .nfc-sheet-opt:active { transform: scale(0.985); }
+    .nfc-sheet-opt.on {
+      color: #1a0f00; background: var(--accent); border-color: var(--accent);
+    }
+    .nfc-sheet-opt .hint {
+      display: block; margin-top: 4px; font-size: 12px; font-weight: 500; opacity: 0.72;
+    }
+    .nfc-sheet-cancel {
+      width: 100%; border: 0; background: transparent; color: var(--muted);
+      font-size: 14px; font-weight: 700; padding: 12px; cursor: pointer; font-family: inherit;
+    }
+
+    .btn.sending {
+      animation: btnSoftPulse 1.1s ease-in-out infinite;
+      letter-spacing: 0.01em;
+    }
+    .btn.just-ok {
+      animation: btnSoftOk 0.55s ease-out;
+    }
+    @keyframes btnSoftPulse {
+      0%, 100% { filter: brightness(1); transform: scale(1); }
+      50% { filter: brightness(1.08); transform: scale(0.985); }
+    }
+    @keyframes btnSoftOk {
+      0% { transform: scale(0.96); filter: brightness(1.15); }
+      100% { transform: scale(1); filter: brightness(1); }
+    }
+    .soft-toast {
+      position: fixed; left: 50%; bottom: calc(88px + var(--safe-b));
+      transform: translateX(-50%) translateY(8px);
+      z-index: 50; max-width: min(92vw, 360px);
+      background: rgba(28, 24, 20, 0.94); color: var(--text);
+      border: 1px solid var(--line); border-radius: 14px;
+      padding: 12px 16px; font-size: 14px; font-weight: 600; line-height: 1.35;
+      text-align: center; opacity: 0; pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+    }
+    .soft-toast.on {
+      opacity: 1; transform: translateX(-50%) translateY(0);
+    }
     .stepper { display: flex; align-items: center; gap: 8px; }
     .stepper button {
       width: 34px; height: 34px; border-radius: 11px; border: 1px solid var(--line);
@@ -583,9 +661,19 @@
     </div>
   </div>
 
+  <div id="nfcReasonSheet" class="nfc-sheet" onclick="onNfcSheetBackdrop(event)">
+    <div class="nfc-sheet-card" role="dialog" aria-labelledby="nfcSheetTitle">
+      <div class="nfc-sheet-title" id="nfcSheetTitle">Второй NFC</div>
+      <p class="nfc-sheet-sub">Обычно хватает одного на точку. Выберите причину — при поломке и потере штрафов нет.</p>
+      <div class="nfc-sheet-list" id="nfcSheetList"></div>
+      <button type="button" class="nfc-sheet-cancel" onclick="closeNfcReasonSheet_(true)">Отмена</button>
+    </div>
+  </div>
+  <div id="softToast" class="soft-toast" aria-live="polite"></div>
+
   <script>
 (function () {
-  var APP_VER = "3.3.20";
+  var APP_VER = "3.3.21";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v10";
@@ -875,7 +963,95 @@
       if (!p) p = pointById_(id);
       if (p && allow[p.id]) out.push(p);
     });
-    return out;
+    return dedupePartnerPoints_(out);
+  }
+
+  /** Убрать дубли (два Маяковского и т.п.) — оставляем канонический id. */
+  function dedupePartnerPoints_(list) {
+    var arr = (list || []).slice();
+    var byKey = {};
+    var out = [];
+    arr.forEach(function (p) {
+      if (!p || !p.id) return;
+      var key = pointDedupeKey_(p);
+      var prev = byKey[key];
+      if (!prev) {
+        byKey[key] = p;
+        out.push(p);
+        return;
+      }
+      // предпочитаем канонический id / без двойного адреса в имени
+      var prefer = preferPointRow_(prev, p);
+      if (prefer !== prev) {
+        byKey[key] = prefer;
+        var ix = out.indexOf(prev);
+        if (ix >= 0) out[ix] = prefer;
+      }
+    });
+    // выкинуть явное «Маяковского … Маяковского»
+    return out.filter(function (p) {
+      var title = displayPointName_(p);
+      var low = title.toLowerCase();
+      var m = low.match(/маяковск/g);
+      if (m && m.length >= 2) {
+        // если есть нормальная каноническая — этот мусорный не показываем
+        var hasCanon = out.some(function (x) {
+          return x && x.id === "pt_varka_mayakovskogo_14" && x !== p;
+        });
+        if (hasCanon || String(p.id) !== "pt_varka_mayakovskogo_14") return false;
+      }
+      return true;
+    });
+  }
+
+  function pointDedupeKey_(p) {
+    var addr = String((p && p.address) || "").trim().toLowerCase()
+      .replace(/[·.•]/g, " ").replace(/\s+/g, " ");
+    var name = String((p && p.name) || "").trim().toLowerCase()
+      .replace(/[·.•]/g, " ").replace(/\s+/g, " ");
+    var net = String((p && p.networkId) || "");
+    if (addr && /маяковск/.test(addr)) return net + "|mayak|" + addr;
+    if (/маяковск/.test(name)) return net + "|mayak|" + (addr || name.replace(/^varka\s+/, ""));
+    return net + "|" + (addr || name || String(p.id));
+  }
+
+  function preferPointRow_(a, b) {
+    var score = function (p) {
+      var s = 0;
+      if (String(p.id) === "pt_varka_mayakovskogo_14") s += 10;
+      if (/^pt_varka_/.test(String(p.id || ""))) s += 3;
+      var title = displayPointName_(p).toLowerCase();
+      var m = title.match(/маяковск/g);
+      if (m && m.length >= 2) s -= 8;
+      if (p.active === false) s -= 5;
+      return s;
+    };
+    return score(b) > score(a) ? b : a;
+  }
+
+  /** «Varka Маяковского 14» — без точек/· между брендом и адресом. */
+  function displayPointName_(pt) {
+    if (!pt) return "";
+    var name = String(pt.name || "").trim();
+    var address = String(pt.address || "").trim();
+    name = name.replace(/\s*[·.•]\s*/g, " ").replace(/\s+/g, " ").trim();
+    address = address.replace(/\s*[·.•]\s*/g, " ").replace(/\s+/g, " ").trim();
+    // убрать повтор адреса в имени
+    if (address) {
+      var re = new RegExp(address.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig");
+      var stripped = name.replace(re, " ").replace(/\s+/g, " ").trim();
+      if (/^varka$/i.test(stripped) || !stripped) {
+        return ("Varka " + address).replace(/\s+/g, " ").trim();
+      }
+      // если после strip осталось Varka + мусор — собрать заново
+      if (/^varka\b/i.test(name) && address && name.toLowerCase().indexOf(address.toLowerCase()) >= 0) {
+        return ("Varka " + address).replace(/\s+/g, " ").trim();
+      }
+    }
+    if (/^varka\b/i.test(name) && address && !pointAddrRedundant_(name, address)) {
+      return ("Varka " + address).replace(/\s+/g, " ").trim();
+    }
+    return name || address;
   }
   function buildMe_() {
     var net = netById_(DEMO_NETWORK);
@@ -983,18 +1159,11 @@
   }
 
   function pointLine_(pt) {
-    if (!pt) return "";
-    var name = String(pt.name || "").trim();
-    var address = String(pt.address || "").trim();
-    if (!address || pointAddrRedundant_(name, address)) return name;
-    return name + " · " + address;
+    return displayPointName_(pt);
   }
 
   function pointSubline_(pt) {
-    if (!pt) return "";
-    var address = String(pt.address || "").trim();
-    if (!address || pointAddrRedundant_(pt.name, address)) return "";
-    return address;
+    return "";
   }
 
   function show(id) {
@@ -1239,8 +1408,7 @@
       var on = state.point && state.point.id === pt.id;
       return '<button class="loc" type="button" style="' +
         (on ? "border-color:var(--accent);" : "") + '" onclick="pickPointForOrder(\'' + esc(pt.id) + '\')">' +
-        '<div><div class="name">' + esc(pt.name) + "</div>" +
-        (pointSubline_(pt) ? ('<div class="addr">' + esc(pointSubline_(pt)) + "</div>") : "") +
+        '<div><div class="name">' + esc(displayPointName_(pt)) + "</div>" +
         "</div></button>";
     }).join("");
     show("screenPoints");
@@ -1333,6 +1501,42 @@
   function clearNfcExtra_() {
     nfcExtraReason_ = "";
     nfcPickReasonOpen_ = false;
+    closeNfcReasonSheet_(false);
+  }
+
+  function renderNfcSheetList_() {
+    var box = document.getElementById("nfcSheetList");
+    if (!box) return;
+    box.innerHTML = NFC_EXTRA_REASONS_.map(function (r) {
+      return '<button type="button" class="nfc-sheet-opt' +
+        (nfcExtraReason_ === r.id ? " on" : "") +
+        '" onclick="pickNfcReason(\'' + r.id + '\')">' +
+        esc(r.label) +
+        (r.noPenalty ? '<span class="hint">Без штрафа</span>' : "") +
+        "</button>";
+    }).join("");
+  }
+
+  function openNfcReasonSheet_() {
+    nfcPickReasonOpen_ = true;
+    renderNfcSheetList_();
+    var el = document.getElementById("nfcReasonSheet");
+    if (el) el.classList.add("on");
+    try {
+      if (tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred) {
+        tg.HapticFeedback.impactOccurred("light");
+      }
+    } catch (eH) {}
+  }
+
+  function closeNfcReasonSheet_(clearPick) {
+    var el = document.getElementById("nfcReasonSheet");
+    if (el) el.classList.remove("on");
+    if (clearPick) nfcPickReasonOpen_ = false;
+  }
+
+  function onNfcSheetBackdrop(ev) {
+    if (ev && ev.target && ev.target.id === "nfcReasonSheet") closeNfcReasonSheet_(true);
   }
 
   function pickNfcReason(reasonId) {
@@ -1344,6 +1548,12 @@
     nfcExtraReason_ = hit.id;
     nfcPickReasonOpen_ = false;
     state.cart[NFC_ID_] = 2;
+    closeNfcReasonSheet_(false);
+    try {
+      if (tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred) {
+        tg.HapticFeedback.notificationOccurred("success");
+      }
+    } catch (eH2) {}
     renderCatalog();
     refreshCart();
   }
@@ -1364,7 +1574,7 @@
           state.cart[id] = 1;
           clearNfcExtra_();
         } else if (curN === 1) {
-          nfcPickReasonOpen_ = true;
+          openNfcReasonSheet_();
         }
       } else {
         if (curN >= 2) {
@@ -1415,8 +1625,11 @@
           clearNfcExtra_();
         }
       } else {
-        nfcPickReasonOpen_ = true;
         if (cur < 1) state.cart[id] = 1;
+        openNfcReasonSheet_();
+        renderCatalog();
+        refreshCart();
+        return;
       }
       renderCatalog();
       refreshCart();
@@ -1483,16 +1696,9 @@
           ? '<button type="button" class="nfc-reason-chip" onclick="pickQty(\'' + it.id + '\',0)">снять</button>'
           : "") +
         "</div>";
-      if (on2 || nfcPickReasonOpen_) {
-        html += '<div class="nfc-reasons">' +
-          NFC_EXTRA_REASONS_.map(function (r) {
-            return '<button type="button" class="nfc-reason-chip' +
-              (nfcExtraReason_ === r.id ? " on" : "") +
-              '" onclick="pickNfcReason(\'' + r.id + '\')">' + esc(r.label) + "</button>";
-          }).join("") +
-          "</div>" +
-          '<div class="coupon-hint nfc" style="text-align:right;max-width:240px;margin-top:4px;">' +
-          "При поломке и потере штрафов нет" +
+      if (on2 && nfcExtraReason_) {
+        html += '<div class="coupon-hint nfc" style="text-align:right;margin-top:4px;">' +
+          esc(nfcReasonLabel_(nfcExtraReason_)) +
           "</div>";
       }
       html += "</div>";
@@ -1624,13 +1830,43 @@
     refreshCart();
   }
 
+  var submitBusy_ = false;
+  var softToastTimer_ = null;
+
+  function softToast_(text, ms) {
+    var el = document.getElementById("softToast");
+    if (!el) return;
+    el.textContent = text || "";
+    el.classList.add("on");
+    if (softToastTimer_) clearTimeout(softToastTimer_);
+    softToastTimer_ = setTimeout(function () {
+      el.classList.remove("on");
+    }, ms || 2800);
+  }
+
+  function setSubmitBusyUi_(mode) {
+    var b = document.getElementById("btnSubmit");
+    if (!b) return;
+    b.classList.remove("sending", "just-ok");
+    if (mode === "sending") {
+      b.disabled = true;
+      b.classList.add("sending");
+      b.textContent = "Отправляю…";
+    } else if (mode === "ok") {
+      b.disabled = true;
+      b.classList.add("just-ok");
+      b.textContent = "Готово";
+    }
+  }
+
   async function submitOrder() {
+    if (submitBusy_) return;
     if (cartCount() <= 0) {
-      alert("Добавьте позиции в заявку");
+      softToast_("Добавьте позиции в заявку");
       return;
     }
     if (!state.point) {
-      alert("Выберите точку");
+      softToast_("Выберите точку");
       goPointsForOrder_();
       return;
     }
@@ -1638,8 +1874,8 @@
     stripBannerIfNeeded_();
     var nfcQty = Number(state.cart[NFC_ID_]) || 0;
     if (nfcQty > 1 && !nfcExtraReason_) {
-      alert("Для второго NFC выберите причину: поломка, потеря, второй для работы или несколько сотрудников. При поломке и потере штрафов нет.");
-      nfcPickReasonOpen_ = true;
+      softToast_("Выберите причину второго NFC");
+      openNfcReasonSheet_();
       state.cat = "coupon";
       document.querySelectorAll(".tab").forEach(function (el) {
         el.classList.toggle("on", el.getAttribute("data-cat") === "coupon");
@@ -1648,7 +1884,7 @@
       return;
     }
     if (nfcQty > 2) {
-      alert("NFC: максимум 2 шт на заявку (1 + ещё с причиной)");
+      softToast_("NFC: максимум 2 шт на заявку");
       return;
     }
     state.catalog.forEach(function (it) {
@@ -1672,29 +1908,49 @@
       username: (state.me && state.me.username) || u.username || "",
       userName: (state.me && state.me.name) || u.name || "",
       locationId: state.point.id,
-      locationName: state.point.name || "",
+      locationName: displayPointName_(state.point) || state.point.name || "",
       networkId: state.point.networkId || "",
       basket: JSON.stringify(basket),
       note: orderNote,
       orderNote: orderNote,
       _: String(Date.now())
     };
+    submitBusy_ = true;
+    setSubmitBusyUi_("sending");
+    try {
+      if (tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred) {
+        tg.HapticFeedback.impactOccurred("soft");
+      }
+    } catch (eH3) {}
     try {
       var res = await apiGet_(payload);
       if (!res || res.status !== "success") {
-        alert((res && res.message) || "Не удалось отправить заявку");
+        softToast_((res && res.message) || "Не удалось отправить заявку");
+        submitBusy_ = false;
+        updateCartButton_();
         return;
       }
-      var ord = res.order || {};
+      setSubmitBusyUi_("ok");
+      try {
+        if (tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred) {
+          tg.HapticFeedback.notificationOccurred("success");
+        }
+      } catch (eH4) {}
+      softToast_("Заявка отправлена — скоро уведомление о дате");
       state.cart = {};
       clearNfcExtra_();
       if (noteEl) noteEl.value = "";
       state.point = onlyPoint_() || null;
       refreshCart();
-      goOrderFlow();
-      alert("Заявка отправлена.\nСкоро придёт уведомление о дате доставки.");
+      setTimeout(function () {
+        submitBusy_ = false;
+        goOrderFlow();
+        updateCartButton_();
+      }, 420);
     } catch (e) {
-      alert("Сеть: не удалось отправить заявку");
+      softToast_("Сеть: не удалось отправить");
+      submitBusy_ = false;
+      updateCartButton_();
     }
   }
 
@@ -1894,7 +2150,8 @@
 
   function apiGet_(params) {
     var p = Object.assign({ cutover: "1" }, params || {});
-    var timeoutMs = p.action === "partnerGetMe" ? 8000 : 20000;
+    var timeoutMs = p.action === "partnerGetMe" ? 8000 :
+      (p.action === "partnerSubmitOrder" ? 12000 : 20000);
     if (typeof fetch === "function") {
       return new Promise(function (resolve, reject) {
         var done = false;
@@ -2226,6 +2483,8 @@
   window.setQty = setQty;
   window.pickQty = pickQty;
   window.pickNfcReason = pickNfcReason;
+  window.closeNfcReasonSheet_ = closeNfcReasonSheet_;
+  window.onNfcSheetBackdrop = onNfcSheetBackdrop;
   window.onQtyCustomInput = onQtyCustomInput;
   window.onQtyCustomBlur = onQtyCustomBlur;
   window.submitOrder = submitOrder;

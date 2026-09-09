@@ -112,7 +112,8 @@ Worker: `@arseniyhotko` / `650923866` — **4 Варки Александры** 
 - [x] **v3.3.18:** главная = заказ сразу; сверху История / Кабинет · чуть мягче UI · **Pages**
 - [~] **v3.3.19:** кнопка «К заказу»; без версии в шапке; заявка без даты → уведомление позже; Бойня Партнёры→Заказы · **Pages** · **нужен Deploy Code.gs** + Worker
 - [~] **v3.3.20:** примечание к заявке · `@arseniyhotko` → 4 Варки Александры (Рокоссовского×2, Голодеда, Казинца) · **Pages** · **нужен Deploy Code.gs** (`PARTNER_PROD_V14`) + Worker
-- [~] **v3.3.21:** + точка **Varka · Маяковского 14** (`pt_varka_mayakovskogo_14`, `PARTNER_PROD_V15`); в Бойне Удалить/Вернуть точку (`partnerDeletePoint`) · Pages Бойня `v71115940` · **нужен Deploy Code.gs** + Worker
+- [~] **v3.3.21:** + точка **Varka Маяковского 14** (`pt_varka_mayakovskogo_14`, `PARTNER_PROD_V15`); в Бойне Удалить/Вернуть точку (`partnerDeletePoint`) · Pages Бойня `v71115940` · **нужен Deploy Code.gs** + Worker
+- [~] **v3.3.21b:** лист причин NFC; без дубля Маяковского и без «·»; soft-toast Отправить; быстрый TG Worker · Pages varka 3.3.21 · **нужен Deploy Code.gs** (`PARTNER_PROD_V16`) + Worker
 - [ ] **v3.3.2:** ~~`@nan_animal_clinic`~~ — отменено, доступ у `@arseniyhotko`
 - [x] **v3.0.9:** у позиций лакомств убрана буква «г» — **Pages**
 - [x] **v3.0.8:** как было — owner first (все точки); `@one_more_person_228` обычный owner; allowlist/тест-Access сняты (`PARTNER_PROD_V7`) · **Pages** · **нужен Deploy Code.gs**
