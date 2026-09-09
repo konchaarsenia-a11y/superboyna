@@ -62,7 +62,7 @@ Worker: `@one_more_person_228` — **живой прогон по 1 точке**
 
 | # | id | Точка |
 |---|-----|--------|
-| **0** | `pt_nan_1` | **NaN clinic · Янковского 34** ← сейчас |
+| **0** | `pt_nan_1` | **nan_animal_clinic** · ул. Янковского, 34 ← сейчас |
 | 1 | `pt_varka_repina_4` | Varka Репина 4 |
 | 2 | `pt_varka_avia_17` | Varka Авиационная 17 |
 | 3 | `pt_varka_karskogo_23` | Varka Карского 23 |
@@ -146,6 +146,7 @@ Worker: `@one_more_person_228` — **живой прогон по 1 точке**
 - [~] **v3.3.20:** примечание к заявке · ~~`@arseniyhotko` → 4 Варки~~ (снято V17) · **Pages** · **Deploy Code.gs**
 - [~] **v3.3.21:** + точка **Varka Маяковского 14** (`pt_varka_mayakovskogo_14`, `PARTNER_PROD_V15`); в Бойне Удалить/Вернуть точку (`partnerDeletePoint`) · Pages Бойня `v71115940` · **нужен Deploy Code.gs** + Worker
 - [x] **v3.3.21b:** лист причин NFC; без дубля Маяковского и без «·»; soft-toast Отправить · Pages varka 3.3.21 · **Deploy Code.gs** (`PARTNER_PROD_V16`)
+- [~] **v3.3.28:** точка NaN → название `nan_animal_clinic`, адрес Янковского ниже · Pages · **Deploy Code.gs** (`PARTNER_PROD_V19`) + Worker
 - [~] **v3.3.27:** уведомления снова через Worker; после даты заказ уходит из Партнёры→Заказы; убраны лишние подписи в заказе · Pages · **Deploy Code.gs** + Worker
 - [~] **v3.3.26:** шаг «Далее · точка» даже для 1 NaN; «Заявка отправлена» только партнёру в @GOODBOY_LG (не снабжение) · Pages · **Deploy Code.gs** + Worker
 - [~] **v3.3.25:** при 1 точке (NaN) после сырья — экран «Далее · точка» / выбор NaN, не сразу Отправить · Pages varka 3.3.25

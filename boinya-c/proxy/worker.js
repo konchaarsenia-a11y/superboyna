@@ -6826,7 +6826,7 @@ const PARTNER_LIVE_TEST_USER = "one_more_person_228";
 const PARTNER_LIVE_TEST_TID = "827494606";
 const PARTNER_LIVE_TEST_IDX = 0;
 const PARTNER_LIVE_TEST_QUEUE = [
-  { id: "pt_nan_1", networkId: "net_nan", name: "NaN · Янковского", address: "ул. Янковского, 34", label: "NaN clinic · Янковского 34" },
+  { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34", label: "nan_animal_clinic" },
   { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka Репина 4", address: "Репина 4", label: "Varka Репина 4" },
   { id: "pt_varka_avia_17", networkId: "net_varka", name: "Varka Авиационная 17", address: "Авиационная 17", label: "Varka Авиационная 17" },
   { id: "pt_varka_karskogo_23", networkId: "net_varka", name: "Varka Карского 23", address: "Карского 23", label: "Varka Карского 23" },
