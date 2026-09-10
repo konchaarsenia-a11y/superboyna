@@ -690,7 +690,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.36";
+  var APP_VER = "3.3.37";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -727,7 +727,7 @@
     net_varka: {
       coupon: "assets/coupon-varka-goodboy.png",
       banner: "assets/coupon-poster.png",
-      hasBanner: false,
+      hasBanner: true,
       alt: "Varka × Good Boy",
       paperCoupons: false
     },
@@ -2037,8 +2037,8 @@
 
   function networkHasBanner_() {
     var media = partnerMedia_();
-    if (media && media.hasBanner === false) return false;
-    if (currentNetworkId_() === "net_varka") return false;
+    if (media && media.hasBanner === true) return true;
+    if (currentNetworkId_() === "net_varka") return true;
     return !!media.hasBanner;
   }
 
@@ -2056,8 +2056,8 @@
   function stripVarkaPaperCoupons_() {
     if (!varkaNfcOnlyCoupons_()) return;
     if (!state.cart) return;
+    // бумажный купон убираем; баннер у Varka оставляем
     if (state.cart.vr_c_piece) delete state.cart.vr_c_piece;
-    if (state.cart.vr_c_banner) delete state.cart.vr_c_banner;
   }
 
   function renderCatalog() {
@@ -2070,7 +2070,9 @@
     var items = state.catalog.filter(function (it) {
       if (it.active === false) return false;
       if (it.id === "vr_c_banner" && !allowBanner) return false;
-      if (nfcOnly && it.type === "coupon" && !isNfcItem_(it) && it.id !== "vr_c_nfc") return false;
+      // у Varka: без бумажного купона, NFC + баннер остаются
+      if (nfcOnly && it.id === "vr_c_piece") return false;
+      if (nfcOnly && it.type === "coupon" && !isNfcItem_(it) && it.id !== "vr_c_nfc" && it.id !== "vr_c_banner") return false;
       if (state.cat === "coupon") {
         return it.type === "coupon" || it.id === "vr_c_banner";
       }

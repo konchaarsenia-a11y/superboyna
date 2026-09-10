@@ -2282,7 +2282,6 @@
     function updatePpSlotPickUi_(opts) {
       opts = opts || {};
       var group = document.getElementById("ppSlotPickGroup");
-      var pickHint = document.getElementById("ppSlotPickHint");
       if (!group) return;
       var n = Number(opts.deliveriesN != null ? opts.deliveriesN : ppDeliveriesN) || 0;
       // N≥2: всегда можно выбрать ПП 1 / ПП 2 (не только при «первом якоре»)
@@ -2307,10 +2306,6 @@
         setPpDeliverySlot(suggested);
       } else {
         setPpDeliverySlot(ppDeliverySlotManual);
-      }
-      if (pickHint) {
-        pickHint.textContent = "Какая доставка сейчас? Подсказка: ПП " + suggested +
-          " — можно выбрать ПП 1 или ПП 2 для этой записи";
       }
     }
 
@@ -2579,8 +2574,7 @@
                 ? ppDeliverySlotManual
                 : (res.deliverySlot || suggested || "");
               hint.textContent = "Доставок в месяц: N=" + ppDeliveriesN +
-                (slotShow ? (" · слот " + slotShow) : "") +
-                " — выбери ПП 1 или ПП 2";
+                (slotShow ? (" · слот " + slotShow) : "");
             } else if (ppDeliveriesN === 1) {
               hint.textContent = "Доставок в месяц: N=1";
             } else {
