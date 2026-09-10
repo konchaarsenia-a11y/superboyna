@@ -4,18 +4,65 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
     <title>sneakerworld</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body class="page-home">
-    <main class="wrap" style="padding-top:48px">
-      <div class="hero-core" style="margin:0 auto">
-        <h2>sneakerworld</h2>
-        <p>пр-т Дзержинского 19 · живой каталог</p>
-        <div class="hero-actions">
-          <a class="btn-catalog" href="catalog.html">Каталог</a>
-        </div>
+    <div class="overscroll-toys" aria-hidden="true">
+      <span class="toy t1"><img src="assets/h1.jpg" alt="" /></span>
+      <span class="toy t2"><img src="assets/clean1.jpg" alt="" /></span>
+      <span class="toy t3"><img src="assets/h2.jpg" alt="" /></span>
+      <span class="toy t4"><img src="assets/clean2.jpg" alt="" /></span>
+      <span class="toy t5"><img src="assets/clean3.jpg" alt="" /></span>
+    </div>
+
+    <header class="top" id="siteHeader">
+      <div class="top-inner">
+        <a class="brand" href="index.html">
+          <img class="logo-img" src="assets/logo.png" alt="" width="40" height="40" />
+          <div>
+            <h1>sneakerworld</h1>
+            <small>Минск · Дзержинского 19</small>
+          </div>
+        </a>
       </div>
+    </header>
+
+    <main class="wrap">
+      <section class="hero">
+        <div class="hero-stage">
+          <div class="hero-bg"><img src="assets/store.png" alt="" /></div>
+          <div class="hero-core">
+            <div class="hero-logo"><img src="assets/logo.png" alt="sneakerworld" /></div>
+            <h2>sneakerworld</h2>
+            <p>пр-т Дзержинского 19 · +375 29 790-49-93</p>
+            <div class="hero-actions">
+              <a class="btn-catalog" href="catalog.html">Каталог</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="perks">
+        <div class="perk">Живое наличие по размерам<span class="perk-sticker cyan">live</span></div>
+        <div class="perk">Самовывоз и доставка<span class="perk-sticker">Минск</span></div>
+        <div class="perk">Оплата при получении<span class="perk-sticker red">cash</span></div>
+      </section>
+
+      <section class="contacts" style="margin:18px 0 40px">
+        <div class="b">Контакты</div>
+        <div class="s">пр-т Дзержинского 19</div>
+        <div class="s"><a class="phone" href="tel:+375297904993">+375 29 790-49-93</a></div>
+      </section>
     </main>
+
+    <script>
+      const header = document.getElementById('siteHeader');
+      const onScroll = () => document.body.classList.toggle('is-scrolled', window.scrollY > 24);
+      window.addEventListener('scroll', onScroll, { passive: true });
+      onScroll();
+    </script>
   </body>
 </html>

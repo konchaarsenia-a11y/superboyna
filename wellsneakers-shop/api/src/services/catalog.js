@@ -1,6 +1,6 @@
 import { query, withTransaction } from "../db.js";
 
-export async function listProducts({ brand, size, q, inStockOnly = true, limit = 50, offset = 0 }) {
+export async function listProducts({ brand, size, q, inStockOnly = true, limit = 500, offset = 0 }) {
   const params = [];
   const where = ["p.active = TRUE"];
   if (brand) {
@@ -18,21 +18,26 @@ export async function listProducts({ brand, size, q, inStockOnly = true, limit =
   if (inStockOnly) {
     where.push(`EXISTS (SELECT 1 FROM product_sizes s WHERE s.product_id = p.id AND s.qty > 0)`);
   }
-  params.push(Math.min(Number(limit) || 50, 200));
-  params.push(Number(offset) || 0);
+  const whereSql = where.join(" AND ");
+  const countSql = `SELECT COUNT(*)::int AS total FROM products p WHERE ${whereSql}`;
+  const { rows: countRows } = await query(countSql, params);
+  const total = countRows[0]?.total || 0;
+
+  params.push(Math.min(Math.max(Number(limit) || 500, 1), 1000));
+  params.push(Math.max(Number(offset) || 0, 0));
   const sql = `
     SELECT p.*,
       COALESCE(json_agg(json_build_object('size', s.size, 'qty', s.qty) ORDER BY s.size)
         FILTER (WHERE s.id IS NOT NULL ${inStockOnly ? "AND s.qty > 0" : ""}), '[]') AS sizes
     FROM products p
     LEFT JOIN product_sizes s ON s.product_id = p.id
-    WHERE ${where.join(" AND ")}
+    WHERE ${whereSql}
     GROUP BY p.id
     ORDER BY p.name
     LIMIT $${params.length - 1} OFFSET $${params.length}
   `;
   const { rows } = await query(sql, params);
-  return rows;
+  return { products: rows, total, limit: params[params.length - 2], offset: params[params.length - 1] };
 }
 
 export async function getProduct(idOrArticle) {

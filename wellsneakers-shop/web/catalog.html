@@ -4,12 +4,21 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
     <title>sneakerworld — каталог</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
     <style>
       .api-banner{margin:12px 0;padding:10px 12px;border:1px dashed rgba(255,255,255,.25);border-radius:10px;color:var(--muted);font-size:13px}
       .api-banner.ok{border-color:rgba(79,212,255,.45);color:var(--cyan)}
       .api-banner.err{border-color:rgba(196,30,42,.5);color:#ffb4ba}
+      .prod-placeholder{
+        height:180px;background:
+          radial-gradient(circle at 30% 30%, rgba(79,212,255,.12), transparent 50%),
+          linear-gradient(160deg,#1a1b1f,#121316);
+        display:grid;place-items:center;border-bottom:1px solid var(--line);
+        font-family:var(--display);font-size:42px;letter-spacing:.08em;color:rgba(255,255,255,.18);
+      }
       .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:80;display:none}
       .modal-bg.open{display:block}
       .modal{position:fixed;left:0;right:0;bottom:0;z-index:81;width:min(480px,100%);margin:0 auto;
@@ -20,36 +29,67 @@
       .modal label{display:block;color:var(--muted);font-size:12px;margin:8px 0 4px}
       .modal input,.modal select{width:100%;min-height:44px;border-radius:10px;border:1px solid var(--line);background:#121316;color:var(--ink);padding:0 12px}
       .modal .actions{display:grid;gap:8px;margin-top:14px}
+      .count-pill{color:var(--muted);font-size:13px;font-weight:600;margin-top:6px}
     </style>
   </head>
   <body class="page-catalog">
-    <header class="top">
+    <div class="overscroll-toys" aria-hidden="true">
+      <span class="toy t1"><img src="assets/h1.jpg" alt="" /></span>
+      <span class="toy t2"><img src="assets/clean1.jpg" alt="" /></span>
+      <span class="toy t3"><img src="assets/h2.jpg" alt="" /></span>
+      <span class="toy t4"><img src="assets/clean2.jpg" alt="" /></span>
+      <span class="toy t5"><img src="assets/clean3.jpg" alt="" /></span>
+    </div>
+
+    <header class="top" id="siteHeader">
       <div class="top-inner">
         <a class="brand" href="index.html">
+          <img class="logo-img" src="assets/logo.png" alt="" width="40" height="40" />
           <div>
             <h1>sneakerworld</h1>
-            <small>Каталог · live API</small>
+            <small>Каталог · Минск</small>
           </div>
         </a>
       </div>
     </header>
+
     <main class="wrap">
       <section class="catalog-section">
         <div class="head">
           <h3>Каталог</h3>
-          <p>Наличие в реальном времени. Оплата при получении.</p>
+          <p>Живое наличие по размерам. Оплата при получении.</p>
+          <div class="count-pill" id="catalogCount">Загрузка…</div>
         </div>
+
         <div class="api-banner" id="apiStatus">Подключение к API…</div>
-        <div class="filters sticky-filters">
+
+        <div class="filters sticky-filters" id="catalogFilters">
           <div class="street-toggles">
-            <select class="street-drop" id="brandFilter" style="appearance:auto"></select>
-            <input class="street-drop" id="qFilter" placeholder="Поиск" style="transform:none" />
+            <button type="button" class="street-drop filter-toggle" id="toggleBrands" aria-expanded="false">
+              <span class="street-drop-label" id="brandsLabel">Все бренды</span>
+              <span class="street-drop-ico" aria-hidden="true">▾</span>
+            </button>
+            <button type="button" class="street-drop filter-toggle" id="toggleSizes" aria-expanded="false">
+              <span class="street-drop-label" id="sizesLabel">Все размеры</span>
+              <span class="street-drop-ico" aria-hidden="true">▾</span>
+            </button>
+          </div>
+          <div class="filter-panel street-panel" id="brandsPanel" hidden>
+            <div class="filter-row" id="brandsRow" aria-label="Бренды"></div>
+          </div>
+          <div class="filter-panel street-panel" id="sizesPanel" hidden>
+            <div class="filter-row" id="sizesRow" aria-label="Размеры"></div>
+          </div>
+          <div style="margin-top:10px">
+            <input class="street-drop" id="qFilter" placeholder="Поиск: модель или артикул" style="width:100%;transform:none;appearance:auto" />
           </div>
         </div>
-        <div class="empty" id="catalogEmpty">Ничего не найдено</div>
+
+        <div class="empty" id="catalogEmpty">Ничего не найдено. Сбросьте фильтр.</div>
         <div class="catalog-grid" id="catalogList"></div>
       </section>
     </main>
+
     <div class="dock">
       <div class="dock-inner">
         <a class="btn-catalog" href="index.html">Главная</a>
@@ -83,28 +123,50 @@
     <div class="toast" id="toast"></div>
 
     <script>
-      const API = localStorage.getItem('ws_api') || 'http://127.0.0.1:3080/api';
+      const API = (function () {
+        const saved = localStorage.getItem('ws_api');
+        if (saved) return saved;
+        if (location.protocol === 'http:' || location.protocol === 'https:') {
+          return location.origin + '/api';
+        }
+        return 'http://127.0.0.1:3080/api';
+      })();
+
       const statusEl = document.getElementById('apiStatus');
       const listEl = document.getElementById('catalogList');
       const emptyEl = document.getElementById('catalogEmpty');
-      const brandEl = document.getElementById('brandFilter');
+      const countEl = document.getElementById('catalogCount');
+      const brandsRow = document.getElementById('brandsRow');
+      const sizesRow = document.getElementById('sizesRow');
+      const brandsLabel = document.getElementById('brandsLabel');
+      const sizesLabel = document.getElementById('sizesLabel');
       const qEl = document.getElementById('qFilter');
       const modal = document.getElementById('orderModal');
       const modalBg = document.getElementById('modalBg');
       const toast = document.getElementById('toast');
+
       let current = null;
-      let selectedSizeBtn = null;
+      let brand = '';
+      let size = '';
+      let brands = [];
+      const SIZE_OPTS = ['36','37','38','39','40','41','42','43','44','45','46'];
 
       function showToast(t) {
         toast.textContent = t;
         toast.classList.add('show');
         setTimeout(() => toast.classList.remove('show'), 2500);
       }
-      function openModal(p, size) {
+      function esc(s) {
+        return String(s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      }
+      function openModal(p, picked) {
         current = p;
-        document.getElementById('orderProduct').textContent = p.name + ' · ' + Number(p.price_byn).toFixed(0) + ' BYN · арт. ' + p.article;
+        document.getElementById('orderProduct').textContent =
+          p.name + ' · ' + Number(p.price_byn).toFixed(0) + ' BYN · арт. ' + p.article;
         const sel = document.getElementById('orderSize');
-        sel.innerHTML = (p.sizes || []).map(s => `<option value="${s.size}" ${s.size===size?'selected':''}>${s.size} · ${s.qty} шт</option>`).join('');
+        sel.innerHTML = (p.sizes || []).map(s =>
+          `<option value="${esc(s.size)}" ${String(s.size)===String(picked)?'selected':''}>${esc(s.size)} · ${s.qty} шт</option>`
+        ).join('');
         document.getElementById('orderResult').textContent = '';
         modal.classList.add('open'); modalBg.classList.add('open');
       }
@@ -112,26 +174,92 @@
         modal.classList.remove('open'); modalBg.classList.remove('open');
       }
 
+      function wireToggle(btnId, panelId) {
+        const btn = document.getElementById(btnId);
+        const panel = document.getElementById(panelId);
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const open = panel.hasAttribute('hidden');
+          document.querySelectorAll('.filter-panel').forEach(p => p.setAttribute('hidden', ''));
+          document.querySelectorAll('.filter-toggle').forEach(b => {
+            b.setAttribute('aria-expanded', 'false');
+            b.classList.remove('on');
+          });
+          if (open) {
+            panel.removeAttribute('hidden');
+            btn.setAttribute('aria-expanded', 'true');
+            btn.classList.add('on');
+          }
+        });
+      }
+      wireToggle('toggleBrands', 'brandsPanel');
+      wireToggle('toggleSizes', 'sizesPanel');
+
+      function renderBrandOpts() {
+        const items = [{ brand: '', label: 'Все бренды' }].concat(
+          brands.map(b => ({ brand: b.brand, label: b.brand }))
+        );
+        brandsRow.innerHTML = items.map(b =>
+          `<button type="button" class="street-opt ${brand===b.brand?'on':''}" data-brand="${esc(b.brand)}" data-label="${esc(b.label)}">${esc(b.label)}</button>`
+        ).join('');
+      }
+      function renderSizeOpts() {
+        const items = [{ value: '', label: 'Все размеры' }].concat(
+          SIZE_OPTS.map(s => ({ value: s, label: 'EU ' + s }))
+        );
+        sizesRow.innerHTML = items.map(s =>
+          `<button type="button" class="street-opt ${size===s.value?'on':''}" data-size="${esc(s.value)}" data-label="${esc(s.label)}">${esc(s.value || 'Все')}</button>`
+        ).join('');
+      }
+
+      brandsRow.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-brand]');
+        if (!btn) return;
+        brand = btn.dataset.brand || '';
+        brandsLabel.textContent = btn.dataset.label || 'Все бренды';
+        document.getElementById('brandsPanel').hidden = true;
+        renderBrandOpts();
+        loadCatalog();
+      });
+      sizesRow.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-size]');
+        if (!btn) return;
+        size = btn.dataset.size || '';
+        sizesLabel.textContent = btn.dataset.label || 'Все размеры';
+        document.getElementById('sizesPanel').hidden = true;
+        renderSizeOpts();
+        loadCatalog();
+      });
+
       async function loadBrands() {
         const data = await fetch(API + '/brands').then(r => r.json());
-        brandEl.innerHTML = '<option value=\"\">Все бренды</option>' +
-          (data.brands || []).map(b => `<option value="${b.brand}">${b.brand}</option>`).join('');
+        brands = data.brands || [];
+        renderBrandOpts();
+        renderSizeOpts();
       }
 
       async function loadCatalog() {
-        const params = new URLSearchParams();
-        if (brandEl.value) params.set('brand', brandEl.value);
+        const params = new URLSearchParams({ limit: '1000' });
+        if (brand) params.set('brand', brand);
+        if (size) params.set('size', size);
         if (qEl.value.trim()) params.set('q', qEl.value.trim());
         const data = await fetch(API + '/catalog?' + params).then(r => r.json());
         const products = data.products || [];
+        countEl.textContent = 'В наличии: ' + (data.total != null ? data.total : products.length) + ' моделей (с админки OC)';
         emptyEl.classList.toggle('show', !products.length);
         listEl.innerHTML = products.map(p => {
-          const sizes = (p.sizes || []).map(s => `<button class="size" type="button" data-size="${s.size}">${s.size}</button>`).join('');
-          return `<article class="prod" data-json='${JSON.stringify(p).replace(/'/g,"&apos;")}'>
+          const sizes = (p.sizes || []).map(s =>
+            `<button class="size" type="button" data-size="${esc(s.size)}">${esc(s.size)}</button>`
+          ).join('');
+          const letter = esc((p.brand || p.name || '?').slice(0, 1).toUpperCase());
+          const payload = esc(JSON.stringify(p));
+          return `<article class="prod" data-json="${payload}">
+            <div class="prod-placeholder" aria-hidden="true">${letter}</div>
             <div class="prod-body">
               <div>
-                <div class="title">${p.name}</div>
-                <div class="subt">${p.brand || ''} · арт. ${p.article}</div>
+                <div class="title">${esc(p.name)}</div>
+                <div class="subt">${esc(p.brand || '')} · арт. ${esc(p.article)}</div>
               </div>
               <div class="sizes">${sizes}</div>
               <div class="row">
@@ -153,8 +281,8 @@
           return;
         }
         if (e.target.classList.contains('buy')) {
-          const size = card.dataset.pickedSize || (p.sizes[0] && p.sizes[0].size);
-          openModal(p, size);
+          const picked = card.dataset.pickedSize || (p.sizes[0] && p.sizes[0].size);
+          openModal(p, picked);
         }
       });
 
@@ -172,6 +300,10 @@
           document.getElementById('orderResult').textContent = 'Укажите ФИО и телефон';
           return;
         }
+        if (body.fulfillment === 'delivery' && !body.address) {
+          document.getElementById('orderResult').textContent = 'Укажите адрес доставки';
+          return;
+        }
         const r = await fetch(API + '/orders', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
         });
@@ -180,28 +312,35 @@
           document.getElementById('orderResult').textContent = data.error || 'Ошибка';
           return;
         }
-        document.getElementById('orderResult').textContent = 'Номер заказа: ' + data.order.order_number + '. Менеджер свяжется с вами.';
+        document.getElementById('orderResult').textContent =
+          'Номер заказа: ' + data.order.order_number + '. Менеджер свяжется с вами.';
         showToast('Заказ ' + data.order.order_number);
         await loadCatalog();
       };
 
-      document.getElementById('openHint').onclick = () => showToast('Выберите размер и нажмите «Заказать»');
+      document.getElementById('openHint').onclick = () =>
+        showToast('Выберите размер → «Заказать» → ФИО и телефон');
+
+      let qTimer = null;
+      qEl.addEventListener('input', () => {
+        clearTimeout(qTimer);
+        qTimer = setTimeout(loadCatalog, 250);
+      });
 
       (async () => {
         try {
           const h = await fetch(API + '/health').then(r => r.json());
           if (!h.ok) throw new Error('health');
-          statusEl.textContent = 'API online · наличиеция сразу списывает размер · TG-уведомление админу';
+          statusEl.textContent = 'Каталог с OpenCart · нулевые размеры скрыты · оплата при получении';
           statusEl.classList.add('ok');
           await loadBrands();
           await loadCatalog();
         } catch (e) {
           statusEl.textContent = 'API недоступен (' + API + ')';
           statusEl.classList.add('err');
+          countEl.textContent = '';
         }
       })();
-      brandEl.addEventListener('change', loadCatalog);
-      qEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadCatalog(); });
     </script>
   </body>
 </html>

@@ -126,8 +126,8 @@
     <div class="toast" id="toast"></div>
 
     <script>
-      const API = localStorage.getItem('ws_api') || 'http://127.0.0.1:3080/api';
-      const ORIGIN = API.replace(/\/api\/?$/, '');
+      const API = localStorage.getItem('ws_api') || (location.origin + '/api');
+      const ORIGIN = API.replace(/\/api\/?$/, '') || location.origin;
       const tg = window.Telegram && window.Telegram.WebApp;
       if (tg) { tg.ready(); tg.expand(); }
 

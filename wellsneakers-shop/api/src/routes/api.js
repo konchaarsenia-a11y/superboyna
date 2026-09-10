@@ -26,7 +26,7 @@ router.get("/health", async (_req, res) => {
 
 router.get("/catalog", async (req, res, next) => {
   try {
-    const rows = await listProducts({
+    const data = await listProducts({
       brand: req.query.brand,
       size: req.query.size,
       q: req.query.q,
@@ -34,7 +34,7 @@ router.get("/catalog", async (req, res, next) => {
       limit: req.query.limit,
       offset: req.query.offset,
     });
-    res.json({ ok: true, products: rows });
+    res.json({ ok: true, ...data });
   } catch (err) {
     next(err);
   }
