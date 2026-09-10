@@ -9,8 +9,9 @@ import {
 } from "../services/catalog.js";
 import { buildLabelHtml, buildBarcodePng } from "../services/labels.js";
 import { notifyNewOrder } from "../services/notify.js";
-import { query } from "../db.js";
+import { query, withTransaction } from "../db.js";
 import { requireAdmin, staffAuth } from "../middleware/auth.js";
+import { upload } from "../middleware/upload.js";
 
 export const router = Router();
 
@@ -122,7 +123,9 @@ router.get("/staff/me", (req, res) => {
 
 router.get("/staff/search", async (req, res, next) => {
   try {
-    const products = await searchForSale(req.query.q || req.query.filter_name || "");
+    const products = await searchForSale(req.query.q || req.query.filter_name || "", {
+      includeZero: req.query.all === "1" || req.query.includeZero === "1",
+    });
     res.json({ ok: true, products });
   } catch (err) {
     next(err);
@@ -287,6 +290,111 @@ router.get("/staff/products/:id", async (req, res, next) => {
     const product = await getProduct(req.params.id);
     if (!product) return res.status(404).json({ ok: false, error: "not_found" });
     res.json({ ok: true, product });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/staff/next-article", requireAdmin, async (_req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT COALESCE(MAX(NULLIF(regexp_replace(article, '\\D', '', 'g'), '')::bigint), 1000) + 1 AS next
+       FROM products`
+    );
+    res.json({ ok: true, article: String(rows[0].next) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch("/staff/products/:id", requireAdmin, async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const { rows } = await query(
+      `UPDATE products SET
+         name = COALESCE($2, name),
+         brand = COALESCE($3, brand),
+         price_byn = COALESCE($4, price_byn),
+         active = COALESCE($5, active),
+         updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [
+        req.params.id,
+        b.name ?? null,
+        b.brand ?? null,
+        b.price_byn != null ? Number(b.price_byn) : null,
+        typeof b.active === "boolean" ? b.active : null,
+      ]
+    );
+    if (!rows[0]) return res.status(404).json({ ok: false, error: "not_found" });
+    const full = await getProduct(rows[0].id);
+    res.json({ ok: true, product: full });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post(
+  "/staff/products/:id/photo",
+  requireAdmin,
+  upload.single("photo"),
+  async (req, res, next) => {
+    try {
+      if (!req.file) return res.status(400).json({ ok: false, error: "photo_required" });
+      const product = await getProduct(req.params.id);
+      if (!product) return res.status(404).json({ ok: false, error: "not_found" });
+      const url = `/uploads/${req.file.filename}`;
+      await query(
+        `INSERT INTO product_images (product_id, url, sort_order)
+         VALUES ($1, $2, COALESCE((SELECT MAX(sort_order)+1 FROM product_images WHERE product_id=$1), 0))`,
+        [product.id, url]
+      );
+      const full = await getProduct(product.id);
+      res.status(201).json({ ok: true, url, product: full });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** Inventory: set absolute qty per size (сверка). */
+router.post("/staff/inventory", requireAdmin, async (req, res, next) => {
+  try {
+    const { product_id, sizes } = req.body || {};
+    if (!product_id || !Array.isArray(sizes)) {
+      return res.status(400).json({ ok: false, error: "invalid_body" });
+    }
+    const result = await withTransaction(async (client) => {
+      const changes = [];
+      for (const s of sizes) {
+        const size = String(s.size || "").trim();
+        const qty = Math.max(0, Number(s.qty) || 0);
+        if (!size) continue;
+        const { rows: cur } = await client.query(
+          `SELECT qty FROM product_sizes WHERE product_id = $1 AND size = $2 FOR UPDATE`,
+          [product_id, size]
+        );
+        const prev = cur[0] ? Number(cur[0].qty) : 0;
+        const delta = qty - prev;
+        await client.query(
+          `INSERT INTO product_sizes (product_id, size, qty) VALUES ($1,$2,$3)
+           ON CONFLICT (product_id, size) DO UPDATE SET qty = EXCLUDED.qty`,
+          [product_id, size, qty]
+        );
+        if (delta !== 0) {
+          await client.query(
+            `INSERT INTO stock_movements (product_id, size, delta, reason, ref_type, ref_id)
+             VALUES ($1,$2,$3,'inventory','product',$4)`,
+            [product_id, size, delta, product_id]
+          );
+        }
+        changes.push({ size, prev, qty, delta });
+      }
+      return changes;
+    });
+    const product = await getProduct(product_id);
+    res.json({ ok: true, changes: result, product });
   } catch (err) {
     next(err);
   }

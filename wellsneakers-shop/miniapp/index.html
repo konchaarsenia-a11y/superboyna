@@ -15,15 +15,16 @@
       }
       *{box-sizing:border-box}
       body{margin:0;font-family:var(--body);background:var(--bg);color:var(--ink);padding:16px 16px calc(88px + var(--safe-b))}
-      h1{font-family:var(--display);letter-spacing:.06em;text-transform:uppercase;font-weight:400;font-size:30px;margin:0 0 4px}
-      .sub{color:var(--muted);margin:0 0 14px;font-size:13px}
-      .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
-      .tab{min-height:42px;border-radius:10px;border:1px solid var(--line);background:rgba(28,29,33,.95);color:var(--ink);font-family:var(--display);letter-spacing:.05em;text-transform:uppercase}
+      h1{font-family:var(--display);letter-spacing:.06em;text-transform:uppercase;font-weight:400;font-size:28px;margin:0 0 4px}
+      .sub{color:var(--muted);margin:0 0 12px;font-size:13px}
+      .tabs{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
+      .tabs.admin{grid-template-columns:repeat(4,1fr)}
+      .tab{min-height:40px;border-radius:10px;border:1px solid var(--line);background:rgba(28,29,33,.95);color:var(--ink);font-family:var(--display);letter-spacing:.04em;text-transform:uppercase;font-size:14px;padding:0 4px}
       .tab.on{background:var(--rug);border-color:transparent}
       .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
-      label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
-      input,select,textarea{width:100%;min-height:48px;border-radius:12px;border:2px solid #111;background:#f5f2ec;color:#111;padding:0 12px;font:inherit}
-      textarea{min-height:80px;padding:10px 12px}
+      label{display:block;font-size:12px;color:var(--muted);margin:8px 0 6px}
+      input,select,textarea{width:100%;min-height:46px;border-radius:12px;border:2px solid #111;background:#f5f2ec;color:#111;padding:0 12px;font:inherit}
+      textarea{min-height:72px;padding:10px 12px}
       .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
       .sizes{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
       .size{min-width:52px;min-height:48px;border-radius:10px;border:2px solid #111;background:#1c1d21;color:var(--ink);font-family:var(--display);font-size:18px}
@@ -31,7 +32,7 @@
       .hit,.order{padding:12px;border-radius:12px;border:1px dashed var(--line);margin-top:8px}
       .hit{cursor:pointer}
       .hit strong,.order strong{font-family:var(--display);letter-spacing:.04em;text-transform:uppercase}
-      .btn{width:100%;min-height:52px;border:0;border-radius:12px;background:var(--rug);color:#fff;font-family:var(--display);font-size:20px;letter-spacing:.06em;text-transform:uppercase}
+      .btn{width:100%;min-height:50px;border:0;border-radius:12px;background:var(--rug);color:#fff;font-family:var(--display);font-size:18px;letter-spacing:.06em;text-transform:uppercase}
       .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
       .btn:disabled{opacity:.5}
       .toast{position:fixed;left:16px;right:16px;bottom:calc(16px + var(--safe-b));background:#f5f2ec;color:#111;border:2px solid #111;border-radius:10px;padding:12px;font-family:var(--display);letter-spacing:.05em;text-transform:uppercase;display:none;z-index:20}
@@ -39,32 +40,36 @@
       .price-line{display:flex;justify-content:space-between;margin-top:10px;font-family:var(--display);font-size:22px;letter-spacing:.05em;text-transform:uppercase}
       .panel{display:none}.panel.on{display:block}
       .status-btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-      .chip{min-height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--line);background:#121316;color:var(--ink);font-size:12px}
+      .chip{min-height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--line);background:#121316;color:var(--ink);font-size:12px;display:inline-flex;align-items:center}
+      .inv-row{display:grid;grid-template-columns:64px 1fr 72px;gap:8px;align-items:center;margin-top:8px}
+      .thumb{width:100%;max-height:140px;object-fit:cover;border-radius:10px;margin-top:8px;border:1px solid var(--line)}
+      .admin-only{display:none} body.is-admin .admin-only{display:block}
     </style>
   </head>
   <body>
     <h1>Операционка</h1>
     <p class="sub" id="who">Загрузка…</p>
-    <div class="tabs">
+    <div class="tabs" id="tabs">
       <button class="tab on" data-tab="sale" type="button">Продажа</button>
       <button class="tab" data-tab="orders" type="button">Заказы</button>
-      <button class="tab" data-tab="stock" type="button">Привоз</button>
+      <button class="tab admin-only" data-tab="product" type="button">Товар</button>
+      <button class="tab admin-only" data-tab="stock" type="button">Склад</button>
     </div>
 
     <section class="panel on" id="panel-sale">
       <div class="card">
-        <label>Артикул или название</label>
+        <label style="margin-top:0">Артикул или название</label>
         <input id="q" placeholder="например 1577" autocomplete="off" />
         <div id="hits"></div>
       </div>
       <div class="card" id="picked" hidden>
         <div id="pickedTitle"></div>
         <div class="sizes" id="sizes"></div>
-        <div class="row" style="margin-top:12px">
+        <div class="row">
           <div><label>Цена BYN</label><input id="price" type="number" step="0.01" /></div>
           <div><label>Скидка BYN</label><input id="discount" type="number" step="0.01" value="0" /></div>
         </div>
-        <label style="margin-top:10px">Комментарий</label>
+        <label>Комментарий</label>
         <textarea id="comment" placeholder="необязательно"></textarea>
         <div class="price-line"><span>Итого</span><span id="total">0 BYN</span></div>
         <button class="btn" id="sell" style="margin-top:12px" type="button">Продать</button>
@@ -75,16 +80,45 @@
       <div class="card" id="ordersList"><div class="sub">Загрузка заказов…</div></div>
     </section>
 
-    <section class="panel" id="panel-stock">
-      <div class="card" id="stockAdmin">
-        <p class="sub">Только админ: докинуть размер и сразу открыть бирку.</p>
-        <label>Артикул товара</label>
-        <input id="stockArticle" placeholder="1577" />
-        <div class="row" style="margin-top:10px">
+    <section class="panel admin-only" id="panel-product">
+      <div class="card">
+        <p class="sub" style="margin:0">Новый товар + размеры + фото. После сохранения — бирки.</p>
+        <label style="margin-top:10px">Название</label>
+        <input id="pName" placeholder="NIKE AIR FORCE 1 …" />
+        <div class="row">
+          <div><label>Бренд</label><input id="pBrand" placeholder="NIKE" /></div>
+          <div><label>Артикул</label><input id="pArticle" placeholder="авто" /></div>
+        </div>
+        <label>Цена BYN</label>
+        <input id="pPrice" type="number" step="0.01" value="150" />
+        <label>Размеры (размер:кол-во через запятую)</label>
+        <input id="pSizes" placeholder="41:2, 42:1, 43:1" />
+        <label>Фото</label>
+        <input id="pPhoto" type="file" accept="image/*" />
+        <button class="btn" id="pCreate" style="margin-top:12px" type="button">Создать товар</button>
+        <div id="pResult" class="sub" style="margin-top:10px"></div>
+      </div>
+    </section>
+
+    <section class="panel admin-only" id="panel-stock">
+      <div class="card">
+        <p class="sub" style="margin:0">Привоз (+ к остатку) или инвентаризация (= сверка).</p>
+        <label style="margin-top:10px">Найти товар</label>
+        <input id="stockQ" placeholder="артикул / название" />
+        <div id="stockHits"></div>
+      </div>
+      <div class="card" id="stockCard" hidden>
+        <div id="stockTitle"></div>
+        <img class="thumb" id="stockImg" hidden alt="" />
+        <div class="row">
           <div><label>Размер</label><input id="stockSize" placeholder="42" /></div>
-          <div><label>Кол-во</label><input id="stockQty" type="number" value="1" min="1" /></div>
+          <div><label>Кол-во +</label><input id="stockQty" type="number" value="1" min="1" /></div>
         </div>
         <button class="btn" id="stockAdd" style="margin-top:12px" type="button">Приход + бирка</button>
+        <hr style="border:0;border-top:1px solid var(--line);margin:16px 0" />
+        <p class="sub">Инвентаризация — поставить фактическое количество</p>
+        <div id="invSizes"></div>
+        <button class="btn ghost" id="invSave" style="margin-top:12px" type="button">Сохранить сверку</button>
       </div>
       <div class="card" id="arrivals"><div class="sub">Последние приходы…</div></div>
     </section>
@@ -93,6 +127,7 @@
 
     <script>
       const API = localStorage.getItem('ws_api') || 'http://127.0.0.1:3080/api';
+      const ORIGIN = API.replace(/\/api\/?$/, '');
       const tg = window.Telegram && window.Telegram.WebApp;
       if (tg) { tg.ready(); tg.expand(); }
 
@@ -101,19 +136,19 @@
         if (tg && tg.initData) h['x-telegram-init-data'] = tg.initData;
         else {
           h['x-staff-role'] = localStorage.getItem('ws_role') || 'admin';
-          h['x-telegram-id'] = localStorage.getItem('ws_tg') || '1';
+          h['x-telegram-id'] = localStorage.getItem('ws_tg') || '650923866';
           h['x-staff-name'] = 'Dev';
         }
         return h;
       }
-
       async function api(path, opts = {}) {
         const headers = staffHeaders(opts.headers || {});
-        if (opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+        if (opts.body && !(opts.body instanceof FormData) && !headers['Content-Type']) {
+          headers['Content-Type'] = 'application/json';
+        }
         const r = await fetch(API + path, { ...opts, headers });
         return r.json();
       }
-
       const toast = document.getElementById('toast');
       function showToast(t) {
         toast.textContent = t;
@@ -124,6 +159,7 @@
       let staff = null;
       let selected = null;
       let selectedSize = null;
+      let stockProduct = null;
 
       document.querySelectorAll('.tab').forEach(btn => {
         btn.onclick = () => {
@@ -132,6 +168,7 @@
           document.getElementById('panel-' + btn.dataset.tab).classList.add('on');
           if (btn.dataset.tab === 'orders') loadOrders();
           if (btn.dataset.tab === 'stock') loadArrivals();
+          if (btn.dataset.tab === 'product') suggestArticle();
         };
       });
 
@@ -141,7 +178,7 @@
         document.getElementById('total').textContent = Math.max(0, price - discount).toFixed(2) + ' BYN';
       }
 
-      async function search() {
+      async function searchSale() {
         const q = document.getElementById('q').value.trim();
         if (!q) { document.getElementById('hits').innerHTML = ''; return; }
         const data = await api('/staff/search?q=' + encodeURIComponent(q));
@@ -167,7 +204,6 @@
         ).join('');
         recalc();
       });
-
       document.getElementById('sizes').addEventListener('click', (e) => {
         const btn = e.target.closest('.size');
         if (!btn) return;
@@ -176,8 +212,8 @@
       });
       document.getElementById('price').oninput = recalc;
       document.getElementById('discount').oninput = recalc;
-      let t = null;
-      document.getElementById('q').oninput = () => { clearTimeout(t); t = setTimeout(search, 220); };
+      let tSale = null;
+      document.getElementById('q').oninput = () => { clearTimeout(tSale); tSale = setTimeout(searchSale, 220); };
 
       document.getElementById('sell').onclick = async () => {
         if (!selected || !selectedSize) return showToast('Выберите размер');
@@ -229,19 +265,136 @@
         loadOrders();
       });
 
-      async function loadArrivals() {
-        if (staff && staff.role !== 'admin') {
-          document.getElementById('stockAdmin').innerHTML = '<div class="sub">Привоз только для админа. Продавец — вкладка «Продажа».</div>';
-          document.getElementById('arrivals').innerHTML = '';
-          return;
+      async function suggestArticle() {
+        const data = await api('/staff/next-article');
+        if (data.ok && !document.getElementById('pArticle').value) {
+          document.getElementById('pArticle').value = data.article;
         }
+      }
+      function parseSizes(str) {
+        return String(str || '').split(/[,;]+/).map(part => {
+          const m = part.trim().match(/^(.+?)\s*[:=x×]\s*(\d+)$/i) || part.trim().match(/^(\S+)\s+(\d+)$/);
+          if (!m) return null;
+          return { size: m[1].trim(), qty: Number(m[2]) };
+        }).filter(Boolean);
+      }
+      document.getElementById('pCreate').onclick = async () => {
+        const name = document.getElementById('pName').value.trim();
+        const article = document.getElementById('pArticle').value.trim();
+        const brand = document.getElementById('pBrand').value.trim();
+        const price_byn = Number(document.getElementById('pPrice').value) || 0;
+        const sizes = parseSizes(document.getElementById('pSizes').value);
+        if (!name || !article) return showToast('имя и артикул');
+        const data = await api('/staff/products', {
+          method: 'POST',
+          body: JSON.stringify({ name, article, brand, price_byn, sizes })
+        });
+        if (!data.ok) return showToast(data.error || 'ошибка');
+        const file = document.getElementById('pPhoto').files[0];
+        if (file) {
+          const fd = new FormData();
+          fd.append('photo', file);
+          await api('/staff/products/' + data.product.id + '/photo', { method: 'POST', body: fd });
+        }
+        const links = (data.labelUrls || []).map(u => `<a class="chip" href="${ORIGIN}${u}" target="_blank">бирка</a>`).join(' ');
+        document.getElementById('pResult').innerHTML = `Создан арт. ${data.product.article}. ${links}`;
+        showToast('товар создан');
+        (data.labelUrls || []).slice(0, 1).forEach(u => window.open(ORIGIN + u, '_blank'));
+      };
+
+      let tStock = null;
+      document.getElementById('stockQ').oninput = () => {
+        clearTimeout(tStock);
+        tStock = setTimeout(async () => {
+          const q = document.getElementById('stockQ').value.trim();
+          if (!q) { document.getElementById('stockHits').innerHTML = ''; return; }
+          const data = await api('/staff/search?all=1&q=' + encodeURIComponent(q));
+          let products = data.products || [];
+          document.getElementById('stockHits').innerHTML = products.map(p => `
+            <div class="hit" data-id="${p.id}">
+              <strong>${p.name}</strong>
+              <div class="sub" style="margin:4px 0 0">арт. ${p.article}</div>
+            </div>`).join('') || '<div class="sub">Не найдено</div>';
+        }, 220);
+      };
+      document.getElementById('stockQ').addEventListener('keydown', async (e) => {
+        if (e.key !== 'Enter') return;
+        const q = document.getElementById('stockQ').value.trim();
+        const data = await api('/staff/search?all=1&q=' + encodeURIComponent(q));
+        let p = (data.products || []).find(x => x.article === q) || (data.products || [])[0];
+        if (p) openStockProduct(p.id);
+      });
+      document.getElementById('stockHits').addEventListener('click', (e) => {
+        const hit = e.target.closest('.hit');
+        if (!hit) return;
+        openStockProduct(hit.dataset.id);
+      });
+
+      async function openStockProduct(id) {
+        const data = await api('/staff/products/' + id);
+        if (!data.ok) return showToast('не найден');
+        stockProduct = data.product;
+        document.getElementById('stockCard').hidden = false;
+        document.getElementById('stockTitle').innerHTML =
+          `<strong style="font-family:var(--display);font-size:20px;letter-spacing:.05em;text-transform:uppercase">${stockProduct.name}</strong>
+           <div class="sub">арт. ${stockProduct.article} · ${Number(stockProduct.price_byn).toFixed(0)} BYN</div>`;
+        const img = (stockProduct.images || [])[0];
+        const imgEl = document.getElementById('stockImg');
+        if (img && img.url) {
+          imgEl.src = img.url.startsWith('http') ? img.url : (ORIGIN + img.url);
+          imgEl.hidden = false;
+        } else {
+          imgEl.hidden = true;
+        }
+        const sizes = stockProduct.sizes || [];
+        document.getElementById('invSizes').innerHTML = sizes.length
+          ? sizes.map(s => `
+            <div class="inv-row">
+              <div class="chip">${s.size}</div>
+              <input type="number" min="0" value="${s.qty}" data-size="${s.size}" />
+              <a class="chip" href="${ORIGIN}/api/labels/${stockProduct.id}?size=${encodeURIComponent(s.size)}" target="_blank">бирка</a>
+            </div>`).join('')
+          : '<div class="sub">Размеров ещё нет — добавьте привозом</div>';
+      }
+
+      document.getElementById('stockAdd').onclick = async () => {
+        if (!stockProduct) return showToast('выберите товар');
+        const size = document.getElementById('stockSize').value.trim();
+        const qty = Number(document.getElementById('stockQty').value) || 1;
+        const data = await api('/staff/stock', {
+          method: 'POST',
+          body: JSON.stringify({ product_id: stockProduct.id, size, qty })
+        });
+        if (!data.ok) return showToast(data.error || 'ошибка');
+        showToast('приход ok');
+        window.open(ORIGIN + data.labelUrl, '_blank');
+        openStockProduct(stockProduct.id);
+        loadArrivals();
+      };
+
+      document.getElementById('invSave').onclick = async () => {
+        if (!stockProduct) return;
+        const sizes = [...document.querySelectorAll('#invSizes input[data-size]')].map(inp => ({
+          size: inp.dataset.size,
+          qty: Number(inp.value) || 0
+        }));
+        const data = await api('/staff/inventory', {
+          method: 'POST',
+          body: JSON.stringify({ product_id: stockProduct.id, sizes })
+        });
+        if (!data.ok) return showToast(data.error || 'ошибка');
+        showToast('сверка сохранена');
+        openStockProduct(stockProduct.id);
+      };
+
+      async function loadArrivals() {
         const data = await api('/staff/arrivals');
-        document.getElementById('arrivals').innerHTML = (data.arrivals || []).slice(0, 30).map(a => `
+        document.getElementById('arrivals').innerHTML = (data.arrivals || []).slice(0, 20).map(a => `
           <div class="order">
             <strong>${a.product_name}</strong>
             <div class="sub">арт. ${a.article} · ${a.size} × ${a.qty} · ${a.label_printed ? 'распечатан' : 'не распечатан'}</div>
             <div class="status-btns">
-              <a class="chip" href="${API}/labels/${a.product_id}?size=${encodeURIComponent(a.size)}" target="_blank">Бирка</a>
+              <a class="chip" href="${ORIGIN}/api/labels/${a.product_id}?size=${encodeURIComponent(a.size)}" target="_blank">Бирка</a>
               ${a.label_printed ? '' : `<button class="chip" data-print="${a.id}" type="button">Отметить печать</button>`}
             </div>
           </div>`).join('') || '<div class="sub">Пусто</div>';
@@ -253,28 +406,18 @@
         if (data.ok) { showToast('распечатан'); loadArrivals(); }
       });
 
-      document.getElementById('stockAdd').onclick = async () => {
-        const article = document.getElementById('stockArticle').value.trim();
-        const size = document.getElementById('stockSize').value.trim();
-        const qty = Number(document.getElementById('stockQty').value) || 1;
-        const found = await api('/staff/search?q=' + encodeURIComponent(article));
-        const p = (found.products || []).find(x => x.article === article) || (found.products || [])[0];
-        if (!p) return showToast('товар не найден');
-        const data = await api('/staff/stock', {
-          method: 'POST',
-          body: JSON.stringify({ product_id: p.id, size, qty })
-        });
-        if (!data.ok) return showToast(data.error || 'ошибка');
-        showToast('приход ok');
-        window.open(API + data.labelUrl, '_blank');
-        loadArrivals();
-      };
+      // catalog with inStock=0 for admin stock search of zero items
+      // enhance staff search to include zero - add API? For now catalog fallback above.
 
       (async () => {
         const me = await api('/staff/me');
         staff = me.staff;
         document.getElementById('who').textContent =
           (staff?.name || 'Staff') + ' · ' + (staff?.role || '?') + (staff?.dev ? ' · dev' : ' · telegram');
+        if (staff?.role === 'admin') {
+          document.body.classList.add('is-admin');
+          document.getElementById('tabs').classList.add('admin');
+        }
         document.getElementById('q').focus();
       })();
     </script>

@@ -56,22 +56,26 @@ export async function getProduct(idOrArticle) {
   return rows[0] || null;
 }
 
-/** Kassa-style autocomplete: article / name, only sizes with qty > 0 */
-export async function searchForSale(filter) {
+/** Kassa-style autocomplete: article / name. By default only sizes with qty > 0. */
+export async function searchForSale(filter, { includeZero = false } = {}) {
   const q = String(filter || "").trim();
   if (!q) return [];
+  const having = includeZero
+    ? "TRUE"
+    : "SUM(CASE WHEN s.qty > 0 THEN s.qty ELSE 0 END) > 0";
+  const sizeFilter = includeZero ? "" : "FILTER (WHERE s.qty > 0)";
   const { rows } = await query(
     `
     SELECT p.id, p.name, p.brand, p.article, p.barcode, p.price_byn,
       COALESCE(json_agg(json_build_object('size', s.size, 'qty', s.qty) ORDER BY s.size)
-        FILTER (WHERE s.qty > 0), '[]') AS sizes
+        ${sizeFilter}, '[]') AS sizes
     FROM products p
     LEFT JOIN product_sizes s ON s.product_id = p.id
     WHERE p.active AND (
       p.article ILIKE $1 OR p.barcode ILIKE $1 OR p.name ILIKE $2
     )
     GROUP BY p.id
-    HAVING SUM(CASE WHEN s.qty > 0 THEN s.qty ELSE 0 END) > 0
+    HAVING ${having}
     ORDER BY
       CASE WHEN p.article = $3 OR p.barcode = $3 THEN 0 ELSE 1 END,
       p.name
