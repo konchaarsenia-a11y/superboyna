@@ -386,7 +386,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-09 stats-cutter-btn-h1"
+      deployMarker: "2026-09-10 fix-pp-slot2-ndel-h1"
     };
   }
 
@@ -4492,7 +4492,22 @@ async function saveOrder_(params, env, asBooking) {
   const meta = {
     orderPrice: params.orderPrice,
     ppSlot: sanitizePpSlotLabel_(params.ppSlot != null ? params.ppSlot : params.deliverySlot),
-    deliverySlot: params.deliverySlot,
+    deliverySlot: (function () {
+      const forced = parseForcedPpSlotD1_(
+        params.ppSlot != null ? params.ppSlot : params.deliverySlot,
+        Math.max(1, Number(params.deliveriesN || params.deliveries) || 2)
+      );
+      if (forced >= 1) return forced;
+      const n = Number(params.deliverySlot);
+      return isFinite(n) && n >= 1 ? n : params.deliverySlot;
+    })(),
+    deliveriesN: (function () {
+      const n = Number(params.deliveriesN || params.deliveries);
+      if (isFinite(n) && n >= 1) return n;
+      const frac = String(params.ppSlot || "").match(/\/\s*(\d+)\s*$/);
+      if (frac) return Math.max(1, Number(frac[1]) || 0);
+      return undefined;
+    })(),
     ppHint: params.ppHint,
     ppPartner: params.ppPartner,
     deliveryAfter: params.deliveryAfter,
@@ -4506,6 +4521,17 @@ async function saveOrder_(params, env, asBooking) {
     segment: segSave,
     orderType: params.orderType || srcSave
   };
+  if (meta.ppSlot && meta.deliveriesN >= 1) {
+    const slotN = parseForcedPpSlotD1_(meta.ppSlot, meta.deliveriesN);
+    if (slotN >= 1) {
+      meta.deliverySlot = slotN;
+      meta.ppSlot = formatPpSlotLabelD1_(slotN, meta.deliveriesN);
+      meta.ppHint =
+        meta.deliveriesN === 1
+          ? "ПП N=1"
+          : "ПП " + meta.ppSlot;
+    }
+  }
 
   // переименование при edit: снять старый nick (UI delete может не успеть)
   if (editClient && editClient.toLowerCase() !== client.toLowerCase()) {
@@ -7415,7 +7441,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1 слоты недели перезаписаны из Sheets (пустые дни очищены).",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-09 stats-cutter-btn-h1"
+        deployMarker: "2026-09-10 fix-pp-slot2-ndel-h1"
       };
     } catch (eResync) {
       return {
@@ -13039,15 +13065,77 @@ async function getPpFactCostD1_(params, env, ctx) {
       factRaw == null || factRaw === ""
         ? null
         : Number(String(factRaw).replace(",", ".").replace(/[^\d.-]/g, "")) || 0;
+    const matchKey = normalizeMatchKey_(local.nick || nick);
+    const asOfIso = resolveAsOfIsoD1_(params);
+    let deliverySlot = 1;
+    let suggestedSlot = 1;
+    let needManualSlot = false;
+    let ppSlotLbl = "";
+    if (deliveries >= 2) {
+      try {
+        // Тот же расчёт слота, что getPpOrderSuggest — не stale local.deliverySlot||1
+        const hasAnchor =
+          (await hasPpSlotAnchorD1_(env, matchKey)) || !!local.hasPpSlotAnchor;
+        needManualSlot = !hasAnchor;
+        const prior = await countPpPriorDeliveriesMonthD1_(
+          env,
+          local.nick || nick,
+          matchKey,
+          asOfIso
+        );
+        const stored = await lookupStoredPpSlotDateD1_(
+          env,
+          local.nick || nick,
+          matchKey,
+          asOfIso
+        );
+        const forced = parseForcedPpSlotD1_(
+          (params &&
+            (params.deliverySlot != null
+              ? params.deliverySlot
+              : params.slot != null
+                ? params.slot
+                : params.ppSlot)) ||
+            "",
+          deliveries
+        );
+        if (forced >= 1) {
+          deliverySlot = forced;
+          suggestedSlot = forced;
+          needManualSlot = false;
+        } else if (stored >= 1) {
+          deliverySlot = stored;
+          suggestedSlot = stored;
+        } else {
+          suggestedSlot = Math.min(deliveries, (Number(prior.count) || 0) + 1);
+          if (prior.lastSlot >= 1 && prior.count <= 0) {
+            suggestedSlot = prior.lastSlot >= 2 ? 1 : 2;
+          }
+          deliverySlot = suggestedSlot;
+        }
+        ppSlotLbl = formatPpSlotLabelD1_(deliverySlot, deliveries);
+      } catch (eSlotFact) {
+        needManualSlot = true;
+        deliverySlot = 1;
+        suggestedSlot = 1;
+        ppSlotLbl = formatPpSlotLabelD1_(1, deliveries);
+      }
+    } else if (deliveries === 1) {
+      deliverySlot = 1;
+      suggestedSlot = 1;
+      ppSlotLbl = "1";
+      needManualSlot = false;
+    }
     const out = {
       status: "success",
       nick: local.nick || nick,
       factCost: factCost,
       deliveries: deliveries,
-      deliverySlot: Number(local.deliverySlot || local.suggestedSlot) || 1,
-      needManualSlot: deliveries >= 2 ? !!local.needManualSlot || local.needManualSlot == null : false,
-      ppSlot: local.ppSlot || "",
-      suggestedSlot: Number(local.suggestedSlot || local.deliverySlot) || 1,
+      deliverySlot: deliverySlot,
+      needManualSlot: needManualSlot,
+      ppSlot: ppSlotLbl,
+      suggestedSlot: suggestedSlot,
+      hasPpSlotAnchor: deliveries >= 2 ? !needManualSlot : true,
       cutover: true,
       fromD1: true,
       fromGas: false,
@@ -13055,17 +13143,6 @@ async function getPpFactCostD1_(params, env, ctx) {
       priceCanon: "d1-primary",
       d1Verified: true
     };
-    // N≥2 без явного слота в snap — безопаснее спросить / добрать GAS в фоне
-    if (deliveries >= 2 && (local.needManualSlot == null || local.ppSlot == null || local.ppSlot === "")) {
-      out.needManualSlot = true;
-      if (ctx && typeof ctx.waitUntil === "function") {
-        ctx.waitUntil(
-          fromGas_().catch(function () {
-            return null;
-          })
-        );
-      }
-    }
     return out;
   }
   return (await fromGas_()) || { status: "error", message: "gas_proxy_failed", cutover: true, action: "getPpFactCost" };

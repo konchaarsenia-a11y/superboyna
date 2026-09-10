@@ -2306,21 +2306,21 @@
     }
 
     function currentPpSlotPayload_() {
-      if (orderType !== "pp") return { deliverySlot: "", ppSlot: "" };
+      if (orderType !== "pp") return { deliverySlot: "", ppSlot: "", deliveriesN: "" };
       var slot = ppDeliverySlotManual;
       var n = Number(ppDeliveriesN) || 0;
       // N=1: никогда не писать «1/2» / «2/2»
       if (n === 1) {
-        return { deliverySlot: 1, ppSlot: "1" };
+        return { deliverySlot: 1, ppSlot: "1", deliveriesN: 1 };
       }
       if (n >= 2) {
         if (!(slot >= 1) && !ppNeedManualSlot) slot = 1;
-        if (!(slot >= 1)) return { deliverySlot: "", ppSlot: "" };
-        return { deliverySlot: slot, ppSlot: slot + "/" + n };
+        if (!(slot >= 1)) return { deliverySlot: "", ppSlot: "", deliveriesN: n };
+        return { deliverySlot: slot, ppSlot: slot + "/" + n, deliveriesN: n };
       }
       // N ещё неизвестен — не выдумывать знаменатель 2
-      if (!(slot >= 1)) return { deliverySlot: "", ppSlot: "" };
-      return { deliverySlot: slot, ppSlot: String(slot) };
+      if (!(slot >= 1)) return { deliverySlot: "", ppSlot: "", deliveriesN: "" };
+      return { deliverySlot: slot, ppSlot: String(slot), deliveriesN: "" };
     }
 
     function setOrderType(t) {
@@ -2559,15 +2559,22 @@
           if (inp) inp.placeholder = "N=" + (ppDeliveriesN || "?");
           ppNeedManualSlot = !!(res.needManualSlot && ppDeliveriesN >= 2);
           var suggested = Number(res.suggestedSlot || res.deliverySlot) || 1;
+          var hasManual = (ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2);
+          // Не затирать слот, который уже выбрал менеджер / getPpOrderSuggest (баг Viihrova: 2→1)
           if (ppNeedManualSlot) {
-            ppDeliverySlotManual = suggested;
+            if (!hasManual) ppDeliverySlotManual = suggested;
+          } else if (!hasManual && res.deliverySlot >= 1 && ppDeliveriesN >= 2) {
+            ppDeliverySlotManual = Number(res.deliverySlot) || 1;
           }
           if (hint) {
             if (ppNeedManualSlot) {
               hint.textContent = "N=" + ppDeliveriesN + " · какая сейчас доставка? (один раз)";
             } else if (ppDeliveriesN) {
+              var slotShow = hasManual
+                ? ppDeliverySlotManual
+                : (res.deliverySlot || suggested || "");
               hint.textContent = "Доставок в месяц: N=" + ppDeliveriesN +
-                (res.deliverySlot ? (" · слот " + res.deliverySlot) : "");
+                (slotShow ? (" · слот " + slotShow) : "");
             } else {
               hint.textContent = "";
             }
@@ -2576,13 +2583,10 @@
           updatePpSlotPickUi_({
             needManualSlot: ppNeedManualSlot,
             deliveriesN: ppDeliveriesN,
-            suggestedSlot: suggested,
+            suggestedSlot: hasManual ? ppDeliverySlotManual : suggested,
             everSeenInApp: res.everSeenInApp,
             daysSinceLastDelivery: res.daysSinceLastDelivery
           });
-          if (!ppNeedManualSlot && res.deliverySlot >= 1 && ppDeliveriesN >= 2) {
-            ppDeliverySlotManual = Number(res.deliverySlot) || 1;
-          }
         }
       } catch (e) {}
     }
