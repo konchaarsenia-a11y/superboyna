@@ -1,3 +1,5 @@
+- [~] **clasp CI deploy 2026-09-10:** Action `clasp-deploy` на main: pull → overlay `Code.gs`→«Код» → push → update webapp `AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7` · нужен секрет **`CLASPRC_JSON`** (весь `~/.clasprc.json`; есть у Grok Bot / КЕНТ GB) · [DEPLOY.md](./DEPLOY.md)
+
 - [~] **ПП слот 2 → в просмотре 1/2 2026-09-10:** refreshPpFactPrice (getPpFactCost) затирал слот 2 после suggest; D1 factCost отдавал stale slot=1. Fix: не overwrite manual; factCost считает слот как suggest; save пишет deliveriesN · marker `fix-pp-slot2-ndel-h1` · Pages `v71115941` · **Worker Deploy** · Viihrova 16.09: после Deploy пересохранить слот 2 (write из VM 403)
 
 - [~] **Varka partner-fixes 3.3.34 2026-09-09:** rename 4 точек + V32; история без deliver; купон photo+qty; qty blur; Delete заявок; access pending/accept/notify; staff hide grant; empty-day speed · Pages varka 3.3.34 · **Deploy Code.gs** (`PARTNER_PROD_V32`) · Worker

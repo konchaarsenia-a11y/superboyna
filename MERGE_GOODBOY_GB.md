@@ -1,6 +1,6 @@
 # Handoff: Goodboy GB_* → Code.gs Бойни
 
-**Владельцу:** после merge в `main` достаточно вставить весь `Code.gs` из репо → Deploy.  
+**Владельцу:** после merge в `main` CI `clasp-deploy` сам заливает `Code.gs`. Потом `?action=gbEnsureSheets`.  
 **Агенту Бойни:** если в Script уже есть правки поверх git — **не затирай файл целиком чужим куском**. Вливай только патч ниже.
 
 Связано: [GOODBOY.md](./GOODBOY.md), сниппет [`goodboy/CODE_GS_GOODBOY.snippet.gs`](./goodboy/CODE_GS_GOODBOY.snippet.gs), API в [PROJECT.md](./PROJECT.md).
@@ -89,7 +89,7 @@
 
 ## После Deploy (владелец)
 
-1. Apps Script → вставить `Code.gs` из `main` (или патч выше) → **Deploy → New deployment** / Edit version.  
+1. Merge в `main` → дождаться зелёного Action `clasp-deploy` (не вставлять код и не создавать новое webapp-развёртывание). Аварийный paste: [ИНСТРУКЦИЯ.md](./ИНСТРУКЦИЯ.md).  
 2. Открыть:  
    `…/exec?action=gbEnsureSheets&callback=cb`  
    → в книге появятся 3 листа `GB_*`.  

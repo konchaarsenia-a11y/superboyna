@@ -35,7 +35,7 @@ Environment: `.cursor/environment.json`.
 
 - Тест API из VM: `bash scripts/test-api.sh` / skill `test-api`, клиент только `zzz_test`.
 - Не запускать `finishFullWeekProduction` без явного ОК.
-- Deploy Apps Script делает владелец; в git код пушить сам, напоминать только про Deploy.
+- **Deploy Apps Script = GitHub Action `clasp-deploy` на `main`.** Агенты мержат `Code.gs` в main и не просят вставить код в Script Editor. Секрет `CLASPRC_JSON` — [DEPLOY.md](./DEPLOY.md).
 - Environment/Builds/Secrets — в [Cloud Agents dashboard](https://cursor.com/dashboard/cloud-agents#environments); секреты не коммитить.
 - **People canon:** LIVE people-write = D1 accept + фон GAS + `pollPeopleWrite`; toast «Точно …» только при `sheetsVerified`. Не блокировать UI полным await GAS и не врать success до Sheets. Off-week → только calendar/`saveBooking`. Подробно: [PEOPLE_CANON.md](./boinya-c/docs/PEOPLE_CANON.md), [WEEK_CALENDAR_CANON.md](./boinya-c/docs/WEEK_CALENDAR_CANON.md).
 
@@ -55,9 +55,9 @@ Cloud Agent **не может** сохранить Automation за владел�
 - `[~]` частично (часто: код в git, live Deploy ещё старый)  
 - `[ ]` не сделано  
 
-Не закрывать `[x]`, пока фича не подтверждена кодом или словами владельца. Deploy в Apps Script делает владелец — тогда агент переводит `[~]` → `[x]` после его «задеплоил / работает».
+Не закрывать `[x]`, пока фича не подтверждена кодом или словами владельца. Deploy `Code.gs` — CI clasp на `main`; `[~]` → `[x]` после зелёного Action (или слов владельца «задеплоил / работает»). Не просить вставить `Code.gs` в редактор.
 
-**Пуш:** после готового фикса/фичи в `app.html` / `Code.gs` / `TZ.md` — сразу commit + push на `main` (Pages). Не ждать «пуш». Напоминать только Deploy Code.gs, если трогали бэкенд.
+**Пуш:** после готового фикса/фичи в `app.html` / `Code.gs` / `TZ.md` — сразу commit + push на `main` (Pages). Не ждать «пуш». `Code.gs` на main заливает CI (`clasp-deploy`); не просить Арсения вставлять код. Секреты не коммитить.
 
 Тест: `scripts/test-api.ps1`, клиент `zzz_test`.  
 Не закрывать неделю без явного ОК владельца.
@@ -76,7 +76,7 @@ Cloud Agent **не может** сохранить Automation за владел�
 | CRM / Календарь_Дат | **только чтение** |
 | Не трогать | заказы, нарезка, склад, Доступы, materialize/week, натив `gbi_` |
 
-Владельцу после merge в `main`: вставить весь `Code.gs` → Deploy → `?action=gbEnsureSheets`.  
+Владельцу после merge в `main`: дождаться CI `clasp-deploy` → `?action=gbEnsureSheets`.  
 Агенту Бойни при расхождении Script↔git: вливать **патч** по `MERGE_GOODBOY_GB.md`, не затирать файл.
 
 ---
@@ -108,13 +108,13 @@ Cloud Agent **не может** сохранить Automation за владел�
 
 1. Веб-агент вливает сниппет в **свой** актуальный `Code.gs`, commit/push.  
 2. Натив-агент не просит «вставь мой Code.gs целиком».  
-3. Deploy Apps Script — владелец.  
+3. Deploy Apps Script — CI clasp на `main` (не вставка в редактор).  
 4. Натив не правит `app.html`.  
 5. Подробности: [NATIVE.md](./NATIVE.md), [MERGE_NATIVE_AUTH.md](./MERGE_NATIVE_AUTH.md).
 
 ---
 
-**Пуш сам:** после рабочих правок `app.html` / `TZ.md` / связанных фронтовых файлов — **сразу commit + `git push origin main`** (Pages). Не ждать команды «пуш». `Code.gs` в git тоже пушить; Deploy Apps Script по-прежнему делает владелец.
+**Пуш сам:** после рабочих правок `app.html` / `TZ.md` / связанных фронтовых файлов — **сразу commit + `git push origin main`** (Pages). Не ждать команды «пуш». `Code.gs` в git тоже пушить; CI clasp на `main` зальёт в Apps Script. Не просить вставить `Code.gs`.
 
 ---
 
@@ -138,6 +138,6 @@ Cloud Agent **не может** сохранить Automation за владел�
 
 ### Deploy
 
-Владелец вставляет `Code.gs` → Deploy. Агент Deploy сам не делает.
+Merge `Code.gs` в **main** → Action `clasp-deploy` (push файла «Код» + update существующего webapp). Не просить вставить код в Script Editor. Секрет `CLASPRC_JSON`: [DEPLOY.md](./DEPLOY.md).
 
 Подробности нативки: [NATIVE.md](./NATIVE.md).

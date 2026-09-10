@@ -28,7 +28,7 @@ alwaysApply: false
 - Имена `action` и форматы basket/ответов — как в `app.html` и `PROJECT.md`.
 - После смены API: обновить оба слоя и smoke через skill `test-api` (`zzz_test`).
 - Goodboy smoke: `scripts/test-goodboy-api.sh`.
-- Живой Deploy делает владелец; в ответах — `[~]` в `TZ.md`, пока не подтвердил.
+- Живой Deploy: merge в `main` → CI `clasp-deploy` (см. `DEPLOY.md`). Не просить вставить `Code.gs`. `[~]` в `TZ.md`, пока Action не зелёный.
 
 ## Безопасность
 

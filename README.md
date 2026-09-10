@@ -17,13 +17,11 @@ superboyna/
 
 ## Деплой Apps Script
 
-1. Открыть [таблицу](https://docs.google.com/spreadsheets/d/1aBNcgobp5GNBKySjMKRWEDWWKebF5kqb5A-cZoDuvG8/edit) → **Расширения → Apps Script**.
-2. Заменить код на содержимое `Code.gs` из этого репозитория.
-3. **Один раз** выполнить функцию `setupSecrets` (или вручную: Настройки проекта → Свойства скрипта):
-   - `TELEGRAM_BOT_TOKEN` = токен бота
-   - `TELEGRAM_CHAT_ID` = ваш chat id
-4. **Развернуть → Управление развёртываниями → Изменить** (карандаш) → Новая версия → Развернуть.
-5. Скопировать URL `/exec` в `app.html` (`GOOGLE_WEBHOOK_URL`) и в `PROJECT.md`, если URL изменился.
+**Канон:** merge `Code.gs` в `main` → GitHub Action `clasp-deploy` пушит файл «Код» и обновляет существующий webapp. Вставлять код в Script Editor не нужно. Секрет `CLASPRC_JSON` и детали: [DEPLOY.md](./DEPLOY.md).
+
+`setupSecrets` (токен бота / chat id) — один раз в свойствах скрипта, CI это не трогает.
+
+Аварийный ручной Deploy (если Action красный): [ИНСТРУКЦИЯ.md](./ИНСТРУКЦИЯ.md). Не создавать новое webapp-развёртывание — сменится URL `/exec`.
 
 ## Деплой Mini App
 
@@ -45,7 +43,7 @@ superboyna/
 - Правило: `.cursor/rules/superboyna.mdc` (always on).
 - Тестовый клиент: `zzz_test`.
 - Не закрывать неделю без явного ОК владельца.
-- После правок — тест через webhook, потом инструкция владельцу на Deploy.
+- После правок `Code.gs` — push/merge в `main`, CI clasp сам зальёт. Не просить вставить код.
 
 ## Натив (Capacitor)
 
@@ -67,7 +65,8 @@ Pages: https://konchaarsenia-a11y.github.io/superboyna/varka/
 
 ## Документы
 
-- [ИНСТРУКЦИЯ.md](./ИНСТРУКЦИЯ.md) — **для владельца: куда вставить код**
+- [DEPLOY.md](./DEPLOY.md) — clasp CI, секрет `CLASPRC_JSON`
+- [ИНСТРУКЦИЯ.md](./ИНСТРУКЦИЯ.md) — аварийная вставка в Script Editor
 - [PROJECT.md](./PROJECT.md) — устройство таблиц и API
 - [TZ.md](./TZ.md) — ТЗ и отложенные задачи (токен бота)
 - [VAROK.md](./VAROK.md) — Varka (бесплатное пополнение)

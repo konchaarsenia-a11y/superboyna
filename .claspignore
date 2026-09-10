@@ -1,0 +1,5 @@
+# Do not `clasp push` from the git root.
+# That would upload Mini App HTML and delete remote Apps Script files
+# (for example index.html) that are not in this checkout.
+# CI pulls into a temp workdir and does not use this ignore file.
+*
