@@ -90,6 +90,6 @@ OC image       → product_images (если есть)
 - Логин → dashboard
 - Список товаров, карточка, вкладка Опции/Размер
 - Список производителей, касса (только просмотр)
-- Export/Import UI есть (скачивание XLSX — следующим шагом скриптом)
+- Export/Import UI есть; **XLSX Products выгружен** (read-only download, без Import)
 
 Никаких Save / Add / Import / Delete не выполнялось.
