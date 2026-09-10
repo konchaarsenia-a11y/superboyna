@@ -20,7 +20,8 @@
 | Приходы товаров | `catalog/product_arrival` | Справка по процессу |
 | Касса / продажи | `sale/sale` | Не переносим клиентов/историю |
 | Товары на складах | `report/product_warehouse` | Один склад: пр-т Дзержинского 19 |
-| Export / Import | `extension/export_import` | Выгрузка XLSX (Products + options) — предпочтительный способ |
+| Export / Import | `extension/export_import` | Выгрузка XLSX; вкладка Import есть (incremental) — **не запускаем** |
+| Касса | `sale/sale` | Рабочий офлайн-поток продаж — см. [`OPS_UX.md`](./OPS_UX.md) |
 
 ---
 
