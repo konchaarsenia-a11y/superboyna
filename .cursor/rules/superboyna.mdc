@@ -19,6 +19,7 @@ alwaysApply: true
 | `VAROK.md` | Varka — бесплатное партнёрское пополнение |
 | `varka/` | Mini App Varka; **не трогать** `Code.gs`/`app.html` Бойни |
 | `README.md` | Деплой и как тестировать |
+| `CODE_GS_CANON.md` | Один `Code.gs` на `main`; патч/сниппет, не replace |
 
 ## Параллельные продукты
 
@@ -73,6 +74,7 @@ alwaysApply: true
 10. Приоритет — незакрытые пункты чеклиста в `TZ.md` (особенно брони/материализация и навигация).
 11. **Пуш сам, без спроса:** как только фича/фикс в `app.html` / `Code.gs` / `TZ.md` готовы — сразу `git commit` + `git push origin HEAD` (Pages). Не писать «сказать пуш» / «залить?». Напомнить только про **Deploy Code.gs**, если менялся бэкенд. Секреты не коммитить.
 12. **People canon (Бойня C LIVE):** D1 accept + GAS в фоне + poll; toast «Точно …» только при `sheetsVerified`. Запрещено врать success до Sheets и снова блокировать UI полным await GAS. См. `boinya-c/docs/PEOPLE_CANON.md`.
+13. **Code.gs canon:** один файл на `main`; не затирать целиком копией с другой машины/чата/агента — только surgical diff или сниппет (`MERGE_*.md`). См. `CODE_GS_CANON.md` и `.cursor/rules/code-gs-canon.mdc`.
 
 ## Стиль ответа пользователю
 
