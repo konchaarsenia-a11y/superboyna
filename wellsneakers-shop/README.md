@@ -49,8 +49,16 @@ Staff headers (dev): `x-staff-role: admin|seller`.
 | GET | `/api/catalog` | витрина (только размеры с qty>0) |
 | GET | `/api/catalog/:id` | карточка |
 | GET | `/api/brands` | бренды |
-| POST | `/api/orders` | заказ с сайта → списание |
+| POST | `/api/orders` | заказ с сайта → списание (+ TG notify) |
+| GET | `/api/labels/:id?size=` | HTML бирка 58×58 + Code128 |
+| GET | `/api/labels/:id/barcode.png` | PNG штрихкода |
+| GET | `/api/staff/me` | роль staff (initData / dev headers) |
 | GET | `/api/staff/search?q=` | касса-автокомплит |
 | POST | `/api/staff/sales` | продажа в зале |
 | GET/PATCH | `/api/staff/orders` | сайт-заказы / статусы |
-| POST | `/api/staff/products` | админ: новый товар + размеры |
+| POST | `/api/staff/products` | админ: новый товар |
+| POST | `/api/staff/stock` | админ: приход размера → labelUrl |
+| GET | `/api/staff/arrivals` | список приходов |
+
+Staff auth: `x-telegram-init-data` (прод) или dev-заголовки при `ALLOW_DEV_STAFF=1`.  
+Для пушей: `BOT_TOKEN` + `ADMIN_TELEGRAM_IDS` в `.env`.
