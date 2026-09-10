@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <title>sneakerworld — каталог</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      .api-banner{margin:12px 0;padding:10px 12px;border:1px dashed rgba(255,255,255,.25);border-radius:10px;color:var(--muted);font-size:13px}
+      .api-banner.ok{border-color:rgba(79,212,255,.45);color:var(--cyan)}
+      .api-banner.err{border-color:rgba(196,30,42,.5);color:#ffb4ba}
+    </style>
+  </head>
+  <body class="page-catalog">
+    <header class="top">
+      <div class="top-inner">
+        <a class="brand" href="index.html">
+          <div>
+            <h1>sneakerworld</h1>
+            <small>Каталог · live API</small>
+          </div>
+        </a>
+      </div>
+    </header>
+    <main class="wrap">
+      <section class="catalog-section">
+        <div class="head">
+          <h3>Каталог</h3>
+          <p>Наличие в реальном времени с сервера.</p>
+        </div>
+        <div class="api-banner" id="apiStatus">Подключение к API…</div>
+        <div class="filters sticky-filters">
+          <div class="street-toggles">
+            <select class="street-drop" id="brandFilter" style="appearance:auto"></select>
+            <input class="street-drop" id="qFilter" placeholder="Поиск" style="transform:none" />
+          </div>
+        </div>
+        <div class="empty" id="catalogEmpty">Ничего не найдено</div>
+        <div class="catalog-grid" id="catalogList"></div>
+      </section>
+    </main>
+    <div class="dock">
+      <div class="dock-inner">
+        <a class="btn-catalog" href="index.html">Главная</a>
+        <a class="btn btn-rug" href="#order">Заказ</a>
+      </div>
+    </div>
+    <script>
+      const API = localStorage.getItem('ws_api') || 'http://127.0.0.1:3080/api';
+      const statusEl = document.getElementById('apiStatus');
+      const listEl = document.getElementById('catalogList');
+      const emptyEl = document.getElementById('catalogEmpty');
+      const brandEl = document.getElementById('brandFilter');
+      const qEl = document.getElementById('qFilter');
+
+      async function loadBrands() {
+        const r = await fetch(API + '/brands');
+        const data = await r.json();
+        brandEl.innerHTML = '<option value=\"\">Все бренды</option>' +
+          (data.brands || []).map(b => `<option value="${b.brand}">${b.brand}</option>`).join('');
+      }
+
+      async function loadCatalog() {
+        const params = new URLSearchParams();
+        if (brandEl.value) params.set('brand', brandEl.value);
+        if (qEl.value.trim()) params.set('q', qEl.value.trim());
+        const r = await fetch(API + '/catalog?' + params.toString());
+        const data = await r.json();
+        const products = data.products || [];
+        emptyEl.classList.toggle('show', !products.length);
+        listEl.innerHTML = products.map(p => {
+          const sizes = (p.sizes || []).map(s => `<button class="size" type="button">${s.size}</button>`).join('');
+          return `<article class="prod">
+            <div class="prod-body">
+              <div>
+                <div class="title">${p.name}</div>
+                <div class="subt">${p.brand || ''} · арт. ${p.article}</div>
+              </div>
+              <div class="sizes">${sizes || '<span class="subt">нет размеров</span>'}</div>
+              <div class="row">
+                <div class="price">${Number(p.price_byn).toFixed(0)} BYN</div>
+                <button class="buy" type="button" data-id="${p.id}">Заказать</button>
+              </div>
+            </div>
+          </article>`;
+        }).join('');
+      }
+
+      (async () => {
+        try {
+          const h = await fetch(API + '/health').then(r => r.json());
+          if (!h.ok) throw new Error('health failed');
+          statusEl.textContent = 'API online · ' + API;
+          statusEl.classList.add('ok');
+          await loadBrands();
+          await loadCatalog();
+        } catch (e) {
+          statusEl.textContent = 'API недоступен (' + API + '). Поднимите сервер: npm run api';
+          statusEl.classList.add('err');
+        }
+      })();
+      brandEl.addEventListener('change', loadCatalog);
+      qEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadCatalog(); });
+    </script>
+  </body>
+</html>

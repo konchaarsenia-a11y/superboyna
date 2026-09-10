@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <title>Операционка — продажа</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
+    <style>
+      :root{
+        --bg:#0b0b0c; --panel:#1c1d21; --ink:#f5f2ec; --muted:#a7a29b;
+        --rug:#c41e2a; --cyan:#4fd4ff; --line:rgba(255,255,255,.12);
+        --display:"Bebas Neue",Oswald,sans-serif; --body:Barlow,system-ui,sans-serif;
+      }
+      *{box-sizing:border-box}
+      body{margin:0;font-family:var(--body);background:var(--bg);color:var(--ink);padding:16px 16px 100px}
+      h1{font-family:var(--display);letter-spacing:.06em;text-transform:uppercase;font-weight:400;font-size:32px;margin:0 0 8px}
+      .sub{color:var(--muted);margin:0 0 16px;font-size:14px}
+      .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+      label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+      input,select,textarea{width:100%;min-height:48px;border-radius:12px;border:2px solid #111;background:#f5f2ec;color:#111;padding:0 12px;font:inherit}
+      textarea{min-height:80px;padding:10px 12px}
+      .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+      .sizes{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+      .size{min-width:52px;min-height:48px;border-radius:10px;border:2px solid #111;background:#1c1d21;color:var(--ink);font-family:var(--display);font-size:18px;letter-spacing:.04em}
+      .size.on{background:var(--cyan);color:#062029;border-color:#0a4c5c}
+      .size:disabled{opacity:.35}
+      .hit{padding:12px;border-radius:12px;border:1px dashed var(--line);margin-top:8px;cursor:pointer}
+      .hit strong{font-family:var(--display);letter-spacing:.04em;text-transform:uppercase}
+      .btn{width:100%;min-height:54px;border:0;border-radius:12px;background:var(--rug);color:#fff;font-family:var(--display);font-size:22px;letter-spacing:.08em;text-transform:uppercase}
+      .btn:disabled{opacity:.5}
+      .toast{position:fixed;left:16px;right:16px;bottom:20px;background:#f5f2ec;color:#111;border:2px solid #111;border-radius:10px;padding:12px;font-family:var(--display);letter-spacing:.05em;text-transform:uppercase;display:none}
+      .toast.show{display:block}
+      .price-line{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-family:var(--display);font-size:22px;letter-spacing:.05em;text-transform:uppercase}
+    </style>
+  </head>
+  <body>
+    <h1>Продажа</h1>
+    <p class="sub">Как касса, только быстрее: артикул → размер → цена/коммент</p>
+
+    <div class="card">
+      <label>Артикул или название</label>
+      <input id="q" placeholder="например 1577" autocomplete="off" />
+      <div id="hits"></div>
+    </div>
+
+    <div class="card" id="picked" hidden>
+      <div id="pickedTitle"></div>
+      <div class="sizes" id="sizes"></div>
+      <div class="row" style="margin-top:12px">
+        <div>
+          <label>Цена BYN</label>
+          <input id="price" type="number" step="0.01" />
+        </div>
+        <div>
+          <label>Скидка BYN</label>
+          <input id="discount" type="number" step="0.01" value="0" />
+        </div>
+      </div>
+      <label style="margin-top:10px">Комментарий</label>
+      <textarea id="comment" placeholder="необязательно"></textarea>
+      <div class="price-line"><span>Итого</span><span id="total">0 BYN</span></div>
+      <button class="btn" id="sell" style="margin-top:12px" type="button">Продать</button>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+      const API = localStorage.getItem('ws_api') || 'http://127.0.0.1:3080/api';
+      const tg = window.Telegram && window.Telegram.WebApp;
+      if (tg) { tg.ready(); tg.expand(); }
+
+      let selected = null;
+      let selectedSize = null;
+
+      const qEl = document.getElementById('q');
+      const hitsEl = document.getElementById('hits');
+      const pickedEl = document.getElementById('picked');
+      const toast = document.getElementById('toast');
+
+      function showToast(t) {
+        toast.textContent = t;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2200);
+      }
+
+      function recalc() {
+        const price = Number(document.getElementById('price').value) || 0;
+        const discount = Number(document.getElementById('discount').value) || 0;
+        document.getElementById('total').textContent = Math.max(0, price - discount).toFixed(2) + ' BYN';
+      }
+
+      async function search() {
+        const q = qEl.value.trim();
+        if (!q) { hitsEl.innerHTML = ''; return; }
+        const r = await fetch(API + '/staff/search?q=' + encodeURIComponent(q), {
+          headers: { 'x-staff-role': 'seller' }
+        });
+        const data = await r.json();
+        hitsEl.innerHTML = (data.products || []).map(p => `
+          <div class="hit" data-json='${JSON.stringify(p).replace(/'/g, "&apos;")}'>
+            <strong>${p.name}</strong>
+            <div class="sub" style="margin:4px 0 0">арт. ${p.article} · ${Number(p.price_byn).toFixed(0)} BYN</div>
+          </div>`).join('') || '<div class="sub">Ничего не найдено</div>';
+      }
+
+      hitsEl.addEventListener('click', (e) => {
+        const hit = e.target.closest('.hit');
+        if (!hit) return;
+        selected = JSON.parse(hit.getAttribute('data-json'));
+        selectedSize = null;
+        pickedEl.hidden = false;
+        document.getElementById('pickedTitle').innerHTML =
+          `<strong style="font-family:var(--display);font-size:24px;letter-spacing:.05em;text-transform:uppercase">${selected.name}</strong>
+           <div class="sub">арт. ${selected.article}</div>`;
+        document.getElementById('price').value = Number(selected.price_byn);
+        document.getElementById('sizes').innerHTML = (selected.sizes || []).map(s =>
+          `<button class="size" type="button" data-size="${s.size}">${s.size}<br><small style="font-family:var(--body);font-size:11px">${s.qty} шт</small></button>`
+        ).join('');
+        recalc();
+      });
+
+      document.getElementById('sizes').addEventListener('click', (e) => {
+        const btn = e.target.closest('.size');
+        if (!btn) return;
+        selectedSize = btn.dataset.size;
+        [...document.querySelectorAll('.size')].forEach(b => b.classList.toggle('on', b === btn));
+      });
+
+      document.getElementById('price').addEventListener('input', recalc);
+      document.getElementById('discount').addEventListener('input', recalc);
+
+      let t = null;
+      qEl.addEventListener('input', () => {
+        clearTimeout(t);
+        t = setTimeout(search, 220);
+      });
+
+      document.getElementById('sell').addEventListener('click', async () => {
+        if (!selected || !selectedSize) {
+          showToast('Выберите размер');
+          return;
+        }
+        const body = {
+          items: [{
+            product_id: selected.id,
+            size: selectedSize,
+            qty: 1,
+            price_byn: Number(document.getElementById('price').value)
+          }],
+          discount_byn: Number(document.getElementById('discount').value) || 0,
+          comment: document.getElementById('comment').value || '',
+          payment_method: 'cash'
+        };
+        const r = await fetch(API + '/staff/sales', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-staff-role': 'seller' },
+          body: JSON.stringify(body)
+        });
+        const data = await r.json();
+        if (!data.ok) {
+          showToast(data.error || 'ошибка');
+          return;
+        }
+        showToast('Продажа № ' + data.sale.id);
+        selected = null;
+        selectedSize = null;
+        pickedEl.hidden = true;
+        hitsEl.innerHTML = '';
+        qEl.value = '';
+        qEl.focus();
+      });
+
+      qEl.focus();
+    </script>
+  </body>
+</html>
