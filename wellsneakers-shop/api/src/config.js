@@ -18,4 +18,5 @@ export const config = {
     .map((s) => s.trim())
     .filter(Boolean)
     .map(Number),
+  allowDevStaff: process.env.ALLOW_DEV_STAFF !== "0",
 };

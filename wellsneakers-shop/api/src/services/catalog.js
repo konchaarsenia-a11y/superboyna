@@ -213,7 +213,7 @@ export async function createWebsiteOrder({ customerName, phone, address, fulfill
         [line.product_id, line.size, -line.qty, order.id]
       );
     }
-    return order;
+    return { order, items: normalized };
   });
 }
 

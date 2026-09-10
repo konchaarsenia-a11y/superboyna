@@ -7,6 +7,8 @@ import {
   createWebsiteOrder,
   updateOrderStatus,
 } from "../services/catalog.js";
+import { buildLabelHtml, buildBarcodePng } from "../services/labels.js";
+import { notifyNewOrder } from "../services/notify.js";
 import { query } from "../db.js";
 import { requireAdmin, staffAuth } from "../middleware/auth.js";
 
@@ -21,7 +23,6 @@ router.get("/health", async (_req, res) => {
   }
 });
 
-/** Public catalog for website */
 router.get("/catalog", async (req, res, next) => {
   try {
     const rows = await listProducts({
@@ -42,7 +43,6 @@ router.get("/catalog/:id", async (req, res, next) => {
   try {
     const product = await getProduct(req.params.id);
     if (!product) return res.status(404).json({ ok: false, error: "not_found" });
-    // hide zero sizes on public endpoint
     product.sizes = (product.sizes || []).filter((s) => Number(s.qty) > 0);
     if (!product.sizes.length) {
       return res.status(404).json({ ok: false, error: "out_of_stock" });
@@ -66,28 +66,59 @@ router.get("/brands", async (_req, res, next) => {
   }
 });
 
-/** Website checkout */
 router.post("/orders", async (req, res, next) => {
   try {
     const { customerName, phone, address, fulfillment, items } = req.body || {};
     if (!customerName || !phone || !items?.length) {
       return res.status(400).json({ ok: false, error: "invalid_body" });
     }
-    const order = await createWebsiteOrder({
+    const { order, items: lines } = await createWebsiteOrder({
       customerName,
       phone,
       address,
       fulfillment,
       items,
     });
-    res.status(201).json({ ok: true, order });
+    const notify = await notifyNewOrder(order, lines);
+    res.status(201).json({ ok: true, order, notify });
   } catch (err) {
     next(err);
   }
 });
 
-/** Staff */
+/** Public label HTML for print (also used from miniapp) */
+router.get("/labels/:productId", async (req, res, next) => {
+  try {
+    const product = await getProduct(req.params.productId);
+    if (!product) return res.status(404).send("not found");
+    const html = await buildLabelHtml(product, {
+      size: req.query.size || "",
+      date: req.query.date || "",
+    });
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(html);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/labels/:productId/barcode.png", async (req, res, next) => {
+  try {
+    const product = await getProduct(req.params.productId);
+    if (!product) return res.status(404).end();
+    const png = await buildBarcodePng(product.article || product.barcode);
+    res.setHeader("Content-Type", "image/png");
+    res.send(png);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.use("/staff", staffAuth);
+
+router.get("/staff/me", (req, res) => {
+  res.json({ ok: true, staff: req.staff });
+});
 
 router.get("/staff/search", async (req, res, next) => {
   try {
@@ -102,7 +133,7 @@ router.post("/staff/sales", async (req, res, next) => {
   try {
     const body = req.body || {};
     const sale = await createSale({
-      staffUserId: null,
+      staffUserId: req.staff?.id || null,
       items: body.items,
       paymentMethod: body.paymentMethod || body.payment_method,
       delivery: body.delivery,
@@ -117,10 +148,18 @@ router.post("/staff/sales", async (req, res, next) => {
   }
 });
 
-router.get("/staff/orders", async (req, res, next) => {
+router.get("/staff/orders", async (_req, res, next) => {
   try {
     const { rows } = await query(
-      `SELECT * FROM website_orders ORDER BY created_at DESC LIMIT 100`
+      `SELECT o.*,
+        COALESCE(json_agg(json_build_object(
+          'product_name', i.product_name, 'size', i.size, 'qty', i.qty, 'article', i.article, 'price_byn', i.price_byn
+        )) FILTER (WHERE i.id IS NOT NULL), '[]') AS items
+       FROM website_orders o
+       LEFT JOIN website_order_items i ON i.order_id = o.id
+       GROUP BY o.id
+       ORDER BY o.created_at DESC
+       LIMIT 100`
     );
     res.json({ ok: true, orders: rows });
   } catch (err) {
@@ -132,6 +171,34 @@ router.patch("/staff/orders/:id/status", async (req, res, next) => {
   try {
     const order = await updateOrderStatus(req.params.id, req.body?.status);
     res.json({ ok: true, order });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/staff/arrivals", requireAdmin, async (_req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT a.*, p.name AS product_name, p.article
+       FROM stock_arrivals a
+       JOIN products p ON p.id = a.product_id
+       ORDER BY a.created_at DESC
+       LIMIT 100`
+    );
+    res.json({ ok: true, arrivals: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/staff/arrivals/:id/printed", requireAdmin, async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `UPDATE stock_arrivals SET label_printed = TRUE WHERE id = $1 RETURNING *`,
+      [req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ ok: false, error: "not_found" });
+    res.json({ ok: true, arrival: rows[0] });
   } catch (err) {
     next(err);
   }
@@ -150,18 +217,20 @@ router.post("/staff/products", requireAdmin, async (req, res, next) => {
       [b.name, b.brand || "", b.article, barcode, Number(b.price_byn) || 0]
     );
     const product = rows[0];
+    const arrivalIds = [];
     for (const s of b.sizes || []) {
       if (!s.size || Number(s.qty) <= 0) continue;
       await query(
         `INSERT INTO product_sizes (product_id, size, qty) VALUES ($1,$2,$3)
-         ON CONFLICT (product_id, size) DO UPDATE SET qty = EXCLUDED.qty`,
+         ON CONFLICT (product_id, size) DO UPDATE SET qty = product_sizes.qty + EXCLUDED.qty`,
         [product.id, String(s.size), Number(s.qty)]
       );
-      await query(
-        `INSERT INTO stock_arrivals (product_id, size, qty, label_printed)
-         VALUES ($1,$2,$3,FALSE)`,
-        [product.id, String(s.size), Number(s.qty)]
+      const { rows: arows } = await query(
+        `INSERT INTO stock_arrivals (product_id, size, qty, label_printed, staff_user_id)
+         VALUES ($1,$2,$3,FALSE,$4) RETURNING id`,
+        [product.id, String(s.size), Number(s.qty), req.staff?.id || null]
       );
+      arrivalIds.push(arows[0].id);
       await query(
         `INSERT INTO stock_movements (product_id, size, delta, reason, ref_type, ref_id)
          VALUES ($1,$2,$3,'arrival','product',$4)`,
@@ -169,7 +238,45 @@ router.post("/staff/products", requireAdmin, async (req, res, next) => {
       );
     }
     const full = await getProduct(product.id);
-    res.status(201).json({ ok: true, product: full });
+    res.status(201).json({
+      ok: true,
+      product: full,
+      arrivalIds,
+      labelUrls: (full.sizes || [])
+        .filter((s) => Number(s.qty) > 0)
+        .map((s) => `/api/labels/${product.id}?size=${encodeURIComponent(s.size)}`),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/staff/stock", requireAdmin, async (req, res, next) => {
+  try {
+    const { product_id, size, qty } = req.body || {};
+    if (!product_id || !size || !(Number(qty) > 0)) {
+      return res.status(400).json({ ok: false, error: "invalid_body" });
+    }
+    await query(
+      `INSERT INTO product_sizes (product_id, size, qty) VALUES ($1,$2,$3)
+       ON CONFLICT (product_id, size) DO UPDATE SET qty = product_sizes.qty + EXCLUDED.qty`,
+      [product_id, String(size), Number(qty)]
+    );
+    const { rows } = await query(
+      `INSERT INTO stock_arrivals (product_id, size, qty, label_printed, staff_user_id)
+       VALUES ($1,$2,$3,FALSE,$4) RETURNING *`,
+      [product_id, String(size), Number(qty), req.staff?.id || null]
+    );
+    await query(
+      `INSERT INTO stock_movements (product_id, size, delta, reason, ref_type, ref_id)
+       VALUES ($1,$2,$3,'arrival','arrival',$4)`,
+      [product_id, String(size), Number(qty), rows[0].id]
+    );
+    res.status(201).json({
+      ok: true,
+      arrival: rows[0],
+      labelUrl: `/api/labels/${product_id}?size=${encodeURIComponent(size)}`,
+    });
   } catch (err) {
     next(err);
   }
