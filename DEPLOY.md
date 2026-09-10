@@ -2,6 +2,8 @@
 
 Live Boinya backend is Google Apps Script. The editor file is named **Код**; git keeps it as `Code.gs`.
 
+Канон файла (патч, не replace): [CODE_GS_CANON.md](./CODE_GS_CANON.md).
+
 ## What agents do
 
 1. Change `Code.gs` on a branch, open a PR, **merge to `main`**.

@@ -1,5 +1,8 @@
 - [~] **clasp CI deploy 2026-09-10:** Action `clasp-deploy` на main: pull → overlay `Code.gs`→«Код» → push → update webapp `AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7` · нужен секрет **`CLASPRC_JSON`** (весь `~/.clasprc.json`; есть у Grok Bot / КЕНТ GB) · [DEPLOY.md](./DEPLOY.md)
-
+- [~] **ПП выбор 1/2 всегда при N≥2 2026-09-10:** в Заказе кнопки ПП 1 / ПП 2 под «Состав из ПП» при N≥2; в Просмотре у N≥2 — смена слота на карточке · Pages `v71115945`
+- [~] **Varka banner+nudge 2026-09-10:** баннер Varka вернули; пуш подбития дат снова 11+19 · Pages varka `3.3.37` · **Deploy Code.gs** (+ Run `setupDeliveryDatesNudgeTriggersManual` если ставили 22:00)
+- [~] **Varka UX batch 2026-09-10:** слот/уведомления до 22:00; Varka без бумажных купонов (только NFC+баннер); пресеты +250 без «своё»; фикс дубля заказов; owner выдаёт staff; nav скругление; кабинет без NaN · Pages varka `3.3.37` + Бойня `v71115943` · Worker · **Deploy Code.gs**
+- [~] **Varka имена точек + чистка Маяковского 2026-09-10:** polotno_an / Чечота 11; indixvost / Победителей 73/1; 1× Маяковского; Бойня Точки без Firedog и дублей · Pages varka `3.3.35` + Бойня `v71115942` · Worker **OK** · **Deploy Code.gs** (`PARTNER_PROD_V34`)
 - [~] **ПП слот 2 → в просмотре 1/2 2026-09-10:** refreshPpFactPrice (getPpFactCost) затирал слот 2 после suggest; D1 factCost отдавал stale slot=1. Fix: не overwrite manual; factCost считает слот как suggest; save пишет deliveriesN · marker `fix-pp-slot2-ndel-h1` · Pages `v71115941` · **Worker Deploy** · Viihrova 16.09: после Deploy пересохранить слот 2 (write из VM 403)
 
 - [~] **Varka partner-fixes 3.3.34 2026-09-09:** rename 4 точек + V32; история без deliver; купон photo+qty; qty blur; Delete заявок; access pending/accept/notify; staff hide grant; empty-day speed · Pages varka 3.3.34 · **Deploy Code.gs** (`PARTNER_PROD_V32`) · Worker

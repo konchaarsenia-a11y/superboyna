@@ -75,21 +75,26 @@
     .app-nav {
       display: none;
       position: sticky; top: 0; z-index: 4;
-      margin: 0 -4px 14px;
-      padding: 8px 4px 10px;
-      background: linear-gradient(180deg, var(--bg) 55%, transparent);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+      margin: 0 0 14px;
+      padding: 8px 10px;
+      gap: 10px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--bg2) 88%, transparent);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      overflow: hidden;
     }
-    body.has-nav .app-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    body.has-nav .app-nav { display: flex; align-items: center; justify-content: space-between; }
     .app-nav-brand {
       display: flex; align-items: center; gap: 10px; min-width: 0;
-      border: 0; background: transparent; color: inherit; padding: 0; cursor: pointer;
+      border: 0; background: transparent; color: inherit; padding: 2px 4px 2px 2px; cursor: pointer;
       font-family: inherit; text-align: left;
+      border-radius: 14px;
     }
     .app-nav-brand .mark {
       flex: 0 0 auto;
-      width: 36px; height: 36px; border-radius: 50%;
+      width: 36px; height: 36px; border-radius: 12px;
       display: grid; place-items: center;
       font-family: var(--display); font-size: 13px; letter-spacing: 0.04em;
       color: #1a0f00; background: linear-gradient(145deg, var(--accent2), var(--accent));
@@ -107,14 +112,15 @@
     .app-nav-links {
       display: flex; align-items: center; gap: 0; flex-shrink: 0;
       border: 1px solid var(--line);
-      border-radius: 999px;
+      border-radius: 14px;
       padding: 3px;
-      background: rgba(255,255,255,0.03);
+      background: rgba(255,255,255,0.04);
+      overflow: hidden;
     }
     html[data-theme="light"] .app-nav-links { background: rgba(0,0,0,0.03); }
     .nav-link {
       border: 0; background: transparent;
-      color: var(--muted); border-radius: 999px; padding: 8px 14px;
+      color: var(--muted); border-radius: 11px; padding: 8px 14px;
       font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
       transition: color 0.15s, background 0.15s;
     }
@@ -684,7 +690,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.34";
+  var APP_VER = "3.3.37";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -709,8 +715,8 @@
     { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka Шевченко 1", address: "Шевченко 1" },
     { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14" },
     { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog", address: "Минск", label: "Fundog" },
-    { id: "pt_polotno_1", networkId: "net_polotno", name: "Чечота 11", address: "Чечота 11", label: "Чечота 11" },
-    { id: "pt_indix_1", networkId: "net_indixvost", name: "Проспект победителей 73/1", address: "Проспект победителей 73/1", label: "Проспект победителей 73/1" },
+    { id: "pt_polotno_1", networkId: "net_polotno", name: "polotno_an", address: "Чечота 11", label: "polotno_an" },
+    { id: "pt_indix_1", networkId: "net_indixvost", name: "indixvost", address: "Проспект победителей 73/1", label: "indixvost" },
     { id: "pt_bob_1", networkId: "net_bobwow", name: "bow_wow_collar", address: "Брест", label: "bow_wow_collar" }
   ];
   var SETTINGS_KEY = "gb_partner_settings_v2";
@@ -722,7 +728,8 @@
       coupon: "assets/coupon-varka-goodboy.png",
       banner: "assets/coupon-poster.png",
       hasBanner: true,
-      alt: "Varka × Good Boy"
+      alt: "Varka × Good Boy",
+      paperCoupons: false
     },
     net_nan: {
       coupon: "assets/partners/nan-coupon.png",
@@ -756,8 +763,8 @@
 
   // Пресеты кол-ва по id (серверный каталог может быть старым — фронт нормализует).
   var QTY_RULES_ = {
-    vr_t_heart: { presets: [50, 100, 150, 200], unit: "г", custom: true },
-    vr_t_lung: { presets: [50, 100, 150, 200], unit: "г", custom: true },
+    vr_t_heart: { presets: [50, 100, 150, 200, 250], unit: "г", custom: false },
+    vr_t_lung: { presets: [50, 100, 150, 200, 250], unit: "г", custom: false },
     vr_c_piece: { presets: [48, 73, 96, 120], unit: "шт", custom: true },
     vr_c_nfc: { presets: [1], unit: "шт", custom: false, nfc: true, max: 2 },
     vr_c_banner: { presets: [1], unit: "шт", custom: false, fixed: true }
@@ -1080,9 +1087,9 @@
     var out = [];
     ids.forEach(function (id) {
       var p = pointById_(id);
-      if (p) out.push(p);
+      if (p) out.push(normalizePointLabels_(p));
     });
-    return out;
+    return dedupePartnerPoints_(out);
   }
 
   function assignedPointsList_() {
@@ -1122,13 +1129,40 @@
     return dedupePartnerPoints_(out);
   }
 
-  /** Убрать дубли (два Маяковского и т.п.) — оставляем канонический id. */
+  var POINT_LABEL_FIX_ = {
+    pt_polotno_1: { name: "polotno_an", address: "Чечота 11" },
+    pt_indix_1: { name: "indixvost", address: "Проспект победителей 73/1" },
+    pt_varka_mayakovskogo_14: { name: "Varka Маяковского 14", address: "Маяковского 14" }
+  };
+
+  function normalizePointLabels_(p) {
+    if (!p || !p.id) return p;
+    var fix = POINT_LABEL_FIX_[p.id];
+    if (!fix) return p;
+    return Object.assign({}, p, {
+      name: fix.name,
+      address: fix.address,
+      label: fix.name
+    });
+  }
+
+  function isHiddenPartnerPoint_(p) {
+    if (!p) return true;
+    if (p.active === false) return true;
+    var id = String(p.id || "");
+    var nid = String(p.networkId || "");
+    if (id === "pt_firedog_1" || nid === "net_firedog") return true;
+    return false;
+  }
+
+  /** Убрать дубли (три Маяковского и т.п.) — оставляем канонический id. */
   function dedupePartnerPoints_(list) {
     var arr = (list || []).slice();
     var byKey = {};
     var out = [];
     arr.forEach(function (p) {
-      if (!p || !p.id) return;
+      if (!p || !p.id || isHiddenPartnerPoint_(p)) return;
+      p = normalizePointLabels_(p);
       var key = pointDedupeKey_(p);
       var prev = byKey[key];
       if (!prev) {
@@ -1166,9 +1200,13 @@
     var name = String((p && p.name) || "").trim().toLowerCase()
       .replace(/[·.•]/g, " ").replace(/\s+/g, " ");
     var net = String((p && p.networkId) || "");
-    if (addr && /маяковск/.test(addr)) return net + "|mayak|" + addr;
-    if (/маяковск/.test(name)) return net + "|mayak|" + (addr || name.replace(/^varka\s+/, ""));
-    return net + "|" + (addr || name || String(p.id));
+    var id = String((p && p.id) || "");
+    // все Маяковского → один ключ (иначе «Маяковского» vs «Маяковского 14» = 2–3 строки)
+    if (id === "pt_varka_mayakovskogo_14" || id === "pt_f7640014" || id === "pt_mtu4v0dsdy3o" ||
+        /маяковск/.test(addr) || /маяковск/.test(name)) {
+      return (net || "net_varka") + "|mayak|canon";
+    }
+    return net + "|" + (addr || name || id);
   }
 
   function preferPointRow_(a, b) {
@@ -1232,7 +1270,7 @@
       username: DEMO_USERNAME || u.username || "",
       networkId: DEMO_NETWORK,
       networkName: net ? net.name : "",
-      pointIds: DEMO_POINT_IDS.slice(),
+      pointIds: pts.map(function (p) { return p.id; }),
       points: pts,
       allowedPointIds: allowed,
       telegramId: u.telegramId || ("demo_" + (DEMO_USERNAME || "x"))
@@ -1464,9 +1502,10 @@
         }
       }
     }
-    POINTS = ids.map(function (id) {
-      return byId[id] || { id: id, networkId: DEMO_NETWORK, name: id, address: "" };
-    });
+    POINTS = dedupePartnerPoints_(ids.map(function (id) {
+      return normalizePointLabels_(byId[id] || { id: id, networkId: DEMO_NETWORK, name: id, address: "" });
+    }));
+    DEMO_POINT_IDS = POINTS.map(function (p) { return p.id; });
 
     if (Array.isArray(acc.networks) && acc.networks.length) {
       if (REMOTE_IS_OWNER_) {
@@ -1532,6 +1571,9 @@
     // Live-test: сначала материализуем 1 точку в POINTS, потом buildMe_
     try { assignedPointsList_(); } catch (eSeed) {}
     state.me = buildMe_();
+    if (state.me && Array.isArray(state.me.pointIds)) {
+      DEMO_POINT_IDS = state.me.pointIds.slice();
+    }
     var who = document.getElementById("sessionWho");
     var meta = document.getElementById("sessionMeta");
     var navWho = document.getElementById("navWho");
@@ -1700,7 +1742,7 @@
       return { presets: [1], unit: "шт", custom: false, nfc: true, max: 2 };
     }
     if (QTY_RULES_[it.id]) return QTY_RULES_[it.id];
-    if (it.type === "treat") return { presets: [50, 100, 150, 200], unit: it.unit || "г", custom: true };
+    if (it.type === "treat") return { presets: [50, 100, 150, 200, 250], unit: it.unit || "г", custom: false };
     if (String(it.name || "").toLowerCase().indexOf("баннер") >= 0 || it.id === "vr_c_banner") {
       return { presets: [1], unit: "шт", custom: false, fixed: true };
     }
@@ -1858,6 +1900,8 @@
       else delete state.cart[id];
     } else if (n <= 0) {
       delete state.cart[id];
+    } else if (rule.custom === false && rule.presets && rule.presets.indexOf(n) < 0) {
+      return;
     } else if (cur === n) {
       delete state.cart[id]; // повторный тап по пресету снимает
     } else {
@@ -1869,6 +1913,9 @@
 
   function onQtyCustomInput(id, el) {
     if (id === NFC_ID_) return;
+    var itC = null;
+    state.catalog.forEach(function (c) { if (c.id === id) itC = c; });
+    if (qtyRuleFor_(itC).custom === false) return;
     var raw = String((el && el.value) || "").replace(/[^\d]/g, "");
     if (el && el.value !== raw) el.value = raw;
     if (raw === "") {
@@ -1891,6 +1938,9 @@
 
   function onQtyCustomBlur(id, el) {
     if (id === NFC_ID_) return;
+    var itB = null;
+    state.catalog.forEach(function (c) { if (c.id === id) itB = c; });
+    if (qtyRuleFor_(itB).custom === false) return;
     var raw = String((el && el.value) || "").replace(/[^\d]/g, "");
     // пустой blur при re-render / смене вкладки — не сбрасывать корзину
     if (raw === "") {
@@ -1942,6 +1992,9 @@
         '" onclick="pickQty(\'' + it.id + '\',' + p + ')">' + p +
         (showUnit ? (" " + esc(unit)) : "") + "</button>";
     }).join("");
+    if (rule.custom === false) {
+      return '<div class="qty-box"><div class="qty-presets">' + chips + "</div></div>";
+    }
     var customVal = "";
     // если выбран пресет — поле пустое; если своё число — показываем его
     if (q && !isPreset) customVal = String(q);
@@ -1983,7 +2036,16 @@
   }
 
   function networkHasBanner_() {
-    return !!partnerMedia_().hasBanner || currentNetworkId_() === "net_varka";
+    var media = partnerMedia_();
+    if (media && media.hasBanner === true) return true;
+    if (currentNetworkId_() === "net_varka") return true;
+    return !!media.hasBanner;
+  }
+
+  function varkaNfcOnlyCoupons_() {
+    var media = partnerMedia_();
+    if (media && media.paperCoupons === false) return true;
+    return currentNetworkId_() === "net_varka";
   }
 
   function stripBannerIfNeeded_() {
@@ -1991,14 +2053,26 @@
     if (state.cart && state.cart.vr_c_banner) delete state.cart.vr_c_banner;
   }
 
+  function stripVarkaPaperCoupons_() {
+    if (!varkaNfcOnlyCoupons_()) return;
+    if (!state.cart) return;
+    // бумажный купон убираем; баннер у Varka оставляем
+    if (state.cart.vr_c_piece) delete state.cart.vr_c_piece;
+  }
+
   function renderCatalog() {
     var box = document.getElementById("catalogList");
     var media = partnerMedia_();
     stripBannerIfNeeded_();
+    stripVarkaPaperCoupons_();
     var allowBanner = networkHasBanner_();
+    var nfcOnly = varkaNfcOnlyCoupons_();
     var items = state.catalog.filter(function (it) {
       if (it.active === false) return false;
       if (it.id === "vr_c_banner" && !allowBanner) return false;
+      // у Varka: без бумажного купона, NFC + баннер остаются
+      if (nfcOnly && it.id === "vr_c_piece") return false;
+      if (nfcOnly && it.type === "coupon" && !isNfcItem_(it) && it.id !== "vr_c_nfc" && it.id !== "vr_c_banner") return false;
       if (state.cat === "coupon") {
         return it.type === "coupon" || it.id === "vr_c_banner";
       }
@@ -2037,8 +2111,9 @@
           '<img class="coupon-preview" src="' + media.coupon + '" alt="' + esc(media.alt) + '">' +
           '<div class="coupon-row qty-item">' + ste + "</div></div>";
       }
+      var qtyHint = (qtyRuleFor_(it).custom === false) ? "пресеты" : "пресеты или своё";
       return '<div class="item qty-item"><div class="meta" style="flex:1"><div class="title">' + esc(it.name) +
-        '</div><div class="unit">пресеты или своё' + selected +
+        '</div><div class="unit">' + qtyHint + selected +
         "</div></div>" + ste + "</div>";
     }).join("");
   }
@@ -2239,15 +2314,27 @@
     applyTheme_(state.settings.theme || "dark");
     var info = document.getElementById("accessInfo");
     if (info && state.me) {
-      var pts = (state.me.points || []).map(function (p) { return p.name; }).join("<br>");
-      info.innerHTML = (state.me.username ? ("@" + esc(state.me.username) + " · ") : "") +
-        esc(state.me.networkName || "") +
+      var cabPts = dedupePartnerPoints_(state.me.points || assignedPointsList_() || []);
+      var pts = cabPts.map(function (p) {
+        var name = displayPointName_(p) || p.name || p.id;
+        var addr = String(p.address || "").trim();
+        var line = esc(name);
+        if (addr && addr.toLowerCase() !== String(name).toLowerCase()) {
+          line += "<br><span class=\"muted\" style=\"font-size:12px\">" + esc(addr) + "</span>";
+        }
+        return line;
+      }).join("<br><br>");
+      var whoLine = state.me.username
+        ? ("@" + esc(state.me.username))
+        : esc(state.me.name || "—");
+      info.innerHTML = whoLine +
         "<br><br><b>Ваши точки:</b><br>" + (pts || "—");
     }
     var grantCard = document.getElementById("grantStaffCard");
     var pendCard = document.getElementById("pendingAccessCard");
-    var canGrant = !!(state.me && state.me.isPartner && !state.me.isStaff &&
-      String(state.me.role || "") !== "staff");
+    var canGrant = !!(state.me && !state.me.isStaff &&
+      String(state.me.role || "") !== "staff" &&
+      (state.me.isPartner || state.me.isOwner || REMOTE_IS_OWNER_));
     if (grantCard) grantCard.style.display = canGrant ? "" : "none";
     var needAccept = !!(state.me && state.me.isStaff &&
       String(state.me.accessStatus || "").toLowerCase() === "pending");
@@ -2277,23 +2364,26 @@
   }
 
   async function grantStaffAccess() {
-    if (!(state.me && state.me.isPartner && !state.me.isStaff)) {
-      alert("Выдать доступ может партнёр своей точки");
+    if (!(state.me && !state.me.isStaff &&
+        (state.me.isPartner || state.me.isOwner || REMOTE_IS_OWNER_) &&
+        String(state.me.role || "") !== "staff")) {
+      alert("Выдать доступ может владелец или партнёр точки");
       return;
     }
     var tid = document.getElementById("staffTid").value.trim();
     var name = document.getElementById("staffName").value.trim() || "Сотрудник";
     if (!tid) { alert("Укажите Telegram ID"); return; }
-    // сотруднику — только точки текущего партнёра (не весь справочник)
+    // сотруднику — только точки текущего партнёра/owner (не весь справочник чужих сетей без доступа)
     var pointIds = normalizePointIds_(state.me.pointIds || DEMO_POINT_IDS);
     var pts = assignedPointsList_();
     if (!pointIds.length || !pts.length) { alert("Нет своих точек"); return; }
+    var actorIsOwner = !!(state.me.isOwner || REMOTE_IS_OWNER_);
     if (VARKA_WEBHOOK_URL) {
       try {
         var res = await apiGet_({
           action: "partnerSaveAccess",
           telegramId: user().telegramId || tid,
-          actorRole: "partner",
+          actorRole: actorIsOwner ? "owner" : "partner",
           actorUsername: state.me.username || "",
           targetTelegramId: tid,
           name: name,
@@ -2537,8 +2627,16 @@
         if (onlyIds.length) return !!onlyMap[p.id];
         return true;
       }).map(function (p) {
-        return { id: p.id, networkId: p.networkId, name: p.name, address: p.address || "" };
+        var row = {
+          id: p.id,
+          networkId: p.networkId,
+          name: p.name,
+          address: p.address || "",
+          active: p.active !== false
+        };
+        return normalizePointLabels_(row);
       });
+      POINTS = dedupePartnerPoints_(POINTS);
     }
     if (Array.isArray(res.catalog) && res.catalog.length) {
       state.catalog = normalizeCatalog_(res.catalog);

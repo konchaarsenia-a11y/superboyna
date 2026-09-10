@@ -6,6 +6,8 @@ alwaysApply: false
 
 # Apps Script (`Code.gs`)
 
+Канон дисциплины (один файл, патч не replace): `CODE_GS_CANON.md` · `.cursor/rules/code-gs-canon.mdc`.
+
 ## Не откатывать (натив GBI)
 
 - `/start gbi_<token>` в `handleTelegramUpdate_`

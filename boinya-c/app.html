@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115940" as="script">
+  <link rel="preload" href="app.main.js?v=71115945" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115941";
+      var APP_VER = "v71115945";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1633,14 +1633,13 @@
           <input type="number" id="orderPriceInput" step="0.01" min="0" placeholder="0" inputmode="decimal" oninput="onOrderPriceInput()">
           <div class="field-hint" id="orderPriceLive" style="display:none;"></div>
           <div class="field-hint" id="ppSlotHint" style="display:none;margin-top:4px;"></div>
-          <div id="ppSlotPickGroup" style="display:none;margin-top:8px;">
-            <div class="seg-control" style="display:flex;gap:6px;">
-              <button type="button" class="seg-btn" id="ppSlot1Btn" style="flex:1;" onclick="setPpDeliverySlot(1)">ПП 1</button>
-              <button type="button" class="seg-btn" id="ppSlot2Btn" style="flex:1;" onclick="setPpDeliverySlot(2)">ПП 2</button>
-            </div>
-            <div class="field-hint" id="ppSlotPickHint" style="margin-top:6px;">Уточни ПП 1 или ПП 2</div>
-          </div>
           <button type="button" class="btn-action btn-blue" id="btnPpSuggest" style="display:none;margin-top:6px;" onclick="suggestPpBasketFromSheet()">Состав из ПП</button>
+          <div id="ppSlotPickGroup" style="display:none;margin-top:8px;">
+            <div class="seg-row" style="gap:6px;">
+              <button type="button" class="seg-btn" id="ppSlot1Btn" style="flex:1;" onclick="setPpDeliverySlot(1, true)">ПП 1</button>
+              <button type="button" class="seg-btn" id="ppSlot2Btn" style="flex:1;" onclick="setPpDeliverySlot(2, true)">ПП 2</button>
+            </div>
+          </div>
           <button type="button" class="btn-action" id="btnRetailPriceAuto" style="display:none;margin-top:6px;background:#3a3a3c;" onclick="resetRetailPriceToAuto()">По прайсу</button>
           <div id="retailPaidDeliveryGroup" style="display:none;margin-top:10px;">
             <label>Платная доставка</label>
@@ -2793,6 +2792,6 @@
   </div>
   <div class="toast" id="appToast"></div>
 
-  <script src="app.main.js?v=71115940" defer></script>
+  <script src="app.main.js?v=71115945" defer></script>
 </body>
 </html>

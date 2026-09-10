@@ -1,17 +1,20 @@
 # Инструкции для агента
 
+**Канон `Code.gs`:** [CODE_GS_CANON.md](./CODE_GS_CANON.md) · правило [`.cursor/rules/code-gs-canon.mdc`](./.cursor/rules/code-gs-canon.mdc) (`alwaysApply`).  
+Корневой `Code.gs` на `main` — **единственный** источник правды для Apps Script. Параллельные агенты (Cloud, IDE, Goodboy, native) вливают **патч/сниппет**. **Никогда** не копировать и не заменять весь файл с другой машины, чата или агента.
+
 Перед любой задачей прочитай:
 
-1. [PROJECT.md](./PROJECT.md) — карта таблиц и API  
-2. [TZ.md](./TZ.md) — приоритеты, экраны и **чеклист с галочками**  
+1. [PROJECT.md](./PROJECT.md) — карта таблиц и API 
+2. [TZ.md](./TZ.md) — приоритеты, экраны и **чеклист с галочками** 
 3. Правило `.cursor/rules/superboyna.mdc`
-4. [NATIVE.md](./NATIVE.md) — нативка параллельно с вебом  
+4. [NATIVE.md](./NATIVE.md) — нативка параллельно с вебом 
 5. [GOODBOY.md](./GOODBOY.md) — клиентская экосистема (сайт + TG; не конвейер)
 6. [VAROK.md](./VAROK.md) — Varka: бесплатное пополнение (точки / каталог)
 7. **[boinya-c/docs/PEOPLE_CANON.md](./boinya-c/docs/PEOPLE_CANON.md)** — канон save/move/delete (Sheets-confirm); **не ломать**
 8. **[boinya-c/docs/WEEK_CALENDAR_CANON.md](./boinya-c/docs/WEEK_CALENDAR_CANON.md)** — неделя vs календарь при незакрытой неделе
 9. **[MERGE_GOODBOY_GB.md](./MERGE_GOODBOY_GB.md)** — листы `GB_*` / actions `gb*` (клиентский кабинет); **не писать в CRM/неделю**
-10. **Handoff** ниже — если трогаешь `Code.gs`
+10. **[CODE_GS_CANON.md](./CODE_GS_CANON.md)** — если трогаешь `Code.gs`: читать актуальный файл, surgical diff / сниппет, **не** replace целиком. **Handoff** ниже — GB_* / gbi_
 
 ## Skills (Cursor Agent)
 
@@ -28,6 +31,7 @@
 | `tz-checklist` | Галочки в `TZ.md` после работы / слов владельца |
 
 UI-токены конвейера и Varka: `.cursor/rules/ui-miniapp.mdc`.  
+Канон `Code.gs` (всегда): `.cursor/rules/code-gs-canon.mdc` → [CODE_GS_CANON.md](./CODE_GS_CANON.md).  
 Hooks: `.cursor/hooks.json` (блок `finishFullWeekProduction` в shell).  
 Environment: `.cursor/environment.json`.
 
@@ -36,6 +40,7 @@ Environment: `.cursor/environment.json`.
 - Тест API из VM: `bash scripts/test-api.sh` / skill `test-api`, клиент только `zzz_test`.
 - Не запускать `finishFullWeekProduction` без явного ОК.
 - **Deploy Apps Script = GitHub Action `clasp-deploy` на `main`.** Агенты мержат `Code.gs` в main и не просят вставить код в Script Editor. Секрет `CLASPRC_JSON` — [DEPLOY.md](./DEPLOY.md).
+- **Code.gs:** не подменять файл целиком — [CODE_GS_CANON.md](./CODE_GS_CANON.md).
 - Environment/Builds/Secrets — в [Cloud Agents dashboard](https://cursor.com/dashboard/cloud-agents#environments); секреты не коммитить.
 - **People canon:** LIVE people-write = D1 accept + фон GAS + `pollPeopleWrite`; toast «Точно …» только при `sheetsVerified`. Не блокировать UI полным await GAS и не врать success до Sheets. Off-week → только calendar/`saveBooking`. Подробно: [PEOPLE_CANON.md](./boinya-c/docs/PEOPLE_CANON.md), [WEEK_CALENDAR_CANON.md](./boinya-c/docs/WEEK_CALENDAR_CANON.md).
 
@@ -77,16 +82,16 @@ Cloud Agent **не может** сохранить Automation за владел�
 | Не трогать | заказы, нарезка, склад, Доступы, materialize/week, натив `gbi_` |
 
 Владельцу после merge в `main`: дождаться CI `clasp-deploy` → `?action=gbEnsureSheets`.  
-Агенту Бойни при расхождении Script↔git: вливать **патч** по `MERGE_GOODBOY_GB.md`, не затирать файл.
+Агенту Бойни при расхождении Script↔git: вливать **патч** по `MERGE_GOODBOY_GB.md`, **не затирать** файл чужой полной копией. Канон: [CODE_GS_CANON.md](./CODE_GS_CANON.md).
 
 ---
 
 ## ⚠️ Handoff: правки `Code.gs` от нативного агента (2026-07-24)
 
 Параллельно делается **натив GBI** (`native/`, см. [NATIVE.md](./NATIVE.md)).  
-Веб-агент (TG Mini App / `app.html` на **Windows**) — **source of truth** для `Code.gs` и `app.html`.
+Веб-агент (TG Mini App / `app.html` на **Windows**) держит актуальный конвейер; **источник правды файла** — `Code.gs` на `main` ([CODE_GS_CANON.md](./CODE_GS_CANON.md)), не копия с Mac/чата/другого агента.
 
-### Не копировать весь Code.gs с Mac → Win
+### Не копировать весь Code.gs (ни с Mac, ни из другого чата/агента)
 
 Слияние только через патч:
 - **[MERGE_NATIVE_AUTH.md](./MERGE_NATIVE_AUTH.md)** — правила и порядок
@@ -106,11 +111,11 @@ Cloud Agent **не может** сохранить Automation за владел�
 
 ### Правила
 
-1. Веб-агент вливает сниппет в **свой** актуальный `Code.gs`, commit/push.  
-2. Натив-агент не просит «вставь мой Code.gs целиком».  
-3. Deploy Apps Script — CI clasp на `main` (не вставка в редактор).  
+1. Веб-агент вливает сниппет в **актуальный** `Code.gs` с `main`/tip, commit/push.  
+2. Натив-агент **не** просит «вставь мой Code.gs целиком» — только сниппет/патч.  
+3. Deploy Apps Script — CI clasp на `main` (не вставка в редактор, не выдумывать `/exec`).  
 4. Натив не правит `app.html`.  
-5. Подробности: [NATIVE.md](./NATIVE.md), [MERGE_NATIVE_AUTH.md](./MERGE_NATIVE_AUTH.md).
+5. Подробности: [CODE_GS_CANON.md](./CODE_GS_CANON.md), [NATIVE.md](./NATIVE.md), [MERGE_NATIVE_AUTH.md](./MERGE_NATIVE_AUTH.md).
 
 ---
 
@@ -120,7 +125,8 @@ Cloud Agent **не может** сохранить Automation за владел�
 
 ## Handoff: веб-агент ↔ нативный агент (GBI)
 
-Нативка и веб делят один `Code.gs` и лист **Доступы** (`getMyAccess` / `requestAccess` / …).
+Нативка и веб делят один `Code.gs` и лист **Доступы** (`getMyAccess` / `requestAccess` / …).  
+Не копировать весь файл: [CODE_GS_CANON.md](./CODE_GS_CANON.md).
 
 ### Не трогать / не откатывать
 
@@ -138,6 +144,6 @@ Cloud Agent **не может** сохранить Automation за владел�
 
 ### Deploy
 
-Merge `Code.gs` в **main** → Action `clasp-deploy` (push файла «Код» + update существующего webapp). Не просить вставить код в Script Editor. Секрет `CLASPRC_JSON`: [DEPLOY.md](./DEPLOY.md).
+Merge `Code.gs` в **main** → Action `clasp-deploy` (push файла «Код» + update существующего webapp). Не просить вставить код в Script Editor и не подставлять чужой полный файл. Секрет `CLASPRC_JSON`: [DEPLOY.md](./DEPLOY.md). Канон: [CODE_GS_CANON.md](./CODE_GS_CANON.md).
 
-Подробности нативки: [NATIVE.md](./NATIVE.md).
+Подробности: [CODE_GS_CANON.md](./CODE_GS_CANON.md), [NATIVE.md](./NATIVE.md).

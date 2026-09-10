@@ -9777,7 +9777,8 @@ function ensureDeliveryDatesNudgeTriggers_() {
     }
   }
   // v3: отдельные handler-функции (стабильнее в редакторе / квотах)
-  if (ours.length === 2 && ver === "11-19-v3") {
+  // v5: откат с 22:00 обратно на 19:00 (если успели поставить 11-22-v4)
+  if (ours.length === 2 && (ver === "11-19-v3" || ver === "11-19-v5")) {
     return { ok: true, already: true, ver: ver, count: ours.length };
   }
   for (i = 0; i < ours.length; i++) {
@@ -9804,8 +9805,8 @@ function ensureDeliveryDatesNudgeTriggers_() {
   } catch (eE) {
     return { ok: false, created: false, step: "evening", error: String(eE) };
   }
-  try { props.setProperty("DATE_NUDGE_TRIG_V", "11-19-v3"); } catch (eS) {}
-  return { ok: true, created: true, ver: "11-19-v3", triggers: ["11:00", "19:00"] };
+  try { props.setProperty("DATE_NUDGE_TRIG_V", "11-19-v5"); } catch (eS) {}
+  return { ok: true, created: true, ver: "11-19-v5", triggers: ["11:00", "19:00"] };
 }
 
 /** Обёртки для триггеров (не вызывать вручную — только clock). */
@@ -19208,8 +19209,8 @@ function partnerDefaultSeedPack_() {
       { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14" },
       { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34" },
       { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog", address: "Минск" },
-      { id: "pt_polotno_1", networkId: "net_polotno", name: "Чечота 11", address: "Чечота 11" },
-      { id: "pt_indix_1", networkId: "net_indixvost", name: "Проспект победителей 73/1", address: "Проспект победителей 73/1" },
+      { id: "pt_polotno_1", networkId: "net_polotno", name: "polotno_an", address: "Чечота 11" },
+      { id: "pt_indix_1", networkId: "net_indixvost", name: "indixvost", address: "Проспект победителей 73/1" },
       { id: "pt_bob_1", networkId: "net_bobwow", name: "bow_wow_collar", address: "Брест" }
     ],
     // доступы партнёров — только через вкладку Партнёры в Бойне
@@ -19925,8 +19926,8 @@ var PARTNER_LIVE_TEST_QUEUE_ = [
   { id: "pt_varka_shevchenko_1", networkId: "net_varka", label: "Varka Шевченко 1" },
   { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", label: "Varka Маяковского 14" },
   { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog", address: "Минск", label: "Fundog" },
-  { id: "pt_polotno_1", networkId: "net_polotno", name: "Чечота 11", address: "Чечота 11", label: "Чечота 11" },
-  { id: "pt_indix_1", networkId: "net_indixvost", name: "Проспект победителей 73/1", address: "Проспект победителей 73/1", label: "Проспект победителей 73/1" },
+  { id: "pt_polotno_1", networkId: "net_polotno", name: "polotno_an", address: "Чечота 11", label: "polotno_an" },
+  { id: "pt_indix_1", networkId: "net_indixvost", name: "indixvost", address: "Проспект победителей 73/1", label: "indixvost" },
   { id: "pt_bob_1", networkId: "net_bobwow", name: "bow_wow_collar", address: "Брест", label: "bow_wow_collar" }
 ];
 
@@ -20300,6 +20301,56 @@ function partnerMigrateProdV33_() {
   return { migrated: true, allPartners: true, revokedUser: PARTNER_LIVE_TEST_USER_ };
 }
 
+/** V34: polotno_an / indixvost имена; выкл. дубли Маяковского + Firedog. */
+function partnerMigrateProdV34_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V34") === "1") {
+    try { partnerSyncLiveTestAccess_(); } catch (e0) {}
+    return { migrated: false };
+  }
+  try { partnerMigrateProdV33_(); } catch (e33) {}
+  var now = new Date();
+  var ptSh = getPartnerPointsSheet_();
+  var canonMayak = "pt_varka_mayakovskogo_14";
+  var renamed = 0;
+  var killed = 0;
+  readPartnerPoints_().forEach(function (p) {
+    if (!p || !p.id) return;
+    var id = String(p.id);
+    var low = (String(p.name || "") + " " + String(p.address || "")).toLowerCase();
+    try {
+      if (id === "pt_polotno_1") {
+        ptSh.getRange(p.rowIndex, 3).setValue("polotno_an");
+        ptSh.getRange(p.rowIndex, 4).setValue("Чечота 11");
+        ptSh.getRange(p.rowIndex, 6).setValue(now);
+        renamed++;
+        return;
+      }
+      if (id === "pt_indix_1") {
+        ptSh.getRange(p.rowIndex, 3).setValue("indixvost");
+        ptSh.getRange(p.rowIndex, 4).setValue("Проспект победителей 73/1");
+        ptSh.getRange(p.rowIndex, 6).setValue(now);
+        renamed++;
+        return;
+      }
+      if (id === "pt_firedog_1" || String(p.networkId || "") === "net_firedog") {
+        ptSh.getRange(p.rowIndex, 5).setValue("no");
+        ptSh.getRange(p.rowIndex, 6).setValue(now);
+        killed++;
+        return;
+      }
+      if (/маяковск/.test(low) && id !== canonMayak) {
+        ptSh.getRange(p.rowIndex, 5).setValue("no");
+        ptSh.getRange(p.rowIndex, 6).setValue(now);
+        killed++;
+      }
+    } catch (eP) {}
+  });
+  try { partnerSyncLiveTestAccess_(); } catch (eSync) {}
+  props.setProperty("PARTNER_PROD_V34", "1");
+  return { migrated: true, renamed: renamed, killed: killed };
+}
+
 function partnerSyncManualAccess_() {
   var ids = (PARTNER_MANUAL_ACCESS_POINT_IDS_ || []).slice();
   var acSh = getPartnerAccessSheet_();
@@ -20400,6 +20451,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV31_(); } catch (eMig31) {}
   try { partnerMigrateProdV32_(); } catch (eMig32) {}
   try { partnerMigrateProdV33_(); } catch (eMig33) {}
+  try { partnerMigrateProdV34_(); } catch (eMig34) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
@@ -20588,8 +20640,8 @@ function partnerDefaultSlot_(now) {
     dateIso: dateIso,
     dateLabel: (names[dow2] || "") + ", " + Utilities.formatDate(slot, tz, "dd.MM"),
     timeFrom: "12:00",
-    timeTo: "18:00",
-    timeLabel: "с 12:00 до 18:00"
+    timeTo: "22:00",
+    timeLabel: "с 12:00 до 22:00"
   };
 }
 
@@ -20791,7 +20843,10 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
       }
     }
   }
-  var id = "po_" + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+  var id = String((json && (json.clientOrderId || json.id || json.orderId)) || "").trim();
+  if (!/^po_[a-z0-9]+$/i.test(id)) {
+    id = "po_" + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+  }
   var now = new Date();
   var dateIso = Utilities.formatDate(now, "Europe/Minsk", "yyyy-MM-dd");
   var orderNote = String((json && (json.note || json.orderNote)) || "").trim().slice(0, 400);
@@ -20816,27 +20871,40 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     deliverTimeTo: "",
     deliverTimeLabel: ""
   };
-  var deferredId = "";
-  try { deferredId = partnerEnqueueDeferred_(order); } catch (eDf) { deferredId = ""; }
+  // не плодить строку, если Worker уже прокинул тот же id
+  var shOrders = getPartnerOrdersSheet_();
+  var alreadyRow = false;
+  try {
+    var vals = shOrders.getDataRange().getValues();
+    for (var er = 1; er < vals.length; er++) {
+      if (String(vals[er][0] || "") === id) { alreadyRow = true; break; }
+    }
+  } catch (eDup) { alreadyRow = false; }
+  var deferredId = String((json && json.deferredId) || "").trim();
+  if (!deferredId) {
+    try { deferredId = partnerEnqueueDeferred_(order); } catch (eDf) { deferredId = ""; }
+  }
   order.deferredId = deferredId;
-  getPartnerOrdersSheet_().appendRow([
-    order.id,
-    order.dateIso,
-    order.locationId,
-    order.locationName,
-    order.networkId,
-    order.telegramId,
-    order.userName,
-    order.username,
-    JSON.stringify(order.basket),
-    order.status,
-    order.createdAt,
-    order.deliverDateIso,
-    order.deliverTimeFrom,
-    order.deliverTimeTo,
-    deferredId,
-    orderNote
-  ]);
+  if (!alreadyRow) {
+    shOrders.appendRow([
+      order.id,
+      order.dateIso,
+      order.locationId,
+      order.locationName,
+      order.networkId,
+      order.telegramId,
+      order.userName,
+      order.username,
+      JSON.stringify(order.basket),
+      order.status,
+      order.createdAt,
+      order.deliverDateIso,
+      order.deliverTimeFrom,
+      order.deliverTimeTo,
+      deferredId,
+      orderNote
+    ]);
+  }
   // Пуши: Worker шлёт сразу; GAS — только если Worker не просил skip
   var skipN = String((json && (json.skipPartnerNotify || json.skipNotify)) || "") === "1";
   if (!skipN) {
@@ -20997,7 +21065,7 @@ function handlePartnerSetOrderSlot(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, badDate) : jsonp(callback, badDate);
   }
   var timeFrom = String((json && json.deliverTimeFrom) || "12:00").trim() || "12:00";
-  var timeTo = String((json && json.deliverTimeTo) || "18:00").trim() || "18:00";
+  var timeTo = String((json && json.deliverTimeTo) || "22:00").trim() || "22:00";
   var orderId = String((json && (json.partnerOrderId || json.orderId)) || "").trim();
   var deferredId = String((json && json.deferredId) || "").trim();
   var rawId = String((json && json.id) || "").trim();
@@ -21193,9 +21261,30 @@ function handlePartnerListAdmin(json, callback, fromPost) {
     status: "success",
     networks: readPartnerNetworks_().map(function (n) {
       return { id: n.id, name: n.name, logo: n.logo, active: n.active };
+    }).filter(function (n) {
+      return n && n.id !== "net_firedog" && String(n.id || "").indexOf("firedog") < 0;
     }),
     points: readPartnerPoints_().map(function (p) {
       return { id: p.id, networkId: p.networkId, name: p.name, address: p.address, active: p.active };
+    }).filter(function (p) {
+      if (!p || !p.id) return false;
+      var id = String(p.id);
+      var nid = String(p.networkId || "");
+      var low = (String(p.name || "") + " " + String(p.address || "")).toLowerCase();
+      if (id === "pt_firedog_1" || nid === "net_firedog" || /firedog/.test(low)) return false;
+      if ((/маяковск/.test(low) || id === "pt_f7640014" || id === "pt_mtu4v0dsdy3o") &&
+          id !== "pt_varka_mayakovskogo_14") return false;
+      if (id === "pt_polotno_1") {
+        p.name = "polotno_an";
+        p.address = "Чечота 11";
+      } else if (id === "pt_indix_1") {
+        p.name = "indixvost";
+        p.address = "Проспект победителей 73/1";
+      } else if (id === "pt_varka_mayakovskogo_14") {
+        p.name = "Varka Маяковского 14";
+        p.address = "Маяковского 14";
+      }
+      return true;
     }),
     access: readPartnerAccessRows_().map(function (a) {
       return {
@@ -21497,8 +21586,8 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
   var actor = String((json && json.telegramId) || "").trim();
   var actorRole = String((json && json.actorRole) || "").toLowerCase();
   var isOwner = partnerRequireOwner_(actor);
-  // партнёр из мини-аппа может выдать staff только на свои точки
-  var allowPartnerStaff = !isOwner && actorRole === "partner";
+  // партнёр/owner из мини-аппа может выдать staff на свои точки; staff — нет
+  var allowPartnerStaff = !isOwner && (actorRole === "partner" || actorRole === "owner");
   if (!isOwner && !allowPartnerStaff) {
     var forbid = { status: "error", message: "forbidden" };
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
@@ -21513,7 +21602,7 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
   var status = String((json && json.status) || "active").toLowerCase() || "active";
   if (allowPartnerStaff) {
     role = "staff";
-    // ограничить точкуми актёра
+    // ограничить точками актёра
     var meRows = readPartnerAccessRows_();
     var me = null;
     for (var m = 0; m < meRows.length; m++) {
@@ -21529,24 +21618,26 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
         }
       }
     }
-    if (!me) {
-      var noMe = { status: "error", message: "partner_not_found" };
-      return fromPost ? jsonpText(callback, noMe) : jsonp(callback, noMe);
-    }
-    if (String(me.role || "").toLowerCase() === "staff") {
+    if (me && String(me.role || "").toLowerCase() === "staff") {
       var staffForbid = { status: "error", message: "staff_cannot_grant" };
       return fromPost ? jsonpText(callback, staffForbid) : jsonp(callback, staffForbid);
     }
-    if (String(me.role || "partner").toLowerCase() !== "partner" &&
-        String(me.role || "").toLowerCase() !== "owner") {
-      var roleForbid = { status: "error", message: "forbidden" };
-      return fromPost ? jsonpText(callback, roleForbid) : jsonp(callback, roleForbid);
+    if (me) {
+      if (String(me.role || "partner").toLowerCase() !== "partner" &&
+          String(me.role || "").toLowerCase() !== "owner") {
+        var roleForbid = { status: "error", message: "forbidden" };
+        return fromPost ? jsonpText(callback, roleForbid) : jsonp(callback, roleForbid);
+      }
+      networkId = me.networkId || networkId;
+      var allowed = {};
+      (me.pointIds || []).forEach(function (pid) { allowed[pid] = true; });
+      pointIds = pointIds.filter(function (pid) { return !!allowed[pid]; });
+      if (!pointIds.length) pointIds = (me.pointIds || []).slice();
+    } else if (actorRole !== "owner") {
+      var noMe = { status: "error", message: "partner_not_found" };
+      return fromPost ? jsonpText(callback, noMe) : jsonp(callback, noMe);
     }
-    networkId = me.networkId;
-    var allowed = {};
-    (me.pointIds || []).forEach(function (pid) { allowed[pid] = true; });
-    pointIds = pointIds.filter(function (pid) { return !!allowed[pid]; });
-    if (!pointIds.length) pointIds = (me.pointIds || []).slice();
+    // actorRole=owner без строки Access (owner-all): точки из запроса как есть
   }
   if (!username && !targetTid) {
     var bad = { status: "error", message: "need_username_or_telegramId" };

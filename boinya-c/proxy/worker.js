@@ -386,7 +386,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-10 fix-pp-slot2-ndel-h1"
+      deployMarker: "2026-09-10 varka-ux-batch-3bf6"
     };
   }
 
@@ -6870,8 +6870,8 @@ const PARTNER_LIVE_TEST_QUEUE = [
   { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka Шевченко 1", address: "Шевченко 1", label: "Varka Шевченко 1" },
   { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14", label: "Varka Маяковского 14" },
   { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog", address: "Минск", label: "Fundog" },
-  { id: "pt_polotno_1", networkId: "net_polotno", name: "Чечота 11", address: "Чечота 11", label: "Чечота 11" },
-  { id: "pt_indix_1", networkId: "net_indixvost", name: "Проспект победителей 73/1", address: "Проспект победителей 73/1", label: "Проспект победителей 73/1" },
+  { id: "pt_polotno_1", networkId: "net_polotno", name: "polotno_an", address: "Чечота 11", label: "polotno_an" },
+  { id: "pt_indix_1", networkId: "net_indixvost", name: "indixvost", address: "Проспект победителей 73/1", label: "indixvost" },
   { id: "pt_bob_1", networkId: "net_bobwow", name: "bow_wow_collar", address: "Брест", label: "bow_wow_collar" }
 ];
 
@@ -7079,15 +7079,24 @@ function partnerManualAccessGetMe_(json) {
 
 function partnerOwnerAllGetMe_(json) {
   const src = json && typeof json === "object" && json.status !== "error" ? json : {};
+  const renameById = {
+    pt_polotno_1: { name: "polotno_an", address: "Чечота 11" },
+    pt_indix_1: { name: "indixvost", address: "Проспект победителей 73/1" }
+  };
+  const canonMayak = "pt_varka_mayakovskogo_14";
   const byId = {};
   const addPt = function (p) {
     if (!p || !p.id) return;
+    if (p.active === false) return;
     if (String(p.networkId || "") === "net_firedog" || p.id === "pt_firedog_1") return;
+    const low = (String(p.name || "") + " " + String(p.address || "")).toLowerCase();
+    if (/маяковск/.test(low) && String(p.id) !== canonMayak) return;
+    const fix = renameById[p.id];
     byId[p.id] = {
       id: p.id,
       networkId: p.networkId || "",
-      name: p.name || p.label || p.id,
-      address: p.address || ""
+      name: (fix && fix.name) || p.name || p.label || p.id,
+      address: (fix && fix.address) || p.address || ""
     };
   };
   (Array.isArray(src.points) ? src.points : []).forEach(addPt);
@@ -7106,11 +7115,12 @@ function partnerOwnerAllGetMe_(json) {
   });
   let nets = Array.isArray(src.networks)
     ? src.networks.filter(function (n) {
-        return n && netNeed[n.id];
+        return n && netNeed[n.id] && n.id !== "net_firedog";
       })
     : [];
   if (!nets.length) {
     Object.keys(netNeed).forEach(function (nid) {
+      if (nid === "net_firedog") return;
       nets.push({
         id: nid,
         name:
@@ -7579,7 +7589,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1 слоты недели перезаписаны из Sheets (пустые дни очищены).",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-10 fix-pp-slot2-ndel-h1"
+        deployMarker: "2026-09-10 varka-ux-batch-3bf6"
       };
     } catch (eResync) {
       return {
@@ -8598,9 +8608,14 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eP) {
         d1P = { status: "error", message: String((eP && eP.message) || eP) };
       }
-      // Worker шлёт TG сразу; GAS зеркало без повторных пушей
+      // Worker шлёт TG сразу; GAS зеркало без повторных пушей + тот же order id (без дубля в Заказах)
       if (/^partnerSubmitOrder$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
-        params = Object.assign({}, params, { skipPartnerNotify: "1" });
+        params = Object.assign({}, params, {
+          skipPartnerNotify: "1",
+          clientOrderId: d1P.order.id,
+          id: d1P.order.id,
+          deferredId: d1P.deferredId || d1P.order.deferredId || ""
+        });
       }
       if (/^partnerSetOrderSlot$/i.test(a) && d1P && d1P.status === "success") {
         params = Object.assign({}, params, { skipPartnerNotify: "1" });
@@ -15666,7 +15681,8 @@ async function partnerEnsureMayakovskyPoint_(env, admin) {
   } else {
     points.push(row);
   }
-  // soft-delete other mayakovsky / double-name dups; strip · in Varka titles
+  // soft-delete other mayakovsky / double-name dups; strip · in Varka titles;
+  // V34: polotno_an / indixvost; hide firedog
   const nextPts = [];
   for (let j = 0; j < points.length; j++) {
     const p = points[j] || {};
@@ -15675,19 +15691,32 @@ async function partnerEnsureMayakovskyPoint_(env, admin) {
     const address = String(p.address || "");
     const low = (name + " " + address).toLowerCase();
     const mayaks = low.match(/маяковск/g);
+    if (pid === "pt_firedog_1" || String(p.networkId || "") === "net_firedog") {
+      nextPts.push(Object.assign({}, p, { active: false }));
+      continue;
+    }
     if (mayaks && mayaks.length && pid !== id) {
       nextPts.push(Object.assign({}, p, { active: false }));
       continue;
     }
     let cleanName = name.replace(/\s*[·.•]\s*/g, " ").replace(/\s+/g, " ").trim();
-    if (pid === id) cleanName = "Varka Маяковского 14";
-    else if (String(p.networkId || "") === "net_varka" && /^varka\b/i.test(cleanName) && address) {
+    let cleanAddr = address;
+    if (pid === id) {
+      cleanName = "Varka Маяковского 14";
+      cleanAddr = "Маяковского 14";
+    } else if (pid === "pt_polotno_1") {
+      cleanName = "polotno_an";
+      cleanAddr = "Чечота 11";
+    } else if (pid === "pt_indix_1") {
+      cleanName = "indixvost";
+      cleanAddr = "Проспект победителей 73/1";
+    } else if (String(p.networkId || "") === "net_varka" && /^varka\b/i.test(cleanName) && address) {
       cleanName = ("Varka " + address).replace(/\s+/g, " ").trim();
     }
-    nextPts.push(Object.assign({}, p, { name: cleanName, address: pid === id ? "Маяковского 14" : address }));
+    nextPts.push(Object.assign({}, p, { name: cleanName, address: cleanAddr }));
   }
-  const next = Object.assign({}, admin, { points: nextPts, _partnerMayakV16: 1 });
-  if (env && env.DB && !admin._partnerMayakV16) {
+  const next = Object.assign({}, admin, { points: nextPts, _partnerMayakV16: 1, _partnerNamesV34: 1 });
+  if (env && env.DB && (!admin._partnerMayakV16 || !admin._partnerNamesV34)) {
     try {
       await putSnap_(env, "partnerListAdmin", Object.assign({}, next, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
     } catch (eW) {}
@@ -16081,8 +16110,8 @@ function partnerDefaultSlotWorker_() {
     dateIso: iso,
     dateLabel: dd + "." + mm,
     timeFrom: "12:00",
-    timeTo: "18:00",
-    timeLabel: "12:00–18:00"
+    timeTo: "22:00",
+    timeLabel: "12:00–22:00"
   };
 }
 
@@ -16166,8 +16195,22 @@ async function mutatePartnerD1_(action, params, env) {
   }
 
   if (/^partnerSaveAccess$/i.test(a)) {
-    const username = partnerNormUserWorker_(params && params.username);
+    const actorRole = String((params && params.actorRole) || "").toLowerCase();
     const actorTid = String((params && params.telegramId) || "").trim();
+    const actorUser = partnerNormUserWorker_(params && params.actorUsername);
+    // staff не может выдавать доступы (даже если D1 пишет раньше GAS)
+    if (actorRole === "staff") {
+      return { status: "error", message: "staff_cannot_grant" };
+    }
+    for (let ai = 0; ai < (admin.access || []).length; ai++) {
+      const ar = admin.access[ai];
+      if (!ar || String(ar.status || "active").toLowerCase() !== "active") continue;
+      if (String(ar.role || "").toLowerCase() !== "staff") continue;
+      const matchT = actorTid && String(ar.telegramId || "") === actorTid;
+      const matchU = actorUser && partnerNormUserWorker_(ar.username) === actorUser;
+      if (matchT || matchU) return { status: "error", message: "staff_cannot_grant" };
+    }
+    const username = partnerNormUserWorker_(params && params.username);
     const targetTid = String(
       (params && (params.targetTelegramId || params.staffTelegramId)) || ""
     ).trim();
@@ -16400,6 +16443,28 @@ async function mutatePartnerD1_(action, params, env) {
         }
       }
     }
+    if (!allowed && isPartnerOwnerAllUser_({ username: username, telegramId: tid })) {
+      for (let p0 = 0; p0 < (admin.points || []).length; p0++) {
+        if (String(admin.points[p0].id) === locationId) {
+          allowed = true;
+          if (!networkId) networkId = admin.points[p0].networkId || "";
+          if (!locationName) locationName = admin.points[p0].name || "";
+          break;
+        }
+      }
+      if (!allowed) {
+        for (let q0 = 0; q0 < (PARTNER_LIVE_TEST_QUEUE || []).length; q0++) {
+          if (PARTNER_LIVE_TEST_QUEUE[q0].id === locationId) {
+            allowed = true;
+            if (!networkId) networkId = PARTNER_LIVE_TEST_QUEUE[q0].networkId || "";
+            if (!locationName) {
+              locationName = PARTNER_LIVE_TEST_QUEUE[q0].name || PARTNER_LIVE_TEST_QUEUE[q0].label || "";
+            }
+            break;
+          }
+        }
+      }
+    }
     if (!allowed && !(admin.access || []).length) {
       return { status: "error", message: "need_admin_snap" };
     }
@@ -16540,7 +16605,7 @@ async function mutatePartnerD1_(action, params, env) {
       return { status: "error", message: "need_id_date" };
     }
     const timeFrom = String((params && params.deliverTimeFrom) || "12:00").trim() || "12:00";
-    const timeTo = String((params && params.deliverTimeTo) || "18:00").trim() || "18:00";
+    const timeTo = String((params && params.deliverTimeTo) || "22:00").trim() || "22:00";
     async function resolvePartnerOrderIdFromDeferred_(wantDef, wantId) {
       try {
         const list0 = (await getSnapRaw_(env, "listDeferred")) || {};
@@ -16672,17 +16737,51 @@ async function refreshPartnerSnapsFromGas_(action, params, env, live) {
     let pack = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
     pack.orders = Array.isArray(pack.orders) ? pack.orders.slice() : [];
     const oid = String(live.order.id || live.id || "");
+    const clientId = String((params && (params.clientOrderId || params.id)) || "").trim();
+    const locId = String(live.order.locationId || "");
+    const tid = String(live.order.telegramId || "");
     let replaced = false;
     for (let i = 0; i < pack.orders.length; i++) {
-      if (String(pack.orders[i].id) === oid || (live.order && pack.orders[i]._tmp && pack.orders[i].locationId === live.order.locationId)) {
-        pack.orders[i] = Object.assign({}, pack.orders[i], live.order, {
-          deferredId: live.deferredId || pack.orders[i].deferredId || ""
+      const cur = pack.orders[i] || {};
+      const cid = String(cur.id || "");
+      if (cid === oid || (clientId && cid === clientId)) {
+        pack.orders[i] = Object.assign({}, cur, live.order, {
+          id: oid || cid,
+          deferredId: live.deferredId || cur.deferredId || ""
+        });
+        replaced = true;
+        break;
+      }
+    }
+    // свежий D1-заказ с другим id (до фикса) — слить, не добавлять второй
+    if (!replaced && locId && tid) {
+      for (let j = 0; j < pack.orders.length; j++) {
+        const cur = pack.orders[j] || {};
+        if (String(cur.locationId || "") !== locId) continue;
+        if (String(cur.telegramId || "") !== tid) continue;
+        if (String(cur.deliverDateIso || "").trim()) continue;
+        if (String(cur.status || "new").toLowerCase() === "delivered") continue;
+        const created = Date.parse(String(cur.createdAt || "")) || 0;
+        if (created && Date.now() - created > 5 * 60 * 1000) continue;
+        pack.orders[j] = Object.assign({}, cur, live.order, {
+          id: oid || cur.id,
+          deferredId: cur.deferredId || live.deferredId || ""
         });
         replaced = true;
         break;
       }
     }
     if (!replaced && live.order) pack.orders.unshift(live.order);
+    // выкинуть дубли того же oid/clientId
+    const seenPo = Object.create(null);
+    pack.orders = pack.orders.filter(function (o) {
+      if (!o) return false;
+      const k = String(o.id || "");
+      if (!k) return true;
+      if (seenPo[k]) return false;
+      seenPo[k] = 1;
+      return true;
+    });
     pack.status = "success";
     await putSnap_(env, "partnerOrders", pack);
     let gasDefId = String(live.deferredId || (live.order && live.order.deferredId) || "").trim();
@@ -16690,7 +16789,7 @@ async function refreshPartnerSnapsFromGas_(action, params, env, live) {
     try {
       let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
       let items = Array.isArray(list.items) ? list.items.slice() : [];
-      let hasOpen = false;
+      let hitIx = -1;
       for (let hi = 0; hi < items.length; hi++) {
         const it = items[hi];
         if (!it) continue;
@@ -16699,24 +16798,73 @@ async function refreshPartnerSnapsFromGas_(action, params, env, live) {
           String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
           String(pl.orderType || "") === "partner";
         if (!isPartner) continue;
-        if (String(pl.partnerOrderId || "") !== oid) continue;
         if (String(it.status || "open").toLowerCase() === "done") continue;
-        hasOpen = true;
-        if (gasDefId && String(it.id) !== gasDefId) {
-          items[hi] = Object.assign({}, it, { id: gasDefId, gasSynced: true });
+        const po = String(pl.partnerOrderId || "");
+        if (po && (po === oid || (clientId && po === clientId))) {
+          hitIx = hi;
+          break;
         }
-        break;
+        if (
+          hitIx < 0 &&
+          locId &&
+          String(pl.locationId || "") === locId &&
+          tid &&
+          String(pl.partnerTelegramId || "") === tid &&
+          !String(pl.deliverDateIso || "").trim()
+        ) {
+          hitIx = hi;
+        }
       }
-      if (!hasOpen && live.order) {
+      if (hitIx >= 0) {
+        const prev = items[hitIx];
+        const pl0 = prev.payload || {};
+        items[hitIx] = Object.assign({}, prev, {
+          id: gasDefId || prev.id,
+          gasSynced: true,
+          payload: Object.assign({}, pl0, live.order ? {
+            partnerOrderId: oid || pl0.partnerOrderId || "",
+            locationId: live.order.locationId || pl0.locationId,
+            locationName: live.order.locationName || pl0.locationName,
+            basket: live.order.basket || pl0.basket,
+            note: live.order.note || pl0.note,
+            partnerNote: live.order.note || pl0.partnerNote
+          } : { partnerOrderId: oid || pl0.partnerOrderId || "" }),
+          updatedAt: new Date().toISOString()
+        });
+        // снести лишние open-дубли той же заявки
+        items = items.filter(function (it, ix) {
+          if (ix === hitIx || !it) return !!it;
+          const pl = it.payload || {};
+          const isPartner =
+            String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
+            String(pl.orderType || "") === "partner";
+          if (!isPartner) return true;
+          if (String(it.status || "open").toLowerCase() === "done") return true;
+          const po = String(pl.partnerOrderId || "");
+          if (po && (po === oid || (clientId && po === clientId))) return false;
+          if (
+            locId &&
+            String(pl.locationId || "") === locId &&
+            tid &&
+            String(pl.partnerTelegramId || "") === tid &&
+            !String(pl.deliverDateIso || "").trim()
+          ) {
+            return false;
+          }
+          return true;
+        });
+        list.items = items;
+        list.openCount = items.filter(function (it) {
+          return String((it && it.status) || "open").toLowerCase() === "open";
+        }).length;
+        list.fromD1 = true;
+        await putSnap_(env, "listDeferred", list);
+      } else if (live.order) {
         const enqId = await partnerEnqueueDeferredD1Worker_(
           Object.assign({}, live.order, { deferredId: gasDefId || live.order.deferredId || "" }),
           env
         );
         if (enqId) gasDefId = enqId;
-      } else if (hasOpen) {
-        list.items = items;
-        list.fromD1 = true;
-        await putSnap_(env, "listDeferred", list);
       }
     } catch (eDefSync) {}
   }
