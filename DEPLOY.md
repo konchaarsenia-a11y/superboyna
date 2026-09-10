@@ -27,10 +27,12 @@ Repo **Settings → Secrets and variables → Actions → New repository secret*
 
 **Grok Bot / КЕНТ GB** already has a local clasprc. Copy that file into the secret. Do not commit it. Do not paste tokens into git, PRs, or chat.
 
+`CLASPRC_JSON` must come from **clasp 3.x** (same major as CI, currently `@google/clasp@3.4.1`). clasp 2.x cannot read the 3.x token shape `{tokens:{default:...}}` and fails at `clasp pull` with `Cannot read properties of undefined (reading 'access_token')`.
+
 If you need a fresh login (on a trusted machine, not in this repo):
 
 ```bash
-npx @google/clasp@2.4.2 login
+npx @google/clasp@3.4.1 login
 # scopes must include script.projects + script.deployments
 cat ~/.clasprc.json   # paste into the GitHub secret, then delete the terminal scrollback
 ```

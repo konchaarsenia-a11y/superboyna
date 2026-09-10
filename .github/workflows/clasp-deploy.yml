@@ -7,7 +7,8 @@
 #   4. clasp deploy -i <existing webapp deployment>
 #
 # Required repo secret (Settings → Secrets and variables → Actions):
-#   CLASPRC_JSON  — full contents of ~/.clasprc.json
+#   CLASPRC_JSON  — full contents of ~/.clasprc.json from clasp 3.x
+#   (same major as CI; clasp 2 cannot read tokens:{default:...}).
 #   Grok Bot / КЕНТ GB already has a local clasprc; paste that JSON into the secret.
 #   See DEPLOY.md. Never commit tokens.
 #
@@ -48,7 +49,8 @@ jobs:
           node-version: "20"
 
       - name: Install clasp
-        run: npm i -g @google/clasp@2.4.2
+        # Pin 3.4.1 — CLASPRC_JSON is clasp 3.x shape {tokens:{default:...}}.
+        run: npm i -g @google/clasp@3.4.1
 
       - name: Write ~/.clasprc.json
         env:
