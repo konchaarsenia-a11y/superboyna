@@ -9366,7 +9366,7 @@ function collectAllActiveStaffTelegramIds_() {
 }
 
 /**
- * Напоминание «подбить даты» — 11:00 и 22:00 Europe/Minsk.
+ * Напоминание «подбить даты» — 11:00 и 19:00 Europe/Minsk.
  * Список = вчера доставленные (галочка) ПП + БП1; у ПП кнопка «В АФК».
  */
 function tickDeliveryDatesNudge_() {
@@ -9376,7 +9376,7 @@ function tickDeliveryDatesNudge_() {
   var ymd = Utilities.formatDate(now, tz, "yyyy-MM-dd");
   var slot = "";
   if (hour === 11) slot = "11";
-  else if (hour === 22 || hour === 19) slot = "22";
+  else if (hour === 19) slot = "19";
   else return { skipped: true, reason: "not_slot", hour: hour };
 
   var props = PropertiesService.getScriptProperties();
@@ -9565,7 +9565,7 @@ function classifyDeliveredClientForNudge_(ss, row) {
 }
 
 function sendDeliveryDatesNudge_(slot) {
-  var when = String(slot || "") === "22" || String(slot || "") === "19" ? "22:00" : "11:00";
+  var when = String(slot || "") === "19" ? "19:00" : "11:00";
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var pack = listYesterdayDeliveredForNudge_(ss);
   var lines = [];
@@ -9759,7 +9759,7 @@ function moveSubscriptionSheetsOnly_(nick, fromSheet, toSheet) {
   };
 }
 
-/** Триггеры: ежедневно около 11:00 и 22:00 (слот проверяем по Минску). */
+/** Триггеры: ежедневно около 11:00 и 19:00 (слот проверяем по Минску). */
 function ensureDeliveryDatesNudgeTriggers_() {
   var props = PropertiesService.getScriptProperties();
   var ver = "";
@@ -9776,8 +9776,9 @@ function ensureDeliveryDatesNudgeTriggers_() {
       ours.push(triggers[i]);
     }
   }
-  // v4: вечерний слот 22:00
-  if (ours.length === 2 && ver === "11-22-v4") {
+  // v3: отдельные handler-функции (стабильнее в редакторе / квотах)
+  // v5: откат с 22:00 обратно на 19:00 (если успели поставить 11-22-v4)
+  if (ours.length === 2 && (ver === "11-19-v3" || ver === "11-19-v5")) {
     return { ok: true, already: true, ver: ver, count: ours.length };
   }
   for (i = 0; i < ours.length; i++) {
@@ -9797,15 +9798,15 @@ function ensureDeliveryDatesNudgeTriggers_() {
   try {
     ScriptApp.newTrigger("tickDeliveryDatesNudgeEvening_")
       .timeBased()
-      .atHour(22)
+      .atHour(19)
       .nearMinute(0)
       .everyDays(1)
       .create();
   } catch (eE) {
     return { ok: false, created: false, step: "evening", error: String(eE) };
   }
-  try { props.setProperty("DATE_NUDGE_TRIG_V", "11-22-v4"); } catch (eS) {}
-  return { ok: true, created: true, ver: "11-22-v4", triggers: ["11:00", "22:00"] };
+  try { props.setProperty("DATE_NUDGE_TRIG_V", "11-19-v5"); } catch (eS) {}
+  return { ok: true, created: true, ver: "11-19-v5", triggers: ["11:00", "19:00"] };
 }
 
 /** Обёртки для триггеров (не вызывать вручную — только clock). */
@@ -9826,7 +9827,7 @@ function handleSetupDeliveryDatesNudgeTriggers(callback, fromPost) {
   }
   var ok = {
     status: "success",
-    trigger: "tickDeliveryDatesNudge_@11+22 Europe/Minsk",
+    trigger: "tickDeliveryDatesNudge_@11+19 Europe/Minsk",
     result: r
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
