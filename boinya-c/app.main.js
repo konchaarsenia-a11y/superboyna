@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115940";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115945";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -2257,9 +2257,10 @@
     let ppNeedManualSlot = false;
     let ppDeliveriesN = 0;
 
-    function setPpDeliverySlot(slot) {
+    function setPpDeliverySlot(slot, fromUi) {
       slot = Number(slot) || 0;
       if (slot !== 1 && slot !== 2) return;
+      var prev = ppDeliverySlotManual;
       ppDeliverySlotManual = slot;
       var b1 = document.getElementById("ppSlot1Btn");
       var b2 = document.getElementById("ppSlot2Btn");
@@ -2270,15 +2271,21 @@
         hint.textContent = "Доставок в месяц: N=" + ppDeliveriesN + " · выбрано ПП " + slot;
         hint.style.display = "block";
       }
+      if (fromUi && prev && prev !== slot && Array.isArray(basket) && basket.length) {
+        try {
+          showToast("ПП " + slot + " · чтобы обновить состав под слот — «Состав из ПП»");
+        } catch (eToastSlot) {}
+      }
     }
     window.setPpDeliverySlot = setPpDeliverySlot;
 
     function updatePpSlotPickUi_(opts) {
       opts = opts || {};
       var group = document.getElementById("ppSlotPickGroup");
-      var pickHint = document.getElementById("ppSlotPickHint");
       if (!group) return;
-      var show = orderType === "pp" && (opts.needManualSlot || ppNeedManualSlot) && (opts.deliveriesN || ppDeliveriesN) >= 2;
+      var n = Number(opts.deliveriesN != null ? opts.deliveriesN : ppDeliveriesN) || 0;
+      // N≥2: всегда можно выбрать ПП 1 / ПП 2 (не только при «первом якоре»)
+      var show = orderType === "pp" && n >= 2;
       group.style.display = show ? "" : "none";
       if (!show) {
         if (opts.reset) {
@@ -2288,20 +2295,17 @@
           var b2 = document.getElementById("ppSlot2Btn");
           if (b1) b1.classList.remove("active");
           if (b2) b2.classList.remove("active");
+          var hintClr = document.getElementById("ppSlotHint");
+          if (hintClr) { hintClr.style.display = "none"; hintClr.textContent = ""; }
         }
         return;
       }
-      ppNeedManualSlot = true;
+      if (opts.needManualSlot) ppNeedManualSlot = true;
       var suggested = Number(opts.suggestedSlot) || ppDeliverySlotManual || 1;
       if (!(ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2)) {
         setPpDeliverySlot(suggested);
       } else {
         setPpDeliverySlot(ppDeliverySlotManual);
-      }
-      if (pickHint) {
-        var why = "один раз на клиента — дальше считаем от ответа";
-        pickHint.textContent = "Какая сейчас доставка? ПП " + suggested +
-          " (подсказка) — выбери ПП 1 или ПП 2 (" + why + ")";
       }
     }
 
@@ -2561,20 +2565,18 @@
           var suggested = Number(res.suggestedSlot || res.deliverySlot) || 1;
           var hasManual = (ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2);
           // Не затирать слот, который уже выбрал менеджер / getPpOrderSuggest (баг Viihrova: 2→1)
-          if (ppNeedManualSlot) {
-            if (!hasManual) ppDeliverySlotManual = suggested;
-          } else if (!hasManual && res.deliverySlot >= 1 && ppDeliveriesN >= 2) {
-            ppDeliverySlotManual = Number(res.deliverySlot) || 1;
+          if (!hasManual && suggested >= 1 && ppDeliveriesN >= 2) {
+            ppDeliverySlotManual = suggested;
           }
           if (hint) {
-            if (ppNeedManualSlot) {
-              hint.textContent = "N=" + ppDeliveriesN + " · какая сейчас доставка? (один раз)";
-            } else if (ppDeliveriesN) {
-              var slotShow = hasManual
+            if (ppDeliveriesN >= 2) {
+              var slotShow = (ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2)
                 ? ppDeliverySlotManual
                 : (res.deliverySlot || suggested || "");
               hint.textContent = "Доставок в месяц: N=" + ppDeliveriesN +
                 (slotShow ? (" · слот " + slotShow) : "");
+            } else if (ppDeliveriesN === 1) {
+              hint.textContent = "Доставок в месяц: N=1";
             } else {
               hint.textContent = "";
             }
@@ -2624,8 +2626,9 @@
         showToast("Укажи ник клиента ПП");
         return false;
       }
-      if (ppNeedManualSlot && !(ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2)) {
+      if (ppDeliveriesN >= 2 && !(ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2)) {
         showToast("Сначала выбери ПП 1 или ПП 2");
+        try { updatePpSlotPickUi_({ deliveriesN: ppDeliveriesN, needManualSlot: true }); } catch (ePick0) {}
         return false;
       }
       var day = (document.getElementById("day") && document.getElementById("day").value) || "";
@@ -2643,6 +2646,13 @@
           return false;
         }
         ppDeliveriesN = Number(res.deliveriesN) || ppDeliveriesN;
+        if (ppDeliveriesN >= 2) {
+          updatePpSlotPickUi_({
+            deliveriesN: ppDeliveriesN,
+            suggestedSlot: Number(res.deliverySlot || res.suggestedSlot) || ppDeliverySlotManual || 1,
+            needManualSlot: !!(res.needManualSlot)
+          });
+        }
         if (res.needManualSlot && !(ppDeliverySlotManual >= 1)) {
           ppNeedManualSlot = true;
           updatePpSlotPickUi_({ needManualSlot: true, deliveriesN: ppDeliveriesN });
@@ -4616,8 +4626,9 @@
           return;
         }
       }
-      if (orderType === "pp" && ppNeedManualSlot && !(ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2)) {
-        await uiAlertAsync("Укажи какая сейчас доставка: ПП 1 или ПП 2 (один раз на клиента)");
+      if (orderType === "pp" && ppDeliveriesN >= 2 && !(ppDeliverySlotManual === 1 || ppDeliverySlotManual === 2)) {
+        await uiAlertAsync("Укажи какая сейчас доставка: ПП 1 или ПП 2");
+        try { updatePpSlotPickUi_({ deliveriesN: ppDeliveriesN, needManualSlot: true }); } catch (ePick) {}
         return;
       }
       var ppPartnerVal = "";
@@ -4783,6 +4794,7 @@
         orderPrice: orderPrice,
         deliverySlot: ppSlotPayload.deliverySlot || "",
         ppSlot: ppSlotPayload.ppSlot || "",
+        deliveriesN: ppSlotPayload.deliveriesN || "",
         deliveryAfter: deliveryAfter,
         deliveryBefore: deliveryBefore,
         ppPartner: ppPartnerVal || "",
@@ -4822,6 +4834,7 @@
         orderPrice: orderPrice,
         deliverySlot: ppSlotPayload.deliverySlot || "",
         ppSlot: ppSlotPayload.ppSlot || "",
+        deliveriesN: ppSlotPayload.deliveriesN || "",
         deliveryAfter: deliveryAfter,
         deliveryBefore: deliveryBefore,
         ppPartner: ppPartnerVal || "",
@@ -4909,6 +4922,9 @@
           orderPrice: orderPrice != null ? String(orderPrice) : "",
           deliverySlot: ppSlotPayload.deliverySlot ? String(ppSlotPayload.deliverySlot) : "",
           ppSlot: ppSlotPayload.ppSlot || "",
+          deliveriesN: ppSlotPayload.deliveriesN != null && ppSlotPayload.deliveriesN !== ""
+            ? String(ppSlotPayload.deliveriesN)
+            : "",
           deliveryAfter: deliveryAfter || "",
           deliveryBefore: deliveryBefore || "",
           ppPartner: ppPartnerVal || "",
@@ -6613,6 +6629,27 @@
           '<button class="crm-mini-btn crm-delete" onclick="crmDeleteClient(' + index + ', event)">🗑️</button>' +
           "</div>";
       }
+      var ppSlotRow = "";
+      try {
+        var delNCard = Number(client.deliveriesN) || 0;
+        var isPpCard = resolveClientOrderType_(client) === "pp" ||
+          String(client.segment || "").toUpperCase() === "ПП" ||
+          String(client.segment || "").toUpperCase() === "АФК";
+        if (!isDraft && isPpCard && delNCard >= 2) {
+          var curSlot = Number(client.deliverySlot) || 0;
+          if (!curSlot && client.ppSlot) {
+            var mCur = String(client.ppSlot).match(/(\d+)/);
+            if (mCur) curSlot = Number(mCur[1]) || 0;
+          }
+          ppSlotRow =
+            '<div class="seg-row" style="margin-top:8px;gap:6px;" onclick="event.stopPropagation()">' +
+            '<button type="button" class="seg-btn' + (curSlot === 1 ? " active" : "") +
+            '" style="flex:1;font-size:12px;" onclick="crmChangeClientPpSlot(' + index + ',1,event)">ПП 1</button>' +
+            '<button type="button" class="seg-btn' + (curSlot === 2 ? " active" : "") +
+            '" style="flex:1;font-size:12px;" onclick="crmChangeClientPpSlot(' + index + ',2,event)">ПП 2</button>' +
+            "</div>";
+        }
+      } catch (ePpRow) {}
       return `<div class="client-item-card${gapClass}${draftClass}" id="${idPrefix}Card_${index}">
         <div class="client-main-row" onclick="${toggleFn}">
           <div class="client-title-wrap">
@@ -6630,6 +6667,7 @@
           ${gapBadge}
           <span class="view-tap-hint">тап — состав</span>
         </div>
+        ${ppSlotRow}
         <div class="delivery-info-box">${priceHtml}${note}${roleHint}${deliv}${preview}</div>
         <div class="client-order-details" id="${detailId}">${isDraft && !(client.basket && client.basket.length) ? '<p class="muted">Состав подтянется при сохранении (или дополни ✏️)</p>' : lines}</div>
       </div>`;
@@ -6790,22 +6828,18 @@
       } catch (e) { res = null; }
       if (!res || res.status !== "success") return true;
       var n = Number(res.deliveries) || 0;
-      if (!(n >= 2) || !res.needManualSlot) {
+      if (!(n >= 2)) {
         if (n === 1) {
           client.deliverySlot = 1;
           client.deliveriesN = 1;
           client.ppSlot = "1";
-        } else if (res.deliverySlot >= 1 && n >= 2) {
-          client.deliverySlot = Number(res.deliverySlot);
-          client.deliveriesN = n;
-          client.ppSlot = res.ppSlot || (client.deliverySlot + "/" + n);
         }
         return true;
       }
       var suggested = Number(res.suggestedSlot || res.deliverySlot) || 1;
       var picked = await uiChoiceAsync(
         "ПП · " + (client.name || ""),
-        "У клиента 2 доставки в месяц. Какая сейчас доставка?\n(один раз — дальше считаем от ответа)",
+        "У клиента " + n + " доставки в месяц. Какая сейчас доставка?",
         [
           { label: suggested === 1 ? "ПП 1 ✓" : "ПП 1", value: "1", cls: suggested === 1 ? "btn-green" : "" },
           { label: suggested === 2 ? "ПП 2 ✓" : "ПП 2", value: "2", cls: suggested === 2 ? "btn-green" : "" }
@@ -8158,6 +8192,99 @@
     let editOriginalClient = "";
     let editOriginalDay = "";
     let editOriginalMatchKey = "";
+
+    async function crmChangeClientPpSlot(index, slot, event) {
+      if (event) {
+        try { event.stopPropagation(); } catch (eStop) {}
+      }
+      slot = Number(slot) || 0;
+      if (slot !== 1 && slot !== 2) return;
+      var client = loadedClientsRawData[index];
+      if (!client) return;
+      var n = Math.max(2, Number(client.deliveriesN) || 2);
+      var cur = Number(client.deliverySlot) || 0;
+      if (!cur && client.ppSlot) {
+        var mCur = String(client.ppSlot).match(/(\d+)/);
+        if (mCur) cur = Number(mCur[1]) || 0;
+      }
+      if (cur === slot) {
+        showToast("Уже ПП " + slot + "/" + n);
+        return;
+      }
+      var ok = await uiConfirmAsync(
+        (client.name || "") + "\nПоставить ПП " + slot + "/" + n + " для этой записи?"
+      );
+      if (!ok) return;
+      var dateStr =
+        (document.getElementById("viewDate") && document.getElementById("viewDate").value) ||
+        lastViewDateIso ||
+        "";
+      if (!dateStr) {
+        showToast("Нет даты в просмотре");
+        return;
+      }
+      var day =
+        (document.getElementById("viewDaySelect") && document.getElementById("viewDaySelect").value) ||
+        "";
+      var calendarOnly = !!isViewCalendarDateOnly_();
+      var weekDay = calendarOnly ? "" : day;
+      var basketArr = client.basket || [];
+      var basketJson = JSON.stringify(basketArr);
+      var priceVal = resolveClientOrderPrice(client);
+      var ppSlotLbl = slot + "/" + n;
+      var params = {
+        action: "saveBooking",
+        date: dateStr,
+        day: weekDay,
+        alsoSaveOrder: weekDay ? "1" : "0",
+        calendarOnly: weekDay ? "0" : "1",
+        client: client.name,
+        editClient: client.name,
+        originalClient: client.name,
+        matchKey: client.matchKey || (typeof viewClientKey === "function" ? viewClientKey(client.name) : "") || "",
+        address: client.address || "",
+        phone: client.phone || "",
+        note: client.note || "",
+        orderType: "pp",
+        segment: "ПП",
+        orderPrice: priceVal != null ? String(priceVal) : "",
+        deliverySlot: String(slot),
+        ppSlot: ppSlotLbl,
+        deliveriesN: String(n),
+        deliveryAfter: client.deliveryAfter || "",
+        deliveryBefore: client.deliveryBefore || "",
+        source: "pp",
+        basket: basketJson,
+        _: String(Date.now())
+      };
+      showToast("Меняю на ПП " + slot + "…");
+      try {
+        var res = await apiGet(params, { timeoutMs: 45000, cacheTtlMs: 0, bypassInflight: true });
+        if (!isPeopleWriteAccepted_(res)) {
+          showToast("Не вышло: " + ((res && (res.message || res.status)) || "Deploy?"));
+          return;
+        }
+        client.deliverySlot = slot;
+        client.deliveriesN = n;
+        client.ppSlot = ppSlotLbl;
+        client.ppHint = "ПП " + ppSlotLbl;
+        try { renderViewLists(); } catch (eRnd) {}
+        if (isPeopleWritePendingMirror_(res)) {
+          confirmPeopleWriteSheets_(res, {
+            doneMsg: "Точно ПП " + slot + "/" + n,
+            pendingMsg: "Слот ПП " + slot + "…",
+            failMsg: "Слот не закрепился",
+            block: false
+          });
+        } else {
+          showToast(res.d1Verified || res.sheetsVerified ? ("Точно ПП " + slot + "/" + n) : ("ПП " + slot + "/" + n));
+        }
+        try { apiCacheBustOrderViews_(); } catch (eBust) {}
+      } catch (eCh) {
+        showToast((eCh && eCh.message) || "Ошибка смены слота");
+      }
+    }
+    window.crmChangeClientPpSlot = crmChangeClientPpSlot;
 
     async function crmEditClient(index, event) {
       event.stopPropagation();
