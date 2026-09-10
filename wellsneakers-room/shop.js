@@ -349,6 +349,20 @@
     }
   }
 
+  function bindPerkChips() {
+    var root = document.querySelector("#perks .perks");
+    if (!root) return;
+    var items = root.querySelectorAll("details.perk");
+    items.forEach(function (el) {
+      el.addEventListener("toggle", function () {
+        if (!el.open) return;
+        items.forEach(function (other) {
+          if (other !== el) other.open = false;
+        });
+      });
+    });
+  }
+
   function bindHomeScrollBrand() {
     if (!document.body.classList.contains("page-home")) return;
     var hero = document.querySelector(".hero");
@@ -371,5 +385,6 @@
     bindProducts();
     bindFilters();
     bindHomeScrollBrand();
+    bindPerkChips();
   });
 })();
