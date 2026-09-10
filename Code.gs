@@ -19901,15 +19901,15 @@ function partnerMigrateProdV16_() {
 
 /**
  * Живой прогон точек для @one_more_person_228.
- * V31: только Маяковского 14.
+ * V33: ручной Access снят — owner Бойни видит все партнёрские точки.
  * «следующая точка» / IDX — только при PARTNER_LIVE_TEST_ENABLED_ = true.
  */
 var PARTNER_LIVE_TEST_ENABLED_ = false;
 var PARTNER_LIVE_TEST_USER_ = "one_more_person_228";
 var PARTNER_LIVE_TEST_TID_ = "827494606";
 var PARTNER_LIVE_TEST_IDX_ = 16;
-/** Ручной набор точек, пока live-test single выкл. (V31). */
-var PARTNER_MANUAL_ACCESS_POINT_IDS_ = ["pt_varka_mayakovskogo_14"];
+/** Пустой = без ручного скоупа (owner-all / обычный Access). V33. */
+var PARTNER_MANUAL_ACCESS_POINT_IDS_ = [];
 var PARTNER_LIVE_TEST_QUEUE_ = [
   { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34", label: "nan_animal_clinic" },
   { id: "pt_varka_repina_4", networkId: "net_varka", label: "Varka Репина 4" },
@@ -19949,6 +19949,7 @@ function partnerIsLiveTestUser_(username, tid) {
 
 function partnerIsManualAccessUser_(username, tid) {
   if (PARTNER_LIVE_TEST_ENABLED_) return false;
+  if (!PARTNER_MANUAL_ACCESS_POINT_IDS_ || !PARTNER_MANUAL_ACCESS_POINT_IDS_.length) return false;
   var u = partnerNormUser_(username);
   var id = String(tid || "").trim();
   if (u === PARTNER_LIVE_TEST_USER_) return true;
@@ -20286,9 +20287,21 @@ function partnerMigrateProdV32_() {
   return { migrated: true, points: Object.keys(renamePts) };
 }
 
+/** V33: снять ручной Access у @one_more_person_228 → все партнёры (owner-all). */
+function partnerMigrateProdV33_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V33") === "1") {
+    try { partnerSyncLiveTestAccess_(); } catch (e0) {}
+    return { migrated: false, allPartners: true };
+  }
+  try { partnerMigrateProdV32_(); } catch (e32) {}
+  try { partnerSyncLiveTestAccess_(); } catch (eSync) {}
+  props.setProperty("PARTNER_PROD_V33", "1");
+  return { migrated: true, allPartners: true, revokedUser: PARTNER_LIVE_TEST_USER_ };
+}
+
 function partnerSyncManualAccess_() {
   var ids = (PARTNER_MANUAL_ACCESS_POINT_IDS_ || []).slice();
-  if (!ids.length) return { ok: false };
   var acSh = getPartnerAccessSheet_();
   var rows = readPartnerAccessRows_();
   var uname = PARTNER_LIVE_TEST_USER_;
@@ -20297,6 +20310,18 @@ function partnerSyncManualAccess_() {
     if (String(rows[i].username || "").toLowerCase() === uname) { hit = rows[i]; break; }
   }
   var now = new Date();
+  // Пустой набор → снять Access, чтобы owner Бойни видел все точки
+  if (!ids.length) {
+    if (hit && String(hit.status || "") !== "inactive" && String(hit.status || "") !== "revoked") {
+      try {
+        acSh.getRange(hit.rowIndex, 6).setValue(JSON.stringify([]));
+        acSh.getRange(hit.rowIndex, 8).setValue("inactive");
+        acSh.getRange(hit.rowIndex, 9).setValue(now);
+      } catch (eR) {}
+      return { ok: true, revoked: true, pointIds: [] };
+    }
+    return { ok: true, revoked: false, pointIds: [] };
+  }
   var vals = [
     hit ? hit.id : ("pa_" + uname),
     uname,
@@ -20374,6 +20399,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV30_(); } catch (eMig30) {}
   try { partnerMigrateProdV31_(); } catch (eMig31) {}
   try { partnerMigrateProdV32_(); } catch (eMig32) {}
+  try { partnerMigrateProdV33_(); } catch (eMig33) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
