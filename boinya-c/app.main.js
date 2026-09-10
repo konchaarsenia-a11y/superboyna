@@ -22884,6 +22884,25 @@
         if (!isPartner) return false;
         return !!(pl.needsSlot || !String(pl.deliverDateIso || "").trim());
       });
+      // схлопнуть дубли одной заявки (D1 + GAS)
+      var seenPo = Object.create(null);
+      var seenFp = Object.create(null);
+      items = items.filter(function (it) {
+        var pl = it.payload || {};
+        var po = String(pl.partnerOrderId || "").trim();
+        if (po) {
+          if (seenPo[po]) return false;
+          seenPo[po] = 1;
+        }
+        var fp = [String(pl.locationId || ""), String(pl.partnerTelegramId || ""),
+          String((pl.basket || []).map(function (b) { return (b && b.id) + ":" + (b && b.qty); }).join(",")),
+          String(pl.note || pl.partnerNote || "")].join("|");
+        if (fp !== "|||") {
+          if (seenFp[fp]) return false;
+          seenFp[fp] = 1;
+        }
+        return true;
+      });
       if (!items.length) {
         box.innerHTML = '<p class="muted">Заявок пока нет</p>';
         return;
@@ -22961,7 +22980,7 @@
           id: partnerOrderId || deferredId || "",
           deliverDateIso: dateIso,
           deliverTimeFrom: "12:00",
-          deliverTimeTo: "18:00",
+          deliverTimeTo: "22:00",
           _: String(Date.now())
         }, { timeoutMs: 25000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
@@ -23014,7 +23033,7 @@
       setVal("addressInput", pl.locationName || "");
       setVal("deliveryDate", pl.deliverDateIso || "");
       setVal("deliveryAfterInput", pl.deliverTimeFrom || "12:00");
-      setVal("deliveryBeforeInput", pl.deliverTimeTo || "18:00");
+      setVal("deliveryBeforeInput", pl.deliverTimeTo || "22:00");
       setVal("orderPriceInput", "0");
       var noteLines = (pl.basket || []).map(function (b) {
         return (b.name || b.id) + " × " + b.qty + (b.unit && b.unit !== "г" ? (" " + b.unit) : "");

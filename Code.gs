@@ -9366,7 +9366,7 @@ function collectAllActiveStaffTelegramIds_() {
 }
 
 /**
- * Напоминание «подбить даты» — 11:00 и 19:00 Europe/Minsk.
+ * Напоминание «подбить даты» — 11:00 и 22:00 Europe/Minsk.
  * Список = вчера доставленные (галочка) ПП + БП1; у ПП кнопка «В АФК».
  */
 function tickDeliveryDatesNudge_() {
@@ -9376,7 +9376,7 @@ function tickDeliveryDatesNudge_() {
   var ymd = Utilities.formatDate(now, tz, "yyyy-MM-dd");
   var slot = "";
   if (hour === 11) slot = "11";
-  else if (hour === 19) slot = "19";
+  else if (hour === 22 || hour === 19) slot = "22";
   else return { skipped: true, reason: "not_slot", hour: hour };
 
   var props = PropertiesService.getScriptProperties();
@@ -9565,7 +9565,7 @@ function classifyDeliveredClientForNudge_(ss, row) {
 }
 
 function sendDeliveryDatesNudge_(slot) {
-  var when = String(slot || "") === "19" ? "19:00" : "11:00";
+  var when = String(slot || "") === "22" || String(slot || "") === "19" ? "22:00" : "11:00";
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var pack = listYesterdayDeliveredForNudge_(ss);
   var lines = [];
@@ -9759,7 +9759,7 @@ function moveSubscriptionSheetsOnly_(nick, fromSheet, toSheet) {
   };
 }
 
-/** Триггеры: ежедневно около 11:00 и 19:00 (слот проверяем по Минску). */
+/** Триггеры: ежедневно около 11:00 и 22:00 (слот проверяем по Минску). */
 function ensureDeliveryDatesNudgeTriggers_() {
   var props = PropertiesService.getScriptProperties();
   var ver = "";
@@ -9776,8 +9776,8 @@ function ensureDeliveryDatesNudgeTriggers_() {
       ours.push(triggers[i]);
     }
   }
-  // v3: отдельные handler-функции (стабильнее в редакторе / квотах)
-  if (ours.length === 2 && ver === "11-19-v3") {
+  // v4: вечерний слот 22:00
+  if (ours.length === 2 && ver === "11-22-v4") {
     return { ok: true, already: true, ver: ver, count: ours.length };
   }
   for (i = 0; i < ours.length; i++) {
@@ -9797,15 +9797,15 @@ function ensureDeliveryDatesNudgeTriggers_() {
   try {
     ScriptApp.newTrigger("tickDeliveryDatesNudgeEvening_")
       .timeBased()
-      .atHour(19)
+      .atHour(22)
       .nearMinute(0)
       .everyDays(1)
       .create();
   } catch (eE) {
     return { ok: false, created: false, step: "evening", error: String(eE) };
   }
-  try { props.setProperty("DATE_NUDGE_TRIG_V", "11-19-v3"); } catch (eS) {}
-  return { ok: true, created: true, ver: "11-19-v3", triggers: ["11:00", "19:00"] };
+  try { props.setProperty("DATE_NUDGE_TRIG_V", "11-22-v4"); } catch (eS) {}
+  return { ok: true, created: true, ver: "11-22-v4", triggers: ["11:00", "22:00"] };
 }
 
 /** Обёртки для триггеров (не вызывать вручную — только clock). */
@@ -9826,7 +9826,7 @@ function handleSetupDeliveryDatesNudgeTriggers(callback, fromPost) {
   }
   var ok = {
     status: "success",
-    trigger: "tickDeliveryDatesNudge_@11+19 Europe/Minsk",
+    trigger: "tickDeliveryDatesNudge_@11+22 Europe/Minsk",
     result: r
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
@@ -20639,8 +20639,8 @@ function partnerDefaultSlot_(now) {
     dateIso: dateIso,
     dateLabel: (names[dow2] || "") + ", " + Utilities.formatDate(slot, tz, "dd.MM"),
     timeFrom: "12:00",
-    timeTo: "18:00",
-    timeLabel: "с 12:00 до 18:00"
+    timeTo: "22:00",
+    timeLabel: "с 12:00 до 22:00"
   };
 }
 
@@ -20842,7 +20842,10 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
       }
     }
   }
-  var id = "po_" + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+  var id = String((json && (json.clientOrderId || json.id || json.orderId)) || "").trim();
+  if (!/^po_[a-z0-9]+$/i.test(id)) {
+    id = "po_" + Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+  }
   var now = new Date();
   var dateIso = Utilities.formatDate(now, "Europe/Minsk", "yyyy-MM-dd");
   var orderNote = String((json && (json.note || json.orderNote)) || "").trim().slice(0, 400);
@@ -20867,27 +20870,40 @@ function handlePartnerSubmitOrder(json, callback, fromPost) {
     deliverTimeTo: "",
     deliverTimeLabel: ""
   };
-  var deferredId = "";
-  try { deferredId = partnerEnqueueDeferred_(order); } catch (eDf) { deferredId = ""; }
+  // не плодить строку, если Worker уже прокинул тот же id
+  var shOrders = getPartnerOrdersSheet_();
+  var alreadyRow = false;
+  try {
+    var vals = shOrders.getDataRange().getValues();
+    for (var er = 1; er < vals.length; er++) {
+      if (String(vals[er][0] || "") === id) { alreadyRow = true; break; }
+    }
+  } catch (eDup) { alreadyRow = false; }
+  var deferredId = String((json && json.deferredId) || "").trim();
+  if (!deferredId) {
+    try { deferredId = partnerEnqueueDeferred_(order); } catch (eDf) { deferredId = ""; }
+  }
   order.deferredId = deferredId;
-  getPartnerOrdersSheet_().appendRow([
-    order.id,
-    order.dateIso,
-    order.locationId,
-    order.locationName,
-    order.networkId,
-    order.telegramId,
-    order.userName,
-    order.username,
-    JSON.stringify(order.basket),
-    order.status,
-    order.createdAt,
-    order.deliverDateIso,
-    order.deliverTimeFrom,
-    order.deliverTimeTo,
-    deferredId,
-    orderNote
-  ]);
+  if (!alreadyRow) {
+    shOrders.appendRow([
+      order.id,
+      order.dateIso,
+      order.locationId,
+      order.locationName,
+      order.networkId,
+      order.telegramId,
+      order.userName,
+      order.username,
+      JSON.stringify(order.basket),
+      order.status,
+      order.createdAt,
+      order.deliverDateIso,
+      order.deliverTimeFrom,
+      order.deliverTimeTo,
+      deferredId,
+      orderNote
+    ]);
+  }
   // Пуши: Worker шлёт сразу; GAS — только если Worker не просил skip
   var skipN = String((json && (json.skipPartnerNotify || json.skipNotify)) || "") === "1";
   if (!skipN) {
@@ -21048,7 +21064,7 @@ function handlePartnerSetOrderSlot(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, badDate) : jsonp(callback, badDate);
   }
   var timeFrom = String((json && json.deliverTimeFrom) || "12:00").trim() || "12:00";
-  var timeTo = String((json && json.deliverTimeTo) || "18:00").trim() || "18:00";
+  var timeTo = String((json && json.deliverTimeTo) || "22:00").trim() || "22:00";
   var orderId = String((json && (json.partnerOrderId || json.orderId)) || "").trim();
   var deferredId = String((json && json.deferredId) || "").trim();
   var rawId = String((json && json.id) || "").trim();
@@ -21569,8 +21585,8 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
   var actor = String((json && json.telegramId) || "").trim();
   var actorRole = String((json && json.actorRole) || "").toLowerCase();
   var isOwner = partnerRequireOwner_(actor);
-  // партнёр из мини-аппа может выдать staff только на свои точки
-  var allowPartnerStaff = !isOwner && actorRole === "partner";
+  // партнёр/owner из мини-аппа может выдать staff на свои точки; staff — нет
+  var allowPartnerStaff = !isOwner && (actorRole === "partner" || actorRole === "owner");
   if (!isOwner && !allowPartnerStaff) {
     var forbid = { status: "error", message: "forbidden" };
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
@@ -21585,7 +21601,7 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
   var status = String((json && json.status) || "active").toLowerCase() || "active";
   if (allowPartnerStaff) {
     role = "staff";
-    // ограничить точкуми актёра
+    // ограничить точками актёра
     var meRows = readPartnerAccessRows_();
     var me = null;
     for (var m = 0; m < meRows.length; m++) {
@@ -21601,24 +21617,26 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
         }
       }
     }
-    if (!me) {
-      var noMe = { status: "error", message: "partner_not_found" };
-      return fromPost ? jsonpText(callback, noMe) : jsonp(callback, noMe);
-    }
-    if (String(me.role || "").toLowerCase() === "staff") {
+    if (me && String(me.role || "").toLowerCase() === "staff") {
       var staffForbid = { status: "error", message: "staff_cannot_grant" };
       return fromPost ? jsonpText(callback, staffForbid) : jsonp(callback, staffForbid);
     }
-    if (String(me.role || "partner").toLowerCase() !== "partner" &&
-        String(me.role || "").toLowerCase() !== "owner") {
-      var roleForbid = { status: "error", message: "forbidden" };
-      return fromPost ? jsonpText(callback, roleForbid) : jsonp(callback, roleForbid);
+    if (me) {
+      if (String(me.role || "partner").toLowerCase() !== "partner" &&
+          String(me.role || "").toLowerCase() !== "owner") {
+        var roleForbid = { status: "error", message: "forbidden" };
+        return fromPost ? jsonpText(callback, roleForbid) : jsonp(callback, roleForbid);
+      }
+      networkId = me.networkId || networkId;
+      var allowed = {};
+      (me.pointIds || []).forEach(function (pid) { allowed[pid] = true; });
+      pointIds = pointIds.filter(function (pid) { return !!allowed[pid]; });
+      if (!pointIds.length) pointIds = (me.pointIds || []).slice();
+    } else if (actorRole !== "owner") {
+      var noMe = { status: "error", message: "partner_not_found" };
+      return fromPost ? jsonpText(callback, noMe) : jsonp(callback, noMe);
     }
-    networkId = me.networkId;
-    var allowed = {};
-    (me.pointIds || []).forEach(function (pid) { allowed[pid] = true; });
-    pointIds = pointIds.filter(function (pid) { return !!allowed[pid]; });
-    if (!pointIds.length) pointIds = (me.pointIds || []).slice();
+    // actorRole=owner без строки Access (owner-all): точки из запроса как есть
   }
   if (!username && !targetTid) {
     var bad = { status: "error", message: "need_username_or_telegramId" };
