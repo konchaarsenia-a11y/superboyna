@@ -1,0 +1,95 @@
+# Deploy Boinya Apps Script from main via clasp.
+#
+# When Code.gs (or clasp config) lands on main, CI:
+#   1. clasp pull into a temp workdir (keeps remote index.html / extra files)
+#   2. replaces the pulled «Код» file with repo Code.gs
+#   3. clasp push --force
+#   4. clasp deploy -i <existing webapp deployment>
+#
+# Required repo secret (Settings → Secrets and variables → Actions):
+#   CLASPRC_JSON  — full contents of ~/.clasprc.json
+#   Grok Bot / КЕНТ GB already has a local clasprc; paste that JSON into the secret.
+#   See DEPLOY.md. Never commit tokens.
+#
+# Do not clasp push from the git root: that would delete remote files not in git.
+
+name: clasp-deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "Code.gs"
+      - ".clasp.json"
+      - "appsscript.json"
+      - "scripts/clasp-overlay-code.py"
+      - ".github/workflows/clasp-deploy.yml"
+
+concurrency:
+  group: clasp-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SCRIPT_ID: 1kyODLSmiyHjK3EmLTDhwuLwG-1qCWMF35jUzLJqv3z820ewrFYMuDIY-
+      DEPLOYMENT_ID: AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install clasp
+        run: npm i -g @google/clasp@2.4.2
+
+      - name: Write ~/.clasprc.json
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLASPRC_JSON}" ]; then
+            echo "::error::Missing repo secret CLASPRC_JSON. Paste ~/.clasprc.json (Grok Bot / КЕНТ GB). See DEPLOY.md"
+            exit 1
+          fi
+          printf '%s\n' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          chmod 600 "$HOME/.clasprc.json"
+          python3 - <<'PY'
+          import json, pathlib, sys
+          raw = pathlib.Path.home().joinpath(".clasprc.json").read_text(encoding="utf-8")
+          try:
+              data = json.loads(raw)
+          except Exception as e:
+              sys.exit(f"CLASPRC_JSON is not valid JSON: {e}")
+          if not isinstance(data, dict) or not data:
+              sys.exit("CLASPRC_JSON is empty")
+          print("clasprc.json written")
+          PY
+
+      - name: Pull, overlay Code.gs → Код, push, deploy
+        run: |
+          set -euo pipefail
+          WORK="${RUNNER_TEMP}/clasp-work"
+          mkdir -p "$WORK"
+          cp "${GITHUB_WORKSPACE}/.clasp.json" "${WORK}/.clasp.json"
+          # Do NOT copy repo .claspignore (it ignores everything) or stub appsscript.json
+          # (oauthScopes live on the remote manifest; inventing them would wipe scopes).
+          cd "$WORK"
+          echo "clasp pull into ${WORK}"
+          clasp pull
+          python3 "${GITHUB_WORKSPACE}/scripts/clasp-overlay-code.py" \
+            "${GITHUB_WORKSPACE}/Code.gs" \
+            "$WORK"
+          echo "clasp push --force"
+          clasp push --force
+          DESC="ci ${GITHUB_SHA:0:12}"
+          echo "clasp deploy -i ${DEPLOYMENT_ID} -d ${DESC}"
+          clasp deploy -i "${DEPLOYMENT_ID}" -d "${DESC}"
+          echo "Updated existing webapp deployment ${DEPLOYMENT_ID}"

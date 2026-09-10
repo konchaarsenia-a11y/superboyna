@@ -2,7 +2,7 @@
 
 Канон файла: **[CODE_GS_CANON.md](./CODE_GS_CANON.md)** — один `Code.gs` на `main`; сниппет, не подмена.
 
-**Владельцу:** после merge в `main` достаточно вставить весь `Code.gs` из репо → Deploy.  
+**Владельцу:** после merge в `main` CI `clasp-deploy` сам заливает `Code.gs`. Потом `?action=gbEnsureSheets`.
 **Агенту Бойни:** если в Script уже есть правки поверх git — **не затирай файл целиком чужим куском**. Вливай только патч ниже.
 
 Связано: [GOODBOY.md](./GOODBOY.md), сниппет [`goodboy/CODE_GS_GOODBOY.snippet.gs`](./goodboy/CODE_GS_GOODBOY.snippet.gs), API в [PROJECT.md](./PROJECT.md).
@@ -91,7 +91,7 @@
 
 ## После Deploy (владелец)
 
-1. Apps Script → вставить `Code.gs` из `main` (или патч выше) → **Deploy → New deployment** / Edit version.  
+1. Merge в `main` → дождаться зелёного Action `clasp-deploy` (не вставлять код и не создавать новое webapp-развёртывание). Аварийный paste: [ИНСТРУКЦИЯ.md](./ИНСТРУКЦИЯ.md).  
 2. Открыть:  
    `…/exec?action=gbEnsureSheets&callback=cb`  
    → в книге появятся 3 листа `GB_*`.  
@@ -117,7 +117,7 @@
 3) Добавь 2 роутера (doGet + handleApiAction) как в MERGE_GOODBOY_GB.md — allowlist isGoodboyAction_.
 4) В конец файла вставь сниппет целиком (если функций ещё нет).
 5) Писать только в GB_Пользователи / GB_Связки / GB_Питомцы; CRM и Календарь_Дат — только чтение.
-6) После правок — commit/push; Deploy делает владелец.
+6) После правок — commit/push; Deploy = CI clasp на `main` (`DEPLOY.md`).
 7) Проверка: action=gbEnsureSheets; smoke scripts/test-goodboy-api.sh на zzz_test.
 ```
 
@@ -125,5 +125,5 @@
 
 ## Если в git `main` уже полный Code.gs с модулем
 
-Владельцу проще: **скопировать весь `Code.gs` из репо → Deploy**.  
+Владельцу проще: merge в `main` → дождаться CI `clasp-deploy`. Аварийный paste — [ИНСТРУКЦИЯ.md](./ИНСТРУКЦИЯ.md).  
 Агенту Бойни патч нужен только когда локальный Script новее/расходится с git.

@@ -12,7 +12,7 @@ alwaysApply: true
 | Файл | Назначение |
 |------|------------|
 | `app.html` | Telegram Mini App конвейера (фронт команды) |
-| `Code.gs` | Google Apps Script (бэкенд) — копировать в редактор Script |
+| `Code.gs` | Google Apps Script (бэкенд) — merge в `main`, CI clasp |
 | `PROJECT.md` | Карта листов, строк, API |
 | `TZ.md` | ТЗ по экранам и багам |
 | `GOODBOY.md` | Клиентская экосистема Goodboy (сайт + TG; не конвейер) |
@@ -20,6 +20,7 @@ alwaysApply: true
 | `varka/` | Mini App Varka; **не трогать** `Code.gs`/`app.html` Бойни |
 | `README.md` | Деплой и как тестировать |
 | `CODE_GS_CANON.md` | Один `Code.gs` на `main`; патч/сниппет, не replace |
+| `DEPLOY.md` | CI clasp на `main`; секрет `CLASPRC_JSON` |
 
 ## Параллельные продукты
 
@@ -69,10 +70,10 @@ alwaysApply: true
 5. Тестовый клиент: **`zzz_test`** — можно создавать/править/удалять. Не трогать реальных клиентов без явного разрешения.
 6. Не запускать `finishFullWeekProduction` на живой таблице без явного «можно закрыть неделю».
 7. Секреты (bot token) только через `PropertiesService` / `secrets.local.md` (в gitignore). Не коммитить токены.
-8. После правок Apps Script пользователь должен: вставить код → Deploy → New deployment (или Manage → Edit version). Агент сам в Script Editor зайти не может.
-9. Отдавать готовые файлы + короткую инструкцию «куда вставить», не сырые догадки.
+8. Deploy Apps Script = Action `clasp-deploy` на `main` (см. `DEPLOY.md`). Не просить вставить `Code.gs` в Script Editor. Не создавать новое webapp-развёртывание.
+9. Отдавать готовые файлы + ссылку на CI/DEPLOY.md, не сырые догадки.
 10. Приоритет — незакрытые пункты чеклиста в `TZ.md` (особенно брони/материализация и навигация).
-11. **Пуш сам, без спроса:** как только фича/фикс в `app.html` / `Code.gs` / `TZ.md` готовы — сразу `git commit` + `git push origin HEAD` (Pages). Не писать «сказать пуш» / «залить?». Напомнить только про **Deploy Code.gs**, если менялся бэкенд. Секреты не коммитить.
+11. **Пуш сам, без спроса:** как только фича/фикс в `app.html` / `Code.gs` / `TZ.md` готовы — сразу `git commit` + `git push origin HEAD` (Pages). Не писать «сказать пуш» / «залить?». `Code.gs` на main заливает CI; не просить вставить код. Секреты не коммитить.
 12. **People canon (Бойня C LIVE):** D1 accept + GAS в фоне + poll; toast «Точно …» только при `sheetsVerified`. Запрещено врать success до Sheets и снова блокировать UI полным await GAS. См. `boinya-c/docs/PEOPLE_CANON.md`.
 13. **Code.gs canon:** один файл на `main`; не затирать целиком копией с другой машины/чата/агента — только surgical diff или сниппет (`MERGE_*.md`). См. `CODE_GS_CANON.md` и `.cursor/rules/code-gs-canon.mdc`.
 

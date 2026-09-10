@@ -2,6 +2,8 @@
 secrets.local.md
 .env
 *.local.md
+.clasprc.json
+**/.clasprc.json
 .DS_Store
 Thumbs.db
 

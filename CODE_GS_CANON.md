@@ -4,7 +4,8 @@
 
 Правило для агентов: [`.cursor/rules/code-gs-canon.mdc`](./.cursor/rules/code-gs-canon.mdc) (`alwaysApply: true`).  
 Паттерны API: [`.cursor/rules/apps-script.mdc`](./.cursor/rules/apps-script.mdc).  
-Сниппеты: [MERGE_GOODBOY_GB.md](./MERGE_GOODBOY_GB.md), [MERGE_NATIVE_AUTH.md](./MERGE_NATIVE_AUTH.md).
+Сниппеты: [MERGE_GOODBOY_GB.md](./MERGE_GOODBOY_GB.md), [MERGE_NATIVE_AUTH.md](./MERGE_NATIVE_AUTH.md).  
+Деплой на Script: [DEPLOY.md](./DEPLOY.md) (CI `clasp-deploy` на `main`).
 
 ---
 
@@ -14,7 +15,7 @@
 
 | Это | Не это |
 |-----|--------|
-| Один файл в git → владелец вставляет его в Script Editor → Deploy | Отдельные «полные Code.gs» у Бойни / Goodboy / native |
+| Один файл в git → merge в `main` → CI clasp заливает «Код» | Отдельные «полные Code.gs» у Бойни / Goodboy / native |
 | Сниппеты и `MERGE_*.md` — как влить кусок | Файлы для деплоя вместо корневого `Code.gs` |
 | Surgical diff поверх актуального tip | Копия с другой машины, чата, агента, Mac/Win |
 
@@ -41,9 +42,9 @@
 - **Не** просить владельца «вставь мой Code.gs целиком» вместо патча.
 - **Не** считать сниппет Goodboy/native полным бэкендом для Deploy.
 - **Не** откатывать чужие handlers, чтобы «проще влить свой кусок».
-- **Не** деплоить Apps Script самому и **не** выдумывать URL `/exec`. Deploy — владелец (или явный helper-поток вне агента).
+- **Не** деплоить Apps Script из редактора «от себя» и **не** выдумывать URL `/exec`. Живой Deploy — Action `clasp-deploy` на `main` ([DEPLOY.md](./DEPLOY.md)).
 
-Исключение для человека: после merge в `main` владелец **копирует актуальный `Code.gs` из репо** в Script Editor. Это не «чужая копия», это tip `main`.
+Исключение для человека: аварийный paste `Code.gs` с `main` в Script Editor, **только** если CI красный / нет секрета `CLASPRC_JSON`. Это tip `main`, не «чужая копия».
 
 ---
 
@@ -58,7 +59,7 @@
    - Goodboy `gb*` (allowlist `isGoodboyAction_`; запись только в `GB_*`; CRM/календарь — чтение)
    - native `gbi_` (`/start gbi_<token>`, `getNativeLinkInfo`, `pollNativeAuth`, лист **Доступы** / `getMyAccess`)
 4. Согласовать имена `action` с `app.html` / `PROJECT.md`, если меняется API конвейера.
-5. Commit + push патча. Напомнить владельцу **Deploy Code.gs**, если менялся бэкенд. Галочка в `TZ.md`: `[~]` до его «задеплоил».
+5. Commit + push патча / merge в `main`. CI clasp зальёт Script. **Не** просить вставить `Code.gs`. Галочка в `TZ.md`: `[~]` до зелёного Action (или «задеплоил»).
 
 ---
 
@@ -80,11 +81,12 @@ git fetch origin main
 
 | Кто | Что |
 |-----|-----|
-| Агент | патч в git; **не** ходить в Script Editor; **не** менять webhook URL без факта нового Deploy |
-| Владелец | вставить `Code.gs` с `main` → Deploy → New deployment / Edit version |
-| После Deploy | владелец говорит «задеплоил» → агент `[~]` → `[x]` в `TZ.md`; при смене `/exec` — обновить `PROJECT.md`, `app.html`, правило `superboyna.mdc` |
+| Агент | патч в git; merge в `main`; **не** ходить в Script Editor; **не** менять webhook URL без факта нового Deploy |
+| CI | `clasp-deploy`: pull → overlay `Code.gs`→«Код» → push → update существующего webapp ([DEPLOY.md](./DEPLOY.md)) |
+| Владелец | один раз секрет `CLASPRC_JSON`; аварийный paste — только если Action красный |
+| После Deploy | зелёный Action / «задеплоил» → агент `[~]` → `[x]` в `TZ.md`; при смене `/exec` — обновить `PROJECT.md`, `app.html`, правило `superboyna.mdc` |
 
-Агент **не выдумывает** деплой и не закрывает неделю (`finishFullWeekProduction`) без явного ОК.
+Агент **не выдумывает** `/exec` и не закрывает неделю (`finishFullWeekProduction`) без явного ОК.
 
 ---
 
@@ -96,7 +98,7 @@ git fetch origin main
 2. Менять только нужные функции/роуты; не вставлять файл из Downloads, Telegram, другого чата.
 3. Если IDE предлагает «принять весь файл» при merge — **нет**. Keep `main`, затем снова влить сниппет.
 4. Goodboy/native: следовать `MERGE_*.md`, не «заменить Code.gs версией только с gb*/gbi_».
-5. После merge в `main` — Deploy делает владелец; локальный Script без Deploy ≠ то, что в git.
+5. После merge в `main` — CI clasp; локальный Script без зелёного Action ≠ то, что в git.
 
 ---
 
@@ -106,4 +108,4 @@ git fetch origin main
 - [ ] Правка — diff или сниппет, не replace-all
 - [ ] На месте: заказы, нарезка, склад, people/week, `gb*`, `gbi_`
 - [ ] Varka не попала в этот файл
-- [ ] Deploy не «сделан агентом»; владельцу напомнен Deploy, если бэкенд менялся
+- [ ] Deploy = CI clasp на `main` ([DEPLOY.md](./DEPLOY.md)); не просить вставить `Code.gs`
