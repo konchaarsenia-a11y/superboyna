@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="css/site-v070.css?v=145" />
+    <link rel="stylesheet" href="css/site-v070.css?v=146" />
   <style>
     /* критичный лоадер — до основного CSS */
     html.gb-booting { overflow: hidden; }
@@ -117,16 +117,105 @@
   </nav>
 
   <div class="site-main">
-    <header class="site-hero site-hero--features">
+    <header class="site-hero site-hero--head">
       <div class="hero-wash" aria-hidden="true"></div>
       <div class="hero-spot" aria-hidden="true"></div>
-      <div class="hero-grid hero-grid--features">
-        <div class="hero-copy">
-          <h1 class="promise-hero"><span class="promise-mir">Мир</span> <span class="promise-rest">вокруг вашего <span class="promise-accent">питомца</span></span></h1>
-          <p class="tagline">Меньше мелочей в&nbsp;голове&nbsp;— больше времени рядом. Лакомства, подписка, карта и&nbsp;подсказки в&nbsp;одном месте.</p>
+      <div class="hero-head-place" aria-hidden="true">
+        <div class="hero-head-stage" id="gbHeroHead">
+          <div class="hero-glow hero-glow--head"></div>
+          <svg class="gb-hero-head" viewBox="0 0 400 440" fill="none" aria-hidden="true" focusable="false">
+            <defs>
+              <radialGradient id="gbFur" cx="36%" cy="30%" r="74%">
+                <stop offset="0%" stop-color="#3d4440"/>
+                <stop offset="46%" stop-color="#272d2a"/>
+                <stop offset="100%" stop-color="#141816"/>
+              </radialGradient>
+              <radialGradient id="gbFurWarm" cx="78%" cy="38%" r="62%">
+                <stop offset="0%" stop-color="#d4a15a" stop-opacity="0.28"/>
+                <stop offset="58%" stop-color="#d4a15a" stop-opacity="0"/>
+              </radialGradient>
+              <linearGradient id="gbCream" x1="50%" y1="0%" x2="50%" y2="100%">
+                <stop offset="0%" stop-color="#f7f1e6"/>
+                <stop offset="100%" stop-color="#e2d3bb"/>
+              </linearGradient>
+              <radialGradient id="gbEarIn" cx="42%" cy="36%" r="72%">
+                <stop offset="0%" stop-color="#f6efe3"/>
+                <stop offset="100%" stop-color="#d7c19d"/>
+              </radialGradient>
+              <radialGradient id="gbNose" cx="38%" cy="28%" r="72%">
+                <stop offset="0%" stop-color="#2a312e"/>
+                <stop offset="100%" stop-color="#0c0f0d"/>
+              </radialGradient>
+              <radialGradient id="gbEyeWhite" cx="34%" cy="28%" r="70%">
+                <stop offset="0%" stop-color="#fffdf8"/>
+                <stop offset="100%" stop-color="#e6ddd0"/>
+              </radialGradient>
+            </defs>
+            <g class="gb-head-tilt">
+              <g class="gb-head-bob">
+                <g class="gb-ear gb-ear--l">
+                  <path d="M168 168C140 100 108 38 118 18C128 0 162 16 186 88C198 128 190 166 168 168Z" fill="#161a18"/>
+                  <path d="M166 156C146 100 124 50 132 34C140 20 162 34 176 90C184 122 180 152 166 156Z" fill="url(#gbEarIn)"/>
+                </g>
+                <g class="gb-ear gb-ear--r">
+                  <path d="M232 168C260 100 292 38 282 18C272 0 238 16 214 88C202 128 210 166 232 168Z" fill="#161a18"/>
+                  <path d="M234 156C254 100 276 50 268 34C260 20 238 34 224 90C216 122 220 152 234 156Z" fill="url(#gbEarIn)"/>
+                </g>
+                <ellipse cx="200" cy="408" rx="78" ry="18" fill="#101412" opacity="0.45"/>
+                <path d="M200 118c78 0 148 66 148 146 0 86-68 136-148 136S52 350 52 264C52 184 122 118 200 118Z" fill="url(#gbFur)"/>
+                <path d="M200 118c78 0 148 66 148 146 0 86-68 136-148 136S52 350 52 264C52 184 122 118 200 118Z" fill="url(#gbFurWarm)"/>
+                <path d="M176 128c0-12 10-20 24-20s24 8 24 20l-6 102c-4 14-32 14-36 0L176 128Z" fill="url(#gbCream)"/>
+                <ellipse cx="200" cy="310" rx="104" ry="80" fill="url(#gbCream)"/>
+                <ellipse cx="132" cy="286" rx="28" ry="22" fill="#d4a15a" opacity="0.16"/>
+                <ellipse cx="268" cy="286" rx="28" ry="22" fill="#d4a15a" opacity="0.16"/>
+                <g class="gb-eye gb-eye--l">
+                  <ellipse cx="150" cy="226" rx="27" ry="27" fill="url(#gbEyeWhite)"/>
+                  <circle class="gb-pupil" cx="150" cy="228" r="16.5" fill="#141816"/>
+                  <circle cx="143" cy="221" r="5.2" fill="#fffef8"/>
+                  <circle cx="156" cy="234" r="2.1" fill="#fffef8" opacity="0.45"/>
+                  <ellipse class="gb-lid" cx="150" cy="226" rx="28" ry="28" fill="#272d2a"/>
+                </g>
+                <g class="gb-eye gb-eye--r">
+                  <ellipse cx="250" cy="226" rx="27" ry="27" fill="url(#gbEyeWhite)"/>
+                  <circle class="gb-pupil" cx="250" cy="228" r="16.5" fill="#141816"/>
+                  <circle cx="243" cy="221" r="5.2" fill="#fffef8"/>
+                  <circle cx="256" cy="234" r="2.1" fill="#fffef8" opacity="0.45"/>
+                  <ellipse class="gb-lid" cx="250" cy="226" rx="28" ry="28" fill="#272d2a"/>
+                </g>
+                <path d="M174 276c0-16 12-26 26-26s26 10 26 26c0 20-12 30-26 30s-26-10-26-30Z" fill="url(#gbNose)"/>
+                <ellipse cx="190" cy="278" rx="4.2" ry="5.5" fill="#0a0c0b"/>
+                <ellipse cx="210" cy="278" rx="4.2" ry="5.5" fill="#0a0c0b"/>
+                <ellipse cx="188" cy="270" rx="5" ry="2.4" fill="#fff" opacity="0.18"/>
+                <path d="M168 330c12 16 52 16 64 0" stroke="#2a241c" stroke-width="4.5" stroke-linecap="round"/>
+                <circle cx="154" cy="318" r="2.1" fill="#2a241c" opacity="0.45"/>
+                <circle cx="168" cy="308" r="1.7" fill="#2a241c" opacity="0.4"/>
+                <circle cx="146" cy="300" r="1.5" fill="#2a241c" opacity="0.35"/>
+                <circle cx="246" cy="318" r="2.1" fill="#2a241c" opacity="0.45"/>
+                <circle cx="232" cy="308" r="1.7" fill="#2a241c" opacity="0.4"/>
+                <circle cx="254" cy="300" r="1.5" fill="#2a241c" opacity="0.35"/>
+                <circle cx="178" cy="346" r="1.4" fill="#2a241c" opacity="0.28"/>
+                <circle cx="222" cy="346" r="1.4" fill="#2a241c" opacity="0.28"/>
+              </g>
+            </g>
+          </svg>
         </div>
-        <div class="hero-features" aria-label="Возможности">
-          <article class="hf-card hf-card--jump" data-phone-tab="1" role="button" tabindex="0" aria-label="Подписка — показать в кабинете">
+      </div>
+      <div class="hero-read-veil" aria-hidden="true"></div>
+      <div class="hero-copy hero-copy--over">
+        <h1 class="promise-hero"><span class="promise-mir">Мир</span> <span class="promise-rest">вокруг вашего <span class="promise-accent">питомца</span></span></h1>
+        <p class="tagline">Меньше мелочей в&nbsp;голове&nbsp;— больше времени рядом.</p>
+        <div class="cta-row">
+          <a class="btn-primary" href="app.html">Мой кабинет</a>
+          <a class="btn-ghost" href="try.html">Опробовать</a>
+        </div>
+      </div>
+    </header>
+
+    <section class="site-section site-section--features" id="features" aria-label="Возможности">
+      <div class="inner">
+        <p class="sec-kicker reveal">Внутри</p>
+        <div class="hero-features hero-features--strip">
+          <article class="hf-card hf-card--jump reveal" data-phone-tab="1" role="button" tabindex="0" aria-label="Подписка — показать в кабинете">
             <span class="hf-ico" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7.4 9.2h9.2l1.6 10.6H5.8L7.4 9.2Z"/><path d="M9.2 9.2V7.5A2.8 2.8 0 0 1 12 4.7a2.8 2.8 0 0 1 2.8 2.8v1.7"/><path d="M10.4 13.6h3.2"/><circle cx="12" cy="16.8" r="1.15"/></svg>
             </span>
@@ -135,7 +224,7 @@
               <p>Месячный набор сам приезжает. Дата, состав и&nbsp;статус&nbsp;— в&nbsp;кабинете.</p>
             </div>
           </article>
-          <article class="hf-card hf-card--jump" data-phone-tab="0" role="button" tabindex="0" aria-label="Карточка питомца — показать в кабинете">
+          <article class="hf-card hf-card--jump reveal d1" data-phone-tab="0" role="button" tabindex="0" aria-label="Карточка питомца — показать в кабинете">
             <span class="hf-ico" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 10.8c-1.7-2.2-2.2-4.5-.8-5.3 1.5-.8 3.4.8 4.4 2.6"/><path d="M17.8 10.8c1.7-2.2 2.2-4.5.8-5.3-1.5-.8-3.4.8-4.4 2.6"/><path d="M7.2 11.6c0-2.8 2.1-5.1 4.8-5.1s4.8 2.3 4.8 5.1v4c0 2.3-2.1 4.1-4.8 4.1s-4.8-1.8-4.8-4.1v-4Z"/><circle cx="10.2" cy="13" r=".85" fill="currentColor" stroke="none"/><circle cx="13.8" cy="13" r=".85" fill="currentColor" stroke="none"/><path d="M12 13.6v1.2"/><path d="M10.6 16.4c.8.7 2 .7 2.8 0"/></svg>
             </span>
@@ -144,7 +233,7 @@
               <p>Кличка, вес, аллергии&nbsp;— всё под него: рацион и&nbsp;советы не&nbsp;«для всех».</p>
             </div>
           </article>
-          <article class="hf-card hf-card--jump" data-phone-tab="2" role="button" tabindex="0" aria-label="Карта города — показать в кабинете">
+          <article class="hf-card hf-card--jump reveal d2" data-phone-tab="2" role="button" tabindex="0" aria-label="Карта города — показать в кабинете">
             <span class="hf-ico" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m4 7.4 5.2-2.2 5.6 2.2L20 5.4v11.4l-5.2 2.2-5.6-2.2L4 18.8V7.4Z"/><path d="M9.2 5.2v13.4"/><path d="M14.8 7.4v13.4"/><circle cx="12" cy="12.2" r="1.15" fill="currentColor" stroke="none"/></svg>
             </span>
@@ -153,7 +242,7 @@
               <p>Куда зайти вместе: площадки, вет, груминг, dog-friendly точки.</p>
             </div>
           </article>
-          <article class="hf-card hf-card--jump" data-phone-tab="3" role="button" tabindex="0" aria-label="Скидки партнёров — показать в кабинете">
+          <article class="hf-card hf-card--jump reveal" data-phone-tab="3" role="button" tabindex="0" aria-label="Скидки партнёров — показать в кабинете">
             <span class="hf-ico" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4.5 20.2 11.7l-8 8a2.2 2.2 0 0 1-3.1 0l-4.8-4.8a2.2 2.2 0 0 1 0-3.1l8.7-8.3Z"/><circle cx="16.35" cy="8.35" r="1.2"/><path d="m9.4 12.8 5 5"/></svg>
             </span>
@@ -164,7 +253,7 @@
           </article>
         </div>
       </div>
-    </header>
+    </section>
 
     <section class="site-section site-section--shelves" id="about">
       <div class="inner inner--narrow">
@@ -363,12 +452,12 @@
 
     <footer class="site-footer">
       GOOD BOY · <a href="https://www.instagram.com/goodboy_rb" target="_blank" rel="noopener">@goodboy_rb</a>
-      · v0.9.35
+      · v0.9.36
     </footer>
   </div>
 
   <script src="js/boot-loader.js?v=132"></script>
-  <script src="js/motion.js?v=132"></script>
+  <script src="js/motion.js?v=146"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.GBMotion) GBMotion.init();

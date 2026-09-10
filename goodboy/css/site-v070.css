@@ -1795,21 +1795,24 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
 /* Hero entrance choreography */
 .site-hero .promise-hero,
 .site-hero .tagline,
-.site-hero .hf-card {
+.site-hero .hf-card,
+.site-hero .cta-row {
   opacity: 0;
   transform: translate3d(0, 22px, 0);
   transition:
-    opacity 0.85s var(--ease),
-    transform 0.85s var(--ease);
+    opacity 0.7s var(--ease),
+    transform 0.7s var(--ease);
 }
-.site-hero .promise-hero { transition-delay: 0.08s; }
-.site-hero .tagline { transition-delay: 0.22s; }
+.site-hero .promise-hero { transition-delay: 0.06s; }
+.site-hero .tagline { transition-delay: 0.16s; }
+.site-hero .cta-row { transition-delay: 0.24s; }
 .site-hero .hf-card {
   transition-delay: var(--hf-delay, 0.4s);
 }
 .site-hero.is-ready .promise-hero,
 .site-hero.is-ready .tagline,
-.site-hero.is-ready .hf-card {
+.site-hero.is-ready .hf-card,
+.site-hero.is-ready .cta-row {
   opacity: 1;
   transform: translate3d(0, 0, 0);
 }
@@ -1900,6 +1903,7 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   .site-hero .promise-hero,
   .site-hero .tagline,
   .site-hero .hf-card,
+  .site-hero .cta-row,
   .promise-hero .promise-accent::after {
     opacity: 1 !important;
     transform: none !important;
@@ -3793,5 +3797,206 @@ body.mode-app:not(.is-miniapp) .app-exit { display: inline-flex; }
   }
   .trial-step-face {
     transition: none !important;
+  }
+}
+
+/* —— Homepage flagship head (v0.9.36) —— */
+body.gb-site .site-hero.site-hero--head {
+  min-height: 100svh;
+  min-height: 100dvh;
+  padding: 0;
+  display: grid;
+  align-items: stretch;
+  overflow: hidden;
+}
+.hero-head-place {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.hero-head-stage {
+  position: absolute;
+  left: 58%;
+  top: 48%;
+  width: min(78vw, 760px);
+  height: 62vh;
+  display: grid;
+  place-items: center;
+  transform: translate(-38%, -50%) translate3d(var(--hx, 0px), calc(var(--hy, 0px) + var(--sy, 0px)), 0);
+  transition:
+    opacity 0.85s var(--ease),
+    transform 0.85s var(--ease);
+  opacity: 0;
+}
+.site-hero.is-ready .hero-head-stage {
+  opacity: 1;
+}
+.hero-glow--head {
+  inset: 8% 4% 12% 4%;
+  opacity: 0.85;
+}
+.gb-hero-head {
+  position: relative;
+  z-index: 1;
+  width: auto;
+  height: min(62vh, 100%);
+  max-width: 100%;
+  overflow: visible;
+  display: block;
+  filter: drop-shadow(0 28px 48px rgba(0, 0, 0, 0.45));
+}
+.hero-read-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(30, 36, 33, 0.94) 0%, rgba(30, 36, 33, 0.78) 26%, rgba(30, 36, 33, 0.22) 48%, transparent 66%),
+    linear-gradient(180deg, rgba(30, 36, 33, 0.28) 0%, transparent 28%, rgba(30, 36, 33, 0.2) 62%, rgba(30, 36, 33, 0.72) 100%);
+}
+.hero-copy--over {
+  position: relative;
+  z-index: 2;
+  align-self: center;
+  width: min(36rem, calc(100% - 32px));
+  margin: 0;
+  padding: clamp(7.6rem, 14vw, 9.2rem) 22px 40px;
+}
+.site-hero--head .promise-hero {
+  max-width: 12ch;
+}
+.site-hero--head .tagline {
+  max-width: 22rem;
+  margin-bottom: 20px;
+}
+.site-hero--head .cta-row {
+  gap: 12px;
+}
+.site-hero--head .btn-primary,
+.site-hero--head .btn-ghost {
+  min-height: 44px;
+  padding: 12px 20px;
+}
+.site-hero--head .btn-ghost {
+  background: transparent;
+  border-color: rgba(237, 232, 223, 0.22);
+  color: var(--gb-muted);
+  font-weight: 600;
+}
+.site-hero--head .btn-ghost:hover {
+  color: var(--gb-cream);
+  border-color: rgba(212, 161, 90, 0.55);
+}
+
+.site-section--features {
+  padding: 20px 22px 36px;
+}
+.hero-features--strip {
+  display: grid;
+  gap: 4px;
+}
+@media (min-width: 880px) {
+  .hero-features--strip {
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 36px;
+  }
+}
+
+.gb-head-tilt {
+  transform-origin: 50% 86%;
+  transform-box: fill-box;
+  animation: gbHeadTilt 11s ease-in-out infinite;
+}
+.gb-head-bob {
+  transform-origin: 50% 90%;
+  transform-box: fill-box;
+  animation: gbHeadBreath 7.2s ease-in-out infinite;
+}
+.gb-ear--l {
+  transform-origin: 70% 95%;
+  transform-box: fill-box;
+  animation: gbEarTwitch 8.4s ease-in-out infinite;
+}
+.gb-lid {
+  transform: scaleY(0.08);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: gbBlink 6.6s ease-in-out infinite;
+}
+.gb-eye--r .gb-lid { animation-delay: 0.04s; }
+
+@keyframes gbHeadBreath {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-5px) scale(1.012); }
+}
+@keyframes gbHeadTilt {
+  0%, 72%, 90%, 100% { transform: rotate(0deg); }
+  78% { transform: rotate(-1.8deg); }
+  84% { transform: rotate(1.1deg); }
+}
+@keyframes gbEarTwitch {
+  0%, 76%, 88%, 100% { transform: rotate(0deg); }
+  80% { transform: rotate(-8deg); }
+  84% { transform: rotate(3deg); }
+}
+@keyframes gbBlink {
+  0%, 87%, 94%, 100% { transform: scaleY(0.08); }
+  89.5%, 91.5% { transform: scaleY(1); }
+}
+
+@media (max-width: 879px) {
+  .hero-head-stage {
+    left: 50%;
+    top: 36%;
+    width: min(112vw, 460px);
+    height: 46vh;
+    transform: translate(-50%, -48%) translate3d(var(--hx, 0px), calc(var(--hy, 0px) + var(--sy, 0px)), 0);
+  }
+  .gb-hero-head {
+    height: min(46vh, 100%);
+  }
+  .hero-read-veil {
+    background:
+      linear-gradient(180deg,
+        rgba(30, 36, 33, 0.35) 0%,
+        rgba(30, 36, 33, 0.08) 22%,
+        rgba(30, 36, 33, 0.35) 48%,
+        rgba(30, 36, 33, 0.92) 78%,
+        rgba(30, 36, 33, 0.96) 100%);
+  }
+  .hero-copy--over {
+    align-self: end;
+    width: min(100%, 40rem);
+    padding: 0 20px 28px;
+    padding-top: clamp(7.2rem, 18vw, 8.5rem);
+  }
+  .site-hero--head .promise-hero {
+    max-width: none;
+    font-size: clamp(2.15rem, 10vw, 2.7rem);
+  }
+  .site-hero--head .tagline {
+    font-size: 1.05rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gb-head-tilt,
+  .gb-head-bob,
+  .gb-ear--l,
+  .gb-lid,
+  .hero-glow--head {
+    animation: none !important;
+  }
+  .hero-head-stage {
+    opacity: 1 !important;
+    transition: none !important;
+    transform: translate(-38%, -50%) !important;
+  }
+  .gb-lid { transform: scaleY(0.08); }
+}
+@media (prefers-reduced-motion: reduce) and (max-width: 879px) {
+  .hero-head-stage {
+    transform: translate(-50%, -48%) !important;
   }
 }

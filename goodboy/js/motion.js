@@ -154,6 +154,7 @@
     if (reduced()) return;
     var hero = document.querySelector(".site-hero");
     var stage = hero && (hero.querySelector(".hero-features") || hero.querySelector(".hero-stage"));
+    var head = hero && hero.querySelector(".hero-head-stage");
     var copy = hero && hero.querySelector(".hero-copy");
     var shelves = document.querySelectorAll(".photo-shelves .shelf");
     if (!hero && !shelves.length) return;
@@ -164,16 +165,20 @@
       var y = global.scrollY || 0;
       var vh = global.innerHeight || 1;
 
-      if (hero && (stage || copy)) {
+      if (hero && (stage || copy || head)) {
         var h = hero.offsetHeight || 1;
         var p = Math.min(1, Math.max(0, y / h));
         if (p < 0.01) {
           if (stage) { stage.style.transform = ""; stage.style.opacity = ""; }
+          if (head) { head.style.setProperty("--sy", "0px"); }
           if (copy) { copy.style.transform = ""; copy.style.opacity = ""; }
         } else {
           if (stage) {
             stage.style.transform = "translate3d(0," + (p * 18).toFixed(1) + "px,0)";
             stage.style.opacity = String((1 - p * 0.35).toFixed(3));
+          }
+          if (head) {
+            head.style.setProperty("--sy", (p * 14).toFixed(1) + "px");
           }
           if (copy) {
             copy.style.transform = "translate3d(0," + (p * 10).toFixed(1) + "px,0)";
@@ -323,6 +328,52 @@
     }
   }
 
+  function initHeroHead() {
+    var stage = document.getElementById("gbHeroHead");
+    if (!stage) return;
+    if (reduced()) return;
+    var fine = false;
+    try {
+      fine = global.matchMedia && global.matchMedia("(pointer: fine)").matches;
+    } catch (e) {
+      fine = false;
+    }
+    if (!fine) return;
+
+    var hero = document.querySelector(".site-hero--head");
+    if (!hero) return;
+
+    var ticking = false;
+    var lx = 0;
+    var ly = 0;
+
+    function apply() {
+      ticking = false;
+      stage.style.setProperty("--hx", (lx * 10).toFixed(2) + "px");
+      stage.style.setProperty("--hy", (ly * 7).toFixed(2) + "px");
+    }
+
+    hero.addEventListener("pointermove", function (e) {
+      var r = hero.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      lx = Math.min(0.5, Math.max(-0.5, (e.clientX - r.left) / r.width - 0.5));
+      ly = Math.min(0.5, Math.max(-0.5, (e.clientY - r.top) / r.height - 0.5));
+      if (!ticking) {
+        ticking = true;
+        global.requestAnimationFrame(apply);
+      }
+    }, { passive: true });
+
+    hero.addEventListener("pointerleave", function () {
+      lx = 0;
+      ly = 0;
+      if (!ticking) {
+        ticking = true;
+        global.requestAnimationFrame(apply);
+      }
+    }, { passive: true });
+  }
+
   function init() {
     initNav();
     initProgress();
@@ -330,6 +381,7 @@
     initHeroEntrance();
     initReveal();
     initPointerLight();
+    initHeroHead();
     initScrollParallax();
     initPhoneDemo();
   }
