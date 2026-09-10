@@ -67,8 +67,8 @@ Worker: `@one_more_person_228` — **все партнёры** (V33: ручно�
 | 0 | `pt_nan_1` | nan_animal_clinic · ул. Янковского, 34 · ✅ |
 | 1–12 | `pt_varka_*` | Varka — вручную по наборам |
 | 13 | `pt_fundog_1` | Fundog · ✅ |
-| 14 | `pt_polotno_1` | Чечота 11 · ✅ |
-| 15 | `pt_indix_1` | Проспект победителей 73/1 · ✅ |
+| 14 | `pt_polotno_1` | polotno_an · Чечота 11 · ✅ |
+| 15 | `pt_indix_1` | indixvost · Проспект победителей 73/1 · ✅ |
 | 16 | `pt_bob_1` | bow_wow_collar · ✅ |
 
 **Сейчас у `@one_more_person_228`:** все активные партнёрские точки (owner-all, V33).
@@ -139,6 +139,7 @@ Worker: `@one_more_person_228` — **все партнёры** (V33: ручно�
 - [~] **v3.3.20:** примечание к заявке · ~~`@arseniyhotko` → 4 Варки~~ (снято V17) · **Pages** · **Deploy Code.gs**
 - [~] **v3.3.21:** + точка **Varka Маяковского 14** (`pt_varka_mayakovskogo_14`, `PARTNER_PROD_V15`); в Бойне Удалить/Вернуть точку (`partnerDeletePoint`) · Pages Бойня `v71115940` · **нужен Deploy Code.gs** + Worker
 - [x] **v3.3.21b:** лист причин NFC; без дубля Маяковского и без «·»; soft-toast Отправить · Pages varka 3.3.21 · **Deploy Code.gs** (`PARTNER_PROD_V16`)
+- [~] **v3.3.35:** rename polotno_an / indixvost + адрес ниже; 1× Маяковского; Бойня скрыть Firedog+дубли Маяковского · Pages varka 3.3.35 / Бойня `v71115942` · **Deploy Code.gs** (`PARTNER_PROD_V34`) + Worker
 - [~] **v3.3.34 batch:** rename точек (Fundog / Чечота 11 / Победителей 73/1 / bow_wow_collar); история без «Привезём»; купон photo+qty; qty blur keep; Delete в Партнёры→Заказы; access pending+notify+accept; staff без grant; empty-day skip force · Pages varka 3.3.34 · **Deploy Code.gs** (`PARTNER_PROD_V32`) + Worker
 - [~] **v3.3.41:** Access `@one_more_person_228` → **все партнёры** (owner-all) · Worker · Deploy Code.gs V33 опционально
 - [~] **v3.3.40:** Access `@one_more_person_228` → только **Маяковского 14** · Worker · Deploy Code.gs V31 опционально

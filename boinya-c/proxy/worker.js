@@ -6870,8 +6870,8 @@ const PARTNER_LIVE_TEST_QUEUE = [
   { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka Шевченко 1", address: "Шевченко 1", label: "Varka Шевченко 1" },
   { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14", label: "Varka Маяковского 14" },
   { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog", address: "Минск", label: "Fundog" },
-  { id: "pt_polotno_1", networkId: "net_polotno", name: "Чечота 11", address: "Чечота 11", label: "Чечота 11" },
-  { id: "pt_indix_1", networkId: "net_indixvost", name: "Проспект победителей 73/1", address: "Проспект победителей 73/1", label: "Проспект победителей 73/1" },
+  { id: "pt_polotno_1", networkId: "net_polotno", name: "polotno_an", address: "Чечота 11", label: "polotno_an" },
+  { id: "pt_indix_1", networkId: "net_indixvost", name: "indixvost", address: "Проспект победителей 73/1", label: "indixvost" },
   { id: "pt_bob_1", networkId: "net_bobwow", name: "bow_wow_collar", address: "Брест", label: "bow_wow_collar" }
 ];
 
@@ -7079,15 +7079,24 @@ function partnerManualAccessGetMe_(json) {
 
 function partnerOwnerAllGetMe_(json) {
   const src = json && typeof json === "object" && json.status !== "error" ? json : {};
+  const renameById = {
+    pt_polotno_1: { name: "polotno_an", address: "Чечота 11" },
+    pt_indix_1: { name: "indixvost", address: "Проспект победителей 73/1" }
+  };
+  const canonMayak = "pt_varka_mayakovskogo_14";
   const byId = {};
   const addPt = function (p) {
     if (!p || !p.id) return;
+    if (p.active === false) return;
     if (String(p.networkId || "") === "net_firedog" || p.id === "pt_firedog_1") return;
+    const low = (String(p.name || "") + " " + String(p.address || "")).toLowerCase();
+    if (/маяковск/.test(low) && String(p.id) !== canonMayak) return;
+    const fix = renameById[p.id];
     byId[p.id] = {
       id: p.id,
       networkId: p.networkId || "",
-      name: p.name || p.label || p.id,
-      address: p.address || ""
+      name: (fix && fix.name) || p.name || p.label || p.id,
+      address: (fix && fix.address) || p.address || ""
     };
   };
   (Array.isArray(src.points) ? src.points : []).forEach(addPt);
@@ -7106,11 +7115,12 @@ function partnerOwnerAllGetMe_(json) {
   });
   let nets = Array.isArray(src.networks)
     ? src.networks.filter(function (n) {
-        return n && netNeed[n.id];
+        return n && netNeed[n.id] && n.id !== "net_firedog";
       })
     : [];
   if (!nets.length) {
     Object.keys(netNeed).forEach(function (nid) {
+      if (nid === "net_firedog") return;
       nets.push({
         id: nid,
         name:
@@ -15666,7 +15676,8 @@ async function partnerEnsureMayakovskyPoint_(env, admin) {
   } else {
     points.push(row);
   }
-  // soft-delete other mayakovsky / double-name dups; strip · in Varka titles
+  // soft-delete other mayakovsky / double-name dups; strip · in Varka titles;
+  // V34: polotno_an / indixvost; hide firedog
   const nextPts = [];
   for (let j = 0; j < points.length; j++) {
     const p = points[j] || {};
@@ -15675,19 +15686,32 @@ async function partnerEnsureMayakovskyPoint_(env, admin) {
     const address = String(p.address || "");
     const low = (name + " " + address).toLowerCase();
     const mayaks = low.match(/маяковск/g);
+    if (pid === "pt_firedog_1" || String(p.networkId || "") === "net_firedog") {
+      nextPts.push(Object.assign({}, p, { active: false }));
+      continue;
+    }
     if (mayaks && mayaks.length && pid !== id) {
       nextPts.push(Object.assign({}, p, { active: false }));
       continue;
     }
     let cleanName = name.replace(/\s*[·.•]\s*/g, " ").replace(/\s+/g, " ").trim();
-    if (pid === id) cleanName = "Varka Маяковского 14";
-    else if (String(p.networkId || "") === "net_varka" && /^varka\b/i.test(cleanName) && address) {
+    let cleanAddr = address;
+    if (pid === id) {
+      cleanName = "Varka Маяковского 14";
+      cleanAddr = "Маяковского 14";
+    } else if (pid === "pt_polotno_1") {
+      cleanName = "polotno_an";
+      cleanAddr = "Чечота 11";
+    } else if (pid === "pt_indix_1") {
+      cleanName = "indixvost";
+      cleanAddr = "Проспект победителей 73/1";
+    } else if (String(p.networkId || "") === "net_varka" && /^varka\b/i.test(cleanName) && address) {
       cleanName = ("Varka " + address).replace(/\s+/g, " ").trim();
     }
-    nextPts.push(Object.assign({}, p, { name: cleanName, address: pid === id ? "Маяковского 14" : address }));
+    nextPts.push(Object.assign({}, p, { name: cleanName, address: cleanAddr }));
   }
-  const next = Object.assign({}, admin, { points: nextPts, _partnerMayakV16: 1 });
-  if (env && env.DB && !admin._partnerMayakV16) {
+  const next = Object.assign({}, admin, { points: nextPts, _partnerMayakV16: 1, _partnerNamesV34: 1 });
+  if (env && env.DB && (!admin._partnerMayakV16 || !admin._partnerNamesV34)) {
     try {
       await putSnap_(env, "partnerListAdmin", Object.assign({}, next, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
     } catch (eW) {}
@@ -16395,6 +16419,28 @@ async function mutatePartnerD1_(action, params, env) {
         for (let mi = 0; mi < PARTNER_MANUAL_ACCESS_POINTS.length; mi++) {
           if (PARTNER_MANUAL_ACCESS_POINTS[mi].id === locationId) {
             if (!locationName) locationName = PARTNER_MANUAL_ACCESS_POINTS[mi].name || PARTNER_MANUAL_ACCESS_POINTS[mi].label || "";
+            break;
+          }
+        }
+      }
+    }
+    if (!allowed && isPartnerOwnerAllUser_({ username: username, telegramId: tid })) {
+      for (let p0 = 0; p0 < (admin.points || []).length; p0++) {
+        if (String(admin.points[p0].id) === locationId) {
+          allowed = true;
+          if (!networkId) networkId = admin.points[p0].networkId || "";
+          if (!locationName) locationName = admin.points[p0].name || "";
+          break;
+        }
+      }
+      if (!allowed) {
+        for (let q0 = 0; q0 < (PARTNER_LIVE_TEST_QUEUE || []).length; q0++) {
+          if (PARTNER_LIVE_TEST_QUEUE[q0].id === locationId) {
+            allowed = true;
+            if (!networkId) networkId = PARTNER_LIVE_TEST_QUEUE[q0].networkId || "";
+            if (!locationName) {
+              locationName = PARTNER_LIVE_TEST_QUEUE[q0].name || PARTNER_LIVE_TEST_QUEUE[q0].label || "";
+            }
             break;
           }
         }

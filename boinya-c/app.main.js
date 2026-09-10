@@ -23222,15 +23222,36 @@
 
       var boxP = document.getElementById("phPointsList");
       if (boxP) {
-        boxP.innerHTML = pts.length ? pts.map(function (p) {
+        var ptsShow = pts.filter(function (p) {
+          if (!p) return false;
+          var id = String(p.id || "");
+          var nid = String(p.networkId || "");
+          var low = (String(p.name || "") + " " + String(p.address || "")).toLowerCase();
+          // Firedog — скрыть
+          if (id === "pt_firedog_1" || nid === "net_firedog" || /firedog/.test(low)) return false;
+          // Дубли Маяковского (выкл. и лишние) — только канон pt_varka_mayakovskogo_14
+          if (/маяковск/.test(low) || id === "pt_f7640014" || id === "pt_mtu4v0dsdy3o") {
+            if (id !== "pt_varka_mayakovskogo_14") return false;
+          }
+          return true;
+        });
+        boxP.innerHTML = ptsShow.length ? ptsShow.map(function (p) {
           var idEsc = String(p.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
           var net = nets.filter(function (n) { return n.id === p.networkId; })[0];
           var inactive = p.active === false;
+          var nm = p.name || p.id;
+          if (idEsc === "pt_polotno_1" || String(p.id) === "pt_polotno_1") nm = "polotno_an";
+          if (String(p.id) === "pt_indix_1") nm = "indixvost";
+          if (String(p.id) === "pt_varka_mayakovskogo_14") nm = "Varka Маяковского 14";
+          var addr = p.address || "";
+          if (String(p.id) === "pt_polotno_1") addr = "Чечота 11";
+          if (String(p.id) === "pt_indix_1") addr = "Проспект победителей 73/1";
+          if (String(p.id) === "pt_varka_mayakovskogo_14") addr = "Маяковского 14";
           return '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid #222;">' +
-            '<div style="min-width:0;"><b>' + escapeHtml(p.name) + "</b>" +
+            '<div style="min-width:0;"><b>' + escapeHtml(nm) + "</b>" +
             (inactive ? ' <span class="muted">(выкл)</span>' : "") +
             '<div class="muted" style="font-size:12px;margin-top:2px;">' + escapeHtml((net && net.name) || p.networkId) +
-            (p.address ? (" · " + escapeHtml(p.address)) : "") + "</div></div>" +
+            (addr ? (" · " + escapeHtml(addr)) : "") + "</div></div>" +
             '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">' +
             '<button type="button" class="seg-btn" style="margin:0;" onclick="partnerHubEditPoint_(\'' + idEsc + '\')">Изменить</button>' +
             (inactive
@@ -23269,7 +23290,14 @@
       if (!box || !partnerHubCache_) return;
 
       var pts = (partnerHubCache_.points || []).filter(function (p) {
-        return p.active !== false;
+        if (!p || p.active === false) return false;
+        var id = String(p.id || "");
+        var nid = String(p.networkId || "");
+        var low = (String(p.name || "") + " " + String(p.address || "")).toLowerCase();
+        if (id === "pt_firedog_1" || nid === "net_firedog" || /firedog/.test(low)) return false;
+        if ((/маяковск/.test(low) || id === "pt_f7640014" || id === "pt_mtu4v0dsdy3o") &&
+            id !== "pt_varka_mayakovskogo_14") return false;
+        return true;
       });
       if (!pts.length) {
         box.innerHTML = '<span class="muted">Нет точек</span>';
