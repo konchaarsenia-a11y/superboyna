@@ -1,3 +1,5 @@
+- [~] **ПП слот 2 → в просмотре 1/2 2026-09-10:** refreshPpFactPrice (getPpFactCost) затирал слот 2 после suggest; D1 factCost отдавал stale slot=1. Fix: не overwrite manual; factCost считает слот как suggest; save пишет deliveriesN · marker `fix-pp-slot2-ndel-h1` · Pages `v71115941` · **Worker Deploy** · Viihrova 16.09: после Deploy пересохранить слот 2 (write из VM 403)
+
 - [~] **Varka partner-fixes 3.3.34 2026-09-09:** rename 4 точек + V32; история без deliver; купон photo+qty; qty blur; Delete заявок; access pending/accept/notify; staff hide grant; empty-day speed · Pages varka 3.3.34 · **Deploy Code.gs** (`PARTNER_PROD_V32`) · Worker
 - [~] **Varka live-test NaN 2026-09-09:** `@one_more_person_228` owner→all fix (tid 827494606); только NaN (`pt_nan_1`); «следующая точка» · Pages varka 3.3.23 · **Deploy Code.gs** (`PARTNER_PROD_V18`) · Worker
 - [~] **Varka UX NFC/точки/submit 2026-09-09:** лист причин NFC; одна Маяковского без «·»; soft-toast + Отправляю…; быстрый TG из Worker · Pages varka 3.3.21 · **нужен Deploy Code.gs** (`PARTNER_PROD_V16`) · Worker
