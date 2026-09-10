@@ -148,7 +148,7 @@
   }
 
   function getFilterState() {
-    var state = { gender: qs("gender"), type: qs("type"), brand: "", sale: "", size: "" };
+    var state = { gender: qs("gender"), brand: "", sale: "", size: "" };
     if (qs("sale") === "1" || qs("sale") === "true") state.sale = "1";
     document.querySelectorAll("#catalogFilters [data-filter].on").forEach(function (btn) {
       var key = btn.getAttribute("data-filter");
@@ -219,7 +219,6 @@
         var g = card.getAttribute("data-gender") || "";
         if (g !== state.gender && g !== "uni") ok = false;
       }
-      if (state.type && card.getAttribute("data-type") !== state.type) ok = false;
       if (state.brand && card.getAttribute("data-brand") !== state.brand) ok = false;
       if (state.sale === "1" && card.getAttribute("data-sale") !== "1") ok = false;
       if (state.size && !cardHasSize(card, state.size)) ok = false;
@@ -232,12 +231,11 @@
   function initFiltersFromUrl() {
     var state = {
       gender: qs("gender"),
-      type: qs("type"),
       brand: qs("brand"),
       size: qs("size"),
       sale: qs("sale") === "1" || qs("sale") === "true" ? "1" : "",
     };
-    if (state.brand === "WS Wear") state.brand = "ws";
+    if (state.brand === "ws" || state.brand === "WS Wear") state.brand = "";
     if (state.brand === "Nike") state.brand = "nike";
     if (state.brand === "Adidas") state.brand = "adidas";
     if (state.brand === "Jordan") state.brand = "jordan";
@@ -299,6 +297,7 @@
       if (key === "size") openPanel("sizesPanel", "toggleSizes", false);
 
       var params = new URLSearchParams(window.location.search);
+      params.delete("type");
       if (state.brand) params.set("brand", state.brand);
       else params.delete("brand");
       if (state.size) params.set("size", state.size);
