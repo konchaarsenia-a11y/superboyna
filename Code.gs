@@ -19208,8 +19208,8 @@ function partnerDefaultSeedPack_() {
       { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14" },
       { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34" },
       { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog", address: "Минск" },
-      { id: "pt_polotno_1", networkId: "net_polotno", name: "Чечота 11", address: "Чечота 11" },
-      { id: "pt_indix_1", networkId: "net_indixvost", name: "Проспект победителей 73/1", address: "Проспект победителей 73/1" },
+      { id: "pt_polotno_1", networkId: "net_polotno", name: "polotno_an", address: "Чечота 11" },
+      { id: "pt_indix_1", networkId: "net_indixvost", name: "indixvost", address: "Проспект победителей 73/1" },
       { id: "pt_bob_1", networkId: "net_bobwow", name: "bow_wow_collar", address: "Брест" }
     ],
     // доступы партнёров — только через вкладку Партнёры в Бойне
@@ -19925,8 +19925,8 @@ var PARTNER_LIVE_TEST_QUEUE_ = [
   { id: "pt_varka_shevchenko_1", networkId: "net_varka", label: "Varka Шевченко 1" },
   { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", label: "Varka Маяковского 14" },
   { id: "pt_fundog_1", networkId: "net_fundog", name: "Fundog", address: "Минск", label: "Fundog" },
-  { id: "pt_polotno_1", networkId: "net_polotno", name: "Чечота 11", address: "Чечота 11", label: "Чечота 11" },
-  { id: "pt_indix_1", networkId: "net_indixvost", name: "Проспект победителей 73/1", address: "Проспект победителей 73/1", label: "Проспект победителей 73/1" },
+  { id: "pt_polotno_1", networkId: "net_polotno", name: "polotno_an", address: "Чечота 11", label: "polotno_an" },
+  { id: "pt_indix_1", networkId: "net_indixvost", name: "indixvost", address: "Проспект победителей 73/1", label: "indixvost" },
   { id: "pt_bob_1", networkId: "net_bobwow", name: "bow_wow_collar", address: "Брест", label: "bow_wow_collar" }
 ];
 
@@ -20300,6 +20300,56 @@ function partnerMigrateProdV33_() {
   return { migrated: true, allPartners: true, revokedUser: PARTNER_LIVE_TEST_USER_ };
 }
 
+/** V34: polotno_an / indixvost имена; выкл. дубли Маяковского + Firedog. */
+function partnerMigrateProdV34_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V34") === "1") {
+    try { partnerSyncLiveTestAccess_(); } catch (e0) {}
+    return { migrated: false };
+  }
+  try { partnerMigrateProdV33_(); } catch (e33) {}
+  var now = new Date();
+  var ptSh = getPartnerPointsSheet_();
+  var canonMayak = "pt_varka_mayakovskogo_14";
+  var renamed = 0;
+  var killed = 0;
+  readPartnerPoints_().forEach(function (p) {
+    if (!p || !p.id) return;
+    var id = String(p.id);
+    var low = (String(p.name || "") + " " + String(p.address || "")).toLowerCase();
+    try {
+      if (id === "pt_polotno_1") {
+        ptSh.getRange(p.rowIndex, 3).setValue("polotno_an");
+        ptSh.getRange(p.rowIndex, 4).setValue("Чечота 11");
+        ptSh.getRange(p.rowIndex, 6).setValue(now);
+        renamed++;
+        return;
+      }
+      if (id === "pt_indix_1") {
+        ptSh.getRange(p.rowIndex, 3).setValue("indixvost");
+        ptSh.getRange(p.rowIndex, 4).setValue("Проспект победителей 73/1");
+        ptSh.getRange(p.rowIndex, 6).setValue(now);
+        renamed++;
+        return;
+      }
+      if (id === "pt_firedog_1" || String(p.networkId || "") === "net_firedog") {
+        ptSh.getRange(p.rowIndex, 5).setValue("no");
+        ptSh.getRange(p.rowIndex, 6).setValue(now);
+        killed++;
+        return;
+      }
+      if (/маяковск/.test(low) && id !== canonMayak) {
+        ptSh.getRange(p.rowIndex, 5).setValue("no");
+        ptSh.getRange(p.rowIndex, 6).setValue(now);
+        killed++;
+      }
+    } catch (eP) {}
+  });
+  try { partnerSyncLiveTestAccess_(); } catch (eSync) {}
+  props.setProperty("PARTNER_PROD_V34", "1");
+  return { migrated: true, renamed: renamed, killed: killed };
+}
+
 function partnerSyncManualAccess_() {
   var ids = (PARTNER_MANUAL_ACCESS_POINT_IDS_ || []).slice();
   var acSh = getPartnerAccessSheet_();
@@ -20400,6 +20450,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV31_(); } catch (eMig31) {}
   try { partnerMigrateProdV32_(); } catch (eMig32) {}
   try { partnerMigrateProdV33_(); } catch (eMig33) {}
+  try { partnerMigrateProdV34_(); } catch (eMig34) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
@@ -21193,9 +21244,30 @@ function handlePartnerListAdmin(json, callback, fromPost) {
     status: "success",
     networks: readPartnerNetworks_().map(function (n) {
       return { id: n.id, name: n.name, logo: n.logo, active: n.active };
+    }).filter(function (n) {
+      return n && n.id !== "net_firedog" && String(n.id || "").indexOf("firedog") < 0;
     }),
     points: readPartnerPoints_().map(function (p) {
       return { id: p.id, networkId: p.networkId, name: p.name, address: p.address, active: p.active };
+    }).filter(function (p) {
+      if (!p || !p.id) return false;
+      var id = String(p.id);
+      var nid = String(p.networkId || "");
+      var low = (String(p.name || "") + " " + String(p.address || "")).toLowerCase();
+      if (id === "pt_firedog_1" || nid === "net_firedog" || /firedog/.test(low)) return false;
+      if ((/маяковск/.test(low) || id === "pt_f7640014" || id === "pt_mtu4v0dsdy3o") &&
+          id !== "pt_varka_mayakovskogo_14") return false;
+      if (id === "pt_polotno_1") {
+        p.name = "polotno_an";
+        p.address = "Чечота 11";
+      } else if (id === "pt_indix_1") {
+        p.name = "indixvost";
+        p.address = "Проспект победителей 73/1";
+      } else if (id === "pt_varka_mayakovskogo_14") {
+        p.name = "Varka Маяковского 14";
+        p.address = "Маяковского 14";
+      }
+      return true;
     }),
     access: readPartnerAccessRows_().map(function (a) {
       return {
