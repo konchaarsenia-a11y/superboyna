@@ -57,6 +57,29 @@ function factCostRaw26_(raw, basket, n, packs) {
   };
 }
 
+function listPpMoneyClientKeys_(delivered, paidByKey, monthCal) {
+  const keys = [];
+  for (const ck of Object.keys(delivered || {})) {
+    const paid = String((paidByKey && paidByKey[ck]) || "");
+    if (ppClientPaysNowForStats_(ck, paid, monthCal)) keys.push(ck);
+  }
+  return keys;
+}
+
+function sumFactCostForMoneyKeys_(delivered, paidByKey, monthCal, perClientCost) {
+  const keys = listPpMoneyClientKeys_(delivered, paidByKey, monthCal);
+  let cost = 0;
+  let skipped = 0;
+  for (const ck of Object.keys(delivered || {})) {
+    if (keys.indexOf(ck) < 0) {
+      skipped++;
+      continue;
+    }
+    cost += perClientCost;
+  }
+  return { cost: Math.round(cost * 100) / 100, skipped, money: keys.length };
+}
+
 function collectPpActualOut_(ppStats, monthCal, paidByKey) {
   const out = { actual: 0, clientsCounted: 0 };
   const byKey = (ppStats && ppStats.byKey) || {};
@@ -145,13 +168,35 @@ assert(ppClientPaysNowForStats_("B", "", { ppSlotByKey: { B: 1 } }) === true, "N
 assert(ppClientPaysNowForStats_("B", "no", { ppSlotByKey: { B: 1 } }) === false, "explicit paid=no skipped");
 assert(ppFactDeliveriesNForStats_("B", { ppDeliveryCountByKey: { B: 1 } }, { deliveriesN: 1 }) === 1, "N=1 stays 1");
 
+const unpaidN2 = {
+  ppDeliveredKeys: { U: true, V: true },
+  ppSlotByKey: { U: 2, V: 1 },
+  bySource: { pp: 3 }
+};
+const unpaidPaid = { U: "", V: "no" };
+assert(listPpMoneyClientKeys_(unpaidN2.ppDeliveredKeys, unpaidPaid, unpaidN2).length === 0, "unpaid N≥2 not in money keys");
+const unpaidCost = sumFactCostForMoneyKeys_(unpaidN2.ppDeliveredKeys, unpaidPaid, unpaidN2, cost1.factCost);
+assert(unpaidCost.cost === 0, "unpaid dual-delivery must not enter costActual");
+assert(unpaidCost.skipped === 2, "both unpaid N≥2 skipped in cost loop");
+assert(unpaidN2.bySource.pp === 3, "delivery counters stay unfiltered");
+
+const paidAndUnpaid = {
+  ppDeliveredKeys: { A: true, U: true },
+  ppSlotByKey: { A: 1, U: 2 }
+};
+const mixCost = sumFactCostForMoneyKeys_(paidAndUnpaid.ppDeliveredKeys, { A: "yes", U: "" }, paidAndUnpaid, cost1.factCost);
+assert(mixCost.cost === cost1.factCost, "only paysNow client adds factCost");
+assert(mixCost.skipped === 1, "slot 2 unpaid skipped");
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const gs = fs.readFileSync(path.join(__dirname, "../Code.gs"), "utf8");
 assert(gs.indexOf("function ppClientPaysNowForStats_") >= 0, "Code.gs pays-now helper");
+assert(gs.indexOf("function listPpMoneyClientKeys_") >= 0, "shared money-key list");
 assert(gs.indexOf("function ppFactDeliveriesNForStats_") >= 0, "Code.gs N-from-sheet helper");
 assert(gs.indexOf("ppClientCountsInStats_") < 0, "no unpaid-N2 over-gate");
 assert(gs.indexOf("if (sheetN >= 2) return sheetN") >= 0, "sheet N≥2 used immediately");
-assert(gs.indexOf("if (!ppClientPaysNowForStats_(ppk, paidCost, out)) continue") >= 0, "cost loop uses same pays-now gate");
+assert(gs.indexOf("listPpMoneyClientKeys_(out.ppDeliveredKeys") >= 0, "cost loop uses money keys");
+assert(gs.indexOf("listPpMoneyClientKeys_(delivered, cycleStore, monthCal)") >= 0, "revenue uses same money keys");
 
 console.log("OK stats-pp-n2-once");
 console.log(JSON.stringify({
@@ -163,5 +208,7 @@ console.log(JSON.stringify({
   factCostAfterSlot2: costBoth.factCost,
   recoverFull: cost1.recover,
   deliveryByn: cost1.delivery,
-  deliveriesIfBoth: bothSlots.bySource.pp
+  deliveriesIfBoth: bothSlots.bySource.pp,
+  unpaidN2Cost: unpaidCost.cost,
+  mixCost: mixCost.cost
 }, null, 2));
