@@ -148,12 +148,15 @@
   }
 
   function getFilterState() {
-    var state = { gender: qs("gender"), brand: "", sale: "", size: "" };
-    if (qs("sale") === "1" || qs("sale") === "true") state.sale = "1";
+    var state = { gender: "", brand: "", sale: "", size: "" };
     document.querySelectorAll("#catalogFilters [data-filter].on").forEach(function (btn) {
       var key = btn.getAttribute("data-filter");
       var val = btn.getAttribute("data-value") || "";
       if (!key) return;
+      if (key === "sale") {
+        if (val === "1") state.sale = "1";
+        return;
+      }
       state[key] = val;
     });
     return state;
@@ -166,6 +169,8 @@
       var on = false;
       if (key === "brand") on = (state.brand || "") === val;
       else if (key === "size") on = (state.size || "") === val;
+      else if (key === "gender") on = (state.gender || "") === val;
+      else if (key === "sale") on = state.sale === "1" && val === "1";
       btn.classList.toggle("on", on);
     });
     if (!state.brand) {
@@ -175,6 +180,10 @@
     if (!state.size) {
       var sAll = document.querySelector('#catalogFilters [data-filter="size"][data-value=""]');
       if (sAll) sAll.classList.add("on");
+    }
+    if (!state.gender) {
+      var gAll = document.querySelector('#catalogFilters [data-filter="gender"][data-value=""]');
+      if (gAll) gAll.classList.add("on");
     }
     updateDropLabels(state);
   }
@@ -196,6 +205,10 @@
       sizesLabel.textContent =
         (sizeBtn && sizeBtn.getAttribute("data-label")) || (state.size ? state.size : "Все размеры");
     }
+    var brandsToggle = document.getElementById("toggleBrands");
+    var sizesToggle = document.getElementById("toggleSizes");
+    if (brandsToggle) brandsToggle.classList.toggle("picked", !!state.brand);
+    if (sizesToggle) sizesToggle.classList.toggle("picked", !!state.size);
   }
 
   function cardHasSize(card, size) {
@@ -207,13 +220,37 @@
     return found;
   }
 
+  function modelWord(n) {
+    var m10 = n % 10;
+    var m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return "модель";
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return "модели";
+    return "моделей";
+  }
+
+  function hasActiveFilters(state) {
+    return !!(state.gender || state.brand || state.sale || state.size);
+  }
+
+  function writeFilterUrl(state) {
+    var params = new URLSearchParams();
+    if (state.gender) params.set("gender", state.gender);
+    if (state.brand) params.set("brand", state.brand);
+    if (state.size) params.set("size", state.size);
+    if (state.sale === "1") params.set("sale", "1");
+    var q = params.toString();
+    history.replaceState(null, "", "catalog.html" + (q ? "?" + q : ""));
+  }
+
   function applyFilters() {
     var list = document.getElementById("catalogList");
     var empty = document.getElementById("catalogEmpty");
+    var countEl = document.getElementById("catalogCount");
     if (!list) return;
     var state = getFilterState();
     var visible = 0;
-    list.querySelectorAll(".prod").forEach(function (card) {
+    var cards = list.querySelectorAll(".prod");
+    cards.forEach(function (card) {
       var ok = true;
       if (state.gender) {
         var g = card.getAttribute("data-gender") || "";
@@ -226,6 +263,21 @@
       if (ok) visible += 1;
     });
     if (empty) empty.classList.toggle("show", visible === 0);
+    if (countEl) {
+      if (visible === 0) countEl.textContent = "Пусто";
+      else if (!hasActiveFilters(state)) countEl.textContent = visible + " " + modelWord(visible);
+      else countEl.textContent = visible + " из " + cards.length;
+    }
+    document.body.classList.remove("catalog-booting");
+  }
+
+  function resetFilters() {
+    var state = { gender: "", brand: "", sale: "", size: "" };
+    syncFilterButtons(state);
+    openPanel("brandsPanel", "toggleBrands", false);
+    openPanel("sizesPanel", "toggleSizes", false);
+    applyFilters();
+    writeFilterUrl(state);
   }
 
   function initFiltersFromUrl() {
@@ -288,26 +340,39 @@
 
       if (key === "brand") state.brand = val;
       else if (key === "size") state.size = val;
+      else if (key === "gender") state.gender = val;
+      else if (key === "sale") state.sale = state.sale === "1" ? "" : "1";
       else return;
 
       syncFilterButtons(state);
       applyFilters();
-      // collapse after pick
       if (key === "brand") openPanel("brandsPanel", "toggleBrands", false);
       if (key === "size") openPanel("sizesPanel", "toggleSizes", false);
+      writeFilterUrl(state);
+    });
 
-      var params = new URLSearchParams(window.location.search);
-      params.delete("type");
-      if (state.brand) params.set("brand", state.brand);
-      else params.delete("brand");
-      if (state.size) params.set("size", state.size);
-      else params.delete("size");
-      var q = params.toString();
-      history.replaceState(null, "", "catalog.html" + (q ? "?" + q : ""));
+    var resetBtn = document.getElementById("resetFilters");
+    if (resetBtn) resetBtn.addEventListener("click", resetFilters);
+  }
+
+  function bindImageLoad() {
+    document.querySelectorAll(".prod-img img").forEach(function (img) {
+      var wrap = img.parentElement;
+      if (!wrap) return;
+      function done() {
+        wrap.classList.remove("is-loading");
+      }
+      if (img.complete && img.naturalWidth) {
+        done();
+        return;
+      }
+      img.addEventListener("load", done);
+      img.addEventListener("error", done);
     });
   }
 
   function bindProducts() {
+    bindImageLoad();
     document.querySelectorAll(".prod").forEach(function (card) {
       var sizes = card.querySelector("[data-sizes]");
       if (sizes) {
@@ -385,5 +450,6 @@
     bindFilters();
     bindHomeScrollBrand();
     bindPerkChips();
+    document.body.classList.remove("catalog-booting");
   });
 })();
