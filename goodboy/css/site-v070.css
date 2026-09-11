@@ -3841,7 +3841,7 @@ body.gb-site .site-hero.site-hero--head {
   position: relative;
   z-index: 1;
   height: min(62vh, 100%);
-  width: auto;
+  width: max-content;
   max-width: 100%;
   display: block;
   filter: drop-shadow(0 28px 48px rgba(0, 0, 0, 0.5));
@@ -3864,8 +3864,14 @@ body.gb-site .site-hero.site-hero--head {
   transform: translate(-50%, -50%);
   overflow: hidden;
   border-radius: 50%;
-  background: #2a3038;
+  background: transparent;
   pointer-events: none;
+}
+.gb-socket {
+  position: absolute;
+  inset: 11.5%;
+  border-radius: 50%;
+  background: #2c3136;
 }
 .gb-gaze {
   position: absolute;
