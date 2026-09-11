@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stats PP fee echo UI</title>
+  <style>
+    body { margin: 0; background: #0a0a0a; color: #f5f5f7; font-family: -apple-system, sans-serif; padding: 16px; }
+    .wrap { display: grid; gap: 16px; max-width: 420px; margin: 0 auto; }
+    .card { background: #1c1c1e; border-radius: 16px; padding: 14px 16px; }
+    .title { color: #64d2ff; font-weight: 800; margin: 0 0 8px; }
+    .line { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .muted { color: #8e8e93; }
+    .note { font-size: 11px; color: #8e8e93; margin-top: 8px; }
+    h1 { font-size: 16px; margin: 0 0 4px; }
+    .echo { font-size: 11px; color: #8e8e93; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card" id="rawCard">
+      <h1>RAW26 месяц</h1>
+      <div class="title">Затраты</div>
+      <div class="line"><span class="muted">Recover ПП (свет+нарезка+дойпак)</span><b style="color:#bf5af2;">31.23 BYN · 4 чел</b></div>
+      <div class="line"><span class="muted">Доставки ПП (9×N RAW26)</span><b>18 BYN</b></div>
+      <div class="note">ПП: состав без наценки + recover 3.90/100г + 9×N (RAW26) + пакеты/фракции.</div>
+      <div class="echo">Тариф ПП RAW26: recover 3.90/100г + доставка 9×N · ppLightFeeEach=3.9 · ppDeliveryFeeEach=9</div>
+    </section>
+    <section class="card" id="legacyCard">
+      <h1>LEGACY месяц</h1>
+      <div class="title">Затраты</div>
+      <div class="line"><span class="muted">Recover ПП (свет+нарезка+дойпак)</span><b style="color:#bf5af2;">11 BYN · 1 чел</b></div>
+      <div class="line"><span class="muted">Доставки ПП (6×N LEGACY)</span><b>6 BYN</b></div>
+      <div class="note">ПП: состав без наценки + 11 + 6×N (LEGACY) + пакеты/фракции.</div>
+      <div class="echo">Тариф ПП LEGACY: +11 + 6×N · ppLightFeeEach=11 · ppDeliveryFeeEach=6</div>
+    </section>
+    <section class="card" id="mixedCard">
+      <h1>MIXED месяц</h1>
+      <div class="title">Затраты</div>
+      <div class="line"><span class="muted">Recover ПП (свет+нарезка+дойпак)</span><b style="color:#bf5af2;">42.23 BYN · 5 чел</b></div>
+      <div class="line"><span class="muted">Доставки ПП (9×N RAW26 / 6×N LEGACY)</span><b>24 BYN</b></div>
+      <div class="note">ПП: состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY) + пакеты/фракции.</div>
+      <div class="echo">Тариф ПП смешанный: RAW26 recover 3.90+9×N / LEGACY +11+6×N · Each omitted</div>
+    </section>
+  </div>
+</body>
+</html>

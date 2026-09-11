@@ -18806,7 +18806,9 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     ppLightPeople: 0,
     ppPackagesCost: 0,
     ppFractionCost: 0,
-    ppLightKeys: {}
+    ppLightKeys: {},
+    ppScheme: "",
+    ppSchemeCounts: { RAW26: 0, LEGACY: 0 }
   };
   var ppByKeyOpt = (opts && opts.ppByKey) || {};
   var rows = [];
@@ -19017,6 +19019,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     var ppPackSum = 0;
     var ppFracSum = 0;
     var ppPeople = 0;
+    var ppSchemeRawN = 0;
+    var ppSchemeLegN = 0;
     var slotCal = {
       ppSlotByKey: out.ppSlotByKey || {},
       ppMaxSlotByKey: out.ppMaxSlotByKey || {},
@@ -19060,8 +19064,15 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
         ppPackSum += Number(factPp.packagesByn) || 0;
         ppFracSum += Number(factPp.fractionMarkup) || 0;
       }
+      var schUsed = (factPp && factPp.scheme) ? factPp.scheme : schPp;
+      if (schUsed === "RAW26") ppSchemeRawN++;
+      else ppSchemeLegN++;
       ppPeople++;
     }
+    out.ppSchemeCounts = { RAW26: ppSchemeRawN, LEGACY: ppSchemeLegN };
+    out.ppScheme = (ppSchemeRawN && ppSchemeLegN)
+      ? "MIXED"
+      : (ppSchemeRawN ? "RAW26" : (ppSchemeLegN ? "LEGACY" : ""));
     out.costBySource.pp = Math.round(ppCostSum * 100) / 100;
     out.costActual = Math.round((Number(out.costActual) + ppCostSum) * 100) / 100;
     out.productCost = Math.round((Number(out.productCost) + ppBasketSum) * 100) / 100;
@@ -19095,6 +19106,12 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   out.ppFractionCost = Math.round((out.ppFractionCost || 0) * 100) / 100;
   out.ppClientsDelivered = Object.keys(out.ppDeliveredKeys).length;
   out.ppCostSkipped = Number(out.ppCostSkipped) || 0;
+  if (!out.ppSchemeCounts) out.ppSchemeCounts = { RAW26: 0, LEGACY: 0 };
+  if (!out.ppScheme) {
+    var rawC = Number(out.ppSchemeCounts.RAW26) || 0;
+    var legC = Number(out.ppSchemeCounts.LEGACY) || 0;
+    out.ppScheme = (rawC && legC) ? "MIXED" : (rawC ? "RAW26" : (legC ? "LEGACY" : ""));
+  }
   out.todayIso = todayIso;
   out.fromIso = fromIso;
   out.toIso = toIso;
@@ -22259,6 +22276,61 @@ function applyStatsCutterRecoverSplit_(month, cutterOn) {
   return month;
 }
 
+/**
+ * Echo тарифа ПП для UI/API (не новая математика).
+ * RAW26: recover 3.90/100г + доставка 9; LEGACY: свет 11 + доставка 6.
+ * Смешанный / пустой месяц — без ppLightFeeEach/ppDeliveryFeeEach, оба тарифа в ppFeeByScheme.
+ */
+function statsPpFeeEchoFromMonth_(month) {
+  var countsIn = (month && month.ppSchemeCounts) || {};
+  var rawN = Number(countsIn.RAW26) || 0;
+  var legN = Number(countsIn.LEGACY) || 0;
+  var scheme = String((month && month.ppScheme) || "").toUpperCase();
+  if (rawN && legN) scheme = "MIXED";
+  else if (rawN) scheme = "RAW26";
+  else if (legN) scheme = "LEGACY";
+  else if (scheme !== "RAW26" && scheme !== "LEGACY" && scheme !== "MIXED") scheme = "";
+  var echo = {
+    ppScheme: scheme,
+    ppSchemeCounts: { RAW26: rawN, LEGACY: legN },
+    ppFeeByScheme: {
+      LEGACY: { lightEach: PP_LEGACY_FIXED_, deliveryEach: PP_LEGACY_DELIVERY_PER_ },
+      RAW26: { recoverEach: PP_RAW26_RECOVER_100_, deliveryEach: PP_RAW26_DELIVERY_PER_ }
+    }
+  };
+  if (scheme === "RAW26") {
+    echo.ppLightFeeEach = PP_RAW26_RECOVER_100_;
+    echo.ppDeliveryFeeEach = PP_RAW26_DELIVERY_PER_;
+  } else if (scheme === "LEGACY") {
+    echo.ppLightFeeEach = PP_LEGACY_FIXED_;
+    echo.ppDeliveryFeeEach = PP_LEGACY_DELIVERY_PER_;
+  }
+  return echo;
+}
+
+function applyStatsPpFeeEcho_(target, month) {
+  var echo = statsPpFeeEchoFromMonth_(month);
+  if (!target) return echo;
+  target.ppScheme = echo.ppScheme;
+  target.ppSchemeCounts = echo.ppSchemeCounts;
+  target.ppFeeByScheme = echo.ppFeeByScheme;
+  if (echo.ppLightFeeEach != null) target.ppLightFeeEach = echo.ppLightFeeEach;
+  else delete target.ppLightFeeEach;
+  if (echo.ppDeliveryFeeEach != null) target.ppDeliveryFeeEach = echo.ppDeliveryFeeEach;
+  else delete target.ppDeliveryFeeEach;
+  return echo;
+}
+
+function statsPpFeeNote_(echo, extra) {
+  var sch = echo && echo.ppScheme;
+  var ppBit;
+  if (sch === "RAW26") ppBit = "ПП = состав без наценки + recover 3.90/100г + 9×N (RAW26).";
+  else if (sch === "LEGACY") ppBit = "ПП = состав без наценки + 11 + 6×N (LEGACY).";
+  else ppBit = "ПП = состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY).";
+  extra = extra || "";
+  return ("Прибыль = оборот. Чистое = оборот − затраты. " + ppBit + " " + extra).replace(/\s+/g, " ").trim();
+}
+
 function invalidateStatsCache_() {
   try {
     var cache = CacheService.getScriptCache();
@@ -22267,6 +22339,7 @@ function invalidateStatsCache_() {
     for (var i = 0; i < 18; i++) {
       var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       var mk = Utilities.formatDate(d, "Europe/Minsk", "yyyy-MM");
+      keys.push("STATS23:" + mk);
       keys.push("STATS22:" + mk);
       keys.push("STATS21:" + mk);
       keys.push("STATS20:" + mk);
@@ -22503,7 +22576,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS22:" + monthKey;
+  var cacheKey = "STATS23:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -22656,8 +22729,6 @@ function handleGetStats(json, callback, fromPost) {
       ppLightPeople: Number(month.ppLightPeople) || 0,
       ppCostSkipped: Number(month.ppCostSkipped) || 0,
       ppDeliveries: Number(month.bySource && month.bySource.pp) || 0,
-      ppLightFeeEach: PP_LIGHT_COST_BYN_,
-      ppDeliveryFeeEach: PP_DELIVERY_COST_BYN_,
       cutter: {
         enabled: !!cutterOnMonth,
         enabledForMonth: !!cutterOnMonth,
@@ -22829,8 +22900,14 @@ function handleGetStats(json, callback, fromPost) {
       id: STATS_CUTTER_PRESET_ID_,
       name: STATS_CUTTER_PRESET_NAME_
     },
-    note: "Прибыль = оборот. Чистое = оборот − затраты. ПП = состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY). Схема с листа ПП. Нарезчик выкл → recover в чистом. БП = состав + 6р. ЗП — если нарезчик вкл и месяц ≥ «с»."
+    note: ""
   };
+  var feeEchoMonth = applyStatsPpFeeEcho_(ok.fact, month);
+  ok.ppScheme = feeEchoMonth.ppScheme;
+  ok.ppSchemeCounts = feeEchoMonth.ppSchemeCounts;
+  ok.ppFeeByScheme = feeEchoMonth.ppFeeByScheme;
+  ok.note = statsPpFeeNote_(feeEchoMonth,
+    "Схема с листа ПП. Нарезчик выкл → recover в чистом. БП = состав + 6р. ЗП — если нарезчик вкл и месяц ≥ «с».");
   try {
     CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 600);
   } catch (ePut) {}
@@ -22905,8 +22982,6 @@ function handleGetExpectedProfit(json, callback, fromPost) {
     ppFractionCost: Number(stats.ppFractionCost) || 0,
     ppLightPeople: Number(stats.ppLightPeople) || 0,
     ppDeliveries: Number(stats.bySource && stats.bySource.pp) || 0,
-    ppLightFeeEach: PP_LIGHT_COST_BYN_,
-    ppDeliveryFeeEach: PP_DELIVERY_COST_BYN_,
     staffCost: staffCost,
     staffCount: Number(staffMonth.count) || 0,
     cutter: {
@@ -22928,8 +23003,11 @@ function handleGetExpectedProfit(json, callback, fromPost) {
       clientsUnpaid: ppOut.clientsUnpaid || 0,
       clientsPaidYes: ppOut.clientsPaidYes || 0
     },
-    note: "Прибыль = оборот. Чистое = оборот − затраты. ПП = collectPpActualOut_ (не revenueBySource.pp). Состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY). Схема с листа ПП. Нарезчик выкл → recover в чистом. ЗП — если нарезчик вкл и месяц ≥ «с»."
+    note: ""
   };
+  var feeEchoExp = applyStatsPpFeeEcho_(ok, stats);
+  ok.note = statsPpFeeNote_(feeEchoExp,
+    "ПП выручка = collectPpActualOut_ (не revenueBySource.pp). Схема с листа ПП. Нарезчик выкл → recover в чистом. ЗП — если нарезчик вкл и месяц ≥ «с».");
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
