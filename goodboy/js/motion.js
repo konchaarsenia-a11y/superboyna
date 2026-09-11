@@ -154,6 +154,7 @@
     if (reduced()) return;
     var hero = document.querySelector(".site-hero");
     var stage = hero && (hero.querySelector(".hero-features") || hero.querySelector(".hero-stage"));
+    var head = hero && hero.querySelector(".hero-head-stage");
     var copy = hero && hero.querySelector(".hero-copy");
     var shelves = document.querySelectorAll(".photo-shelves .shelf");
     if (!hero && !shelves.length) return;
@@ -164,16 +165,20 @@
       var y = global.scrollY || 0;
       var vh = global.innerHeight || 1;
 
-      if (hero && (stage || copy)) {
+      if (hero && (stage || copy || head)) {
         var h = hero.offsetHeight || 1;
         var p = Math.min(1, Math.max(0, y / h));
         if (p < 0.01) {
           if (stage) { stage.style.transform = ""; stage.style.opacity = ""; }
+          if (head) { head.style.setProperty("--sy", "0px"); }
           if (copy) { copy.style.transform = ""; copy.style.opacity = ""; }
         } else {
           if (stage) {
             stage.style.transform = "translate3d(0," + (p * 18).toFixed(1) + "px,0)";
             stage.style.opacity = String((1 - p * 0.35).toFixed(3));
+          }
+          if (head) {
+            head.style.setProperty("--sy", (p * 14).toFixed(1) + "px");
           }
           if (copy) {
             copy.style.transform = "translate3d(0," + (p * 10).toFixed(1) + "px,0)";
@@ -323,6 +328,130 @@
     }
   }
 
+  function initHeroHead() {
+    var svg = document.getElementById("gbHeroSvg");
+    var eyes = svg ? svg.querySelectorAll(".gb-eye") : [];
+    if (!svg || !eyes.length) return;
+    if (reduced()) return;
+
+    var TAU = 0.11;
+    var nodes = [];
+    for (var i = 0; i < eyes.length; i++) {
+      var el = eyes[i];
+      var gaze = el.querySelector(".gb-gaze");
+      if (!gaze) continue;
+      var orbit = Number(el.getAttribute("data-orbit")) || 28;
+      var pupil = Number(el.getAttribute("data-pupil")) || 17;
+      nodes.push({
+        gaze: gaze,
+        cx: Number(el.getAttribute("data-cx")),
+        cy: Number(el.getAttribute("data-cy")),
+        maxR: Math.max(4, orbit - pupil - 1),
+        x: 0,
+        y: 0,
+        tx: 0,
+        ty: 0
+      });
+    }
+    if (!nodes.length) return;
+
+    var touchDown = false;
+    var lastTs = 0;
+    var running = true;
+
+    function clientToSvg(clientX, clientY) {
+      var ctm = svg.getScreenCTM();
+      if (!ctm || !ctm.inverse) return null;
+      var pt = svg.createSVGPoint();
+      pt.x = clientX;
+      pt.y = clientY;
+      try {
+        return pt.matrixTransform(ctm.inverse());
+      } catch (err) {
+        return null;
+      }
+    }
+
+    function aimAt(clientX, clientY) {
+      var p = clientToSvg(clientX, clientY);
+      if (!p) return;
+      for (var n = 0; n < nodes.length; n++) {
+        var eye = nodes[n];
+        var dx = p.x - eye.cx;
+        var dy = p.y - eye.cy;
+        var len = Math.hypot(dx, dy);
+        if (len < 0.001) {
+          eye.tx = 0;
+          eye.ty = 0;
+          continue;
+        }
+        var scale = Math.min(1, eye.maxR / len);
+        eye.tx = dx * scale;
+        eye.ty = dy * scale;
+      }
+    }
+
+    function rest() {
+      for (var n = 0; n < nodes.length; n++) {
+        nodes[n].tx = 0;
+        nodes[n].ty = 0;
+      }
+    }
+
+    function tick(ts) {
+      if (!running) return;
+      var dt = lastTs ? Math.min(0.05, (ts - lastTs) / 1000) : 0.016;
+      lastTs = ts;
+      var k = 1 - Math.exp(-dt / TAU);
+      for (var n = 0; n < nodes.length; n++) {
+        var eye = nodes[n];
+        eye.x += (eye.tx - eye.x) * k;
+        eye.y += (eye.ty - eye.y) * k;
+        if (Math.abs(eye.x) < 0.02) eye.x = 0;
+        if (Math.abs(eye.y) < 0.02) eye.y = 0;
+        eye.gaze.setAttribute("transform", "translate(" + eye.x.toFixed(2) + " " + eye.y.toFixed(2) + ")");
+      }
+      global.requestAnimationFrame(tick);
+    }
+
+    function isTouch(e) {
+      return e.pointerType === "touch" || e.pointerType === "pen";
+    }
+
+    global.addEventListener("pointerdown", function (e) {
+      if (!isTouch(e)) return;
+      touchDown = true;
+      aimAt(e.clientX, e.clientY);
+    }, { passive: true });
+
+    global.addEventListener("pointermove", function (e) {
+      if (isTouch(e)) {
+        if (!touchDown) return;
+        aimAt(e.clientX, e.clientY);
+        return;
+      }
+      aimAt(e.clientX, e.clientY);
+    }, { passive: true });
+
+    function endTouch() {
+      if (!touchDown) return;
+      touchDown = false;
+      rest();
+    }
+    global.addEventListener("pointerup", function (e) {
+      if (isTouch(e)) endTouch();
+    }, { passive: true });
+    global.addEventListener("pointercancel", function (e) {
+      if (isTouch(e)) endTouch();
+    }, { passive: true });
+
+    document.addEventListener("mouseleave", function () {
+      if (!touchDown) rest();
+    });
+
+    global.requestAnimationFrame(tick);
+  }
+
   function init() {
     initNav();
     initProgress();
@@ -330,6 +459,7 @@
     initHeroEntrance();
     initReveal();
     initPointerLight();
+    initHeroHead();
     initScrollParallax();
     initPhoneDemo();
   }
