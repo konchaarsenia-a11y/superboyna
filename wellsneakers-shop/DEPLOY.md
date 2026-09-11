@@ -157,7 +157,8 @@ curl -sS http://127.0.0.1:8080/api/health
 ```
 
 Схема БД создаётся при **первом** старте Postgres (`db/migrations/001_init.sql`).  
-Порты с хоста только на localhost: `8080` (nginx), `3080` (api), `5432` (postgres). Наружу — 80/443 через системный nginx.
+Порты с хоста только на localhost: `8080` (nginx), `3080` (api), `5432` (postgres). Наружу — 80/443 через системный nginx.  
+Healthcheck Postgres ждёт user/db `wellsneakers` — как в `.env.example`.
 
 Импорт каталога (если есть XLSX из OpenCart):
 
