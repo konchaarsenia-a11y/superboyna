@@ -4,6 +4,7 @@
 
 | Документ | Содержание |
 |----------|------------|
+| [DEPLOY.md](./DEPLOY.md) | VPS hoster.by → `new.sneakerworld.by` (не трогать `@`/`www`) |
 | [TZ.md](./TZ.md) | ТЗ и план 25 дней |
 | [ADMIN_SOURCE.md](./ADMIN_SOURCE.md) | OpenCart источник (read-only) |
 | [OPS_UX.md](./OPS_UX.md) | Касса/импорт, знакомо+удобнее |

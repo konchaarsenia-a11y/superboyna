@@ -133,8 +133,8 @@ MODEL NAME (жирный)
 ## 6. План работ (25 дней)
 
 ### Фаза A — Фундамент `[~]`
-- [~] VPS BY + Docker (есть `docker-compose.yml`; локально Postgres поднят для smoke)
-- [ ] DNS домена → VPS
+- [~] VPS BY + Docker (пак: [`DEPLOY.md`](./DEPLOY.md) + compose + nginx; ждём IP+SSH, стек ещё не на боевом VPS)
+- [ ] DNS: только A `new` → VPS; `@`/`www` остаются на `87.232.64.20` (старый OpenCart)
 - [x] Каркас API + схема БД (товары, размеры/остатки, заказы, продажи, приходы)
 - [~] Telegram-бот stub (`bot/index.js`) + WebApp auth stub (заголовки staff)
 - [~] Базовый сайт `web/` + miniapp продажи (ещё не на боевом домене)
@@ -184,5 +184,5 @@ MODEL NAME (жирный)
 1. `[x]` Mini App: продажа / заказы / товар+фото / склад+сверка / бирки.
 2. BotFather Menu Button → URL miniapp (после деплоя или через туннель).
 3. Поджать бирку на реальном 58×58 принтере.
-4. BY VPS + DNS sneakerworld.by → сайт наружу.
+4. BY VPS + DNS **только** `new.sneakerworld.by` → VPS; `@`/`www` не трогать (см. [`DEPLOY.md`](./DEPLOY.md)).
 5. Transfer Ownership бота хозяину при сдаче.
