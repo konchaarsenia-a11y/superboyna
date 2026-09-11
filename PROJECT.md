@@ -284,6 +284,8 @@
 | `listSurvey` | Список записей листа «Опросник» |
 | `saveSurvey` | Создать/обновить опрос (id/nick/kind/dueDate/…) |
 | `deleteSurvey` | Удалить запись опросника по id |
+| `reportBug` | Запись в лист `Баг_Репорты` + опц. POST на `BUG_REPORT_WEBHOOK_URL` |
+| `listBugReports` | Poll `Баг_Репорты` для Grok Bot: `since` ISO (default 24h), `status=new` (default) / `all`; newest first, cap 30. GET/POST, без доп. auth (как `getStats`) |
 | *(ПП upsert)* | saveOrder/CRM ПП: первая пустая строка + packs |
 
 **Лист «Опросник» (канон `SURVEY_HEADERS_`):** `id`, `nick`, `stage`, `kind`, `dueDate`, `sentAt`, `status`, `templateId`, `answer`, `note`, `linkedSubId`, `updatedAt`. API: `listSurvey` / `saveSurvey` / `deleteSurvey`.
@@ -307,6 +309,7 @@ Actions: `partnerListAdmin` / `partnerGetMe` / `partnerSaveNetwork` / `partnerSa
 
 В `Code.gs` токен Telegram читается из `PropertiesService` (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `OWNER_TELEGRAM_IDS`).  
 Репорт бага: `action=reportBug` → лист `Баг_Репорты`, затем опциональный POST на `BUG_REPORT_WEBHOOK_URL`.  
+Poll: `GET/POST ?action=listBugReports&since=<ISO>&status=new` → `{status, reports:[{at,screen,role,telegramId,what,expected,client,day,status,row}]}`.  
 Локально для заметок: `secrets.local.md` (в `.gitignore`), не коммитить.
 
 ## CRM sheet names (v7.6.6)
