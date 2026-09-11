@@ -1914,6 +1914,14 @@ function doGet(e) {
       to: e.parameter.to || e.parameter.toDate || e.parameter.dateTo || ""
     }, callback, false);
   }
+  if (action === "listBugReports") {
+    return handleListBugReports({
+      since: e.parameter.since ? decodeURIComponent(e.parameter.since) : "",
+      status: e.parameter.status != null && String(e.parameter.status) !== ""
+        ? decodeURIComponent(e.parameter.status)
+        : "new"
+    }, callback, false);
+  }
   if (action === "getExpectedProfit") {
     return handleGetExpectedProfit({
       from: e.parameter.from || e.parameter.fromDate || e.parameter.dateFrom || "",
@@ -3011,6 +3019,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "reportBug") {
     return handleReportBug(json, callback, fromPost);
+  }
+  if (action === "listBugReports") {
+    return handleListBugReports(json, callback, fromPost);
   }
   if (action === "getStats") {
     return handleGetStats(json, callback, fromPost);
@@ -18051,6 +18062,118 @@ function notifyBugReportWebhook_(payload) {
       muteHttpExceptions: true
     });
   } catch (eWh) {}
+}
+
+var BUG_REPORTS_LIST_CAP_ = 30;
+
+function parseBugReportAtMs_(val) {
+  if (val == null || val === "") return 0;
+  if (Object.prototype.toString.call(val) === "[object Date]" && !isNaN(val.getTime())) {
+    return val.getTime();
+  }
+  if (typeof val === "number" && isFinite(val)) {
+    if (val > 1e11) return val;
+    if (val > 20000 && val < 80000) return Math.round((val - 25569) * 86400 * 1000);
+    return 0;
+  }
+  var s = String(val).trim();
+  if (!s) return 0;
+  var iso = Date.parse(s);
+  if (!isNaN(iso)) return iso;
+  var m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return 0;
+  var d = new Date(
+    Number(m[3]),
+    Number(m[2]) - 1,
+    Number(m[1]),
+    Number(m[4] || 0),
+    Number(m[5] || 0),
+    Number(m[6] || 0)
+  );
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+function formatBugReportAt_(val) {
+  if (Object.prototype.toString.call(val) === "[object Date]" && !isNaN(val.getTime())) {
+    return val.toISOString();
+  }
+  var ms = parseBugReportAtMs_(val);
+  if (!ms) return val == null || val === "" ? "" : String(val);
+  try {
+    return new Date(ms).toISOString();
+  } catch (eFmt) {
+    return String(val);
+  }
+}
+
+/** GET/POST action=listBugReports — poll листа Баг_Репорты (Grok Bot, если нет webhook URL).
+ *  since ISO (default last 24h); status=new (default) / all; newest first, cap 30.
+ *  Без доп. auth — как getStats JSONP. */
+function handleListBugReports(json, callback, fromPost) {
+  json = json || {};
+  var out = { status: "success", reports: [] };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sh = ss.getSheetByName("Баг_Репорты");
+    if (!sh || sh.getLastRow() < 2) {
+      return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+    }
+    var sinceRaw = json.since;
+    var sinceMs = 0;
+    if (sinceRaw != null && String(sinceRaw).trim()) {
+      sinceMs = parseBugReportAtMs_(sinceRaw);
+    }
+    if (!sinceMs) sinceMs = Date.now() - 24 * 60 * 60 * 1000;
+    var wantStatus = json.status == null ? "new" : String(json.status).trim().toLowerCase();
+    if (!wantStatus) wantStatus = "new";
+    var filterStatus = wantStatus !== "all" && wantStatus !== "*";
+    var data = sh.getDataRange().getValues();
+    var reports = [];
+    for (var r = 1; r < data.length; r++) {
+      var row = data[r] || [];
+      var atVal = row[0];
+      var screen = String(row[1] != null ? row[1] : "");
+      var role = String(row[2] != null ? row[2] : "");
+      var telegramId = String(row[3] != null ? row[3] : "");
+      var what = String(row[4] != null ? row[4] : "");
+      var expected = String(row[5] != null ? row[5] : "");
+      var client = String(row[6] != null ? row[6] : "");
+      var day = String(row[7] != null ? row[7] : "");
+      var st = String(row[8] != null ? row[8] : "").trim();
+      if (!st) st = "new";
+      if (!atVal && !screen && !role && !telegramId && !what && !client && !day) continue;
+      var atMs = parseBugReportAtMs_(atVal);
+      if (atMs && atMs < sinceMs) continue;
+      if (filterStatus && String(st).toLowerCase() !== wantStatus) continue;
+      reports.push({
+        at: formatBugReportAt_(atVal),
+        screen: screen,
+        role: role,
+        telegramId: telegramId,
+        what: what,
+        expected: expected,
+        client: client,
+        day: day,
+        status: st,
+        row: r + 1,
+        _ms: atMs,
+        _row: r + 1
+      });
+    }
+    reports.sort(function (a, b) {
+      if (b._ms !== a._ms) return (b._ms || 0) - (a._ms || 0);
+      return b._row - a._row;
+    });
+    if (reports.length > BUG_REPORTS_LIST_CAP_) reports = reports.slice(0, BUG_REPORTS_LIST_CAP_);
+    for (var i = 0; i < reports.length; i++) {
+      delete reports[i]._ms;
+      delete reports[i]._row;
+    }
+    out.reports = reports;
+  } catch (err) {
+    out = { status: "error", message: String(err), reports: [] };
+  }
+  return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
 }
 
 function isCrmFinanceNick_(cell) {

@@ -63,6 +63,12 @@ Cursor Cloud Agents only need to merge `Code.gs` to `main`. Watch the `clasp-dep
 
 `handleReportBug` writes sheet `Баг_Репорты`, then POSTs JSON to this URL if set (Grok Bot / КЕНТ GB routine webhook). Payload: `at`, `screen`, `role`, `telegramId`, `what`, `expected`, `client`, `day`, `source: "boinya-reportBug"`. If the property is empty or the fetch fails, the user still gets success (sheet already written).
 
+If the Grok Bot UI has no webhook URL field, poll instead (no Script Property needed):
+
+`GET …/exec?action=listBugReports&status=new&callback=cb`
+
+Optional `since` (ISO). Default window = last 24h, `status=new`, newest first, cap 30. Same open JSONP pattern as `getStats`.
+
 **Do not commit the URL.** Not in git, PRs, `Code.gs`, or chat logs.
 
 Apps Script → **Project Settings → Script properties → Add**:

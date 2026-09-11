@@ -1,3 +1,4 @@
+- [~] **listBugReports poll 2026-09-11:** GAS GET/POST `action=listBugReports` читает лист `Баг_Репорты` (`since` ISO / default 24h, `status=new` default, newest first, cap 30). Для Grok Bot, если в UI нет поля webhook URL. `handleReportBug` + POST на `BUG_REPORT_WEBHOOK_URL` не трогали. **нужен Deploy Code.gs** (clasp на main)
 - [~] **Статистика: RAW26 fee echo 2026-09-11:** getStats/expected больше не шлют stale `ppLightFeeEach=11` + `ppDeliveryFeeEach=6`. RAW26 → recover 3.90 + доставка 9; LEGACY → 11 + 6; MIXED — без констант, оба тарифа в `ppFeeByScheme`. UI подписи по `ppScheme`. Pages `v71115949` · marker `stats-pp-fee-echo-h1` · **нужен Deploy Code.gs** (clasp на main)
 - [~] **Статистика: фикс аудита после #252 2026-09-11:** expected PP = `collectPpActualOut_` + cutter-split/ЗП; схема RAW26 с wishes листа ПП; recover/пакеты с месячной корзины; N=2: выручка+полный factCost сразу на 1-й (pays-now), слот 2 только счётчик; factCost только money keys; export TSV; UI пакеты/воронка/экспорт. Pages `v71115948` · marker `stats-audit-fixes-h1` · **нужен Deploy Code.gs** (clasp на main)
 - [x] **Аудит статистики после #252 2026-09-11:** отчёт `boinya-c/docs/STATS_AUDIT_AFTER_252.md` (merge #253). Фиксы — пункт выше
@@ -632,7 +633,7 @@
 - [x] Форма: что не так + что ожидалось + контекст (день, клиент, экран, action)
 - [x] Запись → лист `Баг_Репорты`
 - [~] Сразу после append — `UrlFetchApp.fetch` POST JSON на `BUG_REPORT_WEBHOOK_URL` (`source: boinya-reportBug`); muteHttpExceptions; ошибка webhook не отменяет success. **Deploy Code.gs** + задать property один раз · [DEPLOY.md](./DEPLOY.md)
-- [~] Агент при работах: читает новые репорты → переносит в `TZ.md` (процесс)
+- [~] Агент при работах: читает новые репорты → переносит в `TZ.md` — poll `listBugReports` (если нет webhook URL в Grok Bot UI) · **Deploy Code.gs**
 - [ ] Повторяющиеся репорты = приоритет бага
 
 **Живые репорты с кнопки (лист `Баг_Репорты`, status=new, 2026-07-23):**
@@ -645,7 +646,7 @@
 ### I3. Обратная связь → ТЗ
 - [x] Потребитель репортов — **агент (Grok Bot / КЕНТ GB) + TZ.md**; owner не разбирает ленту
 - [x] Owner не обязан разбирать ленту вручную; достаточно нажать «некорректно» в аппе
-- [~] Живой пинг агенту = webhook `BUG_REPORT_WEBHOOK_URL` после записи в лист (см. I2)
+- [~] Живой пинг агенту = webhook `BUG_REPORT_WEBHOOK_URL` после записи в лист (см. I2); запасной канал — poll `listBugReports`
 
 ---
 
