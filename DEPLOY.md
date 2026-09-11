@@ -58,3 +58,17 @@ Never run `clasp push` from the repository root. Root `.claspignore` ignores `*`
 ## After the first green run
 
 Cursor Cloud Agents only need to merge `Code.gs` to `main`. Watch the `clasp-deploy` Action; if it fails on auth, refresh `CLASPRC_JSON`.
+
+## Script Property: `BUG_REPORT_WEBHOOK_URL` (once)
+
+`handleReportBug` writes sheet `Баг_Репорты`, then POSTs JSON to this URL if set (Grok Bot / КЕНТ GB routine webhook). Payload: `at`, `screen`, `role`, `telegramId`, `what`, `expected`, `client`, `day`, `source: "boinya-reportBug"`. If the property is empty or the fetch fails, the user still gets success (sheet already written).
+
+**Do not commit the URL.** Not in git, PRs, `Code.gs`, or chat logs.
+
+Apps Script → **Project Settings → Script properties → Add**:
+
+| Name | Value |
+|------|--------|
+| `BUG_REPORT_WEBHOOK_URL` | Routine webhook URL from the Grok Bot panel (owner pastes once) |
+
+clasp CI does **not** set Script Properties (no extra API / no secret in the workflow). Prefer the Script properties UI after the first green `clasp-deploy`. Emergency: in Script Editor run a one-liner `PropertiesService.getScriptProperties().setProperty("BUG_REPORT_WEBHOOK_URL", "…")` and clear the editor history.

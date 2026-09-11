@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115947";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115948";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -15859,7 +15859,7 @@
           day: (document.getElementById("day") && document.getElementById("day").value) || "",
           at: new Date().toISOString()
         });
-        showToast("Репорт записан → агент подхватит в ТЗ");
+        showToast("Репорт ушёл агенту");
         logLearnEvent("bugReport", { screen: screen });
       } catch (e) {
         showToast("Не удалось отправить — проверьте деплой Code.gs");

@@ -107,7 +107,7 @@
 | N=2 lock | Выручка + полный factCost один раз при pays-now на 1-й; слот 2 только `bySource.pp` | в коде |
 | Cost=revenue | factCost только по `listPpMoneyClientKeys_` (тот же paysNow, что `collectPpActualOut_`). Unpaid N≥2 не в `costActual` / чистое. Счётчик доставок не фильтруем | в коде |
 | A4 | `exportStats`: onlyPast/clean/recover/staff/split + `calendarRowPrice_` | в коде |
-| B5 | Строка «Пакеты + фракции» | UI `v71115947` |
+| B5 | Строка «Пакеты + фракции» | UI `v71115948` |
 | B6 | Карточка Нарезчика: тумблер и `enabledForMonth` раздельно | UI |
 | B7 | Кнопка «Экспорт TSV» + month/force | UI + worker не подменяет snap |
 | B8 | Воронка `charts.bpStages` + compare + оборот | UI |

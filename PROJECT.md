@@ -291,7 +291,7 @@
 
 Один раз в Script Editor: `setupOpsEcosystem()` + `setupBookingTriggersManual()`.
 
-Script Properties: `OWNER_TELEGRAM_IDS`, `CUTTER_TELEGRAM_IDS`, опционально `CRM_SPREADSHEET_ID`, `PRICE_SPREADSHEET_ID`, `DATA_SPREADSHEET_ID` (старая книга: гео/дефициты/итоги/память).
+Script Properties: `OWNER_TELEGRAM_IDS`, `CUTTER_TELEGRAM_IDS`, опционально `CRM_SPREADSHEET_ID`, `PRICE_SPREADSHEET_ID`, `DATA_SPREADSHEET_ID` (старая книга: гео/дефициты/итоги/память), `BUG_REPORT_WEBHOOK_URL` (Grok Bot / КЕНТ GB; `reportBug` после записи в `Баг_Репорты`; URL не в git — [DEPLOY.md](./DEPLOY.md)).
 
 Навигация: менеджер — Заказ (long-press → Просмотр / Цена / Доступы), Подписки, Цена; курьер — Маршрут \| Сборка; нарезчик — Нарезка; логист — Склад; owner — всё + Доступы.
 
@@ -306,6 +306,7 @@ Actions: `partnerListAdmin` / `partnerGetMe` / `partnerSaveNetwork` / `partnerSa
 ## Секреты
 
 В `Code.gs` токен Telegram читается из `PropertiesService` (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `OWNER_TELEGRAM_IDS`).  
+Репорт бага: `action=reportBug` → лист `Баг_Репорты`, затем опциональный POST на `BUG_REPORT_WEBHOOK_URL`.  
 Локально для заметок: `secrets.local.md` (в `.gitignore`), не коммитить.
 
 ## CRM sheet names (v7.6.6)

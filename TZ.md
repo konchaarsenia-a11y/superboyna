@@ -1,5 +1,6 @@
-- [~] **Статистика: фикс аудита после #252 2026-09-11:** expected PP = `collectPpActualOut_` + cutter-split/ЗП; схема RAW26 с wishes листа ПП; recover/пакеты с месячной корзины; N=2: выручка+полный factCost сразу на 1-й (pays-now), слот 2 только счётчик; export TSV; UI пакеты/воронка/экспорт. Pages `v71115947` · marker `stats-audit-fixes-h1` · **нужен Deploy Code.gs** (clasp на main)
+- [~] **Статистика: фикс аудита после #252 2026-09-11:** expected PP = `collectPpActualOut_` + cutter-split/ЗП; схема RAW26 с wishes листа ПП; recover/пакеты с месячной корзины; N=2: выручка+полный factCost сразу на 1-й (pays-now), слот 2 только счётчик; factCost только money keys; export TSV; UI пакеты/воронка/экспорт. Pages `v71115948` · marker `stats-audit-fixes-h1` · **нужен Deploy Code.gs** (clasp на main)
 - [x] **Аудит статистики после #252 2026-09-11:** отчёт `boinya-c/docs/STATS_AUDIT_AFTER_252.md` (merge #253). Фиксы — пункт выше
+- [~] **reportBug → webhook КЕНТ GB 2026-09-11:** после записи в `Баг_Репорты` GAS POST JSON на Script Property `BUG_REPORT_WEBHOOK_URL` (source=`boinya-reportBug`); webhook fail не ломает success. Тост «Репорт ушёл агенту» · Pages `v71115948` (вместе со stats-audit) · **нужен Deploy Code.gs** + один раз задать `BUG_REPORT_WEBHOOK_URL` (URL из routine panel Grok Bot; не в git) · [DEPLOY.md](./DEPLOY.md)
 - [~] **Статистика: recover → чистое при нарезчике OFF 2026-09-11:** cutter OFF → recoverByn / LEGACY +11 не в costActual, в чистом (`fact.ppRecoverInClean`); ON → recover в затратах + staffCost 900. UI «Recover в чистом». Pages `v71115946` · marker `stats-cutter-recover-clean-h1` · **нужен Deploy Code.gs** (clasp на main)
 - [~] **clasp CI deploy 2026-09-10:** Action `clasp-deploy` на main: pull → overlay `Code.gs`→«Код» → push → update webapp `AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7` · нужен секрет **`CLASPRC_JSON`** (весь `~/.clasprc.json`; есть у Grok Bot / КЕНТ GB) · [DEPLOY.md](./DEPLOY.md)
 - [~] **ПП выбор 1/2 всегда при N≥2 2026-09-10:** в Заказе кнопки ПП 1 / ПП 2 под «Состав из ПП» при N≥2; в Просмотре у N≥2 — смена слота на карточке · Pages `v71115945`
@@ -624,11 +625,12 @@
 
 ### I2. «Работает некорректно» (репорт)
 **Кто:** все роли (mgr / cut / cour / owner).  
-**Куда:** только в **ТЗ для агента** — не Telegram, не отдельный UI-лента owner (достаточно записи, которую агент подхватывает в чеклист).
+**Куда:** лист `Баг_Репорты` + сразу webhook **Grok Bot / КЕНТ GB** (если задан Script Property `BUG_REPORT_WEBHOOK_URL`). Не Telegram owner, не отдельная лента. URL владелец вставляет из routine panel — не в git.
 Где возможно (минимум): Заказ, Просмотр, Цена, Нарезка, Курьер/Сборка, Склад, Подписки, Статистика, подтягивание месяца, чеклист IG.
 - [x] Кнопка / жест «Сообщить о проблеме» на экране (все роли) — FAB `!`
 - [x] Форма: что не так + что ожидалось + контекст (день, клиент, экран, action)
 - [x] Запись → лист `Баг_Репорты`
+- [~] Сразу после append — `UrlFetchApp.fetch` POST JSON на `BUG_REPORT_WEBHOOK_URL` (`source: boinya-reportBug`); muteHttpExceptions; ошибка webhook не отменяет success. **Deploy Code.gs** + задать property один раз · [DEPLOY.md](./DEPLOY.md)
 - [~] Агент при работах: читает новые репорты → переносит в `TZ.md` (процесс)
 - [ ] Повторяющиеся репорты = приоритет бага
 
@@ -640,8 +642,9 @@
 → после Deploy Code.gs можно закрыть репорты в листе (`status=done`).
 
 ### I3. Обратная связь → ТЗ
-- [x] Единственный потребитель репортов на этом этапе — **агент + TZ.md**
+- [x] Потребитель репортов — **агент (Grok Bot / КЕНТ GB) + TZ.md**; owner не разбирает ленту
 - [x] Owner не обязан разбирать ленту вручную; достаточно нажать «некорректно» в аппе
+- [~] Живой пинг агенту = webhook `BUG_REPORT_WEBHOOK_URL` после записи в лист (см. I2)
 
 ---
 

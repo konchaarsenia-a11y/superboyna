@@ -18011,19 +18011,46 @@ function handleReportBug(json, callback, fromPost) {
   var sh = getOrCreateSheet_(ss, "Баг_Репорты", [
     "at", "screen", "role", "telegramId", "what", "expected", "client", "day", "status"
   ]);
+  var at = json.at || new Date();
+  var screen = String(json.screen || "");
+  var role = String(json.role || "");
+  var telegramId = String(json.telegramId || "");
+  var what = String(json.what || "");
+  var expected = String(json.expected || "");
+  var client = String(json.client || "");
+  var day = String(json.day || "");
   sh.appendRow([
-    json.at || new Date(),
-    String(json.screen || ""),
-    String(json.role || ""),
-    String(json.telegramId || ""),
-    String(json.what || ""),
-    String(json.expected || ""),
-    String(json.client || ""),
-    String(json.day || ""),
-    "new"
+    at, screen, role, telegramId, what, expected, client, day, "new"
   ]);
+  notifyBugReportWebhook_({
+    at: at,
+    screen: screen,
+    role: role,
+    telegramId: telegramId,
+    what: what,
+    expected: expected,
+    client: client,
+    day: day,
+    source: "boinya-reportBug"
+  });
   var ok = { status: "success", message: "reported" };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/** POST JSON на Script Property BUG_REPORT_WEBHOOK_URL (Grok Bot / КЕНТ GB).
+ *  Пустой URL или ошибка fetch — молча; лист уже записан, ответ success. */
+function notifyBugReportWebhook_(payload) {
+  try {
+    var url = PropertiesService.getScriptProperties().getProperty("BUG_REPORT_WEBHOOK_URL") || "";
+    url = String(url).trim();
+    if (!url) return;
+    UrlFetchApp.fetch(url, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+  } catch (eWh) {}
 }
 
 function isCrmFinanceNick_(cell) {
