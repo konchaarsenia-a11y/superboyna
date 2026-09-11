@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-    <title>wellsneakers — каталог кроссовок</title>
-    <meta name="description" content="Каталог кроссовок wellsneakers: бренды, размеры, скидки." />
+    <title>wellsneakers — каталог кроссовок, Минск</title>
+    <meta name="description" content="Каталог кроссовок wellsneakers в Минске: бренды, размеры, скидки. Самовывоз на Дзержинского 19." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body class="page-catalog">
+  <body class="page-catalog catalog-booting">
     <div class="overscroll-toys" aria-hidden="true">
       <span class="toy t1"><img src="assets/h1.jpg" alt="" /></span>
       <span class="toy t2"><img src="assets/clean1.jpg" alt="" /></span>
@@ -25,7 +25,7 @@
           <img class="logo-img" src="assets/logo.png" alt="" width="40" height="40" />
           <div>
             <h1>wellsneakers</h1>
-            <small>Каталог</small>
+            <small>Каталог · Минск</small>
           </div>
         </a>
       </div>
@@ -35,17 +35,30 @@
       <section class="catalog-section">
         <div class="head">
           <h3>Каталог</h3>
-          <p>Кроссовки: выбери бренд и размер.</p>
+          <p>Кроссовки в Минске — бренд, размер, кому.</p>
         </div>
 
         <div class="filters sticky-filters" id="catalogFilters">
+          <div class="filter-context" role="group" aria-label="Кому и скидки">
+            <button type="button" class="street-opt on" data-filter="gender" data-value="" data-label="Все">Все</button>
+            <button type="button" class="street-opt" data-filter="gender" data-value="men" data-label="Ему">Ему</button>
+            <button type="button" class="street-opt" data-filter="gender" data-value="women" data-label="Ей">Ей</button>
+            <button type="button" class="street-opt sale-opt" data-filter="sale" data-value="1" data-label="Скидки">Скидки</button>
+          </div>
+
           <div class="street-toggles">
-            <button type="button" class="street-drop" id="toggleBrands" aria-expanded="false">
-              <span class="street-drop-label" id="brandsLabel">Все бренды</span>
+            <button type="button" class="street-drop" id="toggleBrands" aria-expanded="false" aria-controls="brandsPanel">
+              <span class="street-drop-meta">
+                <span class="street-drop-kicker">Бренд</span>
+                <span class="street-drop-label" id="brandsLabel">Все бренды</span>
+              </span>
               <span class="street-drop-ico" aria-hidden="true">▾</span>
             </button>
-            <button type="button" class="street-drop" id="toggleSizes" aria-expanded="false">
-              <span class="street-drop-label" id="sizesLabel">Все размеры</span>
+            <button type="button" class="street-drop" id="toggleSizes" aria-expanded="false" aria-controls="sizesPanel">
+              <span class="street-drop-meta">
+                <span class="street-drop-kicker">Размер EU</span>
+                <span class="street-drop-label" id="sizesLabel">Все размеры</span>
+              </span>
               <span class="street-drop-ico" aria-hidden="true">▾</span>
             </button>
           </div>
@@ -75,15 +88,30 @@
           </div>
         </div>
 
-        <div class="empty" id="catalogEmpty">Ничего не найдено. Сбросьте фильтр.</div>
+        <div class="catalog-meta" id="catalogMeta" aria-live="polite">
+          <span id="catalogCount">Загрузка…</span>
+        </div>
+
+        <div class="empty" id="catalogEmpty">
+          <p class="empty-title">Нет таких кроссовок</p>
+          <p class="empty-copy">Сними бренд, размер или скидку — или сбрось всё.</p>
+          <button type="button" class="btn-catalog btn-catalog-sm" id="resetFilters">Сбросить фильтры</button>
+        </div>
+
+        <div class="catalog-skel" id="catalogSkel" aria-hidden="true">
+          <div class="prod-skel" aria-hidden="true"></div>
+          <div class="prod-skel" aria-hidden="true"></div>
+          <div class="prod-skel" aria-hidden="true"></div>
+        </div>
 
         <div class="catalog-grid" id="catalogList">
           <article class="prod" data-id="af1" data-name="Nike Air Force 1" data-price="155" data-gender="uni" data-type="shoes" data-brand="nike" data-sale="1">
-            <div class="prod-img"><img src="assets/h1.jpg" alt="Nike Air Force 1" loading="lazy" /></div>
+            <div class="prod-img is-loading"><img src="assets/h1.jpg" alt="Nike Air Force 1" loading="lazy" /></div>
+            <span class="prod-badge">sale</span>
             <div class="prod-body">
-              <div>
+              <div class="prod-copy">
                 <div class="title">Nike Air Force 1</div>
-                <div class="subt">Кроссовки · скидка</div>
+                <div class="subt">унисекс</div>
               </div>
               <div class="sizes" data-sizes>
                 <button class="size on" type="button">41</button>
@@ -98,11 +126,11 @@
           </article>
 
           <article class="prod" data-id="ultra" data-name="Adidas Ultraboost" data-price="150" data-gender="men" data-type="shoes" data-brand="adidas" data-sale="0">
-            <div class="prod-img"><img src="assets/clean2.jpg" alt="Adidas Ultraboost" loading="lazy" /></div>
+            <div class="prod-img is-loading"><img src="assets/clean2.jpg" alt="Adidas Ultraboost" loading="lazy" /></div>
             <div class="prod-body">
-              <div>
+              <div class="prod-copy">
                 <div class="title">Adidas Ultraboost</div>
-                <div class="subt">Кроссовки · ему</div>
+                <div class="subt">ему</div>
               </div>
               <div class="sizes" data-sizes>
                 <button class="size on" type="button">40</button>
@@ -117,11 +145,12 @@
           </article>
 
           <article class="prod" data-id="jordan" data-name="Air Jordan 1 Low" data-price="170" data-gender="men" data-type="shoes" data-brand="jordan" data-sale="1">
-            <div class="prod-img"><img src="assets/clean3.jpg" alt="Air Jordan 1 Low" loading="lazy" /></div>
+            <div class="prod-img is-loading"><img src="assets/clean3.jpg" alt="Air Jordan 1 Low" loading="lazy" /></div>
+            <span class="prod-badge">sale</span>
             <div class="prod-body">
-              <div>
+              <div class="prod-copy">
                 <div class="title">Air Jordan 1 Low</div>
-                <div class="subt">Кроссовки · скидка</div>
+                <div class="subt">ему</div>
               </div>
               <div class="sizes" data-sizes>
                 <button class="size on" type="button">41</button>
@@ -136,11 +165,12 @@
           </article>
 
           <article class="prod" data-id="dunk" data-name="Nike Dunk Low" data-price="145" data-gender="women" data-type="shoes" data-brand="nike" data-sale="1">
-            <div class="prod-img"><img src="assets/clean1.jpg" alt="Nike Dunk Low" loading="lazy" /></div>
+            <div class="prod-img is-loading"><img src="assets/clean1.jpg" alt="Nike Dunk Low" loading="lazy" /></div>
+            <span class="prod-badge">−15%</span>
             <div class="prod-body">
-              <div>
+              <div class="prod-copy">
                 <div class="title">Nike Dunk Low</div>
-                <div class="subt">Кроссовки · ей · −15%</div>
+                <div class="subt">ей</div>
               </div>
               <div class="sizes" data-sizes>
                 <button class="size on" type="button">39</button>
@@ -154,12 +184,12 @@
             </div>
           </article>
 
-          <article class="prod" data-id="nb" data-name="New Balance style" data-price="165" data-gender="uni" data-type="shoes" data-brand="adidas" data-sale="0">
-            <div class="prod-img"><img src="assets/p6.jpg" alt="Кроссовки" loading="lazy" /></div>
+          <article class="prod" data-id="nb" data-name="Daily Run" data-price="165" data-gender="uni" data-type="shoes" data-brand="adidas" data-sale="0">
+            <div class="prod-img is-loading"><img src="assets/p6.jpg" alt="Daily Run" loading="lazy" /></div>
             <div class="prod-body">
-              <div>
+              <div class="prod-copy">
                 <div class="title">Daily Run</div>
-                <div class="subt">Кроссовки</div>
+                <div class="subt">унисекс</div>
               </div>
               <div class="sizes" data-sizes>
                 <button class="size on" type="button">40</button>
