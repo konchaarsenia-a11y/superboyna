@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 /**
  * Contract after STATS_AUDIT_AFTER_252:
  * A1 expected PP revenue uses collectPpActualOut_ (not empty revenueBySource.pp)
@@ -243,6 +246,21 @@ assert(JSON.stringify(monthsInIsoRange_("2026-08-01", "2026-09-15")) === JSON.st
 
 const lightLegacy = resolvePpSchemeForStats_("OLD", "LEGACY", { OLD: { wishes: "" } });
 assert(lightLegacy === "LEGACY", "empty wishes → LEGACY (+11 light, not 3.90/100g)");
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const gs = fs.readFileSync(path.join(__dirname, "../Code.gs"), "utf8");
+const ui = fs.readFileSync(path.join(__dirname, "../boinya-c/app.main.js"), "utf8");
+assert(gs.indexOf("function resolvePpSchemeForStats_") >= 0, "Code.gs has resolvePpSchemeForStats_");
+assert(gs.indexOf("function monthBasketForPpStats_") >= 0, "Code.gs has monthBasketForPpStats_");
+assert(gs.indexOf("collectPpActualOut_(ss, fromIso.slice(0, 7), pp, stats") >= 0, "expected uses collectPpActualOut_");
+assert(gs.indexOf("revenueBySource.pp) || 0") < 0 || gs.indexOf("var ppRev = Number(ppOut.actual)") >= 0, "expected ppRev from ppOut");
+assert(gs.indexOf("# recoverInClean\\t") >= 0 || gs.indexOf("# recoverInClean\t") >= 0, "export recoverInClean");
+assert(gs.indexOf("свет 11р/чел") < 0, "stale expected note removed");
+assert(ui.indexOf("Пакеты + фракции") >= 0, "UI packages line");
+assert(ui.indexOf("Затраты БП перешедших") >= 0, "UI converted-only BP cost label");
+assert(ui.indexOf("statsBpFunnelCard") >= 0, "UI BP funnel");
+assert(ui.indexOf("enabledForMonth") >= 0, "UI cutter month vs toggle");
+assert(ui.indexOf("exportStatsMonth") >= 0, "UI export wired");
 
 console.log("OK stats-expected-pp");
 console.log(JSON.stringify({
