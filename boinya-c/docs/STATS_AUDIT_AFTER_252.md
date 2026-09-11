@@ -93,4 +93,25 @@
 2. **Схема + полная корзина ПП:** scheme/wishes с листа ПП (`collectPpMoneyStats_.byKey`); recover/пакеты с **месячного** состава, не с доли слота 1.
 3. **Разбивка затрат:** строка «Пакеты + фракции»; карточка Нарезчика — `enabledForMonth` + глобальный тумблер раздельно.
 
-Не деплоить с этого PR. `Code.gs` не патчился (баги не однострочные).
+Не деплоить с отчётного PR #253. `Code.gs` там не патчился.
+
+---
+
+## Фиксы (PR после #253)
+
+| # | Что | Статус |
+|---|---|---|
+| A1 | `handleGetExpectedProfit`: PP через `collectPpActualOut_`, cutter-split + `staffCost`, note RAW26 | в коде, ждать clasp |
+| A2 | Схема из `collectPpMoneyStats_.byKey.wishes` (`resolvePpSchemeForStats_`) | в коде |
+| A3 | Recover/пакеты с корзины листа ПП (`monthBasketForPpStats_`), слоты мержатся | в коде |
+| A4 | `exportStats`: onlyPast/clean/recover/staff/split + `calendarRowPrice_` | в коде |
+| B5 | Строка «Пакеты + фракции» | UI `v71115947` |
+| B6 | Карточка Нарезчика: тумблер и `enabledForMonth` раздельно | UI |
+| B7 | Кнопка «Экспорт TSV» + month/force | UI + worker не подменяет snap |
+| B8 | Воронка `charts.bpStages` + compare + оборот | UI |
+| B9 | Подпись «Затраты БП перешедших» | UI |
+| C10 | `ADULT-COST-MODEL.md` / `COST-TABLE.md` | **нет в репо** — ссылки в `SUBSCRIPTION-PRICE.md` битые; цифры не выдумывали. Живые константы: `PP_RAW26_RECOVER_100_=3.90`, piece `0.50`, N=9/6 в `Code.gs` |
+
+Тесты: `scripts/test-stats-cutter-recover.mjs`, `scripts/test-stats-expected-pp.mjs`.
+
+**Deploy:** merge в `main` → Action `clasp-deploy` ([DEPLOY.md](../../DEPLOY.md)). Не вставлять `Code.gs` в редактор. До зелёного Action UI на старом Script деградирует (нет `ppPackagesCost` / expected PP).

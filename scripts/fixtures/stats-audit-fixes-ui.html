@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stats audit fixes UI</title>
+  <style>
+    body { margin: 0; background: #0a0a0a; color: #f5f5f7; font-family: -apple-system, sans-serif; padding: 16px; }
+    .wrap { display: grid; gap: 16px; max-width: 420px; margin: 0 auto; }
+    .card { background: #1c1c1e; border-radius: 16px; padding: 14px 16px; }
+    .title { font-weight: 800; margin: 0 0 8px; }
+    .line { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .muted { color: #8e8e93; }
+    .bar { height: 10px; background: #2c2c2e; border-radius: 6px; overflow: hidden; margin: 4px 0 10px; }
+    .bar > i { display: block; height: 100%; border-radius: 6px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+    .pill { padding: 10px 12px; border-radius: 12px; font-size: 12px; }
+    .btn { border: 0; border-radius: 12px; padding: 10px 14px; color: #fff; font-weight: 700; }
+    h1 { font-size: 16px; margin: 0 0 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card" id="costCard">
+      <h1>Затраты · пакеты в сумме</h1>
+      <div class="line"><span class="muted">· ПП (состав)</span><b>120 BYN</b></div>
+      <div class="line"><span class="muted">Recover в чистом</span><b style="color:#ff9f0a;">23.45 BYN · 1 чел</b></div>
+      <div class="line"><span class="muted">Доставки ПП (9×N RAW26 / 6×N LEGACY)</span><b>18 BYN</b></div>
+      <div class="line"><span class="muted">Пакеты + фракции</span><b style="color:#64d2ff;">12.6 BYN · пакеты 11.26 + фракции 1.34</b></div>
+      <div class="line"><span class="muted">ЗП сотрудников</span><b>0 BYN · 0 чел.</b></div>
+      <div class="line"><span class="muted">Всего</span><b style="color:#64d2ff;">150.6 BYN</b></div>
+      <div class="muted" style="font-size:11px;margin-top:8px;">Видимые строки сходятся с «Всего» (пакеты больше не спрятаны).</div>
+    </section>
+
+    <section class="card" id="cutterCard" style="border:1px solid rgba(255,214,10,0.35);">
+      <div class="title" style="color:#ffd60a;">Нарезчик · тумблер ≠ месяц</div>
+      <div class="grid2">
+        <div class="pill" style="background:rgba(255,214,10,0.12);">
+          <div class="muted" style="font-size:11px;">Тумблер</div>
+          <div style="font-weight:700;color:#ffd60a;">Включён</div>
+        </div>
+        <div class="pill" style="background:rgba(255,159,10,0.12);">
+          <div class="muted" style="font-size:11px;">Этот месяц 2026-08</div>
+          <div style="font-weight:700;color:#ff9f0a;">Как OFF · ЗП 0, recover в чистом</div>
+        </div>
+      </div>
+      <div class="muted" style="font-size:11px;color:#ff9f0a;">Месяц раньше «с» 2026-09 — тумблер не врёт, в цифрах августа нарезчик выкл.</div>
+    </section>
+
+    <section class="card" id="funnelCard">
+      <div class="title" style="color:#bf5af2;">Воронка БП (CRM)</div>
+      <div class="line"><span class="muted">Всего на листе</span><b>12</b></div>
+      <div class="muted" style="font-size:12px;">БП1 <b>7</b></div>
+      <div class="bar"><i style="width:100%;background:#ff9f0a;"></i></div>
+      <div class="muted" style="font-size:12px;">БП2 <b>3</b></div>
+      <div class="bar"><i style="width:43%;background:#64d2ff;"></i></div>
+      <div class="muted" style="font-size:12px;">Финал <b>2</b></div>
+      <div class="bar"><i style="width:29%;background:#30d158;"></i></div>
+    </section>
+
+    <section class="card" id="lifeCard" style="border:1px solid rgba(255,69,58,0.35);">
+      <div class="title" style="color:#ff453a;">БП lifetime</div>
+      <div class="line"><span class="muted">Затраты БП перешедших</span><b style="color:#ff453a;">84 BYN</b></div>
+      <div class="muted" style="font-size:11px;margin-top:8px;">Не «все БП» — только тех, кто стал ПП.</div>
+    </section>
+
+    <section class="card" id="exportCard">
+      <div class="title">Экспорт</div>
+      <button class="btn" style="background:#3a3a3c;" type="button" onclick="alert('exportStats month=2026-09 onlyPast=1')">Экспорт TSV</button>
+    </section>
+  </div>
+</body>
+</html>

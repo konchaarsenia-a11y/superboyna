@@ -3,7 +3,8 @@
 Дата: 2026-08-30  
 Статус: **в коде** (`Code.gs` / `app.html` v7.11.159) — dual-scheme. Нужен **Deploy Code.gs**.
 
-Связано: [ADULT-COST-MODEL.md](./ADULT-COST-MODEL.md), [COST-TABLE.md](./COST-TABLE.md), [RETAIL-PRICE-TABLE.md](./RETAIL-PRICE-TABLE.md), [PP-SCHEME-SIM.md](./PP-SCHEME-SIM.md).
+Связано: [RETAIL-PRICE-TABLE.md](./RETAIL-PRICE-TABLE.md) (если есть), [PP-SCHEME-SIM.md](./PP-SCHEME-SIM.md) (если есть).  
+`ADULT-COST-MODEL.md` и `COST-TABLE.md` в репо **нет** — не выдумывать цифры; канон recover/N в `Code.gs` (`PP_RAW26_*` / `PP_LEGACY_*`). См. `boinya-c/docs/STATS_AUDIT_AFTER_252.md` §C10.
 
 ---
 
