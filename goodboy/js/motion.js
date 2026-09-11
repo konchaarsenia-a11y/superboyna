@@ -329,24 +329,21 @@
   }
 
   function initHeroHead() {
-    var svg = document.getElementById("gbHeroSvg");
-    var eyes = svg ? svg.querySelectorAll(".gb-eye") : [];
-    if (!svg || !eyes.length) return;
+    var face = document.getElementById("gbHeroFace");
+    var orbits = face ? face.querySelectorAll(".gb-orbit") : [];
+    if (!face || !orbits.length) return;
     if (reduced()) return;
 
-    var TAU = 0.11;
+    var TAU = 0.12;
     var nodes = [];
-    for (var i = 0; i < eyes.length; i++) {
-      var el = eyes[i];
+    for (var i = 0; i < orbits.length; i++) {
+      var el = orbits[i];
       var gaze = el.querySelector(".gb-gaze");
       if (!gaze) continue;
-      var orbit = Number(el.getAttribute("data-orbit")) || 28;
-      var pupil = Number(el.getAttribute("data-pupil")) || 17;
       nodes.push({
+        el: el,
         gaze: gaze,
-        cx: Number(el.getAttribute("data-cx")),
-        cy: Number(el.getAttribute("data-cy")),
-        maxR: Math.max(4, orbit - pupil - 1),
+        maxRatio: Number(el.getAttribute("data-max")) || 0.22,
         x: 0,
         y: 0,
         tx: 0,
@@ -359,33 +356,27 @@
     var lastTs = 0;
     var running = true;
 
-    function clientToSvg(clientX, clientY) {
-      var ctm = svg.getScreenCTM();
-      if (!ctm || !ctm.inverse) return null;
-      var pt = svg.createSVGPoint();
-      pt.x = clientX;
-      pt.y = clientY;
-      try {
-        return pt.matrixTransform(ctm.inverse());
-      } catch (err) {
-        return null;
-      }
+    function capOf(eye) {
+      var orb = eye.el.getBoundingClientRect();
+      var g = eye.gaze.getBoundingClientRect();
+      var room = (orb.width - g.width) * 0.5 - 1;
+      return Math.max(3, Math.min(room, orb.width * eye.maxRatio));
     }
 
     function aimAt(clientX, clientY) {
-      var p = clientToSvg(clientX, clientY);
-      if (!p) return;
       for (var n = 0; n < nodes.length; n++) {
         var eye = nodes[n];
-        var dx = p.x - eye.cx;
-        var dy = p.y - eye.cy;
+        var r = eye.el.getBoundingClientRect();
+        var dx = clientX - (r.left + r.width * 0.5);
+        var dy = clientY - (r.top + r.height * 0.5);
         var len = Math.hypot(dx, dy);
+        var cap = capOf(eye);
         if (len < 0.001) {
           eye.tx = 0;
           eye.ty = 0;
           continue;
         }
-        var scale = Math.min(1, eye.maxR / len);
+        var scale = Math.min(1, cap / len);
         eye.tx = dx * scale;
         eye.ty = dy * scale;
       }
@@ -409,7 +400,8 @@
         eye.y += (eye.ty - eye.y) * k;
         if (Math.abs(eye.x) < 0.02) eye.x = 0;
         if (Math.abs(eye.y) < 0.02) eye.y = 0;
-        eye.gaze.setAttribute("transform", "translate(" + eye.x.toFixed(2) + " " + eye.y.toFixed(2) + ")");
+        eye.gaze.style.setProperty("--gx", eye.x.toFixed(2) + "px");
+        eye.gaze.style.setProperty("--gy", eye.y.toFixed(2) + "px");
       }
       global.requestAnimationFrame(tick);
     }
