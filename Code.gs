@@ -18201,13 +18201,27 @@ function collectPpMoneyStats_(crmSs) {
     var wishes = String(data[r][wishesCol] != null ? data[r][wishesCol] : data[r][4] || "");
     var key = clientMatchKey_(nick) || String(extractInstagramNick_(nick) || nick).toUpperCase();
     if (key) {
-      out.byKey[key] = {
+      var basket = [];
+    try { basket = basketFromSubscriberRow_(headers, data[r]); } catch (eBask) { basket = []; }
+    var packCounts = { u1: 0, u2: 0, u3: 0, up4: 0 };
+    for (var pc = 0; pc < headers.length; pc++) {
+      var ph = String(headers[pc] || "").toUpperCase().replace(/\s+/g, " ").trim();
+      if (ph === "У1") packCounts.u1 = Number(data[r][pc]) || 0;
+      else if (ph === "У2") packCounts.u2 = Number(data[r][pc]) || 0;
+      else if (ph === "У3") packCounts.u3 = Number(data[r][pc]) || 0;
+      else if (ph === "УП4") packCounts.up4 = Number(data[r][pc]) || 0;
+    }
+    out.byKey[key] = {
         label: nick,
         nick: extractInstagramNick_(nick) || nick,
         fact: turn,
         clean: clean,
         cost: cost,
         wishes: wishes,
+        scheme: parsePpSchemeFromWishes_(wishes) || "LEGACY",
+        basket: basket,
+        packCounts: packCounts,
+        deliveriesN: Number(data[r][2]) || 0,
         fromBpYmd: parseFromBpYmd_(wishes)
       };
     }
@@ -18628,6 +18642,122 @@ function collectBpToPpConversions_(ss, crmSs, monthKey, ppStatsOrOpts) {
   return out;
 }
 
+/** YYYY-MM list inclusive, max 24 months. */
+function monthsInIsoRange_(fromIso, toIso) {
+  var out = [];
+  var a = String(fromIso || "").slice(0, 7);
+  var b = String(toIso || "").slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(a)) return out;
+  if (!/^\d{4}-\d{2}$/.test(b)) b = a;
+  if (a > b) {
+    var tmp = a;
+    a = b;
+    b = tmp;
+  }
+  var y = Number(a.slice(0, 4));
+  var m = Number(a.slice(5, 7));
+  var ye = Number(b.slice(0, 4));
+  var me = Number(b.slice(5, 7));
+  while (y < ye || (y === ye && m <= me)) {
+    out.push(y + "-" + (m < 10 ? "0" : "") + m);
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+    if (out.length > 24) break;
+  }
+  return out;
+}
+
+/** Схема ПП в статистике: [SCHEME:…] с листа ПП, не note календаря. */
+function resolvePpSchemeForStats_(ck, calendarScheme, ppByKey) {
+  var ent = (ppByKey && ck) ? ppByKey[ck] : null;
+  if (ent) {
+    var sch = "";
+    try {
+      sch = resolvePpScheme_({
+        scheme: ent.scheme,
+        wishes: ent.wishes || "",
+        forNew: false
+      });
+    } catch (eSch) { sch = ""; }
+    if (sch) return sch;
+  }
+  return calendarScheme || "LEGACY";
+}
+
+/** Recover/пакеты: месячный состав с листа ПП, иначе сумма слотов календаря. */
+function monthBasketForPpStats_(calendarBasket, sheetEnt) {
+  if (sheetEnt && sheetEnt.basket && sheetEnt.basket.length) return sheetEnt.basket;
+  return calendarBasket || [];
+}
+
+function readPpCycleStoreMerged_(ss, monthKeys, tz) {
+  var cycleStore = {};
+  monthKeys = monthKeys || [];
+  tz = tz || "Europe/Minsk";
+  try {
+    var memory = getMemoryCourierSheet_();
+    for (var mi = 0; mi < monthKeys.length; mi++) {
+      var mk = String(monthKeys[mi] || "").slice(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(mk)) continue;
+      var dummyDate = new Date(mk + "-15T12:00:00");
+      var part = getPpMonthCycleStore_(memory, ppMonthCycleKey_(dummyDate, tz), tz) || {};
+      for (var cks in part) {
+        if (!part.hasOwnProperty(cks)) continue;
+        var prevEnt = cycleStore[cks];
+        var nextEnt = part[cks];
+        if (!prevEnt) cycleStore[cks] = nextEnt;
+        else if (String((nextEnt && nextEnt.paid) || "").toLowerCase() === "yes") cycleStore[cks] = nextEnt;
+      }
+    }
+  } catch (eC) {}
+  return cycleStore;
+}
+
+function ppCyclePaidStatus_(cycleStore, ck) {
+  var ent = cycleStore && cycleStore[ck];
+  if (!ent || typeof ent !== "object") return "";
+  return String(ent.paid || "").toLowerCase();
+}
+
+/**
+ * Тот же фильтр, что collectPpActualOut_ (выручка) и финальный factCost:
+ * paid=no → нет;
+ * paid=yes → да;
+ * слот ≥2 без paid=yes → нет (слот 2 только счётчик bySource.pp);
+ * слот 1 / N=1 / слот 0 → да.
+ */
+function ppClientPaysNowForStats_(ck, paid, monthCal) {
+  var st = String(paid || "").toLowerCase();
+  if (st === "no") return false;
+  if (st === "yes") return true;
+  var minSlot = Number((monthCal && monthCal.ppSlotByKey && monthCal.ppSlotByKey[ck]) || 0);
+  if (minSlot >= 2) return false;
+  return true;
+}
+
+/** Ключи ПП, которые идут в выручку и в factCost. bySource.pp не фильтруем. */
+function listPpMoneyClientKeys_(delivered, cycleStore, monthCal) {
+  var keys = [];
+  delivered = delivered || {};
+  for (var ck in delivered) {
+    if (!delivered.hasOwnProperty(ck)) continue;
+    var paid = ppCyclePaidStatus_(cycleStore, ck);
+    if (ppClientPaysNowForStats_(ck, paid, monthCal)) keys.push(ck);
+  }
+  return keys;
+}
+
+/** N для factCost: с листа при N≥2 (полный месяц сразу), иначе число слотов в месяце. */
+function ppFactDeliveriesNForStats_(ck, monthCal, sheetEnt) {
+  var sheetN = sheetEnt ? Number(sheetEnt.deliveriesN) || 0 : 0;
+  if (sheetN >= 2) return sheetN;
+  var nDel = Number((monthCal && monthCal.ppDeliveryCountByKey && monthCal.ppDeliveryCountByKey[ck]) || 0);
+  return Math.max(1, nDel || 1);
+}
+
 function calendarRowPrice_(row) {
   var op = row && row.orderPrice;
   if (op != null && op !== "" && !isNaN(Number(op))) {
@@ -18674,8 +18804,11 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     ppRecoverInClean: 0,
     ppDeliveryCost: 0,
     ppLightPeople: 0,
+    ppPackagesCost: 0,
+    ppFractionCost: 0,
     ppLightKeys: {}
   };
+  var ppByKeyOpt = (opts && opts.ppByKey) || {};
   var rows = [];
   try { rows = readAllCalendarRows_(); } catch (e0) { rows = []; }
   var books = [];
@@ -18758,7 +18891,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     out.bySource[src] = (out.bySource[src] || 0) + 1;
     var price = calendarRowPrice_(row);
     // ПП: в календарный оборот не кладём по каждому слоту — раз через collectPpActualOut_
-    // (только кто платит сейчас: слот 1 / N=1 / paid=yes).
+    // (N≥2 только paid=yes; N=1 — пока не paid=no).
     var revenueAdd = 0;
     var slotForced = parseForcedPpSlot_(sanitizePpSlotLabel_(row.ppSlot), 2);
     if (src === "pp" && ck) {
@@ -18766,10 +18899,13 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       if (price > prevPpPrice) out.ppPriceByKey[ck] = price;
       // слот доставки для фильтра «кто платит»
       if (!out.ppSlotByKey) out.ppSlotByKey = {};
+      if (!out.ppMaxSlotByKey) out.ppMaxSlotByKey = {};
       if (slotForced >= 1) {
         var prevSlot = Number(out.ppSlotByKey[ck]) || 0;
         // минимальный слот за месяц (= была 1-я доставка)
         if (!prevSlot || slotForced < prevSlot) out.ppSlotByKey[ck] = slotForced;
+        var prevMax = Number(out.ppMaxSlotByKey[ck]) || 0;
+        if (slotForced > prevMax) out.ppMaxSlotByKey[ck] = slotForced;
       } else {
         if (out.ppSlotByKey[ck] == null) out.ppSlotByKey[ck] = 0;
       }
@@ -18797,11 +18933,12 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
         if (!out.ppBasketByKey) out.ppBasketByKey = {};
         if (!out.ppSchemeByKey) out.ppSchemeByKey = {};
         out.ppRawByKey[ck] = Math.round(((Number(out.ppRawByKey[ck]) || 0) + product) * 100) / 100;
-        if ((!out.ppBasketByKey[ck] || !out.ppBasketByKey[ck].length) && bask && bask.length) {
-          out.ppBasketByKey[ck] = bask;
+        if (bask && bask.length) {
+          out.ppBasketByKey[ck] = mergeBasketItemsForPp_((out.ppBasketByKey[ck] || []).concat(bask));
         }
         try {
-          out.ppSchemeByKey[ck] = resolvePpScheme_({ wishes: row.note || "", forNew: false });
+          var schNote = resolvePpScheme_({ wishes: row.note || "", forNew: false });
+          if (schNote === "RAW26" || !out.ppSchemeByKey[ck]) out.ppSchemeByKey[ck] = schNote;
         } catch (eSch) {
           out.ppSchemeByKey[ck] = out.ppSchemeByKey[ck] || "LEGACY";
         }
@@ -18862,28 +18999,56 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (seenKeys[bk]) continue;
     ingestRow_(bookByKey[bk]);
   }
-  // ПП затраты в статистике = сырьё + свет/доставка/пакеты, БЕЗ наценки (coef 2.3/2.6).
-  // coef — формула цены клиенту; если множить сырьё на coef, «чистое/выхлоп» уезжает в минус.
+  // ПП затраты: один раз на клиента, когда pays-now (слот 1 / paid=yes).
+  // N=2: сразу полный месяц (состав листа + 9×N), слот 2 не добавляет денег — только bySource.pp.
   try {
     out.ppRawByKey = out.ppRawByKey || {};
     out.ppBasketByKey = out.ppBasketByKey || {};
     out.ppSchemeByKey = out.ppSchemeByKey || {};
+    var costMonthKeys = [];
+    if (fromIso || toIso) costMonthKeys = monthsInIsoRange_(fromIso || toIso, toIso || fromIso);
+    if (!costMonthKeys.length && /^\d{4}-\d{2}$/.test(want)) costMonthKeys = [want];
+    var ppCycleForCost = {};
+    try { ppCycleForCost = readPpCycleStoreMerged_(ss, costMonthKeys, tz); } catch (eCy) { ppCycleForCost = {}; }
     var ppCostSum = 0;
     var ppBasketSum = 0;
     var ppDelivSum = 0;
     var ppLightSum = 0;
+    var ppPackSum = 0;
+    var ppFracSum = 0;
     var ppPeople = 0;
+    var slotCal = {
+      ppSlotByKey: out.ppSlotByKey || {},
+      ppMaxSlotByKey: out.ppMaxSlotByKey || {},
+      ppDeliveryCountByKey: out.ppDeliveryCountByKey || {}
+    };
+    var ppMoneyKeys = listPpMoneyClientKeys_(out.ppDeliveredKeys, ppCycleForCost, slotCal);
+    var ppMoneySet = {};
+    for (var mk = 0; mk < ppMoneyKeys.length; mk++) ppMoneySet[ppMoneyKeys[mk]] = true;
+    out.ppMoneyKeys = ppMoneyKeys;
+    out.ppCostSkipped = 0;
     for (var ppk in out.ppDeliveredKeys) {
       if (!out.ppDeliveredKeys.hasOwnProperty(ppk)) continue;
+      // тот же paysNow, что collectPpActualOut_: unpaid N≥2 / слот 2 без paid=yes — не в costActual
+      if (!ppMoneySet[ppk]) {
+        out.ppCostSkipped++;
+        continue;
+      }
+      var sheetEnt = ppByKeyOpt[ppk] || null;
+      var schPp = resolvePpSchemeForStats_(ppk, out.ppSchemeByKey[ppk], ppByKeyOpt);
+      var baskPp = monthBasketForPpStats_(out.ppBasketByKey[ppk] || [], sheetEnt);
+      var packOpt = (sheetEnt && sheetEnt.packCounts) ? sheetEnt.packCounts : null;
       var rawPp = Number(out.ppRawByKey[ppk]) || 0;
-      var baskPp = out.ppBasketByKey[ppk] || [];
-      var schPp = out.ppSchemeByKey[ppk] || "LEGACY";
-      // реальное число доставок клиента в месяце (не «minSlot≥2 → 2»)
-      var nDel = Math.max(1, Number((out.ppDeliveryCountByKey && out.ppDeliveryCountByKey[ppk]) || 0) || 1);
+      if (sheetEnt && sheetEnt.basket && sheetEnt.basket.length) {
+        try {
+          var rawSheet = estimateBasketRawCost_(baskPp, "pp");
+          if (rawSheet > 0) rawPp = rawSheet;
+        } catch (eRaw) {}
+      }
+      var nDel = ppFactDeliveriesNForStats_(ppk, out, sheetEnt);
       var factPp = null;
       try {
-        // coef=1 → без наценки; свет/доставка/пакеты как в схеме
-        factPp = computePpFactFromCost_(rawPp, baskPp, nDel, 1, null, schPp, baskPp, null);
+        factPp = computePpFactFromCost_(rawPp, baskPp, nDel, 1, packOpt, schPp, baskPp, null);
       } catch (eF) { factPp = null; }
       var factCostPp = factPp && factPp.factCost != null ? Number(factPp.factCost) : Math.round(rawPp * 100) / 100;
       ppCostSum += factCostPp;
@@ -18892,6 +19057,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
         ppDelivSum += Number(factPp.deliveryByn) || 0;
         if (factPp.scheme === "LEGACY") ppLightSum += Number(factPp.fixed) || 0;
         else ppLightSum += Number(factPp.recoverByn) || 0;
+        ppPackSum += Number(factPp.packagesByn) || 0;
+        ppFracSum += Number(factPp.fractionMarkup) || 0;
       }
       ppPeople++;
     }
@@ -18902,6 +19069,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     out.ppDeliveryCost = Math.round(ppDelivSum * 100) / 100;
     out.ppLightCost = Math.round(ppLightSum * 100) / 100;
     out.ppRecoverCost = out.ppLightCost;
+    out.ppPackagesCost = Math.round(ppPackSum * 100) / 100;
+    out.ppFractionCost = Math.round(ppFracSum * 100) / 100;
     out.ppLightPeople = ppPeople;
   } catch (ePpCost) {}
   // ПП без цены ни на одной доставке месяца
@@ -18922,7 +19091,10 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   out.ppDeliveryCost = Math.round((out.ppDeliveryCost || 0) * 100) / 100;
   out.ppLightCost = Math.round((out.ppLightCost || 0) * 100) / 100;
   out.ppRecoverCost = Math.round((out.ppRecoverCost || out.ppLightCost || 0) * 100) / 100;
+  out.ppPackagesCost = Math.round((out.ppPackagesCost || 0) * 100) / 100;
+  out.ppFractionCost = Math.round((out.ppFractionCost || 0) * 100) / 100;
   out.ppClientsDelivered = Object.keys(out.ppDeliveredKeys).length;
+  out.ppCostSkipped = Number(out.ppCostSkipped) || 0;
   out.todayIso = todayIso;
   out.fromIso = fromIso;
   out.toIso = toIso;
@@ -18930,10 +19102,10 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   return out;
 }
 
-/** Выручка ПП за месяц: max [ЦЕНА] на клиента (не сумма слотов).
- *  В статистику НЕ идёт только явный отказ paid=no.
- *  paid=yes / ещё не спрашивали / пусто — считаем цену с календаря (или fact). */
-function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
+/** Выручка ПП за месяц: max [ЦЕНА] на клиента один раз (не сумма слотов).
+ *  N=2: paid=yes / pays-now на 1-й → вся цена сразу. Слот 2 без paid=yes — не плюсуем. */
+function collectPpActualOut_(ss, monthKey, ppStats, monthCal, opts) {
+  opts = opts || {};
   var out = {
     actual: 0,
     fromPriceTags: 0,
@@ -18947,12 +19119,15 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
   var priceByKey = (monthCal && monthCal.ppPriceByKey) || {};
   var delivered = (monthCal && monthCal.ppDeliveredKeys) || {};
   var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
+  var monthKeys = [];
+  if (opts.fromIso || opts.toIso) {
+    monthKeys = monthsInIsoRange_(opts.fromIso || opts.toIso, opts.toIso || opts.fromIso);
+  }
+  if (!monthKeys.length && /^\d{4}-\d{2}$/.test(String(monthKey || ""))) {
+    monthKeys = [String(monthKey).slice(0, 7)];
+  }
   var cycleStore = {};
-  try {
-    var memory = getMemoryCourierSheet_();
-    var dummyDate = new Date(String(monthKey) + "-15T12:00:00");
-    cycleStore = getPpMonthCycleStore_(memory, ppMonthCycleKey_(dummyDate, tz), tz) || {};
-  } catch (eC) { cycleStore = {}; }
+  try { cycleStore = readPpCycleStoreMerged_(ss, monthKeys, tz); } catch (eC) { cycleStore = {}; }
 
   var counted = {};
   function mark_(k) {
@@ -18962,26 +19137,15 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
     return true;
   }
 
-  function paidStatus_(ck) {
-    var ent = cycleStore[ck];
-    if (!ent || typeof ent !== "object") return "";
-    return String(ent.paid || "").toLowerCase();
+  for (var ckU in delivered) {
+    if (!delivered.hasOwnProperty(ckU)) continue;
+    if (ppCyclePaidStatus_(cycleStore, ckU) === "no") out.clientsUnpaid++;
   }
-
-  // доставленные ПП: один раз max цена; paid=no — мимо;
-  // слот 2+ без paid=yes — не считаем (уже платил на 1-й / раньше)
-  for (var ck in delivered) {
-    if (!delivered.hasOwnProperty(ck)) continue;
-    var st = paidStatus_(ck);
-    if (st === "no") {
-      out.clientsUnpaid++;
-      continue;
-    }
-    var minSlot = 0;
-    try { minSlot = Number((monthCal && monthCal.ppSlotByKey && monthCal.ppSlotByKey[ck]) || 0); } catch (eS) {}
-    // платит сейчас: paid=yes ИЛИ был слот 1 / N=1 (minSlot<=1 или 0 неизвестен → считаем)
-    var paysNow = (st === "yes") || !(minSlot >= 2);
-    if (!paysNow) continue;
+  // тот же набор ключей, что factCost в collectMonthCalendarStats_
+  var moneyKeys = listPpMoneyClientKeys_(delivered, cycleStore, monthCal);
+  for (var mi = 0; mi < moneyKeys.length; mi++) {
+    var ck = moneyKeys[mi];
+    var st = ppCyclePaidStatus_(cycleStore, ck);
     if (st === "yes") out.clientsPaidYes++;
     var p = Number(priceByKey[ck]) || 0;
     var fact = byKey[ck] ? Number(byKey[ck].fact) || 0 : 0;
@@ -19000,7 +19164,7 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal) {
   // paid=yes без строки доставки в календаре — fact с листа
   for (var ck2 in cycleStore) {
     if (!cycleStore.hasOwnProperty(ck2)) continue;
-    if (paidStatus_(ck2) !== "yes") continue;
+    if (ppCyclePaidStatus_(cycleStore, ck2) !== "yes") continue;
     if (counted[ck2]) continue;
     if (delivered[ck2]) continue;
     var fact2 = byKey[ck2] ? Number(byKey[ck2].fact) || 0 : 0;
@@ -22103,6 +22267,9 @@ function invalidateStatsCache_() {
     for (var i = 0; i < 18; i++) {
       var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       var mk = Utilities.formatDate(d, "Europe/Minsk", "yyyy-MM");
+      keys.push("STATS22:" + mk);
+      keys.push("STATS21:" + mk);
+      keys.push("STATS20:" + mk);
       keys.push("STATS19:" + mk);
       keys.push("STATS18:" + mk);
       keys.push("STATS17:" + mk);
@@ -22336,7 +22503,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS19:" + monthKey;
+  var cacheKey = "STATS22:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -22364,7 +22531,7 @@ function handleGetStats(json, callback, fromPost) {
   } catch (eCrm) {}
 
   // факт месяца — только даты ≤ сегодня (будущие записи не в обороте)
-  var month = collectMonthCalendarStats_(ss, monthKey, { onlyPast: true });
+  var month = collectMonthCalendarStats_(ss, monthKey, { onlyPast: true, ppByKey: pp.byKey || {} });
   var ppOut = collectPpActualOut_(ss, monthKey, pp, month);
   var conv = collectBpToPpConversions_(ss, crm, monthKey, pp);
 
@@ -22484,12 +22651,16 @@ function handleGetStats(json, callback, fromPost) {
       ppRecoverCost: Number(month.ppRecoverCost) || 0,
       ppRecoverInClean: Number(month.ppRecoverInClean) || 0,
       ppDeliveryCost: Number(month.ppDeliveryCost) || 0,
+      ppPackagesCost: Number(month.ppPackagesCost) || 0,
+      ppFractionCost: Number(month.ppFractionCost) || 0,
       ppLightPeople: Number(month.ppLightPeople) || 0,
+      ppCostSkipped: Number(month.ppCostSkipped) || 0,
       ppDeliveries: Number(month.bySource && month.bySource.pp) || 0,
       ppLightFeeEach: PP_LIGHT_COST_BYN_,
       ppDeliveryFeeEach: PP_DELIVERY_COST_BYN_,
       cutter: {
         enabled: !!cutterOnMonth,
+        enabledForMonth: !!cutterOnMonth,
         id: STATS_CUTTER_PRESET_ID_,
         name: STATS_CUTTER_PRESET_NAME_
       },
@@ -22654,10 +22825,11 @@ function handleGetStats(json, callback, fromPost) {
     factCutoff: month.todayIso || "",
     cutter: {
       enabled: !!cutterOnMonth,
+      enabledForMonth: !!cutterOnMonth,
       id: STATS_CUTTER_PRESET_ID_,
       name: STATS_CUTTER_PRESET_NAME_
     },
-    note: "Прибыль = оборот. Чистое = оборот − затраты. ПП = состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY). Нарезчик выкл → recover в чистом. БП = состав + 6р. ЗП — если нарезчик вкл и месяц ≥ «с»."
+    note: "Прибыль = оборот. Чистое = оборот − затраты. ПП = состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY). Схема с листа ПП. Нарезчик выкл → recover в чистом. БП = состав + 6р. ЗП — если нарезчик вкл и месяц ≥ «с»."
   };
   try {
     CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 600);
@@ -22680,18 +22852,39 @@ function handleGetExpectedProfit(json, callback, fromPost) {
   }
   var fromIso = Utilities.formatDate(fromD, tz, "yyyy-MM-dd");
   var toIso = Utilities.formatDate(toD, tz, "yyyy-MM-dd");
-  var stats = collectMonthCalendarStats_(ss, "", { fromIso: fromIso, toIso: toIso, onlyPast: false });
+  var pp = { clients: 0, dirty: 0, clean: 0, cost: 0, turnover: 0, colsUsed: {}, byKey: {} };
+  try {
+    var crm = getCrmSpreadsheet_();
+    pp = collectPpMoneyStats_(crm);
+  } catch (eCrm) {}
+  var stats = collectMonthCalendarStats_(ss, "", {
+    fromIso: fromIso,
+    toIso: toIso,
+    onlyPast: false,
+    ppByKey: pp.byKey || {}
+  });
+  var ppOut = collectPpActualOut_(ss, fromIso.slice(0, 7), pp, stats, { fromIso: fromIso, toIso: toIso });
   var retail = Number(stats.retailRevenue) || 0;
   var partner = Number(stats.partnerRevenue) || 0;
-  var ppRev = Number(stats.revenueBySource && stats.revenueBySource.pp) || 0;
+  var ppRev = Number(ppOut.actual) || 0;
   var revenue = Math.round((ppRev + retail + partner) * 100) / 100;
-  var cost = Number(stats.costActual) || 0;
-  var profit = revenue; // прибыль = оборот
+  var staffMonthKey = fromIso.slice(0, 7);
+  if (toIso.slice(0, 7) !== staffMonthKey) staffMonthKey = toIso.slice(0, 7);
+  var staffMonth = { staff: [], cost: 0, count: 0, floorMonth: STATS_STAFF_COST_FLOOR_MONTH_ };
+  try { staffMonth = collectStatsStaffForMonth_(staffMonthKey); } catch (eStaff) {}
+  var cutterOn = false;
+  try { cutterOn = isStatsCutterActiveForMonth_(staffMonth); } catch (eCut) {}
+  try { applyStatsCutterRecoverSplit_(stats, cutterOn); } catch (eSplit) {}
+  var staffCost = Number(staffMonth.cost) || 0;
+  var cost = Math.round(((Number(stats.costActual) || 0) + staffCost) * 100) / 100;
+  var profit = revenue;
   var clean = Math.round((revenue - cost) * 100) / 100;
   var ok = {
     status: "success",
     from: fromIso,
     to: toIso,
+    monthKey: staffMonthKey,
+    onlyPast: false,
     deliveries: stats.deliveriesTotal || 0,
     bySource: stats.bySource || {},
     revenue: revenue,
@@ -22705,16 +22898,37 @@ function handleGetExpectedProfit(json, callback, fromPost) {
     ppRevenue: ppRev,
     ppBasketCost: Number(stats.ppBasketCost) || 0,
     ppLightCost: Number(stats.ppLightCost) || 0,
+    ppRecoverCost: Number(stats.ppRecoverCost) || 0,
+    ppRecoverInClean: Number(stats.ppRecoverInClean) || 0,
     ppDeliveryCost: Number(stats.ppDeliveryCost) || 0,
+    ppPackagesCost: Number(stats.ppPackagesCost) || 0,
+    ppFractionCost: Number(stats.ppFractionCost) || 0,
     ppLightPeople: Number(stats.ppLightPeople) || 0,
     ppDeliveries: Number(stats.bySource && stats.bySource.pp) || 0,
     ppLightFeeEach: PP_LIGHT_COST_BYN_,
     ppDeliveryFeeEach: PP_DELIVERY_COST_BYN_,
+    staffCost: staffCost,
+    staffCount: Number(staffMonth.count) || 0,
+    cutter: {
+      enabled: !!cutterOn,
+      enabledForMonth: !!cutterOn,
+      id: STATS_CUTTER_PRESET_ID_,
+      name: STATS_CUTTER_PRESET_NAME_
+    },
     bpCost: Number(stats.bpCost) || 0,
     bpDeliveries: Number(stats.bpDeliveries) || 0,
     missingPrice: stats.missingPrice || 0,
     missingBasketCost: stats.missingBasketCost || 0,
-    note: "Прибыль = оборот. Чистое = оборот − себест. ПП = состав + свет 11р/чел + доставка 6р."
+    actualDetail: {
+      fromCalendar: ppRev,
+      fromPriceTags: ppOut.fromPriceTags,
+      fromPaidCycle: ppOut.fromPaidCycle,
+      clientsCounted: ppOut.clientsCounted,
+      clientsMissingPrice: ppOut.clientsMissingPrice,
+      clientsUnpaid: ppOut.clientsUnpaid || 0,
+      clientsPaidYes: ppOut.clientsPaidYes || 0
+    },
+    note: "Прибыль = оборот. Чистое = оборот − затраты. ПП = collectPpActualOut_ (не revenueBySource.pp). Состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY). Схема с листа ПП. Нарезчик выкл → recover в чистом. ЗП — если нарезчик вкл и месяц ≥ «с»."
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
@@ -22727,6 +22941,7 @@ function handleExportStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
+  var onlyPast = !(json.onlyPast === false || json.onlyPast === "0" || json.onlyPast === 0 || json.onlyPast === "false");
   var pp = { clients: 0, dirty: 0, clean: 0, cost: 0, byKey: {} };
   var bp = { total: 0, bp1: 0, bp2: 0, final: 0 };
   var crm = null;
@@ -22735,21 +22950,43 @@ function handleExportStats(json, callback, fromPost) {
     pp = collectPpMoneyStats_(crm);
     bp = collectBpFunnelStats_(crm);
   } catch (eCrm) {}
-  var month = collectMonthCalendarStats_(ss, monthKey);
+  var month = collectMonthCalendarStats_(ss, monthKey, { onlyPast: onlyPast, ppByKey: pp.byKey || {} });
   var ppOut = collectPpActualOut_(ss, monthKey, pp, month);
   var conv = collectBpToPpConversions_(ss, crm, monthKey, pp);
+  var staffMonth = { staff: [], cost: 0, count: 0, floorMonth: STATS_STAFF_COST_FLOOR_MONTH_ };
+  try { staffMonth = collectStatsStaffForMonth_(monthKey); } catch (eStaff) {}
+  var cutterOn = false;
+  try { cutterOn = isStatsCutterActiveForMonth_(staffMonth); } catch (eCut) {}
+  try { applyStatsCutterRecoverSplit_(month, cutterOn); } catch (eSplit) {}
+  var staffCost = Number(staffMonth.cost) || 0;
+  var costActual = Math.round(((Number(month.costActual) || 0) + staffCost) * 100) / 100;
   var turnover = Math.round((ppOut.actual + month.retailRevenue + month.partnerRevenue) * 100) / 100;
+  var clean = Math.round((turnover - costActual) * 100) / 100;
   var cac = conv.count > 0 ? Math.round((month.bpCost / conv.count) * 100) / 100 : "";
+  var todayIso = "";
+  try { todayIso = Utilities.formatDate(now, tz, "yyyy-MM-dd"); } catch (eT) {}
   var lines = [];
   lines.push("# Месяц\t" + monthKey);
+  lines.push("# onlyPast\t" + (onlyPast ? "1" : "0"));
+  lines.push("# factCutoff\t" + (month.todayIso || todayIso));
   lines.push("# ПП клиентов\t" + pp.clients);
   lines.push("# ПП оборот (факт лист)\t" + (pp.turnover != null ? pp.turnover : pp.dirty));
-  lines.push("# ПП выхлоп\t" + pp.clean);
-  lines.push("# ПП себест (общая→итоговая)\t" + pp.cost);
+  lines.push("# ПП выхлоп листа\t" + pp.clean);
+  lines.push("# ПП себест листа\t" + pp.cost);
   lines.push("# ПП вышло (календарь)\t" + ppOut.actual);
   lines.push("# Розница\t" + month.retailRevenue);
   lines.push("# Партнёр\t" + month.partnerRevenue);
-  lines.push("# Оборот календаря (ПП вышло+розн+парт)\t" + turnover);
+  lines.push("# Оборот (ПП вышло+розн+парт)\t" + turnover);
+  lines.push("# cost\t" + costActual);
+  lines.push("# clean\t" + clean);
+  lines.push("# recover\t" + (Number(month.ppRecoverCost) || 0));
+  lines.push("# recoverInClean\t" + (Number(month.ppRecoverInClean) || 0));
+  lines.push("# packages\t" + (Number(month.ppPackagesCost) || 0));
+  lines.push("# fractions\t" + (Number(month.ppFractionCost) || 0));
+  lines.push("# staffCost\t" + staffCost);
+  lines.push("# staffCount\t" + (Number(staffMonth.count) || 0));
+  lines.push("# cutterEnabled\t" + (cutterOn ? "1" : "0"));
+  lines.push("# split\t" + (cutterOn ? "recover_in_cost" : "recover_in_clean"));
   lines.push("# БП воронка\t" + bp.total + "\tБП1\t" + bp.bp1 + "\tБП2\t" + bp.bp2 + "\tФинал\t" + bp.final);
   lines.push("# БП доставок\t" + month.bpDeliveries + "\tзатраты себест\t" + month.bpCost);
   lines.push("# БП→ПП за месяц\t" + conv.count + "\tна одного\t" + cac);
@@ -22767,7 +23004,8 @@ function handleExportStats(json, callback, fromPost) {
       if (bd) iso = Utilities.formatDate(bd, tz, "yyyy-MM-dd");
     }
     if (!iso || iso.slice(0, 7) !== monthKey) continue;
-    var price = parsePriceTagFromNote_(row.note);
+    if (onlyPast && todayIso && iso > todayIso) continue;
+    var price = calendarRowPrice_(row);
     lines.push([
       iso,
       String(row.client || "").replace(/\t/g, " "),
@@ -22783,6 +23021,18 @@ function handleExportStats(json, callback, fromPost) {
     status: "success",
     format: json.format || "accountant",
     monthKey: monthKey,
+    onlyPast: onlyPast,
+    clean: clean,
+    recover: Number(month.ppRecoverCost) || 0,
+    recoverInClean: Number(month.ppRecoverInClean) || 0,
+    staffCost: staffCost,
+    staffCount: Number(staffMonth.count) || 0,
+    cutterEnabled: !!cutterOn,
+    split: cutterOn ? "recover_in_cost" : "recover_in_clean",
+    packages: Number(month.ppPackagesCost) || 0,
+    fractions: Number(month.ppFractionCost) || 0,
+    cost: costActual,
+    revenue: turnover,
     message: "TSV месяца " + monthKey,
     tsv: lines.join("\n")
   };

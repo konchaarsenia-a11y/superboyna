@@ -18,9 +18,9 @@
 | Величина | Формула в коде |
 |---|---|
 | Оборот / «прибыль» | `calTurnover = ppActual + retail + partner`. БП = 0. |
-| `ppActual` | `collectPpActualOut_`: max `calendarRowPrice_` на клиента за месяц. Минус `paid=no`. Слот 2+ без `paid=yes` не считается. Fallback fact с листа ПП. |
+| `ppActual` | `collectPpActualOut_`: max цена на клиента **один раз**. N=2: pays-now / `paid=yes` на 1-й → вся выручка сразу. Слот 2 без `paid=yes` — не деньги. `paid=no` мимо. |
 | Розница / партнёр-заказ | цена строки (`orderPrice` → тег `[ЦЕНА]`). |
-| Себест ПП на человека | `computePpFactFromCost_(Σсырьё, firstBasket, nDel, coef=1, scheme)`. **Без наценки 2.3/2.6.** |
+| Себест ПП на человека | `computePpFactFromCost_(сырьё листа, monthBasket, N листа если ≥2, coef=1, scheme)`. **Без наценки 2.3/2.6.** N=2: полный factCost сразу на 1-й; слот 2 не плюсует. |
 | RAW26 (coef=1) | `сырьё + recoverByn + 9×nDel + пакеты + фракции` |
 | LEGACY (coef=1) | `сырьё + 11 + 6×nDel + пакеты + фракции` |
 | `recoverByn` | 3.90 / 100г дрессуры + 0.50 / шт жевалки (`recoverBynFromPpLines_`) |
@@ -93,4 +93,27 @@
 2. **Схема + полная корзина ПП:** scheme/wishes с листа ПП (`collectPpMoneyStats_.byKey`); recover/пакеты с **месячного** состава, не с доли слота 1.
 3. **Разбивка затрат:** строка «Пакеты + фракции»; карточка Нарезчика — `enabledForMonth` + глобальный тумблер раздельно.
 
-Не деплоить с этого PR. `Code.gs` не патчился (баги не однострочные).
+Не деплоить с отчётного PR #253. `Code.gs` там не патчился.
+
+---
+
+## Фиксы (PR после #253)
+
+| # | Что | Статус |
+|---|---|---|
+| A1 | `handleGetExpectedProfit`: PP через `collectPpActualOut_`, cutter-split + `staffCost`, note RAW26 | в коде, ждать clasp |
+| A2 | Схема из `collectPpMoneyStats_.byKey.wishes` (`resolvePpSchemeForStats_`) | в коде |
+| A3 | Recover/пакеты с корзины листа ПП (`monthBasketForPpStats_`); N=2 factCost сразу (N с листа) | в коде |
+| N=2 lock | Выручка + полный factCost один раз при pays-now на 1-й; слот 2 только `bySource.pp` | в коде |
+| Cost=revenue | factCost только по `listPpMoneyClientKeys_` (тот же paysNow, что `collectPpActualOut_`). Unpaid N≥2 не в `costActual` / чистое. Счётчик доставок не фильтруем | в коде |
+| A4 | `exportStats`: onlyPast/clean/recover/staff/split + `calendarRowPrice_` | в коде |
+| B5 | Строка «Пакеты + фракции» | UI `v71115948` |
+| B6 | Карточка Нарезчика: тумблер и `enabledForMonth` раздельно | UI |
+| B7 | Кнопка «Экспорт TSV» + month/force | UI + worker не подменяет snap |
+| B8 | Воронка `charts.bpStages` + compare + оборот | UI |
+| B9 | Подпись «Затраты БП перешедших» | UI |
+| C10 | `ADULT-COST-MODEL.md` / `COST-TABLE.md` | **нет в репо** — ссылки в `SUBSCRIPTION-PRICE.md` битые; цифры не выдумывали. Живые константы: `PP_RAW26_RECOVER_100_=3.90`, piece `0.50`, N=9/6 в `Code.gs` |
+
+Тесты: `scripts/test-stats-cutter-recover.mjs`, `scripts/test-stats-expected-pp.mjs`, `scripts/test-stats-pp-n2-once.mjs`.
+
+**Deploy:** merge в `main` → Action `clasp-deploy` ([DEPLOY.md](../../DEPLOY.md)). Не вставлять `Code.gs` в редактор. До зелёного Action UI на старом Script деградирует (нет `ppPackagesCost` / expected PP).

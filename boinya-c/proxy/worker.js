@@ -592,9 +592,7 @@ async function handleAction_(action, params, env, url, ctx) {
     return Object.assign({}, gSub || { status: "success", found: false }, { sandbox: true });
   }
   if (a === "exportStats") {
-    const st = await getSnapRaw_(env, "getStats");
-    if (st) return Object.assign({}, st, { format: params.format || "", sandbox: true });
-    return { status: "success", rows: [], items: [], sandbox: true };
+    return { status: "error", message: "export_needs_gas", action: "exportStats", sandbox: true };
   }
   // живые калькуляции / подсказки — только чтение GAS (Sheets не пишет)
   if (
@@ -9202,20 +9200,7 @@ async function handleCutover_(a, params, env, ctx) {
     if (isWarehouseD1PrimaryCanon_(env) && a === "composeWarehouseBuyMessage") {
       return composeWarehouseBuyMessageD1_(params, env, ctx);
     }
-    if (a === "getExpectedProfit" || a === "exportStats") {
-      const st = await getSnapRaw_(env, "getStats");
-      if (st && st.status === "success" && String((params && params.force) || "") !== "1") {
-        return Object.assign({}, st, {
-          cutover: true,
-          fromD1: true,
-          fromGas: false,
-          sandbox: false,
-          action: a,
-          d1Verified: true,
-          statsFromSnap: true
-        });
-      }
-    }
+    // getExpectedProfit / exportStats — не подменять snap getStats (другой payload)
 
     if (a === "previewWeekCloseWarehouse") {
       return previewWeekCloseWarehouseD1_(params, env, ctx);
