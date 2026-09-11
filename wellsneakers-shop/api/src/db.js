@@ -3,6 +3,7 @@ import { config } from "./config.js";
 
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
+  connectionTimeoutMillis: 5000,
 });
 
 export async function query(text, params) {
