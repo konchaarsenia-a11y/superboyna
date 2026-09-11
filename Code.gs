@@ -18666,6 +18666,59 @@ function monthBasketForPpStats_(calendarBasket, sheetEnt) {
   return calendarBasket || [];
 }
 
+function readPpCycleStoreMerged_(ss, monthKeys, tz) {
+  var cycleStore = {};
+  monthKeys = monthKeys || [];
+  tz = tz || "Europe/Minsk";
+  try {
+    var memory = getMemoryCourierSheet_();
+    for (var mi = 0; mi < monthKeys.length; mi++) {
+      var mk = String(monthKeys[mi] || "").slice(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(mk)) continue;
+      var dummyDate = new Date(mk + "-15T12:00:00");
+      var part = getPpMonthCycleStore_(memory, ppMonthCycleKey_(dummyDate, tz), tz) || {};
+      for (var cks in part) {
+        if (!part.hasOwnProperty(cks)) continue;
+        var prevEnt = cycleStore[cks];
+        var nextEnt = part[cks];
+        if (!prevEnt) cycleStore[cks] = nextEnt;
+        else if (String((nextEnt && nextEnt.paid) || "").toLowerCase() === "yes") cycleStore[cks] = nextEnt;
+      }
+    }
+  } catch (eC) {}
+  return cycleStore;
+}
+
+function ppCyclePaidStatus_(cycleStore, ck) {
+  var ent = cycleStore && cycleStore[ck];
+  if (!ent || typeof ent !== "object") return "";
+  return String(ent.paid || "").toLowerCase();
+}
+
+/**
+ * Платит сейчас (выручка + полный factCost один раз):
+ * paid=no → нет;
+ * paid=yes → да (в т.ч. на слоте 1 при N=2 — сразу весь месяц);
+ * слот 2+ без paid=yes → нет (уже учли на 1-й; слот 2 только счётчик);
+ * слот 1 / N=1 / слот неизвестен → да (pays-now). «Не платил вообще» не моделируем.
+ */
+function ppClientPaysNowForStats_(ck, paid, monthCal) {
+  var st = String(paid || "").toLowerCase();
+  if (st === "no") return false;
+  if (st === "yes") return true;
+  var minSlot = Number((monthCal && monthCal.ppSlotByKey && monthCal.ppSlotByKey[ck]) || 0);
+  if (minSlot >= 2) return false;
+  return true;
+}
+
+/** N для factCost: с листа при N≥2 (полный месяц сразу), иначе число слотов в месяце. */
+function ppFactDeliveriesNForStats_(ck, monthCal, sheetEnt) {
+  var sheetN = sheetEnt ? Number(sheetEnt.deliveriesN) || 0 : 0;
+  if (sheetN >= 2) return sheetN;
+  var nDel = Number((monthCal && monthCal.ppDeliveryCountByKey && monthCal.ppDeliveryCountByKey[ck]) || 0);
+  return Math.max(1, nDel || 1);
+}
+
 function calendarRowPrice_(row) {
   var op = row && row.orderPrice;
   if (op != null && op !== "" && !isNaN(Number(op))) {
@@ -18799,7 +18852,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     out.bySource[src] = (out.bySource[src] || 0) + 1;
     var price = calendarRowPrice_(row);
     // ПП: в календарный оборот не кладём по каждому слоту — раз через collectPpActualOut_
-    // (только кто платит сейчас: слот 1 / N=1 / paid=yes).
+    // (N≥2 только paid=yes; N=1 — пока не paid=no).
     var revenueAdd = 0;
     var slotForced = parseForcedPpSlot_(sanitizePpSlotLabel_(row.ppSlot), 2);
     if (src === "pp" && ck) {
@@ -18807,10 +18860,13 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       if (price > prevPpPrice) out.ppPriceByKey[ck] = price;
       // слот доставки для фильтра «кто платит»
       if (!out.ppSlotByKey) out.ppSlotByKey = {};
+      if (!out.ppMaxSlotByKey) out.ppMaxSlotByKey = {};
       if (slotForced >= 1) {
         var prevSlot = Number(out.ppSlotByKey[ck]) || 0;
         // минимальный слот за месяц (= была 1-я доставка)
         if (!prevSlot || slotForced < prevSlot) out.ppSlotByKey[ck] = slotForced;
+        var prevMax = Number(out.ppMaxSlotByKey[ck]) || 0;
+        if (slotForced > prevMax) out.ppMaxSlotByKey[ck] = slotForced;
       } else {
         if (out.ppSlotByKey[ck] == null) out.ppSlotByKey[ck] = 0;
       }
@@ -18904,12 +18960,17 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (seenKeys[bk]) continue;
     ingestRow_(bookByKey[bk]);
   }
-  // ПП затраты в статистике = сырьё + свет/доставка/пакеты, БЕЗ наценки (coef 2.3/2.6).
-  // coef — формула цены клиенту; если множить сырьё на coef, «чистое/выхлоп» уезжает в минус.
+  // ПП затраты: один раз на клиента, когда pays-now (слот 1 / paid=yes).
+  // N=2: сразу полный месяц (состав листа + 9×N), слот 2 не добавляет денег — только bySource.pp.
   try {
     out.ppRawByKey = out.ppRawByKey || {};
     out.ppBasketByKey = out.ppBasketByKey || {};
     out.ppSchemeByKey = out.ppSchemeByKey || {};
+    var costMonthKeys = [];
+    if (fromIso || toIso) costMonthKeys = monthsInIsoRange_(fromIso || toIso, toIso || fromIso);
+    if (!costMonthKeys.length && /^\d{4}-\d{2}$/.test(want)) costMonthKeys = [want];
+    var ppCycleForCost = {};
+    try { ppCycleForCost = readPpCycleStoreMerged_(ss, costMonthKeys, tz); } catch (eCy) { ppCycleForCost = {}; }
     var ppCostSum = 0;
     var ppBasketSum = 0;
     var ppDelivSum = 0;
@@ -18919,16 +18980,22 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     var ppPeople = 0;
     for (var ppk in out.ppDeliveredKeys) {
       if (!out.ppDeliveredKeys.hasOwnProperty(ppk)) continue;
-      var rawPp = Number(out.ppRawByKey[ppk]) || 0;
+      var paidCost = ppCyclePaidStatus_(ppCycleForCost, ppk);
+      if (!ppClientPaysNowForStats_(ppk, paidCost, out)) continue;
       var sheetEnt = ppByKeyOpt[ppk] || null;
       var schPp = resolvePpSchemeForStats_(ppk, out.ppSchemeByKey[ppk], ppByKeyOpt);
       var baskPp = monthBasketForPpStats_(out.ppBasketByKey[ppk] || [], sheetEnt);
       var packOpt = (sheetEnt && sheetEnt.packCounts) ? sheetEnt.packCounts : null;
-      // реальное число доставок клиента в месяце (не «minSlot≥2 → 2»)
-      var nDel = Math.max(1, Number((out.ppDeliveryCountByKey && out.ppDeliveryCountByKey[ppk]) || 0) || 1);
+      var rawPp = Number(out.ppRawByKey[ppk]) || 0;
+      if (sheetEnt && sheetEnt.basket && sheetEnt.basket.length) {
+        try {
+          var rawSheet = estimateBasketRawCost_(baskPp, "pp");
+          if (rawSheet > 0) rawPp = rawSheet;
+        } catch (eRaw) {}
+      }
+      var nDel = ppFactDeliveriesNForStats_(ppk, out, sheetEnt);
       var factPp = null;
       try {
-        // coef=1 → без наценки; recover/пакеты с месячного состава; схема с листа ПП
         factPp = computePpFactFromCost_(rawPp, baskPp, nDel, 1, packOpt, schPp, baskPp, null);
       } catch (eF) { factPp = null; }
       var factCostPp = factPp && factPp.factCost != null ? Number(factPp.factCost) : Math.round(rawPp * 100) / 100;
@@ -18982,9 +19049,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   return out;
 }
 
-/** Выручка ПП за месяц: max [ЦЕНА] на клиента (не сумма слотов).
- *  В статистику НЕ идёт только явный отказ paid=no.
- *  paid=yes / ещё не спрашивали / пусто — считаем цену с календаря (или fact). */
+/** Выручка ПП за месяц: max [ЦЕНА] на клиента один раз (не сумма слотов).
+ *  N=2: paid=yes / pays-now на 1-й → вся цена сразу. Слот 2 без paid=yes — не плюсуем. */
 function collectPpActualOut_(ss, monthKey, ppStats, monthCal, opts) {
   opts = opts || {};
   var out = {
@@ -19000,7 +19066,6 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal, opts) {
   var priceByKey = (monthCal && monthCal.ppPriceByKey) || {};
   var delivered = (monthCal && monthCal.ppDeliveredKeys) || {};
   var tz = ss.getSpreadsheetTimeZone() || "Europe/Minsk";
-  var cycleStore = {};
   var monthKeys = [];
   if (opts.fromIso || opts.toIso) {
     monthKeys = monthsInIsoRange_(opts.fromIso || opts.toIso, opts.toIso || opts.fromIso);
@@ -19008,20 +19073,8 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal, opts) {
   if (!monthKeys.length && /^\d{4}-\d{2}$/.test(String(monthKey || ""))) {
     monthKeys = [String(monthKey).slice(0, 7)];
   }
-  try {
-    var memory = getMemoryCourierSheet_();
-    for (var mi = 0; mi < monthKeys.length; mi++) {
-      var dummyDate = new Date(String(monthKeys[mi]) + "-15T12:00:00");
-      var part = getPpMonthCycleStore_(memory, ppMonthCycleKey_(dummyDate, tz), tz) || {};
-      for (var cks in part) {
-        if (!part.hasOwnProperty(cks)) continue;
-        var prevEnt = cycleStore[cks];
-        var nextEnt = part[cks];
-        if (!prevEnt) cycleStore[cks] = nextEnt;
-        else if (String((nextEnt && nextEnt.paid) || "").toLowerCase() === "yes") cycleStore[cks] = nextEnt;
-      }
-    }
-  } catch (eC) { cycleStore = cycleStore || {}; }
+  var cycleStore = {};
+  try { cycleStore = readPpCycleStoreMerged_(ss, monthKeys, tz); } catch (eC) { cycleStore = {}; }
 
   var counted = {};
   function mark_(k) {
@@ -19031,26 +19084,15 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal, opts) {
     return true;
   }
 
-  function paidStatus_(ck) {
-    var ent = cycleStore[ck];
-    if (!ent || typeof ent !== "object") return "";
-    return String(ent.paid || "").toLowerCase();
-  }
-
-  // доставленные ПП: один раз max цена; paid=no — мимо;
-  // слот 2+ без paid=yes — не считаем (уже платил на 1-й / раньше)
+  // один раз max цена; слот 2 без paid=yes — счётчик, не деньги
   for (var ck in delivered) {
     if (!delivered.hasOwnProperty(ck)) continue;
-    var st = paidStatus_(ck);
+    var st = ppCyclePaidStatus_(cycleStore, ck);
     if (st === "no") {
       out.clientsUnpaid++;
       continue;
     }
-    var minSlot = 0;
-    try { minSlot = Number((monthCal && monthCal.ppSlotByKey && monthCal.ppSlotByKey[ck]) || 0); } catch (eS) {}
-    // платит сейчас: paid=yes ИЛИ был слот 1 / N=1 (minSlot<=1 или 0 неизвестен → считаем)
-    var paysNow = (st === "yes") || !(minSlot >= 2);
-    if (!paysNow) continue;
+    if (!ppClientPaysNowForStats_(ck, st, monthCal)) continue;
     if (st === "yes") out.clientsPaidYes++;
     var p = Number(priceByKey[ck]) || 0;
     var fact = byKey[ck] ? Number(byKey[ck].fact) || 0 : 0;
@@ -19069,7 +19111,7 @@ function collectPpActualOut_(ss, monthKey, ppStats, monthCal, opts) {
   // paid=yes без строки доставки в календаре — fact с листа
   for (var ck2 in cycleStore) {
     if (!cycleStore.hasOwnProperty(ck2)) continue;
-    if (paidStatus_(ck2) !== "yes") continue;
+    if (ppCyclePaidStatus_(cycleStore, ck2) !== "yes") continue;
     if (counted[ck2]) continue;
     if (delivered[ck2]) continue;
     var fact2 = byKey[ck2] ? Number(byKey[ck2].fact) || 0 : 0;
@@ -22172,6 +22214,7 @@ function invalidateStatsCache_() {
     for (var i = 0; i < 18; i++) {
       var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       var mk = Utilities.formatDate(d, "Europe/Minsk", "yyyy-MM");
+      keys.push("STATS21:" + mk);
       keys.push("STATS20:" + mk);
       keys.push("STATS19:" + mk);
       keys.push("STATS18:" + mk);
@@ -22406,7 +22449,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS20:" + monthKey;
+  var cacheKey = "STATS21:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {

@@ -261,6 +261,7 @@ assert(ui.indexOf("Затраты БП перешедших") >= 0, "UI converte
 assert(ui.indexOf("statsBpFunnelCard") >= 0, "UI BP funnel");
 assert(ui.indexOf("enabledForMonth") >= 0, "UI cutter month vs toggle");
 assert(ui.indexOf("exportStatsMonth") >= 0, "UI export wired");
+assert(gs.indexOf("function ppClientPaysNowForStats_") >= 0, "N=2 pays-now helper");
 
 console.log("OK stats-expected-pp");
 console.log(JSON.stringify({
