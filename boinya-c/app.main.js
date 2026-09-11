@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115946";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115947";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -15425,6 +15425,23 @@
         " · БП " + (by.bp || 0) +
         " · розница " + (by.retail || 0) +
         " · партнёр-заказ " + (by.partner || 0) + "</div>";
+      html += '<div style="margin-top:8px;font-size:12px;">';
+      html += '<div>ПП выручка <b>' + (res.ppRevenue != null ? res.ppRevenue : 0) + " BYN</b></div>";
+      if (Number(res.ppRecoverInClean) > 0) {
+        html += '<div>Recover в чистом <b>' + res.ppRecoverInClean + " BYN</b></div>";
+      } else if (Number(res.ppRecoverCost) > 0) {
+        html += '<div>Recover ПП <b>' + res.ppRecoverCost + " BYN</b></div>";
+      }
+      if (res.ppPackagesCost != null || res.ppFractionCost != null) {
+        html += '<div>Пакеты + фракции <b>' +
+          (Math.round(((Number(res.ppPackagesCost) || 0) + (Number(res.ppFractionCost) || 0)) * 100) / 100) +
+          " BYN</b></div>";
+      }
+      if (res.staffCost != null) {
+        html += '<div>ЗП <b>' + (res.staffCost || 0) + " BYN</b>" +
+          (res.cutter && res.cutter.enabledForMonth ? " · нарезчик вкл" : " · нарезчик как OFF") + "</div>";
+      }
+      html += "</div>";
       box.innerHTML = html;
     }
     window.loadExpectedProfit = loadExpectedProfit;
@@ -15469,6 +15486,7 @@
           id: "cutter",
           name: "Нарезчик",
           enabled: !!(hitC && (hitC.active !== false)),
+          enabledForMonth: !!(res.fact && res.fact.cutter && res.fact.cutter.enabled),
           salary: hitC ? Number(hitC.salary) || 900 : 900,
           fromMonth: hitC ? hitC.fromMonth : floor,
           defaultSalary: 900
@@ -15479,13 +15497,30 @@
         else cutter.enabled = true;
       }
       var salShow = Number(cutter.salary) || Number(cutter.defaultSalary) || 900;
+      var globalOn = !!cutter.enabled;
+      var monthOn = (cutter.enabledForMonth != null)
+        ? !!cutter.enabledForMonth
+        : !!(res.fact && res.fact.cutter && res.fact.cutter.enabled);
       var html = '<div class="card" id="statsStaffCard" style="border:1px solid rgba(255,214,10,0.35);">';
       html += '<div class="section-title" style="margin-top:0;color:#ffd60a;">Нарезчик (ЗП)</div>';
-      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">ЗП нарезчика входит в себест <b>только когда включён</b>. Выкл → recover ПП (свет+нарезка+дойпак) идёт в <b>чистое</b>, не в затраты. Август 2026 и раньше — без ЗП (пол ' + escapeHtml(floor) + ').</div>';
-      if (cutter.enabled) {
+      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">ЗП нарезчика входит в себест <b>только когда включён и месяц ≥ «с»</b>. Выкл → recover ПП идёт в <b>чистое</b>, не в затраты. Август 2026 и раньше — без ЗП (пол ' + escapeHtml(floor) + ').</div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;font-size:12px;">';
+      html += '<div style="padding:10px 12px;border-radius:12px;background:' + (globalOn ? "rgba(255,214,10,0.12)" : "rgba(142,142,147,0.12)") + ';">';
+      html += '<div class="muted" style="font-size:11px;">Тумблер</div>';
+      html += '<div style="font-weight:700;color:' + (globalOn ? "#ffd60a" : "#8e8e93") + ';">' + (globalOn ? "Включён" : "Выключен") + "</div></div>";
+      html += '<div style="padding:10px 12px;border-radius:12px;background:' + (monthOn ? "rgba(48,209,88,0.12)" : "rgba(255,159,10,0.12)") + ';">';
+      html += '<div class="muted" style="font-size:11px;">Этот месяц ' + escapeHtml(monthKey || "—") + "</div>";
+      html += '<div style="font-weight:700;color:' + (monthOn ? "#30d158" : "#ff9f0a") + ';">' +
+        (monthOn ? "В затратах: ЗП + recover" : "Как OFF · ЗП 0, recover в чистом") + "</div></div>";
+      html += "</div>";
+      if (globalOn && !monthOn) {
+        html += '<div class="muted" style="font-size:11px;margin:-2px 0 10px;color:#ff9f0a;">Месяц раньше «с» ' +
+          escapeHtml(cutter.fromMonth || floor) + " или до пола " + escapeHtml(floor) + " — тумблер не врёт, в цифрах месяца нарезчик выкл.</div>";
+      }
+      if (globalOn) {
         html += '<div style="padding:10px 12px;border-radius:12px;background:rgba(255,214,10,0.12);margin-bottom:10px;">';
-        html += '<div style="font-weight:700;color:#ffd60a;">Включён · ' + escapeHtml(String(salShow)) + ' BYN/мес</div>';
-        html += '<div class="muted" style="font-size:11px;margin-top:4px;">с ' + escapeHtml(cutter.fromMonth || floor) + " · в затратах: ЗП + recover ПП</div>";
+        html += '<div style="font-weight:700;color:#ffd60a;">ЗП · ' + escapeHtml(String(salShow)) + ' BYN/мес</div>';
+        html += '<div class="muted" style="font-size:11px;margin-top:4px;">с ' + escapeHtml(cutter.fromMonth || floor) + "</div>";
         html += "</div>";
         html += '<div class="form-group" style="margin:0 0 8px;"><label>ЗП / мес (BYN)</label>';
         html += '<input type="number" id="statsCutterSalary" step="0.01" min="0" inputmode="decimal" value="' + escapeHtml(String(salShow)) + '"></div>';
@@ -15494,7 +15529,7 @@
         html += '<button type="button" class="btn-action" style="background:#3a3a3c;" onclick="setStatsCutterEnabled_(false)">Выключить</button>';
         html += "</div>";
       } else {
-        html += '<div class="muted" style="font-size:13px;margin-bottom:10px;">Сейчас выключен — ЗП = 0, recover ПП в чистом (не в затратах).</div>';
+        html += '<div class="muted" style="font-size:13px;margin-bottom:10px;">Тумблер выключен — ЗП = 0, recover ПП в чистом (не в затратах).</div>';
         html += '<div class="form-group" style="margin:0 0 8px;"><label>ЗП / мес (BYN)</label>';
         html += '<input type="number" id="statsCutterSalary" step="0.01" min="0" inputmode="decimal" value="' + escapeHtml(String(salShow)) + '"></div>';
         html += '<button type="button" class="btn-action btn-orange" onclick="setStatsCutterEnabled_(true)">Включить нарезчика</button>';
@@ -15559,7 +15594,11 @@
       var ppLightCost = fact.ppLightCost != null ? fact.ppLightCost : 0;
       var ppRecoverCost = fact.ppRecoverCost != null ? Number(fact.ppRecoverCost) : Number(ppLightCost) || 0;
       var ppRecoverInClean = Number(fact.ppRecoverInClean) || 0;
-      var cutterFactOn = fact.cutter ? !!fact.cutter.enabled : (ppRecoverInClean <= 0);
+      var cutterMonthOn = fact.cutter && fact.cutter.enabledForMonth != null
+        ? !!fact.cutter.enabledForMonth
+        : (fact.cutter ? !!fact.cutter.enabled : (ppRecoverInClean <= 0));
+      var ppPackagesCost = fact.ppPackagesCost != null ? Number(fact.ppPackagesCost) : 0;
+      var ppFractionCost = fact.ppFractionCost != null ? Number(fact.ppFractionCost) : 0;
       var ppDeliveryCost = fact.ppDeliveryCost != null ? fact.ppDeliveryCost : 0;
       var ppLightPeople = fact.ppLightPeople != null ? fact.ppLightPeople : 0;
       var ppDelivN = fact.ppDeliveries != null ? fact.ppDeliveries : (by.pp || 0);
@@ -15630,16 +15669,18 @@
         html += line_("Recover ПП (свет+нарезка+дойпак)", ppRecoverCost + " BYN · " + ppLightPeople + " чел", "#bf5af2");
       }
       html += line_("Доставки ПП (9×N RAW26 / 6×N LEGACY)", ppDeliveryCost + " BYN · " + ppDelivN, "#bf5af2");
+      html += line_("Пакеты + фракции", (Math.round((ppPackagesCost + ppFractionCost) * 100) / 100) +
+        " BYN · пакеты " + ppPackagesCost + " + фракции " + ppFractionCost, "#64d2ff");
       html += line_("БП (состав + 6р)", bpSpend + " BYN · " + bpDeliv + " дост.", "#ff453a");
       var staffCost = fact.staffCost != null ? fact.staffCost : ((res.staff && res.staff.cost) || 0);
       var staffCount = fact.staffCount != null ? fact.staffCount : ((res.staff && res.staff.count) || 0);
       html += line_("ЗП сотрудников", staffCost + " BYN · " + staffCount + " чел.", "#ffd60a");
       html += line_("Всего", costActual + " BYN", "#64d2ff");
-      html += '<div class="muted" style="font-size:11px;margin-top:8px;">ПП: состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY). ' +
-        (cutterFactOn
-          ? "Нарезчик вкл — recover в затратах."
-          : "Нарезчик выкл — recover в чистом, не в затратах.") +
-        " БП: состав + 6р. ЗП — только если включён и месяц ≥ «с».</div>";
+      html += '<div class="muted" style="font-size:11px;margin-top:8px;">ПП: состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY) + пакеты/фракции. ' +
+        (cutterMonthOn
+          ? "Этот месяц: нарезчик в затратах."
+          : "Этот месяц: нарезчик как OFF — recover в чистом, не в затратах.") +
+        " БП: состав + 6р. ЗП — только если тумблер вкл и месяц ≥ «с».</div>";
       html += "</div>";
 
       html += renderStatsStaffCard_(res);
@@ -15660,7 +15701,7 @@
       html += '<div style="margin-top:10px;padding:10px;border-radius:12px;background:rgba(255,69,58,0.1);">';
       html += '<div class="muted" style="font-size:12px;margin-bottom:6px;color:#ff6961;">За всё время · деньги после перехода в ПП</div>';
       html += line_("Перешло", life.converted || 0, "#fff");
-      html += line_("Затраты на все БП", (life.bpCost || 0) + " BYN", "#ff453a");
+      html += line_("Затраты БП перешедших", (life.bpCost || 0) + " BYN", "#ff453a");
       html += line_("Выручка ПП с них", (life.ppRevenue || 0) + " BYN", "#30d158");
       html += line_("Выхлоп (выручка − затраты БП перешедших)", (life.profit || 0) + " BYN", "#ff9f0a");
       html += '<div class="muted" style="font-size:11px;margin-top:8px;">Только БП тех, кто стал ПП. Оплаты подписки после конверсии (не цена пробника). Себест ПП в «Чистом» — без наценки 2.3/2.6.</div>';
@@ -15708,19 +15749,79 @@
       html += '<div class="muted" style="font-size:11px;margin-top:6px;">Не факт доставок — статичный лист подписок.</div>';
       html += "</div>";
 
+      var charts = res.charts || {};
+      var bpStages = charts.bpStages || [
+        { label: "БП1", value: bp.bp1 || 0 },
+        { label: "БП2", value: bp.bp2 || 0 },
+        { label: "Финал", value: bp.final || 0 }
+      ];
+      var bpStageMax = 1;
+      bpStages.forEach(function (s) { if ((Number(s.value) || 0) > bpStageMax) bpStageMax = Number(s.value) || 0; });
+      html += '<div class="card" id="statsBpFunnelCard">';
+      html += '<div class="section-title" style="margin-top:0;color:#bf5af2;">Воронка БП (CRM)</div>';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:8px;">Живые карточки на листе БП — не деньги месяца.</div>';
+      html += line_("Всего на листе", bp.total || 0, "#bf5af2");
+      bpStages.forEach(function (s, idx) {
+        var colors = ["#ff9f0a", "#64d2ff", "#30d158"];
+        html += statsBarRow_(s.label, s.value, bpStageMax, colors[idx] || "#bf5af2");
+      });
+      html += "</div>";
+
+      var cmp = res.compare || {};
+      if (cmp.prevMonthKey) {
+        function cmpLine_(label, value, delta, color) {
+          return '<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;font-size:13px;border-bottom:1px solid rgba(255,255,255,0.06);">' +
+            '<span class="muted">' + escapeHtml(label) + '</span><b style="color:' + (color || "#fff") + ';">' +
+            escapeHtml(String(value)) + " " + statsDeltaTxt_(delta) + "</b></div>";
+        }
+        html += '<div class="card" id="statsCompareCard">';
+        html += '<div class="section-title" style="margin-top:0;color:#64d2ff;">С прошлым месяцем · ' + escapeHtml(cmp.prevMonthKey) + "</div>";
+        html += cmpLine_("Оборот", money.turnover != null ? money.turnover : calTurnover, cmp.calTurnover, "#30d158");
+        html += cmpLine_("ПП вышло", ppActual, cmp.ppActual, "#bf5af2");
+        html += cmpLine_("Розница", retail, cmp.retail, "#ff9f0a");
+        html += cmpLine_("Доставок", deliveries, cmp.deliveries, "#fff");
+        html += cmpLine_("БП затраты", bpSpend, cmp.bpSpend, "#ff453a");
+        html += cmpLine_("Переходов", converted, cmp.bpConverted, "#fff");
+        html += "</div>";
+      }
+
+      var turnChart = charts.turnover || [];
+      if (turnChart.length) {
+        var turnMax = 1;
+        turnChart.forEach(function (s) { if ((Number(s.value) || 0) > turnMax) turnMax = Number(s.value) || 0; });
+        html += '<div class="card" id="statsTurnoverChartCard">';
+        html += '<div class="section-title" style="margin-top:0;color:#30d158;">Оборот по источникам</div>';
+        turnChart.forEach(function (s, idx) {
+          var colors2 = ["#bf5af2", "#ff9f0a", "#64d2ff"];
+          html += statsBarRow_(s.label, s.value, turnMax, colors2[idx] || "#30d158");
+        });
+        html += "</div>";
+      }
+
       return html;
     }
 
     async function exportStatsMonth() {
       try {
-        var res = await apiGet({ action: "exportStats", format: "accountant" }, { timeoutMs: 45000, cacheTtlMs: 0 });
+        var monthKey = "";
+        try { monthKey = ensureStatsMonthKey_() || ""; } catch (eM) {}
+        var res = await apiGet({
+          action: "exportStats",
+          format: "accountant",
+          month: monthKey,
+          onlyPast: "1",
+          force: "1",
+          _: String(Date.now())
+        }, { timeoutMs: 45000, cacheTtlMs: 0 });
         if (res && res.status === "success") {
           showToast(res.message || "Экспорт готов");
           if (res.tsv) {
             try { await navigator.clipboard.writeText(res.tsv); showToast("TSV скопирован"); } catch (e2) {}
+          } else {
+            showToast("Нет TSV — нужен Deploy Code.gs");
           }
         } else {
-          showToast("Экспорт не вышел — Deploy Code.gs v7.11.23");
+          showToast("Экспорт не вышел — Deploy Code.gs");
         }
       } catch (e) { showToast("Ошибка экспорта"); }
     }

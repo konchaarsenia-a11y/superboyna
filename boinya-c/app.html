@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115946" as="script">
+  <link rel="preload" href="app.main.js?v=71115947" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115946";
+      var APP_VER = "v71115947";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2351,7 +2351,10 @@
           <div id="statsMonthLabel" style="flex:1;text-align:center;font-weight:700;font-size:16px;">—</div>
           <button type="button" class="ios-cal-nav-btn" onclick="shiftStatsMonth_(1)" aria-label="Следующий месяц">›</button>
         </div>
-        <button class="btn-action btn-blue" type="button" onclick="loadStats({force:true})">Обновить</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-action btn-blue" type="button" onclick="loadStats({force:true})">Обновить</button>
+          <button class="btn-action" type="button" style="background:#3a3a3c;" onclick="exportStatsMonth()">Экспорт TSV</button>
+        </div>
       </div>
       <div id="statsContainer"><p class="muted">—</p></div>
       <div class="card" style="margin-top:12px;">
@@ -2792,6 +2795,6 @@
   </div>
   <div class="toast" id="appToast"></div>
 
-  <script src="app.main.js?v=71115946" defer></script>
+  <script src="app.main.js?v=71115947" defer></script>
 </body>
 </html>
