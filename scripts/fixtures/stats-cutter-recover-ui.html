@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stats cutter recover UI</title>
+  <style>
+    body { margin: 0; background: #0a0a0a; color: #f5f5f7; font-family: -apple-system, sans-serif; padding: 16px; }
+    .wrap { display: grid; gap: 20px; max-width: 420px; margin: 0 auto; }
+    .card { background: #1c1c1e; border-radius: 16px; padding: 14px 16px; }
+    .title { color: #64d2ff; font-weight: 800; margin: 0 0 8px; }
+    .line { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .muted { color: #8e8e93; }
+    .note { font-size: 11px; color: #8e8e93; margin-top: 8px; }
+    .staff { border: 1px solid rgba(255,214,10,0.35); }
+    .staff .title { color: #ffd60a; }
+    .banner { padding: 10px 12px; border-radius: 12px; background: rgba(255,214,10,0.12); margin-bottom: 10px; font-weight: 700; color: #ffd60a; }
+    h1 { font-size: 16px; margin: 0 0 4px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card" id="offCard">
+      <h1>Нарезчик OFF</h1>
+      <div class="title">Затраты</div>
+      <div class="line"><span class="muted">ПП (состав)</span><b>120 BYN</b></div>
+      <div class="line"><span class="muted">Recover в чистом</span><b style="color:#ff9f0a;">31.23 BYN · 4 чел</b></div>
+      <div class="line"><span class="muted">Доставки ПП (9×N RAW26 / 6×N LEGACY)</span><b>18 BYN</b></div>
+      <div class="line"><span class="muted">ЗП сотрудников</span><b>0 BYN · 0 чел.</b></div>
+      <div class="line"><span class="muted">Всего</span><b style="color:#64d2ff;">200 BYN</b></div>
+      <div class="note">ПП: состав без наценки + recover + 9×N (RAW26). Нарезчик выкл — recover в чистом, не в затратах.</div>
+    </section>
+    <section class="card staff" id="offStaff">
+      <div class="title">Нарезчик (ЗП)</div>
+      <div class="muted" style="font-size:13px;">Сейчас выключен — ЗП = 0, recover ПП в чистом (не в затратах).</div>
+    </section>
+    <section class="card" id="onCard">
+      <h1>Нарезчик ON</h1>
+      <div class="title">Затраты</div>
+      <div class="line"><span class="muted">ПП (состав)</span><b>120 BYN</b></div>
+      <div class="line"><span class="muted">Recover ПП (свет+нарезка+дойпак)</span><b style="color:#bf5af2;">31.23 BYN · 4 чел</b></div>
+      <div class="line"><span class="muted">Доставки ПП (9×N RAW26 / 6×N LEGACY)</span><b>18 BYN</b></div>
+      <div class="line"><span class="muted">ЗП сотрудников</span><b>900 BYN · 1 чел.</b></div>
+      <div class="line"><span class="muted">Всего</span><b style="color:#64d2ff;">1131.23 BYN</b></div>
+      <div class="note">ПП: состав без наценки + recover + 9×N (RAW26). Нарезчик вкл — recover в затратах.</div>
+    </section>
+    <section class="card staff" id="onStaff">
+      <div class="title">Нарезчик (ЗП)</div>
+      <div class="banner">Включён · 900 BYN/мес</div>
+      <div class="muted" style="font-size:11px;">с 2026-09 · в затратах: ЗП + recover ПП</div>
+    </section>
+  </div>
+</body>
+</html>

@@ -18643,6 +18643,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     partnerRows: [],
     ppBasketCost: 0,
     ppLightCost: 0,
+    ppRecoverCost: 0,
+    ppRecoverInClean: 0,
     ppDeliveryCost: 0,
     ppLightPeople: 0,
     ppLightKeys: {}
@@ -18872,6 +18874,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     out.ppBasketCost = Math.round(ppBasketSum * 100) / 100;
     out.ppDeliveryCost = Math.round(ppDelivSum * 100) / 100;
     out.ppLightCost = Math.round(ppLightSum * 100) / 100;
+    out.ppRecoverCost = out.ppLightCost;
     out.ppLightPeople = ppPeople;
   } catch (ePpCost) {}
   // ПП без цены ни на одной доставке месяца
@@ -18891,6 +18894,7 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   out.ppBasketCost = Math.round((out.ppBasketCost || 0) * 100) / 100;
   out.ppDeliveryCost = Math.round((out.ppDeliveryCost || 0) * 100) / 100;
   out.ppLightCost = Math.round((out.ppLightCost || 0) * 100) / 100;
+  out.ppRecoverCost = Math.round((out.ppRecoverCost || out.ppLightCost || 0) * 100) / 100;
   out.ppClientsDelivered = Object.keys(out.ppDeliveredKeys).length;
   out.todayIso = todayIso;
   out.fromIso = fromIso;
@@ -22028,6 +22032,42 @@ function collectStatsStaffForMonth_(monthKey) {
   return out;
 }
 
+/** Нарезчик в затратах месяца = preset в applied staff (active + from/to + ЗП). */
+function isStatsCutterActiveForMonth_(staffMonth) {
+  var list = (staffMonth && staffMonth.staff) || [];
+  for (var i = 0; i < list.length; i++) {
+    var s = list[i];
+    if (!s) continue;
+    if (s.id === STATS_CUTTER_PRESET_ID_) return true;
+    if (String(s.name || "").toLowerCase() === STATS_CUTTER_PRESET_NAME_.toLowerCase()) return true;
+  }
+  return false;
+}
+
+/**
+ * Cutter OFF → recover (RAW26 recoverByn / LEGACY +11 light) уходит из
+ * costActual / costBySource.pp в чистое. Cutter ON → recover остаётся в затратах.
+ * staffCost не трогает — его добавляет handleGetStats отдельно.
+ */
+function applyStatsCutterRecoverSplit_(month, cutterOn) {
+  month = month || {};
+  var recover = Math.round((Number(month.ppRecoverCost != null ? month.ppRecoverCost : month.ppLightCost) || 0) * 100) / 100;
+  month.ppRecoverCost = recover;
+  month.ppRecoverInClean = 0;
+  month.cutterEnabled = !!cutterOn;
+  if (!cutterOn && recover > 0) {
+    if (!month.costBySource) month.costBySource = {};
+    var ppCost = Number(month.costBySource.pp) || 0;
+    var nextPp = Math.round((ppCost - recover) * 100) / 100;
+    if (nextPp < 0) nextPp = 0;
+    month.costBySource.pp = nextPp;
+    month.costActual = Math.round(((Number(month.costActual) || 0) - recover) * 100) / 100;
+    if (month.costActual < 0) month.costActual = 0;
+    month.ppRecoverInClean = recover;
+  }
+  return month;
+}
+
 function invalidateStatsCache_() {
   try {
     var cache = CacheService.getScriptCache();
@@ -22036,6 +22076,7 @@ function invalidateStatsCache_() {
     for (var i = 0; i < 18; i++) {
       var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       var mk = Utilities.formatDate(d, "Europe/Minsk", "yyyy-MM");
+      keys.push("STATS19:" + mk);
       keys.push("STATS18:" + mk);
       keys.push("STATS17:" + mk);
     }
@@ -22268,7 +22309,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS18:" + monthKey;
+  var cacheKey = "STATS19:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -22307,9 +22348,12 @@ function handleGetStats(json, callback, fromPost) {
   var ppActual = Number(ppOut.actual) || 0;
   var calTurnover = Math.round((ppActual + retail + partner) * 100) / 100;
   var bpSpend = Number(month.bpCost) || 0;
-  var costActual = Number(month.costActual) || 0;
   var staffMonth = { staff: [], cost: 0, count: 0, floorMonth: STATS_STAFF_COST_FLOOR_MONTH_ };
   try { staffMonth = collectStatsStaffForMonth_(monthKey); } catch (eStaff) {}
+  var cutterOnMonth = false;
+  try { cutterOnMonth = isStatsCutterActiveForMonth_(staffMonth); } catch (eCut) {}
+  try { applyStatsCutterRecoverSplit_(month, cutterOnMonth); } catch (eSplit) {}
+  var costActual = Number(month.costActual) || 0;
   var staffCost = Number(staffMonth.cost) || 0;
   costActual = Math.round((costActual + staffCost) * 100) / 100;
   var converted = Number(conv.count) || 0;
@@ -22410,11 +22454,18 @@ function handleGetStats(json, callback, fromPost) {
       ppRevenue: ppActual,
       ppBasketCost: Number(month.ppBasketCost) || 0,
       ppLightCost: Number(month.ppLightCost) || 0,
+      ppRecoverCost: Number(month.ppRecoverCost) || 0,
+      ppRecoverInClean: Number(month.ppRecoverInClean) || 0,
       ppDeliveryCost: Number(month.ppDeliveryCost) || 0,
       ppLightPeople: Number(month.ppLightPeople) || 0,
       ppDeliveries: Number(month.bySource && month.bySource.pp) || 0,
       ppLightFeeEach: PP_LIGHT_COST_BYN_,
       ppDeliveryFeeEach: PP_DELIVERY_COST_BYN_,
+      cutter: {
+        enabled: !!cutterOnMonth,
+        id: STATS_CUTTER_PRESET_ID_,
+        name: STATS_CUTTER_PRESET_NAME_
+      },
       bpCost: bpSpend,
       bpBasketCost: Number(month.bpBasketCost) || 0,
       bpDeliveryCost: Number(month.bpDeliveryCost) || 0,
@@ -22449,6 +22500,7 @@ function handleGetStats(json, callback, fromPost) {
           id: STATS_CUTTER_PRESET_ID_,
           name: STATS_CUTTER_PRESET_NAME_,
           enabled: !!(hit && hit.active),
+          enabledForMonth: !!cutterOnMonth,
           salary: hit ? Number(hit.salary) || getStatsCutterDefaultSalary_() : getStatsCutterDefaultSalary_(),
           fromMonth: hit ? hit.fromMonth : STATS_STAFF_COST_FLOOR_MONTH_,
           defaultSalary: getStatsCutterDefaultSalary_()
@@ -22573,7 +22625,12 @@ function handleGetStats(json, callback, fromPost) {
       ]
     },
     factCutoff: month.todayIso || "",
-    note: "Прибыль = оборот. Чистое = оборот − затраты. ПП = состав без наценки + свет/доставка. БП = состав + 6р. ЗП сотрудников — только с месяца «с» (не раньше 2026-09)."
+    cutter: {
+      enabled: !!cutterOnMonth,
+      id: STATS_CUTTER_PRESET_ID_,
+      name: STATS_CUTTER_PRESET_NAME_
+    },
+    note: "Прибыль = оборот. Чистое = оборот − затраты. ПП = состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY). Нарезчик выкл → recover в чистом. БП = состав + 6р. ЗП — если нарезчик вкл и месяц ≥ «с»."
   };
   try {
     CacheService.getScriptCache().put(cacheKey, JSON.stringify(ok), 600);

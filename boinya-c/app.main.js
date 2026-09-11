@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115945";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115946";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -15481,11 +15481,11 @@
       var salShow = Number(cutter.salary) || Number(cutter.defaultSalary) || 900;
       var html = '<div class="card" id="statsStaffCard" style="border:1px solid rgba(255,214,10,0.35);">';
       html += '<div class="section-title" style="margin-top:0;color:#ffd60a;">Нарезчик (ЗП)</div>';
-      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">ЗП нарезчика входит в себест статистики <b>только когда включён</b>. Август 2026 и раньше — без ЗП (пол ' + escapeHtml(floor) + ').</div>';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">ЗП нарезчика входит в себест <b>только когда включён</b>. Выкл → recover ПП (свет+нарезка+дойпак) идёт в <b>чистое</b>, не в затраты. Август 2026 и раньше — без ЗП (пол ' + escapeHtml(floor) + ').</div>';
       if (cutter.enabled) {
         html += '<div style="padding:10px 12px;border-radius:12px;background:rgba(255,214,10,0.12);margin-bottom:10px;">';
         html += '<div style="font-weight:700;color:#ffd60a;">Включён · ' + escapeHtml(String(salShow)) + ' BYN/мес</div>';
-        html += '<div class="muted" style="font-size:11px;margin-top:4px;">с ' + escapeHtml(cutter.fromMonth || floor) + " · в затратах строка «ЗП сотрудников»</div>";
+        html += '<div class="muted" style="font-size:11px;margin-top:4px;">с ' + escapeHtml(cutter.fromMonth || floor) + " · в затратах: ЗП + recover ПП</div>";
         html += "</div>";
         html += '<div class="form-group" style="margin:0 0 8px;"><label>ЗП / мес (BYN)</label>';
         html += '<input type="number" id="statsCutterSalary" step="0.01" min="0" inputmode="decimal" value="' + escapeHtml(String(salShow)) + '"></div>';
@@ -15494,7 +15494,7 @@
         html += '<button type="button" class="btn-action" style="background:#3a3a3c;" onclick="setStatsCutterEnabled_(false)">Выключить</button>';
         html += "</div>";
       } else {
-        html += '<div class="muted" style="font-size:13px;margin-bottom:10px;">Сейчас выключен — в затратах ЗП = 0.</div>';
+        html += '<div class="muted" style="font-size:13px;margin-bottom:10px;">Сейчас выключен — ЗП = 0, recover ПП в чистом (не в затратах).</div>';
         html += '<div class="form-group" style="margin:0 0 8px;"><label>ЗП / мес (BYN)</label>';
         html += '<input type="number" id="statsCutterSalary" step="0.01" min="0" inputmode="decimal" value="' + escapeHtml(String(salShow)) + '"></div>';
         html += '<button type="button" class="btn-action btn-orange" onclick="setStatsCutterEnabled_(true)">Включить нарезчика</button>';
@@ -15557,11 +15557,12 @@
       var ppBasketCost = fact.ppBasketCost != null ? fact.ppBasketCost : 0;
       var partnerCostApp = costBy.partner != null ? costBy.partner : 0;
       var ppLightCost = fact.ppLightCost != null ? fact.ppLightCost : 0;
+      var ppRecoverCost = fact.ppRecoverCost != null ? Number(fact.ppRecoverCost) : Number(ppLightCost) || 0;
+      var ppRecoverInClean = Number(fact.ppRecoverInClean) || 0;
+      var cutterFactOn = fact.cutter ? !!fact.cutter.enabled : (ppRecoverInClean <= 0);
       var ppDeliveryCost = fact.ppDeliveryCost != null ? fact.ppDeliveryCost : 0;
       var ppLightPeople = fact.ppLightPeople != null ? fact.ppLightPeople : 0;
       var ppDelivN = fact.ppDeliveries != null ? fact.ppDeliveries : (by.pp || 0);
-      var ppLightEach = fact.ppLightFeeEach != null ? fact.ppLightFeeEach : 11;
-      var ppDelivEach = fact.ppDeliveryFeeEach != null ? fact.ppDeliveryFeeEach : 6;
       var profitFact = fact.profit != null ? fact.profit : calTurnover;
       var cleanFact = fact.clean != null ? fact.clean : Math.round((Number(calTurnover) - Number(costActual)) * 100) / 100;
       var life = bp.life || {};
@@ -15623,14 +15624,22 @@
       html += line_(" · ПП (состав)", ppBasketCost + " BYN", "#bf5af2");
       html += line_(" · партнёр-заказ", partnerCostApp + " BYN", "#64d2ff");
       html += line_("Купоны", couponsCost + " BYN", "#ffd60a");
-      html += line_("Свет ПП (" + ppLightEach + "р × " + ppLightPeople + " чел)", ppLightCost + " BYN", "#bf5af2");
-      html += line_("Доставки ПП (" + ppDelivEach + "р × " + ppDelivN + ")", ppDeliveryCost + " BYN", "#bf5af2");
+      if (ppRecoverInClean > 0) {
+        html += line_("Recover в чистом", ppRecoverInClean + " BYN · " + ppLightPeople + " чел", "#ff9f0a");
+      } else if (ppRecoverCost > 0) {
+        html += line_("Recover ПП (свет+нарезка+дойпак)", ppRecoverCost + " BYN · " + ppLightPeople + " чел", "#bf5af2");
+      }
+      html += line_("Доставки ПП (9×N RAW26 / 6×N LEGACY)", ppDeliveryCost + " BYN · " + ppDelivN, "#bf5af2");
       html += line_("БП (состав + 6р)", bpSpend + " BYN · " + bpDeliv + " дост.", "#ff453a");
       var staffCost = fact.staffCost != null ? fact.staffCost : ((res.staff && res.staff.cost) || 0);
       var staffCount = fact.staffCount != null ? fact.staffCount : ((res.staff && res.staff.count) || 0);
       html += line_("ЗП сотрудников", staffCost + " BYN · " + staffCount + " чел.", "#ffd60a");
       html += line_("Всего", costActual + " BYN", "#64d2ff");
-      html += '<div class="muted" style="font-size:11px;margin-top:8px;">ПП: состав (без наценки) + свет 11р/чел + 6р за доставку. БП: состав + 6р. ЗП нарезчика — только если включён и месяц ≥ «с».</div>';
+      html += '<div class="muted" style="font-size:11px;margin-top:8px;">ПП: состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY). ' +
+        (cutterFactOn
+          ? "Нарезчик вкл — recover в затратах."
+          : "Нарезчик выкл — recover в чистом, не в затратах.") +
+        " БП: состав + 6р. ЗП — только если включён и месяц ≥ «с».</div>";
       html += "</div>";
 
       html += renderStatsStaffCard_(res);
