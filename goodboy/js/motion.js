@@ -154,7 +154,6 @@
     if (reduced()) return;
     var hero = document.querySelector(".site-hero");
     var stage = hero && (hero.querySelector(".hero-features") || hero.querySelector(".hero-stage"));
-    var head = hero && hero.querySelector(".hero-head-stage");
     var copy = hero && hero.querySelector(".hero-copy");
     var shelves = document.querySelectorAll(".photo-shelves .shelf");
     if (!hero && !shelves.length) return;
@@ -165,20 +164,16 @@
       var y = global.scrollY || 0;
       var vh = global.innerHeight || 1;
 
-      if (hero && (stage || copy || head)) {
+      if (hero && (stage || copy)) {
         var h = hero.offsetHeight || 1;
         var p = Math.min(1, Math.max(0, y / h));
         if (p < 0.01) {
           if (stage) { stage.style.transform = ""; stage.style.opacity = ""; }
-          if (head) { head.style.setProperty("--sy", "0px"); }
           if (copy) { copy.style.transform = ""; copy.style.opacity = ""; }
         } else {
           if (stage) {
             stage.style.transform = "translate3d(0," + (p * 18).toFixed(1) + "px,0)";
             stage.style.opacity = String((1 - p * 0.35).toFixed(3));
-          }
-          if (head) {
-            head.style.setProperty("--sy", (p * 14).toFixed(1) + "px");
           }
           if (copy) {
             copy.style.transform = "translate3d(0," + (p * 10).toFixed(1) + "px,0)";
@@ -328,122 +323,6 @@
     }
   }
 
-  function initHeroHead() {
-    var face = document.getElementById("gbHeroFace");
-    var orbits = face ? face.querySelectorAll(".gb-orbit") : [];
-    if (!face || !orbits.length) return;
-    if (reduced()) return;
-
-    var TAU = 0.12;
-    var nodes = [];
-    for (var i = 0; i < orbits.length; i++) {
-      var el = orbits[i];
-      var gaze = el.querySelector(".gb-gaze");
-      if (!gaze) continue;
-      nodes.push({
-        el: el,
-        gaze: gaze,
-        maxRatio: Number(el.getAttribute("data-max")) || 0.22,
-        x: 0,
-        y: 0,
-        tx: 0,
-        ty: 0
-      });
-    }
-    if (!nodes.length) return;
-
-    var touchDown = false;
-    var lastTs = 0;
-    var running = true;
-
-    function capOf(eye) {
-      var orb = eye.el.getBoundingClientRect();
-      var g = eye.gaze.getBoundingClientRect();
-      var room = (orb.width - g.width) * 0.5 - 1;
-      return Math.max(3, Math.min(room, orb.width * eye.maxRatio));
-    }
-
-    function aimAt(clientX, clientY) {
-      for (var n = 0; n < nodes.length; n++) {
-        var eye = nodes[n];
-        var r = eye.el.getBoundingClientRect();
-        var dx = clientX - (r.left + r.width * 0.5);
-        var dy = clientY - (r.top + r.height * 0.5);
-        var len = Math.hypot(dx, dy);
-        var cap = capOf(eye);
-        if (len < 0.001) {
-          eye.tx = 0;
-          eye.ty = 0;
-          continue;
-        }
-        var scale = Math.min(1, cap / len);
-        eye.tx = dx * scale;
-        eye.ty = dy * scale;
-      }
-    }
-
-    function rest() {
-      for (var n = 0; n < nodes.length; n++) {
-        nodes[n].tx = 0;
-        nodes[n].ty = 0;
-      }
-    }
-
-    function tick(ts) {
-      if (!running) return;
-      var dt = lastTs ? Math.min(0.05, (ts - lastTs) / 1000) : 0.016;
-      lastTs = ts;
-      var k = 1 - Math.exp(-dt / TAU);
-      for (var n = 0; n < nodes.length; n++) {
-        var eye = nodes[n];
-        eye.x += (eye.tx - eye.x) * k;
-        eye.y += (eye.ty - eye.y) * k;
-        if (Math.abs(eye.x) < 0.02) eye.x = 0;
-        if (Math.abs(eye.y) < 0.02) eye.y = 0;
-        eye.gaze.style.setProperty("--gx", eye.x.toFixed(2) + "px");
-        eye.gaze.style.setProperty("--gy", eye.y.toFixed(2) + "px");
-      }
-      global.requestAnimationFrame(tick);
-    }
-
-    function isTouch(e) {
-      return e.pointerType === "touch" || e.pointerType === "pen";
-    }
-
-    global.addEventListener("pointerdown", function (e) {
-      if (!isTouch(e)) return;
-      touchDown = true;
-      aimAt(e.clientX, e.clientY);
-    }, { passive: true });
-
-    global.addEventListener("pointermove", function (e) {
-      if (isTouch(e)) {
-        if (!touchDown) return;
-        aimAt(e.clientX, e.clientY);
-        return;
-      }
-      aimAt(e.clientX, e.clientY);
-    }, { passive: true });
-
-    function endTouch() {
-      if (!touchDown) return;
-      touchDown = false;
-      rest();
-    }
-    global.addEventListener("pointerup", function (e) {
-      if (isTouch(e)) endTouch();
-    }, { passive: true });
-    global.addEventListener("pointercancel", function (e) {
-      if (isTouch(e)) endTouch();
-    }, { passive: true });
-
-    document.addEventListener("mouseleave", function () {
-      if (!touchDown) rest();
-    });
-
-    global.requestAnimationFrame(tick);
-  }
-
   function init() {
     initNav();
     initProgress();
@@ -451,7 +330,6 @@
     initHeroEntrance();
     initReveal();
     initPointerLight();
-    initHeroHead();
     initScrollParallax();
     initPhoneDemo();
   }
