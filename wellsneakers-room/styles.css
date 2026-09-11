@@ -146,8 +146,8 @@ body:not(.page-home):not(.page-catalog) .top{position:sticky;transform:none;poin
 }
 
 .cats-anchor{
-  padding:12px 0 8px;
-  margin:8px 0 12px;
+  padding:12px 0 14px;
+  margin:10px 0 16px;
 }
 .nav-inline{padding:2px 0 6px}
 body.page-home.is-nav .cats-anchor{
@@ -254,7 +254,7 @@ body.page-home.is-nav .cats-anchor{
 }
 .perk[open] .perk-more{animation:perkIn .16s ease}
 .perk-sticker{
-  position:absolute;top:-8px;right:10px;
+  position:absolute;top:-8px;left:12px;right:auto;
   padding:4px 8px;border-radius:6px;
   font-family:var(--display);font-size:13px;letter-spacing:.05em;text-transform:uppercase;
   background:#f5f2ec;color:#111;border:2px solid #111;
@@ -505,9 +505,10 @@ main{position:relative;z-index:1}
   width:min(480px,100%);margin:0 auto;
   background:#151618;border:1px solid var(--line);border-bottom:0;
   border-radius:20px 20px 0 0;padding:16px 18px calc(20px + var(--safe-b));
-  transform:translateY(110%);transition:transform .22s ease;max-height:75vh;overflow:auto;
+  transform:translateY(110%);transition:transform .22s ease,visibility .22s;
+  max-height:75vh;overflow:auto;visibility:hidden;pointer-events:none;
 }
-.sheet.open{transform:translateY(0)}
+.sheet.open{transform:translateY(0);visibility:visible;pointer-events:auto}
 .sheet h3{
   margin:0 0 14px;font-family:var(--display);
   font-size:clamp(28px,6vw,36px);letter-spacing:.08em;text-transform:uppercase;font-weight:400;
@@ -566,6 +567,8 @@ main{position:relative;z-index:1}
   .sticky-filters{top:72px}
   .street-drop{min-height:56px}
   .street-drop-label{font-size:20px}
+  .filter-context{flex-wrap:wrap}
+  .filter-context .street-opt{flex:0 0 auto;min-width:72px;padding:0 16px}
   .prod-img{height:188px}
   .prod-body{padding:12px 14px 14px}
   .toy{width:88px;height:88px}
