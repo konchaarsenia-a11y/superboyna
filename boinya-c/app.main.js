@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115948";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115949";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -15442,6 +15442,10 @@
           (res.cutter && res.cutter.enabledForMonth ? " · нарезчик вкл" : " · нарезчик как OFF") + "</div>";
       }
       html += "</div>";
+      var feeLine = statsPpFeeEchoLine_(res);
+      if (feeLine) {
+        html += '<div class="muted" style="font-size:11px;margin-top:8px;">' + escapeHtml(feeLine) + "</div>";
+      }
       box.innerHTML = html;
     }
     window.loadExpectedProfit = loadExpectedProfit;
@@ -15567,6 +15571,32 @@
     }
     window.setStatsCutterEnabled_ = setStatsCutterEnabled_;
 
+    /** marker stats-pp-fee-echo-h1 — тариф ПП из ppScheme, не stale 11+6. */
+    function statsPpSchemeOf_(src) {
+      var sch = String((src && src.ppScheme) || "").toUpperCase();
+      if (sch === "RAW26" || sch === "LEGACY" || sch === "MIXED") return sch;
+      return "";
+    }
+    function statsPpDeliveryLabel_(src) {
+      var sch = statsPpSchemeOf_(src);
+      if (sch === "RAW26") return "Доставки ПП (9×N RAW26)";
+      if (sch === "LEGACY") return "Доставки ПП (6×N LEGACY)";
+      return "Доставки ПП (9×N RAW26 / 6×N LEGACY)";
+    }
+    function statsPpCostFootnote_(src) {
+      var sch = statsPpSchemeOf_(src);
+      if (sch === "RAW26") return "ПП: состав без наценки + recover 3.90/100г + 9×N (RAW26) + пакеты/фракции. ";
+      if (sch === "LEGACY") return "ПП: состав без наценки + 11 + 6×N (LEGACY) + пакеты/фракции. ";
+      return "ПП: состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY) + пакеты/фракции. ";
+    }
+    function statsPpFeeEchoLine_(src) {
+      var sch = statsPpSchemeOf_(src);
+      if (sch === "RAW26") return "Тариф ПП RAW26: recover 3.90/100г + доставка 9×N";
+      if (sch === "LEGACY") return "Тариф ПП LEGACY: +11 + 6×N";
+      if (sch === "MIXED") return "Тариф ПП смешанный: RAW26 recover 3.90+9×N / LEGACY +11+6×N";
+      return "";
+    }
+
     function renderStatsDashboard_(res) {
       var pp = res.pp || {};
       var bp = res.bp || {};
@@ -15668,7 +15698,7 @@
       } else if (ppRecoverCost > 0) {
         html += line_("Recover ПП (свет+нарезка+дойпак)", ppRecoverCost + " BYN · " + ppLightPeople + " чел", "#bf5af2");
       }
-      html += line_("Доставки ПП (9×N RAW26 / 6×N LEGACY)", ppDeliveryCost + " BYN · " + ppDelivN, "#bf5af2");
+      html += line_(statsPpDeliveryLabel_(fact), ppDeliveryCost + " BYN · " + ppDelivN, "#bf5af2");
       html += line_("Пакеты + фракции", (Math.round((ppPackagesCost + ppFractionCost) * 100) / 100) +
         " BYN · пакеты " + ppPackagesCost + " + фракции " + ppFractionCost, "#64d2ff");
       html += line_("БП (состав + 6р)", bpSpend + " BYN · " + bpDeliv + " дост.", "#ff453a");
@@ -15676,7 +15706,7 @@
       var staffCount = fact.staffCount != null ? fact.staffCount : ((res.staff && res.staff.count) || 0);
       html += line_("ЗП сотрудников", staffCost + " BYN · " + staffCount + " чел.", "#ffd60a");
       html += line_("Всего", costActual + " BYN", "#64d2ff");
-      html += '<div class="muted" style="font-size:11px;margin-top:8px;">ПП: состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY) + пакеты/фракции. ' +
+      html += '<div class="muted" style="font-size:11px;margin-top:8px;">' + statsPpCostFootnote_(fact) +
         (cutterMonthOn
           ? "Этот месяц: нарезчик в затратах."
           : "Этот месяц: нарезчик как OFF — recover в чистом, не в затратах.") +
