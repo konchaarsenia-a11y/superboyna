@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="css/site-v070.css?v=149" />
+    <link rel="stylesheet" href="css/site-v070.css?v=147" />
   <style>
     /* критичный лоадер — до основного CSS */
     html.gb-booting { overflow: hidden; }
@@ -123,25 +123,87 @@
       <div class="hero-head-place" aria-hidden="true">
         <div class="hero-head-stage" id="gbHeroHead">
           <div class="hero-glow hero-glow--head"></div>
-          <div class="gb-hero-face" id="gbHeroFace">
-            <img
-              class="gb-hero-mark"
-              src="assets/logo-head-v3.png?v=148"
-              width="760"
-              height="610"
-              alt=""
-              draggable="false"
-              decoding="async"
-            />
-            <div class="gb-orbit gb-orbit--l" style="--ex:0.32368;--ey:0.51639;--ed:0.1605" data-max="0.22">
-              <i class="gb-socket" aria-hidden="true"></i>
-              <img class="gb-gaze" src="assets/logo-eye-l.png?v=148" width="94" height="94" alt="" draggable="false" />
-            </div>
-            <div class="gb-orbit gb-orbit--r" style="--ex:0.65658;--ey:0.51475;--ed:0.1605" data-max="0.22">
-              <i class="gb-socket" aria-hidden="true"></i>
-              <img class="gb-gaze" src="assets/logo-eye-r.png?v=148" width="94" height="94" alt="" draggable="false" />
-            </div>
-          </div>
+          <svg class="gb-hero-head" id="gbHeroSvg" viewBox="0 0 400 460" fill="none" aria-hidden="true" focusable="false">
+            <defs>
+              <radialGradient id="gbFur" cx="36%" cy="28%" r="74%">
+                <stop offset="0%" stop-color="#3a403c"/>
+                <stop offset="50%" stop-color="#262c29"/>
+                <stop offset="100%" stop-color="#1e2421"/>
+              </radialGradient>
+              <radialGradient id="gbFurWarm" cx="78%" cy="36%" r="60%">
+                <stop offset="0%" stop-color="#d4a15a" stop-opacity="0.22"/>
+                <stop offset="60%" stop-color="#d4a15a" stop-opacity="0"/>
+              </radialGradient>
+              <linearGradient id="gbCream" x1="50%" y1="0%" x2="50%" y2="100%">
+                <stop offset="0%" stop-color="#e0b87a"/>
+                <stop offset="55%" stop-color="#f3ead8"/>
+                <stop offset="100%" stop-color="#d4a15a"/>
+              </linearGradient>
+              <radialGradient id="gbEarIn" cx="40%" cy="34%" r="70%">
+                <stop offset="0%" stop-color="#e0b87a"/>
+                <stop offset="100%" stop-color="#c4893f"/>
+              </radialGradient>
+              <radialGradient id="gbNose" cx="36%" cy="26%" r="70%">
+                <stop offset="0%" stop-color="#2c3330"/>
+                <stop offset="100%" stop-color="#0c0f0d"/>
+              </radialGradient>
+              <clipPath id="gbEyeClipL"><circle cx="146" cy="224" r="28"/></clipPath>
+              <clipPath id="gbEyeClipR"><circle cx="254" cy="224" r="28"/></clipPath>
+            </defs>
+            <g class="gb-head-tilt">
+              <g class="gb-head-bob">
+                <g class="gb-ear gb-ear--l">
+                  <ellipse cx="108" cy="112" rx="44" ry="92" transform="rotate(-18 108 112)" fill="#1e2421"/>
+                  <ellipse cx="112" cy="118" rx="25" ry="64" transform="rotate(-18 112 118)" fill="url(#gbEarIn)"/>
+                </g>
+                <g class="gb-ear gb-ear--r">
+                  <ellipse cx="292" cy="112" rx="44" ry="92" transform="rotate(18 292 112)" fill="#1e2421"/>
+                  <ellipse cx="288" cy="118" rx="25" ry="64" transform="rotate(18 288 118)" fill="url(#gbEarIn)"/>
+                </g>
+                <circle cx="200" cy="252" r="148" fill="url(#gbFur)" stroke="#1e2421" stroke-width="5"/>
+                <circle cx="200" cy="252" r="148" fill="url(#gbFurWarm)"/>
+                <rect x="176" y="112" width="48" height="128" rx="24" fill="url(#gbCream)"/>
+                <g class="gb-muzzle">
+                  <ellipse cx="200" cy="438" rx="86" ry="16" fill="#1e2421" opacity="0.4"/>
+                  <ellipse cx="200" cy="318" rx="112" ry="86" fill="url(#gbCream)"/>
+                  <ellipse cx="128" cy="292" rx="26" ry="18" fill="#c4893f" opacity="0.22"/>
+                  <ellipse cx="272" cy="292" rx="26" ry="18" fill="#c4893f" opacity="0.22"/>
+                  <ellipse cx="200" cy="272" rx="30" ry="24" fill="url(#gbNose)"/>
+                  <ellipse cx="190" cy="270" rx="4.4" ry="5.6" fill="#080a09"/>
+                  <ellipse cx="210" cy="270" rx="4.4" ry="5.6" fill="#080a09"/>
+                  <ellipse cx="188" cy="262" rx="6" ry="2.6" fill="#e0b87a" opacity="0.35"/>
+                  <path d="M170 322Q200 344 230 322" stroke="#c4893f" stroke-width="5" stroke-linecap="round"/>
+                  <circle cx="152" cy="312" r="2.2" fill="#c4893f" opacity="0.45"/>
+                  <circle cx="166" cy="300" r="1.8" fill="#c4893f" opacity="0.4"/>
+                  <circle cx="140" cy="298" r="1.5" fill="#c4893f" opacity="0.32"/>
+                  <circle cx="158" cy="328" r="1.4" fill="#c4893f" opacity="0.28"/>
+                  <circle cx="248" cy="312" r="2.2" fill="#c4893f" opacity="0.45"/>
+                  <circle cx="234" cy="300" r="1.8" fill="#c4893f" opacity="0.4"/>
+                  <circle cx="260" cy="298" r="1.5" fill="#c4893f" opacity="0.32"/>
+                  <circle cx="242" cy="328" r="1.4" fill="#c4893f" opacity="0.28"/>
+                  <path d="M92 392C120 424 280 424 308 392" stroke="#1e2421" stroke-width="10" stroke-linecap="round" opacity="0.85"/>
+                </g>
+                <g class="gb-eye gb-eye--l" data-cx="146" data-cy="224" data-orbit="28" data-pupil="17" clip-path="url(#gbEyeClipL)">
+                  <circle class="gb-orbit" cx="146" cy="224" r="28" fill="#f4eee4"/>
+                  <g class="gb-gaze">
+                    <circle class="gb-pupil" cx="146" cy="226" r="17" fill="#1e2421"/>
+                    <circle class="gb-hi" cx="139" cy="219" r="5.5" fill="#fffef8"/>
+                    <circle class="gb-hi" cx="153" cy="231" r="2" fill="#fffef8" opacity="0.4"/>
+                  </g>
+                  <ellipse class="gb-lid" cx="146" cy="210" rx="29" ry="30" fill="#262c29"/>
+                </g>
+                <g class="gb-eye gb-eye--r" data-cx="254" data-cy="224" data-orbit="28" data-pupil="17" clip-path="url(#gbEyeClipR)">
+                  <circle class="gb-orbit" cx="254" cy="224" r="28" fill="#f4eee4"/>
+                  <g class="gb-gaze">
+                    <circle class="gb-pupil" cx="254" cy="226" r="17" fill="#1e2421"/>
+                    <circle class="gb-hi" cx="247" cy="219" r="5.5" fill="#fffef8"/>
+                    <circle class="gb-hi" cx="261" cy="231" r="2" fill="#fffef8" opacity="0.4"/>
+                  </g>
+                  <ellipse class="gb-lid" cx="254" cy="210" rx="29" ry="30" fill="#262c29"/>
+                </g>
+              </g>
+            </g>
+          </svg>
         </div>
       </div>
       <div class="hero-read-veil" aria-hidden="true"></div>
@@ -395,12 +457,12 @@
 
     <footer class="site-footer">
       GOOD BOY · <a href="https://www.instagram.com/goodboy_rb" target="_blank" rel="noopener">@goodboy_rb</a>
-      · v0.9.38
+      · v0.9.37
     </footer>
   </div>
 
   <script src="js/boot-loader.js?v=132"></script>
-  <script src="js/motion.js?v=149"></script>
+  <script src="js/motion.js?v=147"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.GBMotion) GBMotion.init();
