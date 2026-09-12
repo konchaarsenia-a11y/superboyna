@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <title>sneakerworld — каталог</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      .api-banner{margin:12px 0;padding:10px 12px;border:1px dashed rgba(255,255,255,.25);border-radius:10px;color:var(--muted);font-size:13px}
+      .api-banner.ok{border-color:rgba(79,212,255,.45);color:var(--cyan)}
+      .api-banner.err{border-color:rgba(196,30,42,.5);color:#ffb4ba}
+      .prod-placeholder{
+        height:180px;background:
+          radial-gradient(circle at 30% 30%, rgba(79,212,255,.12), transparent 50%),
+          linear-gradient(160deg,#1a1b1f,#121316);
+        display:grid;place-items:center;border-bottom:1px solid var(--line);
+        font-family:var(--display);font-size:42px;letter-spacing:.08em;color:rgba(255,255,255,.18);
+      }
+      .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:80;display:none}
+      .modal-bg.open{display:block}
+      .modal{position:fixed;left:0;right:0;bottom:0;z-index:81;width:min(480px,100%);margin:0 auto;
+        background:#151618;border:1px solid var(--line);border-radius:20px 20px 0 0;padding:16px 18px 24px;
+        transform:translateY(110%);transition:transform .22s ease}
+      .modal.open{transform:translateY(0)}
+      .modal h3{margin:0 0 12px;font-family:var(--display);font-size:28px;letter-spacing:.06em;text-transform:uppercase;font-weight:400}
+      .modal label{display:block;color:var(--muted);font-size:12px;margin:8px 0 4px}
+      .modal input,.modal select{width:100%;min-height:44px;border-radius:10px;border:1px solid var(--line);background:#121316;color:var(--ink);padding:0 12px}
+      .modal .actions{display:grid;gap:8px;margin-top:14px}
+      .count-pill{color:var(--muted);font-size:13px;font-weight:600;margin-top:6px}
+    </style>
+  </head>
+  <body class="page-catalog">
+    <div class="overscroll-toys" aria-hidden="true">
+      <span class="toy t1"><img src="assets/h1.jpg" alt="" /></span>
+      <span class="toy t2"><img src="assets/clean1.jpg" alt="" /></span>
+      <span class="toy t3"><img src="assets/h2.jpg" alt="" /></span>
+      <span class="toy t4"><img src="assets/clean2.jpg" alt="" /></span>
+      <span class="toy t5"><img src="assets/clean3.jpg" alt="" /></span>
+    </div>
+
+    <header class="top" id="siteHeader">
+      <div class="top-inner">
+        <a class="brand" href="index.html">
+          <img class="logo-img" src="assets/logo.png" alt="" width="40" height="40" />
+          <div>
+            <h1>sneakerworld</h1>
+            <small>Каталог · Минск</small>
+          </div>
+        </a>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="catalog-section">
+        <div class="head">
+          <h3>Каталог</h3>
+          <p>Живое наличие по размерам. Оплата при получении.</p>
+          <div class="count-pill" id="catalogCount">Загрузка…</div>
+        </div>
+
+        <div class="api-banner" id="apiStatus">Подключение к API…</div>
+
+        <div class="filters sticky-filters" id="catalogFilters">
+          <div class="street-toggles">
+            <button type="button" class="street-drop filter-toggle" id="toggleBrands" aria-expanded="false">
+              <span class="street-drop-label" id="brandsLabel">Все бренды</span>
+              <span class="street-drop-ico" aria-hidden="true">▾</span>
+            </button>
+            <button type="button" class="street-drop filter-toggle" id="toggleSizes" aria-expanded="false">
+              <span class="street-drop-label" id="sizesLabel">Все размеры</span>
+              <span class="street-drop-ico" aria-hidden="true">▾</span>
+            </button>
+          </div>
+          <div class="filter-panel street-panel" id="brandsPanel" hidden>
+            <div class="filter-row" id="brandsRow" aria-label="Бренды"></div>
+          </div>
+          <div class="filter-panel street-panel" id="sizesPanel" hidden>
+            <div class="filter-row" id="sizesRow" aria-label="Размеры"></div>
+          </div>
+          <div style="margin-top:10px">
+            <input class="street-drop" id="qFilter" placeholder="Поиск: модель или артикул" style="width:100%;transform:none;appearance:auto" />
+          </div>
+        </div>
+
+        <div class="empty" id="catalogEmpty">Ничего не найдено. Сбросьте фильтр.</div>
+        <div class="catalog-grid" id="catalogList"></div>
+      </section>
+    </main>
+
+    <div class="dock">
+      <div class="dock-inner">
+        <a class="btn-catalog" href="index.html">Главная</a>
+        <button class="btn btn-rug" type="button" id="openHint">Как заказать</button>
+      </div>
+    </div>
+
+    <div class="modal-bg" id="modalBg"></div>
+    <div class="modal" id="orderModal" aria-hidden="true">
+      <h3>Заказ</h3>
+      <div class="subt" id="orderProduct"></div>
+      <label>Цвет</label>
+      <select id="orderColor"></select>
+      <label>Размер</label>
+      <select id="orderSize"></select>
+      <label>ФИО</label>
+      <input id="orderName" autocomplete="name" />
+      <label>Телефон</label>
+      <input id="orderPhone" autocomplete="tel" placeholder="+375…" />
+      <label>Получение</label>
+      <select id="orderFulfillment">
+        <option value="pickup">Самовывоз · пр-т Дзержинского 19</option>
+        <option value="delivery">Доставка</option>
+      </select>
+      <label>Адрес</label>
+      <input id="orderAddress" placeholder="для доставки" />
+      <div class="actions">
+        <button class="btn btn-rug" type="button" id="orderSubmit" style="width:100%">Оформить</button>
+        <button class="btn" type="button" id="orderCancel" style="width:100%">Отмена</button>
+      </div>
+      <p class="subt" id="orderResult" style="margin-top:10px"></p>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <script>
+      const API = (function () {
+        const saved = localStorage.getItem('ws_api');
+        if (saved) return saved;
+        if (location.protocol === 'http:' || location.protocol === 'https:') {
+          return location.origin + '/api';
+        }
+        return 'http://127.0.0.1:3080/api';
+      })();
+
+      const statusEl = document.getElementById('apiStatus');
+      const listEl = document.getElementById('catalogList');
+      const emptyEl = document.getElementById('catalogEmpty');
+      const countEl = document.getElementById('catalogCount');
+      const brandsRow = document.getElementById('brandsRow');
+      const sizesRow = document.getElementById('sizesRow');
+      const brandsLabel = document.getElementById('brandsLabel');
+      const sizesLabel = document.getElementById('sizesLabel');
+      const qEl = document.getElementById('qFilter');
+      const modal = document.getElementById('orderModal');
+      const modalBg = document.getElementById('modalBg');
+      const toast = document.getElementById('toast');
+
+      let current = null;
+      let brand = '';
+      let size = '';
+      let brands = [];
+      const SIZE_OPTS = ['36','37','38','39','40','41','42','43','44','45','46'];
+      const SWATCH = {
+        black:'#141416', white:'#f5f2ec', grey:'#8a8680', gray:'#8a8680',
+        blue:'#3b6fd4', red:'#c41e2a', green:'#2f7d4a', yellow:'#e6c84a',
+        orange:'#e07a2f', pink:'#e89bb0', purple:'#6b4c9a', brown:'#6b4423',
+        beige:'#d4c4a8', cream:'#efe6d0', navy:'#1a2a4a', gold:'#c9a227',
+        silver:'#c0c4c8', khaki:'#9a8b5a', olive:'#5a6b3a', burgundy:'#6e1a2a',
+        teal:'#1f7a72', cyan:'#4fd4ff', ivory:'#f3ead6', gum:'#c9895a',
+        concord:'#5b4b8a', bred:'#8e121c', chicago:'#c41e2a', shadow:'#4a4a4e',
+        taxi:'#e6c84a', mocha:'#6b4423', cement:'#b8b3aa', royal:'#1e4dad'
+      };
+      function colorBase(t) {
+        return String(t || '').toLowerCase().replace(/[^a-zа-яё0-9/-]+/gi, '').replace(/\d+$/, '');
+      }
+      function swatchCss(color) {
+        const parts = String(color || '').split(/[/\s-]+/).map(colorBase).filter((p) => SWATCH[p]);
+        if (parts.length >= 2) return 'linear-gradient(135deg, ' + SWATCH[parts[0]] + ' 50%, ' + SWATCH[parts[1]] + ' 50%)';
+        if (parts.length === 1) return SWATCH[parts[0]];
+        return '#6b6b70';
+      }
+      function colorLabel(c) {
+        return (c && c.color) ? c.color : ('арт. ' + (c && c.article ? c.article : ''));
+      }
+      function colorCountLabel(n) {
+        const m10 = n % 10, m100 = n % 100;
+        if (m10 === 1 && m100 !== 11) return n + ' цвет';
+        if ([2, 3, 4].includes(m10) && ![12, 13, 14].includes(m100)) return n + ' цвета';
+        return n + ' цветов';
+      }
+
+      function showToast(t) {
+        toast.textContent = t;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2500);
+      }
+      function esc(s) {
+        return String(s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      }
+      function selectedColor(model, idx) {
+        const colors = model.colors || [];
+        return colors[idx] || colors[0] || null;
+      }
+      function fillOrderSize(variant, picked) {
+        const sel = document.getElementById('orderSize');
+        const sizes = (variant && variant.sizes) || [];
+        sel.innerHTML = sizes.map(s =>
+          `<option value="${esc(s.size)}" ${String(s.size)===String(picked)?'selected':''}>${esc(s.size)}</option>`
+        ).join('');
+      }
+      function syncOrderHead(model, variant) {
+        if (!variant) return;
+        document.getElementById('orderProduct').textContent =
+          model.name + (variant.color ? ' · ' + variant.color : '') +
+          ' · ' + Number(variant.price_byn).toFixed(0) + ' BYN · арт. ' + variant.article;
+      }
+      function openModal(model, { colorIdx, picked } = {}) {
+        current = { model, colorIdx: colorIdx || 0 };
+        const colorSel = document.getElementById('orderColor');
+        colorSel.innerHTML = (model.colors || []).map((c, i) =>
+          `<option value="${i}" ${i===current.colorIdx?'selected':''}>${esc(colorLabel(c))}</option>`
+        ).join('');
+        const variant = selectedColor(model, current.colorIdx);
+        syncOrderHead(model, variant);
+        fillOrderSize(variant, picked || (variant && variant.sizes[0] && variant.sizes[0].size));
+        document.getElementById('orderResult').textContent = '';
+        modal.classList.add('open'); modalBg.classList.add('open');
+      }
+      document.getElementById('orderColor').addEventListener('change', () => {
+        if (!current) return;
+        current.colorIdx = Number(document.getElementById('orderColor').value) || 0;
+        const variant = selectedColor(current.model, current.colorIdx);
+        syncOrderHead(current.model, variant);
+        fillOrderSize(variant, variant && variant.sizes[0] && variant.sizes[0].size);
+      });
+      function closeModal() {
+        modal.classList.remove('open'); modalBg.classList.remove('open');
+      }
+
+      function wireToggle(btnId, panelId) {
+        const btn = document.getElementById(btnId);
+        const panel = document.getElementById(panelId);
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const open = panel.hasAttribute('hidden');
+          document.querySelectorAll('.filter-panel').forEach(p => p.setAttribute('hidden', ''));
+          document.querySelectorAll('.filter-toggle').forEach(b => {
+            b.setAttribute('aria-expanded', 'false');
+            b.classList.remove('on');
+          });
+          if (open) {
+            panel.removeAttribute('hidden');
+            btn.setAttribute('aria-expanded', 'true');
+            btn.classList.add('on');
+          }
+        });
+      }
+      wireToggle('toggleBrands', 'brandsPanel');
+      wireToggle('toggleSizes', 'sizesPanel');
+
+      function renderBrandOpts() {
+        const items = [{ brand: '', label: 'Все бренды' }].concat(
+          brands.map(b => ({ brand: b.brand, label: b.brand }))
+        );
+        brandsRow.innerHTML = items.map(b =>
+          `<button type="button" class="street-opt ${brand===b.brand?'on':''}" data-brand="${esc(b.brand)}" data-label="${esc(b.label)}">${esc(b.label)}</button>`
+        ).join('');
+      }
+      function renderSizeOpts() {
+        const items = [{ value: '', label: 'Все размеры' }].concat(
+          SIZE_OPTS.map(s => ({ value: s, label: 'EU ' + s }))
+        );
+        sizesRow.innerHTML = items.map(s =>
+          `<button type="button" class="street-opt ${size===s.value?'on':''}" data-size="${esc(s.value)}" data-label="${esc(s.label)}">${esc(s.value || 'Все')}</button>`
+        ).join('');
+      }
+
+      brandsRow.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-brand]');
+        if (!btn) return;
+        brand = btn.dataset.brand || '';
+        brandsLabel.textContent = btn.dataset.label || 'Все бренды';
+        document.getElementById('brandsPanel').hidden = true;
+        renderBrandOpts();
+        loadCatalog();
+      });
+      sizesRow.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-size]');
+        if (!btn) return;
+        size = btn.dataset.size || '';
+        sizesLabel.textContent = btn.dataset.label || 'Все размеры';
+        document.getElementById('sizesPanel').hidden = true;
+        renderSizeOpts();
+        loadCatalog();
+      });
+
+      async function loadBrands() {
+        const data = await fetch(API + '/brands').then(r => r.json());
+        brands = data.brands || [];
+        renderBrandOpts();
+        renderSizeOpts();
+      }
+
+      async function loadCatalog() {
+        const params = new URLSearchParams({ limit: '1000' });
+        if (brand) params.set('brand', brand);
+        if (size) params.set('size', size);
+        if (qEl.value.trim()) params.set('q', qEl.value.trim());
+        const data = await fetch(API + '/catalog?' + params).then(r => r.json());
+        const models = data.models || [];
+        countEl.textContent = 'В наличии: ' + (data.total != null ? data.total : models.length) + ' моделей';
+        emptyEl.classList.toggle('show', !models.length);
+        listEl.innerHTML = models.map(m => {
+          const colors = m.colors || [];
+          const q = qEl.value.trim().toLowerCase();
+          let colorIdx = 0;
+          if (q) {
+            const hit = colors.findIndex(c =>
+              String(c.article).toLowerCase() === q || String(c.color).toLowerCase().includes(q)
+            );
+            if (hit >= 0) colorIdx = hit;
+          }
+          if (size) {
+            const withSize = colors.findIndex(c => (c.sizes || []).some(s => String(s.size) === String(size)));
+            if (withSize >= 0) colorIdx = withSize;
+          }
+          const variant = colors[colorIdx] || colors[0];
+          const chips = colors.map((c, i) =>
+            `<button class="color-chip ${i===colorIdx?'on':''}" type="button" data-color-idx="${i}" style="--swatch:${esc(swatchCss(c.color))}">
+              <span class="swatch" aria-hidden="true"></span>${esc(colorLabel(c))}
+            </button>`
+          ).join('');
+          const sizes = ((variant && variant.sizes) || []).map(s =>
+            `<button class="size" type="button" data-size="${esc(s.size)}">${esc(s.size)}</button>`
+          ).join('');
+          const letter = esc((m.brand || m.name || '?').slice(0, 1).toUpperCase());
+          const payload = esc(JSON.stringify(m));
+          const articleLine = variant
+            ? (colors.length > 1 ? colorCountLabel(colors.length) + ' · арт. ' + variant.article : 'арт. ' + variant.article)
+            : '';
+          return `<article class="prod" data-json="${payload}" data-color-idx="${colorIdx}">
+            <div class="prod-placeholder" aria-hidden="true">${letter}</div>
+            <div class="prod-body">
+              <div>
+                <div class="title">${esc(m.name)}</div>
+                <div class="subt">${esc(m.brand || '')} · ${esc(articleLine)}</div>
+              </div>
+              <div class="colors">${chips}</div>
+              <div class="sizes">${sizes}</div>
+              <div class="row">
+                <div class="price">${Number(variant && variant.price_byn || 0).toFixed(0)} BYN</div>
+                <button class="buy" type="button">Заказать</button>
+              </div>
+            </div>
+          </article>`;
+        }).join('');
+      }
+
+      function paintCardVariant(card, colorIdx) {
+        const model = JSON.parse(card.getAttribute('data-json'));
+        const variant = (model.colors || [])[colorIdx] || model.colors[0];
+        card.dataset.colorIdx = String(colorIdx);
+        card.querySelectorAll('.color-chip').forEach((b, i) => b.classList.toggle('on', i === colorIdx));
+        const sizesEl = card.querySelector('.sizes');
+        sizesEl.innerHTML = ((variant && variant.sizes) || []).map(s =>
+          `<button class="size" type="button" data-size="${esc(s.size)}">${esc(s.size)}</button>`
+        ).join('');
+        const priceEl = card.querySelector('.price');
+        if (priceEl) priceEl.textContent = Number(variant && variant.price_byn || 0).toFixed(0) + ' BYN';
+        const subt = card.querySelector('.subt');
+        if (subt && variant) {
+          const n = (model.colors || []).length;
+          subt.textContent = (model.brand || '') + ' · ' + (n > 1 ? colorCountLabel(n) + ' · арт. ' + variant.article : 'арт. ' + variant.article);
+        }
+        delete card.dataset.pickedSize;
+      }
+
+      listEl.addEventListener('click', (e) => {
+        const card = e.target.closest('.prod');
+        if (!card) return;
+        const model = JSON.parse(card.getAttribute('data-json'));
+        const chip = e.target.closest('.color-chip');
+        if (chip) {
+          paintCardVariant(card, Number(chip.dataset.colorIdx) || 0);
+          return;
+        }
+        if (e.target.classList.contains('size')) {
+          card.querySelectorAll('.size').forEach(b => b.classList.toggle('on', b === e.target));
+          card.dataset.pickedSize = e.target.dataset.size;
+          return;
+        }
+        if (e.target.classList.contains('buy')) {
+          const colorIdx = Number(card.dataset.colorIdx) || 0;
+          const variant = (model.colors || [])[colorIdx] || model.colors[0];
+          const picked = card.dataset.pickedSize || (variant && variant.sizes[0] && variant.sizes[0].size);
+          openModal(model, { colorIdx, picked });
+        }
+      });
+
+      document.getElementById('orderCancel').onclick = closeModal;
+      modalBg.onclick = closeModal;
+      document.getElementById('orderSubmit').onclick = async () => {
+        const variant = current && selectedColor(current.model, current.colorIdx);
+        if (!variant) {
+          document.getElementById('orderResult').textContent = 'Выберите цвет';
+          return;
+        }
+        const body = {
+          customerName: document.getElementById('orderName').value.trim(),
+          phone: document.getElementById('orderPhone').value.trim(),
+          address: document.getElementById('orderAddress').value.trim(),
+          fulfillment: document.getElementById('orderFulfillment').value,
+          items: [{ product_id: variant.productId, size: document.getElementById('orderSize').value, qty: 1 }]
+        };
+        if (!body.customerName || !body.phone) {
+          document.getElementById('orderResult').textContent = 'Укажите ФИО и телефон';
+          return;
+        }
+        if (body.fulfillment === 'delivery' && !body.address) {
+          document.getElementById('orderResult').textContent = 'Укажите адрес доставки';
+          return;
+        }
+        const r = await fetch(API + '/orders', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        const data = await r.json();
+        if (!data.ok) {
+          document.getElementById('orderResult').textContent = data.error || 'Ошибка';
+          return;
+        }
+        document.getElementById('orderResult').textContent =
+          'Номер заказа: ' + data.order.order_number + '. Менеджер свяжется с вами.';
+        showToast('Заказ ' + data.order.order_number);
+        await loadCatalog();
+      };
+
+      document.getElementById('openHint').onclick = () =>
+        showToast('Цвет и размер → «Заказать» → ФИО и телефон');
+
+      let qTimer = null;
+      qEl.addEventListener('input', () => {
+        clearTimeout(qTimer);
+        qTimer = setTimeout(loadCatalog, 250);
+      });
+
+      (async () => {
+        try {
+          const h = await fetch(API + '/health').then(r => r.json());
+          if (!h.ok) throw new Error('health');
+          statusEl.textContent = 'Каталог с OpenCart · нулевые размеры скрыты · оплата при получении';
+          statusEl.classList.add('ok');
+          await loadBrands();
+          await loadCatalog();
+        } catch (e) {
+          statusEl.textContent = 'API недоступен (' + API + ')';
+          statusEl.classList.add('err');
+          countEl.textContent = '';
+        }
+      })();
+    </script>
+  </body>
+</html>
