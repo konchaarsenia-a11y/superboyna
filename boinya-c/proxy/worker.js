@@ -6845,13 +6845,26 @@ const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
 
-/** Живой прогон @one_more_person_228. V33: ручной Access снят → все партнёры (owner-all). */
+/** Живой прогон @one_more_person_228. manual_varka_only: 12 точек Varka, не все сети. */
 const PARTNER_LIVE_TEST_ENABLED = false;
 const PARTNER_LIVE_TEST_USER = "one_more_person_228";
 const PARTNER_LIVE_TEST_TID = "827494606";
 const PARTNER_LIVE_TEST_IDX = 16;
-/** Пустой = без ручного скоупа. */
-const PARTNER_MANUAL_ACCESS_POINTS = [];
+/** Непустой = getMe scoped на эти точки (не owner-all). */
+const PARTNER_MANUAL_ACCESS_POINTS = [
+  { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka Репина 4", address: "Репина 4", label: "Varka Репина 4" },
+  { id: "pt_varka_avia_17", networkId: "net_varka", name: "Varka Авиационная 17", address: "Авиационная 17", label: "Varka Авиационная 17" },
+  { id: "pt_varka_karskogo_23", networkId: "net_varka", name: "Varka Карского 23", address: "Карского 23", label: "Varka Карского 23" },
+  { id: "pt_varka_golodeda_15", networkId: "net_varka", name: "Varka Голодеда 15", address: "Голодеда 15", label: "Varka Голодеда 15" },
+  { id: "pt_varka_rokoss_80", networkId: "net_varka", name: "Varka Рокоссовского 80", address: "Рокоссовского 80", label: "Varka Рокоссовского 80" },
+  { id: "pt_varka_rokoss_150b", networkId: "net_varka", name: "Varka Рокоссовского 150Б", address: "Рокоссовского 150Б", label: "Varka Рокоссовского 150Б" },
+  { id: "pt_varka_kazintsa_120", networkId: "net_varka", name: "Varka Казинца 120", address: "Казинца 120", label: "Varka Казинца 120" },
+  { id: "pt_varka_matus_70", networkId: "net_varka", name: "Varka Матусевича 70", address: "Матусевича 70", label: "Varka Матусевича 70" },
+  { id: "pt_varka_tsvirko_100", networkId: "net_varka", name: "Varka Цвирко 100", address: "Цвирко 100", label: "Varka Цвирко 100" },
+  { id: "pt_varka_skrip_1", networkId: "net_varka", name: "Varka Скрипникова 1", address: "Скрипникова 1", label: "Varka Скрипникова 1" },
+  { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka Шевченко 1", address: "Шевченко 1", label: "Varka Шевченко 1" },
+  { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14", label: "Varka Маяковского 14" }
+];
 const PARTNER_MANUAL_ACCESS_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_LIVE_TEST_QUEUE = [
   { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34", label: "nan_animal_clinic" },
@@ -7067,7 +7080,7 @@ function partnerManualAccessGetMe_(json) {
     "Live test",
     PARTNER_LIVE_TEST_USER,
     PARTNER_LIVE_TEST_TID,
-    "manual_scoped"
+    "manual_varka_only"
   );
   out.liveTest = false;
   delete out.liveTestPoint;
@@ -15896,7 +15909,7 @@ async function partnerEnsureManualAccess_(env, admin) {
     access.push(rowMa);
     changed = true;
   }
-  const flag = "manual_points_" + ids.join("_");
+  const flag = "manual_varka_only";
   const next = Object.assign({}, admin, { access: access, _partnerLiveTest: flag });
   if (changed && env && env.DB && admin._partnerLiveTest !== flag) {
     try {
