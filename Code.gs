@@ -21009,11 +21009,14 @@ function partnerTelegramSendMany_(chatIds, text) {
 }
 
 function getPartnerBotToken_() {
-  // Партнёрский бот @GOODBOY_LG. Fallback на TELEGRAM только если PARTNER/GOODBOY не заданы.
+  // Партнёрский бот @GOODBOY_LG. Без fallback на бота Бойни (TELEGRAM_BOT_TOKEN).
   var props = PropertiesService.getScriptProperties();
-  return props.getProperty("PARTNER_BOT_TOKEN") ||
-    props.getProperty("GOODBOY_BOT_TOKEN") ||
-    getTelegramToken_() || "";
+  var token = props.getProperty("PARTNER_BOT_TOKEN") ||
+    props.getProperty("GOODBOY_BOT_TOKEN") || "";
+  if (!token) {
+    try { Logger.log("getPartnerBotToken_: skip, no PARTNER_BOT_TOKEN/GOODBOY_BOT_TOKEN"); } catch (eL) {}
+  }
+  return token;
 }
 
 function partnerTelegramSend_(chatId, text) {
@@ -21456,7 +21459,8 @@ function handlePartnerSetOrderStatus(json, callback, fromPost) {
     }
     try { bustDeferredCache_(String(df.data[2] || "")); } catch (eB) {}
   }
-  if (status === "delivered" || status === "in_transit") {
+  var skipSt = String((json && (json.skipPartnerNotify || json.skipNotify)) || "") === "1";
+  if (!skipSt && (status === "delivered" || status === "in_transit")) {
     try {
       partnerNotifyPartnerStatus_(order, status === "delivered" ? "delivered" : "in_transit");
     } catch (eN) {}
