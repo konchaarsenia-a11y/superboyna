@@ -132,7 +132,7 @@ var cal = [
   { client: "Евгения kinolog.vica", matchKey: clientMatchKey_("Евгения kinolog.vica"), segment: "ПП" }
 ];
 
-assert(clientMatchKey_("Veta.foto Дэни") === "VETAFOTO|ДЕНИ", "dog suffix key");
+assert(clientMatchKey_("Veta.foto Дэни") === "VETAFOTO|ДЭНИ", "dog suffix key");
 assert(clientMatchKey_("VETAFOTO") === "VETAFOTO", "bare mem key");
 assert(!findCalendarHitOld_(cal, "VETAFOTO"), "OLD exact miss on dog suffix");
 var hitNew = findCalendarHitNew_(cal, "VETAFOTO");
