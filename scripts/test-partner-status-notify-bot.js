@@ -19,7 +19,8 @@ function fail(msg) {
 }
 
 function extractFn_(src, name) {
-  const start = src.indexOf("function " + name);
+  let start = src.indexOf("async function " + name);
+  if (start < 0) start = src.indexOf("function " + name);
   if (start < 0) fail("helper " + name + " not found");
   let i = src.indexOf("{", start);
   let depth = 0;
@@ -49,11 +50,9 @@ if (!/PARTNER_BOT_TOKEN/.test(tokenFn) || !/GOODBOY_BOT_TOKEN/.test(tokenFn)) {
 }
 
 const gasTokenFn = extractFn_(gasSrc, "getPartnerBotToken_");
-if (/getTelegramToken_/.test(gasTokenFn)) {
-  fail("getPartnerBotToken_ still falls back to getTelegramToken_()");
-}
-if (/TELEGRAM_BOT_TOKEN/.test(gasTokenFn)) {
-  fail("getPartnerBotToken_ still mentions TELEGRAM_BOT_TOKEN");
+const gasTokenBody = gasTokenFn.replace(/\/\/.*$/gm, "");
+if (/getTelegramToken_/.test(gasTokenBody) || /TELEGRAM_BOT_TOKEN/.test(gasTokenBody)) {
+  fail("getPartnerBotToken_ still falls back to Boinya TELEGRAM token");
 }
 
 if (!/partnerNotifyStatusFastWorker_/.test(workerSrc)) {
