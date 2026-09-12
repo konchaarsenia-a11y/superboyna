@@ -19,6 +19,7 @@ const ctx = createContext({
   priceBaskets: { 1: [], 2: [] },
 });
 runInContext(`
+  var CRUMB_FRAC_LABEL_ = "Крошка";
   ${src.match(/const catalog = \{[\s\S]*?\n    \};/)[0]}
   ${chunk}
 `, ctx);
