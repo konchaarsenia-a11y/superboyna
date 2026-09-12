@@ -6913,6 +6913,9 @@ const PARTNER_MANUAL_ACCESS_POINTS = [];
 const PARTNER_MANUAL_ACCESS_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 /** owner-all минус эти сети. Новые точки сети (net_varka / pt_varka_*) тоже режутся. */
 const PARTNER_MANUAL_ACCESS_EXCLUDE_NETS = ["net_varka"];
+/** Только эти tid/username сами выбирают локу для проверки (не Varka). */
+const PARTNER_INSPECT_LOCA_TIDS = ["827494606"];
+const PARTNER_INSPECT_LOCA_USERS = ["one_more_person_228"];
 const PARTNER_LIVE_TEST_QUEUE = [
   { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34", label: "nan_animal_clinic" },
   { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka Репина 4", address: "Репина 4", label: "Varka Репина 4" },
@@ -6958,6 +6961,23 @@ function isPartnerManualAccessUser_(params) {
   if (u === PARTNER_LIVE_TEST_USER) return true;
   if (tid && tid === PARTNER_LIVE_TEST_TID) return true;
   return false;
+}
+
+/** @one_more_person_228: ручной выбор локи для проверки (история/заявка). Не для всех партнёров. */
+function isPartnerInspectLocaUser_(params) {
+  const u = partnerNormUserWorker_(params && params.username);
+  const tid = String((params && params.telegramId) || "").trim();
+  if (tid && PARTNER_INSPECT_LOCA_TIDS.indexOf(tid) >= 0) return true;
+  if (u && PARTNER_INSPECT_LOCA_USERS.indexOf(u) >= 0) return true;
+  return false;
+}
+
+function partnerInspectWantLoca_(params) {
+  if (!isPartnerInspectLocaUser_(params)) return "";
+  const want = String((params && (params.locationId || params.pointId)) || "").trim();
+  if (!want) return "";
+  if (partnerIsExcludedPoint_(want, (params && params.networkId) || "")) return "";
+  return want;
 }
 
 /** Test-user без allowlist → все активные точки, минус PARTNER_MANUAL_ACCESS_EXCLUDE_NETS. */
@@ -7255,7 +7275,11 @@ function partnerOwnerAllGetMe_(json) {
     partnerOverride: partnerOwnerAllOverrideKey_(),
     liveTest: false,
     liveTestPoint: undefined,
-    liveTestLabel: undefined
+    liveTestLabel: undefined,
+    canPickInspectLoca: isPartnerInspectLocaUser_({
+      username: src.username || PARTNER_LIVE_TEST_USER,
+      telegramId: src.telegramId || PARTNER_LIVE_TEST_TID
+    })
   });
 }
 
@@ -7411,9 +7435,16 @@ function partnerGuardOrRewrite_(a, params, json) {
   if (isPartnerOwnerAllUser_(params)) {
     if (a === "partnerGetMe") return partnerOwnerAllGetMe_(json);
     if (a === "partnerListMyOrders" && json && json.status === "success" && Array.isArray(json.orders)) {
+      const wantLoca = partnerInspectWantLoca_(params);
       return Object.assign({}, json, {
         orders: json.orders.filter(function (o) {
-          return !partnerIsExcludedPoint_((o && (o.locationId || o.pointId)) || "", (o && o.networkId) || "");
+          if (partnerIsExcludedPoint_((o && (o.locationId || o.pointId)) || "", (o && o.networkId) || "")) {
+            return false;
+          }
+          if (wantLoca) {
+            return String((o && (o.locationId || o.pointId)) || "") === wantLoca;
+          }
+          return true;
         })
       });
     }
@@ -16103,12 +16134,19 @@ async function partnerListMyOrdersD1_(params, env, ctx) {
         return partnerManualAllowedPointId_((o && (o.locationId || o.pointId)) || "");
       });
     } else if (isPartnerOwnerAllUser_(params)) {
+      const wantLoca = partnerInspectWantLoca_(params);
       orders = orders.filter(function (o) {
         const ot = String((o && o.telegramId) || "").trim();
         const ou = partnerNormUserWorker_(o && o.username);
         const sameUser = (tid && ot === tid) || (user && ou === user) || ou === PARTNER_LIVE_TEST_USER;
         if (!sameUser) return false;
-        return !partnerIsExcludedPoint_((o && (o.locationId || o.pointId)) || "", (o && o.networkId) || "");
+        if (partnerIsExcludedPoint_((o && (o.locationId || o.pointId)) || "", (o && o.networkId) || "")) {
+          return false;
+        }
+        if (wantLoca) {
+          return String((o && (o.locationId || o.pointId)) || "") === wantLoca;
+        }
+        return true;
       });
     } else if (isPartnerArseniy_(params)) {
       orders = orders.filter(function (o) {

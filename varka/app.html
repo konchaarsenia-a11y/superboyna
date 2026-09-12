@@ -244,6 +244,12 @@
       border-radius: 999px; padding: 7px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
     }
     .chip.on { color: var(--accent2); border-color: var(--accent); }
+    .inspect-chip {
+      max-width: 168px; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      color: var(--accent2); border-color: var(--accent);
+    }
+    select.field { appearance: none; -webkit-appearance: none; }
+    select.field option, select.field optgroup { color: var(--text); background: var(--bg2); }
 
     .tabs {
       display: flex; gap: 4px; background: rgba(255,255,255,0.03); padding: 4px;
@@ -582,6 +588,7 @@
           <div class="title" id="orderTitle" style="font-size:18px;">Бесплатная заявка</div>
           <div class="sub" style="text-align:left;margin:4px 0 0;" id="orderLocName">Выберите лакомства и купоны</div>
         </div>
+        <button class="chip inspect-chip" type="button" id="inspectLocaChip" style="display:none;" onclick="goInspectLoca()">Лока</button>
       </div>
       <div class="tabs">
         <button class="tab on" type="button" data-cat="treat" onclick="setCat('treat')">Лакомства</button>
@@ -611,6 +618,12 @@
       <div class="toprow">
         <div class="title">История заказов</div>
       </div>
+      <div class="card" id="inspectLocaOrdersBar" style="display:none;margin-top:0;">
+        <h3>Точка для проверки</h3>
+        <p>Заказы только выбранной локи. Varka закрыта.</p>
+        <label class="lbl" for="inspectLocaOrdersSelect">Локация</label>
+        <select class="field" id="inspectLocaOrdersSelect" onchange="onInspectLocaSelect(this.value)"></select>
+      </div>
       <div id="myOrdersList"></div>
     </div>
 
@@ -629,6 +642,12 @@
       <div class="card">
         <h3>Ваш доступ</h3>
         <p id="accessInfo">—</p>
+      </div>
+      <div class="card" id="inspectLocaCard" style="display:none;">
+        <h3>Точка для проверки</h3>
+        <p>Сами выберите локу — история и заявка по ней. Без Varka.</p>
+        <label class="lbl" for="inspectLocaSelect">Локация</label>
+        <select class="field" id="inspectLocaSelect" onchange="onInspectLocaSelect(this.value)"></select>
       </div>
       <div class="card">
         <h3>Внешний вид</h3>
@@ -690,7 +709,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.37";
+  var APP_VER = "3.3.44";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -699,6 +718,10 @@
   var LIVE_TEST_ENABLED_ = false;
   var LIVE_TEST_USER_ = "one_more_person_228";
   var LIVE_TEST_TID_ = "827494606";
+  /** Только этот tid сам выбирает локу для проверки (не Varka, не все партнёры). */
+  var INSPECT_LOCA_USERS_ = ["one_more_person_228"];
+  var INSPECT_LOCA_TIDS_ = ["827494606"];
+  var INSPECT_LOCA_KEY = "gb_inspect_loca_v1";
   var LIVE_TEST_IDX_ = 16;
   var LIVE_TEST_QUEUE_ = [
     { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34", label: "nan_animal_clinic" },
@@ -720,6 +743,8 @@
     { id: "pt_bob_1", networkId: "net_bobwow", name: "bow_wow_collar", address: "Брест", label: "bow_wow_collar" }
   ];
   var SETTINGS_KEY = "gb_partner_settings_v2";
+  var DEMO_TELEGRAM_ID_ = "";
+  var REMOTE_CAN_PICK_INSPECT_LOCA_ = false;
   var BANNER_IMG = "assets/coupon-poster.png";
   var COUPON_IMG = "assets/coupon-varka-goodboy.png";
   /** Картинки купона/баннера по сети (Varka-дефолт — иначе чужой бренд). */
@@ -894,6 +919,11 @@
       DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
       DEMO_NETWORK = s.networkId || "";
       DEMO_USERNAME = normUser_(s.username || "");
+      DEMO_TELEGRAM_ID_ = String(s.telegramId || "").trim();
+      REMOTE_CAN_PICK_INSPECT_LOCA_ = !!s.canPickInspectLoca || isInspectLocaUser_({
+        username: s.username,
+        telegramId: s.telegramId
+      }, s);
       // Live-test: принудительно одна точка из очереди
       if (isLiveTestUser_({ username: s.username }, s)) {
         var ltS = liveTestPointObj_();
@@ -929,12 +959,14 @@
       sessionStorage.setItem(SESSION_KEY, JSON.stringify({
         role: DEMO_ROLE || "partner",
         username: DEMO_USERNAME,
+        telegramId: DEMO_TELEGRAM_ID_ || ((state.me && state.me.telegramId) || user().telegramId || ""),
         name: (state.me && state.me.name) || "",
         networkId: DEMO_NETWORK,
         pointIds: DEMO_POINT_IDS.slice(),
         points: (POINTS || []).slice(),
         networks: (NETWORKS || []).slice(),
-        isOwner: !!REMOTE_IS_OWNER_
+        isOwner: !!REMOTE_IS_OWNER_,
+        canPickInspectLoca: !!REMOTE_CAN_PICK_INSPECT_LOCA_
       }));
     } catch (e) {}
   }
@@ -942,8 +974,10 @@
     DEMO_ROLE = "";
     DEMO_NETWORK = "";
     DEMO_USERNAME = "";
+    DEMO_TELEGRAM_ID_ = "";
     DEMO_POINT_IDS = [];
     REMOTE_IS_OWNER_ = false;
+    REMOTE_CAN_PICK_INSPECT_LOCA_ = false;
     try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
   }
   function clearMeCache_() {
@@ -964,6 +998,176 @@
     var uname = normUser_((u && u.username) || (acc && acc.username) || DEMO_USERNAME || "");
     var tid = String((u && u.telegramId) || (acc && acc.telegramId) || "").trim();
     return uname === LIVE_TEST_USER_ || tid === LIVE_TEST_TID_;
+  }
+
+  function isInspectLocaUser_(u, acc) {
+    u = u || (typeof user === "function" ? user() : {});
+    acc = acc || state.me || {};
+    var uname = normUser_((u && u.username) || (acc && acc.username) || DEMO_USERNAME || "");
+    var tid = String((u && u.telegramId) || (acc && acc.telegramId) || DEMO_TELEGRAM_ID_ || "").trim();
+    if (tid && INSPECT_LOCA_TIDS_.indexOf(tid) >= 0) return true;
+    if (uname && INSPECT_LOCA_USERS_.indexOf(uname) >= 0) return true;
+    if (acc && acc.canPickInspectLoca) return true;
+    return !!REMOTE_CAN_PICK_INSPECT_LOCA_;
+  }
+
+  function isVarkaInspectBlocked_(p) {
+    if (!p) return true;
+    var id = String(p.id || "");
+    var nid = String(p.networkId || "");
+    return nid === "net_varka" || id.indexOf("pt_varka_") === 0;
+  }
+
+  function inspectLocaPoints_() {
+    return assignedPointsList_().filter(function (p) {
+      return p && p.id && !isVarkaInspectBlocked_(p);
+    });
+  }
+
+  function loadInspectLocaId_() {
+    try {
+      return String(localStorage.getItem(INSPECT_LOCA_KEY) || "").trim();
+    } catch (e) { return ""; }
+  }
+
+  function saveInspectLocaId_(id) {
+    try {
+      id = String(id || "").trim();
+      if (!id) localStorage.removeItem(INSPECT_LOCA_KEY);
+      else localStorage.setItem(INSPECT_LOCA_KEY, id);
+    } catch (e) {}
+  }
+
+  function findInspectLocaPoint_(id) {
+    var want = String(id || "").trim();
+    if (!want || want === "all") return null;
+    var list = inspectLocaPoints_();
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].id === want) return list[i];
+    }
+    return null;
+  }
+
+  function currentInspectLoca_() {
+    if (!isInspectLocaUser_()) return null;
+    return findInspectLocaPoint_(loadInspectLocaId_());
+  }
+
+  function restoreInspectLoca_() {
+    if (!isInspectLocaUser_()) return null;
+    var pt = currentInspectLoca_();
+    if (pt) state.point = pt;
+    applyInspectLocaToOrderUi_();
+    renderInspectLocaSelects_();
+    return pt;
+  }
+
+  function setInspectLoca_(id) {
+    if (!isInspectLocaUser_()) return false;
+    id = String(id || "").trim();
+    if (!id || id === "all") {
+      saveInspectLocaId_("");
+      if (state.orderStep !== "point") state.point = null;
+      applyInspectLocaToOrderUi_();
+      renderInspectLocaSelects_();
+      return true;
+    }
+    if (id.indexOf("pt_varka_") === 0) return false;
+    var pt = findInspectLocaPoint_(id);
+    if (!pt || isVarkaInspectBlocked_(pt)) return false;
+    saveInspectLocaId_(pt.id);
+    state.point = pt;
+    applyInspectLocaToOrderUi_();
+    renderInspectLocaSelects_();
+    return true;
+  }
+
+  function inspectLocaSelectHtml_(selectedId) {
+    var list = inspectLocaPoints_();
+    var html = '<option value="">Все доступные</option>';
+    var byNet = {};
+    list.forEach(function (p) {
+      var nid = p.networkId || "other";
+      if (!byNet[nid]) byNet[nid] = [];
+      byNet[nid].push(p);
+    });
+    Object.keys(byNet).forEach(function (nid) {
+      var net = netById_(nid);
+      var lab = (net && net.name) || nid;
+      html += '<optgroup label="' + esc(lab) + '">';
+      byNet[nid].forEach(function (p) {
+        var title = displayPointName_(p) || p.name || p.id;
+        var sel = selectedId && selectedId === p.id ? " selected" : "";
+        html += '<option value="' + esc(p.id) + '"' + sel + ">" + esc(title) + "</option>";
+      });
+      html += "</optgroup>";
+    });
+    return html;
+  }
+
+  function renderInspectLocaSelects_() {
+    var on = isInspectLocaUser_();
+    var selected = on ? loadInspectLocaId_() : "";
+    var html = on ? inspectLocaSelectHtml_(selected) : "";
+    ["inspectLocaSelect", "inspectLocaOrdersSelect"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.innerHTML = html;
+      el.value = selected;
+    });
+    var card = document.getElementById("inspectLocaCard");
+    if (card) card.style.display = on ? "" : "none";
+    var bar = document.getElementById("inspectLocaOrdersBar");
+    if (bar) bar.style.display = on ? "" : "none";
+    var chip = document.getElementById("inspectLocaChip");
+    if (chip) {
+      chip.style.display = on ? "" : "none";
+      var pt = currentInspectLoca_();
+      chip.textContent = pt ? (displayPointName_(pt) || pt.name || "Лока") : "Лока";
+      chip.classList.toggle("on", !!pt);
+    }
+  }
+
+  function applyInspectLocaToOrderUi_() {
+    var loc = document.getElementById("orderLocName");
+    if (!loc) return;
+    if (!isInspectLocaUser_()) {
+      if (!state.point) loc.textContent = "Выберите лакомства и купоны";
+      return;
+    }
+    var pt = currentInspectLoca_() || state.point;
+    if (pt) loc.textContent = "Проверка · " + pointLine_(pt);
+    else loc.textContent = "Выберите локу для проверки или лакомства";
+  }
+
+  function onInspectLocaSelect(id) {
+    if (!setInspectLoca_(id)) {
+      softToast_("Нет доступа к этой точке");
+      renderInspectLocaSelects_();
+      return;
+    }
+    var pt = currentInspectLoca_();
+    softToast_(pt ? ("Проверка: " + (displayPointName_(pt) || pt.name)) : "Все доступные точки");
+    if (document.getElementById("screenMyOrders") &&
+        document.getElementById("screenMyOrders").classList.contains("on")) {
+      showMyOrders();
+    }
+  }
+
+  function goInspectLoca() {
+    if (!isInspectLocaUser_()) return;
+    state.pointsPickMode = "inspect";
+    renderPointsList_({ mode: "inspect" });
+  }
+
+  function pickInspectLoca(id) {
+    if (!setInspectLoca_(id)) {
+      alert("Нет доступа к этой точке.");
+      return;
+    }
+    var pt = currentInspectLoca_();
+    if (pt) softToast_("Проверка: " + (displayPointName_(pt) || pt.name));
+    goOrderFlow();
   }
 
   function liveTestPointNow_() {
@@ -1273,7 +1477,8 @@
       pointIds: pts.map(function (p) { return p.id; }),
       points: pts,
       allowedPointIds: allowed,
-      telegramId: u.telegramId || ("demo_" + (DEMO_USERNAME || "x"))
+      telegramId: u.telegramId || DEMO_TELEGRAM_ID_ || ("demo_" + (DEMO_USERNAME || "x")),
+      canPickInspectLoca: !!REMOTE_CAN_PICK_INSPECT_LOCA_ || isInspectLocaUser_(u, state.me)
     };
   }
 
@@ -1294,6 +1499,7 @@
     if (!tid) {
       try { tid = String(localStorage.getItem("superboyna_tg_id") || "").trim(); } catch (e) {}
     }
+    if (!tid) tid = String(DEMO_TELEGRAM_ID_ || "").trim();
     var uname = String(u.username || fromInit.username || "").replace(/^@/, "").trim();
     var name = [u.first_name || fromInit.first_name, u.last_name || fromInit.last_name]
       .filter(Boolean).join(" ") || "";
@@ -1366,7 +1572,8 @@
       if (el) el.classList.toggle("on", s === id);
     });
     var bar = document.getElementById("cartBar");
-    var withCart = (id === "screenOrder" || id === "screenPoints");
+    var withCart = (id === "screenOrder" ||
+      (id === "screenPoints" && state.pointsPickMode !== "inspect"));
     if (bar) bar.style.display = withCart ? "" : "none";
     var authed = (id === "screenOrder" || id === "screenPoints" ||
       id === "screenMyOrders" || id === "screenCabinet");
@@ -1439,7 +1646,8 @@
   function onCartPrimary() {
     if (cartCount() <= 0) return;
     if (state.orderStep === "catalog" || !state.orderStep) {
-      state.point = null;
+      var inspectPt = isInspectLocaUser_() ? currentInspectLoca_() : null;
+      state.point = inspectPt || null;
       state.orderStep = "point";
       goPointsForOrder_();
       return;
@@ -1471,6 +1679,9 @@
     DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
     DEMO_NETWORK = (acc && acc.networkId) || "";
     DEMO_USERNAME = normUser_(username || (acc && acc.username) || "");
+    DEMO_TELEGRAM_ID_ = String((acc && acc.telegramId) || user().telegramId || "").trim();
+    REMOTE_CAN_PICK_INSPECT_LOCA_ = !!(acc && acc.canPickInspectLoca) ||
+      isInspectLocaUser_({ username: username, telegramId: DEMO_TELEGRAM_ID_ }, acc);
     DEMO_POINT_IDS = ids.slice();
 
     var byId = {};
@@ -1597,6 +1808,7 @@
     }
     var ot = document.getElementById("orderTitle");
     if (ot) ot.textContent = "Бесплатная заявка";
+    restoreInspectLoca_();
     goOrderFlow();
   }
 
@@ -1605,38 +1817,65 @@
   }
 
   function goOrderFlow() {
-    state.point = null;
+    state.pointsPickMode = "order";
     state.orderStep = "catalog";
     state.cat = "treat";
+    var inspectPt = isInspectLocaUser_() ? currentInspectLoca_() : null;
+    state.point = inspectPt || null;
     document.querySelectorAll(".tab").forEach(function (el) {
       el.classList.toggle("on", el.getAttribute("data-cat") === "treat");
     });
-    var loc = document.getElementById("orderLocName");
-    if (loc) loc.textContent = "Выберите лакомства и купоны";
+    applyInspectLocaToOrderUi_();
+    if (!inspectPt) {
+      var loc = document.getElementById("orderLocName");
+      if (loc && !isInspectLocaUser_()) loc.textContent = "Выберите лакомства и купоны";
+    }
+    renderInspectLocaSelects_();
     showCatalogTab();
   }
 
 
 
   function goPointsForOrder_() {
-    state.orderStep = "point";
+    renderPointsList_({ mode: "order" });
+  }
+
+  function renderPointsList_(opts) {
+    var mode = (opts && opts.mode) || state.pointsPickMode || "order";
+    state.pointsPickMode = mode;
+    var inspect = mode === "inspect";
+    if (!inspect) state.orderStep = "point";
+    var titleEl = document.querySelector("#screenPoints .title");
+    if (titleEl) titleEl.textContent = inspect ? "Точка для проверки" : "Куда доставить";
+    var sub = document.getElementById("pointsSub");
+    if (sub) {
+      sub.textContent = inspect
+        ? "Выберите локу — заказы и заявка по ней. Varka недоступна."
+        : "Только ваши точки · выберите адрес для заявки";
+    }
     var box = document.getElementById("pointsList");
     var hint = document.getElementById("pointsCartHint");
-    var list = assignedPointsList_();
+    var list = inspect ? inspectLocaPoints_() : assignedPointsList_();
     if (!list.length) {
       var lt = (typeof liveTestPointObj_ === "function") ? liveTestPointObj_() : null;
-      if (lt) {
+      if (lt && !inspect) {
         if (typeof ensureLiveTestPointInPoints_ === "function") ensureLiveTestPointInPoints_(lt);
         list = [lt];
       } else if (DEMO_POINT_IDS && DEMO_POINT_IDS.length) {
         list = DEMO_POINT_IDS.map(function (id) {
           return pointById_(id) || { id: id, networkId: DEMO_NETWORK, name: id, address: "" };
         });
+        if (inspect) list = list.filter(function (p) { return !isVarkaInspectBlocked_(p); });
       }
     }
     if (hint) {
-      hint.style.display = "";
-      hint.innerHTML = "В заявке <b>" + cartCount() + "</b> поз.";
+      if (inspect) {
+        hint.style.display = "none";
+        hint.innerHTML = "";
+      } else {
+        hint.style.display = "";
+        hint.innerHTML = "В заявке <b>" + cartCount() + "</b> поз.";
+      }
     }
     if (!box) {
       show("screenPoints");
@@ -1649,16 +1888,20 @@
       updateCartButton_();
       return;
     }
+    var selectedId = inspect
+      ? (loadInspectLocaId_() || (state.point && state.point.id) || "")
+      : (state.point && state.point.id);
+    var pickFn = inspect ? "pickInspectLoca" : "pickPointForOrder";
     box.innerHTML = '<div class="sub" style="text-align:left;margin:0 0 10px;">Доступно точек: <b>' +
       list.length + "</b></div>" + list.map(function (pt) {
-      var on = state.point && state.point.id === pt.id;
+      var on = selectedId && selectedId === pt.id;
       var title = displayPointName_(pt) || pt.label || pt.name || pt.id || "Точка";
       var addr = String(pt.address || "").trim();
       return '<button class="loc" type="button" style="width:100%;text-align:left;margin:0 0 10px;' +
-        (on ? "border-color:var(--accent);" : "") + '" onclick="pickPointForOrder(\'' + esc(pt.id) + '\')">' +
+        (on ? "border-color:var(--accent);" : "") + '" onclick="' + pickFn + '(\'' + esc(pt.id) + '\')">' +
         '<div><div class="name">' + esc(title) + "</div>" +
         (addr && addr !== title ? ('<span class="addr">' + esc(addr) + "</span>") : "") +
-        (on ? '<span class="addr">✓ выбрано</span>' : '') +
+        (on ? '<span class="addr">✓ выбрано</span>' : "") +
         "</div></button>";
     }).join("");
     show("screenPoints");
@@ -1673,7 +1916,7 @@
     for (var i = 0; i < list.length; i++) {
       if (list[i] && list[i].id === id) { ok = true; break; }
     }
-    if (!ok) {
+    if (!ok || (isInspectLocaUser_() && isVarkaInspectBlocked_({ id: id }))) {
       alert("Нет доступа к этой точке.");
       return;
     }
@@ -1684,15 +1927,21 @@
       }
     }
     if (!pt) return;
+    if (isInspectLocaUser_() && isVarkaInspectBlocked_(pt)) {
+      alert("Нет доступа к этой точке.");
+      return;
+    }
     ensureLiveTestPointInPoints_(pt);
     state.point = pt;
+    if (isInspectLocaUser_()) saveInspectLocaId_(pt.id);
     stripBannerIfNeeded_();
     if ((Number(state.cart[NFC_ID_]) || 0) > 1 && !nfcExtraReason_) {
       state.cart[NFC_ID_] = 1;
       clearNfcExtra_();
     }
     var loc = document.getElementById("orderLocName");
-    if (loc) loc.textContent = pointLine_(pt);
+    if (loc) loc.textContent = isInspectLocaUser_() ? ("Проверка · " + pointLine_(pt)) : pointLine_(pt);
+    renderInspectLocaSelects_();
     goPointsForOrder_();
     updateCartButton_();
   }
@@ -2235,7 +2484,7 @@
       state.cart = {};
       clearNfcExtra_();
       if (noteEl) noteEl.value = "";
-      state.point = onlyPoint_() || null;
+      state.point = (isInspectLocaUser_() && currentInspectLoca_()) || onlyPoint_() || null;
       refreshCart();
       setTimeout(function () {
         submitBusy_ = false;
@@ -2251,17 +2500,28 @@
 
   async function showMyOrders() {
     show("screenMyOrders");
+    renderInspectLocaSelects_();
     var box = document.getElementById("myOrdersList");
     if (box) box.innerHTML = '<div class="empty">Загрузка…</div>';
     var u = user();
     try {
-      var res = await apiGet_({
+      var req = {
         action: "partnerListMyOrders",
         telegramId: (state.me && state.me.telegramId) || u.telegramId || "",
         username: (state.me && state.me.username) || u.username || "",
         _: String(Date.now())
-      });
+      };
+      var inspectId = isInspectLocaUser_() ? loadInspectLocaId_() : "";
+      if (inspectId && !isVarkaInspectBlocked_({ id: inspectId })) req.locationId = inspectId;
+      var res = await apiGet_(req);
       var list = (res && res.orders) ? res.orders.slice() : [];
+      list = list.filter(function (o) {
+        var locId = String((o && (o.locationId || o.pointId)) || "");
+        var net = String((o && o.networkId) || "");
+        if (net === "net_varka" || locId.indexOf("pt_varka_") === 0) return false;
+        if (inspectId) return locId === inspectId;
+        return true;
+      });
       if (!list.length) {
         box.innerHTML = '<div class="empty">Заказов пока нет</div>';
         return;
@@ -2340,6 +2600,7 @@
       String(state.me.accessStatus || "").toLowerCase() === "pending");
     if (pendCard) pendCard.style.display = needAccept ? "" : "none";
     renderStaffList_();
+    renderInspectLocaSelects_();
     show("screenCabinet");
   }
 
@@ -2796,7 +3057,8 @@
       accessStatus: res.accessStatus || "active",
       role: asOwner ? "owner" : (asStaff ? "staff" : (res.role || "partner")),
       username: res.username || (u && u.username) || "",
-      telegramId: (u && u.telegramId) || res.telegramId || ""
+      telegramId: (u && u.telegramId) || res.telegramId || "",
+      canPickInspectLoca: !!res.canPickInspectLoca
     }, res.username || (u && u.username) || "");
     if (state.me) {
       state.me.isStaff = asStaff;
@@ -2864,6 +3126,9 @@
   window.goPoints = goPoints;
   window.pickPoint = pickPoint;
   window.pickPointForOrder = pickPointForOrder;
+  window.goInspectLoca = goInspectLoca;
+  window.pickInspectLoca = pickInspectLoca;
+  window.onInspectLocaSelect = onInspectLocaSelect;
   window.onCartPrimary = onCartPrimary;
   window.goCabinet = goCabinet;
   window.setCat = setCat;
