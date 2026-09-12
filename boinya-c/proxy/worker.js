@@ -1479,6 +1479,17 @@ function deferredItemModeOf_(it) {
   return "";
 }
 
+function deferredItemIsPartner_(it) {
+  if (!it) return false;
+  if (deferredItemModeOf_(it) === "partner") return true;
+  var pl = it.payload || {};
+  return String(pl.orderType || "").toLowerCase() === "partner";
+}
+
+function partnerHistoriesWipedSnap_(snap) {
+  return !!(snap && (snap._partnerWipeEmpty || snap._wipeEmpty || snap._partnerHistoriesWipedAt));
+}
+
 function deferredItemIsProtectedTransfer_(it) {
   if (!it) return false;
   var st = String(it.status || "open").toLowerCase();
@@ -1587,11 +1598,17 @@ async function mergeListDeferredPayload_(env, payload) {
   if (payload.status && payload.status !== "success") return null;
   var incoming = Array.isArray(payload.items) ? payload.items.slice() : [];
   var prevArr = [];
+  var prevSnap = null;
   try {
-    var prev = await getSnapRaw_(env, "listDeferred");
-    prevArr = prev && Array.isArray(prev.items) ? prev.items : [];
+    prevSnap = await getSnapRaw_(env, "listDeferred");
+    prevArr = prevSnap && Array.isArray(prevSnap.items) ? prevSnap.items : [];
   } catch (ePrev) {
     prevArr = [];
+  }
+  if (partnerHistoriesWipedSnap_(prevSnap)) {
+    incoming = incoming.filter(function (it) {
+      return !deferredItemIsPartner_(it);
+    });
   }
   if (!incoming.length && !prevArr.length) {
     return Object.assign({}, payload, { items: [], openCount: 0 });
@@ -1663,7 +1680,11 @@ async function mergeListDeferredPayload_(env, payload) {
     items: incoming,
     openCount: openCount,
     mergedTransfers: true,
-    mergedRemind: true
+    mergedRemind: true,
+    _partnerWipeEmpty: !!(prevSnap && prevSnap._partnerWipeEmpty),
+    _wipeEmpty: !!(prevSnap && prevSnap._wipeEmpty),
+    _partnerHistoriesWipedAt:
+      (prevSnap && prevSnap._partnerHistoriesWipedAt) || payload._partnerHistoriesWipedAt || ""
   });
 }
 
@@ -9801,6 +9822,20 @@ async function handleCutover_(a, params, env, ctx) {
             finalD1.sandbox = false;
             return finalD1;
           }
+          // wipe: пустой snap ≠ cold-start — не заливать partner-задачи из GAS
+          if (partnerHistoriesWipedSnap_(afterD1)) {
+            const finalW = await finalizeListDeferredPayload_(env, afterD1);
+            try {
+              await putSnap_(env, "listDeferred", finalW);
+            } catch (eFaW) {}
+            finalW.cutover = true;
+            finalW.fromD1 = true;
+            finalW.deferredCanon = "d1-primary";
+            finalW.swr = true;
+            finalW.sandbox = false;
+            finalW.wiped = true;
+            return finalW;
+          }
         } catch (eAfterD1) {}
       }
       try {
@@ -10607,6 +10642,7 @@ async function cutoverStoreRead_(a, params, env, payload) {
           await putSnap_(env, "listDeferred", finalPrev);
           return;
         }
+        if (partnerHistoriesWipedSnap_(prev)) return;
       } catch (ePrevDef) {}
       // cold-start: только если snap пуст — один раз принять GAS
     }
@@ -16792,7 +16828,7 @@ async function mutatePartnerD1_(action, params, env) {
     pack.orders.unshift(order);
     pack.status = "success";
     pack._d1TouchedAt = Date.now();
-    pack._wipeEmpty = false;
+    // не сбрасывать _wipeEmpty: иначе GAS merge вернёт стёртую историю
     await putSnap_(env, "partnerOrders", pack);
     let deferredId = "";
     try {
@@ -17057,6 +17093,8 @@ async function mutatePartnerD1_(action, params, env) {
       }).length;
       list.fromD1 = true;
       list._partnerHistoriesWipedAt = nowIso;
+      list._partnerWipeEmpty = true;
+      list._wipeEmpty = true;
       await putSnap_(env, "listDeferred", list);
     } catch (eDefW) {}
     return {
