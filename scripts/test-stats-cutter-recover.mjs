@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Contract: Нарезчик OFF → recover leaves PP costs and raises clean.
- * Нарезчик ON → recover stays in costs; staffCost still added separately.
+ * Нарезчик ON → recover stays in costs. Flat cutter staffCost is NOT added (canon 2026-09-12).
  * Mirrors applyStatsCutterRecoverSplit_ + handleGetStats costActual in Code.gs.
  */
 const STATS_CUTTER_PRESET_ID_ = "cutter";
@@ -71,10 +71,10 @@ assert(isStatsCutterActiveForMonth_(staffOff) === false, "empty staff → cutter
 assert(isStatsCutterActiveForMonth_({ staff: [{ id: "other", name: "Курьер", salary: 400 }] }) === false, "other staff ≠ cutter");
 
 const onMonth = applyStatsCutterRecoverSplit_(monthFact(recover), true);
-const on = totals(onMonth, 900);
+const on = totals(onMonth, 0);
 assert(onMonth.ppRecoverInClean === 0, "ON: recover stays in costs");
 assert(on.ppCost === Math.round((120 + recover) * 100) / 100, "ON: costBySource.pp keeps recover");
-assert(on.cost === Math.round((200 + recover + 900) * 100) / 100, "ON: costActual = goods+recover+staff");
+assert(on.cost === Math.round((200 + recover) * 100) / 100, "ON: costActual = goods+recover, no flat ЗП");
 assert(on.clean === Math.round((500 - on.cost) * 100) / 100, "ON: clean = turnover − cost");
 
 const offMonth = applyStatsCutterRecoverSplit_(monthFact(recover), false);
@@ -83,7 +83,7 @@ assert(off.recoverInClean === recover, "OFF: recover moved to clean");
 assert(off.ppCost === 120, "OFF: costBySource.pp excludes recover");
 assert(off.cost === 200, "OFF: costActual excludes recover and staff");
 assert(off.clean === Math.round((500 - 200) * 100) / 100, "OFF: clean higher");
-assert(off.clean - on.clean === Math.round((recover + 900) * 100) / 100, "OFF vs ON: clean up by recover+staff");
+assert(Math.round((off.clean - on.clean) * 100) / 100 === recover, "OFF vs ON: clean up by recover only (no +900)");
 
 const legacy = applyStatsCutterRecoverSplit_({
   costActual: 80,
@@ -97,7 +97,7 @@ assert(legacy.costBySource.pp === 69, "LEGACY: 80−11");
 console.log("OK stats-cutter-recover");
 console.log(JSON.stringify({
   recover,
-  on: { cost: on.cost, clean: on.clean, ppCost: on.ppCost, recoverInClean: on.recoverInClean, staffCost: 900 },
+  on: { cost: on.cost, clean: on.clean, ppCost: on.ppCost, recoverInClean: on.recoverInClean, staffCost: 0 },
   off: { cost: off.cost, clean: off.clean, ppCost: off.ppCost, recoverInClean: off.recoverInClean, staffCost: 0 },
   cleanDeltaOffMinusOn: Math.round((off.clean - on.clean) * 100) / 100
 }, null, 2));
