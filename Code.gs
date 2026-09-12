@@ -2013,7 +2013,7 @@ function doGet(e) {
     return handleSetupDeliveryDatesNudgeTriggers(callback, false);
   }
   if (action === "testDeliveryDatesNudge") {
-    return handleTestDeliveryDatesNudge(callback, false);
+    return handleTestDeliveryDatesNudge(callback, false, e && e.parameter);
   }
   if (action === "getMyAccess") {
     return handleGetMyAccess({
@@ -2767,7 +2767,7 @@ function handleApiAction(json, callback, fromPost) {
     return handleSetupDeliveryDatesNudgeTriggers(callback, fromPost);
   }
   if (action === "testDeliveryDatesNudge") {
-    return handleTestDeliveryDatesNudge(callback, fromPost);
+    return handleTestDeliveryDatesNudge(callback, fromPost, json);
   }
   if (action === "updateCutting") {
     return handleUpdateCutting(ss, json, callback, fromPost);
@@ -3646,7 +3646,7 @@ function handleSetDelivered(ss, json, callback) {
       break;
     }
   }
-  if (mgrIdx < 0) return jsonpText(callback, { status: "client_not_found" });
+  if (mgrIdx < 0 && !want) return jsonpText(callback, { status: "client_not_found" });
 
   var dateText = formatSheetDate(dateValue, tz);
   var delivered = json.delivered === true || String(json.delivered).toLowerCase() === "true";
@@ -3670,7 +3670,8 @@ function handleSetDelivered(ss, json, callback) {
     delivered: delivered,
     paid: paidVal || prevMem.paid || null,
     assembled: !!prevMem.assembled,
-    printed: !!prevMem.printed
+    printed: !!prevMem.printed,
+    client: String(prevMem.client || want || "").trim()
   };
   saveMemoryJson_(memory, dateText, values, tz);
   try { CacheService.getScriptCache().remove("COUR:" + String(json.day || "").toUpperCase()); } catch (eC) {}
@@ -3687,7 +3688,12 @@ function handleSetDelivered(ss, json, callback) {
       recordPpDeliveryCycle_(ss, json.day, json.client, dateValue, tz, paidVal || null);
     } catch (eCycle) {}
   }
-  return jsonpText(callback, { status: "success", paid: paidVal || null });
+  return jsonpText(callback, {
+    status: "success",
+    paid: paidVal || null,
+    weekCol: mgrIdx >= 0,
+    wroteMemory: true
+  });
 }
 
 function handleSetAssembled(ss, json, callback) {
@@ -3710,7 +3716,8 @@ function handleSetAssembled(ss, json, callback) {
     delivered: !!prevMem.delivered,
     paid: prevMem.paid || null,
     assembled: assembled,
-    printed: !!prevMem.printed
+    printed: !!prevMem.printed,
+    client: String(prevMem.client || want || "").trim()
   };
   saveMemoryJson_(memory, dateText, values, tz);
   try {
@@ -3741,7 +3748,8 @@ function handleSetPrinted(ss, json, callback) {
     delivered: !!prevMem.delivered,
     paid: prevMem.paid || null,
     assembled: !!prevMem.assembled,
-    printed: printed
+    printed: printed,
+    client: String(prevMem.client || want || "").trim()
   };
   saveMemoryJson_(memory, dateText, values, tz);
   try {
@@ -9442,16 +9450,138 @@ function miniAppPublicUrl_() {
   return "https://konchaarsenia-a11y.github.io/superboyna/boinya-c/app.html";
 }
 
+/** Вчера по Минску (yyyy-MM-dd). override — конкретный день для dry/теста. */
+function minskYesterdayIso_(overrideYmd) {
+  var tz = "Europe/Minsk";
+  var raw = String(overrideYmd || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (raw) {
+    var parsed = parseFlexibleDate_(raw, tz);
+    if (parsed) return Utilities.formatDate(parsed, tz, "yyyy-MM-dd");
+  }
+  var todayIso = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+  var p = todayIso.split("-");
+  var dt = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]) - 1, 12, 0, 0));
+  return Utilities.formatDate(dt, "UTC", "yyyy-MM-dd");
+}
+
+function dateFromIsoNoon_(iso) {
+  var p = String(iso || "").split("-");
+  if (p.length !== 3) return null;
+  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 12, 0, 0);
+}
+
+/** Память курьера: dd.MM.yyyy, ISO и Date в колонке A. */
+function getMemoryCourierJsonForDate_(memorySheet, dateText, dateIso, tz) {
+  var direct = memorySheet ? getMemoryJson_(memorySheet, dateText, tz) : null;
+  if (direct && typeof direct === "object" && Object.prototype.toString.call(direct) !== "[object Array]") {
+    return direct;
+  }
+  if (dateIso && memorySheet) {
+    var byIso = getMemoryJson_(memorySheet, dateIso, tz);
+    if (byIso && typeof byIso === "object" && Object.prototype.toString.call(byIso) !== "[object Array]") {
+      return byIso;
+    }
+  }
+  if (!memorySheet || memorySheet.getLastRow() < 1) return direct;
+  try {
+    var dates = memorySheet.getRange(1, 1, memorySheet.getLastRow(), 1).getValues();
+    for (var i = 0; i < dates.length; i++) {
+      var ft = formatSheetDate(dates[i][0], tz);
+      var iso = "";
+      try {
+        var d = dates[i][0] instanceof Date ? dates[i][0] : parseFlexibleDate_(dates[i][0], tz);
+        if (d) iso = Utilities.formatDate(d, tz, "yyyy-MM-dd");
+      } catch (eI) {}
+      if (ft === dateText || (dateIso && (iso === dateIso || String(dates[i][0] || "") === dateIso))) {
+        try {
+          var parsed = JSON.parse(memorySheet.getRange(i + 1, 2).getValue());
+          if (parsed && typeof parsed === "object" && Object.prototype.toString.call(parsed) !== "[object Array]") {
+            return parsed;
+          }
+        } catch (eP) {}
+      }
+    }
+  } catch (eS) {}
+  return direct;
+}
+
+function looksLikeBareMatchKey_(s) {
+  var t = String(s || "").trim();
+  if (!t) return true;
+  if (t.indexOf("|") >= 0) return true;
+  if (!/\s/.test(t) && t === t.toUpperCase() && /[A-ZА-ЯЁ]/.test(t) && t.length >= 3) return true;
+  return false;
+}
+
+function memoryLabel_(ent, mk) {
+  if (ent && typeof ent === "object" && ent.client) return String(ent.client).trim();
+  return String(mk || "").trim();
+}
+
+function memoryDeliveredForClient_(mem, name) {
+  if (!mem || typeof mem !== "object") return false;
+  if (Object.prototype.toString.call(mem) === "[object Array]") return false;
+  if (normalizeMemDelivered_(memFlagEntry_(mem, name))) return true;
+  var mk = clientMatchKey_(name) || "";
+  if (mk && normalizeMemDelivered_(mem[mk])) return true;
+  var up = String(name || "").trim().toUpperCase();
+  if (up && normalizeMemDelivered_(mem[up])) return true;
+  for (var k in mem) {
+    if (!Object.prototype.hasOwnProperty.call(mem, k)) continue;
+    if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(k)) continue;
+    if (!normalizeMemDelivered_(mem[k])) continue;
+    var label = memoryLabel_(mem[k], k);
+    if (nicksMatch_(label, name) || nicksMatch_(k, name)) return true;
+  }
+  return false;
+}
+
+function findCalendarHitForNudge_(cal, raw) {
+  if (!cal || !cal.length || !raw) return null;
+  var i;
+  var rk = clientMatchKey_(raw) || String(raw).toUpperCase();
+  for (i = 0; i < cal.length; i++) {
+    var ck = cal[i].matchKey || clientMatchKey_(cal[i].client) || "";
+    if (rk && ck && rk === ck) return cal[i];
+  }
+  for (i = 0; i < cal.length; i++) {
+    if (nicksMatch_(cal[i].client, raw) || nicksMatch_(cal[i].matchKey, raw)) return cal[i];
+  }
+  return null;
+}
+
+function crmNickCellForNudge_(crmSs, name) {
+  if (!crmSs || !name) return null;
+  var sheets = ["ПП", "АФК", "БП"];
+  for (var s = 0; s < sheets.length; s++) {
+    var data = null;
+    try { data = getCrmSheetValuesFast_(crmSs, sheets[s]); } catch (eR) { data = null; }
+    if (!data || data.length < 3) continue;
+    for (var r = 2; r < data.length; r++) {
+      var cell = String(data[r][0] || "").trim();
+      if (!cell) continue;
+      if (!nicksMatch_(cell, name)) continue;
+      return {
+        cell: cell,
+        sheet: sheets[s],
+        stage: sheets[s] === "БП" ? normalizeBpStage_(String(data[r][3] || "БП1")) : ""
+      };
+    }
+  }
+  return null;
+}
+
 /** Вчерашние доставленные: только ПП (любые) и БП1. */
-function listYesterdayDeliveredForNudge_(ss) {
+function listYesterdayDeliveredForNudge_(ss, dateOverride) {
   ss = ss || SpreadsheetApp.getActiveSpreadsheet();
   var tz = "Europe/Minsk";
-  var now = new Date();
-  var yday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-  var dateText = formatSheetDate(yday, tz);
-  var dateIso = Utilities.formatDate(yday, tz, "yyyy-MM-dd");
+  var dateIso = minskYesterdayIso_(dateOverride);
+  var yday = dateFromIsoNoon_(dateIso) || new Date();
+  var dateText = formatSheetDate(yday, tz) || Utilities.formatDate(yday, tz, "dd.MM.yyyy");
   var memory = getMemoryCourierSheet_();
-  var mem = memory ? getMemoryJson_(memory, dateText, tz) : null;
+  var mem = memory ? getMemoryCourierJsonForDate_(memory, dateText, dateIso, tz) : null;
+  if (!mem || typeof mem !== "object" || Object.prototype.toString.call(mem) === "[object Array]") mem = {};
   var deliveredNames = [];
   var seen = {};
 
@@ -9459,22 +9589,18 @@ function listYesterdayDeliveredForNudge_(ss) {
     n = String(n || "").trim();
     if (!n) return;
     if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(n)) return;
+    if (!isCountableClientNick_(n)) return;
     var k = clientMatchKey_(n) || n.toUpperCase();
     if (seen[k]) return;
     seen[k] = true;
     deliveredNames.push(n);
   }
 
-  if (mem && typeof mem === "object" && Object.prototype.toString.call(mem) !== "[object Array]") {
-    for (var mk in mem) {
-      if (!Object.prototype.hasOwnProperty.call(mem, mk)) continue;
-      if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(mk)) continue;
-      if (!normalizeMemDelivered_(mem[mk])) continue;
-      var ent = mem[mk];
-      var label = (ent && typeof ent === "object" && ent.client) ? ent.client : mk;
-      // ключ часто matchKey — подтянуть ник из календаря
-      addName_(label);
-    }
+  for (var mk in mem) {
+    if (!Object.prototype.hasOwnProperty.call(mem, mk)) continue;
+    if (/^(PP_CYCLE:|WEEK_PAID:|PP_SLOT_ANCHOR)/i.test(mk)) continue;
+    if (!normalizeMemDelivered_(mem[mk])) continue;
+    addName_(memoryLabel_(mem[mk], mk));
   }
 
   // лист «Доставки», если A1 = вчера
@@ -9489,45 +9615,73 @@ function listYesterdayDeliveredForNudge_(ss) {
     }
   } catch (eCour) {}
 
-  // обогатить имена из Календарь_Дат на вчера (matchKey → display)
+  // ники с листа недели на вчера — человекочитаемые, если в памяти только matchKey
   try {
-    var cal = readCalendarForDate_(ss, yday) || [];
-    var byKey = {};
-    for (var c = 0; c < cal.length; c++) {
-      var ck = cal[c].matchKey || clientMatchKey_(cal[c].client) || "";
-      if (ck) byKey[ck] = cal[c];
+    var days = MANAGER_DAY_NAMES_;
+    for (var di = 0; di < days.length; di++) {
+      var dv = getDayDate_(ss, days[di]);
+      if (!dv || formatSheetDate(dv, tz) !== dateText) continue;
+      var block = getDayBlock(days[di]);
+      var sh = getTargetSheet(ss, block);
+      if (!sh || !block) continue;
+      var weekNicks = sh.getRange(block.nick, 3, 1, 15).getValues()[0] || [];
+      for (var wi = 0; wi < weekNicks.length; wi++) {
+        var wn = String(weekNicks[wi] || "").trim();
+        if (!isCountableClientNick_(wn)) continue;
+        if (memoryDeliveredForClient_(mem, wn)) addName_(wn);
+      }
     }
-    var resolved = [];
-    var seen2 = {};
-    for (var d = 0; d < deliveredNames.length; d++) {
-      var raw = deliveredNames[d];
-      var rk = clientMatchKey_(raw) || String(raw).toUpperCase();
-      var hit = byKey[rk];
-      var display = hit ? (displayClientNick_(hit.client) || hit.client) : raw;
-      var k2 = clientMatchKey_(display) || display.toUpperCase();
-      if (seen2[k2]) continue;
-      seen2[k2] = true;
-      resolved.push({
-        name: display,
-        matchKey: k2,
-        segment: hit ? String(hit.segment || "").trim() : "",
-        basket: hit && hit.basket ? hit.basket : [],
-        address: hit ? (hit.address || "") : "",
-        ppSlot: hit ? (hit.ppSlot || "") : ""
-      });
+  } catch (eWeek) {}
+
+  var cal = [];
+  try { cal = readCalendarForDate_(ss, yday) || []; } catch (eCalRead) { cal = []; }
+
+  // календарь вчера + галочка в памяти (сегмент и display сразу)
+  for (var ci = 0; ci < cal.length; ci++) {
+    var calName = String((cal[ci] && cal[ci].client) || "").trim();
+    if (!calName) continue;
+    if (memoryDeliveredForClient_(mem, calName) || memoryDeliveredForClient_(mem, cal[ci].matchKey)) {
+      addName_(displayClientNick_(calName) || calName);
     }
-    deliveredNames = resolved;
-  } catch (eCal) {
-    deliveredNames = deliveredNames.map(function (n) {
-      return { name: n, matchKey: clientMatchKey_(n) || String(n).toUpperCase(), segment: "", basket: [], address: "", ppSlot: "" };
+  }
+
+  var crmSs = null;
+  try { crmSs = getCrmSpreadsheet_(); } catch (eCrmSs) { crmSs = null; }
+
+  var resolved = [];
+  var seen2 = {};
+  for (var d = 0; d < deliveredNames.length; d++) {
+    var raw = deliveredNames[d];
+    var hit = findCalendarHitForNudge_(cal, raw);
+    var display = "";
+    if (hit) display = displayClientNick_(hit.client) || String(hit.client || "").trim();
+    if (!display || looksLikeBareMatchKey_(display)) {
+      var crmHit = crmNickCellForNudge_(crmSs, raw) || (display ? crmNickCellForNudge_(crmSs, display) : null);
+      if (crmHit && crmHit.cell) display = displayClientNick_(crmHit.cell) || crmHit.cell;
+    }
+    if (!display) display = displayClientNick_(raw) || raw;
+    if (looksLikeBareMatchKey_(display) && hit && hit.client) {
+      display = displayClientNick_(hit.client) || hit.client;
+    }
+    var k2 = clientMatchKey_(display) || clientMatchKey_(raw) || display.toUpperCase();
+    if (seen2[k2]) continue;
+    seen2[k2] = true;
+    resolved.push({
+      name: display,
+      matchKey: k2,
+      segment: hit ? String(hit.segment || "").trim() : "",
+      basket: hit && hit.basket ? hit.basket : [],
+      address: hit ? (hit.address || "") : "",
+      ppSlot: hit ? (hit.ppSlot || "") : ""
     });
   }
 
   var pp = [];
   var bp1 = [];
-  for (var r = 0; r < deliveredNames.length; r++) {
-    var row = deliveredNames[r];
-    var meta = classifyDeliveredClientForNudge_(ss, row);
+  for (var r = 0; r < resolved.length; r++) {
+    var row = resolved[r];
+    var meta = classifyDeliveredClientForNudge_(ss, row, crmSs);
+    if (!meta.name) meta.name = row.name;
     if (meta.kind === "pp") pp.push(meta);
     else if (meta.kind === "bp1") bp1.push(meta);
   }
@@ -9540,32 +9694,49 @@ function listYesterdayDeliveredForNudge_(ss) {
   };
 }
 
-function classifyDeliveredClientForNudge_(ss, row) {
+function classifyDeliveredClientForNudge_(ss, row, crmSsOpt) {
   var name = String(row.name || "").trim();
   var seg = String(row.segment || "").trim().toUpperCase();
   var stage = "";
   var kind = "";
 
-  // CRM: есть в ПП / АФК / БП
+  // CRM: есть в ПП / АФК / БП — и подтянуть человекочитаемый ник с листа
   try {
-    var crmSs = getCrmSpreadsheet_();
-    var foundPp = findSubscriberBasket_(crmSs, name, "ПП");
-    if (foundPp && String(foundPp.sheet || "") === "ПП") {
+    var crmSs = crmSsOpt || getCrmSpreadsheet_();
+    var crmCell = crmNickCellForNudge_(crmSs, name) ||
+      (row.matchKey ? crmNickCellForNudge_(crmSs, row.matchKey) : null);
+    if (crmCell && crmCell.sheet === "ПП") {
       kind = "pp";
       seg = "ПП";
+      if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(crmCell.cell) || crmCell.cell || name;
+    } else if (crmCell && crmCell.sheet === "АФК") {
+      kind = "";
+      seg = "АФК";
+      if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(crmCell.cell) || crmCell.cell || name;
+    } else if (crmCell && crmCell.sheet === "БП") {
+      seg = "БП";
+      stage = crmCell.stage || "БП1";
+      if (normalizeBpStage_(stage) === "БП1") kind = "bp1";
+      if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(crmCell.cell) || crmCell.cell || name;
     } else {
-      var foundAfk = findSubscriberBasket_(crmSs, name, "АФК");
-      if (foundAfk && String(foundAfk.sheet || "") === "АФК") {
-        kind = "";
-        seg = "АФК";
+      var foundPp = findSubscriberBasket_(crmSs, name, "ПП");
+      if (foundPp && String(foundPp.sheet || "") === "ПП") {
+        kind = "pp";
+        seg = "ПП";
       } else {
-        var bpSh = findSheetByBaseName_(crmSs, "БП");
-        if (bpSh) {
-          var idx = findSubscriptionRowIndex_(bpSh, name, "");
-          if (idx >= 0) {
-            seg = "БП";
-            stage = normalizeBpStage_(String(bpSh.getRange(idx + 1, 4).getValue() || "БП1"));
-            if (stage === "БП1") kind = "bp1";
+        var foundAfk = findSubscriberBasket_(crmSs, name, "АФК");
+        if (foundAfk && String(foundAfk.sheet || "") === "АФК") {
+          kind = "";
+          seg = "АФК";
+        } else {
+          var bpSh = findSheetByBaseName_(crmSs, "БП");
+          if (bpSh) {
+            var idx = findSubscriptionRowIndex_(bpSh, name, "");
+            if (idx >= 0) {
+              seg = "БП";
+              stage = normalizeBpStage_(String(bpSh.getRange(idx + 1, 4).getValue() || "БП1"));
+              if (stage === "БП1") kind = "bp1";
+            }
           }
         }
       }
@@ -9592,10 +9763,8 @@ function classifyDeliveredClientForNudge_(ss, row) {
   };
 }
 
-function sendDeliveryDatesNudge_(slot) {
+function buildDeliveryDatesNudgeText_(pack, slot) {
   var when = String(slot || "") === "19" ? "19:00" : "11:00";
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var pack = listYesterdayDeliveredForNudge_(ss);
   var lines = [];
   lines.push("📅 Подбейте даты доставок");
   lines.push("Вчера (" + pack.dateText + ") с галочкой «доставлен» — ПП и БП1:");
@@ -9606,14 +9775,18 @@ function sendDeliveryDatesNudge_(slot) {
     if (pack.pp.length) {
       lines.push("ПП (" + pack.pp.length + "):");
       for (var i = 0; i < pack.pp.length; i++) {
-        lines.push("· " + pack.pp[i].name + (pack.pp[i].ppSlot ? (" · " + pack.pp[i].ppSlot) : ""));
+        var pn = String(pack.pp[i].name || "").trim();
+        if (!pn) continue;
+        lines.push("· " + pn + (pack.pp[i].ppSlot ? (" · " + pack.pp[i].ppSlot) : ""));
       }
       lines.push("");
     }
     if (pack.bp1.length) {
       lines.push("БП1 (" + pack.bp1.length + "):");
       for (var j = 0; j < pack.bp1.length; j++) {
-        lines.push("· " + pack.bp1[j].name);
+        var bn = String(pack.bp1[j].name || "").trim();
+        if (!bn) continue;
+        lines.push("· " + bn);
       }
       lines.push("");
     }
@@ -9621,16 +9794,24 @@ function sendDeliveryDatesNudge_(slot) {
   lines.push("Сверьте следующие даты в Просмотр.");
   lines.push("У ПП — кнопка «В АФК», если клиент хочет перерыв.");
   lines.push("⏰ " + when + " · Минск");
-  var text = lines.join("\n");
+  return lines.join("\n");
+}
+
+function sendDeliveryDatesNudge_(slot, dateOverride) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var pack = listYesterdayDeliveredForNudge_(ss, dateOverride);
+  var text = buildDeliveryDatesNudgeText_(pack, slot);
 
   // кнопки АФК — по одному ряду на клиента (лимит TG ~100)
   var keyboard = [];
   var maxBtn = Math.min(pack.pp.length, 24);
   for (var b = 0; b < maxBtn; b++) {
+    var btnName = String(pack.pp[b].name || "").trim();
+    if (!btnName) continue;
     var tok = storePpAfkToken_(pack.pp[b]);
     if (!tok) continue;
     keyboard.push([{
-      text: "⏸ В АФК · " + String(pack.pp[b].name || "").slice(0, 28),
+      text: "⏸ В АФК · " + btnName.slice(0, 28),
       callback_data: ("ppafk:" + tok).slice(0, 64)
     }]);
   }
@@ -9652,8 +9833,15 @@ function sendDeliveryDatesNudge_(slot) {
       var res = markup
         ? telegramSendMarkup_(ids[n], text, markup)
         : telegramSendText_(ids[n], text);
-      if (res && res.ok) ok++;
-      else fail++;
+      if (res && res.ok) {
+        ok++;
+      } else if (markup) {
+        var res2 = telegramSendText_(ids[n], text);
+        if (res2 && res2.ok) ok++;
+        else fail++;
+      } else {
+        fail++;
+      }
     } catch (e) { fail++; }
   }
   try {
@@ -9665,13 +9853,24 @@ function sendDeliveryDatesNudge_(slot) {
       } catch (eC) {}
     }
   } catch (eChat) {}
+  function namesOf_(arr) {
+    var out = [];
+    for (var ni = 0; ni < (arr || []).length; ni++) {
+      var nm = String(arr[ni].name || "").trim();
+      if (nm) out.push(nm);
+    }
+    return out;
+  }
   return {
     recipients: ids.length,
     ok: ok,
     fail: fail,
     pp: pack.pp.length,
     bp1: pack.bp1.length,
-    dateText: pack.dateText
+    dateText: pack.dateText,
+    dateIso: pack.dateIso,
+    ppNames: namesOf_(pack.pp),
+    bp1Names: namesOf_(pack.bp1)
   };
 }
 
@@ -9901,22 +10100,66 @@ function testDeliveryDatesNudgeNow() {
   }
 }
 
-/** HTTP: тот же тест пуша (для агента / отладки). */
-function handleTestDeliveryDatesNudge(callback, fromPost) {
+/** HTTP: тест пуша. dry=1 — только превью текста/имён, без Telegram. */
+function handleTestDeliveryDatesNudge(callback, fromPost, params) {
+  params = params || {};
+  var dryRaw = params.dry != null ? params.dry : params.preview;
+  var dry = dryRaw === true || dryRaw === 1 || dryRaw === "1" ||
+    String(dryRaw || "").toLowerCase() === "true";
+  var dateOverride = String(params.date || params.dateIso || params.ymd || "").trim();
   var out;
   try {
-    var props = PropertiesService.getScriptProperties();
     var ymd = Utilities.formatDate(new Date(), "Europe/Minsk", "yyyy-MM-dd");
-    try {
-      props.deleteProperty("DATE_NUDGE_" + ymd + "_11");
-      props.deleteProperty("DATE_NUDGE_" + ymd + "_19");
-    } catch (eClr) {}
-    var sent = sendDeliveryDatesNudge_("11");
-    out = { status: "success", result: sent, ymd: ymd };
+    if (dry) {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var pack = listYesterdayDeliveredForNudge_(ss, dateOverride);
+      var text = buildDeliveryDatesNudgeText_(pack, "11");
+      out = {
+        status: "success",
+        dry: true,
+        ymd: ymd,
+        dateText: pack.dateText,
+        dateIso: pack.dateIso,
+        total: pack.total,
+        pp: pack.pp.length,
+        bp1: pack.bp1.length,
+        ppNames: pack.pp.map(function (x) { return x.name; }),
+        bp1Names: pack.bp1.map(function (x) { return x.name; }),
+        text: text
+      };
+    } else {
+      var props = PropertiesService.getScriptProperties();
+      try {
+        props.deleteProperty("DATE_NUDGE_" + ymd + "_11");
+        props.deleteProperty("DATE_NUDGE_" + ymd + "_19");
+      } catch (eClr) {}
+      var sent = sendDeliveryDatesNudge_("11", dateOverride);
+      out = { status: "success", dry: false, result: sent, ymd: ymd };
+    }
   } catch (e) {
     out = { status: "error", message: String(e) };
   }
   return fromPost ? jsonpText(callback, out) : jsonp(callback, out);
+}
+
+/** Dry из редактора: Журнал, без рассылки в Telegram. */
+function testDeliveryDatesNudgeDry() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var pack = listYesterdayDeliveredForNudge_(ss);
+    var text = buildDeliveryDatesNudgeText_(pack, "11");
+    Logger.log("testDeliveryDatesNudgeDry " + JSON.stringify({
+      dateText: pack.dateText,
+      dateIso: pack.dateIso,
+      total: pack.total,
+      ppNames: pack.pp.map(function (x) { return x.name; }),
+      bp1Names: pack.bp1.map(function (x) { return x.name; })
+    }));
+    Logger.log(text);
+  } catch (e) {
+    Logger.log("testDeliveryDatesNudgeDry ERR " + String(e));
+    try { Logger.log(String(e && e.stack || "")); } catch (e2) {}
+  }
 }
 
 function closeDeficitRowsById_(sh, id) {
