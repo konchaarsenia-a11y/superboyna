@@ -8,6 +8,7 @@ import {
   createWebsiteOrder,
   updateOrderStatus,
   modelFieldsFromName,
+  listBrands,
 } from "../services/catalog.js";
 import { buildLabelHtml, buildBarcodePng } from "../services/labels.js";
 import { notifyNewOrder } from "../services/notify.js";
@@ -54,13 +55,8 @@ router.get("/catalog/:id", async (req, res, next) => {
 
 router.get("/brands", async (_req, res, next) => {
   try {
-    const { rows } = await query(
-      `SELECT brand,
-         COUNT(DISTINCT COALESCE(NULLIF(model_key, ''), id::text))::int AS products
-       FROM products WHERE active AND brand <> ''
-       GROUP BY brand ORDER BY brand`
-    );
-    res.json({ ok: true, brands: rows });
+    const brands = await listBrands();
+    res.json({ ok: true, brands });
   } catch (err) {
     next(err);
   }
@@ -217,7 +213,7 @@ router.post("/staff/products", requireAdmin, async (req, res, next) => {
     const { rows } = await query(
       `INSERT INTO products (name, brand, article, barcode, price_byn, color, model_key)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [b.name, b.brand || "", b.article, barcode, Number(b.price_byn) || 0, meta.color, meta.model_key]
+      [b.name, meta.brand, b.article, barcode, Number(b.price_byn) || 0, meta.color, meta.model_key]
     );
     const product = rows[0];
     const arrivalIds = [];
@@ -313,12 +309,12 @@ router.patch("/staff/products/:id", requireAdmin, async (req, res, next) => {
     const current = await getProduct(req.params.id);
     if (!current) return res.status(404).json({ ok: false, error: "not_found" });
     const nextName = b.name ?? current.name;
-    const nextBrand = b.brand ?? current.brand;
+    const nextBrand = b.brand !== undefined ? b.brand : current.brand;
     const meta = modelFieldsFromName(nextName, nextBrand, b.color);
     const { rows } = await query(
       `UPDATE products SET
          name = COALESCE($2, name),
-         brand = COALESCE($3, brand),
+         brand = $3,
          price_byn = COALESCE($4, price_byn),
          active = COALESCE($5, active),
          color = $6,
@@ -329,7 +325,7 @@ router.patch("/staff/products/:id", requireAdmin, async (req, res, next) => {
       [
         req.params.id,
         b.name ?? null,
-        b.brand ?? null,
+        meta.brand,
         b.price_byn != null ? Number(b.price_byn) : null,
         typeof b.active === "boolean" ? b.active : null,
         b.color != null ? String(b.color).trim() : meta.color,

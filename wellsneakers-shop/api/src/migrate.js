@@ -43,7 +43,7 @@ async function main() {
 
   await ensureProductModelColumns();
   const n = await backfillProductModelKeys();
-  console.log(`Backfilled model_key/color: ${n}`);
+  console.log(`Backfilled brand/model_key/color: ${n}`);
   await pool.end();
 }
 

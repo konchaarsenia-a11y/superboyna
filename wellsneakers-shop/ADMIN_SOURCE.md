@@ -28,7 +28,8 @@
 ## Объём
 
 - Товаров в списке: **397** (20 страниц × 20).
-- Бренды (manufacturer): ad1das, ALEXANDER MCQUEEN, ASICS, DR. MARTENS, MERRELL, NIKE, ree6ok, SAUCONY, under armour (названия в OC кривые — на новом сайте можно поправить).
+- Бренды (manufacturer): ad1das, ALEXANDER MCQUEEN, ASICS, DR. MARTENS, MERRELL, NIKE, ree6ok, SAUCONY, under armour.
+  На витрине нормализуем в Title Case (`ad1das`→Adidas, `ree6ok`→Reebok, NIKE→Nike). Пустой manufacturer — infer из начала `name` (см. `api/src/lib/brand.js`).
 
 ---
 
