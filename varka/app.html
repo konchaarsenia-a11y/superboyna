@@ -245,7 +245,7 @@
     }
     .chip.on { color: var(--accent2); border-color: var(--accent); }
     .inspect-chip {
-      max-width: 148px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 168px; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       color: var(--accent2); border-color: var(--accent);
     }
     select.field { appearance: none; -webkit-appearance: none; }
@@ -1572,7 +1572,8 @@
       if (el) el.classList.toggle("on", s === id);
     });
     var bar = document.getElementById("cartBar");
-    var withCart = (id === "screenOrder" || id === "screenPoints");
+    var withCart = (id === "screenOrder" ||
+      (id === "screenPoints" && state.pointsPickMode !== "inspect"));
     if (bar) bar.style.display = withCart ? "" : "none";
     var authed = (id === "screenOrder" || id === "screenPoints" ||
       id === "screenMyOrders" || id === "screenCabinet");
