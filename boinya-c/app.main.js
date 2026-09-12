@@ -9881,14 +9881,15 @@
       rememberCuttingLocalFlag_(cached.row, { laid: !!laid }, cached.name);
       var snap = captureCuttingScroll_();
       applyCutFlagDom_(key);
+      restoreCuttingScroll_(snap);
+      restoreCuttingFocus_(key, "laid");
       const ok = await persistCuttingFlag_(cached, { laid: !!laid });
       if (!ok) {
         cached.laid = prev;
         rememberCuttingLocalFlag_(cached.row, { laid: prev }, cached.name);
         applyCutFlagDom_(key);
+        restoreCuttingFocus_(key, "laid");
       }
-      restoreCuttingScroll_(snap);
-      restoreCuttingFocus_(key, "laid");
     }
     window.toggleCutLaid = toggleCutLaid;
 
@@ -9900,6 +9901,8 @@
       rememberCuttingLocalFlag_(cached.row, { done: !!done }, cached.name);
       var snap = captureCuttingScroll_();
       applyCutFlagDom_(key);
+      restoreCuttingScroll_(snap);
+      restoreCuttingFocus_(key, "done");
       if (done) {
         try { if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light"); } catch (e) {}
       }
@@ -9908,19 +9911,17 @@
         cached.done = prev;
         rememberCuttingLocalFlag_(cached.row, { done: prev }, cached.name);
         applyCutFlagDom_(key);
-        restoreCuttingScroll_(snap);
         restoreCuttingFocus_(key, "done");
         return;
       }
-      restoreCuttingScroll_(snap);
-      restoreCuttingFocus_(key, "done");
       // все нарезано → предложить завершить (как авто-экран сборки/курьера)
       if (ok && done && cuttingSession.active) {
         var left = (cuttingItemsCache || []).filter(function (x) { return !x.done; }).length;
         if (left === 0) {
           try {
+            var snapAsk = captureCuttingScroll_();
             var go = await uiConfirmAsync("Все позиции отмечены. Завершить нарезку?");
-            restoreCuttingScroll_(snap);
+            restoreCuttingScroll_(snapAsk);
             if (go) await finishCutting();
           } catch (eFin) {}
         }
@@ -9936,26 +9937,22 @@
       const okAsk = next
         ? await uiConfirmAsync("Пометить «" + cached.name + "»: на эту нарезку хватает, на следующую — уже нет?")
         : await uiConfirmAsync("Снять пометку дефицита на следующую нарезку?");
-      if (!okAsk) {
-        restoreCuttingScroll_(snap);
-        restoreCuttingFocus_(key, "bang");
-        return;
-      }
+      restoreCuttingScroll_(snap);
+      restoreCuttingFocus_(key, "bang");
+      if (!okAsk) return;
       const prev = !!cached.outNext;
       cached.outNext = next;
       rememberCuttingLocalFlag_(cached.row, { outNext: next }, cached.name);
       applyCutFlagDom_(key);
+      restoreCuttingFocus_(key, "bang");
       const ok = await persistCuttingFlag_(cached, { outNext: next });
       if (!ok) {
         cached.outNext = prev;
         rememberCuttingLocalFlag_(cached.row, { outNext: prev }, cached.name);
         applyCutFlagDom_(key);
-        restoreCuttingScroll_(snap);
         restoreCuttingFocus_(key, "bang");
         return;
       }
-      restoreCuttingScroll_(snap);
-      restoreCuttingFocus_(key, "bang");
       showToast(next ? "Помечено: нет на следующую" : "Пометка снята");
     }
 
@@ -9969,7 +9966,6 @@
       var snap = captureCuttingScroll_();
       recoverUiFocus();
       restoreCuttingScroll_(snap);
-      restoreCuttingFocus_(key, "surplus");
     }
     window.toggleCutOutNext = toggleCutOutNext;
     window.saveCutSurplus = saveCutSurplus;
@@ -9977,7 +9973,12 @@
       opts = opts || {};
       cuttingItemsCache = (items || []).slice();
       if (opts.stubPersist) {
-        persistCuttingFlag_ = async function () { return true; };
+        var delayMs = Number(opts.persistDelayMs) || 0;
+        persistCuttingFlag_ = function () {
+          return new Promise(function (resolve) {
+            setTimeout(function () { resolve(true); }, delayMs);
+          });
+        };
       }
       var box = document.getElementById("cuttingContainer");
       if (box) box.innerHTML = cuttingItemsCache.map(renderCutRowHtml).join("");

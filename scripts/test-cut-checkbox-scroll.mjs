@@ -46,9 +46,13 @@ assert(!/reorderCuttingDom\(\)/.test(done), "toggleCutDone must not reorder (scr
 assert(!/reorderCuttingDom\(\)/.test(outNext), "toggleCutOutNext must not reorder");
 assert(/applyCutFlagDom_/.test(laid), "toggleCutLaid updates row in place");
 assert(/applyCutFlagDom_/.test(done), "toggleCutDone updates row in place");
-assert(/restoreCuttingScroll_/.test(laid) && /restoreCuttingFocus_/.test(laid), "laid restores view");
-assert(/restoreCuttingScroll_/.test(done) && /restoreCuttingFocus_/.test(done), "done restores view");
+assert(/restoreCuttingScroll_[\s\S]*persistCuttingFlag_/.test(laid), "laid restores scroll before persist");
+assert(/restoreCuttingScroll_[\s\S]*persistCuttingFlag_/.test(done), "done restores scroll before persist");
+assert(!/persistCuttingFlag_[\s\S]*restoreCuttingScroll_\(snap\)/.test(laid), "laid must not snap pre-click scroll after persist");
+assert(!/persistCuttingFlag_[\s\S]*restoreCuttingScroll_\(snap\)/.test(done), "done must not snap pre-click scroll after persist");
+assert(!/persistCuttingFlag_[\s\S]*restoreCuttingScroll_\(snap\)/.test(outNext), "outNext must not snap pre-dialog scroll after persist");
 assert(/restoreCuttingScroll_/.test(outNext), "outNext restores scroll after confirm");
+assert(!/restoreCuttingFocus_\(key, "surplus"\)/.test(uiSrc), "surplus save must not refocus number input");
 
 const reorderFn = uiSrc.slice(uiSrc.indexOf("function reorderCuttingDom"));
 assert(reorderFn.includes("withCuttingScroll_"), "reorderCuttingDom must keep scroll if used");
