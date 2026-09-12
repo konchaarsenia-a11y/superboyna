@@ -2275,23 +2275,31 @@
               <button type="button" class="seg-btn" style="margin-top:8px;padding:6px 10px;font-size:11px;" onclick="resetSubDetailPacksAuto_()">Пересчитать пакеты из состава</button>
             </div>
             <div class="form-group" style="margin-top:10px;">
-              <label>Наценка за фракции дрессуры (BYN / 100 г)</label>
+              <label>Наценка за фракции (BYN / 100 г к ломтикам)</label>
               <div class="seg-row" style="gap:6px;flex-wrap:wrap;">
                 <div style="flex:1;min-width:70px;">
-                  <div class="muted" style="font-size:11px;margin-bottom:2px;">целое</div>
-                  <input type="number" id="subDetailFracWhole" value="0" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
+                  <div class="muted" style="font-size:11px;margin-bottom:2px;">ломтики</div>
+                  <input type="number" id="subDetailFracSlices" value="0" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
                 </div>
                 <div style="flex:1;min-width:70px;">
-                  <div class="muted" style="font-size:11px;margin-bottom:2px;">крупный</div>
-                  <input type="number" id="subDetailFracLarge" value="1" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
+                  <div class="muted" style="font-size:11px;margin-bottom:2px;">полоски</div>
+                  <input type="number" id="subDetailFracStrips" value="1" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
                 </div>
                 <div style="flex:1;min-width:70px;">
-                  <div class="muted" style="font-size:11px;margin-bottom:2px;">средний</div>
-                  <input type="number" id="subDetailFracMedium" value="2" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
+                  <div class="muted" style="font-size:11px;margin-bottom:2px;">крупное</div>
+                  <input type="number" id="subDetailFracLarge" value="2" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
                 </div>
                 <div style="flex:1;min-width:70px;">
-                  <div class="muted" style="font-size:11px;margin-bottom:2px;">мелкий</div>
-                  <input type="number" id="subDetailFracSmall" value="3" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
+                  <div class="muted" style="font-size:11px;margin-bottom:2px;">среднее</div>
+                  <input type="number" id="subDetailFracMedium" value="3" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
+                </div>
+                <div style="flex:1;min-width:70px;">
+                  <div class="muted" style="font-size:11px;margin-bottom:2px;">мелкое</div>
+                  <input type="number" id="subDetailFracSmall" value="4" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
+                </div>
+                <div style="flex:1;min-width:70px;">
+                  <div class="muted" style="font-size:11px;margin-bottom:2px;">очень мелкое</div>
+                  <input type="number" id="subDetailFracExtraSmall" value="5" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
                 </div>
               </div>
             </div>
@@ -2483,23 +2491,31 @@
             <button type="button" class="seg-btn" id="btnPricePacksAuto" style="margin-top:8px;padding:6px 10px;font-size:11px;" onclick="resetPricePacksAuto_()">Пересчитать пакеты из состава</button>
           </div>
           <div class="form-group" style="margin-top:10px;">
-            <label>Наценка за фракции дрессуры (BYN / 100 г)</label>
+            <label>Наценка за фракции (BYN / 100 г к ломтикам)</label>
             <div class="seg-row" style="gap:6px;flex-wrap:wrap;">
               <div style="flex:1;min-width:70px;">
-                <div class="muted" style="font-size:11px;margin-bottom:2px;">целое</div>
-                <input type="number" id="priceFracWhole" value="0" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
+                <div class="muted" style="font-size:11px;margin-bottom:2px;">ломтики</div>
+                <input type="number" id="priceFracSlices" value="0" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
               </div>
               <div style="flex:1;min-width:70px;">
-                <div class="muted" style="font-size:11px;margin-bottom:2px;">крупный</div>
-                <input type="number" id="priceFracLarge" value="1" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
+                <div class="muted" style="font-size:11px;margin-bottom:2px;">полоски</div>
+                <input type="number" id="priceFracStrips" value="1" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
               </div>
               <div style="flex:1;min-width:70px;">
-                <div class="muted" style="font-size:11px;margin-bottom:2px;">средний</div>
-                <input type="number" id="priceFracMedium" value="2" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
+                <div class="muted" style="font-size:11px;margin-bottom:2px;">крупное</div>
+                <input type="number" id="priceFracLarge" value="2" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
               </div>
               <div style="flex:1;min-width:70px;">
-                <div class="muted" style="font-size:11px;margin-bottom:2px;">мелкий</div>
-                <input type="number" id="priceFracSmall" value="3" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
+                <div class="muted" style="font-size:11px;margin-bottom:2px;">среднее</div>
+                <input type="number" id="priceFracMedium" value="3" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
+              </div>
+              <div style="flex:1;min-width:70px;">
+                <div class="muted" style="font-size:11px;margin-bottom:2px;">мелкое</div>
+                <input type="number" id="priceFracSmall" value="4" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
+              </div>
+              <div style="flex:1;min-width:70px;">
+                <div class="muted" style="font-size:11px;margin-bottom:2px;">очень мелкое</div>
+                <input type="number" id="priceFracExtraSmall" value="5" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
               </div>
             </div>
           </div>

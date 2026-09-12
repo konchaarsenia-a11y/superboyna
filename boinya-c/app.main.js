@@ -1174,11 +1174,11 @@
         title: "Дрессура",
         items: ["ЛЁГКОЕ", "СЕРДЦЕ", "РУБЕЦ Т", "БАРАНЬЕ ЛЁГКОЕ", "ПОЧКИ"],
         fractions: {
-          "ЛЁГКОЕ": ["Очень мелкое", "Мелкое", "Среднее", "Большое", "Целое", "Ломтики", "Полоски"],
-          "СЕРДЦЕ": ["Очень мелкое", "Мелкое", "Целое", "Ломтики", "Полоски"],
-          "РУБЕЦ Т": ["Очень мелкое", "Мелкое", "Среднее", "Крупное", "Целое", "Ломтики", "Полоски"],
-          "БАРАНЬЕ ЛЁГКОЕ": ["Очень мелкое", "Мелкое", "Среднее", "Целое", "Ломтики", "Полоски"],
-          "ПОЧКИ": ["Очень мелкое", "Мелкое", "Целое"]
+          "ЛЁГКОЕ": ["Ломтики", "Полоски", "Крупное", "Среднее", "Мелкое", "Очень мелкое"],
+          "СЕРДЦЕ": ["Ломтики", "Полоски", "Мелкое", "Очень мелкое"],
+          "РУБЕЦ Т": ["Ломтики", "Полоски", "Крупное", "Среднее", "Мелкое", "Очень мелкое"],
+          "БАРАНЬЕ ЛЁГКОЕ": ["Ломтики", "Полоски", "Крупное", "Среднее", "Мелкое", "Очень мелкое"],
+          "ПОЧКИ": ["Ломтики", "Мелкое", "Очень мелкое"]
         }
       },
       chew: {
@@ -1195,9 +1195,10 @@
       },
       other: {
         title: "Другое",
-        items: ["ПЕЧЕНЬ", "ИНДЕЙКА", "МЯСНЫЕ ЛОМТИКИ", "ВЫМЯ", "СЕМЕННИКИ"],
+        items: ["ПЕЧЕНЬ", "БАРАНЬЯ ПЕЧЕНЬ", "ИНДЕЙКА", "МЯСНЫЕ ЛОМТИКИ", "ВЫМЯ", "СЕМЕННИКИ"],
         fractions: {
-          "ИНДЕЙКА": ["Ломтики", "Кусочки", "Мелкие кусочки"]
+          "ИНДЕЙКА": ["Ломтики", "Полоски", "Мелкое"],
+          "БАРАНЬЯ ПЕЧЕНЬ": ["Ломтики", "Полоски", "Мелкое"]
         }
       },
       powder: {
@@ -1427,21 +1428,49 @@
 
     var RETAIL_PRICE = {
 
-      "ЛЁГКОЕ|Мелкое": { per100: 12 },
-      "ЛЁГКОЕ|Среднее": { per100: 11 },
+      "ЛЁГКОЕ|Ломтики": { per100: 9 },
       "ЛЁГКОЕ|Целое": { per100: 9 },
-      "СЕРДЦЕ|Мелкое": { per100: 14 },
+      "ЛЁГКОЕ|Полоски": { per100: 10 },
+      "ЛЁГКОЕ|Крупное": { per100: 11 },
+      "ЛЁГКОЕ|Большое": { per100: 11 },
+      "ЛЁГКОЕ|Среднее": { per100: 12 },
+      "ЛЁГКОЕ|Мелкое": { per100: 13 },
+      "ЛЁГКОЕ|Очень мелкое": { per100: 14 },
+      "СЕРДЦЕ|Ломтики": { per100: 12 },
       "СЕРДЦЕ|Целое": { per100: 12 },
-      "ПОЧКИ|Мелкое": { per100: 12 },
+      "СЕРДЦЕ|Полоски": { per100: 13 },
+      "СЕРДЦЕ|Мелкое": { per100: 16 },
+      "СЕРДЦЕ|Очень мелкое": { per100: 17 },
+      "ПОЧКИ|Ломтики": { per100: 11 },
       "ПОЧКИ|Целое": { per100: 11 },
-      "РУБЕЦ Т|Мелкое": { per100: 13 },
-      "РУБЕЦ Т|Среднее": { per100: 12 },
-      "РУБЕЦ Т|Крупное": { per100: 11 },
+      "ПОЧКИ|Мелкое": { per100: 15 },
+      "ПОЧКИ|Очень мелкое": { per100: 16 },
+      "РУБЕЦ Т|Ломтики": { per100: 10 },
       "РУБЕЦ Т|Целое": { per100: 10 },
-      "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 18 },
-      "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 17 },
+      "РУБЕЦ Т|Полоски": { per100: 11 },
+      "РУБЕЦ Т|Крупное": { per100: 12 },
+      "РУБЕЦ Т|Большое": { per100: 12 },
+      "РУБЕЦ Т|Среднее": { per100: 13 },
+      "РУБЕЦ Т|Мелкое": { per100: 14 },
+      "РУБЕЦ Т|Очень мелкое": { per100: 15 },
+      "БАРАНЬЕ ЛЁГКОЕ|Ломтики": { per100: 16 },
       "БАРАНЬЕ ЛЁГКОЕ|Целое": { per100: 16 },
+      "БАРАНЬЕ ЛЁГКОЕ|Полоски": { per100: 17 },
+      "БАРАНЬЕ ЛЁГКОЕ|Крупное": { per100: 18 },
+      "БАРАНЬЕ ЛЁГКОЕ|Большое": { per100: 18 },
+      "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 19 },
+      "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 20 },
+      "БАРАНЬЕ ЛЁГКОЕ|Очень мелкое": { per100: 21 },
       "ИНДЕЙКА": { per100: 18 },
+      "ИНДЕЙКА|Ломтики": { per100: 18 },
+      "ИНДЕЙКА|Полоски": { per100: 19 },
+      "ИНДЕЙКА|Кусочки": { per100: 19 },
+      "ИНДЕЙКА|Мелкое": { per100: 22 },
+      "ИНДЕЙКА|Мелкие кусочки": { per100: 22 },
+      "БАРАНЬЯ ПЕЧЕНЬ": { per100: 16 },
+      "БАРАНЬЯ ПЕЧЕНЬ|Ломтики": { per100: 16 },
+      "БАРАНЬЯ ПЕЧЕНЬ|Полоски": { per100: 17 },
+      "БАРАНЬЯ ПЕЧЕНЬ|Мелкое": { per100: 20 },
       "ПЕЧЕНЬ": { per100: 11 },
       "ВЫМЯ": { per100: 10 },
       "СЕМЕННИКИ": { per100: 13 },
@@ -1504,11 +1533,13 @@
       if (/АОРТ/.test(n)) return "Обычная";
       if (/УХО|УШК/.test(n)) return "Обычное";
       if (/БЫЧИЙ КОРЕН|ТРАХЕ|СТАНОВ/.test(n)) return "СРЕД";
-      if (/БАРАНЬЕ\s*Л[ЕЁ]ГК/.test(n)) return "Среднее";
-      if (/^Л[ЕЁ]ГКОЕ$/.test(n) || n === "ЛЁГКОЕ") return "Среднее";
-      if (/СЕРДЦ/.test(n)) return "Мелкое";
+      if (/БАРАНЬЯ\s*ПЕЧЕН/.test(n)) return "Ломтики";
+      if (/БАРАНЬЕ\s*Л[ЕЁ]ГК/.test(n)) return "Ломтики";
+      if (/^Л[ЕЁ]ГКОЕ$/.test(n) || n === "ЛЁГКОЕ") return "Ломтики";
+      if (/СЕРДЦ/.test(n)) return "Ломтики";
       if (/ПОЧК/.test(n)) return "Мелкое";
-      if (/^РУБЕЦ Т$/.test(n) || n === "РУБЕЦ Т") return "Среднее";
+      if (/^РУБЕЦ Т$/.test(n) || n === "РУБЕЦ Т") return "Ломтики";
+      if (/ИНДЕЙ/.test(n)) return "Ломтики";
       return "";
     }
 
@@ -1517,6 +1548,7 @@
       var mapN = {
         "ЛЕГКОЕ": "ЛЁГКОЕ",
         "БАРАНЬЕ ЛЕГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
+        "БАРАНЬЯ ПЕЧЕНЬ": "БАРАНЬЯ ПЕЧЕНЬ",
         "КРОШКА ЛЕГКОГО": "КРОШКА ЛЁГКОГО",
         "ПЕРЕПЕЛКИ ШТ.": "ПЕРЕПЁЛКИ шт.",
         "ПЕРЕПЕЛКИ ШТ": "ПЕРЕПЁЛКИ шт.",
@@ -1548,21 +1580,41 @@
       } else if (/АОРТ/.test(n)) {
         s = /ПОЛОВИН/.test(su) ? "ПОЛОВИНКА" : "Обычная";
       } else if (s) {
-        if (/МЕЛК/.test(su)) s = "Мелкое";
-        else if (/КРУПН/.test(su)) s = "Крупное";
-        else if (/БОЛЬШ|ПОЛОСК/.test(su)) s = "Большое";
-        else if (/ЦЕЛ|ЛОМТ/.test(su)) s = "Целое";
-        else if (/СРЕД|КУСОЧ|КУБИК/.test(su)) s = "Среднее";
+        if (/^КРОШК/.test(su)) s = "Крошка";
+        else if (/ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(su)) s = "Очень мелкое";
+        else if (/МЕЛК[А-ЯA-Z]*\s*КУСОЧ|КУСОЧ[А-ЯA-Z]*\s*МЕЛК/.test(su)) s = "Мелкое";
+        else if (/^ПОЛОСК/.test(su)) s = "Полоски";
+        else if (/^КУСОЧК/.test(su)) s = "Полоски";
+        else if (/^ЛОМТИК/.test(su) || su === "ЛОМТ") s = "Ломтики";
+        else if (/^ЦЕЛ/.test(su)) s = "Ломтики";
+        else if (/^КРУП/.test(su) || /^БОЛЬ/.test(su)) s = "Крупное";
+        else if (/^СРЕД/.test(su) || (/КУБИК/.test(su) && !/МЕЛК|КРУП/.test(su))) s = "Среднее";
+        else if (/^МЕЛК|^МАЛ/.test(su) && !/^ОЧ/.test(su)) s = "Мелкое";
       } else {
         s = retailDefaultSub_(n);
       }
       return { name: n, sub: s, key: n + (s ? "|" + s : "") };
     }
 
+    function retailBasePer100_(n) {
+      var keys = [n + "|Ломтики", n + "|Целое", n];
+      for (var i = 0; i < keys.length; i++) {
+        var info = RETAIL_PRICE[keys[i]];
+        if (info && info.per100 != null && isFinite(Number(info.per100))) return Number(info.per100);
+      }
+      return null;
+    }
+
     function retailLineCost(name, sub, val, cat) {
       var meta = retailLookupKey_(name, sub);
       var info = RETAIL_PRICE[meta.key] || RETAIL_PRICE[meta.name];
       var v = Number(val) || 0;
+      if ((!info || info.per100 == null) && v > 0 && cat !== "chew" && cat !== "chews") {
+        var size = dressuraFractionSizeKey(meta.sub);
+        var rate = size ? Number(dressuraFractionRates()[size]) : NaN;
+        var base = retailBasePer100_(meta.name);
+        if (size && isFinite(rate) && base != null) info = { per100: base + rate };
+      }
       if (!info || v <= 0) return { cost: 0, per: 0, found: !!info };
       if (info.packs) {
         var g = Math.round(v);
@@ -1584,23 +1636,27 @@
       "ЛЁГКОЕ":
         "Сушёное говяжье лёгкое — лёгкое по калорийности лакомство с выраженным запахом и хрустом.\n" +
         "Идеально для дрессуры и поощрения: собака быстро съедает и возвращается к работе.\n" +
-        "Мало жира, хорошо заходит щенкам и взрослым. Резы: мелкое (карман/кликер), среднее, большое, целое (перекус).",
+        "Мало жира, хорошо заходит щенкам и взрослым. Резы: ломтики (база), полоски, крупное, среднее, мелкое, очень мелкое.",
       "СЕРДЦЕ":
         "Сушёное сердце — плотный белок, насыщенный мясной вкус.\n" +
-        "Удобно как «валюта» на тренировке: мелкое — в карман и на кликер; целое — как самостоятельный кусочек.\n" +
+        "Удобно как «валюта» на тренировке: ломтики — база; полоски; мелкое — в карман и на кликер.\n" +
         "Часто нравится даже привередливым. Не жирное, хорошо комбинируется с другими позициями в коробке.",
       "ПОЧКИ":
         "Сушёные почки — очень ароматные, часто становятся любимчиком с первой коробки.\n" +
-        "Мелкое — для дрессуры и коротких повторов; целое — порционный перекус.\n" +
+        "Ломтики — база; мелкое — для дрессуры и коротких повторов.\n" +
         "Сильный запах: отлично работает как reinforcer, но дозируем в составе, чтобы не перебить остальные позиции.",
       "РУБЕЦ Т":
         "Тёмный рубец — жевательная дрессура: дольше держит интерес, чем мягкое мясо.\n" +
         "Текстура волокнистая, собака грызёт и «работает» челюстью.\n" +
-        "Резы от мелкого до крупного и целое — под размер пасти и задачу (быстрый кусочек vs подольше занять).",
+        "Резы от ломтиков и полосок до крупного и очень мелкого — под размер пасти и задачу.",
       "БАРАНЬЕ ЛЁГКОЕ":
         "Баранье лёгкое — мягче и часто «нежнее» по вкусу, чем говяжье.\n" +
         "Хороший вариант, если говядина заходит слабо или нужна ротация белков.\n" +
-        "Мелкое/среднее — дрессура; целое — перекус. Лёгкое по ощущению, мало жира.",
+        "Ломтики — база; полоски/крупное/среднее/мелкое — дрессура. Лёгкое по ощущению, мало жира.",
+      "БАРАНЬЯ ПЕЧЕНЬ":
+        "Баранья печень — яркий органный вкус, ротация к говяжьей печени.\n" +
+        "Резы: ломтики (база, без наценки), полоски (+1), мелкое (+4 за 100 г).\n" +
+        "На вес. В составе дозируем — запах сильнее нейтральных позиций.",
       "ПЕЧЕНЬ":
         "Сушёная печень — самый «яркий» мясной вкус и запах в линейке.\n" +
         "Мощный reinforcer: хорошо для сложных упражнений и собак, которых сложно замотивировать.\n" +
@@ -2024,7 +2080,7 @@
         var meta = retailLookupKey_(name, f);
         if (RETAIL_PRICE[meta.key] || RETAIL_PRICE[meta.name]) return true;
         // новые фракции без цены — всё равно показываем (прайс не трогаем)
-        var knownOld = /^(Мелкое|Среднее|Большое|Крупное|Целое|ОЧ МАЛ|МАЛ|СРЕД|БОЛ|ОГР|ПЛАСТ|ПАЛК|ПОЛОВИНКА|Обычное|Обычная)$/i.test(f);
+        var knownOld = /^(Мелкое|Среднее|Большое|Крупное|Целое|Ломтики|Полоски|Очень мелкое|ОЧ МАЛ|МАЛ|СРЕД|БОЛ|ОГР|ПЛАСТ|ПАЛК|ПОЛОВИНКА|Обычное|Обычная)$/i.test(f);
         return !knownOld;
       });
     }
@@ -16416,7 +16472,7 @@
     }
 
     function renderAssemblyOrganCell(org, label) {
-      var fracOrder = ["Очень мелкое", "Мелкое", "Среднее", "Крупное", "Большое", "Целое", "Ломтики", "Полоски", "Кусочки", "Мелкие кусочки", "Крошка", "ОЧ МАЛ", "МАЛ", "СРЕД", "БОЛ", "ОГР", "ПЛАСТ", "ПАЛК"];
+      var fracOrder = ["Ломтики", "Полоски", "Крупное", "Среднее", "Мелкое", "Очень мелкое", "Большое", "Целое", "Кусочки", "Мелкие кусочки", "Крошка", "ОЧ МАЛ", "МАЛ", "СРЕД", "БОЛ", "ОГР", "ПЛАСТ", "ПАЛК"];
       var keys = Object.keys(org.byFrac || {}).sort(function (a, b) {
         var ia = fracOrder.indexOf(a); var ib = fracOrder.indexOf(b);
         return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b, "ru");
@@ -16952,21 +17008,21 @@
 
         if (/КРОШК/.test(t)) return "Крошка";
         if (/ОЧЕНЬ\s*МЕЛК|ОЧ\s*МЕЛК/.test(t)) return "Очень мелкое";
-        if (/МЕЛК\w*\s*КУСОЧ|КУСОЧ\w*\s*МЕЛК/.test(t)) return "Мелкие кусочки";
+        if (/МЕЛК\w*\s*КУСОЧ|КУСОЧ\w*\s*МЕЛК/.test(t)) return "Мелкое";
         if (/ЛОМТ/.test(t)) return "Ломтики";
         if (/ПОЛОСК|ПОЛОС(?![А-ЯA-Z])/.test(t)) return "Полоски";
-        if (/КУСОЧК/.test(t)) return "Кусочки";
+        if (/КУСОЧК/.test(t)) return "Полоски";
 
         if (/(СРЕДН\w*|СРЕДНЕВАТ\w*|СРЕД(?![А-ЯA-Z])|НОРМ(?![А-ЯA-Z])).{0,16}(КУБ|КУСОЧ)|(КУБ|КУСОЧ).{0,16}(СРЕДН|СРЕДНЕВАТ|СРЕД(?![А-ЯA-Z])|НОРМ)/.test(t)) return "Среднее";
         if (/(МЕЛК|МАЛЕНЬК|МАЛЮСЕНЬК|МАХОНЬК|КРОШЕЧН|КРОХОТН|МИНИАТЮР|МИНИ(?![А-ЯA-Z])|ОЧЕНЬ\s*(?:МАЛ|МЕЛК)|СУПЕР\s*(?:МАЛ|МЕЛК)).{0,16}(КУБ|КУСОЧ)|(КУБ|КУСОЧ).{0,16}(МЕЛК|МАЛЕНЬК|МАЛЮСЕНЬК|МАХОНЬК|КРОШЕЧН|КРОХОТН|МИНИ|ОЧЕНЬ|СУПЕР)/.test(t)) return "Мелкое";
         if (/(КРУПН|БОЛЬШ|ЗДОРОВЕН|ОГРОМ|ГИГАНТ).{0,16}(КУБ|КУСОЧ)|(КУБ|КУСОЧ).{0,16}(КРУПН|БОЛЬШ|ЗДОРОВЕН|ОГРОМ|ГИГАНТ)/.test(t)) {
-          return /КРУПН/.test(t) ? "Крупное" : "Большое";
+          return "Крупное";
         }
         if (/МАЛЮСЕНЬК|МАХОНЬК|КРОШЕЧН|КРОХОТН|МИНИАТЮР|МАЛЕНЬК|МЕЛК|МЕЛКО|МИНИ(?![А-ЯA-Z])/.test(t)) return "Мелкое";
         if (/СРЕДН|СРЕДНЕВАТ|СРЕД(?![А-ЯA-Z])|НОРМ(?![А-ЯA-Z])/.test(t)) return "Среднее";
         if (/КРУПН|ЗДОРОВЕНН|ОГРОМ|ГИГАНТ/.test(t)) return "Крупное";
-        if (/БОЛЬШ|ЗДОРОВ(?![А-ЯA-Z])/.test(t)) return "Большое";
-        if (/ЦЕЛ|ЦЕЛИКОМ/.test(t)) return "Целое";
+        if (/БОЛЬШ|ЗДОРОВ(?![А-ЯA-Z])/.test(t)) return "Крупное";
+        if (/ЦЕЛ|ЦЕЛИКОМ/.test(t)) return "Ломтики";
 
         if (/КУБИК/.test(t)) return "Мелкое";
         return "";
@@ -19152,10 +19208,13 @@
         return isFinite(v) ? v : def;
       }
       return {
-        whole: num("subDetailFracWhole", 0),
-        large: num("subDetailFracLarge", 1),
-        medium: num("subDetailFracMedium", 2),
-        small: num("subDetailFracSmall", 3)
+        slices: num("subDetailFracSlices", num("subDetailFracWhole", 0)),
+        strips: num("subDetailFracStrips", 1),
+        large: num("subDetailFracLarge", 2),
+        medium: num("subDetailFracMedium", 3),
+        small: num("subDetailFracSmall", 4),
+        extraSmall: num("subDetailFracExtraSmall", 5),
+        whole: num("subDetailFracWhole", 0)
       };
     }
 
@@ -20817,32 +20876,62 @@
         var v = el ? Number(el.value) : def;
         return isFinite(v) ? v : def;
       }
-      return {
-        whole: num("priceFracWhole", 0),
-        large: num("priceFracLarge", 1),
-        medium: num("priceFracMedium", 2),
-        small: num("priceFracSmall", 3)
-      };
+      return dressuraFractionRates({
+        slices: num("priceFracSlices", num("priceFracWhole", 0)),
+        strips: num("priceFracStrips", 1),
+        large: num("priceFracLarge", 2),
+        medium: num("priceFracMedium", 3),
+        small: num("priceFracSmall", 4),
+        extraSmall: num("priceFracExtraSmall", 5),
+        whole: num("priceFracWhole", 0)
+      });
     }
 
     function dressuraFractionSizeKey(sub) {
-      var fu = String(sub || "").toUpperCase().replace(/\s+/g, " ").trim();
-      if (!fu) return "";
-      if (/^ЦЕЛ/.test(fu)) return "whole";
-      if (/^БОЛЬ|^КРУП|^БОЛ\b/.test(fu) || fu === "БОЛ") return "large";
+      var fu = String(sub || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+      if (!fu || /^КРОШК/.test(fu)) return "";
+      if (/^ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(fu)) return "extraSmall";
+      if (/^ЛОМТИК/.test(fu) || fu === "ЛОМТ") return "slices";
+      if (/^ПОЛОСК/.test(fu) || fu === "ПОЛОСКИ") return "strips";
+      if (/^ЦЕЛ/.test(fu)) return "slices";
+      if (/^КРУП/.test(fu)) return "large";
+      if (/^БОЛЬ/.test(fu) || fu === "БОЛ") return "large";
       if (/^СРЕД/.test(fu)) return "medium";
-      if (/^МЕЛК|^МАЛ/.test(fu) && !/ОЧ/.test(fu)) return "small";
+      if (/МЕЛК[А-ЯA-Z]*\s*КУСОЧ|КУСОЧ[А-ЯA-Z]*\s*МЕЛК/.test(fu)) return "small";
+      if (/^КУСОЧК/.test(fu)) return "strips";
+      if ((/^МЕЛК/.test(fu) || /^МАЛ/.test(fu)) && !/^ОЧ/.test(fu)) return "small";
       if (/КУБИК/.test(fu) && /МЕЛК/.test(fu)) return "small";
       if (/КУБИК/.test(fu) && /КРУП/.test(fu)) return "large";
       return "";
     }
 
+    function dressuraFractionPickRate(rates, keys, def) {
+      for (var i = 0; i < keys.length; i++) {
+        if (rates && rates[keys[i]] != null && isFinite(Number(rates[keys[i]]))) return Number(rates[keys[i]]);
+      }
+      return def;
+    }
+
+    function dressuraFractionRates(rates) {
+      rates = rates || {};
+      return {
+        slices: dressuraFractionPickRate(rates, ["slices", "lomtiki", "whole"], 0),
+        strips: dressuraFractionPickRate(rates, ["strips", "poloski"], 1),
+        large: dressuraFractionPickRate(rates, ["large", "krupnoe"], 2),
+        medium: dressuraFractionPickRate(rates, ["medium", "srednee"], 3),
+        small: dressuraFractionPickRate(rates, ["small", "melkoe"], 4),
+        extraSmall: dressuraFractionPickRate(rates, ["extraSmall", "xs", "ochenMelkoe"], 5)
+      };
+    }
+
     function calcDressuraFractionMarkup(list, rates) {
-      var r = rates || getPriceFracRates();
+      var r = dressuraFractionRates(rates || getPriceFracRates());
       var sum = 0;
       var details = [];
       (list || []).forEach(function (it) {
-        if ((it.cat || "") !== "dressura") return;
+        var cat = String(it.cat || "").toLowerCase();
+        if (cat === "chew" || cat === "chews" || cat === "powder") return;
+        if (cat && cat !== "dressura" && cat !== "other") return;
         var main = it.main || it.name || "";
         var sub = it.sub || "";
         var size = dressuraFractionSizeKey(sub);
@@ -20930,6 +21019,9 @@
       if (!f) return "";
       var m = String(main || "").toUpperCase();
       var fu = f.toUpperCase().replace(/\s+/g, " ");
+      if (/ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(fu)) return "очень мелкое";
+      if (/^ЛОМТ/.test(fu)) return "ломтики";
+      if (/^ПОЛОСК/.test(fu)) return "полоски";
       if (/Л[ЁЕ]ГК/.test(m) && /^МЕЛК/.test(fu)) return "мелкий кубик";
       if (fu === "ПЛАСТ") return "пластинки";
       if (/ПОЛОВИН/.test(fu)) return "половинки";
@@ -22672,10 +22764,13 @@
       if (cEl && payload.coef) cEl.value = payload.coef;
       var fr = payload.fracRates || {};
       var map = {
-        priceFracWhole: fr.whole,
+        priceFracSlices: fr.slices != null ? fr.slices : fr.whole,
+        priceFracStrips: fr.strips,
+        priceFracWhole: fr.whole != null ? fr.whole : fr.slices,
         priceFracLarge: fr.large,
         priceFracMedium: fr.medium,
-        priceFracSmall: fr.small
+        priceFracSmall: fr.small,
+        priceFracExtraSmall: fr.extraSmall
       };
       Object.keys(map).forEach(function (id) {
         var el = document.getElementById(id);

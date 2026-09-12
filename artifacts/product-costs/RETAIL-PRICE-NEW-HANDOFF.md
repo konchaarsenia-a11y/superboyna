@@ -1,6 +1,6 @@
 # Розничный прайс — NEW (витрина) · handoff для агента
 
-Дата: 2026-08-30  
+Дата: 2026-08-30 · **обновление фракций 2026-09-12:** канон наценок и новые ключи — [`FRACTION-MARKUP-CANON.md`](./FRACTION-MARKUP-CANON.md) (`v71115953`). Таблица «Целое» ниже — историческая; база теперь **ломтики**.  
 Статус: **согласован с владельцем** · залит в `RETAIL_PRICE_BYN_` / `RETAIL_PRICE` (Pages `v71115914` + вкладка **Прайс** (owner)) · доставка `<80 → 9` · **нужен Deploy Code.gs** для GAS `calcPrice` / `getRetailPriceList` / `saveRetailPrices`.  
 Уже сохранённые `orderPrice` / доставки **не пересчитываются**.  
 Источник: этот handoff + `RETAIL-PRICE-NEW.json` / `.csv`.

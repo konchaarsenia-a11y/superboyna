@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-08-30 price-retail-mode-fix
+ * deploy-marker: 2026-09-12 frac-markup-canon-h1
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -13072,11 +13072,13 @@ function retailDefaultSubD1_(name) {
   if (/АОРТ/.test(n)) return "Обычная";
   if (/УХО|УШК/.test(n)) return "Обычное";
   if (/БЫЧИЙ КОРЕН|ТРАХЕ|СТАНОВ/.test(n)) return "СРЕД";
-  if (/БАРАНЬЕ\s*Л[ЕЁ]ГК/.test(n)) return "Среднее";
-  if (/^Л[ЕЁ]ГКОЕ$/.test(n)) return "Среднее";
-  if (/СЕРДЦ/.test(n)) return "Мелкое";
+  if (/БАРАНЬЯ\s*ПЕЧЕН/.test(n)) return "Ломтики";
+  if (/БАРАНЬЕ\s*Л[ЕЁ]ГК/.test(n)) return "Ломтики";
+  if (/^Л[ЕЁ]ГКОЕ$/.test(n)) return "Ломтики";
+  if (/СЕРДЦ/.test(n)) return "Ломтики";
   if (/ПОЧК/.test(n)) return "Мелкое";
-  if (/^РУБЕЦ Т$/.test(n)) return "Среднее";
+  if (/^РУБЕЦ Т$/.test(n)) return "Ломтики";
+  if (/ИНДЕЙ/.test(n)) return "Ломтики";
   return "";
 }
 
@@ -13108,6 +13110,7 @@ function retailNormalizeNameD1_(name) {
   const aliases = {
     ЛЕГКОЕ: "ЛЁГКОЕ",
     "БАРАНЬЕ ЛЕГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
+    "БАРАНЬЯ ПЕЧЕНЬ": "БАРАНЬЯ ПЕЧЕНЬ",
     "КРОШКА ЛЕГКОГО": "КРОШКА ЛЁГКОГО",
     "ПЕРЕПЕЛКИ ШТ.": "ПЕРЕПЁЛКИ шт.",
     "ПЕРЕПЕЛКИ ШТ": "ПЕРЕПЁЛКИ шт.",
@@ -13146,21 +13149,49 @@ function retailNormalizeSubD1_(name, sub) {
   }
   if (/УХО|УШК/.test(n)) return /ПОЛОВИН/.test(u) ? "ПОЛОВИНКА" : "Обычное";
   if (/АОРТ/.test(n)) return /ПОЛОВИН/.test(u) ? "ПОЛОВИНКА" : "Обычная";
-  if (/МЕЛК/.test(u)) return "Мелкое";
-  if (/СРЕД|КУСОЧ|КУБИК/.test(u) && !/МЕЛК|БОЛЬШ|ЦЕЛ|ЛОМТ|ПОЛОСК/.test(u)) return "Среднее";
-  if (/КРУПН/.test(u)) return "Крупное";
-  if (/БОЛЬШ|ПОЛОСК/.test(u)) return "Большое";
-  if (/ЦЕЛ|ЛОМТ/.test(u)) return "Целое";
+  if (/^КРОШК/.test(u)) return "Крошка";
+  if (/ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(u)) return "Очень мелкое";
+  if (/МЕЛК[А-ЯA-Z]*\s*КУСОЧ|КУСОЧ[А-ЯA-Z]*\s*МЕЛК/.test(u)) return "Мелкое";
+  if (/^ПОЛОСК/.test(u)) return "Полоски";
+  if (/^КУСОЧК/.test(u)) return "Полоски";
+  if (/^ЛОМТИК/.test(u) || u === "ЛОМТ") return "Ломтики";
+  if (/^ЦЕЛ/.test(u)) return "Ломтики";
+  if (/^КРУП/.test(u) || /^БОЛЬ/.test(u)) return "Крупное";
+  if (/^СРЕД/.test(u) || (/КУБИК/.test(u) && !/МЕЛК|КРУП/.test(u))) return "Среднее";
+  if (/^МЕЛК|^МАЛ/.test(u) && !/^ОЧ/.test(u)) return "Мелкое";
   return s;
 }
 
-function retailLineCostD1_(map, name, sub, val, cat) {
+function retailLookupKeyD1_(name, sub) {
   const n = retailNormalizeNameD1_(name);
   let s = retailNormalizeSubD1_(n, sub);
   if (!s) s = retailDefaultSubD1_(n);
-  const key = n + (s ? "|" + s : "");
-  const info = (map && (map[key] || map[n])) || null;
+  return { name: n, sub: s, key: n + (s ? "|" + s : "") };
+}
+
+function retailBasePer100D1_(map, n) {
+  map = map || {};
+  const keys = [n + "|Ломтики", n + "|Целое", n];
+  for (let i = 0; i < keys.length; i++) {
+    const info = map[keys[i]];
+    if (info && info.per100 != null && isFinite(Number(info.per100))) return Number(info.per100);
+  }
+  return null;
+}
+
+function retailLineCostD1_(map, name, sub, val, cat) {
+  const meta = retailLookupKeyD1_(name, sub);
+  const n = meta.name;
+  const s = meta.sub;
+  const key = meta.key;
+  let info = (map && (map[key] || map[n])) || null;
   const v = Number(val) || 0;
+  if ((!info || info.per100 == null) && v > 0 && cat !== "chew" && cat !== "chews") {
+    const size = dressuraFractionSizeKeyD1_(s);
+    const rate = size ? Number(dressuraFractionRatesD1_()[size]) : NaN;
+    const base = retailBasePer100D1_(map, n);
+    if (size && isFinite(rate) && base != null) info = { per100: base + rate };
+  }
   if (!info || v <= 0) return { cost: 0, per: 0, found: !!info };
   if (info.packs) {
     const g = String(Math.round(v));
@@ -14929,26 +14960,68 @@ function packagesBynFromUCountsD1_(pc) {
   );
 }
 
+const DRESSURA_FRAC_RATES_DEFAULT_D1_ = {
+  slices: 0,
+  strips: 1,
+  large: 2,
+  medium: 3,
+  small: 4,
+  extraSmall: 5
+};
+
+function dressuraFractionSizeKeyD1_(sub) {
+  const fu = String(sub || "")
+    .toUpperCase()
+    .replace(/Ё/g, "Е")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!fu || /^КРОШК/.test(fu)) return "";
+  if (/^ОЧЕНЬ\s*МЕЛК|^ОЧ\s*МЕЛК/.test(fu)) return "extraSmall";
+  if (/^ЛОМТИК/.test(fu) || fu === "ЛОМТ") return "slices";
+  if (/^ПОЛОСК/.test(fu) || fu === "ПОЛОСКИ") return "strips";
+  if (/^ЦЕЛ/.test(fu)) return "slices";
+  if (/^КРУП/.test(fu)) return "large";
+  if (/^БОЛЬ/.test(fu) || fu === "БОЛ") return "large";
+  if (/^СРЕД/.test(fu)) return "medium";
+  if (/МЕЛК[А-ЯA-Z]*\s*КУСОЧ|КУСОЧ[А-ЯA-Z]*\s*МЕЛК/.test(fu)) return "small";
+  if (/^КУСОЧК/.test(fu)) return "strips";
+  if ((/^МЕЛК/.test(fu) || /^МАЛ/.test(fu)) && !/^ОЧ/.test(fu)) return "small";
+  if (/КУБИК/.test(fu) && /МЕЛК/.test(fu)) return "small";
+  if (/КУБИК/.test(fu) && /КРУП/.test(fu)) return "large";
+  return "";
+}
+
+function dressuraFractionPickRateD1_(rates, keys, def) {
+  for (let i = 0; i < keys.length; i++) {
+    if (rates && rates[keys[i]] != null && isFinite(Number(rates[keys[i]]))) return Number(rates[keys[i]]);
+  }
+  return def;
+}
+
+function dressuraFractionRatesD1_(rates) {
+  const d = DRESSURA_FRAC_RATES_DEFAULT_D1_;
+  rates = rates || {};
+  return {
+    slices: dressuraFractionPickRateD1_(rates, ["slices", "lomtiki", "whole"], d.slices),
+    strips: dressuraFractionPickRateD1_(rates, ["strips", "poloski"], d.strips),
+    large: dressuraFractionPickRateD1_(rates, ["large", "krupnoe"], d.large),
+    medium: dressuraFractionPickRateD1_(rates, ["medium", "srednee"], d.medium),
+    small: dressuraFractionPickRateD1_(rates, ["small", "melkoe"], d.small),
+    extraSmall: dressuraFractionPickRateD1_(rates, ["extraSmall", "xs", "ochenMelkoe"], d.extraSmall)
+  };
+}
+
 function dressuraFractionMarkupFromBasketD1_(basket, rates) {
-  rates = rates || { whole: 0, large: 1, medium: 2, small: 3 };
+  const r = dressuraFractionRatesD1_(rates);
   let sum = 0;
   for (let i = 0; i < (basket || []).length; i++) {
     const it = basket[i] || {};
     const cat = String(it.cat || "").toLowerCase();
-    if (cat && cat !== "dressura") continue;
-    const sub = String(it.sub || "")
-      .toUpperCase()
-      .replace(/\s+/g, " ")
-      .trim();
-    let size = "";
-    if (/^ЦЕЛ/.test(sub)) size = "whole";
-    else if (/^БОЛЬ|^КРУП|^БОЛ\b/.test(sub) || sub === "БОЛ") size = "large";
-    else if (/^СРЕД/.test(sub)) size = "medium";
-    else if (/^МЕЛК|^МАЛ/.test(sub) && !/ОЧ/.test(sub)) size = "small";
-    else if (/КУБИК/.test(sub) && /МЕЛК/.test(sub)) size = "small";
-    else if (/КУБИК/.test(sub) && /КРУП/.test(sub)) size = "large";
+    if (cat === "chew" || cat === "chews" || cat === "powder") continue;
+    if (cat && cat !== "dressura" && cat !== "other") continue;
+    const size = dressuraFractionSizeKeyD1_(it.sub || "");
     if (!size) continue;
-    const rate = Number(rates[size]);
+    const rate = Number(r[size]);
     if (!isFinite(rate)) continue;
     const grams = Number(it.val != null ? it.val : it.value) || 0;
     if (grams <= 0) continue;
@@ -15112,6 +15185,19 @@ function lookupPpCostInfoD1_(costs, name, sub) {
   // УХО К = те же unit costs, что УХО Г (пока нет отдельной строки в priceCostsPp)
   if (/^УХО\s*К$/i.test(String(name || "").trim())) {
     return lookupPpCostInfoD1_(costs, "УХО Г", sub);
+  }
+  if (sub) {
+    const prefer = ["Ломтики", "Целое", "", "Среднее", "Мелкое"];
+    for (let p = 0; p < prefer.length; p++) {
+      const pk = name + (prefer[p] ? " / " + prefer[p] : "");
+      const info = costs[pk] || (prefer[p] ? null : costs[name]);
+      if (info && (Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0) > 0) return info;
+    }
+    for (let j = 0; j < keys.length; j++) {
+      const info2 = costs[keys[j]];
+      if (info2 && info2.name === name) return info2;
+    }
+    if (costs[name]) return costs[name];
   }
   return null;
 }
