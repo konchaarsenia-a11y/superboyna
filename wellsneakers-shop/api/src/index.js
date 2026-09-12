@@ -45,7 +45,7 @@ async function start() {
   try {
     await ensureProductModelColumns();
     const n = await backfillProductModelKeys();
-    if (n) console.log(`catalog model_key backfill: ${n}`);
+    if (n) console.log(`catalog brand/model_key backfill: ${n}`);
   } catch (err) {
     console.error("schema bootstrap:", err.message);
   }

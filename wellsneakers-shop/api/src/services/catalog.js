@@ -1,4 +1,5 @@
 import { query, withTransaction } from "../db.js";
+import { aggregateBrands, normalizeBrand, resolveBrand } from "../lib/brand.js";
 import {
   parseModelAndColor,
   groupProductsIntoModels,
@@ -17,31 +18,44 @@ export async function backfillProductModelKeys() {
   const { rows } = await query(`SELECT id, name, brand, color, model_key FROM products`);
   let updated = 0;
   for (const row of rows) {
-    const parsed = parseModelAndColor(row.name, row.brand);
+    const brand = resolveBrand(row.brand, row.name);
+    const parsed = parseModelAndColor(row.name, brand);
     const color = String(row.color || "").trim() || parsed.color;
-    const modelKey = String(row.model_key || "").trim() || parsed.modelKey;
-    if (color === row.color && modelKey === row.model_key) continue;
-    await query(`UPDATE products SET color = $2, model_key = $3, updated_at = now() WHERE id = $1`, [
-      row.id,
-      color,
-      modelKey,
-    ]);
+    const brandChanged = brand !== String(row.brand || "");
+    const modelKey = brandChanged
+      ? parsed.modelKey
+      : String(row.model_key || "").trim() || parsed.modelKey;
+    if (color === row.color && modelKey === row.model_key && brand === row.brand) continue;
+    await query(
+      `UPDATE products SET brand = $2, color = $3, model_key = $4, updated_at = now() WHERE id = $1`,
+      [row.id, brand, color, modelKey]
+    );
     updated++;
   }
   return updated;
 }
 
 export function modelFieldsFromName(name, brand, colorOverride) {
-  const parsed = parseModelAndColor(name, brand);
+  const resolved = resolveBrand(brand, name);
+  const parsed = parseModelAndColor(name, resolved);
   const color = String(colorOverride || "").trim() || parsed.color;
-  return { color, model_key: parsed.modelKey, modelName: parsed.modelName };
+  return { color, model_key: parsed.modelKey, modelName: parsed.modelName, brand: resolved };
+}
+
+export async function listBrands() {
+  const { rows } = await query(
+    `SELECT brand, name, COALESCE(NULLIF(model_key, ''), id::text) AS model_key, id
+     FROM products WHERE active`
+  );
+  return aggregateBrands(rows);
 }
 
 export async function listProducts({ brand, size, q, inStockOnly = true, limit = 500, offset = 0 }) {
   const params = [];
   const where = ["p.active = TRUE"];
   if (brand) {
-    params.push(brand);
+    const want = normalizeBrand(brand) || String(brand).trim();
+    params.push(want);
     where.push(`p.brand = $${params.length}`);
   }
   if (q) {

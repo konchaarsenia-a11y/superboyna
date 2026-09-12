@@ -3,6 +3,8 @@
  * Live OC rows are unique full names ("AIR JORDAN 11 BLACK" vs "… GREY/BLUE").
  */
 
+import { resolveBrand } from "./brand.js";
+
 const COLOR_WORDS = new Set(
   [
     "black",
@@ -329,14 +331,18 @@ export function parseModelAndColor(name, brand = "") {
 }
 
 export function resolveProductModel(product) {
-  const parsed = parseModelAndColor(product?.name, product?.brand);
+  const brand = resolveBrand(product?.brand, product?.name);
+  const parsed = parseModelAndColor(product?.name, brand);
   const storedKey = String(product?.model_key || "").trim();
   const storedColor = String(product?.color || "").trim();
+  const storedBrand = String(product?.brand || "").trim();
+  const brandChanged = Boolean(brand) && brand !== storedBrand;
   return {
     modelName: parsed.modelName,
     color: storedColor || parsed.color,
-    modelKey: storedKey || parsed.modelKey,
+    modelKey: brandChanged ? parsed.modelKey : storedKey || parsed.modelKey,
     originalName: parsed.originalName,
+    brand,
   };
 }
 
@@ -374,12 +380,12 @@ export function groupProductsIntoModels(products, { inStockOnly = true } = {}) {
       map.set(meta.modelKey, {
         modelKey: meta.modelKey,
         name: meta.modelName || product.name,
-        brand: product.brand || "",
+        brand: meta.brand || "",
         colors: [],
       });
     }
     const card = map.get(meta.modelKey);
-    if (!card.brand && product.brand) card.brand = product.brand;
+    if (!card.brand && meta.brand) card.brand = meta.brand;
     card.colors.push({
       color: meta.color,
       article: product.article || "",

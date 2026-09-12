@@ -11,6 +11,7 @@ import dotenv from "dotenv";
 import XLSX from "xlsx";
 import pg from "pg";
 import { parseModelAndColor } from "../api/src/lib/modelGroup.js";
+import { resolveBrand } from "../api/src/lib/brand.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
@@ -81,7 +82,7 @@ async function main() {
     ).trim();
     const model = String(pick(row, ["model", "Model"]) || name).trim();
     const article = String(pick(row, ["sku", "SKU", "upc", "UPC", "ean", "EAN"]) || ocId || "").trim();
-    const brand = String(pick(row, ["manufacturer", "Manufacturer", "brand"]) || "").trim();
+    const rawBrand = String(pick(row, ["manufacturer", "Manufacturer", "brand"]) || "").trim();
     const price = Number(pick(row, ["price", "Price"]) || 0);
     const status = String(pick(row, ["status", "Status"]) || "true");
     if (!name && !model) {
@@ -99,6 +100,7 @@ async function main() {
       status === "Включено";
     const displayName = name || model;
     const barcode = article;
+    const brand = resolveBrand(rawBrand, displayName);
     const parsed = parseModelAndColor(displayName, brand);
 
     const client = await pool.connect();

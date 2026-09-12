@@ -150,6 +150,7 @@ MODEL NAME (жирный)
 - [x] Витрина с заказом (ФИО/телефон/адрес/самовывоз|доставка)
 - [x] Каталог сайта: импорт OC (~398) → на витрине все с наличием (~310; нулевые скрыты)
 - [~] Одна карточка на модель, цвета как варианты (`color`+`model_key`, `GET /api/catalog` → `models[]`). Staff по артикулу не ломаем. **нужен redeploy VPS**
+- [~] Бренды витрины: OC `ad1das`/`ree6ok` → Adidas/Reebok (Title Case), пустой brand из имени (NIKE/ASICS/CAMPUS…). Backfill на старте API + импорт. **нужен redeploy VPS**
 - [x] Скрытие нулевых размеров на каталоге
 - [x] Оформление заказа → списание → номер `WS-…`
 - [x] TG notify при заказе (`@Wellsneakers_logbot` → админ; после сдачи Transfer Ownership)
