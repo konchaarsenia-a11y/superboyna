@@ -21,6 +21,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Put PARTNER_BOT_TOKEN on Worker
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PARTNER_BOT_TOKEN: ${{ secrets.PARTNER_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PARTNER_BOT_TOKEN:-}" ]; then
+            echo "PARTNER_BOT_TOKEN missing in GitHub secrets — skip"
+            exit 0
+          fi
+          printf '%s' "$PARTNER_BOT_TOKEN" | npx wrangler@4 secret put PARTNER_BOT_TOKEN
       - name: Deploy boinya-c Worker
         working-directory: boinya-c/proxy
         env:

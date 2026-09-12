@@ -102,7 +102,7 @@ Worker: `@one_more_person_228` — **все партнёры** (V33: ручно�
 
 Клиентские статусы **никогда** не идут в notifyRecipients и **не** через бота Бойни. Если `PARTNER_BOT_TOKEN` / `GOODBOY_BOT_TOKEN` нет — пуш партнёру пропускается (лог), fallback на `TELEGRAM_BOT_TOKEN` нет.
 
-Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`). GAS: Script Property с тем же именем.
+Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) — секрет кладётся CI из одноимённого GitHub secret (workflow `boinya-c-worker-deploy`). GAS: Script Property с тем же именем.
 
 Демо-профили в браузере при живом webhook **отключены**.
 
