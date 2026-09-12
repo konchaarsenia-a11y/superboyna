@@ -22,8 +22,9 @@
 - [~] **Stats выхлоп без наценки 2026-09-08:** PP cost coef=1; life BP только перешедшие · **нужен Deploy Code.gs**
 - [~] **Таймер нарезки + Ухо К + доставка +9 + ПП детали 2026-09-09:** timer `startedAt=0` → эпоха; жевалка УХО К = УХО Г (розница/ПП/себест.); менеджер «Да (+9)»; list ПП тонкие из‑за `_savedAt` блокировал getSubscription GAS + soft force 28с. Fix Worker hasDetail+enrich фон; UI soft без force; Pages `v71115938` · marker `fix-cut-timer-uho-k-pp-h1` · **нужен Worker Deploy** · **Deploy Code.gs**
 - [~] **Varka note + Arseniy Varka×4 2026-09-08:** ~~`@arseniyhotko` → 4 Варки~~ · снято V17 · Pages varka 3.3.20 · **Deploy Code.gs**
-- [~] **Varka Access только 12 точек 2026-09-12:** `@one_more_person_228` (tid 827494606) → все активные Varka, не все сети. Worker `PARTNER_MANUAL_ACCESS_POINTS` + flag `manual_varka_only` · **нужен Worker Deploy** (CI на merge в main)
-- [~] **Varka Access все партнёры 2026-09-10:** `@one_more_person_228` → ~~owner-all~~ снято Varka-only · Worker · Deploy Code.gs V33 опционально
+- [~] **Varka Access все кроме Varka 2026-09-12:** `@one_more_person_228` (tid 827494606) → owner-all минус `net_varka` / `pt_varka_*`. Worker `PARTNER_MANUAL_ACCESS_EXCLUDE_NETS` + flag `owner_all_except_net_varka` · **нужен Worker Deploy** (CI на merge в main)
+- [~] **Varka Access только 12 точек 2026-09-12:** `@one_more_person_228` → ~~12 Varka~~ снято: теперь all-except-Varka · Worker
+- [~] **Varka Access все партнёры 2026-09-10:** `@one_more_person_228` → ~~owner-all~~ затем Varka-only, затем all-except-Varka · Worker · Deploy Code.gs V33 опционально
 - [x] **Varka Access Маяковского 2026-09-09:** `@one_more_person_228` → только Маяковского 14 · Worker · Deploy Code.gs V31 опционально
 - [x] **Varka Access Шевченко 2026-09-09:** `@one_more_person_228` → только Шевченко 1 · Worker · Deploy Code.gs V30 опционально
 - [x] **Varka Access Скрипникова 2026-09-09:** `@one_more_person_228` → только Скрипникова 1 · Worker · Deploy Code.gs V29 опционально
