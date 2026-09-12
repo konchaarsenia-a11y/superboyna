@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115951";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115952";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -9182,7 +9182,7 @@
         renderCuttingSummary();
         renderCuttingSessionBox();
         var transferHtml = renderTransferOnlyHtml(res.transferOnly);
-        box.innerHTML = transferHtml + cuttingItemsCache.map(renderCutRowHtml).join("");
+        paintCuttingList_(box, transferHtml + cuttingItemsCache.map(renderCutRowHtml).join(""));
         if (finishBtn) finishBtn.style.display = cuttingSession.active ? "block" : "none";
         startCuttingPoll();
       } catch (err) {
@@ -9196,7 +9196,7 @@
             try { cuttingItemsCache._day = day; } catch (eDay) {}
             sortCuttingItems();
             renderCuttingSummary();
-            box.innerHTML = cuttingItemsCache.map(renderCutRowHtml).join("");
+            paintCuttingList_(box, cuttingItemsCache.map(renderCutRowHtml).join(""));
             showToast("Не обновилось — галочки на месте");
           } else if (!(soft && hasCache)) {
             box.innerHTML = '<p class="muted">Ошибка: ' + escapeHtml(err.message || String(err)) + "</p>";
@@ -9750,24 +9750,68 @@
       return cls;
     }
 
+    function cuttingScrollEl_() {
+      return document.scrollingElement || document.documentElement || document.body;
+    }
+
+    function captureCuttingScroll_() {
+      var se = cuttingScrollEl_();
+      return {
+        se: se,
+        y: se ? Number(se.scrollTop) || 0 : 0,
+        wy: Number(window.pageYOffset || window.scrollY || 0) || 0
+      };
+    }
+
+    function restoreCuttingScroll_(snap) {
+      if (!snap) return;
+      try { if (snap.se) snap.se.scrollTop = snap.y; } catch (e1) {}
+      try { window.scrollTo(0, snap.wy); } catch (e2) {}
+    }
+
+    function restoreCuttingFocus_(key, which) {
+      if (key == null || key === "") return;
+      try {
+        var row = document.getElementById("cut_" + key);
+        if (!row) return;
+        var el = null;
+        if (which === "bang") el = row.querySelector(".cut-bang");
+        else if (which === "laid") el = document.getElementById("cut_laid_" + key) ||
+          row.querySelectorAll(".cut-actions input[type=checkbox]")[0];
+        else if (which === "done") el = document.getElementById("cut_done_" + key) ||
+          row.querySelectorAll(".cut-actions input[type=checkbox]")[1];
+        else if (which === "surplus") el = document.getElementById("surplus_" + key);
+        if (el && el.focus) el.focus({ preventScroll: true });
+      } catch (eF) {}
+    }
+
+    function withCuttingScroll_(fn) {
+      var snap = captureCuttingScroll_();
+      try { return fn(); } finally {
+        restoreCuttingScroll_(snap);
+        requestAnimationFrame(function () { restoreCuttingScroll_(snap); });
+      }
+    }
+
     function renderCutRowHtml(item) {
       normalizeCutFlagsUi_(item);
       var key = cutItemDomKey_(item);
       var keyJs = cutKeyJs_(key);
+      var keyAttr = escapeHtml(key);
       const dryLabel = item.unit === "шт" ? (item.dry + " шт") : (item.dry + " гр сухого");
       const rawLabel = item.unit === "шт"
         ? (item.raw + " шт")
         : (Number(item.raw).toFixed(2) + " кг сырого");
-      return `<div class="${cutRowClass(item)}" id="cut_${key}" data-row="${item.row || 0}" data-cut-key="${escapeHtml(key)}">
+      return `<div class="${cutRowClass(item)}" id="cut_${key}" data-row="${item.row || 0}" data-cut-key="${keyAttr}">
         <button type="button" class="cut-bang${item.outNext ? " active" : ""}" title="Нет на следующую нарезку" onclick="toggleCutOutNext(${keyJs})">!</button>
         <div class="cut-title">${escapeHtml(item.name)}</div>
         <div class="cut-meta">Нужно: <b>${dryLabel}</b><br>Сырьё: <b>${rawLabel}</b></div>
         ${renderCutNoteHint(item)}
         <div class="cut-actions">
-          <label class="check-line"><input type="checkbox" autocomplete="off" ${item.laid ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutLaid(${keyJs}, this.checked)"> Выложено</label>
-          <label class="check-line"><input type="checkbox" autocomplete="off" ${item.done ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutDone(${keyJs}, this.checked)"> Нарезано</label>
+          <label class="check-line" for="cut_laid_${keyAttr}"><input type="checkbox" id="cut_laid_${keyAttr}" autocomplete="off" ${item.laid ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutLaid(${keyJs}, this.checked)"> Выложено</label>
+          <label class="check-line" for="cut_done_${keyAttr}"><input type="checkbox" id="cut_done_${keyAttr}" autocomplete="off" ${item.done ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutDone(${keyJs}, this.checked)"> Нарезано</label>
           <label>Излишек <input type="number" inputmode="decimal" id="surplus_${key}" value="${item.surplus || 0}" step="0.1"></label>
-          <button class="btn-action btn-blue" style="width:auto;padding:0 14px;height:40px;" onclick="saveCutSurplus(${keyJs})">Сохранить излишек</button>
+          <button class="btn-action btn-blue" type="button" style="width:auto;padding:0 14px;height:40px;" onclick="saveCutSurplus(${keyJs})">Сохранить излишек</button>
         </div>
       </div>`;
     }
@@ -9786,20 +9830,47 @@
       if (bang) bang.classList.toggle("active", !!cached.outNext);
     }
 
-    function reorderCuttingDom() {
-      sortCuttingItems();
-      const box = document.getElementById("cuttingContainer");
-      if (!box) return;
-      cuttingItemsCache.forEach(function (it) {
-        const key = cutItemDomKey_(it);
-        const el = document.getElementById("cut_" + key);
-        if (el) {
-          el.className = cutRowClass(it);
-          box.appendChild(el);
-          syncCutRowDomFromCache_(key);
-        }
-      });
+    function applyCutFlagDom_(key) {
+      syncCutRowDomFromCache_(key);
       updateCuttingCountersLive();
+    }
+
+    function paintCuttingList_(box, html) {
+      if (!box) return;
+      var keep = box.querySelector(".cut-row") ? captureCuttingScroll_() : null;
+      box.innerHTML = html;
+      if (keep) {
+        restoreCuttingScroll_(keep);
+        requestAnimationFrame(function () { restoreCuttingScroll_(keep); });
+      }
+    }
+
+    function reorderCuttingDom() {
+      withCuttingScroll_(function () {
+        sortCuttingItems();
+        const box = document.getElementById("cuttingContainer");
+        if (!box) return;
+        var desired = [];
+        cuttingItemsCache.forEach(function (it) {
+          var key = cutItemDomKey_(it);
+          var el = document.getElementById("cut_" + key);
+          if (el) desired.push({ key: key, it: it, el: el });
+        });
+        var rowsNow = [];
+        for (var i = 0; i < box.children.length; i++) {
+          var n = box.children[i];
+          if (n && n.classList && n.classList.contains("cut-row")) rowsNow.push(n);
+        }
+        var orderSame = desired.length === rowsNow.length && desired.every(function (d, idx) {
+          return rowsNow[idx] === d.el;
+        });
+        desired.forEach(function (d) {
+          d.el.className = cutRowClass(d.it);
+          if (!orderSame) box.appendChild(d.el);
+          syncCutRowDomFromCache_(d.key);
+        });
+        updateCuttingCountersLive();
+      });
     }
 
     async function toggleCutLaid(key, laid) {
@@ -9808,14 +9879,16 @@
       const prev = !!cached.laid;
       cached.laid = !!laid;
       rememberCuttingLocalFlag_(cached.row, { laid: !!laid }, cached.name);
-      reorderCuttingDom();
+      var snap = captureCuttingScroll_();
+      applyCutFlagDom_(key);
       const ok = await persistCuttingFlag_(cached, { laid: !!laid });
       if (!ok) {
         cached.laid = prev;
         rememberCuttingLocalFlag_(cached.row, { laid: prev }, cached.name);
-        syncCutRowDomFromCache_(key);
-        reorderCuttingDom();
+        applyCutFlagDom_(key);
       }
+      restoreCuttingScroll_(snap);
+      restoreCuttingFocus_(key, "laid");
     }
     window.toggleCutLaid = toggleCutLaid;
 
@@ -9825,7 +9898,8 @@
       const prev = !!cached.done;
       cached.done = !!done;
       rememberCuttingLocalFlag_(cached.row, { done: !!done }, cached.name);
-      reorderCuttingDom();
+      var snap = captureCuttingScroll_();
+      applyCutFlagDom_(key);
       if (done) {
         try { if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light"); } catch (e) {}
       }
@@ -9833,16 +9907,20 @@
       if (!ok) {
         cached.done = prev;
         rememberCuttingLocalFlag_(cached.row, { done: prev }, cached.name);
-        syncCutRowDomFromCache_(key);
-        reorderCuttingDom();
+        applyCutFlagDom_(key);
+        restoreCuttingScroll_(snap);
+        restoreCuttingFocus_(key, "done");
         return;
       }
+      restoreCuttingScroll_(snap);
+      restoreCuttingFocus_(key, "done");
       // все нарезано → предложить завершить (как авто-экран сборки/курьера)
       if (ok && done && cuttingSession.active) {
         var left = (cuttingItemsCache || []).filter(function (x) { return !x.done; }).length;
         if (left === 0) {
           try {
             var go = await uiConfirmAsync("Все позиции отмечены. Завершить нарезку?");
+            restoreCuttingScroll_(snap);
             if (go) await finishCutting();
           } catch (eFin) {}
         }
@@ -9854,21 +9932,30 @@
       const cached = findCuttingCached_(key);
       if (!cached) return;
       const next = !cached.outNext;
+      var snap = captureCuttingScroll_();
       const okAsk = next
         ? await uiConfirmAsync("Пометить «" + cached.name + "»: на эту нарезку хватает, на следующую — уже нет?")
         : await uiConfirmAsync("Снять пометку дефицита на следующую нарезку?");
-      if (!okAsk) return;
+      if (!okAsk) {
+        restoreCuttingScroll_(snap);
+        restoreCuttingFocus_(key, "bang");
+        return;
+      }
       const prev = !!cached.outNext;
       cached.outNext = next;
       rememberCuttingLocalFlag_(cached.row, { outNext: next }, cached.name);
-      syncCutRowDomFromCache_(key);
+      applyCutFlagDom_(key);
       const ok = await persistCuttingFlag_(cached, { outNext: next });
       if (!ok) {
         cached.outNext = prev;
         rememberCuttingLocalFlag_(cached.row, { outNext: prev }, cached.name);
-        syncCutRowDomFromCache_(key);
+        applyCutFlagDom_(key);
+        restoreCuttingScroll_(snap);
+        restoreCuttingFocus_(key, "bang");
         return;
       }
+      restoreCuttingScroll_(snap);
+      restoreCuttingFocus_(key, "bang");
       showToast(next ? "Помечено: нет на следующую" : "Пометка снята");
     }
 
@@ -9879,10 +9966,23 @@
       if (cached) cached.surplus = surplus;
       const ok = await persistCuttingFlag_(cached || key, { surplus: surplus });
       if (ok) showToast("Излишек сохранён");
+      var snap = captureCuttingScroll_();
       recoverUiFocus();
+      restoreCuttingScroll_(snap);
+      restoreCuttingFocus_(key, "surplus");
     }
     window.toggleCutOutNext = toggleCutOutNext;
     window.saveCutSurplus = saveCutSurplus;
+    window.__injectCuttingTestList = function (items, opts) {
+      opts = opts || {};
+      cuttingItemsCache = (items || []).slice();
+      if (opts.stubPersist) {
+        persistCuttingFlag_ = async function () { return true; };
+      }
+      var box = document.getElementById("cuttingContainer");
+      if (box) box.innerHTML = cuttingItemsCache.map(renderCutRowHtml).join("");
+      try { renderCuttingSummary(); } catch (eSum) {}
+    };
 
     async function commitFinishCutting(day, ready, missing, elapsed) {
       (ready || []).forEach(function (r) {
