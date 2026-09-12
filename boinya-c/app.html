@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115951" as="script">
+  <link rel="preload" href="app.main.js?v=71115952" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115951";
+      var APP_VER = "v71115952";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1013,7 +1013,7 @@
       color: #fff;
     }
     .cut-timer-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
-    .check-line { display: flex; align-items: center; gap: 8px; font-size: 14px; min-width: 0; overflow: hidden; }
+    .check-line { display: flex; align-items: center; gap: 8px; font-size: 14px; min-width: 0; overflow: visible; }
     .check-line input { width: 20px; height: 20px; flex-shrink: 0; }
     .check-line .cut-title {
       min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 0;
@@ -1157,7 +1157,8 @@
       100% { transform: scale(1) rotate(0deg); opacity: 0; }
     }
     .cut-row.done { opacity: 0.85; }
-    #cuttingContainer { display: flex; flex-direction: column; gap: 10px; }
+    #cuttingContainer { display: flex; flex-direction: column; gap: 10px; overflow-anchor: none; }
+    #cuttingContainer .cut-row:focus-within { overflow-anchor: auto; }
     .cut-row { order: unset; }
     .cut-note-hint {
       margin-top: 8px; padding: 8px 10px; border-radius: 10px;
@@ -2795,6 +2796,6 @@
   </div>
   <div class="toast" id="appToast"></div>
 
-  <script src="app.main.js?v=71115951" defer></script>
+  <script src="app.main.js?v=71115952" defer></script>
 </body>
 </html>
