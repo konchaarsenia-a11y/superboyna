@@ -93,7 +93,16 @@ Worker: `@one_more_person_228` — **все партнёры** (V33: ручно�
   → «Доставлено» → партнёру «доставлено», заявка в историю, карточка закрывается
 ```
 
-Токен партнёрского бота: Script Property `PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`). Без него пуш партнёру идёт через бота Бойни (может не дойти, если человек не писал Бойне).
+**Куда какой пуш**
+
+| Кому | Что | Бот / секрет |
+|------|-----|----------------|
+| Партнёр (`order.telegramId`) | статусы: заявка / слот / в пути / доставлено | [@GOODBOY_LG](https://t.me/GOODBOY_LG) — `PARTNER_BOT_TOKEN` или `GOODBOY_BOT_TOKEN` |
+| Снабжение (`PARTNER_ORDER_NOTIFY_IDS` / notifyRecipients) | только «Новая заявка партнёра» | бот Бойни — `TELEGRAM_BOT_TOKEN` |
+
+Клиентские статусы **никогда** не идут в notifyRecipients и **не** через бота Бойни. Если `PARTNER_BOT_TOKEN` / `GOODBOY_BOT_TOKEN` нет — пуш партнёру пропускается (лог), fallback на `TELEGRAM_BOT_TOKEN` нет.
+
+Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`). GAS: Script Property с тем же именем.
 
 Демо-профили в браузере при живом webhook **отключены**.
 

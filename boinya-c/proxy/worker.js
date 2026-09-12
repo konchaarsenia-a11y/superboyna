@@ -8618,6 +8618,9 @@ async function handleCutover_(a, params, env, ctx) {
       if (/^partnerSetOrderSlot$/i.test(a) && d1P && d1P.status === "success") {
         params = Object.assign({}, params, { skipPartnerNotify: "1" });
       }
+      if (/^partnerSetOrderStatus$/i.test(a) && d1P && d1P.status === "success") {
+        params = Object.assign({}, params, { skipPartnerNotify: "1" });
+      }
       const gasP = gasProxy_(a, params, env, { write: true }).catch(function () {
         return null;
       });
@@ -8641,6 +8644,19 @@ async function handleCutover_(a, params, env, ctx) {
       ) {
         ctx.waitUntil(partnerNotifySlotFastWorker_(d1P.order, env));
       }
+      if (
+        /^partnerSetOrderStatus$/i.test(a) &&
+        d1P &&
+        d1P.status === "success" &&
+        d1P.order &&
+        ctx &&
+        typeof ctx.waitUntil === "function"
+      ) {
+        const stN = String(d1P.orderStatus || d1P.order.status || "").trim().toLowerCase();
+        if (stN === "in_transit" || stN === "delivered") {
+          ctx.waitUntil(partnerNotifyStatusFastWorker_(d1P.order, env, stN));
+        }
+      }
       if (ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(
           gasP.then(async function (live) {
@@ -8657,6 +8673,12 @@ async function handleCutover_(a, params, env, ctx) {
           }
           if (/^partnerSetOrderSlot$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
             await partnerNotifySlotFastWorker_(d1P.order, env);
+          }
+          if (/^partnerSetOrderStatus$/i.test(a) && d1P && d1P.status === "success" && d1P.order) {
+            const stN2 = String(d1P.orderStatus || d1P.order.status || "").trim().toLowerCase();
+            if (stN2 === "in_transit" || stN2 === "delivered") {
+              await partnerNotifyStatusFastWorker_(d1P.order, env, stN2);
+            }
           }
           const live = await gasP;
           if (live && live.status === "success") await refreshPartnerSnapsFromGas_(a, params, env, live);
@@ -15234,18 +15256,19 @@ async function telegramSendTextWorker_(env, chatId, text, markup) {
   }
 }
 
-/** Пуш партнёру (GOODBOY_LG) — быстрее, чем ждать GAS в фоне. */
+/** Пуш партнёру (@GOODBOY_LG). Только PARTNER/GOODBOY — без бота Бойни. */
 function getPartnerBotTokenWorker_(env) {
-  // Сначала PARTNER/GOODBOY (@GOODBOY_LG). Fallback TELEGRAM — чтобы пуш партнёру не молчал.
-  return String(
-    (env && (env.PARTNER_BOT_TOKEN || env.GOODBOY_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_TOKEN)) || ""
-  ).trim();
+  return String((env && (env.PARTNER_BOT_TOKEN || env.GOODBOY_BOT_TOKEN)) || "").trim();
 }
 
 async function telegramSendPartnerBot_(env, chatId, text) {
   const token = getPartnerBotTokenWorker_(env);
   const id = chatId != null ? String(chatId).trim() : "";
-  if (!token || !id) return { ok: false, error: "no_token_or_chat" };
+  if (!token) {
+    console.log("partnerNotify: skip, no PARTNER_BOT_TOKEN/GOODBOY_BOT_TOKEN");
+    return { ok: false, error: "no_partner_bot_token" };
+  }
+  if (!id) return { ok: false, error: "no_token_or_chat" };
   try {
     const res = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
       method: "POST",
@@ -15319,6 +15342,46 @@ async function partnerNotifyOrderFastWorker_(order, env) {
       await Promise.all(tasks);
     } catch (eAll) {}
   }
+}
+
+/** Партнёру: статус заявки (только order.telegramId, PARTNER/GOODBOY bot). */
+async function partnerNotifyStatusFastWorker_(order, env, kind) {
+  if (!order || !env) return;
+  const partnerTid = String(order.telegramId || "").trim();
+  if (!partnerTid) return;
+  if (!getPartnerBotTokenWorker_(env)) {
+    console.log("partnerNotifyStatus: skip, no PARTNER_BOT_TOKEN/GOODBOY_BOT_TOKEN");
+    return;
+  }
+  const loc = order.locationName || order.locationId || "";
+  const slot =
+    (order.deliverDateLabel || order.deliverDateIso || "") +
+    (order.deliverTimeLabel ? ", " + order.deliverTimeLabel : "");
+  let text = "";
+  if (kind === "received" || kind === "submitted") {
+    text =
+      "✅ Заявка отправлена\n" +
+      loc +
+      "\nСкоро придёт уведомление о дате доставки\n" +
+      partnerBasketLinesWorker_(order.basket);
+  } else if (kind === "accepted" || kind === "scheduled") {
+    text =
+      "✅ Дата доставки назначена\n" +
+      loc +
+      "\nПривезём: " +
+      (slot || "уточним") +
+      "\n" +
+      partnerBasketLinesWorker_(order.basket);
+  } else if (kind === "in_transit") {
+    text = "🚚 Курьер уже в пути\n" + loc + "\n" + (slot ? "Ожидайте " + slot : "Ожидайте сегодня");
+  } else if (kind === "delivered") {
+    text = "✅ Доставлено\n" + loc + "\nЗаявка в истории заказов";
+  } else {
+    return;
+  }
+  try {
+    await telegramSendPartnerBot_(env, partnerTid, text);
+  } catch (e) {}
 }
 
 /** Партнёру: дата доставки назначена (через PARTNER bot). */
