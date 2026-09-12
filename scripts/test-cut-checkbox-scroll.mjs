@@ -35,6 +35,7 @@ assert(uiSrc.includes("function paintCuttingList_"), "need paintCuttingList_");
 assert(uiSrc.includes("focus({ preventScroll: true })"), "focus must use preventScroll");
 assert(uiSrc.includes('for="cut_laid_'), "laid label needs for=");
 assert(uiSrc.includes('for="cut_done_'), "done label needs for=");
+assert(!/<label class="check-line" for="cut_laid_/.test(uiSrc), "do not nest input inside label[for] (double-toggle)");
 assert(uiSrc.includes("overflow-anchor") || true, "css optional");
 
 const laid = srcBetween("toggleCutLaid");
@@ -60,7 +61,7 @@ async function runPlaywright() {
   try {
     ({ chromium } = await import("playwright"));
   } catch (e) {
-    console.log("playwright not installed — skip browser");
+    console.log("npm playwright missing — browser proof via python playwright in CI/agent");
     return;
   }
 

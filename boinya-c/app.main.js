@@ -9808,8 +9808,8 @@
         <div class="cut-meta">Нужно: <b>${dryLabel}</b><br>Сырьё: <b>${rawLabel}</b></div>
         ${renderCutNoteHint(item)}
         <div class="cut-actions">
-          <label class="check-line" for="cut_laid_${keyAttr}"><input type="checkbox" id="cut_laid_${keyAttr}" autocomplete="off" ${item.laid ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutLaid(${keyJs}, this.checked)"> Выложено</label>
-          <label class="check-line" for="cut_done_${keyAttr}"><input type="checkbox" id="cut_done_${keyAttr}" autocomplete="off" ${item.done ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutDone(${keyJs}, this.checked)"> Нарезано</label>
+          <div class="check-line"><input type="checkbox" id="cut_laid_${keyAttr}" autocomplete="off" ${item.laid ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutLaid(${keyJs}, this.checked)"><label for="cut_laid_${keyAttr}">Выложено</label></div>
+          <div class="check-line"><input type="checkbox" id="cut_done_${keyAttr}" autocomplete="off" ${item.done ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutDone(${keyJs}, this.checked)"><label for="cut_done_${keyAttr}">Нарезано</label></div>
           <label>Излишек <input type="number" inputmode="decimal" id="surplus_${key}" value="${item.surplus || 0}" step="0.1"></label>
           <button class="btn-action btn-blue" type="button" style="width:auto;padding:0 14px;height:40px;" onclick="saveCutSurplus(${keyJs})">Сохранить излишек</button>
         </div>
