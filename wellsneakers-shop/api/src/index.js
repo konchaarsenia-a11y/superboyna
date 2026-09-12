@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { config } from "./config.js";
 import { router } from "./routes/api.js";
 import { uploadsDir } from "./middleware/upload.js";
+import { ensureProductModelColumns, backfillProductModelKeys } from "./services/catalog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "../..");
@@ -40,6 +41,17 @@ app.use((err, _req, res, _next) => {
   });
 });
 
-app.listen(config.port, () => {
-  console.log(`wellsneakers-api on :${config.port}`);
-});
+async function start() {
+  try {
+    await ensureProductModelColumns();
+    const n = await backfillProductModelKeys();
+    if (n) console.log(`catalog model_key backfill: ${n}`);
+  } catch (err) {
+    console.error("schema bootstrap:", err.message);
+  }
+  app.listen(config.port, () => {
+    console.log(`wellsneakers-api on :${config.port}`);
+  });
+}
+
+start();

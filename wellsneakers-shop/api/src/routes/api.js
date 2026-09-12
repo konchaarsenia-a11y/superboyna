@@ -1,11 +1,13 @@
 import { Router } from "express";
 import {
-  listProducts,
+  listCatalogModels,
+  getCatalogModel,
   getProduct,
   searchForSale,
   createSale,
   createWebsiteOrder,
   updateOrderStatus,
+  modelFieldsFromName,
 } from "../services/catalog.js";
 import { buildLabelHtml, buildBarcodePng } from "../services/labels.js";
 import { notifyNewOrder } from "../services/notify.js";
@@ -26,7 +28,7 @@ router.get("/health", async (_req, res) => {
 
 router.get("/catalog", async (req, res, next) => {
   try {
-    const data = await listProducts({
+    const data = await listCatalogModels({
       brand: req.query.brand,
       size: req.query.size,
       q: req.query.q,
@@ -42,13 +44,9 @@ router.get("/catalog", async (req, res, next) => {
 
 router.get("/catalog/:id", async (req, res, next) => {
   try {
-    const product = await getProduct(req.params.id);
-    if (!product) return res.status(404).json({ ok: false, error: "not_found" });
-    product.sizes = (product.sizes || []).filter((s) => Number(s.qty) > 0);
-    if (!product.sizes.length) {
-      return res.status(404).json({ ok: false, error: "out_of_stock" });
-    }
-    res.json({ ok: true, product });
+    const found = await getCatalogModel(req.params.id);
+    if (!found?.model) return res.status(404).json({ ok: false, error: "not_found" });
+    res.json({ ok: true, model: found.model, selectedProductId: found.selectedProductId });
   } catch (err) {
     next(err);
   }
@@ -57,7 +55,8 @@ router.get("/catalog/:id", async (req, res, next) => {
 router.get("/brands", async (_req, res, next) => {
   try {
     const { rows } = await query(
-      `SELECT brand, COUNT(*)::int AS products
+      `SELECT brand,
+         COUNT(DISTINCT COALESCE(NULLIF(model_key, ''), id::text))::int AS products
        FROM products WHERE active AND brand <> ''
        GROUP BY brand ORDER BY brand`
     );
@@ -214,10 +213,11 @@ router.post("/staff/products", requireAdmin, async (req, res, next) => {
       return res.status(400).json({ ok: false, error: "name_and_article_required" });
     }
     const barcode = b.barcode || b.article;
+    const meta = modelFieldsFromName(b.name, b.brand || "", b.color);
     const { rows } = await query(
-      `INSERT INTO products (name, brand, article, barcode, price_byn)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [b.name, b.brand || "", b.article, barcode, Number(b.price_byn) || 0]
+      `INSERT INTO products (name, brand, article, barcode, price_byn, color, model_key)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [b.name, b.brand || "", b.article, barcode, Number(b.price_byn) || 0, meta.color, meta.model_key]
     );
     const product = rows[0];
     const arrivalIds = [];
@@ -310,12 +310,19 @@ router.get("/staff/next-article", requireAdmin, async (_req, res, next) => {
 router.patch("/staff/products/:id", requireAdmin, async (req, res, next) => {
   try {
     const b = req.body || {};
+    const current = await getProduct(req.params.id);
+    if (!current) return res.status(404).json({ ok: false, error: "not_found" });
+    const nextName = b.name ?? current.name;
+    const nextBrand = b.brand ?? current.brand;
+    const meta = modelFieldsFromName(nextName, nextBrand, b.color);
     const { rows } = await query(
       `UPDATE products SET
          name = COALESCE($2, name),
          brand = COALESCE($3, brand),
          price_byn = COALESCE($4, price_byn),
          active = COALESCE($5, active),
+         color = $6,
+         model_key = $7,
          updated_at = now()
        WHERE id = $1
        RETURNING *`,
@@ -325,6 +332,8 @@ router.patch("/staff/products/:id", requireAdmin, async (req, res, next) => {
         b.brand ?? null,
         b.price_byn != null ? Number(b.price_byn) : null,
         typeof b.active === "boolean" ? b.active : null,
+        b.color != null ? String(b.color).trim() : meta.color,
+        meta.model_key,
       ]
     );
     if (!rows[0]) return res.status(404).json({ ok: false, error: "not_found" });
