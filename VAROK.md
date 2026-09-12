@@ -48,7 +48,7 @@ API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerS
 - Нет Access и owner Бойни → все точки  
 - Админка — вкладка **Партнёры** в Бойне  
 
-Worker: `@one_more_person_228` — **только 12 точек Varka** (`manual_varka_only`, не owner-all). Single-point live-test выкл. `@arseniyhotko` — Варки сняты (`PARTNER_PROD_V17`). Deploy — **Worker** (CI на merge в `main`).
+Worker: `@one_more_person_228` — **все партнёры кроме Varka** (`PARTNER_MANUAL_ACCESS_EXCLUDE_NETS=net_varka`, owner-all except). Single-point live-test выкл. `@arseniyhotko` — Варки сняты (`PARTNER_PROD_V17`). Deploy — **Worker** (CI на merge в `main`).
 
 ### Команда «следующая точка»
 
@@ -71,7 +71,7 @@ Worker: `@one_more_person_228` — **только 12 точек Varka** (`manual
 | 15 | `pt_indix_1` | indixvost · Проспект победителей 73/1 · ✅ |
 | 16 | `pt_bob_1` | bow_wow_collar · ✅ |
 
-**Сейчас у `@one_more_person_228`:** все 12 активных точек Varka (`manual_varka_only`). Другие сети (NaN, Fundog, Polotno, Indixvost, BOW) не входят.
+**Сейчас у `@one_more_person_228`:** все активные точки **кроме Varka** (`owner_all_except_net_varka`). NaN / Fundog / Polotno / Indixvost / BOW доступны; `net_varka` / `pt_varka_*` — нет.
 
 На каждой точке проверять: вход → каталог/кнопки → NFC → Отправить → пуш в бот → история.
 
@@ -152,8 +152,9 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 - [~] **v3.3.36:** слот 12–22; Varka NFC+баннер (без бумажного купона); +250г без custom; owner grant staff; фикс дубля заказов; nav/кабинет · Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.35:** rename polotno_an / indixvost + адрес ниже; 1× Маяковского; Бойня скрыть Firedog+дубли Маяковского · Pages varka 3.3.35 / Бойня `v71115942` · **Deploy Code.gs** (`PARTNER_PROD_V34`) + Worker
 - [~] **v3.3.34 batch:** rename точек (Fundog / Чечота 11 / Победителей 73/1 / bow_wow_collar); история без «Привезём»; купон photo+qty; qty blur keep; Delete в Партнёры→Заказы; access pending+notify+accept; staff без grant; empty-day skip force · Pages varka 3.3.34 · **Deploy Code.gs** (`PARTNER_PROD_V32`) + Worker
-- [~] **v3.3.42:** Access `@one_more_person_228` (tid 827494606) → только **12 точек Varka** (`manual_varka_only`) · Worker · после merge CI deploy
-- [~] **v3.3.41:** Access `@one_more_person_228` → ~~все партнёры (owner-all)~~ снято: теперь Varka-only · Worker · Deploy Code.gs V33 опционально
+- [~] **v3.3.43:** Access `@one_more_person_228` (tid 827494606) → **все кроме Varka** (`PARTNER_MANUAL_ACCESS_EXCLUDE_NETS=net_varka`) · Worker · после merge CI deploy
+- [~] **v3.3.42:** Access `@one_more_person_228` → ~~только 12 точек Varka (`manual_varka_only`)~~ снято: теперь all-except-Varka · Worker
+- [~] **v3.3.41:** Access `@one_more_person_228` → ~~все партнёры (owner-all)~~ снято Varka-only, затем all-except-Varka · Worker · Deploy Code.gs V33 опционально
 - [~] **v3.3.40:** Access `@one_more_person_228` → только **Маяковского 14** · Worker · Deploy Code.gs V31 опционально
 - [~] **v3.3.39:** Access `@one_more_person_228` → только **Шевченко 1** · Worker · Deploy Code.gs V30 опционально
 - [~] **v3.3.38:** Access `@one_more_person_228` → только **Скрипникова 1** · Worker · Deploy Code.gs V29 опционально

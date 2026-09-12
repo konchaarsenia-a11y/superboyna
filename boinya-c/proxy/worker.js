@@ -6903,27 +6903,16 @@ const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
 
-/** Живой прогон @one_more_person_228. manual_varka_only: 12 точек Varka, не все сети. */
+/** Живой прогон @one_more_person_228. owner-all кроме exclude-net (не Varka). */
 const PARTNER_LIVE_TEST_ENABLED = false;
 const PARTNER_LIVE_TEST_USER = "one_more_person_228";
 const PARTNER_LIVE_TEST_TID = "827494606";
 const PARTNER_LIVE_TEST_IDX = 16;
-/** Непустой = getMe scoped на эти точки (не owner-all). */
-const PARTNER_MANUAL_ACCESS_POINTS = [
-  { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka Репина 4", address: "Репина 4", label: "Varka Репина 4" },
-  { id: "pt_varka_avia_17", networkId: "net_varka", name: "Varka Авиационная 17", address: "Авиационная 17", label: "Varka Авиационная 17" },
-  { id: "pt_varka_karskogo_23", networkId: "net_varka", name: "Varka Карского 23", address: "Карского 23", label: "Varka Карского 23" },
-  { id: "pt_varka_golodeda_15", networkId: "net_varka", name: "Varka Голодеда 15", address: "Голодеда 15", label: "Varka Голодеда 15" },
-  { id: "pt_varka_rokoss_80", networkId: "net_varka", name: "Varka Рокоссовского 80", address: "Рокоссовского 80", label: "Varka Рокоссовского 80" },
-  { id: "pt_varka_rokoss_150b", networkId: "net_varka", name: "Varka Рокоссовского 150Б", address: "Рокоссовского 150Б", label: "Varka Рокоссовского 150Б" },
-  { id: "pt_varka_kazintsa_120", networkId: "net_varka", name: "Varka Казинца 120", address: "Казинца 120", label: "Varka Казинца 120" },
-  { id: "pt_varka_matus_70", networkId: "net_varka", name: "Varka Матусевича 70", address: "Матусевича 70", label: "Varka Матусевича 70" },
-  { id: "pt_varka_tsvirko_100", networkId: "net_varka", name: "Varka Цвирко 100", address: "Цвирко 100", label: "Varka Цвирко 100" },
-  { id: "pt_varka_skrip_1", networkId: "net_varka", name: "Varka Скрипникова 1", address: "Скрипникова 1", label: "Varka Скрипникова 1" },
-  { id: "pt_varka_shevchenko_1", networkId: "net_varka", name: "Varka Шевченко 1", address: "Шевченко 1", label: "Varka Шевченко 1" },
-  { id: "pt_varka_mayakovskogo_14", networkId: "net_varka", name: "Varka Маяковского 14", address: "Маяковского 14", label: "Varka Маяковского 14" }
-];
+/** Непустой = getMe scoped на эти точки (не owner-all). Пустой + EXCLUDE_NETS = all-except. */
+const PARTNER_MANUAL_ACCESS_POINTS = [];
 const PARTNER_MANUAL_ACCESS_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
+/** owner-all минус эти сети. Новые точки сети (net_varka / pt_varka_*) тоже режутся. */
+const PARTNER_MANUAL_ACCESS_EXCLUDE_NETS = ["net_varka"];
 const PARTNER_LIVE_TEST_QUEUE = [
   { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34", label: "nan_animal_clinic" },
   { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka Репина 4", address: "Репина 4", label: "Varka Репина 4" },
@@ -6971,7 +6960,7 @@ function isPartnerManualAccessUser_(params) {
   return false;
 }
 
-/** V33: test-user без ручного скоупа → все партнёрские точки (owner-all). */
+/** Test-user без allowlist → все активные точки, минус PARTNER_MANUAL_ACCESS_EXCLUDE_NETS. */
 function isPartnerOwnerAllUser_(params) {
   if (PARTNER_LIVE_TEST_ENABLED) return false;
   if (PARTNER_MANUAL_ACCESS_POINTS && PARTNER_MANUAL_ACCESS_POINTS.length) return false;
@@ -6989,6 +6978,41 @@ function partnerManualAllowedPointId_(id) {
     if (PARTNER_MANUAL_ACCESS_POINTS[i].id === want) return true;
   }
   return false;
+}
+
+function partnerExcludeNets_() {
+  return Array.isArray(PARTNER_MANUAL_ACCESS_EXCLUDE_NETS) ? PARTNER_MANUAL_ACCESS_EXCLUDE_NETS : [];
+}
+
+function partnerIsExcludedNet_(networkId) {
+  const nid = String(networkId || "").trim();
+  if (!nid) return false;
+  const xs = partnerExcludeNets_();
+  for (let i = 0; i < xs.length; i++) {
+    if (xs[i] && nid === String(xs[i])) return true;
+  }
+  return false;
+}
+
+/** Сеть из EXCLUDE_NETS или id вида pt_<net>_… (net_varka → pt_varka_*). */
+function partnerIsExcludedPoint_(pointId, networkId) {
+  if (partnerIsExcludedNet_(networkId)) return true;
+  const pid = String(pointId || "").trim();
+  if (!pid) return false;
+  const xs = partnerExcludeNets_();
+  for (let i = 0; i < xs.length; i++) {
+    const net = String(xs[i] || "").trim();
+    if (!net || net.indexOf("net_") !== 0) continue;
+    const prefix = "pt_" + net.slice(4) + "_";
+    if (pid.indexOf(prefix) === 0) return true;
+  }
+  return false;
+}
+
+function partnerOwnerAllOverrideKey_() {
+  const xs = partnerExcludeNets_();
+  if (!xs.length) return "owner_all_partners_v33";
+  return "owner_all_except_" + xs.join("_");
 }
 const PARTNER_CATALOG_STATIC = [
   { id: "vr_t_heart", type: "treat", name: "Сердце", unit: "г", active: true },
@@ -7157,6 +7181,7 @@ function partnerOwnerAllGetMe_(json) {
   const addPt = function (p) {
     if (!p || !p.id) return;
     if (p.active === false) return;
+    if (partnerIsExcludedPoint_(p.id, p.networkId)) return;
     if (String(p.networkId || "") === "net_firedog" || p.id === "pt_firedog_1") return;
     const low = (String(p.name || "") + " " + String(p.address || "")).toLowerCase();
     if (/маяковск/.test(low) && String(p.id) !== canonMayak) return;
@@ -7184,12 +7209,12 @@ function partnerOwnerAllGetMe_(json) {
   });
   let nets = Array.isArray(src.networks)
     ? src.networks.filter(function (n) {
-        return n && netNeed[n.id] && n.id !== "net_firedog";
+        return n && netNeed[n.id] && n.id !== "net_firedog" && !partnerIsExcludedNet_(n.id);
       })
     : [];
   if (!nets.length) {
     Object.keys(netNeed).forEach(function (nid) {
-      if (nid === "net_firedog") return;
+      if (nid === "net_firedog" || partnerIsExcludedNet_(nid)) return;
       nets.push({
         id: nid,
         name:
@@ -7227,7 +7252,7 @@ function partnerOwnerAllGetMe_(json) {
     points: pointsOut,
     catalog: Array.isArray(src.catalog) && src.catalog.length ? src.catalog : PARTNER_CATALOG_STATIC,
     cutover: true,
-    partnerOverride: "owner_all_partners_v33",
+    partnerOverride: partnerOwnerAllOverrideKey_(),
     liveTest: false,
     liveTestPoint: undefined,
     liveTestLabel: undefined
@@ -7247,6 +7272,14 @@ function partnerBlockWrongPoint_(a, params) {
   if (isPartnerManualAccessUser_(params)) {
     const loc = String((params && (params.locationId || params.pointId)) || "").trim();
     if (loc && !partnerManualAllowedPointId_(loc)) {
+      return { status: "error", message: "forbidden_point", cutover: true };
+    }
+    return null;
+  }
+  if (isPartnerOwnerAllUser_(params)) {
+    const loc = String((params && (params.locationId || params.pointId)) || "").trim();
+    const net = String((params && params.networkId) || "").trim();
+    if (loc && partnerIsExcludedPoint_(loc, net)) {
       return { status: "error", message: "forbidden_point", cutover: true };
     }
     return null;
@@ -7377,6 +7410,13 @@ function partnerGuardOrRewrite_(a, params, json) {
   }
   if (isPartnerOwnerAllUser_(params)) {
     if (a === "partnerGetMe") return partnerOwnerAllGetMe_(json);
+    if (a === "partnerListMyOrders" && json && json.status === "success" && Array.isArray(json.orders)) {
+      return Object.assign({}, json, {
+        orders: json.orders.filter(function (o) {
+          return !partnerIsExcludedPoint_((o && (o.locationId || o.pointId)) || "", (o && o.networkId) || "");
+        })
+      });
+    }
     return json;
   }
   if (!isPartnerArseniy_(params)) return json;
@@ -15932,7 +15972,7 @@ async function partnerEnsureManualAccess_(env, admin) {
       break;
     }
   }
-  // V33: пустой ручной набор → снять Access у test-user (owner-all)
+  // Пустой allowlist → снять Access у test-user (owner-all ± exclude-net)
   if (!pts.length) {
     if (hit >= 0) {
       const prev = access[hit];
@@ -15941,7 +15981,7 @@ async function partnerEnsureManualAccess_(env, admin) {
         changed = true;
       }
     }
-    const flagOff = "manual_all_partners_owner_v33";
+    const flagOff = partnerOwnerAllOverrideKey_();
     const nextOff = Object.assign({}, admin, { access: access, _partnerLiveTest: flagOff });
     if (changed && env && env.DB && admin._partnerLiveTest !== flagOff) {
       try {
@@ -16061,6 +16101,14 @@ async function partnerListMyOrdersD1_(params, env, ctx) {
         const sameUser = (tid && ot === tid) || (user && ou === user) || ou === PARTNER_LIVE_TEST_USER;
         if (!sameUser) return false;
         return partnerManualAllowedPointId_((o && (o.locationId || o.pointId)) || "");
+      });
+    } else if (isPartnerOwnerAllUser_(params)) {
+      orders = orders.filter(function (o) {
+        const ot = String((o && o.telegramId) || "").trim();
+        const ou = partnerNormUserWorker_(o && o.username);
+        const sameUser = (tid && ot === tid) || (user && ou === user) || ou === PARTNER_LIVE_TEST_USER;
+        if (!sameUser) return false;
+        return !partnerIsExcludedPoint_((o && (o.locationId || o.pointId)) || "", (o && o.networkId) || "");
       });
     } else if (isPartnerArseniy_(params)) {
       orders = orders.filter(function (o) {
@@ -16504,6 +16552,11 @@ async function mutatePartnerD1_(action, params, env) {
     if (isPartnerManualAccessUser_({ username: username, telegramId: tid })) {
       if (!partnerManualAllowedPointId_(locationId)) return { status: "error", message: "forbidden_point" };
     }
+    if (isPartnerOwnerAllUser_({ username: username, telegramId: tid })) {
+      if (partnerIsExcludedPoint_(locationId, String((params && params.networkId) || "").trim())) {
+        return { status: "error", message: "forbidden_point" };
+      }
+    }
     if (isPartnerArseniy_(params) && !partnerArseniyAllowedPointId_(locationId)) {
       return { status: "error", message: "forbidden_point" };
     }
@@ -16572,6 +16625,9 @@ async function mutatePartnerD1_(action, params, env) {
     if (!allowed && isPartnerOwnerAllUser_({ username: username, telegramId: tid })) {
       for (let p0 = 0; p0 < (admin.points || []).length; p0++) {
         if (String(admin.points[p0].id) === locationId) {
+          if (partnerIsExcludedPoint_(locationId, admin.points[p0].networkId)) {
+            return { status: "error", message: "forbidden_point" };
+          }
           allowed = true;
           if (!networkId) networkId = admin.points[p0].networkId || "";
           if (!locationName) locationName = admin.points[p0].name || "";
@@ -16581,6 +16637,9 @@ async function mutatePartnerD1_(action, params, env) {
       if (!allowed) {
         for (let q0 = 0; q0 < (PARTNER_LIVE_TEST_QUEUE || []).length; q0++) {
           if (PARTNER_LIVE_TEST_QUEUE[q0].id === locationId) {
+            if (partnerIsExcludedPoint_(locationId, PARTNER_LIVE_TEST_QUEUE[q0].networkId)) {
+              return { status: "error", message: "forbidden_point" };
+            }
             allowed = true;
             if (!networkId) networkId = PARTNER_LIVE_TEST_QUEUE[q0].networkId || "";
             if (!locationName) {
@@ -16604,6 +16663,10 @@ async function mutatePartnerD1_(action, params, env) {
         if (!networkId) networkId = admin.points[p].networkId || "";
         break;
       }
+    }
+    if (isPartnerOwnerAllUser_({ username: username, telegramId: tid }) &&
+        partnerIsExcludedPoint_(locationId, networkId)) {
+      return { status: "error", message: "forbidden_point" };
     }
     const id = partnerUid_("po");
     const order = {
