@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115950";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115951";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -9151,6 +9151,7 @@
         }
         var items = (res.items || []).slice();
         items.forEach(normalizeCutFlagsUi_);
+        (prevItems || []).forEach(normalizeCutFlagsUi_);
 
         applyLocalCuttingFlags_(items);
 
@@ -9215,12 +9216,54 @@
         .replace(/[^A-ZА-Я0-9]+/g, "");
     }
 
+    function cutFlagOn_(v) {
+      return v === true || v === 1 || v === "1" || String(v).toLowerCase() === "true";
+    }
+
     function normalizeCutFlagsUi_(it) {
       if (!it || typeof it !== "object") return it;
-      it.laid = !!(it.laid === true || it.laid === 1 || it.laid === "1" || String(it.laid).toLowerCase() === "true");
-      it.done = !!(it.done === true || it.done === 1 || it.done === "1" || String(it.done).toLowerCase() === "true");
-      it.outNext = !!(it.outNext === true || it.outNext === 1 || it.outNext === "1" || String(it.outNext).toLowerCase() === "true");
+      it.laid = cutFlagOn_(it.laid);
+      it.done = cutFlagOn_(it.done);
+      it.outNext = cutFlagOn_(it.outNext);
       return it;
+    }
+
+    function cutItemDomKey_(item, list) {
+      list = list || cuttingItemsCache || [];
+      var row = Number(item && item.row);
+      var rowHits = 0;
+      if (row >= 3 && row <= 48) {
+        for (var i = 0; i < list.length; i++) {
+          if (Number(list[i] && list[i].row) === row) rowHits++;
+        }
+        if (rowHits <= 1) return String(row);
+      }
+      var nk = cutFuzzyKeyUi_(item && item.name) || cutNameKeyUi_(item && item.name);
+      if (nk) return "n-" + nk;
+      return "i-" + String(list.indexOf(item));
+    }
+
+    function cutKeyJs_(key) {
+      return "'" + String(key || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'";
+    }
+
+    function findCuttingCached_(key) {
+      key = String(key == null ? "" : key);
+      var list = cuttingItemsCache || [];
+      if (!key) return null;
+      var i;
+      for (i = 0; i < list.length; i++) {
+        if (cutItemDomKey_(list[i], list) === key) return list[i];
+      }
+      if (/^\d+$/.test(key)) {
+        var row = Number(key);
+        var hits = [];
+        for (i = 0; i < list.length; i++) {
+          if (Number(list[i] && list[i].row) === row) hits.push(list[i]);
+        }
+        if (hits.length === 1) return hits[0];
+      }
+      return null;
     }
 
     function findPrevCuttingUi_(prevItems, item) {
@@ -9237,6 +9280,7 @@
     }
 
     function mergeCuttingFlagsPreferLocal_(items, prevItems) {
+      (prevItems || []).forEach(normalizeCutFlagsUi_);
       (items || []).forEach(function (it) {
         var p = findPrevCuttingUi_(prevItems, it);
         if (!p) return;
@@ -9244,9 +9288,9 @@
           cuttingLocalFlags[Number(it.row)] ||
           cuttingLocalFlags["n:" + cutNameKeyUi_(it.name)];
         if (loc) return;
-        if (!it.laid && p.laid) it.laid = true;
-        if (!it.done && p.done) it.done = true;
-        if (!it.outNext && p.outNext) it.outNext = true;
+        if (!cutFlagOn_(it.laid) && cutFlagOn_(p.laid)) it.laid = true;
+        if (!cutFlagOn_(it.done) && cutFlagOn_(p.done)) it.done = true;
+        if (!cutFlagOn_(it.outNext) && cutFlagOn_(p.outNext)) it.outNext = true;
       });
       (items || []).forEach(normalizeCutFlagsUi_);
     }
@@ -9320,10 +9364,14 @@
       return new Promise(function (resolve) { setTimeout(resolve, ms); });
     }
 
-    async function persistCuttingFlag_(row, patch) {
+    async function persistCuttingFlag_(rowOrItem, patch) {
       var day = document.getElementById("cuttingDaySelect").value;
       if (!day) return false;
-      var cached = (cuttingItemsCache || []).find(function (x) { return Number(x.row) === Number(row); });
+      var cached = rowOrItem && typeof rowOrItem === "object"
+        ? rowOrItem
+        : findCuttingCached_(rowOrItem) ||
+          (cuttingItemsCache || []).find(function (x) { return Number(x.row) === Number(rowOrItem); });
+      var row = cached ? Number(cached.row) : Number(rowOrItem);
       var itemName = (cached && cached.name) || "";
       rememberCuttingLocalFlag_(row, patch, itemName);
       markCuttingWriteStart();
@@ -9476,9 +9524,9 @@
     function cuttingFlagScore(items) {
       var n = 0;
       (items || []).forEach(function (it) {
-        if (it.done) n += 2;
-        if (it.laid) n += 1;
-        if (it.outNext) n += 1;
+        if (cutFlagOn_(it.done)) n += 2;
+        if (cutFlagOn_(it.laid)) n += 1;
+        if (cutFlagOn_(it.outNext)) n += 1;
       });
       return n;
     }
@@ -9690,6 +9738,7 @@
     }
 
     function cutRowClass(item) {
+      normalizeCutFlagsUi_(item);
       var laid = !!(item && item.laid);
       var done = !!(item && item.done);
       var outNext = !!(item && item.outNext);
@@ -9703,27 +9752,31 @@
 
     function renderCutRowHtml(item) {
       normalizeCutFlagsUi_(item);
+      var key = cutItemDomKey_(item);
+      var keyJs = cutKeyJs_(key);
       const dryLabel = item.unit === "шт" ? (item.dry + " шт") : (item.dry + " гр сухого");
       const rawLabel = item.unit === "шт"
         ? (item.raw + " шт")
         : (Number(item.raw).toFixed(2) + " кг сырого");
-      return `<div class="${cutRowClass(item)}" id="cut_${item.row}" data-row="${item.row}">
-        <button type="button" class="cut-bang${item.outNext ? " active" : ""}" title="Нет на следующую нарезку" onclick="toggleCutOutNext(${item.row})">!</button>
+      return `<div class="${cutRowClass(item)}" id="cut_${key}" data-row="${item.row || 0}" data-cut-key="${escapeHtml(key)}">
+        <button type="button" class="cut-bang${item.outNext ? " active" : ""}" title="Нет на следующую нарезку" onclick="toggleCutOutNext(${keyJs})">!</button>
         <div class="cut-title">${escapeHtml(item.name)}</div>
         <div class="cut-meta">Нужно: <b>${dryLabel}</b><br>Сырьё: <b>${rawLabel}</b></div>
         ${renderCutNoteHint(item)}
         <div class="cut-actions">
-          <label class="check-line"><input type="checkbox" ${item.laid ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutLaid(${item.row}, this.checked)"> Выложено</label>
-          <label class="check-line"><input type="checkbox" ${item.done ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutDone(${item.row}, this.checked)"> Нарезано</label>
-          <label>Излишек <input type="number" inputmode="decimal" id="surplus_${item.row}" value="${item.surplus || 0}" step="0.1"></label>
-          <button class="btn-action btn-blue" style="width:auto;padding:0 14px;height:40px;" onclick="saveCutSurplus(${item.row})">Сохранить излишек</button>
+          <label class="check-line"><input type="checkbox" autocomplete="off" ${item.laid ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutLaid(${keyJs}, this.checked)"> Выложено</label>
+          <label class="check-line"><input type="checkbox" autocomplete="off" ${item.done ? "checked" : ""} onclick="event.stopPropagation()" onchange="toggleCutDone(${keyJs}, this.checked)"> Нарезано</label>
+          <label>Излишек <input type="number" inputmode="decimal" id="surplus_${key}" value="${item.surplus || 0}" step="0.1"></label>
+          <button class="btn-action btn-blue" style="width:auto;padding:0 14px;height:40px;" onclick="saveCutSurplus(${keyJs})">Сохранить излишек</button>
         </div>
       </div>`;
     }
 
-    function syncCutRowDomFromCache_(row) {
-      var cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
-      var el = document.getElementById("cut_" + row);
+    function syncCutRowDomFromCache_(keyOrRow) {
+      var cached = findCuttingCached_(keyOrRow) ||
+        (cuttingItemsCache || []).find(function (x) { return Number(x.row) === Number(keyOrRow); });
+      var key = cached ? cutItemDomKey_(cached) : String(keyOrRow);
+      var el = document.getElementById("cut_" + key);
       if (!cached || !el) return;
       el.className = cutRowClass(cached);
       var checks = el.querySelectorAll(".cut-actions input[type=checkbox]");
@@ -9738,46 +9791,49 @@
       const box = document.getElementById("cuttingContainer");
       if (!box) return;
       cuttingItemsCache.forEach(function (it) {
-        const el = document.getElementById("cut_" + it.row);
+        const key = cutItemDomKey_(it);
+        const el = document.getElementById("cut_" + key);
         if (el) {
           el.className = cutRowClass(it);
           box.appendChild(el);
-          syncCutRowDomFromCache_(it.row);
+          syncCutRowDomFromCache_(key);
         }
       });
       updateCuttingCountersLive();
     }
 
-    async function toggleCutLaid(row, laid) {
-      const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
-      const prev = cached ? !!cached.laid : null;
-      if (cached) cached.laid = !!laid;
-      rememberCuttingLocalFlag_(row, { laid: !!laid }, cached && cached.name);
+    async function toggleCutLaid(key, laid) {
+      const cached = findCuttingCached_(key);
+      if (!cached) return;
+      const prev = !!cached.laid;
+      cached.laid = !!laid;
+      rememberCuttingLocalFlag_(cached.row, { laid: !!laid }, cached.name);
       reorderCuttingDom();
-      const ok = await persistCuttingFlag_(row, { laid: !!laid });
-      if (!ok && cached && prev !== null) {
+      const ok = await persistCuttingFlag_(cached, { laid: !!laid });
+      if (!ok) {
         cached.laid = prev;
-        rememberCuttingLocalFlag_(row, { laid: prev }, cached && cached.name);
-        syncCutRowDomFromCache_(row);
+        rememberCuttingLocalFlag_(cached.row, { laid: prev }, cached.name);
+        syncCutRowDomFromCache_(key);
         reorderCuttingDom();
       }
     }
     window.toggleCutLaid = toggleCutLaid;
 
-    async function toggleCutDone(row, done) {
-      const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
-      const prev = cached ? !!cached.done : null;
-      if (cached) cached.done = !!done;
-      rememberCuttingLocalFlag_(row, { done: !!done }, cached && cached.name);
+    async function toggleCutDone(key, done) {
+      const cached = findCuttingCached_(key);
+      if (!cached) return;
+      const prev = !!cached.done;
+      cached.done = !!done;
+      rememberCuttingLocalFlag_(cached.row, { done: !!done }, cached.name);
       reorderCuttingDom();
       if (done) {
         try { if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light"); } catch (e) {}
       }
-      const ok = await persistCuttingFlag_(row, { done: !!done });
-      if (!ok && cached && prev !== null) {
+      const ok = await persistCuttingFlag_(cached, { done: !!done });
+      if (!ok) {
         cached.done = prev;
-        rememberCuttingLocalFlag_(row, { done: prev }, cached && cached.name);
-        syncCutRowDomFromCache_(row);
+        rememberCuttingLocalFlag_(cached.row, { done: prev }, cached.name);
+        syncCutRowDomFromCache_(key);
         reorderCuttingDom();
         return;
       }
@@ -9794,8 +9850,8 @@
     }
     window.toggleCutDone = toggleCutDone;
 
-    async function toggleCutOutNext(row) {
-      const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
+    async function toggleCutOutNext(key) {
+      const cached = findCuttingCached_(key);
       if (!cached) return;
       const next = !cached.outNext;
       const okAsk = next
@@ -9804,23 +9860,24 @@
       if (!okAsk) return;
       const prev = !!cached.outNext;
       cached.outNext = next;
-      rememberCuttingLocalFlag_(row, { outNext: next }, cached && cached.name);
-      syncCutRowDomFromCache_(row);
-      const ok = await persistCuttingFlag_(row, { outNext: next });
+      rememberCuttingLocalFlag_(cached.row, { outNext: next }, cached.name);
+      syncCutRowDomFromCache_(key);
+      const ok = await persistCuttingFlag_(cached, { outNext: next });
       if (!ok) {
         cached.outNext = prev;
-        rememberCuttingLocalFlag_(row, { outNext: prev }, cached && cached.name);
-        syncCutRowDomFromCache_(row);
+        rememberCuttingLocalFlag_(cached.row, { outNext: prev }, cached.name);
+        syncCutRowDomFromCache_(key);
         return;
       }
       showToast(next ? "Помечено: нет на следующую" : "Пометка снята");
     }
 
-    async function saveCutSurplus(row) {
-      const surplus = Number(document.getElementById("surplus_" + row).value) || 0;
-      const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(row); });
+    async function saveCutSurplus(key) {
+      const cached = findCuttingCached_(key);
+      const el = document.getElementById("surplus_" + String(key));
+      const surplus = Number(el && el.value) || 0;
       if (cached) cached.surplus = surplus;
-      const ok = await persistCuttingFlag_(row, { surplus: surplus });
+      const ok = await persistCuttingFlag_(cached || key, { surplus: surplus });
       if (ok) showToast("Излишек сохранён");
       recoverUiFocus();
     }
@@ -9829,7 +9886,10 @@
 
     async function commitFinishCutting(day, ready, missing, elapsed) {
       (ready || []).forEach(function (r) {
-        const cached = cuttingItemsCache.find(function (x) { return Number(x.row) === Number(r.row); });
+        const cached = (cuttingItemsCache || []).find(function (x) {
+          if (r.name && cutNameKeyUi_(x.name) === cutNameKeyUi_(r.name)) return true;
+          return Number(r.row) >= 3 && Number(x.row) === Number(r.row);
+        });
         if (cached) { cached.done = true; cached.laid = true; }
       });
       const flags = (cuttingItemsCache || []).map(function (it) {

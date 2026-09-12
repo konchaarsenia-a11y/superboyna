@@ -386,7 +386,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-10 varka-ux-batch-3bf6"
+      deployMarker: "2026-09-12 cut-flags-no-autocheck"
     };
   }
 
@@ -3275,11 +3275,12 @@ function patchCuttingItemsFlags_(items, params, proxied) {
       }
     }
   }
-  if (idx < 0) return { items: list, found: false, row: rowNum || 0 };
+  if (idx < 0) return { items: list, found: false, row: rowNum || 0, idx: -1, item: null };
   const it = list[idx];
+  // Только ключи из запроса пользователя. Ответ GAS (done/laid/outNext всей строки)
+  // не накатывать: иначе surplus/один клик копирует stale TRUE с листа на D1.
   function take(key) {
     if (params[key] != null && params[key] !== "") return toBool_(params[key]);
-    if (proxied && proxied[key] !== undefined) return !!proxied[key];
     return null;
   }
   const laid = take("laid");
@@ -3292,7 +3293,7 @@ function patchCuttingItemsFlags_(items, params, proxied) {
   if (params.noteInfo != null) it.noteInfo = String(params.noteInfo);
   if (isCuttingSheetRow_(rowNum)) it.row = rowNum;
   else if (proxied && isCuttingSheetRow_(proxied.row)) it.row = Number(proxied.row);
-  return { items: list, found: true, row: Number(it.row) || rowNum || 0 };
+  return { items: list, found: true, row: Number(it.row) || rowNum || 0, idx: idx, item: it };
 }
 
 async function rememberCuttingRows_(env, items) {
@@ -3345,9 +3346,9 @@ async function persistCuttingFlagsTable_(env, day, items) {
           iso,
           key,
           Number(it.surplus) || 0,
-          it.done ? 1 : 0,
-          it.laid ? 1 : 0,
-          it.outNext ? 1 : 0,
+          toBool_(it.done) ? 1 : 0,
+          toBool_(it.laid) ? 1 : 0,
+          toBool_(it.outNext) ? 1 : 0,
           now
         )
         .run();
@@ -3392,9 +3393,9 @@ function overlayCuttingFlagsFromTable_(items, flagMap) {
     if (!f) return it;
     return normalizeCuttingItemFlags_(
       Object.assign({}, it, {
-        laid: !!f.laid,
-        done: !!f.done,
-        outNext: !!f.outNext,
+        laid: toBool_(f.laid),
+        done: toBool_(f.done),
+        outNext: toBool_(f.outNext),
         surplus: f.surplus != null ? f.surplus : it.surplus
       })
     );
@@ -3426,14 +3427,24 @@ async function applyCuttingFlagToSnap_(params, env, proxied) {
     await rememberCuttingRows_(env, snap.items);
   } catch (eR) {}
   try {
-    await persistCuttingFlagsTable_(env, day, snap.items);
+    // только кликнутая позиция — не перезаписывать всю таблицу чужими true
+    if (patched.found && patched.item) {
+      await persistCuttingFlagsTable_(env, day, [patched.item]);
+    }
   } catch (eTbl) {}
   return Object.assign({ status: "success", wrote: patched.found ? 1 : 0, row: patched.row }, snap);
 }
 
-function overlayCuttingKeepFlags_(newItems, prevItems, sameDate) {
+function overlayCuttingKeepFlags_(newItems, prevItems, sameDate, dropUnmatchedFlags) {
   if (!sameDate || !prevItems || !prevItems.length) {
-    return normalizeCuttingItems_(mergeCuttingFlags_(newItems, prevItems, sameDate));
+    const fresh = normalizeCuttingItems_(mergeCuttingFlags_(newItems, prevItems, sameDate));
+    if (!dropUnmatchedFlags) return fresh;
+    return (fresh || []).map(function (it) {
+      if (!it) return it;
+      return normalizeCuttingItemFlags_(
+        Object.assign({}, it, { laid: false, done: false, outNext: false })
+      );
+    });
   }
   const qtyByKey = Object.create(null);
   const qtyByFuzzy = Object.create(null);
@@ -3455,9 +3466,9 @@ function overlayCuttingKeepFlags_(newItems, prevItems, sameDate) {
       out.push(
         normalizeCuttingItemFlags_(
           Object.assign({}, n, {
-            laid: !!p.laid,
-            done: !!p.done,
-            outNext: !!p.outNext,
+            laid: toBool_(p.laid),
+            done: toBool_(p.done),
+            outNext: toBool_(p.outNext),
             surplus: p.surplus != null && p.surplus !== "" ? Number(p.surplus) || 0 : n.surplus,
             noteInfo: p.noteInfo || n.noteInfo
           })
@@ -3469,7 +3480,14 @@ function overlayCuttingKeepFlags_(newItems, prevItems, sameDate) {
   (newItems || []).forEach(function (n) {
     if (!n) return;
     if (used[cutNameKey_(n.name)] || used[cutFuzzyKey_(n.name)]) return;
-    out.push(normalizeCuttingItemFlags_(n));
+    const copy = normalizeCuttingItemFlags_(n);
+    // новая позиция без сохранённого флага — не брать TRUE с GAS/Sheets
+    if (dropUnmatchedFlags) {
+      copy.laid = false;
+      copy.done = false;
+      copy.outNext = false;
+    }
+    out.push(copy);
   });
   return out;
 }
@@ -3495,15 +3513,45 @@ function transferOnlyFromPeople_(people) {
   return { clients: clients, lines: lines };
 }
 
+function parseFinishReadyList_(params, proxied) {
+  const out = [];
+  function push(it) {
+    if (it == null) return;
+    if (typeof it === "number" || typeof it === "string") {
+      const row = Number(it) || 0;
+      if (row) out.push({ row: row, name: "" });
+      return;
+    }
+    out.push({ row: Number(it.row) || 0, name: String(it.name || "") });
+  }
+  let ready = (params && params.ready) || (proxied && proxied.ready);
+  if (typeof ready === "string" && ready) {
+    try {
+      ready = JSON.parse(ready);
+    } catch (eJ) {
+      ready = null;
+    }
+  }
+  if (Array.isArray(ready)) ready.forEach(push);
+  String((params && params.readyRows) || "")
+    .split(",")
+    .forEach(function (s) {
+      const r = Number(String(s || "").trim());
+      if (r) push({ row: r, name: "" });
+    });
+  return out;
+}
+
 function mergeCuttingFlags_(items, prevItems, sameDate) {
   if (!sameDate || !prevItems || !prevItems.length) return normalizeCuttingItems_(items);
   (items || []).forEach(function (it) {
     const old = findPrevCuttingByName_(prevItems, it);
     if (!old) return;
     // только по имени — row меняется при пересборке, иначе цвет ≠ галочка
-    if (old.laid) it.laid = true;
-    if (old.done) it.done = true;
-    if (old.outNext) it.outNext = true;
+    // toBool_: строка "false"/"0" не должна становиться true
+    if (toBool_(old.laid)) it.laid = true;
+    if (toBool_(old.done)) it.done = true;
+    if (toBool_(old.outNext)) it.outNext = true;
     if (old.surplus != null && old.surplus !== "") it.surplus = Number(old.surplus) || 0;
     if (old.noteInfo) it.noteInfo = old.noteInfo;
     if (isCuttingSheetRow_(old.row) && isCuttingSheetRow_(it.row)) it.row = Number(it.row) || Number(old.row);
@@ -6378,7 +6426,7 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
   const mk = normalizeMatchKey_(params.matchKey || client);
 
   if (/^updateCutting$/i.test(action)) {
-    await applyCuttingFlagToSnap_(params, env, proxied);
+    // D1 уже записан из params пользователя; GAS done/laid/outNext всей строки не накатывать
     return;
   }
 
@@ -6390,11 +6438,21 @@ async function syncOpsWriteToD1_(action, params, env, proxied) {
       session: { active: false, day: "", startedAt: 0 }
     };
     const items = Array.isArray(snap.items) ? snap.items.slice() : [];
-    items.forEach(function (it) {
-      if (!it) return;
-      it.done = true;
-      it.laid = true;
-    });
+    const readyList = parseFinishReadyList_(params, proxied);
+    if (readyList.length) {
+      items.forEach(function (it) {
+        if (!it) return;
+        const hit = readyList.some(function (r) {
+          const rowHit = isCuttingSheetRow_(r.row) && Number(it.row) === Number(r.row);
+          const nameHit = !!(r.name && cutNameKey_(r.name) === cutNameKey_(it.name));
+          return rowHit || nameHit;
+        });
+        if (hit) {
+          it.done = true;
+          it.laid = true;
+        }
+      });
+    }
     snap.items = items;
     snap.completion = proxied.completion || {
       day: day,
@@ -7600,7 +7658,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1 слоты недели перезаписаны из Sheets (пустые дни очищены).",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-10 varka-ux-batch-3bf6"
+        deployMarker: "2026-09-12 cut-flags-no-autocheck"
       };
     } catch (eResync) {
       return {
@@ -8071,8 +8129,9 @@ async function handleCutover_(a, params, env, ctx) {
             proxied = null;
           }
           try {
-            if (/^updateCutting$/i.test(a) && proxied) {
-              await applyCuttingFlagToSnap_(params, env, proxied);
+            if (/^updateCutting$/i.test(a) && proxied && isCuttingSheetRow_(proxied.row)) {
+              // только remap row; флаги уже из params пользователя
+              await applyCuttingFlagToSnap_(params, env, { row: proxied.row });
             }
           } catch (eD1) {}
         })();
@@ -8113,7 +8172,13 @@ async function handleCutover_(a, params, env, ctx) {
           if (!gotGas) proxied = await gasP;
         } catch (eG) {}
         try {
-          if (/^updateCutting$/i.test(a)) await applyCuttingFlagToSnap_(params, env, proxied);
+          if (/^updateCutting$/i.test(a)) {
+            await applyCuttingFlagToSnap_(
+              params,
+              env,
+              proxied && isCuttingSheetRow_(proxied.row) ? { row: proxied.row } : null
+            );
+          }
           else if (proxied) await syncOpsWriteToD1_(a, params, env, proxied);
         } catch (eD1) {}
       })();
@@ -10263,14 +10328,14 @@ async function cutoverStoreRead_(a, params, env, payload) {
       return;
     }
     let items = Array.isArray(payload.items) ? payload.items.slice() : [];
-    // ops d1-primary: структура может из GAS, флаги всегда из D1 snap/table
+    const sameDate = sameCutDate_(prev && prev.date, payload && payload.date);
+    // ops d1-primary: qty/row из GAS, флаги только D1 snap/table — не Sheets E/F/G
     if (isOpsD1PrimaryCanon_(env) && prev && Array.isArray(prev.items) && prev.items.length) {
-      items = mergeCuttingFlags_(items, prev.items, true);
-      items = overlayCuttingKeepFlags_(items, prev.items, true);
+      items = overlayCuttingKeepFlags_(items, prev.items, sameDate, true);
     } else if (prev && Array.isArray(prev.items) && prev.items.length) {
       const touched = Number(prev.flagsTouchedAt || 0);
       const recent = !!(touched && Date.now() - touched < 600000);
-      if (recent || cuttingFlagScore_(prev.items) >= cuttingFlagScore_(items)) {
+      if (sameDate && (recent || cuttingFlagScore_(prev.items) >= cuttingFlagScore_(items))) {
         items = mergeCuttingFlags_(items, prev.items, true);
       }
     }
