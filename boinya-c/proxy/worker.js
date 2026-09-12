@@ -15946,7 +15946,7 @@ async function partnerListMyOrdersD1_(params, env, ctx) {
                   if (o && o.id) byId[o.id] = o;
                 });
                 live.orders.forEach(function (o) {
-                  if (o && o.id) byId[o.id] = o;
+                  if (o && o.id) byId[o.id] = partnerMergeListedOrder_(byId[o.id], o);
                 });
                 all.orders = Object.keys(byId).map(function (k) {
                   return byId[k];
@@ -15979,7 +15979,7 @@ async function partnerListMyOrdersD1_(params, env, ctx) {
         if (o && o.id) byId[o.id] = o;
       });
       (live.orders || []).forEach(function (o) {
-        if (o && o.id) byId[o.id] = o;
+        if (o && o.id) byId[o.id] = partnerMergeListedOrder_(byId[o.id], o);
       });
       all.orders = Object.keys(byId).map(function (k) {
         return byId[k];
@@ -16579,7 +16579,7 @@ async function mutatePartnerD1_(action, params, env) {
         }
       } catch (eDefDone) {}
     }
-    return { status: "success", id: oid, status: st, order: pack.orders[hit], d1Verified: true, pendingSheets: true };
+    return { status: "success", id: oid, orderStatus: st, order: pack.orders[hit], d1Verified: true, pendingSheets: true };
   }
 
   if (/^partnerSetOrderSlot$/i.test(a)) {
@@ -16714,6 +16714,62 @@ async function mutatePartnerD1_(action, params, env) {
   }
 
   return { status: "error", message: "unsupported_partner_action" };
+}
+
+/** GAS envelope `status` ("success") must not overwrite partner order.status. */
+function resolvePartnerOrderStatusFromLive_(live, params, prevStatus) {
+  const raw = String(
+    (live && live.orderStatus) ||
+    (params && params.orderStatus) ||
+    (params && params.status) ||
+    (live && live.order && live.order.status) ||
+    prevStatus ||
+    ""
+  ).trim();
+  let st = raw.toLowerCase();
+  if (st === "canceled") st = "cancelled";
+  if (!st || /^(success|error|accepted|ok)$/.test(st)) {
+    const fb = String(prevStatus || "").trim().toLowerCase();
+    if (fb === "canceled") return "cancelled";
+    if (fb && !/^(success|error|accepted|ok)$/.test(fb)) return fb;
+    return String(prevStatus || "").trim();
+  }
+  return st;
+}
+
+function partnerBusinessStatusRank_(st) {
+  const s = String(st || "").trim().toLowerCase();
+  if (s === "delivered" || s === "cancelled" || s === "canceled") return 4;
+  if (s === "in_transit") return 3;
+  if (s === "scheduled") return 2;
+  if (s === "new") return 1;
+  return 0;
+}
+
+/** List/refresh merge: keep newer D1 business status if GAS is missing/stale/envelope. */
+function partnerMergeListedOrder_(d1Order, gasOrder) {
+  if (!gasOrder) return d1Order || null;
+  if (!d1Order) {
+    const st0 = resolvePartnerOrderStatusFromLive_({ order: gasOrder, orderStatus: gasOrder.orderStatus }, {}, gasOrder.status);
+    if (st0) return Object.assign({}, gasOrder, { status: st0 });
+    return gasOrder;
+  }
+  const d1St = resolvePartnerOrderStatusFromLive_({}, {}, d1Order.status || d1Order.orderStatus);
+  const gasSt = resolvePartnerOrderStatusFromLive_(
+    { order: gasOrder, orderStatus: gasOrder.orderStatus },
+    {},
+    ""
+  );
+  const merged = Object.assign({}, d1Order, gasOrder);
+  if (partnerBusinessStatusRank_(d1St) >= partnerBusinessStatusRank_(gasSt)) {
+    merged.status = d1St || d1Order.status;
+  } else {
+    merged.status = gasSt;
+  }
+  if (/^(success|error|accepted|ok)$/i.test(String(merged.status || ""))) {
+    merged.status = d1St || "new";
+  }
+  return merged;
 }
 
 async function refreshPartnerSnapsFromGas_(action, params, env, live) {
@@ -16859,7 +16915,11 @@ async function refreshPartnerSnapsFromGas_(action, params, env, live) {
     const oid = String((live.order && live.order.id) || live.id || params.id || "");
     for (let i = 0; i < pack.orders.length; i++) {
       if (String(pack.orders[i].id) === oid) {
-        pack.orders[i] = live.order || Object.assign({}, pack.orders[i], { status: live.status || params.status });
+        const prev = pack.orders[i] || {};
+        const next = live.order ? Object.assign({}, prev, live.order) : Object.assign({}, prev);
+        const st = resolvePartnerOrderStatusFromLive_(live, params, prev.status);
+        if (st) next.status = st;
+        pack.orders[i] = next;
         break;
       }
     }
