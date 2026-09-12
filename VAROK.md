@@ -43,6 +43,14 @@ API (Бойня C Worker → GAS): `partnerListAdmin`, `partnerGetMe`, `partnerS
 
 **Живой webhook мини-аппа:** `https://boinya-c.konchaarsenia.workers.dev` (`cutover=1`), не сырой `/exec`.
 
+**Wipe историй заявок (one-shot, owner):** после merge + Worker Deploy + clasp `Code.gs` —
+
+```
+CONFIRM=WIPE_ALL TELEGRAM_ID=<owner_tid> bash scripts/wipe-partner-order-histories.sh
+```
+
+Без `CONFIRM=WIPE_ALL` — dry-run (`need_confirm`). Чистит D1 `partnerOrders` + partner-строки `listDeferred` и лист `Partner_Orders`. Непартнёрские отложенные не трогает.
+
 **Prod v3+:** демо-вход выключен.  
 - Есть `Partner_Access` → только выданные точки (даже если человек owner Бойни)  
 - Нет Access и owner Бойни → все точки  
@@ -87,7 +95,7 @@ Worker: `@one_more_person_228` — **все партнёры кроме Varka** 
 Партнёр жмёт Отправить
   → лист Partner_Orders + Отложенное (режим partner)
   → пуш команде в бота Бойни (Партнёры→Пуши, иначе owners)
-  → пуш партнёру в @GOODBOY_LG: день и время слота (завтра, вс→пн, 12:00–22:00)
+  → пуш партнёру в @GOODBOY_LG: день и время слота (завтра, вс→пн, 19:00–22:00)
 Отложенные → Заказы
   → «В пути» → партнёру «курьер уже в пути»
   → «Доставлено» → партнёру «доставлено», заявка в историю, карточка закрывается
@@ -152,6 +160,7 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 - [~] **v3.3.36:** слот 12–22; Varka NFC+баннер (без бумажного купона); +250г без custom; owner grant staff; фикс дубля заказов; nav/кабинет · Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.35:** rename polotno_an / indixvost + адрес ниже; 1× Маяковского; Бойня скрыть Firedog+дубли Маяковского · Pages varka 3.3.35 / Бойня `v71115942` · **Deploy Code.gs** (`PARTNER_PROD_V34`) + Worker
 - [~] **v3.3.34 batch:** rename точек (Fundog / Чечота 11 / Победителей 73/1 / bow_wow_collar); история без «Привезём»; купон photo+qty; qty blur keep; Delete в Партнёры→Заказы; access pending+notify+accept; staff без grant; empty-day skip force · Pages varka 3.3.34 · **Deploy Code.gs** (`PARTNER_PROD_V32`) + Worker
+- [~] **v3.3.45:** слот **19:00–22:00**; подпись «Баннер» (Varka); точки без адресов; polotno/indixvost/bow_wow — только купоны+NFC; qty 48/73/96/120 без custom; **баннер NaN отложен**; wipe `partnerWipeOrderHistories` · Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.44:** `@one_more_person_228` сам выбирает локу для проверки (allowlist tid 827494606). Чип + селект, persist `gb_inspect_loca_v1`, история по локе. Varka закрыта · Pages + Worker
 - [~] **v3.3.43:** Access `@one_more_person_228` (tid 827494606) → **все кроме Varka** (`PARTNER_MANUAL_ACCESS_EXCLUDE_NETS=net_varka`) · Worker · после merge CI deploy
 - [~] **v3.3.42:** Access `@one_more_person_228` → ~~только 12 точек Varka (`manual_varka_only`)~~ снято: теперь all-except-Varka · Worker

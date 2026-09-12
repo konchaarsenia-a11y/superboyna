@@ -143,7 +143,7 @@ const order = {
   telegramId: "111222333",
   locationName: "Varka · Репина 4",
   deliverDateLabel: "понедельник, 14.09",
-  deliverTimeLabel: "с 12:00 до 22:00",
+  deliverTimeLabel: "с 19:00 до 22:00",
   basket: [{ name: "Сердце", qty: 100, unit: "г" }]
 };
 const env = {
