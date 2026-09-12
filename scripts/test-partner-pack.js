@@ -97,7 +97,8 @@ if (!/hasTreats: false/.test(varkaSrc)) fail("polotno/indix/bow must set hasTrea
   const block = varkaSrc.match(new RegExp(nid + ": \\{[\\s\\S]*?\\n    \\}"));
   if (!block || !/hasTreats:\s*false/.test(block[0])) fail(nid + " missing hasTreats: false");
 });
-if (!/net_nan:[\s\S]{0,220}hasBanner:\s*true/.test(varkaSrc)) fail("net_nan must have hasBanner: true");
+if (!/net_nan:[\s\S]{0,180}hasBanner:\s*false/.test(varkaSrc)) fail("net_nan banner must stay off (deferred)");
+if (/net_nan:[\s\S]{0,180}hasBanner:\s*true/.test(varkaSrc)) fail("net_nan must not enable hasBanner in this PR");
 if (!/<div class="title">Баннер<\/div>/.test(varkaSrc)) fail("banner card must show title Баннер");
 if (/addr && addr !== title/.test(varkaSrc)) fail("points list still renders address under name");
 if (!/networkHasTreats_/.test(varkaSrc)) fail("missing networkHasTreats_");

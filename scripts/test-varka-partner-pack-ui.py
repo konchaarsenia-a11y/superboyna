@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Playwright: Varka 3.3.45 — баннер, точки без адреса, qty без custom, treats off, NaN banner."""
+"""Playwright: Varka 3.3.45 — баннер Varka, точки без адреса, qty без custom, treats off. NaN banner deferred."""
 from __future__ import annotations
 
 import json
@@ -39,6 +39,27 @@ def me_nan():
         "allowedPointIds": {pt["id"]: True},
         "points": [pt],
         "networks": [{"id": "net_nan", "name": "NaN clinic"}],
+        "catalog": CATALOG,
+        "canPickInspectLoca": False,
+    }
+
+
+def me_varka():
+    pt = {"id": "pt_varka_repina_4", "networkId": "net_varka", "name": "Varka Репина 4", "address": "Репина 4"}
+    return {
+        "status": "success",
+        "allowed": True,
+        "role": "partner",
+        "isPartner": True,
+        "isOwner": False,
+        "name": "Varka test",
+        "username": "varka_tester",
+        "telegramId": "900003",
+        "networkId": "net_varka",
+        "pointIds": [pt["id"]],
+        "allowedPointIds": {pt["id"]: True},
+        "points": [pt],
+        "networks": [{"id": "net_varka", "name": "Varka"}],
         "catalog": CATALOG,
         "canPickInspectLoca": False,
     }
@@ -132,6 +153,19 @@ def run():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
 
+        ctx_v = browser.new_context(viewport={"width": 390, "height": 844})
+        page_v = ctx_v.new_page()
+        attach_mocks(page_v, "900003", "varka_tester", me_varka())
+        page_v.goto(url, wait_until="domcontentloaded")
+        wait_order(page_v)
+        page_v.click('[data-cat="coupon"]')
+        page_v.wait_for_timeout(300)
+        cat_v = page_v.inner_html("#catalogList")
+        if "Баннер" not in cat_v:
+            fail("Varka coupons tab must show title Баннер, got: " + cat_v[:400])
+        page_v.screenshot(path=str(ART / "varka-pack-varka-banner.png"), full_page=True)
+        ctx_v.close()
+
         ctx = browser.new_context(viewport={"width": 390, "height": 844})
         page = ctx.new_page()
         attach_mocks(page, "900001", "nan_tester", me_nan())
@@ -140,8 +174,8 @@ def run():
         page.click('[data-cat="coupon"]')
         page.wait_for_timeout(300)
         cat = page.inner_html("#catalogList")
-        if "Баннер" not in cat:
-            fail("NaN coupons tab must show title Баннер, got: " + cat[:400])
+        if "Баннер" in cat:
+            fail("NaN banner is deferred — coupons tab must not show Баннер")
         if "qty-custom" in cat:
             fail("coupon qty must not render custom input")
         if "своё" in cat:
@@ -184,7 +218,7 @@ def run():
         browser.close()
     httpd.shutdown()
     print("OK: varka partner-pack UI")
-    print("  NaN banner title + qty presets, points names-only, polotno no treats")
+    print("  Varka Баннер label, NaN no banner, qty presets, points names-only, polotno no treats")
 
 
 if __name__ == "__main__":
