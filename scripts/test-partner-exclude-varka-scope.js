@@ -108,12 +108,16 @@ vm.runInContext(
     extractConstAssign_(workerSrc, "PARTNER_MANUAL_ACCESS_POINTS"),
     extractConstAssign_(workerSrc, "PARTNER_MANUAL_ACCESS_NET"),
     extractConstAssign_(workerSrc, "PARTNER_MANUAL_ACCESS_EXCLUDE_NETS"),
+    extractConstAssign_(workerSrc, "PARTNER_INSPECT_LOCA_TIDS"),
+    extractConstAssign_(workerSrc, "PARTNER_INSPECT_LOCA_USERS"),
     extractConstAssign_(workerSrc, "PARTNER_LIVE_TEST_QUEUE"),
     extractConstAssign_(workerSrc, "PARTNER_CATALOG_STATIC"),
     extractConstAssign_(workerSrc, "PARTNER_ARSENIY_POINTS"),
     extractFn_(workerSrc, "partnerNormUserWorker_"),
     extractFn_(workerSrc, "isPartnerLiveTestUser_"),
     extractFn_(workerSrc, "isPartnerManualAccessUser_"),
+    extractFn_(workerSrc, "isPartnerInspectLocaUser_"),
+    extractFn_(workerSrc, "partnerInspectWantLoca_"),
     extractFn_(workerSrc, "isPartnerOwnerAllUser_"),
     extractFn_(workerSrc, "partnerManualAllowedPointId_"),
     extractFn_(workerSrc, "partnerExcludeNets_"),
@@ -202,6 +206,9 @@ if (netIds.indexOf("net_varka") >= 0) {
 if (me.points.filter(function (p) { return p.id === "pt_polotno_1"; })[0].name !== "polotno_an") {
   fail("getMe should keep polotno rename");
 }
+if (!me.canPickInspectLoca) {
+  fail("getMe must set canPickInspectLoca for inspect allowlist tid");
+}
 
 const blockedVarka = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
   username: "one_more_person_228",
@@ -242,6 +249,62 @@ const listedIds = (listed.orders || []).map(function (o) { return o.id; });
 if (listedIds.indexOf("a") >= 0) fail("list still shows Varka order");
 if (listedIds.indexOf("b") < 0 || listedIds.indexOf("c") < 0) {
   fail("list dropped allowed orders: " + listedIds.join(","));
+}
+
+if (!sandbox.isPartnerInspectLocaUser_(tidParams)) {
+  fail("tid must be inspect-loca allowlist");
+}
+if (sandbox.isPartnerInspectLocaUser_({ username: "someone_else", telegramId: "1" })) {
+  fail("other users must not get inspect-loca picker");
+}
+if (sandbox.partnerInspectWantLoca_({
+  username: "one_more_person_228",
+  telegramId: "827494606",
+  locationId: "pt_varka_repina_4",
+  networkId: "net_varka"
+})) {
+  fail("inspect want must not return Varka location");
+}
+if (sandbox.partnerInspectWantLoca_({
+  username: "one_more_person_228",
+  telegramId: "827494606",
+  locationId: "pt_fundog_1",
+  networkId: "net_fundog"
+}) !== "pt_fundog_1") {
+  fail("inspect want must keep allowed location");
+}
+
+const listedFundog = sandbox.partnerGuardOrRewrite_("partnerListMyOrders", {
+  username: "one_more_person_228",
+  telegramId: "827494606",
+  locationId: "pt_fundog_1"
+}, {
+  status: "success",
+  orders: [
+    { id: "a", locationId: "pt_varka_repina_4", networkId: "net_varka" },
+    { id: "b", locationId: "pt_nan_1", networkId: "net_nan" },
+    { id: "c", locationId: "pt_fundog_1", networkId: "net_fundog" }
+  ]
+});
+const fundogIds = (listedFundog.orders || []).map(function (o) { return o.id; });
+if (fundogIds.join(",") !== "c") {
+  fail("inspect locationId must keep only Fundog, got " + fundogIds.join(","));
+}
+
+const listedVarkaWant = sandbox.partnerGuardOrRewrite_("partnerListMyOrders", {
+  username: "one_more_person_228",
+  telegramId: "827494606",
+  locationId: "pt_varka_repina_4",
+  networkId: "net_varka"
+}, {
+  status: "success",
+  orders: [
+    { id: "a", locationId: "pt_varka_repina_4", networkId: "net_varka" },
+    { id: "b", locationId: "pt_nan_1", networkId: "net_nan" }
+  ]
+});
+if ((listedVarkaWant.orders || []).some(function (o) { return o.id === "a"; })) {
+  fail("inspect Varka locationId must not leak Varka orders");
 }
 
 if (/PARTNER_BOT_TOKEN/.test(extractFn_(workerSrc, "partnerOwnerAllGetMe_"))) {
