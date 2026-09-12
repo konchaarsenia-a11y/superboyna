@@ -81,6 +81,21 @@ if (!/partnerRequireOwner_/.test(extractFn_(gasSrc, "handlePartnerWipeOrderHisto
   fail("GAS wipe must require owner");
 }
 if (!/_wipeEmpty/.test(workerSrc)) fail("Worker wipe must set _wipeEmpty to block GAS resurrect");
+if (!/function partnerHistoriesWipedSnap_/.test(workerSrc)) {
+  fail("missing partnerHistoriesWipedSnap_ guard");
+}
+if (!/_partnerWipeEmpty = true/.test(workerSrc)) {
+  fail("listDeferred wipe must set _partnerWipeEmpty");
+}
+if (/pack\._wipeEmpty = false/.test(workerSrc)) {
+  fail("partnerSubmitOrder must not clear _wipeEmpty (resurrects GAS history)");
+}
+if (!/partnerHistoriesWipedSnap_\(afterD1\)/.test(workerSrc)) {
+  fail("empty listDeferred must not GAS-fill after partner wipe");
+}
+if (!/partnerHistoriesWipedSnap_\(prev\)/.test(workerSrc)) {
+  fail("cutoverStoreRead must skip GAS cold-start after partner wipe");
+}
 
 const wipeScript = fs.readFileSync(path.join(root, "scripts", "wipe-partner-order-histories.sh"), "utf8");
 if (!/CONFIRM=WIPE_ALL/.test(wipeScript) || !/partnerWipeOrderHistories/.test(wipeScript)) {
