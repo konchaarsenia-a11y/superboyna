@@ -42,7 +42,7 @@
       }
       body {
         padding-top: calc(62px + var(--safe-top));
-        padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 12px);
+        padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 28px);
       }
       body.has-dock { padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 84px); }
       button, input, select, textarea { font: inherit; color: inherit; }
@@ -89,6 +89,7 @@
 
       label { display: block; font-size: 13px; font-weight: 600; color: #e8e4dc; margin: 10px 0 6px; }
       label:first-child { margin-top: 0; }
+      label.btn { margin: 0; display: flex; align-items: center; justify-content: center; }
       .hint { color: var(--muted); font-size: 12px; margin: 0 0 10px; line-height: 1.35; }
 
       input, select, textarea {
@@ -140,7 +141,7 @@
       .btn {
         width: 100%; min-height: 52px; border: 0; border-radius: 12px;
         background: var(--cyan); color: var(--cyan-ink);
-        font-family: var(--display); font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase;
+        font-family: var(--body); font-size: 16px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
       }
       .btn.hot { background: var(--hot); color: #fff; }
       .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); }
@@ -174,7 +175,7 @@
         appearance: none; border: 0; background: transparent; color: var(--muted);
         min-height: var(--nav-h); padding: 8px 4px 6px;
         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-        font-family: var(--display); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase;
+        font-family: var(--body); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
         position: relative;
       }
       .tab svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; }
@@ -327,8 +328,10 @@
           <div class="size-pills" id="pSizePills"></div>
           <label for="pSizes">Или списком</label>
           <input id="pSizes" placeholder="41:2, 42:1, 43:1" autocomplete="off" />
-          <label for="pPhoto">Фото</label>
-          <input id="pPhoto" type="file" accept="image/*" />
+          <label>Фото</label>
+          <label class="btn ghost" for="pPhoto">Выбрать фото</label>
+          <input id="pPhoto" type="file" accept="image/*" hidden />
+          <p class="hint" id="pPhotoName" style="margin-top:8px">файл не выбран</p>
           <button class="btn" id="pCreate" style="margin-top:12px" type="button">Создать товар</button>
           <div id="pResult" class="hint" style="margin-top:10px"></div>
         </div>
@@ -458,6 +461,7 @@
         document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === 'panel-' + name));
         const salePicked = name === 'sale' && selected;
         document.body.classList.toggle('has-dock', !!salePicked);
+        toast.classList.remove('show');
         if (name === 'orders') loadOrders();
         if (name === 'stock') loadArrivals();
         if (name === 'product') suggestArticle();
@@ -633,6 +637,10 @@
         if (!pill) return;
         extraSizes.splice(Number(pill.dataset.i), 1);
         renderSizePills();
+      });
+      document.getElementById('pPhoto').addEventListener('change', () => {
+        const f = document.getElementById('pPhoto').files[0];
+        document.getElementById('pPhotoName').textContent = f ? f.name : 'файл не выбран';
       });
       document.getElementById('pCreate').onclick = async () => {
         const name = document.getElementById('pName').value.trim();
