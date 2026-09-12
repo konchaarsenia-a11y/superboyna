@@ -386,7 +386,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-12 cut-flags-no-autocheck"
+      deployMarker: "2026-09-12 partner-pack-slot19-wipe"
     };
   }
 
@@ -8742,6 +8742,57 @@ async function handleCutover_(a, params, env, ctx) {
       }
       return okSess;
     }
+    // One-shot: стереть все истории партнёрских заявок (D1 + deferred). Owner + confirm=WIPE_ALL.
+    if (/^partnerWipeOrderHistories$/i.test(a)) {
+      const ownerOkWipe = await actorIsOwnerRetail_(params, env);
+      if (!ownerOkWipe) {
+        return {
+          status: "error",
+          message: "owner_only",
+          tip: "Только владелец Бойни может чистить истории партнёров.",
+          cutover: true,
+          action: a
+        };
+      }
+      const confirmWipe = String((params && (params.confirm || params.confirmWipe)) || "").trim();
+      if (confirmWipe !== "WIPE_ALL") {
+        return {
+          status: "error",
+          message: "need_confirm",
+          tip: "Нужен confirm=WIPE_ALL",
+          cutover: true,
+          action: a
+        };
+      }
+      let d1W = null;
+      try {
+        if (env && env.DB) d1W = await mutatePartnerD1_(a, params, env);
+      } catch (eW) {
+        d1W = { status: "error", message: String((eW && eW.message) || eW) };
+      }
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(
+          gasProxy_(a, params, env, { write: true }).catch(function () {
+            return null;
+          })
+        );
+      } else {
+        try {
+          await gasProxy_(a, params, env, { write: true });
+        } catch (eGasW) {}
+      }
+      return Object.assign(
+        {
+          status: (d1W && d1W.status) || "error",
+          action: a,
+          cutover: true,
+          fromD1: true,
+          pendingSheets: true,
+          partnerCanon: partnerCanonLabel_(env)
+        },
+        d1W || {}
+      );
+    }
     // Varka Partner_* — D1/snap правда → GAS зеркало (TG/deferred в GAS)
     if (
       isPartnerD1PrimaryCanon_(env) &&
@@ -16160,7 +16211,8 @@ async function partnerListMyOrdersD1_(params, env, ctx) {
       });
     }
     if (orders.length || (pack && pack._d1TouchedAt)) {
-      if (ctx && typeof ctx.waitUntil === "function") {
+      const skipGasMerge = !!(pack && pack._wipeEmpty);
+      if (!skipGasMerge && ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(
           (async function () {
             try {
@@ -16168,6 +16220,7 @@ async function partnerListMyOrdersD1_(params, env, ctx) {
               if (live && live.status === "success" && Array.isArray(live.orders)) {
                 // merge into global pack by id
                 let all = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
+                if (all && all._wipeEmpty) return;
                 const byId = {};
                 (all.orders || []).forEach(function (o) {
                   if (o && o.id) byId[o.id] = o;
@@ -16201,6 +16254,12 @@ async function partnerListMyOrdersD1_(params, env, ctx) {
   if (live && live.status === "success" && env && env.DB) {
     try {
       let all = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
+      if (all && all._wipeEmpty) {
+        live.orders = [];
+        live.fromD1 = true;
+        live.wiped = true;
+        return live;
+      }
       const byId = {};
       (all.orders || []).forEach(function (o) {
         if (o && o.id) byId[o.id] = o;
@@ -16321,9 +16380,9 @@ function partnerDefaultSlotWorker_() {
   return {
     dateIso: iso,
     dateLabel: dd + "." + mm,
-    timeFrom: "12:00",
+    timeFrom: "19:00",
     timeTo: "22:00",
-    timeLabel: "12:00–22:00"
+    timeLabel: "19:00–22:00"
   };
 }
 
@@ -16733,6 +16792,7 @@ async function mutatePartnerD1_(action, params, env) {
     pack.orders.unshift(order);
     pack.status = "success";
     pack._d1TouchedAt = Date.now();
+    pack._wipeEmpty = false;
     await putSnap_(env, "partnerOrders", pack);
     let deferredId = "";
     try {
@@ -16831,7 +16891,7 @@ async function mutatePartnerD1_(action, params, env) {
     if ((!id && !deferredId) || !/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) {
       return { status: "error", message: "need_id_date" };
     }
-    const timeFrom = String((params && params.deliverTimeFrom) || "12:00").trim() || "12:00";
+    const timeFrom = String((params && params.deliverTimeFrom) || "19:00").trim() || "19:00";
     const timeTo = String((params && params.deliverTimeTo) || "22:00").trim() || "22:00";
     async function resolvePartnerOrderIdFromDeferred_(wantDef, wantId) {
       try {
@@ -16950,6 +17010,61 @@ async function mutatePartnerD1_(action, params, env) {
       deliverDateIso: dateIso,
       deliverDateLabel: dateLabel,
       deliverTimeLabel: timeLabel,
+      d1Verified: true,
+      pendingSheets: true
+    };
+  }
+
+  if (/^partnerWipeOrderHistories$/i.test(a)) {
+    const confirmWipe = String((params && (params.confirm || params.confirmWipe)) || "").trim();
+    if (confirmWipe !== "WIPE_ALL") {
+      return { status: "error", message: "need_confirm", tip: "confirm=WIPE_ALL" };
+    }
+    const nowIso = new Date().toISOString();
+    let prev = { orders: [] };
+    try {
+      prev = (await getSnapRaw_(env, "partnerOrders")) || { status: "success", orders: [] };
+    } catch (ePrev) {}
+    const prevCount = Array.isArray(prev.orders) ? prev.orders.length : 0;
+    await putSnap_(env, "partnerOrders", {
+      status: "success",
+      orders: [],
+      _d1TouchedAt: Date.now(),
+      _partnerHistoriesWipedAt: nowIso,
+      _wipeEmpty: true
+    });
+    let deferredRemoved = 0;
+    try {
+      let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+      let items = Array.isArray(list.items) ? list.items.slice() : [];
+      const kept = [];
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (!it) continue;
+        const pl = it.payload || {};
+        const isPartner =
+          String(it.mode || pl.mode || "").toLowerCase() === "partner" ||
+          String(pl.orderType || "") === "partner";
+        if (isPartner) {
+          deferredRemoved++;
+          continue;
+        }
+        kept.push(it);
+      }
+      list.items = kept;
+      list.openCount = kept.filter(function (it) {
+        return String((it && it.status) || "open").toLowerCase() === "open";
+      }).length;
+      list.fromD1 = true;
+      list._partnerHistoriesWipedAt = nowIso;
+      await putSnap_(env, "listDeferred", list);
+    } catch (eDefW) {}
+    return {
+      status: "success",
+      action: "partnerWipeOrderHistories",
+      wipedOrders: prevCount,
+      deferredRemoved: deferredRemoved,
+      wipedAt: nowIso,
       d1Verified: true,
       pendingSheets: true
     };

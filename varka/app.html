@@ -609,7 +609,7 @@
         <div class="title">Куда доставить</div>
         <button class="chip" type="button" onclick="showCatalogTab()">К каталогу</button>
       </div>
-      <div class="sub" style="text-align:left;margin-top:0;" id="pointsSub">Только ваши точки · выберите адрес для заявки</div>
+      <div class="sub" style="text-align:left;margin-top:0;" id="pointsSub">Только ваши точки · выберите точку для заявки</div>
       <div id="pointsCartHint" class="okmsg" style="display:none;"></div>
       <div id="pointsList"></div>
     </div>
@@ -709,7 +709,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.44";
+  var APP_VER = "3.3.45";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -758,17 +758,21 @@
     },
     net_nan: {
       coupon: "assets/partners/nan-coupon.png",
-      hasBanner: false,
+      // TODO: финальный баннер-арт; временно nan-coupon (тот же layout, что Varka banner-card)
+      banner: "assets/partners/nan-coupon.png",
+      hasBanner: true,
       alt: "NaN clinic × Good Boy"
     },
     net_indixvost: {
       coupon: "assets/partners/indixvost-coupon.png",
       hasBanner: false,
+      hasTreats: false,
       alt: "Ди & Хвосты × Good Boy"
     },
     net_polotno: {
       coupon: "assets/partners/polotno-coupon.png",
       hasBanner: false,
+      hasTreats: false,
       alt: "Polotno × Good Boy"
     },
     net_fundog: {
@@ -779,6 +783,7 @@
     net_bobwow: {
       coupon: "assets/partners/bowwow-coupon.png",
       hasBanner: false,
+      hasTreats: false,
       alt: "bow_wow_collar × Good Boy"
     }
   };
@@ -790,7 +795,7 @@
   var QTY_RULES_ = {
     vr_t_heart: { presets: [50, 100, 150, 200, 250], unit: "г", custom: false },
     vr_t_lung: { presets: [50, 100, 150, 200, 250], unit: "г", custom: false },
-    vr_c_piece: { presets: [48, 73, 96, 120], unit: "шт", custom: true },
+    vr_c_piece: { presets: [48, 73, 96, 120], unit: "шт", custom: false },
     vr_c_nfc: { presets: [1], unit: "шт", custom: false, nfc: true, max: 2 },
     vr_c_banner: { presets: [1], unit: "шт", custom: false, fixed: true }
   };
@@ -1819,11 +1824,11 @@
   function goOrderFlow() {
     state.pointsPickMode = "order";
     state.orderStep = "catalog";
-    state.cat = "treat";
     var inspectPt = isInspectLocaUser_() ? currentInspectLoca_() : null;
     state.point = inspectPt || null;
+    state.cat = networkHasTreats_() ? "treat" : "coupon";
     document.querySelectorAll(".tab").forEach(function (el) {
-      el.classList.toggle("on", el.getAttribute("data-cat") === "treat");
+      el.classList.toggle("on", el.getAttribute("data-cat") === state.cat);
     });
     applyInspectLocaToOrderUi_();
     if (!inspectPt) {
@@ -1851,7 +1856,7 @@
     if (sub) {
       sub.textContent = inspect
         ? "Выберите локу — заказы и заявка по ней. Varka недоступна."
-        : "Только ваши точки · выберите адрес для заявки";
+        : "Только ваши точки · выберите точку для заявки";
     }
     var box = document.getElementById("pointsList");
     var hint = document.getElementById("pointsCartHint");
@@ -1896,11 +1901,9 @@
       list.length + "</b></div>" + list.map(function (pt) {
       var on = selectedId && selectedId === pt.id;
       var title = displayPointName_(pt) || pt.label || pt.name || pt.id || "Точка";
-      var addr = String(pt.address || "").trim();
       return '<button class="loc" type="button" style="width:100%;text-align:left;margin:0 0 10px;' +
         (on ? "border-color:var(--accent);" : "") + '" onclick="' + pickFn + '(\'' + esc(pt.id) + '\')">' +
         '<div><div class="name">' + esc(title) + "</div>" +
-        (addr && addr !== title ? ('<span class="addr">' + esc(addr) + "</span>") : "") +
         (on ? '<span class="addr">✓ выбрано</span>' : "") +
         "</div></button>";
     }).join("");
@@ -1935,6 +1938,8 @@
     state.point = pt;
     if (isInspectLocaUser_()) saveInspectLocaId_(pt.id);
     stripBannerIfNeeded_();
+    stripTreatsIfNeeded_();
+    syncCatalogTabs_();
     if ((Number(state.cart[NFC_ID_]) || 0) > 1 && !nfcExtraReason_) {
       state.cart[NFC_ID_] = 1;
       clearNfcExtra_();
@@ -1995,7 +2000,7 @@
     if (String(it.name || "").toLowerCase().indexOf("баннер") >= 0 || it.id === "vr_c_banner") {
       return { presets: [1], unit: "шт", custom: false, fixed: true };
     }
-    if (it.type === "coupon") return { presets: [48, 73, 96, 120], unit: it.unit || "шт", custom: true };
+    if (it.type === "coupon") return { presets: [48, 73, 96, 120], unit: it.unit || "шт", custom: false };
     return { presets: [], unit: it.unit || "шт", custom: true };
   }
 
@@ -2297,6 +2302,35 @@
     return currentNetworkId_() === "net_varka";
   }
 
+  function networkHasTreats_() {
+    var nid = currentNetworkId_();
+    var hit = PARTNER_MEDIA_[nid];
+    if (hit && hit.hasTreats === false) return false;
+    var pid = state.point && state.point.id;
+    if (pid === "pt_polotno_1" || pid === "pt_indix_1" || pid === "pt_bob_1") return false;
+    return true;
+  }
+
+  function stripTreatsIfNeeded_() {
+    if (networkHasTreats_()) return;
+    if (!state.cart) return;
+    if (state.cart.vr_t_heart) delete state.cart.vr_t_heart;
+    if (state.cart.vr_t_lung) delete state.cart.vr_t_lung;
+  }
+
+  function syncCatalogTabs_() {
+    var hasT = networkHasTreats_();
+    document.querySelectorAll('.tab[data-cat="treat"]').forEach(function (el) {
+      el.style.display = hasT ? "" : "none";
+    });
+    if (!hasT && state.cat === "treat") {
+      state.cat = "coupon";
+      document.querySelectorAll(".tab").forEach(function (el) {
+        el.classList.toggle("on", el.getAttribute("data-cat") === "coupon");
+      });
+    }
+  }
+
   function stripBannerIfNeeded_() {
     if (networkHasBanner_()) return;
     if (state.cart && state.cart.vr_c_banner) delete state.cart.vr_c_banner;
@@ -2314,11 +2348,15 @@
     var media = partnerMedia_();
     stripBannerIfNeeded_();
     stripVarkaPaperCoupons_();
+    stripTreatsIfNeeded_();
+    syncCatalogTabs_();
     var allowBanner = networkHasBanner_();
     var nfcOnly = varkaNfcOnlyCoupons_();
+    var allowTreats = networkHasTreats_();
     var items = state.catalog.filter(function (it) {
       if (it.active === false) return false;
       if (it.id === "vr_c_banner" && !allowBanner) return false;
+      if (!allowTreats && it.type === "treat") return false;
       // у Varka: без бумажного купона, NFC + баннер остаются
       if (nfcOnly && it.id === "vr_c_piece") return false;
       if (nfcOnly && it.type === "coupon" && !isNfcItem_(it) && it.id !== "vr_c_nfc" && it.id !== "vr_c_banner") return false;
@@ -2341,7 +2379,9 @@
       if (it.id === "vr_c_banner") {
         return '<div class="coupon-card banner-card">' +
           '<img class="coupon-banner" src="' + media.banner + '" alt="' + esc(media.alt) + '">' +
-          '<div class="coupon-row qty-item">' + ste + "</div></div>";
+          '<div class="coupon-row qty-item">' +
+          '<div class="meta" style="flex:1;min-width:0"><div class="title">Баннер</div></div>' +
+          ste + "</div></div>";
       }
       if (it.id === "vr_c_nfc" || kind === "nfc" || isNfcItem_(it)) {
         var reasonLab = nfcReasonLabel_(nfcExtraReason_);
@@ -2415,6 +2455,7 @@
     }
     var basket = [];
     stripBannerIfNeeded_();
+    stripTreatsIfNeeded_();
     var nfcQty = Number(state.cart[NFC_ID_]) || 0;
     if (nfcQty > 1 && !nfcExtraReason_) {
       softToast_("Выберите причину второго NFC");
@@ -2432,6 +2473,7 @@
     }
     state.catalog.forEach(function (it) {
       if (it.id === "vr_c_banner" && !networkHasBanner_()) return;
+      if (it.type === "treat" && !networkHasTreats_()) return;
       var q = Number(state.cart[it.id]) || 0;
       if (q <= 0) return;
       var row = { id: it.id, type: it.type, name: it.name, qty: q, unit: unitFor_(it) };

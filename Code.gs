@@ -2196,6 +2196,12 @@ function doGet(e) {
       deliverTimeTo: e.parameter.deliverTimeTo || ""
     }, callback, false);
   }
+  if (action === "partnerWipeOrderHistories") {
+    return handlePartnerWipeOrderHistories({
+      telegramId: e.parameter.telegramId || "",
+      confirm: e.parameter.confirm || e.parameter.confirmWipe || ""
+    }, callback, false);
+  }
   if (action === "setAccessTimezone") {
     return handleSetAccessTimezone({
       actorId: e.parameter.actorId || e.parameter.telegramId || "",
@@ -2900,6 +2906,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "partnerSetOrderSlot") {
     return handlePartnerSetOrderSlot(json, callback, fromPost);
+  }
+  if (action === "partnerWipeOrderHistories") {
+    return handlePartnerWipeOrderHistories(json, callback, fromPost);
   }
   if (action === "listReminderPeople") {
     return handleListReminderPeople_(json, callback, fromPost);
@@ -21055,9 +21064,9 @@ function partnerDefaultSlot_(now) {
   return {
     dateIso: dateIso,
     dateLabel: (names[dow2] || "") + ", " + Utilities.formatDate(slot, tz, "dd.MM"),
-    timeFrom: "12:00",
+    timeFrom: "19:00",
     timeTo: "22:00",
-    timeLabel: "с 12:00 до 22:00"
+    timeLabel: "с 19:00 до 22:00"
   };
 }
 
@@ -21481,7 +21490,7 @@ function handlePartnerSetOrderSlot(json, callback, fromPost) {
     var badDate = { status: "error", message: "need_date" };
     return fromPost ? jsonpText(callback, badDate) : jsonp(callback, badDate);
   }
-  var timeFrom = String((json && json.deliverTimeFrom) || "12:00").trim() || "12:00";
+  var timeFrom = String((json && json.deliverTimeFrom) || "19:00").trim() || "19:00";
   var timeTo = String((json && json.deliverTimeTo) || "22:00").trim() || "22:00";
   var orderId = String((json && (json.partnerOrderId || json.orderId)) || "").trim();
   var deferredId = String((json && json.deferredId) || "").trim();
@@ -21562,6 +21571,64 @@ function handlePartnerSetOrderSlot(json, callback, fromPost) {
     deliverTimeLabel: timeLabel
   };
   return fromPost ? jsonpText(callback, okSlot) : jsonp(callback, okSlot);
+}
+
+/** One-shot: стереть истории Partner_Orders + partner-строки в «Отложенное». Owner + confirm=WIPE_ALL. */
+function handlePartnerWipeOrderHistories(json, callback, fromPost) {
+  var actor = String((json && json.telegramId) || "").trim();
+  var forbid = { status: "error", message: "owner_only" };
+  try {
+    if (!partnerRequireOwner_(actor)) {
+      return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+    }
+  } catch (eOwn) {
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var confirmWipe = String((json && (json.confirm || json.confirmWipe)) || "").trim();
+  if (confirmWipe !== "WIPE_ALL") {
+    var need = { status: "error", message: "need_confirm", tip: "confirm=WIPE_ALL" };
+    return fromPost ? jsonpText(callback, need) : jsonp(callback, need);
+  }
+  var wipedOrders = 0;
+  try {
+    var sh = getPartnerOrdersSheet_();
+    var last = sh.getLastRow();
+    if (last > 1) {
+      wipedOrders = last - 1;
+      sh.deleteRows(2, wipedOrders);
+    }
+  } catch (eOrd) {
+    var failO = { status: "error", message: "wipe_orders_failed", tip: String(eOrd) };
+    return fromPost ? jsonpText(callback, failO) : jsonp(callback, failO);
+  }
+  var deferredCancelled = 0;
+  try {
+    var shDf = deferredSheet_();
+    var data = shDf.getDataRange().getValues();
+    for (var r = data.length - 1; r >= 1; r--) {
+      var modeRow = String(data[r][3] || "").toLowerCase();
+      var payload = {};
+      try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (eP) { payload = {}; }
+      var isPartner = modeRow === "partner" ||
+        String(payload.mode || "").toLowerCase() === "partner" ||
+        String(payload.orderType || "") === "partner";
+      if (!isPartner) continue;
+      shDf.getRange(r + 1, 7).setValue("cancelled");
+      payload.orderStatus = "cancelled";
+      payload.wiped = true;
+      try { shDf.getRange(r + 1, 8).setValue(JSON.stringify(payload)); } catch (ePl) {}
+      deferredCancelled++;
+      try { bustDeferredCache_(String(data[r][2] || "")); } catch (eB) {}
+    }
+  } catch (eDf) {}
+  var okWipe = {
+    status: "success",
+    action: "partnerWipeOrderHistories",
+    wipedOrders: wipedOrders,
+    deferredCancelled: deferredCancelled,
+    wipedAt: new Date().toISOString()
+  };
+  return fromPost ? jsonpText(callback, okWipe) : jsonp(callback, okWipe);
 }
 
 /** Кому слать TG о заявках партнёров (Script Properties). */
