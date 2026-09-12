@@ -1,4 +1,41 @@
 import { query, withTransaction } from "../db.js";
+import {
+  parseModelAndColor,
+  groupProductsIntoModels,
+  modelMatchesQuery,
+  modelHasSize,
+} from "../lib/modelGroup.js";
+
+export async function ensureProductModelColumns() {
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT ''`);
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS model_key TEXT NOT NULL DEFAULT ''`);
+  await query(`CREATE INDEX IF NOT EXISTS products_model_key_idx ON products (model_key)`);
+  await query(`CREATE INDEX IF NOT EXISTS products_color_lower_idx ON products ((lower(color)))`);
+}
+
+export async function backfillProductModelKeys() {
+  const { rows } = await query(`SELECT id, name, brand, color, model_key FROM products`);
+  let updated = 0;
+  for (const row of rows) {
+    const parsed = parseModelAndColor(row.name, row.brand);
+    const color = String(row.color || "").trim() || parsed.color;
+    const modelKey = String(row.model_key || "").trim() || parsed.modelKey;
+    if (color === row.color && modelKey === row.model_key) continue;
+    await query(`UPDATE products SET color = $2, model_key = $3, updated_at = now() WHERE id = $1`, [
+      row.id,
+      color,
+      modelKey,
+    ]);
+    updated++;
+  }
+  return updated;
+}
+
+export function modelFieldsFromName(name, brand, colorOverride) {
+  const parsed = parseModelAndColor(name, brand);
+  const color = String(colorOverride || "").trim() || parsed.color;
+  return { color, model_key: parsed.modelKey, modelName: parsed.modelName };
+}
 
 export async function listProducts({ brand, size, q, inStockOnly = true, limit = 500, offset = 0 }) {
   const params = [];
@@ -9,7 +46,9 @@ export async function listProducts({ brand, size, q, inStockOnly = true, limit =
   }
   if (q) {
     params.push(`%${q.toLowerCase()}%`);
-    where.push(`(lower(p.name) LIKE $${params.length} OR lower(p.article) LIKE $${params.length} OR lower(p.barcode) LIKE $${params.length})`);
+    where.push(
+      `(lower(p.name) LIKE $${params.length} OR lower(p.article) LIKE $${params.length} OR lower(p.barcode) LIKE $${params.length} OR lower(p.color) LIKE $${params.length} OR lower(p.model_key) LIKE $${params.length})`
+    );
   }
   if (size) {
     params.push(size);
@@ -40,8 +79,42 @@ export async function listProducts({ brand, size, q, inStockOnly = true, limit =
   return { products: rows, total, limit: params[params.length - 2], offset: params[params.length - 1] };
 }
 
-export async function getProduct(idOrArticle) {
-  const byId = /^\d+$/.test(String(idOrArticle));
+/** Public catalog: one card per model, colorways as variants. */
+export async function listCatalogModels({ brand, size, q, inStockOnly = true, limit = 500, offset = 0 }) {
+  const { products } = await listProducts({
+    brand,
+    inStockOnly,
+    limit: 1000,
+    offset: 0,
+  });
+  let models = groupProductsIntoModels(products, { inStockOnly });
+  if (size) models = models.filter((m) => modelHasSize(m, size));
+  if (q) models = models.filter((m) => modelMatchesQuery(m, q));
+  const total = models.length;
+  const lim = Math.min(Math.max(Number(limit) || 500, 1), 1000);
+  const off = Math.max(Number(offset) || 0, 0);
+  return { models: models.slice(off, off + lim), total, limit: lim, offset: off, grouped: true };
+}
+
+export async function getCatalogModel(idOrArticle) {
+  const product = await getProduct(idOrArticle);
+  if (product) {
+    const { products } = await listProducts({ inStockOnly: true, limit: 1000, offset: 0 });
+    const models = groupProductsIntoModels(products, { inStockOnly: true });
+    const parsed = parseModelAndColor(product.name, product.brand);
+    const key = String(product.model_key || "").trim() || parsed.modelKey;
+    const model = models.find((m) => m.modelKey === key) || groupProductsIntoModels([product], { inStockOnly: true })[0];
+    if (!model) return null;
+    return { model, selectedProductId: Number(product.id) };
+  }
+  const { products } = await listProducts({ inStockOnly: true, limit: 1000, offset: 0 });
+  const models = groupProductsIntoModels(products, { inStockOnly: true });
+  const model = models.find((m) => m.modelKey === String(idOrArticle));
+  if (!model) return null;
+  return { model, selectedProductId: model.colors[0]?.productId || null };
+}
+
+async function loadProductRow(whereSql, value) {
   const { rows } = await query(
     `
     SELECT p.*,
@@ -53,12 +126,21 @@ export async function getProduct(idOrArticle) {
       ), '[]') AS images
     FROM products p
     LEFT JOIN product_sizes s ON s.product_id = p.id
-    WHERE ${byId ? "p.id = $1" : "p.article = $1 OR p.barcode = $1"}
+    WHERE ${whereSql}
     GROUP BY p.id
     `,
-    [idOrArticle]
+    [value]
   );
   return rows[0] || null;
+}
+
+export async function getProduct(idOrArticle) {
+  const key = String(idOrArticle);
+  if (/^\d+$/.test(key)) {
+    const byId = await loadProductRow("p.id = $1", key);
+    if (byId) return byId;
+  }
+  return loadProductRow("p.article = $1 OR p.barcode = $1", key);
 }
 
 /** Kassa-style autocomplete: article / name. By default only sizes with qty > 0. */
@@ -71,13 +153,14 @@ export async function searchForSale(filter, { includeZero = false } = {}) {
   const sizeFilter = includeZero ? "" : "FILTER (WHERE s.qty > 0)";
   const { rows } = await query(
     `
-    SELECT p.id, p.name, p.brand, p.article, p.barcode, p.price_byn,
+    SELECT p.id, p.name, p.brand, p.article, p.barcode, p.price_byn, p.color, p.model_key,
       COALESCE(json_agg(json_build_object('size', s.size, 'qty', s.qty) ORDER BY s.size)
         ${sizeFilter}, '[]') AS sizes
     FROM products p
     LEFT JOIN product_sizes s ON s.product_id = p.id
     WHERE p.active AND (
       p.article ILIKE $1 OR p.barcode ILIKE $1 OR p.name ILIKE $2
+      OR p.color ILIKE $2 OR p.model_key ILIKE $2
     )
     GROUP BY p.id
     HAVING ${having}

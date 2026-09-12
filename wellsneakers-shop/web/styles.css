@@ -356,6 +356,19 @@ main{position:relative;z-index:1}
 .prod-body{padding:14px;display:grid;gap:10px}
 .prod-body .title{font-family:var(--display);font-size:22px;letter-spacing:.04em;text-transform:uppercase;font-weight:400}
 .prod-body .subt{color:var(--muted);font-size:13px;font-weight:600}
+.colors{display:flex;gap:6px;flex-wrap:wrap}
+.color-chip{
+  min-height:32px;padding:0 10px 0 6px;border-radius:999px;
+  border:1px solid var(--line);background:#121316;
+  display:inline-flex;align-items:center;gap:6px;
+  font-weight:700;font-size:11px;letter-spacing:.04em;text-transform:uppercase;
+}
+.color-chip.on{border-color:var(--cyan);background:rgba(79,212,255,.12);color:var(--cyan)}
+.swatch{
+  width:14px;height:14px;border-radius:50%;flex:0 0 auto;
+  border:1px solid rgba(255,255,255,.28);
+  background:var(--swatch,#6b6b70);
+}
 .sizes{display:flex;gap:6px;flex-wrap:wrap}
 .size{
   min-width:40px;height:34px;padding:0 8px;border-radius:10px;

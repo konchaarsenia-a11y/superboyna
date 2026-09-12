@@ -47,8 +47,8 @@ Staff headers (dev): `x-staff-role: admin|seller`.
 | Method | Path | Зачем |
 |--------|------|-------|
 | GET | `/api/health` | health + DB |
-| GET | `/api/catalog` | витрина (только размеры с qty>0) |
-| GET | `/api/catalog/:id` | карточка |
+| GET | `/api/catalog` | витрина: **модели** с цветами (`models[]`, размеры qty>0) |
+| GET | `/api/catalog/:id` | карточка модели по id/артикулу варианта |
 | GET | `/api/brands` | бренды |
 | POST | `/api/orders` | заказ с сайта → списание (+ TG notify) |
 | GET | `/api/labels/:id?size=` | HTML бирка 58×58 + Code128 |

@@ -77,10 +77,14 @@
 ## Маппинг в нашу БД (черновик)
 
 ```
-OC product     → products (name, brand, price, article/sku, barcode)
+OC product     → products (name, brand, price, article/sku, barcode, color, model_key)
+                 color/model_key считаются из названия («AIR JORDAN 11 BLACK» →
+                 модель AIR JORDAN 11, цвет BLACK). Строка OC = вариант, не карточка.
 OC size option → product_sizes (size, qty)  // qty=0 не показывать на сайте
 OC image       → product_images (если есть)
 ```
+
+Витрина группирует варианты с одним `model_key` в одну карточку. Касса ищет по артикулу варианта (`1577`).
 
 Артикул с OC (`sku`) можно сохранить; штрихкод для бирки — генерировать у нас (как в ТЗ), при желании связать с тем же числом.
 

@@ -8,6 +8,7 @@
     "api:dev": "node --watch api/src/index.js",
     "migrate": "node api/src/migrate.js",
     "import:oc": "node scripts/import-opencart-xlsx.js",
+    "test": "node --test api/src/lib/modelGroup.test.js",
     "bot": "node bot/index.js",
     "web": "npx --yes serve web -p 3081",
     "miniapp": "npx --yes serve miniapp -p 3082"

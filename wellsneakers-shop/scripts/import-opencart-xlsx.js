@@ -10,6 +10,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import XLSX from "xlsx";
 import pg from "pg";
+import { parseModelAndColor } from "../api/src/lib/modelGroup.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
@@ -68,6 +69,8 @@ async function main() {
   }
 
   const pool = new pg.Pool({ connectionString: databaseUrl });
+  await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS model_key TEXT NOT NULL DEFAULT ''`);
   let upserted = 0;
   let skipped = 0;
 
@@ -96,13 +99,14 @@ async function main() {
       status === "Включено";
     const displayName = name || model;
     const barcode = article;
+    const parsed = parseModelAndColor(displayName, brand);
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
       const { rows } = await client.query(
-        `INSERT INTO products (name, brand, article, barcode, price_byn, oc_product_id, active)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
+        `INSERT INTO products (name, brand, article, barcode, price_byn, oc_product_id, active, color, model_key)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          ON CONFLICT (article) DO UPDATE SET
            name = EXCLUDED.name,
            brand = EXCLUDED.brand,
@@ -110,9 +114,21 @@ async function main() {
            price_byn = EXCLUDED.price_byn,
            oc_product_id = EXCLUDED.oc_product_id,
            active = EXCLUDED.active,
+           color = EXCLUDED.color,
+           model_key = EXCLUDED.model_key,
            updated_at = now()
          RETURNING id`,
-        [displayName, brand, article, barcode, Number.isFinite(price) ? price : 0, ocId || null, active]
+        [
+          displayName,
+          brand,
+          article,
+          barcode,
+          Number.isFinite(price) ? price : 0,
+          ocId || null,
+          active,
+          parsed.color,
+          parsed.modelKey,
+        ]
       );
       const productId = rows[0].id;
       const sizes = sizesByProduct.get(String(ocId)) || [];
