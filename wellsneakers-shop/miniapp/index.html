@@ -2,126 +2,413 @@
 <html lang="ru">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+    <meta name="theme-color" content="#07080a" />
+    <meta name="color-scheme" content="dark" />
     <title>Операционка</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
     <style>
-      :root{
-        --bg:#0b0b0c; --panel:#1c1d21; --ink:#f5f2ec; --muted:#a7a29b;
-        --rug:#c41e2a; --cyan:#4fd4ff; --line:rgba(255,255,255,.12);
-        --display:"Bebas Neue",Oswald,sans-serif; --body:Barlow,system-ui,sans-serif;
-        --safe-b:env(safe-area-inset-bottom,0px);
+      :root {
+        --bg: #07080a;
+        --card: #14151a;
+        --elev: #1c1e24;
+        --ink: #f4f1ea;
+        --muted: #8e8a84;
+        --cyan: #4fd4ff;
+        --cyan-ink: #042028;
+        --neon: #7dffc3;
+        --neon-ink: #06281a;
+        --hot: #ff3b5c;
+        --warn: #ffc857;
+        --line: rgba(255, 255, 255, 0.1);
+        --display: "Bebas Neue", Oswald, Impact, sans-serif;
+        --body: Barlow, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        --safe-top: max(10px, env(safe-area-inset-top, 0px), var(--tg-safe-area-inset-top, 0px), var(--tg-content-safe-area-inset-top, 0px));
+        --safe-bottom: max(12px, env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px), var(--tg-content-safe-area-inset-bottom, 0px));
+        --nav-h: 64px;
+        --max: 420px;
       }
-      *{box-sizing:border-box}
-      body{margin:0;font-family:var(--body);background:var(--bg);color:var(--ink);padding:16px 16px calc(88px + var(--safe-b))}
-      h1{font-family:var(--display);letter-spacing:.06em;text-transform:uppercase;font-weight:400;font-size:28px;margin:0 0 4px}
-      .sub{color:var(--muted);margin:0 0 12px;font-size:13px}
-      .tabs{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
-      .tabs.admin{grid-template-columns:repeat(4,1fr)}
-      .tab{min-height:40px;border-radius:10px;border:1px solid var(--line);background:rgba(28,29,33,.95);color:var(--ink);font-family:var(--display);letter-spacing:.04em;text-transform:uppercase;font-size:14px;padding:0 4px}
-      .tab.on{background:var(--rug);border-color:transparent}
-      .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
-      label{display:block;font-size:12px;color:var(--muted);margin:8px 0 6px}
-      input,select,textarea{width:100%;min-height:46px;border-radius:12px;border:2px solid #111;background:#f5f2ec;color:#111;padding:0 12px;font:inherit}
-      textarea{min-height:72px;padding:10px 12px}
-      .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-      .sizes{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-      .size{min-width:52px;min-height:48px;border-radius:10px;border:2px solid #111;background:#1c1d21;color:var(--ink);font-family:var(--display);font-size:18px}
-      .size.on{background:var(--cyan);color:#062029;border-color:#0a4c5c}
-      .hit,.order{padding:12px;border-radius:12px;border:1px dashed var(--line);margin-top:8px}
-      .hit{cursor:pointer}
-      .hit strong,.order strong{font-family:var(--display);letter-spacing:.04em;text-transform:uppercase}
-      .btn{width:100%;min-height:50px;border:0;border-radius:12px;background:var(--rug);color:#fff;font-family:var(--display);font-size:18px;letter-spacing:.06em;text-transform:uppercase}
-      .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
-      .btn:disabled{opacity:.5}
-      .toast{position:fixed;left:16px;right:16px;bottom:calc(16px + var(--safe-b));background:#f5f2ec;color:#111;border:2px solid #111;border-radius:10px;padding:12px;font-family:var(--display);letter-spacing:.05em;text-transform:uppercase;display:none;z-index:20}
-      .toast.show{display:block}
-      .price-line{display:flex;justify-content:space-between;margin-top:10px;font-family:var(--display);font-size:22px;letter-spacing:.05em;text-transform:uppercase}
-      .panel{display:none}.panel.on{display:block}
-      .status-btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-      .chip{min-height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--line);background:#121316;color:var(--ink);font-size:12px;display:inline-flex;align-items:center}
-      .inv-row{display:grid;grid-template-columns:64px 1fr 72px;gap:8px;align-items:center;margin-top:8px}
-      .thumb{width:100%;max-height:140px;object-fit:cover;border-radius:10px;margin-top:8px;border:1px solid var(--line)}
-      .admin-only{display:none} body.is-admin .admin-only{display:block}
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; padding: 0; width: 100%;
+        min-height: 100%; min-height: 100dvh;
+        background: var(--bg); color: var(--ink);
+        font-family: var(--body);
+        overflow-x: clip;
+        -webkit-tap-highlight-color: transparent;
+      }
+      body {
+        padding-top: calc(62px + var(--safe-top));
+        padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 28px);
+      }
+      body.has-dock { padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 84px); }
+      button, input, select, textarea { font: inherit; color: inherit; }
+      button { cursor: pointer; }
+      a { color: inherit; }
+
+      .app { width: min(var(--max), 100%); margin: 0 auto; padding: 0 14px; }
+
+      .top {
+        position: fixed; top: 0; left: 0; right: 0; z-index: 40;
+        background: rgba(7, 8, 10, 0.78);
+        -webkit-backdrop-filter: saturate(180%) blur(18px);
+        backdrop-filter: saturate(180%) blur(18px);
+        border-bottom: 1px solid var(--line);
+        padding: calc(8px + var(--safe-top)) 14px 10px;
+      }
+      .top-inner { width: min(var(--max), 100%); margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .brand { min-width: 0; }
+      .brand h1 {
+        margin: 0; font-family: var(--display); font-weight: 400;
+        font-size: 26px; letter-spacing: 0.08em; line-height: 1;
+        text-transform: uppercase;
+      }
+      .brand small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; font-weight: 600; }
+      .who {
+        flex: 0 0 auto; min-height: 28px; padding: 4px 8px; border-radius: 999px;
+        background: rgba(79, 212, 255, 0.12); color: var(--cyan);
+        font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+      }
+
+      .panel { display: none; }
+      .panel.on { display: block; }
+      .panel:not(.on) { content-visibility: hidden; contain: layout style paint; }
+
+      .sec {
+        font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+        text-transform: uppercase; color: var(--muted); margin: 14px 0 8px 2px;
+      }
+      .card {
+        background: var(--card); border: 1px solid var(--line);
+        border-radius: 14px; padding: 14px; margin-bottom: 10px;
+      }
+      .card.stripe { border-left: 3px solid var(--cyan); }
+
+      label { display: block; font-size: 13px; font-weight: 600; color: #e8e4dc; margin: 10px 0 6px; }
+      label:first-child { margin-top: 0; }
+      label.btn { margin: 0; display: flex; align-items: center; justify-content: center; }
+      .hint { color: var(--muted); font-size: 12px; margin: 0 0 10px; line-height: 1.35; }
+
+      input, select, textarea {
+        width: 100%; min-height: 48px; border-radius: 12px;
+        border: 1px solid var(--line); background: var(--elev); color: var(--ink);
+        padding: 0 12px; font-size: 16px; outline: none;
+      }
+      textarea { min-height: 72px; padding: 10px 12px; resize: vertical; }
+      input:focus, select:focus, textarea:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(79, 212, 255, 0.18); }
+      input[type="file"] { padding: 10px 12px; }
+      .search { position: relative; }
+      .search input { padding-right: 44px; }
+      .search-clear {
+        position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+        width: 36px; height: 36px; border: 0; border-radius: 10px;
+        background: transparent; color: var(--muted); font-size: 18px;
+      }
+
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .sizes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+      .size {
+        min-height: 56px; border-radius: 12px; border: 1px solid var(--line);
+        background: var(--elev); color: var(--ink);
+        font-family: var(--display); font-size: 22px; letter-spacing: 0.04em;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+      }
+      .size small { font-family: var(--body); font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+      .size.on { background: var(--cyan); color: var(--cyan-ink); border-color: transparent; box-shadow: 0 0 18px rgba(79, 212, 255, 0.28); }
+      .size.on small { color: var(--cyan-ink); opacity: 0.75; }
+
+      .hit, .order, .arrival {
+        padding: 12px; border-radius: 12px; border: 1px solid var(--line);
+        background: var(--elev); margin-top: 8px;
+      }
+      .hit { cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 56px; }
+      .hit strong, .order strong, .arrival strong, .picked-name {
+        font-family: var(--display); letter-spacing: 0.05em; text-transform: uppercase; font-weight: 400;
+      }
+      .hit:active { filter: brightness(1.2); }
+      .hit-meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+      .hit-price { font-family: var(--display); font-size: 20px; letter-spacing: 0.04em; color: var(--cyan); white-space: nowrap; }
+
+      .price-line {
+        display: flex; justify-content: space-between; align-items: baseline;
+        margin-top: 12px; font-family: var(--display); font-size: 26px; letter-spacing: 0.06em; text-transform: uppercase;
+      }
+      .price-line span:last-child { color: var(--cyan); }
+
+      .btn {
+        width: 100%; min-height: 52px; border: 0; border-radius: 12px;
+        background: var(--cyan); color: var(--cyan-ink);
+        font-family: var(--body); font-size: 16px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+      }
+      .btn.hot { background: var(--hot); color: #fff; }
+      .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); }
+      .btn.ok { background: var(--neon); color: var(--neon-ink); }
+      .btn:disabled { opacity: 0.45; }
+      .btn:active:not(:disabled) { filter: brightness(1.18); }
+
+      .dock-sell {
+        display: none; position: fixed; left: 0; right: 0; z-index: 30;
+        bottom: calc(var(--nav-h) + var(--safe-bottom));
+        padding: 10px 14px;
+        background: linear-gradient(180deg, transparent, rgba(7, 8, 10, 0.92) 28%);
+      }
+      body.has-dock .dock-sell { display: block; }
+      .dock-sell-inner { width: min(var(--max), 100%); margin: 0 auto; }
+
+      .nav {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+        background: rgba(12, 13, 16, 0.92);
+        -webkit-backdrop-filter: saturate(180%) blur(18px);
+        backdrop-filter: saturate(180%) blur(18px);
+        border-top: 1px solid var(--line);
+        padding-bottom: var(--safe-bottom);
+      }
+      .nav-inner {
+        width: min(var(--max), 100%); margin: 0 auto;
+        display: grid; grid-template-columns: 1fr 1fr; min-height: var(--nav-h);
+      }
+      body.is-admin .nav-inner { grid-template-columns: repeat(4, 1fr); }
+      .tab {
+        appearance: none; border: 0; background: transparent; color: var(--muted);
+        min-height: var(--nav-h); padding: 8px 4px 6px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+        font-family: var(--body); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+        position: relative;
+      }
+      .tab svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+      .tab.on { color: var(--cyan); }
+      .tab.on::before {
+        content: ""; position: absolute; top: 0; left: 18%; right: 18%; height: 2px;
+        background: var(--cyan); border-radius: 0 0 2px 2px;
+        box-shadow: 0 0 10px rgba(79, 212, 255, 0.7);
+      }
+      .tab.admin-only, .panel.admin-only { display: none; }
+      body.is-admin .tab.admin-only { display: flex; }
+      body.is-admin .panel.admin-only.on { display: block; }
+
+      .status-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+      .chip {
+        min-height: 44px; padding: 0 10px; border-radius: 10px;
+        border: 1px solid var(--line); background: #121316; color: var(--ink);
+        font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;
+        text-decoration: none;
+      }
+      .chip:active { filter: brightness(1.2); }
+      .badge {
+        display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px;
+        border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+        background: rgba(79, 212, 255, 0.14); color: var(--cyan);
+      }
+      .badge.warn { background: rgba(255, 200, 87, 0.16); color: var(--warn); }
+      .badge.ok { background: rgba(125, 255, 195, 0.16); color: var(--neon); }
+      .badge.bad { background: rgba(255, 59, 92, 0.16); color: #ff8aa0; }
+
+      .order-head, .arrival-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+      .order-sum { font-family: var(--display); font-size: 20px; letter-spacing: 0.04em; color: var(--cyan); }
+
+      .inv-row { display: grid; grid-template-columns: 56px 1fr 72px; gap: 8px; align-items: center; margin-top: 8px; }
+      .stepper { display: grid; grid-template-columns: 44px 1fr 44px; gap: 6px; align-items: center; }
+      .stepper button {
+        min-height: 44px; border-radius: 10px; border: 1px solid var(--line);
+        background: var(--card); color: var(--ink); font-size: 20px; font-weight: 700;
+      }
+      .stepper input { text-align: center; min-height: 44px; padding: 0 4px; }
+
+      .thumb { width: 100%; max-height: 160px; object-fit: cover; border-radius: 10px; margin-top: 8px; border: 1px solid var(--line); }
+      .empty { text-align: center; padding: 28px 12px; color: var(--muted); }
+      .empty strong { display: block; color: var(--ink); font-family: var(--display); letter-spacing: 0.06em; text-transform: uppercase; font-size: 22px; margin-bottom: 6px; }
+
+      .size-add { display: grid; grid-template-columns: 1fr 72px 56px; gap: 8px; align-items: end; }
+      .size-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      .pill {
+        min-height: 36px; padding: 0 10px; border-radius: 999px;
+        background: rgba(79, 212, 255, 0.12); color: var(--cyan);
+        border: 0; font-size: 13px; font-weight: 700;
+      }
+
+      .toast {
+        display: none; position: fixed; left: 50%; transform: translateX(-50%);
+        bottom: calc(var(--nav-h) + var(--safe-bottom) + 16px);
+        z-index: 80; max-width: min(90%, 380px);
+        background: #1c1e24; border: 1px solid var(--line); color: var(--ink);
+        padding: 12px 16px; border-radius: 12px; font-size: 14px; font-weight: 600;
+      }
+      .toast.show { display: block; }
+
+      .sheet-ov {
+        display: none; position: fixed; inset: 0; z-index: 70;
+        background: rgba(0, 0, 0, 0.62); align-items: flex-end; justify-content: center;
+        padding: 16px; padding-bottom: calc(16px + var(--safe-bottom));
+      }
+      .sheet-ov.open { display: flex; }
+      .sheet {
+        width: 100%; max-width: var(--max); background: #16171c;
+        border: 1px solid var(--line); border-radius: 16px; padding: 10px 16px 16px;
+        max-height: min(82vh, 640px); overflow-y: auto; -webkit-overflow-scrolling: touch;
+      }
+      .sheet-handle { width: 36px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.22); margin: 4px auto 12px; }
+      .sheet h2 { margin: 0 0 8px; font-family: var(--display); letter-spacing: 0.06em; text-transform: uppercase; font-weight: 400; font-size: 24px; }
+      .sheet .actions { display: grid; gap: 8px; margin-top: 12px; }
+
+      @media (prefers-reduced-motion: reduce) {
+        .tab.on::before, .size.on { box-shadow: none; }
+        button, .tab, .chip, .hit { transition: none; }
+      }
     </style>
   </head>
   <body>
-    <h1>Операционка</h1>
-    <p class="sub" id="who">Загрузка…</p>
-    <div class="tabs" id="tabs">
-      <button class="tab on" data-tab="sale" type="button">Продажа</button>
-      <button class="tab" data-tab="orders" type="button">Заказы</button>
-      <button class="tab admin-only" data-tab="product" type="button">Товар</button>
-      <button class="tab admin-only" data-tab="stock" type="button">Склад</button>
+    <header class="top">
+      <div class="top-inner">
+        <div class="brand">
+          <h1>wellsneakers</h1>
+          <small id="whoSub">операционка</small>
+        </div>
+        <div class="who" id="who">…</div>
+      </div>
+    </header>
+
+    <main class="app">
+      <section class="panel on" id="panel-sale">
+        <div class="sec">Касса</div>
+        <div class="card">
+          <label for="q">Артикул или название</label>
+          <p class="hint">Сканер пишет сюда. Можно вбить артикул руками.</p>
+          <div class="search">
+            <input id="q" placeholder="например 1577" autocomplete="off" inputmode="search" enterkeyhint="search" />
+            <button class="search-clear" id="qClear" type="button" aria-label="Очистить">×</button>
+          </div>
+          <div id="hits"></div>
+        </div>
+        <div class="card stripe" id="picked" hidden>
+          <div id="pickedTitle"></div>
+          <label>Размер</label>
+          <div class="sizes" id="sizes"></div>
+          <div class="row">
+            <div><label for="price">Цена BYN</label><input id="price" type="number" inputmode="decimal" step="0.01" /></div>
+            <div><label for="discount">Скидка BYN</label><input id="discount" type="number" inputmode="decimal" step="0.01" value="0" /></div>
+          </div>
+          <label for="comment">Комментарий</label>
+          <textarea id="comment" placeholder="необязательно"></textarea>
+          <div class="price-line"><span>Итого</span><span id="total">0 BYN</span></div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-orders">
+        <div class="sec">Сайт-заказы</div>
+        <div id="ordersList"><div class="hint">Загрузка заказов…</div></div>
+      </section>
+
+      <section class="panel admin-only" id="panel-product">
+        <div class="sec">Новый товар</div>
+        <div class="card">
+          <p class="hint">Название, размеры и фото. После сохранения — бирки.</p>
+          <label for="pName">Название</label>
+          <input id="pName" placeholder="NIKE AIR FORCE 1 …" autocomplete="off" />
+          <div class="row">
+            <div><label for="pBrand">Бренд</label><input id="pBrand" placeholder="NIKE" autocomplete="off" /></div>
+            <div><label for="pArticle">Артикул</label><input id="pArticle" placeholder="авто" autocomplete="off" /></div>
+          </div>
+          <label for="pPrice">Цена BYN</label>
+          <input id="pPrice" type="number" inputmode="decimal" step="0.01" value="150" />
+          <label>Размеры</label>
+          <div class="size-add">
+            <div>
+              <label for="pSizeVal" style="margin-top:0">Размер</label>
+              <input id="pSizeVal" placeholder="42" inputmode="decimal" />
+            </div>
+            <div>
+              <label for="pSizeQty" style="margin-top:0">Шт</label>
+              <input id="pSizeQty" type="number" inputmode="numeric" value="1" min="1" />
+            </div>
+            <button class="chip" id="pSizeAdd" type="button">+</button>
+          </div>
+          <div class="size-pills" id="pSizePills"></div>
+          <label for="pSizes">Или списком</label>
+          <input id="pSizes" placeholder="41:2, 42:1, 43:1" autocomplete="off" />
+          <label>Фото</label>
+          <label class="btn ghost" for="pPhoto">Выбрать фото</label>
+          <input id="pPhoto" type="file" accept="image/*" hidden />
+          <p class="hint" id="pPhotoName" style="margin-top:8px">файл не выбран</p>
+          <button class="btn" id="pCreate" style="margin-top:12px" type="button">Создать товар</button>
+          <div id="pResult" class="hint" style="margin-top:10px"></div>
+        </div>
+      </section>
+
+      <section class="panel admin-only" id="panel-stock">
+        <div class="sec">Склад</div>
+        <div class="card">
+          <p class="hint">Привоз (+ к остатку) или сверка. После прихода — бирка.</p>
+          <label for="stockQ">Найти товар</label>
+          <div class="search">
+            <input id="stockQ" placeholder="артикул / название" autocomplete="off" inputmode="search" />
+            <button class="search-clear" id="stockClear" type="button" aria-label="Очистить">×</button>
+          </div>
+          <div id="stockHits"></div>
+        </div>
+        <div class="card stripe" id="stockCard" hidden>
+          <div id="stockTitle"></div>
+          <img class="thumb" id="stockImg" hidden alt="" />
+          <div class="row">
+            <div><label for="stockSize">Размер</label><input id="stockSize" placeholder="42" inputmode="decimal" /></div>
+            <div>
+              <label>Кол-во +</label>
+              <div class="stepper">
+                <button type="button" id="stockQtyMinus">−</button>
+                <input id="stockQty" type="number" inputmode="numeric" value="1" min="1" />
+                <button type="button" id="stockQtyPlus">+</button>
+              </div>
+            </div>
+          </div>
+          <div class="size-pills" id="stockSizePills"></div>
+          <button class="btn" id="stockAdd" style="margin-top:12px" type="button">Приход + бирка</button>
+          <div class="sec">Инвентаризация</div>
+          <p class="hint">Поставить фактическое количество.</p>
+          <div id="invSizes"></div>
+          <button class="btn ghost" id="invSave" style="margin-top:12px" type="button">Сохранить сверку</button>
+        </div>
+        <div class="sec">Последние приходы</div>
+        <div id="arrivals"><div class="hint">Загрузка…</div></div>
+      </section>
+    </main>
+
+    <div class="dock-sell" id="sellDock">
+      <div class="dock-sell-inner">
+        <button class="btn hot" id="sell" type="button">Продать</button>
+      </div>
     </div>
 
-    <section class="panel on" id="panel-sale">
-      <div class="card">
-        <label style="margin-top:0">Артикул или название</label>
-        <input id="q" placeholder="например 1577" autocomplete="off" />
-        <div id="hits"></div>
+    <nav class="nav" aria-label="Разделы">
+      <div class="nav-inner" id="tabs">
+        <button class="tab on" data-tab="sale" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16l-1.2 12.2A2 2 0 0 1 16.8 21H7.2a2 2 0 0 1-2-1.8L4 7Z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/></svg>
+          Продажа
+        </button>
+        <button class="tab" data-tab="orders" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10M7 12h10M7 17h6"/><rect x="4" y="4" width="16" height="16" rx="3"/></svg>
+          Заказы
+        </button>
+        <button class="tab admin-only" data-tab="product" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          Товар
+        </button>
+        <button class="tab admin-only" data-tab="stock" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16v11H4Z"/><path d="M4 8 12 3l8 5"/><path d="M12 8v11"/></svg>
+          Склад
+        </button>
       </div>
-      <div class="card" id="picked" hidden>
-        <div id="pickedTitle"></div>
-        <div class="sizes" id="sizes"></div>
-        <div class="row">
-          <div><label>Цена BYN</label><input id="price" type="number" step="0.01" /></div>
-          <div><label>Скидка BYN</label><input id="discount" type="number" step="0.01" value="0" /></div>
-        </div>
-        <label>Комментарий</label>
-        <textarea id="comment" placeholder="необязательно"></textarea>
-        <div class="price-line"><span>Итого</span><span id="total">0 BYN</span></div>
-        <button class="btn" id="sell" style="margin-top:12px" type="button">Продать</button>
-      </div>
-    </section>
+    </nav>
 
-    <section class="panel" id="panel-orders">
-      <div class="card" id="ordersList"><div class="sub">Загрузка заказов…</div></div>
-    </section>
-
-    <section class="panel admin-only" id="panel-product">
-      <div class="card">
-        <p class="sub" style="margin:0">Новый товар + размеры + фото. После сохранения — бирки.</p>
-        <label style="margin-top:10px">Название</label>
-        <input id="pName" placeholder="NIKE AIR FORCE 1 …" />
-        <div class="row">
-          <div><label>Бренд</label><input id="pBrand" placeholder="NIKE" /></div>
-          <div><label>Артикул</label><input id="pArticle" placeholder="авто" /></div>
-        </div>
-        <label>Цена BYN</label>
-        <input id="pPrice" type="number" step="0.01" value="150" />
-        <label>Размеры (размер:кол-во через запятую)</label>
-        <input id="pSizes" placeholder="41:2, 42:1, 43:1" />
-        <label>Фото</label>
-        <input id="pPhoto" type="file" accept="image/*" />
-        <button class="btn" id="pCreate" style="margin-top:12px" type="button">Создать товар</button>
-        <div id="pResult" class="sub" style="margin-top:10px"></div>
+    <div class="sheet-ov" id="sheetOv">
+      <div class="sheet" role="dialog" aria-modal="true">
+        <div class="sheet-handle"></div>
+        <h2 id="sheetTitle">Бирки</h2>
+        <div id="sheetBody"></div>
+        <div class="actions" id="sheetActions"></div>
       </div>
-    </section>
-
-    <section class="panel admin-only" id="panel-stock">
-      <div class="card">
-        <p class="sub" style="margin:0">Привоз (+ к остатку) или инвентаризация (= сверка).</p>
-        <label style="margin-top:10px">Найти товар</label>
-        <input id="stockQ" placeholder="артикул / название" />
-        <div id="stockHits"></div>
-      </div>
-      <div class="card" id="stockCard" hidden>
-        <div id="stockTitle"></div>
-        <img class="thumb" id="stockImg" hidden alt="" />
-        <div class="row">
-          <div><label>Размер</label><input id="stockSize" placeholder="42" /></div>
-          <div><label>Кол-во +</label><input id="stockQty" type="number" value="1" min="1" /></div>
-        </div>
-        <button class="btn" id="stockAdd" style="margin-top:12px" type="button">Приход + бирка</button>
-        <hr style="border:0;border-top:1px solid var(--line);margin:16px 0" />
-        <p class="sub">Инвентаризация — поставить фактическое количество</p>
-        <div id="invSizes"></div>
-        <button class="btn ghost" id="invSave" style="margin-top:12px" type="button">Сохранить сверку</button>
-      </div>
-      <div class="card" id="arrivals"><div class="sub">Последние приходы…</div></div>
-    </section>
+    </div>
 
     <div class="toast" id="toast"></div>
 
@@ -129,7 +416,11 @@
       const API = localStorage.getItem('ws_api') || (location.origin + '/api');
       const ORIGIN = API.replace(/\/api\/?$/, '') || location.origin;
       const tg = window.Telegram && window.Telegram.WebApp;
-      if (tg) { tg.ready(); tg.expand(); }
+      if (tg) {
+        tg.ready();
+        tg.expand();
+        try { tg.setHeaderColor('#07080a'); tg.setBackgroundColor('#07080a'); } catch (e) {}
+      }
 
       function staffHeaders(extra = {}) {
         const h = { ...extra };
@@ -149,6 +440,9 @@
         const r = await fetch(API + path, { ...opts, headers });
         return r.json();
       }
+      function buzz(type) {
+        try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(type || 'light'); } catch (e) {}
+      }
       const toast = document.getElementById('toast');
       function showToast(t) {
         toast.textContent = t;
@@ -160,22 +454,35 @@
       let selected = null;
       let selectedSize = null;
       let stockProduct = null;
+      let extraSizes = [];
 
+      function setTab(name) {
+        document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+        document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === 'panel-' + name));
+        const salePicked = name === 'sale' && selected;
+        document.body.classList.toggle('has-dock', !!salePicked);
+        toast.classList.remove('show');
+        if (name === 'orders') loadOrders();
+        if (name === 'stock') loadArrivals();
+        if (name === 'product') suggestArticle();
+        buzz('light');
+      }
       document.querySelectorAll('.tab').forEach(btn => {
-        btn.onclick = () => {
-          document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b === btn));
-          document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
-          document.getElementById('panel-' + btn.dataset.tab).classList.add('on');
-          if (btn.dataset.tab === 'orders') loadOrders();
-          if (btn.dataset.tab === 'stock') loadArrivals();
-          if (btn.dataset.tab === 'product') suggestArticle();
-        };
+        btn.onclick = () => setTab(btn.dataset.tab);
       });
 
       function recalc() {
         const price = Number(document.getElementById('price').value) || 0;
         const discount = Number(document.getElementById('discount').value) || 0;
-        document.getElementById('total').textContent = Math.max(0, price - discount).toFixed(2) + ' BYN';
+        const total = Math.max(0, price - discount);
+        document.getElementById('total').textContent = total.toFixed(2) + ' BYN';
+        document.getElementById('sell').textContent = selectedSize
+          ? 'Продать · ' + total.toFixed(0) + ' BYN'
+          : 'Продать';
+      }
+
+      function emptyHtml(title, text) {
+        return `<div class="empty"><strong>${title}</strong>${text}</div>`;
       }
 
       async function searchSale() {
@@ -184,31 +491,43 @@
         const data = await api('/staff/search?q=' + encodeURIComponent(q));
         document.getElementById('hits').innerHTML = (data.products || []).map(p => `
           <div class="hit" data-json='${JSON.stringify(p).replace(/'/g, "&apos;")}'>
-            <strong>${p.name}</strong>
-            <div class="sub" style="margin:4px 0 0">арт. ${p.article} · ${Number(p.price_byn).toFixed(0)} BYN</div>
-          </div>`).join('') || '<div class="sub">Ничего не найдено</div>';
+            <div>
+              <strong>${p.name}</strong>
+              <div class="hit-meta">арт. ${p.article}</div>
+            </div>
+            <div class="hit-price">${Number(p.price_byn).toFixed(0)}</div>
+          </div>`).join('') || emptyHtml('Пусто', 'Ничего не найдено');
       }
 
+      document.getElementById('qClear').onclick = () => {
+        document.getElementById('q').value = '';
+        document.getElementById('hits').innerHTML = '';
+        document.getElementById('q').focus();
+      };
       document.getElementById('hits').addEventListener('click', (e) => {
         const hit = e.target.closest('.hit');
         if (!hit) return;
         selected = JSON.parse(hit.getAttribute('data-json'));
         selectedSize = null;
         document.getElementById('picked').hidden = false;
+        document.body.classList.add('has-dock');
         document.getElementById('pickedTitle').innerHTML =
-          `<strong style="font-family:var(--display);font-size:22px;letter-spacing:.05em;text-transform:uppercase">${selected.name}</strong>
-           <div class="sub">арт. ${selected.article}</div>`;
+          `<div class="picked-name" style="font-size:22px">${selected.name}</div>
+           <div class="hint" style="margin:4px 0 0">арт. ${selected.article}</div>`;
         document.getElementById('price').value = Number(selected.price_byn);
         document.getElementById('sizes').innerHTML = (selected.sizes || []).map(s =>
-          `<button class="size" type="button" data-size="${s.size}">${s.size}<br><small style="font-family:var(--body);font-size:11px">${s.qty} шт</small></button>`
-        ).join('');
+          `<button class="size" type="button" data-size="${s.size}">${s.size}<small>${s.qty} шт</small></button>`
+        ).join('') || emptyHtml('Нет размеров', 'На витрине пусто');
         recalc();
+        buzz('medium');
       });
       document.getElementById('sizes').addEventListener('click', (e) => {
         const btn = e.target.closest('.size');
         if (!btn) return;
         selectedSize = btn.dataset.size;
         [...document.querySelectorAll('#sizes .size')].forEach(b => b.classList.toggle('on', b === btn));
+        recalc();
+        buzz('light');
       });
       document.getElementById('price').oninput = recalc;
       document.getElementById('discount').oninput = recalc;
@@ -228,23 +547,44 @@
         });
         if (!data.ok) return showToast(data.error || 'ошибка');
         showToast('Продажа № ' + data.sale.id);
+        buzz('heavy');
         selected = null; selectedSize = null;
         document.getElementById('picked').hidden = true;
+        document.body.classList.remove('has-dock');
         document.getElementById('hits').innerHTML = '';
         document.getElementById('q').value = '';
+        document.getElementById('comment').value = '';
+        document.getElementById('discount').value = '0';
         document.getElementById('q').focus();
       };
 
+      const STATUS_RU = {
+        processing: 'в обработке',
+        in_transit: 'в пути',
+        issued: 'выдан',
+        cancelled: 'отмена'
+      };
+      function statusBadge(st) {
+        const cls = st === 'issued' ? 'ok' : st === 'cancelled' ? 'bad' : st === 'in_transit' ? 'warn' : '';
+        return `<span class="badge ${cls}">${STATUS_RU[st] || st}</span>`;
+      }
       async function loadOrders() {
-        const data = await api('/staff/orders');
         const box = document.getElementById('ordersList');
-        if (!data.orders?.length) { box.innerHTML = '<div class="sub">Заказов пока нет</div>'; return; }
+        const data = await api('/staff/orders');
+        if (!data.ok) { box.innerHTML = emptyHtml('Нет связи', 'Повторите позже'); return; }
+        if (!data.orders?.length) { box.innerHTML = emptyHtml('Тихо', 'Сайт-заказов пока нет'); return; }
         box.innerHTML = data.orders.map(o => `
           <div class="order" data-id="${o.id}">
-            <strong>${o.order_number}</strong> · ${o.status}
-            <div class="sub">${o.customer_name} · ${o.phone} · ${o.fulfillment === 'delivery' ? 'доставка' : 'самовывоз'}</div>
-            <div class="sub">${(o.items||[]).map(i => i.product_name + ' ' + i.size).join(', ')}</div>
-            <div class="sub">${Number(o.total_byn).toFixed(2)} BYN</div>
+            <div class="order-head">
+              <div>
+                <strong>${o.order_number}</strong>
+                <div class="hit-meta">${o.customer_name} · ${o.phone}</div>
+              </div>
+              ${statusBadge(o.status)}
+            </div>
+            <div class="hit-meta">${o.fulfillment === 'delivery' ? 'доставка' : 'самовывоз'}</div>
+            <div class="hit-meta">${(o.items||[]).map(i => i.product_name + ' ' + i.size).join(', ')}</div>
+            <div class="order-sum">${Number(o.total_byn).toFixed(2)} BYN</div>
             <div class="status-btns">
               <button class="chip" data-status="processing" type="button">в обработке</button>
               <button class="chip" data-status="in_transit" type="button">в пути</button>
@@ -261,7 +601,7 @@
           method: 'PATCH', body: JSON.stringify({ status: btn.dataset.status })
         });
         if (!data.ok) return showToast(data.error || 'ошибка');
-        showToast(data.order.order_number + ' → ' + data.order.status);
+        showToast(data.order.order_number + ' → ' + (STATUS_RU[data.order.status] || data.order.status));
         loadOrders();
       });
 
@@ -278,12 +618,37 @@
           return { size: m[1].trim(), qty: Number(m[2]) };
         }).filter(Boolean);
       }
+      function renderSizePills() {
+        document.getElementById('pSizePills').innerHTML = extraSizes.map((s, i) =>
+          `<button class="pill" type="button" data-i="${i}">${s.size} × ${s.qty} ×</button>`
+        ).join('');
+      }
+      document.getElementById('pSizeAdd').onclick = () => {
+        const size = document.getElementById('pSizeVal').value.trim();
+        const qty = Number(document.getElementById('pSizeQty').value) || 1;
+        if (!size) return showToast('укажите размер');
+        extraSizes.push({ size, qty });
+        document.getElementById('pSizeVal').value = '';
+        document.getElementById('pSizeVal').focus();
+        renderSizePills();
+      };
+      document.getElementById('pSizePills').addEventListener('click', (e) => {
+        const pill = e.target.closest('[data-i]');
+        if (!pill) return;
+        extraSizes.splice(Number(pill.dataset.i), 1);
+        renderSizePills();
+      });
+      document.getElementById('pPhoto').addEventListener('change', () => {
+        const f = document.getElementById('pPhoto').files[0];
+        document.getElementById('pPhotoName').textContent = f ? f.name : 'файл не выбран';
+      });
       document.getElementById('pCreate').onclick = async () => {
         const name = document.getElementById('pName').value.trim();
         const article = document.getElementById('pArticle').value.trim();
         const brand = document.getElementById('pBrand').value.trim();
         const price_byn = Number(document.getElementById('pPrice').value) || 0;
-        const sizes = parseSizes(document.getElementById('pSizes').value);
+        const fromText = parseSizes(document.getElementById('pSizes').value);
+        const sizes = extraSizes.length ? extraSizes.concat(fromText) : fromText;
         if (!name || !article) return showToast('имя и артикул');
         const data = await api('/staff/products', {
           method: 'POST',
@@ -296,32 +661,58 @@
           fd.append('photo', file);
           await api('/staff/products/' + data.product.id + '/photo', { method: 'POST', body: fd });
         }
-        const links = (data.labelUrls || []).map(u => `<a class="chip" href="${ORIGIN}${u}" target="_blank">бирка</a>`).join(' ');
-        document.getElementById('pResult').innerHTML = `Создан арт. ${data.product.article}. ${links}`;
+        const urls = data.labelUrls || [];
+        document.getElementById('pResult').textContent = 'Создан арт. ' + data.product.article;
         showToast('товар создан');
-        (data.labelUrls || []).slice(0, 1).forEach(u => window.open(ORIGIN + u, '_blank'));
+        extraSizes = [];
+        renderSizePills();
+        openLabelSheet(urls, 'Бирки нового товара');
       };
 
+      function openLabelSheet(urls, title) {
+        if (!urls.length) return;
+        document.getElementById('sheetTitle').textContent = title || 'Бирки';
+        document.getElementById('sheetBody').innerHTML =
+          `<p class="hint">Откройте бирку и сразу печатайте.</p>` +
+          urls.map((u, i) => `<a class="btn ${i ? 'ghost' : ''}" href="${ORIGIN}${u}" target="_blank">Бирка ${i + 1}</a>`).join('');
+        document.getElementById('sheetActions').innerHTML =
+          `<button class="btn ghost" type="button" id="sheetClose">Закрыть</button>`;
+        document.getElementById('sheetOv').classList.add('open');
+        document.getElementById('sheetClose').onclick = closeSheet;
+        if (urls[0]) window.open(ORIGIN + urls[0], '_blank');
+      }
+      function closeSheet() { document.getElementById('sheetOv').classList.remove('open'); }
+      document.getElementById('sheetOv').addEventListener('click', (e) => {
+        if (e.target.id === 'sheetOv') closeSheet();
+      });
+
       let tStock = null;
+      document.getElementById('stockClear').onclick = () => {
+        document.getElementById('stockQ').value = '';
+        document.getElementById('stockHits').innerHTML = '';
+        document.getElementById('stockQ').focus();
+      };
       document.getElementById('stockQ').oninput = () => {
         clearTimeout(tStock);
         tStock = setTimeout(async () => {
           const q = document.getElementById('stockQ').value.trim();
           if (!q) { document.getElementById('stockHits').innerHTML = ''; return; }
           const data = await api('/staff/search?all=1&q=' + encodeURIComponent(q));
-          let products = data.products || [];
+          const products = data.products || [];
           document.getElementById('stockHits').innerHTML = products.map(p => `
             <div class="hit" data-id="${p.id}">
-              <strong>${p.name}</strong>
-              <div class="sub" style="margin:4px 0 0">арт. ${p.article}</div>
-            </div>`).join('') || '<div class="sub">Не найдено</div>';
+              <div>
+                <strong>${p.name}</strong>
+                <div class="hit-meta">арт. ${p.article}</div>
+              </div>
+            </div>`).join('') || emptyHtml('Не найдено', 'Другой артикул');
         }, 220);
       };
       document.getElementById('stockQ').addEventListener('keydown', async (e) => {
         if (e.key !== 'Enter') return;
         const q = document.getElementById('stockQ').value.trim();
         const data = await api('/staff/search?all=1&q=' + encodeURIComponent(q));
-        let p = (data.products || []).find(x => x.article === q) || (data.products || [])[0];
+        const p = (data.products || []).find(x => x.article === q) || (data.products || [])[0];
         if (p) openStockProduct(p.id);
       });
       document.getElementById('stockHits').addEventListener('click', (e) => {
@@ -336,8 +727,8 @@
         stockProduct = data.product;
         document.getElementById('stockCard').hidden = false;
         document.getElementById('stockTitle').innerHTML =
-          `<strong style="font-family:var(--display);font-size:20px;letter-spacing:.05em;text-transform:uppercase">${stockProduct.name}</strong>
-           <div class="sub">арт. ${stockProduct.article} · ${Number(stockProduct.price_byn).toFixed(0)} BYN</div>`;
+          `<div class="picked-name" style="font-size:20px">${stockProduct.name}</div>
+           <div class="hint" style="margin:4px 0 0">арт. ${stockProduct.article} · ${Number(stockProduct.price_byn).toFixed(0)} BYN</div>`;
         const img = (stockProduct.images || [])[0];
         const imgEl = document.getElementById('stockImg');
         if (img && img.url) {
@@ -347,15 +738,31 @@
           imgEl.hidden = true;
         }
         const sizes = stockProduct.sizes || [];
+        document.getElementById('stockSizePills').innerHTML = sizes.map(s =>
+          `<button class="pill" type="button" data-size="${s.size}">${s.size} · ${s.qty}</button>`
+        ).join('');
         document.getElementById('invSizes').innerHTML = sizes.length
           ? sizes.map(s => `
             <div class="inv-row">
               <div class="chip">${s.size}</div>
-              <input type="number" min="0" value="${s.qty}" data-size="${s.size}" />
+              <input type="number" inputmode="numeric" min="0" value="${s.qty}" data-size="${s.size}" />
               <a class="chip" href="${ORIGIN}/api/labels/${stockProduct.id}?size=${encodeURIComponent(s.size)}" target="_blank">бирка</a>
             </div>`).join('')
-          : '<div class="sub">Размеров ещё нет — добавьте привозом</div>';
+          : '<div class="hint">Размеров ещё нет — добавьте привозом</div>';
       }
+      document.getElementById('stockSizePills').addEventListener('click', (e) => {
+        const pill = e.target.closest('[data-size]');
+        if (!pill) return;
+        document.getElementById('stockSize').value = pill.dataset.size;
+      });
+      document.getElementById('stockQtyMinus').onclick = () => {
+        const el = document.getElementById('stockQty');
+        el.value = Math.max(1, (Number(el.value) || 1) - 1);
+      };
+      document.getElementById('stockQtyPlus').onclick = () => {
+        const el = document.getElementById('stockQty');
+        el.value = (Number(el.value) || 1) + 1;
+      };
 
       document.getElementById('stockAdd').onclick = async () => {
         if (!stockProduct) return showToast('выберите товар');
@@ -367,7 +774,7 @@
         });
         if (!data.ok) return showToast(data.error || 'ошибка');
         showToast('приход ok');
-        window.open(ORIGIN + data.labelUrl, '_blank');
+        if (data.labelUrl) openLabelSheet([data.labelUrl], 'Бирка прихода');
         openStockProduct(stockProduct.id);
         loadArrivals();
       };
@@ -390,14 +797,17 @@
       async function loadArrivals() {
         const data = await api('/staff/arrivals');
         document.getElementById('arrivals').innerHTML = (data.arrivals || []).slice(0, 20).map(a => `
-          <div class="order">
-            <strong>${a.product_name}</strong>
-            <div class="sub">арт. ${a.article} · ${a.size} × ${a.qty} · ${a.label_printed ? 'распечатан' : 'не распечатан'}</div>
+          <div class="arrival">
+            <div class="arrival-head">
+              <strong>${a.product_name}</strong>
+              <span class="badge ${a.label_printed ? 'ok' : 'warn'}">${a.label_printed ? 'распечатан' : 'не распечатан'}</span>
+            </div>
+            <div class="hit-meta">арт. ${a.article} · ${a.size} × ${a.qty}</div>
             <div class="status-btns">
               <a class="chip" href="${ORIGIN}/api/labels/${a.product_id}?size=${encodeURIComponent(a.size)}" target="_blank">Бирка</a>
               ${a.label_printed ? '' : `<button class="chip" data-print="${a.id}" type="button">Отметить печать</button>`}
             </div>
-          </div>`).join('') || '<div class="sub">Пусто</div>';
+          </div>`).join('') || emptyHtml('Пусто', 'Приходов ещё нет');
       }
       document.getElementById('arrivals').addEventListener('click', async (e) => {
         const btn = e.target.closest('[data-print]');
@@ -406,17 +816,15 @@
         if (data.ok) { showToast('распечатан'); loadArrivals(); }
       });
 
-      // catalog with inStock=0 for admin stock search of zero items
-      // enhance staff search to include zero - add API? For now catalog fallback above.
-
       (async () => {
-        const me = await api('/staff/me');
-        staff = me.staff;
-        document.getElementById('who').textContent =
-          (staff?.name || 'Staff') + ' · ' + (staff?.role || '?') + (staff?.dev ? ' · dev' : ' · telegram');
-        if (staff?.role === 'admin') {
-          document.body.classList.add('is-admin');
-          document.getElementById('tabs').classList.add('admin');
+        try {
+          const me = await api('/staff/me');
+          staff = me.staff;
+          document.getElementById('who').textContent = (staff?.role === 'admin' ? 'админ' : 'продавец') + (staff?.dev ? ' · dev' : '');
+          document.getElementById('whoSub').textContent = (staff?.name || 'Staff') + ' · операционка';
+          if (staff?.role === 'admin') document.body.classList.add('is-admin');
+        } catch (e) {
+          document.getElementById('who').textContent = 'офлайн';
         }
         document.getElementById('q').focus();
       })();
