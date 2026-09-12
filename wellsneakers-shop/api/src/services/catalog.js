@@ -114,8 +114,7 @@ export async function getCatalogModel(idOrArticle) {
   return { model, selectedProductId: model.colors[0]?.productId || null };
 }
 
-export async function getProduct(idOrArticle) {
-  const byId = /^\d+$/.test(String(idOrArticle));
+async function loadProductRow(whereSql, value) {
   const { rows } = await query(
     `
     SELECT p.*,
@@ -127,12 +126,21 @@ export async function getProduct(idOrArticle) {
       ), '[]') AS images
     FROM products p
     LEFT JOIN product_sizes s ON s.product_id = p.id
-    WHERE ${byId ? "p.id = $1" : "p.article = $1 OR p.barcode = $1"}
+    WHERE ${whereSql}
     GROUP BY p.id
     `,
-    [idOrArticle]
+    [value]
   );
   return rows[0] || null;
+}
+
+export async function getProduct(idOrArticle) {
+  const key = String(idOrArticle);
+  if (/^\d+$/.test(key)) {
+    const byId = await loadProductRow("p.id = $1", key);
+    if (byId) return byId;
+  }
+  return loadProductRow("p.article = $1 OR p.barcode = $1", key);
 }
 
 /** Kassa-style autocomplete: article / name. By default only sizes with qty > 0. */
