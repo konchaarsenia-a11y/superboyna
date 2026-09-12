@@ -5,7 +5,9 @@
 Формулы цены: `computePpFactFromCost_` + `artifacts/product-costs/SUBSCRIPTION-PRICE.md`.  
 Живые цифры с таблицы **не** выдумывались.
 
-Канон #252: Нарезчик OFF → recover ПП **не** в `costActual`, а в `fact.ppRecoverInClean` (чистое выше). ON → recover в затратах + плоская ЗП.
+Канон #252: Нарезчик OFF → recover ПП **не** в `costActual`, а в `fact.ppRecoverInClean` (чистое выше). ON → recover в затратах.
+
+**Канон 2026-09-12** (см. [STATS_ACCOUNTING_2026-09-12.md](./STATS_ACCOUNTING_2026-09-12.md)): фракции и остаток тарифа доставки (9/6 − 4) не в затратах; топливо = 4×N (ПП и БП); плоская ЗП нарезчика не в `costActual`.
 
 Контракт `scripts/test-stats-cutter-recover.mjs` на этом tip: **OK** (ON cost 1131.23 / OFF 200, recover 31.23).
 
@@ -49,9 +51,9 @@
 | Затраты: · розница / · ПП состав / · партнёр | `costBy.retail`, `ppBasketCost`, `costBy.partner` | OK | ПП состав = сырьё, не factCost |
 | Затраты: купоны | `fact.couponsCost` (не ПП) | OK | |
 | Затраты: Recover ПП / Recover в чистом | ON: `ppRecoverCost` в затратах; OFF: строка «Recover в чистом», **не** в `cost` | OK (#252) | UI `v71115946` |
-| Затраты: доставки ПП | `ppDeliveryCost` = Σ `9×nDel` или `6×nDel` | OK | подпись RAW26/LEGACY верная; API всё ещё шлёт `ppDeliveryFeeEach=6` (не используется в этом блоке) |
+| Затраты: доставки ПП | `ppDeliveryCost` = **4×N** (топливо); остаток тарифа в `ppDeliveryInClean` | обновлено 12.09 | клиентский тариф 9/6 не менялся |
 | Затраты: БП (состав+6) | `fact.bpCost` | OK | |
-| Затраты: ЗП | `fact.staffCost` / `staffCount` | OK | 0 если cutter OFF или месяц &lt; «с» / &lt; 2026-09 |
+| Затраты: ЗП | `fact.staffCost` — **без нарезчика** | обновлено 12.09 | плоская ЗП cutter не в cost; UI прячет строку если 0 |
 | Затраты: Всего | `fact.cost` | BUG | в total сидят **пакеты У\* + фракции дрессуры** (`packagesByn` + `fractionMarkup`), отдельной строки нет → сумма видимых строк ≠ Всего |
 | Нарезчик ON/OFF | `setStatsCutterEnabled` → лист `Stats_Сотрудники` id=`cutter`; `isStatsCutterActiveForMonth_` | OK логика / STALE UI | карточка смотрит `staff.cutter.enabled` (**глобальный** active), сноска затрат — `fact.cutter.enabled` (**месяц**). Август / месяц до «с»: карточка «Включён», затраты как OFF |
 | БП месяц: доставки / состав / 6р / переходы / CAC | calendar BP + `collectBpToPpConversions_(month)` | OK | CAC = все затраты БП месяца ÷ переходы месяца (включая тех, кто ещё не конвертнулся) |
@@ -72,7 +74,7 @@
 | | Нарезчик ON (месяц ≥ «с») | Нарезчик OFF |
 |---|---|---|
 | Recover RAW26 / LEGACY +11 | в `costActual`, строка «Recover ПП» | `ppRecoverInClean`, строка «Recover в чистом», не в затратах |
-| ЗП 900 (дефолт) | в `staffCost` | 0 |
+| ЗП 900 (дефолт) | ~~в `staffCost`~~ **не в затратах** (канон 12.09: ЗП = recover) | 0 |
 | Чистое | оборот − (товары + recover + доставки + БП + пакеты/фракции + 900) | оборот − (то же без recover и без 900) |
 
 `staffCost` добавляется **после** split — OFF не вычитает 900 из recover-логики, его просто нет в applied staff.
@@ -114,6 +116,6 @@
 | B9 | Подпись «Затраты БП перешедших» | UI |
 | C10 | `ADULT-COST-MODEL.md` / `COST-TABLE.md` | **нет в репо** — ссылки в `SUBSCRIPTION-PRICE.md` битые; цифры не выдумывали. Живые константы: `PP_RAW26_RECOVER_100_=3.90`, piece `0.50`, N=9/6 в `Code.gs` |
 
-Тесты: `scripts/test-stats-cutter-recover.mjs`, `scripts/test-stats-expected-pp.mjs`, `scripts/test-stats-pp-n2-once.mjs`.
+Тесты: `scripts/test-stats-cutter-recover.mjs`, `scripts/test-stats-expected-pp.mjs`, `scripts/test-stats-pp-n2-once.mjs`, `scripts/test-stats-fuel4-frac-clean.mjs`.
 
 **Deploy:** merge в `main` → Action `clasp-deploy` ([DEPLOY.md](../../DEPLOY.md)). Не вставлять `Code.gs` в редактор. До зелёного Action UI на старом Script деградирует (нет `ppPackagesCost` / expected PP).

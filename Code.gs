@@ -16979,12 +16979,14 @@ function retailLineCost_(name, sub, val, cat) {
 
 var PRICE_SS_MEM_ = null;
 var PRICE_COSTS_MEM_ = {};
-/** Логистика одной БП-доставки (BYN), входит в себестоимость БП / CAC. */
+/** Логистика одной БП-доставки (BYN) — клиентский тариф / echo; в статистике в затратах только топливо 4. */
 var BP_DELIVERY_COST_BYN_ = 6;
 /** ПП LEGACY: свет на человека (BYN) — fixed=11 в computePpFactFromCost_. */
 var PP_LIGHT_COST_BYN_ = 11;
-/** ПП LEGACY: логистика одной доставки (BYN) — 6×N; RAW26 использует 9×N. */
+/** ПП LEGACY: логистика одной доставки (BYN) — 6×N; RAW26 использует 9×N. Клиентский тариф, не fuel stats. */
 var PP_DELIVERY_COST_BYN_ = 6;
+/** Статистика (не цена клиенту): топливо в затратах = 4×N. Остаток тарифа (9−4 / 6−4) → чистое. */
+var STATS_DELIVERY_FUEL_PER_ = 4;
 
 function getPriceSpreadsheet_() {
   if (PRICE_SS_MEM_) return PRICE_SS_MEM_;
@@ -17345,7 +17347,7 @@ var PP_SCHEME_CUTOFF_YMD_ = "2026-08-31";
 var PP_RAW26_COEF_DEFAULT_ = 2.6;
 var PP_RAW26_RECOVER_100_ = 3.90;
 var PP_RAW26_RECOVER_PIECE_ = 0.50;
-var PP_RAW26_DELIVERY_PER_ = 9;
+var PP_RAW26_DELIVERY_PER_ = 9; // клиентский тариф; в getStats в затратах только STATS_DELIVERY_FUEL_PER_
 var PP_RAW26_RETAIL_CAP_ = 0.92;
 var PP_LEGACY_COEF_DEFAULT_ = 2.3;
 var PP_LEGACY_FIXED_ = 11;
@@ -17508,6 +17510,47 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
     };
   }
   return out;
+}
+
+/**
+ * Статистика (coef=1): factCost из computePpFactFromCost_ не меняет цену клиенту.
+ * Из затрат убираем фракции и (тариф доставки − 4×N). Recover режет applyStatsCutterRecoverSplit_.
+ */
+function splitPpFactForStats_(factPp) {
+  factPp = factPp || {};
+  var n = Math.max(0, Number(factPp.deliveriesN) || 0);
+  var tariff = Math.round((Number(factPp.deliveryByn) || 0) * 100) / 100;
+  var fuel = Math.round((STATS_DELIVERY_FUEL_PER_ * n) * 100) / 100;
+  if (fuel > tariff && tariff > 0) fuel = tariff;
+  if (fuel < 0) fuel = 0;
+  var delivClean = Math.round((tariff - fuel) * 100) / 100;
+  if (delivClean < 0) delivClean = 0;
+  var frac = Math.round((Number(factPp.fractionMarkup) || 0) * 100) / 100;
+  if (frac < 0) frac = 0;
+  var factCost = Number(factPp.factCost) || 0;
+  var costActual = Math.round((factCost - frac - delivClean) * 100) / 100;
+  if (costActual < 0) costActual = 0;
+  return {
+    factCost: factCost,
+    costActual: costActual,
+    deliveryFuelByn: fuel,
+    deliveryInClean: delivClean,
+    deliveryTariffByn: tariff,
+    fractionInClean: frac,
+    packagesByn: Math.round((Number(factPp.packagesByn) || 0) * 100) / 100,
+    recoverByn: Math.round((Number(factPp.recoverByn != null ? factPp.recoverByn : factPp.fixed) || 0) * 100) / 100
+  };
+}
+
+function statsBpDeliveryFuelByn_(nDel) {
+  var n = Math.max(0, Number(nDel) || 0);
+  return Math.round((STATS_DELIVERY_FUEL_PER_ * n) * 100) / 100;
+}
+
+function statsBpDeliveryInCleanByn_(nDel) {
+  var n = Math.max(0, Number(nDel) || 0);
+  var rem = Math.round(((BP_DELIVERY_COST_BYN_ - STATS_DELIVERY_FUEL_PER_) * n) * 100) / 100;
+  return rem > 0 ? rem : 0;
 }
 
 /** Полный пересчёт ФАКТ СТОИМОСТЬ ПП по составу. */
@@ -18926,9 +18969,15 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     ppRecoverCost: 0,
     ppRecoverInClean: 0,
     ppDeliveryCost: 0,
+    ppDeliveryFuelCost: 0,
+    ppDeliveryInClean: 0,
+    ppDeliveryTariffCost: 0,
     ppLightPeople: 0,
     ppPackagesCost: 0,
     ppFractionCost: 0,
+    ppFractionInClean: 0,
+    bpDeliveryInClean: 0,
+    bpDeliveryTariffCost: 0,
     ppLightKeys: {},
     ppScheme: "",
     ppSchemeCounts: { RAW26: 0, LEGACY: 0 }
@@ -19045,12 +19094,18 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       try { bask = JSON.parse(String(row.basketJson)); } catch (eB2) { bask = []; }
     }
     // продукция = себест состава из заказа; купоны = qty×цена;
-    // БП +6р доставка; ПП — RAW26/LEGACY факт раз на человека (ниже), не 11+6 на слот
+    // БП: в затратах только топливо 4р; остаток тарифа 6 → чистое. ПП — факт раз на человека (ниже).
     var product = estimateBasketRawCost_(bask, src);
     var coupons = couponsCostFromRow_(row);
     var deliveryFee = 0;
+    var deliveryTariff = 0;
+    var deliveryInClean = 0;
     var lightFee = 0;
-    if (src === "bp") deliveryFee = BP_DELIVERY_COST_BYN_;
+    if (src === "bp") {
+      deliveryTariff = BP_DELIVERY_COST_BYN_;
+      deliveryFee = STATS_DELIVERY_FUEL_PER_;
+      deliveryInClean = statsBpDeliveryInCleanByn_(1);
+    }
     if (src === "pp") {
       // копить сырьё/корзину на клиента — финальный factCost в конце
       if (ck) {
@@ -19098,10 +19153,16 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     if (src === 'bp') {
       out.bpDeliveries++;
       var bpCostAdd = Math.round((productForCost + deliveryForCost) * 100) / 100;
-      var bpCostRaw = Math.round((product + deliveryFee) * 100) / 100;
+      var bpCostRaw = Math.round((product + deliveryTariff) * 100) / 100;
       out.bpCost += bpCostAdd;
       out.bpBasketCost = Math.round(((out.bpBasketCost || 0) + productForCost) * 100) / 100;
       out.bpDeliveryCost = Math.round(((out.bpDeliveryCost || 0) + deliveryForCost) * 100) / 100;
+      if (!partnerCoversCost && deliveryInClean > 0) {
+        out.bpDeliveryInClean = Math.round(((Number(out.bpDeliveryInClean) || 0) + deliveryInClean) * 100) / 100;
+      }
+      if (!partnerCoversCost && deliveryTariff > 0) {
+        out.bpDeliveryTariffCost = Math.round(((Number(out.bpDeliveryTariffCost) || 0) + deliveryTariff) * 100) / 100;
+      }
       // партнёр привёл на БП (не на ПП)
       if (pnBp) {
         out.partnerRows.push({
@@ -19138,6 +19199,8 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     var ppCostSum = 0;
     var ppBasketSum = 0;
     var ppDelivSum = 0;
+    var ppDelivInCleanSum = 0;
+    var ppDelivTariffSum = 0;
     var ppLightSum = 0;
     var ppPackSum = 0;
     var ppFracSum = 0;
@@ -19177,15 +19240,20 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
       try {
         factPp = computePpFactFromCost_(rawPp, baskPp, nDel, 1, packOpt, schPp, baskPp, null);
       } catch (eF) { factPp = null; }
-      var factCostPp = factPp && factPp.factCost != null ? Number(factPp.factCost) : Math.round(rawPp * 100) / 100;
+      var splitPp = factPp ? splitPpFactForStats_(factPp) : null;
+      var factCostPp = splitPp
+        ? Number(splitPp.costActual)
+        : Math.round(rawPp * 100) / 100;
       ppCostSum += factCostPp;
       ppBasketSum += rawPp;
-      if (factPp) {
-        ppDelivSum += Number(factPp.deliveryByn) || 0;
+      if (splitPp) {
+        ppDelivSum += Number(splitPp.deliveryFuelByn) || 0;
+        ppDelivInCleanSum += Number(splitPp.deliveryInClean) || 0;
+        ppDelivTariffSum += Number(splitPp.deliveryTariffByn) || 0;
         if (factPp.scheme === "LEGACY") ppLightSum += Number(factPp.fixed) || 0;
         else ppLightSum += Number(factPp.recoverByn) || 0;
-        ppPackSum += Number(factPp.packagesByn) || 0;
-        ppFracSum += Number(factPp.fractionMarkup) || 0;
+        ppPackSum += Number(splitPp.packagesByn) || 0;
+        ppFracSum += Number(splitPp.fractionInClean) || 0;
       }
       var schUsed = (factPp && factPp.scheme) ? factPp.scheme : schPp;
       if (schUsed === "RAW26") ppSchemeRawN++;
@@ -19201,10 +19269,14 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
     out.productCost = Math.round((Number(out.productCost) + ppBasketSum) * 100) / 100;
     out.ppBasketCost = Math.round(ppBasketSum * 100) / 100;
     out.ppDeliveryCost = Math.round(ppDelivSum * 100) / 100;
+    out.ppDeliveryFuelCost = out.ppDeliveryCost;
+    out.ppDeliveryInClean = Math.round(ppDelivInCleanSum * 100) / 100;
+    out.ppDeliveryTariffCost = Math.round(ppDelivTariffSum * 100) / 100;
     out.ppLightCost = Math.round(ppLightSum * 100) / 100;
     out.ppRecoverCost = out.ppLightCost;
     out.ppPackagesCost = Math.round(ppPackSum * 100) / 100;
     out.ppFractionCost = Math.round(ppFracSum * 100) / 100;
+    out.ppFractionInClean = out.ppFractionCost;
     out.ppLightPeople = ppPeople;
   } catch (ePpCost) {}
   // ПП без цены ни на одной доставке месяца
@@ -19221,12 +19293,18 @@ function collectMonthCalendarStats_(ss, monthKey, opts) {
   out.bpCost = Math.round(out.bpCost * 100) / 100;
   out.bpBasketCost = Math.round((out.bpBasketCost || 0) * 100) / 100;
   out.bpDeliveryCost = Math.round((out.bpDeliveryCost || 0) * 100) / 100;
+  out.bpDeliveryInClean = Math.round((out.bpDeliveryInClean || 0) * 100) / 100;
+  out.bpDeliveryTariffCost = Math.round((out.bpDeliveryTariffCost || 0) * 100) / 100;
   out.ppBasketCost = Math.round((out.ppBasketCost || 0) * 100) / 100;
   out.ppDeliveryCost = Math.round((out.ppDeliveryCost || 0) * 100) / 100;
+  out.ppDeliveryFuelCost = Math.round((out.ppDeliveryFuelCost != null ? out.ppDeliveryFuelCost : out.ppDeliveryCost) * 100) / 100;
+  out.ppDeliveryInClean = Math.round((out.ppDeliveryInClean || 0) * 100) / 100;
+  out.ppDeliveryTariffCost = Math.round((out.ppDeliveryTariffCost || 0) * 100) / 100;
   out.ppLightCost = Math.round((out.ppLightCost || 0) * 100) / 100;
   out.ppRecoverCost = Math.round((out.ppRecoverCost || out.ppLightCost || 0) * 100) / 100;
   out.ppPackagesCost = Math.round((out.ppPackagesCost || 0) * 100) / 100;
   out.ppFractionCost = Math.round((out.ppFractionCost || 0) * 100) / 100;
+  out.ppFractionInClean = Math.round((out.ppFractionInClean != null ? out.ppFractionInClean : out.ppFractionCost) * 100) / 100;
   out.ppClientsDelivered = Object.keys(out.ppDeliveredKeys).length;
   out.ppCostSkipped = Number(out.ppCostSkipped) || 0;
   if (!out.ppSchemeCounts) out.ppSchemeCounts = { RAW26: 0, LEGACY: 0 };
@@ -22093,6 +22171,7 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
     bpCost: 0,
     bpBasketCost: 0,
     bpDeliveryCost: 0,
+    bpDeliveryInClean: 0,
     ppRevenue: 0,
     ppDeliveries: 0,
     profit: 0,
@@ -22114,7 +22193,8 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
   var books = [];
   try { books = readAllBookings_(); } catch (eB) { books = []; }
   var tz = ss.getSpreadsheetTimeZone();
-  var fee = BP_DELIVERY_COST_BYN_;
+  var fee = STATS_DELIVERY_FUEL_PER_;
+  var feeInClean = statsBpDeliveryInCleanByn_(1);
 
   // выручка ПП: max цена на клиента×месяц (не сумма слотов 1+2)
   var ppRevByMonthClient = {};
@@ -22142,6 +22222,7 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
       out.bpDeliveries++;
       out.bpBasketCost += raw;
       out.bpDeliveryCost += fee;
+      out.bpDeliveryInClean += feeInClean;
       out.bpCost += withFee;
     }
     if (src === "pp" && ck && convertKeys[ck]) {
@@ -22186,6 +22267,7 @@ function collectBpLifetimeEconomics_(ss, crmSs) {
   out.bpCost = Math.round(out.bpCost * 100) / 100;
   out.bpBasketCost = Math.round(out.bpBasketCost * 100) / 100;
   out.bpDeliveryCost = Math.round(out.bpDeliveryCost * 100) / 100;
+  out.bpDeliveryInClean = Math.round((out.bpDeliveryInClean || 0) * 100) / 100;
   out.profit = Math.round((out.ppRevenue - out.bpCost) * 100) / 100;
   if (out.converted > 0) out.costPerConvert = Math.round((out.bpCost / out.converted) * 100) / 100;
   return out;
@@ -22265,10 +22347,10 @@ function collectPartnerStatsFromMonth_(monthCal, convAll) {
 var STATS_STAFF_HEADERS_ = ["id", "name", "salary", "fromMonth", "toMonth", "active", "note", "createdAt", "updatedAt"];
 /** До этого месяца ЗП в статистику не входит (август 2026 и раньше — без сотрудника). */
 var STATS_STAFF_COST_FLOOR_MONTH_ = "2026-09";
-/** Пресет нарезчика: одна кнопка вкл/выкл. ЗП уже входит в себест getStats через staffCost. */
+/** Пресет нарезчика: тумблер recover. Плоская ЗП не в costActual — зарплата = recover (3.90/100г + 0.50/шт). */
 var STATS_CUTTER_PRESET_ID_ = "cutter";
 var STATS_CUTTER_PRESET_NAME_ = "Нарезчик";
-/** Дефолт ЗП/мес (BYN); можно переопределить Script Property STATS_CUTTER_SALARY_BYN. */
+/** Дефолт ЗП/мес (BYN) на листе; в getStats не плюсуется (канон 2026-09-12). */
 var STATS_CUTTER_DEFAULT_SALARY_BYN_ = 900;
 
 function getStatsCutterDefaultSalary_() {
@@ -22333,7 +22415,7 @@ function readAllStatsStaff_() {
 /** ЗП сотрудников за месяц: только active + fromMonth≤month + (to пусто|to≥month) + не раньше floor. */
 function collectStatsStaffForMonth_(monthKey) {
   var mk = normalizeStatsMonthKey_(monthKey);
-  var out = { staff: [], cost: 0, count: 0, floorMonth: STATS_STAFF_COST_FLOOR_MONTH_ };
+  var out = { staff: [], cost: 0, count: 0, floorMonth: STATS_STAFF_COST_FLOOR_MONTH_, cutterExcludedSalary: 0 };
   if (!mk) return out;
   if (mk < STATS_STAFF_COST_FLOOR_MONTH_) return out;
   var all = [];
@@ -22348,14 +22430,20 @@ function collectStatsStaffForMonth_(monthKey) {
     if (toM && mk > toM) continue;
     var sal = Number(s.salary) || 0;
     if (!(sal > 0)) continue;
+    var cutterRow = isStatsCutterStaffRow_(s);
     out.staff.push({
       id: s.id,
       name: s.name,
       salary: sal,
       fromMonth: fromM,
       toMonth: toM || "",
-      note: s.note || ""
+      note: s.note || "",
+      excludedFromCost: !!cutterRow
     });
+    if (cutterRow) {
+      out.cutterExcludedSalary = Math.round(((Number(out.cutterExcludedSalary) || 0) + sal) * 100) / 100;
+      continue;
+    }
     out.cost += sal;
     out.count++;
   }
@@ -22363,14 +22451,18 @@ function collectStatsStaffForMonth_(monthKey) {
   return out;
 }
 
-/** Нарезчик в затратах месяца = preset в applied staff (active + from/to + ЗП). */
+function isStatsCutterStaffRow_(s) {
+  if (!s) return false;
+  if (s.id === STATS_CUTTER_PRESET_ID_) return true;
+  if (String(s.name || "").toLowerCase() === STATS_CUTTER_PRESET_NAME_.toLowerCase()) return true;
+  return false;
+}
+
+/** Нарезчик вкл в месяце = preset в applied staff (active + from/to). Плоская ЗП не в cost. */
 function isStatsCutterActiveForMonth_(staffMonth) {
   var list = (staffMonth && staffMonth.staff) || [];
   for (var i = 0; i < list.length; i++) {
-    var s = list[i];
-    if (!s) continue;
-    if (s.id === STATS_CUTTER_PRESET_ID_) return true;
-    if (String(s.name || "").toLowerCase() === STATS_CUTTER_PRESET_NAME_.toLowerCase()) return true;
+    if (isStatsCutterStaffRow_(list[i])) return true;
   }
   return false;
 }
@@ -22378,7 +22470,7 @@ function isStatsCutterActiveForMonth_(staffMonth) {
 /**
  * Cutter OFF → recover (RAW26 recoverByn / LEGACY +11 light) уходит из
  * costActual / costBySource.pp в чистое. Cutter ON → recover остаётся в затратах.
- * staffCost не трогает — его добавляет handleGetStats отдельно.
+ * Плоская ЗП нарезчика в costActual не входит (канон 2026-09-12).
  */
 function applyStatsCutterRecoverSplit_(month, cutterOn) {
   month = month || {};
@@ -22417,8 +22509,18 @@ function statsPpFeeEchoFromMonth_(month) {
     ppScheme: scheme,
     ppSchemeCounts: { RAW26: rawN, LEGACY: legN },
     ppFeeByScheme: {
-      LEGACY: { lightEach: PP_LEGACY_FIXED_, deliveryEach: PP_LEGACY_DELIVERY_PER_ },
-      RAW26: { recoverEach: PP_RAW26_RECOVER_100_, deliveryEach: PP_RAW26_DELIVERY_PER_ }
+      LEGACY: {
+        lightEach: PP_LEGACY_FIXED_,
+        deliveryEach: PP_LEGACY_DELIVERY_PER_,
+        fuelEach: STATS_DELIVERY_FUEL_PER_,
+        deliveryInCleanEach: Math.round((PP_LEGACY_DELIVERY_PER_ - STATS_DELIVERY_FUEL_PER_) * 100) / 100
+      },
+      RAW26: {
+        recoverEach: PP_RAW26_RECOVER_100_,
+        deliveryEach: PP_RAW26_DELIVERY_PER_,
+        fuelEach: STATS_DELIVERY_FUEL_PER_,
+        deliveryInCleanEach: Math.round((PP_RAW26_DELIVERY_PER_ - STATS_DELIVERY_FUEL_PER_) * 100) / 100
+      }
     }
   };
   if (scheme === "RAW26") {
@@ -22451,7 +22553,7 @@ function statsPpFeeNote_(echo, extra) {
   else if (sch === "LEGACY") ppBit = "ПП = состав без наценки + 11 + 6×N (LEGACY).";
   else ppBit = "ПП = состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY).";
   extra = extra || "";
-  return ("Прибыль = оборот. Чистое = оборот − затраты. " + ppBit + " " + extra).replace(/\s+/g, " ").trim();
+  return ("Прибыль = оборот. Чистое = оборот − затраты. В затратах топливо 4×N (не 9/6), фракции в чистом, recover только если нарезчик вкл. Плоская ЗП нарезчика не в затратах. " + ppBit + " " + extra).replace(/\s+/g, " ").trim();
 }
 
 function invalidateStatsCache_() {
@@ -22462,6 +22564,7 @@ function invalidateStatsCache_() {
     for (var i = 0; i < 18; i++) {
       var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       var mk = Utilities.formatDate(d, "Europe/Minsk", "yyyy-MM");
+      keys.push("STATS24:" + mk);
       keys.push("STATS23:" + mk);
       keys.push("STATS22:" + mk);
       keys.push("STATS21:" + mk);
@@ -22597,7 +22700,7 @@ function handleDeleteStatsStaff(json, callback, fromPost) {
 /**
  * Одна кнопка: включить/выключить нарезчика в статистике.
  * enabled=1 → upsert id=cutter active; enabled=0 → active=no.
- * ЗП сразу в себест getStats (staffCost) с fromMonth (≥ floor 2026-09).
+ * Тумблер решает, recover в затратах или в чистом. Плоская ЗП в costActual не входит.
  */
 function handleSetStatsCutterEnabled(json, callback, fromPost) {
   json = json || {};
@@ -22699,7 +22802,7 @@ function handleGetStats(json, callback, fromPost) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) {
     monthKey = Utilities.formatDate(now, tz, "yyyy-MM");
   }
-  var cacheKey = "STATS23:" + monthKey;
+  var cacheKey = "STATS24:" + monthKey;
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
     if (cached && !json.force && json.force !== "1") {
@@ -22760,6 +22863,7 @@ function handleGetStats(json, callback, fromPost) {
   } catch (eP) { byPartner = []; }
   var bpLife = {
     converted: 0, bpDeliveries: 0, bpCost: 0, bpBasketCost: 0, bpDeliveryCost: 0,
+    bpDeliveryInClean: 0,
     ppRevenue: 0, ppDeliveries: 0, profit: 0, costPerConvert: null, nicks: []
   };
   try { bpLife = collectBpLifetimeEconomics_(ss, crm); } catch (eL) {}
@@ -22847,8 +22951,12 @@ function handleGetStats(json, callback, fromPost) {
       ppRecoverCost: Number(month.ppRecoverCost) || 0,
       ppRecoverInClean: Number(month.ppRecoverInClean) || 0,
       ppDeliveryCost: Number(month.ppDeliveryCost) || 0,
+      ppDeliveryFuelCost: Number(month.ppDeliveryFuelCost != null ? month.ppDeliveryFuelCost : month.ppDeliveryCost) || 0,
+      ppDeliveryInClean: Number(month.ppDeliveryInClean) || 0,
+      ppDeliveryTariffCost: Number(month.ppDeliveryTariffCost) || 0,
       ppPackagesCost: Number(month.ppPackagesCost) || 0,
       ppFractionCost: Number(month.ppFractionCost) || 0,
+      ppFractionInClean: Number(month.ppFractionInClean != null ? month.ppFractionInClean : month.ppFractionCost) || 0,
       ppLightPeople: Number(month.ppLightPeople) || 0,
       ppCostSkipped: Number(month.ppCostSkipped) || 0,
       ppDeliveries: Number(month.bySource && month.bySource.pp) || 0,
@@ -22861,7 +22969,9 @@ function handleGetStats(json, callback, fromPost) {
       bpCost: bpSpend,
       bpBasketCost: Number(month.bpBasketCost) || 0,
       bpDeliveryCost: Number(month.bpDeliveryCost) || 0,
-      bpDeliveryFeeEach: BP_DELIVERY_COST_BYN_,
+      bpDeliveryFeeEach: STATS_DELIVERY_FUEL_PER_,
+      bpDeliveryTariffEach: BP_DELIVERY_COST_BYN_,
+      bpDeliveryInClean: Number(month.bpDeliveryInClean) || 0,
       bpDeliveries: month.bpDeliveries,
       missingPrice: month.missingPrice || 0,
       missingBasketCost: month.missingBasketCost || 0,
@@ -22869,7 +22979,9 @@ function handleGetStats(json, callback, fromPost) {
       staffCost: staffCost,
       staffCount: Number(staffMonth.count) || 0,
       staff: staffMonth.staff || [],
-      staffFloorMonth: STATS_STAFF_COST_FLOOR_MONTH_
+      staffFloorMonth: STATS_STAFF_COST_FLOOR_MONTH_,
+      staffCostExcludesCutter: true,
+      cutterExcludedSalary: Number(staffMonth.cutterExcludedSalary) || 0
     },
     staff: {
       cost: staffCost,
@@ -22877,6 +22989,8 @@ function handleGetStats(json, callback, fromPost) {
       items: staffMonth.staff || [],
       floorMonth: STATS_STAFF_COST_FLOOR_MONTH_,
       monthKey: monthKey,
+      staffCostExcludesCutter: true,
+      cutterExcludedSalary: Number(staffMonth.cutterExcludedSalary) || 0,
       cutter: (function () {
         var hit = null;
         var allS = [];
@@ -22931,7 +23045,9 @@ function handleGetStats(json, callback, fromPost) {
       spend: bpSpend,
       basketCost: Number(month.bpBasketCost) || 0,
       deliveryCost: Number(month.bpDeliveryCost) || 0,
-      deliveryFeeEach: BP_DELIVERY_COST_BYN_,
+      deliveryFeeEach: STATS_DELIVERY_FUEL_PER_,
+      deliveryTariffEach: BP_DELIVERY_COST_BYN_,
+      deliveryInClean: Number(month.bpDeliveryInClean) || 0,
       convertedToPp: converted,
       costPerConvert: cac,
       costPerConvertFormula: "bpSpend / converted",
@@ -22945,6 +23061,7 @@ function handleGetStats(json, callback, fromPost) {
         bpCost: bpLife.bpCost,
         bpBasketCost: bpLife.bpBasketCost,
         bpDeliveryCost: bpLife.bpDeliveryCost,
+        bpDeliveryInClean: Number(bpLife.bpDeliveryInClean) || 0,
         ppRevenue: bpLife.ppRevenue,
         ppDeliveries: bpLife.ppDeliveries,
         profit: bpLife.profit,
@@ -23101,12 +23218,18 @@ function handleGetExpectedProfit(json, callback, fromPost) {
     ppRecoverCost: Number(stats.ppRecoverCost) || 0,
     ppRecoverInClean: Number(stats.ppRecoverInClean) || 0,
     ppDeliveryCost: Number(stats.ppDeliveryCost) || 0,
+    ppDeliveryFuelCost: Number(stats.ppDeliveryFuelCost != null ? stats.ppDeliveryFuelCost : stats.ppDeliveryCost) || 0,
+    ppDeliveryInClean: Number(stats.ppDeliveryInClean) || 0,
+    ppDeliveryTariffCost: Number(stats.ppDeliveryTariffCost) || 0,
     ppPackagesCost: Number(stats.ppPackagesCost) || 0,
     ppFractionCost: Number(stats.ppFractionCost) || 0,
+    ppFractionInClean: Number(stats.ppFractionInClean != null ? stats.ppFractionInClean : stats.ppFractionCost) || 0,
     ppLightPeople: Number(stats.ppLightPeople) || 0,
     ppDeliveries: Number(stats.bySource && stats.bySource.pp) || 0,
     staffCost: staffCost,
     staffCount: Number(staffMonth.count) || 0,
+    staffCostExcludesCutter: true,
+    cutterExcludedSalary: Number(staffMonth.cutterExcludedSalary) || 0,
     cutter: {
       enabled: !!cutterOn,
       enabledForMonth: !!cutterOn,
@@ -23114,6 +23237,9 @@ function handleGetExpectedProfit(json, callback, fromPost) {
       name: STATS_CUTTER_PRESET_NAME_
     },
     bpCost: Number(stats.bpCost) || 0,
+    bpDeliveryCost: Number(stats.bpDeliveryCost) || 0,
+    bpDeliveryInClean: Number(stats.bpDeliveryInClean) || 0,
+    bpDeliveryFeeEach: STATS_DELIVERY_FUEL_PER_,
     bpDeliveries: Number(stats.bpDeliveries) || 0,
     missingPrice: stats.missingPrice || 0,
     missingBasketCost: stats.missingBasketCost || 0,
@@ -23130,7 +23256,7 @@ function handleGetExpectedProfit(json, callback, fromPost) {
   };
   var feeEchoExp = applyStatsPpFeeEcho_(ok, stats);
   ok.note = statsPpFeeNote_(feeEchoExp,
-    "ПП выручка = collectPpActualOut_ (не revenueBySource.pp). Схема с листа ПП. Нарезчик выкл → recover в чистом. ЗП — если нарезчик вкл и месяц ≥ «с».");
+    "ПП выручка = collectPpActualOut_ (не revenueBySource.pp). Схема с листа ПП. Нарезчик выкл → recover в чистом. Плоская ЗП нарезчика не в затратах.");
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
@@ -23184,7 +23310,11 @@ function handleExportStats(json, callback, fromPost) {
   lines.push("# recoverInClean\t" + (Number(month.ppRecoverInClean) || 0));
   lines.push("# packages\t" + (Number(month.ppPackagesCost) || 0));
   lines.push("# fractions\t" + (Number(month.ppFractionCost) || 0));
+  lines.push("# fractionInClean\t" + (Number(month.ppFractionInClean != null ? month.ppFractionInClean : month.ppFractionCost) || 0));
+  lines.push("# deliveryFuel\t" + (Number(month.ppDeliveryFuelCost != null ? month.ppDeliveryFuelCost : month.ppDeliveryCost) || 0));
+  lines.push("# deliveryInClean\t" + (Number(month.ppDeliveryInClean) || 0));
   lines.push("# staffCost\t" + staffCost);
+  lines.push("# cutterExcludedSalary\t" + (Number(staffMonth.cutterExcludedSalary) || 0));
   lines.push("# staffCount\t" + (Number(staffMonth.count) || 0));
   lines.push("# cutterEnabled\t" + (cutterOn ? "1" : "0"));
   lines.push("# split\t" + (cutterOn ? "recover_in_cost" : "recover_in_clean"));
@@ -23228,10 +23358,15 @@ function handleExportStats(json, callback, fromPost) {
     recoverInClean: Number(month.ppRecoverInClean) || 0,
     staffCost: staffCost,
     staffCount: Number(staffMonth.count) || 0,
+    staffCostExcludesCutter: true,
+    cutterExcludedSalary: Number(staffMonth.cutterExcludedSalary) || 0,
     cutterEnabled: !!cutterOn,
     split: cutterOn ? "recover_in_cost" : "recover_in_clean",
     packages: Number(month.ppPackagesCost) || 0,
     fractions: Number(month.ppFractionCost) || 0,
+    fractionInClean: Number(month.ppFractionInClean != null ? month.ppFractionInClean : month.ppFractionCost) || 0,
+    deliveryFuel: Number(month.ppDeliveryFuelCost != null ? month.ppDeliveryFuelCost : month.ppDeliveryCost) || 0,
+    deliveryInClean: Number(month.ppDeliveryInClean) || 0,
     cost: costActual,
     revenue: turnover,
     message: "TSV месяца " + monthKey,

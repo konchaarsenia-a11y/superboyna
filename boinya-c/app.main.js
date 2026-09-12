@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115949";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115950";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -15432,14 +15432,23 @@
       } else if (Number(res.ppRecoverCost) > 0) {
         html += '<div>Recover ПП <b>' + res.ppRecoverCost + " BYN</b></div>";
       }
-      if (res.ppPackagesCost != null || res.ppFractionCost != null) {
-        html += '<div>Пакеты + фракции <b>' +
-          (Math.round(((Number(res.ppPackagesCost) || 0) + (Number(res.ppFractionCost) || 0)) * 100) / 100) +
-          " BYN</b></div>";
+      if (res.ppPackagesCost != null) {
+        html += '<div>Пакеты <b>' + (Number(res.ppPackagesCost) || 0) + " BYN</b></div>";
       }
-      if (res.staffCost != null) {
-        html += '<div>ЗП <b>' + (res.staffCost || 0) + " BYN</b>" +
-          (res.cutter && res.cutter.enabledForMonth ? " · нарезчик вкл" : " · нарезчик как OFF") + "</div>";
+      var expFracClean = Number(res.ppFractionInClean != null ? res.ppFractionInClean : 0) || 0;
+      if (expFracClean > 0) {
+        html += '<div>Фракции в чистом <b>' + expFracClean + " BYN</b></div>";
+      }
+      var expDelivFuel = Number(res.ppDeliveryFuelCost != null ? res.ppDeliveryFuelCost : res.ppDeliveryCost) || 0;
+      var expDelivClean = Number(res.ppDeliveryInClean) || 0;
+      if (res.ppDeliveryCost != null || res.ppDeliveryFuelCost != null) {
+        html += '<div>Топливо доставок (4×N) <b>' + expDelivFuel + " BYN</b></div>";
+      }
+      if (expDelivClean > 0) {
+        html += '<div>Доставка в чистом <b>' + expDelivClean + " BYN</b></div>";
+      }
+      if (res.staffCost != null && Number(res.staffCost) > 0) {
+        html += '<div>ЗП (не нарезчик) <b>' + (res.staffCost || 0) + " BYN</b></div>";
       }
       html += "</div>";
       var feeLine = statsPpFeeEchoLine_(res);
@@ -15506,8 +15515,8 @@
         ? !!cutter.enabledForMonth
         : !!(res.fact && res.fact.cutter && res.fact.cutter.enabled);
       var html = '<div class="card" id="statsStaffCard" style="border:1px solid rgba(255,214,10,0.35);">';
-      html += '<div class="section-title" style="margin-top:0;color:#ffd60a;">Нарезчик (ЗП)</div>';
-      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">ЗП нарезчика входит в себест <b>только когда включён и месяц ≥ «с»</b>. Выкл → recover ПП идёт в <b>чистое</b>, не в затраты. Август 2026 и раньше — без ЗП (пол ' + escapeHtml(floor) + ').</div>';
+      html += '<div class="section-title" style="margin-top:0;color:#ffd60a;">Нарезчик</div>';
+      html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">Зарплата нарезчика — <b>recover</b> (3.90/100г + 0.50/шт). Плоская ЗП <b>не в затратах</b>. Вкл → recover в затратах. Выкл → recover в <b>чистом</b>. Август 2026 и раньше — как OFF (пол ' + escapeHtml(floor) + ').</div>';
       html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;font-size:12px;">';
       html += '<div style="padding:10px 12px;border-radius:12px;background:' + (globalOn ? "rgba(255,214,10,0.12)" : "rgba(142,142,147,0.12)") + ';">';
       html += '<div class="muted" style="font-size:11px;">Тумблер</div>';
@@ -15515,7 +15524,7 @@
       html += '<div style="padding:10px 12px;border-radius:12px;background:' + (monthOn ? "rgba(48,209,88,0.12)" : "rgba(255,159,10,0.12)") + ';">';
       html += '<div class="muted" style="font-size:11px;">Этот месяц ' + escapeHtml(monthKey || "—") + "</div>";
       html += '<div style="font-weight:700;color:' + (monthOn ? "#30d158" : "#ff9f0a") + ';">' +
-        (monthOn ? "В затратах: ЗП + recover" : "Как OFF · ЗП 0, recover в чистом") + "</div></div>";
+        (monthOn ? "В затратах: recover" : "Как OFF · recover в чистом") + "</div></div>";
       html += "</div>";
       if (globalOn && !monthOn) {
         html += '<div class="muted" style="font-size:11px;margin:-2px 0 10px;color:#ff9f0a;">Месяц раньше «с» ' +
@@ -15523,8 +15532,8 @@
       }
       if (globalOn) {
         html += '<div style="padding:10px 12px;border-radius:12px;background:rgba(255,214,10,0.12);margin-bottom:10px;">';
-        html += '<div style="font-weight:700;color:#ffd60a;">ЗП · ' + escapeHtml(String(salShow)) + ' BYN/мес</div>';
-        html += '<div class="muted" style="font-size:11px;margin-top:4px;">с ' + escapeHtml(cutter.fromMonth || floor) + "</div>";
+        html += '<div style="font-weight:700;color:#8e8e93;">Плоская ЗП · ' + escapeHtml(String(salShow)) + ' BYN/мес · не в затратах</div>';
+        html += '<div class="muted" style="font-size:11px;margin-top:4px;">с ' + escapeHtml(cutter.fromMonth || floor) + " · канон 12.09: ЗП = recover</div>";
         html += "</div>";
         html += '<div class="form-group" style="margin:0 0 8px;"><label>ЗП / мес (BYN)</label>';
         html += '<input type="number" id="statsCutterSalary" step="0.01" min="0" inputmode="decimal" value="' + escapeHtml(String(salShow)) + '"></div>';
@@ -15533,7 +15542,7 @@
         html += '<button type="button" class="btn-action" style="background:#3a3a3c;" onclick="setStatsCutterEnabled_(false)">Выключить</button>';
         html += "</div>";
       } else {
-        html += '<div class="muted" style="font-size:13px;margin-bottom:10px;">Тумблер выключен — ЗП = 0, recover ПП в чистом (не в затратах).</div>';
+        html += '<div class="muted" style="font-size:13px;margin-bottom:10px;">Тумблер выключен — recover ПП в чистом (не в затратах). Плоская ЗП не используется.</div>';
         html += '<div class="form-group" style="margin:0 0 8px;"><label>ЗП / мес (BYN)</label>';
         html += '<input type="number" id="statsCutterSalary" step="0.01" min="0" inputmode="decimal" value="' + escapeHtml(String(salShow)) + '"></div>';
         html += '<button type="button" class="btn-action btn-orange" onclick="setStatsCutterEnabled_(true)">Включить нарезчика</button>';
@@ -15572,6 +15581,7 @@
     window.setStatsCutterEnabled_ = setStatsCutterEnabled_;
 
     /** marker stats-pp-fee-echo-h1 — тариф ПП из ppScheme, не stale 11+6. */
+    /** marker stats-fuel4-frac-clean-h1 — в затратах топливо 4×N; фракции в чистом; ЗП нарезчика = recover. */
     function statsPpSchemeOf_(src) {
       var sch = String((src && src.ppScheme) || "").toUpperCase();
       if (sch === "RAW26" || sch === "LEGACY" || sch === "MIXED") return sch;
@@ -15579,21 +15589,21 @@
     }
     function statsPpDeliveryLabel_(src) {
       var sch = statsPpSchemeOf_(src);
-      if (sch === "RAW26") return "Доставки ПП (9×N RAW26)";
-      if (sch === "LEGACY") return "Доставки ПП (6×N LEGACY)";
-      return "Доставки ПП (9×N RAW26 / 6×N LEGACY)";
+      if (sch === "RAW26") return "Топливо доставок ПП (4×N, тариф 9 RAW26)";
+      if (sch === "LEGACY") return "Топливо доставок ПП (4×N, тариф 6 LEGACY)";
+      return "Топливо доставок ПП (4×N)";
     }
     function statsPpCostFootnote_(src) {
       var sch = statsPpSchemeOf_(src);
-      if (sch === "RAW26") return "ПП: состав без наценки + recover 3.90/100г + 9×N (RAW26) + пакеты/фракции. ";
-      if (sch === "LEGACY") return "ПП: состав без наценки + 11 + 6×N (LEGACY) + пакеты/фракции. ";
-      return "ПП: состав без наценки + recover + 9×N (RAW26) или +11 + 6×N (LEGACY) + пакеты/фракции. ";
+      if (sch === "RAW26") return "Затраты ПП: состав без наценки + recover (если нарезчик вкл) + топливо 4×N + пакеты. Фракции и (9−4)×N — в чистом. ";
+      if (sch === "LEGACY") return "Затраты ПП: состав без наценки + 11 (если нарезчик вкл) + топливо 4×N + пакеты. Фракции и (6−4)×N — в чистом. ";
+      return "Затраты ПП: состав без наценки + recover/11 (если нарезчик вкл) + топливо 4×N + пакеты. Фракции и остаток тарифа — в чистом. ";
     }
     function statsPpFeeEchoLine_(src) {
       var sch = statsPpSchemeOf_(src);
-      if (sch === "RAW26") return "Тариф ПП RAW26: recover 3.90/100г + доставка 9×N";
-      if (sch === "LEGACY") return "Тариф ПП LEGACY: +11 + 6×N";
-      if (sch === "MIXED") return "Тариф ПП смешанный: RAW26 recover 3.90+9×N / LEGACY +11+6×N";
+      if (sch === "RAW26") return "Тариф клиенту RAW26: recover 3.90/100г + доставка 9×N. В статистике затрат: топливо 4×N.";
+      if (sch === "LEGACY") return "Тариф клиенту LEGACY: +11 + 6×N. В статистике затрат: топливо 4×N.";
+      if (sch === "MIXED") return "Тариф смешанный: RAW26 recover 3.90+9×N / LEGACY +11+6×N. В статистике затрат: топливо 4×N.";
       return "";
     }
 
@@ -15629,7 +15639,9 @@
         : (fact.cutter ? !!fact.cutter.enabled : (ppRecoverInClean <= 0));
       var ppPackagesCost = fact.ppPackagesCost != null ? Number(fact.ppPackagesCost) : 0;
       var ppFractionCost = fact.ppFractionCost != null ? Number(fact.ppFractionCost) : 0;
-      var ppDeliveryCost = fact.ppDeliveryCost != null ? fact.ppDeliveryCost : 0;
+      var ppFractionInClean = fact.ppFractionInClean != null ? Number(fact.ppFractionInClean) : ppFractionCost;
+      var ppDeliveryCost = fact.ppDeliveryFuelCost != null ? fact.ppDeliveryFuelCost : (fact.ppDeliveryCost != null ? fact.ppDeliveryCost : 0);
+      var ppDeliveryInClean = Number(fact.ppDeliveryInClean) || 0;
       var ppLightPeople = fact.ppLightPeople != null ? fact.ppLightPeople : 0;
       var ppDelivN = fact.ppDeliveries != null ? fact.ppDeliveries : (by.pp || 0);
       var profitFact = fact.profit != null ? fact.profit : calTurnover;
@@ -15693,31 +15705,45 @@
       html += line_(" · ПП (состав)", ppBasketCost + " BYN", "#bf5af2");
       html += line_(" · партнёр-заказ", partnerCostApp + " BYN", "#64d2ff");
       html += line_("Купоны", couponsCost + " BYN", "#ffd60a");
-      if (ppRecoverInClean > 0) {
-        html += line_("Recover в чистом", ppRecoverInClean + " BYN · " + ppLightPeople + " чел", "#ff9f0a");
-      } else if (ppRecoverCost > 0) {
+      if (ppRecoverCost > 0 && ppRecoverInClean <= 0) {
         html += line_("Recover ПП (свет+нарезка+дойпак)", ppRecoverCost + " BYN · " + ppLightPeople + " чел", "#bf5af2");
       }
       html += line_(statsPpDeliveryLabel_(fact), ppDeliveryCost + " BYN · " + ppDelivN, "#bf5af2");
-      html += line_("Пакеты + фракции", (Math.round((ppPackagesCost + ppFractionCost) * 100) / 100) +
-        " BYN · пакеты " + ppPackagesCost + " + фракции " + ppFractionCost, "#64d2ff");
-      html += line_("БП (состав + 6р)", bpSpend + " BYN · " + bpDeliv + " дост.", "#ff453a");
+      html += line_("Пакеты", ppPackagesCost + " BYN", "#64d2ff");
+      html += line_("БП (состав + топливо 4р)", bpSpend + " BYN · " + bpDeliv + " дост.", "#ff453a");
       var staffCost = fact.staffCost != null ? fact.staffCost : ((res.staff && res.staff.cost) || 0);
       var staffCount = fact.staffCount != null ? fact.staffCount : ((res.staff && res.staff.count) || 0);
-      html += line_("ЗП сотрудников", staffCost + " BYN · " + staffCount + " чел.", "#ffd60a");
+      if (Number(staffCost) > 0) {
+        html += line_("ЗП сотрудников (не нарезчик)", staffCost + " BYN · " + staffCount + " чел.", "#ffd60a");
+      }
       html += line_("Всего", costActual + " BYN", "#64d2ff");
+      html += '<div class="muted" style="font-size:12px;margin-top:12px;color:#ff9f0a;">В чистом (не в затратах)</div>';
+      if (ppRecoverInClean > 0) {
+        html += line_("Recover в чистом", ppRecoverInClean + " BYN · " + ppLightPeople + " чел", "#ff9f0a");
+      }
+      if (ppFractionInClean > 0 || ppFractionCost > 0) {
+        html += line_("Фракции в чистом", (ppFractionInClean || ppFractionCost) + " BYN", "#ff9f0a");
+      }
+      if (ppDeliveryInClean > 0) {
+        html += line_("Доставка в чистом (тариф − 4)×N", ppDeliveryInClean + " BYN · " + ppDelivN, "#ff9f0a");
+      }
+      var bpDelivInClean = Number(fact.bpDeliveryInClean) || 0;
+      if (bpDelivInClean > 0) {
+        html += line_("БП доставка в чистом (2р × N)", bpDelivInClean + " BYN · " + bpDeliv, "#ff9f0a");
+      }
       html += '<div class="muted" style="font-size:11px;margin-top:8px;">' + statsPpCostFootnote_(fact) +
         (cutterMonthOn
-          ? "Этот месяц: нарезчик в затратах."
+          ? "Этот месяц: нарезчик вкл — recover в затратах."
           : "Этот месяц: нарезчик как OFF — recover в чистом, не в затратах.") +
-        " БП: состав + 6р. ЗП — только если тумблер вкл и месяц ≥ «с».</div>";
+        " БП: состав + топливо 4р. Плоская ЗП нарезчика не в затратах.</div>";
       html += "</div>";
 
       html += renderStatsStaffCard_(res);
 
       var bpBasket = fact.bpBasketCost != null ? fact.bpBasketCost : (bp.basketCost || 0);
       var bpDelivFee = fact.bpDeliveryCost != null ? fact.bpDeliveryCost : (bp.deliveryCost || 0);
-      var bpFeeEach = fact.bpDeliveryFeeEach != null ? fact.bpDeliveryFeeEach : (bp.deliveryFeeEach != null ? bp.deliveryFeeEach : 6);
+      var bpFeeEach = fact.bpDeliveryFeeEach != null ? fact.bpDeliveryFeeEach : (bp.deliveryFeeEach != null ? bp.deliveryFeeEach : 4);
+      var bpDelivCleanShow = Number(fact.bpDeliveryInClean != null ? fact.bpDeliveryInClean : bp.deliveryInClean) || 0;
       html += '<div class="card" style="border:1px solid rgba(255,69,58,0.35);">';
       html += '<div class="section-title" style="margin-top:0;color:#ff453a;">БП</div>';
       html += '<div class="muted" style="font-size:12px;margin-bottom:10px;">Пробник <b>не даёт оборот</b>. Считаем только затраты и переходы в ПП.</div>';
@@ -15725,7 +15751,10 @@
       html += line_("Доставок БП", bpDeliv, "#fff");
       html += line_("Затраты месяца", bpSpend + " BYN", "#ff9f0a");
       html += line_(" · состав", bpBasket + " BYN", "#ff6961");
-      html += line_(" · доставка (" + bpFeeEach + "р × " + bpDeliv + ")", bpDelivFee + " BYN", "#ff6961");
+      html += line_(" · топливо (" + bpFeeEach + "р × " + bpDeliv + ")", bpDelivFee + " BYN", "#ff6961");
+      if (bpDelivCleanShow > 0) {
+        html += line_(" · доставка в чистом (2р × " + bpDeliv + ")", bpDelivCleanShow + " BYN", "#ff9f0a");
+      }
       html += line_("Переходов в ПП (месяц)", converted, "#fff");
       html += line_("CAC (затраты ÷ переходы)", cac != null ? (cac + " BYN") : "—", "#ff9f0a");
       html += '<div style="margin-top:10px;padding:10px;border-radius:12px;background:rgba(255,69,58,0.1);">';

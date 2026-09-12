@@ -65,9 +65,9 @@ function statsPpSchemeOf_(src) {
 
 function statsPpDeliveryLabel_(src) {
   const sch = statsPpSchemeOf_(src);
-  if (sch === "RAW26") return "Доставки ПП (9×N RAW26)";
-  if (sch === "LEGACY") return "Доставки ПП (6×N LEGACY)";
-  return "Доставки ПП (9×N RAW26 / 6×N LEGACY)";
+  if (sch === "RAW26") return "Топливо доставок ПП (4×N, тариф 9 RAW26)";
+  if (sch === "LEGACY") return "Топливо доставок ПП (4×N, тариф 6 LEGACY)";
+  return "Топливо доставок ПП (4×N)";
 }
 
 const raw = statsPpFeeEchoFromMonth_({ ppSchemeCounts: { RAW26: 4, LEGACY: 0 } });
@@ -108,11 +108,11 @@ const rawPayload = {};
 applyStatsPpFeeEcho_(rawPayload, { ppScheme: "RAW26", ppSchemeCounts: { RAW26: 1, LEGACY: 0 } });
 assert(rawPayload.ppLightFeeEach === 3.90 && rawPayload.ppDeliveryFeeEach === 9, "apply RAW26 echo");
 
-assert(statsPpDeliveryLabel_({ ppScheme: "RAW26" }) === "Доставки ПП (9×N RAW26)", "UI RAW26 delivery label");
-assert(statsPpDeliveryLabel_({ ppScheme: "LEGACY" }) === "Доставки ПП (6×N LEGACY)", "UI LEGACY delivery label");
-assert(statsPpDeliveryLabel_({ ppScheme: "MIXED" }).indexOf("9×N RAW26 / 6×N LEGACY") >= 0, "UI MIXED dual label");
-assert(statsPpDeliveryLabel_({ ppLightFeeEach: 11, ppDeliveryFeeEach: 6 }) === "Доставки ПП (9×N RAW26 / 6×N LEGACY)",
-  "stale 11+6 snap without ppScheme → dual label, not LEGACY-only");
+assert(statsPpDeliveryLabel_({ ppScheme: "RAW26" }) === "Топливо доставок ПП (4×N, тариф 9 RAW26)", "UI RAW26 fuel label");
+assert(statsPpDeliveryLabel_({ ppScheme: "LEGACY" }) === "Топливо доставок ПП (4×N, тариф 6 LEGACY)", "UI LEGACY fuel label");
+assert(statsPpDeliveryLabel_({ ppScheme: "MIXED" }).indexOf("4×N") >= 0, "UI MIXED fuel 4×N");
+assert(statsPpDeliveryLabel_({ ppLightFeeEach: 11, ppDeliveryFeeEach: 6 }) === "Топливо доставок ПП (4×N)",
+  "stale 11+6 snap without ppScheme → fuel 4, not LEGACY-only");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const gs = fs.readFileSync(path.join(__dirname, "../Code.gs"), "utf8");
@@ -123,13 +123,13 @@ assert(gs.indexOf("ppLightFeeEach: PP_LIGHT_COST_BYN_") < 0, "no hardcoded LEGAC
 assert(gs.indexOf("ppDeliveryFeeEach: PP_DELIVERY_COST_BYN_") < 0, "no hardcoded LEGACY 6 in payloads");
 assert(gs.indexOf("applyStatsPpFeeEcho_(ok.fact, month)") >= 0, "getStats applies echo");
 assert(gs.indexOf("applyStatsPpFeeEcho_(ok, stats)") >= 0, "expected applies echo");
-assert(gs.indexOf("STATS23:") >= 0, "GAS cache bumped to STATS23");
+assert(gs.indexOf("STATS24:") >= 0, "GAS cache bumped to STATS24");
 assert(ui.indexOf("stats-pp-fee-echo-h1") >= 0, "UI marker");
 assert(ui.indexOf("function statsPpDeliveryLabel_") >= 0, "UI delivery label helper");
 assert(ui.indexOf("statsPpDeliveryLabel_(fact)") >= 0, "dashboard uses scheme label");
 assert(ui.indexOf("statsPpCostFootnote_(fact)") >= 0, "dashboard footnote from scheme");
 assert(ui.indexOf("statsPpFeeEchoLine_(res)") >= 0, "expected prints scheme tariff");
-assert(ui.indexOf("v71115949") >= 0, "UI cache-bust v71115949");
+assert(ui.indexOf("v71115950") >= 0, "UI cache-bust v71115950");
 
 console.log("OK stats-pp-fee-echo");
 console.log(JSON.stringify({

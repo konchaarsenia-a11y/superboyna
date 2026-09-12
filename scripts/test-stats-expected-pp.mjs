@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
  * A2 scheme from PP sheet wishes [SCHEME:RAW26], not calendar note
  * A3 recover/packages from month-level PP basket, not first-slot half
  * A4 export fields: onlyPast/clean/recover/staff/split
- * Expected applies same cutter-split + staff as month.
+ * Expected applies same cutter-split as month. Cutter flat staffCost is 0 (canon 2026-09-12).
  */
 const PP_RAW26_RECOVER_100_ = 3.90;
 const PP_RAW26_RECOVER_PIECE_ = 0.50;
@@ -222,10 +222,10 @@ assert(expectedOff.clean === 0, "OFF clean = 200-200");
 const expectedOn = handleGetExpectedProfit_(Object.assign({}, cal, {
   costActual: 200 + recoverMonth,
   costBySource: { pp: 120 + recoverMonth, retail: 80 }
-}), ppStats, 900, true);
+}), ppStats, 0, true);
 assert(expectedOn.ppRevenue === 120, "ON still counts PP");
 assert(expectedOn.recoverInClean === 0, "ON: recover stays in cost");
-assert(expectedOn.cost === Math.round((200 + recoverMonth + 900) * 100) / 100, "ON: goods+recover+staff");
+assert(expectedOn.cost === Math.round((200 + recoverMonth) * 100) / 100, "ON: goods+recover, no flat cutter ЗП");
 assert(expectedOn.clean === Math.round((200 - expectedOn.cost) * 100) / 100, "ON clean");
 
 const tsv = exportHeaderLines_({
@@ -256,7 +256,8 @@ assert(gs.indexOf("collectPpActualOut_(ss, fromIso.slice(0, 7), pp, stats") >= 0
 assert(gs.indexOf("revenueBySource.pp) || 0") < 0 || gs.indexOf("var ppRev = Number(ppOut.actual)") >= 0, "expected ppRev from ppOut");
 assert(gs.indexOf("# recoverInClean\\t") >= 0 || gs.indexOf("# recoverInClean\t") >= 0, "export recoverInClean");
 assert(gs.indexOf("свет 11р/чел") < 0, "stale expected note removed");
-assert(ui.indexOf("Пакеты + фракции") >= 0, "UI packages line");
+assert(ui.indexOf("Пакеты") >= 0, "UI packages line");
+assert(ui.indexOf("Фракции в чистом") >= 0, "UI fractions in clean");
 assert(ui.indexOf("Затраты БП перешедших") >= 0, "UI converted-only BP cost label");
 assert(ui.indexOf("statsBpFunnelCard") >= 0, "UI BP funnel");
 assert(ui.indexOf("enabledForMonth") >= 0, "UI cutter month vs toggle");
@@ -269,6 +270,6 @@ console.log(JSON.stringify({
   recoverHalf,
   sheetScheme,
   expectedOff: { ppRevenue: expectedOff.ppRevenue, revenue: expectedOff.revenue, cost: expectedOff.cost, clean: expectedOff.clean, recoverInClean: expectedOff.recoverInClean },
-  expectedOn: { cost: expectedOn.cost, clean: expectedOn.clean, staffCost: 900 },
+  expectedOn: { cost: expectedOn.cost, clean: expectedOn.clean, staffCost: 0 },
   stalePpWouldBe: staleRev
 }, null, 2));
