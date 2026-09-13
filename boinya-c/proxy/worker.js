@@ -386,7 +386,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-13 reattach-week-slots-h1"
+      deployMarker: "2026-09-13 snowygodness-dedupe-h1"
     };
   }
 
@@ -786,6 +786,190 @@ function parseBasket_(raw) {
     }
   }
   return [];
+}
+
+/** Непустое поле: пустая строка / [] / {} не считаются данными. */
+function fieldHasSubstance_(v) {
+  if (v == null) return false;
+  if (Array.isArray(v)) {
+    return v.some(function (it) {
+      if (!it) return false;
+      if (typeof it === "object") return !!(it.name || it.main || it.val || it.value);
+      return String(it).trim() !== "";
+    });
+  }
+  const s = String(v).trim();
+  if (!s || s === "[]" || s === "{}") return false;
+  return true;
+}
+
+function basketHasSubstance_(basketOrJson) {
+  return fieldHasSubstance_(parseBasket_(basketOrJson));
+}
+
+function allowEmptyOverwrite_(params, field) {
+  params = params || {};
+  if (
+    params.explicitClear === true ||
+    params.explicitClear === 1 ||
+    String(params.explicitClear || "") === "1" ||
+    params.allowEmptyOverwrite === true ||
+    String(params.allowEmptyOverwrite || "") === "1"
+  ) {
+    return true;
+  }
+  const clear = String(params.clearFields || params.clear || "").toLowerCase();
+  if (clear) {
+    const bits = clear.split(/[,|;]/);
+    for (let i = 0; i < bits.length; i++) {
+      if (String(bits[i] || "").trim() === String(field || "").toLowerCase()) return true;
+    }
+  }
+  const key = "clear" + String(field || "").charAt(0).toUpperCase() + String(field || "").slice(1);
+  if (params[key] === true || params[key] === 1 || String(params[key] || "") === "1") return true;
+  return false;
+}
+
+function pickNonEmptyField_(incoming, existing, allowEmpty) {
+  if (allowEmpty) return incoming != null ? incoming : existing || "";
+  if (fieldHasSubstance_(incoming)) return incoming;
+  if (fieldHasSubstance_(existing)) return existing;
+  return incoming != null ? incoming : existing || "";
+}
+
+function clientPayloadSubstance_(c) {
+  if (!c) return 0;
+  let n = 0;
+  if (fieldHasSubstance_(c.address)) n += 2;
+  if (fieldHasSubstance_(c.phone)) n += 2;
+  if (basketHasSubstance_(c.basket || c.basket_json)) n += 4;
+  if (fieldHasSubstance_(c.note)) n += 1;
+  if (fieldHasSubstance_(c.segment || c.source || c.orderType)) n += 1;
+  return n;
+}
+
+/**
+ * Partial save / пустой GAS не затирает живые address/phone/состав.
+ * Явный clear: explicitClear=1 или clearAddress/clearPhone/clearBasket.
+ */
+function mergeKeepNonEmptyClient_(incoming, existing, params) {
+  incoming = incoming || {};
+  existing = existing || {};
+  const out = Object.assign({}, existing, incoming);
+  out.address = String(
+    pickNonEmptyField_(incoming.address, existing.address, allowEmptyOverwrite_(params, "address")) || ""
+  );
+  out.phone = String(
+    pickNonEmptyField_(incoming.phone, existing.phone, allowEmptyOverwrite_(params, "phone")) || ""
+  );
+  out.note = String(
+    pickNonEmptyField_(incoming.note, existing.note, allowEmptyOverwrite_(params, "note")) || ""
+  );
+  const inB = incoming.basket != null ? incoming.basket : incoming.basket_json;
+  const exB = existing.basket != null ? existing.basket : existing.basket_json;
+  if (basketHasSubstance_(inB) || allowEmptyOverwrite_(params, "basket") || !basketHasSubstance_(exB)) {
+    out.basket = parseBasket_(inB);
+  } else {
+    out.basket = parseBasket_(exB);
+  }
+  out.basket_json = JSON.stringify(out.basket || []);
+  if (
+    !String(incoming.segment || incoming.orderType || incoming.source || "").trim() &&
+    String(existing.segment || existing.orderType || existing.source || "").trim()
+  ) {
+    out.segment = existing.segment || existing.orderType || "";
+    if (!out.source && existing.source) out.source = existing.source;
+  }
+  return out;
+}
+
+function rowPayloadForScore_(row) {
+  if (!row) return {};
+  return {
+    address: row.address,
+    phone: row.phone,
+    note: row.note,
+    basket: row.basket != null ? row.basket : row.basket_json,
+    basket_json: row.basket_json,
+    segment: row.segment,
+    source: row.source
+  };
+}
+
+/**
+ * snowygodness 2026-09-14: пустой слот Пн + полный calendar-only.
+ * Никогда не удалять ряд с большим address/phone/basket.
+ * cal > slot → promote calendar (reattach), drop stub.
+ * иначе → merge keep-non-empty в слот, потом drop calendar.
+ */
+function decideDedupeWeekRows_(slotRow, calRow) {
+  if (!slotRow && calRow) return { action: "reattach_calendar", drop: "" };
+  if (slotRow && !calRow) return { action: "keep_slot", drop: "" };
+  if (!slotRow && !calRow) return { action: "skip", drop: "" };
+  const slotN = clientPayloadSubstance_(rowPayloadForScore_(slotRow));
+  const calN = clientPayloadSubstance_(rowPayloadForScore_(calRow));
+  if (calN > slotN) {
+    return { action: "promote_calendar", drop: "slot_stub", slotN: slotN, calN: calN };
+  }
+  return { action: "merge_into_slot", drop: "calendar", slotN: slotN, calN: calN };
+}
+
+function mergeOrderRowsKeepNonEmpty_(existing, incoming, params) {
+  if (!existing) return incoming;
+  if (!incoming) return existing;
+  const merged = mergeKeepNonEmptyClient_(
+    {
+      address: incoming.address,
+      phone: incoming.phone,
+      note: incoming.note,
+      basket_json: incoming.basket_json,
+      basket: incoming.basket,
+      segment: incoming.segment,
+      source: incoming.source
+    },
+    {
+      address: existing.address,
+      phone: existing.phone,
+      note: existing.note,
+      basket_json: existing.basket_json,
+      basket: existing.basket,
+      segment: existing.segment,
+      source: existing.source
+    },
+    params
+  );
+  return Object.assign({}, existing, incoming, {
+    id: existing.id || incoming.id,
+    day_name: existing.day_name || incoming.day_name || "",
+    date_iso: existing.date_iso || incoming.date_iso || "",
+    status: existing.status || incoming.status || "active",
+    match_key: existing.match_key || incoming.match_key,
+    client: existing.client || incoming.client,
+    address: merged.address,
+    phone: merged.phone,
+    note: merged.note,
+    basket_json: merged.basket_json,
+    segment: merged.segment || incoming.segment || existing.segment || "",
+    source: merged.source || incoming.source || existing.source || ""
+  });
+}
+
+async function persistOrderContactFields_(env, id, row) {
+  if (!env || !env.DB || !id || !row) return false;
+  await env.DB.prepare(
+    "UPDATE orders SET address = ?, phone = ?, note = ?, basket_json = ?, segment = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+  )
+    .bind(
+      row.address || "",
+      row.phone || "",
+      row.note || "",
+      row.basket_json || JSON.stringify(row.basket || []),
+      row.segment || "",
+      row.updated_at || new Date().toISOString(),
+      id
+    )
+    .run();
+  return true;
 }
 
 function parseMeta_(raw) {
@@ -2644,6 +2828,87 @@ function decideWeekSlotCalendarRow_(row, wantIso, day, gasMks, hasSlotRow) {
   return "keep_calendar";
 }
 
+/**
+ * Resolve slot stub vs calendar-only. Never delete the fuller payload.
+ * snowygodness: empty Понедельник slot + full CAL:2026-09-14 → promote calendar.
+ */
+async function applyDedupeWeekSlot_(env, slotRow, calRow, day, now) {
+  const plan = decideDedupeWeekRows_(slotRow, calRow);
+  const out = {
+    action: plan.action,
+    drop: "",
+    aborted: false,
+    merged: false,
+    slotN: plan.slotN,
+    calN: plan.calN,
+    survivor: slotRow || calRow
+  };
+  if (!env || !env.DB || !slotRow || !calRow) {
+    out.aborted = true;
+    return out;
+  }
+  if (plan.action === "promote_calendar") {
+    const merged = mergeOrderRowsKeepNonEmpty_(calRow, slotRow);
+    merged.updated_at = now;
+    try {
+      const ok = await persistOrderContactFields_(env, calRow.id, merged);
+      if (!ok) {
+        out.aborted = true;
+        out.reason = "persist_cal_failed";
+        return out;
+      }
+      await env.DB.prepare(
+        "UPDATE orders SET day_name = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+      )
+        .bind(day, now, calRow.id)
+        .run();
+      await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+      )
+        .bind(now, slotRow.id)
+        .run();
+      out.drop = "slot_stub";
+      out.merged = true;
+      out.survivor = Object.assign({}, calRow, merged, { day_name: day });
+      return out;
+    } catch (eProm) {
+      out.aborted = true;
+      out.reason = String((eProm && eProm.message) || eProm);
+      return out;
+    }
+  }
+  const mergedSlot = mergeOrderRowsKeepNonEmpty_(slotRow, calRow);
+  mergedSlot.updated_at = now;
+  try {
+    const ok = await persistOrderContactFields_(env, slotRow.id, mergedSlot);
+    if (!ok) {
+      out.aborted = true;
+      out.reason = "persist_slot_failed";
+      return out;
+    }
+    const afterN = clientPayloadSubstance_(rowPayloadForScore_(mergedSlot));
+    const calN = clientPayloadSubstance_(rowPayloadForScore_(calRow));
+    if (afterN < calN) {
+      out.aborted = true;
+      out.reason = "merge_weaker_than_cal";
+      return out;
+    }
+    await env.DB.prepare(
+      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+    )
+      .bind(now, calRow.id)
+      .run();
+    out.drop = "calendar";
+    out.merged = true;
+    out.survivor = Object.assign({}, slotRow, mergedSlot);
+    return out;
+  } catch (eMer) {
+    out.aborted = true;
+    out.reason = String((eMer && eMer.message) || eMer);
+    return out;
+  }
+}
+
 function dedupeOrdersPreferSlot_(rows) {
   const byMk = Object.create(null);
   const order = [];
@@ -2658,7 +2923,15 @@ function dedupeOrdersPreferSlot_(rows) {
     }
     const prevSlot = !!String(prev.day_name || "");
     const curSlot = !!String(row.day_name || "");
-    if (curSlot && !prevSlot) byMk[mk] = row;
+    if (curSlot && !prevSlot) {
+      byMk[mk] = mergeOrderRowsKeepNonEmpty_(row, prev);
+    } else if (!curSlot && prevSlot) {
+      byMk[mk] = mergeOrderRowsKeepNonEmpty_(prev, row);
+    } else if (clientPayloadSubstance_(clientFromRow_(row)) > clientPayloadSubstance_(clientFromRow_(prev))) {
+      byMk[mk] = mergeOrderRowsKeepNonEmpty_(prev, row);
+    } else {
+      byMk[mk] = mergeOrderRowsKeepNonEmpty_(row, prev);
+    }
   });
   return order.map(function (k) {
     return byMk[k];
@@ -2713,14 +2986,31 @@ async function reattachWeekSlotDayNames_(env, opts) {
       const mk = normalizeMatchKey_(row.match_key || row.client || "");
       const act = decideWeekSlotCalendarRow_(row, wantIso, day, gasMks, !!(mk && slotMks[mk]));
       if (act === "dedupe_calendar") {
+        const slotRow = mk && slotMks[mk];
+        if (!slotRow) continue;
         try {
-          await env.DB.prepare(
-            "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
-          )
-            .bind(now, row.id)
-            .run();
-          result.deduped.push({ client: row.client, dateIso: wantIso, day: day });
-        } catch (eD) {}
+          const applied = await applyDedupeWeekSlot_(env, slotRow, row, day, now);
+          if (applied.survivor && mk) slotMks[mk] = applied.survivor;
+          result.deduped.push({
+            client: row.client,
+            dateIso: wantIso,
+            day: day,
+            action: applied.action,
+            drop: applied.drop,
+            aborted: !!applied.aborted,
+            reason: applied.reason || "",
+            slotN: applied.slotN,
+            calN: applied.calN
+          });
+        } catch (eD) {
+          result.deduped.push({
+            client: row.client,
+            dateIso: wantIso,
+            day: day,
+            aborted: true,
+            reason: String((eD && eD.message) || eD)
+          });
+        }
         continue;
       }
       if (act === "reattach" || (act === "keep_calendar" && opts.attachCalendar === true && mk)) {
@@ -2743,6 +3033,33 @@ async function reattachWeekSlotDayNames_(env, opts) {
         const c = gasMks[mk];
         const name = String((c && (c.name || c.client || c.nick)) || "").trim();
         if (!name) continue;
+        const donor = rows.find(function (r) {
+          return r && normalizeMatchKey_(r.match_key || r.client || "") === mk;
+        });
+        if (donor && !String(donor.day_name || "") && clientPayloadSubstance_(rowPayloadForScore_(donor)) > 0) {
+          try {
+            const mergedDon = mergeKeepNonEmptyClient_(c, clientFromRow_(donor));
+            mergedDon.updated_at = now;
+            await persistOrderContactFields_(env, donor.id, {
+              address: mergedDon.address,
+              phone: mergedDon.phone,
+              note: mergedDon.note,
+              basket: mergedDon.basket,
+              basket_json: mergedDon.basket_json,
+              segment: mergedDon.segment || donor.segment || "",
+              updated_at: now
+            });
+            await env.DB.prepare(
+              "UPDATE orders SET day_name = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+            )
+              .bind(day, now, donor.id)
+              .run();
+            slotMks[mk] = Object.assign({}, donor, mergedDon, { day_name: day });
+            result.attached.push({ client: name, dateIso: wantIso, day: day, via: "insert_reattach" });
+            continue;
+          } catch (eDon) {}
+        }
+        const mergedIns = mergeKeepNonEmptyClient_(c, donor ? clientFromRow_(donor) : {});
         try {
           await upsertOrderRow_(env, {
             id: day + ":" + mk,
@@ -2750,12 +3067,12 @@ async function reattachWeekSlotDayNames_(env, opts) {
             day_name: day,
             client: name,
             match_key: mk,
-            address: String((c && c.address) || ""),
-            note: String((c && c.note) || ""),
-            phone: String((c && c.phone) || ""),
-            basket_json: JSON.stringify((c && c.basket) || []),
-            segment: normalizeSegmentLabel_((c && (c.segment || c.orderType || c.source)) || ""),
-            source: String((c && c.source) || ""),
+            address: String(mergedIns.address || ""),
+            note: String(mergedIns.note || ""),
+            phone: String(mergedIns.phone || ""),
+            basket_json: mergedIns.basket_json || JSON.stringify(mergedIns.basket || []),
+            segment: normalizeSegmentLabel_(mergedIns.segment || (c && (c.segment || c.orderType || c.source)) || ""),
+            source: String(mergedIns.source || (c && c.source) || ""),
             status: "active",
             updated_at: now,
             meta_json: "{}"
@@ -2772,6 +3089,191 @@ async function reattachWeekSlotDayNames_(env, opts) {
   try {
     await rebuildWeekCounts_(env);
   } catch (eRb2) {}
+  return result;
+}
+
+function profileToDonor_(p) {
+  if (!p) return null;
+  const basket = Array.isArray(p.basket) ? p.basket : parseBasket_(p.lastBasket || p.basket_json);
+  return {
+    address: String(p.address || ""),
+    phone: String(p.phone || ""),
+    note: String(p.note || ""),
+    basket: basket,
+    basket_json: JSON.stringify(basket || []),
+    segment: p.segment || p.sheet || "",
+    source: p.source || ""
+  };
+}
+
+/**
+ * One-shot: заполнить пустые address/phone/состав у живых слотов
+ * из sibling D1 / CRM snap / подписки / GAS getClients / view snap.
+ * Не затирает непустые поля. Sheets не трогает.
+ */
+async function repairWipedClientFields_(env, opts) {
+  opts = opts || {};
+  const result = { repaired: [], skipped: 0, scanned: 0 };
+  if (!env || !env.DB) return result;
+  const now = new Date().toISOString();
+  let active = [];
+  let pool = [];
+  try {
+    const qA = await env.DB.prepare(
+      "SELECT * FROM orders WHERE status = 'active' LIMIT 800"
+    ).all();
+    active = (qA && qA.results) || [];
+  } catch (eA) {
+    return result;
+  }
+  try {
+    const qP = await env.DB.prepare(
+      "SELECT * FROM orders ORDER BY updated_at DESC LIMIT 1200"
+    ).all();
+    pool = (qP && qP.results) || active;
+  } catch (eP) {
+    pool = active;
+  }
+  const fullest = Object.create(null);
+  pool.forEach(function (row) {
+    if (!row) return;
+    const mk = normalizeMatchKey_(row.match_key || row.client || "");
+    if (!mk) return;
+    const score = clientPayloadSubstance_(clientFromRow_(row));
+    if (!fullest[mk] || score > fullest[mk].score) {
+      fullest[mk] = { score: score, row: row };
+    }
+  });
+  const donorsByMk = Object.create(null);
+  function addDonor(mk, donor) {
+    if (!mk || !donor) return;
+    const prev = donorsByMk[mk];
+    if (!prev || clientPayloadSubstance_(donor) > clientPayloadSubstance_(prev)) {
+      donorsByMk[mk] = donor;
+    }
+  }
+  Object.keys(fullest).forEach(function (mk) {
+    addDonor(mk, clientFromRow_(fullest[mk].row));
+  });
+  try {
+    const profSnap = await getSnapRaw_(env, "listClientProfiles");
+    ((profSnap && profSnap.clients) || []).forEach(function (p) {
+      const mk = normalizeMatchKey_((p && (p.nick || p.client || p.name)) || "");
+      addDonor(mk, profileToDonor_(p));
+    });
+  } catch (eProf) {}
+  try {
+    const subs = await getSnapRaw_(env, "listSubscriptions");
+    const arr = (subs && (subs.subscriptions || subs.items || subs.list)) || [];
+    arr.forEach(function (s) {
+      const mk = normalizeMatchKey_((s && (s.nick || s.client || s.label)) || "");
+      addDonor(mk, profileToDonor_(s));
+    });
+  } catch (eSub) {}
+  for (let di = 0; di < WEEK_DAYS.length; di++) {
+    const day = WEEK_DAYS[di];
+    try {
+      const snap = await getSnapRaw_(env, "clients:" + day);
+      ((snap && snap.clients) || []).forEach(function (c) {
+        const mk = normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || "");
+        addDonor(mk, c);
+      });
+    } catch (eSn) {}
+    try {
+      const view = await getSnapRaw_(env, "view:" + day);
+      []
+        .concat((view && view.week) || [])
+        .concat((view && view.month) || [])
+        .forEach(function (c) {
+          const mk = normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || "");
+          addDonor(mk, c);
+        });
+    } catch (eVw) {}
+  }
+  const gasTried = Object.create(null);
+  for (let i = 0; i < active.length; i++) {
+    const row = active[i];
+    if (!row) continue;
+    result.scanned++;
+    const cur = clientFromRow_(row);
+    if (clientPayloadSubstance_(cur) >= 8) {
+      result.skipped++;
+      continue;
+    }
+    const mk = normalizeMatchKey_(row.match_key || row.client || "");
+    if (!mk) {
+      result.skipped++;
+      continue;
+    }
+    const day = String(row.day_name || "");
+    if (day && !gasTried[day] && opts.useGas !== false) {
+      gasTried[day] = true;
+      try {
+        const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
+        ((fresh && fresh.clients) || []).forEach(function (c) {
+          const gmk = normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || "");
+          addDonor(gmk, c);
+        });
+      } catch (eG) {}
+    }
+    const dateIso = String(row.date_iso || "");
+    if (dateIso && !gasTried["d:" + dateIso] && opts.useGas !== false) {
+      gasTried["d:" + dateIso] = true;
+      try {
+        const cal = await gasProxy_(
+          "getViewCompare",
+          { date: dateIso, deliveryDate: dateIso },
+          env,
+          { write: false }
+        );
+        []
+          .concat((cal && cal.month) || [])
+          .concat((cal && cal.week) || [])
+          .forEach(function (c) {
+            const gmk = normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || "");
+            addDonor(gmk, c);
+          });
+      } catch (eC) {}
+    }
+    const donor = donorsByMk[mk];
+    if (!donor || clientPayloadSubstance_(donor) <= clientPayloadSubstance_(cur)) {
+      result.skipped++;
+      continue;
+    }
+    const merged = mergeKeepNonEmptyClient_(donor, cur);
+    if (clientPayloadSubstance_(merged) <= clientPayloadSubstance_(cur)) {
+      result.skipped++;
+      continue;
+    }
+    try {
+      merged.updated_at = now;
+      await persistOrderContactFields_(env, row.id, {
+        address: merged.address,
+        phone: merged.phone,
+        note: merged.note,
+        basket: merged.basket,
+        basket_json: merged.basket_json,
+        segment: merged.segment || row.segment || "",
+        updated_at: now
+      });
+      result.repaired.push({
+        client: row.client,
+        matchKey: mk,
+        day: day,
+        dateIso: dateIso,
+        filled: {
+          address: !fieldHasSubstance_(cur.address) && fieldHasSubstance_(merged.address),
+          phone: !fieldHasSubstance_(cur.phone) && fieldHasSubstance_(merged.phone),
+          basket: !basketHasSubstance_(cur.basket) && basketHasSubstance_(merged.basket)
+        }
+      });
+    } catch (eUp) {
+      result.skipped++;
+    }
+  }
+  try {
+    await invalidateDays_(env, WEEK_DAYS);
+  } catch (eInv) {}
   return result;
 }
 
@@ -2819,17 +3321,38 @@ async function getClients_(params, env) {
           .all();
         const extra = (qExtra && qExtra.results) || [];
         const seenMk = Object.create(null);
-        rows.forEach(function (r) {
+        const seenIdx = Object.create(null);
+        rows.forEach(function (r, ri) {
           const mk = normalizeMatchKey_((r && (r.match_key || r.client)) || "");
-          if (mk) seenMk[mk] = true;
+          if (mk) {
+            seenMk[mk] = true;
+            if (seenIdx[mk] == null) seenIdx[mk] = ri;
+          }
         });
         const nowHeal = new Date().toISOString();
         for (let xi = 0; xi < extra.length; xi++) {
           const rowX = extra[xi];
           if (!rowX) continue;
           const mkX = normalizeMatchKey_(rowX.match_key || rowX.client || "");
-          if (mkX && seenMk[mkX]) continue;
-          if (mkX) seenMk[mkX] = true;
+          if (mkX && seenMk[mkX]) {
+            const idx = seenIdx[mkX];
+            const slot = idx != null ? rows[idx] : null;
+            if (slot && clientPayloadSubstance_(clientFromRow_(rowX)) > 0) {
+              const mergedX = mergeOrderRowsKeepNonEmpty_(slot, rowX);
+              if (clientPayloadSubstance_(clientFromRow_(mergedX)) > clientPayloadSubstance_(clientFromRow_(slot))) {
+                try {
+                  mergedX.updated_at = nowHeal;
+                  await persistOrderContactFields_(env, slot.id, mergedX);
+                  rows[idx] = Object.assign({}, slot, mergedX);
+                } catch (eMx) {}
+              }
+            }
+            continue;
+          }
+          if (mkX) {
+            seenMk[mkX] = true;
+            seenIdx[mkX] = rows.length;
+          }
           rows.push(rowX);
           try {
             await env.DB.prepare(
@@ -4813,8 +5336,19 @@ async function getCutting_(params, env) {
   return hit;
 }
 
-async function upsertOrderRow_(env, row) {
+async function upsertOrderRow_(env, row, opts) {
+  opts = opts || {};
   await ensureMetaColumn_(env);
+  if (row && row.id && !opts.allowEmptyOverwrite && !opts.skipKeepNonEmpty) {
+    try {
+      const existing = await env.DB.prepare("SELECT * FROM orders WHERE id = ? LIMIT 1")
+        .bind(row.id)
+        .first();
+      if (existing) {
+        row = mergeOrderRowsKeepNonEmpty_(existing, row, opts.params || {});
+      }
+    } catch (eKeepUp) {}
+  }
   await env.DB.prepare(
     `INSERT INTO orders (id, date_iso, day_name, client, match_key, address, note, phone, basket_json, segment, source, status, updated_at, meta_json)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -8109,17 +8643,24 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eAttF) {
         reattached = { error: String((eAttF && eAttF.message) || eAttF) };
       }
+      let repairedFields = null;
+      try {
+        repairedFields = await repairWipedClientFields_(env, { useGas: true });
+      } catch (eRepF) {
+        repairedFields = { error: String((eRepF && eRepF.message) || eRepF) };
+      }
       return {
         status: "success",
         action: "forceWeekD1Resync",
         forceGasReplace: true,
         restoreShifted: restored,
         reattached: reattached,
+        repairedFields: repairedFields,
         weekDayCounts: counts || null,
-        tip: "D1 слоты недели = Sheets; date_iso старой недели не сдвигали.",
+        tip: "D1 слоты недели = Sheets; пустые поля не затирали непустые.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-13 reattach-week-slots-h1"
+        deployMarker: "2026-09-13 snowygodness-dedupe-h1"
       };
     } catch (eResync) {
       return {
@@ -8173,7 +8714,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1: сняли ошибочный +7. Лист и Календарь_Дат не меняли.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-13 reattach-week-slots-h1"
+        deployMarker: "2026-09-13 snowygodness-dedupe-h1"
       };
     } catch (eRep) {
       return {
@@ -8216,23 +8757,79 @@ async function handleCutover_(a, params, env, ctx) {
         insertMissing: true,
         attachCalendar: String(params.attachCalendar || "") === "1"
       });
+      let repairedFieldsD = null;
+      try {
+        repairedFieldsD = await repairWipedClientFields_(env, { useGas: true });
+      } catch (eRepD) {
+        repairedFieldsD = { error: String((eRepD && eRepD.message) || eRepD) };
+      }
       const counts2 =
         (await getSnapRaw_(env, "weekDayCountsSheet")) || (await getSnapRaw_(env, "weekDayCounts"));
       return {
         status: "success",
         action: "repairDetachedWeekSlots",
         reattached: reattached,
+        repairedFields: repairedFieldsD,
         weekDayCounts: counts2 || null,
         tip: "D1: привязали day_name к датам слота по листу. Календарь_Дат не меняли.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-13 reattach-week-slots-h1"
+        deployMarker: "2026-09-13 snowygodness-dedupe-h1"
       };
     } catch (eRep) {
       return {
         status: "error",
         message: "repair_failed",
         tip: String((eRep && eRep.message) || eRep),
+        cutover: true,
+        action: a
+      };
+    }
+  }
+
+  // Восстановить пустые address/phone/состав из sibling D1 / CRM / листа.
+  if (/^repairWipedClientFields$/i.test(a)) {
+    const ownerOkW = await actorIsOwnerRetail_(params, env);
+    if (!ownerOkW) {
+      return {
+        status: "error",
+        message: "owner_only",
+        tip: "Только владелец может чинить пустые поля клиентов в D1.",
+        cutover: true,
+        action: a
+      };
+    }
+    if (
+      String(params.confirm || "") !== "1" &&
+      String(params.confirm || "").toLowerCase() !== "true" &&
+      String(params.allowDanger || "") !== "1"
+    ) {
+      return {
+        status: "error",
+        message: "need_confirm",
+        tip: "Нужен confirm=1",
+        cutover: true,
+        action: a
+      };
+    }
+    try {
+      const repaired = await repairWipedClientFields_(env, {
+        useGas: String(params.useGas || "1") !== "0"
+      });
+      return {
+        status: "success",
+        action: "repairWipedClientFields",
+        repairedFields: repaired,
+        tip: "D1: заполнили пустые address/phone/состав из листа/CRM/снимка. Непустые не трогали.",
+        cutover: true,
+        d1Verified: true,
+        deployMarker: "2026-09-13 snowygodness-dedupe-h1"
+      };
+    } catch (eRepW) {
+      return {
+        status: "error",
+        message: "repair_failed",
+        tip: String((eRepW && eRepW.message) || eRepW),
         cutover: true,
         action: a
       };
@@ -11398,12 +11995,13 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
         if (d1FreshGa) {
           const keptGa = clientFromRow_(row);
           keptGa.updated_at = row.updated_at;
-          // дата слота недели — с GAS, состав/контакт — свежий D1
-          if (gasC.date) keptGa.date = gasC.date;
-          if (gasC.dateIso) keptGa.dateIso = gasC.dateIso;
-          byMk[mk] = keptGa;
+          // дата слота недели — с GAS, состав/контакт — свежий D1 (пустой GAS не затирает)
+          const mergedGa = mergeKeepNonEmptyClient_(gasC, keptGa);
+          if (gasC.date) mergedGa.date = gasC.date;
+          if (gasC.dateIso) mergedGa.dateIso = gasC.dateIso;
+          byMk[mk] = mergedGa;
         } else {
-          byMk[mk] = gasC;
+          byMk[mk] = mergeKeepNonEmptyClient_(gasC, clientFromRow_(row));
         }
         continue;
       }
@@ -11415,9 +12013,9 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       if (d1Fresh || !gasC || (d1Sig && d1Sig !== gasSig) || opts.skipProtectMissing) {
         const kept = clientFromRow_(row);
         kept.updated_at = row.updated_at;
-        byMk[mk] = kept;
+        byMk[mk] = gasC ? mergeKeepNonEmptyClient_(gasC, kept) : kept;
       } else {
-        byMk[mk] = gasC;
+        byMk[mk] = mergeKeepNonEmptyClient_(gasC, clientFromRow_(row));
       }
     }
   } catch (eProt) {}
@@ -11611,9 +12209,7 @@ function overlayWriteClientOnList_(list, params) {
       normalizeMatchKey_(c && c.matchKey) === mk
     ) {
       found = true;
-      return Object.assign({}, c, row, {
-        basket: basketArr.length ? basketArr : c.basket || []
-      });
+      return mergeKeepNonEmptyClient_(row, c, params);
     }
     return c;
   });

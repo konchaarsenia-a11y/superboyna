@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115955";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115956";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -14676,6 +14676,18 @@
           { timeoutMs: 180000, cacheTtlMs: 0 }
         );
       } catch (eAttUi) {}
+      try {
+        await apiGet(
+          {
+            action: "repairWipedClientFields",
+            telegramId: tid,
+            confirm: "1",
+            allowDanger: "1",
+            _: String(Date.now())
+          },
+          { timeoutMs: 180000, cacheTtlMs: 0 }
+        );
+      } catch (eRepUi) {}
       try { apiCacheBustMem_(); } catch (eClr) {}
       viewWeekOverviewCache = null;
       try {
