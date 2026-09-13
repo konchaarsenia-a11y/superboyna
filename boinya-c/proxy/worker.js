@@ -386,7 +386,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-13 keep-nonempty-h1"
+      deployMarker: "2026-09-13 snowygodness-dedupe-h1"
     };
   }
 
@@ -883,6 +883,37 @@ function mergeKeepNonEmptyClient_(incoming, existing, params) {
   return out;
 }
 
+function rowPayloadForScore_(row) {
+  if (!row) return {};
+  return {
+    address: row.address,
+    phone: row.phone,
+    note: row.note,
+    basket: row.basket != null ? row.basket : row.basket_json,
+    basket_json: row.basket_json,
+    segment: row.segment,
+    source: row.source
+  };
+}
+
+/**
+ * snowygodness 2026-09-14: пустой слот Пн + полный calendar-only.
+ * Никогда не удалять ряд с большим address/phone/basket.
+ * cal > slot → promote calendar (reattach), drop stub.
+ * иначе → merge keep-non-empty в слот, потом drop calendar.
+ */
+function decideDedupeWeekRows_(slotRow, calRow) {
+  if (!slotRow && calRow) return { action: "reattach_calendar", drop: "" };
+  if (slotRow && !calRow) return { action: "keep_slot", drop: "" };
+  if (!slotRow && !calRow) return { action: "skip", drop: "" };
+  const slotN = clientPayloadSubstance_(rowPayloadForScore_(slotRow));
+  const calN = clientPayloadSubstance_(rowPayloadForScore_(calRow));
+  if (calN > slotN) {
+    return { action: "promote_calendar", drop: "slot_stub", slotN: slotN, calN: calN };
+  }
+  return { action: "merge_into_slot", drop: "calendar", slotN: slotN, calN: calN };
+}
+
 function mergeOrderRowsKeepNonEmpty_(existing, incoming, params) {
   if (!existing) return incoming;
   if (!incoming) return existing;
@@ -924,7 +955,7 @@ function mergeOrderRowsKeepNonEmpty_(existing, incoming, params) {
 }
 
 async function persistOrderContactFields_(env, id, row) {
-  if (!env || !env.DB || !id || !row) return;
+  if (!env || !env.DB || !id || !row) return false;
   await env.DB.prepare(
     "UPDATE orders SET address = ?, phone = ?, note = ?, basket_json = ?, segment = ?, updated_at = ? WHERE id = ? AND status = 'active'"
   )
@@ -938,6 +969,7 @@ async function persistOrderContactFields_(env, id, row) {
       id
     )
     .run();
+  return true;
 }
 
 function parseMeta_(raw) {
@@ -2796,6 +2828,87 @@ function decideWeekSlotCalendarRow_(row, wantIso, day, gasMks, hasSlotRow) {
   return "keep_calendar";
 }
 
+/**
+ * Resolve slot stub vs calendar-only. Never delete the fuller payload.
+ * snowygodness: empty Понедельник slot + full CAL:2026-09-14 → promote calendar.
+ */
+async function applyDedupeWeekSlot_(env, slotRow, calRow, day, now) {
+  const plan = decideDedupeWeekRows_(slotRow, calRow);
+  const out = {
+    action: plan.action,
+    drop: "",
+    aborted: false,
+    merged: false,
+    slotN: plan.slotN,
+    calN: plan.calN,
+    survivor: slotRow || calRow
+  };
+  if (!env || !env.DB || !slotRow || !calRow) {
+    out.aborted = true;
+    return out;
+  }
+  if (plan.action === "promote_calendar") {
+    const merged = mergeOrderRowsKeepNonEmpty_(calRow, slotRow);
+    merged.updated_at = now;
+    try {
+      const ok = await persistOrderContactFields_(env, calRow.id, merged);
+      if (!ok) {
+        out.aborted = true;
+        out.reason = "persist_cal_failed";
+        return out;
+      }
+      await env.DB.prepare(
+        "UPDATE orders SET day_name = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+      )
+        .bind(day, now, calRow.id)
+        .run();
+      await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+      )
+        .bind(now, slotRow.id)
+        .run();
+      out.drop = "slot_stub";
+      out.merged = true;
+      out.survivor = Object.assign({}, calRow, merged, { day_name: day });
+      return out;
+    } catch (eProm) {
+      out.aborted = true;
+      out.reason = String((eProm && eProm.message) || eProm);
+      return out;
+    }
+  }
+  const mergedSlot = mergeOrderRowsKeepNonEmpty_(slotRow, calRow);
+  mergedSlot.updated_at = now;
+  try {
+    const ok = await persistOrderContactFields_(env, slotRow.id, mergedSlot);
+    if (!ok) {
+      out.aborted = true;
+      out.reason = "persist_slot_failed";
+      return out;
+    }
+    const afterN = clientPayloadSubstance_(rowPayloadForScore_(mergedSlot));
+    const calN = clientPayloadSubstance_(rowPayloadForScore_(calRow));
+    if (afterN < calN) {
+      out.aborted = true;
+      out.reason = "merge_weaker_than_cal";
+      return out;
+    }
+    await env.DB.prepare(
+      "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+    )
+      .bind(now, calRow.id)
+      .run();
+    out.drop = "calendar";
+    out.merged = true;
+    out.survivor = Object.assign({}, slotRow, mergedSlot);
+    return out;
+  } catch (eMer) {
+    out.aborted = true;
+    out.reason = String((eMer && eMer.message) || eMer);
+    return out;
+  }
+}
+
 function dedupeOrdersPreferSlot_(rows) {
   const byMk = Object.create(null);
   const order = [];
@@ -2874,22 +2987,30 @@ async function reattachWeekSlotDayNames_(env, opts) {
       const act = decideWeekSlotCalendarRow_(row, wantIso, day, gasMks, !!(mk && slotMks[mk]));
       if (act === "dedupe_calendar") {
         const slotRow = mk && slotMks[mk];
-        if (slotRow && clientPayloadSubstance_(clientFromRow_(row)) > clientPayloadSubstance_(clientFromRow_(slotRow))) {
-          try {
-            const mergedSlot = mergeOrderRowsKeepNonEmpty_(slotRow, row);
-            mergedSlot.updated_at = now;
-            await persistOrderContactFields_(env, slotRow.id, mergedSlot);
-            slotMks[mk] = Object.assign({}, slotRow, mergedSlot);
-          } catch (eMergeD) {}
-        }
+        if (!slotRow) continue;
         try {
-          await env.DB.prepare(
-            "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
-          )
-            .bind(now, row.id)
-            .run();
-          result.deduped.push({ client: row.client, dateIso: wantIso, day: day });
-        } catch (eD) {}
+          const applied = await applyDedupeWeekSlot_(env, slotRow, row, day, now);
+          if (applied.survivor && mk) slotMks[mk] = applied.survivor;
+          result.deduped.push({
+            client: row.client,
+            dateIso: wantIso,
+            day: day,
+            action: applied.action,
+            drop: applied.drop,
+            aborted: !!applied.aborted,
+            reason: applied.reason || "",
+            slotN: applied.slotN,
+            calN: applied.calN
+          });
+        } catch (eD) {
+          result.deduped.push({
+            client: row.client,
+            dateIso: wantIso,
+            day: day,
+            aborted: true,
+            reason: String((eD && eD.message) || eD)
+          });
+        }
         continue;
       }
       if (act === "reattach" || (act === "keep_calendar" && opts.attachCalendar === true && mk)) {
@@ -2915,6 +3036,29 @@ async function reattachWeekSlotDayNames_(env, opts) {
         const donor = rows.find(function (r) {
           return r && normalizeMatchKey_(r.match_key || r.client || "") === mk;
         });
+        if (donor && !String(donor.day_name || "") && clientPayloadSubstance_(rowPayloadForScore_(donor)) > 0) {
+          try {
+            const mergedDon = mergeKeepNonEmptyClient_(c, clientFromRow_(donor));
+            mergedDon.updated_at = now;
+            await persistOrderContactFields_(env, donor.id, {
+              address: mergedDon.address,
+              phone: mergedDon.phone,
+              note: mergedDon.note,
+              basket: mergedDon.basket,
+              basket_json: mergedDon.basket_json,
+              segment: mergedDon.segment || donor.segment || "",
+              updated_at: now
+            });
+            await env.DB.prepare(
+              "UPDATE orders SET day_name = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+            )
+              .bind(day, now, donor.id)
+              .run();
+            slotMks[mk] = Object.assign({}, donor, mergedDon, { day_name: day });
+            result.attached.push({ client: name, dateIso: wantIso, day: day, via: "insert_reattach" });
+            continue;
+          } catch (eDon) {}
+        }
         const mergedIns = mergeKeepNonEmptyClient_(c, donor ? clientFromRow_(donor) : {});
         try {
           await upsertOrderRow_(env, {
@@ -8516,7 +8660,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1 слоты недели = Sheets; пустые поля не затирали непустые.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-13 keep-nonempty-h1"
+        deployMarker: "2026-09-13 snowygodness-dedupe-h1"
       };
     } catch (eResync) {
       return {
@@ -8570,7 +8714,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1: сняли ошибочный +7. Лист и Календарь_Дат не меняли.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-13 keep-nonempty-h1"
+        deployMarker: "2026-09-13 snowygodness-dedupe-h1"
       };
     } catch (eRep) {
       return {
@@ -8630,7 +8774,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1: привязали day_name к датам слота по листу. Календарь_Дат не меняли.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-13 keep-nonempty-h1"
+        deployMarker: "2026-09-13 snowygodness-dedupe-h1"
       };
     } catch (eRep) {
       return {
@@ -8679,7 +8823,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1: заполнили пустые address/phone/состав из листа/CRM/снимка. Непустые не трогали.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-13 keep-nonempty-h1"
+        deployMarker: "2026-09-13 snowygodness-dedupe-h1"
       };
     } catch (eRepW) {
       return {

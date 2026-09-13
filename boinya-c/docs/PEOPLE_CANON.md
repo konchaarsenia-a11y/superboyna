@@ -58,6 +58,7 @@
 - Week-close resync: `gasN < d1Count` → upsert-only; aborted fallback без `ignoreTombstones`.
 - После detach/`repairShiftedWeekClose`: `reattachWeekSlotDayNames_` + `getClients` по дню показывает active на `date_iso` слота даже с пустым `day_name`. Не прятать людей новой недели.
 - **Не затирать** непустые `address` / `phone` / `basket` пустыми при `upsertOrderRow_` / `replaceDayOrdersFromClients_` / overlay save / GAS `handleSaveOrder`. Явный clear только `explicitClear=1` / `clearAddress` / `clearBasket`. Repair: `repairWipedClientFields`.
+- `repairDetachedWeekSlots` / `dedupe_calendar`: если calendar-only полнее слота — **promote** cal, удалить stub (`snowygodness` 14.09). Никогда не delete ряда с большим payload. Persist fail → abort, оба ряда живы.
 - `moveEpoch` старше 7д не прячет клиента.
 - Calendar month (D1-primary): без tomb-filter на live D1; **off-week month = только live D1** (snap не воскрешает delete).
 - `refreshViewDateSnap_` на calendar save/delete до ответа UI.

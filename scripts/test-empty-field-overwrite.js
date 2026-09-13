@@ -117,13 +117,16 @@ function mergeKeepNonEmptyClient_(incoming, existing, params) {
   return out;
 }
 
-function decideDedupeMerge_(slotRow, calendarRow) {
-  if (!slotRow) return "keep_calendar";
-  if (!calendarRow) return "keep_slot";
+function decideDedupeWeekRows_(slotRow, calRow) {
+  if (!slotRow && calRow) return { action: "reattach_calendar", drop: "" };
+  if (slotRow && !calRow) return { action: "keep_slot", drop: "" };
+  if (!slotRow && !calRow) return { action: "skip", drop: "" };
   var slotN = clientPayloadSubstance_(slotRow);
-  var calN = clientPayloadSubstance_(calendarRow);
-  if (calN > slotN) return "merge_cal_into_slot";
-  return "keep_slot";
+  var calN = clientPayloadSubstance_(calRow);
+  if (calN > slotN) {
+    return { action: "promote_calendar", drop: "slot_stub", slotN: slotN, calN: calN };
+  }
+  return { action: "merge_into_slot", drop: "calendar", slotN: slotN, calN: calN };
 }
 
 var full = {
@@ -166,8 +169,36 @@ assert(onlyAddr.phone === full.phone, "clearAddress keeps phone");
 assert(onlyAddr.basket.length === 1, "clearAddress keeps basket");
 
 assert(clientPayloadSubstance_(full) > clientPayloadSubstance_(empty), "full scores higher than empty");
-assert(decideDedupeMerge_(empty, full) === "merge_cal_into_slot", "empty slot + full calendar → merge");
-assert(decideDedupeMerge_(full, empty) === "keep_slot", "full slot + empty calendar → keep slot");
+
+var snowySlot = {
+  id: "Понедельник:snowygodness",
+  day_name: "Понедельник",
+  date_iso: "2026-09-14",
+  client: "snowygodness",
+  address: "",
+  phone: "",
+  note: "",
+  basket: [],
+  segment: ""
+};
+var snowyCal = {
+  id: "cal:2026-09-14:snowygodness",
+  day_name: "",
+  date_iso: "2026-09-14",
+  client: "snowygodness",
+  address: "Калиновского 12",
+  phone: "+375291112233",
+  note: "",
+  basket: [{ name: "АОРТА", sub: "Обычная", val: 0.4 }],
+  segment: "ПП"
+};
+var snowyPlan = decideDedupeWeekRows_(snowySlot, snowyCal);
+assert(snowyPlan.action === "promote_calendar", "snowygodness: empty Mon slot + full cal → promote calendar");
+assert(snowyPlan.drop === "slot_stub", "snowygodness: drop empty slot stub, not the full calendar");
+assert(decideDedupeWeekRows_(full, empty).action === "merge_into_slot", "full slot + empty cal → merge into slot");
+assert(decideDedupeWeekRows_(full, empty).drop === "calendar", "full slot + empty cal → drop calendar only");
+var mergedStub = mergeKeepNonEmptyClient_(empty, snowyCal, {});
+assert(mergedStub.address === snowyCal.address && mergedStub.basket.length === 1, "empty stub cannot wipe snowygodness payload");
 
 var workerPath = path.join(__dirname, "../boinya-c/proxy/worker.js");
 var gsPath = path.join(__dirname, "../Code.gs");
@@ -180,7 +211,11 @@ assert(worker.indexOf("function mergeKeepNonEmptyClient_") >= 0, "worker has mer
 assert(worker.indexOf("function mergeOrderRowsKeepNonEmpty_") >= 0, "worker has mergeOrderRowsKeepNonEmpty_");
 assert(worker.indexOf("skipKeepNonEmpty") >= 0 || worker.indexOf("mergeOrderRowsKeepNonEmpty_") >= 0, "upsert uses keep-non-empty");
 assert(worker.indexOf("repairWipedClientFields") >= 0, "repair action present");
-assert(worker.indexOf("keep-nonempty-h1") >= 0, "deploy marker");
+assert(worker.indexOf("snowygodness-dedupe-h1") >= 0, "deploy marker");
+assert(worker.indexOf("function decideDedupeWeekRows_") >= 0, "worker has decideDedupeWeekRows_");
+assert(worker.indexOf("function applyDedupeWeekSlot_") >= 0, "worker applyDedupeWeekSlot_");
+assert(worker.indexOf("promote_calendar") >= 0, "dedupe can promote full calendar");
+assert(worker.indexOf("merge_weaker_than_cal") >= 0, "refuse delete if merge weaker than calendar");
 assert(worker.indexOf("mergeKeepNonEmptyClient_(gasC") >= 0 || worker.indexOf("mergeKeepNonEmptyClient_(gasC,") >= 0, "resync merges GAS over D1");
 
 assert(gs.indexOf("keepNonEmptySheetField_") >= 0 || gs.indexOf("incomingBasketHasItems") >= 0, "GAS keep-non-empty / skip empty clear");
