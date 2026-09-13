@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-13 close-week-no-shift-h1
+ * deploy-marker: 2026-09-13 reattach-week-slots-h1
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -386,7 +386,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-13 close-week-no-shift-h1"
+      deployMarker: "2026-09-13 reattach-week-slots-h1"
     };
   }
 
@@ -2615,6 +2615,163 @@ async function restoreShiftedWeekClose_(env, fromMondayIso, opts) {
   try {
     await rebuildWeekCounts_(env);
   } catch (eRb) {}
+  try {
+    result.reattached = await reattachWeekSlotDayNames_(env, {
+      insertMissing: true,
+      attachCalendar: false
+    });
+  } catch (eAtt) {
+    result.reattached = { error: String((eAtt && eAtt.message) || eAtt) };
+  }
+  return result;
+}
+
+/**
+ * Calendar-only row on the current slot date after detach / repair.
+ * keep_slot = already on the weekday column; reattach = bind day_name;
+ * dedupe_calendar = extra empty-day_name copy of a slot row.
+ */
+function decideWeekSlotCalendarRow_(row, wantIso, day, gasMks, hasSlotRow) {
+  if (!row) return "skip";
+  const iso = String(row.date_iso || "");
+  const dn = String(row.day_name || "");
+  const mk = String(row.match_key || "").trim();
+  if (!wantIso || iso !== wantIso) return "skip";
+  if (dn === day) return "keep_slot";
+  if (dn) return "skip";
+  if (hasSlotRow) return "dedupe_calendar";
+  if (mk && gasMks && gasMks[mk]) return "reattach";
+  return "keep_calendar";
+}
+
+function dedupeOrdersPreferSlot_(rows) {
+  const byMk = Object.create(null);
+  const order = [];
+  (rows || []).forEach(function (row) {
+    if (!row) return;
+    const mk = normalizeMatchKey_(row.match_key || row.client || "") || ("id:" + row.id);
+    const prev = byMk[mk];
+    if (!prev) {
+      byMk[mk] = row;
+      order.push(mk);
+      return;
+    }
+    const prevSlot = !!String(prev.day_name || "");
+    const curSlot = !!String(row.day_name || "");
+    if (curSlot && !prevSlot) byMk[mk] = row;
+  });
+  return order.map(function (k) {
+    return byMk[k];
+  });
+}
+
+/**
+ * After close/repair, people can sit on the correct date_iso with day_name=''.
+ * Week getClients (by day_name) then hides them. Re-bind to the current slot
+ * when they are on the GAS sheet; drop calendar-only dupes of a slot row.
+ */
+async function reattachWeekSlotDayNames_(env, opts) {
+  opts = opts || {};
+  const result = { attached: [], inserted: [], deduped: [] };
+  if (!env || !env.DB) return result;
+  const now = new Date().toISOString();
+  const days = WEEK_DAYS.slice();
+  for (let i = 0; i < days.length; i++) {
+    const day = days[i];
+    let wantIso = "";
+    try {
+      const info = await dayDateInfo_(env, day);
+      wantIso = (info && info.iso) || "";
+    } catch (eInf) {}
+    if (!wantIso) continue;
+    let gasMks = Object.create(null);
+    try {
+      const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
+      if (fresh && fresh.status === "success") {
+        gasMks = gasClientMatchKeys_(fresh.clients);
+      }
+    } catch (eGas) {}
+    let rows = [];
+    try {
+      const q = await env.DB.prepare(
+        "SELECT * FROM orders WHERE status = 'active' AND date_iso = ? LIMIT 300"
+      )
+        .bind(wantIso)
+        .all();
+      rows = (q && q.results) || [];
+    } catch (eQ) {}
+    const slotMks = Object.create(null);
+    rows.forEach(function (row) {
+      if (!row) return;
+      if (String(row.day_name || "") !== day) return;
+      const mk = normalizeMatchKey_(row.match_key || row.client || "");
+      if (mk) slotMks[mk] = row;
+    });
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row) continue;
+      const mk = normalizeMatchKey_(row.match_key || row.client || "");
+      const act = decideWeekSlotCalendarRow_(row, wantIso, day, gasMks, !!(mk && slotMks[mk]));
+      if (act === "dedupe_calendar") {
+        try {
+          await env.DB.prepare(
+            "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+          )
+            .bind(now, row.id)
+            .run();
+          result.deduped.push({ client: row.client, dateIso: wantIso, day: day });
+        } catch (eD) {}
+        continue;
+      }
+      if (act === "reattach" || (act === "keep_calendar" && opts.attachCalendar === true && mk)) {
+        try {
+          await env.DB.prepare(
+            "UPDATE orders SET day_name = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+          )
+            .bind(day, now, row.id)
+            .run();
+          if (mk) slotMks[mk] = row;
+          result.attached.push({ client: row.client, dateIso: wantIso, day: day });
+        } catch (eA) {}
+      }
+    }
+    if (opts.insertMissing !== false) {
+      const mks = Object.keys(gasMks);
+      for (let gi = 0; gi < mks.length; gi++) {
+        const mk = mks[gi];
+        if (slotMks[mk]) continue;
+        const c = gasMks[mk];
+        const name = String((c && (c.name || c.client || c.nick)) || "").trim();
+        if (!name) continue;
+        try {
+          await upsertOrderRow_(env, {
+            id: day + ":" + mk,
+            date_iso: wantIso,
+            day_name: day,
+            client: name,
+            match_key: mk,
+            address: String((c && c.address) || ""),
+            note: String((c && c.note) || ""),
+            phone: String((c && c.phone) || ""),
+            basket_json: JSON.stringify((c && c.basket) || []),
+            segment: normalizeSegmentLabel_((c && (c.segment || c.orderType || c.source)) || ""),
+            source: String((c && c.source) || ""),
+            status: "active",
+            updated_at: now,
+            meta_json: "{}"
+          });
+          slotMks[mk] = true;
+          result.inserted.push({ client: name, dateIso: wantIso, day: day });
+        } catch (eI) {}
+      }
+    }
+  }
+  try {
+    await invalidateDays_(env, days);
+  } catch (eInv2) {}
+  try {
+    await rebuildWeekCounts_(env);
+  } catch (eRb2) {}
   return result;
 }
 
@@ -2652,13 +2809,46 @@ async function getClients_(params, env) {
         return !have || have === dateIso;
       });
     }
+    // detach после close/repair: active на date_iso слота с пустым day_name не прятать
+    if (dateIso) {
+      try {
+        const qExtra = await env.DB.prepare(
+          "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' AND (day_name = '' OR day_name IS NULL) ORDER BY client"
+        )
+          .bind(dateIso)
+          .all();
+        const extra = (qExtra && qExtra.results) || [];
+        const seenMk = Object.create(null);
+        rows.forEach(function (r) {
+          const mk = normalizeMatchKey_((r && (r.match_key || r.client)) || "");
+          if (mk) seenMk[mk] = true;
+        });
+        const nowHeal = new Date().toISOString();
+        for (let xi = 0; xi < extra.length; xi++) {
+          const rowX = extra[xi];
+          if (!rowX) continue;
+          const mkX = normalizeMatchKey_(rowX.match_key || rowX.client || "");
+          if (mkX && seenMk[mkX]) continue;
+          if (mkX) seenMk[mkX] = true;
+          rows.push(rowX);
+          try {
+            await env.DB.prepare(
+              "UPDATE orders SET day_name = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+            )
+              .bind(day, nowHeal, rowX.id)
+              .run();
+            rowX.day_name = day;
+          } catch (eHx) {}
+        }
+      } catch (eEx) {}
+    }
   } else if (dateIso) {
     const q = await env.DB.prepare(
       "SELECT * FROM orders WHERE date_iso = ? AND status = 'active' ORDER BY client"
     )
       .bind(dateIso)
       .all();
-    rows = q.results || [];
+    rows = dedupeOrdersPreferSlot_((q && q.results) || []);
   }
   if (!dateDmy && dateIso) dateDmy = isoToDmy_(dateIso);
   let clientsOut = rows.map(clientFromRow_);
@@ -7910,16 +8100,26 @@ async function handleCutover_(a, params, env, ctx) {
       }
       const counts =
         (await getSnapRaw_(env, "weekDayCountsSheet")) || (await getSnapRaw_(env, "weekDayCounts"));
+      let reattached = null;
+      try {
+        reattached = await reattachWeekSlotDayNames_(env, {
+          insertMissing: true,
+          attachCalendar: false
+        });
+      } catch (eAttF) {
+        reattached = { error: String((eAttF && eAttF.message) || eAttF) };
+      }
       return {
         status: "success",
         action: "forceWeekD1Resync",
         forceGasReplace: true,
         restoreShifted: restored,
+        reattached: reattached,
         weekDayCounts: counts || null,
         tip: "D1 слоты недели = Sheets; date_iso старой недели не сдвигали.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-13 close-week-no-shift-h1"
+        deployMarker: "2026-09-13 reattach-week-slots-h1"
       };
     } catch (eResync) {
       return {
@@ -7973,7 +8173,60 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1: сняли ошибочный +7. Лист и Календарь_Дат не меняли.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-13 close-week-no-shift-h1"
+        deployMarker: "2026-09-13 reattach-week-slots-h1"
+      };
+    } catch (eRep) {
+      return {
+        status: "error",
+        message: "repair_failed",
+        tip: String((eRep && eRep.message) || eRep),
+        cutover: true,
+        action: a
+      };
+    }
+  }
+
+  // После detach: вернуть day_name людям на текущих датах слота (лист GAS).
+  if (/^repairDetachedWeekSlots$/i.test(a)) {
+    const ownerOkD = await actorIsOwnerRetail_(params, env);
+    if (!ownerOkD) {
+      return {
+        status: "error",
+        message: "owner_only",
+        tip: "Только владелец может привязать слоты недели в D1.",
+        cutover: true,
+        action: a
+      };
+    }
+    if (
+      String(params.confirm || "") !== "1" &&
+      String(params.confirm || "").toLowerCase() !== "true" &&
+      String(params.allowDanger || "") !== "1"
+    ) {
+      return {
+        status: "error",
+        message: "need_confirm",
+        tip: "Нужен confirm=1",
+        cutover: true,
+        action: a
+      };
+    }
+    try {
+      const reattached = await reattachWeekSlotDayNames_(env, {
+        insertMissing: true,
+        attachCalendar: String(params.attachCalendar || "") === "1"
+      });
+      const counts2 =
+        (await getSnapRaw_(env, "weekDayCountsSheet")) || (await getSnapRaw_(env, "weekDayCounts"));
+      return {
+        status: "success",
+        action: "repairDetachedWeekSlots",
+        reattached: reattached,
+        weekDayCounts: counts2 || null,
+        tip: "D1: привязали day_name к датам слота по листу. Календарь_Дат не меняли.",
+        cutover: true,
+        d1Verified: true,
+        deployMarker: "2026-09-13 reattach-week-slots-h1"
       };
     } catch (eRep) {
       return {
@@ -11713,6 +11966,9 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
         } catch (eRw) {}
       }
     } catch (eDupe) {}
+    try {
+      await reattachWeekSlotDayNames_(env, { insertMissing: true, attachCalendar: false });
+    } catch (eAttRf) {}
   }
 }
 

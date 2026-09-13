@@ -15,7 +15,8 @@
 ## Закрытие недели
 
 `finishFullWeek` двигает **указатель недели** (A1 / слоты Пн–Вс на +7) и чистит колонки.  
-Строки `Календарь_Дат` и D1 `date_iso` **остаются на своих датах**. Worker после close: detach `day_name` у старых дат, слоты новой недели = лист (Future→Пн + materialize **новых** дат). Запрещено `UPDATE date_iso = wantIso` при смене слота.
+Строки `Календарь_Дат` и D1 `date_iso` **остаются на своих датах**. Worker после close: detach `day_name` у старых дат, слоты новой недели = лист (Future→Пн + materialize **новых** дат). Запрещено `UPDATE date_iso = wantIso` при смене слота.  
+После detach/ошибочного +7-repair люди на **новых** датах слота должны снова получить `day_name` (`repairDetachedWeekSlots` / `forceWeekD1Resync`); иначе неделя их не видит, хотя `date_iso` верный.
 
 ## Одно правило маршрута
 

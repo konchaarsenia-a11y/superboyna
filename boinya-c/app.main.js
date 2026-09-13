@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115954";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115955";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -14629,6 +14629,7 @@
         "Синхронизировать D1 с листом недели?\n\n" +
         "• Не закрывает неделю и не двигает даты листа\n" +
         "• Слоты D1 = колонки Sheets (пустые дни очистятся)\n" +
+        "• Людей с верной датой слота снова привяжем к дню недели\n" +
         "• Если люди «уехали» на +7 — вернём их на старые даты\n\n" +
         "Календарь_Дат не меняется."
       );
@@ -14663,6 +14664,18 @@
         await uiAlertAsync("Не вышло: " + ((res && res.message) || "resync_failed"));
         return;
       }
+      try {
+        await apiGet(
+          {
+            action: "repairDetachedWeekSlots",
+            telegramId: tid,
+            confirm: "1",
+            allowDanger: "1",
+            _: String(Date.now())
+          },
+          { timeoutMs: 180000, cacheTtlMs: 0 }
+        );
+      } catch (eAttUi) {}
       try { apiCacheBustMem_(); } catch (eClr) {}
       viewWeekOverviewCache = null;
       try {
