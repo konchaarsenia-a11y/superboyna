@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-12 frac-markup-canon-h1
+ * deploy-marker: 2026-09-13 close-week-no-shift-h1
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -386,7 +386,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-12 partner-pack-slot19-wipe"
+      deployMarker: "2026-09-13 close-week-no-shift-h1"
     };
   }
 
@@ -2396,30 +2396,54 @@ async function findActiveOrderByMatch_(env, matchKey, clientName) {
 }
 
 /**
- * Align D1 orders on a weekday column to that day's week date_iso.
- * Prefer UPDATE stamp over soft-delete — otherwise a force getClients after
- * saveOrder (new client with correct iso) wiped peers still stamped with the
- * previous week's date and left only the newcomer in UI.
+ * После смены слота недели (A1+7) НЕЛЬЗЯ переписывать date_iso на новую дату.
+ * Иначе записи «переезжают» 07.09 → 14.09. Пустой iso — проставить слот;
+ * чужая дата — снять day_name (календарь-only), date_iso оставить.
+ */
+function weekCloseScrubAction_(haveIso, wantIso) {
+  const have = String(haveIso || "").trim();
+  const want = String(wantIso || "").trim();
+  if (!want) return "skip";
+  if (!have) return "stamp_empty";
+  if (have === want) return "keep";
+  return "detach";
+}
+
+/**
+ * Align D1 weekday column to the current week slot WITHOUT shifting dates.
+ * Empty date_iso → stamp wantIso. Other date_iso → detach day_name (keep date).
  */
 async function scrubMismatchedDayOrders_(env, day, wantIso) {
   if (!env || !env.DB || !day || !wantIso) return 0;
   let n = 0;
   try {
     const q = await env.DB.prepare(
-      "SELECT id, date_iso FROM orders WHERE day_name = ? AND status = 'active' AND date_iso != '' AND date_iso != ? LIMIT 200"
+      "SELECT id, date_iso FROM orders WHERE day_name = ? AND status = 'active' AND date_iso != ? LIMIT 200"
     )
       .bind(day, wantIso)
       .all();
     const list = (q && q.results) || [];
     const nowFix = new Date().toISOString();
     for (let i = 0; i < list.length; i++) {
+      const row = list[i];
+      if (!row) continue;
+      const act = weekCloseScrubAction_(row.date_iso, wantIso);
       try {
-        await env.DB.prepare(
-          "UPDATE orders SET date_iso = ?, updated_at = ? WHERE id = ? AND status = 'active'"
-        )
-          .bind(wantIso, nowFix, list[i].id)
-          .run();
-        n++;
+        if (act === "stamp_empty") {
+          await env.DB.prepare(
+            "UPDATE orders SET date_iso = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+          )
+            .bind(wantIso, nowFix, row.id)
+            .run();
+          n++;
+        } else if (act === "detach") {
+          await env.DB.prepare(
+            "UPDATE orders SET day_name = '', updated_at = ? WHERE id = ? AND status = 'active'"
+          )
+            .bind(nowFix, row.id)
+            .run();
+          n++;
+        }
       } catch (e1) {}
     }
   } catch (e0) {}
@@ -2450,6 +2474,150 @@ async function scrubAllDayDateMismatches_(env, countsPayload) {
   return { scrubbed: scrubbed };
 }
 
+function gasClientMatchKeys_(clients) {
+  const out = Object.create(null);
+  (clients || []).forEach(function (c) {
+    if (!c) return;
+    const mk = normalizeMatchKey_(c.matchKey || c.name || c.client || c.nick || "");
+    if (mk) out[mk] = c;
+  });
+  return out;
+}
+
+/**
+ * Откат ошибочного +7 в D1 после close-week.
+ * Правда нового слота = GAS getClients (лист уже на следующей неделе).
+ * Строка D1 на newIso+day_name, которой нет на листе → вернуть date_iso−7, снять day_name.
+ * Календарь_Дат не трогаем. Неоднозначных (есть и на листе) не двигаем.
+ */
+async function restoreShiftedWeekClose_(env, fromMondayIso, opts) {
+  opts = opts || {};
+  const result = {
+    fromMondayIso: "",
+    toMondayIso: "",
+    restored: [],
+    keptOnNew: [],
+    refilled: [],
+    skipped: 0
+  };
+  if (!env || !env.DB) return result;
+  let fromIso = String(fromMondayIso || opts.fromMonday || "").trim();
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(fromIso)) fromIso = dmyToIso_(fromIso);
+  let toIso = String(opts.toMondayIso || opts.toMonday || "").trim();
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(toIso)) toIso = dmyToIso_(toIso);
+  if (!fromIso) {
+    try {
+      const info = await dayDateInfo_(env, "Понедельник");
+      if (info && info.iso) fromIso = isoAddDays_(info.iso, -7);
+    } catch (eInf) {}
+  }
+  if (!fromIso || !/^\d{4}-\d{2}-\d{2}$/.test(fromIso)) return result;
+  if (!toIso) toIso = isoAddDays_(fromIso, 7);
+  result.fromMondayIso = fromIso;
+  result.toMondayIso = toIso;
+  const now = new Date().toISOString();
+  const days = WEEK_DAYS.filter(function (d) {
+    return d !== "Будущая неделя";
+  });
+  for (let i = 0; i < days.length; i++) {
+    const day = days[i];
+    const oldIso = isoAddDays_(fromIso, i);
+    const newIso = isoAddDays_(toIso, i);
+    if (!oldIso || !newIso) continue;
+    let gasMks = Object.create(null);
+    try {
+      const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
+      if (fresh && fresh.status === "success") {
+        gasMks = gasClientMatchKeys_(fresh.clients);
+      }
+    } catch (eGas) {}
+    let rows = [];
+    try {
+      const q = await env.DB.prepare(
+        "SELECT * FROM orders WHERE status = 'active' AND date_iso = ? AND day_name = ? LIMIT 200"
+      )
+        .bind(newIso, day)
+        .all();
+      rows = (q && q.results) || [];
+    } catch (eQ) {}
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row) continue;
+      const mk = normalizeMatchKey_(row.match_key || row.client || "");
+      if (mk && gasMks[mk]) {
+        result.keptOnNew.push({ client: row.client, day: day, dateIso: newIso });
+        continue;
+      }
+      try {
+        await env.DB.prepare(
+          "UPDATE orders SET date_iso = ?, day_name = '', updated_at = ? WHERE id = ? AND status = 'active'"
+        )
+          .bind(oldIso, now, row.id)
+          .run();
+        result.restored.push({
+          client: row.client,
+          matchKey: mk,
+          day: day,
+          from: newIso,
+          to: oldIso
+        });
+      } catch (eUp) {
+        result.skipped++;
+      }
+    }
+    if (opts.refillCalendar !== false) {
+      try {
+        const cal = await gasProxy_(
+          "getViewCompare",
+          { date: oldIso, deliveryDate: oldIso },
+          env,
+          { write: false }
+        );
+        const pool = []
+          .concat((cal && cal.month) || [])
+          .concat((cal && cal.week) || []);
+        for (let ci = 0; ci < pool.length; ci++) {
+          const c = pool[ci];
+          if (!c) continue;
+          const name = String(c.name || c.client || c.nick || "").trim();
+          const mk = normalizeMatchKey_(c.matchKey || name);
+          if (!mk || !name) continue;
+          const exists = await env.DB.prepare(
+            "SELECT id FROM orders WHERE status = 'active' AND date_iso = ? AND (match_key = ? OR lower(client) = ?) LIMIT 1"
+          )
+            .bind(oldIso, mk, name.toLowerCase())
+            .first();
+          if (exists && exists.id) continue;
+          await upsertOrderRow_(env, {
+            id: "cal:" + oldIso + ":" + mk,
+            date_iso: oldIso,
+            day_name: "",
+            client: name,
+            match_key: mk,
+            address: String(c.address || ""),
+            note: String(c.note || ""),
+            phone: String(c.phone || ""),
+            basket_json: JSON.stringify(c.basket || []),
+            segment: normalizeSegmentLabel_(c.segment || c.orderType || c.source || ""),
+            source: String(c.source || "calendar"),
+            status: "active",
+            updated_at: now,
+            meta_json: "{}"
+          });
+          result.refilled.push({ client: name, dateIso: oldIso });
+        }
+      } catch (eCal) {}
+    }
+  }
+  try {
+    await invalidateDays_(env, days);
+  } catch (eInv) {}
+  try {
+    await rebuildWeekCounts_(env);
+  } catch (eRb) {}
+  return result;
+}
+
 async function getClients_(params, env) {
   await ensureMetaColumn_(env);
   const day = String(params.day || "");
@@ -2470,7 +2638,7 @@ async function getClients_(params, env) {
       .bind(day)
       .all();
     rows = q.results || [];
-    // сироты после отката дат недели: day=Среда но date_iso=02.09 при Ср=26.08
+    // сироты: чужой date_iso на слоте — снять day_name, не штамповать +7
     if (dateIso && rows.length) {
       await scrubMismatchedDayOrders_(env, day, dateIso);
       const q2 = await env.DB.prepare(
@@ -2479,6 +2647,10 @@ async function getClients_(params, env) {
         .bind(day)
         .all();
       rows = (q2 && q2.results) || [];
+      rows = rows.filter(function (r) {
+        const have = String((r && r.date_iso) || "");
+        return !have || have === dateIso;
+      });
     }
   } else if (dateIso) {
     const q = await env.DB.prepare(
@@ -7719,23 +7891,95 @@ async function handleCutover_(a, params, env, ctx) {
         clearDayTombs: true,
         forceGasReplace: true
       });
+      let restored = null;
+      const restoreFrom =
+        String(params.restoreFromMonday || params.fromMonday || params.prevMondayIso || "").trim();
+      const wantRestore =
+        restoreFrom ||
+        params.restoreShifted === true ||
+        String(params.restoreShifted || "") === "1";
+      if (wantRestore) {
+        try {
+          restored = await restoreShiftedWeekClose_(env, restoreFrom, {
+            toMondayIso: String(params.toMonday || params.toMondayIso || "").trim(),
+            refillCalendar: String(params.refillCalendar || "1") !== "0"
+          });
+        } catch (eRst) {
+          restored = { error: String((eRst && eRst.message) || eRst) };
+        }
+      }
       const counts =
         (await getSnapRaw_(env, "weekDayCountsSheet")) || (await getSnapRaw_(env, "weekDayCounts"));
       return {
         status: "success",
         action: "forceWeekD1Resync",
         forceGasReplace: true,
+        restoreShifted: restored,
         weekDayCounts: counts || null,
-        tip: "D1 слоты недели перезаписаны из Sheets (пустые дни очищены).",
+        tip: "D1 слоты недели = Sheets; date_iso старой недели не сдвигали.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-12 cut-flags-no-autocheck"
+        deployMarker: "2026-09-13 close-week-no-shift-h1"
       };
     } catch (eResync) {
       return {
         status: "error",
         message: "resync_failed",
         tip: String((eResync && eResync.message) || eResync),
+        cutover: true,
+        action: a
+      };
+    }
+  }
+
+  // Откат уже случившегося +7 в D1 (07.09→14.09). Sheets не двигает.
+  if (/^repairShiftedWeekClose$/i.test(a)) {
+    const ownerOkR = await actorIsOwnerRetail_(params, env);
+    if (!ownerOkR) {
+      return {
+        status: "error",
+        message: "owner_only",
+        tip: "Только владелец может откатить сдвиг дат в D1.",
+        cutover: true,
+        action: a
+      };
+    }
+    if (
+      String(params.confirm || "") !== "1" &&
+      String(params.confirm || "").toLowerCase() !== "true" &&
+      String(params.allowDanger || "") !== "1"
+    ) {
+      return {
+        status: "error",
+        message: "need_confirm",
+        tip: "Нужен confirm=1 и fromMonday=yyyy-MM-dd (старый Пн, напр. 2026-09-07)",
+        cutover: true,
+        action: a
+      };
+    }
+    try {
+      const restored = await restoreShiftedWeekClose_(
+        env,
+        String(params.fromMonday || params.prevMondayIso || params.restoreFromMonday || "").trim(),
+        {
+          toMondayIso: String(params.toMonday || params.toMondayIso || "").trim(),
+          refillCalendar: String(params.refillCalendar || "1") !== "0"
+        }
+      );
+      return {
+        status: "success",
+        action: "repairShiftedWeekClose",
+        restoreShifted: restored,
+        tip: "D1: сняли ошибочный +7. Лист и Календарь_Дат не меняли.",
+        cutover: true,
+        d1Verified: true,
+        deployMarker: "2026-09-13 close-week-no-shift-h1"
+      };
+    } catch (eRep) {
+      return {
+        status: "error",
+        message: "repair_failed",
+        tip: String((eRep && eRep.message) || eRep),
         cutover: true,
         action: a
       };
@@ -7814,11 +8058,21 @@ async function handleCutover_(a, params, env, ctx) {
     async function runWeekD1Resync_() {
       try {
         // finish/repair: Sheets = правда слота (пустой день после очистки — ок).
-        // Без forceGasReplace anti-shrink + scrub date_iso «переносят» старых людей на +7.
+        // Без forceGasReplace + detach anti-shrink оставлял старых на слоте.
+        // date_iso больше не штампуем на +7 — только снимаем day_name.
         await cutoverRefreshAllWeekDays_(env, {
           clearDayTombs: /^finishFullWeek$/i.test(a),
           forceGasReplace: /^(finishFullWeek|repairWeekMonday)$/i.test(a)
         });
+        if (/^finishFullWeek$/i.test(a)) {
+          const prevMon =
+            (proxiedFin && (proxiedFin.prevMondayIso || proxiedFin.prevMondayDate)) ||
+            (params && (params.prevMondayIso || params.fromMonday)) ||
+            "";
+          try {
+            await restoreShiftedWeekClose_(env, prevMon, { refillCalendar: true });
+          } catch (eRstFin) {}
+        }
       } catch (eRf0) {}
       try {
         if (!(isWarehouseCloseD1Canon_(env) && /^finishFullWeek$/i.test(a) && whClosePack && whClosePack.ok)) {
@@ -10937,7 +11191,7 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
   const forceShrink = opts.forceShrink === true || opts.allowEmptyGasWipe === true;
   if (gasAuthoritative && existingCount > 0 && !forceShrink) {
     if (gasN === 0) {
-      // лист пуст/не ответил — только выровнять date_iso, людей не трогать
+      // лист пуст/не ответил — снять day_name у чужих дат, date_iso не сдвигать
       try {
         if (info && info.iso) await scrubMismatchedDayOrders_(env, day, info.iso);
       } catch (eStamp0) {}
