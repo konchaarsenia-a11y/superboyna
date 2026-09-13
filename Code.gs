@@ -4983,6 +4983,27 @@ function resolveDayForOrderWrite_(ss, json) {
  * Сохранение заказа с учётом фракции (sub).
  * orderItem: { name|main, sub, val|value, cat }
  */
+function keepNonEmptySheetField_(incoming, existing, allowEmpty) {
+  var inc = incoming == null ? "" : String(incoming).trim();
+  var ex = existing == null ? "" : String(existing).trim();
+  if (allowEmpty) return inc;
+  if (inc) return inc;
+  return ex;
+}
+
+function incomingBasketHasItems_(basket) {
+  if (!basket) return false;
+  if (Object.prototype.toString.call(basket) !== "[object Array]") return false;
+  for (var i = 0; i < basket.length; i++) {
+    var it = basket[i];
+    if (!it) continue;
+    var nm = String(it.name || it.main || "").trim();
+    var val = Number(it.val != null ? it.val : it.value) || 0;
+    if (nm && val > 0) return true;
+  }
+  return false;
+}
+
 function handleSaveOrder(ss, json, callback, fromPost) {
   if (fromPost === undefined) fromPost = true;
   // "internal" — вложенный вызов из saveBooking: без HTTP-ответа, только объект результата
@@ -5055,13 +5076,24 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   }
   if (clientCol === -1) return reply({ status: "no_free_columns" });
 
-  // очистка товаров + адрес + примечание
-  targetSheet.getRange(block.start, clientCol, block.note - block.start + 1, 1).clearContent();
+  var allowEmptyOverwrite = String(json.explicitClear || json.allowEmptyOverwrite || "") === "1" ||
+    String(json.clearBasket || "") === "1";
+  var incomingBasketPreview = normalizeBasketArg_(json.basket);
+  var incomingBasketHasItems = incomingBasketHasItems_(incomingBasketPreview);
+  // товары: чистим только если есть состав или явный clear — иначе partial save стирает колонку
+  if (incomingBasketHasItems || allowEmptyOverwrite) {
+    targetSheet.getRange(block.start, clientCol, block.end - block.start + 1, 1).clearContent();
+  }
   // ник мог быть затронут только ниже start — вернём на всякий
   var nickNow = String(targetSheet.getRange(block.nick, clientCol).getValue() || "").trim();
   if (!nickNow) targetSheet.getRange(block.nick, clientCol).setValue(String(json.client || "").trim());
 
-  if (json.address) targetSheet.getRange(block.addr, clientCol).setValue(json.address);
+  var existingAddr = String(targetSheet.getRange(block.addr, clientCol).getValue() || "").trim();
+  var addrToWrite = keepNonEmptySheetField_(json.address, existingAddr, allowEmptyOverwrite || String(json.clearAddress || "") === "1");
+  if (addrToWrite || allowEmptyOverwrite || String(json.clearAddress || "") === "1") {
+    if (addrToWrite) targetSheet.getRange(block.addr, clientCol).setValue(addrToWrite);
+    else targetSheet.getRange(block.addr, clientCol).clearContent();
+  }
   // note = только текст менеджера; тип/цена/слот — в Календарь_Дат / Брони
   var cleanNote = stripTechFromNote_(String(json.note || ""));
   var otSave = String(json.orderType || json.source || "").trim().toLowerCase();
@@ -5124,8 +5156,10 @@ function handleSaveOrder(ss, json, callback, fromPost) {
       }
     } catch (ePpSlot) {}
   }
-  if (cleanNote) targetSheet.getRange(block.note, clientCol).setValue(cleanNote);
-  else targetSheet.getRange(block.note, clientCol).clearContent();
+  var existingNote = String(targetSheet.getRange(block.note, clientCol).getValue() || "").trim();
+  var noteToWrite = keepNonEmptySheetField_(cleanNote, existingNote, allowEmptyOverwrite || String(json.clearNote || "") === "1");
+  if (noteToWrite) targetSheet.getRange(block.note, clientCol).setValue(noteToWrite);
+  else if (allowEmptyOverwrite || String(json.clearNote || "") === "1") targetSheet.getRange(block.note, clientCol).clearContent();
 
   var geo = json.geo || null;
   if (typeof geo === "string" && geo) {
@@ -5133,7 +5167,7 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   }
   if (geo && geo.lat != null && geo.lon != null) {
     upsertClientGeo_(ss, json.day, json.client, geo.lat, geo.lon, geo.yandexUrl || "");
-  } else {
+  } else if (allowEmptyOverwrite) {
     clearClientGeo_(ss, json.day, json.client);
   }
 
@@ -5180,7 +5214,7 @@ function handleSaveOrder(ss, json, callback, fromPost) {
         date: dayDateCal,
         client: String(json.client || "").trim(),
         segment: segSave,
-        address: json.address || "",
+        address: addrToWrite || json.address || "",
         phone: phoneSave,
         note: cleanNote,
         // dog:1/2 — в календарь целиком; на лист недели уже ушёл merge без dog
@@ -10535,11 +10569,15 @@ function upsertCalendarEntry_(ss, opts) {
       if (dOld === dNew) { existing = all[i]; break; }
     }
   }
+  var allowEmptyCal = !!(opts.explicitClear || opts.allowEmptyOverwrite || opts.clearBasket);
   var basket = opts.basket;
   if (!basket && opts.basketJson) {
     try { basket = JSON.parse(String(opts.basketJson)); } catch (eB) { basket = []; }
   }
   if (!Array.isArray(basket)) basket = existing ? (existing.basket || []) : [];
+  if (!allowEmptyCal && (!basket || !basket.length) && existing && existing.basket && existing.basket.length) {
+    basket = existing.basket;
+  }
   var now = new Date();
   var noteHuman = stripTechFromNote_(opts.note != null ? opts.note : (existing && existing.note) || "");
   var seg = String(opts.segment != null ? opts.segment : (existing && existing.segment) || "").trim();
@@ -10569,8 +10607,8 @@ function upsertCalendarEntry_(ss, opts) {
     client,
     matchKey,
     seg,
-    String(opts.address != null ? opts.address : (existing && existing.address) || ""),
-    String(opts.phone != null ? opts.phone : (existing && existing.phone) || ""),
+    keepNonEmptySheetField_(opts.address, existing && existing.address, !!(opts.explicitClear || opts.allowEmptyOverwrite || opts.clearAddress)),
+    keepNonEmptySheetField_(opts.phone, existing && existing.phone, !!(opts.explicitClear || opts.allowEmptyOverwrite || opts.clearPhone)),
     noteHuman,
     JSON.stringify(basket),
     String(opts.subId != null ? opts.subId : (existing && existing.subId) || "") || extractSubIdFromNote_(String(opts.note || "")),
