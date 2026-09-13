@@ -1187,7 +1187,8 @@ function finishFullWeekProduction(optSs, optOpts) {
     sheetWarehouse.getRange("B15:B25").setValue(0);
   }
 
-  // Даты Вт–Вс = формулы =A1+N → двигаем только понедельник (+7)
+  // Указатель недели: A1 Пн +7 (Вт–Вс = формулы =A1+N).
+  // Календарь_Дат / брони / D1 date_iso НЕ сдвигаем — записи остаются на своих датах.
   var mondayCell = sheetManager.getRange("A1");
   var oldManagerDate = mondayCell.getValue();
   if (oldManagerDate instanceof Date && !isNaN(oldManagerDate.getTime())) {
@@ -1288,10 +1289,22 @@ function finishFullWeekProduction(optSs, optOpts) {
   if (!silent) {
     try { Browser.msgBox("🎉 СМЕНА ЗАКРЫТА!"); } catch (eOk) {}
   }
+  var prevMondayIso = "";
+  var prevMondayDmy = "";
+  try {
+    if (oldManagerDate instanceof Date && !isNaN(oldManagerDate.getTime())) {
+      prevMondayIso = Utilities.formatDate(oldManagerDate, tz, "yyyy-MM-dd");
+      prevMondayDmy = Utilities.formatDate(oldManagerDate, tz, "dd.MM.yyyy");
+    }
+  } catch (ePrevMon) {}
   return {
     status: "success",
     message: "week_closed",
     mondayDate: String(newMondayDate || ""),
+    prevMondayDate: prevMondayDmy,
+    prevMondayIso: prevMondayIso,
+    weekPointerOnly: true,
+    calendarUnchanged: true,
     courierDate: Utilities.formatDate(nextCourierDate, tz, "dd.MM.yyyy"),
     materialize: materializeInfo,
     materializeAdded: materializeInfo ? (Number(materializeInfo.totalAdded) || 0) : 0

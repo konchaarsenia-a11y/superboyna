@@ -1,0 +1,98 @@
+#!/usr/bin/env node
+/**
+ * Контракт close-week: указатель недели +7, date_iso не мигрирует 07.09 → 14.09.
+ * Не вызывает live finishFullWeek.
+ */
+var fs = require("fs");
+var path = require("path");
+
+function assert(cond, msg) {
+  if (!cond) {
+    console.error("FAIL  " + msg);
+    process.exitCode = 1;
+    return false;
+  }
+  console.log("ok    " + msg);
+  return true;
+}
+
+function weekCloseScrubAction_(haveIso, wantIso) {
+  var have = String(haveIso || "").trim();
+  var want = String(wantIso || "").trim();
+  if (!want) return "skip";
+  if (!have) return "stamp_empty";
+  if (have === want) return "keep";
+  return "detach";
+}
+
+var workerPath = path.join(__dirname, "../boinya-c/proxy/worker.js");
+var gsPath = path.join(__dirname, "../Code.gs");
+var uiPath = path.join(__dirname, "../boinya-c/app.main.js");
+var worker = fs.readFileSync(workerPath, "utf8");
+var gs = fs.readFileSync(gsPath, "utf8");
+var ui = fs.readFileSync(uiPath, "utf8");
+
+assert(weekCloseScrubAction_("", "2026-09-14") === "stamp_empty", "empty iso → stamp slot");
+assert(weekCloseScrubAction_("2026-09-14", "2026-09-14") === "keep", "same iso → keep");
+assert(weekCloseScrubAction_("2026-09-07", "2026-09-14") === "detach", "07.09 vs 14.09 → detach");
+assert(weekCloseScrubAction_("2026-09-08", "2026-09-14") === "detach", "other date → detach");
+assert(weekCloseScrubAction_("2026-09-07", "") === "skip", "no wantIso → skip");
+assert(weekCloseScrubAction_("2026-09-07", "2026-09-14") !== "remap", "never remap +7");
+
+var extracted = worker.match(/function weekCloseScrubAction_\([\s\S]*?\n\}/);
+assert(!!extracted, "worker exports weekCloseScrubAction_");
+if (extracted) {
+  /* eslint-disable no-eval */
+  eval(extracted[0]);
+  assert(weekCloseScrubAction_("2026-09-07", "2026-09-14") === "detach", "worker helper: 7→14 detach");
+}
+
+var scrubStart = worker.indexOf("async function scrubMismatchedDayOrders_");
+var scrubEnd = worker.indexOf("async function scrubAllDayDateMismatches_");
+var scrubBody = scrubStart >= 0 && scrubEnd > scrubStart ? worker.slice(scrubStart, scrubEnd) : "";
+assert(scrubBody.indexOf("weekCloseScrubAction_") >= 0, "scrub uses named decision");
+assert(scrubBody.indexOf("act === \"detach\"") >= 0 || scrubBody.indexOf("act === 'detach'") >= 0, "scrub detach branch");
+assert(scrubBody.indexOf("day_name = ''") >= 0, "detach clears day_name, keeps date_iso");
+assert(
+  /UPDATE orders SET date_iso = \?, updated_at = \? WHERE id = \?/.test(scrubBody) &&
+    scrubBody.indexOf("stamp_empty") >= 0,
+  "date_iso UPDATE only for empty stamp"
+);
+
+assert(worker.indexOf("restoreShiftedWeekClose_") >= 0, "repair helper present");
+assert(worker.indexOf("repairShiftedWeekClose") >= 0, "repair action present");
+assert(worker.indexOf("close-week-no-shift-h1") >= 0, "deploy marker");
+
+var finStart = gs.indexOf("function finishFullWeekProduction");
+var finEnd = gs.indexOf("function actorIsOwner_");
+var fin = finStart >= 0 && finEnd > finStart ? gs.slice(finStart, finEnd) : "";
+assert(fin.indexOf("prevMondayIso") >= 0, "GAS returns prevMondayIso");
+assert(fin.indexOf("calendarUnchanged") >= 0, "GAS flags calendar unchanged");
+assert(fin.indexOf("Календарь_Дат") === -1 || fin.indexOf("НЕ сдвигаем") >= 0, "finish does not rewrite calendar dates");
+
+assert(ui.indexOf("restoreFromMonday") >= 0, "UI finish asks Worker restore");
+assert(ui.indexOf("restoreShifted") >= 0, "UI resync restores shifted rows");
+
+function decideRestoreRow_(row, gasMks, newIso) {
+  if (!row || row.date_iso !== newIso) return "skip";
+  if (row.match_key && gasMks[row.match_key]) return "keep";
+  return "restore";
+}
+assert(
+  decideRestoreRow_({ date_iso: "2026-09-14", match_key: "ann" }, {}, "2026-09-14") === "restore",
+  "D1 +7 not on GAS → restore to 07.09"
+);
+assert(
+  decideRestoreRow_({ date_iso: "2026-09-14", match_key: "ann" }, { ann: true }, "2026-09-14") === "keep",
+  "D1 +7 also on GAS Monday → keep (Future/materialize)"
+);
+assert(
+  decideRestoreRow_({ date_iso: "2026-09-14", match_key: "ann" }, {}, "2026-09-21") === "skip",
+  "other new week → skip"
+);
+
+if (process.exitCode) {
+  console.error("\nclose-week-no-shift: FAILED");
+  process.exit(1);
+}
+console.log("\nclose-week-no-shift: ALL PASS");

@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115953";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115954";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -14568,7 +14568,18 @@
         (addedN ? (" · из месяца +" + addedN) : ""));
       try { logLearnEvent("finishFullWeek", { weekKey: wk, mondayDate: res.mondayDate || "", materializeAdded: addedN }); } catch (e2) {}
       try { apiCacheBustMem_(); } catch (eClr2) {}
-      // Worker D1 ещё со старой неделей — принудительно подтянуть GAS (+ сброс нарезки/курьера)
+      // D1: слоты = лист новой недели; date_iso старой НЕ сдвигать (+7). UI идёт в GAS напрямую.
+      try {
+        await apiGet({
+          action: "forceWeekD1Resync",
+          telegramId: tid,
+          confirm: "1",
+          allowDanger: "1",
+          restoreFromMonday: String(res.prevMondayIso || res.prevMondayDate || ""),
+          restoreShifted: "1",
+          _: String(Date.now())
+        }, { timeoutMs: 180000, cacheTtlMs: 0 });
+      } catch (eResyncFin) {}
       try {
         await apiGet({ action: "getWeekDayCounts", force: "1", _: String(Date.now()) }, { timeoutMs: 45000, cacheTtlMs: 0 });
       } catch (eCnt) {}
@@ -14616,10 +14627,10 @@
       }
       var ok = await uiConfirmAsync(
         "Синхронизировать D1 с листом недели?\n\n" +
-        "• Не закрывает неделю и не двигает даты\n" +
-        "• Перезапишет людей в D1 по колонкам Sheets\n" +
-        "• Пустые дни на листе очистятся в приложении\n\n" +
-        "Нужно, если после «Завершить неделю» люди «переехали» на +7."
+        "• Не закрывает неделю и не двигает даты листа\n" +
+        "• Слоты D1 = колонки Sheets (пустые дни очистятся)\n" +
+        "• Если люди «уехали» на +7 — вернём их на старые даты\n\n" +
+        "Календарь_Дат не меняется."
       );
       if (!ok) return;
       var tid = String(myTelegramId || "").trim();
@@ -14639,6 +14650,7 @@
             telegramId: tid,
             confirm: "1",
             allowDanger: "1",
+            restoreShifted: "1",
             _: String(Date.now())
           },
           { timeoutMs: 180000, cacheTtlMs: 0 }

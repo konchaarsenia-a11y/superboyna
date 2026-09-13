@@ -26,7 +26,7 @@
 | `setWeekBannerState` / cutting sessions | **D1** + Sheets фон | ops/meta |
 | `lookupBpPartner` | **D1** из подписок; miss → GAS | — |
 | TG send (`sendCourierRoute` / `sendDeficit` / `forceSurveyRemind`) | **Worker** + D1 tickets/dedupe; secret `TELEGRAM_BOT_TOKEN`; нет секрета → GAS | `telegramCanon: worker\|sheets-fallback` |
-| `finishFullWeek` / materialize / pull / repair | **GAS Sheets** (даты/очистка/materialize) → Worker **ждёт** D1 resync (`WEEK_CLOSE_CANON=d1-sync`) | `weekCloseCanon: d1-sync` |
+| `finishFullWeek` / materialize / pull / repair | **GAS Sheets** (указатель недели A1+7 / очистка / materialize новых дат) → Worker D1 resync **без** штампа `date_iso+7` (detach `day_name`) | `weekCloseCanon: d1-sync` |
 | склад F/B при закрытии недели | **preview** `previewWeekCloseWarehouse` всегда D1; apply при `WAREHOUSE_CLOSE_CANON=d1-compute` + Deploy Code.gs `skipWarehouseClose` + зеркало `applyWarehouseRevision` | `warehouseCloseCanon` |
 | Goodboy `submitGoodboyTry` | **D1 snap** + TG Worker + Sheets зеркало | `gbCanon` |
 | Varka `partner*` | **D1/snap сразу** → Sheets+TG/deferred зеркало GAS | `partnerCanon: d1-primary` |
