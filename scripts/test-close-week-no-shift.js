@@ -61,7 +61,11 @@ assert(
 
 assert(worker.indexOf("restoreShiftedWeekClose_") >= 0, "repair helper present");
 assert(worker.indexOf("repairShiftedWeekClose") >= 0, "repair action present");
-assert(worker.indexOf("close-week-no-shift-h1") >= 0, "deploy marker");
+assert(worker.indexOf("reattachWeekSlotDayNames_") >= 0, "reattach helper present");
+assert(worker.indexOf("repairDetachedWeekSlots") >= 0, "reattach action present");
+assert(worker.indexOf("decideWeekSlotCalendarRow_") >= 0, "reattach decision helper");
+assert(worker.indexOf("reattach-week-slots-h1") >= 0, "deploy marker");
+assert(worker.indexOf("day_name = '' OR day_name IS NULL") >= 0, "getClients includes detached date_iso rows");
 
 var finStart = gs.indexOf("function finishFullWeekProduction");
 var finEnd = gs.indexOf("function actorIsOwner_");
@@ -72,6 +76,7 @@ assert(fin.indexOf("Календарь_Дат") === -1 || fin.indexOf("НЕ сд
 
 assert(ui.indexOf("restoreFromMonday") >= 0, "UI finish asks Worker restore");
 assert(ui.indexOf("restoreShifted") >= 0, "UI resync restores shifted rows");
+assert(ui.indexOf("repairDetachedWeekSlots") >= 0, "UI resync reattaches detached slots");
 
 function decideRestoreRow_(row, gasMks, newIso) {
   if (!row || row.date_iso !== newIso) return "skip";
@@ -89,6 +94,59 @@ assert(
 assert(
   decideRestoreRow_({ date_iso: "2026-09-14", match_key: "ann" }, {}, "2026-09-21") === "skip",
   "other new week → skip"
+);
+
+function decideWeekSlotCalendarRow_(row, wantIso, day, gasMks, hasSlotRow) {
+  if (!row) return "skip";
+  var iso = String(row.date_iso || "");
+  var dn = String(row.day_name || "");
+  var mk = String(row.match_key || "").trim();
+  if (!wantIso || iso !== wantIso) return "skip";
+  if (dn === day) return "keep_slot";
+  if (dn) return "skip";
+  if (hasSlotRow) return "dedupe_calendar";
+  if (mk && gasMks && gasMks[mk]) return "reattach";
+  return "keep_calendar";
+}
+assert(
+  decideWeekSlotCalendarRow_(
+    { date_iso: "2026-09-16", day_name: "", match_key: "viihrova" },
+    "2026-09-16",
+    "Среда",
+    { viihrova: true },
+    false
+  ) === "reattach",
+  "detached Wed on GAS → reattach"
+);
+assert(
+  decideWeekSlotCalendarRow_(
+    { date_iso: "2026-09-16", day_name: "", match_key: "viihrova" },
+    "2026-09-16",
+    "Среда",
+    { viihrova: true },
+    true
+  ) === "dedupe_calendar",
+  "detached duplicate of slot row → dedupe"
+);
+assert(
+  decideWeekSlotCalendarRow_(
+    { date_iso: "2026-09-16", day_name: "Среда", match_key: "katya" },
+    "2026-09-16",
+    "Среда",
+    { katya: true },
+    true
+  ) === "keep_slot",
+  "already on Wednesday → keep"
+);
+assert(
+  decideWeekSlotCalendarRow_(
+    { date_iso: "2026-09-07", day_name: "", match_key: "old" },
+    "2026-09-16",
+    "Среда",
+    { old: true },
+    false
+  ) === "skip",
+  "old-week date_iso → skip (do not steal history)"
 );
 
 if (process.exitCode) {

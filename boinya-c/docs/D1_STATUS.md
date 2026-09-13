@@ -25,7 +25,7 @@
 
 | Операция | Почему |
 |----------|--------|
-| **finishFullWeek** / materialize / repair | указатель недели (A1+7), materialize, очистка; Worker **d1-sync** без сдвига `date_iso` |
+| **finishFullWeek** / materialize / repair | указатель недели (A1+7), materialize, очистка; Worker **d1-sync** без сдвига `date_iso`; после detach — `repairDetachedWeekSlots` |
 | **Week-close slot sync** | `WEEK_D1_SYNC=gas-authoritative` — после закрытия D1 слоты = GAS (с guards) |
 | **Warehouse close apply** | F/B формулы листа; preview из D1, apply через GAS (`warehouseCloseCanon: sheets`) |
 | **ПП колонки на листе** | D1 ok, запись в ячейки ПП — Code.gs |
