@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115955";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115956";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -1511,6 +1511,12 @@
       // без голых ключей ЛЁГКОЕ/АОРТА/… — только фракции (см. stripBareRetailParents_)
     };
 
+    /** Вшитый канон — live-карта его не затирает для отсутствующих ключей. */
+    var RETAIL_PRICE_BUILTIN_ = {};
+    Object.keys(RETAIL_PRICE).forEach(function (k) {
+      RETAIL_PRICE_BUILTIN_[k] = Object.assign({}, RETAIL_PRICE[k]);
+    });
+
 
     /** Голый ключ (АОРТА) — дубль, если есть фракции (АОРТА|Обычная). */
     function stripBareRetailParentsMap_(map) {
@@ -1605,11 +1611,27 @@
       return null;
     }
 
+    function retailAliasPriceKeys_(name, sub) {
+      var keys = [];
+      if (sub === "Ломтики") keys.push(name + "|Целое");
+      if (sub === "Крупное") keys.push(name + "|Большое");
+      if (sub === "Полоски") keys.push(name + "|Кусочки");
+      if (sub === "Мелкое") keys.push(name + "|Мелкие кусочки");
+      return keys;
+    }
+
     function retailLineCost(name, sub, val, cat) {
       var meta = retailLookupKey_(name, sub);
       var info = RETAIL_PRICE[meta.key] || RETAIL_PRICE[meta.name];
+      if (!info) {
+        var aliases = retailAliasPriceKeys_(meta.name, meta.sub);
+        for (var ai = 0; ai < aliases.length; ai++) {
+          if (RETAIL_PRICE[aliases[ai]]) { info = RETAIL_PRICE[aliases[ai]]; break; }
+        }
+      }
       var v = Number(val) || 0;
-      if ((!info || info.per100 == null) && v > 0 && cat !== "chew" && cat !== "chews") {
+      var chew = cat === "chew" || cat === "chews";
+      if ((!info || info.per100 == null) && !chew) {
         var size = dressuraFractionSizeKey(meta.sub);
         var rate = size ? Number(dressuraFractionRates()[size]) : NaN;
         var base = retailBasePer100_(meta.name);
@@ -2069,20 +2091,11 @@
       if (catKey === "powder" || !name) return [];
       var cat = catalog[catKey] || {};
       var fr = (cat.fractions && cat.fractions[name]) ? cat.fractions[name].slice() : [];
-      // крошка — ко всему кроме жевалок
+      // крошка — ко всему кроме жевалок; набор как в ПП/БП, не режем по ключам прайса
       if (catKey !== "chew" && fr.indexOf(CRUMB_FRAC_LABEL_) < 0) {
         fr.push(CRUMB_FRAC_LABEL_);
       }
-      if (orderType !== "retail") return fr;
-      // розница: старые фракции с прайсом + новые (прайс позже) + крошка
-      return fr.filter(function (f) {
-        if (f === CRUMB_FRAC_LABEL_) return true;
-        var meta = retailLookupKey_(name, f);
-        if (RETAIL_PRICE[meta.key] || RETAIL_PRICE[meta.name]) return true;
-        // новые фракции без цены — всё равно показываем (прайс не трогаем)
-        var knownOld = /^(Мелкое|Среднее|Большое|Крупное|Целое|Ломтики|Полоски|Очень мелкое|ОЧ МАЛ|МАЛ|СРЕД|БОЛ|ОГР|ПЛАСТ|ПАЛК|ПОЛОВИНКА|Обычное|Обычная)$/i.test(f);
-        return !knownOld;
-      });
+      return fr;
     }
 
     function crumbParentFromName_(name) {
@@ -2143,6 +2156,30 @@
       };
     }
 
+    /** Live-прайс не должен прятать канон: недостающие ключи = base+ставка или вшитый канон. */
+    function fillMissingRetailFractionPrices_() {
+      ["dressura", "other"].forEach(function (catKey) {
+        var cat = catalog[catKey] || {};
+        (cat.items || []).forEach(function (name) {
+          var fracs = (cat.fractions && cat.fractions[name]) ? cat.fractions[name] : [];
+          fracs.forEach(function (f) {
+            var meta = retailLookupKey_(name, f);
+            if (RETAIL_PRICE[meta.key]) return;
+            var size = dressuraFractionSizeKey(meta.sub || f);
+            var rate = size ? Number(dressuraFractionRates()[size]) : NaN;
+            var base = retailBasePer100_(meta.name);
+            if (size && isFinite(rate) && base != null) {
+              RETAIL_PRICE[meta.key] = { per100: base + rate };
+            }
+          });
+        });
+      });
+      var builtin = (typeof RETAIL_PRICE_BUILTIN_ !== "undefined" && RETAIL_PRICE_BUILTIN_) || {};
+      Object.keys(builtin).forEach(function (k) {
+        if (!RETAIL_PRICE[k]) RETAIL_PRICE[k] = Object.assign({}, builtin[k]);
+      });
+    }
+
     function applyRetailPriceMapToUi_(items, delivery) {
       var next = {};
       (items || []).forEach(function (it) {
@@ -2159,6 +2196,7 @@
         Object.keys(RETAIL_PRICE).forEach(function (k) { delete RETAIL_PRICE[k]; });
         Object.keys(next).forEach(function (k) { RETAIL_PRICE[k] = next[k]; });
       }
+      fillMissingRetailFractionPrices_();
       // УХО К зеркалит УХО Г, если сервер ещё без позиции
       ["Обычное", "ПОЛОВИНКА"].forEach(function (sub) {
         var gk = "УХО Г|" + sub;
