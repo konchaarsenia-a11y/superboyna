@@ -201,6 +201,103 @@ assertRetailKey(uiCtx.retailLookupKey_, "ЛЁГКОЕ", "Полоски", "По�
 assertRetailKey(uiCtx.retailLookupKey_, "ЛЁГКОЕ", "Очень мелкое", "Очень мелкое", "UI lookup");
 assertRetailKey(uiCtx.retailLookupKey_, "ИНДЕЙКА", "Кусочки", "Полоски", "UI lookup");
 
+assert(!/orderType !== "retail"/.test(extractFn(uiSrc, "catalogFractionsForUi_")),
+  "catalogFractionsForUi_ must not filter by retail price keys");
+assert(uiSrc.includes("fillMissingRetailFractionPrices_"), "live-прайс дописывает недостающие ключи");
+
+const EXPECT_FR = {
+  "ЛЁГКОЕ": ["Ломтики", "Полоски", "Крупное", "Среднее", "Мелкое", "Очень мелкое", "Крошка"],
+  "СЕРДЦЕ": ["Ломтики", "Полоски", "Мелкое", "Очень мелкое", "Крошка"],
+  "РУБЕЦ Т": ["Ломтики", "Полоски", "Крупное", "Среднее", "Мелкое", "Очень мелкое", "Крошка"],
+  "БАРАНЬЕ ЛЁГКОЕ": ["Ломтики", "Полоски", "Крупное", "Среднее", "Мелкое", "Очень мелкое", "Крошка"],
+  "ПОЧКИ": ["Ломтики", "Мелкое", "Очень мелкое", "Крошка"],
+  "ИНДЕЙКА": ["Ломтики", "Полоски", "Мелкое", "Крошка"],
+  "БАРАНЬЯ ПЕЧЕНЬ": ["Ломтики", "Полоски", "Мелкое", "Крошка"],
+  "ПЕЧЕНЬ": ["Крошка"],
+  "ВЫМЯ": ["Крошка"],
+  "СЕМЕННИКИ": ["Крошка"],
+  "МЯСНЫЕ ЛОМТИКИ": ["Крошка"]
+};
+
+const retailUiCtx = vm.createContext({
+  Math: Math,
+  Number: Number,
+  String: String,
+  isFinite: isFinite,
+  Object: Object,
+  orderType: "retail"
+});
+vm.runInContext(
+  [
+    'var CRUMB_FRAC_LABEL_ = "Крошка";',
+    extractVarObject(uiSrc, "catalog").replace(/^const /, "var "),
+    extractFn(uiSrc, "catalogFractionsForUi_"),
+    extractVarObject(uiSrc, "RETAIL_PRICE"),
+    "var RETAIL_PRICE_BUILTIN_ = {}; Object.keys(RETAIL_PRICE).forEach(function (k) { RETAIL_PRICE_BUILTIN_[k] = Object.assign({}, RETAIL_PRICE[k]); });",
+    extractFn(uiSrc, "retailLookupKey_"),
+    extractFn(uiSrc, "retailDefaultSub_"),
+    extractFn(uiSrc, "retailBasePer100_"),
+    extractFn(uiSrc, "retailAliasPriceKeys_"),
+    extractFn(uiSrc, "dressuraFractionSizeKey"),
+    extractFn(uiSrc, "dressuraFractionPickRate"),
+    extractFn(uiSrc, "dressuraFractionRates"),
+    extractFn(uiSrc, "retailLineCost"),
+    extractFn(uiSrc, "stripBareRetailParentsMap_"),
+    extractFn(uiSrc, "fillMissingRetailFractionPrices_"),
+    extractFn(uiSrc, "applyRetailPriceMapToUi_")
+  ].join("\n"),
+  retailUiCtx
+);
+
+const staleLight = {
+  "ЛЁГКОЕ|Среднее": { per100: 11 },
+  "ЛЁГКОЕ|Мелкое": { per100: 12 },
+  "ЛЁГКОЕ|Целое": { per100: 9 }
+};
+Object.keys(retailUiCtx.RETAIL_PRICE).forEach(function (k) { delete retailUiCtx.RETAIL_PRICE[k]; });
+Object.keys(staleLight).forEach(function (k) { retailUiCtx.RETAIL_PRICE[k] = staleLight[k]; });
+
+const lightFr = retailUiCtx.catalogFractionsForUi_("dressura", "ЛЁГКОЕ");
+assert(JSON.stringify(lightFr) === JSON.stringify(EXPECT_FR["ЛЁГКОЕ"]),
+  "retail ЛЁГКОЕ fractions, got " + JSON.stringify(lightFr));
+
+for (const [name, want] of Object.entries(EXPECT_FR)) {
+  const cat = ["ИНДЕЙКА", "БАРАНЬЯ ПЕЧЕНЬ", "ПЕЧЕНЬ", "ВЫМЯ", "СЕМЕННИКИ", "МЯСНЫЕ ЛОМТИКИ"].indexOf(name) >= 0
+    ? "other" : "dressura";
+  const got = retailUiCtx.catalogFractionsForUi_(cat, name);
+  assert(JSON.stringify(got) === JSON.stringify(want),
+    "retail " + name + " → " + want.join("/") + ", got " + got.join("/"));
+}
+
+const chewFr = retailUiCtx.catalogFractionsForUi_("chew", "БЫЧИЙ КОРЕНЬ");
+assert(chewFr.indexOf("Крошка") < 0, "жевалки без крошки");
+assert(chewFr.indexOf("ОЧ МАЛ") >= 0 && chewFr.indexOf("ОГР") >= 0, "корень полный набор");
+
+retailUiCtx.applyRetailPriceMapToUi_([
+  { key: "ЛЁГКОЕ|Среднее", kind: "per100", price: 11 },
+  { key: "ЛЁГКОЕ|Мелкое", kind: "per100", price: 12 },
+  { key: "ЛЁГКОЕ|Целое", kind: "per100", price: 9 }
+], null);
+assert(retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Ломтики"] && retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Ломтики"].per100 === 9,
+  "fill ломтики = base 9");
+assert(retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Полоски"] && retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Полоски"].per100 === 10,
+  "fill полоски = 10");
+assert(retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Крупное"] && retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Крупное"].per100 === 11,
+  "fill крупное = 11");
+assert(retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Очень мелкое"] && retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Очень мелкое"].per100 === 14,
+  "fill очень мелкое = 14");
+
+const priceSlices = retailUiCtx.retailLineCost("ЛЁГКОЕ", "Ломтики", 100, "dressura");
+assert(priceSlices.found && priceSlices.cost === 9, "retail ломтики 100г = 9, got " + JSON.stringify(priceSlices));
+const priceXs = retailUiCtx.retailLineCost("ЛЁГКОЕ", "Очень мелкое", 100, "dressura");
+assert(priceXs.found && priceXs.cost === 14, "retail очень мелкое 100г = 14, got " + JSON.stringify(priceXs));
+
+const retailList = Object.entries(EXPECT_FR).map(function ([name, fr]) {
+  return name + ": " + fr.join(", ");
+});
+
 console.log("fraction-markup-canon OK");
 console.log("100г ставки:", gsLog.join(" · "));
 console.log("layers: Code.gs / worker / app.main.js match");
+console.log("retail UI fractions:");
+retailList.forEach(function (line) { console.log("  " + line); });
