@@ -187,9 +187,10 @@
 Дозакуп (мини-апп setWarehouseArrival) → Склад!B
 Закрытие недели finishFullWeekProduction:
   F := max(0, F + B − dryНеделя/D − излишекC); B := 0
-  даты Пн–Пт и Доставки!A1 +7
+  указатель недели: даты Пн–Пт и Доставки!A1 +7 (ячейки слотов, не строки календаря)
   очистка блоков → Будущая C3:Q61 → Пн C3:Q61
-  **materializeCurrentWeek_** (брони/CRM/календарь → лист новой недели, onlyMissing)
+  **materializeCurrentWeek_** (брони/CRM/календарь **на новые даты** → лист, onlyMissing)
+  Календарь_Дат и D1 `date_iso` не копируются +7
   (итоги — Статистика в аппе, не лист «Архив»)
 ```
 
@@ -276,7 +277,8 @@
 | `calcPpFact` | Факт стоимость ПП; `scheme` / `wishes` / `forNew` |
 | `migratePpToRaw26Scheme` | Ручной перевод старого ПП на сырьё×2.6 (карточка; календарь не трогает) |
 | `getAssembly` | Пакеты сборки по клиентам дня |
-| `finishFullWeek` | Закрытие недели (owner, confirm=1): склад, даты+7, Future→Пн |
+| `finishFullWeek` | Закрытие недели (owner, confirm=1): склад, указатель недели A1+7, Future→Пн; календарь/D1 date_iso не сдвигаются |
+| `repairShiftedWeekClose` | Worker-only (owner): откат ошибочного D1 +7 (`fromMonday=2026-09-07`) |
 | `ensureBpFromOrder` | БП-карта из заказа: basket в doGet через try/catch → [] |
 | `listBpIdle` | БП без движения N дней |
 | `closeAllOpenDeficits` | Owner: закрыть все open в Дефицит_Нарезки |
