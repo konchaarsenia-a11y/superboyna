@@ -8390,6 +8390,9 @@ const PARTNER_ARSENIY_USER = "arseniyhotko";
 const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
+/** Канон-owner партнёрки (кабинет со всеми активными точками, включая Varka). Не helper. */
+const PARTNER_CANON_OWNER_TIDS = ["650923866"];
+const PARTNER_CANON_OWNER_USERS = ["arseniyhotko"];
 
 /** Живой прогон @one_more_person_228. owner-all кроме exclude-net (не Varka). */
 const PARTNER_LIVE_TEST_ENABLED = false;
@@ -8559,6 +8562,74 @@ function partnerNormUserWorker_(raw) {
     .replace(/^@/, "")
     .trim()
     .toLowerCase();
+}
+
+/** Настоящий owner партнёрки (Arseniy). Helper 827494606 сюда не входит. */
+function isPartnerCanonOwner_(params) {
+  const u = partnerNormUserWorker_(params && params.username);
+  const tid = String((params && params.telegramId) || "").trim();
+  if (tid && PARTNER_CANON_OWNER_TIDS.indexOf(tid) >= 0) return true;
+  if (u && PARTNER_CANON_OWNER_USERS.indexOf(u) >= 0) return true;
+  return false;
+}
+
+function partnerIsOwnerIdentity_(row) {
+  if (!row) return false;
+  const tid = String(row.telegramId || row.id || "").trim();
+  const u = partnerNormUserWorker_(row.username);
+  if (tid && PARTNER_CANON_OWNER_TIDS.indexOf(tid) >= 0) return true;
+  if (u && PARTNER_CANON_OWNER_USERS.indexOf(u) >= 0) return true;
+  if (String(row.role || "").toLowerCase() === "owner") return true;
+  const name = String(row.name || "").trim();
+  if (name === "Владелец Good Boy" || /^владелец\b/i.test(name)) return true;
+  return false;
+}
+
+function partnerStripOwnerAccess_(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter(function (row) {
+    return !partnerIsOwnerIdentity_(row);
+  });
+}
+
+function partnerAttachVisibleAccess_(params, json) {
+  if (!json || typeof json !== "object") return json;
+  const srcAccess = Array.isArray(json.access) ? json.access : [];
+  const stripped = partnerStripOwnerAccess_(srcAccess);
+  if (isPartnerCanonOwner_(params)) {
+    return Object.assign({}, json, { access: stripped, ownerMode: true });
+  }
+  const allow = json.allowedPointIds && typeof json.allowedPointIds === "object" ? json.allowedPointIds : {};
+  const ids = Array.isArray(json.pointIds) ? json.pointIds : [];
+  const filtered = stripped.filter(function (row) {
+    const pids = (row && row.pointIds) || [];
+    for (let i = 0; i < pids.length; i++) {
+      if (allow[pids[i]] || ids.indexOf(pids[i]) >= 0) return true;
+    }
+    return false;
+  });
+  return Object.assign({}, json, { access: filtered });
+}
+
+/** Не-owner никогда не получает owner-кабинет / «Владелец Good Boy». */
+function partnerDemoteFakeOwner_(params, json) {
+  if (!json || typeof json !== "object") return json;
+  if (isPartnerCanonOwner_(params)) return json;
+  const role = String(json.role || "").toLowerCase();
+  const name = String(json.name || "").trim();
+  if (!(json.isOwner || json.ownerMode || role === "owner" || name === "Владелец Good Boy")) {
+    return json;
+  }
+  const asStaff = !!(json.isStaff || role === "staff");
+  return Object.assign({}, json, {
+    isOwner: false,
+    ownerMode: false,
+    ownersOnly: false,
+    role: asStaff ? "staff" : "partner",
+    isPartner: !asStaff,
+    isStaff: asStaff,
+    name: name === "Владелец Good Boy" ? (json.username || "Партнёр") : json.name
+  });
 }
 
 function isPartnerArseniy_(params) {
@@ -8746,10 +8817,11 @@ function partnerOwnerAllGetMe_(json) {
   return Object.assign({}, src, {
     status: "success",
     allowed: pointIds.length > 0,
-    ownersOnly: true,
-    role: "owner",
-    isPartner: false,
-    isOwner: true,
+    ownersOnly: false,
+    ownerMode: false,
+    role: "partner",
+    isPartner: true,
+    isOwner: false,
     name: src.name && src.name !== "Владелец Good Boy" ? src.name : "Live test",
     username: src.username || PARTNER_LIVE_TEST_USER,
     telegramId: src.telegramId || PARTNER_LIVE_TEST_TID || "",
@@ -8771,8 +8843,100 @@ function partnerOwnerAllGetMe_(json) {
   });
 }
 
+/** Owner-only кабинет: все активные точки, включая Varka. Не helper. */
+function partnerCanonOwnerGetMe_(json) {
+  const src = json && typeof json === "object" && json.status !== "error" ? json : {};
+  const renameById = {
+    pt_polotno_1: { name: "polotno_an", address: "Чечота 11" },
+    pt_indix_1: { name: "indixvost", address: "Проспект победителей 73/1" }
+  };
+  const canonMayak = "pt_varka_mayakovskogo_14";
+  const byId = {};
+  const addPt = function (p) {
+    if (!p || !p.id) return;
+    if (p.active === false) return;
+    if (String(p.networkId || "") === "net_firedog" || p.id === "pt_firedog_1") return;
+    const low = (String(p.name || "") + " " + String(p.address || "")).toLowerCase();
+    if (/маяковск/.test(low) && String(p.id) !== canonMayak) return;
+    const fix = renameById[p.id];
+    byId[p.id] = {
+      id: p.id,
+      networkId: p.networkId || "",
+      name: (fix && fix.name) || p.name || p.label || p.id,
+      address: (fix && fix.address) || p.address || ""
+    };
+  };
+  (Array.isArray(src.points) ? src.points : []).forEach(addPt);
+  (PARTNER_LIVE_TEST_QUEUE || []).forEach(addPt);
+  const pointsOut = Object.keys(byId).map(function (k) {
+    return byId[k];
+  });
+  const allowedPointIds = {};
+  const pointIds = pointsOut.map(function (p) {
+    allowedPointIds[p.id] = true;
+    return p.id;
+  });
+  const netNeed = {};
+  pointsOut.forEach(function (p) {
+    if (p.networkId) netNeed[p.networkId] = true;
+  });
+  let nets = Array.isArray(src.networks)
+    ? src.networks.filter(function (n) {
+        return n && netNeed[n.id] && n.id !== "net_firedog";
+      })
+    : [];
+  if (!nets.length) {
+    Object.keys(netNeed).forEach(function (nid) {
+      if (nid === "net_firedog") return;
+      nets.push({
+        id: nid,
+        name:
+          nid === "net_varka"
+            ? "Varka"
+            : nid === "net_nan"
+              ? "NaN clinic"
+              : nid === "net_fundog"
+                ? "Fundog"
+                : nid === "net_polotno"
+                  ? "Polotno"
+                  : nid === "net_indixvost"
+                    ? "Indixvost"
+                    : nid === "net_bobwow"
+                      ? "bow_wow_collar"
+                      : nid,
+        logo: nid === "net_varka" ? "assets/varka-logo.png" : ""
+      });
+    });
+  }
+  return Object.assign({}, src, {
+    status: "success",
+    allowed: pointIds.length > 0,
+    ownersOnly: true,
+    ownerMode: true,
+    role: "owner",
+    isPartner: false,
+    isOwner: true,
+    name: src.name && src.name !== "Владелец Good Boy" ? src.name : "Арсений",
+    username: src.username || PARTNER_CANON_OWNER_USERS[0] || "",
+    telegramId: src.telegramId || PARTNER_CANON_OWNER_TIDS[0] || "",
+    networkId: (pointsOut[0] && pointsOut[0].networkId) || "",
+    pointIds: pointIds,
+    allowedPointIds: allowedPointIds,
+    networks: nets,
+    points: pointsOut,
+    catalog: Array.isArray(src.catalog) && src.catalog.length ? src.catalog : PARTNER_CATALOG_STATIC,
+    cutover: true,
+    partnerOverride: "owner_cabinet_all_points",
+    liveTest: false,
+    liveTestPoint: undefined,
+    liveTestLabel: undefined,
+    canPickInspectLoca: false
+  });
+}
+
 function partnerBlockWrongPoint_(a, params) {
   if (a !== "partnerSubmitOrder") return null;
+  if (isPartnerCanonOwner_(params)) return null;
   if (isPartnerLiveTestUser_(params)) {
     const cur = partnerLiveTestCurrentWorker_();
     const loc = String((params && (params.locationId || params.pointId)) || "").trim();
@@ -8896,36 +9060,52 @@ async function patchSaveWithD1_(params, proxied, env) {
 }
 
 function partnerGuardOrRewrite_(a, params, json) {
+  let out = json && typeof json === "object" ? json : json;
+  if (out && Array.isArray(out.access) && (a === "partnerListAdmin" || a === "partnerGetMe" || a === "partnerSaveAccess")) {
+    out = Object.assign({}, out, { access: partnerStripOwnerAccess_(out.access) });
+  }
+  if (isPartnerCanonOwner_(params)) {
+    if (a === "partnerGetMe") {
+      return partnerAttachVisibleAccess_(params, partnerCanonOwnerGetMe_(out));
+    }
+    return out;
+  }
   if (isPartnerLiveTestUser_(params)) {
-    if (a === "partnerGetMe") return partnerLiveTestGetMe_(json);
-    if (a === "partnerListMyOrders" && json && json.status === "success" && Array.isArray(json.orders)) {
+    if (a === "partnerGetMe") {
+      return partnerAttachVisibleAccess_(params, partnerDemoteFakeOwner_(params, partnerLiveTestGetMe_(out)));
+    }
+    if (a === "partnerListMyOrders" && out && out.status === "success" && Array.isArray(out.orders)) {
       const cur = partnerLiveTestCurrentWorker_();
       const want = cur && cur.id;
-      return Object.assign({}, json, {
-        orders: json.orders.filter(function (o) {
+      return Object.assign({}, out, {
+        orders: out.orders.filter(function (o) {
           return !want || String((o && (o.locationId || o.pointId)) || "") === want;
         })
       });
     }
-    return json;
+    return partnerDemoteFakeOwner_(params, out);
   }
   if (isPartnerManualAccessUser_(params)) {
-    if (a === "partnerGetMe") return partnerManualAccessGetMe_(json);
-    if (a === "partnerListMyOrders" && json && json.status === "success" && Array.isArray(json.orders)) {
-      return Object.assign({}, json, {
-        orders: json.orders.filter(function (o) {
+    if (a === "partnerGetMe") {
+      return partnerAttachVisibleAccess_(params, partnerDemoteFakeOwner_(params, partnerManualAccessGetMe_(out)));
+    }
+    if (a === "partnerListMyOrders" && out && out.status === "success" && Array.isArray(out.orders)) {
+      return Object.assign({}, out, {
+        orders: out.orders.filter(function (o) {
           return partnerManualAllowedPointId_((o && (o.locationId || o.pointId)) || "");
         })
       });
     }
-    return json;
+    return partnerDemoteFakeOwner_(params, out);
   }
   if (isPartnerOwnerAllUser_(params)) {
-    if (a === "partnerGetMe") return partnerOwnerAllGetMe_(json);
-    if (a === "partnerListMyOrders" && json && json.status === "success" && Array.isArray(json.orders)) {
+    if (a === "partnerGetMe") {
+      return partnerAttachVisibleAccess_(params, partnerDemoteFakeOwner_(params, partnerOwnerAllGetMe_(out)));
+    }
+    if (a === "partnerListMyOrders" && out && out.status === "success" && Array.isArray(out.orders)) {
       const wantLoca = partnerInspectWantLoca_(params);
-      return Object.assign({}, json, {
-        orders: json.orders.filter(function (o) {
+      return Object.assign({}, out, {
+        orders: out.orders.filter(function (o) {
           if (partnerIsExcludedPoint_((o && (o.locationId || o.pointId)) || "", (o && o.networkId) || "")) {
             return false;
           }
@@ -8936,18 +9116,25 @@ function partnerGuardOrRewrite_(a, params, json) {
         })
       });
     }
-    return json;
+    return partnerDemoteFakeOwner_(params, out);
   }
-  if (!isPartnerArseniy_(params)) return json;
-  if (a === "partnerGetMe") return partnerArseniyGetMe_(json);
-  if (a === "partnerListMyOrders" && json && json.status === "success" && Array.isArray(json.orders)) {
-    return Object.assign({}, json, {
-      orders: json.orders.filter(function (o) {
-        return partnerArseniyAllowedPointId_((o && (o.locationId || o.pointId)) || "");
-      })
-    });
+  if (isPartnerArseniy_(params)) {
+    if (a === "partnerGetMe") {
+      return partnerAttachVisibleAccess_(params, partnerDemoteFakeOwner_(params, partnerArseniyGetMe_(out)));
+    }
+    if (a === "partnerListMyOrders" && out && out.status === "success" && Array.isArray(out.orders)) {
+      return Object.assign({}, out, {
+        orders: out.orders.filter(function (o) {
+          return partnerArseniyAllowedPointId_((o && (o.locationId || o.pointId)) || "");
+        })
+      });
+    }
+    return partnerDemoteFakeOwner_(params, out);
   }
-  return json;
+  if (a === "partnerGetMe") {
+    return partnerAttachVisibleAccess_(params, partnerDemoteFakeOwner_(params, out));
+  }
+  return partnerDemoteFakeOwner_(params, out);
 }
 
 function partnerMeSnapKey_(params) {
@@ -9003,6 +9190,53 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
     return instantLt;
   }
 
+  if (isPartnerCanonOwner_(params)) {
+    let snapCo = null;
+    let adminCo = null;
+    try {
+      snapCo = await getSnapRaw_(env, snapKey);
+    } catch (eCo0) {
+      snapCo = null;
+    }
+    try {
+      adminCo = await getSnapRaw_(env, "partnerListAdmin");
+    } catch (eAdCo) {
+      adminCo = null;
+    }
+    const baseCo =
+      adminCo && Array.isArray(adminCo.points) && adminCo.points.length
+        ? {
+            status: "success",
+            points: adminCo.points,
+            networks: adminCo.networks || [],
+            catalog: (snapCo && snapCo.catalog) || PARTNER_CATALOG_STATIC,
+            access: adminCo.access || [],
+            name: (snapCo && snapCo.name) || "",
+            username: PARTNER_CANON_OWNER_USERS[0] || "",
+            telegramId: PARTNER_CANON_OWNER_TIDS[0] || ""
+          }
+        : snapCo && snapCo.status === "success"
+          ? snapCo
+          : { status: "success" };
+    const instantCo = partnerGuardOrRewrite_("partnerGetMe", params, baseCo);
+    instantCo.cutover = true;
+    instantCo.swr = true;
+    instantCo.fromGas = false;
+    instantCo.fromD1 = true;
+    instantCo.sandbox = false;
+    instantCo.partnerCanon = partnerCanonLabel_(env);
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async function () {
+          try {
+            await fetchLive_();
+          } catch (eR) {}
+        })()
+      );
+    }
+    return instantCo;
+  }
+
   if (isPartnerManualAccessUser_(params)) {
     let snapMa = null;
     try {
@@ -9050,6 +9284,7 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
             points: adminOwn.points,
             networks: adminOwn.networks || [],
             catalog: (snapOwn && snapOwn.catalog) || PARTNER_CATALOG_STATIC,
+            access: adminOwn.access || [],
             name: (snapOwn && snapOwn.name) || "",
             username: PARTNER_LIVE_TEST_USER,
             telegramId: PARTNER_LIVE_TEST_TID
@@ -9057,7 +9292,7 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
         : snapOwn && snapOwn.status === "success"
           ? snapOwn
           : { status: "success" };
-    const instantOwn = partnerOwnerAllGetMe_(baseOwn);
+    const instantOwn = partnerGuardOrRewrite_("partnerGetMe", params, baseOwn);
     instantOwn.cutover = true;
     instantOwn.swr = true;
     instantOwn.fromGas = false;
@@ -9119,7 +9354,7 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
         })()
       );
     }
-    const out = Object.assign({}, snap);
+    const out = partnerGuardOrRewrite_("partnerGetMe", params, Object.assign({}, snap));
     out.cutover = true;
     out.swr = true;
     out.fromGas = false;
@@ -11243,6 +11478,9 @@ async function handleCutover_(a, params, env, ctx) {
         try {
           await mergePriceCostsPpFromLinesD1_(env, live.lines);
         } catch (ePp) {}
+      }
+      if (a === "partnerListAdmin" || a === "partnerGetMe") {
+        return partnerGuardOrRewrite_(a, params, live);
       }
       return live;
     }
@@ -18044,26 +18282,34 @@ async function partnerListAdminD1_(params, env, ctx) {
         })()
       );
     }
-    return Object.assign({}, admin, {
-      cutover: true,
-      fromD1: true,
-      fromGas: false,
-      sandbox: false,
-      d1Verified: true,
-      partnerCanon: partnerCanonLabel_(env)
-    });
+    return partnerGuardOrRewrite_(
+      "partnerListAdmin",
+      params,
+      Object.assign({}, admin, {
+        cutover: true,
+        fromD1: true,
+        fromGas: false,
+        sandbox: false,
+        d1Verified: true,
+        partnerCanon: partnerCanonLabel_(env)
+      })
+    );
   }
   const live = await gasProxy_("partnerListAdmin", params || {}, env, { write: false });
   if (live && live.status === "success" && env && env.DB) {
     try {
       const fixed = await partnerEnsureMayakovskyPoint_(env, live);
       await putSnap_(env, "partnerListAdmin", Object.assign({}, fixed, { cachedAt: new Date().toISOString() }));
-      return Object.assign({}, fixed, {
-        cutover: true,
-        fromGas: true,
-        fromD1: false,
-        partnerCanon: partnerCanonLabel_(env)
-      });
+      return partnerGuardOrRewrite_(
+        "partnerListAdmin",
+        params,
+        Object.assign({}, fixed, {
+          cutover: true,
+          fromGas: true,
+          fromD1: false,
+          partnerCanon: partnerCanonLabel_(env)
+        })
+      );
     } catch (eS) {}
   }
   if (live && typeof live === "object") {
@@ -18071,6 +18317,7 @@ async function partnerListAdminD1_(params, env, ctx) {
     live.fromGas = true;
     live.fromD1 = false;
     live.partnerCanon = partnerCanonLabel_(env);
+    return partnerGuardOrRewrite_("partnerListAdmin", params, live);
   }
   return live;
 }
@@ -18099,6 +18346,8 @@ async function partnerListMyOrdersD1_(params, env, ctx) {
         if (!sameUser) return false;
         return partnerManualAllowedPointId_((o && (o.locationId || o.pointId)) || "");
       });
+    } else if (isPartnerCanonOwner_(params)) {
+      // owner cabinet: все заявки, включая Varka
     } else if (isPartnerOwnerAllUser_(params)) {
       const wantLoca = partnerInspectWantLoca_(params);
       orders = orders.filter(function (o) {
@@ -18402,6 +18651,15 @@ async function mutatePartnerD1_(action, params, env) {
     ).trim();
     // staff row must use targetTelegramId; actor stays only for auth upstream
     const telegramId = targetTid || actorTid;
+    if (
+      partnerIsOwnerIdentity_({
+        telegramId: telegramId,
+        username: username,
+        role: String((params && params.role) || "").trim()
+      })
+    ) {
+      return { status: "error", message: "owner_hidden" };
+    }
     if (!username && !telegramId) return { status: "error", message: "need_user" };
     const id = String((params && params.id) || "").trim() || partnerUid_("pa");
     let pointIds = params && params.pointIds;
@@ -18629,6 +18887,28 @@ async function mutatePartnerD1_(action, params, env) {
         for (let mi = 0; mi < PARTNER_MANUAL_ACCESS_POINTS.length; mi++) {
           if (PARTNER_MANUAL_ACCESS_POINTS[mi].id === locationId) {
             if (!locationName) locationName = PARTNER_MANUAL_ACCESS_POINTS[mi].name || PARTNER_MANUAL_ACCESS_POINTS[mi].label || "";
+            break;
+          }
+        }
+      }
+    }
+    if (!allowed && isPartnerCanonOwner_({ username: username, telegramId: tid })) {
+      for (let pc = 0; pc < (admin.points || []).length; pc++) {
+        if (String(admin.points[pc].id) === locationId && admin.points[pc].active !== false) {
+          allowed = true;
+          if (!networkId) networkId = admin.points[pc].networkId || "";
+          if (!locationName) locationName = admin.points[pc].name || "";
+          break;
+        }
+      }
+      if (!allowed) {
+        for (let qc = 0; qc < (PARTNER_LIVE_TEST_QUEUE || []).length; qc++) {
+          if (PARTNER_LIVE_TEST_QUEUE[qc].id === locationId) {
+            allowed = true;
+            if (!networkId) networkId = PARTNER_LIVE_TEST_QUEUE[qc].networkId || "";
+            if (!locationName) {
+              locationName = PARTNER_LIVE_TEST_QUEUE[qc].name || PARTNER_LIVE_TEST_QUEUE[qc].label || "";
+            }
             break;
           }
         }
