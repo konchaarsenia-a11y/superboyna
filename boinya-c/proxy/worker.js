@@ -8599,16 +8599,8 @@ function partnerAttachVisibleAccess_(params, json) {
   if (isPartnerCanonOwner_(params)) {
     return Object.assign({}, json, { access: stripped, ownerMode: true });
   }
-  const allow = json.allowedPointIds && typeof json.allowedPointIds === "object" ? json.allowedPointIds : {};
-  const ids = Array.isArray(json.pointIds) ? json.pointIds : [];
-  const filtered = stripped.filter(function (row) {
-    const pids = (row && row.pointIds) || [];
-    for (let i = 0; i < pids.length; i++) {
-      if (allow[pids[i]] || ids.indexOf(pids[i]) >= 0) return true;
-    }
-    return false;
-  });
-  return Object.assign({}, json, { access: filtered });
+  // granted / helper: owner-UI payload не отдаём
+  return Object.assign({}, json, { access: [] });
 }
 
 /** Не-owner никогда не получает owner-кабинет / «Владелец Good Boy». */
@@ -18636,6 +18628,14 @@ async function mutatePartnerD1_(action, params, env) {
     // staff не может выдавать доступы (даже если D1 пишет раньше GAS)
     if (actorRole === "staff") {
       return { status: "error", message: "staff_cannot_grant" };
+    }
+    if (
+      !isPartnerCanonOwner_({
+        telegramId: actorTid,
+        username: actorUser || (params && params.username)
+      })
+    ) {
+      return { status: "error", message: "owner_only" };
     }
     for (let ai = 0; ai < (admin.access || []).length; ai++) {
       const ar = admin.access[ai];

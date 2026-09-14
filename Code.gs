@@ -22722,13 +22722,15 @@ function handlePartnerDeletePoint(json, callback, fromPost) {
 function handlePartnerSaveAccess(json, callback, fromPost) {
   var actor = String((json && json.telegramId) || "").trim();
   var actorRole = String((json && json.actorRole) || "").toLowerCase();
-  var isOwner = partnerRequireOwner_(actor);
-  // партнёр/owner из мини-аппа может выдать staff на свои точки; staff — нет
-  var allowPartnerStaff = !isOwner && (actorRole === "partner" || actorRole === "owner");
-  if (!isOwner && !allowPartnerStaff) {
-    var forbid = { status: "error", message: "forbidden" };
+  var actorUser = partnerNormUser_((json && json.actorUsername) || "");
+  var isCanonOwner = partnerIsCanonOwner_(actorUser, actor);
+  // Выдать доступ — только канон-owner партнёрки, не partner/helper/staff
+  if (!isCanonOwner) {
+    var forbid = { status: "error", message: "owner_only" };
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
   }
+  var isOwner = true;
+  var allowPartnerStaff = false;
   try { ensurePartnerAppSeeded_(false); } catch (eSeed) {}
   var username = partnerNormUser_((json && json.username) || "");
   var targetTid = String((json && (json.targetTelegramId || json.staffTelegramId)) || "").trim();

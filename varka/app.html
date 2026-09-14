@@ -677,9 +677,9 @@
         <p>Вам выдали доступ к точкам Good Boy.</p>
         <button class="btn block" type="button" onclick="acceptStaffAccess()">Принять доступ</button>
       </div>
-      <div class="card" id="grantStaffCard">
+      <div class="card" id="grantStaffCard" style="display:none;">
         <h3>Доступ сотруднику</h3>
-        <p>Дайте доступ к своим точкам ответственному.</p>
+        <p>Только владелец. Выданным доступом этот блок не виден.</p>
         <label class="lbl">Telegram ID сотрудника</label>
         <input class="field" id="staffTid" placeholder="например 123456789" inputmode="numeric">
         <label class="lbl">Имя</label>
@@ -709,7 +709,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.46";
+  var APP_VER = "3.3.47";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -1017,6 +1017,11 @@
     if (tid && CANON_OWNER_TIDS_.indexOf(tid) >= 0) return true;
     if (uname && CANON_OWNER_USERS_.indexOf(uname) >= 0) return true;
     return false;
+  }
+
+  /** Owner-UI (выдать доступ / список доступов) — только канон-owner, не partner/helper. */
+  function canUseOwnerUi_(u, acc) {
+    return isCanonOwnerUser_(u || (typeof user === "function" ? user() : {}), acc || state.me || {});
   }
 
   function isOwnerIdentityRow_(row) {
@@ -1781,7 +1786,7 @@
     state.cart = {};
     state.point = null;
     if (!state.me) state.me = {};
-    state.me.access = Array.isArray(acc.access)
+    state.me.access = REMOTE_IS_OWNER_ && Array.isArray(acc.access)
       ? acc.access.filter(function (row) { return !isOwnerIdentityRow_(row); })
       : [];
     enterApp_();
@@ -2679,9 +2684,7 @@
     }
     var grantCard = document.getElementById("grantStaffCard");
     var pendCard = document.getElementById("pendingAccessCard");
-    var canGrant = !!(state.me && !state.me.isStaff &&
-      String(state.me.role || "") !== "staff" &&
-      (state.me.isPartner || state.me.isOwner || REMOTE_IS_OWNER_));
+    var canGrant = canUseOwnerUi_();
     if (grantCard) grantCard.style.display = canGrant ? "" : "none";
     var needAccept = !!(state.me && state.me.isStaff &&
       String(state.me.accessStatus || "").toLowerCase() === "pending");
@@ -2712,10 +2715,8 @@
   }
 
   async function grantStaffAccess() {
-    if (!(state.me && !state.me.isStaff &&
-        (state.me.isPartner || state.me.isOwner || REMOTE_IS_OWNER_) &&
-        String(state.me.role || "") !== "staff")) {
-      alert("Выдать доступ может владелец или партнёр точки");
+    if (!canUseOwnerUi_()) {
+      alert("Выдать доступ может только владелец");
       return;
     }
     var tid = document.getElementById("staffTid").value.trim();
@@ -2729,13 +2730,12 @@
     var pointIds = normalizePointIds_(state.me.pointIds || DEMO_POINT_IDS);
     var pts = assignedPointsList_();
     if (!pointIds.length || !pts.length) { alert("Нет своих точек"); return; }
-    var actorIsOwner = !!(state.me.isOwner || REMOTE_IS_OWNER_);
     if (VARKA_WEBHOOK_URL) {
       try {
         var res = await apiGet_({
           action: "partnerSaveAccess",
-          telegramId: user().telegramId || tid,
-          actorRole: actorIsOwner ? "owner" : "partner",
+          telegramId: user().telegramId || (state.me && state.me.telegramId) || "",
+          actorRole: "owner",
           actorUsername: state.me.username || "",
           targetTelegramId: tid,
           name: name,
@@ -2798,7 +2798,7 @@
   function renderStaffList_() {
     var box = document.getElementById("staffList");
     if (!box) return;
-    if (!(state.me && !state.me.isStaff && (state.me.isPartner || state.me.isOwner || REMOTE_IS_OWNER_))) {
+    if (!canUseOwnerUi_()) {
       box.innerHTML = "";
       return;
     }
@@ -3155,7 +3155,9 @@
       username: res.username || (u && u.username) || "",
       telegramId: (u && u.telegramId) || res.telegramId || "",
       canPickInspectLoca: !!res.canPickInspectLoca,
-      access: Array.isArray(res.access) ? res.access.filter(function (row) { return !isOwnerIdentityRow_(row); }) : []
+      access: asOwner && Array.isArray(res.access)
+        ? res.access.filter(function (row) { return !isOwnerIdentityRow_(row); })
+        : []
     }, res.username || (u && u.username) || "");
     if (state.me) {
       state.me.isStaff = asStaff;
@@ -3163,9 +3165,9 @@
       state.me.accessStatus = res.accessStatus || "active";
       state.me.role = asOwner ? "owner" : (asStaff ? "staff" : (res.role || "partner"));
       state.me.ownerMode = asOwner;
-      state.me.access = Array.isArray(res.access)
+      state.me.access = asOwner && Array.isArray(res.access)
         ? res.access.filter(function (row) { return !isOwnerIdentityRow_(row); })
-        : (state.me.access || []);
+        : [];
     }
     return true;
   }

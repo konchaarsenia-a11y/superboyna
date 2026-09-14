@@ -100,6 +100,21 @@ if (!/function isCanonOwnerUser_/.test(appSrc) || !/function isOwnerIdentityRow_
 if (!/Режим владельца/.test(appSrc)) {
   fail("varka cabinet must label owner mode");
 }
+if (!/function canUseOwnerUi_/.test(appSrc)) {
+  fail("varka must gate owner-UI via canUseOwnerUi_");
+}
+if (!/id="grantStaffCard" style="display:none;"/.test(appSrc)) {
+  fail("grant card must be hidden by default");
+}
+if (!/Выдать доступ может только владелец/.test(appSrc)) {
+  fail("grant must be owner-only in UI");
+}
+if (/Выдать доступ может владелец или партнёр/.test(appSrc)) {
+  fail("partners must not grant access");
+}
+if (!/canGrant = canUseOwnerUi_\(\)/.test(appSrc)) {
+  fail("goCabinet must show grant only for canon owner");
+}
 if (!/Владельца в доступы не добавляем/.test(appSrc)) {
   fail("varka grant must refuse owner tid");
 }
@@ -115,6 +130,13 @@ if (!/owner_cabinet_all_points/.test(gsSrc) || !/ownerMode: true/.test(gsSrc)) {
 }
 if (!/owner_hidden/.test(gsSrc)) {
   fail("Code.gs partnerSaveAccess must reject owner identity");
+}
+if (!/message: "owner_only"/.test(gsSrc) || !/partnerIsCanonOwner_\(actorUser, actor\)/.test(gsSrc)) {
+  fail("Code.gs partnerSaveAccess must be canon-owner only");
+}
+if (!/message: "owner_only"/.test(workerSrc) ||
+    !/isPartnerCanonOwner_/.test(workerSrc.slice(workerSrc.indexOf("if (/^partnerSaveAccess$/i.test(a))")))) {
+  fail("worker partnerSaveAccess must reject non-owner");
 }
 
 const sandbox = {};
@@ -226,8 +248,8 @@ if (helperPts.indexOf("pt_nan_1") < 0 || helperPts.indexOf("pt_fundog_1") < 0) {
   fail("helper lost allowed non-Varka points");
 }
 if (!helperMe.canPickInspectLoca) fail("helper must keep inspect loca (#268)");
-if ((helperMe.access || []).some(function (a) { return sandbox.partnerIsOwnerIdentity_(a); })) {
-  fail("helper access list still shows owner");
+if ((helperMe.access || []).length) {
+  fail("helper must not receive access/owner-UI list");
 }
 
 const staffMe = sandbox.partnerDemoteFakeOwner_(staff, {
