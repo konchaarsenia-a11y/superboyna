@@ -18,7 +18,8 @@
 Строки `Календарь_Дат` и D1 `date_iso` **остаются на своих датах**. Worker после close: detach `day_name` у старых дат, слоты новой недели = лист (Future→Пн + materialize **новых** дат). Запрещено `UPDATE date_iso = wantIso` при смене слота.  
 После detach/ошибочного +7-repair люди на **новых** датах слота должны снова получить `day_name` (`repairDetachedWeekSlots` / `forceWeekD1Resync`); иначе неделя их не видит, хотя `date_iso` верный.  
 Пустой GAS/partial save **не** затирает непустые address/phone/состав в D1. `dedupe_calendar` не удаляет полный calendar-only ради пустого слота (`snowygodness` 14.09 → promote cal). Красная карточка только если данных реально нет.  
-Перенос внутри недели: `day_name` нового слота + `date_iso` этой даты. Same-week mismatch на колонке **штампует** дату слота, не прячет человека из Просмотра. Calendar-only save не сносит week-ряд той же даты.
+Перенос внутри недели: `day_name` нового слота + `date_iso` этой даты. Same-week mismatch на колонке **штампует** дату слота, не прячет человека из Просмотра. Calendar-only save не сносит week-ряд той же даты.  
+После переноса дня D1-строка источника часто `status=deleted`. Live upsert **обязан** воскресить active (incoming non-deleted побеждает); иначе `getClients` (только `status=active`) молчит, хотя лист живой. Repair: `undeleteWeekFromSheet` (не полный `forceWeekD1Resync`).
 
 ## Одно правило маршрута
 

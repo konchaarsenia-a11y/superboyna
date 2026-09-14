@@ -55,6 +55,7 @@
 - `moveClient_`: resolve `newDate` до calendarOnly. Дата на слоте недели **игнорирует** `calendarOnly` (пишет `newDay`, не CAL).
 - Save/move on-week: `alsoSaveOrder=1`, не rewrite `saveOrder→saveBooking` с пустым day. GAS `handleMoveClient` не чистит «Приём заказов», если `findDayNameForDate_` нашёл слот.
 - Restore pulled-брони на колонку: `restoreWeekFromBookings` (owner, confirm=1). Хаб 15.09: `confettins97,Dnevnik.mv`.
+- После day-move D1 может оставить `status=deleted`. Live upsert **не** держит `deleted` (`pickLiveOrderStatus_`: incoming active/non-deleted побеждает). Hard-delete zombie по id / day+matchKey. `forceWeekD1Resync` тот же upsert — не лечит зомби до фикса. One-shot: `undeleteWeekFromSheet?day=Вторник&date=2026-09-15&clients=confettins97,Dnevnik.mv&confirm=1` (owner; `all=1` extras дня).
 - Week `deleteClient`: не сканирует все `day_name=''` без dateIso.
 - `cutoverStoreRead_` revalidate: **только upsert** (replace dead path убран).
 - Week-close resync: `gasN < d1Count` → upsert-only; aborted fallback без `ignoreTombstones`.
