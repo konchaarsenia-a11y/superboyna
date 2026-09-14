@@ -2,8 +2,8 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-14 view-hide-mismatch-h1
- * (prior: 2026-09-13 snowygodness-dedupe-h1 / reattach-week-slots-h1)
+ * deploy-marker: 2026-09-14 week-write-on-slot-h1
+ * (prior: view-hide-mismatch-h1 / snowygodness-dedupe-h1 / reattach-week-slots-h1)
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -355,7 +355,7 @@ function isWriteAction_(a) {
   }
   // Goodboy writes
   if (/^(gbMe|gbRegister|gbLogin|gbLinkClient|gbSavePet|gbEnsureSheets)$/i.test(a)) return true;
-  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner|force|place|submit|apply)/i.test(
+  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|restore|report|log|partner|force|place|submit|apply)/i.test(
     a
   );
 }
@@ -387,12 +387,15 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-14 view-hide-mismatch-h1"
+      deployMarker: "2026-09-14 week-write-on-slot-h1"
     };
   }
 
   if (/^lookupClient$/i.test(a)) {
     return lookupClient_(params, env);
+  }
+  if (/^restoreWeekFromBookings$/i.test(a)) {
+    return restoreWeekFromBookings_(params, env);
   }
 
   if (/^pollPeopleWrite$/i.test(a)) {
@@ -465,12 +468,17 @@ async function handleAction_(action, params, env, url, ctx) {
     try {
       let d1Res = null;
       if (env && env.DB) {
+        let sandParams = params;
+        try {
+          const sandRoute = await resolvePeopleWriteRoute_(a, params, env);
+          if (sandRoute && sandRoute.params) sandParams = sandRoute.params;
+        } catch (eSandRt) {}
         if (/^(saveOrder|saveBooking)$/i.test(a)) {
-          d1Res = await saveOrder_(params, env, /^saveBooking$/i.test(a));
+          d1Res = await saveOrder_(sandParams, env, /^saveBooking$/i.test(a) && toBool_(sandParams.calendarOnly));
         } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
-          d1Res = await deleteClient_(params, env);
+          d1Res = await deleteClient_(sandParams, env);
         } else if (/^moveClient$/i.test(a)) {
-          d1Res = await moveClient_(params, env);
+          d1Res = await moveClient_(sandParams, env);
         } else if (/^placeTransferTask$/i.test(a)) {
           d1Res = await placeTransferTaskD1_(params, env);
         } else if (/^notifyMissedDelivery$/i.test(a)) {
@@ -1170,22 +1178,12 @@ async function runPeopleWriteJobD1Primary_(writeId, job, env, ctx) {
     await putSnap_(env, "peopleWrite:" + writeId, job);
   } catch (eLock) {}
 
-  let gasAction = a;
-  let gasParams = gasWriteParams;
-  if (
-    /^saveOrder$/i.test(a) &&
-    (toBool_(gasWriteParams.calendarOnly) ||
-      (!String(gasWriteParams.day || "").trim() &&
-        String(gasWriteParams.date || gasWriteParams.dateIso || gasWriteParams.deliveryDate || "").trim()))
-  ) {
-    gasAction = "saveBooking";
-    gasParams = Object.assign({}, gasWriteParams, {
-      action: "saveBooking",
-      alsoSaveOrder: "0",
-      calendarOnly: "1",
-      day: ""
-    });
-  }
+  let routed = { action: a, params: gasWriteParams, onWeek: false, weekDay: "" };
+  try {
+    routed = await resolvePeopleWriteRoute_(a, gasWriteParams, env);
+  } catch (eRt) {}
+  let gasAction = routed.action || a;
+  let gasParams = routed.params || gasWriteParams;
 
   function sheetsOk_(sheetsRes) {
     if (!sheetsRes) return false;
@@ -1213,11 +1211,11 @@ async function runPeopleWriteJobD1Primary_(writeId, job, env, ctx) {
   if (!job.d1Verified) {
     try {
       if (/^(saveOrder|saveBooking)$/i.test(a)) {
-        d1WriteRes = await saveOrder_(gasWriteParams, env, /^saveBooking$/i.test(a));
+        d1WriteRes = await saveOrder_(gasParams, env, /^saveBooking$/i.test(a) && !routed.onWeek);
       } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
-        d1WriteRes = await deleteClient_(gasWriteParams, env);
+        d1WriteRes = await deleteClient_(gasParams, env);
       } else if (/^moveClient$/i.test(a)) {
-        d1WriteRes = await moveClient_(gasWriteParams, env);
+        d1WriteRes = await moveClient_(gasParams, env);
       }
     } catch (eD1) {
       d1WriteRes = { status: "error", message: String((eD1 && eD1.message) || eD1) };
@@ -1334,22 +1332,12 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
   const sheetsFirst = /^(moveClient|deleteClient|removeCalendarClient)$/i.test(a);
 
   // calendar-only: Sheets пишет Календарь через saveBooking, НЕ saveOrder (beyond_week)
-  let gasAction = a;
-  let gasParams = gasWriteParams;
-  if (
-    /^saveOrder$/i.test(a) &&
-    (toBool_(gasWriteParams.calendarOnly) ||
-      (!String(gasWriteParams.day || "").trim() &&
-        String(gasWriteParams.date || gasWriteParams.dateIso || gasWriteParams.deliveryDate || "").trim()))
-  ) {
-    gasAction = "saveBooking";
-    gasParams = Object.assign({}, gasWriteParams, {
-      action: "saveBooking",
-      alsoSaveOrder: "0",
-      calendarOnly: "1",
-      day: ""
-    });
-  }
+  let routed = { action: a, params: gasWriteParams, onWeek: false, weekDay: "" };
+  try {
+    routed = await resolvePeopleWriteRoute_(a, gasWriteParams, env);
+  } catch (eRt2) {}
+  let gasAction = routed.action || a;
+  let gasParams = routed.params || gasWriteParams;
 
   function sheetsOk_(sheetsRes) {
     if (!sheetsRes) return false;
@@ -1432,9 +1420,9 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
       if (job.d1Verified && job.d1Res && job.d1Res.status === "success") {
         d1WriteRes = job.d1Res;
       } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
-        d1WriteRes = await deleteClient_(gasWriteParams, env);
+        d1WriteRes = await deleteClient_(gasParams, env);
       } else if (/^moveClient$/i.test(a)) {
-        d1WriteRes = await moveClient_(gasWriteParams, env);
+        d1WriteRes = await moveClient_(gasParams, env);
         // после Sheets человек уже на newDay в D1 (early) → not_found ок
         if (
           d1WriteRes &&
@@ -1442,14 +1430,14 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
           /not_found/i.test(String(d1WriteRes.message || ""))
         ) {
           try {
-            const mk = gasWriteParams.matchKey || gasWriteParams.client;
-            const onNew = gasWriteParams.newDay
+            const mk = gasParams.matchKey || gasParams.client;
+            const onNew = gasParams.newDay
               ? await findOrderRow_(
                   env,
                   mk,
-                  gasWriteParams.newDay,
-                  gasWriteParams.newDate || "",
-                  gasWriteParams.client
+                  gasParams.newDay,
+                  gasParams.newDate || "",
+                  gasParams.client
                 )
               : null;
             if (onNew) {
@@ -1498,11 +1486,11 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
   if (!job.d1Verified) {
     try {
       if (/^(saveOrder|saveBooking)$/i.test(a)) {
-        d1WriteRes = await saveOrder_(gasWriteParams, env, /^saveBooking$/i.test(a));
+        d1WriteRes = await saveOrder_(gasParams, env, /^saveBooking$/i.test(a) && !routed.onWeek);
       } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
-        d1WriteRes = await deleteClient_(gasWriteParams, env);
+        d1WriteRes = await deleteClient_(gasParams, env);
       } else if (/^moveClient$/i.test(a)) {
-        d1WriteRes = await moveClient_(gasWriteParams, env);
+        d1WriteRes = await moveClient_(gasParams, env);
       }
     } catch (eD1) {
       d1WriteRes = {
@@ -2414,6 +2402,75 @@ function coerceDateIso_(raw) {
   return m ? m[1] : "";
 }
 
+function slotIsoFromCountsItem_(it) {
+  if (!it) return "";
+  return coerceDateIso_(it.date) || coerceDateIso_(it.dateIso) || "";
+}
+
+/** Дата на слоте недели → не calendarOnly; off-week saveOrder → saveBooking. */
+function peopleWriteOnWeekRoute_(onWeek, weekDay, action, params) {
+  const p = Object.assign({}, params || {});
+  const a = String(action || "");
+  if (onWeek && weekDay) {
+    if (/^moveClient$/i.test(a)) {
+      p.newDay = weekDay;
+      p.calendarOnly = "0";
+      if (p.newDate) p.newDate = coerceDateIso_(p.newDate) || p.newDate;
+    } else {
+      p.day = weekDay;
+      p.calendarOnly = "0";
+      p.alsoSaveOrder = "1";
+    }
+    return { action: a, params: p, onWeek: true, weekDay: String(weekDay), rewriteToBooking: false };
+  }
+  if (
+    /^saveOrder$/i.test(a) &&
+    (toBool_(p.calendarOnly) ||
+      (!String(p.day || "").trim() &&
+        String(p.date || p.dateIso || p.deliveryDate || "").trim()))
+  ) {
+    return {
+      action: "saveBooking",
+      params: Object.assign({}, p, {
+        action: "saveBooking",
+        alsoSaveOrder: "0",
+        calendarOnly: "1",
+        day: ""
+      }),
+      onWeek: false,
+      weekDay: "",
+      rewriteToBooking: true
+    };
+  }
+  return { action: a, params: p, onWeek: false, weekDay: "", rewriteToBooking: false };
+}
+
+async function resolvePeopleWriteRoute_(action, params, env) {
+  const p = Object.assign({}, params || {});
+  const isMove = /^moveClient$/i.test(action);
+  const dateRaw = isMove
+    ? String(p.newDate || p.date || p.dateIso || "")
+    : String(p.date || p.dateIso || p.deliveryDate || p.newDate || "");
+  const iso = coerceDateIso_(dateRaw) || String(dateRaw || "").trim();
+  let onWeek = false;
+  let weekDay = "";
+  if (iso) {
+    try {
+      const r = await resolveDay_({ date: iso }, env);
+      if (r && r.onWeek && r.dayName) {
+        onWeek = true;
+        weekDay = String(r.dayName);
+      }
+    } catch (eR) {}
+  }
+  if (iso && isMove) p.newDate = iso;
+  else if (iso) {
+    p.date = iso;
+    p.dateIso = iso;
+  }
+  return peopleWriteOnWeekRoute_(onWeek, weekDay, action, p);
+}
+
 function isoToDmy_(iso) {
   const m = String(iso || "")
     .trim()
@@ -2434,7 +2491,7 @@ async function dateMap_(env) {
   }
   const map = Object.create(null);
   ((counts && counts.items) || []).forEach(function (it) {
-    const iso = dmyToIso_(it && it.date);
+    const iso = slotIsoFromCountsItem_(it);
     if (iso && it.day) map[iso] = it.day;
   });
   if (Object.keys(map).length) return map;
@@ -2453,7 +2510,7 @@ async function dayDateInfo_(env, day) {
     for (let i = 0; i < items.length; i++) {
       if (items[i].day === day) {
         const date = items[i].date || "";
-        const iso = dmyToIso_(date) || String(items[i].dateIso || "");
+        const iso = slotIsoFromCountsItem_(items[i]) || dmyToIso_(date) || String(items[i].dateIso || "");
         if (date || iso) return { date: date || isoToDmy_(iso), iso: iso };
       }
     }
@@ -2481,9 +2538,11 @@ async function dayDateInfo_(env, day) {
 }
 
 function dayForDateFromCounts_(counts, dateIso) {
+  const want = coerceDateIso_(dateIso) || String(dateIso || "").trim();
   const items = (counts && counts.items) || [];
   for (let i = 0; i < items.length; i++) {
-    if (dmyToIso_(items[i].date) === dateIso) return String(items[i].day || "");
+    const iso = slotIsoFromCountsItem_(items[i]);
+    if (iso && iso === want) return String(items[i].day || "");
   }
   return "";
 }
@@ -3531,7 +3590,158 @@ async function lookupClient_(params, env) {
     }),
     cutover: true,
     d1Verified: true,
-    deployMarker: "2026-09-14 view-hide-mismatch-h1"
+    deployMarker: "2026-09-14 week-write-on-slot-h1"
+  };
+}
+
+async function restoreWeekFromBookings_(params, env) {
+  if (!env || !env.DB) return { status: "error", message: "no_d1", action: "restoreWeekFromBookings" };
+  const ownerOk = await actorIsOwnerRetail_(params, env);
+  if (!ownerOk) {
+    return {
+      status: "error",
+      message: "owner_only",
+      action: "restoreWeekFromBookings",
+      tip: "Только владелец. Хаб: confettins97 + Dnevnik.mv на 15.09."
+    };
+  }
+  if (
+    String(params.confirm || "") !== "1" &&
+    String(params.confirm || "").toLowerCase() !== "true" &&
+    String(params.allowDanger || "") !== "1"
+  ) {
+    return {
+      status: "error",
+      message: "need_confirm",
+      tip: "confirm=1&date=2026-09-15&clients=confettins97,Dnevnik.mv",
+      action: "restoreWeekFromBookings"
+    };
+  }
+  const dateIso = coerceDateIso_(params.date || params.dateIso || params.deliveryDate || "");
+  if (!dateIso) return { status: "error", message: "need_date", action: "restoreWeekFromBookings" };
+  let weekDay = "";
+  try {
+    const r = await resolveDay_({ date: dateIso }, env);
+    if (r && r.onWeek && r.dayName) weekDay = String(r.dayName);
+  } catch (eR) {}
+  if (!weekDay) weekDay = String(params.day || "").trim();
+  if (!weekDay) {
+    return { status: "error", message: "date_not_on_week", dateIso: dateIso, action: "restoreWeekFromBookings" };
+  }
+  let nicks = String(params.clients || params.client || "")
+    .split(/[,;]+/)
+    .map(function (s) {
+      return String(s || "").trim();
+    })
+    .filter(Boolean);
+  if (!nicks.length && String(params.all || "") !== "1") {
+    return {
+      status: "error",
+      message: "need_clients",
+      tip: "clients=confettins97,Dnevnik.mv или all=1",
+      action: "restoreWeekFromBookings"
+    };
+  }
+
+  let gasRes = null;
+  try {
+    gasRes = await gasProxy_(
+      "restoreWeekFromBookings",
+      {
+        date: dateIso,
+        clients: nicks.join(","),
+        all: nicks.length ? "0" : "1",
+        confirm: "1",
+        telegramId: params.telegramId || ""
+      },
+      env,
+      { write: true }
+    );
+  } catch (eG) {
+    gasRes = { status: "error", message: String((eG && eG.message) || eG) };
+  }
+  if ((!nicks.length || String(params.all || "") === "1") && gasRes && Array.isArray(gasRes.restored)) {
+    gasRes.restored.forEach(function (it) {
+      const n = String((it && it.client) || "").trim();
+      if (n && nicks.indexOf(n) < 0) nicks.push(n);
+    });
+  }
+
+  const d1 = [];
+  for (let i = 0; i < nicks.length; i++) {
+    const nick = nicks[i];
+    try {
+      let row = await findOrderRow_(env, nick, "", dateIso, nick);
+      if (!row) row = await findOrderRow_(env, nick, weekDay, dateIso, nick);
+      if (!row) row = await findActiveOrderByMatch_(env, nick, nick);
+      if (!row) {
+        d1.push({ client: nick, ok: false, message: "no_d1_row" });
+        continue;
+      }
+      const saveRes = await saveOrder_(
+        {
+          client: row.client || nick,
+          matchKey: row.match_key || nick,
+          day: weekDay,
+          date: dateIso,
+          dateIso: dateIso,
+          calendarOnly: "0",
+          alsoSaveOrder: "1",
+          address: row.address || "",
+          phone: row.phone || "",
+          note: row.note || "",
+          basket: row.basket_json || row.basket || "[]",
+          segment: row.segment || "",
+          source: row.source || "",
+          fromAfterWrite: "0"
+        },
+        env,
+        false
+      );
+      try {
+        await clearTombstonesForMatch_(env, normalizeMatchKey_(nick), weekDay, nick);
+      } catch (eT) {}
+      d1.push({
+        client: nick,
+        ok: !!(saveRes && saveRes.status === "success"),
+        day: weekDay,
+        weekWritten: !!(saveRes && saveRes.weekWritten),
+        via: "d1-promote"
+      });
+    } catch (eNick) {
+      d1.push({ client: nick, ok: false, message: String((eNick && eNick.message) || eNick) });
+    }
+  }
+
+  let added = 0;
+  try {
+    const fresh = await gasProxy_("getClients", { day: weekDay }, env, { write: false });
+    if (fresh && fresh.status === "success" && Array.isArray(fresh.clients)) {
+      added = await upsertMissingClientsFromGas_(env, weekDay, fresh.clients, {
+        ignoreTombstones: true
+      });
+    }
+  } catch (eU) {}
+  try {
+    await rebuildWeekCounts_(env);
+  } catch (eC) {}
+  try {
+    await invalidateDays_(env, [weekDay]);
+  } catch (eI) {}
+
+  return {
+    status: "success",
+    action: "restoreWeekFromBookings",
+    dateIso: dateIso,
+    day: weekDay,
+    gas: gasRes,
+    d1: d1,
+    gasUpserted: added,
+    ignoreTomb: true,
+    cutover: true,
+    d1Verified: true,
+    deployMarker: "2026-09-14 week-write-on-slot-h1",
+    tip: "Вернули с брони на слот недели (лист + D1). Не replace дня."
   };
 }
 
@@ -5340,7 +5550,7 @@ function defaultBanner_(params) {
 }
 
 async function resolveDay_(params, env) {
-  const iso = String(params.date || "");
+  const iso = coerceDateIso_(params && params.date) || String((params && params.date) || "");
   const map = await dateMap_(env);
   const dayName = map[iso] || "";
   if (dayName) {
@@ -5493,7 +5703,22 @@ async function saveOrder_(params, env, asBooking) {
         dateOnWeek = true;
         day = String(r.dayName);
       } else {
-        day = "";
+        const hinted = String(params.day || "").trim();
+        if (hinted) {
+          try {
+            const info = await dayDateInfo_(env, hinted);
+            if (info && info.iso && coerceDateIso_(info.iso) === coerceDateIso_(dateIso)) {
+              dateOnWeek = true;
+              day = hinted;
+            } else {
+              day = "";
+            }
+          } catch (eHint) {
+            day = "";
+          }
+        } else {
+          day = "";
+        }
       }
     } catch (eResDay) {
       day = "";
@@ -6774,8 +6999,8 @@ async function moveClient_(params, env) {
     try {
       const rNew = await resolveDay_({ date: newDate }, env);
       if (rNew && rNew.onWeek && rNew.dayName) {
-        if (!newDay) newDay = rNew.dayName;
-        if (!toBool_(params.calendarOnly)) calendarOnly = false;
+        newDay = rNew.dayName;
+        calendarOnly = false;
       } else if (!newDay) {
         calendarOnly = true;
       }
@@ -9273,13 +9498,23 @@ async function handleCutover_(a, params, env, ctx) {
 
         // компактные params для продолжения на poll (без огромного basket duplicate если можно)
         const jobParams = Object.assign({}, gasWriteParams);
+        try {
+          const routedEarly = await resolvePeopleWriteRoute_(a, jobParams, env);
+          if (routedEarly && routedEarly.params) {
+            Object.assign(jobParams, routedEarly.params);
+            if (routedEarly.onWeek) {
+              jobParams.calendarOnly = "0";
+              if (!/^moveClient$/i.test(a)) jobParams.alsoSaveOrder = "1";
+            }
+          }
+        } catch (eRtEarly) {}
         // D1-primary: все core writes сразу в D1; Sheets — только зеркало в фоне
         let d1Early = null;
         const d1Primary = isD1PrimaryCanon_(env);
         if (env && env.DB && (d1Primary || /^(moveClient|deleteClient|removeCalendarClient)$/i.test(a))) {
           try {
             if (/^(saveOrder|saveBooking)$/i.test(a)) {
-              d1Early = await saveOrder_(jobParams, env, /^saveBooking$/i.test(a));
+              d1Early = await saveOrder_(jobParams, env, /^saveBooking$/i.test(a) && toBool_(jobParams.calendarOnly));
               if (d1Early && d1Early.status === "success") {
                 if (d1Early.day != null) jobParams.day = d1Early.day;
                 if (d1Early.dateIso) {

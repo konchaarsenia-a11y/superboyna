@@ -52,7 +52,9 @@
 - `getWeekDayCounts`: **не** зовёт full week-refresh; `weekDayCounts` = D1 counts + даты с листа (`weekDayCountsSheet`).
 - Heal sparse: expect из D1 counts; partial day не clear-all tombs / не ignoreTombstones.
 - `getViewCompare`: live `[]` важнее stale `view:` snap.
-- `moveClient_`: resolve `newDate` до calendarOnly.
+- `moveClient_`: resolve `newDate` до calendarOnly. Дата на слоте недели **игнорирует** `calendarOnly` (пишет `newDay`, не CAL).
+- Save/move on-week: `alsoSaveOrder=1`, не rewrite `saveOrder→saveBooking` с пустым day. GAS `handleMoveClient` не чистит «Приём заказов», если `findDayNameForDate_` нашёл слот.
+- Restore pulled-брони на колонку: `restoreWeekFromBookings` (owner, confirm=1). Хаб 15.09: `confettins97,Dnevnik.mv`.
 - Week `deleteClient`: не сканирует все `day_name=''` без dateIso.
 - `cutoverStoreRead_` revalidate: **только upsert** (replace dead path убран).
 - Week-close resync: `gasN < d1Count` → upsert-only; aborted fallback без `ignoreTombstones`.

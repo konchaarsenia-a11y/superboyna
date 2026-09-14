@@ -28,6 +28,11 @@ resolveDayForDate(date) → onWeek?
   NO  → weekDayToSave = "";   calendarOnly = 1; ТОЛЬКО saveBooking / removeCalendar / move calendarOnly
 ```
 
+**Запрещено** для даты **на** слоте недели:
+
+1. `calendarOnly=1` / `alsoSaveOrder=0` — человек должен попасть в колонку «Приём заказов» и D1 `day_name`.
+2. `handleMoveClient` calendar-only (clear колонки + только бронь) — даже если UI прислал флаг.
+
 **Запрещено** для даты вне слотов:
 
 1. Писать `saveOrder` с day из селекта (Пн/Вт…) — попадёт в **старый** слот незакрытой недели.
