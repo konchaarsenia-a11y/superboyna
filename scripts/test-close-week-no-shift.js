@@ -50,13 +50,14 @@ if (extracted) {
 var scrubStart = worker.indexOf("async function scrubMismatchedDayOrders_");
 var scrubEnd = worker.indexOf("async function scrubAllDayDateMismatches_");
 var scrubBody = scrubStart >= 0 && scrubEnd > scrubStart ? worker.slice(scrubStart, scrubEnd) : "";
-assert(scrubBody.indexOf("weekCloseScrubAction_") >= 0, "scrub uses named decision");
+assert(scrubBody.indexOf("weekSlotDateAction_") >= 0, "scrub uses weekSlotDateAction_");
 assert(scrubBody.indexOf("act === \"detach\"") >= 0 || scrubBody.indexOf("act === 'detach'") >= 0, "scrub detach branch");
+assert(scrubBody.indexOf("stamp_slot") >= 0, "same-week slot stamps date_iso");
 assert(scrubBody.indexOf("day_name = ''") >= 0, "detach clears day_name, keeps date_iso");
 assert(
   /UPDATE orders SET date_iso = \?, updated_at = \? WHERE id = \?/.test(scrubBody) &&
     scrubBody.indexOf("stamp_empty") >= 0,
-  "date_iso UPDATE only for empty stamp"
+  "date_iso UPDATE for empty/same-week stamp"
 );
 
 assert(worker.indexOf("restoreShiftedWeekClose_") >= 0, "repair helper present");

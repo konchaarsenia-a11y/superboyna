@@ -217,6 +217,22 @@ assert(worker.indexOf("function applyDedupeWeekSlot_") >= 0, "worker applyDedupe
 assert(worker.indexOf("promote_calendar") >= 0, "dedupe can promote full calendar");
 assert(worker.indexOf("merge_weaker_than_cal") >= 0, "refuse delete if merge weaker than calendar");
 assert(worker.indexOf("mergeKeepNonEmptyClient_(gasC") >= 0 || worker.indexOf("mergeKeepNonEmptyClient_(gasC,") >= 0, "resync merges GAS over D1");
+assert(worker.indexOf("function pickLiveOrderStatus_") >= 0, "merge status helper present");
+assert(worker.indexOf("pickLiveOrderStatus_(existing.status, incoming.status)") >= 0, "merge uses live status pick");
+assert(
+  worker.indexOf("status: existing.status || incoming.status || \"active\"") < 0,
+  "#276 merge no longer sticks deleted"
+);
+
+var statusFn = worker.match(/function pickLiveOrderStatus_\([\s\S]*?\n\}/);
+assert(!!statusFn, "extract pickLiveOrderStatus_");
+if (statusFn) {
+  /* eslint-disable no-eval */
+  eval(statusFn[0]);
+  assert(pickLiveOrderStatus_("deleted", "active") === "active", "incoming active beats deleted zombie");
+  assert(pickLiveOrderStatus_("deleted", "") === "active", "live upsert empty status undeletes");
+  assert(pickLiveOrderStatus_("active", "deleted") === "deleted", "real delete still deleted");
+}
 
 assert(gs.indexOf("keepNonEmptySheetField_") >= 0 || gs.indexOf("incomingBasketHasItems") >= 0, "GAS keep-non-empty / skip empty clear");
 assert(ui.indexOf("repairWipedClientFields") >= 0, "UI calls repair after resync");

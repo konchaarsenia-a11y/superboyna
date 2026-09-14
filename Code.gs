@@ -1888,6 +1888,16 @@ function doGet(e) {
       weekKey: e.parameter.weekKey ? decodeURIComponent(e.parameter.weekKey) : ""
     }, callback, false);
   }
+  if (action === "restoreWeekFromBookings") {
+    return handleRestoreWeekFromBookings(SpreadsheetApp.getActiveSpreadsheet(), {
+      date: e.parameter.date ? decodeURIComponent(e.parameter.date) : "",
+      deliveryDate: e.parameter.deliveryDate ? decodeURIComponent(e.parameter.deliveryDate) : "",
+      client: e.parameter.client ? decodeURIComponent(e.parameter.client) : "",
+      clients: e.parameter.clients ? decodeURIComponent(e.parameter.clients) : "",
+      confirm: e.parameter.confirm || "",
+      telegramId: e.parameter.telegramId || ""
+    }, callback, false);
+  }
   if (action === "scrubWeekOrphans") {
     return handleScrubWeekOrphans({
       force: e.parameter.force || "1"
@@ -2739,6 +2749,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "saveBooking") {
     return handleSaveBooking(ss, json, callback, fromPost);
+  }
+  if (action === "restoreWeekFromBookings") {
+    return handleRestoreWeekFromBookings(ss, json, callback, fromPost);
   }
   if (action === "listBookings") {
     return handleListBookings(json, callback, fromPost);
@@ -4405,6 +4418,14 @@ function handleMoveClient(ss, json, callback, fromPost) {
 
   var calendarOnly = !!(json.calendarOnly === true || json.calendarOnly === "1" || json.calendarOnly === 1) ||
     !!(newDate && !targetDayName);
+  // WEEK_CALENDAR_CANON: дата на слоте «Приём заказов» / Будущая — колонка недели.
+  // Иначе move 14→15 с calendarOnly=1 снимал людей с листа, оставляя pulled-бронь.
+  if (targetDayName) {
+    calendarOnly = false;
+    json.calendarOnly = false;
+    json.newDay = targetDayName;
+    json.day = targetDayName;
+  }
   var dateOnly = !!(json.dateOnly === true || json.dateOnly === "1" || json.dateOnly === 1);
 
   // дата дальше «Будущей» / вне недели — убрать с листа, оставить только календарь/бронь/CRM
@@ -11240,9 +11261,18 @@ function handleSaveBooking(ss, json, callback, fromPost) {
   // Дата = Пн–Вс / A1 «Будущей» → всегда колонка на листе (даже без состава).
   // Дальше недели — только бронь + календарь.
   var matchedDay = findDayNameForDate_(ss, deliveryDate) || "";
+  if (!matchedDay) {
+    var hintedDay = String(json.day || "").trim();
+    if (hintedDay) {
+      var hintedRaw = getDayDate_(ss, hintedDay);
+      var hintedDt = parseFlexibleDate_(hintedRaw, tz);
+      if (hintedDt && dateKey_(hintedDt, tz) === dateStr) matchedDay = hintedDay;
+    }
+  }
   var targetDay = matchedDay;
   var alsoWeek = json.alsoSaveOrder === true || json.alsoSaveOrder === "1" || json.alsoSaveOrder === 1 || json.alsoSaveOrder === "true";
-  var shouldWriteWeek = !!matchedDay;
+  // дата на слоте недели — всегда колонка, даже если UI/Worker прислали calendarOnly / alsoSaveOrder=0
+  var shouldWriteWeek = !!matchedDay || (!!alsoWeek && !!targetDay);
   var weekWrite = null;
   if (shouldWriteWeek && targetDay) {
     try {
@@ -11305,6 +11335,121 @@ function handleSaveBooking(ss, json, callback, fromPost) {
     delta: notifyLines
   };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
+/**
+ * Хаб: вернуть людей с Брони_Заказов в колонку «Приём заказов» на дату слота.
+ * Не чистит чужие колонки. confirm=1.
+ */
+function handleRestoreWeekFromBookings(ss, json, callback, fromPost) {
+  if (fromPost === undefined) fromPost = true;
+  var reply = function (obj) {
+    return fromPost ? jsonpText(callback, obj) : jsonp(callback, obj);
+  };
+  json = json || {};
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var tid = String(json.telegramId || "").trim();
+  if (tid && !actorIsOwner_(tid)) {
+    return reply({ status: "error", message: "owner_only", action: "restoreWeekFromBookings" });
+  }
+  if (String(json.confirm || "") !== "1" && String(json.confirm || "").toLowerCase() !== "true") {
+    return reply({ status: "error", message: "need_confirm", tip: "confirm=1" });
+  }
+  var tz = ss.getSpreadsheetTimeZone();
+  var deliveryDate = parseFlexibleDate_(json.date || json.deliveryDate, tz);
+  if (!deliveryDate) return reply({ status: "error", message: "need_date" });
+  var dayName = findDayNameForDate_(ss, deliveryDate) || "";
+  if (!dayName) {
+    return reply({
+      status: "error",
+      message: "date_not_on_week",
+      date: dateKey_(deliveryDate, tz)
+    });
+  }
+  var wantRaw = String(json.clients || json.client || "").trim();
+  var wantList = [];
+  if (wantRaw) {
+    String(wantRaw).split(/[,;]+/).forEach(function (n) {
+      n = String(n || "").trim();
+      if (n) wantList.push(n);
+    });
+  }
+  var dateStr = dateKey_(deliveryDate, tz);
+  var all = readAllBookings_();
+  var restored = [];
+  var missed = [];
+  var shBk = null;
+  try { shBk = getBookingsSheet_(); } catch (eSh) { shBk = null; }
+  for (var i = 0; i < all.length; i++) {
+    var b = all[i];
+    if (String(b.status) === "cancelled") continue;
+    var bd = parseFlexibleDate_(b.date, tz);
+    if (!bd || dateKey_(bd, tz) !== dateStr) continue;
+    if (wantList.length) {
+      var hitWant = false;
+      for (var w = 0; w < wantList.length; w++) {
+        if (nicksMatch_(b.client, wantList[w])) { hitWant = true; break; }
+      }
+      if (!hitWant) continue;
+    }
+    try {
+      var soRes = handleSaveOrder(ss, {
+        day: dayName,
+        date: deliveryDate,
+        client: b.client,
+        address: b.address || "",
+        phone: b.phone || "",
+        note: b.note || "",
+        basket: b.basket || [],
+        orderType: b.source || b.segment || "",
+        orderPrice: b.orderPrice,
+        ppSlot: b.ppSlot || "",
+        deliveryAfter: b.deliveryAfter || "",
+        deliveryBefore: b.deliveryBefore || "",
+        ppPartner: b.ppPartner || "",
+        couponsQty: b.couponsQty,
+        couponPrice: b.couponPrice
+      }, null, "internal");
+      if (soRes && soRes.status === "success") {
+        restored.push({ client: b.client, day: dayName, wrote: Number(soRes.wrote || 1) || 1 });
+        if (shBk && b.rowIndex) {
+          try {
+            shBk.getRange(b.rowIndex, 9).setValue("pulled");
+            shBk.getRange(b.rowIndex, 10).setValue(dayName);
+          } catch (eSt) {}
+        }
+      } else {
+        try {
+          var fb = writeBasketToDayColumn_(ss, dayName, b.client, b.address || "", b.note || "", b.basket || [], {
+            overwriteMeta: true
+          });
+          if (fb && fb.ok) {
+            restored.push({ client: b.client, day: dayName, wrote: 1, via: "column" });
+          } else {
+            missed.push({
+              client: b.client,
+              status: (soRes && soRes.status) || (fb && fb.message) || "error",
+              message: (soRes && soRes.message) || ""
+            });
+          }
+        } catch (eFb) {
+          missed.push({ client: b.client, message: String(eFb) });
+        }
+      }
+    } catch (eR) {
+      missed.push({ client: b.client, message: String(eR) });
+    }
+  }
+  try { bustClientsCache_(); } catch (eB) {}
+  return reply({
+    status: restored.length ? "success" : (missed.length ? "error" : "success"),
+    action: "restoreWeekFromBookings",
+    date: dateStr,
+    day: dayName,
+    restored: restored,
+    missed: missed,
+    weekWritten: restored.length > 0
+  });
 }
 
 function writeBasketToDayColumn_(ss, dayName, client, address, note, basket, opts) {

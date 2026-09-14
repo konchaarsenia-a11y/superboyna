@@ -17,7 +17,9 @@
 `finishFullWeek` двигает **указатель недели** (A1 / слоты Пн–Вс на +7) и чистит колонки.  
 Строки `Календарь_Дат` и D1 `date_iso` **остаются на своих датах**. Worker после close: detach `day_name` у старых дат, слоты новой недели = лист (Future→Пн + materialize **новых** дат). Запрещено `UPDATE date_iso = wantIso` при смене слота.  
 После detach/ошибочного +7-repair люди на **новых** датах слота должны снова получить `day_name` (`repairDetachedWeekSlots` / `forceWeekD1Resync`); иначе неделя их не видит, хотя `date_iso` верный.  
-Пустой GAS/partial save **не** затирает непустые address/phone/состав в D1. `dedupe_calendar` не удаляет полный calendar-only ради пустого слота (`snowygodness` 14.09 → promote cal). Красная карточка только если данных реально нет.
+Пустой GAS/partial save **не** затирает непустые address/phone/состав в D1. `dedupe_calendar` не удаляет полный calendar-only ради пустого слота (`snowygodness` 14.09 → promote cal). Красная карточка только если данных реально нет.  
+Перенос внутри недели: `day_name` нового слота + `date_iso` этой даты. Same-week mismatch на колонке **штампует** дату слота, не прячет человека из Просмотра. Calendar-only save не сносит week-ряд той же даты.  
+После переноса дня D1-строка источника часто `status=deleted`. Live upsert **обязан** воскресить active (incoming non-deleted побеждает); иначе `getClients` (только `status=active`) молчит, хотя лист живой. Repair: `undeleteWeekFromSheet` (не полный `forceWeekD1Resync`).
 
 ## Одно правило маршрута
 
@@ -26,6 +28,11 @@ resolveDayForDate(date) → onWeek?
   YES → weekDayToSave = dayName; calendarOnly = 0; saveBooking(+alsoSaveOrder) / saveOrder
   NO  → weekDayToSave = "";   calendarOnly = 1; ТОЛЬКО saveBooking / removeCalendar / move calendarOnly
 ```
+
+**Запрещено** для даты **на** слоте недели:
+
+1. `calendarOnly=1` / `alsoSaveOrder=0` — человек должен попасть в колонку «Приём заказов» и D1 `day_name`.
+2. `handleMoveClient` calendar-only (clear колонки + только бронь) — даже если UI прислал флаг.
 
 **Запрещено** для даты вне слотов:
 

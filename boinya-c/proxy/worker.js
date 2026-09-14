@@ -2,7 +2,8 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-13 reattach-week-slots-h1
+ * deploy-marker: 2026-09-14 undelete-zombie-h1
+ * (prior: sheets-to-d1-sync-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1 / reattach-week-slots-h1)
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -354,7 +355,7 @@ function isWriteAction_(a) {
   }
   // Goodboy writes
   if (/^(gbMe|gbRegister|gbLogin|gbLinkClient|gbSavePet|gbEnsureSheets)$/i.test(a)) return true;
-  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|report|log|partner|force|place|submit|apply)/i.test(
+  return /^(save|delete|move|update|finish|cancel|enroll|set|close|pull|materialize|start|stop|ensure|scrub|request|setup|create|add|remove|toggle|mark|send|prepare|register|upsert|sync|notify|compose|repair|restore|undelete|report|log|partner|force|place|submit|apply)/i.test(
     a
   );
 }
@@ -386,8 +387,18 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-13 snowygodness-dedupe-h1"
+      deployMarker: "2026-09-14 undelete-zombie-h1"
     };
+  }
+
+  if (/^lookupClient$/i.test(a)) {
+    return lookupClient_(params, env);
+  }
+  if (/^restoreWeekFromBookings$/i.test(a)) {
+    return restoreWeekFromBookings_(params, env);
+  }
+  if (/^undeleteWeekFromSheet$/i.test(a)) {
+    return undeleteWeekFromSheet_(params, env);
   }
 
   if (/^pollPeopleWrite$/i.test(a)) {
@@ -460,12 +471,17 @@ async function handleAction_(action, params, env, url, ctx) {
     try {
       let d1Res = null;
       if (env && env.DB) {
+        let sandParams = params;
+        try {
+          const sandRoute = await resolvePeopleWriteRoute_(a, params, env);
+          if (sandRoute && sandRoute.params) sandParams = sandRoute.params;
+        } catch (eSandRt) {}
         if (/^(saveOrder|saveBooking)$/i.test(a)) {
-          d1Res = await saveOrder_(params, env, /^saveBooking$/i.test(a));
+          d1Res = await saveOrder_(sandParams, env, /^saveBooking$/i.test(a) && toBool_(sandParams.calendarOnly));
         } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
-          d1Res = await deleteClient_(params, env);
+          d1Res = await deleteClient_(sandParams, env);
         } else if (/^moveClient$/i.test(a)) {
-          d1Res = await moveClient_(params, env);
+          d1Res = await moveClient_(sandParams, env);
         } else if (/^placeTransferTask$/i.test(a)) {
           d1Res = await placeTransferTaskD1_(params, env);
         } else if (/^notifyMissedDelivery$/i.test(a)) {
@@ -914,6 +930,21 @@ function decideDedupeWeekRows_(slotRow, calRow) {
   return { action: "merge_into_slot", drop: "calendar", slotN: slotN, calN: calN };
 }
 
+function pickLiveOrderStatus_(existingStatus, incomingStatus) {
+  const inc = String(incomingStatus || "")
+    .trim()
+    .toLowerCase();
+  const ex = String(existingStatus || "")
+    .trim()
+    .toLowerCase();
+  // Live upsert (save/move/resync) must resurrect soft-deleted zombies.
+  // existing.status || incoming оставлял deleted навсегда.
+  if (inc && inc !== "deleted") return String(incomingStatus || "active");
+  if (inc === "deleted") return "deleted";
+  if (ex === "deleted") return "active";
+  return String(incomingStatus || existingStatus || "active");
+}
+
 function mergeOrderRowsKeepNonEmpty_(existing, incoming, params) {
   if (!existing) return incoming;
   if (!incoming) return existing;
@@ -940,11 +971,11 @@ function mergeOrderRowsKeepNonEmpty_(existing, incoming, params) {
   );
   return Object.assign({}, existing, incoming, {
     id: existing.id || incoming.id,
-    day_name: existing.day_name || incoming.day_name || "",
-    date_iso: existing.date_iso || incoming.date_iso || "",
-    status: existing.status || incoming.status || "active",
+    day_name: incoming.day_name || existing.day_name || "",
+    date_iso: incoming.date_iso || existing.date_iso || "",
+    status: pickLiveOrderStatus_(existing.status, incoming.status),
     match_key: existing.match_key || incoming.match_key,
-    client: existing.client || incoming.client,
+    client: incoming.client || existing.client,
     address: merged.address,
     phone: merged.phone,
     note: merged.note,
@@ -1165,22 +1196,12 @@ async function runPeopleWriteJobD1Primary_(writeId, job, env, ctx) {
     await putSnap_(env, "peopleWrite:" + writeId, job);
   } catch (eLock) {}
 
-  let gasAction = a;
-  let gasParams = gasWriteParams;
-  if (
-    /^saveOrder$/i.test(a) &&
-    (toBool_(gasWriteParams.calendarOnly) ||
-      (!String(gasWriteParams.day || "").trim() &&
-        String(gasWriteParams.date || gasWriteParams.dateIso || gasWriteParams.deliveryDate || "").trim()))
-  ) {
-    gasAction = "saveBooking";
-    gasParams = Object.assign({}, gasWriteParams, {
-      action: "saveBooking",
-      alsoSaveOrder: "0",
-      calendarOnly: "1",
-      day: ""
-    });
-  }
+  let routed = { action: a, params: gasWriteParams, onWeek: false, weekDay: "" };
+  try {
+    routed = await resolvePeopleWriteRoute_(a, gasWriteParams, env);
+  } catch (eRt) {}
+  let gasAction = routed.action || a;
+  let gasParams = routed.params || gasWriteParams;
 
   function sheetsOk_(sheetsRes) {
     if (!sheetsRes) return false;
@@ -1208,11 +1229,11 @@ async function runPeopleWriteJobD1Primary_(writeId, job, env, ctx) {
   if (!job.d1Verified) {
     try {
       if (/^(saveOrder|saveBooking)$/i.test(a)) {
-        d1WriteRes = await saveOrder_(gasWriteParams, env, /^saveBooking$/i.test(a));
+        d1WriteRes = await saveOrder_(gasParams, env, /^saveBooking$/i.test(a) && !routed.onWeek);
       } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
-        d1WriteRes = await deleteClient_(gasWriteParams, env);
+        d1WriteRes = await deleteClient_(gasParams, env);
       } else if (/^moveClient$/i.test(a)) {
-        d1WriteRes = await moveClient_(gasWriteParams, env);
+        d1WriteRes = await moveClient_(gasParams, env);
       }
     } catch (eD1) {
       d1WriteRes = { status: "error", message: String((eD1 && eD1.message) || eD1) };
@@ -1329,22 +1350,12 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
   const sheetsFirst = /^(moveClient|deleteClient|removeCalendarClient)$/i.test(a);
 
   // calendar-only: Sheets пишет Календарь через saveBooking, НЕ saveOrder (beyond_week)
-  let gasAction = a;
-  let gasParams = gasWriteParams;
-  if (
-    /^saveOrder$/i.test(a) &&
-    (toBool_(gasWriteParams.calendarOnly) ||
-      (!String(gasWriteParams.day || "").trim() &&
-        String(gasWriteParams.date || gasWriteParams.dateIso || gasWriteParams.deliveryDate || "").trim()))
-  ) {
-    gasAction = "saveBooking";
-    gasParams = Object.assign({}, gasWriteParams, {
-      action: "saveBooking",
-      alsoSaveOrder: "0",
-      calendarOnly: "1",
-      day: ""
-    });
-  }
+  let routed = { action: a, params: gasWriteParams, onWeek: false, weekDay: "" };
+  try {
+    routed = await resolvePeopleWriteRoute_(a, gasWriteParams, env);
+  } catch (eRt2) {}
+  let gasAction = routed.action || a;
+  let gasParams = routed.params || gasWriteParams;
 
   function sheetsOk_(sheetsRes) {
     if (!sheetsRes) return false;
@@ -1427,9 +1438,9 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
       if (job.d1Verified && job.d1Res && job.d1Res.status === "success") {
         d1WriteRes = job.d1Res;
       } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
-        d1WriteRes = await deleteClient_(gasWriteParams, env);
+        d1WriteRes = await deleteClient_(gasParams, env);
       } else if (/^moveClient$/i.test(a)) {
-        d1WriteRes = await moveClient_(gasWriteParams, env);
+        d1WriteRes = await moveClient_(gasParams, env);
         // после Sheets человек уже на newDay в D1 (early) → not_found ок
         if (
           d1WriteRes &&
@@ -1437,14 +1448,14 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
           /not_found/i.test(String(d1WriteRes.message || ""))
         ) {
           try {
-            const mk = gasWriteParams.matchKey || gasWriteParams.client;
-            const onNew = gasWriteParams.newDay
+            const mk = gasParams.matchKey || gasParams.client;
+            const onNew = gasParams.newDay
               ? await findOrderRow_(
                   env,
                   mk,
-                  gasWriteParams.newDay,
-                  gasWriteParams.newDate || "",
-                  gasWriteParams.client
+                  gasParams.newDay,
+                  gasParams.newDate || "",
+                  gasParams.client
                 )
               : null;
             if (onNew) {
@@ -1493,11 +1504,11 @@ async function runPeopleWriteJob_(writeId, job, env, ctx) {
   if (!job.d1Verified) {
     try {
       if (/^(saveOrder|saveBooking)$/i.test(a)) {
-        d1WriteRes = await saveOrder_(gasWriteParams, env, /^saveBooking$/i.test(a));
+        d1WriteRes = await saveOrder_(gasParams, env, /^saveBooking$/i.test(a) && !routed.onWeek);
       } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
-        d1WriteRes = await deleteClient_(gasWriteParams, env);
+        d1WriteRes = await deleteClient_(gasParams, env);
       } else if (/^moveClient$/i.test(a)) {
-        d1WriteRes = await moveClient_(gasWriteParams, env);
+        d1WriteRes = await moveClient_(gasParams, env);
       }
     } catch (eD1) {
       d1WriteRes = {
@@ -2398,6 +2409,86 @@ function dmyToIso_(dmy) {
   return m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
 }
 
+/** ISO yyyy-mm-dd from ISO / DMY / datetime prefix. */
+function coerceDateIso_(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const dmy = dmyToIso_(s);
+  if (dmy) return dmy;
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : "";
+}
+
+function slotIsoFromCountsItem_(it) {
+  if (!it) return "";
+  return coerceDateIso_(it.date) || coerceDateIso_(it.dateIso) || "";
+}
+
+/** Дата на слоте недели → не calendarOnly; off-week saveOrder → saveBooking. */
+function peopleWriteOnWeekRoute_(onWeek, weekDay, action, params) {
+  const p = Object.assign({}, params || {});
+  const a = String(action || "");
+  if (onWeek && weekDay) {
+    if (/^moveClient$/i.test(a)) {
+      p.newDay = weekDay;
+      p.calendarOnly = "0";
+      if (p.newDate) p.newDate = coerceDateIso_(p.newDate) || p.newDate;
+    } else {
+      p.day = weekDay;
+      p.calendarOnly = "0";
+      p.alsoSaveOrder = "1";
+    }
+    return { action: a, params: p, onWeek: true, weekDay: String(weekDay), rewriteToBooking: false };
+  }
+  if (
+    /^saveOrder$/i.test(a) &&
+    (toBool_(p.calendarOnly) ||
+      (!String(p.day || "").trim() &&
+        String(p.date || p.dateIso || p.deliveryDate || "").trim()))
+  ) {
+    return {
+      action: "saveBooking",
+      params: Object.assign({}, p, {
+        action: "saveBooking",
+        alsoSaveOrder: "0",
+        calendarOnly: "1",
+        day: ""
+      }),
+      onWeek: false,
+      weekDay: "",
+      rewriteToBooking: true
+    };
+  }
+  return { action: a, params: p, onWeek: false, weekDay: "", rewriteToBooking: false };
+}
+
+async function resolvePeopleWriteRoute_(action, params, env) {
+  const p = Object.assign({}, params || {});
+  const isMove = /^moveClient$/i.test(action);
+  const dateRaw = isMove
+    ? String(p.newDate || p.date || p.dateIso || "")
+    : String(p.date || p.dateIso || p.deliveryDate || p.newDate || "");
+  const iso = coerceDateIso_(dateRaw) || String(dateRaw || "").trim();
+  let onWeek = false;
+  let weekDay = "";
+  if (iso) {
+    try {
+      const r = await resolveDay_({ date: iso }, env);
+      if (r && r.onWeek && r.dayName) {
+        onWeek = true;
+        weekDay = String(r.dayName);
+      }
+    } catch (eR) {}
+  }
+  if (iso && isMove) p.newDate = iso;
+  else if (iso) {
+    p.date = iso;
+    p.dateIso = iso;
+  }
+  return peopleWriteOnWeekRoute_(onWeek, weekDay, action, p);
+}
+
 function isoToDmy_(iso) {
   const m = String(iso || "")
     .trim()
@@ -2418,7 +2509,7 @@ async function dateMap_(env) {
   }
   const map = Object.create(null);
   ((counts && counts.items) || []).forEach(function (it) {
-    const iso = dmyToIso_(it && it.date);
+    const iso = slotIsoFromCountsItem_(it);
     if (iso && it.day) map[iso] = it.day;
   });
   if (Object.keys(map).length) return map;
@@ -2437,7 +2528,7 @@ async function dayDateInfo_(env, day) {
     for (let i = 0; i < items.length; i++) {
       if (items[i].day === day) {
         const date = items[i].date || "";
-        const iso = dmyToIso_(date) || String(items[i].dateIso || "");
+        const iso = slotIsoFromCountsItem_(items[i]) || dmyToIso_(date) || String(items[i].dateIso || "");
         if (date || iso) return { date: date || isoToDmy_(iso), iso: iso };
       }
     }
@@ -2465,9 +2556,11 @@ async function dayDateInfo_(env, day) {
 }
 
 function dayForDateFromCounts_(counts, dateIso) {
+  const want = coerceDateIso_(dateIso) || String(dateIso || "").trim();
   const items = (counts && counts.items) || [];
   for (let i = 0; i < items.length; i++) {
-    if (dmyToIso_(items[i].date) === dateIso) return String(items[i].day || "");
+    const iso = slotIsoFromCountsItem_(items[i]);
+    if (iso && iso === want) return String(items[i].day || "");
   }
   return "";
 }
@@ -2594,26 +2687,47 @@ function weekCloseScrubAction_(haveIso, wantIso) {
 }
 
 /**
+ * Slot column vs date_iso. Off-week leftover → detach (keep date).
+ * Same-week other slot (move 14→15 left date_iso=14 on Tuesday) → stamp this slot.
+ * Never hide an active weekday-column row from getClients.
+ */
+function weekSlotDateAction_(haveIso, wantIso, weekMap) {
+  const have = coerceDateIso_(haveIso);
+  const want = coerceDateIso_(wantIso);
+  if (!want) return "skip";
+  if (!have) return "stamp_empty";
+  if (have === want) return "keep";
+  if (weekMap && weekMap[have]) return "stamp_slot";
+  return "detach";
+}
+
+/**
  * Align D1 weekday column to the current week slot WITHOUT shifting dates.
  * Empty date_iso → stamp wantIso. Other date_iso → detach day_name (keep date).
  */
 async function scrubMismatchedDayOrders_(env, day, wantIso) {
   if (!env || !env.DB || !day || !wantIso) return 0;
   let n = 0;
+  let weekMap = Object.create(null);
+  try {
+    weekMap = await dateMap_(env);
+  } catch (eMap) {
+    weekMap = Object.create(null);
+  }
   try {
     const q = await env.DB.prepare(
-      "SELECT id, date_iso FROM orders WHERE day_name = ? AND status = 'active' AND date_iso != ? LIMIT 200"
+      "SELECT id, date_iso FROM orders WHERE day_name = ? AND status = 'active' LIMIT 200"
     )
-      .bind(day, wantIso)
+      .bind(day)
       .all();
     const list = (q && q.results) || [];
     const nowFix = new Date().toISOString();
     for (let i = 0; i < list.length; i++) {
       const row = list[i];
       if (!row) continue;
-      const act = weekCloseScrubAction_(row.date_iso, wantIso);
+      const act = weekSlotDateAction_(row.date_iso, wantIso, weekMap);
       try {
-        if (act === "stamp_empty") {
+        if (act === "stamp_empty" || act === "stamp_slot") {
           await env.DB.prepare(
             "UPDATE orders SET date_iso = ?, updated_at = ? WHERE id = ? AND status = 'active'"
           )
@@ -3306,9 +3420,20 @@ async function getClients_(params, env) {
         .bind(day)
         .all();
       rows = (q2 && q2.results) || [];
+      // Active on this weekday column = visible. Off-week leftover date_iso
+      // already detached by scrub. Same-week mismatch was stamped to slot iso.
+      // Do NOT drop slot members whose date_iso still differs (move 14→15).
+      let weekMapG = Object.create(null);
+      try {
+        weekMapG = await dateMap_(env);
+      } catch (eWg) {
+        weekMapG = Object.create(null);
+      }
       rows = rows.filter(function (r) {
-        const have = String((r && r.date_iso) || "");
-        return !have || have === dateIso;
+        const have = coerceDateIso_((r && r.date_iso) || "");
+        if (!have || have === dateIso) return true;
+        if (weekMapG && weekMapG[have]) return true;
+        return false;
       });
     }
     // detach после close/repair: active на date_iso слота с пустым day_name не прятать
@@ -3437,6 +3562,392 @@ async function getClients_(params, env) {
     dateIso: dateIso || "",
     source: "d1",
     clients: clientsOut
+  };
+}
+
+/** Owner forensics: find D1 orders by nick including deleted / detached. */
+async function lookupClient_(params, env) {
+  const q = String((params && (params.q || params.client || params.nick || params.matchKey)) || "").trim();
+  if (!q) return { status: "error", message: "need_q", tip: "q=confettins97" };
+  if (!env || !env.DB) return { status: "error", message: "no_d1" };
+  const ownerOk = await actorIsOwnerRetail_(params, env);
+  if (!ownerOk) {
+    return { status: "error", message: "owner_only", action: "lookupClient" };
+  }
+  const mk = normalizeMatchKey_(q);
+  const like = "%" + q.toLowerCase().replace(/%/g, "").replace(/_/g, "") + "%";
+  let rows = [];
+  try {
+    const r = await env.DB.prepare(
+      "SELECT id, status, day_name, date_iso, client, match_key, address, phone, updated_at, length(basket_json) AS basketLen FROM orders WHERE match_key = ? OR match_key = ? OR lower(client) LIKE ? OR lower(client) LIKE ? ORDER BY updated_at DESC LIMIT 40"
+    )
+      .bind(mk, String(q).toUpperCase().replace(/[._]/g, ""), like, "%" + String(q).toLowerCase() + "%")
+      .all();
+    rows = (r && r.results) || [];
+  } catch (eQ) {
+    return { status: "error", message: String((eQ && eQ.message) || eQ), action: "lookupClient" };
+  }
+  return {
+    status: "success",
+    action: "lookupClient",
+    q: q,
+    matchKey: mk,
+    rows: rows.map(function (row) {
+      return {
+        id: row.id,
+        status: row.status,
+        day: row.day_name || "",
+        dateIso: row.date_iso || "",
+        client: row.client,
+        matchKey: row.match_key,
+        address: String(row.address || "").slice(0, 80),
+        phone: row.phone || "",
+        basketLen: Number(row.basketLen) || 0,
+        updatedAt: row.updated_at || ""
+      };
+    }),
+    cutover: true,
+    d1Verified: true,
+    deployMarker: "2026-09-14 week-write-on-slot-h1"
+  };
+}
+
+async function restoreWeekFromBookings_(params, env) {
+  if (!env || !env.DB) return { status: "error", message: "no_d1", action: "restoreWeekFromBookings" };
+  const ownerOk = await actorIsOwnerRetail_(params, env);
+  if (!ownerOk) {
+    return {
+      status: "error",
+      message: "owner_only",
+      action: "restoreWeekFromBookings",
+      tip: "Только владелец. Хаб: confettins97 + Dnevnik.mv на 15.09."
+    };
+  }
+  if (
+    String(params.confirm || "") !== "1" &&
+    String(params.confirm || "").toLowerCase() !== "true" &&
+    String(params.allowDanger || "") !== "1"
+  ) {
+    return {
+      status: "error",
+      message: "need_confirm",
+      tip: "confirm=1&date=2026-09-15&clients=confettins97,Dnevnik.mv",
+      action: "restoreWeekFromBookings"
+    };
+  }
+  const dateIso = coerceDateIso_(params.date || params.dateIso || params.deliveryDate || "");
+  if (!dateIso) return { status: "error", message: "need_date", action: "restoreWeekFromBookings" };
+  let weekDay = "";
+  try {
+    const r = await resolveDay_({ date: dateIso }, env);
+    if (r && r.onWeek && r.dayName) weekDay = String(r.dayName);
+  } catch (eR) {}
+  if (!weekDay) weekDay = String(params.day || "").trim();
+  if (!weekDay) {
+    return { status: "error", message: "date_not_on_week", dateIso: dateIso, action: "restoreWeekFromBookings" };
+  }
+  let nicks = String(params.clients || params.client || "")
+    .split(/[,;]+/)
+    .map(function (s) {
+      return String(s || "").trim();
+    })
+    .filter(Boolean);
+  if (!nicks.length && String(params.all || "") !== "1") {
+    return {
+      status: "error",
+      message: "need_clients",
+      tip: "clients=confettins97,Dnevnik.mv или all=1",
+      action: "restoreWeekFromBookings"
+    };
+  }
+
+  let gasRes = null;
+  try {
+    gasRes = await gasProxy_(
+      "restoreWeekFromBookings",
+      {
+        date: dateIso,
+        clients: nicks.join(","),
+        all: nicks.length ? "0" : "1",
+        confirm: "1",
+        telegramId: params.telegramId || ""
+      },
+      env,
+      { write: true }
+    );
+  } catch (eG) {
+    gasRes = { status: "error", message: String((eG && eG.message) || eG) };
+  }
+  if ((!nicks.length || String(params.all || "") === "1") && gasRes && Array.isArray(gasRes.restored)) {
+    gasRes.restored.forEach(function (it) {
+      const n = String((it && it.client) || "").trim();
+      if (n && nicks.indexOf(n) < 0) nicks.push(n);
+    });
+  }
+
+  const d1 = [];
+  for (let i = 0; i < nicks.length; i++) {
+    const nick = nicks[i];
+    try {
+      let row = await findOrderRow_(env, nick, "", dateIso, nick);
+      if (!row) row = await findOrderRow_(env, nick, weekDay, dateIso, nick);
+      if (!row) row = await findActiveOrderByMatch_(env, nick, nick);
+      if (!row) {
+        try {
+          const mk = normalizeMatchKey_(nick);
+          await purgeDeletedOrderZombies_(env, {
+            id: weekDay + ":" + mk,
+            match_key: mk,
+            day_name: weekDay,
+            date_iso: dateIso,
+            client: nick
+          });
+          await clearTombstonesForMatch_(env, mk, weekDay, nick);
+          await clearMoveEpoch_(env, mk);
+        } catch (eZ) {}
+        d1.push({ client: nick, ok: true, via: "purge_deleted", day: weekDay });
+        continue;
+      }
+      const saveRes = await saveOrder_(
+        {
+          client: row.client || nick,
+          matchKey: row.match_key || nick,
+          day: weekDay,
+          date: dateIso,
+          dateIso: dateIso,
+          calendarOnly: "0",
+          alsoSaveOrder: "1",
+          address: row.address || "",
+          phone: row.phone || "",
+          note: row.note || "",
+          basket: row.basket_json || row.basket || "[]",
+          segment: row.segment || "",
+          source: row.source || "",
+          fromAfterWrite: "0"
+        },
+        env,
+        false
+      );
+      try {
+        await clearTombstonesForMatch_(env, normalizeMatchKey_(nick), weekDay, nick);
+      } catch (eT) {}
+      d1.push({
+        client: nick,
+        ok: !!(saveRes && saveRes.status === "success"),
+        day: weekDay,
+        weekWritten: !!(saveRes && saveRes.weekWritten),
+        via: "d1-promote"
+      });
+    } catch (eNick) {
+      d1.push({ client: nick, ok: false, message: String((eNick && eNick.message) || eNick) });
+    }
+  }
+
+  let added = 0;
+  try {
+    const fresh = await gasProxy_("getClients", { day: weekDay }, env, { write: false });
+    if (fresh && fresh.status === "success" && Array.isArray(fresh.clients)) {
+      added = await upsertMissingClientsFromGas_(env, weekDay, fresh.clients, {
+        ignoreTombstones: true,
+        ignoreMoveEpoch: true
+      });
+    }
+  } catch (eU) {}
+  try {
+    await rebuildWeekCounts_(env);
+  } catch (eC) {}
+  try {
+    await invalidateDays_(env, [weekDay]);
+  } catch (eI) {}
+
+  return {
+    status: "success",
+    action: "restoreWeekFromBookings",
+    dateIso: dateIso,
+    day: weekDay,
+    gas: gasRes,
+    d1: d1,
+    gasUpserted: added,
+    ignoreTomb: true,
+    cutover: true,
+    d1Verified: true,
+    deployMarker: "2026-09-14 week-write-on-slot-h1",
+    tip: "Вернули с брони на слот недели (лист + D1). Не replace дня."
+  };
+}
+
+/**
+ * One-shot: снести D1 `deleted`-зомби по никам (или всем extras дня) и вставить
+ * живые заявки с одного getClients. Не гоняет forceWeekD1Resync (тот ~200с / 0 bytes).
+ * Хаб: undeleteWeekFromSheet?day=Вторник&date=2026-09-15&clients=confettins97,Dnevnik.mv&confirm=1
+ * или all=1 — все, кто есть на листе дня, но спрятаны deleted в D1.
+ */
+async function undeleteWeekFromSheet_(params, env) {
+  if (!env || !env.DB) return { status: "error", message: "no_d1", action: "undeleteWeekFromSheet" };
+  const ownerOk = await actorIsOwnerRetail_(params, env);
+  if (!ownerOk) {
+    return {
+      status: "error",
+      message: "owner_only",
+      action: "undeleteWeekFromSheet",
+      tip: "Только владелец. Хаб: confettins97 + Dnevnik.mv на 15.09."
+    };
+  }
+  if (
+    String(params.confirm || "") !== "1" &&
+    String(params.confirm || "").toLowerCase() !== "true" &&
+    String(params.allowDanger || "") !== "1"
+  ) {
+    return {
+      status: "error",
+      message: "need_confirm",
+      tip: "confirm=1&day=Вторник&date=2026-09-15&clients=confettins97,Dnevnik.mv",
+      action: "undeleteWeekFromSheet"
+    };
+  }
+  let day = String(params.day || params.day_name || "").trim();
+  const dateIso = coerceDateIso_(params.date || params.dateIso || params.date_iso || "") || "";
+  if (!day && dateIso) {
+    try {
+      const r = await resolveDay_({ date: dateIso }, env);
+      if (r && r.onWeek && r.dayName) day = String(r.dayName);
+    } catch (eR) {}
+  }
+  if (!day) return { status: "error", message: "need_day", action: "undeleteWeekFromSheet" };
+  const all = String(params.all || "") === "1" || String(params.all || "").toLowerCase() === "true";
+  const named = String(params.clients || params.nicks || params.client || "")
+    .split(/[,;]+/)
+    .map(function (s) {
+      return String(s || "").trim();
+    })
+    .filter(Boolean);
+  if (!all && !named.length) {
+    return {
+      status: "error",
+      message: "need_clients",
+      tip: "clients=confettins97,Dnevnik.mv или all=1",
+      action: "undeleteWeekFromSheet"
+    };
+  }
+
+  let gasClients = [];
+  try {
+    const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
+    if (fresh && fresh.status === "success" && Array.isArray(fresh.clients)) {
+      gasClients = fresh.clients;
+    } else if (fresh && Array.isArray(fresh.clients)) {
+      gasClients = fresh.clients;
+    }
+  } catch (eG) {
+    return {
+      status: "error",
+      message: "gas_getClients_failed",
+      details: String((eG && eG.message) || eG),
+      action: "undeleteWeekFromSheet"
+    };
+  }
+
+  function clientNick_(c) {
+    return String((c && (c.name || c.client || c.nick || c.matchKey)) || "").trim();
+  }
+  function nickMatches_(c, q) {
+    const n = clientNick_(c);
+    const qq = String(q || "").trim();
+    if (!n || !qq) return false;
+    if (n.toLowerCase() === qq.toLowerCase()) return true;
+    if (n.toLowerCase().indexOf(qq.toLowerCase()) >= 0) return true;
+    const mkN = normalizeMatchKey_(n);
+    const mkQ = normalizeMatchKey_(qq);
+    return !!(mkN && mkQ && mkN === mkQ);
+  }
+  const wanted = all
+    ? gasClients
+    : gasClients.filter(function (c) {
+        return named.some(function (q) {
+          return nickMatches_(c, q);
+        });
+      });
+  const missingOnGas = all
+    ? []
+    : named.filter(function (q) {
+        return !gasClients.some(function (c) {
+          return nickMatches_(c, q);
+        });
+      });
+
+  const purged = [];
+  const toPurge = all
+    ? wanted
+    : named.map(function (q) {
+        const hit = gasClients.filter(function (c) {
+          return nickMatches_(c, q);
+        })[0];
+        return hit || { name: q, client: q, matchKey: normalizeMatchKey_(q) };
+      });
+  if (all) {
+    try {
+      await env.DB.prepare("DELETE FROM orders WHERE day_name = ? AND status = 'deleted'")
+        .bind(day)
+        .run();
+    } catch (eAll) {}
+  }
+  for (let i = 0; i < toPurge.length; i++) {
+    const c = toPurge[i];
+    const nick = clientNick_(c) || String((c && c.matchKey) || "").trim();
+    if (!nick) continue;
+    const mk = normalizeMatchKey_(c.matchKey || nick);
+    try {
+      await purgeDeletedOrderZombies_(env, {
+        id: day + ":" + mk,
+        match_key: mk,
+        day_name: day,
+        date_iso: dateIso,
+        client: nick
+      });
+      await clearTombstonesForMatch_(env, mk, day, nick);
+      await clearMoveEpoch_(env, mk);
+      purged.push(nick);
+    } catch (eP) {}
+  }
+
+  let added = 0;
+  try {
+    added = await upsertMissingClientsFromGas_(env, day, wanted.length ? wanted : gasClients, {
+      ignoreTombstones: true,
+      ignoreMoveEpoch: true
+    });
+  } catch (eU) {
+    return {
+      status: "error",
+      message: "upsert_failed",
+      details: String((eU && eU.message) || eU),
+      purgedDeleted: purged,
+      action: "undeleteWeekFromSheet"
+    };
+  }
+  try {
+    await delSnap_(env, "clients:" + day);
+  } catch (eS) {}
+  try {
+    await rebuildWeekCounts_(env);
+  } catch (eC) {}
+  try {
+    await invalidateDays_(env, [day]);
+  } catch (eI) {}
+
+  return {
+    status: "success",
+    action: "undeleteWeekFromSheet",
+    day: day,
+    dateIso: dateIso,
+    purgedDeleted: purged,
+    gasCount: gasClients.length,
+    upserted: added,
+    missingOnGas: missingOnGas,
+    cutover: true,
+    d1Verified: true,
+    deployMarker: "2026-09-14 undelete-zombie-h1",
+    tip: "Мягко удалённые D1-строки снесены, живые заявки с листа вставлены. Не replace дня."
   };
 }
 
@@ -5245,7 +5756,7 @@ function defaultBanner_(params) {
 }
 
 async function resolveDay_(params, env) {
-  const iso = String(params.date || "");
+  const iso = coerceDateIso_(params && params.date) || String((params && params.date) || "");
   const map = await dateMap_(env);
   const dayName = map[iso] || "";
   if (dayName) {
@@ -5336,9 +5847,48 @@ async function getCutting_(params, env) {
   return hit;
 }
 
+/** Hard-delete soft-deleted D1 zombies so a live upsert can insert/resurrect the same id. */
+async function purgeDeletedOrderZombies_(env, spec) {
+  spec = spec || {};
+  if (!env || !env.DB) return;
+  const id = String(spec.id || "").trim();
+  const mk = String(spec.match_key || spec.matchKey || "").trim();
+  const day = String(spec.day_name || spec.day || "").trim();
+  const iso = String(spec.date_iso || spec.dateIso || "").trim();
+  const clientLow = String(spec.client || spec.nick || "")
+    .trim()
+    .toLowerCase();
+  try {
+    if (id) {
+      await env.DB.prepare("DELETE FROM orders WHERE id = ? AND status = 'deleted'")
+        .bind(id)
+        .run();
+    }
+    if (mk && day) {
+      await env.DB.prepare(
+        "DELETE FROM orders WHERE status = 'deleted' AND day_name = ? AND (match_key = ? OR lower(client) = ?)"
+      )
+        .bind(day, mk, clientLow || mk)
+        .run();
+    }
+    if (mk && iso) {
+      await env.DB.prepare(
+        "DELETE FROM orders WHERE status = 'deleted' AND date_iso = ? AND (match_key = ? OR lower(client) = ?)"
+      )
+        .bind(iso, mk, clientLow || mk)
+        .run();
+    }
+  } catch (eZomb) {}
+}
+
 async function upsertOrderRow_(env, row, opts) {
   opts = opts || {};
   await ensureMetaColumn_(env);
+  const incomingLive =
+    !row || String(row.status || "active").trim().toLowerCase() !== "deleted";
+  if (incomingLive && row) {
+    await purgeDeletedOrderZombies_(env, row);
+  }
   if (row && row.id && !opts.allowEmptyOverwrite && !opts.skipKeepNonEmpty) {
     try {
       const existing = await env.DB.prepare("SELECT * FROM orders WHERE id = ? LIMIT 1")
@@ -5385,6 +5935,7 @@ async function saveOrder_(params, env, asBooking) {
 
   let day = String(params.day || "").trim();
   let dateIso = String(params.date || params.dateIso || params.newDate || params.deliveryDate || "").trim();
+  dateIso = coerceDateIso_(dateIso) || dateIso;
   if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(dateIso)) dateIso = dmyToIso_(dateIso) || dateIso;
 
   // Дата вне текущей (возможно незакрытой) недели → только календарь.
@@ -5397,7 +5948,22 @@ async function saveOrder_(params, env, asBooking) {
         dateOnWeek = true;
         day = String(r.dayName);
       } else {
-        day = "";
+        const hinted = String(params.day || "").trim();
+        if (hinted) {
+          try {
+            const info = await dayDateInfo_(env, hinted);
+            if (info && info.iso && coerceDateIso_(info.iso) === coerceDateIso_(dateIso)) {
+              dateOnWeek = true;
+              day = hinted;
+            } else {
+              day = "";
+            }
+          } catch (eHint) {
+            day = "";
+          }
+        } else {
+          day = "";
+        }
       }
     } catch (eResDay) {
       day = "";
@@ -5494,11 +6060,13 @@ async function saveOrder_(params, env, asBooking) {
     .bind(now, day || "", matchKey, client.toLowerCase(), id)
     .run();
 
-  // календарь-only: снести дубли на той же date_iso (в т.ч. ошибочно записанные в Пн/Вт)
+  // календарь-only: снести только другие calendar-only на той же date_iso.
+  // Не трогать week-slot (Пн–Вс) — параллельный saveOrder/saveBooking иначе
+  // убивает только что записанный ряд (Dnevnik.mv / confettins на листе, пусто в D1).
   if (!day && dateIso) {
     try {
       await env.DB.prepare(
-        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND (match_key = ? OR lower(client) = ?) AND id != ?"
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND (day_name = '' OR day_name IS NULL) AND (match_key = ? OR lower(client) = ?) AND id != ?"
       )
         .bind(now, dateIso, matchKey, client.toLowerCase(), id)
         .run();
@@ -5622,8 +6190,16 @@ const MOVE_EPOCH_MS = 7 * 24 * 60 * 60 * 1000;
 
 function moveEpochHidesFromDay_(ep, day) {
   if (!ep || !ep.to || String(ep.to) === String(day || "")) return false;
+  const d = String(day || "");
+  const to = String(ep.to || "");
+  const from = String(ep.from || "");
   const epAge = Date.now() - Number(ep.at || 0);
-  return epAge >= 0 && epAge < MOVE_EPOCH_MS;
+  if (!(epAge >= 0 && epAge < MOVE_EPOCH_MS)) return false;
+  // Прячем только ИСХОДНЫЙ день переноса. to часто ISO (календарь 15.09),
+  // а слот недели — «Вторник»: иначе repair/heal не добирают человека с листа.
+  if (from) return from === d;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(to) || /^\d{1,2}\.\d{1,2}\.\d{4}$/.test(to)) return false;
+  return true;
 }
 
 async function putDeleteTombstone_(env, day, matchKey) {
@@ -6070,11 +6646,15 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
   const expectPos = expect != null && expect > 0;
   const sparse = got === 0 ? !!(opts.force || expectPos) : expect != null && got < expect;
   diag.sparse = sparse;
-  if (!sparse) {
+  // force getClients: лист может быть впереди D1 (confettins/Dnevnik.mv на GAS Вт, D1 6).
+  // not_sparse vs own D1 counts never pulls GAS — UI остаётся пустым.
+  const forceUpsertMissing = !!(opts.force && !sparse);
+  if (!sparse && !forceUpsertMissing) {
     diag.step = "not_sparse";
     if (d1Payload && typeof d1Payload === "object") d1Payload.healDiag = diag;
     return d1Payload;
   }
+  if (forceUpsertMissing) diag.step = "force_upsert_missing";
   let hasTomb = false;
   try {
     hasTomb = await dayHasFreshTombstone_(env, day);
@@ -6144,11 +6724,12 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
       if (!gc) continue;
       const gmk = normalizeMatchKey_(gc.matchKey || gc.name || gc.client || "");
       const gname = String(gc.name || gc.client || "");
-      if (gmk) {
+      // День уже с людьми, лист впереди: не резать GAS epoch'ом (to часто ISO слота).
+      if (gmk && got === 0 && !opts.force && !forceUpsertMissing) {
         const epG = await getSnapRaw_(env, "moveEpoch:" + gmk);
         if (moveEpochHidesFromDay_(epG, day)) continue;
       }
-      if (isTombstoned_(tombHeal, day, gmk, gname)) continue;
+      if (!forceUpsertMissing && isTombstoned_(tombHeal, day, gmk, gname)) continue;
       gasFiltered.push(gc);
     }
     live.clients = gasFiltered;
@@ -6177,11 +6758,14 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
         diag.wrote = "replace";
       }
     } else {
-      // Есть люди в D1 — дописать с листа; respect personal tombs (не ignore)
+      // Есть люди в D1 — дописать с листа. Лист впереди (8 vs 6): epoch/tomb
+      // не должны оставлять дыру (confettins97 / Dnevnik.mv).
+      const gasAhead = gasN > got;
       await upsertMissingClientsFromGas_(env, day, live.clients || [], {
-        ignoreTombstones: false
+        ignoreTombstones: !!(forceUpsertMissing || gasAhead),
+        ignoreMoveEpoch: !!(forceUpsertMissing || gasAhead || opts.force)
       });
-      diag.wrote = "upsert";
+      diag.wrote = gasAhead ? "upsert_gas_ahead" : "upsert";
     }
   } catch (eUp) {
     diag.writeErr = String((eUp && eUp.message) || eUp);
@@ -6672,8 +7256,8 @@ async function moveClient_(params, env) {
     try {
       const rNew = await resolveDay_({ date: newDate }, env);
       if (rNew && rNew.onWeek && rNew.dayName) {
-        if (!newDay) newDay = rNew.dayName;
-        if (!toBool_(params.calendarOnly)) calendarOnly = false;
+        newDay = rNew.dayName;
+        calendarOnly = false;
       } else if (!newDay) {
         calendarOnly = true;
       }
@@ -7003,7 +7587,11 @@ async function moveClient_(params, env) {
   let toLabel = "(calendar)";
   if (newDay) {
     const info = await dayDateInfo_(env, newDay);
-    const iso = newDate || info.iso || row.date_iso || "";
+    const iso =
+      coerceDateIso_(newDate) ||
+      (info && info.iso) ||
+      coerceDateIso_(row.date_iso) ||
+      "";
     const newId = newDay + ":" + matchKey;
     await upsertOrderRow_(env, {
       id: newId,
@@ -7111,7 +7699,11 @@ async function moveClient_(params, env) {
   if (newDay) {
     try {
       const info2 = await dayDateInfo_(env, newDay);
-      const iso2 = newDate || info2.iso || row.date_iso || "";
+      const iso2 =
+        coerceDateIso_(newDate) ||
+        (info2 && info2.iso) ||
+        coerceDateIso_(row.date_iso) ||
+        "";
       await upsertOrderRow_(env, {
         id: newDay + ":" + matchKey,
         date_iso: iso2,
@@ -8584,6 +9176,10 @@ async function handleCutover_(a, params, env, ctx) {
     } catch (eFinGuard) {}
   }
 
+  if (/^undeleteWeekFromSheet$/i.test(a)) {
+    return undeleteWeekFromSheet_(params, env);
+  }
+
   // Heal: после кривого finish D1 «перенёс» людей +7 — без повторного закрытия недели.
   // Только owner + confirm=1. Sheets не трогает.
   if (/^forceWeekD1Resync$/i.test(a)) {
@@ -8660,7 +9256,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1 слоты недели = Sheets; пустые поля не затирали непустые.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-13 snowygodness-dedupe-h1"
+        deployMarker: "2026-09-14 undelete-zombie-h1"
       };
     } catch (eResync) {
       return {
@@ -8830,6 +9426,77 @@ async function handleCutover_(a, params, env, ctx) {
         status: "error",
         message: "repair_failed",
         tip: String((eRepW && eRepW.message) || eRepW),
+        cutover: true,
+        action: a
+      };
+    }
+  }
+
+  // Лист впереди D1 (confettins97 / Dnevnik.mv на Вт): upsert missing, без replace дня.
+  if (/^repairMissingWeekFromGas$/i.test(a)) {
+    const ownerOkM = await actorIsOwnerRetail_(params, env);
+    if (!ownerOkM) {
+      return {
+        status: "error",
+        message: "owner_only",
+        tip: "Только владелец может добрать людей с листа в D1.",
+        cutover: true,
+        action: a
+      };
+    }
+    if (
+      String(params.confirm || "") !== "1" &&
+      String(params.confirm || "").toLowerCase() !== "true" &&
+      String(params.allowDanger || "") !== "1"
+    ) {
+      return {
+        status: "error",
+        message: "need_confirm",
+        tip: "Нужен confirm=1. Если люди на листе, а D1 пуст из‑за tomb: ignoreTomb=1",
+        cutover: true,
+        action: a
+      };
+    }
+    try {
+      const days = WEEK_DAYS.slice();
+      const onlyDay = String(params.day || "").trim();
+      const out = { added: 0, days: [] };
+      for (let i = 0; i < days.length; i++) {
+        const day = days[i];
+        if (onlyDay && day !== onlyDay) continue;
+        let gasClients = [];
+        try {
+          const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
+          if (fresh && fresh.status === "success" && Array.isArray(fresh.clients)) {
+            gasClients = fresh.clients;
+          }
+        } catch (eG) {}
+        const n = await upsertMissingClientsFromGas_(env, day, gasClients, {
+          ignoreTombstones:
+            String(params.ignoreTomb || params.ignoreTombstones || "") === "1" ||
+            String(params.ignoreTomb || "").toLowerCase() === "true",
+          ignoreMoveEpoch: true
+        });
+        out.added += Number(n) || 0;
+        out.days.push({ day: day, gasN: gasClients.length, added: Number(n) || 0 });
+      }
+      try {
+        await rebuildWeekCounts_(env);
+      } catch (eCnt) {}
+      return {
+        status: "success",
+        action: "repairMissingWeekFromGas",
+        repaired: out,
+        tip: "D1: дописали людей с листа (без replace). moveEpoch не прячет слот назначения.",
+        cutover: true,
+        d1Verified: true,
+        deployMarker: "2026-09-14 view-hide-mismatch-h1"
+      };
+    } catch (eMiss) {
+      return {
+        status: "error",
+        message: "repair_failed",
+        tip: String((eMiss && eMiss.message) || eMiss),
         cutover: true,
         action: a
       };
@@ -9093,13 +9760,23 @@ async function handleCutover_(a, params, env, ctx) {
 
         // компактные params для продолжения на poll (без огромного basket duplicate если можно)
         const jobParams = Object.assign({}, gasWriteParams);
+        try {
+          const routedEarly = await resolvePeopleWriteRoute_(a, jobParams, env);
+          if (routedEarly && routedEarly.params) {
+            Object.assign(jobParams, routedEarly.params);
+            if (routedEarly.onWeek) {
+              jobParams.calendarOnly = "0";
+              if (!/^moveClient$/i.test(a)) jobParams.alsoSaveOrder = "1";
+            }
+          }
+        } catch (eRtEarly) {}
         // D1-primary: все core writes сразу в D1; Sheets — только зеркало в фоне
         let d1Early = null;
         const d1Primary = isD1PrimaryCanon_(env);
         if (env && env.DB && (d1Primary || /^(moveClient|deleteClient|removeCalendarClient)$/i.test(a))) {
           try {
             if (/^(saveOrder|saveBooking)$/i.test(a)) {
-              d1Early = await saveOrder_(jobParams, env, /^saveBooking$/i.test(a));
+              d1Early = await saveOrder_(jobParams, env, /^saveBooking$/i.test(a) && toBool_(jobParams.calendarOnly));
               if (d1Early && d1Early.status === "success") {
                 if (d1Early.day != null) jobParams.day = d1Early.day;
                 if (d1Early.dateIso) {
@@ -11820,6 +12497,7 @@ async function upsertMissingClientsFromGas_(env, day, clients, opts) {
   const dateIso = (info && info.iso) || "";
   const now = new Date().toISOString();
   const ignoreTombs = opts.ignoreTombstones === true;
+  const ignoreEpoch = opts.ignoreMoveEpoch === true || ignoreTombs;
   let tomb = { items: [] };
   if (!ignoreTombs) {
     tomb = (await getSnapRaw_(env, "deleteTombstones")) || { items: [] };
@@ -11843,17 +12521,51 @@ async function upsertMissingClientsFromGas_(env, day, clients, opts) {
       } catch (ePK) {}
       if (isTombstoned_(tomb, day, mk, name)) continue;
     }
-    try {
-      const ep = await getSnapRaw_(env, "moveEpoch:" + mk);
-      if (moveEpochHidesFromDay_(ep, day)) continue;
-    } catch (eEp) {}
+    if (!ignoreEpoch) {
+      try {
+        const ep = await getSnapRaw_(env, "moveEpoch:" + mk);
+        if (moveEpochHidesFromDay_(ep, day)) continue;
+      } catch (eEp) {}
+    }
     let exists = null;
     try {
       exists = await findOrderRow_(env, mk, day, dateIso, name);
     } catch (eF) {
       exists = null;
     }
-    if (exists && String(exists.status || "") === "active") continue;
+    if (exists && String(exists.status || "") === "active") {
+      const haveDay = String(exists.day_name || "");
+      const haveIso = coerceDateIso_(exists.date_iso) || String(exists.date_iso || "");
+      if ((haveDay && haveDay !== day) || (dateIso && haveIso && haveIso !== dateIso) || !haveDay) {
+        try {
+          await env.DB.prepare(
+            "UPDATE orders SET day_name = ?, date_iso = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+          )
+            .bind(day, dateIso || haveIso, now, exists.id)
+            .run();
+          added++;
+        } catch (eRebind) {}
+      }
+      continue;
+    }
+    if (!exists) {
+      try {
+        exists = await findActiveOrderByMatch_(env, mk, name);
+      } catch (eAny) {
+        exists = null;
+      }
+      if (exists && String(exists.status || "") === "active") {
+        try {
+          await env.DB.prepare(
+            "UPDATE orders SET day_name = ?, date_iso = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+          )
+            .bind(day, dateIso || coerceDateIso_(exists.date_iso) || "", now, exists.id)
+            .run();
+          added++;
+        } catch (eRe2) {}
+        continue;
+      }
+    }
     try {
       await upsertOrderRow_(env, {
         id: day + ":" + mk,
@@ -12462,8 +13174,19 @@ async function cutoverRefreshAllWeekDays_(env, opts) {
               if (infoDay && infoDay.iso) await scrubMismatchedDayOrders_(env, day, infoDay.iso);
             } catch (eSt) {}
           }
+          // Лист впереди D1 (8 vs 6): добрать даже после «успешного» replace —
+          // epoch/tomb не должны оставлять дыру. forceWeekD1Resync тоже сюда.
+          try {
+            await upsertMissingClientsFromGas_(env, day, gasList, {
+              ignoreTombstones: true,
+              ignoreMoveEpoch: true
+            });
+          } catch (eMissWk) {}
         } else {
-          await upsertMissingClientsFromGas_(env, day, gasList, { ignoreTombstones: true });
+          await upsertMissingClientsFromGas_(env, day, gasList, {
+            ignoreTombstones: true,
+            ignoreMoveEpoch: true
+          });
         }
         try {
           await putSnap_(env, "clients:" + day, fresh);
