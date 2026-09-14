@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115956";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115957";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -4965,13 +4965,9 @@
 
         if (isEdit && dateOnWeek && resolvedDayName) {
           weekDayToSave = resolvedDayName;
-          if (editDaySnap && String(editDaySnap) !== String(resolvedDayName)) {
-            var delOld = await awaitPeopleDelete_(deleteClientParams(editClientSnap || clientName, editDaySnap, editKeySnap));
-            if (!delOld.ok) {
-              await uiAlertAsync("Не удалось убрать со старого дня — сохранение отменено.");
-              return;
-            }
-          }
+          // Смена дня: saveOrder_ сам снимет со старого слота.
+          // Предварительный deleteClient (_userDelete) + afterWrite находит
+          // новую строку и сносит её — confettins 14→15 пропадал из D1 при живом листе.
         } else if (dateOnWeek && resolvedDayName) {
           weekDayToSave = resolvedDayName;
         } else if (isEdit && editDaySnap && dateOnWeek) {
@@ -4983,8 +4979,7 @@
 
         if (isEdit && editClientSnap) {
           var nickChanged = String(editClientSnap).trim().toUpperCase() !== clientName.toUpperCase();
-          var dayChanged = String(editDaySnap || "") !== String(weekDayToSave || day || "");
-          if (nickChanged || (dayChanged && editDaySnap)) {
+          if (nickChanged) {
             var delRen = await awaitPeopleDelete_(deleteClientParams(editClientSnap, editDaySnap || day, editKeySnap));
             if (!delRen.ok) {
               await uiAlertAsync("Не удалось убрать старую запись — сохранение отменено.");

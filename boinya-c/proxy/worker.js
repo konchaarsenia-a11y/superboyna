@@ -2,7 +2,8 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-13 reattach-week-slots-h1
+ * deploy-marker: 2026-09-14 view-hide-mismatch-h1
+ * (prior: 2026-09-13 snowygodness-dedupe-h1 / reattach-week-slots-h1)
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -386,8 +387,12 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-13 snowygodness-dedupe-h1"
+      deployMarker: "2026-09-14 view-hide-mismatch-h1"
     };
+  }
+
+  if (/^lookupClient$/i.test(a)) {
+    return lookupClient_(params, env);
   }
 
   if (/^pollPeopleWrite$/i.test(a)) {
@@ -2398,6 +2403,17 @@ function dmyToIso_(dmy) {
   return m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
 }
 
+/** ISO yyyy-mm-dd from ISO / DMY / datetime prefix. */
+function coerceDateIso_(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const dmy = dmyToIso_(s);
+  if (dmy) return dmy;
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : "";
+}
+
 function isoToDmy_(iso) {
   const m = String(iso || "")
     .trim()
@@ -2594,26 +2610,47 @@ function weekCloseScrubAction_(haveIso, wantIso) {
 }
 
 /**
+ * Slot column vs date_iso. Off-week leftover → detach (keep date).
+ * Same-week other slot (move 14→15 left date_iso=14 on Tuesday) → stamp this slot.
+ * Never hide an active weekday-column row from getClients.
+ */
+function weekSlotDateAction_(haveIso, wantIso, weekMap) {
+  const have = coerceDateIso_(haveIso);
+  const want = coerceDateIso_(wantIso);
+  if (!want) return "skip";
+  if (!have) return "stamp_empty";
+  if (have === want) return "keep";
+  if (weekMap && weekMap[have]) return "stamp_slot";
+  return "detach";
+}
+
+/**
  * Align D1 weekday column to the current week slot WITHOUT shifting dates.
  * Empty date_iso → stamp wantIso. Other date_iso → detach day_name (keep date).
  */
 async function scrubMismatchedDayOrders_(env, day, wantIso) {
   if (!env || !env.DB || !day || !wantIso) return 0;
   let n = 0;
+  let weekMap = Object.create(null);
+  try {
+    weekMap = await dateMap_(env);
+  } catch (eMap) {
+    weekMap = Object.create(null);
+  }
   try {
     const q = await env.DB.prepare(
-      "SELECT id, date_iso FROM orders WHERE day_name = ? AND status = 'active' AND date_iso != ? LIMIT 200"
+      "SELECT id, date_iso FROM orders WHERE day_name = ? AND status = 'active' LIMIT 200"
     )
-      .bind(day, wantIso)
+      .bind(day)
       .all();
     const list = (q && q.results) || [];
     const nowFix = new Date().toISOString();
     for (let i = 0; i < list.length; i++) {
       const row = list[i];
       if (!row) continue;
-      const act = weekCloseScrubAction_(row.date_iso, wantIso);
+      const act = weekSlotDateAction_(row.date_iso, wantIso, weekMap);
       try {
-        if (act === "stamp_empty") {
+        if (act === "stamp_empty" || act === "stamp_slot") {
           await env.DB.prepare(
             "UPDATE orders SET date_iso = ?, updated_at = ? WHERE id = ? AND status = 'active'"
           )
@@ -3306,9 +3343,20 @@ async function getClients_(params, env) {
         .bind(day)
         .all();
       rows = (q2 && q2.results) || [];
+      // Active on this weekday column = visible. Off-week leftover date_iso
+      // already detached by scrub. Same-week mismatch was stamped to slot iso.
+      // Do NOT drop slot members whose date_iso still differs (move 14→15).
+      let weekMapG = Object.create(null);
+      try {
+        weekMapG = await dateMap_(env);
+      } catch (eWg) {
+        weekMapG = Object.create(null);
+      }
       rows = rows.filter(function (r) {
-        const have = String((r && r.date_iso) || "");
-        return !have || have === dateIso;
+        const have = coerceDateIso_((r && r.date_iso) || "");
+        if (!have || have === dateIso) return true;
+        if (weekMapG && weekMapG[have]) return true;
+        return false;
       });
     }
     // detach после close/repair: active на date_iso слота с пустым day_name не прятать
@@ -3437,6 +3485,53 @@ async function getClients_(params, env) {
     dateIso: dateIso || "",
     source: "d1",
     clients: clientsOut
+  };
+}
+
+/** Owner forensics: find D1 orders by nick including deleted / detached. */
+async function lookupClient_(params, env) {
+  const q = String((params && (params.q || params.client || params.nick || params.matchKey)) || "").trim();
+  if (!q) return { status: "error", message: "need_q", tip: "q=confettins97" };
+  if (!env || !env.DB) return { status: "error", message: "no_d1" };
+  const ownerOk = await actorIsOwnerRetail_(params, env);
+  if (!ownerOk) {
+    return { status: "error", message: "owner_only", action: "lookupClient" };
+  }
+  const mk = normalizeMatchKey_(q);
+  const like = "%" + q.toLowerCase().replace(/%/g, "").replace(/_/g, "") + "%";
+  let rows = [];
+  try {
+    const r = await env.DB.prepare(
+      "SELECT id, status, day_name, date_iso, client, match_key, address, phone, updated_at, length(basket_json) AS basketLen FROM orders WHERE match_key = ? OR match_key = ? OR lower(client) LIKE ? OR lower(client) LIKE ? ORDER BY updated_at DESC LIMIT 40"
+    )
+      .bind(mk, String(q).toUpperCase().replace(/[._]/g, ""), like, "%" + String(q).toLowerCase() + "%")
+      .all();
+    rows = (r && r.results) || [];
+  } catch (eQ) {
+    return { status: "error", message: String((eQ && eQ.message) || eQ), action: "lookupClient" };
+  }
+  return {
+    status: "success",
+    action: "lookupClient",
+    q: q,
+    matchKey: mk,
+    rows: rows.map(function (row) {
+      return {
+        id: row.id,
+        status: row.status,
+        day: row.day_name || "",
+        dateIso: row.date_iso || "",
+        client: row.client,
+        matchKey: row.match_key,
+        address: String(row.address || "").slice(0, 80),
+        phone: row.phone || "",
+        basketLen: Number(row.basketLen) || 0,
+        updatedAt: row.updated_at || ""
+      };
+    }),
+    cutover: true,
+    d1Verified: true,
+    deployMarker: "2026-09-14 view-hide-mismatch-h1"
   };
 }
 
@@ -5385,6 +5480,7 @@ async function saveOrder_(params, env, asBooking) {
 
   let day = String(params.day || "").trim();
   let dateIso = String(params.date || params.dateIso || params.newDate || params.deliveryDate || "").trim();
+  dateIso = coerceDateIso_(dateIso) || dateIso;
   if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(dateIso)) dateIso = dmyToIso_(dateIso) || dateIso;
 
   // Дата вне текущей (возможно незакрытой) недели → только календарь.
@@ -5494,11 +5590,13 @@ async function saveOrder_(params, env, asBooking) {
     .bind(now, day || "", matchKey, client.toLowerCase(), id)
     .run();
 
-  // календарь-only: снести дубли на той же date_iso (в т.ч. ошибочно записанные в Пн/Вт)
+  // календарь-only: снести только другие calendar-only на той же date_iso.
+  // Не трогать week-slot (Пн–Вс) — параллельный saveOrder/saveBooking иначе
+  // убивает только что записанный ряд (Dnevnik.mv / confettins на листе, пусто в D1).
   if (!day && dateIso) {
     try {
       await env.DB.prepare(
-        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND (match_key = ? OR lower(client) = ?) AND id != ?"
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE status = 'active' AND date_iso = ? AND (day_name = '' OR day_name IS NULL) AND (match_key = ? OR lower(client) = ?) AND id != ?"
       )
         .bind(now, dateIso, matchKey, client.toLowerCase(), id)
         .run();
@@ -6070,11 +6168,15 @@ async function healWeekClientsFromGasIfSparse_(env, day, d1Payload, opts) {
   const expectPos = expect != null && expect > 0;
   const sparse = got === 0 ? !!(opts.force || expectPos) : expect != null && got < expect;
   diag.sparse = sparse;
-  if (!sparse) {
+  // force getClients: лист может быть впереди D1 (confettins/Dnevnik.mv на GAS Вт, D1 6).
+  // not_sparse vs own D1 counts never pulls GAS — UI остаётся пустым.
+  const forceUpsertMissing = !!(opts.force && !sparse);
+  if (!sparse && !forceUpsertMissing) {
     diag.step = "not_sparse";
     if (d1Payload && typeof d1Payload === "object") d1Payload.healDiag = diag;
     return d1Payload;
   }
+  if (forceUpsertMissing) diag.step = "force_upsert_missing";
   let hasTomb = false;
   try {
     hasTomb = await dayHasFreshTombstone_(env, day);
@@ -7003,7 +7105,11 @@ async function moveClient_(params, env) {
   let toLabel = "(calendar)";
   if (newDay) {
     const info = await dayDateInfo_(env, newDay);
-    const iso = newDate || info.iso || row.date_iso || "";
+    const iso =
+      coerceDateIso_(newDate) ||
+      (info && info.iso) ||
+      coerceDateIso_(row.date_iso) ||
+      "";
     const newId = newDay + ":" + matchKey;
     await upsertOrderRow_(env, {
       id: newId,
@@ -7111,7 +7217,11 @@ async function moveClient_(params, env) {
   if (newDay) {
     try {
       const info2 = await dayDateInfo_(env, newDay);
-      const iso2 = newDate || info2.iso || row.date_iso || "";
+      const iso2 =
+        coerceDateIso_(newDate) ||
+        (info2 && info2.iso) ||
+        coerceDateIso_(row.date_iso) ||
+        "";
       await upsertOrderRow_(env, {
         id: newDay + ":" + matchKey,
         date_iso: iso2,
@@ -8830,6 +8940,76 @@ async function handleCutover_(a, params, env, ctx) {
         status: "error",
         message: "repair_failed",
         tip: String((eRepW && eRepW.message) || eRepW),
+        cutover: true,
+        action: a
+      };
+    }
+  }
+
+  // Лист впереди D1 (confettins97 / Dnevnik.mv на Вт): upsert missing, без replace дня.
+  if (/^repairMissingWeekFromGas$/i.test(a)) {
+    const ownerOkM = await actorIsOwnerRetail_(params, env);
+    if (!ownerOkM) {
+      return {
+        status: "error",
+        message: "owner_only",
+        tip: "Только владелец может добрать людей с листа в D1.",
+        cutover: true,
+        action: a
+      };
+    }
+    if (
+      String(params.confirm || "") !== "1" &&
+      String(params.confirm || "").toLowerCase() !== "true" &&
+      String(params.allowDanger || "") !== "1"
+    ) {
+      return {
+        status: "error",
+        message: "need_confirm",
+        tip: "Нужен confirm=1. Если люди на листе, а D1 пуст из‑за tomb: ignoreTomb=1",
+        cutover: true,
+        action: a
+      };
+    }
+    try {
+      const days = WEEK_DAYS.slice();
+      const onlyDay = String(params.day || "").trim();
+      const out = { added: 0, days: [] };
+      for (let i = 0; i < days.length; i++) {
+        const day = days[i];
+        if (onlyDay && day !== onlyDay) continue;
+        let gasClients = [];
+        try {
+          const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
+          if (fresh && fresh.status === "success" && Array.isArray(fresh.clients)) {
+            gasClients = fresh.clients;
+          }
+        } catch (eG) {}
+        const n = await upsertMissingClientsFromGas_(env, day, gasClients, {
+          ignoreTombstones:
+            String(params.ignoreTomb || params.ignoreTombstones || "") === "1" ||
+            String(params.ignoreTomb || "").toLowerCase() === "true"
+        });
+        out.added += Number(n) || 0;
+        out.days.push({ day: day, gasN: gasClients.length, added: Number(n) || 0 });
+      }
+      try {
+        await rebuildWeekCounts_(env);
+      } catch (eCnt) {}
+      return {
+        status: "success",
+        action: "repairMissingWeekFromGas",
+        repaired: out,
+        tip: "D1: дописали людей с листа (без replace). tomb/moveEpoch уважаем.",
+        cutover: true,
+        d1Verified: true,
+        deployMarker: "2026-09-14 view-hide-mismatch-h1"
+      };
+    } catch (eMiss) {
+      return {
+        status: "error",
+        message: "repair_failed",
+        tip: String((eMiss && eMiss.message) || eMiss),
         cutover: true,
         action: a
       };
@@ -11853,7 +12033,39 @@ async function upsertMissingClientsFromGas_(env, day, clients, opts) {
     } catch (eF) {
       exists = null;
     }
-    if (exists && String(exists.status || "") === "active") continue;
+    if (exists && String(exists.status || "") === "active") {
+      const haveDay = String(exists.day_name || "");
+      const haveIso = coerceDateIso_(exists.date_iso) || String(exists.date_iso || "");
+      if ((haveDay && haveDay !== day) || (dateIso && haveIso && haveIso !== dateIso) || !haveDay) {
+        try {
+          await env.DB.prepare(
+            "UPDATE orders SET day_name = ?, date_iso = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+          )
+            .bind(day, dateIso || haveIso, now, exists.id)
+            .run();
+          added++;
+        } catch (eRebind) {}
+      }
+      continue;
+    }
+    if (!exists) {
+      try {
+        exists = await findActiveOrderByMatch_(env, mk, name);
+      } catch (eAny) {
+        exists = null;
+      }
+      if (exists && String(exists.status || "") === "active") {
+        try {
+          await env.DB.prepare(
+            "UPDATE orders SET day_name = ?, date_iso = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+          )
+            .bind(day, dateIso || coerceDateIso_(exists.date_iso) || "", now, exists.id)
+            .run();
+          added++;
+        } catch (eRe2) {}
+        continue;
+      }
+    }
     try {
       await upsertOrderRow_(env, {
         id: day + ":" + mk,

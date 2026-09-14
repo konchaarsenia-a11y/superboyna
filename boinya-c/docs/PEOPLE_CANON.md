@@ -57,6 +57,10 @@
 - `cutoverStoreRead_` revalidate: **только upsert** (replace dead path убран).
 - Week-close resync: `gasN < d1Count` → upsert-only; aborted fallback без `ignoreTombstones`.
 - После detach/`repairShiftedWeekClose`: `reattachWeekSlotDayNames_` + `getClients` по дню показывает active на `date_iso` слота даже с пустым `day_name`. Не прятать людей новой недели.
+- **Same-week date mismatch** (перенос 14→15 оставил `date_iso=14` на `day_name=Вторник`): `weekSlotDateAction_` **stamp** слота, не detach/filter. Off-week leftover по-прежнему detach.
+- Calendar-only save **не** soft-delete week-slot ряды той же `date_iso` (только `day_name=''`).
+- Heal `force getClients`: upsert missing с GAS даже если D1 counts «не sparse» (лист впереди D1). Repair: `repairMissingWeekFromGas`. Lookup: `lookupClient`.
+- UI смена дня в форме: **без** предварительного `deleteClient` (`_userDelete` afterWrite сносит новую строку). `saveOrder_` сам чистит другие слоты.
 - **Не затирать** непустые `address` / `phone` / `basket` пустыми при `upsertOrderRow_` / `replaceDayOrdersFromClients_` / overlay save / GAS `handleSaveOrder`. Явный clear только `explicitClear=1` / `clearAddress` / `clearBasket`. Repair: `repairWipedClientFields`.
 - `repairDetachedWeekSlots` / `dedupe_calendar`: если calendar-only полнее слота — **promote** cal, удалить stub (`snowygodness` 14.09). Никогда не delete ряда с большим payload. Persist fail → abort, оба ряда живы.
 - `moveEpoch` старше 7д не прячет клиента.
