@@ -113,7 +113,15 @@ vm.runInContext(
     extractConstAssign_(workerSrc, "PARTNER_LIVE_TEST_QUEUE"),
     extractConstAssign_(workerSrc, "PARTNER_CATALOG_STATIC"),
     extractConstAssign_(workerSrc, "PARTNER_ARSENIY_POINTS"),
+    extractConstAssign_(workerSrc, "PARTNER_CANON_OWNER_TIDS"),
+    extractConstAssign_(workerSrc, "PARTNER_CANON_OWNER_USERS"),
     extractFn_(workerSrc, "partnerNormUserWorker_"),
+    extractFn_(workerSrc, "isPartnerCanonOwner_"),
+    extractFn_(workerSrc, "partnerIsOwnerIdentity_"),
+    extractFn_(workerSrc, "partnerStripOwnerAccess_"),
+    extractFn_(workerSrc, "partnerAttachVisibleAccess_"),
+    extractFn_(workerSrc, "partnerDemoteFakeOwner_"),
+    extractFn_(workerSrc, "partnerCanonOwnerGetMe_"),
     extractFn_(workerSrc, "isPartnerLiveTestUser_"),
     extractFn_(workerSrc, "isPartnerManualAccessUser_"),
     extractFn_(workerSrc, "isPartnerInspectLocaUser_"),
@@ -127,6 +135,7 @@ vm.runInContext(
     extractFn_(workerSrc, "partnerOwnerAllGetMe_"),
     extractFn_(workerSrc, "partnerBlockWrongPoint_"),
     extractFn_(workerSrc, "isPartnerArseniy_"),
+    extractFn_(workerSrc, "partnerArseniyAllowedPointId_"),
     extractFn_(workerSrc, "partnerGuardOrRewrite_")
   ].join("\n"),
   sandbox
@@ -188,6 +197,9 @@ const me = sandbox.partnerOwnerAllGetMe_({
 
 if (me.partnerOverride !== "owner_all_except_net_varka") {
   fail("getMe override " + me.partnerOverride);
+}
+if (me.isOwner || me.ownerMode || me.role === "owner") {
+  fail("helper owner-all must not be owner cabinet");
 }
 const pointIds = (me.points || []).map(function (p) { return p.id; });
 const netIds = (me.networks || []).map(function (n) { return n.id; });

@@ -53,10 +53,11 @@ CONFIRM=WIPE_ALL TELEGRAM_ID=<owner_tid> bash scripts/wipe-partner-order-histori
 
 **Prod v3+:** демо-вход выключен.  
 - Есть `Partner_Access` → только выданные точки (даже если человек owner Бойни)  
-- Нет Access и owner Бойни → все точки  
-- Админка — вкладка **Партнёры** в Бойне  
+- **Канон-owner** партнёрки (`650923866` / `@arseniyhotko`) → кабинет со **всеми** активными точками, включая Varka (`ownerMode`). Не путать с helper.  
+- Любой другой owner Бойни без Access → **нет** кабинета партнёрки  
+- Админка — вкладка **Партнёры** в Бойне (owner identity в списке доступов скрыт)
 
-Worker: `@one_more_person_228` — **все партнёры кроме Varka** (`PARTNER_MANUAL_ACCESS_EXCLUDE_NETS=net_varka`, owner-all except). Плюс **выбор локи для проверки** (только tid `827494606`): чип/селект в миниаппе, persist localStorage, история фильтруется. Single-point live-test выкл. `@arseniyhotko` — Варки сняты (`PARTNER_PROD_V17`). Deploy — **Worker** (CI на merge в `main`) + Pages `varka/`.
+Worker: `@one_more_person_228` — **все партнёры кроме Varka** (`PARTNER_MANUAL_ACCESS_EXCLUDE_NETS=net_varka`, granted all-except, **не** owner). Плюс **выбор локи для проверки** (только tid `827494606`): чип/селект в миниаппе, persist localStorage, история фильтруется. Single-point live-test выкл. Owner-кабинет — только `650923866`. Deploy — **Worker** (CI на merge в `main`) + Pages `varka/`.
 
 ### Команда «следующая точка»
 
@@ -160,6 +161,8 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 - [~] **v3.3.36:** слот 12–22; Varka NFC+баннер (без бумажного купона); +250г без custom; owner grant staff; фикс дубля заказов; nav/кабинет · Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.35:** rename polotno_an / indixvost + адрес ниже; 1× Маяковского; Бойня скрыть Firedog+дубли Маяковского · Pages varka 3.3.35 / Бойня `v71115942` · **Deploy Code.gs** (`PARTNER_PROD_V34`) + Worker
 - [~] **v3.3.34 batch:** rename точек (Fundog / Чечота 11 / Победителей 73/1 / bow_wow_collar); история без «Привезём»; купон photo+qty; qty blur keep; Delete в Партнёры→Заказы; access pending+notify+accept; staff без grant; empty-day skip force · Pages varka 3.3.34 · **Deploy Code.gs** (`PARTNER_PROD_V32`) + Worker
+- [~] **v3.3.47:** экран Кабинет у всех; owner-UI / «Выдать доступ» только `650923866`. Helper без owner-кабинета, Varka закрыта, inspect loca жив · Pages · Worker · **Deploy Code.gs**
+- [~] **v3.3.46:** owner-only кабинет (`650923866`, все точки включая Varka). Helper `827494606` не owner, не видит owner в access. #266/#268 без регресса · Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.45:** слот **19:00–22:00**; подпись «Баннер» (Varka); точки без адресов; polotno/indixvost/bow_wow — только купоны+NFC; qty 48/73/96/120 без custom; **баннер NaN отложен**; wipe `partnerWipeOrderHistories` · Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.44:** `@one_more_person_228` сам выбирает локу для проверки (allowlist tid 827494606). Чип + селект, persist `gb_inspect_loca_v1`, история по локе. Varka закрыта · Pages + Worker
 - [~] **v3.3.43:** Access `@one_more_person_228` (tid 827494606) → **все кроме Varka** (`PARTNER_MANUAL_ACCESS_EXCLUDE_NETS=net_varka`) · Worker · после merge CI deploy

@@ -88,7 +88,7 @@ if (!/CONFIRM=WIPE_ALL/.test(wipeScript) || !/partnerWipeOrderHistories/.test(wi
 }
 
 // --- varka UI ---
-if (!/APP_VER = "3.3.45"/.test(varkaSrc)) fail("varka APP_VER must be 3.3.45");
+if (!/APP_VER = "3.3.47"/.test(varkaSrc)) fail("varka APP_VER must be 3.3.47");
 if (!/vr_c_piece: \{ presets: \[48, 73, 96, 120\], unit: "шт", custom: false \}/.test(varkaSrc)) {
   fail("coupon qty must be presets-only (custom: false)");
 }
@@ -103,4 +103,4 @@ if (!/<div class="title">Баннер<\/div>/.test(varkaSrc)) fail("banner card 
 if (/addr && addr !== title/.test(varkaSrc)) fail("points list still renders address under name");
 if (!/networkHasTreats_/.test(varkaSrc)) fail("missing networkHasTreats_");
 
-console.log("OK: partner pack slot 19:00, wipe guards, varka 3.3.45 UI rules");
+console.log("OK: partner pack slot 19:00, wipe guards, varka 3.3.47 UI rules");

@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115959";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115960";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -23906,7 +23906,16 @@
 
       var boxA = document.getElementById("phAccessList");
       if (boxA) {
-        var openAcc = acc.filter(function (a) { return String(a.status || "") === "active"; });
+        var openAcc = acc.filter(function (a) {
+          if (String(a.status || "") !== "active") return false;
+          var tid = String(a.telegramId || "").trim();
+          var uname = String(a.username || "").replace(/^@/, "").trim().toLowerCase();
+          var role = String(a.role || "").toLowerCase();
+          var name = String(a.name || "").trim();
+          if (tid === "650923866" || uname === "arseniyhotko" || role === "owner") return false;
+          if (name === "Владелец Good Boy" || /^владелец\b/i.test(name)) return false;
+          return true;
+        });
         boxA.innerHTML = openAcc.length ? openAcc.map(function (a) {
           var idEsc = String(a.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
           var ptsLab = (a.pointIds || []).map(function (pid) {

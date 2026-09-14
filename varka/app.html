@@ -677,9 +677,9 @@
         <p>Вам выдали доступ к точкам Good Boy.</p>
         <button class="btn block" type="button" onclick="acceptStaffAccess()">Принять доступ</button>
       </div>
-      <div class="card" id="grantStaffCard">
+      <div class="card" id="grantStaffCard" style="display:none;">
         <h3>Доступ сотруднику</h3>
-        <p>Дайте доступ к своим точкам ответственному.</p>
+        <p>Только владелец. Выданным доступом этот блок не виден.</p>
         <label class="lbl">Telegram ID сотрудника</label>
         <input class="field" id="staffTid" placeholder="например 123456789" inputmode="numeric">
         <label class="lbl">Имя</label>
@@ -709,7 +709,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.45";
+  var APP_VER = "3.3.47";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -721,6 +721,9 @@
   /** Только этот tid сам выбирает локу для проверки (не Varka, не все партнёры). */
   var INSPECT_LOCA_USERS_ = ["one_more_person_228"];
   var INSPECT_LOCA_TIDS_ = ["827494606"];
+  /** Кабинет владельца только у Arseniy. Helper 827494606 — обычный доступ. */
+  var CANON_OWNER_TIDS_ = ["650923866"];
+  var CANON_OWNER_USERS_ = ["arseniyhotko"];
   var INSPECT_LOCA_KEY = "gb_inspect_loca_v1";
   var LIVE_TEST_IDX_ = 16;
   var LIVE_TEST_QUEUE_ = [
@@ -918,7 +921,9 @@
         clearSession_();
         return false;
       }
-      REMOTE_IS_OWNER_ = !!s.isOwner && s.role === "owner" && !isLiveTestUser_({ username: s.username }, s);
+      REMOTE_IS_OWNER_ = !!s.ownerMode && !!s.isOwner && s.role === "owner" &&
+        isCanonOwnerUser_({ username: s.username, telegramId: s.telegramId }, s) &&
+        !isLiveTestUser_({ username: s.username }, s);
       DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
       DEMO_NETWORK = s.networkId || "";
       DEMO_USERNAME = normUser_(s.username || "");
@@ -969,6 +974,7 @@
         points: (POINTS || []).slice(),
         networks: (NETWORKS || []).slice(),
         isOwner: !!REMOTE_IS_OWNER_,
+        ownerMode: !!REMOTE_IS_OWNER_,
         canPickInspectLoca: !!REMOTE_CAN_PICK_INSPECT_LOCA_
       }));
     } catch (e) {}
@@ -1001,6 +1007,33 @@
     var uname = normUser_((u && u.username) || (acc && acc.username) || DEMO_USERNAME || "");
     var tid = String((u && u.telegramId) || (acc && acc.telegramId) || "").trim();
     return uname === LIVE_TEST_USER_ || tid === LIVE_TEST_TID_;
+  }
+
+  function isCanonOwnerUser_(u, acc) {
+    u = u || (typeof user === "function" ? user() : {});
+    acc = acc || {};
+    var uname = normUser_((u && u.username) || (acc && acc.username) || DEMO_USERNAME || "");
+    var tid = String((u && u.telegramId) || (acc && acc.telegramId) || DEMO_TELEGRAM_ID_ || "").trim();
+    if (tid && CANON_OWNER_TIDS_.indexOf(tid) >= 0) return true;
+    if (uname && CANON_OWNER_USERS_.indexOf(uname) >= 0) return true;
+    return false;
+  }
+
+  /** Owner-UI (выдать доступ / список доступов) — только канон-owner, не partner/helper. */
+  function canUseOwnerUi_(u, acc) {
+    return isCanonOwnerUser_(u || (typeof user === "function" ? user() : {}), acc || state.me || {});
+  }
+
+  function isOwnerIdentityRow_(row) {
+    if (!row) return false;
+    var tid = String(row.telegramId || row.id || "").trim();
+    var uname = normUser_(row.username);
+    if (tid && CANON_OWNER_TIDS_.indexOf(tid) >= 0) return true;
+    if (uname && CANON_OWNER_USERS_.indexOf(uname) >= 0) return true;
+    if (String(row.role || "").toLowerCase() === "owner") return true;
+    var name = String(row.name || "").trim();
+    if (name === "Владелец Good Boy" || /^владелец\b/i.test(name)) return true;
+    return false;
   }
 
   function isInspectLocaUser_(u, acc) {
@@ -1247,6 +1280,13 @@
         if (s.acc.isOwner || (s.acc.pointIds || []).length > 1) return null;
         return applyLiveTestMe_(u, s.acc);
       }
+      if (!isCanonOwnerUser_(u, s.acc) && (s.acc.isOwner || s.acc.ownerMode || s.acc.role === "owner")) {
+        s.acc.isOwner = false;
+        s.acc.ownerMode = false;
+        s.acc.role = s.acc.isStaff ? "staff" : "partner";
+        s.acc.isPartner = !s.acc.isStaff;
+        if (s.acc.name === "Владелец Good Boy") s.acc.name = s.acc.username || "Партнёр";
+      }
       return s.acc;
     } catch (e) { return null; }
   }
@@ -1472,6 +1512,7 @@
       status: "success",
       role: REMOTE_IS_OWNER_ ? "owner" : "partner",
       isOwner: !!REMOTE_IS_OWNER_,
+      ownerMode: !!REMOTE_IS_OWNER_,
       isPartner: !REMOTE_IS_OWNER_,
       name: display,
       username: DEMO_USERNAME || u.username || "",
@@ -1481,7 +1522,10 @@
       points: pts,
       allowedPointIds: allowed,
       telegramId: u.telegramId || DEMO_TELEGRAM_ID_ || ("demo_" + (DEMO_USERNAME || "x")),
-      canPickInspectLoca: !!REMOTE_CAN_PICK_INSPECT_LOCA_ || isInspectLocaUser_(u, state.me)
+      canPickInspectLoca: !!REMOTE_CAN_PICK_INSPECT_LOCA_ || isInspectLocaUser_(u, state.me),
+      access: (state.me && Array.isArray(state.me.access))
+        ? state.me.access.filter(function (row) { return !isOwnerIdentityRow_(row); })
+        : []
     };
   }
 
@@ -1676,8 +1720,9 @@
     var ids = normalizePointIds_(acc && acc.pointIds);
     if (!ids.length) return false;
     // владелец Бойни (без Partner_Access) — все точки; партнёр/staff — только выданные
-    REMOTE_IS_OWNER_ = !!acc.isOwner && !acc.isPartner &&
+    REMOTE_IS_OWNER_ = !!(acc.ownerMode || acc.isOwner) && !acc.isPartner &&
       acc.role !== "partner" && acc.role !== "staff" &&
+      isCanonOwnerUser_({ username: username, telegramId: acc.telegramId }, acc) &&
       !isLiveTestUser_({ username: username }, acc);
     DEMO_ROLE = REMOTE_IS_OWNER_ ? "owner" : "partner";
     DEMO_NETWORK = (acc && acc.networkId) || "";
@@ -1740,6 +1785,10 @@
     try { saveMeCache_(user(), acc); } catch (eC) {}
     state.cart = {};
     state.point = null;
+    if (!state.me) state.me = {};
+    state.me.access = REMOTE_IS_OWNER_ && Array.isArray(acc.access)
+      ? acc.access.filter(function (row) { return !isOwnerIdentityRow_(row); })
+      : [];
     enterApp_();
     return true;
   }
@@ -2627,14 +2676,15 @@
       var whoLine = state.me.username
         ? ("@" + esc(state.me.username))
         : esc(state.me.name || "—");
-      info.innerHTML = whoLine +
+      var modeLine = REMOTE_IS_OWNER_
+        ? "<br><span class=\"muted\">Режим владельца · все активные точки</span>"
+        : "";
+      info.innerHTML = whoLine + modeLine +
         "<br><br><b>Ваши точки:</b><br>" + (pts || "—");
     }
     var grantCard = document.getElementById("grantStaffCard");
     var pendCard = document.getElementById("pendingAccessCard");
-    var canGrant = !!(state.me && !state.me.isStaff &&
-      String(state.me.role || "") !== "staff" &&
-      (state.me.isPartner || state.me.isOwner || REMOTE_IS_OWNER_));
+    var canGrant = canUseOwnerUi_();
     if (grantCard) grantCard.style.display = canGrant ? "" : "none";
     var needAccept = !!(state.me && state.me.isStaff &&
       String(state.me.accessStatus || "").toLowerCase() === "pending");
@@ -2665,26 +2715,27 @@
   }
 
   async function grantStaffAccess() {
-    if (!(state.me && !state.me.isStaff &&
-        (state.me.isPartner || state.me.isOwner || REMOTE_IS_OWNER_) &&
-        String(state.me.role || "") !== "staff")) {
-      alert("Выдать доступ может владелец или партнёр точки");
+    if (!canUseOwnerUi_()) {
+      alert("Выдать доступ может только владелец");
       return;
     }
     var tid = document.getElementById("staffTid").value.trim();
     var name = document.getElementById("staffName").value.trim() || "Сотрудник";
     if (!tid) { alert("Укажите Telegram ID"); return; }
+    if (isOwnerIdentityRow_({ telegramId: tid, username: "", name: name, role: "staff" })) {
+      alert("Владельца в доступы не добавляем");
+      return;
+    }
     // сотруднику — только точки текущего партнёра/owner (не весь справочник чужих сетей без доступа)
     var pointIds = normalizePointIds_(state.me.pointIds || DEMO_POINT_IDS);
     var pts = assignedPointsList_();
     if (!pointIds.length || !pts.length) { alert("Нет своих точек"); return; }
-    var actorIsOwner = !!(state.me.isOwner || REMOTE_IS_OWNER_);
     if (VARKA_WEBHOOK_URL) {
       try {
         var res = await apiGet_({
           action: "partnerSaveAccess",
-          telegramId: user().telegramId || tid,
-          actorRole: actorIsOwner ? "owner" : "partner",
+          telegramId: user().telegramId || (state.me && state.me.telegramId) || "",
+          actorRole: "owner",
           actorUsername: state.me.username || "",
           targetTelegramId: tid,
           name: name,
@@ -2747,12 +2798,15 @@
   function renderStaffList_() {
     var box = document.getElementById("staffList");
     if (!box) return;
-    if (!(state.me && state.me.isPartner && !state.me.isStaff)) {
+    if (!canUseOwnerUi_()) {
       box.innerHTML = "";
       return;
     }
-    var list = DEMO.staffAccess.slice();
-    if (state.me && state.me.isPartner) {
+    var list = (state.me && Array.isArray(state.me.access) && state.me.access.length)
+      ? state.me.access.slice()
+      : DEMO.staffAccess.slice();
+    list = list.filter(function (a) { return !isOwnerIdentityRow_(a); });
+    if (state.me && (state.me.isPartner || state.me.isOwner)) {
       var allowed = state.me.allowedPointIds || {};
       list = list.filter(function (a) {
         if (a.pointIds && a.pointIds.length) {
@@ -2970,7 +3024,7 @@
         telegramId: u.telegramId,
         _: String(Date.now())
       });
-      if (admin && admin.status === "success" && admin.message !== "owner_only") {
+      if (admin && admin.status === "success" && admin.message !== "owner_only" && isCanonOwnerUser_(u, admin)) {
         applyRemoteConfig_(admin);
         return { ok: true, name: u.name, admin: admin };
       }
@@ -2989,13 +3043,13 @@
         initData: u.initData || "",
         _: String(Date.now())
       });
-      if (isBoynaOwnerRole_(acc)) {
+      if (isBoynaOwnerRole_(acc) && isCanonOwnerUser_(u, acc)) {
         return { ok: true, name: acc.name || u.name, acc: acc };
       }
     } catch (eAcc) {}
 
     // 3) кэш роли из Бойни на том же origin (Pages)
-    if (cachedBoynaOwner_()) {
+    if (cachedBoynaOwner_() && isCanonOwnerUser_(u)) {
       return { ok: true, name: u.name };
     }
     return { ok: false };
@@ -3072,7 +3126,8 @@
       return "pending";
     }
     var ids = normalizePointIds_(res && res.pointIds);
-    var asOwner = !!(res && res.isOwner && !res.isPartner && res.role === "owner");
+    var asOwner = !!(res && (res.ownerMode || res.isOwner) && !res.isPartner && res.role === "owner" &&
+      isCanonOwnerUser_(u, res));
     var asStaff = !asOwner && !!(res && (res.isStaff || res.role === "staff"));
     var asPartner = !asOwner && !asStaff && !!(res && (res.isPartner || res.role === "partner"));
     if (!(res && res.allowed && ids.length)) {
@@ -3092,19 +3147,27 @@
       points: res.points || [],
       networks: res.networks || [],
       isOwner: asOwner,
+      ownerMode: asOwner,
       isPartner: asPartner || (!asOwner && !asStaff),
       isStaff: asStaff,
       accessStatus: res.accessStatus || "active",
       role: asOwner ? "owner" : (asStaff ? "staff" : (res.role || "partner")),
       username: res.username || (u && u.username) || "",
       telegramId: (u && u.telegramId) || res.telegramId || "",
-      canPickInspectLoca: !!res.canPickInspectLoca
+      canPickInspectLoca: !!res.canPickInspectLoca,
+      access: asOwner && Array.isArray(res.access)
+        ? res.access.filter(function (row) { return !isOwnerIdentityRow_(row); })
+        : []
     }, res.username || (u && u.username) || "");
     if (state.me) {
       state.me.isStaff = asStaff;
       state.me.isPartner = asPartner || (!asOwner && !asStaff);
       state.me.accessStatus = res.accessStatus || "active";
       state.me.role = asOwner ? "owner" : (asStaff ? "staff" : (res.role || "partner"));
+      state.me.ownerMode = asOwner;
+      state.me.access = asOwner && Array.isArray(res.access)
+        ? res.access.filter(function (row) { return !isOwnerIdentityRow_(row); })
+        : [];
     }
     return true;
   }
