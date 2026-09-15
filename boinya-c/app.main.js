@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115963";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115964";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -19462,6 +19462,23 @@
     var _subDetailOpenedFp = "";
     var _subDetailStatedTouched = false;
 
+    function ppOfferClientPrice_(scheme, factCost, statedCost, statedTouched) {
+      var fact = Number(factCost);
+      var stated = Number(statedCost);
+      var sch = String(scheme || "").toUpperCase();
+      if (sch !== "RAW26") {
+        if (isFinite(stated) && stated > 0) return Math.round(stated * 100) / 100;
+        if (isFinite(fact) && fact > 0) return Math.round(fact * 100) / 100;
+        return 0;
+      }
+      if (statedTouched === true && isFinite(stated) && stated > 0) {
+        return Math.round(stated * 100) / 100;
+      }
+      if (isFinite(fact) && fact > 0) return Math.round(fact * 100) / 100;
+      if (isFinite(stated) && stated > 0) return Math.round(stated * 100) / 100;
+      return 0;
+    }
+
     function onSubDetailStatedPriceInput_() {
       _subDetailStatedTouched = true;
       var hint = document.getElementById("subDetailStatedHint");
@@ -19479,9 +19496,20 @@
       var hint = document.getElementById("subDetailStatedHint");
       if (hint && !opts.keepTouched) {
         hint.textContent = val !== "" && val != null
-          ? "с листа ПП (Факт стоимость) · можно поправить вручную"
-          : "не пересчитывается · вносит менеджер вручную";
+          ? "с листа ПП (Факт стоимость) · RAW26 пересчитает из факта, если не править вручную"
+          : "RAW26: синхрон с фактом · LEGACY: вносит менеджер вручную";
       }
+    }
+
+    function syncSubDetailStatedFromFact_(factCost) {
+      if (_subDetailStatedTouched) return;
+      if (typeof subDetailSchemeValue_ === "function" && subDetailSchemeValue_() !== "RAW26") return;
+      if (factCost == null || factCost === "" || !isFinite(Number(factCost))) return;
+      var el = document.getElementById("subDetailStatedPrice");
+      if (!el) return;
+      el.value = String(factCost);
+      var hint = document.getElementById("subDetailStatedHint");
+      if (hint) hint.textContent = "синхрон с фактом RAW26 · можно поправить вручную";
     }
 
     function setSubDetailCoef_(v) {
@@ -19693,6 +19721,7 @@
         (packagesByn ? (" +пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
         (fracTotal ? (" +фракт " + fracTotal) : "") +
         " → " + total + " BYN");
+      try { syncSubDetailStatedFromFact_(total); } catch (eSyncSt) {}
       return total;
     }
 
@@ -19872,6 +19901,7 @@
                   (fracTotal ? (" +фракт " + fracTotal) : "") +
                   " → " + pf.factCost + " BYN"
                 );
+                try { syncSubDetailStatedFromFact_(pf.factCost); } catch (eSyncPf) {}
                 return;
               }
             }
@@ -20313,7 +20343,8 @@
       var n = Math.max(1, Number((document.getElementById("subDetailDeliveries") || {}).value) || 1);
       var stated = Number((document.getElementById("subDetailStatedPrice") || {}).value);
       var fact = Number((document.getElementById("subDetailFact") || {}).value);
-      var subTotal = (isFinite(stated) && stated > 0) ? stated : ((isFinite(fact) && fact > 0) ? fact : 0);
+      var schMsg = (typeof subDetailSchemeValue_ === "function") ? subDetailSchemeValue_() : "LEGACY";
+      var subTotal = ppOfferClientPrice_(schMsg, fact, stated, _subDetailStatedTouched);
       var retail = { total: 0 };
       try {
         retail = calcRetailBasketTotal(list, { deliveriesN: n }) || { total: 0 };
@@ -20545,9 +20576,17 @@
         }
         var dogSave = readSubDetailDogFields_();
         var statedSave = "";
+        var factSave = "";
         if (sheet === "ПП") {
           var stEl = document.getElementById("subDetailStatedPrice");
+          var factElSave = document.getElementById("subDetailFact");
           statedSave = stEl ? String(stEl.value || "").trim() : "";
+          factSave = factElSave ? String(factElSave.value || "").trim() : "";
+          var schPriceSave = subDetailSchemeValue_();
+          if (schPriceSave === "RAW26" && !_subDetailStatedTouched && factSave) {
+            statedSave = factSave;
+            try { syncSubDetailStatedFromFact_(factSave); } catch (eStSync) {}
+          }
         }
         var saveBody = {
           action: "saveSubscription",
@@ -20565,7 +20604,8 @@
 
           factCost: sheet === "ПП" ? statedSave : (document.getElementById("subDetailFact").value || ""),
           statedCost: sheet === "ПП" ? statedSave : "",
-          calcFactCost: sheet === "ПП" ? (document.getElementById("subDetailFact").value || "") : "",
+          calcFactCost: sheet === "ПП" ? (factSave || (document.getElementById("subDetailFact").value || "")) : "",
+          statedTouched: sheet === "ПП" && _subDetailStatedTouched ? "1" : "0",
           basket: basketPayload,
           coef: sheet === "ПП" ? String(subDetailCoefValue_()) : "",
           scheme: sheet === "ПП" ? subDetailSchemeValue_() : "",
@@ -20954,8 +20994,13 @@
           }
         }
         subTotal = useApiFact
-          ? Math.round(Number(res.factCost) * 100) / 100
+          ? Math.round(Number(res.clientPrice != null ? res.clientPrice : res.factCost) * 100) / 100
           : Math.round((goodsByn + deliveryByn + packagesByn + fracMark.total) * 100) / 100;
+        var localFactRaw26 = Math.round((goodsByn + deliveryByn + packagesByn + fracMark.total) * 100) / 100;
+        subTotal = ppOfferClientPrice_("RAW26", subTotal || localFactRaw26, res && res.statedCost, false);
+        if (localFactRaw26 > 0 && subTotal > localFactRaw26 + 12) {
+          subTotal = localFactRaw26;
+        }
         formulaHint = "сырьё " + costSum + " × " + coef +
           " + recover " + recover +
           (capped ? (" (cap 92% розн. " + Math.round(goodsByn * 100) / 100 + ")") : "") +
@@ -20967,6 +21012,7 @@
         subTotal = useApiFact
           ? Math.round(Number(res.factCost) * 100) / 100
           : costSum * coef + PP_LEGACY_FIXED + deliveryL + packagesByn + fracMark.total;
+        subTotal = ppOfferClientPrice_("LEGACY", subTotal, res && res.statedCost, false);
         formulaHint = "себест. " + costSum + " × " + coef +
           " + " + PP_LEGACY_FIXED +
           " + 6×" + deliveriesN + "(" + deliveryL + ")" +
@@ -23179,6 +23225,17 @@
         syncPricePpSchemeDefaults_();
         var enrollScheme = pricePpScheme || defaultPpSchemeForNewLocal_();
         var enrollCoef = getPricePpCoef();
+        if (enrollScheme === "RAW26") {
+          var calcFactEn = null;
+          if (pricePpApiCache && pricePpApiCache.res) {
+            var rEn = pricePpApiCache.res;
+            calcFactEn = rEn.clientPrice != null ? rEn.clientPrice : rEn.factCost;
+          }
+          if (calcFactEn == null && snap.subTotal != null) calcFactEn = snap.subTotal;
+          if (calcFactEn != null && calcFactEn !== "") fact = calcFactEn;
+          var factElEn = document.getElementById("enrollFactCost");
+          if (factElEn && fact != null && fact !== "") factElEn.value = Math.round(Number(fact) * 100) / 100;
+        }
         wishes = stampPpSchemeIntoWishes_(stampPpCoefIntoWishes_(wishes, enrollCoef), enrollScheme);
         var body = {
           action: "enrollDeferredToPp",
@@ -23193,6 +23250,7 @@
           address: (document.getElementById("enrollAddress") || {}).value || "",
           phone: (document.getElementById("enrollPhone") || {}).value || "",
           factCost: fact,
+          statedTouched: "0",
           basket: items
         };
         if (id) body.id = id;

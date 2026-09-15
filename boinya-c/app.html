@@ -9,7 +9,7 @@
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115963";
+      var APP_VER = "v71115964";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2184,7 +2184,7 @@
               <input type="number" id="subDetailStatedPrice" step="0.01" inputmode="decimal"
                 style="font-size:20px;font-weight:700;color:#ffd60a;"
                 placeholder="вручную" oninput="onSubDetailStatedPriceInput_()">
-              <div class="muted" id="subDetailStatedHint" style="font-size:12px;margin-top:6px;">не пересчитывается · для старых карточек — из столбца «Факт стоимость» на листе ПП</div>
+              <div class="muted" id="subDetailStatedHint" style="font-size:12px;margin-top:6px;">RAW26: синхрон с фактом · LEGACY: с листа, вручную</div>
             </div>
             <button type="button" class="btn-action btn-orange" id="btnMigratePpScheme"
               style="display:none;margin-top:10px;width:100%;"

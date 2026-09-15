@@ -15793,8 +15793,18 @@ function handleSaveSubscription(json, callback, fromPost) {
   }
 
   var factCost = json.factCost != null && json.factCost !== "" ? json.factCost : null;
-  // указанная стоимость (ручная) — приоритет над старым factCost
-  if (json.statedCost != null && json.statedCost !== "") factCost = json.statedCost;
+  var statedIn = json.statedCost != null && json.statedCost !== "" ? json.statedCost : null;
+  var calcIn = json.calcFactCost != null && json.calcFactCost !== "" ? json.calcFactCost : null;
+  var schemeForPrice = normalizePpScheme_(json.scheme) || parsePpSchemeFromWishes_(wishes);
+  var statedTouchedSave = json.statedTouched === true || json.statedTouched === "1" ||
+    json.statedTouched === 1;
+  // RAW26: на лист — calc fact, не завышенный stated (если менеджер не правил вручную).
+  // LEGACY: указанная цена — договор, не затираем пересчётом.
+  if (schemeForPrice === "RAW26" && !statedTouchedSave && calcIn != null && calcIn !== "") {
+    factCost = calcIn;
+  } else if (statedIn != null) {
+    factCost = statedIn;
+  }
   var basket = normalizeBasketArg_(json.basket);
   if (basket && !Array.isArray(basket)) basket = null;
   var packCountsOpt = json.packCounts || null;
@@ -18185,6 +18195,11 @@ function handleCalcPrice(json, callback, fromPost) {
       ok.markup = fact.coef;
       ok.scheme = fact.scheme;
       ok.total = Math.round(rawCost * fact.coef * 100) / 100;
+      ok.clientPrice = fact.clientPrice != null ? fact.clientPrice : fact.factCost;
+      if (fact.scheme === "RAW26" && fact.statedSynced) {
+        ok.statedCost = fact.factCost;
+        ok.statedSynced = true;
+      }
     } catch (eF) {}
   }
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
@@ -18441,7 +18456,45 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
       fractionMarkup: fracMark
     };
   }
-  return out;
+  return attachPpOfferClientPrice_(out);
+}
+
+/**
+ * Цена клиенту / в оффер: RAW26 = calc fact (не завышенный stated).
+ * LEGACY = указанная (договор); fact только если stated пуст.
+ * statedTouched — менеджер явно поправил поле в этой сессии.
+ */
+function ppOfferClientPrice_(scheme, factCost, statedCost, statedTouched) {
+  var fact = Number(factCost);
+  var stated = Number(statedCost);
+  var sch = String(scheme || "").toUpperCase();
+  if (sch !== "RAW26") {
+    if (isFinite(stated) && stated > 0) return Math.round(stated * 100) / 100;
+    if (isFinite(fact) && fact > 0) return Math.round(fact * 100) / 100;
+    return 0;
+  }
+  if (statedTouched === true && isFinite(stated) && stated > 0) {
+    return Math.round(stated * 100) / 100;
+  }
+  if (isFinite(fact) && fact > 0) return Math.round(fact * 100) / 100;
+  if (isFinite(stated) && stated > 0) return Math.round(stated * 100) / 100;
+  return 0;
+}
+
+function attachPpOfferClientPrice_(fact, statedCost, statedTouched) {
+  fact = fact || {};
+  var client = ppOfferClientPrice_(
+    fact.scheme, fact.factCost, statedCost, statedTouched
+  );
+  fact.clientPrice = client;
+  if (String(fact.scheme || "").toUpperCase() === "RAW26" && statedTouched !== true) {
+    fact.statedCost = fact.factCost;
+    fact.statedSynced = true;
+  } else {
+    if (statedCost != null && statedCost !== "") fact.statedCost = statedCost;
+    fact.statedSynced = false;
+  }
+  return fact;
 }
 
 /**
@@ -28525,6 +28578,42 @@ function handleEnrollDeferredToPp_(json, callback, fromPost) {
     : (enrollScheme === "RAW26" ? PP_RAW26_COEF_DEFAULT_ : PP_LEGACY_COEF_DEFAULT_);
   if (isFinite(enrollCoef) && enrollCoef > 0) {
     wishes = stampPpCoefIntoWishesGs_(wishes, enrollCoef);
+  }
+
+  var keepStatedEnroll = json.statedTouched === true || json.statedTouched === "1" ||
+    json.keepStated === true || json.keepStated === "1";
+  if (enrollScheme === "RAW26" && !keepStatedEnroll && basket && basket.length) {
+    try {
+      var priceInfoEn = readPriceCosts_("pp");
+      var totalEn = 0;
+      var linesEn = [];
+      for (var ie = 0; ie < basket.length; ie++) {
+        var itEn = basket[ie] || {};
+        var nameEn = String(itEn.name || itEn.main || "").trim();
+        var subEn = String(itEn.sub || "").trim();
+        var valEn = Number(itEn.val != null ? itEn.val : itEn.value) || 0;
+        var catEn = String(itEn.cat || "").trim();
+        if (!nameEn || valEn <= 0) continue;
+        var infoEn = lookupPpCostInfoGs_(priceInfoEn.costs, nameEn, subEn);
+        var unitEn = infoEn ? Number(infoEn.unitPrice != null ? infoEn.unitPrice : infoEn.per100) || 0 : 0;
+        var pieceEn = false;
+        if (infoEn && infoEn.piece) pieceEn = true;
+        else if (catEn === "chew" || catEn === "chews") pieceEn = true;
+        else if (isPieceSkuName_(nameEn) || /шт/i.test(nameEn)) pieceEn = true;
+        else if (infoEn && infoEn.grams === false) pieceEn = true;
+        var costEn = pieceEn ? (unitEn * valEn) : ((valEn / 100) * unitEn);
+        totalEn += costEn;
+        linesEn.push({
+          name: nameEn, sub: subEn, val: valEn, unitPrice: unitEn,
+          piece: pieceEn, cost: Math.round(costEn * 100) / 100, cat: catEn
+        });
+      }
+      totalEn = Math.round(totalEn * 100) / 100;
+      var factEn = computePpFactFromCost_(
+        totalEn, basket, deliveriesN, enrollCoef, json.packCounts || null, "RAW26", linesEn, null
+      );
+      if (factEn && factEn.factCost != null) factCost = factEn.factCost;
+    } catch (eRecalcEn) {}
   }
 
   var crmSs;

@@ -10541,6 +10541,40 @@ async function handleCutover_(a, params, env, ctx) {
       if (!enrollNick) {
         return { status: "error", message: "need_nick", cutover: true, action: a };
       }
+      let enrollFact =
+        params && (params.factCost != null ? params.factCost : params.subTotal);
+      const statedTouchedEn =
+        params &&
+        (params.statedTouched === true ||
+          params.statedTouched === "1" ||
+          params.statedTouched === 1 ||
+          params.keepStated === true ||
+          params.keepStated === "1");
+      const enrollSchemeD1 = resolvePpSchemeD1_({
+        scheme: params && params.scheme,
+        wishes: params && (params.wishes || params.note),
+        forNew: true
+      });
+      if (enrollSchemeD1 === "RAW26" && !statedTouchedEn) {
+        try {
+          const snapCostsEn = await getSnapRaw_(env, "priceCostsPp");
+          if (snapCostsEn && snapCostsEn.costs) {
+            const factFullEn = await calcPpFactFromD1Costs_(
+              Object.assign({}, params || {}, {
+                scheme: "RAW26",
+                forNew: 1,
+                fullFact: 1
+              }),
+              env,
+              ctx,
+              snapCostsEn.costs
+            );
+            if (factFullEn && factFullEn.factCost != null) {
+              enrollFact = factFullEn.factCost;
+            }
+          }
+        } catch (eFactEn) {}
+      }
       let d1Enroll = null;
       try {
         d1Enroll = await upsertSubscription_(
@@ -10551,7 +10585,7 @@ async function handleCutover_(a, params, env, ctx) {
             segment: "ПП",
             basket: params && params.basket,
             deliveries: params && (params.deliveriesN || params.deliveries),
-            factCost: params && (params.factCost != null ? params.factCost : params.subTotal),
+            factCost: enrollFact,
             wishes: params && (params.wishes || params.note),
             note: params && (params.note || params.wishes),
             address: params && params.address,
@@ -10566,7 +10600,12 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eEnD1) {
         d1Enroll = { status: "error", message: String((eEnD1 && eEnD1.message) || eEnD1) };
       }
-      const gasEnrollP = gasProxy_(a, params, env, { write: true })
+      const gasEnrollP = gasProxy_(
+        a,
+        Object.assign({}, params || {}, { factCost: enrollFact }),
+        env,
+        { write: true }
+      )
         .then(async function (liveEn) {
           if (liveEn && liveEn.status === "success" && env && env.DB) {
             try {
@@ -10579,7 +10618,9 @@ async function handleCutover_(a, params, env, ctx) {
                 row: liveEn.row || 0,
                 basket: params && params.basket,
                 deliveries: liveEn.deliveriesN || (params && params.deliveriesN) || 1,
-                factCost: params && (params.factCost != null ? params.factCost : params.subTotal),
+                factCost: enrollFact != null
+                  ? enrollFact
+                  : params && (params.factCost != null ? params.factCost : params.subTotal),
                 wishes: params && (params.wishes || params.note),
                 address: params && params.address,
                 phone: params && params.phone,
@@ -17316,7 +17357,43 @@ function computePpFactFromCostD1_(
       fractionMarkup: fracMark
     };
   }
-  return out;
+  return attachPpOfferClientPriceD1_(out);
+}
+
+function ppOfferClientPriceD1_(scheme, factCost, statedCost, statedTouched) {
+  const fact = Number(factCost);
+  const stated = Number(statedCost);
+  const sch = String(scheme || "").toUpperCase();
+  if (sch !== "RAW26") {
+    if (isFinite(stated) && stated > 0) return Math.round(stated * 100) / 100;
+    if (isFinite(fact) && fact > 0) return Math.round(fact * 100) / 100;
+    return 0;
+  }
+  if (statedTouched === true && isFinite(stated) && stated > 0) {
+    return Math.round(stated * 100) / 100;
+  }
+  if (isFinite(fact) && fact > 0) return Math.round(fact * 100) / 100;
+  if (isFinite(stated) && stated > 0) return Math.round(stated * 100) / 100;
+  return 0;
+}
+
+function attachPpOfferClientPriceD1_(fact, statedCost, statedTouched) {
+  fact = fact || {};
+  const client = ppOfferClientPriceD1_(
+    fact.scheme,
+    fact.factCost,
+    statedCost,
+    statedTouched
+  );
+  fact.clientPrice = client;
+  if (String(fact.scheme || "").toUpperCase() === "RAW26" && statedTouched !== true) {
+    fact.statedCost = fact.factCost;
+    fact.statedSynced = true;
+  } else {
+    if (statedCost != null && statedCost !== "") fact.statedCost = statedCost;
+    fact.statedSynced = false;
+  }
+  return fact;
 }
 
 function parseBasketParamD1_(params) {
@@ -17489,6 +17566,7 @@ async function calcPpFactFromD1Costs_(params, env, ctx, costs) {
   ok.markup = fact.coef;
   ok.scheme = fact.scheme;
   ok.total = Math.round(built.rawCost * fact.coef * 100) / 100;
+  ok.clientPrice = fact.clientPrice != null ? fact.clientPrice : fact.factCost;
   return ok;
 }
 
