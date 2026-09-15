@@ -148,7 +148,8 @@
 |--------|------|------------|
 | `saveOrder` | `{day, client, address, note, basket:[{cat,main/name,sub,value/val}]}` | Запись заказа (с фракцией) |
 | `deleteClient` | `{action, client, day}` | Очистка столбца |
-| `moveClient` | `{action, client, oldDay, newDay}` | Перенос |
+| `moveClient` | `{action, client, oldDay, newDay, cutRaw?}` | Перенос. Без явного `cutRaw`/`noCut` сохраняет `[НЕ РЕЗАТЬ]` |
+| `repairCatalogAliases` | `{confirm:1, dry?}` owner | One-shot: `ухо ГА`→`ухо Г`, `Аортаа`→`Аорта` в корзинах + лист |
 | `updateCutting` | `{day, row, surplus?, done?}` | Излишек / нарезано |
 | `setDelivered` | `{day, client, delivered}` | Галочка курьера |
 

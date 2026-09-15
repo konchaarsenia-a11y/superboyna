@@ -1898,6 +1898,13 @@ function doGet(e) {
       telegramId: e.parameter.telegramId || ""
     }, callback, false);
   }
+  if (action === "repairCatalogAliases") {
+    return handleRepairCatalogAliases(SpreadsheetApp.getActiveSpreadsheet(), {
+      confirm: e.parameter.confirm || "",
+      dry: e.parameter.dry || "",
+      telegramId: e.parameter.telegramId || ""
+    }, callback, false);
+  }
   if (action === "scrubWeekOrphans") {
     return handleScrubWeekOrphans({
       force: e.parameter.force || "1"
@@ -2752,6 +2759,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "restoreWeekFromBookings") {
     return handleRestoreWeekFromBookings(ss, json, callback, fromPost);
+  }
+  if (action === "repairCatalogAliases") {
+    return handleRepairCatalogAliases(ss, json, callback, fromPost);
   }
   if (action === "listBookings") {
     return handleListBookings(json, callback, fromPost);
@@ -4575,10 +4585,9 @@ function handleMoveClient(ss, json, callback, fromPost) {
   var oldAddressValue = sourceSheet.getRange(srcBlock.addr, oldClientCol).getValue();
   var oldNoteValue = sourceSheet.getRange(srcBlock.note, oldClientCol).getValue();
   var noteStr = String(oldNoteValue || "");
-  noteStr = noteStr.replace(/\s*\[НЕ РЕЗАТЬ\]/gi, "").replace(/\s*\[РЕЗАТЬ\]/gi, "").trim();
-  var cutRaw = !(json.cutRaw === false || json.cutRaw === "0" || json.cutRaw === 0 || json.cutRaw === "false");
-  if (!cutRaw) noteStr = (noteStr ? noteStr + " " : "") + "[НЕ РЕЗАТЬ]";
-  else noteStr = (noteStr ? noteStr + " " : "") + "[РЕЗАТЬ]";
+  var noCutMove = resolveNoCutFlag_(json, noteStr);
+  noteStr = applyNoCutToNote_(noteStr, noCutMove);
+  var cutRaw = !noCutMove;
 
   var newClientCol = -1;
   var tgtNicks = targetSheet.getRange(dstBlock.nick, 3, 1, 15).getValues()[0];
@@ -5179,6 +5188,8 @@ function handleSaveOrder(ss, json, callback, fromPost) {
   }
   var existingNote = String(targetSheet.getRange(block.note, clientCol).getValue() || "").trim();
   var noteToWrite = keepNonEmptySheetField_(cleanNote, existingNote, allowEmptyOverwrite || String(json.clearNote || "") === "1");
+  var noCutSave = resolveNoCutFlag_(json, [json.note, cleanNote, existingNote]);
+  noteToWrite = applyNoCutToNote_(noteToWrite, noCutSave);
   if (noteToWrite) targetSheet.getRange(block.note, clientCol).setValue(noteToWrite);
   else if (allowEmptyOverwrite || String(json.clearNote || "") === "1") targetSheet.getRange(block.note, clientCol).clearContent();
 
@@ -5237,7 +5248,9 @@ function handleSaveOrder(ss, json, callback, fromPost) {
         segment: segSave,
         address: addrToWrite || json.address || "",
         phone: phoneSave,
-        note: cleanNote,
+        note: noteToWrite || cleanNote,
+        cutRaw: json.cutRaw,
+        noCut: json.noCut,
         // dog:1/2 — в календарь целиком; на лист недели уже ушёл merge без dog
         basket: basketRaw,
         subId: json.subId || "",
@@ -5469,8 +5482,17 @@ function normalizeProductAlias_(nameU) {
     "УШИ": "УХО Г",
     "УШКИ": "УХО Г",
     "УХО ГОВ": "УХО Г",
+    "УХО ГА": "УХО Г",
+    "УХОГА": "УХО Г",
+    "УХО Г.": "УХО Г",
     "ГОВЯЖЬЕ УХО": "УХО Г",
     "ГОВЯЖЬИ УШИ": "УХО Г",
+    "АОРТАА": "АОРТА",
+    "АОРТА А": "АОРТА",
+    "ЛОПАТОЧНЫЙ ХРЯЩ": "ЛОП ХРЯЩ",
+    "ЛОПАТОЧНЫЙХРЯЩ": "ЛОП ХРЯЩ",
+    "ЛОПАТ ХРЯЩ": "ЛОП ХРЯЩ",
+    "ЛОП ХРЯЩ": "ЛОП ХРЯЩ",
     "УХО К": "УХО К",
     "УШКО К": "УХО К",
     "УХО КУР": "УХО К",
@@ -5496,7 +5518,71 @@ function normalizeProductAlias_(nameU) {
   if (/^УТИН/.test(n2) && /ШЕ/.test(n2)) return "УТИНЫЕ ШЕИ";
   if (/^ЛОМТИК/.test(n2) || n2 === "ЛОМТ") return "МЯСНЫЕ ЛОМТИКИ";
   if (/^МЯСН?\s*ЛОМТ/.test(n2)) return "МЯСНЫЕ ЛОМТИКИ";
+  // опечатки «ухо ГА» / «Аортаа» (OCR, ручной ввод, мягкий матч)
+  if (/^УХО\s*ГА+$/.test(n2) || n2 === "УХОГА") return "УХО Г";
+  if (/^АОРТАА+$/.test(n2)) return "АОРТА";
+  if (/ЛОПАТОЧ/.test(n2) && /ХРЯЩ/.test(n2)) return "ЛОП ХРЯЩ";
   return n2;
+}
+
+function catalogAliasName_(name) {
+  var raw = String(name || "").trim();
+  if (!raw) return "";
+  try {
+    return String(normalizeProductAlias_(raw.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ")) || raw).trim();
+  } catch (eAl) {
+    return raw.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  }
+}
+
+function isCatalogTypoName_(raw) {
+  var n = String(raw || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").replace(/\s*ШТ\.?/g, "").trim();
+  if (!n) return false;
+  if (/^УХО\s*ГА+$/.test(n) || n === "УХОГА") return true;
+  if (/^АОРТАА+$/.test(n)) return true;
+  if (/ЛОПАТОЧ/.test(n) && /ХРЯЩ/.test(n)) return true;
+  return false;
+}
+
+function normalizeBasketItemAliases_(it) {
+  if (!it || typeof it !== "object") return it;
+  var raw = String(it.name || it.main || "").trim();
+  if (!raw) return it;
+  var canon = catalogAliasName_(raw);
+  if (!canon) return it;
+  it.name = canon;
+  if (it.main != null) it.main = canon;
+  return it;
+}
+
+function normalizeBasketAliases_(basket) {
+  if (!basket || Object.prototype.toString.call(basket) !== "[object Array]") return [];
+  var map = {};
+  var order = [];
+  for (var i = 0; i < basket.length; i++) {
+    var src = basket[i];
+    if (!src || typeof src !== "object") continue;
+    var it = {};
+    for (var k in src) {
+      if (Object.prototype.hasOwnProperty.call(src, k)) it[k] = src[k];
+    }
+    normalizeBasketItemAliases_(it);
+    var name = String(it.name || it.main || "").trim();
+    var sub = String(it.sub || "").trim();
+    var val = Number(it.val != null ? it.val : it.value) || 0;
+    if (!name || val <= 0) continue;
+    var key = name.toUpperCase() + "|" + sub.toUpperCase() + "|" + String(it.dog || "");
+    if (!map[key]) {
+      map[key] = it;
+      map[key].val = val;
+      map[key].value = val;
+      order.push(key);
+    } else {
+      map[key].val = (Number(map[key].val) || 0) + val;
+      map[key].value = map[key].val;
+    }
+  }
+  return order.map(function (k) { return map[k]; });
 }
 
 function normalizeFraction(s) {
@@ -6004,7 +6090,7 @@ function getClientsData_(ss, dayName) {
           : extractOrderPriceFromNote_(noteRaw);
         var ppSlotOut = (calHit && calHit.ppSlot) || "";
         var noteStr = stripTechFromNote_(noteRaw);
-        var noCutFlag = /\[НЕ\s*РЕЗАТЬ\]/i.test(noteRaw);
+        var noCutFlag = noteHasNoCut_(noteRaw) || (calHit && noteHasNoCut_(calHit.note));
         var srcFromSeg = "";
         if (segFromNote === "БП" || segFromNote === "BP") srcFromSeg = "bp";
         else if (segFromNote === "ПП" || segFromNote === "PP" || segFromNote === "АФК") srcFromSeg = "pp";
@@ -6017,6 +6103,7 @@ function getClientsData_(ss, dayName) {
           basketOut = calHit.basket;
           dogCountOut = 2;
         }
+        try { basketOut = normalizeBasketAliases_(basketOut); } catch (eAliasB) {}
         clientsDataList.push({
           name: nameClean,
           orderCount: totalItemsInOrder,
@@ -10542,7 +10629,7 @@ function readAllCalendarRows_() {
       address: String(data[r][5] || ""),
       phone: String(data[r][6] || ""),
       note: stripTechFromNote_(rawNote),
-      basket: Array.isArray(basket) ? basket : [],
+      basket: Array.isArray(basket) ? normalizeBasketAliases_(basket) : [],
       basketJson: String(data[r][8] || ""),
       subId: String(data[r][9] || "") || extractSubIdFromNote_(rawNote),
       source: String(data[r][10] || ""),
@@ -10599,8 +10686,11 @@ function upsertCalendarEntry_(ss, opts) {
   if (!allowEmptyCal && (!basket || !basket.length) && existing && existing.basket && existing.basket.length) {
     basket = existing.basket;
   }
+  try { basket = normalizeBasketAliases_(basket); } catch (eAlCal) {}
   var now = new Date();
   var noteHuman = stripTechFromNote_(opts.note != null ? opts.note : (existing && existing.note) || "");
+  var noCutCal = resolveNoCutFlag_(opts, [opts.note, noteHuman, existing && existing.note]);
+  noteHuman = applyNoCutToNote_(noteHuman, noCutCal);
   var seg = String(opts.segment != null ? opts.segment : (existing && existing.segment) || "").trim();
   if (!seg) seg = extractSegmentFromNote_(String(opts.note || ""));
   var priceVal = opts.orderPrice;
@@ -10974,7 +11064,7 @@ function readAllBookings_() {
       subId: String(row[3] || "") || extractSubIdFromNote_(rawNote),
       address: String(row[4] || ""),
       note: stripTechFromNote_(rawNote),
-      basket: basket,
+      basket: Array.isArray(basket) ? normalizeBasketAliases_(basket) : [],
       source: String(row[7] || "retail"),
       status: String(row[8] || "planned"),
       dayName: String(row[9] || ""),
@@ -11035,12 +11125,13 @@ function normalizeBasketArg_(basket) {
     try { basket = JSON.parse(basket); } catch (e) { return []; }
   }
   if (!Array.isArray(basket)) return [];
-  return basket.filter(function (it) {
+  var filtered = basket.filter(function (it) {
     if (!it || typeof it !== "object") return false;
     var n = String(it.name || it.main || "").trim();
     var v = Number(it.val != null ? it.val : it.value) || 0;
     return !!(n && v > 0);
   });
+  try { return normalizeBasketAliases_(filtered); } catch (eAl) { return filtered; }
 }
 
 /** Суммирует одинаковые позиции (для колонки недели); dog-метки отбрасывает. */
@@ -11161,6 +11252,7 @@ function handleSaveBooking(ss, json, callback, fromPost) {
   }
 
   var oldBasket = existing ? existing.basket : [];
+  note = applyNoCutToNote_(note, resolveNoCutFlag_(json, [json.note, note, existing && existing.note]));
   var wasPulled = existing && String(existing.status) === "pulled";
   // дата вне недели — не держим «pulled»/dayName чужого слота
   if (!dayName) wasPulled = false;
@@ -11452,6 +11544,164 @@ function handleRestoreWeekFromBookings(ss, json, callback, fromPost) {
   });
 }
 
+function basketJsonNeedsAliasRepair_(rawJson) {
+  var s = String(rawJson || "");
+  if (!s) return false;
+  return /ухо\s*га|ухога|аортаа|лопаточн/i.test(s);
+}
+
+function rewriteBasketJsonIfAliases_(sh, row, col, rawJson, dry) {
+  if (!basketJsonNeedsAliasRepair_(rawJson)) return { changed: false };
+  var basket = [];
+  try { basket = JSON.parse(String(rawJson || "[]")); } catch (eP) { return { changed: false, error: "bad_json" }; }
+  if (!Array.isArray(basket) || !basket.length) return { changed: false };
+  var next = normalizeBasketAliases_(basket);
+  var nextJson = "";
+  try { nextJson = JSON.stringify(next); } catch (eJ) { return { changed: false, error: "stringify" }; }
+  if (nextJson === String(rawJson || "")) return { changed: false };
+  if (!dry) {
+    try { sh.getRange(row, col).setValue(nextJson); } catch (eW) { return { changed: false, error: String(eW) }; }
+  }
+  return { changed: true, before: String(rawJson).length, after: nextJson.length };
+}
+
+/**
+ * One-shot: ухо ГА→ухо Г, Аортаа→Аорта в корзинах календаря/броней/профилей
+ * и на листе недели (qty с опечаточной строки → канон).
+ * ?action=repairCatalogAliases&confirm=1&telegramId=…  dry=1 — без записи.
+ */
+function handleRepairCatalogAliases(ss, json, callback, fromPost) {
+  if (fromPost === undefined) fromPost = true;
+  var reply = function (obj) {
+    return fromPost ? jsonpText(callback, obj) : jsonp(callback, obj);
+  };
+  json = json || {};
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var tid = String(json.telegramId || "").trim();
+  if (tid && !actorIsOwner_(tid)) {
+    return reply({ status: "error", message: "owner_only", action: "repairCatalogAliases" });
+  }
+  var dry = json.dry === true || json.dry === "1" || json.dry === 1 || json.dry === "true";
+  if (!dry && String(json.confirm || "") !== "1" && String(json.confirm || "").toLowerCase() !== "true") {
+    return reply({ status: "error", message: "need_confirm", tip: "confirm=1 или dry=1", action: "repairCatalogAliases" });
+  }
+  var stats = { calendar: 0, bookings: 0, profiles: 0, weekQty: 0, weekLabels: 0, errors: [] };
+
+  try {
+    var calSh = getCalendarSheet_();
+    var calData = calSh.getDataRange().getValues();
+    for (var cr = 1; cr < calData.length; cr++) {
+      var resC = rewriteBasketJsonIfAliases_(calSh, cr + 1, 9, calData[cr][8], dry);
+      if (resC.changed) stats.calendar++;
+      if (resC.error) stats.errors.push("cal:" + (cr + 1) + ":" + resC.error);
+    }
+  } catch (eCal) { stats.errors.push("calendar:" + String(eCal)); }
+
+  try {
+    var bkSh = getBookingsSheet_();
+    var bkData = bkSh.getDataRange().getValues();
+    for (var br = 1; br < bkData.length; br++) {
+      var resB = rewriteBasketJsonIfAliases_(bkSh, br + 1, 7, bkData[br][6], dry);
+      if (resB.changed) stats.bookings++;
+      if (resB.error) stats.errors.push("bk:" + (br + 1) + ":" + resB.error);
+    }
+  } catch (eBk) { stats.errors.push("bookings:" + String(eBk)); }
+
+  try {
+    var prSh = getClientsProfilesSheet_();
+    var prData = prSh.getDataRange().getValues();
+    for (var pr = 1; pr < prData.length; pr++) {
+      var resP = rewriteBasketJsonIfAliases_(prSh, pr + 1, 7, prData[pr][6], dry);
+      if (resP.changed) stats.profiles++;
+      if (resP.error) stats.errors.push("prof:" + (pr + 1) + ":" + resP.error);
+    }
+  } catch (ePr) { stats.errors.push("profiles:" + String(ePr)); }
+
+  try {
+    var weekRes = repairWeekSheetTypoRows_(ss, dry);
+    stats.weekQty = weekRes.moved || 0;
+    stats.weekLabels = weekRes.renamed || 0;
+    if (weekRes.errors && weekRes.errors.length) {
+      stats.errors = stats.errors.concat(weekRes.errors);
+    }
+  } catch (eW) { stats.errors.push("week:" + String(eW)); }
+
+  try { bustClientsCache_(); } catch (eBust) {}
+  try { _memoCalendarRows_ = null; } catch (eMem) {}
+  return reply({
+    status: "success",
+    action: "repairCatalogAliases",
+    dry: dry,
+    repaired: stats,
+    deployMarker: "catalog-alias-nocut-h1"
+  });
+}
+
+function repairWeekSheetTypoRows_(ss, dry) {
+  var out = { moved: 0, renamed: 0, errors: [] };
+  var packs = [
+    { sheet: ss.getSheetByName("Прием заказов") || ss.getSheetByName("Приём заказов"), days: MANAGER_DAY_NAMES_ },
+    { sheet: ss.getSheetByName("Будущая неделя"), days: ["Будущая неделя"] }
+  ];
+  for (var p = 0; p < packs.length; p++) {
+    var sh = packs[p].sheet;
+    if (!sh) continue;
+    for (var d = 0; d < packs[p].days.length; d++) {
+      var block = getDayBlock(packs[p].days[d]);
+      if (!block) continue;
+      try {
+        var nRows = block.end - block.start + 1;
+        var labels = sh.getRange(block.start, 1, nRows, 1).getValues();
+        var qty = sh.getRange(block.start, 3, nRows, 15).getValues();
+        var parsed = [];
+        for (var r = 0; r < nRows; r++) {
+          parsed[r] = parseSheetItemName(String(labels[r][0] || ""), r);
+        }
+        for (var t = 0; t < nRows; t++) {
+          var rawLab = String(labels[t][0] || "").trim();
+          if (!isCatalogTypoName_(rawLab)) continue;
+          var tName = catalogAliasName_((parsed[t] && parsed[t].name) || rawLab);
+          var tSub = String((parsed[t] && parsed[t].sub) || "").toUpperCase();
+          var dest = -1;
+          for (var c = 0; c < nRows; c++) {
+            if (c === t) continue;
+            if (isCatalogTypoName_(String(labels[c][0] || ""))) continue;
+            var cName = catalogAliasName_((parsed[c] && parsed[c].name) || "");
+            var cSub = String((parsed[c] && parsed[c].sub) || "").toUpperCase();
+            if (cName && cName === tName && cSub === tSub) { dest = c; break; }
+          }
+          if (dest >= 0) {
+            for (var col = 0; col < 15; col++) {
+              var add = Number(qty[t][col]) || 0;
+              if (!(add > 0)) continue;
+              qty[dest][col] = (Number(qty[dest][col]) || 0) + add;
+              qty[t][col] = "";
+              out.moved++;
+            }
+          } else {
+            var nextLab = rawLab
+              .replace(/аортаа+/gi, "Аорта")
+              .replace(/ухо\s*га+/gi, "ухо Г")
+              .replace(/лопаточн[а-я]*\s*хрящ/gi, "ЛОП ХРЯЩ");
+            if (nextLab && nextLab !== rawLab) {
+              labels[t][0] = nextLab;
+              parsed[t] = parseSheetItemName(nextLab, t);
+              out.renamed++;
+            }
+          }
+        }
+        if (!dry) {
+          sh.getRange(block.start, 3, nRows, 15).setValues(qty);
+          sh.getRange(block.start, 1, nRows, 1).setValues(labels);
+        }
+      } catch (eBlk) {
+        out.errors.push(String(packs[p].days[d]) + ":" + String(eBlk));
+      }
+    }
+  }
+  return out;
+}
+
 function writeBasketToDayColumn_(ss, dayName, client, address, note, basket, opts) {
   opts = opts || {};
   var block = getDayBlock(dayName);
@@ -11511,8 +11761,12 @@ function writeBasketToDayColumn_(ss, dayName, client, address, note, basket, opt
       else if (address && opts.overwriteMeta) targetSheet.getRange(block.addr, clientCol).setValue(address);
       var cleanNote = stripTechFromNote_(note || "");
       var curNote = String(targetSheet.getRange(block.note, clientCol).getValue() || "").trim();
-      if (cleanNote && !curNote) targetSheet.getRange(block.note, clientCol).setValue(cleanNote);
-      else if (cleanNote && opts.overwriteMeta) targetSheet.getRange(block.note, clientCol).setValue(cleanNote);
+      var noCutMeta = resolveNoCutFlag_(opts, [note, cleanNote, curNote]);
+      if (cleanNote && !curNote) targetSheet.getRange(block.note, clientCol).setValue(applyNoCutToNote_(cleanNote, noCutMeta));
+      else if (cleanNote && opts.overwriteMeta) targetSheet.getRange(block.note, clientCol).setValue(applyNoCutToNote_(cleanNote, noCutMeta));
+      else if (noCutMeta && curNote && !noteHasNoCut_(curNote)) {
+        targetSheet.getRange(block.note, clientCol).setValue(applyNoCutToNote_(curNote, true));
+      }
     } catch (eMeta) {}
     return { ok: true, col: clientCol, preserved: true, created: created };
   }
@@ -11520,7 +11774,10 @@ function writeBasketToDayColumn_(ss, dayName, client, address, note, basket, opt
   // Пустая бронь + пустой день → оболочка (ник/адрес/note), без clear продуктов
   if (!basketItems.length && !hasQty) {
     if (address) targetSheet.getRange(block.addr, clientCol).setValue(address);
-    var shellNote = stripTechFromNote_(note || "");
+    var shellNote = applyNoCutToNote_(
+      stripTechFromNote_(note || ""),
+      resolveNoCutFlag_(opts, [note])
+    );
     if (shellNote) targetSheet.getRange(block.note, clientCol).setValue(shellNote);
     return { ok: true, col: clientCol, shell: true, created: created };
   }
@@ -11538,7 +11795,10 @@ function writeBasketToDayColumn_(ss, dayName, client, address, note, basket, opt
   // clearContent выше чистит от start до note включительно — nick выше start, OK.
   // Но addr/note внутри диапазона — пишем заново:
   if (address) targetSheet.getRange(block.addr, clientCol).setValue(address);
-  var cleanNote2 = stripTechFromNote_(note || "");
+  var cleanNote2 = applyNoCutToNote_(
+    stripTechFromNote_(note || ""),
+    resolveNoCutFlag_(opts, [note])
+  );
   if (cleanNote2) targetSheet.getRange(block.note, clientCol).setValue(cleanNote2);
 
   var itemsInSheet = targetSheet.getRange(block.start, 1, block.end - block.start + 1, 1).getValues();
@@ -12886,6 +13146,61 @@ function stripTechFromNote_(note) {
     .replace(/ПП\s*N\s*=\s*\d+[^\n|[]*/gi, "")
     .replace(/ПП:\s*состав[^\n|[]*/gi, "")
   ).replace(/\s*\|\|\s*/g, " || ").replace(/\s{2,}/g, " ").trim();
+}
+
+function noteHasNoCut_(note) {
+  return /\[НЕ\s*РЕЗАТЬ\]/i.test(String(note || ""));
+}
+
+function stripCutTagsFromNote_(note) {
+  return String(note || "")
+    .replace(/\s*\[НЕ\s*РЕЗАТЬ\]/gi, "")
+    .replace(/\s*\[РЕЗАТЬ\]/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function isExplicitFlagToken_(v) {
+  if (v === undefined || v === null || v === "") return false;
+  if (typeof v === "boolean" || typeof v === "number") return true;
+  var s = String(v).trim().toLowerCase();
+  return s === "0" || s === "1" || s === "false" || s === "true" ||
+    s === "yes" || s === "no" || s === "on" || s === "off";
+}
+
+function isFalseFlagToken_(v) {
+  if (v === false || v === 0) return true;
+  var s = String(v == null ? "" : v).trim().toLowerCase();
+  return s === "0" || s === "false" || s === "no" || s === "off";
+}
+
+function isTrueFlagToken_(v) {
+  if (v === true || v === 1) return true;
+  var s = String(v == null ? "" : v).trim().toLowerCase();
+  return s === "1" || s === "true" || s === "yes" || s === "on";
+}
+
+/**
+ * Без нарезки: явный noCut / cutRaw побеждает; иначе сохраняем [НЕ РЕЗАТЬ]
+ * из входящей или уже лежащей заметки (move/undelete/save без cutRaw).
+ */
+function resolveNoCutFlag_(json, fallbackNotes) {
+  json = json || {};
+  if (isExplicitFlagToken_(json.noCut)) return isTrueFlagToken_(json.noCut);
+  if (isExplicitFlagToken_(json.cutRaw)) return isFalseFlagToken_(json.cutRaw);
+  var blob = "";
+  if (Object.prototype.toString.call(fallbackNotes) === "[object Array]") {
+    for (var i = 0; i < fallbackNotes.length; i++) blob += " " + String(fallbackNotes[i] || "");
+  } else {
+    blob = String(fallbackNotes || "");
+  }
+  return noteHasNoCut_(blob);
+}
+
+function applyNoCutToNote_(note, noCut) {
+  var clean = stripCutTagsFromNote_(stripTechFromNote_(note));
+  if (noCut) return (clean ? clean + " " : "") + "[НЕ РЕЗАТЬ]";
+  return clean;
 }
 
 function extractOrderPriceFromNote_(note) {
@@ -17421,7 +17736,9 @@ function retailNormalizeSub_(name, sub) {
 
 function retailNormalizeName_(name) {
   var n = String(name || "").trim();
-  var u = n.toUpperCase().replace(/Ё/g, "Е");
+  var aliased = "";
+  try { aliased = catalogAliasName_(n); } catch (eAlR) { aliased = ""; }
+  var u = String(aliased || n).toUpperCase().replace(/Ё/g, "Е");
   var aliases = {
     "ЛЕГКОЕ": "ЛЁГКОЕ",
     "БАРАНЬЕ ЛЕГКОЕ": "БАРАНЬЕ ЛЁГКОЕ",
@@ -17433,6 +17750,10 @@ function retailNormalizeName_(name) {
     "КОЛЕНИ ШТ.": "КОЛЕНИ шт.",
     "НОСЫ ШТ.": "НОСЫ шт.",
     "ЛОП ХРЯЩ ШТ.": "ЛОП ХРЯЩ шт.",
+    "ЛОП ХРЯЩ": "ЛОП ХРЯЩ шт.",
+    "ЛОПАТОЧНЫЙ ХРЯЩ": "ЛОП ХРЯЩ шт.",
+    "УХО ГА": "УХО Г",
+    "АОРТАА": "АОРТА",
     "УТИНЫЕ ШЕИ ШТ.": "УТИНЫЕ ШЕИ шт.",
     "ГУБЫ ШТ.": "ГУБЫ шт.",
     "ГУБЫ ШТ": "ГУБЫ шт.",
@@ -17443,6 +17764,8 @@ function retailNormalizeName_(name) {
   };
   if (aliases[u]) return aliases[u];
   if (u.indexOf("КРОШКА РУБ") === 0) return "КРОШКА РУБЕЦ";
+  if (/^ЛОП\s*ХРЯЩ/.test(u) || (/ЛОПАТОЧ/.test(u) && /ХРЯЩ/.test(u))) return "ЛОП ХРЯЩ шт.";
+  if (aliased) return aliased;
   return n;
 }
 
@@ -27422,18 +27745,20 @@ function handlePlaceTransferTask_(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
   }
   var matchKey = String(payload.matchKey || "").trim() || clientMatchKey_(client);
-  var basket = Array.isArray(payload.basket) ? payload.basket : [];
+  var basket = Array.isArray(payload.basket) ? normalizeBasketAliases_(payload.basket) : [];
   var address = String(payload.address || "").trim();
   var phone = String(payload.phone || "").trim();
   var note = String(payload.note || "").trim();
-  var cutRaw = !(json.cutRaw === false || json.cutRaw === "0" || json.cutRaw === 0 || json.cutRaw === "false");
-  note = String(note || "").replace(/\s*\[НЕ РЕЗАТЬ\]/gi, "").replace(/\s*\[РЕЗАТЬ\]/gi, "").trim();
-  note = (note ? note + " " : "") + (cutRaw ? "[РЕЗАТЬ]" : "[НЕ РЕЗАТЬ]");
+  var noCutPlace = resolveNoCutFlag_(json, note);
+  note = applyNoCutToNote_(note, noCutPlace);
   var targetDayName = findDayNameForDate_(ss, newDate) || String(json.newDay || "").trim();
   var weekWrite = null;
   if (targetDayName) {
     try {
-      weekWrite = writeBasketToDayColumn_(ss, targetDayName, client, address, note, basket, { overwriteMeta: true });
+      weekWrite = writeBasketToDayColumn_(ss, targetDayName, client, address, note, basket, {
+        overwriteMeta: true,
+        noCut: noCutPlace
+      });
     } catch (eW) {
       weekWrite = { ok: false, message: String(eW) };
     }
@@ -27447,6 +27772,7 @@ function handlePlaceTransferTask_(json, callback, fromPost) {
       address: address,
       phone: phone,
       note: note,
+      noCut: noCutPlace,
       segment: payload.segment || "",
       dayName: targetDayName || "",
       status: "planned",
