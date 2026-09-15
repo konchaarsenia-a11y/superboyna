@@ -57,17 +57,17 @@ CONFIRM=WIPE_ALL TELEGRAM_ID=<owner_tid> bash scripts/wipe-partner-order-histori
 TELEGRAM_ID=827494606 bash scripts/restore-nan-partner.sh
 ```
 
-Helper #281 (`827494606`), Arseniy `650923866` и Даня `1027813038` — канон-owner партнёрки. Restore nan — любой из трёх.
+Helper #281 (`827494606`) и Даня `1027813038` — канон-owner партнёрки. Arseniy `650923866` временно не owner: Access не трогаем (сейчас 1 точка Шевченко). Restore nan — Даня или helper.
 
 **Prod v3+:** демо-вход выключен.  
 - Есть `Partner_Access` → только выданные точки (даже если человек owner Бойни)  
-- **Канон-owner** партнёрки (`1027813038` / `@danya_sachenk0`, `650923866` / `@arseniyhotko`, `827494606` / `@one_more_person_228`) → все активные точки, включая Varka (`ownerMode`). Выдают точку **хозяину точки** (role=partner).  
+- **Канон-owner** партнёрки (`1027813038` / `@danya_sachenk0`, `827494606` / `@one_more_person_228`) → все активные точки, включая Varka (`ownerMode`). Выдают точку **хозяину точки** (role=partner).  
 - **Хозяин точки** (`role=partner`) → свои точки; может выдать **staff**. Staff не выдаёт.  
+- `@arseniyhotko` — не owner; точки только из Access (Шевченко). Не `PARTNER_MANUAL_ACCESS_*`, Access не переписываем.  
 - Любой другой owner Бойни без Access → **нет** кабинета партнёрки  
 - Админка — вкладка **Партнёры** в Бойне (канон-owner identity в списке доступов скрыт)
-- В кабинете Mini App блок **Ваши точки**: у Varka только название, адрес снизу скрыт; остальные сети как были.
 
-Worker: трое канон-owner в `PARTNER_CANON_OWNER_*`. Скоуп «все кроме Varka» снят для них. **Inspect loca / чип «Лока» сняты**. Single-point live-test выкл. Deploy — **Worker** (CI на merge в `main`) + Pages `varka/` + clasp `Code.gs`.
+Worker: двое канон-owner в `PARTNER_CANON_OWNER_*`. Скоуп «все кроме Varka» снят для них. **Inspect loca / чип «Лока» сняты**. Single-point live-test выкл. Deploy — **Worker** (CI на merge в `main`) + Pages `varka/` + clasp `Code.gs`.
 
 ### Команда «следующая точка»
 
@@ -90,7 +90,9 @@ Worker: трое канон-owner в `PARTNER_CANON_OWNER_*`. Скоуп «вс�
 | 15 | `pt_indix_1` | indixvost · Проспект победителей 73/1 · ✅ |
 | 16 | `pt_bob_1` | bow_wow_collar · ✅ |
 
-**Сейчас у `@danya_sachenk0` / `@arseniyhotko` / `@one_more_person_228`:** полный **owner-кабинет** (все активные точки включая Varka). Выдают точку хозяину. Чип «Лока» снят.
+**Сейчас у `@danya_sachenk0` / `@one_more_person_228`:** полный **owner-кабинет** (все активные точки включая Varka). Выдают точку хозяину. Чип «Лока» снят.
+
+**Сейчас у `@arseniyhotko`:** не owner. Access не меняем — 1 точка **Varka Шевченко 1**.
 
 На каждой точке проверять: вход → каталог/кнопки → NFC → Отправить → пуш в бот → история.
 
@@ -171,7 +173,8 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 - [~] **v3.3.36:** слот 12–22; Varka NFC+баннер (без бумажного купона); +250г без custom; owner grant staff; фикс дубля заказов; nav/кабинет · Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.35:** rename polotno_an / indixvost + адрес ниже; 1× Маяковского; Бойня скрыть Firedog+дубли Маяковского · Pages varka 3.3.35 / Бойня `v71115942` · **Deploy Code.gs** (`PARTNER_PROD_V34`) + Worker
 - [~] **v3.3.34 batch:** rename точек (Fundog / Чечота 11 / Победителей 73/1 / bow_wow_collar); история без «Привезём»; купон photo+qty; qty blur keep; Delete в Партнёры→Заказы; access pending+notify+accept; staff без grant; empty-day skip force · Pages varka 3.3.34 · **Deploy Code.gs** (`PARTNER_PROD_V32`) + Worker
-- [~] **v3.3.53:** трое канон-owner (`danya_sachenk0` / `arseniyhotko` / `one_more_person_228`); хозяин точки выдаёт staff; кабинет Varka — только название. Pages · Worker · **Deploy Code.gs**
+- [~] **v3.3.54:** канон-owner Даня + helper; Arseniy временно не owner (Access/Шевченко не трогаем); «Ваши точки» — названия как раньше. Хозяин точки выдаёт staff. Pages · Worker · **Deploy Code.gs**
+- [~] **v3.3.53:** ~~трое канон-owner + Varka без адреса~~ снято 3.3.54. Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.52:** ~~Arseniy снят с owner, staff Rokossovsky 80~~ снято 3.3.53: Arseniy снова канон-owner. Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.50:** ~~nan clinic без staff / leftover revoked / `nan_staff_forbidden`~~ ошибка #285 — nan партнёр, см. 3.3.51
 - [~] **v3.3.49:** `@one_more_person_228` без inspect loca (чип «Лока» / селект сняты). Owner-кабинет (#281) остаётся. `canPickInspectLoca=false` · Pages · Worker

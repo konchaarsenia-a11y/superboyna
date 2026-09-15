@@ -20512,9 +20512,9 @@ function partnerRequireOwner_(actorId) {
     String(row.status || "").toLowerCase() !== "denied");
 }
 
-/** Кабинет партнёрки: Даня / Arseniy / helper — все точки + выдача хозяину точки. */
-var PARTNER_CANON_OWNER_TIDS_ = ["1027813038", "650923866", "827494606"];
-var PARTNER_CANON_OWNER_USERS_ = ["danya_sachenk0", "arseniyhotko", "one_more_person_228"];
+/** Кабинет партнёрки: Даня / helper. Arseniy временно не owner — Access не трогаем. */
+var PARTNER_CANON_OWNER_TIDS_ = ["1027813038", "827494606"];
+var PARTNER_CANON_OWNER_USERS_ = ["danya_sachenk0", "one_more_person_228"];
 
 function partnerIsCanonOwner_(username, tid) {
   var u = partnerNormUser_(username);

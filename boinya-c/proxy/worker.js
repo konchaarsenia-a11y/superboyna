@@ -8943,9 +8943,9 @@ const PARTNER_ARSENIY_USER = "arseniyhotko";
 const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
-/** Канон-owner партнёрки: Даня / Arseniy / helper — все точки + выдача хозяину точки. */
-const PARTNER_CANON_OWNER_TIDS = ["1027813038", "650923866", "827494606"];
-const PARTNER_CANON_OWNER_USERS = ["danya_sachenk0", "arseniyhotko", "one_more_person_228"];
+/** Канон-owner партнёрки: Даня / helper. Arseniy временно не owner — Access не трогаем. */
+const PARTNER_CANON_OWNER_TIDS = ["1027813038", "827494606"];
+const PARTNER_CANON_OWNER_USERS = ["danya_sachenk0", "one_more_person_228"];
 
 /** Живой прогон @one_more_person_228. owner-all кроме exclude — не применяется к canon-owner. */
 const PARTNER_LIVE_TEST_ENABLED = false;
@@ -9154,7 +9154,7 @@ function partnerNormUserWorker_(raw) {
     .toLowerCase();
 }
 
-/** Настоящий owner партнёрки: Даня / Arseniy / helper. */
+/** Настоящий owner партнёрки: Даня / helper. */
 function isPartnerCanonOwner_(params) {
   const u = partnerNormUserWorker_(params && params.username);
   const tid = String((params && params.telegramId) || "").trim();

@@ -719,7 +719,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.53";
+  var APP_VER = "3.3.54";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -731,9 +731,9 @@
   /** Allowlist локи для проверки. Helper 827494606 снят; owner-кабинет без чипа «Лока». */
   var INSPECT_LOCA_USERS_ = [];
   var INSPECT_LOCA_TIDS_ = [];
-  /** Кабинет владельца: Даня / Arseniy / helper. */
-  var CANON_OWNER_TIDS_ = ["1027813038", "650923866", "827494606"];
-  var CANON_OWNER_USERS_ = ["danya_sachenk0", "arseniyhotko", "one_more_person_228"];
+  /** Кабинет владельца: Даня / helper. Arseniy временно не owner. */
+  var CANON_OWNER_TIDS_ = ["1027813038", "827494606"];
+  var CANON_OWNER_USERS_ = ["danya_sachenk0", "one_more_person_228"];
   var INSPECT_LOCA_KEY = "gb_inspect_loca_v1";
   var LIVE_TEST_IDX_ = 16;
   var LIVE_TEST_QUEUE_ = [
@@ -1041,13 +1041,6 @@
     var role = String(acc.role || "").toLowerCase();
     if (acc.isStaff || role === "staff") return false;
     return !!(acc.isPartner || role === "partner");
-  }
-
-  function isVarkaPoint_(p) {
-    if (!p) return false;
-    var id = String(p.id || "");
-    var nid = String(p.networkId || "");
-    return nid === "net_varka" || id.indexOf("pt_varka_") === 0;
   }
 
   function isOwnerIdentityRow_(row) {
@@ -2694,7 +2687,7 @@
         var name = displayPointName_(p) || p.name || p.id;
         var addr = String(p.address || "").trim();
         var line = esc(name);
-        if (addr && !isVarkaPoint_(p) && addr.toLowerCase() !== String(name).toLowerCase()) {
+        if (addr && addr.toLowerCase() !== String(name).toLowerCase()) {
           line += "<br><span class=\"muted\" style=\"font-size:12px\">" + esc(addr) + "</span>";
         }
         return line;
