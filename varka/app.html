@@ -709,7 +709,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.49";
+  var APP_VER = "3.3.50";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -2727,9 +2727,13 @@
       return;
     }
     // сотруднику — только точки текущего партнёра/owner (не весь справочник чужих сетей без доступа)
-    var pointIds = normalizePointIds_(state.me.pointIds || DEMO_POINT_IDS);
-    var pts = assignedPointsList_();
-    if (!pointIds.length || !pts.length) { alert("Нет своих точек"); return; }
+    var pointIds = normalizePointIds_(state.me.pointIds || DEMO_POINT_IDS).filter(function (id) {
+      return String(id) !== "pt_nan_1";
+    });
+    var pts = assignedPointsList_().filter(function (p) {
+      return p && String(p.id) !== "pt_nan_1";
+    });
+    if (!pointIds.length || !pts.length) { alert("На nan clinic staff не выдаём"); return; }
     if (VARKA_WEBHOOK_URL) {
       try {
         var res = await apiGet_({
@@ -2805,14 +2809,26 @@
     var list = (state.me && Array.isArray(state.me.access) && state.me.access.length)
       ? state.me.access.slice()
       : DEMO.staffAccess.slice();
-    list = list.filter(function (a) { return !isOwnerIdentityRow_(a); });
+    list = list.filter(function (a) {
+      if (!a || isOwnerIdentityRow_(a)) return false;
+      var st = String(a.status || "active").toLowerCase();
+      if (st === "inactive" || st === "revoked") return false;
+      if (String(a.role || "staff").toLowerCase() !== "staff") return false;
+      var u = String(a.username || "").replace(/^@/, "").trim().toLowerCase();
+      if (u === "nan_animal_clinic" || String(a.id || "") === "pa_nan_animal_clinic") return false;
+      var pids = (a.pointIds && a.pointIds.length) ? a.pointIds : (a.pointId ? [a.pointId] : []);
+      pids = pids.filter(function (id) { return String(id) !== "pt_nan_1"; });
+      if (!pids.length) return false;
+      a.pointIds = pids;
+      return true;
+    });
     if (state.me && (state.me.isPartner || state.me.isOwner)) {
       var allowed = state.me.allowedPointIds || {};
       list = list.filter(function (a) {
         if (a.pointIds && a.pointIds.length) {
-          return a.pointIds.some(function (id) { return !!allowed[id]; });
+          return a.pointIds.some(function (id) { return !!allowed[id] && String(id) !== "pt_nan_1"; });
         }
-        return !!allowed[a.pointId];
+        return !!allowed[a.pointId] && String(a.pointId) !== "pt_nan_1";
       });
     }
     if (!list.length) {

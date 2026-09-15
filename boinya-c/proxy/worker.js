@@ -8646,19 +8646,62 @@ function partnerIsOwnerIdentity_(row) {
   return false;
 }
 
+function partnerIsClosedAccess_(row) {
+  const st = String((row && row.status) || "").toLowerCase();
+  return st === "inactive" || st === "revoked";
+}
+
+/** Leftover V9/V10: @nan_animal_clinic больше не партнёр и не staff точки. */
+function partnerIsNanLeftoverAccess_(row) {
+  if (!row) return false;
+  const u = partnerNormUserWorker_(row.username);
+  const id = String(row.id || "");
+  if (u === "nan_animal_clinic") return true;
+  if (id === "pa_nan_animal_clinic") return true;
+  return false;
+}
+
+function partnerStripNanStaffPoints_(row) {
+  if (!row) return row;
+  const pids = Array.isArray(row.pointIds) ? row.pointIds : [];
+  const next = [];
+  for (let i = 0; i < pids.length; i++) {
+    if (String(pids[i]) !== "pt_nan_1") next.push(pids[i]);
+  }
+  const net = String(row.networkId || "") === "net_nan" ? "" : row.networkId || "";
+  return Object.assign({}, row, { pointIds: next, networkId: net });
+}
+
 function partnerStripOwnerAccess_(list) {
   if (!Array.isArray(list)) return [];
-  return list.filter(function (row) {
-    return !partnerIsOwnerIdentity_(row);
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const row = list[i];
+    if (!row || partnerIsOwnerIdentity_(row) || partnerIsNanLeftoverAccess_(row) || partnerIsClosedAccess_(row)) {
+      continue;
+    }
+    if (String(row.role || "").toLowerCase() === "staff") {
+      const cleaned = partnerStripNanStaffPoints_(row);
+      if (!cleaned.pointIds || !cleaned.pointIds.length) continue;
+      out.push(cleaned);
+      continue;
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+function partnerStaffAccessOnly_(list) {
+  return partnerStripOwnerAccess_(list).filter(function (row) {
+    return String(row.role || "").toLowerCase() === "staff";
   });
 }
 
 function partnerAttachVisibleAccess_(params, json) {
   if (!json || typeof json !== "object") return json;
   const srcAccess = Array.isArray(json.access) ? json.access : [];
-  const stripped = partnerStripOwnerAccess_(srcAccess);
   if (isPartnerCanonOwner_(params)) {
-    return Object.assign({}, json, { access: stripped, ownerMode: true });
+    return Object.assign({}, json, { access: partnerStaffAccessOnly_(srcAccess), ownerMode: true });
   }
   // granted / helper: owner-UI payload не отдаём
   return Object.assign({}, json, { access: [] });
@@ -18780,14 +18823,26 @@ async function mutatePartnerD1_(action, params, env) {
       }
     }
     if (!Array.isArray(pointIds)) pointIds = [];
+    const roleSave = String((params && params.role) || "partner").trim() || "partner";
+    if (roleSave.toLowerCase() === "staff") {
+      pointIds = pointIds.filter(function (pid) {
+        return String(pid) !== "pt_nan_1";
+      });
+      if (!pointIds.length) return { status: "error", message: "nan_staff_forbidden" };
+    }
+    if (partnerIsNanLeftoverAccess_({ id: id, username: username })) {
+      return { status: "error", message: "nan_staff_forbidden" };
+    }
     const row = {
       id: id,
       username: username,
       telegramId: telegramId,
       name: String((params && params.name) || "").trim(),
-      networkId: String((params && params.networkId) || "").trim(),
+      networkId: roleSave.toLowerCase() === "staff" && String((params && params.networkId) || "") === "net_nan"
+        ? ""
+        : String((params && params.networkId) || "").trim(),
       pointIds: pointIds,
-      role: String((params && params.role) || "partner").trim() || "partner",
+      role: roleSave,
       status: String((params && params.status) || "active").trim() || "active"
     };
     let hit = -1;

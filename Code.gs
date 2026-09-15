@@ -20488,6 +20488,33 @@ function partnerIsOwnerAccessRow_(row) {
   return false;
 }
 
+function partnerIsNanLeftoverAccess_(row) {
+  if (!row) return false;
+  var u = partnerNormUser_(row.username);
+  var id = String(row.id || "");
+  if (u === "nan_animal_clinic") return true;
+  if (id === "pa_nan_animal_clinic") return true;
+  return false;
+}
+
+function partnerStripNanStaffPoints_(row) {
+  if (!row) return row;
+  var pids = (row.pointIds || []).filter(function (pid) {
+    return String(pid) !== "pt_nan_1";
+  });
+  var net = String(row.networkId || "") === "net_nan" ? "" : (row.networkId || "");
+  return {
+    id: row.id,
+    username: row.username,
+    telegramId: row.telegramId,
+    name: row.name,
+    networkId: net,
+    pointIds: pids,
+    role: row.role,
+    status: row.status
+  };
+}
+
 function partnerAccessVisibleTo_(viewerUsername, viewerTid, viewerPointIds, ownerMode) {
   var rows = readPartnerAccessRows_();
   var allow = {};
@@ -20496,22 +20523,32 @@ function partnerAccessVisibleTo_(viewerUsername, viewerTid, viewerPointIds, owne
   for (var i = 0; i < rows.length; i++) {
     var a = rows[i];
     if (partnerIsOwnerAccessRow_(a)) continue;
+    if (partnerIsNanLeftoverAccess_(a)) continue;
     var st = String(a.status || "").toLowerCase();
     if (st !== "active" && st !== "pending") continue;
+    var role = String(a.role || "partner").toLowerCase();
+    var pointIds = a.pointIds || [];
+    if (role === "staff") {
+      var cleaned = partnerStripNanStaffPoints_(a);
+      if (!cleaned.pointIds || !cleaned.pointIds.length) continue;
+      a = cleaned;
+      pointIds = cleaned.pointIds;
+    }
     if (!ownerMode) {
       var overlap = false;
-      (a.pointIds || []).forEach(function (pid) {
+      pointIds.forEach(function (pid) {
         if (allow[String(pid)]) overlap = true;
       });
       if (!overlap) continue;
     }
+    if (ownerMode && role !== "staff") continue;
     out.push({
       id: a.id,
       username: a.username,
       telegramId: a.telegramId,
       name: a.name,
       networkId: a.networkId,
-      pointIds: a.pointIds,
+      pointIds: pointIds,
       role: a.role,
       status: a.status
     });
@@ -21738,6 +21775,46 @@ function partnerMigrateProdV34_() {
   return { migrated: true, renamed: renamed, killed: killed };
 }
 
+/** V35: снять leftover @nan_animal_clinic и staff только на pt_nan_1. */
+function partnerMigrateProdV35_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty("PARTNER_PROD_V35") === "1") {
+    return { migrated: false };
+  }
+  try { partnerMigrateProdV34_(); } catch (e34) {}
+  var now = new Date();
+  var acSh = getPartnerAccessSheet_();
+  var revoked = 0;
+  var stripped = 0;
+  readPartnerAccessRows_().forEach(function (a) {
+    if (!a) return;
+    if (partnerIsOwnerAccessRow_(a)) return;
+    try {
+      if (partnerIsNanLeftoverAccess_(a)) {
+        acSh.getRange(a.rowIndex, 8).setValue("revoked");
+        acSh.getRange(a.rowIndex, 9).setValue(now);
+        revoked++;
+        return;
+      }
+      if (String(a.role || "").toLowerCase() !== "staff") return;
+      var pids = (a.pointIds || []).filter(function (pid) { return String(pid) !== "pt_nan_1"; });
+      if (pids.length === (a.pointIds || []).length) return;
+      if (!pids.length) {
+        acSh.getRange(a.rowIndex, 8).setValue("revoked");
+        acSh.getRange(a.rowIndex, 9).setValue(now);
+        revoked++;
+        return;
+      }
+      acSh.getRange(a.rowIndex, 6).setValue(JSON.stringify(pids));
+      if (String(a.networkId || "") === "net_nan") acSh.getRange(a.rowIndex, 5).setValue("");
+      acSh.getRange(a.rowIndex, 9).setValue(now);
+      stripped++;
+    } catch (eR) {}
+  });
+  props.setProperty("PARTNER_PROD_V35", "1");
+  return { migrated: true, revoked: revoked, stripped: stripped };
+}
+
 function partnerSyncManualAccess_() {
   var ids = (PARTNER_MANUAL_ACCESS_POINT_IDS_ || []).slice();
   var acSh = getPartnerAccessSheet_();
@@ -21839,6 +21916,7 @@ function ensurePartnerAppSeeded_(force) {
   try { partnerMigrateProdV32_(); } catch (eMig32) {}
   try { partnerMigrateProdV33_(); } catch (eMig33) {}
   try { partnerMigrateProdV34_(); } catch (eMig34) {}
+  try { partnerMigrateProdV35_(); } catch (eMig35) {}
   var nets = readPartnerNetworks_();
   var pts = readPartnerPoints_();
   // access может быть пустым в проде — не перезасеивать из‑за этого
@@ -22736,18 +22814,27 @@ function handlePartnerListAdmin(json, callback, fromPost) {
       return true;
     }),
     access: readPartnerAccessRows_().filter(function (a) {
-      return !partnerIsOwnerAccessRow_(a);
+      if (partnerIsOwnerAccessRow_(a)) return false;
+      if (partnerIsNanLeftoverAccess_(a)) return false;
+      return true;
     }).map(function (a) {
+      var row = a;
+      if (String(a.role || "").toLowerCase() === "staff") {
+        row = partnerStripNanStaffPoints_(a);
+      }
       return {
-        id: a.id,
-        username: a.username,
-        telegramId: a.telegramId,
-        name: a.name,
-        networkId: a.networkId,
-        pointIds: a.pointIds,
-        role: a.role,
-        status: a.status
+        id: row.id,
+        username: row.username,
+        telegramId: row.telegramId,
+        name: row.name,
+        networkId: row.networkId,
+        pointIds: row.pointIds,
+        role: row.role,
+        status: row.status
       };
+    }).filter(function (a) {
+      if (String(a.role || "").toLowerCase() !== "staff") return true;
+      return !!(a.pointIds && a.pointIds.length);
     }),
     notifyRecipients: notifyRecipients,
     notifyCandidates: notifyCandidates,
@@ -23105,6 +23192,22 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
     var hideOwn = { status: "error", message: "owner_hidden" };
     return fromPost ? jsonpText(callback, hideOwn) : jsonp(callback, hideOwn);
   }
+  var id = String((json && json.id) || "").trim();
+  if (!id) id = "pa_" + (username || targetTid || Utilities.getUuid().slice(0, 8));
+  if (partnerIsNanLeftoverAccess_({ id: id, username: username })) {
+    var nanHide = { status: "error", message: "nan_staff_forbidden" };
+    return fromPost ? jsonpText(callback, nanHide) : jsonp(callback, nanHide);
+  }
+  if (role === "staff") {
+    var hadNanOnly = (pointIds || []).length > 0 &&
+      (pointIds || []).every(function (pid) { return String(pid) === "pt_nan_1"; });
+    pointIds = (pointIds || []).filter(function (pid) { return String(pid) !== "pt_nan_1"; });
+    if (networkId === "net_nan") networkId = "";
+    if (hadNanOnly && !pointIds.length) {
+      var nanStaff = { status: "error", message: "nan_staff_forbidden" };
+      return fromPost ? jsonpText(callback, nanStaff) : jsonp(callback, nanStaff);
+    }
+  }
   if (!username && !targetTid) {
     var bad = { status: "error", message: "need_username_or_telegramId" };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
@@ -23113,8 +23216,6 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
     var badP = { status: "error", message: "need_points" };
     return fromPost ? jsonpText(callback, badP) : jsonp(callback, badP);
   }
-  var id = String((json && json.id) || "").trim();
-  if (!id) id = "pa_" + (username || targetTid || Utilities.getUuid().slice(0, 8));
   var sh = getPartnerAccessSheet_();
   var all = readPartnerAccessRows_();
   var hit = null;
