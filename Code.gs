@@ -20512,9 +20512,9 @@ function partnerRequireOwner_(actorId) {
     String(row.status || "").toLowerCase() !== "denied");
 }
 
-/** Кабинет партнёрки: helper 827494606. Arseniy 650923866 — staff через Partner_Access, не owner. */
-var PARTNER_CANON_OWNER_TIDS_ = ["827494606"];
-var PARTNER_CANON_OWNER_USERS_ = ["one_more_person_228"];
+/** Кабинет партнёрки: Даня / Arseniy / helper — все точки + выдача хозяину точки. */
+var PARTNER_CANON_OWNER_TIDS_ = ["1027813038", "650923866", "827494606"];
+var PARTNER_CANON_OWNER_USERS_ = ["danya_sachenk0", "arseniyhotko", "one_more_person_228"];
 
 function partnerIsCanonOwner_(username, tid) {
   var u = partnerNormUser_(username);
@@ -20560,8 +20560,12 @@ function partnerAccessVisibleTo_(viewerUsername, viewerTid, viewerPointIds, owne
       });
       if (!overlap) continue;
     }
-    // кабинет owner: только staff; partner (в т.ч. nan clinic) не рисовать как staff
-    if (ownerMode && role !== "staff") continue;
+    // кабинет owner: staff + хозяева точек; partner-кабинет — только staff своих точек
+    if (ownerMode) {
+      if (role !== "staff" && role !== "partner") continue;
+    } else if (role !== "staff") {
+      continue;
+    }
     out.push({
       id: a.id,
       username: a.username,
@@ -23152,13 +23156,22 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
   var actorRole = String((json && json.actorRole) || "").toLowerCase();
   var actorUser = partnerNormUser_((json && json.actorUsername) || "");
   var isCanonOwner = partnerIsCanonOwner_(actorUser, actor);
-  // Выдать доступ — только канон-owner партнёрки, не partner/helper/staff
-  if (!isCanonOwner) {
-    var forbid = { status: "error", message: "owner_only" };
-    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  var actorAcc = null;
+  try { actorAcc = partnerFindActiveAccess_(actorUser, actor); } catch (eAcc) { actorAcc = null; }
+  var actorAccRole = String((actorAcc && actorAcc.role) || actorRole || "").toLowerCase();
+  if (actorRole === "staff" || actorAccRole === "staff") {
+    var staffForbid0 = { status: "error", message: "staff_cannot_grant" };
+    return fromPost ? jsonpText(callback, staffForbid0) : jsonp(callback, staffForbid0);
   }
-  var isOwner = true;
+  var isOwner = isCanonOwner;
   var allowPartnerStaff = false;
+  if (!isCanonOwner) {
+    if (!actorAcc || actorAccRole !== "partner") {
+      var forbid = { status: "error", message: "owner_only" };
+      return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+    }
+    allowPartnerStaff = true;
+  }
   try { ensurePartnerAppSeeded_(false); } catch (eSeed) {}
   var username = partnerNormUser_((json && json.username) || "");
   var targetTid = String((json && (json.targetTelegramId || json.staffTelegramId)) || "").trim();

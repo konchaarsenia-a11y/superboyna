@@ -97,8 +97,11 @@ if (!/isVarkaInspectBlocked_/.test(appSrc) || !/pt_varka_/.test(appSrc)) {
 if (!/CANON_OWNER_TIDS_\s*=\s*\[[^\]]*827494606[^\]]*\]/.test(appSrc)) {
   fail("do not drop helper from owner cabinet allowlist");
 }
-if (/CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866/.test(appSrc)) {
-  fail("Arseniy must not stay on UI owner allowlist");
+if (!/CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866[^\]]*\]/.test(appSrc)) {
+  fail("do not drop Arseniy from owner cabinet allowlist");
+}
+if (!/CANON_OWNER_TIDS_\s*=\s*\[[^\]]*1027813038[^\]]*\]/.test(appSrc)) {
+  fail("do not drop Danya from owner cabinet allowlist");
 }
 
 if (!/PARTNER_INSPECT_LOCA_TIDS = \[\]/.test(workerSrc)) {
@@ -122,12 +125,8 @@ if (!/canPickInspectLoca/.test(workerSrc)) {
 if (!/partnerInspectWantLoca_/.test(workerSrc)) {
   fail("worker locationId inspect filter missing");
 }
-if (!/PARTNER_CANON_OWNER_TIDS = \["827494606"\]/.test(workerSrc)) {
-  fail("do not drop helper from canon owner tids");
-}
-if (/PARTNER_CANON_OWNER_TIDS = \["650923866"/.test(workerSrc) ||
-    /PARTNER_CANON_OWNER_TIDS = \["650923866", "827494606"\]/.test(workerSrc)) {
-  fail("Arseniy must not stay on worker canon owner tids");
+if (!/PARTNER_CANON_OWNER_TIDS = \["1027813038", "650923866", "827494606"\]/.test(workerSrc)) {
+  fail("canon owner tids must be Danya + Arseniy + helper");
 }
 
 const sandbox = {};
@@ -163,13 +162,13 @@ if (sandbox.isPartnerInspectLocaUser_(helper)) {
   fail("helper must not get inspect-loca picker");
 }
 if (sandbox.isPartnerInspectLocaUser_(arseniy)) {
-  fail("Arseniy staff must not get inspect-loca picker via allowlist");
+  fail("Arseniy must not get inspect-loca picker via allowlist");
 }
 if (!sandbox.isPartnerCanonOwner_(helper)) {
   fail("owner cabinet allowlist must keep helper");
 }
-if (sandbox.isPartnerCanonOwner_(arseniy)) {
-  fail("Arseniy must not stay canon owner");
+if (!sandbox.isPartnerCanonOwner_(arseniy)) {
+  fail("Arseniy must stay canon owner");
 }
 
 const helperMe = sandbox.partnerCanonOwnerGetMe_({
@@ -202,7 +201,11 @@ if (arseniyMe.canPickInspectLoca) {
   fail("Arseniy getMe.canPickInspectLoca must stay false (no inspect picker)");
 }
 
-console.log("OK: inspect-loca allowlist empty; helper picker off; Arseniy not owner");
+if (!arseniyMe.ownerMode || !arseniyMe.isOwner) {
+  fail("Arseniy owner cabinet must stay");
+}
+
+console.log("OK: inspect-loca allowlist empty; helper picker off; three owners");
 console.log("  helper canPickInspectLoca:", helperMe.canPickInspectLoca);
 console.log("  helper ownerMode:", helperMe.ownerMode);
-console.log("  Arseniy isPartnerCanonOwner:", sandbox.isPartnerCanonOwner_(arseniy));
+console.log("  Arseniy ownerMode:", arseniyMe.ownerMode);

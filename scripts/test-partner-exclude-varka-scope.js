@@ -122,6 +122,7 @@ vm.runInContext(
     extractFn_(workerSrc, "partnerIsClosedAccess_"),
     extractFn_(workerSrc, "partnerStripOwnerAccess_"),
     extractFn_(workerSrc, "partnerStaffAccessOnly_"),
+    extractFn_(workerSrc, "partnerGrantAccessRows_"),
     extractFn_(workerSrc, "partnerAttachVisibleAccess_"),
     extractFn_(workerSrc, "partnerDemoteFakeOwner_"),
     extractFn_(workerSrc, "partnerCanonOwnerGetMe_"),

@@ -678,12 +678,22 @@
         <button class="btn block" type="button" onclick="acceptStaffAccess()">Принять доступ</button>
       </div>
       <div class="card" id="grantStaffCard" style="display:none;">
-        <h3>Доступ сотруднику</h3>
-        <p>Только владелец. Выданным доступом этот блок не виден.</p>
-        <label class="lbl">Telegram ID сотрудника</label>
+        <h3 id="grantCardTitle">Выдать доступ</h3>
+        <p id="grantCardHint">Владелец выдаёт точку хозяину. Хозяин точки — сотрудникам.</p>
+        <div id="grantRoleRow" style="display:none;margin:0 0 10px;">
+          <label class="lbl">Кому</label>
+          <select class="field" id="grantRole">
+            <option value="partner">Хозяин точки</option>
+            <option value="staff">Сотрудник</option>
+          </select>
+        </div>
+        <label class="lbl">Telegram @username</label>
+        <input class="field" id="staffUser" placeholder="например nan_animal_clinic">
+        <label class="lbl">Telegram ID</label>
         <input class="field" id="staffTid" placeholder="например 123456789" inputmode="numeric">
         <label class="lbl">Имя</label>
         <input class="field" id="staffName" placeholder="Имя">
+        <div id="grantPointsBox" style="margin:8px 0 12px;"></div>
         <button class="btn block" type="button" onclick="grantStaffAccess()">Выдать доступ</button>
         <div id="staffList" style="margin-top:12px;"></div>
       </div>
@@ -709,7 +719,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.52";
+  var APP_VER = "3.3.53";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -721,9 +731,9 @@
   /** Allowlist локи для проверки. Helper 827494606 снят; owner-кабинет без чипа «Лока». */
   var INSPECT_LOCA_USERS_ = [];
   var INSPECT_LOCA_TIDS_ = [];
-  /** Кабинет владельца: helper 827494606. Arseniy — staff (Partner_Access), не owner. */
-  var CANON_OWNER_TIDS_ = ["827494606"];
-  var CANON_OWNER_USERS_ = ["one_more_person_228"];
+  /** Кабинет владельца: Даня / Arseniy / helper. */
+  var CANON_OWNER_TIDS_ = ["1027813038", "650923866", "827494606"];
+  var CANON_OWNER_USERS_ = ["danya_sachenk0", "arseniyhotko", "one_more_person_228"];
   var INSPECT_LOCA_KEY = "gb_inspect_loca_v1";
   var LIVE_TEST_IDX_ = 16;
   var LIVE_TEST_QUEUE_ = [
@@ -1019,9 +1029,25 @@
     return false;
   }
 
-  /** Owner-UI (выдать доступ / список доступов) — только канон-owner, не partner/helper. */
+  /** Owner-UI (все точки, выдать хозяину) — только канон-owner. */
   function canUseOwnerUi_(u, acc) {
     return isCanonOwnerUser_(u || (typeof user === "function" ? user() : {}), acc || state.me || {});
+  }
+
+  /** Owner или хозяин точки (partner). Staff не выдаёт. */
+  function canGrantAccess_(u, acc) {
+    if (canUseOwnerUi_(u, acc)) return true;
+    acc = acc || state.me || {};
+    var role = String(acc.role || "").toLowerCase();
+    if (acc.isStaff || role === "staff") return false;
+    return !!(acc.isPartner || role === "partner");
+  }
+
+  function isVarkaPoint_(p) {
+    if (!p) return false;
+    var id = String(p.id || "");
+    var nid = String(p.networkId || "");
+    return nid === "net_varka" || id.indexOf("pt_varka_") === 0;
   }
 
   function isOwnerIdentityRow_(row) {
@@ -2668,7 +2694,7 @@
         var name = displayPointName_(p) || p.name || p.id;
         var addr = String(p.address || "").trim();
         var line = esc(name);
-        if (addr && addr.toLowerCase() !== String(name).toLowerCase()) {
+        if (addr && !isVarkaPoint_(p) && addr.toLowerCase() !== String(name).toLowerCase()) {
           line += "<br><span class=\"muted\" style=\"font-size:12px\">" + esc(addr) + "</span>";
         }
         return line;
@@ -2684,8 +2710,22 @@
     }
     var grantCard = document.getElementById("grantStaffCard");
     var pendCard = document.getElementById("pendingAccessCard");
-    var canGrant = canUseOwnerUi_();
+    var canGrant = canGrantAccess_();
     if (grantCard) grantCard.style.display = canGrant ? "" : "none";
+    var roleRow = document.getElementById("grantRoleRow");
+    if (roleRow) roleRow.style.display = canUseOwnerUi_() ? "" : "none";
+    var titleEl = document.getElementById("grantCardTitle");
+    var hintEl = document.getElementById("grantCardHint");
+    if (canUseOwnerUi_()) {
+      if (titleEl) titleEl.textContent = "Выдать доступ";
+      if (hintEl) hintEl.textContent = "Точку — хозяину точки. Сотрудника может выдать хозяин точки.";
+    } else {
+      if (titleEl) titleEl.textContent = "Доступ сотруднику";
+      if (hintEl) hintEl.textContent = "Сотрудник получит ваши точки.";
+      var roleSel0 = document.getElementById("grantRole");
+      if (roleSel0) roleSel0.value = "staff";
+    }
+    fillGrantPointsBox_();
     var needAccept = !!(state.me && state.me.isStaff &&
       String(state.me.accessStatus || "").toLowerCase() === "pending");
     if (pendCard) pendCard.style.display = needAccept ? "" : "none";
@@ -2714,35 +2754,68 @@
     alert("Сохранено");
   }
 
-  async function grantStaffAccess() {
-    if (!canUseOwnerUi_()) {
-      alert("Выдать доступ может только владелец");
+  function fillGrantPointsBox_() {
+    var box = document.getElementById("grantPointsBox");
+    if (!box) return;
+    var pts = assignedPointsList_() || [];
+    if (!pts.length) {
+      box.innerHTML = "";
       return;
     }
+    box.innerHTML = '<label class="lbl">Точки</label>' + pts.map(function (p) {
+      var lab = displayPointName_(p) || p.name || p.id;
+      return '<label style="display:flex;align-items:center;gap:8px;margin:6px 0;font-size:14px;">' +
+        '<input type="checkbox" class="grantPtChk" value="' + esc(p.id) + '" checked>' +
+        "<span>" + esc(lab) + "</span></label>";
+    }).join("");
+  }
+
+  function selectedGrantPointIds_() {
+    var nodes = document.querySelectorAll("#grantPointsBox .grantPtChk:checked");
+    var ids = [];
+    for (var i = 0; i < nodes.length; i++) ids.push(nodes[i].value);
+    if (ids.length) return normalizePointIds_(ids);
+    return normalizePointIds_((state.me && state.me.pointIds) || DEMO_POINT_IDS);
+  }
+
+  async function grantStaffAccess() {
+    if (!canGrantAccess_()) {
+      alert("Нет прав выдавать доступ");
+      return;
+    }
+    var ownerGrant = canUseOwnerUi_();
+    var roleSel = document.getElementById("grantRole");
+    var role = ownerGrant
+      ? String((roleSel && roleSel.value) || "partner").toLowerCase()
+      : "staff";
+    if (role !== "partner" && role !== "staff") role = ownerGrant ? "partner" : "staff";
     var tid = document.getElementById("staffTid").value.trim();
-    var name = document.getElementById("staffName").value.trim() || "Сотрудник";
-    if (!tid) { alert("Укажите Telegram ID"); return; }
-    if (isOwnerIdentityRow_({ telegramId: tid, username: "", name: name, role: "staff" })) {
+    var username = normUser_((document.getElementById("staffUser") || {}).value || "");
+    var name = document.getElementById("staffName").value.trim() ||
+      (role === "partner" ? "Хозяин точки" : "Сотрудник");
+    if (!tid && !username) { alert("Укажите Telegram ID или @username"); return; }
+    if (isOwnerIdentityRow_({ telegramId: tid, username: username, name: name, role: role })) {
       alert("Владельца в доступы не добавляем");
       return;
     }
-    // сотруднику — только точки текущего партнёра/owner (не весь справочник чужих сетей без доступа)
-    var pointIds = normalizePointIds_(state.me.pointIds || DEMO_POINT_IDS);
+    var pointIds = selectedGrantPointIds_();
     var pts = assignedPointsList_();
-    if (!pointIds.length || !pts.length) { alert("Нет своих точек"); return; }
+    if (!pointIds.length || !pts.length) { alert("Выберите точки"); return; }
+    var statusSave = role === "staff" ? "pending" : "active";
     if (VARKA_WEBHOOK_URL) {
       try {
         var res = await apiGet_({
           action: "partnerSaveAccess",
           telegramId: user().telegramId || (state.me && state.me.telegramId) || "",
-          actorRole: "owner",
-          actorUsername: state.me.username || "",
+          actorRole: ownerGrant ? "owner" : "partner",
+          actorUsername: (state.me && state.me.username) || "",
+          username: username,
           targetTelegramId: tid,
           name: name,
           networkId: state.me.networkId || "",
           pointIds: JSON.stringify(pointIds),
-          role: "staff",
-          status: "pending",
+          role: role,
+          status: statusSave,
           _: String(Date.now())
         });
         if (!res || res.status !== "success") {
@@ -2754,20 +2827,27 @@
         return;
       }
     }
-    DEMO.staffAccess = DEMO.staffAccess.filter(function (a) { return a.telegramId !== tid; });
+    DEMO.staffAccess = DEMO.staffAccess.filter(function (a) {
+      return a.telegramId !== tid && normUser_(a.username) !== username;
+    });
     DEMO.staffAccess.push({
       telegramId: tid,
+      username: username,
       name: name,
       pointIds: pointIds,
       pointId: pts[0].id,
       pointName: pts.map(function (p) { return p.name; }).join(", "),
       networkId: state.me.networkId,
-      status: "pending"
+      role: role,
+      status: statusSave
     });
     document.getElementById("staffTid").value = "";
+    if (document.getElementById("staffUser")) document.getElementById("staffUser").value = "";
     document.getElementById("staffName").value = "";
     renderStaffList_();
-    alert(VARKA_WEBHOOK_URL ? "Приглашение отправлено" : "Доступ выдан (демо)");
+    alert(VARKA_WEBHOOK_URL
+      ? (role === "staff" ? "Приглашение отправлено" : "Точка выдана хозяину")
+      : "Доступ выдан (демо)");
   }
 
   async function acceptStaffAccess() {
@@ -2798,19 +2878,24 @@
   function renderStaffList_() {
     var box = document.getElementById("staffList");
     if (!box) return;
-    if (!canUseOwnerUi_()) {
+    if (!canGrantAccess_()) {
       box.innerHTML = "";
       return;
     }
     var list = (state.me && Array.isArray(state.me.access) && state.me.access.length)
       ? state.me.access.slice()
       : DEMO.staffAccess.slice();
+    var ownerUi = canUseOwnerUi_();
     list = list.filter(function (a) {
       if (!a || isOwnerIdentityRow_(a)) return false;
       var st = String(a.status || "active").toLowerCase();
       if (st === "inactive" || st === "revoked") return false;
-      // leftover bug: partner (в т.ч. nan clinic) не рисовать бейджем staff
-      if (String(a.role || "staff").toLowerCase() !== "staff") return false;
+      var role = String(a.role || "staff").toLowerCase();
+      if (ownerUi) {
+        if (role !== "staff" && role !== "partner") return false;
+      } else if (role !== "staff") {
+        return false;
+      }
       return true;
     });
     if (state.me && (state.me.isPartner || state.me.isOwner)) {
@@ -2827,9 +2912,12 @@
       return;
     }
     box.innerHTML = list.map(function (a) {
-      return '<div class="item"><div class="meta"><div class="title">' + esc(a.name) +
-        ' <span class="badge">staff</span></div><div class="unit">TG ' + esc(a.telegramId) +
-        " · " + esc(a.pointName) +
+      var role = String(a.role || "staff").toLowerCase();
+      var badge = role === "partner" ? "хозяин" : "staff";
+      var ptsLab = a.pointName || (a.pointIds || []).join(", ");
+      return '<div class="item"><div class="meta"><div class="title">' + esc(a.name || a.username || "—") +
+        ' <span class="badge">' + badge + "</span></div><div class=\"unit\">TG " + esc(a.telegramId || a.username || "") +
+        " · " + esc(ptsLab) +
         (a.status === "pending" ? " · ожидает" : "") +
         "</div></div></div>";
     }).join("");
