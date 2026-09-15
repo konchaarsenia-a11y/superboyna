@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
- * @one_more_person_228: owner-all except Varka.
- * getMe/list hide net_varka / pt_varka_*; submit on those ids is forbidden;
- * other nets (NaN/Fundog/BOW/…) stay allowed.
+ * leftover owner-all-except-Varka machinery still exists,
+ * but helper tid is now canon-owner: owner beats exclude.
  */
 "use strict";
 
@@ -112,6 +111,8 @@ vm.runInContext(
     extractConstAssign_(workerSrc, "PARTNER_INSPECT_LOCA_USERS"),
     extractConstAssign_(workerSrc, "PARTNER_LIVE_TEST_QUEUE"),
     extractConstAssign_(workerSrc, "PARTNER_CATALOG_STATIC"),
+    extractConstAssign_(workerSrc, "PARTNER_ARSENIY_USER"),
+    extractConstAssign_(workerSrc, "PARTNER_ARSENIY_TID"),
     extractConstAssign_(workerSrc, "PARTNER_ARSENIY_POINTS"),
     extractConstAssign_(workerSrc, "PARTNER_CANON_OWNER_TIDS"),
     extractConstAssign_(workerSrc, "PARTNER_CANON_OWNER_USERS"),
@@ -145,8 +146,11 @@ const tidParams = { username: "one_more_person_228", telegramId: "827494606" };
 if (sandbox.isPartnerManualAccessUser_(tidParams)) {
   fail("manual allowlist must be off for this tid");
 }
-if (!sandbox.isPartnerOwnerAllUser_(tidParams)) {
-  fail("tid must be owner-all (except nets)");
+if (!sandbox.isPartnerCanonOwner_(tidParams)) {
+  fail("helper tid must be canon owner (exclude must not win)");
+}
+if (sandbox.isPartnerOwnerAllUser_(tidParams)) {
+  fail("canon owner must not keep owner-all-except override");
 }
 if (sandbox.isPartnerOwnerAllUser_({ username: "someone_else", telegramId: "1" })) {
   fail("other users must not get owner-all override");
@@ -199,7 +203,7 @@ if (me.partnerOverride !== "owner_all_except_net_varka") {
   fail("getMe override " + me.partnerOverride);
 }
 if (me.isOwner || me.ownerMode || me.role === "owner") {
-  fail("helper owner-all must not be owner cabinet");
+  fail("leftover owner-all helper must not be owner cabinet");
 }
 const pointIds = (me.points || []).map(function (p) { return p.id; });
 const netIds = (me.networks || []).map(function (n) { return n.id; });
@@ -222,14 +226,32 @@ if (!me.canPickInspectLoca) {
   fail("getMe must set canPickInspectLoca for inspect allowlist tid");
 }
 
+const helperOwnerMe = sandbox.partnerGuardOrRewrite_("partnerGetMe", tidParams, {
+  status: "success",
+  networks: [
+    { id: "net_varka", name: "Varka" },
+    { id: "net_nan", name: "NaN clinic" }
+  ],
+  points: [
+    { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka Репина 4", active: true },
+    { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", active: true }
+  ]
+});
+if (!helperOwnerMe.ownerMode || helperOwnerMe.partnerOverride !== "owner_cabinet_all_points") {
+  fail("helper guard getMe must be full owner cabinet");
+}
+if (!(helperOwnerMe.points || []).some(function (p) { return p.id === "pt_varka_repina_4"; })) {
+  fail("helper owner getMe must include Varka (exclude must not win)");
+}
+
 const blockedVarka = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
   username: "one_more_person_228",
   telegramId: "827494606",
   locationId: "pt_varka_repina_4",
   networkId: "net_varka"
 });
-if (!blockedVarka || blockedVarka.message !== "forbidden_point") {
-  fail("submit Varka must be forbidden_point, got " + JSON.stringify(blockedVarka));
+if (blockedVarka) {
+  fail("helper owner submit Varka must pass, got " + JSON.stringify(blockedVarka));
 }
 
 const blockedPrefix = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
@@ -237,8 +259,8 @@ const blockedPrefix = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
   telegramId: "827494606",
   locationId: "pt_varka_brand_new_99"
 });
-if (!blockedPrefix || blockedPrefix.message !== "forbidden_point") {
-  fail("submit pt_varka_* without net must be forbidden");
+if (blockedPrefix) {
+  fail("helper owner submit pt_varka_* must pass, got " + JSON.stringify(blockedPrefix));
 }
 
 const allowedNan = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
@@ -258,7 +280,7 @@ const listed = sandbox.partnerGuardOrRewrite_("partnerListMyOrders", tidParams, 
   ]
 });
 const listedIds = (listed.orders || []).map(function (o) { return o.id; });
-if (listedIds.indexOf("a") >= 0) fail("list still shows Varka order");
+if (listedIds.indexOf("a") < 0) fail("helper owner list must keep Varka order");
 if (listedIds.indexOf("b") < 0 || listedIds.indexOf("c") < 0) {
   fail("list dropped allowed orders: " + listedIds.join(","));
 }
@@ -299,8 +321,8 @@ const listedFundog = sandbox.partnerGuardOrRewrite_("partnerListMyOrders", {
   ]
 });
 const fundogIds = (listedFundog.orders || []).map(function (o) { return o.id; });
-if (fundogIds.join(",") !== "c") {
-  fail("inspect locationId must keep only Fundog, got " + fundogIds.join(","));
+if (fundogIds.indexOf("c") < 0 || fundogIds.indexOf("a") < 0 || fundogIds.indexOf("b") < 0) {
+  fail("helper owner list must keep all orders (inspect must not hide owner), got " + fundogIds.join(","));
 }
 
 const listedVarkaWant = sandbox.partnerGuardOrRewrite_("partnerListMyOrders", {
@@ -315,15 +337,16 @@ const listedVarkaWant = sandbox.partnerGuardOrRewrite_("partnerListMyOrders", {
     { id: "b", locationId: "pt_nan_1", networkId: "net_nan" }
   ]
 });
-if ((listedVarkaWant.orders || []).some(function (o) { return o.id === "a"; })) {
-  fail("inspect Varka locationId must not leak Varka orders");
+if (!(listedVarkaWant.orders || []).some(function (o) { return o.id === "a"; })) {
+  fail("helper owner list must keep Varka orders");
 }
 
 if (/PARTNER_BOT_TOKEN/.test(extractFn_(workerSrc, "partnerOwnerAllGetMe_"))) {
   fail("do not touch PARTNER_BOT_TOKEN from this change");
 }
 
-console.log("OK: owner-all except net_varka");
-console.log("  points:", pointIds.join(", "));
-console.log("  nets:", netIds.join(", "));
-console.log("  override:", me.partnerOverride);
+console.log("OK: exclude machinery leftover; helper is canon owner");
+console.log("  leftover owner-all points:", pointIds.join(", "));
+console.log("  leftover nets:", netIds.join(", "));
+console.log("  leftover override:", me.partnerOverride);
+console.log("  helper guard:", helperOwnerMe.partnerOverride);

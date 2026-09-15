@@ -20136,9 +20136,9 @@ function partnerRequireOwner_(actorId) {
     String(row.status || "").toLowerCase() !== "denied");
 }
 
-/** Кабинет партнёрки только у Arseniy. Helper 827494606 — обычный granted access. */
-var PARTNER_CANON_OWNER_TIDS_ = ["650923866"];
-var PARTNER_CANON_OWNER_USERS_ = ["arseniyhotko"];
+/** Кабинет партнёрки: Arseniy + helper 827494606 (временно для теста). */
+var PARTNER_CANON_OWNER_TIDS_ = ["650923866", "827494606"];
+var PARTNER_CANON_OWNER_USERS_ = ["arseniyhotko", "one_more_person_228"];
 
 function partnerIsCanonOwner_(username, tid) {
   var u = partnerNormUser_(username);
@@ -22510,7 +22510,7 @@ function handlePartnerGetMe(json, callback, fromPost) {
       role: "owner",
       isPartner: false,
       isOwner: true,
-      name: username || "Арсений",
+      name: username === "arseniyhotko" ? "Арсений" : (username || tid || "Владелец"),
       username: username,
       telegramId: tid,
       networkId: firstNetCo,
@@ -22617,7 +22617,7 @@ function handlePartnerGetMe(json, callback, fromPost) {
   }
 
   // 2) Нет Access — любой owner Бойни больше не получает кабинет партнёрки.
-  // Только PARTNER_CANON_OWNER_* (шаг 0b). Helper / выданный доступ — только через Access.
+  // Только PARTNER_CANON_OWNER_* (шаг 0b). Выданный доступ — через Access.
 
   var no = {
     status: "success",

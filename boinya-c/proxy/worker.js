@@ -8390,11 +8390,11 @@ const PARTNER_ARSENIY_USER = "arseniyhotko";
 const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
-/** Канон-owner партнёрки (кабинет со всеми активными точками, включая Varka). Не helper. */
-const PARTNER_CANON_OWNER_TIDS = ["650923866"];
-const PARTNER_CANON_OWNER_USERS = ["arseniyhotko"];
+/** Канон-owner партнёрки (кабинет со всеми активными точками, включая Varka). */
+const PARTNER_CANON_OWNER_TIDS = ["650923866", "827494606"];
+const PARTNER_CANON_OWNER_USERS = ["arseniyhotko", "one_more_person_228"];
 
-/** Живой прогон @one_more_person_228. owner-all кроме exclude-net (не Varka). */
+/** Живой прогон @one_more_person_228. owner-all кроме exclude — не применяется к canon-owner. */
 const PARTNER_LIVE_TEST_ENABLED = false;
 const PARTNER_LIVE_TEST_USER = "one_more_person_228";
 const PARTNER_LIVE_TEST_TID = "827494606";
@@ -8471,8 +8471,9 @@ function partnerInspectWantLoca_(params) {
   return want;
 }
 
-/** Test-user без allowlist → все активные точки, минус PARTNER_MANUAL_ACCESS_EXCLUDE_NETS. */
+/** Test-user без allowlist → все активные точки, минус PARTNER_MANUAL_ACCESS_EXCLUDE_NETS. Owner бьёт exclude. */
 function isPartnerOwnerAllUser_(params) {
+  if (isPartnerCanonOwner_(params)) return false;
   if (PARTNER_LIVE_TEST_ENABLED) return false;
   if (PARTNER_MANUAL_ACCESS_POINTS && PARTNER_MANUAL_ACCESS_POINTS.length) return false;
   const u = partnerNormUserWorker_(params && params.username);
@@ -8564,7 +8565,7 @@ function partnerNormUserWorker_(raw) {
     .toLowerCase();
 }
 
-/** Настоящий owner партнёрки (Arseniy). Helper 827494606 сюда не входит. */
+/** Настоящий owner партнёрки: Arseniy + helper 827494606 (временно для теста кабинета). */
 function isPartnerCanonOwner_(params) {
   const u = partnerNormUserWorker_(params && params.username);
   const tid = String((params && params.telegramId) || "").trim();
@@ -8835,9 +8836,16 @@ function partnerOwnerAllGetMe_(json) {
   });
 }
 
-/** Owner-only кабинет: все активные точки, включая Varka. Не helper. */
-function partnerCanonOwnerGetMe_(json) {
+/** Owner-only кабинет: все активные точки, включая Varka. */
+function partnerCanonOwnerGetMe_(json, params) {
   const src = json && typeof json === "object" && json.status !== "error" ? json : {};
+  const username = partnerNormUserWorker_((params && params.username) || src.username || "");
+  const tid = String((params && params.telegramId) || src.telegramId || "").trim();
+  const displayName = src.name && src.name !== "Владелец Good Boy"
+    ? src.name
+    : (tid === PARTNER_ARSENIY_TID || username === PARTNER_ARSENIY_USER
+        ? "Арсений"
+        : (username || "Владелец"));
   const renameById = {
     pt_polotno_1: { name: "polotno_an", address: "Чечота 11" },
     pt_indix_1: { name: "indixvost", address: "Проспект победителей 73/1" }
@@ -8908,9 +8916,9 @@ function partnerCanonOwnerGetMe_(json) {
     role: "owner",
     isPartner: false,
     isOwner: true,
-    name: src.name && src.name !== "Владелец Good Boy" ? src.name : "Арсений",
-    username: src.username || PARTNER_CANON_OWNER_USERS[0] || "",
-    telegramId: src.telegramId || PARTNER_CANON_OWNER_TIDS[0] || "",
+    name: displayName,
+    username: username,
+    telegramId: tid,
     networkId: (pointsOut[0] && pointsOut[0].networkId) || "",
     pointIds: pointIds,
     allowedPointIds: allowedPointIds,
@@ -9058,7 +9066,7 @@ function partnerGuardOrRewrite_(a, params, json) {
   }
   if (isPartnerCanonOwner_(params)) {
     if (a === "partnerGetMe") {
-      return partnerAttachVisibleAccess_(params, partnerCanonOwnerGetMe_(out));
+      return partnerAttachVisibleAccess_(params, partnerCanonOwnerGetMe_(out, params));
     }
     return out;
   }
@@ -9204,8 +9212,8 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
             catalog: (snapCo && snapCo.catalog) || PARTNER_CATALOG_STATIC,
             access: adminCo.access || [],
             name: (snapCo && snapCo.name) || "",
-            username: PARTNER_CANON_OWNER_USERS[0] || "",
-            telegramId: PARTNER_CANON_OWNER_TIDS[0] || ""
+            username: partnerNormUserWorker_((params && params.username) || (snapCo && snapCo.username) || ""),
+            telegramId: String((params && params.telegramId) || (snapCo && snapCo.telegramId) || "").trim()
           }
         : snapCo && snapCo.status === "success"
           ? snapCo
