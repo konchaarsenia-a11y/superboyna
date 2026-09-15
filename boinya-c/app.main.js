@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115964";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115965";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -4233,7 +4233,7 @@
       // delete/move/save: не coalesce inflight — иначе JSONP-retry ждёт сам себя и UI «молчит»
       var noInflight =
         !!opts.bypassInflight ||
-        /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(action);
+        /^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|notifyMissedDelivery|placeTransferTask)$/i.test(action);
       if (cacheKey && !noInflight && _apiGetInflight[cacheKey]) return _apiGetInflight[cacheKey];
 
       var retries = opts.retries;
@@ -4314,7 +4314,7 @@
                 clearTimeout(timer);
                 if (err && err.name === "AbortError") {
                   // PEOPLE CANON: таймаут ≠ успех. Sheets-first — без подтверждения не врать «сохранено».
-                  if (/^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(action)) {
+                  if (/^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|notifyMissedDelivery|placeTransferTask)$/i.test(action)) {
                     resolve({
                       status: "error",
                       message: "timeout_waiting_sheets",
@@ -4328,7 +4328,7 @@
                   reject(new Error("Таймаут ответа сервера"));
                   return;
                 }
-                if (/^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient)$/i.test(action)) {
+                if (/^(saveOrder|saveBooking|deleteClient|removeCalendarClient|moveClient|notifyMissedDelivery|placeTransferTask)$/i.test(action)) {
                   resolve({
                     status: "error",
                     message: "network_waiting_sheets",
@@ -10784,6 +10784,7 @@
       } catch (eN) {}
       try {
         showToast("Отправляю менеджеру…");
+        var missedNoCut = !!(client.noCut) || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(client.note || ""));
         var body = {
           action: "notifyMissedDelivery",
           telegramId: tid,
@@ -10797,19 +10798,29 @@
           address: client.address || "",
           phone: client.phone || "",
           note: client.note || "",
+          noCut: missedNoCut ? "1" : "0",
           createdByName: myName
         };
-        var res = null;
-        try { res = await apiPost(body); } catch (ePost) { res = null; }
-        if (!res || (res.status !== "success" && res.status !== "sent_opaque")) {
-          try {
-            res = await apiGet(Object.assign({}, body, {
-              basket: JSON.stringify(client.basket || []),
-              _: String(Date.now())
-            }), { timeoutMs: 25000, cacheTtlMs: 0 });
-          } catch (eGet) {}
+        function missedOk_(r) {
+          return !!(r && (
+            r.status === "success" ||
+            r.status === "accepted" ||
+            r.status === "sent_opaque" ||
+            r.d1Verified ||
+            r.parked
+          ));
         }
-        if (!res || (res.status !== "success" && res.status !== "sent_opaque")) {
+        var res = null;
+        try {
+          res = await apiGet(Object.assign({}, body, {
+            basket: JSON.stringify(client.basket || []),
+            _: String(Date.now())
+          }), { timeoutMs: 12000, cacheTtlMs: 0, bypassInflight: true });
+        } catch (eGet) { res = null; }
+        if (!missedOk_(res)) {
+          try { res = await apiPost(body); } catch (ePost) { res = null; }
+        }
+        if (!missedOk_(res)) {
           await uiAlertAsync("Не удалось: " + ((res && res.message) || "ошибка / Deploy"));
           return;
         }
@@ -10844,6 +10855,10 @@
               matchKey: client.matchKey || "",
               segment: client.segment || "",
               basket: client.basket || [],
+              address: client.address || "",
+              phone: client.phone || "",
+              note: client.note || "",
+              noCut: missedNoCut,
               createdByName: myName
             }
           };
@@ -10970,13 +10985,14 @@
           newDate: target.newDate,
           newDay: target.newDay || "",
           cutRaw: cutRaw === "yes" ? "1" : "0",
+          noCut: cutRaw === "yes" ? "0" : "1",
           _: String(Date.now())
-        }, { timeoutMs: 30000, cacheTtlMs: 0 });
+        }, { timeoutMs: 14000, cacheTtlMs: 0, bypassInflight: true });
       } catch (ePl) {
         await uiAlertAsync(ePl.message || "Ошибка сети");
         return;
       }
-      if (!placed || placed.status !== "success") {
+      if (!placed || (placed.status !== "success" && placed.status !== "accepted" && !placed.d1Verified && !placed.parkedPlaced)) {
         await uiAlertAsync("Не удалось: " + ((placed && (placed.message || placed.status)) || "ошибка"));
         return;
       }

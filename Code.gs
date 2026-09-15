@@ -27130,6 +27130,7 @@ function handleListDeferred_(json, callback, fromPost) {
           basket: payload.basket || [],
           client: payload.client || "",
           parked: !!payload.parked,
+          noCut: !!payload.noCut || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(payload.note || "")),
           createdBy: payload.createdBy || ownerTid,
           createdByName: payload.createdByName || ""
         };
@@ -27612,7 +27613,7 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
     } catch (eC) {}
   }
 
-  var id = deferredNewId_();
+  var id = String(json.id || "").trim() || deferredNewId_();
   var creatorName = String(json.createdByName || "").trim();
   if (!creatorName) {
     try { creatorName = remindPersonLabel_(tid, ""); } catch (eN) {}
@@ -27633,7 +27634,8 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
     parked: true,
     address: address,
     phone: phone,
-    note: note
+    note: note,
+    noCut: resolveNoCutFlag_(json, note)
   };
   var sh = deferredSheet_();
   var now = new Date();
@@ -27671,7 +27673,9 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
   } catch (ePark) {}
 
   var weekCounts = [];
-  try { weekCounts = buildWeekDayCountsItems_(ss); } catch (eW2) {}
+  if (!(json.skipWeekCounts === "1" || json.skipWeekCounts === true || json.skipWeekCounts === 1)) {
+    try { weekCounts = buildWeekDayCountsItems_(ss); } catch (eW2) {}
+  }
 
   var basketPreview = (basket || []).slice(0, 8).map(function (x) {
     var nm = String(x.name || x.main || "").trim();
@@ -27846,14 +27850,56 @@ function handlePlaceTransferTask_(json, callback, fromPost) {
     break;
   }
   if (rowIdx < 0 || !client) {
-    var miss = { status: "error", message: "not_found" };
-    return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+    var wantClient = String(json.client || json.nick || "").trim();
+    if (wantClient) {
+      for (var r2 = 1; r2 < data.length; r2++) {
+        var mode2 = String(data[r2][3] || "").toLowerCase();
+        var st2 = String(data[r2][6] || "open").toLowerCase();
+        if (mode2 !== "transfer" || st2 !== "open") continue;
+        var nick2 = String(data[r2][5] || "").trim();
+        var p2 = {};
+        try { p2 = JSON.parse(String(data[r2][7] || "{}")); } catch (eP2) { p2 = {}; }
+        var payloadClient = String((p2 && (p2.client || p2.clientNick)) || "").trim();
+        if (!nicksMatch_(nick2, wantClient) && !nicksMatch_(payloadClient, wantClient)) continue;
+        rowIdx = r2 + 1;
+        payload = p2;
+        ownerTid = String(data[r2][2] || "").trim();
+        client = nick2 || payloadClient || wantClient;
+        id = String(data[r2][0] || id).trim();
+        break;
+      }
+    }
   }
-  var matchKey = String(payload.matchKey || "").trim() || clientMatchKey_(client);
-  var basket = Array.isArray(payload.basket) ? normalizeBasketAliases_(payload.basket) : [];
-  var address = String(payload.address || "").trim();
-  var phone = String(payload.phone || "").trim();
-  var note = String(payload.note || "").trim();
+  if (rowIdx < 0) {
+    client = String(json.client || json.nick || client || "").trim();
+    if (!client) {
+      var miss = { status: "error", message: "not_found" };
+      return fromPost ? jsonpText(callback, miss) : jsonp(callback, miss);
+    }
+    payload = {
+      basket: json.basket,
+      address: json.address,
+      phone: json.phone,
+      note: json.note,
+      matchKey: json.matchKey,
+      segment: json.segment,
+      noCut: json.noCut
+    };
+  }
+  var matchKey = String(payload.matchKey || json.matchKey || "").trim() || clientMatchKey_(client);
+  var basket = Array.isArray(payload.basket) ? payload.basket : [];
+  if (!basket.length && payload.basket && typeof payload.basket === "string") {
+    try { basket = JSON.parse(payload.basket); } catch (eBask) { basket = []; }
+  }
+  if (!basket.length && json.basket) {
+    if (typeof json.basket === "string") {
+      try { basket = JSON.parse(json.basket); } catch (eB2) { basket = []; }
+    } else if (Array.isArray(json.basket)) basket = json.basket;
+  }
+  basket = normalizeBasketAliases_(basket);
+  var address = String(payload.address || json.address || "").trim();
+  var phone = String(payload.phone || json.phone || "").trim();
+  var note = String(payload.note || json.note || "").trim();
   var noCutPlace = resolveNoCutFlag_(json, note);
   note = applyNoCutToNote_(note, noCutPlace);
   var targetDayName = findDayNameForDate_(ss, newDate) || String(json.newDay || "").trim();
@@ -27884,8 +27930,10 @@ function handlePlaceTransferTask_(json, callback, fromPost) {
       source: "transfer"
     });
   } catch (eCal) {}
-  sh.getRange(rowIdx, 7).setValue("done");
-  try { sh.getRange(rowIdx, 9).setValue(new Date()); } catch (eUpd) {}
+  if (rowIdx > 0) {
+    sh.getRange(rowIdx, 7).setValue("done");
+    try { sh.getRange(rowIdx, 9).setValue(new Date()); } catch (eUpd) {}
+  }
   bustDeferredCache_(tid);
   bustDeferredCache_(ownerTid);
   try {

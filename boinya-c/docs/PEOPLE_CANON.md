@@ -69,7 +69,7 @@
 - `moveEpoch` старше 7д не прячет клиента.
 - Calendar month (D1-primary): без tomb-filter на live D1; **off-week month = только live D1** (snap не воскрешает delete).
 - `refreshViewDateSnap_` на calendar save/delete до ответа UI.
-- UI: `viewDateOffWeek` → `removeCalendarClient` вместо week delete.
+- `notifyMissedDelivery` / `placeTransferTask`: **лёгкий D1 park/save** (без `invalidateDays_` на горячем пути) → UI `d1Verified`; courier/cut/month rebuild в `waitUntil`. Иначе CF рвёт и UI «Ошибка сети». Общий `id` D1↔GAS. `noCut` из parked note не теряется, если `cutRaw` не задан явно.
 
 Откат на Sheets-канон: Worker env `PEOPLE_CANON=sheets-confirm-bg`.
 
