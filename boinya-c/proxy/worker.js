@@ -8943,9 +8943,9 @@ const PARTNER_ARSENIY_USER = "arseniyhotko";
 const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
-/** Канон-owner партнёрки (кабинет со всеми активными точками, включая Varka). Arseniy 650923866 — staff, не owner. */
-const PARTNER_CANON_OWNER_TIDS = ["827494606"];
-const PARTNER_CANON_OWNER_USERS = ["one_more_person_228"];
+/** Канон-owner партнёрки: Даня / helper. Arseniy временно не owner — Access не трогаем. */
+const PARTNER_CANON_OWNER_TIDS = ["1027813038", "827494606"];
+const PARTNER_CANON_OWNER_USERS = ["danya_sachenk0", "one_more_person_228"];
 
 /** Живой прогон @one_more_person_228. owner-all кроме exclude — не применяется к canon-owner. */
 const PARTNER_LIVE_TEST_ENABLED = false;
@@ -9111,6 +9111,42 @@ const PARTNER_CATALOG_STATIC = [
   }
 ];
 
+function partnerActorAccessRow_(admin, tid, user) {
+  const rows = (admin && Array.isArray(admin.access)) ? admin.access : [];
+  const wantT = String(tid || "").trim();
+  const wantU = partnerNormUserWorker_(user);
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row) continue;
+    if (String(row.status || "active").toLowerCase() !== "active") continue;
+    if (wantT && String(row.telegramId || "") === wantT) return row;
+    if (wantU && partnerNormUserWorker_(row.username) === wantU) return row;
+  }
+  return null;
+}
+
+function partnerCanActorGrant_(admin, params) {
+  const actorRole = String((params && params.actorRole) || "").toLowerCase();
+  const actorTid = String((params && params.telegramId) || "").trim();
+  const actorUser = partnerNormUserWorker_(params && params.actorUsername);
+  if (actorRole === "staff") {
+    return { ok: false, message: "staff_cannot_grant" };
+  }
+  if (isPartnerCanonOwner_({
+    telegramId: actorTid,
+    username: actorUser || (params && params.username)
+  })) {
+    return { ok: true, scope: "all" };
+  }
+  const row = partnerActorAccessRow_(admin, actorTid, actorUser);
+  const r = String((row && row.role) || "").toLowerCase();
+  if (r === "staff") return { ok: false, message: "staff_cannot_grant" };
+  if (row && r === "partner") {
+    return { ok: true, scope: "points", pointIds: row.pointIds || [] };
+  }
+  return { ok: false, message: "owner_only" };
+}
+
 function partnerNormUserWorker_(raw) {
   return String(raw || "")
     .replace(/^@/, "")
@@ -9118,7 +9154,7 @@ function partnerNormUserWorker_(raw) {
     .toLowerCase();
 }
 
-/** Настоящий owner партнёрки: helper 827494606. Arseniy — staff через Partner_Access. */
+/** Настоящий owner партнёрки: Даня / helper. */
 function isPartnerCanonOwner_(params) {
   const u = partnerNormUserWorker_(params && params.username);
   const tid = String((params && params.telegramId) || "").trim();
@@ -9157,14 +9193,38 @@ function partnerStaffAccessOnly_(list) {
   });
 }
 
+function partnerGrantAccessRows_(list, params, json) {
+  const stripped = partnerStripOwnerAccess_(list);
+  if (isPartnerCanonOwner_(params)) {
+    return stripped.filter(function (row) {
+      const r = String(row.role || "").toLowerCase();
+      return r === "staff" || r === "partner";
+    });
+  }
+  const role = String((json && json.role) || "").toLowerCase();
+  const asPartner = !!(json && (json.isPartner || role === "partner")) && role !== "staff" && !json.isStaff;
+  if (!asPartner) return [];
+  const allow = {};
+  (Array.isArray(json.pointIds) ? json.pointIds : []).forEach(function (id) {
+    allow[String(id)] = true;
+  });
+  return stripped.filter(function (row) {
+    if (String(row.role || "").toLowerCase() !== "staff") return false;
+    const pids = row.pointIds || [];
+    for (let i = 0; i < pids.length; i++) {
+      if (allow[String(pids[i])]) return true;
+    }
+    return false;
+  });
+}
+
 function partnerAttachVisibleAccess_(params, json) {
   if (!json || typeof json !== "object") return json;
   const srcAccess = Array.isArray(json.access) ? json.access : [];
   if (isPartnerCanonOwner_(params)) {
-    return Object.assign({}, json, { access: partnerStaffAccessOnly_(srcAccess), ownerMode: true });
+    return Object.assign({}, json, { access: partnerGrantAccessRows_(srcAccess, params, json), ownerMode: true });
   }
-  // granted / helper: owner-UI payload не отдаём
-  return Object.assign({}, json, { access: [] });
+  return Object.assign({}, json, { access: partnerGrantAccessRows_(srcAccess, params, json) });
 }
 
 /** Не-owner никогда не получает owner-кабинет / «Владелец Good Boy». */
@@ -19377,17 +19437,9 @@ async function mutatePartnerD1_(action, params, env) {
     const actorRole = String((params && params.actorRole) || "").toLowerCase();
     const actorTid = String((params && params.telegramId) || "").trim();
     const actorUser = partnerNormUserWorker_(params && params.actorUsername);
-    // staff не может выдавать доступы (даже если D1 пишет раньше GAS)
-    if (actorRole === "staff") {
-      return { status: "error", message: "staff_cannot_grant" };
-    }
-    if (
-      !isPartnerCanonOwner_({
-        telegramId: actorTid,
-        username: actorUser || (params && params.username)
-      })
-    ) {
-      return { status: "error", message: "owner_only" };
+    const grantGate = partnerCanActorGrant_(admin, params);
+    if (!grantGate.ok) {
+      return { status: "error", message: grantGate.message || "owner_only" };
     }
     for (let ai = 0; ai < (admin.access || []).length; ai++) {
       const ar = admin.access[ai];
@@ -19428,7 +19480,19 @@ async function mutatePartnerD1_(action, params, env) {
       }
     }
     if (!Array.isArray(pointIds)) pointIds = [];
-    const roleSave = String((params && params.role) || "partner").trim() || "partner";
+    let roleSave = String((params && params.role) || "partner").trim() || "partner";
+    if (grantGate.scope === "points") {
+      roleSave = "staff";
+      const allow = {};
+      (grantGate.pointIds || []).forEach(function (pid) {
+        allow[String(pid)] = true;
+      });
+      pointIds = pointIds.filter(function (pid) {
+        return !!allow[String(pid)];
+      });
+      if (!pointIds.length) pointIds = (grantGate.pointIds || []).slice();
+      if (!pointIds.length) return { status: "error", message: "need_points" };
+    }
     const row = {
       id: id,
       username: username,
