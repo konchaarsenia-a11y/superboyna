@@ -20512,9 +20512,9 @@ function partnerRequireOwner_(actorId) {
     String(row.status || "").toLowerCase() !== "denied");
 }
 
-/** Кабинет партнёрки: Arseniy + helper 827494606 (временно для теста). */
-var PARTNER_CANON_OWNER_TIDS_ = ["650923866", "827494606"];
-var PARTNER_CANON_OWNER_USERS_ = ["arseniyhotko", "one_more_person_228"];
+/** Кабинет партнёрки: helper 827494606. Arseniy 650923866 — staff через Partner_Access, не owner. */
+var PARTNER_CANON_OWNER_TIDS_ = ["827494606"];
+var PARTNER_CANON_OWNER_USERS_ = ["one_more_person_228"];
 
 function partnerIsCanonOwner_(username, tid) {
   var u = partnerNormUser_(username);

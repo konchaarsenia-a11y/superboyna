@@ -24055,11 +24055,9 @@
       if (boxA) {
         var openAcc = acc.filter(function (a) {
           if (String(a.status || "") !== "active") return false;
-          var tid = String(a.telegramId || "").trim();
-          var uname = String(a.username || "").replace(/^@/, "").trim().toLowerCase();
           var role = String(a.role || "").toLowerCase();
           var name = String(a.name || "").trim();
-          if (tid === "650923866" || uname === "arseniyhotko" || role === "owner") return false;
+          if (role === "owner") return false;
           if (name === "Владелец Good Boy" || /^владелец\b/i.test(name)) return false;
           return true;
         });
