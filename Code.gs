@@ -27635,7 +27635,8 @@ function handleNotifyMissedDelivery_(json, callback, fromPost) {
     address: address,
     phone: phone,
     note: note,
-    noCut: resolveNoCutFlag_(json, note)
+    noCut: resolveNoCutFlag_(json, note),
+    d1Id: /^xfer_/i.test(id) ? id : String(json.d1Id || "")
   };
   var sh = deferredSheet_();
   var now = new Date();
@@ -27765,11 +27766,13 @@ function handleGetTransferTask_(json, callback, fromPost) {
   var data = sh.getDataRange().getValues();
   var item = null;
   for (var r = 1; r < data.length; r++) {
-    if (String(data[r][0] || "").trim() !== id) continue;
-    var mode = String(data[r][3] || "").toLowerCase();
-    var st = String(data[r][6] || "open").toLowerCase();
+    var rowId = String(data[r][0] || "").trim();
     var payload = {};
     try { payload = JSON.parse(String(data[r][7] || "{}")); } catch (e) { payload = {}; }
+    var d1Id = String(payload.d1Id || payload.workerId || "").trim();
+    if (rowId !== id && d1Id !== id) continue;
+    var mode = String(data[r][3] || "").toLowerCase();
+    var st = String(data[r][6] || "open").toLowerCase();
     var ownerTid = String(data[r][2] || "").trim();
     var can = ownerTid === tid;
     if (!can && mode === "transfer") {
@@ -27781,7 +27784,7 @@ function handleGetTransferTask_(json, callback, fromPost) {
     }
     if (!can) continue;
     item = {
-      id: id,
+      id: rowId || id,
       mode: mode,
       title: String(data[r][4] || ""),
       clientNick: String(data[r][5] || ""),
@@ -27796,7 +27799,10 @@ function handleGetTransferTask_(json, callback, fromPost) {
     return fromPost ? jsonpText(callback, miss2) : jsonp(callback, miss2);
   }
   var weekCounts = [];
-  try { weekCounts = buildWeekDayCountsItems_(); } catch (eW) {}
+  var wantCounts = json.includeWeekCounts === "1" || json.includeWeekCounts === true || json.includeWeekCounts === 1;
+  if (wantCounts && !(json.skipWeekCounts === "1" || json.skipWeekCounts === true || json.skipWeekCounts === 1)) {
+    try { weekCounts = buildWeekDayCountsItems_(); } catch (eW) {}
+  }
   var ok = {
     status: "success",
     item: item,

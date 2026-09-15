@@ -387,7 +387,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-15 fix-courier-missed-timeout-h1"
+      deployMarker: "2026-09-15 heal-flamant-transfer-h1"
     };
   }
 
@@ -399,6 +399,9 @@ async function handleAction_(action, params, env, url, ctx) {
   }
   if (/^undeleteWeekFromSheet$/i.test(a)) {
     return undeleteWeekFromSheet_(params, env);
+  }
+  if (/^healStuckTransfers$/i.test(a)) {
+    return healStuckTransfers_(params, env);
   }
 
   if (/^pollPeopleWrite$/i.test(a)) {
@@ -1834,7 +1837,38 @@ async function mergeListDeferredPayload_(env, payload) {
       if (st === "cancelled" || st === "canceled" || st === "done" || st === "closed") return;
       return;
     }
-    if (k && deferredItemIsProtectedTransfer_(it) && xferKeys[k]) return;
+    if (k && deferredItemIsProtectedTransfer_(it) && xferKeys[k]) {
+      try {
+        for (var gi = 0; gi < incoming.length; gi++) {
+          if (!deferredItemIsProtectedTransfer_(incoming[gi])) continue;
+          if (deferredTransferClientKey_(incoming[gi]) !== k) continue;
+          var gasId = String((incoming[gi] && incoming[gi].id) || "");
+          var d1Id = String(it.id || "");
+          if (gasId && d1Id && gasId !== d1Id) {
+            var gp = (incoming[gi] && incoming[gi].payload) || {};
+            var dp = it.payload || {};
+            incoming[gi] = Object.assign({}, it, {
+              id: d1Id,
+              fromD1: true,
+              keptFromD1: true,
+              payload: Object.assign({}, gp, dp, {
+                sheetId: gasId,
+                gasId: gasId,
+                address: dp.address || gp.address || "",
+                phone: dp.phone || gp.phone || "",
+                note: dp.note || gp.note || "",
+                matchKey: dp.matchKey || gp.matchKey || "",
+                basket: basketHasSubstance_(dp.basket) ? dp.basket : gp.basket || dp.basket,
+                noCut: !!(dp.noCut || gp.noCut)
+              })
+            });
+            byId[d1Id] = incoming[gi];
+          }
+          break;
+        }
+      } catch (eStampX) {}
+      return;
+    }
     if (rk && remindKeys[rk]) return;
     // вернуть D1-задачу, которую GAS «забыл»
     var kept = Object.assign({}, it, { fromD1: true, keptFromD1: true });
@@ -2203,6 +2237,22 @@ async function resolveBpPartnerForClient_(env, client, matchKey, payloadPartner,
   return "Другое";
 }
 
+function deferredItemIdAliases_(it) {
+  const ids = [];
+  if (!it) return ids;
+  const push = function (v) {
+    const s = String(v || "").trim();
+    if (s && ids.indexOf(s) < 0) ids.push(s);
+  };
+  push(it.id);
+  const p = it.payload || {};
+  push(p.sheetId);
+  push(p.gasId);
+  push(p.d1Id);
+  push(p.workerId);
+  return ids;
+}
+
 async function findDeferredSnapItem_(env, id) {
   id = String(id || "").trim();
   if (!id) return null;
@@ -2210,10 +2260,122 @@ async function findDeferredSnapItem_(env, id) {
     const list = await getSnapRaw_(env, "listDeferred");
     const arr = (list && list.items) || [];
     for (let i = 0; i < arr.length; i++) {
-      if (String((arr[i] && arr[i].id) || "") === id) return arr[i];
+      if (deferredItemIdAliases_(arr[i]).indexOf(id) >= 0) return arr[i];
     }
   } catch (e) {}
   return null;
+}
+
+function transferPayloadIsThin_(p) {
+  if (!p || typeof p !== "object") return true;
+  return (
+    !fieldHasSubstance_(p.matchKey) ||
+    !fieldHasSubstance_(p.address) ||
+    !fieldHasSubstance_(p.phone) ||
+    !basketHasSubstance_(p.basket)
+  );
+}
+
+async function findLatestOrderForTransfer_(env, nick, matchKey) {
+  if (!env || !env.DB) return null;
+  const mk = normalizeMatchKey_(matchKey || nick);
+  const cl = String(nick || "").trim().toLowerCase();
+  if (!mk && !cl) return null;
+  try {
+    const row = await env.DB.prepare(
+      "SELECT * FROM orders WHERE match_key = ? OR match_key = ? OR lower(client) = ? ORDER BY updated_at DESC LIMIT 1"
+    )
+      .bind(mk, String(nick || "").toUpperCase().replace(/[._]/g, ""), cl)
+      .first();
+    if (row) return row;
+  } catch (eQ) {}
+  return null;
+}
+
+function mergeTransferPayloadFromOrder_(payload, row) {
+  const p = Object.assign({}, payload || {});
+  if (!row) return p;
+  const meta = parseMeta_(row.meta_json) || {};
+  if (!fieldHasSubstance_(p.address) && fieldHasSubstance_(row.address)) p.address = String(row.address);
+  if (!fieldHasSubstance_(p.phone) && fieldHasSubstance_(row.phone)) p.phone = String(row.phone);
+  if (!fieldHasSubstance_(p.note) && fieldHasSubstance_(row.note)) p.note = String(row.note);
+  if (!fieldHasSubstance_(p.matchKey)) {
+    p.matchKey = String(row.match_key || meta.matchKey || "").trim();
+  }
+  if (!fieldHasSubstance_(p.segment) && fieldHasSubstance_(row.segment || meta.segment)) {
+    p.segment = String(row.segment || meta.segment || "");
+  }
+  if (!basketHasSubstance_(p.basket) && basketHasSubstance_(row.basket_json)) {
+    p.basket = parseBasket_(row.basket_json);
+  }
+  if (!p.noCut && (meta.noCut || noteHasNoCutFlag_(row.note) || noteHasNoCutFlag_(p.note))) {
+    p.noCut = true;
+  }
+  if (!fieldHasSubstance_(p.client) && fieldHasSubstance_(row.client)) p.client = String(row.client);
+  return p;
+}
+
+async function enrichTransferPayloadFromOrders_(env, item) {
+  if (!item) return { item: item, enriched: false };
+  let p = Object.assign({}, item.payload || {});
+  const nick = String(item.clientNick || p.client || p.clientNick || "").trim();
+  let changed = false;
+  if (!fieldHasSubstance_(p.matchKey) && nick) {
+    p.matchKey = normalizeMatchKey_(nick);
+    changed = true;
+  }
+  if (transferPayloadIsThin_(p) && nick) {
+    const row = await findLatestOrderForTransfer_(env, nick, p.matchKey);
+    if (row) {
+      const next = mergeTransferPayloadFromOrder_(p, row);
+      if (JSON.stringify(next) !== JSON.stringify(p)) {
+        p = next;
+        changed = true;
+      }
+    }
+  }
+  if (!changed) return { item: item, enriched: false, payload: p };
+  const out = Object.assign({}, item, {
+    payload: p,
+    clientNick: item.clientNick || nick || p.client || ""
+  });
+  return { item: out, enriched: true, payload: p };
+}
+
+async function persistDeferredSnapItem_(env, item) {
+  if (!env || !item) return false;
+  const id = String(item.id || "").trim();
+  if (!id) return false;
+  try {
+    const list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+    const arr = Array.isArray(list.items) ? list.items.slice() : [];
+    let found = false;
+    list.items = arr.map(function (it) {
+      if (!it || String(it.id || "") !== id) return it;
+      found = true;
+      return item;
+    });
+    if (!found) return false;
+    list.status = "success";
+    list.openCount = list.items.filter(function (it) {
+      return String((it && it.status) || "open").toLowerCase() === "open";
+    }).length;
+    list.fromD1 = true;
+    list.sandbox = false;
+    await putSnap_(env, "listDeferred", list);
+    return true;
+  } catch (eP) {}
+  return false;
+}
+
+async function stampDeferredSheetId_(env, d1Id, sheetId) {
+  d1Id = String(d1Id || "").trim();
+  sheetId = String(sheetId || "").trim();
+  if (!d1Id || !sheetId || d1Id === sheetId) return false;
+  const hit = await findDeferredSnapItem_(env, d1Id);
+  if (!hit) return false;
+  const p = Object.assign({}, hit.payload || {}, { sheetId: sheetId, gasId: sheetId });
+  return persistDeferredSnapItem_(env, Object.assign({}, hit, { payload: p }));
 }
 
 async function weekCountsForTransfer_(env) {
@@ -2230,12 +2392,19 @@ async function weekCountsForTransfer_(env) {
 async function getTransferTaskCutover_(params, env) {
   const id = String((params && params.id) || "").trim();
   if (!id) return { status: "error", message: "need_id", cutover: true };
-  const hit = await findDeferredSnapItem_(env, id);
+  let hit = await findDeferredSnapItem_(env, id);
   if (hit) {
     const st = String(hit.status || "open").toLowerCase();
     if (st && st !== "open") {
       return { status: "error", message: "not_open", cutover: true };
     }
+    try {
+      const enriched = await enrichTransferPayloadFromOrders_(env, hit);
+      if (enriched && enriched.item) {
+        hit = enriched.item;
+        if (enriched.enriched) await persistDeferredSnapItem_(env, hit);
+      }
+    } catch (eEn) {}
     const weekCounts = await weekCountsForTransfer_(env);
     return {
       status: "success",
@@ -2252,22 +2421,18 @@ async function getTransferTaskCutover_(params, env) {
       },
       weekCounts: weekCounts,
       cutover: true,
-      fromD1: !!hit.fromD1,
+      fromD1: true,
       sandbox: false
     };
   }
-  const live = await gasProxy_("getTransferTask", params, env, { write: false });
-  if (live && live.status === "success" && live.item) {
-    live.cutover = true;
-    live.fromGas = true;
-    live.sandbox = false;
-    return live;
-  }
+  // не ходим в GAS getTransferTask: df_* + buildWeekDayCounts вешает UI «Ошибка сети»
   return {
     status: "error",
-    message: (live && live.message) || "not_found",
+    message: "not_found",
     cutover: true,
-    action: "getTransferTask"
+    fromD1: true,
+    action: "getTransferTask",
+    tip: "Heal: healStuckTransfers?confirm=1&id=&sheetId= (owner). Не auto-place."
   };
 }
 
@@ -2429,7 +2594,12 @@ async function parkMissedDeliveryD1_(params, env, proxied) {
     d1Verified: true,
     wrote: 1,
     fromD1: true,
-    deployMarker: "2026-09-15 fix-courier-missed-timeout-h1"
+    address: address,
+    phone: phone,
+    note: note,
+    matchKey: String(params.matchKey || mk || ""),
+    noCut: noCut,
+    deployMarker: "2026-09-15 heal-flamant-transfer-h1"
   };
 }
 
@@ -2437,15 +2607,26 @@ async function parkMissedDeliveryD1_(params, env, proxied) {
 async function placeTransferTaskD1_(params, env) {
   const id = String((params && params.id) || "").trim();
   if (!id) return { status: "error", message: "need_id", cutover: true };
-  const hit = await findDeferredSnapItem_(env, id);
+  let hit = await findDeferredSnapItem_(env, id);
   if (!hit) return { status: "error", message: "not_found", cutover: true };
   const st = String(hit.status || "open").toLowerCase();
   if (st && st !== "open") return { status: "error", message: "not_open", cutover: true };
 
+  try {
+    const enriched = await enrichTransferPayloadFromOrders_(env, hit);
+    if (enriched && enriched.item) {
+      hit = enriched.item;
+      if (enriched.enriched) await persistDeferredSnapItem_(env, hit);
+    }
+  } catch (eEn) {}
+
+  const actualId = String(hit.id || id).trim();
   const p = hit.payload || {};
-  const client = String(hit.clientNick || p.client || p.clientNick || "").trim();
+  const client = String(
+    hit.clientNick || p.client || p.clientNick || params.client || params.nick || ""
+  ).trim();
   if (!client) return { status: "error", message: "no_client", cutover: true };
-  const matchKey = normalizeMatchKey_(p.matchKey || client);
+  const matchKey = normalizeMatchKey_(p.matchKey || params.matchKey || client);
 
   let newDate = String(params.newDate || params.date || params.deliveryDate || "").trim();
   let newDay = String(params.newDay || "").trim();
@@ -2467,7 +2648,7 @@ async function placeTransferTaskD1_(params, env) {
   if (noCut) note = (note ? note + " " : "") + "[НЕ РЕЗАТЬ]";
 
   const basket = Array.isArray(p.basket) ? p.basket : parseBasket_(p.basket);
-  const seg = String(p.segment || "");
+  const seg = String(p.segment || params.segment || "");
   const ppPartner = await resolveBpPartnerForClient_(env, client, matchKey, p.ppPartner, seg);
   const saveRes = await saveOrder_(
     {
@@ -2475,8 +2656,8 @@ async function placeTransferTaskD1_(params, env) {
       matchKey: matchKey,
       day: newDay,
       date: newDate,
-      address: String(p.address || ""),
-      phone: String(p.phone || ""),
+      address: String(p.address || params.address || ""),
+      phone: String(p.phone || params.phone || ""),
       note: note,
       basket: JSON.stringify(basket),
       segment: seg,
@@ -2499,8 +2680,13 @@ async function placeTransferTaskD1_(params, env) {
     const arr = Array.isArray(list.items) ? list.items.slice() : [];
     const nowIso = new Date().toISOString();
     let found = false;
+    function isThisTransfer_(it) {
+      if (!it) return false;
+      const aliases = deferredItemIdAliases_(it);
+      return aliases.indexOf(actualId) >= 0 || aliases.indexOf(id) >= 0;
+    }
     const next = arr.map(function (it) {
-      if (!it || String(it.id || "") !== id) return it;
+      if (!isThisTransfer_(it)) return it;
       found = true;
       const p2 = it.payload || {};
       return Object.assign({}, it, {
@@ -2531,13 +2717,14 @@ async function placeTransferTaskD1_(params, env) {
       await deleteFromList_(env, "listDeferred", "items", params, "id");
     }
     try {
-      await putDeferredCancelTombstone_(env, id, matchKey || client);
+      await putDeferredCancelTombstone_(env, actualId, matchKey || client);
+      if (id && id !== actualId) await putDeferredCancelTombstone_(env, id, matchKey || client);
     } catch (eTombPlace) {}
   } catch (eDone) {}
 
   return {
     status: "success",
-    id: id,
+    id: actualId,
     client: client,
     newDate: newDate,
     newDay: newDay,
@@ -2548,13 +2735,13 @@ async function placeTransferTaskD1_(params, env) {
     sandbox: false,
     wrote: saveRes.wrote || 1,
     noCut: noCut,
-    address: String(p.address || ""),
-    phone: String(p.phone || ""),
+    address: String(p.address || params.address || ""),
+    phone: String(p.phone || params.phone || ""),
     note: note,
     segment: seg,
     matchKey: matchKey,
     basket: basket,
-    deployMarker: "2026-09-15 fix-courier-missed-timeout-h1"
+    deployMarker: "2026-09-15 heal-flamant-transfer-h1"
   };
 }
 
@@ -4115,6 +4302,150 @@ async function undeleteWeekFromSheet_(params, env) {
     d1Verified: true,
     deployMarker: "2026-09-14 undelete-zombie-h1",
     tip: "Мягко удалённые D1-строки снесены, живые заявки с листа вставлены. Не replace дня."
+  };
+}
+
+/**
+ * Owner one-shot: тонкий D1-перенос (park после timeout) — дописать address/phone/note/matchKey
+ * из deleted orders и склеить xfer_* ↔ GAS df_* через payload.sheetId.
+ * Не ставит клиента на день (нет newDate). Flamant: id=xfer_1789480933123 sheetId=df_20260915170220_324943
+ * Хаб: healStuckTransfers?confirm=1&telegramId=650923866&clients=Flamantgracieux&id=xfer_…&sheetId=df_…
+ */
+async function healStuckTransfers_(params, env) {
+  if (!env || !env.DB) return { status: "error", message: "no_d1", action: "healStuckTransfers" };
+  const tid = String((params && (params.telegramId || params.actorId)) || "").trim();
+  let ownerOk = false;
+  try {
+    ownerOk = await actorIsOwnerRetail_(params, env);
+  } catch (eOwn) {}
+  if (!ownerOk && (tid === "650923866" || tid === PARTNER_ARSENIY_TID)) ownerOk = true;
+  if (!ownerOk) {
+    return {
+      status: "error",
+      message: "owner_only",
+      action: "healStuckTransfers",
+      tip: "Только владелец. confirm=1&telegramId=650923866&clients=Flamantgracieux"
+    };
+  }
+  if (
+    String(params.confirm || "") !== "1" &&
+    String(params.confirm || "").toLowerCase() !== "true" &&
+    String(params.allowDanger || "") !== "1"
+  ) {
+    return {
+      status: "error",
+      message: "need_confirm",
+      tip: "confirm=1&clients=Flamantgracieux&id=xfer_…&sheetId=df_…",
+      action: "healStuckTransfers"
+    };
+  }
+  const wantId = String(params.id || "").trim();
+  const sheetId = String(params.sheetId || params.gasId || "").trim();
+  const named = String(params.clients || params.nicks || params.client || "")
+    .split(/[,;]+/)
+    .map(function (s) {
+      return String(s || "").trim();
+    })
+    .filter(Boolean);
+  if (!wantId && !sheetId && !named.length) {
+    return {
+      status: "error",
+      message: "need_clients",
+      tip: "clients=Flamantgracieux или id=xfer_…&sheetId=df_…",
+      action: "healStuckTransfers"
+    };
+  }
+  function nickMatchesHeal_(it, q) {
+    const n = String(
+      (it && (it.clientNick || it.client || (it.payload && (it.payload.client || it.payload.clientNick)))) || ""
+    ).trim();
+    const qq = String(q || "").trim();
+    if (!n || !qq) return false;
+    if (n.toLowerCase() === qq.toLowerCase()) return true;
+    if (n.toLowerCase().indexOf(qq.toLowerCase()) >= 0) return true;
+    if (qq.toLowerCase().indexOf(n.toLowerCase()) >= 0) return true;
+    const mkN = normalizeMatchKey_(n);
+    const mkQ = normalizeMatchKey_(qq);
+    return !!(mkN && mkQ && mkN === mkQ);
+  }
+  function selectedHeal_(it) {
+    if (!it) return false;
+    if (wantId && deferredItemIdAliases_(it).indexOf(wantId) >= 0) return true;
+    if (sheetId && deferredItemIdAliases_(it).indexOf(sheetId) >= 0) return true;
+    if (named.some(function (q) { return nickMatchesHeal_(it, q); })) return true;
+    return false;
+  }
+
+  let list = (await getSnapRaw_(env, "listDeferred")) || { status: "success", items: [] };
+  const arr = Array.isArray(list.items) ? list.items.slice() : [];
+  const healed = [];
+  const skipped = [];
+  const next = [];
+  for (let i = 0; i < arr.length; i++) {
+    let it = arr[i];
+    if (!it) continue;
+    const mode = deferredItemModeOf_(it);
+    const st = String(it.status || "open").toLowerCase();
+    if (mode !== "transfer" || st !== "open" || !selectedHeal_(it)) {
+      next.push(it);
+      continue;
+    }
+    let p = Object.assign({}, it.payload || {});
+    if (sheetId) {
+      p.sheetId = sheetId;
+      p.gasId = sheetId;
+    }
+    it = Object.assign({}, it, { payload: p });
+    try {
+      const enriched = await enrichTransferPayloadFromOrders_(env, it);
+      if (enriched && enriched.item) it = enriched.item;
+    } catch (eEn) {}
+    const outP = it.payload || {};
+    healed.push({
+      id: it.id,
+      sheetId: String(outP.sheetId || outP.gasId || ""),
+      client: it.clientNick || outP.client || "",
+      matchKey: String(outP.matchKey || ""),
+      address: String(outP.address || "").slice(0, 80),
+      phone: String(outP.phone || ""),
+      hasBasket: basketHasSubstance_(outP.basket),
+      noCut: !!outP.noCut,
+      thin: transferPayloadIsThin_(outP)
+    });
+    next.push(it);
+  }
+  if (!healed.length) {
+    skipped.push("no_open_transfer_matched");
+  }
+  list.items = next;
+  list.status = "success";
+  list.openCount = next.filter(function (it) {
+    return String((it && it.status) || "open").toLowerCase() === "open";
+  }).length;
+  list.fromD1 = true;
+  list.sandbox = false;
+  list.healedAt = new Date().toISOString();
+  try {
+    await putSnap_(env, "listDeferred", list);
+  } catch (ePut) {
+    return {
+      status: "error",
+      message: "snap_put_failed",
+      details: String((ePut && ePut.message) || ePut),
+      action: "healStuckTransfers"
+    };
+  }
+  return {
+    status: "success",
+    action: "healStuckTransfers",
+    healed: healed,
+    skipped: skipped,
+    openCount: list.openCount,
+    placed: false,
+    cutover: true,
+    d1Verified: true,
+    deployMarker: "2026-09-15 heal-flamant-transfer-h1",
+    tip: "Payload дополнен из D1 orders, sheetId склеен. Клиента на день не ставили — выберите дату в Переносах."
   };
 }
 
@@ -9598,6 +9929,9 @@ async function handleCutover_(a, params, env, ctx) {
   if (/^undeleteWeekFromSheet$/i.test(a)) {
     return undeleteWeekFromSheet_(params, env);
   }
+  if (/^healStuckTransfers$/i.test(a)) {
+    return healStuckTransfers_(params, env);
+  }
 
   // Heal: после кривого finish D1 «перенёс» людей +7 — без повторного закрытия недели.
   // Только owner + confirm=1. Sheets не трогает.
@@ -10344,6 +10678,14 @@ async function handleCutover_(a, params, env, ctx) {
             } catch (eInv) {}
             const gasParams = Object.assign({}, params);
             if (d1WriteRes && d1WriteRes.id) gasParams.id = d1WriteRes.id;
+            if (/^notifyMissedDelivery$/i.test(a)) {
+              gasParams.skipWeekCounts = "1";
+              if (d1WriteRes && d1WriteRes.address) gasParams.address = d1WriteRes.address;
+              if (d1WriteRes && d1WriteRes.phone) gasParams.phone = d1WriteRes.phone;
+              if (d1WriteRes && d1WriteRes.note) gasParams.note = d1WriteRes.note;
+              if (d1WriteRes && d1WriteRes.matchKey) gasParams.matchKey = d1WriteRes.matchKey;
+              if (d1WriteRes && d1WriteRes.noCut) gasParams.noCut = "1";
+            }
             if (/^placeTransferTask$/i.test(a) && d1WriteRes && d1WriteRes.status === "success") {
               gasParams.client = d1WriteRes.client || gasParams.client;
               gasParams.newDay = d1WriteRes.newDay || gasParams.newDay;
@@ -10367,6 +10709,20 @@ async function handleCutover_(a, params, env, ctx) {
             } catch (eG) {
               proxied = null;
             }
+            try {
+              if (
+                /^notifyMissedDelivery$/i.test(a) &&
+                env &&
+                env.DB &&
+                d1WriteRes &&
+                d1WriteRes.id &&
+                proxied &&
+                proxied.status === "success" &&
+                proxied.id
+              ) {
+                await stampDeferredSheetId_(env, d1WriteRes.id, proxied.id);
+              }
+            } catch (eStamp) {}
             // place: GAS мог не найти xfer id (park ещё пишет лист) — дописать день через saveOrder
             if (
               /^placeTransferTask$/i.test(a) &&

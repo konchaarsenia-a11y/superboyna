@@ -23,7 +23,13 @@ var gs = fs.readFileSync(path.join(__dirname, "../Code.gs"), "utf8");
 assert(worker.indexOf("function parkMissedDeliveryD1_") >= 0, "parkMissedDeliveryD1_ exists");
 assert(worker.indexOf("function skipHeavyInvalidate_") >= 0, "skipHeavyInvalidate_ helper");
 assert(worker.indexOf("_skipInvalidate") >= 0, "hot path skip invalidate flag");
-assert(worker.indexOf("fix-courier-missed-timeout-h1") >= 0, "deploy marker");
+assert(worker.indexOf("heal-flamant-transfer-h1") >= 0, "deploy marker heal-flamant");
+assert(worker.indexOf("function stampDeferredSheetId_") >= 0, "stamp GAS df_* onto D1 sheetId");
+assert(worker.indexOf("function enrichTransferPayloadFromOrders_") >= 0, "enrich thin transfer from orders");
+assert(worker.indexOf("function healStuckTransfers_") >= 0, "owner healStuckTransfers");
+assert(worker.indexOf("payload.sheetId") >= 0 || worker.indexOf("p.sheetId") >= 0, "sheetId alias on payload");
+assert(worker.indexOf("не ходим в GAS getTransferTask") >= 0, "getTransferTask does not hang on GAS");
+assert(worker.indexOf("placed: false") >= 0, "heal does not auto-place");
 assert(worker.indexOf("await deleteClient_(params, env);") < 0 ||
   worker.indexOf("parkMissedDeliveryD1_") < worker.indexOf("if (/^notifyMissedDelivery$/i.test(action)) {"),
   "notifyMissed no longer full-delete on hot path without park helper");
@@ -57,6 +63,32 @@ assert(ui.indexOf("noCut: missedNoCut") >= 0 || ui.indexOf('noCut: missedNoCut ?
 assert(gs.indexOf('String(json.id || "").trim() || deferredNewId_()') >= 0, "GAS notify uses Worker id");
 assert(gs.indexOf("wantClient") >= 0, "GAS place fallback by client nick");
 assert(gs.indexOf("rowIdx > 0") >= 0, "GAS place does not write done without deferred row");
+assert(gs.indexOf("payload.d1Id") >= 0 || gs.indexOf("d1Id: /^xfer_/") >= 0, "GAS notify stores d1Id");
+assert(gs.indexOf("includeWeekCounts") >= 0, "GAS getTransferTask skips week counts by default");
+
+assert(ui.indexOf("client: clientName") >= 0, "UI place sends client nick");
+
+function deferredItemIdAliases_(it) {
+  var ids = [];
+  function push(v) {
+    var s = String(v || "").trim();
+    if (s && ids.indexOf(s) < 0) ids.push(s);
+  }
+  push(it && it.id);
+  var p = (it && it.payload) || {};
+  push(p.sheetId);
+  push(p.gasId);
+  push(p.d1Id);
+  return ids;
+}
+assert(
+  deferredItemIdAliases_({ id: "xfer_1", payload: { sheetId: "df_2" } }).indexOf("df_2") >= 0,
+  "find by sheetId alias"
+);
+assert(
+  deferredItemIdAliases_({ id: "xfer_1", payload: { sheetId: "df_2" } }).indexOf("xfer_1") >= 0,
+  "find by D1 id"
+);
 
 function parseExplicitCutRaw_(v) {
   if (v == null || v === "") return null;
