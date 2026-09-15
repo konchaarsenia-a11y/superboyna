@@ -2,8 +2,8 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-14 undelete-zombie-h1
- * (prior: sheets-to-d1-sync-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1 / reattach-week-slots-h1)
+ * deploy-marker: 2026-09-14 cut-flags-persist-h1
+ * (prior: undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1 / reattach-week-slots-h1)
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -387,7 +387,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-14 undelete-zombie-h1"
+      deployMarker: "2026-09-14 cut-flags-persist-h1"
     };
   }
 
@@ -4721,42 +4721,44 @@ async function ensureCuttingFlagsColumns_(env) {
 async function persistCuttingFlagsTable_(env, day, items) {
   if (!env || !env.DB || !day || !Array.isArray(items)) return;
   await ensureCuttingFlagsColumns_(env);
-  const info = await dayDateInfo_(env, day);
-  const iso = (info && info.iso) || "";
+  const iso = await cuttingFlagsDateIso_(env, day);
   if (!iso) return;
   const now = new Date().toISOString();
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
     if (!it) continue;
-    const key = cutNameKey_(it.name) || ("row:" + String(it.row || i));
-    if (!key) continue;
-    try {
-      await env.DB.prepare(
-        `INSERT INTO cutting_flags (date_iso, row_key, surplus, done, laid, out_next, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(date_iso, row_key) DO UPDATE SET
-           surplus=excluded.surplus, done=excluded.done, laid=excluded.laid,
-           out_next=excluded.out_next, updated_at=excluded.updated_at`
-      )
-        .bind(
-          iso,
-          key,
-          Number(it.surplus) || 0,
-          toBool_(it.done) ? 1 : 0,
-          toBool_(it.laid) ? 1 : 0,
-          toBool_(it.outNext) ? 1 : 0,
-          now
+    const keys = cuttingFlagLookupKeys_(it);
+    if (!keys.length) keys.push("row:" + String(it.row || i));
+    for (let k = 0; k < keys.length; k++) {
+      const key = keys[k];
+      if (!key) continue;
+      try {
+        await env.DB.prepare(
+          `INSERT INTO cutting_flags (date_iso, row_key, surplus, done, laid, out_next, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(date_iso, row_key) DO UPDATE SET
+             surplus=excluded.surplus, done=excluded.done, laid=excluded.laid,
+             out_next=excluded.out_next, updated_at=excluded.updated_at`
         )
-        .run();
-    } catch (eIns) {}
+          .bind(
+            iso,
+            key,
+            Number(it.surplus) || 0,
+            toBool_(it.done) ? 1 : 0,
+            toBool_(it.laid) ? 1 : 0,
+            toBool_(it.outNext) ? 1 : 0,
+            now
+          )
+          .run();
+      } catch (eIns) {}
+    }
   }
 }
 
 async function loadCuttingFlagsTable_(env, day) {
   if (!env || !env.DB || !day) return {};
   await ensureCuttingFlagsColumns_(env);
-  const info = await dayDateInfo_(env, day);
-  const iso = (info && info.iso) || "";
+  const iso = await cuttingFlagsDateIso_(env, day);
   if (!iso) return {};
   try {
     const rs = await env.DB.prepare(
@@ -4780,12 +4782,29 @@ async function loadCuttingFlagsTable_(env, day) {
   }
 }
 
+function cuttingFlagLookupKeys_(it) {
+  const keys = [];
+  const nk = cutNameKey_(it && it.name);
+  const fz = cutFuzzyKey_(it && it.name);
+  if (nk) keys.push(nk);
+  if (fz && keys.indexOf(fz) < 0) keys.push(fz);
+  return keys;
+}
+
+function lookupCuttingFlagRow_(flagMap, it) {
+  if (!flagMap || !it) return null;
+  const keys = cuttingFlagLookupKeys_(it);
+  for (let i = 0; i < keys.length; i++) {
+    if (flagMap[keys[i]]) return flagMap[keys[i]];
+  }
+  return null;
+}
+
 function overlayCuttingFlagsFromTable_(items, flagMap) {
   if (!flagMap || !Object.keys(flagMap).length) return items;
   return (items || []).map(function (it) {
     if (!it) return it;
-    const key = cutNameKey_(it.name);
-    const f = (key && flagMap[key]) || null;
+    const f = lookupCuttingFlagRow_(flagMap, it);
     if (!f) return it;
     return normalizeCuttingItemFlags_(
       Object.assign({}, it, {
@@ -4796,6 +4815,33 @@ function overlayCuttingFlagsFromTable_(items, flagMap) {
       })
     );
   });
+}
+
+async function cuttingFlagsDateIso_(env, day) {
+  const info = await dayDateInfo_(env, day);
+  let iso = (info && info.iso) || "";
+  if (iso) return iso;
+  try {
+    const snap = await getSnapRaw_(env, "cutting:" + day);
+    iso =
+      coerceDateIso_((snap && snap.dateIso) || "") ||
+      coerceDateIso_((snap && snap.date) || "") ||
+      dmyToIso_(snap && snap.date) ||
+      "";
+  } catch (eIso) {}
+  return iso;
+}
+
+async function applyDurableCuttingFlags_(env, day, items, prevItems) {
+  let out = Array.isArray(items) ? items.slice() : [];
+  if (prevItems && prevItems.length) {
+    out = overlayCuttingKeepFlags_(out, prevItems, true, true);
+  }
+  try {
+    const tbl = await loadCuttingFlagsTable_(env, day);
+    out = overlayCuttingFlagsFromTable_(out, tbl);
+  } catch (eTbl) {}
+  return normalizeCuttingItems_(out);
 }
 
 async function applyCuttingFlagToSnap_(params, env, proxied) {
@@ -4818,6 +4864,13 @@ async function applyCuttingFlagToSnap_(params, env, proxied) {
   snap.fromCalendar = false;
   snap.flagsTouchedAt = Date.now();
   snap.cachedAt = new Date().toISOString();
+  try {
+    if (!snap.date || !snap.dateIso) {
+      const info = await dayDateInfo_(env, day);
+      if (!snap.date && info && info.date) snap.date = info.date;
+      if (!snap.dateIso && info && info.iso) snap.dateIso = info.iso;
+    }
+  } catch (eDt) {}
   await putSnap_(env, "cutting:" + day, snap);
   try {
     await rememberCuttingRows_(env, snap.items);
@@ -5057,6 +5110,9 @@ async function applyCalendarWeekIfSkewed_(a, params, env, sheetCounts) {
     } catch (eCut) {
       items = [];
     }
+    try {
+      items = await applyDurableCuttingFlags_(env, day, items, null);
+    } catch (eTblCal) {}
     return {
       status: "success",
       day: day,
@@ -5800,21 +5856,31 @@ async function getCutting_(params, env) {
   let hit = await getSnapRaw_(env, "cutting:" + day);
   if (hit) {
     const snapDate = String((hit && hit.date) || "");
-    const dateOk = !wantDate || !snapDate || snapDate === wantDate;
-    const staleDone = !!(hit && hit.completion && wantDate && snapDate !== wantDate);
+    const dateOk = !wantDate || !snapDate || sameCutDate_(snapDate, wantDate);
+    const staleDone = !!(hit && hit.completion && wantDate && snapDate && !sameCutDate_(snapDate, wantDate));
     if (!dateOk || staleDone) hit = null;
+  }
+  async function finishHit_(snap) {
+    if (snap && Array.isArray(snap.items)) {
+      try {
+        const tbl = await loadCuttingFlagsTable_(env, day);
+        snap.items = overlayCuttingFlagsFromTable_(snap.items, tbl);
+        snap.items = normalizeCuttingItems_(snap.items);
+      } catch (eOv) {
+        snap.items = normalizeCuttingItems_(snap.items);
+      }
+    }
+    return snap;
   }
   // свежие галочки — не пересобирать из D1 на каждый poll
   const touched = Number((hit && hit.flagsTouchedAt) || 0);
   if (touched && Date.now() - touched < 600000) {
-    if (hit && Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
-    return hit;
+    return finishHit_(hit);
   }
   // struct d1-primary: план из orders; GAS-snap не приоритетнее
   if (isCuttingStructD1PrimaryCanon_(env)) {
     if (hit && hit.fromOrders && !hit.fromCalendar) {
-      if (Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
-      return hit;
+      return finishHit_(hit);
     }
     try {
       const rebuilt = await rebuildCuttingDay_(env, day);
@@ -5822,29 +5888,23 @@ async function getCutting_(params, env) {
         return rebuilt;
       }
     } catch (eRebS) {}
-    if (hit && Array.isArray(hit.items)) {
-      hit.items = normalizeCuttingItems_(hit.items);
-      return hit;
-    }
+    if (hit) return finishHit_(hit);
     return hit;
   }
   if (hit && hit.fromGas && !hit.fromCalendar) {
-    if (Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
-    return hit;
+    return finishHit_(hit);
   }
   if (hit && hit.fromOrders && !hit.fromCalendar) {
-    if (Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
-    return hit;
+    return finishHit_(hit);
   }
   if (hit && !hit.fromD1 && !hit.fromCalendar) {
-    if (Array.isArray(hit.items)) hit.items = normalizeCuttingItems_(hit.items);
-    return hit;
+    return finishHit_(hit);
   }
   try {
     const rebuilt = await rebuildCuttingDay_(env, day);
     if (rebuilt && rebuilt.status === "success") return rebuilt;
   } catch (eReb) {}
-  return hit;
+  return finishHit_(hit);
 }
 
 /** Hard-delete soft-deleted D1 zombies so a live upsert can insert/resurrect the same id. */
@@ -11618,7 +11678,9 @@ async function handleCutover_(a, params, env, ctx) {
     } catch (eMis) {}
   }
 
-  // Нарезка/курьер/сборка: snap с датой другой недели → сразу GAS (не «день завершён» со старой)
+  // Нарезка/курьер/сборка: snap с датой другой недели.
+  // Строка «15.09.2026» vs «2026-09-15» — та же дата (sameCutDate_), snap не сносить.
+  // Другая неделя: нарезку пересобрать из D1, НЕ отдавать сырой GAS (стирает D1-галочки).
   if (
     fast &&
     (a === "getCutting" || a === "getCourier" || a === "getAssembly") &&
@@ -11627,13 +11689,32 @@ async function handleCutover_(a, params, env, ctx) {
   ) {
     try {
       const info = await dayDateInfo_(env, params.day);
-      const snapDate = String((fast && fast.date) || "");
-      const wantDate = String((info && info.date) || "");
-      const dateMismatch = !!(wantDate && snapDate && snapDate !== wantDate);
+      const snapDate = String((fast && fast.date) || (fast && fast.dateIso) || "");
+      const wantDate = String((info && info.date) || (info && info.iso) || "");
+      const dateMismatch = !!(wantDate && snapDate && !sameCutDate_(snapDate, wantDate));
       const staleDone =
-        a === "getCutting" && fast.completion && wantDate && (!snapDate || snapDate !== wantDate);
+        a === "getCutting" && fast.completion && wantDate && (!snapDate || !sameCutDate_(snapDate, wantDate));
       if (dateMismatch || staleDone) {
-        await delSnap_(env, (a === "getCutting" ? "cutting:" : a === "getCourier" ? "courier:" : "assembly:") + params.day);
+        if (a === "getCutting") {
+          try {
+            const rebuilt = await rebuildCuttingDay_(env, params.day);
+            if (rebuilt && rebuilt.status === "success") {
+              rebuilt.cutover = true;
+              rebuilt.swr = true;
+              rebuilt.sandbox = false;
+              rebuilt.fromGas = false;
+              return rebuilt;
+            }
+          } catch (eRebCut) {}
+          if (staleDone) fast.completion = null;
+          if (wantDate) fast.date = info.date || fast.date;
+          if (info && info.iso) fast.dateIso = info.iso;
+          fast.fromGas = false;
+          fast.cutover = true;
+          fast.swr = true;
+          return fast;
+        }
+        await delSnap_(env, (a === "getCourier" ? "courier:" : "assembly:") + params.day);
         const live = await gasProxy_(a, params, env, { write: false });
         if (live && live.status === "success") {
           try {
@@ -11653,9 +11734,12 @@ async function handleCutover_(a, params, env, ctx) {
   // Нарезка/курьер/сборка: пустой snap
   // — если по счётчикам дня 0 клиентов → не ждём GAS (пусто нормально)
   // — если люди есть → сразу GAS
+  // Нарезка с позициями: отсутствие date НЕ считается пустым (иначе SWR отдаёт сырой GAS и гасит D1-флаги)
+  const cuttingHasItems = a === "getCutting" && Array.isArray(fast && fast.items) && fast.items.length;
   if (
     fast &&
     (a === "getCutting" || a === "getCourier" || a === "getAssembly") &&
+    !cuttingHasItems &&
     ((Array.isArray(fast.items) && !fast.items.length) ||
       (Array.isArray(fast.clients) && !fast.clients.length) ||
       !fast.date)
@@ -11683,6 +11767,18 @@ async function handleCutover_(a, params, env, ctx) {
     try {
       const live = await gasProxy_(a, params, env, { write: false });
       if (live && live.status === "success") {
+        if (a === "getCutting") {
+          try {
+            live.items = await applyDurableCuttingFlags_(
+              env,
+              params.day,
+              live.items || [],
+              fast && Array.isArray(fast.items) ? fast.items : null
+            );
+            live.fromGas = false;
+            live.fromD1 = true;
+          } catch (eOvLive) {}
+        }
         if (ctx && typeof ctx.waitUntil === "function") {
           ctx.waitUntil(cutoverStoreRead_(a, params, env, live));
         } else {
@@ -11691,7 +11787,7 @@ async function handleCutover_(a, params, env, ctx) {
           } catch (eStore) {}
         }
         live.cutover = true;
-        live.fromGas = true;
+        if (a !== "getCutting") live.fromGas = true;
         live.swr = true;
         return live;
       }
