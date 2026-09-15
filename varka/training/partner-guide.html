@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=1080"/>
+<title>Varka · обучение партнёров</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1920px;overflow:hidden;font-family:Outfit,system-ui,sans-serif;color:#f4ebe0;
+background:radial-gradient(70% 42% at 50% -5%,rgba(245,160,46,.24),transparent 58%),radial-gradient(45% 30% at 85% 100%,rgba(42,171,238,.14),transparent 55%),#090a0f}
+.stage{width:1080px;height:1920px;display:flex;flex-direction:column;align-items:center;padding:72px 40px 60px;position:relative}
+.brand{text-align:center;margin-bottom:36px}
+.brand-row{display:inline-flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.05em;font-size:30px}
+.brand-row i{width:40px;height:40px;border-radius:13px;font-style:normal;background:linear-gradient(145deg,#ffb04a,#f5a02e);color:#1a0f00;display:grid;place-items:center;font-size:16px;font-weight:800}
+.brand p{margin-top:10px;color:rgba(255,255,255,.58);font-size:22px;font-weight:600}
+.phone{position:relative;width:560px;height:1140px;border-radius:56px;background:#050507;border:3px solid #2c303c;box-shadow:inset 0 0 0 10px #050507,0 40px 90px rgba(0,0,0,.55);overflow:hidden}
+.notch{position:absolute;top:14px;left:50%;transform:translateX(-50%);width:176px;height:34px;background:#050507;border-radius:20px;z-index:8}
+.screen{position:absolute;inset:12px;border-radius:46px;overflow:hidden;background:#0e1016}
+.status{height:52px;padding:16px 28px 0;display:flex;justify-content:space-between;align-items:center;font-size:15px;font-weight:700;color:#fff;position:relative;z-index:6}
+.scene{position:absolute;inset:0;opacity:0;pointer-events:none;transform:translateY(14px);transition:opacity .32s ease,transform .42s ease}
+.scene.on{opacity:1;pointer-events:auto;transform:none}
+.tg-head{margin-top:4px;padding:10px 16px 12px;background:#17212b;display:flex;gap:12px;align-items:center;border-bottom:1px solid rgba(255,255,255,.06)}
+.avatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(145deg,#ffb04a,#f5a02e);color:#1a0f00;display:grid;place-items:center;font-weight:800}
+.tg-head b{display:block;font-size:17px}
+.tg-head span{font-size:13px;color:#8b9aab}
+.chat{padding:18px 14px;height:calc(100% - 118px);background:#0e1621}
+.bubble{max-width:88%;margin:0 0 14px;padding:13px 15px;border-radius:16px 16px 16px 6px;background:#182533;font-size:16px;line-height:1.35;box-shadow:0 6px 16px rgba(0,0,0,.22);opacity:0;transform:translateY(12px);transition:.35s ease}
+.bubble.show{opacity:1;transform:none}
+.btn-tg{margin-top:12px;display:block;text-align:center;background:#2AABEE;color:#fff;font-weight:700;border-radius:12px;padding:12px 14px;font-size:16px;box-shadow:0 8px 20px rgba(42,171,238,.35)}
+.btn-tg.pulse{animation:pulse 1.05s ease-in-out infinite}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
+.app-head{padding:56px 18px 12px;background:#12141c;border-bottom:1px solid rgba(245,160,46,.18)}
+.app-head h1{font-size:26px;font-weight:800}
+.pill{display:inline-block;margin-top:8px;font-size:12px;font-weight:700;color:#f5a02e;border:1px solid rgba(245,160,46,.4);border-radius:999px;padding:4px 10px;text-transform:uppercase;letter-spacing:.04em}
+.app-body{padding:14px 16px 100px}
+.hint{color:rgba(255,255,255,.58);font-size:15px;margin:0 0 12px;font-weight:600}
+.loc{background:#171923;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;transition:.25s ease}
+.loc b{display:block;font-size:17px}
+.loc span{font-size:13px;color:rgba(255,255,255,.58)}
+.loc.pick{border-color:#f5a02e;box-shadow:0 0 0 2px rgba(245,160,46,.25);transform:scale(1.015)}
+.chev{color:rgba(255,255,255,.58);font-size:22px}
+.item{background:#171923;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px;margin-bottom:10px;display:flex;gap:12px;align-items:flex-start}
+.ic{width:48px;height:48px;border-radius:14px;flex:0 0 auto;background:rgba(245,160,46,.12);display:grid;place-items:center;font-size:22px}
+.meta{flex:1;min-width:0}
+.meta b{display:block;font-size:16px}
+.meta>span{font-size:13px;color:rgba(255,255,255,.58)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.chip{border:1px solid rgba(255,255,255,.12);background:#10121a;color:rgba(255,255,255,.58);border-radius:999px;padding:6px 10px;font-size:13px;font-weight:700}
+.chip.on{color:#1a0f00;background:linear-gradient(145deg,#ffb04a,#f5a02e);border-color:transparent}
+.bar{position:absolute;left:12px;right:12px;bottom:18px;background:#1a1d28;border:1px solid rgba(245,160,46,.25);border-radius:18px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;transform:translateY(130%);transition:.4s cubic-bezier(.2,.8,.2,1)}
+.bar.show{transform:none}
+.sum{font-size:15px;color:rgba(255,255,255,.58)}
+.sum b{color:#f4ebe0}
+.send{background:linear-gradient(145deg,#ffb04a,#f5a02e);color:#1a0f00;border:0;border-radius:12px;padding:12px 16px;font-weight:800;font-size:15px;transition:transform .15s ease}
+.okbox{margin:36px 10px 0;text-align:center;padding:34px 18px;background:rgba(61,214,140,.1);border:1px solid rgba(61,214,140,.35);border-radius:22px}
+.okbox .big{font-size:56px;margin-bottom:10px}
+.okbox h2{font-size:24px;margin-bottom:8px;color:#3dd68c}
+.okbox p{color:rgba(255,255,255,.58);font-size:16px;line-height:1.4}
+.finger{position:absolute;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.28);border:2px solid rgba(255,255,255,.75);box-shadow:0 0 0 10px rgba(255,255,255,.08);opacity:0;transform:scale(.55);transition:.22s ease;z-index:30;pointer-events:none;margin-left:-22px;margin-top:-22px}
+.finger.show{opacity:1;transform:scale(1)}
+.caption{margin-top:52px;min-height:150px;text-align:center;width:900px}
+.caption h2{font-size:44px;font-weight:800;letter-spacing:-.02em;line-height:1.12;margin-bottom:12px;opacity:0;transform:translateY(10px);transition:.32s ease}
+.caption h2.on{opacity:1;transform:none}
+.caption p{font-size:26px;color:rgba(255,255,255,.58);font-weight:600;line-height:1.35;opacity:0;transform:translateY(8px);transition:.32s ease .04s}
+.caption p.on{opacity:1;transform:none}
+.dots{display:flex;gap:8px;justify-content:center;margin-top:24px}
+.dots i{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.18);transition:.25s ease}
+.dots i.on{background:#f5a02e;width:28px;border-radius:8px}
+.rec{position:absolute;top:28px;right:32px;font-size:14px;color:rgba(255,255,255,.28);font-weight:600}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="brand">
+    <div class="brand-row"><i>V</i> VARKA × БОЙНЯ</div>
+    <p>Обучение для партнёров · ~35 сек</p>
+  </div>
+
+  <div class="phone" id="phone">
+    <div class="notch"></div>
+    <div class="screen">
+      <div class="status"><span>9:41</span><span>LTE ▮▮▮</span></div>
+
+      <div class="scene on" id="scChat">
+        <div class="tg-head">
+          <div class="avatar">V</div>
+          <div><b>Varka Partner</b><span>бот · онлайн</span></div>
+        </div>
+        <div class="chat">
+          <div class="bubble" id="b1">Привет! Здесь заявки на бесплатное пополнение точки.</div>
+          <div class="bubble" id="b2">
+            Откройте мини-приложение — выберите точку и соберите заказ.
+            <div class="btn-tg" id="openBtn">Открыть Varka</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scene" id="scPoints">
+        <div class="app-head">
+          <h1>Varka</h1>
+          <div class="pill">Бесплатно для партнёров</div>
+        </div>
+        <div class="app-body">
+          <div class="hint">Выберите точку</div>
+          <div class="loc" id="loc1"><div><b>Репина 4</b><span>Минск</span></div><div class="chev">›</div></div>
+          <div class="loc" id="loc2"><div><b>Маяковского 14</b><span>Минск</span></div><div class="chev">›</div></div>
+          <div class="loc" id="loc3"><div><b>Шевченко 1</b><span>Минск</span></div><div class="chev">›</div></div>
+        </div>
+      </div>
+
+      <div class="scene" id="scOrder">
+        <div class="app-head" style="padding-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+            <div>
+              <h1 style="font-size:22px">Заказ</h1>
+              <div style="color:rgba(255,255,255,.58);font-size:14px;margin-top:2px">Маяковского 14</div>
+            </div>
+            <div class="pill">бесплатно</div>
+          </div>
+        </div>
+        <div class="app-body" style="padding-top:10px">
+          <div class="item">
+            <div class="ic">❤️</div>
+            <div class="meta">
+              <b>Сердце</b><span>лакомство · граммы</span>
+              <div class="chips">
+                <span class="chip">50</span><span class="chip">100</span><span class="chip">150</span>
+                <span class="chip" id="chip200">200</span><span class="chip">250</span>
+              </div>
+            </div>
+          </div>
+          <div class="item">
+            <div class="ic">🫁</div>
+            <div class="meta">
+              <b>Лёгкое</b><span>лакомство · граммы</span>
+              <div class="chips">
+                <span class="chip">50</span><span class="chip" id="chip100l">100</span>
+                <span class="chip">150</span><span class="chip">200</span><span class="chip">250</span>
+              </div>
+            </div>
+          </div>
+          <div class="item">
+            <div class="ic">📱</div>
+            <div class="meta">
+              <b>NFC</b><span>1 на точку · к телефону клиента</span>
+              <div class="chips"><span class="chip" id="chipNfc">Взять 1</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="bar" id="cartBar">
+          <div class="sum">В заявке: <b id="cartN">0</b> поз.</div>
+          <button class="send" id="sendBtn" type="button">Отправить</button>
+        </div>
+      </div>
+
+      <div class="scene" id="scOk">
+        <div class="app-head"><h1 style="font-size:22px">Заказ</h1></div>
+        <div class="okbox">
+          <div class="big">✅</div>
+          <h2>Заявка отправлена</h2>
+          <p>Бойня назначит дату.<br>Пуш придёт в этот чат.</p>
+        </div>
+      </div>
+
+      <div class="finger" id="finger"></div>
+    </div>
+  </div>
+
+  <div class="caption">
+    <h2 id="capTitle" class="on">Откройте чат с ботом</h2>
+    <p id="capText" class="on">Varka Partner — здесь все заявки точки</p>
+    <div class="dots" id="dots"><i class="on"></i><i></i><i></i><i></i><i></i></div>
+  </div>
+  <div class="rec">partner-guide · 1080×1920</div>
+</div>
+<script>
+(function(){
+  var finger=document.getElementById("finger");
+  var screen=document.querySelector(".screen");
+  function $(id){return document.getElementById(id)}
+  function setCaption(title,text,step){
+    var t=$("capTitle"),p=$("capText");
+    t.classList.remove("on");p.classList.remove("on");
+    setTimeout(function(){t.textContent=title;p.textContent=text;t.classList.add("on");p.classList.add("on")},60);
+    Array.prototype.forEach.call($("dots").children,function(d,i){d.classList.toggle("on",i===step)});
+  }
+  function showScene(id){["scChat","scPoints","scOrder","scOk"].forEach(function(s){$(s).classList.toggle("on",s===id)})}
+  function wait(ms){return new Promise(function(r){setTimeout(r,ms)})}
+  function tapEl(el,ms){
+    var sr=screen.getBoundingClientRect(),r=el.getBoundingClientRect();
+    finger.style.left=(r.left-sr.left+r.width/2)+"px";
+    finger.style.top=(r.top-sr.top+r.height/2)+"px";
+    finger.classList.add("show");
+    return wait(ms||480).then(function(){finger.classList.remove("show")});
+  }
+  function setCart(n){$("cartN").textContent=String(n);$("cartBar").classList.toggle("show",n>0)}
+  async function run(){
+    document.documentElement.setAttribute("data-ready","1");
+    setCaption("Откройте чат с ботом","Varka Partner — здесь все заявки точки",0);
+    await wait(500);
+    $("b1").classList.add("show"); await wait(1300);
+    $("b2").classList.add("show"); await wait(800);
+    $("openBtn").classList.add("pulse");
+    setCaption("Нажмите «Открыть Varka»","Мини-приложение прямо в Telegram",1);
+    await wait(1100);
+    await tapEl($("openBtn"),520);
+    $("openBtn").classList.remove("pulse"); await wait(220);
+    showScene("scPoints");
+    setCaption("Выберите свою точку","В списке только ваши адреса",2);
+    await wait(1000);
+    await tapEl($("loc2"),480);
+    $("loc2").classList.add("pick"); await wait(650);
+    showScene("scOrder");
+    setCaption("Соберите заявку","Пресеты граммов · NFC при необходимости",3);
+    await wait(850);
+    await tapEl($("chip200"),420); $("chip200").classList.add("on"); setCart(1); await wait(620);
+    await tapEl($("chip100l"),420); $("chip100l").classList.add("on"); setCart(2); await wait(620);
+    await tapEl($("chipNfc"),420); $("chipNfc").classList.add("on"); setCart(3); await wait(750);
+    setCaption("Отправьте заявку","Бесплатно · дату назначит Бойня",4);
+    await wait(550);
+    await tapEl($("sendBtn"),480);
+    $("sendBtn").style.transform="scale(.96)"; await wait(180); $("sendBtn").style.transform=""; await wait(280);
+    showScene("scOk");
+    setCaption("Готово","Пуш о дате придёт в этот же чат",4);
+    await wait(2600);
+    document.documentElement.setAttribute("data-done","1");
+    await wait(1000);
+  }
+  // ждём старт записи (?autostart=1) или ручной клик; иначе 2.5с пауза
+  window.addEventListener("load", function () {
+    var q = new URLSearchParams(location.search);
+    var delay = q.get("autostart") === "1" ? 2500 : 800;
+    document.documentElement.setAttribute("data-waiting", "1");
+    setTimeout(function () {
+      document.documentElement.removeAttribute("data-waiting");
+      run();
+    }, delay);
+  });
+})();
+</script>
+</body>
+</html>
