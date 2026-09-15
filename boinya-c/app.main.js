@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115966";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115967";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -2811,6 +2811,9 @@
       }
 
       entrance = take(/(?:^|[·|;,\s])(?:подъезд|под\.)\s*([0-9]+[а-яa-z]?)\b/i);
+      if (!entrance) {
+        entrance = take(/(?:^|[·|;,\s])п\.?\s*под\.?\s*([0-9]+[а-яa-z]?)\b/i);
+      }
       if (!entrance) {
 
         entrance = take(/(?:^|[·|;,\s])п\.\s*([0-9]+[а-яa-z]?)\b/i);
@@ -10568,6 +10571,7 @@
             <div class="courier-addr-main">${addrPublic ? ("Адрес: <b>" + escapeHtml(addrPublic) + "</b>") : "Адрес не указан"}
               <span class="muted" style="font-size:11px;"> · тап → этаж/кв</span>
             </div>
+            ${addrPublic ? ('<button type="button" class="btn-action btn-blue" style="margin-top:6px;width:100%;height:36px;font-size:13px;" onclick="event.stopPropagation();openCourierClientMap_(' + idx + ')">Карта</button>') : ""}
             ${telBlock}
             <div class="courier-extra" id="courierExtra_${idx}">
               <div>${addrPrivate}</div>
@@ -11392,6 +11396,9 @@
     }
 
     function geocodeQuery(addr) {
+      if (window.CourierMaps && typeof window.CourierMaps.geocodeQueryForMaps === "function") {
+        return window.CourierMaps.geocodeQueryForMaps(addr);
+      }
       const a = String(addr || "").trim();
       if (!a) return "";
       if (looksLikeOtherCity(a) || /минск/i.test(a)) {
@@ -11832,6 +11839,7 @@
       if (!raw0) return "";
       return raw0
         .replace(/(?:^|[·|;,\s])(?:подъезд|под\.|п\.)\s*[0-9]+[а-яa-z]?/gi, " ")
+        .replace(/(?:^|[·|;,\s])п\.?\s*под\.?\s*[0-9]+[а-яa-z]?/gi, " ")
         .replace(/(?:^|[·|;,\s])(?:этаж|эт\.?)\s*[0-9]+[а-яa-z]?/gi, " ")
         .replace(/(?:^|[·|;,\s])(?:квартира|кв\.?)\s*[0-9]+[а-яa-z\-\/]*/gi, " ")
         .replace(/(?:^|[·|;,\s])[0-9]+[а-яa-z\-\/]*\s*кв\.?\b/gi, " ")
@@ -12007,6 +12015,10 @@
     }
 
     function parseSearchStreetHouse_(text) {
+      if (window.CourierMaps && typeof window.CourierMaps.parseStreetHouse === "function") {
+        var cm = window.CourierMaps.parseStreetHouse(text);
+        return { street: cm.street || "", house: cm.house || "", raw: cm.query || String(text || "").trim() };
+      }
       var raw0 = String(text || "").trim().replace(/\s+/g, " ");
       if (!raw0) return { street: "", house: "", raw: "" };
       var s = stripAddressDetailsForSearch_(raw0) || raw0;
@@ -12634,6 +12646,9 @@
     }
 
     function normalizeAddressForMaps(addr) {
+      if (window.CourierMaps && typeof window.CourierMaps.normalizeAddressForMaps === "function") {
+        return window.CourierMaps.normalizeAddressForMaps(addr);
+      }
       const a = String(addr || "").trim();
       if (!a) return "";
       if (/минск/i.test(a) || looksLikeOtherCity(a)) return a;
@@ -13019,19 +13034,74 @@
       return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     }
 
+    function mapsSavedGeoOk_(geo, addr) {
+      if (window.CourierMaps && typeof window.CourierMaps.savedGeoUsable === "function") {
+        return window.CourierMaps.savedGeoUsable(geo, addr);
+      }
+      return !!(geo && geo.lat != null && geo.lon != null && inBelarusBbox_(geo.lat, geo.lon));
+    }
+
+    function pickNominatimGeocodeHit_(data, addr) {
+      var wantH = "";
+      try {
+        var parsed = (window.CourierMaps && window.CourierMaps.parseStreetHouse)
+          ? window.CourierMaps.parseStreetHouse(addr)
+          : parseSearchStreetHouse_(addr);
+        wantH = normalizeHouseKey_((parsed && parsed.house) || "");
+      } catch (eH) {}
+      var other = !!(looksLikeOtherCity(addr) || detectSearchLocality_(addr));
+      var best = null;
+      var bestScore = -1;
+      (data || []).forEach(function (row) {
+        if (!row) return;
+        var lat = Number(row.lat);
+        var lon = Number(row.lon);
+        if (!isFinite(lat) || !isFinite(lon)) return;
+        if (!inBelarusBbox_(lat, lon)) return;
+        var ad = row.address || {};
+        var house = String(ad.house_number || row.house || "");
+        var typ = String(row.addresstype || row.type || row.class || row.category || "");
+        var score = 0;
+        if (inGreaterMinskRegion_(lat, lon) || other) score += 20;
+        else score -= 25;
+        if (wantH && house && normalizeHouseKey_(house) === wantH) score += 50;
+        else if (wantH && !house) score -= 18;
+        if (/house|building|residential|yes/.test(typ)) score += 12;
+        if (/street|road|city|town|suburb/.test(typ) && wantH) score -= 10;
+        if (score > bestScore) {
+          bestScore = score;
+          best = { lat: lat, lon: lon, house: house || wantH };
+        }
+      });
+      return best;
+    }
+
+    function rememberGeocodeHit_(key, hit) {
+      if (!hit || hit.lat == null) return hit;
+      routePlanState.geoCache[key] = hit;
+      try { localStorage.setItem("geo:" + key, JSON.stringify(hit)); } catch (e2) {}
+      return hit;
+    }
+
     async function geocodeAddress(addr, rawQuery) {
       const query = rawQuery ? geocodeQuery(addr) : geocodeQuery(normalizeAddressForMaps(addr));
       const key = String(query || "").trim().toLowerCase();
       if (!key) return null;
-      if (routePlanState.geoCache[key]) return routePlanState.geoCache[key];
+      if (routePlanState.geoCache[key] && mapsSavedGeoOk_(routePlanState.geoCache[key], addr)) {
+        return routePlanState.geoCache[key];
+      }
       try {
         const cached = localStorage.getItem("geo:" + key);
         if (cached) {
           const parsed = JSON.parse(cached);
-          if (parsed && parsed.lat != null) {
-            // кэш без дома при запросе с домом — не доверяем (улица без номера)
+          if (parsed && parsed.lat != null && mapsSavedGeoOk_(parsed, addr)) {
             var wantH = "";
-            try { wantH = normalizeHouseKey_((parseSearchStreetHouse_(addr) || {}).house); } catch (eH) {}
+            try {
+              var pH = (window.CourierMaps && window.CourierMaps.parseStreetHouse)
+                ? window.CourierMaps.parseStreetHouse(addr)
+                : parseSearchStreetHouse_(addr);
+              wantH = normalizeHouseKey_((pH && pH.house) || "");
+            } catch (eH) {}
             if (wantH && (!parsed.house || normalizeHouseKey_(parsed.house) !== wantH)) {
               // кэш без дома / другой дом — перегеокод
             } else {
@@ -13042,53 +13112,54 @@
         }
       } catch (e) {}
 
-      // сначала structured Nominatim с домом — иначе часто точка на улице без номера
+      var parsedAddr = (window.CourierMaps && window.CourierMaps.parseStreetHouse)
+        ? window.CourierMaps.parseStreetHouse(addr)
+        : parseSearchStreetHouse_(addr);
+      var cityForStruct = "Минск";
+      var locWant = detectSearchLocality_(addr);
+      if (locWant) cityForStruct = locWant;
+      else if (looksLikeOtherCity(addr)) cityForStruct = String(addr);
+
       try {
-        var parsedAddr = parseSearchStreetHouse_(addr);
         if (parsedAddr && parsedAddr.house && parsedAddr.street) {
-          var structured = await nominatimStructuredClient_(parsedAddr.street, parsedAddr.house, "Минск");
-          if (structured && structured[0] && structured[0].lat != null) {
-            var hit = {
-              lat: Number(structured[0].lat),
-              lon: Number(structured[0].lon),
-              house: structured[0].house || parsedAddr.house
-            };
-            routePlanState.geoCache[key] = hit;
-            try { localStorage.setItem("geo:" + key, JSON.stringify(hit)); } catch (e2) {}
-            return hit;
+          var structured = await nominatimStructuredClient_(parsedAddr.street, parsedAddr.house, cityForStruct);
+          var structHit = pickNominatimGeocodeHit_(structured, addr);
+          if (structHit) {
+            await new Promise(function (r) { setTimeout(r, 1100); });
+            return rememberGeocodeHit_(key, structHit);
           }
+          await new Promise(function (r) { setTimeout(r, 1100); });
         }
       } catch (eSt) {}
 
       const variants = [query];
-      const plain = String(addr || "").trim();
+      const plain = String((parsedAddr && parsedAddr.query) || addr || "").trim();
       if (plain && plain.toLowerCase() !== query.toLowerCase()) variants.push(geocodeQuery(plain));
 
-      const stripped = plain.replace(/,?\s*(кв\.?|квартира)\s*\d+[а-яa-z]?/ig, "").replace(/корп\.?\s*\d+/ig, "").trim();
+      const stripped = (window.CourierMaps && window.CourierMaps.stripDetailsForGeocode)
+        ? window.CourierMaps.stripDetailsForGeocode(addr)
+        : String(addr || "").replace(/,?\s*(кв\.?|квартира)\s*\d+[а-яa-z]?/ig, "").replace(/корп\.?\s*\d+/ig, "").trim();
       if (stripped && stripped !== plain) variants.push(geocodeQuery(stripped));
 
       for (let v = 0; v < variants.length; v++) {
         const q = encodeURIComponent(variants[v]);
-        const url = "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=by&q=" + q;
+        var url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=by&accept-language=ru&q=" + q;
+        if (!locWant && !looksLikeOtherCity(addr)) {
+          url += "&viewbox=" + encodeURIComponent(greaterMinskNominatimViewbox_()) + "&bounded=0";
+        }
         try {
-          const res = await fetch(url, { headers: { "Accept": "application/json" } });
+          const res = await fetch(url, { headers: { Accept: "application/json" } });
           if (!res.ok) continue;
           const data = await res.json();
           await new Promise(function (r) { setTimeout(r, 1100); });
-          if (!data || !data[0]) continue;
-          const ad = data[0].address || {};
-          const point = {
-            lat: Number(data[0].lat),
-            lon: Number(data[0].lon),
-            house: ad.house_number || ""
-          };
-          routePlanState.geoCache[key] = point;
-          try { localStorage.setItem("geo:" + key, JSON.stringify(point)); } catch (e2) {}
-          return point;
+          var hit = pickNominatimGeocodeHit_(data, addr);
+          if (!hit) continue;
+          return rememberGeocodeHit_(key, hit);
         } catch (e3) {}
       }
       return null;
     }
+    /** marker courier-maps-by-h1 */
 
     async function nearestPostOffice(kind, depot) {
       const list = POST_OFFICES[kind] || POST_OFFICES.euro;
@@ -13277,8 +13348,6 @@
         box.innerHTML = '<div class="card"><p class="muted">Точка ' + (i + 1) + "/" + withAddr.length + "…</p></div>";
         let method = parseDeliveryMethod(c.note || "");
         const clientAddr = String(c.address || "").trim();
-        const outside = await isOutsideMinskDelivery(clientAddr);
-        if (!method && outside) method = "euro"; // старые заказы без метки — по умолчанию Европочта
 
         if (method === "euro" || method === "bel") {
           const officeAddr = parseOfficeAddress(c.note || "");
@@ -13311,9 +13380,12 @@
         } else {
           const addr = normalizeAddressForMaps(clientAddr);
           const savedGeo = c.geo || parseGeoFromNote(c.note || "");
-          let lat = savedGeo ? savedGeo.lat : null;
-          let lon = savedGeo ? savedGeo.lon : null;
-          if (lat == null) {
+          let lat = null;
+          let lon = null;
+          if (mapsSavedGeoOk_(savedGeo, clientAddr)) {
+            lat = Number(savedGeo.lat);
+            lon = Number(savedGeo.lon);
+          } else {
             const geo = await geocodeAddress(addr, true);
             if (geo) { lat = geo.lat; lon = geo.lon; }
           }
@@ -13399,7 +13471,7 @@
             });
             return;
           }
-          const addr = String(p.address || p.name || "").trim();
+          const addr = String(p.address || "").trim();
           if (addr) out.push({ address: addr, label: p.label || addr });
           return;
         }
@@ -13413,16 +13485,15 @@
     }
 
     function pointToYandexRtext(p) {
+      if (window.CourierMaps && typeof window.CourierMaps.pointToYandexRtext === "function") {
+        return window.CourierMaps.pointToYandexRtext(p);
+      }
       if (p == null) return "";
       if (typeof p === "object") {
-        var addr = String(p.address || p.name || "").trim();
-        // если в адресе есть дом — лучше текст (координаты улицы без дома часто «кидают» на проезжую)
-        var hasHouse = !!(addr && /\d/.test(addr) && /[а-яa-z]/i.test(addr));
-        if (hasHouse) return addr;
         if (p.lat != null && p.lon != null && isFinite(Number(p.lat)) && isFinite(Number(p.lon))) {
           return Number(p.lat) + "," + Number(p.lon);
         }
-        return addr;
+        return geocodeQuery(String(p.address || "").trim());
       }
       return String(p).trim();
     }
@@ -13432,14 +13503,19 @@
     }
 
     function buildYandexRouteUrl(points) {
+      if (window.CourierMaps && typeof window.CourierMaps.buildYandexRouteUrl === "function") {
+        return window.CourierMaps.buildYandexRouteUrl(normalizeYandexPointList(points));
+      }
       const rtext = yandexRtextFromPoints(points);
       if (!rtext) return "https://yandex.ru/maps/";
-
       return "https://yandex.ru/maps/?mode=routes&rtt=auto&rtext=" +
         encodeURIComponent(rtext).replace(/%2C/gi, ",").replace(/%7E/gi, "~");
     }
 
     function buildYandexMapsAppUrl(points) {
+      if (window.CourierMaps && typeof window.CourierMaps.buildYandexMapsAppUrl === "function") {
+        return window.CourierMaps.buildYandexMapsAppUrl(normalizeYandexPointList(points));
+      }
       const rtext = yandexRtextFromPoints(points);
       if (!rtext) return "yandexmaps://maps.yandex.ru/";
       return "yandexmaps://maps.yandex.ru/?rtt=auto&rtext=" +
@@ -13447,10 +13523,21 @@
     }
 
     function buildYandexWidgetUrl(points) {
+      if (window.CourierMaps && typeof window.CourierMaps.buildYandexWidgetUrl === "function") {
+        return window.CourierMaps.buildYandexWidgetUrl(normalizeYandexPointList(points));
+      }
       const rtext = yandexRtextFromPoints(points);
       if (!rtext) return "https://yandex.ru/map-widget/v1/?lang=ru_RU";
       return "https://yandex.ru/map-widget/v1/?lang=ru_RU&mode=routes&rtt=auto&rtext=" +
         encodeURIComponent(rtext).replace(/%2C/gi, ",").replace(/%7E/gi, "~");
+    }
+
+    function splitYandexRouteChunks_(points) {
+      var list = normalizeYandexPointList(points);
+      if (window.CourierMaps && typeof window.CourierMaps.splitRouteChunks === "function") {
+        return window.CourierMaps.splitRouteChunks(list);
+      }
+      return list.length ? [list] : [];
     }
 
     function buildYandexNaviUrl(points) {
@@ -13462,7 +13549,8 @@
       const to = list[list.length - 1];
       let url = "yandexnavi://build_route_on_map?lat_from=" + from.lat + "&lon_from=" + from.lon +
         "&lat_to=" + to.lat + "&lon_to=" + to.lon;
-      for (let i = 1; i < list.length - 1; i++) {
+      var viaMax = 8;
+      for (let i = 1; i < list.length - 1 && (i - 1) < viaMax; i++) {
         const v = list[i];
         const idx = i - 1;
         url += "&lat_via_" + idx + "=" + v.lat + "&lon_via_" + idx + "=" + v.lon;
@@ -13470,9 +13558,15 @@
       return url;
     }
 
-    function buildYandexPointUrl(addr) {
+    function buildYandexPointUrl(addrOrPoint) {
+      if (window.CourierMaps && typeof window.CourierMaps.buildYandexPointUrl === "function") {
+        return window.CourierMaps.buildYandexPointUrl(addrOrPoint);
+      }
+      if (addrOrPoint && typeof addrOrPoint === "object" && addrOrPoint.lat != null) {
+        return "https://yandex.ru/maps/?pt=" + Number(addrOrPoint.lon) + "," + Number(addrOrPoint.lat) + "&z=17&l=map";
+      }
       const u = new URL("https://yandex.ru/maps/");
-      u.searchParams.set("text", addr);
+      u.searchParams.set("text", geocodeQuery(addrOrPoint));
       return u.toString();
     }
 
@@ -13496,7 +13590,8 @@
         return;
       }
       const missing = countMissingGeoInPoints(list);
-      const pts = list;
+      const chunks = splitYandexRouteChunks_(list);
+      const first = chunks[0] || list;
 
       const old = document.getElementById("yandexRouteOverlay");
       if (old) old.remove();
@@ -13504,18 +13599,33 @@
       const wrap = document.createElement("div");
       wrap.id = "yandexRouteOverlay";
       wrap.className = "yandex-route-overlay";
+      var chunkBtns = "";
+      if (chunks.length > 1) {
+        chunkBtns = '<div class="yr-chunks">' + chunks.map(function (ch, i) {
+          return '<button class="btn-action btn-blue yr-chunk-btn" type="button" data-chunk="' + i + '">Карта ' +
+            (i + 1) + "/" + chunks.length + " · " + ch.length + " т.</button>";
+        }).join("") + "</div>";
+      }
+      var stopList = '<div class="yr-stops">' + list.map(function (p, i) {
+        var label = escapeHtml(p.label || p.address || ("точка " + (i + 1)));
+        var href = buildYandexPointUrl(p).replace(/"/g, "&quot;");
+        return '<a class="yr-stop" href="' + href + '" target="_blank" rel="noopener">' + (i + 1) + ". " + label + "</a>";
+      }).join("") + "</div>";
       wrap.innerHTML =
         '<div class="yandex-route-top">' +
-          '<div class="yr-title">Маршрут · ' + pts.length + " точек</div>" +
-          '<div class="yr-sub">Порядок как в мини-аппе. В Яндексе не жмите Оптимизировать.</div>' +
+          '<div class="yr-title">Карта · ' + list.length + " адресов" +
+            (chunks.length > 1 ? (" · " + chunks.length + " части") : "") + "</div>" +
+          '<div class="yr-sub">Все адреса дня с непустым полем. В Яндексе не жмите Оптимизировать.</div>' +
           (missing
-            ? ('<div class="yr-sub" style="color:#ff9f0a;">Без координат: ' + missing + " — Яндекс может перегеокодировать адреса</div>")
+            ? ('<div class="yr-sub" style="color:#ff9f0a;">Без координат: ' + missing + " — для них текст с bias Беларусь/Минск</div>")
             : "") +
+          chunkBtns +
+          stopList +
           '<button class="btn-action btn-green" type="button" id="yrOpenNavi">Навигатор (фикс. порядок)</button>' +
           '<button class="btn-action btn-blue" type="button" id="yrOpenApp">Яндекс.Карты</button>' +
           '<button class="btn-action" type="button" id="yrClose" style="background:#3a3a3c;">Закрыть</button>' +
         "</div>" +
-        '<iframe id="yrFrame" src="' + buildYandexWidgetUrl(pts).replace(/"/g, "&quot;") + '" allow="geolocation *; clipboard-write *"></iframe>';
+        '<iframe id="yrFrame" src="' + buildYandexWidgetUrl(first).replace(/"/g, "&quot;") + '" allow="geolocation *; clipboard-write *"></iframe>';
 
       document.body.appendChild(wrap);
       dismissKeyboard();
@@ -13524,24 +13634,42 @@
         try { wrap.remove(); } catch (e) {}
         recoverUiFocus();
       }
+      function showChunk(idx) {
+        var ch = chunks[idx] || first;
+        var frame = document.getElementById("yrFrame");
+        if (frame) frame.src = buildYandexWidgetUrl(ch);
+        wrap._activeChunk = ch;
+      }
+      wrap._activeChunk = first;
       var btnClose = document.getElementById("yrClose");
       var btnApp = document.getElementById("yrOpenApp");
       var btnNavi = document.getElementById("yrOpenNavi");
       if (btnClose) btnClose.onclick = closeYr;
+      wrap.querySelectorAll(".yr-chunk-btn").forEach(function (btn) {
+        btn.onclick = function () { showChunk(Number(btn.getAttribute("data-chunk"))); };
+      });
+      wrap.querySelectorAll(".yr-stop").forEach(function (a) {
+        a.onclick = function (ev) {
+          ev.preventDefault();
+          openExternalLink(a.getAttribute("href"));
+        };
+      });
       if (btnApp) {
         btnApp.onclick = function () {
+          var pts = wrap._activeChunk || first;
           const appUrl = buildYandexMapsAppUrl(pts);
           const webUrl = buildYandexRouteUrl(pts);
           openExternalLink(appUrl);
           setTimeout(function () { openExternalLink(webUrl); }, 600);
-          showToast("Порядок как в мини-аппе");
+          showToast(chunks.length > 1 ? ("Часть " + (chunks.indexOf(pts) + 1) + "/" + chunks.length) : "Порядок как в мини-аппе");
         };
       }
       if (btnNavi) {
         btnNavi.onclick = function () {
+          var pts = wrap._activeChunk || first;
           const navi = buildYandexNaviUrl(pts);
           if (!navi) {
-            showToast("Нужны координаты всех точек — соберите маршрут ещё раз");
+            showToast("Нужны координаты — открою Яндекс.Карты");
             openExternalLink(buildYandexRouteUrl(pts));
             return;
           }
@@ -13867,19 +13995,19 @@
     }
 
     async function openYandexMaps() {
-      const dayStops = courierClientsCache.filter(function (c) {
-        return String(c.address || "").trim();
-      });
+      var dayStops = (window.CourierMaps && window.CourierMaps.collectDayMapClients)
+        ? window.CourierMaps.collectDayMapClients(courierClientsCache)
+        : (courierClientsCache || []).filter(function (c) { return String(c.address || "").trim(); });
       if (!dayStops.length) {
         await uiAlertAsync("Нет адресов. Заполните адреса у клиентов на этот день.");
         return;
       }
 
-      showToast("Собираю все адреса дня…");
+      showToast("Собираю все адреса дня… " + dayStops.length);
       const depotAddr = normalizeAddressForMaps(getDepotAddress());
       saveDepotAddress();
       let depotGeo = routePlanState.depot;
-      if (!depotGeo || depotGeo.lat == null) {
+      if (!depotGeo || depotGeo.lat == null || !mapsSavedGeoOk_(depotGeo, depotAddr)) {
         depotGeo = await geocodeAddress(depotAddr, true);
         routePlanState.depot = depotGeo || { lat: MINSK_CENTER.lat, lon: MINSK_CENTER.lon };
       }
@@ -13887,37 +14015,25 @@
       const stops = [];
       for (let i = 0; i < dayStops.length; i++) {
         const c = dayStops[i];
-        let method = parseDeliveryMethod(c.note || "");
         const clientAddr = String(c.address || "").trim();
-        const outside = await isOutsideMinskDelivery(clientAddr);
-        if (!method && outside) method = "euro";
-
-        if (method === "euro" || method === "bel") {
-          const officeAddr = parseOfficeAddress(c.note || "");
-          let lat = null, lon = null, address = officeAddr;
-          if (officeAddr) {
-            const geo = await geocodeAddress(normalizeAddressForMaps(officeAddr), true);
-            if (geo) { lat = geo.lat; lon = geo.lon; }
-          } else {
-            const office = await nearestPostOffice(method, routePlanState.depot);
-            address = office.address; lat = office.lat; lon = office.lon;
-          }
-          stops.push({ name: c.name, address: address, lat: lat, lon: lon });
+        const addr = normalizeAddressForMaps(clientAddr);
+        const savedGeo = c.geo || parseGeoFromNote(c.note || "");
+        let lat = null;
+        let lon = null;
+        if (mapsSavedGeoOk_(savedGeo, clientAddr)) {
+          lat = Number(savedGeo.lat);
+          lon = Number(savedGeo.lon);
         } else {
-          const addr = normalizeAddressForMaps(clientAddr);
-          const savedGeo = c.geo || parseGeoFromNote(c.note || "");
-          let lat = savedGeo ? savedGeo.lat : null;
-          let lon = savedGeo ? savedGeo.lon : null;
-          if (lat == null) {
-            const geo = await geocodeAddress(addr, true);
-            if (geo) { lat = geo.lat; lon = geo.lon; }
-          }
-          stops.push({ name: c.name, address: addr, lat: lat, lon: lon });
+          const geo = await geocodeAddress(addr, true);
+          if (geo) { lat = geo.lat; lon = geo.lon; }
         }
+        stops.push({ name: c.name, address: addr, lat: lat, lon: lon });
       }
 
       await refreshDriveMatrix(routePlanState.depot, stops);
-      const ordered = optimizeRouteOrder(routePlanState.depot, stops);
+      const withGeo = stops.filter(function (s) { return s.lat != null; });
+      const noGeo = stops.filter(function (s) { return s.lat == null; });
+      const ordered = optimizeRouteOrder(routePlanState.depot, withGeo).concat(noGeo);
       depotGeo = routePlanState.depot;
       const points = [];
       if (depotGeo && depotGeo.lat != null && depotGeo.lon != null) {
@@ -13934,6 +14050,32 @@
       });
       openAllInYandex(points);
     }
+
+    async function openCourierClientMap_(index) {
+      var c = courierClientsCache[index];
+      if (!c) return;
+      var addr = String(c.address || "").trim();
+      if (!addr) {
+        showToast("Нет адреса");
+        return;
+      }
+      var savedGeo = c.geo || parseGeoFromNote(c.note || "");
+      var point = { address: normalizeAddressForMaps(addr), label: c.name || addr };
+      if (mapsSavedGeoOk_(savedGeo, addr)) {
+        point.lat = Number(savedGeo.lat);
+        point.lon = Number(savedGeo.lon);
+      } else {
+        showToast("Ищу точку на карте…");
+        var geo = await geocodeAddress(point.address, true);
+        if (geo) {
+          point.lat = geo.lat;
+          point.lon = geo.lon;
+        }
+      }
+      openExternalLink(buildYandexPointUrl(point));
+    }
+    window.openCourierClientMap_ = openCourierClientMap_;
+    window.openYandexMaps = openYandexMaps;
 
     function showAccessGate(title, text, actionsHtml) {
       var gate = document.getElementById("accessGate");
