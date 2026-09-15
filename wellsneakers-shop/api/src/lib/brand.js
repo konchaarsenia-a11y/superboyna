@@ -1,7 +1,9 @@
 /**
  * Canonical storefront brands.
- * OpenCart manufacturers are obfuscated (ad1das, ree6ok) or blank;
- * product names often start with the real brand.
+ * OpenCart manufacturers are obfuscated (ad1das, ree6ok, triger) or blank;
+ * product names often start with the real brand. When the leading name token
+ * is a known brand and disagrees with manufacturer (art. 1441: ASICS vs Nike),
+ * the name wins.
  *
  * Convention: Title Case (Nike, Adidas, Asics) so filter chips stay consistent.
  */
@@ -12,8 +14,8 @@
 const BRANDS = [
   {
     canonical: "Adidas",
-    aliases: ["adidas", "ad1das", "adiidas"],
-    namePrefixes: ["adidas", "ad1das"],
+    aliases: ["adidas", "ad1das", "adiidas", "superstar"],
+    namePrefixes: ["adidas", "ad1das", "superstar"],
   },
   {
     canonical: "Reebok",
@@ -77,8 +79,13 @@ const BRANDS = [
   },
   {
     canonical: "New Balance",
-    aliases: ["new balance", "newbalance"],
-    namePrefixes: ["new balance"],
+    aliases: ["new balance", "newbalance", "triger", "trigger"],
+    namePrefixes: ["new balance", "trigger", "triger"],
+  },
+  {
+    canonical: "Salomon",
+    aliases: ["salomon", "saloman"],
+    namePrefixes: ["salomon"],
   },
   {
     canonical: "Puma",
@@ -103,6 +110,7 @@ const MODEL_TO_BRAND = new Map(
     ["bermuba", "Adidas"],
     ["yeezy", "Adidas"],
     ["spezial", "Adidas"],
+    ["superstar", "Adidas"],
   ].map(([k, v]) => [foldKey(k), v])
 );
 
@@ -157,12 +165,17 @@ function prefixMatches(lowerName, prefix) {
   return false;
 }
 
+function firstNameToken(name) {
+  return collapseWs(name).split(/[\s/-]+/).filter(Boolean)[0] || "";
+}
+
 /**
- * Infer brand from a leading name token / known model line.
+ * Brand from a leading name token / alias (ASICS, TRIGER, SUPERSTAR).
+ * Does not use unique model lines like CAMPUS — those only fill empty manufacturers.
  * @param {string} name
  * @returns {string} canonical brand or ""
  */
-export function inferBrandFromName(name) {
+export function inferLeadingBrandFromName(name) {
   const original = collapseWs(name);
   if (!original) return "";
   const lower = original.toLowerCase();
@@ -171,21 +184,33 @@ export function inferBrandFromName(name) {
     if (prefixMatches(lower, prefix)) return brand;
   }
 
-  const first = original.split(/[\s/-]+/).filter(Boolean)[0] || "";
-  const fromAlias = ALIAS_TO_CANONICAL.get(foldKey(first));
-  if (fromAlias) return fromAlias;
+  return ALIAS_TO_CANONICAL.get(foldKey(firstNameToken(original))) || "";
+}
 
+/**
+ * Infer brand from a leading name token / known model line.
+ * @param {string} name
+ * @returns {string} canonical brand or ""
+ */
+export function inferBrandFromName(name) {
+  const leading = inferLeadingBrandFromName(name);
+  if (leading) return leading;
+  const first = firstNameToken(name);
   return MODEL_TO_BRAND.get(foldKey(first)) || "";
 }
 
 /**
- * Prefer a normalized manufacturer; if empty, infer from the product name.
+ * Prefer a name-leading known brand when it conflicts with the OC manufacturer
+ * (art. 1441: name ASICS + manufacturer Nike → Asics). Otherwise manufacturer,
+ * then name / unique model line if the manufacturer is empty.
  * @param {string} brand
  * @param {string} [name]
  * @returns {string}
  */
 export function resolveBrand(brand, name = "") {
   const fromField = normalizeBrand(brand);
+  const fromLeading = inferLeadingBrandFromName(name);
+  if (fromLeading && fromField && fromLeading !== fromField) return fromLeading;
   if (fromField) return fromField;
   return inferBrandFromName(name);
 }

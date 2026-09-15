@@ -29,7 +29,9 @@
 
 - Товаров в списке: **397** (20 страниц × 20).
 - Бренды (manufacturer): ad1das, ALEXANDER MCQUEEN, ASICS, DR. MARTENS, MERRELL, NIKE, ree6ok, SAUCONY, under armour.
-  На витрине нормализуем в Title Case (`ad1das`→Adidas, `ree6ok`→Reebok, NIKE→Nike). Пустой manufacturer — infer из начала `name` (см. `api/src/lib/brand.js`).
+  На витрине нормализуем в Title Case (`ad1das`→Adidas, `ree6ok`→Reebok, `triger`→New Balance, NIKE→Nike).
+  Пустой manufacturer — infer из начала `name`. Если имя начинается с известного бренда, а manufacturer другой (арт. 1441: `ASICS …` + Nike) — берём бренд из имени и пересчитываем `model_key`.
+  Неизвестные имена (NUMERIS, OCAI, ROBOT) оставляем пустыми.
 
 ---
 

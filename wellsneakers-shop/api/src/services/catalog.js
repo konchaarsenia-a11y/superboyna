@@ -5,6 +5,7 @@ import {
   groupProductsIntoModels,
   modelMatchesQuery,
   modelHasSize,
+  resolveProductModel,
 } from "../lib/modelGroup.js";
 
 export async function ensureProductModelColumns() {
@@ -115,9 +116,10 @@ export async function getCatalogModel(idOrArticle) {
   if (product) {
     const { products } = await listProducts({ inStockOnly: true, limit: 1000, offset: 0 });
     const models = groupProductsIntoModels(products, { inStockOnly: true });
-    const parsed = parseModelAndColor(product.name, product.brand);
-    const key = String(product.model_key || "").trim() || parsed.modelKey;
-    const model = models.find((m) => m.modelKey === key) || groupProductsIntoModels([product], { inStockOnly: true })[0];
+    const meta = resolveProductModel(product);
+    const model =
+      models.find((m) => m.modelKey === meta.modelKey) ||
+      groupProductsIntoModels([product], { inStockOnly: true })[0];
     if (!model) return null;
     return { model, selectedProductId: Number(product.id) };
   }
