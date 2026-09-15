@@ -222,8 +222,8 @@ if (netIds.indexOf("net_varka") >= 0) {
 if (me.points.filter(function (p) { return p.id === "pt_polotno_1"; })[0].name !== "polotno_an") {
   fail("getMe should keep polotno rename");
 }
-if (!me.canPickInspectLoca) {
-  fail("getMe must set canPickInspectLoca for inspect allowlist tid");
+if (me.canPickInspectLoca) {
+  fail("leftover owner-all getMe must not grant inspect loca");
 }
 
 const helperOwnerMe = sandbox.partnerGuardOrRewrite_("partnerGetMe", tidParams, {
@@ -239,6 +239,9 @@ const helperOwnerMe = sandbox.partnerGuardOrRewrite_("partnerGetMe", tidParams, 
 });
 if (!helperOwnerMe.ownerMode || helperOwnerMe.partnerOverride !== "owner_cabinet_all_points") {
   fail("helper guard getMe must be full owner cabinet");
+}
+if (helperOwnerMe.canPickInspectLoca) {
+  fail("helper owner getMe.canPickInspectLoca must be false");
 }
 if (!(helperOwnerMe.points || []).some(function (p) { return p.id === "pt_varka_repina_4"; })) {
   fail("helper owner getMe must include Varka (exclude must not win)");
@@ -285,8 +288,8 @@ if (listedIds.indexOf("b") < 0 || listedIds.indexOf("c") < 0) {
   fail("list dropped allowed orders: " + listedIds.join(","));
 }
 
-if (!sandbox.isPartnerInspectLocaUser_(tidParams)) {
-  fail("tid must be inspect-loca allowlist");
+if (sandbox.isPartnerInspectLocaUser_(tidParams)) {
+  fail("helper tid must not stay on inspect-loca allowlist");
 }
 if (sandbox.isPartnerInspectLocaUser_({ username: "someone_else", telegramId: "1" })) {
   fail("other users must not get inspect-loca picker");
@@ -297,15 +300,15 @@ if (sandbox.partnerInspectWantLoca_({
   locationId: "pt_varka_repina_4",
   networkId: "net_varka"
 })) {
-  fail("inspect want must not return Varka location");
+  fail("inspect want must stay off for helper");
 }
 if (sandbox.partnerInspectWantLoca_({
   username: "one_more_person_228",
   telegramId: "827494606",
   locationId: "pt_fundog_1",
   networkId: "net_fundog"
-}) !== "pt_fundog_1") {
-  fail("inspect want must keep allowed location");
+})) {
+  fail("inspect want must stay off for helper (no picker)");
 }
 
 const listedFundog = sandbox.partnerGuardOrRewrite_("partnerListMyOrders", {

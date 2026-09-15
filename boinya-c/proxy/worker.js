@@ -8464,9 +8464,9 @@ const PARTNER_MANUAL_ACCESS_POINTS = [];
 const PARTNER_MANUAL_ACCESS_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 /** owner-all минус эти сети. Новые точки сети (net_varka / pt_varka_*) тоже режутся. */
 const PARTNER_MANUAL_ACCESS_EXCLUDE_NETS = ["net_varka"];
-/** Только эти tid/username сами выбирают локу для проверки (не Varka). */
-const PARTNER_INSPECT_LOCA_TIDS = ["827494606"];
-const PARTNER_INSPECT_LOCA_USERS = ["one_more_person_228"];
+/** Allowlist локи для проверки. Helper 827494606 снят — owner-кабинет (#281) без inspect picker. */
+const PARTNER_INSPECT_LOCA_TIDS = [];
+const PARTNER_INSPECT_LOCA_USERS = [];
 const PARTNER_LIVE_TEST_QUEUE = [
   { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", address: "ул. Янковского, 34", label: "nan_animal_clinic" },
   { id: "pt_varka_repina_4", networkId: "net_varka", name: "Varka Репина 4", address: "Репина 4", label: "Varka Репина 4" },
@@ -8514,7 +8514,7 @@ function isPartnerManualAccessUser_(params) {
   return false;
 }
 
-/** @one_more_person_228: ручной выбор локи для проверки (история/заявка). Не для всех партнёров. */
+/** Ручной выбор локи для проверки (история/заявка). Только явный allowlist, не canon-owner. */
 function isPartnerInspectLocaUser_(params) {
   const u = partnerNormUserWorker_(params && params.username);
   const tid = String((params && params.telegramId) || "").trim();

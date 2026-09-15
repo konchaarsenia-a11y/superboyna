@@ -57,7 +57,7 @@ CONFIRM=WIPE_ALL TELEGRAM_ID=<owner_tid> bash scripts/wipe-partner-order-histori
 - Любой другой owner Бойни без Access → **нет** кабинета партнёрки  
 - Админка — вкладка **Партнёры** в Бойне (owner identity в списке доступов скрыт)
 
-Worker: `@one_more_person_228` — **временно полный owner** (тот же allowlist, что Arseniy). Скоуп «все кроме Varka» снят: `isPartnerOwnerAllUser_` не применяется к canon-owner. Inspect loca allowlist жив, owner-кабинет ему не мешает. Single-point live-test выкл. Deploy — **Worker** (CI на merge в `main`) + Pages `varka/` + clasp `Code.gs`.
+Worker: `@one_more_person_228` — **временно полный owner** (тот же allowlist, что Arseniy). Скоуп «все кроме Varka» снят: `isPartnerOwnerAllUser_` не применяется к canon-owner. **Inspect loca / чип «Лока» сняты** (`PARTNER_INSPECT_LOCA_*` пустые). Owner-кабинет (#281) остаётся. Single-point live-test выкл. Deploy — **Worker** (CI на merge в `main`) + Pages `varka/` + clasp `Code.gs`.
 
 ### Команда «следующая точка»
 
@@ -80,7 +80,7 @@ Worker: `@one_more_person_228` — **временно полный owner** (то
 | 15 | `pt_indix_1` | indixvost · Проспект победителей 73/1 · ✅ |
 | 16 | `pt_bob_1` | bow_wow_collar · ✅ |
 
-**Сейчас у `@one_more_person_228`:** временно **полный owner-кабинет** (как Arseniy): все активные точки **включая Varka**, «Выдать доступ» / «Режим владельца». Inspect loca не блокирует owner.
+**Сейчас у `@one_more_person_228`:** временно **полный owner-кабинет** (как Arseniy): все активные точки **включая Varka**, «Выдать доступ» / «Режим владельца». Точки для проверки / чип «Лока» **сняты**.
 
 На каждой точке проверять: вход → каталог/кнопки → NFC → Отправить → пуш в бот → история.
 
@@ -161,11 +161,12 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 - [~] **v3.3.36:** слот 12–22; Varka NFC+баннер (без бумажного купона); +250г без custom; owner grant staff; фикс дубля заказов; nav/кабинет · Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.35:** rename polotno_an / indixvost + адрес ниже; 1× Маяковского; Бойня скрыть Firedog+дубли Маяковского · Pages varka 3.3.35 / Бойня `v71115942` · **Deploy Code.gs** (`PARTNER_PROD_V34`) + Worker
 - [~] **v3.3.34 batch:** rename точек (Fundog / Чечота 11 / Победителей 73/1 / bow_wow_collar); история без «Привезём»; купон photo+qty; qty blur keep; Delete в Партнёры→Заказы; access pending+notify+accept; staff без grant; empty-day skip force · Pages varka 3.3.34 · **Deploy Code.gs** (`PARTNER_PROD_V32`) + Worker
-- [~] **v3.3.48:** `@one_more_person_228` (`827494606`) временно полный owner (тот же allowlist, что Arseniy). Все точки включая Varka, «Выдать доступ» виден. Owner бьёт exclude. Inspect loca не мешает · Pages · Worker · **Deploy Code.gs**
+- [~] **v3.3.49:** `@one_more_person_228` без inspect loca (чип «Лока» / селект сняты). Owner-кабинет (#281) остаётся. `canPickInspectLoca=false` · Pages · Worker
+- [~] **v3.3.48:** `@one_more_person_228` (`827494606`) временно полный owner (тот же allowlist, что Arseniy). Все точки включая Varka, «Выдать доступ» виден. Owner бьёт exclude. ~~Inspect loca не мешает~~ снято в 3.3.49 · Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.47:** экран Кабинет у всех; owner-UI / «Выдать доступ» только `650923866`. Helper без owner-кабинета, Varka закрыта, inspect loca жив · Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.46:** owner-only кабинет (`650923866`, все точки включая Varka). Helper `827494606` не owner, не видит owner в access. #266/#268 без регресса · Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.45:** слот **19:00–22:00**; подпись «Баннер» (Varka); точки без адресов; polotno/indixvost/bow_wow — только купоны+NFC; qty 48/73/96/120 без custom; **баннер NaN отложен**; wipe `partnerWipeOrderHistories` · Pages · Worker · **Deploy Code.gs**
-- [~] **v3.3.44:** `@one_more_person_228` сам выбирает локу для проверки (allowlist tid 827494606). Чип + селект, persist `gb_inspect_loca_v1`, история по локе. Varka закрыта · Pages + Worker
+- [~] **v3.3.44:** ~~`@one_more_person_228` сам выбирает локу для проверки~~ снято в 3.3.49 · Pages + Worker
 - [~] **v3.3.43:** Access `@one_more_person_228` (tid 827494606) → **все кроме Varka** (`PARTNER_MANUAL_ACCESS_EXCLUDE_NETS=net_varka`) · Worker · после merge CI deploy
 - [~] **v3.3.42:** Access `@one_more_person_228` → ~~только 12 точек Varka (`manual_varka_only`)~~ снято: теперь all-except-Varka · Worker
 - [~] **v3.3.41:** Access `@one_more_person_228` → ~~все партнёры (owner-all)~~ снято Varka-only, затем all-except-Varka · Worker · Deploy Code.gs V33 опционально
