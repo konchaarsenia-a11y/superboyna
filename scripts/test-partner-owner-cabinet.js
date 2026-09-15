@@ -88,11 +88,11 @@ if (!/function isPartnerCanonOwner_/.test(workerSrc) || !/function partnerCanonO
 if (!/function partnerStripOwnerAccess_/.test(workerSrc) || !/function partnerDemoteFakeOwner_/.test(workerSrc)) {
   fail("worker must hide/demote owner for non-owners");
 }
-if (!/function partnerIsNanLeftoverAccess_/.test(workerSrc) || !/function partnerStaffAccessOnly_/.test(workerSrc)) {
-  fail("worker must hide leftover nan / nan-only staff");
+if (!/function partnerIsClosedAccess_/.test(workerSrc) || !/function partnerStaffAccessOnly_/.test(workerSrc)) {
+  fail("worker must hide revoked leftover and keep staff-only owner access");
 }
-if (!/nan_staff_forbidden/.test(workerSrc)) {
-  fail("worker partnerSaveAccess must reject nan staff");
+if (/nan_staff_forbidden/.test(workerSrc)) {
+  fail("worker must not block grant on pt_nan_1 / nan partner");
 }
 if (!/owner_hidden/.test(workerSrc)) {
   fail("partnerSaveAccess must reject owner identity");
@@ -134,14 +134,18 @@ if (!/canGrant = canUseOwnerUi_\(\)/.test(appSrc)) {
 if (!/Владельца в доступы не добавляем/.test(appSrc)) {
   fail("varka grant must refuse owner tid");
 }
-if (!/APP_VER = "3.3.50"/.test(appSrc)) {
-  fail("varka APP_VER must be 3.3.50");
+if (!/APP_VER = "3.3.51"/.test(appSrc)) {
+  fail("varka APP_VER must be 3.3.51");
 }
-if (!/На nan clinic staff не выдаём/.test(appSrc)) {
-  fail("varka grant must refuse nan clinic staff");
+if (/На nan clinic staff не выдаём/.test(appSrc)) {
+  fail("varka grant must allow pt_nan_1 like any other point");
 }
-if (!/pt_nan_1/.test(appSrc.slice(appSrc.indexOf("function renderStaffList_")))) {
-  fail("renderStaffList_ must hide nan staff");
+var staffListSrc = appSrc.slice(appSrc.indexOf("function renderStaffList_"));
+if (!/st === "inactive" \|\| st === "revoked"/.test(staffListSrc)) {
+  fail("renderStaffList_ must hide revoked leftover");
+}
+if (!/!== "staff"/.test(staffListSrc)) {
+  fail("renderStaffList_ must not draw partner as staff");
 }
 
 if (!/PARTNER_CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866[^\]]*827494606[^\]]*\]/.test(gsSrc)) {
@@ -153,11 +157,11 @@ if (!/PARTNER_CANON_OWNER_USERS_\s*=\s*\[[^\]]*arseniyhotko[^\]]*one_more_person
 if (!/function partnerIsCanonOwner_/.test(gsSrc) || !/function partnerAccessVisibleTo_/.test(gsSrc)) {
   fail("Code.gs owner-cabinet helpers missing");
 }
-if (!/function partnerIsNanLeftoverAccess_/.test(gsSrc) || !/function partnerMigrateProdV35_/.test(gsSrc)) {
-  fail("Code.gs must wipe leftover nan access (V35)");
+if (!/function partnerMigrateProdV36_/.test(gsSrc)) {
+  fail("Code.gs must restore nan partner access (V36)");
 }
-if (!/nan_staff_forbidden/.test(gsSrc)) {
-  fail("Code.gs partnerSaveAccess must reject nan staff");
+if (/nan_staff_forbidden/.test(gsSrc)) {
+  fail("Code.gs must not block grant on pt_nan_1 / nan partner");
 }
 if (!/owner_cabinet_all_points/.test(gsSrc) || !/ownerMode: true/.test(gsSrc)) {
   fail("Code.gs getMe must return ownerMode cabinet");
@@ -202,8 +206,6 @@ vm.runInContext(
     extractFn_(workerSrc, "isPartnerOwnerAllUser_"),
     extractFn_(workerSrc, "partnerIsOwnerIdentity_"),
     extractFn_(workerSrc, "partnerIsClosedAccess_"),
-    extractFn_(workerSrc, "partnerIsNanLeftoverAccess_"),
-    extractFn_(workerSrc, "partnerStripNanStaffPoints_"),
     extractFn_(workerSrc, "partnerStripOwnerAccess_"),
     extractFn_(workerSrc, "partnerStaffAccessOnly_"),
     extractFn_(workerSrc, "partnerAttachVisibleAccess_"),
@@ -244,8 +246,9 @@ const catalog = {
     { id: "pa_owner", username: "arseniyhotko", telegramId: "650923866", role: "owner", name: "Арсений", pointIds: ["pt_nan_1"], status: "active" },
     { id: "pa_help", username: "one_more_person_228", telegramId: "827494606", role: "partner", name: "Helper", pointIds: ["pt_nan_1", "pt_fundog_1"], status: "active" },
     { id: "pa_staff", username: "clinic_staff", telegramId: "111", role: "staff", name: "Сотрудник", pointIds: ["pt_fundog_1"], status: "active" },
-    { id: "pa_nan_animal_clinic", username: "nan_animal_clinic", telegramId: "", role: "partner", name: "NaN clinic", pointIds: ["pt_nan_1"], status: "inactive" },
-    { id: "pa_nan_staff", username: "nan_staff", telegramId: "222", role: "staff", name: "NaN staff", pointIds: ["pt_nan_1"], status: "active" }
+    { id: "pa_nan_animal_clinic", username: "nan_animal_clinic", telegramId: "", role: "partner", name: "NaN clinic", pointIds: ["pt_nan_1"], status: "active" },
+    { id: "pa_nan_staff", username: "nan_staff", telegramId: "222", role: "staff", name: "NaN staff", pointIds: ["pt_nan_1"], status: "active" },
+    { id: "pa_revoked_staff", username: "old_staff", telegramId: "333", role: "staff", name: "Revoked", pointIds: ["pt_fundog_1"], status: "revoked" }
   ],
   networks: [
     { id: "net_varka", name: "Varka" },
@@ -277,14 +280,15 @@ function assertOwnerCabinet_(who, me, expectUser, expectTid) {
     fail(who + " getMe access still lists owner identity");
   }
   if ((me.access || []).some(function (a) {
-    return a.username === "nan_animal_clinic" || a.id === "pa_nan_animal_clinic" || a.telegramId === "222";
+    return a.username === "nan_animal_clinic" || a.id === "pa_nan_animal_clinic";
   })) {
-    fail(who + " getMe still lists leftover nan / nan staff");
+    fail(who + " getMe must not draw nan partner as staff");
   }
-  if ((me.access || []).some(function (a) {
-    return (a.pointIds || []).indexOf("pt_nan_1") >= 0;
-  })) {
-    fail(who + " getMe staff still includes pt_nan_1");
+  if ((me.access || []).some(function (a) { return a.telegramId === "333"; })) {
+    fail(who + " getMe must hide revoked leftover");
+  }
+  if (!(me.access || []).some(function (a) { return a.telegramId === "222"; })) {
+    fail(who + " getMe must keep staff granted on pt_nan_1");
   }
   if (!(me.access || []).some(function (a) { return a.telegramId === "111"; })) {
     fail(who + " should still see granted staff in access");
@@ -324,10 +328,14 @@ const admin = sandbox.partnerGuardOrRewrite_("partnerListAdmin", staff, {
 if ((admin.access || []).some(function (a) { return sandbox.partnerIsOwnerIdentity_(a); })) {
   fail("partnerListAdmin still returns owner to non-owner");
 }
-if ((admin.access || []).some(function (a) {
-  return a.username === "nan_animal_clinic" || a.telegramId === "222";
-})) {
-  fail("partnerListAdmin still lists leftover nan / nan-only staff");
+if (!(admin.access || []).some(function (a) { return a.username === "nan_animal_clinic"; })) {
+  fail("partnerListAdmin must keep active nan partner");
+}
+if (!(admin.access || []).some(function (a) { return a.telegramId === "222"; })) {
+  fail("partnerListAdmin must keep staff on pt_nan_1");
+}
+if ((admin.access || []).some(function (a) { return a.telegramId === "333"; })) {
+  fail("partnerListAdmin must hide revoked leftover");
 }
 if (!(admin.access || []).some(function (a) { return a.telegramId === "111"; })) {
   fail("partnerListAdmin stripped too much");

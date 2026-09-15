@@ -120,8 +120,6 @@ vm.runInContext(
     extractFn_(workerSrc, "isPartnerCanonOwner_"),
     extractFn_(workerSrc, "partnerIsOwnerIdentity_"),
     extractFn_(workerSrc, "partnerIsClosedAccess_"),
-    extractFn_(workerSrc, "partnerIsNanLeftoverAccess_"),
-    extractFn_(workerSrc, "partnerStripNanStaffPoints_"),
     extractFn_(workerSrc, "partnerStripOwnerAccess_"),
     extractFn_(workerSrc, "partnerStaffAccessOnly_"),
     extractFn_(workerSrc, "partnerAttachVisibleAccess_"),

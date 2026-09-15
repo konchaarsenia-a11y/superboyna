@@ -51,13 +51,13 @@ CONFIRM=WIPE_ALL TELEGRAM_ID=<owner_tid> bash scripts/wipe-partner-order-histori
 
 Без `CONFIRM=WIPE_ALL` — dry-run (`need_confirm`). Чистит D1 `partnerOrders` + partner-строки `listDeferred` и лист `Partner_Orders`. Непартнёрские отложенные не трогает.
 
-**Wipe staff nan clinic:** leftover `@nan_animal_clinic` / `pa_nan_animal_clinic` (не owner). Live 2026-09-15: Worker+GAS `partnerRevokeAccess` → `revoked`. Повтор:
+**Партнёр nan clinic:** `pa_nan_animal_clinic` / `@nan_animal_clinic` / точка `pt_nan_1` — **активный партнёр**. Не revoke. В кабинете не рисовать его как staff (role=partner ≠ staff; revoked/inactive скрыты). Owner может выдать доступ к `pt_nan_1` как к любой точке. Restore после ошибочного revoke #285:
 
 ```
-TELEGRAM_ID=650923866 bash scripts/wipe-nan-clinic-staff.sh
+TELEGRAM_ID=650923866 bash scripts/restore-nan-partner.sh
 ```
 
-Staff на `pt_nan_1` больше не выдаётся (`nan_staff_forbidden`). Arseniy `650923866` и helper #281 (`827494606`) не трогали.
+Arseniy `650923866` и helper #281 (`827494606`) не трогали.
 
 **Prod v3+:** демо-вход выключен.  
 - Есть `Partner_Access` → только выданные точки (даже если человек owner Бойни)  
@@ -169,7 +169,8 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 - [~] **v3.3.36:** слот 12–22; Varka NFC+баннер (без бумажного купона); +250г без custom; owner grant staff; фикс дубля заказов; nav/кабинет · Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.35:** rename polotno_an / indixvost + адрес ниже; 1× Маяковского; Бойня скрыть Firedog+дубли Маяковского · Pages varka 3.3.35 / Бойня `v71115942` · **Deploy Code.gs** (`PARTNER_PROD_V34`) + Worker
 - [~] **v3.3.34 batch:** rename точек (Fundog / Чечота 11 / Победителей 73/1 / bow_wow_collar); история без «Привезём»; купон photo+qty; qty blur keep; Delete в Партнёры→Заказы; access pending+notify+accept; staff без grant; empty-day skip force · Pages varka 3.3.34 · **Deploy Code.gs** (`PARTNER_PROD_V32`) + Worker
-- [~] **v3.3.50:** nan clinic без staff: leftover `@nan_animal_clinic` / `pa_nan_animal_clinic` revoked; кабинет не рисует partner-строку как staff; `partnerSaveAccess` role=staff режет `pt_nan_1` (`nan_staff_forbidden`). Owner Arseniy + helper #281 не трогали. Live wipe + `PARTNER_PROD_V35` · Pages · Worker · **Deploy Code.gs**
+- [~] **v3.3.51:** nan clinic снова партнёр (откат #285): `pa_nan_animal_clinic` active; кабинет не рисует partner как staff; owner grant `pt_nan_1` ок; убран `nan_staff_forbidden`. Live restore + `PARTNER_PROD_V36` · Pages · Worker · **Deploy Code.gs**
+- [~] **v3.3.50:** ~~nan clinic без staff / leftover revoked / `nan_staff_forbidden`~~ ошибка #285 — nan партнёр, см. 3.3.51
 - [~] **v3.3.49:** `@one_more_person_228` без inspect loca (чип «Лока» / селект сняты). Owner-кабинет (#281) остаётся. `canPickInspectLoca=false` · Pages · Worker
 - [~] **v3.3.48:** `@one_more_person_228` (`827494606`) временно полный owner (тот же allowlist, что Arseniy). Все точки включая Varka, «Выдать доступ» виден. Owner бьёт exclude. ~~Inspect loca не мешает~~ снято в 3.3.49 · Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.47:** экран Кабинет у всех; owner-UI / «Выдать доступ» только `650923866`. Helper без owner-кабинета, Varka закрыта, inspect loca жив · Pages · Worker · **Deploy Code.gs**
@@ -198,7 +199,7 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 - [~] **v3.3.24:** заявка без дублей TG (только GAS); сразу в Бойне Партнёры→Заказы (deferred D1) · **Worker Deploy**
 - [~] **v3.3.23:** fix owner→все точки у `@one_more_person_228` (tid 827494606); только NaN clinic · Pages varka 3.3.23 · **Deploy Code.gs** (`PARTNER_PROD_V18`) + Worker
 - [~] **v3.3.22:** `@arseniyhotko` без Варок; `@one_more_person_228` → NaN clinic; очередь «следующая точка» · **Deploy Code.gs** (`PARTNER_PROD_V17`) + Worker
-- [ ] **v3.3.2:** ~~`@nan_animal_clinic`~~ — отменено, доступ у `@arseniyhotko`
+- [x] **v3.3.2 / v3.3.51:** `@nan_animal_clinic` — партнёр nan clinic (`pt_nan_1`), не staff. Не revoke.
 - [x] **v3.0.9:** у позиций лакомств убрана буква «г» — **Pages**
 - [x] **v3.0.8:** как было — owner first (все точки); `@one_more_person_228` обычный owner; allowlist/тест-Access сняты (`PARTNER_PROD_V7`) · **Pages** · **нужен Deploy Code.gs**
 - [~] Пуш заявок команде + партнёру слот / в пути / доставлено · Отложенные→Заказы · **нужен Deploy Code.gs** + `PARTNER_BOT_TOKEN`
