@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115960";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115961";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -9065,6 +9065,61 @@
     }
     window.crmDeleteClient = crmDeleteClient;
 
+    function cutFlagsStorageKey(day, dateText) {
+      return "boinya_cut_flags_v1:" + String(day || "") + ":" + String(dateText || "");
+    }
+
+    function cuttingListDate_() {
+      return String((cuttingItemsCache && cuttingItemsCache._date) || "");
+    }
+
+    function persistCuttingFlagsLocalDisk_() {
+      try {
+        var dayEl = document.getElementById("cuttingDaySelect");
+        var day = dayEl && dayEl.value;
+        var dateText = cuttingListDate_();
+        if (!day || !dateText) return;
+        var map = {};
+        (cuttingItemsCache || []).forEach(function (it) {
+          if (!it) return;
+          var k = cutNameKeyUi_(it.name);
+          var fz = cutFuzzyKeyUi_(it.name);
+          var row = {
+            laid: !!it.laid,
+            done: !!it.done,
+            outNext: !!it.outNext,
+            surplus: Number(it.surplus) || 0
+          };
+          if (k) map[k] = row;
+          if (fz && fz !== k) map[fz] = row;
+        });
+        localStorage.setItem(cutFlagsStorageKey(day, dateText), JSON.stringify({
+          date: dateText,
+          at: Date.now(),
+          map: map
+        }));
+      } catch (eDisk) {}
+    }
+
+    function applyDiskCuttingFlags_(items, day, dateText) {
+      if (!items || !day || !dateText) return;
+      try {
+        var raw = localStorage.getItem(cutFlagsStorageKey(day, dateText));
+        if (!raw) return;
+        var o = JSON.parse(raw);
+        if (!o || !o.map) return;
+        if (o.date && String(o.date) !== String(dateText)) return;
+        items.forEach(function (it) {
+          if (!it) return;
+          var f = o.map[cutNameKeyUi_(it.name)] || o.map[cutFuzzyKeyUi_(it.name)];
+          if (!f) return;
+          if (cutFlagOn_(f.laid)) it.laid = true;
+          if (cutFlagOn_(f.done)) it.done = true;
+          if (cutFlagOn_(f.outNext)) it.outNext = true;
+        });
+      } catch (eDiskR) {}
+    }
+
     function cutDoneStorageKey(day, dateText) {
       return "cutDone_" + String(day || "") + "_" + String(dateText || "");
     }
@@ -9226,6 +9281,10 @@
         }
         cuttingCompletionCache = null;
         if (res.status !== "success" || !res.items || !res.items.length) {
+          if (fromPoll && prevItems && prevItems.length) {
+            tickCuttingTimer();
+            return;
+          }
           if (!fromPoll) {
             box.innerHTML = '<p class="muted">На этот день резать нечего</p>';
             summary.innerHTML = "";
@@ -9242,6 +9301,7 @@
         items.forEach(normalizeCutFlagsUi_);
         (prevItems || []).forEach(normalizeCutFlagsUi_);
 
+        applyDiskCuttingFlags_(items, day, res.date || cuttingListDate_());
         applyLocalCuttingFlags_(items);
 
         var flagScoreNew = cuttingFlagScore(items);
@@ -9267,6 +9327,10 @@
         cuttingSession.fingerprint = fp;
         cuttingItemsCache = items;
         cuttingItemsCache._day = day;
+        if (res && res.date) {
+          try { cuttingItemsCache._date = res.date; } catch (eDt2) {}
+        }
+        persistCuttingFlagsLocalDisk_();
         sortCuttingItems();
         renderCuttingSummary();
         renderCuttingSessionBox();
@@ -9398,6 +9462,7 @@
       }
       if (row) apply(row);
       if (name) apply("n:" + cutNameKeyUi_(name));
+      persistCuttingFlagsLocalDisk_();
     }
 
     function clearCuttingLocalFlagIfMatch_(row, item) {
@@ -9968,15 +10033,13 @@
       const prev = !!cached.laid;
       cached.laid = !!laid;
       rememberCuttingLocalFlag_(cached.row, { laid: !!laid }, cached.name);
-      var snap = captureCuttingScroll_();
-      applyCutFlagDom_(key);
-      restoreCuttingScroll_(snap);
+      reorderCuttingDom();
       restoreCuttingFocus_(key, "laid");
       const ok = await persistCuttingFlag_(cached, { laid: !!laid });
       if (!ok) {
         cached.laid = prev;
         rememberCuttingLocalFlag_(cached.row, { laid: prev }, cached.name);
-        applyCutFlagDom_(key);
+        reorderCuttingDom();
         restoreCuttingFocus_(key, "laid");
       }
     }
@@ -9988,9 +10051,7 @@
       const prev = !!cached.done;
       cached.done = !!done;
       rememberCuttingLocalFlag_(cached.row, { done: !!done }, cached.name);
-      var snap = captureCuttingScroll_();
-      applyCutFlagDom_(key);
-      restoreCuttingScroll_(snap);
+      reorderCuttingDom();
       restoreCuttingFocus_(key, "done");
       if (done) {
         try { if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light"); } catch (e) {}
@@ -9999,7 +10060,7 @@
       if (!ok) {
         cached.done = prev;
         rememberCuttingLocalFlag_(cached.row, { done: prev }, cached.name);
-        applyCutFlagDom_(key);
+        reorderCuttingDom();
         restoreCuttingFocus_(key, "done");
         return;
       }
@@ -10069,6 +10130,12 @@
           });
         };
       }
+      try { cuttingItemsCache._day = opts.day || "Понедельник"; } catch (eDay) {}
+      try { cuttingItemsCache._date = opts.date || "15.09.2026"; } catch (eDt) {}
+      try {
+        var sel = document.getElementById("cuttingDaySelect");
+        if (sel && !sel.value) sel.value = opts.day || "Понедельник";
+      } catch (eSel) {}
       var box = document.getElementById("cuttingContainer");
       if (box) box.innerHTML = cuttingItemsCache.map(renderCutRowHtml).join("");
       try { renderCuttingSummary(); } catch (eSum) {}

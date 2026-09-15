@@ -41,21 +41,22 @@ assert(uiSrc.includes("overflow-anchor") || true, "css optional");
 const laid = srcBetween("toggleCutLaid");
 const done = srcBetween("toggleCutDone");
 const outNext = srcBetween("toggleCutOutNext");
-assert(!/reorderCuttingDom\(\)/.test(laid), "toggleCutLaid must not reorder (scroll jump)");
-assert(!/reorderCuttingDom\(\)/.test(done), "toggleCutDone must not reorder (scroll jump)");
+assert(/reorderCuttingDom\(\)/.test(laid), "toggleCutLaid must reorder checked→низ immediately");
+assert(/reorderCuttingDom\(\)/.test(done), "toggleCutDone must reorder checked→низ immediately");
 assert(!/reorderCuttingDom\(\)/.test(outNext), "toggleCutOutNext must not reorder");
-assert(/applyCutFlagDom_/.test(laid), "toggleCutLaid updates row in place");
-assert(/applyCutFlagDom_/.test(done), "toggleCutDone updates row in place");
-assert(/restoreCuttingScroll_[\s\S]*persistCuttingFlag_/.test(laid), "laid restores scroll before persist");
-assert(/restoreCuttingScroll_[\s\S]*persistCuttingFlag_/.test(done), "done restores scroll before persist");
+assert(/reorderCuttingDom\(\)[\s\S]*persistCuttingFlag_/.test(laid), "laid reorders before persist");
+assert(/reorderCuttingDom\(\)[\s\S]*persistCuttingFlag_/.test(done), "done reorders before persist");
 assert(!/persistCuttingFlag_[\s\S]*restoreCuttingScroll_\(snap\)/.test(laid), "laid must not snap pre-click scroll after persist");
 assert(!/persistCuttingFlag_[\s\S]*restoreCuttingScroll_\(snap\)/.test(done), "done must not snap pre-click scroll after persist");
 assert(!/persistCuttingFlag_[\s\S]*restoreCuttingScroll_\(snap\)/.test(outNext), "outNext must not snap pre-dialog scroll after persist");
 assert(/restoreCuttingScroll_/.test(outNext), "outNext restores scroll after confirm");
 assert(!/restoreCuttingFocus_\(key, "surplus"\)/.test(uiSrc), "surplus save must not refocus number input");
+assert(uiSrc.includes("function persistCuttingFlagsLocalDisk_"), "disk persist of cut flags");
+assert(uiSrc.includes("function applyDiskCuttingFlags_"), "reload must re-apply disk flags");
+assert(uiSrc.includes("fromPoll && prevItems && prevItems.length"), "poll empty must not wipe cache");
 
 const reorderFn = uiSrc.slice(uiSrc.indexOf("function reorderCuttingDom"));
-assert(reorderFn.includes("withCuttingScroll_"), "reorderCuttingDom must keep scroll if used");
+assert(reorderFn.includes("withCuttingScroll_"), "reorderCuttingDom must keep scrollTop");
 assert(uiSrc.includes("paintCuttingList_(box,"), "loadCutting paints via scroll-safe helper");
 
 console.log("source contract OK");
@@ -109,7 +110,7 @@ async function runPlaywright() {
         surplus: 0
       });
     }
-    window.__injectCuttingTestList(items, { stubPersist: true });
+    window.__injectCuttingTestList(items, { stubPersist: true, date: "15.09.2026", day: "Понедельник" });
     document.documentElement.style.height = "auto";
     document.body.style.height = "auto";
     document.body.style.overflow = "auto";
@@ -119,19 +120,31 @@ async function runPlaywright() {
     mid.scrollIntoView({ block: "center" });
     var before = window.scrollY || document.scrollingElement.scrollTop;
     if (before < 80) return { ok: false, reason: "page not scrolled enough: " + before };
+    var idxBefore = Array.prototype.indexOf.call(document.querySelectorAll(".cut-row"), document.getElementById("cut_12"));
     mid.click();
     await new Promise(function (r) { setTimeout(r, 80); });
     var after = window.scrollY || document.scrollingElement.scrollTop;
-    var stillChecked = !!mid.checked;
+    var stillChecked = !!document.getElementById("cut_laid_12") && document.getElementById("cut_laid_12").checked;
+    var rows = document.querySelectorAll(".cut-row");
+    var last = rows[rows.length - 1];
+    var movedDown = !!(last && last.id === "cut_12");
+    var idxAfter = Array.prototype.indexOf.call(rows, document.getElementById("cut_12"));
     var focused = document.activeElement && document.activeElement.id === "cut_laid_12";
     var jumped = after < 40 || Math.abs(after - before) > 160;
+    var diskRaw = "";
+    try { diskRaw = localStorage.getItem("boinya_cut_flags_v1:Понедельник:15.09.2026") || ""; } catch (eLs) {}
+    var diskHasLaid = /"laid":true/.test(diskRaw);
     return {
-      ok: stillChecked && !jumped,
+      ok: stillChecked && !jumped && movedDown && diskHasLaid,
       before: before,
       after: after,
       stillChecked: stillChecked,
       focused: focused,
-      jumped: jumped
+      jumped: jumped,
+      movedDown: movedDown,
+      idxBefore: idxBefore,
+      idxAfter: idxAfter,
+      diskHasLaid: diskHasLaid
     };
   });
 

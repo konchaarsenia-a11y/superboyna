@@ -270,5 +270,56 @@ assert(uiSrc.includes("cutItemDomKey_"), "UI unique cut keys");
 assert(uiSrc.includes('autocomplete="off"'), "cutting checkboxes opt out of browser restore");
 assert(uiSrc.includes("cutFlagOn_"), "UI strict flag parse");
 assert(!/toggleCutDone\(\$\{item\.row\}/.test(uiSrc), "toggle must use unique key, not raw row");
+assert(workerSrc.includes("function sameCutDate_"), "date compare helper");
+assert(workerSrc.includes("function cuttingFlagLookupKeys_"), "persist name+fuzzy keys");
+assert(workerSrc.includes("function lookupCuttingFlagRow_"), "overlay fuzzy lookup");
+assert(workerSrc.includes("async function cuttingFlagsDateIso_"), "iso fallback for persist/load");
+assert(workerSrc.includes("async function applyDurableCuttingFlags_"), "GAS path must overlay D1 flags");
+assert(workerSrc.includes("sameCutDate_(snapDate, wantDate)"), "getCutting dateOk uses sameCutDate_");
+assert(!/const dateMismatch = !!\(wantDate && snapDate && snapDate !== wantDate\)/.test(workerSrc), "cutover must not use raw !== date");
+assert(workerSrc.includes("Другая неделя: нарезку пересобрать из D1"), "date mismatch rebuilds D1, not raw GAS");
+assert(workerSrc.includes("cuttingHasItems"), "items+no date is not empty cutting");
+assert(workerSrc.includes("persistCuttingFlagsTable_(env, day, [patched.item])"), "persist only patched item");
+
+function sameCutDate_(a, b) {
+  const sa = String(a || "").trim();
+  const sb = String(b || "").trim();
+  if (!sa || !sb) return false;
+  if (sa === sb) return true;
+  function toIso(s) {
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    const m = String(s).trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    return m ? m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2) : "";
+  }
+  return !!(toIso(sa) && toIso(sa) === toIso(sb));
+}
+assert(sameCutDate_("15.09.2026", "2026-09-15"), "DMY vs ISO is same cut date");
+assert(!sameCutDate_("15.09.2026", "16.09.2026"), "other day is not same");
+
+function cuttingFlagLookupKeys_(it) {
+  const keys = [];
+  const nk = cutNameKey_(it && it.name);
+  const fz = cutFuzzyKey_(it && it.name);
+  if (nk) keys.push(nk);
+  if (fz && keys.indexOf(fz) < 0) keys.push(fz);
+  return keys;
+}
+function lookupCuttingFlagRow_(flagMap, it) {
+  const keys = cuttingFlagLookupKeys_(it);
+  for (let i = 0; i < keys.length; i++) {
+    if (flagMap[keys[i]]) return flagMap[keys[i]];
+  }
+  return null;
+}
+function overlayCuttingFlagsFromTable_(items, flagMap) {
+  return (items || []).map(function (it) {
+    const f = lookupCuttingFlagRow_(flagMap, it);
+    if (!f) return it;
+    return Object.assign({}, it, { laid: toBool_(f.laid), done: toBool_(f.done), outNext: toBool_(f.outNext) });
+  });
+}
+const gasFresh = [{ name: "ЛЁГКОЕ ШТ.", laid: false, done: false, outNext: false }];
+const fromTable = overlayCuttingFlagsFromTable_(gasFresh, { "ЛЕГКОЕ": { laid: true, done: false, outNext: false } });
+assert(fromTable[0].laid === true, "fuzzy/name overlay restores laid after GAS wipe");
 
 console.log("cutting-flags-autocheck OK");
