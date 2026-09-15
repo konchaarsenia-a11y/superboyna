@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Owner cabinet: Arseniy 650923866 + helper 827494606 (temp test).
- * Both get ownerMode + all points including Varka + grant access.
+ * Owner cabinet: helper 827494606 only.
+ * Arseniy 650923866 is staff (not canon-owner). Helper keeps ownerMode + all points.
  * Staff / granted users stay demoted. Inspect loca у helper снят.
  */
 "use strict";
@@ -63,10 +63,6 @@ function extractConstAssign_(src, name) {
   fail("const " + name + " unclosed");
 }
 
-function hasBothOwners_(assign, first, second) {
-  return assign.indexOf(first) >= 0 && assign.indexOf(second) >= 0;
-}
-
 const workerPath = path.join(__dirname, "..", "boinya-c", "proxy", "worker.js");
 const appPath = path.join(__dirname, "..", "varka", "app.html");
 const gsPath = path.join(__dirname, "..", "Code.gs");
@@ -76,11 +72,17 @@ const gsSrc = fs.readFileSync(gsPath, "utf8");
 
 const workerTids = extractConstAssign_(workerSrc, "PARTNER_CANON_OWNER_TIDS");
 const workerUsers = extractConstAssign_(workerSrc, "PARTNER_CANON_OWNER_USERS");
-if (!hasBothOwners_(workerTids, "650923866", "827494606")) {
-  fail("worker must pin both canon owner tids");
+if (workerTids.indexOf("827494606") < 0) {
+  fail("worker must keep helper as canon owner tid");
 }
-if (!hasBothOwners_(workerUsers, "arseniyhotko", "one_more_person_228")) {
-  fail("worker must pin both canon owner usernames");
+if (workerTids.indexOf("650923866") >= 0) {
+  fail("worker must drop Arseniy from canon owner tids");
+}
+if (workerUsers.indexOf("one_more_person_228") < 0) {
+  fail("worker must keep helper as canon owner username");
+}
+if (workerUsers.indexOf("arseniyhotko") >= 0) {
+  fail("worker must drop Arseniy from canon owner usernames");
 }
 if (!/function isPartnerCanonOwner_/.test(workerSrc) || !/function partnerCanonOwnerGetMe_/.test(workerSrc)) {
   fail("worker owner-cabinet helpers missing");
@@ -103,12 +105,24 @@ if (!/isPartnerCanonOwner_\(params\)\) return false/.test(workerSrc)) {
 if (!/PARTNER_INSPECT_LOCA_TIDS = \[\]/.test(workerSrc)) {
   fail("helper inspect loca allowlist must be empty");
 }
-
-if (!/CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866[^\]]*827494606[^\]]*\]/.test(appSrc)) {
-  fail("varka/app.html must pin both canon owner tids");
+if (/PARTNER_ARSENIY/.test(extractFn_(workerSrc, "partnerEnsureManualAccess_"))) {
+  fail("partnerEnsureManualAccess_ must not auto-revoke Arseniy Access");
 }
-if (!/CANON_OWNER_USERS_\s*=\s*\[[^\]]*arseniyhotko[^\]]*one_more_person_228[^\]]*\]/.test(appSrc)) {
-  fail("varka/app.html must pin both canon owner usernames");
+if (/PARTNER_ARSENIY/.test(extractFn_(workerSrc, "partnerEnsureLiveTestAccess_"))) {
+  fail("partnerEnsureLiveTestAccess_ must not auto-revoke Arseniy Access");
+}
+
+if (!/CANON_OWNER_TIDS_\s*=\s*\[[^\]]*827494606[^\]]*\]/.test(appSrc)) {
+  fail("varka/app.html must keep helper as canon owner tid");
+}
+if (/CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866/.test(appSrc)) {
+  fail("varka/app.html must drop Arseniy from canon owner tids");
+}
+if (!/CANON_OWNER_USERS_\s*=\s*\[[^\]]*one_more_person_228[^\]]*\]/.test(appSrc)) {
+  fail("varka/app.html must keep helper as canon owner username");
+}
+if (/CANON_OWNER_USERS_\s*=\s*\[[^\]]*arseniyhotko/.test(appSrc)) {
+  fail("varka/app.html must drop Arseniy from canon owner usernames");
 }
 if (!/function isCanonOwnerUser_/.test(appSrc) || !/function isOwnerIdentityRow_/.test(appSrc)) {
   fail("varka UI owner-hide helpers missing");
@@ -134,8 +148,8 @@ if (!/canGrant = canUseOwnerUi_\(\)/.test(appSrc)) {
 if (!/Владельца в доступы не добавляем/.test(appSrc)) {
   fail("varka grant must refuse owner tid");
 }
-if (!/APP_VER = "3.3.51"/.test(appSrc)) {
-  fail("varka APP_VER must be 3.3.51");
+if (!/APP_VER = "3.3.52"/.test(appSrc)) {
+  fail("varka APP_VER must be 3.3.52");
 }
 if (/На nan clinic staff не выдаём/.test(appSrc)) {
   fail("varka grant must allow pt_nan_1 like any other point");
@@ -148,11 +162,17 @@ if (!/!== "staff"/.test(staffListSrc)) {
   fail("renderStaffList_ must not draw partner as staff");
 }
 
-if (!/PARTNER_CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866[^\]]*827494606[^\]]*\]/.test(gsSrc)) {
-  fail("Code.gs must pin both canon owner tids");
+if (!/PARTNER_CANON_OWNER_TIDS_\s*=\s*\[[^\]]*827494606[^\]]*\]/.test(gsSrc)) {
+  fail("Code.gs must keep helper as canon owner tid");
 }
-if (!/PARTNER_CANON_OWNER_USERS_\s*=\s*\[[^\]]*arseniyhotko[^\]]*one_more_person_228[^\]]*\]/.test(gsSrc)) {
-  fail("Code.gs must pin both canon owner usernames");
+if (/PARTNER_CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866/.test(gsSrc)) {
+  fail("Code.gs must drop Arseniy from canon owner tids");
+}
+if (!/PARTNER_CANON_OWNER_USERS_\s*=\s*\[[^\]]*one_more_person_228[^\]]*\]/.test(gsSrc)) {
+  fail("Code.gs must keep helper as canon owner username");
+}
+if (/PARTNER_CANON_OWNER_USERS_\s*=\s*\[[^\]]*arseniyhotko/.test(gsSrc)) {
+  fail("Code.gs must drop Arseniy from canon owner usernames");
 }
 if (!/function partnerIsCanonOwner_/.test(gsSrc) || !/function partnerAccessVisibleTo_/.test(gsSrc)) {
   fail("Code.gs owner-cabinet helpers missing");
@@ -226,16 +246,21 @@ vm.runInContext(
 );
 
 const helper = { username: "one_more_person_228", telegramId: "827494606" };
-const owner = { username: "arseniyhotko", telegramId: "650923866" };
+const arseniy = { username: "arseniyhotko", telegramId: "650923866" };
 const staff = { username: "clinic_staff", telegramId: "111" };
 
 if (!sandbox.isPartnerCanonOwner_(helper)) fail("helper tid must be canon owner");
 if (!sandbox.isPartnerCanonOwner_({ telegramId: "827494606" })) fail("helper tid-only must be canon owner");
 if (!sandbox.isPartnerCanonOwner_({ username: "one_more_person_228" })) fail("helper username must be canon owner");
-if (!sandbox.isPartnerCanonOwner_(owner)) fail("Arseniy tid must stay canon owner");
+if (sandbox.isPartnerCanonOwner_(arseniy)) fail("Arseniy must not stay canon owner");
+if (sandbox.isPartnerCanonOwner_({ telegramId: "650923866" })) fail("Arseniy tid-only must not be canon owner");
+if (sandbox.isPartnerCanonOwner_({ username: "arseniyhotko" })) fail("Arseniy username must not be canon owner");
 if (sandbox.isPartnerCanonOwner_(staff)) fail("granted staff must not be canon owner");
 if (sandbox.isPartnerOwnerAllUser_(helper)) fail("canon owner must not use helper exclude override");
-if (sandbox.isPartnerOwnerAllUser_(owner)) fail("Arseniy must not use helper exclude override");
+if (sandbox.isPartnerOwnerAllUser_(arseniy)) fail("Arseniy must not use helper exclude override");
+if (sandbox.partnerIsOwnerIdentity_({ telegramId: "650923866", username: "arseniyhotko", role: "staff" })) {
+  fail("Arseniy staff row must not be treated as owner identity");
+}
 
 const catalog = {
   status: "success",
@@ -243,7 +268,7 @@ const catalog = {
   role: "owner",
   isOwner: true,
   access: [
-    { id: "pa_owner", username: "arseniyhotko", telegramId: "650923866", role: "owner", name: "Арсений", pointIds: ["pt_nan_1"], status: "active" },
+    { id: "pa_arseniy", username: "arseniyhotko", telegramId: "650923866", role: "staff", name: "Арсений", pointIds: ["pt_varka_rokoss_80"], status: "active" },
     { id: "pa_help", username: "one_more_person_228", telegramId: "827494606", role: "partner", name: "Helper", pointIds: ["pt_nan_1", "pt_fundog_1"], status: "active" },
     { id: "pa_staff", username: "clinic_staff", telegramId: "111", role: "staff", name: "Сотрудник", pointIds: ["pt_fundog_1"], status: "active" },
     { id: "pa_nan_animal_clinic", username: "nan_animal_clinic", telegramId: "", role: "partner", name: "NaN clinic", pointIds: ["pt_nan_1"], status: "active" },
@@ -301,13 +326,34 @@ function assertOwnerCabinet_(who, me, expectUser, expectTid) {
   }
 }
 
-const ownerMe = sandbox.partnerGuardOrRewrite_("partnerGetMe", owner, catalog);
-assertOwnerCabinet_("Arseniy", ownerMe, "arseniyhotko", "650923866");
-if (ownerMe.name !== "Арсений") fail("Arseniy display name, got " + ownerMe.name);
-
 const helperMe = sandbox.partnerGuardOrRewrite_("partnerGetMe", helper, catalog);
 assertOwnerCabinet_("helper", helperMe, "one_more_person_228", "827494606");
 if (helperMe.name === "Арсений") fail("helper must not inherit Arseniy display name");
+if (!(helperMe.access || []).some(function (a) { return a.telegramId === "650923866" && a.role === "staff"; })) {
+  fail("helper owner access must list Arseniy as staff");
+}
+
+const arseniyMe = sandbox.partnerGuardOrRewrite_("partnerGetMe", arseniy, {
+  status: "success",
+  name: "Арсений",
+  username: "arseniyhotko",
+  telegramId: "650923866",
+  role: "staff",
+  isStaff: true,
+  isOwner: true,
+  ownerMode: true,
+  points: [{ id: "pt_varka_rokoss_80", networkId: "net_varka", name: "Varka Рокоссовского 80", active: true }],
+  access: catalog.access
+});
+if (arseniyMe.ownerMode || arseniyMe.isOwner || arseniyMe.role === "owner") {
+  fail("Arseniy getMe must not be owner cabinet, got " + JSON.stringify({
+    ownerMode: arseniyMe.ownerMode, isOwner: arseniyMe.isOwner, role: arseniyMe.role
+  }));
+}
+if (arseniyMe.partnerOverride === "owner_cabinet_all_points") {
+  fail("Arseniy must not keep owner_cabinet_all_points override");
+}
+if (arseniyMe.role !== "staff") fail("Arseniy getMe role want staff got " + arseniyMe.role);
 
 const staffMe = sandbox.partnerDemoteFakeOwner_(staff, {
   status: "success",
@@ -349,13 +395,13 @@ const helperVarka = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
 });
 if (helperVarka) fail("helper owner submit Varka must pass, got " + JSON.stringify(helperVarka));
 
-const ownerVarka = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
+const arseniyOtherVarka = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
   username: "arseniyhotko",
   telegramId: "650923866",
   locationId: "pt_varka_repina_4",
   networkId: "net_varka"
 });
-if (ownerVarka) fail("owner submit Varka must pass, got " + JSON.stringify(ownerVarka));
+if (arseniyOtherVarka) fail("Arseniy submit without PARTNER_ARSENIY override must pass to GAS, got " + JSON.stringify(arseniyOtherVarka));
 
 const helperOrders = sandbox.partnerGuardOrRewrite_("partnerListMyOrders", helper, {
   status: "success",
@@ -370,8 +416,8 @@ if (helperOrderIds.indexOf("b") < 0) fail("helper owner list dropped allowed ord
 
 if (sandbox.isPartnerInspectLocaUser_(helper)) fail("helper must not keep inspect loca picker");
 if (helperMe.canPickInspectLoca) fail("helper getMe.canPickInspectLoca must be false");
-if (ownerMe.canPickInspectLoca) fail("Arseniy getMe.canPickInspectLoca must stay false");
+if (sandbox.isPartnerInspectLocaUser_(arseniy)) fail("Arseniy must not get inspect loca picker");
 
-console.log("OK: owner cabinet for Arseniy + helper");
-console.log("  owner tid: 650923866 · Varka included · ownerMode");
-console.log("  helper tid: 827494606 · full owner · inspect loca off");
+console.log("OK: owner cabinet helper only; Arseniy staff not owner");
+console.log("  helper tid: 827494606 · full owner · Varka included · ownerMode");
+console.log("  Arseniy tid: 650923866 · not canon owner · staff via Access");

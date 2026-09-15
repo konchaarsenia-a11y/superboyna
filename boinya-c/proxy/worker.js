@@ -8895,9 +8895,9 @@ const PARTNER_ARSENIY_USER = "arseniyhotko";
 const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
-/** Канон-owner партнёрки (кабинет со всеми активными точками, включая Varka). */
-const PARTNER_CANON_OWNER_TIDS = ["650923866", "827494606"];
-const PARTNER_CANON_OWNER_USERS = ["arseniyhotko", "one_more_person_228"];
+/** Канон-owner партнёрки (кабинет со всеми активными точками, включая Varka). Arseniy 650923866 — staff, не owner. */
+const PARTNER_CANON_OWNER_TIDS = ["827494606"];
+const PARTNER_CANON_OWNER_USERS = ["one_more_person_228"];
 
 /** Живой прогон @one_more_person_228. owner-all кроме exclude — не применяется к canon-owner. */
 const PARTNER_LIVE_TEST_ENABLED = false;
@@ -9070,7 +9070,7 @@ function partnerNormUserWorker_(raw) {
     .toLowerCase();
 }
 
-/** Настоящий owner партнёрки: Arseniy + helper 827494606 (временно для теста кабинета). */
+/** Настоящий owner партнёрки: helper 827494606. Arseniy — staff через Partner_Access. */
 function isPartnerCanonOwner_(params) {
   const u = partnerNormUserWorker_(params && params.username);
   const tid = String((params && params.telegramId) || "").trim();
@@ -18833,7 +18833,7 @@ async function partnerEnsureMayakovskyPoint_(env, admin) {
   return partnerEnsureLiveTestAccess_(env, next);
 }
 
-/** V17/V24: revoke arseniy; @one_more_person_228 → live-test 1 точка или ручной Access. */
+/** V17/V24: @one_more_person_228 → live-test 1 точка или ручной Access. Arseniy Access не трогаем. */
 async function partnerEnsureLiveTestAccess_(env, admin) {
   if (!admin || typeof admin !== "object") return admin;
   if (!PARTNER_LIVE_TEST_ENABLED) {
@@ -18843,17 +18843,6 @@ async function partnerEnsureLiveTestAccess_(env, admin) {
   if (!cur) return admin;
   let access = Array.isArray(admin.access) ? admin.access.slice() : [];
   let changed = false;
-  for (let i = 0; i < access.length; i++) {
-    const row = access[i] || {};
-    const u = partnerNormUserWorker_(row.username);
-    const tid = String(row.telegramId || "");
-    if (u === PARTNER_ARSENIY_USER || tid === PARTNER_ARSENIY_TID) {
-      if (String(row.status || "") !== "inactive" && String(row.status || "") !== "revoked") {
-        access[i] = Object.assign({}, row, { status: "inactive", pointIds: [] });
-        changed = true;
-      }
-    }
-  }
   let hit = -1;
   for (let j = 0; j < access.length; j++) {
     if (partnerNormUserWorker_(access[j].username) === PARTNER_LIVE_TEST_USER) {
@@ -18897,17 +18886,6 @@ async function partnerEnsureManualAccess_(env, admin) {
   const pts = PARTNER_MANUAL_ACCESS_POINTS || [];
   let access = Array.isArray(admin.access) ? admin.access.slice() : [];
   let changed = false;
-  for (let i = 0; i < access.length; i++) {
-    const row = access[i] || {};
-    const u = partnerNormUserWorker_(row.username);
-    const tid = String(row.telegramId || "");
-    if (u === PARTNER_ARSENIY_USER || tid === PARTNER_ARSENIY_TID) {
-      if (String(row.status || "") !== "inactive" && String(row.status || "") !== "revoked") {
-        access[i] = Object.assign({}, row, { status: "inactive", pointIds: [] });
-        changed = true;
-      }
-    }
-  }
   let hit = -1;
   for (let j = 0; j < access.length; j++) {
     if (partnerNormUserWorker_(access[j].username) === PARTNER_LIVE_TEST_USER) {

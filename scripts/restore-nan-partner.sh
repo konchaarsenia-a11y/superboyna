@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Вернуть партнёра nan clinic (pa_nan_animal_clinic) в active.
-# Owner tid 650923866. Не трогает Arseniy / helper #281.
+# Actor — канон-owner helper 827494606. Arseniy больше не owner партнёрки.
 #
-#   TELEGRAM_ID=650923866 bash scripts/restore-nan-partner.sh
+#   TELEGRAM_ID=827494606 bash scripts/restore-nan-partner.sh
 set -euo pipefail
 
 WORKER_URL="${WORKER_URL:-https://boinya-c.konchaarsenia.workers.dev}"
 GAS_URL="${GAS_URL:-https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec}"
-TELEGRAM_ID="${TELEGRAM_ID:-650923866}"
+TELEGRAM_ID="${TELEGRAM_ID:-827494606}"
 UA="Mozilla/5.0 (compatible; SuperboynaAgent/1.0)"
 
 echo "=== restore nan clinic partner ==="
@@ -17,7 +17,7 @@ echo
 
 echo "--- before: partnerListAdmin nan rows ---"
 curl -sS -A "$UA" --max-time 40 \
-  "${WORKER_URL}?action=partnerListAdmin&telegramId=${TELEGRAM_ID}&username=arseniyhotko&cutover=1" \
+  "${WORKER_URL}?action=partnerListAdmin&telegramId=${TELEGRAM_ID}&username=one_more_person_228&cutover=1" \
   | python3 -c '
 import json,sys
 j=json.load(sys.stdin)
@@ -64,7 +64,7 @@ echo
 
 echo "--- after: partnerListAdmin nan rows ---"
 curl -sS -A "$UA" --max-time 40 \
-  "${WORKER_URL}?action=partnerListAdmin&telegramId=${TELEGRAM_ID}&username=arseniyhotko&cutover=1" \
+  "${WORKER_URL}?action=partnerListAdmin&telegramId=${TELEGRAM_ID}&username=one_more_person_228&cutover=1" \
   | python3 -c '
 import json,sys
 j=json.load(sys.stdin)
@@ -104,4 +104,4 @@ curl -sS -A "$UA" --max-time 40 -G "$WORKER_URL" \
   --data-urlencode "id=pa_zzz_nan_grant_probe" \
   --data-urlencode "cutover=1" | python3 -m json.tool || true
 echo
-echo "Done. Owner/helper не трогали. После merge: Worker + clasp V36 держат nan partner active."
+echo "Done. Helper owner не трогали. Arseniy staff Rokossovsky 80 не трогали."
