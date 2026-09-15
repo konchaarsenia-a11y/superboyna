@@ -2,7 +2,7 @@
 /**
  * Owner cabinet: Arseniy 650923866 + helper 827494606 (temp test).
  * Both get ownerMode + all points including Varka + grant access.
- * Staff / granted users stay demoted. Inspect loca allowlist stays.
+ * Staff / granted users stay demoted. Inspect loca у helper снят.
  */
 "use strict";
 
@@ -94,8 +94,8 @@ if (!/owner_hidden/.test(workerSrc)) {
 if (!/isPartnerCanonOwner_\(params\)\) return false/.test(workerSrc)) {
   fail("isPartnerOwnerAllUser_ must skip canon owner (owner beats exclude)");
 }
-if (!/PARTNER_INSPECT_LOCA_TIDS = \["827494606"\]/.test(workerSrc)) {
-  fail("do not drop helper inspect loca allowlist");
+if (!/PARTNER_INSPECT_LOCA_TIDS = \[\]/.test(workerSrc)) {
+  fail("helper inspect loca allowlist must be empty");
 }
 
 if (!/CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866[^\]]*827494606[^\]]*\]/.test(appSrc)) {
@@ -128,8 +128,8 @@ if (!/canGrant = canUseOwnerUi_\(\)/.test(appSrc)) {
 if (!/Владельца в доступы не добавляем/.test(appSrc)) {
   fail("varka grant must refuse owner tid");
 }
-if (!/APP_VER = "3.3.48"/.test(appSrc)) {
-  fail("varka APP_VER must be 3.3.48");
+if (!/APP_VER = "3.3.49"/.test(appSrc)) {
+  fail("varka APP_VER must be 3.3.49");
 }
 
 if (!/PARTNER_CANON_OWNER_TIDS_\s*=\s*\[[^\]]*650923866[^\]]*827494606[^\]]*\]/.test(gsSrc)) {
@@ -321,8 +321,10 @@ const helperOrderIds = (helperOrders.orders || []).map(function (o) { return o.i
 if (helperOrderIds.indexOf("a") < 0) fail("helper owner list must include Varka orders");
 if (helperOrderIds.indexOf("b") < 0) fail("helper owner list dropped allowed orders");
 
-if (!sandbox.isPartnerInspectLocaUser_(helper)) fail("inspect loca allowlist must stay for helper");
+if (sandbox.isPartnerInspectLocaUser_(helper)) fail("helper must not keep inspect loca picker");
+if (helperMe.canPickInspectLoca) fail("helper getMe.canPickInspectLoca must be false");
+if (ownerMe.canPickInspectLoca) fail("Arseniy getMe.canPickInspectLoca must stay false");
 
 console.log("OK: owner cabinet for Arseniy + helper");
 console.log("  owner tid: 650923866 · Varka included · ownerMode");
-console.log("  helper tid: 827494606 · full owner · Varka included · exclude skipped");
+console.log("  helper tid: 827494606 · full owner · inspect loca off");

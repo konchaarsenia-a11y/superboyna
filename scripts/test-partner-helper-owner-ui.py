@@ -136,6 +136,10 @@ def run():
             fail("helper owner must see grant card")
         if "Выдать доступ" not in page.inner_html("#grantStaffCard"):
             fail("grant button missing")
+        chip = page.evaluate("() => getComputedStyle(document.getElementById('inspectLocaChip')).display")
+        card = page.evaluate("() => getComputedStyle(document.getElementById('inspectLocaCard')).display")
+        if chip != "none" or card != "none":
+            fail("helper owner must not see inspect loca picker")
         page.screenshot(path=str(ART / "helper-owner-cabinet.png"), full_page=True)
         ctx.close()
 

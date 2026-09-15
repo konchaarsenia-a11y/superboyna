@@ -709,7 +709,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.48";
+  var APP_VER = "3.3.49";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -718,9 +718,9 @@
   var LIVE_TEST_ENABLED_ = false;
   var LIVE_TEST_USER_ = "one_more_person_228";
   var LIVE_TEST_TID_ = "827494606";
-  /** Только этот tid сам выбирает локу для проверки (не Varka, не все партнёры). */
-  var INSPECT_LOCA_USERS_ = ["one_more_person_228"];
-  var INSPECT_LOCA_TIDS_ = ["827494606"];
+  /** Allowlist локи для проверки. Helper 827494606 снят; owner-кабинет без чипа «Лока». */
+  var INSPECT_LOCA_USERS_ = [];
+  var INSPECT_LOCA_TIDS_ = [];
   /** Кабинет владельца: Arseniy + helper 827494606 (временно для теста). */
   var CANON_OWNER_TIDS_ = ["650923866", "827494606"];
   var CANON_OWNER_USERS_ = ["arseniyhotko", "one_more_person_228"];
