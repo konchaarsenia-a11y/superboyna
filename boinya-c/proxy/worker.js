@@ -387,7 +387,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-15 heal-flamant-transfer-h1"
+      deployMarker: "2026-09-15 fix-move-network-sheets-h1"
     };
   }
 
@@ -1274,6 +1274,44 @@ async function runPeopleWriteJobD1Primary_(writeId, job, env, ctx) {
     await putSnap_(env, "peopleWrite:" + writeId, verified);
   } catch (eMid) {}
 
+  // Тяжёлый rebuild дней — в фоне (hot accept уже сделал light delSnap)
+  try {
+    const invBg = [];
+    function pushInv_(d) {
+      d = String(d || "").trim();
+      if (d && invBg.indexOf(d) < 0 && !/^\d{4}-\d{2}-\d{2}$/.test(d)) invBg.push(d);
+    }
+    if (/^moveClient$/i.test(a)) {
+      pushInv_(gasWriteParams.oldDay);
+      pushInv_(gasWriteParams.newDay);
+      if (d1WriteRes) {
+        pushInv_(d1WriteRes.from);
+        pushInv_(d1WriteRes.newDay);
+        pushInv_(d1WriteRes.to);
+        (d1WriteRes.fromDays || d1WriteRes.invDays || []).forEach(pushInv_);
+      }
+    }
+    if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
+      pushInv_(gasWriteParams.day || gasWriteParams.oldDay);
+    }
+    const heavyBg = (async function () {
+      try {
+        if (invBg.length) await invalidateDays_(env, invBg);
+      } catch (eInvBg) {}
+      try {
+        const od = coerceDateIso_(gasWriteParams.oldDate || (d1WriteRes && d1WriteRes.oldDate));
+        const nd = coerceDateIso_(gasWriteParams.newDate || (d1WriteRes && d1WriteRes.newDate));
+        if (od) await refreshViewDateSnap_(env, od);
+        if (nd) await refreshViewDateSnap_(env, nd);
+      } catch (eRefBg) {}
+      try {
+        await rebuildWeekCounts_(env);
+      } catch (eCntBg) {}
+    })();
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(heavyBg);
+    else heavyBg.catch(function () {});
+  } catch (eSchedInv) {}
+
   let sheetsRes = null;
   let mirrorOk = false;
   try {
@@ -1316,14 +1354,6 @@ async function runPeopleWriteJobD1Primary_(writeId, job, env, ctx) {
   try {
     await putSnap_(env, "peopleWrite:" + writeId, done);
   } catch (eDone) {}
-
-  try {
-    if (ctx && typeof ctx.waitUntil === "function") {
-      ctx.waitUntil(rebuildWeekCounts_(env));
-    } else {
-      await rebuildWeekCounts_(env);
-    }
-  } catch (eCnt) {}
 
   return done;
 }
@@ -2599,7 +2629,7 @@ async function parkMissedDeliveryD1_(params, env, proxied) {
     note: note,
     matchKey: String(params.matchKey || mk || ""),
     noCut: noCut,
-    deployMarker: "2026-09-15 heal-flamant-transfer-h1"
+    deployMarker: "2026-09-15 fix-move-network-sheets-h1"
   };
 }
 
@@ -2741,7 +2771,7 @@ async function placeTransferTaskD1_(params, env) {
     segment: seg,
     matchKey: matchKey,
     basket: basket,
-    deployMarker: "2026-09-15 heal-flamant-transfer-h1"
+    deployMarker: "2026-09-15 fix-move-network-sheets-h1"
   };
 }
 
@@ -4444,7 +4474,7 @@ async function healStuckTransfers_(params, env) {
     placed: false,
     cutover: true,
     d1Verified: true,
-    deployMarker: "2026-09-15 heal-flamant-transfer-h1",
+    deployMarker: "2026-09-15 fix-move-network-sheets-h1",
     tip: "Payload дополнен из D1 orders, sheetId склеен. Клиента на день не ставили — выберите дату в Переносах."
   };
 }
@@ -8287,25 +8317,41 @@ async function moveClient_(params, env) {
     } catch (eFinal) {}
   }
 
-  await invalidateDays_(env, fromDays.concat([newDay]).filter(Boolean));
-  // calendar-only: сбросить snap по датам (иначе Просмотр врёт)
+  const invDays = fromDays.concat([newDay]).filter(Boolean);
+  // Hot path (accept UI): только лёгкий bust snap — иначе invalidateDays_ ~20–40с →
+  // UI timeout → «network_waiting_sheets». Тяжёлый rebuild — в waitUntil / poll.
+  if (!skipHeavyInvalidate_(params)) {
+    await invalidateDays_(env, invDays);
+    try {
+      if (oldDate) await refreshViewDateSnap_(env, oldDate);
+    } catch (eRefOld) {}
+    try {
+      if (newDate) await refreshViewDateSnap_(env, newDate);
+    } catch (eRefNew) {}
+    try {
+      if (calendarOnly || (newDate && !newDay) || (oldDate && !fromDay)) {
+        await rebuildMonthOverview_(env);
+      }
+    } catch (eMo2) {}
+  } else {
+    for (let li = 0; li < invDays.length; li++) {
+      try {
+        await delSnap_(env, "view:" + invDays[li]);
+      } catch (eLv) {}
+    }
+    for (let fj = 0; fj < fromDays.length; fj++) {
+      try {
+        await dropClientFromOpsSnaps_(env, fromDays[fj], clearName || client, matchKey);
+      } catch (eDropF) {}
+    }
+  }
+  // calendar-only / даты: сбросить snap по датам (дёшево)
   try {
     if (oldDate) await delSnap_(env, "viewDate:" + oldDate);
   } catch (eVo2) {}
   try {
     if (newDate) await delSnap_(env, "viewDate:" + newDate);
   } catch (eVn2) {}
-  try {
-    if (oldDate) await refreshViewDateSnap_(env, oldDate);
-  } catch (eRefOld) {}
-  try {
-    if (newDate) await refreshViewDateSnap_(env, newDate);
-  } catch (eRefNew) {}
-  try {
-    if (calendarOnly || (newDate && !newDay) || (oldDate && !fromDay)) {
-      await rebuildMonthOverview_(env);
-    }
-  } catch (eMo2) {}
 
   return {
     status: "success",
@@ -8314,6 +8360,8 @@ async function moveClient_(params, env) {
     local: false,
     from: fromDay,
     fromDays: fromDays,
+    invDays: invDays,
+    lightInvalidate: !!skipHeavyInvalidate_(params),
     to: toLabel,
     newDay: newDay,
     newDate: newDate,
@@ -10537,8 +10585,18 @@ async function handleCutover_(a, params, env, ctx) {
                   jobParams.dateIso = d1Early.dateIso;
                 }
               }
-            } else if (/^moveClient$/i.test(a)) d1Early = await moveClient_(jobParams, env);
-            else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) d1Early = await deleteClient_(jobParams, env);
+            } else if (/^moveClient$/i.test(a)) {
+              // accept UI: без тяжёлого invalidateDays_ (иначе ~28с → network_waiting_sheets)
+              d1Early = await moveClient_(
+                Object.assign({}, jobParams, { _skipInvalidate: "1" }),
+                env
+              );
+            } else if (/^(deleteClient|removeCalendarClient)$/i.test(a)) {
+              d1Early = await deleteClient_(
+                Object.assign({}, jobParams, { _skipInvalidate: "1" }),
+                env
+              );
+            }
           } catch (eD1Early) {
             d1Early = {
               status: "error",
