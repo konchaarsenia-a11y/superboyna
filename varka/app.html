@@ -1812,7 +1812,7 @@
     state.cart = {};
     state.point = null;
     if (!state.me) state.me = {};
-    state.me.access = REMOTE_IS_OWNER_ && Array.isArray(acc.access)
+    state.me.access = Array.isArray(acc.access)
       ? acc.access.filter(function (row) { return !isOwnerIdentityRow_(row); })
       : [];
     enterApp_();
@@ -2844,6 +2844,9 @@
     document.getElementById("staffTid").value = "";
     if (document.getElementById("staffUser")) document.getElementById("staffUser").value = "";
     document.getElementById("staffName").value = "";
+    if (VARKA_WEBHOOK_URL) {
+      try { await refreshPartnerMe_(user()); } catch (eRef) {}
+    }
     renderStaffList_();
     alert(VARKA_WEBHOOK_URL
       ? (role === "staff" ? "Приглашение отправлено" : "Точка выдана хозяину")
@@ -3250,7 +3253,7 @@
       username: res.username || (u && u.username) || "",
       telegramId: (u && u.telegramId) || res.telegramId || "",
       canPickInspectLoca: !!res.canPickInspectLoca,
-      access: asOwner && Array.isArray(res.access)
+      access: Array.isArray(res.access)
         ? res.access.filter(function (row) { return !isOwnerIdentityRow_(row); })
         : []
     }, res.username || (u && u.username) || "");
@@ -3260,7 +3263,7 @@
       state.me.accessStatus = res.accessStatus || "active";
       state.me.role = asOwner ? "owner" : (asStaff ? "staff" : (res.role || "partner"));
       state.me.ownerMode = asOwner;
-      state.me.access = asOwner && Array.isArray(res.access)
+      state.me.access = Array.isArray(res.access)
         ? res.access.filter(function (row) { return !isOwnerIdentityRow_(row); })
         : [];
     }

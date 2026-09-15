@@ -148,6 +148,12 @@ if (!/function canUseOwnerUi_/.test(appSrc)) {
 if (!/function canGrantAccess_/.test(appSrc)) {
   fail("varka must let point owners grant via canGrantAccess_");
 }
+if (/access: asOwner && Array.isArray\(res.access\)/.test(appSrc)) {
+  fail("applyGetMe_ must keep access for point partners, not only owners");
+}
+if (/REMOTE_IS_OWNER_ && Array.isArray\(acc.access\)/.test(appSrc)) {
+  fail("loginWithAccess_ must keep access for point partners");
+}
 if (!/id="grantStaffCard" style="display:none;"/.test(appSrc)) {
   fail("grant card must be hidden by default");
 }
