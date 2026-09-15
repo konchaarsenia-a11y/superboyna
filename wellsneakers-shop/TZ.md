@@ -149,6 +149,7 @@ MODEL NAME (жирный)
 ### Фаза C — Сайт и заказы `[~]`
 - [x] Витрина с заказом (ФИО/телефон/адрес/самовывоз|доставка)
 - [x] Каталог сайта: импорт OC (~398) → на витрине все с наличием (~310; нулевые скрыты)
+- [~] Главная: раскрываемые плюшки (`details.perk` + `.perk-more`) и подборки `#him` / `#her` / `#sale` → `catalog.html` (как room). **нужен pull `web/` на VPS** (compose bind-mount `./web` — достаточно `git pull`, без rebuild; если копировали файлы — обновить `web/` и перезапустить контейнер `web`)
 - [~] Одна карточка на модель, цвета как варианты (`color`+`model_key`, `GET /api/catalog` → `models[]`). Staff по артикулу не ломаем. **нужен redeploy VPS**
 - [~] Бренды витрины: OC `ad1das`/`ree6ok`/`triger` → Adidas/Reebok/New Balance; имя vs manufacturer (арт. 1441 ASICS+Nike → Asics); SALOMON/SUPERSTAR из имени. Backfill на старте API. **нужен redeploy VPS**
 - [x] Скрытие нулевых размеров на каталоге
@@ -160,7 +161,7 @@ MODEL NAME (жирный)
 - [x] Telegram initData verify в `staffAuth` (dev-заголовки пока `ALLOW_DEV_STAFF=1`)
 
 ### Фаза D — Полировка и сдача `[ ]`
-- [ ] Стиль = `wellsneakers-room` на боевом домене
+- [~] Стиль = `wellsneakers-room` на боевом домене (главная: плюшки + подборки в git; live VPS после pull `web/`)
 - [~] Mini App операционки: phone-first (навигация/тапы как у Бойни, палитра room cyan — не токены конвейера)
 - [ ] Проверка ролей, печати, скана/ручного артикула
 - [ ] Короткая инструкция админу и продавцу
