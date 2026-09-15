@@ -70,6 +70,7 @@
 - Calendar month (D1-primary): без tomb-filter на live D1; **off-week month = только live D1** (snap не воскрешает delete).
 - `refreshViewDateSnap_` на calendar save/delete до ответа UI.
 - `notifyMissedDelivery` / `placeTransferTask`: **лёгкий D1 park/save** (без `invalidateDays_` на горячем пути) → UI `d1Verified`; courier/cut/month rebuild в `waitUntil`. Иначе CF рвёт и UI «Ошибка сети». D1 id (`xfer_*`) не подменять GAS `df_*`: штамп `payload.sheetId`. Тонкий park обогащать из deleted orders. `getTransferTask` только D1 (без GAS `buildWeekDayCounts`). One-shot: `healStuckTransfers` (owner, без auto-place). `noCut` из parked note не теряется, если `cutRaw` не задан явно.
+- `moveClient` / `deleteClient` (accept): тоже **без** тяжёлого `invalidateDays_` на hot path (`_skipInvalidate`) — иначе ~28с и UI `network_waiting_sheets`. Rebuild дней в `waitUntil` / poll.
 
 Откат на Sheets-канон: Worker env `PEOPLE_CANON=sheets-confirm-bg`.
 

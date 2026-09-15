@@ -8625,7 +8625,52 @@
           moveParams.orderType = moveOt;
           moveParams.source = moveOt;
         }
-        var res = await apiGet(moveParams, { timeoutMs: 16000, cacheTtlMs: 0, bypassInflight: true });
+        var res = await apiGet(moveParams, { timeoutMs: 35000, cacheTtlMs: 0, bypassInflight: true });
+        // D1 мог успеть, а ответ оборвался (старый Worker + invalidate ~28с) → soft-check
+        if (
+          res &&
+          res.status === "error" &&
+          /network_waiting_sheets|timeout_waiting_sheets/i.test(String(res.message || ""))
+        ) {
+          try {
+            var softNewDay = String(newDay || "").trim();
+            var softNewDate = String((target && target.newDate) || "").trim();
+            var softChk = softNewDay
+              ? await apiGet(
+                  { action: "getClients", day: softNewDay, force: "1", _: String(Date.now()) },
+                  { timeoutMs: 12000, cacheTtlMs: 0, bypassInflight: true }
+                )
+              : null;
+            var softHit = false;
+            ((softChk && softChk.clients) || []).forEach(function (c) {
+              if (nicksMatchClient_(c && c.name, clientName)) softHit = true;
+            });
+            if (!softHit && softNewDate) {
+              var softCal = await apiGet(
+                { action: "getClients", date: softNewDate, force: "1", _: String(Date.now()) },
+                { timeoutMs: 12000, cacheTtlMs: 0, bypassInflight: true }
+              );
+              ((softCal && softCal.clients) || []).forEach(function (c) {
+                if (nicksMatchClient_(c && c.name, clientName)) softHit = true;
+              });
+            }
+            if (softHit) {
+              res = {
+                status: "accepted",
+                d1Verified: true,
+                verified: true,
+                peopleCanon: "d1-primary",
+                message: "d1_saved_soft",
+                softRecovered: true,
+                wrote: 1,
+                from: oldDay,
+                to: softNewDay || softNewDate,
+                newDay: softNewDay,
+                newDate: softNewDate
+              };
+            }
+          } catch (eSoftMv) {}
+        }
         if (!res || !isPeopleWriteAccepted_(res)) {
           await uiAlertAsync("Не удалось: " + ((res && (res.message || res.status)) || "ошибка"));
           return false;
