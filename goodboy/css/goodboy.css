@@ -790,6 +790,30 @@ body.mode-app.gb-site {
 }
 
 .cabinet-sub-card { margin-bottom: 10px; }
+.cabinet-stage-title {
+  margin: 8px 0 4px;
+  font-size: 1.02rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: inherit;
+}
+.cabinet-stage-when {
+  display: block;
+  opacity: .78;
+  font-size: .88rem;
+  line-height: 1.35;
+}
+.gb-cabinet .ps-badges { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.gb-cabinet .ps-badge--waiting_stock,
+.gb-cabinet .ps-badge--scheduled { background: rgba(212, 161, 90, .22); }
+.gb-cabinet .ps-badge--preparing,
+.gb-cabinet .ps-badge--packing { background: rgba(90, 158, 212, .22); }
+.gb-cabinet .ps-badge--on_the_way { background: rgba(90, 180, 120, .28); }
+.gb-cabinet .ps-badge--delivered { background: rgba(90, 180, 120, .4); }
+.gb-cabinet .ps-badge--trial { background: rgba(180, 120, 220, .28); }
+.gb-cabinet .ps-badge--unlinked,
+.gb-cabinet .ps-badge--paused { background: rgba(237, 232, 223, .12); }
+.gate-otp-link-wrap { margin: 0 0 14px; }
 .cabinet-cta-link {
   display: block;
   margin-top: 10px;

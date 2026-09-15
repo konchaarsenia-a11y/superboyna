@@ -328,31 +328,67 @@
       }
 
       if (e.target.id === "enterTelegram" || e.target.closest("#enterTelegram")) {
-        var tg = GBAuth.readTelegramUser();
-        if (!tg) {
-          GBUI.toast("Откройте кабинет из Telegram");
-          return;
-        }
-        tg.hasSubscription = true;
-        tg.access = "full";
-        enterWithUser(tg, { page: "profile" });
+        var errTg = null;
+        Promise.resolve(GBAuth.authTelegram()).then(function (res) {
+          if (!res.ok) {
+            GBUI.toast(res.message || "Откройте кабинет из Telegram");
+            return;
+          }
+          enterWithUser(res.user, {
+            page: pageForIntent(res.user.intent, accessOf(res.user)),
+            bootstrap: res.bootstrap || null,
+            needsLink: !!res.needsLink
+          });
+          GBUI.toast("Вход через Telegram");
+        });
       }
     });
+
+    var otpState = { challengeId: "", pending: null, backView: "login" };
+
+    function showOtpPanel(otpRes, backView) {
+      otpState.challengeId = otpRes.challengeId || "";
+      otpState.pending = otpRes.pending || null;
+      otpState.backView = backView || "login";
+      setGateView("otp");
+      var lead = document.getElementById("gateOtpLead");
+      var wrap = document.getElementById("gateOtpLinkWrap");
+      var link = document.getElementById("gateOtpBotLink");
+      if (lead) {
+        lead.textContent = otpRes.sent
+          ? "Код отправлен в Telegram. Введите его ниже."
+          : (otpRes.message || "Откройте бота — пришлём код входа.");
+        if (otpRes.demoCode) lead.textContent = "Демо: введите код " + otpRes.demoCode;
+      }
+      if (wrap && link) {
+        if (otpRes.botLink) {
+          wrap.hidden = false;
+          link.href = otpRes.botLink;
+        } else {
+          wrap.hidden = true;
+        }
+      }
+      var codeInput = document.getElementById("gateOtpCode");
+      if (codeInput) {
+        codeInput.value = otpRes.demoCode || "";
+        codeInput.focus();
+      }
+    }
 
     var loginForm = document.getElementById("gateLoginForm");
     if (loginForm) {
       loginForm.addEventListener("submit", function (e) {
         e.preventDefault();
         var err = document.getElementById("gateLoginError");
-        var btn = loginForm.querySelector('button[type="submit"]');
+        var btn = document.getElementById("gateLoginSubmit") || loginForm.querySelector('button[type="submit"]');
         if (btn) {
           btn.disabled = true;
-          btn.textContent = "Входим…";
+          btn.textContent = "Отправляем…";
         }
-        Promise.resolve(GBAuth.loginUser({
+        Promise.resolve(GBAuth.requestOtp({
+          purpose: "login",
           phone: loginForm.phone.value,
-          nick: loginForm.nick.value,
-          intent: "pp"
+          nick: loginForm.nick.value
         })).then(function (res) {
           if (!res.ok) {
             if (err) {
@@ -361,16 +397,12 @@
             }
             return;
           }
-          enterWithUser(res.user, {
-            page: "subscription",
-            needsLink: !!res.needsLink,
-            bootstrap: res.bootstrap || null
-          });
-          GBUI.toast(res.fromFallback ? "Вход (офлайн)" : "Вход выполнен");
+          if (err) err.hidden = true;
+          showOtpPanel(res, "login");
         }).finally(function () {
           if (btn) {
             btn.disabled = false;
-            btn.textContent = "Войти";
+            btn.textContent = "Получить код";
           }
         });
       });
@@ -393,9 +425,10 @@
         var btn = registerForm.querySelector('button[type="submit"]');
         if (btn) {
           btn.disabled = true;
-          btn.textContent = "Создаём…";
+          btn.textContent = "Отправляем…";
         }
-        Promise.resolve(GBAuth.registerUser({
+        Promise.resolve(GBAuth.requestOtp({
+          purpose: "register",
           name: registerForm.name.value,
           phone: registerForm.phone.value,
           nick: registerForm.nick.value,
@@ -408,14 +441,8 @@
             }
             return;
           }
-          enterWithUser(res.user, {
-            page: hasSub ? "subscription" : "profile",
-            needsLink: hasSub && !!res.needsLink,
-            bootstrap: res.bootstrap || null
-          });
-          GBUI.toast(hasSub
-            ? (res.needsLink ? "Аккаунт создан — привяжите заказ" : "Аккаунт создан · подписка найдена")
-            : "Аккаунт создан · доступ ограничен");
+          if (err) err.hidden = true;
+          showOtpPanel(res, "register");
         }).finally(function () {
           if (btn) {
             btn.disabled = false;
@@ -424,6 +451,72 @@
         });
       });
     }
+
+    var otpForm = document.getElementById("gateOtpForm");
+    if (otpForm) {
+      otpForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var err = document.getElementById("gateOtpError");
+        var btn = document.getElementById("gateOtpSubmit");
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = "Проверяем…";
+        }
+        Promise.resolve(GBAuth.verifyOtp({
+          challengeId: otpState.challengeId,
+          code: otpForm.code.value,
+          pending: otpState.pending
+        })).then(function (res) {
+          if (!res.ok) {
+            if (err) {
+              err.hidden = false;
+              err.textContent = res.message;
+            }
+            if (res.botLink) {
+              var wrap = document.getElementById("gateOtpLinkWrap");
+              var link = document.getElementById("gateOtpBotLink");
+              if (wrap && link) {
+                wrap.hidden = false;
+                link.href = res.botLink;
+              }
+            }
+            return;
+          }
+          var hasSub = otpState.pending && otpState.pending.hasSubscription;
+          var page = (res.user && accessOf(res.user) === "full") || hasSub ? "subscription" : "profile";
+          enterWithUser(res.user, {
+            page: page,
+            bootstrap: res.bootstrap || null,
+            needsLink: !!res.needsLink
+          });
+          GBUI.toast("Вход подтверждён");
+        }).finally(function () {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = "Подтвердить";
+          }
+        });
+      });
+    }
+
+    root.addEventListener("click", function (e) {
+      if (e.target.closest("[data-gate-back-otp]")) {
+        setGateView(otpState.backView || "login");
+        return;
+      }
+      if (e.target.id === "gateOtpResend" || e.target.closest("#gateOtpResend")) {
+        if (!otpState.pending) return;
+        Promise.resolve(GBAuth.requestOtp(Object.assign({ purpose: otpState.pending.purpose || "login" }, otpState.pending)))
+          .then(function (res) {
+            if (!res.ok) {
+              GBUI.toast(res.message || "Не удалось отправить");
+              return;
+            }
+            showOtpPanel(res, otpState.backView);
+            GBUI.toast("Код отправлен");
+          });
+      }
+    });
   }
 
   function initNavigation() {

@@ -19,7 +19,7 @@
       <div class="gate-paths" role="group" aria-label="С чего начать">
         <button type="button" class="gate-path" data-gate-path="pp">
           <strong>У меня есть подписка</strong>
-          <span>Войти по телефону или нику</span>
+          <span>Вход с кодом в Telegram</span>
         </button>
         <button type="button" class="gate-path" data-gate-path="register">
           <strong>Регистрация</strong>
@@ -46,7 +46,7 @@
     <div class="gate-panel" data-gate-view="login" id="gateLogin" hidden>
       <button type="button" class="gate-back" data-gate-back aria-label="Назад">←</button>
       <h1 class="gate-title">Вход</h1>
-      <p class="gate-lead">Авторизация для тех, у кого уже есть подписка.</p>
+      <p class="gate-lead">Найдите подписку и подтвердите вход кодом из Telegram.</p>
       <form id="gateLoginForm" class="gate-form" novalidate>
         <div class="field">
           <label for="gateLoginPhone">Телефон</label>
@@ -57,9 +57,27 @@
           <input id="gateLoginNick" name="nick" autocomplete="username" placeholder="@nick" />
         </div>
         <p class="gate-error" id="gateLoginError" hidden></p>
-        <button type="submit" class="btn">Войти</button>
+        <button type="submit" class="btn" id="gateLoginSubmit">Получить код</button>
       </form>
       <button type="button" class="gate-link" data-gate-path="register">Нет аккаунта — регистрация</button>
+    </div>
+
+    <div class="gate-panel" data-gate-view="otp" id="gateOtp" hidden>
+      <button type="button" class="gate-back" data-gate-back-otp aria-label="Назад">←</button>
+      <h1 class="gate-title">Код из Telegram</h1>
+      <p class="gate-lead" id="gateOtpLead">Откройте бота — пришлём код подтверждения.</p>
+      <p class="gate-otp-link-wrap" id="gateOtpLinkWrap" hidden>
+        <a class="btn btn-ghost" id="gateOtpBotLink" href="#" target="_blank" rel="noopener">Открыть бота</a>
+      </p>
+      <form id="gateOtpForm" class="gate-form" novalidate>
+        <div class="field">
+          <label for="gateOtpCode">Код</label>
+          <input id="gateOtpCode" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 цифр" maxlength="8" />
+        </div>
+        <p class="gate-error" id="gateOtpError" hidden></p>
+        <button type="submit" class="btn" id="gateOtpSubmit">Подтвердить</button>
+      </form>
+      <button type="button" class="gate-link" id="gateOtpResend">Отправить код ещё раз</button>
     </div>
 
     <div class="gate-panel" data-gate-view="register" id="gateRegister" hidden>
