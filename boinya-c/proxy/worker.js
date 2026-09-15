@@ -17135,11 +17135,11 @@ function packagesBynFromUCountsD1_(pc) {
 
 const DRESSURA_FRAC_RATES_DEFAULT_D1_ = {
   slices: 0,
-  strips: 1,
-  large: 2,
-  medium: 3,
-  small: 4,
-  extraSmall: 5
+  strips: 0,
+  large: 1,
+  medium: 2,
+  small: 3,
+  extraSmall: 4
 };
 
 function dressuraFractionSizeKeyD1_(sub) {

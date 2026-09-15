@@ -1430,47 +1430,47 @@
 
       "ЛЁГКОЕ|Ломтики": { per100: 9 },
       "ЛЁГКОЕ|Целое": { per100: 9 },
-      "ЛЁГКОЕ|Полоски": { per100: 10 },
-      "ЛЁГКОЕ|Крупное": { per100: 11 },
-      "ЛЁГКОЕ|Большое": { per100: 11 },
-      "ЛЁГКОЕ|Среднее": { per100: 12 },
-      "ЛЁГКОЕ|Мелкое": { per100: 13 },
-      "ЛЁГКОЕ|Очень мелкое": { per100: 14 },
+      "ЛЁГКОЕ|Полоски": { per100: 9 },
+      "ЛЁГКОЕ|Крупное": { per100: 10 },
+      "ЛЁГКОЕ|Большое": { per100: 10 },
+      "ЛЁГКОЕ|Среднее": { per100: 11 },
+      "ЛЁГКОЕ|Мелкое": { per100: 12 },
+      "ЛЁГКОЕ|Очень мелкое": { per100: 13 },
       "СЕРДЦЕ|Ломтики": { per100: 12 },
       "СЕРДЦЕ|Целое": { per100: 12 },
-      "СЕРДЦЕ|Полоски": { per100: 13 },
-      "СЕРДЦЕ|Мелкое": { per100: 16 },
-      "СЕРДЦЕ|Очень мелкое": { per100: 17 },
+      "СЕРДЦЕ|Полоски": { per100: 12 },
+      "СЕРДЦЕ|Мелкое": { per100: 15 },
+      "СЕРДЦЕ|Очень мелкое": { per100: 16 },
       "ПОЧКИ|Ломтики": { per100: 11 },
       "ПОЧКИ|Целое": { per100: 11 },
-      "ПОЧКИ|Мелкое": { per100: 15 },
-      "ПОЧКИ|Очень мелкое": { per100: 16 },
+      "ПОЧКИ|Мелкое": { per100: 14 },
+      "ПОЧКИ|Очень мелкое": { per100: 15 },
       "РУБЕЦ Т|Ломтики": { per100: 10 },
       "РУБЕЦ Т|Целое": { per100: 10 },
-      "РУБЕЦ Т|Полоски": { per100: 11 },
-      "РУБЕЦ Т|Крупное": { per100: 12 },
-      "РУБЕЦ Т|Большое": { per100: 12 },
-      "РУБЕЦ Т|Среднее": { per100: 13 },
-      "РУБЕЦ Т|Мелкое": { per100: 14 },
-      "РУБЕЦ Т|Очень мелкое": { per100: 15 },
+      "РУБЕЦ Т|Полоски": { per100: 10 },
+      "РУБЕЦ Т|Крупное": { per100: 11 },
+      "РУБЕЦ Т|Большое": { per100: 11 },
+      "РУБЕЦ Т|Среднее": { per100: 12 },
+      "РУБЕЦ Т|Мелкое": { per100: 13 },
+      "РУБЕЦ Т|Очень мелкое": { per100: 14 },
       "БАРАНЬЕ ЛЁГКОЕ|Ломтики": { per100: 16 },
       "БАРАНЬЕ ЛЁГКОЕ|Целое": { per100: 16 },
-      "БАРАНЬЕ ЛЁГКОЕ|Полоски": { per100: 17 },
-      "БАРАНЬЕ ЛЁГКОЕ|Крупное": { per100: 18 },
-      "БАРАНЬЕ ЛЁГКОЕ|Большое": { per100: 18 },
-      "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 19 },
-      "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 20 },
-      "БАРАНЬЕ ЛЁГКОЕ|Очень мелкое": { per100: 21 },
+      "БАРАНЬЕ ЛЁГКОЕ|Полоски": { per100: 16 },
+      "БАРАНЬЕ ЛЁГКОЕ|Крупное": { per100: 17 },
+      "БАРАНЬЕ ЛЁГКОЕ|Большое": { per100: 17 },
+      "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 18 },
+      "БАРАНЬЕ ЛЁГКОЕ|Мелкое": { per100: 19 },
+      "БАРАНЬЕ ЛЁГКОЕ|Очень мелкое": { per100: 20 },
       "ИНДЕЙКА": { per100: 18 },
       "ИНДЕЙКА|Ломтики": { per100: 18 },
-      "ИНДЕЙКА|Полоски": { per100: 19 },
-      "ИНДЕЙКА|Кусочки": { per100: 19 },
-      "ИНДЕЙКА|Мелкое": { per100: 22 },
-      "ИНДЕЙКА|Мелкие кусочки": { per100: 22 },
+      "ИНДЕЙКА|Полоски": { per100: 18 },
+      "ИНДЕЙКА|Кусочки": { per100: 18 },
+      "ИНДЕЙКА|Мелкое": { per100: 21 },
+      "ИНДЕЙКА|Мелкие кусочки": { per100: 21 },
       "БАРАНЬЯ ПЕЧЕНЬ": { per100: 16 },
       "БАРАНЬЯ ПЕЧЕНЬ|Ломтики": { per100: 16 },
-      "БАРАНЬЯ ПЕЧЕНЬ|Полоски": { per100: 17 },
-      "БАРАНЬЯ ПЕЧЕНЬ|Мелкое": { per100: 20 },
+      "БАРАНЬЯ ПЕЧЕНЬ|Полоски": { per100: 16 },
+      "БАРАНЬЯ ПЕЧЕНЬ|Мелкое": { per100: 19 },
       "ПЕЧЕНЬ": { per100: 11 },
       "ВЫМЯ": { per100: 10 },
       "СЕМЕННИКИ": { per100: 13 },
@@ -1677,7 +1677,7 @@
         "Ломтики — база; полоски/крупное/среднее/мелкое — дрессура. Лёгкое по ощущению, мало жира.",
       "БАРАНЬЯ ПЕЧЕНЬ":
         "Баранья печень — яркий органный вкус, ротация к говяжьей печени.\n" +
-        "Резы: ломтики (база, без наценки), полоски (+1), мелкое (+4 за 100 г).\n" +
+        "Резы: ломтики (база, без наценки), полоски (как база), мелкое (+3 за 100 г).\n" +
         "На вес. В составе дозируем — запах сильнее нейтральных позиций.",
       "ПЕЧЕНЬ":
         "Сушёная печень — самый «яркий» мясной вкус и запах в линейке.\n" +
@@ -19346,11 +19346,11 @@
       }
       return {
         slices: num("subDetailFracSlices", num("subDetailFracWhole", 0)),
-        strips: num("subDetailFracStrips", 1),
-        large: num("subDetailFracLarge", 2),
-        medium: num("subDetailFracMedium", 3),
-        small: num("subDetailFracSmall", 4),
-        extraSmall: num("subDetailFracExtraSmall", 5),
+        strips: num("subDetailFracStrips", 0),
+        large: num("subDetailFracLarge", 1),
+        medium: num("subDetailFracMedium", 2),
+        small: num("subDetailFracSmall", 3),
+        extraSmall: num("subDetailFracExtraSmall", 4),
         whole: num("subDetailFracWhole", 0)
       };
     }
@@ -21015,11 +21015,11 @@
       }
       return dressuraFractionRates({
         slices: num("priceFracSlices", num("priceFracWhole", 0)),
-        strips: num("priceFracStrips", 1),
-        large: num("priceFracLarge", 2),
-        medium: num("priceFracMedium", 3),
-        small: num("priceFracSmall", 4),
-        extraSmall: num("priceFracExtraSmall", 5),
+        strips: num("priceFracStrips", 0),
+        large: num("priceFracLarge", 1),
+        medium: num("priceFracMedium", 2),
+        small: num("priceFracSmall", 3),
+        extraSmall: num("priceFracExtraSmall", 4),
         whole: num("priceFracWhole", 0)
       });
     }
@@ -21053,11 +21053,11 @@
       rates = rates || {};
       return {
         slices: dressuraFractionPickRate(rates, ["slices", "lomtiki", "whole"], 0),
-        strips: dressuraFractionPickRate(rates, ["strips", "poloski"], 1),
-        large: dressuraFractionPickRate(rates, ["large", "krupnoe"], 2),
-        medium: dressuraFractionPickRate(rates, ["medium", "srednee"], 3),
-        small: dressuraFractionPickRate(rates, ["small", "melkoe"], 4),
-        extraSmall: dressuraFractionPickRate(rates, ["extraSmall", "xs", "ochenMelkoe"], 5)
+        strips: dressuraFractionPickRate(rates, ["strips", "poloski"], 0),
+        large: dressuraFractionPickRate(rates, ["large", "krupnoe"], 1),
+        medium: dressuraFractionPickRate(rates, ["medium", "srednee"], 2),
+        small: dressuraFractionPickRate(rates, ["small", "melkoe"], 3),
+        extraSmall: dressuraFractionPickRate(rates, ["extraSmall", "xs", "ochenMelkoe"], 4)
       };
     }
 
