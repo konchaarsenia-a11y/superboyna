@@ -17,8 +17,9 @@
     (function () {
       // Только локальный app.html на Pages (text/html + assets/*).
       // jsDelivr отдаёт .html как text/plain → «просто код» без картинок.
-      var ver = "368";
-      location.replace("app.html?v=" + ver);
+      var ver = "369";
+      // Preserve #tgWebAppData=… from Telegram Mini App launch.
+      location.replace("app.html?v=" + ver + (location.search || "") + (location.hash || ""));
     })();
   </script>
 </head>
