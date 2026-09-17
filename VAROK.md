@@ -86,7 +86,7 @@ Worker: `@one_more_person_228` — **полный owner** (allowlist `PARTNER_CA
 | 1–12 | `pt_varka_*` | Varka — вручную по наборам |
 | 13 | `pt_fundog_1` | Fundog · ✅ |
 | 14 | `pt_polotno_1` | polotno_an · Чечота 11 · ✅ |
-| 15 | `pt_indix_1` | indixvost · Проспект победителей 73/1 · ✅ |
+| 15 | `pt_indix_1` | indixvost · Проспект победителей 73/1 · ✅ · партнёр `737330196` / `@indixvost` только эта точка (staff на все точки снят 2026-09-17; `scripts/demote-indixvost-to-partner.sh`) |
 | 16 | `pt_bob_1` | bow_wow_collar · ✅ |
 
 **Сейчас у `@one_more_person_228`:** **полный owner-кабинет**: все активные точки **включая Varka**, «Выдать доступ» / «Режим владельца». Точки для проверки / чип «Лока» **сняты**.
