@@ -17,8 +17,34 @@
     (function () {
       // Только локальный app.html на Pages (text/html + assets/*).
       // jsDelivr отдаёт .html как text/plain → «просто код» без картинок.
-      var ver = "369";
-      location.replace("app.html?v=" + ver);
+      // Telegram кладёт initData в location.hash (#tgWebAppData=…).
+      // replace без hash убивает сессию — Mini App думает, что открыли в браузере.
+      var ver = "370";
+      try {
+        var hash = location.hash || "";
+        if (/tgWebAppData/i.test(hash)) {
+          sessionStorage.setItem("gb_varka_tg_hash", hash);
+          var m = hash.match(/tgWebAppData=([^&]*)/i);
+          if (m && m[1]) {
+            var data;
+            try { data = decodeURIComponent(m[1].replace(/\+/g, " ")); }
+            catch (eDec) { data = m[1]; }
+            sessionStorage.setItem("__telegram__initParams", JSON.stringify({ tgWebAppData: data }));
+          }
+        }
+      } catch (eSt) {}
+      try {
+        var dest = new URL("app.html", location.href);
+        dest.searchParams.set("v", ver);
+        var cur = new URL(location.href);
+        cur.searchParams.forEach(function (val, key) {
+          if (key !== "v") dest.searchParams.set(key, val);
+        });
+        dest.hash = location.hash || "";
+        location.replace(dest.pathname + dest.search + dest.hash);
+      } catch (e) {
+        location.replace("app.html?v=" + ver + (location.hash || ""));
+      }
     })();
   </script>
 </head>

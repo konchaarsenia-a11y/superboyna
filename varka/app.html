@@ -709,7 +709,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.54";
+  var APP_VER = "3.3.55";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -812,9 +812,28 @@
   var nfcExtraReason_ = "";
   var nfcPickReasonOpen_ = false;
 
-  var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  var tg = null;
+  function tgWebApp_() {
+    try {
+      return (window.Telegram && window.Telegram.WebApp) || null;
+    } catch (e) { return null; }
+  }
+  function refreshTg_() {
+    tg = tgWebApp_();
+    if (tg) {
+      try { if (typeof tg.ready === "function") tg.ready(); } catch (eR) {}
+    }
+    return tg;
+  }
+  refreshTg_();
+  try {
+    var bootHash = location.hash || "";
+    if (/tgWebAppData/i.test(bootHash)) {
+      sessionStorage.setItem("gb_varka_tg_hash", bootHash);
+    }
+  } catch (eBootHash) {}
   if (tg) {
-    try { tg.ready(); tg.expand(); } catch (e) {}
+    try { tg.expand(); } catch (e) {}
     try { tg.setHeaderColor("#070707"); tg.setBackgroundColor("#070707"); } catch (e2) {}
   }
 
@@ -889,6 +908,7 @@
     document.documentElement.setAttribute("data-theme", theme === "light" ? "light" : "dark");
     var sw = document.getElementById("swTheme");
     if (sw) sw.classList.toggle("on", theme === "light");
+    refreshTg_();
     if (tg) {
       try {
         var c = theme === "light" ? "#f7f1e8" : "#070707";
@@ -1525,17 +1545,108 @@
     };
   }
 
-  function userFromInitDataRaw_() {
+  function decodeUriComponentSafe_(s) {
+    try { return decodeURIComponent(String(s || "").replace(/\+/g, " ")); }
+    catch (e) { return String(s || ""); }
+  }
+
+  function parseQueryMap_(raw) {
+    var out = {};
+    String(raw || "").replace(/^[#?]/, "").split("&").forEach(function (part) {
+      if (!part) return;
+      var i = part.indexOf("=");
+      var k = i < 0 ? part : part.slice(0, i);
+      var v = i < 0 ? "" : part.slice(i + 1);
+      out[decodeUriComponentSafe_(k)] = v;
+    });
+    return out;
+  }
+
+  function parseInitDataUserLocal_(raw) {
     try {
-      var raw = (tg && tg.initData) || "";
       if (!raw) return null;
       var m = String(raw).match(/(?:^|&)user=([^&]+)/);
       if (!m) return null;
-      return JSON.parse(decodeURIComponent(m[1].replace(/\+/g, " ")));
+      return JSON.parse(decodeUriComponentSafe_(m[1]));
     } catch (e) { return null; }
   }
 
+  function readStoredTgInitParams_() {
+    var keys = ["gb_varka_tg_hash", "__telegram__initParams", "telegram-apps/launch-params"];
+    var i;
+    for (i = 0; i < keys.length; i++) {
+      try {
+        var raw = sessionStorage.getItem(keys[i]);
+        if (!raw) continue;
+        if (keys[i] === "gb_varka_tg_hash" && /^#/.test(raw)) {
+          var fromHash = parseQueryMap_(raw).tgWebAppData;
+          if (fromHash) return decodeUriComponentSafe_(fromHash);
+          continue;
+        }
+        var o = JSON.parse(raw);
+        if (typeof o === "string") {
+          try { o = JSON.parse(o); } catch (eS) {}
+        }
+        if (o && o.tgWebAppData) return decodeUriComponentSafe_(o.tgWebAppData);
+        if (o && o.initData) return String(o.initData);
+        if (o && o.launchParams && o.launchParams.tgWebAppData) {
+          return decodeUriComponentSafe_(o.launchParams.tgWebAppData);
+        }
+      } catch (e) {}
+    }
+    return "";
+  }
+
+  function readLaunchInitDataRaw_() {
+    refreshTg_();
+    var fromTg = String((tg && tg.initData) || "").trim();
+    if (fromTg) return fromTg;
+    var q = parseQueryMap_(location.hash);
+    var s = parseQueryMap_(location.search);
+    var encoded = q.tgWebAppData || s.tgWebAppData || "";
+    if (encoded) return decodeUriComponentSafe_(encoded);
+    return readStoredTgInitParams_();
+  }
+
+  function isTelegramWebAppContext_() {
+    try {
+      if (window.TelegramWebviewProxy || window.TelegramWebview) return true;
+    } catch (e0) {}
+    try {
+      var loc = String(location.hash || "") + String(location.search || "");
+      if (/tgWebApp(Data|Platform|Version)/i.test(loc)) return true;
+    } catch (e1) {}
+    try {
+      var live = refreshTg_();
+      if (live) {
+        if (live.initData && String(live.initData).length > 0) return true;
+        var uu = live.initDataUnsafe && live.initDataUnsafe.user;
+        if (uu && (uu.id || uu.username)) return true;
+        var plat = String(live.platform || "").toLowerCase();
+        if (plat && plat !== "unknown" && plat !== "unknw") return true;
+      }
+    } catch (e2) {}
+    try {
+      if (readStoredTgInitParams_()) return true;
+    } catch (e3) {}
+    try {
+      var ua = String(navigator.userAgent || "");
+      if (/\bTelegram\b/i.test(ua) && !/TelegramBot/i.test(ua)) return true;
+    } catch (e4) {}
+    return false;
+  }
+
+  function userHasIdentity_(u) {
+    u = u || {};
+    return !!(u.telegramId || u.username || u.initData);
+  }
+
+  function userFromInitDataRaw_() {
+    return parseInitDataUserLocal_(readLaunchInitDataRaw_());
+  }
+
   function user() {
+    refreshTg_();
     var u = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || {};
     var fromInit = userFromInitDataRaw_() || {};
     var tid = String(u.id || fromInit.id || "").trim();
@@ -1550,7 +1661,7 @@
       telegramId: tid,
       name: name,
       username: uname,
-      initData: (tg && tg.initData) || ""
+      initData: readLaunchInitDataRaw_() || ""
     };
   }
 
@@ -1560,15 +1671,18 @@
 
   async function resolveUser_() {
     var u = user();
-    if (u.telegramId) return u;
+    if (userHasIdentity_(u)) return u;
+    var inTg = isTelegramWebAppContext_();
+    var waits = inTg ? [50, 100, 150, 250, 400, 600, 800] : [50, 80, 120, 200];
     var i;
-    for (i = 0; i < 4; i++) {
-      try { if (tg && tg.ready) tg.ready(); } catch (eR) {}
-      await sleep_(50);
+    for (i = 0; i < waits.length; i++) {
+      await sleep_(waits[i]);
+      refreshTg_();
       u = user();
-      if (u.telegramId) return u;
+      if (userHasIdentity_(u)) return u;
+      inTg = inTg || isTelegramWebAppContext_();
     }
-    return u;
+    return user();
   }
 
   function esc(s) {
@@ -1799,6 +1913,8 @@
       hint.textContent = "@" + normUser_(u.username) + " — нет доступа. Напишите в Good Boy, выдадим точки в Бойне.";
     } else if (u.telegramId) {
       hint.textContent = "Нет доступа для этого Telegram. Напишите в Good Boy.";
+    } else if (isTelegramWebAppContext_()) {
+      hint.textContent = "Не удалось прочитать профиль Telegram. Закройте мини-апп и откройте снова из @GOODBOY_LG.";
     } else {
       hint.textContent = "Откройте мини-апп из Telegram (@GOODBOY_LG).";
     }
@@ -3181,11 +3297,12 @@
   async function refreshPartnerMe_(u) {
     try {
       u = u || (await resolveUser_());
-      if (!u.telegramId && !u.username) return;
+      if (!userHasIdentity_(u)) return;
       var res = await apiGet_({
         action: "partnerGetMe",
         username: u.username || "",
-        telegramId: u.telegramId || ""
+        telegramId: u.telegramId || "",
+        initData: u.initData || ""
       });
       if (applyGetMe_(u, res)) return;
       if (res && res.status === "success" && (!res.allowed || !normalizePointIds_(res.pointIds).length)) {
@@ -3203,12 +3320,18 @@
     document.getElementById("bootMsg").textContent = "Вход…";
     try {
       var u = await resolveUser_();
-      if (!u.telegramId) {
+      refreshTg_();
+      if (tg) {
+        try { tg.expand(); } catch (eEx) {}
+      }
+      if (!userHasIdentity_(u)) {
         renderLogin_();
         show("screenLogin");
         return;
       }
-      try { localStorage.setItem("superboyna_tg_id", u.telegramId); } catch (eSt) {}
+      if (u.telegramId) {
+        try { localStorage.setItem("superboyna_tg_id", u.telegramId); } catch (eSt) {}
+      }
       var cached = loadMeCache_(u);
       if (cached && loginWithAccess_(cached, cached.username || u.username || "")) {
         refreshPartnerMe_(u);
@@ -3217,7 +3340,8 @@
       var res = await apiGet_({
         action: "partnerGetMe",
         username: u.username || "",
-        telegramId: u.telegramId || ""
+        telegramId: u.telegramId || "",
+        initData: u.initData || ""
       });
       if (applyGetMe_(u, res)) return;
       // Live-test: даже при ошибке API показать 1 точку NaN

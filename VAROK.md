@@ -2,11 +2,13 @@
 
 Telegram Mini App для **партнёрских сетей**: бесплатная заявка на лакомства и купоны.
 
-**Живой URL:** https://konchaarsenia-a11y.github.io/superboyna/varka/  
+**Живой URL Mini App (предпочтительно, без index-redirect):**  
+https://konchaarsenia-a11y.github.io/superboyna/varka/app.html  
 
-**Не использовать jsDelivr для Mini App** — `.html` там как `text/plain` («просто код», без картинок).
+`/varka/` тоже работает: `index.html` сохраняет `#tgWebAppData` при переходе на `app.html`.  
+Не ставить Menu Button на jsDelivr (`.html` как `text/plain`).
 
-**Зеркало Worker (после deploy):** https://boinya-c.konchaarsenia.workers.dev/varka/
+**Зеркало Worker (после deploy, сразу `app.html`):** https://boinya-c.konchaarsenia.workers.dev/varka/
 
 **Бот партнёров:** [@GOODBOY_LG](https://t.me/GOODBOY_LG)  
 (отдельный от бота Бойни; токен только в Script Properties / `secrets.local.md`, не в git)
@@ -20,8 +22,10 @@ Telegram Mini App для **партнёрских сетей**: бесплатн
 1. [@BotFather](https://t.me/BotFather) → `/mybots` → **GOODBOY_LG**
 2. **Bot Settings → Menu Button → Configure menu button**
    - Text: `Открыть`
-   - URL: `https://konchaarsenia-a11y.github.io/superboyna/varka/`
-3. Проверка: открыть [@GOODBOY_LG](https://t.me/GOODBOY_LG) → сразу **заказ**, сверху История / Кабинет, кнопка «← К заказу» вне заказа; после отправки — «скоро уведомление о дате» (без даты в алерте).
+   - URL (лучше, без лишнего redirect): `https://konchaarsenia-a11y.github.io/superboyna/varka/app.html`
+   - запасной: `https://konchaarsenia-a11y.github.io/superboyna/varka/` — hash `#tgWebAppData` должен доехать до `app.html`
+   - Worker: `https://boinya-c.konchaarsenia.workers.dev/varka/`
+3. Проверка: открыть [@GOODBOY_LG](https://t.me/GOODBOY_LG) → сразу **заказ**, сверху История / Кабинет, кнопка «← К заказу» вне заказа; после отправки — «скоро уведомление о дате» (без даты в алерте). Не должно быть «Откройте мини-апп из Telegram».
 
 Токен бота в репозиторий **не** писать. Для webhook/уведомлений позже — `PropertiesService` в своём Script.
 
@@ -140,7 +144,7 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 
 ## Чеклист
 
-- [x] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → `varka/` (Pages) — **OK** (не jsDelivr)
+- [x] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → лучше `varka/app.html` (Pages; `/varka/` тоже ок, hash сохраняется) — **не jsDelivr**
 - [x] Стиль Good Boy (IG)
 - [x] Вход по @username + свои точки
 - [x] Купоны поштучно + баннер
@@ -176,6 +180,7 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 - [~] **v3.3.36:** слот 12–22; Varka NFC+баннер (без бумажного купона); +250г без custom; owner grant staff; фикс дубля заказов; nav/кабинет · Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.35:** rename polotno_an / indixvost + адрес ниже; 1× Маяковского; Бойня скрыть Firedog+дубли Маяковского · Pages varka 3.3.35 / Бойня `v71115942` · **Deploy Code.gs** (`PARTNER_PROD_V34`) + Worker
 - [~] **v3.3.34 batch:** rename точек (Fundog / Чечота 11 / Победителей 73/1 / bow_wow_collar); история без «Привезём»; купон photo+qty; qty blur keep; Delete в Партнёры→Заказы; access pending+notify+accept; staff без grant; empty-day skip force · Pages varka 3.3.34 · **Deploy Code.gs** (`PARTNER_PROD_V32`) + Worker
+- [~] **v3.3.55:** P0 — Mini App из Telegram больше не режется гейтом «откройте из Telegram». Redirect сохраняет `#tgWebAppData`; ждём WebApp/hash/username. Worker hydrates initData. Pages · **нужен Worker Deploy**
 - [~] **v3.3.52:** Arseniy `650923866` снят с канон-owner; helper `827494606` остаётся owner. Arseniy → staff `pt_varka_rokoss_80` через `partnerSaveAccess` после Deploy. Не `PARTNER_MANUAL_ACCESS_*`. Pages · Worker · **Deploy Code.gs**
 - [~] **v3.3.50:** ~~nan clinic без staff / leftover revoked / `nan_staff_forbidden`~~ ошибка #285 — nan партнёр, см. 3.3.51
 - [~] **v3.3.49:** `@one_more_person_228` без inspect loca (чип «Лока» / селект сняты). Owner-кабинет (#281) остаётся. `canPickInspectLoca=false` · Pages · Worker
