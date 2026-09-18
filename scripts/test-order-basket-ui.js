@@ -84,6 +84,14 @@ assert(
   "view card composition helpers intact"
 );
 assert(
+  /function renderWeekClientCard\([\s\S]*const lines = basketLinesHtml\(client\.basket\)/.test(ui),
+  "week cards paint состав via basketLinesHtml"
+);
+assert(
+  /async function toggleMonthDetail\([\s\S]*basketLinesHtml\(basket\)/.test(ui),
+  "month card expand paints состав via basketLinesHtml"
+);
+assert(
   /function shiftMonthKey_\(ym, delta\)/.test(ui) && /_orderCalMonthKey/.test(ui),
   "calendar #306 helpers still present"
 );
