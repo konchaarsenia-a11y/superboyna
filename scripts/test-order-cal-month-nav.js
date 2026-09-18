@@ -91,6 +91,34 @@ var overflowKey = overflow.getFullYear() + "-" + pad2Month_(overflow.getMonth() 
 assert(overflowKey === "2026-12", "Date overflow would skip Nov (sanity of the bug class)");
 assert(shiftMonthKey_("2026-10", 1) !== overflowKey, "integer shift does not follow Date overflow");
 
+var workerPath = path.join(__dirname, "../boinya-c/proxy/worker.js");
+var worker = fs.readFileSync(workerPath, "utf8");
+var rebuild = worker.match(/async function rebuildMonthOverview_\([\s\S]*?\n\}/);
+assert(!!rebuild, "extract rebuildMonthOverview_");
+assert(
+  /todayIsoMinskD1_\(\)\.slice\(0, 7\)/.test(rebuild[0]),
+  "rebuildMonthOverview_ default month is Minsk, not UTC toISOString"
+);
+assert(
+  !/new Date\(\)\.toISOString\(\)\.slice\(0, 7\)/.test(rebuild[0]),
+  "rebuildMonthOverview_ dropped UTC month fallback"
+);
+assert(/function monthKeyFromParam_\(/.test(worker), "monthKeyFromParam_ exists");
+var mkBlock = worker.match(/function monthKeyFromParam_\([\s\S]*?\n\}/);
+assert(!!mkBlock, "extract monthKeyFromParam_");
+eval(mkBlock[0]);
+assert(monthKeyFromParam_("2026-10") === "2026-10", "month key YYYY-MM");
+assert(monthKeyFromParam_("2026-10-01") === "2026-10", "month key from ISO date");
+assert(monthKeyFromParam_("") === "", "empty month key");
+assert(monthKeyFromParam_("октябрь") === "", "non-ISO not coerced");
+
+var gs = fs.readFileSync(path.join(__dirname, "../Code.gs"), "utf8");
+assert(/"Октябрь"/.test(gs) && /CRM_MONTH_NAMES_RU_/.test(gs), "CRM names include October");
+assert(
+  /handleCrmInventory/.test(gs),
+  "crmInventory still sheet-tab inventory (not order calendar)"
+);
+
 if (process.exitCode) {
   console.error("test-order-cal-month-nav FAILED");
   process.exit(process.exitCode);
