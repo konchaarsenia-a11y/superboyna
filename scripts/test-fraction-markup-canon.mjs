@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Canon 2026-09-15: ломтики=0 полоски=0 крупное=1 среднее=2 мелкое=3 очень мелкое=4
+ * Canon 2026-09-18: ломтики=0 полоски=1 крупное=1 среднее=2 мелкое=3 очень мелкое=4
  * Extracts matchers from Code.gs / worker.js / app.main.js and checks rates + retail keys.
  */
 import fs from "node:fs";
@@ -55,8 +55,8 @@ const CASES = [
   { sub: "Ломтики", rate: 0 },
   { sub: "ломтики", rate: 0 },
   { sub: "Целое", rate: 0 },
-  { sub: "Полоски", rate: 0 },
-  { sub: "кусочки", rate: 0 },
+  { sub: "Полоски", rate: 1 },
+  { sub: "кусочки", rate: 1 },
   { sub: "Крупное", rate: 1 },
   { sub: "Большое", rate: 1 },
   { sub: "Среднее", rate: 2 },
@@ -79,11 +79,11 @@ function runMarkupSuite(fn, label) {
     log.push(c.sub + " → " + got);
   }
   const two = fn([line("ЛЁГКОЕ", "Полоски", 200, "dressura")]);
-  assert(two === 0, label + " 200г полоски → 0, got " + two);
+  assert(two === 2, label + " 200г полоски → 2, got " + two);
   const other = fn([line("БАРАНЬЯ ПЕЧЕНЬ", "Мелкое", 100, "other")]);
   assert(other === 3, label + " баранья печень мелкое (other) → 3, got " + other);
   const turkey = fn([line("ИНДЕЙКА", "Полоски", 100, "other")]);
-  assert(turkey === 0, label + " индейка полоски → 0, got " + turkey);
+  assert(turkey === 1, label + " индейка полоски → 1, got " + turkey);
   const chew = fn([line("ТРАХЕЯ", "СРЕД", 2, "chew")]);
   assert(chew === 0, label + " жевалка не в наценке, got " + chew);
   return log;
@@ -98,21 +98,21 @@ function assertRetailKey(lookupFn, name, sub, expectSub, label) {
 function assertRetailTable(priceSrc, label) {
   const expect = {
     '"ЛЁГКОЕ|Ломтики": { per100: 9 }': true,
-    '"ЛЁГКОЕ|Полоски": { per100: 9 }': true,
+    '"ЛЁГКОЕ|Полоски": { per100: 10 }': true,
     '"ЛЁГКОЕ|Крупное": { per100: 10 }': true,
     '"ЛЁГКОЕ|Среднее": { per100: 11 }': true,
     '"ЛЁГКОЕ|Мелкое": { per100: 12 }': true,
     '"ЛЁГКОЕ|Очень мелкое": { per100: 13 }': true,
-    '"СЕРДЦЕ|Полоски": { per100: 12 }': true,
+    '"СЕРДЦЕ|Полоски": { per100: 13 }': true,
     '"СЕРДЦЕ|Мелкое": { per100: 15 }': true,
     '"ПОЧКИ|Мелкое": { per100: 14 }': true,
-    '"РУБЕЦ Т|Полоски": { per100: 10 }': true,
+    '"РУБЕЦ Т|Полоски": { per100: 11 }': true,
     '"РУБЕЦ Т|Среднее": { per100: 12 }': true,
-    '"БАРАНЬЕ ЛЁГКОЕ|Полоски": { per100: 16 }': true,
+    '"БАРАНЬЕ ЛЁГКОЕ|Полоски": { per100: 17 }': true,
     '"БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 18 }': true,
-    '"ИНДЕЙКА|Полоски": { per100: 18 }': true,
+    '"ИНДЕЙКА|Полоски": { per100: 19 }': true,
     '"ИНДЕЙКА|Мелкое": { per100: 21 }': true,
-    '"БАРАНЬЯ ПЕЧЕНЬ|Полоски": { per100: 16 }': true,
+    '"БАРАНЬЯ ПЕЧЕНЬ|Полоски": { per100: 17 }': true,
     '"БАРАНЬЯ ПЕЧЕНЬ|Мелкое": { per100: 19 }': true,
     '"КРОШКА ЛЁГКОГО": { per100: 11 }': true,
     '"КРОШКА ПОЧЕК": { per100: 11 }': true,
@@ -121,7 +121,7 @@ function assertRetailTable(priceSrc, label) {
   for (const needle of Object.keys(expect)) {
     assert(priceSrc.includes(needle), label + " missing " + needle);
   }
-  assert(!priceSrc.includes('"ЛЁГКОЕ|Полоски": { per100: 10 }'), label + " stale полоски 10");
+  assert(!priceSrc.includes('"ЛЁГКОЕ|Полоски": { per100: 9 }'), label + " stale полоски 9");
   assert(!priceSrc.includes('"ЛЁГКОЕ|Среднее": { per100: 12 }'), label + " stale среднее 12");
 }
 
@@ -160,7 +160,7 @@ assertRetailKey(gsCtx.retailLookupKeyGs_, "БАРАНЬЯ ПЕЧЕНЬ", "лом
 assert(/ЛОМТИКИ/.test(extractFn(gsSrc, "normalizeFraction")), "normalizeFraction keeps ЛОМТИКИ");
 assert(/ПОЛОСКИ/.test(extractFn(gsSrc, "normalizeFraction")), "normalizeFraction keeps ПОЛОСКИ");
 assert(/КУСОЧК/.test(extractFn(gsSrc, "normalizeFraction")), "normalizeFraction maps кусочки");
-assert(gsSrc.includes("strips: 0"), "Code.gs strips default 0");
+assert(gsSrc.includes("strips: 1"), "Code.gs strips default 1");
 assert(gsSrc.includes("extraSmall: 4"), "Code.gs extraSmall default 4");
 
 const priceObj = extractVarObject(gsSrc, "RETAIL_PRICE_BYN_");
@@ -193,7 +193,7 @@ const wLog = runMarkupSuite(wCtx.dressuraFractionMarkupFromBasketD1_, "worker");
 assertRetailKey(wCtx.retailLookupKeyD1_, "ЛЁГКОЕ", "Очень мелкое", "Очень мелкое", "worker lookup");
 assertRetailKey(wCtx.retailLookupKeyD1_, "ЛЁГКОЕ", "полоски", "Полоски", "worker lookup");
 assertRetailKey(wCtx.retailLookupKeyD1_, "СЕРДЦЕ", "целое", "Ломтики", "worker lookup");
-assert(wSrc.includes("strips: 0"), "worker strips default 0");
+assert(wSrc.includes("strips: 1"), "worker strips default 1");
 assert(wSrc.includes("extraSmall: 4"), "worker extraSmall default 4");
 
 /* ---------- Mini App ---------- */
@@ -313,8 +313,8 @@ retailUiCtx.applyRetailPriceMapToUi_([
 ], null);
 assert(retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Ломтики"] && retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Ломтики"].per100 === 9,
   "fill ломтики = base 9");
-assert(retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Полоски"] && retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Полоски"].per100 === 9,
-  "fill полоски = 9");
+assert(retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Полоски"] && retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Полоски"].per100 === 10,
+  "fill полоски = 10");
 assert(retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Крупное"] && retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Крупное"].per100 === 10,
   "fill крупное = 10");
 assert(retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Очень мелкое"] && retailUiCtx.RETAIL_PRICE["ЛЁГКОЕ|Очень мелкое"].per100 === 13,
@@ -325,19 +325,19 @@ assert(retailUiCtx.RETAIL_PRICE["КРОШКА ЛЁГКОГО"] && retailUiCtx.RE
 const priceSlices = retailUiCtx.retailLineCost("ЛЁГКОЕ", "Ломтики", 100, "dressura");
 assert(priceSlices.found && priceSlices.cost === 9, "retail ломтики 100г = 9, got " + JSON.stringify(priceSlices));
 const priceStrips = retailUiCtx.retailLineCost("ЛЁГКОЕ", "Полоски", 100, "dressura");
-assert(priceStrips.found && priceStrips.cost === 9, "retail полоски 100г = 9, got " + JSON.stringify(priceStrips));
+assert(priceStrips.found && priceStrips.cost === 10, "retail полоски 100г = 10, got " + JSON.stringify(priceStrips));
 const priceMed = retailUiCtx.retailLineCost("ЛЁГКОЕ", "Среднее", 100, "dressura");
 assert(priceMed.found && priceMed.cost === 11, "retail среднее 100г = 11, got " + JSON.stringify(priceMed));
 const priceXs = retailUiCtx.retailLineCost("ЛЁГКОЕ", "Очень мелкое", 100, "dressura");
 assert(priceXs.found && priceXs.cost === 13, "retail очень мелкое 100г = 13, got " + JSON.stringify(priceXs));
 
 const htmlSrc = fs.readFileSync(path.join(root, "boinya-c/app.html"), "utf8");
-assert(/id="priceFracStrips" value="0"/.test(htmlSrc), "HTML priceFracStrips default 0");
+assert(/id="priceFracStrips" value="1"/.test(htmlSrc), "HTML priceFracStrips default 1");
 assert(/id="priceFracLarge" value="1"/.test(htmlSrc), "HTML priceFracLarge default 1");
 assert(/id="priceFracMedium" value="2"/.test(htmlSrc), "HTML priceFracMedium default 2");
 assert(/id="priceFracSmall" value="3"/.test(htmlSrc), "HTML priceFracSmall default 3");
 assert(/id="priceFracExtraSmall" value="4"/.test(htmlSrc), "HTML priceFracExtraSmall default 4");
-assert(/id="subDetailFracStrips" value="0"/.test(htmlSrc), "HTML subDetailFracStrips default 0");
+assert(/id="subDetailFracStrips" value="1"/.test(htmlSrc), "HTML subDetailFracStrips default 1");
 
 const retailList = Object.entries(EXPECT_FR).map(function ([name, fr]) {
   return name + ": " + fr.join(", ");

@@ -387,7 +387,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-15 fix-move-network-sheets-h1"
+      deployMarker: "2026-09-18 tz-p0-crumbs-h1"
     };
   }
 
@@ -664,9 +664,19 @@ async function handleAction_(action, params, env, url, ctx) {
       var smk = "";
       try {
         var shit = await findDeferredSnapItem_(env, sid);
-        if (shit) smk = deferredTransferClientKey_(shit);
+        var modeC = String((shit && (shit.mode || (shit.payload && shit.payload.mode))) || "").toLowerCase();
+        var nickC = String((shit && (shit.clientNick || shit.client || (shit.payload && (shit.payload.client || shit.payload.clientNick)))) || "");
+        var titleC = String((shit && shit.title) || "");
+        var isPayAsk =
+          /пп\s*оплат/i.test(nickC) ||
+          /пп\s*оплат/i.test(titleC) ||
+          modeC === "remind";
+        // tomb по matchKey сносит всех сиблингов с тем же ником («ПП оплата · дата»).
+        if (shit && !isPayAsk && modeC !== "buy") {
+          smk = deferredTransferClientKey_(shit);
+        }
       } catch (eSh) {}
-      if (!smk) smk = normalizeMatchKey_((params && (params.matchKey || params.client || params.clientNick)) || "");
+      if (!smk) smk = "";
       await putDeferredCancelTombstone_(env, sid, smk);
     } catch (eTomb) {}
     return deleteFromList_(env, "listDeferred", "items", params, "id");
@@ -792,16 +802,140 @@ function lookupByMatchAliases_(by, raw) {
 }
 
 function parseBasket_(raw) {
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw === "string") {
+  let arr = [];
+  if (Array.isArray(raw)) arr = raw;
+  else if (typeof raw === "string") {
     try {
       const j = JSON.parse(raw || "[]");
-      return Array.isArray(j) ? j : [];
+      arr = Array.isArray(j) ? j : [];
     } catch (e) {
-      return [];
+      arr = [];
     }
   }
-  return [];
+  try {
+    return normalizeBasketAliasesD1_(arr);
+  } catch (eAl) {
+    return arr;
+  }
+}
+
+/** Опечатки SKU: Аортаа→Аорта, ухо ГА→ухо Г. На read+write, чтобы UI никогда не показывал «аортаа». */
+function catalogAliasNameD1_(name) {
+  var raw = String(name || "").trim();
+  if (!raw) return "";
+  var n = raw.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  n = n.replace(/аортаа+/gi, "АОРТА");
+  n = n.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  if (/^АОРТАА+$/.test(n) || n === "АОРТА А") return "АОРТА";
+  if (/^УХО\s*ГА+$/.test(n) || n === "УХОГА") return "УХО Г";
+  if (/ЛОПАТОЧ/.test(n) && /ХРЯЩ/.test(n)) return "ЛОП ХРЯЩ";
+  var aliases = {
+    "АОРТАА": "АОРТА",
+    "АОРТА А": "АОРТА",
+    "УХО ГА": "УХО Г",
+    "УХОГА": "УХО Г",
+    "ГРУШЫ": "ГРУШИ",
+    "ГРУША": "ГРУШИ"
+  };
+  if (aliases[n]) return aliases[n];
+  return n === raw.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim() ? raw : n;
+}
+
+function normalizeBasketItemAliasesD1_(it) {
+  if (!it || typeof it !== "object") return it;
+  var raw = String(it.name || it.main || "").trim();
+  if (raw) {
+    var canon = catalogAliasNameD1_(raw);
+    if (canon) {
+      it.name = canon;
+      if (it.main != null) it.main = canon;
+    }
+  }
+  if (Array.isArray(it.sources)) {
+    it.sources = it.sources.map(function (s) {
+      if (!s || typeof s !== "object") return s;
+      var sn = catalogAliasNameD1_(s.name || s.main || "");
+      if (sn) {
+        s.name = sn;
+        if (s.main != null) s.main = sn;
+      }
+      return s;
+    });
+  }
+  return it;
+}
+
+function normalizeBasketAliasesD1_(basket) {
+  if (!basket || !Array.isArray(basket)) return [];
+  return basket.map(function (src) {
+    if (!src || typeof src !== "object") return src;
+    var it = {};
+    for (var k in src) {
+      if (Object.prototype.hasOwnProperty.call(src, k)) it[k] = src[k];
+    }
+    return normalizeBasketItemAliasesD1_(it);
+  });
+}
+
+function applyNoCutNoteD1_(note, noCut) {
+  var t = String(note || "").replace(/\s*\[НЕ\s*РЕЗАТЬ\]/gi, "").replace(/\s*\[РЕЗАТЬ\]/gi, "").trim();
+  if (noCut) t = (t ? t + " " : "") + "[НЕ РЕЗАТЬ]";
+  return t;
+}
+
+function isCrumbBasketItemD1_(it) {
+  if (!it) return false;
+  if (String(it.cat || "").toLowerCase() === "crumb") return true;
+  if (it.crumbKind || (Array.isArray(it.sources) && it.sources.length)) return true;
+  return /^КРОШКА(?:\s|$)/i.test(String(it.name || it.main || ""));
+}
+
+/** Крошка: дрессура овощи/фрукты 15 / мяс 17 / гипо 20 за 100 г. */
+function crumbKindRateD1_(kind) {
+  var k = String(kind || "").toLowerCase().replace(/ё/g, "е");
+  if (k === "veg" || k === "veggie" || /овощ|фрукт/.test(k)) return 15;
+  if (k === "meat" || /мяс/.test(k)) return 17;
+  if (k === "hypo" || /гипо/.test(k)) return 20;
+  return 0;
+}
+
+/** Нарезка: крошка → обычные исходные позиции (граммы по ratio). */
+function expandCrumbsForCuttingD1_(basket) {
+  var out = [];
+  (basket || []).forEach(function (it) {
+    if (!isCrumbBasketItemD1_(it)) {
+      out.push(it);
+      return;
+    }
+    var sources = Array.isArray(it.sources) ? it.sources.filter(Boolean) : [];
+    var grams = Number(it.val != null ? it.val : it.value) || 0;
+    var ratio = Array.isArray(it.ratio) ? it.ratio : [];
+    if (!sources.length) {
+      out.push(it);
+      return;
+    }
+    var n = sources.length;
+    var sumR = 0;
+    for (var ri = 0; ri < n; ri++) sumR += Number(ratio[ri]) || 0;
+    sources.forEach(function (s, i) {
+      var part = sumR > 0 ? (Number(ratio[i]) || 0) / sumR : 1 / n;
+      var g = Math.round(grams * part);
+      if (g <= 0 && grams > 0) g = 1;
+      var name = catalogAliasNameD1_(s.name || s.main || "") || String(s.name || s.main || "").trim();
+      if (!name || g <= 0) return;
+      out.push({
+        cat: s.cat || "dressura",
+        name: name,
+        main: name,
+        sub: s.sub || "",
+        val: g,
+        value: g,
+        unit: "гр",
+        dog: it.dog
+      });
+    });
+  });
+  return out;
 }
 
 /** Непустое поле: пустая строка / [] / {} не считаются данными. */
@@ -2002,7 +2136,7 @@ function stripRepairedTransfers_(items) {
 function buildDeferredItemFromParams_(params) {
   params = params || {};
   var id = String(params.id || "").trim() || ("df_" + Date.now());
-  var mode = String(params.mode || "pp").trim().toLowerCase();
+  var mode = String(params.mode || params.kind || "pp").trim().toLowerCase();
   if (
     mode !== "retail" &&
     mode !== "remind" &&
@@ -5028,9 +5162,10 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
   const acc = Object.create(null);
   (people || []).forEach(function (p) {
     if (p && (p.noCut || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(p.note || "")))) return;
-    (p.basket || []).forEach(function (it) {
+    expandCrumbsForCuttingD1_(p.basket || []).forEach(function (it) {
       const name = cuttingNameFromBasketItem_(it);
       if (!name) return;
+      if (/^КРОШКА/i.test(name) && isCrumbBasketItemD1_(it)) return;
       const val = Number(it.value != null ? it.value : it.val) || 0;
       if (!(val > 0)) return;
       const key = name.toUpperCase();
@@ -6611,7 +6746,7 @@ async function saveOrder_(params, env, asBooking) {
     dogCount: params.dogCount,
     dogNames: params.dogNames || null,
     geo: params.geo,
-    noCut: toBool_(params.noCut),
+    noCut: toBool_(params.noCut) || String(params.cutRaw || "") === "0" || String(params.cutRaw || "").toLowerCase() === "no",
     couponsQty: params.couponsQty,
     couponPrice: params.couponPrice,
     segment: segSave,
@@ -6668,7 +6803,7 @@ async function saveOrder_(params, env, asBooking) {
     client: client,
     match_key: matchKey,
     address: String(params.address || ""),
-    note: String(params.note || ""),
+    note: applyNoCutNoteD1_(params.note || "", !!meta.noCut),
     phone: String(params.phone || ""),
     basket_json: basket,
     segment: segSave,
@@ -8095,6 +8230,7 @@ async function moveClient_(params, env) {
   const meta = parseMeta_(row.meta_json);
   if (cutRaw === "0" || cutRaw === "no") meta.noCut = true;
   else if (cutRaw === "1" || cutRaw === "yes") meta.noCut = false;
+  const movedNote = applyNoCutNoteD1_(row.note || "", !!meta.noCut);
 
   // канонический from = где человек реально сидит (не «Пн» при слоте «Будущая»)
   if (row.day_name) addFromDay_(row.day_name);
@@ -8192,7 +8328,7 @@ async function moveClient_(params, env) {
       client: row.client,
       match_key: matchKey,
       address: row.address || "",
-      note: row.note || "",
+      note: movedNote,
       phone: row.phone || "",
       basket_json: row.basket_json || "[]",
       segment: row.segment || "",
@@ -8260,7 +8396,7 @@ async function moveClient_(params, env) {
         client: row.client,
         match_key: matchKey,
         address: row.address || "",
-        note: row.note || "",
+        note: movedNote,
         phone: row.phone || "",
         basket_json: row.basket_json || "[]",
         segment: row.segment || "",
@@ -8303,7 +8439,7 @@ async function moveClient_(params, env) {
         client: row.client,
         match_key: matchKey,
         address: row.address || "",
-        note: row.note || "",
+        note: movedNote,
         phone: row.phone || "",
         basket_json: row.basket_json || "[]",
         segment: row.segment || "",
@@ -11166,6 +11302,7 @@ async function handleCutover_(a, params, env, ctx) {
             sheet: "ПП",
             segment: "ПП",
             basket: params && params.basket,
+            basket2: params && (params.basket2 || params.basketSlot2 || params.composition2),
             deliveries: params && (params.deliveriesN || params.deliveries),
             factCost: enrollFact,
             wishes: params && (params.wishes || params.note),
@@ -11199,6 +11336,7 @@ async function handleCutover_(a, params, env, ctx) {
                 subId: liveEn.subId || "",
                 row: liveEn.row || 0,
                 basket: params && params.basket,
+                basket2: params && (params.basket2 || params.basketSlot2),
                 deliveries: liveEn.deliveriesN || (params && params.deliveriesN) || 1,
                 factCost: enrollFact != null
                   ? enrollFact
@@ -15302,7 +15440,8 @@ async function getSubscription_(params, env) {
     nick: nick || found.nick,
     segment: segment || found.sheet || "",
     sheet: found.sheet || segment || "",
-    subStatus: found.status
+    subStatus: found.status,
+    basket2: found.basket2 || found.basketSlot2 || found.composition2 || []
   });
 }
 
@@ -15348,6 +15487,9 @@ async function upsertSubscription_(params, env) {
   if (subId) row.subId = subId;
   else if (arr[idx] && arr[idx].subId) row.subId = arr[idx].subId;
   if (params.basket != null) row.basket = parseMaybeJson_(params.basket);
+  if (params.basket2 != null) row.basket2 = parseMaybeJson_(params.basket2);
+  if (params.basketSlot2 != null) row.basket2 = parseMaybeJson_(params.basketSlot2);
+  if (params.composition2 != null) row.basket2 = parseMaybeJson_(params.composition2);
   if (params.packCounts != null) row.packCounts = parseMaybeJson_(params.packCounts);
   if (params.basketBp1 != null) row.basketBp1 = parseMaybeJson_(params.basketBp1);
   if (params.basketBp2 != null) row.basketBp2 = parseMaybeJson_(params.basketBp2);
@@ -17040,9 +17182,10 @@ function accumulateDryNeedD1_(people, warehouseRows) {
   const metaByKey = Object.create(null);
   (people || []).forEach(function (p) {
     if (p && (p.noCut || /\[НЕ\s*РЕЗАТЬ\]/i.test(String(p.note || "")))) return;
-    (p.basket || []).forEach(function (it) {
+    expandCrumbsForCuttingD1_(p.basket || []).forEach(function (it) {
       const cname = cuttingNameFromBasketItem_(it);
       if (!cname) return;
+      if (/^КРОШКА/i.test(cname) && isCrumbBasketItemD1_(it)) return;
       const val = Number(it.value != null ? it.value : it.val) || 0;
       if (!(val > 0)) return;
       const wh = matchWarehouseRowD1_(warehouseRows, cname) || matchWarehouseRowD1_(warehouseRows, it.main || it.name);
@@ -17758,7 +17901,7 @@ function packagesBynFromUCountsD1_(pc) {
 
 const DRESSURA_FRAC_RATES_DEFAULT_D1_ = {
   slices: 0,
-  strips: 0,
+  strips: 1,
   large: 1,
   medium: 2,
   small: 3,
@@ -18069,6 +18212,27 @@ function buildPpLinesFromCostsD1_(basket, costs) {
     const val = Number(it.val != null ? it.val : it.value) || 0;
     const cat = String(it.cat || "").trim();
     if (!name || val <= 0) continue;
+    if (isCrumbBasketItemD1_(it)) {
+      const crumbRate = crumbKindRateD1_(it.crumbKind || sub || name);
+      if (crumbRate > 0) {
+        const crumbCost = (val / 100) * crumbRate;
+        totalCost += crumbCost;
+        lines.push({
+          name: name,
+          sub: sub,
+          val: val,
+          per100: crumbRate,
+          unitPrice: crumbRate,
+          piece: false,
+          cat: "crumb",
+          crumbKind: it.crumbKind || "",
+          sources: Array.isArray(it.sources) ? it.sources : [],
+          ratio: Array.isArray(it.ratio) ? it.ratio : [],
+          cost: Math.round(crumbCost * 100) / 100
+        });
+        continue;
+      }
+    }
     const info = lookupPpCostInfoD1_(costs, name, sub);
     const unitPrice = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
     if (!info || !(unitPrice > 0)) missing++;
@@ -18298,7 +18462,18 @@ async function calcPriceRetailD1_(params, env, ctx) {
     const rsub = String(rit.sub || "").trim();
     const rval = Number(rit.val != null ? rit.val : rit.value) || 0;
     if (!rname || rval <= 0) continue;
-    const rc = retailLineCostD1_(map, rname, rsub, rval, rit.cat);
+    let rc;
+    if (isCrumbBasketItemD1_(rit) || String(rit.cat || "").toLowerCase() === "crumb") {
+      const crumbRate = crumbKindRateD1_(rit.crumbKind || rsub || rname);
+      if (crumbRate > 0) {
+        rc = {
+          cost: Math.round((rval / 100) * crumbRate * 100) / 100,
+          per: crumbRate,
+          found: true
+        };
+      }
+    }
+    if (!rc) rc = retailLineCostD1_(map, rname, rsub, rval, rit.cat);
     rTotal += rc.cost;
     rLines.push({ name: rname, sub: rsub, val: rval, per100: rc.per, cost: rc.cost, found: rc.found });
   }

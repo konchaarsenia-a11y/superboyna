@@ -9802,6 +9802,7 @@ function listYesterdayDeliveredForNudge_(ss, dateOverride) {
 
   var crmSs = null;
   try { crmSs = getCrmSpreadsheet_(); } catch (eCrmSs) { crmSs = null; }
+  var crmIndex = loadCrmNudgeIndex_(crmSs);
 
   var resolved = [];
   var seen2 = {};
@@ -9835,8 +9836,9 @@ function listYesterdayDeliveredForNudge_(ss, dateOverride) {
   var bp1 = [];
   for (var r = 0; r < resolved.length; r++) {
     var row = resolved[r];
-    var meta = classifyDeliveredClientForNudge_(ss, row, crmSs);
+    var meta = classifyDeliveredClientForNudge_(ss, row, crmSs, crmIndex);
     if (!meta.name) meta.name = row.name;
+    if (meta.kind === "retail" || meta.segment === "Р") continue;
     if (meta.kind === "pp") pp.push(meta);
     else if (meta.kind === "bp1") bp1.push(meta);
   }
@@ -9849,14 +9851,105 @@ function listYesterdayDeliveredForNudge_(ss, dateOverride) {
   };
 }
 
-function classifyDeliveredClientForNudge_(ss, row, crmSsOpt) {
+/** Индекс CRM для подбития дат: полный набор ПП/АФК/БП1 + розница (Р) — один проход по листам. */
+function loadCrmNudgeIndex_(crmSs) {
+  var idx = { pp: {}, afk: {}, bp1: {}, retail: {} };
+  function put_(map, cell) {
+    var nick = String(cell || "").trim();
+    if (!nick) return;
+    var k = clientMatchKey_(nick) || nick.toUpperCase();
+    if (k) map[k] = nick;
+  }
+  if (!crmSs) return idx;
+  var specs = [
+    { name: "ПП", kind: "pp" },
+    { name: "АФК", kind: "afk" },
+    { name: "БП", kind: "bp" }
+  ];
+  for (var s = 0; s < specs.length; s++) {
+    var data = null;
+    try { data = getCrmSheetValuesFast_(crmSs, specs[s].name); } catch (eR) { data = null; }
+    if (!data || data.length < 3) continue;
+    for (var r = 2; r < data.length; r++) {
+      var cell = String(data[r][0] || "").trim();
+      if (!cell) continue;
+      var blob = "";
+      for (var c = 0; c < Math.min(data[r].length, 8); c++) blob += " " + String(data[r][c] || "");
+      blob = blob.toUpperCase();
+      if (/(^|\s)Р(\s|$)|РОЗНИЦ|RETAIL/.test(blob) && specs[s].kind !== "pp") {
+        put_(idx.retail, cell);
+      }
+      if (specs[s].kind === "pp") put_(idx.pp, cell);
+      else if (specs[s].kind === "afk") put_(idx.afk, cell);
+      else if (specs[s].kind === "bp") {
+        var stage0 = normalizeBpStage_(String(data[r][3] || "БП1"));
+        if (stage0 === "БП1") put_(idx.bp1, cell);
+      }
+    }
+  }
+  return idx;
+}
+
+function crmIndexHit_(map, name, matchKey) {
+  if (!map) return "";
+  var k = matchKey || clientMatchKey_(name) || String(name || "").toUpperCase();
+  if (k && map[k]) return map[k];
+  var keys = Object.keys(map);
+  for (var i = 0; i < keys.length; i++) {
+    if (nicksMatch_(map[keys[i]], name) || nicksMatch_(keys[i], name) || nicksMatch_(keys[i], matchKey)) {
+      return map[keys[i]];
+    }
+  }
+  return "";
+}
+
+function classifyDeliveredClientForNudge_(ss, row, crmSsOpt, crmIndexOpt) {
   var name = String(row.name || "").trim();
   var seg = String(row.segment || "").trim().toUpperCase();
   var stage = "";
   var kind = "";
+  var crmIndex = crmIndexOpt || null;
+
+  if (seg === "Р" || seg === "R" || seg === "РОЗНИЦА" || seg === "RETAIL") {
+    return {
+      kind: "retail",
+      name: name,
+      matchKey: row.matchKey || clientMatchKey_(name) || "",
+      segment: "Р",
+      stage: "",
+      basket: row.basket || [],
+      address: row.address || "",
+      ppSlot: row.ppSlot || ""
+    };
+  }
+
+  if (crmIndex) {
+    var retNick = crmIndexHit_(crmIndex.retail, name, row.matchKey);
+    var ppNick = crmIndexHit_(crmIndex.pp, name, row.matchKey);
+    var afkNick = crmIndexHit_(crmIndex.afk, name, row.matchKey);
+    var bpNick = crmIndexHit_(crmIndex.bp1, name, row.matchKey);
+    if (retNick && !ppNick) {
+      kind = "retail";
+      seg = "Р";
+      if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(retNick) || retNick;
+    } else if (ppNick) {
+      kind = "pp";
+      seg = "ПП";
+      if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(ppNick) || ppNick;
+    } else if (afkNick) {
+      kind = "";
+      seg = "АФК";
+      if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(afkNick) || afkNick;
+    } else if (bpNick) {
+      kind = "bp1";
+      seg = "БП";
+      stage = "БП1";
+      if (!name || looksLikeBareMatchKey_(name)) name = displayClientNick_(bpNick) || bpNick;
+    }
+  }
 
   // CRM: есть в ПП / АФК / БП — и подтянуть человекочитаемый ник с листа
-  try {
+  if (!kind) try {
     var crmSs = crmSsOpt || getCrmSpreadsheet_();
     var crmCell = crmNickCellForNudge_(crmSs, name) ||
       (row.matchKey ? crmNickCellForNudge_(crmSs, row.matchKey) : null);
@@ -17366,7 +17459,7 @@ function countDeliveredThisWeek_(ss, clientName, dateValue, tz) {
 var RETAIL_PRICE_BYN_ = {
   "ЛЁГКОЕ|Ломтики": { per100: 9 },
   "ЛЁГКОЕ|Целое": { per100: 9 },
-  "ЛЁГКОЕ|Полоски": { per100: 9 },
+  "ЛЁГКОЕ|Полоски": { per100: 10 },
   "ЛЁГКОЕ|Крупное": { per100: 10 },
   "ЛЁГКОЕ|Большое": { per100: 10 },
   "ЛЁГКОЕ|Среднее": { per100: 11 },
@@ -17374,7 +17467,7 @@ var RETAIL_PRICE_BYN_ = {
   "ЛЁГКОЕ|Очень мелкое": { per100: 13 },
   "СЕРДЦЕ|Ломтики": { per100: 12 },
   "СЕРДЦЕ|Целое": { per100: 12 },
-  "СЕРДЦЕ|Полоски": { per100: 12 },
+  "СЕРДЦЕ|Полоски": { per100: 13 },
   "СЕРДЦЕ|Мелкое": { per100: 15 },
   "СЕРДЦЕ|Очень мелкое": { per100: 16 },
   "ПОЧКИ|Ломтики": { per100: 11 },
@@ -17383,7 +17476,7 @@ var RETAIL_PRICE_BYN_ = {
   "ПОЧКИ|Очень мелкое": { per100: 15 },
   "РУБЕЦ Т|Ломтики": { per100: 10 },
   "РУБЕЦ Т|Целое": { per100: 10 },
-  "РУБЕЦ Т|Полоски": { per100: 10 },
+  "РУБЕЦ Т|Полоски": { per100: 11 },
   "РУБЕЦ Т|Крупное": { per100: 11 },
   "РУБЕЦ Т|Большое": { per100: 11 },
   "РУБЕЦ Т|Среднее": { per100: 12 },
@@ -17391,7 +17484,7 @@ var RETAIL_PRICE_BYN_ = {
   "РУБЕЦ Т|Очень мелкое": { per100: 14 },
   "БАРАНЬЕ ЛЁГКОЕ|Ломтики": { per100: 16 },
   "БАРАНЬЕ ЛЁГКОЕ|Целое": { per100: 16 },
-  "БАРАНЬЕ ЛЁГКОЕ|Полоски": { per100: 16 },
+  "БАРАНЬЕ ЛЁГКОЕ|Полоски": { per100: 17 },
   "БАРАНЬЕ ЛЁГКОЕ|Крупное": { per100: 17 },
   "БАРАНЬЕ ЛЁГКОЕ|Большое": { per100: 17 },
   "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 18 },
@@ -17399,13 +17492,13 @@ var RETAIL_PRICE_BYN_ = {
   "БАРАНЬЕ ЛЁГКОЕ|Очень мелкое": { per100: 20 },
   "ИНДЕЙКА": { per100: 18 },
   "ИНДЕЙКА|Ломтики": { per100: 18 },
-  "ИНДЕЙКА|Полоски": { per100: 18 },
-  "ИНДЕЙКА|Кусочки": { per100: 18 },
+  "ИНДЕЙКА|Полоски": { per100: 19 },
+  "ИНДЕЙКА|Кусочки": { per100: 19 },
   "ИНДЕЙКА|Мелкое": { per100: 21 },
   "ИНДЕЙКА|Мелкие кусочки": { per100: 21 },
   "БАРАНЬЯ ПЕЧЕНЬ": { per100: 16 },
   "БАРАНЬЯ ПЕЧЕНЬ|Ломтики": { per100: 16 },
-  "БАРАНЬЯ ПЕЧЕНЬ|Полоски": { per100: 16 },
+  "БАРАНЬЯ ПЕЧЕНЬ|Полоски": { per100: 17 },
   "БАРАНЬЯ ПЕЧЕНЬ|Мелкое": { per100: 19 },
   "ПЕЧЕНЬ": { per100: 11 },
   "ВЫМЯ": { per100: 10 },
@@ -18208,7 +18301,7 @@ function handleCalcPrice(json, callback, fromPost) {
 /** Канон наценок ПП: BYN/100г к базе (ломтики). Крошку не трогаем. */
 var DRESSURA_FRAC_RATES_DEFAULT_ = {
   slices: 0,
-  strips: 0,
+  strips: 1,
   large: 1,
   medium: 2,
   small: 3,
@@ -18253,7 +18346,7 @@ function dressuraFractionRates_(rates) {
   };
 }
 
-/** Наценка фракций: (г/100)×ставка. Канон 0/0/1/2/3/4 (ломтики/полоски/крупное/среднее/мелкое/очень мелкое). Жевалки и крошка — нет. */
+/** Наценка фракций: (г/100)×ставка. Канон 0/1/1/2/3/4 (ломтики/полоски/крупное/среднее/мелкое/очень мелкое). Жевалки и крошка-миксер — отдельно. */
 function dressuraFractionMarkupFromBasket_(basket, rates) {
   var r = dressuraFractionRates_(rates);
   var sum = 0;
@@ -27221,7 +27314,7 @@ function handleSaveDeferred_(json, callback, fromPost) {
   var tid = String(json.telegramId || "").trim();
   var sh = deferredSheet_();
   var id = String(json.id || "").trim() || deferredNewId_();
-  var mode = String(json.mode || "pp").trim().toLowerCase();
+  var mode = String(json.mode || json.kind || "pp").trim().toLowerCase();
   if (mode !== "retail" && mode !== "remind" && mode !== "order" && mode !== "buy" && mode !== "transfer") mode = "pp";
   var title = String(json.title || "").trim();
   var nick = String(json.clientNick || json.client || "").trim();

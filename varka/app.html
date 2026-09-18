@@ -709,7 +709,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.52";
+  var APP_VER = "3.3.53";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -2668,7 +2668,10 @@
         var name = displayPointName_(p) || p.name || p.id;
         var addr = String(p.address || "").trim();
         var line = esc(name);
-        if (addr && addr.toLowerCase() !== String(name).toLowerCase()) {
+        var nid = String(p.networkId || p.network || "").toLowerCase();
+        var pid = String(p.id || "");
+        var isVarka = nid === "net_varka" || pid.indexOf("pt_varka_") === 0 || /^varka\b/i.test(String(p.name || ""));
+        if (!isVarka && addr && addr.toLowerCase() !== String(name).toLowerCase()) {
           line += "<br><span class=\"muted\" style=\"font-size:12px\">" + esc(addr) + "</span>";
         }
         return line;

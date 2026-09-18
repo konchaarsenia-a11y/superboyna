@@ -54,6 +54,8 @@
     let priceActiveDog = 1;
     let priceDogNames = { 1: "", 2: "" };
     let priceMode = "pp";
+    let priceCompSlot = 1;
+    let priceCompStore = { 1: null, 2: null };
     function makeEmptyPriceModeStore() {
       return {
         baskets: { 1: [], 2: [] },
@@ -244,6 +246,9 @@
       var SEL = "button,.btn-action,.btn-save,.seg-btn,.tab-link,.crm-mini-btn,.route-mini," +
         ".modal-day-btn,.order-day-chip,.order-flyout-btn,.sub-tab,.help-fab,.bug-fab,.tasks-menu-btn";
       var lastHaptic = 0;
+      var downBtn = null;
+      var downAt = 0;
+      var clickSeen = false;
       function btnFrom(t) {
         if (!t || !t.closest) return null;
         var b = t.closest(SEL);
@@ -259,26 +264,56 @@
           });
         } catch (eC) {}
       }
-      function onDown(ev) {
-        var b = btnFrom(ev.target);
-        if (!b) return;
-        b.classList.add("is-pressing");
+      function hapticNow() {
         var now = Date.now();
-        if (now - lastHaptic > 45) {
-          lastHaptic = now;
-          try {
-            if (tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred) {
-              tg.HapticFeedback.impactOccurred("light");
-            }
-          } catch (eH) {}
+        if (now - lastHaptic <= 45) return;
+        lastHaptic = now;
+        try {
+          if (tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred) {
+            tg.HapticFeedback.impactOccurred("light");
+          }
+        } catch (eH) {}
+      }
+      function fireClick_(b) {
+        if (!b || b.disabled) return;
+        try {
+          b.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+        } catch (eF) {
+          try { if (typeof b.click === "function") b.click(); } catch (eC) {}
         }
       }
-      function onUp() { clearPress(); }
+      function onDown(ev) {
+        var b = btnFrom(ev.target);
+        downBtn = b;
+        downAt = Date.now();
+        clickSeen = false;
+        if (!b) return;
+        b.classList.add("is-pressing");
+      }
+      function onClick(ev) {
+        var b = btnFrom(ev.target);
+        if (!b) return;
+        clickSeen = true;
+        hapticNow();
+      }
+      function onUp(ev) {
+        var b = btnFrom(ev && ev.target) || downBtn;
+        clearPress();
+        // WebView: haptic на pointerdown иногда глотает click. Если down был, click не пришёл — дожимаем.
+        if (downBtn && b === downBtn && !clickSeen && (Date.now() - downAt) < 700) {
+          if (!downBtn.disabled && downBtn.getAttribute("aria-disabled") !== "true") {
+            hapticNow();
+            fireClick_(downBtn);
+          }
+        }
+        downBtn = null;
+      }
       document.addEventListener("pointerdown", onDown, true);
+      document.addEventListener("click", onClick, true);
       document.addEventListener("pointerup", onUp, true);
       document.addEventListener("pointercancel", onUp, true);
       document.addEventListener("lostpointercapture", onUp, true);
-      window.addEventListener("blur", clearPress);
+      window.addEventListener("blur", function () { downBtn = null; clearPress(); });
     })();
 
     try {
@@ -1430,7 +1465,7 @@
 
       "ЛЁГКОЕ|Ломтики": { per100: 9 },
       "ЛЁГКОЕ|Целое": { per100: 9 },
-      "ЛЁГКОЕ|Полоски": { per100: 9 },
+      "ЛЁГКОЕ|Полоски": { per100: 10 },
       "ЛЁГКОЕ|Крупное": { per100: 10 },
       "ЛЁГКОЕ|Большое": { per100: 10 },
       "ЛЁГКОЕ|Среднее": { per100: 11 },
@@ -1438,7 +1473,7 @@
       "ЛЁГКОЕ|Очень мелкое": { per100: 13 },
       "СЕРДЦЕ|Ломтики": { per100: 12 },
       "СЕРДЦЕ|Целое": { per100: 12 },
-      "СЕРДЦЕ|Полоски": { per100: 12 },
+      "СЕРДЦЕ|Полоски": { per100: 13 },
       "СЕРДЦЕ|Мелкое": { per100: 15 },
       "СЕРДЦЕ|Очень мелкое": { per100: 16 },
       "ПОЧКИ|Ломтики": { per100: 11 },
@@ -1447,7 +1482,7 @@
       "ПОЧКИ|Очень мелкое": { per100: 15 },
       "РУБЕЦ Т|Ломтики": { per100: 10 },
       "РУБЕЦ Т|Целое": { per100: 10 },
-      "РУБЕЦ Т|Полоски": { per100: 10 },
+      "РУБЕЦ Т|Полоски": { per100: 11 },
       "РУБЕЦ Т|Крупное": { per100: 11 },
       "РУБЕЦ Т|Большое": { per100: 11 },
       "РУБЕЦ Т|Среднее": { per100: 12 },
@@ -1455,7 +1490,7 @@
       "РУБЕЦ Т|Очень мелкое": { per100: 14 },
       "БАРАНЬЕ ЛЁГКОЕ|Ломтики": { per100: 16 },
       "БАРАНЬЕ ЛЁГКОЕ|Целое": { per100: 16 },
-      "БАРАНЬЕ ЛЁГКОЕ|Полоски": { per100: 16 },
+      "БАРАНЬЕ ЛЁГКОЕ|Полоски": { per100: 17 },
       "БАРАНЬЕ ЛЁГКОЕ|Крупное": { per100: 17 },
       "БАРАНЬЕ ЛЁГКОЕ|Большое": { per100: 17 },
       "БАРАНЬЕ ЛЁГКОЕ|Среднее": { per100: 18 },
@@ -1463,13 +1498,13 @@
       "БАРАНЬЕ ЛЁГКОЕ|Очень мелкое": { per100: 20 },
       "ИНДЕЙКА": { per100: 18 },
       "ИНДЕЙКА|Ломтики": { per100: 18 },
-      "ИНДЕЙКА|Полоски": { per100: 18 },
-      "ИНДЕЙКА|Кусочки": { per100: 18 },
+      "ИНДЕЙКА|Полоски": { per100: 19 },
+      "ИНДЕЙКА|Кусочки": { per100: 19 },
       "ИНДЕЙКА|Мелкое": { per100: 21 },
       "ИНДЕЙКА|Мелкие кусочки": { per100: 21 },
       "БАРАНЬЯ ПЕЧЕНЬ": { per100: 16 },
       "БАРАНЬЯ ПЕЧЕНЬ|Ломтики": { per100: 16 },
-      "БАРАНЬЯ ПЕЧЕНЬ|Полоски": { per100: 16 },
+      "БАРАНЬЯ ПЕЧЕНЬ|Полоски": { per100: 17 },
       "БАРАНЬЯ ПЕЧЕНЬ|Мелкое": { per100: 19 },
       "ПЕЧЕНЬ": { per100: 11 },
       "ВЫМЯ": { per100: 10 },
@@ -1620,7 +1655,15 @@
       return keys;
     }
 
-    function retailLineCost(name, sub, val, cat) {
+    function retailLineCost(name, sub, val, cat, extra) {
+      extra = extra || {};
+      if (String(cat || "").toLowerCase() === "crumb" || extra.crumbKind) {
+        var crumbRate = crumbKindRateUi_(extra.crumbKind || sub || name);
+        var cv = Number(val) || 0;
+        if (crumbRate > 0 && cv > 0) {
+          return { cost: Math.round((cv / 100) * crumbRate * 100) / 100, per: crumbRate, found: true };
+        }
+      }
       var meta = retailLookupKey_(name, sub);
       var info = RETAIL_PRICE[meta.key] || RETAIL_PRICE[meta.name];
       if (!info) {
@@ -2124,7 +2167,7 @@
         var name = it.name || it.main || "";
         var sub = it.sub || "";
         var val = it.val != null ? it.val : it.value;
-        var r = retailLineCost(name, sub, val, it.cat);
+        var r = retailLineCost(it.name || it.main, it.sub || "", val, it.cat, { crumbKind: it.crumbKind });
         goods += r.cost;
         lines.push({ name: name, sub: sub, val: Number(val) || 0, per100: r.per, cost: r.cost, found: r.found });
       });
@@ -2687,17 +2730,83 @@
       } catch (e) {}
     }
 
+    function catalogAliasNameUi_(name) {
+      var raw = String(name || "").trim();
+      if (!raw) return "";
+      try {
+        var via = canonicalProductMain_(raw);
+        if (via) return via;
+      } catch (eAl) {}
+      var n = raw.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+      n = n.replace(/АОРТАА+/g, "АОРТА");
+      if (/^АОРТАА+$/.test(n) || n === "АОРТА А") return "АОРТА";
+      if (/^УХО\s*ГА+$/.test(n) || n === "УХОГА") return "УХО Г";
+      return n === raw.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim() ? raw : n;
+    }
+
+    function serializeBasketItem_(x, extra) {
+      extra = extra || {};
+      var main = catalogAliasNameUi_(x.main || x.name);
+      var row = {
+        cat: x.cat,
+        main: main,
+        name: main,
+        sub: x.sub || "",
+        value: x.value != null ? x.value : x.val,
+        val: x.value != null ? x.value : x.val
+      };
+      if (extra.dog) row.dog = extra.dog;
+      if (x.cat === "crumb" || x.crumbKind || (Array.isArray(x.sources) && x.sources.length)) {
+        row.cat = "crumb";
+        row.crumbKind = x.crumbKind || "";
+        row.sources = Array.isArray(x.sources) ? x.sources.map(function (s) {
+          var sn = catalogAliasNameUi_(s && (s.name || s.main));
+          return {
+            cat: (s && s.cat) || "",
+            name: sn,
+            main: sn,
+            sub: (s && s.sub) || ""
+          };
+        }) : [];
+        row.ratio = Array.isArray(x.ratio) ? x.ratio.slice() : [];
+        if (!row.name || /^КРОШКА$/i.test(row.name)) {
+          row.name = crumbKindTitle_(row.crumbKind);
+          row.main = row.name;
+        }
+      }
+      return row;
+    }
+
+    function crumbKindTitle_(kind) {
+      var k = String(kind || "").toLowerCase();
+      if (k === "veg") return "Крошка · дрессура овощи/фрукты";
+      if (k === "meat") return "Крошка · мяс позиции";
+      if (k === "hypo") return "Крошка · гипоаллергенные";
+      return "Крошка";
+    }
+
+    function crumbKindRateUi_(kind) {
+      var k = String(kind || "").toLowerCase();
+      if (k === "veg") return 15;
+      if (k === "meat") return 17;
+      if (k === "hypo") return 20;
+      return 0;
+    }
+
     function mapApiBasketToLocal(list) {
       return (list || []).map(function (x) {
-        var main = String(x.main || x.name || "").trim();
-        var mainUp = main.toUpperCase().replace(/Ё/g, "Е");
+        var main = catalogAliasNameUi_(x.main || x.name || "");
+        var mainUp = String(main || "").toUpperCase().replace(/Ё/g, "Е");
         var cat = x.cat || "dressura";
+        if (x.crumbKind || String(cat).toLowerCase() === "crumb" || (Array.isArray(x.sources) && x.sources.length)) {
+          cat = "crumb";
+        }
         if (/^ПОЧКИ$/.test(mainUp)) cat = "dressura";
         if (/^ГРУШ/.test(mainUp)) {
           main = "ГРУШЫ";
           cat = "veg";
         }
-        return {
+        var row = {
           id: Date.now() + Math.random(),
           cat: cat,
           main: main,
@@ -2706,6 +2815,19 @@
           value: x.val != null ? x.val : x.value,
           val: x.val != null ? x.val : x.value
         };
+        if (cat === "crumb") {
+          row.crumbKind = x.crumbKind || "";
+          row.sources = Array.isArray(x.sources) ? x.sources.map(function (s) {
+            var sn = catalogAliasNameUi_(s && (s.name || s.main));
+            return { cat: (s && s.cat) || "", name: sn, main: sn, sub: (s && s.sub) || "" };
+          }) : [];
+          row.ratio = Array.isArray(x.ratio) ? x.ratio.slice() : [];
+          if (!row.name || /^КРОШКА$/i.test(String(row.name))) {
+            row.name = crumbKindTitle_(row.crumbKind);
+            row.main = row.name;
+          }
+        }
+        return row;
       }).filter(function (x) { return x.main && Number(x.value) > 0; });
     }
 
@@ -3064,30 +3186,13 @@
         var b2 = orderBaskets[2] || [];
         var src = b1.length ? 1 : (b2.length ? 2 : (orderActiveDog || 1));
         (orderBaskets[src] || []).forEach(function (x) {
-          var main = canonicalProductMain_(x.main || x.name);
-          out.push({
-            cat: x.cat,
-            main: main,
-            name: main,
-            sub: x.sub || "",
-            value: x.value != null ? x.value : x.val,
-            val: x.value != null ? x.value : x.val
-          });
+          out.push(serializeBasketItem_(x));
         });
         return out;
       }
       for (var d = 1; d <= 2; d++) {
         (orderBaskets[d] || []).forEach(function (x) {
-          var main = canonicalProductMain_(x.main || x.name);
-          out.push({
-            cat: x.cat,
-            main: main,
-            name: main,
-            sub: x.sub || "",
-            value: x.value != null ? x.value : x.val,
-            val: x.value != null ? x.value : x.val,
-            dog: d
-          });
+          out.push(serializeBasketItem_(x, { dog: d }));
         });
       }
       return out;
@@ -3884,7 +3989,192 @@
       document.getElementById("selectorCard").style.display = "none";
     }
 
-    function renderBasket() {
+    var crumbBuilder = {
+      target: "order",
+      kind: "",
+      sources: [],
+      grams: "",
+      ratio: []
+    };
+
+    function crumbSourcePool_(kind) {
+      var keys = [];
+      if (kind === "veg") keys = ["dressura", "veg"];
+      else if (kind === "meat") keys = ["dressura", "other", "veg"];
+      else keys = ["dressura", "other", "veg"];
+      var out = [];
+      keys.forEach(function (k) {
+        var cat = catalog[k] || {};
+        (cat.items || []).forEach(function (n) {
+          out.push({ cat: k, name: n });
+        });
+      });
+      return out;
+    }
+
+    function openCrumbBuilder(target) {
+      crumbBuilder = { target: target || "order", kind: "", sources: [], grams: "", ratio: [] };
+      var card = document.getElementById("crumbBuilderCard");
+      if (!card) return;
+      card.style.display = "block";
+      try { card.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (eSc) {}
+      renderCrumbBuilder_();
+    }
+    window.openCrumbBuilder = openCrumbBuilder;
+
+    function setCrumbKind_(kind) {
+      crumbBuilder.kind = kind;
+      if (!crumbBuilder.sources.length) crumbBuilder.sources = [{ cat: "", name: "" }];
+      renderCrumbBuilder_();
+    }
+    window.setCrumbKind_ = setCrumbKind_;
+
+    function crumbAddSource_() {
+      crumbBuilder.sources.push({ cat: "", name: "" });
+      crumbEqualizeRatio_();
+      renderCrumbBuilder_();
+    }
+    window.crumbAddSource_ = crumbAddSource_;
+
+    function crumbRemoveSource_(idx) {
+      crumbBuilder.sources.splice(idx, 1);
+      if (!crumbBuilder.sources.length) crumbBuilder.sources = [{ cat: "", name: "" }];
+      crumbEqualizeRatio_();
+      renderCrumbBuilder_();
+    }
+    window.crumbRemoveSource_ = crumbRemoveSource_;
+
+    function crumbPickSource_(idx, val) {
+      var pool = crumbSourcePool_(crumbBuilder.kind);
+      var hit = pool.filter(function (p) { return p.name === val; })[0];
+      crumbBuilder.sources[idx] = hit ? { cat: hit.cat, name: hit.name } : { cat: "", name: val };
+      crumbEqualizeRatio_();
+      renderCrumbBuilder_();
+    }
+    window.crumbPickSource_ = crumbPickSource_;
+
+    function crumbSetGrams_(v) {
+      crumbBuilder.grams = v;
+    }
+    window.crumbSetGrams_ = crumbSetGrams_;
+
+    function crumbSetRatio_(idx, v) {
+      crumbBuilder.ratio[idx] = Number(v) || 0;
+    }
+    window.crumbSetRatio_ = crumbSetRatio_;
+
+    function crumbEqualizeRatio_() {
+      var n = (crumbBuilder.sources || []).filter(function (s) { return s && s.name; }).length;
+      if (n < 1) n = crumbBuilder.sources.length || 1;
+      crumbBuilder.ratio = [];
+      for (var i = 0; i < (crumbBuilder.sources || []).length; i++) crumbBuilder.ratio[i] = 1;
+    }
+
+    function closeCrumbBuilder_() {
+      var card = document.getElementById("crumbBuilderCard");
+      if (card) card.style.display = "none";
+    }
+    window.closeCrumbBuilder_ = closeCrumbBuilder_;
+
+    function renderCrumbBuilder_() {
+      var card = document.getElementById("crumbBuilderCard");
+      if (!card) return;
+      var kinds = [
+        { id: "veg", label: "дрессура овощи/фрукты", rate: 15 },
+        { id: "meat", label: "мяс позиции", rate: 17 },
+        { id: "hypo", label: "гипоаллергенные", rate: 20 }
+      ];
+      var html = '<div class="section-title" style="margin-top:0;">Крошки</div>';
+      kinds.forEach(function (k) {
+        html += '<button type="button" class="btn-action' + (crumbBuilder.kind === k.id ? " btn-green" : "") +
+          '" style="margin:0 0 6px;width:100%;" onclick="setCrumbKind_(\'' + k.id + '\')">' +
+          k.label + " · " + k.rate + " BYN/100г</button>";
+      });
+      if (crumbBuilder.kind) {
+        var pool = crumbSourcePool_(crumbBuilder.kind);
+        html += '<div class="muted" style="font-size:12px;margin:8px 0 4px;">Из каких позиций</div>';
+        (crumbBuilder.sources || []).forEach(function (s, i) {
+          html += '<div class="crumb-src-row">' +
+            '<select onchange="crumbPickSource_(' + i + ', this.value)" style="flex:1;">' +
+            '<option value="">— позиция —</option>' +
+            pool.map(function (p) {
+              return '<option value="' + escapeHtml(p.name) + '"' + (s.name === p.name ? " selected" : "") + ">" +
+                escapeHtml(p.name) + "</option>";
+            }).join("") +
+            "</select>" +
+            ((crumbBuilder.sources.length > 1)
+              ? ('<button type="button" class="btn-action" style="margin:0;padding:6px 10px;background:#3a3a3c;" onclick="crumbRemoveSource_(' + i + ')">−</button>')
+              : "") +
+            "</div>";
+        });
+        html += '<button type="button" class="btn-action btn-blue" style="margin:8px 0;width:100%;" onclick="crumbAddSource_()">＋ ещё позицию</button>';
+        html += '<div class="form-group"><label>Количество, гр</label>' +
+          '<input type="number" id="crumbGramsInput" value="' + escapeHtml(String(crumbBuilder.grams || "")) +
+          '" inputmode="numeric" oninput="crumbSetGrams_(this.value)"></div>';
+        var named = (crumbBuilder.sources || []).filter(function (s) { return s && s.name; });
+        if (named.length >= 2) {
+          html += '<div class="muted" style="font-size:12px;margin:4px 0;">Соотношение (по умолчанию поровну, можно править)</div>';
+          html += '<div class="seg-row" style="gap:6px;flex-wrap:wrap;">';
+          named.forEach(function (s, i) {
+            var rv = crumbBuilder.ratio[i] != null ? crumbBuilder.ratio[i] : 1;
+            html += '<div style="flex:1;min-width:70px;"><div class="muted" style="font-size:11px;">' +
+              escapeHtml(s.name) + '</div><input type="number" value="' + rv +
+              '" step="0.1" min="0" inputmode="decimal" oninput="crumbSetRatio_(' + i + ', this.value)"></div>';
+          });
+          html += "</div>";
+        }
+        html += '<button type="button" class="btn-action btn-blue" style="margin-top:10px;width:100%;" onclick="addCrumbToBasket_()">В состав</button>';
+      }
+      html += '<button type="button" class="btn-action" style="margin-top:8px;width:100%;background:#3a3a3c;" onclick="closeCrumbBuilder_()">Закрыть</button>';
+      card.innerHTML = html;
+    }
+
+    function addCrumbToBasket_() {
+      var kind = crumbBuilder.kind;
+      if (!kind) { showToast("Выбери категорию крошки"); return; }
+      var grams = Number(crumbBuilder.grams) || 0;
+      if (grams <= 0) { showToast("Укажи граммы"); return; }
+      var sources = (crumbBuilder.sources || []).filter(function (s) { return s && s.name; });
+      if (!sources.length) { showToast("Выбери исходную позицию"); return; }
+      var ratio = [];
+      sources.forEach(function (_, i) {
+        var n = Number(crumbBuilder.ratio[i]);
+        ratio.push(n > 0 ? n : 1);
+      });
+      var item = {
+        id: Date.now() + Math.random(),
+        cat: "crumb",
+        crumbKind: kind,
+        main: crumbKindTitle_(kind),
+        name: crumbKindTitle_(kind),
+        sub: "",
+        value: grams,
+        val: grams,
+        sources: sources.map(function (s) {
+          return { cat: s.cat, name: s.name, main: s.name, sub: "" };
+        }),
+        ratio: ratio
+      };
+      var t = crumbBuilder.target;
+      if (t === "price") {
+        try { stashPriceActiveBasket(); } catch (e0) {}
+        priceBasket.push(item);
+        try { renderPriceBasket(); } catch (e1) {}
+        try { schedulePriceLiveUpdate(); } catch (e2) {}
+      } else if (t === "sub") {
+        subDetailBasket.push(item);
+        try { renderSubDetailBasket(); } catch (e3) {}
+        try { scheduleSubDetailFactRecalc_(); } catch (e4) {}
+      } else {
+        basket.push(item);
+        renderBasket();
+      }
+      closeCrumbBuilder_();
+      showToast("Крошка добавлена");
+    }
+    window.addCrumbToBasket_ = addCrumbToBasket_;
+
+    async function clearBasket() {
       const box = document.getElementById("basketContainer");
       if (!basket.length) {
         box.innerHTML = '<p class="muted">Корзина пуста</p>';
@@ -3896,17 +4186,24 @@
       const showRetail = orderType === "retail";
       box.innerHTML = basket.map(item => {
         const unit = unitForItem(item.cat, item.main);
-        const sub = item.sub ? ("Фракция: " + item.sub) : ("Категория: " + item.cat);
+        const isCrumb = String(item.cat || "").toLowerCase() === "crumb" || item.crumbKind;
+        const srcNames = isCrumb && Array.isArray(item.sources)
+          ? item.sources.map(function (s) { return catalogAliasNameUi_(s && (s.name || s.main)); }).filter(Boolean)
+          : [];
+        const sub = isCrumb
+          ? (srcNames.length ? ("из: " + srcNames.join(" + ")) : crumbKindTitle_(item.crumbKind))
+          : (item.sub ? ("Фракция: " + item.sub) : ("Категория: " + item.cat));
+        const displayMain = catalogAliasNameUi_(item.main || item.name) || item.main;
         let priceHtml = "";
         if (showRetail) {
-          const r = retailLineCost(item.main || item.name, item.sub || "", item.value != null ? item.value : item.val, item.cat);
+          const r = retailLineCost(item.main || item.name, item.sub || "", item.value != null ? item.value : item.val, item.cat, { crumbKind: item.crumbKind });
           priceHtml = r.found
             ? ('<div class="basket-sub" style="color:#30d158;">' + r.cost + " BYN</div>")
             : '<div class="basket-sub" style="color:#ff9f0a;">нет в прайсе</div>';
         }
         return `<div class="basket-card ${item.cat}">
           <button class="btn-inline-del" onclick="deleteBasketItem(${item.id})">Удалить</button>
-          <div class="basket-info">${item.main} → ${item.value} ${unit}</div>
+          <div class="basket-info">${escapeHtml(displayMain)} → ${item.value} ${unit}</div>
           <div class="basket-sub">${sub}</div>
           ${priceHtml}
         </div>`;
@@ -6515,9 +6812,51 @@
       });
     }
 
+    function isRetailMarkedSub_(s) {
+      if (!s) return false;
+      var seg = String(s.segment || "").trim().toUpperCase();
+      var sheet = String(s.sheet || "").trim().toUpperCase();
+      var st = String(s.status || s.ppStatus || s.stage || "").trim().toUpperCase();
+      if (seg === "Р" || seg === "R" || seg === "РОЗНИЦА" || seg === "RETAIL") return true;
+      if (sheet === "Р" || sheet === "R" || sheet === "РОЗНИЦА" || sheet === "RETAIL") return true;
+      if (st === "Р" || st === "R" || /^РОЗНИЦ/.test(st) || st === "RETAIL") return true;
+      return false;
+    }
+
     function basketLineItemHtml_(g) {
       var unit = g.unit || unitForItem(g.cat, g.name || g.main);
-      var nm = g.name || g.main || "";
+      var nm = catalogAliasNameUi_(g.name || g.main || "") || (g.name || g.main || "");
+      var grams = g.val != null ? g.val : g.value;
+      var isCrumb = String(g.cat || "").toLowerCase() === "crumb" || g.crumbKind ||
+        (Array.isArray(g.sources) && g.sources.length);
+      if (isCrumb) {
+        var srcs = Array.isArray(g.sources) ? g.sources : [];
+        var srcNames = srcs.map(function (s) {
+          return catalogAliasNameUi_(s && (s.name || s.main)) || (s && (s.name || s.main)) || "";
+        }).filter(Boolean);
+        var ratio = Array.isArray(g.ratio) ? g.ratio : [];
+        var ratioBit = "";
+        if (srcNames.length >= 2) {
+          var sumR = 0;
+          for (var ri = 0; ri < srcNames.length; ri++) sumR += Number(ratio[ri]) || 0;
+          var parts = srcNames.map(function (_, i) {
+            var n = Number(ratio[i]);
+            if (!(n > 0) && sumR <= 0) n = 1;
+            return String(n > 0 ? n : 1);
+          });
+          ratioBit = " · " + parts.join(":");
+        }
+        var joined = srcNames.join(" + ");
+        var title;
+        if (APP_ROLE === "courier" && srcNames.length >= 2) {
+          title = "крошка микс · " + joined + ratioBit;
+        } else {
+          title = crumbKindTitle_(g.crumbKind || "");
+          if (joined) title += " · из: " + joined + ratioBit;
+        }
+        return '<div class="order-detail-line"><span>• ' + escapeHtml(title) +
+          '</span><span class="order-detail-volume">' + grams + " " + (unit || "гр") + "</span></div>";
+      }
       var frac = g.sub ? String(g.sub) : "";
 
       if (!frac) {
@@ -6527,7 +6866,7 @@
       }
       var fracBit = frac ? " (" + frac + ")" : "";
       return '<div class="order-detail-line"><span>• ' + escapeHtml(nm) + escapeHtml(fracBit) +
-        '</span><span class="order-detail-volume">' + (g.val != null ? g.val : g.value) + " " + unit + "</span></div>";
+        '</span><span class="order-detail-volume">' + grams + " " + unit + "</span></div>";
     }
 
     function basketLinesHtml(basket) {
@@ -8617,6 +8956,7 @@
           dateOnly: dateOnly ? "1" : "0",
           calendarOnly: calendarOnly ? "1" : "0",
           cutRaw: cutRaw === "yes" ? "1" : "0",
+          noCut: cutRaw === "yes" ? "0" : "1",
           matchKey: matchKey,
           _: String(Date.now())
         };
@@ -10713,20 +11053,7 @@
       } catch (eS) {}
       var names = unclear.slice(0, 8).map(function (c) { return c.name; }).join(", ");
       showToast("ПП · уточни оплату за " + diffDays + "д: " + names + (unclear.length > 8 ? "…" : ""));
-      try {
-        var when = new Date();
-        when.setHours(10, 0, 0, 0);
-        await apiPost({
-          action: "saveDeferred",
-          kind: "remind",
-          client: "ПП оплата · " + iso,
-          note: "Уточнить оплату ПП (" + unclear.length + "): " + names,
-          day: clients._day || "",
-          date: iso,
-          remindAt: when.toISOString(),
-          remindAtMs: String(when.getTime())
-        });
-      } catch (eDef) {}
+      // не создаём отложенные «ПП ПП оплата» — призраки с сегодняшней датой; только тост
     }
 
     async function toggleDelivered(index, delivered) {
@@ -11042,10 +11369,47 @@
           cutRaw: cutRaw === "yes" ? "1" : "0",
           noCut: cutRaw === "yes" ? "0" : "1",
           _: String(Date.now())
-        }, { timeoutMs: 14000, cacheTtlMs: 0, bypassInflight: true });
+        }, { timeoutMs: 35000, cacheTtlMs: 0, bypassInflight: true });
       } catch (ePl) {
-        await uiAlertAsync(ePl.message || "Ошибка сети");
-        return;
+        placed = { status: "error", message: ePl.message || "network" };
+      }
+      if (
+        placed &&
+        placed.status === "error" &&
+        /network_waiting_sheets|timeout_waiting_sheets|network|timeout/i.test(String(placed.message || ""))
+      ) {
+        try {
+          var softDay = String(target.newDay || "").trim();
+          var softDate = String(target.newDate || "").trim();
+          var softChk = softDay
+            ? await apiGet(
+                { action: "getClients", day: softDay, force: "1", _: String(Date.now()) },
+                { timeoutMs: 12000, cacheTtlMs: 0, bypassInflight: true }
+              )
+            : null;
+          var softHit = false;
+          ((softChk && softChk.clients) || []).forEach(function (c) {
+            if (nicksMatchClient_(c && c.name, clientName)) softHit = true;
+          });
+          if (!softHit && softDate) {
+            var softCal = await apiGet(
+              { action: "getClients", date: softDate, force: "1", _: String(Date.now()) },
+              { timeoutMs: 12000, cacheTtlMs: 0, bypassInflight: true }
+            );
+            ((softCal && softCal.clients) || []).forEach(function (c) {
+              if (nicksMatchClient_(c && c.name, clientName)) softHit = true;
+            });
+          }
+          if (softHit) {
+            placed = {
+              status: "accepted",
+              d1Verified: true,
+              parkedPlaced: true,
+              softRecovered: true,
+              message: "d1_saved_soft"
+            };
+          }
+        } catch (eSoft) {}
       }
       if (!placed || (placed.status !== "success" && placed.status !== "accepted" && !placed.d1Verified && !placed.parkedPlaced)) {
         await uiAlertAsync("Не удалось: " + ((placed && (placed.message || placed.status)) || "ошибка"));
@@ -11723,6 +12087,11 @@
       if (cq > 0 && cp > 0) {
         bits.push('<span class="client-badge" style="background:rgba(255,214,10,0.2);color:#ffd60a;">купоны ' +
           escapeHtml(String(cq)) + " шт · " + escapeHtml(String(cp)) + " BYN</span>");
+      }
+      var noCutBadge = !!(client && (client.noCut || client.no_cut)) ||
+        /\[НЕ\s*РЕЗАТЬ\]/i.test(String((client && client.note) || ""));
+      if (noCutBadge) {
+        bits.push('<span class="client-badge" style="background:rgba(255,69,58,0.22);color:#ff6961;">без нарезки</span>');
       }
       return bits.join(" ");
     }
@@ -17261,6 +17630,11 @@
         "ГРУШИ": "ГРУШИ",
         "ГРУША": "ГРУШИ",
         "БАРАНЬЯ ПЕЧЕНЬ": "БАРАНЬЯ ПЕЧЕНЬ",
+        "АОРТАА": "АОРТА",
+        "АОРТА А": "АОРТА",
+        "АОРТА": "АОРТА",
+        "УХО ГА": "УХО Г",
+        "УХОГА": "УХО Г",
         "ЛОПАТЧНЫЙ ХРЯЩ": "ЛОП ХРЯЩ ШТ.",
         "ЛОПАТОЧНЫЙ ХРЯЩ": "ЛОП ХРЯЩ ШТ.",
         "ЛОП ХРЯЩ": "ЛОП ХРЯЩ ШТ.",
@@ -17291,6 +17665,8 @@
         "МЯСНЫЕ ЛОМТИКИ": "МЯСНЫЕ ЛОМТИКИ"
       };
       if (aliases[key]) return aliases[key];
+      if (/^АОРТАА+$/.test(key) || key === "АОРТА А") return "АОРТА";
+      if (/^УХО\s*ГА+$/.test(key) || key === "УХОГА") return "УХО Г";
       if (/^ЛОМТИК/.test(key) || key === "ЛОМТ") return "МЯСНЫЕ ЛОМТИКИ";
       if (/^МЯСН?\s*ЛОМТ/.test(key)) return "МЯСНЫЕ ЛОМТИКИ";
       return key;
@@ -19340,7 +19716,10 @@
           var rows = allSubs.filter(function (s) {
             return String((s && s.sheet) || "") === sh;
           });
-          if (sh === "БП") rows = groupBpSubscriptions_(rows);
+          if (sh === "БП") {
+            rows = rows.filter(function (s) { return !isRetailMarkedSub_(s); });
+            rows = groupBpSubscriptions_(rows);
+          }
           if (rows.length) {
             window._subsBySheet[sh] = { list: rows, at: Date.now(), loaded: true };
           } else if (!(window._subsBySheet[sh] && (window._subsBySheet[sh].list || []).length)) {
@@ -19351,7 +19730,10 @@
         var list = allSubs.filter(function (s) {
           return !wantSheet || String((s && s.sheet) || "") === wantSheet;
         });
-        if (wantSheet === "БП") list = groupBpSubscriptions_(list);
+        if (wantSheet === "БП") {
+          list = list.filter(function (s) { return !isRetailMarkedSub_(s); });
+          list = groupBpSubscriptions_(list);
+        }
         window._subsListFull = list;
         window._subsListSheet = wantSheet;
         window._subsListLoadedSheet = wantSheet;
@@ -19498,6 +19880,8 @@
 
     var currentSubDetail = null;
     var subDetailBasket = [];
+    var subDetailBasket2 = [];
+    var subDetailCompSlot = 1;
     var subDetailManualCategory = "dressura";
     var subDetailDeepOpen = false;
     var subDetailPackCounts = { u1: 0, u2: 0, u3: 0, up4: 0 };
@@ -19555,7 +19939,7 @@
       }
       return {
         slices: num("subDetailFracSlices", num("subDetailFracWhole", 0)),
-        strips: num("subDetailFracStrips", 0),
+        strips: num("subDetailFracStrips", 1),
         large: num("subDetailFracLarge", 1),
         medium: num("subDetailFracMedium", 2),
         small: num("subDetailFracSmall", 3),
@@ -19750,6 +20134,7 @@
     }
 
     function scheduleSubDetailFactRecalc_() {
+      try { syncSubCompSlotUi_(); } catch (eSlot) {}
       var sheet = (document.getElementById("subDetailSheet") && document.getElementById("subDetailSheet").value) || "";
       if (sheet !== "ПП") return;
       if (!subDetailPacksManual) {
@@ -20047,13 +20432,7 @@
       if (hint) hint.textContent = "Считаю сырую себест… затем ×" + coef + " · N=" + n + " · " + subDetailSchemeValue_();
       try {
         var slim = list.map(function (it) {
-          return {
-            name: it.name || it.main || "",
-            main: it.main || it.name || "",
-            sub: it.sub || "",
-            val: it.val != null ? it.val : it.value,
-            cat: it.cat || ""
-          };
+          return serializeBasketItem_(it);
         });
         var basketJson = JSON.stringify(slim);
         var costSum = null;
@@ -20237,18 +20616,48 @@
     window.addItemToSubDetailBasket = addItemToSubDetailBasket;
 
     function subDetailBasketPayload_() {
-      return (subDetailBasket || []).map(function (x) {
-        var main = canonicalProductMain_(x.main || x.name);
-        return {
-          cat: x.cat,
-          main: main,
-          name: main,
-          sub: x.sub || "",
-          value: x.val != null ? x.val : x.value,
-          val: x.val != null ? x.val : x.value
-        };
-      });
+      return (subDetailBasket || []).map(function (x) { return serializeBasketItem_(x); });
     }
+
+    function subDetailBasket2Payload_() {
+      return (subDetailBasket2 || []).map(function (x) { return serializeBasketItem_(x); });
+    }
+
+    function syncSubCompSlotUi_() {
+      var nEl = document.getElementById("subDetailDeliveries");
+      var n = Math.max(1, Number(nEl && nEl.value) || 1);
+      var sheet = (document.getElementById("subDetailSheet") && document.getElementById("subDetailSheet").value) || "";
+      var row = document.getElementById("subCompSlotRow");
+      if (row) row.style.display = (sheet === "ПП" && n >= 2) ? "" : "none";
+      var t1 = document.getElementById("subCompTab1");
+      var t2 = document.getElementById("subCompTab2");
+      if (t1) t1.classList.toggle("active", subDetailCompSlot === 1);
+      if (t2) t2.classList.toggle("active", subDetailCompSlot === 2);
+    }
+
+    function subDetailActiveSlotBasket_() {
+      return subDetailCompSlot === 2 ? subDetailBasket2 : subDetailBasket;
+    }
+
+    function subDetailOtherSlotBasket_() {
+      return subDetailCompSlot === 2 ? subDetailBasket : subDetailBasket2;
+    }
+
+    function setSubCompSlot(n) {
+      n = n === 2 ? 2 : 1;
+      if (n === subDetailCompSlot) {
+        syncSubCompSlotUi_();
+        return;
+      }
+      var other = (subDetailBasket2 || []).slice();
+      subDetailBasket2 = (subDetailBasket || []).slice();
+      subDetailBasket = other;
+      subDetailCompSlot = n;
+      syncSubCompSlotUi_();
+      try { renderSubDetailBasket(); } catch (eR) {}
+      try { scheduleSubDetailFactRecalc_(); } catch (eC) {}
+    }
+    window.setSubCompSlot = setSubCompSlot;
 
     /** Нормализация позиции для сверки после save (alias, Ё→Е, округление). */
     function basketItemKeyParts_(it) {
@@ -20439,6 +20848,9 @@
         }
         try { syncSubDetailSchemeUi_(); } catch (eSch) {}
         subDetailBasket = mapApiBasketToLocal(res.basket || []);
+        subDetailBasket2 = mapApiBasketToLocal(res.basket2 || res.basketSlot2 || res.composition2 || []);
+        subDetailCompSlot = 1;
+        try { syncSubCompSlotUi_(); } catch (eSlot) {}
         if (!subDetailBasket.length && sheetNow !== "БП") {
           var emptyHint = document.getElementById("subDetailBasket");
           if (emptyHint && !(res.basket && res.basket.length)) {
@@ -20734,6 +21146,8 @@
     function closeSubDetail() {
       currentSubDetail = null;
       subDetailBasket = [];
+      subDetailBasket2 = [];
+      subDetailCompSlot = 1;
       subDetailDeepOpen = false;
       subDetailPacksManual = false;
       toggleSubDetailDeepEditor_(false);
@@ -20750,7 +21164,13 @@
         return;
       }
       if (sheet === "БП") syncBpBasketFromTab_();
-      var basketPayload = subDetailBasketPayload_();
+      var nDelSave = Number(document.getElementById("subDetailDeliveries").value) || 0;
+      var slot1Items = subDetailCompSlot === 1 ? subDetailBasket : subDetailBasket2;
+      var slot2Items = subDetailCompSlot === 2 ? subDetailBasket : subDetailBasket2;
+      var basketPayload = (slot1Items || []).map(function (x) { return serializeBasketItem_(x); });
+      var basket2Payload = (nDelSave >= 2 && sheet === "ПП")
+        ? (slot2Items || []).map(function (x) { return serializeBasketItem_(x); })
+        : null;
       var wantFp = basketFingerprint_(basketPayload);
       var ppStatusSave = (document.getElementById("subDetailStatus").value || "").trim();
       if (sheet === "БП") {
@@ -20816,6 +21236,7 @@
           calcFactCost: sheet === "ПП" ? (factSave || (document.getElementById("subDetailFact").value || "")) : "",
           statedTouched: sheet === "ПП" && _subDetailStatedTouched ? "1" : "0",
           basket: basketPayload,
+          basket2: basket2Payload,
           coef: sheet === "ПП" ? String(subDetailCoefValue_()) : "",
           scheme: sheet === "ПП" ? subDetailSchemeValue_() : "",
           dogName: dogSave.name,
@@ -21026,9 +21447,77 @@
           it.cat || "",
           it.main || it.name || "",
           it.sub || "",
-          it.val != null ? it.val : it.value
+          it.val != null ? it.val : it.value,
+          it.crumbKind || ""
         ].join("|");
       }).join(";");
+    }
+
+    function snapshotPriceComp_() {
+      try { stashPriceActiveBasket(); } catch (e0) {}
+      priceCompStore[priceCompSlot] = {
+        baskets: {
+          1: (priceBaskets[1] || []).slice(),
+          2: (priceBaskets[2] || []).slice()
+        },
+        dogCount: priceDogCount,
+        activeDog: priceActiveDog,
+        dogNames: { 1: priceDogNames[1] || "", 2: priceDogNames[2] || "" }
+      };
+    }
+
+    function applyPriceCompSnapshot_(snap) {
+      snap = snap || { baskets: { 1: [], 2: [] }, dogCount: priceDogCount, activeDog: 1, dogNames: { 1: "", 2: "" } };
+      priceBaskets = {
+        1: (snap.baskets && snap.baskets[1] || []).slice(),
+        2: (snap.baskets && snap.baskets[2] || []).slice()
+      };
+      priceDogCount = snap.dogCount || priceDogCount || 1;
+      priceActiveDog = snap.activeDog || 1;
+      priceDogNames = { 1: (snap.dogNames && snap.dogNames[1]) || "", 2: (snap.dogNames && snap.dogNames[2]) || "" };
+      try { loadPriceActiveBasket(); } catch (eL) {
+        priceBasket = priceBaskets[priceActiveDog] || [];
+      }
+      try { renderPriceBasket(); } catch (eR) {}
+    }
+
+    function syncPriceCompSlotUi_() {
+      var nEl = document.getElementById("priceDeliveriesN");
+      var n = Math.max(1, Number(nEl && nEl.value) || 1);
+      var row = document.getElementById("priceCompSlotRow");
+      if (row) row.style.display = n >= 2 ? "" : "none";
+      var t1 = document.getElementById("priceCompTab1");
+      var t2 = document.getElementById("priceCompTab2");
+      if (t1) t1.classList.toggle("active", priceCompSlot === 1);
+      if (t2) t2.classList.toggle("active", priceCompSlot === 2);
+    }
+
+    function setPriceCompSlot(n) {
+      n = n === 2 ? 2 : 1;
+      if (n === priceCompSlot) {
+        syncPriceCompSlotUi_();
+        return;
+      }
+      snapshotPriceComp_();
+      priceCompSlot = n;
+      applyPriceCompSnapshot_(priceCompStore[n]);
+      syncPriceCompSlotUi_();
+      try { schedulePriceLiveUpdate(); } catch (eU) {}
+    }
+    window.setPriceCompSlot = setPriceCompSlot;
+
+    function allPriceCompBaskets_() {
+      snapshotPriceComp_();
+      function flatten(snap) {
+        if (!snap || !snap.baskets) return [];
+        var a = (snap.baskets[1] || []).map(serializeBasketItem_);
+        var b = (snap.baskets[2] || []).map(function (x) { return serializeBasketItem_(x, { dog: 2 }); });
+        return a.concat(b);
+      }
+      return {
+        basket: flatten(priceCompStore[1]),
+        basket2: flatten(priceCompStore[2])
+      };
     }
 
     function getPricePpCoef() {
@@ -21135,6 +21624,7 @@
     }
 
     function schedulePriceLiveUpdate() {
+      try { syncPriceCompSlotUi_(); } catch (eSlot) {}
       clearTimeout(priceLiveTimer);
       priceLiveTimer = setTimeout(function () {
         refreshPriceLive();
@@ -21270,7 +21760,7 @@
       }
       return dressuraFractionRates({
         slices: num("priceFracSlices", num("priceFracWhole", 0)),
-        strips: num("priceFracStrips", 0),
+        strips: num("priceFracStrips", 1),
         large: num("priceFracLarge", 1),
         medium: num("priceFracMedium", 2),
         small: num("priceFracSmall", 3),
@@ -21308,7 +21798,7 @@
       rates = rates || {};
       return {
         slices: dressuraFractionPickRate(rates, ["slices", "lomtiki", "whole"], 0),
-        strips: dressuraFractionPickRate(rates, ["strips", "poloski"], 0),
+        strips: dressuraFractionPickRate(rates, ["strips", "poloski"], 1),
         large: dressuraFractionPickRate(rates, ["large", "krupnoe"], 1),
         medium: dressuraFractionPickRate(rates, ["medium", "srednee"], 2),
         small: dressuraFractionPickRate(rates, ["small", "melkoe"], 3),
@@ -21731,13 +22221,7 @@
       }
       try {
         var slim = list.map(function (it) {
-          return {
-            name: it.name || it.main || "",
-            main: it.main || it.name || "",
-            sub: it.sub || "",
-            val: it.val != null ? it.val : it.value,
-            cat: it.cat || ""
-          };
+          return serializeBasketItem_(it);
         });
         var nElPp = document.getElementById("priceDeliveriesN");
         var nPp = Math.max(1, Number(nElPp && nElPp.value) || 1);
@@ -23460,7 +23944,8 @@
           phone: (document.getElementById("enrollPhone") || {}).value || "",
           factCost: fact,
           statedTouched: "0",
-          basket: items
+          basket: items,
+          basket2: (deliveriesN >= 2 ? (allPriceCompBaskets_().basket2 || []) : undefined)
         };
         if (id) body.id = id;
         var resEn = await apiPost(body);

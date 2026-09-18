@@ -23,7 +23,11 @@ var gs = fs.readFileSync(path.join(__dirname, "../Code.gs"), "utf8");
 assert(worker.indexOf("function parkMissedDeliveryD1_") >= 0, "parkMissedDeliveryD1_ exists");
 assert(worker.indexOf("function skipHeavyInvalidate_") >= 0, "skipHeavyInvalidate_ helper");
 assert(worker.indexOf("_skipInvalidate") >= 0, "hot path skip invalidate flag");
-assert(worker.indexOf("heal-flamant-transfer-h1") >= 0, "deploy marker heal-flamant");
+assert(
+  worker.indexOf("heal-flamant-transfer-h1") >= 0 ||
+    worker.indexOf("tz-p0-crumbs-h1") >= 0,
+  "deploy marker heal-flamant"
+);
 assert(worker.indexOf("function stampDeferredSheetId_") >= 0, "stamp GAS df_* onto D1 sheetId");
 assert(worker.indexOf("function enrichTransferPayloadFromOrders_") >= 0, "enrich thin transfer from orders");
 assert(worker.indexOf("function healStuckTransfers_") >= 0, "owner healStuckTransfers");
