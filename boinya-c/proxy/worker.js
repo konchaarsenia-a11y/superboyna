@@ -9293,6 +9293,183 @@ function partnerStaffAccessOnly_(list) {
   });
 }
 
+
+function partnerNoAccessGetMe_(params) {
+  const tid = String((params && params.telegramId) || "").trim();
+  const username = partnerNormUserWorker_(params && params.username);
+  return {
+    status: "success",
+    role: "none",
+    allowed: false,
+    ownersOnly: false,
+    ownerMode: false,
+    isOwner: false,
+    isPartner: false,
+    isStaff: false,
+    accessStatus: "none",
+    message: !username && !tid ? "need_username" : "no_partner_access",
+    name: username || tid || "",
+    username: username || "",
+    telegramId: tid || "",
+    networkId: "",
+    pointIds: [],
+    allowedPointIds: {},
+    networks: [],
+    points: [],
+    access: [],
+    catalog: PARTNER_CATALOG_STATIC
+  };
+}
+
+function partnerFindAccessRow_(admin, params, wantStatus) {
+  const tid = String((params && params.telegramId) || "").trim();
+  const username = partnerNormUserWorker_(params && params.username);
+  const access = (admin && admin.access) || [];
+  const want = String(wantStatus || "").toLowerCase();
+  for (let i = 0; i < access.length; i++) {
+    const row = access[i];
+    if (!row) continue;
+    const st = String(row.status || "active").toLowerCase();
+    if (want) {
+      if (st !== want) continue;
+    } else {
+      if (partnerIsClosedAccess_(row) || st === "pending") continue;
+    }
+    const matchU = username && partnerNormUserWorker_(row.username) === username;
+    const matchT = tid && String(row.telegramId || "") === tid;
+    if (matchU || matchT) return row;
+  }
+  return null;
+}
+
+/** d1-primary: build partnerGetMe from partnerListAdmin access (ignore stale partnerMe snap). */
+function partnerBuildGetMeFromAdmin_(admin, params) {
+  const tid = String((params && params.telegramId) || "").trim();
+  const username = partnerNormUserWorker_(params && params.username);
+  const ptsAll = (admin && admin.points) || [];
+  const netsAll = (admin && admin.networks) || [];
+  const hit = partnerFindAccessRow_(admin, params, "");
+  if (hit) {
+    const pids = Array.isArray(hit.pointIds) ? hit.pointIds : [];
+    const allowed = {};
+    const allowedIds = [];
+    for (let i = 0; i < pids.length; i++) {
+      const id = String(pids[i] || "").trim();
+      if (!id) continue;
+      allowed[id] = true;
+      allowedIds.push(id);
+    }
+    const myPts = ptsAll.filter(function (p) {
+      return p && allowed[p.id];
+    });
+    const myNetsMap = {};
+    for (let j = 0; j < myPts.length; j++) {
+      if (myPts[j].networkId) myNetsMap[myPts[j].networkId] = true;
+    }
+    const myNets = netsAll.filter(function (n) {
+      return n && myNetsMap[n.id];
+    });
+    const roleRaw = String(hit.role || "partner").toLowerCase();
+    const role = roleRaw === "owner" ? "partner" : roleRaw || "partner";
+    const asStaff = role === "staff";
+    return {
+      status: "success",
+      allowed: allowedIds.length > 0,
+      ownersOnly: false,
+      ownerMode: false,
+      role: role,
+      isPartner: !asStaff,
+      isStaff: asStaff,
+      accessStatus: String(hit.status || "active"),
+      isOwner: false,
+      name:
+        hit.name && hit.name !== "Владелец Good Boy"
+          ? hit.name
+          : username || tid || "",
+      username: partnerNormUserWorker_(hit.username) || username || "",
+      telegramId: String(hit.telegramId || tid || "").trim(),
+      networkId: hit.networkId || (myPts[0] && myPts[0].networkId) || "",
+      pointIds: allowedIds,
+      allowedPointIds: allowed,
+      networks: myNets.map(function (n) {
+        return { id: n.id, name: n.name, logo: n.logo };
+      }),
+      points: myPts.map(function (p) {
+        return {
+          id: p.id,
+          networkId: p.networkId,
+          name: p.name,
+          address: p.address || ""
+        };
+      }),
+      access: [],
+      catalog: PARTNER_CATALOG_STATIC,
+      fromD1Admin: true
+    };
+  }
+  const pending = partnerFindAccessRow_(admin, params, "pending");
+  if (pending) {
+    const pids = Array.isArray(pending.pointIds) ? pending.pointIds : [];
+    const pendPts = ptsAll.filter(function (p) {
+      return p && pids.indexOf(p.id) >= 0;
+    });
+    return {
+      status: "success",
+      allowed: false,
+      ownersOnly: false,
+      ownerMode: false,
+      role: pending.role || "staff",
+      isPartner: false,
+      isStaff: true,
+      accessStatus: "pending",
+      pendingAccept: true,
+      isOwner: false,
+      name: pending.name || username || tid || "",
+      username: partnerNormUserWorker_(pending.username) || username || "",
+      telegramId: String(pending.telegramId || tid || "").trim(),
+      networkId: pending.networkId || "",
+      pointIds: pids,
+      allowedPointIds: {},
+      networks: [],
+      points: pendPts.map(function (p) {
+        return {
+          id: p.id,
+          networkId: p.networkId,
+          name: p.name,
+          address: p.address || ""
+        };
+      }),
+      access: [],
+      catalog: PARTNER_CATALOG_STATIC,
+      fromD1Admin: true
+    };
+  }
+  return partnerNoAccessGetMe_(params);
+}
+
+async function partnerInvalidateMeSnaps_(env, tid, username) {
+  if (!env || !env.DB) return;
+  const t = String(tid || "").trim();
+  const u = partnerNormUserWorker_(username);
+  const keys = [];
+  if (t) keys.push("partnerMe:" + t);
+  if (u) keys.push("partnerMe:" + u);
+  for (let i = 0; i < keys.length; i++) {
+    try {
+      await delSnap_(env, keys[i]);
+    } catch (eDel) {}
+  }
+  // Write explicit no-access so SWR cannot resurrect a deleted key from a race.
+  const no = partnerNoAccessGetMe_({ telegramId: t, username: u });
+  no.cachedAt = new Date().toISOString();
+  for (let j = 0; j < keys.length; j++) {
+    try {
+      await putSnap_(env, keys[j], no);
+    } catch (ePut) {}
+  }
+}
+
+
 function partnerAttachVisibleAccess_(params, json) {
   if (!json || typeof json !== "object") return json;
   const srcAccess = Array.isArray(json.access) ? json.access : [];
@@ -10034,6 +10211,42 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
       );
     }
     return instant;
+  }
+
+  // d1-primary: rebuild from partnerListAdmin so revoke/save take effect immediately
+  // (stale partnerMe SWR previously kept revoked staff points visible).
+  let adminSnap = null;
+  try {
+    adminSnap = await getSnapRaw_(env, "partnerListAdmin");
+  } catch (eAdMe) {
+    adminSnap = null;
+  }
+  if (adminSnap && Array.isArray(adminSnap.access)) {
+    const built = partnerBuildGetMeFromAdmin_(adminSnap, params);
+    const outAd = partnerGuardOrRewrite_("partnerGetMe", params, built);
+    outAd.cutover = true;
+    outAd.swr = false;
+    outAd.fromGas = false;
+    outAd.fromD1 = true;
+    outAd.sandbox = false;
+    outAd.partnerCanon = partnerCanonLabel_(env);
+    try {
+      await putSnap_(
+        env,
+        snapKey,
+        Object.assign({}, outAd, { cachedAt: new Date().toISOString() })
+      );
+    } catch (ePutMe) {}
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async function () {
+          try {
+            await fetchLive_();
+          } catch (eR) {}
+        })()
+      );
+    }
+    return outAd;
   }
 
   let snap = null;
@@ -19645,6 +19858,16 @@ async function mutatePartnerD1_(action, params, env) {
     if (hit >= 0) admin.access[hit] = Object.assign({}, admin.access[hit], row);
     else admin.access.push(row);
     await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    try {
+      await partnerInvalidateMeSnaps_(env, telegramId, username);
+      // After grant, drop no-access placeholder — next getMe rebuilds from admin.
+      if (String(row.status || "").toLowerCase() === "active") {
+        const meKeyTid = telegramId ? "partnerMe:" + telegramId : "";
+        const meKeyUser = username ? "partnerMe:" + username : "";
+        if (meKeyTid) await delSnap_(env, meKeyTid);
+        if (meKeyUser) await delSnap_(env, meKeyUser);
+      }
+    } catch (eInvSave) {}
     if (telegramId && String(row.status || "").toLowerCase() === "pending") {
       try {
         await telegramSendPartnerBot_(
@@ -19687,6 +19910,17 @@ async function mutatePartnerD1_(action, params, env) {
       telegramId: tid || prev.telegramId || ""
     });
     await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    try {
+      await partnerInvalidateMeSnaps_(
+        env,
+        admin.access[hit].telegramId || tid,
+        admin.access[hit].username || username
+      );
+      const at = String(admin.access[hit].telegramId || tid || "").trim();
+      const au = partnerNormUserWorker_(admin.access[hit].username || username);
+      if (at) await delSnap_(env, "partnerMe:" + at);
+      if (au) await delSnap_(env, "partnerMe:" + au);
+    } catch (eInvAcc) {}
     return {
       status: "success",
       id: admin.access[hit].id,
@@ -19701,16 +19935,33 @@ async function mutatePartnerD1_(action, params, env) {
   if (/^partnerRevokeAccess$/i.test(a)) {
     const id = String((params && (params.id || params.accessId)) || "").trim();
     const username = partnerNormUserWorker_(params && params.username);
+    const targetTid = String(
+      (params && (params.targetTelegramId || params.staffTelegramId)) || ""
+    ).trim();
     let changed = 0;
+    const touched = [];
     for (let i = 0; i < admin.access.length; i++) {
       const row = admin.access[i];
-      if ((id && String(row.id) === id) || (username && partnerNormUserWorker_(row.username) === username)) {
+      const matchId = id && String(row.id) === id;
+      const matchUser = username && partnerNormUserWorker_(row.username) === username;
+      const matchTid = targetTid && String(row.telegramId || "") === targetTid;
+      if (matchId || matchUser || matchTid) {
         admin.access[i] = Object.assign({}, row, { status: "revoked" });
+        touched.push(admin.access[i]);
         changed++;
       }
     }
     if (!changed) return { status: "error", message: "not_found" };
     await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    for (let t = 0; t < touched.length; t++) {
+      try {
+        await partnerInvalidateMeSnaps_(env, touched[t].telegramId, touched[t].username);
+      } catch (eInvRev) {}
+    }
+    // Also clear actor-supplied target keys (tid-keyed / username-keyed).
+    try {
+      await partnerInvalidateMeSnaps_(env, targetTid, username);
+    } catch (eInvRev2) {}
     return { status: "success", revoked: changed, d1Verified: true };
   }
 
