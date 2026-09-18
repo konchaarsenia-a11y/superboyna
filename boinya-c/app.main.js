@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115969";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115970";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -24909,10 +24909,15 @@
     async function partnerHubRevokeAccess_(id) {
       var ok = await uiConfirmAsync("Отозвать доступ?");
       if (!ok) return;
+      var row = ((partnerHubCache_ && partnerHubCache_.access) || []).filter(function (x) {
+        return String(x.id) === String(id);
+      })[0] || {};
       var res = await apiGet({
         action: "partnerRevokeAccess",
         telegramId: myTelegramId,
         id: id,
+        username: String(row.username || "").replace(/^@/, "").trim(),
+        targetTelegramId: String(row.telegramId || "").trim(),
         _: String(Date.now())
       }, { timeoutMs: 15000, cacheTtlMs: 0 });
       if (!res || res.status !== "success") {

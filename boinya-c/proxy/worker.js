@@ -387,7 +387,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-18 partner-access-stick-h1"
+      deployMarker: "2026-09-18 partner-access-stick-h2"
     };
   }
 
@@ -9292,6 +9292,12 @@ function partnerAccessRowMatchesUser_(row, params) {
   const rtid = String(row.telegramId || "").trim();
   if (tid && rtid && tid === rtid) return true;
   if (u && ru && u === ru) return true;
+  const rid = String(row.id || "").trim();
+  if (rid.indexOf("pa_") === 0) {
+    const rest = rid.slice(3);
+    if (tid && /^\d{5,}$/.test(rest) && rest === tid) return true;
+    if (u && partnerNormUserWorker_(rest) === u) return true;
+  }
   return false;
 }
 
@@ -9302,6 +9308,143 @@ function partnerCanWriteAccess_(params) {
   if (isPartnerCanonOwner_({ telegramId: actorTid, username: actorUser })) return true;
   if (actorTid && actorTid === PARTNER_ARSENIY_TID) return true;
   return false;
+}
+
+function partnerAddPersonIdentity_(into, raw) {
+  into = into || { tids: [], users: [], ids: [] };
+  const seenT = {};
+  const seenU = {};
+  const seenI = {};
+  (into.tids || []).forEach(function (t) {
+    seenT[t] = true;
+  });
+  (into.users || []).forEach(function (u) {
+    seenU[u] = true;
+  });
+  (into.ids || []).forEach(function (id) {
+    seenI[id] = true;
+  });
+  function addTid_(t) {
+    t = String(t || "").trim();
+    if (!t || seenT[t]) return;
+    seenT[t] = true;
+    into.tids.push(t);
+  }
+  function addUser_(u) {
+    u = partnerNormUserWorker_(u);
+    if (!u || seenU[u]) return;
+    seenU[u] = true;
+    into.users.push(u);
+  }
+  function addId_(id) {
+    id = String(id || "").trim();
+    if (!id || seenI[id]) return;
+    seenI[id] = true;
+    into.ids.push(id);
+    if (id.indexOf("pa_") === 0) {
+      const rest = id.slice(3);
+      if (/^\d{5,}$/.test(rest)) addTid_(rest);
+      else addUser_(rest);
+    }
+  }
+  if (raw && typeof raw === "object") {
+    addTid_(raw.telegramId || raw.targetTelegramId);
+    addUser_(raw.username);
+    addId_(raw.id || raw.accessId);
+  }
+  return into;
+}
+
+function partnerAccessRowMatchesPerson_(row, person) {
+  if (!row || !person) return false;
+  const rtid = String(row.telegramId || "").trim();
+  const ru = partnerNormUserWorker_(row.username);
+  const rid = String(row.id || "").trim();
+  if (rtid && (person.tids || []).indexOf(rtid) >= 0) return true;
+  if (ru && (person.users || []).indexOf(ru) >= 0) return true;
+  if (rid && (person.ids || []).indexOf(rid) >= 0) return true;
+  if (rid.indexOf("pa_") === 0) {
+    const rest = rid.slice(3);
+    if (/^\d{5,}$/.test(rest) && (person.tids || []).indexOf(rest) >= 0) return true;
+    if ((person.users || []).indexOf(partnerNormUserWorker_(rest)) >= 0) return true;
+  }
+  return false;
+}
+
+/** Username-keyed (pa_arseniyhotko) + tid-keyed (pa_650923866) = один человек. */
+function partnerExpandPersonFromAccess_(access, seed) {
+  const person = partnerAddPersonIdentity_({ tids: [], users: [], ids: [] }, seed);
+  const rows = Array.isArray(access) ? access : [];
+  let guard = 0;
+  while (guard++ < 8) {
+    const before = person.tids.length + person.users.length + person.ids.length;
+    for (let i = 0; i < rows.length; i++) {
+      if (partnerAccessRowMatchesPerson_(rows[i], person)) {
+        partnerAddPersonIdentity_(person, rows[i]);
+      }
+    }
+    if (person.tids.length + person.users.length + person.ids.length === before) break;
+  }
+  return person;
+}
+
+function partnerMeSnapKeysForPerson_(person) {
+  const keys = [];
+  const seen = {};
+  function add_(k) {
+    if (!k || seen[k]) return;
+    seen[k] = true;
+    keys.push(k);
+  }
+  (person && person.tids ? person.tids : []).forEach(function (t) {
+    add_("partnerMe:" + t);
+  });
+  (person && person.users ? person.users : []).forEach(function (u) {
+    add_("partnerMe:" + u);
+  });
+  return keys;
+}
+
+/** Same-role username-keyed + tid-keyed aliases (not staff vs partner). */
+function partnerSyncSameRolePointIds_(access, person, role, pointIds, status) {
+  const roleLc = String(role || "partner").toLowerCase() || "partner";
+  const pts = Array.isArray(pointIds) ? pointIds.slice() : [];
+  const rows = Array.isArray(access) ? access : [];
+  let n = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!partnerAccessRowMatchesPerson_(row, person)) continue;
+    if (String((row && row.role) || "partner").toLowerCase() !== roleLc) continue;
+    rows[i] = Object.assign({}, row, {
+      pointIds: pts.slice(),
+      status: status || row.status || "active"
+    });
+    n++;
+  }
+  return n;
+}
+
+/** Revoke every identity-alias row of the hit role (pa_user + pa_tid). Actor tid is not a seed. */
+function partnerRevokeIndexesForPerson_(access, seed) {
+  const person = partnerExpandPersonFromAccess_(access, seed);
+  const rows = Array.isArray(access) ? access : [];
+  let roleLc = "";
+  const seedId = String((seed && (seed.id || seed.accessId)) || "").trim();
+  if (seedId) {
+    for (let i = 0; i < rows.length; i++) {
+      if (String((rows[i] && rows[i].id) || "") === seedId) {
+        roleLc = String((rows[i] && rows[i].role) || "partner").toLowerCase() || "partner";
+        break;
+      }
+    }
+  }
+  const indexes = [];
+  for (let j = 0; j < rows.length; j++) {
+    if (!partnerAccessRowMatchesPerson_(rows[j], person)) continue;
+    if (roleLc && String((rows[j] && rows[j].role) || "partner").toLowerCase() !== roleLc) continue;
+    indexes.push(j);
+  }
+  return { person: person, indexes: indexes, role: roleLc };
 }
 
 function partnerFindAccessHitIndex_(access, opts) {
@@ -10092,11 +10235,21 @@ function partnerMeSnapKey_(params) {
   return "partnerMe:" + (tid || u || "anon");
 }
 
-async function partnerWriteMeSnapsForRow_(env, admin, row) {
-  if (!env || !env.DB || !row) return;
+async function partnerInvalidateMeSnaps_(env, person) {
+  if (!env || !env.DB) return;
+  const keys = partnerMeSnapKeysForPerson_(person);
+  for (let i = 0; i < keys.length; i++) {
+    try {
+      await delSnap_(env, keys[i]);
+    } catch (eInv) {}
+  }
+}
+
+async function partnerSyncMeSnapsForPerson_(env, admin, person) {
+  await partnerInvalidateMeSnaps_(env, person);
   const paramsA = {
-    telegramId: String(row.telegramId || "").trim(),
-    username: partnerNormUserWorker_(row.username)
+    telegramId: String((person && person.tids && person.tids[0]) || "").trim(),
+    username: partnerNormUserWorker_(person && person.users && person.users[0])
   };
   if (!paramsA.telegramId && !paramsA.username) return;
   const me = partnerGuardOrRewrite_(
@@ -10110,16 +10263,18 @@ async function partnerWriteMeSnapsForRow_(env, admin, row) {
     fromD1Access: true,
     cutover: true
   });
-  if (paramsA.telegramId) {
+  const keys = partnerMeSnapKeysForPerson_(person);
+  for (let k = 0; k < keys.length; k++) {
     try {
-      await putSnap_(env, "partnerMe:" + paramsA.telegramId, packed);
-    } catch (e1) {}
+      await putSnap_(env, keys[k], packed);
+    } catch (ePut) {}
   }
-  if (paramsA.username) {
-    try {
-      await putSnap_(env, "partnerMe:" + paramsA.username, packed);
-    } catch (e2) {}
-  }
+}
+
+async function partnerWriteMeSnapsForRow_(env, admin, row) {
+  if (!env || !env.DB || !row) return;
+  const person = partnerExpandPersonFromAccess_(admin && admin.access, row);
+  await partnerSyncMeSnapsForPerson_(env, admin, person);
 }
 
 async function putPartnerAdminFromGas_(env, gasAdmin) {
@@ -20000,9 +20155,18 @@ async function mutatePartnerD1_(action, params, env) {
         username: username || prev.username || ""
       });
     } else admin.access.push(row);
+    const saved = admin.access[hit >= 0 ? hit : admin.access.length - 1];
+    const personSave = partnerExpandPersonFromAccess_(admin.access, saved);
+    partnerSyncSameRolePointIds_(
+      admin.access,
+      personSave,
+      saved.role || roleSave,
+      saved.pointIds || [],
+      saved.status || "active"
+    );
     await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
     try {
-      await partnerWriteMeSnapsForRow_(env, admin, admin.access[hit >= 0 ? hit : admin.access.length - 1]);
+      await partnerSyncMeSnapsForPerson_(env, admin, personSave);
     } catch (eMe) {}
     if (telegramId && String(row.status || "").toLowerCase() === "pending") {
       try {
@@ -20063,24 +20227,26 @@ async function mutatePartnerD1_(action, params, env) {
   if (/^partnerRevokeAccess$/i.test(a)) {
     const id = String((params && (params.id || params.accessId)) || "").trim();
     const username = partnerNormUserWorker_(params && params.username);
-    let changed = 0;
-    const touched = [];
-    for (let i = 0; i < admin.access.length; i++) {
-      const row = admin.access[i];
-      if ((id && String(row.id) === id) || (username && partnerNormUserWorker_(row.username) === username)) {
-        admin.access[i] = Object.assign({}, row, { status: "revoked" });
-        touched.push(admin.access[i]);
-        changed++;
-      }
+    const targetTid = String(
+      (params && (params.targetTelegramId || params.staffTelegramId)) || ""
+    ).trim();
+    // Actor telegramId is the operator — never seed identity from it.
+    const plan = partnerRevokeIndexesForPerson_(admin.access, {
+      id: id,
+      username: username,
+      telegramId: targetTid,
+      targetTelegramId: targetTid
+    });
+    if (!plan.indexes.length) return { status: "error", message: "not_found" };
+    for (let r = 0; r < plan.indexes.length; r++) {
+      const idx = plan.indexes[r];
+      admin.access[idx] = Object.assign({}, admin.access[idx], { status: "revoked" });
     }
-    if (!changed) return { status: "error", message: "not_found" };
     await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
-    for (let t = 0; t < touched.length; t++) {
-      try {
-        await partnerWriteMeSnapsForRow_(env, admin, touched[t]);
-      } catch (eMeR) {}
-    }
-    return { status: "success", revoked: changed, d1Verified: true };
+    try {
+      await partnerSyncMeSnapsForPerson_(env, admin, plan.person);
+    } catch (eMeR) {}
+    return { status: "success", revoked: plan.indexes.length, d1Verified: true };
   }
 
   if (/^partnerSetNotifyRecipients$/i.test(a)) {

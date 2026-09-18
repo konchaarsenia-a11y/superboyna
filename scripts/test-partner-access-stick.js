@@ -84,14 +84,28 @@ if (!/fromD1Access/.test(workerSrc)) {
 if (!/partnerMergeAdminKeepD1Access_/.test(workerSrc) || !/putPartnerAdminFromGas_/.test(workerSrc)) {
   fail("worker must not let GAS listAdmin clobber D1 access");
 }
-if (!/partnerWriteMeSnapsForRow_/.test(workerSrc)) {
-  fail("grant/revoke must rewrite partnerMe snaps");
+if (!/partnerWriteMeSnapsForRow_/.test(workerSrc) || !/partnerInvalidateMeSnaps_/.test(workerSrc) || !/partnerSyncMeSnapsForPerson_/.test(workerSrc)) {
+  fail("grant/revoke must DELETE then rewrite partnerMe snaps");
+}
+if (!/function partnerExpandPersonFromAccess_/.test(workerSrc) || !/function partnerRevokeIndexesForPerson_/.test(workerSrc)) {
+  fail("revoke must expand dual username/tid identity rows");
+}
+if (!/partnerSyncSameRolePointIds_/.test(workerSrc)) {
+  fail("grant must sync pointIds onto same-role identity aliases");
+}
+const saveSlice = workerSrc.slice(workerSrc.indexOf("if (/^partnerSaveAccess$/i.test(a))"));
+if (saveSlice.indexOf("partnerSyncMeSnapsForPerson_") < 0 || saveSlice.indexOf("partnerSyncSameRolePointIds_") < 0) {
+  fail("partnerSaveAccess must sync aliases and clear partnerMe cache");
+}
+const revokeSlice = workerSrc.slice(workerSrc.indexOf("if (/^partnerRevokeAccess$/i.test(a))"));
+if (revokeSlice.indexOf("partnerRevokeIndexesForPerson_") < 0 || revokeSlice.indexOf("partnerSyncMeSnapsForPerson_") < 0) {
+  fail("partnerRevokeAccess must revoke all identity aliases and clear partnerMe cache");
+}
+if (!/gb_partner_me_v5/.test(appSrc)) {
+  fail("varka must bust demoted-owner me cache (v5)");
 }
 if (!/partnerFindAccessHitIndex_/.test(workerSrc)) {
   fail("saveAccess must match by role, not smash staff");
-}
-if (!/gb_partner_me_v4/.test(appSrc)) {
-  fail("varka must bust demoted-owner me cache (v4)");
 }
 if (!/partnerOverride === "owner_cabinet_all_points"/.test(appSrc)) {
   fail("varka loadMeCache_ must drop leftover owner-all cache");
@@ -104,6 +118,13 @@ if (!/isBoynaOwner/.test(gsSrc) || !/partnerIsCanonOwner_\(actorUser, actor\)/.t
 }
 if (!/partnerIsCanonOwner_\(actorUser, actor\)/.test(gsSrc.slice(gsSrc.indexOf("function handlePartnerRevokeAccess")))) {
   fail("GAS revoke must accept partner canon owner (helper), not only Boinya owner");
+}
+if (!/function partnerExpandPersonFromAccess_/.test(gsSrc) || gsSrc.slice(gsSrc.indexOf("function handlePartnerRevokeAccess")).indexOf("partnerExpandPersonFromAccess_") < 0) {
+  fail("GAS revoke must expand dual identity rows");
+}
+const uiSrc = fs.readFileSync(path.join(__dirname, "..", "boinya-c", "app.main.js"), "utf8");
+if (!/targetTelegramId: String\(row.telegramId/.test(uiSrc) || !/partnerHubRevokeAccess_/.test(uiSrc)) {
+  fail("Boinya UI revoke must send target username+telegramId, not only id");
 }
 
 const sandbox = {};
@@ -138,6 +159,12 @@ vm.runInContext(
     extractFn_(workerSrc, "partnerAccessStatus_"),
     extractFn_(workerSrc, "partnerAccessRowMatchesUser_"),
     extractFn_(workerSrc, "partnerCanWriteAccess_"),
+    extractFn_(workerSrc, "partnerAddPersonIdentity_"),
+    extractFn_(workerSrc, "partnerAccessRowMatchesPerson_"),
+    extractFn_(workerSrc, "partnerExpandPersonFromAccess_"),
+    extractFn_(workerSrc, "partnerMeSnapKeysForPerson_"),
+    extractFn_(workerSrc, "partnerSyncSameRolePointIds_"),
+    extractFn_(workerSrc, "partnerRevokeIndexesForPerson_"),
     extractFn_(workerSrc, "partnerFindAccessHitIndex_"),
     extractFn_(workerSrc, "partnerActiveAccessRowsForUser_"),
     extractFn_(workerSrc, "partnerPendingAccessRowForUser_"),
@@ -310,6 +337,113 @@ if ((helperMe.points || []).every(function (p) { return p.id !== "pt_varka_shevc
   fail("helper owner still sees all points including Шевченко 1");
 }
 
+const dualAdmin = {
+  status: "success",
+  catalog: [],
+  networks: admin.networks,
+  points: admin.points,
+  access: [
+    {
+      id: "pa_arseniy_staff",
+      username: "arseniyhotko",
+      telegramId: "650923866",
+      name: "Арсений",
+      role: "staff",
+      status: "active",
+      networkId: "net_varka",
+      pointIds: ["pt_varka_rokoss_80"]
+    },
+    {
+      id: "pa_arseniyhotko",
+      username: "arseniyhotko",
+      telegramId: "",
+      name: "Арсений",
+      role: "partner",
+      status: "active",
+      networkId: "net_varka",
+      pointIds: ["pt_varka_shevchenko_1"]
+    },
+    {
+      id: "pa_650923866",
+      username: "",
+      telegramId: "650923866",
+      name: "Арсений",
+      role: "partner",
+      status: "active",
+      networkId: "net_varka",
+      pointIds: ["pt_varka_shevchenko_1"]
+    },
+    {
+      id: "pa_cfblk",
+      username: "cfblk",
+      telegramId: "999",
+      name: "Shevchenko clinic",
+      role: "partner",
+      status: "active",
+      networkId: "net_varka",
+      pointIds: ["pt_varka_shevchenko_1"]
+    }
+  ]
+};
+
+const dualPerson = sandbox.partnerExpandPersonFromAccess_(dualAdmin.access, { id: "pa_arseniyhotko" });
+if ((dualPerson.tids || []).indexOf("650923866") < 0 || (dualPerson.users || []).indexOf("arseniyhotko") < 0) {
+  fail("expand from pa_arseniyhotko must pick tid 650923866 and username arseniyhotko");
+}
+const snapKeys = sandbox.partnerMeSnapKeysForPerson_(dualPerson);
+if (snapKeys.indexOf("partnerMe:650923866") < 0 || snapKeys.indexOf("partnerMe:arseniyhotko") < 0) {
+  fail("must invalidate partnerMe:<tid> and partnerMe:<username>, got " + JSON.stringify(snapKeys));
+}
+const plan = sandbox.partnerRevokeIndexesForPerson_(dualAdmin.access, { id: "pa_arseniyhotko" });
+const revokedIds = plan.indexes.map(function (i) { return dualAdmin.access[i].id; }).sort();
+if (revokedIds.join(",") !== "pa_650923866,pa_arseniyhotko") {
+  fail("revoke must touch both alias rows, not staff/cfblk, got " + revokedIds.join(","));
+}
+if (plan.indexes.some(function (i) { return dualAdmin.access[i].id === "pa_cfblk"; })) {
+  fail("do not touch pa_cfblk when revoking Arseniy");
+}
+if (plan.indexes.some(function (i) { return dualAdmin.access[i].id === "pa_arseniy_staff"; })) {
+  fail("revoke partner aliases must keep Arseniy staff rokoss_80");
+}
+
+const afterDual = JSON.parse(JSON.stringify(dualAdmin));
+plan.indexes.forEach(function (i) { afterDual.access[i].status = "revoked"; });
+const afterDualMe = sandbox.partnerBuildGetMeFromAdmin_(afterDual, arseniy);
+const afterDualIds = idsOf_(afterDualMe);
+if (afterDualIds["pt_varka_shevchenko_1"]) {
+  fail("after dual-row revoke getMe must drop Шевченко 1");
+}
+if (!afterDualIds["pt_varka_rokoss_80"]) {
+  fail("after dual-row revoke staff rokoss_80 must remain");
+}
+
+const grantSync = JSON.parse(JSON.stringify(dualAdmin));
+sandbox.partnerSyncSameRolePointIds_(
+  grantSync.access,
+  sandbox.partnerExpandPersonFromAccess_(grantSync.access, { id: "pa_arseniyhotko", username: "arseniyhotko", telegramId: "650923866" }),
+  "partner",
+  ["pt_varka_rokoss_80"],
+  "active"
+);
+const userKeyed = grantSync.access.filter(function (r) { return r.id === "pa_arseniyhotko"; })[0];
+const tidKeyed = grantSync.access.filter(function (r) { return r.id === "pa_650923866"; })[0];
+const cfblk = grantSync.access.filter(function (r) { return r.id === "pa_cfblk"; })[0];
+const staffRow = grantSync.access.filter(function (r) { return r.id === "pa_arseniy_staff"; })[0];
+if ((userKeyed.pointIds || []).join() !== "pt_varka_rokoss_80" || (tidKeyed.pointIds || []).join() !== "pt_varka_rokoss_80") {
+  fail("grant rewrite must copy pointIds onto both identity aliases");
+}
+if ((cfblk.pointIds || []).join() !== "pt_varka_shevchenko_1") {
+  fail("grant rewrite must not change pa_cfblk");
+}
+if ((staffRow.pointIds || []).join() !== "pt_varka_rokoss_80" || staffRow.status !== "active") {
+  fail("grant rewrite must not smash staff row");
+}
+
+if (sandbox.partnerAccessRowMatchesUser_({ id: "pa_650923866", username: "", telegramId: "" }, arseniy) !== true) {
+  fail("getMe must match tid-keyed pa_<tid> even if telegramId field empty");
+}
+
 console.log("OK: partner access stick");
 console.log("  grant → getMe sees point; revoke → getMe loses point");
+console.log("  dual pa_user+pa_tid revoked; partnerMe tid+username keys; pa_cfblk untouched");
 console.log("  staff rokoss_80 kept; Arseniy not canon owner; helper owner_hidden intact");
