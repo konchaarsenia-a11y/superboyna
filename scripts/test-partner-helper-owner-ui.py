@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Playwright: helper tid 827494606 is demoted — no owner cabinet / grant."""
+"""Playwright: helper tid 827494606 sees full owner cabinet including Varka + grant."""
 from __future__ import annotations
 
 import json
@@ -125,15 +125,21 @@ def run():
         page.wait_for_selector("#screenCabinet.on")
         page.wait_for_timeout(300)
         info = page.inner_html("#accessInfo")
-        if "Режим владельца" in info:
-            fail("demoted helper must not see owner mode: " + info)
+        if "Режим владельца" not in info:
+            fail("helper cabinet missing owner mode: " + info)
+        if "Varka" not in info and "Репина" not in info:
+            fail("helper cabinet missing Varka: " + info)
+        if "Fundog" not in info or "nan_animal_clinic" not in info:
+            fail("helper cabinet missing other points: " + info)
         grant = page.evaluate("() => getComputedStyle(document.getElementById('grantStaffCard')).display")
-        if grant != "none":
-            fail("demoted helper must not see grant card")
+        if grant == "none":
+            fail("helper owner must see grant card")
+        if "Выдать доступ" not in page.inner_html("#grantStaffCard"):
+            fail("grant button missing")
         chip = page.evaluate("() => getComputedStyle(document.getElementById('inspectLocaChip')).display")
         card = page.evaluate("() => getComputedStyle(document.getElementById('inspectLocaCard')).display")
         if chip != "none" or card != "none":
-            fail("helper must not see inspect loca picker")
+            fail("helper owner must not see inspect loca picker")
         page.screenshot(path=str(ART / "helper-owner-cabinet.png"), full_page=True)
         ctx.close()
 
@@ -170,8 +176,8 @@ def run():
         ctx3.close()
         browser.close()
     httpd.shutdown()
-    print("OK: helper demoted from owner cabinet UI")
-    print("  helper 827494606: no owner mode / grant")
+    print("OK: helper owner cabinet UI")
+    print("  helper 827494606: owner mode + Varka + grant")
     print("  Arseniy 650923866: not canon owner")
     print("  staff 111: no owner UI")
 

@@ -9087,11 +9087,11 @@ const PARTNER_ARSENIY_USER = "arseniyhotko";
 const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
-/** Канон-owner партнёрки. Пусто: helper 827494606 временно снят (тест Арсения). Arseniy 650923866 не возвращать. */
-const PARTNER_CANON_OWNER_TIDS = [];
-const PARTNER_CANON_OWNER_USERS = [];
+/** Канон-owner партнёрки (кабинет со всеми активными точками, включая Varka). Arseniy 650923866 — staff, не owner. */
+const PARTNER_CANON_OWNER_TIDS = ["827494606"];
+const PARTNER_CANON_OWNER_USERS = ["one_more_person_228"];
 
-/** Живой прогон @one_more_person_228. Owner-all shortcut выкл. (полный demote). */
+/** Живой прогон @one_more_person_228. owner-all кроме exclude — не применяется к canon-owner. */
 const PARTNER_LIVE_TEST_ENABLED = false;
 const PARTNER_LIVE_TEST_USER = "one_more_person_228";
 const PARTNER_LIVE_TEST_TID = "827494606";
@@ -9168,8 +9168,15 @@ function partnerInspectWantLoca_(params) {
   return want;
 }
 
-/** Owner-all shortcut выкл.: helper 827494606 только из Partner_Access, не все кроме Varka. */
+/** Test-user без allowlist → все активные точки, минус PARTNER_MANUAL_ACCESS_EXCLUDE_NETS. Owner бьёт exclude. */
 function isPartnerOwnerAllUser_(params) {
+  if (isPartnerCanonOwner_(params)) return false;
+  if (PARTNER_LIVE_TEST_ENABLED) return false;
+  if (PARTNER_MANUAL_ACCESS_POINTS && PARTNER_MANUAL_ACCESS_POINTS.length) return false;
+  const u = partnerNormUserWorker_(params && params.username);
+  const tid = String((params && params.telegramId) || "").trim();
+  if (u === PARTNER_LIVE_TEST_USER) return true;
+  if (tid && tid === PARTNER_LIVE_TEST_TID) return true;
   return false;
 }
 
@@ -9279,7 +9286,7 @@ function partnerHydrateIdentityFromInitData_(params) {
   return next;
 }
 
-/** Настоящий owner партнёрки: allowlist пуст (helper временно снят). Arseniy — staff через Partner_Access. */
+/** Настоящий owner партнёрки: helper 827494606. Arseniy — staff через Partner_Access. */
 function isPartnerCanonOwner_(params) {
   const u = partnerNormUserWorker_(params && params.username);
   const tid = String((params && params.telegramId) || "").trim();

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Playwright: helper 827494606 no inspect picker; no owner cabinet."""
+"""Playwright: helper 827494606 no inspect picker; owner cabinet stays."""
 from __future__ import annotations
 
 import json
@@ -150,11 +150,11 @@ def run():
         if not hidden(page, "inspectLocaCard"):
             fail("helper cabinet must not show inspect loca select")
         info = page.inner_html("#accessInfo")
-        if "Режим владельца" in info:
-            fail("demoted helper must not see owner cabinet: " + info)
+        if "Режим владельца" not in info:
+            fail("helper owner cabinet must stay: " + info)
         grant = page.evaluate("() => getComputedStyle(document.getElementById('grantStaffCard')).display")
-        if grant != "none":
-            fail("demoted helper must not see grant card")
+        if grant == "none":
+            fail("helper owner must still see grant card")
         page.screenshot(path=str(ART / "inspect-loca-helper-cabinet.png"), full_page=True)
         ctx.close()
 
@@ -184,8 +184,8 @@ def run():
         ctx3.close()
         browser.close()
     httpd.shutdown()
-    print("OK: helper inspect-loca off; nobody on canon owner allowlist")
-    print("  helper 827494606: no chip/select, no ownerMode/grant")
+    print("OK: helper inspect-loca off; owner cabinet stays")
+    print("  helper 827494606: no chip/select, ownerMode+grant")
     print("  Arseniy 650923866: not canon owner")
 
 

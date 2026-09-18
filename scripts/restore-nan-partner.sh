@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Вернуть партнёра nan clinic (pa_nan_animal_clinic) в active.
-# Actor — owner Бойни (Arseniy 650923866). Helper 827494606 больше не canon-owner.
+# Actor — канон-owner helper 827494606. Arseniy больше не owner партнёрки.
 #
-#   TELEGRAM_ID=650923866 bash scripts/restore-nan-partner.sh
+#   TELEGRAM_ID=827494606 bash scripts/restore-nan-partner.sh
 set -euo pipefail
 
 WORKER_URL="${WORKER_URL:-https://boinya-c.konchaarsenia.workers.dev}"
 GAS_URL="${GAS_URL:-https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec}"
-TELEGRAM_ID="${TELEGRAM_ID:-650923866}"
+TELEGRAM_ID="${TELEGRAM_ID:-827494606}"
 UA="Mozilla/5.0 (compatible; SuperboynaAgent/1.0)"
 
 echo "=== restore nan clinic partner ==="
