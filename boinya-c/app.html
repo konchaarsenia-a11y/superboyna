@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115968" as="script">
+  <link rel="preload" href="app.main.js?v=71115969" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115968";
+      var APP_VER = "v71115969";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -392,6 +392,8 @@
     .basket-card.other { border-left-color: #af52de; }
     .basket-card.powder { border-left-color: #ac8e68; }
     .basket-card.veg { border-left-color: var(--success-color); }
+    .basket-card.crumb { border-left-color: #8d6e63; }
+    .crumb-src-row { display:flex; gap:6px; align-items:center; margin-top:6px; }
     .basket-info { font-size: 15px; font-weight: 600; margin-bottom: 4px; padding-right: 70px; }
     .basket-sub { font-size: 13px; color: var(--text-muted); }
     .btn-inline-del {
@@ -1809,6 +1811,7 @@
           <button class="btn-action btn-orange" onclick="openProductSelector('chew')">Жевалки</button>
           <button class="btn-action btn-purple" onclick="openProductSelector('other')">Другое</button>
           <button class="btn-action btn-green" onclick="openProductSelector('veg')">Овощи/Фрукты</button>
+          <button class="btn-action" style="background:#8d6e63;color:#fff;" onclick="openCrumbBuilder('order')">Крошки</button>
         </div>
         <div class="card" id="selectorCard" style="display:none;margin-top:10px;">
           <div class="form-group">
@@ -2157,6 +2160,14 @@
             <label>Доставок / мес (N)</label>
             <input type="number" id="subDetailDeliveries" min="1" max="8" inputmode="numeric" oninput="scheduleSubDetailFactRecalc_()" onchange="scheduleSubDetailFactRecalc_()">
           </div>
+          <div class="form-group" id="subCompSlotRow" style="display:none;">
+            <label>Состав доставки (N=2)</label>
+            <div class="seg-row">
+              <button type="button" class="seg-btn active" id="subCompTab1" onclick="setSubCompSlot(1)">Доставка 1</button>
+              <button type="button" class="seg-btn" id="subCompTab2" onclick="setSubCompSlot(2)">Доставка 2</button>
+            </div>
+            <div class="muted" style="font-size:12px;margin-top:6px;">Полный второй состав — не только жевалки. Сохрани оба, чтобы видеть после перезагрузки.</div>
+          </div>
           <div class="form-group" id="subDetailStatusWrap">
             <label>Статус / этап</label>
             <select id="subDetailStatusSelect" style="display:none;" onchange="onBpCardStageChange_()">
@@ -2293,7 +2304,7 @@
                 </div>
                 <div style="flex:1;min-width:70px;">
                   <div class="muted" style="font-size:11px;margin-bottom:2px;">полоски</div>
-                  <input type="number" id="subDetailFracStrips" value="0" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
+                  <input type="number" id="subDetailFracStrips" value="1" step="0.1" inputmode="decimal" oninput="recalcSubDetailFactCost_()">
                 </div>
                 <div style="flex:1;min-width:70px;">
                   <div class="muted" style="font-size:11px;margin-bottom:2px;">крупное</div>
@@ -2327,6 +2338,7 @@
               <button class="btn-action btn-orange" onclick="openSubDetailProductSelector('chew')">Жевалки</button>
               <button class="btn-action btn-purple" onclick="openSubDetailProductSelector('other')">Другое</button>
               <button class="btn-action btn-green" onclick="openSubDetailProductSelector('veg')">Овощи/Фрукты</button>
+              <button class="btn-action" type="button" style="background:#8d6e63;color:#fff;" onclick="openCrumbBuilder('sub')">Крошки</button>
             </div>
             <div class="card" id="subDetailSelectorCard" style="display:none;margin-top:10px;">
               <div class="form-group">
@@ -2464,6 +2476,14 @@
             <label>Доставок в месяц (N)</label>
             <input type="number" id="priceDeliveriesN" value="1" min="1" max="8" inputmode="numeric" oninput="schedulePriceLiveUpdate()">
           </div>
+          <div class="form-group" id="priceCompSlotRow" style="display:none;">
+            <label>Состав доставки (N=2)</label>
+            <div class="seg-row">
+              <button type="button" class="seg-btn active" id="priceCompTab1" onclick="setPriceCompSlot(1)">Доставка 1</button>
+              <button type="button" class="seg-btn" id="priceCompTab2" onclick="setPriceCompSlot(2)">Доставка 2</button>
+            </div>
+            <div class="muted" style="font-size:12px;margin-top:6px;">Второй состав может отличаться целиком. Сохрани оба.</div>
+          </div>
           <div class="form-group">
             <label>Коэффициент <span class="muted" id="pricePpSchemeHint" style="font-size:11px;"></span></label>
             <input type="number" id="pricePpCoef" value="2.6" min="0.1" max="10" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
@@ -2509,7 +2529,7 @@
               </div>
               <div style="flex:1;min-width:70px;">
                 <div class="muted" style="font-size:11px;margin-bottom:2px;">полоски</div>
-                <input type="number" id="priceFracStrips" value="0" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
+                <input type="number" id="priceFracStrips" value="1" step="0.1" inputmode="decimal" oninput="schedulePriceLiveUpdate()">
               </div>
               <div style="flex:1;min-width:70px;">
                 <div class="muted" style="font-size:11px;margin-bottom:2px;">крупное</div>
@@ -2563,6 +2583,7 @@
           <button class="btn-action btn-orange" onclick="openPriceProductSelector('chew')">Жевалки</button>
           <button class="btn-action btn-purple" onclick="openPriceProductSelector('other')">Другое</button>
           <button class="btn-action btn-green" onclick="openPriceProductSelector('veg')">Овощи/Фрукты</button>
+          <button class="btn-action" style="background:#8d6e63;color:#fff;" onclick="openCrumbBuilder('price')">Крошки</button>
         </div>
         <div class="card" id="priceSelectorCard" style="display:none;margin-top:10px;">
           <div class="form-group">
@@ -2821,8 +2842,9 @@
     <div class="modal-sheet" id="modalSheet"></div>
   </div>
   <div class="toast" id="appToast"></div>
+  <div class="card" id="crumbBuilderCard" style="display:none;position:fixed;left:12px;right:12px;bottom:calc(12px + var(--safe-bottom));z-index:10040;max-height:70vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.45);"></div>
 
-  <script src="courier-maps.js?v=71115968"></script>
-  <script src="app.main.js?v=71115968" defer></script>
+  <script src="courier-maps.js?v=71115969"></script>
+  <script src="app.main.js?v=71115969" defer></script>
 </body>
 </html>
