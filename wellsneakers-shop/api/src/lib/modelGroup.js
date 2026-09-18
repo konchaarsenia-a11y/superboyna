@@ -4,6 +4,7 @@
  */
 
 import { resolveBrand } from "./brand.js";
+import { isOnSale, parseOldPriceByn } from "./sale.js";
 
 const COLOR_WORDS = new Set(
   [
@@ -391,6 +392,8 @@ export function groupProductsIntoModels(products, { inStockOnly = true } = {}) {
       article: product.article || "",
       productId: Number(product.id),
       price_byn: Number(product.price_byn) || 0,
+      old_price_byn: parseOldPriceByn(product.old_price_byn),
+      onSale: isOnSale(product),
       sizes,
     });
   }

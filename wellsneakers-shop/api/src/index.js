@@ -6,7 +6,11 @@ import { fileURLToPath } from "url";
 import { config } from "./config.js";
 import { router } from "./routes/api.js";
 import { uploadsDir } from "./middleware/upload.js";
-import { ensureProductModelColumns, backfillProductModelKeys } from "./services/catalog.js";
+import {
+  ensureProductModelColumns,
+  ensureProductOldPriceColumn,
+  backfillProductModelKeys,
+} from "./services/catalog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "../..");
@@ -44,6 +48,7 @@ app.use((err, _req, res, _next) => {
 async function start() {
   try {
     await ensureProductModelColumns();
+    await ensureProductOldPriceColumn();
     const n = await backfillProductModelKeys();
     if (n) console.log(`catalog brand/model_key backfill: ${n}`);
   } catch (err) {
