@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Grant/revoke from Boinya «Партнёры» must drive partnerGetMe.
- * Arseniy 650923866 is staff, not canon-owner. Helper keeps ownerMode.
+ * Arseniy 650923866 is staff, not canon-owner. Helper 827494606 demoted — cannot grant.
  */
 "use strict";
 
@@ -196,8 +196,8 @@ if (sandbox.isPartnerCanonOwner_(arseniy)) fail("Arseniy must not be canon owner
 if (!sandbox.partnerCanWriteAccess_({ telegramId: "650923866" })) {
   fail("Boinya operator Arseniy must be able to grant/revoke Access");
 }
-if (!sandbox.partnerCanWriteAccess_({ telegramId: "827494606", actorUsername: "one_more_person_228" })) {
-  fail("helper canon owner must be able to grant");
+if (sandbox.partnerCanWriteAccess_({ telegramId: "827494606", actorUsername: "one_more_person_228" })) {
+  fail("demoted helper must not grant Access");
 }
 if (sandbox.partnerCanWriteAccess_(stranger)) {
   fail("random staff must not grant Access");
@@ -324,18 +324,33 @@ if ((mergedGas.access || []).some(function (r) {
   fail("GAS listAdmin must not resurrect revoked D1 access");
 }
 
-const helperMe = sandbox.partnerGuardOrRewrite_("partnerGetMe", helper, {
-  status: "success",
-  points: admin.points,
-  networks: admin.networks,
-  access: admin.access
+const helperAdmin = Object.assign({}, admin, {
+  access: (admin.access || []).concat([{
+    id: "pa_help",
+    username: "one_more_person_228",
+    telegramId: "827494606",
+    name: "Helper",
+    role: "partner",
+    status: "active",
+    networkId: "net_nan",
+    pointIds: ["pt_nan_1"]
+  }])
 });
-if (!helperMe.ownerMode || helperMe.partnerOverride !== "owner_cabinet_all_points") {
-  fail("helper owner_cabinet must not regress");
+const helperFromAccess = sandbox.partnerBuildGetMeFromAdmin_(helperAdmin, helper);
+const helperMe = sandbox.partnerGuardOrRewrite_("partnerGetMe", helper, helperFromAccess);
+if (helperMe.ownerMode || helperMe.isOwner || helperMe.role === "owner") {
+  fail("helper must not keep owner after demote");
 }
-if ((helperMe.points || []).every(function (p) { return p.id !== "pt_varka_shevchenko_1"; })) {
-  fail("helper owner still sees all points including Шевченко 1");
+if (helperMe.partnerOverride === "owner_cabinet_all_points" ||
+    (helperMe.partnerOverride && String(helperMe.partnerOverride).indexOf("owner_all") === 0)) {
+  fail("helper must not keep owner-all leftover, got " + helperMe.partnerOverride);
 }
+const helperIds = idsOf_(helperMe);
+if (!helperIds["pt_nan_1"]) fail("helper Access pt_nan_1 missing");
+if (helperIds["pt_varka_rokoss_80"] || helperIds["pt_varka_shevchenko_1"]) {
+  fail("helper must not get all-points leftover, got " + JSON.stringify(helperMe.pointIds));
+}
+if (sandbox.isPartnerOwnerAllUser_(helper)) fail("helper must not match isPartnerOwnerAllUser_");
 
 const dualAdmin = {
   status: "success",

@@ -20607,9 +20607,9 @@ function partnerRequireOwner_(actorId) {
     String(row.status || "").toLowerCase() !== "denied");
 }
 
-/** Кабинет партнёрки: helper 827494606. Arseniy 650923866 — staff через Partner_Access, не owner. */
-var PARTNER_CANON_OWNER_TIDS_ = ["827494606"];
-var PARTNER_CANON_OWNER_USERS_ = ["one_more_person_228"];
+/** Кабинет партнёрки: allowlist пуст (helper 827494606 временно снят). Arseniy 650923866 не owner. */
+var PARTNER_CANON_OWNER_TIDS_ = [];
+var PARTNER_CANON_OWNER_USERS_ = [];
 
 function partnerIsCanonOwner_(username, tid) {
   var u = partnerNormUser_(username);
@@ -22035,6 +22035,10 @@ function partnerMigrateProdV36_() {
 
 function partnerSyncManualAccess_() {
   var ids = (PARTNER_MANUAL_ACCESS_POINT_IDS_ || []).slice();
+  // Пустой набор: owner-all выкл. — не снимать Access helper (точки только из строк Access).
+  if (!ids.length) {
+    return { ok: true, skipped: "owner_all_off", pointIds: [] };
+  }
   var acSh = getPartnerAccessSheet_();
   var rows = readPartnerAccessRows_();
   var uname = PARTNER_LIVE_TEST_USER_;
@@ -22043,18 +22047,6 @@ function partnerSyncManualAccess_() {
     if (String(rows[i].username || "").toLowerCase() === uname) { hit = rows[i]; break; }
   }
   var now = new Date();
-  // Пустой набор → снять Access, чтобы owner Бойни видел все точки
-  if (!ids.length) {
-    if (hit && String(hit.status || "") !== "inactive" && String(hit.status || "") !== "revoked") {
-      try {
-        acSh.getRange(hit.rowIndex, 6).setValue(JSON.stringify([]));
-        acSh.getRange(hit.rowIndex, 8).setValue("inactive");
-        acSh.getRange(hit.rowIndex, 9).setValue(now);
-      } catch (eR) {}
-      return { ok: true, revoked: true, pointIds: [] };
-    }
-    return { ok: true, revoked: false, pointIds: [] };
-  }
   var vals = [
     hit ? hit.id : ("pa_" + uname),
     uname,

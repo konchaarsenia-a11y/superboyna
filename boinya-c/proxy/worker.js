@@ -9079,11 +9079,11 @@ const PARTNER_ARSENIY_USER = "arseniyhotko";
 const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
-/** Канон-owner партнёрки (кабинет со всеми активными точками, включая Varka). Arseniy 650923866 — staff, не owner. */
-const PARTNER_CANON_OWNER_TIDS = ["827494606"];
-const PARTNER_CANON_OWNER_USERS = ["one_more_person_228"];
+/** Канон-owner партнёрки. Пусто: helper 827494606 временно снят (тест Арсения). Arseniy 650923866 не возвращать. */
+const PARTNER_CANON_OWNER_TIDS = [];
+const PARTNER_CANON_OWNER_USERS = [];
 
-/** Живой прогон @one_more_person_228. owner-all кроме exclude — не применяется к canon-owner. */
+/** Живой прогон @one_more_person_228. Owner-all shortcut выкл. (полный demote). */
 const PARTNER_LIVE_TEST_ENABLED = false;
 const PARTNER_LIVE_TEST_USER = "one_more_person_228";
 const PARTNER_LIVE_TEST_TID = "827494606";
@@ -9093,7 +9093,7 @@ const PARTNER_MANUAL_ACCESS_POINTS = [];
 const PARTNER_MANUAL_ACCESS_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 /** owner-all минус эти сети. Новые точки сети (net_varka / pt_varka_*) тоже режутся. */
 const PARTNER_MANUAL_ACCESS_EXCLUDE_NETS = ["net_varka"];
-/** Allowlist локи для проверки. Helper 827494606 снят — owner-кабинет (#281) без inspect picker. */
+/** Allowlist локи для проверки. Пустой — чип «Лока» никому. */
 const PARTNER_INSPECT_LOCA_TIDS = [];
 const PARTNER_INSPECT_LOCA_USERS = [];
 const PARTNER_LIVE_TEST_QUEUE = [
@@ -9160,15 +9160,8 @@ function partnerInspectWantLoca_(params) {
   return want;
 }
 
-/** Test-user без allowlist → все активные точки, минус PARTNER_MANUAL_ACCESS_EXCLUDE_NETS. Owner бьёт exclude. */
+/** Owner-all shortcut выкл.: helper 827494606 только из Partner_Access, не все кроме Varka. */
 function isPartnerOwnerAllUser_(params) {
-  if (isPartnerCanonOwner_(params)) return false;
-  if (PARTNER_LIVE_TEST_ENABLED) return false;
-  if (PARTNER_MANUAL_ACCESS_POINTS && PARTNER_MANUAL_ACCESS_POINTS.length) return false;
-  const u = partnerNormUserWorker_(params && params.username);
-  const tid = String((params && params.telegramId) || "").trim();
-  if (u === PARTNER_LIVE_TEST_USER) return true;
-  if (tid && tid === PARTNER_LIVE_TEST_TID) return true;
   return false;
 }
 
@@ -9278,7 +9271,7 @@ function partnerHydrateIdentityFromInitData_(params) {
   return next;
 }
 
-/** Настоящий owner партнёрки: helper 827494606. Arseniy — staff через Partner_Access. */
+/** Настоящий owner партнёрки: allowlist пуст (helper временно снят). Arseniy — staff через Partner_Access. */
 function isPartnerCanonOwner_(params) {
   const u = partnerNormUserWorker_(params && params.username);
   const tid = String((params && params.telegramId) || "").trim();
@@ -19667,6 +19660,10 @@ async function partnerEnsureLiveTestAccess_(env, admin) {
 async function partnerEnsureManualAccess_(env, admin) {
   if (!admin || typeof admin !== "object") return admin;
   const pts = PARTNER_MANUAL_ACCESS_POINTS || [];
+  // Пустой allowlist: owner-all выкл. — не трогать Access test-user (точки только из строк Access).
+  if (!pts.length) {
+    return admin;
+  }
   let access = Array.isArray(admin.access) ? admin.access.slice() : [];
   let changed = false;
   let hit = -1;
@@ -19675,24 +19672,6 @@ async function partnerEnsureManualAccess_(env, admin) {
       hit = j;
       break;
     }
-  }
-  // Пустой allowlist → снять Access у test-user (owner-all ± exclude-net)
-  if (!pts.length) {
-    if (hit >= 0) {
-      const prev = access[hit];
-      if (String(prev.status || "") !== "inactive" && String(prev.status || "") !== "revoked") {
-        access[hit] = Object.assign({}, prev, { status: "inactive", pointIds: [] });
-        changed = true;
-      }
-    }
-    const flagOff = partnerOwnerAllOverrideKey_();
-    const nextOff = Object.assign({}, admin, { access: access, _partnerLiveTest: flagOff });
-    if (changed && env && env.DB && admin._partnerLiveTest !== flagOff) {
-      try {
-        await putSnap_(env, "partnerListAdmin", Object.assign({}, nextOff, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
-      } catch (eOff) {}
-    }
-    return nextOff;
   }
   const ids = pts.map(function (p) {
     return p.id;

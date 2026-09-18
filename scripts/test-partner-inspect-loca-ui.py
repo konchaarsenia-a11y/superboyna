@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Playwright: helper 827494606 no inspect picker; owner cabinet stays."""
+"""Playwright: helper 827494606 no inspect picker; no owner cabinet."""
 from __future__ import annotations
 
 import json
@@ -150,11 +150,11 @@ def run():
         if not hidden(page, "inspectLocaCard"):
             fail("helper cabinet must not show inspect loca select")
         info = page.inner_html("#accessInfo")
-        if "Режим владельца" not in info:
-            fail("helper owner cabinet must stay: " + info)
+        if "Режим владельца" in info:
+            fail("demoted helper must not see owner cabinet: " + info)
         grant = page.evaluate("() => getComputedStyle(document.getElementById('grantStaffCard')).display")
-        if grant == "none":
-            fail("helper owner must still see grant card")
+        if grant != "none":
+            fail("demoted helper must not see grant card")
         page.screenshot(path=str(ART / "inspect-loca-helper-cabinet.png"), full_page=True)
         ctx.close()
 
@@ -168,8 +168,8 @@ def run():
         if not hidden(page2, "inspectLocaCard"):
             fail("Arseniy must not see inspect loca select")
         info2 = page2.inner_html("#accessInfo")
-        if "Режим владельца" not in info2:
-            fail("Arseniy owner UI must stay")
+        if "Режим владельца" in info2:
+            fail("Arseniy must not see owner UI")
         page2.screenshot(path=str(ART / "inspect-loca-owner-cabinet.png"), full_page=True)
         ctx2.close()
 
@@ -184,9 +184,9 @@ def run():
         ctx3.close()
         browser.close()
     httpd.shutdown()
-    print("OK: helper inspect-loca off; owner cabinet stays")
-    print("  helper 827494606: no chip/select, ownerMode+grant")
-    print("  Arseniy 650923866: owner UI still true")
+    print("OK: helper inspect-loca off; nobody on canon owner allowlist")
+    print("  helper 827494606: no chip/select, no ownerMode/grant")
+    print("  Arseniy 650923866: not canon owner")
 
 
 if __name__ == "__main__":
