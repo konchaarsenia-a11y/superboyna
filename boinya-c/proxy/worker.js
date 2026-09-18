@@ -2927,6 +2927,14 @@ function dmyToIso_(dmy) {
   return m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
 }
 
+/** YYYY-MM from YYYY-MM or YYYY-MM-DD. Empty if not a month key. */
+function monthKeyFromParam_(raw) {
+  const s = String(raw || "").trim();
+  if (/^\d{4}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 7);
+  return "";
+}
+
 /** ISO yyyy-mm-dd from ISO / DMY / datetime prefix. */
 function coerceDateIso_(raw) {
   const s = String(raw || "").trim();
@@ -5946,7 +5954,7 @@ async function reconcileMonthOverviewWithViewSnaps_(env, body) {
 }
 
 async function cutoverGetMonthOverview_(params, env, ctx) {
-  const month = String((params && params.month) || "").trim();
+  const month = monthKeyFromParam_(params && params.month);
   const force =
     String((params && params.force) || "") === "1" ||
     (params && (params.force === true || params.force === 1));
@@ -6023,12 +6031,12 @@ async function cutoverGetMonthOverview_(params, env, ctx) {
 
 async function rebuildMonthOverview_(env, monthWanted) {
   if (!env || !env.DB) return { status: "success", month: "", days: [], total: 0, sandbox: true };
-  const want = String(monthWanted || "").trim();
+  const want = monthKeyFromParam_(monthWanted);
   const prevGlobal = await getSnapRaw_(env, "monthOverview");
   const month =
-    (/^\d{4}-\d{2}$/.test(want) ? want : "") ||
-    (prevGlobal && prevGlobal.month) ||
-    new Date().toISOString().slice(0, 7);
+    want ||
+    monthKeyFromParam_(prevGlobal && prevGlobal.month) ||
+    todayIsoMinskD1_().slice(0, 7);
   // seed именно запрошенного месяца — иначе авг-snap «залипает» при переключении на сен
   let prev = month ? await getSnapRaw_(env, "monthOverview:" + month) : null;
   if (!prev || !Array.isArray(prev.days)) prev = prevGlobal;
@@ -6432,7 +6440,7 @@ async function invalidateDays_(env, days) {
 }
 
 async function getMonthOverview_(params, env) {
-  const month = String(params.month || "");
+  const month = monthKeyFromParam_(params && params.month);
   const hitM = month ? await getSnapRaw_(env, "monthOverview:" + month) : null;
   // быстрый путь: snap нужного месяца + overlay недели (полный rebuild — на write / SWR GAS)
   if (hitM && Array.isArray(hitM.days) && hitM.days.length) {
