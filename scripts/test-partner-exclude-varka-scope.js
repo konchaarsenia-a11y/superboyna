@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * leftover owner-all-except-Varka machinery still exists.
- * Helper tid is demoted from canon-owner: leftover override applies (ownerMode false).
+ * leftover owner-all-except-Varka machinery still exists,
+ * but helper is fully demoted: isPartnerOwnerAllUser_ is always false.
  */
 "use strict";
 
@@ -151,8 +151,8 @@ if (sandbox.isPartnerManualAccessUser_(tidParams)) {
 if (sandbox.isPartnerCanonOwner_(tidParams)) {
   fail("helper tid must not stay canon owner");
 }
-if (!sandbox.isPartnerOwnerAllUser_(tidParams)) {
-  fail("demoted helper must fall back to owner-all-except override");
+if (sandbox.isPartnerOwnerAllUser_(tidParams)) {
+  fail("helper must not keep owner-all-except leftover");
 }
 if (sandbox.isPartnerOwnerAllUser_({ username: "someone_else", telegramId: "1" })) {
   fail("other users must not get owner-all override");
@@ -244,14 +244,11 @@ if (helperOwnerMe.ownerMode || helperOwnerMe.isOwner || helperOwnerMe.role === "
     ownerMode: helperOwnerMe.ownerMode, isOwner: helperOwnerMe.isOwner, role: helperOwnerMe.role
   }));
 }
-if (helperOwnerMe.partnerOverride !== "owner_all_except_net_varka") {
-  fail("demoted helper leftover override want owner_all_except_net_varka got " + helperOwnerMe.partnerOverride);
+if (helperOwnerMe.partnerOverride && String(helperOwnerMe.partnerOverride).indexOf("owner_all") === 0) {
+  fail("helper guard must not apply leftover owner-all, got " + helperOwnerMe.partnerOverride);
 }
 if (helperOwnerMe.canPickInspectLoca) {
   fail("helper leftover getMe.canPickInspectLoca must be false");
-}
-if ((helperOwnerMe.points || []).some(function (p) { return p.id === "pt_varka_repina_4"; })) {
-  fail("demoted helper leftover getMe must exclude Varka");
 }
 
 const blockedVarka = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
@@ -260,8 +257,8 @@ const blockedVarka = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
   locationId: "pt_varka_repina_4",
   networkId: "net_varka"
 });
-if (!blockedVarka || blockedVarka.message !== "forbidden_point") {
-  fail("demoted helper submit Varka must be forbidden, got " + JSON.stringify(blockedVarka));
+if (blockedVarka) {
+  fail("helper submit must not use leftover owner-all forbid, got " + JSON.stringify(blockedVarka));
 }
 
 const blockedPrefix = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
@@ -269,8 +266,8 @@ const blockedPrefix = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
   telegramId: "827494606",
   locationId: "pt_varka_brand_new_99"
 });
-if (!blockedPrefix || blockedPrefix.message !== "forbidden_point") {
-  fail("demoted helper submit pt_varka_* must be forbidden, got " + JSON.stringify(blockedPrefix));
+if (blockedPrefix) {
+  fail("helper submit must not use leftover pt_varka_* forbid, got " + JSON.stringify(blockedPrefix));
 }
 
 const allowedNan = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
@@ -290,9 +287,8 @@ const listed = sandbox.partnerGuardOrRewrite_("partnerListMyOrders", tidParams, 
   ]
 });
 const listedIds = (listed.orders || []).map(function (o) { return o.id; });
-if (listedIds.indexOf("a") >= 0) fail("demoted helper list must drop Varka order");
-if (listedIds.indexOf("b") < 0 || listedIds.indexOf("c") < 0) {
-  fail("list dropped allowed orders: " + listedIds.join(","));
+if (listedIds.indexOf("a") < 0 || listedIds.indexOf("b") < 0 || listedIds.indexOf("c") < 0) {
+  fail("without owner-all leftover, list rewrite must not filter here: " + listedIds.join(","));
 }
 
 if (sandbox.isPartnerInspectLocaUser_(tidParams)) {
@@ -331,11 +327,8 @@ const listedFundog = sandbox.partnerGuardOrRewrite_("partnerListMyOrders", {
   ]
 });
 const fundogIds = (listedFundog.orders || []).map(function (o) { return o.id; });
-if (fundogIds.indexOf("c") < 0 || fundogIds.indexOf("b") < 0) {
-  fail("helper leftover list must keep non-Varka orders, got " + fundogIds.join(","));
-}
-if (fundogIds.indexOf("a") >= 0) {
-  fail("demoted helper list must drop Varka orders, got " + fundogIds.join(","));
+if (fundogIds.indexOf("c") < 0 || fundogIds.indexOf("b") < 0 || fundogIds.indexOf("a") < 0) {
+  fail("without owner-all leftover, list rewrite must not filter here, got " + fundogIds.join(","));
 }
 
 const listedVarkaWant = sandbox.partnerGuardOrRewrite_("partnerListMyOrders", {
@@ -350,16 +343,16 @@ const listedVarkaWant = sandbox.partnerGuardOrRewrite_("partnerListMyOrders", {
     { id: "b", locationId: "pt_nan_1", networkId: "net_nan" }
   ]
 });
-if ((listedVarkaWant.orders || []).some(function (o) { return o.id === "a"; })) {
-  fail("demoted helper list must drop Varka orders even if locationId is Varka");
+if (!(listedVarkaWant.orders || []).some(function (o) { return o.id === "a"; })) {
+  fail("without owner-all leftover, list rewrite must not drop Varka here");
 }
 
 if (/PARTNER_BOT_TOKEN/.test(extractFn_(workerSrc, "partnerOwnerAllGetMe_"))) {
   fail("do not touch PARTNER_BOT_TOKEN from this change");
 }
 
-console.log("OK: exclude machinery leftover; helper demoted from canon owner");
+console.log("OK: leftover owner-all fn exists; helper does not match it");
 console.log("  leftover owner-all points:", pointIds.join(", "));
 console.log("  leftover nets:", netIds.join(", "));
 console.log("  leftover override:", me.partnerOverride);
-console.log("  helper guard:", helperOwnerMe.partnerOverride);
+console.log("  helper isPartnerOwnerAllUser:", sandbox.isPartnerOwnerAllUser_(tidParams));

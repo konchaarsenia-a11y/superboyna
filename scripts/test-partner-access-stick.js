@@ -324,15 +324,33 @@ if ((mergedGas.access || []).some(function (r) {
   fail("GAS listAdmin must not resurrect revoked D1 access");
 }
 
-const helperMe = sandbox.partnerGuardOrRewrite_("partnerGetMe", helper, {
-  status: "success",
-  points: admin.points,
-  networks: admin.networks,
-  access: admin.access
+const helperAdmin = Object.assign({}, admin, {
+  access: (admin.access || []).concat([{
+    id: "pa_help",
+    username: "one_more_person_228",
+    telegramId: "827494606",
+    name: "Helper",
+    role: "partner",
+    status: "active",
+    networkId: "net_nan",
+    pointIds: ["pt_nan_1"]
+  }])
 });
-if (helperMe.ownerMode || helperMe.isOwner || helperMe.partnerOverride === "owner_cabinet_all_points") {
-  fail("helper must not keep owner_cabinet after demote");
+const helperFromAccess = sandbox.partnerBuildGetMeFromAdmin_(helperAdmin, helper);
+const helperMe = sandbox.partnerGuardOrRewrite_("partnerGetMe", helper, helperFromAccess);
+if (helperMe.ownerMode || helperMe.isOwner || helperMe.role === "owner") {
+  fail("helper must not keep owner after demote");
 }
+if (helperMe.partnerOverride === "owner_cabinet_all_points" ||
+    (helperMe.partnerOverride && String(helperMe.partnerOverride).indexOf("owner_all") === 0)) {
+  fail("helper must not keep owner-all leftover, got " + helperMe.partnerOverride);
+}
+const helperIds = idsOf_(helperMe);
+if (!helperIds["pt_nan_1"]) fail("helper Access pt_nan_1 missing");
+if (helperIds["pt_varka_rokoss_80"] || helperIds["pt_varka_shevchenko_1"]) {
+  fail("helper must not get all-points leftover, got " + JSON.stringify(helperMe.pointIds));
+}
+if (sandbox.isPartnerOwnerAllUser_(helper)) fail("helper must not match isPartnerOwnerAllUser_");
 
 const dualAdmin = {
   status: "success",
