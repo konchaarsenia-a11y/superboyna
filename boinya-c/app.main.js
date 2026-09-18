@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115971";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115972";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -4175,7 +4175,7 @@
     }
     window.addCrumbToBasket_ = addCrumbToBasket_;
 
-    async function clearBasket() {
+    function renderBasket() {
       const box = document.getElementById("basketContainer");
       if (!basket.length) {
         box.innerHTML = '<p class="muted">Корзина пуста</p>';
@@ -4213,6 +4213,7 @@
       try { syncEditBasketToViewPreview_(); } catch (eSync1) {}
       try { refreshNotesItemSelectsIfOpen_(); } catch (eN1) {}
     }
+    window.renderBasket = renderBasket;
 
     function refreshNotesItemSelectsIfOpen_() {
       if (!(orderNotes || []).some(function (n) { return n.roles && n.roles.cut; })) return;
