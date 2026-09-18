@@ -2175,7 +2175,9 @@ function doGet(e) {
     return handlePartnerRevokeAccess({
       telegramId: e.parameter.telegramId || "",
       id: e.parameter.id || "",
-      username: e.parameter.username ? decodeURIComponent(e.parameter.username) : ""
+      username: e.parameter.username ? decodeURIComponent(e.parameter.username) : "",
+      targetTelegramId: e.parameter.targetTelegramId || e.parameter.staffTelegramId || "",
+      actorUsername: e.parameter.actorUsername ? decodeURIComponent(e.parameter.actorUsername) : ""
     }, callback, false);
   }
   if (action === "partnerSeedDefaults") {
@@ -20834,19 +20836,45 @@ function partnerFindActiveAccess_(username, tid) {
   var rows = readPartnerAccessRows_();
   var u = partnerNormUser_(username);
   var id = String(tid || "").trim();
-  if (u) {
-    for (var i = 0; i < rows.length; i++) {
-      if (String(rows[i].status || "") !== "active") continue;
-      if (rows[i].username === u) return rows[i];
-    }
+  var matches = [];
+  var seen = {};
+  function add_(row) {
+    if (!row || seen[row.id || ("r" + row.rowIndex)]) return;
+    seen[row.id || ("r" + row.rowIndex)] = true;
+    matches.push(row);
   }
-  if (id) {
-    for (var j = 0; j < rows.length; j++) {
-      if (String(rows[j].status || "") !== "active") continue;
-      if (rows[j].telegramId && String(rows[j].telegramId) === id) return rows[j];
-    }
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].status || "") !== "active") continue;
+    if (u && rows[i].username === u) add_(rows[i]);
+    else if (id && rows[i].telegramId && String(rows[i].telegramId) === id) add_(rows[i]);
   }
-  return null;
+  if (!matches.length) return null;
+  if (matches.length === 1) return matches[0];
+  var ids = [];
+  var have = {};
+  var role = "partner";
+  matches.forEach(function (row) {
+    if (String(row.role || "").toLowerCase() === "staff") role = "staff";
+    (row.pointIds || []).forEach(function (pid) {
+      var p = String(pid || "").trim();
+      if (!p || have[p]) return;
+      have[p] = true;
+      ids.push(p);
+    });
+  });
+  var primary = matches[0];
+  return {
+    rowIndex: primary.rowIndex,
+    id: primary.id,
+    username: primary.username,
+    telegramId: primary.telegramId,
+    name: primary.name,
+    networkId: primary.networkId,
+    pointIds: ids,
+    role: role,
+    status: "active",
+    updatedAt: primary.updatedAt
+  };
 }
 
 function partnerFindPendingAccess_(username, tid) {
@@ -20866,6 +20894,77 @@ function partnerFindPendingAccess_(username, tid) {
     }
   }
   return null;
+}
+
+function partnerAddPersonIdentity_(into, raw) {
+  into = into || { tids: [], users: [], ids: [] };
+  var seenT = {};
+  var seenU = {};
+  var seenI = {};
+  (into.tids || []).forEach(function (t) { seenT[t] = true; });
+  (into.users || []).forEach(function (u) { seenU[u] = true; });
+  (into.ids || []).forEach(function (id) { seenI[id] = true; });
+  function addTid_(t) {
+    t = String(t || "").trim();
+    if (!t || seenT[t]) return;
+    seenT[t] = true;
+    into.tids.push(t);
+  }
+  function addUser_(u) {
+    u = partnerNormUser_(u);
+    if (!u || seenU[u]) return;
+    seenU[u] = true;
+    into.users.push(u);
+  }
+  function addId_(id) {
+    id = String(id || "").trim();
+    if (!id || seenI[id]) return;
+    seenI[id] = true;
+    into.ids.push(id);
+    if (id.indexOf("pa_") === 0) {
+      var rest = id.slice(3);
+      if (/^\d{5,}$/.test(rest)) addTid_(rest);
+      else addUser_(rest);
+    }
+  }
+  if (raw && typeof raw === "object") {
+    addTid_(raw.telegramId || raw.targetTelegramId);
+    addUser_(raw.username);
+    addId_(raw.id || raw.accessId);
+  }
+  return into;
+}
+
+function partnerAccessRowMatchesPerson_(row, person) {
+  if (!row || !person) return false;
+  var rtid = String(row.telegramId || "").trim();
+  var ru = partnerNormUser_(row.username);
+  var rid = String(row.id || "").trim();
+  if (rtid && (person.tids || []).indexOf(rtid) >= 0) return true;
+  if (ru && (person.users || []).indexOf(ru) >= 0) return true;
+  if (rid && (person.ids || []).indexOf(rid) >= 0) return true;
+  if (rid.indexOf("pa_") === 0) {
+    var rest = rid.slice(3);
+    if (/^\d{5,}$/.test(rest) && (person.tids || []).indexOf(rest) >= 0) return true;
+    if ((person.users || []).indexOf(partnerNormUser_(rest)) >= 0) return true;
+  }
+  return false;
+}
+
+function partnerExpandPersonFromAccess_(access, seed) {
+  var person = partnerAddPersonIdentity_({ tids: [], users: [], ids: [] }, seed);
+  var rows = access || [];
+  var guard = 0;
+  while (guard++ < 8) {
+    var before = person.tids.length + person.users.length + person.ids.length;
+    for (var i = 0; i < rows.length; i++) {
+      if (partnerAccessRowMatchesPerson_(rows[i], person)) {
+        partnerAddPersonIdentity_(person, rows[i]);
+      }
+    }
+    if (person.tids.length + person.users.length + person.ids.length === before) break;
+  }
+  return person;
 }
 
 function partnerMigrateProdV3_() {
@@ -23245,8 +23344,10 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
   var actorRole = String((json && json.actorRole) || "").toLowerCase();
   var actorUser = partnerNormUser_((json && json.actorUsername) || "");
   var isCanonOwner = partnerIsCanonOwner_(actorUser, actor);
-  // Выдать доступ — только канон-owner партнёрки, не partner/helper/staff
-  if (!isCanonOwner) {
+  var isBoynaOwner = false;
+  try { isBoynaOwner = partnerRequireOwner_(actor); } catch (eOwnA) { isBoynaOwner = false; }
+  // Выдать доступ — канон-owner партнёрки или owner Бойни (вкладка Партнёры)
+  if (!isCanonOwner && !isBoynaOwner) {
     var forbid = { status: "error", message: "owner_only" };
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
   }
@@ -23316,11 +23417,23 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
   var sh = getPartnerAccessSheet_();
   var all = readPartnerAccessRows_();
   var hit = null;
+  var roleLc = String(role || "partner").toLowerCase() || "partner";
   for (var i = 0; i < all.length; i++) {
     if (all[i].id === id) { hit = all[i]; break; }
-    if (username && all[i].username === username) { hit = all[i]; id = all[i].id; break; }
-    if (targetTid && all[i].telegramId === targetTid && all[i].role === role) {
-      hit = all[i]; id = all[i].id; break;
+  }
+  if (!hit) {
+    for (var j = 0; j < all.length; j++) {
+      if (String(all[j].role || "partner").toLowerCase() !== roleLc) continue;
+      if (String(all[j].status || "active") !== "active") continue;
+      if (username && all[j].username === username) { hit = all[j]; id = all[j].id; break; }
+      if (targetTid && all[j].telegramId === targetTid) { hit = all[j]; id = all[j].id; break; }
+    }
+  }
+  if (!hit) {
+    for (var k = 0; k < all.length; k++) {
+      if (String(all[k].role || "partner").toLowerCase() !== roleLc) continue;
+      if (username && all[k].username === username) { hit = all[k]; id = all[k].id; break; }
+      if (targetTid && all[k].telegramId === targetTid) { hit = all[k]; id = all[k].id; break; }
     }
   }
   var vals = [
@@ -23336,6 +23449,21 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
   ];
   if (hit) sh.getRange(hit.rowIndex, 1, 1, PARTNER_ACCESS_HEADERS_.length).setValues([vals]);
   else sh.appendRow(vals);
+  try {
+    var all2 = readPartnerAccessRows_();
+    var savedRow = { id: id, username: username, telegramId: targetTid, role: role, status: status, pointIds: pointIds };
+    var personSave = partnerExpandPersonFromAccess_(all2, savedRow);
+    var roleLcSave = String(role || "partner").toLowerCase() || "partner";
+    for (var ai = 0; ai < all2.length; ai++) {
+      var ar = all2[ai];
+      if (!partnerAccessRowMatchesPerson_(ar, personSave)) continue;
+      if (String(ar.role || "partner").toLowerCase() !== roleLcSave) continue;
+      if (String(ar.id) === String(id)) continue;
+      sh.getRange(ar.rowIndex, 6).setValue(JSON.stringify(pointIds));
+      sh.getRange(ar.rowIndex, 8).setValue(status);
+      sh.getRange(ar.rowIndex, 9).setValue(new Date());
+    }
+  } catch (eAlias) {}
   if (targetTid && status === "pending") {
     try {
       partnerTelegramSend_(
@@ -23379,26 +23507,47 @@ function handlePartnerAcceptAccess(json, callback, fromPost) {
 }
 
 function handlePartnerRevokeAccess(json, callback, fromPost) {
-  if (!partnerRequireOwner_(json && json.telegramId)) {
+  var actor = String((json && json.telegramId) || "").trim();
+  var actorUser = partnerNormUser_((json && json.actorUsername) || "");
+  if (!partnerRequireOwner_(actor) && !partnerIsCanonOwner_(actorUser, actor)) {
     var forbid = { status: "error", message: "owner_only" };
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
   }
   var id = String((json && json.id) || "").trim();
   var username = partnerNormUser_((json && json.username) || "");
+  var targetTid = String((json && (json.targetTelegramId || json.staffTelegramId)) || "").trim();
   var all = readPartnerAccessRows_();
-  var hit = null;
-  for (var i = 0; i < all.length; i++) {
-    if (id && all[i].id === id) { hit = all[i]; break; }
-    if (username && all[i].username === username) { hit = all[i]; break; }
+  var person = partnerExpandPersonFromAccess_(all, {
+    id: id,
+    username: username,
+    telegramId: targetTid,
+    targetTelegramId: targetTid
+  });
+  var roleLc = "";
+  if (id) {
+    for (var h = 0; h < all.length; h++) {
+      if (all[h].id === id) {
+        roleLc = String(all[h].role || "partner").toLowerCase() || "partner";
+        break;
+      }
+    }
   }
-  if (!hit) {
+  var sh = getPartnerAccessSheet_();
+  var changed = 0;
+  var firstId = "";
+  for (var i = 0; i < all.length; i++) {
+    if (!partnerAccessRowMatchesPerson_(all[i], person)) continue;
+    if (roleLc && String(all[i].role || "partner").toLowerCase() !== roleLc) continue;
+    sh.getRange(all[i].rowIndex, 8).setValue("revoked");
+    sh.getRange(all[i].rowIndex, 9).setValue(new Date());
+    if (!firstId) firstId = all[i].id;
+    changed++;
+  }
+  if (!changed) {
     var bad = { status: "error", message: "not_found" };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
-  var sh = getPartnerAccessSheet_();
-  sh.getRange(hit.rowIndex, 8).setValue("revoked");
-  sh.getRange(hit.rowIndex, 9).setValue(new Date());
-  var ok = { status: "success", id: hit.id, revoked: true };
+  var ok = { status: "success", id: firstId || id, revoked: changed };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
