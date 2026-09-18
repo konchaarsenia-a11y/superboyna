@@ -148,8 +148,8 @@ if (!/canGrant = canUseOwnerUi_\(\)/.test(appSrc)) {
 if (!/Владельца в доступы не добавляем/.test(appSrc)) {
   fail("varka grant must refuse owner tid");
 }
-if (!/APP_VER = "3.3.52"/.test(appSrc)) {
-  fail("varka APP_VER must be 3.3.52");
+if (!/APP_VER = "3.3.53"/.test(appSrc)) {
+  fail("varka APP_VER must be 3.3.53");
 }
 if (/На nan clinic staff не выдаём/.test(appSrc)) {
   fail("varka grant must allow pt_nan_1 like any other point");
@@ -193,7 +193,7 @@ if (!/message: "owner_only"/.test(gsSrc) || !/partnerIsCanonOwner_\(actorUser, a
   fail("Code.gs partnerSaveAccess must be canon-owner only");
 }
 if (!/message: "owner_only"/.test(workerSrc) ||
-    !/isPartnerCanonOwner_/.test(workerSrc.slice(workerSrc.indexOf("if (/^partnerSaveAccess$/i.test(a))")))) {
+    !/partnerCanWriteAccess_/.test(workerSrc.slice(workerSrc.indexOf("if (/^partnerSaveAccess$/i.test(a))")))) {
   fail("worker partnerSaveAccess must reject non-owner");
 }
 

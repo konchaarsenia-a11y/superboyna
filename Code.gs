@@ -20834,19 +20834,45 @@ function partnerFindActiveAccess_(username, tid) {
   var rows = readPartnerAccessRows_();
   var u = partnerNormUser_(username);
   var id = String(tid || "").trim();
-  if (u) {
-    for (var i = 0; i < rows.length; i++) {
-      if (String(rows[i].status || "") !== "active") continue;
-      if (rows[i].username === u) return rows[i];
-    }
+  var matches = [];
+  var seen = {};
+  function add_(row) {
+    if (!row || seen[row.id || ("r" + row.rowIndex)]) return;
+    seen[row.id || ("r" + row.rowIndex)] = true;
+    matches.push(row);
   }
-  if (id) {
-    for (var j = 0; j < rows.length; j++) {
-      if (String(rows[j].status || "") !== "active") continue;
-      if (rows[j].telegramId && String(rows[j].telegramId) === id) return rows[j];
-    }
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i].status || "") !== "active") continue;
+    if (u && rows[i].username === u) add_(rows[i]);
+    else if (id && rows[i].telegramId && String(rows[i].telegramId) === id) add_(rows[i]);
   }
-  return null;
+  if (!matches.length) return null;
+  if (matches.length === 1) return matches[0];
+  var ids = [];
+  var have = {};
+  var role = "partner";
+  matches.forEach(function (row) {
+    if (String(row.role || "").toLowerCase() === "staff") role = "staff";
+    (row.pointIds || []).forEach(function (pid) {
+      var p = String(pid || "").trim();
+      if (!p || have[p]) return;
+      have[p] = true;
+      ids.push(p);
+    });
+  });
+  var primary = matches[0];
+  return {
+    rowIndex: primary.rowIndex,
+    id: primary.id,
+    username: primary.username,
+    telegramId: primary.telegramId,
+    name: primary.name,
+    networkId: primary.networkId,
+    pointIds: ids,
+    role: role,
+    status: "active",
+    updatedAt: primary.updatedAt
+  };
 }
 
 function partnerFindPendingAccess_(username, tid) {
@@ -23245,8 +23271,10 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
   var actorRole = String((json && json.actorRole) || "").toLowerCase();
   var actorUser = partnerNormUser_((json && json.actorUsername) || "");
   var isCanonOwner = partnerIsCanonOwner_(actorUser, actor);
-  // Выдать доступ — только канон-owner партнёрки, не partner/helper/staff
-  if (!isCanonOwner) {
+  var isBoynaOwner = false;
+  try { isBoynaOwner = partnerRequireOwner_(actor); } catch (eOwnA) { isBoynaOwner = false; }
+  // Выдать доступ — канон-owner партнёрки или owner Бойни (вкладка Партнёры)
+  if (!isCanonOwner && !isBoynaOwner) {
     var forbid = { status: "error", message: "owner_only" };
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
   }
@@ -23316,11 +23344,23 @@ function handlePartnerSaveAccess(json, callback, fromPost) {
   var sh = getPartnerAccessSheet_();
   var all = readPartnerAccessRows_();
   var hit = null;
+  var roleLc = String(role || "partner").toLowerCase() || "partner";
   for (var i = 0; i < all.length; i++) {
     if (all[i].id === id) { hit = all[i]; break; }
-    if (username && all[i].username === username) { hit = all[i]; id = all[i].id; break; }
-    if (targetTid && all[i].telegramId === targetTid && all[i].role === role) {
-      hit = all[i]; id = all[i].id; break;
+  }
+  if (!hit) {
+    for (var j = 0; j < all.length; j++) {
+      if (String(all[j].role || "partner").toLowerCase() !== roleLc) continue;
+      if (String(all[j].status || "active") !== "active") continue;
+      if (username && all[j].username === username) { hit = all[j]; id = all[j].id; break; }
+      if (targetTid && all[j].telegramId === targetTid) { hit = all[j]; id = all[j].id; break; }
+    }
+  }
+  if (!hit) {
+    for (var k = 0; k < all.length; k++) {
+      if (String(all[k].role || "partner").toLowerCase() !== roleLc) continue;
+      if (username && all[k].username === username) { hit = all[k]; id = all[k].id; break; }
+      if (targetTid && all[k].telegramId === targetTid) { hit = all[k]; id = all[k].id; break; }
     }
   }
   var vals = [
@@ -23379,7 +23419,9 @@ function handlePartnerAcceptAccess(json, callback, fromPost) {
 }
 
 function handlePartnerRevokeAccess(json, callback, fromPost) {
-  if (!partnerRequireOwner_(json && json.telegramId)) {
+  var actor = String((json && json.telegramId) || "").trim();
+  var actorUser = partnerNormUser_((json && json.actorUsername) || "");
+  if (!partnerRequireOwner_(actor) && !partnerIsCanonOwner_(actorUser, actor)) {
     var forbid = { status: "error", message: "owner_only" };
     return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
   }

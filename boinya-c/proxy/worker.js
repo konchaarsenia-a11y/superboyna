@@ -387,7 +387,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-18 tz-p0-crumbs-h1"
+      deployMarker: "2026-09-18 partner-access-stick-h1"
     };
   }
 
@@ -9280,6 +9280,256 @@ function partnerIsClosedAccess_(row) {
   return st === "inactive" || st === "revoked";
 }
 
+function partnerAccessStatus_(row) {
+  return String((row && row.status) || "active").toLowerCase() || "active";
+}
+
+function partnerAccessRowMatchesUser_(row, params) {
+  if (!row) return false;
+  const u = partnerNormUserWorker_(params && params.username);
+  const tid = String((params && params.telegramId) || "").trim();
+  const ru = partnerNormUserWorker_(row.username);
+  const rtid = String(row.telegramId || "").trim();
+  if (tid && rtid && tid === rtid) return true;
+  if (u && ru && u === ru) return true;
+  return false;
+}
+
+/** Бойня «Партнёры» и varka owner-кабинет могут писать Access. Не даёт ownerMode в getMe. */
+function partnerCanWriteAccess_(params) {
+  const actorTid = String((params && params.telegramId) || "").trim();
+  const actorUser = partnerNormUserWorker_(params && params.actorUsername);
+  if (isPartnerCanonOwner_({ telegramId: actorTid, username: actorUser })) return true;
+  if (actorTid && actorTid === PARTNER_ARSENIY_TID) return true;
+  return false;
+}
+
+function partnerFindAccessHitIndex_(access, opts) {
+  opts = opts || {};
+  const id = String(opts.id || "").trim();
+  const username = partnerNormUserWorker_(opts.username);
+  const telegramId = String(opts.telegramId || "").trim();
+  const roleSaveLc = String(opts.role || "partner").toLowerCase() || "partner";
+  const rows = Array.isArray(access) ? access : [];
+  if (id) {
+    for (let i = 0; i < rows.length; i++) {
+      if (String(rows[i].id) === id) return i;
+    }
+  }
+  function accessRole_(r) {
+    return String((r && r.role) || "partner").toLowerCase() || "partner";
+  }
+  function accessSt_(r) {
+    return String((r && r.status) || "active").toLowerCase();
+  }
+  for (let j = 0; j < rows.length; j++) {
+    const cur = rows[j];
+    if (accessRole_(cur) !== roleSaveLc) continue;
+    if (accessSt_(cur) !== "active") continue;
+    const matchU = username && partnerNormUserWorker_(cur.username) === username;
+    const matchT = telegramId && String(cur.telegramId || "") === telegramId;
+    if (matchU || matchT) return j;
+  }
+  for (let k = 0; k < rows.length; k++) {
+    const cur = rows[k];
+    if (accessRole_(cur) !== roleSaveLc) continue;
+    const matchU = username && partnerNormUserWorker_(cur.username) === username;
+    const matchT = telegramId && String(cur.telegramId || "") === telegramId;
+    if (matchU || matchT) return k;
+  }
+  return -1;
+}
+
+function partnerActiveAccessRowsForUser_(admin, params) {
+  const rows = admin && Array.isArray(admin.access) ? admin.access : [];
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row) continue;
+    if (partnerAccessStatus_(row) !== "active") continue;
+    if (partnerIsClosedAccess_(row)) continue;
+    if (partnerAccessRowMatchesUser_(row, params)) out.push(row);
+  }
+  return out;
+}
+
+function partnerPendingAccessRowForUser_(admin, params) {
+  const rows = admin && Array.isArray(admin.access) ? admin.access : [];
+  const tid = String((params && params.telegramId) || "").trim();
+  const u = partnerNormUserWorker_(params && params.username);
+  let byUser = null;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || partnerAccessStatus_(row) !== "pending") continue;
+    const rtid = String(row.telegramId || "").trim();
+    if (tid && rtid && tid === rtid) return row;
+    if (!byUser && u && partnerNormUserWorker_(row.username) === u) byUser = row;
+  }
+  return byUser;
+}
+
+function partnerUnionPointIds_(rows) {
+  const seen = {};
+  const ids = [];
+  for (let i = 0; i < (rows || []).length; i++) {
+    const pts = Array.isArray(rows[i] && rows[i].pointIds) ? rows[i].pointIds : [];
+    for (let j = 0; j < pts.length; j++) {
+      const pid = String(pts[j] || "").trim();
+      if (!pid || seen[pid]) continue;
+      seen[pid] = true;
+      ids.push(pid);
+    }
+  }
+  return ids;
+}
+
+function partnerPickActivePoint_(p) {
+  if (!p || !p.id) return null;
+  if (p.active === false) return null;
+  if (String(p.networkId || "") === "net_firedog" || p.id === "pt_firedog_1") return null;
+  if (String(p.networkId || "") === "net_bowwow") return null;
+  return {
+    id: p.id,
+    networkId: p.networkId || "",
+    name: p.name || p.label || p.id,
+    address: p.address || ""
+  };
+}
+
+/** getMe из D1 partnerListAdmin.access — source of truth для staff/partner. */
+function partnerBuildGetMeFromAdmin_(admin, params) {
+  const src = admin && typeof admin === "object" ? admin : {};
+  const username = partnerNormUserWorker_((params && params.username) || "");
+  const tid = String((params && params.telegramId) || "").trim();
+  const catalog = Array.isArray(src.catalog) && src.catalog.length ? src.catalog : PARTNER_CATALOG_STATIC;
+  const pointsSrc = Array.isArray(src.points) ? src.points : [];
+  const netsSrc = Array.isArray(src.networks) ? src.networks : [];
+  const byId = {};
+  for (let i = 0; i < pointsSrc.length; i++) {
+    const one = partnerPickActivePoint_(pointsSrc[i]);
+    if (one) byId[one.id] = one;
+  }
+
+  const active = partnerActiveAccessRowsForUser_(src, params);
+  if (active.length) {
+    const pointIds = partnerUnionPointIds_(active).filter(function (id) {
+      return !!byId[id];
+    });
+    const allowedPointIds = {};
+    const pointsOut = [];
+    for (let p = 0; p < pointIds.length; p++) {
+      allowedPointIds[pointIds[p]] = true;
+      pointsOut.push(byId[pointIds[p]]);
+    }
+    const netNeed = {};
+    pointsOut.forEach(function (pt) {
+      if (pt && pt.networkId) netNeed[pt.networkId] = true;
+    });
+    const nets = netsSrc.filter(function (n) {
+      return n && n.active !== false && netNeed[n.id] && n.id !== "net_firedog" && n.id !== "net_bowwow";
+    });
+    let role = "partner";
+    let name = "";
+    let networkId = "";
+    let userOut = username;
+    let tidOut = tid;
+    for (let r = 0; r < active.length; r++) {
+      const row = active[r];
+      const rr = String(row.role || "partner").toLowerCase();
+      if (rr === "staff") role = "staff";
+      if (!name && row.name && row.name !== "Владелец Good Boy") name = row.name;
+      if (!userOut && row.username) userOut = partnerNormUserWorker_(row.username);
+      if (!tidOut && row.telegramId) tidOut = String(row.telegramId);
+      if (!networkId && row.networkId) networkId = row.networkId;
+    }
+    const isStaff = role === "staff";
+    return {
+      status: "success",
+      allowed: pointIds.length > 0,
+      ownersOnly: false,
+      ownerMode: false,
+      role: isStaff ? "staff" : "partner",
+      isPartner: !isStaff,
+      isStaff: isStaff,
+      accessStatus: "active",
+      isOwner: false,
+      name: name || userOut || tidOut,
+      username: userOut,
+      telegramId: tidOut,
+      networkId: networkId || (pointsOut[0] && pointsOut[0].networkId) || "",
+      pointIds: pointIds,
+      allowedPointIds: allowedPointIds,
+      networks: nets.map(function (n) {
+        return { id: n.id, name: n.name, logo: n.logo || "" };
+      }),
+      points: pointsOut,
+      catalog: catalog,
+      fromD1Access: true
+    };
+  }
+
+  const pending = partnerPendingAccessRowForUser_(src, params);
+  if (pending) {
+    const pendIds = partnerUnionPointIds_([pending]);
+    const pendPts = pendIds
+      .map(function (id) {
+        return byId[id];
+      })
+      .filter(Boolean);
+    return {
+      status: "success",
+      allowed: false,
+      ownersOnly: false,
+      role: pending.role || "staff",
+      isPartner: false,
+      isStaff: true,
+      accessStatus: "pending",
+      pendingAccept: true,
+      isOwner: false,
+      name: pending.name || username || tid,
+      username: partnerNormUserWorker_(pending.username) || username,
+      telegramId: String(pending.telegramId || tid || ""),
+      networkId: pending.networkId || "",
+      pointIds: pendIds,
+      allowedPointIds: {},
+      networks: [],
+      points: pendPts,
+      catalog: catalog,
+      fromD1Access: true
+    };
+  }
+
+  return {
+    status: "success",
+    role: "none",
+    allowed: false,
+    ownersOnly: false,
+    ownerMode: false,
+    isOwner: false,
+    isStaff: false,
+    isPartner: false,
+    message: !username && !tid ? "need_username" : "no_partner_access",
+    name: username || tid || "",
+    username: username,
+    telegramId: tid,
+    pointIds: [],
+    allowedPointIds: {},
+    networks: [],
+    points: [],
+    catalog: catalog,
+    fromD1Access: true
+  };
+}
+
+function partnerMergeAdminKeepD1Access_(prev, incoming) {
+  const next = Object.assign({}, incoming || {});
+  if (prev && Array.isArray(prev.access) && Number(prev._d1TouchedAt) > 0) {
+    next.access = prev.access;
+    next._d1TouchedAt = prev._d1TouchedAt;
+  }
+  return next;
+}
+
 function partnerStripOwnerAccess_(list) {
   if (!Array.isArray(list)) return [];
   return list.filter(function (row) {
@@ -9842,13 +10092,98 @@ function partnerMeSnapKey_(params) {
   return "partnerMe:" + (tid || u || "anon");
 }
 
+async function partnerWriteMeSnapsForRow_(env, admin, row) {
+  if (!env || !env.DB || !row) return;
+  const paramsA = {
+    telegramId: String(row.telegramId || "").trim(),
+    username: partnerNormUserWorker_(row.username)
+  };
+  if (!paramsA.telegramId && !paramsA.username) return;
+  const me = partnerGuardOrRewrite_(
+    "partnerGetMe",
+    paramsA,
+    partnerBuildGetMeFromAdmin_(admin, paramsA)
+  );
+  const packed = Object.assign({}, me, {
+    cachedAt: new Date().toISOString(),
+    fromD1: true,
+    fromD1Access: true,
+    cutover: true
+  });
+  if (paramsA.telegramId) {
+    try {
+      await putSnap_(env, "partnerMe:" + paramsA.telegramId, packed);
+    } catch (e1) {}
+  }
+  if (paramsA.username) {
+    try {
+      await putSnap_(env, "partnerMe:" + paramsA.username, packed);
+    } catch (e2) {}
+  }
+}
+
+async function putPartnerAdminFromGas_(env, gasAdmin) {
+  if (!env || !env.DB || !gasAdmin) return null;
+  let prev = null;
+  try {
+    prev = await getSnapRaw_(env, "partnerListAdmin");
+  } catch (e) {
+    prev = null;
+  }
+  const next = partnerMergeAdminKeepD1Access_(
+    prev,
+    Object.assign({}, gasAdmin, { cachedAt: new Date().toISOString() })
+  );
+  await putSnap_(env, "partnerListAdmin", next);
+  return next;
+}
+
 async function cutoverPartnerGetMe_(params, env, ctx) {
   params = params || {};
   const snapKey = partnerMeSnapKey_(params);
 
   async function fetchLive_() {
     const live = await gasProxy_("partnerGetMe", params, env, { write: false });
-    const out = partnerGuardOrRewrite_("partnerGetMe", params, live);
+    let out = partnerGuardOrRewrite_("partnerGetMe", params, live);
+    try {
+      const adminLive = await getSnapRaw_(env, "partnerListAdmin");
+      if (
+        adminLive &&
+        Array.isArray(adminLive.access) &&
+        !isPartnerCanonOwner_(params) &&
+        !isPartnerLiveTestUser_(params) &&
+        !isPartnerManualAccessUser_(params) &&
+        !isPartnerOwnerAllUser_(params) &&
+        !isPartnerArseniy_(params)
+      ) {
+        const d1Me = partnerBuildGetMeFromAdmin_(adminLive, params);
+        out = partnerGuardOrRewrite_(
+          "partnerGetMe",
+          params,
+          Object.assign({}, out || {}, {
+            allowed: d1Me.allowed,
+            ownersOnly: false,
+            ownerMode: false,
+            isOwner: false,
+            role: d1Me.role,
+            isPartner: d1Me.isPartner,
+            isStaff: d1Me.isStaff,
+            accessStatus: d1Me.accessStatus,
+            pendingAccept: d1Me.pendingAccept,
+            message: d1Me.message,
+            name: d1Me.name || (out && out.name),
+            username: d1Me.username || (out && out.username),
+            telegramId: d1Me.telegramId || (out && out.telegramId),
+            networkId: d1Me.networkId,
+            pointIds: d1Me.pointIds,
+            allowedPointIds: d1Me.allowedPointIds,
+            networks: d1Me.networks,
+            points: d1Me.points,
+            fromD1Access: true
+          })
+        );
+      }
+    } catch (eOv) {}
     if (out && out.status === "success" && env && env.DB) {
       try {
         await putSnap_(env, snapKey, Object.assign({}, out, { cachedAt: new Date().toISOString() }));
@@ -10024,6 +10359,39 @@ async function cutoverPartnerGetMe_(params, env, ctx) {
     instant.fromD1 = true;
     instant.sandbox = false;
     instant.partnerCanon = partnerCanonLabel_(env);
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async function () {
+          try {
+            await fetchLive_();
+          } catch (eR) {}
+        })()
+      );
+    }
+    return instant;
+  }
+
+  let adminMe = null;
+  try {
+    adminMe = await getSnapRaw_(env, "partnerListAdmin");
+  } catch (eAdMe) {
+    adminMe = null;
+  }
+  if (adminMe && Array.isArray(adminMe.access)) {
+    const fromD1 = partnerBuildGetMeFromAdmin_(adminMe, params);
+    const instant = partnerGuardOrRewrite_("partnerGetMe", params, fromD1);
+    instant.cutover = true;
+    instant.swr = false;
+    instant.fromGas = false;
+    instant.fromD1 = true;
+    instant.fromD1Access = true;
+    instant.sandbox = false;
+    instant.partnerCanon = partnerCanonLabel_(env);
+    try {
+      if (env && env.DB) {
+        await putSnap_(env, snapKey, Object.assign({}, instant, { cachedAt: new Date().toISOString() }));
+      }
+    } catch (ePutMe) {}
     if (ctx && typeof ctx.waitUntil === "function") {
       ctx.waitUntil(
         (async function () {
@@ -13581,10 +13949,13 @@ async function cutoverStoreRead_(a, params, env, payload) {
     );
     return;
   }
+  if (a === "partnerListAdmin") {
+    await putPartnerAdminFromGas_(env, payload);
+    return;
+  }
   if (
     a.indexOf("list") === 0 ||
     a === "getCouriers" ||
-    a === "partnerListAdmin" ||
     a === "getStats" ||
     a === "telegramStatus" ||
     a === "weekPullStatus"
@@ -19195,7 +19566,7 @@ async function partnerListAdminD1_(params, env, ctx) {
             const live = await gasProxy_("partnerListAdmin", params || {}, env, { write: false });
             if (live && live.status === "success") {
               const fixed = await partnerEnsureMayakovskyPoint_(env, live);
-              await putSnap_(env, "partnerListAdmin", Object.assign({}, fixed, { cachedAt: new Date().toISOString() }));
+              await putPartnerAdminFromGas_(env, fixed);
             }
           } catch (e) {}
         })()
@@ -19218,14 +19589,15 @@ async function partnerListAdminD1_(params, env, ctx) {
   if (live && live.status === "success" && env && env.DB) {
     try {
       const fixed = await partnerEnsureMayakovskyPoint_(env, live);
-      await putSnap_(env, "partnerListAdmin", Object.assign({}, fixed, { cachedAt: new Date().toISOString() }));
+      const stored = await putPartnerAdminFromGas_(env, fixed);
+      const use = stored || fixed;
       return partnerGuardOrRewrite_(
         "partnerListAdmin",
         params,
-        Object.assign({}, fixed, {
+        Object.assign({}, use, {
           cutover: true,
-          fromGas: true,
-          fromD1: false,
+          fromGas: !Number(use && use._d1TouchedAt),
+          fromD1: !!Number(use && use._d1TouchedAt),
           partnerCanon: partnerCanonLabel_(env)
         })
       );
@@ -19557,9 +19929,9 @@ async function mutatePartnerD1_(action, params, env) {
       return { status: "error", message: "staff_cannot_grant" };
     }
     if (
-      !isPartnerCanonOwner_({
+      !partnerCanWriteAccess_({
         telegramId: actorTid,
-        username: actorUser || (params && params.username)
+        actorUsername: actorUser
       })
     ) {
       return { status: "error", message: "owner_only" };
@@ -19576,8 +19948,8 @@ async function mutatePartnerD1_(action, params, env) {
     const targetTid = String(
       (params && (params.targetTelegramId || params.staffTelegramId)) || ""
     ).trim();
-    // staff row must use targetTelegramId; actor stays only for auth upstream
-    const telegramId = targetTid || actorTid;
+    // staff row must use targetTelegramId; never bind actor tid onto the target
+    const telegramId = targetTid;
     if (
       partnerIsOwnerIdentity_({
         telegramId: telegramId,
@@ -19614,37 +19986,24 @@ async function mutatePartnerD1_(action, params, env) {
       role: roleSave,
       status: String((params && params.status) || "active").trim() || "active"
     };
-    let hit = -1;
-    for (let i = 0; i < admin.access.length; i++) {
-      if (String(admin.access[i].id) === id) {
-        hit = i;
-        break;
-      }
-    }
-    if (hit < 0 && username) {
-      for (let j = 0; j < admin.access.length; j++) {
-        if (partnerNormUserWorker_(admin.access[j].username) === username) {
-          hit = j;
-          row.id = admin.access[j].id || id;
-          break;
-        }
-      }
-    }
-    if (hit < 0 && telegramId) {
-      for (let k = 0; k < admin.access.length; k++) {
-        if (
-          String(admin.access[k].telegramId || "") === telegramId &&
-          String(admin.access[k].role || "") === row.role
-        ) {
-          hit = k;
-          row.id = admin.access[k].id || id;
-          break;
-        }
-      }
-    }
-    if (hit >= 0) admin.access[hit] = Object.assign({}, admin.access[hit], row);
-    else admin.access.push(row);
+    let hit = partnerFindAccessHitIndex_(admin.access, {
+      id: String((params && params.id) || "").trim(),
+      username: username,
+      telegramId: telegramId,
+      role: roleSave
+    });
+    if (hit >= 0) {
+      row.id = admin.access[hit].id || id;
+      const prev = admin.access[hit];
+      admin.access[hit] = Object.assign({}, prev, row, {
+        telegramId: telegramId || prev.telegramId || "",
+        username: username || prev.username || ""
+      });
+    } else admin.access.push(row);
     await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    try {
+      await partnerWriteMeSnapsForRow_(env, admin, admin.access[hit >= 0 ? hit : admin.access.length - 1]);
+    } catch (eMe) {}
     if (telegramId && String(row.status || "").toLowerCase() === "pending") {
       try {
         await telegramSendPartnerBot_(
@@ -19687,6 +20046,9 @@ async function mutatePartnerD1_(action, params, env) {
       telegramId: tid || prev.telegramId || ""
     });
     await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    try {
+      await partnerWriteMeSnapsForRow_(env, admin, admin.access[hit]);
+    } catch (eMeA) {}
     return {
       status: "success",
       id: admin.access[hit].id,
@@ -19702,15 +20064,22 @@ async function mutatePartnerD1_(action, params, env) {
     const id = String((params && (params.id || params.accessId)) || "").trim();
     const username = partnerNormUserWorker_(params && params.username);
     let changed = 0;
+    const touched = [];
     for (let i = 0; i < admin.access.length; i++) {
       const row = admin.access[i];
       if ((id && String(row.id) === id) || (username && partnerNormUserWorker_(row.username) === username)) {
         admin.access[i] = Object.assign({}, row, { status: "revoked" });
+        touched.push(admin.access[i]);
         changed++;
       }
     }
     if (!changed) return { status: "error", message: "not_found" };
     await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString(), _d1TouchedAt: Date.now() }));
+    for (let t = 0; t < touched.length; t++) {
+      try {
+        await partnerWriteMeSnapsForRow_(env, admin, touched[t]);
+      } catch (eMeR) {}
+    }
     return { status: "success", revoked: changed, d1Verified: true };
   }
 
@@ -20425,7 +20794,7 @@ async function refreshPartnerSnapsFromGas_(action, params, env, live) {
     try {
       const admin = await gasProxy_("partnerListAdmin", { telegramId: params && params.telegramId }, env, { write: false });
       if (admin && admin.status === "success") {
-        await putSnap_(env, "partnerListAdmin", Object.assign({}, admin, { cachedAt: new Date().toISOString() }));
+        await putPartnerAdminFromGas_(env, admin);
       }
     } catch (e) {}
   }

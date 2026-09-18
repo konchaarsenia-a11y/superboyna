@@ -713,7 +713,7 @@
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
-  var ME_CACHE_KEY = "gb_partner_me_v3";
+  var ME_CACHE_KEY = "gb_partner_me_v4";
   /** Single-point прогон выкл. (V24) — точки с API / Partner_Access. */
   var LIVE_TEST_ENABLED_ = false;
   var LIVE_TEST_USER_ = "one_more_person_228";
@@ -1280,12 +1280,8 @@
         if (s.acc.isOwner || (s.acc.pointIds || []).length > 1) return null;
         return applyLiveTestMe_(u, s.acc);
       }
-      if (!isCanonOwnerUser_(u, s.acc) && (s.acc.isOwner || s.acc.ownerMode || s.acc.role === "owner")) {
-        s.acc.isOwner = false;
-        s.acc.ownerMode = false;
-        s.acc.role = s.acc.isStaff ? "staff" : "partner";
-        s.acc.isPartner = !s.acc.isStaff;
-        if (s.acc.name === "Владелец Good Boy") s.acc.name = s.acc.username || "Партнёр";
+      if (!isCanonOwnerUser_(u, s.acc) && (s.acc.isOwner || s.acc.ownerMode || s.acc.role === "owner" || s.acc.partnerOverride === "owner_cabinet_all_points")) {
+        return null;
       }
       return s.acc;
     } catch (e) { return null; }
@@ -3191,7 +3187,15 @@
         username: u.username || "",
         telegramId: u.telegramId || ""
       });
-      applyGetMe_(u, res);
+      if (applyGetMe_(u, res)) return;
+      if (res && res.status === "success" && (!res.allowed || !normalizePointIds_(res.pointIds).length)) {
+        clearMeCache_();
+        if (state.me) {
+          state.me.pointIds = [];
+          state.me.points = [];
+          state.me.allowedPointIds = {};
+        }
+      }
     } catch (e) {}
   }
 
