@@ -2,11 +2,13 @@
 
 Telegram Mini App для **партнёрских сетей**: бесплатная заявка на лакомства и купоны.
 
-**Живой URL:** https://konchaarsenia-a11y.github.io/superboyna/varka/  
+**Живой URL Mini App (предпочтительно, без index-redirect):**  
+https://konchaarsenia-a11y.github.io/superboyna/varka/app.html  
 
-**Не использовать jsDelivr для Mini App** — `.html` там как `text/plain` («просто код», без картинок).
+`/varka/` тоже работает: `index.html` сохраняет `#tgWebAppData` при переходе на `app.html`.  
+Не ставить Menu Button на jsDelivr (`.html` как `text/plain`).
 
-**Зеркало Worker (после deploy):** https://boinya-c.konchaarsenia.workers.dev/varka/
+**Зеркало Worker (после deploy, сразу `app.html`):** https://boinya-c.konchaarsenia.workers.dev/varka/
 
 **Бот партнёров:** [@GOODBOY_LG](https://t.me/GOODBOY_LG)  
 (отдельный от бота Бойни; токен только в Script Properties / `secrets.local.md`, не в git)
@@ -20,8 +22,10 @@ Telegram Mini App для **партнёрских сетей**: бесплатн
 1. [@BotFather](https://t.me/BotFather) → `/mybots` → **GOODBOY_LG**
 2. **Bot Settings → Menu Button → Configure menu button**
    - Text: `Открыть`
-   - URL: `https://konchaarsenia-a11y.github.io/superboyna/varka/`
-3. Проверка: открыть [@GOODBOY_LG](https://t.me/GOODBOY_LG) → сразу **заказ**, сверху История / Кабинет, кнопка «← К заказу» вне заказа; после отправки — «скоро уведомление о дате» (без даты в алерте).
+   - URL (лучше, без лишнего redirect): `https://konchaarsenia-a11y.github.io/superboyna/varka/app.html`
+   - запасной: `https://konchaarsenia-a11y.github.io/superboyna/varka/` — hash `#tgWebAppData` должен доехать до `app.html`
+   - Worker: `https://boinya-c.konchaarsenia.workers.dev/varka/`
+3. Проверка: открыть [@GOODBOY_LG](https://t.me/GOODBOY_LG) → сразу **заказ**, сверху История / Кабинет, кнопка «← К заказу» вне заказа; после отправки — «скоро уведомление о дате» (без даты в алерте). Не должно быть «Откройте мини-апп из Telegram».
 
 Токен бота в репозиторий **не** писать. Для webhook/уведомлений позже — `PropertiesService` в своём Script.
 
@@ -140,7 +144,7 @@ Worker: `wrangler secret put PARTNER_BOT_TOKEN` (или `GOODBOY_BOT_TOKEN`) —
 
 ## Чеклист
 
-- [x] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → `varka/` (Pages) — **OK** (не jsDelivr)
+- [x] Бот [@GOODBOY_LG](https://t.me/GOODBOY_LG) + Menu Button → лучше `varka/app.html` (Pages; `/varka/` тоже ок, hash сохраняется) — **не jsDelivr**
 - [x] Стиль Good Boy (IG)
 - [x] Вход по @username + свои точки
 - [x] Купоны поштучно + баннер

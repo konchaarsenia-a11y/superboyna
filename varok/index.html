@@ -2,9 +2,24 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="refresh" content="0;url=../varka/">
+  <meta http-equiv="refresh" content="0;url=../varka/app.html">
   <title>Varka</title>
-  <script>location.replace("../varka/");</script>
+  <script>
+    (function () {
+      // Telegram initData живёт в location.hash. replace без hash = ложный гейт.
+      try {
+        var dest = new URL("../varka/app.html", location.href);
+        var cur = new URL(location.href);
+        cur.searchParams.forEach(function (val, key) {
+          dest.searchParams.set(key, val);
+        });
+        dest.hash = location.hash || "";
+        location.replace(dest.pathname + dest.search + dest.hash);
+      } catch (e) {
+        location.replace("../varka/app.html" + (location.search || "") + (location.hash || ""));
+      }
+    })();
+  </script>
 </head>
-<body><p><a href="../varka/">Открыть Varka</a></p></body>
+<body><p><a href="../varka/app.html">Открыть Varka</a></p></body>
 </html>

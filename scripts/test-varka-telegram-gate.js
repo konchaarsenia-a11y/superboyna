@@ -41,6 +41,8 @@ const indexSrc = fs.readFileSync(path.join(root, "varka/index.html"), "utf8");
 const appSrc = fs.readFileSync(path.join(root, "varka/app.html"), "utf8");
 const workerSrc = fs.readFileSync(path.join(root, "boinya-c/proxy/worker.js"), "utf8");
 
+const varokSrc = fs.readFileSync(path.join(root, "varok/index.html"), "utf8");
+
 if (!/location\.hash/.test(indexSrc)) {
   fail("varka/index.html must preserve location.hash on redirect");
 }
@@ -49,6 +51,12 @@ if (!/gb_varka_tg_hash/.test(indexSrc) || !/__telegram__initParams/.test(indexSr
 }
 if (/location\.replace\("app\.html\?v=" \+ ver\)\s*;/.test(indexSrc)) {
   fail("varka/index.html still drops hash (old replace)");
+}
+if (/location\.replace\("\.\.\/varka\/"\)/.test(varokSrc)) {
+  fail("varok/index.html still drops hash on alias redirect");
+}
+if (!/location\.hash/.test(varokSrc) || !/varka\/app\.html/.test(varokSrc)) {
+  fail("varok/index.html must redirect to app.html and keep hash");
 }
 
 if (!/function readLaunchInitDataRaw_/.test(appSrc)) {
