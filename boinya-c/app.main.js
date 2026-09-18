@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115970";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115971";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3134,6 +3134,7 @@
     let orderDogNames = { 1: "", 2: "" };
     var orderMonthOverviewCache = null;
     var _orderCalLoadSeq = 0;
+    var _orderCalMonthKey = "";
 
     function syncOrderBasketFromActive_() {
       orderBaskets[orderActiveDog] = (basket || []).slice();
@@ -4781,6 +4782,8 @@
     function onDeliveryDateChange() {
       const el = document.getElementById("deliveryDate");
       if (!el || !el.value) return;
+      var mmCh = String(el.value).slice(0, 7);
+      if (/^\d{4}-\d{2}$/.test(mmCh)) _orderCalMonthKey = mmCh;
       try { ensureOrderDateCal_({ soft: true }); } catch (eCal0) {}
       const d = new Date(el.value + "T12:00:00");
       if (isNaN(d.getTime())) return;
@@ -4844,6 +4847,7 @@
       if (phoneEl) phoneEl.value = "";
       var delivDate = document.getElementById("deliveryDate");
       if (delivDate) delivDate.value = "";
+      _orderCalMonthKey = "";
       var afterEl = document.getElementById("deliveryAfterInput");
       if (afterEl) afterEl.value = "";
       var beforeEl = document.getElementById("deliveryBeforeInput");
@@ -6059,35 +6063,54 @@
       } catch (e) { return ""; }
     }
 
+    var MONTH_NAMES_RU_ = [
+      "январь", "февраль", "март", "апрель", "май", "июнь",
+      "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"
+    ];
+
     function pad2Month_(n) {
-      n = Number(n) || 0;
+      n = Math.round(Number(n));
+      if (!isFinite(n) || n < 0) n = 0;
       return (n < 10 ? "0" : "") + n;
+    }
+
+    /** YYYY-MM ± delta. Integer calendar order — no Date overflow (31 Oct → Dec). */
+    function shiftMonthKey_(ym, delta) {
+      var s = String(ym || "");
+      var y;
+      var m;
+      if (/^\d{4}-\d{2}$/.test(s)) {
+        y = Number(s.slice(0, 4));
+        m = Number(s.slice(5, 7));
+      } else {
+        var now = new Date();
+        y = now.getFullYear();
+        m = now.getMonth() + 1;
+      }
+      if (!isFinite(y) || !(m >= 1 && m <= 12)) {
+        var now2 = new Date();
+        y = now2.getFullYear();
+        m = now2.getMonth() + 1;
+      }
+      m += Number(delta) || 0;
+      while (m < 1) { m += 12; y -= 1; }
+      while (m > 12) { m -= 12; y += 1; }
+      return y + "-" + pad2Month_(m);
     }
 
     function monthTitleRu_(ym) {
       var parts = String(ym || "").split("-");
-      var y = Number(parts[0]) || new Date().getFullYear();
-      var m = Number(parts[1]) || (new Date().getMonth() + 1);
-      var names = [
-        "январь", "февраль", "март", "апрель", "май", "июнь",
-        "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"
-      ];
-      return (names[m - 1] || "") + " " + y;
+      var y = Number(parts[0]);
+      var m = Number(parts[1]);
+      if (!isFinite(y) || y < 1) y = new Date().getFullYear();
+      if (!(m >= 1 && m <= 12)) m = new Date().getMonth() + 1;
+      return (MONTH_NAMES_RU_[m - 1] || "") + " " + y;
     }
 
     function shiftViewMonth_(delta) {
       var pick = document.getElementById("viewMonthPick");
-      var cur = (pick && pick.value) || "";
-      if (!/^\d{4}-\d{2}$/.test(cur)) {
-        var now = new Date();
-        cur = now.getFullYear() + "-" + pad2Month_(now.getMonth() + 1);
-      }
-      var y = Number(cur.slice(0, 4));
-      var m = Number(cur.slice(5, 7));
-      m += Number(delta) || 0;
-      while (m < 1) { m += 12; y -= 1; }
-      while (m > 12) { m -= 12; y += 1; }
-      if (pick) pick.value = y + "-" + pad2Month_(m);
+      var next = shiftMonthKey_((pick && pick.value) || "", delta);
+      if (pick) pick.value = next;
       onViewMonthPickChange();
     }
     window.shiftViewMonth_ = shiftViewMonth_;
@@ -6284,11 +6307,16 @@
     window.refreshViewMonthOverview = refreshViewMonthOverview;
 
     function orderCalMonthFromDate_() {
+      if (/^\d{4}-\d{2}$/.test(_orderCalMonthKey)) return _orderCalMonthKey;
       var el = document.getElementById("deliveryDate");
       var v = el && el.value ? String(el.value).slice(0, 7) : "";
-      if (/^\d{4}-\d{2}$/.test(v)) return v;
+      if (/^\d{4}-\d{2}$/.test(v)) {
+        _orderCalMonthKey = v;
+        return v;
+      }
       var now = new Date();
-      return now.getFullYear() + "-" + pad2Month_(now.getMonth() + 1);
+      _orderCalMonthKey = now.getFullYear() + "-" + pad2Month_(now.getMonth() + 1);
+      return _orderCalMonthKey;
     }
 
     function renderOrderDateCal_(data) {
@@ -6296,11 +6324,12 @@
       if (!box) return;
       var month = orderCalMonthFromDate_();
       var dataMonth = String((data && data.month) || "").slice(0, 7);
-      if (dataMonth && dataMonth !== month) return;
       var byIso = {};
-      ((data && data.days) || []).forEach(function (d) {
-        if (d && d.dateIso) byIso[d.dateIso] = d;
-      });
+      if (!dataMonth || dataMonth === month) {
+        ((data && data.days) || []).forEach(function (d) {
+          if (d && d.dateIso) byIso[d.dateIso] = d;
+        });
+      }
       var y = Number(month.slice(0, 4));
       var m = Number(month.slice(5, 7));
       var first = new Date(y, m - 1, 1);
@@ -6349,12 +6378,13 @@
     }
 
     function shiftOrderCalMonth_(delta) {
-      var el = document.getElementById("deliveryDate");
-      var month = orderCalMonthFromDate_();
-      var p = month.split("-");
-      var d = new Date(Number(p[0]), Number(p[1]) - 1 + Number(delta || 0), 1);
-      var next = d.getFullYear() + "-" + pad2Month_(d.getMonth() + 1) + "-01";
-      if (el) el.value = next;
+      var month = shiftMonthKey_(orderCalMonthFromDate_(), delta);
+      _orderCalMonthKey = month;
+      var cache = orderMonthOverviewCache;
+      var data = (cache && String(cache.month || "").slice(0, 7) === month)
+        ? cache
+        : { status: "success", month: month, days: [] };
+      renderOrderDateCal_(data);
       ensureOrderDateCal_({ force: true });
     }
     window.shiftOrderCalMonth_ = shiftOrderCalMonth_;
@@ -6364,6 +6394,7 @@
       if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
       var el = document.getElementById("deliveryDate");
       if (el) el.value = iso;
+      _orderCalMonthKey = iso.slice(0, 7);
       try { onDeliveryDateChange(); } catch (eOd) {}
       ensureOrderDateCal_({ soft: true });
     }
@@ -6375,7 +6406,7 @@
       if (!box) return;
       var month = orderCalMonthFromDate_();
       var seq = ++_orderCalLoadSeq;
-      if (opts.soft && orderMonthOverviewCache && orderMonthOverviewCache.month === month) {
+      if (opts.soft && orderMonthOverviewCache && String(orderMonthOverviewCache.month || "").slice(0, 7) === month) {
         renderOrderDateCal_(orderMonthOverviewCache);
       }
       try {
@@ -6385,8 +6416,10 @@
         );
         if (seq !== _orderCalLoadSeq) return;
         if (res && res.status === "success" && Array.isArray(res.days)) {
-          orderMonthOverviewCache = res;
-          renderOrderDateCal_(res);
+          var gotM = String(res.month || "").slice(0, 7);
+          if (gotM && gotM !== month) return;
+          orderMonthOverviewCache = Object.assign({}, res, { month: month });
+          renderOrderDateCal_(orderMonthOverviewCache);
         }
       } catch (eMo) {}
     }
@@ -14803,7 +14836,10 @@
         var mD = rawD.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
         if (mD) isoD = mD[3] + "-" + ("0" + mD[2]).slice(-2) + "-" + ("0" + mD[1]).slice(-2);
         else if (/^\d{4}-\d{2}-\d{2}/.test(rawD)) isoD = rawD.slice(0, 10);
-        if (isoD) dateEl.value = isoD;
+        if (isoD) {
+          dateEl.value = isoD;
+          _orderCalMonthKey = isoD.slice(0, 7);
+        }
         try { if (orderType === "pp") refreshPpFactPrice(); } catch (ePp) {}
       }
       renderOrderDayCounts_((_orderDayCountsCache && _orderDayCountsCache.items) || null);
