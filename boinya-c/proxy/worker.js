@@ -2,8 +2,8 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-15 fix-courier-missed-timeout-h1
- * (prior: cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
+ * deploy-marker: 2026-09-18 fix-varka-tg-gate-h1
+ * (prior: fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -9254,6 +9254,30 @@ function partnerNormUserWorker_(raw) {
     .toLowerCase();
 }
 
+function partnerParseInitDataUser_(initData) {
+  try {
+    const m = String(initData || "").match(/(?:^|&)user=([^&]+)/);
+    if (!m) return null;
+    return JSON.parse(decodeURIComponent(String(m[1]).replace(/\+/g, " ")));
+  } catch (e) {
+    return null;
+  }
+}
+
+/** Mini App may send initData while telegramId/username are still empty (desktop / first login). */
+function partnerHydrateIdentityFromInitData_(params) {
+  params = params && typeof params === "object" ? params : {};
+  const tid = String(params.telegramId || "").trim();
+  const username = partnerNormUserWorker_(params.username);
+  if (tid && username) return params;
+  const iu = partnerParseInitDataUser_(params.initData);
+  if (!iu) return params;
+  const next = Object.assign({}, params);
+  if (!username && iu.username) next.username = partnerNormUserWorker_(iu.username);
+  if (!tid && iu.id) next.telegramId = String(iu.id).trim();
+  return next;
+}
+
 /** Настоящий owner партнёрки: helper 827494606. Arseniy — staff через Partner_Access. */
 function isPartnerCanonOwner_(params) {
   const u = partnerNormUserWorker_(params && params.username);
@@ -10294,7 +10318,7 @@ async function putPartnerAdminFromGas_(env, gasAdmin) {
 }
 
 async function cutoverPartnerGetMe_(params, env, ctx) {
-  params = params || {};
+  params = partnerHydrateIdentityFromInitData_(params || {});
   const snapKey = partnerMeSnapKey_(params);
 
   async function fetchLive_() {
