@@ -9,7 +9,9 @@ import { uploadsDir } from "./middleware/upload.js";
 import {
   ensureProductModelColumns,
   ensureProductOldPriceColumn,
+  ensureProductGenderColumn,
   backfillProductModelKeys,
+  backfillProductGender,
 } from "./services/catalog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,8 +51,11 @@ async function start() {
   try {
     await ensureProductModelColumns();
     await ensureProductOldPriceColumn();
+    await ensureProductGenderColumn();
     const n = await backfillProductModelKeys();
     if (n) console.log(`catalog brand/model_key backfill: ${n}`);
+    const g = await backfillProductGender();
+    if (g) console.log(`catalog gender backfill: ${g}`);
   } catch (err) {
     console.error("schema bootstrap:", err.message);
   }

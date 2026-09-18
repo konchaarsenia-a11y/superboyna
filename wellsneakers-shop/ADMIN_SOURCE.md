@@ -80,9 +80,11 @@
 ## Маппинг в нашу БД (черновик)
 
 ```
-OC product     → products (name, brand, price_byn, old_price_byn, article/sku, barcode, color, model_key)
+OC product     → products (name, brand, price_byn, old_price_byn, article/sku, barcode, color, model_key, gender)
                  old_price_byn из Specials / колонки special|old_price, если special < price;
                  иначе null (on sale = old_price_byn > price_byn).
+                 gender: колонка gender/пол/categories если есть; иначе infer из
+                 WMNS/women/женск / men/мужск; иначе NULL (не угадываем весь каталог).
                  color/model_key считаются из названия («AIR JORDAN 11 BLACK» →
                  модель AIR JORDAN 11, цвет BLACK). Строка OC = вариант, не карточка.
 OC size option → product_sizes (size, qty)  // qty=0 не показывать на сайте

@@ -1,6 +1,7 @@
 import { query, withTransaction } from "../db.js";
 import { aggregateBrands, normalizeBrand, resolveBrand } from "../lib/brand.js";
 import { isSaleQuery } from "../lib/sale.js";
+import { inferGender, parseGenderQuery } from "../lib/gender.js";
 import {
   parseModelAndColor,
   groupProductsIntoModels,
@@ -23,6 +24,26 @@ export async function ensureProductOldPriceColumn() {
       ON products (id)
       WHERE old_price_byn IS NOT NULL AND old_price_byn > price_byn
   `);
+}
+
+export async function ensureProductGenderColumn() {
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS gender TEXT`);
+  await query(`CREATE INDEX IF NOT EXISTS products_gender_idx ON products (gender)`);
+}
+
+export async function backfillProductGender() {
+  const { rows } = await query(`SELECT id, name, gender FROM products WHERE gender IS NULL`);
+  let updated = 0;
+  for (const row of rows) {
+    const gender = inferGender({ name: row.name });
+    if (!gender) continue;
+    await query(`UPDATE products SET gender = $2, updated_at = now() WHERE id = $1 AND gender IS NULL`, [
+      row.id,
+      gender,
+    ]);
+    updated++;
+  }
+  return updated;
 }
 
 export async function backfillProductModelKeys() {
@@ -61,7 +82,16 @@ export async function listBrands() {
   return aggregateBrands(rows);
 }
 
-export async function listProducts({ brand, size, q, sale = false, inStockOnly = true, limit = 500, offset = 0 }) {
+export async function listProducts({
+  brand,
+  size,
+  q,
+  sale = false,
+  gender = "",
+  inStockOnly = true,
+  limit = 500,
+  offset = 0,
+}) {
   const params = [];
   const where = ["p.active = TRUE"];
   if (brand) {
@@ -81,6 +111,11 @@ export async function listProducts({ brand, size, q, sale = false, inStockOnly =
   }
   if (sale) {
     where.push(`p.old_price_byn IS NOT NULL AND p.old_price_byn > p.price_byn`);
+  }
+  const genderKey = parseGenderQuery(gender);
+  if (genderKey) {
+    params.push(genderKey);
+    where.push(`p.gender = $${params.length}`);
   }
   if (inStockOnly) {
     where.push(`EXISTS (SELECT 1 FROM product_sizes s WHERE s.product_id = p.id AND s.qty > 0)`);
@@ -113,15 +148,18 @@ export async function listCatalogModels({
   size,
   q,
   sale = false,
+  gender = "",
   inStockOnly = true,
   limit = 500,
   offset = 0,
 }) {
   const saleOnly = sale === true || isSaleQuery(sale);
+  const genderKey = parseGenderQuery(gender);
   const { products } = await listProducts({
     brand,
     inStockOnly,
     sale: saleOnly,
+    gender: genderKey,
     limit: 1000,
     offset: 0,
   });
@@ -138,6 +176,7 @@ export async function listCatalogModels({
     offset: off,
     grouped: true,
     sale: saleOnly,
+    gender: genderKey || "",
   };
 }
 

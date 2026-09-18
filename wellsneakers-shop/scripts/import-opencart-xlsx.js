@@ -13,6 +13,7 @@ import pg from "pg";
 import { parseModelAndColor } from "../api/src/lib/modelGroup.js";
 import { resolveBrand } from "../api/src/lib/brand.js";
 import { mapOcPrices } from "../api/src/lib/sale.js";
+import { inferGender } from "../api/src/lib/gender.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
@@ -91,6 +92,7 @@ async function main() {
   await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS model_key TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS old_price_byn NUMERIC(12,2)`);
+  await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS gender TEXT`);
   let upserted = 0;
   let skipped = 0;
 
@@ -134,13 +136,18 @@ async function main() {
     const barcode = article;
     const brand = resolveBrand(rawBrand, displayName);
     const parsed = parseModelAndColor(displayName, brand);
+    const category = String(
+      pick(row, ["categories", "Categories", "category", "Category", "category_name", "Категория", "Категории"]) || ""
+    ).trim();
+    const genderCol = pick(row, ["gender", "Gender", "sex", "Sex", "пол", "Пол"]);
+    const gender = inferGender({ name: displayName, category, gender: genderCol });
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
       const { rows } = await client.query(
-        `INSERT INTO products (name, brand, article, barcode, price_byn, old_price_byn, oc_product_id, active, color, model_key)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        `INSERT INTO products (name, brand, article, barcode, price_byn, old_price_byn, oc_product_id, active, color, model_key, gender)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ON CONFLICT (article) DO UPDATE SET
            name = EXCLUDED.name,
            brand = EXCLUDED.brand,
@@ -151,6 +158,7 @@ async function main() {
            active = EXCLUDED.active,
            color = EXCLUDED.color,
            model_key = EXCLUDED.model_key,
+           gender = COALESCE(products.gender, EXCLUDED.gender),
            updated_at = now()
          RETURNING id`,
         [
@@ -164,6 +172,7 @@ async function main() {
           active,
           parsed.color,
           parsed.modelKey,
+          gender,
         ]
       );
       const productId = rows[0].id;

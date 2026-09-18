@@ -16,6 +16,7 @@ import { query, withTransaction } from "../db.js";
 import { requireAdmin, staffAuth } from "../middleware/auth.js";
 import { upload } from "../middleware/upload.js";
 import { isSaleQuery, parseOldPriceByn, readOldPriceField } from "../lib/sale.js";
+import { inferGender, parseGenderQuery, readGenderField } from "../lib/gender.js";
 
 export const router = Router();
 
@@ -35,6 +36,7 @@ router.get("/catalog", async (req, res, next) => {
       size: req.query.size,
       q: req.query.q,
       sale: isSaleQuery(req.query.sale),
+      gender: parseGenderQuery(req.query.gender),
       inStockOnly: req.query.inStock !== "0",
       limit: req.query.limit,
       offset: req.query.offset,
@@ -213,10 +215,12 @@ router.post("/staff/products", requireAdmin, async (req, res, next) => {
     const barcode = b.barcode || b.article;
     const meta = modelFieldsFromName(b.name, b.brand || "", b.color);
     const oldPrice = readOldPriceField(b) ?? parseOldPriceByn(b.old_price_byn);
+    const gender =
+      readGenderField(b) !== undefined ? readGenderField(b) : inferGender({ name: b.name, category: b.category });
     const { rows } = await query(
-      `INSERT INTO products (name, brand, article, barcode, price_byn, old_price_byn, color, model_key)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [b.name, meta.brand, b.article, barcode, Number(b.price_byn) || 0, oldPrice, meta.color, meta.model_key]
+      `INSERT INTO products (name, brand, article, barcode, price_byn, old_price_byn, color, model_key, gender)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [b.name, meta.brand, b.article, barcode, Number(b.price_byn) || 0, oldPrice, meta.color, meta.model_key, gender]
     );
     const product = rows[0];
     const arrivalIds = [];
@@ -316,6 +320,7 @@ router.patch("/staff/products/:id", requireAdmin, async (req, res, next) => {
     const meta = modelFieldsFromName(nextName, nextBrand, b.color);
     const nextOldPrice =
       readOldPriceField(b) !== undefined ? readOldPriceField(b) : current.old_price_byn;
+    const nextGender = readGenderField(b) !== undefined ? readGenderField(b) : current.gender;
     const { rows } = await query(
       `UPDATE products SET
          name = COALESCE($2, name),
@@ -325,6 +330,7 @@ router.patch("/staff/products/:id", requireAdmin, async (req, res, next) => {
          active = COALESCE($6, active),
          color = $7,
          model_key = $8,
+         gender = $9,
          updated_at = now()
        WHERE id = $1
        RETURNING *`,
@@ -337,6 +343,7 @@ router.patch("/staff/products/:id", requireAdmin, async (req, res, next) => {
         typeof b.active === "boolean" ? b.active : null,
         b.color != null ? String(b.color).trim() : meta.color,
         meta.model_key,
+        nextGender,
       ]
     );
     if (!rows[0]) return res.status(404).json({ ok: false, error: "not_found" });
