@@ -4,8 +4,10 @@ import { fileURLToPath } from "url";
 import { pool } from "./db.js";
 import {
   backfillProductModelKeys,
+  backfillProductGender,
   ensureProductModelColumns,
   ensureProductOldPriceColumn,
+  ensureProductGenderColumn,
 } from "./services/catalog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -47,8 +49,11 @@ async function main() {
 
   await ensureProductModelColumns();
   await ensureProductOldPriceColumn();
+  await ensureProductGenderColumn();
   const n = await backfillProductModelKeys();
   console.log(`Backfilled brand/model_key/color: ${n}`);
+  const g = await backfillProductGender();
+  console.log(`Backfilled gender: ${g}`);
   await pool.end();
 }
 

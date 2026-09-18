@@ -172,10 +172,13 @@ body.page-home.is-nav .cats-anchor{
   border-bottom:1px solid var(--line);
 }
 .hero-bg{position:absolute;inset:0;background:#111}
-.hero-bg img{width:100%;height:100%;object-fit:cover;object-position:center 35%;opacity:.88}
+.hero-bg img{
+  width:100%;height:100%;object-fit:cover;object-position:center 38%;
+  opacity:1;
+}
 .hero-bg:after{
   content:"";position:absolute;inset:0;
-  background:linear-gradient(180deg, rgba(11,11,12,.4) 0%, rgba(11,11,12,.3) 45%, rgba(11,11,12,.78) 100%);
+  background:linear-gradient(180deg, rgba(11,11,12,.16) 0%, rgba(11,11,12,.10) 42%, rgba(11,11,12,.52) 100%);
 }
 .hero-core{
   position:relative;z-index:1;width:min(360px,90vw);
@@ -255,16 +258,14 @@ body.page-home.is-nav .cats-anchor{
 }
 .perk-hint:before{
   content:"";
-  width:6px;height:6px;
-  margin-top:-2px;
-  border-right:2px solid currentColor;
-  border-bottom:2px solid currentColor;
-  transform:rotate(45deg);
-  transition:transform .16s ease, margin-top .16s ease;
+  width:0;height:0;
+  border-left:4px solid transparent;
+  border-right:4px solid transparent;
+  border-top:5px solid currentColor;
+  transition:transform .16s ease;
 }
 .perk[open] .perk-hint:before{
-  margin-top:2px;
-  transform:rotate(225deg);
+  transform:rotate(180deg);
 }
 .perk-more{
   margin:0;padding:0 16px 12px;
@@ -412,6 +413,9 @@ main{position:relative;z-index:1}
 }
 .chip.on{background:rgba(196,30,42,.22);border-color:rgba(196,30,42,.5);color:#ffd0d4}
 .sale-chip{
+  margin-top:2px;
+}
+.gender-chips{
   margin-top:2px;
 }
 .brand-chip{

@@ -149,7 +149,8 @@ MODEL NAME (жирный)
 ### Фаза C — Сайт и заказы `[~]`
 - [x] Витрина с заказом (ФИО/телефон/адрес/самовывоз|доставка)
 - [x] Каталог сайта: импорт OC (~398) → на витрине все с наличием (~310; нулевые скрыты)
-- [~] Главная: плюшки (`#perks` / `details.perk`) **выше** `#him` / `#her`, индикатор **стрелка** (не плюс); «Скидки» → `catalog.html?sale=1` (чип + hero), без фейкового промо «белые −15%». Favicon из логотипа **с прозрачным фоном**. **нужен pull `web/` на VPS** (bind-mount `./web` — `git pull`)
+- [~] Главная: плюшки **выше** `#him`/`#her`, индикатор **стрелка** (не плюс); без фейкового «белые −15%»; hero `store.jpg` 3× без сильной вуали. «Скидки» → `catalog.html?sale=1`. Favicon прозрачный. **нужен pull `web/` на VPS**
+- [~] Каталог: чипы **Мужское / Женское** + `?gender=men` / `women` (home tiles уже так ведут). API `GET /api/catalog?gender=` режет по `products.gender` (`men`/`women`/`unisex`/null). Infer только из явных токенов/категории OC, иначе null. Пусто → «Нет моделей». Кнопки «Как заказать» нет. **нужен redeploy API** + pull `web/`
 - [~] Скидки на витрине: `products.old_price_byn` (nullable); on sale = `old_price_byn > price_byn`; `GET /api/catalog?sale=1` → только уценённые, `total=0` → «Сейчас скидок нет». Staff create/patch + OC import мапят old/special. **нужен redeploy API**
 - [~] Одна карточка на модель, цвета как варианты (`color`+`model_key`, `GET /api/catalog` → `models[]`). Staff по артикулу не ломаем. **нужен redeploy VPS**
 - [~] Бренды витрины: OC `ad1das`/`ree6ok`/`triger` → Adidas/Reebok/New Balance; имя vs manufacturer (арт. 1441 ASICS+Nike → Asics); SALOMON/SUPERSTAR из имени. Backfill на старте API. **нужен redeploy VPS**

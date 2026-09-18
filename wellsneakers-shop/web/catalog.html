@@ -85,6 +85,10 @@
           <div class="filter-panel street-panel" id="sizesPanel" hidden>
             <div class="filter-row" id="sizesRow" aria-label="Размеры"></div>
           </div>
+          <div class="filter-row gender-chips" id="genderRow" aria-label="Мужское или женское">
+            <button type="button" class="street-opt" data-gender="men">Мужское</button>
+            <button type="button" class="street-opt" data-gender="women">Женское</button>
+          </div>
           <div class="filter-row sale-chip">
             <button type="button" class="chip" id="saleChip" aria-pressed="false">Скидки</button>
           </div>
@@ -101,7 +105,7 @@
     <div class="dock">
       <div class="dock-inner">
         <a class="btn-catalog" href="index.html">Главная</a>
-        <button class="btn btn-rug" type="button" id="openHint">Как заказать</button>
+        <a class="btn btn-rug" href="tel:+375297904993">Позвонить</a>
       </div>
     </div>
 
@@ -159,6 +163,7 @@
       let brand = '';
       let size = '';
       let sale = false;
+      let gender = '';
       let brands = [];
       const SIZE_OPTS = ['36','37','38','39','40','41','42','43','44','45','46'];
       const SWATCH = {
@@ -194,6 +199,12 @@
         const v = String(value || '').toLowerCase().trim();
         return v === '1' || v === 'true' || v === 'yes' || v === 'on';
       }
+      function parseGenderQuery(value) {
+        const v = String(value || '').toLowerCase().trim();
+        if (v === 'men' || v === 'male' || v === 'муж' || v === 'мужское' || v === 'ему') return 'men';
+        if (v === 'women' || v === 'female' || v === 'жен' || v === 'женское' || v === 'ей') return 'women';
+        return '';
+      }
       function saleFromUrl() {
         try {
           return isSaleQuery(new URLSearchParams(location.search).get('sale'));
@@ -201,10 +212,19 @@
           return false;
         }
       }
-      function syncSaleUrl() {
+      function genderFromUrl() {
+        try {
+          return parseGenderQuery(new URLSearchParams(location.search).get('gender'));
+        } catch (e) {
+          return '';
+        }
+      }
+      function syncFilterUrl() {
         const url = new URL(location.href);
         if (sale) url.searchParams.set('sale', '1');
         else url.searchParams.delete('sale');
+        if (gender) url.searchParams.set('gender', gender);
+        else url.searchParams.delete('gender');
         const next = url.pathname + url.search + url.hash;
         if (next !== location.pathname + location.search + location.hash) {
           history.replaceState(null, '', next);
@@ -215,6 +235,11 @@
         if (!btn) return;
         btn.classList.toggle('on', sale);
         btn.setAttribute('aria-pressed', sale ? 'true' : 'false');
+      }
+      function paintGenderChips() {
+        document.querySelectorAll('#genderRow [data-gender]').forEach((btn) => {
+          btn.classList.toggle('on', btn.dataset.gender === gender);
+        });
       }
       function variantOnSale(variant) {
         if (!variant) return false;
@@ -337,7 +362,16 @@
       document.getElementById('saleChip').addEventListener('click', () => {
         sale = !sale;
         paintSaleChip();
-        syncSaleUrl();
+        syncFilterUrl();
+        loadCatalog();
+      });
+      document.getElementById('genderRow').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-gender]');
+        if (!btn) return;
+        const next = btn.dataset.gender || '';
+        gender = gender === next ? '' : next;
+        paintGenderChips();
+        syncFilterUrl();
         loadCatalog();
       });
 
@@ -354,13 +388,15 @@
         if (size) params.set('size', size);
         if (qEl.value.trim()) params.set('q', qEl.value.trim());
         if (sale) params.set('sale', '1');
+        if (gender) params.set('gender', gender);
         const data = await fetch(API + '/catalog?' + params).then(r => r.json());
         const models = data.models || [];
         const total = data.total != null ? data.total : models.length;
-        countEl.textContent = (sale ? 'Скидки: ' : 'В наличии: ') + total + ' моделей';
-        emptyEl.textContent = sale && !models.length
-          ? 'Сейчас скидок нет'
-          : 'Ничего не найдено. Сбросьте фильтр.';
+        const who = gender === 'men' ? 'Мужское: ' : gender === 'women' ? 'Женское: ' : '';
+        countEl.textContent = (who || (sale ? 'Скидки: ' : 'В наличии: ')) + total + ' моделей';
+        emptyEl.textContent = !models.length && gender
+          ? 'Нет моделей'
+          : (sale && !models.length ? 'Сейчас скидок нет' : 'Ничего не найдено. Сбросьте фильтр.');
         emptyEl.classList.toggle('show', !models.length);
         listEl.innerHTML = models.map(m => {
           const colors = m.colors || [];
@@ -486,9 +522,6 @@
         await loadCatalog();
       };
 
-      document.getElementById('openHint').onclick = () =>
-        showToast('Цвет и размер → «Заказать» → ФИО и телефон');
-
       let qTimer = null;
       qEl.addEventListener('input', () => {
         clearTimeout(qTimer);
@@ -497,7 +530,10 @@
 
       (async () => {
         sale = saleFromUrl();
+        gender = genderFromUrl();
         paintSaleChip();
+        paintGenderChips();
+        syncFilterUrl();
         try {
           const h = await fetch(API + '/health').then(r => r.json());
           if (!h.ok) throw new Error('health');
