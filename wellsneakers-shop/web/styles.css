@@ -163,7 +163,7 @@ body.page-home.is-nav .cats-anchor{
 }
 .picks .grid:has(> :only-child) .tile,
 .picks .grid:has(> :only-child) .tile-body{min-height:176px}
-#him,#her,#sale,#contacts{scroll-margin-top:76px}
+#him,#her,#sale,#contacts,#perks{scroll-margin-top:76px}
 
 .hero{padding:0;margin:0 calc(var(--pad) * -1)}
 .hero-stage{
@@ -215,7 +215,7 @@ body.page-home.is-nav .cats-anchor{
 .btn-rug{background:var(--rug);border-color:transparent;color:#fff}
 .btn-glow{background:transparent;border-color:rgba(255,255,255,.22);color:var(--ink)}
 
-#perks{padding-top:16px;padding-bottom:2px}
+#perks{padding-top:4px;padding-bottom:10px}
 .perks{
   display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;
   align-items:start;
@@ -414,6 +414,9 @@ main{position:relative;z-index:1}
   font-weight:700;font-size:13px;
 }
 .chip.on{background:rgba(196,30,42,.22);border-color:rgba(196,30,42,.5);color:#ffd0d4}
+.sale-chip{
+  margin-top:2px;
+}
 .brand-chip{
   min-height:38px;padding:0 12px;border-radius:10px;
   border:1px solid var(--line);background:var(--panel);
@@ -450,6 +453,9 @@ main{position:relative;z-index:1}
 .size.on{border-color:rgba(243,231,207,.55);background:rgba(243,231,207,.12);color:var(--glow)}
 .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .price{font-weight:800;font-size:16px}
+.price s{
+  color:var(--muted);font-weight:600;font-size:13px;margin-right:6px;
+}
 .buy{
   min-height:40px;padding:0 14px;border-radius:999px;border:0;
   background:var(--rug);color:#fff;font-weight:800;font-size:13px;

@@ -1,5 +1,6 @@
 import { query, withTransaction } from "../db.js";
 import { aggregateBrands, normalizeBrand, resolveBrand } from "../lib/brand.js";
+import { isSaleQuery } from "../lib/sale.js";
 import {
   parseModelAndColor,
   groupProductsIntoModels,
@@ -13,6 +14,15 @@ export async function ensureProductModelColumns() {
   await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS model_key TEXT NOT NULL DEFAULT ''`);
   await query(`CREATE INDEX IF NOT EXISTS products_model_key_idx ON products (model_key)`);
   await query(`CREATE INDEX IF NOT EXISTS products_color_lower_idx ON products ((lower(color)))`);
+}
+
+export async function ensureProductOldPriceColumn() {
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS old_price_byn NUMERIC(12,2)`);
+  await query(`
+    CREATE INDEX IF NOT EXISTS products_on_sale_idx
+      ON products (id)
+      WHERE old_price_byn IS NOT NULL AND old_price_byn > price_byn
+  `);
 }
 
 export async function backfillProductModelKeys() {
@@ -51,7 +61,7 @@ export async function listBrands() {
   return aggregateBrands(rows);
 }
 
-export async function listProducts({ brand, size, q, inStockOnly = true, limit = 500, offset = 0 }) {
+export async function listProducts({ brand, size, q, sale = false, inStockOnly = true, limit = 500, offset = 0 }) {
   const params = [];
   const where = ["p.active = TRUE"];
   if (brand) {
@@ -68,6 +78,9 @@ export async function listProducts({ brand, size, q, inStockOnly = true, limit =
   if (size) {
     params.push(size);
     where.push(`EXISTS (SELECT 1 FROM product_sizes s WHERE s.product_id = p.id AND s.size = $${params.length} AND s.qty > 0)`);
+  }
+  if (sale) {
+    where.push(`p.old_price_byn IS NOT NULL AND p.old_price_byn > p.price_byn`);
   }
   if (inStockOnly) {
     where.push(`EXISTS (SELECT 1 FROM product_sizes s WHERE s.product_id = p.id AND s.qty > 0)`);
@@ -95,10 +108,20 @@ export async function listProducts({ brand, size, q, inStockOnly = true, limit =
 }
 
 /** Public catalog: one card per model, colorways as variants. */
-export async function listCatalogModels({ brand, size, q, inStockOnly = true, limit = 500, offset = 0 }) {
+export async function listCatalogModels({
+  brand,
+  size,
+  q,
+  sale = false,
+  inStockOnly = true,
+  limit = 500,
+  offset = 0,
+}) {
+  const saleOnly = sale === true || isSaleQuery(sale);
   const { products } = await listProducts({
     brand,
     inStockOnly,
+    sale: saleOnly,
     limit: 1000,
     offset: 0,
   });
@@ -108,7 +131,14 @@ export async function listCatalogModels({ brand, size, q, inStockOnly = true, li
   const total = models.length;
   const lim = Math.min(Math.max(Number(limit) || 500, 1), 1000);
   const off = Math.max(Number(offset) || 0, 0);
-  return { models: models.slice(off, off + lim), total, limit: lim, offset: off, grouped: true };
+  return {
+    models: models.slice(off, off + lim),
+    total,
+    limit: lim,
+    offset: off,
+    grouped: true,
+    sale: saleOnly,
+  };
 }
 
 export async function getCatalogModel(idOrArticle) {

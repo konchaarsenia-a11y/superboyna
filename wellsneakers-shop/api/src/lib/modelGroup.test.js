@@ -131,6 +131,8 @@ describe("groupProductsIntoModels", () => {
     );
     assert.equal(models[0].colors[0].article, "1577");
     assert.equal(models[0].colors[0].productId, 1);
+    assert.equal(models[0].colors[0].old_price_byn, null);
+    assert.equal(models[0].colors[0].onSale, false);
     assert.deepEqual(models[0].colors[0].sizes, [{ size: "41", qty: 1 }]);
     assert.deepEqual(models[0].colors[1].sizes, [{ size: "42", qty: 2 }]);
   });

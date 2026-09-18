@@ -313,6 +313,8 @@
           </div>
           <label for="pPrice">Цена BYN</label>
           <input id="pPrice" type="number" inputmode="decimal" step="0.01" value="150" />
+          <label for="pOldPrice">Старая цена BYN (скидка)</label>
+          <input id="pOldPrice" type="number" inputmode="decimal" step="0.01" placeholder="пусто = без скидки" />
           <label>Размеры</label>
           <div class="size-add">
             <div>
@@ -647,12 +649,14 @@
         const article = document.getElementById('pArticle').value.trim();
         const brand = document.getElementById('pBrand').value.trim();
         const price_byn = Number(document.getElementById('pPrice').value) || 0;
+        const oldRaw = document.getElementById('pOldPrice').value.trim();
+        const old_price_byn = oldRaw === '' ? null : Number(oldRaw);
         const fromText = parseSizes(document.getElementById('pSizes').value);
         const sizes = extraSizes.length ? extraSizes.concat(fromText) : fromText;
         if (!name || !article) return showToast('имя и артикул');
         const data = await api('/staff/products', {
           method: 'POST',
-          body: JSON.stringify({ name, article, brand, price_byn, sizes })
+          body: JSON.stringify({ name, article, brand, price_byn, old_price_byn, sizes })
         });
         if (!data.ok) return showToast(data.error || 'ошибка');
         const file = document.getElementById('pPhoto').files[0];

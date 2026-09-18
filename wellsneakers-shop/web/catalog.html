@@ -85,6 +85,9 @@
           <div class="filter-panel street-panel" id="sizesPanel" hidden>
             <div class="filter-row" id="sizesRow" aria-label="Размеры"></div>
           </div>
+          <div class="filter-row sale-chip">
+            <button type="button" class="chip" id="saleChip" aria-pressed="false">Скидки</button>
+          </div>
           <div style="margin-top:10px">
             <input class="street-drop" id="qFilter" placeholder="Поиск: модель или артикул" style="width:100%;transform:none;appearance:auto" />
           </div>
@@ -155,6 +158,7 @@
       let current = null;
       let brand = '';
       let size = '';
+      let sale = false;
       let brands = [];
       const SIZE_OPTS = ['36','37','38','39','40','41','42','43','44','45','46'];
       const SWATCH = {
@@ -186,6 +190,45 @@
         return n + ' цветов';
       }
 
+      function isSaleQuery(value) {
+        const v = String(value || '').toLowerCase().trim();
+        return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+      }
+      function saleFromUrl() {
+        try {
+          return isSaleQuery(new URLSearchParams(location.search).get('sale'));
+        } catch (e) {
+          return false;
+        }
+      }
+      function syncSaleUrl() {
+        const url = new URL(location.href);
+        if (sale) url.searchParams.set('sale', '1');
+        else url.searchParams.delete('sale');
+        const next = url.pathname + url.search + url.hash;
+        if (next !== location.pathname + location.search + location.hash) {
+          history.replaceState(null, '', next);
+        }
+      }
+      function paintSaleChip() {
+        const btn = document.getElementById('saleChip');
+        if (!btn) return;
+        btn.classList.toggle('on', sale);
+        btn.setAttribute('aria-pressed', sale ? 'true' : 'false');
+      }
+      function variantOnSale(variant) {
+        if (!variant) return false;
+        const old = Number(variant.old_price_byn);
+        const price = Number(variant.price_byn);
+        return Number.isFinite(old) && Number.isFinite(price) && old > price;
+      }
+      function priceHtml(variant) {
+        const price = Number(variant && variant.price_byn || 0).toFixed(0);
+        if (variantOnSale(variant)) {
+          return `<s>${Number(variant.old_price_byn).toFixed(0)}</s>${price} BYN`;
+        }
+        return price + ' BYN';
+      }
       function showToast(t) {
         toast.textContent = t;
         toast.classList.add('show');
@@ -291,6 +334,12 @@
         renderSizeOpts();
         loadCatalog();
       });
+      document.getElementById('saleChip').addEventListener('click', () => {
+        sale = !sale;
+        paintSaleChip();
+        syncSaleUrl();
+        loadCatalog();
+      });
 
       async function loadBrands() {
         const data = await fetch(API + '/brands').then(r => r.json());
@@ -304,9 +353,14 @@
         if (brand) params.set('brand', brand);
         if (size) params.set('size', size);
         if (qEl.value.trim()) params.set('q', qEl.value.trim());
+        if (sale) params.set('sale', '1');
         const data = await fetch(API + '/catalog?' + params).then(r => r.json());
         const models = data.models || [];
-        countEl.textContent = 'В наличии: ' + (data.total != null ? data.total : models.length) + ' моделей';
+        const total = data.total != null ? data.total : models.length;
+        countEl.textContent = (sale ? 'Скидки: ' : 'В наличии: ') + total + ' моделей';
+        emptyEl.textContent = sale && !models.length
+          ? 'Сейчас скидок нет'
+          : 'Ничего не найдено. Сбросьте фильтр.';
         emptyEl.classList.toggle('show', !models.length);
         listEl.innerHTML = models.map(m => {
           const colors = m.colors || [];
@@ -346,7 +400,7 @@
               <div class="colors">${chips}</div>
               <div class="sizes">${sizes}</div>
               <div class="row">
-                <div class="price">${Number(variant && variant.price_byn || 0).toFixed(0)} BYN</div>
+                <div class="price">${priceHtml(variant)}</div>
                 <button class="buy" type="button">Заказать</button>
               </div>
             </div>
@@ -364,7 +418,7 @@
           `<button class="size" type="button" data-size="${esc(s.size)}">${esc(s.size)}</button>`
         ).join('');
         const priceEl = card.querySelector('.price');
-        if (priceEl) priceEl.textContent = Number(variant && variant.price_byn || 0).toFixed(0) + ' BYN';
+        if (priceEl) priceEl.innerHTML = priceHtml(variant);
         const subt = card.querySelector('.subt');
         if (subt && variant) {
           const n = (model.colors || []).length;
@@ -442,6 +496,8 @@
       });
 
       (async () => {
+        sale = saleFromUrl();
+        paintSaleChip();
         try {
           const h = await fetch(API + '/health').then(r => r.json());
           if (!h.ok) throw new Error('health');

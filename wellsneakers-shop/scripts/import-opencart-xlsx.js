@@ -12,6 +12,7 @@ import XLSX from "xlsx";
 import pg from "pg";
 import { parseModelAndColor } from "../api/src/lib/modelGroup.js";
 import { resolveBrand } from "../api/src/lib/brand.js";
+import { mapOcPrices } from "../api/src/lib/sale.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
@@ -56,7 +57,15 @@ async function main() {
 
   const products = sheetToRows(wb, "Products");
   const optionValues = sheetToRows(wb, "ProductOptionValues");
-  console.log("Products rows:", products.length, "OptionValues:", optionValues.length);
+  const specials = sheetToRows(wb, "Specials");
+  console.log(
+    "Products rows:",
+    products.length,
+    "OptionValues:",
+    optionValues.length,
+    "Specials:",
+    specials.length
+  );
 
   // sizes by product_id from OC
   const sizesByProduct = new Map();
@@ -69,9 +78,19 @@ async function main() {
     sizesByProduct.get(pid).push({ size, qty: Number.isFinite(qty) ? Math.max(0, qty) : 0 });
   }
 
+  const specialByProduct = new Map();
+  for (const row of specials) {
+    const pid = String(pick(row, ["product_id", "Product ID", "productId"]));
+    const specialPrice = Number(pick(row, ["price", "Price", "special", "Special", "special_price"]));
+    if (!pid || !Number.isFinite(specialPrice) || specialPrice <= 0) continue;
+    const prev = specialByProduct.get(pid);
+    if (prev == null || specialPrice < prev) specialByProduct.set(pid, specialPrice);
+  }
+
   const pool = new pg.Pool({ connectionString: databaseUrl });
   await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS model_key TEXT NOT NULL DEFAULT ''`);
+  await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS old_price_byn NUMERIC(12,2)`);
   let upserted = 0;
   let skipped = 0;
 
@@ -84,6 +103,19 @@ async function main() {
     const article = String(pick(row, ["sku", "SKU", "upc", "UPC", "ean", "EAN"]) || ocId || "").trim();
     const rawBrand = String(pick(row, ["manufacturer", "Manufacturer", "brand"]) || "").trim();
     const price = Number(pick(row, ["price", "Price"]) || 0);
+    const specialCol = pick(row, [
+      "special",
+      "Special",
+      "special_price",
+      "Special Price",
+      "price_special",
+    ]);
+    const oldCol = pick(row, ["old_price", "old_price_byn", "price_old", "Price Old", "recommend_price"]);
+    const mapped = mapOcPrices({
+      price,
+      special: specialCol !== "" ? specialCol : specialByProduct.get(String(ocId)),
+      oldPrice: oldCol,
+    });
     const status = String(pick(row, ["status", "Status"]) || "true");
     if (!name && !model) {
       skipped++;
@@ -107,13 +139,14 @@ async function main() {
     try {
       await client.query("BEGIN");
       const { rows } = await client.query(
-        `INSERT INTO products (name, brand, article, barcode, price_byn, oc_product_id, active, color, model_key)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        `INSERT INTO products (name, brand, article, barcode, price_byn, old_price_byn, oc_product_id, active, color, model_key)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          ON CONFLICT (article) DO UPDATE SET
            name = EXCLUDED.name,
            brand = EXCLUDED.brand,
            barcode = EXCLUDED.barcode,
            price_byn = EXCLUDED.price_byn,
+           old_price_byn = EXCLUDED.old_price_byn,
            oc_product_id = EXCLUDED.oc_product_id,
            active = EXCLUDED.active,
            color = EXCLUDED.color,
@@ -125,7 +158,8 @@ async function main() {
           brand,
           article,
           barcode,
-          Number.isFinite(price) ? price : 0,
+          mapped.price_byn,
+          mapped.old_price_byn,
           ocId || null,
           active,
           parsed.color,

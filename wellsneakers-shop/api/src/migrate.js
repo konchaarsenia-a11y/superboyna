@@ -2,7 +2,11 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { pool } from "./db.js";
-import { backfillProductModelKeys, ensureProductModelColumns } from "./services/catalog.js";
+import {
+  backfillProductModelKeys,
+  ensureProductModelColumns,
+  ensureProductOldPriceColumn,
+} from "./services/catalog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.resolve(__dirname, "../../db/migrations");
@@ -42,6 +46,7 @@ async function main() {
   }
 
   await ensureProductModelColumns();
+  await ensureProductOldPriceColumn();
   const n = await backfillProductModelKeys();
   console.log(`Backfilled brand/model_key/color: ${n}`);
   await pool.end();
