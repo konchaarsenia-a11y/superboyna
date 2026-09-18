@@ -9079,9 +9079,9 @@ const PARTNER_ARSENIY_USER = "arseniyhotko";
 const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
-/** Канон-owner партнёрки (кабинет со всеми активными точками, включая Varka). Arseniy 650923866 — staff, не owner. */
-const PARTNER_CANON_OWNER_TIDS = ["827494606"];
-const PARTNER_CANON_OWNER_USERS = ["one_more_person_228"];
+/** Канон-owner партнёрки. Пусто: helper 827494606 временно снят (тест Арсения). Arseniy 650923866 не возвращать. */
+const PARTNER_CANON_OWNER_TIDS = [];
+const PARTNER_CANON_OWNER_USERS = [];
 
 /** Живой прогон @one_more_person_228. owner-all кроме exclude — не применяется к canon-owner. */
 const PARTNER_LIVE_TEST_ENABLED = false;
@@ -9093,7 +9093,7 @@ const PARTNER_MANUAL_ACCESS_POINTS = [];
 const PARTNER_MANUAL_ACCESS_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 /** owner-all минус эти сети. Новые точки сети (net_varka / pt_varka_*) тоже режутся. */
 const PARTNER_MANUAL_ACCESS_EXCLUDE_NETS = ["net_varka"];
-/** Allowlist локи для проверки. Helper 827494606 снят — owner-кабинет (#281) без inspect picker. */
+/** Allowlist локи для проверки. Пустой — чип «Лока» никому. */
 const PARTNER_INSPECT_LOCA_TIDS = [];
 const PARTNER_INSPECT_LOCA_USERS = [];
 const PARTNER_LIVE_TEST_QUEUE = [
@@ -9278,7 +9278,7 @@ function partnerHydrateIdentityFromInitData_(params) {
   return next;
 }
 
-/** Настоящий owner партнёрки: helper 827494606. Arseniy — staff через Partner_Access. */
+/** Настоящий owner партнёрки: allowlist пуст (helper временно снят). Arseniy — staff через Partner_Access. */
 function isPartnerCanonOwner_(params) {
   const u = partnerNormUserWorker_(params && params.username);
   const tid = String((params && params.telegramId) || "").trim();

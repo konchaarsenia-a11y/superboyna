@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Grant/revoke from Boinya «Партнёры» must drive partnerGetMe.
- * Arseniy 650923866 is staff, not canon-owner. Helper keeps ownerMode.
+ * Arseniy 650923866 is staff, not canon-owner. Helper 827494606 demoted — cannot grant.
  */
 "use strict";
 
@@ -196,8 +196,8 @@ if (sandbox.isPartnerCanonOwner_(arseniy)) fail("Arseniy must not be canon owner
 if (!sandbox.partnerCanWriteAccess_({ telegramId: "650923866" })) {
   fail("Boinya operator Arseniy must be able to grant/revoke Access");
 }
-if (!sandbox.partnerCanWriteAccess_({ telegramId: "827494606", actorUsername: "one_more_person_228" })) {
-  fail("helper canon owner must be able to grant");
+if (sandbox.partnerCanWriteAccess_({ telegramId: "827494606", actorUsername: "one_more_person_228" })) {
+  fail("demoted helper must not grant Access");
 }
 if (sandbox.partnerCanWriteAccess_(stranger)) {
   fail("random staff must not grant Access");
@@ -330,11 +330,8 @@ const helperMe = sandbox.partnerGuardOrRewrite_("partnerGetMe", helper, {
   networks: admin.networks,
   access: admin.access
 });
-if (!helperMe.ownerMode || helperMe.partnerOverride !== "owner_cabinet_all_points") {
-  fail("helper owner_cabinet must not regress");
-}
-if ((helperMe.points || []).every(function (p) { return p.id !== "pt_varka_shevchenko_1"; })) {
-  fail("helper owner still sees all points including Шевченко 1");
+if (helperMe.ownerMode || helperMe.isOwner || helperMe.partnerOverride === "owner_cabinet_all_points") {
+  fail("helper must not keep owner_cabinet after demote");
 }
 
 const dualAdmin = {
