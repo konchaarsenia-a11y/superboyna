@@ -6406,9 +6406,9 @@
       if (!box) return;
       var month = orderCalMonthFromDate_();
       var seq = ++_orderCalLoadSeq;
-      if (opts.soft && orderMonthOverviewCache && String(orderMonthOverviewCache.month || "").slice(0, 7) === month) {
-        renderOrderDateCal_(orderMonthOverviewCache);
-      }
+      var cache = orderMonthOverviewCache;
+      var cacheOk = !!(cache && String(cache.month || "").slice(0, 7) === month && Array.isArray(cache.days));
+      renderOrderDateCal_(cacheOk ? cache : { status: "success", month: month, days: [] });
       try {
         var res = await apiGet(
           { action: "getMonthOverview", month: month, force: opts.force ? "1" : "", _: String(Date.now()) },
