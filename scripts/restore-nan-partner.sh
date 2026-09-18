@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Вернуть партнёра nan clinic (pa_nan_animal_clinic) в active.
-# Actor — owner Бойни (Arseniy 650923866). Helper 827494606 больше не canon-owner.
+# Actor — owner Бойни (Arseniy 650923866). Helper 827494606 снова canon-owner партнёрки, но этот скрипт зовёт Бойню.
 #
 #   TELEGRAM_ID=650923866 bash scripts/restore-nan-partner.sh
 set -euo pipefail

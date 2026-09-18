@@ -20607,9 +20607,9 @@ function partnerRequireOwner_(actorId) {
     String(row.status || "").toLowerCase() !== "denied");
 }
 
-/** Кабинет партнёрки: allowlist пуст (helper 827494606 временно снят). Arseniy 650923866 не owner. */
-var PARTNER_CANON_OWNER_TIDS_ = [];
-var PARTNER_CANON_OWNER_USERS_ = [];
+/** Кабинет партнёрки: helper 827494606. Arseniy 650923866 — staff через Partner_Access, не owner. */
+var PARTNER_CANON_OWNER_TIDS_ = ["827494606"];
+var PARTNER_CANON_OWNER_USERS_ = ["one_more_person_228"];
 
 function partnerIsCanonOwner_(username, tid) {
   var u = partnerNormUser_(username);

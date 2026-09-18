@@ -9087,11 +9087,11 @@ const PARTNER_ARSENIY_USER = "arseniyhotko";
 const PARTNER_ARSENIY_TID = "650923866";
 const PARTNER_ARSENIY_NET = { id: "net_varka", name: "Varka", logo: "assets/varka-logo.png" };
 const PARTNER_ARSENIY_POINTS = [];
-/** Канон-owner партнёрки. Пусто: helper 827494606 временно снят (тест Арсения). Arseniy 650923866 не возвращать. */
-const PARTNER_CANON_OWNER_TIDS = [];
-const PARTNER_CANON_OWNER_USERS = [];
+/** Канон-owner партнёрки: только helper 827494606 / @one_more_person_228. Arseniy 650923866 не возвращать. */
+const PARTNER_CANON_OWNER_TIDS = ["827494606"];
+const PARTNER_CANON_OWNER_USERS = ["one_more_person_228"];
 
-/** Живой прогон @one_more_person_228. Owner-all shortcut выкл. (полный demote). */
+/** Живой прогон @one_more_person_228 выкл. Полный owner — через PARTNER_CANON_OWNER_*, не live-test. */
 const PARTNER_LIVE_TEST_ENABLED = false;
 const PARTNER_LIVE_TEST_USER = "one_more_person_228";
 const PARTNER_LIVE_TEST_TID = "827494606";
@@ -9168,7 +9168,7 @@ function partnerInspectWantLoca_(params) {
   return want;
 }
 
-/** Owner-all shortcut выкл.: helper 827494606 только из Partner_Access, не все кроме Varka. */
+/** Owner-all shortcut выкл.: не «все кроме Varka». Полный owner — только PARTNER_CANON_OWNER_*. */
 function isPartnerOwnerAllUser_(params) {
   return false;
 }
@@ -9279,7 +9279,7 @@ function partnerHydrateIdentityFromInitData_(params) {
   return next;
 }
 
-/** Настоящий owner партнёрки: allowlist пуст (helper временно снят). Arseniy — staff через Partner_Access. */
+/** Настоящий owner партнёрки: helper 827494606. Arseniy — staff через Partner_Access, не owner. */
 function isPartnerCanonOwner_(params) {
   const u = partnerNormUserWorker_(params && params.username);
   const tid = String((params && params.telegramId) || "").trim();

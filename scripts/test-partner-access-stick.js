@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Grant/revoke from Boinya «Партнёры» must drive partnerGetMe.
- * Arseniy 650923866 is staff, not canon-owner. Helper 827494606 demoted — cannot grant.
+ * Arseniy 650923866 is staff, not canon-owner. Helper 827494606 is sole partner canon-owner.
  */
 "use strict";
 
@@ -101,8 +101,8 @@ const revokeSlice = workerSrc.slice(workerSrc.indexOf("if (/^partnerRevokeAccess
 if (revokeSlice.indexOf("partnerRevokeIndexesForPerson_") < 0 || revokeSlice.indexOf("partnerSyncMeSnapsForPerson_") < 0) {
   fail("partnerRevokeAccess must revoke all identity aliases and clear partnerMe cache");
 }
-if (!/gb_partner_me_v5/.test(appSrc)) {
-  fail("varka must bust demoted-owner me cache (v5)");
+if (!/gb_partner_me_v6/.test(appSrc)) {
+  fail("varka must bust demoted-owner me cache (v6)");
 }
 if (!/partnerFindAccessHitIndex_/.test(workerSrc)) {
   fail("saveAccess must match by role, not smash staff");
@@ -193,11 +193,12 @@ const helper = { username: "one_more_person_228", telegramId: "827494606" };
 const stranger = { username: "clinic_staff", telegramId: "111", actorUsername: "clinic_staff" };
 
 if (sandbox.isPartnerCanonOwner_(arseniy)) fail("Arseniy must not be canon owner");
+if (!sandbox.isPartnerCanonOwner_(helper)) fail("helper must be canon owner");
 if (!sandbox.partnerCanWriteAccess_({ telegramId: "650923866" })) {
   fail("Boinya operator Arseniy must be able to grant/revoke Access");
 }
-if (sandbox.partnerCanWriteAccess_({ telegramId: "827494606", actorUsername: "one_more_person_228" })) {
-  fail("demoted helper must not grant Access");
+if (!sandbox.partnerCanWriteAccess_({ telegramId: "827494606", actorUsername: "one_more_person_228" })) {
+  fail("helper canon owner must be able to grant Access");
 }
 if (sandbox.partnerCanWriteAccess_(stranger)) {
   fail("random staff must not grant Access");
@@ -338,17 +339,18 @@ const helperAdmin = Object.assign({}, admin, {
 });
 const helperFromAccess = sandbox.partnerBuildGetMeFromAdmin_(helperAdmin, helper);
 const helperMe = sandbox.partnerGuardOrRewrite_("partnerGetMe", helper, helperFromAccess);
-if (helperMe.ownerMode || helperMe.isOwner || helperMe.role === "owner") {
-  fail("helper must not keep owner after demote");
+if (!helperMe.ownerMode || !helperMe.isOwner || helperMe.role !== "owner") {
+  fail("helper canon owner getMe must be owner cabinet, got " + JSON.stringify({
+    ownerMode: helperMe.ownerMode, isOwner: helperMe.isOwner, role: helperMe.role
+  }));
 }
-if (helperMe.partnerOverride === "owner_cabinet_all_points" ||
-    (helperMe.partnerOverride && String(helperMe.partnerOverride).indexOf("owner_all") === 0)) {
-  fail("helper must not keep owner-all leftover, got " + helperMe.partnerOverride);
+if (helperMe.partnerOverride !== "owner_cabinet_all_points") {
+  fail("helper canon owner override want owner_cabinet_all_points got " + helperMe.partnerOverride);
 }
 const helperIds = idsOf_(helperMe);
-if (!helperIds["pt_nan_1"]) fail("helper Access pt_nan_1 missing");
-if (helperIds["pt_varka_rokoss_80"] || helperIds["pt_varka_shevchenko_1"]) {
-  fail("helper must not get all-points leftover, got " + JSON.stringify(helperMe.pointIds));
+if (!helperIds["pt_nan_1"]) fail("helper owner cabinet missing pt_nan_1");
+if (!helperIds["pt_varka_rokoss_80"] || !helperIds["pt_varka_shevchenko_1"]) {
+  fail("helper owner cabinet must include Varka points, got " + JSON.stringify(helperMe.pointIds));
 }
 if (sandbox.isPartnerOwnerAllUser_(helper)) fail("helper must not match isPartnerOwnerAllUser_");
 
@@ -461,4 +463,4 @@ if (sandbox.partnerAccessRowMatchesUser_({ id: "pa_650923866", username: "", tel
 console.log("OK: partner access stick");
 console.log("  grant → getMe sees point; revoke → getMe loses point");
 console.log("  dual pa_user+pa_tid revoked; partnerMe tid+username keys; pa_cfblk untouched");
-console.log("  staff rokoss_80 kept; Arseniy not canon owner; helper owner_hidden intact");
+console.log("  staff rokoss_80 kept; Arseniy not canon owner; helper sole partner canon-owner");

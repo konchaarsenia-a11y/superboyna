@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * leftover owner-all-except-Varka machinery still exists,
- * but helper is fully demoted: isPartnerOwnerAllUser_ is always false.
+ * but helper tid is canon-owner: owner beats exclude.
+ * isPartnerOwnerAllUser_ stays always false (not leftover all-except-Varka).
  */
 "use strict";
 
@@ -148,11 +149,11 @@ const tidParams = { username: "one_more_person_228", telegramId: "827494606" };
 if (sandbox.isPartnerManualAccessUser_(tidParams)) {
   fail("manual allowlist must be off for this tid");
 }
-if (sandbox.isPartnerCanonOwner_(tidParams)) {
-  fail("helper tid must not stay canon owner");
+if (!sandbox.isPartnerCanonOwner_(tidParams)) {
+  fail("helper tid must be canon owner (exclude must not win)");
 }
 if (sandbox.isPartnerOwnerAllUser_(tidParams)) {
-  fail("helper must not keep owner-all-except leftover");
+  fail("canon owner must not keep owner-all-except leftover");
 }
 if (sandbox.isPartnerOwnerAllUser_({ username: "someone_else", telegramId: "1" })) {
   fail("other users must not get owner-all override");
@@ -239,16 +240,19 @@ const helperOwnerMe = sandbox.partnerGuardOrRewrite_("partnerGetMe", tidParams, 
     { id: "pt_nan_1", networkId: "net_nan", name: "nan_animal_clinic", active: true }
   ]
 });
-if (helperOwnerMe.ownerMode || helperOwnerMe.isOwner || helperOwnerMe.role === "owner") {
-  fail("demoted helper getMe must not be ownerMode, got " + JSON.stringify({
+if (!helperOwnerMe.ownerMode || !helperOwnerMe.isOwner || helperOwnerMe.role !== "owner") {
+  fail("helper guard getMe must be full owner cabinet, got " + JSON.stringify({
     ownerMode: helperOwnerMe.ownerMode, isOwner: helperOwnerMe.isOwner, role: helperOwnerMe.role
   }));
 }
-if (helperOwnerMe.partnerOverride && String(helperOwnerMe.partnerOverride).indexOf("owner_all") === 0) {
-  fail("helper guard must not apply leftover owner-all, got " + helperOwnerMe.partnerOverride);
+if (helperOwnerMe.partnerOverride !== "owner_cabinet_all_points") {
+  fail("helper guard must be owner_cabinet_all_points, got " + helperOwnerMe.partnerOverride);
 }
 if (helperOwnerMe.canPickInspectLoca) {
   fail("helper leftover getMe.canPickInspectLoca must be false");
+}
+if (!(helperOwnerMe.points || []).some(function (p) { return p.id === "pt_varka_repina_4"; })) {
+  fail("helper owner getMe must include Varka (exclude must not win)");
 }
 
 const blockedVarka = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
@@ -258,7 +262,7 @@ const blockedVarka = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
   networkId: "net_varka"
 });
 if (blockedVarka) {
-  fail("helper submit must not use leftover owner-all forbid, got " + JSON.stringify(blockedVarka));
+  fail("helper owner submit Varka must pass, got " + JSON.stringify(blockedVarka));
 }
 
 const blockedPrefix = sandbox.partnerBlockWrongPoint_("partnerSubmitOrder", {
@@ -351,8 +355,9 @@ if (/PARTNER_BOT_TOKEN/.test(extractFn_(workerSrc, "partnerOwnerAllGetMe_"))) {
   fail("do not touch PARTNER_BOT_TOKEN from this change");
 }
 
-console.log("OK: leftover owner-all fn exists; helper does not match it");
+console.log("OK: leftover owner-all fn exists; helper is canon owner, not owner-all leftover");
 console.log("  leftover owner-all points:", pointIds.join(", "));
 console.log("  leftover nets:", netIds.join(", "));
 console.log("  leftover override:", me.partnerOverride);
 console.log("  helper isPartnerOwnerAllUser:", sandbox.isPartnerOwnerAllUser_(tidParams));
+console.log("  helper isPartnerCanonOwner:", sandbox.isPartnerCanonOwner_(tidParams));

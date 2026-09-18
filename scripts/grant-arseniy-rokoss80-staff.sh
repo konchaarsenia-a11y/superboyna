@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # После Deploy Worker + Code.gs: Arseniy staff на Varka Рокоссовского 80.
-# Actor — owner Бойни (Arseniy 650923866). Helper 827494606 больше не canon-owner.
+# Actor — owner Бойни (Arseniy 650923866). Helper 827494606 снова canon-owner партнёрки, но этот скрипт зовёт Бойню.
 #
 #   TELEGRAM_ID=650923866 bash scripts/grant-arseniy-rokoss80-staff.sh
 set -euo pipefail
