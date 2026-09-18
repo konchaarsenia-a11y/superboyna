@@ -709,7 +709,7 @@
 
   <script>
 (function () {
-  var APP_VER = "3.3.56";
+  var APP_VER = "3.3.57";
   // Бойня C (Worker+D1) — тот же бэкенд, что конвейер. Не сырой GAS /exec.
   var VARKA_WEBHOOK_URL = "https://boinya-c.konchaarsenia.workers.dev";
   var SESSION_KEY = "gb_partner_session_v12";
@@ -721,9 +721,9 @@
   /** Allowlist локи для проверки. Пустой — чип «Лока» никому. */
   var INSPECT_LOCA_USERS_ = [];
   var INSPECT_LOCA_TIDS_ = [];
-  /** Кабинет владельца: пусто. Helper 827494606 временно снят; Arseniy — staff, не owner. */
-  var CANON_OWNER_TIDS_ = [];
-  var CANON_OWNER_USERS_ = [];
+  /** Кабинет владельца: helper 827494606. Arseniy — staff (Partner_Access), не owner. */
+  var CANON_OWNER_TIDS_ = ["827494606"];
+  var CANON_OWNER_USERS_ = ["one_more_person_228"];
   var INSPECT_LOCA_KEY = "gb_inspect_loca_v1";
   var LIVE_TEST_IDX_ = 16;
   var LIVE_TEST_QUEUE_ = [

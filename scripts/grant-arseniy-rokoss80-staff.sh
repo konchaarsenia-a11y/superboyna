@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # После Deploy Worker + Code.gs: Arseniy staff на Varka Рокоссовского 80.
-# Actor — owner Бойни (Arseniy 650923866). Helper 827494606 больше не canon-owner.
+# Actor — оставшийся canon-owner helper 827494606.
+# Не PARTNER_MANUAL_ACCESS_*. Не 150Б.
 #
-#   TELEGRAM_ID=650923866 bash scripts/grant-arseniy-rokoss80-staff.sh
+#   TELEGRAM_ID=827494606 bash scripts/grant-arseniy-rokoss80-staff.sh
 set -euo pipefail
 
 WORKER_URL="${WORKER_URL:-https://boinya-c.konchaarsenia.workers.dev}"
 GAS_URL="${GAS_URL:-https://script.google.com/macros/s/AKfycbzph2uAYgSd3Ja5XDoi647YkAIRDw2SfRIcgEUlaDW82aLpbzkgS36Zq9V5QXxqPNF7/exec}"
-TELEGRAM_ID="${TELEGRAM_ID:-650923866}"
+TELEGRAM_ID="${TELEGRAM_ID:-827494606}"
 UA="Mozilla/5.0 (compatible; SuperboynaAgent/1.0)"
 
 echo "=== grant Arseniy staff pt_varka_rokoss_80 ==="
@@ -19,7 +20,7 @@ echo "--- Worker partnerSaveAccess Arseniy staff Rokossovsky 80 ---"
 curl -sS -A "$UA" --max-time 40 -G "$WORKER_URL" \
   --data-urlencode "action=partnerSaveAccess" \
   --data-urlencode "telegramId=${TELEGRAM_ID}" \
-  --data-urlencode "actorUsername=arseniyhotko" \
+  --data-urlencode "actorUsername=one_more_person_228" \
   --data-urlencode "username=arseniyhotko" \
   --data-urlencode "targetTelegramId=650923866" \
   --data-urlencode "name=Арсений" \
@@ -34,7 +35,7 @@ echo "--- GAS partnerSaveAccess Arseniy staff Rokossovsky 80 ---"
 curl -sSL -A "$UA" --max-time 50 -G "$GAS_URL" \
   --data-urlencode "action=partnerSaveAccess" \
   --data-urlencode "telegramId=${TELEGRAM_ID}" \
-  --data-urlencode "actorUsername=arseniyhotko" \
+  --data-urlencode "actorUsername=one_more_person_228" \
   --data-urlencode "username=arseniyhotko" \
   --data-urlencode "targetTelegramId=650923866" \
   --data-urlencode "name=Арсений" \
