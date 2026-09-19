@@ -2,8 +2,8 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-19 preserve-order-price-h1
- * (prior: close-week-no-shift-h2 / orders-access-tab-h1 / fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
+ * deploy-marker: 2026-09-19 no-future-week-clone-h1
+ * (prior: preserve-order-price-h1 / close-week-no-shift-h2 / orders-access-tab-h1 / fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -387,7 +387,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-19 preserve-order-price-h1"
+      deployMarker: "2026-09-19 no-future-week-clone-h1"
     };
   }
 
@@ -3341,6 +3341,27 @@ function shouldRebindOrderDate_(haveIso, wantIso) {
 }
 
 /**
+ * Future/+7 row that copies a person already on the current week.
+ * Keep genuine Future/calendar bookings (on GAS or not on source week).
+ */
+function decideFutureWeekDupe_(onSourceWeek, onGasFuture, onGasCalendar) {
+  if (!onSourceWeek) return "keep";
+  if (onGasFuture || onGasCalendar) return "keep";
+  return "drop";
+}
+
+function segmentCountSum_(segs) {
+  if (!segs || typeof segs !== "object") return 0;
+  return (
+    (Number(segs["ПП"]) || 0) +
+    (Number(segs["БП"]) || 0) +
+    (Number(segs["Р"]) || 0) +
+    (Number(segs["ПАРТНЁР"]) || 0) +
+    (Number(segs.other) || 0)
+  );
+}
+
+/**
  * Detach weekday column without moving date_iso.
  * Rekey `Понедельник:MK` → `CAL:MK:date` so later upsert Day:MK cannot stamp +7.
  */
@@ -4259,6 +4280,186 @@ async function repairMissingOrderPrices_(env, opts) {
   try {
     await invalidateDays_(env, WEEK_DAYS);
   } catch (eInv) {}
+  return result;
+}
+
+/**
+ * Soft-delete Future/+7 copies of people already on the current week.
+ * Keep genuine Future/calendar bookings (GAS Future / calendar, or not on source week).
+ * Does not call finishFullWeek. Does not shrink Future to GAS-only (Ba2ra / Maria stay).
+ */
+async function repairFutureWeekDupes_(env, opts) {
+  opts = opts || {};
+  const result = {
+    fromMonday: "",
+    futureIso: "",
+    sourceWeek: [],
+    scanned: 0,
+    kept: [],
+    removed: [],
+    alreadyDeleted: [],
+    tombs: 0
+  };
+  if (!env || !env.DB) return result;
+  let fromMonday = coerceDateIso_(opts.fromMonday || opts.sourceMonday || "") || "";
+  if (!fromMonday) {
+    try {
+      const counts =
+        (await getSnapRaw_(env, "weekDayCountsSheet")) || (await getSnapRaw_(env, "weekDayCounts"));
+      const items = (counts && counts.items) || [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i] && items[i].day === "Понедельник") {
+          fromMonday = dmyToIso_(items[i].date) || coerceDateIso_(items[i].dateIso) || "";
+          break;
+        }
+      }
+    } catch (e0) {}
+  }
+  if (!fromMonday) fromMonday = "2026-09-21";
+  let futureIso =
+    coerceDateIso_(opts.futureIso || opts.date || opts.toMonday || "") || isoAddDays_(fromMonday, 7);
+  if (!futureIso) futureIso = "2026-09-28";
+  result.fromMonday = fromMonday;
+  result.futureIso = futureIso;
+  const sourceIsos = [];
+  for (let d = 0; d < 7; d++) {
+    const iso = isoAddDays_(fromMonday, d);
+    if (iso) sourceIsos.push(iso);
+  }
+  result.sourceWeek = sourceIsos;
+
+  const sourceMks = Object.create(null);
+  try {
+    const qSrc = await env.DB.prepare(
+      "SELECT id, match_key, client, day_name, date_iso FROM orders WHERE status = 'active' AND date_iso >= ? AND date_iso <= ? LIMIT 500"
+    )
+      .bind(sourceIsos[0] || fromMonday, sourceIsos[6] || fromMonday)
+      .all();
+    ((qSrc && qSrc.results) || []).forEach(function (r) {
+      const mk = normalizeMatchKey_(r.match_key || r.client);
+      const day = String(r.day_name || "");
+      if (!mk || day === "Будущая неделя") return;
+      sourceMks[mk] = {
+        id: r.id,
+        client: r.client,
+        day: day,
+        dateIso: r.date_iso
+      };
+    });
+  } catch (eS) {}
+
+  const gasFutureMks = Object.create(null);
+  const gasCalMks = Object.create(null);
+  try {
+    const gf = await gasProxy_("getClients", { day: "Будущая неделя" }, env, { write: false });
+    ((gf && gf.clients) || []).forEach(function (c) {
+      const mk = normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || "");
+      if (mk) gasFutureMks[mk] = (c && (c.name || c.client)) || mk;
+    });
+  } catch (eGf) {}
+  try {
+    const gc = await gasProxy_(
+      "getViewCompare",
+      { date: futureIso, deliveryDate: futureIso },
+      env,
+      { write: false }
+    );
+    []
+      .concat((gc && gc.week) || [])
+      .concat((gc && gc.month) || [])
+      .concat((gc && gc.calendar) || [])
+      .forEach(function (c) {
+        const mk = normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || "");
+        if (mk) gasCalMks[mk] = (c && (c.name || c.client)) || mk;
+      });
+  } catch (eGc) {}
+
+  let rows = [];
+  try {
+    const qF = await env.DB.prepare(
+      "SELECT id, status, match_key, client, day_name, date_iso FROM orders WHERE date_iso = ? OR day_name = ? LIMIT 500"
+    )
+      .bind(futureIso, "Будущая неделя")
+      .all();
+    rows = (qF && qF.results) || [];
+  } catch (eF) {}
+
+  const now = new Date().toISOString();
+  const toTomb = [];
+  const seenKeep = Object.create(null);
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r) continue;
+    result.scanned++;
+    const mk = normalizeMatchKey_(r.match_key || r.client);
+    if (!mk) continue;
+    const verdict = decideFutureWeekDupe_(!!sourceMks[mk], !!gasFutureMks[mk], !!gasCalMks[mk]);
+    const info = {
+      mk: mk,
+      client: r.client,
+      id: r.id,
+      status: r.status,
+      day: r.day_name || "",
+      dateIso: r.date_iso || "",
+      verdict: verdict
+    };
+    if (verdict === "keep") {
+      if (String(r.status || "") === "active" && !seenKeep[mk]) {
+        seenKeep[mk] = true;
+        result.kept.push(info);
+      }
+      continue;
+    }
+    if (String(r.status || "") === "active") {
+      try {
+        await env.DB.prepare(
+          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+        )
+          .bind(now, r.id)
+          .run();
+        result.removed.push(info);
+        toTomb.push(r);
+      } catch (eDel) {}
+    } else {
+      result.alreadyDeleted.push(info);
+      toTomb.push(r);
+    }
+  }
+
+  for (let t = 0; t < toTomb.length; t++) {
+    const row = toTomb[t];
+    const mk = normalizeMatchKey_(row.match_key || row.client);
+    if (!mk) continue;
+    const day = String(row.day_name || "") || "Будущая неделя";
+    try {
+      await putSnap_(env, "delTomb:" + day + ":" + mk, {
+        mk: mk,
+        day: day,
+        at: Date.now(),
+        reason: "future_week_clone"
+      });
+      result.tombs++;
+    } catch (eT) {}
+  }
+
+  try {
+    await delSnap_(env, "viewDate:" + futureIso);
+  } catch (e1) {}
+  try {
+    await delSnap_(env, "clients:Будущая неделя");
+  } catch (e2) {}
+  try {
+    await delSnap_(env, "view:Будущая неделя");
+  } catch (e3) {}
+  try {
+    await rebuildWeekCounts_(env);
+  } catch (e4) {}
+  try {
+    await refreshViewDateSnap_(env, futureIso);
+  } catch (e5) {}
+  try {
+    await rebuildMonthOverview_(env, futureIso.slice(0, 7));
+  } catch (e6) {}
   return result;
 }
 
@@ -5259,16 +5460,26 @@ async function overlayWeekSheetCountsOnMonth_(env, body) {
         fromWeekSheet: true
       };
     } else if (byIso[iso].fromView) {
-      // уже сверено с Просмотром — только помечаем week
+      // уже сверено с Просмотром — только помечаем week.
+      // Stale viewDate (клоны 21→28) не держит бейдж выше D1/листа.
       byIso[iso].fromWeekSheet = true;
+      const d1nView = segmentCountSum_(segs);
+      const prevView = Number(byIso[iso].count) || 0;
+      const truthView = Math.max(wCount, d1nView);
+      if (truthView > 0 && prevView > truthView) {
+        byIso[iso].count = truthView;
+        if (d1nView) byIso[iso].segments = segs;
+      }
     } else if (!byIso[iso].count || byIso[iso].fromWeekSheet) {
-      byIso[iso].count = wCount;
-      byIso[iso].segments = segs;
+      const d1nSheet = segmentCountSum_(segs);
+      byIso[iso].count = Math.max(wCount, d1nSheet, Number(byIso[iso].count) || 0);
+      if (d1nSheet) byIso[iso].segments = segs;
       byIso[iso].fromWeekSheet = true;
     } else {
       const d1c = Number(byIso[iso].count) || 0;
-      byIso[iso].count = Math.max(d1c, wCount);
-      if (wCount >= d1c && Object.keys(segs).some(function (k) { return segs[k] > 0; })) {
+      const d1n = segmentCountSum_(segs);
+      byIso[iso].count = Math.max(d1c, wCount, d1n);
+      if ((d1n || wCount >= d1c) && Object.keys(segs).some(function (k) { return segs[k] > 0; })) {
         byIso[iso].segments = segs;
       }
       byIso[iso].fromWeekSheet = true;
@@ -6181,18 +6392,18 @@ async function patchMonthOverviewDayFromView_(env, iso, payload) {
   const tallied = countPeopleFromViewPayload_(payload);
   let viewCount = tallied.count;
   let segments = tallied.segments;
+  let d1cPatch = 0;
+  try {
+    const q = await env.DB.prepare(
+      "SELECT COUNT(DISTINCT match_key) AS c FROM orders WHERE status = 'active' AND date_iso = ?"
+    )
+      .bind(iso)
+      .first();
+    d1cPatch = Number(q && q.c) || 0;
+  } catch (eD1) {}
+  if (d1cPatch > 0 && viewCount > d1cPatch) viewCount = d1cPatch;
   // пустой view-snap не должен обнулять день, если в D1 уже есть люди
-  if (viewCount === 0) {
-    try {
-      const q = await env.DB.prepare(
-        "SELECT COUNT(DISTINCT match_key) AS c FROM orders WHERE status = 'active' AND date_iso = ?"
-      )
-        .bind(iso)
-        .first();
-      const d1c = Number(q && q.c) || 0;
-      if (d1c > 0) return;
-    } catch (eD1) {}
-  }
+  if (viewCount === 0 && d1cPatch > 0) return;
   const month = String(iso).slice(0, 7);
   const keys = ["monthOverview:" + month, "monthOverview"];
   for (let i = 0; i < keys.length; i++) {
@@ -6210,8 +6421,9 @@ async function patchMonthOverviewDayFromView_(env, iso, payload) {
       if (!d || d.dateIso !== iso) return d;
       found = true;
       const prev = Number(d.count) || 0;
-      // не затирать больший count меньшим (гонка пустого snap)
-      if (viewCount < prev) {
+      // не затирать больший count меньшим (гонка пустого snap),
+      // но D1-подтверждённое снижение (клоны 21→28 сняты) — применяем.
+      if (viewCount < prev && !(d1cPatch > 0 && d1cPatch < prev && viewCount <= d1cPatch)) {
         return Object.assign({}, d, { fromView: true });
       }
       return Object.assign({}, d, {
@@ -6270,9 +6482,30 @@ async function reconcileMonthOverviewWithViewSnaps_(env, body) {
       let segments = tallied.segments;
       const prev = byIso[iso];
       const prevCount = Number(prev && prev.count) || 0;
+      let d1c = 0;
+      try {
+        const q1 = await env.DB.prepare(
+          "SELECT COUNT(DISTINCT match_key) AS c FROM orders WHERE status = 'active' AND date_iso = ?"
+        )
+          .bind(iso)
+          .first();
+        d1c = Number(q1 && q1.c) || 0;
+      } catch (eD1r) {}
+      // stale viewDate держал удалённые клоны (28.09: 11 вместо 5)
+      if (d1c > 0 && viewCount > d1c) viewCount = d1c;
       // пустой/урезанный view-snap не должен обнулять бейдж месяца
       if (viewCount === 0 && prevCount > 0) continue;
       if (viewCount < prevCount) {
+        if (d1c > 0 && d1c < prevCount && viewCount <= d1c) {
+          byIso[iso] = Object.assign({}, prev || {}, {
+            dateIso: iso,
+            count: Math.max(viewCount, d1c),
+            segments: segments,
+            fromView: true,
+            fromWeekSheet: !!(prev && prev.fromWeekSheet)
+          });
+          continue;
+        }
         // D1/календарь уже больше — оставить, только пометить fromView
         byIso[iso] = Object.assign({}, prev, { fromView: true });
         continue;
@@ -11382,6 +11615,56 @@ async function handleCutover_(a, params, env, ctx) {
     }
   }
 
+  // Снять клоны текущей недели на Future/+7. Не finishFullWeek. Genuine 28.09 не трогает.
+  if (/^repairFutureWeekDupes$/i.test(a)) {
+    const ownerOkF = await actorIsOwnerRetail_(params, env);
+    if (!ownerOkF) {
+      return {
+        status: "error",
+        message: "owner_only",
+        tip: "Только владелец может снять клоны будущей недели в D1.",
+        cutover: true,
+        action: a
+      };
+    }
+    if (
+      String(params.confirm || "") !== "1" &&
+      String(params.confirm || "").toLowerCase() !== "true" &&
+      String(params.allowDanger || "") !== "1"
+    ) {
+      return {
+        status: "error",
+        message: "need_confirm",
+        tip: "Нужен confirm=1. Опц. fromMonday=2026-09-21&futureIso=2026-09-28",
+        cutover: true,
+        action: a
+      };
+    }
+    try {
+      const repairedF = await repairFutureWeekDupes_(env, {
+        fromMonday: String(params.fromMonday || params.sourceMonday || "").trim(),
+        futureIso: String(params.futureIso || params.date || params.toMonday || "").trim()
+      });
+      return {
+        status: "success",
+        action: "repairFutureWeekDupes",
+        repairedDupes: repairedF,
+        tip: "D1: сняли копии людей текущей недели с Future/+7. Настоящие брони 28.09 оставили. Цены не трогали.",
+        cutover: true,
+        d1Verified: true,
+        deployMarker: "2026-09-19 no-future-week-clone-h1"
+      };
+    } catch (eRepF) {
+      return {
+        status: "error",
+        message: "repair_failed",
+        tip: String((eRepF && eRepF.message) || eRepF),
+        cutover: true,
+        action: a
+      };
+    }
+  }
+
   // Лист впереди D1 (confettins97 / Dnevnik.mv на Вт): upsert missing, без replace дня.
   if (/^repairMissingWeekFromGas$/i.test(a)) {
     const ownerOkM = await actorIsOwnerRetail_(params, env);
@@ -14756,7 +15039,8 @@ async function upsertMissingClientsFromGas_(env, day, clients, opts) {
       if (exists && String(exists.status || "") === "active") {
         const haveIso2 = coerceDateIso_(exists.date_iso) || String(exists.date_iso || "");
         if (dateIso && haveIso2 && !shouldRebindOrderDate_(haveIso2, dateIso)) {
-          exists = null;
+          // Already active on another week date — do not INSERT Day:mk clone (Mon 21 → Future 28).
+          continue;
         } else {
           try {
             await env.DB.prepare(

@@ -11961,6 +11961,28 @@ function materializeDeliveryDate_(ss, deliveryDate, opts) {
         }
       });
     } catch (eMiss) {}
+    // «Будущая» не копирует колонки текущей Пн–Вс (клоны 21.09 → 28.09).
+    if (dayName === "Будущая неделя") {
+      try {
+        var curDays = getWeekDayDates_(ss);
+        for (var wi = 0; wi < (curDays || []).length; wi++) {
+          var wd = curDays[wi];
+          if (!wd || !wd.day || wd.day === "Будущая неделя") continue;
+          var wdData = getClientsData_(ss, wd.day);
+          (wdData.clients || []).forEach(function (cl) {
+            var wk = clientMatchKey_(cl.name);
+            if (wk && !alreadyInWeek[wk]) {
+              alreadyInWeek[wk] = {
+                name: cl.name,
+                basketLen: (cl.basket || []).length,
+                col: cl.col,
+                fromCurrentWeek: true
+              };
+            }
+          });
+        }
+      } catch (eCurWk) {}
+    }
   }
 
   for (var i = 0; i < all.length; i++) {
@@ -11976,6 +11998,9 @@ function materializeDeliveryDate_(ss, deliveryDate, opts) {
 
     // already on day: не плодим дубли; пустую броню не накатываем поверх состава
     if (onlyMissing && existingDay) {
+      if (existingDay.fromCurrentWeek && dayName === "Будущая неделя") {
+        continue;
+      }
       if (bookingBasketLen && !(existingDay.basketLen > 0)) {
         var fillRes = writeBasketToDayColumn_(ss, dayName, existingDay.name || b.client, b.address, b.note, b.basket, {
           skipIfHasQty: true
