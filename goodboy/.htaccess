@@ -1,0 +1,28 @@
+# Goodboy — Apache (типичный BY shared hosting / HB.BY)
+# Документ-рут хостинга = содержимое папки goodboy/ (не корень репо).
+# Не покупать и не деплоить из этого PR — только заготовка.
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # HTTP → HTTPS
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP:X-Forwarded-Proto} !https
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+  # www → apex
+  RewriteCond %{HTTP_HOST} ^www\.goodboy\.by$ [NC]
+  RewriteRule ^ https://goodboy.by%{REQUEST_URI} [R=301,L]
+
+  # Старый path-style GitHub Pages, если кто-то открыл его на новом домене
+  # /superboyna/goodboy/… → /…
+  RewriteRule ^superboyna/goodboy/?$ / [R=301,L]
+  RewriteRule ^superboyna/goodboy/(.+)$ /$1 [R=301,L]
+
+  # Если папку goodboy/ залили не в корень, а как подкаталог
+  RewriteRule ^goodboy/?$ / [R=301,L]
+  RewriteRule ^goodboy/(.+)$ /$1 [R=301,L]
+</IfModule>
+
+DirectoryIndex index.html
+Options -Indexes
