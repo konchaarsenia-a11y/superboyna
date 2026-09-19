@@ -2,8 +2,8 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-19 orders-access-tab-h1
- * (prior: fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
+ * deploy-marker: 2026-09-19 no-future-week-clone-h1
+ * (prior: preserve-order-price-h1 / close-week-no-shift-h2 / orders-access-tab-h1 / fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -387,7 +387,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-19 close-week-no-shift-h2"
+      deployMarker: "2026-09-19 no-future-week-clone-h1"
     };
   }
 
@@ -1030,7 +1030,96 @@ function mergeKeepNonEmptyClient_(incoming, existing, params) {
     out.segment = existing.segment || existing.orderType || "";
     if (!out.source && existing.source) out.source = existing.source;
   }
+  const priceKeys = ORDER_PRICE_META_KEYS_;
+  for (let pi = 0; pi < priceKeys.length; pi++) {
+    const pk = priceKeys[pi];
+    const allow = allowEmptyOverwrite_(params, pk) || allowEmptyOverwrite_(params, "price");
+    out[pk] = pickNonEmptyField_(incoming[pk], existing[pk], allow);
+  }
   return out;
+}
+
+/** Цена заказа живёт в orders.meta_json, не в отдельных колонках D1. */
+const ORDER_PRICE_META_KEYS_ = [
+  "orderPrice",
+  "statedCost",
+  "factCost",
+  "clientPrice",
+  "couponPrice",
+  "cost",
+  "price",
+  "total",
+  "subTotal",
+  "statedTouched"
+];
+
+const ORDER_META_COPY_KEYS_ = [
+  "ppSlot",
+  "deliverySlot",
+  "deliveriesN",
+  "ppHint",
+  "ppPartner",
+  "deliveryAfter",
+  "deliveryBefore",
+  "dogCount",
+  "dogNames",
+  "geo",
+  "noCut",
+  "couponsQty",
+  "segment",
+  "orderType"
+];
+
+function priceFieldHasValue_(v) {
+  if (v == null || v === "") return false;
+  if (typeof v === "number") return isFinite(v);
+  const s = String(v).trim();
+  if (!s || s === "null" || s === "undefined" || s === "[]" || s === "{}") return false;
+  return true;
+}
+
+function extractOrderPriceFromNoteD1_(note) {
+  const m = String(note || "").match(/\[ЦЕНА:\s*([0-9]+(?:[.,][0-9]+)?)\s*BYN?\]/i);
+  if (!m) return "";
+  const n = Number(String(m[1]).replace(",", "."));
+  return isFinite(n) ? n : "";
+}
+
+function orderMetaObjectFromClient_(c) {
+  const out = {};
+  if (!c) return out;
+  const keys = ORDER_PRICE_META_KEYS_.concat(ORDER_META_COPY_KEYS_);
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (k === "noCut") {
+      if (c[k] === true || c[k] === false) out[k] = !!c[k];
+      continue;
+    }
+    if (priceFieldHasValue_(c[k]) || c[k] === 0) out[k] = c[k];
+  }
+  return out;
+}
+
+function mergeMetaJsonKeepPrices_(existingRaw, incomingRaw, params) {
+  const ex = parseMeta_(existingRaw);
+  const inc = parseMeta_(incomingRaw);
+  const out = Object.assign({}, ex, inc);
+  const keys = ORDER_PRICE_META_KEYS_;
+  const allowAll = allowEmptyOverwrite_(params, "price");
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (allowAll || allowEmptyOverwrite_(params, k)) continue;
+    if (!priceFieldHasValue_(inc[k]) && inc[k] !== 0 && priceFieldHasValue_(ex[k])) {
+      out[k] = ex[k];
+    } else if (!priceFieldHasValue_(inc[k]) && inc[k] !== 0 && ex[k] === 0) {
+      out[k] = 0;
+    }
+  }
+  return JSON.stringify(out);
+}
+
+function orderMetaJsonFromClient_(c, fallbackRaw) {
+  return mergeMetaJsonKeepPrices_(fallbackRaw || "{}", JSON.stringify(orderMetaObjectFromClient_(c)), {});
 }
 
 function rowPayloadForScore_(row) {
@@ -1115,7 +1204,12 @@ function mergeOrderRowsKeepNonEmpty_(existing, incoming, params) {
     note: merged.note,
     basket_json: merged.basket_json,
     segment: merged.segment || incoming.segment || existing.segment || "",
-    source: merged.source || incoming.source || existing.source || ""
+    source: merged.source || incoming.source || existing.source || "",
+    meta_json: mergeMetaJsonKeepPrices_(
+      existing.meta_json,
+      incoming.meta_json || JSON.stringify(orderMetaObjectFromClient_(incoming)),
+      params
+    )
   });
 }
 
@@ -1134,6 +1228,12 @@ async function persistOrderContactFields_(env, id, row) {
       id
     )
     .run();
+  const metaRaw = row.meta_json != null ? String(row.meta_json).trim() : "";
+  if (metaRaw && metaRaw !== "{}") {
+    try {
+      await persistOrderMetaJson_(env, id, row.meta_json);
+    } catch (eMeta) {}
+  }
   return true;
 }
 
@@ -3247,6 +3347,28 @@ function shouldRebindOrderDate_(haveIso, wantIso) {
 }
 
 /**
+ * Future/+7 row vs current week and GAS Future sheet.
+ * Overlap with current week and not on Future sheet → drop.
+ * alignToGas: extras not on Future sheet → drop (Ba2ra/Maria vs GAS n=3).
+ */
+function decideFutureWeekDupe_(onSourceWeek, onGasFuture, alignToGas) {
+  if (onSourceWeek && !onGasFuture) return "drop";
+  if (alignToGas && !onGasFuture) return "drop";
+  return "keep";
+}
+
+function segmentCountSum_(segs) {
+  if (!segs || typeof segs !== "object") return 0;
+  return (
+    (Number(segs["ПП"]) || 0) +
+    (Number(segs["БП"]) || 0) +
+    (Number(segs["Р"]) || 0) +
+    (Number(segs["ПАРТНЁР"]) || 0) +
+    (Number(segs.other) || 0)
+  );
+}
+
+/**
  * Detach weekday column without moving date_iso.
  * Rekey `Понедельник:MK` → `CAL:MK:date` so later upsert Day:MK cannot stamp +7.
  */
@@ -3435,6 +3557,7 @@ async function restoreShiftedWeekClose_(env, fromMondayIso, opts) {
         continue;
       }
       try {
+        // date_iso / day_name only — never touch meta_json (orderPrice / stated / fact).
         await env.DB.prepare(
           "UPDATE orders SET date_iso = ?, day_name = '', updated_at = ? WHERE id = ? AND status = 'active'"
         )
@@ -3474,6 +3597,15 @@ async function restoreShiftedWeekClose_(env, fromMondayIso, opts) {
             .bind(oldIso, mk, name.toLowerCase())
             .first();
           if (exists && exists.id) continue;
+          let siblingMeta = "";
+          try {
+            const sib = await env.DB.prepare(
+              "SELECT meta_json FROM orders WHERE match_key = ? AND meta_json IS NOT NULL AND meta_json != '' AND meta_json != '{}' ORDER BY updated_at DESC LIMIT 1"
+            )
+              .bind(mk)
+              .first();
+            siblingMeta = (sib && sib.meta_json) || "";
+          } catch (eSib) {}
           await upsertOrderRow_(env, {
             id: "cal:" + oldIso + ":" + mk,
             date_iso: oldIso,
@@ -3488,7 +3620,7 @@ async function restoreShiftedWeekClose_(env, fromMondayIso, opts) {
             source: String(c.source || "calendar"),
             status: "active",
             updated_at: now,
-            meta_json: "{}"
+            meta_json: orderMetaJsonFromClient_(c, siblingMeta)
           });
           result.refilled.push({ client: name, dateIso: oldIso });
         }
@@ -3508,6 +3640,15 @@ async function restoreShiftedWeekClose_(env, fromMondayIso, opts) {
     });
   } catch (eAtt) {
     result.reattached = { error: String((eAtt && eAtt.message) || eAtt) };
+  }
+  try {
+    result.repairedPrices = await repairMissingOrderPrices_(env, {
+      fromIso: fromIso,
+      toIso: toIso,
+      useGas: true
+    });
+  } catch (ePr) {
+    result.repairedPrices = { error: String((ePr && ePr.message) || ePr) };
   }
   return result;
 }
@@ -3777,7 +3918,7 @@ async function reattachWeekSlotDayNames_(env, opts) {
             source: String(mergedIns.source || (c && c.source) || ""),
             status: "active",
             updated_at: now,
-            meta_json: "{}"
+            meta_json: orderMetaJsonFromClient_(mergedIns, donor && donor.meta_json)
           });
           slotMks[mk] = true;
           result.inserted.push({ client: name, dateIso: wantIso, day: day });
@@ -3976,6 +4117,359 @@ async function repairWipedClientFields_(env, opts) {
   try {
     await invalidateDays_(env, WEEK_DAYS);
   } catch (eInv) {}
+  return result;
+}
+
+function payingSegmentNeedsPrice_(seg) {
+  const s = normalizeSegmentLabel_(seg);
+  if (s === "БП") return false;
+  return s === "ПП" || s === "Р" || s === "ПАРТНЁР" || !s;
+}
+
+function clientOrderPriceValue_(c) {
+  if (!c) return "";
+  if (priceFieldHasValue_(c.orderPrice) || c.orderPrice === 0) return c.orderPrice;
+  if (priceFieldHasValue_(c.clientPrice)) return c.clientPrice;
+  if (priceFieldHasValue_(c.statedCost)) return c.statedCost;
+  if (priceFieldHasValue_(c.factCost)) return c.factCost;
+  const fromNote = extractOrderPriceFromNoteD1_(c.note);
+  return fromNote === "" ? "" : fromNote;
+}
+
+async function persistOrderMetaJson_(env, id, metaRaw) {
+  if (!env || !env.DB || !id) return false;
+  await env.DB.prepare(
+    "UPDATE orders SET meta_json = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+  )
+    .bind(String(metaRaw || "{}"), new Date().toISOString(), id)
+    .run();
+  return true;
+}
+
+/**
+ * One-shot: вернуть orderPrice / stated / fact в meta_json, не трогая address/basket.
+ * Donors: sibling D1 (в т.ч. deleted) → snap → GAS getClients / getViewCompare.
+ * БП не заполняем. Непустые цены не переписываем.
+ */
+async function repairMissingOrderPrices_(env, opts) {
+  opts = opts || {};
+  const result = {
+    scanned: 0,
+    missing: 0,
+    repaired: [],
+    skipped: 0,
+    fromIso: "",
+    toIso: ""
+  };
+  if (!env || !env.DB) return result;
+  let fromIso = coerceDateIso_(opts.fromIso || opts.from || opts.dateFrom || "") || "2026-09-14";
+  let toIso = coerceDateIso_(opts.toIso || opts.to || opts.dateTo || "") || "2026-09-28";
+  if (fromIso > toIso) {
+    const swap = fromIso;
+    fromIso = toIso;
+    toIso = swap;
+  }
+  result.fromIso = fromIso;
+  result.toIso = toIso;
+  let rows = [];
+  try {
+    const q = await env.DB.prepare(
+      "SELECT * FROM orders WHERE status = 'active' AND date_iso >= ? AND date_iso <= ? LIMIT 800"
+    )
+      .bind(fromIso, toIso)
+      .all();
+    rows = (q && q.results) || [];
+  } catch (eQ) {
+    result.error = String((eQ && eQ.message) || eQ);
+    return result;
+  }
+  const donorsByMk = Object.create(null);
+  function addPriceDonor(mk, donor) {
+    if (!mk || !donor) return;
+    const price = clientOrderPriceValue_(donor);
+    if (!priceFieldHasValue_(price) && price !== 0) return;
+    const prev = donorsByMk[mk];
+    const prevP = prev ? clientOrderPriceValue_(prev) : "";
+    if (!prev || (!priceFieldHasValue_(prevP) && prevP !== 0)) donorsByMk[mk] = donor;
+  }
+  try {
+    const qP = await env.DB.prepare(
+      "SELECT * FROM orders WHERE date_iso >= ? AND date_iso <= ? ORDER BY updated_at DESC LIMIT 1200"
+    )
+      .bind(fromIso, toIso)
+      .all();
+    ((qP && qP.results) || []).forEach(function (row) {
+      if (!row) return;
+      const mk = normalizeMatchKey_(row.match_key || row.client || "");
+      addPriceDonor(mk, clientFromRow_(row));
+    });
+  } catch (ePool) {}
+  try {
+    const profSnap = await getSnapRaw_(env, "listClientProfiles");
+    ((profSnap && profSnap.clients) || []).forEach(function (p) {
+      addPriceDonor(normalizeMatchKey_((p && (p.nick || p.client || p.name)) || ""), p);
+    });
+  } catch (eProf) {}
+  for (let di = 0; di < WEEK_DAYS.length; di++) {
+    const day = WEEK_DAYS[di];
+    try {
+      const snap = await getSnapRaw_(env, "clients:" + day);
+      ((snap && snap.clients) || []).forEach(function (c) {
+        addPriceDonor(normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || ""), c);
+      });
+    } catch (eSn) {}
+  }
+  const gasTried = Object.create(null);
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row) continue;
+    result.scanned++;
+    const cur = clientFromRow_(row);
+    const seg = normalizeSegmentLabel_(row.segment || cur.segment || "");
+    const have = clientOrderPriceValue_(cur);
+    if (priceFieldHasValue_(have) || have === 0) {
+      result.skipped++;
+      continue;
+    }
+    if (!payingSegmentNeedsPrice_(seg)) {
+      result.skipped++;
+      continue;
+    }
+    result.missing++;
+    const mk = normalizeMatchKey_(row.match_key || row.client || "");
+    const day = String(row.day_name || "");
+    const dateIso = String(row.date_iso || "");
+    if (day && !gasTried[day] && opts.useGas !== false) {
+      gasTried[day] = true;
+      try {
+        const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
+        ((fresh && fresh.clients) || []).forEach(function (c) {
+          addPriceDonor(normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || ""), c);
+        });
+      } catch (eG) {}
+    }
+    if (dateIso && !gasTried["d:" + dateIso] && opts.useGas !== false) {
+      gasTried["d:" + dateIso] = true;
+      try {
+        const cal = await gasProxy_(
+          "getViewCompare",
+          { date: dateIso, deliveryDate: dateIso },
+          env,
+          { write: false }
+        );
+        []
+          .concat((cal && cal.month) || [])
+          .concat((cal && cal.week) || [])
+          .forEach(function (c) {
+            addPriceDonor(normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || ""), c);
+          });
+      } catch (eC) {}
+    }
+    const donor = donorsByMk[mk];
+    const donorPrice = clientOrderPriceValue_(donor);
+    if (!priceFieldHasValue_(donorPrice) && donorPrice !== 0) {
+      continue;
+    }
+    try {
+      const nextMeta = mergeMetaJsonKeepPrices_(
+        row.meta_json,
+        JSON.stringify(
+          Object.assign({}, orderMetaObjectFromClient_(donor), {
+            orderPrice: donorPrice
+          })
+        ),
+        {}
+      );
+      await persistOrderMetaJson_(env, row.id, nextMeta);
+      result.repaired.push({
+        client: row.client,
+        matchKey: mk,
+        day: day,
+        dateIso: dateIso,
+        orderPrice: donorPrice,
+        via: donor && donor._via ? donor._via : "donor"
+      });
+    } catch (eUp) {
+      result.skipped++;
+    }
+  }
+  try {
+    await invalidateDays_(env, WEEK_DAYS);
+  } catch (eInv) {}
+  return result;
+}
+
+/**
+ * Soft-delete Future/+7 copies of current-week people, then optionally
+ * align Future D1 to GAS Future sheet (extras not on sheet → drop).
+ * Does not call finishFullWeek / deleteClient_. Monday rows stay.
+ */
+async function repairFutureWeekDupes_(env, opts) {
+  opts = opts || {};
+  const result = {
+    fromMonday: "",
+    futureIso: "",
+    sourceWeek: [],
+    scanned: 0,
+    kept: [],
+    removed: [],
+    alreadyDeleted: [],
+    tombs: 0,
+    alignToGas: false,
+    gasFuture: []
+  };
+  const alignToGas =
+    opts.alignToGas !== false &&
+    String(opts.alignToGas || "1") !== "0" &&
+    String(opts.alignToGas || "").toLowerCase() !== "false";
+  result.alignToGas = alignToGas;
+  if (!env || !env.DB) return result;
+  let fromMonday = coerceDateIso_(opts.fromMonday || opts.sourceMonday || "") || "";
+  if (!fromMonday) {
+    try {
+      const counts =
+        (await getSnapRaw_(env, "weekDayCountsSheet")) || (await getSnapRaw_(env, "weekDayCounts"));
+      const items = (counts && counts.items) || [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i] && items[i].day === "Понедельник") {
+          fromMonday = dmyToIso_(items[i].date) || coerceDateIso_(items[i].dateIso) || "";
+          break;
+        }
+      }
+    } catch (e0) {}
+  }
+  if (!fromMonday) fromMonday = "2026-09-21";
+  let futureIso =
+    coerceDateIso_(opts.futureIso || opts.date || opts.toMonday || "") || isoAddDays_(fromMonday, 7);
+  if (!futureIso) futureIso = "2026-09-28";
+  result.fromMonday = fromMonday;
+  result.futureIso = futureIso;
+  const sourceIsos = [];
+  for (let d = 0; d < 7; d++) {
+    const iso = isoAddDays_(fromMonday, d);
+    if (iso) sourceIsos.push(iso);
+  }
+  result.sourceWeek = sourceIsos;
+
+  const sourceMks = Object.create(null);
+  try {
+    const qSrc = await env.DB.prepare(
+      "SELECT id, match_key, client, day_name, date_iso FROM orders WHERE status = 'active' AND date_iso >= ? AND date_iso <= ? LIMIT 500"
+    )
+      .bind(sourceIsos[0] || fromMonday, sourceIsos[6] || fromMonday)
+      .all();
+    ((qSrc && qSrc.results) || []).forEach(function (r) {
+      const mk = normalizeMatchKey_(r.match_key || r.client);
+      const day = String(r.day_name || "");
+      if (!mk || day === "Будущая неделя") return;
+      sourceMks[mk] = {
+        id: r.id,
+        client: r.client,
+        day: day,
+        dateIso: r.date_iso
+      };
+    });
+  } catch (eS) {}
+
+  const gasFutureMks = Object.create(null);
+  try {
+    const gf = await gasProxy_("getClients", { day: "Будущая неделя" }, env, { write: false });
+    ((gf && gf.clients) || []).forEach(function (c) {
+      const mk = normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || "");
+      const nm = (c && (c.name || c.client)) || mk;
+      if (mk) {
+        gasFutureMks[mk] = nm;
+        result.gasFuture.push(nm);
+      }
+    });
+  } catch (eGf) {}
+
+  let rows = [];
+  try {
+    const qF = await env.DB.prepare(
+      "SELECT id, status, match_key, client, day_name, date_iso FROM orders WHERE date_iso = ? OR day_name = ? LIMIT 500"
+    )
+      .bind(futureIso, "Будущая неделя")
+      .all();
+    rows = (qF && qF.results) || [];
+  } catch (eF) {}
+
+  const now = new Date().toISOString();
+  const toTomb = [];
+  const seenKeep = Object.create(null);
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r) continue;
+    result.scanned++;
+    const mk = normalizeMatchKey_(r.match_key || r.client);
+    if (!mk) continue;
+    const verdict = decideFutureWeekDupe_(!!sourceMks[mk], !!gasFutureMks[mk], alignToGas);
+    const info = {
+      mk: mk,
+      client: r.client,
+      id: r.id,
+      status: r.status,
+      day: r.day_name || "",
+      dateIso: r.date_iso || "",
+      verdict: verdict
+    };
+    if (verdict === "keep") {
+      if (String(r.status || "") === "active" && !seenKeep[mk]) {
+        seenKeep[mk] = true;
+        result.kept.push(info);
+      }
+      continue;
+    }
+    if (String(r.status || "") === "active") {
+      try {
+        await env.DB.prepare(
+          "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+        )
+          .bind(now, r.id)
+          .run();
+        result.removed.push(info);
+        toTomb.push(r);
+      } catch (eDel) {}
+    } else {
+      result.alreadyDeleted.push(info);
+      toTomb.push(r);
+    }
+  }
+
+  for (let t = 0; t < toTomb.length; t++) {
+    const row = toTomb[t];
+    const mk = normalizeMatchKey_(row.match_key || row.client);
+    if (!mk) continue;
+    const day = String(row.day_name || "") || "Будущая неделя";
+    try {
+      await putSnap_(env, "delTomb:" + day + ":" + mk, {
+        mk: mk,
+        day: day,
+        at: Date.now(),
+        reason: "future_week_clone"
+      });
+      result.tombs++;
+    } catch (eT) {}
+  }
+
+  try {
+    await delSnap_(env, "viewDate:" + futureIso);
+  } catch (e1) {}
+  try {
+    await delSnap_(env, "clients:Будущая неделя");
+  } catch (e2) {}
+  try {
+    await delSnap_(env, "view:Будущая неделя");
+  } catch (e3) {}
+  try {
+    await rebuildWeekCounts_(env);
+  } catch (e4) {}
+  try {
+    await refreshViewDateSnap_(env, futureIso);
+  } catch (e5) {}
+  try {
+    await rebuildMonthOverview_(env, futureIso.slice(0, 7));
+  } catch (e6) {}
   return result;
 }
 
@@ -4976,16 +5470,26 @@ async function overlayWeekSheetCountsOnMonth_(env, body) {
         fromWeekSheet: true
       };
     } else if (byIso[iso].fromView) {
-      // уже сверено с Просмотром — только помечаем week
+      // уже сверено с Просмотром — только помечаем week.
+      // Stale viewDate (клоны 21→28) не держит бейдж выше D1/листа.
       byIso[iso].fromWeekSheet = true;
+      const d1nView = segmentCountSum_(segs);
+      const prevView = Number(byIso[iso].count) || 0;
+      const truthView = Math.max(wCount, d1nView);
+      if (truthView > 0 && prevView > truthView) {
+        byIso[iso].count = truthView;
+        if (d1nView) byIso[iso].segments = segs;
+      }
     } else if (!byIso[iso].count || byIso[iso].fromWeekSheet) {
-      byIso[iso].count = wCount;
-      byIso[iso].segments = segs;
+      const d1nSheet = segmentCountSum_(segs);
+      byIso[iso].count = Math.max(wCount, d1nSheet, Number(byIso[iso].count) || 0);
+      if (d1nSheet) byIso[iso].segments = segs;
       byIso[iso].fromWeekSheet = true;
     } else {
       const d1c = Number(byIso[iso].count) || 0;
-      byIso[iso].count = Math.max(d1c, wCount);
-      if (wCount >= d1c && Object.keys(segs).some(function (k) { return segs[k] > 0; })) {
+      const d1n = segmentCountSum_(segs);
+      byIso[iso].count = Math.max(d1c, wCount, d1n);
+      if ((d1n || wCount >= d1c) && Object.keys(segs).some(function (k) { return segs[k] > 0; })) {
         byIso[iso].segments = segs;
       }
       byIso[iso].fromWeekSheet = true;
@@ -5898,18 +6402,18 @@ async function patchMonthOverviewDayFromView_(env, iso, payload) {
   const tallied = countPeopleFromViewPayload_(payload);
   let viewCount = tallied.count;
   let segments = tallied.segments;
+  let d1cPatch = 0;
+  try {
+    const q = await env.DB.prepare(
+      "SELECT COUNT(DISTINCT match_key) AS c FROM orders WHERE status = 'active' AND date_iso = ?"
+    )
+      .bind(iso)
+      .first();
+    d1cPatch = Number(q && q.c) || 0;
+  } catch (eD1) {}
+  if (d1cPatch > 0 && viewCount > d1cPatch) viewCount = d1cPatch;
   // пустой view-snap не должен обнулять день, если в D1 уже есть люди
-  if (viewCount === 0) {
-    try {
-      const q = await env.DB.prepare(
-        "SELECT COUNT(DISTINCT match_key) AS c FROM orders WHERE status = 'active' AND date_iso = ?"
-      )
-        .bind(iso)
-        .first();
-      const d1c = Number(q && q.c) || 0;
-      if (d1c > 0) return;
-    } catch (eD1) {}
-  }
+  if (viewCount === 0 && d1cPatch > 0) return;
   const month = String(iso).slice(0, 7);
   const keys = ["monthOverview:" + month, "monthOverview"];
   for (let i = 0; i < keys.length; i++) {
@@ -5927,8 +6431,9 @@ async function patchMonthOverviewDayFromView_(env, iso, payload) {
       if (!d || d.dateIso !== iso) return d;
       found = true;
       const prev = Number(d.count) || 0;
-      // не затирать больший count меньшим (гонка пустого snap)
-      if (viewCount < prev) {
+      // не затирать больший count меньшим (гонка пустого snap),
+      // но D1-подтверждённое снижение (клоны 21→28 сняты) — применяем.
+      if (viewCount < prev && !(d1cPatch > 0 && d1cPatch < prev && viewCount <= d1cPatch)) {
         return Object.assign({}, d, { fromView: true });
       }
       return Object.assign({}, d, {
@@ -5987,9 +6492,30 @@ async function reconcileMonthOverviewWithViewSnaps_(env, body) {
       let segments = tallied.segments;
       const prev = byIso[iso];
       const prevCount = Number(prev && prev.count) || 0;
+      let d1c = 0;
+      try {
+        const q1 = await env.DB.prepare(
+          "SELECT COUNT(DISTINCT match_key) AS c FROM orders WHERE status = 'active' AND date_iso = ?"
+        )
+          .bind(iso)
+          .first();
+        d1c = Number(q1 && q1.c) || 0;
+      } catch (eD1r) {}
+      // stale viewDate держал удалённые клоны (28.09: 11 вместо 5)
+      if (d1c > 0 && viewCount > d1c) viewCount = d1c;
       // пустой/урезанный view-snap не должен обнулять бейдж месяца
       if (viewCount === 0 && prevCount > 0) continue;
       if (viewCount < prevCount) {
+        if (d1c > 0 && d1c < prevCount && viewCount <= d1c) {
+          byIso[iso] = Object.assign({}, prev || {}, {
+            dateIso: iso,
+            count: Math.max(viewCount, d1c),
+            segments: segments,
+            fromView: true,
+            fromWeekSheet: !!(prev && prev.fromWeekSheet)
+          });
+          continue;
+        }
         // D1/календарь уже больше — оставить, только пометить fromView
         byIso[iso] = Object.assign({}, prev, { fromView: true });
         continue;
@@ -7718,8 +8244,11 @@ async function deleteClient_(params, env) {
   try {
     if (day && !calendarOnly) homeRow = await findOrderRow_(env, matchKeyRaw, day, "", client);
     if (!homeRow && dateIso) homeRow = await findOrderRow_(env, matchKeyRaw, "", dateIso, client);
-    // НЕ findActiveOrderByMatch_ при strictDay / calendarOnly — иначе снос чужого слота
-    if (!homeRow && !strictDay && !calendarOnly) homeRow = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+    // НЕ findActiveOrderByMatch_ при strictDay / calendarOnly / явном day —
+    // иначе delete Future снимает живой Пн (клоны 21.09 ↔ 28.09).
+    if (!homeRow && !strictDay && !calendarOnly && !day) {
+      homeRow = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+    }
   } catch (eHome) {
     homeRow = null;
   }
@@ -10847,6 +11376,12 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eRepF) {
         repairedFields = { error: String((eRepF && eRepF.message) || eRepF) };
       }
+      let repairedPrices = null;
+      try {
+        repairedPrices = await repairMissingOrderPrices_(env, { useGas: true });
+      } catch (eRepP) {
+        repairedPrices = { error: String((eRepP && eRepP.message) || eRepP) };
+      }
       return {
         status: "success",
         action: "forceWeekD1Resync",
@@ -10854,11 +11389,12 @@ async function handleCutover_(a, params, env, ctx) {
         restoreShifted: restored,
         reattached: reattached,
         repairedFields: repairedFields,
+        repairedPrices: repairedPrices,
         weekDayCounts: counts || null,
         tip: "D1 слоты недели = Sheets; пустые поля не затирали непустые.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-19 close-week-no-shift-h2"
+        deployMarker: "2026-09-19 preserve-order-price-h1"
       };
     } catch (eResync) {
       return {
@@ -10909,10 +11445,10 @@ async function handleCutover_(a, params, env, ctx) {
         status: "success",
         action: "repairShiftedWeekClose",
         restoreShifted: restored,
-        tip: "D1: сняли ошибочный +7. Лист и Календарь_Дат не меняли.",
+        tip: "D1: сняли ошибочный +7. Цены в meta_json сохранили/долили. Лист не меняли.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-13 snowygodness-dedupe-h1"
+        deployMarker: "2026-09-19 preserve-order-price-h1"
       };
     } catch (eRep) {
       return {
@@ -10961,6 +11497,12 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eRepD) {
         repairedFieldsD = { error: String((eRepD && eRepD.message) || eRepD) };
       }
+      let repairedPricesD = null;
+      try {
+        repairedPricesD = await repairMissingOrderPrices_(env, { useGas: true });
+      } catch (eRepPD) {
+        repairedPricesD = { error: String((eRepPD && eRepPD.message) || eRepPD) };
+      }
       const counts2 =
         (await getSnapRaw_(env, "weekDayCountsSheet")) || (await getSnapRaw_(env, "weekDayCounts"));
       return {
@@ -10968,11 +11510,12 @@ async function handleCutover_(a, params, env, ctx) {
         action: "repairDetachedWeekSlots",
         reattached: reattached,
         repairedFields: repairedFieldsD,
+        repairedPrices: repairedPricesD,
         weekDayCounts: counts2 || null,
-        tip: "D1: привязали day_name к датам слота по листу. Календарь_Дат не меняли.",
+        tip: "D1: привязали day_name к датам слота по листу. Цены не затирали.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-13 snowygodness-dedupe-h1"
+        deployMarker: "2026-09-19 preserve-order-price-h1"
       };
     } catch (eRep) {
       return {
@@ -11028,6 +11571,108 @@ async function handleCutover_(a, params, env, ctx) {
         status: "error",
         message: "repair_failed",
         tip: String((eRepW && eRepW.message) || eRepW),
+        cutover: true,
+        action: a
+      };
+    }
+  }
+
+  // Вернуть orderPrice/stated/fact в meta_json после repair/move (не трогает состав).
+  if (/^repairMissingOrderPrices$/i.test(a)) {
+    const ownerOkP = await actorIsOwnerRetail_(params, env);
+    if (!ownerOkP) {
+      return {
+        status: "error",
+        message: "owner_only",
+        tip: "Только владелец может долить цены заказов в D1.",
+        cutover: true,
+        action: a
+      };
+    }
+    if (
+      String(params.confirm || "") !== "1" &&
+      String(params.confirm || "").toLowerCase() !== "true" &&
+      String(params.allowDanger || "") !== "1"
+    ) {
+      return {
+        status: "error",
+        message: "need_confirm",
+        tip: "Нужен confirm=1. Опц. from=2026-09-14&to=2026-09-27",
+        cutover: true,
+        action: a
+      };
+    }
+    try {
+      const repairedP = await repairMissingOrderPrices_(env, {
+        fromIso: String(params.from || params.fromIso || params.dateFrom || "").trim(),
+        toIso: String(params.to || params.toIso || params.dateTo || "").trim(),
+        useGas: String(params.useGas || "1") !== "0"
+      });
+      return {
+        status: "success",
+        action: "repairMissingOrderPrices",
+        repairedPrices: repairedP,
+        tip: "D1: долили пустые orderPrice/stated/fact из листа/снимка/истории. Непустые не трогали.",
+        cutover: true,
+        d1Verified: true,
+        deployMarker: "2026-09-19 preserve-order-price-h1"
+      };
+    } catch (eRepP) {
+      return {
+        status: "error",
+        message: "repair_failed",
+        tip: String((eRepP && eRepP.message) || eRepP),
+        cutover: true,
+        action: a
+      };
+    }
+  }
+
+  // Снять клоны текущей недели на Future/+7. Не finishFullWeek. Genuine 28.09 не трогает.
+  if (/^repairFutureWeekDupes$/i.test(a)) {
+    const ownerOkF = await actorIsOwnerRetail_(params, env);
+    if (!ownerOkF) {
+      return {
+        status: "error",
+        message: "owner_only",
+        tip: "Только владелец может снять клоны будущей недели в D1.",
+        cutover: true,
+        action: a
+      };
+    }
+    if (
+      String(params.confirm || "") !== "1" &&
+      String(params.confirm || "").toLowerCase() !== "true" &&
+      String(params.allowDanger || "") !== "1"
+    ) {
+      return {
+        status: "error",
+        message: "need_confirm",
+        tip: "Нужен confirm=1. Опц. fromMonday=2026-09-21&futureIso=2026-09-28",
+        cutover: true,
+        action: a
+      };
+    }
+    try {
+      const repairedF = await repairFutureWeekDupes_(env, {
+        fromMonday: String(params.fromMonday || params.sourceMonday || "").trim(),
+        futureIso: String(params.futureIso || params.date || params.toMonday || "").trim(),
+        alignToGas: String(params.alignToGas || "1") !== "0"
+      });
+      return {
+        status: "success",
+        action: "repairFutureWeekDupes",
+        repairedDupes: repairedF,
+        tip: "D1: сняли копии Пн–Вс с Future и выровняли слот под лист GAS. Цены не трогали.",
+        cutover: true,
+        d1Verified: true,
+        deployMarker: "2026-09-19 no-future-week-clone-h1"
+      };
+    } catch (eRepF) {
+      return {
+        status: "error",
+        message: "repair_failed",
+        tip: String((eRepF && eRepF.message) || eRepF),
         cutover: true,
         action: a
       };
@@ -14408,7 +15053,8 @@ async function upsertMissingClientsFromGas_(env, day, clients, opts) {
       if (exists && String(exists.status || "") === "active") {
         const haveIso2 = coerceDateIso_(exists.date_iso) || String(exists.date_iso || "");
         if (dateIso && haveIso2 && !shouldRebindOrderDate_(haveIso2, dateIso)) {
-          exists = null;
+          // Already active on another week date — do not INSERT Day:mk clone (Mon 21 → Future 28).
+          continue;
         } else {
           try {
             await env.DB.prepare(
@@ -14437,12 +15083,81 @@ async function upsertMissingClientsFromGas_(env, day, clients, opts) {
         source: String(c.source || ""),
         status: "active",
         updated_at: now,
-        meta_json: "{}"
+        meta_json: orderMetaJsonFromClient_(c)
       });
       added++;
     } catch (eUp) {}
   }
+  if (day === "Будущая неделя") {
+    try {
+      await scrubFutureOverlapsFromCurrentWeek_(env);
+    } catch (eOv) {}
+  }
   return added;
+}
+
+/** Heal/upsert не чистит extras: снять с Future тех, кто уже active на Пн–Вс. */
+async function scrubFutureOverlapsFromCurrentWeek_(env) {
+  const out = { removed: 0, names: [] };
+  if (!env || !env.DB) return out;
+  let weekMks = Object.create(null);
+  try {
+    const counts =
+      (await getSnapRaw_(env, "weekDayCountsSheet")) || (await getSnapRaw_(env, "weekDayCounts"));
+    const items = (counts && counts.items) || [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it || it.day === "Будущая неделя") continue;
+      const iso = dmyToIso_(it.date) || coerceDateIso_(it.dateIso);
+      if (!iso) continue;
+      const q = await env.DB.prepare(
+        "SELECT match_key, client FROM orders WHERE status = 'active' AND date_iso = ? AND (day_name = ? OR day_name = '') LIMIT 80"
+      )
+        .bind(iso, it.day)
+        .all();
+      ((q && q.results) || []).forEach(function (r) {
+        const mk = normalizeMatchKey_((r && (r.match_key || r.client)) || "");
+        if (mk) weekMks[mk] = r.client || mk;
+      });
+    }
+  } catch (eW) {
+    return out;
+  }
+  let rows = [];
+  try {
+    const qF = await env.DB.prepare(
+      "SELECT id, match_key, client FROM orders WHERE status = 'active' AND day_name = ? LIMIT 80"
+    )
+      .bind("Будущая неделя")
+      .all();
+    rows = (qF && qF.results) || [];
+  } catch (eF) {
+    return out;
+  }
+  const now = new Date().toISOString();
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const mk = normalizeMatchKey_((r && (r.match_key || r.client)) || "");
+    if (!mk || !weekMks[mk]) continue;
+    try {
+      await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+      )
+        .bind(now, r.id)
+        .run();
+      out.removed++;
+      out.names.push(r.client || mk);
+      try {
+        await putSnap_(env, "delTomb:Будущая неделя:" + mk, {
+          mk: mk,
+          day: "Будущая неделя",
+          at: Date.now(),
+          reason: "future_week_overlap"
+        });
+      } catch (eT) {}
+    } catch (eDel) {}
+  }
+  return out;
 }
 
 /** Активных заказов на дне в D1 (anti-wipe guard для week-close resync). */
@@ -14690,28 +15405,9 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
     const basket = JSON.stringify(c.basket || []);
     const segC = normalizeSegmentLabel_(c.segment || c.orderType || c.source || "");
     const srcC = String(c.source || "").trim() || sourceFromSegment_(segC);
-    const meta = {
-      orderPrice: c.orderPrice,
-      ppSlot: c.ppSlot,
-      ppHint: c.ppHint,
-      ppPartner: c.ppPartner,
-      noCut: !!c.noCut,
-      dogCount: c.dogCount,
-      geo: c.geo,
-      deliveryAfter: c.deliveryAfter,
-      deliveryBefore: c.deliveryBefore,
-      couponsQty: c.couponsQty,
-      couponPrice: c.couponPrice,
-      segment: segC
-    };
-    const keepUpdated =
-      (c.updated_at || c.updatedAt) &&
-      Date.parse(String(c.updated_at || c.updatedAt)) &&
-      nowMs - Date.parse(String(c.updated_at || c.updatedAt)) < protectMs
-        ? String(c.updated_at || c.updatedAt)
-        : now;
+    let leftover = null;
     try {
-      const leftover = await env.DB.prepare(
+      leftover = await env.DB.prepare(
         "SELECT * FROM orders WHERE id = ? AND status = 'active' LIMIT 1"
       )
         .bind(day + ":" + mk)
@@ -14721,7 +15417,37 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       if (leftover && slotIso && leftIso && !shouldRebindOrderDate_(leftIso, slotIso)) {
         await detachWeekSlotRowKeepDate_(env, leftover, now);
       }
-    } catch (eLeft) {}
+    } catch (eLeft) {
+      leftover = leftover || null;
+    }
+    const meta = parseMeta_(
+      orderMetaJsonFromClient_(
+        {
+          orderPrice: c.orderPrice,
+          statedCost: c.statedCost,
+          factCost: c.factCost,
+          clientPrice: c.clientPrice,
+          ppSlot: c.ppSlot,
+          ppHint: c.ppHint,
+          ppPartner: c.ppPartner,
+          noCut: !!c.noCut,
+          dogCount: c.dogCount,
+          geo: c.geo,
+          deliveryAfter: c.deliveryAfter,
+          deliveryBefore: c.deliveryBefore,
+          couponsQty: c.couponsQty,
+          couponPrice: c.couponPrice,
+          segment: segC
+        },
+        leftover && leftover.meta_json
+      )
+    );
+    const keepUpdated =
+      (c.updated_at || c.updatedAt) &&
+      Date.parse(String(c.updated_at || c.updatedAt)) &&
+      nowMs - Date.parse(String(c.updated_at || c.updatedAt)) < protectMs
+        ? String(c.updated_at || c.updatedAt)
+        : now;
     await upsertOrderRow_(env, {
       id: day + ":" + mk,
       date_iso: info.iso || c.dateIso || "",
@@ -15303,7 +16029,7 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                             source: "",
                             status: "active",
                             updated_at: new Date().toISOString(),
-                            meta_json: "{}"
+                            meta_json: orderMetaJsonFromClient_(params)
                           });
                           rowD1 = await findOrderRow_(
                             env,
@@ -15395,7 +16121,7 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                             source: "",
                             status: "active",
                             updated_at: new Date().toISOString(),
-                            meta_json: "{}"
+                            meta_json: orderMetaJsonFromClient_(params)
                           });
                         }
                       } catch (eFix) {}

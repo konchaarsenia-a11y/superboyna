@@ -11961,6 +11961,28 @@ function materializeDeliveryDate_(ss, deliveryDate, opts) {
         }
       });
     } catch (eMiss) {}
+    // «Будущая» не копирует колонки текущей Пн–Вс (клоны 21.09 → 28.09).
+    if (dayName === "Будущая неделя") {
+      try {
+        var curDays = getWeekDayDates_(ss);
+        for (var wi = 0; wi < (curDays || []).length; wi++) {
+          var wd = curDays[wi];
+          if (!wd || !wd.day || wd.day === "Будущая неделя") continue;
+          var wdData = getClientsData_(ss, wd.day);
+          (wdData.clients || []).forEach(function (cl) {
+            var wk = clientMatchKey_(cl.name);
+            if (wk && !alreadyInWeek[wk]) {
+              alreadyInWeek[wk] = {
+                name: cl.name,
+                basketLen: (cl.basket || []).length,
+                col: cl.col,
+                fromCurrentWeek: true
+              };
+            }
+          });
+        }
+      } catch (eCurWk) {}
+    }
   }
 
   for (var i = 0; i < all.length; i++) {
@@ -11976,6 +11998,9 @@ function materializeDeliveryDate_(ss, deliveryDate, opts) {
 
     // already on day: не плодим дубли; пустую броню не накатываем поверх состава
     if (onlyMissing && existingDay) {
+      if (existingDay.fromCurrentWeek && dayName === "Будущая неделя") {
+        continue;
+      }
       if (bookingBasketLen && !(existingDay.basketLen > 0)) {
         var fillRes = writeBasketToDayColumn_(ss, dayName, existingDay.name || b.client, b.address, b.note, b.basket, {
           skipIfHasQty: true
@@ -12830,6 +12855,11 @@ function materializeCurrentWeek_(ss, opts) {
         var fr = materializeDeliveryDate_(ss, fd, { onlyMissing: onlyMissing });
         total += Number(fr.count) || 0;
         if (droppedF) fr.droppedExtras = droppedF;
+        try {
+          fr.currentWeekDupes = scrubFutureCurrentWeekDupes_(ss);
+        } catch (eDup) {
+          fr.currentWeekDupes = { ok: false, message: String(eDup) };
+        }
         results.push(fr);
       }
     }
@@ -12845,6 +12875,46 @@ function materializeCurrentWeek_(ss, opts) {
     dropExtras: dropExtras,
     days: results
   };
+}
+
+/** Не оставлять на «Будущей» колонки людей, которые уже на Пн–Вс этой недели. */
+function scrubFutureCurrentWeekDupes_(ss) {
+  var out = { ok: true, removed: 0, names: [] };
+  if (!ss) return out;
+  var future = ss.getSheetByName("Будущая неделя");
+  if (!future) return out;
+  var onWeek = {};
+  try {
+    var days = getWeekDayDates_(ss);
+    for (var i = 0; i < (days || []).length; i++) {
+      var wd = days[i];
+      if (!wd || !wd.day || wd.day === "Будущая неделя") continue;
+      var data = getClientsData_(ss, wd.day);
+      (data.clients || []).forEach(function (cl) {
+        var k = clientMatchKey_(cl.name);
+        if (k) onWeek[k] = cl.name;
+      });
+    }
+  } catch (eW) {
+    return out;
+  }
+  var block = getDayBlock("Будущая неделя");
+  if (!block) return out;
+  var nicks = future.getRange(block.nick, 3, 1, 15).getValues()[0];
+  for (var c = 0; c < 15; c++) {
+    var nick = String(nicks[c] || "").trim();
+    if (!nick) continue;
+    var mk = clientMatchKey_(nick);
+    if (!mk || !onWeek[mk]) continue;
+    future.getRange(block.nick, c + 3).setValue("");
+    future.getRange(block.start, c + 3, block.note - block.start + 1, 1).clearContent();
+    out.removed++;
+    out.names.push(nick);
+  }
+  if (out.removed) {
+    try { bustClientsCache_(); } catch (eB) {}
+  }
+  return out;
 }
 
 function handleMaterializeWeek(json, callback, fromPost) {

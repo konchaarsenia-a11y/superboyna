@@ -182,6 +182,13 @@ var missEnd = worker.indexOf("async function countActiveOrdersForDay_");
 var missBody = missStart >= 0 && missEnd > missStart ? worker.slice(missStart, missEnd) : "";
 assert(missBody.indexOf("shouldRebindOrderDate_") >= 0, "upsertMissing refuses foreign date_iso");
 assert(missBody.indexOf("detachWeekSlotRowKeepDate_") >= 0, "upsertMissing detaches leftover slot");
+var findAny = missBody.indexOf("exists = await findActiveOrderByMatch_");
+var afterAny = findAny >= 0 ? missBody.slice(findAny) : "";
+assert(afterAny.indexOf("continue;") >= 0, "upsertMissing skips clone when already active on other date");
+assert(
+  !/haveIso2[\s\S]{0,120}exists = null/.test(afterAny),
+  "upsertMissing must not null-out and INSERT Future clone"
+);
 var repStart = worker.indexOf("async function replaceDayOrdersFromClients_");
 var repSlice = repStart >= 0 ? worker.slice(repStart, worker.indexOf("async function cutoverRefreshAllWeekDays_")) : "";
 assert(repSlice.indexOf("scrubMismatchedDayOrders_") >= 0, "replaceDay detaches leftovers before upsert");
@@ -189,6 +196,7 @@ assert(repSlice.indexOf("shouldRebindOrderDate_") >= 0, "replaceDay will not sta
 
 assert(worker.indexOf("restoreShiftedWeekClose_") >= 0, "repair helper present");
 assert(worker.indexOf("repairShiftedWeekClose") >= 0, "repair action present");
+assert(worker.indexOf("repairMissingOrderPrices") >= 0, "price refill after repair");
 assert(worker.indexOf("reattachWeekSlotDayNames_") >= 0, "reattach helper present");
 assert(worker.indexOf("repairDetachedWeekSlots") >= 0, "reattach action present");
 assert(worker.indexOf("decideWeekSlotCalendarRow_") >= 0, "reattach decision helper");
