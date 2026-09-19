@@ -20412,7 +20412,10 @@
           fillPanels_();
           return;
         }
-        showToast(res && res.message === "bad_pin" ? "Неверный PIN" : "Нет доступа");
+        var msg = "Нет доступа";
+        if (res && res.message === "bad_pin") msg = "Неверный PIN";
+        else if (res && res.message === "pin_not_configured") msg = "PIN ещё не задан";
+        showToast(msg);
       } catch (eU) {
         showToast("Не удалось открыть экономику");
       }

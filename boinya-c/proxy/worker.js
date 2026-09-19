@@ -18581,7 +18581,7 @@ async function unlockPpCostBreakdownD1_(params, env) {
   }
   const expected = String((env && env.PP_COST_BREAKDOWN_PIN) || "").trim();
   if (!expected) {
-    return { status: "success", unlocked: true, pinRequired: false };
+    return { status: "error", message: "pin_not_configured", unlocked: false, pinRequired: true };
   }
   const pin = String((params && params.pin) || "").trim();
   if (!pin || pin !== expected) {

@@ -162,6 +162,14 @@ assert(
   "PIN lives in Script Property / Worker secret, documented"
 );
 assert(
+  /pin_not_configured/.test(gsSrc) && /pin_not_configured/.test(wSrc),
+  "empty PIN secret does not unlock"
+);
+assert(
+  /хаб \*\*после merge\*\*/.test(deploy) || /хаб после merge/.test(deploy),
+  "DEPLOY says hub sets PIN after merge"
+);
+assert(
   /unlockPpCostBreakdown/.test(gsSrc) && /unlockPpCostBreakdownD1_/.test(wSrc),
   "unlock action on GS+worker"
 );

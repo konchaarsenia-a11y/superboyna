@@ -18746,8 +18746,8 @@ function handleUnlockPpCostBreakdown(json, callback, fromPost) {
     expected = "";
   }
   if (!expected) {
-    var noPin = { status: "success", unlocked: true, pinRequired: false };
-    return fromPost ? jsonpText(callback, noPin) : jsonp(callback, noPin);
+    var unset = { status: "error", message: "pin_not_configured", unlocked: false, pinRequired: true };
+    return fromPost ? jsonpText(callback, unset) : jsonp(callback, unset);
   }
   var pin = String(json.pin || "").trim();
   if (!pin || pin !== expected) {

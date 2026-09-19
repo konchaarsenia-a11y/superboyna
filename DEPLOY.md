@@ -81,11 +81,11 @@ clasp CI does **not** set Script Properties (no extra API / no secret in the wor
 
 ## Script Property / Worker secret: `PP_COST_BREAKDOWN_PIN`
 
-Разбор экономики RAW26 в Mini App (кнопка «Экономика») — только **owner/all** и PIN.
+Разбор экономики RAW26 (кнопка «Экономика») открывается только если **роль owner/all и верный PIN**. Пустой секрет → `pin_not_configured`, панель не открыть.
 
 | Где | Имя | Кто ставит |
 |-----|-----|------------|
-| Apps Script → Script properties | `PP_COST_BREAKDOWN_PIN` | хаб после merge (значение не в git / не в PR) |
-| Cloudflare Worker | `wrangler secret put PP_COST_BREAKDOWN_PIN` | хаб после Worker Deploy |
+| Apps Script → Script properties | `PP_COST_BREAKDOWN_PIN` | хаб **после merge**, значение которое Арсений передал хабу |
+| Cloudflare Worker | `wrangler secret put PP_COST_BREAKDOWN_PIN` | хаб после Worker Deploy, то же значение |
 
-Если свойство/секрет **пустой** — unlock только по роли owner/all, PIN не спрашиваем. Курьер/нарезчик/менеджер кнопку не видят. **Не коммитить PIN.**
+Значение **не в git, не в PR, не в чат**. Хранит хаб. Курьер/нарезчик/менеджер кнопку не видят. **Не коммитить PIN.**
