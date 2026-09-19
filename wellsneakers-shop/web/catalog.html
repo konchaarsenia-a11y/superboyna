@@ -89,8 +89,10 @@
             <button type="button" class="street-opt" data-gender="men">Мужское</button>
             <button type="button" class="street-opt" data-gender="women">Женское</button>
           </div>
-          <div class="filter-row sale-chip">
-            <button type="button" class="chip" id="saleChip" aria-pressed="false">Скидки</button>
+          <div class="filter-row collection-chips" id="collectionRow" aria-label="Подборки">
+            <button type="button" class="chip chip-sale" id="saleChip" data-collection="sale" aria-pressed="false">Скидки</button>
+            <button type="button" class="chip" data-color="white" aria-pressed="false">Белые</button>
+            <button type="button" class="chip" data-color="black" aria-pressed="false">Чёрные</button>
           </div>
           <div style="margin-top:10px">
             <input class="street-drop" id="qFilter" placeholder="Поиск: модель или артикул" style="width:100%;transform:none;appearance:auto" />
@@ -105,7 +107,7 @@
     <div class="dock">
       <div class="dock-inner">
         <a class="btn-catalog" href="index.html">Главная</a>
-        <a class="btn btn-rug" href="tel:+375297904993">Позвонить</a>
+        <a class="btn btn-rug" href="tel:+375256851757">Позвонить</a>
       </div>
     </div>
 
@@ -164,6 +166,7 @@
       let size = '';
       let sale = false;
       let gender = '';
+      let color = '';
       let brands = [];
       const SIZE_OPTS = ['36','37','38','39','40','41','42','43','44','45','46'];
       const SWATCH = {
@@ -205,6 +208,30 @@
         if (v === 'women' || v === 'female' || v === 'жен' || v === 'женское' || v === 'ей') return 'women';
         return '';
       }
+      function parseColorQuery(value) {
+        const v = String(value || '').toLowerCase().trim().replace(/ё/g, 'е');
+        if (v === 'white' || v === 'белый' || v === 'белая' || v === 'белое' || v === 'белые' || v === 'бел') return 'white';
+        if (v === 'black' || v === 'черный' || v === 'черная' || v === 'черное' || v === 'черные' || v === 'черн') return 'black';
+        return '';
+      }
+      function colorMatchesFamily(token, family) {
+        const want = parseColorQuery(family) || String(family || '').toLowerCase();
+        const t = String(token || '').toLowerCase().replace(/ё/g, 'е');
+        if (!t || !want) return false;
+        if (want === 'white') return /(white|off[\s-]?white|ivory|cream|sail|bone|белый|белая|белое|белые)/.test(t);
+        if (want === 'black') return /(black|\bblk\b|черн)/.test(t);
+        return false;
+      }
+      function modelMatchesColor(model, family) {
+        const want = parseColorQuery(family);
+        if (!want) return true;
+        return (model.colors || []).some((c) => colorMatchesFamily(c.color, want));
+      }
+      function firstMatchingColorIndex(colors, family) {
+        const want = parseColorQuery(family);
+        if (!want) return -1;
+        return (colors || []).findIndex((c) => colorMatchesFamily(c.color, want));
+      }
       function saleFromUrl() {
         try {
           return isSaleQuery(new URLSearchParams(location.search).get('sale'));
@@ -219,12 +246,21 @@
           return '';
         }
       }
+      function colorFromUrl() {
+        try {
+          return parseColorQuery(new URLSearchParams(location.search).get('color'));
+        } catch (e) {
+          return '';
+        }
+      }
       function syncFilterUrl() {
         const url = new URL(location.href);
         if (sale) url.searchParams.set('sale', '1');
         else url.searchParams.delete('sale');
         if (gender) url.searchParams.set('gender', gender);
         else url.searchParams.delete('gender');
+        if (color) url.searchParams.set('color', color);
+        else url.searchParams.delete('color');
         const next = url.pathname + url.search + url.hash;
         if (next !== location.pathname + location.search + location.hash) {
           history.replaceState(null, '', next);
@@ -239,6 +275,13 @@
       function paintGenderChips() {
         document.querySelectorAll('#genderRow [data-gender]').forEach((btn) => {
           btn.classList.toggle('on', btn.dataset.gender === gender);
+        });
+      }
+      function paintColorChips() {
+        document.querySelectorAll('#collectionRow [data-color]').forEach((btn) => {
+          const on = btn.dataset.color === color;
+          btn.classList.toggle('on', on);
+          btn.setAttribute('aria-pressed', on ? 'true' : 'false');
         });
       }
       function variantOnSale(variant) {
@@ -365,6 +408,15 @@
         syncFilterUrl();
         loadCatalog();
       });
+      document.getElementById('collectionRow').addEventListener('click', (e) => {
+        const colorBtn = e.target.closest('[data-color]');
+        if (!colorBtn) return;
+        const next = colorBtn.dataset.color || '';
+        color = color === next ? '' : next;
+        paintColorChips();
+        syncFilterUrl();
+        loadCatalog();
+      });
       document.getElementById('genderRow').addEventListener('click', (e) => {
         const btn = e.target.closest('[data-gender]');
         if (!btn) return;
@@ -382,6 +434,22 @@
         renderSizeOpts();
       }
 
+      function catalogEmptyText() {
+        if (color === 'white') return 'Нет белых моделей';
+        if (color === 'black') return 'Нет чёрных моделей';
+        if (gender) return 'Нет моделей';
+        if (sale) return 'Сейчас скидок нет';
+        return 'Ничего не найдено. Сбросьте фильтр.';
+      }
+      function catalogCountPrefix() {
+        const bits = [];
+        if (gender === 'men') bits.push('Мужское');
+        if (gender === 'women') bits.push('Женское');
+        if (sale) bits.push('Скидки');
+        if (color === 'white') bits.push('Белые');
+        if (color === 'black') bits.push('Чёрные');
+        return bits.length ? bits.join(' · ') + ': ' : 'В наличии: ';
+      }
       async function loadCatalog() {
         const params = new URLSearchParams({ limit: '1000' });
         if (brand) params.set('brand', brand);
@@ -389,19 +457,20 @@
         if (qEl.value.trim()) params.set('q', qEl.value.trim());
         if (sale) params.set('sale', '1');
         if (gender) params.set('gender', gender);
+        if (color) params.set('color', color);
         const data = await fetch(API + '/catalog?' + params).then(r => r.json());
-        const models = data.models || [];
-        const total = data.total != null ? data.total : models.length;
-        const who = gender === 'men' ? 'Мужское: ' : gender === 'women' ? 'Женское: ' : '';
-        countEl.textContent = (who || (sale ? 'Скидки: ' : 'В наличии: ')) + total + ' моделей';
-        emptyEl.textContent = !models.length && gender
-          ? 'Нет моделей'
-          : (sale && !models.length ? 'Сейчас скидок нет' : 'Ничего не найдено. Сбросьте фильтр.');
+        let models = data.models || [];
+        if (color) models = models.filter((m) => modelMatchesColor(m, color));
+        const total = models.length;
+        countEl.textContent = catalogCountPrefix() + total + ' моделей';
+        emptyEl.textContent = catalogEmptyText();
         emptyEl.classList.toggle('show', !models.length);
         listEl.innerHTML = models.map(m => {
           const colors = m.colors || [];
           const q = qEl.value.trim().toLowerCase();
           let colorIdx = 0;
+          const familyHit = firstMatchingColorIndex(colors, color);
+          if (familyHit >= 0) colorIdx = familyHit;
           if (q) {
             const hit = colors.findIndex(c =>
               String(c.article).toLowerCase() === q || String(c.color).toLowerCase().includes(q)
@@ -531,8 +600,10 @@
       (async () => {
         sale = saleFromUrl();
         gender = genderFromUrl();
+        color = colorFromUrl();
         paintSaleChip();
         paintGenderChips();
+        paintColorChips();
         syncFilterUrl();
         try {
           const h = await fetch(API + '/health').then(r => r.json());
