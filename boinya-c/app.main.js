@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115972";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115973";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -20208,6 +20208,7 @@
     var PP_RAW26_RECOVER_100 = 3.90;
     var PP_RAW26_RECOVER_PIECE = 0.50;
     var PP_RAW26_DELIVERY_PER = 9;
+    var PP_RAW26_RETAIL_CAP = 0.92;
     var PP_LEGACY_COEF_DEFAULT = 2.3;
     var PP_LEGACY_FIXED = 11;
     var PP_LEGACY_DELIVERY_PER = 6;
@@ -20283,6 +20284,14 @@
       if (hint) hint.style.display = showMig ? "block" : "none";
     }
 
+    function capRaw26PriceToRetail_(price, retailGoods) {
+      var p = Math.round((Number(price) || 0) * 100) / 100;
+      var r = Number(retailGoods);
+      if (!isFinite(r) || r <= 0) return p;
+      var capAt = Math.round(r * PP_RAW26_RETAIL_CAP * 100) / 100;
+      return p > capAt ? capAt : p;
+    }
+
     function recoverBynFromBasketLocal_(list) {
       var sum = 0;
       (list || []).forEach(function (it) {
@@ -20342,7 +20351,16 @@
         var recover = recoverBynFromBasketLocal_(listOpt || subDetailBasketPayload_());
         var delivery = PP_RAW26_DELIVERY_PER * n;
         total = Math.round((costSum * coef + recover + delivery + packagesByn + fracTotal) * 100) / 100;
+        var retailLocal = 0;
+        try {
+          retailLocal = Number(calcRetailBasketTotal(listOpt || subDetailBasketPayload_(), { applyDelivery: false }).goods) || 0;
+        } catch (eRetL) { retailLocal = 0; }
+        var cappedLocal = capRaw26PriceToRetail_(total, retailLocal);
         hintCore = "себест " + costSum + " ×" + coef + " +recover " + recover + " +9×" + n;
+        if (cappedLocal < total) {
+          total = cappedLocal;
+          hintCore += " · cap 92% розн. " + total;
+        }
       } else {
         total = Math.round((costSum * coef + 11 + 6 * n + packagesByn + fracTotal) * 100) / 100;
         hintCore = "себест " + costSum + " ×" + coef + " +11 +6×" + n;
@@ -21723,23 +21741,31 @@
         var capped = false;
         var goodsByn = goodsRaw;
         if (retailGoodsCap > 0) {
-          var capAt = Math.round(retailGoodsCap * 0.92 * 100) / 100;
+          var capAt = Math.round(retailGoodsCap * PP_RAW26_RETAIL_CAP * 100) / 100;
           if (goodsByn > capAt) {
             goodsByn = capAt;
             capped = true;
           }
         }
+        var localFactRaw26 = capRaw26PriceToRetail_(
+          goodsByn + deliveryByn + packagesByn + fracMark.total,
+          retailGoodsCap
+        );
+        if (retailGoodsCap > 0 && localFactRaw26 < Math.round((goodsByn + deliveryByn + packagesByn + fracMark.total) * 100) / 100) {
+          capped = true;
+        }
         subTotal = useApiFact
           ? Math.round(Number(res.clientPrice != null ? res.clientPrice : res.factCost) * 100) / 100
-          : Math.round((goodsByn + deliveryByn + packagesByn + fracMark.total) * 100) / 100;
-        var localFactRaw26 = Math.round((goodsByn + deliveryByn + packagesByn + fracMark.total) * 100) / 100;
+          : localFactRaw26;
+        subTotal = capRaw26PriceToRetail_(subTotal, retailGoodsCap);
         subTotal = ppOfferClientPrice_("RAW26", subTotal || localFactRaw26, res && res.statedCost, false);
+        subTotal = capRaw26PriceToRetail_(subTotal, retailGoodsCap);
         if (localFactRaw26 > 0 && subTotal > localFactRaw26 + 12) {
           subTotal = localFactRaw26;
         }
         formulaHint = "сырьё " + costSum + " × " + coef +
           " + recover " + recover +
-          (capped ? (" (cap 92% розн. " + Math.round(goodsByn * 100) / 100 + ")") : "") +
+          (capped ? (" (итог ≤92% розн. " + Math.round(localFactRaw26 * 100) / 100 + ")") : "") +
           " + 9×" + deliveriesN + "(" + deliveryByn + ")" +
           (packagesByn ? (" + пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
           (fracMark.total ? (" + фракции " + fracMark.total) : "");
@@ -22482,10 +22508,13 @@
             var goodsSnap = costSum * coef + recoverSnap;
             var retailSnapG = Number(calcRetailBasketTotal(list, { deliveriesN: deliveriesN }).goods) || 0;
             if (retailSnapG > 0) {
-              var capSnap = Math.round(retailSnapG * 0.92 * 100) / 100;
+              var capSnap = Math.round(retailSnapG * PP_RAW26_RETAIL_CAP * 100) / 100;
               if (goodsSnap > capSnap) goodsSnap = capSnap;
             }
-            subHint = goodsSnap + PP_RAW26_DELIVERY_PER * deliveriesN + packagesByn + fracMark.total;
+            subHint = capRaw26PriceToRetail_(
+              goodsSnap + PP_RAW26_DELIVERY_PER * deliveriesN + packagesByn + fracMark.total,
+              retailSnapG
+            );
           } else {
             subHint = costSum * coef + PRICE_PP_FIXED_BYN + PRICE_PP_DELIVERY_PER * deliveriesN +
               packagesByn + fracMark.total;

@@ -131,6 +131,18 @@ assert(
   "UI save sends statedTouched + calcFactCost"
 );
 assert(
+  /capAt > 0 && factCost > capAt/.test(gsSrc) && /capAt > 0 && factCost > capAt/.test(wSrc),
+  "GS+worker apply final RAW26 cap on full factCost"
+);
+assert(
+  /function capRaw26PriceToRetail_/.test(uiSrc),
+  "UI has capRaw26PriceToRetail_"
+);
+assert(
+  /computePpFactFromCost_\(rawPp, baskPp, nDel, 1, packOpt, schPp, baskPp, 0\)/.test(gsSrc),
+  "stats passes retail=0 so cost is not client-capped"
+);
+assert(
   /schemeForPrice === "RAW26"/.test(gsSrc) && /calcIn/.test(gsSrc),
   "GAS saveSubscription RAW26 prefers calc fact"
 );
@@ -188,8 +200,100 @@ assert(
 const retailMedium = 9 + 2;
 assert(retailMedium === 11, "розница среднее = база 9 + ставка 2 = 11");
 
+/* ---------- финальный кап: полная цена ≤ 0.92 × Σрозница строк ---------- */
+const ritRetail = Math.round((320 / 100) * retailMedium * 100) / 100;
+assert(ritRetail === 35.2, "Рит мурр 320г × 11 = 35.20 розницы строк");
+const ritN1Open = gsCtx.computePpFactFromCost_(
+  raw, ritBasket, 1, 2.6, emptyPacks, "RAW26", ritLines, 0
+);
+assert(ritN1Open.factCost > ritRetail, "без Σрозница кап не выдумывать: " + ritN1Open.factCost + " > 35.20");
+assert(ritN1Open.retailCapped === false, "retail=0 → retailCapped false");
+const ritN1Cap = gsCtx.computePpFactFromCost_(
+  raw, ritBasket, 1, 2.6, emptyPacks, "RAW26", ritLines, ritRetail
+);
+const ritCapAt = Math.round(ritRetail * 0.92 * 100) / 100;
+assert(ritCapAt === 32.38, "92% от 35.20 = 32.38");
+assert(ritN1Cap.factCost === ritCapAt, "Рит N=1 после капа 32.38, got " + ritN1Cap.factCost);
+assert(ritN1Cap.factCost < ritRetail, "ПП всегда ниже розницы состава");
+assert(ritN1Cap.retailCapped === true, "финальный кап помечает retailCapped");
+
+const baranRecover = 27.80;
+const baranGrams = Math.round((baranRecover / 3.9) * 100 * 10000) / 10000;
+const baranLines = [{ name: "DOC", val: baranGrams, piece: false, cat: "dressura" }];
+const baranBasket = [{ name: "DOC", val: baranGrams, cat: "dressura" }];
+const baranPacks = { u1: 0, u2: 0, u3: 0, up4: 1 };
+const baranOpen = gsCtx.computePpFactFromCost_(
+  44.18, baranBasket, 1, 2.6, baranPacks, "RAW26", baranLines, 0
+);
+assert(Math.abs(baranOpen.factCost - 153.07) < 0.02, "с_бараньим retail=0 → черновик 153.07, got " + baranOpen.factCost);
+const baranOldInnerOnly = 122.64;
+assert(baranOldInnerOnly > 122, "до фикса кап только на товар: 122.64 > розница 122");
+const baranCap = gsCtx.computePpFactFromCost_(
+  44.18, baranBasket, 1, 2.6, baranPacks, "RAW26", baranLines, 122
+);
+assert(baranCap.factCost === 112.24, "с_бараньим после капа 0.92×122=112.24, got " + baranCap.factCost);
+
+const wFactCtx = vm.createContext({
+  Math: Math,
+  Number: Number,
+  String: String,
+  isFinite: isFinite,
+  Object: Object,
+  PP_RAW26_COEF_DEFAULT_D1_: 2.6,
+  PP_RAW26_RECOVER_100_D1_: 3.9,
+  PP_RAW26_RECOVER_PIECE_D1_: 0.5,
+  PP_RAW26_DELIVERY_PER_D1_: 9,
+  PP_RAW26_RETAIL_CAP_D1_: 0.92,
+  PP_LEGACY_COEF_DEFAULT_D1_: 2.3,
+  PP_LEGACY_FIXED_D1_: 11,
+  PP_LEGACY_DELIVERY_PER_D1_: 6,
+  isPieceSkuNameD1_: function () { return false; }
+});
+vm.runInContext(
+  [
+    extractVarObject(wSrc, "DRESSURA_FRAC_RATES_DEFAULT_D1_").replace(/^const /, "var "),
+    extractFn(wSrc, "dressuraFractionSizeKeyD1_"),
+    extractFn(wSrc, "dressuraFractionPickRateD1_"),
+    extractFn(wSrc, "dressuraFractionRatesD1_"),
+    extractFn(wSrc, "dressuraFractionMarkupFromBasketD1_"),
+    extractFn(wSrc, "packagesBynFromUCountsD1_"),
+    extractFn(wSrc, "normalizePpSchemeD1_"),
+    extractFn(wSrc, "recoverBynFromPpLinesD1_"),
+    extractFn(wSrc, "ppOfferClientPriceD1_"),
+    extractFn(wSrc, "attachPpOfferClientPriceD1_"),
+    extractFn(wSrc, "computePpFactFromCostD1_")
+  ].join("\n"),
+  wFactCtx
+);
+const wRit = wFactCtx.computePpFactFromCostD1_(
+  raw, ritBasket, 1, 2.6, emptyPacks, "RAW26", ritLines, ritRetail
+);
+assert(wRit.factCost === 32.38, "worker Рит N=1 кап 32.38, got " + wRit.factCost);
+const wBaran = wFactCtx.computePpFactFromCostD1_(
+  44.18, baranBasket, 1, 2.6, baranPacks, "RAW26", baranLines, 122
+);
+assert(wBaran.factCost === 112.24, "worker с_бараньим кап 112.24, got " + wBaran.factCost);
+const wOpen = wFactCtx.computePpFactFromCostD1_(
+  44.18, baranBasket, 1, 2.6, baranPacks, "RAW26", baranLines, 0
+);
+assert(Math.abs(wOpen.factCost - 153.07) < 0.02, "worker retail=0 не капает, got " + wOpen.factCost);
+
+const uiCapCtx = vm.createContext({
+  Math: Math,
+  Number: Number,
+  String: String,
+  isFinite: isFinite,
+  PP_RAW26_RETAIL_CAP: 0.92
+});
+vm.runInContext(extractFn(uiSrc, "capRaw26PriceToRetail_"), uiCapCtx);
+assert(uiCapCtx.capRaw26PriceToRetail_(126.29, 0) === 126.29, "UI: розница 0 → не капать");
+assert(uiCapCtx.capRaw26PriceToRetail_(126.29, 35.2) === 32.38, "UI: 126.29 → 32.38");
+assert(uiCapCtx.capRaw26PriceToRetail_(122.64, 122) === 112.24, "UI: 122.64 → 112.24");
+
 console.log("ok pp-offer-client-price");
 console.log("  Рит мурр before: stated 195 → client 195 (bug)");
 console.log("  Рит мурр after:  fact " + factNew.factCost + " → client " + factNew.factCost +
-  " (frac 6.4, retail medium 11)");
+  " (frac 6.4, retail=0 keeps draft)");
+console.log("  Рит N=1 + розница 35.20: " + ritN1Open.factCost + " → " + ritN1Cap.factCost + " (92%)");
+console.log("  с_бараньим N=1: было " + baranOldInnerOnly + " (кап только товар) → " + baranCap.factCost);
 console.log("  LEGACY stated 195 kept; крошка 0");
