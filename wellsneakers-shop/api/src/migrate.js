@@ -51,7 +51,7 @@ async function main() {
   await ensureProductOldPriceColumn();
   await ensureProductGenderColumn();
   const n = await backfillProductModelKeys();
-  console.log(`Backfilled brand/model_key/color: ${n}`);
+  console.log(`Backfilled brand/model_key/color (empty colors re-parsed): ${n}`);
   const g = await backfillProductGender();
   console.log(`Backfilled gender: ${g}`);
   await pool.end();

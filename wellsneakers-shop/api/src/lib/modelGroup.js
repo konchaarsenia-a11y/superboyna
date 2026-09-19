@@ -1,6 +1,10 @@
 /**
  * Group OpenCart colorways of the same sneaker into one catalog card.
  * Live OC rows are unique full names ("AIR JORDAN 11 BLACK" vs "… GREY/BLUE").
+ *
+ * Default catalog order (no `sort` query): richest in-stock size rows first.
+ * stockSizeCount = total size-lines with qty>0 across all colorways
+ * (same EU size in two colors counts twice). Tie-break: brand, then name.
  */
 
 import { resolveBrand } from "./brand.js";
@@ -113,6 +117,28 @@ const COLOR_WORDS = new Set(
     "bredtoe",
     "royaltoe",
     "spacejam",
+    "bordo",
+    "бордо",
+    "persik",
+    "персик",
+    "milk",
+    "молоко",
+    "raduga",
+    "радуга",
+    "softblue",
+    "lightblue",
+    "darkblue",
+    "darkgrey",
+    "lightgrey",
+    "darkgray",
+    "lightgray",
+    "softgrey",
+    "psg",
+    "mummy",
+    "safari",
+    "leopard",
+    "flower",
+    "expression",
     "зелёный",
     "зеленый",
     "чёрный",
@@ -180,7 +206,98 @@ const COLOR_PHRASES = [
   "black red",
   "grey blue",
   "gray blue",
+  "soft blue",
+  "soft grey",
+  "soft gray",
+  "soft pink",
+  "soft white",
 ].sort((a, b) => b.split(" ").length - a.split(" ").length || b.length - a.length);
+
+/** Catalog nicknames / local aliases that are colorways, not silhouette words. */
+const COLOR_ALIASES = new Map(
+  [
+    ["bordo", "BURGUNDY"],
+    ["бордо", "BURGUNDY"],
+    ["persik", "PEACH"],
+    ["персик", "PEACH"],
+    ["raduga", "RAINBOW"],
+    ["радуга", "RAINBOW"],
+    ["milk", "MILK"],
+    ["молоко", "MILK"],
+    ["psg", "PSG"],
+    ["mummy", "MUMMY"],
+    ["safari", "SAFARI"],
+    ["leopard", "LEOPARD"],
+    ["flower", "FLOWER"],
+    ["expression", "EXPRESSION"],
+    ["softblue", "SOFT BLUE"],
+    ["lightblue", "LIGHT BLUE"],
+    ["darkblue", "DARK BLUE"],
+    ["darkgrey", "DARK GREY"],
+    ["lightgrey", "LIGHT GREY"],
+    ["darkgray", "DARK GRAY"],
+    ["lightgray", "LIGHT GRAY"],
+    ["softgrey", "SOFT GREY"],
+  ].map(([k, v]) => [k.toLowerCase(), v])
+);
+
+const COMPOUND_PREFIXES = new Set([
+  "soft",
+  "light",
+  "dark",
+  "off",
+  "mid",
+  "pale",
+  "neon",
+  "hot",
+  "deep",
+  "bright",
+  "wolf",
+  "cool",
+  "ice",
+  "midnight",
+  "true",
+  "gym",
+  "fire",
+  "sail",
+  "iron",
+  "smoke",
+  "university",
+  "royal",
+  "navy",
+  "forest",
+  "summit",
+  "particle",
+  "photon",
+  "varsity",
+  "game",
+  "baby",
+  "sky",
+  "dusty",
+  "washed",
+  "electric",
+  "hyper",
+  "ultra",
+]);
+
+/** Material / edition suffixes glued or spaced after a slash colorway. */
+const COLOR_SUFFIXES = new Set([
+  "mex",
+  "zamsh",
+  "zamsu",
+  "zamsha",
+  "zamshevyi",
+  "new",
+  "original",
+  "swoosh",
+  "nubuk",
+  "nubuck",
+  "suede",
+  "leather",
+  "koja",
+  "kozha",
+  "mesh",
+]);
 
 const SWATCH = {
   black: "#141416",
@@ -236,6 +353,20 @@ const SWATCH = {
   желтый: "#e6c84a",
   голубой: "#7ba3d4",
   бордовый: "#6e1a2a",
+  bordo: "#6e1a2a",
+  persik: "#e8a87c",
+  peach: "#e8a87c",
+  milk: "#f3ead6",
+  raduga: "#e07a2f",
+  rainbow: "#e07a2f",
+  psg: "#1a2a4a",
+  mummy: "#efe6d0",
+  safari: "#9a8b5a",
+  leopard: "#6b4423",
+  flower: "#e89bb0",
+  expression: "#6b4c9a",
+  softblue: "#7ba3d4",
+  lightblue: "#7ba3d4",
 };
 
 export function normalizeKeyPart(value) {
@@ -260,12 +391,95 @@ function colorBase(token) {
     .replace(/\d+$/, "");
 }
 
+export function isColorSuffix(token) {
+  const lower = String(token || "")
+    .toLowerCase()
+    .replace(/[^a-zа-яё0-9]+/gi, "");
+  return COLOR_SUFFIXES.has(lower);
+}
+
+function splitGluedSuffix(token) {
+  const raw = String(token || "").trim();
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  const suffixes = [...COLOR_SUFFIXES].sort((a, b) => b.length - a.length);
+  for (const suf of suffixes) {
+    if (lower.endsWith(suf) && lower.length > suf.length) {
+      const head = raw.slice(0, raw.length - suf.length);
+      if (isColorToken(head) || expandCompoundColor(head)) {
+        return { head, suffix: raw.slice(head.length) };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * SOFTBLUE → "SOFT BLUE", LIGHTPINK → "LIGHT PINK".
+ * Leaves GREEN2 alone (color word + trailing digits).
+ */
+export function expandCompoundColor(token) {
+  const original = String(token || "").trim();
+  if (!original || original.includes("/")) return "";
+  const lower = original.toLowerCase();
+  const raw = colorBase(original);
+  if (!raw) return "";
+  const alias = COLOR_ALIASES.get(raw) || COLOR_ALIASES.get(lower);
+  if (alias && alias.includes(" ")) return alias;
+  const simple = raw === lower.replace(/[^a-zа-яё0-9/-]+/gi, "").replace(/\d+$/, "");
+  if (simple && (COLOR_WORDS.has(raw) || COLOR_ALIASES.has(raw)) && !alias) return "";
+
+  const words = [...COLOR_WORDS].sort((a, b) => b.length - a.length);
+  for (const word of words) {
+    if (word.length < 3) continue;
+    if (raw === word) continue;
+    if (raw.endsWith(word) && raw.length > word.length) {
+      const prefix = raw.slice(0, raw.length - word.length);
+      if (COMPOUND_PREFIXES.has(prefix) || COLOR_WORDS.has(prefix) || COLOR_ALIASES.has(prefix)) {
+        return `${prefix} ${word}`.toUpperCase();
+      }
+    }
+    if (raw.startsWith(word) && raw.length > word.length) {
+      const rest = raw.slice(word.length);
+      if (COLOR_WORDS.has(rest) || COLOR_ALIASES.has(rest) || COLOR_SUFFIXES.has(rest) || COMPOUND_PREFIXES.has(rest)) {
+        return `${word} ${rest}`.toUpperCase();
+      }
+    }
+  }
+  return alias || "";
+}
+
+export function formatColorLabel(token) {
+  const raw = String(token || "").trim();
+  if (!raw) return "";
+  if (raw.includes("/")) {
+    return raw
+      .split("/")
+      .map((part) => formatColorLabel(part.trim()) || part.trim())
+      .join("/");
+  }
+  const glued = splitGluedSuffix(raw);
+  if (glued) {
+    const left = formatColorLabel(glued.head) || glued.head;
+    return `${left} ${glued.suffix}`.replace(/\s+/g, " ").trim();
+  }
+  const expanded = expandCompoundColor(raw);
+  if (expanded) return expanded;
+  const alias = COLOR_ALIASES.get(colorBase(raw)) || COLOR_ALIASES.get(raw.toLowerCase());
+  if (alias) return alias;
+  return raw;
+}
+
 export function isColorToken(token) {
   const raw = String(token || "").trim();
   if (!raw) return false;
   if (raw.includes("/")) return true;
   const lower = raw.toLowerCase();
-  if (COLOR_WORDS.has(lower) || COLOR_WORDS.has(colorBase(raw))) return true;
+  const base = colorBase(raw);
+  if (COLOR_WORDS.has(lower) || COLOR_WORDS.has(base)) return true;
+  if (COLOR_ALIASES.has(lower) || COLOR_ALIASES.has(base)) return true;
+  if (expandCompoundColor(raw)) return true;
+  if (splitGluedSuffix(raw)) return true;
   const hyphenParts = raw.split("-").map((p) => p.trim()).filter(Boolean);
   if (hyphenParts.length > 1 && hyphenParts.every((p) => isColorToken(p))) return true;
   return false;
@@ -290,7 +504,7 @@ export function parseModelAndColor(name, brand = "") {
   const paren = working.match(/\s*\(([^)]+)\)\s*$/);
   let parenColor = "";
   if (paren && isColorToken(paren[1])) {
-    parenColor = paren[1].trim();
+    parenColor = formatColorLabel(paren[1].trim());
     working = working.slice(0, paren.index).trim();
   }
 
@@ -311,14 +525,37 @@ export function parseModelAndColor(name, brand = "") {
     return false;
   };
 
-  while (tokens.length > 1) {
-    if (peelPhrase()) continue;
+  const peelLast = () => {
+    if (tokens.length <= 1) return false;
+    if (peelPhrase()) return true;
     const last = tokens[tokens.length - 1];
     if (isColorToken(last)) {
-      colorBits.unshift(tokens.pop());
-      continue;
+      colorBits.unshift(formatColorLabel(tokens.pop()));
+      return true;
     }
-    break;
+    if (tokens.length > 2 && isColorSuffix(last) && isColorToken(tokens[tokens.length - 2])) {
+      const suffix = tokens.pop();
+      const head = formatColorLabel(tokens.pop());
+      colorBits.unshift(`${head} ${suffix}`.replace(/\s+/g, " ").trim());
+      return true;
+    }
+    return false;
+  };
+
+  while (peelLast()) {
+    /* peel trailing color / phrase / slash+suffix */
+  }
+
+  // Slash colorway in the middle: MODEL GREY/BLACK MEX → peel from the slash token.
+  if (!colorBits.length || tokens.some((t, i) => i > 0 && t.includes("/"))) {
+    let slashIdx = -1;
+    for (let i = 1; i < tokens.length; i++) {
+      if (tokens[i].includes("/")) slashIdx = i;
+    }
+    if (slashIdx > 0) {
+      const tail = tokens.splice(slashIdx).map((t) => formatColorLabel(t) || t);
+      colorBits.unshift(joinTokens(tail));
+    }
   }
 
   const modelName = joinTokens(tokens) || originalName;
@@ -338,10 +575,12 @@ export function resolveProductModel(product) {
   const storedColor = String(product?.color || "").trim();
   const storedBrand = String(product?.brand || "").trim();
   const brandChanged = Boolean(brand) && brand !== storedBrand;
+  // Empty color: re-parse so SOFTBLUE/PSG peel into model_key + written colorway.
+  const refreshKey = brandChanged || !storedColor;
   return {
     modelName: parsed.modelName,
     color: storedColor || parsed.color,
-    modelKey: brandChanged ? parsed.modelKey : storedKey || parsed.modelKey,
+    modelKey: refreshKey ? parsed.modelKey : storedKey || parsed.modelKey,
     originalName: parsed.originalName,
     brand,
   };
@@ -366,11 +605,55 @@ function inStockSizes(sizes, inStockOnly) {
     .filter((s) => (inStockOnly ? s.qty > 0 : true));
 }
 
+/** Size rows with qty>0 across colorways. Same size in two colors counts twice. */
+export function modelStockSizeCount(model) {
+  return (model?.colors || []).reduce((n, colorway) => {
+    return (
+      n +
+      (colorway.sizes || []).filter((s) => Number(s.qty) > 0).length
+    );
+  }, 0);
+}
+
+export function parseCatalogSort(value) {
+  const v = String(value ?? "")
+    .toLowerCase()
+    .trim();
+  if (v === "name" || v === "alpha" || v === "az") return "name";
+  return "stock";
+}
+
+function compareBrandName(a, b) {
+  return (
+    String(a.brand || "").localeCompare(String(b.brand || ""), "en") ||
+    String(a.name || "").localeCompare(String(b.name || ""), "en") ||
+    String(a.modelKey || "").localeCompare(String(b.modelKey || ""), "en")
+  );
+}
+
+export function sortCatalogModels(models, sort) {
+  const key = parseCatalogSort(sort);
+  const list = [...(models || [])].map((model) => ({
+    ...model,
+    stockSizeCount: model.stockSizeCount ?? modelStockSizeCount(model),
+  }));
+  if (key === "name") {
+    list.sort(compareBrandName);
+    return list;
+  }
+  list.sort((a, b) => {
+    const ds = (b.stockSizeCount || 0) - (a.stockSizeCount || 0);
+    if (ds) return ds;
+    return compareBrandName(a, b);
+  });
+  return list;
+}
+
 /**
  * @param {object[]} products
- * @param {{ inStockOnly?: boolean }} [opts]
+ * @param {{ inStockOnly?: boolean, sort?: string }} [opts]
  */
-export function groupProductsIntoModels(products, { inStockOnly = true } = {}) {
+export function groupProductsIntoModels(products, { inStockOnly = true, sort = "stock" } = {}) {
   const map = new Map();
   for (const product of products || []) {
     if (product.active === false) continue;
@@ -404,10 +687,10 @@ export function groupProductsIntoModels(products, { inStockOnly = true } = {}) {
       const bc = b.color || b.article;
       return ac.localeCompare(bc, "en") || String(a.article).localeCompare(String(b.article));
     });
+    card.stockSizeCount = modelStockSizeCount(card);
     return card;
   });
-  models.sort((a, b) => a.name.localeCompare(b.name, "en") || a.brand.localeCompare(b.brand, "en"));
-  return models;
+  return sortCatalogModels(models, sort);
 }
 
 export function modelMatchesQuery(model, q) {

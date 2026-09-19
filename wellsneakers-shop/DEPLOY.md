@@ -231,6 +231,9 @@ curl -sS https://new.sneakerworld.by/api/health
 ```bash
 cd /opt/wellsneakers-shop   # или /opt/superboyna && git pull
 docker compose up -d --build
+# Обязательно перезапустить контейнер API — при старте backfill заново парсит
+# пустые products.color (SOFTBLUE/PSG/BORDO/…) и обновляет model_key.
+# docker compose restart api   — если образ уже собран
 # API сам добавит color/model_key/old_price_byn/gender и сделает backfill при старте.
 # По желанию с хоста: npm run migrate && npm run import:oc
 ```

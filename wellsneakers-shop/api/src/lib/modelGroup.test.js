@@ -5,6 +5,9 @@ import {
   groupProductsIntoModels,
   modelMatchesQuery,
   isColorToken,
+  resolveProductModel,
+  parseCatalogSort,
+  modelStockSizeCount,
 } from "./modelGroup.js";
 
 describe("parseModelAndColor — live OC names", () => {
@@ -72,12 +75,81 @@ describe("parseModelAndColor — live OC names", () => {
     assert.equal(parseModelAndColor("NUMERIS BLACK/WHITE").modelName, "NUMERIS");
     assert.equal(parseModelAndColor("NIKE SPIRIDON STUSSY BEIGE", "NIKE").modelName, "NIKE SPIRIDON STUSSY");
   });
+
+  it("splits compound Soft Blue (art. 1347)", () => {
+    const parsed = parseModelAndColor("AIR JORDAN 4 RETRO SOFTBLUE", "NIKE");
+    assert.equal(parsed.modelName, "AIR JORDAN 4 RETRO");
+    assert.equal(parsed.color, "SOFT BLUE");
+    assert.equal(parsed.modelKey, "nike|air jordan 4 retro");
+  });
+
+  it("peels PSG nickname (art. 207)", () => {
+    const parsed = parseModelAndColor("AIR JORDAN 4 RETRO PSG", "NIKE");
+    assert.equal(parsed.modelName, "AIR JORDAN 4 RETRO");
+    assert.equal(parsed.color, "PSG");
+    assert.equal(parsed.modelKey, "nike|air jordan 4 retro");
+  });
+
+  it("maps bordo / persik aliases and keeps a written label", () => {
+    const bordo = parseModelAndColor("DUNK LOW BORDO", "NIKE");
+    const persik = parseModelAndColor("CAMPUS PERSIK", "adidas");
+    assert.equal(bordo.modelName, "DUNK LOW");
+    assert.equal(bordo.color, "BURGUNDY");
+    assert.equal(persik.modelName, "CAMPUS");
+    assert.equal(persik.color, "PEACH");
+  });
+
+  it("peels slash colorways with spaced or glued suffixes", () => {
+    const mex = parseModelAndColor("AIR FORCE 1 BLACK/WHITE MEX", "NIKE");
+    assert.equal(mex.modelName, "AIR FORCE 1");
+    assert.equal(mex.color, "BLACK/WHITE MEX");
+    const glued = parseModelAndColor("AIR FORCE 1 BLACK/WHITEMEX", "NIKE");
+    assert.equal(glued.modelName, "AIR FORCE 1");
+    assert.match(glued.color, /BLACK\/WHITE/i);
+    const zamsh = parseModelAndColor("DUNK LOW GREY/BLACK ZAMSH", "NIKE");
+    assert.equal(zamsh.modelName, "DUNK LOW");
+    assert.equal(zamsh.color, "GREY/BLACK ZAMSH");
+    const swoosh = parseModelAndColor("AIR FORCE 1 WHITE/BLACK SWOOSH", "NIKE");
+    assert.equal(swoosh.color, "WHITE/BLACK SWOOSH");
+  });
+});
+
+describe("resolveProductModel — empty color backfill", () => {
+  it("refreshes model_key when stored color is empty (1347)", () => {
+    const meta = resolveProductModel({
+      name: "AIR JORDAN 4 RETRO SOFTBLUE",
+      brand: "NIKE",
+      color: "",
+      model_key: "nike|air jordan 4 retro softblue",
+    });
+    assert.equal(meta.color, "SOFT BLUE");
+    assert.equal(meta.modelKey, "nike|air jordan 4 retro");
+  });
+
+  it("keeps a staff-written color and stored key", () => {
+    const meta = resolveProductModel({
+      name: "AIR JORDAN 4 RETRO SOFTBLUE",
+      brand: "Nike",
+      color: "Custom",
+      model_key: "nike|kept key",
+    });
+    assert.equal(meta.color, "Custom");
+    assert.equal(meta.modelKey, "nike|kept key");
+  });
 });
 
 describe("isColorToken", () => {
   it("accepts slash combos even with unknown second half", () => {
     assert.equal(isColorToken("WHITE/REDSNOR"), true);
     assert.equal(isColorToken("GREY/BLUE"), true);
+  });
+  it("accepts compounds, aliases and nicknames", () => {
+    assert.equal(isColorToken("SOFTBLUE"), true);
+    assert.equal(isColorToken("LIGHTBLUE"), true);
+    assert.equal(isColorToken("PSG"), true);
+    assert.equal(isColorToken("BORDO"), true);
+    assert.equal(isColorToken("PERSIK"), true);
+    assert.equal(isColorToken("BLACK/WHITEMEX"), true);
   });
   it("rejects model tokens", () => {
     assert.equal(isColorToken("JORDAN"), false);
@@ -152,5 +224,87 @@ describe("groupProductsIntoModels", () => {
     assert.equal(modelMatchesQuery(models[0], "1576"), true);
     assert.equal(modelMatchesQuery(models[0], "GREY"), true);
     assert.equal(modelMatchesQuery(models[0], "yeezy"), false);
+  });
+
+  it("default sort puts richer size stock first; same size in two colors counts twice", () => {
+    const stockRows = [
+      {
+        id: 10,
+        name: "CAMPUS BLACK",
+        brand: "Adidas",
+        article: "2001",
+        price_byn: 100,
+        active: true,
+        sizes: [
+          { size: "41", qty: 1 },
+          { size: "42", qty: 1 },
+        ],
+      },
+      {
+        id: 11,
+        name: "CAMPUS WHITE",
+        brand: "Adidas",
+        article: "2002",
+        price_byn: 100,
+        active: true,
+        sizes: [{ size: "41", qty: 2 }],
+      },
+      {
+        id: 12,
+        name: "YEEZY 350 BLACK",
+        brand: "Adidas",
+        article: "2003",
+        price_byn: 200,
+        active: true,
+        sizes: [{ size: "42", qty: 5 }],
+      },
+    ];
+    const models = groupProductsIntoModels(stockRows);
+    assert.equal(models[0].name, "CAMPUS");
+    assert.equal(models[0].stockSizeCount, 3);
+    assert.equal(models[1].name, "YEEZY 350");
+    assert.equal(models[1].stockSizeCount, 1);
+    assert.equal(modelStockSizeCount(models[0]), 3);
+    const byName = groupProductsIntoModels(stockRows, { sort: "name" });
+    assert.equal(byName[0].name, "CAMPUS");
+    assert.equal(byName[1].name, "YEEZY 350");
+    assert.equal(parseCatalogSort(""), "stock");
+    assert.equal(parseCatalogSort("name"), "name");
+  });
+
+  it("tie-breaks equal stock by brand then name", () => {
+    const models = groupProductsIntoModels([
+      {
+        id: 21,
+        name: "ZETA BLACK",
+        brand: "Nike",
+        article: "1",
+        price_byn: 1,
+        active: true,
+        sizes: [{ size: "41", qty: 1 }],
+      },
+      {
+        id: 22,
+        name: "ALPHA BLACK",
+        brand: "Nike",
+        article: "2",
+        price_byn: 1,
+        active: true,
+        sizes: [{ size: "42", qty: 1 }],
+      },
+      {
+        id: 23,
+        name: "BETA BLACK",
+        brand: "Adidas",
+        article: "3",
+        price_byn: 1,
+        active: true,
+        sizes: [{ size: "40", qty: 1 }],
+      },
+    ]);
+    assert.deepEqual(
+      models.map((m) => m.brand + "|" + m.name),
+      ["Adidas|BETA", "Nike|ALPHA", "Nike|ZETA"]
+    );
   });
 });

@@ -9,6 +9,8 @@ import {
   modelMatchesQuery,
   modelHasSize,
   resolveProductModel,
+  parseCatalogSort,
+  sortCatalogModels,
 } from "../lib/modelGroup.js";
 
 export async function ensureProductModelColumns() {
@@ -53,12 +55,17 @@ export async function backfillProductModelKeys() {
   for (const row of rows) {
     const brand = resolveBrand(row.brand, row.name);
     const parsed = parseModelAndColor(row.name, brand);
-    const color = String(row.color || "").trim() || parsed.color;
+    const storedColor = String(row.color || "").trim();
+    const color = storedColor || parsed.color;
     const brandChanged = brand !== String(row.brand || "");
-    const modelKey = brandChanged
+    // Empty color: persist peeled colorway and refreshed model_key (SOFTBLUE/PSG).
+    const refreshKey = brandChanged || !storedColor;
+    const modelKey = refreshKey
       ? parsed.modelKey
       : String(row.model_key || "").trim() || parsed.modelKey;
-    if (color === row.color && modelKey === row.model_key && brand === row.brand) continue;
+    if (color === String(row.color || "") && modelKey === String(row.model_key || "") && brand === row.brand) {
+      continue;
+    }
     await query(
       `UPDATE products SET brand = $2, color = $3, model_key = $4, updated_at = now() WHERE id = $1`,
       [row.id, brand, color, modelKey]
@@ -151,6 +158,7 @@ export async function listCatalogModels({
   sale = false,
   gender = "",
   color = "",
+  sort,
   inStockOnly = true,
   limit = 500,
   offset = 0,
@@ -158,6 +166,7 @@ export async function listCatalogModels({
   const saleOnly = sale === true || isSaleQuery(sale);
   const genderKey = parseGenderQuery(gender);
   const colorKey = parseColorQuery(color);
+  const sortKey = parseCatalogSort(sort);
   const { products } = await listProducts({
     brand,
     inStockOnly,
@@ -166,10 +175,11 @@ export async function listCatalogModels({
     limit: 1000,
     offset: 0,
   });
-  let models = groupProductsIntoModels(products, { inStockOnly });
+  let models = groupProductsIntoModels(products, { inStockOnly, sort: sortKey });
   if (size) models = models.filter((m) => modelHasSize(m, size));
   if (q) models = models.filter((m) => modelMatchesQuery(m, q));
   if (colorKey) models = filterModelsByColor(models, colorKey);
+  models = sortCatalogModels(models, sortKey);
   const total = models.length;
   const lim = Math.min(Math.max(Number(limit) || 500, 1), 1000);
   const off = Math.max(Number(offset) || 0, 0);
@@ -182,6 +192,7 @@ export async function listCatalogModels({
     sale: saleOnly,
     gender: genderKey || "",
     color: colorKey || "",
+    sort: sortKey,
   };
 }
 
