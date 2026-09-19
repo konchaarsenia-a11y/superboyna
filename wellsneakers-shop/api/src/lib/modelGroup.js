@@ -209,8 +209,13 @@ const COLOR_PHRASES = [
   "soft blue",
   "soft grey",
   "soft gray",
-  "soft pink",
+    "soft pink",
   "soft white",
+  "cactus jack",
+  "bodega bams",
+  "mini swoosh",
+  "spider man",
+  "green muslin",
 ].sort((a, b) => b.split(" ").length - a.split(" ").length || b.length - a.length);
 
 /** Catalog nicknames / local aliases that are colorways, not silhouette words. */
@@ -238,6 +243,17 @@ const COLOR_ALIASES = new Map(
     ["darkgray", "DARK GRAY"],
     ["lightgray", "LIGHT GRAY"],
     ["softgrey", "SOFT GREY"],
+    ["apple", "APPLE"],
+    ["banan", "BANAN"],
+    ["banana", "BANAN"],
+    ["kover", "KOVER"],
+    ["coffe", "COFFEE"],
+    ["spider-man", "SPIDER-MAN"],
+    ["spiderman", "SPIDER-MAN"],
+    ["muslin", "MUSLIN"],
+    ["cactus", "CACTUS"],
+    ["tiffany", "TIFFANY"],
+    ["phantom", "PHANTOM"],
   ].map(([k, v]) => [k.toLowerCase(), v])
 );
 
@@ -297,7 +313,214 @@ const COLOR_SUFFIXES = new Set([
   "koja",
   "kozha",
   "mesh",
+  "muslin",
 ]);
+
+/** Tokens that stay on the silhouette — not a colorway nickname. */
+const MODEL_WORDS = new Set(
+  [
+    "nike",
+    "n1ke",
+    "adidas",
+    "ad1das",
+    "reebok",
+    "ree6ok",
+    "asics",
+    "asic",
+    "converse",
+    "hoka",
+    "lacoste",
+    "dc",
+    "merrell",
+    "saucony",
+    "puma",
+    "vans",
+    "salomon",
+    "saloman",
+    "new",
+    "balance",
+    "triger",
+    "trigger",
+    "under",
+    "armour",
+    "armor",
+    "alexander",
+    "mcqueen",
+    "dr",
+    "martens",
+    "doc",
+    "air",
+    "jordan",
+    "dunk",
+    "force",
+    "sb",
+    "low",
+    "high",
+    "mid",
+    "retro",
+    "og",
+    "max",
+    "plus",
+    "yeezy",
+    "campus",
+    "cortez",
+    "spezial",
+    "samba",
+    "gazelle",
+    "superstar",
+    "bermuda",
+    "bermuba",
+    "blazer",
+    "vapor",
+    "vapormax",
+    "tn",
+    "initiator",
+    "numeris",
+    "spiridon",
+    "stussy",
+    "star",
+    "moab",
+    "zoom",
+    "pegasus",
+    "vomero",
+    "react",
+    "flyknit",
+    "presto",
+    "huarache",
+    "trainer",
+    "runner",
+    "runners",
+    "trail",
+    "gore",
+    "tex",
+    "goretex",
+    "xt",
+    "xt-6",
+    "speedcross",
+    "xa",
+    "pro",
+    "one",
+    "shox",
+    "forum",
+    "m2k",
+    "tekno",
+    "monarch",
+    "structure",
+    "airmax",
+    "airforce",
+    "men",
+    "mens",
+    "man",
+    "women",
+    "womens",
+    "woman",
+    "gs",
+    "ps",
+    "td",
+    "se",
+    "sp",
+    "nrg",
+    "prm",
+    "lv8",
+    "kids",
+    "kid",
+    "infant",
+    "preschool",
+    "premium",
+    "essential",
+    "next",
+    "nature",
+    "shoes",
+    "shoe",
+    "sneaker",
+    "sneakers",
+  ].map((s) => s.toLowerCase())
+);
+
+/** Anatomy that means we recognized a real silhouette (not just a brand). */
+const SILHOUETTE_CORE = new Set([
+  "dunk",
+  "jordan",
+  "force",
+  "campus",
+  "cortez",
+  "tn",
+  "yeezy",
+  "spezial",
+  "samba",
+  "gazelle",
+  "superstar",
+  "initiator",
+  "numeris",
+  "spiridon",
+  "blazer",
+  "vapormax",
+  "max",
+  "moab",
+  "shox",
+  "huarache",
+  "presto",
+  "pegasus",
+  "vomero",
+  "forum",
+  "bermuda",
+  "m2k",
+  "sb",
+]);
+
+function buildSilhouettes() {
+  const lines = new Set();
+  const add = (parts) => {
+    const s = parts.filter(Boolean).join(" ").trim();
+    if (s) lines.add(s);
+  };
+  const withBrand = (line) => {
+    add(line);
+    for (const brand of ["nike", "adidas", "reebok", "asics"]) add([brand, ...line]);
+  };
+  for (const h of ["low", "high", "mid"]) {
+    withBrand(["sb", "dunk", h]);
+    withBrand(["dunk", h]);
+    withBrand(["blazer", h]);
+    withBrand(["air", "force", "1", h]);
+    withBrand(["air", "jordan", "1", h]);
+  }
+  withBrand(["air", "force", "1"]);
+  withBrand(["air", "force", "1", "star"]);
+  withBrand(["air", "jordan", "1"]);
+  for (const n of ["3", "4", "5", "6", "11", "13"]) {
+    withBrand(["air", "jordan", n]);
+    withBrand(["air", "jordan", n, "retro"]);
+  }
+  withBrand(["cortez"]);
+  withBrand(["campus"]);
+  withBrand(["campus", "00s"]);
+  withBrand(["tn"]);
+  withBrand(["air", "max", "plus"]);
+  withBrand(["air", "max", "tn"]);
+  for (const n of ["1", "90", "95", "97", "270", "720"]) withBrand(["air", "max", n]);
+  for (const n of ["350", "500", "700"]) {
+    withBrand(["yeezy", n]);
+    add(["adidas", "yeezy", n]);
+  }
+  withBrand(["spezial"]);
+  withBrand(["samba"]);
+  withBrand(["gazelle"]);
+  withBrand(["superstar"]);
+  withBrand(["initiator"]);
+  withBrand(["numeris"]);
+  withBrand(["spiridon", "stussy"]);
+  withBrand(["spiridon"]);
+  add(["merrell", "moab"]);
+  add(["merrell", "moab", "3"]);
+  for (const n of ["550", "530", "574", "990", "991", "992", "993", "2002r", "9060", "327"]) {
+    add(["new", "balance", n]);
+    add(["triger", n]);
+  }
+  return [...lines].sort((a, b) => b.split(" ").length - a.split(" ").length || b.length - a.length);
+}
+
+const MODEL_SILHOUETTES = buildSilhouettes();
 
 const SWATCH = {
   black: "#141416",
@@ -476,8 +699,9 @@ export function isColorToken(token) {
   if (raw.includes("/")) return true;
   const lower = raw.toLowerCase();
   const base = colorBase(raw);
-  if (COLOR_WORDS.has(lower) || COLOR_WORDS.has(base)) return true;
-  if (COLOR_ALIASES.has(lower) || COLOR_ALIASES.has(base)) return true;
+  const compact = lower.replace(/[^a-zа-яё0-9]+/gi, "");
+  if (COLOR_WORDS.has(lower) || COLOR_WORDS.has(base) || COLOR_WORDS.has(compact)) return true;
+  if (COLOR_ALIASES.has(lower) || COLOR_ALIASES.has(base) || COLOR_ALIASES.has(compact)) return true;
   if (expandCompoundColor(raw)) return true;
   if (splitGluedSuffix(raw)) return true;
   const hyphenParts = raw.split("-").map((p) => p.trim()).filter(Boolean);
@@ -487,6 +711,88 @@ export function isColorToken(token) {
 
 function joinTokens(tokens) {
   return tokens.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function formatTailColor(parts) {
+  return joinTokens(parts.map((t) => formatColorLabel(t) || t)).toUpperCase();
+}
+
+function isJunkToken(token) {
+  const raw = String(token || "").trim();
+  if (!raw) return true;
+  if (/^\d+$/.test(raw)) return true;
+  return isColorSuffix(raw);
+}
+
+function isModelNumberToken(token, prevToken) {
+  const raw = String(token || "").trim();
+  if (!raw) return false;
+  if (/^[a-z]{1,4}-\d+$/i.test(raw)) return true;
+  if (!/^\d+[a-z]{0,2}$/i.test(raw)) return false;
+  if (prevToken && isColorToken(prevToken)) return false;
+  return true;
+}
+
+function isModelToken(token, prevToken) {
+  const raw = String(token || "").trim();
+  if (!raw) return false;
+  const lower = raw.toLowerCase();
+  const compact = lower.replace(/[^a-zа-яё0-9-]+/gi, "");
+  if (MODEL_WORDS.has(lower) || MODEL_WORDS.has(compact)) return true;
+  if (isModelNumberToken(raw, prevToken)) return true;
+  return false;
+}
+
+/** Longest known silhouette that is a proper prefix (room left for a color tail). */
+export function knownSilhouettePrefixLength(tokens) {
+  const lower = (tokens || []).map((t) => String(t).toLowerCase());
+  const n = lower.length;
+  let best = 0;
+  for (const sil of MODEL_SILHOUETTES) {
+    const parts = sil.split(" ");
+    if (parts.length >= n || parts.length <= best) continue;
+    if (lower.slice(0, parts.length).join(" ") === sil) best = parts.length;
+  }
+  return best;
+}
+
+function peelColorPlusJunk(tokens, colorBits) {
+  if (tokens.length < 3) return false;
+  let colorIdx = -1;
+  for (let i = 1; i < tokens.length; i++) {
+    if (!isColorToken(tokens[i])) continue;
+    const after = tokens.slice(i + 1);
+    if (after.length && after.every(isJunkToken)) colorIdx = i;
+  }
+  if (colorIdx < 1) return false;
+  colorBits.unshift(formatTailColor(tokens.splice(colorIdx)));
+  return true;
+}
+
+function peelSilhouetteLeftover(tokens, colorBits) {
+  const prefixLen = knownSilhouettePrefixLength(tokens);
+  if (prefixLen < 1 || prefixLen >= tokens.length) return false;
+  const prev = tokens[prefixLen - 1];
+  const tail = tokens.slice(prefixLen);
+  // "MERRELL MOAB 3": shorter silhouette "merrell moab" must not steal the model number.
+  if (tail.every((t, idx) => isModelToken(t, idx ? tail[idx - 1] : prev))) return false;
+  colorBits.unshift(formatTailColor(tokens.splice(prefixLen)));
+  return true;
+}
+
+function peelModelWordTail(tokens, colorBits) {
+  if (tokens.length <= 1) return false;
+  let i = 0;
+  while (i < tokens.length && isModelToken(tokens[i], i ? tokens[i - 1] : "")) i++;
+  if (i <= 0 || i >= tokens.length) return false;
+  const head = tokens.slice(0, i);
+  const hasCore = head.some((t, idx) => {
+    const low = String(t).toLowerCase();
+    return SILHOUETTE_CORE.has(low) || isModelNumberToken(t, idx ? head[idx - 1] : "");
+  });
+  if (!hasCore) return false;
+  colorBits.unshift(formatTailColor(tokens.splice(i)));
+  return true;
 }
 
 /**
@@ -546,6 +852,9 @@ export function parseModelAndColor(name, brand = "") {
     /* peel trailing color / phrase / slash+suffix */
   }
 
+  // Known color + junk (BLACK 2 SWOOSH): peel from the color through the tail.
+  if (!colorBits.length) peelColorPlusJunk(tokens, colorBits);
+
   // Slash colorway in the middle: MODEL GREY/BLACK MEX → peel from the slash token.
   if (!colorBits.length || tokens.some((t, i) => i > 0 && t.includes("/"))) {
     let slashIdx = -1;
@@ -557,6 +866,10 @@ export function parseModelAndColor(name, brand = "") {
       colorBits.unshift(joinTokens(tail));
     }
   }
+
+  // Leftover nicknames / collabs after a known silhouette (APPLE, CACTUS JACK…).
+  if (!colorBits.length) peelSilhouetteLeftover(tokens, colorBits);
+  if (!colorBits.length) peelModelWordTail(tokens, colorBits);
 
   const modelName = joinTokens(tokens) || originalName;
   const color = joinTokens(colorBits);
@@ -575,7 +888,7 @@ export function resolveProductModel(product) {
   const storedColor = String(product?.color || "").trim();
   const storedBrand = String(product?.brand || "").trim();
   const brandChanged = Boolean(brand) && brand !== storedBrand;
-  // Empty color: re-parse so SOFTBLUE/PSG peel into model_key + written colorway.
+  // Empty color: re-parse so SOFTBLUE/PSG/APPLE peel into model_key + written colorway.
   const refreshKey = brandChanged || !storedColor;
   return {
     modelName: parsed.modelName,
