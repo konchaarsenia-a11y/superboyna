@@ -12778,6 +12778,7 @@ async function handleCutover_(a, params, env, ctx) {
     a === "calcPrice" ||
     a === "getRetailPriceList" ||
     a === "calcPpFact" ||
+    a === "unlockPpCostBreakdown" ||
     a === "migratePpToRaw26Scheme" ||
     a === "getPpFactCost" ||
     a === "getPpOrderSuggest" ||
@@ -12808,6 +12809,9 @@ async function handleCutover_(a, params, env, ctx) {
     }
     if (isPriceD1PrimaryCanon_(env) && a === "calcPpFact") {
       return calcPpFactD1_(params, env, ctx);
+    }
+    if (a === "unlockPpCostBreakdown") {
+      return unlockPpCostBreakdownD1_(params, env);
     }
     if (isPriceD1PrimaryCanon_(env) && a === "calcPrice" && isPpCalcMode_(params)) {
       return calcPricePpD1_(params, env, ctx);
@@ -18186,6 +18190,7 @@ const PP_RAW26_RECOVER_100_D1_ = 3.9;
 const PP_RAW26_RECOVER_PIECE_D1_ = 0.5;
 const PP_RAW26_DELIVERY_PER_D1_ = 9;
 const PP_RAW26_RETAIL_CAP_D1_ = 0.92;
+const STATS_DELIVERY_FUEL_PER_D1_ = 4;
 const PP_LEGACY_COEF_DEFAULT_D1_ = 2.3;
 const PP_LEGACY_FIXED_D1_ = 11;
 const PP_LEGACY_DELIVERY_PER_D1_ = 6;
@@ -18560,6 +18565,85 @@ function retailGoodsBynFromBasketD1_(map, basket) {
   return Math.round(sum * 100) / 100;
 }
 
+async function unlockPpCostBreakdownD1_(params, env) {
+  const tid = String((params && (params.telegramId || params.tid)) || "").trim();
+  let role = "";
+  if (tid && env && env.DB) {
+    try {
+      const snap = await getSnapRaw_(env, "access:" + tid);
+      role = String((snap && snap.role) || "").toLowerCase();
+    } catch (eR) {
+      role = "";
+    }
+  }
+  if (role !== "owner" && role !== "all") {
+    return { status: "error", message: "forbidden", unlocked: false };
+  }
+  const expected = String((env && env.PP_COST_BREAKDOWN_PIN) || "").trim();
+  if (!expected) {
+    return { status: "error", message: "pin_not_configured", unlocked: false, pinRequired: true };
+  }
+  const pin = String((params && params.pin) || "").trim();
+  if (!pin || pin !== expected) {
+    return { status: "error", message: "bad_pin", unlocked: false, pinRequired: true };
+  }
+  return { status: "success", unlocked: true, pinRequired: true };
+}
+
+function raw26OfferCleanBynD1_(clientPrice, raw, recover, packagesByn, deliveriesN) {
+  const n = Math.max(1, Number(deliveriesN) || 1);
+  const fuel = STATS_DELIVERY_FUEL_PER_D1_ * n;
+  return (
+    Math.round(
+      ((Number(clientPrice) || 0) -
+        (Number(raw) || 0) -
+        (Number(recover) || 0) -
+        (Number(packagesByn) || 0) -
+        fuel) *
+        100
+    ) / 100
+  );
+}
+
+function applyRaw26RetailCapAllocD1_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
+  let g = Math.round((Number(goods) || 0) * 100) / 100;
+  const d = Math.round((Number(delivery) || 0) * 100) / 100;
+  let p = Math.round((Number(packagesByn) || 0) * 100) / 100;
+  let f = Math.round((Number(fracMark) || 0) * 100) / 100;
+  const cap = Math.round((Number(capAt) || 0) * 100) / 100;
+  let floor = Math.round((Number(goodsFloor) || 0) * 100) / 100;
+  if (floor < 0) floor = 0;
+  const full = Math.round((g + d + p + f) * 100) / 100;
+  const capped = cap > 0 && full > cap;
+  if (capped) {
+    let excess = Math.round((full - cap) * 100) / 100;
+    if (f > 0 && excess > 0) {
+      const cutF = Math.min(f, excess);
+      f = Math.round((f - cutF) * 100) / 100;
+      excess = Math.round((excess - cutF) * 100) / 100;
+    }
+    if (excess > 0) {
+      const room = Math.max(0, Math.round((g - floor) * 100) / 100);
+      const cutG = Math.min(room, excess);
+      g = Math.round((g - cutG) * 100) / 100;
+      excess = Math.round((excess - cutG) * 100) / 100;
+    }
+    if (excess > 0 && p > 0) {
+      const cutP = Math.min(p, excess);
+      p = Math.round((p - cutP) * 100) / 100;
+    }
+  }
+  return {
+    goods: g,
+    delivery: d,
+    packagesByn: p,
+    fractionMarkup: f,
+    factCost: Math.round((g + d + p + f) * 100) / 100,
+    retailCapped: !!capped,
+    retailCapAt: cap
+  };
+}
+
 function computePpFactFromCostD1_(
   costSum,
   basket,
@@ -18590,40 +18674,58 @@ function computePpFactFromCostD1_(
     if (!isFinite(coef) || coef <= 0) coef = PP_RAW26_COEF_DEFAULT_D1_;
     const recover = recoverBynFromPpLinesD1_(linesOpt && linesOpt.length ? linesOpt : basket);
     const delivery = PP_RAW26_DELIVERY_PER_D1_ * n;
-    let goods = Math.round((raw * coef + recover) * 100) / 100;
+    const goods = Math.round((raw * coef + recover) * 100) / 100;
     const retailGoods =
       retailGoodsOpt != null && retailGoodsOpt !== ""
         ? Number(retailGoodsOpt)
         : 0;
-    let capped = false;
     let capAt = 0;
     if (isFinite(retailGoods) && retailGoods > 0) {
-      capAt = Math.round(retailGoods * PP_RAW26_RETAIL_CAP_D1_ * 100) / 100;
-      if (goods > capAt) {
-        goods = capAt;
-        capped = true;
-      }
+      capAt = Math.round((retailGoods + delivery) * PP_RAW26_RETAIL_CAP_D1_ * 100) / 100;
     }
-    let factCost = Math.round((goods + delivery + packagesByn + fracMark) * 100) / 100;
-    if (capAt > 0 && factCost > capAt) {
-      factCost = capAt;
-      capped = true;
-    }
+    const goodsFloor = Math.round((raw + recover) * 100) / 100;
+    const alloc = applyRaw26RetailCapAllocD1_(
+      goods,
+      delivery,
+      packagesByn,
+      fracMark,
+      capAt,
+      goodsFloor
+    );
+    const factBefore = Math.round((goods + delivery + packagesByn + fracMark) * 100) / 100;
+    const retailCapBase =
+      isFinite(retailGoods) && retailGoods > 0
+        ? Math.round((retailGoods + delivery) * 100) / 100
+        : 0;
+    const cutParts = [];
+    if (alloc.fractionMarkup < fracMark - 0.001) cutParts.push("фракции");
+    if (alloc.goods < goods - 0.001) cutParts.push("товар");
+    if (alloc.packagesByn < packagesByn - 0.001) cutParts.push("пакеты");
     out = {
       scheme: "RAW26",
-      factCost: factCost,
+      factCost: alloc.factCost,
       deliveriesN: n,
       coef: coef,
       fixed: 0,
       recoverByn: recover,
-      goodsByn: goods,
+      goodsByn: alloc.goods,
+      goodsBeforeCap: goods,
       retailGoods: isFinite(retailGoods) ? retailGoods : 0,
-      retailCapped: capped,
-      retailCapAt: capAt,
-      deliveryByn: delivery,
-      packagesByn: packagesByn,
+      retailCapBase: retailCapBase,
+      retailCapped: alloc.retailCapped,
+      retailCapAt: alloc.retailCapAt,
+      deliveryByn: alloc.delivery,
+      packagesByn: alloc.packagesByn,
+      packagesBeforeCap: packagesByn,
       packCounts: pc,
-      fractionMarkup: fracMark
+      fractionMarkup: alloc.fractionMarkup,
+      fractionBeforeCap: fracMark,
+      factBeforeCap: factBefore,
+      factAfterCap: alloc.factCost,
+      capCutByn: Math.round((factBefore - alloc.factCost) * 100) / 100,
+      capCutFrom: cutParts.join("+"),
+      cleanBeforeCap: raw26OfferCleanBynD1_(factBefore, raw, recover, packagesByn, n),
+      cleanAfterCap: raw26OfferCleanBynD1_(alloc.factCost, raw, recover, alloc.packagesByn, n)
     };
   } else {
     if (!isFinite(coef) || coef <= 0) coef = PP_LEGACY_COEF_DEFAULT_D1_;

@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115973" as="script">
+  <link rel="preload" href="app.main.js?v=71115974" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115973";
+      var APP_VER = "v71115974";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2199,6 +2199,11 @@
               <input type="number" id="subDetailFact" step="0.01" inputmode="decimal" readonly
                 style="font-size:22px;font-weight:700;color:#30d158;opacity:0.95;">
               <div class="muted" id="subDetailFactHint" style="font-size:12px;margin-top:6px;">считается от состава · пакеты/фракции — в глубоком редакторе</div>
+              <div class="muted" id="subDetailCleanPair" style="font-size:12px;margin-top:8px;display:none;"></div>
+              <button type="button" id="btnPpCostBreakdown" class="btn-action"
+                style="display:none;margin-top:10px;width:100%;"
+                onclick="openPpCostBreakdown_()">Экономика</button>
+              <div id="ppCostBreakdownPanel" style="display:none;margin-top:10px;padding:10px;background:#111;border-radius:10px;font-size:12px;line-height:1.45;"></div>
             </div>
             <div class="form-group" style="margin-bottom:0;">
               <label>Указанная стоимость (BYN)</label>
@@ -2844,7 +2849,7 @@
   <div class="toast" id="appToast"></div>
   <div class="card" id="crumbBuilderCard" style="display:none;position:fixed;left:12px;right:12px;bottom:calc(12px + var(--safe-bottom));z-index:10040;max-height:70vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.45);"></div>
 
-  <script src="courier-maps.js?v=71115973"></script>
-  <script src="app.main.js?v=71115973" defer></script>
+  <script src="courier-maps.js?v=71115974"></script>
+  <script src="app.main.js?v=71115974" defer></script>
 </body>
 </html>

@@ -23,6 +23,8 @@ WEEK_CLOSE_CANON = "d1-sync"
 
 # Secret (не в vars): wrangler secret put TELEGRAM_BOT_TOKEN
 # Без секрета sendCourier/forceSurvey → GAS fallback
+# PP cost breakdown: wrangler secret put PP_COST_BREAKDOWN_PIN
+# Значение не в git; хаб кладёт после merge (то, что дал Арсений). Пустой секрет = панель закрыта.
 
 [[d1_databases]]
 binding = "DB"

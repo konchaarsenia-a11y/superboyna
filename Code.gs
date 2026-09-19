@@ -2511,6 +2511,12 @@ function doGet(e) {
       forNew: e.parameter.forNew || ""
     }, callback, false);
   }
+  if (action === "unlockPpCostBreakdown") {
+    return handleUnlockPpCostBreakdown({
+      telegramId: e.parameter.telegramId || e.parameter.tid || "",
+      pin: e.parameter.pin || ""
+    }, callback, false);
+  }
   if (action === "migratePpToRaw26Scheme") {
     return handleMigratePpToRaw26Scheme({
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
@@ -3042,6 +3048,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "calcPpFact") {
     return handleCalcPpFact(json, callback, fromPost);
+  }
+  if (action === "unlockPpCostBreakdown") {
+    return handleUnlockPpCostBreakdown(json, callback, fromPost);
   }
   if (action === "migratePpToRaw26Scheme") {
     return handleMigratePpToRaw26Scheme(json, callback, fromPost);
@@ -18382,8 +18391,10 @@ function packagesBynFromUCounts_(pc) {
  * LEGACY: сырьё×coef + 11 + 6×N + пакеты + фракции  (старые карточки без тега)
  * RAW26:  сырьё×coef + recover + 9×N + пакеты + фракции
  *   recover_100г=3.90 · recover_шт/пак=0.50 · coef по умолчанию 2.6
- *   финальный кап: цена = min(полная, Σрозница_строк×0.92); розница без доставки.
- *   retail=0/нет → кап не применять (не выдумывать).
+ *   финальный кап: retailCapBase = Σрозница_строк + 9×N (без пакетов/фракций);
+ *   цена = min(полная, retailCapBase×0.92). Σстрок=0/нет → кап не применять.
+ *   если кап сработал: сначала режем фракции, затем товар до raw+recover;
+ *   пакеты — только после пола товара; 9×N не режем.
  * Новые зачисления с 2026-08-31 → RAW26; старые без изменений, пока не migratePpToRaw26Scheme.
  * Календарь доставок / уже выставленные цены в доставках не трогаем.
  */
@@ -18482,8 +18493,64 @@ function retailGoodsBynFromBasket_(basket) {
  * @param {Object=} packCountsOpt
  * @param {string=} schemeOpt LEGACY|RAW26
  * @param {Array=} linesOpt линии с piece/val (для recover)
- * @param {number=} retailGoodsOpt Σ розницы строк (финальный потолок 92% полной цены)
+ * @param {number=} retailGoodsOpt Σ розницы строк; кап = 0.92×(это + 9×N), пакеты/фракции не в базе
  */
+/**
+ * Чистые оффера RAW26 = цена клиенту − сырьё − recover − пакеты − топливо 4×N.
+ * Совпадает с getStats при нарезчике ON (фракции и 5×N остаются в чистом).
+ */
+function raw26OfferCleanByn_(clientPrice, raw, recover, packagesByn, deliveriesN) {
+  var n = Math.max(1, Number(deliveriesN) || 1);
+  var fuel = STATS_DELIVERY_FUEL_PER_ * n;
+  return Math.round(
+    ((Number(clientPrice) || 0) - (Number(raw) || 0) - (Number(recover) || 0) -
+      (Number(packagesByn) || 0) - fuel) * 100
+  ) / 100;
+}
+
+/**
+ * RAW26: если полная > cap, режем сначала фракции, затем товар до raw+recover.
+ * Пакеты — только после пола товара. Доставку 9×N не режем.
+ */
+function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
+  var g = Math.round((Number(goods) || 0) * 100) / 100;
+  var d = Math.round((Number(delivery) || 0) * 100) / 100;
+  var p = Math.round((Number(packagesByn) || 0) * 100) / 100;
+  var f = Math.round((Number(fracMark) || 0) * 100) / 100;
+  var cap = Math.round((Number(capAt) || 0) * 100) / 100;
+  var floor = Math.round((Number(goodsFloor) || 0) * 100) / 100;
+  if (floor < 0) floor = 0;
+  var full = Math.round((g + d + p + f) * 100) / 100;
+  var capped = cap > 0 && full > cap;
+  if (capped) {
+    var excess = Math.round((full - cap) * 100) / 100;
+    if (f > 0 && excess > 0) {
+      var cutF = Math.min(f, excess);
+      f = Math.round((f - cutF) * 100) / 100;
+      excess = Math.round((excess - cutF) * 100) / 100;
+    }
+    if (excess > 0) {
+      var room = Math.max(0, Math.round((g - floor) * 100) / 100);
+      var cutG = Math.min(room, excess);
+      g = Math.round((g - cutG) * 100) / 100;
+      excess = Math.round((excess - cutG) * 100) / 100;
+    }
+    if (excess > 0 && p > 0) {
+      var cutP = Math.min(p, excess);
+      p = Math.round((p - cutP) * 100) / 100;
+    }
+  }
+  return {
+    goods: g,
+    delivery: d,
+    packagesByn: p,
+    fractionMarkup: f,
+    factCost: Math.round((g + d + p + f) * 100) / 100,
+    retailCapped: !!capped,
+    retailCapAt: cap
+  };
+}
+
 function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCountsOpt, schemeOpt, linesOpt, retailGoodsOpt) {
   var scheme = normalizePpScheme_(schemeOpt) || "LEGACY";
   var n = Math.max(1, Number(deliveriesN) || 1);
@@ -18509,35 +18576,45 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
     var retailGoods = retailGoodsOpt != null && retailGoodsOpt !== ""
       ? Number(retailGoodsOpt)
       : retailGoodsBynFromBasket_(basket);
-    var capped = false;
     var capAt = 0;
     if (isFinite(retailGoods) && retailGoods > 0) {
-      capAt = Math.round(retailGoods * PP_RAW26_RETAIL_CAP_ * 100) / 100;
-      if (goods > capAt) {
-        goods = capAt;
-        capped = true;
-      }
+      capAt = Math.round((retailGoods + delivery) * PP_RAW26_RETAIL_CAP_ * 100) / 100;
     }
-    var factCost = Math.round((goods + delivery + packagesByn + fracMark) * 100) / 100;
-    if (capAt > 0 && factCost > capAt) {
-      factCost = capAt;
-      capped = true;
-    }
+    var goodsFloor = Math.round((raw + recover) * 100) / 100;
+    var alloc = applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor);
+    var factBefore = Math.round((goods + delivery + packagesByn + fracMark) * 100) / 100;
+    var retailCapBase = (isFinite(retailGoods) && retailGoods > 0)
+      ? Math.round((retailGoods + delivery) * 100) / 100
+      : 0;
+    var cutParts = [];
+    if (alloc.fractionMarkup < fracMark - 0.001) cutParts.push("фракции");
+    if (alloc.goods < goods - 0.001) cutParts.push("товар");
+    if (alloc.packagesByn < packagesByn - 0.001) cutParts.push("пакеты");
     out = {
       scheme: "RAW26",
-      factCost: factCost,
+      factCost: alloc.factCost,
       deliveriesN: n,
       coef: coef,
       fixed: 0,
       recoverByn: recover,
-      goodsByn: goods,
+      goodsByn: alloc.goods,
+      goodsBeforeCap: goods,
       retailGoods: isFinite(retailGoods) ? retailGoods : 0,
-      retailCapped: capped,
-      retailCapAt: capAt,
-      deliveryByn: delivery,
-      packagesByn: packagesByn,
+      retailCapBase: retailCapBase,
+      retailCapped: alloc.retailCapped,
+      retailCapAt: alloc.retailCapAt,
+      deliveryByn: alloc.delivery,
+      packagesByn: alloc.packagesByn,
+      packagesBeforeCap: packagesByn,
       packCounts: pc,
-      fractionMarkup: fracMark
+      fractionMarkup: alloc.fractionMarkup,
+      fractionBeforeCap: fracMark,
+      factBeforeCap: factBefore,
+      factAfterCap: alloc.factCost,
+      capCutByn: Math.round((factBefore - alloc.factCost) * 100) / 100,
+      capCutFrom: cutParts.join("+"),
+      cleanBeforeCap: raw26OfferCleanByn_(factBefore, raw, recover, packagesByn, n),
+      cleanAfterCap: raw26OfferCleanByn_(alloc.factCost, raw, recover, alloc.packagesByn, n)
     };
   } else {
     if (!isFinite(coef) || coef <= 0) coef = PP_LEGACY_COEF_DEFAULT_;
@@ -18637,6 +18714,48 @@ function statsBpDeliveryInCleanByn_(nDel) {
   var n = Math.max(0, Number(nDel) || 0);
   var rem = Math.round(((BP_DELIVERY_COST_BYN_ - STATS_DELIVERY_FUEL_PER_) * n) * 100) / 100;
   return rem > 0 ? rem : 0;
+}
+
+function canUnlockPpCostBreakdown_(telegramId) {
+  var tid = String(telegramId || "").trim();
+  if (!tid) return false;
+  try { if (isOwnerId_(tid)) return true; } catch (eO) {}
+  try {
+    var row = findAccessById_(tid);
+    if (!row) return false;
+    var role = String(row.role || "").toLowerCase();
+    var st = String(row.status || "").toLowerCase();
+    if (st === "denied" || st === "pending") return false;
+    return role === "owner" || role === "all";
+  } catch (eR) {
+    return false;
+  }
+}
+
+function handleUnlockPpCostBreakdown(json, callback, fromPost) {
+  json = json || {};
+  var tid = String(json.telegramId || json.tid || "").trim();
+  if (!canUnlockPpCostBreakdown_(tid)) {
+    var forbid = { status: "error", message: "forbidden", unlocked: false };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var expected = "";
+  try {
+    expected = String(PropertiesService.getScriptProperties().getProperty("PP_COST_BREAKDOWN_PIN") || "").trim();
+  } catch (eP) {
+    expected = "";
+  }
+  if (!expected) {
+    var unset = { status: "error", message: "pin_not_configured", unlocked: false, pinRequired: true };
+    return fromPost ? jsonpText(callback, unset) : jsonp(callback, unset);
+  }
+  var pin = String(json.pin || "").trim();
+  if (!pin || pin !== expected) {
+    var bad = { status: "error", message: "bad_pin", unlocked: false, pinRequired: true };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var ok = { status: "success", unlocked: true, pinRequired: true };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
 /** Полный пересчёт ФАКТ СТОИМОСТЬ ПП по составу. */
