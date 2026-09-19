@@ -36,7 +36,7 @@ assert(ui.includes("note: permanentNotesRawOnly_("), "profile memory stores perm
 assert(ui.includes("var permanentNoteTagged"), "save snapshots tagged perm notes before reset");
 assert(ui.includes('clearNote: noteCleared ? "1" : ""'), "save still sends clearNote");
 assert(/upsertOrderRow_\([\s\S]{0,500}\{\s*params:\s*params\s*\}/.test(worker), "Worker save passes params to upsert");
-assert(/v71115979/.test(html) && /v71115979/.test(ui) && /71115979/.test(idx), "Pages v71115979");
+assert(/v71115980/.test(html) && /v71115980/.test(ui) && /71115980/.test(idx), "Pages v71115980");
 assert(/tap-once-notes-h1/.test(tz), "TZ marker");
 
 function extractFn(src, name) {

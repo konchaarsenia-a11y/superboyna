@@ -34,8 +34,8 @@ assert(ui.includes("showCrumbInSelector_") && ui.includes('card: "selectorCard"'
 assert(!/BYN\/100г/.test(ui.match(/function renderCrumbBuilder_[\s\S]*?\n    \}/)[0]), "kind buttons have no prices");
 assert(ui.includes('label: "мясные"') && ui.includes('label: "гипоаллергенные"'), "kind labels only");
 assert(ui.includes('(on ? "btn-green" : k.cls)'), "active kind stays green");
-assert(/displayMain = isCrumb\s*\n\s*\? "крошка"/.test(ui) || ui.includes('? "крошка"'), "basket title is «крошка»");
-assert(ui.includes('var title = "крошка" + (joined ? (" · " + joined + ratioBit) : "")'), "view lines = крошка + sources");
+assert(ui.includes("crumbBasketDisplayMain_") && ui.includes("crumbBasketSubLabel_"), "basket shows SKU main + kind subtitle");
+assert(ui.includes("crumbClientMessageLine_"), "client line helper");
 
 assert(ui.includes("function loadOrderNotesForNewOrder_"), "new-order notes filter");
 assert(ui.includes("function permanentNotesRawOnly_"), "drop once notes for next order");
@@ -62,7 +62,7 @@ assert(!/fact\.statedCost = fact\.factCost/.test(gs), "GAS calc does not overwri
 assert(worker.includes("statedCost: statedCost"), "getPpFactCost D1 returns statedCost");
 assert(gs.includes("out.statedCost = out.factCost"), "GAS getPpFactCost echoes sheet as stated");
 
-assert(/v71115979/.test(html) && /v71115979/.test(ui) && /71115979/.test(idx), "Pages v71115979");
+assert(/v71115980/.test(html) && /v71115980/.test(ui) && /71115980/.test(idx), "Pages v71115980");
 assert(gs.includes("function crumbKindRateGs_") && gs.includes("function ppLineFromBasketItemGs_"), "GAS mixer 15/17/20 helper");
 assert(/arseniy-miniapp-pack-h1/.test(tz), "TZ marker");
 assert(/15\/17\/20/.test(subPrice) && /крошка-миксер/i.test(subPrice), "RAW26 crumb pricing in canon");
