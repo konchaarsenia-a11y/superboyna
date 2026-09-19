@@ -18221,32 +18221,12 @@ function handleCalcPrice(json, callback, fromPost) {
   }
   var lines = [];
   var totalCost = 0;
-  for (var i = 0; i < basket.length; i++) {
-    var it = basket[i];
-    var name = String(it.name || it.main || "").trim();
-    var sub = String(it.sub || "").trim();
-    var val = Number(it.val != null ? it.val : it.value) || 0;
-    var cat = String(it.cat || "").trim();
-    if (!name || val <= 0) continue;
-    var info = lookupPpCostInfoGs_(priceInfo.costs, name, sub);
-    var unitPrice = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
-    var piece = false;
-    if (info && info.piece) piece = true;
-    else if (cat === "chew" || cat === "chews") piece = true;
-    else if (isPieceSkuName_(name) || /шт/i.test(name)) piece = true;
-    else if (info && info.grams === false) piece = true;
-    var cost = piece ? (unitPrice * val) : ((val / 100) * unitPrice);
-    totalCost += cost;
-    lines.push({
-      name: name,
-      sub: sub,
-      val: val,
-      per100: unitPrice,
-      unitPrice: unitPrice,
-      piece: piece,
-      cost: Math.round(cost * 100) / 100
-    });
-  }
+    for (var i = 0; i < basket.length; i++) {
+      var lineCp = ppLineFromBasketItemGs_(basket[i], priceInfo.costs);
+      if (!lineCp) continue;
+      totalCost += lineCp.cost;
+      lines.push(lineCp);
+    }
   var rawCost = Math.round(totalCost * 100) / 100;
   // calcPrice без явной схемы = новые (вкладка Расчёт) → RAW26 после cutoff
   if ((json.forNew == null || json.forNew === "") &&
@@ -18454,6 +18434,60 @@ function isGramCrumbLineGs_(L) {
   if (Object.prototype.toString.call(L.sources) === "[object Array]" && L.sources.length) return true;
   var name = String(L.name || L.main || "");
   return /^крошка\b/i.test(name) && !/шт/i.test(name);
+}
+
+/** Крошка-миксер: овощи/фрукты 15 / мяс 17 / гипо 20 за 100 г (raw, не таблица фракций). */
+function crumbKindRateGs_(kind) {
+  var k = String(kind || "").toLowerCase().replace(/ё/g, "е");
+  if (k === "veg" || k === "veggie" || /овощ|фрукт/.test(k)) return 15;
+  if (k === "meat" || /мяс/.test(k)) return 17;
+  if (k === "hypo" || /гипо/.test(k)) return 20;
+  return 0;
+}
+
+/** Сырьё линии: миксер 15/17/20, иначе lookup. Не путать с piece «КРОШКА ЛЁГКОГО». */
+function ppLineFromBasketItemGs_(it, costs) {
+  it = it || {};
+  var name = String(it.name || it.main || "").trim();
+  var sub = String(it.sub || "").trim();
+  var val = Number(it.val != null ? it.val : it.value) || 0;
+  var cat = String(it.cat || "").trim();
+  if (!name || val <= 0) return null;
+  if (isGramCrumbLineGs_({ cat: cat, name: name, crumbKind: it.crumbKind, sources: it.sources })) {
+    var crumbRate = crumbKindRateGs_(it.crumbKind || sub || name);
+    if (crumbRate > 0) {
+      var crumbCost = (val / 100) * crumbRate;
+      return {
+        name: name,
+        sub: sub,
+        val: val,
+        per100: crumbRate,
+        unitPrice: crumbRate,
+        piece: false,
+        cost: Math.round(crumbCost * 100) / 100,
+        cat: "crumb",
+        crumbKind: it.crumbKind || ""
+      };
+    }
+  }
+  var info = lookupPpCostInfoGs_(costs, name, sub);
+  var unitPrice = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
+  var piece = false;
+  if (info && info.piece) piece = true;
+  else if (cat === "chew" || cat === "chews" || cat === "powder") piece = true;
+  else if (isPieceSkuName_(name) || /шт/i.test(name)) piece = true;
+  else if (info && info.grams === false) piece = true;
+  var cost = piece ? (unitPrice * val) : ((val / 100) * unitPrice);
+  return {
+    name: name,
+    sub: sub,
+    val: val,
+    per100: unitPrice,
+    unitPrice: unitPrice,
+    piece: piece,
+    cost: Math.round(cost * 100) / 100,
+    cat: cat
+  };
 }
 
 /** recover по линиям (piece|grams). lines: [{piece,val}] или basket+piece-detect. */
@@ -18769,22 +18803,10 @@ function handleCalcPpFact(json, callback, fromPost) {
     var totalCost = 0;
     var lines = [];
     for (var i = 0; i < basket.length; i++) {
-      var it = basket[i];
-      var name = String(it.name || it.main || "").trim();
-      var sub = String(it.sub || "").trim();
-      var val = Number(it.val != null ? it.val : it.value) || 0;
-      var cat = String(it.cat || "").trim();
-      if (!name || val <= 0) continue;
-      var info = lookupPpCostInfoGs_(priceInfo.costs, name, sub);
-      var unitPrice = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
-      var piece = false;
-      if (info && info.piece) piece = true;
-      else if (cat === "chew" || cat === "chews") piece = true;
-      else if (isPieceSkuName_(name) || /шт/i.test(name)) piece = true;
-      else if (info && info.grams === false) piece = true;
-      var cost = piece ? (unitPrice * val) : ((val / 100) * unitPrice);
-      totalCost += cost;
-      lines.push({ name: name, sub: sub, val: val, unitPrice: unitPrice, piece: piece, cost: Math.round(cost * 100) / 100 });
+      var lineCf = ppLineFromBasketItemGs_(basket[i], priceInfo.costs);
+      if (!lineCf) continue;
+      totalCost += lineCf.cost;
+      lines.push(lineCf);
     }
     totalCost = Math.round(totalCost * 100) / 100;
     var coefIn = (json.coef != null && json.coef !== "") ? json.coef : null;
@@ -19876,19 +19898,9 @@ function estimateBasketRawCost_(basket, modeHint) {
     if (!priceInfo || !priceInfo.costs) return 0;
     var total = 0;
     for (var i = 0; i < basket.length; i++) {
-      var it = basket[i] || {};
-      var name = String(it.name || it.main || "").trim();
-      var sub = String(it.sub || "").trim();
-      var val = Number(it.val != null ? it.val : it.value) || 0;
-      var cat = String(it.cat || "").trim();
-      if (!name || val <= 0) continue;
-      var info = lookupPpCostInfoGs_(priceInfo.costs, name, sub);
-      var unitPrice = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
-      var piece = false;
-      if (info && info.piece) piece = true;
-      else if (cat === "chew" || cat === "chews") piece = true;
-      else if (isPieceSkuName_(name) || /шт/i.test(name)) piece = true;
-      total += piece ? (unitPrice * val) : ((val / 100) * unitPrice);
+      var lineEst = ppLineFromBasketItemGs_(basket[i], priceInfo.costs);
+      if (!lineEst) continue;
+      total += lineEst.cost;
     }
     return Math.round(total * 100) / 100;
   }
@@ -28885,23 +28897,10 @@ function handleMigratePpToRaw26Scheme(json, callback, fromPost) {
     var totalCost = 0;
     var lines = [];
     for (var i = 0; i < basket.length; i++) {
-      var it = basket[i] || {};
-      var name = String(it.name || it.main || "").trim();
-      var sub = String(it.sub || "").trim();
-      var val = Number(it.val != null ? it.val : it.value) || 0;
-      var cat = String(it.cat || "").trim();
-      if (!name || val <= 0) continue;
-      var info = lookupPpCostInfoGs_(priceInfo.costs, name, sub);
-      var unitPrice = info ? Number(info.unitPrice != null ? info.unitPrice : info.per100) || 0 : 0;
-      var piece = false;
-      if (info && info.piece) piece = true;
-      else if (cat === "chew" || cat === "chews" || cat === "powder") piece = true;
-      else if (isGramCrumbLineGs_({ cat: cat, name: name, crumbKind: it.crumbKind, sources: it.sources })) piece = false;
-      else if (isPieceSkuName_(name) || /шт/i.test(name)) piece = true;
-      else if (info && info.grams === false) piece = true;
-      var cost = piece ? (unitPrice * val) : ((val / 100) * unitPrice);
-      totalCost += cost;
-      lines.push({ name: name, sub: sub, val: val, unitPrice: unitPrice, piece: piece, cost: Math.round(cost * 100) / 100, cat: cat });
+      var lineMig = ppLineFromBasketItemGs_(basket[i], priceInfo.costs);
+      if (!lineMig) continue;
+      totalCost += lineMig.cost;
+      lines.push(lineMig);
     }
     totalCost = Math.round(totalCost * 100) / 100;
     var hasPacks = (packCounts.u1 + packCounts.u2 + packCounts.u3 + packCounts.up4) > 0;
@@ -29006,25 +29005,10 @@ function handleEnrollDeferredToPp_(json, callback, fromPost) {
       var totalEn = 0;
       var linesEn = [];
       for (var ie = 0; ie < basket.length; ie++) {
-        var itEn = basket[ie] || {};
-        var nameEn = String(itEn.name || itEn.main || "").trim();
-        var subEn = String(itEn.sub || "").trim();
-        var valEn = Number(itEn.val != null ? itEn.val : itEn.value) || 0;
-        var catEn = String(itEn.cat || "").trim();
-        if (!nameEn || valEn <= 0) continue;
-        var infoEn = lookupPpCostInfoGs_(priceInfoEn.costs, nameEn, subEn);
-        var unitEn = infoEn ? Number(infoEn.unitPrice != null ? infoEn.unitPrice : infoEn.per100) || 0 : 0;
-        var pieceEn = false;
-        if (infoEn && infoEn.piece) pieceEn = true;
-        else if (catEn === "chew" || catEn === "chews") pieceEn = true;
-        else if (isPieceSkuName_(nameEn) || /шт/i.test(nameEn)) pieceEn = true;
-        else if (infoEn && infoEn.grams === false) pieceEn = true;
-        var costEn = pieceEn ? (unitEn * valEn) : ((valEn / 100) * unitEn);
-        totalEn += costEn;
-        linesEn.push({
-          name: nameEn, sub: subEn, val: valEn, unitPrice: unitEn,
-          piece: pieceEn, cost: Math.round(costEn * 100) / 100, cat: catEn
-        });
+        var lineEn = ppLineFromBasketItemGs_(basket[ie], priceInfoEn.costs);
+        if (!lineEn) continue;
+        totalEn += lineEn.cost;
+        linesEn.push(lineEn);
       }
       totalEn = Math.round(totalEn * 100) / 100;
       var factEn = computePpFactFromCost_(

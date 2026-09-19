@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115977";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115978";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -2807,11 +2807,18 @@
           };
         }) : [];
         row.ratio = Array.isArray(x.ratio) ? x.ratio.slice() : [];
-        if (!row.name || /^КРОШКА$/i.test(row.name)) {
-          row.name = crumbKindTitle_(row.crumbKind);
-          row.main = row.name;
-        }
+        applyCrumbBasketNames_(row);
       }
+      return row;
+    }
+
+    function applyCrumbBasketNames_(row) {
+      if (!row) return row;
+      row.cat = "crumb";
+      row.name = "крошка";
+      row.main = "крошка";
+      var src = crumbSourcesLabel_(row);
+      if (src) row.sub = src;
       return row;
     }
 
@@ -2872,10 +2879,7 @@
             return { cat: (s && s.cat) || "", name: sn, main: sn, sub: (s && s.sub) || "" };
           }) : [];
           row.ratio = Array.isArray(x.ratio) ? x.ratio.slice() : [];
-          if (!row.name || /^КРОШКА$/i.test(String(row.name))) {
-            row.name = crumbKindTitle_(row.crumbKind);
-            row.main = row.name;
-          }
+          applyCrumbBasketNames_(row);
         }
         return row;
       }).filter(function (x) { return x.main && Number(x.value) > 0; });
@@ -3971,6 +3975,8 @@
       }
       if (catKey === "crumb") {
         currentCategory = "crumb";
+        var titleEl = document.getElementById("selectorTitle");
+        if (titleEl) titleEl.innerText = "Крошки";
         openCrumbBuilder("order");
         return;
       }
@@ -4238,9 +4244,9 @@
         id: Date.now() + Math.random(),
         cat: "crumb",
         crumbKind: kind,
-        main: crumbKindTitle_(kind),
-        name: crumbKindTitle_(kind),
-        sub: "",
+        main: "крошка",
+        name: "крошка",
+        sub: sources.map(function (s) { return s.name; }).filter(Boolean).join(" + "),
         value: grams,
         val: grams,
         sources: sources.map(function (s) {
@@ -18841,6 +18847,8 @@
       }
       if (catKey === "crumb") {
         priceManualCategory = "crumb";
+        var pTitle = document.getElementById("priceSelectorTitle");
+        if (pTitle) pTitle.innerText = "Крошки";
         openCrumbBuilder("price");
         return;
       }
@@ -21048,6 +21056,8 @@
       }
       if (catKey === "crumb") {
         subDetailManualCategory = "crumb";
+        var sTitle = document.getElementById("subDetailSelectorTitle");
+        if (sTitle) sTitle.innerText = "Крошки";
         openCrumbBuilder("sub");
         return;
       }
@@ -21987,7 +21997,7 @@
         var date = (document.getElementById("deliveryDate") && document.getElementById("deliveryDate").value) || "";
         var res = await apiGet({ action: "getPpOrderSuggest", nick: nick, day: day, date: date });
         if (res && res.address) fillAddressFieldsFromStored_(res.address);
-        if (res && (res.wishes || res.note)) loadOrderNotesFromRaw([res.wishes, res.note].filter(Boolean).join(" "));
+        if (res && (res.wishes || res.note)) loadOrderNotesForNewOrder_([res.wishes, res.note].filter(Boolean).join(" "));
         basket = mapApiBasketToLocal((res && res.proposedBasket) || []);
         renderBasket();
         switchTab("orderScreen");

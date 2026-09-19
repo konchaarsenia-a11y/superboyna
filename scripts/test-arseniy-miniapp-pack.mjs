@@ -40,6 +40,9 @@ assert(ui.includes('var title = "крошка" + (joined ? (" · " + joined + ra
 assert(ui.includes("function loadOrderNotesForNewOrder_"), "new-order notes filter");
 assert(ui.includes("function permanentNotesRawOnly_"), "drop once notes for next order");
 assert(ui.includes("loadOrderNotesForNewOrder_(m.note)"), "suggest applies permanent-only");
+assert(ui.includes("loadOrderNotesForNewOrder_([res.wishes, res.note]"), "PP→order drops once notes");
+assert(ui.includes("function applyCrumbBasketNames_") && ui.includes('row.name = "крошка"'), "stored crumb title is «крошка»");
+assert(!/main: crumbKindTitle_\(kind\)/.test(ui), "add crumb no longer stores kind title as main");
 assert(ui.includes('clearNote: noteCleared ? "1" : ""'), "save sends clearNote when empty");
 assert(ui.includes("onclick=\"removeOrderNote(") && !ui.includes("orderNotes.length > 1 ? '<button type=\"button\" class=\"seg-btn\" onclick=\"removeOrderNote("), "delete ✕ always shown");
 
@@ -57,7 +60,8 @@ assert(!/fact\.statedCost = fact\.factCost/.test(gs), "GAS calc does not overwri
 assert(worker.includes("statedCost: statedCost"), "getPpFactCost D1 returns statedCost");
 assert(gs.includes("out.statedCost = out.factCost"), "GAS getPpFactCost echoes sheet as stated");
 
-assert(/v71115977/.test(html) && /v71115977/.test(ui) && /71115977/.test(idx), "Pages v71115977");
+assert(/v71115978/.test(html) && /v71115978/.test(ui) && /71115978/.test(idx), "Pages v71115978");
+assert(gs.includes("function crumbKindRateGs_") && gs.includes("function ppLineFromBasketItemGs_"), "GAS mixer 15/17/20 helper");
 assert(/arseniy-miniapp-pack-h1/.test(tz), "TZ marker");
 assert(/15\/17\/20/.test(subPrice) && /крошка-миксер/i.test(subPrice), "RAW26 crumb pricing in canon");
 assert(!/\/крошка\/i\.test\(name\)\) piece = true/.test(worker), "worker recover does not treat крошка as piece");
@@ -99,5 +103,20 @@ const gramRec = wCtx.recoverBynFromPpLinesD1_([
 assert(gramRec === 3.9, "100g crumb recover is 3.90 not 50, got " + gramRec);
 const pieceRec = wCtx.recoverBynFromPpLinesD1_([{ cat: "chew", name: "УХО Г", val: 2, piece: true }]);
 assert(pieceRec === 1, "piece recover 0.50×2, got " + pieceRec);
+
+const gCtx = vm.createContext({ Math, Number, String, isFinite, Object, Array, JSON });
+vm.runInContext(
+  [
+    "function lookupPpCostInfoGs_() { return { unitPrice: 2.25, piece: true }; }",
+    "function isPieceSkuName_(name) { return /шт/i.test(String(name || \"\")); }",
+    extractFn(gs, "isGramCrumbLineGs_"),
+    extractFn(gs, "crumbKindRateGs_"),
+    extractFn(gs, "ppLineFromBasketItemGs_")
+  ].join("\n"),
+  gCtx
+);
+assert(gCtx.crumbKindRateGs_("veg") === 15 && gCtx.crumbKindRateGs_("meat") === 17 && gCtx.crumbKindRateGs_("hypo") === 20, "GAS mixer rates 15/17/20");
+const mixLine = gCtx.ppLineFromBasketItemGs_({ cat: "crumb", crumbKind: "meat", name: "крошка", val: 100 }, {});
+assert(mixLine && mixLine.piece === false && mixLine.unitPrice === 17 && mixLine.cost === 17, "GAS mixer 100g meat = 17 raw, not piece lookup, got " + JSON.stringify(mixLine));
 
 console.log("arseniy-miniapp-pack OK");
