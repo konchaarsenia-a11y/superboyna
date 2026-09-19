@@ -104,8 +104,8 @@ assert(
   "TZ marker fix-order-basket-ui-h1"
 );
 assert(
-  /v71115978/.test(html) && /v71115978/.test(ui),
-  "Pages cache-bust v71115978"
+  /v71115979/.test(html) && /v71115979/.test(ui),
+  "Pages cache-bust v71115979"
 );
 
 if (process.exitCode) {
