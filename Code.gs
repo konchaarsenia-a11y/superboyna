@@ -20698,10 +20698,8 @@ function handleDeletePartner(json, callback, fromPost) {
     var bad = { status: "error", message: "Партнёр не найден" };
     return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
   }
-  // soft-delete
   var sh = getPartnersSheet_();
-  sh.getRange(hit.rowIndex, 4).setValue("no");
-  sh.getRange(hit.rowIndex, 6).setValue(new Date());
+  sh.deleteRow(hit.rowIndex);
   var ok = { status: "success", id: hit.id, deleted: true };
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }

@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-18 fix-varka-tg-gate-h1
+ * deploy-marker: 2026-09-19 orders-access-tab-h1
  * (prior: fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
  */
 const CORS = {
@@ -9017,15 +9017,22 @@ async function cutoverSwrGas_(action, params, env, ctx, opts) {
         // meta d1-primary: не затирать D1 snap фоновым GAS
         let skipStore = false;
         if (
-          isMetaD1PrimaryCanon_(env) &&
-          /^(listSurvey|listAccess|listTemplates)$/i.test(action)
+          (isMetaD1PrimaryCanon_(env) &&
+            /^(listSurvey|listAccess|listTemplates)$/i.test(action)) ||
+          /^listPartners$/i.test(action)
         ) {
           try {
             const prevMeta = await getSnapRaw_(env, snapKey);
             const arr =
-              (prevMeta && (prevMeta.items || prevMeta.people || prevMeta.list || prevMeta.templates)) ||
+              (prevMeta &&
+                (prevMeta.items ||
+                  prevMeta.people ||
+                  prevMeta.partners ||
+                  prevMeta.list ||
+                  prevMeta.templates)) ||
               [];
-            if (prevMeta && Array.isArray(arr) && arr.length) skipStore = true;
+            if (prevMeta && (prevMeta._d1TouchedAt || (Array.isArray(arr) && arr.length)))
+              skipStore = true;
           } catch (ePrevM) {}
         }
         if (!skipStore) {
@@ -11752,6 +11759,40 @@ async function handleCutover_(a, params, env, ctx) {
         action: a
       };
     }
+    // Бойня «Доступы»: партнёры БП — D1 сразу, иначе listPartners snap stale (GAS-only + afterWrite skip)
+    if (/^(savePartner|deletePartner)$/i.test(a)) {
+      let d1Par = null;
+      try {
+        if (env && env.DB) d1Par = await mutatePartners_(a, params, env);
+      } catch (ePar) {
+        d1Par = { status: "error", message: String((ePar && ePar.message) || ePar) };
+      }
+      const gasParP = gasProxy_(a, params, env, { write: true }).catch(function () {
+        return null;
+      });
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(gasParP);
+      else {
+        try {
+          await gasParP;
+        } catch (eGP) {}
+      }
+      if (d1Par && d1Par.status === "success") {
+        return Object.assign({}, d1Par, {
+          cutover: true,
+          sandbox: false,
+          d1Verified: true,
+          optimistic: false,
+          action: a
+        });
+      }
+      return {
+        status: "error",
+        message: (d1Par && d1Par.message) || "d1_write_failed",
+        cutover: true,
+        sandbox: false,
+        action: a
+      };
+    }
     // Доступы / шаблоны / опросники CRUD — D1 правда (TG remind остаётся GAS)
     if (
       isMetaD1PrimaryCanon_(env) &&
@@ -14098,6 +14139,21 @@ async function cutoverStoreRead_(a, params, env, payload) {
       } catch (eMetaStore) {}
     }
   }
+  if (a === "listPartners") {
+    try {
+      const prevP = await getSnapRaw_(env, "listPartners");
+      if (prevP && prevP._d1TouchedAt && Array.isArray(prevP.partners)) {
+        return;
+      }
+      const del = (prevP && prevP._deletedIds) || [];
+      if (del.length && payload && Array.isArray(payload.partners)) {
+        payload.partners = payload.partners.filter(function (p) {
+          return del.indexOf(String((p && p.id) || "")) < 0;
+        });
+        payload._deletedIds = del;
+      }
+    } catch (eParStore) {}
+  }
   if (a === "listDeferred") {
     // d1-primary: snap меняют только write-handlers; GAS не затирает D1
     if (isDeferredD1PrimaryCanon_(env)) {
@@ -16319,31 +16375,101 @@ async function deleteFromList_(env, snapKey, arrKey, params, idField) {
   return { status: "success", sandbox: true, wrote: before - arr.length };
 }
 
+function partnerRowPaysCost_(v) {
+  return v === true || v === "yes" || v === 1 || v === "1" || v === "да";
+}
+
+function partnerRowActive_(v) {
+  if (v === false || v === "no" || v === 0 || v === "0") return false;
+  return true;
+}
+
+function partnerRowMatchId_(row, id, name) {
+  if (!row) return false;
+  const rid = String(row.id || row.nick || "").trim();
+  const rname = String(row.name || "").trim().toLowerCase();
+  if (id && rid && rid === id) return true;
+  if (name && rname && rname === name) return true;
+  return false;
+}
+
 async function mutatePartners_(action, params, env) {
   let list = (await getSnapRaw_(env, "listPartners")) || { status: "success", partners: [] };
-  let arr = list.partners || list.items || [];
-  const id = String(params.id || params.nick || params.name || "");
+  let arr = (list.partners || list.items || []).slice();
+  const deletedIds = (list._deletedIds || []).slice();
+  const idIn = String((params && (params.id || params.nick)) || "").trim();
+  const nameIn = String((params && params.name) || "").trim();
+  const nameKey = nameIn.toLowerCase();
   if (action === "deletePartner") {
+    const before = arr.length;
     arr = arr.filter(function (p) {
-      return String(p.id || p.nick || p.name) !== id;
-    });
-  } else {
-    let idx = -1;
-    for (let i = 0; i < arr.length; i++) {
-      if (String(arr[i].id || arr[i].nick || arr[i].name) === id) {
-        idx = i;
-        break;
+      const hit = partnerRowMatchId_(p, idIn, nameKey);
+      if (hit) {
+        const rid = String(p.id || "").trim();
+        if (rid && deletedIds.indexOf(rid) < 0) deletedIds.push(rid);
       }
-    }
-    const row = Object.assign({}, idx >= 0 ? arr[idx] : {}, params);
-    delete row.action;
-    if (idx >= 0) arr[idx] = row;
-    else arr.push(row);
+      return !hit;
+    });
+    list.partners = arr;
+    list.items = arr;
+    list.count = arr.length;
+    list._deletedIds = deletedIds;
+    list._d1TouchedAt = Date.now();
+    list.status = "success";
+    list.sandbox = false;
+    await putSnap_(env, "listPartners", list);
+    return {
+      status: "success",
+      sandbox: false,
+      wrote: before - arr.length,
+      deleted: true,
+      id: idIn,
+      partners: arr,
+      d1Verified: true
+    };
   }
+  let idx = -1;
+  for (let i = 0; i < arr.length; i++) {
+    if (partnerRowMatchId_(arr[i], idIn, nameKey)) {
+      idx = i;
+      break;
+    }
+  }
+  const prev = idx >= 0 ? arr[idx] : {};
+  let id = idIn || String(prev.id || "").trim();
+  if (!id) id = "p_" + Math.random().toString(36).slice(2, 10);
+  if (params && !params.id) params.id = id;
+  const row = {
+    id: id,
+    name: nameIn || String(prev.name || "").trim(),
+    note: params && params.note != null ? String(params.note) : String(prev.note || ""),
+    active: params && params.active != null ? partnerRowActive_(params.active) : prev.active !== false,
+    paysCost:
+      params && params.paysCost != null ? partnerRowPaysCost_(params.paysCost) : !!prev.paysCost
+  };
+  if (idx >= 0) arr[idx] = Object.assign({}, prev, row);
+  else arr.push(row);
   list.partners = arr;
-  list.sandbox = true;
+  list.items = arr;
+  list.count = arr.length;
+  list._deletedIds = deletedIds.filter(function (x) {
+    return String(x) !== id;
+  });
+  list._d1TouchedAt = Date.now();
+  list.status = "success";
+  list.sandbox = false;
   await putSnap_(env, "listPartners", list);
-  return { status: "success", sandbox: true, wrote: 1 };
+  return {
+    status: "success",
+    sandbox: false,
+    wrote: 1,
+    id: id,
+    name: row.name,
+    active: row.active,
+    paysCost: row.paysCost,
+    partners: arr,
+    d1Verified: true
+  };
 }
 
 async function mutateTemplates_(action, params, env) {
@@ -16358,10 +16484,21 @@ async function mutateTemplates_(action, params, env) {
   return res;
 }
 
+function accessStatusFromRole_(role, fallback) {
+  const r = String(role || "").toLowerCase().trim();
+  if (r === "denied") return "denied";
+  if (r === "pending") return "pending";
+  if (r) return "active";
+  return fallback || "active";
+}
+
 async function mutateAccess_(action, params, env) {
   let list = (await getSnapRaw_(env, "listAccess")) || { status: "success", people: [] };
   let people = (list.people || []).slice();
-  const tid = String(params.telegramId || params.id || "");
+  // UI setAccessRole шлёт targetId (не telegramId). actorId — владелец, не цель.
+  const tid = String(
+    (params && (params.targetId || params.telegramId || params.id)) || ""
+  ).trim();
   let idx = -1;
   for (let i = 0; i < people.length; i++) {
     if (String(people[i].telegramId) === tid) {
@@ -16370,29 +16507,35 @@ async function mutateAccess_(action, params, env) {
     }
   }
   if (action === "requestAccess") {
-    if (idx < 0) {
+    if (idx < 0 && tid) {
       people.push({
         telegramId: tid,
         name: params.name || "",
+        username: params.username || "",
         role: "pending",
         status: "pending"
       });
     }
   } else if (idx >= 0) {
-    if (params.role != null) people[idx].role = params.role;
+    if (params.role != null) {
+      people[idx].role = params.role;
+      if (params.status == null) people[idx].status = accessStatusFromRole_(params.role, people[idx].status);
+    }
     if (params.timezone != null) people[idx].timezone = params.timezone;
     if (params.status != null) people[idx].status = params.status;
   } else if (tid && params.role != null) {
     people.push({
       telegramId: tid,
       name: params.name || "",
+      username: params.username || "",
       role: params.role,
       timezone: params.timezone || "",
-      status: "active"
+      status: accessStatusFromRole_(params.role, "active")
     });
   }
   list.people = people;
   list.status = "success";
+  list._d1TouchedAt = Date.now();
   await putSnap_(env, "listAccess", list);
   if (tid) {
     try {
@@ -16400,19 +16543,27 @@ async function mutateAccess_(action, params, env) {
         return String(p.telegramId) === tid;
       });
       if (person) {
+        const st = String(person.status || "").toLowerCase();
         await putSnap_(env, "access:" + tid, {
           status: "success",
           telegramId: tid,
           name: person.name || "",
           role: person.role || "",
-          access: person.status === "pending" ? "pending" : "active",
+          access: st === "pending" ? "pending" : st === "denied" ? "denied" : "active",
           timezone: person.timezone || "",
           cachedAt: new Date().toISOString()
         });
       }
     } catch (eAcc) {}
   }
-  return { status: "success", wrote: 1, telegramId: tid, d1Verified: true };
+  return {
+    status: "success",
+    wrote: 1,
+    telegramId: tid,
+    role: params && params.role,
+    people: people,
+    d1Verified: true
+  };
 }
 
 async function setWarehouseArrival_(params, env) {
