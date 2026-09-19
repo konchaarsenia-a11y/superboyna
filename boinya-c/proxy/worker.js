@@ -18604,7 +18604,11 @@ function computePpFactFromCostD1_(
         capped = true;
       }
     }
-    const factCost = Math.round((goods + delivery + packagesByn + fracMark) * 100) / 100;
+    let factCost = Math.round((goods + delivery + packagesByn + fracMark) * 100) / 100;
+    if (capAt > 0 && factCost > capAt) {
+      factCost = capAt;
+      capped = true;
+    }
     out = {
       scheme: "RAW26",
       factCost: factCost,
