@@ -13668,10 +13668,17 @@ function cutoverNeedsRevalidate_(a, params, fast, env) {
   if (isMetaD1PrimaryCanon_(env) && /^(listAccess|listSurvey|listTemplates|listPartners)$/i.test(a)) {
     let empty = !fast;
     if (fast) {
-      const arr = fast.items || fast.people || fast.list || fast.templates || fast.surveys || [];
+      const arr = fast.partners || fast.items || fast.people || fast.list || fast.templates || fast.surveys || [];
       empty = !Array.isArray(arr) || !arr.length;
     }
     if (!empty) return false;
+    if (
+      a === "listPartners" &&
+      Number((fast && fast._d1TouchedAt) || 0) > 0 &&
+      Date.now() - Number(fast._d1TouchedAt) < 180000
+    ) {
+      return false;
+    }
   }
   // calc/ping/suggest — не гоняем в GAS из UI
   if (/^(calc|ping|keepWarm|suggest|lookup)/i.test(a)) return false;
@@ -16381,6 +16388,7 @@ async function mutatePartners_(action, params, env) {
   list.status = "success";
   list.sandbox = false;
   list.cachedAt = new Date().toISOString();
+  list._d1TouchedAt = Date.now();
   await putSnap_(env, "listPartners", list);
   return { status: "success", partners: arr, wrote: 1, d1Verified: true };
 }
