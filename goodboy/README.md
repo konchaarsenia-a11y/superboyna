@@ -3,16 +3,30 @@
 Клиентский **сайт + Telegram Mini App**.  
 Конвейер Бойни (`/app.html`, `Code.gs`) не трогаем.
 
-## Ссылки (GitHub Pages)
+## Ссылки (goodboy.by)
+
+Публичный корень после переезда — **только** содержимое этой папки на `https://goodboy.by/` (дешёвый BY hosting, статика).  
+`app.html` — тот же docroot. Бойня, Worker, Varka, GAS, CI — как сейчас на GitHub / Cloudflare / Apps Script.  
+Как залить и DNS: [MIGRATE-BY.md](./MIGRATE-BY.md).
 
 | Что | URL |
 |-----|-----|
-| **Сайт** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/ |
-| **Подписка** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/subscription.html |
-| **Связь** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/contact.html |
-| **Кабинет** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html |
-| **Кабинет (кнопка на сайте)** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html |
-| **Mini App (для BotFather)** | https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html |
+| **Сайт** | https://goodboy.by/ |
+| **Подписка** | https://goodboy.by/subscription.html |
+| **Пробный период** | https://goodboy.by/trial.html |
+| **Хочу попробовать** | https://goodboy.by/try.html |
+| **О проекте** | https://goodboy.by/about.html |
+| **Связь** | https://goodboy.by/contact.html |
+| **Кабинет** | https://goodboy.by/app.html |
+| **Кабинет (кнопка на сайте)** | https://goodboy.by/app.html |
+| **Mini App (для BotFather)** | https://goodboy.by/app.html |
+
+**Legacy (GitHub Pages)** — до cutover и для старых ссылок/купонов:
+
+`https://konchaarsenia-a11y.github.io/superboyna/goodboy/`
+
+После переезда эти URL должны **301** на те же пути `https://goodboy.by/…`.  
+Заготовки stub: [redirects-from-pages/](./redirects-from-pages/).
 
 Палитра лендинга: **вечерняя прогулка** (8).
 
@@ -34,9 +48,12 @@ goodboy/
 ## BotFather
 
 Menu Button / Web App URL →  
+`https://goodboy.by/app.html`
+
+Пока Mini App ещё на Pages (до смены URL в BotFather):  
 `https://konchaarsenia-a11y.github.io/superboyna/goodboy/app.html`
 
 ## Режим
 
-`js/config.js` → `mode: "demo"` (localStorage).  
-Связка с Бойней — позже, отдельно.
+`js/config.js` → `mode: "live"`, webhook = Cloudflare Worker `boinya-c.konchaarsenia.workers.dev`.  
+При переезде домена сайта **не менять** API URL и не переносить Worker на хостинг.

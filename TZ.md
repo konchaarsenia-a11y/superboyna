@@ -289,6 +289,7 @@
 - [x] **UI v7.11.132:** скорость — вкладки мгновенно (soft-кэш Нарезки/сети после paint), dedupe apiGet, роль из кэша на старте, без double-reload ?v=, отложенный boot — **Pages**
 - [x] **UI v7.11.131:** напоминание дат = вчерашние **ПП + БП1** с галочкой + кнопка «В АФК»; курьер «Не получил→менеджеру»; вкладка **Переносы** (сводка + счётчики недели + перенос) — **Pages** · **Deploy OK** (Manual/функции в редакторе OK 2026-08-05)
 - [x] **Varka / Good Boy партнёры:** Mini App через Worker Бойня C; `@arseniyhotko` → NaN clinic · Янковского 34 · **Pages OK**
+- [~] **Goodboy.by prep 2026-09-19:** только статика `goodboy/` (вкл. `app.html`) на дешёвый BY hosting · canonical/og → `https://goodboy.by/…` · [MIGRATE-BY.md](./goodboy/MIGRATE-BY.md) + `.htaccess` + Pages stub · Worker/Бойня/Varka/CI **не** переезжают · **без покупки/деплоя**
 - [~] **Goodboy (клиентская экосистема):** сайт + TG · питомец · подписка · партнёры (Варок) — карта MVP в [GOODBOY.md](./GOODBOY.md); конвейер не смешивать
 - [~] **Goodboy связка подписки 2026-08-26:** листы `GB_*` (только они на запись) + `gbMe`/`gbLogin`/`gbRegister`/`gbLinkClient` · CRM/календарь **read-only** · handoff [MERGE_GOODBOY_GB.md](./MERGE_GOODBOY_GB.md) · кабинет `mode=live` + demo-fallback · **Pages** · **нужен Deploy Code.gs** (`gbEnsureSheets`)
 - [x] **UI v7.11.130:** TG-напоминание «подбить даты» в **11:00** и **19:00** Минск — **Deploy OK** · `setupDeliveryDatesNudgeTriggersManual` OK (2026-08-05)
