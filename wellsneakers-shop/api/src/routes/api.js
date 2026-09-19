@@ -37,6 +37,7 @@ router.get("/catalog", async (req, res, next) => {
       q: req.query.q,
       sale: isSaleQuery(req.query.sale),
       gender: parseGenderQuery(req.query.gender),
+      color: req.query.color,
       inStockOnly: req.query.inStock !== "0",
       limit: req.query.limit,
       offset: req.query.offset,

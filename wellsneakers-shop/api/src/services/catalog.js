@@ -2,6 +2,7 @@ import { query, withTransaction } from "../db.js";
 import { aggregateBrands, normalizeBrand, resolveBrand } from "../lib/brand.js";
 import { isSaleQuery } from "../lib/sale.js";
 import { inferGender, parseGenderQuery } from "../lib/gender.js";
+import { parseColorQuery, filterModelsByColor } from "../lib/color.js";
 import {
   parseModelAndColor,
   groupProductsIntoModels,
@@ -149,12 +150,14 @@ export async function listCatalogModels({
   q,
   sale = false,
   gender = "",
+  color = "",
   inStockOnly = true,
   limit = 500,
   offset = 0,
 }) {
   const saleOnly = sale === true || isSaleQuery(sale);
   const genderKey = parseGenderQuery(gender);
+  const colorKey = parseColorQuery(color);
   const { products } = await listProducts({
     brand,
     inStockOnly,
@@ -166,6 +169,7 @@ export async function listCatalogModels({
   let models = groupProductsIntoModels(products, { inStockOnly });
   if (size) models = models.filter((m) => modelHasSize(m, size));
   if (q) models = models.filter((m) => modelMatchesQuery(m, q));
+  if (colorKey) models = filterModelsByColor(models, colorKey);
   const total = models.length;
   const lim = Math.min(Math.max(Number(limit) || 500, 1), 1000);
   const off = Math.max(Number(offset) || 0, 0);
@@ -177,6 +181,7 @@ export async function listCatalogModels({
     grouped: true,
     sale: saleOnly,
     gender: genderKey || "",
+    color: colorKey || "",
   };
 }
 
