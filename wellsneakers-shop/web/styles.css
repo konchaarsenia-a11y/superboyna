@@ -383,12 +383,12 @@ main{position:relative;z-index:1}
 }
 .collection-chips{
   flex-wrap:nowrap;
-  gap:10px;
+  gap:6px;
   overflow-x:auto;
   overflow-y:visible;
-  padding:6px 18px 10px 4px;
-  margin:0 -4px;
-  scroll-padding-inline-end:18px;
+  padding:8px 14px 12px 4px;
+  margin:0;
+  scroll-padding-inline:14px;
   -webkit-overflow-scrolling:touch;
   overscroll-behavior-x:contain;
   scrollbar-width:none;
@@ -396,11 +396,11 @@ main{position:relative;z-index:1}
 .collection-chips::-webkit-scrollbar{display:none}
 .collection-chips .chip{flex:0 0 auto}
 .chip-collection{
-  display:inline-flex;align-items:center;gap:8px;
-  min-height:42px;padding:0 14px 0 10px;
+  display:inline-flex;align-items:center;gap:6px;
+  min-height:38px;padding:0 11px 0 8px;
   border:2px solid #111;border-radius:999px;
   background:#1c1d21;color:var(--ink);
-  font-family:var(--display);font-size:18px;letter-spacing:.06em;
+  font-family:var(--display);font-size:16px;letter-spacing:.04em;
   text-transform:uppercase;font-weight:400;
   box-shadow:2px 2px 0 #111;
 }
@@ -553,6 +553,8 @@ main{position:relative;z-index:1}
   .cta-row{grid-template-columns:1fr auto;align-items:center}
   .sticky-filters{top:72px}
   .street-drop{font-size:22px;min-height:52px}
+  .chip-collection{font-size:18px;min-height:42px;padding:0 14px 0 10px;gap:8px}
+  .collection-chips{gap:10px}
   .toy{width:88px;height:88px}
 }
 @media (prefers-reduced-motion:reduce){
