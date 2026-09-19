@@ -193,7 +193,7 @@ if (!/message: "owner_only"/.test(gsSrc) || !/partnerIsCanonOwner_\(actorUser, a
   fail("Code.gs partnerSaveAccess must be canon-owner only");
 }
 if (!/message: "owner_only"/.test(workerSrc) ||
-    !/partnerCanWriteAccess_/.test(workerSrc.slice(workerSrc.indexOf("if (/^partnerSaveAccess$/i.test(a))")))) {
+    !/partnerActorGrantBlock_/.test(workerSrc.slice(workerSrc.indexOf("if (/^partnerSaveAccess$/i.test(a))")))) {
   fail("worker partnerSaveAccess must reject non-owner");
 }
 

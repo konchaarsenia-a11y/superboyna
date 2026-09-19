@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115980";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115981";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -24812,7 +24812,9 @@
         var res = await apiGet(params, {
           timeoutMs: 20000,
           retries: force ? 1 : 0,
-          cacheTtlMs: force ? 0 : undefined
+          cacheTtlMs: force ? 0 : undefined,
+          bypassInflight: !!force,
+          bypassMem: !!force
         });
         if (res && res.status === "success") {
           partnersCacheList_ = res.partners || [];
@@ -24948,13 +24950,14 @@
             }
           }
         }
-        var res = await apiGet(body, { timeoutMs: 20000, cacheTtlMs: 0 });
+        var res = await apiGet(body, { timeoutMs: 20000, cacheTtlMs: 0, bypassInflight: true, bypassMem: true });
         if (!res || res.status !== "success") {
           showToast((res && res.message) || "Не сохранилось — Deploy Code.gs");
           return;
         }
         setPartnerEditMode_(false, null);
-        partnersCacheList_ = null;
+        if (Array.isArray(res.partners)) partnersCacheList_ = res.partners;
+        else partnersCacheList_ = null;
         window._partnersUiHtml = "";
         try { apiCacheBustMem_("listPartners"); } catch (eB) {}
         await loadPartnersUi_({});
@@ -24969,7 +24972,7 @@
       var hit = (list || []).filter(function (p) { return p.id === id; })[0];
       if (!hit) return;
       try {
-        await apiGet({
+        var tog = await apiGet({
           action: "savePartner",
           id: id,
           name: hit.name,
@@ -24978,8 +24981,13 @@
           active: makeActive ? "yes" : "no",
           telegramId: myTelegramId,
           _: String(Date.now())
-        }, { timeoutMs: 15000, cacheTtlMs: 0 });
-        partnersCacheList_ = null;
+        }, { timeoutMs: 15000, cacheTtlMs: 0, bypassInflight: true, bypassMem: true });
+        if (!tog || tog.status !== "success") {
+          showToast((tog && tog.message) || "Не обновилось");
+          return;
+        }
+        if (Array.isArray(tog.partners)) partnersCacheList_ = tog.partners;
+        else partnersCacheList_ = null;
         window._partnersUiHtml = "";
         try { apiCacheBustMem_("listPartners"); } catch (eB) {}
         await loadPartnersUi_({});
@@ -24990,16 +24998,21 @@
       var ok = await uiConfirmAsync("Убрать партнёра «" + name + "» из списка?");
       if (!ok) return;
       try {
-        await apiGet({
+        var del = await apiGet({
           action: "deletePartner",
           id: id,
           name: name,
           telegramId: myTelegramId,
           _: String(Date.now())
-        }, { timeoutMs: 15000, cacheTtlMs: 0 });
+        }, { timeoutMs: 15000, cacheTtlMs: 0, bypassInflight: true, bypassMem: true });
+        if (!del || del.status !== "success") {
+          showToast((del && del.message) || "Не удалилось");
+          return;
+        }
         var editId = String((document.getElementById("partnerEditId") || {}).value || "");
         if (editId && editId === id) setPartnerEditMode_(false, null);
-        partnersCacheList_ = null;
+        if (Array.isArray(del.partners)) partnersCacheList_ = del.partners;
+        else partnersCacheList_ = null;
         window._partnersUiHtml = "";
         try { apiCacheBustMem_("listPartners"); } catch (eB) {}
         await loadPartnersUi_({});
@@ -25345,6 +25358,21 @@
       else setPartnerHubTab_("people");
     }
 
+    function partnerHubApplyAccess_(access) {
+      if (!Array.isArray(access)) return;
+      if (!partnerHubCache_) {
+        partnerHubCache_ = { status: "success", networks: [], points: [], access: access };
+      } else {
+        partnerHubCache_.access = access;
+      }
+      partnerHubPaint_(partnerHubCache_);
+    }
+
+    async function partnerHubReloadNow_() {
+      try { apiCacheBustMem_("partnerListAdmin"); } catch (eB) {}
+      await loadPartnerHubUi_({ force: 1 });
+    }
+
     async function loadPartnerHubUi_(opts) {
       opts = opts || {};
       var boxA = document.getElementById("phAccessList");
@@ -25359,8 +25387,9 @@
         var res = await apiGet({
           action: "partnerListAdmin",
           telegramId: myTelegramId,
+          force: opts.force ? "1" : undefined,
           _: String(Date.now())
-        }, { timeoutMs: 35000, cacheTtlMs: 0 });
+        }, { timeoutMs: 35000, cacheTtlMs: 0, bypassInflight: !!opts.force, bypassMem: true });
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || "нет ответа — Deploy Code.gs?";
           if (boxA) boxA.innerHTML = '<p class="muted">' + escapeHtml(msg) + "</p>";
@@ -25647,18 +25676,37 @@
         status: "active",
         _: String(Date.now())
       };
-      var res = await apiGet(body, { timeoutMs: 20000, cacheTtlMs: 0 });
+      var res = await apiGet(body, { timeoutMs: 20000, cacheTtlMs: 0, bypassInflight: true, bypassMem: true });
       if (!res || res.status !== "success") {
         showToast((res && res.message) || "Не выдалось — Deploy?");
         return;
       }
+      var grantedName = String(body.name || "");
+      var grantedNet = String(body.networkId || "");
       document.getElementById("phAccEditId").value = "";
       document.getElementById("phAccUser").value = "";
       document.getElementById("phAccTid").value = "";
       document.getElementById("phAccName").value = "";
       partnerHubCancelForm_("acc");
-      partnerHubCache_ = null;
-      await loadPartnerHubUi_({ force: 1 });
+      if (Array.isArray(res.access)) {
+        partnerHubApplyAccess_(res.access);
+      } else if (partnerHubCache_) {
+        var optimistic = {
+          id: res.id || ("pa_" + (username || tid || Date.now())),
+          username: username,
+          telegramId: tid,
+          name: grantedName,
+          networkId: grantedNet,
+          pointIds: ids,
+          role: "partner",
+          status: "active"
+        };
+        partnerHubCache_.access = (partnerHubCache_.access || []).filter(function (x) {
+          return String(x.id) !== String(optimistic.id);
+        }).concat([optimistic]);
+        partnerHubPaint_(partnerHubCache_);
+      }
+      await partnerHubReloadNow_();
       showToast("Доступ выдан");
     }
 
@@ -25675,13 +25723,30 @@
         username: String(row.username || "").replace(/^@/, "").trim(),
         targetTelegramId: String(row.telegramId || "").trim(),
         _: String(Date.now())
-      }, { timeoutMs: 15000, cacheTtlMs: 0 });
+      }, { timeoutMs: 15000, cacheTtlMs: 0, bypassInflight: true, bypassMem: true });
       if (!res || res.status !== "success") {
         showToast((res && res.message) || "Не отозвалось");
         return;
       }
-      partnerHubCache_ = null;
-      await loadPartnerHubUi_({ force: 1 });
+      if (Array.isArray(res.access)) {
+        partnerHubApplyAccess_(res.access);
+      } else if (partnerHubCache_ && partnerHubCache_.access) {
+        var dropIds = {};
+        dropIds[String(id)] = true;
+        if (row.username) dropIds["pa_" + String(row.username).replace(/^@/, "").trim()] = true;
+        if (row.telegramId) dropIds["pa_" + String(row.telegramId).trim()] = true;
+        partnerHubCache_.access = partnerHubCache_.access.filter(function (x) {
+          if (dropIds[String(x.id)]) return false;
+          var sameU = row.username && String(x.username || "").replace(/^@/, "") === String(row.username).replace(/^@/, "");
+          var sameT = row.telegramId && String(x.telegramId || "") === String(row.telegramId);
+          if ((sameU || sameT) && String(x.role || "partner").toLowerCase() === String(row.role || "partner").toLowerCase()) {
+            return false;
+          }
+          return true;
+        });
+        partnerHubPaint_(partnerHubCache_);
+      }
+      await partnerHubReloadNow_();
       showToast("Отозвано");
     }
 
