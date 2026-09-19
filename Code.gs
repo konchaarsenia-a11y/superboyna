@@ -18447,6 +18447,15 @@ function resolvePpScheme_(opt) {
   return "LEGACY";
 }
 
+function isGramCrumbLineGs_(L) {
+  if (!L) return false;
+  var cat = String(L.cat || "").toLowerCase();
+  if (cat === "crumb" || L.crumbKind) return true;
+  if (Object.prototype.toString.call(L.sources) === "[object Array]" && L.sources.length) return true;
+  var name = String(L.name || L.main || "");
+  return /^крошка\b/i.test(name) && !/шт/i.test(name);
+}
+
 /** recover по линиям (piece|grams). lines: [{piece,val}] или basket+piece-detect. */
 function recoverBynFromPpLines_(lines) {
   var sum = 0;
@@ -18455,11 +18464,13 @@ function recoverBynFromPpLines_(lines) {
     var val = Number(L.val != null ? L.val : L.value) || 0;
     if (val <= 0) continue;
     var piece = !!L.piece;
-    if (!piece) {
+    if (isGramCrumbLineGs_(L)) {
+      piece = false;
+    } else if (!piece) {
       var cat = String(L.cat || "").toLowerCase();
       var name = String(L.name || L.main || "");
       if (cat === "chew" || cat === "chews" || cat === "powder") piece = true;
-      else if (isPieceSkuName_(name) || /шт/i.test(name) || /крошка/i.test(name)) piece = true;
+      else if (isPieceSkuName_(name) || /шт/i.test(name)) piece = true;
     }
     if (piece) sum += PP_RAW26_RECOVER_PIECE_ * val;
     else sum += PP_RAW26_RECOVER_100_ * (val / 100);
@@ -28885,7 +28896,8 @@ function handleMigratePpToRaw26Scheme(json, callback, fromPost) {
       var piece = false;
       if (info && info.piece) piece = true;
       else if (cat === "chew" || cat === "chews" || cat === "powder") piece = true;
-      else if (isPieceSkuName_(name) || /шт/i.test(name) || /крошка/i.test(name)) piece = true;
+      else if (isGramCrumbLineGs_({ cat: cat, name: name, crumbKind: it.crumbKind, sources: it.sources })) piece = false;
+      else if (isPieceSkuName_(name) || /шт/i.test(name)) piece = true;
       else if (info && info.grams === false) piece = true;
       var cost = piece ? (unitPrice * val) : ((val / 100) * unitPrice);
       totalCost += cost;

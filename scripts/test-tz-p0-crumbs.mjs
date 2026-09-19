@@ -101,7 +101,8 @@ assert(!uiSrc.includes('client: "ПП оплата · "'), "no auto PP pay defer
 assert(htmlSrc.includes("openProductSelector('crumb')"), "HTML crumbs under veggies order");
 assert(htmlSrc.includes("openPriceProductSelector('crumb')"), "HTML crumbs price");
 assert(htmlSrc.includes("openSubDetailProductSelector('crumb')"), "HTML crumbs sub");
-assert(!/position:fixed[\s\S]{0,80}crumbBuilderCard/.test(htmlSrc), "crumbs not a fixed overlay");
+assert(htmlSrc.includes('id="crumbBuilderHost"'), "crumbs host inside selectorCard");
+assert(!htmlSrc.includes("crumbBuilderCard"), "no separate crumb overlay card");
 assert(htmlSrc.includes("priceCompSlotRow"), "HTML price N=2 tabs");
 assert(htmlSrc.includes("subCompSlotRow"), "HTML PP N=2 tabs");
 assert(uiSrc.includes("timeoutMs: 35000") && uiSrc.includes("placeTransferTask"), "placeTransfer 35s");

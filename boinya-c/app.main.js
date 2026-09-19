@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115976";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115977";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -3970,7 +3970,7 @@
         return;
       }
       if (catKey === "crumb") {
-        hideProductSelectorCard_("selectorCard");
+        currentCategory = "crumb";
         openCrumbBuilder("order");
         return;
       }
@@ -4069,32 +4069,40 @@
       return out;
     }
 
-    function hideProductSelectorCard_(id) {
-      var el = document.getElementById(id);
-      if (el) el.style.display = "none";
+    function crumbSelectorIds_(target) {
+      if (target === "price") {
+        return { card: "priceSelectorCard", fields: "priceProductFields", host: "priceCrumbHost" };
+      }
+      if (target === "sub") {
+        return { card: "subDetailSelectorCard", fields: "subDetailProductFields", host: "subCrumbHost" };
+      }
+      return { card: "selectorCard", fields: "selectorProductFields", host: "crumbBuilderHost" };
     }
 
-    function placeCrumbBuilderCard_(target) {
-      var card = document.getElementById("crumbBuilderCard");
-      if (!card) return null;
-      var hostId = target === "price" ? "priceSelectorCard"
-        : target === "sub" ? "subDetailSelectorCard"
-        : "selectorCard";
-      var host = document.getElementById(hostId);
-      if (host && host.parentElement) {
-        if (card.parentElement !== host.parentElement || card.previousElementSibling !== host) {
-          host.parentElement.insertBefore(card, host.nextSibling);
-        }
-      }
-      return card;
+    function showCrumbInSelector_(target) {
+      var ids = crumbSelectorIds_(target);
+      var card = document.getElementById(ids.card);
+      var fields = document.getElementById(ids.fields);
+      var host = document.getElementById(ids.host);
+      if (card) card.style.display = "block";
+      if (fields) fields.style.display = "none";
+      if (host) host.style.display = "block";
+      return host;
+    }
+
+    function hideCrumbInSelector_(target) {
+      var ids = crumbSelectorIds_(target || crumbBuilder.target || "order");
+      var host = document.getElementById(ids.host);
+      var fields = document.getElementById(ids.fields);
+      if (host) host.style.display = "none";
+      if (fields) fields.style.display = "";
     }
 
     function openCrumbBuilder(target) {
       crumbBuilder = { target: target || "order", kind: "", sources: [], grams: "", ratio: [] };
-      var card = placeCrumbBuilderCard_(crumbBuilder.target);
-      if (!card) return;
-      card.style.display = "block";
-      try { card.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (eSc) {}
+      var host = showCrumbInSelector_(crumbBuilder.target);
+      if (!host) return;
+      try { host.parentElement && host.parentElement.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (eSc) {}
       renderCrumbBuilder_();
     }
     window.openCrumbBuilder = openCrumbBuilder;
@@ -4147,15 +4155,21 @@
       for (var i = 0; i < (crumbBuilder.sources || []).length; i++) crumbBuilder.ratio[i] = 1;
     }
 
-    function closeCrumbBuilder_() {
-      var card = document.getElementById("crumbBuilderCard");
-      if (card) card.style.display = "none";
+    function closeCrumbBuilder_(opts) {
+      opts = opts || {};
+      ["order", "price", "sub"].forEach(function (t) {
+        hideCrumbInSelector_(t);
+        if (opts.hideCard) {
+          var card = document.getElementById(crumbSelectorIds_(t).card);
+          if (card) card.style.display = "none";
+        }
+      });
     }
     window.closeCrumbBuilder_ = closeCrumbBuilder_;
 
     function renderCrumbBuilder_() {
-      var card = document.getElementById("crumbBuilderCard");
-      if (!card) return;
+      var host = document.getElementById(crumbSelectorIds_(crumbBuilder.target).host);
+      if (!host) return;
       var kinds = [
         { id: "veg", label: "дрессура овощи/фрукты", cls: "btn-green" },
         { id: "meat", label: "мясные", cls: "btn-orange" },
@@ -4164,10 +4178,9 @@
       var html = '<div class="section-title" style="margin-top:0;">Крошки</div>';
       kinds.forEach(function (k) {
         var on = crumbBuilder.kind === k.id;
-        html += '<button type="button" class="btn-action ' + k.cls +
-          (on ? "" : "") +
+        html += '<button type="button" class="btn-action ' + (on ? "btn-green" : k.cls) +
           '" style="margin:0 0 6px;width:100%;' +
-          (on ? "outline:2px solid #fff;outline-offset:1px;" : "opacity:.88;") +
+          (on ? "" : "opacity:.9;") +
           '" onclick="setCrumbKind_(\'' + k.id + '\')">' +
           k.label + "</button>";
       });
@@ -4204,10 +4217,9 @@
           });
           html += "</div>";
         }
-        html += '<button type="button" class="btn-action btn-blue" style="margin-top:10px;width:100%;" onclick="addCrumbToBasket_()">В состав</button>';
+        html += '<button type="button" class="btn-action btn-blue" style="margin-top:10px;width:100%;" onclick="addCrumbToBasket_()">В корзину</button>';
       }
-      html += '<button type="button" class="btn-action" style="margin-top:8px;width:100%;background:#3a3a3c;" onclick="closeCrumbBuilder_()">Закрыть</button>';
-      card.innerHTML = html;
+      host.innerHTML = html;
     }
 
     function addCrumbToBasket_() {
@@ -4250,7 +4262,7 @@
         basket.push(item);
         renderBasket();
       }
-      closeCrumbBuilder_();
+      closeCrumbBuilder_({ hideCard: true });
       showToast("Крошка добавлена");
     }
     window.addCrumbToBasket_ = addCrumbToBasket_;
@@ -4270,10 +4282,10 @@
         const isCrumb = String(item.cat || "").toLowerCase() === "crumb" || item.crumbKind;
         const srcNames = isCrumb ? crumbSourcesLabel_(item) : "";
         const sub = isCrumb
-          ? (srcNames ? ("из: " + srcNames) : "крошка")
+          ? (srcNames ? srcNames : "крошка")
           : (item.sub ? ("Фракция: " + item.sub) : ("Категория: " + item.cat));
         const displayMain = isCrumb
-          ? crumbBasketTitle_(item)
+          ? "крошка"
           : (catalogAliasNameUi_(item.main || item.name) || item.main);
         let priceHtml = "";
         if (showRetail) {
@@ -6969,7 +6981,7 @@
           ratioBit = " · " + parts.join(":");
         }
         var joined = srcNames.join(" + ");
-        var title = joined ? ("крошка · " + joined + ratioBit) : "крошка";
+        var title = "крошка" + (joined ? (" · " + joined + ratioBit) : "");
         return '<div class="order-detail-line"><span>• ' + escapeHtml(title) +
           '</span><span class="order-detail-volume">' + grams + " " + (unit || "гр") + "</span></div>";
       }
@@ -18828,7 +18840,7 @@
         return;
       }
       if (catKey === "crumb") {
-        hideProductSelectorCard_("priceSelectorCard");
+        priceManualCategory = "crumb";
         openCrumbBuilder("price");
         return;
       }
@@ -18915,9 +18927,9 @@
         var isCrumb = String(item.cat || "").toLowerCase() === "crumb" || item.crumbKind;
         var srcNames = isCrumb ? crumbSourcesLabel_(item) : "";
         var sub = isCrumb
-          ? (srcNames ? ("из: " + srcNames) : "крошка")
+          ? (srcNames ? srcNames : "крошка")
           : (item.sub ? ("Фракция: " + item.sub) : ("Категория: " + item.cat));
-        var title = isCrumb ? crumbBasketTitle_(item) : item.main;
+        var title = isCrumb ? "крошка" : item.main;
         var priceHtml = "";
         if (priceMode === "retail") {
           var r = retailLineCost(item.main || item.name, item.sub || "", item.value != null ? item.value : item.val, item.cat, { crumbKind: item.crumbKind });
@@ -20253,9 +20265,9 @@
         var isCrumb = String(item.cat || "").toLowerCase() === "crumb" || item.crumbKind;
         var srcNames = isCrumb ? crumbSourcesLabel_(item) : "";
         var sub = isCrumb
-          ? (srcNames ? ("из: " + srcNames) : "крошка")
+          ? (srcNames ? srcNames : "крошка")
           : (item.sub ? ("Фракция: " + item.sub) : ("Категория: " + (item.cat || "")));
-        var title = isCrumb ? crumbBasketTitle_(item) : (item.main || item.name || "");
+        var title = isCrumb ? "крошка" : (item.main || item.name || "");
         var delBtn = subDetailDeepOpen
           ? ('<button type="button" class="btn-inline-del" onclick="deleteSubDetailBasketItem(' + idx + ')">Удалить</button>')
           : "";
@@ -20673,7 +20685,11 @@
           if (!piece && typeof unitForItem === "function" && unitForItem(cat || "other", name) === "шт") piece = true;
         } catch (eU) {}
         if (!piece && /шт/i.test(name)) piece = true;
-        if (!piece && /крошка/i.test(name)) piece = true;
+        if (cat === "crumb" || it.crumbKind || (Array.isArray(it.sources) && it.sources.length)) {
+          piece = false;
+        } else if (!piece && /^крошка\b/i.test(name) && !/шт/i.test(name)) {
+          piece = false;
+        }
         if (piece) sum += PP_RAW26_RECOVER_PIECE * val;
         else sum += PP_RAW26_RECOVER_100 * (val / 100);
       });
@@ -21031,7 +21047,7 @@
         return;
       }
       if (catKey === "crumb") {
-        hideProductSelectorCard_("subDetailSelectorCard");
+        subDetailManualCategory = "crumb";
         openCrumbBuilder("sub");
         return;
       }

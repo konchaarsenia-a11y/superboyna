@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115976" as="script">
+  <link rel="preload" href="app.main.js?v=71115977" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115976";
+      var APP_VER = "v71115977";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1821,19 +1821,22 @@
           <button class="btn-action btn-brown" type="button" onclick="openProductSelector('crumb')">Крошки</button>
         </div>
         <div class="card" id="selectorCard" style="display:none;margin-top:10px;">
-          <div class="form-group">
-            <label id="selectorTitle">Позиция</label>
-            <select id="mainSelect" onchange="onProductChange()"></select>
+          <div id="selectorProductFields">
+            <div class="form-group">
+              <label id="selectorTitle">Позиция</label>
+              <select id="mainSelect" onchange="onProductChange()"></select>
+            </div>
+            <div class="form-group" id="fractionGroup" style="display:none;">
+              <label>Фракция / тип</label>
+              <select id="fractionSelect"></select>
+            </div>
+            <div class="form-group">
+              <label id="valueLabel">Объём</label>
+              <input type="number" id="volumeInput" placeholder="0" inputmode="numeric">
+            </div>
+            <button class="btn-action btn-blue" onclick="addItemToBasket()">В корзину</button>
           </div>
-          <div class="form-group" id="fractionGroup" style="display:none;">
-            <label>Фракция / тип</label>
-            <select id="fractionSelect"></select>
-          </div>
-          <div class="form-group">
-            <label id="valueLabel">Объём</label>
-            <input type="number" id="volumeInput" placeholder="0" inputmode="numeric">
-          </div>
-          <button class="btn-action btn-blue" onclick="addItemToBasket()">В корзину</button>
+          <div id="crumbBuilderHost" style="display:none;"></div>
         </div>
       </div>
 
@@ -2356,19 +2359,22 @@
               <button class="btn-action btn-brown" type="button" onclick="openSubDetailProductSelector('crumb')">Крошки</button>
             </div>
             <div class="card" id="subDetailSelectorCard" style="display:none;margin-top:10px;">
-              <div class="form-group">
-                <label id="subDetailSelectorTitle">Позиция</label>
-                <select id="subDetailMainSelect" onchange="onSubDetailProductChange()"></select>
+              <div id="subDetailProductFields">
+                <div class="form-group">
+                  <label id="subDetailSelectorTitle">Позиция</label>
+                  <select id="subDetailMainSelect" onchange="onSubDetailProductChange()"></select>
+                </div>
+                <div class="form-group" id="subDetailFractionGroup" style="display:none;">
+                  <label>Фракция / тип</label>
+                  <select id="subDetailFractionSelect"></select>
+                </div>
+                <div class="form-group">
+                  <label id="subDetailValueLabel">Объём</label>
+                  <input type="number" id="subDetailVolumeInput" placeholder="0" inputmode="numeric">
+                </div>
+                <button class="btn-action btn-blue" type="button" onclick="addItemToSubDetailBasket()">В состав</button>
               </div>
-              <div class="form-group" id="subDetailFractionGroup" style="display:none;">
-                <label>Фракция / тип</label>
-                <select id="subDetailFractionSelect"></select>
-              </div>
-              <div class="form-group">
-                <label id="subDetailValueLabel">Объём</label>
-                <input type="number" id="subDetailVolumeInput" placeholder="0" inputmode="numeric">
-              </div>
-              <button class="btn-action btn-blue" type="button" onclick="addItemToSubDetailBasket()">В состав</button>
+              <div id="subCrumbHost" style="display:none;"></div>
             </div>
           </div>
           <button type="button" class="btn-action" style="margin-top:10px;width:100%;background:#3a3a3c;" onclick="toggleSubDetailDeepEditor_(false)">Свернуть редактор</button>
@@ -2601,19 +2607,22 @@
           <button class="btn-action btn-brown" type="button" onclick="openPriceProductSelector('crumb')">Крошки</button>
         </div>
         <div class="card" id="priceSelectorCard" style="display:none;margin-top:10px;">
-          <div class="form-group">
-            <label id="priceSelectorTitle">Позиция</label>
-            <select id="priceMainSelect" onchange="onPriceProductChange()"></select>
+          <div id="priceProductFields">
+            <div class="form-group">
+              <label id="priceSelectorTitle">Позиция</label>
+              <select id="priceMainSelect" onchange="onPriceProductChange()"></select>
+            </div>
+            <div class="form-group" id="priceFractionGroup" style="display:none;">
+              <label>Фракция / тип</label>
+              <select id="priceFractionSelect"></select>
+            </div>
+            <div class="form-group">
+              <label id="priceValueLabel">Объём</label>
+              <input type="number" id="priceVolumeInput" placeholder="0" inputmode="numeric">
+            </div>
+            <button class="btn-action btn-blue" onclick="addItemToPriceBasket()">В состав</button>
           </div>
-          <div class="form-group" id="priceFractionGroup" style="display:none;">
-            <label>Фракция / тип</label>
-            <select id="priceFractionSelect"></select>
-          </div>
-          <div class="form-group">
-            <label id="priceValueLabel">Объём</label>
-            <input type="number" id="priceVolumeInput" placeholder="0" inputmode="numeric">
-          </div>
-          <button class="btn-action btn-blue" onclick="addItemToPriceBasket()">В состав</button>
+          <div id="priceCrumbHost" style="display:none;"></div>
         </div>
       </div>
 
@@ -2857,9 +2866,7 @@
     <div class="modal-sheet" id="modalSheet"></div>
   </div>
   <div class="toast" id="appToast"></div>
-  <div class="card" id="crumbBuilderCard" style="display:none;margin-top:10px;"></div>
-
-  <script src="courier-maps.js?v=71115976"></script>
-  <script src="app.main.js?v=71115976" defer></script>
+  <script src="courier-maps.js?v=71115977"></script>
+  <script src="app.main.js?v=71115977" defer></script>
 </body>
 </html>
