@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115973";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115974";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -20284,11 +20284,18 @@
       if (hint) hint.style.display = showMig ? "block" : "none";
     }
 
-    function capRaw26PriceToRetail_(price, retailGoods) {
-      var p = Math.round((Number(price) || 0) * 100) / 100;
+    function raw26RetailCapBase_(retailGoods, deliveriesN) {
       var r = Number(retailGoods);
-      if (!isFinite(r) || r <= 0) return p;
-      var capAt = Math.round(r * PP_RAW26_RETAIL_CAP * 100) / 100;
+      if (!isFinite(r) || r <= 0) return 0;
+      var n = Math.max(1, Number(deliveriesN) || 1);
+      return Math.round((r + PP_RAW26_DELIVERY_PER * n) * 100) / 100;
+    }
+
+    function capRaw26PriceToRetail_(price, retailGoods, deliveriesN) {
+      var p = Math.round((Number(price) || 0) * 100) / 100;
+      var base = raw26RetailCapBase_(retailGoods, deliveriesN);
+      if (base <= 0) return p;
+      var capAt = Math.round(base * PP_RAW26_RETAIL_CAP * 100) / 100;
       return p > capAt ? capAt : p;
     }
 
@@ -20355,7 +20362,7 @@
         try {
           retailLocal = Number(calcRetailBasketTotal(listOpt || subDetailBasketPayload_(), { applyDelivery: false }).goods) || 0;
         } catch (eRetL) { retailLocal = 0; }
-        var cappedLocal = capRaw26PriceToRetail_(total, retailLocal);
+        var cappedLocal = capRaw26PriceToRetail_(total, retailLocal, n);
         hintCore = "себест " + costSum + " ×" + coef + " +recover " + recover + " +9×" + n;
         if (cappedLocal < total) {
           total = cappedLocal;
@@ -21738,10 +21745,11 @@
         }
         var goodsRaw = costSum * coef + recover;
         var retailGoodsCap = Number(retail && retail.goods) || 0;
+        var retailCapBase = raw26RetailCapBase_(retailGoodsCap, deliveriesN);
         var capped = false;
         var goodsByn = goodsRaw;
-        if (retailGoodsCap > 0) {
-          var capAt = Math.round(retailGoodsCap * PP_RAW26_RETAIL_CAP * 100) / 100;
+        if (retailCapBase > 0) {
+          var capAt = Math.round(retailCapBase * PP_RAW26_RETAIL_CAP * 100) / 100;
           if (goodsByn > capAt) {
             goodsByn = capAt;
             capped = true;
@@ -21749,17 +21757,18 @@
         }
         var localFactRaw26 = capRaw26PriceToRetail_(
           goodsByn + deliveryByn + packagesByn + fracMark.total,
-          retailGoodsCap
+          retailGoodsCap,
+          deliveriesN
         );
-        if (retailGoodsCap > 0 && localFactRaw26 < Math.round((goodsByn + deliveryByn + packagesByn + fracMark.total) * 100) / 100) {
+        if (retailCapBase > 0 && localFactRaw26 < Math.round((goodsByn + deliveryByn + packagesByn + fracMark.total) * 100) / 100) {
           capped = true;
         }
         subTotal = useApiFact
           ? Math.round(Number(res.clientPrice != null ? res.clientPrice : res.factCost) * 100) / 100
           : localFactRaw26;
-        subTotal = capRaw26PriceToRetail_(subTotal, retailGoodsCap);
+        subTotal = capRaw26PriceToRetail_(subTotal, retailGoodsCap, deliveriesN);
         subTotal = ppOfferClientPrice_("RAW26", subTotal || localFactRaw26, res && res.statedCost, false);
-        subTotal = capRaw26PriceToRetail_(subTotal, retailGoodsCap);
+        subTotal = capRaw26PriceToRetail_(subTotal, retailGoodsCap, deliveriesN);
         if (localFactRaw26 > 0 && subTotal > localFactRaw26 + 12) {
           subTotal = localFactRaw26;
         }
@@ -22507,13 +22516,15 @@
             var recoverSnap = recoverBynFromBasketLocal_(list);
             var goodsSnap = costSum * coef + recoverSnap;
             var retailSnapG = Number(calcRetailBasketTotal(list, { deliveriesN: deliveriesN }).goods) || 0;
-            if (retailSnapG > 0) {
-              var capSnap = Math.round(retailSnapG * PP_RAW26_RETAIL_CAP * 100) / 100;
+            var retailSnapBase = raw26RetailCapBase_(retailSnapG, deliveriesN);
+            if (retailSnapBase > 0) {
+              var capSnap = Math.round(retailSnapBase * PP_RAW26_RETAIL_CAP * 100) / 100;
               if (goodsSnap > capSnap) goodsSnap = capSnap;
             }
             subHint = capRaw26PriceToRetail_(
               goodsSnap + PP_RAW26_DELIVERY_PER * deliveriesN + packagesByn + fracMark.total,
-              retailSnapG
+              retailSnapG,
+              deliveriesN
             );
           } else {
             subHint = costSum * coef + PRICE_PP_FIXED_BYN + PRICE_PP_DELIVERY_PER * deliveriesN +

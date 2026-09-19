@@ -18382,8 +18382,8 @@ function packagesBynFromUCounts_(pc) {
  * LEGACY: сырьё×coef + 11 + 6×N + пакеты + фракции  (старые карточки без тега)
  * RAW26:  сырьё×coef + recover + 9×N + пакеты + фракции
  *   recover_100г=3.90 · recover_шт/пак=0.50 · coef по умолчанию 2.6
- *   финальный кап: цена = min(полная, Σрозница_строк×0.92); розница без доставки.
- *   retail=0/нет → кап не применять (не выдумывать).
+ *   финальный кап: retailCapBase = Σрозница_строк + 9×N (без пакетов/фракций);
+ *   цена = min(полная, retailCapBase×0.92). Σстрок=0/нет → кап не применять.
  * Новые зачисления с 2026-08-31 → RAW26; старые без изменений, пока не migratePpToRaw26Scheme.
  * Календарь доставок / уже выставленные цены в доставках не трогаем.
  */
@@ -18482,7 +18482,7 @@ function retailGoodsBynFromBasket_(basket) {
  * @param {Object=} packCountsOpt
  * @param {string=} schemeOpt LEGACY|RAW26
  * @param {Array=} linesOpt линии с piece/val (для recover)
- * @param {number=} retailGoodsOpt Σ розницы строк (финальный потолок 92% полной цены)
+ * @param {number=} retailGoodsOpt Σ розницы строк; кап = 0.92×(это + 9×N), пакеты/фракции не в базе
  */
 function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCountsOpt, schemeOpt, linesOpt, retailGoodsOpt) {
   var scheme = normalizePpScheme_(schemeOpt) || "LEGACY";
@@ -18512,7 +18512,7 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
     var capped = false;
     var capAt = 0;
     if (isFinite(retailGoods) && retailGoods > 0) {
-      capAt = Math.round(retailGoods * PP_RAW26_RETAIL_CAP_ * 100) / 100;
+      capAt = Math.round((retailGoods + delivery) * PP_RAW26_RETAIL_CAP_ * 100) / 100;
       if (goods > capAt) {
         goods = capAt;
         capped = true;

@@ -18598,7 +18598,7 @@ function computePpFactFromCostD1_(
     let capped = false;
     let capAt = 0;
     if (isFinite(retailGoods) && retailGoods > 0) {
-      capAt = Math.round(retailGoods * PP_RAW26_RETAIL_CAP_D1_ * 100) / 100;
+      capAt = Math.round((retailGoods + delivery) * PP_RAW26_RETAIL_CAP_D1_ * 100) / 100;
       if (goods > capAt) {
         goods = capAt;
         capped = true;
