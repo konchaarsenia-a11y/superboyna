@@ -386,7 +386,10 @@ main{position:relative;z-index:1}
   font-weight:700;font-size:13px;
 }
 .chip.on{background:rgba(196,30,42,.22);border-color:rgba(196,30,42,.5);color:#ffd0d4}
-.collections-block{min-width:0;margin:0 0 10px}
+.collections-block{
+  min-width:0;margin:0 0 10px;
+  display:grid;gap:8px;
+}
 .collection-chips{
   display:flex;
   flex-wrap:wrap;
@@ -405,7 +408,7 @@ main{position:relative;z-index:1}
 }
 .collection-chip{
   display:inline-flex;align-items:center;gap:8px;
-  min-height:48px;padding:6px 12px 6px 6px;
+  min-height:44px;padding:5px 12px 5px 6px;
   border-radius:14px;
   background:rgba(255,255,255,.04);
   border:1px dashed rgba(255,255,255,.22);
@@ -416,21 +419,16 @@ main{position:relative;z-index:1}
 .collection-chip:nth-child(3){transform:rotate(-.2deg)}
 .collection-chip:nth-child(4){transform:rotate(.3deg)}
 .collection-chip-thumb{
-  width:36px;height:36px;flex:0 0 auto;
-  border-radius:10px;overflow:hidden;
-  border:1.5px solid #111;
-  background:#121316;
-  box-shadow:1px 1px 0 #111;
+  width:30px;height:30px;flex:0 0 auto;
+  border-radius:0;overflow:visible;
+  border:0;
+  background:transparent;
+  box-shadow:none;
 }
 .collection-chip-thumb img{
   width:100%;height:100%;
-  object-fit:cover;object-position:center;
-  transform:scale(1.7);
+  object-fit:contain;object-position:center;
 }
-.collection-chip[data-color="white"] img{object-position:72% 46%;transform:scale(2.05)}
-.collection-chip[data-color="bright"] img{object-position:50% 46%;transform:scale(1.45)}
-.collection-chip[data-color="black"] img{object-position:50% 44%;transform:scale(2.15)}
-.collection-chip-sale img{object-position:50% 42%;transform:scale(1.75)}
 .collection-chip-label{
   font-family:var(--display);font-size:16px;letter-spacing:.06em;
   text-transform:uppercase;font-weight:400;line-height:1;
@@ -460,7 +458,13 @@ main{position:relative;z-index:1}
   border-color:#5a0a10;
 }
 .gender-chips{
-  margin-top:2px;
+  margin:0;
+  display:flex;flex-wrap:wrap;gap:8px;
+}
+.gender-chips .street-opt{
+  min-height:32px;padding:0 14px;border-radius:999px;
+  font-size:14px;letter-spacing:.06em;
+  box-shadow:1px 1px 0 #111;
 }
 .brand-chip{
   min-height:38px;padding:0 12px;border-radius:10px;
@@ -583,9 +587,10 @@ main{position:relative;z-index:1}
   .street-drop{font-size:22px;min-height:52px}
   .collection-chips{gap:10px}
   .collection-chip,.collection-chip:nth-child(2),.collection-chip:nth-child(3),.collection-chip:nth-child(4){transform:none}
-  .collection-chip{min-height:52px;padding:6px 14px 6px 6px}
-  .collection-chip-thumb{width:40px;height:40px;border-radius:11px}
+  .collection-chip{min-height:48px;padding:6px 14px 6px 6px}
+  .collection-chip-thumb{width:32px;height:32px}
   .collection-chip-label{font-size:18px}
+  .gender-chips .street-opt{min-height:34px;font-size:15px}
   .toy{width:88px;height:88px}
 }
 @media (prefers-reduced-motion:reduce){
