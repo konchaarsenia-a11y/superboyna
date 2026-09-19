@@ -387,7 +387,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-19 partner-access-stick-h3"
+      deployMarker: "2026-09-19 close-week-no-shift-h2"
     };
   }
 
@@ -3215,7 +3215,9 @@ function weekCloseScrubAction_(haveIso, wantIso) {
 /**
  * Slot column vs date_iso. Off-week leftover → detach (keep date).
  * Same-week other slot (move 14→15 left date_iso=14 on Tuesday) → stamp this slot.
- * Never hide an active weekday-column row from getClients.
+ * Stamp ONLY if both dates are current week slots. After close-week A1+7 the
+ * leftover 07.09 is not on the new map (or want is not on a stale old map) → detach.
+ * Never remap +7.
  */
 function weekSlotDateAction_(haveIso, wantIso, weekMap) {
   const have = coerceDateIso_(haveIso);
@@ -3223,8 +3225,72 @@ function weekSlotDateAction_(haveIso, wantIso, weekMap) {
   if (!want) return "skip";
   if (!have) return "stamp_empty";
   if (have === want) return "keep";
-  if (weekMap && weekMap[have]) return "stamp_slot";
+  if (weekMap && weekMap[have] && weekMap[want]) return "stamp_slot";
   return "detach";
+}
+
+/** Calendar-only D1 id. Slot id is `Day:mk`; after close-week we must leave Day:mk free. */
+function calendarOrderId_(matchKey, dateIso) {
+  const mk = normalizeMatchKey_(matchKey);
+  const iso = coerceDateIso_(dateIso);
+  if (!mk || !iso) return "";
+  return "CAL:" + mk + ":" + iso;
+}
+
+/** Close/resync must not UPDATE date_iso on a row that already has another date. */
+function shouldRebindOrderDate_(haveIso, wantIso) {
+  const have = coerceDateIso_(haveIso);
+  const want = coerceDateIso_(wantIso);
+  if (!want) return false;
+  if (!have) return true;
+  return have === want;
+}
+
+/**
+ * Detach weekday column without moving date_iso.
+ * Rekey `Понедельник:MK` → `CAL:MK:date` so later upsert Day:MK cannot stamp +7.
+ */
+async function detachWeekSlotRowKeepDate_(env, row, now) {
+  const out = { ok: false, action: "skip" };
+  if (!env || !env.DB || !row || !row.id) return out;
+  now = now || new Date().toISOString();
+  const iso = coerceDateIso_(row.date_iso);
+  const mk = normalizeMatchKey_(row.match_key || row.client || "");
+  const calId = calendarOrderId_(mk, iso);
+  if (!calId || String(row.id) === calId) {
+    try {
+      await env.DB.prepare(
+        "UPDATE orders SET day_name = '', updated_at = ? WHERE id = ? AND status = 'active'"
+      )
+        .bind(now, row.id)
+        .run();
+      out.ok = true;
+      out.action = calId ? "already_cal" : "detach_no_rekey";
+    } catch (e0) {}
+    return out;
+  }
+  try {
+    await env.DB.prepare(
+      "UPDATE orders SET id = ?, day_name = '', updated_at = ? WHERE id = ? AND status = 'active'"
+    )
+      .bind(calId, now, row.id)
+      .run();
+    out.ok = true;
+    out.action = "rekey_cal";
+    return out;
+  } catch (eRekey) {
+    // CAL:mk:iso already exists — free the weekday id, keep the dated row.
+    try {
+      await env.DB.prepare(
+        "UPDATE orders SET status = 'deleted', updated_at = ? WHERE id = ? AND status = 'active'"
+      )
+        .bind(now, row.id)
+        .run();
+      out.ok = true;
+      out.action = "drop_slot_keep_cal";
+    } catch (eDrop) {}
+  }
+  return out;
 }
 
 /**
@@ -3261,12 +3327,8 @@ async function scrubMismatchedDayOrders_(env, day, wantIso) {
             .run();
           n++;
         } else if (act === "detach") {
-          await env.DB.prepare(
-            "UPDATE orders SET day_name = '', updated_at = ? WHERE id = ? AND status = 'active'"
-          )
-            .bind(nowFix, row.id)
-            .run();
-          n++;
+          const detached = await detachWeekSlotRowKeepDate_(env, row, nowFix);
+          if (detached && detached.ok) n++;
         }
       } catch (e1) {}
     }
@@ -10796,7 +10858,7 @@ async function handleCutover_(a, params, env, ctx) {
         tip: "D1 слоты недели = Sheets; пустые поля не затирали непустые.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-14 undelete-zombie-h1"
+        deployMarker: "2026-09-19 close-week-no-shift-h2"
       };
     } catch (eResync) {
       return {
@@ -14315,17 +14377,27 @@ async function upsertMissingClientsFromGas_(env, day, clients, opts) {
     if (exists && String(exists.status || "") === "active") {
       const haveDay = String(exists.day_name || "");
       const haveIso = coerceDateIso_(exists.date_iso) || String(exists.date_iso || "");
-      if ((haveDay && haveDay !== day) || (dateIso && haveIso && haveIso !== dateIso) || !haveDay) {
+      if (dateIso && haveIso && !shouldRebindOrderDate_(haveIso, dateIso)) {
+        // leftover slot from last week — keep date_iso, free Day:mk, insert below
+        if (haveDay === day) {
+          try {
+            await detachWeekSlotRowKeepDate_(env, exists, now);
+          } catch (eDetMiss) {}
+        }
+        exists = null;
+      } else if ((haveDay && haveDay !== day) || !haveDay) {
         try {
           await env.DB.prepare(
-            "UPDATE orders SET day_name = ?, date_iso = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+            "UPDATE orders SET day_name = ?, updated_at = ? WHERE id = ? AND status = 'active'"
           )
-            .bind(day, dateIso || haveIso, now, exists.id)
+            .bind(day, now, exists.id)
             .run();
           added++;
         } catch (eRebind) {}
+        continue;
+      } else {
+        continue;
       }
-      continue;
     }
     if (!exists) {
       try {
@@ -14334,15 +14406,20 @@ async function upsertMissingClientsFromGas_(env, day, clients, opts) {
         exists = null;
       }
       if (exists && String(exists.status || "") === "active") {
-        try {
-          await env.DB.prepare(
-            "UPDATE orders SET day_name = ?, date_iso = ?, updated_at = ? WHERE id = ? AND status = 'active'"
-          )
-            .bind(day, dateIso || coerceDateIso_(exists.date_iso) || "", now, exists.id)
-            .run();
-          added++;
-        } catch (eRe2) {}
-        continue;
+        const haveIso2 = coerceDateIso_(exists.date_iso) || String(exists.date_iso || "");
+        if (dateIso && haveIso2 && !shouldRebindOrderDate_(haveIso2, dateIso)) {
+          exists = null;
+        } else {
+          try {
+            await env.DB.prepare(
+              "UPDATE orders SET day_name = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+            )
+              .bind(day, now, exists.id)
+              .run();
+            added++;
+          } catch (eRe2) {}
+          continue;
+        }
       }
     }
     try {
@@ -14387,6 +14464,13 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
   opts = opts || {};
   await ensureMetaColumn_(env);
   const info = await dayDateInfo_(env, day);
+  // Close-week / slot roll: detach leftover Day:mk rows BEFORE upsert, else
+  // ON CONFLICT(id) stamps date_iso +7 on the same Понедельник:MK row.
+  if (info && info.iso) {
+    try {
+      await scrubMismatchedDayOrders_(env, day, info.iso);
+    } catch (eScrubRep) {}
+  }
   const now = new Date().toISOString();
   const nowMs = Date.now();
   // Не затирать свежие D1-записи старым GAS (edit ещё не доехал / таймаут)
@@ -14626,6 +14710,18 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       nowMs - Date.parse(String(c.updated_at || c.updatedAt)) < protectMs
         ? String(c.updated_at || c.updatedAt)
         : now;
+    try {
+      const leftover = await env.DB.prepare(
+        "SELECT * FROM orders WHERE id = ? AND status = 'active' LIMIT 1"
+      )
+        .bind(day + ":" + mk)
+        .first();
+      const leftIso = leftover ? coerceDateIso_(leftover.date_iso) : "";
+      const slotIso = coerceDateIso_(info && info.iso);
+      if (leftover && slotIso && leftIso && !shouldRebindOrderDate_(leftIso, slotIso)) {
+        await detachWeekSlotRowKeepDate_(env, leftover, now);
+      }
+    } catch (eLeft) {}
     await upsertOrderRow_(env, {
       id: day + ":" + mk,
       date_iso: info.iso || c.dateIso || "",

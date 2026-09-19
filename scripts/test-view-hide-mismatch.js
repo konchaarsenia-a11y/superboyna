@@ -32,7 +32,7 @@ function weekSlotDateAction_(haveIso, wantIso, weekMap) {
   if (!want) return "skip";
   if (!have) return "stamp_empty";
   if (have === want) return "keep";
-  if (weekMap && weekMap[have]) return "stamp_slot";
+  if (weekMap && weekMap[have] && weekMap[want]) return "stamp_slot";
   return "detach";
 }
 
@@ -55,6 +55,7 @@ assert(weekSlotDateAction_("2026-09-14", "2026-09-15", weekMap) === "stamp_slot"
 assert(weekSlotDateAction_("15.09.2026", "2026-09-15", weekMap) === "keep", "DMY same day keep");
 assert(weekSlotDateAction_("", "2026-09-15", weekMap) === "stamp_empty", "empty → stamp");
 assert(weekSlotDateAction_("2026-09-08", "2026-09-15", weekMap) === "detach", "old week → detach");
+assert(weekSlotDateAction_("2026-09-07", "2026-09-14", { "2026-09-07": "Понедельник" }) === "detach", "stale old map + new want → detach not stamp");
 assert(weekCloseScrubAction_("2026-09-07", "2026-09-14") === "detach", "close-week helper still detaches +7");
 assert(coerceDateIso_("15.09.2026") === "2026-09-15", "coerce DMY");
 assert(coerceDateIso_("2026-09-15T10:00:00") === "2026-09-15", "coerce datetime prefix");

@@ -47,25 +47,152 @@ if (extracted) {
   assert(weekCloseScrubAction_("2026-09-07", "2026-09-14") === "detach", "worker helper: 7→14 detach");
 }
 
+function coerceDateIso_(raw) {
+  var s = String(raw || "").trim();
+  if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  var m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (m) return m[3] + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
+  var iso = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return iso ? iso[1] : "";
+}
+function normalizeMatchKey_(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[._\s]+/g, "");
+}
+function weekSlotDateAction_(haveIso, wantIso, weekMap) {
+  var have = coerceDateIso_(haveIso);
+  var want = coerceDateIso_(wantIso);
+  if (!want) return "skip";
+  if (!have) return "stamp_empty";
+  if (have === want) return "keep";
+  if (weekMap && weekMap[have] && weekMap[want]) return "stamp_slot";
+  return "detach";
+}
+function calendarOrderId_(matchKey, dateIso) {
+  var mk = normalizeMatchKey_(matchKey);
+  var iso = coerceDateIso_(dateIso);
+  if (!mk || !iso) return "";
+  return "CAL:" + mk + ":" + iso;
+}
+function shouldRebindOrderDate_(haveIso, wantIso) {
+  var have = coerceDateIso_(haveIso);
+  var want = coerceDateIso_(wantIso);
+  if (!want) return false;
+  if (!have) return true;
+  return have === want;
+}
+
+var oldMap = {
+  "2026-09-07": "Понедельник",
+  "2026-09-08": "Вторник",
+  "2026-09-09": "Среда"
+};
+var newMap = {
+  "2026-09-14": "Понедельник",
+  "2026-09-15": "Вторник",
+  "2026-09-16": "Среда"
+};
+var sameWeekMap = {
+  "2026-09-14": "Понедельник",
+  "2026-09-15": "Вторник"
+};
+assert(weekSlotDateAction_("2026-09-07", "2026-09-14", newMap) === "detach", "new week map: 07 vs 14 → detach");
+assert(weekSlotDateAction_("2026-09-07", "2026-09-14", oldMap) === "detach", "stale old map: 07 vs 14 → detach (not stamp)");
+assert(weekSlotDateAction_("2026-09-14", "2026-09-15", sameWeekMap) === "stamp_slot", "same week Mon→Tue still stamps");
+assert(weekSlotDateAction_("", "2026-09-14", newMap) === "stamp_empty", "empty iso still stamps slot");
+assert(shouldRebindOrderDate_("2026-09-07", "2026-09-14") === false, "upsert must not rebind 07→14");
+assert(shouldRebindOrderDate_("", "2026-09-14") === true, "empty date may take slot iso");
+assert(shouldRebindOrderDate_("2026-09-14", "2026-09-14") === true, "same date rebind ok");
+assert(calendarOrderId_("Ann", "2026-09-07") === "CAL:ann:2026-09-07", "calendar id from slot");
+
+function simulateCloseWeekKeepDates_(rows, wantIso, weekMap) {
+  return (rows || []).map(function (row) {
+    var act = weekSlotDateAction_(row.date_iso, wantIso, weekMap);
+    if (act === "detach") {
+      return {
+        id: calendarOrderId_(row.match_key, row.date_iso),
+        date_iso: row.date_iso,
+        day_name: "",
+        match_key: row.match_key
+      };
+    }
+    if (act === "stamp_slot" || act === "stamp_empty") {
+      return Object.assign({}, row, { date_iso: wantIso });
+    }
+    return row;
+  });
+}
+var afterClose = simulateCloseWeekKeepDates_(
+  [{ id: "Понедельник:ann", date_iso: "2026-09-07", day_name: "Понедельник", match_key: "ann" }],
+  "2026-09-14",
+  newMap
+);
+assert(afterClose[0].date_iso === "2026-09-07", "close-week keeps original date_iso");
+assert(afterClose[0].day_name === "", "close-week detaches day_name");
+assert(afterClose[0].id === "CAL:ann:2026-09-07", "close-week frees Понедельник:ann id");
+var afterStale = simulateCloseWeekKeepDates_(
+  [{ id: "Понедельник:ann", date_iso: "2026-09-07", day_name: "Понедельник", match_key: "ann" }],
+  "2026-09-14",
+  oldMap
+);
+assert(afterStale[0].date_iso === "2026-09-07", "stale weekMap still keeps 07.09 (no +7 stamp)");
+
+var slotFn = worker.match(/function weekSlotDateAction_\([\s\S]*?\n\}/);
+assert(!!slotFn, "worker exports weekSlotDateAction_");
+if (slotFn) {
+  eval(slotFn[0]);
+  assert(weekSlotDateAction_("2026-09-07", "2026-09-14", newMap) === "detach", "worker: new map 7→14 detach");
+  assert(weekSlotDateAction_("2026-09-07", "2026-09-14", oldMap) === "detach", "worker: stale map 7→14 detach");
+  assert(weekSlotDateAction_("2026-09-14", "2026-09-15", sameWeekMap) === "stamp_slot", "worker: intra-week stamp");
+}
+var rebindFn = worker.match(/function shouldRebindOrderDate_\([\s\S]*?\n\}/);
+assert(!!rebindFn, "worker exports shouldRebindOrderDate_");
+if (rebindFn) {
+  eval(rebindFn[0]);
+  assert(shouldRebindOrderDate_("2026-09-07", "2026-09-14") === false, "worker: no rebind +7");
+}
+var calFn = worker.match(/function calendarOrderId_\([\s\S]*?\n\}/);
+assert(!!calFn, "worker exports calendarOrderId_");
+if (calFn) {
+  eval(calFn[0]);
+  assert(calendarOrderId_("Ann", "2026-09-07") === "CAL:ann:2026-09-07", "worker calendar id");
+}
+
 var scrubStart = worker.indexOf("async function scrubMismatchedDayOrders_");
 var scrubEnd = worker.indexOf("async function scrubAllDayDateMismatches_");
 var scrubBody = scrubStart >= 0 && scrubEnd > scrubStart ? worker.slice(scrubStart, scrubEnd) : "";
 assert(scrubBody.indexOf("weekSlotDateAction_") >= 0, "scrub uses weekSlotDateAction_");
 assert(scrubBody.indexOf("act === \"detach\"") >= 0 || scrubBody.indexOf("act === 'detach'") >= 0, "scrub detach branch");
 assert(scrubBody.indexOf("stamp_slot") >= 0, "same-week slot stamps date_iso");
-assert(scrubBody.indexOf("day_name = ''") >= 0, "detach clears day_name, keeps date_iso");
+assert(scrubBody.indexOf("detachWeekSlotRowKeepDate_") >= 0, "scrub rekeys slot id on detach");
 assert(
   /UPDATE orders SET date_iso = \?, updated_at = \? WHERE id = \?/.test(scrubBody) &&
     scrubBody.indexOf("stamp_empty") >= 0,
   "date_iso UPDATE for empty/same-week stamp"
 );
+assert(worker.indexOf("weekMap[have] && weekMap[want]") >= 0, "stamp only when both dates on current week");
+assert(worker.indexOf("async function detachWeekSlotRowKeepDate_") >= 0, "detach rekey helper");
+assert(worker.indexOf("close-week-no-shift-h2") >= 0, "deploy marker h2");
+assert(worker.indexOf("shouldRebindOrderDate_") >= 0, "upsert date-rebind guard");
+var missStart = worker.indexOf("async function upsertMissingClientsFromGas_");
+var missEnd = worker.indexOf("async function countActiveOrdersForDay_");
+var missBody = missStart >= 0 && missEnd > missStart ? worker.slice(missStart, missEnd) : "";
+assert(missBody.indexOf("shouldRebindOrderDate_") >= 0, "upsertMissing refuses foreign date_iso");
+assert(missBody.indexOf("detachWeekSlotRowKeepDate_") >= 0, "upsertMissing detaches leftover slot");
+var repStart = worker.indexOf("async function replaceDayOrdersFromClients_");
+var repSlice = repStart >= 0 ? worker.slice(repStart, worker.indexOf("async function cutoverRefreshAllWeekDays_")) : "";
+assert(repSlice.indexOf("scrubMismatchedDayOrders_") >= 0, "replaceDay detaches leftovers before upsert");
+assert(repSlice.indexOf("shouldRebindOrderDate_") >= 0, "replaceDay will not stamp leftover Day:mk date");
 
 assert(worker.indexOf("restoreShiftedWeekClose_") >= 0, "repair helper present");
 assert(worker.indexOf("repairShiftedWeekClose") >= 0, "repair action present");
 assert(worker.indexOf("reattachWeekSlotDayNames_") >= 0, "reattach helper present");
 assert(worker.indexOf("repairDetachedWeekSlots") >= 0, "reattach action present");
 assert(worker.indexOf("decideWeekSlotCalendarRow_") >= 0, "reattach decision helper");
-assert(worker.indexOf("reattach-week-slots-h1") >= 0, "deploy marker");
+assert(worker.indexOf("close-week-no-shift-h2") >= 0, "deploy marker");
 assert(worker.indexOf("day_name = '' OR day_name IS NULL") >= 0, "getClients includes detached date_iso rows");
 
 var finStart = gs.indexOf("function finishFullWeekProduction");
