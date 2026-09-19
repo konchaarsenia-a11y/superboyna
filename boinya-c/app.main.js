@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115979";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115980";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -2888,24 +2888,73 @@
       return row;
     }
 
-    function crumbKindTitle_(kind) {
-      var k = String(kind || "").toLowerCase();
-      if (k === "veg") return "крошка · дрессура овощи/фрукты";
-      if (k === "meat") return "крошка · мясные";
-      if (k === "hypo") return "крошка · гипоаллергенные";
-      return "крошка";
+    function isCrumbBasketItemUi_(item) {
+      if (!item) return false;
+      if (String(item.cat || "").toLowerCase() === "crumb" || item.crumbKind) return true;
+      return Array.isArray(item.sources) && item.sources.length > 0;
     }
 
-    function crumbSourcesLabel_(item) {
-      if (!item || !Array.isArray(item.sources)) return "";
-      return item.sources.map(function (s) {
-        return catalogAliasNameUi_(s && (s.name || s.main)) || (s && (s.name || s.main)) || "";
-      }).filter(Boolean).join(" + ");
+    /** Чип категории крошки: дрессура овощи/фрукты / мясные / гипоаллергенные (без цен). */
+    function crumbKindCategoryLabel_(kind) {
+      var k = String(kind || "").toLowerCase();
+      if (k === "veg") return "дрессура овощи/фрукты";
+      if (k === "meat") return "мясные";
+      if (k === "hypo") return "гипоаллергенные";
+      return "";
+    }
+
+    function crumbKindTitle_(kind) {
+      return crumbKindCategoryLabel_(kind) || "крошка";
+    }
+
+    function crumbSourceNames_(item) {
+      if (!item) return [];
+      var fromSrc = [];
+      if (Array.isArray(item.sources) && item.sources.length) {
+        fromSrc = item.sources.map(function (s) {
+          var raw = (s && (s.name || s.main)) || "";
+          var named = "";
+          try { named = catalogAliasNameUi_(raw); } catch (e0) {}
+          return named || raw;
+        }).filter(Boolean);
+      }
+      if (fromSrc.length) return fromSrc;
+      var sub = String(item.sub || "").trim();
+      if (!sub || /^крошка\b/i.test(sub)) return [];
+      var kindLabel = crumbKindCategoryLabel_(item.crumbKind);
+      if (kindLabel && sub === kindLabel) return [];
+      if (sub.indexOf("дрессура") === 0 || sub === "мясные" || sub.indexOf("гипо") === 0) return [];
+      return sub.split(/\s*\+\s*/).map(function (part) {
+        var p = String(part || "").trim();
+        if (!p) return "";
+        var named = "";
+        try { named = catalogAliasNameUi_(p); } catch (e1) {}
+        return named || p;
+      }).filter(Boolean);
+    }
+
+    function crumbSourcesLabel_(item, joiner) {
+      return crumbSourceNames_(item).join(joiner != null ? joiner : " + ");
+    }
+
+    function crumbBasketDisplayMain_(item) {
+      return crumbSourcesLabel_(item, " + ") || "крошка";
+    }
+
+    function crumbBasketSubLabel_(item) {
+      return crumbKindCategoryLabel_(item && item.crumbKind) || "крошка";
+    }
+
+    /** Сообщение клиенту: «крошка ЛЁГКОЕ - 100г» / «крошка ЛЁГКОЕ+РУБЕЦ Т - 100г». */
+    function crumbClientMessageLine_(item) {
+      var src = crumbSourcesLabel_(item, "+");
+      var val = Number(item && (item.val != null ? item.val : item.value)) || 0;
+      if (src) return "крошка " + src + " - " + val + "г";
+      return "крошка - " + val + "г";
     }
 
     function crumbBasketTitle_(item) {
-      var src = crumbSourcesLabel_(item);
-      return src ? ("крошка · " + src) : "крошка";
+      return crumbBasketDisplayMain_(item);
     }
 
     function crumbKindRateUi_(kind) {
@@ -4351,13 +4400,12 @@
       const showRetail = orderType === "retail";
       box.innerHTML = basket.map(item => {
         const unit = unitForItem(item.cat, item.main);
-        const isCrumb = String(item.cat || "").toLowerCase() === "crumb" || item.crumbKind;
-        const srcNames = isCrumb ? crumbSourcesLabel_(item) : "";
+        const isCrumb = isCrumbBasketItemUi_(item);
         const sub = isCrumb
-          ? (srcNames ? srcNames : "крошка")
+          ? crumbBasketSubLabel_(item)
           : (item.sub ? ("Фракция: " + item.sub) : ("Категория: " + item.cat));
         const displayMain = isCrumb
-          ? "крошка"
+          ? crumbBasketDisplayMain_(item)
           : (catalogAliasNameUi_(item.main || item.name) || item.main);
         let priceHtml = "";
         if (showRetail) {
@@ -4389,13 +4437,19 @@
 
     function syncEditBasketToViewPreview_() {
       var mapped = (basket || []).map(function (g) {
-        return {
+        var row = {
           cat: g.cat,
           name: g.name || g.main,
           main: g.main || g.name,
           sub: g.sub || "",
           val: g.val != null ? g.val : g.value
         };
+        if (isCrumbBasketItemUi_(g)) {
+          row.crumbKind = g.crumbKind || "";
+          row.sources = Array.isArray(g.sources) ? g.sources : [];
+          row.ratio = Array.isArray(g.ratio) ? g.ratio.slice() : [];
+        }
+        return row;
       });
       var draftIdx = window._viewDraftEditIndex;
       if (draftIdx != null && viewTransferDraft[draftIdx]) {
@@ -7036,29 +7090,17 @@
       var unit = g.unit || unitForItem(g.cat, g.name || g.main);
       var nm = catalogAliasNameUi_(g.name || g.main || "") || (g.name || g.main || "");
       var grams = g.val != null ? g.val : g.value;
-      var isCrumb = String(g.cat || "").toLowerCase() === "crumb" || g.crumbKind ||
-        (Array.isArray(g.sources) && g.sources.length);
+      var isCrumb = isCrumbBasketItemUi_(g);
       if (isCrumb) {
-        var srcs = Array.isArray(g.sources) ? g.sources : [];
-        var srcNames = srcs.map(function (s) {
-          return catalogAliasNameUi_(s && (s.name || s.main)) || (s && (s.name || s.main)) || "";
-        }).filter(Boolean);
-        var ratio = Array.isArray(g.ratio) ? g.ratio : [];
-        var ratioBit = "";
-        if (srcNames.length >= 2) {
-          var sumR = 0;
-          for (var ri = 0; ri < srcNames.length; ri++) sumR += Number(ratio[ri]) || 0;
-          var parts = srcNames.map(function (_, i) {
-            var n = Number(ratio[i]);
-            if (!(n > 0) && sumR <= 0) n = 1;
-            return String(n > 0 ? n : 1);
-          });
-          ratioBit = " · " + parts.join(":");
-        }
-        var joined = srcNames.join(" + ");
-        var title = "крошка" + (joined ? (" · " + joined + ratioBit) : "");
-        return '<div class="order-detail-line"><span>• ' + escapeHtml(title) +
+        var title = crumbBasketDisplayMain_(g);
+        var catLabel = crumbKindCategoryLabel_(g.crumbKind);
+        var html = '<div class="order-detail-line"><span>• ' + escapeHtml(title) +
           '</span><span class="order-detail-volume">' + grams + " " + (unit || "гр") + "</span></div>";
+        if (catLabel) {
+          html += '<div class="order-detail-line" style="opacity:.7;font-size:12px;"><span>' +
+            escapeHtml(catLabel) + "</span></div>";
+        }
+        return html;
       }
       var frac = g.sub ? String(g.sub) : "";
 
@@ -11692,7 +11734,9 @@
         var key = noteItemKeyFromBasketItem_(it);
         if (!key || seen[key]) return;
         seen[key] = true;
-        var label = key.replace(/\//g, " · ");
+        var label = isCrumbBasketItemUi_(it)
+          ? crumbBasketDisplayMain_(it)
+          : key.replace(/\//g, " · ");
         opts.push('<option value="' + String(key).replace(/"/g, "&quot;") + '"' +
           (selected === key ? " selected" : "") + ">" + escapeHtml(label) + "</option>");
       });
@@ -19002,12 +19046,11 @@
       }
       box.innerHTML = priceBasket.map(function (item) {
         var unit = unitForItem(item.cat, item.main);
-        var isCrumb = String(item.cat || "").toLowerCase() === "crumb" || item.crumbKind;
-        var srcNames = isCrumb ? crumbSourcesLabel_(item) : "";
+        var isCrumb = isCrumbBasketItemUi_(item);
         var sub = isCrumb
-          ? (srcNames ? srcNames : "крошка")
+          ? crumbBasketSubLabel_(item)
           : (item.sub ? ("Фракция: " + item.sub) : ("Категория: " + item.cat));
-        var title = isCrumb ? "крошка" : item.main;
+        var title = isCrumb ? crumbBasketDisplayMain_(item) : item.main;
         var priceHtml = "";
         if (priceMode === "retail") {
           var r = retailLineCost(item.main || item.name, item.sub || "", item.value != null ? item.value : item.val, item.cat, { crumbKind: item.crumbKind });
@@ -20340,12 +20383,11 @@
       }
       box.innerHTML = subDetailBasket.map(function (item, idx) {
         var unit = unitForItem(item.cat, item.main || item.name);
-        var isCrumb = String(item.cat || "").toLowerCase() === "crumb" || item.crumbKind;
-        var srcNames = isCrumb ? crumbSourcesLabel_(item) : "";
+        var isCrumb = isCrumbBasketItemUi_(item);
         var sub = isCrumb
-          ? (srcNames ? srcNames : "крошка")
+          ? crumbBasketSubLabel_(item)
           : (item.sub ? ("Фракция: " + item.sub) : ("Категория: " + (item.cat || "")));
-        var title = isCrumb ? "крошка" : (item.main || item.name || "");
+        var title = isCrumb ? crumbBasketDisplayMain_(item) : (item.main || item.name || "");
         var delBtn = subDetailDeepOpen
           ? ('<button type="button" class="btn-inline-del" onclick="deleteSubDetailBasketItem(' + idx + ')">Удалить</button>')
           : "";
@@ -22632,6 +22674,7 @@
     }
 
     function formatPriceCompositionLine(it) {
+      if (isCrumbBasketItemUi_(it)) return crumbClientMessageLine_(it);
       var main = it.main || it.name || "";
       var sub = it.sub || "";
       var val = it.val != null ? it.val : it.value;
