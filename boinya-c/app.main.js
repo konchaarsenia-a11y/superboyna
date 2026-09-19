@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115978";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115979";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -47,7 +47,7 @@
     let selectedAddressGeo = null; // {lat, lon, address, yandexUrl}
     let selectedPostOfficeGeo = null;
     let noteRoles = { mgr: false, cut: false, cour: true };
-    let orderNotes = [{ text: "", roles: { mgr: false, cut: false, cour: true }, permanent: false }];
+    let orderNotes = [];
     let priceBasket = [];
     let priceBaskets = { 1: [], 2: [] };
     let priceDogCount = 1;
@@ -242,19 +242,68 @@
       }, 1200);
     })();
 
+    function isPackBumpButton_(b) {
+      if (!b) return false;
+      try {
+        if (b.getAttribute && b.getAttribute("data-pack-bump") === "1") return true;
+        if (/bumpSubDetailPack_/.test(String(b.getAttribute("onclick") || ""))) return true;
+      } catch (eP) {}
+      return false;
+    }
+    // Один путь на тап: native XOR rescue. Никогда оба.
+    function createTapOnceGate_(cfg) {
+      cfg = cfg || {};
+      var debounceMs = Number(cfg.debounceMs) > 0 ? Number(cfg.debounceMs) : 320;
+      var lastBtn = null;
+      var lastAt = 0;
+      var clickSeen = false;
+      var rescueFired = false;
+      function mark_(btn) {
+        var now = Date.now();
+        if (lastBtn === btn && (now - lastAt) < debounceMs) return false;
+        lastBtn = btn;
+        lastAt = now;
+        return true;
+      }
+      return {
+        resetPointer: function () {
+          clickSeen = false;
+          rescueFired = false;
+        },
+        acceptNative: function (btn) {
+          clickSeen = true;
+          if (rescueFired) return false;
+          return mark_(btn);
+        },
+        acceptRescue: function (btn, isPack) {
+          if (isPack || clickSeen) return false;
+          clickSeen = true;
+          rescueFired = true;
+          return mark_(btn);
+        },
+        shouldRescue: function (isPack) {
+          return !isPack && !clickSeen;
+        },
+        nativeAfterRescue: function () {
+          return rescueFired;
+        }
+      };
+    }
     (function installButtonPressFeedback_() {
       var SEL = "button,.btn-action,.btn-save,.seg-btn,.tab-link,.crm-mini-btn,.route-mini," +
         ".modal-day-btn,.order-day-chip,.order-flyout-btn,.sub-tab,.help-fab,.bug-fab,.tasks-menu-btn";
       var lastHaptic = 0;
       var downBtn = null;
       var downAt = 0;
-      var clickSeen = false;
+      var downX = 0;
+      var downY = 0;
       var rescueTimer = null;
-      var lastClickBtn = null;
-      var lastClickAt = 0;
-      var TAP_DEBOUNCE_MS = 140;
+      var injectingClick = false;
+      var TAP_DEBOUNCE_MS = 320;
       var HAPTIC_GAP_MS = 80;
-      var RESCUE_WAIT_MS = 90;
+      var RESCUE_WAIT_MS = 170;
+      var MOVE_SLOP_PX = 16;
+      var gate = createTapOnceGate_({ debounceMs: TAP_DEBOUNCE_MS });
       function btnFrom(t) {
         if (!t || !t.closest) return null;
         var b = t.closest(SEL);
@@ -280,27 +329,35 @@
           }
         } catch (eH) {}
       }
-      function markClick_(b) {
-        if (!b) return false;
-        var now = Date.now();
-        if (lastClickBtn === b && (now - lastClickAt) < TAP_DEBOUNCE_MS) return false;
-        lastClickBtn = b;
-        lastClickAt = now;
-        return true;
+      function movedTooFar_(ev) {
+        if (!ev || ev.clientX == null || ev.clientY == null) return false;
+        var dx = Number(ev.clientX) - downX;
+        var dy = Number(ev.clientY) - downY;
+        return (dx * dx + dy * dy) > (MOVE_SLOP_PX * MOVE_SLOP_PX);
+      }
+      function swallowClick_(ev) {
+        try {
+          ev.preventDefault();
+          ev.stopImmediatePropagation();
+        } catch (eStop) {}
       }
       function fireClick_(b) {
         if (!b || b.disabled) return;
+        injectingClick = true;
         try {
           b.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
         } catch (eF) {
           try { if (typeof b.click === "function") b.click(); } catch (eC) {}
         }
+        injectingClick = false;
       }
       function onDown(ev) {
         var b = btnFrom(ev.target);
         downBtn = b;
         downAt = Date.now();
-        clickSeen = false;
+        downX = ev && ev.clientX != null ? Number(ev.clientX) : 0;
+        downY = ev && ev.clientY != null ? Number(ev.clientY) : 0;
+        gate.resetPointer();
         if (rescueTimer) { try { clearTimeout(rescueTimer); } catch (eT) {} rescueTimer = null; }
         if (!b) return;
         b.classList.add("is-pressing");
@@ -308,13 +365,14 @@
       function onClick(ev) {
         var b = btnFrom(ev.target);
         if (!b) return;
-        clickSeen = true;
         if (rescueTimer) { try { clearTimeout(rescueTimer); } catch (eT2) {} rescueTimer = null; }
-        if (!markClick_(b)) {
-          try {
-            ev.preventDefault();
-            ev.stopImmediatePropagation();
-          } catch (eStop) {}
+        if (injectingClick) {
+          // click от rescue — единственный огонь этого тапа
+          hapticNow();
+          return;
+        }
+        if (!gate.acceptNative(b)) {
+          swallowClick_(ev);
           return;
         }
         hapticNow();
@@ -323,13 +381,21 @@
         var b = btnFrom(ev && ev.target) || downBtn;
         var saved = downBtn;
         clearPress();
-        // WebView: haptic на pointerdown иногда глотает click.
-        // Ждём нативный click ~90мс — иначе synthetic+native = двойной +1.
-        if (saved && b === saved && !clickSeen && (Date.now() - downAt) < 700) {
+        // WebView: haptic иногда глотает native click.
+        // Ждём ~170мс — native обычно успевает первым. Rescue только если native не пришёл.
+        // Пакеты +/- : только native (rescue на них давал +2).
+        var isPack = isPackBumpButton_(saved);
+        if (
+          saved &&
+          b === saved &&
+          gate.shouldRescue(isPack) &&
+          !movedTooFar_(ev) &&
+          (Date.now() - downAt) < 700
+        ) {
           if (!saved.disabled && saved.getAttribute("aria-disabled") !== "true") {
             rescueTimer = setTimeout(function () {
               rescueTimer = null;
-              if (clickSeen) return;
+              if (!gate.acceptRescue(saved, isPack)) return;
               if (saved.disabled || saved.getAttribute("aria-disabled") === "true") return;
               hapticNow();
               fireClick_(saved);
@@ -3145,7 +3211,7 @@
     }
 
     async function openNotesModal() {
-      if (!orderNotes.length) orderNotes = [defaultOrderNote()];
+      if (!Array.isArray(orderNotes)) orderNotes = [];
       renderOrderNotes();
       var html = '<div class="modal-title">Примечания</div>' +
         '<div id="notesModalBody"></div>' +
@@ -3313,7 +3379,7 @@
         nick: String(p.nick).trim(),
         address: p.address != null ? String(p.address) : (prev.address || ""),
         phone: p.phone != null ? String(p.phone) : (prev.phone || ""),
-        note: p.note != null ? String(p.note) : (prev.note || ""),
+        note: permanentNotesRawOnly_(p.note != null ? String(p.note) : (prev.note || "")),
         basket: basket,
         orderType: p.orderType || prev.orderType || "",
         ppPartner: p.ppPartner != null ? String(p.ppPartner) : (prev.ppPartner || ""),
@@ -5249,6 +5315,9 @@
         .replace(/\s{2,}/g, " ")
         .trim();
       var permanentNote = collectPermanentNotesText();
+      var permanentNoteTagged = serializeOrderNotes((orderNotes || []).filter(function (n) {
+        return n && n.permanent && String(n.text || "").trim();
+      }));
       var noteCleared = !String(noteBody || "").trim();
 
       var confirmMsg = isEdit ? ("Обновить заказ " + clientName + "?") : ("Сохранить заказ " + clientName + "?");
@@ -5832,7 +5901,7 @@
             nick: clientName,
             address: clientAddress,
             phone: phone,
-            note: permanentNote || "",
+            note: permanentNoteTagged || "",
             basket: basketSnap.map(function (x) {
               return { cat: x.cat, main: x.main, name: x.main, sub: x.sub || "", value: x.value, val: x.value };
             }),
@@ -11632,7 +11701,13 @@
     function renderOrderNotes() {
       var box = document.getElementById("notesList");
       if (!box) return;
-      if (!orderNotes.length) orderNotes = [defaultOrderNote()];
+      if (!Array.isArray(orderNotes)) orderNotes = [];
+      if (!orderNotes.length) {
+        box.innerHTML = '<div class="muted" style="font-size:13px;padding:6px 0;">Нет примечаний</div>';
+        syncLegacyNoteInput();
+        try { updateNotesSummary(); } catch (e) {}
+        return;
+      }
       box.innerHTML = orderNotes.map(function (n, i) {
         var r = n.roles || {};
         var itemRow = r.cut
@@ -11683,8 +11758,8 @@
       renderOrderNotes();
     }
     function removeOrderNote(i) {
+      if (!Array.isArray(orderNotes)) orderNotes = [];
       orderNotes.splice(i, 1);
-      if (!orderNotes.length) orderNotes = [defaultOrderNote()];
       renderOrderNotes();
     }
     function syncLegacyNoteInput() {
@@ -11713,7 +11788,7 @@
     }
     function parseOrderNotesFromRaw(raw) {
       var s = String(raw || "").trim();
-      if (!s) return [defaultOrderNote()];
+      if (!s) return [];
       var blocks = [];
       var re = /\[NOTE:([^\|\]]+)\|(perm|once)(?:\|ITEM:([^\]]+))?\]\s*([^]*?)(?=\s*\|\|\s*\[NOTE:|$)/gi;
       var m;
@@ -11745,24 +11820,19 @@
     }
     function permanentNotesRawOnly_(raw) {
       var parsed = parseOrderNotesFromRaw(raw);
-      var tagged = /\[NOTE:/i.test(String(raw || ""));
       var keep = parsed.filter(function (n) {
         return n && n.permanent && String(n.text || "").trim();
       });
-      if (!keep.length && !tagged && parsed.length === 1 && String(parsed[0].text || "").trim()) {
-        parsed[0].permanent = true;
-        keep = [parsed[0]];
-      }
       if (!keep.length) return "";
       return serializeOrderNotes(keep);
     }
     function loadOrderNotesForNewOrder_(raw) {
       var filtered = permanentNotesRawOnly_(raw);
-      orderNotes = filtered ? parseOrderNotesFromRaw(filtered) : [defaultOrderNote()];
+      orderNotes = filtered ? parseOrderNotesFromRaw(filtered) : [];
       renderOrderNotes();
     }
     function clearOrderNotes() {
-      orderNotes = [defaultOrderNote()];
+      orderNotes = [];
       renderOrderNotes();
     }
     function collectPermanentNotesText() {
@@ -20184,7 +20254,7 @@
       if (!subDetailPackCounts.hasOwnProperty(kind)) return;
       var now = Date.now();
       var key = String(kind) + ":" + String(delta);
-      if (_packBumpKey === key && (now - _packBumpAt) < 140) return;
+      if (_packBumpKey === key && (now - _packBumpAt) < 320) return;
       _packBumpKey = key;
       _packBumpAt = now;
       var next = (Number(subDetailPackCounts[kind]) || 0) + (Number(delta) || 0);

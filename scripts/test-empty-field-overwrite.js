@@ -168,6 +168,12 @@ assert(onlyAddr.address === "", "clearAddress empties address");
 assert(onlyAddr.phone === full.phone, "clearAddress keeps phone");
 assert(onlyAddr.basket.length === 1, "clearAddress keeps basket");
 
+var onlyNote = mergeKeepNonEmptyClient_({ note: "" }, full, { clearNote: "1" });
+assert(onlyNote.note === "", "clearNote empties note");
+assert(onlyNote.address === full.address, "clearNote keeps address");
+assert(onlyNote.phone === full.phone, "clearNote keeps phone");
+assert(onlyNote.basket.length === 1, "clearNote keeps basket");
+
 assert(clientPayloadSubstance_(full) > clientPayloadSubstance_(empty), "full scores higher than empty");
 
 var snowySlot = {
@@ -207,6 +213,7 @@ var worker = fs.readFileSync(workerPath, "utf8");
 var gs = fs.readFileSync(gsPath, "utf8");
 var ui = fs.readFileSync(uiPath, "utf8");
 
+assert(worker.indexOf("}, { params: params })") >= 0 || /upsertOrderRow_\([\s\S]{0,400}\{\s*params:\s*params\s*\}/.test(worker), "saveOrder upsert passes params so clearNote works");
 assert(worker.indexOf("function mergeKeepNonEmptyClient_") >= 0, "worker has mergeKeepNonEmptyClient_");
 assert(worker.indexOf("function mergeOrderRowsKeepNonEmpty_") >= 0, "worker has mergeOrderRowsKeepNonEmpty_");
 assert(worker.indexOf("skipKeepNonEmpty") >= 0 || worker.indexOf("mergeOrderRowsKeepNonEmpty_") >= 0, "upsert uses keep-non-empty");

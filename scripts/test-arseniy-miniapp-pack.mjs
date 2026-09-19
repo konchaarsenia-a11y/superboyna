@@ -46,10 +46,12 @@ assert(!/main: crumbKindTitle_\(kind\)/.test(ui), "add crumb no longer stores ki
 assert(ui.includes('clearNote: noteCleared ? "1" : ""'), "save sends clearNote when empty");
 assert(ui.includes("onclick=\"removeOrderNote(") && !ui.includes("orderNotes.length > 1 ? '<button type=\"button\" class=\"seg-btn\" onclick=\"removeOrderNote("), "delete ✕ always shown");
 
-assert(ui.includes("var TAP_DEBOUNCE_MS = 140"), "tap debounce 140ms");
-assert(ui.includes("var RESCUE_WAIT_MS = 90"), "click-rescue delayed 90ms");
+assert(ui.includes("var TAP_DEBOUNCE_MS = 320"), "tap debounce 320ms");
+assert(ui.includes("var RESCUE_WAIT_MS = 170"), "click-rescue delayed 170ms");
 assert(ui.includes("var HAPTIC_GAP_MS = 80"), "haptic gap 80ms");
-assert(ui.includes("(now - _packBumpAt) < 140"), "pack bump extra debounce");
+assert(ui.includes("(now - _packBumpAt) < 320"), "pack bump extra debounce");
+assert(ui.includes("function createTapOnceGate_") && ui.includes("function isPackBumpButton_"), "tap single-path helpers");
+assert(html.includes('data-pack-bump="1"'), "pack +/- marked for no-rescue");
 
 assert(ui.includes("var statedPrice") && ui.includes("res.statedCost"), "PP order price from stated");
 assert(/function syncSubDetailStatedFromFact_[\s\S]{0,180}return factCost/.test(ui), "stated not synced from fact");
@@ -60,7 +62,7 @@ assert(!/fact\.statedCost = fact\.factCost/.test(gs), "GAS calc does not overwri
 assert(worker.includes("statedCost: statedCost"), "getPpFactCost D1 returns statedCost");
 assert(gs.includes("out.statedCost = out.factCost"), "GAS getPpFactCost echoes sheet as stated");
 
-assert(/v71115978/.test(html) && /v71115978/.test(ui) && /71115978/.test(idx), "Pages v71115978");
+assert(/v71115979/.test(html) && /v71115979/.test(ui) && /71115979/.test(idx), "Pages v71115979");
 assert(gs.includes("function crumbKindRateGs_") && gs.includes("function ppLineFromBasketItemGs_"), "GAS mixer 15/17/20 helper");
 assert(/arseniy-miniapp-pack-h1/.test(tz), "TZ marker");
 assert(/15\/17\/20/.test(subPrice) && /крошка-миксер/i.test(subPrice), "RAW26 crumb pricing in canon");

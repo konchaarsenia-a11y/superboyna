@@ -1000,7 +1000,7 @@ function clientPayloadSubstance_(c) {
 
 /**
  * Partial save / пустой GAS не затирает живые address/phone/состав.
- * Явный clear: explicitClear=1 или clearAddress/clearPhone/clearBasket.
+ * Явный clear: explicitClear=1 или clearAddress/clearPhone/clearBasket/clearNote.
  */
 function mergeKeepNonEmptyClient_(incoming, existing, params) {
   incoming = incoming || {};
@@ -6819,7 +6819,7 @@ async function saveOrder_(params, env, asBooking) {
     status: "active",
     updated_at: now,
     meta_json: JSON.stringify(meta)
-  });
+  }, { params: params });
 
   // якорь ПП 1/2 в D1 — suggest N≥2 без GAS
   try {
