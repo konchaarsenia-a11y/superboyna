@@ -131,6 +131,16 @@ assert(
     /mergeMetaJsonKeepPrices_\(\s*existing\.meta_json/.test(worker),
   "row merge keeps existing meta prices"
 );
+assert(
+  worker.indexOf("persistOrderMetaJson_") >= 0 &&
+    /async function persistOrderContactFields_[\s\S]{0,800}persistOrderMetaJson_/.test(worker),
+  "dedupe persist writes merged meta_json not just contacts"
+);
+assert(
+  worker.indexOf("orderMetaJsonFromClient_(c, siblingMeta)") >= 0,
+  "refillCalendar copies sibling orderPrice into new cal row"
+);
+assert(worker.indexOf('"couponPrice"') >= 0, "couponPrice is a kept meta price key");
 
 var extracted = worker.match(/function mergeMetaJsonKeepPrices_\([\s\S]*?\n\}/);
 assert(!!extracted, "extract mergeMetaJsonKeepPrices_ from worker");

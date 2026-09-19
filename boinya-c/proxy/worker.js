@@ -1228,6 +1228,12 @@ async function persistOrderContactFields_(env, id, row) {
       id
     )
     .run();
+  const metaRaw = row.meta_json != null ? String(row.meta_json).trim() : "";
+  if (metaRaw && metaRaw !== "{}") {
+    try {
+      await persistOrderMetaJson_(env, id, row.meta_json);
+    } catch (eMeta) {}
+  }
   return true;
 }
 
@@ -3591,6 +3597,15 @@ async function restoreShiftedWeekClose_(env, fromMondayIso, opts) {
             .bind(oldIso, mk, name.toLowerCase())
             .first();
           if (exists && exists.id) continue;
+          let siblingMeta = "";
+          try {
+            const sib = await env.DB.prepare(
+              "SELECT meta_json FROM orders WHERE match_key = ? AND meta_json IS NOT NULL AND meta_json != '' AND meta_json != '{}' ORDER BY updated_at DESC LIMIT 1"
+            )
+              .bind(mk)
+              .first();
+            siblingMeta = (sib && sib.meta_json) || "";
+          } catch (eSib) {}
           await upsertOrderRow_(env, {
             id: "cal:" + oldIso + ":" + mk,
             date_iso: oldIso,
@@ -3605,7 +3620,7 @@ async function restoreShiftedWeekClose_(env, fromMondayIso, opts) {
             source: String(c.source || "calendar"),
             status: "active",
             updated_at: now,
-            meta_json: orderMetaJsonFromClient_(c)
+            meta_json: orderMetaJsonFromClient_(c, siblingMeta)
           });
           result.refilled.push({ client: name, dateIso: oldIso });
         }
@@ -4148,7 +4163,7 @@ async function repairMissingOrderPrices_(env, opts) {
   };
   if (!env || !env.DB) return result;
   let fromIso = coerceDateIso_(opts.fromIso || opts.from || opts.dateFrom || "") || "2026-09-14";
-  let toIso = coerceDateIso_(opts.toIso || opts.to || opts.dateTo || "") || "2026-09-27";
+  let toIso = coerceDateIso_(opts.toIso || opts.to || opts.dateTo || "") || "2026-09-28";
   if (fromIso > toIso) {
     const swap = fromIso;
     fromIso = toIso;
