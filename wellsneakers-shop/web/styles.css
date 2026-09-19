@@ -396,17 +396,11 @@ main{position:relative;z-index:1}
 }
 @media (max-width:520px){
   .collection-chips{
-    flex-wrap:nowrap;
-    overflow-x:auto;
-    overflow-y:visible;
-    padding:2px 12px 6px 2px;
-    margin:0 -4px;
-    scroll-padding-inline:12px;
-    -webkit-overflow-scrolling:touch;
-    overscroll-behavior-x:contain;
-    scrollbar-width:none;
+    flex-wrap:wrap;
+    overflow:visible;
+    padding:2px 0 2px;
+    margin:0;
   }
-  .collection-chips::-webkit-scrollbar{display:none}
   .collection-chip{flex:0 0 auto}
 }
 .collection-chip{
