@@ -17017,10 +17017,18 @@ async function getPpFactCostD1_(params, env, ctx) {
       ppSlotLbl = "1";
       needManualSlot = false;
     }
+    const statedRaw = local.statedCost != null && local.statedCost !== ""
+      ? local.statedCost
+      : factRaw;
+    const statedCost =
+      statedRaw == null || statedRaw === ""
+        ? null
+        : Number(String(statedRaw).replace(",", ".").replace(/[^\d.-]/g, "")) || 0;
     const out = {
       status: "success",
       nick: local.nick || nick,
       factCost: factCost,
+      statedCost: statedCost,
       deliveries: deliveries,
       deliverySlot: deliverySlot,
       needManualSlot: needManualSlot,
@@ -18532,6 +18540,15 @@ function dressuraFractionMarkupFromBasketD1_(basket, rates) {
   return Math.round(sum * 100) / 100;
 }
 
+function isGramCrumbLineD1_(L) {
+  if (!L) return false;
+  const cat = String(L.cat || "").toLowerCase();
+  if (cat === "crumb" || L.crumbKind) return true;
+  if (Array.isArray(L.sources) && L.sources.length) return true;
+  const name = String(L.name || L.main || "");
+  return /^крошка\b/i.test(name) && !/шт/i.test(name);
+}
+
 function recoverBynFromPpLinesD1_(lines) {
   let sum = 0;
   for (let i = 0; i < (lines || []).length; i++) {
@@ -18539,11 +18556,13 @@ function recoverBynFromPpLinesD1_(lines) {
     const val = Number(L.val != null ? L.val : L.value) || 0;
     if (val <= 0) continue;
     let piece = !!L.piece;
-    if (!piece) {
+    if (isGramCrumbLineD1_(L)) {
+      piece = false;
+    } else if (!piece) {
       const cat = String(L.cat || "").toLowerCase();
       const name = String(L.name || L.main || "");
       if (cat === "chew" || cat === "chews" || cat === "powder") piece = true;
-      else if (isPieceSkuNameD1_(name) || /шт/i.test(name) || /крошка/i.test(name)) piece = true;
+      else if (isPieceSkuNameD1_(name) || /шт/i.test(name)) piece = true;
     }
     if (piece) sum += PP_RAW26_RECOVER_PIECE_D1_ * val;
     else sum += PP_RAW26_RECOVER_100_D1_ * (val / 100);
@@ -18775,13 +18794,9 @@ function attachPpOfferClientPriceD1_(fact, statedCost, statedTouched) {
     statedTouched
   );
   fact.clientPrice = client;
-  if (String(fact.scheme || "").toUpperCase() === "RAW26" && statedTouched !== true) {
-    fact.statedCost = fact.factCost;
-    fact.statedSynced = true;
-  } else {
-    if (statedCost != null && statedCost !== "") fact.statedCost = statedCost;
-    fact.statedSynced = false;
-  }
+  // указанная (stated) не синхронится с фактом на refresh/calc
+  if (statedCost != null && statedCost !== "") fact.statedCost = statedCost;
+  fact.statedSynced = false;
   return fact;
 }
 

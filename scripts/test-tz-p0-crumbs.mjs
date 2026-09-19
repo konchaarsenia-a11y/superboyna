@@ -98,9 +98,11 @@ assert(uiSrc.includes("без нарезки"), "UI noCut badge");
 assert(!/action:\s*"saveDeferred"[\s\S]{0,80}ПП оплата/.test(uiSrc) ||
   !uiSrc.includes('client: "ПП оплата'), "ghost saveDeferred removed");
 assert(!uiSrc.includes('client: "ПП оплата · "'), "no auto PP pay deferred");
-assert(htmlSrc.includes("openCrumbBuilder('order')"), "HTML crumbs under veggies order");
-assert(htmlSrc.includes("openCrumbBuilder('price')"), "HTML crumbs price");
-assert(htmlSrc.includes("openCrumbBuilder('sub')"), "HTML crumbs sub");
+assert(htmlSrc.includes("openProductSelector('crumb')"), "HTML crumbs under veggies order");
+assert(htmlSrc.includes("openPriceProductSelector('crumb')"), "HTML crumbs price");
+assert(htmlSrc.includes("openSubDetailProductSelector('crumb')"), "HTML crumbs sub");
+assert(htmlSrc.includes('id="crumbBuilderHost"'), "crumbs host inside selectorCard");
+assert(!htmlSrc.includes("crumbBuilderCard"), "no separate crumb overlay card");
 assert(htmlSrc.includes("priceCompSlotRow"), "HTML price N=2 tabs");
 assert(htmlSrc.includes("subCompSlotRow"), "HTML PP N=2 tabs");
 assert(uiSrc.includes("timeoutMs: 35000") && uiSrc.includes("placeTransferTask"), "placeTransfer 35s");
