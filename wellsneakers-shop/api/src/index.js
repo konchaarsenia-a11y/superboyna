@@ -53,7 +53,7 @@ async function start() {
     await ensureProductOldPriceColumn();
     await ensureProductGenderColumn();
     const n = await backfillProductModelKeys();
-    if (n) console.log(`catalog brand/model_key backfill: ${n}`);
+    if (n) console.log(`catalog brand/model_key/color backfill: ${n}`);
     const g = await backfillProductGender();
     if (g) console.log(`catalog gender backfill: ${g}`);
   } catch (err) {

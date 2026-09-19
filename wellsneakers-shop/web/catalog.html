@@ -198,7 +198,10 @@
         silver:'#c0c4c8', khaki:'#9a8b5a', olive:'#5a6b3a', burgundy:'#6e1a2a',
         teal:'#1f7a72', cyan:'#4fd4ff', ivory:'#f3ead6', gum:'#c9895a',
         concord:'#5b4b8a', bred:'#8e121c', chicago:'#c41e2a', shadow:'#4a4a4e',
-        taxi:'#e6c84a', mocha:'#6b4423', cement:'#b8b3aa', royal:'#1e4dad'
+        taxi:'#e6c84a', mocha:'#6b4423', cement:'#b8b3aa', royal:'#1e4dad',
+        burgundy:'#6e1a2a', bordo:'#6e1a2a', persik:'#e8a87c', peach:'#e8a87c',
+        milk:'#f3ead6', psg:'#1a2a4a', mummy:'#efe6d0', safari:'#9a8b5a',
+        softblue:'#7ba3d4', lightblue:'#7ba3d4'
       };
       function colorBase(t) {
         return String(t || '').toLowerCase().replace(/[^a-zа-яё0-9/-]+/gi, '').replace(/\d+$/, '');
@@ -491,7 +494,12 @@
         if (sale) params.set('sale', '1');
         if (gender) params.set('gender', gender);
         if (color) params.set('color', color);
+        try {
+          const sortParam = new URLSearchParams(location.search).get('sort');
+          if (sortParam) params.set('sort', sortParam);
+        } catch (e) { /* keep API default stock sort */ }
         const data = await fetch(API + '/catalog?' + params).then(r => r.json());
+        // Keep API order (default: stockSizeCount desc). Do not re-sort client-side.
         let models = data.models || [];
         if (color) models = models.filter((m) => modelMatchesColor(m, color));
         const total = models.length;

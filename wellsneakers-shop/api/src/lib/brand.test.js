@@ -238,11 +238,13 @@ describe("catalog grouping uses resolved brands", () => {
 function persistResolved(row) {
   const brand = resolveBrand(row.brand, row.name);
   const parsed = parseModelAndColor(row.name, brand);
+  const storedColor = String(row.color || "").trim();
   const brandChanged = brand !== String(row.brand || "");
-  const modelKey = brandChanged
+  const refreshKey = brandChanged || !storedColor;
+  const modelKey = refreshKey
     ? parsed.modelKey
     : String(row.model_key || "").trim() || parsed.modelKey;
-  return { brand, modelKey };
+  return { brand, modelKey, color: storedColor || parsed.color };
 }
 
 describe("boot backfill persist contract", () => {
@@ -260,6 +262,7 @@ describe("boot backfill persist contract", () => {
     assert.deepEqual(persistResolved({ name: "TRIGER 550 GREY", brand: "", model_key: "" }), {
       brand: "New Balance",
       modelKey: parseModelAndColor("TRIGER 550 GREY", "New Balance").modelKey,
+      color: "GREY",
     });
     assert.equal(persistResolved({ name: "SALOMON XT-6 BLACK", brand: "" }).brand, "Salomon");
     assert.equal(persistResolved({ name: "SUPERSTAR WHITE", brand: "" }).brand, "Adidas");
