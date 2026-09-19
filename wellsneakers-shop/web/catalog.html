@@ -61,7 +61,7 @@
           <h3>Каталог</h3>
         </div>
 
-        <div class="collections-block">
+        <div class="collections-block" id="filtersStack">
           <div class="collection-chips" id="collectionRow" role="group" aria-label="Подборки">
             <button type="button" class="collection-chip" data-color="white" aria-pressed="false">
               <span class="collection-chip-thumb" aria-hidden="true">
@@ -122,9 +122,13 @@
       </section>
     </main>
 
-    <div class="dock">
+    <button type="button" class="filters-fab" id="filtersFab" aria-label="К подборкам и фильтрам">
+      <span class="filters-fab-ico" aria-hidden="true"><span></span><span></span><span></span></span>
+    </button>
+    <div class="dock" id="catalogDock">
       <div class="dock-inner">
         <a class="btn-catalog" href="index.html">Главная</a>
+        <button type="button" class="btn btn-top" id="backToTop">↑ Наверх</button>
         <a class="btn btn-rug" href="tel:+375256851757">Позвонить</a>
       </div>
     </div>
@@ -619,6 +623,41 @@
         showToast('Заказ ' + data.order.order_number);
         await loadCatalog();
       };
+
+      const SCROLL_CHROME_AT = 240;
+      const backToTop = document.getElementById('backToTop');
+      const filtersFab = document.getElementById('filtersFab');
+      const filtersStack = document.getElementById('filtersStack') || document.getElementById('collectionRow');
+      function preferInstantScroll() {
+        return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      }
+      function syncCatalogScrollChrome() {
+        const y = window.scrollY || document.documentElement.scrollTop || 0;
+        const on = y > SCROLL_CHROME_AT;
+        document.body.classList.toggle('catalog-scrolled', on);
+        if (backToTop) backToTop.setAttribute('aria-hidden', on ? 'false' : 'true');
+        if (filtersFab) filtersFab.setAttribute('aria-hidden', on ? 'false' : 'true');
+      }
+      window.addEventListener('scroll', syncCatalogScrollChrome, { passive: true });
+      window.addEventListener('resize', syncCatalogScrollChrome);
+      syncCatalogScrollChrome();
+      if (backToTop) {
+        backToTop.addEventListener('click', () => {
+          window.scrollTo({ top: 0, behavior: preferInstantScroll() ? 'auto' : 'smooth' });
+        });
+      }
+      if (filtersFab) {
+        filtersFab.addEventListener('click', () => {
+          if (!filtersStack) {
+            window.scrollTo({ top: 0, behavior: preferInstantScroll() ? 'auto' : 'smooth' });
+            return;
+          }
+          filtersStack.scrollIntoView({
+            behavior: preferInstantScroll() ? 'auto' : 'smooth',
+            block: 'start'
+          });
+        });
+      }
 
       let qTimer = null;
       qEl.addEventListener('input', () => {
