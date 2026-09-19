@@ -78,3 +78,14 @@ Apps Script → **Project Settings → Script properties → Add**:
 | `BUG_REPORT_WEBHOOK_URL` | Routine webhook URL from the Grok Bot panel (owner pastes once) |
 
 clasp CI does **not** set Script Properties (no extra API / no secret in the workflow). Prefer the Script properties UI after the first green `clasp-deploy`. Emergency: in Script Editor run a one-liner `PropertiesService.getScriptProperties().setProperty("BUG_REPORT_WEBHOOK_URL", "…")` and clear the editor history.
+
+## Script Property / Worker secret: `PP_COST_BREAKDOWN_PIN`
+
+Разбор экономики RAW26 в Mini App (кнопка «Экономика») — только **owner/all** и PIN.
+
+| Где | Имя | Кто ставит |
+|-----|-----|------------|
+| Apps Script → Script properties | `PP_COST_BREAKDOWN_PIN` | хаб после merge (значение не в git / не в PR) |
+| Cloudflare Worker | `wrangler secret put PP_COST_BREAKDOWN_PIN` | хаб после Worker Deploy |
+
+Если свойство/секрет **пустой** — unlock только по роли owner/all, PIN не спрашиваем. Курьер/нарезчик/менеджер кнопку не видят. **Не коммитить PIN.**

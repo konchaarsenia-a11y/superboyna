@@ -2511,6 +2511,12 @@ function doGet(e) {
       forNew: e.parameter.forNew || ""
     }, callback, false);
   }
+  if (action === "unlockPpCostBreakdown") {
+    return handleUnlockPpCostBreakdown({
+      telegramId: e.parameter.telegramId || e.parameter.tid || "",
+      pin: e.parameter.pin || ""
+    }, callback, false);
+  }
   if (action === "migratePpToRaw26Scheme") {
     return handleMigratePpToRaw26Scheme({
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
@@ -3042,6 +3048,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "calcPpFact") {
     return handleCalcPpFact(json, callback, fromPost);
+  }
+  if (action === "unlockPpCostBreakdown") {
+    return handleUnlockPpCostBreakdown(json, callback, fromPost);
   }
   if (action === "migratePpToRaw26Scheme") {
     return handleMigratePpToRaw26Scheme(json, callback, fromPost);
@@ -18574,6 +18583,13 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
     var goodsFloor = Math.round((raw + recover) * 100) / 100;
     var alloc = applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor);
     var factBefore = Math.round((goods + delivery + packagesByn + fracMark) * 100) / 100;
+    var retailCapBase = (isFinite(retailGoods) && retailGoods > 0)
+      ? Math.round((retailGoods + delivery) * 100) / 100
+      : 0;
+    var cutParts = [];
+    if (alloc.fractionMarkup < fracMark - 0.001) cutParts.push("фракции");
+    if (alloc.goods < goods - 0.001) cutParts.push("товар");
+    if (alloc.packagesByn < packagesByn - 0.001) cutParts.push("пакеты");
     out = {
       scheme: "RAW26",
       factCost: alloc.factCost,
@@ -18582,15 +18598,21 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
       fixed: 0,
       recoverByn: recover,
       goodsByn: alloc.goods,
+      goodsBeforeCap: goods,
       retailGoods: isFinite(retailGoods) ? retailGoods : 0,
+      retailCapBase: retailCapBase,
       retailCapped: alloc.retailCapped,
       retailCapAt: alloc.retailCapAt,
       deliveryByn: alloc.delivery,
       packagesByn: alloc.packagesByn,
+      packagesBeforeCap: packagesByn,
       packCounts: pc,
       fractionMarkup: alloc.fractionMarkup,
+      fractionBeforeCap: fracMark,
       factBeforeCap: factBefore,
       factAfterCap: alloc.factCost,
+      capCutByn: Math.round((factBefore - alloc.factCost) * 100) / 100,
+      capCutFrom: cutParts.join("+"),
       cleanBeforeCap: raw26OfferCleanByn_(factBefore, raw, recover, packagesByn, n),
       cleanAfterCap: raw26OfferCleanByn_(alloc.factCost, raw, recover, alloc.packagesByn, n)
     };
@@ -18692,6 +18714,48 @@ function statsBpDeliveryInCleanByn_(nDel) {
   var n = Math.max(0, Number(nDel) || 0);
   var rem = Math.round(((BP_DELIVERY_COST_BYN_ - STATS_DELIVERY_FUEL_PER_) * n) * 100) / 100;
   return rem > 0 ? rem : 0;
+}
+
+function canUnlockPpCostBreakdown_(telegramId) {
+  var tid = String(telegramId || "").trim();
+  if (!tid) return false;
+  try { if (isOwnerId_(tid)) return true; } catch (eO) {}
+  try {
+    var row = findAccessById_(tid);
+    if (!row) return false;
+    var role = String(row.role || "").toLowerCase();
+    var st = String(row.status || "").toLowerCase();
+    if (st === "denied" || st === "pending") return false;
+    return role === "owner" || role === "all";
+  } catch (eR) {
+    return false;
+  }
+}
+
+function handleUnlockPpCostBreakdown(json, callback, fromPost) {
+  json = json || {};
+  var tid = String(json.telegramId || json.tid || "").trim();
+  if (!canUnlockPpCostBreakdown_(tid)) {
+    var forbid = { status: "error", message: "forbidden", unlocked: false };
+    return fromPost ? jsonpText(callback, forbid) : jsonp(callback, forbid);
+  }
+  var expected = "";
+  try {
+    expected = String(PropertiesService.getScriptProperties().getProperty("PP_COST_BREAKDOWN_PIN") || "").trim();
+  } catch (eP) {
+    expected = "";
+  }
+  if (!expected) {
+    var noPin = { status: "success", unlocked: true, pinRequired: false };
+    return fromPost ? jsonpText(callback, noPin) : jsonp(callback, noPin);
+  }
+  var pin = String(json.pin || "").trim();
+  if (!pin || pin !== expected) {
+    var bad = { status: "error", message: "bad_pin", unlocked: false, pinRequired: true };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var ok = { status: "success", unlocked: true, pinRequired: true };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
 /** Полный пересчёт ФАКТ СТОИМОСТЬ ПП по составу. */

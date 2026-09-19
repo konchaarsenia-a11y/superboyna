@@ -55,6 +55,7 @@ function line(name, sub, val, cat) {
 const gsSrc = fs.readFileSync(path.join(root, "Code.gs"), "utf8");
 const uiSrc = fs.readFileSync(path.join(root, "boinya-c/app.main.js"), "utf8");
 const wSrc = fs.readFileSync(path.join(root, "boinya-c/proxy/worker.js"), "utf8");
+const deploy = fs.readFileSync(path.join(root, "DEPLOY.md"), "utf8");
 
 const gsCtx = vm.createContext({
   Math: Math,
@@ -155,6 +156,22 @@ assert(
 assert(
   /Чистыми до капа/.test(uiSrc) && /Чистыми после капа/.test(uiSrc),
   "UI always labels both clean numbers"
+);
+assert(
+  /PP_COST_BREAKDOWN_PIN/.test(gsSrc) && /PP_COST_BREAKDOWN_PIN/.test(wSrc) && /PP_COST_BREAKDOWN_PIN/.test(deploy),
+  "PIN lives in Script Property / Worker secret, documented"
+);
+assert(
+  /unlockPpCostBreakdown/.test(gsSrc) && /unlockPpCostBreakdownD1_/.test(wSrc),
+  "unlock action on GS+worker"
+);
+assert(
+  /canSeePpCostBreakdownBtn_/.test(uiSrc) && /APP_ROLE === "owner"/.test(uiSrc),
+  "breakdown button is owner/all only"
+);
+assert(
+  !/PP_COST_BREAKDOWN_PIN["']?\s*[:=]\s*["'][^"']+["']/.test(gsSrc + wSrc + uiSrc),
+  "PIN value is not hardcoded"
 );
 assert(
   /computePpFactFromCost_\(rawPp, baskPp, nDel, 1, packOpt, schPp, baskPp, 0\)/.test(gsSrc),
@@ -268,6 +285,10 @@ const dashaCap = gsCtx.computePpFactFromCost_(
 assert(dashaCap.factCost === 67.16, "dasha N=2 кап 0.92×(55+18)=67.16, got " + dashaCap.factCost);
 assert(dashaCap.factCost !== dashaOldGoodsOnly, "dasha не дробить до 50.60");
 assert(dashaCap.deliveryByn === 18, "кап не режет 9×N, got " + dashaCap.deliveryByn);
+assert(dashaCap.goodsBeforeCap > dashaCap.goodsByn || dashaCap.fractionBeforeCap >= dashaCap.fractionMarkup,
+  "breakdown keeps pre-cap goods/fractions");
+assert(dashaCap.retailCapBase === 73, "retailCapBase 55+18=73, got " + dashaCap.retailCapBase);
+assert(dashaCap.capCutByn > 0, "capCutByn > 0");
 assert(Math.abs(dashaOpen.factCost - dashaCap.factBeforeCap) < 0.02, "factBeforeCap = черновик");
 assert(dashaCap.factAfterCap === 67.16, "factAfterCap = кап");
 assert(

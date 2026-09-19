@@ -20160,7 +20160,12 @@
       if (extras) extras.style.display = isPp ? "block" : "none";
       if (isPp) {
         try { syncSubDetailSchemeUi_(); } catch (eSchUi) {}
+        try { syncPpCostBreakdownBtn_(); } catch (eBd0) {}
       } else {
+        var brBtn = document.getElementById("btnPpCostBreakdown");
+        var brPanel = document.getElementById("ppCostBreakdownPanel");
+        if (brBtn) brBtn.style.display = "none";
+        if (brPanel) { brPanel.style.display = "none"; brPanel.innerHTML = ""; }
         var btn = document.getElementById("btnMigratePpScheme");
         var hint = document.getElementById("subDetailSchemeHint");
         var badge = document.getElementById("subDetailSchemeBadge");
@@ -20283,6 +20288,11 @@
       var showMig = scheme !== "RAW26";
       if (btn) btn.style.display = showMig ? "block" : "none";
       if (hint) hint.style.display = showMig ? "block" : "none";
+      try { syncPpCostBreakdownBtn_(); } catch (eBd1) {}
+      if (scheme !== "RAW26") {
+        var brPanel = document.getElementById("ppCostBreakdownPanel");
+        if (brPanel) { brPanel.style.display = "none"; brPanel.innerHTML = ""; }
+      }
     }
 
     function raw26OfferCleanByn_(clientPrice, raw, recover, packagesByn, deliveriesN) {
@@ -20305,6 +20315,109 @@
       }
       return html;
     }
+
+    var _lastPpCostFact = null;
+    var _ppCostBreakdownUnlocked = false;
+
+    function canSeePpCostBreakdownBtn_() {
+      return APP_ROLE === "owner" || APP_ROLE === "all";
+    }
+
+    function syncPpCostBreakdownBtn_() {
+      var btn = document.getElementById("btnPpCostBreakdown");
+      if (!btn) return;
+      btn.style.display = canSeePpCostBreakdownBtn_() ? "block" : "none";
+    }
+
+    function rememberPpCostFact_(fact, rawCost) {
+      if (!fact || String(fact.scheme || "").toUpperCase() !== "RAW26") {
+        _lastPpCostFact = null;
+        return;
+      }
+      _lastPpCostFact = {
+        rawCost: rawCost != null ? Number(rawCost) || 0 : Number(fact.rawCost) || 0,
+        recoverByn: Number(fact.recoverByn) || 0,
+        goodsBeforeCap: Number(fact.goodsBeforeCap != null ? fact.goodsBeforeCap : fact.goodsByn) || 0,
+        goodsByn: Number(fact.goodsByn) || 0,
+        fractionBeforeCap: Number(fact.fractionBeforeCap != null ? fact.fractionBeforeCap : fact.fractionMarkup) || 0,
+        fractionMarkup: Number(fact.fractionMarkup) || 0,
+        packagesBeforeCap: Number(fact.packagesBeforeCap != null ? fact.packagesBeforeCap : fact.packagesByn) || 0,
+        packagesByn: Number(fact.packagesByn) || 0,
+        deliveryByn: Number(fact.deliveryByn) || 0,
+        deliveriesN: Number(fact.deliveriesN) || 1,
+        retailGoods: Number(fact.retailGoods) || 0,
+        retailCapBase: Number(fact.retailCapBase) || 0,
+        retailCapAt: Number(fact.retailCapAt) || 0,
+        factBeforeCap: Number(fact.factBeforeCap) || 0,
+        factAfterCap: Number(fact.factAfterCap != null ? fact.factAfterCap : fact.factCost) || 0,
+        capCutByn: Number(fact.capCutByn) || 0,
+        capCutFrom: String(fact.capCutFrom || ""),
+        cleanBeforeCap: Number(fact.cleanBeforeCap) || 0,
+        cleanAfterCap: Number(fact.cleanAfterCap) || 0,
+        retailCapped: !!fact.retailCapped
+      };
+    }
+
+    function renderPpCostBreakdownHtml_(fact) {
+      fact = fact || _lastPpCostFact;
+      if (!fact) return "<div class=\"muted\">Сначала пересчитай состав</div>";
+      function row(label, val) {
+        return "<div>" + label + " <b>" + val + "</b></div>";
+      }
+      var cut = fact.retailCapped
+        ? ("−" + fact.capCutByn + (fact.capCutFrom ? (" · " + fact.capCutFrom) : " · фракции"))
+        : "нет";
+      return row("Сырьё", fact.rawCost) +
+        row("Recover", fact.recoverByn) +
+        row("Товар до капа", fact.goodsBeforeCap) +
+        row("Фракции до / после", fact.fractionBeforeCap + " → " + fact.fractionMarkup) +
+        row("Пакеты", fact.packagesByn) +
+        row("Доставка 9×N", fact.deliveryByn + " · N=" + fact.deliveriesN) +
+        row("Розница строк", fact.retailGoods) +
+        row("База капа (розн.+9×N)", fact.retailCapBase) +
+        row("Потолок ×0.92", fact.retailCapAt) +
+        row("Цена до капа", fact.factBeforeCap) +
+        row("Цена после капа", fact.factAfterCap) +
+        row("Чистыми до капа", fact.cleanBeforeCap) +
+        row("Чистыми после капа", fact.cleanAfterCap) +
+        row("Кап срезал", cut);
+    }
+
+    async function openPpCostBreakdown_() {
+      if (!canSeePpCostBreakdownBtn_()) {
+        showToast("Только владельцу");
+        return;
+      }
+      function fillPanels_() {
+        var html = renderPpCostBreakdownHtml_(_lastPpCostFact);
+        ["ppCostBreakdownPanel", "ppCostBreakdownPanelPrice"].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) { el.innerHTML = html; el.style.display = "block"; }
+        });
+      }
+      if (_ppCostBreakdownUnlocked) {
+        fillPanels_();
+        return;
+      }
+      var pin = "";
+      try { pin = String(window.prompt("PIN экономики ПП") || "").trim(); } catch (eP) { pin = ""; }
+      try {
+        var res = await apiGet({
+          action: "unlockPpCostBreakdown",
+          telegramId: myTelegramId || "",
+          pin: pin
+        }, { timeoutMs: 12000, cacheTtlMs: 0 });
+        if (res && res.status === "success" && res.unlocked) {
+          _ppCostBreakdownUnlocked = true;
+          fillPanels_();
+          return;
+        }
+        showToast(res && res.message === "bad_pin" ? "Неверный PIN" : "Нет доступа");
+      } catch (eU) {
+        showToast("Не удалось открыть экономику");
+      }
+    }
+    window.openPpCostBreakdown_ = openPpCostBreakdown_;
 
     function hideRaw26CleanPair_(targetId) {
       var el = targetId ? document.getElementById(targetId) : null;
@@ -20454,17 +20567,36 @@
           fracTotal = allocLocal.fractionMarkup;
           hintCore += " · cap 92% розн. " + total;
         }
+        var factBeforeLocal = Math.round((goodsLocal + delivery + packsBefore + fracBefore) * 100) / 100;
         renderRaw26CleanPair_(
-          raw26OfferCleanByn_(
-            Math.round((goodsLocal + delivery + packsBefore + fracBefore) * 100) / 100,
-            costSum,
-            recover,
-            packsBefore,
-            n
-          ),
+          raw26OfferCleanByn_(factBeforeLocal, costSum, recover, packsBefore, n),
           raw26OfferCleanByn_(total, costSum, recover, packagesByn, n),
           "subDetailCleanPair"
         );
+        rememberPpCostFact_({
+          scheme: "RAW26",
+          rawCost: costSum,
+          recoverByn: recover,
+          goodsBeforeCap: goodsLocal,
+          goodsByn: allocLocal.goods,
+          fractionBeforeCap: fracBefore,
+          fractionMarkup: allocLocal.fractionMarkup,
+          packagesBeforeCap: packsBefore,
+          packagesByn: allocLocal.packagesByn,
+          deliveryByn: delivery,
+          deliveriesN: n,
+          retailGoods: retailLocal,
+          retailCapBase: retailLocalBase,
+          retailCapAt: capLocalAt,
+          factBeforeCap: factBeforeLocal,
+          factAfterCap: total,
+          factCost: total,
+          capCutByn: Math.round((factBeforeLocal - total) * 100) / 100,
+          capCutFrom: allocLocal.retailCapped ? "фракции" : "",
+          cleanBeforeCap: raw26OfferCleanByn_(factBeforeLocal, costSum, recover, packsBefore, n),
+          cleanAfterCap: raw26OfferCleanByn_(total, costSum, recover, packagesByn, n),
+          retailCapped: allocLocal.retailCapped
+        }, costSum);
       } else {
         total = Math.round((costSum * coef + 11 + 6 * n + packagesByn + fracTotal) * 100) / 100;
         hintCore = "себест " + costSum + " ×" + coef + " +11 +6×" + n;
@@ -20657,8 +20789,10 @@
                       raw26OfferCleanByn_(pf.factCost, costSum || 0, pf.recoverByn || 0, pf.packagesByn != null ? pf.packagesByn : packagesByn, n),
                     "subDetailCleanPair"
                   );
+                  rememberPpCostFact_(pf, costSum);
                 } else {
                   hideRaw26CleanPair_("subDetailCleanPair");
+                  _lastPpCostFact = null;
                 }
                 try { syncSubDetailStatedFromFact_(pf.factCost); } catch (eSyncPf) {}
                 return;
@@ -20917,6 +21051,9 @@
       document.getElementById("subDetailPhone").value = "";
       document.getElementById("subDetailFact").value = "";
       hideRaw26CleanPair_("subDetailCleanPair");
+      var brPanel0 = document.getElementById("ppCostBreakdownPanel");
+      if (brPanel0) { brPanel0.style.display = "none"; brPanel0.innerHTML = ""; }
+      _lastPpCostFact = null;
       setSubDetailStatedPrice_("");
       _subDetailStatedTouched = false;
       syncSubDetailPpPriceUi_(sheet);
@@ -21011,6 +21148,8 @@
         setSubDetailStatedPrice_(statedFromSheet);
         document.getElementById("subDetailFact").value = "";
         hideRaw26CleanPair_("subDetailCleanPair");
+        var brPanel1 = document.getElementById("ppCostBreakdownPanel");
+        if (brPanel1) { brPanel1.style.display = "none"; brPanel1.innerHTML = ""; }
         var sheetNow = res.sheet || sheet;
         syncSubDetailPpPriceUi_(sheetNow);
         var coefEl = document.getElementById("subDetailCoef");
@@ -21929,6 +22068,36 @@
           : raw26OfferCleanByn_(subTotal, costSum, recover, allocUi ? allocUi.packagesByn : packagesByn, deliveriesN);
         cleanMeta = '<div class="muted" style="margin-top:6px;font-size:12px;">' +
           renderRaw26CleanPair_(cleanBefore, cleanAfter) + "</div>";
+        if (res && res.scheme === "RAW26") rememberPpCostFact_(res, costSum);
+        else if (allocUi) {
+          rememberPpCostFact_({
+            scheme: "RAW26",
+            recoverByn: recover,
+            goodsBeforeCap: goodsRaw,
+            goodsByn: allocUi.goods,
+            fractionBeforeCap: fracMark.total,
+            fractionMarkup: allocUi.fractionMarkup,
+            packagesBeforeCap: packagesByn,
+            packagesByn: allocUi.packagesByn,
+            deliveryByn: deliveryByn,
+            deliveriesN: deliveriesN,
+            retailGoods: retailGoodsCap,
+            retailCapBase: retailCapBase,
+            retailCapAt: capAt,
+            factBeforeCap: Math.round((goodsRaw + deliveryByn + packagesByn + fracMark.total) * 100) / 100,
+            factAfterCap: localFactRaw26,
+            factCost: localFactRaw26,
+            capCutByn: Math.round((Math.round((goodsRaw + deliveryByn + packagesByn + fracMark.total) * 100) / 100 - localFactRaw26) * 100) / 100,
+            capCutFrom: allocUi.retailCapped ? (allocUi.fractionMarkup < fracMark.total ? "фракции" : "товар") : "",
+            cleanBeforeCap: cleanBefore,
+            cleanAfterCap: cleanAfter,
+            retailCapped: allocUi.retailCapped
+          }, costSum);
+        }
+        if (canSeePpCostBreakdownBtn_()) {
+          cleanMeta += '<button type="button" class="btn-action" style="margin-top:8px;width:100%;" onclick="openPpCostBreakdown_()">Экономика</button>' +
+            '<div id="ppCostBreakdownPanelPrice" class="muted" style="display:none;margin-top:8px;"></div>';
+        }
       }
       renderPriceMessageBox(msg,
         '<div class="card" style="margin-bottom:8px;font-size:13px;"><b>ПП</b>' +

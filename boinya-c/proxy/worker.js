@@ -12778,6 +12778,7 @@ async function handleCutover_(a, params, env, ctx) {
     a === "calcPrice" ||
     a === "getRetailPriceList" ||
     a === "calcPpFact" ||
+    a === "unlockPpCostBreakdown" ||
     a === "migratePpToRaw26Scheme" ||
     a === "getPpFactCost" ||
     a === "getPpOrderSuggest" ||
@@ -12808,6 +12809,9 @@ async function handleCutover_(a, params, env, ctx) {
     }
     if (isPriceD1PrimaryCanon_(env) && a === "calcPpFact") {
       return calcPpFactD1_(params, env, ctx);
+    }
+    if (a === "unlockPpCostBreakdown") {
+      return unlockPpCostBreakdownD1_(params, env);
     }
     if (isPriceD1PrimaryCanon_(env) && a === "calcPrice" && isPpCalcMode_(params)) {
       return calcPricePpD1_(params, env, ctx);
@@ -18561,6 +18565,31 @@ function retailGoodsBynFromBasketD1_(map, basket) {
   return Math.round(sum * 100) / 100;
 }
 
+async function unlockPpCostBreakdownD1_(params, env) {
+  const tid = String((params && (params.telegramId || params.tid)) || "").trim();
+  let role = "";
+  if (tid && env && env.DB) {
+    try {
+      const snap = await getSnapRaw_(env, "access:" + tid);
+      role = String((snap && snap.role) || "").toLowerCase();
+    } catch (eR) {
+      role = "";
+    }
+  }
+  if (role !== "owner" && role !== "all") {
+    return { status: "error", message: "forbidden", unlocked: false };
+  }
+  const expected = String((env && env.PP_COST_BREAKDOWN_PIN) || "").trim();
+  if (!expected) {
+    return { status: "success", unlocked: true, pinRequired: false };
+  }
+  const pin = String((params && params.pin) || "").trim();
+  if (!pin || pin !== expected) {
+    return { status: "error", message: "bad_pin", unlocked: false, pinRequired: true };
+  }
+  return { status: "success", unlocked: true, pinRequired: true };
+}
+
 function raw26OfferCleanBynD1_(clientPrice, raw, recover, packagesByn, deliveriesN) {
   const n = Math.max(1, Number(deliveriesN) || 1);
   const fuel = STATS_DELIVERY_FUEL_PER_D1_ * n;
@@ -18664,6 +18693,14 @@ function computePpFactFromCostD1_(
       goodsFloor
     );
     const factBefore = Math.round((goods + delivery + packagesByn + fracMark) * 100) / 100;
+    const retailCapBase =
+      isFinite(retailGoods) && retailGoods > 0
+        ? Math.round((retailGoods + delivery) * 100) / 100
+        : 0;
+    const cutParts = [];
+    if (alloc.fractionMarkup < fracMark - 0.001) cutParts.push("фракции");
+    if (alloc.goods < goods - 0.001) cutParts.push("товар");
+    if (alloc.packagesByn < packagesByn - 0.001) cutParts.push("пакеты");
     out = {
       scheme: "RAW26",
       factCost: alloc.factCost,
@@ -18672,15 +18709,21 @@ function computePpFactFromCostD1_(
       fixed: 0,
       recoverByn: recover,
       goodsByn: alloc.goods,
+      goodsBeforeCap: goods,
       retailGoods: isFinite(retailGoods) ? retailGoods : 0,
+      retailCapBase: retailCapBase,
       retailCapped: alloc.retailCapped,
       retailCapAt: alloc.retailCapAt,
       deliveryByn: alloc.delivery,
       packagesByn: alloc.packagesByn,
+      packagesBeforeCap: packagesByn,
       packCounts: pc,
       fractionMarkup: alloc.fractionMarkup,
+      fractionBeforeCap: fracMark,
       factBeforeCap: factBefore,
       factAfterCap: alloc.factCost,
+      capCutByn: Math.round((factBefore - alloc.factCost) * 100) / 100,
+      capCutFrom: cutParts.join("+"),
       cleanBeforeCap: raw26OfferCleanBynD1_(factBefore, raw, recover, packagesByn, n),
       cleanAfterCap: raw26OfferCleanBynD1_(alloc.factCost, raw, recover, alloc.packagesByn, n)
     };
