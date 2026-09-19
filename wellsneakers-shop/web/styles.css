@@ -457,7 +457,7 @@ body.page-catalog.catalog-scrolled .filters-fab{display:inline-flex}
 .collection-chip:nth-child(3){transform:rotate(-.2deg)}
 .collection-chip:nth-child(4){transform:rotate(.3deg)}
 .collection-chip-thumb{
-  width:30px;height:30px;flex:0 0 auto;
+  width:40px;height:40px;flex:0 0 auto;
   border-radius:0;overflow:visible;
   border:0;
   background:transparent;
@@ -466,6 +466,7 @@ body.page-catalog.catalog-scrolled .filters-fab{display:inline-flex}
 .collection-chip-thumb img{
   width:100%;height:100%;
   object-fit:contain;object-position:center;
+  padding:3px;box-sizing:border-box;
   background:transparent;
   mix-blend-mode:normal;
 }
@@ -627,7 +628,7 @@ body.page-catalog.catalog-scrolled .filters-fab{display:inline-flex}
   .collection-chips{gap:10px}
   .collection-chip,.collection-chip:nth-child(2),.collection-chip:nth-child(3),.collection-chip:nth-child(4){transform:none}
   .collection-chip{min-height:48px;padding:6px 14px 6px 6px}
-  .collection-chip-thumb{width:32px;height:32px}
+  .collection-chip-thumb{width:40px;height:40px}
   .collection-chip-label{font-size:18px}
   .gender-chips .street-opt{min-height:34px;font-size:15px}
   .toy{width:88px;height:88px}
