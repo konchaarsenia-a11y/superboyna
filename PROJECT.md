@@ -282,7 +282,7 @@
 | `repairShiftedWeekClose` | Worker-only (owner): откат ошибочного D1 +7 (`fromMonday=2026-09-07`); цены в `meta_json` не затирает |
 | `repairDetachedWeekSlots` | Worker-only (owner): привязать `day_name` к текущим датам слота по листу (после detach/repair) |
 | `repairMissingOrderPrices` | Worker-only (owner): долить пустые `orderPrice`/`stated`/`fact` в `meta_json` (`from`/`to`, confirm=1) |
-| `repairFutureWeekDupes` | Worker-only (owner): снять клоны текущей недели на Future/+7 (`fromMonday`/`futureIso`, confirm=1); genuine 28.09 оставляет |
+| `repairFutureWeekDupes` | Worker-only (owner): снять 21∩28 с Future и выровнять слот под лист GAS (`alignToGas=1`, `fromMonday`/`futureIso`, confirm=1) |
 | `ensureBpFromOrder` | БП-карта из заказа: basket в doGet через try/catch → [] |
 | `listBpIdle` | БП без движения N дней |
 | `closeAllOpenDeficits` | Owner: закрыть все open в Дефицит_Нарезки |

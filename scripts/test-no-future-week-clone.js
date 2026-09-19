@@ -16,10 +16,10 @@ function assert(cond, msg) {
   return true;
 }
 
-function decideFutureWeekDupe_(onSourceWeek, onGasFuture, onGasCalendar) {
-  if (!onSourceWeek) return "keep";
-  if (onGasFuture || onGasCalendar) return "keep";
-  return "drop";
+function decideFutureWeekDupe_(onSourceWeek, onGasFuture, alignToGas) {
+  if (onSourceWeek && !onGasFuture) return "drop";
+  if (alignToGas && !onGasFuture) return "drop";
+  return "keep";
 }
 
 assert(
@@ -27,20 +27,20 @@ assert(
   "Mon 21 person copied to 28 → drop"
 );
 assert(
-  decideFutureWeekDupe_(false, false, false) === "keep",
-  "Ba2ra / Maria only on 28 → keep"
+  decideFutureWeekDupe_(false, false, true) === "drop",
+  "Ba2ra/Maria not on GAS Future sheet → drop when alignToGas"
 );
 assert(
-  decideFutureWeekDupe_(false, true, false) === "keep",
-  "GAS Future person not on 21 week → keep"
+  decideFutureWeekDupe_(false, true, true) === "keep",
+  "GAS Future person → keep"
 );
 assert(
-  decideFutureWeekDupe_(true, true, false) === "keep",
+  decideFutureWeekDupe_(true, true, true) === "keep",
   "same person on 21 and GAS Future → keep genuine"
 );
 assert(
-  decideFutureWeekDupe_(true, false, true) === "keep",
-  "same person on 21 and GAS calendar 28 → keep genuine"
+  decideFutureWeekDupe_(false, false, false) === "keep",
+  "without alignToGas, non-overlap stays"
 );
 
 var workerPath = path.join(__dirname, "../boinya-c/proxy/worker.js");
@@ -53,8 +53,9 @@ assert(!!extracted, "worker exports decideFutureWeekDupe_");
 if (extracted) {
   /* eslint-disable no-eval */
   eval(extracted[0]);
-  assert(decideFutureWeekDupe_(true, false, false) === "drop", "worker helper: clone → drop");
-  assert(decideFutureWeekDupe_(false, false, false) === "keep", "worker helper: genuine → keep");
+  assert(decideFutureWeekDupe_(true, false, true) === "drop", "worker helper: overlap → drop");
+  assert(decideFutureWeekDupe_(false, false, true) === "drop", "worker helper: extra vs GAS → drop");
+  assert(decideFutureWeekDupe_(false, true, true) === "keep", "worker helper: on sheet → keep");
 }
 
 var missStart = worker.indexOf("async function upsertMissingClientsFromGas_");
@@ -68,9 +69,14 @@ assert(
   !/haveIso2[\s\S]{0,160}exists = null/.test(afterAny),
   "must not exists=null then INSERT Future:MK"
 );
+assert(
+  missBody.indexOf("scrubFutureOverlapsFromCurrentWeek_") >= 0,
+  "upsertMissing Future scrubs current-week overlaps"
+);
 
 assert(worker.indexOf("repairFutureWeekDupes") >= 0, "owner repair action");
 assert(worker.indexOf("async function repairFutureWeekDupes_") >= 0, "repair helper");
+assert(worker.indexOf("async function scrubFutureOverlapsFromCurrentWeek_") >= 0, "overlap scrub helper");
 assert(worker.indexOf("no-future-week-clone-h1") >= 0, "deploy marker");
 assert(worker.indexOf("preserve-order-price-h1") >= 0, "price preserve marker kept");
 assert(worker.indexOf("finishFullWeekProduction") === -1, "worker does not call finishFullWeek");
@@ -86,6 +92,8 @@ var matEnd = gs.indexOf("function ensureFutureWeekForDate_");
 var mat = matStart >= 0 && matEnd > matStart ? gs.slice(matStart, matEnd) : "";
 assert(mat.indexOf("fromCurrentWeek") >= 0, "GAS Future materialize skips current-week people");
 assert(mat.indexOf("Будущая неделя") >= 0, "GAS guard scoped to Future sheet");
+assert(gs.indexOf("function scrubFutureCurrentWeekDupes_") >= 0, "GAS scrubs Future columns of current-week nicks");
+assert(gs.indexOf("scrubFutureCurrentWeekDupes_") >= 0, "materialize week calls Future dupe scrub");
 
 if (process.exitCode) {
   console.error("test-no-future-week-clone FAILED");

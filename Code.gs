@@ -12855,6 +12855,11 @@ function materializeCurrentWeek_(ss, opts) {
         var fr = materializeDeliveryDate_(ss, fd, { onlyMissing: onlyMissing });
         total += Number(fr.count) || 0;
         if (droppedF) fr.droppedExtras = droppedF;
+        try {
+          fr.currentWeekDupes = scrubFutureCurrentWeekDupes_(ss);
+        } catch (eDup) {
+          fr.currentWeekDupes = { ok: false, message: String(eDup) };
+        }
         results.push(fr);
       }
     }
@@ -12870,6 +12875,46 @@ function materializeCurrentWeek_(ss, opts) {
     dropExtras: dropExtras,
     days: results
   };
+}
+
+/** Не оставлять на «Будущей» колонки людей, которые уже на Пн–Вс этой недели. */
+function scrubFutureCurrentWeekDupes_(ss) {
+  var out = { ok: true, removed: 0, names: [] };
+  if (!ss) return out;
+  var future = ss.getSheetByName("Будущая неделя");
+  if (!future) return out;
+  var onWeek = {};
+  try {
+    var days = getWeekDayDates_(ss);
+    for (var i = 0; i < (days || []).length; i++) {
+      var wd = days[i];
+      if (!wd || !wd.day || wd.day === "Будущая неделя") continue;
+      var data = getClientsData_(ss, wd.day);
+      (data.clients || []).forEach(function (cl) {
+        var k = clientMatchKey_(cl.name);
+        if (k) onWeek[k] = cl.name;
+      });
+    }
+  } catch (eW) {
+    return out;
+  }
+  var block = getDayBlock("Будущая неделя");
+  if (!block) return out;
+  var nicks = future.getRange(block.nick, 3, 1, 15).getValues()[0];
+  for (var c = 0; c < 15; c++) {
+    var nick = String(nicks[c] || "").trim();
+    if (!nick) continue;
+    var mk = clientMatchKey_(nick);
+    if (!mk || !onWeek[mk]) continue;
+    future.getRange(block.nick, c + 3).setValue("");
+    future.getRange(block.start, c + 3, block.note - block.start + 1, 1).clearContent();
+    out.removed++;
+    out.names.push(nick);
+  }
+  if (out.removed) {
+    try { bustClientsCache_(); } catch (eB) {}
+  }
+  return out;
 }
 
 function handleMaterializeWeek(json, callback, fromPost) {
