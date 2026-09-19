@@ -317,7 +317,37 @@ main{position:relative;z-index:1}
   width:min(var(--max),100%);margin:0 auto;
   display:grid;grid-template-columns:1.2fr 1fr;gap:8px;
 }
+.page-catalog .dock-inner{grid-template-columns:1.2fr 1fr}
+body.page-catalog.catalog-scrolled .dock-inner{
+  grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr) minmax(0,1.05fr);
+  gap:6px;
+}
 .dock .btn{width:100%;min-height:40px}
+.dock .btn-top{
+  display:none;
+  min-height:40px;border-radius:10px;padding:0 8px;
+  font-family:var(--display);font-size:15px;letter-spacing:.05em;text-transform:uppercase;font-weight:400;
+  white-space:nowrap;
+  background:#f5f2ec;color:#111;border:2px solid #111;box-shadow:2px 2px 0 #111;
+}
+body.page-catalog.catalog-scrolled .dock .btn-top{display:inline-flex}
+body.page-catalog.catalog-scrolled .dock .btn-catalog,
+body.page-catalog.catalog-scrolled .dock .btn-rug,
+body.page-catalog.catalog-scrolled .dock .btn-top{
+  font-size:14px;letter-spacing:.04em;padding-left:6px;padding-right:6px;
+}
+.filters-fab{
+  position:fixed;right:max(12px, env(safe-area-inset-right, 0px));
+  bottom:calc(58px + var(--safe-b));z-index:52;
+  width:40px;height:40px;padding:0;border-radius:10px;
+  border:2px solid #111;background:#f5f2ec;color:#111;box-shadow:2px 2px 0 #111;
+  display:none;align-items:center;justify-content:center;
+}
+body.page-catalog.catalog-scrolled .filters-fab{display:inline-flex}
+.filters-fab:focus{outline:none}
+.filters-fab:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.filters-fab-ico{display:grid;gap:3px}
+.filters-fab-ico span{display:block;width:16px;height:2px;background:#111;border-radius:1px}
 .dock .btn-rug,
 .cart-dock{
   font-family:var(--display);font-size:15px;letter-spacing:.06em;text-transform:uppercase;
@@ -395,7 +425,9 @@ main{position:relative;z-index:1}
 .collections-block{
   min-width:0;margin:0 0 10px;
   display:grid;gap:8px;
+  scroll-margin-top:12px;
 }
+#collectionRow{scroll-margin-top:12px}
 .collection-chips{
   display:flex;
   flex-wrap:wrap;
@@ -434,6 +466,8 @@ main{position:relative;z-index:1}
 .collection-chip-thumb img{
   width:100%;height:100%;
   object-fit:contain;object-position:center;
+  background:transparent;
+  mix-blend-mode:normal;
 }
 .collection-chip-label{
   font-family:var(--display);font-size:16px;letter-spacing:.06em;
