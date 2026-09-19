@@ -69,6 +69,29 @@
         <div class="api-banner" id="apiStatus">Подключение к API…</div>
 
         <div class="filters sticky-filters" id="catalogFilters">
+          <div class="collections-block">
+            <p class="collections-kicker" aria-hidden="true">Подборки</p>
+            <div class="filter-row collection-chips" id="collectionRow" role="group" aria-label="Подборки">
+              <button type="button" class="chip chip-collection chip-sale" id="saleChip" data-collection="sale" aria-pressed="false">
+                <span class="chip-ico" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
+                    <path d="M2.6 8.1 8 2.7A1.5 1.5 0 0 1 9.1 2.3h3.6v3.6c0 .4-.16.78-.44 1.06L6.9 13.4a1.5 1.5 0 0 1-2.12 0L2.6 10.22a1.5 1.5 0 0 1 0-2.12Z" stroke="currentColor" stroke-width="1.4"/>
+                    <circle cx="11.1" cy="4.9" r=".95" fill="currentColor"/>
+                    <path d="M4.7 9.3 8.2 5.8" stroke="currentColor" stroke-width="1.35"/>
+                  </svg>
+                </span>
+                <span class="chip-txt">Скидки</span>
+              </button>
+              <button type="button" class="chip chip-collection chip-white" data-color="white" aria-pressed="false">
+                <span class="chip-ico chip-swatch chip-swatch-white" aria-hidden="true"></span>
+                <span class="chip-txt">Белые</span>
+              </button>
+              <button type="button" class="chip chip-collection chip-black" data-color="black" aria-pressed="false">
+                <span class="chip-ico chip-swatch chip-swatch-black" aria-hidden="true"></span>
+                <span class="chip-txt">Чёрные</span>
+              </button>
+            </div>
+          </div>
           <div class="street-toggles">
             <button type="button" class="street-drop filter-toggle" id="toggleBrands" aria-expanded="false">
               <span class="street-drop-label" id="brandsLabel">Все бренды</span>
@@ -88,11 +111,6 @@
           <div class="filter-row gender-chips" id="genderRow" aria-label="Мужское или женское">
             <button type="button" class="street-opt" data-gender="men">Мужское</button>
             <button type="button" class="street-opt" data-gender="women">Женское</button>
-          </div>
-          <div class="filter-row collection-chips" id="collectionRow" aria-label="Подборки">
-            <button type="button" class="chip chip-sale" id="saleChip" data-collection="sale" aria-pressed="false">Скидки</button>
-            <button type="button" class="chip" data-color="white" aria-pressed="false">Белые</button>
-            <button type="button" class="chip" data-color="black" aria-pressed="false">Чёрные</button>
           </div>
           <div style="margin-top:10px">
             <input class="street-drop" id="qFilter" placeholder="Поиск: модель или артикул" style="width:100%;transform:none;appearance:auto" />
