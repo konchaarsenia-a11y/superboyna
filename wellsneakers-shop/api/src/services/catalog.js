@@ -58,7 +58,7 @@ export async function backfillProductModelKeys() {
     const storedColor = String(row.color || "").trim();
     const color = storedColor || parsed.color;
     const brandChanged = brand !== String(row.brand || "");
-    // Empty color: persist peeled colorway and refreshed model_key (SOFTBLUE/PSG).
+    // Empty color: persist peeled colorway and refreshed model_key (SOFTBLUE/PSG/APPLE).
     const refreshKey = brandChanged || !storedColor;
     const modelKey = refreshKey
       ? parsed.modelKey

@@ -112,6 +112,50 @@ describe("parseModelAndColor — live OC names", () => {
     const swoosh = parseModelAndColor("AIR FORCE 1 WHITE/BLACK SWOOSH", "NIKE");
     assert.equal(swoosh.color, "WHITE/BLACK SWOOSH");
   });
+
+  it("peels leftover colorway nicknames and collabs", () => {
+    const cases = [
+      ["NIKE SB DUNK LOW APPLE", "NIKE", "NIKE SB DUNK LOW", "APPLE"],
+      ["CAMPUS BODEGA BAMS", "adidas", "CAMPUS", "BODEGA BAMS"],
+      ["NIKE SB DUNK LOW CACTUS JACK", "NIKE", "NIKE SB DUNK LOW", "CACTUS JACK"],
+      ["NIKE SB DUNK LOW KOVER", "NIKE", "NIKE SB DUNK LOW", "KOVER"],
+      ["NIKE AIR FORCE 1 LOW COFFE", "NIKE", "NIKE AIR FORCE 1 LOW", "COFFEE"],
+      [
+        "NIKE AIR JORDAN 1 LOW CACTUS BLACK PHANTOM TIFFANY",
+        "NIKE",
+        "NIKE AIR JORDAN 1 LOW",
+        "CACTUS BLACK PHANTOM TIFFANY",
+      ],
+      ["NIKE AIR JORDAN 1 HIGH SPIDER-MAN", "NIKE", "NIKE AIR JORDAN 1 HIGH", "SPIDER-MAN"],
+      ["NIKE CORTEZ GREEN MUSLIN", "NIKE", "NIKE CORTEZ", "GREEN MUSLIN"],
+      ["NIKE SB DUNK LOW BANAN", "NIKE", "NIKE SB DUNK LOW", "BANAN"],
+      ["NIKE SB DUNK LOW MINI SWOOSH", "NIKE", "NIKE SB DUNK LOW", "MINI SWOOSH"],
+    ];
+    for (const [name, brand, model, color] of cases) {
+      const parsed = parseModelAndColor(name, brand);
+      assert.equal(parsed.modelName, model, name);
+      assert.equal(parsed.color, color, name);
+    }
+  });
+
+  it("peels a known color before junk (BLACK 2 SWOOSH)", () => {
+    const parsed = parseModelAndColor("NIKE TN BLACK 2 SWOOSH", "NIKE");
+    assert.equal(parsed.modelName, "NIKE TN");
+    assert.equal(parsed.color, "BLACK 2 SWOOSH");
+  });
+
+  it("uses leftover suffix after a known model prefix", () => {
+    const parsed = parseModelAndColor("NIKE SB DUNK LOW FOOBAR NICK", "NIKE");
+    assert.equal(parsed.modelName, "NIKE SB DUNK LOW");
+    assert.equal(parsed.color, "FOOBAR NICK");
+  });
+
+  it("groups nickname dunks with plain color dunks", () => {
+    const apple = parseModelAndColor("NIKE SB DUNK LOW APPLE", "NIKE");
+    const black = parseModelAndColor("NIKE SB DUNK LOW BLACK", "NIKE");
+    assert.equal(apple.modelKey, black.modelKey);
+    assert.equal(apple.modelKey, "nike|nike sb dunk low");
+  });
 });
 
 describe("resolveProductModel — empty color backfill", () => {
@@ -124,6 +168,17 @@ describe("resolveProductModel — empty color backfill", () => {
     });
     assert.equal(meta.color, "SOFT BLUE");
     assert.equal(meta.modelKey, "nike|air jordan 4 retro");
+  });
+
+  it("backfills leftover nickname when stored color is empty (1558)", () => {
+    const meta = resolveProductModel({
+      name: "NIKE SB DUNK LOW APPLE",
+      brand: "NIKE",
+      color: "",
+      model_key: "nike|nike sb dunk low apple",
+    });
+    assert.equal(meta.color, "APPLE");
+    assert.equal(meta.modelKey, "nike|nike sb dunk low");
   });
 
   it("keeps a staff-written color and stored key", () => {
@@ -150,6 +205,10 @@ describe("isColorToken", () => {
     assert.equal(isColorToken("BORDO"), true);
     assert.equal(isColorToken("PERSIK"), true);
     assert.equal(isColorToken("BLACK/WHITEMEX"), true);
+    assert.equal(isColorToken("APPLE"), true);
+    assert.equal(isColorToken("COFFE"), true);
+    assert.equal(isColorToken("SPIDER-MAN"), true);
+    assert.equal(isColorToken("BANAN"), true);
   });
   it("rejects model tokens", () => {
     assert.equal(isColorToken("JORDAN"), false);
