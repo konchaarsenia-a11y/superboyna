@@ -387,7 +387,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-18 partner-access-stick-h2"
+      deployMarker: "2026-09-19 partner-access-stick-h3"
     };
   }
 
@@ -9342,6 +9342,47 @@ function partnerCanWriteAccess_(params) {
   return false;
 }
 
+/**
+ * Varka staff cannot grant. Boinya operator (Arseniy) / canon-owner can,
+ * even if they also have an active staff row (rokoss_80).
+ */
+function partnerActorGrantBlock_(admin, params) {
+  const actorTid = String((params && params.telegramId) || "").trim();
+  const actorUser = partnerNormUserWorker_(params && params.actorUsername);
+  if (
+    partnerCanWriteAccess_({
+      telegramId: actorTid,
+      actorUsername: actorUser
+    })
+  ) {
+    return "";
+  }
+  const actorRole = String((params && params.actorRole) || "").toLowerCase();
+  if (actorRole === "staff") return "staff_cannot_grant";
+  const rows = admin && Array.isArray(admin.access) ? admin.access : [];
+  for (let ai = 0; ai < rows.length; ai++) {
+    const ar = rows[ai];
+    if (!ar || String(ar.status || "active").toLowerCase() !== "active") continue;
+    if (String(ar.role || "").toLowerCase() !== "staff") continue;
+    const matchT = actorTid && String(ar.telegramId || "") === actorTid;
+    const matchU = actorUser && partnerNormUserWorker_(ar.username) === actorUser;
+    if (matchT || matchU) return "staff_cannot_grant";
+  }
+  return "owner_only";
+}
+
+/** List for Бойня «Люди»: без owner-identity и без revoked. */
+function partnerAccessListForUi_(access) {
+  const rows = partnerStripOwnerAccess_(access);
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (partnerAccessStatus_(rows[i]) !== "active") continue;
+    if (partnerIsClosedAccess_(rows[i])) continue;
+    out.push(rows[i]);
+  }
+  return out;
+}
+
 function partnerAddPersonIdentity_(into, raw) {
   into = into || { tids: [], users: [], ids: [] };
   const seenT = {};
@@ -12292,6 +12333,21 @@ async function handleCutover_(a, params, env, ctx) {
           sandbox: false,
           d1Verified: true,
           optimistic: false,
+          partnerCanon: partnerCanonLabel_(env),
+          action: a
+        });
+      }
+      // owner/staff validation — не ждать GAS (иначе UI «выдано», список D1 пустой)
+      if (
+        d1P &&
+        d1P.status === "error" &&
+        /^(staff_cannot_grant|owner_only|need_user|need_points|need_name|need_name_network|need_id)$/i.test(
+          String(d1P.message || "")
+        )
+      ) {
+        return Object.assign({}, d1P, {
+          cutover: true,
+          fromD1: true,
           partnerCanon: partnerCanonLabel_(env),
           action: a
         });
@@ -19846,14 +19902,17 @@ async function partnerEnsureManualAccess_(env, admin) {
 async function partnerListAdminD1_(params, env, ctx) {
   let admin = await getSnapRaw_(env, "partnerListAdmin");
   const force = String((params && params.force) || "") === "1";
-  const ok =
+  const touchedAt = Number((admin && admin._d1TouchedAt) || 0);
+  const hasD1 =
     admin &&
     admin.status === "success" &&
-    Array.isArray(admin.networks) &&
-    !force;
-  if (ok) {
+    Array.isArray(admin.networks);
+  // After grant/revoke: force must return D1 now, not wait GAS TTL / stale listAdmin.
+  const serveD1 = hasD1 && (!force || touchedAt > 0);
+  if (serveD1) {
     admin = await partnerEnsureMayakovskyPoint_(env, admin);
-    if (ctx && typeof ctx.waitUntil === "function") {
+    const skipSwr = force || (touchedAt > 0 && Date.now() - touchedAt < 180000);
+    if (!skipSwr && ctx && typeof ctx.waitUntil === "function") {
       ctx.waitUntil(
         (async function () {
           try {
@@ -20215,29 +20274,10 @@ async function mutatePartnerD1_(action, params, env) {
   }
 
   if (/^partnerSaveAccess$/i.test(a)) {
-    const actorRole = String((params && params.actorRole) || "").toLowerCase();
     const actorTid = String((params && params.telegramId) || "").trim();
     const actorUser = partnerNormUserWorker_(params && params.actorUsername);
-    // staff не может выдавать доступы (даже если D1 пишет раньше GAS)
-    if (actorRole === "staff") {
-      return { status: "error", message: "staff_cannot_grant" };
-    }
-    if (
-      !partnerCanWriteAccess_({
-        telegramId: actorTid,
-        actorUsername: actorUser
-      })
-    ) {
-      return { status: "error", message: "owner_only" };
-    }
-    for (let ai = 0; ai < (admin.access || []).length; ai++) {
-      const ar = admin.access[ai];
-      if (!ar || String(ar.status || "active").toLowerCase() !== "active") continue;
-      if (String(ar.role || "").toLowerCase() !== "staff") continue;
-      const matchT = actorTid && String(ar.telegramId || "") === actorTid;
-      const matchU = actorUser && partnerNormUserWorker_(ar.username) === actorUser;
-      if (matchT || matchU) return { status: "error", message: "staff_cannot_grant" };
-    }
+    const grantBlock = partnerActorGrantBlock_(admin, params);
+    if (grantBlock) return { status: "error", message: grantBlock };
     const username = partnerNormUserWorker_(params && params.username);
     const targetTid = String(
       (params && (params.targetTelegramId || params.staffTelegramId)) || ""
@@ -20318,10 +20358,11 @@ async function mutatePartnerD1_(action, params, env) {
     }
     return {
       status: "success",
-      id: row.id,
+      id: saved.id || row.id,
       telegramId: telegramId,
-      accessStatus: row.status,
-      d1Verified: true
+      accessStatus: saved.status || row.status,
+      d1Verified: true,
+      access: partnerAccessListForUi_(admin.access)
     };
   }
 
@@ -20385,7 +20426,12 @@ async function mutatePartnerD1_(action, params, env) {
     try {
       await partnerSyncMeSnapsForPerson_(env, admin, plan.person);
     } catch (eMeR) {}
-    return { status: "success", revoked: plan.indexes.length, d1Verified: true };
+    return {
+      status: "success",
+      revoked: plan.indexes.length,
+      d1Verified: true,
+      access: partnerAccessListForUi_(admin.access)
+    };
   }
 
   if (/^partnerSetNotifyRecipients$/i.test(a)) {

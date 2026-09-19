@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115980";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115981";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -25345,6 +25345,55 @@
       else setPartnerHubTab_("people");
     }
 
+    function partnerHubJsStr_(s) {
+      return String(s || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    }
+
+    function partnerHubAccessGone_(row) {
+      var st = String((row && row.status) || "active").toLowerCase();
+      return st === "revoked" || st === "inactive" || st === "deleted";
+    }
+
+    function partnerHubApplyAccess_(access) {
+      if (!Array.isArray(access)) return;
+      if (!partnerHubCache_) {
+        partnerHubCache_ = { status: "success", networks: [], points: [], access: access };
+      } else {
+        partnerHubCache_.access = access;
+      }
+      partnerHubPaint_(partnerHubCache_);
+    }
+
+    function partnerHubDropAccessPerson_(id, username, tid, role) {
+      if (!partnerHubCache_) return;
+      username = String(username || "").replace(/^@/, "").trim().toLowerCase();
+      tid = String(tid || "").trim();
+      id = String(id || "").trim();
+      role = String(role || "partner").toLowerCase() || "partner";
+      partnerHubCache_.access = (partnerHubCache_.access || []).filter(function (x) {
+        if (!x) return false;
+        if (id && String(x.id) === id) return false;
+        var sameRole = String(x.role || "partner").toLowerCase() === role;
+        if (!sameRole) return true;
+        var xu = String(x.username || "").replace(/^@/, "").trim().toLowerCase();
+        var xt = String(x.telegramId || "").trim();
+        if (username && xu && xu === username) return false;
+        if (tid && xt && xt === tid) return false;
+        if (id && /^pa_/.test(id)) {
+          var rest = id.slice(3).toLowerCase();
+          if (xu && xu === rest) return false;
+          if (xt && xt === id.slice(3)) return false;
+        }
+        return true;
+      });
+    }
+
+    function partnerHubReloadNow_() {
+      try { apiCacheBustMem_("partnerListAdmin"); } catch (eB) {}
+      partnerHubCache_ = null;
+      return loadPartnerHubUi_({ force: 1, keepPaint: 1 });
+    }
+
     async function loadPartnerHubUi_(opts) {
       opts = opts || {};
       var boxA = document.getElementById("phAccessList");
@@ -25354,13 +25403,14 @@
         setPartnerHubTab_(partnerHubTab_);
         return;
       }
-      if (!opts.soft && boxA) boxA.innerHTML = '<p class="muted">Загрузка…</p>';
+      if (!opts.soft && !opts.keepPaint && boxA) boxA.innerHTML = '<p class="muted">Загрузка…</p>';
       try {
         var res = await apiGet({
           action: "partnerListAdmin",
           telegramId: myTelegramId,
+          force: opts.force ? "1" : undefined,
           _: String(Date.now())
-        }, { timeoutMs: 35000, cacheTtlMs: 0 });
+        }, { timeoutMs: 35000, cacheTtlMs: 0, bypassInflight: !!opts.force, bypassMem: true });
         if (!res || res.status !== "success") {
           var msg = (res && res.message) || "нет ответа — Deploy Code.gs?";
           if (boxA) boxA.innerHTML = '<p class="muted">' + escapeHtml(msg) + "</p>";
@@ -25482,7 +25532,7 @@
       var boxA = document.getElementById("phAccessList");
       if (boxA) {
         var openAcc = acc.filter(function (a) {
-          if (String(a.status || "") !== "active") return false;
+          if (!a || partnerHubAccessGone_(a)) return false;
           var role = String(a.role || "").toLowerCase();
           var name = String(a.name || "").trim();
           if (role === "owner") return false;
@@ -25490,7 +25540,9 @@
           return true;
         });
         boxA.innerHTML = openAcc.length ? openAcc.map(function (a) {
-          var idEsc = String(a.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+          var idEsc = partnerHubJsStr_(a.id);
+          var userEsc = partnerHubJsStr_(String(a.username || "").replace(/^@/, ""));
+          var tidEsc = partnerHubJsStr_(a.telegramId);
           var ptsLab = (a.pointIds || []).map(function (pid) {
             var hit = pts.filter(function (p) { return p.id === pid; })[0];
             return hit ? hit.name : pid;
@@ -25502,7 +25554,7 @@
             '<div class="muted" style="font-size:12px;margin-top:3px;">' + escapeHtml(ptsLab || "нет точек") + "</div></div>" +
             '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">' +
             '<button type="button" class="seg-btn" style="margin:0;" onclick="partnerHubEditAccess_(\'' + idEsc + '\')">Править</button>' +
-            '<button type="button" class="seg-btn" style="margin:0;color:#ff453a;" onclick="partnerHubRevokeAccess_(\'' + idEsc + '\')">✕</button>' +
+            '<button type="button" class="seg-btn" style="margin:0;color:#ff453a;" onclick="partnerHubRevokeAccess_(\'' + idEsc + '\',\'' + userEsc + '\',\'' + tidEsc + '\')">✕</button>' +
             "</div></div></div>";
         }).join("") : '<p class="muted">Никого нет — «+ Выдать»</p>';
       }
@@ -25634,54 +25686,94 @@
       document.querySelectorAll(".ph-pt-check:checked").forEach(function (el) { ids.push(el.value); });
       if (!username && !tid) { showToast("Нужен @username или Telegram ID"); return; }
       if (!ids.length) { showToast("Выберите точки"); return; }
-      var body = {
-        action: "partnerSaveAccess",
-        telegramId: myTelegramId,
-        id: String((document.getElementById("phAccEditId") || {}).value || ""),
+      var editId = String((document.getElementById("phAccEditId") || {}).value || "");
+      var grantedName = String((document.getElementById("phAccName") || {}).value || "");
+      var grantedNet = String((document.getElementById("phAccNetwork") || {}).value || "");
+      var optimistic = {
+        id: editId || ("pa_" + (username || tid || Date.now())),
         username: username,
-        targetTelegramId: tid,
-        name: String((document.getElementById("phAccName") || {}).value || ""),
-        networkId: String((document.getElementById("phAccNetwork") || {}).value || ""),
-        pointIds: JSON.stringify(ids),
+        telegramId: tid,
+        name: grantedName,
+        networkId: grantedNet,
+        pointIds: ids,
         role: "partner",
-        status: "active",
-        _: String(Date.now())
+        status: "active"
       };
-      var res = await apiGet(body, { timeoutMs: 20000, cacheTtlMs: 0 });
-      if (!res || res.status !== "success") {
-        showToast((res && res.message) || "Не выдалось — Deploy?");
-        return;
-      }
+      var prevAccess = partnerHubCache_ && partnerHubCache_.access ? partnerHubCache_.access.slice() : null;
+      if (!partnerHubCache_) partnerHubCache_ = { status: "success", networks: [], points: [], access: [] };
+      partnerHubCache_.access = (partnerHubCache_.access || []).filter(function (x) {
+        return String(x.id) !== String(optimistic.id);
+      }).concat([optimistic]);
       document.getElementById("phAccEditId").value = "";
       document.getElementById("phAccUser").value = "";
       document.getElementById("phAccTid").value = "";
       document.getElementById("phAccName").value = "";
       partnerHubCancelForm_("acc");
-      partnerHubCache_ = null;
-      await loadPartnerHubUi_({ force: 1 });
+      partnerHubPaint_(partnerHubCache_);
+      var body = {
+        action: "partnerSaveAccess",
+        telegramId: myTelegramId,
+        id: editId,
+        username: username,
+        targetTelegramId: tid,
+        name: grantedName,
+        networkId: grantedNet,
+        pointIds: JSON.stringify(ids),
+        role: "partner",
+        status: "active",
+        _: String(Date.now())
+      };
+      var res = await apiGet(body, { timeoutMs: 20000, cacheTtlMs: 0, bypassInflight: true, bypassMem: true });
+      if (!res || res.status !== "success") {
+        if (prevAccess) {
+          partnerHubCache_.access = prevAccess;
+          partnerHubPaint_(partnerHubCache_);
+        }
+        showToast((res && res.message) || "Не выдалось — Deploy?");
+        return;
+      }
+      if (Array.isArray(res.access)) partnerHubApplyAccess_(res.access);
+      partnerHubReloadNow_();
       showToast("Доступ выдан");
     }
 
-    async function partnerHubRevokeAccess_(id) {
+    async function partnerHubRevokeAccess_(id, username, tid) {
+      id = String(id || "").trim();
+      username = String(username || "").replace(/^@/, "").trim();
+      tid = String(tid || "").trim();
+      var row = ((partnerHubCache_ && partnerHubCache_.access) || []).filter(function (x) {
+        return String(x.id) === id;
+      })[0] || {};
+      if (!username) username = String(row.username || "").replace(/^@/, "").trim();
+      if (!tid) tid = String(row.telegramId || "").trim();
+      if ((!username || !tid) && /^pa_/.test(id)) {
+        var rest = id.slice(3);
+        if (/^\d{5,}$/.test(rest)) tid = tid || rest;
+        else username = username || rest;
+      }
       var ok = await uiConfirmAsync("Отозвать доступ?");
       if (!ok) return;
-      var row = ((partnerHubCache_ && partnerHubCache_.access) || []).filter(function (x) {
-        return String(x.id) === String(id);
-      })[0] || {};
+      var prevAccess = partnerHubCache_ && partnerHubCache_.access ? partnerHubCache_.access.slice() : null;
+      partnerHubDropAccessPerson_(id, username, tid, row.role || "partner");
+      if (partnerHubCache_) partnerHubPaint_(partnerHubCache_);
       var res = await apiGet({
         action: "partnerRevokeAccess",
         telegramId: myTelegramId,
         id: id,
-        username: String(row.username || "").replace(/^@/, "").trim(),
-        targetTelegramId: String(row.telegramId || "").trim(),
+        username: username,
+        targetTelegramId: tid,
         _: String(Date.now())
-      }, { timeoutMs: 15000, cacheTtlMs: 0 });
+      }, { timeoutMs: 15000, cacheTtlMs: 0, bypassInflight: true, bypassMem: true });
       if (!res || res.status !== "success") {
+        if (prevAccess && partnerHubCache_) {
+          partnerHubCache_.access = prevAccess;
+          partnerHubPaint_(partnerHubCache_);
+        }
         showToast((res && res.message) || "Не отозвалось");
         return;
       }
-      partnerHubCache_ = null;
-      await loadPartnerHubUi_({ force: 1 });
+      if (Array.isArray(res.access)) partnerHubApplyAccess_(res.access);
+      partnerHubReloadNow_();
       showToast("Отозвано");
     }
 

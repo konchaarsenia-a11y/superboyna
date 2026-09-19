@@ -90,6 +90,9 @@ if (!/partnerWriteMeSnapsForRow_/.test(workerSrc) || !/partnerInvalidateMeSnaps_
 if (!/function partnerExpandPersonFromAccess_/.test(workerSrc) || !/function partnerRevokeIndexesForPerson_/.test(workerSrc)) {
   fail("revoke must expand dual username/tid identity rows");
 }
+if (!/function partnerActorGrantBlock_/.test(workerSrc) || !/function partnerAccessListForUi_/.test(workerSrc)) {
+  fail("grant must skip staff_cannot_grant for Boinya operator and return access[]");
+}
 if (!/partnerSyncSameRolePointIds_/.test(workerSrc)) {
   fail("grant must sync pointIds onto same-role identity aliases");
 }
@@ -97,9 +100,15 @@ const saveSlice = workerSrc.slice(workerSrc.indexOf("if (/^partnerSaveAccess$/i.
 if (saveSlice.indexOf("partnerSyncMeSnapsForPerson_") < 0 || saveSlice.indexOf("partnerSyncSameRolePointIds_") < 0) {
   fail("partnerSaveAccess must sync aliases and clear partnerMe cache");
 }
+if (saveSlice.indexOf("partnerActorGrantBlock_") < 0 || saveSlice.indexOf("partnerAccessListForUi_") < 0) {
+  fail("partnerSaveAccess must use grant-block helper and return UI access list");
+}
 const revokeSlice = workerSrc.slice(workerSrc.indexOf("if (/^partnerRevokeAccess$/i.test(a))"));
 if (revokeSlice.indexOf("partnerRevokeIndexesForPerson_") < 0 || revokeSlice.indexOf("partnerSyncMeSnapsForPerson_") < 0) {
   fail("partnerRevokeAccess must revoke all identity aliases and clear partnerMe cache");
+}
+if (revokeSlice.indexOf("partnerAccessListForUi_") < 0) {
+  fail("partnerRevokeAccess must return access[] for immediate UI paint");
 }
 if (!/gb_partner_me_v5/.test(appSrc)) {
   fail("varka must bust demoted-owner me cache (v5)");
@@ -123,8 +132,25 @@ if (!/function partnerExpandPersonFromAccess_/.test(gsSrc) || gsSrc.slice(gsSrc.
   fail("GAS revoke must expand dual identity rows");
 }
 const uiSrc = fs.readFileSync(path.join(__dirname, "..", "boinya-c", "app.main.js"), "utf8");
-if (!/targetTelegramId: String\(row.telegramId/.test(uiSrc) || !/partnerHubRevokeAccess_/.test(uiSrc)) {
+if (!/targetTelegramId: tid/.test(uiSrc) || !/partnerHubRevokeAccess_/.test(uiSrc)) {
   fail("Boinya UI revoke must send target username+telegramId, not only id");
+}
+if (uiSrc.indexOf("userEsc + '\\',\\'' + tidEsc") < 0) {
+  fail("✕ must embed username+tid on the button (old WebView cache miss)");
+}
+if (!/partnerHubAccessGone_/.test(uiSrc) || !/partnerHubDropAccessPerson_/.test(uiSrc)) {
+  fail("hub list must treat soft-revoked as gone and drop aliases immediately");
+}
+if (!/keepPaint/.test(uiSrc) || !/partnerHubReloadNow_/.test(uiSrc)) {
+  fail("force listAdmin must not wipe #phAccessList (keepPaint)");
+}
+var saveUi = uiSrc.slice(uiSrc.indexOf("async function partnerHubSaveAccess_"), uiSrc.indexOf("async function partnerHubRevokeAccess_"));
+if (saveUi.indexOf("partnerHubPaint_") < 0 || saveUi.indexOf("partnerHubPaint_") > saveUi.indexOf("apiGet")) {
+  fail("grant must optimistic-paint #phAccessList before mutate");
+}
+var revUi = uiSrc.slice(uiSrc.indexOf("async function partnerHubRevokeAccess_"));
+if (revUi.indexOf("partnerHubDropAccessPerson_") < 0 || revUi.indexOf("partnerHubDropAccessPerson_") > revUi.indexOf("apiGet")) {
+  fail("revoke must drop row from hub list before mutate");
 }
 
 const sandbox = {};
@@ -159,6 +185,8 @@ vm.runInContext(
     extractFn_(workerSrc, "partnerAccessStatus_"),
     extractFn_(workerSrc, "partnerAccessRowMatchesUser_"),
     extractFn_(workerSrc, "partnerCanWriteAccess_"),
+    extractFn_(workerSrc, "partnerActorGrantBlock_"),
+    extractFn_(workerSrc, "partnerAccessListForUi_"),
     extractFn_(workerSrc, "partnerAddPersonIdentity_"),
     extractFn_(workerSrc, "partnerAccessRowMatchesPerson_"),
     extractFn_(workerSrc, "partnerExpandPersonFromAccess_"),
@@ -201,6 +229,36 @@ if (!sandbox.partnerCanWriteAccess_({ telegramId: "827494606", actorUsername: "o
 }
 if (sandbox.partnerCanWriteAccess_(stranger)) {
   fail("random staff must not grant Access");
+}
+const staffAdmin = {
+  access: [
+    {
+      id: "pa_arseniy_staff",
+      username: "arseniyhotko",
+      telegramId: "650923866",
+      role: "staff",
+      status: "active"
+    },
+    {
+      id: "pa_clinic",
+      username: "clinic_staff",
+      telegramId: "111",
+      role: "staff",
+      status: "active"
+    }
+  ]
+};
+if (sandbox.partnerActorGrantBlock_(staffAdmin, { telegramId: "650923866" })) {
+  fail("Arseniy staff row must not block Boinya grant");
+}
+if (sandbox.partnerActorGrantBlock_(staffAdmin, { telegramId: "827494606", actorUsername: "one_more_person_228" })) {
+  fail("helper canon owner must not be blocked by grant helper");
+}
+if (sandbox.partnerActorGrantBlock_(staffAdmin, stranger) !== "staff_cannot_grant") {
+  fail("random staff row must stay blocked from grant");
+}
+if (sandbox.partnerActorGrantBlock_({ access: [] }, stranger) !== "owner_only") {
+  fail("stranger without staff row must be owner_only");
 }
 if (sandbox.partnerIsOwnerIdentity_({ telegramId: "650923866", username: "arseniyhotko", role: "staff" })) {
   fail("owner_hidden must not fire on Arseniy staff row");
@@ -438,6 +496,18 @@ if ((cfblk.pointIds || []).join() !== "pt_varka_shevchenko_1") {
 }
 if ((staffRow.pointIds || []).join() !== "pt_varka_rokoss_80" || staffRow.status !== "active") {
   fail("grant rewrite must not smash staff row");
+}
+
+const dualRevoked = JSON.parse(JSON.stringify(dualAdmin));
+const dualPlan = sandbox.partnerRevokeIndexesForPerson_(dualRevoked.access, { id: "pa_arseniyhotko" });
+dualPlan.indexes.forEach(function (i) { dualRevoked.access[i].status = "revoked"; });
+const uiList = sandbox.partnerAccessListForUi_(dualRevoked.access);
+const uiIds = uiList.map(function (r) { return r.id; }).sort();
+if (uiIds.indexOf("pa_arseniyhotko") >= 0 || uiIds.indexOf("pa_650923866") >= 0) {
+  fail("UI access list after revoke must drop both identity aliases");
+}
+if (uiIds.indexOf("pa_cfblk") < 0 || uiIds.indexOf("pa_arseniy_staff") < 0) {
+  fail("UI access list must keep staff + pa_cfblk after partner revoke");
 }
 
 if (sandbox.partnerAccessRowMatchesUser_({ id: "pa_650923866", username: "", telegramId: "" }, arseniy) !== true) {
