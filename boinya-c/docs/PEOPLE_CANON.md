@@ -26,7 +26,7 @@
 | `setWeekBannerState` / cutting sessions | **D1** + Sheets фон | ops/meta |
 | `lookupBpPartner` | **D1** из подписок; miss → GAS | — |
 | TG send (`sendCourierRoute` / `sendDeficit` / `forceSurveyRemind`) | **Worker** + D1 tickets/dedupe; secret `TELEGRAM_BOT_TOKEN`; нет секрета → GAS | `telegramCanon: worker\|sheets-fallback` |
-| `finishFullWeek` / materialize / pull / repair | **GAS Sheets** (указатель недели A1+7 / очистка / materialize новых дат) → Worker D1 resync **без** штампа `date_iso+7` (detach `day_name`) | `weekCloseCanon: d1-sync` |
+| `finishFullWeek` / materialize / pull / repair | **GAS Sheets** (указатель недели A1+7 / очистка / materialize новых дат) → Worker D1 resync **без** штампа `date_iso+7` (detach `day_name` + rekey `Day:mk` → `CAL:mk:date`) | `weekCloseCanon: d1-sync` |
 | склад F/B при закрытии недели | **preview** `previewWeekCloseWarehouse` всегда D1; apply при `WAREHOUSE_CLOSE_CANON=d1-compute` + Deploy Code.gs `skipWarehouseClose` + зеркало `applyWarehouseRevision` | `warehouseCloseCanon` |
 | Goodboy `submitGoodboyTry` | **D1 snap** + TG Worker + Sheets зеркало | `gbCanon` |
 | Varka `partner*` | **D1/snap сразу** → Sheets+TG/deferred зеркало GAS | `partnerCanon: d1-primary` |
@@ -60,7 +60,8 @@
 - `cutoverStoreRead_` revalidate: **только upsert** (replace dead path убран).
 - Week-close resync: `gasN < d1Count` → upsert-only; aborted fallback без `ignoreTombstones`.
 - После detach/`repairShiftedWeekClose`: `reattachWeekSlotDayNames_` + `getClients` по дню показывает active на `date_iso` слота даже с пустым `day_name`. Не прятать людей новой недели.
-- **Same-week date mismatch** (перенос 14→15 оставил `date_iso=14` на `day_name=Вторник`): `weekSlotDateAction_` **stamp** слота, не detach/filter. Off-week leftover по-прежнему detach.
+- **Same-week date mismatch** (перенос 14→15 оставил `date_iso=14` на `day_name=Вторник`): `weekSlotDateAction_` **stamp** слота только если **оба** iso в текущем `weekMap`. Off-week / close-week +7 → detach + rekey `CAL:mk:date` (id `Понедельник:MK` иначе upsert штампует новую дату).
+- Close-week / `forceWeekD1Resync` / `upsertMissingClientsFromGas_` **никогда** не `UPDATE date_iso` у строки с другой непустой датой.
 - Calendar-only save **не** soft-delete week-slot ряды той же `date_iso` (только `day_name=''`).
 - Heal `force getClients`: upsert missing с GAS даже если D1 counts «не sparse» (лист впереди D1). Repair: `repairMissingWeekFromGas`. Lookup: `lookupClient`.
 - UI смена дня в форме: **без** предварительного `deleteClient` (`_userDelete` afterWrite сносит новую строку). `saveOrder_` сам чистит другие слоты.
