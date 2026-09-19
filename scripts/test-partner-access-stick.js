@@ -132,17 +132,25 @@ if (!/function partnerExpandPersonFromAccess_/.test(gsSrc) || gsSrc.slice(gsSrc.
   fail("GAS revoke must expand dual identity rows");
 }
 const uiSrc = fs.readFileSync(path.join(__dirname, "..", "boinya-c", "app.main.js"), "utf8");
-if (!/targetTelegramId: String\(row.telegramId/.test(uiSrc) || !/partnerHubRevokeAccess_/.test(uiSrc)) {
+if (!/targetTelegramId: tid/.test(uiSrc) || !/partnerHubRevokeAccess_/.test(uiSrc)) {
   fail("Boinya UI revoke must send target username+telegramId, not only id");
 }
-if (!/partnerHubApplyAccess_/.test(uiSrc) || !/partnerHubReloadNow_/.test(uiSrc)) {
-  fail("Boinya UI must paint access list immediately after grant/revoke");
+if (uiSrc.indexOf("userEsc + '\\',\\'' + tidEsc") < 0) {
+  fail("✕ must embed username+tid on the button (old WebView cache miss)");
 }
-if (uiSrc.slice(uiSrc.indexOf("function partnerHubSaveAccess_")).indexOf("res.access") < 0) {
-  fail("grant UI must paint res.access without waiting TTL");
+if (!/partnerHubAccessGone_/.test(uiSrc) || !/partnerHubDropAccessPerson_/.test(uiSrc)) {
+  fail("hub list must treat soft-revoked as gone and drop aliases immediately");
 }
-if (uiSrc.slice(uiSrc.indexOf("async function partnerHubRevokeAccess_")).indexOf("res.access") < 0) {
-  fail("revoke UI must paint res.access immediately");
+if (!/keepPaint/.test(uiSrc) || !/partnerHubReloadNow_/.test(uiSrc)) {
+  fail("force listAdmin must not wipe #phAccessList (keepPaint)");
+}
+var saveUi = uiSrc.slice(uiSrc.indexOf("async function partnerHubSaveAccess_"), uiSrc.indexOf("async function partnerHubRevokeAccess_"));
+if (saveUi.indexOf("partnerHubPaint_") < 0 || saveUi.indexOf("partnerHubPaint_") > saveUi.indexOf("apiGet")) {
+  fail("grant must optimistic-paint #phAccessList before mutate");
+}
+var revUi = uiSrc.slice(uiSrc.indexOf("async function partnerHubRevokeAccess_"));
+if (revUi.indexOf("partnerHubDropAccessPerson_") < 0 || revUi.indexOf("partnerHubDropAccessPerson_") > revUi.indexOf("apiGet")) {
+  fail("revoke must drop row from hub list before mutate");
 }
 
 const sandbox = {};

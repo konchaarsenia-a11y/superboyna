@@ -387,7 +387,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-19 partner-access-list-now-h1"
+      deployMarker: "2026-09-19 partner-access-stick-h3"
     };
   }
 
@@ -11755,7 +11755,7 @@ async function handleCutover_(a, params, env, ctx) {
     // Доступы / шаблоны / опросники CRUD — D1 правда (TG remind остаётся GAS)
     if (
       isMetaD1PrimaryCanon_(env) &&
-      /^(setAccessRole|setAccessTimezone|requestAccess|saveTemplate|deleteTemplate|saveSurvey|deleteSurvey|deleteSurveyBatch|savePartner|deletePartner)$/i.test(
+      /^(setAccessRole|setAccessTimezone|requestAccess|saveTemplate|deleteTemplate|saveSurvey|deleteSurvey|deleteSurveyBatch)$/i.test(
         a
       )
     ) {
@@ -11764,8 +11764,6 @@ async function handleCutover_(a, params, env, ctx) {
         if (env && env.DB) {
           if (/^(setAccessRole|setAccessTimezone|requestAccess)$/i.test(a)) {
             d1Meta = await mutateAccess_(a, params, env);
-          } else if (/^(savePartner|deletePartner)$/i.test(a)) {
-            d1Meta = await mutatePartners_(a, params, env);
           } else if (/^(saveTemplate|deleteTemplate)$/i.test(a)) {
             d1Meta = await mutateTemplates_(a, params, env);
           } else if (/^saveSurvey$/i.test(a)) {
@@ -13665,20 +13663,13 @@ function cutoverNeedsRevalidate_(a, params, fast, env) {
     const empty = !fast || !Array.isArray(fast.subscriptions) || !fast.subscriptions.length;
     if (!empty) return false;
   }
-  if (isMetaD1PrimaryCanon_(env) && /^(listAccess|listSurvey|listTemplates|listPartners)$/i.test(a)) {
+  if (isMetaD1PrimaryCanon_(env) && /^(listAccess|listSurvey|listTemplates)$/i.test(a)) {
     let empty = !fast;
     if (fast) {
-      const arr = fast.partners || fast.items || fast.people || fast.list || fast.templates || fast.surveys || [];
+      const arr = fast.items || fast.people || fast.list || fast.templates || fast.surveys || [];
       empty = !Array.isArray(arr) || !arr.length;
     }
     if (!empty) return false;
-    if (
-      a === "listPartners" &&
-      Number((fast && fast._d1TouchedAt) || 0) > 0 &&
-      Date.now() - Number(fast._d1TouchedAt) < 180000
-    ) {
-      return false;
-    }
   }
   // calc/ping/suggest — не гоняем в GAS из UI
   if (/^(calc|ping|keepWarm|suggest|lookup)/i.test(a)) return false;
@@ -16330,67 +16321,29 @@ async function deleteFromList_(env, snapKey, arrKey, params, idField) {
 
 async function mutatePartners_(action, params, env) {
   let list = (await getSnapRaw_(env, "listPartners")) || { status: "success", partners: [] };
-  let arr = Array.isArray(list.partners) ? list.partners.slice() : (list.items || []).slice();
-  const id = String((params && (params.id || params.nick || params.name)) || "").trim();
+  let arr = list.partners || list.items || [];
+  const id = String(params.id || params.nick || params.name || "");
   if (action === "deletePartner") {
-    if (!id) return { status: "error", message: "need_id" };
-    const before = arr.length;
     arr = arr.filter(function (p) {
-      return String((p && (p.id || p.nick || p.name)) || "") !== id;
+      return String(p.id || p.nick || p.name) !== id;
     });
-    if (arr.length === before) {
-      // also match by name (UI sends both)
-      const name = String((params && params.name) || "").trim();
-      if (name) {
-        arr = arr.filter(function (p) {
-          return String((p && p.name) || "") !== name;
-        });
-      }
-    }
   } else {
-    const name = String((params && params.name) || "").trim();
-    if (!name && !id) return { status: "error", message: "need_name" };
     let idx = -1;
     for (let i = 0; i < arr.length; i++) {
-      if (id && String(arr[i].id || arr[i].nick || arr[i].name) === id) {
+      if (String(arr[i].id || arr[i].nick || arr[i].name) === id) {
         idx = i;
         break;
       }
     }
-    if (idx < 0 && name) {
-      for (let j = 0; j < arr.length; j++) {
-        if (String(arr[j].name || "") === name) {
-          idx = j;
-          break;
-        }
-      }
-    }
-    const prev = idx >= 0 ? arr[idx] : {};
-    const rowId = id || prev.id || ("bp_" + Date.now().toString(36));
-    const pays =
-      params && (params.paysCost === true || params.paysCost === "yes" || params.paysCost === "1");
-    const active = !(
-      params &&
-      (params.active === false || params.active === "no" || params.active === 0 || params.active === "0")
-    );
-    const row = {
-      id: rowId,
-      name: name || prev.name || "",
-      note: params && params.note != null ? String(params.note) : String(prev.note || ""),
-      paysCost: pays || !!prev.paysCost,
-      active: active
-    };
-    if (idx >= 0) arr[idx] = Object.assign({}, prev, row);
+    const row = Object.assign({}, idx >= 0 ? arr[idx] : {}, params);
+    delete row.action;
+    if (idx >= 0) arr[idx] = row;
     else arr.push(row);
   }
   list.partners = arr;
-  list.items = arr;
-  list.status = "success";
-  list.sandbox = false;
-  list.cachedAt = new Date().toISOString();
-  list._d1TouchedAt = Date.now();
+  list.sandbox = true;
   await putSnap_(env, "listPartners", list);
-  return { status: "success", partners: arr, wrote: 1, d1Verified: true };
+  return { status: "success", sandbox: true, wrote: 1 };
 }
 
 async function mutateTemplates_(action, params, env) {
