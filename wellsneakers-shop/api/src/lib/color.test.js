@@ -17,6 +17,9 @@ describe("parseColorQuery", () => {
     assert.equal(parseColorQuery("black"), "black");
     assert.equal(parseColorQuery("чёрный"), "black");
     assert.equal(parseColorQuery("черные"), "black");
+    assert.equal(parseColorQuery("строгие"), "black");
+    assert.equal(parseColorQuery("bright"), "bright");
+    assert.equal(parseColorQuery("яркие"), "bright");
   });
   it("rejects empty and unknown flags", () => {
     for (const v of ["", "red", "sale", "grey", null, undefined]) {
@@ -41,6 +44,14 @@ describe("colorMatchesFamily", () => {
     assert.equal(colorMatchesFamily("чёрный", "black"), true);
     assert.equal(colorMatchesFamily("WHITE", "black"), false);
   });
+  it("matches vivid colorways as bright", () => {
+    for (const token of ["RED", "PINK", "YELLOW", "GREEN", "BLUE", "ORANGE", "GREY/BLUE", "WHITE/RED", "BLACK/RED"]) {
+      assert.equal(colorMatchesFamily(token, "bright"), true, token);
+    }
+    for (const token of ["WHITE", "BLACK", "GREY", "BEIGE", "BROWN", "NAVY"]) {
+      assert.equal(colorMatchesFamily(token, "bright"), false, token);
+    }
+  });
 });
 
 describe("model color filter", () => {
@@ -58,6 +69,10 @@ describe("model color filter", () => {
     assert.deepEqual(
       filterModelsByColor(models, "black").map((m) => m.modelKey),
       ["a", "c"]
+    );
+    assert.deepEqual(
+      filterModelsByColor(models, "bright").map((m) => m.modelKey),
+      ["b", "c"]
     );
   });
   it("passes through when color is empty", () => {

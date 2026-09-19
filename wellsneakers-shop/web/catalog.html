@@ -14,9 +14,6 @@
     <link rel="icon" type="image/png" href="assets/logo.png" />
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
     <style>
-      .api-banner{margin:12px 0;padding:10px 12px;border:1px dashed rgba(255,255,255,.25);border-radius:10px;color:var(--muted);font-size:13px}
-      .api-banner.ok{border-color:rgba(79,212,255,.45);color:var(--cyan)}
-      .api-banner.err{border-color:rgba(196,30,42,.5);color:#ffb4ba}
       .prod-placeholder{
         height:180px;background:
           radial-gradient(circle at 30% 30%, rgba(79,212,255,.12), transparent 50%),
@@ -34,7 +31,7 @@
       .modal label{display:block;color:var(--muted);font-size:12px;margin:8px 0 4px}
       .modal input,.modal select{width:100%;min-height:44px;border-radius:10px;border:1px solid var(--line);background:#121316;color:var(--ink);padding:0 12px}
       .modal .actions{display:grid;gap:8px;margin-top:14px}
-      .count-pill{color:var(--muted);font-size:13px;font-weight:600;margin-top:6px}
+      .count-pill{color:var(--muted);font-size:13px;font-weight:600;margin:2px 0 10px}
     </style>
   </head>
   <body class="page-catalog">
@@ -62,36 +59,31 @@
       <section class="catalog-section">
         <div class="head">
           <h3>Каталог</h3>
-          <p>Живое наличие по размерам. Оплата при получении.</p>
-          <div class="count-pill" id="catalogCount">Загрузка…</div>
         </div>
 
-        <div class="api-banner" id="apiStatus">Подключение к API…</div>
+        <div class="collections-block">
+          <div class="collection-tiles" id="collectionRow" role="group" aria-label="Подборки">
+            <button type="button" class="collection-tile" data-color="white" aria-pressed="false">
+              <img src="assets/clean1.jpg" alt="" width="320" height="427" />
+              <span class="collection-tile-label">Белые</span>
+            </button>
+            <button type="button" class="collection-tile" data-color="bright" aria-pressed="false">
+              <img src="assets/clean2.jpg" alt="" width="320" height="427" />
+              <span class="collection-tile-label">Яркие</span>
+            </button>
+            <button type="button" class="collection-tile" data-color="black" aria-pressed="false">
+              <img src="assets/h1.jpg" alt="" width="320" height="427" />
+              <span class="collection-tile-label">Строгие</span>
+            </button>
+            <button type="button" class="collection-tile collection-tile-sale" id="saleChip" data-collection="sale" aria-pressed="false">
+              <img src="assets/h2.jpg" alt="" width="320" height="427" />
+              <span class="collection-tile-badge" aria-hidden="true">%</span>
+              <span class="collection-tile-label">Скидки</span>
+            </button>
+          </div>
+        </div>
 
         <div class="filters sticky-filters" id="catalogFilters">
-          <div class="collections-block">
-            <p class="collections-kicker" aria-hidden="true">Подборки</p>
-            <div class="filter-row collection-chips" id="collectionRow" role="group" aria-label="Подборки">
-              <button type="button" class="chip chip-collection chip-sale" id="saleChip" data-collection="sale" aria-pressed="false">
-                <span class="chip-ico" aria-hidden="true">
-                  <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
-                    <path d="M2.6 8.1 8 2.7A1.5 1.5 0 0 1 9.1 2.3h3.6v3.6c0 .4-.16.78-.44 1.06L6.9 13.4a1.5 1.5 0 0 1-2.12 0L2.6 10.22a1.5 1.5 0 0 1 0-2.12Z" stroke="currentColor" stroke-width="1.4"/>
-                    <circle cx="11.1" cy="4.9" r=".95" fill="currentColor"/>
-                    <path d="M4.7 9.3 8.2 5.8" stroke="currentColor" stroke-width="1.35"/>
-                  </svg>
-                </span>
-                <span class="chip-txt">Скидки</span>
-              </button>
-              <button type="button" class="chip chip-collection chip-white" data-color="white" aria-pressed="false">
-                <span class="chip-ico chip-swatch chip-swatch-white" aria-hidden="true"></span>
-                <span class="chip-txt">Белые</span>
-              </button>
-              <button type="button" class="chip chip-collection chip-black" data-color="black" aria-pressed="false">
-                <span class="chip-ico chip-swatch chip-swatch-black" aria-hidden="true"></span>
-                <span class="chip-txt">Чёрные</span>
-              </button>
-            </div>
-          </div>
           <div class="street-toggles">
             <button type="button" class="street-drop filter-toggle" id="toggleBrands" aria-expanded="false">
               <span class="street-drop-label" id="brandsLabel">Все бренды</span>
@@ -117,6 +109,7 @@
           </div>
         </div>
 
+        <div class="count-pill" id="catalogCount">Загрузка…</div>
         <div class="empty" id="catalogEmpty">Ничего не найдено. Сбросьте фильтр.</div>
         <div class="catalog-grid" id="catalogList"></div>
       </section>
@@ -166,7 +159,6 @@
         return 'http://127.0.0.1:3080/api';
       })();
 
-      const statusEl = document.getElementById('apiStatus');
       const listEl = document.getElementById('catalogList');
       const emptyEl = document.getElementById('catalogEmpty');
       const countEl = document.getElementById('catalogCount');
@@ -229,8 +221,13 @@
       function parseColorQuery(value) {
         const v = String(value || '').toLowerCase().trim().replace(/ё/g, 'е');
         if (v === 'white' || v === 'белый' || v === 'белая' || v === 'белое' || v === 'белые' || v === 'бел') return 'white';
-        if (v === 'black' || v === 'черный' || v === 'черная' || v === 'черное' || v === 'черные' || v === 'черн') return 'black';
+        if (v === 'black' || v === 'черный' || v === 'черная' || v === 'черное' || v === 'черные' || v === 'черн' || v === 'строгие' || v === 'строгий' || v === 'dark') return 'black';
+        if (v === 'bright' || v === 'яркие' || v === 'яркий' || v === 'яркая' || v === 'яркое' || v === 'colorful' || v === 'vivid') return 'bright';
         return '';
+      }
+      function colorTokens(token) {
+        return String(token || '').toLowerCase().replace(/ё/g, 'е')
+          .split(/[/\s,_-]+/).map((t) => t.replace(/[^a-zа-я0-9]+/gi, '')).filter(Boolean);
       }
       function colorMatchesFamily(token, family) {
         const want = parseColorQuery(family) || String(family || '').toLowerCase();
@@ -238,6 +235,11 @@
         if (!t || !want) return false;
         if (want === 'white') return /(white|off[\s-]?white|ivory|cream|sail|bone|белый|белая|белое|белые)/.test(t);
         if (want === 'black') return /(black|\bblk\b|черн)/.test(t);
+        if (want === 'bright') {
+          return colorTokens(token).some((part) =>
+            /^(red|pink|yellow|green|blue|orange|purple|violet|magenta|lime|volt|fuchsia|coral|gold|taxi|royal|teal|cyan|crimson|scarlet|chicago|hotpink|красн|розов|желт|зелен|син|голуб|оранж|фиолет|ярк)/.test(part)
+          );
+        }
         return false;
       }
       function modelMatchesColor(model, family) {
@@ -454,7 +456,8 @@
 
       function catalogEmptyText() {
         if (color === 'white') return 'Нет белых моделей';
-        if (color === 'black') return 'Нет чёрных моделей';
+        if (color === 'bright') return 'Нет ярких моделей';
+        if (color === 'black') return 'Нет строгих моделей';
         if (gender) return 'Нет моделей';
         if (sale) return 'Сейчас скидок нет';
         return 'Ничего не найдено. Сбросьте фильтр.';
@@ -465,7 +468,8 @@
         if (gender === 'women') bits.push('Женское');
         if (sale) bits.push('Скидки');
         if (color === 'white') bits.push('Белые');
-        if (color === 'black') bits.push('Чёрные');
+        if (color === 'bright') bits.push('Яркие');
+        if (color === 'black') bits.push('Строгие');
         return bits.length ? bits.join(' · ') + ': ' : 'В наличии: ';
       }
       async function loadCatalog() {
@@ -626,14 +630,13 @@
         try {
           const h = await fetch(API + '/health').then(r => r.json());
           if (!h.ok) throw new Error('health');
-          statusEl.textContent = 'Каталог с OpenCart · нулевые размеры скрыты · оплата при получении';
-          statusEl.classList.add('ok');
           await loadBrands();
           await loadCatalog();
         } catch (e) {
-          statusEl.textContent = 'API недоступен (' + API + ')';
-          statusEl.classList.add('err');
           countEl.textContent = '';
+          emptyEl.textContent = 'Каталог недоступен. Попробуйте позже.';
+          emptyEl.classList.add('show');
+          showToast('Каталог недоступен');
         }
       })();
     </script>

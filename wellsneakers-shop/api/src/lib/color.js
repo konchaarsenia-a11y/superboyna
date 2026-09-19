@@ -1,5 +1,5 @@
 /**
- * Storefront color collections: white / black from products.color.
+ * Storefront color collections: white / black / bright from products.color.
  * Match the stored colorway token (WHITE, WHITE/RED, белый…), not the model name.
  */
 
@@ -10,7 +10,10 @@ export function parseColorQuery(value) {
     .replace(/ё/g, "е");
   if (!v) return "";
   if (["white", "белый", "белая", "белое", "белые", "бел"].includes(v)) return "white";
-  if (["black", "черный", "черная", "черное", "черные", "черн"].includes(v)) return "black";
+  if (["black", "черный", "черная", "черное", "черные", "черн", "строгие", "строгий", "dark"].includes(v)) {
+    return "black";
+  }
+  if (["bright", "яркие", "яркий", "яркая", "яркое", "colorful", "vivid"].includes(v)) return "bright";
   return "";
 }
 
@@ -18,6 +21,20 @@ function colorHay(color) {
   return String(color ?? "")
     .toLowerCase()
     .replace(/ё/g, "е");
+}
+
+function colorTokens(color) {
+  return colorHay(color)
+    .split(/[/\s,_-]+/)
+    .map((t) => t.replace(/[^a-zа-я0-9]+/gi, ""))
+    .filter(Boolean);
+}
+
+const BRIGHT_TOKEN_RE =
+  /^(red|pink|yellow|green|blue|orange|purple|violet|magenta|lime|volt|fuchsia|coral|gold|taxi|royal|teal|cyan|crimson|scarlet|chicago|hotpink|красн|розов|желт|зелен|син|голуб|оранж|фиолет|ярк)/;
+
+function isBrightToken(token) {
+  return BRIGHT_TOKEN_RE.test(String(token || ""));
 }
 
 export function colorMatchesFamily(color, family) {
@@ -29,6 +46,9 @@ export function colorMatchesFamily(color, family) {
   }
   if (want === "black") {
     return /(black|\bblk\b|черн)/.test(t);
+  }
+  if (want === "bright") {
+    return colorTokens(color).some(isBrightToken);
   }
   return false;
 }
