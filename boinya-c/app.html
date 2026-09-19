@@ -679,6 +679,12 @@
       white-space: nowrap;
     }
     .view-month-card .view-field.is-empty { opacity: 0.45; }
+    .client-name-shelf {
+      font-size: 13px;
+      font-weight: 600;
+      color: #f2f2f7;
+    }
+    .delivery-line.client-name-shelf { margin-top: 4px; }
     .view-month-card .client-meta-row {
       margin-top: auto;
       min-height: 22px;
@@ -2135,14 +2141,17 @@
       <div class="card">
         <button type="button" class="seg-btn" style="margin:0 0 10px;" onclick="closeSubDetail()">← К списку</button>
         <div class="section-title" style="margin-top:0;" id="subDetailTitle">Подписка</div>
-        <input type="hidden" id="subDetailNick" value="">
         <input type="hidden" id="subDetailSheet" value="">
 
         <!-- —— Базовые данные —— -->
         <div id="subDetailBasicBlock">
           <div class="form-group">
-            <label>Ник / строка</label>
-            <input type="text" id="subDetailLabel" placeholder="ник">
+            <label>Ник в Instagram</label>
+            <input type="text" id="subDetailNick" placeholder="@nick" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label>Имя</label>
+            <input type="text" id="subDetailLabel" placeholder="как зовут" autocomplete="off">
           </div>
           <div class="form-group">
             <label>Собака</label>
@@ -2247,7 +2256,7 @@
           </div>
           <div class="sub-detail-basket" id="subDetailBasket"><p class="muted">—</p></div>
 
-          <button type="button" class="btn-action btn-orange" id="btnSubDeepEditor" style="margin-top:10px;width:100%;" onclick="toggleSubDetailDeepEditor_()">Глубокий редактор</button>
+          <button type="button" class="btn-action btn-orange" id="btnSubDeepEditor" style="margin-top:10px;width:100%;" onclick="event.stopPropagation();toggleSubDetailDeepEditor_(true)">Глубокий редактор</button>
         </div>
 
         <!-- —— Глубокий редактор: пакеты, фракции, правка состава —— -->
