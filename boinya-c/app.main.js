@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115974";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115975";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -7047,7 +7047,14 @@
     }
 
     function renderWeekClientCard(client, index, isDraft) {
-      const nick = String(client.name || client.nick || "").trim() || ("#" + (index + 1));
+      const names = splitIgNickAndDisplay_(
+        client.name || client.nick || "",
+        client.label || client.displayName || ""
+      );
+      const nick = names.nick || names.name || String(client.name || client.nick || "").trim() || ("#" + (index + 1));
+      const nameShelf = (names.nick && names.name)
+        ? ('<div class="delivery-line client-name-shelf">' + escapeHtml(names.name) + "</div>")
+        : "";
       const gaps = clientGaps(client);
       const gapClass = gaps.length ? " is-gap" : "";
       const draftClass = isDraft ? " is-draft" : "";
@@ -7133,13 +7140,20 @@
           <span class="view-tap-hint">тап — состав</span>
         </div>
         ${ppSlotRow}
-        <div class="delivery-info-box">${priceHtml}${note}${roleHint}${deliv}${preview}</div>
+        <div class="delivery-info-box">${nameShelf}${priceHtml}${note}${roleHint}${deliv}${preview}</div>
         <div class="client-order-details" id="${detailId}">${isDraft && !(client.basket && client.basket.length) ? '<p class="muted">Состав подтянется при сохранении (или дополни ✏️)</p>' : lines}</div>
       </div>`;
     }
 
     function renderMonthClientCard(client, index) {
-      var nick = String(client.name || client.nick || client.client || "").trim() || ("#" + (index + 1));
+      var names = splitIgNickAndDisplay_(
+        client.name || client.nick || client.client || "",
+        client.label || client.displayName || ""
+      );
+      var nick = names.nick || names.name || String(client.name || client.nick || client.client || "").trim() || ("#" + (index + 1));
+      var nameHtml = (names.nick && names.name)
+        ? ('<div class="view-field client-name-shelf">' + escapeHtml(names.name) + "</div>")
+        : "";
       var gaps = clientGaps(client);
       var gapClass = gaps.length ? " is-gap" : "";
       var segLabel = client.segment || orderTypeToSegment_(resolveClientOrderType_(client)) || "";
@@ -7169,6 +7183,7 @@
         '<div class="client-right-block" onclick="event.stopPropagation()">' +
         editBtn + moveBtn + remBtn + stageBtn + "</div>" +
         "</div>" +
+        nameHtml +
         addrHtml +
         phoneHtml +
         '<div class="client-meta-row">' + seg + gapBadge + ' <span class="view-tap-hint">тап</span></div>' +
@@ -20042,22 +20057,66 @@
     }
     window.bumpSubDetailPack_ = bumpSubDetailPack_;
 
+    var _subDetailDeepToggleAt = 0;
     function toggleSubDetailDeepEditor_(force) {
+      var now = Date.now();
+      // click-rescue + native click на том же тапе иначе open→close и «не открывается»
+      if (typeof force !== "boolean" && (now - _subDetailDeepToggleAt) < 450) return;
+      _subDetailDeepToggleAt = now;
       if (typeof force === "boolean") subDetailDeepOpen = force;
       else subDetailDeepOpen = !subDetailDeepOpen;
       var panel = document.getElementById("subDetailDeepPanel");
       var btn = document.getElementById("btnSubDeepEditor");
-      if (panel) panel.style.display = subDetailDeepOpen ? "block" : "none";
-      if (btn) btn.textContent = subDetailDeepOpen ? "Глубокий редактор · открыт" : "Глубокий редактор";
+      if (panel) {
+        panel.style.display = subDetailDeepOpen ? "block" : "none";
+        panel.setAttribute("data-open", subDetailDeepOpen ? "1" : "0");
+      }
+      if (btn) {
+        btn.textContent = subDetailDeepOpen ? "Глубокий редактор · открыт" : "Глубокий редактор";
+        btn.setAttribute("aria-expanded", subDetailDeepOpen ? "true" : "false");
+      }
       var sheet = (document.getElementById("subDetailSheet") && document.getElementById("subDetailSheet").value) || "";
       var extras = document.getElementById("subDetailDeepPpExtras");
       if (extras) extras.style.display = (sheet === "ПП") ? "block" : "none";
-      renderSubDetailBasket();
+      try { renderSubDetailBasket(); } catch (eB) {}
       if (subDetailDeepOpen && sheet === "ПП") {
         try { recalcSubDetailFactCost_(); } catch (eR) {}
       }
+      if (subDetailDeepOpen && panel) {
+        var revealDeep_ = function () {
+          try { panel.scrollIntoView({ block: "start", behavior: "smooth", inline: "nearest" }); } catch (e1) {
+            try { panel.scrollIntoView(true); } catch (e2) {}
+          }
+        };
+        revealDeep_();
+        setTimeout(revealDeep_, 60);
+      }
     }
     window.toggleSubDetailDeepEditor_ = toggleSubDetailDeepEditor_;
+    function bindSubDetailDeepEditorBtn_() {
+      var btn = document.getElementById("btnSubDeepEditor");
+      if (!btn || btn.getAttribute("data-deep-bound") === "1") return;
+      btn.setAttribute("data-deep-bound", "1");
+      function openDeep(e) {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        toggleSubDetailDeepEditor_(true);
+      }
+      btn.addEventListener("click", openDeep);
+      btn.addEventListener("pointerup", function (e) {
+        if (!e || e.pointerType === "mouse") return;
+        if (e.button != null && e.button !== 0) return;
+        openDeep(e);
+      });
+    }
+    try { bindSubDetailDeepEditorBtn_(); } catch (eBindDeep) {}
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", function () {
+        try { bindSubDetailDeepEditorBtn_(); } catch (e2) {}
+      });
+    }
 
     function renderSubDetailBasket() {
       var box = document.getElementById("subDetailBasket");
@@ -21035,11 +21094,11 @@
       var s = list[index];
       if (!s) return;
       switchTab("subDetailScreen");
+      try { bindSubDetailDeepEditorBtn_(); } catch (eBindOpen) {}
       var sheet = s.sheet || subsSegment || "ПП";
       document.getElementById("subDetailTitle").textContent = (s.nick || s.label || "Подписка") + " · " + sheet;
-      document.getElementById("subDetailNick").value = s.nick || "";
       document.getElementById("subDetailSheet").value = sheet;
-      document.getElementById("subDetailLabel").value = s.label || s.nick || "";
+      fillSubDetailNickNameFields_({ nick: s.nick || "", label: s.label || "", displayName: s.displayName || "" });
       document.getElementById("subDetailSubId").value = s.subId || "";
       document.getElementById("subDetailDeliveries").value = s.deliveries || "";
       document.getElementById("subDetailStatus").value = s.status || "";
@@ -21103,9 +21162,12 @@
         }
         currentSubDetail = res;
         document.getElementById("subDetailTitle").textContent = (res.nick || s.nick || "Подписка") + " · " + (res.sheet || sheet);
-        document.getElementById("subDetailNick").value = res.nick || s.nick || "";
         document.getElementById("subDetailSheet").value = res.sheet || sheet;
-        document.getElementById("subDetailLabel").value = res.label || res.nick || "";
+        fillSubDetailNickNameFields_({
+          nick: res.nick || s.nick || "",
+          label: res.label || s.label || "",
+          displayName: res.displayName || s.displayName || ""
+        });
         document.getElementById("subDetailSubId").value = res.subId || "";
         document.getElementById("subDetailDeliveries").value = res.deliveries || s.deliveries || "";
         document.getElementById("subDetailStatus").value = res.ppStatus || s.status || "";
@@ -21258,11 +21320,70 @@
       if (!s) return "";
       var m = s.match(/@([A-Za-z0-9._]{2,30})/);
       if (m) return m[1];
-      s = s.replace(/^@+/, "").trim();
-
-      if (/^[A-Za-z0-9._]{2,30}$/.test(s)) return s;
+      var bare = s.replace(/^@+/, "").trim();
+      if (/^[A-Za-z0-9._]{2,30}$/.test(bare) && /[A-Za-z]/.test(bare)) return bare;
+      // «ДАША dasha_2135» / «ДАША / dasha_2135» — handle не обязан быть всей строкой
+      var tokens = s.split(/[\s|/·•,()]+/).filter(Boolean);
+      var i;
+      for (i = 0; i < tokens.length; i++) {
+        var t = String(tokens[i] || "").replace(/^@+/, "");
+        if (/^[A-Za-z0-9._]{2,30}$/.test(t) && /[A-Za-z]/.test(t)) return t;
+      }
       return "";
     }
+
+    function nickKeysEqual_(a, b) {
+      var na = String(a || "").replace(/^@+/, "").trim().toLowerCase();
+      var nb = String(b || "").replace(/^@+/, "").trim().toLowerCase();
+      return !!(na && nb && na === nb);
+    }
+
+    function stripHandleFromText_(text, handle) {
+      var s = String(text || "");
+      var h = String(handle || "").trim();
+      if (!s || !h) return s.trim();
+      var re = new RegExp("@?" + h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig");
+      return s.replace(re, "").replace(/[\s()[\]·•|,/]+/g, " ").trim();
+    }
+
+    function splitIgNickAndDisplay_(raw, extraLabel) {
+      var s = String(raw || "").trim();
+      var extra = String(extraLabel || "").trim();
+      var ig = igHandleFromSubNick_(s) || igHandleFromSubNick_(extra);
+      var display = "";
+      if (ig) {
+        display = stripHandleFromText_(s, ig) || stripHandleFromText_(extra, ig);
+      } else if (extra && !nickKeysEqual_(extra, s)) {
+        display = extra;
+      } else if (s && /[А-Яа-яЁё]/.test(s)) {
+        display = s;
+      }
+      if (display && ig && nickKeysEqual_(display, ig)) display = "";
+      var nick = ig || "";
+      if (!nick) {
+        if (s && !display) {
+          if (/[A-Za-z0-9._]{2,}/.test(s) && !/[А-Яа-яЁё]/.test(s)) nick = s;
+          else display = s;
+        } else if (s && !nickKeysEqual_(s, display)) {
+          nick = s;
+        }
+      }
+      if (display && nick && nickKeysEqual_(display, nick)) display = "";
+      return { nick: nick, name: display };
+    }
+
+    function fillSubDetailNickNameFields_(src) {
+      src = src || {};
+      var rawNick = String(src.nick || "").trim();
+      var rawLabel = String(src.label || src.displayName || "").trim();
+      var split = splitIgNickAndDisplay_(rawNick || rawLabel, rawLabel || rawNick);
+      var nEl = document.getElementById("subDetailNick");
+      var lEl = document.getElementById("subDetailLabel");
+      if (nEl) nEl.value = split.nick || "";
+      if (lEl) lEl.value = split.name || "";
+    }
+    window.splitIgNickAndDisplay_ = splitIgNickAndDisplay_;
+    window.fillSubDetailNickNameFields_ = fillSubDetailNickNameFields_;
 
     function buildSubDetailClientMessageText_() {
       var list = (typeof subDetailBasketPayload_ === "function" ? subDetailBasketPayload_() : []).map(function (x) {
@@ -25530,4 +25651,50 @@
     } else {
       setTimeout(bootIdleWork_, window.__BOINYA_C_TURBO__ ? 5000 : 800);
     }
+
+    (function bootLocalCardDemo_() {
+      try {
+        var host = String(location.hostname || "");
+        if (host !== "127.0.0.1" && host !== "localhost") return;
+        if (!/[?&]demoShelves=1(?:&|$)/.test(String(location.search || ""))) return;
+        var orig = window.apiGet;
+        window.apiGet = async function (q) {
+          var a = (q && q.action) || "";
+          if (a === "getSubscription") {
+            return {
+              status: "success",
+              found: true,
+              nick: "zzz_test",
+              label: "Тестовый",
+              sheet: "ПП",
+              subId: "sub_zzz",
+              deliveries: 1,
+              ppStatus: "ПП1",
+              wishes: "",
+              basket: [],
+              address: "",
+              phone: ""
+            };
+          }
+          if (typeof orig === "function") return orig.apply(this, arguments);
+          return { status: "error" };
+        };
+        window._subsUnlocked = true;
+        try { sessionStorage.setItem("superboyna_subs_unlocked_session", "1"); } catch (eSs) {}
+        window._subsListCache = [{
+          nick: "zzz_test",
+          label: "Тестовый",
+          sheet: "ПП",
+          subId: "sub_zzz",
+          deliveries: 1,
+          status: "ПП1",
+          wishes: ""
+        }];
+        window._subsListFull = window._subsListCache;
+        if (typeof setSubsUnlocked === "function") setSubsUnlocked(true);
+        setTimeout(function () {
+          try { if (typeof openSubDetail === "function") openSubDetail(0); } catch (eOpen) {}
+        }, 200);
+      } catch (eDemo) {}
+    })();
   
