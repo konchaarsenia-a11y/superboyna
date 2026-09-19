@@ -2,6 +2,8 @@
 
 Заготовки **после cutover**. Не заливать на хостинг goodboy.by.
 
+На goodboy.by уезжает только статика `goodboy/` (включая `app.html`). Worker / Бойня / Varka / CI не переезжают. Эти stub нужны, чтобы старые github.io-ссылки (купоны) открывали тот же путь на goodboy.by — без новой Cloudflare-зоны.
+
 Сейчас Pages отдаёт живой сайт из `goodboy/`:
 
 `https://konchaarsenia-a11y.github.io/superboyna/goodboy/`

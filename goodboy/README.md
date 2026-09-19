@@ -5,7 +5,8 @@
 
 ## Ссылки (goodboy.by)
 
-Публичный корень после переезда — содержимое этой папки на `https://goodboy.by/`.  
+Публичный корень после переезда — **только** содержимое этой папки на `https://goodboy.by/` (дешёвый BY hosting, статика).  
+`app.html` — тот же docroot. Бойня, Worker, Varka, GAS, CI — как сейчас на GitHub / Cloudflare / Apps Script.  
 Как залить и DNS: [MIGRATE-BY.md](./MIGRATE-BY.md).
 
 | Что | URL |
@@ -54,5 +55,5 @@ Menu Button / Web App URL →
 
 ## Режим
 
-`js/config.js` → `mode: "live"` (webhook = Cloudflare Worker, не github.io).  
-API не менять при переезде домена сайта.
+`js/config.js` → `mode: "live"`, webhook = Cloudflare Worker `boinya-c.konchaarsenia.workers.dev`.  
+При переезде домена сайта **не менять** API URL и не переносить Worker на хостинг.

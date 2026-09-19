@@ -1,6 +1,6 @@
-# Goodboy — Apache (типичный BY shared hosting / HB.BY)
-# Документ-рут хостинга = содержимое папки goodboy/ (не корень репо).
-# Не покупать и не деплоить из этого PR — только заготовка.
+# Goodboy — Apache (дешёвый BY shared / HB.BY), только статика.
+# Документ-рут = содержимое папки goodboy/ (лендинг + app.html). Не корень репо.
+# Worker / GAS / Бойня сюда не заливать. Не покупать и не деплоить из этого PR.
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
