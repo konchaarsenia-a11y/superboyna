@@ -15899,15 +15899,12 @@ function handleSaveSubscription(json, callback, fromPost) {
   var factCost = json.factCost != null && json.factCost !== "" ? json.factCost : null;
   var statedIn = json.statedCost != null && json.statedCost !== "" ? json.statedCost : null;
   var calcIn = json.calcFactCost != null && json.calcFactCost !== "" ? json.calcFactCost : null;
-  var schemeForPrice = normalizePpScheme_(json.scheme) || parsePpSchemeFromWishes_(wishes);
-  var statedTouchedSave = json.statedTouched === true || json.statedTouched === "1" ||
-    json.statedTouched === 1;
-  // RAW26: на лист — calc fact, не завышенный stated (если менеджер не правил вручную).
-  // LEGACY: указанная цена — договор, не затираем пересчётом.
-  if (schemeForPrice === "RAW26" && !statedTouchedSave && calcIn != null && calcIn !== "") {
-    factCost = calcIn;
-  } else if (statedIn != null) {
+  // Указанная (столбец «Факт стоимость») не плывёт от пересчёта.
+  // Пишем stated с карточки; calc только если указанной ещё нет.
+  if (statedIn != null) {
     factCost = statedIn;
+  } else if ((factCost == null || factCost === "") && calcIn != null && calcIn !== "") {
+    factCost = calcIn;
   }
   var basket = normalizeBasketArg_(json.basket);
   if (basket && !Array.isArray(basket)) basket = null;
@@ -18300,9 +18297,8 @@ function handleCalcPrice(json, callback, fromPost) {
       ok.scheme = fact.scheme;
       ok.total = Math.round(rawCost * fact.coef * 100) / 100;
       ok.clientPrice = fact.clientPrice != null ? fact.clientPrice : fact.factCost;
-      if (fact.scheme === "RAW26" && fact.statedSynced) {
-        ok.statedCost = fact.factCost;
-        ok.statedSynced = true;
+      if (fact.statedCost != null && fact.statedCost !== "") {
+        ok.statedCost = fact.statedCost;
       }
     } catch (eF) {}
   }
@@ -18665,13 +18661,8 @@ function attachPpOfferClientPrice_(fact, statedCost, statedTouched) {
     fact.scheme, fact.factCost, statedCost, statedTouched
   );
   fact.clientPrice = client;
-  if (String(fact.scheme || "").toUpperCase() === "RAW26" && statedTouched !== true) {
-    fact.statedCost = fact.factCost;
-    fact.statedSynced = true;
-  } else {
-    if (statedCost != null && statedCost !== "") fact.statedCost = statedCost;
-    fact.statedSynced = false;
-  }
+  if (statedCost != null && statedCost !== "") fact.statedCost = statedCost;
+  fact.statedSynced = false;
   return fact;
 }
 
@@ -26216,6 +26207,7 @@ function handleGetPpFactCost(json, callback, fromPost) {
     status: "success",
     nick: nick,
     factCost: null,
+    statedCost: null,
     deliveries: 0,
     deliverySlot: 1,
     needManualSlot: false,
@@ -26244,6 +26236,7 @@ function handleGetPpFactCost(json, callback, fromPost) {
         if (factCol >= 0) {
           var raw = data[r][factCol];
           out.factCost = Number(String(raw != null ? raw : "").replace(",", ".").replace(/[^\d.]/g, "")) || 0;
+          out.statedCost = out.factCost;
         }
         break;
       }

@@ -59,7 +59,7 @@ assert(
   "view cards can render a separate name shelf"
 );
 
-assert(/v71115975/.test(html) && /71115975/.test(idx), "cache-bust version bumped");
+assert(/v71115976/.test(html) && /71115976/.test(idx), "cache-bust version bumped");
 assert(/fix-deep-editor-card-shelves-h1/.test(tz), "TZ checklist item exists");
 
 function extractFn(name) {

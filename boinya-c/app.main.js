@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115975";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115976";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -249,6 +249,12 @@
       var downBtn = null;
       var downAt = 0;
       var clickSeen = false;
+      var rescueTimer = null;
+      var lastClickBtn = null;
+      var lastClickAt = 0;
+      var TAP_DEBOUNCE_MS = 140;
+      var HAPTIC_GAP_MS = 80;
+      var RESCUE_WAIT_MS = 90;
       function btnFrom(t) {
         if (!t || !t.closest) return null;
         var b = t.closest(SEL);
@@ -266,13 +272,21 @@
       }
       function hapticNow() {
         var now = Date.now();
-        if (now - lastHaptic <= 45) return;
+        if (now - lastHaptic <= HAPTIC_GAP_MS) return;
         lastHaptic = now;
         try {
           if (tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred) {
             tg.HapticFeedback.impactOccurred("light");
           }
         } catch (eH) {}
+      }
+      function markClick_(b) {
+        if (!b) return false;
+        var now = Date.now();
+        if (lastClickBtn === b && (now - lastClickAt) < TAP_DEBOUNCE_MS) return false;
+        lastClickBtn = b;
+        lastClickAt = now;
+        return true;
       }
       function fireClick_(b) {
         if (!b || b.disabled) return;
@@ -287,6 +301,7 @@
         downBtn = b;
         downAt = Date.now();
         clickSeen = false;
+        if (rescueTimer) { try { clearTimeout(rescueTimer); } catch (eT) {} rescueTimer = null; }
         if (!b) return;
         b.classList.add("is-pressing");
       }
@@ -294,16 +309,31 @@
         var b = btnFrom(ev.target);
         if (!b) return;
         clickSeen = true;
+        if (rescueTimer) { try { clearTimeout(rescueTimer); } catch (eT2) {} rescueTimer = null; }
+        if (!markClick_(b)) {
+          try {
+            ev.preventDefault();
+            ev.stopImmediatePropagation();
+          } catch (eStop) {}
+          return;
+        }
         hapticNow();
       }
       function onUp(ev) {
         var b = btnFrom(ev && ev.target) || downBtn;
+        var saved = downBtn;
         clearPress();
-        // WebView: haptic на pointerdown иногда глотает click. Если down был, click не пришёл — дожимаем.
-        if (downBtn && b === downBtn && !clickSeen && (Date.now() - downAt) < 700) {
-          if (!downBtn.disabled && downBtn.getAttribute("aria-disabled") !== "true") {
-            hapticNow();
-            fireClick_(downBtn);
+        // WebView: haptic на pointerdown иногда глотает click.
+        // Ждём нативный click ~90мс — иначе synthetic+native = двойной +1.
+        if (saved && b === saved && !clickSeen && (Date.now() - downAt) < 700) {
+          if (!saved.disabled && saved.getAttribute("aria-disabled") !== "true") {
+            rescueTimer = setTimeout(function () {
+              rescueTimer = null;
+              if (clickSeen) return;
+              if (saved.disabled || saved.getAttribute("aria-disabled") === "true") return;
+              hapticNow();
+              fireClick_(saved);
+            }, RESCUE_WAIT_MS);
           }
         }
         downBtn = null;
@@ -1244,6 +1274,11 @@
       veg: {
         title: "Овощи/Фрукты",
         items: ["БАНАНЫ", "ЯБЛОКИ", "ГРУШЫ", "МОРКОВЬ", "ТЫКВА", "БАТАТ", "КАБАЧОК"],
+        fractions: {}
+      },
+      crumb: {
+        title: "Крошки",
+        items: [],
         fractions: {}
       }
     };
@@ -2695,7 +2730,10 @@
         );
         if (res && res.status === "success") {
           var inp = document.getElementById("orderPriceInput");
-          if (inp && res.factCost != null) inp.value = String(res.factCost);
+            var statedPrice = (res.statedCost != null && res.statedCost !== "")
+            ? res.statedCost
+            : res.factCost;
+          if (inp && statedPrice != null) inp.value = String(statedPrice);
           ppDeliveriesN = Number(res.deliveries) || 0;
           if (inp) inp.placeholder = "N=" + (ppDeliveriesN || "?");
           ppNeedManualSlot = !!(res.needManualSlot && ppDeliveriesN >= 2);
@@ -2779,10 +2817,22 @@
 
     function crumbKindTitle_(kind) {
       var k = String(kind || "").toLowerCase();
-      if (k === "veg") return "Крошка · дрессура овощи/фрукты";
-      if (k === "meat") return "Крошка · мяс позиции";
-      if (k === "hypo") return "Крошка · гипоаллергенные";
-      return "Крошка";
+      if (k === "veg") return "крошка · дрессура овощи/фрукты";
+      if (k === "meat") return "крошка · мясные";
+      if (k === "hypo") return "крошка · гипоаллергенные";
+      return "крошка";
+    }
+
+    function crumbSourcesLabel_(item) {
+      if (!item || !Array.isArray(item.sources)) return "";
+      return item.sources.map(function (s) {
+        return catalogAliasNameUi_(s && (s.name || s.main)) || (s && (s.name || s.main)) || "";
+      }).filter(Boolean).join(" + ");
+    }
+
+    function crumbBasketTitle_(item) {
+      var src = crumbSourcesLabel_(item);
+      return src ? ("крошка · " + src) : "крошка";
     }
 
     function crumbKindRateUi_(kind) {
@@ -3384,7 +3434,7 @@
       if (m.phone) document.getElementById("phoneInput").value = m.phone;
       if (m.note) {
         var hasAny = (orderNotes || []).some(function (n) { return String(n.text || "").trim(); });
-        if (!hasAny) loadOrderNotesFromRaw(m.note);
+        if (!hasAny) loadOrderNotesForNewOrder_(m.note);
       }
 
       if (m.ppPartner) {
@@ -3455,7 +3505,7 @@
             nick: c.nick,
             address: c.address,
             phone: c.phone,
-            note: c.note,
+            note: permanentNotesRawOnly_(c.note),
             basket: Array.isArray(bask) ? bask : [],
             orderType: c.source || ""
           });
@@ -3919,6 +3969,12 @@
         showToast("Присыпки убраны — выбери «Крошка» у позиции");
         return;
       }
+      if (catKey === "crumb") {
+        hideProductSelectorCard_("selectorCard");
+        openCrumbBuilder("order");
+        return;
+      }
+      closeCrumbBuilder_();
       currentCategory = catKey;
       const cat = catalog[catKey];
       document.getElementById("selectorTitle").innerText = cat.title;
@@ -4013,9 +4069,29 @@
       return out;
     }
 
+    function hideProductSelectorCard_(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = "none";
+    }
+
+    function placeCrumbBuilderCard_(target) {
+      var card = document.getElementById("crumbBuilderCard");
+      if (!card) return null;
+      var hostId = target === "price" ? "priceSelectorCard"
+        : target === "sub" ? "subDetailSelectorCard"
+        : "selectorCard";
+      var host = document.getElementById(hostId);
+      if (host && host.parentElement) {
+        if (card.parentElement !== host.parentElement || card.previousElementSibling !== host) {
+          host.parentElement.insertBefore(card, host.nextSibling);
+        }
+      }
+      return card;
+    }
+
     function openCrumbBuilder(target) {
       crumbBuilder = { target: target || "order", kind: "", sources: [], grams: "", ratio: [] };
-      var card = document.getElementById("crumbBuilderCard");
+      var card = placeCrumbBuilderCard_(crumbBuilder.target);
       if (!card) return;
       card.style.display = "block";
       try { card.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (eSc) {}
@@ -4081,15 +4157,19 @@
       var card = document.getElementById("crumbBuilderCard");
       if (!card) return;
       var kinds = [
-        { id: "veg", label: "дрессура овощи/фрукты", rate: 15 },
-        { id: "meat", label: "мяс позиции", rate: 17 },
-        { id: "hypo", label: "гипоаллергенные", rate: 20 }
+        { id: "veg", label: "дрессура овощи/фрукты", cls: "btn-green" },
+        { id: "meat", label: "мясные", cls: "btn-orange" },
+        { id: "hypo", label: "гипоаллергенные", cls: "btn-purple" }
       ];
       var html = '<div class="section-title" style="margin-top:0;">Крошки</div>';
       kinds.forEach(function (k) {
-        html += '<button type="button" class="btn-action' + (crumbBuilder.kind === k.id ? " btn-green" : "") +
-          '" style="margin:0 0 6px;width:100%;" onclick="setCrumbKind_(\'' + k.id + '\')">' +
-          k.label + " · " + k.rate + " BYN/100г</button>";
+        var on = crumbBuilder.kind === k.id;
+        html += '<button type="button" class="btn-action ' + k.cls +
+          (on ? "" : "") +
+          '" style="margin:0 0 6px;width:100%;' +
+          (on ? "outline:2px solid #fff;outline-offset:1px;" : "opacity:.88;") +
+          '" onclick="setCrumbKind_(\'' + k.id + '\')">' +
+          k.label + "</button>";
       });
       if (crumbBuilder.kind) {
         var pool = crumbSourcePool_(crumbBuilder.kind);
@@ -4188,13 +4268,13 @@
       box.innerHTML = basket.map(item => {
         const unit = unitForItem(item.cat, item.main);
         const isCrumb = String(item.cat || "").toLowerCase() === "crumb" || item.crumbKind;
-        const srcNames = isCrumb && Array.isArray(item.sources)
-          ? item.sources.map(function (s) { return catalogAliasNameUi_(s && (s.name || s.main)); }).filter(Boolean)
-          : [];
+        const srcNames = isCrumb ? crumbSourcesLabel_(item) : "";
         const sub = isCrumb
-          ? (srcNames.length ? ("из: " + srcNames.join(" + ")) : crumbKindTitle_(item.crumbKind))
+          ? (srcNames ? ("из: " + srcNames) : "крошка")
           : (item.sub ? ("Фракция: " + item.sub) : ("Категория: " + item.cat));
-        const displayMain = catalogAliasNameUi_(item.main || item.name) || item.main;
+        const displayMain = isCrumb
+          ? crumbBasketTitle_(item)
+          : (catalogAliasNameUi_(item.main || item.name) || item.main);
         let priceHtml = "";
         if (showRetail) {
           const r = retailLineCost(item.main || item.name, item.sub || "", item.value != null ? item.value : item.val, item.cat, { crumbKind: item.crumbKind });
@@ -4894,6 +4974,7 @@
       if (panel) panel.style.display = "none";
       var sel = document.getElementById("selectorCard");
       if (sel) sel.style.display = "none";
+      try { closeCrumbBuilder_(); } catch (eCr0) {}
       var btnMan = document.getElementById("btnManualEntry");
       if (btnMan) btnMan.textContent = "＋ Позиция";
       var vol = document.getElementById("volumeInput");
@@ -5150,6 +5231,7 @@
         .replace(/\s{2,}/g, " ")
         .trim();
       var permanentNote = collectPermanentNotesText();
+      var noteCleared = !String(noteBody || "").trim();
 
       var confirmMsg = isEdit ? ("Обновить заказ " + clientName + "?") : ("Сохранить заказ " + clientName + "?");
       if (orderType !== "bp" && orderPrice != null && !isNaN(Number(orderPrice))) {
@@ -5187,6 +5269,7 @@
         phone: phone,
         note: clientNote,
         permanentNote: permanentNote,
+        clearNote: noteCleared ? "1" : "",
         orderType: orderTypeSnap,
         segment: orderTypeToSegment_(orderTypeSnap) || "",
         source: orderTypeSnap === "bp" ? "bp" : (orderTypeSnap === "pp" ? "pp" : (orderTypeSnap === "partner" ? "partner" : "retail")),
@@ -5228,6 +5311,7 @@
         address: clientAddress,
         phone: phone,
         note: clientNote,
+        clearNote: noteCleared ? "1" : "",
         orderType: orderTypeSnap,
         segment: orderTypeToSegment_(orderTypeSnap) || "",
         orderPrice: orderPrice,
@@ -5311,6 +5395,7 @@
           phone: phone || "",
           note: clientNote || "",
           permanentNote: permanentNote || "",
+          clearNote: noteCleared ? "1" : "",
           orderType: orderTypeSnap || "",
           segment: orderTypeToSegment_(orderTypeSnap) || "",
           orderPrice: orderPrice != null ? String(orderPrice) : "",
@@ -5464,6 +5549,7 @@
             phone: phone || "",
             note: clientNote || "",
             permanentNote: permanentNote || "",
+            clearNote: noteCleared ? "1" : "",
             orderType: orderTypeSnap || "",
             segment: orderTypeToSegment_(orderTypeSnap) || "",
             orderPrice: orderPrice != null ? String(orderPrice) : "",
@@ -5555,6 +5641,7 @@
               phone: phone || "",
               note: clientNote || "",
               permanentNote: permanentNote || "",
+              clearNote: noteCleared ? "1" : "",
               orderType: orderTypeSnap || "",
               segment: orderTypeToSegment_(orderTypeSnap) || "",
               source: orderTypeSnap === "bp" ? "bp" : (orderTypeSnap === "pp" ? "pp" : (orderTypeSnap === "partner" ? "partner" : "retail")),
@@ -5926,6 +6013,7 @@
       if (open) {
         const sel = document.getElementById("selectorCard");
         if (sel) sel.style.display = "none";
+        try { closeCrumbBuilder_(); } catch (eCr) {}
       }
       if (btn) btn.textContent = open ? "Ручной ввод" : "Скрыть ручной ввод";
     }
@@ -6881,13 +6969,7 @@
           ratioBit = " · " + parts.join(":");
         }
         var joined = srcNames.join(" + ");
-        var title;
-        if (APP_ROLE === "courier" && srcNames.length >= 2) {
-          title = "крошка микс · " + joined + ratioBit;
-        } else {
-          title = crumbKindTitle_(g.crumbKind || "");
-          if (joined) title += " · из: " + joined + ratioBit;
-        }
+        var title = joined ? ("крошка · " + joined + ratioBit) : "крошка";
         return '<div class="order-detail-line"><span>• ' + escapeHtml(title) +
           '</span><span class="order-detail-volume">' + grams + " " + (unit || "гр") + "</span></div>";
       }
@@ -11546,7 +11628,7 @@
           '<button type="button" class="seg-btn' + (r.mgr ? " active" : "") + '" onclick="toggleOrderNoteRole(' + i + ',\'mgr\')">Менеджеру</button>' +
           '<button type="button" class="seg-btn' + (r.cut ? " active" : "") + '" onclick="toggleOrderNoteRole(' + i + ',\'cut\')">Нарезчику</button>' +
           '<button type="button" class="seg-btn' + (r.cour ? " active" : "") + '" onclick="toggleOrderNoteRole(' + i + ',\'cour\')">Курьеру</button>' +
-          (orderNotes.length > 1 ? '<button type="button" class="seg-btn" onclick="removeOrderNote(' + i + ')">✕</button>' : "") +
+          '<button type="button" class="seg-btn" onclick="removeOrderNote(' + i + ')">✕</button>' +
           '</div>' +
           itemRow +
           '<div class="note-perm-row">' +
@@ -11641,6 +11723,24 @@
     }
     function loadOrderNotesFromRaw(raw) {
       orderNotes = parseOrderNotesFromRaw(raw);
+      renderOrderNotes();
+    }
+    function permanentNotesRawOnly_(raw) {
+      var parsed = parseOrderNotesFromRaw(raw);
+      var tagged = /\[NOTE:/i.test(String(raw || ""));
+      var keep = parsed.filter(function (n) {
+        return n && n.permanent && String(n.text || "").trim();
+      });
+      if (!keep.length && !tagged && parsed.length === 1 && String(parsed[0].text || "").trim()) {
+        parsed[0].permanent = true;
+        keep = [parsed[0]];
+      }
+      if (!keep.length) return "";
+      return serializeOrderNotes(keep);
+    }
+    function loadOrderNotesForNewOrder_(raw) {
+      var filtered = permanentNotesRawOnly_(raw);
+      orderNotes = filtered ? parseOrderNotesFromRaw(filtered) : [defaultOrderNote()];
       renderOrderNotes();
     }
     function clearOrderNotes() {
@@ -18716,6 +18816,7 @@
       if (open) {
         var sel = document.getElementById("priceSelectorCard");
         if (sel) sel.style.display = "none";
+        try { closeCrumbBuilder_(); } catch (eCr) {}
       }
       if (btn) btn.textContent = open ? "Ручной ввод" : "Скрыть ручной ввод";
     }
@@ -18726,6 +18827,12 @@
         showToast("Присыпки убраны — выбери «Крошка» у позиции");
         return;
       }
+      if (catKey === "crumb") {
+        hideProductSelectorCard_("priceSelectorCard");
+        openCrumbBuilder("price");
+        return;
+      }
+      closeCrumbBuilder_();
       priceManualCategory = catKey;
       var cat = catalog[catKey];
       document.getElementById("priceSelectorTitle").innerText = cat.title;
@@ -18805,17 +18912,22 @@
       }
       box.innerHTML = priceBasket.map(function (item) {
         var unit = unitForItem(item.cat, item.main);
-        var sub = item.sub ? ("Фракция: " + item.sub) : ("Категория: " + item.cat);
+        var isCrumb = String(item.cat || "").toLowerCase() === "crumb" || item.crumbKind;
+        var srcNames = isCrumb ? crumbSourcesLabel_(item) : "";
+        var sub = isCrumb
+          ? (srcNames ? ("из: " + srcNames) : "крошка")
+          : (item.sub ? ("Фракция: " + item.sub) : ("Категория: " + item.cat));
+        var title = isCrumb ? crumbBasketTitle_(item) : item.main;
         var priceHtml = "";
         if (priceMode === "retail") {
-          var r = retailLineCost(item.main || item.name, item.sub || "", item.value != null ? item.value : item.val, item.cat);
+          var r = retailLineCost(item.main || item.name, item.sub || "", item.value != null ? item.value : item.val, item.cat, { crumbKind: item.crumbKind });
           priceHtml = r.found
             ? ('<div class="basket-sub" style="color:#30d158;">' + r.cost + " BYN</div>")
             : '<div class="basket-sub" style="color:#ff9f0a;">нет в прайсе</div>';
         }
         return '<div class="basket-card ' + item.cat + '">' +
           '<button class="btn-inline-del" onclick="deletePriceBasketItem(' + item.id + ')">Удалить</button>' +
-          '<div class="basket-info">' + escapeHtml(item.main) + " → " + item.value + " " + unit + "</div>" +
+          '<div class="basket-info">' + escapeHtml(title) + " → " + item.value + " " + unit + "</div>" +
           '<div class="basket-sub">' + escapeHtml(sub) + "</div>" +
           priceHtml +
           "</div>";
@@ -20046,8 +20158,15 @@
     }
     window.resetSubDetailPacksAuto_ = resetSubDetailPacksAuto_;
 
+    var _packBumpAt = 0;
+    var _packBumpKey = "";
     function bumpSubDetailPack_(kind, delta) {
       if (!subDetailPackCounts.hasOwnProperty(kind)) return;
+      var now = Date.now();
+      var key = String(kind) + ":" + String(delta);
+      if (_packBumpKey === key && (now - _packBumpAt) < 140) return;
+      _packBumpKey = key;
+      _packBumpAt = now;
       var next = (Number(subDetailPackCounts[kind]) || 0) + (Number(delta) || 0);
       if (next < 0) next = 0;
       subDetailPackCounts[kind] = next;
@@ -20131,13 +20250,18 @@
       }
       box.innerHTML = subDetailBasket.map(function (item, idx) {
         var unit = unitForItem(item.cat, item.main || item.name);
-        var sub = item.sub ? ("Фракция: " + item.sub) : ("Категория: " + (item.cat || ""));
+        var isCrumb = String(item.cat || "").toLowerCase() === "crumb" || item.crumbKind;
+        var srcNames = isCrumb ? crumbSourcesLabel_(item) : "";
+        var sub = isCrumb
+          ? (srcNames ? ("из: " + srcNames) : "крошка")
+          : (item.sub ? ("Фракция: " + item.sub) : ("Категория: " + (item.cat || "")));
+        var title = isCrumb ? crumbBasketTitle_(item) : (item.main || item.name || "");
         var delBtn = subDetailDeepOpen
           ? ('<button type="button" class="btn-inline-del" onclick="deleteSubDetailBasketItem(' + idx + ')">Удалить</button>')
           : "";
         return '<div class="basket-card ' + escapeHtml(item.cat || "") + '">' +
           delBtn +
-          '<div class="basket-info">' + escapeHtml(item.main || item.name || "") + " → " +
+          '<div class="basket-info">' + escapeHtml(title) + " → " +
           (item.val != null ? item.val : item.value) + " " + unit + "</div>" +
           '<div class="basket-sub">' + escapeHtml(sub) + "</div>" +
           "</div>";
@@ -20185,20 +20309,14 @@
       var hint = document.getElementById("subDetailStatedHint");
       if (hint && !opts.keepTouched) {
         hint.textContent = val !== "" && val != null
-          ? "с листа ПП (Факт стоимость) · RAW26 пересчитает из факта, если не править вручную"
-          : "RAW26: синхрон с фактом · LEGACY: вносит менеджер вручную";
+          ? "с листа ПП (указанная / «Факт стоимость») · не меняется при обновлении"
+          : "указанная с листа · факт считается отдельно";
       }
     }
 
     function syncSubDetailStatedFromFact_(factCost) {
-      if (_subDetailStatedTouched) return;
-      if (typeof subDetailSchemeValue_ === "function" && subDetailSchemeValue_() !== "RAW26") return;
-      if (factCost == null || factCost === "" || !isFinite(Number(factCost))) return;
-      var el = document.getElementById("subDetailStatedPrice");
-      if (!el) return;
-      el.value = String(factCost);
-      var hint = document.getElementById("subDetailStatedHint");
-      if (hint) hint.textContent = "синхрон с фактом RAW26 · можно поправить вручную";
+      // указанная стоимость не должна меняться от пересчёта факта / refresh
+      return factCost;
     }
 
     function setSubDetailCoef_(v) {
@@ -20669,7 +20787,6 @@
         (packagesByn ? (" +пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
         (fracTotal ? (" +фракт " + fracTotal) : "") +
         " → " + total + " BYN");
-      try { syncSubDetailStatedFromFact_(total); } catch (eSyncSt) {}
       return total;
     }
 
@@ -20856,7 +20973,6 @@
                   hideRaw26CleanPair_("subDetailCleanPair");
                   _lastPpCostFact = null;
                 }
-                try { syncSubDetailStatedFromFact_(pf.factCost); } catch (eSyncPf) {}
                 return;
               }
             }
@@ -20904,6 +21020,7 @@
       if (!open) {
         var sel = document.getElementById("subDetailSelectorCard");
         if (sel) sel.style.display = "none";
+        try { closeCrumbBuilder_(); } catch (eCr) {}
       }
     }
     window.toggleSubDetailManualEntry = toggleSubDetailManualEntry;
@@ -20913,6 +21030,12 @@
         showToast("Присыпки убраны — выбери «Крошка» у позиции");
         return;
       }
+      if (catKey === "crumb") {
+        hideProductSelectorCard_("subDetailSelectorCard");
+        openCrumbBuilder("sub");
+        return;
+      }
+      closeCrumbBuilder_();
       subDetailManualCategory = catKey;
       var cat = catalog[catKey];
       if (!cat) return;
@@ -21647,10 +21770,8 @@
           var factElSave = document.getElementById("subDetailFact");
           statedSave = stEl ? String(stEl.value || "").trim() : "";
           factSave = factElSave ? String(factElSave.value || "").trim() : "";
-          var schPriceSave = subDetailSchemeValue_();
-          if (schPriceSave === "RAW26" && !_subDetailStatedTouched && factSave) {
+          if (!statedSave && factSave) {
             statedSave = factSave;
-            try { syncSubDetailStatedFromFact_(factSave); } catch (eStSync) {}
           }
         }
         var saveBody = {

@@ -17017,10 +17017,18 @@ async function getPpFactCostD1_(params, env, ctx) {
       ppSlotLbl = "1";
       needManualSlot = false;
     }
+    const statedRaw = local.statedCost != null && local.statedCost !== ""
+      ? local.statedCost
+      : factRaw;
+    const statedCost =
+      statedRaw == null || statedRaw === ""
+        ? null
+        : Number(String(statedRaw).replace(",", ".").replace(/[^\d.-]/g, "")) || 0;
     const out = {
       status: "success",
       nick: local.nick || nick,
       factCost: factCost,
+      statedCost: statedCost,
       deliveries: deliveries,
       deliverySlot: deliverySlot,
       needManualSlot: needManualSlot,
@@ -18775,13 +18783,9 @@ function attachPpOfferClientPriceD1_(fact, statedCost, statedTouched) {
     statedTouched
   );
   fact.clientPrice = client;
-  if (String(fact.scheme || "").toUpperCase() === "RAW26" && statedTouched !== true) {
-    fact.statedCost = fact.factCost;
-    fact.statedSynced = true;
-  } else {
-    if (statedCost != null && statedCost !== "") fact.statedCost = statedCost;
-    fact.statedSynced = false;
-  }
+  // указанная (stated) не синхронится с фактом на refresh/calc
+  if (statedCost != null && statedCost !== "") fact.statedCost = statedCost;
+  fact.statedSynced = false;
   return fact;
 }
 
