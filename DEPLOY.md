@@ -86,6 +86,7 @@ clasp CI does **not** set Script Properties (no extra API / no secret in the wor
 | Где | Имя | Кто ставит |
 |-----|-----|------------|
 | Apps Script → Script properties | `PP_COST_BREAKDOWN_PIN` | хаб **после merge**, значение которое Арсений передал хабу |
-| Cloudflare Worker | `wrangler secret put PP_COST_BREAKDOWN_PIN` | хаб после Worker Deploy, то же значение |
+| GitHub Actions secret | `PP_COST_BREAKDOWN_PIN` | хаб один раз в repo Settings → Secrets |
+| Cloudflare Worker | `PP_COST_BREAKDOWN_PIN` | CI `boinya-c-worker-deploy` после успешного deploy+promote (`wrangler secret put`); skip если GitHub secret пустой; fail — warning, job зелёный |
 
 Значение **не в git, не в PR, не в чат**. Хранит хаб. Курьер/нарезчик/менеджер кнопку не видят. **Не коммитить PIN.**

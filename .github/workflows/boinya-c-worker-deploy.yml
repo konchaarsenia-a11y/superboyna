@@ -3,6 +3,7 @@
 #   CLOUDFLARE_API_TOKEN — required
 #   CLOUDFLARE_ACCOUNT_ID — optional if token is account-scoped; empty is OK (unset before wrangler)
 #   PARTNER_BOT_TOKEN — optional; put AFTER successful deploy; skip if empty; failure does not fail the job
+#   PP_COST_BREAKDOWN_PIN — optional; put AFTER successful deploy; skip if empty; failure does not fail the job
 name: boinya-c-worker-deploy
 
 on:
@@ -61,6 +62,26 @@ jobs:
           fi
           if ! printf '%s' "$PARTNER_BOT_TOKEN" | npx wrangler@4 secret put PARTNER_BOT_TOKEN; then
             echo "::warning::PARTNER_BOT_TOKEN put failed after deploy — worker is already live"
+            exit 0
+          fi
+      - name: Put PP_COST_BREAKDOWN_PIN on Worker
+        working-directory: boinya-c/proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PP_COST_BREAKDOWN_PIN: ${{ secrets.PP_COST_BREAKDOWN_PIN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "CLOUDFLARE_ACCOUNT_ID empty — unset so wrangler uses token-scoped account"
+            unset CLOUDFLARE_ACCOUNT_ID
+          fi
+          if [ -z "${PP_COST_BREAKDOWN_PIN:-}" ]; then
+            echo "PP_COST_BREAKDOWN_PIN missing in GitHub secrets — skip"
+            exit 0
+          fi
+          if ! printf '%s' "$PP_COST_BREAKDOWN_PIN" | npx wrangler@4 secret put PP_COST_BREAKDOWN_PIN; then
+            echo "::warning::PP_COST_BREAKDOWN_PIN put failed after deploy — worker is already live"
             exit 0
           fi
       - name: Smoke ping
