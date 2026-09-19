@@ -25,6 +25,28 @@ with sync_playwright() as p:
           }];
           window._subsListFull = window._subsListCache;
           if (typeof setSubsUnlocked === "function") setSubsUnlocked(true);
+          var orig = window.apiGet;
+          window.apiGet = async function (q) {
+            var a = (q && q.action) || "";
+            if (a === "getSubscription") {
+              return {
+                status: "success",
+                found: true,
+                nick: "zzz_test",
+                label: "Тестовый",
+                sheet: "ПП",
+                subId: "sub_zzz",
+                deliveries: 1,
+                ppStatus: "ПП1",
+                wishes: "",
+                basket: [],
+                address: "",
+                phone: ""
+              };
+            }
+            if (typeof orig === "function") return orig.apply(this, arguments);
+            return { status: "error" };
+          };
         }"""
     )
 
@@ -69,6 +91,9 @@ with sync_playwright() as p:
     if "открыт" not in btn_txt:
         raise SystemExit("button did not flip to opened: " + btn_txt)
 
-    page.screenshot(path="/tmp/deep-editor-open.png", full_page=True)
+    page.screenshot(path="/opt/cursor/artifacts/deep_editor_open.png", full_page=True)
+    page.evaluate("() => { var p=document.getElementById('subDetailDeepPanel'); if(p) p.scrollIntoView({block:'start'}); }")
+    page.wait_for_timeout(200)
+    page.screenshot(path="/opt/cursor/artifacts/card_nick_name_shelves.png")
     print("PLAYWRIGHT_OK display=%s btn=%s nick=%s name=%s" % (after, btn_txt, nick.input_value(), name.input_value()))
     browser.close()

@@ -25621,4 +25621,50 @@
     } else {
       setTimeout(bootIdleWork_, window.__BOINYA_C_TURBO__ ? 5000 : 800);
     }
+
+    (function bootLocalCardDemo_() {
+      try {
+        var host = String(location.hostname || "");
+        if (host !== "127.0.0.1" && host !== "localhost") return;
+        if (!/[?&]demoShelves=1(?:&|$)/.test(String(location.search || ""))) return;
+        var orig = window.apiGet;
+        window.apiGet = async function (q) {
+          var a = (q && q.action) || "";
+          if (a === "getSubscription") {
+            return {
+              status: "success",
+              found: true,
+              nick: "zzz_test",
+              label: "Тестовый",
+              sheet: "ПП",
+              subId: "sub_zzz",
+              deliveries: 1,
+              ppStatus: "ПП1",
+              wishes: "",
+              basket: [],
+              address: "",
+              phone: ""
+            };
+          }
+          if (typeof orig === "function") return orig.apply(this, arguments);
+          return { status: "error" };
+        };
+        window._subsUnlocked = true;
+        try { sessionStorage.setItem("superboyna_subs_unlocked_session", "1"); } catch (eSs) {}
+        window._subsListCache = [{
+          nick: "zzz_test",
+          label: "Тестовый",
+          sheet: "ПП",
+          subId: "sub_zzz",
+          deliveries: 1,
+          status: "ПП1",
+          wishes: ""
+        }];
+        window._subsListFull = window._subsListCache;
+        if (typeof setSubsUnlocked === "function") setSubsUnlocked(true);
+        setTimeout(function () {
+          try { if (typeof openSubDetail === "function") openSubDetail(0); } catch (eOpen) {}
+        }, 200);
+      } catch (eDemo) {}
+    })();
   
