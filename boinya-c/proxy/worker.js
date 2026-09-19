@@ -4286,7 +4286,8 @@ async function repairMissingOrderPrices_(env, opts) {
 /**
  * Soft-delete Future/+7 copies of people already on the current week.
  * Keep genuine Future/calendar bookings (GAS Future / calendar, or not on source week).
- * Does not call finishFullWeek. Does not shrink Future to GAS-only (Ba2ra / Maria stay).
+ * Does not call finishFullWeek / deleteClient_ (тот без явного day снимает Пн).
+ * Does not shrink Future to GAS-only (Ba2ra / Maria stay).
  */
 async function repairFutureWeekDupes_(env, opts) {
   opts = opts || {};
@@ -8234,8 +8235,11 @@ async function deleteClient_(params, env) {
   try {
     if (day && !calendarOnly) homeRow = await findOrderRow_(env, matchKeyRaw, day, "", client);
     if (!homeRow && dateIso) homeRow = await findOrderRow_(env, matchKeyRaw, "", dateIso, client);
-    // НЕ findActiveOrderByMatch_ при strictDay / calendarOnly — иначе снос чужого слота
-    if (!homeRow && !strictDay && !calendarOnly) homeRow = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+    // НЕ findActiveOrderByMatch_ при strictDay / calendarOnly / явном day —
+    // иначе delete Future снимает живой Пн (клоны 21.09 ↔ 28.09).
+    if (!homeRow && !strictDay && !calendarOnly && !day) {
+      homeRow = await findActiveOrderByMatch_(env, matchKeyRaw, client);
+    }
   } catch (eHome) {
     homeRow = null;
   }

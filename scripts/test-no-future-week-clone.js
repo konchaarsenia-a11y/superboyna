@@ -74,6 +74,12 @@ assert(worker.indexOf("async function repairFutureWeekDupes_") >= 0, "repair hel
 assert(worker.indexOf("no-future-week-clone-h1") >= 0, "deploy marker");
 assert(worker.indexOf("preserve-order-price-h1") >= 0, "price preserve marker kept");
 assert(worker.indexOf("finishFullWeekProduction") === -1, "worker does not call finishFullWeek");
+var delStart = worker.indexOf("async function deleteClient_");
+var delBody = delStart >= 0 ? worker.slice(delStart, delStart + 3500) : "";
+assert(
+  delBody.indexOf("if (!homeRow && !strictDay && !calendarOnly && !day)") >= 0,
+  "deleteClient does not pull other week slots via findActiveOrderByMatch when day is set"
+);
 
 var matStart = gs.indexOf("function materializeDeliveryDate_");
 var matEnd = gs.indexOf("function ensureFutureWeekForDate_");
