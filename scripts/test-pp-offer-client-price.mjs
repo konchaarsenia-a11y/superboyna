@@ -67,6 +67,7 @@ const gsCtx = vm.createContext({
   PP_RAW26_RECOVER_PIECE_: 0.5,
   PP_RAW26_DELIVERY_PER_: 9,
   PP_RAW26_RETAIL_CAP_: 0.92,
+  STATS_DELIVERY_FUEL_PER_: 4,
   PP_LEGACY_COEF_DEFAULT_: 2.3,
   PP_LEGACY_FIXED_: 11,
   PP_LEGACY_DELIVERY_PER_: 6,
@@ -84,6 +85,8 @@ vm.runInContext(
     extractFn(gsSrc, "recoverBynFromPpLines_"),
     extractFn(gsSrc, "ppOfferClientPrice_"),
     extractFn(gsSrc, "attachPpOfferClientPrice_"),
+    extractFn(gsSrc, "raw26OfferCleanByn_"),
+    extractFn(gsSrc, "applyRaw26RetailCapAlloc_"),
     extractFn(gsSrc, "computePpFactFromCost_")
   ].join("\n"),
   gsCtx
@@ -131,16 +134,27 @@ assert(
   "UI save sends statedTouched + calcFactCost"
 );
 assert(
-  /capAt > 0 && factCost > capAt/.test(gsSrc) && /capAt > 0 && factCost > capAt/.test(wSrc),
-  "GS+worker apply final RAW26 cap on full factCost"
+  /function applyRaw26RetailCapAlloc_/.test(gsSrc) && /function applyRaw26RetailCapAllocD1_/.test(wSrc),
+  "GS+worker allocate RAW26 cap cut (fractions first)"
 );
 assert(
-  /function capRaw26PriceToRetail_/.test(uiSrc) && /function raw26RetailCapBase_/.test(uiSrc),
-  "UI has capRaw26PriceToRetail_ + raw26RetailCapBase_"
+  /function capRaw26PriceToRetail_/.test(uiSrc) &&
+    /function raw26RetailCapBase_/.test(uiSrc) &&
+    /function applyRaw26RetailCapAlloc_/.test(uiSrc),
+  "UI has retail cap base + alloc + price helper"
 );
 assert(
   /retailGoods \+ delivery/.test(gsSrc) && /retailGoods \+ delivery/.test(wSrc),
   "GS+worker retail cap base includes delivery"
+);
+assert(
+  /cleanBeforeCap/.test(gsSrc) && /cleanAfterCap/.test(gsSrc) &&
+    /cleanBeforeCap/.test(wSrc) && /cleanAfterCap/.test(uiSrc),
+  "API+UI expose cleanBeforeCap / cleanAfterCap"
+);
+assert(
+  /Чистыми до капа/.test(uiSrc) && /Чистыми после капа/.test(uiSrc),
+  "UI always labels both clean numbers"
 );
 assert(
   /computePpFactFromCost_\(rawPp, baskPp, nDel, 1, packOpt, schPp, baskPp, 0\)/.test(gsSrc),
@@ -217,9 +231,11 @@ const ritN1Cap = gsCtx.computePpFactFromCost_(
 );
 const ritCapAt = Math.round((ritRetail + 9) * 0.92 * 100) / 100;
 assert(ritCapAt === 40.66, "92% от 35.20+9 = 40.66");
-assert(ritN1Cap.factCost === ritCapAt, "Рит N=1 после капа 40.66, got " + ritN1Cap.factCost);
-assert(ritN1Cap.factCost < ritRetail + 9, "ПП ниже розницы состава + та же доставка");
 assert(ritN1Cap.retailCapped === true, "финальный кап помечает retailCapped");
+assert(ritN1Cap.deliveryByn === 9, "Рит: доставку не режем");
+assert(ritN1Cap.fractionMarkup === 0, "Рит: фракции съели excess первым, got " + ritN1Cap.fractionMarkup);
+assert(ritN1Cap.goodsByn === 50.33, "Рит: товар до пола raw+recover 50.33, got " + ritN1Cap.goodsByn);
+assert(ritN1Cap.factCost === 59.33, "Рит: пол+9=59.33, не схлопывать доставку до 40.66, got " + ritN1Cap.factCost);
 assert(ritN1Cap.factCost !== 32.38, "не капать по товару без доставки (было 32.38)");
 
 const baranRecover = 27.80;
@@ -238,12 +254,12 @@ const baranCap = gsCtx.computePpFactFromCost_(
 );
 assert(baranCap.factCost === 120.52, "с_бараньим после капа 0.92×(122+9)=120.52, got " + baranCap.factCost);
 
-/* dasha_2135: товар 55, N=2 → база 73 → кап 67.16 (не 50.60) */
+/* dasha_2135: товар 55, N=2 → база 73 → кап 67.16; excess с фракций */
 const dashaRaw = 21.53846154;
 const dashaOpen = gsCtx.computePpFactFromCost_(
   dashaRaw, [], 2, 2.6, emptyPacks, "RAW26", [], 0
 );
-assert(Math.abs(dashaOpen.factCost - 74) < 0.02, "dasha черновик ~74, got " + dashaOpen.factCost);
+assert(Math.abs(dashaOpen.factCost - 74) < 0.02, "dasha без фракций черновик ~74, got " + dashaOpen.factCost);
 const dashaOldGoodsOnly = Math.round(55 * 0.92 * 100) / 100;
 assert(dashaOldGoodsOnly === 50.6, "старый кап без доставки 50.60");
 const dashaCap = gsCtx.computePpFactFromCost_(
@@ -251,14 +267,45 @@ const dashaCap = gsCtx.computePpFactFromCost_(
 );
 assert(dashaCap.factCost === 67.16, "dasha N=2 кап 0.92×(55+18)=67.16, got " + dashaCap.factCost);
 assert(dashaCap.factCost !== dashaOldGoodsOnly, "dasha не дробить до 50.60");
+assert(dashaCap.deliveryByn === 18, "кап не режет 9×N, got " + dashaCap.deliveryByn);
+assert(Math.abs(dashaOpen.factCost - dashaCap.factBeforeCap) < 0.02, "factBeforeCap = черновик");
+assert(dashaCap.factAfterCap === 67.16, "factAfterCap = кап");
+assert(
+  Math.abs(dashaCap.cleanBeforeCap - dashaCap.cleanAfterCap - (dashaCap.factBeforeCap - dashaCap.factAfterCap)) < 0.02,
+  "кап режет чистые на ту же величину, что и цену"
+);
+assert(
+  Math.abs(dashaCap.cleanAfterCap - (67.16 - dashaRaw - 0 - 0 - 8)) < 0.05,
+  "чистые после = цена − сырьё − recover − пакеты − 4×N, got " + dashaCap.cleanAfterCap
+);
 const dashaPackCap = gsCtx.computePpFactFromCost_(
   dashaRaw, [], 2, 2.6, { u1: 0, u2: 0, u3: 0, up4: 1 }, "RAW26", [], 55
 );
-assert(dashaPackCap.factCost === 67.16, "пакеты не в retail-базе: кап всё ещё 67.16, got " + dashaPackCap.factCost);
+assert(dashaPackCap.factCost === 67.16, "пакеты не в retail-базе: цена всё ещё 67.16, got " + dashaPackCap.factCost);
+assert(dashaPackCap.packagesByn === 1.4, "пакеты не режем, пока товар выше пола, got " + dashaPackCap.packagesByn);
 const dashaMissing = gsCtx.computePpFactFromCost_(
   dashaRaw, [], 2, 2.6, emptyPacks, "RAW26", [], 0
 );
 assert(dashaMissing.retailCapped === false && Math.abs(dashaMissing.factCost - 74) < 0.02, "Σрозница 0 → без капа");
+
+const dashaAlloc = gsCtx.applyRaw26RetailCapAlloc_(46, 18, 0, 11, 67.16, 20);
+assert(dashaAlloc.factCost === 67.16, "dasha alloc цена 67.16, got " + dashaAlloc.factCost);
+assert(Math.abs(dashaAlloc.fractionMarkup - 3.16) < 0.001, "фракции 11→3.16, got " + dashaAlloc.fractionMarkup);
+assert(dashaAlloc.goods === 46, "товар не трогаем, got " + dashaAlloc.goods);
+assert(dashaAlloc.delivery === 18, "доставку не трогаем");
+assert(dashaAlloc.packagesByn === 0, "пакеты без изменений");
+const goodsCut = gsCtx.applyRaw26RetailCapAlloc_(56, 18, 0, 0, 67.16, 21.54);
+assert(goodsCut.factCost === 67.16, "без фракций режем товар: цена 67.16");
+assert(goodsCut.delivery === 18, "без фракций доставку всё равно не режем");
+assert(goodsCut.goods === 49.16, "товар 56→49.16, got " + goodsCut.goods);
+const floorThenPack = gsCtx.applyRaw26RetailCapAlloc_(22, 18, 5, 0, 67.16, 22);
+assert(floorThenPack.goods === 22, "товар на полу raw+recover");
+assert(floorThenPack.delivery === 18, "доставку не режем даже после пола");
+assert(floorThenPack.packagesByn === 5, "пакеты не нужны: 22+18+5=45 < 67.16");
+const packAfterFloor = gsCtx.applyRaw26RetailCapAlloc_(22, 18, 40, 0, 67.16, 22);
+assert(packAfterFloor.goods === 22 && packAfterFloor.delivery === 18, "пол товара + доставка живы");
+assert(packAfterFloor.packagesByn === 27.16, "после пола режем пакеты 40→27.16, got " + packAfterFloor.packagesByn);
+assert(packAfterFloor.factCost === 67.16, "после пакетов цена = кап");
 
 const wFactCtx = vm.createContext({
   Math: Math,
@@ -271,6 +318,7 @@ const wFactCtx = vm.createContext({
   PP_RAW26_RECOVER_PIECE_D1_: 0.5,
   PP_RAW26_DELIVERY_PER_D1_: 9,
   PP_RAW26_RETAIL_CAP_D1_: 0.92,
+  STATS_DELIVERY_FUEL_PER_D1_: 4,
   PP_LEGACY_COEF_DEFAULT_D1_: 2.3,
   PP_LEGACY_FIXED_D1_: 11,
   PP_LEGACY_DELIVERY_PER_D1_: 6,
@@ -288,6 +336,8 @@ vm.runInContext(
     extractFn(wSrc, "recoverBynFromPpLinesD1_"),
     extractFn(wSrc, "ppOfferClientPriceD1_"),
     extractFn(wSrc, "attachPpOfferClientPriceD1_"),
+    extractFn(wSrc, "raw26OfferCleanBynD1_"),
+    extractFn(wSrc, "applyRaw26RetailCapAllocD1_"),
     extractFn(wSrc, "computePpFactFromCostD1_")
   ].join("\n"),
   wFactCtx
@@ -295,7 +345,8 @@ vm.runInContext(
 const wRit = wFactCtx.computePpFactFromCostD1_(
   raw, ritBasket, 1, 2.6, emptyPacks, "RAW26", ritLines, ritRetail
 );
-assert(wRit.factCost === 40.66, "worker Рит N=1 кап 40.66, got " + wRit.factCost);
+assert(wRit.factCost === 59.33, "worker Рит N=1 пол+9=59.33, got " + wRit.factCost);
+assert(wRit.deliveryByn === 9 && wRit.fractionMarkup === 0, "worker Рит: фракции 0, доставка 9");
 const wBaran = wFactCtx.computePpFactFromCostD1_(
   44.18, baranBasket, 1, 2.6, baranPacks, "RAW26", baranLines, 122
 );
@@ -308,6 +359,10 @@ const wDasha = wFactCtx.computePpFactFromCostD1_(
   dashaRaw, [], 2, 2.6, emptyPacks, "RAW26", [], 55
 );
 assert(wDasha.factCost === 67.16, "worker dasha N=2 кап 67.16, got " + wDasha.factCost);
+assert(wDasha.deliveryByn === 18, "worker не режет доставку");
+const wAlloc = wFactCtx.applyRaw26RetailCapAllocD1_(46, 18, 0, 11, 67.16, 20);
+assert(Math.abs(wAlloc.fractionMarkup - 3.16) < 0.001, "worker фракции 11→3.16, got " + wAlloc.fractionMarkup);
+assert(wAlloc.goods === 46 && wAlloc.delivery === 18, "worker товар/доставка без изменений");
 
 const uiCapCtx = vm.createContext({
   Math: Math,
@@ -315,11 +370,14 @@ const uiCapCtx = vm.createContext({
   String: String,
   isFinite: isFinite,
   PP_RAW26_RETAIL_CAP: 0.92,
-  PP_RAW26_DELIVERY_PER: 9
+  PP_RAW26_DELIVERY_PER: 9,
+  STATS_DELIVERY_FUEL_PER: 4
 });
 vm.runInContext(
   [
+    extractFn(uiSrc, "raw26OfferCleanByn_"),
     extractFn(uiSrc, "raw26RetailCapBase_"),
+    extractFn(uiSrc, "applyRaw26RetailCapAlloc_"),
     extractFn(uiSrc, "capRaw26PriceToRetail_")
   ].join("\n"),
   uiCapCtx
@@ -329,12 +387,18 @@ assert(uiCapCtx.raw26RetailCapBase_(55, 2) === 73, "UI: dasha база 55+18=73"
 assert(uiCapCtx.capRaw26PriceToRetail_(74, 55, 2) === 67.16, "UI: dasha 74 → 67.16");
 assert(uiCapCtx.capRaw26PriceToRetail_(126.29, 35.2, 1) === 40.66, "UI: 126.29 → 40.66");
 assert(uiCapCtx.capRaw26PriceToRetail_(153.07, 122, 1) === 120.52, "UI: 153.07 → 120.52");
+const uiAlloc = uiCapCtx.applyRaw26RetailCapAlloc_(46, 18, 0, 11, 67.16, 20);
+assert(uiAlloc.factCost === 67.16 && Math.abs(uiAlloc.fractionMarkup - 3.16) < 0.001, "UI alloc: 11→3.16");
+assert(uiAlloc.goods === 46 && uiAlloc.delivery === 18, "UI alloc не трогает товар/доставку");
+assert(uiCapCtx.raw26OfferCleanByn_(75, 20, 5, 0, 2) === 42, "UI чистые: 75-20-5-0-8=42");
+assert(uiCapCtx.raw26OfferCleanByn_(67.16, 20, 5, 0, 2) === 34.16, "UI чистые после капа 34.16");
 
 console.log("ok pp-offer-client-price");
 console.log("  Рит мурр before: stated 195 → client 195 (bug)");
 console.log("  Рит мурр after:  fact " + factNew.factCost + " → client " + factNew.factCost +
   " (frac 6.4, retail=0 keeps draft)");
-console.log("  Рит N=1 + розница 35.20: " + ritN1Open.factCost + " → " + ritN1Cap.factCost + " (92% от 35.20+9)");
+console.log("  Рит N=1 + розница 35.20: " + ritN1Open.factCost + " → " + ritN1Cap.factCost +
+  " (кап 40.66, но пол+9=59.33; доставку не режем)");
 console.log("  с_бараньим N=1: было " + baranOldInnerOnly + " (кап только товар) → " + baranCap.factCost);
 console.log("  dasha_2135 N=2: ~74 → " + dashaCap.factCost + " (не 50.60)");
 console.log("  LEGACY stated 195 kept; крошка 0");

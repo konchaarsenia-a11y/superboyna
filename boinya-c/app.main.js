@@ -20209,6 +20209,7 @@
     var PP_RAW26_RECOVER_PIECE = 0.50;
     var PP_RAW26_DELIVERY_PER = 9;
     var PP_RAW26_RETAIL_CAP = 0.92;
+    var STATS_DELIVERY_FUEL_PER = 4;
     var PP_LEGACY_COEF_DEFAULT = 2.3;
     var PP_LEGACY_FIXED = 11;
     var PP_LEGACY_DELIVERY_PER = 6;
@@ -20284,11 +20285,79 @@
       if (hint) hint.style.display = showMig ? "block" : "none";
     }
 
+    function raw26OfferCleanByn_(clientPrice, raw, recover, packagesByn, deliveriesN) {
+      var n = Math.max(1, Number(deliveriesN) || 1);
+      var fuel = STATS_DELIVERY_FUEL_PER * n;
+      return Math.round(
+        ((Number(clientPrice) || 0) - (Number(raw) || 0) - (Number(recover) || 0) -
+          (Number(packagesByn) || 0) - fuel) * 100
+      ) / 100;
+    }
+
+    function renderRaw26CleanPair_(before, after, targetId) {
+      var el = targetId ? document.getElementById(targetId) : null;
+      var b = Math.round((Number(before) || 0) * 100) / 100;
+      var a = Math.round((Number(after) || 0) * 100) / 100;
+      var html = "Чистыми до капа <b>" + b + "</b> · Чистыми после капа <b>" + a + "</b>";
+      if (el) {
+        el.innerHTML = html;
+        el.style.display = "block";
+      }
+      return html;
+    }
+
+    function hideRaw26CleanPair_(targetId) {
+      var el = targetId ? document.getElementById(targetId) : null;
+      if (el) {
+        el.innerHTML = "";
+        el.style.display = "none";
+      }
+    }
+
     function raw26RetailCapBase_(retailGoods, deliveriesN) {
       var r = Number(retailGoods);
       if (!isFinite(r) || r <= 0) return 0;
       var n = Math.max(1, Number(deliveriesN) || 1);
       return Math.round((r + PP_RAW26_DELIVERY_PER * n) * 100) / 100;
+    }
+
+    function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
+      var g = Math.round((Number(goods) || 0) * 100) / 100;
+      var d = Math.round((Number(delivery) || 0) * 100) / 100;
+      var p = Math.round((Number(packagesByn) || 0) * 100) / 100;
+      var f = Math.round((Number(fracMark) || 0) * 100) / 100;
+      var cap = Math.round((Number(capAt) || 0) * 100) / 100;
+      var floor = Math.round((Number(goodsFloor) || 0) * 100) / 100;
+      if (floor < 0) floor = 0;
+      var full = Math.round((g + d + p + f) * 100) / 100;
+      var capped = cap > 0 && full > cap;
+      if (capped) {
+        var excess = Math.round((full - cap) * 100) / 100;
+        if (f > 0 && excess > 0) {
+          var cutF = Math.min(f, excess);
+          f = Math.round((f - cutF) * 100) / 100;
+          excess = Math.round((excess - cutF) * 100) / 100;
+        }
+        if (excess > 0) {
+          var room = Math.max(0, Math.round((g - floor) * 100) / 100);
+          var cutG = Math.min(room, excess);
+          g = Math.round((g - cutG) * 100) / 100;
+          excess = Math.round((excess - cutG) * 100) / 100;
+        }
+        if (excess > 0 && p > 0) {
+          var cutP = Math.min(p, excess);
+          p = Math.round((p - cutP) * 100) / 100;
+        }
+      }
+      return {
+        goods: g,
+        delivery: d,
+        packagesByn: p,
+        fractionMarkup: f,
+        factCost: Math.round((g + d + p + f) * 100) / 100,
+        retailCapped: !!capped,
+        retailCapAt: cap
+      };
     }
 
     function capRaw26PriceToRetail_(price, retailGoods, deliveriesN) {
@@ -20357,20 +20426,49 @@
       if (scheme === "RAW26") {
         var recover = recoverBynFromBasketLocal_(listOpt || subDetailBasketPayload_());
         var delivery = PP_RAW26_DELIVERY_PER * n;
-        total = Math.round((costSum * coef + recover + delivery + packagesByn + fracTotal) * 100) / 100;
+        var goodsLocal = Math.round((costSum * coef + recover) * 100) / 100;
+        var packsBefore = packagesByn;
+        var fracBefore = fracTotal;
+        total = Math.round((goodsLocal + delivery + packsBefore + fracBefore) * 100) / 100;
         var retailLocal = 0;
         try {
           retailLocal = Number(calcRetailBasketTotal(listOpt || subDetailBasketPayload_(), { applyDelivery: false }).goods) || 0;
         } catch (eRetL) { retailLocal = 0; }
-        var cappedLocal = capRaw26PriceToRetail_(total, retailLocal, n);
+        var capLocalAt = 0;
+        var retailLocalBase = raw26RetailCapBase_(retailLocal, n);
+        if (retailLocalBase > 0) {
+          capLocalAt = Math.round(retailLocalBase * PP_RAW26_RETAIL_CAP * 100) / 100;
+        }
+        var allocLocal = applyRaw26RetailCapAlloc_(
+          goodsLocal,
+          delivery,
+          packsBefore,
+          fracBefore,
+          capLocalAt,
+          Math.round((costSum + recover) * 100) / 100
+        );
         hintCore = "себест " + costSum + " ×" + coef + " +recover " + recover + " +9×" + n;
-        if (cappedLocal < total) {
-          total = cappedLocal;
+        if (allocLocal.retailCapped) {
+          total = allocLocal.factCost;
+          packagesByn = allocLocal.packagesByn;
+          fracTotal = allocLocal.fractionMarkup;
           hintCore += " · cap 92% розн. " + total;
         }
+        renderRaw26CleanPair_(
+          raw26OfferCleanByn_(
+            Math.round((goodsLocal + delivery + packsBefore + fracBefore) * 100) / 100,
+            costSum,
+            recover,
+            packsBefore,
+            n
+          ),
+          raw26OfferCleanByn_(total, costSum, recover, packagesByn, n),
+          "subDetailCleanPair"
+        );
       } else {
         total = Math.round((costSum * coef + 11 + 6 * n + packagesByn + fracTotal) * 100) / 100;
         hintCore = "себест " + costSum + " ×" + coef + " +11 +6×" + n;
+        hideRaw26CleanPair_("subDetailCleanPair");
       }
       applySubDetailFact_(total,
         hintCore +
@@ -20551,6 +20649,17 @@
                   (fracTotal ? (" +фракт " + fracTotal) : "") +
                   " → " + pf.factCost + " BYN"
                 );
+                if (pf.scheme === "RAW26") {
+                  renderRaw26CleanPair_(
+                    pf.cleanBeforeCap != null ? pf.cleanBeforeCap :
+                      raw26OfferCleanByn_(pf.factBeforeCap != null ? pf.factBeforeCap : pf.factCost, costSum || 0, pf.recoverByn || 0, packagesByn, n),
+                    pf.cleanAfterCap != null ? pf.cleanAfterCap :
+                      raw26OfferCleanByn_(pf.factCost, costSum || 0, pf.recoverByn || 0, pf.packagesByn != null ? pf.packagesByn : packagesByn, n),
+                    "subDetailCleanPair"
+                  );
+                } else {
+                  hideRaw26CleanPair_("subDetailCleanPair");
+                }
                 try { syncSubDetailStatedFromFact_(pf.factCost); } catch (eSyncPf) {}
                 return;
               }
@@ -20807,6 +20916,7 @@
       document.getElementById("subDetailAddress").value = "";
       document.getElementById("subDetailPhone").value = "";
       document.getElementById("subDetailFact").value = "";
+      hideRaw26CleanPair_("subDetailCleanPair");
       setSubDetailStatedPrice_("");
       _subDetailStatedTouched = false;
       syncSubDetailPpPriceUi_(sheet);
@@ -20900,6 +21010,7 @@
           : (res.factCost != null && res.factCost !== "" ? res.factCost : "");
         setSubDetailStatedPrice_(statedFromSheet);
         document.getElementById("subDetailFact").value = "";
+        hideRaw26CleanPair_("subDetailCleanPair");
         var sheetNow = res.sheet || sheet;
         syncSubDetailPpPriceUi_(sheetNow);
         var coefEl = document.getElementById("subDetailCoef");
@@ -21746,29 +21857,24 @@
         var goodsRaw = costSum * coef + recover;
         var retailGoodsCap = Number(retail && retail.goods) || 0;
         var retailCapBase = raw26RetailCapBase_(retailGoodsCap, deliveriesN);
-        var capped = false;
-        var goodsByn = goodsRaw;
-        if (retailCapBase > 0) {
-          var capAt = Math.round(retailCapBase * PP_RAW26_RETAIL_CAP * 100) / 100;
-          if (goodsByn > capAt) {
-            goodsByn = capAt;
-            capped = true;
-          }
-        }
-        var localFactRaw26 = capRaw26PriceToRetail_(
-          goodsByn + deliveryByn + packagesByn + fracMark.total,
-          retailGoodsCap,
-          deliveriesN
+        var capAt = retailCapBase > 0
+          ? Math.round(retailCapBase * PP_RAW26_RETAIL_CAP * 100) / 100
+          : 0;
+        var allocUi = applyRaw26RetailCapAlloc_(
+          goodsRaw,
+          deliveryByn,
+          packagesByn,
+          fracMark.total,
+          capAt,
+          Math.round((costSum + recover) * 100) / 100
         );
-        if (retailCapBase > 0 && localFactRaw26 < Math.round((goodsByn + deliveryByn + packagesByn + fracMark.total) * 100) / 100) {
-          capped = true;
-        }
+        var goodsByn = allocUi.goods;
+        var capped = allocUi.retailCapped;
+        var localFactRaw26 = allocUi.factCost;
         subTotal = useApiFact
           ? Math.round(Number(res.clientPrice != null ? res.clientPrice : res.factCost) * 100) / 100
           : localFactRaw26;
-        subTotal = capRaw26PriceToRetail_(subTotal, retailGoodsCap, deliveriesN);
         subTotal = ppOfferClientPrice_("RAW26", subTotal || localFactRaw26, res && res.statedCost, false);
-        subTotal = capRaw26PriceToRetail_(subTotal, retailGoodsCap, deliveriesN);
         if (localFactRaw26 > 0 && subTotal > localFactRaw26 + 12) {
           subTotal = localFactRaw26;
         }
@@ -21807,11 +21913,29 @@
             " (доля " + roundRub(retail.perDelivery) + "<" + (retail.freeFrom || 50) + ")")
           : " · дост. 0 (доля ≥" + (retail.freeFrom || 50) + ")") +
         " = <b>" + roundRub(retail.total) + " BYN</b>";
+      var cleanMeta = "";
+      if (pricePpScheme === "RAW26") {
+        var cleanBefore = res && res.cleanBeforeCap != null
+          ? Number(res.cleanBeforeCap)
+          : raw26OfferCleanByn_(
+            allocUi ? Math.round((goodsRaw + deliveryByn + packagesByn + fracMark.total) * 100) / 100 : subTotal,
+            costSum,
+            recover,
+            packagesByn,
+            deliveriesN
+          );
+        var cleanAfter = res && res.cleanAfterCap != null
+          ? Number(res.cleanAfterCap)
+          : raw26OfferCleanByn_(subTotal, costSum, recover, allocUi ? allocUi.packagesByn : packagesByn, deliveriesN);
+        cleanMeta = '<div class="muted" style="margin-top:6px;font-size:12px;">' +
+          renderRaw26CleanPair_(cleanBefore, cleanAfter) + "</div>";
+      }
       renderPriceMessageBox(msg,
         '<div class="card" style="margin-bottom:8px;font-size:13px;"><b>ПП</b>' +
         (pricePpScheme === "RAW26" ? " · новая" : " · старая") + dogsHint + '<br>' +
         formulaHint +
         " → <b>" + roundRub(subTotal) + " BYN/мес</b>" +
+        cleanMeta +
         (fracMark.details.length
           ? ('<div class="muted" style="margin-top:4px;font-size:12px;">' +
             escapeHtml(fracMark.details.join("; ")) + "</div>")
@@ -22517,15 +22641,17 @@
             var goodsSnap = costSum * coef + recoverSnap;
             var retailSnapG = Number(calcRetailBasketTotal(list, { deliveriesN: deliveriesN }).goods) || 0;
             var retailSnapBase = raw26RetailCapBase_(retailSnapG, deliveriesN);
-            if (retailSnapBase > 0) {
-              var capSnap = Math.round(retailSnapBase * PP_RAW26_RETAIL_CAP * 100) / 100;
-              if (goodsSnap > capSnap) goodsSnap = capSnap;
-            }
-            subHint = capRaw26PriceToRetail_(
-              goodsSnap + PP_RAW26_DELIVERY_PER * deliveriesN + packagesByn + fracMark.total,
-              retailSnapG,
-              deliveriesN
-            );
+            var capSnap = retailSnapBase > 0
+              ? Math.round(retailSnapBase * PP_RAW26_RETAIL_CAP * 100) / 100
+              : 0;
+            subHint = applyRaw26RetailCapAlloc_(
+              goodsSnap,
+              PP_RAW26_DELIVERY_PER * deliveriesN,
+              packagesByn,
+              fracMark.total,
+              capSnap,
+              Math.round((costSum + recoverSnap) * 100) / 100
+            ).factCost;
           } else {
             subHint = costSum * coef + PRICE_PP_FIXED_BYN + PRICE_PP_DELIVERY_PER * deliveriesN +
               packagesByn + fracMark.total;
