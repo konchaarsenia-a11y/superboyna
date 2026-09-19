@@ -189,6 +189,7 @@ assert(repSlice.indexOf("shouldRebindOrderDate_") >= 0, "replaceDay will not sta
 
 assert(worker.indexOf("restoreShiftedWeekClose_") >= 0, "repair helper present");
 assert(worker.indexOf("repairShiftedWeekClose") >= 0, "repair action present");
+assert(worker.indexOf("repairMissingOrderPrices") >= 0, "price refill after repair");
 assert(worker.indexOf("reattachWeekSlotDayNames_") >= 0, "reattach helper present");
 assert(worker.indexOf("repairDetachedWeekSlots") >= 0, "reattach action present");
 assert(worker.indexOf("decideWeekSlotCalendarRow_") >= 0, "reattach decision helper");

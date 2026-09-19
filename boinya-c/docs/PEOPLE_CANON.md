@@ -66,6 +66,7 @@
 - Heal `force getClients`: upsert missing с GAS даже если D1 counts «не sparse» (лист впереди D1). Repair: `repairMissingWeekFromGas`. Lookup: `lookupClient`.
 - UI смена дня в форме: **без** предварительного `deleteClient` (`_userDelete` afterWrite сносит новую строку). `saveOrder_` сам чистит другие слоты.
 - **Не затирать** непустые `address` / `phone` / `basket` пустыми при `upsertOrderRow_` / `replaceDayOrdersFromClients_` / overlay save / GAS `handleSaveOrder`. Явный clear только `explicitClear=1` / `clearAddress` / `clearBasket`. Repair: `repairWipedClientFields`.
+- **Не затирать цены** (`meta_json.orderPrice` / `statedCost` / `factCost` / `clientPrice`) при `repairShiftedWeekClose` / reattach / move / upsert, если UPDATE только `date_iso`/`day_name` или incoming meta пустой. Repair: `repairMissingOrderPrices`.
 - `repairDetachedWeekSlots` / `dedupe_calendar`: если calendar-only полнее слота — **promote** cal, удалить stub (`snowygodness` 14.09). Никогда не delete ряда с большим payload. Persist fail → abort, оба ряда живы.
 - `moveEpoch` старше 7д не прячет клиента.
 - Calendar month (D1-primary): без tomb-filter на live D1; **off-week month = только live D1** (snap не воскрешает delete).

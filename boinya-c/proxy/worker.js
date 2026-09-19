@@ -2,8 +2,8 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-19 orders-access-tab-h1
- * (prior: fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
+ * deploy-marker: 2026-09-19 preserve-order-price-h1
+ * (prior: close-week-no-shift-h2 / orders-access-tab-h1 / fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -387,7 +387,7 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-19 close-week-no-shift-h2"
+      deployMarker: "2026-09-19 preserve-order-price-h1"
     };
   }
 
@@ -1030,7 +1030,96 @@ function mergeKeepNonEmptyClient_(incoming, existing, params) {
     out.segment = existing.segment || existing.orderType || "";
     if (!out.source && existing.source) out.source = existing.source;
   }
+  const priceKeys = ORDER_PRICE_META_KEYS_;
+  for (let pi = 0; pi < priceKeys.length; pi++) {
+    const pk = priceKeys[pi];
+    const allow = allowEmptyOverwrite_(params, pk) || allowEmptyOverwrite_(params, "price");
+    out[pk] = pickNonEmptyField_(incoming[pk], existing[pk], allow);
+  }
   return out;
+}
+
+/** Цена заказа живёт в orders.meta_json, не в отдельных колонках D1. */
+const ORDER_PRICE_META_KEYS_ = [
+  "orderPrice",
+  "statedCost",
+  "factCost",
+  "clientPrice",
+  "couponPrice",
+  "cost",
+  "price",
+  "total",
+  "subTotal",
+  "statedTouched"
+];
+
+const ORDER_META_COPY_KEYS_ = [
+  "ppSlot",
+  "deliverySlot",
+  "deliveriesN",
+  "ppHint",
+  "ppPartner",
+  "deliveryAfter",
+  "deliveryBefore",
+  "dogCount",
+  "dogNames",
+  "geo",
+  "noCut",
+  "couponsQty",
+  "segment",
+  "orderType"
+];
+
+function priceFieldHasValue_(v) {
+  if (v == null || v === "") return false;
+  if (typeof v === "number") return isFinite(v);
+  const s = String(v).trim();
+  if (!s || s === "null" || s === "undefined" || s === "[]" || s === "{}") return false;
+  return true;
+}
+
+function extractOrderPriceFromNoteD1_(note) {
+  const m = String(note || "").match(/\[ЦЕНА:\s*([0-9]+(?:[.,][0-9]+)?)\s*BYN?\]/i);
+  if (!m) return "";
+  const n = Number(String(m[1]).replace(",", "."));
+  return isFinite(n) ? n : "";
+}
+
+function orderMetaObjectFromClient_(c) {
+  const out = {};
+  if (!c) return out;
+  const keys = ORDER_PRICE_META_KEYS_.concat(ORDER_META_COPY_KEYS_);
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (k === "noCut") {
+      if (c[k] === true || c[k] === false) out[k] = !!c[k];
+      continue;
+    }
+    if (priceFieldHasValue_(c[k]) || c[k] === 0) out[k] = c[k];
+  }
+  return out;
+}
+
+function mergeMetaJsonKeepPrices_(existingRaw, incomingRaw, params) {
+  const ex = parseMeta_(existingRaw);
+  const inc = parseMeta_(incomingRaw);
+  const out = Object.assign({}, ex, inc);
+  const keys = ORDER_PRICE_META_KEYS_;
+  const allowAll = allowEmptyOverwrite_(params, "price");
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (allowAll || allowEmptyOverwrite_(params, k)) continue;
+    if (!priceFieldHasValue_(inc[k]) && inc[k] !== 0 && priceFieldHasValue_(ex[k])) {
+      out[k] = ex[k];
+    } else if (!priceFieldHasValue_(inc[k]) && inc[k] !== 0 && ex[k] === 0) {
+      out[k] = 0;
+    }
+  }
+  return JSON.stringify(out);
+}
+
+function orderMetaJsonFromClient_(c, fallbackRaw) {
+  return mergeMetaJsonKeepPrices_(fallbackRaw || "{}", JSON.stringify(orderMetaObjectFromClient_(c)), {});
 }
 
 function rowPayloadForScore_(row) {
@@ -1115,7 +1204,12 @@ function mergeOrderRowsKeepNonEmpty_(existing, incoming, params) {
     note: merged.note,
     basket_json: merged.basket_json,
     segment: merged.segment || incoming.segment || existing.segment || "",
-    source: merged.source || incoming.source || existing.source || ""
+    source: merged.source || incoming.source || existing.source || "",
+    meta_json: mergeMetaJsonKeepPrices_(
+      existing.meta_json,
+      incoming.meta_json || JSON.stringify(orderMetaObjectFromClient_(incoming)),
+      params
+    )
   });
 }
 
@@ -3435,6 +3529,7 @@ async function restoreShiftedWeekClose_(env, fromMondayIso, opts) {
         continue;
       }
       try {
+        // date_iso / day_name only — never touch meta_json (orderPrice / stated / fact).
         await env.DB.prepare(
           "UPDATE orders SET date_iso = ?, day_name = '', updated_at = ? WHERE id = ? AND status = 'active'"
         )
@@ -3488,7 +3583,7 @@ async function restoreShiftedWeekClose_(env, fromMondayIso, opts) {
             source: String(c.source || "calendar"),
             status: "active",
             updated_at: now,
-            meta_json: "{}"
+            meta_json: orderMetaJsonFromClient_(c)
           });
           result.refilled.push({ client: name, dateIso: oldIso });
         }
@@ -3508,6 +3603,15 @@ async function restoreShiftedWeekClose_(env, fromMondayIso, opts) {
     });
   } catch (eAtt) {
     result.reattached = { error: String((eAtt && eAtt.message) || eAtt) };
+  }
+  try {
+    result.repairedPrices = await repairMissingOrderPrices_(env, {
+      fromIso: fromIso,
+      toIso: toIso,
+      useGas: true
+    });
+  } catch (ePr) {
+    result.repairedPrices = { error: String((ePr && ePr.message) || ePr) };
   }
   return result;
 }
@@ -3777,7 +3881,7 @@ async function reattachWeekSlotDayNames_(env, opts) {
             source: String(mergedIns.source || (c && c.source) || ""),
             status: "active",
             updated_at: now,
-            meta_json: "{}"
+            meta_json: orderMetaJsonFromClient_(mergedIns, donor && donor.meta_json)
           });
           slotMks[mk] = true;
           result.inserted.push({ client: name, dateIso: wantIso, day: day });
@@ -3968,6 +4072,185 @@ async function repairWipedClientFields_(env, opts) {
           phone: !fieldHasSubstance_(cur.phone) && fieldHasSubstance_(merged.phone),
           basket: !basketHasSubstance_(cur.basket) && basketHasSubstance_(merged.basket)
         }
+      });
+    } catch (eUp) {
+      result.skipped++;
+    }
+  }
+  try {
+    await invalidateDays_(env, WEEK_DAYS);
+  } catch (eInv) {}
+  return result;
+}
+
+function payingSegmentNeedsPrice_(seg) {
+  const s = normalizeSegmentLabel_(seg);
+  if (s === "БП") return false;
+  return s === "ПП" || s === "Р" || s === "ПАРТНЁР" || !s;
+}
+
+function clientOrderPriceValue_(c) {
+  if (!c) return "";
+  if (priceFieldHasValue_(c.orderPrice) || c.orderPrice === 0) return c.orderPrice;
+  if (priceFieldHasValue_(c.clientPrice)) return c.clientPrice;
+  if (priceFieldHasValue_(c.statedCost)) return c.statedCost;
+  if (priceFieldHasValue_(c.factCost)) return c.factCost;
+  const fromNote = extractOrderPriceFromNoteD1_(c.note);
+  return fromNote === "" ? "" : fromNote;
+}
+
+async function persistOrderMetaJson_(env, id, metaRaw) {
+  if (!env || !env.DB || !id) return false;
+  await env.DB.prepare(
+    "UPDATE orders SET meta_json = ?, updated_at = ? WHERE id = ? AND status = 'active'"
+  )
+    .bind(String(metaRaw || "{}"), new Date().toISOString(), id)
+    .run();
+  return true;
+}
+
+/**
+ * One-shot: вернуть orderPrice / stated / fact в meta_json, не трогая address/basket.
+ * Donors: sibling D1 (в т.ч. deleted) → snap → GAS getClients / getViewCompare.
+ * БП не заполняем. Непустые цены не переписываем.
+ */
+async function repairMissingOrderPrices_(env, opts) {
+  opts = opts || {};
+  const result = {
+    scanned: 0,
+    missing: 0,
+    repaired: [],
+    skipped: 0,
+    fromIso: "",
+    toIso: ""
+  };
+  if (!env || !env.DB) return result;
+  let fromIso = coerceDateIso_(opts.fromIso || opts.from || opts.dateFrom || "") || "2026-09-14";
+  let toIso = coerceDateIso_(opts.toIso || opts.to || opts.dateTo || "") || "2026-09-27";
+  if (fromIso > toIso) {
+    const swap = fromIso;
+    fromIso = toIso;
+    toIso = swap;
+  }
+  result.fromIso = fromIso;
+  result.toIso = toIso;
+  let rows = [];
+  try {
+    const q = await env.DB.prepare(
+      "SELECT * FROM orders WHERE status = 'active' AND date_iso >= ? AND date_iso <= ? LIMIT 800"
+    )
+      .bind(fromIso, toIso)
+      .all();
+    rows = (q && q.results) || [];
+  } catch (eQ) {
+    result.error = String((eQ && eQ.message) || eQ);
+    return result;
+  }
+  const donorsByMk = Object.create(null);
+  function addPriceDonor(mk, donor) {
+    if (!mk || !donor) return;
+    const price = clientOrderPriceValue_(donor);
+    if (!priceFieldHasValue_(price) && price !== 0) return;
+    const prev = donorsByMk[mk];
+    const prevP = prev ? clientOrderPriceValue_(prev) : "";
+    if (!prev || (!priceFieldHasValue_(prevP) && prevP !== 0)) donorsByMk[mk] = donor;
+  }
+  try {
+    const qP = await env.DB.prepare(
+      "SELECT * FROM orders WHERE date_iso >= ? AND date_iso <= ? ORDER BY updated_at DESC LIMIT 1200"
+    )
+      .bind(fromIso, toIso)
+      .all();
+    ((qP && qP.results) || []).forEach(function (row) {
+      if (!row) return;
+      const mk = normalizeMatchKey_(row.match_key || row.client || "");
+      addPriceDonor(mk, clientFromRow_(row));
+    });
+  } catch (ePool) {}
+  try {
+    const profSnap = await getSnapRaw_(env, "listClientProfiles");
+    ((profSnap && profSnap.clients) || []).forEach(function (p) {
+      addPriceDonor(normalizeMatchKey_((p && (p.nick || p.client || p.name)) || ""), p);
+    });
+  } catch (eProf) {}
+  for (let di = 0; di < WEEK_DAYS.length; di++) {
+    const day = WEEK_DAYS[di];
+    try {
+      const snap = await getSnapRaw_(env, "clients:" + day);
+      ((snap && snap.clients) || []).forEach(function (c) {
+        addPriceDonor(normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || ""), c);
+      });
+    } catch (eSn) {}
+  }
+  const gasTried = Object.create(null);
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row) continue;
+    result.scanned++;
+    const cur = clientFromRow_(row);
+    const seg = normalizeSegmentLabel_(row.segment || cur.segment || "");
+    const have = clientOrderPriceValue_(cur);
+    if (priceFieldHasValue_(have) || have === 0) {
+      result.skipped++;
+      continue;
+    }
+    if (!payingSegmentNeedsPrice_(seg)) {
+      result.skipped++;
+      continue;
+    }
+    result.missing++;
+    const mk = normalizeMatchKey_(row.match_key || row.client || "");
+    const day = String(row.day_name || "");
+    const dateIso = String(row.date_iso || "");
+    if (day && !gasTried[day] && opts.useGas !== false) {
+      gasTried[day] = true;
+      try {
+        const fresh = await gasProxy_("getClients", { day: day }, env, { write: false });
+        ((fresh && fresh.clients) || []).forEach(function (c) {
+          addPriceDonor(normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || ""), c);
+        });
+      } catch (eG) {}
+    }
+    if (dateIso && !gasTried["d:" + dateIso] && opts.useGas !== false) {
+      gasTried["d:" + dateIso] = true;
+      try {
+        const cal = await gasProxy_(
+          "getViewCompare",
+          { date: dateIso, deliveryDate: dateIso },
+          env,
+          { write: false }
+        );
+        []
+          .concat((cal && cal.month) || [])
+          .concat((cal && cal.week) || [])
+          .forEach(function (c) {
+            addPriceDonor(normalizeMatchKey_((c && (c.matchKey || c.name || c.client)) || ""), c);
+          });
+      } catch (eC) {}
+    }
+    const donor = donorsByMk[mk];
+    const donorPrice = clientOrderPriceValue_(donor);
+    if (!priceFieldHasValue_(donorPrice) && donorPrice !== 0) {
+      continue;
+    }
+    try {
+      const nextMeta = mergeMetaJsonKeepPrices_(
+        row.meta_json,
+        JSON.stringify(
+          Object.assign({}, orderMetaObjectFromClient_(donor), {
+            orderPrice: donorPrice
+          })
+        ),
+        {}
+      );
+      await persistOrderMetaJson_(env, row.id, nextMeta);
+      result.repaired.push({
+        client: row.client,
+        matchKey: mk,
+        day: day,
+        dateIso: dateIso,
+        orderPrice: donorPrice,
+        via: donor && donor._via ? donor._via : "donor"
       });
     } catch (eUp) {
       result.skipped++;
@@ -10847,6 +11130,12 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eRepF) {
         repairedFields = { error: String((eRepF && eRepF.message) || eRepF) };
       }
+      let repairedPrices = null;
+      try {
+        repairedPrices = await repairMissingOrderPrices_(env, { useGas: true });
+      } catch (eRepP) {
+        repairedPrices = { error: String((eRepP && eRepP.message) || eRepP) };
+      }
       return {
         status: "success",
         action: "forceWeekD1Resync",
@@ -10854,11 +11143,12 @@ async function handleCutover_(a, params, env, ctx) {
         restoreShifted: restored,
         reattached: reattached,
         repairedFields: repairedFields,
+        repairedPrices: repairedPrices,
         weekDayCounts: counts || null,
         tip: "D1 слоты недели = Sheets; пустые поля не затирали непустые.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-19 close-week-no-shift-h2"
+        deployMarker: "2026-09-19 preserve-order-price-h1"
       };
     } catch (eResync) {
       return {
@@ -10909,10 +11199,10 @@ async function handleCutover_(a, params, env, ctx) {
         status: "success",
         action: "repairShiftedWeekClose",
         restoreShifted: restored,
-        tip: "D1: сняли ошибочный +7. Лист и Календарь_Дат не меняли.",
+        tip: "D1: сняли ошибочный +7. Цены в meta_json сохранили/долили. Лист не меняли.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-13 snowygodness-dedupe-h1"
+        deployMarker: "2026-09-19 preserve-order-price-h1"
       };
     } catch (eRep) {
       return {
@@ -10961,6 +11251,12 @@ async function handleCutover_(a, params, env, ctx) {
       } catch (eRepD) {
         repairedFieldsD = { error: String((eRepD && eRepD.message) || eRepD) };
       }
+      let repairedPricesD = null;
+      try {
+        repairedPricesD = await repairMissingOrderPrices_(env, { useGas: true });
+      } catch (eRepPD) {
+        repairedPricesD = { error: String((eRepPD && eRepPD.message) || eRepPD) };
+      }
       const counts2 =
         (await getSnapRaw_(env, "weekDayCountsSheet")) || (await getSnapRaw_(env, "weekDayCounts"));
       return {
@@ -10968,11 +11264,12 @@ async function handleCutover_(a, params, env, ctx) {
         action: "repairDetachedWeekSlots",
         reattached: reattached,
         repairedFields: repairedFieldsD,
+        repairedPrices: repairedPricesD,
         weekDayCounts: counts2 || null,
-        tip: "D1: привязали day_name к датам слота по листу. Календарь_Дат не меняли.",
+        tip: "D1: привязали day_name к датам слота по листу. Цены не затирали.",
         cutover: true,
         d1Verified: true,
-        deployMarker: "2026-09-13 snowygodness-dedupe-h1"
+        deployMarker: "2026-09-19 preserve-order-price-h1"
       };
     } catch (eRep) {
       return {
@@ -11028,6 +11325,57 @@ async function handleCutover_(a, params, env, ctx) {
         status: "error",
         message: "repair_failed",
         tip: String((eRepW && eRepW.message) || eRepW),
+        cutover: true,
+        action: a
+      };
+    }
+  }
+
+  // Вернуть orderPrice/stated/fact в meta_json после repair/move (не трогает состав).
+  if (/^repairMissingOrderPrices$/i.test(a)) {
+    const ownerOkP = await actorIsOwnerRetail_(params, env);
+    if (!ownerOkP) {
+      return {
+        status: "error",
+        message: "owner_only",
+        tip: "Только владелец может долить цены заказов в D1.",
+        cutover: true,
+        action: a
+      };
+    }
+    if (
+      String(params.confirm || "") !== "1" &&
+      String(params.confirm || "").toLowerCase() !== "true" &&
+      String(params.allowDanger || "") !== "1"
+    ) {
+      return {
+        status: "error",
+        message: "need_confirm",
+        tip: "Нужен confirm=1. Опц. from=2026-09-14&to=2026-09-27",
+        cutover: true,
+        action: a
+      };
+    }
+    try {
+      const repairedP = await repairMissingOrderPrices_(env, {
+        fromIso: String(params.from || params.fromIso || params.dateFrom || "").trim(),
+        toIso: String(params.to || params.toIso || params.dateTo || "").trim(),
+        useGas: String(params.useGas || "1") !== "0"
+      });
+      return {
+        status: "success",
+        action: "repairMissingOrderPrices",
+        repairedPrices: repairedP,
+        tip: "D1: долили пустые orderPrice/stated/fact из листа/снимка/истории. Непустые не трогали.",
+        cutover: true,
+        d1Verified: true,
+        deployMarker: "2026-09-19 preserve-order-price-h1"
+      };
+    } catch (eRepP) {
+      return {
+        status: "error",
+        message: "repair_failed",
+        tip: String((eRepP && eRepP.message) || eRepP),
         cutover: true,
         action: a
       };
@@ -14437,7 +14785,7 @@ async function upsertMissingClientsFromGas_(env, day, clients, opts) {
         source: String(c.source || ""),
         status: "active",
         updated_at: now,
-        meta_json: "{}"
+        meta_json: orderMetaJsonFromClient_(c)
       });
       added++;
     } catch (eUp) {}
@@ -14690,28 +15038,9 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
     const basket = JSON.stringify(c.basket || []);
     const segC = normalizeSegmentLabel_(c.segment || c.orderType || c.source || "");
     const srcC = String(c.source || "").trim() || sourceFromSegment_(segC);
-    const meta = {
-      orderPrice: c.orderPrice,
-      ppSlot: c.ppSlot,
-      ppHint: c.ppHint,
-      ppPartner: c.ppPartner,
-      noCut: !!c.noCut,
-      dogCount: c.dogCount,
-      geo: c.geo,
-      deliveryAfter: c.deliveryAfter,
-      deliveryBefore: c.deliveryBefore,
-      couponsQty: c.couponsQty,
-      couponPrice: c.couponPrice,
-      segment: segC
-    };
-    const keepUpdated =
-      (c.updated_at || c.updatedAt) &&
-      Date.parse(String(c.updated_at || c.updatedAt)) &&
-      nowMs - Date.parse(String(c.updated_at || c.updatedAt)) < protectMs
-        ? String(c.updated_at || c.updatedAt)
-        : now;
+    let leftover = null;
     try {
-      const leftover = await env.DB.prepare(
+      leftover = await env.DB.prepare(
         "SELECT * FROM orders WHERE id = ? AND status = 'active' LIMIT 1"
       )
         .bind(day + ":" + mk)
@@ -14721,7 +15050,37 @@ async function replaceDayOrdersFromClients_(env, day, clients, opts) {
       if (leftover && slotIso && leftIso && !shouldRebindOrderDate_(leftIso, slotIso)) {
         await detachWeekSlotRowKeepDate_(env, leftover, now);
       }
-    } catch (eLeft) {}
+    } catch (eLeft) {
+      leftover = leftover || null;
+    }
+    const meta = parseMeta_(
+      orderMetaJsonFromClient_(
+        {
+          orderPrice: c.orderPrice,
+          statedCost: c.statedCost,
+          factCost: c.factCost,
+          clientPrice: c.clientPrice,
+          ppSlot: c.ppSlot,
+          ppHint: c.ppHint,
+          ppPartner: c.ppPartner,
+          noCut: !!c.noCut,
+          dogCount: c.dogCount,
+          geo: c.geo,
+          deliveryAfter: c.deliveryAfter,
+          deliveryBefore: c.deliveryBefore,
+          couponsQty: c.couponsQty,
+          couponPrice: c.couponPrice,
+          segment: segC
+        },
+        leftover && leftover.meta_json
+      )
+    );
+    const keepUpdated =
+      (c.updated_at || c.updatedAt) &&
+      Date.parse(String(c.updated_at || c.updatedAt)) &&
+      nowMs - Date.parse(String(c.updated_at || c.updatedAt)) < protectMs
+        ? String(c.updated_at || c.updatedAt)
+        : now;
     await upsertOrderRow_(env, {
       id: day + ":" + mk,
       date_iso: info.iso || c.dateIso || "",
@@ -15303,7 +15662,7 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                             source: "",
                             status: "active",
                             updated_at: new Date().toISOString(),
-                            meta_json: "{}"
+                            meta_json: orderMetaJsonFromClient_(params)
                           });
                           rowD1 = await findOrderRow_(
                             env,
@@ -15395,7 +15754,7 @@ async function cutoverAfterWrite_(a, params, env, writeRes) {
                             source: "",
                             status: "active",
                             updated_at: new Date().toISOString(),
-                            meta_json: "{}"
+                            meta_json: orderMetaJsonFromClient_(params)
                           });
                         }
                       } catch (eFix) {}

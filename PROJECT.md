@@ -279,8 +279,9 @@
 | `migratePpToRaw26Scheme` | Ручной перевод старого ПП на сырьё×2.6 (карточка; календарь не трогает) |
 | `getAssembly` | Пакеты сборки по клиентам дня |
 | `finishFullWeek` | Закрытие недели (owner, confirm=1): склад, указатель недели A1+7, Future→Пн; календарь/D1 date_iso не сдвигаются |
-| `repairShiftedWeekClose` | Worker-only (owner): откат ошибочного D1 +7 (`fromMonday=2026-09-07`) |
+| `repairShiftedWeekClose` | Worker-only (owner): откат ошибочного D1 +7 (`fromMonday=2026-09-07`); цены в `meta_json` не затирает |
 | `repairDetachedWeekSlots` | Worker-only (owner): привязать `day_name` к текущим датам слота по листу (после detach/repair) |
+| `repairMissingOrderPrices` | Worker-only (owner): долить пустые `orderPrice`/`stated`/`fact` в `meta_json` (`from`/`to`, confirm=1) |
 | `ensureBpFromOrder` | БП-карта из заказа: basket в doGet через try/catch → [] |
 | `listBpIdle` | БП без движения N дней |
 | `closeAllOpenDeficits` | Owner: закрыть все open в Дефицит_Нарезки |

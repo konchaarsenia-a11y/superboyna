@@ -218,7 +218,10 @@ assert(worker.indexOf("function mergeKeepNonEmptyClient_") >= 0, "worker has mer
 assert(worker.indexOf("function mergeOrderRowsKeepNonEmpty_") >= 0, "worker has mergeOrderRowsKeepNonEmpty_");
 assert(worker.indexOf("skipKeepNonEmpty") >= 0 || worker.indexOf("mergeOrderRowsKeepNonEmpty_") >= 0, "upsert uses keep-non-empty");
 assert(worker.indexOf("repairWipedClientFields") >= 0, "repair action present");
+assert(worker.indexOf("repairMissingOrderPrices") >= 0, "price repair action present");
 assert(worker.indexOf("snowygodness-dedupe-h1") >= 0, "deploy marker");
+assert(worker.indexOf("preserve-order-price-h1") >= 0, "price preserve deploy marker");
+assert(worker.indexOf('meta_json: "{}"') < 0, "upsert no longer writes empty meta_json");
 assert(worker.indexOf("function decideDedupeWeekRows_") >= 0, "worker has decideDedupeWeekRows_");
 assert(worker.indexOf("function applyDedupeWeekSlot_") >= 0, "worker applyDedupeWeekSlot_");
 assert(worker.indexOf("promote_calendar") >= 0, "dedupe can promote full calendar");
