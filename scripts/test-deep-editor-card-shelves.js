@@ -49,8 +49,8 @@ assert(
   "debounce guards click-rescue double toggle"
 );
 assert(
-  /scrollIntoView/.test(ui) && /subDetailDeepPanel/.test(ui),
-  "open scrolls the panel into view"
+  /scrollIntoView/.test(ui) && /block:\s*"start"/.test(ui),
+  "open scrolls the panel into view (start, not nearest)"
 );
 assert(/function splitIgNickAndDisplay_/.test(ui), "nick/name splitter exists");
 assert(/function fillSubDetailNickNameFields_/.test(ui), "card fill uses splitter");
@@ -59,7 +59,7 @@ assert(
   "view cards can render a separate name shelf"
 );
 
-assert(/v71115974/.test(html) && /71115974/.test(idx), "cache-bust version bumped");
+assert(/v71115975/.test(html) && /71115975/.test(idx), "cache-bust version bumped");
 assert(/fix-deep-editor-card-shelves-h1/.test(tz), "TZ checklist item exists");
 
 function extractFn(name) {
@@ -71,6 +71,7 @@ function extractFn(name) {
 var fnSrc =
   extractFn("igHandleFromSubNick_") +
   extractFn("nickKeysEqual_") +
+  extractFn("stripHandleFromText_") +
   extractFn("splitIgNickAndDisplay_");
 var fns = {};
 /* eslint-disable no-new-func */
@@ -87,6 +88,12 @@ assert(split2.nick === "anna.ig" && /Анна/.test(split2.name),
 var split3 = fns.splitIgNickAndDisplay_("flamantgracieux", "flamantgracieux");
 assert(split3.nick === "flamantgracieux" && !split3.name,
   "same handle twice does not duplicate a name shelf");
+var dasha = fns.splitIgNickAndDisplay_("", "ДАША dasha_2135");
+assert(dasha.nick === "dasha_2135" && dasha.name === "ДАША",
+  "«ДАША dasha_2135» in one label → two shelves");
+var dasha2 = fns.splitIgNickAndDisplay_("ДАША dasha_2135", "ДАША dasha_2135");
+assert(dasha2.nick === "dasha_2135" && dasha2.name === "ДАША",
+  "same combined string in nick+label still splits");
 
 if (process.exitCode) {
   console.error("deep-editor-card-shelves: FAIL");

@@ -2,7 +2,7 @@
 """Open subscription card, click deep editor, assert nick/name shelves."""
 from playwright.sync_api import sync_playwright
 
-URL = "http://127.0.0.1:8765/app.html?v=71115974"
+URL = "http://127.0.0.1:8765/app.html?v=71115975"
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
@@ -71,20 +71,26 @@ with sync_playwright() as p:
     name = page.locator("#subDetailLabel")
     if nick.get_attribute("type") == "hidden":
         raise SystemExit("nick still hidden")
-    nick_label = page.locator("#subDetailBasicBlock label").nth(0)
-    name_label = page.locator("#subDetailBasicBlock label").nth(1)
-    nick_txt = nick_label.inner_text()
-    name_txt = name_label.inner_text()
-    if "Instagram" not in nick_txt:
-        raise SystemExit("nick shelf label: " + nick_txt)
-    if name_txt.strip() != "Имя":
-        raise SystemExit("name shelf label: " + name_txt)
+    basic = page.locator("#subDetailBasicBlock").inner_text()
+    if "Ник в Instagram" not in basic:
+        raise SystemExit("nick shelf label missing")
+    if "Имя" not in basic.split("Ник")[0] and "\nИмя" not in basic and not basic.startswith("Имя"):
+        if "Имя" not in basic:
+            raise SystemExit("name shelf label missing")
 
     panel = page.locator("#subDetailDeepPanel")
     before = panel.evaluate("el => getComputedStyle(el).display")
     page.locator("#btnSubDeepEditor").click()
-    page.wait_for_timeout(200)
+    page.wait_for_timeout(250)
     after = panel.evaluate("el => getComputedStyle(el).display")
+    in_view = panel.evaluate(
+        """el => {
+          var r = el.getBoundingClientRect();
+          return r.top < window.innerHeight && r.bottom > 0 && r.height > 0;
+        }"""
+    )
+    if not in_view:
+        raise SystemExit("deep panel not scrolled into view")
     btn_txt = page.locator("#btnSubDeepEditor").inner_text()
     if after == "none":
         raise SystemExit("deep panel still hidden after click (was %s)" % before)

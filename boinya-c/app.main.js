@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115974";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115975";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -20083,7 +20083,13 @@
         try { recalcSubDetailFactCost_(); } catch (eR) {}
       }
       if (subDetailDeepOpen && panel) {
-        try { panel.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (eSc) {}
+        var revealDeep_ = function () {
+          try { panel.scrollIntoView({ block: "start", behavior: "smooth", inline: "nearest" }); } catch (e1) {
+            try { panel.scrollIntoView(true); } catch (e2) {}
+          }
+        };
+        revealDeep_();
+        setTimeout(revealDeep_, 60);
       }
     }
     window.toggleSubDetailDeepEditor_ = toggleSubDetailDeepEditor_;
@@ -20091,15 +20097,26 @@
       var btn = document.getElementById("btnSubDeepEditor");
       if (!btn || btn.getAttribute("data-deep-bound") === "1") return;
       btn.setAttribute("data-deep-bound", "1");
-      btn.addEventListener("click", function (e) {
+      function openDeep(e) {
         if (e) {
           e.preventDefault();
           e.stopPropagation();
         }
         toggleSubDetailDeepEditor_(true);
+      }
+      btn.addEventListener("click", openDeep);
+      btn.addEventListener("pointerup", function (e) {
+        if (!e || e.pointerType === "mouse") return;
+        if (e.button != null && e.button !== 0) return;
+        openDeep(e);
       });
     }
     try { bindSubDetailDeepEditorBtn_(); } catch (eBindDeep) {}
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", function () {
+        try { bindSubDetailDeepEditorBtn_(); } catch (e2) {}
+      });
+    }
 
     function renderSubDetailBasket() {
       var box = document.getElementById("subDetailBasket");
@@ -21077,6 +21094,7 @@
       var s = list[index];
       if (!s) return;
       switchTab("subDetailScreen");
+      try { bindSubDetailDeepEditorBtn_(); } catch (eBindOpen) {}
       var sheet = s.sheet || subsSegment || "ПП";
       document.getElementById("subDetailTitle").textContent = (s.nick || s.label || "Подписка") + " · " + sheet;
       document.getElementById("subDetailSheet").value = sheet;
@@ -21302,9 +21320,15 @@
       if (!s) return "";
       var m = s.match(/@([A-Za-z0-9._]{2,30})/);
       if (m) return m[1];
-      s = s.replace(/^@+/, "").trim();
-
-      if (/^[A-Za-z0-9._]{2,30}$/.test(s)) return s;
+      var bare = s.replace(/^@+/, "").trim();
+      if (/^[A-Za-z0-9._]{2,30}$/.test(bare) && /[A-Za-z]/.test(bare)) return bare;
+      // «ДАША dasha_2135» / «ДАША / dasha_2135» — handle не обязан быть всей строкой
+      var tokens = s.split(/[\s|/·•,()]+/).filter(Boolean);
+      var i;
+      for (i = 0; i < tokens.length; i++) {
+        var t = String(tokens[i] || "").replace(/^@+/, "");
+        if (/^[A-Za-z0-9._]{2,30}$/.test(t) && /[A-Za-z]/.test(t)) return t;
+      }
       return "";
     }
 
@@ -21314,28 +21338,33 @@
       return !!(na && nb && na === nb);
     }
 
+    function stripHandleFromText_(text, handle) {
+      var s = String(text || "");
+      var h = String(handle || "").trim();
+      if (!s || !h) return s.trim();
+      var re = new RegExp("@?" + h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig");
+      return s.replace(re, "").replace(/[\s()[\]·•|,/]+/g, " ").trim();
+    }
+
     function splitIgNickAndDisplay_(raw, extraLabel) {
       var s = String(raw || "").trim();
       var extra = String(extraLabel || "").trim();
       var ig = igHandleFromSubNick_(s) || igHandleFromSubNick_(extra);
       var display = "";
-      if (ig && s) {
-        var rest = s.replace("@" + ig, "").split(ig).join("").replace(/[\s()[\]·•|,/]+/g, " ").trim();
-        if (rest) display = rest;
-      }
-      if (extra && !(ig && nickKeysEqual_(extra, ig))) {
-        if (!igHandleFromSubNick_(extra) || !nickKeysEqual_(extra, ig || "")) {
-          display = display || extra;
-        }
+      if (ig) {
+        display = stripHandleFromText_(s, ig) || stripHandleFromText_(extra, ig);
+      } else if (extra && !nickKeysEqual_(extra, s)) {
+        display = extra;
+      } else if (s && /[А-Яа-яЁё]/.test(s)) {
+        display = s;
       }
       if (display && ig && nickKeysEqual_(display, ig)) display = "";
       var nick = ig || "";
       if (!nick) {
-        if (s && igHandleFromSubNick_(s)) nick = s;
-        else if (s && !display) {
+        if (s && !display) {
           if (/[A-Za-z0-9._]{2,}/.test(s) && !/[А-Яа-яЁё]/.test(s)) nick = s;
           else display = s;
-        } else if (s) {
+        } else if (s && !nickKeysEqual_(s, display)) {
           nick = s;
         }
       }
@@ -21345,8 +21374,9 @@
 
     function fillSubDetailNickNameFields_(src) {
       src = src || {};
-      var split = splitIgNickAndDisplay_(src.nick || "", src.label || src.displayName || "");
-      if (!split.nick && (src.nick || src.label)) split.nick = String(src.nick || src.label || "").trim();
+      var rawNick = String(src.nick || "").trim();
+      var rawLabel = String(src.label || src.displayName || "").trim();
+      var split = splitIgNickAndDisplay_(rawNick || rawLabel, rawLabel || rawNick);
       var nEl = document.getElementById("subDetailNick");
       var lEl = document.getElementById("subDetailLabel");
       if (nEl) nEl.value = split.nick || "";
