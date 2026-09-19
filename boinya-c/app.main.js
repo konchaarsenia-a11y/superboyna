@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115981";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115982";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -24739,65 +24739,100 @@
     }
     window.confirmEnrollDeferredToPp = confirmEnrollDeferredToPp;
 
+    var peopleCacheList_ = null;
+    var peopleCacheZones_ = null;
+
+    function paintPeopleList_(people, zones) {
+      var box = document.getElementById("peopleContainer");
+      if (!box) return;
+      if (Array.isArray(people)) peopleCacheList_ = people;
+      if (Array.isArray(zones) && zones.length) peopleCacheZones_ = zones;
+      var list = peopleCacheList_ || [];
+      var roles = ["manager", "cutter", "courier", "logistics", "owner", "denied"];
+      var zn = (peopleCacheZones_ && peopleCacheZones_.length) ? peopleCacheZones_ : [
+        "Europe/Minsk", "Europe/Moscow", "Europe/Kaliningrad", "Europe/Kiev",
+        "Europe/Warsaw", "Europe/Berlin", "Asia/Yekaterinburg", "Asia/Novosibirsk",
+        "Asia/Vladivostok", "UTC"
+      ];
+      var html = list.map(function (p) {
+        var curTz = p.timezone || "Europe/Minsk";
+        var optsR = roles.map(function (r) {
+          return '<option value="' + r + '"' + (p.role === r ? " selected" : "") + ">" + r + "</option>";
+        }).join("");
+        var optsTz = zn.map(function (z) {
+          return '<option value="' + z + '"' + (curTz === z ? " selected" : "") + ">" + z + "</option>";
+        }).join("");
+        if (zn.indexOf(curTz) < 0) {
+          optsTz = '<option value="' + escapeHtml(curTz) + '" selected>' + escapeHtml(curTz) + "</option>" + optsTz;
+        }
+        var tid = String(p.telegramId || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        return '<div class="card" data-access-tid="' + escapeHtml(String(p.telegramId || "")) + '" style="margin-bottom:8px;">' +
+          '<b>' + escapeHtml(p.name || p.telegramId) + '</b> <span class="muted">@' + escapeHtml(p.username || "") + ' · ' + escapeHtml(String(p.telegramId)) + '</span>' +
+          '<div class="muted" style="font-size:12px;">сейчас: ' + escapeHtml(p.role) + ' / ' + escapeHtml(p.status) + '</div>' +
+          '<div class="seg-row" style="margin-top:8px;">' +
+          '<select id="role_' + p.telegramId + '" style="flex:1;height:40px;border-radius:8px;background:#111;color:#fff;border:1px solid var(--border-color);">' + optsR + '</select>' +
+          '<button type="button" class="seg-btn" onclick="assignRole(\'' + tid + '\')">Роль</button>' +
+          '<button type="button" class="seg-btn" style="color:#ff453a;" onclick="revokeAccessUi_(\'' + tid + '\')">✕</button>' +
+          '</div>' +
+          '<div class="seg-row" style="margin-top:8px;">' +
+          '<select id="tz_' + p.telegramId + '" style="flex:1;height:40px;border-radius:8px;background:#111;color:#fff;border:1px solid var(--border-color);">' + optsTz + '</select>' +
+          '<button type="button" class="seg-btn" onclick="assignTimezone(\'' + tid + '\')">TZ</button>' +
+          '</div></div>';
+      }).join("") || '<p class="muted">Пока никого нет — пусть люди нажмут «Запросить доступ»</p>';
+      window._peopleCacheHtml = html;
+      window._peopleCacheAt = Date.now();
+      box.innerHTML = html;
+    }
+
+    function applyPeopleRoleLocal_(targetId, role) {
+      targetId = String(targetId || "").trim();
+      if (!targetId || !Array.isArray(peopleCacheList_)) return;
+      var st = role === "denied" ? "denied" : (role === "pending" ? "pending" : "active");
+      for (var i = 0; i < peopleCacheList_.length; i++) {
+        if (String(peopleCacheList_[i].telegramId) === targetId) {
+          peopleCacheList_[i] = Object.assign({}, peopleCacheList_[i], { role: role, status: st });
+          break;
+        }
+      }
+      paintPeopleList_(peopleCacheList_);
+    }
+
     async function loadPeople(opts) {
       opts = opts || {};
       var box = document.getElementById("peopleContainer");
+      if (!box) return;
+      if (opts.force) {
+        try { apiCacheBustMem_("listAccess"); } catch (eB) {}
+        if (!opts.keepPaint) window._peopleCacheHtml = "";
+      }
       if (opts.soft && window._peopleCacheHtml) {
         box.innerHTML = window._peopleCacheHtml;
         return;
       }
-      if (!opts.soft) box.innerHTML = '<p class="muted">Загрузка…</p>';
-      else if (!window._peopleCacheHtml) box.innerHTML = '<p class="muted">Загрузка…</p>';
+      if (!opts.keepPaint && !opts.soft) box.innerHTML = '<p class="muted">Загрузка…</p>';
+      else if (!opts.keepPaint && !window._peopleCacheHtml) box.innerHTML = '<p class="muted">Загрузка…</p>';
       try {
         var params = { action: "listAccess", telegramId: myTelegramId };
         if (!opts.soft) params._ = String(Date.now());
+        if (opts.force) params.force = "1";
         var res = await apiGet(params, {
           timeoutMs: opts.soft ? 15000 : 20000,
           retries: opts.soft ? 0 : 1,
           cacheTtlMs: opts.soft ? undefined : 0
         });
         if (!res || res.status !== "success") {
-          box.innerHTML = '<p class="muted">Только владелец. Задайте OWNER_TELEGRAM_IDS в Script Properties.</p>';
+          if (!opts.keepPaint) {
+            box.innerHTML = '<p class="muted">Только владелец. Задайте OWNER_TELEGRAM_IDS в Script Properties.</p>';
+          }
           return;
         }
-        var roles = ["manager", "cutter", "courier", "logistics", "owner", "denied"];
-        var zones = (res.timezones && res.timezones.length) ? res.timezones : [
-          "Europe/Minsk", "Europe/Moscow", "Europe/Kaliningrad", "Europe/Kiev",
-          "Europe/Warsaw", "Europe/Berlin", "Asia/Yekaterinburg", "Asia/Novosibirsk",
-          "Asia/Vladivostok", "UTC"
-        ];
-        var html = (res.people || []).map(function (p) {
-          var curTz = p.timezone || "Europe/Minsk";
-          var optsR = roles.map(function (r) {
-            return '<option value="' + r + '"' + (p.role === r ? " selected" : "") + ">" + r + "</option>";
-          }).join("");
-          var optsTz = zones.map(function (z) {
-            return '<option value="' + z + '"' + (curTz === z ? " selected" : "") + ">" + z + "</option>";
-          }).join("");
-          if (zones.indexOf(curTz) < 0) {
-            optsTz = '<option value="' + escapeHtml(curTz) + '" selected>' + escapeHtml(curTz) + "</option>" + optsTz;
-          }
-          var tid = String(p.telegramId || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-          return '<div class="card" style="margin-bottom:8px;">' +
-            '<b>' + escapeHtml(p.name || p.telegramId) + '</b> <span class="muted">@' + escapeHtml(p.username || "") + ' · ' + escapeHtml(String(p.telegramId)) + '</span>' +
-            '<div class="muted" style="font-size:12px;">сейчас: ' + escapeHtml(p.role) + ' / ' + escapeHtml(p.status) + '</div>' +
-            '<div class="seg-row" style="margin-top:8px;">' +
-            '<select id="role_' + p.telegramId + '" style="flex:1;height:40px;border-radius:8px;background:#111;color:#fff;border:1px solid var(--border-color);">' + optsR + '</select>' +
-            '<button type="button" class="seg-btn" onclick="assignRole(\'' + tid + '\')">Роль</button>' +
-            '</div>' +
-            '<div class="seg-row" style="margin-top:8px;">' +
-            '<select id="tz_' + p.telegramId + '" style="flex:1;height:40px;border-radius:8px;background:#111;color:#fff;border:1px solid var(--border-color);">' + optsTz + '</select>' +
-            '<button type="button" class="seg-btn" onclick="assignTimezone(\'' + tid + '\')">TZ</button>' +
-            '</div></div>';
-        }).join("") || '<p class="muted">Пока никого нет — пусть люди нажмут «Запросить доступ»</p>';
-        window._peopleCacheHtml = html;
-        window._peopleCacheAt = Date.now();
-        box.innerHTML = html;
+        paintPeopleList_(res.people || [], res.timezones);
       } catch (e) {
-        box.innerHTML = '<p class="muted">Ошибка</p>';
+        if (!opts.keepPaint) box.innerHTML = '<p class="muted">Ошибка</p>';
       }
     }
     window.loadPeople = loadPeople;
+    window.paintPeopleList_ = paintPeopleList_;
 
     var partnersCacheList_ = null;
     async function fetchPartnersList_(force) {
@@ -24808,7 +24843,10 @@
           all: "1",
           telegramId: myTelegramId
         };
-        if (force) params._ = String(Date.now());
+        if (force) {
+          params._ = String(Date.now());
+          params.force = "1";
+        }
         var res = await apiGet(params, {
           timeoutMs: 20000,
           retries: force ? 1 : 0,
@@ -24840,36 +24878,22 @@
       opts = opts || {};
       var box = document.getElementById("partnersContainer");
       if (!box) return;
+      if (opts.force) {
+        try { apiCacheBustMem_("listPartners"); } catch (eBf) {}
+        if (!opts.keepPaint) {
+          window._partnersUiHtml = "";
+          partnersCacheList_ = null;
+        }
+      }
       if (opts.soft && window._partnersUiHtml) {
         box.innerHTML = window._partnersUiHtml;
         return;
       }
-      if (!opts.soft || !window._partnersUiHtml) box.innerHTML = '<p class="muted">Загрузка…</p>';
-      var list = await fetchPartnersList_(!opts.soft);
-      if (!list.length) {
-        var empty = '<p class="muted">Пока пусто — добавьте первого партнёра выше</p>';
-        window._partnersUiHtml = empty;
-        box.innerHTML = empty;
-        return;
+      if ((!opts.soft || !window._partnersUiHtml) && !opts.keepPaint) {
+        box.innerHTML = '<p class="muted">Загрузка…</p>';
       }
-      var html = list.map(function (p) {
-        var idEsc = String(p.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-        var nameEsc = String(p.name || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-        return '<div class="card" style="margin-bottom:8px;padding:10px;">' +
-          '<b>' + escapeHtml(p.name) + '</b>' +
-          (p.active ? '' : ' <span class="muted">(выкл)</span>') +
-          (p.paysCost ? ' <span class="client-badge" style="background:rgba(48,209,88,0.25);color:#30d158;">платит себест</span>' : "") +
-          (p.note ? ('<div class="muted" style="font-size:12px;">' + escapeHtml(p.note) + "</div>") : "") +
-          '<div class="seg-row" style="margin-top:8px;flex-wrap:wrap;">' +
-          '<button type="button" class="seg-btn" onclick="editPartnerUi_(\'' + idEsc + '\')">Изменить</button>' +
-          '<button type="button" class="seg-btn" onclick="togglePartnerActive_(\'' + idEsc + '\',' + (p.active ? "false" : "true") + ')">' +
-          (p.active ? "Выключить" : "Включить") + "</button>" +
-          '<button type="button" class="seg-btn" style="color:#ff453a;" onclick="deletePartnerUi_(\'' + idEsc + '\',\'' + nameEsc + '\')">Удалить</button>' +
-          "</div></div>";
-      }).join("");
-      window._partnersUiHtml = html;
-      box.innerHTML = html;
-      try { ensurePpPartnerOptions_(); } catch (e2) {}
+      var list = await fetchPartnersList_(!opts.soft || !!opts.force);
+      paintPartnersList_(list);
     }
 
     function setPartnerEditMode_(on, partner) {
@@ -24922,54 +24946,115 @@
       setPartnerEditMode_(false, null);
     }
 
+    function paintPartnersList_(list) {
+      var box = document.getElementById("partnersContainer");
+      if (!box) return;
+      partnersCacheList_ = Array.isArray(list) ? list : (partnersCacheList_ || []);
+      if (!partnersCacheList_.length) {
+        var empty = '<p class="muted">Пока пусто — добавьте первого партнёра выше</p>';
+        window._partnersUiHtml = empty;
+        box.innerHTML = empty;
+        try { ensurePpPartnerOptions_(); } catch (e0) {}
+        return;
+      }
+      var html = partnersCacheList_.map(function (p) {
+        var idEsc = String(p.id || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        var nameEsc = String(p.name || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        return '<div class="card" data-partner-id="' + escapeHtml(String(p.id || "")) + '" style="margin-bottom:8px;padding:10px;">' +
+          '<b>' + escapeHtml(p.name) + '</b>' +
+          (p.active ? '' : ' <span class="muted">(выкл)</span>') +
+          (p.paysCost ? ' <span class="client-badge" style="background:rgba(48,209,88,0.25);color:#30d158;">платит себест</span>' : "") +
+          (p.note ? ('<div class="muted" style="font-size:12px;">' + escapeHtml(p.note) + "</div>") : "") +
+          '<div class="seg-row" style="margin-top:8px;flex-wrap:wrap;">' +
+          '<button type="button" class="seg-btn" onclick="editPartnerUi_(\'' + idEsc + '\')">Изменить</button>' +
+          '<button type="button" class="seg-btn" onclick="togglePartnerActive_(\'' + idEsc + '\',' + (p.active ? "false" : "true") + ')">' +
+          (p.active ? "Выключить" : "Включить") + "</button>" +
+          '<button type="button" class="seg-btn" style="color:#ff453a;" onclick="deletePartnerUi_(\'' + idEsc + '\',\'' + nameEsc + '\')">Удалить</button>' +
+          "</div></div>";
+      }).join("");
+      window._partnersUiHtml = html;
+      box.innerHTML = html;
+      try { ensurePpPartnerOptions_(); } catch (e2) {}
+    }
+
     async function savePartnerFromUi() {
       var name = String((document.getElementById("partnerNameInput") || {}).value || "").trim();
       var note = String((document.getElementById("partnerNoteInput") || {}).value || "").trim();
       var editId = String((document.getElementById("partnerEditId") || {}).value || "").trim();
       var paysCost = !!(document.getElementById("partnerPaysCostInput") || {}).checked;
       if (!name) { showToast("Укажите имя партнёра"); return; }
-      try {
-        var body = {
-          action: "savePartner",
-          name: name,
-          note: note,
-          paysCost: paysCost ? "yes" : "no",
-          active: "yes",
-          telegramId: myTelegramId,
-          _: String(Date.now())
-        };
-        if (editId) body.id = editId;
+      var body = {
+        action: "savePartner",
+        name: name,
+        note: note,
+        paysCost: paysCost ? "yes" : "no",
+        active: "yes",
+        telegramId: myTelegramId,
+        force: "1",
+        _: String(Date.now())
+      };
+      if (editId) body.id = editId;
 
-        if (editId && partnersCacheList_) {
-          for (var i = 0; i < partnersCacheList_.length; i++) {
-            if (String(partnersCacheList_[i].id) === editId) {
-              body.active = partnersCacheList_[i].active === false ? "no" : "yes";
-              break;
-            }
+      if (editId && partnersCacheList_) {
+        for (var i = 0; i < partnersCacheList_.length; i++) {
+          if (String(partnersCacheList_[i].id) === editId) {
+            body.active = partnersCacheList_[i].active === false ? "no" : "yes";
+            break;
           }
         }
+      }
+      var optimisticId = editId || ("p_tmp_" + Date.now());
+      var next = (partnersCacheList_ || []).slice();
+      var hitIdx = -1;
+      for (var j = 0; j < next.length; j++) {
+        if ((editId && String(next[j].id) === editId) || String(next[j].name || "").toLowerCase() === name.toLowerCase()) {
+          hitIdx = j;
+          break;
+        }
+      }
+      var optimistic = {
+        id: optimisticId,
+        name: name,
+        note: note,
+        paysCost: paysCost,
+        active: body.active !== "no"
+      };
+      if (hitIdx >= 0) next[hitIdx] = Object.assign({}, next[hitIdx], optimistic, { id: next[hitIdx].id || optimisticId });
+      else next.push(optimistic);
+      paintPartnersList_(next);
+      setPartnerEditMode_(false, null);
+      try { apiCacheBustMem_("listPartners"); } catch (eB0) {}
+      try {
         var res = await apiGet(body, { timeoutMs: 20000, cacheTtlMs: 0 });
         if (!res || res.status !== "success") {
           showToast((res && res.message) || "Не сохранилось — Deploy Code.gs");
+          await loadPartnersUi_({ force: 1 });
           return;
         }
-        setPartnerEditMode_(false, null);
-        partnersCacheList_ = null;
-        window._partnersUiHtml = "";
+        if (Array.isArray(res.partners)) paintPartnersList_(res.partners);
+        else {
+          partnersCacheList_ = null;
+          window._partnersUiHtml = "";
+        }
         try { apiCacheBustMem_("listPartners"); } catch (eB) {}
-        await loadPartnersUi_({});
+        loadPartnersUi_({ force: 1, keepPaint: 1 });
         showToast(editId ? "Партнёр обновлён" : "Партнёр добавлен");
       } catch (e) {
         showToast("Ошибка сети / Deploy");
+        loadPartnersUi_({ force: 1 });
       }
     }
 
     async function togglePartnerActive_(id, makeActive) {
-      var list = await fetchPartnersList_(false);
+      var list = partnersCacheList_ || await fetchPartnersList_(false);
       var hit = (list || []).filter(function (p) { return p.id === id; })[0];
       if (!hit) return;
+      paintPartnersList_((list || []).map(function (p) {
+        return String(p.id) === String(id) ? Object.assign({}, p, { active: !!makeActive }) : p;
+      }));
+      try { apiCacheBustMem_("listPartners"); } catch (eB0) {}
       try {
-        await apiGet({
+        var resT = await apiGet({
           action: "savePartner",
           id: id,
           name: hit.name,
@@ -24977,33 +25062,46 @@
           paysCost: hit.paysCost ? "yes" : "no",
           active: makeActive ? "yes" : "no",
           telegramId: myTelegramId,
+          force: "1",
           _: String(Date.now())
         }, { timeoutMs: 15000, cacheTtlMs: 0 });
-        partnersCacheList_ = null;
-        window._partnersUiHtml = "";
+        if (resT && Array.isArray(resT.partners)) paintPartnersList_(resT.partners);
         try { apiCacheBustMem_("listPartners"); } catch (eB) {}
-        await loadPartnersUi_({});
+        loadPartnersUi_({ force: 1, keepPaint: 1 });
       } catch (e) { showToast("Не обновилось"); }
     }
 
     async function deletePartnerUi_(id, name) {
       var ok = await uiConfirmAsync("Убрать партнёра «" + name + "» из списка?");
       if (!ok) return;
+      var next = (partnersCacheList_ || []).filter(function (p) {
+        return String(p.id) !== String(id) && String(p.name || "").toLowerCase() !== String(name || "").toLowerCase();
+      });
+      paintPartnersList_(next);
+      var editId = String((document.getElementById("partnerEditId") || {}).value || "");
+      if (editId && editId === id) setPartnerEditMode_(false, null);
+      try { apiCacheBustMem_("listPartners"); } catch (eB0) {}
       try {
-        await apiGet({
+        var resD = await apiGet({
           action: "deletePartner",
           id: id,
           name: name,
           telegramId: myTelegramId,
+          force: "1",
           _: String(Date.now())
         }, { timeoutMs: 15000, cacheTtlMs: 0 });
-        var editId = String((document.getElementById("partnerEditId") || {}).value || "");
-        if (editId && editId === id) setPartnerEditMode_(false, null);
-        partnersCacheList_ = null;
-        window._partnersUiHtml = "";
+        if (!resD || resD.status !== "success") {
+          showToast((resD && resD.message) || "Не удалилось");
+          await loadPartnersUi_({ force: 1 });
+          return;
+        }
+        if (Array.isArray(resD.partners)) paintPartnersList_(resD.partners);
         try { apiCacheBustMem_("listPartners"); } catch (eB) {}
-        await loadPartnersUi_({});
-      } catch (e) { showToast("Не удалилось"); }
+        loadPartnersUi_({ force: 1, keepPaint: 1 });
+      } catch (e) {
+        showToast("Не удалилось");
+        loadPartnersUi_({ force: 1 });
+      }
     }
     window.savePartnerFromUi = savePartnerFromUi;
     window.editPartnerUi_ = editPartnerUi_;
@@ -25886,18 +25984,38 @@
       var role = sel ? sel.value : "denied";
       var tzEl = document.getElementById("tz_" + targetId);
       var tz = tzEl ? tzEl.value : "";
-      await apiPost({
-        action: "setAccessRole",
-        actorId: myTelegramId,
-        targetId: targetId,
-        role: role,
-        timezone: tz
-      });
-      showToast("Роль " + role);
-      window._peopleCacheHtml = "";
-      loadPeople();
+      applyPeopleRoleLocal_(targetId, role);
+      try { apiCacheBustMem_("listAccess"); } catch (eB0) {}
+      try {
+        var res = await apiPost({
+          action: "setAccessRole",
+          actorId: myTelegramId,
+          telegramId: myTelegramId,
+          targetId: targetId,
+          role: role,
+          timezone: tz
+        });
+        if (!res || res.status !== "success") {
+          showToast((res && (res.message || res.tip)) || "Не сохранилось");
+          await loadPeople({ force: 1 });
+          return;
+        }
+        if (Array.isArray(res.people)) paintPeopleList_(res.people);
+        showToast(role === "denied" ? "Доступ снят" : "Роль " + role);
+        loadPeople({ force: 1, keepPaint: 1 });
+      } catch (e) {
+        showToast("Ошибка сети / Deploy");
+        loadPeople({ force: 1 });
+      }
     }
     window.assignRole = assignRole;
+
+    async function revokeAccessUi_(targetId) {
+      var sel = document.getElementById("role_" + targetId);
+      if (sel) sel.value = "denied";
+      await assignRole(targetId);
+    }
+    window.revokeAccessUi_ = revokeAccessUi_;
 
     async function assignTimezone(targetId) {
       var tzEl = document.getElementById("tz_" + targetId);
@@ -25923,7 +26041,8 @@
         showToast("Не сохранилось — нужен Deploy Code.gs");
       }
       window._peopleCacheHtml = "";
-      loadPeople();
+      try { apiCacheBustMem_("listAccess"); } catch (eB) {}
+      loadPeople({ force: 1, keepPaint: 1 });
     }
     window.assignTimezone = assignTimezone;
 
