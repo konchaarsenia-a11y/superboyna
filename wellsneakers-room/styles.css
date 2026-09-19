@@ -223,9 +223,10 @@ body.page-home.is-nav .cats-anchor{
   border-style:solid;border-color:rgba(255,255,255,.28);
 }
 .perk summary{
+  position:relative;
   list-style:none;cursor:pointer;
   display:flex;align-items:center;gap:10px;
-  min-height:52px;padding:14px 44px 14px 16px;
+  min-height:52px;padding:14px 16px;
   border-radius:14px;
 }
 .perk summary::-webkit-details-marker{display:none}
@@ -235,7 +236,7 @@ body.page-home.is-nav .cats-anchor{
   outline:2px solid var(--cyan);outline-offset:2px;
 }
 .perk-hint{
-  position:absolute;right:12px;top:50%;transform:translateY(-50%);
+  margin-left:auto;flex:0 0 auto;
   width:18px;height:18px;border-radius:4px;
   display:inline-flex;align-items:center;justify-content:center;
   font-family:var(--display);font-size:16px;line-height:1;font-weight:400;
