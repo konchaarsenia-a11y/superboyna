@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115990";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115991";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -22973,8 +22973,8 @@
       if (!asEntered && sch === "RAW26") {
         sExact = capOfferSubToDisplayedRetail_(sExact, rExact);
       }
-      var rShow = clientMessagePriceText_(rExact, false);
-      var sShow = clientMessagePriceText_(sExact, asEntered);
+      var rShow = String(roundRub(rExact));
+      var sShow = String(roundRub(sExact));
       var msg = "Ваш состав на месяц получается\n\n" + blocks +
         "\n\nКоличество доставок в месяц - " + n;
       if (note) msg += "\n\n" + note;
@@ -22990,7 +22990,7 @@
       var note = String(clientNote || "").trim();
       var msg = "Давайте подытожим ваш заказ 📜\n\n" + blocks;
       if (note) msg += "\n\n" + note;
-      msg += "\n\nЦена за этот набор составит - " + clientMessagePriceText_(retailTotal, false) + " рублей";
+      msg += "\n\nЦена за этот набор составит - " + String(roundRub(retailTotal)) + " рублей";
       msg += "\n\nВсё подходит?)";
       return msg;
     }
