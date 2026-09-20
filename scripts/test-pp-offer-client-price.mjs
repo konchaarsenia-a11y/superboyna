@@ -162,8 +162,15 @@ assert(
   "API+UI expose cleanBeforeCap / cleanAfterCap"
 );
 assert(
-  /Чистыми до капа/.test(uiSrc) && /Чистыми после капа/.test(uiSrc),
-  "UI always labels both clean numbers"
+  /ppRetailCapFired_/.test(uiSrc) && /Чистыми <b>/.test(uiSrc) &&
+    /function renderPpCostBreakdownHtml_/.test(uiSrc) &&
+    /row\("Товар"/.test(uiSrc) && !/Товар до капа/.test(uiSrc),
+  "UI: Товар label; Чистыми pair only when cap fired"
+);
+assert(
+  /<td>Цена<\/td>/.test(uiSrc) && /<td>Фракции<\/td>/.test(uiSrc) && /<td>Товар<\/td>/.test(uiSrc) &&
+    !/<td>Пакеты<\/td>/.test(uiSrc),
+  "cap mini-table is Цена/Фракции/Товар, not packages"
 );
 assert(
   /PP_COST_BREAKDOWN_PIN/.test(gsSrc) && /PP_COST_BREAKDOWN_PIN/.test(wSrc) && /PP_COST_BREAKDOWN_PIN/.test(deploy),

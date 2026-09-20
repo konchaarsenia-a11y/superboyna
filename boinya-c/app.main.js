@@ -20693,7 +20693,8 @@
         capCutFrom: String(fact.capCutFrom || ""),
         cleanBeforeCap: Number(fact.cleanBeforeCap) || 0,
         cleanAfterCap: Number(fact.cleanAfterCap) || 0,
-        retailCapped: !!fact.retailCapped
+        retailCapped: !!fact.retailCapped,
+        uncappedFloor: !!fact.uncappedFloor
       };
       try {
         if (_ppCostBreakdownUnlocked) fillPpCostBreakdownPanels_();
@@ -20722,23 +20723,33 @@
           row("Цена", ppEconNum_(price));
         return core;
       }
-      core += row("Доставка 9×N", ppEconNum_(fact.deliveryByn) + " · N=" + nDel) +
+      core += row("Пакеты", ppEconNum_(fact.packagesByn)) +
+        row("Доставка 9×N", ppEconNum_(fact.deliveryByn) + " · N=" + nDel) +
         row("Розница строк", ppEconNum_(fact.retailGoods));
       function td(v) { return String(ppEconNum_(v)); }
       var table = "<table class=\"pp-econ-mini\"><thead><tr><th></th><th>до капа</th><th>после</th></tr></thead><tbody>" +
         "<tr><td>Цена</td><td>" + td(fact.factBeforeCap) + "</td><td><b>" + td(price) + "</b></td></tr>" +
         "<tr><td>Фракции</td><td>" + td(fact.fractionBeforeCap) + "</td><td><b>" + td(fact.fractionMarkup) + "</b></td></tr>" +
         "<tr><td>Товар</td><td>" + td(goods) + "</td><td><b>" + td(fact.goodsByn) + "</b></td></tr>" +
-        "<tr><td>Пакеты</td><td>" + td(fact.packagesBeforeCap) + "</td><td><b>" + td(fact.packagesByn) + "</b></td></tr>" +
-        "<tr><td>Чистыми</td><td>" + td(fact.cleanBeforeCap) + "</td><td><b>" + td(fact.cleanAfterCap) + "</b></td></tr>" +
         "</tbody></table>";
+      var cleanLine = "";
+      if (Math.abs(ppEconNum_(fact.cleanBeforeCap) - ppEconNum_(fact.cleanAfterCap)) >= 0.01) {
+        cleanLine = "<div>Чистыми <b>" + td(fact.cleanBeforeCap) + "</b> → <b>" + td(fact.cleanAfterCap) + "</b></div>";
+      }
       var cutFrom = String(fact.capCutFrom || "фракции");
+      var rg = ppEconNum_(fact.retailGoods);
+      var base = ppEconNum_(fact.retailCapBase);
+      var delivInBase = ppEconNum_(base - rg) >= 0.01;
+      var baseNote = delivInBase ? "розн.+9×N" : "розн.";
+      var ff = Number(fact.retailFreeFrom);
+      if (isFinite(ff) && ff >= 80) {
+        baseNote += delivInBase ? (", freeFrom≥" + ff) : (", ≥" + ff + " без 9×N");
+      }
       var foot = "срезал <b>−" + td(fact.capCutByn) + (cutFrom ? (" · " + cutFrom) : "") +
         "</b> · потолок <b>" + td(fact.retailCapAt) +
-        "</b> · база <b>" + td(fact.retailCapBase) + "</b> (розн.+9×N)";
-      var ff = Number(fact.retailFreeFrom);
-      if (isFinite(ff) && ff >= 80) foot += " · freeFrom≥" + ff;
-      return core + table + "<div class=\"pp-econ-cut\">" + foot + "</div>";
+        "</b> · база <b>" + td(fact.retailCapBase) + "</b> (" + baseNote + ")";
+      if (fact.uncappedFloor) foot += " · пол выше капа";
+      return core + table + cleanLine + "<div class=\"pp-econ-cut\">" + foot + "</div>";
     }
 
     function fillPpCostBreakdownPanels_() {
@@ -20828,7 +20839,7 @@
         delivery: d,
         packagesByn: p,
         fractionMarkup: f,
-        factCost: factAlloc,
+        factCost: Math.round((g + d + p + f) * 100) / 100,
         retailCapped: !!capped,
         retailCapAt: cap,
         uncappedFloor: uncappedFloor
