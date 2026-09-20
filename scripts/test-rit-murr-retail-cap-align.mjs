@@ -33,7 +33,7 @@ function extractFn(src, name) {
 const uiSrc = fs.readFileSync(path.join(root, "boinya-c/app.main.js"), "utf8");
 const wSrc = fs.readFileSync(path.join(root, "boinya-c/proxy/worker.js"), "utf8");
 
-assert(/v71115989/.test(uiSrc), "APP_VERSION v71115989");
+assert(/v71115990/.test(uiSrc), "APP_VERSION v71115990");
 assert(/function ppSheetPrice_/.test(uiSrc) && /function raw26ApiFactPrice_/.test(uiSrc), "UI ignores stale calcFactCost");
 assert(/function subscriptionNickKeys_/.test(wSrc) && /function sanitizeRaw26CalcFactCost_/.test(wSrc), "Worker nick aliases + sanitize calcFact");
 assert(
@@ -95,13 +95,17 @@ vm.runInContext(
     extractFn(uiSrc, "isRetailCrumbItem_"),
     extractFn(uiSrc, "retailLineCost"),
     extractFn(uiSrc, "calcRetailBasketTotal"),
+    extractFn(uiSrc, "ppOfferClientPrice_"),
+    extractFn(uiSrc, "statedTouchedFlag_"),
+    extractFn(uiSrc, "formatClientMessagePrice_"),
+    extractFn(uiSrc, "ppClientDisplayPrice_"),
+    extractFn(uiSrc, "clientMessagePriceText_"),
     extractFn(uiSrc, "money2_"),
     extractFn(uiSrc, "formatClientRub_"),
     extractFn(uiSrc, "capOfferSubToDisplayedRetail_"),
     extractFn(uiSrc, "composePpClientMessage"),
     extractFn(uiSrc, "ppSheetPrice_"),
-    extractFn(uiSrc, "raw26ApiFactPrice_"),
-    extractFn(uiSrc, "ppOfferClientPrice_")
+    extractFn(uiSrc, "raw26ApiFactPrice_")
   ].join("\n"),
   ctx
 );
@@ -192,21 +196,28 @@ assert(ctx.capOfferSubToDisplayedRetail_(157.5, 156.2) === 143.7, "clamp 157.50 
 assert(ctx.capOfferSubToDisplayedRetail_(158, 156) === 143.52, "integer 158 vs 156 → 143.52");
 
 const msgOk = ctx.composePpClientMessage(rit, 1, "", 171.2, 157.5, "RAW26");
-assert(/171\.20/.test(msgOk), "message shows 171.20 retail");
-assert(/157\.50/.test(msgOk), "message shows 157.50 sub");
+assert(/\b171\b/.test(msgOk), "client message retail Math.round(171.20)=171");
+assert(/\b158\b/.test(msgOk), "client message sub Math.round(157.50)=158");
+assert(!/157\.50/.test(msgOk), "client message must not show exact 157.50");
+assert(!/171\.20/.test(msgOk), "client message must not show exact 171.20");
 assert(!/\b156\b/.test(msgOk), "message must not show 156");
-assert(!/\b158\b/.test(msgOk), "message must not show 158");
+
+const msgManual = ctx.composePpClientMessage(rit, 1, "", 171.2, 157.5, "RAW26", { asEntered: true });
+assert(/157\.50/.test(msgManual), "manual stated 157.50 as entered");
+assert(/\b171\b/.test(msgManual), "retail still integer when stated is manual");
 
 const msgClamp = ctx.composePpClientMessage(rit, 1, "", 156.2, 157.5, "RAW26");
-assert(/143\.70/.test(msgClamp), "if R=156.20, displayed sub ≤ 143.70");
+assert(/\b144\b/.test(msgClamp), "if R=156.20, cap 143.70 then Math.round → 144");
 assert(!/157\.50/.test(msgClamp), "must not keep 157.50 above 0.92×156.20");
 
-const legacyKeep = ctx.composePpClientMessage(rit, 1, "", 171.2, 195, "LEGACY");
+const legacyKeep = ctx.composePpClientMessage(rit, 1, "", 171.2, 195, "LEGACY", { asEntered: true });
 assert(/195/.test(legacyKeep), "LEGACY stated not 92%-capped");
 
 assert(ctx.ppSheetPrice_({ statedCost: 157.5, factCost: 157.5, calcFactCost: 161.18 }) === 157.5, "ppSheetPrice ignores 161.18");
 assert(ctx.raw26ApiFactPrice_({ factCost: 157.5, clientPrice: 161.18, calcFactCost: 161.18 }) === 157.5, "API fact wins over stale clientPrice");
-assert(ctx.ppOfferClientPrice_("RAW26", 157.5, 157.5, false) === 157.5, "offer uses fact 157.50");
+assert(ctx.ppOfferClientPrice_("RAW26", 157.5, 157.5, false) === 157.5, "picker fact stays 157.50");
+assert(ctx.ppClientDisplayPrice_("RAW26", 157.5, 157.5, false) === 158, "display Math.round fact");
+assert(ctx.ppClientDisplayPrice_("RAW26", 157.5, 157.5, true) === 157.5, "display keeps touched stated");
 
 const rita = { nick: "РИТА", label: "РИТА", sheet: "ПП", subId: "24", scheme: "RAW26", factCost: 157.5, calcFactCost: 161.18 };
 const kafa = { nick: "kafetafreya", label: "kafetafreya", sheet: "ПП", subId: "24", scheme: "RAW26", factCost: 200 };
@@ -221,4 +232,4 @@ const rekey = { nick: "rit_murr", label: "РИТА", sheet: "ПП", subId: "24" 
 assert(wCtx.subscriptionMatch_(rekey, wCtx.normalizeMatchKey_("rit_murr"), "ПП", "") === true, "rekeyed nick rit_murr");
 assert(wCtx.subscriptionMatch_(rekey, wCtx.normalizeMatchKey_("РИТА"), "ПП", "") === true, "label РИТА still matches");
 
-console.log("ok rit_murr retail/cap align: R=171.20 sub=157.50; 156/158/161.18 explained");
+console.log("ok rit_murr retail/cap align: fact 157.50, client message 158; picker stays .xx");

@@ -20033,6 +20033,45 @@ function ppOfferClientPriceD1_(scheme, factCost, statedCost, statedTouched) {
   return 0;
 }
 
+/** Только текст клиенту. fact / cap / clientPrice не округляет. */
+function formatClientMessagePriceD1_(n, asEntered) {
+  const x = Number(n) || 0;
+  if (!isFinite(x) || x <= 0) return 0;
+  if (asEntered) {
+    if (Math.abs(x - Math.round(x)) < 0.001) return Math.round(x);
+    return Math.round(x * 100) / 100;
+  }
+  return Math.round(x);
+}
+
+function statedTouchedFlagD1_(v) {
+  return v === true || v === 1 || v === "1";
+}
+
+function ppClientDisplayPriceD1_(scheme, factCost, statedCost, statedTouched) {
+  const stated = Number(statedCost);
+  const sch = String(scheme || "").toUpperCase();
+  const touched = statedTouchedFlagD1_(statedTouched);
+  let asEntered = false;
+  if (sch !== "RAW26") {
+    asEntered = isFinite(stated) && stated > 0;
+  } else {
+    asEntered = touched && isFinite(stated) && stated > 0;
+  }
+  const picked = ppOfferClientPriceD1_(scheme, factCost, statedCost, touched);
+  return formatClientMessagePriceD1_(picked, asEntered);
+}
+
+function applyClientPricePlaceholdersD1_(text, price, asEntered) {
+  const shown = formatClientMessagePriceD1_(price, asEntered);
+  const txt = (!shown) ? "0"
+    : (Math.abs(shown - Math.round(shown)) < 0.001 ? String(Math.round(shown)) : Number(shown).toFixed(2));
+  return String(text || "")
+    .replace(/\{price\}/gi, txt)
+    .replace(/\{цена\}/gi, txt)
+    .replace(/%PRICE%/gi, txt);
+}
+
 function attachPpOfferClientPriceD1_(fact, statedCost, statedTouched) {
   fact = fact || {};
   const client = ppOfferClientPriceD1_(
@@ -20042,6 +20081,12 @@ function attachPpOfferClientPriceD1_(fact, statedCost, statedTouched) {
     statedTouched
   );
   fact.clientPrice = client;
+  fact.clientDisplayPrice = ppClientDisplayPriceD1_(
+    fact.scheme,
+    fact.factCost,
+    statedCost,
+    statedTouched
+  );
   // указанная (stated) не синхронится с фактом на refresh/calc
   if (statedCost != null && statedCost !== "") fact.statedCost = statedCost;
   fact.statedSynced = false;

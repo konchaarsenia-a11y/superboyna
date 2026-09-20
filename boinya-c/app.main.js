@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115989";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115990";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -20508,6 +20508,42 @@
       return 0;
     }
 
+    function statedTouchedFlag_(v) {
+      return v === true || v === 1 || v === "1";
+    }
+
+    /** Текст клиенту: Math.round(fact) или stated как ввёл владелец. fact/cap не трогает. */
+    function formatClientMessagePrice_(n, asEntered) {
+      var x = Number(n) || 0;
+      if (!isFinite(x) || x <= 0) return 0;
+      if (asEntered) {
+        if (Math.abs(x - Math.round(x)) < 0.001) return Math.round(x);
+        return Math.round(x * 100) / 100;
+      }
+      return Math.round(x);
+    }
+
+    function ppClientDisplayPrice_(scheme, factCost, statedCost, statedTouched) {
+      var stated = Number(statedCost);
+      var sch = String(scheme || "").toUpperCase();
+      var touched = statedTouchedFlag_(statedTouched);
+      var asEntered = false;
+      if (sch !== "RAW26") {
+        asEntered = isFinite(stated) && stated > 0;
+      } else {
+        asEntered = touched && isFinite(stated) && stated > 0;
+      }
+      var picked = ppOfferClientPrice_(scheme, factCost, statedCost, touched);
+      return formatClientMessagePrice_(picked, asEntered);
+    }
+
+    function clientMessagePriceText_(n, asEntered) {
+      var v = formatClientMessagePrice_(n, asEntered);
+      if (!v) return "0";
+      if (Math.abs(v - Math.round(v)) < 0.001) return String(Math.round(v));
+      return Number(v).toFixed(2);
+    }
+
     /** Карточка/оффер: stated/fact, никогда stale calcFactCost > fact (161.18). */
     function ppSheetPrice_(res) {
       res = res || {};
@@ -21838,7 +21874,11 @@
       } catch (eR) { retail = { total: 0 }; }
       if (!(subTotal > 0)) subTotal = Number(retail.total) || 0;
 
-      return composePpClientMessage(list, n, "", retail.total, subTotal, schMsg);
+      return composePpClientMessage(list, n, "", retail.total, subTotal, schMsg, {
+        statedTouched: _subDetailStatedTouched,
+        asEntered: statedTouchedFlag_(_subDetailStatedTouched) ||
+          (String(schMsg || "").toUpperCase() !== "RAW26" && isFinite(stated) && stated > 0)
+      });
     }
 
     async function openSubDetailClientMessage_() {
@@ -22921,20 +22961,26 @@
       return s;
     }
 
-    function composePpClientMessage(list, deliveriesN, clientNote, retailTotal, subTotal, scheme) {
+    function composePpClientMessage(list, deliveriesN, clientNote, retailTotal, subTotal, scheme, opts) {
+      opts = opts || {};
       var n = Math.max(1, Number(deliveriesN) || 1);
       var blocks = buildPriceCompositionForMessage(list);
       var note = String(clientNote || "").trim();
-      var rShow = money2_(retailTotal);
-      var sShow = String(scheme || "").toUpperCase() === "RAW26"
-        ? capOfferSubToDisplayedRetail_(subTotal, rShow)
-        : money2_(subTotal);
+      var sch = String(scheme || "").toUpperCase();
+      var asEntered = !!(opts.asEntered || opts.statedAsEntered || statedTouchedFlag_(opts.statedTouched));
+      var rExact = money2_(retailTotal);
+      var sExact = money2_(subTotal);
+      if (!asEntered && sch === "RAW26") {
+        sExact = capOfferSubToDisplayedRetail_(sExact, rExact);
+      }
+      var rShow = clientMessagePriceText_(rExact, false);
+      var sShow = clientMessagePriceText_(sExact, asEntered);
       var msg = "Ваш состав на месяц получается\n\n" + blocks +
         "\n\nКоличество доставок в месяц - " + n;
       if (note) msg += "\n\n" + note;
-      msg += "\n\nЦена за этот состав в розницу выходит - " + formatClientRub_(rShow) + " рублей";
+      msg += "\n\nЦена за этот состав в розницу выходит - " + rShow + " рублей";
       msg += "\n\nВ подписке с учётом доставок, поддержки 24/7 и партнёрской программы со скидками для наших клиентов\n" +
-        "стоимость выходит - " + formatClientRub_(sShow) + " рублей за месяц";
+        "стоимость выходит - " + sShow + " рублей за месяц";
       msg += "\n\nКак вам наше предложение?)\nГотовы продолжать😁";
       return msg;
     }
@@ -22944,7 +22990,7 @@
       var note = String(clientNote || "").trim();
       var msg = "Давайте подытожим ваш заказ 📜\n\n" + blocks;
       if (note) msg += "\n\n" + note;
-      msg += "\n\nЦена за этот набор составит - " + formatClientRub_(retailTotal) + " рублей";
+      msg += "\n\nЦена за этот набор составит - " + clientMessagePriceText_(retailTotal, false) + " рублей";
       msg += "\n\nВсё подходит?)";
       return msg;
     }
