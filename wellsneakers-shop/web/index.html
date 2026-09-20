@@ -2,13 +2,13 @@
 <html lang="ru">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>sneakerworld — кроссовки в Минске</title>
     <meta name="description" content="Кроссовки в Минске: самовывоз на Дзержинского 19 и доставка по Беларуси. Каталог sneakerworld." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=ux4" />
     <!-- favicon: keep identical on index.html + catalog.html -->
     <link rel="icon" href="favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
@@ -16,7 +16,6 @@
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
   </head>
   <body class="page-home">
-    <a class="skip-link" href="catalog.html">К каталогу</a>
     <div class="overscroll-toys" aria-hidden="true">
       <span class="toy t1"><img src="assets/h1.jpg" alt="" /></span>
       <span class="toy t2"><img src="assets/clean1.jpg" alt="" /></span>
@@ -49,7 +48,7 @@
             </div>
             <h2>sneakerworld</h2>
             <p class="hero-kicker">Кроссовки в Минске</p>
-            <p class="hero-place">пр-т Дзержинского 19 · +375 25 685-17-57</p>
+            <p class="hero-place"><a class="map-link" href="https://www.google.com/maps/search/?api=1&amp;query=%D0%BF%D1%80%D0%BE%D1%81%D0%BF%D0%B5%D0%BA%D1%82+%D0%94%D0%B7%D0%B5%D1%80%D0%B6%D0%B8%D0%BD%D1%81%D0%BA%D0%BE%D0%B3%D0%BE+19+%D0%9C%D0%B8%D0%BD%D1%81%D0%BA" target="_blank" rel="noopener">пр-т Дзержинского 19</a> · +375 25 685-17-57</p>
             <div class="hero-actions">
               <a class="btn-catalog" href="catalog.html">Каталог</a>
               <a class="btn btn-glow" href="catalog.html?sale=1">Скидки</a>
@@ -74,7 +73,7 @@
               Самовывоз
               <span class="perk-hint" aria-hidden="true"></span>
             </summary>
-            <p class="perk-more">пр-т Дзержинского 19, 2-й этаж. Ежедневно 11:00–21:00.</p>
+            <p class="perk-more"><a class="map-link" href="https://www.google.com/maps/search/?api=1&amp;query=%D0%BF%D1%80%D0%BE%D1%81%D0%BF%D0%B5%D0%BA%D1%82+%D0%94%D0%B7%D0%B5%D1%80%D0%B6%D0%B8%D0%BD%D1%81%D0%BA%D0%BE%D0%B3%D0%BE+19+%D0%9C%D0%B8%D0%BD%D1%81%D0%BA" target="_blank" rel="noopener">пр-т Дзержинского 19</a>, 2-й этаж. Ежедневно 11:00–21:00.</p>
           </details>
           <details class="perk" name="shop-perks">
             <summary>
@@ -124,7 +123,7 @@
           <div class="b">sneakerworld</div>
           <p class="s">
             <a class="phone" href="tel:+375256851757">+375 25 685-17-57</a><br />
-            пр-т Дзержинского 19, 2-й этаж<br />
+            <a class="map-link" href="https://www.google.com/maps/search/?api=1&amp;query=%D0%BF%D1%80%D0%BE%D1%81%D0%BF%D0%B5%D0%BA%D1%82+%D0%94%D0%B7%D0%B5%D1%80%D0%B6%D0%B8%D0%BD%D1%81%D0%BA%D0%BE%D0%B3%D0%BE+19+%D0%9C%D0%B8%D0%BD%D1%81%D0%BA" target="_blank" rel="noopener">пр-т Дзержинского 19, 2-й этаж</a><br />
             11:00–21:00
           </p>
         </div>
@@ -142,7 +141,7 @@
       (function () {
         var hero = document.querySelector('.hero');
         function onScroll() {
-          var y = window.scrollY || 0;
+          var y = Math.max(0, window.scrollY || document.documentElement.scrollTop || 0);
           var logoAt = hero ? Math.max(120, hero.offsetHeight * 0.42) : 140;
           document.body.classList.toggle('is-scrolled', y > logoAt);
         }
