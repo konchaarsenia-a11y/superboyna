@@ -20679,7 +20679,7 @@
         : "нет";
       return row("Сырьё", fact.rawCost) +
         row("Recover", fact.recoverByn) +
-        row("Товар до капа", fact.goodsBeforeCap) +
+        row("Товар", fact.goodsBeforeCap) +
         row("Фракции до / после", fact.fractionBeforeCap + " → " + fact.fractionMarkup) +
         row("Пакеты", fact.packagesByn) +
         row("Доставка 9×N", fact.deliveryByn + " · N=" + fact.deliveriesN) +
