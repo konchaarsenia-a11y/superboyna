@@ -1028,6 +1028,24 @@
       min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 0;
     }
     .muted { color: var(--text-muted); font-style: italic; }
+    .pp-econ-mini {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0 6px;
+      font-size: 12px;
+      font-style: normal;
+      font-variant-numeric: tabular-nums;
+    }
+    .pp-econ-mini th,
+    .pp-econ-mini td {
+      padding: 3px 6px;
+      text-align: right;
+      border-bottom: 1px solid #2c2c2e;
+    }
+    .pp-econ-mini th:first-child,
+    .pp-econ-mini td:first-child { text-align: left; color: var(--text-muted); }
+    .pp-econ-mini th { color: var(--text-muted); font-weight: 600; }
+    .pp-econ-cut { margin-top: 4px; font-style: normal; }
     .screen { display: none; }
     .screen.active { display: block; }
     .seg-row { display: flex; gap: 8px; }
