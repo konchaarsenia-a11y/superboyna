@@ -2,7 +2,7 @@
 <html lang="ru">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>sneakerworld — каталог</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -654,13 +654,41 @@
           window.scrollTo({ top: 0, behavior: preferInstantScroll() ? 'auto' : 'smooth' });
         });
       }
+      function openAllFilters() {
+        const drawer = document.getElementById('filtersDrawer')
+          || document.querySelector('[data-filter-drawer], .filter-drawer, .filters-drawer');
+        if (drawer) {
+          drawer.removeAttribute('hidden');
+          drawer.classList.add('open', 'on');
+          drawer.setAttribute('aria-hidden', 'false');
+          const drawerToggle = document.getElementById('toggleFilters')
+            || document.querySelector('[aria-controls="filtersDrawer"]');
+          if (drawerToggle) {
+            drawerToggle.setAttribute('aria-expanded', 'true');
+            drawerToggle.classList.add('on');
+          }
+          return;
+        }
+        ['brandsPanel', 'sizesPanel'].forEach((id) => {
+          const panel = document.getElementById(id);
+          if (panel) panel.removeAttribute('hidden');
+        });
+        ['toggleBrands', 'toggleSizes'].forEach((id) => {
+          const btn = document.getElementById(id);
+          if (!btn) return;
+          btn.setAttribute('aria-expanded', 'true');
+          btn.classList.add('on');
+        });
+      }
       if (filtersFab) {
         filtersFab.addEventListener('click', () => {
-          if (!filtersStack) {
+          openAllFilters();
+          const filtersTarget = document.getElementById('catalogFilters') || filtersStack;
+          if (!filtersTarget) {
             window.scrollTo({ top: 0, behavior: preferInstantScroll() ? 'auto' : 'smooth' });
             return;
           }
-          filtersStack.scrollIntoView({
+          filtersTarget.scrollIntoView({
             behavior: preferInstantScroll() ? 'auto' : 'smooth',
             block: 'start'
           });
