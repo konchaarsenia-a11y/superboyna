@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115985" as="script">
+  <link rel="preload" href="app.main.js?v=71115987" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115985";
+      var APP_VER = "v71115987";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -1028,6 +1028,24 @@
       min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 0;
     }
     .muted { color: var(--text-muted); font-style: italic; }
+    .pp-econ-mini {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0 6px;
+      font-size: 12px;
+      font-style: normal;
+      font-variant-numeric: tabular-nums;
+    }
+    .pp-econ-mini th,
+    .pp-econ-mini td {
+      padding: 3px 6px;
+      text-align: right;
+      border-bottom: 1px solid #2c2c2e;
+    }
+    .pp-econ-mini th:first-child,
+    .pp-econ-mini td:first-child { text-align: left; color: var(--text-muted); }
+    .pp-econ-mini th { color: var(--text-muted); font-weight: 600; }
+    .pp-econ-cut { margin-top: 4px; font-style: normal; }
     .screen { display: none; }
     .screen.active { display: block; }
     .seg-row { display: flex; gap: 8px; }
@@ -2866,7 +2884,7 @@
     <div class="modal-sheet" id="modalSheet"></div>
   </div>
   <div class="toast" id="appToast"></div>
-  <script src="courier-maps.js?v=71115985"></script>
-  <script src="app.main.js?v=71115985" defer></script>
+  <script src="courier-maps.js?v=71115987"></script>
+  <script src="app.main.js?v=71115987" defer></script>
 </body>
 </html>
