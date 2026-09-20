@@ -47,8 +47,9 @@ Staff headers (dev): `x-staff-role: admin|seller`.
 | Method | Path | Зачем |
 |--------|------|-------|
 | GET | `/api/health` | health + DB |
-| GET | `/api/catalog` | витрина: **модели** с цветами (`models[]`, размеры qty>0). Дефолтный порядок — `stockSizeCount` (число строк размеров с qty>0 по всем цветам, одинаковый EU в двух цветах считается дважды), затем бренд/имя. `?sort=name` — по алфавиту; без `sort` или `?sort=stock` — наличие. `?sale=1` — только уценка (`old_price_byn > price_byn`); `?gender=men` или `women` — точное поле `gender` (null не попадает; `total` 0 → «Нет моделей») |
-| GET | `/api/catalog/:id` | карточка модели по id/артикулу варианта |
+| GET | `/api/catalog` | витрина: **модели** с цветами (`models[]`, размеры qty>0). Дефолтный порядок — `stockSizeCount` (число строк размеров с qty>0 по всем цветам, одинаковый EU в двух цветах считается дважды), затем бренд/имя. `?sort=name` — по алфавиту; без `sort` или `?sort=stock` — наличие. `?sale=1` — только уценка (`old_price_byn > price_byn`); `?gender=men` или `women` — точное поле `gender` (null не попадает; `total` 0 → «Нет моделей»). Цвета несут `description` из полей бирки; `images[]` в списке пустой (см. деталь) |
+| GET | `/api/catalog/models/:modelKey` | **карточка модели** (PDP): colorways + `images[]` + `label`/`description`. `modelKey` URL-encoded (`nike%7Cair%20jordan%2011`) |
+| GET | `/api/catalog/:id` | то же по id/артикулу варианта или `modelKey` |
 | GET | `/api/brands` | бренды |
 | POST | `/api/orders` | заказ с сайта → списание (+ TG notify) |
 | GET | `/api/labels/:id?size=` | HTML бирка 58×58 + Code128 |

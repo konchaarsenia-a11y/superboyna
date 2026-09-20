@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=ux7" />
+    <link rel="stylesheet" href="styles.css?v=ux8" />
     <!-- favicon: keep identical on index.html + catalog.html -->
     <link rel="icon" href="favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
@@ -140,6 +140,33 @@
         <a class="btn-catalog" href="index.html">Главная</a>
         <button type="button" class="btn btn-top" id="backToTop">↑ Наверх</button>
         <a class="btn btn-rug" href="tel:+375256851757">Позвонить</a>
+      </div>
+    </div>
+
+    <div class="pdp" id="pdp" role="dialog" aria-modal="true" aria-labelledby="pdpName" aria-hidden="true">
+      <header class="pdp-bar">
+        <button type="button" class="pdp-back" id="pdpBack">← Каталог</button>
+        <div class="pdp-bar-title" id="pdpBrand"></div>
+      </header>
+      <div class="pdp-scroll" id="pdpScroll">
+        <div class="pdp-gallery">
+          <div class="pdp-track" id="pdpTrack"></div>
+          <div class="pdp-dots" id="pdpDots"></div>
+        </div>
+        <div class="pdp-body">
+          <h2 class="pdp-name" id="pdpName"></h2>
+          <div class="pdp-price" id="pdpPrice"></div>
+          <div class="pdp-meta" id="pdpMeta"></div>
+          <div class="pdp-kicker">Цвет</div>
+          <div class="colors" id="pdpColors"></div>
+          <div class="pdp-kicker">Размер</div>
+          <div class="sizes" id="pdpSizes"></div>
+          <div class="pdp-kicker" id="pdpDescKicker">Описание</div>
+          <div class="pdp-desc" id="pdpDesc"></div>
+        </div>
+      </div>
+      <div class="pdp-cta">
+        <button class="buy" type="button" id="pdpBuy">Заказать</button>
       </div>
     </div>
 
@@ -406,6 +433,294 @@
         modal.classList.remove('open'); modalBg.classList.remove('open');
       }
 
+      const pdpEl = document.getElementById('pdp');
+      const pdpTrack = document.getElementById('pdpTrack');
+      const pdpDots = document.getElementById('pdpDots');
+      const detailCache = new Map();
+      const pdp = {
+        open: false,
+        model: null,
+        colorIdx: 0,
+        picked: '',
+        scrollY: 0,
+        pushed: false,
+      };
+
+      function modelFromUrl() {
+        try {
+          const raw = new URLSearchParams(location.search).get('model') || '';
+          return raw ? decodeURIComponent(raw) : '';
+        } catch (e) {
+          return '';
+        }
+      }
+      function pidFromUrl() {
+        try {
+          return Number(new URLSearchParams(location.search).get('pid')) || 0;
+        } catch (e) {
+          return 0;
+        }
+      }
+      function catalogUrlWithModel(modelKey, productId) {
+        const url = new URL(location.href);
+        if (modelKey) url.searchParams.set('model', modelKey);
+        else url.searchParams.delete('model');
+        if (productId) url.searchParams.set('pid', String(productId));
+        else url.searchParams.delete('pid');
+        return url.pathname + url.search + url.hash;
+      }
+      function stripModelFromUrl() {
+        const next = catalogUrlWithModel('', 0);
+        if (next !== location.pathname + location.search + location.hash) {
+          history.replaceState(history.state && history.state.pdp ? null : history.state, '', next);
+        }
+      }
+      function mediaUrl(url) {
+        const u = String(url || '');
+        if (!u) return '';
+        if (/^https?:/i.test(u) || u.startsWith('data:')) return u;
+        const origin = API.replace(/\/api\/?$/, '');
+        return origin + (u.startsWith('/') ? u : '/' + u);
+      }
+      function pdpLetter(model) {
+        return String((model && (model.brand || model.name)) || '?').slice(0, 1).toUpperCase();
+      }
+      function variantImages(variant) {
+        return ((variant && variant.images) || []).map((img) => String(img && img.url || img || '').trim()).filter(Boolean);
+      }
+      function colorIdxForPid(model, pid) {
+        if (!pid) return -1;
+        return (model.colors || []).findIndex((c) => Number(c.productId) === Number(pid));
+      }
+      function mergeModel(detail) {
+        if (!detail || !detail.modelKey) return;
+        detailCache.set(detail.modelKey, detail);
+        const i = (window.__models || []).findIndex((m) => m.modelKey === detail.modelKey);
+        if (i >= 0) window.__models[i] = detail;
+      }
+      async function fetchModelDetail(model) {
+        const key = String(model && model.modelKey || '');
+        if (!key) return model;
+        if (detailCache.has(key)) return detailCache.get(key);
+        const data = await fetch(API + '/catalog/models/' + encodeURIComponent(key)).then((r) => r.json());
+        if (!data.ok || !data.model) throw new Error('not_found');
+        mergeModel(data.model);
+        return data.model;
+      }
+      function paintPdpGallery(model, variant) {
+        const letter = esc(pdpLetter(model));
+        const urls = variantImages(variant);
+        if (!urls.length) {
+          pdpTrack.innerHTML = `<div class="pdp-slide"><div class="pdp-letter" aria-hidden="true">${letter}</div></div>`;
+          pdpDots.innerHTML = '';
+          return;
+        }
+        pdpTrack.innerHTML = urls.map((url, i) =>
+          `<div class="pdp-slide"><img src="${esc(mediaUrl(url))}" alt="${esc(model.name)} ${i + 1}" /></div>`
+        ).join('');
+        pdpTrack.querySelectorAll('img').forEach((img) => {
+          img.addEventListener('error', () => {
+            const slide = img.closest('.pdp-slide');
+            if (slide) slide.innerHTML = `<div class="pdp-letter" aria-hidden="true">${letter}</div>`;
+          });
+        });
+        pdpDots.innerHTML = urls.map((_, i) =>
+          `<button type="button" class="pdp-dot ${i === 0 ? 'on' : ''}" data-slide="${i}" aria-label="Фото ${i + 1}"></button>`
+        ).join('');
+        pdpTrack.scrollLeft = 0;
+      }
+      function syncPdpDots() {
+        const slides = pdpTrack.querySelectorAll('.pdp-slide');
+        if (!slides.length) return;
+        const w = pdpTrack.clientWidth || 1;
+        const idx = Math.round(pdpTrack.scrollLeft / w);
+        pdpDots.querySelectorAll('.pdp-dot').forEach((dot, i) => {
+          dot.classList.toggle('on', i === idx);
+        });
+      }
+      function paintPdpVariant() {
+        const model = pdp.model;
+        if (!model) return;
+        const variant = selectedColor(model, pdp.colorIdx);
+        const n = (model.colors || []).length;
+        document.getElementById('pdpBrand').textContent = model.brand || 'sneakerworld';
+        document.getElementById('pdpName').textContent = model.name || '';
+        document.getElementById('pdpPrice').innerHTML = variant ? priceHtml(variant) : '';
+        document.getElementById('pdpMeta').textContent = variant
+          ? ((n > 1 ? colorCountLabel(n) + ' · ' : '') + 'арт. ' + variant.article)
+          : '';
+        document.getElementById('pdpColors').innerHTML = (model.colors || []).map((c, idx) =>
+          `<button class="color-chip ${idx === pdp.colorIdx ? 'on' : ''}" type="button" data-color-idx="${idx}" style="--swatch:${esc(swatchCss(c.color))}">
+            <span class="swatch" aria-hidden="true"></span>${esc(colorLabel(c))}
+          </button>`
+        ).join('');
+        const sizes = stockSizes(variant);
+        document.getElementById('pdpSizes').innerHTML = sizes.map((s) =>
+          `<button class="size ${String(s.size) === String(pdp.picked) ? 'on' : ''}" type="button" data-size="${esc(s.size)}">${esc(s.size)}</button>`
+        ).join('');
+        if (!sizes.some((s) => String(s.size) === String(pdp.picked))) {
+          pdp.picked = sizes[0] ? sizes[0].size : '';
+          document.getElementById('pdpSizes').querySelectorAll('.size').forEach((btn) => {
+            btn.classList.toggle('on', btn.dataset.size === String(pdp.picked));
+          });
+        }
+        const desc = String(variant && variant.description || '').trim();
+        const descEl = document.getElementById('pdpDesc');
+        const kicker = document.getElementById('pdpDescKicker');
+        descEl.textContent = desc;
+        descEl.hidden = !desc;
+        if (kicker) kicker.hidden = !desc;
+        paintPdpGallery(model, variant);
+      }
+      function pdpIsOpen() {
+        return !!(pdpEl && pdpEl.classList.contains('open'));
+      }
+      function showPdpShell() {
+        if (!pdpEl) return;
+        pdpEl.classList.add('open');
+        pdpEl.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('pdp-open');
+        document.documentElement.classList.add('pdp-open');
+        pdp.open = true;
+      }
+      function hidePdpShell() {
+        if (!pdpEl) return;
+        pdpEl.classList.remove('open');
+        pdpEl.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('pdp-open');
+        document.documentElement.classList.remove('pdp-open');
+        pdp.open = false;
+      }
+      function restoreCatalogScroll() {
+        const y = pdp.scrollY || 0;
+        requestAnimationFrame(() => {
+          window.scrollTo(0, y);
+          syncCatalogScrollChrome();
+        });
+      }
+      function closePdp({ fromPop } = {}) {
+        if (fromPop) {
+          hidePdpShell();
+          pdp.pushed = false;
+          restoreCatalogScroll();
+          return;
+        }
+        if (pdp.pushed) {
+          history.back();
+          return;
+        }
+        hidePdpShell();
+        stripModelFromUrl();
+        restoreCatalogScroll();
+      }
+      function openPdp(model, { colorIdx, productId, push } = {}) {
+        if (!model) {
+          showToast('Не удалось открыть карточку');
+          return;
+        }
+        if (isFiltersOpen()) closeFiltersPanel();
+        const wasOpen = pdpIsOpen();
+        if (!wasOpen) pdp.scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+        let idx = Number(colorIdx);
+        if (!Number.isFinite(idx) || idx < 0) idx = 0;
+        const byPid = colorIdxForPid(model, productId);
+        if (byPid >= 0) idx = byPid;
+        pdp.model = model;
+        pdp.colorIdx = idx;
+        const variant = selectedColor(model, pdp.colorIdx);
+        pdp.picked = (variant && variant.sizes && variant.sizes[0] && variant.sizes[0].size) || '';
+        paintPdpVariant();
+        const pid = variant && variant.productId;
+        const next = catalogUrlWithModel(model.modelKey, pid);
+        const urlAlready = modelFromUrl() === String(model.modelKey || '');
+        showPdpShell();
+        if (push === false) {
+          pdp.pushed = false;
+          if (next !== location.pathname + location.search + location.hash) {
+            history.replaceState({ pdp: true, scrollY: pdp.scrollY, model: model.modelKey }, '', next);
+          }
+        } else if (!wasOpen && !urlAlready) {
+          history.pushState({ pdp: true, scrollY: pdp.scrollY, model: model.modelKey }, '', next);
+          pdp.pushed = true;
+        } else if (next !== location.pathname + location.search + location.hash) {
+          history.replaceState({ pdp: true, scrollY: pdp.scrollY, model: model.modelKey }, '', next);
+        }
+        fetchModelDetail(model).then((detail) => {
+          if (!pdpIsOpen() || detail.modelKey !== pdp.model.modelKey) return;
+          const keepPid = selectedColor(pdp.model, pdp.colorIdx) && selectedColor(pdp.model, pdp.colorIdx).productId;
+          pdp.model = detail;
+          const nextIdx = colorIdxForPid(detail, keepPid);
+          if (nextIdx >= 0) pdp.colorIdx = nextIdx;
+          paintPdpVariant();
+        }).catch(() => { /* keep list payload */ });
+      }
+      function findModelByKey(key) {
+        const want = String(key || '');
+        return (window.__models || []).find((m) => m.modelKey === want) || detailCache.get(want) || null;
+      }
+      async function openPdpByKey(key, opts) {
+        const local = findModelByKey(key);
+        if (local) {
+          openPdp(local, opts);
+          return;
+        }
+        try {
+          const detail = await fetchModelDetail({ modelKey: key });
+          openPdp(detail, opts);
+        } catch (e) {
+          showToast('Модель не найдена');
+        }
+      }
+
+      pdpTrack.addEventListener('scroll', () => { syncPdpDots(); }, { passive: true });
+      pdpDots.addEventListener('click', (e) => {
+        const dot = e.target.closest('[data-slide]');
+        if (!dot) return;
+        const slides = pdpTrack.querySelectorAll('.pdp-slide');
+        const i = Number(dot.dataset.slide) || 0;
+        if (slides[i]) pdpTrack.scrollTo({ left: slides[i].offsetLeft, behavior: preferInstantScroll() ? 'auto' : 'smooth' });
+      });
+      document.getElementById('pdpColors').addEventListener('click', (e) => {
+        const chip = e.target.closest('[data-color-idx]');
+        if (!chip || !pdp.model) return;
+        pdp.colorIdx = Number(chip.dataset.colorIdx) || 0;
+        const variant = selectedColor(pdp.model, pdp.colorIdx);
+        pdp.picked = (variant && variant.sizes && variant.sizes[0] && variant.sizes[0].size) || '';
+        paintPdpVariant();
+        const next = catalogUrlWithModel(pdp.model.modelKey, variant && variant.productId);
+        history.replaceState({ pdp: true, scrollY: pdp.scrollY, model: pdp.model.modelKey }, '', next);
+      });
+      document.getElementById('pdpSizes').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-size]');
+        if (!btn) return;
+        pdp.picked = btn.dataset.size || '';
+        document.getElementById('pdpSizes').querySelectorAll('.size').forEach((el) => {
+          el.classList.toggle('on', el === btn);
+        });
+      });
+      document.getElementById('pdpBuy').addEventListener('click', () => {
+        if (!pdp.model) return;
+        openModal(pdp.model, { colorIdx: pdp.colorIdx, picked: pdp.picked });
+      });
+      document.getElementById('pdpBack').addEventListener('click', () => closePdp());
+      document.addEventListener('keydown', (e) => {
+        if (!pdpIsOpen() || modal.classList.contains('open')) return;
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        const dots = [...pdpDots.querySelectorAll('.pdp-dot')];
+        if (dots.length < 2) return;
+        const on = dots.findIndex((d) => d.classList.contains('on'));
+        const next = e.key === 'ArrowRight' ? Math.min(dots.length - 1, on + 1) : Math.max(0, on - 1);
+        if (dots[next]) dots[next].click();
+      });
+      window.addEventListener('popstate', () => {
+        const key = modelFromUrl();
+        if (key) {
+          openPdpByKey(key, { productId: pidFromUrl(), push: false });
+          return;
+        }
+        if (pdpIsOpen() || pdp.open) closePdp({ fromPop: true });
+      });
+
       function wireToggle(btnId, panelId) {
         const btn = document.getElementById(btnId);
         const panel = document.getElementById(panelId);
@@ -547,94 +862,18 @@
             const withSize = colors.findIndex(c => (c.sizes || []).some(s => String(s.size) === String(size)));
             if (withSize >= 0) colorIdx = withSize;
           }
-          const variant = colors[colorIdx] || colors[0];
           const balls = colors.map((c, idx) =>
             `<button class="color-ball ${idx===colorIdx?'on':''}" type="button" data-color-idx="${idx}" style="--swatch:${esc(swatchCss(c.color))}" aria-label="${esc(colorLabel(c))}"></button>`
           ).join('');
-          const chips = colors.map((c, idx) =>
-            `<button class="color-chip ${idx===colorIdx?'on':''}" type="button" data-color-idx="${idx}" style="--swatch:${esc(swatchCss(c.color))}">
-              <span class="swatch" aria-hidden="true"></span>${esc(colorLabel(c))}
-            </button>`
-          ).join('');
-          const sizes = ((variant && variant.sizes) || []).map(s =>
-            `<button class="size" type="button" data-size="${esc(s.size)}">${esc(s.size)}</button>`
-          ).join('');
           const letter = esc((m.brand || m.name || '?').slice(0, 1).toUpperCase());
-          const n = colors.length;
-          const articleLine = variant
-            ? (n > 1 ? colorCountLabel(n) + ' · арт. ' + variant.article : 'арт. ' + variant.article)
-            : '';
-          return `<article class="prod" data-i="${i}" data-color-idx="${colorIdx}">
+          return `<article class="prod" data-i="${i}" data-color-idx="${colorIdx}" data-model="${esc(m.modelKey || '')}">
             <div class="prod-placeholder" aria-hidden="true">${letter}</div>
             <div class="prod-body">
               <div class="title">${esc(m.name)}</div>
               <div class="color-balls">${balls}</div>
-              <div class="prod-detail">
-                <div class="subt">${esc(m.brand || '')}${articleLine ? ' · ' + esc(articleLine) : ''}</div>
-                <div class="colors">${chips}</div>
-                <div class="sizes">${sizes}</div>
-                <div class="row">
-                  <div class="price">${priceHtml(variant)}</div>
-                  <button class="buy" type="button">Заказать</button>
-                </div>
-              </div>
             </div>
           </article>`;
         }).join('');
-      }
-
-      function paintCardVariant(card, colorIdx) {
-        try {
-          const model = modelFromCard(card);
-          if (!model) return;
-          const variant = (model.colors || [])[colorIdx] || model.colors[0];
-          card.dataset.colorIdx = String(colorIdx);
-          card.querySelectorAll('.color-chip, .color-ball').forEach((b) => {
-            b.classList.toggle('on', Number(b.dataset.colorIdx) === colorIdx);
-          });
-          const sizesEl = card.querySelector('.sizes');
-          if (sizesEl) {
-            sizesEl.innerHTML = ((variant && variant.sizes) || []).map(s =>
-              `<button class="size" type="button" data-size="${esc(s.size)}">${esc(s.size)}</button>`
-            ).join('');
-          }
-          const priceEl = card.querySelector('.price');
-          if (priceEl) priceEl.innerHTML = priceHtml(variant);
-          const subt = card.querySelector('.subt');
-          if (subt && variant) {
-            const n = (model.colors || []).length;
-            subt.textContent = (model.brand || '') + ' · ' + (n > 1 ? colorCountLabel(n) + ' · арт. ' + variant.article : 'арт. ' + variant.article);
-          }
-          delete card.dataset.pickedSize;
-        } catch (e) { /* keep card as-is */ }
-      }
-
-      function toggleCard(card, open) {
-        const next = open === undefined ? !card.classList.contains('is-open') : !!open;
-        if (next) {
-          listEl.querySelectorAll('.prod.is-open').forEach((el) => {
-            if (el !== card) el.classList.remove('is-open');
-          });
-          card.classList.add('is-open');
-          try {
-            const focusEl = card.querySelector('.buy') || card.querySelector('.prod-detail') || card;
-            focusEl.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: preferInstantScroll() ? 'auto' : 'smooth' });
-          } catch (e) { /* ignore */ }
-        } else {
-          card.classList.remove('is-open');
-        }
-      }
-
-      function openOrderFromCard(card) {
-        const model = modelFromCard(card);
-        if (!model) {
-          showToast('Не удалось открыть карточку');
-          return;
-        }
-        const colorIdx = Number(card.dataset.colorIdx) || 0;
-        const variant = (model.colors || [])[colorIdx] || (model.colors || [])[0];
-        const picked = card.dataset.pickedSize || (variant && variant.sizes && variant.sizes[0] && variant.sizes[0].size);
-        openModal(model, { colorIdx: colorIdx, picked: picked });
       }
 
       listEl.addEventListener('click', (e) => {
@@ -646,23 +885,10 @@
             showToast('Не удалось открыть карточку');
             return;
           }
-          const chip = e.target.closest('.color-chip, .color-ball');
-          if (chip) {
-            paintCardVariant(card, Number(chip.dataset.colorIdx) || 0);
-            return;
-          }
-          if (e.target.closest('.size')) {
-            const sizeBtn = e.target.closest('.size');
-            card.querySelectorAll('.size').forEach(b => b.classList.toggle('on', b === sizeBtn));
-            card.dataset.pickedSize = sizeBtn.dataset.size;
-            return;
-          }
-          if (e.target.closest('.buy')) {
-            openOrderFromCard(card);
-            return;
-          }
-          toggleCard(card);
-        } catch (e) {
+          const ball = e.target.closest('.color-ball');
+          const colorIdx = ball ? (Number(ball.dataset.colorIdx) || 0) : (Number(card.dataset.colorIdx) || 0);
+          openPdp(model, { colorIdx: colorIdx });
+        } catch (err) {
           showToast('Не удалось открыть карточку');
         }
       });
@@ -702,6 +928,14 @@
           'Номер заказа: ' + data.order.order_number + '. Менеджер свяжется с вами.';
         showToast('Заказ ' + data.order.order_number);
         await loadCatalog();
+        if (pdpIsOpen() && pdp.model) {
+          detailCache.delete(pdp.model.modelKey);
+          fetchModelDetail(pdp.model).then((detail) => {
+            if (!pdpIsOpen()) return;
+            pdp.model = detail;
+            paintPdpVariant();
+          }).catch(() => {});
+        }
       };
 
       const SCROLL_CHROME_AT = 240;
@@ -816,7 +1050,16 @@
       if (filtersClose) filtersClose.addEventListener('click', closeFiltersPanel);
       if (filtersBackdrop) filtersBackdrop.addEventListener('click', closeFiltersPanel);
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && isFiltersOpen()) closeFiltersPanel();
+        if (e.key !== 'Escape') return;
+        if (modal.classList.contains('open')) {
+          closeModal();
+          return;
+        }
+        if (pdpIsOpen()) {
+          closePdp();
+          return;
+        }
+        if (isFiltersOpen()) closeFiltersPanel();
       });
 
       let qTimer = null;
@@ -838,6 +1081,8 @@
           if (!h.ok) throw new Error('health');
           await loadBrands();
           await loadCatalog();
+          const deep = modelFromUrl();
+          if (deep) await openPdpByKey(deep, { productId: pidFromUrl(), push: false });
         } catch (e) {
           countEl.textContent = '';
           emptyEl.textContent = 'Каталог недоступен. Попробуйте позже.';

@@ -8,6 +8,8 @@ import {
   resolveProductModel,
   parseCatalogSort,
   modelStockSizeCount,
+  composeProductDescription,
+  decodeModelParam,
 } from "./modelGroup.js";
 
 describe("parseModelAndColor — live OC names", () => {
@@ -365,5 +367,80 @@ describe("groupProductsIntoModels", () => {
       models.map((m) => m.brand + "|" + m.name),
       ["Adidas|BETA", "Nike|ALPHA", "Nike|ZETA"]
     );
+  });
+
+  it("passes images and a Russian description from label fields", () => {
+    const models = groupProductsIntoModels([
+      {
+        id: 31,
+        name: "DUNK LOW BLACK",
+        brand: "Nike",
+        article: "3100",
+        price_byn: 190,
+        active: true,
+        sizes: [{ size: "42", qty: 1 }],
+        images: [
+          { url: "/uploads/b.jpg", sort_order: 1 },
+          { url: "/uploads/a.jpg", sort_order: 0 },
+        ],
+        label_type: "Кроссовки (обувь повседневная)",
+        label_upper: "кожа",
+        label_lining: "текстиль 100%",
+        label_sole: "резина",
+        label_season: "весна осень",
+        label_width: "M",
+        label_country: "Вьетнам",
+        label_warranty: "Гарантийный срок 30 дней",
+      },
+    ]);
+    const colorway = models[0].colors[0];
+    assert.deepEqual(
+      colorway.images.map((img) => img.url),
+      ["/uploads/a.jpg", "/uploads/b.jpg"]
+    );
+    assert.equal(colorway.label.upper, "кожа");
+    assert.match(colorway.description, /Кроссовки \(обувь повседневная\)/);
+    assert.match(colorway.description, /Верх: кожа/);
+    assert.match(colorway.description, /Подкладка: текстиль 100%/);
+    assert.match(colorway.description, /Подошва: резина/);
+    assert.match(colorway.description, /Сезон: весна осень/);
+    assert.match(colorway.description, /Страна: Вьетнам/);
+    assert.match(colorway.description, /Гарантийный срок 30 дней/);
+    assert.equal(colorway.description.includes("Импортер"), false);
+  });
+
+  it("empty images and no label fields stay empty, not blocking", () => {
+    const models = groupProductsIntoModels([
+      {
+        id: 32,
+        name: "CAMPUS WHITE",
+        brand: "Adidas",
+        article: "3200",
+        price_byn: 100,
+        active: true,
+        sizes: [{ size: "41", qty: 1 }],
+      },
+    ]);
+    assert.deepEqual(models[0].colors[0].images, []);
+    assert.equal(models[0].colors[0].description, "");
+    assert.equal(models[0].colors[0].label, null);
+  });
+});
+
+describe("composeProductDescription / decodeModelParam", () => {
+  it("composes a readable block and skips empty rows", () => {
+    const text = composeProductDescription({
+      label_upper: "нубук",
+      label_lining: "",
+      label_sole: "ЭВА",
+      label_country: "Китай",
+    });
+    assert.equal(text, "Верх: нубук\nПодошва: ЭВА\nСтрана: Китай");
+  });
+
+  it("decodes percent-encoded model keys once", () => {
+    assert.equal(decodeModelParam("nike|air jordan 11"), "nike|air jordan 11");
+    assert.equal(decodeModelParam("nike%7Cair%20jordan%2011"), "nike|air jordan 11");
+    assert.equal(decodeModelParam(""), "");
   });
 });

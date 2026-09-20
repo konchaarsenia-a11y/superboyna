@@ -918,6 +918,69 @@ function inStockSizes(sizes, inStockOnly) {
     .filter((s) => (inStockOnly ? s.qty > 0 : true));
 }
 
+export function normalizeProductImages(images) {
+  if (!Array.isArray(images)) return [];
+  return images
+    .map((img, idx) => {
+      const url = String(typeof img === "string" ? img : img?.url || "").trim();
+      if (!url) return null;
+      return {
+        url,
+        sort_order: Number(typeof img === "object" ? img.sort_order : idx) || 0,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.sort_order - b.sort_order || a.url.localeCompare(b.url));
+}
+
+const LABEL_DESCRIPTION_FIELDS = [
+  ["type", "label_type", ""],
+  ["upper", "label_upper", "Верх"],
+  ["lining", "label_lining", "Подкладка"],
+  ["sole", "label_sole", "Подошва"],
+  ["season", "label_season", "Сезон"],
+  ["width", "label_width", "Полнота"],
+  ["country", "label_country", "Страна"],
+  ["warranty", "label_warranty", ""],
+];
+
+export function pickLabelFields(product) {
+  if (!product || typeof product !== "object") return null;
+  const label = {};
+  let any = false;
+  for (const [key, column] of LABEL_DESCRIPTION_FIELDS) {
+    const value = String(product[column] ?? product[key] ?? "").trim();
+    if (!value) continue;
+    label[key] = value;
+    any = true;
+  }
+  return any ? label : null;
+}
+
+/** Readable Russian block from label fields (no free-text description column). */
+export function composeProductDescription(productOrLabel) {
+  const label = pickLabelFields(productOrLabel);
+  if (!label) return "";
+  const lines = [];
+  for (const [key, , caption] of LABEL_DESCRIPTION_FIELDS) {
+    const value = String(label[key] || "").trim();
+    if (!value) continue;
+    lines.push(caption ? `${caption}: ${value}` : value);
+  }
+  return lines.join("\n");
+}
+
+export function decodeModelParam(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (!/%[0-9A-Fa-f]{2}/.test(raw)) return raw;
+  try {
+    return decodeURIComponent(raw.replace(/\+/g, " "));
+  } catch {
+    return raw;
+  }
+}
+
 /** Size rows with qty>0 across colorways. Same size in two colors counts twice. */
 export function modelStockSizeCount(model) {
   return (model?.colors || []).reduce((n, colorway) => {
@@ -983,6 +1046,7 @@ export function groupProductsIntoModels(products, { inStockOnly = true, sort = "
     }
     const card = map.get(meta.modelKey);
     if (!card.brand && meta.brand) card.brand = meta.brand;
+    const label = pickLabelFields(product);
     card.colors.push({
       color: meta.color,
       article: product.article || "",
@@ -991,6 +1055,9 @@ export function groupProductsIntoModels(products, { inStockOnly = true, sort = "
       old_price_byn: parseOldPriceByn(product.old_price_byn),
       onSale: isOnSale(product),
       sizes,
+      images: normalizeProductImages(product.images),
+      label,
+      description: composeProductDescription(label || product),
     });
   }
 
