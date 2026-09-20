@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=ux4" />
+    <link rel="stylesheet" href="styles.css?v=ux7" />
     <!-- favicon: keep identical on index.html + catalog.html -->
     <link rel="icon" href="favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
@@ -61,6 +61,7 @@
           <h3>Каталог</h3>
         </div>
 
+        <div id="filtersHome">
         <div class="collections-block" id="filtersStack">
           <div class="collection-chips" id="collectionRow" role="group" aria-label="Подборки">
             <button type="button" class="collection-chip" data-color="white" aria-pressed="false">
@@ -115,6 +116,7 @@
             <input class="street-drop" id="qFilter" placeholder="Поиск: модель или артикул" style="width:100%;transform:none;appearance:auto" />
           </div>
         </div>
+        </div>
 
         <div class="count-pill" id="catalogCount">Загрузка…</div>
         <div class="empty" id="catalogEmpty">Ничего не найдено. Сбросьте фильтр.</div>
@@ -122,9 +124,17 @@
       </section>
     </main>
 
-    <button type="button" class="filters-fab" id="filtersFab" aria-label="К подборкам и фильтрам">
+    <button type="button" class="filters-fab" id="filtersFab" aria-label="Фильтры" aria-expanded="false" aria-controls="filtersSide">
       <span class="filters-fab-ico" aria-hidden="true"><span></span><span></span><span></span></span>
     </button>
+    <div class="filters-backdrop" id="filtersBackdrop" hidden></div>
+    <aside class="filters-side" id="filtersSide" aria-hidden="true">
+      <div class="filters-side-head">
+        <h3>Фильтры</h3>
+        <button type="button" class="filters-side-close" id="filtersClose" aria-label="Закрыть фильтры">✕</button>
+      </div>
+      <div class="filters-side-body" id="filtersSideBody"></div>
+    </aside>
     <div class="dock" id="catalogDock">
       <div class="dock-inner">
         <a class="btn-catalog" href="index.html">Главная</a>
@@ -189,17 +199,22 @@
       let gender = '';
       let color = '';
       let brands = [];
-      const modelByKey = new Map();
-      function cardKey(m, i) {
-        return String(m.modelKey || m.model_key || m.key || ('idx-' + i));
+      window.__models = [];
+      function stockSizes(variant) {
+        return ((variant && variant.sizes) || []).filter((s) => Number(s.qty) > 0);
+      }
+      function slimModel(m) {
+        const colors = (m.colors || []).reduce((acc, c) => {
+          const sizes = stockSizes(c);
+          if (sizes.length) acc.push(Object.assign({}, c, { sizes: sizes }));
+          return acc;
+        }, []);
+        return Object.assign({}, m, { colors: colors });
       }
       function modelFromCard(card) {
-        try {
-          const key = card && card.getAttribute('data-key');
-          return key ? (modelByKey.get(key) || null) : null;
-        } catch (e) {
-          return null;
-        }
+        const i = Number(card && card.getAttribute('data-i'));
+        if (!Number.isFinite(i) || i < 0) return null;
+        return (window.__models && window.__models[i]) || null;
       }
       const SIZE_OPTS = ['36','37','38','39','40','41','42','43','44','45','46'];
       const SWATCH = {
@@ -398,15 +413,14 @@
           e.preventDefault();
           e.stopPropagation();
           const open = panel.hasAttribute('hidden');
-          document.querySelectorAll('.filter-panel').forEach(p => p.setAttribute('hidden', ''));
-          document.querySelectorAll('.filter-toggle').forEach(b => {
-            b.setAttribute('aria-expanded', 'false');
-            b.classList.remove('on');
-          });
           if (open) {
             panel.removeAttribute('hidden');
             btn.setAttribute('aria-expanded', 'true');
             btn.classList.add('on');
+          } else {
+            panel.setAttribute('hidden', '');
+            btn.setAttribute('aria-expanded', 'false');
+            btn.classList.remove('on');
           }
         });
       }
@@ -435,7 +449,6 @@
         if (!btn) return;
         brand = btn.dataset.brand || '';
         brandsLabel.textContent = btn.dataset.label || 'Все бренды';
-        document.getElementById('brandsPanel').hidden = true;
         renderBrandOpts();
         loadCatalog();
       });
@@ -444,7 +457,6 @@
         if (!btn) return;
         size = btn.dataset.size || '';
         sizesLabel.textContent = btn.dataset.label || 'Все размеры';
-        document.getElementById('sizesPanel').hidden = true;
         renderSizeOpts();
         loadCatalog();
       });
@@ -512,13 +524,13 @@
         } catch (e) { /* keep API default stock sort */ }
         const data = await fetch(API + '/catalog?' + params).then(r => r.json());
         // Keep API order (default: stockSizeCount desc). Do not re-sort client-side.
-        let models = data.models || [];
+        let models = (data.models || []).map(slimModel).filter((m) => (m.colors || []).length);
         if (color) models = models.filter((m) => modelMatchesColor(m, color));
         const total = models.length;
         countEl.textContent = catalogCountPrefix() + total + ' моделей';
         emptyEl.textContent = catalogEmptyText();
         emptyEl.classList.toggle('show', !models.length);
-        modelByKey.clear();
+        window.__models = models;
         listEl.innerHTML = models.map((m, i) => {
           const colors = m.colors || [];
           const q = qEl.value.trim().toLowerCase();
@@ -536,8 +548,11 @@
             if (withSize >= 0) colorIdx = withSize;
           }
           const variant = colors[colorIdx] || colors[0];
-          const chips = colors.map((c, i) =>
-            `<button class="color-chip ${i===colorIdx?'on':''}" type="button" data-color-idx="${i}" style="--swatch:${esc(swatchCss(c.color))}">
+          const balls = colors.map((c, idx) =>
+            `<button class="color-ball ${idx===colorIdx?'on':''}" type="button" data-color-idx="${idx}" style="--swatch:${esc(swatchCss(c.color))}" aria-label="${esc(colorLabel(c))}"></button>`
+          ).join('');
+          const chips = colors.map((c, idx) =>
+            `<button class="color-chip ${idx===colorIdx?'on':''}" type="button" data-color-idx="${idx}" style="--swatch:${esc(swatchCss(c.color))}">
               <span class="swatch" aria-hidden="true"></span>${esc(colorLabel(c))}
             </button>`
           ).join('');
@@ -545,23 +560,23 @@
             `<button class="size" type="button" data-size="${esc(s.size)}">${esc(s.size)}</button>`
           ).join('');
           const letter = esc((m.brand || m.name || '?').slice(0, 1).toUpperCase());
-          const key = cardKey(m, i);
-          modelByKey.set(key, m);
+          const n = colors.length;
           const articleLine = variant
-            ? (colors.length > 1 ? colorCountLabel(colors.length) + ' · арт. ' + variant.article : 'арт. ' + variant.article)
+            ? (n > 1 ? colorCountLabel(n) + ' · арт. ' + variant.article : 'арт. ' + variant.article)
             : '';
-          return `<article class="prod" data-key="${esc(key)}" data-color-idx="${colorIdx}">
+          return `<article class="prod" data-i="${i}" data-color-idx="${colorIdx}">
             <div class="prod-placeholder" aria-hidden="true">${letter}</div>
             <div class="prod-body">
-              <div>
-                <div class="title">${esc(m.name)}</div>
-                <div class="subt">${esc(m.brand || '')} · ${esc(articleLine)}</div>
-              </div>
-              <div class="colors">${chips}</div>
-              <div class="sizes">${sizes}</div>
-              <div class="row">
-                <div class="price">${priceHtml(variant)}</div>
-                <button class="buy" type="button">Заказать</button>
+              <div class="title">${esc(m.name)}</div>
+              <div class="color-balls">${balls}</div>
+              <div class="prod-detail">
+                <div class="subt">${esc(m.brand || '')}${articleLine ? ' · ' + esc(articleLine) : ''}</div>
+                <div class="colors">${chips}</div>
+                <div class="sizes">${sizes}</div>
+                <div class="row">
+                  <div class="price">${priceHtml(variant)}</div>
+                  <button class="buy" type="button">Заказать</button>
+                </div>
               </div>
             </div>
           </article>`;
@@ -574,11 +589,15 @@
           if (!model) return;
           const variant = (model.colors || [])[colorIdx] || model.colors[0];
           card.dataset.colorIdx = String(colorIdx);
-          card.querySelectorAll('.color-chip').forEach((b, i) => b.classList.toggle('on', i === colorIdx));
+          card.querySelectorAll('.color-chip, .color-ball').forEach((b) => {
+            b.classList.toggle('on', Number(b.dataset.colorIdx) === colorIdx);
+          });
           const sizesEl = card.querySelector('.sizes');
-          sizesEl.innerHTML = ((variant && variant.sizes) || []).map(s =>
-            `<button class="size" type="button" data-size="${esc(s.size)}">${esc(s.size)}</button>`
-          ).join('');
+          if (sizesEl) {
+            sizesEl.innerHTML = ((variant && variant.sizes) || []).map(s =>
+              `<button class="size" type="button" data-size="${esc(s.size)}">${esc(s.size)}</button>`
+            ).join('');
+          }
           const priceEl = card.querySelector('.price');
           if (priceEl) priceEl.innerHTML = priceHtml(variant);
           const subt = card.querySelector('.subt');
@@ -590,13 +609,44 @@
         } catch (e) { /* keep card as-is */ }
       }
 
+      function toggleCard(card, open) {
+        const next = open === undefined ? !card.classList.contains('is-open') : !!open;
+        if (next) {
+          listEl.querySelectorAll('.prod.is-open').forEach((el) => {
+            if (el !== card) el.classList.remove('is-open');
+          });
+          card.classList.add('is-open');
+          try {
+            const focusEl = card.querySelector('.buy') || card.querySelector('.prod-detail') || card;
+            focusEl.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: preferInstantScroll() ? 'auto' : 'smooth' });
+          } catch (e) { /* ignore */ }
+        } else {
+          card.classList.remove('is-open');
+        }
+      }
+
+      function openOrderFromCard(card) {
+        const model = modelFromCard(card);
+        if (!model) {
+          showToast('Не удалось открыть карточку');
+          return;
+        }
+        const colorIdx = Number(card.dataset.colorIdx) || 0;
+        const variant = (model.colors || [])[colorIdx] || (model.colors || [])[0];
+        const picked = card.dataset.pickedSize || (variant && variant.sizes && variant.sizes[0] && variant.sizes[0].size);
+        openModal(model, { colorIdx: colorIdx, picked: picked });
+      }
+
       listEl.addEventListener('click', (e) => {
         const card = e.target.closest('.prod');
         if (!card) return;
         try {
           const model = modelFromCard(card);
-          if (!model) return;
-          const chip = e.target.closest('.color-chip');
+          if (!model) {
+            showToast('Не удалось открыть карточку');
+            return;
+          }
+          const chip = e.target.closest('.color-chip, .color-ball');
           if (chip) {
             paintCardVariant(card, Number(chip.dataset.colorIdx) || 0);
             return;
@@ -607,10 +657,11 @@
             card.dataset.pickedSize = sizeBtn.dataset.size;
             return;
           }
-          const colorIdx = Number(card.dataset.colorIdx) || 0;
-          const variant = (model.colors || [])[colorIdx] || (model.colors || [])[0];
-          const picked = card.dataset.pickedSize || (variant && variant.sizes && variant.sizes[0] && variant.sizes[0].size);
-          openModal(model, { colorIdx, picked });
+          if (e.target.closest('.buy')) {
+            openOrderFromCard(card);
+            return;
+          }
+          toggleCard(card);
         } catch (e) {
           showToast('Не удалось открыть карточку');
         }
@@ -690,18 +741,83 @@
           toggleSizes.classList.add('on');
         }
       }
+      function isFiltersOpen() {
+        const side = document.getElementById('filtersSide');
+        return !!(side && side.classList.contains('open'));
+      }
+      function lockFiltersHomeHeight() {
+        const home = document.getElementById('filtersHome');
+        if (!home) return;
+        home.style.minHeight = home.getBoundingClientRect().height + 'px';
+      }
+      function unlockFiltersHomeHeight() {
+        const home = document.getElementById('filtersHome');
+        if (!home) return;
+        home.style.minHeight = '';
+      }
+      function openFiltersPanel() {
+        const home = document.getElementById('filtersHome');
+        const sideBody = document.getElementById('filtersSideBody');
+        const stack = document.getElementById('filtersStack');
+        const filters = document.getElementById('catalogFilters');
+        const side = document.getElementById('filtersSide');
+        const backdrop = document.getElementById('filtersBackdrop');
+        const y = window.scrollY || document.documentElement.scrollTop || 0;
+        lockFiltersHomeHeight();
+        if (sideBody && stack) sideBody.appendChild(stack);
+        if (sideBody && filters) sideBody.appendChild(filters);
+        openBothFilterPanels();
+        window.scrollTo(0, y);
+        if (side) {
+          side.classList.add('open');
+          side.setAttribute('aria-hidden', 'false');
+        }
+        if (backdrop) {
+          backdrop.hidden = false;
+          backdrop.classList.add('open');
+        }
+        document.documentElement.classList.add('filters-open');
+        document.body.classList.add('filters-open');
+        if (filtersFab) filtersFab.setAttribute('aria-expanded', 'true');
+        if (home) home.setAttribute('aria-hidden', 'true');
+      }
+      function closeFiltersPanel() {
+        const y = window.scrollY || document.documentElement.scrollTop || 0;
+        const home = document.getElementById('filtersHome');
+        const stack = document.getElementById('filtersStack');
+        const filters = document.getElementById('catalogFilters');
+        const side = document.getElementById('filtersSide');
+        const backdrop = document.getElementById('filtersBackdrop');
+        if (home && stack) home.appendChild(stack);
+        if (home && filters) home.appendChild(filters);
+        unlockFiltersHomeHeight();
+        window.scrollTo(0, y);
+        if (side) {
+          side.classList.remove('open');
+          side.setAttribute('aria-hidden', 'true');
+        }
+        if (backdrop) {
+          backdrop.classList.remove('open');
+          backdrop.hidden = true;
+        }
+        document.documentElement.classList.remove('filters-open');
+        document.body.classList.remove('filters-open');
+        if (filtersFab) filtersFab.setAttribute('aria-expanded', 'false');
+        if (home) home.removeAttribute('aria-hidden');
+      }
       if (filtersFab) {
         filtersFab.addEventListener('click', () => {
-          openBothFilterPanels();
-          const filters = document.getElementById('catalogFilters');
-          if (filters) {
-            filters.scrollIntoView({
-              behavior: preferInstantScroll() ? 'auto' : 'smooth',
-              block: 'start'
-            });
-          }
+          if (isFiltersOpen()) closeFiltersPanel();
+          else openFiltersPanel();
         });
       }
+      const filtersClose = document.getElementById('filtersClose');
+      const filtersBackdrop = document.getElementById('filtersBackdrop');
+      if (filtersClose) filtersClose.addEventListener('click', closeFiltersPanel);
+      if (filtersBackdrop) filtersBackdrop.addEventListener('click', closeFiltersPanel);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && isFiltersOpen()) closeFiltersPanel();
+      });
 
       let qTimer = null;
       qEl.addEventListener('input', () => {
