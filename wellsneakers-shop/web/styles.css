@@ -193,7 +193,7 @@ body:not(.page-home):not(.page-catalog) .top{position:sticky;transform:none;poin
 .btn-rug{background:var(--rug);border-color:transparent;color:#fff}
 .btn-glow{background:transparent;border-color:rgba(255,255,255,.22);color:var(--ink)}
 
-#perks{padding-top:16px;padding-bottom:10px}
+#perks{padding-top:22px;padding-bottom:10px}
 .perks{
   display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;
   align-items:start;
@@ -215,7 +215,7 @@ body:not(.page-home):not(.page-catalog) .top{position:sticky;transform:none;poin
   position:relative;
   list-style:none;cursor:pointer;
   display:flex;align-items:center;gap:8px;
-  min-height:48px;padding:12px 10px;
+  min-height:48px;padding:12px 10px 12px 4.6rem;
   border-radius:14px;
 }
 .perk summary::-webkit-details-marker{display:none}
@@ -252,16 +252,17 @@ body:not(.page-home):not(.page-catalog) .top{position:sticky;transform:none;poin
 }
 .perk[open] .perk-more{animation:perkIn .16s ease}
 .perk-sticker{
-  position:absolute;top:-8px;left:12px;right:auto;
-  padding:4px 8px;border-radius:6px;
-  font-family:var(--display);font-size:13px;letter-spacing:.05em;text-transform:uppercase;
-  background:#f5f2ec;color:#111;border:2px solid #111;
-  box-shadow:2px 2px 0 #111;
-  transform:rotate(6deg);
+  position:absolute;top:-6px;left:10px;right:auto;
+  padding:2px 6px;border-radius:5px;
+  font-family:var(--display);font-size:10px;letter-spacing:.04em;text-transform:uppercase;
+  line-height:1.1;
+  background:#f5f2ec;color:#111;border:1.5px solid #111;
+  box-shadow:1.5px 1.5px 0 #111;
+  transform:rotate(5deg);
   pointer-events:none;
 }
-.perk-sticker.red{background:var(--rug);color:#fff;border-color:#5a0a10;box-shadow:2px 2px 0 #5a0a10}
-.perk-sticker.cyan{background:var(--cyan);color:#062029;border-color:#0a4c5c;box-shadow:2px 2px 0 #0a4c5c}
+.perk-sticker.red{background:var(--rug);color:#fff;border-color:#5a0a10;box-shadow:1.5px 1.5px 0 #5a0a10}
+.perk-sticker.cyan{background:var(--cyan);color:#062029;border-color:#0a4c5c;box-shadow:1.5px 1.5px 0 #0a4c5c}
 
 section{padding:26px 0 6px}
 .head{margin-bottom:12px}
@@ -613,7 +614,7 @@ body.page-catalog.catalog-scrolled .filters-fab{display:inline-flex}
   .hero-actions{max-width:360px}
   .perks{grid-template-columns:repeat(3,1fr);gap:12px}
   .perk,.perk:nth-child(2),.perk:nth-child(3){transform:none}
-  .perk summary{min-height:52px;padding:14px 16px}
+  .perk summary{min-height:52px}
   .grid{grid-template-columns:1fr 1fr;gap:14px}
   .tile,.tile-body{min-height:230px}
   .picks{gap:16px}
