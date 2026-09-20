@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115986";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115987";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -20719,13 +20719,13 @@
         }
         core += row("Пакеты", ppEconNum_(fact.packagesByn)) +
           row("Доставка 9×N", ppEconNum_(fact.deliveryByn) + " · N=" + nDel) +
-          row("Розница строк", ppEconNum_(fact.retailGoods)) +
+          row("Розничная цена", ppEconNum_(fact.retailGoods)) +
           row("Цена", ppEconNum_(price));
         return core;
       }
       core += row("Пакеты", ppEconNum_(fact.packagesByn)) +
         row("Доставка 9×N", ppEconNum_(fact.deliveryByn) + " · N=" + nDel) +
-        row("Розница строк", ppEconNum_(fact.retailGoods));
+        row("Розничная цена", ppEconNum_(fact.retailGoods));
       function td(v) { return String(ppEconNum_(v)); }
       var table = "<table class=\"pp-econ-mini\"><thead><tr><th></th><th>до капа</th><th>после</th></tr></thead><tbody>" +
         "<tr><td>Цена</td><td>" + td(fact.factBeforeCap) + "</td><td><b>" + td(price) + "</b></td></tr>" +
