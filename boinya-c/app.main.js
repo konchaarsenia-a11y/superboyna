@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115983";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115985";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -20523,6 +20523,7 @@
     var PP_RAW26_RECOVER_PIECE = 0.50;
     var PP_RAW26_DELIVERY_PER = 9;
     var PP_RAW26_RETAIL_CAP = 0.92;
+    var PP_RAW26_RETAIL_FREE_FROM = 80;
     var STATS_DELIVERY_FUEL_PER = 4;
     var PP_LEGACY_COEF_DEFAULT = 2.3;
     var PP_LEGACY_FIXED = 11;
@@ -20683,13 +20684,21 @@
         row("Пакеты", fact.packagesByn) +
         row("Доставка 9×N", fact.deliveryByn + " · N=" + fact.deliveriesN) +
         row("Розница строк", fact.retailGoods) +
-        row("База капа (розн.+9×N)", fact.retailCapBase) +
+        row(
+          Number(fact.retailGoods) >= PP_RAW26_RETAIL_FREE_FROM
+            ? "База капа (розн., дост. с 80 бесплатна)"
+            : "База капа (розн.+9×N)",
+          fact.retailCapBase
+        ) +
         row("Потолок ×0.92", fact.retailCapAt) +
         row("Цена до капа", fact.factBeforeCap) +
         row("Цена после капа", fact.factAfterCap) +
         row("Чистыми до капа", fact.cleanBeforeCap) +
         row("Чистыми после капа", fact.cleanAfterCap) +
-        row("Кап срезал", cut);
+        row("Кап срезал", cut) +
+        (fact.uncappedFloor
+          ? row("Пол > капа", "пакеты и сырьё не режем · факт = пол+пакеты+9×N")
+          : "");
     }
 
     async function openPpCostBreakdown_() {
@@ -20743,7 +20752,8 @@
       var r = Number(retailGoods);
       if (!isFinite(r) || r <= 0) return 0;
       var n = Math.max(1, Number(deliveriesN) || 1);
-      return Math.round((r + PP_RAW26_DELIVERY_PER * n) * 100) / 100;
+      var extra = r < PP_RAW26_RETAIL_FREE_FROM ? PP_RAW26_DELIVERY_PER * n : 0;
+      return Math.round((r + extra) * 100) / 100;
     }
 
     function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
@@ -20767,25 +20777,10 @@
           var room = Math.max(0, Math.round((g - floor) * 100) / 100);
           var cutG = Math.min(room, excess);
           g = Math.round((g - cutG) * 100) / 100;
-          excess = Math.round((excess - cutG) * 100) / 100;
-        }
-        if (excess > 0 && p > 0) {
-          var cutP = Math.min(p, excess);
-          p = Math.round((p - cutP) * 100) / 100;
-          excess = Math.round((excess - cutP) * 100) / 100;
-        }
-        if (excess > 0 && d > 0) {
-          var cutD = Math.min(d, excess);
-          d = Math.round((d - cutD) * 100) / 100;
-          excess = Math.round((excess - cutD) * 100) / 100;
-        }
-        if (excess > 0 && g > 0) {
-          var cutG2 = Math.min(g, excess);
-          g = Math.round((g - cutG2) * 100) / 100;
         }
       }
       var factAlloc = Math.round((g + d + p + f) * 100) / 100;
-      if (capped && cap > 0 && factAlloc > cap) factAlloc = cap;
+      var uncappedFloor = !!(capped && cap > 0 && factAlloc > cap + 0.001);
       return {
         goods: g,
         delivery: d,
@@ -20793,7 +20788,8 @@
         fractionMarkup: f,
         factCost: factAlloc,
         retailCapped: !!capped,
-        retailCapAt: cap
+        retailCapAt: cap,
+        uncappedFloor: uncappedFloor
       };
     }
 
@@ -20923,7 +20919,8 @@
           capCutFrom: allocLocal.retailCapped ? "фракции" : "",
           cleanBeforeCap: raw26OfferCleanByn_(factBeforeLocal, costSum, recover, packsBefore, n),
           cleanAfterCap: raw26OfferCleanByn_(total, costSum, recover, packagesByn, n),
-          retailCapped: allocLocal.retailCapped
+          retailCapped: allocLocal.retailCapped,
+          uncappedFloor: !!allocLocal.uncappedFloor
         }, costSum);
       } else {
         total = Math.round((costSum * coef + 11 + 6 * n + packagesByn + fracTotal) * 100) / 100;
@@ -22486,7 +22483,8 @@
             capCutFrom: allocUi.retailCapped ? (allocUi.fractionMarkup < fracMark.total ? "фракции" : "товар") : "",
             cleanBeforeCap: cleanBefore,
             cleanAfterCap: cleanAfter,
-            retailCapped: allocUi.retailCapped
+            retailCapped: allocUi.retailCapped,
+            uncappedFloor: !!allocUi.uncappedFloor
           }, costSum);
         }
         if (canSeePpCostBreakdownBtn_()) {

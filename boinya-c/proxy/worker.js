@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-20 pp-raw26-convert-hard-cap-h1
+ * deploy-marker: 2026-09-20 pp-raw26-cap-frac-goods-only-h1
  * (prior: preserve-order-price-h1 / close-week-no-shift-h2 / orders-access-tab-h1 / fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
  */
 const CORS = {
@@ -19307,6 +19307,7 @@ const PP_RAW26_RECOVER_100_D1_ = 3.9;
 const PP_RAW26_RECOVER_PIECE_D1_ = 0.5;
 const PP_RAW26_DELIVERY_PER_D1_ = 9;
 const PP_RAW26_RETAIL_CAP_D1_ = 0.92;
+const PP_RAW26_RETAIL_FREE_FROM_D1_ = 80;
 const STATS_DELIVERY_FUEL_PER_D1_ = 4;
 const PP_LEGACY_COEF_DEFAULT_D1_ = 2.3;
 const PP_LEGACY_FIXED_D1_ = 11;
@@ -19680,6 +19681,10 @@ function recoverBynFromPpLinesD1_(lines) {
 }
 
 function retailGoodsFromCrumbItemD1_(map, it, val) {
+  const crumbRate = crumbKindRateD1_((it && (it.crumbKind || it.sub || it.name)) || "");
+  if (crumbRate > 0) {
+    return Math.round((val / 100) * crumbRate * 100) / 100;
+  }
   const sources = it && it.sources;
   if (sources && sources.length) {
     const ratios = it.ratio || [];
@@ -19775,10 +19780,19 @@ function raw26OfferCleanBynD1_(clientPrice, raw, recover, packagesByn, deliverie
   );
 }
 
+/** capBase = R>=80 ? R : R+9×N. R=0/нет → 0 (кап не применять). */
+function raw26RetailCapBaseD1_(retailGoods, deliveriesN) {
+  const r = Number(retailGoods);
+  if (!isFinite(r) || r <= 0) return 0;
+  const n = Math.max(1, Number(deliveriesN) || 1);
+  const extra = r < PP_RAW26_RETAIL_FREE_FROM_D1_ ? PP_RAW26_DELIVERY_PER_D1_ * n : 0;
+  return Math.round((r + extra) * 100) / 100;
+}
+
 function applyRaw26RetailCapAllocD1_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
   let g = Math.round((Number(goods) || 0) * 100) / 100;
-  let d = Math.round((Number(delivery) || 0) * 100) / 100;
-  let p = Math.round((Number(packagesByn) || 0) * 100) / 100;
+  const d = Math.round((Number(delivery) || 0) * 100) / 100;
+  const p = Math.round((Number(packagesByn) || 0) * 100) / 100;
   let f = Math.round((Number(fracMark) || 0) * 100) / 100;
   const cap = Math.round((Number(capAt) || 0) * 100) / 100;
   let floor = Math.round((Number(goodsFloor) || 0) * 100) / 100;
@@ -19796,25 +19810,10 @@ function applyRaw26RetailCapAllocD1_(goods, delivery, packagesByn, fracMark, cap
       const room = Math.max(0, Math.round((g - floor) * 100) / 100);
       const cutG = Math.min(room, excess);
       g = Math.round((g - cutG) * 100) / 100;
-      excess = Math.round((excess - cutG) * 100) / 100;
-    }
-    if (excess > 0 && p > 0) {
-      const cutP = Math.min(p, excess);
-      p = Math.round((p - cutP) * 100) / 100;
-      excess = Math.round((excess - cutP) * 100) / 100;
-    }
-    if (excess > 0 && d > 0) {
-      const cutD = Math.min(d, excess);
-      d = Math.round((d - cutD) * 100) / 100;
-      excess = Math.round((excess - cutD) * 100) / 100;
-    }
-    if (excess > 0 && g > 0) {
-      const cutG2 = Math.min(g, excess);
-      g = Math.round((g - cutG2) * 100) / 100;
     }
   }
-  let fact = Math.round((g + d + p + f) * 100) / 100;
-  if (capped && cap > 0 && fact > cap) fact = cap;
+  const fact = Math.round((g + d + p + f) * 100) / 100;
+  const uncappedFloor = !!(capped && cap > 0 && fact > cap + 0.001);
   return {
     goods: g,
     delivery: d,
@@ -19822,7 +19821,8 @@ function applyRaw26RetailCapAllocD1_(goods, delivery, packagesByn, fracMark, cap
     fractionMarkup: f,
     factCost: fact,
     retailCapped: !!capped,
-    retailCapAt: cap
+    retailCapAt: cap,
+    uncappedFloor: uncappedFloor
   };
 }
 
@@ -19861,10 +19861,10 @@ function computePpFactFromCostD1_(
       retailGoodsOpt != null && retailGoodsOpt !== ""
         ? Number(retailGoodsOpt)
         : 0;
-    let capAt = 0;
-    if (isFinite(retailGoods) && retailGoods > 0) {
-      capAt = Math.round((retailGoods + delivery) * PP_RAW26_RETAIL_CAP_D1_ * 100) / 100;
-    }
+    const retailCapBase = raw26RetailCapBaseD1_(retailGoods, n);
+    const capAt = retailCapBase > 0
+      ? Math.round(retailCapBase * PP_RAW26_RETAIL_CAP_D1_ * 100) / 100
+      : 0;
     const goodsFloor = Math.round((raw + recover) * 100) / 100;
     const alloc = applyRaw26RetailCapAllocD1_(
       goods,
@@ -19875,14 +19875,10 @@ function computePpFactFromCostD1_(
       goodsFloor
     );
     const factBefore = Math.round((goods + delivery + packagesByn + fracMark) * 100) / 100;
-    const retailCapBase =
-      isFinite(retailGoods) && retailGoods > 0
-        ? Math.round((retailGoods + delivery) * 100) / 100
-        : 0;
     const cutParts = [];
     if (alloc.fractionMarkup < fracMark - 0.001) cutParts.push("фракции");
     if (alloc.goods < goods - 0.001) cutParts.push("товар");
-    if (alloc.packagesByn < packagesByn - 0.001) cutParts.push("пакеты");
+    if (alloc.uncappedFloor) cutParts.push("пол");
     out = {
       scheme: "RAW26",
       factCost: alloc.factCost,
@@ -19894,8 +19890,11 @@ function computePpFactFromCostD1_(
       goodsBeforeCap: goods,
       retailGoods: isFinite(retailGoods) ? retailGoods : 0,
       retailCapBase: retailCapBase,
+      retailCapIncludesDelivery: isFinite(retailGoods) && retailGoods > 0 &&
+        retailGoods < PP_RAW26_RETAIL_FREE_FROM_D1_,
       retailCapped: alloc.retailCapped,
       retailCapAt: alloc.retailCapAt,
+      uncappedFloor: !!alloc.uncappedFloor,
       deliveryByn: alloc.delivery,
       packagesByn: alloc.packagesByn,
       packagesBeforeCap: packagesByn,
@@ -20306,11 +20305,11 @@ async function calcPriceRetailD1_(params, env, ctx) {
     if (!rname || rval <= 0) continue;
     let rc;
     if (isCrumbBasketItemD1_(rit) || String(rit.cat || "").toLowerCase() === "crumb") {
-      const crumbRate = crumbKindRateD1_(rit.crumbKind || rsub || rname);
-      if (crumbRate > 0) {
+      const crumbCost = retailGoodsFromCrumbItemD1_(map, rit, rval);
+      if (crumbCost > 0) {
         rc = {
-          cost: Math.round((rval / 100) * crumbRate * 100) / 100,
-          per: crumbRate,
+          cost: crumbCost,
+          per: rval ? Math.round((crumbCost / (rval / 100)) * 100) / 100 : 0,
           found: true
         };
       }

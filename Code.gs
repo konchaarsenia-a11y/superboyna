@@ -18278,7 +18278,18 @@ function handleCalcPrice(json, callback, fromPost) {
       var rsub = String(rit.sub || "").trim();
       var rval = Number(rit.val != null ? rit.val : rit.value) || 0;
       if (!rname || rval <= 0) continue;
-      var rc = retailLineCost_(rname, rsub, rval, rit.cat);
+      var rc = null;
+      if (isGramCrumbLineGs_(rit)) {
+        var crumbCost = retailGoodsFromCrumbItemGs_(rit, rval);
+        if (crumbCost > 0) {
+          rc = {
+            cost: crumbCost,
+            per: rval ? Math.round((crumbCost / (rval / 100)) * 100) / 100 : 0,
+            found: true
+          };
+        }
+      }
+      if (!rc) rc = retailLineCost_(rname, rsub, rval, rit.cat);
       rTotal += rc.cost;
       rLines.push({ name: rname, sub: rsub, val: rval, per100: rc.per, cost: rc.cost, found: rc.found });
     }
@@ -18468,10 +18479,11 @@ function packagesBynFromUCounts_(pc) {
  * LEGACY: сырьё×coef + 11 + 6×N + пакеты + фракции  (старые карточки без тега)
  * RAW26:  сырьё×coef + recover + 9×N + пакеты + фракции
  *   recover_100г=3.90 · recover_шт/пак=0.50 · coef по умолчанию 2.6
- *   финальный кап: retailCapBase = Σрозница_строк + 9×N (без пакетов/фракций);
- *   цена = min(полная, retailCapBase×0.92). Σстрок=0/нет → кап не применять.
- *   если кап сработал: сначала режем фракции, затем товар до raw+recover;
- *   пакеты — только после пола товара; 9×N не режем.
+ *   финальный кап: R = Σрозница (крошка = миксер 15/17/20 как вкладка Розница);
+ *   capBase = R>=80 ? R : R+9×N  (розница от 80 — доставка бесплатна, в базу капа не кладём);
+ *   режем только фракции, затем наценку товара до пола сырьё+recover;
+ *   пакеты, сырьё и 9×N не режем. Если пол+пакеты+доставка > 0.92×capBase —
+ *   fact остаётся на полу, флаг uncappedFloor.
  * Новые зачисления с 2026-08-31 → RAW26; старые без изменений, пока не migratePpToRaw26Scheme.
  * Календарь доставок / уже выставленные цены в доставках не трогаем.
  */
@@ -18481,6 +18493,7 @@ var PP_RAW26_RECOVER_100_ = 3.90;
 var PP_RAW26_RECOVER_PIECE_ = 0.50;
 var PP_RAW26_DELIVERY_PER_ = 9; // клиентский тариф; в getStats в затратах только STATS_DELIVERY_FUEL_PER_
 var PP_RAW26_RETAIL_CAP_ = 0.92;
+var PP_RAW26_RETAIL_FREE_FROM_ = 80; // розница ≥80 — доставка бесплатна, 9×N не в базе капа
 var PP_LEGACY_COEF_DEFAULT_ = 2.3;
 var PP_LEGACY_FIXED_ = 11;
 var PP_LEGACY_DELIVERY_PER_ = 6;
@@ -18614,6 +18627,10 @@ function recoverBynFromPpLines_(lines) {
 }
 
 function retailGoodsFromCrumbItemGs_(it, val) {
+  var crumbRate = crumbKindRateGs_(it && (it.crumbKind || it.sub || it.name));
+  if (crumbRate > 0) {
+    return Math.round((val / 100) * crumbRate * 100) / 100;
+  }
   var sources = it && it.sources;
   if (sources && sources.length) {
     var ratios = it.ratio || [];
@@ -18666,16 +18683,14 @@ function retailGoodsBynFromBasket_(basket) {
   return Math.round(sum * 100) / 100;
 }
 
-/**
- * @param {number} costSum сырьё
- * @param {Array} basket
- * @param {*} deliveriesN
- * @param {*} coefIn
- * @param {Object=} packCountsOpt
- * @param {string=} schemeOpt LEGACY|RAW26
- * @param {Array=} linesOpt линии с piece/val (для recover)
- * @param {number=} retailGoodsOpt Σ розницы строк; кап = 0.92×(это + 9×N), пакеты/фракции не в базе
- */
+/** capBase = R>=80 ? R : R+9×N. R=0/нет → 0 (кап не применять). */
+function raw26RetailCapBase_(retailGoods, deliveriesN) {
+  var r = Number(retailGoods);
+  if (!isFinite(r) || r <= 0) return 0;
+  var n = Math.max(1, Number(deliveriesN) || 1);
+  var extra = r < PP_RAW26_RETAIL_FREE_FROM_ ? PP_RAW26_DELIVERY_PER_ * n : 0;
+  return Math.round((r + extra) * 100) / 100;
+}
 /**
  * Чистые оффера RAW26 = цена клиенту − сырьё − recover − пакеты − топливо 4×N.
  * Совпадает с getStats при нарезчике ON (фракции и 5×N остаются в чистом).
@@ -18690,8 +18705,9 @@ function raw26OfferCleanByn_(clientPrice, raw, recover, packagesByn, deliveriesN
 }
 
 /**
- * RAW26: если полная > cap, режем сначала фракции, затем товар до raw+recover.
- * Пакеты и 9×N — только если иначе не уложиться в кап. Итог всегда ≤ cap.
+ * RAW26: если полная > cap, режем фракции, затем наценку товара до raw+recover.
+ * Пакеты, сырьё и 9×N не трогаем. Если после пола всё ещё > cap — fact = пол+пакеты+доставка,
+ * флаг uncappedFloor (не форсируем цену под кап).
  */
 function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
   var g = Math.round((Number(goods) || 0) * 100) / 100;
@@ -18714,25 +18730,10 @@ function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt
       var room = Math.max(0, Math.round((g - floor) * 100) / 100);
       var cutG = Math.min(room, excess);
       g = Math.round((g - cutG) * 100) / 100;
-      excess = Math.round((excess - cutG) * 100) / 100;
-    }
-    if (excess > 0 && p > 0) {
-      var cutP = Math.min(p, excess);
-      p = Math.round((p - cutP) * 100) / 100;
-      excess = Math.round((excess - cutP) * 100) / 100;
-    }
-    if (excess > 0 && d > 0) {
-      var cutD = Math.min(d, excess);
-      d = Math.round((d - cutD) * 100) / 100;
-      excess = Math.round((excess - cutD) * 100) / 100;
-    }
-    if (excess > 0 && g > 0) {
-      var cutG2 = Math.min(g, excess);
-      g = Math.round((g - cutG2) * 100) / 100;
     }
   }
   var fact = Math.round((g + d + p + f) * 100) / 100;
-  if (capped && cap > 0 && fact > cap) fact = cap;
+  var uncappedFloor = !!(capped && cap > 0 && fact > cap + 0.001);
   return {
     goods: g,
     delivery: d,
@@ -18740,10 +18741,21 @@ function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt
     fractionMarkup: f,
     factCost: fact,
     retailCapped: !!capped,
-    retailCapAt: cap
+    retailCapAt: cap,
+    uncappedFloor: uncappedFloor
   };
 }
 
+/**
+ * @param {number} costSum сырьё
+ * @param {Array} basket
+ * @param {*} deliveriesN
+ * @param {*} coefIn
+ * @param {Object=} packCountsOpt
+ * @param {string=} schemeOpt LEGACY|RAW26
+ * @param {Array=} linesOpt линии с piece/val (для recover)
+ * @param {number=} retailGoodsOpt Σ розницы строк; кап = 0.92×capBase
+ */
 function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCountsOpt, schemeOpt, linesOpt, retailGoodsOpt) {
   var scheme = normalizePpScheme_(schemeOpt) || "LEGACY";
   var n = Math.max(1, Number(deliveriesN) || 1);
@@ -18769,20 +18781,17 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
     var retailGoods = retailGoodsOpt != null && retailGoodsOpt !== ""
       ? Number(retailGoodsOpt)
       : retailGoodsBynFromBasket_(basket);
-    var capAt = 0;
-    if (isFinite(retailGoods) && retailGoods > 0) {
-      capAt = Math.round((retailGoods + delivery) * PP_RAW26_RETAIL_CAP_ * 100) / 100;
-    }
+    var retailCapBase = raw26RetailCapBase_(retailGoods, n);
+    var capAt = retailCapBase > 0
+      ? Math.round(retailCapBase * PP_RAW26_RETAIL_CAP_ * 100) / 100
+      : 0;
     var goodsFloor = Math.round((raw + recover) * 100) / 100;
     var alloc = applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor);
     var factBefore = Math.round((goods + delivery + packagesByn + fracMark) * 100) / 100;
-    var retailCapBase = (isFinite(retailGoods) && retailGoods > 0)
-      ? Math.round((retailGoods + delivery) * 100) / 100
-      : 0;
     var cutParts = [];
     if (alloc.fractionMarkup < fracMark - 0.001) cutParts.push("фракции");
     if (alloc.goods < goods - 0.001) cutParts.push("товар");
-    if (alloc.packagesByn < packagesByn - 0.001) cutParts.push("пакеты");
+    if (alloc.uncappedFloor) cutParts.push("пол");
     out = {
       scheme: "RAW26",
       factCost: alloc.factCost,
@@ -18794,8 +18803,11 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
       goodsBeforeCap: goods,
       retailGoods: isFinite(retailGoods) ? retailGoods : 0,
       retailCapBase: retailCapBase,
+      retailCapIncludesDelivery: isFinite(retailGoods) && retailGoods > 0 &&
+        retailGoods < PP_RAW26_RETAIL_FREE_FROM_,
       retailCapped: alloc.retailCapped,
       retailCapAt: alloc.retailCapAt,
+      uncappedFloor: !!alloc.uncappedFloor,
       deliveryByn: alloc.delivery,
       packagesByn: alloc.packagesByn,
       packagesBeforeCap: packagesByn,
