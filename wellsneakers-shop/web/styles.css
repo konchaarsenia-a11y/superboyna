@@ -294,6 +294,7 @@ section{padding:26px 0 6px}
   font-size:clamp(28px,5vw,40px);letter-spacing:.06em;text-transform:uppercase;font-weight:400;
 }
 .head p{margin:4px 0 0;color:var(--muted);font-size:14px}
+#filtersHome{overflow-anchor:none}
 .page-catalog .head{margin-bottom:8px}
 .page-catalog .head p{display:none}
 

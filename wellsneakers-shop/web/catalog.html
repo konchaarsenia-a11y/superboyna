@@ -744,6 +744,16 @@
         const side = document.getElementById('filtersSide');
         return !!(side && side.classList.contains('open'));
       }
+      function lockFiltersHomeHeight() {
+        const home = document.getElementById('filtersHome');
+        if (!home) return;
+        home.style.minHeight = home.getBoundingClientRect().height + 'px';
+      }
+      function unlockFiltersHomeHeight() {
+        const home = document.getElementById('filtersHome');
+        if (!home) return;
+        home.style.minHeight = '';
+      }
       function openFiltersPanel() {
         const home = document.getElementById('filtersHome');
         const sideBody = document.getElementById('filtersSideBody');
@@ -751,9 +761,12 @@
         const filters = document.getElementById('catalogFilters');
         const side = document.getElementById('filtersSide');
         const backdrop = document.getElementById('filtersBackdrop');
+        const y = window.scrollY || document.documentElement.scrollTop || 0;
+        lockFiltersHomeHeight();
         if (sideBody && stack) sideBody.appendChild(stack);
         if (sideBody && filters) sideBody.appendChild(filters);
         openBothFilterPanels();
+        window.scrollTo(0, y);
         if (side) {
           side.classList.add('open');
           side.setAttribute('aria-hidden', 'false');
@@ -768,6 +781,7 @@
         if (home) home.setAttribute('aria-hidden', 'true');
       }
       function closeFiltersPanel() {
+        const y = window.scrollY || document.documentElement.scrollTop || 0;
         const home = document.getElementById('filtersHome');
         const stack = document.getElementById('filtersStack');
         const filters = document.getElementById('catalogFilters');
@@ -775,6 +789,8 @@
         const backdrop = document.getElementById('filtersBackdrop');
         if (home && stack) home.appendChild(stack);
         if (home && filters) home.appendChild(filters);
+        unlockFiltersHomeHeight();
+        window.scrollTo(0, y);
         if (side) {
           side.classList.remove('open');
           side.setAttribute('aria-hidden', 'true');
