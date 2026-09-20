@@ -18468,10 +18468,11 @@ function packagesBynFromUCounts_(pc) {
  * LEGACY: сырьё×coef + 11 + 6×N + пакеты + фракции  (старые карточки без тега)
  * RAW26:  сырьё×coef + recover + 9×N + пакеты + фракции
  *   recover_100г=3.90 · recover_шт/пак=0.50 · coef по умолчанию 2.6
- *   финальный кап: retailCapBase = Σрозница_строк + 9×N (без пакетов/фракций);
- *   цена = min(полная, retailCapBase×0.92). Σстрок=0/нет → кап не применять.
+ *   финальный кап: R = Σрозница_строк (крошка = розница source);
+ *   capBase = R>=80 ? R : R+9×N  (розница от 80 — доставка бесплатна, в базу капа не кладём);
+ *   цена = min(полная, capBase×0.92). Σстрок=0/нет → кап не применять.
  *   если кап сработал: сначала режем фракции, затем товар до raw+recover;
- *   пакеты — только после пола товара; 9×N не режем.
+ *   пакеты / 9×N / ниже пола — только если иначе цена > капа.
  * Новые зачисления с 2026-08-31 → RAW26; старые без изменений, пока не migratePpToRaw26Scheme.
  * Календарь доставок / уже выставленные цены в доставках не трогаем.
  */
@@ -18481,6 +18482,7 @@ var PP_RAW26_RECOVER_100_ = 3.90;
 var PP_RAW26_RECOVER_PIECE_ = 0.50;
 var PP_RAW26_DELIVERY_PER_ = 9; // клиентский тариф; в getStats в затратах только STATS_DELIVERY_FUEL_PER_
 var PP_RAW26_RETAIL_CAP_ = 0.92;
+var PP_RAW26_RETAIL_FREE_FROM_ = 80; // розница ≥80 — доставка бесплатна, 9×N не в базе капа
 var PP_LEGACY_COEF_DEFAULT_ = 2.3;
 var PP_LEGACY_FIXED_ = 11;
 var PP_LEGACY_DELIVERY_PER_ = 6;
@@ -18666,16 +18668,14 @@ function retailGoodsBynFromBasket_(basket) {
   return Math.round(sum * 100) / 100;
 }
 
-/**
- * @param {number} costSum сырьё
- * @param {Array} basket
- * @param {*} deliveriesN
- * @param {*} coefIn
- * @param {Object=} packCountsOpt
- * @param {string=} schemeOpt LEGACY|RAW26
- * @param {Array=} linesOpt линии с piece/val (для recover)
- * @param {number=} retailGoodsOpt Σ розницы строк; кап = 0.92×(это + 9×N), пакеты/фракции не в базе
- */
+/** capBase = R>=80 ? R : R+9×N. R=0/нет → 0 (кап не применять). */
+function raw26RetailCapBase_(retailGoods, deliveriesN) {
+  var r = Number(retailGoods);
+  if (!isFinite(r) || r <= 0) return 0;
+  var n = Math.max(1, Number(deliveriesN) || 1);
+  var extra = r < PP_RAW26_RETAIL_FREE_FROM_ ? PP_RAW26_DELIVERY_PER_ * n : 0;
+  return Math.round((r + extra) * 100) / 100;
+}
 /**
  * Чистые оффера RAW26 = цена клиенту − сырьё − recover − пакеты − топливо 4×N.
  * Совпадает с getStats при нарезчике ON (фракции и 5×N остаются в чистом).
@@ -18744,6 +18744,16 @@ function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt
   };
 }
 
+/**
+ * @param {number} costSum сырьё
+ * @param {Array} basket
+ * @param {*} deliveriesN
+ * @param {*} coefIn
+ * @param {Object=} packCountsOpt
+ * @param {string=} schemeOpt LEGACY|RAW26
+ * @param {Array=} linesOpt линии с piece/val (для recover)
+ * @param {number=} retailGoodsOpt Σ розницы строк; кап = 0.92×capBase
+ */
 function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCountsOpt, schemeOpt, linesOpt, retailGoodsOpt) {
   var scheme = normalizePpScheme_(schemeOpt) || "LEGACY";
   var n = Math.max(1, Number(deliveriesN) || 1);
@@ -18769,16 +18779,13 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
     var retailGoods = retailGoodsOpt != null && retailGoodsOpt !== ""
       ? Number(retailGoodsOpt)
       : retailGoodsBynFromBasket_(basket);
-    var capAt = 0;
-    if (isFinite(retailGoods) && retailGoods > 0) {
-      capAt = Math.round((retailGoods + delivery) * PP_RAW26_RETAIL_CAP_ * 100) / 100;
-    }
+    var retailCapBase = raw26RetailCapBase_(retailGoods, n);
+    var capAt = retailCapBase > 0
+      ? Math.round(retailCapBase * PP_RAW26_RETAIL_CAP_ * 100) / 100
+      : 0;
     var goodsFloor = Math.round((raw + recover) * 100) / 100;
     var alloc = applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor);
     var factBefore = Math.round((goods + delivery + packagesByn + fracMark) * 100) / 100;
-    var retailCapBase = (isFinite(retailGoods) && retailGoods > 0)
-      ? Math.round((retailGoods + delivery) * 100) / 100
-      : 0;
     var cutParts = [];
     if (alloc.fractionMarkup < fracMark - 0.001) cutParts.push("фракции");
     if (alloc.goods < goods - 0.001) cutParts.push("товар");
@@ -18794,6 +18801,8 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
       goodsBeforeCap: goods,
       retailGoods: isFinite(retailGoods) ? retailGoods : 0,
       retailCapBase: retailCapBase,
+      retailCapIncludesDelivery: isFinite(retailGoods) && retailGoods > 0 &&
+        retailGoods < PP_RAW26_RETAIL_FREE_FROM_,
       retailCapped: alloc.retailCapped,
       retailCapAt: alloc.retailCapAt,
       deliveryByn: alloc.delivery,

@@ -68,6 +68,7 @@ const gsCtx = vm.createContext({
   PP_RAW26_RECOVER_PIECE_: 0.5,
   PP_RAW26_DELIVERY_PER_: 9,
   PP_RAW26_RETAIL_CAP_: 0.92,
+  PP_RAW26_RETAIL_FREE_FROM_: 80,
   STATS_DELIVERY_FUEL_PER_: 4,
   PP_LEGACY_COEF_DEFAULT_: 2.3,
   PP_LEGACY_FIXED_: 11,
@@ -88,6 +89,7 @@ vm.runInContext(
     extractFn(gsSrc, "ppOfferClientPrice_"),
     extractFn(gsSrc, "attachPpOfferClientPrice_"),
     extractFn(gsSrc, "raw26OfferCleanByn_"),
+    extractFn(gsSrc, "raw26RetailCapBase_"),
     extractFn(gsSrc, "applyRaw26RetailCapAlloc_"),
     extractFn(gsSrc, "computePpFactFromCost_")
   ].join("\n"),
@@ -146,8 +148,12 @@ assert(
   "UI has retail cap base + alloc + price helper"
 );
 assert(
-  /retailGoods \+ delivery/.test(gsSrc) && /retailGoods \+ delivery/.test(wSrc),
-  "GS+worker retail cap base includes delivery"
+  /function raw26RetailCapBase_/.test(gsSrc) && /function raw26RetailCapBaseD1_/.test(wSrc),
+  "GS+worker share free-from-80 retail cap base"
+);
+assert(
+  /PP_RAW26_RETAIL_FREE_FROM_/.test(gsSrc) && /PP_RAW26_RETAIL_FREE_FROM_D1_/.test(wSrc),
+  "free delivery threshold 80 switches +9×N in cap base"
 );
 assert(
   /cleanBeforeCap/.test(gsSrc) && /cleanAfterCap/.test(gsSrc) &&
@@ -277,7 +283,10 @@ assert(baranOldInnerOnly > 122, "до фикса кап только на тов
 const baranCap = gsCtx.computePpFactFromCost_(
   44.18, baranBasket, 1, 2.6, baranPacks, "RAW26", baranLines, 122
 );
-assert(baranCap.factCost === 120.52, "с_бараньим после капа 0.92×(122+9)=120.52, got " + baranCap.factCost);
+assert(baranCap.factCost === 112.24, "с_бараньим R=122≥80 → кап 0.92×122=112.24, got " + baranCap.factCost);
+assert(baranCap.retailCapBase === 122, "с_бараньим база без +9, got " + baranCap.retailCapBase);
+assert(baranCap.retailCapIncludesDelivery === false, "R>=80 → доставка не в базе капа");
+assert(baranCap.factCost !== 120.52, "#335 ошибочно клал +9 при R>=80 → 120.52");
 
 /* dasha_2135: товар 55, N=2 → база 73 → кап 67.16; excess с фракций */
 const dashaRaw = 21.53846154;
@@ -295,7 +304,8 @@ assert(dashaCap.factCost !== dashaOldGoodsOnly, "dasha не дробить до 
 assert(dashaCap.deliveryByn === 18, "кап не режет 9×N, got " + dashaCap.deliveryByn);
 assert(dashaCap.goodsBeforeCap > dashaCap.goodsByn || dashaCap.fractionBeforeCap >= dashaCap.fractionMarkup,
   "breakdown keeps pre-cap goods/fractions");
-assert(dashaCap.retailCapBase === 73, "retailCapBase 55+18=73, got " + dashaCap.retailCapBase);
+assert(dashaCap.retailCapBase === 73, "R=55<80 → retailCapBase 55+18=73, got " + dashaCap.retailCapBase);
+assert(dashaCap.retailCapIncludesDelivery === true, "R<80 → +9×N в базе капа");
 assert(dashaCap.capCutByn > 0, "capCutByn > 0");
 assert(Math.abs(dashaOpen.factCost - dashaCap.factBeforeCap) < 0.02, "factBeforeCap = черновик");
 assert(dashaCap.factAfterCap === 67.16, "factAfterCap = кап");
@@ -347,6 +357,7 @@ const wFactCtx = vm.createContext({
   PP_RAW26_RECOVER_PIECE_D1_: 0.5,
   PP_RAW26_DELIVERY_PER_D1_: 9,
   PP_RAW26_RETAIL_CAP_D1_: 0.92,
+  PP_RAW26_RETAIL_FREE_FROM_D1_: 80,
   STATS_DELIVERY_FUEL_PER_D1_: 4,
   PP_LEGACY_COEF_DEFAULT_D1_: 2.3,
   PP_LEGACY_FIXED_D1_: 11,
@@ -367,6 +378,7 @@ vm.runInContext(
     extractFn(wSrc, "ppOfferClientPriceD1_"),
     extractFn(wSrc, "attachPpOfferClientPriceD1_"),
     extractFn(wSrc, "raw26OfferCleanBynD1_"),
+    extractFn(wSrc, "raw26RetailCapBaseD1_"),
     extractFn(wSrc, "applyRaw26RetailCapAllocD1_"),
     extractFn(wSrc, "computePpFactFromCostD1_")
   ].join("\n"),
@@ -380,7 +392,8 @@ assert(wRit.factCost <= ritCapAt && wRit.fractionMarkup === 0, "worker Рит: �
 const wBaran = wFactCtx.computePpFactFromCostD1_(
   44.18, baranBasket, 1, 2.6, baranPacks, "RAW26", baranLines, 122
 );
-assert(wBaran.factCost === 120.52, "worker с_бараньим кап 120.52, got " + wBaran.factCost);
+assert(wBaran.factCost === 112.24, "worker с_бараньим R>=80 кап 112.24, got " + wBaran.factCost);
+assert(wBaran.retailCapBase === 122, "worker с_бараньим база 122 без +9");
 const wOpen = wFactCtx.computePpFactFromCostD1_(
   44.18, baranBasket, 1, 2.6, baranPacks, "RAW26", baranLines, 0
 );
@@ -401,6 +414,7 @@ const uiCapCtx = vm.createContext({
   isFinite: isFinite,
   PP_RAW26_RETAIL_CAP: 0.92,
   PP_RAW26_DELIVERY_PER: 9,
+  PP_RAW26_RETAIL_FREE_FROM: 80,
   STATS_DELIVERY_FUEL_PER: 4
 });
 vm.runInContext(
@@ -416,19 +430,23 @@ assert(uiCapCtx.capRaw26PriceToRetail_(126.29, 0, 1) === 126.29, "UI: розни
 assert(uiCapCtx.raw26RetailCapBase_(55, 2) === 73, "UI: dasha база 55+18=73");
 assert(uiCapCtx.capRaw26PriceToRetail_(74, 55, 2) === 67.16, "UI: dasha 74 → 67.16");
 assert(uiCapCtx.capRaw26PriceToRetail_(126.29, 35.2, 1) === 40.66, "UI: 126.29 → 40.66");
-assert(uiCapCtx.capRaw26PriceToRetail_(153.07, 122, 1) === 120.52, "UI: 153.07 → 120.52");
+assert(uiCapCtx.raw26RetailCapBase_(166.2, 1) === 166.2, "UI: R>=80 база без +9");
+assert(uiCapCtx.raw26RetailCapBase_(80, 2) === 80, "UI: R=80 ровно — без +9");
+assert(uiCapCtx.raw26RetailCapBase_(79.99, 1) === 88.99, "UI: R<80 → +9");
+assert(uiCapCtx.capRaw26PriceToRetail_(153.07, 122, 1) === 112.24, "UI: R=122 → 0.92×122=112.24");
 const uiAlloc = uiCapCtx.applyRaw26RetailCapAlloc_(46, 18, 0, 11, 67.16, 20);
 assert(uiAlloc.factCost === 67.16 && Math.abs(uiAlloc.fractionMarkup - 3.16) < 0.001, "UI alloc: 11→3.16");
 assert(uiAlloc.goods === 46 && uiAlloc.delivery === 18, "UI alloc не трогает товар/доставку");
 assert(uiCapCtx.raw26OfferCleanByn_(75, 20, 5, 0, 2) === 42, "UI чистые: 75-20-5-0-8=42");
 assert(uiCapCtx.raw26OfferCleanByn_(67.16, 20, 5, 0, 2) === 34.16, "UI чистые после капа 34.16");
 
-/* ---------- convert-to-RAW26: stated = capped fact, never > 0.92×(retail+9N) ---------- */
+/* ---------- convert-to-RAW26: stated = capped fact; +9×N only if R<80 ---------- */
 function convertToRaw26Like_(fn, rawCost, basket, n, packs, lines, retailGoods) {
   const fact = fn(rawCost, basket, n, 2.6, packs, "RAW26", lines, retailGoods);
   const stated = fact.factCost;
-  const base = Number(retailGoods) > 0
-    ? Math.round((Number(retailGoods) + 9 * n) * 100) / 100
+  const r = Number(retailGoods);
+  const base = r > 0
+    ? Math.round((r + (r < 80 ? 9 * n : 0)) * 100) / 100
     : 0;
   const capAt = base > 0 ? Math.round(base * 0.92 * 100) / 100 : Infinity;
   assert(stated <= capAt + 0.001, "convert-to-RAW26 stated " + stated + " > cap " + capAt);
@@ -461,18 +479,26 @@ const ritMurrRaw = 49.6;
 const convGs = convertToRaw26Like_(
   gsCtx.computePpFactFromCost_, ritMurrRaw, ritMurrBasket, 1, ritMurrPacks, ritMurrLines, ritMurrRetail
 );
-assert(convGs.capAt === 161.18, "rit_murr cap 0.92×(166.20+9)=161.18, got " + convGs.capAt);
-assert(convGs.stated === 161.18, "rit_murr convert stated 161.18, got " + convGs.stated);
+assert(gsCtx.raw26RetailCapBase_(166.2, 1) === 166.2, "(1) R>=80 → no +9 in base");
+assert(gsCtx.raw26RetailCapBase_(80, 3) === 80, "(1) R=80 exactly → no +9");
+assert(wFactCtx.raw26RetailCapBaseD1_(166.2, 2) === 166.2, "(1) worker R>=80 ignores N");
+assert(gsCtx.raw26RetailCapBase_(55, 2) === 73, "(2) R<80 → +9×N");
+assert(wFactCtx.raw26RetailCapBaseD1_(55, 2) === 73, "(2) worker R<80 → +9×N");
+assert(convGs.base === 166.2, "(3) rit_murr capBase = R, not R+9");
+assert(convGs.capAt === 152.9, "(3) rit_murr cap 0.92×166.20=152.90, got " + convGs.capAt);
+assert(convGs.stated === 152.9, "(3) rit_murr convert stated 152.90, got " + convGs.stated);
+assert(convGs.stated !== 161.18, "(3) #335 161.18 was wrong (always +9)");
 assert(convGs.stated < ritMurrRetail, "rit_murr convert stated < retail goods");
+assert(convGs.fact.retailCapIncludesDelivery === false, "rit_murr R>=80 → no delivery in cap base");
 const convW = convertToRaw26Like_(
   wFactCtx.computePpFactFromCostD1_, ritMurrRaw, ritMurrBasket, 1, ritMurrPacks, ritMurrLines, ritMurrRetail
 );
-assert(convW.stated === 161.18, "worker convert rit_murr stated 161.18, got " + convW.stated);
+assert(convW.stated === 152.9, "worker convert rit_murr stated 152.90, got " + convW.stated);
 
 const overStated = 166;
 assert(
-  gsCtx.ppOfferClientPrice_("RAW26", convGs.fact.factCost, overStated, false) === 161.18,
-  "оффер rit_murr: 166 stated ignored, client 161.18"
+  gsCtx.ppOfferClientPrice_("RAW26", convGs.fact.factCost, overStated, false) === 152.9,
+  "оффер rit_murr: 166 stated ignored, client 152.90"
 );
 
 assert(
@@ -498,6 +524,7 @@ console.log("  Рит мурр after:  fact " + factNew.factCost + " → client 
   " (frac 6.4, retail=0 keeps draft)");
 console.log("  Рит N=1 + розница 35.20: " + ritN1Open.factCost + " → " + ritN1Cap.factCost +
   " (жёсткий кап 40.66; пол+9 режем если иначе выше розницы)");
-console.log("  с_бараньим N=1: было " + baranOldInnerOnly + " (кап только товар) → " + baranCap.factCost);
-console.log("  dasha_2135 N=2: ~74 → " + dashaCap.factCost + " (не 50.60)");
+console.log("  с_бараньим N=1: было " + baranOldInnerOnly + " → " + baranCap.factCost + " (R>=80, без +9)");
+console.log("  dasha_2135 N=2: ~74 → " + dashaCap.factCost + " (R<80, 55+18)");
+console.log("  rit_murr live: R=166.20 ≥80 → stated=fact " + convGs.stated + " (не 161.18)");
 console.log("  LEGACY stated 195 kept; крошка 0");
