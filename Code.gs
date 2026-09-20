@@ -18479,11 +18479,11 @@ function packagesBynFromUCounts_(pc) {
  * LEGACY: сырьё×coef + 11 + 6×N + пакеты + фракции  (старые карточки без тега)
  * RAW26:  сырьё×coef + recover + 9×N + пакеты + фракции
  *   recover_100г=3.90 · recover_шт/пак=0.50 · coef по умолчанию 2.6
- *   финальный кап: R = Σрозница_строк (крошка = розница source);
+ *   финальный кап: R = Σрозница (крошка = миксер 15/17/20 как вкладка Розница);
  *   capBase = R>=80 ? R : R+9×N  (розница от 80 — доставка бесплатна, в базу капа не кладём);
- *   цена = min(полная, capBase×0.92). Σстрок=0/нет → кап не применять.
- *   если кап сработал: сначала режем фракции, затем товар до raw+recover;
- *   пакеты / 9×N / ниже пола — только если иначе цена > капа.
+ *   режем только фракции, затем наценку товара до пола сырьё+recover;
+ *   пакеты, сырьё и 9×N не режем. Если пол+пакеты+доставка > 0.92×capBase —
+ *   fact остаётся на полу, флаг uncappedFloor.
  * Новые зачисления с 2026-08-31 → RAW26; старые без изменений, пока не migratePpToRaw26Scheme.
  * Календарь доставок / уже выставленные цены в доставках не трогаем.
  */
@@ -18705,8 +18705,9 @@ function raw26OfferCleanByn_(clientPrice, raw, recover, packagesByn, deliveriesN
 }
 
 /**
- * RAW26: если полная > cap, режем сначала фракции, затем товар до raw+recover.
- * Пакеты и 9×N — только если иначе не уложиться в кап. Итог всегда ≤ cap.
+ * RAW26: если полная > cap, режем фракции, затем наценку товара до raw+recover.
+ * Пакеты, сырьё и 9×N не трогаем. Если после пола всё ещё > cap — fact = пол+пакеты+доставка,
+ * флаг uncappedFloor (не форсируем цену под кап).
  */
 function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
   var g = Math.round((Number(goods) || 0) * 100) / 100;
@@ -18729,25 +18730,10 @@ function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt
       var room = Math.max(0, Math.round((g - floor) * 100) / 100);
       var cutG = Math.min(room, excess);
       g = Math.round((g - cutG) * 100) / 100;
-      excess = Math.round((excess - cutG) * 100) / 100;
-    }
-    if (excess > 0 && p > 0) {
-      var cutP = Math.min(p, excess);
-      p = Math.round((p - cutP) * 100) / 100;
-      excess = Math.round((excess - cutP) * 100) / 100;
-    }
-    if (excess > 0 && d > 0) {
-      var cutD = Math.min(d, excess);
-      d = Math.round((d - cutD) * 100) / 100;
-      excess = Math.round((excess - cutD) * 100) / 100;
-    }
-    if (excess > 0 && g > 0) {
-      var cutG2 = Math.min(g, excess);
-      g = Math.round((g - cutG2) * 100) / 100;
     }
   }
   var fact = Math.round((g + d + p + f) * 100) / 100;
-  if (capped && cap > 0 && fact > cap) fact = cap;
+  var uncappedFloor = !!(capped && cap > 0 && fact > cap + 0.001);
   return {
     goods: g,
     delivery: d,
@@ -18755,7 +18741,8 @@ function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt
     fractionMarkup: f,
     factCost: fact,
     retailCapped: !!capped,
-    retailCapAt: cap
+    retailCapAt: cap,
+    uncappedFloor: uncappedFloor
   };
 }
 
@@ -18804,7 +18791,7 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
     var cutParts = [];
     if (alloc.fractionMarkup < fracMark - 0.001) cutParts.push("фракции");
     if (alloc.goods < goods - 0.001) cutParts.push("товар");
-    if (alloc.packagesByn < packagesByn - 0.001) cutParts.push("пакеты");
+    if (alloc.uncappedFloor) cutParts.push("пол");
     out = {
       scheme: "RAW26",
       factCost: alloc.factCost,
@@ -18820,6 +18807,7 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
         retailGoods < PP_RAW26_RETAIL_FREE_FROM_,
       retailCapped: alloc.retailCapped,
       retailCapAt: alloc.retailCapAt,
+      uncappedFloor: !!alloc.uncappedFloor,
       deliveryByn: alloc.delivery,
       packagesByn: alloc.packagesByn,
       packagesBeforeCap: packagesByn,

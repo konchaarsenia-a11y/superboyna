@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-20 pp-raw26-cap-free-delivery-h1
+ * deploy-marker: 2026-09-20 pp-raw26-cap-frac-goods-only-h1
  * (prior: preserve-order-price-h1 / close-week-no-shift-h2 / orders-access-tab-h1 / fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
  */
 const CORS = {
@@ -19791,8 +19791,8 @@ function raw26RetailCapBaseD1_(retailGoods, deliveriesN) {
 
 function applyRaw26RetailCapAllocD1_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
   let g = Math.round((Number(goods) || 0) * 100) / 100;
-  let d = Math.round((Number(delivery) || 0) * 100) / 100;
-  let p = Math.round((Number(packagesByn) || 0) * 100) / 100;
+  const d = Math.round((Number(delivery) || 0) * 100) / 100;
+  const p = Math.round((Number(packagesByn) || 0) * 100) / 100;
   let f = Math.round((Number(fracMark) || 0) * 100) / 100;
   const cap = Math.round((Number(capAt) || 0) * 100) / 100;
   let floor = Math.round((Number(goodsFloor) || 0) * 100) / 100;
@@ -19810,25 +19810,10 @@ function applyRaw26RetailCapAllocD1_(goods, delivery, packagesByn, fracMark, cap
       const room = Math.max(0, Math.round((g - floor) * 100) / 100);
       const cutG = Math.min(room, excess);
       g = Math.round((g - cutG) * 100) / 100;
-      excess = Math.round((excess - cutG) * 100) / 100;
-    }
-    if (excess > 0 && p > 0) {
-      const cutP = Math.min(p, excess);
-      p = Math.round((p - cutP) * 100) / 100;
-      excess = Math.round((excess - cutP) * 100) / 100;
-    }
-    if (excess > 0 && d > 0) {
-      const cutD = Math.min(d, excess);
-      d = Math.round((d - cutD) * 100) / 100;
-      excess = Math.round((excess - cutD) * 100) / 100;
-    }
-    if (excess > 0 && g > 0) {
-      const cutG2 = Math.min(g, excess);
-      g = Math.round((g - cutG2) * 100) / 100;
     }
   }
-  let fact = Math.round((g + d + p + f) * 100) / 100;
-  if (capped && cap > 0 && fact > cap) fact = cap;
+  const fact = Math.round((g + d + p + f) * 100) / 100;
+  const uncappedFloor = !!(capped && cap > 0 && fact > cap + 0.001);
   return {
     goods: g,
     delivery: d,
@@ -19836,7 +19821,8 @@ function applyRaw26RetailCapAllocD1_(goods, delivery, packagesByn, fracMark, cap
     fractionMarkup: f,
     factCost: fact,
     retailCapped: !!capped,
-    retailCapAt: cap
+    retailCapAt: cap,
+    uncappedFloor: uncappedFloor
   };
 }
 
@@ -19892,7 +19878,7 @@ function computePpFactFromCostD1_(
     const cutParts = [];
     if (alloc.fractionMarkup < fracMark - 0.001) cutParts.push("фракции");
     if (alloc.goods < goods - 0.001) cutParts.push("товар");
-    if (alloc.packagesByn < packagesByn - 0.001) cutParts.push("пакеты");
+    if (alloc.uncappedFloor) cutParts.push("пол");
     out = {
       scheme: "RAW26",
       factCost: alloc.factCost,
@@ -19908,6 +19894,7 @@ function computePpFactFromCostD1_(
         retailGoods < PP_RAW26_RETAIL_FREE_FROM_D1_,
       retailCapped: alloc.retailCapped,
       retailCapAt: alloc.retailCapAt,
+      uncappedFloor: !!alloc.uncappedFloor,
       deliveryByn: alloc.delivery,
       packagesByn: alloc.packagesByn,
       packagesBeforeCap: packagesByn,
