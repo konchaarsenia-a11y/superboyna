@@ -166,6 +166,18 @@ assert(
 // After fallback (cat=crumb + sub РУБЕЦ Т → КРОШКА РУБЕЦ 12) R=168.20, not 0-cost 156.20
 assert(oldBug.goods >= 168.2 - 0.01, "crumb fallback ≥168.20 (not 156.20 zero), got " + oldBug.goods);
 
+const liveNoKind = [
+  { cat: "dressura", name: "ЛЁГКОЕ", main: "ЛЁГКОЕ", sub: "Среднее", val: 320 },
+  { cat: "dressura", name: "СЕРДЦЕ", main: "СЕРДЦЕ", sub: "Целое", val: 80 },
+  { cat: "dressura", name: "ПОЧКИ", main: "ПОЧКИ", sub: "Целое", val: 40 },
+  { cat: "chew", name: "БЫЧИЙ КОРЕНЬ", main: "БЫЧИЙ КОРЕНЬ", sub: "СРЕД", val: 8 },
+  { cat: "veg", name: "ЯБЛОКИ", main: "ЯБЛОКИ", sub: "", val: 100 },
+  { cat: "", name: "КРОШКА", main: "КРОШКА", sub: "РУБЕЦ Т", val: 100 }
+];
+const liveR = ctx.calcRetailBasketTotal(liveNoKind, { deliveriesN: 1 });
+assert(liveR.goods > 156.2 + 0.01, "bare КРОШКА must not drop to 156.20, got " + liveR.goods);
+assert(ctx.isRetailCrumbItem_({ name: "КРОШКА", main: "КРОШКА", sub: "РУБЕЦ Т" }, "", {}), "bare КРОШКА is crumb (no \\\\b)");
+
 const crumbOnly = ctx.retailGoodsFromCrumbItemUi_(rit[5], 100);
 assert(crumbOnly === 15, "veg mixer 100g = 15, got " + crumbOnly);
 

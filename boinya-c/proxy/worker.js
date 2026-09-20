@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-20 pp-raw26-cap-frac-goods-only-h1
+ * deploy-marker: 2026-09-20 pp-rit-murr-one-r-h2
  * (prior: preserve-order-price-h1 / close-week-no-shift-h2 / orders-access-tab-h1 / fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
  */
 const CORS = {
@@ -16544,6 +16544,15 @@ function parseMaybeJson_(v) {
   }
 }
 
+function basketHasCrumbDetail_(list) {
+  if (!Array.isArray(list)) return false;
+  for (let i = 0; i < list.length; i++) {
+    const it = list[i] || {};
+    if (it.crumbKind || (Array.isArray(it.sources) && it.sources.length)) return true;
+  }
+  return false;
+}
+
 function subscriptionSheetKey_(it) {
   return String((it && (it.sheet || it.segment || it.kind)) || "")
     .trim()
@@ -16645,6 +16654,14 @@ function enrichSubsPreserveDetail_(prevArr, incoming) {
     ];
     for (let k = 0; k < richKeys.length; k++) {
       const key = richKeys[k];
+      if (
+        (key === "basket" || key === "basket2") &&
+        basketHasCrumbDetail_(old[key]) &&
+        !basketHasCrumbDetail_(out[key])
+      ) {
+        out[key] = old[key];
+        continue;
+      }
       const hasNew =
         out[key] != null &&
         out[key] !== "" &&
@@ -19723,8 +19740,9 @@ function isGramCrumbLineD1_(L) {
   const cat = String(L.cat || "").toLowerCase();
   if (cat === "crumb" || L.crumbKind) return true;
   if (Array.isArray(L.sources) && L.sources.length) return true;
-  const name = String(L.name || L.main || "");
-  return /^крошка\b/i.test(name) && !/шт/i.test(name);
+  const name = String(L.name || L.main || "").trim();
+  if (/шт/i.test(name)) return false;
+  return /^крошка$/i.test(name);
 }
 
 function recoverBynFromPpLinesD1_(lines) {

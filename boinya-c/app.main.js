@@ -1796,7 +1796,7 @@
       if (String(cat || "").toLowerCase() === "crumb" || extra.crumbKind) return true;
       if (extra.sources && extra.sources.length) return true;
       var name = String((it && (it.name || it.main)) || extra.name || "") || "";
-      return /^крошка\b/i.test(name) && !/шт/i.test(name);
+      return /^крошка$/i.test(String(name || "").trim()) && !/шт/i.test(name);
     }
 
     function retailLineCost(name, sub, val, cat, extra) {
@@ -2920,7 +2920,9 @@
     function isCrumbBasketItemUi_(item) {
       if (!item) return false;
       if (String(item.cat || "").toLowerCase() === "crumb" || item.crumbKind) return true;
-      return Array.isArray(item.sources) && item.sources.length > 0;
+      if (Array.isArray(item.sources) && item.sources.length > 0) return true;
+      var nm = String(item.name || item.main || "").trim();
+      return /^крошка$/i.test(nm) && !/шт/i.test(nm);
     }
 
     /** Чип категории крошки: дрессура овощи/фрукты / мясные / гипоаллергенные (без цен). */
@@ -20976,7 +20978,7 @@
         if (!piece && /шт/i.test(name)) piece = true;
         if (cat === "crumb" || it.crumbKind || (Array.isArray(it.sources) && it.sources.length)) {
           piece = false;
-        } else if (!piece && /^крошка\b/i.test(name) && !/шт/i.test(name)) {
+        } else if (!piece && /^крошка$/i.test(String(name || "").trim()) && !/шт/i.test(name)) {
           piece = false;
         }
         if (piece) sum += PP_RAW26_RECOVER_PIECE * val;

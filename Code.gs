@@ -18556,8 +18556,9 @@ function isGramCrumbLineGs_(L) {
   var cat = String(L.cat || "").toLowerCase();
   if (cat === "crumb" || L.crumbKind) return true;
   if (Object.prototype.toString.call(L.sources) === "[object Array]" && L.sources.length) return true;
-  var name = String(L.name || L.main || "");
-  return /^крошка\b/i.test(name) && !/шт/i.test(name);
+  var name = String(L.name || L.main || "").trim();
+  if (/шт/i.test(name)) return false;
+  return /^крошка$/i.test(name);
 }
 
 /** Крошка-миксер: овощи/фрукты 15 / мяс 17 / гипо 20 за 100 г (raw, не таблица фракций). */
