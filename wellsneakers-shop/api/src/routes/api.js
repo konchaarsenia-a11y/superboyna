@@ -49,6 +49,20 @@ router.get("/catalog", async (req, res, next) => {
   }
 });
 
+router.get("/catalog/models/:modelKey", async (req, res, next) => {
+  try {
+    const found = await getCatalogModel(req.params.modelKey);
+    if (!found?.model) return res.status(404).json({ ok: false, error: "not_found" });
+    res.json({
+      ok: true,
+      model: found.model,
+      selectedProductId: found.selectedProductId,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/catalog/:id", async (req, res, next) => {
   try {
     const found = await getCatalogModel(req.params.id);

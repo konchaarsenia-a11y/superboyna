@@ -11,6 +11,7 @@ import {
   resolveProductModel,
   parseCatalogSort,
   sortCatalogModels,
+  decodeModelParam,
 } from "../lib/modelGroup.js";
 
 export async function ensureProductModelColumns() {
@@ -90,12 +91,22 @@ export async function listBrands() {
   return aggregateBrands(rows);
 }
 
+function imagesSelectSql(includeImages) {
+  if (!includeImages) return `'[]'::json AS images`;
+  return `COALESCE((
+        SELECT json_agg(json_build_object('url', i.url, 'sort_order', i.sort_order) ORDER BY i.sort_order)
+        FROM product_images i WHERE i.product_id = p.id
+      ), '[]') AS images`;
+}
+
 export async function listProducts({
   brand,
   size,
   q,
   sale = false,
   gender = "",
+  modelKey = "",
+  includeImages = false,
   inStockOnly = true,
   limit = 500,
   offset = 0,
@@ -125,6 +136,11 @@ export async function listProducts({
     params.push(genderKey);
     where.push(`p.gender = $${params.length}`);
   }
+  const wantModelKey = decodeModelParam(modelKey);
+  if (wantModelKey) {
+    params.push(wantModelKey);
+    where.push(`p.model_key = $${params.length}`);
+  }
   if (inStockOnly) {
     where.push(`EXISTS (SELECT 1 FROM product_sizes s WHERE s.product_id = p.id AND s.qty > 0)`);
   }
@@ -138,7 +154,8 @@ export async function listProducts({
   const sql = `
     SELECT p.*,
       COALESCE(json_agg(json_build_object('size', s.size, 'qty', s.qty) ORDER BY s.size)
-        FILTER (WHERE s.id IS NOT NULL ${inStockOnly ? "AND s.qty > 0" : ""}), '[]') AS sizes
+        FILTER (WHERE s.id IS NOT NULL ${inStockOnly ? "AND s.qty > 0" : ""}), '[]') AS sizes,
+      ${imagesSelectSql(includeImages)}
     FROM products p
     LEFT JOIN product_sizes s ON s.product_id = p.id
     WHERE ${whereSql}
@@ -196,23 +213,51 @@ export async function listCatalogModels({
   };
 }
 
+/** Public PDP: one model + colorways with images[] and label/description. */
 export async function getCatalogModel(idOrArticle) {
-  const product = await getProduct(idOrArticle);
-  if (product) {
-    const { products } = await listProducts({ inStockOnly: true, limit: 1000, offset: 0 });
-    const models = groupProductsIntoModels(products, { inStockOnly: true });
-    const meta = resolveProductModel(product);
-    const model =
-      models.find((m) => m.modelKey === meta.modelKey) ||
-      groupProductsIntoModels([product], { inStockOnly: true })[0];
-    if (!model) return null;
-    return { model, selectedProductId: Number(product.id) };
+  const raw = decodeModelParam(idOrArticle);
+  if (!raw) return null;
+
+  const product = await getProduct(raw);
+  const meta = product ? resolveProductModel(product) : null;
+  const modelKey = meta?.modelKey || raw;
+
+  let products = [];
+  if (modelKey) {
+    const byKey = await listProducts({
+      modelKey,
+      includeImages: true,
+      inStockOnly: true,
+      limit: 1000,
+      offset: 0,
+    });
+    products = byKey.products || [];
   }
-  const { products } = await listProducts({ inStockOnly: true, limit: 1000, offset: 0 });
+
+  if (!products.length && product) {
+    products = [product];
+  }
+
+  if (!products.length) {
+    const { products: all } = await listProducts({
+      includeImages: true,
+      inStockOnly: true,
+      limit: 1000,
+      offset: 0,
+    });
+    products = (all || []).filter((row) => resolveProductModel(row).modelKey === modelKey);
+  }
+
   const models = groupProductsIntoModels(products, { inStockOnly: true });
-  const model = models.find((m) => m.modelKey === String(idOrArticle));
+  const model =
+    models.find((m) => m.modelKey === modelKey) ||
+    models[0] ||
+    null;
   if (!model) return null;
-  return { model, selectedProductId: model.colors[0]?.productId || null };
+  return {
+    model,
+    selectedProductId: product ? Number(product.id) : model.colors[0]?.productId || null,
+  };
 }
 
 async function loadProductRow(whereSql, value) {
