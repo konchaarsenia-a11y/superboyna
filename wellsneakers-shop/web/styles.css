@@ -215,7 +215,7 @@ body:not(.page-home):not(.page-catalog) .top{position:sticky;transform:none;poin
   position:relative;
   list-style:none;cursor:pointer;
   display:flex;align-items:center;gap:8px;
-  min-height:48px;padding:18px 10px 10px;
+  min-height:48px;padding:12px 10px 12px 4.6rem;
   border-radius:14px;
 }
 .perk summary::-webkit-details-marker{display:none}
@@ -614,8 +614,7 @@ body.page-catalog.catalog-scrolled .filters-fab{display:inline-flex}
   .hero-actions{max-width:360px}
   .perks{grid-template-columns:repeat(3,1fr);gap:12px}
   .perk,.perk:nth-child(2),.perk:nth-child(3){transform:none}
-  .perk summary{min-height:52px;padding:18px 16px 12px}
-  .perk-sticker{font-size:11px;padding:3px 7px;top:-7px;left:12px}
+  .perk summary{min-height:52px}
   .grid{grid-template-columns:1fr 1fr;gap:14px}
   .tile,.tile-body{min-height:230px}
   .picks{gap:16px}
