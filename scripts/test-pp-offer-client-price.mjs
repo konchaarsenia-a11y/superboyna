@@ -172,6 +172,74 @@ assert(
     !/<td>Пакеты<\/td>/.test(uiSrc),
   "cap mini-table is Цена/Фракции/Товар, not packages"
 );
+
+const uiEconCtx = vm.createContext({
+  Math: Math,
+  Number: Number,
+  String: String,
+  isFinite: isFinite,
+  Object: Object
+});
+vm.runInContext(
+  [
+    extractFn(uiSrc, "ppEconNum_"),
+    extractFn(uiSrc, "ppRetailCapFired_"),
+    extractFn(uiSrc, "renderPpCostBreakdownHtml_")
+  ].join("\n"),
+  uiEconCtx
+);
+const uncappedHtml = uiEconCtx.renderPpCostBreakdownHtml_({
+  rawCost: 21.54,
+  recoverByn: 0,
+  goodsBeforeCap: 56,
+  goodsByn: 56,
+  fractionMarkup: 0,
+  packagesByn: 0,
+  deliveryByn: 18,
+  deliveriesN: 2,
+  retailGoods: 55,
+  factBeforeCap: 74,
+  factAfterCap: 74,
+  factCost: 74,
+  capCutByn: 0,
+  retailCapped: false
+});
+assert(!/pp-econ-mini/.test(uncappedHtml), "без капа нет мини-таблицы");
+assert(/Товар/.test(uncappedHtml) && !/Товар до капа/.test(uncappedHtml), "без капа лейбл Товар");
+assert(/Цена/.test(uncappedHtml) && /Пакеты/.test(uncappedHtml) && /Сырьё/.test(uncappedHtml), "без капа ядро экономики");
+assert(!/до капа/.test(uncappedHtml) && !/срезал/.test(uncappedHtml), "без капа нет до/после и срезал");
+const cappedHtml = uiEconCtx.renderPpCostBreakdownHtml_({
+  rawCost: 21.54,
+  recoverByn: 5,
+  goodsBeforeCap: 61.04,
+  goodsByn: 49.16,
+  fractionBeforeCap: 8,
+  fractionMarkup: 0,
+  packagesByn: 4.2,
+  packagesBeforeCap: 4.2,
+  deliveryByn: 18,
+  deliveriesN: 2,
+  retailGoods: 55,
+  retailCapBase: 73,
+  retailCapAt: 67.16,
+  retailFreeFrom: 80,
+  factBeforeCap: 91.24,
+  factAfterCap: 71.36,
+  factCost: 71.36,
+  capCutByn: 19.88,
+  capCutFrom: "фракции, товар",
+  cleanBeforeCap: 48.7,
+  cleanAfterCap: 28.82,
+  retailCapped: true
+});
+assert(/pp-econ-mini/.test(cappedHtml), "кап → мини-таблица");
+assert(/<td>Цена<\/td>/.test(cappedHtml) && /<td>Фракции<\/td>/.test(cappedHtml) && /<td>Товар<\/td>/.test(cappedHtml),
+  "таблица: Цена / Фракции / Товар");
+assert(!/<td>Пакеты<\/td>/.test(cappedHtml) && !/<td>Сырьё<\/td>/.test(cappedHtml) && !/<td>Чистыми<\/td>/.test(cappedHtml),
+  "пакеты/сырьё/чистыми не колонки капа");
+assert(/Пакеты <b>4.2<\/b>/.test(cappedHtml) && /Сырьё <b>21.54<\/b>/.test(cappedHtml),
+  "пакеты и сырьё — одиночные значения снаружи");
+assert(/срезал/.test(cappedHtml) && /потолок/.test(cappedHtml), "кап → срез/потолок");
 assert(
   /PP_COST_BREAKDOWN_PIN/.test(gsSrc) && /PP_COST_BREAKDOWN_PIN/.test(wSrc) && /PP_COST_BREAKDOWN_PIN/.test(deploy),
   "PIN lives in Script Property / Worker secret, documented"
