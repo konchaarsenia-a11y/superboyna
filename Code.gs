@@ -15982,6 +15982,37 @@ function handleSaveSubscription(json, callback, fromPost) {
   if (typeof packCountsOpt === "string") {
     try { packCountsOpt = JSON.parse(packCountsOpt); } catch (ePc) { packCountsOpt = null; }
   }
+  if (/^ПП$/i.test(sheetName) && basket && basket.length) {
+    var schClamp = resolvePpScheme_({
+      scheme: json.scheme,
+      wishes: wishes,
+      forNew: false
+    });
+    if (schClamp === "RAW26") {
+      try {
+        var priceInfoClamp = readPriceCosts_("pp");
+        var rawClamp = 0;
+        var linesClamp = [];
+        for (var ic = 0; ic < basket.length; ic++) {
+          var lineClamp = ppLineFromBasketItemGs_(basket[ic], priceInfoClamp.costs);
+          if (!lineClamp) continue;
+          rawClamp += lineClamp.cost;
+          linesClamp.push(lineClamp);
+        }
+        rawClamp = Math.round(rawClamp * 100) / 100;
+        var nClamp = Math.max(1, deliveriesN || 1);
+        var factClamp = computePpFactFromCost_(
+          rawClamp, basket, nClamp, json.coef, packCountsOpt, "RAW26", linesClamp, null
+        );
+        if (factClamp && Number(factClamp.factCost) > 0) {
+          var capFact = Number(factClamp.factCost);
+          if (factCost == null || factCost === "" || Number(factCost) > capFact + 0.001) {
+            factCost = capFact;
+          }
+        }
+      } catch (eClamp) {}
+    }
+  }
   var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   var data = sh.getDataRange().getValues();
   var rowIdx = -1;
@@ -18582,6 +18613,40 @@ function recoverBynFromPpLines_(lines) {
   return Math.round(sum * 100) / 100;
 }
 
+function retailGoodsFromCrumbItemGs_(it, val) {
+  var sources = it && it.sources;
+  if (sources && sources.length) {
+    var ratios = it.ratio || [];
+    var rsum = 0;
+    var ri;
+    for (ri = 0; ri < sources.length; ri++) rsum += Number(ratios[ri]) || 0;
+    if (rsum <= 0) rsum = sources.length;
+    var sum = 0;
+    for (var si = 0; si < sources.length; si++) {
+      var src = sources[si] || {};
+      var share = (Number(ratios[si]) || 1) / rsum;
+      var rcS = retailLineCost_(
+        src.name || src.main, src.sub, val * share, src.cat || "dressura"
+      );
+      sum += Number(rcS.cost) || 0;
+    }
+    return sum;
+  }
+  var hint = String((it && (it.sub || it.name || it.main)) || "").trim();
+  if (/рубец/i.test(hint)) {
+    var rcPack = retailLineCost_("КРОШКА РУБЕЦ", "", val, "crumb");
+    if (rcPack && rcPack.found && Number(rcPack.cost) > 0) return Number(rcPack.cost) || 0;
+    return Number(retailLineCost_("РУБЕЦ Т", "", val, "dressura").cost) || 0;
+  }
+  if (/почк/i.test(hint)) {
+    return Number(retailLineCost_("КРОШКА ПОЧЕК", "", val, "crumb").cost) || 0;
+  }
+  if (/лёгк|легк/i.test(hint)) {
+    return Number(retailLineCost_("КРОШКА ЛЁГКОГО", "", val, "crumb").cost) || 0;
+  }
+  return 0;
+}
+
 function retailGoodsBynFromBasket_(basket) {
   var sum = 0;
   for (var i = 0; i < (basket || []).length; i++) {
@@ -18589,7 +18654,12 @@ function retailGoodsBynFromBasket_(basket) {
     var name = String(it.name || it.main || "").trim();
     var sub = String(it.sub || "").trim();
     var val = Number(it.val != null ? it.val : it.value) || 0;
-    if (!name || val <= 0) continue;
+    if (val <= 0) continue;
+    if (isGramCrumbLineGs_(it)) {
+      sum += retailGoodsFromCrumbItemGs_(it, val);
+      continue;
+    }
+    if (!name) continue;
     var rc = retailLineCost_(name, sub, val, it.cat);
     sum += Number(rc.cost) || 0;
   }
@@ -18621,7 +18691,7 @@ function raw26OfferCleanByn_(clientPrice, raw, recover, packagesByn, deliveriesN
 
 /**
  * RAW26: если полная > cap, режем сначала фракции, затем товар до raw+recover.
- * Пакеты — только после пола товара. Доставку 9×N не режем.
+ * Пакеты и 9×N — только если иначе не уложиться в кап. Итог всегда ≤ cap.
  */
 function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
   var g = Math.round((Number(goods) || 0) * 100) / 100;
@@ -18649,14 +18719,26 @@ function applyRaw26RetailCapAlloc_(goods, delivery, packagesByn, fracMark, capAt
     if (excess > 0 && p > 0) {
       var cutP = Math.min(p, excess);
       p = Math.round((p - cutP) * 100) / 100;
+      excess = Math.round((excess - cutP) * 100) / 100;
+    }
+    if (excess > 0 && d > 0) {
+      var cutD = Math.min(d, excess);
+      d = Math.round((d - cutD) * 100) / 100;
+      excess = Math.round((excess - cutD) * 100) / 100;
+    }
+    if (excess > 0 && g > 0) {
+      var cutG2 = Math.min(g, excess);
+      g = Math.round((g - cutG2) * 100) / 100;
     }
   }
+  var fact = Math.round((g + d + p + f) * 100) / 100;
+  if (capped && cap > 0 && fact > cap) fact = cap;
   return {
     goods: g,
     delivery: d,
     packagesByn: p,
     fractionMarkup: f,
-    factCost: Math.round((g + d + p + f) * 100) / 100,
+    factCost: fact,
     retailCapped: !!capped,
     retailCapAt: cap
   };
@@ -29000,10 +29082,20 @@ function handleMigratePpToRaw26Scheme(json, callback, fromPost) {
       coef: PP_RAW26_COEF_DEFAULT_,
       rawCost: totalCost,
       factCost: fact.factCost,
+      statedCost: applyStated ? fact.factCost : "",
       statedApplied: applyStated,
+      statedTouched: applyStated ? 0 : "",
       recoverByn: fact.recoverByn,
       deliveryByn: fact.deliveryByn,
       packagesByn: fact.packagesByn,
+      retailGoods: fact.retailGoods,
+      retailCapBase: fact.retailCapBase,
+      retailCapped: fact.retailCapped,
+      retailCapAt: fact.retailCapAt,
+      factBeforeCap: fact.factBeforeCap,
+      factAfterCap: fact.factAfterCap,
+      cleanBeforeCap: fact.cleanBeforeCap,
+      cleanAfterCap: fact.cleanAfterCap,
       calendarUntouched: true
     };
     return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
@@ -29067,7 +29159,7 @@ function handleEnrollDeferredToPp_(json, callback, fromPost) {
 
   var keepStatedEnroll = json.statedTouched === true || json.statedTouched === "1" ||
     json.keepStated === true || json.keepStated === "1";
-  if (enrollScheme === "RAW26" && !keepStatedEnroll && basket && basket.length) {
+  if (enrollScheme === "RAW26" && basket && basket.length) {
     try {
       var priceInfoEn = readPriceCosts_("pp");
       var totalEn = 0;
@@ -29082,7 +29174,12 @@ function handleEnrollDeferredToPp_(json, callback, fromPost) {
       var factEn = computePpFactFromCost_(
         totalEn, basket, deliveriesN, enrollCoef, json.packCounts || null, "RAW26", linesEn, null
       );
-      if (factEn && factEn.factCost != null) factCost = factEn.factCost;
+      if (factEn && factEn.factCost != null) {
+        if (!keepStatedEnroll || factCost == null || factCost === "" ||
+            Number(factCost) > Number(factEn.factCost) + 0.001) {
+          factCost = factEn.factCost;
+        }
+      }
     } catch (eRecalcEn) {}
   }
 

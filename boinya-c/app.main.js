@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115982";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115983";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -20772,14 +20772,26 @@
         if (excess > 0 && p > 0) {
           var cutP = Math.min(p, excess);
           p = Math.round((p - cutP) * 100) / 100;
+          excess = Math.round((excess - cutP) * 100) / 100;
+        }
+        if (excess > 0 && d > 0) {
+          var cutD = Math.min(d, excess);
+          d = Math.round((d - cutD) * 100) / 100;
+          excess = Math.round((excess - cutD) * 100) / 100;
+        }
+        if (excess > 0 && g > 0) {
+          var cutG2 = Math.min(g, excess);
+          g = Math.round((g - cutG2) * 100) / 100;
         }
       }
+      var factAlloc = Math.round((g + d + p + f) * 100) / 100;
+      if (capped && cap > 0 && factAlloc > cap) factAlloc = cap;
       return {
         goods: g,
         delivery: d,
         packagesByn: p,
         fractionMarkup: f,
-        factCost: Math.round((g + d + p + f) * 100) / 100,
+        factCost: factAlloc,
         retailCapped: !!capped,
         retailCapAt: cap
       };
