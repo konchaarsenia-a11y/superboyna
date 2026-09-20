@@ -617,7 +617,8 @@
           });
           card.classList.add('is-open');
           try {
-            card.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: preferInstantScroll() ? 'auto' : 'smooth' });
+            const focusEl = card.querySelector('.buy') || card.querySelector('.prod-detail') || card;
+            focusEl.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: preferInstantScroll() ? 'auto' : 'smooth' });
           } catch (e) { /* ignore */ }
         } else {
           card.classList.remove('is-open');

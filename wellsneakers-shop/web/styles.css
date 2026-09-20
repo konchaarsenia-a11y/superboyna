@@ -591,6 +591,10 @@ body.page-catalog.catalog-scrolled .filters-fab{display:inline-flex}
 .prod-detail{display:none;gap:10px}
 .prod.is-open .prod-detail{display:grid}
 .prod.is-open .color-balls{display:none}
+.prod.is-open .prod-detail,
+.prod.is-open .buy{
+  scroll-margin-bottom:calc(72px + var(--safe-b));
+}
 .prod-img{height:180px;background:#111}
 .prod-img img{width:100%;height:100%;object-fit:cover}
 .prod-body{padding:14px;display:grid;gap:10px}
