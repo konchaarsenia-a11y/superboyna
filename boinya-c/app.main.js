@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115987";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115988";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -1756,15 +1756,7 @@
       return keys;
     }
 
-    function retailLineCost(name, sub, val, cat, extra) {
-      extra = extra || {};
-      if (String(cat || "").toLowerCase() === "crumb" || extra.crumbKind) {
-        var crumbRate = crumbKindRateUi_(extra.crumbKind || sub || name);
-        var cv = Number(val) || 0;
-        if (crumbRate > 0 && cv > 0) {
-          return { cost: Math.round((cv / 100) * crumbRate * 100) / 100, per: crumbRate, found: true };
-        }
-      }
+    function retailSkuLineCost_(name, sub, val, cat) {
       var meta = retailLookupKey_(name, sub);
       var info = RETAIL_PRICE[meta.key] || RETAIL_PRICE[meta.name];
       if (!info) {
@@ -1796,6 +1788,40 @@
       var p = info.per100 || 0;
       var cost = (v / 100) * p;
       return { cost: Math.round(cost * 100) / 100, per: p, found: true };
+    }
+
+    function isRetailCrumbItem_(it, cat, extra) {
+      extra = extra || {};
+      if (it && typeof isCrumbBasketItemUi_ === "function" && isCrumbBasketItemUi_(it)) return true;
+      if (String(cat || "").toLowerCase() === "crumb" || extra.crumbKind) return true;
+      if (extra.sources && extra.sources.length) return true;
+      var name = String((it && (it.name || it.main)) || extra.name || "") || "";
+      return /^крошка\b/i.test(name) && !/шт/i.test(name);
+    }
+
+    function retailLineCost(name, sub, val, cat, extra) {
+      extra = extra || {};
+      var crumbIt = {
+        name: name,
+        main: extra.main || name,
+        sub: sub,
+        cat: cat,
+        crumbKind: extra.crumbKind,
+        sources: extra.sources,
+        ratio: extra.ratio
+      };
+      if (isRetailCrumbItem_(crumbIt, cat, extra)) {
+        var crumbCost = retailGoodsFromCrumbItemUi_(crumbIt, val);
+        if (crumbCost > 0) {
+          var cv = Number(val) || 0;
+          return {
+            cost: crumbCost,
+            per: cv ? Math.round((crumbCost / (cv / 100)) * 100) / 100 : 0,
+            found: true
+          };
+        }
+      }
+      return retailSkuLineCost_(name, sub, val, cat);
     }
 
     var PRODUCT_CARD_INFO = {
@@ -2268,7 +2294,12 @@
         var name = it.name || it.main || "";
         var sub = it.sub || "";
         var val = it.val != null ? it.val : it.value;
-        var r = retailLineCost(it.name || it.main, it.sub || "", val, it.cat, { crumbKind: it.crumbKind });
+        var r = retailLineCost(it.name || it.main, it.sub || "", val, it.cat, {
+          crumbKind: it.crumbKind,
+          sources: it.sources,
+          ratio: it.ratio,
+          main: it.main
+        });
         goods += r.cost;
         lines.push({ name: name, sub: sub, val: Number(val) || 0, per100: r.per, cost: r.cost, found: r.found });
       });
@@ -2958,10 +2989,53 @@
     }
 
     function crumbKindRateUi_(kind) {
-      var k = String(kind || "").toLowerCase();
-      if (k === "veg") return 15;
-      if (k === "meat") return 17;
-      if (k === "hypo") return 20;
+      var k = String(kind || "").toLowerCase().replace(/ё/g, "е");
+      if (k === "veg" || k === "veggie" || /овощ|фрукт/.test(k)) return 15;
+      if (k === "meat" || /мяс/.test(k)) return 17;
+      if (k === "hypo" || /гипо/.test(k)) return 20;
+      return 0;
+    }
+
+    /** Крошка-миксер: 15/17/20 как вкладка Розница / Worker retailGoods. */
+    function retailGoodsFromCrumbItemUi_(it, val) {
+      val = Number(val) || 0;
+      if (val <= 0) return 0;
+      var crumbRate = crumbKindRateUi_((it && (it.crumbKind || it.sub || it.name || it.main)) || "");
+      if (crumbRate > 0) {
+        return Math.round((val / 100) * crumbRate * 100) / 100;
+      }
+      var sources = it && it.sources;
+      if (sources && sources.length) {
+        var ratios = it.ratio || [];
+        var rsum = 0;
+        for (var ri = 0; ri < sources.length; ri++) rsum += Number(ratios[ri]) || 0;
+        if (rsum <= 0) rsum = sources.length;
+        var sum = 0;
+        for (var si = 0; si < sources.length; si++) {
+          var src = sources[si] || {};
+          var share = (Number(ratios[si]) || 1) / rsum;
+          var rcS = retailSkuLineCost_(
+            src.name || src.main,
+            src.sub,
+            val * share,
+            src.cat || "dressura"
+          );
+          sum += Number(rcS.cost) || 0;
+        }
+        return Math.round(sum * 100) / 100;
+      }
+      var hint = String((it && (it.sub || it.name || it.main)) || "").trim();
+      if (/рубец/i.test(hint)) {
+        var rcPack = retailSkuLineCost_("КРОШКА РУБЕЦ", "", val, "other");
+        if (rcPack && rcPack.found && Number(rcPack.cost) > 0) return Number(rcPack.cost) || 0;
+        return Number(retailSkuLineCost_("РУБЕЦ Т", "", val, "dressura").cost) || 0;
+      }
+      if (/почк/i.test(hint)) {
+        return Number(retailSkuLineCost_("КРОШКА ПОЧЕК", "", val, "other").cost) || 0;
+      }
+      if (/лёгк|легк/i.test(hint)) {
+        return Number(retailSkuLineCost_("КРОШКА ЛЁГКОГО", "", val, "other").cost) || 0;
+      }
       return 0;
     }
 
@@ -21711,16 +21785,9 @@
     window.fillSubDetailNickNameFields_ = fillSubDetailNickNameFields_;
 
     function buildSubDetailClientMessageText_() {
-      var list = (typeof subDetailBasketPayload_ === "function" ? subDetailBasketPayload_() : []).map(function (x) {
-        return {
-          cat: x.cat || "other",
-          main: x.main || x.name || "",
-          name: x.name || x.main || "",
-          sub: x.sub || "",
-          val: x.val != null ? x.val : x.value,
-          value: x.val != null ? x.val : x.value
-        };
-      }).filter(function (it) { return (Number(it.val) || 0) > 0 && (it.main || it.name); });
+      var list = (typeof subDetailBasketPayload_ === "function" ? subDetailBasketPayload_() : []).filter(function (it) {
+        return (Number(it && (it.val != null ? it.val : it.value)) || 0) > 0 && (it.main || it.name);
+      });
       if (!list.length) return "";
       var n = Math.max(1, Number((document.getElementById("subDetailDeliveries") || {}).value) || 1);
       var stated = Number((document.getElementById("subDetailStatedPrice") || {}).value);
@@ -21733,7 +21800,7 @@
       } catch (eR) { retail = { total: 0 }; }
       if (!(subTotal > 0)) subTotal = Number(retail.total) || 0;
 
-      return composePpClientMessage(list, n, "", retail.total, subTotal);
+      return composePpClientMessage(list, n, "", retail.total, subTotal, schMsg);
     }
 
     async function openSubDetailClientMessage_() {
@@ -22464,6 +22531,7 @@
         if (localFactRaw26 > 0 && subTotal > localFactRaw26 + 12) {
           subTotal = localFactRaw26;
         }
+        subTotal = capOfferSubToDisplayedRetail_(subTotal, retail.total);
         formulaHint = "сырьё " + costSum + " × " + coef +
           " + recover " + recover +
           (capped ? (" (итог ≤92% розн. " + Math.round(localFactRaw26 * 100) / 100 + ")") : "") +
@@ -22482,7 +22550,7 @@
           (packagesByn ? (" + пакеты " + packagesByn + (packHint ? " [" + packHint + "]" : "")) : "") +
           (fracMark.total ? (" + фракции " + fracMark.total) : "");
       }
-      var msg = composePpClientMessage(list, deliveriesN, clientNote, retail.total, subTotal);
+      var msg = composePpClientMessage(list, deliveriesN, clientNote, retail.total, subTotal, pricePpScheme);
       if (Number(costSum) > 0 || !(list || []).length) {
         pricePpApiCache = {
           fingerprint: priceBasketFingerprint(list) + "|N" + deliveriesN + "|S" + pricePpScheme,
@@ -22493,12 +22561,12 @@
         pricePpApiCache = null;
       }
       var dogsHint = priceDogCount >= 2 ? " · 2 собаки, свет/доставка×1" : "";
-      var retailHint = "товар " + roundRub(retail.goods) +
+      var retailHint = "товар " + formatClientRub_(retail.goods) +
         (retail.delivery
           ? (" + дост. " + retail.deliveryTimes + "×" + (retail.deliveryFee || 9) +
-            " (доля " + roundRub(retail.perDelivery) + "<" + (retail.freeFrom || 50) + ")")
+            " (доля " + formatClientRub_(retail.perDelivery) + "<" + (retail.freeFrom || 50) + ")")
           : " · дост. 0 (доля ≥" + (retail.freeFrom || 50) + ")") +
-        " = <b>" + roundRub(retail.total) + " BYN</b>";
+        " = <b>" + formatClientRub_(retail.total) + " BYN</b>";
       var cleanMeta = "";
       if (pricePpScheme === "RAW26") {
         var cleanBefore = res && res.cleanBeforeCap != null
@@ -22553,7 +22621,7 @@
         '<div class="card" style="margin-bottom:8px;font-size:13px;"><b>ПП</b>' +
         (pricePpScheme === "RAW26" ? " · новая" : " · старая") + dogsHint + '<br>' +
         formulaHint +
-        " → <b>" + roundRub(subTotal) + " BYN/мес</b>" +
+        " → <b>" + formatClientRub_(subTotal) + " BYN/мес</b>" +
         cleanMeta +
         (fracMark.details.length
           ? ('<div class="muted" style="margin-top:4px;font-size:12px;">' +
@@ -22794,16 +22862,41 @@
       return Math.round(Number(n) || 0);
     }
 
-    function composePpClientMessage(list, deliveriesN, clientNote, retailTotal, subTotal) {
+    function money2_(n) {
+      return Math.round((Number(n) || 0) * 100) / 100;
+    }
+
+    function formatClientRub_(n) {
+      var x = money2_(n);
+      return (Math.abs(x - Math.round(x)) < 0.001) ? String(Math.round(x)) : x.toFixed(2);
+    }
+
+    /** Оффер: ПП ≤ 0.92× показанной розницы и ≤ самой розницы. */
+    function capOfferSubToDisplayedRetail_(subTotal, retailTotal) {
+      var r = money2_(retailTotal);
+      var s = money2_(subTotal);
+      if (r > 0) {
+        var capAt = money2_(r * (typeof PP_RAW26_RETAIL_CAP === "number" ? PP_RAW26_RETAIL_CAP : 0.92));
+        if (s > capAt) s = capAt;
+        if (s > r) s = r;
+      }
+      return s;
+    }
+
+    function composePpClientMessage(list, deliveriesN, clientNote, retailTotal, subTotal, scheme) {
       var n = Math.max(1, Number(deliveriesN) || 1);
       var blocks = buildPriceCompositionForMessage(list);
       var note = String(clientNote || "").trim();
+      var rShow = money2_(retailTotal);
+      var sShow = String(scheme || "").toUpperCase() === "RAW26"
+        ? capOfferSubToDisplayedRetail_(subTotal, rShow)
+        : money2_(subTotal);
       var msg = "Ваш состав на месяц получается\n\n" + blocks +
         "\n\nКоличество доставок в месяц - " + n;
       if (note) msg += "\n\n" + note;
-      msg += "\n\nЦена за этот состав в розницу выходит - " + roundRub(retailTotal) + " рублей";
+      msg += "\n\nЦена за этот состав в розницу выходит - " + formatClientRub_(rShow) + " рублей";
       msg += "\n\nВ подписке с учётом доставок, поддержки 24/7 и партнёрской программы со скидками для наших клиентов\n" +
-        "стоимость выходит - " + roundRub(subTotal) + " рублей за месяц";
+        "стоимость выходит - " + formatClientRub_(sShow) + " рублей за месяц";
       msg += "\n\nКак вам наше предложение?)\nГотовы продолжать😁";
       return msg;
     }
@@ -22813,7 +22906,7 @@
       var note = String(clientNote || "").trim();
       var msg = "Давайте подытожим ваш заказ 📜\n\n" + blocks;
       if (note) msg += "\n\n" + note;
-      msg += "\n\nЦена за этот набор составит - " + roundRub(retailTotal) + " рублей";
+      msg += "\n\nЦена за этот набор составит - " + formatClientRub_(retailTotal) + " рублей";
       msg += "\n\nВсё подходит?)";
       return msg;
     }
@@ -23025,9 +23118,9 @@
         var miss = (local.lines || []).filter(function (L) { return !L.found; }).length;
         renderPriceMessageBox(rMsg,
           '<div class="card" style="margin-bottom:8px;"><b>Розница</b> · товар ' +
-          roundRub(local.goods) +
+          formatClientRub_(local.goods) +
           (local.delivery ? (" + дост. " + local.delivery) : "") +
-          " = <b>" + roundRub(local.total) + " BYN</b>" +
+          " = <b>" + formatClientRub_(local.total) + " BYN</b>" +
           (priceDogCount >= 2
             ? (" · " + priceDogLabel_(1) + ( (priceBaskets[2] || []).length ? (" + " + priceDogLabel_(2)) : "") )
             : "") +
