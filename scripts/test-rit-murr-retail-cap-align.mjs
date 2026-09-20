@@ -33,7 +33,7 @@ function extractFn(src, name) {
 const uiSrc = fs.readFileSync(path.join(root, "boinya-c/app.main.js"), "utf8");
 const wSrc = fs.readFileSync(path.join(root, "boinya-c/proxy/worker.js"), "utf8");
 
-assert(/v71115989/.test(uiSrc), "APP_VERSION v71115989");
+assert(/v71115991/.test(uiSrc), "APP_VERSION v71115991");
 assert(/function ppSheetPrice_/.test(uiSrc) && /function raw26ApiFactPrice_/.test(uiSrc), "UI ignores stale calcFactCost");
 assert(/function subscriptionNickKeys_/.test(wSrc) && /function sanitizeRaw26CalcFactCost_/.test(wSrc), "Worker nick aliases + sanitize calcFact");
 assert(
@@ -95,13 +95,19 @@ vm.runInContext(
     extractFn(uiSrc, "isRetailCrumbItem_"),
     extractFn(uiSrc, "retailLineCost"),
     extractFn(uiSrc, "calcRetailBasketTotal"),
+    extractFn(uiSrc, "ppOfferClientPrice_"),
+    extractFn(uiSrc, "statedTouchedFlag_"),
+    extractFn(uiSrc, "formatClientMessagePrice_"),
+    extractFn(uiSrc, "ppClientDisplayPrice_"),
+    extractFn(uiSrc, "clientMessagePriceText_"),
     extractFn(uiSrc, "money2_"),
+    extractFn(uiSrc, "roundRub"),
     extractFn(uiSrc, "formatClientRub_"),
     extractFn(uiSrc, "capOfferSubToDisplayedRetail_"),
     extractFn(uiSrc, "composePpClientMessage"),
+    extractFn(uiSrc, "composeRetailClientMessage"),
     extractFn(uiSrc, "ppSheetPrice_"),
-    extractFn(uiSrc, "raw26ApiFactPrice_"),
-    extractFn(uiSrc, "ppOfferClientPrice_")
+    extractFn(uiSrc, "raw26ApiFactPrice_")
   ].join("\n"),
   ctx
 );
@@ -191,22 +197,46 @@ assert(ctx.capOfferSubToDisplayedRetail_(157.5, 171.2) === 157.5, "157.50 ≤ 0.
 assert(ctx.capOfferSubToDisplayedRetail_(157.5, 156.2) === 143.7, "clamp 157.50 to 0.92×156.20=143.70, got " + ctx.capOfferSubToDisplayedRetail_(157.5, 156.2));
 assert(ctx.capOfferSubToDisplayedRetail_(158, 156) === 143.52, "integer 158 vs 156 → 143.52");
 
+const PRICE_XX = /\d+\.\d+\s+рублей/;
 const msgOk = ctx.composePpClientMessage(rit, 1, "", 171.2, 157.5, "RAW26");
-assert(/171\.20/.test(msgOk), "message shows 171.20 retail");
-assert(/157\.50/.test(msgOk), "message shows 157.50 sub");
+assert(/розницу выходит - 171 рублей/.test(msgOk), "client message retail Math.round(171.20)=171");
+assert(/стоимость выходит - 158 рублей за месяц/.test(msgOk), "client message sub Math.round(157.50)=158");
+assert(!PRICE_XX.test(msgOk), "client-msg-round-h2: PP message has no .xx рублей");
+assert(!/157\.50/.test(msgOk), "client message must not show exact 157.50");
+assert(!/171\.20/.test(msgOk), "client message must not show exact 171.20");
 assert(!/\b156\b/.test(msgOk), "message must not show 156");
-assert(!/\b158\b/.test(msgOk), "message must not show 158");
+
+const msgManual = ctx.composePpClientMessage(rit, 1, "", 171.2, 157.5, "RAW26", { asEntered: true });
+assert(/стоимость выходит - 158 рублей за месяц/.test(msgManual), "statedTouched 157.50 → Math.round 158");
+assert(!PRICE_XX.test(msgManual), "statedTouched still no .xx рублей");
+assert(/розницу выходит - 171 рублей/.test(msgManual), "retail still integer when stated is manual");
+
+const msgIntStated = ctx.composePpClientMessage(rit, 1, "", 171.2, 160, "RAW26", { asEntered: true });
+assert(/стоимость выходит - 160 рублей за месяц/.test(msgIntStated), "already-int stated shown as entered");
+assert(!PRICE_XX.test(msgIntStated), "int stated message has no .xx");
+
+const msgRetail = ctx.composeRetailClientMessage(rit, 171.2, "");
+assert(/составит - 171 рублей/.test(msgRetail), "retail client message Math.round(171.20)=171");
+assert(!PRICE_XX.test(msgRetail), "client-msg-round-h2: retail message has no .xx рублей");
+
+assert(ctx.roundRub(157.5) === 158 && ctx.roundRub(171.2) === 171, "roundRub is Math.round");
+assert(ctx.formatClientRub_(157.5) === "157.50", "owner/Экономика keeps 157.50");
+assert(ctx.formatClientRub_(171.2) === "171.20", "owner retail keeps 171.20");
 
 const msgClamp = ctx.composePpClientMessage(rit, 1, "", 156.2, 157.5, "RAW26");
-assert(/143\.70/.test(msgClamp), "if R=156.20, displayed sub ≤ 143.70");
+assert(/стоимость выходит - 144 рублей за месяц/.test(msgClamp), "if R=156.20, cap 143.70 then Math.round → 144");
+assert(!PRICE_XX.test(msgClamp), "capped message has no .xx рублей");
 assert(!/157\.50/.test(msgClamp), "must not keep 157.50 above 0.92×156.20");
 
-const legacyKeep = ctx.composePpClientMessage(rit, 1, "", 171.2, 195, "LEGACY");
-assert(/195/.test(legacyKeep), "LEGACY stated not 92%-capped");
+const legacyKeep = ctx.composePpClientMessage(rit, 1, "", 171.2, 195, "LEGACY", { asEntered: true });
+assert(/стоимость выходит - 195 рублей за месяц/.test(legacyKeep), "LEGACY stated not 92%-capped");
+assert(!PRICE_XX.test(legacyKeep), "LEGACY client message has no .xx");
 
 assert(ctx.ppSheetPrice_({ statedCost: 157.5, factCost: 157.5, calcFactCost: 161.18 }) === 157.5, "ppSheetPrice ignores 161.18");
 assert(ctx.raw26ApiFactPrice_({ factCost: 157.5, clientPrice: 161.18, calcFactCost: 161.18 }) === 157.5, "API fact wins over stale clientPrice");
-assert(ctx.ppOfferClientPrice_("RAW26", 157.5, 157.5, false) === 157.5, "offer uses fact 157.50");
+assert(ctx.ppOfferClientPrice_("RAW26", 157.5, 157.5, false) === 157.5, "picker fact stays 157.50");
+assert(ctx.ppClientDisplayPrice_("RAW26", 157.5, 157.5, false) === 158, "display Math.round fact");
+assert(ctx.ppClientDisplayPrice_("RAW26", 157.5, 157.5, true) === 157.5, "display keeps touched stated");
 
 const rita = { nick: "РИТА", label: "РИТА", sheet: "ПП", subId: "24", scheme: "RAW26", factCost: 157.5, calcFactCost: 161.18 };
 const kafa = { nick: "kafetafreya", label: "kafetafreya", sheet: "ПП", subId: "24", scheme: "RAW26", factCost: 200 };
@@ -221,4 +251,4 @@ const rekey = { nick: "rit_murr", label: "РИТА", sheet: "ПП", subId: "24" 
 assert(wCtx.subscriptionMatch_(rekey, wCtx.normalizeMatchKey_("rit_murr"), "ПП", "") === true, "rekeyed nick rit_murr");
 assert(wCtx.subscriptionMatch_(rekey, wCtx.normalizeMatchKey_("РИТА"), "ПП", "") === true, "label РИТА still matches");
 
-console.log("ok rit_murr retail/cap align: R=171.20 sub=157.50; 156/158/161.18 explained");
+console.log("ok rit_murr retail/cap align: fact 157.50, client message 171/158 no .xx; owner formatClientRub_ stays .xx");

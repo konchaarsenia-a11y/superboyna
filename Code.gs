@@ -18875,12 +18875,58 @@ function ppOfferClientPrice_(scheme, factCost, statedCost, statedTouched) {
   return 0;
 }
 
+/**
+ * Только текст клиенту: Math.round(fact), либо stated как ввёл владелец.
+ * Не трогает fact / cap / clientPrice.
+ */
+function formatClientMessagePrice_(n, asEntered) {
+  var x = Number(n) || 0;
+  if (!isFinite(x) || x <= 0) return 0;
+  if (asEntered) {
+    if (Math.abs(x - Math.round(x)) < 0.001) return Math.round(x);
+    return Math.round(x * 100) / 100;
+  }
+  return Math.round(x);
+}
+
+function statedTouchedFlag_(v) {
+  return v === true || v === 1 || v === "1";
+}
+
+function ppClientDisplayPrice_(scheme, factCost, statedCost, statedTouched) {
+  var fact = Number(factCost);
+  var stated = Number(statedCost);
+  var sch = String(scheme || "").toUpperCase();
+  var touched = statedTouchedFlag_(statedTouched);
+  var asEntered = false;
+  if (sch !== "RAW26") {
+    asEntered = isFinite(stated) && stated > 0;
+  } else {
+    asEntered = touched && isFinite(stated) && stated > 0;
+  }
+  var picked = ppOfferClientPrice_(scheme, factCost, statedCost, touched);
+  return formatClientMessagePrice_(picked, asEntered);
+}
+
+function applyClientPricePlaceholders_(text, price, asEntered) {
+  var shown = formatClientMessagePrice_(price, asEntered);
+  var txt = (!shown) ? "0"
+    : (Math.abs(shown - Math.round(shown)) < 0.001 ? String(Math.round(shown)) : Number(shown).toFixed(2));
+  return String(text || "")
+    .replace(/\{price\}/gi, txt)
+    .replace(/\{цена\}/gi, txt)
+    .replace(/%PRICE%/gi, txt);
+}
+
 function attachPpOfferClientPrice_(fact, statedCost, statedTouched) {
   fact = fact || {};
   var client = ppOfferClientPrice_(
     fact.scheme, fact.factCost, statedCost, statedTouched
   );
   fact.clientPrice = client;
+  fact.clientDisplayPrice = ppClientDisplayPrice_(
+    fact.scheme, fact.factCost, statedCost, statedTouched
+  );
   if (statedCost != null && statedCost !== "") fact.statedCost = statedCost;
   fact.statedSynced = false;
   return fact;
@@ -26656,7 +26702,7 @@ function handleSyncSurveyTemplates(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
-function personalizeSurveyBody_(body, nick) {
+function personalizeSurveyBody_(body, nick, price, asEntered) {
   var text = String(body || "");
   var name = String(nick || "").trim();
   // «Здравствуйте, !» → «Здравствуйте, Name!»
@@ -26664,6 +26710,9 @@ function personalizeSurveyBody_(body, nick) {
     text = text.replace(/Здравствуйте,\s*!/g, "Здравствуйте, " + name + "!");
   } else {
     text = text.replace(/Здравствуйте,\s*!/g, "Здравствуйте!");
+  }
+  if (price != null && price !== "") {
+    text = applyClientPricePlaceholders_(text, price, asEntered);
   }
   return text;
 }

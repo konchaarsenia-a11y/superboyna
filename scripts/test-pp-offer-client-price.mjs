@@ -87,6 +87,10 @@ vm.runInContext(
     extractFn(gsSrc, "isGramCrumbLineGs_"),
     extractFn(gsSrc, "recoverBynFromPpLines_"),
     extractFn(gsSrc, "ppOfferClientPrice_"),
+    extractFn(gsSrc, "formatClientMessagePrice_"),
+    extractFn(gsSrc, "statedTouchedFlag_"),
+    extractFn(gsSrc, "ppClientDisplayPrice_"),
+    extractFn(gsSrc, "applyClientPricePlaceholders_"),
     extractFn(gsSrc, "attachPpOfferClientPrice_"),
     extractFn(gsSrc, "raw26OfferCleanByn_"),
     extractFn(gsSrc, "raw26RetailCapBase_"),
@@ -103,7 +107,15 @@ const uiCtx = vm.createContext({
   isFinite: isFinite,
   Object: Object
 });
-vm.runInContext(extractFn(uiSrc, "ppOfferClientPrice_"), uiCtx);
+vm.runInContext(
+  [
+    extractFn(uiSrc, "ppOfferClientPrice_"),
+    extractFn(uiSrc, "statedTouchedFlag_"),
+    extractFn(uiSrc, "formatClientMessagePrice_"),
+    extractFn(uiSrc, "ppClientDisplayPrice_")
+  ].join("\n"),
+  uiCtx
+);
 
 const wCtx = vm.createContext({
   Math: Math,
@@ -112,7 +124,16 @@ const wCtx = vm.createContext({
   isFinite: isFinite,
   Object: Object
 });
-vm.runInContext(extractFn(wSrc, "ppOfferClientPriceD1_"), wCtx);
+vm.runInContext(
+  [
+    extractFn(wSrc, "ppOfferClientPriceD1_"),
+    extractFn(wSrc, "formatClientMessagePriceD1_"),
+    extractFn(wSrc, "statedTouchedFlagD1_"),
+    extractFn(wSrc, "ppClientDisplayPriceD1_"),
+    extractFn(wSrc, "applyClientPricePlaceholdersD1_")
+  ].join("\n"),
+  wCtx
+);
 
 /* ---------- stated vs fact ---------- */
 const STATED_195 = 195;
@@ -132,6 +153,30 @@ function checkPicker(fn, label) {
 checkPicker(gsCtx.ppOfferClientPrice_, "Code.gs");
 checkPicker(uiCtx.ppOfferClientPrice_, "app.main.js");
 checkPicker(wCtx.ppOfferClientPriceD1_, "worker");
+
+function checkDisplay(fn, label) {
+  assert(fn("RAW26", 157.5, 157.5, false) === 158, label + " RAW26 display Math.round(157.50)=158, got " + fn("RAW26", 157.5, 157.5, false));
+  assert(fn("RAW26", 157.5, 157.5, true) === 157.5, label + " RAW26 touched stated as entered 157.50");
+  assert(fn("RAW26", 157.5, 160, true) === 160, label + " RAW26 touched stated 160");
+  assert(fn("RAW26", 67.16, "", false) === 67, label + " RAW26 fact 67.16 → 67");
+  assert(fn("LEGACY", 100.4, 195, false) === 195, label + " LEGACY stated as entered 195");
+  assert(fn("LEGACY", 100.4, "", false) === 100, label + " LEGACY empty stated → Math.round(fact)");
+}
+checkDisplay(gsCtx.ppClientDisplayPrice_, "Code.gs");
+checkDisplay(uiCtx.ppClientDisplayPrice_, "app.main.js");
+checkDisplay(wCtx.ppClientDisplayPriceD1_, "worker");
+
+assert(gsCtx.formatClientMessagePrice_(157.5, false) === 158, "GS format rounds");
+assert(gsCtx.formatClientMessagePrice_(157.5, true) === 157.5, "GS format as-entered keeps .50");
+assert(gsCtx.applyClientPricePlaceholders_("цена {price} / {цена} / %PRICE%", 157.5, false) === "цена 158 / 158 / 158",
+  "GS template placeholders use integer");
+assert(wCtx.applyClientPricePlaceholdersD1_("итог {price}", 157.5, true) === "итог 157.50",
+  "worker template keeps manual stated");
+assert(gsCtx.ppOfferClientPrice_("RAW26", 157.5, 157.5, false) === 157.5, "picker fact stays 157.50");
+assert(
+  /clientDisplayPrice/.test(gsSrc) && /clientDisplayPrice/.test(wSrc),
+  "API attach exposes clientDisplayPrice without changing clientPrice math"
+);
 
 assert(
   /statedTouched/.test(uiSrc) && /calcFactCost/.test(uiSrc),
@@ -472,6 +517,9 @@ vm.runInContext(
     extractFn(wSrc, "isGramCrumbLineD1_"),
     extractFn(wSrc, "recoverBynFromPpLinesD1_"),
     extractFn(wSrc, "ppOfferClientPriceD1_"),
+    extractFn(wSrc, "formatClientMessagePriceD1_"),
+    extractFn(wSrc, "statedTouchedFlagD1_"),
+    extractFn(wSrc, "ppClientDisplayPriceD1_"),
     extractFn(wSrc, "attachPpOfferClientPriceD1_"),
     extractFn(wSrc, "raw26OfferCleanBynD1_"),
     extractFn(wSrc, "raw26RetailCapBaseD1_"),
