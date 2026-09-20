@@ -381,7 +381,7 @@
       function priceHtml(variant) {
         const price = Number(variant && variant.price_byn || 0).toFixed(0);
         if (variantOnSale(variant)) {
-          return `<s>${Number(variant.old_price_byn).toFixed(0)}</s>${price} BYN`;
+          return `<s>${Number(variant.old_price_byn).toFixed(0)}</s> ${price} BYN`;
         }
         return price + ' BYN';
       }

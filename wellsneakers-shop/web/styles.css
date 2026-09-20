@@ -700,7 +700,7 @@ body.pdp-open .filters-fab{display:none !important}
   font-size:clamp(28px,7vw,40px);letter-spacing:.05em;text-transform:uppercase;font-weight:400;
   line-height:1.05;
 }
-.pdp-price{font-weight:800;font-size:20px}
+.pdp-price{font-weight:800;font-size:20px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .pdp-meta{color:var(--muted);font-size:13px;font-weight:600}
 .pdp-kicker{
   margin:4px 0 0;color:var(--muted);font-size:11px;font-weight:700;
