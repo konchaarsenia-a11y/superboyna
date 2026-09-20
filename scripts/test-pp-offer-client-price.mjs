@@ -83,6 +83,7 @@ vm.runInContext(
     extractFn(gsSrc, "dressuraFractionMarkupFromBasket_"),
     extractFn(gsSrc, "packagesBynFromUCounts_"),
     extractFn(gsSrc, "normalizePpScheme_"),
+    extractFn(gsSrc, "isGramCrumbLineGs_"),
     extractFn(gsSrc, "recoverBynFromPpLines_"),
     extractFn(gsSrc, "ppOfferClientPrice_"),
     extractFn(gsSrc, "attachPpOfferClientPrice_"),
@@ -186,8 +187,8 @@ assert(
   "stats passes retail=0 so cost is not client-capped"
 );
 assert(
-  /schemeForPrice === "RAW26"/.test(gsSrc) && /calcIn/.test(gsSrc),
-  "GAS saveSubscription RAW26 prefers calc fact"
+  /schClamp === "RAW26"/.test(gsSrc) && /capFact/.test(gsSrc) && /calcIn/.test(gsSrc),
+  "GAS saveSubscription RAW26 clamps stated to capped fact"
 );
 assert(
   !/subTotal = \(isFinite\(stated\).*stated/.test(uiSrc),
@@ -216,8 +217,7 @@ const factNew = gsCtx.computePpFactFromCost_(
 assert(factNew.scheme === "RAW26", "scheme RAW26");
 assert(factNew.fractionMarkup === 6.4, "fact fractionMarkup 6.4, got " + factNew.fractionMarkup);
 assert(factNew.clientPrice === factNew.factCost, "RAW26 clientPrice synced to fact");
-assert(factNew.statedSynced === true, "RAW26 statedSynced");
-assert(factNew.statedCost === factNew.factCost, "RAW26 statedCost=fact");
+assert(factNew.statedSynced === false, "compute не пишет stated — это migrate/save");
 assert(
   factNew.factCost >= 130 && factNew.factCost < 140,
   "Рит мурр fact after new rates in 130s, got " + factNew.factCost
@@ -257,11 +257,11 @@ const ritN1Cap = gsCtx.computePpFactFromCost_(
 const ritCapAt = Math.round((ritRetail + 9) * 0.92 * 100) / 100;
 assert(ritCapAt === 40.66, "92% от 35.20+9 = 40.66");
 assert(ritN1Cap.retailCapped === true, "финальный кап помечает retailCapped");
-assert(ritN1Cap.deliveryByn === 9, "Рит: доставку не режем");
 assert(ritN1Cap.fractionMarkup === 0, "Рит: фракции съели excess первым, got " + ritN1Cap.fractionMarkup);
-assert(ritN1Cap.goodsByn === 50.33, "Рит: товар до пола raw+recover 50.33, got " + ritN1Cap.goodsByn);
-assert(ritN1Cap.factCost === 59.33, "Рит: пол+9=59.33, не схлопывать доставку до 40.66, got " + ritN1Cap.factCost);
+assert(ritN1Cap.factCost === 40.66, "Рит: жёсткий кап 0.92×(35.20+9)=40.66, got " + ritN1Cap.factCost);
+assert(ritN1Cap.factCost <= ritCapAt, "Рит: цена не выше капа");
 assert(ritN1Cap.factCost !== 32.38, "не капать по товару без доставки (было 32.38)");
+assert(ritN1Cap.factCost !== 59.33, "пол+9=59.33 нельзя оставлять выше капа");
 
 const baranRecover = 27.80;
 const baranGrams = Math.round((baranRecover / 3.9) * 100 * 10000) / 10000;
@@ -362,6 +362,7 @@ vm.runInContext(
     extractFn(wSrc, "dressuraFractionMarkupFromBasketD1_"),
     extractFn(wSrc, "packagesBynFromUCountsD1_"),
     extractFn(wSrc, "normalizePpSchemeD1_"),
+    extractFn(wSrc, "isGramCrumbLineD1_"),
     extractFn(wSrc, "recoverBynFromPpLinesD1_"),
     extractFn(wSrc, "ppOfferClientPriceD1_"),
     extractFn(wSrc, "attachPpOfferClientPriceD1_"),
@@ -374,8 +375,8 @@ vm.runInContext(
 const wRit = wFactCtx.computePpFactFromCostD1_(
   raw, ritBasket, 1, 2.6, emptyPacks, "RAW26", ritLines, ritRetail
 );
-assert(wRit.factCost === 59.33, "worker Рит N=1 пол+9=59.33, got " + wRit.factCost);
-assert(wRit.deliveryByn === 9 && wRit.fractionMarkup === 0, "worker Рит: фракции 0, доставка 9");
+assert(wRit.factCost === 40.66, "worker Рит N=1 жёсткий кап 40.66, got " + wRit.factCost);
+assert(wRit.factCost <= ritCapAt && wRit.fractionMarkup === 0, "worker Рит: фракции 0, цена ≤ капа");
 const wBaran = wFactCtx.computePpFactFromCostD1_(
   44.18, baranBasket, 1, 2.6, baranPacks, "RAW26", baranLines, 122
 );
@@ -422,12 +423,81 @@ assert(uiAlloc.goods === 46 && uiAlloc.delivery === 18, "UI alloc не трог�
 assert(uiCapCtx.raw26OfferCleanByn_(75, 20, 5, 0, 2) === 42, "UI чистые: 75-20-5-0-8=42");
 assert(uiCapCtx.raw26OfferCleanByn_(67.16, 20, 5, 0, 2) === 34.16, "UI чистые после капа 34.16");
 
+/* ---------- convert-to-RAW26: stated = capped fact, never > 0.92×(retail+9N) ---------- */
+function convertToRaw26Like_(fn, rawCost, basket, n, packs, lines, retailGoods) {
+  const fact = fn(rawCost, basket, n, 2.6, packs, "RAW26", lines, retailGoods);
+  const stated = fact.factCost;
+  const base = Number(retailGoods) > 0
+    ? Math.round((Number(retailGoods) + 9 * n) * 100) / 100
+    : 0;
+  const capAt = base > 0 ? Math.round(base * 0.92 * 100) / 100 : Infinity;
+  assert(stated <= capAt + 0.001, "convert-to-RAW26 stated " + stated + " > cap " + capAt);
+  assert(fact.factCost <= capAt + 0.001, "convert-to-RAW26 fact " + fact.factCost + " > cap " + capAt);
+  return { stated: stated, fact: fact, capAt: capAt, base: base };
+}
+
+const ritMurrBasket = [
+  line("ЛЁГКОЕ", "Среднее", 320, "dressura"),
+  line("СЕРДЦЕ", "Целое", 80, "dressura"),
+  line("ПОЧКИ", "Целое", 40, "dressura"),
+  { name: "БЫЧИЙ КОРЕНЬ", main: "БЫЧИЙ КОРЕНЬ", sub: "СРЕД", val: 8, value: 8, cat: "chew" },
+  line("ЯБЛОКИ", "", 100, "veg"),
+  {
+    name: "крошка", main: "крошка", sub: "РУБЕЦ Т", val: 100, value: 100, cat: "crumb",
+    crumbKind: "veg",
+    sources: [{ cat: "dressura", name: "РУБЕЦ Т", main: "РУБЕЦ Т", sub: "" }],
+    ratio: [1]
+  }
+];
+const ritMurrLines = ritMurrBasket.map(function (it) {
+  return {
+    name: it.name, sub: it.sub, val: it.val,
+    piece: it.cat === "chew", cat: it.cat, crumbKind: it.crumbKind
+  };
+});
+const ritMurrPacks = { u1: 0, u2: 4, u3: 3, up4: 1 };
+const ritMurrRetail = 166.2;
+const ritMurrRaw = 49.6;
+const convGs = convertToRaw26Like_(
+  gsCtx.computePpFactFromCost_, ritMurrRaw, ritMurrBasket, 1, ritMurrPacks, ritMurrLines, ritMurrRetail
+);
+assert(convGs.capAt === 161.18, "rit_murr cap 0.92×(166.20+9)=161.18, got " + convGs.capAt);
+assert(convGs.stated === 161.18, "rit_murr convert stated 161.18, got " + convGs.stated);
+assert(convGs.stated < ritMurrRetail, "rit_murr convert stated < retail goods");
+const convW = convertToRaw26Like_(
+  wFactCtx.computePpFactFromCostD1_, ritMurrRaw, ritMurrBasket, 1, ritMurrPacks, ritMurrLines, ritMurrRetail
+);
+assert(convW.stated === 161.18, "worker convert rit_murr stated 161.18, got " + convW.stated);
+
+const overStated = 166;
+assert(
+  gsCtx.ppOfferClientPrice_("RAW26", convGs.fact.factCost, overStated, false) === 161.18,
+  "оффер rit_murr: 166 stated ignored, client 161.18"
+);
+
+assert(
+  /statedCost: applyStated \? fact\.factCost/.test(wSrc),
+  "Worker migrate writes statedCost = capped fact"
+);
+assert(
+  /statedTouched: applyStated \? 0/.test(wSrc),
+  "Worker migrate clears statedTouched"
+);
+assert(
+  /clampRaw26SubscriptionWriteD1_/.test(wSrc),
+  "Worker save clamps RAW26 stated/fact to cap"
+);
+assert(
+  /Number\(factCost\) > capFact/.test(gsSrc),
+  "GAS save clamps RAW26 stated above cap"
+);
+
 console.log("ok pp-offer-client-price");
 console.log("  Рит мурр before: stated 195 → client 195 (bug)");
 console.log("  Рит мурр after:  fact " + factNew.factCost + " → client " + factNew.factCost +
   " (frac 6.4, retail=0 keeps draft)");
 console.log("  Рит N=1 + розница 35.20: " + ritN1Open.factCost + " → " + ritN1Cap.factCost +
-  " (кап 40.66, но пол+9=59.33; доставку не режем)");
+  " (жёсткий кап 40.66; пол+9 режем если иначе выше розницы)");
 console.log("  с_бараньим N=1: было " + baranOldInnerOnly + " (кап только товар) → " + baranCap.factCost);
 console.log("  dasha_2135 N=2: ~74 → " + dashaCap.factCost + " (не 50.60)");
 console.log("  LEGACY stated 195 kept; крошка 0");

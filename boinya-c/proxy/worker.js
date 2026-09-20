@@ -2,7 +2,7 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-19 no-future-week-clone-h1
+ * deploy-marker: 2026-09-20 pp-raw26-convert-hard-cap-h1
  * (prior: preserve-order-price-h1 / close-week-no-shift-h2 / orders-access-tab-h1 / fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
  */
 const CORS = {
@@ -12559,6 +12559,7 @@ async function handleCutover_(a, params, env, ctx) {
       try {
         if (env && env.DB) {
           if (/^(saveSubscription|moveSubscription)$/i.test(a)) {
+            params = await clampRaw26SubscriptionWriteD1_(params, env, ctx);
             d1SubRes = await upsertSubscription_(params, env);
           } else {
             d1SubRes = await deleteSubscription_(params, env);
@@ -12617,7 +12618,7 @@ async function handleCutover_(a, params, env, ctx) {
         wishes: params && (params.wishes || params.note),
         forNew: true
       });
-      if (enrollSchemeD1 === "RAW26" && !statedTouchedEn) {
+      if (enrollSchemeD1 === "RAW26") {
         try {
           const snapCostsEn = await getSnapRaw_(env, "priceCostsPp");
           if (snapCostsEn && snapCostsEn.costs) {
@@ -12632,7 +12633,14 @@ async function handleCutover_(a, params, env, ctx) {
               snapCostsEn.costs
             );
             if (factFullEn && factFullEn.factCost != null) {
-              enrollFact = factFullEn.factCost;
+              if (
+                !statedTouchedEn ||
+                enrollFact == null ||
+                enrollFact === "" ||
+                Number(enrollFact) > Number(factFullEn.factCost) + 0.001
+              ) {
+                enrollFact = factFullEn.factCost;
+              }
             }
           }
         } catch (eFactEn) {}
@@ -18540,6 +18548,47 @@ async function getPpOrderSuggestD1_(params, env, ctx) {
   };
 }
 
+async function clampRaw26SubscriptionWriteD1_(params, env, ctx) {
+  params = params || {};
+  const sheet = String(params.sheet || params.segment || "").trim().toUpperCase();
+  if (sheet && sheet !== "ПП") return params;
+  const scheme = resolvePpSchemeD1_({
+    scheme: params.scheme,
+    wishes: params.wishes || params.note,
+    forNew: false
+  });
+  if (scheme !== "RAW26") return params;
+  const basket = parseBasketParamD1_(params);
+  if (!basket.length) return params;
+  try {
+    const snapCosts = (await getSnapRaw_(env, "priceCostsPp")) || { costs: {} };
+    const fact = await calcPpFactFromD1Costs_(
+      Object.assign({}, params, { scheme: "RAW26", forNew: 0, fullFact: 1, basket: basket }),
+      env,
+      ctx,
+      snapCosts.costs || {}
+    );
+    if (!fact || !(Number(fact.factCost) > 0)) return params;
+    const capFact = Number(fact.factCost);
+    const next = Object.assign({}, params);
+    const statedN = Number(next.statedCost);
+    const factN = Number(next.factCost);
+    if (next.statedCost == null || next.statedCost === "" || (isFinite(statedN) && statedN > capFact + 0.001)) {
+      next.statedCost = capFact;
+    }
+    if (next.factCost == null || next.factCost === "" || (isFinite(factN) && factN > capFact + 0.001)) {
+      next.factCost = capFact;
+    }
+    next.calcFactCost = capFact;
+    if (Number(next.statedCost) <= capFact + 0.001 && Number(next.statedCost) >= capFact - 0.001) {
+      next.statedTouched = 0;
+    }
+    return next;
+  } catch (eC) {
+    return params;
+  }
+}
+
 async function migratePpToRaw26SchemeD1_(params, env, ctx) {
   const nick = String((params && (params.nick || params.client)) || "").trim();
   const subId = String((params && params.subId) || "").trim();
@@ -18617,6 +18666,19 @@ async function migratePpToRaw26SchemeD1_(params, env, ctx) {
       retailGoods = retailGoodsBynFromBasketD1_(retailMapFromItemsD1_(retailSnap.items), basket);
     }
   } catch (eR) {}
+  if (!(retailGoods > 0)) {
+    try {
+      const warmRetail = await gasProxy_(
+        "calcPpFact",
+        { basket: basket, scheme: "RAW26", deliveriesN: deliveriesN, coef: 2.6, fullFact: 1 },
+        env,
+        { write: false }
+      );
+      if (warmRetail && Number(warmRetail.retailGoods) > 0) {
+        retailGoods = Number(warmRetail.retailGoods);
+      }
+    } catch (eRG) {}
+  }
   const fact = computePpFactFromCostD1_(
     rawCost,
     basket,
@@ -18642,6 +18704,14 @@ async function migratePpToRaw26SchemeD1_(params, env, ctx) {
     ppScheme: "RAW26",
     coef: PP_RAW26_COEF_DEFAULT_D1_,
     factCost: applyStated ? fact.factCost : local.factCost,
+    statedCost: applyStated ? fact.factCost : local.statedCost,
+    calcFactCost: fact.factCost,
+    clientPrice: applyStated ? fact.factCost : local.clientPrice,
+    statedTouched: applyStated ? 0 : local.statedTouched,
+    retailGoods: fact.retailGoods,
+    retailCapBase: fact.retailCapBase,
+    retailCapped: fact.retailCapped,
+    retailCapAt: fact.retailCapAt,
     _d1Detail: true,
     _savedAt: Date.now()
   });
@@ -18659,8 +18729,18 @@ async function migratePpToRaw26SchemeD1_(params, env, ctx) {
     coef: PP_RAW26_COEF_DEFAULT_D1_,
     rawCost: rawCost,
     factCost: fact.factCost,
+    statedCost: applyStated ? fact.factCost : local.statedCost,
     statedApplied: applyStated,
+    statedTouched: applyStated ? 0 : local.statedTouched,
     recoverByn: fact.recoverByn,
+    retailGoods: fact.retailGoods,
+    retailCapBase: fact.retailCapBase,
+    retailCapped: fact.retailCapped,
+    retailCapAt: fact.retailCapAt,
+    factBeforeCap: fact.factBeforeCap,
+    factAfterCap: fact.factAfterCap,
+    cleanBeforeCap: fact.cleanBeforeCap,
+    cleanAfterCap: fact.cleanAfterCap,
     wishes: wishes,
     cutover: true,
     fromD1: true,
@@ -19599,6 +19679,43 @@ function recoverBynFromPpLinesD1_(lines) {
   return Math.round(sum * 100) / 100;
 }
 
+function retailGoodsFromCrumbItemD1_(map, it, val) {
+  const sources = it && it.sources;
+  if (sources && sources.length) {
+    const ratios = it.ratio || [];
+    let rsum = 0;
+    for (let ri = 0; ri < sources.length; ri++) rsum += Number(ratios[ri]) || 0;
+    if (rsum <= 0) rsum = sources.length;
+    let sum = 0;
+    for (let si = 0; si < sources.length; si++) {
+      const src = sources[si] || {};
+      const share = (Number(ratios[si]) || 1) / rsum;
+      const rcS = retailLineCostD1_(
+        map,
+        src.name || src.main,
+        src.sub,
+        val * share,
+        src.cat || "dressura"
+      );
+      sum += Number(rcS.cost) || 0;
+    }
+    return sum;
+  }
+  const hint = String((it && (it.sub || it.name || it.main)) || "").trim();
+  if (/рубец/i.test(hint)) {
+    const rcPack = retailLineCostD1_(map, "КРОШКА РУБЕЦ", "", val, "crumb");
+    if (rcPack && rcPack.found && Number(rcPack.cost) > 0) return Number(rcPack.cost) || 0;
+    return Number(retailLineCostD1_(map, "РУБЕЦ Т", "", val, "dressura").cost) || 0;
+  }
+  if (/почк/i.test(hint)) {
+    return Number(retailLineCostD1_(map, "КРОШКА ПОЧЕК", "", val, "crumb").cost) || 0;
+  }
+  if (/лёгк|легк/i.test(hint)) {
+    return Number(retailLineCostD1_(map, "КРОШКА ЛЁГКОГО", "", val, "crumb").cost) || 0;
+  }
+  return 0;
+}
+
 function retailGoodsBynFromBasketD1_(map, basket) {
   let sum = 0;
   for (let i = 0; i < (basket || []).length; i++) {
@@ -19606,7 +19723,12 @@ function retailGoodsBynFromBasketD1_(map, basket) {
     const name = String(it.name || it.main || "").trim();
     const sub = String(it.sub || "").trim();
     const val = Number(it.val != null ? it.val : it.value) || 0;
-    if (!name || val <= 0) continue;
+    if (val <= 0) continue;
+    if (isGramCrumbLineD1_(it)) {
+      sum += retailGoodsFromCrumbItemD1_(map, it, val);
+      continue;
+    }
+    if (!name) continue;
     const rc = retailLineCostD1_(map, name, sub, val, it.cat);
     sum += Number(rc.cost) || 0;
   }
@@ -19655,7 +19777,7 @@ function raw26OfferCleanBynD1_(clientPrice, raw, recover, packagesByn, deliverie
 
 function applyRaw26RetailCapAllocD1_(goods, delivery, packagesByn, fracMark, capAt, goodsFloor) {
   let g = Math.round((Number(goods) || 0) * 100) / 100;
-  const d = Math.round((Number(delivery) || 0) * 100) / 100;
+  let d = Math.round((Number(delivery) || 0) * 100) / 100;
   let p = Math.round((Number(packagesByn) || 0) * 100) / 100;
   let f = Math.round((Number(fracMark) || 0) * 100) / 100;
   const cap = Math.round((Number(capAt) || 0) * 100) / 100;
@@ -19679,14 +19801,26 @@ function applyRaw26RetailCapAllocD1_(goods, delivery, packagesByn, fracMark, cap
     if (excess > 0 && p > 0) {
       const cutP = Math.min(p, excess);
       p = Math.round((p - cutP) * 100) / 100;
+      excess = Math.round((excess - cutP) * 100) / 100;
+    }
+    if (excess > 0 && d > 0) {
+      const cutD = Math.min(d, excess);
+      d = Math.round((d - cutD) * 100) / 100;
+      excess = Math.round((excess - cutD) * 100) / 100;
+    }
+    if (excess > 0 && g > 0) {
+      const cutG2 = Math.min(g, excess);
+      g = Math.round((g - cutG2) * 100) / 100;
     }
   }
+  let fact = Math.round((g + d + p + f) * 100) / 100;
+  if (capped && cap > 0 && fact > cap) fact = cap;
   return {
     goods: g,
     delivery: d,
     packagesByn: p,
     fractionMarkup: f,
-    factCost: Math.round((g + d + p + f) * 100) / 100,
+    factCost: fact,
     retailCapped: !!capped,
     retailCapAt: cap
   };
