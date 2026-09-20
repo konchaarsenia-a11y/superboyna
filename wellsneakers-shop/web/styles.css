@@ -235,7 +235,7 @@ body:not(.page-home):not(.page-catalog) .top{position:sticky;transform:none;poin
   position:relative;
   list-style:none;cursor:pointer;
   display:flex;align-items:center;gap:8px;
-  min-height:48px;padding:12px 10px 12px 5.8rem;
+  min-height:48px;padding:12px 10px;
   border-radius:14px;
 }
 .perk summary::-webkit-details-marker{display:none}
@@ -272,7 +272,7 @@ body:not(.page-home):not(.page-catalog) .top{position:sticky;transform:none;poin
 }
 .perk[open] .perk-more{animation:perkIn .16s ease}
 .perk-sticker{
-  position:absolute;top:-11px;left:8px;right:auto;z-index:2;
+  position:absolute;top:-12px;left:10px;right:auto;z-index:2;
   padding:1px 5px;border-radius:5px;
   font-family:var(--display);font-size:9px;letter-spacing:.04em;text-transform:uppercase;
   line-height:1.1;
