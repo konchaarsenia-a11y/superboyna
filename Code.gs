@@ -18278,7 +18278,18 @@ function handleCalcPrice(json, callback, fromPost) {
       var rsub = String(rit.sub || "").trim();
       var rval = Number(rit.val != null ? rit.val : rit.value) || 0;
       if (!rname || rval <= 0) continue;
-      var rc = retailLineCost_(rname, rsub, rval, rit.cat);
+      var rc = null;
+      if (isGramCrumbLineGs_(rit)) {
+        var crumbCost = retailGoodsFromCrumbItemGs_(rit, rval);
+        if (crumbCost > 0) {
+          rc = {
+            cost: crumbCost,
+            per: rval ? Math.round((crumbCost / (rval / 100)) * 100) / 100 : 0,
+            found: true
+          };
+        }
+      }
+      if (!rc) rc = retailLineCost_(rname, rsub, rval, rit.cat);
       rTotal += rc.cost;
       rLines.push({ name: rname, sub: rsub, val: rval, per100: rc.per, cost: rc.cost, found: rc.found });
     }
@@ -18616,6 +18627,10 @@ function recoverBynFromPpLines_(lines) {
 }
 
 function retailGoodsFromCrumbItemGs_(it, val) {
+  var crumbRate = crumbKindRateGs_(it && (it.crumbKind || it.sub || it.name));
+  if (crumbRate > 0) {
+    return Math.round((val / 100) * crumbRate * 100) / 100;
+  }
   var sources = it && it.sources;
   if (sources && sources.length) {
     var ratios = it.ratio || [];

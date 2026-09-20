@@ -148,8 +148,9 @@ assert(
   "UI has retail cap base + alloc + price helper"
 );
 assert(
-  /function raw26RetailCapBase_/.test(gsSrc) && /function raw26RetailCapBaseD1_/.test(wSrc),
-  "GS+worker share free-from-80 retail cap base"
+  /crumbKindRateGs_\(it && \(it.crumbKind/.test(gsSrc) &&
+    /crumbKindRateD1_\(\(it && \(it.crumbKind/.test(wSrc),
+  "PP crumb retailGoods uses mixer 15/17/20 first (same as retail calcPrice)"
 );
 assert(
   /PP_RAW26_RETAIL_FREE_FROM_/.test(gsSrc) && /PP_RAW26_RETAIL_FREE_FROM_D1_/.test(wSrc),
@@ -430,7 +431,7 @@ assert(uiCapCtx.capRaw26PriceToRetail_(126.29, 0, 1) === 126.29, "UI: розни
 assert(uiCapCtx.raw26RetailCapBase_(55, 2) === 73, "UI: dasha база 55+18=73");
 assert(uiCapCtx.capRaw26PriceToRetail_(74, 55, 2) === 67.16, "UI: dasha 74 → 67.16");
 assert(uiCapCtx.capRaw26PriceToRetail_(126.29, 35.2, 1) === 40.66, "UI: 126.29 → 40.66");
-assert(uiCapCtx.raw26RetailCapBase_(166.2, 1) === 166.2, "UI: R>=80 база без +9");
+assert(uiCapCtx.raw26RetailCapBase_(171.2, 1) === 171.2, "UI: R>=80 база без +9");
 assert(uiCapCtx.raw26RetailCapBase_(80, 2) === 80, "UI: R=80 ровно — без +9");
 assert(uiCapCtx.raw26RetailCapBase_(79.99, 1) === 88.99, "UI: R<80 → +9");
 assert(uiCapCtx.capRaw26PriceToRetail_(153.07, 122, 1) === 112.24, "UI: R=122 → 0.92×122=112.24");
@@ -474,31 +475,32 @@ const ritMurrLines = ritMurrBasket.map(function (it) {
   };
 });
 const ritMurrPacks = { u1: 0, u2: 4, u3: 3, up4: 1 };
-const ritMurrRetail = 166.2;
+const ritMurrRetail = 171.2;
 const ritMurrRaw = 49.6;
 const convGs = convertToRaw26Like_(
   gsCtx.computePpFactFromCost_, ritMurrRaw, ritMurrBasket, 1, ritMurrPacks, ritMurrLines, ritMurrRetail
 );
-assert(gsCtx.raw26RetailCapBase_(166.2, 1) === 166.2, "(1) R>=80 → no +9 in base");
+assert(gsCtx.raw26RetailCapBase_(171.2, 1) === 171.2, "(1) R>=80 → no +9 in base");
 assert(gsCtx.raw26RetailCapBase_(80, 3) === 80, "(1) R=80 exactly → no +9");
-assert(wFactCtx.raw26RetailCapBaseD1_(166.2, 2) === 166.2, "(1) worker R>=80 ignores N");
+assert(wFactCtx.raw26RetailCapBaseD1_(171.2, 2) === 171.2, "(1) worker R>=80 ignores N");
 assert(gsCtx.raw26RetailCapBase_(55, 2) === 73, "(2) R<80 → +9×N");
 assert(wFactCtx.raw26RetailCapBaseD1_(55, 2) === 73, "(2) worker R<80 → +9×N");
-assert(convGs.base === 166.2, "(3) rit_murr capBase = R, not R+9");
-assert(convGs.capAt === 152.9, "(3) rit_murr cap 0.92×166.20=152.90, got " + convGs.capAt);
-assert(convGs.stated === 152.9, "(3) rit_murr convert stated 152.90, got " + convGs.stated);
+assert(convGs.base === 171.2, "(3) rit_murr capBase = retail R, not R+9");
+assert(convGs.capAt === 157.5, "(3) rit_murr cap 0.92×171.20=157.50, got " + convGs.capAt);
+assert(convGs.stated === 157.5, "(3) rit_murr convert stated 157.50, got " + convGs.stated);
 assert(convGs.stated !== 161.18, "(3) #335 161.18 was wrong (always +9)");
+assert(convGs.stated !== 152.9, "(3) hub 152.90 used source-crumb 166.20, not live retail 171.20");
 assert(convGs.stated < ritMurrRetail, "rit_murr convert stated < retail goods");
 assert(convGs.fact.retailCapIncludesDelivery === false, "rit_murr R>=80 → no delivery in cap base");
 const convW = convertToRaw26Like_(
   wFactCtx.computePpFactFromCostD1_, ritMurrRaw, ritMurrBasket, 1, ritMurrPacks, ritMurrLines, ritMurrRetail
 );
-assert(convW.stated === 152.9, "worker convert rit_murr stated 152.90, got " + convW.stated);
+assert(convW.stated === 157.5, "worker convert rit_murr stated 157.50, got " + convW.stated);
 
 const overStated = 166;
 assert(
-  gsCtx.ppOfferClientPrice_("RAW26", convGs.fact.factCost, overStated, false) === 152.9,
-  "оффер rit_murr: 166 stated ignored, client 152.90"
+  gsCtx.ppOfferClientPrice_("RAW26", convGs.fact.factCost, overStated, false) === 157.5,
+  "оффер rit_murr: 166 stated ignored, client 157.50"
 );
 
 assert(
@@ -526,5 +528,5 @@ console.log("  Рит N=1 + розница 35.20: " + ritN1Open.factCost + " →
   " (жёсткий кап 40.66; пол+9 режем если иначе выше розницы)");
 console.log("  с_бараньим N=1: было " + baranOldInnerOnly + " → " + baranCap.factCost + " (R>=80, без +9)");
 console.log("  dasha_2135 N=2: ~74 → " + dashaCap.factCost + " (R<80, 55+18)");
-console.log("  rit_murr live: R=166.20 ≥80 → stated=fact " + convGs.stated + " (не 161.18)");
+console.log("  rit_murr live: R=171.20 ≥80 → stated=fact " + convGs.stated + " (не 161.18 / не 152.90)");
 console.log("  LEGACY stated 195 kept; крошка 0");

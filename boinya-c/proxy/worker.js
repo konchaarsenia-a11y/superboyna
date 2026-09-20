@@ -19681,6 +19681,10 @@ function recoverBynFromPpLinesD1_(lines) {
 }
 
 function retailGoodsFromCrumbItemD1_(map, it, val) {
+  const crumbRate = crumbKindRateD1_((it && (it.crumbKind || it.sub || it.name)) || "");
+  if (crumbRate > 0) {
+    return Math.round((val / 100) * crumbRate * 100) / 100;
+  }
   const sources = it && it.sources;
   if (sources && sources.length) {
     const ratios = it.ratio || [];
@@ -20314,11 +20318,11 @@ async function calcPriceRetailD1_(params, env, ctx) {
     if (!rname || rval <= 0) continue;
     let rc;
     if (isCrumbBasketItemD1_(rit) || String(rit.cat || "").toLowerCase() === "crumb") {
-      const crumbRate = crumbKindRateD1_(rit.crumbKind || rsub || rname);
-      if (crumbRate > 0) {
+      const crumbCost = retailGoodsFromCrumbItemD1_(map, rit, rval);
+      if (crumbCost > 0) {
         rc = {
-          cost: Math.round((rval / 100) * crumbRate * 100) / 100,
-          per: crumbRate,
+          cost: crumbCost,
+          per: rval ? Math.round((crumbCost / (rval / 100)) * 100) / 100 : 0,
           found: true
         };
       }
