@@ -15976,6 +15976,15 @@ function handleSaveSubscription(json, callback, fromPost) {
   } else if ((factCost == null || factCost === "") && calcIn != null && calcIn !== "") {
     factCost = calcIn;
   }
+  // stale calcFactCost (161.18) не должен поднимать указанный/факт
+  if (
+    factCost != null &&
+    factCost !== "" &&
+    calcIn != null &&
+    Number(calcIn) > Number(factCost) + 0.001
+  ) {
+    calcIn = factCost;
+  }
   var basket = normalizeBasketArg_(json.basket);
   if (basket && !Array.isArray(basket)) basket = null;
   var packCountsOpt = json.packCounts || null;
@@ -16002,7 +16011,8 @@ function handleSaveSubscription(json, callback, fromPost) {
         rawClamp = Math.round(rawClamp * 100) / 100;
         var nClamp = Math.max(1, deliveriesN || 1);
         var factClamp = computePpFactFromCost_(
-          rawClamp, basket, nClamp, json.coef, packCountsOpt, "RAW26", linesClamp, null
+          rawClamp, basket, nClamp, json.coef, packCountsOpt, "RAW26", linesClamp,
+          retailGoodsBynFromBasket_(basket)
         );
         if (factClamp && Number(factClamp.factCost) > 0) {
           var capFact = Number(factClamp.factCost);

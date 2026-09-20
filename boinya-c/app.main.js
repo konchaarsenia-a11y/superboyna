@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115988";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115989";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -2827,9 +2827,7 @@
         );
         if (res && res.status === "success") {
           var inp = document.getElementById("orderPriceInput");
-            var statedPrice = (res.statedCost != null && res.statedCost !== "")
-            ? res.statedCost
-            : res.factCost;
+            var statedPrice = ppSheetPrice_(res) || res.statedCost || res.factCost;
           if (inp && statedPrice != null) inp.value = String(statedPrice);
           ppDeliveriesN = Number(res.deliveries) || 0;
           if (inp) inp.placeholder = "N=" + (ppDeliveriesN || "?");
@@ -4483,7 +4481,12 @@
           : (catalogAliasNameUi_(item.main || item.name) || item.main);
         let priceHtml = "";
         if (showRetail) {
-          const r = retailLineCost(item.main || item.name, item.sub || "", item.value != null ? item.value : item.val, item.cat, { crumbKind: item.crumbKind });
+          const r = retailLineCost(item.main || item.name, item.sub || "", item.value != null ? item.value : item.val, item.cat, {
+            crumbKind: item.crumbKind,
+            sources: item.sources,
+            ratio: item.ratio,
+            main: item.main
+          });
           priceHtml = r.found
             ? ('<div class="basket-sub" style="color:#30d158;">' + r.cost + " BYN</div>")
             : '<div class="basket-sub" style="color:#ff9f0a;">нет в прайсе</div>';
@@ -19127,7 +19130,12 @@
         var title = isCrumb ? crumbBasketDisplayMain_(item) : item.main;
         var priceHtml = "";
         if (priceMode === "retail") {
-          var r = retailLineCost(item.main || item.name, item.sub || "", item.value != null ? item.value : item.val, item.cat, { crumbKind: item.crumbKind });
+          var r = retailLineCost(item.main || item.name, item.sub || "", item.value != null ? item.value : item.val, item.cat, {
+            crumbKind: item.crumbKind,
+            sources: item.sources,
+            ratio: item.ratio,
+            main: item.main
+          });
           priceHtml = r.found
             ? ('<div class="basket-sub" style="color:#30d158;">' + r.cost + " BYN</div>")
             : '<div class="basket-sub" style="color:#ff9f0a;">нет в прайсе</div>';
@@ -20498,6 +20506,32 @@
       return 0;
     }
 
+    /** Карточка/оффер: stated/fact, никогда stale calcFactCost > fact (161.18). */
+    function ppSheetPrice_(res) {
+      res = res || {};
+      var stated = Number(res.statedCost);
+      var fact = Number(res.factCost != null && res.factCost !== "" ? res.factCost : res.factAfterCap);
+      var calc = Number(res.calcFactCost);
+      if (isFinite(calc) && isFinite(fact) && fact > 0 && calc > fact + 0.001) calc = NaN;
+      if (isFinite(stated) && stated > 0) return Math.round(stated * 100) / 100;
+      if (isFinite(fact) && fact > 0) return Math.round(fact * 100) / 100;
+      if (isFinite(calc) && calc > 0) return Math.round(calc * 100) / 100;
+      return 0;
+    }
+
+    /** calcPrice/API: fact, не clientPrice/calcFactCost выше факта. */
+    function raw26ApiFactPrice_(res) {
+      var fact = Number(res && res.factCost);
+      var client = Number(res && res.clientPrice);
+      var calc = Number(res && res.calcFactCost);
+      if (isFinite(calc) && isFinite(fact) && fact > 0 && calc > fact + 0.001) calc = NaN;
+      if (isFinite(client) && isFinite(fact) && fact > 0 && client > fact + 0.001) client = fact;
+      if (isFinite(fact) && fact > 0) return Math.round(fact * 100) / 100;
+      if (isFinite(client) && client > 0) return Math.round(client * 100) / 100;
+      if (isFinite(calc) && calc > 0) return Math.round(calc * 100) / 100;
+      return 0;
+    }
+
     function onSubDetailStatedPriceInput_() {
       _subDetailStatedTouched = true;
       var hint = document.getElementById("subDetailStatedHint");
@@ -21606,9 +21640,11 @@
           } catch (eProf) {}
         }
 
-        var statedFromSheet = (res.statedCost != null && res.statedCost !== "")
-          ? res.statedCost
-          : (res.factCost != null && res.factCost !== "" ? res.factCost : "");
+        var statedFromSheet = ppSheetPrice_(res) || (
+          (res.statedCost != null && res.statedCost !== "")
+            ? res.statedCost
+            : (res.factCost != null && res.factCost !== "" ? res.factCost : "")
+        );
         setSubDetailStatedPrice_(statedFromSheet);
         document.getElementById("subDetailFact").value = "";
         hideRaw26CleanPair_("subDetailCleanPair");
@@ -22059,7 +22095,7 @@
 
           factCost: sheet === "ПП" ? statedSave : (document.getElementById("subDetailFact").value || ""),
           statedCost: sheet === "ПП" ? statedSave : "",
-          calcFactCost: sheet === "ПП" ? (factSave || (document.getElementById("subDetailFact").value || "")) : "",
+          calcFactCost: sheet === "ПП" ? (factSave || statedSave) : "",
           statedTouched: sheet === "ПП" && _subDetailStatedTouched ? "1" : "0",
           basket: basketPayload,
           basket2: basket2Payload,
@@ -22525,7 +22561,7 @@
         var capped = allocUi.retailCapped;
         var localFactRaw26 = allocUi.factCost;
         subTotal = useApiFact
-          ? Math.round(Number(res.clientPrice != null ? res.clientPrice : res.factCost) * 100) / 100
+          ? (raw26ApiFactPrice_(res) || localFactRaw26)
           : localFactRaw26;
         subTotal = ppOfferClientPrice_("RAW26", subTotal || localFactRaw26, res && res.statedCost, false);
         if (localFactRaw26 > 0 && subTotal > localFactRaw26 + 12) {
@@ -24835,13 +24871,9 @@
         var enrollScheme = pricePpScheme || defaultPpSchemeForNewLocal_();
         var enrollCoef = getPricePpCoef();
         if (enrollScheme === "RAW26") {
-          var calcFactEn = null;
-          if (pricePpApiCache && pricePpApiCache.res) {
-            var rEn = pricePpApiCache.res;
-            calcFactEn = rEn.clientPrice != null ? rEn.clientPrice : rEn.factCost;
-          }
-          if (calcFactEn == null && snap.subTotal != null) calcFactEn = snap.subTotal;
-          if (calcFactEn != null && calcFactEn !== "") fact = calcFactEn;
+          var calcFactEn = raw26ApiFactPrice_(pricePpApiCache && pricePpApiCache.res);
+          if (!(calcFactEn > 0) && snap.subTotal != null) calcFactEn = snap.subTotal;
+          if (calcFactEn != null && calcFactEn !== "" && Number(calcFactEn) > 0) fact = calcFactEn;
           var factElEn = document.getElementById("enrollFactCost");
           if (factElEn && fact != null && fact !== "") factElEn.value = Math.round(Number(fact) * 100) / 100;
         }

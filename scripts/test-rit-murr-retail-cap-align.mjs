@@ -33,7 +33,9 @@ function extractFn(src, name) {
 const uiSrc = fs.readFileSync(path.join(root, "boinya-c/app.main.js"), "utf8");
 const wSrc = fs.readFileSync(path.join(root, "boinya-c/proxy/worker.js"), "utf8");
 
-assert(/v71115988/.test(uiSrc), "APP_VERSION v71115988");
+assert(/v71115989/.test(uiSrc), "APP_VERSION v71115989");
+assert(/function ppSheetPrice_/.test(uiSrc) && /function raw26ApiFactPrice_/.test(uiSrc), "UI ignores stale calcFactCost");
+assert(/function subscriptionNickKeys_/.test(wSrc) && /function sanitizeRaw26CalcFactCost_/.test(wSrc), "Worker nick aliases + sanitize calcFact");
 assert(
   /subDetailBasketPayload_\(\)/.test(uiSrc) &&
     !/cat: x\.cat \|\| "other"/.test(uiSrc.match(/function buildSubDetailClientMessageText_[\s\S]{0,400}/)[0]),
@@ -96,7 +98,10 @@ vm.runInContext(
     extractFn(uiSrc, "money2_"),
     extractFn(uiSrc, "formatClientRub_"),
     extractFn(uiSrc, "capOfferSubToDisplayedRetail_"),
-    extractFn(uiSrc, "composePpClientMessage")
+    extractFn(uiSrc, "composePpClientMessage"),
+    extractFn(uiSrc, "ppSheetPrice_"),
+    extractFn(uiSrc, "raw26ApiFactPrice_"),
+    extractFn(uiSrc, "ppOfferClientPrice_")
   ].join("\n"),
   ctx
 );
@@ -106,8 +111,18 @@ assert(ctx.crumbKindRateUi_("дрессура овощи/фрукты") === 15, 
 assert(ctx.crumbKindRateUi_("meat") === 17, "meat 17");
 assert(ctx.crumbKindRateD1_ === undefined, "no worker fn leak");
 
-const wCtx = vm.createContext({ Math, Number, String, isFinite, Object });
-vm.runInContext(extractFn(wSrc, "crumbKindRateD1_"), wCtx);
+const wCtx = vm.createContext({ Math, Number, String, isFinite, Object, Array });
+vm.runInContext(
+  [
+    extractFn(wSrc, "normalizeMatchKey_"),
+    extractFn(wSrc, "subscriptionSheetKey_"),
+    extractFn(wSrc, "subscriptionNickKeys_"),
+    extractFn(wSrc, "subscriptionMatch_"),
+    extractFn(wSrc, "sanitizeRaw26CalcFactCost_"),
+    extractFn(wSrc, "crumbKindRateD1_")
+  ].join("\n"),
+  wCtx
+);
 assert(wCtx.crumbKindRateD1_("veg") === ctx.crumbKindRateUi_("veg"), "UI/Worker veg");
 assert(wCtx.crumbKindRateD1_("овощи") === ctx.crumbKindRateUi_("овощи"), "UI/Worker овощи");
 
@@ -177,4 +192,21 @@ assert(!/157\.50/.test(msgClamp), "must not keep 157.50 above 0.92×156.20");
 const legacyKeep = ctx.composePpClientMessage(rit, 1, "", 171.2, 195, "LEGACY");
 assert(/195/.test(legacyKeep), "LEGACY stated not 92%-capped");
 
-console.log("ok rit_murr retail/cap align: R=171.20 sub=157.50; 156/158 explained");
+assert(ctx.ppSheetPrice_({ statedCost: 157.5, factCost: 157.5, calcFactCost: 161.18 }) === 157.5, "ppSheetPrice ignores 161.18");
+assert(ctx.raw26ApiFactPrice_({ factCost: 157.5, clientPrice: 161.18, calcFactCost: 161.18 }) === 157.5, "API fact wins over stale clientPrice");
+assert(ctx.ppOfferClientPrice_("RAW26", 157.5, 157.5, false) === 157.5, "offer uses fact 157.50");
+
+const rita = { nick: "РИТА", label: "РИТА", sheet: "ПП", subId: "24", scheme: "RAW26", factCost: 157.5, calcFactCost: 161.18 };
+const kafa = { nick: "kafetafreya", label: "kafetafreya", sheet: "ПП", subId: "24", scheme: "RAW26", factCost: 200 };
+assert(wCtx.subscriptionMatch_(rita, wCtx.normalizeMatchKey_("РИТА"), "ПП", "") === true, "match РИТА by nick");
+assert(wCtx.subscriptionMatch_(rita, wCtx.normalizeMatchKey_("rit_murr"), "ПП", "24") === false, "rit_murr+subId does not hit РИТА until rekey/label");
+assert(wCtx.subscriptionMatch_(kafa, wCtx.normalizeMatchKey_("rit_murr"), "ПП", "24") === false, "subId 24 alone must not steal kafetafreya");
+assert(wCtx.subscriptionMatch_(rita, wCtx.normalizeMatchKey_("РИТА"), "ПП", "24") === true, "РИТА+subId 24 ok");
+wCtx.sanitizeRaw26CalcFactCost_(rita);
+assert(rita.calcFactCost === 157.5, "sanitize 161.18 → 157.50, got " + rita.calcFactCost);
+
+const rekey = { nick: "rit_murr", label: "РИТА", sheet: "ПП", subId: "24" };
+assert(wCtx.subscriptionMatch_(rekey, wCtx.normalizeMatchKey_("rit_murr"), "ПП", "") === true, "rekeyed nick rit_murr");
+assert(wCtx.subscriptionMatch_(rekey, wCtx.normalizeMatchKey_("РИТА"), "ПП", "") === true, "label РИТА still matches");
+
+console.log("ok rit_murr retail/cap align: R=171.20 sub=157.50; 156/158/161.18 explained");

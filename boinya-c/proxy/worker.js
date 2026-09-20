@@ -16550,20 +16550,56 @@ function subscriptionSheetKey_(it) {
     .toUpperCase();
 }
 
+function subscriptionNickKeys_(it) {
+  if (!it) return [];
+  const raw = [it.nick, it.name, it.label, it.client];
+  const out = [];
+  const seen = Object.create(null);
+  for (let i = 0; i < raw.length; i++) {
+    const k = normalizeMatchKey_(raw[i] || "");
+    if (!k || seen[k]) continue;
+    seen[k] = true;
+    out.push(k);
+  }
+  return out;
+}
+
 function subscriptionMatch_(it, nickKey, sheetWant, subId) {
   if (!it) return false;
-  const n = normalizeMatchKey_(it.nick || it.name || it.label || "");
+  if (sheetWant) {
+    const sh = subscriptionSheetKey_(it);
+    if (sh && sh !== String(sheetWant).toUpperCase()) return false;
+  }
+  const keys = subscriptionNickKeys_(it);
+  const wantNick = String(nickKey || "").trim();
+  const nickOk = !wantNick || keys.indexOf(wantNick) >= 0;
   const sid = String(it.subId || it.id || "").trim();
   const wantSid = String(subId || "").trim();
+  // subId без ника — только если ник не задан. Иначе rit_murr/kafetafreya (оба id 24) коллизят.
   if (wantSid && sid && sid === wantSid) {
-    if (!sheetWant) return true;
-    const sh = subscriptionSheetKey_(it);
-    return !sh || sh === sheetWant;
+    if (!wantNick) return true;
+    return nickOk;
   }
-  if (!nickKey || n !== nickKey) return false;
-  if (!sheetWant) return true;
-  const sh = subscriptionSheetKey_(it);
-  return !sh || sh === sheetWant;
+  if (!wantNick) return false;
+  return nickOk;
+}
+
+/** RAW26: calcFactCost/clientPrice не выше fact (stale 161.18 после #335). */
+function sanitizeRaw26CalcFactCost_(row) {
+  if (!row || typeof row !== "object") return row;
+  const scheme = String(row.scheme || row.ppScheme || "").toUpperCase();
+  const wishes = String(row.wishes || row.note || "");
+  const isRaw = scheme === "RAW26" || /\[SCHEME:\s*RAW26\]/i.test(wishes);
+  if (!isRaw) return row;
+  const fact = Number(
+    row.factCost != null && row.factCost !== "" ? row.factCost : row.statedCost
+  );
+  if (!(isFinite(fact) && fact > 0)) return row;
+  const calc = Number(row.calcFactCost);
+  if (isFinite(calc) && calc > fact + 0.001) row.calcFactCost = fact;
+  const client = Number(row.clientPrice);
+  if (isFinite(client) && client > fact + 0.001) row.clientPrice = fact;
+  return row;
 }
 
 /** При merge GAS→snap сохранить basket/detail из prev (list GAS без состава). */
@@ -16615,7 +16651,7 @@ function enrichSubsPreserveDetail_(prevArr, incoming) {
         !(Array.isArray(out[key]) && !out[key].length && Array.isArray(old[key]) && old[key].length);
       if (!hasNew && old[key] != null && old[key] !== "") out[key] = old[key];
     }
-    return out;
+    return sanitizeRaw26CalcFactCost_(out);
   });
 }
 
@@ -16752,6 +16788,7 @@ async function mergeSubscriptionDetailIntoSnap_(env, detail) {
     merged.status = arr[idx].status || arr[idx].stage;
     merged.stage = arr[idx].stage || arr[idx].status;
   }
+  sanitizeRaw26CalcFactCost_(merged);
   if (idx >= 0) arr[idx] = merged;
   else arr.push(merged);
   list.subscriptions = arr;
@@ -16923,8 +16960,20 @@ async function getSubscription_(params, env) {
     }
   }
   if (!found) {
+    const labelKey = normalizeMatchKey_(params.label || "");
+    if (labelKey && labelKey !== nickKey) {
+      for (let i = 0; i < arr.length; i++) {
+        if (subscriptionMatch_(arr[i], labelKey, sheetWant, "")) {
+          found = arr[i];
+          break;
+        }
+      }
+    }
+  }
+  if (!found) {
     return { status: "success", found: false, nick: nick, segment: segment };
   }
+  sanitizeRaw26CalcFactCost_(found);
   if ((!found.address || !found.phone) && env) {
     try {
       const profSnap = await getSnapRaw_(env, "listClientProfiles");
@@ -16976,6 +17025,17 @@ async function upsertSubscription_(params, env) {
       break;
     }
   }
+  if (idx < 0) {
+    const labelKey = normalizeMatchKey_(params.label || "");
+    if (labelKey && labelKey !== mk) {
+      for (let i = 0; i < arr.length; i++) {
+        if (subscriptionMatch_(arr[i], labelKey, findSheet, "")) {
+          idx = i;
+          break;
+        }
+      }
+    }
+  }
   const row = Object.assign({}, idx >= 0 ? arr[idx] : {}, params);
   delete row.action;
   delete row.fromSheet;
@@ -17001,6 +17061,14 @@ async function upsertSubscription_(params, env) {
     row.status = params.ppStatus;
     row.stage = params.ppStatus;
   }
+  if (
+    (row.calcFactCost == null || row.calcFactCost === "") &&
+    row.factCost != null &&
+    row.factCost !== ""
+  ) {
+    row.calcFactCost = row.factCost;
+  }
+  sanitizeRaw26CalcFactCost_(row);
   row._d1Detail = true;
   row._savedAt = Date.now();
   if (idx >= 0) arr[idx] = row;
