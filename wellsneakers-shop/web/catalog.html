@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=ux4" />
     <!-- favicon: keep identical on index.html + catalog.html -->
     <link rel="icon" href="favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
@@ -189,6 +189,18 @@
       let gender = '';
       let color = '';
       let brands = [];
+      const modelByKey = new Map();
+      function cardKey(m, i) {
+        return String(m.modelKey || m.model_key || m.key || ('idx-' + i));
+      }
+      function modelFromCard(card) {
+        try {
+          const key = card && card.getAttribute('data-key');
+          return key ? (modelByKey.get(key) || null) : null;
+        } catch (e) {
+          return null;
+        }
+      }
       const SIZE_OPTS = ['36','37','38','39','40','41','42','43','44','45','46'];
       const SWATCH = {
         black:'#141416', white:'#f5f2ec', grey:'#8a8680', gray:'#8a8680',
@@ -506,7 +518,8 @@
         countEl.textContent = catalogCountPrefix() + total + ' моделей';
         emptyEl.textContent = catalogEmptyText();
         emptyEl.classList.toggle('show', !models.length);
-        listEl.innerHTML = models.map(m => {
+        modelByKey.clear();
+        listEl.innerHTML = models.map((m, i) => {
           const colors = m.colors || [];
           const q = qEl.value.trim().toLowerCase();
           let colorIdx = 0;
@@ -532,11 +545,12 @@
             `<button class="size" type="button" data-size="${esc(s.size)}">${esc(s.size)}</button>`
           ).join('');
           const letter = esc((m.brand || m.name || '?').slice(0, 1).toUpperCase());
-          const payload = esc(JSON.stringify(m));
+          const key = cardKey(m, i);
+          modelByKey.set(key, m);
           const articleLine = variant
             ? (colors.length > 1 ? colorCountLabel(colors.length) + ' · арт. ' + variant.article : 'арт. ' + variant.article)
             : '';
-          return `<article class="prod" data-json="${payload}" data-color-idx="${colorIdx}">
+          return `<article class="prod" data-key="${esc(key)}" data-color-idx="${colorIdx}">
             <div class="prod-placeholder" aria-hidden="true">${letter}</div>
             <div class="prod-body">
               <div>
@@ -555,43 +569,50 @@
       }
 
       function paintCardVariant(card, colorIdx) {
-        const model = JSON.parse(card.getAttribute('data-json'));
-        const variant = (model.colors || [])[colorIdx] || model.colors[0];
-        card.dataset.colorIdx = String(colorIdx);
-        card.querySelectorAll('.color-chip').forEach((b, i) => b.classList.toggle('on', i === colorIdx));
-        const sizesEl = card.querySelector('.sizes');
-        sizesEl.innerHTML = ((variant && variant.sizes) || []).map(s =>
-          `<button class="size" type="button" data-size="${esc(s.size)}">${esc(s.size)}</button>`
-        ).join('');
-        const priceEl = card.querySelector('.price');
-        if (priceEl) priceEl.innerHTML = priceHtml(variant);
-        const subt = card.querySelector('.subt');
-        if (subt && variant) {
-          const n = (model.colors || []).length;
-          subt.textContent = (model.brand || '') + ' · ' + (n > 1 ? colorCountLabel(n) + ' · арт. ' + variant.article : 'арт. ' + variant.article);
-        }
-        delete card.dataset.pickedSize;
+        try {
+          const model = modelFromCard(card);
+          if (!model) return;
+          const variant = (model.colors || [])[colorIdx] || model.colors[0];
+          card.dataset.colorIdx = String(colorIdx);
+          card.querySelectorAll('.color-chip').forEach((b, i) => b.classList.toggle('on', i === colorIdx));
+          const sizesEl = card.querySelector('.sizes');
+          sizesEl.innerHTML = ((variant && variant.sizes) || []).map(s =>
+            `<button class="size" type="button" data-size="${esc(s.size)}">${esc(s.size)}</button>`
+          ).join('');
+          const priceEl = card.querySelector('.price');
+          if (priceEl) priceEl.innerHTML = priceHtml(variant);
+          const subt = card.querySelector('.subt');
+          if (subt && variant) {
+            const n = (model.colors || []).length;
+            subt.textContent = (model.brand || '') + ' · ' + (n > 1 ? colorCountLabel(n) + ' · арт. ' + variant.article : 'арт. ' + variant.article);
+          }
+          delete card.dataset.pickedSize;
+        } catch (e) { /* keep card as-is */ }
       }
 
       listEl.addEventListener('click', (e) => {
         const card = e.target.closest('.prod');
         if (!card) return;
-        const model = JSON.parse(card.getAttribute('data-json'));
-        const chip = e.target.closest('.color-chip');
-        if (chip) {
-          paintCardVariant(card, Number(chip.dataset.colorIdx) || 0);
-          return;
-        }
-        if (e.target.classList.contains('size')) {
-          card.querySelectorAll('.size').forEach(b => b.classList.toggle('on', b === e.target));
-          card.dataset.pickedSize = e.target.dataset.size;
-          return;
-        }
-        if (e.target.classList.contains('buy')) {
+        try {
+          const model = modelFromCard(card);
+          if (!model) return;
+          const chip = e.target.closest('.color-chip');
+          if (chip) {
+            paintCardVariant(card, Number(chip.dataset.colorIdx) || 0);
+            return;
+          }
+          if (e.target.closest('.size')) {
+            const sizeBtn = e.target.closest('.size');
+            card.querySelectorAll('.size').forEach(b => b.classList.toggle('on', b === sizeBtn));
+            card.dataset.pickedSize = sizeBtn.dataset.size;
+            return;
+          }
           const colorIdx = Number(card.dataset.colorIdx) || 0;
-          const variant = (model.colors || [])[colorIdx] || model.colors[0];
-          const picked = card.dataset.pickedSize || (variant && variant.sizes[0] && variant.sizes[0].size);
+          const variant = (model.colors || [])[colorIdx] || (model.colors || [])[0];
+          const picked = card.dataset.pickedSize || (variant && variant.sizes && variant.sizes[0] && variant.sizes[0].size);
           openModal(model, { colorIdx, picked });
+        } catch (e) {
+          showToast('Не удалось открыть карточку');
         }
       });
 
@@ -635,7 +656,6 @@
       const SCROLL_CHROME_AT = 240;
       const backToTop = document.getElementById('backToTop');
       const filtersFab = document.getElementById('filtersFab');
-      const filtersStack = document.getElementById('filtersStack') || document.getElementById('collectionRow');
       function preferInstantScroll() {
         return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       }
@@ -654,44 +674,32 @@
           window.scrollTo({ top: 0, behavior: preferInstantScroll() ? 'auto' : 'smooth' });
         });
       }
-      function openAllFilters() {
-        const drawer = document.getElementById('filtersDrawer')
-          || document.querySelector('[data-filter-drawer], .filter-drawer, .filters-drawer');
-        if (drawer) {
-          drawer.removeAttribute('hidden');
-          drawer.classList.add('open', 'on');
-          drawer.setAttribute('aria-hidden', 'false');
-          const drawerToggle = document.getElementById('toggleFilters')
-            || document.querySelector('[aria-controls="filtersDrawer"]');
-          if (drawerToggle) {
-            drawerToggle.setAttribute('aria-expanded', 'true');
-            drawerToggle.classList.add('on');
-          }
-          return;
+      function openBothFilterPanels() {
+        const brandsPanel = document.getElementById('brandsPanel');
+        const sizesPanel = document.getElementById('sizesPanel');
+        const toggleBrands = document.getElementById('toggleBrands');
+        const toggleSizes = document.getElementById('toggleSizes');
+        if (brandsPanel) brandsPanel.removeAttribute('hidden');
+        if (sizesPanel) sizesPanel.removeAttribute('hidden');
+        if (toggleBrands) {
+          toggleBrands.setAttribute('aria-expanded', 'true');
+          toggleBrands.classList.add('on');
         }
-        ['brandsPanel', 'sizesPanel'].forEach((id) => {
-          const panel = document.getElementById(id);
-          if (panel) panel.removeAttribute('hidden');
-        });
-        ['toggleBrands', 'toggleSizes'].forEach((id) => {
-          const btn = document.getElementById(id);
-          if (!btn) return;
-          btn.setAttribute('aria-expanded', 'true');
-          btn.classList.add('on');
-        });
+        if (toggleSizes) {
+          toggleSizes.setAttribute('aria-expanded', 'true');
+          toggleSizes.classList.add('on');
+        }
       }
       if (filtersFab) {
         filtersFab.addEventListener('click', () => {
-          openAllFilters();
-          const filtersTarget = document.getElementById('catalogFilters') || filtersStack;
-          if (!filtersTarget) {
-            window.scrollTo({ top: 0, behavior: preferInstantScroll() ? 'auto' : 'smooth' });
-            return;
+          openBothFilterPanels();
+          const filters = document.getElementById('catalogFilters');
+          if (filters) {
+            filters.scrollIntoView({
+              behavior: preferInstantScroll() ? 'auto' : 'smooth',
+              block: 'start'
+            });
           }
-          filtersTarget.scrollIntoView({
-            behavior: preferInstantScroll() ? 'auto' : 'smooth',
-            block: 'start'
-          });
         });
       }
 
