@@ -2300,6 +2300,12 @@ function doGet(e) {
       segment: e.parameter.segment ? decodeURIComponent(e.parameter.segment) : ""
     }, callback, false);
   }
+  if (action === "repairSubscriptionDupes") {
+    return handleRepairSubscriptionDupes({
+      sheet: e.parameter.sheet ? decodeURIComponent(e.parameter.sheet) : "",
+      segment: e.parameter.segment ? decodeURIComponent(e.parameter.segment) : ""
+    }, callback, false);
+  }
   if (action === "getSubscription") {
     return handleGetSubscription({
       nick: e.parameter.nick ? decodeURIComponent(e.parameter.nick) : "",
@@ -2998,6 +3004,9 @@ function handleApiAction(json, callback, fromPost) {
   }
   if (action === "repairSubscriptionIds") {
     return handleRepairSubscriptionIds(json, callback, fromPost);
+  }
+  if (action === "repairSubscriptionDupes") {
+    return handleRepairSubscriptionDupes(json, callback, fromPost);
   }
   if (action === "getSubscription") {
     return handleGetSubscription(json, callback, fromPost);
@@ -3894,6 +3903,22 @@ function displayClientNick_(raw) {
   s = s.replace(/\s*\b(АФК|ПП|БП|Р)\b\s*$/i, "").trim();
   s = s.replace(/\s{2,}/g, " ");
   return s || extractInstagramNick_(raw) || String(raw || "").trim();
+}
+
+/** Ячейка ника: «Имя handle». Имя с полки не затирает Instagram, если он уже был в строке. */
+function composeSubscriptionNickCell_(nick, label, existingCell) {
+  var ig = extractInstagramNick_(nick) || extractInstagramNick_(label) || extractInstagramNick_(existingCell);
+  function stripHandle(s) {
+    s = String(s || "");
+    if (!ig) return s.replace(/\s+/g, " ").trim();
+    var esc = String(ig).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return s.replace(new RegExp("@?" + esc, "ig"), " ").replace(/[\s()[\]·•|,/]+/g, " ").trim();
+  }
+  var display = stripHandle(label) || stripHandle(existingCell) || stripHandle(nick);
+  if (display && ig && display.toLowerCase() === ig.toLowerCase()) display = "";
+  if (display && ig) return (display + " " + ig).replace(/\s+/g, " ").trim();
+  if (ig) return ig;
+  return String(label || nick || existingCell || "").replace(/\s+/g, " ").trim();
 }
 
 /** Пометить брони клиента на дату (или все даты дня) как cancelled. */
@@ -15957,6 +15982,197 @@ function handleListSubscriptions(json, callback, fromPost) {
   return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
 }
 
+function subscriptionBareWishGs_(wishes) {
+  return String(wishes || "").replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function bpStageRankGs_(raw) {
+  var u = String(raw || "").toUpperCase();
+  if (u.indexOf("ФИНАЛ") >= 0) return 3;
+  if (u.indexOf("БП2") >= 0) return 2;
+  if (u.indexOf("БП1") >= 0) return 1;
+  return 0;
+}
+
+/** Две собаки одного инста: короткие разные пожелания и разные id. Не схлопывать. */
+function isDistinctPetWishPairGs_(subA, wishA, subB, wishB) {
+  subA = String(subA || "").trim();
+  subB = String(subB || "").trim();
+  if (subA && subB && subA === subB) return false;
+  var wa = subscriptionBareWishGs_(wishA);
+  var wb = subscriptionBareWishGs_(wishB);
+  if (!wa || !wb || wa.toLowerCase() === wb.toLowerCase()) return false;
+  if (wa.length > 24 || wb.length > 24) return false;
+  if (/\s/.test(wa) || /\s/.test(wb)) return false;
+  if (/[0-9]/.test(wa) || /[0-9]/.test(wb)) return false;
+  return true;
+}
+
+function sheetRowDisplayNameGs_(cell, ig) {
+  var s = String(cell || "");
+  if (ig) {
+    var esc = String(ig).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    s = s.replace(new RegExp("@?" + esc, "ig"), " ");
+  }
+  return s.replace(/[\s()[\]·•|,/]+/g, " ").trim();
+}
+
+function sheetRowsSamePerson_(cellA, subA, wishA, cellB, subB, wishB) {
+  if (isDistinctPetWishPairGs_(subA, wishA, subB, wishB)) return false;
+  var igA = extractInstagramNick_(cellA);
+  var igB = extractInstagramNick_(cellB);
+  if (igA && igB && igA.toLowerCase() === igB.toLowerCase()) return true;
+  var na = sheetRowDisplayNameGs_(cellA, igA).toUpperCase();
+  var nb = sheetRowDisplayNameGs_(cellB, igB).toUpperCase();
+  if (!igA && !igB && na && nb && na === nb) return true;
+  subA = String(subA || "").trim();
+  subB = String(subB || "").trim();
+  if (!subA || !subB || subA !== subB) return false;
+  if (igA && igB && igA.toLowerCase() !== igB.toLowerCase()) return false;
+  if (na && nb && na === nb) return true;
+  var blobA = String(cellA || "").toUpperCase();
+  var blobB = String(cellB || "").toUpperCase();
+  if (igA && !igB && nb && blobA.indexOf(nb) >= 0) return true;
+  if (igB && !igA && na && blobB.indexOf(na) >= 0) return true;
+  return false;
+}
+
+function sheetRowFilledCount_(vals) {
+  var n = 0;
+  for (var i = 0; i < vals.length; i++) {
+    if (vals[i] != null && String(vals[i]).trim() !== "") n++;
+  }
+  return n;
+}
+
+/**
+ * Схлопнуть дубли строк на листе ПП/АФК/БП.
+ * Удаляет только лишние строки пары (deleteRow), без fallback «весь ник».
+ * Две собаки (разные короткие пожелания) не трогает.
+ * Не вызывается из list — только action repairSubscriptionDupes.
+ */
+function collapseDuplicateSubscriptionSheet_(crmSs, sheetName) {
+  var sh = findSheetByBaseName_(crmSs, sheetName);
+  if (!sh || getCrmSheetScanLastRow_(sh) < 3) return { removed: 0, groups: 0, skippedPets: 0 };
+  var lastRow = getCrmSheetScanLastRow_(sh);
+  var lastCol = Math.max(5, sh.getLastColumn());
+  var numRows = lastRow - 2;
+  if (numRows < 1) return { removed: 0, groups: 0, skippedPets: 0 };
+  var data = sh.getRange(3, 1, numRows, lastCol).getValues();
+  var rows = [];
+  for (var i = 0; i < data.length; i++) {
+    if (!String(data[i][0] || "").trim()) continue;
+    rows.push({ i: i, sheetRow: i + 3, vals: data[i].slice() });
+  }
+  var parent = [];
+  for (var p = 0; p < rows.length; p++) parent[p] = p;
+  function findP(x) {
+    while (parent[x] !== x) {
+      parent[x] = parent[parent[x]];
+      x = parent[x];
+    }
+    return x;
+  }
+  var skippedPets = 0;
+  for (var a = 0; a < rows.length; a++) {
+    for (var b = a + 1; b < rows.length; b++) {
+      var va = rows[a].vals;
+      var vb = rows[b].vals;
+      var igA = extractInstagramNick_(va[0]);
+      var igB = extractInstagramNick_(vb[0]);
+      if (igA && igB && igA.toLowerCase() === igB.toLowerCase() &&
+          isDistinctPetWishPairGs_(va[1], va[4], vb[1], vb[4])) {
+        skippedPets++;
+        continue;
+      }
+      if (!sheetRowsSamePerson_(va[0], va[1], va[4], vb[0], vb[1], vb[4])) continue;
+      var pa = findP(a);
+      var pb = findP(b);
+      if (pa !== pb) parent[pb] = pa;
+    }
+  }
+  var groups = {};
+  var order = [];
+  for (var g = 0; g < rows.length; g++) {
+    var root = findP(g);
+    if (!groups[root]) {
+      groups[root] = [];
+      order.push(root);
+    }
+    groups[root].push(rows[g]);
+  }
+  var removed = 0;
+  var mergedGroups = 0;
+  var deleteRows = [];
+  for (var gi = 0; gi < order.length; gi++) {
+    var grp = groups[order[gi]];
+    if (!grp || grp.length < 2) continue;
+    mergedGroups++;
+    grp.sort(function (x, y) {
+      var sx = bpStageRankGs_(x.vals[3]);
+      var sy = bpStageRankGs_(y.vals[3]);
+      if (sx !== sy) return sy - sx;
+      var fx = sheetRowFilledCount_(x.vals);
+      var fy = sheetRowFilledCount_(y.vals);
+      if (fx !== fy) return fy - fx;
+      return x.sheetRow - y.sheetRow;
+    });
+    var keep = grp[0];
+    var merged = keep.vals.slice();
+    for (var k = 1; k < grp.length; k++) {
+      var drop = grp[k].vals;
+      for (var c = 0; c < drop.length; c++) {
+        if (c === 0 || c === 1) continue;
+        if (c === 3 && bpStageRankGs_(drop[3]) > bpStageRankGs_(merged[3])) {
+          merged[3] = drop[3];
+          continue;
+        }
+        var cur = merged[c];
+        var empty = cur == null || String(cur).trim() === "";
+        if (empty && drop[c] != null && String(drop[c]).trim() !== "") merged[c] = drop[c];
+      }
+      merged[0] = composeSubscriptionNickCell_(merged[0], drop[0], keep.vals[0]);
+      deleteRows.push(grp[k].sheetRow);
+      removed++;
+    }
+    sh.getRange(keep.sheetRow, 1, 1, merged.length).setValues([merged]);
+  }
+  deleteRows.sort(function (a, b) { return b - a; });
+  for (var d = 0; d < deleteRows.length; d++) {
+    var row1 = deleteRows[d];
+    try {
+      sh.getRange(row1, 1).setValue("");
+      sh.deleteRow(row1);
+    } catch (eDel) {
+      try { sh.getRange(row1, 1, 1, Math.min(5, lastCol)).clearContent(); } catch (eClr) {}
+    }
+  }
+  if (removed) {
+    try { SpreadsheetApp.flush(); } catch (eFl) {}
+    try { clearCrmSheetCache_(sheetName); } catch (eC) {}
+  }
+  return { removed: removed, groups: mergedGroups, skippedPets: skippedPets };
+}
+
+function handleRepairSubscriptionDupes(json, callback, fromPost) {
+  var crmSs;
+  try { crmSs = getCrmSpreadsheet_(); } catch (e) {
+    var bad = { status: "error", message: "crm_unavailable", detail: String(e) };
+    return fromPost ? jsonpText(callback, bad) : jsonp(callback, bad);
+  }
+  var only = String((json && (json.sheet || json.segment)) || "").trim();
+  var sheets = only ? [only] : ["ПП", "АФК", "БП"];
+  var results = [];
+  for (var i = 0; i < sheets.length; i++) {
+    results.push({
+      sheet: sheets[i],
+      result: collapseDuplicateSubscriptionSheet_(crmSs, sheets[i])
+    });
+  }
+  var ok = { status: "success", sheets: results };
+  return fromPost ? jsonpText(callback, ok) : jsonp(callback, ok);
+}
+
 function handleRepairSubscriptionIds(json, callback, fromPost) {
   var crmSs;
   try { crmSs = getCrmSpreadsheet_(); } catch (e) {
@@ -16218,8 +16434,15 @@ function handleSaveSubscription(json, callback, fromPost) {
   var data = sh.getDataRange().getValues();
   var rowIdx = -1;
   for (var r = 2; r < data.length; r++) {
-    if (subId && String(data[r][1] || "").trim() === subId) { rowIdx = r; break; }
-    if (nicksMatch_(data[r][0], nick) || nicksMatch_(data[r][0], label)) { rowIdx = r; break; }
+    var cellR = String(data[r][0] || "");
+    var sidR = String(data[r][1] || "").trim();
+    var nickHit = nicksMatch_(cellR, nick) || nicksMatch_(cellR, label);
+    // subId один на разных людей (rit_murr / kafetafreya, оба 24) — не писать в чужую строку
+    if (subId && sidR === subId) {
+      if (nickHit || (!nick && !label)) { rowIdx = r; break; }
+      continue;
+    }
+    if (nickHit) { rowIdx = r; break; }
   }
   if (/^ПП$/i.test(sheetName) && rowIdx < 0 && !parsePpSchemeFromWishes_(wishes)) {
     wishes = stampPpSchemeIntoWishesGs_(wishes, defaultPpSchemeForNew_());
@@ -16233,11 +16456,13 @@ function handleSaveSubscription(json, callback, fromPost) {
   }
   var createdNew = false;
   var writeMeta = { missed: [], wrote: 0 };
+  var existingCell = rowIdx >= 0 && data[rowIdx] ? String(data[rowIdx][0] || "") : "";
+  var cellNick = composeSubscriptionNickCell_(nick, label, existingCell);
   if (rowIdx < 0) {
     if (basket != null && Array.isArray(basket) && (/^ПП$/i.test(sheetName) || /^БП$/i.test(sheetName))) {
       if (!subId) { try { subId = nextSubscriptionIdForSheet_(sh); } catch (e) {} }
       var createVals = writePpBasketToRowValues_(
-        headers, basket, label, subId,
+        headers, basket, cellNick, subId,
         deliveriesN || 1,
         ppStatus || (/^БП$/i.test(sheetName) ? "БП1" : "ПП1"),
         wishes, factCost, packCountsOpt, writeMeta
@@ -16251,7 +16476,7 @@ function handleSaveSubscription(json, callback, fromPost) {
     }
   } else if (basket != null && Array.isArray(basket)) {
     var rowVals = writePpBasketToRowValues_(
-      headers, basket, label, subId || String(data[rowIdx][1] || ""),
+      headers, basket, cellNick, subId || String(data[rowIdx][1] || ""),
       deliveriesN || Number(data[rowIdx][2]) || 1,
       ppStatus || String(data[rowIdx][3] || "") || "ПП1",
       wishes || String(data[rowIdx][4] || ""),
@@ -16260,7 +16485,7 @@ function handleSaveSubscription(json, callback, fromPost) {
     while (rowVals.length < headers.length) rowVals.push("");
     applyPpRowValuesPreservingFormulas_(sh, rowIdx + 1, headers, rowVals);
   } else {
-    sh.getRange(rowIdx + 1, 1).setValue(label);
+    sh.getRange(rowIdx + 1, 1).setValue(cellNick);
     if (headers.length > 1) sh.getRange(rowIdx + 1, 2).setValue(subId || String(data[rowIdx][1] || ""));
     if (headers.length > 2 && deliveriesN > 0) sh.getRange(rowIdx + 1, 3).setValue(deliveriesN);
     if (headers.length > 3 && ppStatus) sh.getRange(rowIdx + 1, 4).setValue(ppStatus);
@@ -16280,7 +16505,7 @@ function handleSaveSubscription(json, callback, fromPost) {
     var phone = String(json.phone || "").trim();
     var note = String(json.note || "").trim();
     var displayName = String(json.displayName || "").trim();
-    var matchNick = extractInstagramNick_(label) || nick;
+    var matchNick = extractInstagramNick_(cellNick) || extractInstagramNick_(label) || nick;
     if (addr || phone || note || displayName) {
       var contacts = findSheetByBaseName_(crmSs, "Контакты");
       if (contacts && contacts.getLastRow() >= 1) {
@@ -16359,8 +16584,8 @@ function handleSaveSubscription(json, callback, fromPost) {
 
   var ok = {
     status: "success",
-    nick: extractInstagramNick_(label) || nick,
-    label: label,
+    nick: extractInstagramNick_(cellNick) || nick,
+    label: cellNick,
     sheet: sheetName,
     row: rowIdx + 1,
     created: createdNew,

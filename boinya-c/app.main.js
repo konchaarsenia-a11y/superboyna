@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115995";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115996";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -16231,7 +16231,8 @@
       var order = [];
       (list || []).forEach(function (s) {
         var nick = String(s.nick || s.label || "").trim();
-        var key = nick.toUpperCase() || ("#" + (s.subId || Math.random()));
+        var ig = igHandleFromSubNick_(s.nick) || igHandleFromSubNick_(s.label);
+        var key = String(ig || nick).toUpperCase().replace(/[._]/g, "") || ("#" + (s.subId || Math.random()));
         if (!byNick[key]) {
           byNick[key] = Object.assign({}, s, {
             basketBp1: s.basketBp1 || ((/БП1/.test(String(s.status || ""))) ? (s.basket || []) : []),
@@ -16248,7 +16249,10 @@
           if (s.ownerTelegramId) cur.ownerTelegramId = s.ownerTelegramId;
           if (s.ownerName) cur.ownerName = s.ownerName;
           if (s.wishes) cur.wishes = (cur.wishes ? cur.wishes + "\n" : "") + s.wishes;
-          if (st && (!cur.status || st.length >= String(cur.status).length)) cur.status = st;
+          var rankIn = /ФИНАЛ/i.test(st) ? 3 : (/БП2/.test(st) ? 2 : (/БП1/.test(st) ? 1 : 0));
+          var rankCur = /ФИНАЛ/i.test(String(cur.status || "")) ? 3 : (/БП2/.test(String(cur.status || "")) ? 2 : (/БП1/.test(String(cur.status || "")) ? 1 : 0));
+          if (rankIn > rankCur) cur.status = st;
+          else if (st && !cur.status) cur.status = st;
         }
       });
       return order.map(function (k) { return byNick[k]; });
@@ -20570,12 +20574,13 @@
         var isFinal = k === "final" || /финал|пп|final/.test(k);
         if (_surveyKindFilter === "bp2" && isFinal) continue;
         if (_surveyKindFilter === "final" && !isFinal) continue;
-        var key = nick.toUpperCase() + "|" + (isFinal ? "final" : "bp2") + "|" + due;
-        if (seen[key]) continue;
-        seen[key] = true;
-        filtered.push({
+        var igSv = igHandleFromSubNick_(nick) || igHandleFromSubNick_(it.nick) || igHandleFromSubNick_(it.label);
+        var personSv = String(igSv || nick).toUpperCase().replace(/[._]/g, "");
+        var key = personSv + "|" + (isFinal ? "final" : "bp2");
+        var card = {
           index: i,
-          nick: nick,
+          nick: igSv ? ("@" + String(igSv).replace(/^@+/, "")) : nick,
+          name: igSv ? (splitIgNickAndDisplay_(it.nick || nick, it.label || "").name || "") : "",
           kind: isFinal ? "final" : "bp2",
           dueDate: due,
           status: it.status || "planned",
@@ -20586,7 +20591,15 @@
           stage: it.stage || "",
           templateId: it.templateId || "",
           note: it.note || ""
-        });
+        };
+        if (seen[key] != null) {
+          var prev = filtered[seen[key]];
+          if (prev && String(prev.dueDate || "") >= due) continue;
+          filtered[seen[key]] = card;
+          continue;
+        }
+        seen[key] = filtered.length;
+        filtered.push(card);
       }
       if (!filtered.length) {
         html += '<p class="muted">Нет опросников с датой отправки ≥ сегодня</p>';
@@ -20605,6 +20618,7 @@
           '<input type="checkbox" class="survey-sel" data-id="' + escapeHtml(g.id) + '" data-nick="' + escapeHtml(g.nick) + '" onclick="event.stopPropagation()">' +
           '<div style="flex:1;min-width:0;">' +
           '<div class="sub-row-nick">' + escapeHtml(g.nick) + "</div>" +
+          (g.name ? '<div class="sub-row-meta">' + escapeHtml(g.name) + "</div>" : "") +
           '<div class="sub-row-meta">' + escapeHtml(meta) + "</div>" +
           '<div class="form-group" style="margin:8px 0 0;">' +
           '<label style="font-size:12px;">Ответственный</label>' +
@@ -21066,7 +21080,10 @@
         }
       }
       box.innerHTML = '<div class="subs-grid">' + list.map(function (s, i) {
-        var nick = s.nick || s.label || "";
+        var split = splitIgNickAndDisplay_(s.nick || "", s.label || s.name || "");
+        var handle = split.nick ? ("@" + String(split.nick).replace(/^@+/, "")) : "";
+        var nick = handle || split.name || s.nick || s.label || "";
+        var nameLine = handle && split.name ? split.name : "";
         var meta = ["N=" + (s.deliveries || 0), s.status || ""].filter(Boolean).join(" · ");
         var color = (subsSegment === "БП") ? bpStageColor_(s) : "";
         var isBp = subsSegment === "БП";
@@ -21084,6 +21101,7 @@
           pickHit +
           '<div class="sub-row-main">' +
           '<div class="sub-row-nick">' + escapeHtml(nick) + "</div>" +
+          (nameLine ? '<div class="sub-row-meta">' + escapeHtml(nameLine) + "</div>" : "") +
           (meta ? '<div class="sub-row-meta">' + escapeHtml(meta) + "</div>" : "") +
           (isBp && bpEditMode ? '<div class="sub-row-meta">' + (picked ? "выбран · ещё раз снять" : "нажми чтобы выбрать") + "</div>" : "") +
           "</div></div>";
