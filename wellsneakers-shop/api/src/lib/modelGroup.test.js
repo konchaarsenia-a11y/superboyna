@@ -399,14 +399,18 @@ describe("groupProductsIntoModels", () => {
       ["/uploads/a.jpg", "/uploads/b.jpg"]
     );
     assert.equal(colorway.label.upper, "кожа");
+    assert.equal(colorway.label.lining, "текстиль 100%");
     assert.match(colorway.description, /Кроссовки \(обувь повседневная\)/);
-    assert.match(colorway.description, /Верх: кожа/);
-    assert.match(colorway.description, /Подкладка: текстиль 100%/);
-    assert.match(colorway.description, /Подошва: резина/);
-    assert.match(colorway.description, /Сезон: весна осень/);
-    assert.match(colorway.description, /Страна: Вьетнам/);
+    assert.match(colorway.description, /Состав: верх кожа/);
+    assert.match(colorway.description, /внутри текстиль 100%/);
+    assert.match(colorway.description, /подошва резина/);
+    assert.match(colorway.description, /Сезонность обуви: весна осень/);
+    assert.match(colorway.description, /Страна изготовитель: Вьетнам/);
     assert.match(colorway.description, /Гарантийный срок 30 дней/);
+    assert.match(colorway.description, /Продукцию экспл\. по назначению/);
     assert.equal(colorway.description.includes("Импортер"), false);
+    assert.equal(colorway.description.includes("Подкладка"), false);
+    assert.equal(colorway.description.includes("Сезон:"), false);
   });
 
   it("empty images and no label fields stay empty, not blocking", () => {
@@ -428,14 +432,50 @@ describe("groupProductsIntoModels", () => {
 });
 
 describe("composeProductDescription / decodeModelParam", () => {
-  it("composes a readable block and skips empty rows", () => {
+  it("composes sticker-style captions and skips empty rows", () => {
     const text = composeProductDescription({
       label_upper: "нубук",
       label_lining: "",
       label_sole: "ЭВА",
       label_country: "Китай",
     });
-    assert.equal(text, "Верх: нубук\nПодошва: ЭВА\nСтрана: Китай");
+    assert.equal(
+      text,
+      "Состав: верх нубук\nподошва ЭВА\nСтрана изготовитель: Китай\nПродукцию экспл. по назначению"
+    );
+  });
+
+  it("includes maker / importer / address / TR when present", () => {
+    const text = composeProductDescription({
+      label_type: "Кроссовки (обувь повседневная)",
+      label_upper: "текстиль",
+      label_lining: "текстиль 100%",
+      label_sole: "Полимерная ЭВА",
+      label_season: "весна осень",
+      label_width: "M",
+      label_country: "Китай Вьетнам Индонезия",
+      label_maker: "Shanghai Emaohong Int Traid Co. Ltd",
+      label_importer: "Шевчук 192364587",
+      label_importer_address: "Острошицкий Городок Ул. Ленина д1, пом3 каб3-1-6",
+      label_warranty: "Гарантийный срок 30 дней",
+      label_tr: "ТР ТС 017/2011",
+      store_address: "пр-т Дзержинского 19",
+    });
+    assert.match(text, /^Кроссовки \(обувь повседневная\)/);
+    assert.match(text, /Состав: верх текстиль/);
+    assert.match(text, /внутри текстиль 100%/);
+    assert.match(text, /подошва Полимерная ЭВА/);
+    assert.match(text, /Сезонность обуви: весна осень/);
+    assert.match(text, /Полнота: M/);
+    assert.match(text, /Страна изготовитель: Китай Вьетнам Индонезия/);
+    assert.match(text, /Изготовитель: Shanghai Emaohong Int Traid Co\. Ltd/);
+    assert.match(text, /Импортер: Шевчук 192364587/);
+    assert.match(text, /Острошицкий Городок/);
+    assert.match(text, /Гарантийный срок 30 дней ТР ТС 017\/2011/);
+    assert.match(text, /Продукцию экспл\. по назначению/);
+    assert.match(text, /пр-т Дзержинского 19/);
+    assert.equal(text.includes("Подкладка"), false);
+    assert.equal(text.includes("Сезон:"), false);
   });
 
   it("decodes percent-encoded model keys once", () => {

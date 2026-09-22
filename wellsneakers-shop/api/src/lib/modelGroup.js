@@ -933,22 +933,35 @@ export function normalizeProductImages(images) {
     .sort((a, b) => a.sort_order - b.sort_order || a.url.localeCompare(b.url));
 }
 
-const LABEL_DESCRIPTION_FIELDS = [
-  ["type", "label_type", ""],
-  ["upper", "label_upper", "Верх"],
-  ["lining", "label_lining", "Подкладка"],
-  ["sole", "label_sole", "Подошва"],
-  ["season", "label_season", "Сезон"],
-  ["width", "label_width", "Полнота"],
-  ["country", "label_country", "Страна"],
-  ["warranty", "label_warranty", ""],
+/**
+ * Label fields for public catalog / PDP — same Russian wording as print sticker
+ * (`services/labels.js` + physical box label).
+ * Tuple: [apiKey, dbColumn].
+ */
+const LABEL_FIELD_KEYS = [
+  ["type", "label_type"],
+  ["upper", "label_upper"],
+  ["lining", "label_lining"],
+  ["sole", "label_sole"],
+  ["season", "label_season"],
+  ["width", "label_width"],
+  ["country", "label_country"],
+  ["maker", "label_maker"],
+  ["importer", "label_importer"],
+  ["importer_address", "label_importer_address"],
+  ["warranty", "label_warranty"],
+  ["tr", "label_tr"],
+  ["store_address", "store_address"],
 ];
+
+/** Fixed line on every print sticker (not a DB column). */
+export const LABEL_USAGE_NOTE = "Продукцию экспл. по назначению";
 
 export function pickLabelFields(product) {
   if (!product || typeof product !== "object") return null;
   const label = {};
   let any = false;
-  for (const [key, column] of LABEL_DESCRIPTION_FIELDS) {
+  for (const [key, column] of LABEL_FIELD_KEYS) {
     const value = String(product[column] ?? product[key] ?? "").trim();
     if (!value) continue;
     label[key] = value;
@@ -957,17 +970,47 @@ export function pickLabelFields(product) {
   return any ? label : null;
 }
 
+/**
+ * Lines matching the physical/print label layout (без модели / штрихкода / EAC —
+ * они на PDP в шапке или только на печати).
+ * @returns {string[]}
+ */
+export function composeProductDescriptionLines(productOrLabel) {
+  const label = pickLabelFields(productOrLabel);
+  if (!label) return [];
+  const lines = [];
+  if (label.type) lines.push(label.type);
+
+  const upper = label.upper || "";
+  const lining = label.lining || "";
+  const sole = label.sole || "";
+  if (upper || lining || sole) {
+    if (upper) lines.push(`Состав: верх ${upper}`);
+    else if (lining) lines.push(`Состав: внутри ${lining}`);
+    else lines.push(`Состав: подошва ${sole}`);
+    if (upper && lining) lines.push(`внутри ${lining}`);
+    if ((upper || lining) && sole) lines.push(`подошва ${sole}`);
+  }
+
+  if (label.season) lines.push(`Сезонность обуви: ${label.season}`);
+  if (label.width) lines.push(`Полнота: ${label.width}`);
+  if (label.country) lines.push(`Страна изготовитель: ${label.country}`);
+  if (label.maker) lines.push(`Изготовитель: ${label.maker}`);
+  if (label.importer) lines.push(`Импортер: ${label.importer}`);
+  if (label.importer_address) lines.push(label.importer_address);
+
+  const legal = [label.warranty, label.tr].filter(Boolean).join(" ").trim();
+  if (legal) lines.push(legal);
+
+  lines.push(LABEL_USAGE_NOTE);
+
+  if (label.store_address) lines.push(label.store_address);
+  return lines;
+}
+
 /** Readable Russian block from label fields (no free-text description column). */
 export function composeProductDescription(productOrLabel) {
-  const label = pickLabelFields(productOrLabel);
-  if (!label) return "";
-  const lines = [];
-  for (const [key, , caption] of LABEL_DESCRIPTION_FIELDS) {
-    const value = String(label[key] || "").trim();
-    if (!value) continue;
-    lines.push(caption ? `${caption}: ${value}` : value);
-  }
-  return lines.join("\n");
+  return composeProductDescriptionLines(productOrLabel).join("\n");
 }
 
 export function decodeModelParam(value) {
