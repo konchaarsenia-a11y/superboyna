@@ -9,6 +9,7 @@ import {
   ensureProductOldPriceColumn,
   ensureProductGenderColumn,
 } from "./services/catalog.js";
+import { ensurePromosTable, seedDefaultPromoWindow } from "./services/promo.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.resolve(__dirname, "../../db/migrations");
@@ -54,6 +55,9 @@ async function main() {
   console.log(`Backfilled brand/model_key/color (empty colors re-parsed, leftover nicknames): ${n}`);
   const g = await backfillProductGender();
   console.log(`Backfilled gender: ${g}`);
+  await ensurePromosTable();
+  await seedDefaultPromoWindow();
+  console.log("Promos table ready (seed 26.09–27.09.2026 if missing)");
   await pool.end();
 }
 

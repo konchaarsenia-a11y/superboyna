@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=ux8" />
+    <link rel="stylesheet" href="styles.css?v=ux9" />
     <!-- favicon: keep identical on index.html + catalog.html -->
     <link rel="icon" href="favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
@@ -54,6 +54,22 @@
               <a class="btn btn-glow" href="catalog.html?sale=1">Скидки</a>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section id="promo100" class="promo100" aria-label="Акция все модели по 100 BYN" hidden>
+        <div class="promo100-inner">
+          <p class="promo100-eyebrow">Акция</p>
+          <h2 class="promo100-title">Все модели<br />по <span>100 BYN</span></h2>
+          <p class="promo100-status" id="promo100Status">Загрузка…</p>
+          <div class="promo100-timer" id="promo100Timer" aria-live="polite">
+            <div class="promo100-unit"><strong id="promoD">––</strong><span>дн</span></div>
+            <div class="promo100-unit"><strong id="promoH">––</strong><span>час</span></div>
+            <div class="promo100-unit"><strong id="promoM">––</strong><span>мин</span></div>
+            <div class="promo100-unit"><strong id="promoS">––</strong><span>сек</span></div>
+          </div>
+          <p class="promo100-next" id="promo100Next">Следующая дата не задана</p>
+          <a class="btn-catalog promo100-cta" href="catalog.html">Смотреть модели</a>
         </div>
       </section>
 
@@ -158,6 +174,128 @@
             });
           });
         });
+
+        /* ——— Promo 100 BYN countdown (server-driven) ——— */
+        var API = (function () {
+          try {
+            var saved = localStorage.getItem('ws_api');
+            if (saved) return saved;
+          } catch (e) {}
+          if (location.protocol === 'http:' || location.protocol === 'https:') {
+            return location.origin + '/api';
+          }
+          return 'http://127.0.0.1:3080/api';
+        })();
+
+        var section = document.getElementById('promo100');
+        var statusEl = document.getElementById('promo100Status');
+        var nextEl = document.getElementById('promo100Next');
+        var elD = document.getElementById('promoD');
+        var elH = document.getElementById('promoH');
+        var elM = document.getElementById('promoM');
+        var elS = document.getElementById('promoS');
+        var targetMs = 0;
+        var skewMs = 0;
+        var tickTimer = null;
+
+        function pad2(n) {
+          return (n < 10 ? '0' : '') + n;
+        }
+
+        function fmtMinsk(iso) {
+          if (!iso) return '';
+          try {
+            return new Intl.DateTimeFormat('ru-RU', {
+              timeZone: 'Europe/Minsk',
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+            }).format(new Date(iso));
+          } catch (e) {
+            return String(iso).slice(0, 10);
+          }
+        }
+
+        function rangeLabel(win) {
+          if (!win) return '';
+          return fmtMinsk(win.starts_at) + '–' + fmtMinsk(win.ends_at);
+        }
+
+        function paintCountdown() {
+          var now = Date.now() + skewMs;
+          var ms = Math.max(0, targetMs - now);
+          var totalSec = Math.floor(ms / 1000);
+          var d = Math.floor(totalSec / 86400);
+          var h = Math.floor((totalSec % 86400) / 3600);
+          var m = Math.floor((totalSec % 3600) / 60);
+          var s = totalSec % 60;
+          if (elD) elD.textContent = String(d);
+          if (elH) elH.textContent = pad2(h);
+          if (elM) elM.textContent = pad2(m);
+          if (elS) elS.textContent = pad2(s);
+        }
+
+        function applyPromo(promo) {
+          if (!promo || !section) return;
+          section.hidden = false;
+          var price = Number(promo.price_byn) || 100;
+          var titleEl = section.querySelector('.promo100-title');
+          if (titleEl) {
+            titleEl.innerHTML =
+              'Все модели<br />по <span>' + price + ' BYN</span>';
+          }
+
+          var active = !!promo.active && promo.current;
+          if (active) {
+            statusEl.textContent = 'До конца акции';
+            targetMs = new Date(promo.current.ends_at).getTime();
+          } else if (promo.next) {
+            statusEl.textContent = 'До старта следующей акции';
+            targetMs = new Date(promo.next.starts_at).getTime();
+          } else if (promo.current) {
+            statusEl.textContent = 'Акция завершена';
+            targetMs = new Date(promo.current.ends_at).getTime();
+          } else {
+            statusEl.textContent = 'Ждём следующую акцию';
+            targetMs = 0;
+          }
+
+          if (promo.next) {
+            nextEl.textContent = 'Следующая: ' + rangeLabel(promo.next);
+          } else if (active && promo.current) {
+            nextEl.textContent = 'Следующая дата не задана';
+          } else {
+            nextEl.textContent = promo.next_label || 'Следующая дата не задана';
+          }
+
+          if (promo.server_now) {
+            skewMs = new Date(promo.server_now).getTime() - Date.now();
+          }
+
+          paintCountdown();
+          if (tickTimer) clearInterval(tickTimer);
+          tickTimer = setInterval(paintCountdown, 1000);
+        }
+
+        function loadPromo() {
+          fetch(API + '/promo/current')
+            .then(function (r) {
+              return r.json();
+            })
+            .then(function (data) {
+              if (data && data.ok && data.promo) applyPromo(data.promo);
+              else if (section) section.hidden = false;
+            })
+            .catch(function () {
+              if (!section) return;
+              section.hidden = false;
+              if (statusEl) statusEl.textContent = 'Акция скоро';
+              if (nextEl) nextEl.textContent = 'Следующая дата не задана';
+            });
+        }
+
+        loadPromo();
+        setInterval(loadPromo, 5 * 60 * 1000);
       })();
     </script>
   </body>

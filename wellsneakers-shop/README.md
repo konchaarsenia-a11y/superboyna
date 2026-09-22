@@ -47,6 +47,7 @@ Staff headers (dev): `x-staff-role: admin|seller`.
 | Method | Path | Зачем |
 |--------|------|-------|
 | GET | `/api/health` | health + DB |
+| GET | `/api/promo/current` | акция 100 BYN: `active`, `current`/`next` окна, `server_now` (Europe/Minsk) |
 | GET | `/api/catalog` | витрина: **модели** с цветами (`models[]`, размеры qty>0). Дефолтный порядок — `stockSizeCount` (число строк размеров с qty>0 по всем цветам, одинаковый EU в двух цветах считается дважды), затем бренд/имя. `?sort=name` — по алфавиту; без `sort` или `?sort=stock` — наличие. `?sale=1` — только уценка (`old_price_byn > price_byn`); `?gender=men` или `women` — точное поле `gender` (null не попадает; `total` 0 → «Нет моделей»). Цвета несут `description` из полей бирки; `images[]` в списке пустой (см. деталь) |
 | GET | `/api/catalog/models/:modelKey` | **карточка модели** (PDP): colorways + `images[]` + `label`/`description`. `modelKey` URL-encoded (`nike%7Cair%20jordan%2011`) |
 | GET | `/api/catalog/:id` | то же по id/артикулу варианта или `modelKey` |
@@ -64,3 +65,5 @@ Staff headers (dev): `x-staff-role: admin|seller`.
 
 Staff auth: `x-telegram-init-data` (прод) или dev-заголовки при `ALLOW_DEV_STAFF=1`.  
 Для пушей: `BOT_TOKEN` + `ADMIN_TELEGRAM_IDS` в `.env`.
+
+Акция «все по 100»: seed `26.09–27.09.2026` (Минск). API шлёт хозяевам remind за сутки до конца; хозяин задаёт следующее окно в боте: `/promo 04.10 05.10`.

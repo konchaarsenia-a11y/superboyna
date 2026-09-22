@@ -1,5 +1,6 @@
 import { Bot } from "grammy";
 import { config } from "../config.js";
+import { buildPromoRemindText } from "../lib/promo.js";
 
 let bot;
 
@@ -9,9 +10,26 @@ function getBot() {
   return bot;
 }
 
-export async function notifyNewOrder(order, items = []) {
+async function notifyAdmins(text, logTag = "notify") {
   const b = getBot();
   if (!b || !config.adminTelegramIds.length) {
+    console.log(`[${logTag}] skip (no BOT_TOKEN or ADMIN_TELEGRAM_IDS)`);
+    return { sent: 0, skipped: true };
+  }
+  let sent = 0;
+  for (const chatId of config.adminTelegramIds) {
+    try {
+      await b.api.sendMessage(chatId, text);
+      sent++;
+    } catch (err) {
+      console.warn(`[${logTag}] fail`, chatId, err.message);
+    }
+  }
+  return { sent, skipped: false };
+}
+
+export async function notifyNewOrder(order, items = []) {
+  if (!config.botToken || !config.adminTelegramIds.length) {
     console.log("[notify] skip (no BOT_TOKEN or ADMIN_TELEGRAM_IDS)", order?.order_number);
     return { sent: 0, skipped: true };
   }
@@ -26,14 +44,11 @@ export async function notifyNewOrder(order, items = []) {
     (order.address ? `📍 ${order.address}\n` : "") +
     `\n${lines}\n\nИтого: ${Number(order.total_byn).toFixed(2)} BYN`;
 
-  let sent = 0;
-  for (const chatId of config.adminTelegramIds) {
-    try {
-      await b.api.sendMessage(chatId, text);
-      sent++;
-    } catch (err) {
-      console.warn("[notify] fail", chatId, err.message);
-    }
-  }
-  return { sent, skipped: false };
+  return notifyAdmins(text, "notify");
+}
+
+/** Day-before promo remind — only ADMIN_TELEGRAM_IDS. */
+export async function notifyPromoRemind(promo) {
+  const text = buildPromoRemindText(promo);
+  return notifyAdmins(text, "promo-remind");
 }
