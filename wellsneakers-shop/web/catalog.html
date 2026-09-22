@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=ux8" />
+    <link rel="stylesheet" href="styles.css?v=ux9" />
     <!-- favicon: keep identical on index.html + catalog.html -->
     <link rel="icon" href="favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
@@ -538,6 +538,69 @@
           dot.classList.toggle('on', i === idx);
         });
       }
+      function buildPdpDescLines(label) {
+        if (!label || typeof label !== 'object') return [];
+        const lines = [];
+        const type = String(label.type || '').trim();
+        const upper = String(label.upper || '').trim();
+        const lining = String(label.lining || '').trim();
+        const sole = String(label.sole || '').trim();
+        const season = String(label.season || '').trim();
+        const width = String(label.width || '').trim();
+        const country = String(label.country || '').trim();
+        const maker = String(label.maker || '').trim();
+        const importer = String(label.importer || '').trim();
+        const importerAddress = String(label.importer_address || '').trim();
+        const warranty = String(label.warranty || '').trim();
+        const tr = String(label.tr || '').trim();
+        const storeAddress = String(label.store_address || '').trim();
+        if (type) lines.push(type);
+        if (upper || lining || sole) {
+          if (upper) lines.push('Состав: верх ' + upper);
+          else if (lining) lines.push('Состав: внутри ' + lining);
+          else lines.push('Состав: подошва ' + sole);
+          if (upper && lining) lines.push('внутри ' + lining);
+          if ((upper || lining) && sole) lines.push('подошва ' + sole);
+        }
+        if (season) lines.push('Сезонность обуви: ' + season);
+        if (width) lines.push('Полнота: ' + width);
+        if (country) lines.push('Страна изготовитель: ' + country);
+        if (maker) lines.push('Изготовитель: ' + maker);
+        if (importer) lines.push('Импортер: ' + importer);
+        if (importerAddress) lines.push(importerAddress);
+        const legal = [warranty, tr].filter(Boolean).join(' ').trim();
+        if (legal) lines.push(legal);
+        if (lines.length) lines.push('Продукцию экспл. по назначению');
+        if (storeAddress) lines.push(storeAddress);
+        return lines;
+      }
+      function paintPdpDesc(variant) {
+        const descEl = document.getElementById('pdpDesc');
+        const kicker = document.getElementById('pdpDescKicker');
+        let lines = buildPdpDescLines(variant && variant.label);
+        if (!lines.length) {
+          const raw = String(variant && variant.description || '').trim();
+          lines = raw ? raw.split(/\n+/).map((l) => l.trim()).filter(Boolean) : [];
+        }
+        if (!lines.length) {
+          descEl.innerHTML = '';
+          descEl.hidden = true;
+          if (kicker) kicker.hidden = true;
+          return;
+        }
+        descEl.innerHTML =
+          '<div class="pdp-label-sheet" role="group" aria-label="Этикетка">' +
+          lines.map((line) => {
+            const cls =
+              /^(внутри |подошва )/i.test(line) ? 'pdp-label-line pdp-label-comp' :
+              /^Состав:/i.test(line) ? 'pdp-label-line pdp-label-comp-head' :
+              'pdp-label-line';
+            return `<div class="${cls}">${esc(line)}</div>`;
+          }).join('') +
+          '</div>';
+        descEl.hidden = false;
+        if (kicker) kicker.hidden = false;
+      }
       function paintPdpVariant() {
         const model = pdp.model;
         if (!model) return;
@@ -564,12 +627,7 @@
             btn.classList.toggle('on', btn.dataset.size === String(pdp.picked));
           });
         }
-        const desc = String(variant && variant.description || '').trim();
-        const descEl = document.getElementById('pdpDesc');
-        const kicker = document.getElementById('pdpDescKicker');
-        descEl.textContent = desc;
-        descEl.hidden = !desc;
-        if (kicker) kicker.hidden = !desc;
+        paintPdpDesc(variant);
         paintPdpGallery(model, variant);
       }
       function pdpIsOpen() {

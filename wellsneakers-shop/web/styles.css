@@ -707,8 +707,31 @@ body.pdp-open .filters-fab{display:none !important}
   letter-spacing:.08em;text-transform:uppercase;
 }
 .pdp-desc{
-  margin:4px 0 0;padding:12px 0 0;border-top:1px dashed rgba(255,255,255,.16);
-  color:var(--ink);font-size:14px;line-height:1.45;white-space:pre-line;
+  margin:4px 0 0;padding:0;border:0;
+  color:var(--ink);
+}
+.pdp-label-sheet{
+  margin:0;
+  padding:12px 12px 10px;
+  border:1px solid rgba(255,255,255,.22);
+  border-radius:2px;
+  background:#f4f1ea;
+  color:#121212;
+  font-family:Arial,Helvetica,sans-serif;
+  font-size:11.5px;
+  line-height:1.18;
+  letter-spacing:0;
+  box-shadow:0 1px 0 rgba(0,0,0,.35);
+}
+.pdp-label-line{
+  margin:0;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+.pdp-label-comp-head{margin-top:1px}
+.pdp-label-comp{padding-left:0}
+@media (min-width:480px){
+  .pdp-label-sheet{font-size:12.5px;padding:14px 14px 12px;line-height:1.2}
 }
 .pdp-cta{
   flex:0 0 auto;
