@@ -24,9 +24,18 @@ const catalog = {
       "ПОЧКИ": ["Ломтики", "Мелкое"]
     }
   },
-  chew: { items: ["УХО Г", "АОРТА"], fractions: { "УХО Г": ["ПОЛОВИНКА", "Обычное"], "АОРТА": ["Обычная"] } },
+  chew: {
+    items: ["УХО Г", "УХО К", "АОРТА", "БЫЧИЙ КОРЕНЬ", "ТРАХЕЯ"],
+    fractions: {
+      "УХО Г": ["ПОЛОВИНКА", "Обычное"],
+      "УХО К": ["ПОЛОВИНКА", "Обычное"],
+      "АОРТА": ["Обычная"],
+      "БЫЧИЙ КОРЕНЬ": ["МАЛ", "СРЕД", "БОЛ"],
+      "ТРАХЕЯ": ["МАЛ", "СРЕД", "БОЛ"]
+    }
+  },
   veg: { items: ["КАБАЧОК"], fractions: {} },
-  other: { items: ["ПЕЧЕНЬ"], fractions: {} }
+  other: { items: ["ПЕЧЕНЬ", "ИНДЕЙКА"], fractions: {} }
 };
 
 function buildIgKnownMap() {
@@ -73,47 +82,58 @@ const code = [
   "pricePickExcludeNames_",
   "pricePickBoostLiked_",
   "pricePickCloneItems_",
-  "buildPickSuggestions_"
+  "pricePickTargetScale_",
+  "pricePickSwapForBp2_",
+  "pricePickOrderSections_",
+  "pricePickComposeForTarget_"
 ].map(extract).join("\n");
 
 const fns = {};
-// eslint-disable-next-line no-new-func
 new Function(
   "buildIgKnownMap",
   "igAliasResolve",
   "parseIgLinesToItems",
   "exports",
-  code +
-    ";\nexports.parseAnketSignals_=parseAnketSignals_;\nexports.buildPickSuggestions_=buildPickSuggestions_;"
+  "function priceModeKey(mode){var m=String(mode||'').toLowerCase();if(m==='retail')return 'retail';if(m==='bp1')return 'bp1';if(m==='bp2')return 'bp2';return 'pp';}\n" +
+    code +
+    ";\nexports.parseAnketSignals_=parseAnketSignals_;\nexports.pricePickComposeForTarget_=pricePickComposeForTarget_;"
 )(buildIgKnownMap, igAliasResolve, parseIgLinesToItems, fns);
 
 {
   const sig = fns.parseAnketSignals_(
-    "1. Особенно понравился рубец и лёгкое, печень проигнорировал.\n2. Количества не хватило, было впритык.\n3. Удобнее мелкое."
+    "1. Особенно понравился рубец и лёгкое, печень проигнорировал.\n2. Количества не хватило, было впритык.\n3. Удобнее мелкое. Обязательно бычий корень. Без курицы и рыбы. Вес 12 кг, бюджет 90."
   );
   assert.ok(sig.liked.includes("РУБЕЦ Т") || sig.liked.includes("ЛЁГКОЕ"), "liked: " + JSON.stringify(sig.liked));
   assert.ok(sig.disliked.includes("ПЕЧЕНЬ"), "disliked печень: " + JSON.stringify(sig.disliked));
+  assert.ok(sig.must.includes("БЫЧИЙ КОРЕНЬ"), "must корень: " + JSON.stringify(sig.must));
+  assert.ok(sig.disliked.includes("УХО К"), "exclude курица");
+  assert.ok(sig.familyNotes.includes("рыба"));
   assert.equal(sig.qty, "low");
-  assert.ok(/мелк/i.test(sig.fracPref));
-  const sug = fns.buildPickSuggestions_(sig);
-  assert.ok(sug.slots.bp1[1].length >= 2);
-  assert.ok(!sug.slots.pp[1].some((it) => it.main === "ПЕЧЕНЬ"));
-  const lightBp1 = sug.slots.bp1[1].find((it) => it.main === "ЛЁГКОЕ");
-  const lightPp = sug.slots.pp[1].find((it) => it.main === "ЛЁГКОЕ");
-  if (lightBp1 && lightPp) assert.ok(lightBp1.value <= lightPp.value);
+  assert.equal(sig.budgetByn, 90);
+  assert.equal(sig.weightKg, 12);
+  const bp1 = fns.pricePickComposeForTarget_(sig, "bp1");
+  const bp2 = fns.pricePickComposeForTarget_(sig, "bp2");
+  assert.equal(bp1.target, "bp1");
+  assert.ok(bp1.items.some((it) => it.main === "БЫЧИЙ КОРЕНЬ"));
+  assert.ok(!bp1.items.some((it) => it.main === "ПЕЧЕНЬ" || it.main === "УХО К"));
+  const light1 = bp1.items.find((it) => it.main === "ЛЁГКОЕ");
+  const light2 = bp2.items.find((it) => it.main === "ЛЁГКОЕ");
+  if (light1 && light2) assert.ok(light2.value >= light1.value, "bp2 larger");
 }
 
 {
   const sig = fns.parseAnketSignals_("ЛЁГКОЕ — 100 г (среднее)\nУХО Г — 1 шт (обычное)\nРУБЕЦ Т — 80 г (среднее)");
   assert.equal(sig.lineItems.length, 3);
-  const sug = fns.buildPickSuggestions_(sig);
-  assert.equal(sug.slots.retail[1].length, 3);
+  const one = fns.pricePickComposeForTarget_(sig, "pp");
+  const lung = one.items.find((it) => it.main === "ЛЁГКОЕ");
+  assert.ok(lung && lung.value === 100, "explicit grams kept for итоговый");
 }
 
 {
   const sig = fns.parseAnketSignals_("Спасибо, всё ок, продолжаем.");
-  const sug = fns.buildPickSuggestions_(sig);
-  assert.ok(sug.slots.pp[1].length >= 4, "default starter");
+  const one = fns.pricePickComposeForTarget_(sig, "retail");
+  assert.ok(one.items.length >= 4, "default starter");
+  assert.ok(one.usedDefault);
 }
 
 console.log("test-price-pick: OK");

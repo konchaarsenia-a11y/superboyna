@@ -17,7 +17,7 @@ ANKET = """1. Особенно понравился рубец и лёгкое, 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     page = browser.new_page(viewport={"width": 420, "height": 900})
-    page.goto("http://127.0.0.1:8765/boinya-c/app.html?v=71115992&sandbox=1", wait_until="domcontentloaded", timeout=60000)
+    page.goto("http://127.0.0.1:8765/boinya-c/app.html?v=71115993&sandbox=1", wait_until="domcontentloaded", timeout=60000)
     page.wait_for_timeout(1500)
 
     # Bypass access gate for local smoke
@@ -42,28 +42,33 @@ with sync_playwright() as p:
     btn.click()
     page.wait_for_timeout(200)
     assert page.locator("#pricePickPanel").is_visible()
+    assert page.locator("#pricePickTargetBp1").count() == 1
+    page.click("#pricePickTargetBp1")
     page.fill("#pricePickPaste", ANKET)
     page.click("#btnPricePickRun")
-    page.wait_for_timeout(500)
+    page.wait_for_timeout(700)
     preview = page.locator("#pricePickPreview")
     assert preview.is_visible(), "preview not shown"
     text = preview.inner_text()
-    assert "БП1" in text and "Итоговый" in text and "Розница" in text
+    assert "БП1" in text
+    assert "Итоговый" not in text or "поз" in text
     page.screenshot(path=f"{OUT}/podbor-preview.png", full_page=False)
 
-    page.click("#btnPricePickApply")
-    page.wait_for_timeout(800)
     basket = page.locator("#priceBasketContainer").inner_text()
     assert "ЛЁГКОЕ" in basket or "лёгкое" in basket.lower() or "РУБЕЦ" in basket, basket[:200]
-
-    # Switch slots
-    page.click("#priceModeBp1")
-    page.wait_for_timeout(300)
-    bp1 = page.locator("#priceBasketContainer").inner_text()
-    page.click("#priceModeRet")
-    page.wait_for_timeout(300)
+    bp1 = basket
+    page.click("#btnPricePickAgain")
+    page.wait_for_timeout(200)
+    page.click("#pricePickTargetRet")
+    page.click("#btnPricePickRun")
+    page.wait_for_timeout(700)
     ret = page.locator("#priceBasketContainer").inner_text()
     assert len(bp1) > 10 and len(ret) > 10
+    # BP1 slot stays filled when we switch back
+    page.click("#priceModeBp1")
+    page.wait_for_timeout(300)
+    bp1_again = page.locator("#priceBasketContainer").inner_text()
+    assert "ЛЁГКОЕ" in bp1_again or "РУБЕЦ" in bp1_again
     page.screenshot(path=f"{OUT}/podbor-applied-retail.png", full_page=False)
 
     result = {
