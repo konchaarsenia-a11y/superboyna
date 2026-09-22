@@ -7355,6 +7355,46 @@ async function upsertOrderRow_(env, row, opts) {
     .run();
 }
 
+/**
+ * Снимок состава ДО upsert. GAS notify «увеличение нарезки» берёт priorBasket,
+ * а не пустую запись на новой дате. Адрес/телефон/note/дата сами не шлют алерт.
+ */
+async function attachPriorBasketForVolumeNotify_(params, env) {
+  if (!params || !env || !env.DB) return params;
+  if (params.priorBasket) return params;
+  const oldDate =
+    coerceDateIso_(params.oldDate || params.fromDate || params.previousDate || params.prevDate || "") ||
+    "";
+  const oldDay = String(params.oldDay || params.editDay || "").trim();
+  const edit = String(params.editClient || params.originalClient || "").trim();
+  if (!oldDate && !oldDay && !edit) return params;
+  const client = edit || String(params.client || "").trim();
+  if (!client) return params;
+  const mk = normalizeMatchKey_(params.matchKey || client);
+  const clientLow = client.toLowerCase();
+  let row = null;
+  try {
+    if (oldDate) {
+      row = await env.DB.prepare(
+        "SELECT basket_json FROM orders WHERE status = 'active' AND date_iso = ? AND (match_key = ? OR lower(client) = ?) ORDER BY updated_at DESC LIMIT 1"
+      )
+        .bind(oldDate, mk, clientLow)
+        .first();
+    }
+    if ((!row || !row.basket_json) && oldDay) {
+      row = await env.DB.prepare(
+        "SELECT basket_json FROM orders WHERE status = 'active' AND day_name = ? AND (match_key = ? OR lower(client) = ?) ORDER BY updated_at DESC LIMIT 1"
+      )
+        .bind(oldDay, mk, clientLow)
+        .first();
+    }
+  } catch (ePrior) {
+    return params;
+  }
+  if (row && row.basket_json) params.priorBasket = row.basket_json;
+  return params;
+}
+
 async function saveOrder_(params, env, asBooking) {
   await ensureMetaColumn_(env);
   if (!env || !env.DB) return { status: "error", message: "no_d1" };
@@ -7405,6 +7445,9 @@ async function saveOrder_(params, env, asBooking) {
   const matchKey = normalizeMatchKey_(params.matchKey || client);
   const editClient = String(params.editClient || params.originalClient || "").trim();
   const oldDayParam = String(params.oldDay || params.editDay || "").trim();
+  try {
+    await attachPriorBasketForVolumeNotify_(params, env);
+  } catch (ePriorB) {}
   const now = new Date().toISOString();
   const id = (day || "CAL") + ":" + matchKey + (day ? "" : ":" + dateIso);
   const basketArr = parseBasket_(params.basket);

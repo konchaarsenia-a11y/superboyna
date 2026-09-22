@@ -5134,6 +5134,7 @@
       document.getElementById("isEditMode").value = "false";
       editOriginalClient = "";
       editOriginalDay = "";
+      editOriginalDate = "";
       var clientEl = document.getElementById("client");
       if (clientEl) {
         clientEl.readOnly = false;
@@ -5473,6 +5474,7 @@
       const btn = document.getElementById("btnMainSave");
       var editClientSnap = isEdit ? String(editOriginalClient || "") : "";
       var editDaySnap = isEdit ? String(editOriginalDay || "") : "";
+      var editDateSnap = isEdit ? String(editOriginalDate || "") : "";
       var editKeySnap = isEdit ? String(editOriginalMatchKey || "") : "";
       var orderTypeSnap = orderType;
       var basketSnap = [];
@@ -5529,6 +5531,7 @@
         date: deliveryDate,
         day: day || editDaySnap || "",
         oldDay: editDaySnap || "",
+        oldDate: editDateSnap || "",
         alsoSaveOrder: false,
         client: clientName,
         editClient: editClientSnap,
@@ -5611,6 +5614,7 @@
           date: deliveryDate,
           day: weekDayToSave || "",
           oldDay: editDaySnap || "",
+          oldDate: editDateSnap || "",
           alsoSaveOrder: weekDayToSave ? "1" : "0",
           calendarOnly: weekDayToSave ? "0" : "1",
           client: clientName,
@@ -7800,6 +7804,7 @@
         document.getElementById("isEditMode").value = "false";
         editOriginalClient = "";
         editOriginalDay = "";
+        editOriginalDate = "";
         document.getElementById("appHeaderTitle").innerText = "Черновик: " + client.name;
         document.getElementById("btnMainSave").innerText = "В черновик (не в таблицу)";
         if (day) document.getElementById("day").value = day;
@@ -8485,6 +8490,7 @@
       document.getElementById("isEditMode").value = "true";
       editOriginalClient = client.name || "";
       editOriginalDay = dayForEdit || "";
+      editOriginalDate = dateStr || "";
       editOriginalMatchKey = client.matchKey || (typeof viewClientKey === "function" ? viewClientKey(client.name) : "") || "";
       document.getElementById("appHeaderTitle").innerText = "Изменение: " + client.name;
       document.getElementById("btnMainSave").innerText = "Обновить заказ";
@@ -8967,6 +8973,7 @@
 
     let editOriginalClient = "";
     let editOriginalDay = "";
+    let editOriginalDate = "";
     let editOriginalMatchKey = "";
 
     async function crmChangeClientPpSlot(index, slot, event) {
@@ -9011,6 +9018,7 @@
       var params = {
         action: "saveBooking",
         date: dateStr,
+        oldDate: dateStr,
         day: weekDay,
         alsoSaveOrder: weekDay ? "1" : "0",
         calendarOnly: weekDay ? "0" : "1",
@@ -9076,6 +9084,7 @@
       document.getElementById("isEditMode").value = "true";
       editOriginalClient = client.name || "";
       editOriginalDay = day || "";
+      editOriginalDate = dateStr || "";
       editOriginalMatchKey = client.matchKey || (typeof viewClientKey === "function" ? viewClientKey(client.name) : "") || "";
       document.getElementById("appHeaderTitle").innerText = "Изменение: " + client.name;
       document.getElementById("btnMainSave").innerText = "Обновить заказ";
@@ -24568,6 +24577,7 @@
         document.getElementById("isEditMode").value = "true";
         editOriginalClient = payload.editOriginalClient || payload.client || "";
         editOriginalDay = payload.editOriginalDay || payload.day || "";
+        editOriginalDate = payload.editOriginalDate || payload.date || payload.deliveryDate || "";
         editOriginalMatchKey = payload.editOriginalMatchKey || "";
         var saveBtn = document.getElementById("btnMainSave");
         if (saveBtn) saveBtn.innerText = "Обновить заказ";
