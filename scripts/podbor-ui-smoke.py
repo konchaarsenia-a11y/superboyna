@@ -6,18 +6,15 @@ import json, os, time
 OUT = "/opt/cursor/artifacts"
 os.makedirs(OUT, exist_ok=True)
 
-ANKET = """1. Особенно понравился рубец и лёгкое, печень проигнорировал.
-2. Количества не хватило, было впритык.
-3. Удобнее мелкое.
-ЛЁГКОЕ — 100 г (среднее)
-РУБЕЦ Т — 80 г (среднее)
-УХО Г — 1 шт (обычное)
+ANKET = """Венгерская выжла, 6 лет, 35 кг. Давали лёгкое, бычий пенис.
+Не понравилась трахея. Аллергия на рыбу. Нужно лёгкое.
+Бюджет 50–80. Мелкие кубики.
 """
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     page = browser.new_page(viewport={"width": 420, "height": 900})
-    page.goto("http://127.0.0.1:8765/boinya-c/app.html?v=71115993&sandbox=1", wait_until="domcontentloaded", timeout=60000)
+    page.goto("http://127.0.0.1:8765/boinya-c/app.html?v=71115994&sandbox=1", wait_until="domcontentloaded", timeout=60000)
     page.wait_for_timeout(1500)
 
     # Bypass access gate for local smoke
@@ -50,12 +47,14 @@ with sync_playwright() as p:
     preview = page.locator("#pricePickPreview")
     assert preview.is_visible(), "preview not shown"
     text = preview.inner_text()
+    up = text.upper()
     assert "БП1" in text
-    assert "Итоговый" not in text or "поз" in text
+    assert "40" in text and ("ЛЁГКОЕ" in up or "ЛЕГКОЕ" in up)
+    assert "ИТОГОВЫЙ" not in up
     page.screenshot(path=f"{OUT}/podbor-preview.png", full_page=False)
 
     basket = page.locator("#priceBasketContainer").inner_text()
-    assert "ЛЁГКОЕ" in basket or "лёгкое" in basket.lower() or "РУБЕЦ" in basket, basket[:200]
+    assert "ЛЁГКОЕ" in basket and "40" in basket, basket[:240]
     bp1 = basket
     page.click("#btnPricePickAgain")
     page.wait_for_timeout(200)

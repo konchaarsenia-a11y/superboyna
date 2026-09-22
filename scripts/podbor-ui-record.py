@@ -4,12 +4,9 @@ import os, subprocess, json
 
 OUT = "/opt/cursor/artifacts"
 os.makedirs(OUT, exist_ok=True)
-ANKET = """1. Особенно понравился рубец и лёгкое, печень проигнорировал.
-2. Количества не хватило, было впритык.
-3. Удобнее мелкое.
-ЛЁГКОЕ — 100 г (среднее)
-РУБЕЦ Т — 80 г (среднее)
-УХО Г — 1 шт (обычное)
+ANKET = """Венгерская выжла, 6 лет, 35 кг. Давали лёгкое, бычий пенис.
+Не понравилась трахея. Аллергия на рыбу. Нужно лёгкое.
+Бюджет 50–80. Мелкие кубики.
 """
 
 with sync_playwright() as p:
@@ -21,7 +18,7 @@ with sync_playwright() as p:
     )
     page = context.new_page()
     page.goto(
-        "http://127.0.0.1:8765/boinya-c/app.html?v=71115993&sandbox=1",
+        "http://127.0.0.1:8765/boinya-c/app.html?v=71115994&sandbox=1",
         wait_until="domcontentloaded",
         timeout=60000,
     )

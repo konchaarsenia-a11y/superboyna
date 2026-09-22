@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115993";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115994";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -19034,6 +19034,7 @@
     }
 
     function pricePickDefaultFrac_(cat, name, preferred) {
+      if (cat === "veg") return "";
       var known = buildIgKnownMap();
       var hit = known[String(name || "").toUpperCase()];
       var fracs = (hit && hit.fractions) || [];
@@ -19067,6 +19068,30 @@
 
     function pricePickNormUp_(s) {
       return String(s || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+    }
+
+    /** Алиасы из Direct goodboy_rb → SKU каталога. Печенье и уши кролика не мапим. */
+    function pricePickAliasText_(s) {
+      var t = " " + pricePickNormUp_(s) + " ";
+      var y = "[А-Я]*";
+      t = t.replace(/ПЕЧЕНЬЕ/g, " ");
+      t = t.replace(new RegExp("УШ" + y + "\\s+КРОЛИК" + y, "g"), " ");
+      t = t.replace(new RegExp("БЫЧ(?:ИЙ|ЬЕГО|ЬИ)\\s+ПЕНИС" + y, "g"), " БЫЧИЙ КОРЕНЬ ");
+      t = t.replace(new RegExp("(^|[^А-ЯA-Z])ПЕНИС" + y, "g"), "$1 БЫЧИЙ КОРЕНЬ ");
+      t = t.replace(new RegExp("ЛОПАТОЧН" + y + "\\s+ХРЯЩ" + y, "g"), " ЛОП ХРЯЩ ШТ. ");
+      t = t.replace(new RegExp("СТАНОВ" + y + "(?:\\s+ЖИЛ" + y + ")?", "g"), " СТАНОВАЯ ЖИЛА ");
+      t = t.replace(new RegExp("НОСИК" + y, "g"), " НОСЫ ШТ. ");
+      t = t.replace(new RegExp("ТРАХЕ" + y, "g"), " ТРАХЕЯ ");
+      t = t.replace(new RegExp("ПЕРЕПЕЛ" + y, "g"), " ПЕРЕПЕЛКИ ШТ. ");
+      t = t.replace(new RegExp("(^|[^А-ЯA-Z])КОЛЕН" + y, "g"), "$1 КОЛЕНИ ШТ. ");
+      t = t.replace(new RegExp("ГОВЯЖ" + y + "\\s+УШ" + y + "|УШКО|УШКИ", "g"), " УХО Г ");
+      return pricePickNormUp_(t);
+    }
+
+    function pricePickRound5_(n, minG) {
+      var g = Math.round((Number(n) || 0) / 5) * 5;
+      if (minG && g < minG) g = minG;
+      return g;
     }
 
     function pricePickMatchMention_(up, known) {
@@ -19110,7 +19135,7 @@
       function skusInText_(chunk) {
         var out = [];
         var keys = Object.keys(known).sort(function (a, b) { return b.length - a.length; });
-        var hay = pricePickNormUp_(chunk);
+        var hay = pricePickAliasText_(chunk);
         for (var ki = 0; ki < keys.length; ki++) {
           var kn = pricePickNormUp_(keys[ki]);
           if (kn.length < 4) continue;
@@ -19122,8 +19147,20 @@
         return out;
       }
 
-      // Хейт: «X проигнорировал / не ел / исключить X»
-      var hateNear = text.match(/([А-Яа-яЁёA-Za-z][А-Яа-яЁёA-Za-z\s\.]{0,40}?)\s*(?:проигнорир\w*|не\s*ел\w*|не\s*нрави\w*)/gi) || [];
+      // Хейт: «не любит / не понравилась / проигнорировал / аллергия на»
+      var hateNear = text.match(/([А-Яа-яЁёA-Za-z][А-Яа-яЁёA-Za-z\s\.]{0,40}?)\s*(?:проигнорир\w*|не\s*ел\w*)/gi) || [];
+      (text.match(/(?:не\s*понравил\w*|не\s*нрав\w*|не\s*люб\w*|не\s*ел\w*|проигнорир\w*)\s+([^.\n;,]{2,48})/gi) || []).forEach(function (chunk) {
+        hateNear.push(chunk);
+      });
+      (text.match(/(?:аллерги\w*\s+на|не\s+перенос\w*)\s+([^.\n]{2,40})/gi) || []).forEach(function (chunk) {
+        hateNear.push(chunk);
+      });
+      text.split(/[.!\n;]+/).forEach(function (part) {
+        var p = String(part || "").trim();
+        if (/^(?:не|без)\s+\S/i.test(p) || /(?:^|[,\s])не\s+(?:рубец|трахе|куриц|птиц|рыб|печень(?!е))/i.test(p)) {
+          hateNear.push(p);
+        }
+      });
       hateNear.forEach(function (chunk) {
         skusInText_(chunk).forEach(function (n) {
           if (disliked.indexOf(n) < 0) disliked.push(n);
@@ -19171,7 +19208,7 @@
           if (must.indexOf(n) < 0) must.push(n);
         });
       }
-      var mustRe = /(?:обязательно|точно\s+нуж\w*|нуж(?:ен|но|на)|хочу|пусть\s+будет)\s+([^.\n]{2,70})/gi;
+      var mustRe = /(?:обязательно|точно\s+нуж\w*|нуж(?:ен|но|на|ны)|хочу|пусть\s+будет)\s+([^.\n]{2,70})/gi;
       var mustM;
       while ((mustM = mustRe.exec(text))) pushMust(mustM[1] || mustM[0]);
       var mustRe2 = /([^.\n]{2,40})\s+обязательно/gi;
@@ -19194,12 +19231,52 @@
         if (disliked.indexOf("ИНДЕЙКА") < 0 && must.indexOf("ИНДЕЙКА") < 0) disliked.push("ИНДЕЙКА");
         familyNotes.push("индейка");
       }
+      if (/(?:без|не|исключ|аллерги)[^.\n]{0,24}птиц/i.test(text)) {
+        ["УХО К", "УТИНЫЕ ШЕИ ШТ.", "ПЕРЕПЁЛКИ ШТ."].forEach(function (n) {
+          if (disliked.indexOf(n) < 0 && must.indexOf(n) < 0) disliked.push(n);
+        });
+        if (familyNotes.indexOf("птица") < 0) familyNotes.push("птица");
+      }
 
       var budgetByn = 0;
+      var budgetRange = text.match(/бюджет\w*[^0-9]{0,12}(\d{2,3})\s*[–\-—]\s*(\d{2,3})/i);
+      var budgetOver = text.match(/бюджет\w*\s*(?:>|больше|от)\s*(\d{2,3})/i);
       var budgetM = text.match(/(?:бюджет\w*|не\s*дороже)\s*(\d{2,4})/i) ||
         text.match(/(\d{2,4})\s*(?:byn|бел\.?\s*руб|руб(?:лей|ля)?)/i) ||
         text.match(/до\s*(\d{2,4})\s*(?:byn|руб)/i);
-      if (budgetM) budgetByn = Number(budgetM[1]) || 0;
+      if (budgetRange) budgetByn = Math.round((Number(budgetRange[1]) + Number(budgetRange[2])) / 2);
+      else if (budgetOver) budgetByn = Number(budgetOver[1]) + 10;
+      else if (budgetM) budgetByn = Number(budgetM[1]) || 0;
+
+      var monthlyLungG = 0;
+      var lungUse = text.match(/(\d+(?:[.,]\d+)?)\s*(кг|г)\s+л[её]гк/i);
+      if (lungUse) {
+        var lungN = parseFloat(String(lungUse[1]).replace(",", "."));
+        monthlyLungG = /кг/i.test(lungUse[2]) ? Math.round(lungN * 1000) : Math.round(lungN);
+      }
+
+      var rootPcs = 0;
+      var rootFrac = "";
+      var rootRange = text.match(/(\d+)\s*[–\-—]\s*(\d+)\s+мал[а-яё]*\s+быч/i);
+      if (rootRange) {
+        rootPcs = Math.round((Number(rootRange[1]) + Number(rootRange[2])) / 2);
+        rootFrac = "МАЛ";
+      }
+      if (/мал[а-яё]*\s+быч|быч[а-яё]*[^.\n]{0,24}мал/i.test(text)) rootFrac = "МАЛ";
+      if (!rootPcs) {
+        var rootAfter = text.match(/быч[а-яё]*\s+корен[а-яё]*\s+(\d+)/i);
+        var rootBefore = text.match(/(\d+)\s+(?:мал[а-яё]*\s+)?быч/i);
+        if (rootAfter) rootPcs = Number(rootAfter[1]) || 0;
+        else if (rootBefore) rootPcs = Number(rootBefore[1]) || 0;
+      }
+
+      var tried = [];
+      var triedM = text.match(/давали\s+([^.\n]{2,80})/i);
+      if (triedM) {
+        skusInText_(triedM[1]).forEach(function (n) {
+          if (tried.indexOf(n) < 0 && disliked.indexOf(n) < 0) tried.push(n);
+        });
+      }
 
       var weightKg = 0;
       var weightM = text.match(/(?:вес\w*|собак\w*)[^\d]{0,16}(\d+(?:[.,]\d+)?)\s*кг/i) ||
@@ -19209,16 +19286,36 @@
         if (kg >= 1 && kg <= 80) weightKg = kg;
       }
 
+      var ageMonths = 0;
+      var ageM = text.match(/(\d+)\s*мес/i);
+      if (ageM) ageMonths = Number(ageM[1]) || 0;
+      var puppy = /щенок/i.test(text) || (ageMonths > 0 && ageMonths < 12 && !(weightKg >= 10));
+      if (/ломтик[а-яё]*\s+убрал|убрал[а-яё]*\s+ломтик/i.test(text)) {
+        qty = "high";
+        if (!fracPref) fracPref = "средн";
+      }
+
+      var deliveriesN = 0;
+      var delM = text.match(/(\d+)\s*доставк/i);
+      if (delM) deliveriesN = Math.max(1, Math.min(8, Number(delM[1]) || 1));
+
       return {
         liked: liked,
         disliked: disliked,
         must: must,
+        tried: tried,
         mentioned: mentioned,
         qty: qty,
         fracPref: fracPref,
         dogs: dogs,
         budgetByn: budgetByn,
         weightKg: weightKg,
+        puppy: puppy,
+        ageMonths: ageMonths,
+        monthlyLungG: monthlyLungG,
+        rootPcs: rootPcs,
+        rootFrac: rootFrac,
+        deliveriesN: deliveriesN,
         familyNotes: familyNotes,
         lineItems: parsedLines.items || [],
         noteBits: noteBits,
@@ -19354,13 +19451,149 @@
       });
     }
 
+    function pricePickBanned_(signals) {
+      var ban = {};
+      (signals.disliked || []).forEach(function (n) { ban[String(n).toUpperCase()] = true; });
+      return ban;
+    }
+
+    function pricePickPushSku_(list, name, grams, fracPref, fracOverride) {
+      if (!name || !(grams > 0)) return;
+      var it = pricePickItemFromSku_(name, grams, fracPref);
+      if (!it) return;
+      it.value = grams;
+      it.val = grams;
+      if (fracOverride) it.sub = fracOverride;
+      list.push(it);
+    }
+
+    function pricePickLungAnchor_(signals, target) {
+      var lung = 40;
+      var kg = signals.weightKg || 0;
+      var budget = signals.budgetByn || 0;
+      if (signals.puppy) lung = 15;
+      else if (kg >= 7 && kg < 16) lung = 50;
+      if (budget > 120) lung = Math.max(lung, 70);
+      if (budget > 0 && budget < 45) lung = Math.min(lung, 30);
+      if (signals.monthlyLungG > 0) {
+        var fromUse = pricePickRound5_(signals.monthlyLungG / 10, 15);
+        if (fromUse > 80) fromUse = 80;
+        lung = target === "bp1" ? pricePickRound5_(fromUse / 1.3, 15) : fromUse;
+      }
+      var trial = target === "bp1" || target === "bp2";
+      if (target === "bp2") {
+        if (signals.qty === "high") lung = Math.max(10, lung - 5);
+        else if (!(signals.monthlyLungG > 0)) lung = pricePickRound5_(lung * 1.5, 10);
+      }
+      if (!trial) {
+        if (signals.monthlyLungG > 0) lung = Math.min(350, signals.monthlyLungG);
+        else if (budget > 0 && budget < 45) lung = 30;
+        else if (budget > 120) lung = Math.max(250, pricePickRound5_(kg > 0 ? kg * 12 : 250, 80));
+        else if (budget >= 45 && budget <= 90) lung = Math.max(80, Math.min(180, lung));
+        else lung = pricePickRound5_(kg > 0 ? Math.min(300, kg * 10) : 150, 30);
+        if (target === "retail" && budget >= 80 && lung < 250) lung = 300;
+      }
+      return pricePickRound5_(lung, 10);
+    }
+
+    /** Состав как в офферах Direct: пробная коробка маленькая, БП2 чуть больше/замена, ПП и розница — месяц. */
+    function pricePickOfferLines_(signals, target) {
+      var ban = pricePickBanned_(signals);
+      var list = [];
+      var trial = target === "bp1" || target === "bp2";
+      var lung = pricePickLungAnchor_(signals, target);
+      var frac = signals.fracPref || "";
+      function allow(name) { return !ban[String(name).toUpperCase()]; }
+      function has(name) {
+        var up = String(name).toUpperCase();
+        return list.some(function (it) { return String(it.main || it.name).toUpperCase() === up; });
+      }
+
+      if (allow("ЛЁГКОЕ")) pricePickPushSku_(list, "ЛЁГКОЕ", lung, frac);
+      var heartG = trial
+        ? pricePickRound5_(lung * (target === "bp2" ? 0.3 : 0.4), 5)
+        : pricePickRound5_(lung * 0.32, 10);
+      if (signals.puppy && trial && lung <= 20) heartG = Math.max(heartG, 10);
+      if (allow("СЕРДЦЕ") && !(target === "bp2" && signals.puppy && signals.qty === "high")) {
+        pricePickPushSku_(list, "СЕРДЦЕ", heartG, frac);
+      }
+      var sideName = "РУБЕЦ Т";
+      if (!allow(sideName) || (target === "bp2" && (signals.liked || []).indexOf("РУБЕЦ Т") < 0)) sideName = "ПОЧКИ";
+      if (signals.puppy && trial) sideName = "";
+      if (sideName && allow(sideName)) {
+        var sideG = trial ? pricePickRound5_(lung * 0.25, 5) : pricePickRound5_(lung * 0.16, 10);
+        if (target === "bp2" && sideName === "ПОЧКИ") sideG = Math.max(sideG, 15);
+        pricePickPushSku_(list, sideName, sideG, frac);
+      }
+
+      var chewCap = trial ? (target === "bp2" ? 3 : 2) : 3;
+      var chewWant = [];
+      function wantChew(name) {
+        if (!name || !allow(name) || chewWant.indexOf(name) >= 0) return;
+        chewWant.push(name);
+      }
+      (signals.must || []).forEach(wantChew);
+      (signals.liked || []).forEach(wantChew);
+      if (signals.rootPcs) wantChew("БЫЧИЙ КОРЕНЬ");
+      if (target === "bp2") (signals.tried || []).forEach(wantChew);
+      var chewDefaults = signals.puppy
+        ? ["ТРАХЕЯ", "СТАНОВАЯ ЖИЛА", "ЛОП ХРЯЩ ШТ.", "АОРТА", "УХО Г", "НОСЫ ШТ.", "БЫЧИЙ КОРЕНЬ"]
+        : ["ЛОП ХРЯЩ ШТ.", "АОРТА", "ТРАХЕЯ", "СТАНОВАЯ ЖИЛА", "УХО Г", "НОСЫ ШТ.", "БЫЧИЙ КОРЕНЬ"];
+      chewDefaults.forEach(wantChew);
+      var chewN = 0;
+      chewWant.forEach(function (name) {
+        if (chewN >= chewCap || has(name)) return;
+        var known = buildIgKnownMap();
+        var hit = known[String(name).toUpperCase()] || known[igAliasResolve(name)];
+        if (!hit || (hit.cat !== "chew" && hit.cat !== "other")) return;
+        if (hit.cat === "other") return;
+        var pcs = 1;
+        var sub = "";
+        if (name === "СТАНОВАЯ ЖИЛА") pcs = target === "bp2" ? 4 : 2;
+        if (name === "БЫЧИЙ КОРЕНЬ") {
+          sub = signals.rootFrac || "";
+          if (!trial) pcs = signals.rootPcs ? Math.max(1, Math.min(8, signals.rootPcs)) : (signals.budgetByn > 100 ? 4 : 2);
+          else pcs = 1;
+        }
+        if (name === "ТРАХЕЯ" && target === "bp1" && signals.puppy) pcs = 2;
+        pricePickPushSku_(list, name, pcs, frac, sub);
+        chewN++;
+      });
+
+      var vegG = trial ? ((signals.puppy || lung <= 40) ? 5 : 10) : (lung >= 200 ? 100 : (signals.budgetByn > 0 && signals.budgetByn < 45 ? 10 : 40));
+      if (target === "bp2" && signals.puppy) vegG = vegG * 2;
+      var vegNames = signals.puppy ? ["ЯБЛОКИ", "ТЫКВА"] : ["ТЫКВА", "БАТАТ"];
+      if (target === "bp2" && !signals.puppy) vegNames = ["ТЫКВА", "БАНАНЫ"];
+      (signals.liked || []).forEach(function (n) {
+        var hit = buildIgKnownMap()[String(n).toUpperCase()];
+        if (hit && hit.cat === "veg" && vegNames.indexOf(hit.name) < 0) vegNames.unshift(hit.name);
+      });
+      var vegAdded = 0;
+      vegNames.forEach(function (name) {
+        if (vegAdded >= 2 || !allow(name) || has(name)) return;
+        pricePickPushSku_(list, name, vegG, "");
+        vegAdded++;
+      });
+
+      ["ВЫМЯ", "СЕМЕННИКИ"].forEach(function (name) {
+        var liked = (signals.liked || []).indexOf(name) >= 0 || (signals.must || []).indexOf(name) >= 0;
+        if (!liked || !allow(name) || has(name)) return;
+        pricePickPushSku_(list, name, trial ? 10 : 20, frac);
+      });
+
+      return pricePickOrderSections_(list).filter(function (it) {
+        return it && (it.main || it.name) && (Number(it.value) > 0);
+      });
+    }
+
     function pricePickComposeForTarget_(signals, target) {
       signals = signals || {};
       target = priceModeKey(target);
-      var hasLines = !!(signals.lineItems && signals.lineItems.length);
-      var base = [];
-      if (hasLines) {
-        base = signals.lineItems.map(function (it) {
+      var lines = signals.lineItems || [];
+      var explicit = lines.length >= 2;
+      var list;
+      if (explicit) {
+        list = lines.map(function (it) {
           var copy = Object.assign({}, it);
           if (!copy.sub && copy.cat !== "veg") {
             copy.sub = pricePickDefaultFrac_(copy.cat, copy.main || copy.name, signals.fracPref);
@@ -19369,51 +19602,18 @@
           copy.fromLine = true;
           return copy;
         });
+        list = pricePickExcludeNames_(list, signals.disliked);
+        list = pricePickOrderSections_(list).filter(function (it) {
+          return it && (it.main || it.name) && (Number(it.value) > 0 || Number(it.val) > 0);
+        });
       } else {
-        var seedNames = (signals.must && signals.must.length)
-          ? signals.must.slice()
-          : ((signals.liked && signals.liked.length)
-            ? signals.liked.slice()
-            : (signals.mentioned && signals.mentioned.length ? signals.mentioned.slice(0, 6) : []));
-        if (!seedNames.length) {
-          base = pricePickDefaultStarter_();
-        } else {
-          seedNames.forEach(function (n) {
-            var it = pricePickItemFromSku_(n, null, signals.fracPref);
-            if (it) base.push(it);
-          });
-          if (base.length < 3) {
-            pricePickDefaultStarter_().forEach(function (d) {
-              var up = String(d.main).toUpperCase();
-              if (!base.some(function (x) { return String(x.main).toUpperCase() === up; })) {
-                base.push(Object.assign({}, d));
-              }
-            });
-          }
-        }
+        list = pricePickOfferLines_(signals, target);
       }
-
-      base = pricePickExcludeNames_(base, signals.disliked);
-      base = pricePickBoostLiked_(base, signals.must && signals.must.length ? signals.must : signals.liked, signals.fracPref);
-      if (target === "bp2") base = pricePickSwapForBp2_(base, signals.disliked, signals.fracPref);
-
-      var explicit = hasLines;
-      var scale = explicit
-        ? (target === "bp2" && signals.qty === "low" ? 1.15 : (target === "bp2" ? 1.1 : 1))
-        : pricePickTargetScale_(target, signals);
-      var list = pricePickScaleItems_(base, scale, {
-        fracPref: signals.fracPref,
-        pieceScale: target === "bp1" ? 0.85 : 1,
-        boostChew: target !== "bp1" && signals.qty === "low"
-      });
-      list = pricePickOrderSections_(list).filter(function (it) {
-        return it && (it.main || it.name) && (Number(it.value) > 0 || Number(it.val) > 0);
-      });
       return {
         target: target,
         items: list,
         signals: signals,
-        usedDefault: !hasLines && !(signals.liked && signals.liked.length) &&
+        usedDefault: !explicit && !(signals.liked && signals.liked.length) &&
           !(signals.must && signals.must.length) && !(signals.mentioned && signals.mentioned.length)
       };
     }
@@ -19458,6 +19658,8 @@
       if (sig.qty === "high") html += "С запасом → чуть меньше. ";
       if (sig.budgetByn) html += "Бюджет ~" + sig.budgetByn + ". ";
       if (sig.weightKg) html += "Вес " + sig.weightKg + " кг. ";
+      if (sig.monthlyLungG) html += "Расход лёгкого ~" + sig.monthlyLungG + " г. ";
+      if (sig.puppy) html += "Щенок. ";
       html += "Строки уже в редакторе — правь.</div>";
       var lastCat = "";
       payload.items.forEach(function (it) {
@@ -19550,6 +19752,10 @@
       priceMode = target;
       loadPriceModeState(target);
       setPriceMode(target);
+      if ((target === "pp" || target === "retail") && sig.deliveriesN) {
+        var nEl = document.getElementById("priceDeliveriesN");
+        if (nEl) nEl.value = String(sig.deliveriesN);
+      }
       try { calcPriceFromBasket({ silent: true }); } catch (eC) {}
       try {
         var basket = document.getElementById("priceBasketContainer");
