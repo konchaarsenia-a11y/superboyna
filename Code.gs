@@ -9590,8 +9590,20 @@ function tickDeliveryDatesNudge_() {
   } catch (eK) {}
 
   var sent = sendDeliveryDatesNudge_(slot);
+  // Пустой список тоже закрывает слот — триггер не повторяет рассылку.
   try { props.setProperty(key, "1"); } catch (eS) {}
   try { pruneOldDeliveryDatesNudgeKeys_(props, ymd); } catch (eP) {}
+  if (sent && sent.skipped) {
+    return {
+      ok: true,
+      skipped: sent.skipped,
+      reason: sent.reason || "no clients",
+      slot: slot,
+      ymd: ymd,
+      marked: key,
+      sent: sent
+    };
+  }
   return { ok: true, slot: slot, ymd: ymd, sent: sent };
 }
 
@@ -10056,9 +10068,33 @@ function buildDeliveryDatesNudgeText_(pack, slot) {
   return lines.join("\n");
 }
 
+/** Нет записей для подбития: ни ПП, ни БП1 (розница в pack не попадает). */
+function deliveryDatesNudgeIsEmpty_(pack) {
+  if (!pack) return true;
+  var ppN = (pack.pp && pack.pp.length) ? pack.pp.length : 0;
+  var bpN = (pack.bp1 && pack.bp1.length) ? pack.bp1.length : 0;
+  return (ppN + bpN) === 0;
+}
+
 function sendDeliveryDatesNudge_(slot, dateOverride) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var pack = listYesterdayDeliveredForNudge_(ss, dateOverride);
+  if (deliveryDatesNudgeIsEmpty_(pack)) {
+    return {
+      skipped: "empty",
+      reason: "no clients",
+      recipients: 0,
+      ok: 0,
+      fail: 0,
+      pp: 0,
+      bp1: 0,
+      dateText: (pack && pack.dateText) || "",
+      dateIso: (pack && pack.dateIso) || "",
+      ppNames: [],
+      bp1Names: [],
+      telegram: false
+    };
+  }
   var text = buildDeliveryDatesNudgeText_(pack, slot);
 
   // кнопки АФК — по одному ряду на клиента (лимит TG ~100)
@@ -10373,9 +10409,12 @@ function handleTestDeliveryDatesNudge(callback, fromPost, params) {
       var ss = SpreadsheetApp.getActiveSpreadsheet();
       var pack = listYesterdayDeliveredForNudge_(ss, dateOverride);
       var text = buildDeliveryDatesNudgeText_(pack, "11");
+      var empty = deliveryDatesNudgeIsEmpty_(pack);
       out = {
         status: "success",
         dry: true,
+        skipped: empty ? "empty" : false,
+        reason: empty ? "no clients" : "",
         ymd: ymd,
         dateText: pack.dateText,
         dateIso: pack.dateIso,
@@ -10393,7 +10432,14 @@ function handleTestDeliveryDatesNudge(callback, fromPost, params) {
         props.deleteProperty("DATE_NUDGE_" + ymd + "_19");
       } catch (eClr) {}
       var sent = sendDeliveryDatesNudge_("11", dateOverride);
-      out = { status: "success", dry: false, result: sent, ymd: ymd };
+      out = {
+        status: "success",
+        dry: false,
+        skipped: (sent && sent.skipped) ? sent.skipped : false,
+        reason: (sent && sent.reason) ? sent.reason : "",
+        result: sent,
+        ymd: ymd
+      };
     }
   } catch (e) {
     out = { status: "error", message: String(e) };
@@ -10407,7 +10453,10 @@ function testDeliveryDatesNudgeDry() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var pack = listYesterdayDeliveredForNudge_(ss);
     var text = buildDeliveryDatesNudgeText_(pack, "11");
+    var emptyDry = deliveryDatesNudgeIsEmpty_(pack);
     Logger.log("testDeliveryDatesNudgeDry " + JSON.stringify({
+      skipped: emptyDry ? "empty" : false,
+      reason: emptyDry ? "no clients" : "",
       dateText: pack.dateText,
       dateIso: pack.dateIso,
       total: pack.total,
