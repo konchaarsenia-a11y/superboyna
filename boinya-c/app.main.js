@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115994";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115995";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -76,6 +76,7 @@
     };
     var pricePickSuggestions_ = null;
     var pricePickTarget_ = "";
+    var priceShell_ = "calc";
     let postOfficeSuggestTimer = null;
     let postOfficeSuggestSeq = 0;
     let addressSuggestTimer = null;
@@ -534,9 +535,9 @@
       subsScreen: "Подписки\n• Пароль; Отмена → Заказ.\n• Карточка: мета + состав (ручной ввод) → Сохранить.\n• ПП: «Сообщение клиенту» — копировать текст и открыть Instagram.\n• ПП↔АФК / удалить.",
       subDetailScreen: "Карточка подписки\n• Правишь поля и состав → Сохранить.\n• ПП/АФК: «Сообщение клиенту» — текст как в Расчёте, копируй в Direct.",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
-      priceScreen: "Расчёт\n• БП1 / БП2 / итоговый / розница — отдельные составы.\n• «Подбор»: выбери тип → вставь анкету → один состав, потом правь.\n• Чеклист: 1–2 собаки; неясная фракция — спросит.",
+      priceScreen: "Расчёт\n• Сверху вкладки «Расчёт» и «Подбор».\n• Расчёт: БП1 / БП2 / итоговый / розница — отдельные составы.\n• Подбор: тип → анкета → один состав, правь строки → «В расчёт».\n• Чеклист: 1–2 собаки; неясная фракция — спросит.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
-      templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ → ведёт в Расчёт «Подбор».",
+      templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ → вкладка «Подбор» на экране Расчёт.",
       retailPriceScreen: "Прайс розницы\n• Только владелец.\n• Меняет цены новых расчётов/заказов.\n• Уже сохранённые orderPrice не трогает.",
       peopleScreen: "Доступы\n• Завершить неделю / подтянуть из месяца — сверху.\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника.",
       partnerHubScreen: "Партнёры (мини-апп varka)\n• Заказы — назначить дату по заявкам.\n• Люди — доступы к точкам.\n• Точки / Сети — справочник.\n• Пуши — кому слать заявки.\n• Не путать с партнёрами БП в Доступах."
@@ -19634,21 +19635,24 @@
       return "Другое";
     }
 
+    function pricePickCatClass_(cat) {
+      var c = String(cat || "");
+      if (c === "dressura" || c === "chew" || c === "veg" || c === "other" || c === "crumb" || c === "powder") return c;
+      return "";
+    }
+
     function renderPricePickPreview_(payload) {
       var box = document.getElementById("pricePickPreview");
-      var againBtn = document.getElementById("btnPricePickAgain");
+      var editor = document.getElementById("pricePickEditor");
       if (!box) return;
-      if (!payload || !payload.items) {
-        box.style.display = "none";
+      if (!payload || !payload.items || !payload.items.length) {
         box.innerHTML = "";
-        if (againBtn) againBtn.style.display = "none";
+        if (editor) editor.style.display = "none";
         return;
       }
       var sig = payload.signals || {};
-      var html = '<div class="card" style="margin:0;padding:10px;border:1px solid rgba(255,122,0,0.4);">';
-      html += '<div style="font-weight:600;margin-bottom:6px;">' + escapeHtml(priceModeLabel_(payload.target)) +
-        " · " + payload.items.length + " поз.</div>";
-      html += '<div class="muted" style="font-size:12px;margin-bottom:8px;">';
+      var html = '<div class="muted" style="font-size:12px;margin:0 0 8px;">';
+      html += escapeHtml(priceModeLabel_(payload.target)) + " · " + payload.items.length + " поз. ";
       if (payload.usedDefault) html += "Явных позиций мало — стартовый набор. ";
       if (sig.must && sig.must.length) html += "Обязательно: " + escapeHtml(sig.must.join(", ")) + ". ";
       if (sig.liked && sig.liked.length) html += "Лайки: " + escapeHtml(sig.liked.join(", ")) + ". ";
@@ -19660,45 +19664,85 @@
       if (sig.weightKg) html += "Вес " + sig.weightKg + " кг. ";
       if (sig.monthlyLungG) html += "Расход лёгкого ~" + sig.monthlyLungG + " г. ";
       if (sig.puppy) html += "Щенок. ";
-      html += "Строки уже в редакторе — правь.</div>";
+      html += "Правь граммы, потом «В расчёт».</div>";
       var lastCat = "";
-      payload.items.forEach(function (it) {
+      payload.items.forEach(function (it, idx) {
         var title = pricePickSectionTitle_(it.cat);
         if (title !== lastCat) {
-          html += '<div style="margin:8px 0 2px;font-size:12px;color:#ff9f0a;">' + escapeHtml(title) + "</div>";
+          html += '<div style="margin:8px 0 4px;font-size:12px;color:#ff9f0a;">' + escapeHtml(title) + "</div>";
           lastCat = title;
         }
-        html += '<div style="font-size:13px;line-height:1.35;">' + escapeHtml(formatPickPreviewLine_(it)) + "</div>";
+        var unit = (typeof unitForItem === "function")
+          ? unitForItem(it.cat, it.main || it.name)
+          : ((it.cat === "chew") ? "шт" : "г");
+        var val = it.value != null ? it.value : it.val;
+        var sub = it.sub ? String(it.sub) : "";
+        html += '<div class="basket-card ' + pricePickCatClass_(it.cat) + '">' +
+          '<button type="button" class="btn-inline-del" onclick="pricePickDeleteRow_(' + idx + ')">Удалить</button>' +
+          '<div class="basket-info">' + escapeHtml(it.main || it.name || "") + "</div>" +
+          (sub ? ('<div class="basket-sub">' + escapeHtml(sub) + "</div>") : "") +
+          '<div class="seg-row" style="align-items:center;gap:8px;margin-top:8px;padding-right:72px;">' +
+          '<input type="number" min="0" step="1" inputmode="decimal" data-pick-row="' + idx + '" value="' +
+          escapeHtml(String(val == null ? "" : val)) + '" ' +
+          'oninput="pricePickSetRowValue_(' + idx + ', this.value)" ' +
+          'style="width:96px;height:36px;margin:0;">' +
+          '<span class="muted">' + escapeHtml(unit) + "</span></div></div>";
       });
-      html += "</div>";
       box.innerHTML = html;
-      box.style.display = "";
-      if (againBtn) againBtn.style.display = "";
+      if (editor) editor.style.display = "";
     }
 
+    function pricePickSetRowValue_(idx, raw) {
+      var payload = pricePickSuggestions_;
+      if (!payload || !payload.items || !payload.items[idx]) return;
+      var n = parseFloat(String(raw == null ? "" : raw).replace(",", "."));
+      if (!isFinite(n) || n < 0) n = 0;
+      payload.items[idx].value = n;
+      payload.items[idx].val = n;
+    }
+    window.pricePickSetRowValue_ = pricePickSetRowValue_;
+
+    function pricePickDeleteRow_(idx) {
+      var payload = pricePickSuggestions_;
+      if (!payload || !payload.items) return;
+      payload.items.splice(idx, 1);
+      renderPricePickPreview_(payload.items.length ? payload : null);
+    }
+    window.pricePickDeleteRow_ = pricePickDeleteRow_;
+
     function setPricePickTarget_(mode) {
-      pricePickTarget_ = priceModeKey(mode);
+      var raw = String(mode || "").trim().toLowerCase();
+      pricePickTarget_ = raw ? priceModeKey(mode) : "";
       var map = { bp1: "pricePickTargetBp1", bp2: "pricePickTargetBp2", pp: "pricePickTargetPp", retail: "pricePickTargetRet" };
       Object.keys(map).forEach(function (k) {
         var el = document.getElementById(map[k]);
-        if (el) el.classList.toggle("active", k === pricePickTarget_);
+        if (el) el.classList.toggle("active", !!pricePickTarget_ && k === pricePickTarget_);
       });
     }
     window.setPricePickTarget_ = setPricePickTarget_;
 
-    function togglePricePickPanel_() {
-      var panel = document.getElementById("pricePickPanel");
-      if (!panel) return;
-      var open = panel.style.display === "none" || !panel.style.display;
-      panel.style.display = open ? "" : "none";
-      if (open) {
-        if (!pricePickTarget_) setPricePickTarget_(priceMode || "pp");
-        else setPricePickTarget_(pricePickTarget_);
+    function setPriceShell_(which, opts) {
+      opts = opts || {};
+      priceShell_ = which === "pick" ? "pick" : "calc";
+      var calc = document.getElementById("priceCalcPane");
+      var pick = document.getElementById("pricePickPane");
+      var tabC = document.getElementById("priceShellCalc");
+      var tabP = document.getElementById("priceShellPick");
+      if (calc) calc.style.display = priceShell_ === "calc" ? "" : "none";
+      if (pick) pick.style.display = priceShell_ === "pick" ? "" : "none";
+      if (tabC) tabC.classList.toggle("active", priceShell_ === "calc");
+      if (tabP) tabP.classList.toggle("active", priceShell_ === "pick");
+      if (!opts.noScroll) {
         try {
-          var first = document.getElementById("pricePickTargetBp1");
-          if (first && first.scrollIntoView) first.scrollIntoView({ block: "nearest" });
-        } catch (eF) {}
+          var tabs = document.getElementById("priceShellTabs");
+          if (tabs && tabs.scrollIntoView) tabs.scrollIntoView({ block: "start" });
+        } catch (eSh) {}
       }
+    }
+    window.setPriceShell_ = setPriceShell_;
+
+    function togglePricePickPanel_() {
+      setPriceShell_("pick");
     }
     window.togglePricePickPanel_ = togglePricePickPanel_;
 
@@ -19706,8 +19750,6 @@
       var ta = document.getElementById("pricePickPaste");
       if (ta) ta.value = "";
       pricePickSuggestions_ = null;
-      pricePickTarget_ = "";
-      setPricePickTarget_("pp");
       pricePickTarget_ = "";
       ["pricePickTargetBp1", "pricePickTargetBp2", "pricePickTargetPp", "pricePickTargetRet"].forEach(function (id) {
         var el = document.getElementById(id);
@@ -19782,12 +19824,41 @@
         renderPricePickPreview_(null);
         return;
       }
+      payload.items = pricePickCloneItems_(payload.items);
       pricePickSuggestions_ = payload;
-      applyPricePickOne_(payload);
       renderPricePickPreview_(payload);
-      showToast(priceModeLabel_(payload.target) + " в редакторе — правь строки");
+      showToast(priceModeLabel_(payload.target) + " собран — правь строки и нажми «В расчёт»");
+      try {
+        var editor = document.getElementById("pricePickEditor");
+        if (editor && editor.scrollIntoView) editor.scrollIntoView({ block: "nearest" });
+      } catch (eEd) {}
     }
     window.runPricePickFromAnket_ = runPricePickFromAnket_;
+
+    function applyPricePickToCalc_() {
+      var payload = pricePickSuggestions_;
+      if (!payload || !payload.items || !payload.items.length) {
+        showToast("Сначала подбери состав");
+        return;
+      }
+      var items = payload.items.filter(function (it) {
+        return it && (Number(it.value) > 0 || Number(it.val) > 0);
+      });
+      if (!items.length) {
+        showToast("В составе нет граммов");
+        return;
+      }
+      var next = {
+        target: payload.target,
+        items: pricePickCloneItems_(items),
+        signals: payload.signals || {},
+        usedDefault: !!payload.usedDefault
+      };
+      setPriceShell_("calc", { noScroll: true });
+      applyPricePickOne_(next);
+      showToast(priceModeLabel_(next.target) + " в расчёте");
+    }
+    window.applyPricePickToCalc_ = applyPricePickToCalc_;
 
     function pricePickAgain_() {
       showToast("Анкета на месте — выбери другой тип и снова «Подобрать»");
@@ -19800,12 +19871,7 @@
 
     function openPricePickFromTemplates_() {
       try { switchTab("priceScreen"); } catch (eS) {}
-      setTimeout(function () {
-        var panel = document.getElementById("pricePickPanel");
-        if (panel) panel.style.display = "";
-        if (!pricePickTarget_) setPricePickTarget_(priceMode || "pp");
-        else setPricePickTarget_(pricePickTarget_);
-      }, 80);
+      setTimeout(function () { setPriceShell_("pick"); }, 80);
     }
     window.openPricePickFromTemplates_ = openPricePickFromTemplates_;
 

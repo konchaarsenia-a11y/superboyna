@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Короткое демо: вкладки сверху → экран Подбора → выбор типа → в расчёт."""
 from playwright.sync_api import sync_playwright
 import os, subprocess, json
 
@@ -18,46 +19,50 @@ with sync_playwright() as p:
     )
     page = context.new_page()
     page.goto(
-        "http://127.0.0.1:8765/boinya-c/app.html?v=71115994&sandbox=1",
+        "http://127.0.0.1:8765/boinya-c/app.html?v=71115995&sandbox=1",
         wait_until="domcontentloaded",
         timeout=60000,
     )
-    page.wait_for_timeout(1800)
+    page.wait_for_timeout(1600)
     page.evaluate(
         """() => {
-      document.querySelectorAll('.modal,.overlay,.toast,[class*=Modal]').forEach(el => { try{el.style.display='none';}catch(e){} });
+      const gate = document.getElementById('accessGate');
+      if (gate) { gate.classList.remove('open'); gate.style.display = 'none'; }
       document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
       const sc = document.getElementById('priceScreen');
       if (sc) sc.classList.add('active');
       if (typeof setPriceMode === 'function') setPriceMode('pp');
+      if (typeof setPriceShell_ === 'function') setPriceShell_('calc');
+      window.scrollTo(0, 0);
     }"""
     )
-    page.wait_for_timeout(400)
-    page.locator("#btnPricePodbor").click()
-    page.wait_for_timeout(350)
+    page.wait_for_timeout(700)
+    page.screenshot(path=f"{OUT}/podbor-01-tabs.png")
+    page.click("#priceShellPick")
+    page.wait_for_timeout(800)
+    page.screenshot(path=f"{OUT}/podbor-02-pick-types.png")
     page.click("#pricePickTargetBp1")
-    page.wait_for_timeout(250)
-    page.screenshot(path=f"{OUT}/podbor-01-button.png")
+    page.wait_for_timeout(500)
+    page.screenshot(path=f"{OUT}/podbor-03-type-bp1.png")
     page.fill("#pricePickPaste", ANKET)
-    page.wait_for_timeout(300)
+    page.wait_for_timeout(400)
     page.click("#btnPricePickRun")
-    page.wait_for_timeout(700)
+    page.wait_for_timeout(800)
     page.evaluate("() => document.querySelectorAll('.toast').forEach(t => t.remove())")
-    page.locator("#pricePickPreview").scroll_into_view_if_needed()
-    page.wait_for_timeout(200)
-    page.screenshot(path=f"{OUT}/podbor-02-preview.png")
-    page.locator("#priceBasketContainer").scroll_into_view_if_needed()
-    page.wait_for_timeout(250)
-    page.screenshot(path=f"{OUT}/podbor-03-bp1-applied.png")
-    page.click("#btnPricePickAgain")
-    page.wait_for_timeout(300)
-    page.click("#pricePickTargetRet")
-    page.wait_for_timeout(200)
-    page.click("#btnPricePickRun")
-    page.wait_for_timeout(700)
+    page.locator("#pricePickEditor").scroll_into_view_if_needed()
+    page.wait_for_timeout(400)
+    page.locator("#pricePickPreview .basket-card").filter(has_text="ЛЁГКОЕ").locator("input").fill("45")
+    page.wait_for_timeout(400)
+    page.screenshot(path=f"{OUT}/podbor-04-edit-rows.png")
+    page.click("#btnPricePickApply")
+    page.wait_for_timeout(900)
     page.evaluate("() => document.querySelectorAll('.toast').forEach(t => t.remove())")
     page.locator("#priceBasketContainer").scroll_into_view_if_needed()
-    page.screenshot(path=f"{OUT}/podbor-04-retail-applied.png")
+    page.wait_for_timeout(400)
+    page.screenshot(path=f"{OUT}/podbor-05-applied.png")
+    page.click("#priceShellPick")
+    page.wait_for_timeout(700)
+    page.screenshot(path=f"{OUT}/podbor-06-draft-kept.png")
     page.wait_for_timeout(400)
     context.close()
     browser.close()
@@ -69,13 +74,13 @@ vids = sorted(
 )
 assert vids, "no webm"
 src = os.path.join(OUT, vids[0])
-dst = os.path.join(OUT, "podbor-demo.webm")
+dst = os.path.join(OUT, "podbor-shell-demo.webm")
 if src != dst:
     os.replace(src, dst)
-mp4 = os.path.join(OUT, "podbor-demo.mp4")
+mp4 = os.path.join(OUT, "podbor-shell-demo.mp4")
 r = subprocess.run(
-    ["ffmpeg", "-y", "-i", dst, "-c:v", "libx264", "-pix_fmt", "yuv420p", mp4],
+    ["ffmpeg", "-y", "-i", dst, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", mp4],
     capture_output=True,
     text=True,
 )
-print(json.dumps({"webm": dst, "mp4": mp4 if r.returncode == 0 else None, "ffmpeg": r.returncode}, ensure_ascii=False))
+print(json.dumps({"webm": dst, "mp4": mp4 if r.returncode == 0 else None, "ffmpeg": r.returncode, "err": r.stderr[-400:]}, ensure_ascii=False))
