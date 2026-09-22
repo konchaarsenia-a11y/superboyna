@@ -2,8 +2,8 @@
  * Бойня C — Worker + D1.
  * LIVE по умолчанию: D1 fast-read + запись/revalidate в боевой GAS.
  * Песочница только явно: ?sandbox=1 / ?cutover=0 (D1 write, Sheets skip).
- * deploy-marker: 2026-09-20 pp-rit-murr-one-r-h2
- * (prior: preserve-order-price-h1 / close-week-no-shift-h2 / orders-access-tab-h1 / fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
+ * deploy-marker: 2026-09-22 subs-dedupe-ig-nick-h1
+ * (prior: pp-rit-murr-one-r-h2 / preserve-order-price-h1 / close-week-no-shift-h2 / orders-access-tab-h1 / fix-courier-missed-timeout-h1 / cut-flags-persist-h1 / undelete-zombie-h1 / week-write-on-slot-h1 / view-hide-mismatch-h1 / snowygodness-dedupe-h1)
  */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -387,10 +387,23 @@ async function handleAction_(action, params, env, url, ctx) {
       gbCanon: gbCanonLabel_(env),
       weekCloseCanon: weekCloseCanonLabel_(env),
       warehouseCloseCanon: warehouseCloseCanonLabel_(env),
-      deployMarker: "2026-09-19 no-future-week-clone-h1"
+      deployMarker: "2026-09-22 subs-dedupe-ig-nick-h1"
     };
   }
 
+  if (/^repairSubscriptionCards$/i.test(a)) {
+    const healed = await healSubscriptionSnap_(env);
+    const subs = (healed && healed.list && healed.list.subscriptions) || [];
+    return {
+      status: "success",
+      removed: (healed && healed.removed) || 0,
+      restored: (healed && healed.restored) || 0,
+      count: subs.length,
+      missingIgPp: countPpMissingIg_(subs),
+      subsCanon: subsCanonLabel_(env),
+      deployMarker: "2026-09-22 subs-dedupe-ig-nick-h1"
+    };
+  }
   if (/^lookupClient$/i.test(a)) {
     return lookupClient_(params, env);
   }
@@ -9776,6 +9789,13 @@ async function cutoverSwrGas_(action, params, env, ctx, opts) {
               [];
             if (prevMeta && (prevMeta._d1TouchedAt || (Array.isArray(arr) && arr.length)))
               skipStore = true;
+            if (action === "listSurvey" && prevMeta && live && Array.isArray(live.items)) {
+              const mergedSv = mergeSurveyPayload_(prevMeta, live);
+              await putSnap_(env, snapKey, mergedSv);
+              live.items = mergedSv.items;
+              live.count = mergedSv.count;
+              skipStore = true;
+            }
           } catch (ePrevM) {}
         }
         if (!skipStore) {
@@ -9804,6 +9824,29 @@ async function cutoverSwrGas_(action, params, env, ctx, opts) {
 
   const snap = await getSnapRaw_(env, snapKey);
   const snapOk = snap && snap.status === "success" && (!opts.isOk || opts.isOk(snap));
+
+  if (snapOk && action === "listSurvey" && Array.isArray(snap.items) && snap.items.length) {
+    const collapsedSv = collapseSurveyItems_(snap.items);
+    if (collapsedSv.length !== snap.items.length) {
+      snap.items = collapsedSv;
+      snap.count = collapsedSv.length;
+      try {
+        await putSnap_(env, snapKey, snap);
+      } catch (eSvCol) {}
+    }
+    const todaySv = todayIsoMinskD1_();
+    const anyOpenSv = snap.items.some(function (it) {
+      const due = String((it && it.dueDate) || "").slice(0, 10);
+      const st = String((it && it.status) || "").toLowerCase();
+      return due && due >= todaySv && (st === "planned" || st === "due" || st === "open" || !st);
+    });
+    if (!anyOpenSv) {
+      try {
+        const liveSv = await fetchLive_();
+        if (liveSv && Array.isArray(liveSv.items) && liveSv.items.length) return liveSv;
+      } catch (eSvLive) {}
+    }
+  }
 
   if (snapOk) {
     if (ctx && typeof ctx.waitUntil === "function") {
@@ -12668,6 +12711,17 @@ async function handleCutover_(a, params, env, ctx) {
             d1Meta = await mutateTemplates_(a, params, env);
           } else if (/^saveSurvey$/i.test(a)) {
             d1Meta = await upsertInList_(env, "listSurvey", "items", params, "id");
+            try {
+              const snapSv = await getSnapRaw_(env, "listSurvey");
+              if (snapSv && Array.isArray(snapSv.items)) {
+                const collapsedSv = collapseSurveyItems_(snapSv.items);
+                if (collapsedSv.length !== snapSv.items.length) {
+                  snapSv.items = collapsedSv;
+                  snapSv.count = collapsedSv.length;
+                  await putSnap_(env, "listSurvey", snapSv);
+                }
+              }
+            } catch (eSvSave) {}
           } else {
             d1Meta = await deleteFromList_(env, "listSurvey", "items", params, "id");
           }
@@ -14110,6 +14164,12 @@ async function handleCutover_(a, params, env, ctx) {
           }
         }
       } catch (eScrub) {}
+      try {
+        const healedSubs = await healSubscriptionSnap_(env);
+        if (healedSubs && healedSubs.list && Array.isArray(healedSubs.list.subscriptions)) {
+          fast = healedSubs.list;
+        }
+      } catch (eHealSubs) {}
       // Фон: догрузить тонкие ПП (без basket) из GAS — UI сразу из D1, не ждём 28с
       if (ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(
@@ -16705,6 +16765,624 @@ function basketHasCrumbDetail_(list) {
   return false;
 }
 
+/** Instagram-handle как в Code.gs extractInstagramNick_ (не весь «ИМЯ nick»). */
+function extractInstagramNick_(raw) {
+  var s = String(raw || "").replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  var at = s.match(/@([A-Za-z0-9._]{2,})/);
+  if (at) return at[1];
+  s = s.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
+  var parts = s.split(/\s+/);
+  for (var i = parts.length - 1; i >= 0; i--) {
+    var p = parts[i].replace(/^[.,;:]+|[.,;:]+$/g, "");
+    if (/^[A-Za-z0-9._]{3,}$/.test(p) && /[A-Za-z]/.test(p)) return p;
+  }
+  return "";
+}
+
+function subscriptionIgFromRow_(it) {
+  if (!it) return "";
+  return (
+    extractInstagramNick_(it.nick) ||
+    extractInstagramNick_(it.label) ||
+    extractInstagramNick_(it.client) ||
+    extractInstagramNick_(it.name) ||
+    ""
+  );
+}
+
+function stripIgFromText_(text, ig) {
+  var s = String(text || "");
+  var h = String(ig || "").trim();
+  if (!s) return "";
+  if (!h) return s.replace(/\s+/g, " ").trim();
+  var re = new RegExp("@?" + h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig");
+  return s.replace(re, " ").replace(/[\s()[\]·•|,/]+/g, " ").trim();
+}
+
+function subscriptionDisplayFromRow_(it) {
+  if (!it) return "";
+  var ig = subscriptionIgFromRow_(it);
+  var name =
+    stripIgFromText_(it.label || it.name || it.client || "", ig) ||
+    stripIgFromText_(it.nick || "", ig);
+  if (name && ig && name.toLowerCase() === ig.toLowerCase()) name = "";
+  return name;
+}
+
+/** nick = handle, label = «Имя handle». Имя без ника не затирает уже известный handle. */
+function preferSubscriptionIdentity_(incomingNick, incomingLabel, oldNick, oldLabel) {
+  var ig =
+    extractInstagramNick_(incomingNick) ||
+    extractInstagramNick_(incomingLabel) ||
+    extractInstagramNick_(oldNick) ||
+    extractInstagramNick_(oldLabel) ||
+    "";
+  var name =
+    subscriptionDisplayFromRow_({ nick: incomingNick, label: incomingLabel }) ||
+    subscriptionDisplayFromRow_({ nick: oldNick, label: oldLabel });
+  if (name && ig) {
+    return { nick: ig, label: (name + " " + ig).replace(/\s+/g, " ").trim() };
+  }
+  if (ig) return { nick: ig, label: ig };
+  var plain = String(incomingLabel || incomingNick || oldLabel || oldNick || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return { nick: plain, label: plain };
+}
+
+function subscriptionBareWish_(s) {
+  return String((s && (s.wishes || s.note)) || "")
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Две собаки одного инста: короткие разные пожелания («ЛЕО» / «Лэйла»), разные subId. */
+function isDistinctPetPair_(a, b) {
+  if (!a || !b) return false;
+  var sa = String(a.subId || a.id || "").trim();
+  var sb = String(b.subId || b.id || "").trim();
+  if (sa && sb && sa === sb) return false;
+  var wa = subscriptionBareWish_(a);
+  var wb = subscriptionBareWish_(b);
+  if (!wa || !wb || wa.toLowerCase() === wb.toLowerCase()) return false;
+  if (wa.length > 24 || wb.length > 24) return false;
+  if (/\s/.test(wa) || /\s/.test(wb)) return false;
+  if (/[0-9]/.test(wa) || /[0-9]/.test(wb)) return false;
+  return true;
+}
+
+function sameSubscriptionPerson_(a, b) {
+  if (!a || !b) return false;
+  var sa = subscriptionSheetKey_(a);
+  var sb = subscriptionSheetKey_(b);
+  if (sa && sb && sa !== sb) return false;
+  if (isDistinctPetPair_(a, b)) return false;
+  var mka = normalizeMatchKey_(a.nick || a.label || a.name || "");
+  var mkb = normalizeMatchKey_(b.nick || b.label || b.name || "");
+  if (mka && mkb && mka === mkb) return true;
+  var sida = String(a.subId || a.id || "").trim();
+  var sidb = String(b.subId || b.id || "").trim();
+  if (!sida || !sidb || sida !== sidb) return false;
+  var iga = subscriptionIgFromRow_(a);
+  var igb = subscriptionIgFromRow_(b);
+  if (iga && igb && iga.toLowerCase() !== igb.toLowerCase()) return false;
+  var na = subscriptionDisplayFromRow_(a).toUpperCase();
+  var nb = subscriptionDisplayFromRow_(b).toUpperCase();
+  if (na && nb && na === nb) return true;
+  var blobA = String(a.label || a.nick || "").toUpperCase();
+  var blobB = String(b.label || b.nick || "").toUpperCase();
+  if (iga && !igb && nb && blobA.indexOf(nb) >= 0) return true;
+  if (igb && !iga && na && blobB.indexOf(na) >= 0) return true;
+  return false;
+}
+
+function findSubscriptionIndex_(arr, nick, label, sheetWant, subId) {
+  const probe = {
+    nick: nick || "",
+    label: label || "",
+    sheet: sheetWant || "",
+    subId: subId || ""
+  };
+  const wantSid = String(subId || "").trim();
+  let fallback = -1;
+  for (let i = 0; i < (arr || []).length; i++) {
+    const it = arr[i];
+    if (!it) continue;
+    if (sheetWant && subscriptionSheetKey_(it) && subscriptionSheetKey_(it) !== String(sheetWant).toUpperCase()) {
+      continue;
+    }
+    const nickKey = normalizeMatchKey_(nick || label || "");
+    const byMatch = nickKey && subscriptionMatch_(it, nickKey, sheetWant, "");
+    const byPerson = sameSubscriptionPerson_(probe, it);
+    if (!byMatch && !byPerson) continue;
+    const sid = String(it.subId || it.id || "").trim();
+    if (wantSid && sid && sid === wantSid) return i;
+    if (fallback < 0) fallback = i;
+  }
+  if (wantSid && fallback >= 0) {
+    const sid = String(arr[fallback].subId || arr[fallback].id || "").trim();
+    if (sid && sid !== wantSid && !sameSubscriptionPerson_(probe, arr[fallback])) return -1;
+    if (sid && sid !== wantSid && isDistinctPetPair_(probe, arr[fallback])) return -1;
+  }
+  return fallback;
+}
+
+function subscriptionSubstanceScore_(s) {
+  if (!s) return 0;
+  let n = 0;
+  if (String(s.address || "").trim()) n += 4;
+  const phone = String(s.phone || "").trim();
+  if (phone && phone !== "-") n += 4;
+  if (Array.isArray(s.basket) && s.basket.length) n += 5 + Math.min(20, s.basket.length);
+  if (Array.isArray(s.basketBp1) && s.basketBp1.length) n += 3;
+  if (Array.isArray(s.basketBp2) && s.basketBp2.length) n += 3;
+  if (Array.isArray(s.basket2) && s.basket2.length) n += 2;
+  if (subscriptionBareWish_(s)) n += 2;
+  if (subscriptionIgFromRow_(s)) n += 3;
+  if (s.factCost != null && s.factCost !== "") n += 1;
+  if (s._d1Detail) n += 1;
+  return n;
+}
+
+function unionSubscriptionBasket_(a, b) {
+  const A = Array.isArray(a) ? a : [];
+  const B = Array.isArray(b) ? b : [];
+  if (!A.length) return B.slice();
+  if (!B.length) return A.slice();
+  const out = A.slice();
+  const seen = Object.create(null);
+  function key(it) {
+    it = it || {};
+    return (
+      String(it.main || it.name || "") +
+      "|" +
+      String(it.sub || "") +
+      "|" +
+      String(it.cat || "")
+    );
+  }
+  for (let i = 0; i < A.length; i++) seen[key(A[i])] = true;
+  for (let j = 0; j < B.length; j++) {
+    const k = key(B[j]);
+    if (seen[k]) continue;
+    seen[k] = true;
+    out.push(B[j]);
+  }
+  return out;
+}
+
+function mergeTextKeep_(a, b) {
+  a = String(a || "").trim();
+  b = String(b || "").trim();
+  if (!a) return b;
+  if (!b) return a;
+  if (a.indexOf(b) >= 0) return a;
+  if (b.indexOf(a) >= 0) return b;
+  return a + "\n" + b;
+}
+
+function bpStageRank_(s) {
+  const u = String(s || "").toUpperCase();
+  if (u.indexOf("ФИНАЛ") >= 0) return 3;
+  if (u.indexOf("БП2") >= 0) return 2;
+  if (u.indexOf("БП1") >= 0) return 1;
+  return 0;
+}
+
+function mergeSubscriptionPair_(keep, drop) {
+  const out = Object.assign({}, drop || {}, keep || {});
+  const keys = [
+    "address",
+    "phone",
+    "note",
+    "dogName",
+    "dogBreed",
+    "dogWeight",
+    "coef",
+    "scheme",
+    "ppScheme",
+    "ownerTelegramId",
+    "ownerName",
+    "surveyBp2Due",
+    "surveyFinalDue",
+    "lastTouch",
+    "packagesByn",
+    "rowIndex"
+  ];
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const a = keep && keep[key];
+    const b = drop && drop[key];
+    const aEmpty = a == null || a === "";
+    const bEmpty = b == null || b === "";
+    if (aEmpty && !bEmpty) out[key] = b;
+  }
+  if ((keep && keep.factCost != null && keep.factCost !== "") || (drop && drop.factCost != null && drop.factCost !== "")) {
+    out.factCost =
+      keep && keep.factCost != null && keep.factCost !== "" ? keep.factCost : drop.factCost;
+  }
+  if ((keep && keep.statedCost != null && keep.statedCost !== "") || (drop && drop.statedCost != null && drop.statedCost !== "")) {
+    out.statedCost =
+      keep && keep.statedCost != null && keep.statedCost !== "" ? keep.statedCost : drop.statedCost;
+  }
+  if ((keep && keep.calcFactCost != null && keep.calcFactCost !== "") || (drop && drop.calcFactCost != null && drop.calcFactCost !== "")) {
+    out.calcFactCost =
+      keep && keep.calcFactCost != null && keep.calcFactCost !== ""
+        ? keep.calcFactCost
+        : drop.calcFactCost;
+  }
+  out.wishes = mergeTextKeep_(keep && keep.wishes, drop && drop.wishes);
+  out.note = mergeTextKeep_(keep && keep.note, drop && (drop.note || drop.wishes));
+  out.basket = unionSubscriptionBasket_(keep && keep.basket, drop && drop.basket);
+  out.basket2 = unionSubscriptionBasket_(keep && keep.basket2, drop && drop.basket2);
+  out.basketBp1 = unionSubscriptionBasket_(keep && keep.basketBp1, drop && drop.basketBp1);
+  out.basketBp2 = unionSubscriptionBasket_(keep && keep.basketBp2, drop && drop.basketBp2);
+  if ((!out.packCounts || typeof out.packCounts !== "object") && drop && drop.packCounts) {
+    out.packCounts = drop.packCounts;
+  }
+  const stKeep = bpStageRank_((keep && (keep.status || keep.stage)) || "");
+  const stDrop = bpStageRank_((drop && (drop.status || drop.stage)) || "");
+  if (stDrop > stKeep) {
+    out.status = drop.status || drop.stage;
+    out.stage = drop.stage || drop.status;
+  }
+  const ident = preferSubscriptionIdentity_(
+    keep && keep.nick,
+    keep && keep.label,
+    drop && drop.nick,
+    drop && drop.label
+  );
+  out.nick = ident.nick;
+  out.label = ident.label;
+  if (keep && keep.subId) out.subId = keep.subId;
+  else if (drop && drop.subId) out.subId = drop.subId;
+  if ((keep && keep._d1Detail) || (drop && drop._d1Detail)) out._d1Detail = true;
+  sanitizeRaw26CalcFactCost_(out);
+  return out;
+}
+
+function collapseSubscriptionList_(arr) {
+  const items = (arr || []).filter(Boolean);
+  const n = items.length;
+  const parent = [];
+  for (let i = 0; i < n; i++) parent[i] = i;
+  function find(i) {
+    while (parent[i] !== i) {
+      parent[i] = parent[parent[i]];
+      i = parent[i];
+    }
+    return i;
+  }
+  function unite(a, b) {
+    const pa = find(a);
+    const pb = find(b);
+    if (pa !== pb) parent[pb] = pa;
+  }
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (sameSubscriptionPerson_(items[i], items[j])) unite(i, j);
+    }
+  }
+  const groups = Object.create(null);
+  const order = [];
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    if (!groups[r]) {
+      groups[r] = [];
+      order.push(r);
+    }
+    groups[r].push(items[i]);
+  }
+  const out = [];
+  for (let g = 0; g < order.length; g++) {
+    const rows = groups[order[g]];
+    if (rows.length === 1) {
+      out.push(rows[0]);
+      continue;
+    }
+    rows.sort(function (a, b) {
+      return subscriptionSubstanceScore_(b) - subscriptionSubstanceScore_(a);
+    });
+    let merged = rows[0];
+    for (let k = 1; k < rows.length; k++) merged = mergeSubscriptionPair_(merged, rows[k]);
+    out.push(merged);
+  }
+  return out;
+}
+
+function phoneTail9_(raw) {
+  const d = String(raw || "").replace(/\D/g, "");
+  if (d.length < 9) return "";
+  return d.slice(-9);
+}
+
+function addrTokens_(raw) {
+  const s = String(raw || "")
+    .toLowerCase()
+    .replace(/ё/g, "е");
+  return {
+    words: s.match(/[a-zа-я]{5,}/g) || [],
+    nums: s.match(/\d{1,4}/g) || []
+  };
+}
+
+function addrLooksSame_(a, b) {
+  return addrOverlapScore_(a, b) > 0;
+}
+
+function addrOverlapScore_(a, b) {
+  const A = addrTokens_(a);
+  const B = addrTokens_(b);
+  if (!A.words.length || !B.words.length || !A.nums.length || !B.nums.length) return 0;
+  let words = 0;
+  for (let i = 0; i < A.words.length; i++) {
+    if (B.words.indexOf(A.words[i]) >= 0) words++;
+  }
+  if (!words) return 0;
+  let nums = 0;
+  for (let j = 0; j < A.nums.length; j++) {
+    if (B.nums.indexOf(A.nums[j]) >= 0) nums++;
+  }
+  if (!nums) return 0;
+  return words + nums;
+}
+
+/** sunfkower2175 / sunflower2175 — одна опечатка, не два человека. */
+function handleEditDistance_(a, b) {
+  a = String(a || "").toLowerCase();
+  b = String(b || "").toLowerCase();
+  if (!a || !b) return 99;
+  if (Math.abs(a.length - b.length) > 1) return 99;
+  const dp = [];
+  for (let i = 0; i <= a.length; i++) {
+    dp[i] = [i];
+  }
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+function handlesAreTypoTwins_(list) {
+  if (!list || list.length < 2) return false;
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      if (handleEditDistance_(list[i], list[j]) > 1) return false;
+    }
+  }
+  return true;
+}
+
+function countPpMissingIg_(arr) {
+  let n = 0;
+  for (let i = 0; i < (arr || []).length; i++) {
+    const s = arr[i];
+    if (!s || subscriptionSheetKey_(s) !== "ПП") continue;
+    if (!subscriptionIgFromRow_(s)) n++;
+  }
+  return n;
+}
+
+async function restoreMissingSubscriptionNicks_(env, arr) {
+  if (!arr || !arr.length) return 0;
+  const byPhone = Object.create(null);
+  const addrRows = [];
+  function addSource_(ig, phone, address) {
+    ig = extractInstagramNick_(ig);
+    if (!ig) return;
+    const tail = phoneTail9_(phone);
+    if (tail) {
+      if (!byPhone[tail]) byPhone[tail] = [];
+      if (byPhone[tail].indexOf(ig) < 0) byPhone[tail].push(ig);
+    }
+    if (String(address || "").trim()) addrRows.push({ ig: ig, address: address });
+  }
+  try {
+    const prof = await getSnapRaw_(env, "listClientProfiles");
+    const clients = (prof && prof.clients) || [];
+    for (let i = 0; i < clients.length; i++) {
+      const c = clients[i] || {};
+      addSource_(c.nick, c.phone, c.address);
+    }
+  } catch (eP) {}
+  if (env && env.DB) {
+    try {
+      const q = await env.DB.prepare(
+        "SELECT client, phone, address FROM orders WHERE status = 'active' AND (phone != '' OR address != '') LIMIT 800"
+      ).all();
+      const rows = (q && q.results) || [];
+      for (let i = 0; i < rows.length; i++) {
+        addSource_(rows[i].client, rows[i].phone, rows[i].address);
+      }
+    } catch (eO) {}
+  }
+  let restored = 0;
+  for (let i = 0; i < arr.length; i++) {
+    const s = arr[i];
+    if (!s || subscriptionIgFromRow_(s)) continue;
+    if (subscriptionSheetKey_(s) !== "ПП") continue;
+    let ig = "";
+    const tail = phoneTail9_(s.phone);
+    let phoneHits = tail && byPhone[tail] ? byPhone[tail].slice() : [];
+    if (phoneHits.length > 1 && String(s.address || "").trim()) {
+      const addrHits = [];
+      for (let h = 0; h < phoneHits.length; h++) {
+        for (let ar = 0; ar < addrRows.length; ar++) {
+          if (addrRows[ar].ig !== phoneHits[h]) continue;
+          if (!addrLooksSame_(s.address, addrRows[ar].address)) continue;
+          if (addrHits.indexOf(phoneHits[h]) < 0) addrHits.push(phoneHits[h]);
+        }
+      }
+      if (addrHits.length) phoneHits = addrHits;
+    }
+    if (phoneHits.length === 1) ig = phoneHits[0];
+    else if (phoneHits.length > 1 && handlesAreTypoTwins_(phoneHits)) {
+      let best = "";
+      let bestScore = -1;
+      let tie = false;
+      for (let h = 0; h < phoneHits.length; h++) {
+        let score = 0;
+        for (let ar = 0; ar < addrRows.length; ar++) {
+          if (addrRows[ar].ig !== phoneHits[h]) continue;
+          score = Math.max(score, addrOverlapScore_(s.address, addrRows[ar].address));
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          best = phoneHits[h];
+          tie = false;
+        } else if (score === bestScore) tie = true;
+      }
+      if (best && !tie && bestScore > 0) ig = best;
+    }
+    if (!ig && String(s.address || "").trim()) {
+      const hits = [];
+      for (let j = 0; j < addrRows.length; j++) {
+        if (!addrLooksSame_(s.address, addrRows[j].address)) continue;
+        if (hits.indexOf(addrRows[j].ig) < 0) hits.push(addrRows[j].ig);
+      }
+      if (hits.length === 1) ig = hits[0];
+    }
+    if (!ig) continue;
+    const name = subscriptionDisplayFromRow_(s) || String(s.label || s.nick || "").trim();
+    s.nick = ig;
+    s.label = name ? (name + " " + ig).replace(/\s+/g, " ").trim() : ig;
+    restored++;
+  }
+  return restored;
+}
+
+async function finalizeSubscriptionList_(env, arr) {
+  const rows = (arr || []).slice();
+  const before = rows.length;
+  const missingBefore = countPpMissingIg_(rows);
+  let restored = 0;
+  try {
+    restored = await restoreMissingSubscriptionNicks_(env, rows);
+  } catch (eR) {
+    restored = 0;
+  }
+  const collapsed = collapseSubscriptionList_(rows);
+  return {
+    rows: collapsed,
+    restored: restored,
+    removed: before - collapsed.length,
+    missingBefore: missingBefore,
+    missingAfter: countPpMissingIg_(collapsed)
+  };
+}
+
+async function healSubscriptionSnap_(env) {
+  if (!env || !env.DB) return { list: null, removed: 0, restored: 0 };
+  const list = (await getSnapRaw_(env, "listSubscriptions")) || {
+    status: "success",
+    subscriptions: []
+  };
+  const arr = Array.isArray(list.subscriptions) ? list.subscriptions : [];
+  const fin = await finalizeSubscriptionList_(env, arr);
+  const changed = fin.removed > 0 || fin.restored > 0;
+  if (changed) {
+    list.subscriptions = fin.rows;
+    list.count = fin.rows.length;
+    list.status = "success";
+    list._subsHealedAt = Date.now();
+    await putSnap_(env, "listSubscriptions", list);
+  }
+  return {
+    list: list,
+    removed: fin.removed,
+    restored: fin.restored,
+    missingBefore: fin.missingBefore,
+    missingAfter: fin.missingAfter
+  };
+}
+
+function surveyKindKey_(it) {
+  return /final|финал/i.test(String((it && it.kind) || "")) ? "final" : "bp2";
+}
+
+function surveyPersonKey_(it) {
+  const nick = String((it && it.nick) || "");
+  const ig = extractInstagramNick_(nick);
+  const mk = ig ? ig.toUpperCase().replace(/[._]/g, "") : normalizeMatchKey_(nick);
+  return (mk || nick.toUpperCase()) + "|" + surveyKindKey_(it);
+}
+
+function collapseSurveyItems_(items) {
+  const groups = Object.create(null);
+  const order = [];
+  (items || []).forEach(function (it) {
+    if (!it) return;
+    const k = surveyPersonKey_(it);
+    if (!k || k === "|bp2") return;
+    if (!groups[k]) {
+      groups[k] = [];
+      order.push(k);
+    }
+    groups[k].push(it);
+  });
+  return order.map(function (k) {
+    const rows = groups[k].slice();
+    rows.sort(function (a, b) {
+      const da = String(a.dueDate || "");
+      const db = String(b.dueDate || "");
+      if (da !== db) return da < db ? 1 : -1;
+      return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
+    });
+    const keep = Object.assign({}, rows[0]);
+    for (let i = 1; i < rows.length; i++) {
+      const d = rows[i];
+      ["note", "ownerName", "ownerTelegramId", "linkedSubId", "templateId", "stage", "id", "linkedSheet"].forEach(
+        function (f) {
+          if (!keep[f] && d[f]) keep[f] = d[f];
+        }
+      );
+    }
+    return keep;
+  });
+}
+
+function mergeSurveyPayload_(prev, gas) {
+  const base = collapseSurveyItems_((prev && (prev.items || prev.surveys || prev.list)) || []);
+  const incoming = collapseSurveyItems_((gas && (gas.items || gas.surveys || gas.list)) || []);
+  const by = Object.create(null);
+  const order = [];
+  function put(it) {
+    const k = surveyPersonKey_(it);
+    if (!by[k]) order.push(k);
+    const cur = by[k];
+    if (!cur) {
+      by[k] = Object.assign({}, it);
+      return;
+    }
+    const dueC = String(cur.dueDate || "");
+    const dueN = String(it.dueDate || "");
+    if (dueN > dueC) {
+      by[k] = Object.assign({}, cur, it, { id: it.id || cur.id, note: cur.note || it.note });
+      return;
+    }
+    ["note", "ownerTelegramId", "ownerName", "linkedSubId", "stage", "templateId"].forEach(function (f) {
+      if (!cur[f] && it[f]) cur[f] = it[f];
+    });
+  }
+  base.forEach(put);
+  incoming.forEach(put);
+  const items = order.map(function (k) {
+    return by[k];
+  });
+  return Object.assign({}, prev || {}, {
+    status: "success",
+    items: items,
+    count: items.length,
+    cachedAt: new Date().toISOString()
+  });
+}
+
 function subscriptionSheetKey_(it) {
   return String((it && (it.sheet || it.segment || it.kind)) || "")
     .trim()
@@ -16920,13 +17598,13 @@ async function mergeSubscriptionDetailIntoSnap_(env, detail) {
   if (!nickKey && !String(detail.subId || "").trim()) return;
   const sheetWant = subscriptionSheetKey_(detail);
   const subId = String(detail.subId || "").trim();
-  let idx = -1;
-  for (let i = 0; i < arr.length; i++) {
-    if (subscriptionMatch_(arr[i], nickKey, sheetWant, subId)) {
-      idx = i;
-      break;
-    }
-  }
+  const idx = findSubscriptionIndex_(
+    arr,
+    detail.nick || detail.label || detail.name || "",
+    detail.label || "",
+    sheetWant,
+    subId
+  );
   // Не создавать «призраков» ПП из getPpOrderSuggest/getPpFactCost при наборе ника:
   // только deliverySlot без basket/subId/fact — раньше так появились Be / B. / B.e.l
   if (idx < 0 && !subscriptionDetailHasSubstance_(detail)) {
@@ -16958,10 +17636,19 @@ async function mergeSubscriptionDetailIntoSnap_(env, detail) {
     merged.stage = arr[idx].stage || arr[idx].status;
   }
   sanitizeRaw26CalcFactCost_(merged);
+  const identDetail = preferSubscriptionIdentity_(
+    detail.nick,
+    detail.label,
+    idx >= 0 && arr[idx] ? arr[idx].nick : "",
+    idx >= 0 && arr[idx] ? arr[idx].label : ""
+  );
+  if (identDetail.nick) merged.nick = identDetail.nick;
+  if (identDetail.label) merged.label = identDetail.label;
   if (idx >= 0) arr[idx] = merged;
   else arr.push(merged);
-  list.subscriptions = arr;
-  list.count = arr.length;
+  const collapsedDetail = collapseSubscriptionList_(arr);
+  list.subscriptions = collapsedDetail;
+  list.count = collapsedDetail.length;
   list.status = "success";
   await putSnap_(env, "listSubscriptions", list);
 }
@@ -17051,18 +17738,13 @@ async function mergeListSubscriptionsFromGas_(env, gasPayload) {
     const sheet = subscriptionSheetKey_(inc);
     const subId = String(inc.subId || inc.id || "").trim();
     if (isSubDeleteTombstoned_(tombs, mk, sheet, subId)) continue;
-    let idx = -1;
-    for (let j = 0; j < arr.length; j++) {
-      if (subscriptionMatch_(arr[j], mk, sheet, subId)) {
-        idx = j;
-        break;
-      }
-    }
+    const idx = findSubscriptionIndex_(arr, inc.nick || inc.label || "", inc.label || "", sheet, subId);
     if (idx >= 0) {
       const old = arr[idx] || {};
+      const identInc = preferSubscriptionIdentity_(inc.nick, inc.label, old.nick, old.label);
       const patched = Object.assign({}, old, {
-        nick: inc.nick || old.nick,
-        label: inc.label || old.label || inc.nick || old.nick,
+        nick: identInc.nick || old.nick,
+        label: identInc.label || old.label || identInc.nick || old.nick,
         sheet: inc.sheet || old.sheet || sheet || "ПП",
         segment: inc.segment || old.segment || inc.sheet || old.sheet,
         deliveries:
@@ -17103,11 +17785,14 @@ async function mergeListSubscriptionsFromGas_(env, gasPayload) {
     const subId = String(it.subId || it.id || "").trim();
     return !isSubDeleteTombstoned_(tombs, mk, sheet, subId);
   });
+  const finList = await finalizeSubscriptionList_(env, pruned);
   const out = {
     status: "success",
-    subscriptions: pruned,
-    count: pruned.length,
-    sheet: "all"
+    subscriptions: finList.rows,
+    count: finList.rows.length,
+    sheet: "all",
+    subsDeduped: finList.removed,
+    subsNicksRestored: finList.restored
   };
   await putSnap_(env, "listSubscriptions", out);
   return out;
@@ -17187,24 +17872,7 @@ async function upsertSubscription_(params, env) {
     (isMove ? params.toSheet : params.sheet || params.segment || findSheet) || "ПП"
   ).trim() || "ПП";
   const subId = String(params.subId || "").trim();
-  let idx = -1;
-  for (let i = 0; i < arr.length; i++) {
-    if (subscriptionMatch_(arr[i], mk, findSheet, subId)) {
-      idx = i;
-      break;
-    }
-  }
-  if (idx < 0) {
-    const labelKey = normalizeMatchKey_(params.label || "");
-    if (labelKey && labelKey !== mk) {
-      for (let i = 0; i < arr.length; i++) {
-        if (subscriptionMatch_(arr[i], labelKey, findSheet, "")) {
-          idx = i;
-          break;
-        }
-      }
-    }
-  }
+  const idx = findSubscriptionIndex_(arr, nick, params.label || "", findSheet, subId);
   const row = Object.assign({}, idx >= 0 ? arr[idx] : {}, params);
   delete row.action;
   delete row.fromSheet;
@@ -17213,8 +17881,14 @@ async function upsertSubscription_(params, env) {
   delete row.callback;
   delete row.cutover;
   delete row.mode;
-  row.nick = nick || (arr[idx] && arr[idx].nick) || "";
-  row.label = String(params.label || row.label || row.nick).trim();
+  const identSave = preferSubscriptionIdentity_(
+    nick,
+    params.label,
+    idx >= 0 && arr[idx] ? arr[idx].nick : "",
+    idx >= 0 && arr[idx] ? arr[idx].label : ""
+  );
+  row.nick = identSave.nick || nick || (arr[idx] && arr[idx].nick) || "";
+  row.label = identSave.label || String(params.label || row.label || row.nick).trim();
   row.sheet = toSheet;
   row.segment = toSheet;
   if (subId) row.subId = subId;
@@ -17242,8 +17916,9 @@ async function upsertSubscription_(params, env) {
   row._savedAt = Date.now();
   if (idx >= 0) arr[idx] = row;
   else arr.push(row);
-  list.subscriptions = arr;
-  list.count = arr.length;
+  const collapsedSave = collapseSubscriptionList_(arr);
+  list.subscriptions = collapsedSave;
+  list.count = collapsedSave.length;
   list.status = "success";
   await putSnap_(env, "listSubscriptions", list);
   return {
