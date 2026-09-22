@@ -13,6 +13,11 @@ import {
   backfillProductModelKeys,
   backfillProductGender,
 } from "./services/catalog.js";
+import {
+  ensurePromosTable,
+  seedDefaultPromoWindow,
+  startPromoRemindScheduler,
+} from "./services/promo.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "../..");
@@ -56,6 +61,9 @@ async function start() {
     if (n) console.log(`catalog brand/model_key/color backfill: ${n}`);
     const g = await backfillProductGender();
     if (g) console.log(`catalog gender backfill: ${g}`);
+    await ensurePromosTable();
+    await seedDefaultPromoWindow();
+    startPromoRemindScheduler();
   } catch (err) {
     console.error("schema bootstrap:", err.message);
   }

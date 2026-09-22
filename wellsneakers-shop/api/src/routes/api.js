@@ -17,6 +17,7 @@ import { requireAdmin, staffAuth } from "../middleware/auth.js";
 import { upload } from "../middleware/upload.js";
 import { isSaleQuery, parseOldPriceByn, readOldPriceField } from "../lib/sale.js";
 import { inferGender, parseGenderQuery, readGenderField } from "../lib/gender.js";
+import { getPromoPublicState } from "../services/promo.js";
 
 export const router = Router();
 
@@ -26,6 +27,16 @@ router.get("/health", async (_req, res) => {
     res.json({ ok: true, service: "wellsneakers-api", db: true });
   } catch (err) {
     res.status(503).json({ ok: false, db: false, error: String(err.message) });
+  }
+});
+
+/** Public storefront promo (100 BYN window + next). */
+router.get("/promo/current", async (_req, res, next) => {
+  try {
+    const promo = await getPromoPublicState(new Date());
+    res.json({ ok: true, promo });
+  } catch (err) {
+    next(err);
   }
 });
 
