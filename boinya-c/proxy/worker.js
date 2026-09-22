@@ -5742,10 +5742,12 @@ function cuttingItemsFromPeople_(people, warehouseItems) {
       if (/^КРОШКА/i.test(name) && isCrumbBasketItemD1_(it)) return;
       const val = Number(it.value != null ? it.value : it.val) || 0;
       if (!(val > 0)) return;
-      const key = name.toUpperCase();
+      // Хрящ лопаточный: «ЛОП ХРЯЩ» / «ЛОП ХРЯЩ ШТ.» / «лопаточные хрящи» — один ключ, штуки суммируем.
+      // Остальные SKU — прежний ключ name.toUpperCase() (фракции трахеи/уха/аорты не схлопываем).
+      const key = cuttingAggKey_(name);
       if (!acc[key]) {
         acc[key] = {
-          name: name,
+          name: key === "ЛОП ХРЯЩ" ? "ЛОП ХРЯЩ шт." : name,
           dry: 0,
           cat: it.cat || "",
           unitHint: it.unit || ""
@@ -5790,6 +5792,81 @@ function cutFuzzyKey_(name) {
   return cutNameKey_(name)
     .replace(/ШТ\.?/g, "")
     .replace(/[^A-ZА-Я0-9]+/g, "");
+}
+
+/**
+ * Ключ позиции нарезки.
+ * Для всех SKU, кроме лопаточного хряща, совпадает с прежним name.toUpperCase().
+ * Хрящ: лопаточный / лопаточные / хрящи / хрящей / «ЛОП. ХРЯЩ» / «шт.» → «ЛОП ХРЯЩ».
+ * Ухо ГА, аорта и фракции жевалок здесь не трогаем — их канон в catalogAliasNameD1_.
+ */
+function cuttingAggKey_(name) {
+  const raw = String(name || "").toUpperCase();
+  if (!raw) return "";
+  const squish = raw.replace(/Ё/g, "Е").replace(/[^A-ZА-Я0-9]+/g, "");
+  if (/ЛОПАТОЧ/.test(raw) && /ХРЯЩ/.test(raw)) return "ЛОП ХРЯЩ";
+  if (/ЛОП/.test(squish) && /ХРЯЩ/.test(squish)) return "ЛОП ХРЯЩ";
+  return raw;
+}
+
+function cuttingListHasAliasDup_(items) {
+  const seen = Object.create(null);
+  for (let i = 0; i < (items || []).length; i++) {
+    const it = items[i];
+    const k = cuttingAggKey_(it && it.name);
+    if (!k) continue;
+    if (seen[k]) return true;
+    seen[k] = true;
+  }
+  return false;
+}
+
+/**
+ * Две строки одного хряща в snap.
+ * Одинаковый dry — клон уже посчитанной суммы (overlay), оставляем одну.
+ * Разный dry — разные написания одного SKU, штуки складываем.
+ */
+function collapseCuttingAliasDups_(items) {
+  const groups = Object.create(null);
+  const order = [];
+  (items || []).forEach(function (it) {
+    if (!it) return;
+    const k = cuttingAggKey_(it.name) || cutNameKey_(it.name) || "";
+    const bucket = k || "#" + order.length;
+    if (!groups[bucket]) {
+      groups[bucket] = [];
+      order.push(bucket);
+    }
+    groups[bucket].push(it);
+  });
+  return order.map(function (k) {
+    const list = groups[k];
+    const first = Object.assign({}, list[0]);
+    if (k === "ЛОП ХРЯЩ") first.name = "ЛОП ХРЯЩ шт.";
+    if (list.length === 1) return first;
+    const dries = list.map(function (it) {
+      return Number(it.dry) || 0;
+    });
+    const allSame = dries.every(function (d) {
+      return d === dries[0];
+    });
+    list.forEach(function (it) {
+      if (toBool_(it.laid)) first.laid = true;
+      if (toBool_(it.done)) first.done = true;
+      if (toBool_(it.outNext)) first.outNext = true;
+      if (!isCuttingSheetRow_(first.row) && isCuttingSheetRow_(it.row)) first.row = Number(it.row);
+    });
+    if (allSame) return first;
+    let dry = 0;
+    let raw = 0;
+    list.forEach(function (it) {
+      dry += Number(it.dry) || 0;
+      raw += Number(it.raw) || 0;
+    });
+    first.dry = Math.round(dry * 100) / 100;
+    first.raw = Math.round(raw * 100) / 100;
+    return first;
+  });
 }
 
 function cuttingFlagScore_(items) {
@@ -6134,45 +6211,71 @@ function overlayCuttingKeepFlags_(newItems, prevItems, sameDate, dropUnmatchedFl
   }
   const qtyByKey = Object.create(null);
   const qtyByFuzzy = Object.create(null);
+  const qtyByAgg = Object.create(null);
   (newItems || []).forEach(function (it) {
     if (!it) return;
-    qtyByKey[cutNameKey_(it.name)] = it;
+    const nk = cutNameKey_(it.name);
     const fz = cutFuzzyKey_(it.name);
+    const ag = cuttingAggKey_(it.name);
+    // last-wins, как раньше: «КОЛЕНИ» и «КОЛЕНИ ШТ.» остаются разными объектами
+    if (nk) qtyByKey[nk] = it;
     if (fz) qtyByFuzzy[fz] = it;
+    if (ag) qtyByAgg[ag] = it;
   });
-  const used = Object.create(null);
+  const emittedObjs = [];
+  const emittedIdx = [];
+  function alreadyObj_(it) {
+    return emittedObjs.indexOf(it) >= 0;
+  }
+  function markObj_(it, idx) {
+    emittedObjs.push(it);
+    emittedIdx.push(idx);
+  }
   const out = [];
   prevItems.forEach(function (p) {
     if (!p) return;
-    const n = qtyByKey[cutNameKey_(p.name)] || qtyByFuzzy[cutFuzzyKey_(p.name)];
-    if (n) {
-      used[cutNameKey_(n.name)] = true;
-      used[cutFuzzyKey_(n.name)] = true;
-      // база — свежий план (row/qty); флаги только от той же позиции по имени
-      out.push(
-        normalizeCuttingItemFlags_(
-          Object.assign({}, n, {
-            laid: toBool_(p.laid),
-            done: toBool_(p.done),
-            outNext: toBool_(p.outNext),
-            surplus: p.surplus != null && p.surplus !== "" ? Number(p.surplus) || 0 : n.surplus,
-            noteInfo: p.noteInfo || n.noteInfo
-          })
-        )
-      );
+    const n =
+      qtyByKey[cutNameKey_(p.name)] ||
+      qtyByAgg[cuttingAggKey_(p.name)] ||
+      qtyByFuzzy[cutFuzzyKey_(p.name)];
+    if (!n) return;
+    // «ЛОП ХРЯЩ» и «ЛОП ХРЯЩ ШТ.» указывают на один свежий план.
+    // Раньше каждая старая строка копировала его ещё раз.
+    if (alreadyObj_(n)) {
+      const idx = emittedIdx[emittedObjs.indexOf(n)];
+      if (idx != null && out[idx]) {
+        if (toBool_(p.laid)) out[idx].laid = true;
+        if (toBool_(p.done)) out[idx].done = true;
+        if (toBool_(p.outNext)) out[idx].outNext = true;
+      }
+      return;
     }
+    const idx = out.length;
+    markObj_(n, idx);
+    // база — свежий план (row/qty); флаги только от той же позиции по имени
+    out.push(
+      normalizeCuttingItemFlags_(
+        Object.assign({}, n, {
+          laid: toBool_(p.laid),
+          done: toBool_(p.done),
+          outNext: toBool_(p.outNext),
+          surplus: p.surplus != null && p.surplus !== "" ? Number(p.surplus) || 0 : n.surplus,
+          noteInfo: p.noteInfo || n.noteInfo
+        })
+      )
+    );
     // не тащить «призраков» с флагами — иначе синий/зелёный без позиции в плане
   });
   (newItems || []).forEach(function (n) {
-    if (!n) return;
-    if (used[cutNameKey_(n.name)] || used[cutFuzzyKey_(n.name)]) return;
-    const copy = normalizeCuttingItemFlags_(n);
+    if (!n || alreadyObj_(n)) return;
+    const copy = normalizeCuttingItemFlags_(Object.assign({}, n));
     // новая позиция без сохранённого флага — не брать TRUE с GAS/Sheets
     if (dropUnmatchedFlags) {
       copy.laid = false;
       copy.done = false;
       copy.outNext = false;
     }
+    markObj_(n, out.length);
     out.push(copy);
   });
   return out;
@@ -6980,6 +7083,7 @@ async function rebuildCuttingDay_(env, day) {
     items = overlayCuttingFlagsFromTable_(items, tbl);
   } catch (eTblOv) {}
   items = resolveCuttingSheetRows_(items, (prev && prev.items) || [], catalogMap);
+  items = collapseCuttingAliasDups_(items);
   let transferOnly = { clients: [], lines: [] };
   try {
     transferOnly = transferOnlyFromPeople_(live.clients || []);
@@ -7122,6 +7226,9 @@ async function getCutting_(params, env) {
   async function finishHit_(snap) {
     if (snap && Array.isArray(snap.items)) {
       try {
+        snap.items = collapseCuttingAliasDups_(snap.items);
+      } catch (eCol) {}
+      try {
         const tbl = await loadCuttingFlagsTable_(env, day);
         snap.items = overlayCuttingFlagsFromTable_(snap.items, tbl);
         snap.items = normalizeCuttingItems_(snap.items);
@@ -7131,14 +7238,16 @@ async function getCutting_(params, env) {
     }
     return snap;
   }
+  // Дубль хряща в snap — пересобрать из заказов, не отдавать клон.
+  const dupCut = !!(hit && cuttingListHasAliasDup_(hit.items));
   // свежие галочки — не пересобирать из D1 на каждый poll
   const touched = Number((hit && hit.flagsTouchedAt) || 0);
-  if (touched && Date.now() - touched < 600000) {
+  if (!dupCut && touched && Date.now() - touched < 600000) {
     return finishHit_(hit);
   }
   // struct d1-primary: план из orders; GAS-snap не приоритетнее
   if (isCuttingStructD1PrimaryCanon_(env)) {
-    if (hit && hit.fromOrders && !hit.fromCalendar) {
+    if (!dupCut && hit && hit.fromOrders && !hit.fromCalendar) {
       return finishHit_(hit);
     }
     try {
@@ -18952,8 +19061,13 @@ function accumulateDryNeedD1_(people, warehouseRows) {
       if (/^КРОШКА/i.test(cname) && isCrumbBasketItemD1_(it)) return;
       const val = Number(it.value != null ? it.value : it.val) || 0;
       if (!(val > 0)) return;
-      const wh = matchWarehouseRowD1_(warehouseRows, cname) || matchWarehouseRowD1_(warehouseRows, it.main || it.name);
-      const key = wh ? cutNameKey_(wh.name) : cutNameKey_(cname);
+      const agg = cuttingAggKey_(cname);
+      const lookupName = agg === "ЛОП ХРЯЩ" ? "ЛОП ХРЯЩ шт." : cname;
+      const wh =
+        matchWarehouseRowD1_(warehouseRows, lookupName) ||
+        matchWarehouseRowD1_(warehouseRows, cname) ||
+        matchWarehouseRowD1_(warehouseRows, it.main || it.name);
+      const key = wh ? cutNameKey_(wh.name) : agg === "ЛОП ХРЯЩ" ? "ЛОП ХРЯЩ" : cutNameKey_(cname);
       if (!key) return;
       dryByKey[key] = (dryByKey[key] || 0) + val;
       if (!metaByKey[key]) {
