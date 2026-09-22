@@ -2686,7 +2686,13 @@ function doGet(e) {
       })(),
       editClient: e.parameter.editClient ? decodeURIComponent(e.parameter.editClient) : "",
       originalClient: e.parameter.originalClient ? decodeURIComponent(e.parameter.originalClient) : "",
-      matchKey: e.parameter.matchKey ? decodeURIComponent(e.parameter.matchKey) : ""
+      matchKey: e.parameter.matchKey ? decodeURIComponent(e.parameter.matchKey) : "",
+      oldDay: e.parameter.oldDay ? decodeURIComponent(e.parameter.oldDay) : "",
+      editDay: e.parameter.editDay ? decodeURIComponent(e.parameter.editDay) : "",
+      oldDate: e.parameter.oldDate ? decodeURIComponent(e.parameter.oldDate) : "",
+      fromDate: e.parameter.fromDate ? decodeURIComponent(e.parameter.fromDate) : "",
+      previousDate: e.parameter.previousDate ? decodeURIComponent(e.parameter.previousDate) : "",
+      priorBasket: e.parameter.priorBasket ? decodeURIComponent(e.parameter.priorBasket) : ""
     }, callback, false);
   }
 
@@ -11166,17 +11172,51 @@ function isLateChangeForDelivery_(deliveryDate, now) {
   return now.getTime() >= windowStart.getTime();
 }
 
+/** Канон позиции для диффа нарезки: алиас SKU, фракция, регистр. dog не делит состав. */
+function basketCanonParts_(it) {
+  var nameRaw = String((it && (it.name || it.main)) || "").trim();
+  var name = "";
+  try { name = catalogAliasName_(nameRaw); } catch (eN) { name = ""; }
+  name = String(name || nameRaw).toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  name = name.replace(/\s*ШТ\.?$/i, "").trim();
+  var subRaw = String((it && it.sub) || "").trim();
+  var sub = "";
+  try { sub = normalizeFraction(subRaw); } catch (eS) { sub = subRaw; }
+  sub = String(sub || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+  if (!sub) {
+    var emb = "";
+    try { emb = extractEmbeddedFraction(name); } catch (eE) { emb = ""; }
+    if (emb) {
+      var embN = emb;
+      try { embN = normalizeFraction(emb) || emb; } catch (eF) {}
+      sub = String(embN || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+      var esc = String(emb).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      var stripped = name.replace(new RegExp("\\s+" + esc + "\\s*$"), "").trim();
+      if (stripped) name = stripped;
+    }
+  }
+  sub = sub.replace(/\s*\+\s*/g, "+");
+  if (!name) return { key: "", label: "" };
+  return { key: name + "|" + sub, label: name + (sub ? " / " + sub : "") };
+}
+
 function basketTotalsMap_(basket) {
   var map = {};
   (basket || []).forEach(function (it) {
-    var name = String(it.name || it.main || "").trim();
-    var sub = String(it.sub || "").trim();
-    var val = Number(it.val != null ? it.val : it.value) || 0;
-    if (!name || val <= 0) return;
-    var key = name + (sub ? " / " + sub : "");
-    map[key] = (map[key] || 0) + val;
+    var val = Number(it && (it.val != null ? it.val : it.value)) || 0;
+    if (val <= 0) return;
+    var parts = basketCanonParts_(it);
+    if (!parts.key) return;
+    if (!map[parts.key]) map[parts.key] = { qty: 0, label: parts.label };
+    map[parts.key].qty += val;
   });
   return map;
+}
+
+function formatBasketDelta_(n) {
+  var x = Math.round((Number(n) || 0) * 1000) / 1000;
+  if (Math.abs(x - Math.round(x)) < 1e-6) return String(Math.round(x));
+  return String(x);
 }
 
 function diffBasketIncrease_(oldBasket, newBasket) {
@@ -11185,14 +11225,116 @@ function diffBasketIncrease_(oldBasket, newBasket) {
   var lines = [];
   for (var k in b) {
     if (!b.hasOwnProperty(k)) continue;
-    var prev = a[k] || 0;
-    var next = b[k] || 0;
-    if (next > prev) {
-      var unit = isPieceSkuName_(k) || /шт/i.test(k) ? "шт" : "г";
-      lines.push("+" + (next - prev) + " " + unit + " · " + k);
+    var prev = a[k] ? a[k].qty : 0;
+    var next = b[k].qty || 0;
+    if (next > prev + 1e-6) {
+      var label = (b[k] && b[k].label) || k;
+      var unit = isPieceSkuName_(label) || /шт/i.test(label) ? "шт" : "г";
+      lines.push("+" + formatBasketDelta_(next - prev) + " " + unit + " · " + label);
     }
   }
   return lines;
+}
+
+/**
+ * Состав до правки. Дата/адрес/телефон/note сами рост не создают.
+ * Смена даты: priorBasket — запись на СТАРОЙ дате (или снимок до записи), не пустой [].
+ */
+function resolveOldBasketForCutterNotify_(spec) {
+  spec = spec || {};
+  var prior = spec.priorBasket || [];
+  var existing = spec.existingBasket || [];
+  var newKey = String(spec.newDateKey || "");
+  var oldKey = String(spec.oldDateKey || "");
+  var dateChanged = !!(oldKey && newKey && oldKey !== newKey);
+  if (dateChanged) {
+    if (prior.length) return prior;
+    if (existing.length) return existing;
+    return [];
+  }
+  if (prior.length) return prior;
+  if (existing.length) return existing;
+  return [];
+}
+
+/** late + реальный рост состава. Мета-поля в spec не участвуют. */
+function cutterVolumeNotifyDecision_(spec) {
+  spec = spec || {};
+  var oldBasket = resolveOldBasketForCutterNotify_(spec);
+  var lines = diffBasketIncrease_(oldBasket, spec.newBasket || []);
+  var late = !!spec.late;
+  return {
+    notify: !!(late && lines.length),
+    lines: late ? lines : [],
+    oldBasket: oldBasket
+  };
+}
+
+function oldDateKeyFromSaveJson_(ss, json, tz) {
+  json = json || {};
+  var raw = json.oldDate || json.fromDate || json.previousDate || json.prevDate || "";
+  var d = parseFlexibleDate_(raw, tz);
+  if (d) return dateKey_(d, tz);
+  var oldDay = String(json.oldDay || json.editDay || "").trim();
+  if (!oldDay || !ss) return "";
+  try {
+    var cell = getDayDate_(ss, oldDay);
+    var dd = parseFlexibleDate_(cell, tz);
+    if (dd) return dateKey_(dd, tz);
+  } catch (eOld) {}
+  return "";
+}
+
+function bookingBasketOnDate_(all, client, dateStr, tz) {
+  if (!client || !dateStr) return null;
+  for (var i = 0; i < (all || []).length; i++) {
+    var b = all[i];
+    if (!b || String(b.status) === "cancelled") continue;
+    if (!nicksMatch_(b.client, client)) continue;
+    var bd = parseFlexibleDate_(b.date, tz);
+    if (bd && dateKey_(bd, tz) === dateStr && b.basket && b.basket.length) return b.basket;
+  }
+  return null;
+}
+
+function calendarBasketOnDate_(client, dateStr, tz, json) {
+  var rows = [];
+  try { rows = readAllCalendarRows_(); } catch (eR) { return null; }
+  var mk = String((json && json.matchKey) || "").trim();
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    if (!row || String(row.status) === "cancelled") continue;
+    var nickOk = nicksMatch_(row.client, client);
+    if (!nickOk && mk && String(row.matchKey || "") === mk) nickOk = true;
+    if (!nickOk) continue;
+    var bd = parseFlexibleDate_(row.dateIso || row.date, tz);
+    if (bd && dateKey_(bd, tz) === dateStr && row.basket && row.basket.length) return row.basket;
+  }
+  return null;
+}
+
+function oldBasketForCutterNotify_(ss, all, json, client, dateStr, existing, tz) {
+  var prior = [];
+  try { prior = normalizeBasketArg_(json && json.priorBasket); } catch (eP) { prior = []; }
+  var oldKey = "";
+  try { oldKey = oldDateKeyFromSaveJson_(ss, json, tz); } catch (eK) { oldKey = ""; }
+  var sheetPrior = null;
+  if (oldKey && oldKey !== dateStr) {
+    sheetPrior = bookingBasketOnDate_(all, client, oldKey, tz);
+    var editNick = String((json && (json.editClient || json.originalClient)) || "").trim();
+    if (!sheetPrior && editNick && editNick !== client) {
+      sheetPrior = bookingBasketOnDate_(all, editNick, oldKey, tz);
+    }
+    if (!sheetPrior) {
+      try { sheetPrior = calendarBasketOnDate_(client, oldKey, tz, json); } catch (eC) {}
+    }
+  }
+  return resolveOldBasketForCutterNotify_({
+    newDateKey: dateStr,
+    oldDateKey: oldKey,
+    priorBasket: (prior && prior.length) ? prior : (sheetPrior || []),
+    existingBasket: existing ? (existing.basket || []) : []
+  });
 }
 
 function readAllBookings_() {
@@ -11404,7 +11546,7 @@ function handleSaveBooking(ss, json, callback, fromPost) {
     }
   }
 
-  var oldBasket = existing ? existing.basket : [];
+  var oldBasket = oldBasketForCutterNotify_(ss, all, json, client, dateStr, existing, tz);
   note = applyNoCutToNote_(note, resolveNoCutFlag_(json, [json.note, note, existing && existing.note]));
   var wasPulled = existing && String(existing.status) === "pulled";
   // дата вне недели — не держим «pulled»/dayName чужого слота
