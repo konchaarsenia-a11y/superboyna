@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115991";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115994";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -69,9 +69,13 @@
       };
     }
     var priceByMode = {
+      bp1: makeEmptyPriceModeStore(),
+      bp2: makeEmptyPriceModeStore(),
       pp: makeEmptyPriceModeStore(),
       retail: makeEmptyPriceModeStore()
     };
+    var pricePickSuggestions_ = null;
+    var pricePickTarget_ = "";
     let postOfficeSuggestTimer = null;
     let postOfficeSuggestSeq = 0;
     let addressSuggestTimer = null;
@@ -530,9 +534,9 @@
       subsScreen: "Подписки\n• Пароль; Отмена → Заказ.\n• Карточка: мета + состав (ручной ввод) → Сохранить.\n• ПП: «Сообщение клиенту» — копировать текст и открыть Instagram.\n• ПП↔АФК / удалить.",
       subDetailScreen: "Карточка подписки\n• Правишь поля и состав → Сохранить.\n• ПП/АФК: «Сообщение клиенту» — текст как в Расчёте, копируй в Direct.",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
-      priceScreen: "Расчёт\n• ПП и розница — отдельные составы.\n• Чеклист: 1–2 собаки; неясная фракция — спросит.\n• 2 собаки: кличка + состав; примечание и цены общие.",
+      priceScreen: "Расчёт\n• БП1 / БП2 / итоговый / розница — отдельные составы.\n• «Подбор»: выбери тип → вставь анкету → один состав, потом правь.\n• Чеклист: 1–2 собаки; неясная фракция — спросит.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
-      templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ — скоро.",
+      templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ → ведёт в Расчёт «Подбор».",
       retailPriceScreen: "Прайс розницы\n• Только владелец.\n• Меняет цены новых расчётов/заказов.\n• Уже сохранённые orderPrice не трогает.",
       peopleScreen: "Доступы\n• Завершить неделю / подтянуть из месяца — сверху.\n• Роли и часовой пояс — только владельцы.\n• Опросники: с 9:00 каждые 30 мин по TZ сотрудника.",
       partnerHubScreen: "Партнёры (мини-апп varka)\n• Заказы — назначить дату по заявкам.\n• Люди — доступы к точкам.\n• Точки / Сети — справочник.\n• Пуши — кому слать заявки.\n• Не путать с партнёрами БП в Доступах."
@@ -3995,6 +3999,7 @@
           if (sid === "priceScreen") {
             try { syncPricePpSchemeDefaults_(); } catch (eSchTab) {}
             try { syncPriceEnrollUi(); } catch (eEn) {}
+            try { setPriceMode(priceMode || "pp"); } catch (ePm) {}
           }
           if (sid === "orderScreen") {
             try { refreshWeekBanners({ soft: true }); } catch (eO) {}
@@ -18581,7 +18586,7 @@
       updatePriceDogUi();
       renderPriceBasket();
       pricePpApiCache = null;
-      if (priceMode === "pp") {
+      if (isPricePpLikeMode_()) {
         pricePacksManual = false;
         syncPricePacksFromBasket_({ force: true });
       }
@@ -18999,7 +19004,7 @@
       updatePriceDogUi();
       renderPriceBasket();
       pricePpApiCache = null;
-      if (priceMode === "pp") {
+      if (isPricePpLikeMode_()) {
         pricePacksManual = false;
         syncPricePacksFromBasket_({ force: true });
       }
@@ -19016,6 +19021,793 @@
       unlockPageScroll_();
     }
     window.parseIgChecklistIntoPrice = parseIgChecklistIntoPrice;
+
+    /* ── Подбор из анкеты (MVP): paste → сигналы + каталог → БП1/БП2/ПП/розница ── */
+    function pricePickCloneItems_(items) {
+      return (items || []).map(function (it, idx) {
+        var copy = Object.assign({}, it);
+        copy.id = Date.now() + idx + Math.random();
+        if (copy.value == null && copy.val != null) copy.value = copy.val;
+        if (copy.val == null && copy.value != null) copy.val = copy.value;
+        return copy;
+      });
+    }
+
+    function pricePickDefaultFrac_(cat, name, preferred) {
+      if (cat === "veg") return "";
+      var known = buildIgKnownMap();
+      var hit = known[String(name || "").toUpperCase()];
+      var fracs = (hit && hit.fractions) || [];
+      if (preferred) {
+        var want = String(preferred).toLowerCase();
+        for (var i = 0; i < fracs.length; i++) {
+          if (String(fracs[i]).toLowerCase().indexOf(want) >= 0) return fracs[i];
+        }
+      }
+      if (cat === "chew") {
+        if (fracs.indexOf("СРЕД") >= 0) return "СРЕД";
+        if (fracs.indexOf("Обычное") >= 0) return "Обычное";
+        if (fracs.indexOf("Обычная") >= 0) return "Обычная";
+        return fracs[0] || "";
+      }
+      if (fracs.indexOf("Среднее") >= 0) return "Среднее";
+      if (fracs.indexOf("Ломтики") >= 0) return "Ломтики";
+      return fracs[0] || "";
+    }
+
+    function pricePickDefaultStarter_() {
+      return [
+        { cat: "dressura", main: "ЛЁГКОЕ", name: "ЛЁГКОЕ", sub: "Среднее", value: 100, val: 100 },
+        { cat: "dressura", main: "РУБЕЦ Т", name: "РУБЕЦ Т", sub: "Среднее", value: 80, val: 80 },
+        { cat: "dressura", main: "СЕРДЦЕ", name: "СЕРДЦЕ", sub: "Ломтики", value: 50, val: 50 },
+        { cat: "chew", main: "БЫЧИЙ КОРЕНЬ", name: "БЫЧИЙ КОРЕНЬ", sub: "СРЕД", value: 1, val: 1 },
+        { cat: "chew", main: "УХО Г", name: "УХО Г", sub: "Обычное", value: 1, val: 1 },
+        { cat: "veg", main: "КАБАЧОК", name: "КАБАЧОК", sub: "", value: 50, val: 50 }
+      ];
+    }
+
+    function pricePickNormUp_(s) {
+      return String(s || "").toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+    }
+
+    /** Алиасы из Direct goodboy_rb → SKU каталога. Печенье и уши кролика не мапим. */
+    function pricePickAliasText_(s) {
+      var t = " " + pricePickNormUp_(s) + " ";
+      var y = "[А-Я]*";
+      t = t.replace(/ПЕЧЕНЬЕ/g, " ");
+      t = t.replace(new RegExp("УШ" + y + "\\s+КРОЛИК" + y, "g"), " ");
+      t = t.replace(new RegExp("БЫЧ(?:ИЙ|ЬЕГО|ЬИ)\\s+ПЕНИС" + y, "g"), " БЫЧИЙ КОРЕНЬ ");
+      t = t.replace(new RegExp("(^|[^А-ЯA-Z])ПЕНИС" + y, "g"), "$1 БЫЧИЙ КОРЕНЬ ");
+      t = t.replace(new RegExp("ЛОПАТОЧН" + y + "\\s+ХРЯЩ" + y, "g"), " ЛОП ХРЯЩ ШТ. ");
+      t = t.replace(new RegExp("СТАНОВ" + y + "(?:\\s+ЖИЛ" + y + ")?", "g"), " СТАНОВАЯ ЖИЛА ");
+      t = t.replace(new RegExp("НОСИК" + y, "g"), " НОСЫ ШТ. ");
+      t = t.replace(new RegExp("ТРАХЕ" + y, "g"), " ТРАХЕЯ ");
+      t = t.replace(new RegExp("ПЕРЕПЕЛ" + y, "g"), " ПЕРЕПЕЛКИ ШТ. ");
+      t = t.replace(new RegExp("(^|[^А-ЯA-Z])КОЛЕН" + y, "g"), "$1 КОЛЕНИ ШТ. ");
+      t = t.replace(new RegExp("ГОВЯЖ" + y + "\\s+УШ" + y + "|УШКО|УШКИ", "g"), " УХО Г ");
+      return pricePickNormUp_(t);
+    }
+
+    function pricePickRound5_(n, minG) {
+      var g = Math.round((Number(n) || 0) / 5) * 5;
+      if (minG && g < minG) g = minG;
+      return g;
+    }
+
+    function pricePickMatchMention_(up, known) {
+      var hay = pricePickNormUp_(up);
+      var keys = Object.keys(known).sort(function (a, b) { return b.length - a.length; });
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (k.length < 4) continue;
+        var kn = pricePickNormUp_(k);
+        if (hay.indexOf(kn) >= 0) return known[k];
+        // «рубец» без «Т» → РУБЕЦ Т
+        if (kn.indexOf("РУБЕЦ") === 0 && hay.indexOf("РУБЕЦ") >= 0 && known["РУБЕЦ Т"]) {
+          return known["РУБЕЦ Т"];
+        }
+      }
+      return null;
+    }
+
+    function parseAnketSignals_(raw) {
+      var text = String(raw || "").replace(/\r/g, "\n");
+      var upAll = text.toUpperCase().replace(/Ё/g, "Е");
+      var known = buildIgKnownMap();
+      var liked = [];
+      var disliked = [];
+      var qty = "ok"; // ok | low | high
+      var fracPref = "";
+      var dogs = 1;
+      var noteBits = [];
+
+      if (/2\s*собак|две\s*собак|оба\s*питомц|двух\s*собак/i.test(text)) dogs = 2;
+      if (/не\s*хватил|мало\s*было|впритык|недостаточно|закончил.*быстро/i.test(text)) qty = "low";
+      else if (/с\s*запасом|слишком\s*много|много\s*остал|хватило\s*с\s*избыт/i.test(text)) qty = "high";
+
+      if (/очень\s*мелк|крошк/i.test(text)) fracPref = "очень мелк";
+      else if (/мелк/i.test(text)) fracPref = "мелк";
+      else if (/крупн|больш/i.test(text)) fracPref = "крупн";
+      else if (/средн/i.test(text)) fracPref = "средн";
+      else if (/ломтик/i.test(text)) fracPref = "ломтик";
+      else if (/полоск/i.test(text)) fracPref = "полоск";
+
+      function skusInText_(chunk) {
+        var out = [];
+        var keys = Object.keys(known).sort(function (a, b) { return b.length - a.length; });
+        var hay = pricePickAliasText_(chunk);
+        for (var ki = 0; ki < keys.length; ki++) {
+          var kn = pricePickNormUp_(keys[ki]);
+          if (kn.length < 4) continue;
+          var hitRubec = kn.indexOf("РУБЕЦ") === 0 && hay.indexOf("РУБЕЦ") >= 0;
+          if (hay.indexOf(kn) < 0 && !hitRubec) continue;
+          var nm = (hitRubec && known["РУБЕЦ Т"]) ? known["РУБЕЦ Т"].name : known[keys[ki]].name;
+          if (out.indexOf(nm) < 0) out.push(nm);
+        }
+        return out;
+      }
+
+      // Хейт: «не любит / не понравилась / проигнорировал / аллергия на»
+      var hateNear = text.match(/([А-Яа-яЁёA-Za-z][А-Яа-яЁёA-Za-z\s\.]{0,40}?)\s*(?:проигнорир\w*|не\s*ел\w*)/gi) || [];
+      (text.match(/(?:не\s*понравил\w*|не\s*нрав\w*|не\s*люб\w*|не\s*ел\w*|проигнорир\w*)\s+([^.\n;,]{2,48})/gi) || []).forEach(function (chunk) {
+        hateNear.push(chunk);
+      });
+      (text.match(/(?:аллерги\w*\s+на|не\s+перенос\w*)\s+([^.\n]{2,40})/gi) || []).forEach(function (chunk) {
+        hateNear.push(chunk);
+      });
+      text.split(/[.!\n;]+/).forEach(function (part) {
+        var p = String(part || "").trim();
+        if (/^(?:не|без)\s+\S/i.test(p) || /(?:^|[,\s])не\s+(?:рубец|трахе|куриц|птиц|рыб|печень(?!е))/i.test(p)) {
+          hateNear.push(p);
+        }
+      });
+      hateNear.forEach(function (chunk) {
+        skusInText_(chunk).forEach(function (n) {
+          if (disliked.indexOf(n) < 0) disliked.push(n);
+        });
+      });
+      var hateVerbObj = text.match(/(?:исключ\w*|убрать|без)\s+([А-Яа-яЁёA-Za-z\s,]{2,40})/gi) || [];
+      hateVerbObj.forEach(function (chunk) {
+        skusInText_(chunk).forEach(function (n) {
+          if (disliked.indexOf(n) < 0) disliked.push(n);
+        });
+      });
+
+      // Лайк: предложение/фрагмент с «понравил…», минус уже disliked
+      var likeParts = text.split(/[.!?\n]+/);
+      likeParts.forEach(function (part) {
+        if (!/(понравил|любит|обожает|ел\s*с\s*удовольств|особенно\s*нрави|кайфует)/i.test(part)) return;
+        var cut = part.split(/(?:проигнорир|не\s*ел|не\s*нрави|исключ)/i)[0] || part;
+        skusInText_(cut).forEach(function (n) {
+          if (disliked.indexOf(n) >= 0) return;
+          if (liked.indexOf(n) < 0) liked.push(n);
+        });
+      });
+
+      // Любые упоминания SKU в тексте (слабее лайков)
+      var mentioned = [];
+      var upNorm = pricePickNormUp_(upAll);
+      Object.keys(known).sort(function (a, b) { return b.length - a.length; }).forEach(function (k) {
+        var kn = pricePickNormUp_(k);
+        if (kn.length < 4) return;
+        if (upNorm.indexOf(kn) >= 0 || (kn.indexOf("РУБЕЦ") === 0 && upNorm.indexOf("РУБЕЦ") >= 0)) {
+          var n = (kn.indexOf("РУБЕЦ") === 0 && known["РУБЕЦ Т"]) ? known["РУБЕЦ Т"].name : known[k].name;
+          if (mentioned.indexOf(n) < 0) mentioned.push(n);
+        }
+      });
+
+      var parsedLines = parseIgLinesToItems(text);
+      if (parsedLines.noteBits && parsedLines.noteBits.length) {
+        noteBits = noteBits.concat(parsedLines.noteBits);
+      }
+      (parsedLines.items || []).forEach(function (it) { it.fromLine = true; });
+
+      var must = [];
+      function pushMust(chunk) {
+        skusInText_(chunk).forEach(function (n) {
+          if (must.indexOf(n) < 0) must.push(n);
+        });
+      }
+      var mustRe = /(?:обязательно|точно\s+нуж\w*|нуж(?:ен|но|на|ны)|хочу|пусть\s+будет)\s+([^.\n]{2,70})/gi;
+      var mustM;
+      while ((mustM = mustRe.exec(text))) pushMust(mustM[1] || mustM[0]);
+      var mustRe2 = /([^.\n]{2,40})\s+обязательно/gi;
+      while ((mustM = mustRe2.exec(text))) pushMust(mustM[1] || mustM[0]);
+      must.forEach(function (n) {
+        var di = disliked.indexOf(n);
+        if (di >= 0) disliked.splice(di, 1);
+        if (liked.indexOf(n) < 0) liked.push(n);
+      });
+
+      var familyNotes = [];
+      if (/без\s+куриц|не\s+куриц|аллерги\w*[^.\n]{0,24}куриц|куриц\w*\s+(?:нельзя|исключ)|исключ\w*[^.\n]{0,16}куриц|(?:без|исключ)[^.\n]{0,40}куриц/i.test(text)) {
+        if (disliked.indexOf("УХО К") < 0 && must.indexOf("УХО К") < 0) disliked.push("УХО К");
+        familyNotes.push("курица");
+      }
+      if (/без\s+рыб|не\s+рыб|аллерги\w*[^.\n]{0,24}рыб|рыб\w*\s+(?:нельзя|исключ)|исключ\w*[^.\n]{0,12}рыб|(?:без|исключ)[^.\n]{0,40}рыб/i.test(text)) {
+        familyNotes.push("рыба");
+      }
+      if (/без\s+индей|не\s+индей|индей\w*\s+(?:нельзя|исключ)|исключ\w*[^.\n]{0,12}индей/i.test(text)) {
+        if (disliked.indexOf("ИНДЕЙКА") < 0 && must.indexOf("ИНДЕЙКА") < 0) disliked.push("ИНДЕЙКА");
+        familyNotes.push("индейка");
+      }
+      if (/(?:без|не|исключ|аллерги)[^.\n]{0,24}птиц/i.test(text)) {
+        ["УХО К", "УТИНЫЕ ШЕИ ШТ.", "ПЕРЕПЁЛКИ ШТ."].forEach(function (n) {
+          if (disliked.indexOf(n) < 0 && must.indexOf(n) < 0) disliked.push(n);
+        });
+        if (familyNotes.indexOf("птица") < 0) familyNotes.push("птица");
+      }
+
+      var budgetByn = 0;
+      var budgetRange = text.match(/бюджет\w*[^0-9]{0,12}(\d{2,3})\s*[–\-—]\s*(\d{2,3})/i);
+      var budgetOver = text.match(/бюджет\w*\s*(?:>|больше|от)\s*(\d{2,3})/i);
+      var budgetM = text.match(/(?:бюджет\w*|не\s*дороже)\s*(\d{2,4})/i) ||
+        text.match(/(\d{2,4})\s*(?:byn|бел\.?\s*руб|руб(?:лей|ля)?)/i) ||
+        text.match(/до\s*(\d{2,4})\s*(?:byn|руб)/i);
+      if (budgetRange) budgetByn = Math.round((Number(budgetRange[1]) + Number(budgetRange[2])) / 2);
+      else if (budgetOver) budgetByn = Number(budgetOver[1]) + 10;
+      else if (budgetM) budgetByn = Number(budgetM[1]) || 0;
+
+      var monthlyLungG = 0;
+      var lungUse = text.match(/(\d+(?:[.,]\d+)?)\s*(кг|г)\s+л[её]гк/i);
+      if (lungUse) {
+        var lungN = parseFloat(String(lungUse[1]).replace(",", "."));
+        monthlyLungG = /кг/i.test(lungUse[2]) ? Math.round(lungN * 1000) : Math.round(lungN);
+      }
+
+      var rootPcs = 0;
+      var rootFrac = "";
+      var rootRange = text.match(/(\d+)\s*[–\-—]\s*(\d+)\s+мал[а-яё]*\s+быч/i);
+      if (rootRange) {
+        rootPcs = Math.round((Number(rootRange[1]) + Number(rootRange[2])) / 2);
+        rootFrac = "МАЛ";
+      }
+      if (/мал[а-яё]*\s+быч|быч[а-яё]*[^.\n]{0,24}мал/i.test(text)) rootFrac = "МАЛ";
+      if (!rootPcs) {
+        var rootAfter = text.match(/быч[а-яё]*\s+корен[а-яё]*\s+(\d+)/i);
+        var rootBefore = text.match(/(\d+)\s+(?:мал[а-яё]*\s+)?быч/i);
+        if (rootAfter) rootPcs = Number(rootAfter[1]) || 0;
+        else if (rootBefore) rootPcs = Number(rootBefore[1]) || 0;
+      }
+
+      var tried = [];
+      var triedM = text.match(/давали\s+([^.\n]{2,80})/i);
+      if (triedM) {
+        skusInText_(triedM[1]).forEach(function (n) {
+          if (tried.indexOf(n) < 0 && disliked.indexOf(n) < 0) tried.push(n);
+        });
+      }
+
+      var weightKg = 0;
+      var weightM = text.match(/(?:вес\w*|собак\w*)[^\d]{0,16}(\d+(?:[.,]\d+)?)\s*кг/i) ||
+        text.match(/(\d+(?:[.,]\d+)?)\s*кг/i);
+      if (weightM) {
+        var kg = parseFloat(String(weightM[1]).replace(",", "."));
+        if (kg >= 1 && kg <= 80) weightKg = kg;
+      }
+
+      var ageMonths = 0;
+      var ageM = text.match(/(\d+)\s*мес/i);
+      if (ageM) ageMonths = Number(ageM[1]) || 0;
+      var puppy = /щенок/i.test(text) || (ageMonths > 0 && ageMonths < 12 && !(weightKg >= 10));
+      if (/ломтик[а-яё]*\s+убрал|убрал[а-яё]*\s+ломтик/i.test(text)) {
+        qty = "high";
+        if (!fracPref) fracPref = "средн";
+      }
+
+      var deliveriesN = 0;
+      var delM = text.match(/(\d+)\s*доставк/i);
+      if (delM) deliveriesN = Math.max(1, Math.min(8, Number(delM[1]) || 1));
+
+      return {
+        liked: liked,
+        disliked: disliked,
+        must: must,
+        tried: tried,
+        mentioned: mentioned,
+        qty: qty,
+        fracPref: fracPref,
+        dogs: dogs,
+        budgetByn: budgetByn,
+        weightKg: weightKg,
+        puppy: puppy,
+        ageMonths: ageMonths,
+        monthlyLungG: monthlyLungG,
+        rootPcs: rootPcs,
+        rootFrac: rootFrac,
+        deliveriesN: deliveriesN,
+        familyNotes: familyNotes,
+        lineItems: parsedLines.items || [],
+        noteBits: noteBits,
+        rawLen: text.length
+      };
+    }
+
+    function pricePickItemFromSku_(skuName, gramsOrPcs, fracPref) {
+      var known = buildIgKnownMap();
+      var up = String(skuName || "").toUpperCase();
+      var hit = known[up] || known[igAliasResolve(up)];
+      if (!hit) return null;
+      var piece = hit.cat === "chew" || (typeof isPieceSkuName === "function" && isPieceSkuName(hit.name));
+      var val = gramsOrPcs;
+      if (!(val > 0)) val = piece ? 1 : 80;
+      var sub = pricePickDefaultFrac_(hit.cat, hit.name, fracPref);
+      return {
+        cat: hit.cat,
+        main: hit.name,
+        name: hit.name,
+        sub: sub,
+        value: val,
+        val: val,
+        needFrac: false
+      };
+    }
+
+    function pricePickScaleItems_(items, scale, opts) {
+      opts = opts || {};
+      var out = [];
+      (items || []).forEach(function (it) {
+        if (!it) return;
+        var copy = Object.assign({}, it);
+        var piece = copy.cat === "chew" || (typeof isPieceSkuName === "function" && isPieceSkuName(copy.main || copy.name));
+        var v = Number(copy.value != null ? copy.value : copy.val) || 0;
+        if (piece) {
+          var pcs = Math.max(1, Math.round(v * (opts.pieceScale != null ? opts.pieceScale : (scale >= 1 ? 1 : scale))));
+          if (opts.boostChew) pcs = Math.max(pcs, pcs + 1);
+          copy.value = pcs;
+          copy.val = pcs;
+        } else {
+          var g = Math.max(20, Math.round((v * scale) / 5) * 5);
+          copy.value = g;
+          copy.val = g;
+        }
+        if (opts.fracPref && copy.cat === "dressura") {
+          var nf = pricePickDefaultFrac_(copy.cat, copy.main, opts.fracPref);
+          if (nf) copy.sub = nf;
+        }
+        out.push(copy);
+      });
+      return out;
+    }
+
+    function pricePickExcludeNames_(items, names) {
+      var ban = {};
+      (names || []).forEach(function (n) { ban[String(n).toUpperCase()] = true; });
+      return (items || []).filter(function (it) {
+        var key = String(it.main || it.name || "").toUpperCase();
+        return !ban[key];
+      });
+    }
+
+    function pricePickBoostLiked_(items, liked, fracPref) {
+      var have = {};
+      (items || []).forEach(function (it) {
+        have[String(it.main || it.name || "").toUpperCase()] = true;
+      });
+      var out = (items || []).slice();
+      (liked || []).forEach(function (name) {
+        var up = String(name).toUpperCase();
+        if (have[up]) {
+          out = out.map(function (it) {
+            if (String(it.main || it.name || "").toUpperCase() !== up) return it;
+            var piece = it.cat === "chew" || (typeof isPieceSkuName === "function" && isPieceSkuName(it.main));
+            var v = Number(it.value != null ? it.value : it.val) || 0;
+            var nv = piece ? v + 1 : Math.round((v * 1.2) / 5) * 5;
+            return Object.assign({}, it, { value: nv, val: nv });
+          });
+        } else {
+          var add = pricePickItemFromSku_(name, null, fracPref);
+          if (add) {
+            out.push(add);
+            have[up] = true;
+          }
+        }
+      });
+      return out;
+    }
+
+    function pricePickTargetScale_(target, signals) {
+      var kind = target === "bp1" ? 0.7 : (target === "bp2" ? 1.15 : 1);
+      var qty = signals.qty === "low" ? 1.15 : (signals.qty === "high" ? 0.9 : 1);
+      var w = 1;
+      if (signals.weightKg > 0) w = Math.max(0.55, Math.min(1.6, signals.weightKg / 12));
+      var b = 1;
+      if (signals.budgetByn > 0) {
+        if (signals.budgetByn < 50) b = 0.6;
+        else if (signals.budgetByn < 80) b = 0.8;
+        else if (signals.budgetByn < 130) b = 1;
+        else if (signals.budgetByn < 200) b = 1.15;
+        else b = 1.3;
+      }
+      return kind * qty * w * b;
+    }
+
+    function pricePickSwapForBp2_(items, disliked, fracPref) {
+      if (!disliked || !disliked.length) return items;
+      var subs = ["ПОЧКИ", "БАРАНЬЕ ЛЁГКОЕ", "СЕРДЦЕ", "ТРАХЕЯ"];
+      var have = {};
+      (items || []).forEach(function (it) {
+        have[String(it.main || it.name || "").toUpperCase()] = true;
+      });
+      var ban = {};
+      disliked.forEach(function (n) { ban[String(n).toUpperCase()] = true; });
+      var out = (items || []).slice();
+      for (var i = 0; i < subs.length; i++) {
+        var up = subs[i].toUpperCase();
+        if (have[up] || ban[up]) continue;
+        var add = pricePickItemFromSku_(subs[i], null, fracPref);
+        if (add) {
+          out.push(add);
+          break;
+        }
+      }
+      return out;
+    }
+
+    function pricePickOrderSections_(items) {
+      var order = { dressura: 0, chew: 1, veg: 2, other: 3, crumb: 4 };
+      return (items || []).slice().sort(function (a, b) {
+        return (order[a.cat] != null ? order[a.cat] : 9) - (order[b.cat] != null ? order[b.cat] : 9);
+      });
+    }
+
+    function pricePickBanned_(signals) {
+      var ban = {};
+      (signals.disliked || []).forEach(function (n) { ban[String(n).toUpperCase()] = true; });
+      return ban;
+    }
+
+    function pricePickPushSku_(list, name, grams, fracPref, fracOverride) {
+      if (!name || !(grams > 0)) return;
+      var it = pricePickItemFromSku_(name, grams, fracPref);
+      if (!it) return;
+      it.value = grams;
+      it.val = grams;
+      if (fracOverride) it.sub = fracOverride;
+      list.push(it);
+    }
+
+    function pricePickLungAnchor_(signals, target) {
+      var lung = 40;
+      var kg = signals.weightKg || 0;
+      var budget = signals.budgetByn || 0;
+      if (signals.puppy) lung = 15;
+      else if (kg >= 7 && kg < 16) lung = 50;
+      if (budget > 120) lung = Math.max(lung, 70);
+      if (budget > 0 && budget < 45) lung = Math.min(lung, 30);
+      if (signals.monthlyLungG > 0) {
+        var fromUse = pricePickRound5_(signals.monthlyLungG / 10, 15);
+        if (fromUse > 80) fromUse = 80;
+        lung = target === "bp1" ? pricePickRound5_(fromUse / 1.3, 15) : fromUse;
+      }
+      var trial = target === "bp1" || target === "bp2";
+      if (target === "bp2") {
+        if (signals.qty === "high") lung = Math.max(10, lung - 5);
+        else if (!(signals.monthlyLungG > 0)) lung = pricePickRound5_(lung * 1.5, 10);
+      }
+      if (!trial) {
+        if (signals.monthlyLungG > 0) lung = Math.min(350, signals.monthlyLungG);
+        else if (budget > 0 && budget < 45) lung = 30;
+        else if (budget > 120) lung = Math.max(250, pricePickRound5_(kg > 0 ? kg * 12 : 250, 80));
+        else if (budget >= 45 && budget <= 90) lung = Math.max(80, Math.min(180, lung));
+        else lung = pricePickRound5_(kg > 0 ? Math.min(300, kg * 10) : 150, 30);
+        if (target === "retail" && budget >= 80 && lung < 250) lung = 300;
+      }
+      return pricePickRound5_(lung, 10);
+    }
+
+    /** Состав как в офферах Direct: пробная коробка маленькая, БП2 чуть больше/замена, ПП и розница — месяц. */
+    function pricePickOfferLines_(signals, target) {
+      var ban = pricePickBanned_(signals);
+      var list = [];
+      var trial = target === "bp1" || target === "bp2";
+      var lung = pricePickLungAnchor_(signals, target);
+      var frac = signals.fracPref || "";
+      function allow(name) { return !ban[String(name).toUpperCase()]; }
+      function has(name) {
+        var up = String(name).toUpperCase();
+        return list.some(function (it) { return String(it.main || it.name).toUpperCase() === up; });
+      }
+
+      if (allow("ЛЁГКОЕ")) pricePickPushSku_(list, "ЛЁГКОЕ", lung, frac);
+      var heartG = trial
+        ? pricePickRound5_(lung * (target === "bp2" ? 0.3 : 0.4), 5)
+        : pricePickRound5_(lung * 0.32, 10);
+      if (signals.puppy && trial && lung <= 20) heartG = Math.max(heartG, 10);
+      if (allow("СЕРДЦЕ") && !(target === "bp2" && signals.puppy && signals.qty === "high")) {
+        pricePickPushSku_(list, "СЕРДЦЕ", heartG, frac);
+      }
+      var sideName = "РУБЕЦ Т";
+      if (!allow(sideName) || (target === "bp2" && (signals.liked || []).indexOf("РУБЕЦ Т") < 0)) sideName = "ПОЧКИ";
+      if (signals.puppy && trial) sideName = "";
+      if (sideName && allow(sideName)) {
+        var sideG = trial ? pricePickRound5_(lung * 0.25, 5) : pricePickRound5_(lung * 0.16, 10);
+        if (target === "bp2" && sideName === "ПОЧКИ") sideG = Math.max(sideG, 15);
+        pricePickPushSku_(list, sideName, sideG, frac);
+      }
+
+      var chewCap = trial ? (target === "bp2" ? 3 : 2) : 3;
+      var chewWant = [];
+      function wantChew(name) {
+        if (!name || !allow(name) || chewWant.indexOf(name) >= 0) return;
+        chewWant.push(name);
+      }
+      (signals.must || []).forEach(wantChew);
+      (signals.liked || []).forEach(wantChew);
+      if (signals.rootPcs) wantChew("БЫЧИЙ КОРЕНЬ");
+      if (target === "bp2") (signals.tried || []).forEach(wantChew);
+      var chewDefaults = signals.puppy
+        ? ["ТРАХЕЯ", "СТАНОВАЯ ЖИЛА", "ЛОП ХРЯЩ ШТ.", "АОРТА", "УХО Г", "НОСЫ ШТ.", "БЫЧИЙ КОРЕНЬ"]
+        : ["ЛОП ХРЯЩ ШТ.", "АОРТА", "ТРАХЕЯ", "СТАНОВАЯ ЖИЛА", "УХО Г", "НОСЫ ШТ.", "БЫЧИЙ КОРЕНЬ"];
+      chewDefaults.forEach(wantChew);
+      var chewN = 0;
+      chewWant.forEach(function (name) {
+        if (chewN >= chewCap || has(name)) return;
+        var known = buildIgKnownMap();
+        var hit = known[String(name).toUpperCase()] || known[igAliasResolve(name)];
+        if (!hit || (hit.cat !== "chew" && hit.cat !== "other")) return;
+        if (hit.cat === "other") return;
+        var pcs = 1;
+        var sub = "";
+        if (name === "СТАНОВАЯ ЖИЛА") pcs = target === "bp2" ? 4 : 2;
+        if (name === "БЫЧИЙ КОРЕНЬ") {
+          sub = signals.rootFrac || "";
+          if (!trial) pcs = signals.rootPcs ? Math.max(1, Math.min(8, signals.rootPcs)) : (signals.budgetByn > 100 ? 4 : 2);
+          else pcs = 1;
+        }
+        if (name === "ТРАХЕЯ" && target === "bp1" && signals.puppy) pcs = 2;
+        pricePickPushSku_(list, name, pcs, frac, sub);
+        chewN++;
+      });
+
+      var vegG = trial ? ((signals.puppy || lung <= 40) ? 5 : 10) : (lung >= 200 ? 100 : (signals.budgetByn > 0 && signals.budgetByn < 45 ? 10 : 40));
+      if (target === "bp2" && signals.puppy) vegG = vegG * 2;
+      var vegNames = signals.puppy ? ["ЯБЛОКИ", "ТЫКВА"] : ["ТЫКВА", "БАТАТ"];
+      if (target === "bp2" && !signals.puppy) vegNames = ["ТЫКВА", "БАНАНЫ"];
+      (signals.liked || []).forEach(function (n) {
+        var hit = buildIgKnownMap()[String(n).toUpperCase()];
+        if (hit && hit.cat === "veg" && vegNames.indexOf(hit.name) < 0) vegNames.unshift(hit.name);
+      });
+      var vegAdded = 0;
+      vegNames.forEach(function (name) {
+        if (vegAdded >= 2 || !allow(name) || has(name)) return;
+        pricePickPushSku_(list, name, vegG, "");
+        vegAdded++;
+      });
+
+      ["ВЫМЯ", "СЕМЕННИКИ"].forEach(function (name) {
+        var liked = (signals.liked || []).indexOf(name) >= 0 || (signals.must || []).indexOf(name) >= 0;
+        if (!liked || !allow(name) || has(name)) return;
+        pricePickPushSku_(list, name, trial ? 10 : 20, frac);
+      });
+
+      return pricePickOrderSections_(list).filter(function (it) {
+        return it && (it.main || it.name) && (Number(it.value) > 0);
+      });
+    }
+
+    function pricePickComposeForTarget_(signals, target) {
+      signals = signals || {};
+      target = priceModeKey(target);
+      var lines = signals.lineItems || [];
+      var explicit = lines.length >= 2;
+      var list;
+      if (explicit) {
+        list = lines.map(function (it) {
+          var copy = Object.assign({}, it);
+          if (!copy.sub && copy.cat !== "veg") {
+            copy.sub = pricePickDefaultFrac_(copy.cat, copy.main || copy.name, signals.fracPref);
+          }
+          copy.needFrac = false;
+          copy.fromLine = true;
+          return copy;
+        });
+        list = pricePickExcludeNames_(list, signals.disliked);
+        list = pricePickOrderSections_(list).filter(function (it) {
+          return it && (it.main || it.name) && (Number(it.value) > 0 || Number(it.val) > 0);
+        });
+      } else {
+        list = pricePickOfferLines_(signals, target);
+      }
+      return {
+        target: target,
+        items: list,
+        signals: signals,
+        usedDefault: !explicit && !(signals.liked && signals.liked.length) &&
+          !(signals.must && signals.must.length) && !(signals.mentioned && signals.mentioned.length)
+      };
+    }
+
+    function formatPickPreviewLine_(it) {
+      var unit = (typeof unitForItem === "function")
+        ? unitForItem(it.cat, it.main || it.name)
+        : ((it.cat === "chew") ? "шт" : "г");
+      var sub = it.sub ? (" (" + it.sub + ")") : "";
+      return (it.main || it.name) + " — " + (it.value != null ? it.value : it.val) + " " + unit + sub;
+    }
+
+    function pricePickSectionTitle_(cat) {
+      if (cat === "dressura") return "Дрессура";
+      if (cat === "chew") return "Жевалки";
+      if (cat === "veg") return "Овощи-Фрукты";
+      if (cat === "crumb") return "Крошки";
+      return "Другое";
+    }
+
+    function renderPricePickPreview_(payload) {
+      var box = document.getElementById("pricePickPreview");
+      var againBtn = document.getElementById("btnPricePickAgain");
+      if (!box) return;
+      if (!payload || !payload.items) {
+        box.style.display = "none";
+        box.innerHTML = "";
+        if (againBtn) againBtn.style.display = "none";
+        return;
+      }
+      var sig = payload.signals || {};
+      var html = '<div class="card" style="margin:0;padding:10px;border:1px solid rgba(255,122,0,0.4);">';
+      html += '<div style="font-weight:600;margin-bottom:6px;">' + escapeHtml(priceModeLabel_(payload.target)) +
+        " · " + payload.items.length + " поз.</div>";
+      html += '<div class="muted" style="font-size:12px;margin-bottom:8px;">';
+      if (payload.usedDefault) html += "Явных позиций мало — стартовый набор. ";
+      if (sig.must && sig.must.length) html += "Обязательно: " + escapeHtml(sig.must.join(", ")) + ". ";
+      if (sig.liked && sig.liked.length) html += "Лайки: " + escapeHtml(sig.liked.join(", ")) + ". ";
+      if (sig.disliked && sig.disliked.length) html += "Без: " + escapeHtml(sig.disliked.join(", ")) + ". ";
+      if (sig.familyNotes && sig.familyNotes.length) html += "Исключили: " + escapeHtml(sig.familyNotes.join(", ")) + ". ";
+      if (sig.qty === "low") html += "Мало было → чуть больше. ";
+      if (sig.qty === "high") html += "С запасом → чуть меньше. ";
+      if (sig.budgetByn) html += "Бюджет ~" + sig.budgetByn + ". ";
+      if (sig.weightKg) html += "Вес " + sig.weightKg + " кг. ";
+      if (sig.monthlyLungG) html += "Расход лёгкого ~" + sig.monthlyLungG + " г. ";
+      if (sig.puppy) html += "Щенок. ";
+      html += "Строки уже в редакторе — правь.</div>";
+      var lastCat = "";
+      payload.items.forEach(function (it) {
+        var title = pricePickSectionTitle_(it.cat);
+        if (title !== lastCat) {
+          html += '<div style="margin:8px 0 2px;font-size:12px;color:#ff9f0a;">' + escapeHtml(title) + "</div>";
+          lastCat = title;
+        }
+        html += '<div style="font-size:13px;line-height:1.35;">' + escapeHtml(formatPickPreviewLine_(it)) + "</div>";
+      });
+      html += "</div>";
+      box.innerHTML = html;
+      box.style.display = "";
+      if (againBtn) againBtn.style.display = "";
+    }
+
+    function setPricePickTarget_(mode) {
+      pricePickTarget_ = priceModeKey(mode);
+      var map = { bp1: "pricePickTargetBp1", bp2: "pricePickTargetBp2", pp: "pricePickTargetPp", retail: "pricePickTargetRet" };
+      Object.keys(map).forEach(function (k) {
+        var el = document.getElementById(map[k]);
+        if (el) el.classList.toggle("active", k === pricePickTarget_);
+      });
+    }
+    window.setPricePickTarget_ = setPricePickTarget_;
+
+    function togglePricePickPanel_() {
+      var panel = document.getElementById("pricePickPanel");
+      if (!panel) return;
+      var open = panel.style.display === "none" || !panel.style.display;
+      panel.style.display = open ? "" : "none";
+      if (open) {
+        if (!pricePickTarget_) setPricePickTarget_(priceMode || "pp");
+        else setPricePickTarget_(pricePickTarget_);
+        try {
+          var first = document.getElementById("pricePickTargetBp1");
+          if (first && first.scrollIntoView) first.scrollIntoView({ block: "nearest" });
+        } catch (eF) {}
+      }
+    }
+    window.togglePricePickPanel_ = togglePricePickPanel_;
+
+    function clearPricePickPanel_() {
+      var ta = document.getElementById("pricePickPaste");
+      if (ta) ta.value = "";
+      pricePickSuggestions_ = null;
+      pricePickTarget_ = "";
+      setPricePickTarget_("pp");
+      pricePickTarget_ = "";
+      ["pricePickTargetBp1", "pricePickTargetBp2", "pricePickTargetPp", "pricePickTargetRet"].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.remove("active");
+      });
+      renderPricePickPreview_(null);
+      showToast("Подбор очищен");
+    }
+    window.clearPricePickPanel_ = clearPricePickPanel_;
+
+    function applyPricePickOne_(payload) {
+      if (!payload || !payload.items || !payload.items.length) return;
+      var target = priceModeKey(payload.target);
+      stashPriceModeState(priceMode);
+      if (!priceByMode[target]) priceByMode[target] = makeEmptyPriceModeStore();
+      var s = priceByMode[target];
+      s.baskets = { 1: pricePickCloneItems_(payload.items), 2: [] };
+      s.dogCount = 1;
+      s.activeDog = 1;
+      s.lastMessage = "";
+      s.apiCache = null;
+      s.packsManual = false;
+      var noteBits = [];
+      var sig = payload.signals || {};
+      if (sig.must && sig.must.length) noteBits.push("обязательно: " + sig.must.join(", "));
+      if (sig.disliked && sig.disliked.length) noteBits.push("без: " + sig.disliked.join(", "));
+      if (sig.familyNotes && sig.familyNotes.length) noteBits.push("исключили: " + sig.familyNotes.join(", "));
+      if (noteBits.length) s.note = noteBits.join("; ");
+      if (target !== "retail") {
+        try {
+          var pc = packCountsFromBasketLocal_(s.baskets[1] || []);
+          s.packCounts = {
+            small: pc.small || 0,
+            medium: pc.medium || 0,
+            large: pc.large || 0,
+            legs: pc.legs || 0
+          };
+        } catch (ePc) {
+          s.packCounts = { small: 0, medium: 0, large: 0, legs: 0 };
+        }
+      }
+      priceMode = target;
+      loadPriceModeState(target);
+      setPriceMode(target);
+      if ((target === "pp" || target === "retail") && sig.deliveriesN) {
+        var nEl = document.getElementById("priceDeliveriesN");
+        if (nEl) nEl.value = String(sig.deliveriesN);
+      }
+      try { calcPriceFromBasket({ silent: true }); } catch (eC) {}
+      try {
+        var basket = document.getElementById("priceBasketContainer");
+        if (basket && basket.scrollIntoView) basket.scrollIntoView({ block: "nearest" });
+      } catch (eSc) {}
+    }
+
+    function runPricePickFromAnket_() {
+      if (!pricePickTarget_) {
+        showToast("Сначала выбери: БП1, БП2, итоговый или розница");
+        return;
+      }
+      var ta = document.getElementById("pricePickPaste");
+      var raw = ta ? String(ta.value || "").trim() : "";
+      if (!raw) {
+        showToast("Вставь ответы анкеты");
+        return;
+      }
+      var signals = parseAnketSignals_(raw);
+      var payload = pricePickComposeForTarget_(signals, pricePickTarget_);
+      if (!payload.items.length) {
+        showToast("Не собрал состав — добавь названия лакомств");
+        pricePickSuggestions_ = null;
+        renderPricePickPreview_(null);
+        return;
+      }
+      pricePickSuggestions_ = payload;
+      applyPricePickOne_(payload);
+      renderPricePickPreview_(payload);
+      showToast(priceModeLabel_(payload.target) + " в редакторе — правь строки");
+    }
+    window.runPricePickFromAnket_ = runPricePickFromAnket_;
+
+    function pricePickAgain_() {
+      showToast("Анкета на месте — выбери другой тип и снова «Подобрать»");
+      try {
+        var first = document.getElementById("pricePickTargetBp1");
+        if (first && first.scrollIntoView) first.scrollIntoView({ block: "nearest" });
+      } catch (eA) {}
+    }
+    window.pricePickAgain_ = pricePickAgain_;
+
+    function openPricePickFromTemplates_() {
+      try { switchTab("priceScreen"); } catch (eS) {}
+      setTimeout(function () {
+        var panel = document.getElementById("pricePickPanel");
+        if (panel) panel.style.display = "";
+        if (!pricePickTarget_) setPricePickTarget_(priceMode || "pp");
+        else setPricePickTarget_(pricePickTarget_);
+      }, 80);
+    }
+    window.openPricePickFromTemplates_ = openPricePickFromTemplates_;
 
     let priceManualCategory = "";
     function togglePriceManualEntry() {
@@ -19109,7 +19901,7 @@
       renderPriceBasket();
       stashPriceActiveBasket();
       pricePpApiCache = null;
-      if (priceMode === "pp") syncPricePacksFromBasket_();
+      if (isPricePpLikeMode_()) syncPricePacksFromBasket_();
       calcPriceFromBasket({ silent: true });
       showToast("Добавлено в состав");
     }
@@ -19157,7 +19949,7 @@
       stashPriceActiveBasket();
       renderPriceBasket();
       pricePpApiCache = null;
-      if (priceMode === "pp") syncPricePacksFromBasket_();
+      if (isPricePpLikeMode_()) syncPricePacksFromBasket_();
       if (allPriceItems().length) calcPriceFromBasket({ silent: true });
       else {
         var box = document.getElementById("priceResult");
@@ -19180,7 +19972,7 @@
       priceLastMessage = "";
       pricePpApiCache = null;
       renderPriceBasket();
-      if (priceMode === "pp") syncPricePacksFromBasket_();
+      if (isPricePpLikeMode_()) syncPricePacksFromBasket_();
       if (allPriceItems().length) calcPriceFromBasket({ silent: true });
       else {
         var box = document.getElementById("priceResult");
@@ -22475,7 +23267,7 @@
 
     function syncPricePacksFromBasket_(opts) {
       opts = opts || {};
-      if (priceMode !== "pp") return;
+      if (!isPricePpLikeMode_()) return;
       if (pricePacksManual && !opts.force) return;
       var list = [];
       try { list = allPriceItems(); } catch (eL) { list = []; }
@@ -23014,7 +23806,24 @@
     window.copyPriceMessage = copyPriceMessage;
 
     function priceModeKey(mode) {
-      return (mode === "retail") ? "retail" : "pp";
+      var m = String(mode || "").toLowerCase();
+      if (m === "retail" || m === "ret") return "retail";
+      if (m === "bp1" || m === "bp_1") return "bp1";
+      if (m === "bp2" || m === "bp_2" || m === "bp") return "bp2";
+      return "pp";
+    }
+
+    function priceModeLabel_(mode) {
+      var k = priceModeKey(mode);
+      if (k === "bp1") return "БП1";
+      if (k === "bp2") return "БП2";
+      if (k === "retail") return "Розница";
+      return "Итоговый (ПП)";
+    }
+
+    function isPricePpLikeMode_(mode) {
+      var k = priceModeKey(mode != null ? mode : priceMode);
+      return k === "pp" || k === "bp1" || k === "bp2";
     }
 
     function stashPriceModeState(mode) {
@@ -23070,7 +23879,7 @@
       var noteEl = document.getElementById("priceClientNote");
       if (noteEl) noteEl.value = s.note || "";
       loadPriceActiveBasket();
-      if (mode !== "retail" && !pricePacksManual) {
+      if (isPricePpLikeMode_(key) && !pricePacksManual) {
         try { syncPricePacksFromBasket_({ force: true }); } catch (eSync) {}
       } else {
         try { renderPricePackCounters(); } catch (e0) {}
@@ -23079,8 +23888,7 @@
     }
 
     function setPriceMode(mode) {
-      if (mode === "bp") mode = "pp";
-      if (mode !== "retail") mode = "pp";
+      mode = priceModeKey(mode);
       if (mode === priceMode) {
 
       } else {
@@ -23088,20 +23896,24 @@
         priceMode = mode;
         loadPriceModeState(mode);
       }
+      var bp1 = document.getElementById("priceModeBp1");
+      var bp2 = document.getElementById("priceModeBp2");
       var pp = document.getElementById("priceModePp");
       var bp = document.getElementById("priceModeBp");
       var ret = document.getElementById("priceModeRet");
       var extras = document.getElementById("pricePpExtras");
+      if (bp1) bp1.classList.toggle("active", mode === "bp1");
+      if (bp2) bp2.classList.toggle("active", mode === "bp2");
       if (pp) pp.classList.toggle("active", mode === "pp" || mode === "subscription");
       if (bp) bp.style.display = "none";
       if (ret) ret.classList.toggle("active", mode === "retail");
       if (extras) extras.style.display = mode === "retail" ? "none" : "";
-      if (mode !== "retail") {
+      if (isPricePpLikeMode_(mode)) {
         try { syncPricePpSchemeDefaults_(); } catch (eSchP) {}
       }
       var toPpBtn = document.getElementById("btnPriceToPp");
       if (toPpBtn && !window._enrollDeferredId && !window._enrollDirect) {
-        toPpBtn.style.display = mode === "retail" ? "none" : "";
+        toPpBtn.style.display = mode === "pp" ? "" : "none";
       }
       try { renderPriceBasket(); } catch (e) {}
       if (priceLastMessage) {
@@ -23425,7 +24237,7 @@
       var list = allPriceItems();
       var subHint = null;
       try {
-        if (priceMode === "pp" && pricePpApiCache && pricePpApiCache.res) {
+        if (isPricePpLikeMode_() && pricePpApiCache && pricePpApiCache.res) {
           var costSum = recalcPpCostSum(pricePpApiCache.res, list);
           var coef = getPricePpCoef();
           var nEl = document.getElementById("priceDeliveriesN");
@@ -23471,7 +24283,7 @@
         fracRates: getPriceFracRates(),
         subTotal: subHint,
         retailTotal: calcRetailBasketTotal(list, {
-          deliveriesN: priceMode === "pp" ? nSnap : 1
+          deliveriesN: isPricePpLikeMode_() ? nSnap : 1
         }).total
       };
     }
@@ -23490,7 +24302,7 @@
       var whenOrNone = await pickRemindWhenAsync_({ allowNone: true });
       if (whenOrNone === undefined) return; // отмена
       var payload = buildPriceDeferredSnapshot();
-      var title = (priceMode === "retail" ? "Розница" : "ПП") +
+      var title = priceModeLabel_(priceMode) +
         (nick ? (" · " + nick) : "") +
         (payload.subTotal != null ? (" · " + roundRub(payload.subTotal) + " BYN") : "");
       var id = String(window._editingDeferredId || ("def_" + Date.now().toString(36)));
@@ -24619,7 +25431,7 @@
 
     function applyDeferredSnapshotToPrice(payload) {
       if (!payload) return;
-      var mode = payload.mode === "retail" ? "retail" : "pp";
+      var mode = priceModeKey(payload.mode);
       if (!priceByMode[mode]) priceByMode[mode] = makeEmptyPriceModeStore();
       var s = priceByMode[mode];
       s.baskets = {
@@ -24782,8 +25594,8 @@
     window.closeDeferredEnroll = exitPriceEnrollMode;
 
     async function openDirectPpEnrollFromPrice() {
-      if (priceMode === "retail") {
-        showToast("Сначала режим «Подписка ПП»");
+      if (priceMode !== "pp") {
+        showToast("Сначала режим «Итоговый» (ПП)");
         return;
       }
       stashPriceActiveBasket();
