@@ -46,8 +46,12 @@ assert(ui.includes("crumbBasketSubLabel_(item)"), "renderers use kind subtitle")
 assert(ui.includes("if (isCrumbBasketItemUi_(it)) return crumbClientMessageLine_(it)"), "offer uses client line");
 assert(ui.includes('row.name = "крошка"') && ui.includes('row.main = "крошка"'), "stored identity still крошка");
 assert(!ui.includes("крошка · "), "no old «крошка · source» title");
-assert(/v71115980/.test(html) && /v71115980/.test(ui) && /71115980/.test(idx), "Pages v71115980");
 assert(/crumbs-display-ux-h1/.test(tz), "TZ marker");
+assert(/crumb-src-row-offer-h1/.test(tz), "offer TZ marker");
+assert(ui.includes('crumb: "Присыпки"'), "client block title Присыпки");
+assert(ui.includes("крошка микс - "), "mix line is крошка микс");
+assert(html.includes("crumb-src-del"), "compact delete button class");
+assert(ui.includes("Выбери позицию"), "source placeholder");
 
 const ctx = vm.createContext({
   Math, Number, String, isFinite, Object, Array, JSON,
@@ -62,6 +66,8 @@ vm.runInContext(
     extractFn(ui, "crumbSourcesLabel_"),
     extractFn(ui, "crumbBasketDisplayMain_"),
     extractFn(ui, "crumbBasketSubLabel_"),
+    extractFn(ui, "prettyProductName"),
+    extractFn(ui, "crumbOfferGenitive_"),
     extractFn(ui, "crumbClientMessageLine_"),
     extractFn(ui, "formatPriceCompositionLine")
   ].join("\n"),
@@ -79,8 +85,8 @@ const one = {
 };
 assert(ctx.crumbBasketDisplayMain_(one) === "ЛЁГКОЕ", "basket main = SKU, got " + ctx.crumbBasketDisplayMain_(one));
 assert(ctx.crumbBasketSubLabel_(one) === "мясные", "basket sub = kind chip");
-assert(ctx.crumbClientMessageLine_(one) === "крошка ЛЁГКОЕ - 100г", "client one source, got " + ctx.crumbClientMessageLine_(one));
-assert(ctx.formatPriceCompositionLine(one) === "крошка ЛЁГКОЕ - 100г", "offer line one source");
+assert(ctx.crumbClientMessageLine_(one) === "крошка лёгкого - 100 г", "client one source, got " + ctx.crumbClientMessageLine_(one));
+assert(ctx.formatPriceCompositionLine(one) === "крошка лёгкого - 100 г", "offer line one source");
 
 const mix = {
   cat: "crumb",
@@ -92,15 +98,19 @@ const mix = {
 };
 assert(ctx.crumbBasketDisplayMain_(mix) === "ЛЁГКОЕ + РУБЕЦ Т", "mix main with spaces");
 assert(ctx.crumbBasketSubLabel_(mix) === "дрессура овощи/фрукты", "mix sub = veg chip");
-assert(ctx.crumbClientMessageLine_(mix) === "крошка ЛЁГКОЕ+РУБЕЦ Т - 100г", "client mix no spaces around +");
+assert(ctx.crumbClientMessageLine_(mix) === "крошка микс - 100 г", "client mix is крошка микс, got " + ctx.crumbClientMessageLine_(mix));
 
 const hypo = { cat: "crumb", crumbKind: "hypo", sources: [{ name: "СЕРДЦЕ" }], val: 50 };
 assert(ctx.crumbBasketSubLabel_(hypo) === "гипоаллергенные", "hypo chip");
-assert(ctx.crumbClientMessageLine_(hypo) === "крошка СЕРДЦЕ - 50г", "hypo client line");
+assert(ctx.crumbClientMessageLine_(hypo) === "крошка сердца - 50 г", "hypo client line, got " + ctx.crumbClientMessageLine_(hypo));
 
 const fromSub = { cat: "crumb", crumbKind: "meat", name: "крошка", sub: "ЛЁГКОЕ + РУБЕЦ Т", val: 80 };
 assert(ctx.crumbBasketDisplayMain_(fromSub) === "ЛЁГКОЕ + РУБЕЦ Т", "fallback parse sources from sub");
-assert(ctx.crumbClientMessageLine_(fromSub) === "крошка ЛЁГКОЕ+РУБЕЦ Т - 80г", "fallback client from sub");
+assert(ctx.crumbClientMessageLine_(fromSub) === "крошка микс - 80 г", "fallback client from sub, got " + ctx.crumbClientMessageLine_(fromSub));
+assert(ctx.crumbOfferGenitive_("ПОЧКИ") === "почек", "genitive почки");
+assert(ctx.crumbOfferGenitive_("РУБЕЦ Т") === "рубца", "genitive рубец");
+assert(ctx.crumbOfferGenitive_("ЯБЛОКИ") === "яблоки", "veg lowercase");
+assert(ctx.crumbClientMessageLine_({ cat: "crumb", val: 10 }) === "крошка - 10 г", "no sources");
 
 const regular = { cat: "dressura", main: "ЛЁГКОЕ", name: "ЛЁГКОЕ", sub: "Среднее", val: 100 };
 assert(!ctx.isCrumbBasketItemUi_(regular), "regular dressura is not crumb");

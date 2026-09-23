@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115999";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71116000";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -2981,12 +2981,36 @@
       return crumbKindCategoryLabel_(item && item.crumbKind) || "крошка";
     }
 
-    /** Сообщение клиенту: «крошка ЛЁГКОЕ - 100г» / «крошка ЛЁГКОЕ+РУБЕЦ Т - 100г». */
+    /** Родительный для оффера: лёгкое→лёгкого, почки→почек, рубец→рубца, сердце→сердца. */
+    function crumbOfferGenitive_(name) {
+      var raw = String(name || "").trim();
+      if (!raw) return "";
+      var folded = raw.toUpperCase().replace(/Ё/g, "Е").replace(/\s+/g, " ").trim();
+      folded = folded.replace(/^КРОШКА\s+/, "");
+      if (/БАРАН/.test(folded) && /ЛЕГК/.test(folded)) return "бараньего лёгкого";
+      if (/ЛЕГК/.test(folded)) return "лёгкого";
+      if (/ПОЧК/.test(folded)) return "почек";
+      if (/РУБ/.test(folded)) return "рубца";
+      if (/СЕРДЦ/.test(folded)) return "сердца";
+      var pretty = "";
+      try { pretty = prettyProductName("КРОШКА " + folded); } catch (ePretty) { pretty = ""; }
+      if (pretty && /^крошка\s+/i.test(pretty)) {
+        var rest = pretty.replace(/^крошка\s+/i, "").trim();
+        if (rest) return rest.toLowerCase();
+      }
+      var plain = raw;
+      try { plain = prettyProductName(raw) || raw; } catch (ePlain) {}
+      return String(plain).replace(/^крошка\s+/i, "").trim().toLowerCase();
+    }
+
+    /** Сообщение клиенту: «крошка лёгкого - 10 г» / «крошка микс - 10 г». */
     function crumbClientMessageLine_(item) {
-      var src = crumbSourcesLabel_(item, "+");
+      var names = crumbSourceNames_(item).filter(function (n) { return String(n || "").trim(); });
       var val = Number(item && (item.val != null ? item.val : item.value)) || 0;
-      if (src) return "крошка " + src + " - " + val + "г";
-      return "крошка - " + val + "г";
+      var qty = val + " г";
+      if (names.length >= 2) return "крошка микс - " + qty;
+      if (names.length === 1) return "крошка " + crumbOfferGenitive_(names[0]) + " - " + qty;
+      return "крошка - " + qty;
     }
 
     function crumbBasketTitle_(item) {
@@ -4259,12 +4283,17 @@
       var keys = [];
       if (kind === "veg") keys = ["dressura", "veg"];
       else if (kind === "meat") keys = ["dressura", "other", "veg"];
+      else if (kind === "hypo") keys = ["dressura", "other", "veg"];
       else keys = ["dressura", "other", "veg"];
       var out = [];
+      var seen = {};
       keys.forEach(function (k) {
         var cat = catalog[k] || {};
         (cat.items || []).forEach(function (n) {
-          out.push({ cat: k, name: n });
+          var name = String(n || "").trim();
+          if (!name || seen[name]) return;
+          seen[name] = true;
+          out.push({ cat: k, name: name });
         });
       });
       return out;
@@ -4388,21 +4417,25 @@
       if (crumbBuilder.kind) {
         var pool = crumbSourcePool_(crumbBuilder.kind);
         html += '<div class="muted" style="font-size:12px;margin:8px 0 4px;">Из каких позиций</div>';
+        if (!pool.length) {
+          html += '<p class="muted" style="margin:8px 0;">Нет позиций в каталоге</p>';
+        } else {
         (crumbBuilder.sources || []).forEach(function (s, i) {
           html += '<div class="crumb-src-row">' +
-            '<select onchange="crumbPickSource_(' + i + ', this.value)" style="flex:1;">' +
-            '<option value="">— позиция —</option>' +
+            '<select onchange="crumbPickSource_(' + i + ', this.value)">' +
+            '<option value="">Выбери позицию</option>' +
             pool.map(function (p) {
               return '<option value="' + escapeHtml(p.name) + '"' + (s.name === p.name ? " selected" : "") + ">" +
                 escapeHtml(p.name) + "</option>";
             }).join("") +
             "</select>" +
             ((crumbBuilder.sources.length > 1)
-              ? ('<button type="button" class="btn-action" style="margin:0;padding:6px 10px;background:#3a3a3c;" onclick="crumbRemoveSource_(' + i + ')">−</button>')
+              ? ('<button type="button" class="crumb-src-del" onclick="crumbRemoveSource_(' + i + ')">Убрать</button>')
               : "") +
             "</div>";
         });
         html += '<button type="button" class="btn-action btn-blue" style="margin:8px 0;width:100%;" onclick="crumbAddSource_()">＋ ещё позицию</button>';
+        }
         html += '<div class="form-group"><label>Количество, гр</label>' +
           '<input type="number" id="crumbGramsInput" value="' + escapeHtml(String(crumbBuilder.grams || "")) +
           '" inputmode="numeric" oninput="crumbSetGrams_(this.value)"></div>';
@@ -24356,12 +24389,13 @@
     }
 
     function buildPriceCompositionBlocks(list) {
-      var order = ["dressura", "chew", "other", "veg"];
+      var order = ["dressura", "chew", "other", "veg", "crumb"];
       var titles = {
         dressura: "Дрессура",
         chew: "Жевалки",
         other: "Другое",
-        veg: "Овощи/фрукты"
+        veg: "Овощи/фрукты",
+        crumb: "Присыпки"
       };
       var byCat = {};
       (list || []).forEach(function (it) {
