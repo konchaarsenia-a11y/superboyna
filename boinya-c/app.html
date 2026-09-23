@@ -2673,7 +2673,7 @@
             <label>Ответы анкеты (вставь из Instagram)</label>
             <textarea id="pricePickPaste" class="ig-paste" rows="10" placeholder="Ответы клиента по пунктам…&#10;&#10;Лайки, исключения (курица/рыба), обязательное (лёгкое, бычий корень), бюджет, вес, нарезка.&#10;Можно строками: ЛЁГКОЕ — 100 г (среднее)"></textarea>
           </div>
-          <div class="muted" id="pricePickHint" style="font-size:12px;margin:0 0 10px;">Сначала тип. «Подобрать» собирает один состав на этой странице — граммы можно менять. «В расчёт» кладёт его в слот.</div>
+          <div class="muted" id="pricePickHint" style="font-size:12px;margin:0 0 10px;">Сначала тип. «Подобрать» собирает состав на этой странице. БП1 и БП2 — без цены, кнопка «Готов оффер». Подписка и розница — «В расчёт».</div>
           <div class="batch-bar-row" style="margin:0;gap:8px;flex-wrap:wrap;">
             <button type="button" class="btn-action btn-orange" style="flex:1.4;margin:0;" id="btnPricePickRun" onclick="runPricePickFromAnket_()">Подобрать</button>
             <button type="button" class="btn-action" style="flex:0 0 auto;margin:0;padding:10px 12px;background:#3a3a3c;" onclick="clearPricePickPanel_()">Очистить</button>
@@ -2682,6 +2682,11 @@
         <div id="pricePickEditor" style="display:none;">
           <div class="section-title">Состав подбора</div>
           <div id="pricePickPreview"></div>
+          <div id="pricePickOfferWrap" style="display:none;margin-top:8px;">
+            <div class="section-title">Текст клиенту</div>
+            <textarea id="pricePickOffer" class="ig-paste" rows="12" oninput="pricePickOfferEdited_()"></textarea>
+            <div class="muted" style="font-size:12px;margin:6px 0 0;">Пробная коробка без цены. Можно поправить текст и нажать «Готов оффер».</div>
+          </div>
           <div class="batch-bar-row" style="margin:4px 0 0;gap:8px;flex-wrap:wrap;">
             <button type="button" class="btn-action btn-orange" style="flex:1.4;margin:0;" id="btnPricePickApply" onclick="applyPricePickToCalc_()">В расчёт</button>
             <button type="button" class="btn-action btn-blue" style="flex:1;margin:0;" id="btnPricePickAgain" onclick="pricePickAgain_()">Подобрать ещё</button>

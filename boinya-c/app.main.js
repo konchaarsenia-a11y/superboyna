@@ -19218,8 +19218,13 @@
 
       var must = [];
       function pushMust(chunk) {
-        skusInText_(chunk).forEach(function (n) {
-          if (must.indexOf(n) < 0) must.push(n);
+        String(chunk || "").split(/\s*[;\n]\s*|(?:,\s*)(?=\bне\b)/i).forEach(function (part) {
+          var p = String(part || "").trim();
+          if (!p || /^(?:не|без)(?:\s|$)/i.test(p)) return;
+          var clean = p.split(/\s+не\s+/i)[0];
+          skusInText_(clean).forEach(function (n) {
+            if (must.indexOf(n) < 0) must.push(n);
+          });
         });
       }
       var mustRe = /(?:обязательно|точно\s+нуж\w*|нуж(?:ен|но|на|ны)|хочу|пусть\s+будет)\s+([^.\n]{2,70})/gi;
@@ -19313,6 +19318,10 @@
       var delM = text.match(/(\d+)\s*доставк/i);
       if (delM) deliveriesN = Math.max(1, Math.min(8, Number(delM[1]) || 1));
 
+      var petName = "";
+      var petM = text.match(/(?:питомец|кличка)\s+([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-]{1,24})/i);
+      if (petM) petName = petM[1];
+
       return {
         liked: liked,
         disliked: disliked,
@@ -19333,6 +19342,7 @@
         familyNotes: familyNotes,
         lineItems: parsedLines.items || [],
         noteBits: noteBits,
+        petName: petName,
         rawLen: text.length
       };
     }
@@ -19600,14 +19610,331 @@
       });
     }
 
+    var PRICE_PICK_EX_KEY_ = "boinya_c_pick_examples_v1";
+
+    /** Строки чеклиста, которые реально есть в каталоге. «35 кг» и «бюджет 50–80» сюда не попадают. */
+    function pricePickCatalogLines_(lines) {
+      var known = buildIgKnownMap();
+      var out = [];
+      (lines || []).forEach(function (it) {
+        if (!it) return;
+        var up = pricePickNormUp_(it.main || it.name);
+        if (!up || /БЮДЖЕТ|РАСХОД|ПОРОД|ВОЗРАСТ|КЛИЧК|ВЕС\b/.test(up)) return;
+        var hit = known[up] || known[igAliasResolve(up)];
+        if (!hit) return;
+        var v = Number(it.value != null ? it.value : it.val) || 0;
+        if (!(v > 0)) return;
+        var piece = hit.cat === "chew";
+        if (piece && v > 40) return;
+        if (!piece && v > 2000) return;
+        var copy = Object.assign({}, it);
+        copy.cat = hit.cat;
+        copy.main = hit.name;
+        copy.name = hit.name;
+        copy.value = v;
+        copy.val = v;
+        out.push(copy);
+      });
+      return out;
+    }
+
+    function pricePickFlags_(signals) {
+      var s = signals || {};
+      var fam = s.familyNotes || [];
+      var liked = (s.liked || []).concat(s.must || []);
+      var hate = s.disliked || [];
+      function has(name) { return liked.indexOf(name) >= 0; }
+      return {
+        weightKg: Number(s.weightKg) || 0,
+        puppy: !!s.puppy,
+        noChicken: fam.indexOf("курица") >= 0 || fam.indexOf("птица") >= 0 || hate.indexOf("УХО К") >= 0,
+        noFish: fam.indexOf("рыба") >= 0,
+        likeLung: has("ЛЁГКОЕ"),
+        likeRoot: has("БЫЧИЙ КОРЕНЬ"),
+        hateTrachea: hate.indexOf("ТРАХЕЯ") >= 0
+      };
+    }
+
+    function pricePickExampleScore_(ex, flags) {
+      if (!ex || !flags) return 0;
+      var sc = 0;
+      function bit(a, b, w) {
+        var left = !!a;
+        var right = !!b;
+        if (!left && !right) return;
+        sc += (left === right) ? w : -w;
+      }
+      bit(flags.noChicken, ex.noChicken, 3);
+      bit(flags.noFish, ex.noFish, 3);
+      bit(flags.likeLung, ex.likeLung, 2);
+      bit(flags.likeRoot, ex.likeRoot, 2);
+      bit(flags.puppy, ex.puppy, 3);
+      bit(flags.hateTrachea, ex.hateTrachea, 2);
+      var kg = Number(flags.weightKg) || 0;
+      var exKg = Number(ex.weightKg) || 0;
+      if (kg && exKg) {
+        var ratio = kg / exKg;
+        if (ratio >= 0.8 && ratio <= 1.25) sc += 4;
+        else if (ratio >= 0.55 && ratio <= 1.6) sc += 1;
+        else sc -= 3;
+      }
+      return sc;
+    }
+
+    function pricePickCanonExamples_() {
+      function row(cat, main, value, sub) {
+        return { cat: cat, main: main, name: main, sub: sub || "", value: value, val: value };
+      }
+      return [
+        {
+          id: "canon-jay-bp1",
+          source: "direct",
+          target: "bp1",
+          weightKg: 35,
+          puppy: false,
+          noChicken: false,
+          noFish: true,
+          likeLung: true,
+          likeRoot: false,
+          hateTrachea: true,
+          anketaText: "Выжла 35 кг, нужно лёгкое, не трахея, аллергия на рыбу, бюджет 50–80, мелкие кубики.",
+          items: [
+            row("dressura", "ЛЁГКОЕ", 40, "Мелкое"),
+            row("dressura", "СЕРДЦЕ", 15, "Мелкое"),
+            row("dressura", "РУБЕЦ Т", 10, "Мелкое"),
+            row("chew", "ЛОП ХРЯЩ шт.", 1, ""),
+            row("chew", "АОРТА", 1, ""),
+            row("veg", "ТЫКВА", 5, ""),
+            row("veg", "БАТАТ", 5, "")
+          ]
+        },
+        {
+          id: "canon-jay-bp2",
+          source: "direct",
+          target: "bp2",
+          weightKg: 35,
+          puppy: false,
+          noChicken: false,
+          noFish: true,
+          likeLung: true,
+          likeRoot: false,
+          hateTrachea: true,
+          anketaText: "Выжла 35 кг, вторая коробка: лёгкое, почки, корень, тыква и банан.",
+          items: [
+            row("dressura", "ЛЁГКОЕ", 60, "Мелкое"),
+            row("dressura", "ПОЧКИ", 15, "Мелкое"),
+            row("chew", "БЫЧИЙ КОРЕНЬ", 1, "СРЕД"),
+            row("veg", "ТЫКВА", 10, ""),
+            row("veg", "БАНАНЫ", 10, "")
+          ]
+        },
+        {
+          id: "canon-twix-bp1",
+          source: "direct",
+          target: "bp1",
+          weightKg: 11,
+          puppy: false,
+          noChicken: true,
+          noFish: false,
+          likeLung: true,
+          likeRoot: false,
+          hateTrachea: false,
+          anketaText: "Беспородная 9 мес 11 кг, любит лёгкое и трахею, аллергия на курицу.",
+          items: [
+            row("dressura", "ЛЁГКОЕ", 50, "Среднее"),
+            row("dressura", "СЕРДЦЕ", 20, "Среднее"),
+            row("dressura", "РУБЕЦ Т", 15, "Среднее"),
+            row("chew", "ТРАХЕЯ", 1, ""),
+            row("chew", "ЛОП ХРЯЩ шт.", 1, ""),
+            row("veg", "ТЫКВА", 10, ""),
+            row("veg", "БАТАТ", 10, "")
+          ]
+        },
+        {
+          id: "canon-twix-bp2",
+          source: "direct",
+          target: "bp2",
+          weightKg: 11,
+          puppy: false,
+          noChicken: true,
+          noFish: false,
+          likeLung: true,
+          likeRoot: false,
+          hateTrachea: false,
+          anketaText: "Беспородная 11 кг, вторая коробка, без курицы, больше лёгкого.",
+          items: [
+            row("dressura", "ЛЁГКОЕ", 75, "Среднее"),
+            row("dressura", "СЕРДЦЕ", 25, "Среднее"),
+            row("dressura", "ПОЧКИ", 20, "Среднее"),
+            row("chew", "ТРАХЕЯ", 1, ""),
+            row("chew", "СТАНОВАЯ ЖИЛА", 4, ""),
+            row("chew", "ЛОП ХРЯЩ шт.", 1, ""),
+            row("veg", "ЯБЛОКИ", 10, ""),
+            row("veg", "МОРКОВЬ", 10, "")
+          ]
+        },
+        {
+          id: "canon-cheddar-bp2",
+          source: "direct",
+          target: "bp2",
+          weightKg: 8.3,
+          puppy: false,
+          noChicken: true,
+          noFish: false,
+          likeLung: true,
+          likeRoot: true,
+          hateTrachea: false,
+          anketaText: "Такса 8.3 кг, нужны корень и лёгкое, не рубец, без курицы и птицы, малые корни, 700 г лёгкого.",
+          items: [
+            row("dressura", "ЛЁГКОЕ", 70, "Среднее"),
+            row("dressura", "СЕРДЦЕ", 20, "Ломтики"),
+            row("dressura", "ПОЧКИ", 20, "Ломтики"),
+            row("chew", "ЛОП ХРЯЩ шт.", 1, ""),
+            row("chew", "БЫЧИЙ КОРЕНЬ", 1, "МАЛ"),
+            row("other", "ВЫМЯ", 10, ""),
+            row("other", "СЕМЕННИКИ", 10, "")
+          ]
+        },
+        {
+          id: "canon-cheddar-pp",
+          source: "direct",
+          target: "pp",
+          weightKg: 8.3,
+          puppy: false,
+          noChicken: true,
+          noFish: false,
+          likeLung: true,
+          likeRoot: true,
+          hateTrachea: false,
+          anketaText: "Такса, подписка: лёгкое по расходу и малый бычий корень.",
+          items: [
+            row("dressura", "ЛЁГКОЕ", 350, "Среднее"),
+            row("dressura", "СЕРДЦЕ", 80, "Ломтики"),
+            row("chew", "БЫЧИЙ КОРЕНЬ", 8, "МАЛ"),
+            row("other", "ВЫМЯ", 20, "")
+          ]
+        },
+        {
+          id: "canon-luntik-bp1",
+          source: "direct",
+          target: "bp1",
+          weightKg: 0,
+          puppy: true,
+          noChicken: false,
+          noFish: false,
+          likeLung: false,
+          likeRoot: false,
+          hateTrachea: false,
+          anketaText: "Щенок около 6 месяцев, первая пробная коробка.",
+          items: [
+            row("dressura", "ЛЁГКОЕ", 15, "Среднее"),
+            row("dressura", "СЕРДЦЕ", 10, "Среднее"),
+            row("chew", "ТРАХЕЯ", 2, ""),
+            row("chew", "СТАНОВАЯ ЖИЛА", 2, ""),
+            row("veg", "ЯБЛОКИ", 5, ""),
+            row("veg", "ТЫКВА", 5, "")
+          ]
+        }
+      ];
+    }
+
+    function pricePickReadStoredExamples_() {
+      try {
+        if (typeof localStorage === "undefined") return [];
+        var raw = localStorage.getItem(PRICE_PICK_EX_KEY_);
+        var list = raw ? JSON.parse(raw) : [];
+        return Array.isArray(list) ? list : [];
+      } catch (eRead) {
+        return [];
+      }
+    }
+
+    function pricePickWriteStoredExamples_(list) {
+      var slim = (list || []).slice(0, 40);
+      try {
+        if (typeof localStorage !== "undefined") localStorage.setItem(PRICE_PICK_EX_KEY_, JSON.stringify(slim));
+      } catch (eLs) {}
+      try {
+        if (window.BoinyaCIdb && typeof window.BoinyaCIdb.setMeta === "function") {
+          window.BoinyaCIdb.setMeta(PRICE_PICK_EX_KEY_, slim);
+        }
+      } catch (eIdb) {}
+      return slim;
+    }
+
+    function pricePickFindExample_(signals, target) {
+      var flags = pricePickFlags_(signals);
+      var best = null;
+      var bestScore = 7;
+      function consider(ex) {
+        if (!ex || ex.target !== target || !ex.items || !ex.items.length) return;
+        var sc = pricePickExampleScore_(ex, flags);
+        if (sc > bestScore) {
+          bestScore = sc;
+          best = ex;
+        }
+      }
+      pricePickReadStoredExamples_().forEach(consider);
+      pricePickCanonExamples_().forEach(consider);
+      return best;
+    }
+
+    function pricePickFromExample_(ex, signals, target) {
+      var list = (ex.items || []).map(function (it) {
+        var copy = Object.assign({}, it);
+        var v = Number(copy.value != null ? copy.value : copy.val) || 0;
+        copy.value = v;
+        copy.val = v;
+        copy.main = copy.main || copy.name;
+        copy.name = copy.main;
+        return copy;
+      });
+      list = pricePickExcludeNames_(list, signals.disliked);
+      var have = {};
+      list.forEach(function (it) {
+        have[String(it.main || it.name || "").toUpperCase()] = true;
+      });
+      var offer = pricePickOfferLines_(signals, target);
+      (signals.must || []).concat(signals.liked || []).forEach(function (name) {
+        var up = String(name || "").toUpperCase();
+        if (!up || have[up]) return;
+        var fromOffer = null;
+        for (var i = 0; i < offer.length; i++) {
+          if (String(offer[i].main || offer[i].name || "").toUpperCase() === up) {
+            fromOffer = offer[i];
+            break;
+          }
+        }
+        var add = fromOffer
+          ? Object.assign({}, fromOffer)
+          : pricePickItemFromSku_(name, null, signals.fracPref);
+        if (!add) return;
+        list.push(add);
+        have[up] = true;
+      });
+      if (signals.weightKg && ex.weightKg) {
+        var ratio = signals.weightKg / ex.weightKg;
+        if (ratio < 0.8 || ratio > 1.25) {
+          list = pricePickScaleItems_(list, Math.max(0.55, Math.min(1.8, ratio)), { fracPref: signals.fracPref });
+        }
+      }
+      list = pricePickOrderSections_(list).filter(function (it) {
+        return it && (it.main || it.name) && (Number(it.value) > 0);
+      });
+      if (list.length < 3) return null;
+      return list;
+    }
+
     function pricePickComposeForTarget_(signals, target) {
       signals = signals || {};
       target = priceModeKey(target);
-      var lines = signals.lineItems || [];
-      var explicit = lines.length >= 2;
-      var list;
+      var catalogLines = pricePickCatalogLines_(signals.lineItems || []);
+      var explicit = catalogLines.length >= 2;
+      var list = null;
+      var exampleNote = "";
+      var exampleId = "";
       if (explicit) {
-        list = lines.map(function (it) {
+        list = catalogLines.map(function (it) {
           var copy = Object.assign({}, it);
           if (!copy.sub && copy.cat !== "veg") {
             copy.sub = pricePickDefaultFrac_(copy.cat, copy.main || copy.name, signals.fracPref);
@@ -19620,16 +19947,180 @@
         list = pricePickOrderSections_(list).filter(function (it) {
           return it && (it.main || it.name) && (Number(it.value) > 0 || Number(it.val) > 0);
         });
-      } else {
-        list = pricePickOfferLines_(signals, target);
+        if (list.length < 2) explicit = false;
       }
+      if (!explicit) {
+        var ex = pricePickFindExample_(signals, target);
+        var fromEx = ex ? pricePickFromExample_(ex, signals, target) : null;
+        if (fromEx && fromEx.length) {
+          list = fromEx;
+          exampleId = ex.id || "";
+          exampleNote = ex.source === "manager"
+            ? "За основу — сохранённый подбор."
+            : "За основу — похожий пример из Direct.";
+        } else {
+          list = pricePickOfferLines_(signals, target);
+        }
+      }
+      if (!explicit && (!list || list.length < 3)) {
+        var offer = pricePickOfferLines_(signals, target);
+        if (!list || offer.length > list.length) list = offer;
+      }
+      if (!list || !list.length) {
+        list = pricePickExcludeNames_(pricePickDefaultStarter_(), signals.disliked || []);
+      }
+      var sparse = !explicit && !exampleId &&
+        !(signals.liked && signals.liked.length) &&
+        !(signals.must && signals.must.length) &&
+        !(signals.mentioned && signals.mentioned.length);
       return {
         target: target,
-        items: list,
+        items: list || [],
         signals: signals,
-        usedDefault: !explicit && !(signals.liked && signals.liked.length) &&
-          !(signals.must && signals.must.length) && !(signals.mentioned && signals.mentioned.length)
+        usedDefault: !!sparse,
+        exampleNote: exampleNote,
+        exampleId: exampleId
       };
+    }
+
+    function pricePickSkuTitle_(name) {
+      var n = String(name || "");
+      var map = {
+        "ЛЁГКОЕ": "Лёгкое",
+        "СЕРДЦЕ": "Сердце",
+        "РУБЕЦ Т": "Рубец",
+        "ПОЧКИ": "Почки",
+        "БАРАНЬЕ ЛЁГКОЕ": "Баранье лёгкое",
+        "БЫЧИЙ КОРЕНЬ": "Бычий корень",
+        "ТРАХЕЯ": "Трахея",
+        "АОРТА": "Аорта",
+        "УХО Г": "Говяжье ухо",
+        "УХО К": "Куриное ухо",
+        "НОСЫ шт.": "Носик",
+        "СТАНОВАЯ ЖИЛА": "Становая жила",
+        "ЛОП ХРЯЩ шт.": "Лопаточный хрящ",
+        "ПЕРЕПЁЛКИ шт.": "Перепёлка",
+        "УТИНЫЕ ШЕИ шт.": "Утиная шея",
+        "КОЛЕНИ шт.": "Колено",
+        "ГУБЫ шт.": "Губы",
+        "ТЫКВА": "Тыква",
+        "БАТАТ": "Батат",
+        "ЯБЛОКИ": "Яблоки",
+        "МОРКОВЬ": "Морковь",
+        "БАНАНЫ": "Банан",
+        "КАБАЧОК": "Кабачок",
+        "ВЫМЯ": "Вымя",
+        "СЕМЕННИКИ": "Семенники",
+        "ИНДЕЙКА": "Индейка",
+        "ПЕЧЕНЬ": "Печень"
+      };
+      return map[n] || map[n.toUpperCase()] || n;
+    }
+
+    function pricePickOfferText_(signals, target, items) {
+      signals = signals || {};
+      var who = signals.petName ? (" для " + signals.petName) : "";
+      var lines = [];
+      if (target === "bp2") lines.push("С учётом ваших ответов собрала вторую пробную коробку" + who + ".");
+      else if (target === "bp1") lines.push("С учётом ваших ответов собрала первую пробную коробку" + who + ".");
+      else if (target === "retail") lines.push("С учётом ваших ответов собрала розничный набор" + who + ".");
+      else lines.push("С учётом ваших ответов собрала набор на подписку" + who + ".");
+      lines.push("");
+      var last = "";
+      (items || []).forEach(function (it) {
+        var title = pricePickSectionTitle_(it.cat);
+        if (title !== last) {
+          if (last) lines.push("");
+          lines.push(title);
+          last = title;
+        }
+        var unit = it.cat === "chew" ? "шт" : "г";
+        var sub = "";
+        if (it.sub === "ПОЛОВИНКА") sub = " (пополам)";
+        else if (it.sub) sub = " (" + String(it.sub).toLowerCase() + ")";
+        var val = it.value != null ? it.value : it.val;
+        lines.push(pricePickSkuTitle_(it.main || it.name) + " — " + val + " " + unit + sub);
+      });
+      lines.push("");
+      var why = [];
+      if (signals.disliked && signals.disliked.length) {
+        why.push("Не беру: " + signals.disliked.map(pricePickSkuTitle_).join(", ") + ".");
+      }
+      if (signals.familyNotes && signals.familyNotes.length) {
+        why.push("Исключила: " + signals.familyNotes.join(", ") + ".");
+      }
+      if (signals.must && signals.must.length) {
+        why.push("Обязательно оставила: " + signals.must.map(pricePickSkuTitle_).join(", ") + ".");
+      }
+      if (signals.fracPref) why.push("Нарезку подстрою под то, как удобнее отдавать.");
+      if (why.length) lines.push(why.join(" "));
+      if (target === "bp1") {
+        lines.push("Первая пробная неделя: посмотрите, что ест спокойно и что обходит. По реакции соберём вторую коробку.");
+      } else if (target === "bp2") {
+        lines.push("Вторая пробная неделя: смотрим, что закрепилось после первой коробки и что лучше заменить.");
+      } else if (target === "retail") {
+        lines.push("Это розница. Если расход станет регулярным, можно перейти на подписку — состав тот же, цену посчитаю отдельно.");
+      } else {
+        var n = signals.deliveriesN || 1;
+        var word = n === 1 ? "доставка" : (n < 5 ? "доставки" : "доставок");
+        lines.push("Подписка: " + n + " " + word + " в месяц, связь 24/7, можно подключить партнёра. Цену посчитаю отдельно, в этом тексте её нет.");
+      }
+      lines.push("");
+      lines.push("Как вам такой состав? Готовы попробовать?");
+      return lines.join("\n");
+    }
+
+    function pricePickItemsKey_(items) {
+      return (items || []).map(function (it) {
+        return [
+          String(it.main || it.name || ""),
+          String(it.sub || ""),
+          String(it.value != null ? it.value : it.val)
+        ].join("|");
+      }).join(";");
+    }
+
+    function pricePickRememberExample_(payload) {
+      if (!payload || !payload.anketaText) return false;
+      var nowKey = pricePickItemsKey_(payload.items);
+      if (!payload.autoKey || nowKey === payload.autoKey) return false;
+      var flags = pricePickFlags_(payload.signals || {});
+      var text = String(payload.anketaText).slice(0, 2000);
+      var row = {
+        id: "mgr-" + Date.now(),
+        source: "manager",
+        target: payload.target,
+        anketaText: text,
+        items: (payload.items || []).filter(function (it) {
+          return it && (Number(it.value) > 0 || Number(it.val) > 0);
+        }).map(function (it) {
+          var v = Number(it.value != null ? it.value : it.val) || 0;
+          return {
+            cat: it.cat || "",
+            main: it.main || it.name,
+            name: it.main || it.name,
+            sub: it.sub || "",
+            value: v,
+            val: v
+          };
+        }),
+        weightKg: flags.weightKg,
+        puppy: flags.puppy,
+        noChicken: flags.noChicken,
+        noFish: flags.noFish,
+        likeLung: flags.likeLung,
+        likeRoot: flags.likeRoot,
+        hateTrachea: flags.hateTrachea,
+        savedAt: new Date().toISOString()
+      };
+      if (!row.items.length) return false;
+      var head = text.slice(0, 180);
+      var list = pricePickReadStoredExamples_().filter(function (ex) {
+        return !(ex && ex.target === row.target && String(ex.anketaText || "").slice(0, 180) === head);
+      });
+      list.unshift(row);
+      pricePickWriteStoredExamples_(list);
+      return true;
     }
 
     function formatPickPreviewLine_(it) {
@@ -19661,23 +20152,29 @@
       if (!payload || !payload.items || !payload.items.length) {
         box.innerHTML = "";
         if (editor) editor.style.display = "none";
+        var offerWrap = document.getElementById("pricePickOfferWrap");
+        if (offerWrap) offerWrap.style.display = "none";
         return;
       }
       var sig = payload.signals || {};
       var html = '<div class="muted" style="font-size:12px;margin:0 0 8px;">';
       html += escapeHtml(priceModeLabel_(payload.target)) + " · " + payload.items.length + " поз. ";
-      if (payload.usedDefault) html += "Явных позиций мало — стартовый набор. ";
+      if (payload.exampleNote) html += escapeHtml(payload.exampleNote) + " ";
+      else if (payload.usedDefault) html += "Мало названий в тексте — пробный набор по типу и весу. ";
       if (sig.must && sig.must.length) html += "Обязательно: " + escapeHtml(sig.must.join(", ")) + ". ";
       if (sig.liked && sig.liked.length) html += "Лайки: " + escapeHtml(sig.liked.join(", ")) + ". ";
       if (sig.disliked && sig.disliked.length) html += "Без: " + escapeHtml(sig.disliked.join(", ")) + ". ";
       if (sig.familyNotes && sig.familyNotes.length) html += "Исключили: " + escapeHtml(sig.familyNotes.join(", ")) + ". ";
       if (sig.qty === "low") html += "Мало было → чуть больше. ";
       if (sig.qty === "high") html += "С запасом → чуть меньше. ";
-      if (sig.budgetByn) html += "Бюджет ~" + sig.budgetByn + ". ";
+      var trialPick = payload.target === "bp1" || payload.target === "bp2";
+      if (sig.budgetByn && !trialPick) html += "Бюджет ~" + sig.budgetByn + ". ";
       if (sig.weightKg) html += "Вес " + sig.weightKg + " кг. ";
       if (sig.monthlyLungG) html += "Расход лёгкого ~" + sig.monthlyLungG + " г. ";
       if (sig.puppy) html += "Щенок. ";
-      html += "Правь граммы, потом «В расчёт».</div>";
+      html += trialPick
+        ? "Правь граммы. «Готов оффер» — текст клиенту, без цены.</div>"
+        : "Правь граммы, потом «В расчёт».</div>";
       var lastCat = "";
       payload.items.forEach(function (it, idx) {
         var title = pricePickSectionTitle_(it.cat);
@@ -19703,7 +20200,30 @@
       });
       box.innerHTML = html;
       if (editor) editor.style.display = "";
+      pricePickSyncOffer_(payload);
     }
+
+    function pricePickSyncOffer_(payload) {
+      var wrap = document.getElementById("pricePickOfferWrap");
+      var ta = document.getElementById("pricePickOffer");
+      var applyBtn = document.getElementById("btnPricePickApply");
+      var trial = payload && (payload.target === "bp1" || payload.target === "bp2");
+      if (wrap) wrap.style.display = trial ? "" : "none";
+      if (applyBtn && payload) applyBtn.textContent = trial ? "Готов оффер" : "В расчёт";
+      if (!trial || !ta || !payload) return;
+      if (payload.offerDirty) return;
+      payload.offerText = pricePickOfferText_(payload.signals, payload.target, payload.items);
+      if (document.activeElement !== ta) ta.value = payload.offerText;
+    }
+
+    function pricePickOfferEdited_() {
+      var payload = pricePickSuggestions_;
+      var ta = document.getElementById("pricePickOffer");
+      if (!payload || !ta) return;
+      payload.offerDirty = true;
+      payload.offerText = ta.value;
+    }
+    window.pricePickOfferEdited_ = pricePickOfferEdited_;
 
     function pricePickSetRowValue_(idx, raw) {
       var payload = pricePickSuggestions_;
@@ -19712,6 +20232,7 @@
       if (!isFinite(n) || n < 0) n = 0;
       payload.items[idx].value = n;
       payload.items[idx].val = n;
+      if (!payload.offerDirty) pricePickSyncOffer_(payload);
     }
     window.pricePickSetRowValue_ = pricePickSetRowValue_;
 
@@ -19769,6 +20290,8 @@
         if (el) el.classList.remove("active");
       });
       renderPricePickPreview_(null);
+      var offerWrap = document.getElementById("pricePickOfferWrap");
+      if (offerWrap) offerWrap.style.display = "none";
       showToast("Подбор очищен");
     }
     window.clearPricePickPanel_ = clearPricePickPanel_;
@@ -19838,9 +20361,14 @@
         return;
       }
       payload.items = pricePickCloneItems_(payload.items);
+      payload.anketaText = raw;
+      payload.autoKey = pricePickItemsKey_(payload.items);
+      payload.offerDirty = false;
       pricePickSuggestions_ = payload;
       renderPricePickPreview_(payload);
-      showToast(priceModeLabel_(payload.target) + " собран — правь строки и нажми «В расчёт»");
+      var trialRun = payload.target === "bp1" || payload.target === "bp2";
+      showToast(priceModeLabel_(payload.target) + " собран — " + payload.items.length + " поз." +
+        (trialRun ? ", без цены" : ""));
       try {
         var editor = document.getElementById("pricePickEditor");
         if (editor && editor.scrollIntoView) editor.scrollIntoView({ block: "nearest" });
@@ -19865,11 +20393,25 @@
         target: payload.target,
         items: pricePickCloneItems_(items),
         signals: payload.signals || {},
-        usedDefault: !!payload.usedDefault
+        usedDefault: !!payload.usedDefault,
+        anketaText: payload.anketaText || "",
+        autoKey: payload.autoKey || ""
       };
+      var savedEx = false;
+      try { savedEx = pricePickRememberExample_(next); } catch (eEx) { savedEx = false; }
+      if (next.target === "bp1" || next.target === "bp2") {
+        var offerTa = document.getElementById("pricePickOffer");
+        var offerText = offerTa ? String(offerTa.value || "") : (payload.offerText || "");
+        if (!offerText) offerText = pricePickOfferText_(next.signals, next.target, next.items);
+        copyText(offerText).then(function (ok) {
+          showToast((ok ? "Оффер скопирован" : "Оффер готов") + " — без цены" +
+            (savedEx ? " · пример сохранён" : ""));
+        });
+        return;
+      }
       setPriceShell_("calc", { noScroll: true });
       applyPricePickOne_(next);
-      showToast(priceModeLabel_(next.target) + " в расчёте");
+      showToast(priceModeLabel_(next.target) + " в расчёте" + (savedEx ? " · пример сохранён" : ""));
     }
     window.applyPricePickToCalc_ = applyPricePickToCalc_;
 
