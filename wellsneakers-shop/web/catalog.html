@@ -1,0 +1,1153 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>sneakerworld — каталог</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css?v=ux9" />
+    <!-- favicon: keep identical on index.html + catalog.html -->
+    <link rel="icon" href="favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
+    <link rel="icon" type="image/png" href="assets/logo.png" />
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+    <style>
+      .prod-placeholder{
+        height:180px;background:
+          radial-gradient(circle at 30% 30%, rgba(79,212,255,.12), transparent 50%),
+          linear-gradient(160deg,#1a1b1f,#121316);
+        display:grid;place-items:center;border-bottom:1px solid var(--line);
+        font-family:var(--display);font-size:42px;letter-spacing:.08em;color:rgba(255,255,255,.18);
+      }
+      .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:80;display:none}
+      .modal-bg.open{display:block}
+      .modal{position:fixed;left:0;right:0;bottom:0;z-index:81;width:min(480px,100%);margin:0 auto;
+        background:#151618;border:1px solid var(--line);border-radius:20px 20px 0 0;padding:16px 18px 24px;
+        transform:translateY(110%);transition:transform .22s ease}
+      .modal.open{transform:translateY(0)}
+      .modal h3{margin:0 0 12px;font-family:var(--display);font-size:28px;letter-spacing:.06em;text-transform:uppercase;font-weight:400}
+      .modal label{display:block;color:var(--muted);font-size:12px;margin:8px 0 4px}
+      .modal input,.modal select{width:100%;min-height:44px;border-radius:10px;border:1px solid var(--line);background:#121316;color:var(--ink);padding:0 12px}
+      .modal .actions{display:grid;gap:8px;margin-top:14px}
+      .count-pill{color:var(--muted);font-size:13px;font-weight:600;margin:2px 0 10px}
+    </style>
+  </head>
+  <body class="page-catalog">
+    <div class="overscroll-toys" aria-hidden="true">
+      <span class="toy t1"><img src="assets/h1.jpg" alt="" /></span>
+      <span class="toy t2"><img src="assets/clean1.jpg" alt="" /></span>
+      <span class="toy t3"><img src="assets/h2.jpg" alt="" /></span>
+      <span class="toy t4"><img src="assets/clean2.jpg" alt="" /></span>
+      <span class="toy t5"><img src="assets/clean3.jpg" alt="" /></span>
+    </div>
+
+    <header class="top" id="siteHeader">
+      <div class="top-inner">
+        <a class="brand" href="index.html">
+          <img class="logo-img" src="assets/logo.png" alt="" width="40" height="40" />
+          <div>
+            <h1>sneakerworld</h1>
+            <small>Каталог · Минск</small>
+          </div>
+        </a>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="catalog-section">
+        <div class="head">
+          <h3>Каталог</h3>
+        </div>
+
+        <div id="filtersHome">
+        <div class="collections-block" id="filtersStack">
+          <div class="collection-chips" id="collectionRow" role="group" aria-label="Подборки">
+            <button type="button" class="collection-chip" data-color="white" aria-pressed="false">
+              <span class="collection-chip-thumb" aria-hidden="true">
+                <img src="assets/chips/chip-white-256.png?v=3" alt="" width="40" height="40" />
+              </span>
+              <span class="collection-chip-label">Белые</span>
+            </button>
+            <button type="button" class="collection-chip" data-color="bright" aria-pressed="false">
+              <span class="collection-chip-thumb" aria-hidden="true">
+                <img src="assets/chips/chip-bright-256.png?v=3" alt="" width="40" height="40" />
+              </span>
+              <span class="collection-chip-label">Яркие</span>
+            </button>
+            <button type="button" class="collection-chip" data-color="black" aria-pressed="false">
+              <span class="collection-chip-thumb" aria-hidden="true">
+                <img src="assets/chips/chip-strict-256.png?v=3" alt="" width="40" height="40" />
+              </span>
+              <span class="collection-chip-label">Строгие</span>
+            </button>
+            <button type="button" class="collection-chip collection-chip-sale" id="saleChip" data-collection="sale" aria-pressed="false">
+              <span class="collection-chip-thumb" aria-hidden="true">
+                <img src="assets/chips/chip-sale-256.png?v=3" alt="" width="40" height="40" />
+              </span>
+              <span class="collection-chip-label">Скидки</span>
+            </button>
+          </div>
+          <div class="filter-row gender-chips" id="genderRow" aria-label="Мужское или женское">
+            <button type="button" class="street-opt" data-gender="men">Мужское</button>
+            <button type="button" class="street-opt" data-gender="women">Женское</button>
+          </div>
+        </div>
+
+        <div class="filters sticky-filters" id="catalogFilters">
+          <div class="street-toggles">
+            <button type="button" class="street-drop filter-toggle" id="toggleBrands" aria-expanded="false">
+              <span class="street-drop-label" id="brandsLabel">Все бренды</span>
+              <span class="street-drop-ico" aria-hidden="true">▾</span>
+            </button>
+            <button type="button" class="street-drop filter-toggle" id="toggleSizes" aria-expanded="false">
+              <span class="street-drop-label" id="sizesLabel">Все размеры</span>
+              <span class="street-drop-ico" aria-hidden="true">▾</span>
+            </button>
+          </div>
+          <div class="filter-panel street-panel" id="brandsPanel" hidden>
+            <div class="filter-row" id="brandsRow" aria-label="Бренды"></div>
+          </div>
+          <div class="filter-panel street-panel" id="sizesPanel" hidden>
+            <div class="filter-row" id="sizesRow" aria-label="Размеры"></div>
+          </div>
+          <div style="margin-top:10px">
+            <input class="street-drop" id="qFilter" placeholder="Поиск: модель или артикул" style="width:100%;transform:none;appearance:auto" />
+          </div>
+        </div>
+        </div>
+
+        <div class="count-pill" id="catalogCount">Загрузка…</div>
+        <div class="empty" id="catalogEmpty">Ничего не найдено. Сбросьте фильтр.</div>
+        <div class="catalog-grid" id="catalogList"></div>
+      </section>
+    </main>
+
+    <button type="button" class="filters-fab" id="filtersFab" aria-label="Фильтры" aria-expanded="false" aria-controls="filtersSide">
+      <span class="filters-fab-ico" aria-hidden="true"><span></span><span></span><span></span></span>
+    </button>
+    <div class="filters-backdrop" id="filtersBackdrop" hidden></div>
+    <aside class="filters-side" id="filtersSide" aria-hidden="true">
+      <div class="filters-side-head">
+        <h3>Фильтры</h3>
+        <button type="button" class="filters-side-close" id="filtersClose" aria-label="Закрыть фильтры">✕</button>
+      </div>
+      <div class="filters-side-body" id="filtersSideBody"></div>
+    </aside>
+    <div class="dock" id="catalogDock">
+      <div class="dock-inner">
+        <a class="btn-catalog" href="index.html">Главная</a>
+        <button type="button" class="btn btn-top" id="backToTop">↑ Наверх</button>
+        <a class="btn btn-rug" href="tel:+375256851757">Позвонить</a>
+      </div>
+    </div>
+
+    <div class="pdp" id="pdp" role="dialog" aria-modal="true" aria-labelledby="pdpName" aria-hidden="true">
+      <header class="pdp-bar">
+        <button type="button" class="pdp-back" id="pdpBack">← Каталог</button>
+        <div class="pdp-bar-title" id="pdpBrand"></div>
+      </header>
+      <div class="pdp-scroll" id="pdpScroll">
+        <div class="pdp-gallery">
+          <div class="pdp-track" id="pdpTrack"></div>
+          <div class="pdp-dots" id="pdpDots"></div>
+        </div>
+        <div class="pdp-body">
+          <h2 class="pdp-name" id="pdpName"></h2>
+          <div class="pdp-price" id="pdpPrice"></div>
+          <div class="pdp-meta" id="pdpMeta"></div>
+          <div class="pdp-kicker">Цвет</div>
+          <div class="colors" id="pdpColors"></div>
+          <div class="pdp-kicker">Размер</div>
+          <div class="sizes" id="pdpSizes"></div>
+          <div class="pdp-kicker" id="pdpDescKicker">Описание</div>
+          <div class="pdp-desc" id="pdpDesc"></div>
+        </div>
+      </div>
+      <div class="pdp-cta">
+        <button class="buy" type="button" id="pdpBuy">Заказать</button>
+      </div>
+    </div>
+
+    <div class="modal-bg" id="modalBg"></div>
+    <div class="modal" id="orderModal" aria-hidden="true">
+      <h3>Заказ</h3>
+      <div class="subt" id="orderProduct"></div>
+      <label>Цвет</label>
+      <select id="orderColor"></select>
+      <label>Размер</label>
+      <select id="orderSize"></select>
+      <label>ФИО</label>
+      <input id="orderName" autocomplete="name" />
+      <label>Телефон</label>
+      <input id="orderPhone" autocomplete="tel" placeholder="+375…" />
+      <label>Получение</label>
+      <select id="orderFulfillment">
+        <option value="pickup">Самовывоз · пр-т Дзержинского 19</option>
+        <option value="delivery">Доставка</option>
+      </select>
+      <label>Адрес</label>
+      <input id="orderAddress" placeholder="для доставки" />
+      <div class="actions">
+        <button class="btn btn-rug" type="button" id="orderSubmit" style="width:100%">Оформить</button>
+        <button class="btn" type="button" id="orderCancel" style="width:100%">Отмена</button>
+      </div>
+      <p class="subt" id="orderResult" style="margin-top:10px"></p>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <script>
+      const API = (function () {
+        const saved = localStorage.getItem('ws_api');
+        if (saved) return saved;
+        if (location.protocol === 'http:' || location.protocol === 'https:') {
+          return location.origin + '/api';
+        }
+        return 'http://127.0.0.1:3080/api';
+      })();
+
+      const listEl = document.getElementById('catalogList');
+      const emptyEl = document.getElementById('catalogEmpty');
+      const countEl = document.getElementById('catalogCount');
+      const brandsRow = document.getElementById('brandsRow');
+      const sizesRow = document.getElementById('sizesRow');
+      const brandsLabel = document.getElementById('brandsLabel');
+      const sizesLabel = document.getElementById('sizesLabel');
+      const qEl = document.getElementById('qFilter');
+      const modal = document.getElementById('orderModal');
+      const modalBg = document.getElementById('modalBg');
+      const toast = document.getElementById('toast');
+
+      let current = null;
+      let brand = '';
+      let size = '';
+      let sale = false;
+      let gender = '';
+      let color = '';
+      let brands = [];
+      window.__models = [];
+      function stockSizes(variant) {
+        return ((variant && variant.sizes) || []).filter((s) => Number(s.qty) > 0);
+      }
+      function slimModel(m) {
+        const colors = (m.colors || []).reduce((acc, c) => {
+          const sizes = stockSizes(c);
+          if (sizes.length) acc.push(Object.assign({}, c, { sizes: sizes }));
+          return acc;
+        }, []);
+        return Object.assign({}, m, { colors: colors });
+      }
+      function modelFromCard(card) {
+        const i = Number(card && card.getAttribute('data-i'));
+        if (!Number.isFinite(i) || i < 0) return null;
+        return (window.__models && window.__models[i]) || null;
+      }
+      const SIZE_OPTS = ['36','37','38','39','40','41','42','43','44','45','46'];
+      const SWATCH = {
+        black:'#141416', white:'#f5f2ec', grey:'#8a8680', gray:'#8a8680',
+        blue:'#3b6fd4', red:'#c41e2a', green:'#2f7d4a', yellow:'#e6c84a',
+        orange:'#e07a2f', pink:'#e89bb0', purple:'#6b4c9a', brown:'#6b4423',
+        beige:'#d4c4a8', cream:'#efe6d0', navy:'#1a2a4a', gold:'#c9a227',
+        silver:'#c0c4c8', khaki:'#9a8b5a', olive:'#5a6b3a', burgundy:'#6e1a2a',
+        teal:'#1f7a72', cyan:'#4fd4ff', ivory:'#f3ead6', gum:'#c9895a',
+        concord:'#5b4b8a', bred:'#8e121c', chicago:'#c41e2a', shadow:'#4a4a4e',
+        taxi:'#e6c84a', mocha:'#6b4423', cement:'#b8b3aa', royal:'#1e4dad',
+        burgundy:'#6e1a2a', bordo:'#6e1a2a', persik:'#e8a87c', peach:'#e8a87c',
+        milk:'#f3ead6', psg:'#1a2a4a', mummy:'#efe6d0', safari:'#9a8b5a',
+        softblue:'#7ba3d4', lightblue:'#7ba3d4'
+      };
+      function colorBase(t) {
+        return String(t || '').toLowerCase().replace(/[^a-zа-яё0-9/-]+/gi, '').replace(/\d+$/, '');
+      }
+      function swatchCss(color) {
+        const parts = String(color || '').split(/[/\s-]+/).map(colorBase).filter((p) => SWATCH[p]);
+        if (parts.length >= 2) return 'linear-gradient(135deg, ' + SWATCH[parts[0]] + ' 50%, ' + SWATCH[parts[1]] + ' 50%)';
+        if (parts.length === 1) return SWATCH[parts[0]];
+        return '#6b6b70';
+      }
+      function colorLabel(c) {
+        return (c && c.color) ? c.color : ('арт. ' + (c && c.article ? c.article : ''));
+      }
+      function colorCountLabel(n) {
+        const m10 = n % 10, m100 = n % 100;
+        if (m10 === 1 && m100 !== 11) return n + ' цвет';
+        if ([2, 3, 4].includes(m10) && ![12, 13, 14].includes(m100)) return n + ' цвета';
+        return n + ' цветов';
+      }
+
+      function isSaleQuery(value) {
+        const v = String(value || '').toLowerCase().trim();
+        return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+      }
+      function parseGenderQuery(value) {
+        const v = String(value || '').toLowerCase().trim();
+        if (v === 'men' || v === 'male' || v === 'муж' || v === 'мужское' || v === 'ему') return 'men';
+        if (v === 'women' || v === 'female' || v === 'жен' || v === 'женское' || v === 'ей') return 'women';
+        return '';
+      }
+      function parseColorQuery(value) {
+        const v = String(value || '').toLowerCase().trim().replace(/ё/g, 'е');
+        if (v === 'white' || v === 'белый' || v === 'белая' || v === 'белое' || v === 'белые' || v === 'бел') return 'white';
+        if (v === 'black' || v === 'черный' || v === 'черная' || v === 'черное' || v === 'черные' || v === 'черн' || v === 'строгие' || v === 'строгий' || v === 'dark') return 'black';
+        if (v === 'bright' || v === 'яркие' || v === 'яркий' || v === 'яркая' || v === 'яркое' || v === 'colorful' || v === 'vivid') return 'bright';
+        return '';
+      }
+      function colorTokens(token) {
+        return String(token || '').toLowerCase().replace(/ё/g, 'е')
+          .split(/[/\s,_-]+/).map((t) => t.replace(/[^a-zа-я0-9]+/gi, '')).filter(Boolean);
+      }
+      function colorMatchesFamily(token, family) {
+        const want = parseColorQuery(family) || String(family || '').toLowerCase();
+        const t = String(token || '').toLowerCase().replace(/ё/g, 'е');
+        if (!t || !want) return false;
+        if (want === 'white') return /(white|off[\s-]?white|ivory|cream|sail|bone|белый|белая|белое|белые)/.test(t);
+        if (want === 'black') return /(black|\bblk\b|черн)/.test(t);
+        if (want === 'bright') {
+          return colorTokens(token).some((part) =>
+            /^(red|pink|yellow|green|blue|orange|purple|violet|magenta|lime|volt|fuchsia|coral|gold|taxi|royal|teal|cyan|crimson|scarlet|chicago|hotpink|красн|розов|желт|зелен|син|голуб|оранж|фиолет|ярк)/.test(part)
+          );
+        }
+        return false;
+      }
+      function modelMatchesColor(model, family) {
+        const want = parseColorQuery(family);
+        if (!want) return true;
+        return (model.colors || []).some((c) => colorMatchesFamily(c.color, want));
+      }
+      function firstMatchingColorIndex(colors, family) {
+        const want = parseColorQuery(family);
+        if (!want) return -1;
+        return (colors || []).findIndex((c) => colorMatchesFamily(c.color, want));
+      }
+      function saleFromUrl() {
+        try {
+          return isSaleQuery(new URLSearchParams(location.search).get('sale'));
+        } catch (e) {
+          return false;
+        }
+      }
+      function genderFromUrl() {
+        try {
+          return parseGenderQuery(new URLSearchParams(location.search).get('gender'));
+        } catch (e) {
+          return '';
+        }
+      }
+      function colorFromUrl() {
+        try {
+          return parseColorQuery(new URLSearchParams(location.search).get('color'));
+        } catch (e) {
+          return '';
+        }
+      }
+      function syncFilterUrl() {
+        const url = new URL(location.href);
+        if (sale) url.searchParams.set('sale', '1');
+        else url.searchParams.delete('sale');
+        if (gender) url.searchParams.set('gender', gender);
+        else url.searchParams.delete('gender');
+        if (color) url.searchParams.set('color', color);
+        else url.searchParams.delete('color');
+        const next = url.pathname + url.search + url.hash;
+        if (next !== location.pathname + location.search + location.hash) {
+          history.replaceState(null, '', next);
+        }
+      }
+      function paintSaleChip() {
+        const btn = document.getElementById('saleChip');
+        if (!btn) return;
+        btn.classList.toggle('on', sale);
+        btn.setAttribute('aria-pressed', sale ? 'true' : 'false');
+      }
+      function paintGenderChips() {
+        document.querySelectorAll('#genderRow [data-gender]').forEach((btn) => {
+          btn.classList.toggle('on', btn.dataset.gender === gender);
+        });
+      }
+      function paintColorChips() {
+        document.querySelectorAll('#collectionRow [data-color]').forEach((btn) => {
+          const on = btn.dataset.color === color;
+          btn.classList.toggle('on', on);
+          btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+      }
+      function variantOnSale(variant) {
+        if (!variant) return false;
+        const old = Number(variant.old_price_byn);
+        const price = Number(variant.price_byn);
+        return Number.isFinite(old) && Number.isFinite(price) && old > price;
+      }
+      function priceHtml(variant) {
+        const price = Number(variant && variant.price_byn || 0).toFixed(0);
+        if (variantOnSale(variant)) {
+          return `<s>${Number(variant.old_price_byn).toFixed(0)}</s> ${price} BYN`;
+        }
+        return price + ' BYN';
+      }
+      function showToast(t) {
+        toast.textContent = t;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2500);
+      }
+      function esc(s) {
+        return String(s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      }
+      function selectedColor(model, idx) {
+        const colors = model.colors || [];
+        return colors[idx] || colors[0] || null;
+      }
+      function fillOrderSize(variant, picked) {
+        const sel = document.getElementById('orderSize');
+        const sizes = (variant && variant.sizes) || [];
+        sel.innerHTML = sizes.map(s =>
+          `<option value="${esc(s.size)}" ${String(s.size)===String(picked)?'selected':''}>${esc(s.size)}</option>`
+        ).join('');
+      }
+      function syncOrderHead(model, variant) {
+        if (!variant) return;
+        document.getElementById('orderProduct').textContent =
+          model.name + (variant.color ? ' · ' + variant.color : '') +
+          ' · ' + Number(variant.price_byn).toFixed(0) + ' BYN · арт. ' + variant.article;
+      }
+      function openModal(model, { colorIdx, picked } = {}) {
+        current = { model, colorIdx: colorIdx || 0 };
+        const colorSel = document.getElementById('orderColor');
+        colorSel.innerHTML = (model.colors || []).map((c, i) =>
+          `<option value="${i}" ${i===current.colorIdx?'selected':''}>${esc(colorLabel(c))}</option>`
+        ).join('');
+        const variant = selectedColor(model, current.colorIdx);
+        syncOrderHead(model, variant);
+        fillOrderSize(variant, picked || (variant && variant.sizes[0] && variant.sizes[0].size));
+        document.getElementById('orderResult').textContent = '';
+        modal.classList.add('open'); modalBg.classList.add('open');
+      }
+      document.getElementById('orderColor').addEventListener('change', () => {
+        if (!current) return;
+        current.colorIdx = Number(document.getElementById('orderColor').value) || 0;
+        const variant = selectedColor(current.model, current.colorIdx);
+        syncOrderHead(current.model, variant);
+        fillOrderSize(variant, variant && variant.sizes[0] && variant.sizes[0].size);
+      });
+      function closeModal() {
+        modal.classList.remove('open'); modalBg.classList.remove('open');
+      }
+
+      const pdpEl = document.getElementById('pdp');
+      const pdpTrack = document.getElementById('pdpTrack');
+      const pdpDots = document.getElementById('pdpDots');
+      const detailCache = new Map();
+      const pdp = {
+        open: false,
+        model: null,
+        colorIdx: 0,
+        picked: '',
+        scrollY: 0,
+        pushed: false,
+      };
+
+      function modelFromUrl() {
+        try {
+          const raw = new URLSearchParams(location.search).get('model') || '';
+          return raw ? decodeURIComponent(raw) : '';
+        } catch (e) {
+          return '';
+        }
+      }
+      function pidFromUrl() {
+        try {
+          return Number(new URLSearchParams(location.search).get('pid')) || 0;
+        } catch (e) {
+          return 0;
+        }
+      }
+      function catalogUrlWithModel(modelKey, productId) {
+        const url = new URL(location.href);
+        if (modelKey) url.searchParams.set('model', modelKey);
+        else url.searchParams.delete('model');
+        if (productId) url.searchParams.set('pid', String(productId));
+        else url.searchParams.delete('pid');
+        return url.pathname + url.search + url.hash;
+      }
+      function stripModelFromUrl() {
+        const next = catalogUrlWithModel('', 0);
+        if (next !== location.pathname + location.search + location.hash) {
+          history.replaceState(history.state && history.state.pdp ? null : history.state, '', next);
+        }
+      }
+      function mediaUrl(url) {
+        const u = String(url || '');
+        if (!u) return '';
+        if (/^https?:/i.test(u) || u.startsWith('data:')) return u;
+        const origin = API.replace(/\/api\/?$/, '');
+        return origin + (u.startsWith('/') ? u : '/' + u);
+      }
+      function pdpLetter(model) {
+        return String((model && (model.brand || model.name)) || '?').slice(0, 1).toUpperCase();
+      }
+      function variantImages(variant) {
+        return ((variant && variant.images) || []).map((img) => String(img && img.url || img || '').trim()).filter(Boolean);
+      }
+      function colorIdxForPid(model, pid) {
+        if (!pid) return -1;
+        return (model.colors || []).findIndex((c) => Number(c.productId) === Number(pid));
+      }
+      function mergeModel(detail) {
+        if (!detail || !detail.modelKey) return;
+        detailCache.set(detail.modelKey, detail);
+        const i = (window.__models || []).findIndex((m) => m.modelKey === detail.modelKey);
+        if (i >= 0) window.__models[i] = detail;
+      }
+      async function fetchModelDetail(model) {
+        const key = String(model && model.modelKey || '');
+        if (!key) return model;
+        if (detailCache.has(key)) return detailCache.get(key);
+        const data = await fetch(API + '/catalog/models/' + encodeURIComponent(key)).then((r) => r.json());
+        if (!data.ok || !data.model) throw new Error('not_found');
+        mergeModel(data.model);
+        return data.model;
+      }
+      function paintPdpGallery(model, variant) {
+        const letter = esc(pdpLetter(model));
+        const urls = variantImages(variant);
+        if (!urls.length) {
+          pdpTrack.innerHTML = `<div class="pdp-slide"><div class="pdp-letter" aria-hidden="true">${letter}</div></div>`;
+          pdpDots.innerHTML = '';
+          return;
+        }
+        pdpTrack.innerHTML = urls.map((url, i) =>
+          `<div class="pdp-slide"><img src="${esc(mediaUrl(url))}" alt="${esc(model.name)} ${i + 1}" /></div>`
+        ).join('');
+        pdpTrack.querySelectorAll('img').forEach((img) => {
+          img.addEventListener('error', () => {
+            const slide = img.closest('.pdp-slide');
+            if (slide) slide.innerHTML = `<div class="pdp-letter" aria-hidden="true">${letter}</div>`;
+          });
+        });
+        pdpDots.innerHTML = urls.map((_, i) =>
+          `<button type="button" class="pdp-dot ${i === 0 ? 'on' : ''}" data-slide="${i}" aria-label="Фото ${i + 1}"></button>`
+        ).join('');
+        pdpTrack.scrollLeft = 0;
+      }
+      function syncPdpDots() {
+        const slides = pdpTrack.querySelectorAll('.pdp-slide');
+        if (!slides.length) return;
+        const w = pdpTrack.clientWidth || 1;
+        const idx = Math.round(pdpTrack.scrollLeft / w);
+        pdpDots.querySelectorAll('.pdp-dot').forEach((dot, i) => {
+          dot.classList.toggle('on', i === idx);
+        });
+      }
+      function buildPdpDescLines(label) {
+        if (!label || typeof label !== 'object') return [];
+        const lines = [];
+        const type = String(label.type || '').trim();
+        const upper = String(label.upper || '').trim();
+        const lining = String(label.lining || '').trim();
+        const sole = String(label.sole || '').trim();
+        const season = String(label.season || '').trim();
+        const width = String(label.width || '').trim();
+        const country = String(label.country || '').trim();
+        const maker = String(label.maker || '').trim();
+        const importer = String(label.importer || '').trim();
+        const importerAddress = String(label.importer_address || '').trim();
+        const warranty = String(label.warranty || '').trim();
+        const tr = String(label.tr || '').trim();
+        const storeAddress = String(label.store_address || '').trim();
+        if (type) lines.push(type);
+        if (upper || lining || sole) {
+          if (upper) lines.push('Состав: верх ' + upper);
+          else if (lining) lines.push('Состав: внутри ' + lining);
+          else lines.push('Состав: подошва ' + sole);
+          if (upper && lining) lines.push('внутри ' + lining);
+          if ((upper || lining) && sole) lines.push('подошва ' + sole);
+        }
+        if (season) lines.push('Сезонность обуви: ' + season);
+        if (width) lines.push('Полнота: ' + width);
+        if (country) lines.push('Страна изготовитель: ' + country);
+        if (maker) lines.push('Изготовитель: ' + maker);
+        if (importer) lines.push('Импортер: ' + importer);
+        if (importerAddress) lines.push(importerAddress);
+        const legal = [warranty, tr].filter(Boolean).join(' ').trim();
+        if (legal) lines.push(legal);
+        if (lines.length) lines.push('Продукцию экспл. по назначению');
+        if (storeAddress) lines.push(storeAddress);
+        return lines;
+      }
+      function paintPdpDesc(variant) {
+        const descEl = document.getElementById('pdpDesc');
+        const kicker = document.getElementById('pdpDescKicker');
+        let lines = buildPdpDescLines(variant && variant.label);
+        if (!lines.length) {
+          const raw = String(variant && variant.description || '').trim();
+          lines = raw ? raw.split(/\n+/).map((l) => l.trim()).filter(Boolean) : [];
+        }
+        if (!lines.length) {
+          descEl.innerHTML = '';
+          descEl.hidden = true;
+          if (kicker) kicker.hidden = true;
+          return;
+        }
+        descEl.innerHTML =
+          '<div class="pdp-label-sheet" role="group" aria-label="Этикетка">' +
+          lines.map((line) => {
+            const cls =
+              /^(внутри |подошва )/i.test(line) ? 'pdp-label-line pdp-label-comp' :
+              /^Состав:/i.test(line) ? 'pdp-label-line pdp-label-comp-head' :
+              'pdp-label-line';
+            return `<div class="${cls}">${esc(line)}</div>`;
+          }).join('') +
+          '</div>';
+        descEl.hidden = false;
+        if (kicker) kicker.hidden = false;
+      }
+      function paintPdpVariant() {
+        const model = pdp.model;
+        if (!model) return;
+        const variant = selectedColor(model, pdp.colorIdx);
+        const n = (model.colors || []).length;
+        document.getElementById('pdpBrand').textContent = model.brand || 'sneakerworld';
+        document.getElementById('pdpName').textContent = model.name || '';
+        document.getElementById('pdpPrice').innerHTML = variant ? priceHtml(variant) : '';
+        document.getElementById('pdpMeta').textContent = variant
+          ? ((n > 1 ? colorCountLabel(n) + ' · ' : '') + 'арт. ' + variant.article)
+          : '';
+        document.getElementById('pdpColors').innerHTML = (model.colors || []).map((c, idx) =>
+          `<button class="color-chip ${idx === pdp.colorIdx ? 'on' : ''}" type="button" data-color-idx="${idx}" style="--swatch:${esc(swatchCss(c.color))}">
+            <span class="swatch" aria-hidden="true"></span>${esc(colorLabel(c))}
+          </button>`
+        ).join('');
+        const sizes = stockSizes(variant);
+        document.getElementById('pdpSizes').innerHTML = sizes.map((s) =>
+          `<button class="size ${String(s.size) === String(pdp.picked) ? 'on' : ''}" type="button" data-size="${esc(s.size)}">${esc(s.size)}</button>`
+        ).join('');
+        if (!sizes.some((s) => String(s.size) === String(pdp.picked))) {
+          pdp.picked = sizes[0] ? sizes[0].size : '';
+          document.getElementById('pdpSizes').querySelectorAll('.size').forEach((btn) => {
+            btn.classList.toggle('on', btn.dataset.size === String(pdp.picked));
+          });
+        }
+        paintPdpDesc(variant);
+        paintPdpGallery(model, variant);
+      }
+      function pdpIsOpen() {
+        return !!(pdpEl && pdpEl.classList.contains('open'));
+      }
+      function showPdpShell() {
+        if (!pdpEl) return;
+        pdpEl.classList.add('open');
+        pdpEl.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('pdp-open');
+        document.documentElement.classList.add('pdp-open');
+        pdp.open = true;
+      }
+      function hidePdpShell() {
+        if (!pdpEl) return;
+        pdpEl.classList.remove('open');
+        pdpEl.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('pdp-open');
+        document.documentElement.classList.remove('pdp-open');
+        pdp.open = false;
+      }
+      function restoreCatalogScroll() {
+        const y = pdp.scrollY || 0;
+        requestAnimationFrame(() => {
+          window.scrollTo(0, y);
+          syncCatalogScrollChrome();
+        });
+      }
+      function closePdp({ fromPop } = {}) {
+        if (fromPop) {
+          hidePdpShell();
+          pdp.pushed = false;
+          restoreCatalogScroll();
+          return;
+        }
+        if (pdp.pushed) {
+          history.back();
+          return;
+        }
+        hidePdpShell();
+        stripModelFromUrl();
+        restoreCatalogScroll();
+      }
+      function openPdp(model, { colorIdx, productId, push } = {}) {
+        if (!model) {
+          showToast('Не удалось открыть карточку');
+          return;
+        }
+        if (isFiltersOpen()) closeFiltersPanel();
+        const wasOpen = pdpIsOpen();
+        if (!wasOpen) pdp.scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+        let idx = Number(colorIdx);
+        if (!Number.isFinite(idx) || idx < 0) idx = 0;
+        const byPid = colorIdxForPid(model, productId);
+        if (byPid >= 0) idx = byPid;
+        pdp.model = model;
+        pdp.colorIdx = idx;
+        const variant = selectedColor(model, pdp.colorIdx);
+        pdp.picked = (variant && variant.sizes && variant.sizes[0] && variant.sizes[0].size) || '';
+        paintPdpVariant();
+        const pid = variant && variant.productId;
+        const next = catalogUrlWithModel(model.modelKey, pid);
+        const urlAlready = modelFromUrl() === String(model.modelKey || '');
+        showPdpShell();
+        if (push === false) {
+          pdp.pushed = false;
+          if (next !== location.pathname + location.search + location.hash) {
+            history.replaceState({ pdp: true, scrollY: pdp.scrollY, model: model.modelKey }, '', next);
+          }
+        } else if (!wasOpen && !urlAlready) {
+          history.pushState({ pdp: true, scrollY: pdp.scrollY, model: model.modelKey }, '', next);
+          pdp.pushed = true;
+        } else if (next !== location.pathname + location.search + location.hash) {
+          history.replaceState({ pdp: true, scrollY: pdp.scrollY, model: model.modelKey }, '', next);
+        }
+        fetchModelDetail(model).then((detail) => {
+          if (!pdpIsOpen() || detail.modelKey !== pdp.model.modelKey) return;
+          const keepPid = selectedColor(pdp.model, pdp.colorIdx) && selectedColor(pdp.model, pdp.colorIdx).productId;
+          pdp.model = detail;
+          const nextIdx = colorIdxForPid(detail, keepPid);
+          if (nextIdx >= 0) pdp.colorIdx = nextIdx;
+          paintPdpVariant();
+        }).catch(() => { /* keep list payload */ });
+      }
+      function findModelByKey(key) {
+        const want = String(key || '');
+        return (window.__models || []).find((m) => m.modelKey === want) || detailCache.get(want) || null;
+      }
+      async function openPdpByKey(key, opts) {
+        const local = findModelByKey(key);
+        if (local) {
+          openPdp(local, opts);
+          return;
+        }
+        try {
+          const detail = await fetchModelDetail({ modelKey: key });
+          openPdp(detail, opts);
+        } catch (e) {
+          showToast('Модель не найдена');
+        }
+      }
+
+      pdpTrack.addEventListener('scroll', () => { syncPdpDots(); }, { passive: true });
+      pdpDots.addEventListener('click', (e) => {
+        const dot = e.target.closest('[data-slide]');
+        if (!dot) return;
+        const slides = pdpTrack.querySelectorAll('.pdp-slide');
+        const i = Number(dot.dataset.slide) || 0;
+        if (slides[i]) pdpTrack.scrollTo({ left: slides[i].offsetLeft, behavior: preferInstantScroll() ? 'auto' : 'smooth' });
+      });
+      document.getElementById('pdpColors').addEventListener('click', (e) => {
+        const chip = e.target.closest('[data-color-idx]');
+        if (!chip || !pdp.model) return;
+        pdp.colorIdx = Number(chip.dataset.colorIdx) || 0;
+        const variant = selectedColor(pdp.model, pdp.colorIdx);
+        pdp.picked = (variant && variant.sizes && variant.sizes[0] && variant.sizes[0].size) || '';
+        paintPdpVariant();
+        const next = catalogUrlWithModel(pdp.model.modelKey, variant && variant.productId);
+        history.replaceState({ pdp: true, scrollY: pdp.scrollY, model: pdp.model.modelKey }, '', next);
+      });
+      document.getElementById('pdpSizes').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-size]');
+        if (!btn) return;
+        pdp.picked = btn.dataset.size || '';
+        document.getElementById('pdpSizes').querySelectorAll('.size').forEach((el) => {
+          el.classList.toggle('on', el === btn);
+        });
+      });
+      document.getElementById('pdpBuy').addEventListener('click', () => {
+        if (!pdp.model) return;
+        openModal(pdp.model, { colorIdx: pdp.colorIdx, picked: pdp.picked });
+      });
+      document.getElementById('pdpBack').addEventListener('click', () => closePdp());
+      document.addEventListener('keydown', (e) => {
+        if (!pdpIsOpen() || modal.classList.contains('open')) return;
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        const dots = [...pdpDots.querySelectorAll('.pdp-dot')];
+        if (dots.length < 2) return;
+        const on = dots.findIndex((d) => d.classList.contains('on'));
+        const next = e.key === 'ArrowRight' ? Math.min(dots.length - 1, on + 1) : Math.max(0, on - 1);
+        if (dots[next]) dots[next].click();
+      });
+      window.addEventListener('popstate', () => {
+        const key = modelFromUrl();
+        if (key) {
+          openPdpByKey(key, { productId: pidFromUrl(), push: false });
+          return;
+        }
+        if (pdpIsOpen() || pdp.open) closePdp({ fromPop: true });
+      });
+
+      function wireToggle(btnId, panelId) {
+        const btn = document.getElementById(btnId);
+        const panel = document.getElementById(panelId);
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const open = panel.hasAttribute('hidden');
+          if (open) {
+            panel.removeAttribute('hidden');
+            btn.setAttribute('aria-expanded', 'true');
+            btn.classList.add('on');
+          } else {
+            panel.setAttribute('hidden', '');
+            btn.setAttribute('aria-expanded', 'false');
+            btn.classList.remove('on');
+          }
+        });
+      }
+      wireToggle('toggleBrands', 'brandsPanel');
+      wireToggle('toggleSizes', 'sizesPanel');
+
+      function renderBrandOpts() {
+        const items = [{ brand: '', label: 'Все бренды' }].concat(
+          brands.map(b => ({ brand: b.brand, label: b.brand }))
+        );
+        brandsRow.innerHTML = items.map(b =>
+          `<button type="button" class="street-opt ${brand===b.brand?'on':''}" data-brand="${esc(b.brand)}" data-label="${esc(b.label)}">${esc(b.label)}</button>`
+        ).join('');
+      }
+      function renderSizeOpts() {
+        const items = [{ value: '', label: 'Все размеры' }].concat(
+          SIZE_OPTS.map(s => ({ value: s, label: 'EU ' + s }))
+        );
+        sizesRow.innerHTML = items.map(s =>
+          `<button type="button" class="street-opt ${size===s.value?'on':''}" data-size="${esc(s.value)}" data-label="${esc(s.label)}">${esc(s.value || 'Все')}</button>`
+        ).join('');
+      }
+
+      brandsRow.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-brand]');
+        if (!btn) return;
+        brand = btn.dataset.brand || '';
+        brandsLabel.textContent = btn.dataset.label || 'Все бренды';
+        renderBrandOpts();
+        loadCatalog();
+      });
+      sizesRow.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-size]');
+        if (!btn) return;
+        size = btn.dataset.size || '';
+        sizesLabel.textContent = btn.dataset.label || 'Все размеры';
+        renderSizeOpts();
+        loadCatalog();
+      });
+      document.getElementById('saleChip').addEventListener('click', () => {
+        sale = !sale;
+        paintSaleChip();
+        syncFilterUrl();
+        loadCatalog();
+      });
+      document.getElementById('collectionRow').addEventListener('click', (e) => {
+        const colorBtn = e.target.closest('[data-color]');
+        if (!colorBtn) return;
+        const next = colorBtn.dataset.color || '';
+        color = color === next ? '' : next;
+        paintColorChips();
+        syncFilterUrl();
+        loadCatalog();
+      });
+      document.getElementById('genderRow').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-gender]');
+        if (!btn) return;
+        const next = btn.dataset.gender || '';
+        gender = gender === next ? '' : next;
+        paintGenderChips();
+        syncFilterUrl();
+        loadCatalog();
+      });
+
+      async function loadBrands() {
+        const data = await fetch(API + '/brands').then(r => r.json());
+        brands = data.brands || [];
+        renderBrandOpts();
+        renderSizeOpts();
+      }
+
+      function catalogEmptyText() {
+        if (color === 'white') return 'Нет белых моделей';
+        if (color === 'bright') return 'Нет ярких моделей';
+        if (color === 'black') return 'Нет строгих моделей';
+        if (gender) return 'Нет моделей';
+        if (sale) return 'Сейчас скидок нет';
+        return 'Ничего не найдено. Сбросьте фильтр.';
+      }
+      function catalogCountPrefix() {
+        const bits = [];
+        if (gender === 'men') bits.push('Мужское');
+        if (gender === 'women') bits.push('Женское');
+        if (sale) bits.push('Скидки');
+        if (color === 'white') bits.push('Белые');
+        if (color === 'bright') bits.push('Яркие');
+        if (color === 'black') bits.push('Строгие');
+        return bits.length ? bits.join(' · ') + ': ' : 'В наличии: ';
+      }
+      async function loadCatalog() {
+        const params = new URLSearchParams({ limit: '1000' });
+        if (brand) params.set('brand', brand);
+        if (size) params.set('size', size);
+        if (qEl.value.trim()) params.set('q', qEl.value.trim());
+        if (sale) params.set('sale', '1');
+        if (gender) params.set('gender', gender);
+        if (color) params.set('color', color);
+        try {
+          const sortParam = new URLSearchParams(location.search).get('sort');
+          if (sortParam) params.set('sort', sortParam);
+        } catch (e) { /* keep API default stock sort */ }
+        const data = await fetch(API + '/catalog?' + params).then(r => r.json());
+        // Keep API order (default: stockSizeCount desc). Do not re-sort client-side.
+        let models = (data.models || []).map(slimModel).filter((m) => (m.colors || []).length);
+        if (color) models = models.filter((m) => modelMatchesColor(m, color));
+        const total = models.length;
+        countEl.textContent = catalogCountPrefix() + total + ' моделей';
+        emptyEl.textContent = catalogEmptyText();
+        emptyEl.classList.toggle('show', !models.length);
+        window.__models = models;
+        listEl.innerHTML = models.map((m, i) => {
+          const colors = m.colors || [];
+          const q = qEl.value.trim().toLowerCase();
+          let colorIdx = 0;
+          const familyHit = firstMatchingColorIndex(colors, color);
+          if (familyHit >= 0) colorIdx = familyHit;
+          if (q) {
+            const hit = colors.findIndex(c =>
+              String(c.article).toLowerCase() === q || String(c.color).toLowerCase().includes(q)
+            );
+            if (hit >= 0) colorIdx = hit;
+          }
+          if (size) {
+            const withSize = colors.findIndex(c => (c.sizes || []).some(s => String(s.size) === String(size)));
+            if (withSize >= 0) colorIdx = withSize;
+          }
+          const balls = colors.map((c, idx) =>
+            `<button class="color-ball ${idx===colorIdx?'on':''}" type="button" data-color-idx="${idx}" style="--swatch:${esc(swatchCss(c.color))}" aria-label="${esc(colorLabel(c))}"></button>`
+          ).join('');
+          const letter = esc((m.brand || m.name || '?').slice(0, 1).toUpperCase());
+          return `<article class="prod" data-i="${i}" data-color-idx="${colorIdx}" data-model="${esc(m.modelKey || '')}">
+            <div class="prod-placeholder" aria-hidden="true">${letter}</div>
+            <div class="prod-body">
+              <div class="title">${esc(m.name)}</div>
+              <div class="color-balls">${balls}</div>
+            </div>
+          </article>`;
+        }).join('');
+      }
+
+      listEl.addEventListener('click', (e) => {
+        const card = e.target.closest('.prod');
+        if (!card) return;
+        try {
+          const model = modelFromCard(card);
+          if (!model) {
+            showToast('Не удалось открыть карточку');
+            return;
+          }
+          const ball = e.target.closest('.color-ball');
+          const colorIdx = ball ? (Number(ball.dataset.colorIdx) || 0) : (Number(card.dataset.colorIdx) || 0);
+          openPdp(model, { colorIdx: colorIdx });
+        } catch (err) {
+          showToast('Не удалось открыть карточку');
+        }
+      });
+
+      document.getElementById('orderCancel').onclick = closeModal;
+      modalBg.onclick = closeModal;
+      document.getElementById('orderSubmit').onclick = async () => {
+        const variant = current && selectedColor(current.model, current.colorIdx);
+        if (!variant) {
+          document.getElementById('orderResult').textContent = 'Выберите цвет';
+          return;
+        }
+        const body = {
+          customerName: document.getElementById('orderName').value.trim(),
+          phone: document.getElementById('orderPhone').value.trim(),
+          address: document.getElementById('orderAddress').value.trim(),
+          fulfillment: document.getElementById('orderFulfillment').value,
+          items: [{ product_id: variant.productId, size: document.getElementById('orderSize').value, qty: 1 }]
+        };
+        if (!body.customerName || !body.phone) {
+          document.getElementById('orderResult').textContent = 'Укажите ФИО и телефон';
+          return;
+        }
+        if (body.fulfillment === 'delivery' && !body.address) {
+          document.getElementById('orderResult').textContent = 'Укажите адрес доставки';
+          return;
+        }
+        const r = await fetch(API + '/orders', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        const data = await r.json();
+        if (!data.ok) {
+          document.getElementById('orderResult').textContent = data.error || 'Ошибка';
+          return;
+        }
+        document.getElementById('orderResult').textContent =
+          'Номер заказа: ' + data.order.order_number + '. Менеджер свяжется с вами.';
+        showToast('Заказ ' + data.order.order_number);
+        await loadCatalog();
+        if (pdpIsOpen() && pdp.model) {
+          detailCache.delete(pdp.model.modelKey);
+          fetchModelDetail(pdp.model).then((detail) => {
+            if (!pdpIsOpen()) return;
+            pdp.model = detail;
+            paintPdpVariant();
+          }).catch(() => {});
+        }
+      };
+
+      const SCROLL_CHROME_AT = 240;
+      const backToTop = document.getElementById('backToTop');
+      const filtersFab = document.getElementById('filtersFab');
+      function preferInstantScroll() {
+        return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      }
+      function syncCatalogScrollChrome() {
+        const y = window.scrollY || document.documentElement.scrollTop || 0;
+        const on = y > SCROLL_CHROME_AT;
+        document.body.classList.toggle('catalog-scrolled', on);
+        if (backToTop) backToTop.setAttribute('aria-hidden', on ? 'false' : 'true');
+        if (filtersFab) filtersFab.setAttribute('aria-hidden', on ? 'false' : 'true');
+      }
+      window.addEventListener('scroll', syncCatalogScrollChrome, { passive: true });
+      window.addEventListener('resize', syncCatalogScrollChrome);
+      syncCatalogScrollChrome();
+      if (backToTop) {
+        backToTop.addEventListener('click', () => {
+          window.scrollTo({ top: 0, behavior: preferInstantScroll() ? 'auto' : 'smooth' });
+        });
+      }
+      function openBothFilterPanels() {
+        const brandsPanel = document.getElementById('brandsPanel');
+        const sizesPanel = document.getElementById('sizesPanel');
+        const toggleBrands = document.getElementById('toggleBrands');
+        const toggleSizes = document.getElementById('toggleSizes');
+        if (brandsPanel) brandsPanel.removeAttribute('hidden');
+        if (sizesPanel) sizesPanel.removeAttribute('hidden');
+        if (toggleBrands) {
+          toggleBrands.setAttribute('aria-expanded', 'true');
+          toggleBrands.classList.add('on');
+        }
+        if (toggleSizes) {
+          toggleSizes.setAttribute('aria-expanded', 'true');
+          toggleSizes.classList.add('on');
+        }
+      }
+      function isFiltersOpen() {
+        const side = document.getElementById('filtersSide');
+        return !!(side && side.classList.contains('open'));
+      }
+      function lockFiltersHomeHeight() {
+        const home = document.getElementById('filtersHome');
+        if (!home) return;
+        home.style.minHeight = home.getBoundingClientRect().height + 'px';
+      }
+      function unlockFiltersHomeHeight() {
+        const home = document.getElementById('filtersHome');
+        if (!home) return;
+        home.style.minHeight = '';
+      }
+      function openFiltersPanel() {
+        const home = document.getElementById('filtersHome');
+        const sideBody = document.getElementById('filtersSideBody');
+        const stack = document.getElementById('filtersStack');
+        const filters = document.getElementById('catalogFilters');
+        const side = document.getElementById('filtersSide');
+        const backdrop = document.getElementById('filtersBackdrop');
+        const y = window.scrollY || document.documentElement.scrollTop || 0;
+        lockFiltersHomeHeight();
+        if (sideBody && stack) sideBody.appendChild(stack);
+        if (sideBody && filters) sideBody.appendChild(filters);
+        openBothFilterPanels();
+        window.scrollTo(0, y);
+        if (side) {
+          side.classList.add('open');
+          side.setAttribute('aria-hidden', 'false');
+        }
+        if (backdrop) {
+          backdrop.hidden = false;
+          backdrop.classList.add('open');
+        }
+        document.documentElement.classList.add('filters-open');
+        document.body.classList.add('filters-open');
+        if (filtersFab) filtersFab.setAttribute('aria-expanded', 'true');
+        if (home) home.setAttribute('aria-hidden', 'true');
+      }
+      function closeFiltersPanel() {
+        const y = window.scrollY || document.documentElement.scrollTop || 0;
+        const home = document.getElementById('filtersHome');
+        const stack = document.getElementById('filtersStack');
+        const filters = document.getElementById('catalogFilters');
+        const side = document.getElementById('filtersSide');
+        const backdrop = document.getElementById('filtersBackdrop');
+        if (home && stack) home.appendChild(stack);
+        if (home && filters) home.appendChild(filters);
+        unlockFiltersHomeHeight();
+        window.scrollTo(0, y);
+        if (side) {
+          side.classList.remove('open');
+          side.setAttribute('aria-hidden', 'true');
+        }
+        if (backdrop) {
+          backdrop.classList.remove('open');
+          backdrop.hidden = true;
+        }
+        document.documentElement.classList.remove('filters-open');
+        document.body.classList.remove('filters-open');
+        if (filtersFab) filtersFab.setAttribute('aria-expanded', 'false');
+        if (home) home.removeAttribute('aria-hidden');
+      }
+      if (filtersFab) {
+        filtersFab.addEventListener('click', () => {
+          if (isFiltersOpen()) closeFiltersPanel();
+          else openFiltersPanel();
+        });
+      }
+      const filtersClose = document.getElementById('filtersClose');
+      const filtersBackdrop = document.getElementById('filtersBackdrop');
+      if (filtersClose) filtersClose.addEventListener('click', closeFiltersPanel);
+      if (filtersBackdrop) filtersBackdrop.addEventListener('click', closeFiltersPanel);
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (modal.classList.contains('open')) {
+          closeModal();
+          return;
+        }
+        if (pdpIsOpen()) {
+          closePdp();
+          return;
+        }
+        if (isFiltersOpen()) closeFiltersPanel();
+      });
+
+      let qTimer = null;
+      qEl.addEventListener('input', () => {
+        clearTimeout(qTimer);
+        qTimer = setTimeout(loadCatalog, 250);
+      });
+
+      (async () => {
+        sale = saleFromUrl();
+        gender = genderFromUrl();
+        color = colorFromUrl();
+        paintSaleChip();
+        paintGenderChips();
+        paintColorChips();
+        syncFilterUrl();
+        try {
+          const h = await fetch(API + '/health').then(r => r.json());
+          if (!h.ok) throw new Error('health');
+          await loadBrands();
+          await loadCatalog();
+          const deep = modelFromUrl();
+          if (deep) await openPdpByKey(deep, { productId: pidFromUrl(), push: false });
+        } catch (e) {
+          countEl.textContent = '';
+          emptyEl.textContent = 'Каталог недоступен. Попробуйте позже.';
+          emptyEl.classList.add('show');
+          showToast('Каталог недоступен');
+        }
+      })();
+    </script>
+  </body>
+</html>

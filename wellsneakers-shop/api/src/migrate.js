@@ -1,0 +1,67 @@
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { pool } from "./db.js";
+import {
+  backfillProductModelKeys,
+  backfillProductGender,
+  ensureProductModelColumns,
+  ensureProductOldPriceColumn,
+  ensureProductGenderColumn,
+} from "./services/catalog.js";
+import { ensurePromosTable, seedDefaultPromoWindow } from "./services/promo.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const migrationsDir = path.resolve(__dirname, "../../db/migrations");
+
+async function main() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      filename TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  const { rows: haveProducts } = await pool.query(
+    `SELECT to_regclass('public.products') IS NOT NULL AS ok`
+  );
+  if (haveProducts[0]?.ok) {
+    await pool.query(
+      `INSERT INTO schema_migrations (filename) VALUES ('001_init.sql') ON CONFLICT DO NOTHING`
+    );
+  }
+
+  const files = fs
+    .readdirSync(migrationsDir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort();
+  for (const file of files) {
+    const { rows } = await pool.query(`SELECT 1 FROM schema_migrations WHERE filename = $1`, [file]);
+    if (rows.length) {
+      console.log(`Skip ${file} (already applied)`);
+      continue;
+    }
+    const sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
+    process.stdout.write(`Applying ${file}... `);
+    await pool.query(sql);
+    await pool.query(`INSERT INTO schema_migrations (filename) VALUES ($1)`, [file]);
+    console.log("ok");
+  }
+
+  await ensureProductModelColumns();
+  await ensureProductOldPriceColumn();
+  await ensureProductGenderColumn();
+  const n = await backfillProductModelKeys();
+  console.log(`Backfilled brand/model_key/color (empty colors re-parsed, leftover nicknames): ${n}`);
+  const g = await backfillProductGender();
+  console.log(`Backfilled gender: ${g}`);
+  await ensurePromosTable();
+  await seedDefaultPromoWindow();
+  console.log("Promos table ready (seed 26.09–27.09.2026 if missing)");
+  await pool.end();
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
