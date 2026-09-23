@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115998";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115999";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -20156,6 +20156,16 @@
         if (offerWrap) offerWrap.style.display = "none";
         return;
       }
+      var trialPick = payload.target === "bp1" || payload.target === "bp2";
+      var listTitle = document.getElementById("pricePickListTitle");
+      if (trialPick) {
+        box.innerHTML = "";
+        if (listTitle) listTitle.style.display = "none";
+        if (editor) editor.style.display = "";
+        pricePickSyncOffer_(payload);
+        return;
+      }
+      if (listTitle) listTitle.style.display = "";
       var sig = payload.signals || {};
       var html = '<div class="muted" style="font-size:12px;margin:0 0 8px;">';
       html += escapeHtml(priceModeLabel_(payload.target)) + " · " + payload.items.length + " поз. ";
@@ -20167,14 +20177,11 @@
       if (sig.familyNotes && sig.familyNotes.length) html += "Исключили: " + escapeHtml(sig.familyNotes.join(", ")) + ". ";
       if (sig.qty === "low") html += "Мало было → чуть больше. ";
       if (sig.qty === "high") html += "С запасом → чуть меньше. ";
-      var trialPick = payload.target === "bp1" || payload.target === "bp2";
-      if (sig.budgetByn && !trialPick) html += "Бюджет ~" + sig.budgetByn + ". ";
+      if (sig.budgetByn) html += "Бюджет ~" + sig.budgetByn + ". ";
       if (sig.weightKg) html += "Вес " + sig.weightKg + " кг. ";
       if (sig.monthlyLungG) html += "Расход лёгкого ~" + sig.monthlyLungG + " г. ";
       if (sig.puppy) html += "Щенок. ";
-      html += trialPick
-        ? "Правь граммы. «Готов оффер» — текст клиенту, без цены.</div>"
-        : "Правь граммы, потом «В расчёт».</div>";
+      html += "Правь граммы, потом «В расчёт».</div>";
       var lastCat = "";
       payload.items.forEach(function (it, idx) {
         var title = pricePickSectionTitle_(it.cat);
@@ -21927,7 +21934,7 @@
         if (isFinite(fact) && fact > 0) return Math.round(fact * 100) / 100;
         return 0;
       }
-      if (statedTouched === true && isFinite(stated) && stated > 0) {
+      if (statedTouchedFlag_(statedTouched) && isFinite(stated) && stated > 0) {
         return Math.round(stated * 100) / 100;
       }
       if (isFinite(fact) && fact > 0) return Math.round(fact * 100) / 100;
@@ -22465,6 +22472,15 @@
       var hint = document.getElementById("subDetailFactHint");
       if (factEl) {
         factEl.value = (factCost == null || factCost === "") ? "" : String(factCost);
+        try {
+          var stKeep = document.getElementById("subDetailStatedPrice");
+          var stKeepN = stKeep ? Number(String(stKeep.value || "").replace(",", ".")) : NaN;
+          var factKeepN = Number(factCost);
+          if (isFinite(stKeepN) && stKeepN > 0 && isFinite(factKeepN) && factKeepN > 0 &&
+              Math.abs(stKeepN - factKeepN) > 0.001) {
+            _subDetailStatedTouched = true;
+          }
+        } catch (eKeepSt) {}
         try {
           factEl.style.transition = "none";
           factEl.style.background = "#143d24";
@@ -23105,12 +23121,20 @@
           } catch (eProf) {}
         }
 
-        var statedFromSheet = ppSheetPrice_(res) || (
-          (res.statedCost != null && res.statedCost !== "")
-            ? res.statedCost
-            : (res.factCost != null && res.factCost !== "" ? res.factCost : "")
-        );
-        setSubDetailStatedPrice_(statedFromSheet);
+        var statedNumLoad = Number(res.statedCost);
+        var calcNumLoad = Number(res.calcFactCost);
+        var touchedLoad = statedTouchedFlag_(res.statedTouched) ||
+          (isFinite(statedNumLoad) && statedNumLoad > 0 && isFinite(calcNumLoad) && calcNumLoad > 0 &&
+            Math.abs(statedNumLoad - calcNumLoad) > 0.001);
+        var statedFromSheet = (isFinite(statedNumLoad) && statedNumLoad > 0)
+          ? (Math.round(statedNumLoad * 100) / 100)
+          : (ppSheetPrice_(res) || (
+            (res.statedCost != null && res.statedCost !== "")
+              ? res.statedCost
+              : (res.factCost != null && res.factCost !== "" ? res.factCost : "")
+          ));
+        setSubDetailStatedPrice_(statedFromSheet, touchedLoad ? { keepTouched: true } : null);
+        if (touchedLoad) _subDetailStatedTouched = true;
         document.getElementById("subDetailFact").value = "";
         hideRaw26CleanPair_("subDetailCleanPair");
         var brPanel1 = document.getElementById("ppCostBreakdownPanel");
@@ -23544,8 +23568,14 @@
           var factElSave = document.getElementById("subDetailFact");
           statedSave = stEl ? String(stEl.value || "").trim() : "";
           factSave = factElSave ? String(factElSave.value || "").trim() : "";
-          if (!statedSave && factSave) {
+          if (!statedSave && factSave && !_subDetailStatedTouched) {
             statedSave = factSave;
+          }
+          var statedNumSave = Number(String(statedSave).replace(",", "."));
+          var factNumSave = Number(String(factSave).replace(",", "."));
+          if (isFinite(statedNumSave) && statedNumSave > 0 && isFinite(factNumSave) &&
+              Math.abs(statedNumSave - factNumSave) > 0.001) {
+            _subDetailStatedTouched = true;
           }
         }
         var saveBody = {

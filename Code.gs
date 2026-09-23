@@ -16383,8 +16383,13 @@ function handleSaveSubscription(json, callback, fromPost) {
   } else if ((factCost == null || factCost === "") && calcIn != null && calcIn !== "") {
     factCost = calcIn;
   }
-  // stale calcFactCost (161.18) не должен поднимать указанный/факт
+  // stale calcFactCost (161.18) не поднимает пустую указанную.
+  // Ручная указанная ниже расчёта calc не затирает.
+  var touchedEarly = json.statedTouched === true || json.statedTouched === 1 || json.statedTouched === "1";
+  var statedExplicitEarly = statedIn != null && String(statedIn).trim() !== "";
   if (
+    !statedExplicitEarly &&
+    !touchedEarly &&
     factCost != null &&
     factCost !== "" &&
     calcIn != null &&
@@ -16422,10 +16427,16 @@ function handleSaveSubscription(json, callback, fromPost) {
           retailGoodsBynFromBasket_(basket)
         );
         if (factClamp && Number(factClamp.factCost) > 0) {
-          var capFact = Number(factClamp.factCost);
-          if (factCost == null || factCost === "" || Number(factCost) > capFact + 0.001) {
-            factCost = capFact;
-          }
+          var keptClamp = keepRaw26StatedOnSave_({
+            statedCost: statedIn != null ? statedIn : "",
+            factCost: factCost,
+            calcFactCost: calcIn,
+            statedTouched: json.statedTouched
+          }, Number(factClamp.factCost));
+          factCost = keptClamp.factCost;
+          if (keptClamp.statedCost != null && keptClamp.statedCost !== "") statedIn = keptClamp.statedCost;
+          calcIn = keptClamp.calcFactCost;
+          json.statedTouched = keptClamp.statedTouched;
         }
       } catch (eClamp) {}
     }
@@ -19270,9 +19281,40 @@ function computePpFactFromCost_(costSum, basket, deliveriesN, coefIn, packCounts
 }
 
 /**
- * Цена клиенту / в оффер: RAW26 = calc fact (не завышенный stated).
- * LEGACY = указанная (договор); fact только если stated пуст.
- * statedTouched — менеджер явно поправил поле в этой сессии.
+ * Указанная как ввёл менеджер. Пустую можно заполнить capFact.
+ * Кап 92% — только calcFactCost, не ручная stated / столбец «Факт стоимость».
+ */
+function keepRaw26StatedOnSave_(params, capFact) {
+  var next = {};
+  var src = params || {};
+  var k;
+  for (k in src) {
+    if (Object.prototype.hasOwnProperty.call(src, k)) next[k] = src[k];
+  }
+  var cap = Number(capFact);
+  var touched = next.statedTouched === true || next.statedTouched === 1 || next.statedTouched === "1";
+  var statedEmpty = next.statedCost == null || String(next.statedCost).trim() === "";
+  var factEmpty = next.factCost == null || String(next.factCost).trim() === "";
+  if (isFinite(cap) && cap > 0) next.calcFactCost = cap;
+  if (statedEmpty && !touched && isFinite(cap) && cap > 0) next.statedCost = cap;
+  if (!statedEmpty || touched) {
+    if (!statedEmpty) next.factCost = next.statedCost;
+    else if (factEmpty && isFinite(cap) && cap > 0) next.factCost = cap;
+  } else if (
+    isFinite(cap) && cap > 0 &&
+    (factEmpty || (isFinite(Number(next.factCost)) && Number(next.factCost) > cap + 0.001))
+  ) {
+    next.factCost = cap;
+  }
+  var kept = Number(String(next.statedCost == null ? "" : next.statedCost).replace(",", "."));
+  var differs = isFinite(kept) && isFinite(cap) && cap > 0 && Math.abs(kept - cap) > 0.001;
+  next.statedTouched = (touched || differs) ? "1" : "0";
+  return next;
+}
+
+/**
+ * Цена клиенту / в оффер: RAW26 без statedTouched = calc fact.
+ * statedTouched 1/"1"/true — указанная как ввёл. LEGACY = указанная.
  */
 function ppOfferClientPrice_(scheme, factCost, statedCost, statedTouched) {
   var fact = Number(factCost);
@@ -19283,7 +19325,7 @@ function ppOfferClientPrice_(scheme, factCost, statedCost, statedTouched) {
     if (isFinite(fact) && fact > 0) return Math.round(fact * 100) / 100;
     return 0;
   }
-  if (statedTouched === true && isFinite(stated) && stated > 0) {
+  if (statedTouchedFlag_(statedTouched) && isFinite(stated) && stated > 0) {
     return Math.round(stated * 100) / 100;
   }
   if (isFinite(fact) && fact > 0) return Math.round(fact * 100) / 100;
@@ -29663,8 +29705,8 @@ function handleEnrollDeferredToPp_(json, callback, fromPost) {
         totalEn, basket, deliveriesN, enrollCoef, json.packCounts || null, "RAW26", linesEn, null
       );
       if (factEn && factEn.factCost != null) {
-        if (!keepStatedEnroll || factCost == null || factCost === "" ||
-            Number(factCost) > Number(factEn.factCost) + 0.001) {
+        if (!keepStatedEnroll && (factCost == null || factCost === "" ||
+            Number(factCost) > Number(factEn.factCost) + 0.001)) {
           factCost = factEn.factCost;
         }
       }
