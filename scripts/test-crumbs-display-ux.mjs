@@ -87,6 +87,7 @@ assert(ctx.crumbBasketDisplayMain_(one) === "ЛЁГКОЕ", "basket main = SKU, 
 assert(ctx.crumbBasketSubLabel_(one) === "мясные", "basket sub = kind chip");
 assert(ctx.crumbClientMessageLine_(one) === "крошка лёгкого - 100 г", "client one source, got " + ctx.crumbClientMessageLine_(one));
 assert(ctx.formatPriceCompositionLine(one) === "крошка лёгкого - 100 г", "offer line one source");
+assert(!/[А-ЯЁ]/.test(ctx.crumbClientMessageLine_(one)), "one source is lowercase only");
 
 const mix = {
   cat: "crumb",
@@ -110,6 +111,12 @@ assert(ctx.crumbClientMessageLine_(fromSub) === "крошка микс - 80 г",
 assert(ctx.crumbOfferGenitive_("ПОЧКИ") === "почек", "genitive почки");
 assert(ctx.crumbOfferGenitive_("РУБЕЦ Т") === "рубца", "genitive рубец");
 assert(ctx.crumbOfferGenitive_("ЯБЛОКИ") === "яблоки", "veg lowercase");
+["ЛЁГКОЕ", "Лёгкое", "легкое"].forEach(function (nm) {
+  var line = ctx.crumbClientMessageLine_({ cat: "crumb", val: 10, sources: [{ name: nm }] });
+  assert(line === "крошка лёгкого - 10 г", "lowercase genitive for " + nm + ", got " + line);
+  assert(!/[А-ЯЁ]/.test(line), "caps leaked for " + nm);
+});
+assert(ctx.crumbClientMessageLine_({ cat: "crumb", val: 10, sources: [{ name: "СЕРДЦЕ" }] }) === "крошка сердца - 10 г", "сердце lowercase");
 assert(ctx.crumbClientMessageLine_({ cat: "crumb", val: 10 }) === "крошка - 10 г", "no sources");
 
 const regular = { cat: "dressura", main: "ЛЁГКОЕ", name: "ЛЁГКОЕ", sub: "Среднее", val: 100 };

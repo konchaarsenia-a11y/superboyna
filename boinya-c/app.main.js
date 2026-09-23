@@ -3003,13 +3003,17 @@
       return String(plain).replace(/^крошка\s+/i, "").trim().toLowerCase();
     }
 
-    /** Сообщение клиенту: «крошка лёгкого - 10 г» / «крошка микс - 10 г». */
+    /** Сообщение клиенту: «крошка лёгкого - 10 г» / «крошка микс - 10 г». Источник только строчными. */
     function crumbClientMessageLine_(item) {
       var names = crumbSourceNames_(item).filter(function (n) { return String(n || "").trim(); });
       var val = Number(item && (item.val != null ? item.val : item.value)) || 0;
       var qty = val + " г";
       if (names.length >= 2) return "крошка микс - " + qty;
-      if (names.length === 1) return "крошка " + crumbOfferGenitive_(names[0]) + " - " + qty;
+      if (names.length === 1) {
+        var g = String(crumbOfferGenitive_(names[0]) || names[0] || "")
+          .replace(/^крошка\s+/i, "").trim().toLowerCase();
+        return "крошка " + g + " - " + qty;
+      }
       return "крошка - " + qty;
     }
 
