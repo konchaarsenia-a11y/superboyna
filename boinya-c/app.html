@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="max-age=300">
   <title>Бойня C</title>
-  <link rel="preload" href="app.main.js?v=71115996" as="script">
+  <link rel="preload" href="app.main.js?v=71115997" as="script">
   <script>
     /* Единая версия UI + cache-bust для Telegram WebView. Менять ТОЛЬКО здесь и в index.html. */
     (function () {
-      var APP_VER = "v71115996";
+      var APP_VER = "v71115997";
       window.__BOINYA_APP_VERSION__ = APP_VER;
       var want = APP_VER.replace(/\D/g, "");
       try {
@@ -2491,14 +2491,12 @@
       </div>
       <div class="card">
         <div class="form-group">
-          <label>Режим оффера</label>
+          <label>Режим</label>
           <div class="seg-row" style="flex-wrap:wrap;gap:6px;">
-            <button type="button" class="seg-btn" id="priceModeBp1" onclick="setPriceMode('bp1')">БП1</button>
-            <button type="button" class="seg-btn" id="priceModeBp2" onclick="setPriceMode('bp2')">БП2</button>
-            <button type="button" class="seg-btn active" id="priceModePp" onclick="setPriceMode('pp')">Итоговый</button>
+            <button type="button" class="seg-btn active" id="priceModePp" onclick="setPriceMode('pp')">Итоговый (ПП)</button>
             <button type="button" class="seg-btn" id="priceModeRet" onclick="setPriceMode('retail')">Розница</button>
           </div>
-          <div class="muted" style="font-size:12px;margin-top:6px;">Четыре слота состава. Подбор — вкладка сверху.</div>
+          <div class="muted" style="font-size:12px;margin-top:6px;">Два слота состава: итоговый и розница. Подбор — вкладка сверху.</div>
         </div>
         <div class="form-group">
           <label>Собаки</label>
@@ -2930,7 +2928,7 @@
     <div class="modal-sheet" id="modalSheet"></div>
   </div>
   <div class="toast" id="appToast"></div>
-  <script src="courier-maps.js?v=71115996"></script>
-  <script src="app.main.js?v=71115996" defer></script>
+  <script src="courier-maps.js?v=71115997"></script>
+  <script src="app.main.js?v=71115997" defer></script>
 </body>
 </html>
