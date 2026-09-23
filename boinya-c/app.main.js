@@ -3,7 +3,7 @@
 
     const GOOGLE_WEBHOOK_URL = (window.__BOINYA_C_PROXY__ || window.__BOINYA_FAST_PROXY__ || GOOGLE_WEBHOOK_ORIGIN);
     const DEFAULT_CITY = "Минск";
-    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115996";
+    const APP_VERSION = window.__BOINYA_APP_VERSION__ || "v71115997";
     try {
       var _hdrBoot = document.getElementById("appHeaderTitle");
       if (_hdrBoot) _hdrBoot.innerText = "Бойня C " + APP_VERSION;
@@ -535,7 +535,7 @@
       subsScreen: "Подписки\n• Пароль; Отмена → Заказ.\n• Карточка: мета + состав (ручной ввод) → Сохранить.\n• ПП: «Сообщение клиенту» — копировать текст и открыть Instagram.\n• ПП↔АФК / удалить.",
       subDetailScreen: "Карточка подписки\n• Правишь поля и состав → Сохранить.\n• ПП/АФК: «Сообщение клиенту» — текст как в Расчёте, копируй в Direct.",
       statsScreen: "Статистика\n• Месяц, воронка БП, CAC, аудит, экспорт.",
-      priceScreen: "Расчёт\n• Сверху вкладки «Расчёт» и «Подбор».\n• Расчёт: БП1 / БП2 / итоговый / розница — отдельные составы.\n• Подбор: тип → анкета → один состав, правь строки → «В расчёт».\n• Чеклист: 1–2 собаки; неясная фракция — спросит.",
+      priceScreen: "Расчёт\n• Сверху вкладки «Расчёт» и «Подбор».\n• Расчёт: итоговый (ПП) и розница — отдельные составы.\n• Подбор: тип → анкета → один состав, правь строки → «В расчёт».\n• Чеклист: 1–2 собаки; неясная фракция — спросит.",
       deferredScreen: "Задачи (☰)\n• Незакрытые дела справа.\n• Сейчас: отложенные расчёты ПП.",
       templatesScreen: "Шаблоны\n• Тексты — сообщения, опросники и вход в «Карточка лакомств».\n• Подбор ИИ → вкладка «Подбор» на экране Расчёт.",
       retailPriceScreen: "Прайс розницы\n• Только владелец.\n• Меняет цены новых расчётов/заказов.\n• Уже сохранённые orderPrice не трогает.",
@@ -23980,11 +23980,47 @@
       updatePriceDogUi();
     }
 
-    function setPriceMode(mode) {
-      mode = priceModeKey(mode);
-      if (mode === priceMode) {
+    function priceScreenMode_(mode) {
+      var k = priceModeKey(mode);
+      if (k === "bp1" || k === "bp2") return "pp";
+      return k;
+    }
 
-      } else {
+    function copyPriceModeStore_(fromKey, toKey) {
+      if (!priceByMode[fromKey]) priceByMode[fromKey] = makeEmptyPriceModeStore();
+      var src = priceByMode[fromKey];
+      var dst = makeEmptyPriceModeStore();
+      dst.baskets = {
+        1: (src.baskets && src.baskets[1]) ? src.baskets[1].slice() : [],
+        2: (src.baskets && src.baskets[2]) ? src.baskets[2].slice() : []
+      };
+      dst.dogCount = src.dogCount === 2 ? 2 : 1;
+      dst.activeDog = (dst.dogCount >= 2 && src.activeDog === 2) ? 2 : 1;
+      dst.dogNames = {
+        1: String((src.dogNames && src.dogNames[1]) || ""),
+        2: String((src.dogNames && src.dogNames[2]) || "")
+      };
+      dst.lastMessage = src.lastMessage || "";
+      dst.apiCache = src.apiCache || null;
+      dst.packsManual = !!src.packsManual;
+      dst.packCounts = {
+        small: (src.packCounts && src.packCounts.small) || 0,
+        medium: (src.packCounts && src.packCounts.medium) || 0,
+        large: (src.packCounts && src.packCounts.large) || 0,
+        legs: (src.packCounts && src.packCounts.legs) || 0
+      };
+      dst.note = src.note || "";
+      priceByMode[toKey] = dst;
+    }
+
+    function setPriceMode(mode) {
+      var requested = priceModeKey(mode);
+      if ((requested === "bp1" || requested === "bp2") && priceMode === requested) {
+        stashPriceModeState(requested);
+        copyPriceModeStore_(requested, "pp");
+      }
+      mode = priceScreenMode_(requested);
+      if (mode !== priceMode) {
         stashPriceModeState(priceMode);
         priceMode = mode;
         loadPriceModeState(mode);
@@ -23995,8 +24031,14 @@
       var bp = document.getElementById("priceModeBp");
       var ret = document.getElementById("priceModeRet");
       var extras = document.getElementById("pricePpExtras");
-      if (bp1) bp1.classList.toggle("active", mode === "bp1");
-      if (bp2) bp2.classList.toggle("active", mode === "bp2");
+      if (bp1) {
+        bp1.style.display = "none";
+        bp1.classList.remove("active");
+      }
+      if (bp2) {
+        bp2.style.display = "none";
+        bp2.classList.remove("active");
+      }
       if (pp) pp.classList.toggle("active", mode === "pp" || mode === "subscription");
       if (bp) bp.style.display = "none";
       if (ret) ret.classList.toggle("active", mode === "retail");
